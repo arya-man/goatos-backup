@@ -123,11 +123,11 @@ func (s *PenRoutineKernelStage) logResult(ctx context.Context, r penroutineports
 		return
 	}
 	if len(r.RoutinesWithoutAssignee) > 0 {
-		// Loud, and no fallback: a routine nobody is assigned to raises nothing until someone
-		// is ticked for it on /routines.
+		// Loud, and no fallback: a routine whose roles NOBODY holds in its park raises nothing
+		// until someone is granted one of those roles there (or the routine names another).
 		names := make([]string, 0, len(r.RoutinesWithoutAssignee))
 		for _, ref := range r.RoutinesWithoutAssignee {
-			names = append(names, ref.Name+" ("+ref.RoutineID+")")
+			names = append(names, ref.Name+" ("+ref.RoutineID+") roles="+strings.Join(ref.Roles, ","))
 		}
 		s.logger.WarnContext(ctx, "pen_routine_without_assignee",
 			"tenant_id", s.tenantID, "business_date", r.BusinessDate,

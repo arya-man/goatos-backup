@@ -31,13 +31,14 @@ import (
 // TestKernelStory_PenRoutineDailyCheck is the production-path proof of the maintainer's
 // 2026-09-16 instruction (docs/decisions/pen-routines.md): a routine is a rule the CEO writes
 // once per park -- "every day, for every occupied pen, was the pen cleaned? one photo, check in
-// first" -- and the kernel turns it into one task per pen per day, worked by any of the routine's
-// people, reviewed by the verifier, rolled forward as delayed when nobody does it, and raised
-// the day after care work when the routine says so.
+// first" -- and the kernel turns it into one task per pen per day, worked by anyone holding one of
+// the routine's ROLES for the park (2026-09-17 revision), reviewed by the verifier, rolled forward
+// as delayed when nobody does it, and raised the day after care work when the routine says so.
+// The last act is the revision's general task: ONE whole-park check every 3 days, for the CXO.
 //
 // Every state transition below is produced by the same code production runs:
 //
-//	THE RULE          penroutines app.AuthoringService (the CEO's write, eligibility refused there)
+//	THE RULE          penroutines app.AuthoringService (the CEO's write; a routine for no role refused there)
 //	THE TASKS         penroutines postgres.Materialize (the kernel stage's write, the stage's date math)
 //	THE PUSH          notificationbridge.PenRoutineDueNotifier over the real roster + calendar queue
 //	THE WORK          penroutines app.Service: RecordPresence, Submit (proofs through proof app.Service)
@@ -54,12 +55,14 @@ func TestKernelStory_PenRoutineDailyCheck(t *testing.T) {
 		"A daily pen routine: authored once, raised per occupied pen, checked in, answered, photographed, verified, rolled forward",
 		"The CEO writes one rule for Coimbatore: every day, every occupied pen, the park head answers "+
 			"'Was the pen cleaned?', counts the sick animals, takes one photo, and must check in to the pen "+
-			"first. The kernel raises one card per occupied pen (an empty pen is skipped), tells the two "+
-			"assignees once the routine's notify time has passed, refuses a submit before the check-in, and "+
+			"first -- the routine is for the Park Head and the Preventive Care Director roles. The kernel raises "+
+			"one card per occupied pen (an empty pen is skipped), tells the two role holders once the routine's "+
+			"notify time has passed, refuses a submit before the check-in, and "+
 			"hands the photo and the answers to the verifier as ONE item. A rejected check is sent back and "+
 			"redone; an approved one completes. A pen nobody worked rolls forward as delayed with the date it "+
 			"was owed and shows overdue on the Work Board. A routine with no review completes on the spot, and "+
-			"an after-work routine raises the day after deworming.")
+			"an after-work routine raises the day after deworming. Finally a whole-park check every 3 days is "+
+			"assigned to the CXO role: ONE shed-less task, worked and verified by the CXO.")
 	defer story.Finish()
 	story.Certify("backend kernel + verification + pen routines + notifications + work board")
 
@@ -83,7 +86,8 @@ func TestKernelStory_PenRoutineDailyCheck(t *testing.T) {
 		"Pens are the partition catalog (shed_partitions), the same source the herd-register pickers use: "+
 			"'Godel 1' holds one catalogued pen 'Part 3', 'Yashoda' and 'Nehru' are undivided. Live goats sit in "+
 			"the first two; Nehru is empty. The park head holds a park_head grant on the park, the second "+
-			"assignee a director grant, the stranger no grant at all -- eligibility is decided from those rows.")
+			"person a tenant-wide pc_director grant, the CEO a tenant-wide ceo_internal grant, the stranger an "+
+			"operator grant -- who owes a routine is resolved from those grants, per park, on every read.")
 	for _, s := range []struct {
 		id, code, name string
 		order          int
@@ -116,7 +120,13 @@ func TestKernelStory_PenRoutineDailyCheck(t *testing.T) {
 	fx.exec("second assignee grant",
 		`INSERT INTO user_scope_grants (tenant_id, user_id, role, scope_type, scope_id, status, valid_from)
 		 VALUES ($1, $2, 'pc_director', 'tenant', $1, 'active', now() - interval '1 day')`, fxTenant, secondID)
-	for _, id := range []string{parkHeadID, secondID} {
+	fx.exec("stranger grant",
+		`INSERT INTO user_scope_grants (tenant_id, user_id, role, scope_type, scope_id, status, valid_from)
+		 VALUES ($1, $2, 'operator', 'park', $3, 'active', now() - interval '1 day')`, fxTenant, strangerID, fxPark)
+	fx.exec("CEO grant",
+		`INSERT INTO user_scope_grants (tenant_id, user_id, role, scope_type, scope_id, status, valid_from)
+		 VALUES ($1, $2, 'ceo_internal', 'tenant', $1, 'active', now() - interval '1 day')`, fxTenant, ceoID)
+	for _, id := range []string{parkHeadID, secondID, ceoID} {
 		fx.exec("device "+id,
 			`INSERT INTO workforce_member_devices (device_id, tenant_id, workforce_member_id, platform, app_install_id, fcm_token, app_version, os_version, status, last_seen_at, registered_by)
 			 VALUES (gen_random_uuid(), $1, $2::uuid, 'android', 'pr-install-' || $3::text, 'pr-token-' || $3::text, '1.0.0', '14', 'active', now(), $2::uuid)`, fxTenant, id, id)
@@ -238,11 +248,12 @@ func TestKernelStory_PenRoutineDailyCheck(t *testing.T) {
 	board := penroutinesboard.New(fx.Pool, 10*time.Second)
 
 	// ---------------------------------------------------------------------------
-	story.Step("The CEO authors ONE daily routine for the park; a stranger cannot be assigned",
+	story.Step("The CEO authors ONE daily routine for the park, for two ROLES; a routine for no role, or for a role outside the vocabulary, is refused",
 		"The rule is the whole configuration the maintainer asked for: scope all pens, occupied only, "+
 			"reviewed by the verifier, a yes/no and a number question, one to two photos, up to one video, "+
-			"presence required, two assignees. It is written as version 1. An assignee who holds no Routines "+
-			"access for the park is refused with the person named -- there is never a fallback person.")
+			"presence required, for the Park Head and Preventive Care Director roles. It is written as version 1 "+
+			"and its preview names who holds those roles for the park today. A routine for nobody is refused "+
+			"(no_roles), and so is a role that is not assignable -- there is never a fallback person.")
 	zero, five := 0.0, 500.0
 	evidence := penroutinesdomain.Evidence{
 		Questions: []penroutinesdomain.Question{
@@ -257,14 +268,18 @@ func TestKernelStory_PenRoutineDailyCheck(t *testing.T) {
 		ParkID: fxPark, Name: "Pen cleaning", Instruction: "Sweep the pen and check the water trough.",
 		ScopeKind: penroutinesdomain.ScopeAllPens, OccupiedOnly: true, CadenceKind: penroutinesdomain.CadenceDaily,
 		NotifyTime: "07:00", ReviewKind: penroutinesdomain.ReviewVerifier, Evidence: evidence,
-		AssigneeIDs: []string{parkHeadID, secondID},
+		AssigneeRoles: []string{penroutinesdomain.RoleParkHead, penroutinesdomain.RolePCDirector},
 	}
-	withStranger := definition
-	withStranger.AssigneeIDs = []string{parkHeadID, strangerID}
-	_, err := authoring.Create(ctx, write("create-stranger"), withStranger)
-	story.Assert("an assignee with no Routines access for the park is refused", errors.Is(err, penroutinesports.ErrAssigneeNotEligible), "err=%v", err)
+	forNobody := definition
+	forNobody.AssigneeRoles = nil
+	_, err := authoring.Create(ctx, write("create-nobody"), forNobody)
+	story.Assert("a routine for no role is refused with no_roles", errors.Is(err, penroutinesdomain.ErrNoRoles) && penroutinesapp.HTTPError(err).Code == "no_roles", "err=%v", err)
+	forOperator := definition
+	forOperator.AssigneeRoles = []string{"operator"}
+	_, err = authoring.Create(ctx, write("create-operator"), forOperator)
+	story.Assert("a role outside the vocabulary is refused", errors.Is(err, penroutinesdomain.ErrInvalidRoutine) && penroutinesapp.HTTPError(err).Code == "invalid_routine", "err=%v", err)
 	daily, err := authoring.Create(ctx, write("create-daily"), definition)
-	story.Assert("the daily routine is written as version 1 with both people", err == nil && daily.CurrentVersion == 1 && daily.Status == penroutinesdomain.StatusActive && len(daily.Assignees) == 2 && daily.ParkName != "", "err=%v routine=%+v", err, daily)
+	story.Assert("the daily routine is written as version 1, starting today, previewing both role holders", err == nil && daily.CurrentVersion == 1 && daily.Status == penroutinesdomain.StatusActive && len(daily.People) == 2 && daily.ParkName != "" && daily.StartDate == today, "err=%v routine=%+v", err, daily)
 	if err != nil {
 		return
 	}
@@ -299,13 +314,14 @@ func TestKernelStory_PenRoutineDailyCheck(t *testing.T) {
 	}
 
 	// ---------------------------------------------------------------------------
-	story.Step("The second assignee sees both, the stranger sees none; the morning push goes out once the notify time has passed",
-		"The list is 'the routines I am assigned to'. The due-push notifier is the kernel stage's second "+
+	story.Step("The PC director sees both, the stranger and the CEO see none; the morning push goes out once the notify time has passed",
+		"The list is 'the routines whose roles I hold for this park'. The due-push notifier is the kernel stage's second "+
 			"act: ONE digest per routine naming the pens still owed, to every assignee's devices, keyed on the "+
 			"business date so a later tick queues nothing again. Before 07:00 IST it stays silent.")
 	secondList, err := routines.ListMine(ctx, fxTenant, secondID, "todo", 20, "")
 	strangerList, err2 := routines.ListMine(ctx, fxTenant, strangerID, "todo", 20, "")
-	story.Assert("the second assignee lists both tasks; the stranger lists nothing", err == nil && err2 == nil && len(secondList.Rows) == 2 && len(strangerList.Rows) == 0, "err=%v/%v rows=%d/%d", err, err2, len(secondList.Rows), len(strangerList.Rows))
+	ceoList, err3 := routines.ListMine(ctx, fxTenant, ceoID, "todo", 20, "")
+	story.Assert("the PC director lists both tasks; the operator and the CEO (roles not on this routine) list nothing", err == nil && err2 == nil && err3 == nil && len(secondList.Rows) == 2 && len(strangerList.Rows) == 0 && len(ceoList.Rows) == 0, "err=%v/%v/%v rows=%d/%d/%d", err, err2, err3, len(secondList.Rows), len(strangerList.Rows), len(ceoList.Rows))
 	digests, err := repo.DueDigests(ctx, fxTenant, today)
 	story.Assert("the kernel reads ONE digest for the routine carrying both pens and both assignees", err == nil && len(digests) == 1 && len(digests[0].Tasks) == 2 && len(digests[0].AssigneeIDs) == 2 && digests[0].NotifyTime == "07:00", "err=%v digests=%+v", err, digests)
 	pushCount := func() (rows, recipients, events int) {
@@ -417,7 +433,7 @@ func TestKernelStory_PenRoutineDailyCheck(t *testing.T) {
 			Questions: []penroutinesdomain.Question{{ID: "full", Kind: penroutinesdomain.QuestionYesNo, Title: "Is the trough full?", Required: true}},
 			Presence:  penroutinesdomain.PresenceOff,
 		},
-		AssigneeIDs: []string{parkHeadID},
+		AssigneeRoles: []string{penroutinesdomain.RoleParkHead},
 	})
 	story.Assert("the no-review routine is written", err == nil && quick.ReviewKind == penroutinesdomain.ReviewNone, "err=%v", err)
 	if err != nil {
@@ -451,7 +467,7 @@ func TestKernelStory_PenRoutineDailyCheck(t *testing.T) {
 			Questions: []penroutinesdomain.Question{{ID: "off_feed", Kind: penroutinesdomain.QuestionNumber, Title: "Animals off feed", Min: &zero, Max: &five}},
 			Presence:  penroutinesdomain.PresenceOff,
 		},
-		AssigneeIDs: []string{parkHeadID},
+		AssigneeRoles: []string{penroutinesdomain.RoleParkHead},
 	})
 	story.Assert("the after-work routine is written for deworming with a one-day offset", err == nil && afterWork.CadenceKind == penroutinesdomain.CadenceAfterWork && afterWork.DueOffsetDays == 1, "err=%v", err)
 	if err != nil {
@@ -478,6 +494,103 @@ func TestKernelStory_PenRoutineDailyCheck(t *testing.T) {
 	story.Assert("its reason line reads 'After deworming yesterday'", penroutinesdomain.ReasonLine(awTask, tomorrow) == "After deworming yesterday", "reason=%q", penroutinesdomain.ReasonLine(awTask, tomorrow))
 	awReplay, err := repo.Materialize(ctx, fxTenant, today, tomorrow, tomorrowInstant)
 	story.Assert("a replay of tomorrow's tick raises nothing new", err == nil && awReplay.Created == 0, "err=%v result=%+v", err, awReplay)
+
+	// ---------------------------------------------------------------------------
+	story.Step("A GENERAL task: the medicine store, whole park, every 3 days from three days ago, for the CXO role -- ONE shed-less task, worked and verified by the CXO",
+		"scope 'park' raises ONE task per occurrence with no shed and no pen (shed_key 'park' in the natural "+
+			"key); every_n_days raises on start_date, start + 3, start + 6, ... and never before the start. The "+
+			"CXO holds pen_routines.execute (2026-09-17 revision), sees the card titled '<routine> · <park>', "+
+			"checks in ('Check in to start', not 'to the pen'), submits one photo, and the verifier item reads "+
+			"'Whole park' where a pen would be. A park head, not holding the CXO role, never sees it.")
+	threeDaysAgo := todayStart.AddDate(0, 0, -3).Format("2006-01-02")
+	store, err := authoring.Create(ctx, write("create-store"), penroutinesdomain.Definition{
+		ParkID: fxPark, Name: "Medicine store", Instruction: "Count the vials and check the fridge.",
+		ScopeKind: penroutinesdomain.ScopePark, CadenceKind: penroutinesdomain.CadenceEveryNDays, IntervalDays: 3, StartDate: threeDaysAgo,
+		NotifyTime: "07:00", ReviewKind: penroutinesdomain.ReviewVerifier,
+		Evidence: penroutinesdomain.Evidence{
+			Questions: []penroutinesdomain.Question{{ID: "fridge_ok", Kind: penroutinesdomain.QuestionYesNo, Title: "Is the fridge cold?", Required: true}},
+			Photo:     penroutinesdomain.ProofRule{Min: 1, Max: 1},
+			Presence:  penroutinesdomain.PresenceRequired,
+		},
+		AssigneeRoles: []string{penroutinesdomain.RoleCXO},
+	})
+	story.Assert("the whole-park routine is written, previewing the CEO as its one role holder", err == nil && store.ScopeKind == penroutinesdomain.ScopePark && store.IntervalDays == 3 && len(store.People) == 1 && store.People[0].UserID == ceoID, "err=%v routine=%+v", err, store)
+	if err != nil {
+		return
+	}
+	withPens := store
+	withPens.RoutineID, withPens.Name = "", "Medicine store with pens"
+	withPens.Pens = []penroutinesdomain.PenRef{{ShedID: shedYashID}}
+	_, err = authoring.Create(ctx, write("create-store-pens"), withPens)
+	story.Assert("a whole-park routine naming pens is refused", errors.Is(err, penroutinesdomain.ErrInvalidRoutine), "err=%v", err)
+	storeResult, err := repo.Materialize(ctx, fxTenant, today, today, now)
+	story.Assert("today's tick (start + 3) raises exactly ONE task for it", err == nil && storeResult.Created == 1, "err=%v result=%+v", err, storeResult)
+	shedless := fx.countRows(`SELECT count(*) FROM pen_routine_tasks WHERE tenant_id=$1 AND routine_id=$2::uuid AND shed_id IS NULL AND partition_label IS NULL`, fxTenant, store.RoutineID)
+	story.Assert("the task carries no shed and no pen", shedless == 1, "rows=%d", shedless)
+	storeReplay, err := repo.Materialize(ctx, fxTenant, today, today, now)
+	story.Assert("a replay inserts nothing", err == nil && storeReplay.Created == 0, "err=%v result=%+v", err, storeReplay)
+	_, err = repo.Materialize(ctx, fxTenant, tomorrow, tomorrow, tomorrowInstant)
+	storeRows := fx.countRows(`SELECT count(*) FROM pen_routine_tasks WHERE tenant_id=$1 AND routine_id=$2::uuid`, fxTenant, store.RoutineID)
+	story.Assert("tomorrow (start + 4) raises nothing for it", err == nil && storeRows == 1, "err=%v rows=%d", err, storeRows)
+	cxo := penroutinesdomain.Actor{UserID: ceoID}
+	cxoList, err := routines.ListMine(ctx, fxTenant, ceoID, "todo", 20, "")
+	story.Assert("the CXO lists exactly that one task", err == nil && len(cxoList.Rows) == 1 && cxoList.Rows[0].RoutineID == store.RoutineID, "err=%v rows=%+v", err, cxoList.Rows)
+	if err != nil || len(cxoList.Rows) != 1 {
+		return
+	}
+	storeTask := cxoList.Rows[0]
+	storeStep := penroutinesdomain.StepFor(storeTask, cxo, today)
+	story.Assert("the card is titled '<routine> · <park>', names no pen, reads 'Every 3 days' and asks to 'Check in to start'",
+		storeStep.Title == "Medicine store · "+storeTask.ParkName && storeTask.ParkName != "" && storeStep.ScopeKind == penroutinesdomain.ScopePark && storeStep.ShedID == "" && storeStep.PenLabel == "" && storeStep.ReasonLine == "Every 3 days" && storeStep.PresenceLine == "Check in to start" && storeStep.CanCheckIn && storeStep.CanSubmit,
+		"step=%+v", storeStep)
+	headAll, err := routines.ListMine(ctx, fxTenant, parkHeadID, "todo", 50, "")
+	headSeesStore := false
+	for _, row := range headAll.Rows {
+		if row.RoutineID == store.RoutineID {
+			headSeesStore = true
+		}
+	}
+	story.Assert("the park head does not see the CXO's task", err == nil && !headSeesStore, "err=%v", err)
+	storeDigests, err := repo.DueDigests(ctx, fxTenant, today)
+	var storeDigest penroutinesports.DueDigest
+	for _, d := range storeDigests {
+		if d.RoutineID == store.RoutineID {
+			storeDigest = d
+		}
+	}
+	storeTitle, storeBody := notificationbridge.PenRoutineDueCopy(storeDigest)
+	story.Assert("the day's push goes to the CXO and names the park, not a pen count", err == nil && len(storeDigest.AssigneeIDs) == 1 && storeDigest.AssigneeIDs[0] == ceoID && storeTitle == "Medicine store: due at "+storeTask.ParkName && contains(storeBody, "whole"), "err=%v digest=%+v title=%q body=%q", err, storeDigest, storeTitle, storeBody)
+	cxoIn, err := routines.RecordPresence(ctx, penroutinesports.PresenceParams{TenantID: fxTenant, Actor: cxo, TaskID: storeTask.TaskID, EventType: penroutinesdomain.PresenceEnter, CapturedAt: now, RowVersion: storeTask.RowVersion, IdempotencyKey: "pr-cxo-enter"})
+	story.Assert("the CXO checks in", err == nil && cxoIn.InPen(cxo), "err=%v task=%+v", err, cxoIn)
+	if err != nil {
+		return
+	}
+	cxoSubmitted, err := routines.Submit(ctx, penroutinesports.SubmitParams{TenantID: fxTenant, Actor: cxo, TaskID: storeTask.TaskID, Answers: answers(map[string]any{"fridge_ok": "yes"}), Proofs: []penroutinesdomain.ProofItem{{Ref: photo(ceoID, "store"), Kind: penroutinesdomain.ProofKindPhoto}}, RowVersion: cxoIn.RowVersion, CapturedAt: now.Add(5 * time.Minute), IdempotencyKey: "pr-cxo-submit", TraceID: "pr-cxo-submit"})
+	story.Assert("the CXO's submit lands pending verification", err == nil && cxoSubmitted.Status == penroutinesdomain.StatusPendingVerification && cxoSubmitted.SubmittedBy == ceoID, "err=%v task=%+v", err, cxoSubmitted)
+	if err != nil {
+		return
+	}
+	relay()
+	storeItem := itemFor(storeTask.TaskID)
+	storeSubject := ""
+	if storeItem.SubjectLabel != nil {
+		storeSubject = *storeItem.SubjectLabel
+	}
+	story.Assert("the verifier item reads 'Whole park' where a pen would be, with no shed", storeSubject == "Medicine store · Whole park" && contextValue(storeItem, "Where") == "Whole park" && contextValue(storeItem, "Pen") == "" && contextValue(storeItem, "Is the fridge cold?") == "Yes" && storeItem.ShedID == nil, "subject=%q rows=%+v shed=%v", storeSubject, storeItem.ContextRows, storeItem.ShedID)
+	verdict(storeItem, verificationdomain.DecisionApproved, "", "approve-store")
+	storeDone, err := repo.GetTask(ctx, fxTenant, storeTask.TaskID)
+	story.Assert("approve completes the whole-park task", err == nil && storeDone.Status == penroutinesdomain.StatusCompleted && storeDone.WorkState == penroutinesdomain.WorkStateCompleted, "err=%v task=%+v", err, storeDone)
+	boardRows, err := board.ListRows(ctx, boardQuery(today))
+	story.Assert("the Work Board rows it as '<routine> · <park>', done, owned by the CXO", err == nil && boardState(boardRows, storeTask.TaskID) == workboarddomain.WorkStateCompleted && boardTitle(boardRows, storeTask.TaskID) == "Medicine store · "+storeTask.ParkName && boardOwner(boardRows, storeTask.TaskID) == ceoID, "err=%v state=%q title=%q owner=%q", err, boardState(boardRows, storeTask.TaskID), boardTitle(boardRows, storeTask.TaskID), boardOwner(boardRows, storeTask.TaskID))
+}
+
+func boardOwner(rows []workboarddomain.Row, sourceID string) string {
+	for _, r := range rows {
+		if r.SourceID == sourceID {
+			return r.Owner.UserID
+		}
+	}
+	return ""
 }
 
 func boardRowModule(rows []workboarddomain.Row, sourceID string) workboarddomain.Module {

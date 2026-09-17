@@ -19,19 +19,91 @@ import (
 	"time"
 )
 
-// Scope: which pens of the park a routine covers.
+// Scope: which pens of the park a routine covers. ScopePark is a general task: ONE task per
+// occurrence for the whole park, naming no pen ("Check the medicine store").
 const (
 	ScopeAllPens      = "all_pens"
 	ScopeSelectedPens = "selected_pens"
+	ScopePark         = "park"
 )
 
 // Cadence: which business dates raise a task.
 const (
-	CadenceDaily     = "daily"
-	CadenceWeekly    = "weekly"
-	CadenceMonthly   = "monthly"
-	CadenceAfterWork = "after_work"
+	CadenceDaily   = "daily"
+	CadenceWeekly  = "weekly"
+	CadenceMonthly = "monthly"
+	// CadenceEveryNDays raises on StartDate, StartDate + N, StartDate + 2N, ... (N = IntervalDays).
+	CadenceEveryNDays = "every_n_days"
+	CadenceAfterWork  = "after_work"
 )
+
+// Interval bounds of an every_n_days routine. 1 is "daily", and past a quarter the cadence is
+// not a routine any more.
+const (
+	MinIntervalDays = 2
+	MaxIntervalDays = 90
+)
+
+// Assignable roles: WHO a routine is for (2026-09-17 revision, docs/decisions/pen-routines.md).
+// The keys are the RBAC role keys a grant carries; whoever holds one FOR THE ROUTINE'S PARK
+// gets the task, and any one of them doing it is enough.
+const (
+	RoleParkHead            = "park_head"
+	RolePCDirector          = "pc_director"
+	RoleBreedingDirector    = "breeding_director"
+	RoleGrowthDirector      = "growth_director"
+	RoleFeedDirector        = "feed_director"
+	RoleHealthDirector      = "health_director"
+	RoleProcurementDirector = "procurement_director"
+	RoleCXO                 = "ceo_internal"
+)
+
+// AssignableRoles is the closed vocabulary, in display order. The migration's CHECK on
+// pen_routine_definitions.assignee_roles lists the same eight keys.
+var AssignableRoles = []string{
+	RoleParkHead, RolePCDirector, RoleBreedingDirector, RoleGrowthDirector,
+	RoleFeedDirector, RoleHealthDirector, RoleProcurementDirector, RoleCXO,
+}
+
+var roleLabels = map[string]string{
+	RoleParkHead:            "Park Head",
+	RolePCDirector:          "Preventive Care Director",
+	RoleBreedingDirector:    "Breeding Director",
+	RoleGrowthDirector:      "Growth Director",
+	RoleFeedDirector:        "Feed Director",
+	RoleHealthDirector:      "Health Director",
+	RoleProcurementDirector: "Procurement Director",
+	RoleCXO:                 "CXO",
+}
+
+// IsAssignableRole reports whether key is in the vocabulary.
+func IsAssignableRole(key string) bool { _, ok := roleLabels[key]; return ok }
+
+// RoleLabel is the farm word for a role key. An unknown key renders as itself, underscores
+// spaced, so a vocabulary widening never blanks a row.
+func RoleLabel(key string) string {
+	if label, ok := roleLabels[key]; ok {
+		return label
+	}
+	return strings.ReplaceAll(key, "_", " ")
+}
+
+// SortRoles orders role keys in vocabulary order, dropping blanks and duplicates. Unknown keys
+// are KEPT (at the end) so validation can name them rather than silently dropping a choice.
+func SortRoles(roles []string) []string {
+	out := dedupe(roles)
+	sort.SliceStable(out, func(i, j int) bool { return roleRank(out[i]) < roleRank(out[j]) })
+	return out
+}
+
+func roleRank(k string) int {
+	for i, known := range AssignableRoles {
+		if known == k {
+			return i
+		}
+	}
+	return len(AssignableRoles)
+}
 
 // Review: what a submit does.
 const (
@@ -347,7 +419,11 @@ type Definition struct {
 	Weekdays       []int
 	MonthDays      []int
 	AfterWorkKinds []string
-	DueOffsetDays  int
+	// IntervalDays is the N of an every_n_days routine (0 otherwise).
+	IntervalDays int
+	// StartDate (YYYY-MM-DD, IST business date): nothing raises before it, for every cadence.
+	StartDate     string
+	DueOffsetDays int
 	// NotifyTime is the local IST "HH:MM" the day's push goes out.
 	NotifyTime     string
 	ReviewKind     string
@@ -355,10 +431,11 @@ type Definition struct {
 	CurrentVersion int
 	Evidence       Evidence
 	Pens           []PenRef
-	AssigneeIDs    []string
-	// Assignees carries the display names the read resolved for AssigneeIDs (same order);
-	// ignored on write, where AssigneeIDs is the input.
-	Assignees  []Assignee
+	// AssigneeRoles are WHO owes the routine, keys of AssignableRoles.
+	AssigneeRoles []string
+	// People are the role holders a read resolved for the routine's park (read-only preview;
+	// ignored on write).
+	People     []Assignee
 	CreatedBy  string
 	UpdatedBy  string
 	CreatedAt  time.Time
@@ -366,10 +443,12 @@ type Definition struct {
 	RowVersion int
 }
 
-// Assignee is one person a routine is assigned to, as a read resolves them.
+// Assignee is one person who currently holds one of a routine's roles in its park, as a read
+// resolves them. RoleKey is the first of the routine's roles they hold, in vocabulary order.
 type Assignee struct {
 	UserID      string `json:"user_id"`
 	DisplayName string `json:"display_name"`
+	RoleKey     string `json:"role"`
 }
 
 // PenRef names a pen: the shed id and its partition label ("" for an undivided shed).
@@ -383,7 +462,9 @@ type PenRef struct {
 
 // Sentinel errors. The transport maps each to a stable code and a farm-worded message.
 var (
-	ErrInvalidRoutine  = errors.New("pen routine: the routine is not valid")
+	ErrInvalidRoutine = errors.New("pen routine: the routine is not valid")
+	// ErrNoRoles wraps ErrInvalidRoutine: a routine for nobody. Its own code on the wire.
+	ErrNoRoles         = fmt.Errorf("%w (no roles)", ErrInvalidRoutine)
 	ErrInvalidEvidence = errors.New("pen routine: the evidence rules are not valid")
 	ErrNotAssignee     = errors.New("pen routine: caller is not an assignee of this routine")
 	ErrAlreadyDone     = errors.New("pen routine: already submitted")
@@ -408,11 +489,33 @@ func ValidateDefinition(d Definition) error {
 	if strings.TrimSpace(d.ParkID) == "" {
 		return fmt.Errorf("%w: a park is required", ErrInvalidRoutine)
 	}
+	roles := dedupe(d.AssigneeRoles)
+	if len(roles) == 0 {
+		return fmt.Errorf("%w: pick at least one role the routine is for", ErrNoRoles)
+	}
+	if len(roles) != len(d.AssigneeRoles) {
+		return fmt.Errorf("%w: a role is chosen twice", ErrInvalidRoutine)
+	}
+	for _, role := range roles {
+		if !IsAssignableRole(role) {
+			return fmt.Errorf("%w: %q is not a role a routine can be for", ErrInvalidRoutine, role)
+		}
+	}
+	if _, err := time.Parse("2006-01-02", strings.TrimSpace(d.StartDate)); err != nil {
+		return fmt.Errorf("%w: the start date must be a date", ErrInvalidRoutine)
+	}
 	switch d.ScopeKind {
 	case ScopeAllPens:
 	case ScopeSelectedPens:
 		if len(d.Pens) == 0 {
 			return fmt.Errorf("%w: tick at least one pen, or choose all pens", ErrInvalidRoutine)
+		}
+	case ScopePark:
+		if len(d.Pens) > 0 {
+			return fmt.Errorf("%w: a whole-park routine names no pens", ErrInvalidRoutine)
+		}
+		if d.CadenceKind == CadenceAfterWork {
+			return fmt.Errorf("%w: a whole-park routine cannot follow work in a pen; choose pens, or a calendar cadence", ErrInvalidRoutine)
 		}
 	default:
 		return fmt.Errorf("%w: unknown scope %q", ErrInvalidRoutine, d.ScopeKind)
@@ -436,6 +539,10 @@ func ValidateDefinition(d Definition) error {
 			if md < 1 || md > 31 {
 				return fmt.Errorf("%w: month day %d is not 1..31", ErrInvalidRoutine, md)
 			}
+		}
+	case CadenceEveryNDays:
+		if d.IntervalDays < MinIntervalDays || d.IntervalDays > MaxIntervalDays {
+			return fmt.Errorf("%w: every how many days must be %d to %d", ErrInvalidRoutine, MinIntervalDays, MaxIntervalDays)
 		}
 	case CadenceAfterWork:
 		if len(SortWorkKinds(d.AfterWorkKinds)) == 0 || len(SortWorkKinds(d.AfterWorkKinds)) != len(dedupe(d.AfterWorkKinds)) {
@@ -491,17 +598,41 @@ func ParseClock(s string) (hour, minute int, err error) {
 	return hour, minute, nil
 }
 
+// StartedBy reports whether the routine has started on the business date: nothing raises
+// before StartDate, for every cadence (after_work included). An unreadable date raises nothing.
+func (d Definition) StartedBy(businessDate string) bool {
+	day, err := time.Parse("2006-01-02", businessDate)
+	if err != nil {
+		return false
+	}
+	start, err := time.Parse("2006-01-02", strings.TrimSpace(d.StartDate))
+	if err != nil {
+		return false
+	}
+	return !day.Before(start)
+}
+
 // RaisesOn reports whether a calendar-cadence routine raises a task for the given business date
-// (YYYY-MM-DD). An after_work routine never raises from the calendar; its dates come from the
-// work the materializer reads.
+// (YYYY-MM-DD). Never before StartDate. An after_work routine never raises from the calendar;
+// its dates come from the work the materializer reads.
 func (d Definition) RaisesOn(businessDate string) bool {
 	day, err := time.Parse("2006-01-02", businessDate)
 	if err != nil {
 		return false
 	}
+	if !d.StartedBy(businessDate) {
+		return false
+	}
 	switch d.CadenceKind {
 	case CadenceDaily:
 		return true
+	case CadenceEveryNDays:
+		if d.IntervalDays < 1 {
+			return false
+		}
+		start, _ := time.Parse("2006-01-02", strings.TrimSpace(d.StartDate))
+		days := int(day.Sub(start).Hours() / 24)
+		return days >= 0 && days%d.IntervalDays == 0
 	case CadenceWeekly:
 		iso := int(day.Weekday())
 		if iso == 0 {
@@ -544,6 +675,8 @@ func CadenceLine(d Definition) string {
 	switch d.CadenceKind {
 	case CadenceDaily:
 		return "Every day"
+	case CadenceEveryNDays:
+		return fmt.Sprintf("Every %d days", d.IntervalDays)
 	case CadenceWeekly:
 		names := []string{"Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"}
 		days := append([]int(nil), d.Weekdays...)
@@ -613,9 +746,13 @@ func joinWith(parts []string, word string) string {
 	return strings.Join(parts[:len(parts)-1], ", ") + " " + word + " " + parts[len(parts)-1]
 }
 
-// EvidenceLine is the one-line summary of what a routine asks for: "2 questions · 1 photo ·
+// EvidenceLine is the one-line summary of what a pen routine asks for: "2 questions · 1 photo ·
 // check in to pen".
-func EvidenceLine(e Evidence) string {
+func EvidenceLine(e Evidence) string { return EvidenceLineForScope(e, ScopeAllPens) }
+
+// EvidenceLineForScope is EvidenceLine worded for the routine's scope: a whole-park routine
+// asks to "check in", not to check in to a pen.
+func EvidenceLineForScope(e Evidence, scopeKind string) string {
 	parts := []string{}
 	switch n := len(e.Questions); n {
 	case 0:
@@ -631,7 +768,11 @@ func EvidenceLine(e Evidence) string {
 		parts = append(parts, s)
 	}
 	if e.PresenceRequired() {
-		parts = append(parts, "check in to pen")
+		if scopeKind == ScopePark {
+			parts = append(parts, "check in")
+		} else {
+			parts = append(parts, "check in to pen")
+		}
 	}
 	if len(parts) == 0 {
 		return "Tap to confirm"

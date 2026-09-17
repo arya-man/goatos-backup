@@ -8,16 +8,16 @@ import (
 	"github.com/vgoats/goatos/backend/internal/workforce/domain"
 )
 
-// TestPenRoutinesModuleIsOfferedOnExecuteNeverToTheCEO pins the Routines module's offer
-// (maintainer instruction 2026-09-16, docs/decisions/pen-routines.md): it is offered on
-// pen_routines.execute -- a park head and every director on the job -- and NOT to the CXO
-// desk, which holds read + configure and writes the rule on /routines instead of walking
-// pens. Operators, verifiers and the per-person roles resolve no such module by role.
+// TestPenRoutinesModuleIsOfferedToEveryAssignableRole pins the Routines module's offer
+// (docs/decisions/pen-routines.md, 2026-09-17 revision): it is offered on pen_routines.execute --
+// a park head, every director AND the CXO desk, because a routine can be assigned to any of those
+// roles and the holder must be able to open it on the phone. Operators, verifiers and the
+// per-person roles resolve no such module by role.
 //
 // Mutation-tested when written: deleting the PenRoutinesExecute branch in
-// permissionOfferedModuleKeys, and granting the permission to RoleCEOInternal, each turn a
+// permissionOfferedModuleKeys, and removing the permission from RoleCEOInternal, each turn a
 // subtest red.
-func TestPenRoutinesModuleIsOfferedOnExecuteNeverToTheCEO(t *testing.T) {
+func TestPenRoutinesModuleIsOfferedToEveryAssignableRole(t *testing.T) {
 	const en = localization.DefaultTag
 	hasKey := func(keys []string, want string) bool {
 		for _, k := range keys {
@@ -35,6 +35,7 @@ func TestPenRoutinesModuleIsOfferedOnExecuteNeverToTheCEO(t *testing.T) {
 		"health_director":      permissions.RoleHealthDirector,
 		"breeding_director":    permissions.RoleBreedingDirector,
 		"procurement_director": permissions.RoleProcurementDirector,
+		"ceo_internal":         permissions.RoleCEOInternal,
 	} {
 		grants := []domain.GrantSummary{grantWithRole(role)}
 		t.Run(name+" is offered Routines", func(t *testing.T) {
@@ -60,7 +61,6 @@ func TestPenRoutinesModuleIsOfferedOnExecuteNeverToTheCEO(t *testing.T) {
 		})
 	}
 	for name, role := range map[string]string{
-		"ceo_internal":    permissions.RoleCEOInternal,
 		"operator":        permissions.RoleOperator,
 		"verifier":        permissions.RoleVerifier,
 		"counts_approver": permissions.RoleCountsApprover,

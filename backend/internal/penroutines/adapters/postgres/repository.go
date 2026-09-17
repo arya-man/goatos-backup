@@ -65,9 +65,10 @@ type querier interface {
 
 // taskColumns is the single projection every task read uses: the task row, the PINNED
 // version's renderable fields (name, instruction, evidence, review), the definition's cadence
-// (read live, for the reason line), the park and shed names, and the routine's assignees as an
-// array so the row can answer "may this caller work it" without a second read.
-const taskColumns = sqlRepository1
+// (read live, for the reason line), the scope, the park and shed names, and the people who hold
+// the routine's roles for the task's park (assignees.go, the ONE resolution) so the row can
+// answer "may this caller work it" without a second read.
+var taskColumns = sqlRepository1
 
 const taskFrom = sqlRepository2
 
@@ -77,10 +78,10 @@ type taskScan struct {
 	cadenceKind                   string
 	weekdays, monthDays           []int16
 	afterWorkKinds                []string
+	intervalDays                  *int32
 	dueOffsetDays                 int
 	evidenceRaw, answersRaw       []byte
-	proofsRaw                     []byte
-	assignees, assigneeNames      []string
+	proofsRaw, assigneesRaw       []byte
 	enteredBy, submittedBy        *string
 	verifiedBy, reworkReason      *string
 }
@@ -90,13 +91,13 @@ func (s *taskScan) targets() []any {
 	return []any{
 		&t.TaskID, &t.TenantID, &t.RoutineID, &t.RoutineVersion, &t.RoutineName, &t.Instruction,
 		&s.evidenceRaw, &t.ReviewKind,
-		&s.cadenceKind, &s.weekdays, &s.monthDays, &s.afterWorkKinds, &s.dueOffsetDays,
-		&t.ParkID, &s.parkName, &t.ShedID, &s.shedName, &s.partition,
+		&s.cadenceKind, &s.weekdays, &s.monthDays, &s.afterWorkKinds, &s.intervalDays, &s.dueOffsetDays,
+		&t.ScopeKind, &t.ParkID, &s.parkName, &t.ShedID, &s.shedName, &s.partition,
 		&t.TriggerKinds, &t.SourceDate, &t.PlannedDate, &t.DueDate, &t.WorkState, &t.Status,
 		&s.answersRaw, &s.proofsRaw,
 		&t.EnteredAt, &s.enteredBy, &t.LeftAt, &s.submittedBy, &t.SubmittedAt, &s.verifiedBy, &t.VerifiedAt,
 		&s.reworkReason, &t.RolledFwd, &t.DelayedSince, &t.RowVersion, &t.CreatedAt, &t.UpdatedAt,
-		&s.assignees, &s.assigneeNames,
+		&s.assigneesRaw,
 	}
 }
 
@@ -108,14 +109,24 @@ func (s *taskScan) finish() (domain.Task, error) {
 	if oploc.NormalizePartition(t.Partition) == oploc.WholeSentinel {
 		t.Partition = ""
 	}
-	t.PenLabel = oploc.OperationalLocation{ShedID: t.ShedID, ShedName: t.ShedName, PartitionLabel: t.Partition}.Display()
+	if t.ShedID == "" {
+		// A whole-park task names no pen: every pen field stays "".
+		t.ShedName, t.Partition, t.PenLabel = "", "", ""
+	} else {
+		t.PenLabel = oploc.OperationalLocation{ShedID: t.ShedID, ShedName: t.ShedName, PartitionLabel: t.Partition}.Display()
+	}
 	ev, err := domain.ParseEvidence(s.evidenceRaw)
 	if err != nil {
 		return domain.Task{}, fmt.Errorf("pen routine: task %s pinned evidence: %w", t.TaskID, err)
 	}
 	t.Evidence = ev
+	interval := 0
+	if s.intervalDays != nil {
+		interval = int(*s.intervalDays)
+	}
 	t.CadenceLine = domain.CadenceLine(domain.Definition{
 		CadenceKind:    s.cadenceKind,
+		IntervalDays:   interval,
 		Weekdays:       toInts(s.weekdays),
 		MonthDays:      toInts(s.monthDays),
 		AfterWorkKinds: s.afterWorkKinds,
@@ -137,13 +148,17 @@ func (s *taskScan) finish() (domain.Task, error) {
 	t.SubmittedBy = deref(s.submittedBy)
 	t.VerifiedBy = deref(s.verifiedBy)
 	t.ReworkReason = strings.TrimSpace(deref(s.reworkReason))
-	t.AssigneeIDs = s.assignees
-	if t.AssigneeIDs == nil {
-		t.AssigneeIDs = []string{}
+	var people []domain.Assignee
+	if len(s.assigneesRaw) > 0 {
+		if err := json.Unmarshal(s.assigneesRaw, &people); err != nil {
+			return domain.Task{}, fmt.Errorf("pen routine: task %s assignees: %w", t.TaskID, err)
+		}
 	}
-	t.AssigneeNames = s.assigneeNames
-	if t.AssigneeNames == nil {
-		t.AssigneeNames = []string{}
+	t.AssigneeIDs = make([]string, 0, len(people))
+	t.AssigneeNames = make([]string, 0, len(people))
+	for _, p := range people {
+		t.AssigneeIDs = append(t.AssigneeIDs, p.UserID)
+		t.AssigneeNames = append(t.AssigneeNames, strings.TrimSpace(p.DisplayName))
 	}
 	t.CreatedAt = t.CreatedAt.UTC()
 	t.UpdatedAt = t.UpdatedAt.UTC()
@@ -191,11 +206,11 @@ func scanTasks(rows pgx.Rows) ([]domain.Task, error) {
 	return out, rows.Err()
 }
 
-// ListMine pages the tasks owed on the routines the caller is assigned to. Within a chip, the
+// ListMine pages the tasks owed on the routines whose roles the caller holds for the park. Within a chip, the
 // most recently due first, keyset on (due_business_date, task_id). Counts range over the SAME
 // assignee predicate as the rows.
 //
-// projection-review: membership=pen_routine_tasks rows whose routine has a pen_routine_assignees row for the caller (assigneePredicate, PK (tenant, routine, user) so the IN never multiplies), one row per task (PK); group_key=(tenant_id, task_id) for the page and work_state for the counts over the SAME predicate; join_cardinality=definition 1:1 (PK), version 1:1 (PK on tenant, routine, version), locations park/shed 1:1 (PK), assignees an array subquery; pagination=keyset on (due_business_date DESC, task_id DESC) with LIMIT, counts whole-list; scope=tenant_id + caller predicate on both reads
+// projection-review: membership=pen_routine_tasks rows whose routine's roles the caller holds for the routine's park (assigneePredicate: an IN over the tenant's routines with an EXISTS over the role holders, so a caller holding several matching grants never multiplies a task), one row per task (PK); group_key=(tenant_id, task_id) for the page and work_state for the counts over the SAME predicate; join_cardinality=definition 1:1 (PK), version 1:1 (PK on tenant, routine, version), locations park/shed 1:1 (PK, the shed LEFT JOIN null for a whole-park task), the resolved assignees a jsonb_agg subquery; pagination=keyset on (due_business_date DESC, task_id DESC) with LIMIT, counts whole-list; scope=tenant_id + caller predicate on both reads
 func (r *Repository) ListMine(ctx context.Context, p ports.ListParams) (ports.Page, error) {
 	ctx, cancel := context.WithTimeout(ctx, r.timeout)
 	defer cancel()
@@ -661,7 +676,7 @@ func auditState(t domain.Task) map[string]any {
 // ListForPark is the web Today table: one park, one due date, keyset on task_id over
 // pen_routine_tasks_park_day_idx, with the whole-filter summary by farm bucket.
 //
-// projection-review: membership=pen_routine_tasks rows of ONE tenant, park and due_business_date (canceled excluded, optional routine filter), one row per task (PK); group_key=(tenant_id, task_id) for the page and the derived bucket for the summary over the SAME predicate; join_cardinality=definition/version/locations 1:1 on their PKs, assignees an array subquery; pagination=keyset on task_id ASC with LIMIT, summary whole-filter; scope=tenant_id, park_id, due_business_date (+ routine_id) repeated verbatim in both reads
+// projection-review: membership=pen_routine_tasks rows of ONE tenant, park and due_business_date (canceled excluded, optional routine filter), one row per task (PK); group_key=(tenant_id, task_id) for the page and the derived bucket for the summary over the SAME predicate; join_cardinality=definition/version/locations 1:1 on their PKs, the resolved assignees a jsonb_agg subquery; pagination=keyset on task_id ASC with LIMIT, summary whole-filter; scope=tenant_id, park_id, due_business_date (+ routine_id) repeated verbatim in both reads
 func (r *Repository) ListForPark(ctx context.Context, p ports.ParkListParams) (ports.ParkPage, error) {
 	ctx, cancel := context.WithTimeout(ctx, r.timeout)
 	defer cancel()
@@ -729,7 +744,7 @@ func (r *Repository) ListForPark(ctx context.Context, p ports.ParkListParams) (p
 
 // DueDigests reads the open tasks due on dueDate, folded per routine, for the day's push.
 //
-// projection-review: membership=pen_routine_tasks rows of ONE tenant still awaiting work (scheduled/delayed, open/rework) whose due_business_date is the asked date, on pen_routine_tasks_sweep_due_idx; group_key=routine_id, folded in Go from rows ordered by routine; join_cardinality=definition/version/locations 1:1 on PK, assignees an array subquery; pagination=none -- bounded by one day's open routine tasks (pens x routines, tens to low hundreds); scope=tenant_id + due date + open states
+// projection-review: membership=pen_routine_tasks rows of ONE tenant still awaiting work (scheduled/delayed, open/rework) whose due_business_date is the asked date, on pen_routine_tasks_sweep_due_idx; group_key=routine_id, folded in Go from rows ordered by routine; join_cardinality=definition/version/locations 1:1 on PK, the resolved assignees a jsonb_agg subquery; pagination=none -- bounded by one day's open routine tasks (pens x routines, tens to low hundreds); scope=tenant_id + due date + open states
 func (r *Repository) DueDigests(ctx context.Context, tenantID, dueDate string) ([]ports.DueDigest, error) {
 	ctx, cancel := context.WithTimeout(ctx, r.timeout)
 	defer cancel()
@@ -806,34 +821,29 @@ func (r *Repository) SweepRollForward(ctx context.Context, tenantID string, asOf
 	return result, nil
 }
 
-// assigneePredicate admits the rows of routines the caller ($2) is assigned to.
-const assigneePredicate = `t.routine_id IN (SELECT a.routine_id FROM pen_routine_assignees a WHERE a.tenant_id = t.tenant_id AND a.user_id = $2::uuid)`
+// assigneePredicate admits the rows of routines whose roles the caller ($2) holds for the
+// routine's park -- the ONE role resolution in assignees.go.
+var assigneePredicate = RoutinesHeldBySQL("t", "$1::uuid", "$2::uuid")
 
 // parkDayPredicate binds the web Today table: one tenant, one park, one due date, optional
 // routine, canceled excluded.
 const parkDayPredicate = `t.tenant_id = $1::uuid AND t.park_id = $2::uuid AND t.due_business_date = $3::date AND t.work_state <> 'canceled' AND ($4::uuid IS NULL OR t.routine_id = $4::uuid)`
 
 // SQL hoisted to package level so the scale guard and query-plan tests can reach it.
-const (
-	sqlRepository1 = `
+var sqlRepository1 = `
 t.task_id::text, t.tenant_id::text, t.routine_id::text, t.routine_version, v.name, v.instruction,
 v.evidence, v.review_kind,
-d.cadence_kind, d.weekdays, d.month_days, d.after_work_kinds, d.due_offset_days,
-t.park_id::text, COALESCE(park.name, ''),
-t.shed_id::text, COALESCE(NULLIF(shed.name, ''), shed.location_code, ''), COALESCE(t.partition_label, ''),
+d.cadence_kind, d.weekdays, d.month_days, d.after_work_kinds, d.interval_days, d.due_offset_days,
+d.scope_kind, t.park_id::text, COALESCE(park.name, ''),
+COALESCE(t.shed_id::text, ''), COALESCE(NULLIF(shed.name, ''), shed.location_code, ''), COALESCE(t.partition_label, ''),
 t.trigger_kinds, t.source_business_date::text, t.planned_business_date::text, t.due_business_date::text,
 t.work_state, t.status,
 t.answers, t.proof_refs,
 t.entered_at, t.entered_by::text, t.left_at, t.submitted_by::text, t.submitted_at, t.verified_by::text, t.verified_at,
 t.rework_reason, t.rolled_forward_count, t.delayed_since_business_date::text, t.row_version, t.created_at, t.updated_at,
-COALESCE((SELECT array_agg(a.user_id::text ORDER BY a.user_id) FROM pen_routine_assignees a WHERE a.tenant_id = t.tenant_id AND a.routine_id = t.routine_id), '{}'::text[]),
-COALESCE((SELECT array_agg(COALESCE(m.display_name, '') ORDER BY a.user_id) FROM pen_routine_assignees a LEFT JOIN workforce_members m ON m.tenant_id = a.tenant_id AND m.user_id = a.user_id AND m.status = 'active' WHERE a.tenant_id = t.tenant_id AND a.routine_id = t.routine_id), '{}'::text[])`
-	sqlRepository2 = `
-FROM pen_routine_tasks t
-JOIN pen_routine_definitions d ON d.tenant_id = t.tenant_id AND d.routine_id = t.routine_id
-JOIN pen_routine_versions v ON v.tenant_id = t.tenant_id AND v.routine_id = t.routine_id AND v.version = t.routine_version
-LEFT JOIN locations park ON park.tenant_id = t.tenant_id AND park.location_id = t.park_id
-LEFT JOIN locations shed ON shed.tenant_id = t.tenant_id AND shed.location_id = t.shed_id`
+` + assigneesJSONSQL
+
+var (
 	sqlRepository3 = `
 SELECT t.work_state, count(*)::int
 FROM pen_routine_tasks t
@@ -844,6 +854,23 @@ SELECT count(*)::int
 FROM pen_routine_tasks t
 WHERE t.tenant_id = $1 AND ` + assigneePredicate + `
   AND t.work_state IN ('scheduled', 'delayed') AND t.status IN ('open', 'rework')`
+	sqlRepository12 = `
+SELECT to_char(d.notify_time, 'HH24:MI'), ` + taskColumns + ` ` + taskFrom + `
+WHERE t.tenant_id = $1::uuid
+  AND t.work_state IN ('scheduled', 'delayed')
+  AND t.due_business_date = $2::date
+  AND t.status IN ('open', 'rework')
+  AND d.status = 'active'
+ORDER BY t.routine_id, t.shed_id, t.partition_key, t.task_id`
+)
+
+const (
+	sqlRepository2 = `
+FROM pen_routine_tasks t
+JOIN pen_routine_definitions d ON d.tenant_id = t.tenant_id AND d.routine_id = t.routine_id
+JOIN pen_routine_versions v ON v.tenant_id = t.tenant_id AND v.routine_id = t.routine_id AND v.version = t.routine_version
+LEFT JOIN locations park ON park.tenant_id = t.tenant_id AND park.location_id = t.park_id
+LEFT JOIN locations shed ON shed.tenant_id = t.tenant_id AND shed.location_id = t.shed_id`
 	// Enter: stamp the check-in; a fresh enter after a leave clears the old left_at.
 	sqlRepository5 = `
 UPDATE pen_routine_tasks
@@ -919,14 +946,6 @@ SELECT t.work_state, t.status, count(*)::int
 FROM pen_routine_tasks t
 WHERE ` + parkDayPredicate + `
 GROUP BY t.work_state, t.status`
-	sqlRepository12 = `
-SELECT to_char(d.notify_time, 'HH24:MI'), ` + taskColumns + ` ` + taskFrom + `
-WHERE t.tenant_id = $1::uuid
-  AND t.work_state IN ('scheduled', 'delayed')
-  AND t.due_business_date = $2::date
-  AND t.status IN ('open', 'rework')
-  AND d.status = 'active'
-ORDER BY t.routine_id, t.shed_id, t.partition_key, t.task_id`
 	sqlRepository13 = `
 UPDATE pen_routine_tasks t
 SET work_state = 'delayed',

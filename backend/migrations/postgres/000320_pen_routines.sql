@@ -2,15 +2,17 @@
 -- seed-fixture-guard:ignore: routine definitions are authored by the CEO on /routines and their tasks are written by the kernel materializer and the park head's submit; nothing here is Vaccination HRMS seed contract
 --
 -- PEN ROUTINES (maintainer instruction 2026-09-16): configurable recurring pen checks for the
--- park head -- "each pen cleaned?", per park, daily / weekly / monthly or triggered after work,
--- with the people, the questions, the photo/video expectation and the pen check-in all authored
--- as data. Canonical prose: docs/decisions/pen-routines.md.
+-- park head -- "each pen cleaned?", per park, daily / weekly / monthly / every N days or
+-- triggered after work, with the ROLES who owe it, the questions, the photo/video expectation
+-- and the check-in all authored as data. Canonical prose: docs/decisions/pen-routines.md
+-- (2026-09-17 revision: assign by ROLE, whole-park tasks, every N days).
 --
 -- Four tables, one shape borrowed from three places:
 --   * pen_routine_definitions + pen_routine_versions: the RULE, versioned and never edited in
 --     place (the health-protocol rule) so an open task pins the form it was raised under.
---   * pen_routine_pens / pen_routine_assignees: the ticked pens and the one-or-more people
---     (the pen-visit rule: any assignee doing it is enough; no assignee means no task, loudly).
+--   * pen_routine_pens: the ticked pens of a selected_pens routine. WHO owes the routine is
+--     definitions.assignee_roles, resolved per read against the live role grants (any holder
+--     doing it is enough; roles nobody holds in the park raise no task, loudly).
 --   * pen_routine_tasks: the PC Care / pen-visit two-dimension row -- the kernel clock
 --     (work_state, planned immutable, due rolls forward only) and the verifier gate (status).
 --   * pen_routine_task_presence: the "someone entered the pen" clock, one row per punch with
@@ -22,17 +24,28 @@ CREATE TABLE public.pen_routine_definitions (
     park_id          uuid NOT NULL REFERENCES public.locations (location_id),
     name             text NOT NULL CHECK (btrim(name) <> ''),
     -- scope_kind: every ACTIVE pen of the park (occupied_only skips pens holding no live
-    -- animals on the day) or the ticked list in pen_routine_pens.
-    scope_kind       text NOT NULL CHECK (scope_kind IN ('all_pens', 'selected_pens')),
+    -- animals on the day), the ticked list in pen_routine_pens, or 'park' -- ONE task for the
+    -- whole park per occurrence, with no pen ("Check the medicine store").
+    scope_kind       text NOT NULL CHECK (scope_kind IN ('all_pens', 'selected_pens', 'park')),
     occupied_only    boolean NOT NULL DEFAULT true,
     -- cadence_kind decides which business dates raise a task; the arrays are its parameters.
     -- weekdays: ISO 1=Mon..7=Sun. month_days: 1..31, a day past the month's end is its last day.
     -- after_work_kinds: the closed vocabulary in penroutines/domain (vaccination, deworming,
     -- ... weighing, feed_distribution, shifting) matched to verification item categories.
-    cadence_kind     text NOT NULL CHECK (cadence_kind IN ('daily', 'weekly', 'monthly', 'after_work')),
+    -- interval_days: every_n_days only, the N (2..90); the occurrences are start_date,
+    -- start_date + N, start_date + 2N, ...
+    cadence_kind     text NOT NULL CHECK (cadence_kind IN ('daily', 'weekly', 'monthly', 'every_n_days', 'after_work')),
     weekdays         smallint[] NOT NULL DEFAULT '{}',
     month_days       smallint[] NOT NULL DEFAULT '{}',
     after_work_kinds text[] NOT NULL DEFAULT '{}',
+    interval_days    integer,
+    -- start_date: nothing raises before it, for every cadence. Supplied by the writer (the app
+    -- layer defaults it to today IST), never a DB clock.
+    start_date       date NOT NULL,
+    -- assignee_roles: WHO owes the routine, by role, from the closed vocabulary in
+    -- penroutines/domain.AssignableRoles. Whoever holds one of these roles FOR THE ROUTINE'S
+    -- PARK gets the task (a tenant-scoped park_head covers only his HRMS home park).
+    assignee_roles   text[] NOT NULL,
     -- due_offset_days: planned date = cadence day (or the work day) + this many days.
     due_offset_days  integer NOT NULL DEFAULT 0 CHECK (due_offset_days BETWEEN 0 AND 30),
     -- LOCAL Asia/Kolkata wall-clock time the day's push goes out; the business day is IST by rule.
@@ -52,7 +65,18 @@ CREATE TABLE public.pen_routine_definitions (
     CONSTRAINT pen_routine_definitions_monthly_shape CHECK (
         cadence_kind <> 'monthly' OR cardinality(month_days) >= 1),
     CONSTRAINT pen_routine_definitions_after_work_shape CHECK (
-        cadence_kind <> 'after_work' OR cardinality(after_work_kinds) >= 1)
+        cadence_kind <> 'after_work' OR cardinality(after_work_kinds) >= 1),
+    CONSTRAINT pen_routine_definitions_every_n_days_shape CHECK (
+        (cadence_kind = 'every_n_days' AND interval_days BETWEEN 2 AND 90)
+        OR (cadence_kind <> 'every_n_days' AND interval_days IS NULL)),
+    -- after_work happens IN a pen, so a whole-park routine cannot trigger on it.
+    CONSTRAINT pen_routine_definitions_park_scope_shape CHECK (
+        NOT (scope_kind = 'park' AND cadence_kind = 'after_work')),
+    CONSTRAINT pen_routine_definitions_assignee_roles_shape CHECK (
+        cardinality(assignee_roles) >= 1
+        AND assignee_roles <@ ARRAY['park_head', 'pc_director', 'breeding_director', 'growth_director',
+                                    'feed_director', 'health_director', 'procurement_director',
+                                    'ceo_internal']::text[])
 );
 -- One name per park among the routines still in use; a retired routine frees its name.
 CREATE UNIQUE INDEX pen_routine_definitions_park_name_uq
@@ -64,7 +88,7 @@ CREATE INDEX pen_routine_definitions_active_idx
 
 -- Every edit writes a new version row; a task pins (routine_id, version) so the form the park
 -- head opened is the form he submits. name/instruction/evidence/review_kind are the fields a
--- task renders; the cadence and the people are read live from the definition.
+-- task renders; the cadence and the assignee roles are read live from the definition.
 CREATE TABLE public.pen_routine_versions (
     tenant_id    uuid NOT NULL REFERENCES public.tenants (tenant_id),
     routine_id   uuid NOT NULL REFERENCES public.pen_routine_definitions (routine_id) ON DELETE CASCADE,
@@ -95,26 +119,16 @@ CREATE TABLE public.pen_routine_pens (
     PRIMARY KEY (tenant_id, routine_id, shed_id, partition_key)
 );
 
--- The one-or-more people who may work the routine's tasks. Any one of them doing a task is
--- enough. A routine with no row raises NOTHING and the kernel names it; never a fallback.
-CREATE TABLE public.pen_routine_assignees (
-    tenant_id  uuid NOT NULL REFERENCES public.tenants (tenant_id),
-    routine_id uuid NOT NULL REFERENCES public.pen_routine_definitions (routine_id) ON DELETE CASCADE,
-    user_id    uuid NOT NULL,
-    created_at timestamptz NOT NULL DEFAULT now(),
-    PRIMARY KEY (tenant_id, routine_id, user_id)
-);
--- The phone's list: which routines is THIS person on.
-CREATE INDEX pen_routine_assignees_user_idx
-    ON public.pen_routine_assignees (tenant_id, user_id, routine_id);
-
 CREATE TABLE public.pen_routine_tasks (
     task_id          uuid PRIMARY KEY DEFAULT gen_random_uuid(),
     tenant_id        uuid NOT NULL REFERENCES public.tenants (tenant_id),
     routine_id       uuid NOT NULL REFERENCES public.pen_routine_definitions (routine_id),
     routine_version  integer NOT NULL CHECK (routine_version >= 1),
     park_id          uuid NOT NULL,
-    shed_id          uuid NOT NULL,
+    -- shed_id is NULL exactly for a task raised by a whole-park routine (scope_kind 'park');
+    -- such a task names no pen, so it carries no partition either.
+    shed_id          uuid,
+    shed_key         text GENERATED ALWAYS AS (COALESCE(shed_id::text, 'park')) STORED,
     partition_label  text,
     partition_key    text GENERATED ALWAYS AS (
         CASE WHEN partition_label IS NULL OR btrim(partition_label) = '' THEN 'whole'
@@ -153,9 +167,11 @@ CREATE TABLE public.pen_routine_tasks (
     row_version      integer NOT NULL DEFAULT 1,
     created_at       timestamptz NOT NULL DEFAULT now(),
     updated_at       timestamptz NOT NULL DEFAULT now(),
-    -- The natural key that makes the kernel tick idempotent: one task per pen per occurrence.
+    -- The natural key that makes the kernel tick idempotent: one task per pen per occurrence,
+    -- and one per occurrence for a whole-park routine (shed_key 'park', partition_key 'whole').
     CONSTRAINT pen_routine_tasks_natural_uq
-        UNIQUE (tenant_id, routine_id, shed_id, partition_key, planned_business_date),
+        UNIQUE (tenant_id, routine_id, shed_key, partition_key, planned_business_date),
+    CONSTRAINT pen_routine_tasks_park_task_shape CHECK (shed_id IS NOT NULL OR partition_label IS NULL),
     CONSTRAINT pen_routine_tasks_due_after_plan CHECK (due_business_date >= planned_business_date),
     -- The two dimensions agree, and a submitted task always carries who and when.
     CONSTRAINT pen_routine_tasks_completed_shape_check CHECK (
@@ -195,7 +211,6 @@ CREATE INDEX pen_routine_task_presence_task_idx
 -- +goose Down
 DROP TABLE IF EXISTS public.pen_routine_task_presence;
 DROP TABLE IF EXISTS public.pen_routine_tasks;
-DROP TABLE IF EXISTS public.pen_routine_assignees;
 DROP TABLE IF EXISTS public.pen_routine_pens;
 DROP TABLE IF EXISTS public.pen_routine_versions;
 DROP TABLE IF EXISTS public.pen_routine_definitions;

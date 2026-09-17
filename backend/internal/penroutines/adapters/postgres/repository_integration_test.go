@@ -25,10 +25,14 @@ const (
 	prShedYash   = "00000000-0000-4000-8000-0000000f0202" // undivided, EMPTY
 	prShedGodel  = "00000000-0000-4000-8000-0000000f0203" // partitioned: Part 3
 	prShedCPT    = "00000000-0000-4000-8000-0000000f0204"
-	prHead       = "00000000-0000-4000-8000-0000000f0301" // ticked Do on Routines, park scope CBE
-	prSecond     = "00000000-0000-4000-8000-0000000f0302" // no /people rows; park_head grant on CBE
-	prOperator   = "00000000-0000-4000-8000-0000000f0303" // no /people rows; operator grant
+	prHead       = "00000000-0000-4000-8000-0000000f0301" // park_head at TENANT scope, HRMS home park CBE
+	prSecond     = "00000000-0000-4000-8000-0000000f0302" // park_head at PARK scope on CBE
+	prOperator   = "00000000-0000-4000-8000-0000000f0303" // operator grant on CBE -- not an assignable role
 	prVerifier   = "00000000-0000-4000-8000-0000000f0304"
+	prCPTHead    = "00000000-0000-4000-8000-0000000f0305" // park_head at TENANT scope, HRMS home park CPT
+	prPCDirector = "00000000-0000-4000-8000-0000000f0306" // pc_director at TENANT scope, no home park
+	prCXO        = "00000000-0000-4000-8000-0000000f0307" // ceo_internal at TENANT scope
+	prExpired    = "00000000-0000-4000-8000-0000000f0308" // park_head on CBE whose grant has EXPIRED"
 	prMemberHead = "00000000-0000-4000-8000-0000000f0401"
 	prGoatA      = "00000000-0000-4000-8000-0000000f0501"
 	prGoatB      = "00000000-0000-4000-8000-0000000f0502"
@@ -104,15 +108,29 @@ VALUES ($1::uuid, $2::uuid, 'goat', 'Boer', 'female', 'alive', 'adult', $2::uuid
 VALUES ($6::uuid, $1::uuid, $2::uuid, 'HEAD', 'Park Head', 'active', $7::uuid),
        (gen_random_uuid(), $1::uuid, $3::uuid, 'SEC', 'Second Person', 'active', $7::uuid),
        (gen_random_uuid(), $1::uuid, $4::uuid, 'OPR', 'An Operator', 'active', $7::uuid),
-       (gen_random_uuid(), $1::uuid, $5::uuid, 'VER', 'The Verifier', 'active', NULL)`, prTenant, prHead, prSecond, prOperator, prVerifier, prMemberHead, prParkCBE)
-	// The head is decided by /people rows: a Do tick on Routines and a park scope of CBE.
+       (gen_random_uuid(), $1::uuid, $5::uuid, 'VER', 'The Verifier', 'active', NULL),
+       (gen_random_uuid(), $1::uuid, $8::uuid, 'CPTH', 'CPT Park Head', 'active', $9::uuid),
+       (gen_random_uuid(), $1::uuid, $10::uuid, 'PCD', 'PC Director', 'active', NULL),
+       (gen_random_uuid(), $1::uuid, $11::uuid, 'CXO', 'The CXO', 'active', NULL),
+       (gen_random_uuid(), $1::uuid, $12::uuid, 'EXP', 'Expired Head', 'active', $7::uuid)`,
+		prTenant, prHead, prSecond, prOperator, prVerifier, prMemberHead, prParkCBE, prCPTHead, prParkCPT, prPCDirector, prCXO, prExpired)
+	// The head also carries /people rows (a Do tick on Routines): who OWES a routine is decided by
+	// the role grants below, never by these rows.
 	exec(`INSERT INTO person_access (tenant_id, workforce_member_id, scope_mode) VALUES ($1::uuid, $2::uuid, 'parks')`, prTenant, prMemberHead)
 	exec(`INSERT INTO person_park_scope (tenant_id, workforce_member_id, park_id) VALUES ($1::uuid, $2::uuid, $3::uuid)`, prTenant, prMemberHead, prParkCBE)
 	exec(`INSERT INTO person_module_access (tenant_id, workforce_member_id, surface, module_key, capabilities) VALUES ($1::uuid, $2::uuid, 'mobile', 'pen_routines', ARRAY['view','do'])`, prTenant, prMemberHead)
-	// The second person and the operator have NO /people rows: the role grant decides.
-	exec(`INSERT INTO user_scope_grants (tenant_id, user_id, role, scope_type, scope_id, status, valid_from)
-VALUES ($1::uuid, $2::uuid, 'park_head', 'park', $4::uuid, 'active', now() - interval '1 day'),
-       ($1::uuid, $3::uuid, 'operator', 'park', $4::uuid, 'active', now() - interval '1 day')`, prTenant, prSecond, prOperator, prParkCBE)
+	// The role grants: the farm's two park heads hold park_head at TENANT scope (each covers only
+	// his HRMS home park), a second CBE park head holds it at PARK scope, a PC director and a CXO
+	// at tenant scope (both parks), an operator (never assignable) and an expired park head.
+	exec(`INSERT INTO user_scope_grants (tenant_id, user_id, role, scope_type, scope_id, status, valid_from, valid_to)
+VALUES ($1::uuid, $2::uuid, 'park_head', 'tenant', $1::uuid, 'active', now() - interval '1 day', NULL),
+       ($1::uuid, $3::uuid, 'park_head', 'park', $5::uuid, 'active', now() - interval '1 day', NULL),
+       ($1::uuid, $4::uuid, 'operator', 'park', $5::uuid, 'active', now() - interval '1 day', NULL),
+       ($1::uuid, $6::uuid, 'park_head', 'tenant', $1::uuid, 'active', now() - interval '1 day', NULL),
+       ($1::uuid, $7::uuid, 'pc_director', 'tenant', $1::uuid, 'active', now() - interval '1 day', NULL),
+       ($1::uuid, $8::uuid, 'ceo_internal', 'tenant', $1::uuid, 'active', now() - interval '1 day', NULL),
+       ($1::uuid, $9::uuid, 'park_head', 'park', $5::uuid, 'active', now() - interval '2 days', now() - interval '1 day')`,
+		prTenant, prHead, prSecond, prOperator, prParkCBE, prCPTHead, prPCDirector, prCXO, prExpired)
 	for _, p := range []struct{ id, mime, kind string }{{prPhoto, "image/jpeg", "photo"}, {prVideo, "video/mp4", "video"}} {
 		exec(`INSERT INTO proof_artifacts (proof_id, tenant_id, storage_provider, object_key, mime_type, size_bytes, upload_state, scope_type, scope_id, subject_type, proof_type, uploaded_by, metadata)
 VALUES ($1::uuid, $2::uuid, 'local', 'routines/' || $1::text, $3, 4096, 'completed', 'task', $1::uuid, 'other', $4, $5::uuid, '{"capture_source":"in_app_camera"}'::jsonb)`, p.id, prTenant, p.mime, p.kind, prHead)
@@ -181,17 +199,35 @@ func TestPenRoutineLifecycleOneToManyParkScopePaginationStatusMatrixPostgresPath
 		return ports.WriteParams{TenantID: prTenant, ActorID: prHead, IdempotencyKey: key, TraceID: "trace-" + key}
 	}
 
-	// --- eligibility: the ticked head and the role-granted park head, never the operator ---
-	people, err := repo.EligiblePeople(ctx, prTenant, prParkCBE)
-	if err != nil {
-		t.Fatalf("eligible people: %v", err)
+	// --- role holders per park: the ONE resolution the drawer, the lists and the kernel share ---
+	holders := func(park string) map[string][]string {
+		t.Helper()
+		roles, err := repo.RoleHoldersForPark(ctx, prTenant, park)
+		if err != nil {
+			t.Fatalf("role holders %s: %v", park, err)
+		}
+		if len(roles) != len(domain.AssignableRoles) {
+			t.Fatalf("every assignable role must be answered, got %+v", roles)
+		}
+		out := map[string][]string{}
+		for _, r := range roles {
+			for _, p := range r.People {
+				out[r.Role] = append(out[r.Role], p.UserID)
+			}
+		}
+		return out
 	}
-	eligible := map[string]bool{}
-	for _, p := range people {
-		eligible[p.UserID] = true
+	cbe, cpt := holders(prParkCBE), holders(prParkCPT)
+	if len(cbe[domain.RoleParkHead]) != 2 || cbe[domain.RoleParkHead][0] != prHead || cbe[domain.RoleParkHead][1] != prSecond {
+		t.Fatalf("CBE park heads = %v (want the tenant-scoped head whose home is CBE and the park-scoped one; never the CPT head nor the expired grant)", cbe[domain.RoleParkHead])
 	}
-	if !eligible[prHead] || !eligible[prSecond] || eligible[prOperator] || eligible[prVerifier] {
-		t.Fatalf("eligible = %+v", people)
+	if len(cpt[domain.RoleParkHead]) != 1 || cpt[domain.RoleParkHead][0] != prCPTHead {
+		t.Fatalf("CPT park heads = %v", cpt[domain.RoleParkHead])
+	}
+	for _, park := range []map[string][]string{cbe, cpt} {
+		if len(park[domain.RolePCDirector]) != 1 || park[domain.RolePCDirector][0] != prPCDirector || len(park[domain.RoleCXO]) != 1 || park[domain.RoleCXO][0] != prCXO || len(park[domain.RoleFeedDirector]) != 0 {
+			t.Fatalf("tenant-scoped directors and the CXO cover both parks: %v", park)
+		}
 	}
 	// The pen catalog lists every ACTIVE pen of the park, empty ones included, flagged.
 	pens, err := repo.CatalogPens(ctx, prTenant, prParkCBE)
@@ -208,24 +244,25 @@ func TestPenRoutineLifecycleOneToManyParkScopePaginationStatusMatrixPostgresPath
 
 	// --- authoring: four routines. "daily" is the Mon + Wed pen cleaning (the fixture's business
 	// dates are Mon 14, Tue 15 and Wed 16, so it raises on the catch-up day and today and NOT
-	// on the after_work day), "weekly" the Monday-only count, "afterWork" the day-after check,
-	// and "orphan" a CPT routine with nobody assigned. ---
+	// on the after_work day), "weekly" the Monday-only count, "afterWork" the day-after check --
+	// all three for the Park Head role -- and "orphan" a CPT routine for a role nobody holds. ---
+	const started = "2026-09-01"
 	daily, err := repo.CreateRoutine(ctx, write("create-daily"), domain.Definition{
 		ParkID: prParkCBE, Name: "Pen cleaning", Instruction: "Sweep and check the water.", ScopeKind: domain.ScopeAllPens, OccupiedOnly: true,
 		CadenceKind: domain.CadenceWeekly, Weekdays: []int{1, 3}, NotifyTime: "07:00", ReviewKind: domain.ReviewVerifier,
-		Evidence: evidenceOneQuestion(domain.PresenceRequired, 1), AssigneeIDs: []string{prHead, prSecond},
+		Evidence: evidenceOneQuestion(domain.PresenceRequired, 1), AssigneeRoles: []string{domain.RoleParkHead}, StartDate: started,
 	})
 	if err != nil {
 		t.Fatalf("create daily: %v", err)
 	}
-	if daily.CurrentVersion != 1 || daily.RowVersion != 1 || len(daily.Assignees) != 2 || daily.Assignees[0].DisplayName != "Park Head" || daily.ParkName != "Coimbatore" {
+	if daily.CurrentVersion != 1 || daily.RowVersion != 1 || len(daily.People) != 2 || daily.People[0].DisplayName != "Park Head" || daily.People[0].RoleKey != domain.RoleParkHead || daily.People[1].UserID != prSecond || daily.ParkName != "Coimbatore" || daily.StartDate != started || len(daily.AssigneeRoles) != 1 {
 		t.Fatalf("daily = %+v", daily)
 	}
 	// An exact replay of the create returns the same routine, no second row.
 	again, err := repo.CreateRoutine(ctx, write("create-daily"), domain.Definition{
 		ParkID: prParkCBE, Name: "Pen cleaning", Instruction: "Sweep and check the water.", ScopeKind: domain.ScopeAllPens, OccupiedOnly: true,
 		CadenceKind: domain.CadenceWeekly, Weekdays: []int{1, 3}, NotifyTime: "07:00", ReviewKind: domain.ReviewVerifier,
-		Evidence: evidenceOneQuestion(domain.PresenceRequired, 1), AssigneeIDs: []string{prHead, prSecond},
+		Evidence: evidenceOneQuestion(domain.PresenceRequired, 1), AssigneeRoles: []string{domain.RoleParkHead}, StartDate: started,
 	})
 	if err != nil || again.RoutineID != daily.RoutineID {
 		t.Fatalf("create replay: %v / %s vs %s", err, again.RoutineID, daily.RoutineID)
@@ -233,14 +270,14 @@ func TestPenRoutineLifecycleOneToManyParkScopePaginationStatusMatrixPostgresPath
 	// The same name again in the same park is refused.
 	if _, err := repo.CreateRoutine(ctx, write("create-daily-dup"), domain.Definition{
 		ParkID: prParkCBE, Name: "pen cleaning", ScopeKind: domain.ScopeAllPens, CadenceKind: domain.CadenceDaily, NotifyTime: "07:00",
-		ReviewKind: domain.ReviewNone, Evidence: evidenceOneQuestion(domain.PresenceOff, 0), AssigneeIDs: []string{prHead},
+		ReviewKind: domain.ReviewNone, Evidence: evidenceOneQuestion(domain.PresenceOff, 0), AssigneeRoles: []string{domain.RoleParkHead}, StartDate: started,
 	}); !errors.Is(err, ports.ErrNameTaken) {
 		t.Fatalf("duplicate name err = %v", err)
 	}
 	weekly, err := repo.CreateRoutine(ctx, write("create-weekly"), domain.Definition{
 		ParkID: prParkCBE, Name: "Monday count", ScopeKind: domain.ScopeSelectedPens, Pens: []domain.PenRef{{ShedID: prShedCastro, Partition: "2"}, {ShedID: prShedYash}},
 		CadenceKind: domain.CadenceWeekly, Weekdays: []int{1}, NotifyTime: "08:30", ReviewKind: domain.ReviewNone,
-		Evidence: evidenceOneQuestion(domain.PresenceOff, 0), AssigneeIDs: []string{prHead},
+		Evidence: evidenceOneQuestion(domain.PresenceOff, 0), AssigneeRoles: []string{domain.RoleParkHead}, StartDate: started,
 	})
 	if err != nil {
 		t.Fatalf("create weekly: %v", err)
@@ -251,7 +288,7 @@ func TestPenRoutineLifecycleOneToManyParkScopePaginationStatusMatrixPostgresPath
 	afterWork, err := repo.CreateRoutine(ctx, write("create-after"), domain.Definition{
 		ParkID: prParkCBE, Name: "After deworming", ScopeKind: domain.ScopeAllPens, OccupiedOnly: true,
 		CadenceKind: domain.CadenceAfterWork, AfterWorkKinds: []string{domain.WorkDeworming, domain.WorkHoofTrimming}, DueOffsetDays: 1, NotifyTime: "07:00",
-		ReviewKind: domain.ReviewNone, Evidence: evidenceOneQuestion(domain.PresenceOff, 0), AssigneeIDs: []string{prHead},
+		ReviewKind: domain.ReviewNone, Evidence: evidenceOneQuestion(domain.PresenceOff, 0), AssigneeRoles: []string{domain.RoleParkHead}, StartDate: started,
 	})
 	if err != nil {
 		t.Fatalf("create after_work: %v", err)
@@ -259,7 +296,7 @@ func TestPenRoutineLifecycleOneToManyParkScopePaginationStatusMatrixPostgresPath
 	orphan, err := repo.CreateRoutine(ctx, write("create-orphan"), domain.Definition{
 		ParkID: prParkCPT, Name: "CPT check", ScopeKind: domain.ScopeSelectedPens, Pens: []domain.PenRef{{ShedID: prShedCPT}},
 		CadenceKind: domain.CadenceDaily, NotifyTime: "07:00", ReviewKind: domain.ReviewNone,
-		Evidence: evidenceOneQuestion(domain.PresenceOff, 0), AssigneeIDs: nil,
+		Evidence: evidenceOneQuestion(domain.PresenceOff, 0), AssigneeRoles: []string{domain.RoleBreedingDirector}, StartDate: started,
 	})
 	if err != nil {
 		t.Fatalf("create orphan: %v", err)
@@ -275,7 +312,8 @@ func TestPenRoutineLifecycleOneToManyParkScopePaginationStatusMatrixPostgresPath
 	if result.Created != 3 || result.Widened != 0 {
 		t.Fatalf("materialize today = %+v, want 3 created (Castro 1, Castro 2, Godel 1 - Part 3)", result)
 	}
-	if len(result.RoutinesWithoutAssignee) != 1 || result.RoutinesWithoutAssignee[0].RoutineID != orphan.RoutineID || result.PensSkipped != 1 {
+	if len(result.RoutinesWithoutAssignee) != 1 || result.RoutinesWithoutAssignee[0].RoutineID != orphan.RoutineID || result.PensSkipped != 1 ||
+		len(result.RoutinesWithoutAssignee[0].Roles) != 1 || result.RoutinesWithoutAssignee[0].Roles[0] != domain.RoleBreedingDirector {
 		t.Fatalf("orphan routine must be named, got %+v", result)
 	}
 	// A replay tick inserts nothing and widens nothing.
@@ -444,12 +482,12 @@ func TestPenRoutineLifecycleOneToManyParkScopePaginationStatusMatrixPostgresPath
 		},
 		Photo: domain.ProofRule{Min: 1, Max: 2}, Presence: domain.PresenceRequired,
 	})
-	edited.AssigneeIDs = []string{prHead}
+	edited.AssigneeRoles = []string{domain.RolePCDirector}
 	v2, err := repo.UpdateRoutine(ctx, write("update-daily"), edited)
 	if err != nil {
 		t.Fatalf("update: %v", err)
 	}
-	if v2.CurrentVersion != 2 || v2.RowVersion != 2 || len(v2.Evidence.Questions) != 2 || len(v2.AssigneeIDs) != 1 {
+	if v2.CurrentVersion != 2 || v2.RowVersion != 2 || len(v2.Evidence.Questions) != 2 || len(v2.AssigneeRoles) != 1 || len(v2.People) != 1 || v2.People[0].UserID != prPCDirector {
 		t.Fatalf("v2 = %+v", v2)
 	}
 	// A stale row version is refused.
@@ -466,9 +504,20 @@ func TestPenRoutineLifecycleOneToManyParkScopePaginationStatusMatrixPostgresPath
 	if err != nil || pinned.RoutineVersion != 1 || len(pinned.Evidence.Questions) != 1 || pinned.Instruction != "Sweep and check the water." {
 		t.Fatalf("open task must keep its pinned form: %+v / %v", pinned, err)
 	}
-	// The second person was unassigned by the edit: their list is empty and they may not submit.
-	if page, err := repo.ListMine(ctx, ports.ListParams{TenantID: prTenant, UserID: prSecond}); err != nil || len(page.Rows) != 0 {
-		t.Fatalf("unassigned list = %d / %v", len(page.Rows), err)
+	// The edit moved the routine from the Park Head role to the PC Director: a park head no
+	// longer sees its open tasks (roles are read live), the director now does -- with no task
+	// rewritten.
+	if page, err := repo.ListMine(ctx, ports.ListParams{TenantID: prTenant, UserID: prSecond, Limit: 50}); err != nil {
+		t.Fatalf("park head list after edit: %v", err)
+	} else {
+		for _, row := range page.Rows {
+			if row.RoutineID == daily.RoutineID {
+				t.Fatalf("a park head still lists the re-assigned routine: %+v", row)
+			}
+		}
+	}
+	if page, err := repo.ListMine(ctx, ports.ListParams{TenantID: prTenant, UserID: prPCDirector, Limit: 50}); err != nil || len(page.Rows) != 5 {
+		t.Fatalf("PC director list after edit = %d / %v, want the daily routine's 5 open tasks", len(page.Rows), err)
 	}
 	// --- StatusMatrix: the Today table's summary counts every bucket over the same predicate ---
 	// Castro 2 daily (today): completed (verified); Castro 2 after_work: completed (review none);
@@ -521,7 +570,7 @@ func TestPenRoutineLifecycleOneToManyParkScopePaginationStatusMatrixPostgresPath
 	for _, d := range digests {
 		switch d.RoutineID {
 		case daily.RoutineID:
-			if len(d.Tasks) != 5 || d.NotifyTime != "07:00" || d.ParkName != "Coimbatore" || len(d.AssigneeIDs) != 1 {
+			if len(d.Tasks) != 5 || d.NotifyTime != "07:00" || d.ParkName != "Coimbatore" || len(d.AssigneeIDs) != 1 || d.AssigneeIDs[0] != prPCDirector {
 				t.Fatalf("daily digest = %+v", d)
 			}
 		case weekly.RoutineID:
@@ -560,6 +609,214 @@ func TestPenRoutineLifecycleOneToManyParkScopePaginationStatusMatrixPostgresPath
 	// --- every emitted envelope passes the relay's schema ---
 	counts := assertEnvelopesValid(t, ctx, pool)
 	if counts[EventRoutineCreated] != 9 || counts[EventRoutineSubmitted] != 3 || counts[EventRoutineVerified] != 1 {
+		t.Fatalf("outbox counts = %v", counts)
+	}
+}
+
+// TestPenRoutineRoleResolutionTwoParkHeadsDirectorCXOParkScopeEveryNDaysPostgresPaths pins the
+// 2026-09-17 revision (docs/decisions/pen-routines.md) on a real database: routines are for
+// ROLES and the resolution is per park. The two tenant-scoped park heads (the live
+// Chandrakant / Dinakar shape) each see ONLY their home park's tasks; a tenant-scoped PC director
+// sees both parks; a CXO sees and completes a whole-park every-3-days task that raised exactly
+// ONE shed-less row; a routine whose role nobody holds raises nothing and is named.
+func TestPenRoutineRoleResolutionTwoParkHeadsDirectorCXOParkScopeEveryNDaysPostgresPaths(t *testing.T) {
+	pgtest.SkipIfNoDocker(t)
+	ctx, cancel := context.WithTimeout(context.Background(), 4*time.Minute)
+	defer cancel()
+	pool := pgtest.StartPostgres(t, ctx)
+	seedRoutineFixture(t, ctx, pool)
+
+	const today = "2026-09-16"
+	const tomorrow = "2026-09-17"
+	const threeDaysAgo = "2026-09-13"
+	now := istInstant(today, 9)
+	repo := NewRepository(pool, 15*time.Second).WithClock(func() time.Time { return now })
+	write := func(key string) ports.WriteParams {
+		return ports.WriteParams{TenantID: prTenant, ActorID: prCXO, IdempotencyKey: key, TraceID: "trace-" + key}
+	}
+	bothRoles := []string{domain.RoleParkHead, domain.RolePCDirector}
+	cbeRoutine, err := repo.CreateRoutine(ctx, write("cbe"), domain.Definition{
+		ParkID: prParkCBE, Name: "Water trough", ScopeKind: domain.ScopeSelectedPens, Pens: []domain.PenRef{{ShedID: prShedCastro, Partition: "2"}},
+		CadenceKind: domain.CadenceDaily, StartDate: threeDaysAgo, NotifyTime: "07:00", ReviewKind: domain.ReviewNone,
+		Evidence: evidenceOneQuestion(domain.PresenceOff, 0), AssigneeRoles: bothRoles,
+	})
+	if err != nil {
+		t.Fatalf("create CBE routine: %v", err)
+	}
+	cptRoutine, err := repo.CreateRoutine(ctx, write("cpt"), domain.Definition{
+		ParkID: prParkCPT, Name: "Water trough", ScopeKind: domain.ScopeSelectedPens, Pens: []domain.PenRef{{ShedID: prShedCPT}},
+		CadenceKind: domain.CadenceDaily, StartDate: threeDaysAgo, NotifyTime: "07:00", ReviewKind: domain.ReviewNone,
+		Evidence: evidenceOneQuestion(domain.PresenceOff, 0), AssigneeRoles: bothRoles,
+	})
+	if err != nil {
+		t.Fatalf("create CPT routine: %v", err)
+	}
+	store, err := repo.CreateRoutine(ctx, write("store"), domain.Definition{
+		ParkID: prParkCBE, Name: "Medicine store", Instruction: "Count the vials.", ScopeKind: domain.ScopePark,
+		CadenceKind: domain.CadenceEveryNDays, IntervalDays: 3, StartDate: threeDaysAgo, NotifyTime: "07:00", ReviewKind: domain.ReviewNone,
+		Evidence: evidenceOneQuestion(domain.PresenceRequired, 0), AssigneeRoles: []string{domain.RoleCXO},
+	})
+	if err != nil {
+		t.Fatalf("create park routine: %v", err)
+	}
+	if store.ScopeKind != domain.ScopePark || store.IntervalDays != 3 || store.StartDate != threeDaysAgo || len(store.People) != 1 || store.People[0].UserID != prCXO || store.People[0].RoleKey != domain.RoleCXO {
+		t.Fatalf("park routine = %+v", store)
+	}
+	nobody, err := repo.CreateRoutine(ctx, write("nobody"), domain.Definition{
+		ParkID: prParkCBE, Name: "Feed store", ScopeKind: domain.ScopeSelectedPens, Pens: []domain.PenRef{{ShedID: prShedYash}},
+		CadenceKind: domain.CadenceDaily, StartDate: threeDaysAgo, NotifyTime: "07:00", ReviewKind: domain.ReviewNone,
+		Evidence: evidenceOneQuestion(domain.PresenceOff, 0), AssigneeRoles: []string{domain.RoleFeedDirector},
+	})
+	if err != nil {
+		t.Fatalf("create nobody routine: %v", err)
+	}
+	// The DB refuses a whole-park routine that follows work, whatever the app layer does.
+	if _, err := pool.Exec(ctx, `UPDATE pen_routine_definitions SET cadence_kind = 'after_work', after_work_kinds = ARRAY['deworming'] WHERE routine_id = $1::uuid`, store.RoutineID); err == nil {
+		t.Fatal("the schema must refuse scope 'park' with cadence 'after_work'")
+	}
+
+	result, err := repo.Materialize(ctx, prTenant, today, today, now)
+	if err != nil {
+		t.Fatalf("materialize: %v", err)
+	}
+	if result.Created != 3 {
+		t.Fatalf("materialize = %+v, want 3 (CBE pen, CPT pen, ONE whole-park task)", result)
+	}
+	if len(result.RoutinesWithoutAssignee) != 1 || result.RoutinesWithoutAssignee[0].RoutineID != nobody.RoutineID || result.RoutinesWithoutAssignee[0].Roles[0] != domain.RoleFeedDirector {
+		t.Fatalf("a routine for a role nobody holds must be named: %+v", result.RoutinesWithoutAssignee)
+	}
+	var parkRows, nullShed int
+	if err := pool.QueryRow(ctx, `SELECT count(*), count(*) FILTER (WHERE shed_id IS NULL AND partition_label IS NULL AND shed_key = 'park') FROM pen_routine_tasks WHERE tenant_id = $1::uuid AND routine_id = $2::uuid`, prTenant, store.RoutineID).Scan(&parkRows, &nullShed); err != nil || parkRows != 1 || nullShed != 1 {
+		t.Fatalf("whole-park rows = %d (null shed %d) / %v, want exactly one shed-less task", parkRows, nullShed, err)
+	}
+	var nobodyRows int
+	if err := pool.QueryRow(ctx, `SELECT count(*) FROM pen_routine_tasks WHERE tenant_id = $1::uuid AND routine_id = $2::uuid`, prTenant, nobody.RoutineID).Scan(&nobodyRows); err != nil || nobodyRows != 0 {
+		t.Fatalf("a routine nobody holds raised %d rows / %v", nobodyRows, err)
+	}
+	if replay, err := repo.Materialize(ctx, prTenant, today, today, now); err != nil || replay.Created != 0 || replay.Widened != 0 {
+		t.Fatalf("replay = %+v / %v, want nothing inserted", replay, err)
+	}
+	// every_n_days from 13 Sep: raises on the 16th, not on the 17th.
+	next, err := repo.Materialize(ctx, prTenant, tomorrow, tomorrow, now.Add(24*time.Hour))
+	if err != nil || next.Created != 2 {
+		t.Fatalf("tomorrow = %+v / %v, want only the two daily pens", next, err)
+	}
+	if err := pool.QueryRow(ctx, `SELECT count(*) FROM pen_routine_tasks WHERE tenant_id = $1::uuid AND routine_id = $2::uuid`, prTenant, store.RoutineID).Scan(&parkRows); err != nil || parkRows != 1 {
+		t.Fatalf("every 3 days must not raise the next day: %d rows / %v", parkRows, err)
+	}
+
+	mine := func(user string) []domain.Task {
+		t.Helper()
+		page, err := repo.ListMine(ctx, ports.ListParams{TenantID: prTenant, UserID: user, Limit: 50})
+		if err != nil {
+			t.Fatalf("list %s: %v", user, err)
+		}
+		return page.Rows
+	}
+	parksOf := func(rows []domain.Task) map[string]int {
+		out := map[string]int{}
+		for _, r := range rows {
+			out[r.ParkID]++
+		}
+		return out
+	}
+	// The two tenant-scoped park heads: each sees ONLY his home park (two days of one pen).
+	if got := parksOf(mine(prHead)); len(got) != 1 || got[prParkCBE] != 2 {
+		t.Fatalf("CBE head (tenant scope, home CBE) sees %v, want only CBE", got)
+	}
+	if got := parksOf(mine(prCPTHead)); len(got) != 1 || got[prParkCPT] != 2 {
+		t.Fatalf("CPT head (tenant scope, home CPT) sees %v, want only CPT", got)
+	}
+	if got := parksOf(mine(prSecond)); len(got) != 1 || got[prParkCBE] != 2 {
+		t.Fatalf("park-scoped CBE head sees %v", got)
+	}
+	// A tenant-scoped PC director covers both parks.
+	if got := parksOf(mine(prPCDirector)); got[prParkCBE] != 2 || got[prParkCPT] != 2 {
+		t.Fatalf("PC director sees %v, want both parks", got)
+	}
+	// Neither an expired grant nor a non-assignable role sees anything.
+	for _, user := range []string{prExpired, prOperator, prVerifier} {
+		if rows := mine(user); len(rows) != 0 {
+			t.Fatalf("%s must see nothing, got %d", user, len(rows))
+		}
+		if n, err := repo.OpenCount(ctx, prTenant, user); err != nil || n != 0 {
+			t.Fatalf("%s open count = %d / %v", user, n, err)
+		}
+	}
+	if n, err := repo.OpenCount(ctx, prTenant, prCPTHead); err != nil || n != 2 {
+		t.Fatalf("CPT head open count = %d / %v", n, err)
+	}
+	// The CPT head cannot work the CBE pen.
+	cbeTask := mine(prHead)[0]
+	if cbeTask.RoutineID != cbeRoutine.RoutineID {
+		t.Fatalf("CBE head's task = %+v", cbeTask)
+	}
+	if _, err := repo.Submit(ctx, ports.SubmitParams{TenantID: prTenant, Actor: domain.Actor{UserID: prCPTHead}, TaskID: cbeTask.TaskID, Answers: rawAnswers(t, map[string]any{"cleaned": "yes"}), RowVersion: cbeTask.RowVersion, IdempotencyKey: "cpt-head-on-cbe"}); !errors.Is(err, domain.ErrNotAssignee) {
+		t.Fatalf("CPT head submitting a CBE task err = %v, want ErrNotAssignee", err)
+	}
+	if rows := mine(prCPTHead); rows[0].RoutineID != cptRoutine.RoutineID {
+		t.Fatalf("CPT head's task = %+v", rows[0])
+	}
+
+	// The CXO: sees the whole-park task (and no pen task), checks in, submits, done.
+	cxoRows := mine(prCXO)
+	if len(cxoRows) != 1 {
+		t.Fatalf("CXO list = %+v, want the one whole-park task", cxoRows)
+	}
+	parkTask := cxoRows[0]
+	step := domain.StepFor(parkTask, domain.Actor{UserID: prCXO}, today)
+	if !parkTask.IsParkTask() || parkTask.ShedID != "" || parkTask.PenLabel != "" || step.Title != "Medicine store · Coimbatore" || step.PresenceLine != "Check in to start" || !step.CanCheckIn || parkTask.CadenceLine != "Every 3 days" || len(parkTask.AssigneeIDs) != 1 || parkTask.AssigneeNames[0] != "The CXO" {
+		t.Fatalf("park task = %+v / step %+v", parkTask, step)
+	}
+	if _, err := repo.Submit(ctx, ports.SubmitParams{TenantID: prTenant, Actor: domain.Actor{UserID: prHead}, TaskID: parkTask.TaskID, Answers: rawAnswers(t, map[string]any{"cleaned": "yes"}), RowVersion: parkTask.RowVersion, IdempotencyKey: "head-on-cxo"}); !errors.Is(err, domain.ErrNotAssignee) {
+		t.Fatalf("a park head submitting the CXO's task err = %v", err)
+	}
+	digests, err := repo.DueDigests(ctx, prTenant, today)
+	if err != nil {
+		t.Fatalf("digests: %v", err)
+	}
+	var storeDigest *ports.DueDigest
+	for i := range digests {
+		if digests[i].RoutineID == store.RoutineID {
+			storeDigest = &digests[i]
+		}
+	}
+	if storeDigest == nil || len(storeDigest.Tasks) != 1 || !storeDigest.Tasks[0].IsParkTask() || len(storeDigest.AssigneeIDs) != 1 || storeDigest.AssigneeIDs[0] != prCXO {
+		t.Fatalf("park digest = %+v", storeDigest)
+	}
+	entered, err := repo.RecordPresence(ctx, ports.PresenceParams{TenantID: prTenant, Actor: domain.Actor{UserID: prCXO}, TaskID: parkTask.TaskID, EventType: domain.PresenceEnter, CapturedAt: now, RowVersion: parkTask.RowVersion, IdempotencyKey: "cxo-enter"})
+	if err != nil {
+		t.Fatalf("CXO check-in: %v", err)
+	}
+	if domain.PresenceLine(entered) != "Checked in since 9:00 am" {
+		t.Fatalf("park presence line = %q", domain.PresenceLine(entered))
+	}
+	done, err := repo.Submit(ctx, ports.SubmitParams{TenantID: prTenant, Actor: domain.Actor{UserID: prCXO}, TaskID: parkTask.TaskID, Answers: rawAnswers(t, map[string]any{"cleaned": "yes"}), RowVersion: entered.RowVersion, IdempotencyKey: "cxo-submit"})
+	if err != nil || done.Status != domain.StatusCompleted || done.WorkState != domain.WorkStateCompleted || done.SubmittedBy != prCXO {
+		t.Fatalf("CXO submit = %+v / %v", done, err)
+	}
+
+	// The routines table previews who holds each routine's roles, labelled by role.
+	rows, err := repo.ListRoutines(ctx, ports.RoutineListParams{TenantID: prTenant, ParkID: prParkCBE, Today: today})
+	if err != nil {
+		t.Fatalf("list routines: %v", err)
+	}
+	for _, row := range rows {
+		if row.Definition.RoutineID != cbeRoutine.RoutineID {
+			continue
+		}
+		roleOf := map[string]string{}
+		for _, p := range row.Definition.People {
+			roleOf[p.UserID] = p.RoleKey
+		}
+		if len(roleOf) != 3 || roleOf[prHead] != domain.RoleParkHead || roleOf[prSecond] != domain.RoleParkHead || roleOf[prPCDirector] != domain.RolePCDirector || len(row.Definition.AssigneeRoles) != 2 {
+			t.Fatalf("CBE routine people = %+v roles %v", row.Definition.People, row.Definition.AssigneeRoles)
+		}
+	}
+
+	// Every envelope -- including the shed-less whole-park task's -- passes the relay schema.
+	counts := assertEnvelopesValid(t, ctx, pool)
+	if counts[EventRoutineCreated] != 5 || counts[EventRoutineSubmitted] != 1 {
 		t.Fatalf("outbox counts = %v", counts)
 	}
 }

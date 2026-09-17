@@ -38,13 +38,16 @@ const (
 
 // EventPayload is the inner payload every task event carries.
 type EventPayload struct {
-	TaskID         string             `json:"task_id"`
-	RoutineID      string             `json:"routine_id"`
-	RoutineVersion int                `json:"routine_version"`
-	RoutineName    string             `json:"routine_name"`
-	ReviewKind     string             `json:"review_kind"`
-	ParkID         string             `json:"park_id"`
-	ParkName       string             `json:"park_name"`
+	TaskID         string `json:"task_id"`
+	RoutineID      string `json:"routine_id"`
+	RoutineVersion int    `json:"routine_version"`
+	RoutineName    string `json:"routine_name"`
+	ReviewKind     string `json:"review_kind"`
+	ParkID         string `json:"park_id"`
+	ParkName       string `json:"park_name"`
+	// ScopeKind: all_pens / selected_pens / park. A whole-park task carries shed_id,
+	// partition_label and pen_label as "".
+	ScopeKind      string             `json:"scope_kind"`
 	ShedID         string             `json:"shed_id"`
 	PartitionLabel string             `json:"partition_label"`
 	PenLabel       string             `json:"pen_label"`
@@ -89,6 +92,7 @@ func emitEvent(ctx context.Context, tx pgx.Tx, eventType string, t domain.Task, 
 		ReviewKind:     t.ReviewKind,
 		ParkID:         t.ParkID,
 		ParkName:       t.ParkName,
+		ScopeKind:      t.ScopeKind,
 		ShedID:         t.ShedID,
 		PartitionLabel: t.Partition,
 		PenLabel:       t.PenLabel,
@@ -105,6 +109,11 @@ func emitEvent(ctx context.Context, tx pgx.Tx, eventType string, t domain.Task, 
 		RowVersion:     t.RowVersion,
 		ChangedBy:      actorID,
 		OccurredAt:     now.Format(time.RFC3339),
+	}
+	// The envelope's visibility scope types shed_id as a uuid or null; a whole-park task has none.
+	var shedRef any
+	if t.ShedID != "" {
+		shedRef = t.ShedID
 	}
 	var actorRef any
 	if actorID != "" {
@@ -135,7 +144,7 @@ func emitEvent(ctx context.Context, tx pgx.Tx, eventType string, t domain.Task, 
 		"visibility_scope": map[string]any{
 			"tenant_id": t.TenantID,
 			"park_id":   t.ParkID,
-			"shed_id":   t.ShedID,
+			"shed_id":   shedRef,
 		},
 		"evidence_refs": []map[string]string{{
 			"evidence_type": "source_record",

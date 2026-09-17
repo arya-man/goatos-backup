@@ -17,12 +17,12 @@ var (
 	ErrIdempotencyConflict    = errors.New("pen routine: idempotency conflict")
 	ErrInvalidArgument        = errors.New("pen routine: invalid argument")
 	ErrNameTaken              = errors.New("pen routine: a routine with this name already exists in the park")
-	ErrAssigneeNotEligible    = errors.New("pen routine: an assignee cannot work routines in this park")
 	ErrParkImmutable          = errors.New("pen routine: a routine's park cannot change")
 	ErrRoutineVersionConflict = errors.New("pen routine: the routine changed since it was loaded")
 )
 
-// ListParams selects one page of the tasks owed on the routines the caller is assigned to.
+// ListParams selects one page of the tasks owed on the routines whose roles the caller holds
+// for the routine's park.
 type ListParams struct {
 	TenantID string
 	UserID   string
@@ -35,7 +35,7 @@ type ListParams struct {
 type Page struct {
 	Rows       []domain.Task
 	NextCursor string
-	// StateCounts range over the SAME assignee predicate as the rows (never page-local,
+	// StateCounts range over the SAME role-holder predicate as the rows (never page-local,
 	// never tenant-wide), keyed by work state.
 	StateCounts map[string]int
 }
@@ -94,6 +94,8 @@ type RoutineRef struct {
 	RoutineID string
 	Name      string
 	ParkID    string
+	// Roles are the routine's assignee roles, named so the log says WHICH role nobody holds.
+	Roles []string
 }
 
 // MaterializeResult is what one materializer pass did, for the log line.
@@ -101,10 +103,11 @@ type MaterializeResult struct {
 	BusinessDate string
 	Created      int
 	Widened      int
-	// RoutinesWithoutAssignee names active routines that would have raised work but have
-	// nobody assigned -- the loud gap; nothing was written for them.
+	// RoutinesWithoutAssignee names active routines that would have raised work but whose
+	// roles resolve to NOBODY in their park -- the loud gap; nothing was written for them.
 	RoutinesWithoutAssignee []RoutineRef
-	// PensSkipped counts pens of those routines.
+	// PensSkipped counts the tasks those routines would have raised (pens, or 1 for a
+	// whole-park routine).
 	PensSkipped int
 }
 
@@ -115,7 +118,8 @@ type DueDigest struct {
 	ParkID      string
 	ParkName    string
 	// NotifyTime is the routine's local IST "HH:MM".
-	NotifyTime  string
+	NotifyTime string
+	// AssigneeIDs are the role holders resolved for the routine's park at read time.
 	AssigneeIDs []string
 	DueDate     string
 	Tasks       []domain.Task
@@ -184,11 +188,16 @@ type CatalogPen struct {
 	Occupied  bool
 }
 
-// Person is one person who may be assigned a routine in a park.
+// Person is one person who holds a role in a park.
 type Person struct {
 	UserID      string
 	DisplayName string
-	Designation string
+}
+
+// RoleHolders is one assignable role and who currently holds it for a park.
+type RoleHolders struct {
+	Role   string
+	People []Person
 }
 
 // WriteParams carries who is writing and under which idempotency key.
@@ -204,21 +213,25 @@ type Repository interface {
 	// --- routines (authoring) ---
 	ListRoutines(ctx context.Context, p RoutineListParams) ([]RoutineListRow, error)
 	GetRoutine(ctx context.Context, tenantID, routineID string) (domain.Definition, error)
-	// CreateRoutine writes the definition, version 1, the pens and the assignees in one
-	// transaction. The definition must already be normalized and validated.
+	// CreateRoutine writes the definition (with its assignee roles), version 1 and the pens in
+	// one transaction. The definition must already be normalized and validated.
 	CreateRoutine(ctx context.Context, w WriteParams, d domain.Definition) (domain.Definition, error)
-	// UpdateRoutine writes a NEW version row, bumps current_version, replaces pens and
-	// assignees, fenced on d.RowVersion. Open tasks keep the version they pinned.
+	// UpdateRoutine writes a NEW version row, bumps current_version, replaces the pens and the
+	// roles, fenced on d.RowVersion. Open tasks keep the version they pinned.
 	UpdateRoutine(ctx context.Context, w WriteParams, d domain.Definition) (domain.Definition, error)
 	SetRoutineStatus(ctx context.Context, w WriteParams, routineID, status string, rowVersion int) (domain.Definition, error)
 	ListParks(ctx context.Context, tenantID string) ([]Park, error)
 	// CatalogPens lists every ACTIVE pen of a park from the partition catalog -- the same
 	// source the herd-register write pickers use -- with an occupied flag from live animals.
 	CatalogPens(ctx context.Context, tenantID, parkID string) ([]CatalogPen, error)
-	// EligiblePeople lists the people who may be assigned a routine in a park: active
-	// workforce members with a login whose resolved access holds pen_routines.execute and
-	// whose park scope covers the park.
-	EligiblePeople(ctx context.Context, tenantID, parkID string) ([]Person, error)
+	// RoleHoldersForPark answers, for every assignable role in vocabulary order, who holds it
+	// for the park -- the SAME resolution every task read uses (an active grant on an active
+	// member; park scope on the park, tenant scope everywhere, except a tenant-scoped
+	// park_head who covers only his HRMS home park).
+	RoleHoldersForPark(ctx context.Context, tenantID, parkID string) ([]RoleHolders, error)
+	// ListRoutineAssignees is the batched preview of who currently holds each routine's roles
+	// in its park, keyed by routine id, bounded per routine.
+	ListRoutineAssignees(ctx context.Context, tenantID string, routineIDs []string) (map[string][]domain.Assignee, error)
 
 	// --- tasks ---
 	ListMine(ctx context.Context, p ListParams) (Page, error)
@@ -234,13 +247,14 @@ type Repository interface {
 	// replaces them.
 	BounceForRework(ctx context.Context, p VerdictParams) (VerdictResult, error)
 	// OpenCount answers the badge for one person: tasks still awaiting work on the routines
-	// they are assigned to.
+	// whose roles they hold for the routine's park.
 	OpenCount(ctx context.Context, tenantID, userID string) (int, error)
 	// ListForPark is the web Today table: one park, one due date.
 	ListForPark(ctx context.Context, p ParkListParams) (ParkPage, error)
-	// Materialize writes one task per pen per active routine that raises on businessDate,
-	// due on the later of the planned date and today. Idempotent on the natural key: a
-	// replay inserts nothing. Routines with no assignee raise nothing and are named.
+	// Materialize writes one task per pen (or ONE for a whole-park routine) per active routine
+	// that raises on businessDate, due on the later of the planned date and today. Idempotent
+	// on the natural key: a replay inserts nothing. Routines whose roles nobody holds in their
+	// park raise nothing and are named.
 	Materialize(ctx context.Context, tenantID, businessDate, today string, now time.Time) (MaterializeResult, error)
 	// DueDigests reads, per active routine, the open tasks due on the given date, for the
 	// day's push. Bounded by that day's open tasks.

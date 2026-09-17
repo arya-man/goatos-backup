@@ -89,9 +89,12 @@ type Task struct {
 	CadenceLine    string
 	ParkID         string
 	ParkName       string
-	ShedID         string
-	ShedName       string
-	Partition      string
+	// ScopeKind is the routine's scope, read live from the definition. A whole-park task
+	// (ScopePark) has ShedID, ShedName, Partition and PenLabel all "".
+	ScopeKind string
+	ShedID    string
+	ShedName  string
+	Partition string
 	// PenLabel is the oploc display of (shed, partition): "Castro 2", "Godel 1 - Part 3".
 	PenLabel     string
 	TriggerKinds []string
@@ -100,9 +103,9 @@ type Task struct {
 	DueDate      string // YYYY-MM-DD, rolls forward only
 	WorkState    string
 	Status       string
-	// AssigneeIDs are the routine's people; any one of them may work the task. AssigneeNames
-	// are their display names in the same order, resolved by the read (a name the register
-	// cannot resolve is "").
+	// AssigneeIDs are the people who hold one of the routine's roles for the task's park,
+	// resolved per read from the live role grants; any one of them may work the task.
+	// AssigneeNames are their display names in the same order ("" when unresolvable).
 	AssigneeIDs   []string
 	AssigneeNames []string
 	Answers       map[string]any
@@ -127,7 +130,10 @@ type Actor struct {
 	UserID string
 }
 
-// IsAssignee reports whether the actor is one of the routine's people.
+// IsParkTask reports whether the task is a whole-park task (no pen).
+func (t Task) IsParkTask() bool { return t.ScopeKind == ScopePark }
+
+// IsAssignee reports whether the actor holds one of the routine's roles for the task's park.
 func (t Task) IsAssignee(a Actor) bool {
 	if a.UserID == "" {
 		return false
@@ -269,11 +275,18 @@ func SubmitOutcome(reviewKind string) (workState, status string) {
 	return "", StatusPendingVerification // work state untouched
 }
 
-// Title is the card's first line: the routine, at the pen, at the park.
+// Title is the card's first line: the routine, at the pen, at the park -- or, for a whole-park
+// task, the routine at the park.
 func Title(t Task) string {
 	name := strings.TrimSpace(t.RoutineName)
 	if name == "" {
 		name = "Routine"
+	}
+	if t.IsParkTask() {
+		if park := strings.TrimSpace(t.ParkName); park != "" {
+			return name + " · " + park
+		}
+		return name
 	}
 	pen := strings.TrimSpace(t.PenLabel)
 	if pen == "" {
@@ -375,6 +388,12 @@ func Instruction(t Task, a Actor) string {
 	}
 	own := strings.TrimSpace(t.Instruction)
 	if t.Evidence.PresenceRequired() && !t.InPen(a) {
+		if t.IsParkTask() {
+			if own == "" {
+				return "Check in when you arrive, then answer and submit."
+			}
+			return own + " Check in when you arrive."
+		}
 		if own == "" {
 			return "Check in when you reach the pen, then answer and submit."
 		}
@@ -393,10 +412,16 @@ func PresenceLine(t Task) string {
 		return ""
 	}
 	if t.EnteredAt == nil {
+		if t.IsParkTask() {
+			return "Check in to start"
+		}
 		return "Check in to the pen to start"
 	}
 	in := t.EnteredAt.In(biztime.DefaultLocation())
 	if t.LeftAt == nil {
+		if t.IsParkTask() {
+			return "Checked in since " + clock(in)
+		}
 		return "In pen since " + clock(in)
 	}
 	out := t.LeftAt.In(biztime.DefaultLocation())
@@ -505,29 +530,32 @@ func AnswerRows(t Task) []AnswerRow {
 // table and the Work Board subtask. ONE wire shape, composed here, so no two screens disagree
 // about where a pen's check stands. Every visible string is backend copy rendered verbatim.
 type Step struct {
-	TaskID         string   `json:"task_id"`
-	RoutineID      string   `json:"routine_id"`
-	RoutineVersion int      `json:"routine_version"`
-	RoutineName    string   `json:"routine_name"`
-	Title          string   `json:"title"`
-	ParkID         string   `json:"park_id"`
-	ParkName       string   `json:"park_name"`
-	ShedID         string   `json:"shed_id"`
-	ShedName       string   `json:"shed_name"`
-	Partition      string   `json:"partition_label"`
-	PenLabel       string   `json:"operational_location_display"`
-	TriggerKinds   []string `json:"trigger_kinds"`
-	ReasonLine     string   `json:"reason_line"`
-	SourceDate     string   `json:"source_business_date"`
-	PlannedDate    string   `json:"planned_business_date"`
-	DueDate        string   `json:"due_business_date"`
-	WorkState      string   `json:"work_state"`
-	Status         string   `json:"status"`
-	StateChip      string   `json:"state_chip"`
-	StateTone      string   `json:"state_tone"`
-	Instruction    string   `json:"instruction"`
-	EvidenceLine   string   `json:"evidence_line"`
-	ReviewKind     string   `json:"review_kind"`
+	TaskID         string `json:"task_id"`
+	RoutineID      string `json:"routine_id"`
+	RoutineVersion int    `json:"routine_version"`
+	RoutineName    string `json:"routine_name"`
+	Title          string `json:"title"`
+	ParkID         string `json:"park_id"`
+	ParkName       string `json:"park_name"`
+	// ScopeKind is all_pens / selected_pens / park. For a park task the shed and pen fields
+	// below are "" (never null): the task names no pen.
+	ScopeKind    string   `json:"scope_kind"`
+	ShedID       string   `json:"shed_id"`
+	ShedName     string   `json:"shed_name"`
+	Partition    string   `json:"partition_label"`
+	PenLabel     string   `json:"operational_location_display"`
+	TriggerKinds []string `json:"trigger_kinds"`
+	ReasonLine   string   `json:"reason_line"`
+	SourceDate   string   `json:"source_business_date"`
+	PlannedDate  string   `json:"planned_business_date"`
+	DueDate      string   `json:"due_business_date"`
+	WorkState    string   `json:"work_state"`
+	Status       string   `json:"status"`
+	StateChip    string   `json:"state_chip"`
+	StateTone    string   `json:"state_tone"`
+	Instruction  string   `json:"instruction"`
+	EvidenceLine string   `json:"evidence_line"`
+	ReviewKind   string   `json:"review_kind"`
 	// Form is the pinned version's evidence: the questions and capture rules the phone renders.
 	Form Evidence `json:"form"`
 	// Answers are the stored answers keyed by question id (null when none); AnswerRows their
@@ -577,6 +605,7 @@ func StepFor(t Task, actor Actor, today string) Step {
 		Title:            Title(t),
 		ParkID:           t.ParkID,
 		ParkName:         t.ParkName,
+		ScopeKind:        t.ScopeKind,
 		ShedID:           t.ShedID,
 		ShedName:         t.ShedName,
 		Partition:        t.Partition,
@@ -591,7 +620,7 @@ func StepFor(t Task, actor Actor, today string) Step {
 		StateChip:        StateChip(t, today),
 		StateTone:        StateTone(t),
 		Instruction:      Instruction(t, actor),
-		EvidenceLine:     EvidenceLine(t.Evidence),
+		EvidenceLine:     EvidenceLineForScope(t.Evidence, t.ScopeKind),
 		ReviewKind:       t.ReviewKind,
 		Form:             form,
 		Answers:          t.Answers,

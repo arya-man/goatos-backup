@@ -77,40 +77,53 @@ type penPayload struct {
 	Display        string `json:"operational_location_display"`
 }
 
-type assigneePayload struct {
-	UserID      string `json:"user_id"`
-	DisplayName string `json:"display_name"`
+// rolePayload is one role a routine is for, with its farm label.
+type rolePayload struct {
+	Key   string `json:"key"`
+	Label string `json:"label"`
 }
 
-// routineRow is the web table row: the rule, its lines, its people, and the two counts.
+// rolePersonPayload is one person who currently holds one of the routine's roles in its park
+// (a read-only preview; the routine stores roles, never people).
+type rolePersonPayload struct {
+	UserID      string `json:"user_id"`
+	DisplayName string `json:"display_name"`
+	RoleLabel   string `json:"role_label"`
+}
+
+// routineRow is the web table row: the rule, its lines, its roles and who holds them today,
+// and the two counts.
 type routineRow struct {
-	RoutineID      string            `json:"routine_id"`
-	ParkID         string            `json:"park_id"`
-	ParkName       string            `json:"park_name"`
-	Name           string            `json:"name"`
-	Instruction    string            `json:"instruction"`
-	ScopeKind      string            `json:"scope_kind"`
-	OccupiedOnly   bool              `json:"occupied_only"`
-	Pens           []penPayload      `json:"pens"`
-	CadenceKind    string            `json:"cadence_kind"`
-	Weekdays       []int             `json:"weekdays"`
-	MonthDays      []int             `json:"month_days"`
-	AfterWorkKinds []string          `json:"after_work_kinds"`
-	CadenceLine    string            `json:"cadence_line"`
-	DueOffsetDays  int               `json:"due_offset_days"`
-	NotifyTime     string            `json:"notify_time"`
-	ReviewKind     string            `json:"review_kind"`
-	Status         string            `json:"status"`
-	StatusLabel    string            `json:"status_label"`
-	CurrentVersion int               `json:"current_version"`
-	Evidence       domain.Evidence   `json:"evidence"`
-	EvidenceLine   string            `json:"evidence_line"`
-	Assignees      []assigneePayload `json:"assignees"`
-	OpenToday      int               `json:"open_today"`
-	Delayed        int               `json:"delayed"`
-	CreatedAt      string            `json:"created_at"`
-	UpdatedAt      string            `json:"updated_at"`
-	RowVersion     int               `json:"row_version"`
+	RoutineID      string              `json:"routine_id"`
+	ParkID         string              `json:"park_id"`
+	ParkName       string              `json:"park_name"`
+	Name           string              `json:"name"`
+	Instruction    string              `json:"instruction"`
+	ScopeKind      string              `json:"scope_kind"`
+	OccupiedOnly   bool                `json:"occupied_only"`
+	Pens           []penPayload        `json:"pens"`
+	CadenceKind    string              `json:"cadence_kind"`
+	Weekdays       []int               `json:"weekdays"`
+	MonthDays      []int               `json:"month_days"`
+	AfterWorkKinds []string            `json:"after_work_kinds"`
+	IntervalDays   *int                `json:"interval_days"`
+	StartDate      string              `json:"start_date"`
+	CadenceLine    string              `json:"cadence_line"`
+	DueOffsetDays  int                 `json:"due_offset_days"`
+	NotifyTime     string              `json:"notify_time"`
+	ReviewKind     string              `json:"review_kind"`
+	Status         string              `json:"status"`
+	StatusLabel    string              `json:"status_label"`
+	CurrentVersion int                 `json:"current_version"`
+	Evidence       domain.Evidence     `json:"evidence"`
+	EvidenceLine   string              `json:"evidence_line"`
+	AssigneeRoles  []rolePayload       `json:"assignee_roles"`
+	People         []rolePersonPayload `json:"people"`
+	OpenToday      int                 `json:"open_today"`
+	Delayed        int                 `json:"delayed"`
+	CreatedAt      string              `json:"created_at"`
+	UpdatedAt      string              `json:"updated_at"`
+	RowVersion     int                 `json:"row_version"`
 }
 
 type parkPayload struct {
@@ -140,7 +153,13 @@ type catalogPenPayload struct {
 type personPayload struct {
 	UserID      string `json:"user_id"`
 	DisplayName string `json:"display_name"`
-	Designation string `json:"designation"`
+}
+
+// catalogRolePayload is one assignable role and who holds it for the requested park.
+type catalogRolePayload struct {
+	Key    string          `json:"key"`
+	Label  string          `json:"label"`
+	People []personPayload `json:"people"`
 }
 
 type optionPayload struct {
@@ -151,19 +170,21 @@ type optionPayload struct {
 type catalogDefaults struct {
 	NotifyTime    string `json:"notify_time"`
 	DueOffsetDays int    `json:"due_offset_days"`
+	StartDate     string `json:"start_date"`
+	IntervalDays  int    `json:"interval_days"`
 }
 
 type catalogPayload struct {
-	Pens          []catalogPenPayload `json:"pens"`
-	People        []personPayload     `json:"people"`
-	WorkKinds     []optionPayload     `json:"work_kinds"`
-	QuestionKinds []optionPayload     `json:"question_kinds"`
-	CadenceKinds  []optionPayload     `json:"cadence_kinds"`
-	ReviewKinds   []optionPayload     `json:"review_kinds"`
-	PresenceKinds []optionPayload     `json:"presence_kinds"`
-	ScopeKinds    []optionPayload     `json:"scope_kinds"`
-	Defaults      catalogDefaults     `json:"defaults"`
-	TraceID       string              `json:"trace_id"`
+	Pens          []catalogPenPayload  `json:"pens"`
+	Roles         []catalogRolePayload `json:"roles"`
+	WorkKinds     []optionPayload      `json:"work_kinds"`
+	QuestionKinds []optionPayload      `json:"question_kinds"`
+	CadenceKinds  []optionPayload      `json:"cadence_kinds"`
+	ReviewKinds   []optionPayload      `json:"review_kinds"`
+	PresenceKinds []optionPayload      `json:"presence_kinds"`
+	ScopeKinds    []optionPayload      `json:"scope_kinds"`
+	Defaults      catalogDefaults      `json:"defaults"`
+	TraceID       string               `json:"trace_id"`
 }
 
 type penWrite struct {
@@ -173,22 +194,24 @@ type penWrite struct {
 
 // routineWrite is the create / update body.
 type routineWrite struct {
-	ParkID          string          `json:"park_id"`
-	Name            string          `json:"name"`
-	Instruction     string          `json:"instruction"`
-	ScopeKind       string          `json:"scope_kind"`
-	OccupiedOnly    *bool           `json:"occupied_only"`
-	Pens            []penWrite      `json:"pens"`
-	CadenceKind     string          `json:"cadence_kind"`
-	Weekdays        []int           `json:"weekdays"`
-	MonthDays       []int           `json:"month_days"`
-	AfterWorkKinds  []string        `json:"after_work_kinds"`
-	DueOffsetDays   *int            `json:"due_offset_days"`
-	NotifyTime      string          `json:"notify_time"`
-	ReviewKind      string          `json:"review_kind"`
-	Evidence        domain.Evidence `json:"evidence"`
-	AssigneeUserIDs []string        `json:"assignee_user_ids"`
-	RowVersion      int             `json:"row_version"`
+	ParkID         string          `json:"park_id"`
+	Name           string          `json:"name"`
+	Instruction    string          `json:"instruction"`
+	ScopeKind      string          `json:"scope_kind"`
+	OccupiedOnly   *bool           `json:"occupied_only"`
+	Pens           []penWrite      `json:"pens"`
+	CadenceKind    string          `json:"cadence_kind"`
+	Weekdays       []int           `json:"weekdays"`
+	MonthDays      []int           `json:"month_days"`
+	AfterWorkKinds []string        `json:"after_work_kinds"`
+	IntervalDays   *int            `json:"interval_days"`
+	StartDate      string          `json:"start_date"`
+	DueOffsetDays  *int            `json:"due_offset_days"`
+	NotifyTime     string          `json:"notify_time"`
+	ReviewKind     string          `json:"review_kind"`
+	Evidence       domain.Evidence `json:"evidence"`
+	AssigneeRoles  []string        `json:"assignee_roles"`
+	RowVersion     int             `json:"row_version"`
 }
 
 type statusWrite struct {
@@ -196,7 +219,8 @@ type statusWrite struct {
 	RowVersion int    `json:"row_version"`
 }
 
-// taskRow is a Today-table row: the step plus the assignees' names.
+// taskRow is a Today-table row: the step plus the names of the people who hold the routine's
+// roles for the park today.
 type taskRow struct {
 	domain.Step
 	AssigneeNames []string `json:"assignee_names"`
@@ -215,9 +239,18 @@ func toRoutineRow(row ports.RoutineListRow) routineRow {
 	for _, p := range d.Pens {
 		pens = append(pens, penPayload{ShedID: p.ShedID, ShedName: p.ShedName, PartitionLabel: p.Partition, Display: p.Label})
 	}
-	assignees := make([]assigneePayload, 0, len(d.Assignees))
-	for _, a := range d.Assignees {
-		assignees = append(assignees, assigneePayload{UserID: a.UserID, DisplayName: a.DisplayName})
+	roles := make([]rolePayload, 0, len(d.AssigneeRoles))
+	for _, key := range domain.SortRoles(d.AssigneeRoles) {
+		roles = append(roles, rolePayload{Key: key, Label: domain.RoleLabel(key)})
+	}
+	people := make([]rolePersonPayload, 0, len(d.People))
+	for _, p := range d.People {
+		people = append(people, rolePersonPayload{UserID: p.UserID, DisplayName: p.DisplayName, RoleLabel: domain.RoleLabel(p.RoleKey)})
+	}
+	var interval *int
+	if d.CadenceKind == domain.CadenceEveryNDays {
+		v := d.IntervalDays
+		interval = &v
 	}
 	weekdays, monthDays := d.Weekdays, d.MonthDays
 	if weekdays == nil {
@@ -247,6 +280,8 @@ func toRoutineRow(row ports.RoutineListRow) routineRow {
 		Weekdays:       weekdays,
 		MonthDays:      monthDays,
 		AfterWorkKinds: kinds,
+		IntervalDays:   interval,
+		StartDate:      d.StartDate,
 		CadenceLine:    domain.CadenceLine(d),
 		DueOffsetDays:  d.DueOffsetDays,
 		NotifyTime:     d.NotifyTime,
@@ -255,8 +290,9 @@ func toRoutineRow(row ports.RoutineListRow) routineRow {
 		StatusLabel:    domain.StatusLabel(d.Status),
 		CurrentVersion: d.CurrentVersion,
 		Evidence:       ev,
-		EvidenceLine:   domain.EvidenceLine(d.Evidence),
-		Assignees:      assignees,
+		EvidenceLine:   domain.EvidenceLineForScope(d.Evidence, d.ScopeKind),
+		AssigneeRoles:  roles,
+		People:         people,
 		OpenToday:      row.OpenToday,
 		Delayed:        row.Delayed,
 		CreatedAt:      d.CreatedAt.UTC().Format("2006-01-02T15:04:05Z07:00"),
@@ -280,6 +316,10 @@ func (w routineWrite) toDefinition() domain.Definition {
 	} else if w.CadenceKind == domain.CadenceAfterWork {
 		offset = 1
 	}
+	interval := 0
+	if w.IntervalDays != nil {
+		interval = *w.IntervalDays
+	}
 	return domain.Definition{
 		ParkID:         w.ParkID,
 		Name:           w.Name,
@@ -291,11 +331,13 @@ func (w routineWrite) toDefinition() domain.Definition {
 		Weekdays:       w.Weekdays,
 		MonthDays:      w.MonthDays,
 		AfterWorkKinds: w.AfterWorkKinds,
+		IntervalDays:   interval,
+		StartDate:      w.StartDate,
 		DueOffsetDays:  offset,
 		NotifyTime:     w.NotifyTime,
 		ReviewKind:     w.ReviewKind,
 		Evidence:       w.Evidence,
-		AssigneeIDs:    w.AssigneeUserIDs,
+		AssigneeRoles:  w.AssigneeRoles,
 		RowVersion:     w.RowVersion,
 	}
 }

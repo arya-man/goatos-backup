@@ -26,6 +26,9 @@ type AuthoringService interface {
 	Today() string
 }
 
+// defaultIntervalDays is what the drawer pre-fills when the author picks "Every few days".
+const defaultIntervalDays = 3
+
 // AdminHandler serves the authoring routes behind /routines.
 type AdminHandler struct {
 	service AuthoringService
@@ -89,7 +92,7 @@ func (h *AdminHandler) Catalog(w http.ResponseWriter, r *http.Request) {
 	}
 	out := catalogPayload{
 		Pens:      make([]catalogPenPayload, 0, len(c.Pens)),
-		People:    make([]personPayload, 0, len(c.People)),
+		Roles:     make([]catalogRolePayload, 0, len(c.Roles)),
 		WorkKinds: workKindOptions(),
 		QuestionKinds: options(
 			[2]string{domain.QuestionYesNo, "Yes / No"},
@@ -102,6 +105,7 @@ func (h *AdminHandler) Catalog(w http.ResponseWriter, r *http.Request) {
 			[2]string{domain.CadenceDaily, "Every day"},
 			[2]string{domain.CadenceWeekly, "Chosen weekdays"},
 			[2]string{domain.CadenceMonthly, "Chosen days of the month"},
+			[2]string{domain.CadenceEveryNDays, "Every few days"},
 			[2]string{domain.CadenceAfterWork, "After work in the pen"},
 		),
 		ReviewKinds: options(
@@ -113,17 +117,22 @@ func (h *AdminHandler) Catalog(w http.ResponseWriter, r *http.Request) {
 			[2]string{domain.PresenceOff, "No check-in"},
 		),
 		ScopeKinds: options(
-			[2]string{domain.ScopeAllPens, "Every active pen"},
+			[2]string{domain.ScopeAllPens, "Every pen"},
 			[2]string{domain.ScopeSelectedPens, "Chosen pens"},
+			[2]string{domain.ScopePark, "Whole park (one task)"},
 		),
-		Defaults: catalogDefaults{NotifyTime: "07:00", DueOffsetDays: 0},
+		Defaults: catalogDefaults{NotifyTime: "07:00", DueOffsetDays: 0, StartDate: h.service.Today(), IntervalDays: defaultIntervalDays},
 		TraceID:  traceID(r),
 	}
 	for _, p := range c.Pens {
 		out.Pens = append(out.Pens, catalogPenPayload{ShedID: p.ShedID, ShedName: p.ShedName, PartitionLabel: p.Partition, Display: p.Label, Occupied: p.Occupied})
 	}
-	for _, p := range c.People {
-		out.People = append(out.People, personPayload{UserID: p.UserID, DisplayName: p.DisplayName, Designation: p.Designation})
+	for _, role := range c.Roles {
+		people := make([]personPayload, 0, len(role.People))
+		for _, p := range role.People {
+			people = append(people, personPayload{UserID: p.UserID, DisplayName: p.DisplayName})
+		}
+		out.Roles = append(out.Roles, catalogRolePayload{Key: role.Role, Label: domain.RoleLabel(role.Role), People: people})
 	}
 	httpresponse.WriteJSON(w, http.StatusOK, out)
 }
@@ -222,8 +231,8 @@ func (h *AdminHandler) ListTasks(w http.ResponseWriter, r *http.Request) {
 	httpresponse.WriteJSON(w, http.StatusOK, taskListPayload{Rows: rows, NextCursor: next, Summary: page.Summary, TraceID: traceID(r)})
 }
 
-// assigneeNames is what the Today table shows under "assignee": the routine's people, by
-// name, resolved by the task read; a name the register cannot resolve is dropped rather
+// assigneeNames is what the Today table shows under "assignee": the people holding the
+// routine's roles for the park, by name, resolved by the task read; a name the register cannot resolve is dropped rather
 // than rendered as an id.
 func assigneeNames(t domain.Task) []string {
 	out := make([]string, 0, len(t.AssigneeNames))

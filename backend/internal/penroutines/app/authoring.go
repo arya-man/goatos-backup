@@ -32,11 +32,11 @@ func (s *AuthoringService) WithClock(now func() time.Time) *AuthoringService {
 // Today is the IST business date.
 func (s *AuthoringService) Today() string { return biztime.BusinessDate(s.now()) }
 
-// Catalog is what the create / edit drawer needs: the park's pens, the people who may be
-// assigned there, and the closed vocabularies.
+// Catalog is what the create / edit drawer needs: the park's pens and, for every assignable
+// role, who currently holds it for that park.
 type Catalog struct {
-	Pens   []ports.CatalogPen
-	People []ports.Person
+	Pens  []ports.CatalogPen
+	Roles []ports.RoleHolders
 }
 
 // List lists the routines of one park (or all) with their counts, and the park options.
@@ -64,7 +64,7 @@ func (s *AuthoringService) Get(ctx context.Context, tenantID, routineID string) 
 	return s.repo.GetRoutine(ctx, tenantID, routineID)
 }
 
-// Catalog reads the drawer's pens and people for a park.
+// Catalog reads the drawer's pens and role holders for a park.
 func (s *AuthoringService) Catalog(ctx context.Context, tenantID, parkID string) (Catalog, error) {
 	if !uuidutil.IsUUIDString(parkID) {
 		return Catalog{}, ports.ErrInvalidArgument
@@ -73,11 +73,11 @@ func (s *AuthoringService) Catalog(ctx context.Context, tenantID, parkID string)
 	if err != nil {
 		return Catalog{}, err
 	}
-	people, err := s.repo.EligiblePeople(ctx, tenantID, parkID)
+	roles, err := s.repo.RoleHoldersForPark(ctx, tenantID, parkID)
 	if err != nil {
 		return Catalog{}, err
 	}
-	return Catalog{Pens: pens, People: people}, nil
+	return Catalog{Pens: pens, Roles: roles}, nil
 }
 
 // Create validates and writes a new routine.
@@ -99,6 +99,15 @@ func (s *AuthoringService) Update(ctx context.Context, w ports.WriteParams, d do
 	}
 	if !uuidutil.IsUUIDString(d.RoutineID) {
 		return domain.Definition{}, ports.ErrRoutineNotFound
+	}
+	// An edit that names no start date keeps the stored one: re-anchoring an every-N-days
+	// routine on today would silently move every future occurrence.
+	if strings.TrimSpace(d.StartDate) == "" {
+		before, err := s.repo.GetRoutine(ctx, w.TenantID, d.RoutineID)
+		if err != nil {
+			return domain.Definition{}, err
+		}
+		d.StartDate = before.StartDate
 	}
 	d, err := s.prepare(ctx, w.TenantID, d)
 	if err != nil {
@@ -139,9 +148,10 @@ func (s *AuthoringService) ListTasks(ctx context.Context, p ports.ParkListParams
 	return s.repo.ListForPark(ctx, p)
 }
 
-// prepare normalizes and validates an authored definition, and refuses an assignee who is not
-// eligible for the park with the person's name in the message.
-func (s *AuthoringService) prepare(ctx context.Context, tenantID string, d domain.Definition) (domain.Definition, error) {
+// prepare normalizes and validates an authored definition. WHO it is for is a set of roles,
+// validated against the closed vocabulary; nobody is checked by name, because the holders of a
+// role change without the routine changing.
+func (s *AuthoringService) prepare(_ context.Context, _ string, d domain.Definition) (domain.Definition, error) {
 	d.Name = strings.TrimSpace(d.Name)
 	d.Instruction = strings.TrimSpace(d.Instruction)
 	d.ParkID = strings.TrimSpace(d.ParkID)
@@ -149,8 +159,15 @@ func (s *AuthoringService) prepare(ctx context.Context, tenantID string, d domai
 	if d.NotifyTime == "" {
 		d.NotifyTime = "07:00"
 	}
+	d.StartDate = strings.TrimSpace(d.StartDate)
+	if d.StartDate == "" {
+		d.StartDate = s.Today()
+	}
 	d.Evidence = domain.NormalizeEvidence(d.Evidence)
 	d.AfterWorkKinds = domain.SortWorkKinds(d.AfterWorkKinds)
+	if d.CadenceKind != domain.CadenceEveryNDays {
+		d.IntervalDays = 0
+	}
 	if !uuidutil.IsUUIDString(d.ParkID) {
 		return domain.Definition{}, fmt.Errorf("%w: a park is required", domain.ErrInvalidRoutine)
 	}
@@ -170,41 +187,19 @@ func (s *AuthoringService) prepare(ctx context.Context, tenantID string, d domai
 		pens = append(pens, p)
 	}
 	d.Pens = pens
-	if d.ScopeKind != domain.ScopeSelectedPens {
+	// Every pen of the park needs no list. A whole-park routine KEEPS what was sent so the
+	// validation refuses pens on it rather than silently dropping them.
+	if d.ScopeKind == domain.ScopeAllPens {
 		d.Pens = nil
 	}
-	ids := make([]string, 0, len(d.AssigneeIDs))
-	seenIDs := map[string]bool{}
-	for _, id := range d.AssigneeIDs {
-		id = strings.TrimSpace(id)
-		if !uuidutil.IsUUIDString(id) {
-			return domain.Definition{}, fmt.Errorf("%w: an assignee is not valid", domain.ErrInvalidRoutine)
-		}
-		if seenIDs[id] {
-			continue
-		}
-		seenIDs[id] = true
-		ids = append(ids, id)
+	roles := make([]string, 0, len(d.AssigneeRoles))
+	for _, r := range d.AssigneeRoles {
+		roles = append(roles, strings.TrimSpace(r))
 	}
-	d.AssigneeIDs = ids
-	if len(d.AssigneeIDs) == 0 {
-		return domain.Definition{}, fmt.Errorf("%w: assign at least one person", domain.ErrInvalidRoutine)
-	}
+	d.AssigneeRoles = roles
 	if err := domain.ValidateDefinition(d); err != nil {
 		return domain.Definition{}, err
 	}
-	people, err := s.repo.EligiblePeople(ctx, tenantID, d.ParkID)
-	if err != nil {
-		return domain.Definition{}, err
-	}
-	eligible := map[string]bool{}
-	for _, p := range people {
-		eligible[p.UserID] = true
-	}
-	for _, id := range d.AssigneeIDs {
-		if !eligible[id] {
-			return domain.Definition{}, fmt.Errorf("%w: they do not hold Routines for this park; tick Do on Routines for them on People first", ports.ErrAssigneeNotEligible)
-		}
-	}
+	d.AssigneeRoles = domain.SortRoles(d.AssigneeRoles)
 	return d, nil
 }

@@ -27,33 +27,34 @@ func sampleEvidence() Evidence {
 }
 
 func TestCadenceRaisesOnBusinessDays(t *testing.T) {
-	daily := Definition{CadenceKind: CadenceDaily}
+	const start = "2026-01-01"
+	daily := Definition{CadenceKind: CadenceDaily, StartDate: start}
 	if !daily.RaisesOn("2026-09-16") {
 		t.Fatal("daily must raise every day")
 	}
-	weekly := Definition{CadenceKind: CadenceWeekly, Weekdays: []int{1, 3}} // Mon, Wed
-	if !weekly.RaisesOn("2026-09-16") {                                     // Wednesday
+	weekly := Definition{CadenceKind: CadenceWeekly, Weekdays: []int{1, 3}, StartDate: start} // Mon, Wed
+	if !weekly.RaisesOn("2026-09-16") {                                                       // Wednesday
 		t.Fatal("weekly Mon/Wed must raise on a Wednesday")
 	}
 	if weekly.RaisesOn("2026-09-17") { // Thursday
 		t.Fatal("weekly Mon/Wed must not raise on a Thursday")
 	}
-	sunday := Definition{CadenceKind: CadenceWeekly, Weekdays: []int{7}}
+	sunday := Definition{CadenceKind: CadenceWeekly, Weekdays: []int{7}, StartDate: start}
 	if !sunday.RaisesOn("2026-09-20") {
 		t.Fatal("ISO weekday 7 is Sunday")
 	}
-	monthly := Definition{CadenceKind: CadenceMonthly, MonthDays: []int{1, 31}}
+	monthly := Definition{CadenceKind: CadenceMonthly, MonthDays: []int{1, 31}, StartDate: start}
 	if !monthly.RaisesOn("2026-09-01") || !monthly.RaisesOn("2026-09-30") {
 		t.Fatal("month day 31 must clamp to the 30th in September")
 	}
 	if monthly.RaisesOn("2026-09-29") {
 		t.Fatal("29 Sep is neither the 1st nor the clamped last day")
 	}
-	feb := Definition{CadenceKind: CadenceMonthly, MonthDays: []int{30}}
+	feb := Definition{CadenceKind: CadenceMonthly, MonthDays: []int{30}, StartDate: start}
 	if !feb.RaisesOn("2026-02-28") {
 		t.Fatal("month day 30 must clamp to 28 Feb 2026")
 	}
-	after := Definition{CadenceKind: CadenceAfterWork, AfterWorkKinds: []string{WorkDeworming}, DueOffsetDays: 1}
+	after := Definition{CadenceKind: CadenceAfterWork, AfterWorkKinds: []string{WorkDeworming}, DueOffsetDays: 1, StartDate: start}
 	if after.RaisesOn("2026-09-16") {
 		t.Fatal("an after_work routine never raises from the calendar")
 	}
@@ -71,6 +72,8 @@ func TestCadenceLineSpeaksFarm(t *testing.T) {
 		"The day after vaccination or deworming": {CadenceKind: CadenceAfterWork, AfterWorkKinds: []string{WorkDeworming, WorkVaccination}, DueOffsetDays: 1},
 		"The same day as weighing":               {CadenceKind: CadenceAfterWork, AfterWorkKinds: []string{WorkWeighing}},
 		"3 days after pen move":                  {CadenceKind: CadenceAfterWork, AfterWorkKinds: []string{WorkShifting}, DueOffsetDays: 3},
+		"Every 3 days":                           {CadenceKind: CadenceEveryNDays, IntervalDays: 3},
+		"Every 2 days":                           {CadenceKind: CadenceEveryNDays, IntervalDays: 2},
 	}
 	for want, d := range cases {
 		if got := CadenceLine(d); got != want {
@@ -80,7 +83,7 @@ func TestCadenceLineSpeaksFarm(t *testing.T) {
 }
 
 func TestValidateDefinitionRefusesTheHalfWritten(t *testing.T) {
-	base := Definition{ParkID: "p", Name: "Pen cleaning", ScopeKind: ScopeAllPens, CadenceKind: CadenceDaily, NotifyTime: "07:00", ReviewKind: ReviewNone, Evidence: sampleEvidence()}
+	base := Definition{ParkID: "p", Name: "Pen cleaning", ScopeKind: ScopeAllPens, CadenceKind: CadenceDaily, StartDate: "2026-09-16", AssigneeRoles: []string{RoleParkHead}, NotifyTime: "07:00", ReviewKind: ReviewNone, Evidence: sampleEvidence()}
 	if err := ValidateDefinition(base); err != nil {
 		t.Fatalf("base must validate: %v", err)
 	}
@@ -102,6 +105,21 @@ func TestValidateDefinitionRefusesTheHalfWritten(t *testing.T) {
 		func() Definition { d := base; d.Evidence.Photo = ProofRule{Min: 2, Max: 1}; return d }(),
 		func() Definition { d := base; d.Evidence.Questions[0].ID = "has space"; return d }(),
 		func() Definition { d := base; d.Evidence.Questions[1].Options = nil; return d }(),
+		func() Definition { d := base; d.AssigneeRoles = nil; return d }(),
+		func() Definition { d := base; d.AssigneeRoles = []string{"operator"}; return d }(),
+		func() Definition { d := base; d.AssigneeRoles = []string{RoleParkHead, RoleParkHead}; return d }(),
+		func() Definition { d := base; d.StartDate = "someday"; return d }(),
+		func() Definition { d := base; d.StartDate = ""; return d }(),
+		func() Definition { d := base; d.CadenceKind = CadenceEveryNDays; d.IntervalDays = 1; return d }(),
+		func() Definition { d := base; d.CadenceKind = CadenceEveryNDays; d.IntervalDays = 91; return d }(),
+		func() Definition {
+			d := base
+			d.ScopeKind = ScopePark
+			d.CadenceKind = CadenceAfterWork
+			d.AfterWorkKinds = []string{WorkDeworming}
+			return d
+		}(),
+		func() Definition { d := base; d.ScopeKind = ScopePark; d.Pens = []PenRef{{ShedID: "s"}}; return d }(),
 		func() Definition {
 			d := base
 			d.Evidence.Questions = append(d.Evidence.Questions, Question{ID: "cleaned", Kind: QuestionText, Title: "dup"})
@@ -260,5 +278,66 @@ func TestCopyIsBackendOwned(t *testing.T) {
 	}
 	if StepFor(task, Actor{UserID: "u9"}, "2026-09-16").CanSubmit {
 		t.Fatal("a stranger cannot submit")
+	}
+}
+
+// TestRolesAndEveryNDaysAndParkScope pins the 2026-09-17 revision (docs/decisions/pen-routines.md):
+// routines are for ROLES from a closed vocabulary, every_n_days is anchored on the start date and
+// nothing raises before it, and a whole-park routine refuses after_work and speaks "check in".
+func TestRolesAndEveryNDaysAndParkScope(t *testing.T) {
+	if len(AssignableRoles) != 8 || RoleLabel(RoleCXO) != "CXO" || RoleLabel(RolePCDirector) != "Preventive Care Director" || RoleLabel(RoleParkHead) != "Park Head" {
+		t.Fatalf("role vocabulary drifted: %v", AssignableRoles)
+	}
+	if IsAssignableRole("operator") || !IsAssignableRole(RoleProcurementDirector) {
+		t.Fatal("operator is not assignable; procurement director is")
+	}
+	if err := ValidateDefinition(Definition{ParkID: "p", Name: "x", ScopeKind: ScopeAllPens, CadenceKind: CadenceDaily, StartDate: "2026-09-16", NotifyTime: "07:00", ReviewKind: ReviewNone, Evidence: sampleEvidence()}); !errors.Is(err, ErrNoRoles) || !errors.Is(err, ErrInvalidRoutine) {
+		t.Fatalf("no roles must be ErrNoRoles (an ErrInvalidRoutine), got %v", err)
+	}
+	every3 := Definition{CadenceKind: CadenceEveryNDays, IntervalDays: 3, StartDate: "2026-09-14"}
+	for date, want := range map[string]bool{
+		"2026-09-11": false, // before start, even though 3 days before it
+		"2026-09-13": false, // before start
+		"2026-09-14": true,  // the start date itself
+		"2026-09-15": false,
+		"2026-09-16": false,
+		"2026-09-17": true, // start + 3
+		"2026-09-18": false,
+		"2026-09-20": true, // start + 6
+	} {
+		if got := every3.RaisesOn(date); got != want {
+			t.Errorf("every 3 days from 14 Sep: RaisesOn(%s) = %v, want %v", date, got, want)
+		}
+	}
+	for _, cadence := range []Definition{
+		{CadenceKind: CadenceDaily, StartDate: "2026-09-17"},
+		{CadenceKind: CadenceWeekly, Weekdays: []int{3}, StartDate: "2026-09-17"}, // 16 Sep is a Wednesday
+		{CadenceKind: CadenceMonthly, MonthDays: []int{16}, StartDate: "2026-09-17"},
+	} {
+		if cadence.RaisesOn("2026-09-16") {
+			t.Errorf("%s must raise nothing before its start date", cadence.CadenceKind)
+		}
+	}
+	if (Definition{CadenceKind: CadenceAfterWork, StartDate: "2026-09-17"}).StartedBy("2026-09-16") {
+		t.Error("an after_work routine has not started before its start date")
+	}
+
+	park := Task{RoutineName: "Medicine store", ParkName: "Coimbatore", ScopeKind: ScopePark, Evidence: sampleEvidence(), ReviewKind: ReviewNone,
+		CadenceLine: "Every 3 days", PlannedDate: "2026-09-16", DueDate: "2026-09-16", WorkState: WorkStateScheduled, Status: StatusOpen, AssigneeIDs: []string{"u1"}}
+	if Title(park) != "Medicine store · Coimbatore" {
+		t.Fatalf("park title %q", Title(park))
+	}
+	if PresenceLine(park) != "Check in to start" {
+		t.Fatalf("park presence %q", PresenceLine(park))
+	}
+	if Instruction(park, Actor{UserID: "u1"}) != "Check in when you arrive, then answer and submit." {
+		t.Fatalf("park instruction %q", Instruction(park, Actor{UserID: "u1"}))
+	}
+	step := StepFor(park, Actor{UserID: "u1"}, "2026-09-16")
+	if step.ScopeKind != ScopePark || step.ShedID != "" || step.PenLabel != "" || step.Partition != "" || step.ShedName != "" {
+		t.Fatalf("park step names a pen: %+v", step)
+	}
+	if step.EvidenceLine != "5 questions · 1 to 3 photos · up to 1 video · check in" {
+		t.Fatalf("park evidence line %q", step.EvidenceLine)
 	}
 }

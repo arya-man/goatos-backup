@@ -514,11 +514,12 @@ const (
 	// ORed into the /app/proofs upload routes so the visit video can finish uploading.
 	PenVisitsExecute = "pen_visits.execute"
 	// Pen routines (maintainer instruction 2026-09-16, docs/decisions/pen-routines.md): the
-	// configurable recurring pen checks a park head owes. PenRoutinesExecute opens the phone
-	// module and /app/pen-routines*; held by park_head, the six director roles and anyone
-	// ticked Do on Routines, never by ceo_internal (the CXO desk writes the rule, it does not
-	// walk pens -- the toxin rule). WHO may work a given task is decided per row against
-	// pen_routine_assignees. PenRoutinesRead opens /routines and the admin reads;
+	// configurable recurring checks a park owes. PenRoutinesExecute opens the phone module and
+	// /app/pen-routines*; held by EVERY role a routine can be assigned to -- park_head, the six
+	// director roles and ceo_internal (2026-09-17 revision: a task assigned to the CXO must be
+	// openable by one) -- and by anyone ticked Do on Routines. WHO may work a given task is
+	// decided per row by the routine's assignee_roles resolved against the caller's grants for
+	// the task's park. PenRoutinesRead opens /routines and the admin reads;
 	// PenRoutinesConfigure is the routine writes, ceo_internal only on the role.
 	PenRoutinesExecute   = "pen_routines.execute"
 	PenRoutinesRead      = "pen_routines.read"
@@ -1375,9 +1376,10 @@ var rolePermissions = map[string]map[string]struct{}{
 		// Leadership Tasks: CEO/CXO can assign work downward and can still act on tasks
 		// addressed to the leadership desk.
 		LeadershipTasksRead: {}, LeadershipTasksRaise: {}, LeadershipTasksAct: {},
-		// Pen routines (2026-09-16): the CXO desk writes the rule and reads what it raised; it
-		// never walks pens, so NO PenRoutinesExecute here.
-		PenRoutinesRead: {}, PenRoutinesConfigure: {},
+		// Pen routines (2026-09-16, revised 2026-09-17): the CXO desk writes the rule, reads
+		// what it raised, and -- since routines are assigned by role and CXO is one of those
+		// roles -- works the tasks assigned to it.
+		PenRoutinesRead: {}, PenRoutinesConfigure: {}, PenRoutinesExecute: {},
 		// Work Board (2026-09-10): both parks, every module (the CEO floor).
 		WorkBoardRead: {}, WorkBoardOversee: {},
 		// Alerts (2026-09-16): reads the page and configures the rules (the CEO floor).

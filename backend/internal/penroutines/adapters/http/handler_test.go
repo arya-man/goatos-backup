@@ -186,6 +186,13 @@ func TestPresenceAndSubmitDecodeStrictlyAndRequireTheIdempotencyKey(t *testing.T
 	if e := app.HTTPError(domainAnswerErr()); e.Code != "answer_invalid" || !strings.Contains(e.Message, "Was the pen cleaned?") {
 		t.Fatalf("answer error = %+v", e)
 	}
+	// A routine for nobody is its own code; an unknown role stays invalid_routine with the reason.
+	if e := app.HTTPError(domain.ValidateDefinition(domain.Definition{ParkID: "p", Name: "x", ScopeKind: domain.ScopeAllPens, CadenceKind: domain.CadenceDaily, StartDate: "2026-09-16", NotifyTime: "07:00", ReviewKind: domain.ReviewNone})); e.Code != "no_roles" || e.HTTPStatus != http.StatusUnprocessableEntity {
+		t.Fatalf("no roles error = %+v", e)
+	}
+	if e := app.HTTPError(domain.ValidateDefinition(domain.Definition{ParkID: "p", Name: "x", ScopeKind: domain.ScopeAllPens, CadenceKind: domain.CadenceDaily, StartDate: "2026-09-16", NotifyTime: "07:00", ReviewKind: domain.ReviewNone, AssigneeRoles: []string{"operator"}})); e.Code != "invalid_routine" || !strings.Contains(e.Message, "operator") {
+		t.Fatalf("unknown role error = %+v", e)
+	}
 }
 
 func domainAnswerErr() error {
@@ -206,7 +213,7 @@ func (f *fakeAuthoring) Get(context.Context, string, string) (domain.Definition,
 	return f.created, nil
 }
 func (f *fakeAuthoring) Catalog(context.Context, string, string) (app.Catalog, error) {
-	return app.Catalog{Pens: []ports.CatalogPen{{ShedID: "s1", ShedName: "Castro", Partition: "2", Label: "Castro 2", Occupied: true}}, People: []ports.Person{{UserID: "u-head", DisplayName: "Park Head", Designation: "Park Head"}}}, nil
+	return app.Catalog{Pens: []ports.CatalogPen{{ShedID: "s1", ShedName: "Castro", Partition: "2", Label: "Castro 2", Occupied: true}}, Roles: []ports.RoleHolders{{Role: domain.RoleParkHead, People: []ports.Person{{UserID: "u-head", DisplayName: "Park Head"}}}, {Role: domain.RoleCXO, People: []ports.Person{}}}}, nil
 }
 func (f *fakeAuthoring) Create(_ context.Context, w ports.WriteParams, d domain.Definition) (domain.Definition, error) {
 	f.write = w
@@ -238,21 +245,36 @@ func TestAdminRoutesDecodeTheWriteBodyAndRenderBackendLines(t *testing.T) {
 	h := NewAdminHandler(svc, nil)
 
 	rec := httptest.NewRecorder()
-	r := withActor(httptest.NewRequest(http.MethodPost, "/admin/pen-routines", strings.NewReader(`{"park_id":"p1","name":"After deworming","scope_kind":"all_pens","cadence_kind":"after_work","after_work_kinds":["deworming","ticks_removal"],"review_kind":"none","evidence":{"questions":[],"photo":{"min":0,"max":1},"video":{"min":0,"max":0},"presence":"off"},"assignee_user_ids":["u-head"]}`)), "u-ceo")
+	r := withActor(httptest.NewRequest(http.MethodPost, "/admin/pen-routines", strings.NewReader(`{"park_id":"p1","name":"After deworming","scope_kind":"all_pens","cadence_kind":"after_work","after_work_kinds":["deworming","ticks_removal"],"review_kind":"none","evidence":{"questions":[],"photo":{"min":0,"max":1},"video":{"min":0,"max":0},"presence":"off"},"assignee_roles":["park_head","pc_director"]}`)), "u-ceo")
 	r.Header.Set("Idempotency-Key", "author-1")
 	h.Create(rec, r)
 	if rec.Code != http.StatusCreated {
 		t.Fatalf("create: %d %s", rec.Code, rec.Body.String())
 	}
-	if svc.write.ActorID != "u-ceo" || svc.write.IdempotencyKey != "author-1" || !svc.created.OccupiedOnly || svc.created.DueOffsetDays != 1 {
+	if svc.write.ActorID != "u-ceo" || svc.write.IdempotencyKey != "author-1" || !svc.created.OccupiedOnly || svc.created.DueOffsetDays != 1 || len(svc.created.AssigneeRoles) != 2 || svc.created.StartDate != "" {
 		t.Fatalf("create params = %+v / %+v", svc.write, svc.created)
 	}
 	var detail routineDetailPayload
 	if err := json.Unmarshal(rec.Body.Bytes(), &detail); err != nil {
 		t.Fatal(err)
 	}
-	if detail.Routine.CadenceLine != "The day after deworming or ticks removal" || detail.Routine.EvidenceLine != "up to 1 photo" || detail.Routine.StatusLabel != "Active" || detail.Routine.Pens == nil || detail.Routine.Weekdays == nil {
+	if detail.Routine.CadenceLine != "The day after deworming or ticks removal" || detail.Routine.EvidenceLine != "up to 1 photo" || detail.Routine.StatusLabel != "Active" || detail.Routine.Pens == nil || detail.Routine.Weekdays == nil || detail.Routine.IntervalDays != nil || detail.Routine.People == nil {
 		t.Fatalf("routine row = %+v", detail.Routine)
+	}
+	if len(detail.Routine.AssigneeRoles) != 2 || detail.Routine.AssigneeRoles[0] != (rolePayload{Key: "park_head", Label: "Park Head"}) || detail.Routine.AssigneeRoles[1].Label != "Preventive Care Director" {
+		t.Fatalf("assignee roles = %+v", detail.Routine.AssigneeRoles)
+	}
+	// A whole-park routine every 3 days from a chosen start: the write carries interval and
+	// start, the row answers them back with the "Every 3 days" line and the park check-in copy.
+	rec = httptest.NewRecorder()
+	r = withActor(httptest.NewRequest(http.MethodPost, "/admin/pen-routines", strings.NewReader(`{"park_id":"p1","name":"Medicine store","scope_kind":"park","cadence_kind":"every_n_days","interval_days":3,"start_date":"2026-09-14","review_kind":"none","evidence":{"questions":[],"photo":{"min":1,"max":1},"video":{"min":0,"max":0},"presence":"required"},"assignee_roles":["ceo_internal"]}`)), "u-ceo")
+	r.Header.Set("Idempotency-Key", "author-2")
+	h.Create(rec, r)
+	if err := json.Unmarshal(rec.Body.Bytes(), &detail); err != nil || rec.Code != http.StatusCreated {
+		t.Fatalf("park create: %d %s", rec.Code, rec.Body.String())
+	}
+	if detail.Routine.ScopeKind != "park" || detail.Routine.IntervalDays == nil || *detail.Routine.IntervalDays != 3 || detail.Routine.StartDate != "2026-09-14" || detail.Routine.CadenceLine != "Every 3 days" || detail.Routine.EvidenceLine != "1 photo · check in" || detail.Routine.AssigneeRoles[0].Label != "CXO" {
+		t.Fatalf("park routine row = %+v", detail.Routine)
 	}
 	// Missing key on a write.
 	rec = httptest.NewRecorder()
@@ -268,8 +290,23 @@ func TestAdminRoutesDecodeTheWriteBodyAndRenderBackendLines(t *testing.T) {
 	if err := json.Unmarshal(rec.Body.Bytes(), &cat); err != nil {
 		t.Fatal(err)
 	}
-	if len(cat.WorkKinds) != len(domain.WorkKinds) || cat.WorkKinds[8].Label != "Pen move" || len(cat.QuestionKinds) != 5 || cat.Defaults.NotifyTime != "07:00" || len(cat.Pens) != 1 || cat.Pens[0].Display != "Castro 2" || len(cat.People) != 1 {
+	if len(cat.WorkKinds) != len(domain.WorkKinds) || cat.WorkKinds[8].Label != "Pen move" || len(cat.QuestionKinds) != 5 || cat.Defaults.NotifyTime != "07:00" || len(cat.Pens) != 1 || cat.Pens[0].Display != "Castro 2" {
 		t.Fatalf("catalog = %+v", cat)
+	}
+	if len(cat.Roles) != 2 || cat.Roles[0].Label != "Park Head" || len(cat.Roles[0].People) != 1 || cat.Roles[1].Label != "CXO" || cat.Roles[1].People == nil ||
+		cat.Defaults.StartDate != "2026-09-16" || cat.Defaults.IntervalDays != 3 {
+		t.Fatalf("catalog roles/defaults = %+v / %+v", cat.Roles, cat.Defaults)
+	}
+	scopes := map[string]string{}
+	for _, o := range cat.ScopeKinds {
+		scopes[o.Key] = o.Label
+	}
+	cadences := map[string]string{}
+	for _, o := range cat.CadenceKinds {
+		cadences[o.Key] = o.Label
+	}
+	if scopes["park"] != "Whole park (one task)" || scopes["all_pens"] != "Every pen" || scopes["selected_pens"] != "Chosen pens" || cadences["every_n_days"] != "Every few days" {
+		t.Fatalf("scope/cadence vocab = %v / %v", scopes, cadences)
 	}
 	// The Today table carries the step plus assignee names, never ids.
 	rec = httptest.NewRecorder()
