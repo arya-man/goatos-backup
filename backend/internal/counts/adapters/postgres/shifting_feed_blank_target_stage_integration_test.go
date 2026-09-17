@@ -60,8 +60,8 @@ WHERE tenant_id=$1::uuid AND shifting_event_id=$2::uuid`, countsTenant, eventID)
 	}
 	// 250g for the Adult + 150g for the Grower. A single-stage fallback would read 500 or 300; a
 	// destination-stage fallback would read one of those too. Only per-animal pricing gives 400.
-	if got := requirement.Items[0].QuantityGrams; got != "400.0000" {
-		t.Fatalf("quantity=%s, want 400.0000 (Adult 250g + Grower 150g priced on their own stages)", got)
+	if got := requirement.Items[0].QuantityGrams; got != "400" {
+		t.Fatalf("quantity=%s, want 400 (Adult 250g + Grower 150g priced on their own stages)", got)
 	}
 	if requirement.AnimalCount != 2 {
 		t.Fatalf("animal_count=%d, want 2", requirement.AnimalCount)
