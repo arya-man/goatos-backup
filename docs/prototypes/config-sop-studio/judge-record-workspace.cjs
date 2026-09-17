@@ -88,3 +88,20 @@ console.log('PASS merged medicine category archive guard protects active importe
 
 run('if(!itemCategory("health-source-medicines"))state.itemCategories.push({id:"health-source-medicines",name:"Imported Medicines",module:"Health",parentId:null});state.itemCategories.push({id:"review-imported-sub",name:"Imported treatments",module:"Health",parentId:"health-source-medicines"});recordManagedCategory="cat-health-medicines";recordManageCategories()');assert.equal(run('recordManagedCategories().some(c=>c.id==="health-source-medicines")'),false);assert.match(element('#main').innerHTML,/Imported treatments/);assert.doesNotMatch(element('#main').innerHTML,/recordChooseManagedCategory\('health-source-medicines'\)/);fill({'record-rename-review-imported-sub':'Imported treatments renamed'});run('recordRenameCategory("review-imported-sub")');assert.equal(run('itemCategory("review-imported-sub").parentId'),'health-source-medicines');assert.equal(run('itemCategory("review-imported-sub").name'),'Imported treatments renamed');run('itemById("review-imported-medicine").subcategoryId="review-imported-sub";recordArchiveCategory("review-imported-sub")');assert.equal(run('Boolean(itemCategory("review-imported-sub").archived)'),false);assert.match(element('#record-manage-error').textContent,/active records/);
 console.log('PASS one Medicines manager category retains editable aliased subcategories and reference guards without changing source IDs');
+// Exercise rendered row event handlers, rather than matching implementation source.
+function verifyOpenRows(html,expectedHandler){
+ const rows=[...html.matchAll(/<tr\b([^>]*)>([\s\S]*?)<\/tr>/g)].filter(m=>/onclick=/.test(m[1]));assert(rows.length>0,'Expected interactive data rows');
+ for(const [,attrs,body] of rows){assert.match(attrs,/tabindex="0"/);assert.match(attrs,/aria-label="[^"]+"/);assert.doesNotMatch(body,/<button\b/,'Whole row must not require a child Edit button');
+  const click=attrs.match(/onclick="([^"]+)"/)[1],key=attrs.match(/onkeydown="([^"]+)"/)[1];const calls=[];const scope={[expectedHandler]:(...args)=>calls.push(args)};vm.createContext(scope);scope.row={click:()=>vm.runInContext(click,scope)};
+  scope.row.click();assert.equal(calls.length,1);const intended=calls[0];
+  for(const value of ['Enter',' ']){let prevented=false;scope.event={key:value,preventDefault:()=>prevented=true};vm.runInContext('(function(){'+key+'}).call(row)',scope);assert.equal(prevented,true);assert.deepEqual(calls.at(-1),intended);}
+  const count=calls.length;scope.event={key:'ArrowDown',preventDefault(){throw Error('Unrelated key consumed')}};vm.runInContext('(function(){'+key+'}).call(row)',scope);assert.equal(calls.length,count);
+ }
+}
+run('recordSelection="entity:species";recordStatus="all";recordSearch="";recordSubcategory="";renderRecordRows()');verifyOpenRows(element('#records-rows').innerHTML,'recordEdit');
+run('recordSelection="partners";renderRecordRows()');verifyOpenRows(element('#records-rows').innerHTML,'recordEdit');
+run('recordManagedCategory="cat-health-medicines";recordCategoryEdit="";recordManageCategories()');verifyOpenRows(element('#main').innerHTML,'recordEditManagedCategory');
+// Load the later index override before checking the actual herd row renderer.
+vm.runInContext(fs.readFileSync(__dirname+'/animal-register.js','utf8'),context);
+run('rowTestPen=EntityRegistryModel.save(entityRegistryData(),"pens",{name:"Row activation pen",parentId:"practice-cbe"});EntityRegistryModel.save(entityRegistryData(),"animals",{name:"Row activation animal",tag1:"ROW-ACTIVATION-1",parentId:rowTestPen.id,species:"species-goat"});recordStatus="all";recordSearch="";renderAnimalRows()');verifyOpenRows(element('#animal-register-rows').innerHTML,'animalEdit');
+console.log('PASS rendered entity, partner, subcategory and herd rows activate by pointer/Enter/Space with stable IDs and no child Edit buttons');
