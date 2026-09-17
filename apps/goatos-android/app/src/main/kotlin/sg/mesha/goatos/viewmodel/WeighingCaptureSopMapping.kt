@@ -4,7 +4,9 @@ import kotlinx.serialization.json.JsonArray
 import kotlinx.serialization.json.JsonNull
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.JsonPrimitive
+import sg.mesha.goatos.core.data.weighing.WeighingCountedProofSlot
 import sg.mesha.goatos.core.data.weighing.WeighingSopRules
+import sg.mesha.goatos.core.data.weighing.lumpSumCaptureIsSeededShape
 import sg.mesha.goatos.core.data.weighing.missingIndividualAnswers
 import sg.mesha.goatos.core.data.weighing.missingLumpSumAnswers
 import sg.mesha.goatos.core.network.dto.WeighingSopQuestionDto
@@ -113,7 +115,10 @@ internal fun WeighingSopRules.toCaptureSopUi(
     return WeighingCaptureSopUi(
         animalExtraSlots = individualProofs.drop(1).map { WeighingCaptureSlotUi(it.key, it.title, it.hint, it.kind, it.required) },
         animalQuestions = individualQuestions.map { it.toCaptureQuestionUi() },
-        primaryPenSlotTitle = primaryPen?.title.orEmpty(),
+        // DAY ONE: the SEEDED slot's title is the English noun "Weighing video", not a button verb.
+        // Blank lets the screen keep its translated "Capture group video"; a title an author wrote
+        // (a re-titled seeded slot included) is the label verbatim.
+        primaryPenSlotTitle = primaryPen?.title?.takeUnless { isSeededPenTitle(it) }.orEmpty(),
         primaryPenSlotMax = primaryPen?.max ?: WeighingSopRules.Seeded.lumpSumVideoMax,
         primaryPenSlotKind = primaryPen?.kind ?: "video",
         penExtraSlots = penExtras,
@@ -122,6 +127,9 @@ internal fun WeighingSopRules.toCaptureSopUi(
         penCapturesMissing = penMissing,
     )
 }
+
+private fun WeighingSopRules.isSeededPenTitle(title: String): Boolean =
+    lumpSumCaptureIsSeededShape() && title.trim() == WeighingCountedProofSlot.seededPenVideo(1, 1).title
 
 /**
  * The capture caps for one WHOLE-PEN slot. Every slot shares one subject (the pen), so a slot's own
