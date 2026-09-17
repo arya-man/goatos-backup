@@ -172,7 +172,7 @@ gcloud organizations list --format="table(displayName,name,directoryCustomerId)"
 gcloud projects describe goatos-stg --format="json(projectId,name,parent)"
 ```
 
-Expected context:
+Expected context for Ravi's maintainer laptop:
 
 ```text
 Account: ravi@mesha.sg
@@ -182,10 +182,12 @@ Folder: goat-os / folders/188649904255
 Repo: https://github.com/vgoats/goatos.git
 ```
 
-If the account or project is wrong, correct it before doing anything else:
+If the account or project is wrong, correct it before doing anything else.
+Use the operator's own Mesha email when the task is for another approved user
+such as `aryaman@mesha.sg`, `manju@mesha.sg`, or `manohark@mesha.sg`.
 
 ```bash
-gcloud config set account ravi@mesha.sg
+gcloud config set account <mesha-email>
 gcloud config set project goatos-stg
 ```
 
@@ -198,7 +200,8 @@ that exact identity.
 gcloud auth login --no-launch-browser --brief
 ```
 
-Open the printed URL, complete Google login as `ravi@mesha.sg`, then paste the
+Open the printed URL in Chrome, complete Google login as the approved Mesha
+account, then paste the
 verification code back into the CLI. Do not enter a Google password directly
 into the terminal.
 
@@ -237,6 +240,18 @@ DB URL secret:      goatos-stg-database-url
 Admin tenant secret: goatos-stg-admin-web-tenant-id
 ```
 
+Named read-only Cloud SQL IAM database users:
+
+```text
+aryaman@mesha.sg
+manju@mesha.sg
+```
+
+Those accounts have project-level `roles/cloudsql.client` and Postgres
+`pg_read_all_data` only. They do not have the secret-backed application DSN and
+must not be routed through `goatos_app`, `postgres`, or Secret Manager for
+ordinary data inspection.
+
 The proxy listens on 5455, NEVER 5433: 5433 is the maintainer's own local
 seeded Postgres (`goatos-local-current`). Binding the proxy there silently
 puts stg data behind the port every local tool already treats as the dev DB.
@@ -246,11 +261,48 @@ can be stale or point at another business account, which commonly fails with
 `invalid_rapt`. Do not write the bearer token to a temp file or shell profile.
 
 ```bash
-CSQL_PROXY_TOKEN="$(gcloud auth print-access-token --account=ravi@mesha.sg)" \
+CSQL_PROXY_TOKEN="$(gcloud auth print-access-token --account=ravi@mesha.sg)"
 cloud-sql-proxy \
+  --token "$CSQL_PROXY_TOKEN" \
   --port 5455 \
   goatos-stg:asia-south1:goatos-stg-core-db
 ```
+
+For Aryaman or Manju, use their own Mesha login and IAM database auth instead
+of the secret-backed DSN:
+
+```bash
+MESHA_EMAIL="aryaman@mesha.sg" # or manju@mesha.sg
+
+gcloud config set project goatos-stg
+gcloud config set account "$MESHA_EMAIL"
+gcloud auth login --no-launch-browser --brief
+
+CSQL_PROXY_TOKEN="$(gcloud auth print-access-token --account="$MESHA_EMAIL")"
+cloud-sql-proxy \
+  --auto-iam-authn \
+  --token "$CSQL_PROXY_TOKEN" \
+  --port 5455 \
+  goatos-stg:asia-south1:goatos-stg-core-db
+```
+
+In another shell, connect read-only as the same IAM database user:
+
+```bash
+MESHA_EMAIL="aryaman@mesha.sg" # or manju@mesha.sg
+
+psql \
+  -h 127.0.0.1 \
+  -p 5455 \
+  -d goatos \
+  -U "$MESHA_EMAIL" \
+  -v ON_ERROR_STOP=1 \
+  -c 'select current_database(), current_user, current_setting(''default_transaction_read_only'');'
+```
+
+Their database role defaults to `default_transaction_read_only=on`. If an agent
+is asked to inspect staging data under these accounts, keep the session
+read-only and do not ask for or use Ravi's Secret Manager credentials.
 
 In another shell, read the secret-backed DSN without printing it, override the
 host/port to the local proxy, and run read-only SQL. `psql` may not be installed

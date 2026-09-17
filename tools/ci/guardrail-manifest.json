@@ -818,6 +818,17 @@
       "notes": "Already wired before this registration: run_backend of tools/ci/run-local-ci.sh runs `local-single-db-guard`, and the Makefile `guardrails:` target already invoked it. Only the manifest entry was missing."
     },
     {
+      "id": "org-boundary",
+      "script": "tools/agent-hooks/check-org-boundary.mjs",
+      "makeTarget": "org-boundary-guard",
+      "realCheck": "node tools/agent-hooks/check-org-boundary.mjs",
+      "selfTest": "node tools/agent-hooks/check-org-boundary.mjs --self-test",
+      "owningDoc": "docs/runbooks/google-cloud-environments.md",
+      "requiredInCI": true,
+      "ciStep": "org-boundary-guard",
+      "notes": "Diff guard that blocks newly added cross-organization/project names in Goat OS. It is diff-based so historical main-branch debt does not keep local CI red, but every new addition is rejected in run_common before push."
+    },
+    {
       "id": "migration-duplicate-versions",
       "script": "tools/agent-hooks/check-migration-duplicate-versions.mjs",
       "makeTarget": "migration-duplicate-versions-guard",
