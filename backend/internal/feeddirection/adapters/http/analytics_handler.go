@@ -34,11 +34,25 @@ type analyticsItemDTO struct {
 	PerHeadGrams  string `json:"per_head_grams"`
 }
 
+type analyticsPenTagDTO struct {
+	PenTagKey    string `json:"pen_tag_key"`
+	PenTagLabel  string `json:"pen_tag_label"`
+	Mixed        bool   `json:"mixed"`
+	DirectedKg   string `json:"directed_kg"`
+	HeadDays     int64  `json:"head_days"`
+	FeedDays     int64  `json:"feed_days"`
+	Pens         int64  `json:"pens"`
+	AvgAnimals   string `json:"avg_animals"`
+	PerHeadGrams string `json:"per_head_grams"`
+}
+
 type directedAnalyticsDTO struct {
 	DateFrom string             `json:"date_from"`
 	DateTo   string             `json:"date_to"`
 	Days     []analyticsDayDTO  `json:"days"`
 	Items    []analyticsItemDTO `json:"items"`
+	// PenTags is always present; empty unless the caller's sections include pen_tags (or name none).
+	PenTags []analyticsPenTagDTO `json:"pen_tags"`
 }
 
 // GetDirectedAnalytics serves GET /feed-analytics/directed.
@@ -52,6 +66,11 @@ func (h *Handler) GetDirectedAnalytics(w http.ResponseWriter, r *http.Request) {
 	if !ok {
 		return
 	}
+	sections, ok := directedSections(w, r, h)
+	if !ok {
+		return
+	}
+	in.DirectedSections = sections
 	result, err := h.service.DirectedAnalytics(r.Context(), in)
 	if err != nil {
 		h.writeServiceError(w, r, "feed analytics directed", err)
@@ -63,12 +82,16 @@ func (h *Handler) GetDirectedAnalytics(w http.ResponseWriter, r *http.Request) {
 		DateTo:   to.Format("2006-01-02"),
 		Days:     make([]analyticsDayDTO, 0, len(result.Days)),
 		Items:    make([]analyticsItemDTO, 0, len(result.Items)),
+		PenTags:  make([]analyticsPenTagDTO, 0, len(result.PenTags)),
 	}
 	for _, d := range result.Days {
 		dto.Days = append(dto.Days, analyticsDayDTO(d))
 	}
 	for _, it := range result.Items {
 		dto.Items = append(dto.Items, analyticsItemDTO(it))
+	}
+	for _, t := range result.PenTags {
+		dto.PenTags = append(dto.PenTags, analyticsPenTagDTO(t))
 	}
 	httpresponse.WriteJSON(w, http.StatusOK, dto)
 }
@@ -579,6 +602,29 @@ func executionSections(w http.ResponseWriter, r *http.Request, h *Handler) ([]do
 			continue
 		}
 		section, ok := domain.ParseExecutionSection(name)
+		if !ok {
+			httpresponse.WriteError(w, r, h.log, http.StatusBadRequest, "unknown sections value: "+name, nil)
+			return nil, false
+		}
+		out = append(out, section)
+	}
+	return out, true
+}
+
+// directedSections reads the optional `sections` narrowing for the directed endpoint. Unknown names
+// are rejected rather than ignored, for the same reason as the execution and stock reads.
+func directedSections(w http.ResponseWriter, r *http.Request, h *Handler) ([]domain.DirectedSection, bool) {
+	raw := strings.TrimSpace(r.URL.Query().Get("sections"))
+	if raw == "" {
+		return nil, true
+	}
+	var out []domain.DirectedSection
+	for _, part := range strings.Split(raw, ",") {
+		name := strings.TrimSpace(part)
+		if name == "" {
+			continue
+		}
+		section, ok := domain.ParseDirectedSection(name)
 		if !ok {
 			httpresponse.WriteError(w, r, h.log, http.StatusBadRequest, "unknown sections value: "+name, nil)
 			return nil, false

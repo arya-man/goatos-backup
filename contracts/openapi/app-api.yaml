@@ -5331,6 +5331,15 @@ paths:
           schema:
             type: string
             format: date
+        - name: sections
+          in: query
+          required: false
+          description: >-
+            Comma-separated arms to compute: `days`, `items`, `pen_tags`. Absent means every arm.
+            An arm not named comes back as an empty array. An unknown name is a 400, never a
+            silent drop.
+          schema:
+            type: string
       responses:
         "200":
           description: Day totals and per-item series, ordered by feed day ascending.
@@ -21436,12 +21445,49 @@ components:
           description: Heads in pens whose sheet carried THIS item that day, pen-grain counted once.
         per_head_grams:
           type: string
+    FeedAnalyticsDirectedPenTag:
+      type: object
+      description: >-
+        Status-wise: the average DIRECTED feed one animal gets per day in pens carrying one pen tag
+        (Pregnant, Non-Pregnant, K2, Buck...), across the whole window, every sheet feed combined.
+        The category is the PEN's tag on the frozen sheet, not each animal's own stage; a pen tagged
+        with a mix of stages is its own row. Milk has no pen-wise split and is not included.
+      required: [pen_tag_key, pen_tag_label, mixed, directed_kg, head_days, feed_days, pens, avg_animals, per_head_grams]
+      properties:
+        pen_tag_key:
+          type: string
+        pen_tag_label:
+          type: string
+        mixed:
+          type: boolean
+          description: True when the pen tag joins several stages, e.g. "F2-Male + K3".
+        directed_kg:
+          type: string
+          description: Every sheet feed directed to pens carrying this tag across the window.
+        head_days:
+          type: integer
+          format: int64
+          description: Animals in those pens, each pen-grain counted once per feed day.
+        feed_days:
+          type: integer
+          format: int64
+          description: Window days on which at least one pen carried the tag.
+        pens:
+          type: integer
+          format: int64
+          description: Distinct pens that carried the tag in the window.
+        avg_animals:
+          type: string
+          description: head_days divided by feed_days, whole animals; empty when feed_days is zero.
+        per_head_grams:
+          type: string
+          description: directed_kg x 1000 divided by head_days; empty when head_days is zero.
     FeedAnalyticsDirectedResponse:
       type: object
       description: >-
         The Feed Analytics directed rollup. DIRECTED kg only -- the sheet's instruction, not a
         measured weight.
-      required: [date_from, date_to, days, items]
+      required: [date_from, date_to, days, items, pen_tags]
       properties:
         date_from:
           type: string
@@ -21458,6 +21504,11 @@ components:
           type: array
           items:
             $ref: "#/components/schemas/FeedAnalyticsDirectedItem"
+        pen_tags:
+          type: array
+          description: One row per pen tag, highest grams per animal first.
+          items:
+            $ref: "#/components/schemas/FeedAnalyticsDirectedPenTag"
     FeedAnalyticsExecutionDay:
       type: object
       description: One business date of proof-gated feed execution statuses.
