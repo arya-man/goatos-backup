@@ -11,8 +11,8 @@ export default function Loading() {
         </div>
       </div>
       <nav className="subtabs" aria-label="Weighing analytics loading">
-        {[100, 96, 94, 104, 112, 98, 96].map((width) => (
-          <span key={width} className="skel" style={{ width, height: 34 }} aria-hidden="true" />
+        {[100, 96, 94, 104, 112, 98, 96].map((width, index) => (
+          <span key={`${width}-${index}`} className="skel" style={{ width, height: 34 }} aria-hidden="true" />
         ))}
       </nav>
       <section className="card" aria-busy="true">

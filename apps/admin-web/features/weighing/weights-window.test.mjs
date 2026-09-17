@@ -39,6 +39,7 @@ test("weighing routes keep a local loading boundary instead of the global app fa
   assert.equal(existsSync(loadingUrl), true, "weighing must not fall back to app/loading.tsx");
   const loadingSource = readFileSync(loadingUrl, "utf8");
   assert.match(loadingSource, /aria-label="Weighing analytics loading"/);
+  assert.match(loadingSource, /key=\{`\$\{width\}-\$\{index\}`\}/);
   assert.doesNotMatch(loadingSource, /Loading Mesha admin data/);
 });
 
