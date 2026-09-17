@@ -179,6 +179,7 @@ class ShiftingPendingViewModel @Inject constructor(
         category = category.titleCase(),
         animalCount = animalCount,
         videosRequired = shiftingRequiredCaptures(this),
+        evidenceIsVideoOnly = shiftingRequiredCapturesAreVideoOnly(this),
         approvedAtLabel = GoatOsDates.fromWireDate(approvedAtIst?.take(10)),
         primaryActionKey = primaryActionKey,
         actionStateLabel = when {
@@ -247,6 +248,15 @@ class ShiftingPendingViewModel @Inject constructor(
  * slots -- the completion card, plus the high-priority card for a high movement. A row cached before
  * the SOP carries no cards and reads as the seed (one video; three for high priority).
  */
+/** Whether every capture [shiftingRequiredCaptures] counts is a video. */
+internal fun shiftingRequiredCapturesAreVideoOnly(item: CountsShiftingPendingExecutionItemDto): Boolean {
+    val high = item.priority.equals("high", ignoreCase = true)
+    // Same slots, same pinned cards: a card cached before the SOP is the seeded all-video set.
+    val completion = item.sop?.proofs.orEmpty().filter { it.required }
+    val highPriority = if (!high) emptyList() else item.highPrioritySop?.proofs.orEmpty().filter { it.required }
+    return (completion + highPriority).all { it.kind == "video" }
+}
+
 internal fun shiftingRequiredCaptures(item: CountsShiftingPendingExecutionItemDto): Int {
     val high = item.priority.equals("high", ignoreCase = true)
     val completion = item.sop?.proofs?.count { it.required } ?: 1

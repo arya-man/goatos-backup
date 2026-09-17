@@ -252,6 +252,7 @@
     <string name="counts_workflow_photo_saved">ಫೋಟೋ ಈ ಫೋನ್‌ನಲ್ಲಿ ಉಳಿಸಲಾಗಿದೆ. ಇದು ತಾನಾಗಿಯೇ ಅಪ್‌ಲೋಡ್ ಆಗಿ ಸಲ್ಲಿಕೆಯಾಗುತ್ತದೆ.</string>
     <string name="counts_workflow_proofs_saved">ಫೋಟೋಗಳು ಮತ್ತು ವೀಡಿಯೊಗಳು ಈ ಫೋನ್‌ನಲ್ಲಿ ಉಳಿಸಲಾಗಿವೆ. ಅವು ತಾನಾಗಿಯೇ ಅಪ್‌ಲೋಡ್ ಆಗಿ ಸಲ್ಲಿಕೆಯಾಗುತ್ತವೆ.</string>
     <string name="counts_shifting_videos_label">ರೆಕಾರ್ಡ್ ಮಾಡಿದ ವೀಡಿಯೊಗಳು</string>
+    <string name="counts_shifting_proofs_label">ರೆಕಾರ್ಡ್ ಮಾಡಿದ ಪುರಾವೆಗಳು</string>
     <string name="counts_group_cause_of_death">ಮರಣದ ಕಾರಣ</string>
     <string name="counts_death_cause_normal">ಸಾಮಾನ್ಯ</string>
     <string name="counts_death_cause_disease">ರೋಗದಿಂದ</string>
