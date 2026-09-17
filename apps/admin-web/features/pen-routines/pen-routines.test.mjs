@@ -106,7 +106,9 @@ const base = {
   due_offset_days: "0",
   notify_time: "07:00",
   review_kind: "verifier",
-  [FORM_JSON_FIELDS.assignees]: ["a", "b"],
+  start_date: "2026-09-17",
+  interval_days: "5",
+  [FORM_JSON_FIELDS.assigneeRoles]: ["park_head", "ceo_internal"],
   [FORM_JSON_FIELDS.evidence]: {
     questions: [
       { id: "cleaned", kind: "yes_no", title: "Was the pen cleaned?", required: true },
@@ -135,7 +137,10 @@ test("decoder: daily all-pens routine with a full evidence block round-trips as 
   assert.strictEqual(body.due_offset_days, 0);
   assert.equal(body.notify_time, "07:00");
   assert.equal(body.review_kind, "verifier");
-  assert.deepEqual(body.assignee_user_ids, ["a", "b"]);
+  assert.deepEqual(body.assignee_roles, ["park_head", "ceo_internal"]);
+  assert.equal(body.start_date, "2026-09-17");
+  assert.strictEqual(body.interval_days, null, "a daily routine carries no interval, whatever the form still held");
+  assert.equal("assignee_user_ids" in body, false, "named people are gone from the write");
   assert.equal(body.row_version, undefined, "create carries no fence");
   assert.deepEqual(body.evidence.photo, { min: 1, max: 3 });
   assert.deepEqual(body.evidence.video, { min: 0, max: 1 });
@@ -183,6 +188,49 @@ test("decoder: selected pens carry shed + partition, an undivided shed carries n
   assert.equal(body.occupied_only, false);
   assert.deepEqual(body.pens, [{ shed_id: "s1", partition_label: "Part 3" }, { shed_id: "s2" }]);
   assert.strictEqual(body.row_version, 7);
+});
+
+test("decoder: roles round-trip and an unknown role key is never sent", () => {
+  const body = decodePenRoutineWrite(form({ ...base, [FORM_JSON_FIELDS.assigneeRoles]: ["pc_director", "breeding_director", "janitor", "", "ceo_internal"] }));
+  assert.deepEqual(body.assignee_roles, ["pc_director", "breeding_director", "ceo_internal"]);
+  const none = decodePenRoutineWrite(form({ ...base, [FORM_JSON_FIELDS.assigneeRoles]: "not json" }));
+  assert.deepEqual(none.assignee_roles, [], "an empty list goes to the backend, which refuses it as no_roles");
+});
+
+test("decoder: every_n_days carries its interval as a number; blank stays null; a bad start date is dropped", () => {
+  const every = decodePenRoutineWrite(form({ ...base, cadence_kind: "every_n_days", interval_days: "3" }));
+  assert.equal(every.cadence_kind, "every_n_days");
+  assert.strictEqual(every.interval_days, 3);
+  assert.equal(every.weekdays, undefined);
+  const blank = decodePenRoutineWrite(form({ ...base, cadence_kind: "every_n_days", interval_days: "" }));
+  assert.strictEqual(blank.interval_days, null);
+  const weekly = decodePenRoutineWrite(form({ ...base, cadence_kind: "weekly", interval_days: "3", [FORM_JSON_FIELDS.weekdays]: [2] }));
+  assert.strictEqual(weekly.interval_days, null);
+  const noStart = decodePenRoutineWrite(form({ ...base, start_date: "17/09/2026" }));
+  assert.equal(noStart.start_date, undefined, "absent keeps the stored date on update, today on create");
+});
+
+test("decoder: a whole-park task clears pens and never skips empty pens", () => {
+  const body = decodePenRoutineWrite(
+    form({ ...base, scope_kind: "park", occupied_only: "on", [FORM_JSON_FIELDS.pens]: [{ shed_id: "s1", partition_label: "Part 3" }] }),
+  );
+  assert.equal(body.scope_kind, "park");
+  assert.deepEqual(body.pens, []);
+  assert.equal(body.occupied_only, false);
+});
+
+test("the drawer assigns by role, offers a whole-park scope and every few days, and the tables render roles and park tasks", () => {
+  assert.match(drawer, /catalog\?\.roles/);
+  assert.match(drawer, /copy\(pageContract, "empty\.role_people"\)/);
+  assert.match(drawer, /copy\(pageContract, "hint\.assignee_roles"\)/);
+  assert.match(drawer, /copy\(pageContract, "hint\.park_scope"\)/);
+  assert.match(drawer, /field\("interval_days"\)/);
+  assert.match(drawer, /field\("start_date"\)/);
+  assert.match(drawer, /option\.key === "after_work" && draft\.scopeKind === "park"/, "after work is unavailable for a whole-park task");
+  assert.doesNotMatch(drawer, /assignee_user_ids|field\("assignees"\)|hint\.assignees/);
+  assert.match(feature, /routine\.assignee_roles\.map\(\(option\) => option\.label\)/);
+  assert.match(feature, /c\("table\.people\.preview"\)/);
+  assert.match(feature, /row\.scope_kind === "park" \|\| !row\.operational_location_display \? row\.park_name/);
 });
 
 test("decoder: presence defaults to off and proof rules to zero when the evidence block is blank", () => {

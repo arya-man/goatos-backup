@@ -23,7 +23,8 @@ import { RoutineFilter } from "./routine-filter";
 
 /**
  * /routines (maintainer instruction 2026-09-16, docs/decisions/pen-routines.md): the routines of
- * a park -- the rule, its cadence and evidence lines, its people, what it raised today -- and the
+ * a park -- the rule, its cadence and evidence lines, the roles it is for (with who holds them),
+ * what it raised today -- and the
  * Today table of the tasks the kernel raised. Everything on screen is backend-owned: the copy
  * from the page contract, the rows and their composed lines (`cadence_line`, `evidence_line`,
  * `state_chip`, `operational_location_display`) from the reads, the park vocabulary from the list
@@ -35,7 +36,7 @@ import { RoutineFilter } from "./routine-filter";
  * The drawer is client-local: `?edit=new` / `?edit=<routine_id>` open it from data already on
  * the page through LocalOverlayLink, so opening and closing never re-run this Server Component.
  * The Today filter is a DIFFERENT param (`?routine=`) precisely so a reload with the drawer open
- * never reads as a task filter. The drawer's catalog (pens, people, vocabularies) is read for ONE
+ * never reads as a task filter. The drawer's catalog (pens, roles, vocabularies) is read for ONE
  * park per request -- the page's park -- so a routine of the OTHER park opens through a real link
  * that selects its park first (`?park=<id>&edit=<id>`), and the create form switches park the
  * same way. One catalog read, never a fan-out over parks.
@@ -98,7 +99,7 @@ function previousHref(params: RouteSearchParams): string | null {
 
 export type RoutinesPageData = {
   list: ApiResult<PenRoutineListResponse>;
-  /** The drawer's vocabulary for `todayPark`; null when that read failed (the drawer then offers no pens or people). */
+  /** The drawer's vocabulary for `todayPark`; null when that read failed (the drawer then offers no pens or roles). */
   catalog: PenRoutineCatalog | null;
   tasks: ApiResult<PenRoutineTaskListResponse> | null;
   /** The park the Today table and the catalog were read for (the chosen park, else the first park served). */
@@ -204,8 +205,19 @@ export function RoutinesPage({ searchParams, pageContract, data }: { searchParam
         return routine.cadence_line;
       case "evidence":
         return routine.evidence_line;
-      case "people":
-        return routine.assignees.length ? routine.assignees.map((person) => person.display_name).join(", ") : c("label.placeholder");
+      case "people": {
+        // The roles the routine is for, then -- muted -- who holds them for its park right now.
+        if (!routine.assignee_roles.length) return c("label.placeholder");
+        const names = routine.people.map((person) => person.display_name).join(", ");
+        return (
+          <span style={{ display: "flex", flexDirection: "column", maxWidth: 260 }}>
+            <span>{routine.assignee_roles.map((option) => option.label).join(", ")}</span>
+            <span className="muted small" title={names} style={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+              {names ? `${c("table.people.preview")} ${names}` : c("empty.role_people")}
+            </span>
+          </span>
+        );
+      }
       case "status":
         return <Tag tone={STATUS_TONE[routine.status]}>{routine.status_label}</Tag>;
       case "open_today":
@@ -229,8 +241,9 @@ export function RoutinesPage({ searchParams, pageContract, data }: { searchParam
       case "routine":
         return row.routine_name;
       case "pen":
-        // Backend-composed pen label, rendered verbatim: "Castro 2", "Godel 1 - Part 3".
-        return row.operational_location_display;
+        // Backend-composed pen label, rendered verbatim: "Castro 2", "Godel 1 - Part 3". A whole-park
+        // task names no pen, so the park it is for stands in its place.
+        return row.scope_kind === "park" || !row.operational_location_display ? row.park_name : row.operational_location_display;
       case "assignee":
         return row.assignee_names.length ? row.assignee_names.join(", ") : c("label.placeholder");
       case "state_chip":

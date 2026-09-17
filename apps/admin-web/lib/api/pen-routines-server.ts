@@ -2,7 +2,7 @@ import "server-only";
 
 // Server-only generated-client fetchers for PEN ROUTINES (maintainer instruction 2026-09-16,
 // docs/decisions/pen-routines.md): the rule the CXO writes per park -- scope, cadence, evidence,
-// review, people -- and the tasks the kernel raised from it. Reads ride pen_routines.read; every
+// review, the roles it is for -- and the tasks the kernel raised from it. Reads ride pen_routines.read; every
 // write rides pen_routines.configure on the route table, so this module only forwards the body
 // and reports the outcome. Same ApiResult envelope and helpers as lib/api/server.ts.
 import { createAdminApiClient } from "@goatos/api-client";
@@ -15,6 +15,9 @@ export type PenRoutineStatusWrite = AdminApiComponents["schemas"]["PenRoutineSta
 export type PenRoutineCatalog = AdminApiComponents["schemas"]["PenRoutineCatalogResponse"];
 export type PenRoutineCatalogPen = AdminApiComponents["schemas"]["PenRoutineCatalogPen"];
 export type PenRoutinePerson = AdminApiComponents["schemas"]["PenRoutinePerson"];
+export type PenRoutineCatalogRole = AdminApiComponents["schemas"]["PenRoutineCatalogRole"];
+export type PenRoutineRole = AdminApiComponents["schemas"]["PenRoutineRole"];
+export type PenRoutineRolePerson = AdminApiComponents["schemas"]["PenRoutineRolePerson"];
 export type PenRoutineKeyLabel = AdminApiComponents["schemas"]["PenRoutineKeyLabel"];
 export type PenRoutineEvidence = AdminApiComponents["schemas"]["PenRoutineEvidence"];
 export type PenRoutineQuestion = AdminApiComponents["schemas"]["PenRoutineQuestion"];
@@ -45,7 +48,7 @@ export async function listPenRoutines(params: { park_id?: string } = {}): Promis
   );
 }
 
-/** The drawer's vocabulary for ONE park: its active pens, the people offered, and the closed enums. */
+/** The drawer's vocabulary for ONE park: its active pens, each assignable role with who holds it there, and the closed enums. */
 export async function getPenRoutineCatalog(parkId: string): Promise<ApiResult<PenRoutineCatalog>> {
   const config = await getServerConfig(true);
   if (!config.ok) return config;

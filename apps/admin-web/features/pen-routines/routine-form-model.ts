@@ -2,7 +2,7 @@
 // the Server Action decodes it back into the generated PenRoutineWrite body. Pure module -- no
 // server-only import, no React -- so the node test can exercise the same decoder the action runs.
 //
-// Scalars travel as plain fields; every LIST (pens, weekdays, month days, after-work kinds, people)
+// Scalars travel as plain fields; every LIST (pens, weekdays, month days, after-work kinds, roles)
 // and the whole EVIDENCE block travel as ONE hidden JSON field each, so the decoder never has to
 // reassemble indexed field names. The backend re-validates everything (limits, vocabularies, the
 // month-day clamp); this decoder only shapes, it never invents a value the form did not carry.
@@ -11,18 +11,20 @@ export type PenRoutineWriteBody = {
   park_id: string;
   name: string;
   instruction?: string;
-  scope_kind: "all_pens" | "selected_pens";
+  scope_kind: ScopeKind;
   occupied_only: boolean;
   pens?: { shed_id: string; partition_label?: string }[];
-  cadence_kind: "daily" | "weekly" | "monthly" | "after_work";
+  cadence_kind: CadenceKind;
   weekdays?: number[];
   month_days?: number[];
   after_work_kinds?: WorkKind[];
+  interval_days: number | null;
+  start_date?: string;
   due_offset_days?: number;
   notify_time?: string;
   review_kind: "verifier" | "none";
   evidence: PenRoutineEvidenceBody;
-  assignee_user_ids: string[];
+  assignee_roles: AssigneeRole[];
   row_version?: number;
 };
 
@@ -51,12 +53,29 @@ export const FORM_JSON_FIELDS = {
   weekdays: "weekdays_json",
   monthDays: "month_days_json",
   afterWorkKinds: "after_work_kinds_json",
-  assignees: "assignee_user_ids_json",
+  assigneeRoles: "assignee_roles_json",
   evidence: "evidence_json",
 } as const;
 
-export const SCOPE_KINDS = ["all_pens", "selected_pens"] as const;
-export const CADENCE_KINDS = ["daily", "weekly", "monthly", "after_work"] as const;
+export const SCOPE_KINDS = ["all_pens", "selected_pens", "park"] as const;
+export type ScopeKind = (typeof SCOPE_KINDS)[number];
+export const CADENCE_KINDS = ["daily", "weekly", "monthly", "every_n_days", "after_work"] as const;
+export type CadenceKind = (typeof CADENCE_KINDS)[number];
+/**
+ * The closed assignee vocabulary (2026-09-17 revision). The form offers only what the catalog
+ * serves; this list only keeps an unknown key from being sent. Labels are never derived from it.
+ */
+export const ASSIGNEE_ROLES = [
+  "park_head",
+  "pc_director",
+  "breeding_director",
+  "growth_director",
+  "feed_director",
+  "health_director",
+  "procurement_director",
+  "ceo_internal",
+] as const;
+export type AssigneeRole = (typeof ASSIGNEE_ROLES)[number];
 export const REVIEW_KINDS = ["verifier", "none"] as const;
 export const PRESENCE_KINDS = ["required", "off"] as const;
 export const QUESTION_KINDS = ["yes_no", "choice", "multi_choice", "number", "text"] as const;
@@ -72,6 +91,8 @@ export const LIMITS = {
   proofMax: 5,
   dueOffsetMin: 0,
   dueOffsetMax: 30,
+  intervalMin: 2,
+  intervalMax: 90,
 } as const;
 
 function text(formData: FormData, key: string): string {
@@ -192,19 +213,30 @@ export function decodePenRoutineWrite(formData: FormData): PenRoutineWriteBody {
   if (!parkId || !name) throw new Error("park_id and name are required");
   const scopeKind = oneOf(text(formData, "scope_kind"), SCOPE_KINDS, "all_pens");
   const cadenceKind = oneOf(text(formData, "cadence_kind"), CADENCE_KINDS, "daily");
+  const intervalRaw = text(formData, "interval_days");
   const body: PenRoutineWriteBody = {
     park_id: parkId,
     name,
     scope_kind: scopeKind,
-    // An unticked checkbox sends nothing, so the field is explicit: "on" / "off".
-    occupied_only: text(formData, "occupied_only") === "on",
+    // An unticked checkbox sends nothing, so the field is explicit: "on" / "off". A whole-park
+    // task has no pens to skip, so it never carries the flag on.
+    occupied_only: scopeKind !== "park" && text(formData, "occupied_only") === "on",
     cadence_kind: cadenceKind,
+    // Only an every-few-days routine carries its N; a blank or non-number stays null so the
+    // backend refuses it in its own words rather than the form inventing one.
+    interval_days: cadenceKind === "every_n_days" && intervalRaw !== "" && Number.isFinite(Number.parseInt(intervalRaw, 10)) ? Number.parseInt(intervalRaw, 10) : null,
     review_kind: oneOf(text(formData, "review_kind"), REVIEW_KINDS, "none"),
     evidence: decodeEvidence(parseJson(text(formData, FORM_JSON_FIELDS.evidence))),
-    assignee_user_ids: stringList(parseJson(text(formData, FORM_JSON_FIELDS.assignees))),
+    assignee_roles: stringList(parseJson(text(formData, FORM_JSON_FIELDS.assigneeRoles))).filter((role): role is AssigneeRole =>
+      (ASSIGNEE_ROLES as readonly string[]).includes(role),
+    ),
   };
   const instruction = text(formData, "instruction");
   if (instruction) body.instruction = instruction;
+  const startDate = text(formData, "start_date");
+  if (/^\d{4}-\d{2}-\d{2}$/.test(startDate)) body.start_date = startDate;
+  // A whole-park task names no pens: the list is sent empty, whatever the form still held.
+  if (scopeKind === "park") body.pens = [];
   if (scopeKind === "selected_pens") body.pens = penList(parseJson(text(formData, FORM_JSON_FIELDS.pens)));
   if (cadenceKind === "weekly") body.weekdays = intList(parseJson(text(formData, FORM_JSON_FIELDS.weekdays)));
   // Month days are NOT clamped here: a 31 on a 30-day month means the last day, a rule the backend owns.
