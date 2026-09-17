@@ -118,6 +118,7 @@
       return `<div class="hd"><h3>SOP</h3><span class="sp"></span><button class="btn sm" data-a="sop-more" data-id="${s.id}">${ic('more')}</button></div><div class="bd">
         ${fld('Title',`<input data-sp="title" value="${esc(s.title)}">`)}
         ${fld('Department',`<input data-sp="dept" value="${esc(s.dept)}" autocomplete="off">`)}
+        ${fld('Species',`<select data-sp="speciesId" data-blank><option value="">Any species</option>${S.active('species').map(x=>`<option value="${x.id}" ${s.speciesId===x.id?'selected':''}>${esc(x.name)}</option>`).join('')}</select>`)}
         ${fld('Category',`<select data-sp="category">${['commodity','problem','event','action','equipment'].map(c=>`<option value="${c}" ${s.category===c?'selected':''}>${({commodity:'Commodity',problem:'Problem',event:'Event',action:'Action',equipment:'Equipment'})[c]}</option>`).join('')}</select>`)}
         ${(()=>{const d=Flow.drift(s.nodes,v0(s));return d.length?`<div class="eyebrow mt">Pending setting changes</div><div class="stack" style="gap:4px;margin-top:6px">${d.map(x=>`<div class="fx-set moved">Uses setting: ${esc(x.name)} = ${esc(x.now)}${x.unit&&x.unit!=='time'?' '+esc(x.unit):''} <b>(was ${esc(x.was)})</b></div>`).join('')}<div class="small muted">Running work keeps the old value. Publish to use the new one.</div></div>`:'';})()}
         <div class="eyebrow mt">Issues</div>
@@ -216,7 +217,7 @@
     insp.addEventListener('input',tagEdit,true); insp.addEventListener('change',tagEdit,true);
     const n=s.nodes.find(x=>x.id===W.sel[id]);
     const commit=(fn,rerender)=>{fn();S.save();if(rerender!==false)App.render();};
-    insp.querySelectorAll('[data-sp]').forEach(i=>i.onchange=()=>commit(()=>{s[i.dataset.sp]=i.value.trim()||s[i.dataset.sp];}));
+    insp.querySelectorAll('[data-sp]').forEach(i=>i.onchange=()=>commit(()=>{if(i.hasAttribute('data-blank')){if(i.value)s[i.dataset.sp]=i.value;else delete s[i.dataset.sp];return;}s[i.dataset.sp]=i.value.trim()||s[i.dataset.sp];}));
     if(!n)return;
     insp.querySelectorAll('[data-np]').forEach(i=>{
       const k=i.dataset.np;

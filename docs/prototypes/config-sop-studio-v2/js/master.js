@@ -59,32 +59,13 @@
   M.page=function(id,view){
     const m=S.get('masters',id); if(!m)return '<div class="empty">Not found</div>';
     const iss=validate(m); const v=m.versions[m.versions.length-1]; const T=tr(id); const pd=pending(m);
-    const L=layout(m.stages); const by={};m.stages.forEach(s=>by[s.id]=s);
-    let edges='';
-    m.stages.forEach(s=>s.deps.forEach(d=>{const a=L.pos[d.stage],b=L.pos[s.id];if(!a||!b)return;
-      let path;
-      if(d.state==='started'&&a.y===b.y)path=`M${a.x+a.w},${a.y+56} L${b.x-4},${b.y+56}`;
-      else{const sy=a.y+a.h+2;path=`M${a.x+a.w/2},${sy} C${a.x+a.w/2},${sy+26} ${b.x+b.w/2},${b.y-26} ${b.x+b.w/2},${b.y-3}`;}
-      edges+=`<path class="dep-${d.state}" d="${path}" marker-end="url(#mah)"/>`;}));
-    const nodes=m.stages.map((s,i)=>{const p=L.pos[s.id];const c=S.get('sops',s.sopId);const [stl,stt]=stageState(m,s,T);
-      const par=s.deps.some(d=>d.state==='started');
-      return `<div class="node k-stage ${M.sel[id]===s.id?'sel':''}" style="left:${p.x}px;top:${p.y}px;min-height:${p.h}px;${par?'--k:var(--info)':''}" data-a="stage-sel" data-id="${s.id}">
-        <div class="nt">${ic(par?'split':'layers')}Stage ${i+1}${view==='try'?`<span class="sp"></span>${UI.tag(stl,stt)}`:''}</div>
-        <div class="nl">${esc(s.label)}</div>
-        <div class="small muted">${c?esc(c.title)+' · '+Flow.stepCount(c.nodes)+' steps':'No child SOP'}</div>
-        <div class="nb">${s.deps.map(d=>UI.tag('After '+((by[d.stage]||{}).label||'?')+' '+STATE_L[d.state],d.state==='started'?'info':d.state==='approved'?'pur':'mut')).join('')}
-          ${s.approvalRoleId?UI.tag('Approval · '+REG.labelById('roles',s.approvalRoleId),'pur'):''}
-          ${s.waitDays||s.waitSetting?UI.tag('Wait '+val(s,'waitDays','waitSetting')+' d','warn'):''}${s.repeatHours||s.repeatSetting?UI.tag('Every '+val(s,'repeatHours','repeatSetting')+' h','warn'):''}</div>
-          ${Flow.settingChips?`<div class="mst-sets">${Flow.settingChips({waitSetting:s.waitSetting,repeatSetting:s.repeatSetting},v)}</div>`:''}</div>`;}).join('');
-    const canvas=`<div class="canvas" style="height:auto;min-height:${Math.min(L.H+20,900)}px"><div class="board" style="width:${L.W}px;height:${L.H}px;position:relative">
-      <svg class="edges" width="${L.W}" height="${L.H}"><defs><marker id="mah" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" style="fill:var(--muted);stroke:none"/></marker></defs>${edges}</svg>${nodes}</div></div>`;
+    const canvas=`<div class="canvas" data-canvas>${Flow.kindCanvas('master',m,M.sel[id],{view})}</div>`;
     const head=`<div class="phead"><div><div class="crumb">Configuration / <a href="#/configuration/work-instructions">Work instructions</a> / <b>${esc(m.dept)}</b></div><h1>${esc(m.title)}</h1>
       <div class="vstrip" style="margin-top:6px">${v?UI.tag('v'+v.v+' published','ok'):UI.tag('Never published','warn')}${v&&pd.edits?UI.tag('Draft changes','warn'):''}${pd.drift.length?UI.tag('Setting changed · publish to apply','warn'):''}${v&&v.running?UI.tag(v.running+' running','info'):''}${UI.tag(m.stages.length+' stages','mut')}${iss.length?UI.tag(iss.length+' issues','dng'):''}</div></div><div class="sp"></div>
       <div class="seg"><a class="${view!=='try'?'on':''}" href="${base}${id}">${ic('layers')}Stages</a><a class="${view==='try'?'on':''}" href="${base}${id}/try">${ic('play')}Try</a></div>
       <button class="btn p" data-a="mst-publish" data-id="${id}" ${iss.length||!pd.changed?'disabled':''} title="${pd.changed?'':'No changes since v'+(v?v.v:0)}">${ic('check')}Publish v${v?v.v+1:1}</button></div>`;
     const side=view==='try'?trySide(m,T):inspector(m,iss);
-    return head+`<div class="editor"><section class="card"><div class="canvasbar"><div class="legend"><span><i></i>Completed</span><span><i class="a"></i>Approved</span><span><i class="s"></i>Started (parallel)</span></div><span class="sp"></span>
-      ${view!=='try'?`<button class="btn sm" data-a="stage-add">${ic('plus')}Stage</button>`:''}</div>${canvas}</section><section class="card insp">${side}</section></div>`;
+    return head+`<div class="editor"><section class="card"><div class="canvasbar"><div class="fx-legend"><span><i></i>After completed</span><span><i class="a"></i>After approved</span><span><i class="s"></i>Parallel (after started)</span></div></div>${canvas}</section><section class="card insp ${M.sel[id]&&m.stages.some(x=>x.id===M.sel[id])?'has-node':''}">${side}</section></div>`;
   };
 
   function inspector(m,iss){
@@ -163,6 +144,74 @@
       if(v==='start')x.started=true;if(v==='wait')x.waitDone=true;if(v==='check')x.checks=(x.checks||0)+1;if(v==='complete')x.completed=true;if(v==='approve')x.approved=true;
       App.render();},
     'try-reset'(){M.try[App.route.params.id]=null;App.render();}
+  });
+
+  /* ---------- master stages on the shared canvas engine ---------- */
+  const STATE_TXT={completed:'After completed',approved:'After approved',started:'Parallel · started'};
+  const stg=(m,id)=>m.stages.find(x=>x.id===id);
+  const ek=key=>{const i=key.lastIndexOf(':');return [key.slice(0,i),+key.slice(i+1)];};
+  const newStage=(m,label,deps)=>({id:'s'+Date.now().toString(36)+Math.random().toString(36).slice(2,5),label:label||'New stage',sopId:'',deps:deps||[],approvalRoleId:'',waitDays:'',waitSetting:'',repeatHours:'',repeatSetting:''});
+  function positions(m){
+    const auto=layout(m.stages).pos, saved=m.layout||{}, pos={};
+    m.stages.forEach(s=>{if(saved[s.id])pos[s.id]={x:saved[s.id].x,y:saved[s.id].y};});
+    if(!Object.keys(pos).length){m.stages.forEach(s=>pos[s.id]={x:auto[s.id].x,y:auto[s.id].y});return pos;}
+    m.stages.forEach(s=>{if(pos[s.id])return;
+      const pre=s.deps.map(d=>pos[d.stage]).filter(Boolean);let x=pre.length?pre[0].x:auto[s.id].x,y=pre.length?Math.max(...pre.map(p=>p.y))+200:Math.max(0,...Object.values(pos).map(p=>p.y))+200;
+      let g=0;while(Object.values(pos).some(p=>Math.abs(p.x-x)<280&&Math.abs(p.y-y)<150)&&g++<30)x+=300;pos[s.id]={x,y};});
+    return pos;}
+  const persistPos=(m,pos)=>{m.layout=m.layout||{};Object.keys(pos).forEach(id=>m.layout[id]={x:pos[id].x,y:pos[id].y});};
+  Flow.registerKind('master',{
+    get:id=>S.get('masters',id), noun:'stage',
+    nodes:m=>m.stages.map(s=>({id:s.id,type:'stage',label:s.label,deps:s.deps})),
+    edges:m=>{const out=[];m.stages.forEach(s=>s.deps.forEach((d,j)=>out.push({key:s.id+':'+j,from:d.stage,to:s.id,label:STATE_TXT[d.state]||d.state,cls:'dep-'+d.state})));return out;},
+    estH:n=>{const s=n;return 112;},
+    positions,
+    getSel:m=>M.sel[m.id]||null, setSel:(m,id)=>{M.sel[m.id]=id||null;},
+    snapshot:m=>JSON.stringify({stages:m.stages,layout:m.layout||null,title:m.title}),
+    restore(m,x){const o=JSON.parse(x);m.stages=o.stages;if(o.layout)m.layout=o.layout;else delete m.layout;m.title=o.title;},
+    palette:['stage'], typeLabel:()=>'Stage', typeIcon:()=>'layers',
+    validate:m=>validate(m).map(msg=>({msg})),
+    starts:m=>m.stages.filter(s=>!s.deps.length).map(s=>s.id),
+    nodeClass:(n,m)=>{const s=stg(m,n.id);return 'k-stage'+(s&&s.deps.some(d=>d.state==='started')?' par':'');},
+    nodeInner(m,n,i,opts){const s=stg(m,n.id);const c=S.get('sops',s.sopId);const v=m.versions[m.versions.length-1];
+      const par=s.deps.some(d=>d.state==='started');let run='';
+      if(opts&&opts.view==='try'){const [l,t]=stageState(m,s,tr(m.id));run=UI.tag(l,t);}
+      const tags=[s.approvalRoleId?UI.tag('Approval · '+REG.labelById('roles',s.approvalRoleId),'pur'):'',
+        s.waitDays||s.waitSetting?UI.tag('Wait '+val(s,'waitDays','waitSetting')+' d','warn'):'',
+        s.repeatHours||s.repeatSetting?UI.tag('Every '+val(s,'repeatHours','repeatSetting')+' h','warn'):''].join('');
+      return `<div class="fx-eyebrow">${ic(par?'split':'layers','',13)}<span>Stage ${i+1}</span>${run}</div>
+        <div class="fx-title">${esc(s.label||'Untitled')}</div>
+        <div class="fx-sum">${c?esc(c.title)+' · '+Flow.stepCount(c.nodes)+' steps':'No child SOP'}</div>
+        ${tags?`<div class="fx-tags">${tags}</div>`:''}
+        ${Flow.settingChips?`<div class="mst-sets">${Flow.settingChips({waitSetting:s.waitSetting,repeatSetting:s.repeatSetting},v)}</div>`:''}`;},
+    defaultEdge:'completed',
+    askEdge(m,from,to,cx,cy,done){setTimeout(()=>{const a=document.createElement('div');a.style.cssText=`position:fixed;left:${cx}px;top:${cy}px;width:0;height:0`;document.body.appendChild(a);
+      UI.menu(a,['completed','approved','started'].map(st=>({label:STATE_TXT[st],icon:st==='started'?'split':st==='approved'?'check':'flag',run:()=>done(st)})));a.remove();
+      const mm=document.getElementById('menu');if(mm){mm.style.left=Math.max(8,Math.min(cx,innerWidth-mm.offsetWidth-8))+'px';mm.style.top=Math.min(cy+4,innerHeight-mm.offsetHeight-8)+'px';}},0);},
+    connect(m,from,to,state){const a=stg(m,from),b=stg(m,to);if(!a||!b)return 'Cannot connect';if(from===to)return 'A stage cannot wait on itself';
+      if(b.deps.some(d=>d.stage===from))return 'Already connected';
+      if(state==='approved'&&!a.approvalRoleId)UI.toast(a.label+' has no approval yet · set one in the inspector');
+      b.deps.push({stage:from,state:state||'completed'});return true;},
+    reconnect(m,key,end,id){const [sid,j]=ek(key);const s=stg(m,sid);const d=s&&s.deps[j];if(!d)return 'Connection not found';
+      if(end==='t'){const x=stg(m,id);if(!x)return 'Cannot connect';if(id===d.stage)return 'A stage cannot wait on itself';if(x.deps.some(y=>y.stage===d.stage))return 'Already connected';
+        s.deps.splice(j,1);x.deps.push(d);return true;}
+      if(id===sid)return 'A stage cannot wait on itself';if(s.deps.some((y,k)=>k!==j&&y.stage===id))return 'Already connected';d.stage=id;return true;},
+    deleteEdge(m,key){const [sid,j]=ek(key);const s=stg(m,sid);if(s)s.deps.splice(j,1);},
+    edgeEditLabel:'Change dependency',
+    editEdgeOnClick:true,
+    editEdge(m,key,cx,cy,done){const [sid,j]=ek(key);const s=stg(m,sid);const d=s&&s.deps[j];if(!d)return;
+      setTimeout(()=>{const a=document.createElement('div');a.style.cssText=`position:fixed;left:${cx}px;top:${cy}px;width:0;height:0`;document.body.appendChild(a);
+        UI.menu(a,['completed','approved','started'].map(st=>({label:(d.state===st?'✓ ':'')+STATE_TXT[st],icon:st==='started'?'split':st==='approved'?'check':'flag',run:()=>{if(d.state!==st){S.snap('Dependency');d.state=st;done();}}})).concat(['-',{label:'Delete connection',icon:'trash',danger:true,run:()=>{S.snap('Delete connection');s.deps.splice(j,1);Flow._edgeSel=null;done();}}]));a.remove();
+        const mm=document.getElementById('menu');if(mm){mm.style.left=Math.max(8,Math.min(cx,innerWidth-mm.offsetWidth-8))+'px';mm.style.top=Math.min(cy+4,innerHeight-mm.offsetHeight-8)+'px';}},0);},
+    removeNodes(m,ids){const set=new Set(ids);const n=m.stages.filter(x=>set.has(x.id)).length;m.stages=m.stages.filter(x=>!set.has(x.id));m.stages.forEach(x=>x.deps=x.deps.filter(d=>!set.has(d.stage)));if(m.layout)ids.forEach(id=>delete m.layout[id]);return n;},
+    disconnect(m,ids){const set=new Set(ids);m.stages.forEach(x=>x.deps=set.has(x.id)?[]:x.deps.filter(d=>!set.has(d.stage)));},
+    duplicate(m,ids){const pos=positions(m);const out=[];ids.forEach(id=>{const s=stg(m,id);if(!s)return;const c=Object.assign(JSON.parse(JSON.stringify(s)),{id:newStage(m).id,label:s.label+' copy'});
+      m.stages.push(c);pos[c.id]={x:pos[id].x+40,y:pos[id].y+40};out.push(c.id);});persistPos(m,pos);return out;},
+    addAt(m,type,x,y){const pos=positions(m);const s=newStage(m);m.stages.push(s);pos[s.id]={x:Math.round((x-132)/20)*20,y:Math.round((y-40)/20)*20};persistPos(m,pos);return s.id;},
+    addAfter(m,type,after){const pos=positions(m);const a=stg(m,after);const s=newStage(m,'',[{stage:after,state:'completed'}]);
+      m.stages.splice(m.stages.indexOf(a)+1,0,s);const p=pos[after]||{x:0,y:0};let x=p.x,y=p.y+200;let g=0;while(Object.values(pos).some(q=>Math.abs(q.x-x)<280&&Math.abs(q.y-y)<150)&&g++<30)x+=300;pos[s.id]={x,y};persistPos(m,pos);return s.id;},
+    paletteClick(m,type,center){const sel=M.sel[m.id];return sel&&stg(m,sel)?this.addAfter(m,type,sel):this.addAt(m,type,center.x,center.y);},
+    paletteDrop(m,type,w,over){return over?this.addAfter(m,type,over):this.addAt(m,type,w.x,w.y);}
   });
   window.Master=M;
 })();

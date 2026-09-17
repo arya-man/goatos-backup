@@ -237,3 +237,74 @@
 .fx-root.tb-tight .fx-val{font-size:0;gap:4px}.fx-root.tb-tight .fx-val b{font-size:12px}
 .fx-root.tb-tight .fx-jump{max-width:128px}
 .fx-root.tb-tight .fx-tools .fx-sep:nth-of-type(2){display:none}
+
+/* ===== shared canvas engine (draw.io-grade editing) ===== */
+/* toolbar is a solid bar above the canvas; nothing renders under it */
+.fx-tools{left:0;right:0;top:0;max-width:none;border-radius:0;border:0;border-bottom:1px solid var(--line);box-shadow:none;padding:6px 10px;background:var(--panel);z-index:12}
+.fx-tools .sp{flex:1 1 auto;min-width:8px}
+.fx-clip{clip-path:inset(var(--fx-top,46px) 0 0 0)}
+.fx-palette{top:calc(var(--fx-top,46px) + 12px)}
+.fx-help,.fx-issues{top:calc(var(--fx-top,46px) + 8px)}
+.fx-root.tool-select{cursor:default}
+.fx-root.tool-select.panning{cursor:grabbing}
+@media(max-width:760px){.fx-tools{left:0;right:0}}
+
+/* side anchors: 4 per node on hover, 12px dot, 28px hit */
+.fx-anc{position:absolute;width:12px;height:12px;margin:-6px 0 0 -6px;border-radius:50%;box-sizing:border-box;background:var(--panel);border:2px solid var(--brand);opacity:0;z-index:4;cursor:crosshair;transition:opacity .1s,transform .1s}
+.fx-anc::after{content:"";position:absolute;inset:-8px;border-radius:50%}
+.fx-anc[data-anc="t"]{left:50%;top:0}.fx-anc[data-anc="b"]{left:50%;top:100%}
+.fx-anc[data-anc="l"]{left:0;top:50%}.fx-anc[data-anc="r"]{left:100%;top:50%}
+.fx-node:hover .fx-anc,.fx-node.sel .fx-anc,.fx-root.connecting .fx-node.drop .fx-anc{opacity:1}
+.fx-anc:hover,.fx-anc.hot{background:var(--brand);transform:scale(1.35);opacity:1}
+.fx-root.dragging .fx-anc,.fx-root.dragging .fx-pluses{display:none}
+.fx-port{display:none}
+.fx-node.drop{box-shadow:0 0 0 3px var(--brand),0 0 0 10px color-mix(in srgb,var(--brand) 22%,transparent)}
+.fx-root.connecting,.fx-root.connecting .fx-node{cursor:crosshair}
+
+/* edges: 12px hit, handles at both ends on hover/select, labels as pills above wires */
+.fx-edges{overflow:visible}
+.fx-wire-hit{stroke-width:12}
+.fx-eg:hover .fx-wire{stroke:color-mix(in srgb,var(--brand) 70%,var(--muted))}
+.fx-eg.sel .fx-wire{stroke:var(--brand);stroke-width:2.6}
+.fx-eg.ghost{opacity:.25}
+.fx-wire.dep-started{stroke-dasharray:6 5;stroke:var(--info)}
+.fx-wire.dep-approved{stroke:var(--purple,#a78bfa)}
+.fx-elabel{pointer-events:all;cursor:pointer}
+.fx-elabel rect{fill:var(--panel-2);stroke:var(--line);stroke-width:1}
+.fx-elabel text{fill:var(--ink);font-size:max(12px,calc(12px / var(--fxk,1)));font-weight:700;text-anchor:middle}
+.fx-elabel:hover rect,.fx-elabel.sel rect{stroke:var(--brand)}
+.fx-elabel.dep-started text{fill:var(--info)}.fx-elabel.dep-approved text{fill:var(--purple,#a78bfa)}
+.fx-ehs{opacity:0;pointer-events:none}
+.fx-ehs.on{opacity:1;pointer-events:all}
+.fx-root:not(.dragging):not(.connecting) .fx-ehs.hov{opacity:1;pointer-events:all}
+.fx-eh{fill:var(--panel);stroke:var(--brand);stroke-width:2.5;cursor:move;pointer-events:all}
+.fx-eh:hover{fill:var(--brand)}
+.fx-ehs.on .fx-eh{stroke-width:3}
+.fx-preview path{stroke-width:2.4}
+
+/* marquee + inline label editor */
+.fx-marq{position:absolute;z-index:9;border:1px solid var(--brand);background:color-mix(in srgb,var(--brand) 12%,transparent);border-radius:3px;pointer-events:none}
+.fx-marq[hidden]{display:none}
+.fx-lbl-in{position:absolute;z-index:20;width:120px;height:30px;padding:0 10px;border-radius:15px;border:2px solid var(--brand);background:var(--panel);color:var(--ink);font:inherit;font-size:13px;font-weight:700;text-align:center;outline:none}
+
+/* master stage cards on the shared canvas */
+.fx-node.k-stage{--k:var(--brand)}
+.fx-node.k-stage.par{--k:var(--info)}
+.fx-node.k-stage .fx-tags{display:flex;flex-wrap:wrap;gap:4px}
+.fx-node.k-stage .fx-tags .tag{white-space:normal;height:auto;line-height:1.3;border:0}
+.fx-legend{display:flex;gap:14px;align-items:center;font-size:12.5px;color:var(--muted)}
+.fx-legend i{display:inline-block;width:22px;height:0;border-top:2px solid var(--muted);vertical-align:middle;margin-right:6px}
+.fx-legend i.a{border-color:var(--purple,#a78bfa)}.fx-legend i.s{border-top-style:dashed;border-color:var(--info)}
+.fx-handles{position:absolute;left:0;top:0;overflow:visible;pointer-events:none;z-index:5}
+.fx-ehit{fill:transparent;stroke:none;pointer-events:all;cursor:move}.fx-ehit:hover+.fx-ehit,.fx-ehit:hover~.fx-eh{fill:var(--brand)}
+/* hit areas stay a constant screen size at any zoom */
+.fx-wire-hit{stroke-width:max(12px,calc(12px / var(--fxk,1)))}
+.fx-ehit{r:max(12px,calc(12px / var(--fxk,1)))}
+.fx-eh{r:max(6px,calc(6px / var(--fxk,1)))}
+.fx-anc{width:max(12px,calc(12px / var(--fxk,1)));height:max(12px,calc(12px / var(--fxk,1)));margin:calc(max(12px,calc(12px / var(--fxk,1))) / -2) 0 0 calc(max(12px,calc(12px / var(--fxk,1))) / -2)}
+/* zoomed out: text stays readable but cards never outgrow their slot (no overlaps) */
+.fx-eyebrow,.fx-sum{font-size:calc(12.5px * max(1, min(1.3, 1 / var(--fxk,1))))}
+.fx-title{font-size:calc(14px * max(1, min(1.3, 1 / var(--fxk,1))));display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden}
+.fx-elabel text{font-size:calc(12px * max(1, min(1.4, 1 / var(--fxk,1))))}
+.fx-root.zoomed-out .fx-set,.fx-root.zoomed-out .mst-sets,.fx-root.zoomed-out .fx-tags{display:none}
+.canvasbar+.canvas:has(> .fx-root){height:calc(100dvh - 268px)}
