@@ -98,7 +98,7 @@
     <string name="feed_slot_optional">Optional</string>
     <string name="feed_slot_retry">Retry · %1$s</string>
     <string name="feed_slot_need_all">Record every required capture to submit.</string>
-    <string name="feed_slot_answer_questions">Answer the questions on this card to submit.</string>
+    <string name="feed_slot_still_needed">Still needed: %1$s</string>
     <string name="feed_dist_play_preview">Play</string>
     <string name="feed_dist_pause_preview">Pause</string>
     <string name="feed_transport_title">Feed transport</string>

@@ -39,6 +39,8 @@ import sg.mesha.goatos.core.ui.RefreshOnResume
 import sg.mesha.goatos.core.ui.SyncIconButton
 import sg.mesha.goatos.core.designsystem.component.MeshaScreenHeader
 import sg.mesha.goatos.core.designsystem.icon.MeshaIcons
+import sg.mesha.goatos.core.ui.sop.SopCardProgress
+import sg.mesha.goatos.core.ui.sop.progress
 
 @Immutable
 data class FeedTransportRowUi(
@@ -430,10 +432,13 @@ private fun FeedTransportStatusCard(
     val statusText = when {
         committed -> stringResource(R.string.feed_transport_submitted)
         completionFailed -> state.result.message
-        state.submitEnabled -> stringResource(R.string.feed_transport_ready_to_submit)
-        state.card.compulsorySlotsFilled && !state.card.requiredAnswersGiven -> stringResource(R.string.feed_slot_answer_questions)
-        state.card.anyCaptured -> stringResource(R.string.feed_transport_waiting_sync)
-        else -> stringResource(R.string.feed_slot_need_all)
+        else -> when (val progress = state.card.progress(state.submitEnabled)) {
+            SopCardProgress.Ready -> stringResource(R.string.feed_transport_ready_to_submit)
+            // A required capture/answer not yet recorded is NAMED -- never "upload in progress" (Realme 2026-09-17).
+            is SopCardProgress.StillNeeded -> stringResource(R.string.feed_slot_still_needed, progress.titles.joinToString(", "))
+            SopCardProgress.Uploading -> stringResource(R.string.feed_transport_waiting_sync)
+            SopCardProgress.NothingCaptured -> stringResource(R.string.feed_slot_need_all)
+        }
     }
     val tone = when {
         committed -> MeshaColors.Ok
