@@ -84,7 +84,7 @@ test("the daily charts run through today while the rest of the page stays on yes
   // as a verification failure rather than as work in progress.
   assert.match(source, /const chartWindow = rangeDates\(range, todayIso\(\)\);/);
   assert.match(source, /const chartParams = \{ park_id: parkId, \.\.\.chartWindow \};/);
-  assert.match(source, /wantDirected\s*\?\s*getFeedAnalyticsDirected\(chartParams\)/s);
+  assert.match(source, /wantDirected\s*\?\s*getFeedAnalyticsDirected\(\{ \.\.\.chartParams, sections: directedSections \}\)/s);
   assert.match(source, /tab === "overview"\s*\?\s*"expenditure,spend,item_expenditure"/s);
   // The Stock tab's arms no longer branch on stockOnly: both readers of that tab
   // render the same three, and item_expenditure moved to the tab that reads it.
@@ -205,4 +205,19 @@ test("the Stock tab requests its own arms and does not pay for item money", () =
     assert.ok(asked.has(arm), `the Stock tab renders ${arm} and must request it`);
   }
   assert.ok(!asked.has("item_expenditure"), "the Stock tab never builds itemMoney");
+});
+
+test("Consumption's Status-wise view reads only the pen-tag arm and skips General's reads", () => {
+  // Status-wise is the average directed feed per animal per pen tag (maintainer request
+  // 2026-09-17). It must not pay for General's KPI, stock, spend or pen-chart reads, and General
+  // must not pay for the pen-tag query.
+  assert.match(source, /const directedSections = statusWise \? "pen_tags" : "days,items";/);
+  assert.match(source, /const wantExecution = \(tab === "overview" && !statusWise\) \|\| tab === "execution";/);
+  assert.match(source, /const wantStock = \(tab === "overview" && !statusWise\) \|\| tab === "items";/);
+  assert.match(source, /const wantShedFeed = tab === "overview" && !statusWise;/);
+  assert.match(source, /\{!stockOnly && statusWise && directed\?\.ok \? \(\s*<FeedStatusWise /);
+  assert.match(source, /\{!stockOnly && !statusWise && directed\?\.ok && \(tab === "overview"/);
+  // The chart compares single-stage categories; mixed-tag pens are split on the BACKEND's flag.
+  assert.match(source, /const single = data\.pen_tags\.filter\(\(t\) => !t\.mixed\);/);
+  assert.doesNotMatch(source, /pen_tag_label\.includes\("\+"\)/);
 });

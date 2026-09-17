@@ -71,6 +71,10 @@ function dedupeOptions(options: { value: string; label: string }[]): { value: st
 }
 const TABS = ["overview", "items", "peranimal", "experiment", "execution"] as const;
 type Tab = (typeof TABS)[number];
+// The Consumption tab's two readings (maintainer request 2026-09-17): General is everything the tab
+// already showed; Status-wise is the average directed feed one animal gets per day, per pen tag.
+const CONSUMPTION_VIEWS = ["general", "status"] as const;
+type ConsumptionView = (typeof CONSUMPTION_VIEWS)[number];
 const RANGES = ["30", "61", "92"] as const;
 type Range = (typeof RANGES)[number];
 // The expenditure chart's two readings (maintainer ask 2026-09-07): the day's ₹ as it is, or
@@ -133,6 +137,11 @@ function readCompletionStatus(sp: RouteSearchParams): string {
 function readWastageDay(sp: RouteSearchParams): string | undefined {
   const raw = one(sp, "wastage_day");
   return raw && /^\d{4}-\d{2}-\d{2}$/.test(raw) ? raw : undefined;
+}
+
+function readConsumptionView(sp: RouteSearchParams): ConsumptionView {
+  const raw = one(sp, "fc_view");
+  return (CONSUMPTION_VIEWS as readonly string[]).includes(raw ?? "") ? (raw as ConsumptionView) : "general";
 }
 
 /** Preserves every other param so switching tab/range never resets scope. */
@@ -287,6 +296,10 @@ export async function FeedAnalyticsPage({
     .filter((key): key is Tab => (TABS as readonly string[]).includes(key));
   const stockOnly = allowedTabs.length === 1 && allowedTabs[0] === "items";
   const tab = readTab(searchParams, allowedTabs);
+  // Status-wise reads ONLY the pen-tag arm of the directed rollup: none of General's KPI tiles,
+  // spend, money cards or pen charts render there, so none of their reads run.
+  const consumptionView: ConsumptionView = tab === "overview" ? readConsumptionView(searchParams) : "general";
+  const statusWise = consumptionView === "status";
   const range = stockOnly ? "30" : readRange(searchParams);
   const spendMode = readSpendMode(searchParams);
   const { parkId } = backendScope(parseScope(searchParams));
@@ -307,7 +320,8 @@ export async function FeedAnalyticsPage({
   // Overview needs directed + execution (for the adherence KPI); every other
   // tab reads exactly its own endpoint.
   const wantDirected = !stockOnly && (tab === "overview" || tab === "items" || tab === "peranimal");
-  const wantExecution = tab === "overview" || tab === "execution";
+  const directedSections = statusWise ? "pen_tags" : "days,items";
+  const wantExecution = (tab === "overview" && !statusWise) || tab === "execution";
   const wantExperiment = tab === "experiment";
   // The experiment tab carries its OWN park dropdown (fa_park), the same
   // disable-when-top-bar-owns rule every feed page uses; other tabs stay on
@@ -334,7 +348,7 @@ export async function FeedAnalyticsPage({
   const completionParkFilter = parkId || (one(searchParams, "fdc_park") ?? "");
   const completionShedFilter = one(searchParams, "fdc_shed") ?? "";
   const completionStatusFilter = readCompletionStatus(searchParams);
-  const wantStock = tab === "overview" || tab === "items";
+  const wantStock = (tab === "overview" && !statusWise) || tab === "items";
   // Each tab asks for exactly the stock arms IT renders, and the backend honours
   // the narrowing strictly -- an arm not named here comes back empty, with no
   // error. Consumption (overview) is the ONLY tab that builds itemMoney, so
@@ -352,13 +366,13 @@ export async function FeedAnalyticsPage({
   // chips — the maintainer asked for 7 days there while the charts above
   // default to 30. Its farm/pen-name filters run client-side over the served
   // bounded pen set, like the completion table's narrowing.
-  const wantShedFeed = tab === "overview";
+  const wantShedFeed = tab === "overview" && !statusWise;
   const shedFeedTo = istDayPlus(todayIso(), -1);
   const shedFeedWindow = { date_from: istDayPlus(shedFeedTo, -6), date_to: shedFeedTo };
   const [locations, directed, execution, experiment, stock, shedFeed] = await Promise.all([
     wantExperiment ? getCensusLocations() : Promise.resolve({ parks: [] as { id: string; name: string }[], sheds: [] }),
     wantDirected
-      ? getFeedAnalyticsDirected(chartParams)
+      ? getFeedAnalyticsDirected({ ...chartParams, sections: directedSections })
       : Promise.resolve<ApiResult<FeedAnalyticsDirectedResponse> | null>(null),
     wantExecution
       ? getFeedAnalyticsExecution({
@@ -440,7 +454,7 @@ export async function FeedAnalyticsPage({
               options={allowedTabs.map((t) => ({
                 value: t,
                 label: fa(pageContract, `tab.${t}`),
-                href: hrefWith(searchParams, { tab: t === "overview" ? undefined : t }),
+                href: hrefWith(searchParams, { tab: t === "overview" ? undefined : t, fc_view: undefined }),
               }))}
             />
             <SegmentedLinks
@@ -453,6 +467,17 @@ export async function FeedAnalyticsPage({
               }))}
             />
           </div>
+          {tab === "overview" ? (
+            <SegmentedLinks
+              current={consumptionView}
+              ariaLabel={fa(pageContract, "consumption.view.aria")}
+              options={CONSUMPTION_VIEWS.map((v) => ({
+                value: v,
+                label: fa(pageContract, `consumption.view.${v}`),
+                href: hrefWith(searchParams, { fc_view: v === "general" ? undefined : v }),
+              }))}
+            />
+          ) : null}
         </>
       ) : null}
 
@@ -467,7 +492,11 @@ export async function FeedAnalyticsPage({
         <StockCards stock={stock?.ok ? stock.data : null} pageContract={pageContract} />
       ) : null}
 
-      {!stockOnly && directed?.ok && (tab === "overview" || tab === "items" || tab === "peranimal") ? (
+      {!stockOnly && statusWise && directed?.ok ? (
+        <FeedStatusWise data={directed.data} pageContract={pageContract} />
+      ) : null}
+
+      {!stockOnly && !statusWise && directed?.ok && (tab === "overview" || tab === "items" || tab === "peranimal") ? (
         <DirectedTabs
           tab={tab}
           range={range}
@@ -539,6 +568,87 @@ export async function FeedAnalyticsPage({
         />
       ) : null}
     </div>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// Status-wise: average directed feed per animal per PEN TAG, whole window. Every figure is the
+// backend's (grams, average animals, pens); this only splits the served rows into the single-stage
+// categories the chart compares and the mixed-tag pens listed beside them, on the backend's flag.
+// ---------------------------------------------------------------------------
+
+function FeedStatusWise({
+  data,
+  pageContract,
+}: {
+  data: FeedAnalyticsDirectedResponse;
+  pageContract: AdminUiPageContract;
+}) {
+  const single = data.pen_tags.filter((t) => !t.mixed);
+  const mixed = data.pen_tags.filter((t) => t.mixed);
+  const unit = fa(pageContract, "unit.g_per_animal_day");
+  if (data.pen_tags.length === 0) {
+    return (
+      <section className="card">
+        <h2 className="h">{fa(pageContract, "empty.title")}</h2>
+        <p className="muted small">{fa(pageContract, "status.empty")}</p>
+      </section>
+    );
+  }
+  const table = (rows: FeedAnalyticsDirectedResponse["pen_tags"], label: string) => (
+    <div className="tablewrap" tabIndex={0} role="group" aria-label={label}>
+      <table className="tbl">
+        <thead>
+          <tr>
+            <th>{fa(pageContract, "col.status.tag")}</th>
+            <th>{fa(pageContract, "col.status.per_animal")}</th>
+            <th>{fa(pageContract, "col.status.animals")}</th>
+            <th>{fa(pageContract, "col.status.pens")}</th>
+            <th>{fa(pageContract, "col.status.directed")}</th>
+          </tr>
+        </thead>
+        <tbody>
+          {rows.map((row) => (
+            <tr key={row.pen_tag_key}>
+              <td>{row.pen_tag_label}</td>
+              <td>{row.per_head_grams === "" ? "—" : `${nf(num(row.per_head_grams))} ${unit}`}</td>
+              <td>{row.avg_animals === "" ? "—" : nf(num(row.avg_animals))}</td>
+              <td>{nf(row.pens)}</td>
+              <td>{`${nf(num(row.directed_kg))} ${fa(pageContract, "unit.kg")}`}</td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
+    </div>
+  );
+  return (
+    <>
+      <section className="card wchart" aria-label={fa(pageContract, "status.title")}>
+        <h2 className="h">{fa(pageContract, "status.title")}</h2>
+        <p className="muted small">{fa(pageContract, "status.hint")}</p>
+        <ChartHover>
+          <SvgBars
+            data={single
+              .filter((row) => row.per_head_grams !== "")
+              .map((row) => ({ key: row.pen_tag_key, label: row.pen_tag_label, value: num(row.per_head_grams) }))}
+            valueNoun={unit}
+            chartLabel={fa(pageContract, "status.title")}
+            emptyLabel={fa(pageContract, "status.empty")}
+            maxBars={Math.max(single.length, 1)}
+          />
+        </ChartHover>
+        {single.length > 0 ? table(single, fa(pageContract, "status.title")) : null}
+      </section>
+      {mixed.length > 0 ? (
+        <section className="card" aria-label={fa(pageContract, "status.mixed.title")}>
+          <div className="hd">
+            <h3>{fa(pageContract, "status.mixed.title")}</h3>
+            <span className="small muted">{fa(pageContract, "status.mixed.hint")}</span>
+          </div>
+          {table(mixed, fa(pageContract, "status.mixed.title"))}
+        </section>
+      ) : null}
+    </>
   );
 }
 
