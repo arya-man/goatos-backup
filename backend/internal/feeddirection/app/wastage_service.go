@@ -172,10 +172,13 @@ func (s *Service) CompleteWastage(ctx context.Context, in CompleteWastageInput) 
 		return ports.CompleteWastageResult{}, err
 	}
 
-	// Enqueue whenever the resulting row is AWAITING VERIFICATION, replays included: idempotent on
-	// (completion_id + row_version), so a replay collapses onto the existing item, and a retry after
-	// a committed row whose enqueue failed is what creates it (see CompletePacking; 2026-09-17).
-	if result.Status == domain.WastageStatusPendingVerification {
+	// Enqueue whenever the resulting row is AWAITING VERIFICATION and its submission round has no
+	// verifier item yet: a fresh or rework submit, and a retry after a committed row whose enqueue
+	// failed (see CompletePacking; 2026-09-17). A replay whose round already HAS an item enqueues
+	// nothing -- unlike packing, a wastage row's row_version moves while it waits (the verifier's
+	// measurement bumps it), so the (completion_id + row_version) key alone would mint a second card
+	// and the verdict round fence would then drop the approve of the first.
+	if result.Status == domain.WastageStatusPendingVerification && (result.NewlyPending || !result.RoundItemQueued) {
 		heads := ""
 		if pen.HeadCount > 0 {
 			heads = fmt.Sprintf("%d", pen.HeadCount)

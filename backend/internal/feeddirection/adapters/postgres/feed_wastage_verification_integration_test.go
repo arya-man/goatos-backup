@@ -4,9 +4,11 @@ import (
 	"context"
 	"errors"
 	"testing"
+	"time"
 
 	"github.com/vgoats/goatos/backend/internal/feeddirection/domain"
 	"github.com/vgoats/goatos/backend/internal/feeddirection/ports"
+	"github.com/vgoats/goatos/backend/internal/platform/biztime"
 )
 
 // Feed WASTAGE verification gate — proofs of the maintainer-2026-08-18 rule against the REAL
@@ -439,5 +441,53 @@ func TestCompleteWastageKeepsPensApart(t *testing.T) {
 	}
 	if !two.NewlyPending {
 		t.Fatal("pen 2 must be a fresh pending transition of its own")
+	}
+}
+
+// A replay reports whether its submission ROUND already has a verifier item, so the service can
+// skip a re-enqueue whose row_version-keyed item would be a duplicate once a measurement bumped the
+// row (2026-09-17). A rejected item closed an earlier round and never counts: a resubmit whose
+// enqueue failed must still heal from its replay.
+func TestWastageReplayReportsWhetherItsRoundAlreadyHasAnItem(t *testing.T) {
+	ctx := context.Background()
+	repo, pool := setupFeedDirectionDB(t, ctx)
+	t0 := time.Date(2026, 7, 21, 18, 0, 0, 0, biztime.DefaultLocation())
+
+	first, err := repo.CompleteWastage(ctx, wastageParams())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if first.RoundItemQueued {
+		t.Fatal("fresh submit RoundItemQueued = true, want false")
+	}
+	replay, err := repo.CompleteWastage(ctx, wastageParams())
+	if err != nil || replay.RoundItemQueued {
+		t.Fatalf("replay before any item (the heal case) = %+v, %v; want RoundItemQueued=false", replay, err)
+	}
+	const item1 = "fd000000-0000-4000-8000-00000000d001"
+	seedFeedItem(t, ctx, pool, item1, "feed_wastage_completion", "feed_wastage", first.CompletionID, "proof-wastage-0001", t0)
+	if replay, err = repo.CompleteWastage(ctx, wastageParams()); err != nil || !replay.RoundItemQueued {
+		t.Fatalf("replay with a pending item = %+v, %v; want RoundItemQueued=true", replay, err)
+	}
+	resend := wastageParams()
+	resend.IdempotencyKey = "feed-wastage-key-resend"
+	if replay, err = repo.CompleteWastage(ctx, resend); err != nil || !replay.RoundItemQueued {
+		t.Fatalf("same-proof re-send with a pending item = %+v, %v; want RoundItemQueued=true", replay, err)
+	}
+
+	// The verifier rejects round 1; the operator resubmits; that enqueue "fails" (no item seeded).
+	if _, err := pool.Exec(ctx, `UPDATE verification_items SET status = 'rejected', verdict_reason = 'not visible' WHERE item_id = $1::uuid`, item1); err != nil {
+		t.Fatal(err)
+	}
+	if ok, err := repo.BounceWastageForRework(ctx, ports.BounceWastageParams{TenantID: fdTenant, CompletionID: first.CompletionID, Reason: "x"}); err != nil || !ok {
+		t.Fatalf("bounce: %v %v", ok, err)
+	}
+	round2 := wastageParams()
+	round2.IdempotencyKey, round2.WastageProofRef = "feed-wastage-key-round2", "proof-wastage-0002"
+	if _, err := repo.CompleteWastage(ctx, round2); err != nil {
+		t.Fatal(err)
+	}
+	if replay, err = repo.CompleteWastage(ctx, round2); err != nil || replay.RoundItemQueued {
+		t.Fatalf("round-2 replay with only round 1's rejected item = %+v, %v; want RoundItemQueued=false (heal)", replay, err)
 	}
 }

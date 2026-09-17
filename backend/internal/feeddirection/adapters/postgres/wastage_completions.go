@@ -128,13 +128,18 @@ func (r *Repository) CompleteWastage(ctx context.Context, p ports.CompleteWastag
 		if readErr != nil {
 			return ports.CompleteWastageResult{}, readErr
 		}
+		queued, queuedErr := wastageRoundItemQueued(ctx, tx, p.TenantID, reservation.resultID)
+		if queuedErr != nil {
+			return ports.CompleteWastageResult{}, queuedErr
+		}
 		if err := r.commitAndInvalidateReadCache(ctx, tx); err != nil {
 			return ports.CompleteWastageResult{}, fmt.Errorf("feeddirection: commit idempotent wastage replay: %w", err)
 		}
 		committed = true
 		return ports.CompleteWastageResult{
 			CompletionID: reservation.resultID, Status: status, RowVersion: rowVersion, NewlyPending: false,
-			SOPProofs: storedProofs, SOPAnswers: storedAnswers,
+			RoundItemQueued: queued,
+			SOPProofs:       storedProofs, SOPAnswers: storedAnswers,
 			ShedName: shedName, PartitionLabel: p.PartitionLabel,
 		}, nil
 	}
@@ -144,6 +149,7 @@ func (r *Repository) CompleteWastage(ctx context.Context, p ports.CompleteWastag
 		rowVersion   int32
 		status       = domain.WastageStatusPendingVerification
 		newlyPending bool
+		roundQueued  bool
 	)
 	err = tx.QueryRow(ctx, `
 INSERT INTO feed_wastage_completions (
@@ -210,6 +216,9 @@ RETURNING row_version`,
 			canonicalSOPProofs = existingSOP
 			canonicalSOPAnswers = existingAnswers
 			status = existingStatus
+			if roundQueued, err = wastageRoundItemQueued(ctx, tx, p.TenantID, completionID); err != nil {
+				return ports.CompleteWastageResult{}, err
+			}
 		default:
 			return ports.CompleteWastageResult{}, fmt.Errorf("feeddirection: unexpected wastage status %q", existingStatus)
 		}
@@ -232,11 +241,33 @@ RETURNING row_version`,
 	}
 	committed = true
 	return ports.CompleteWastageResult{
-		CompletionID: completionID, Status: status, RowVersion: rowVersion, NewlyPending: newlyPending, SOPProofs: canonicalSOPProofs, SOPAnswers: canonicalSOPAnswers,
+		CompletionID: completionID, Status: status, RowVersion: rowVersion, NewlyPending: newlyPending, RoundItemQueued: roundQueued,
+		SOPProofs: canonicalSOPProofs, SOPAnswers: canonicalSOPAnswers,
 		// Carried on EVERY path, including the idempotent replay above: the enqueue reads these to
 		// compose the verifier's subject label.
 		ShedName: shedName, PartitionLabel: p.PartitionLabel,
 	}, nil
+}
+
+// wastageRoundItemQueued reports whether the completion's CURRENT submission round already has a
+// verifier item. A round's item is pending until judged; an approved item whose apply has not landed
+// yet (the relay lags) still belongs to the round. A rejected item closed an EARLIER round -- its
+// verdict sent the row to rework and the resubmit that followed is a new round -- so it never
+// counts, which keeps the heal of a resubmit whose enqueue failed working. Only the non-newly-pending
+// paths ask, so a fresh or rework submit always enqueues exactly as before.
+//
+// Scoped to feed's own source rows, the same read the verdict fence already makes
+// (feed_verdict_fence.go); bounded by verification_items' source index.
+func wastageRoundItemQueued(ctx context.Context, tx pgx.Tx, tenantID, completionID string) (bool, error) {
+	var queued bool
+	if err := tx.QueryRow(ctx, `
+SELECT EXISTS (
+  SELECT 1 FROM verification_items
+  WHERE tenant_id = $1::uuid AND source_module = 'feed' AND source_ref_type = 'feed_wastage_completion'
+    AND source_ref_id = $2::uuid AND status IN ('pending', 'approved'))`, tenantID, completionID).Scan(&queued); err != nil {
+		return false, fmt.Errorf("feeddirection: read wastage round verification item: %w", err)
+	}
+	return queued, nil
 }
 
 // readWastageByID reads a row's status and row_version within the transaction, for the idempotent

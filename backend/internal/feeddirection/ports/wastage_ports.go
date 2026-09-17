@@ -79,6 +79,14 @@ type CompleteWastageResult struct {
 	Status       string
 	RowVersion   int32
 	NewlyPending bool
+	// RoundItemQueued is true when the row was NOT newly moved to pending (an exact replay or a
+	// same-proof re-send) and its current submission round already has a verifier item (pending, or
+	// approved and not yet applied). The enqueue then must not run: the item key carries the row's
+	// CURRENT row_version, and recording a measurement bumps that version while the row stays
+	// pending, so re-enqueueing would mint a second card whose existence makes the round fence drop
+	// the approve of the first (2026-09-17). False on a fresh/rework submit, and on a replay whose
+	// first attempt committed the row but failed to queue the item -- the heal case.
+	RoundItemQueued bool
 	// SOPProofs is the canonical {slot key: ref} map stored on the row.
 	SOPProofs authored.ProofRefs
 	// SOPAnswers is the crew's answers stored on the row; an enqueue that heals a replay names
