@@ -78,6 +78,8 @@ function migrateSourceFieldCorrections(){
   if(!source)continue;
   for(const n of workflow.nodes||[]){const field=source.fields.find(f=>f.key===n.sourceQuestionId||f.key===n.proof?.slot||f.label===n.label);if(!field||field.type!=='number')continue;if(!field.unit&&!n.unit)n.unitOptional=true;if(field.max==null&&n.max===999)n.max=null;}
   if(kind&&!workflow.nodes.some(n=>n.id==='feed-review-result')&&workflow.nodes.find(n=>n.id==='verify')?.next==='end'&&workflow.nodes.find(n=>n.id==='verify')?.label==='Verifier reviews submitted evidence')applyFeedSourceReview(workflow,kind,true);
+  const verify=workflow.nodes.find(n=>n.id==='verify'),finish=workflow.nodes.find(n=>n.id==='end');
+  if(kind&&verify&&finish&&workflow.nodes.some(n=>n.id==='feed-review-result')&&finish.x===260&&finish.y===verify.y+165){finish.x=80;finish.y=verify.y+470;}
  }
 }
 function procurementSeed(){return {title:'Animal Purchase Inspection',version:0,published:null,nodes:[

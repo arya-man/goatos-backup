@@ -57,3 +57,23 @@ console.log('PASS all Feed source graphs validate/compile, exact approval/rework
 run("var retained=feedSeed('transport');retained.nodes=retained.nodes.filter(n=>!n.id.startsWith('feed-review')&&n.id!=='feed-rework');retained.nodes.find(n=>n.id==='verify').next='end';retained.nodes.find(n=>n.id==='verify').label='Verifier reviews submitted evidence';Object.assign(retained.nodes.find(n=>n.id==='end'),{label:'Custom approved terminal',x:999,y:2222});state.sops.Feed=retained;location.hash='#Feed/Editor';migrateBuiltInSops()");
 assert.equal(run("state.sops.Feed.nodes.find(n=>n.id==='end').label"),'Custom approved terminal');assert.equal(run("state.sops.Feed.nodes.find(n=>n.id==='end').x"),999);assert.equal(run("state.sops.Feed.nodes.find(n=>n.id==='end').y"),2222);assert.equal(run("state.sops.Feed.nodes.find(n=>n.id==='verify').next"),'feed-review-result');assert.equal(run("state.sops.Feed.nodes.filter(n=>n.id==='feed-rework').length"),1);assert.equal(run('validateWorkflow(state.sops.Feed,"Feed").length'),0);
 console.log('PASS direct editor startup migration repairs Feed review edges and preserves authored terminal text and position');
+
+for(const kind of ['direction','packing','transport']){
+ run(`window.persistedFeed=feedSeed('${kind}');for(const n of window.persistedFeed.nodes)if(n.type==='question')n.options=[]`);
+ assert.equal(run('validateWorkflow(window.persistedFeed,"Feed").length'),0);
+ run('compileWorkflow(window.persistedFeed,"Feed",1)');
+}
+for(const answer of ['Single choice','Multiple choice']){
+ run(`window.choiceGraph=feedSeed('transport');window.choice=window.choiceGraph.nodes.find(n=>n.type==='question');window.choice.answer='${answer}';window.choice.options=[]`);
+ assert(run('validateWorkflow(window.choiceGraph,"Feed").some(e=>e.includes("choices need unique"))'));
+ run("window.choice.options=[{value:'same',label:'One'},{value:'same',label:'Two'}]");assert(run('validateWorkflow(window.choiceGraph,"Feed").some(e=>e.includes("choices need unique"))'));
+ run("window.choice.options=[{value:'one',label:' '},{value:'two',label:'Two'}]");assert(run('validateWorkflow(window.choiceGraph,"Feed").some(e=>e.includes("choices need unique"))'));
+ run("window.choice.options=[{value:'one',label:'One'},{value:'two',label:'Two'}]");assert.equal(run('validateWorkflow(window.choiceGraph,"Feed").length'),0);
+}
+console.log('PASS saved non-choice empty options do not block all Feed SOPs; actual typed choices still reject empty, duplicate and blank labels');
+
+// Earlier migrations retained the old generated finish directly under the new review question.
+run("state.sops.Feed=feedSeed('transport');var overlappingFinish=state.sops.Feed.nodes.find(n=>n.id==='end');var existingVerify=state.sops.Feed.nodes.find(n=>n.id==='verify');Object.assign(overlappingFinish,{x:260,y:existingVerify.y+165,label:'Retain terminal wording'});migrateSourceFieldCorrections()");
+assert.equal(run("state.sops.Feed.nodes.find(n=>n.id==='end').x"),80);assert.equal(run("state.sops.Feed.nodes.find(n=>n.id==='end').y"),run("state.sops.Feed.nodes.find(n=>n.id==='verify').y+470"));assert.equal(run("state.sops.Feed.nodes.find(n=>n.id==='end').label"),'Retain terminal wording');
+run("Object.assign(state.sops.Feed.nodes.find(n=>n.id==='end'),{x:999,y:2222});migrateSourceFieldCorrections()");assert.equal(run("state.sops.Feed.nodes.find(n=>n.id==='end').x"),999);assert.equal(run("state.sops.Feed.nodes.find(n=>n.id==='end').y"),2222);
+console.log('PASS already-migrated generated finish moves below approval branch without changing authored text or custom placement');
