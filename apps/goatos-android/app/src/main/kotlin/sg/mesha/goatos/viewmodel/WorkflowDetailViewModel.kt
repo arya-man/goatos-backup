@@ -120,7 +120,7 @@ class WorkflowDetailViewModel @Inject constructor(
      * and re-sent them under round 1's key, which raised "already saved on this phone with different
      * details" until the card was reopened (Realme E2E 2026-09-17).
      */
-    private val recoveryJudgedActionIds = mutableSetOf<String>()
+    private val recoveryJudgedActionIds = mutableSetOf<String>() // mobile-guard:ignore: ViewModel-scoped, holds at most one workflow's step ids
 
     private val workflowId: String = savedStateHandle[ARG_WORKFLOW_ID] ?: ""
 
