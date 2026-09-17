@@ -60,7 +60,7 @@ function resolveLink(data) {
     try {
       const link = build(data);
       if (typeof link === "string" && link.startsWith("/")) return link;
-    } catch (_error) {
+    } catch {
       // Fall through to the dashboard.
     }
   }
@@ -74,7 +74,7 @@ function readPayload(event) {
   let raw = {};
   try {
     raw = event.data ? event.data.json() : {};
-  } catch (_error) {
+  } catch {
     raw = {};
   }
   if (!raw || typeof raw !== "object") raw = {};
@@ -152,14 +152,14 @@ async function focusOrOpen(link) {
   let clients = [];
   try {
     clients = await self.clients.matchAll({ type: "window", includeUncontrolled: true });
-  } catch (_error) {
+  } catch {
     clients = [];
   }
 
   const sameOrigin = clients.filter((client) => {
     try {
       return new URL(client.url).origin === self.location.origin;
-    } catch (_error) {
+    } catch {
       return false;
     }
   });
@@ -171,7 +171,7 @@ async function focusOrOpen(link) {
         await client.focus();
         return;
       }
-    } catch (_error) {
+    } catch {
       // Ignore an unparseable client url and keep looking.
     }
   }
@@ -189,7 +189,7 @@ async function focusOrOpen(link) {
       // listens for this in lib/web-push.ts.
       reusable.postMessage({ type: "mesha-push-navigate", link: target.pathname + target.search });
       return;
-    } catch (_error) {
+    } catch {
       // Try the next client.
     }
   }

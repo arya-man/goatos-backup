@@ -70,6 +70,13 @@ func (h *Handler) List(w http.ResponseWriter, r *http.Request) {
 			h.writeErr(w, r, app.BadRequest("invalid_limit", "That page size is not valid."))
 			return
 		}
+		// An EXPLICIT limit=0 is refused here rather than passed on, because 0 is the
+		// "absent, use the default" sentinel downstream and a caller who asked for zero
+		// rows and got twenty was not answered.
+		if parsed == 0 {
+			h.writeErr(w, r, app.BadRequest("invalid_limit", "That page size is not valid."))
+			return
+		}
 		limit = parsed
 	}
 	page, err := h.service.List(r.Context(), app.ListRequest{

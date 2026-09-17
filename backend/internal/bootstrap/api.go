@@ -82,6 +82,9 @@ import (
 	inventorypg "github.com/vgoats/goatos/backend/internal/inventory/adapters/postgres"
 	inventoryapp "github.com/vgoats/goatos/backend/internal/inventory/app"
 	leadershiptaskshttp "github.com/vgoats/goatos/backend/internal/leadershiptasks/adapters/http"
+	notificationcentrehttp "github.com/vgoats/goatos/backend/internal/notificationcentre/adapters/http"
+	notificationcentrepg "github.com/vgoats/goatos/backend/internal/notificationcentre/adapters/postgres"
+	notificationcentreapp "github.com/vgoats/goatos/backend/internal/notificationcentre/app"
 	leadershiptaskspg "github.com/vgoats/goatos/backend/internal/leadershiptasks/adapters/postgres"
 	leadershiptasksproof "github.com/vgoats/goatos/backend/internal/leadershiptasks/adapters/proof"
 	leadershiptasksapp "github.com/vgoats/goatos/backend/internal/leadershiptasks/app"
@@ -855,6 +858,11 @@ func NewAPI(ctx context.Context, cfg Config, log *slog.Logger) (*API, error) {
 		leadershiptaskspg.NewRepository(pool, cfg.Postgres.QueryTimeout), leadershiptasksproof.NewResolver(proofRepo)).
 		WithAttachmentDownloader(proofService)
 	leadershipTasksHandler := leadershiptaskshttp.NewHandler(leadershipTasksService, log)
+	// In-app notification centre: the caller's own notification feed and the mark-as-read
+	// write, read straight off notification_requests. It owns no table and produces no
+	// notification -- the bridge consumers remain the only writers of the feed's rows.
+	notificationCentreHandler := notificationcentrehttp.NewHandler(
+		notificationcentreapp.NewService(notificationcentrepg.NewRepository(pool, cfg.Postgres.QueryTimeout)), log)
 	// Work Board (maintainer decision 2026-09-10): the cross-module read. Every module
 	// contributes a Source over its OWN tables; the board composes them here and reads no
 	// table itself. Registration order does not matter -- the service sorts into board order.
@@ -1415,6 +1423,7 @@ func NewAPI(ctx context.Context, cfg Config, log *slog.Logger) (*API, error) {
 	toxinhttp.Register(protectedMux, toxinHandler)
 	markethttp.Register(protectedMux, marketHandler)
 	leadershiptaskshttp.Register(protectedMux, leadershipTasksHandler)
+	notificationcentrehttp.Register(protectedMux, notificationCentreHandler)
 	workboardhttp.Register(protectedMux, workBoardHandler)
 	alertshttp.Register(protectedMux, alertsHandler)
 	penvisitshttp.Register(protectedMux, penVisitsHandler)
