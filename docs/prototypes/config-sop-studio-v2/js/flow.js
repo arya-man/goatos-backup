@@ -303,7 +303,7 @@
     const f=Math.max(1,Math.min(1.15,1/(k||1)));const pills=[];
     const fits=r=>!rects.some(o=>inter(r,{x:o.x-4,y:o.y-4,w:o.w+8,h:o.h+8}))&&!pills.some(p=>inter(r,{x:p.x-4,y:p.y-4,w:p.w+8,h:p.h+8}));
     const segsOf=e=>e.pts.slice(1).map((p,i)=>({a:e.pts[i],b:p,len:Math.hypot(p[0]-e.pts[i][0],p[1]-e.pts[i][1])})).sort((x,y)=>y.len-x.len);
-    es.forEach(e=>{if(!e.label)return;if((k||1)<.6&&segsOf(e)[0]&&segsOf(e)[0].len*(k||1)<60){const s=segsOf(e)[0];const cx=(s.a[0]+s.b[0])/2,cy=(s.a[1]+s.b[1])/2;e.lp={cx,cy,r:{x:cx,y:cy,w:0,h:0},short:1};return;}const w=(String(e.label).length*6.7+18)*f,h=20*f;let best=null;
+    es.forEach(e=>{if(!e.label)return;if((k||1)<.5&&segsOf(e)[0]&&segsOf(e)[0].len*(k||1)<60){const s=segsOf(e)[0];const cx=(s.a[0]+s.b[0])/2,cy=(s.a[1]+s.b[1])/2;e.lp={cx,cy,r:{x:cx,y:cy,w:0,h:0},short:1};return;}const w=(String(e.label).length*6.7+18)*f,h=20*f;let best=null;
       for(const s of segsOf(e)){if(s.len<22)continue;for(const t of [.5,.35,.65,.2,.8]){const cx=s.a[0]+(s.b[0]-s.a[0])*t,cy=s.a[1]+(s.b[1]-s.a[1])*t;
         const r={x:cx-w/2,y:cy-h/2,w,h};if(fits(r)){best={cx,cy,r};break;}}if(best)break;}
       if(!best){/* no free stretch (e.g. short hop between side-by-side cards): nearest clear spot beside the line's midpoint */
@@ -348,11 +348,13 @@
     return es.filter(e=>e.pp).map(e=>`<button class="fx-plus ${sel===e.key?'show':''}" data-plus="${esc(e.key)}" style="left:${e.pp[0]}px;top:${e.pp[1]}px" aria-label="Insert step here"></button>`).join('');}
 
   /* ---------- SOP kind ---------- */
-  function sopGroupsHtml(sop,pos){
-    const K=KINDS.sop;const groups={};
+  function sopGroupsHtml(sop,pos,k){
+    const K=KINDS.sop;const groups={};k=k||1;
+    /* reserve the title chip inside the box: zoomed out the chip is screen-sized (12px/k, capped 35 world), so the top padding grows with 1/k and keeps a 10px screen gap above the first card */
+    const padT=k<.9?Math.max(58,Math.ceil(4+Math.min(12/k,35)*1.1+4+10/k)):58;
     sop.nodes.forEach(n=>{const g=n.page?'p:'+n.page:(n.lane?'l:'+n.lane:null);if(!g||!pos[n.id])return;(groups[g]=groups[g]||[]).push(n);});
     return Object.entries(groups).map(([g,ns])=>{
-      const x0=Math.min(...ns.map(n=>pos[n.id].x))-20,y0=Math.min(...ns.map(n=>pos[n.id].y))-58,
+      const x0=Math.min(...ns.map(n=>pos[n.id].x))-20,y0=Math.min(...ns.map(n=>pos[n.id].y))-padT,
         x1=Math.max(...ns.map(n=>pos[n.id].x+NW))+20,y1=Math.max(...ns.map(n=>pos[n.id].y+hOf(K,sop,n)))+20;
       return `<div class="fx-group ${g[0]==='p'?'page':'lane'}" style="left:${x0}px;top:${y0}px;width:${x1-x0}px;height:${y1-y0}px">
         <div class="fx-group-head" data-group="${esc(g)}" title="Drag to move the whole ${g[0]==='p'?'page':'lane'}">${ic(g[0]==='p'?'smartphone':'split','',12)}<b>${esc(g.slice(2))}</b></div></div>`;
@@ -477,7 +479,7 @@
     const RO=F.readOnly();
     return `<div class="fx-root ${RO?'ro':''} ${F.palOpen?'pal-open':''} tool-${F.tool} ${v.k<.9?'zoomed-out':''} ${v.k<.6?'zoomed-mid':''} ${v.k<.5?'zoomed-lo':''} ${v.k<.2?'zoomed-far':''}" data-flow="${esc(d.id)}" data-kind="${kind}" tabindex="0" style="${bgStyle(v)};--fxk:${v.k}">
       <div class="fx-clip"><div class="fx-world" style="transform:translate(${v.x}px,${v.y}px) scale(${v.k})">
-        <div class="fx-groups">${K.groups?K.groups(d,pos):''}</div>
+        <div class="fx-groups">${K.groups?K.groups(d,pos,view(dkey(K,d)).k):''}</div>
         <svg class="fx-edges" width="1" height="1">${edgesSvg(K,d,es).edges}</svg>
         <div class="fx-pluses">${RO?'':plusHtml(K,d,es)}</div>
         <div class="fx-nodes">${K.nodes(d).map((n,i)=>nodeHtml(K,d,n,pos[n.id],st,i)).join('')}</div>
@@ -566,7 +568,7 @@
   function redraw(root,K,d,pos,light){
     pos=pos||K.positions(d);const es=route(K,d,pos,view(dkey(K,d)).k);
     const sv=edgesSvg(K,d,es);root.querySelector('.fx-edges').innerHTML=sv.edges;root.querySelector('.fx-handles').innerHTML=sv.handles;
-    root.querySelector('.fx-groups').innerHTML=K.groups?K.groups(d,pos):'';
+    root.querySelector('.fx-groups').innerHTML=K.groups?K.groups(d,pos,view(dkey(K,d)).k):'';
     if(!light){root.querySelector('.fx-pluses').innerHTML=F.readOnly()?'':plusHtml(K,d,es);minimap(root,K,d,pos);}
     return es;
   }
@@ -601,7 +603,9 @@
     const floor=!auto?.35:narrow?Math.max(bottomPal?.9:.75,Math.min(1,aw/(NW+40))):.75;
     let k=Math.min(aw/bw,ah/bh,1); k=Math.max(floor,k);
     /* long flow: whole height can't fit even at the floor -> Fit width (readable), start at the top, minimap to navigate */
-    if(!auto&&bh*.35>ah)k=Math.max(.35,Math.min(aw/bw,1));
+    const fitW=!auto&&bh*.35>ah&&!bottomPal&&r.width>420;
+    if(fitW)k=Math.max(.6,Math.min(aw/bw,1));
+    else if(!auto&&bh*.35>ah)k=Math.max(.35,Math.min(aw/bw,1));
     v.k=k; v.x=padL+(aw-(b.x1-b.x0)*k)/2-b.x0*k;
     if((b.x1-b.x0)*k>aw){const s=(K.starts?K.starts(d):[])[0];const sp=s&&pos[s];v.x=Math.min(padL-b.x0*k,sp?padL+aw/2-(sp.x+NW/2)*k:1e9);}
     v.y=(bh*k>ah)?padT-b.y0*k:padT+(ah-bh*k)/2-b.y0*k;
