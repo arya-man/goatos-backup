@@ -71,13 +71,12 @@ func (e *Enqueuer) EnqueuePenRoutineVerification(ctx context.Context, in proutap
 		}
 		rows = append(rows, verificationdomain.ContextRow{Label: "After", Value: value})
 	}
-	if park := strings.TrimSpace(in.ParkName); park != "" {
-		rows = append(rows, verificationdomain.ContextRow{Label: "Park", Value: park})
-	}
+	// Park and pen are NOT repeated as context rows: the item carries park_id, shed_id and
+	// partition_label, and the verifier's drawer already renders them as its own Park / Pen
+	// facts (the 2026-09-17 browser proof showed both twice). A whole-park task has no pen, so
+	// it says so in the one row the drawer cannot derive.
 	if parkTask {
 		rows = append(rows, verificationdomain.ContextRow{Label: "Where", Value: wholePark})
-	} else if pen := strings.TrimSpace(in.PenLabel); pen != "" {
-		rows = append(rows, verificationdomain.ContextRow{Label: "Pen", Value: pen})
 	}
 	for _, a := range in.AnswerRows {
 		if strings.TrimSpace(a.Value) == "" {
