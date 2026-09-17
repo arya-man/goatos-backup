@@ -238,7 +238,10 @@ private fun PenRoutinePresenceCard(
             }
         } else if (!state.inPen) {
             PenRoutinePrimaryButton(
-                label = stringResource(R.string.pen_routines_action_check_in),
+                // A general park task has no pen to name: the button reads the neutral "Check in".
+                label = stringResource(
+                    if (state.parkTask) R.string.pen_routines_action_check_in_park else R.string.pen_routines_action_check_in,
+                ),
                 // ONLY the server's `can_check_in` arms the punch. A task the caller may not
                 // work keeps a visible, dead button rather than none at all.
                 enabled = state.canCheckIn,

@@ -2,6 +2,7 @@
 <resources>
     <string name="pen_routines_action_refresh">ताज़ा करें</string>
     <string name="pen_routines_action_check_in">बाड़े में चेक-इन करें</string>
+    <string name="pen_routines_action_check_in_park">चेक-इन करें</string>
     <string name="pen_routines_action_take_photo">फ़ोटो लें</string>
     <string name="pen_routines_action_record_video">वीडियो रिकॉर्ड करें</string>
     <string name="pen_routines_action_photo_again">फिर से फ़ोटो लें</string>

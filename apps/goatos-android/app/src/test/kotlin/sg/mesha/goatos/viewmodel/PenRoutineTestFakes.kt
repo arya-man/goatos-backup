@@ -285,6 +285,22 @@ fun penRoutineTask(
     rowVersion = rowVersion,
 )
 
+/**
+ * A GENERAL PARK task (2026-09-17 revision): `scope_kind = park`, and the pen fields arrive as ""
+ * exactly as the backend sends them; title, reason and presence line stay backend copy.
+ */
+fun penRoutineParkTask(inPen: Boolean = false): PenRoutineTaskDto = penRoutineTask(inPen = inPen).copy(
+    scopeKind = "park",
+    routineName = "Medicine store check",
+    title = "Medicine store check · Coimbatore",
+    shedId = "",
+    shedName = "",
+    partitionLabel = "",
+    operationalLocationDisplay = "",
+    presenceLine = if (inPen) "Checked in since 07:12" else "Check in before you start",
+    instruction = "Check the medicine store.",
+)
+
 fun penRoutineFilters(selected: String = "todo"): List<PenRoutineFilterDto> = listOf(
     PenRoutineFilterDto(key = "todo", label = "To do", count = 4, selected = selected == "todo", emptyMessage = "No routines due today."),
     PenRoutineFilterDto(key = "done", label = "Done", count = 9, selected = selected == "done", emptyMessage = "Nothing done yet."),

@@ -2,6 +2,7 @@
 <resources>
     <string name="pen_routines_action_refresh">ರಿಫ್ರೆಶ್ ಮಾಡಿ</string>
     <string name="pen_routines_action_check_in">ಪೆನ್‌ಗೆ ಚೆಕ್-ಇನ್ ಮಾಡಿ</string>
+    <string name="pen_routines_action_check_in_park">ಚೆಕ್-ಇನ್ ಮಾಡಿ</string>
     <string name="pen_routines_action_take_photo">ಫೋಟೋ ತೆಗೆಯಿರಿ</string>
     <string name="pen_routines_action_record_video">ವೀಡಿಯೊ ರೆಕಾರ್ಡ್ ಮಾಡಿ</string>
     <string name="pen_routines_action_photo_again">ಮತ್ತೆ ಫೋಟೋ ತೆಗೆಯಿರಿ</string>

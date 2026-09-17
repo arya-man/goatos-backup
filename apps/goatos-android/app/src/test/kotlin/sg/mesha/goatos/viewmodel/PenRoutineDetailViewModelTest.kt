@@ -39,6 +39,7 @@ import sg.mesha.goatos.feature.penroutines.PenRoutineDetailEvent
 import sg.mesha.goatos.feature.penroutines.PenRoutinePhase
 import sg.mesha.goatos.feature.penroutines.PenRoutineQuestionKind
 import sg.mesha.goatos.feature.penroutines.PenRoutineTone
+import sg.mesha.goatos.feature.penroutines.R as PenRoutineR
 
 /**
  * ONE routine task's detail state holder (maintainer instruction 2026-09-16).
@@ -97,6 +98,30 @@ class PenRoutineDetailViewModelTest {
         assertFalse(state.submitEnabled)
         // Opening the screen re-reads the server's truth once.
         assertEquals(1, repository.refreshDetailCalls)
+    }
+
+    @Test
+    fun `a general park task renders no pen line and the neutral check-in label`() = runTest(dispatcher) {
+        val repository = FakePenRoutinesRepository(penRoutineParkTask())
+        val vm = viewModel(repository)
+        advanceUntilIdle()
+
+        val state = vm.state.value
+        assertTrue(state.parkTask)
+        // No pen: the label is blank (the screen hides it and the header falls back to the title).
+        assertEquals("", state.penLabel)
+        assertEquals("Medicine store check · Coimbatore", state.title)
+        assertEquals("Coimbatore", state.parkName)
+        // Backend copy stays verbatim; the presence line is the backend's park wording.
+        assertEquals("Check in before you start", state.presenceLine)
+        assertTrue(state.presenceRequired)
+        assertTrue(state.canCheckIn)
+        // The client-owned button label is the neutral one, not "Check in to pen".
+        val app = RuntimeEnvironment.getApplication()
+        assertEquals("Check in", app.getString(PenRoutineR.string.pen_routines_action_check_in_park))
+        assertFalse(app.getString(PenRoutineR.string.pen_routines_action_check_in_park).contains("pen", ignoreCase = true))
+        // A pen task still carries its pen and is not a park task.
+        assertFalse(viewModel(FakePenRoutinesRepository(penRoutineTask())).also { advanceUntilIdle() }.state.value.parkTask)
     }
 
     @Test

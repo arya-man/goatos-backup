@@ -153,8 +153,12 @@ data class PenRoutineDetailUiState(
     val loading: Boolean = true,
     val taskId: String = "",
     val title: String = "",
+    /** The backend's pen label, VERBATIM; blank for a general park task (never rendered then). */
     val penLabel: String = "",
     val parkName: String = "",
+    /** A general PARK task (`scope_kind = park`): no pen, and the check-in button reads the
+     *  neutral "Check in" instead of naming a pen. */
+    val parkTask: Boolean = false,
     val reasonLine: String = "",
     val evidenceLine: String = "",
     val stateChip: String = "",
@@ -230,9 +234,11 @@ data class PenRoutineCardUi(
     val taskId: String,
     /** Backend-composed ("Pen cleaning · Castro 2 · Coimbatore"), VERBATIM. */
     val title: String,
-    /** The backend's pen label, VERBATIM. */
+    /** The backend's pen label, VERBATIM; blank for a general park task. */
     val penLabel: String,
     val parkName: String = "",
+    /** A general PARK task (`scope_kind = park`) — no pen line. */
+    val parkTask: Boolean = false,
     /** Backend-composed ("Every day"), VERBATIM. */
     val reasonLine: String,
     /** Backend-composed ("2 questions · 1 photo · check in"), VERBATIM. */

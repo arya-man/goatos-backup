@@ -13,6 +13,7 @@
 <resources>
     <string name="pen_routines_action_refresh">Refresh</string>
     <string name="pen_routines_action_check_in">Check in to pen</string>
+    <string name="pen_routines_action_check_in_park">Check in</string>
     <string name="pen_routines_action_take_photo">Take photo</string>
     <string name="pen_routines_action_record_video">Record video</string>
     <string name="pen_routines_action_photo_again">Take photo again</string>
