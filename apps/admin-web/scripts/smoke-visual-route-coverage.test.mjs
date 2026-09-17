@@ -146,6 +146,23 @@ test("visual smoke keeps every live sidebar leaf covered on desktop and narrow/m
   }
 });
 
+test("visual smoke fails on the visible admin error boundary", () => {
+  const markerBlock = smokeSource.match(/const failureScreenMarkers = \[[\s\S]*?\];/)?.[0] ?? "";
+  for (const marker of [
+    "Something went wrong",
+    "This screen failed to render",
+    "backend_down",
+    "Admin-web contract unavailable",
+    "The board could not be loaded",
+    "Weights could not be loaded",
+  ]) {
+    assert.ok(markerBlock.includes(JSON.stringify(marker)), `failureScreenMarkers must include ${marker}`);
+  }
+  assert.match(smokeSource, /const visibleText = await page\.locator\("body"\)\.innerText/);
+  assert.match(smokeSource, /assertHealthyHTML\(route\.name, html, visibleText, bearerToken\)/);
+  assert.match(smokeSource, /rendered visible failure marker/);
+});
+
 test("pager-required routes cannot pass silently when the pager is missing", () => {
   const pagerBlock = smokeSource.match(/async function assertPaginationControls[\s\S]*?\n}\n\nasync function exerciseFirstPagerRoundTrip/)?.[0] ?? "";
   assert.match(pagerBlock, /const bodyText = \(await page\.locator\("body"\)\.innerText\(\)\.catch\(\(\) => ""\)\)\.replace/);
