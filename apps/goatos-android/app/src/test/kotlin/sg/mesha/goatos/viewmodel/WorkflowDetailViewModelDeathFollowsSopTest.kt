@@ -222,6 +222,49 @@ class WorkflowDetailViewModelDeathFollowsSopTest {
         assertNull(saved.get<Int>("workflowDetail.deathSubmittedSteps"))
     }
 
+    @Test
+    fun `a rejected death offers a photo for its re-shoot step and Submit sends it`() = runTest(dispatcher) {
+        // Real phone E2E 2026-09-17: after a verifier reject both death videos are back in rework
+        // and a "Re-shoot report proof" step asks for ONE photo (action, no video). It must show a
+        // photo control, count as a draft, and go out with the videos on the one Submit.
+        val repo = DraftingWorkflowsRepository(
+            death(
+                videoStep("a-death", "death_video", 1).copy(status = "rework", blocked = false, blockedReason = ""),
+                videoStep("a-pm", "post_mortem_video", 2).copy(status = "rework"),
+                WorkflowActionDto(
+                    actionId = "a-reshoot", actionKey = "reshoot_report_0_ab12cd34", seq = 3, section = "main",
+                    actionType = "action", taskType = "reshoot_report", answerType = "none",
+                    title = "Re-shoot report proof · Carcass photo", status = "rework", proofMinPhotos = 1,
+                    reworkReason = "Tag not visible",
+                ),
+            ),
+        )
+        val vm = viewModel(repo)
+        advanceUntilIdle()
+
+        val reshoot = vm.state.value.actions.single { it.actionId == "a-reshoot" }
+        assertTrue("a photo-only re-shoot step must offer the camera", reshoot.canTakePhoto)
+        assertFalse("a photo-only step records no video", reshoot.canRecordVideo)
+
+        queueVideo(1_000)
+        vm.onEvent(WorkflowDetailEvent.RecordVideo("a-death"))
+        advanceUntilIdle()
+        queueVideo(2_000)
+        vm.onEvent(WorkflowDetailEvent.RecordVideo("a-pm"))
+        advanceUntilIdle()
+        assertFalse("the re-shoot photo is still owed", vm.state.value.deathSubmissionEnabled)
+        photos.queue(CapturedPhoto(localUri = "file:///reshoot.jpg", capturedAtMs = 3_000))
+        vm.onEvent(WorkflowDetailEvent.TakePhoto("a-reshoot"))
+        advanceUntilIdle()
+        assertTrue(vm.state.value.deathSubmissionEnabled)
+
+        vm.onEvent(WorkflowDetailEvent.SubmitDeath)
+        advanceUntilIdle()
+
+        assertEquals(listOf("a-death", "a-pm", "a-reshoot"), sync.completes.map { it.actionId })
+        assertEquals(listOf("photo"), sync.completes.last().proofOutboxItems.map { it.kind })
+    }
+
     private fun videoStep(id: String, key: String, seq: Int) = WorkflowActionDto(
         actionId = id, actionKey = key, seq = seq, section = "main", actionType = "action",
         title = key, requiresVideo = true, status = "pending",
