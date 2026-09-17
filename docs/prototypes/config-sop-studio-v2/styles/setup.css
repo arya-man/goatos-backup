@@ -356,3 +356,7 @@ body:has(#drawer.on .df) .toast{bottom:84px}
 .stg{display:grid;grid-template-columns:84px 1fr;gap:8px;align-items:start;margin:6px 0}.stgl{font-size:12px;color:var(--muted);padding-top:7px}
 @media(max-width:520px){.stg{grid-template-columns:1fr;gap:4px}.stgl{padding-top:0}}
 @media(min-width:521px){.slkpi.g3{grid-template-columns:repeat(3,minmax(0,1fr))}}
+/* conflict banner: keep each rule + Edit link together */
+.slclash li>span{white-space:nowrap}
+.slclash li>span a{margin-left:6px}
+@media(max-width:560px){.slclash li{display:grid;grid-template-columns:1fr;gap:4px}.slclash li>span{white-space:normal;display:flex;justify-content:space-between;align-items:baseline;gap:8px}.slclash li>span:nth-child(2){display:none}}
