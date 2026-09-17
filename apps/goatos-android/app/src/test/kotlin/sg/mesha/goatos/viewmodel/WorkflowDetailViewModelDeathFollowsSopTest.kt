@@ -91,14 +91,17 @@ class WorkflowDetailViewModelDeathFollowsSopTest {
         val vm = viewModel(repo)
         advanceUntilIdle()
 
+        assertEquals("a disabled Submit names what is still owed", listOf("death_video", "post_mortem_video"), vm.state.value.deathStepsMissing)
         queueVideo(1_000)
         vm.onEvent(WorkflowDetailEvent.RecordVideo("a-death"))
         advanceUntilIdle()
         assertFalse("one of two videos recorded", vm.state.value.deathSubmissionEnabled)
+        assertEquals(listOf("post_mortem_video"), vm.state.value.deathStepsMissing)
         queueVideo(2_000)
         vm.onEvent(WorkflowDetailEvent.RecordVideo("a-pm"))
         advanceUntilIdle()
         assertTrue(vm.state.value.deathSubmissionEnabled)
+        assertTrue("nothing is owed once every step is recorded", vm.state.value.deathStepsMissing.isEmpty())
         assertEquals("the seeded drafts keep the bare action-id slot", listOf("a-death", "a-pm"), repo.drafts.value.map { it.fieldKey })
 
         vm.onEvent(WorkflowDetailEvent.SubmitDeath)
