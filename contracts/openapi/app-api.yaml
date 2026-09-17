@@ -42407,8 +42407,10 @@ components:
         renders the rest verbatim. status is the gate (open -> pending_verification -> completed | rework
         for a verifier-reviewed routine; open -> completed on submit for review none) and work_state the
         kernel clock (scheduled -> delayed -> completed | canceled). form is the PINNED version's evidence:
-        the questions and capture rules this task was raised with.
-      required: [task_id, routine_id, routine_version, routine_name, title, park_id, park_name, shed_id, shed_name, partition_label, operational_location_display, trigger_kinds, reason_line, source_business_date, planned_business_date, due_business_date, work_state, status, state_chip, state_tone, instruction, evidence_line, review_kind, form, answers, answer_rows, proofs, presence_required, presence_line, in_pen, can_check_in, entered_at, left_at, can_submit, verified, done_line, submitted_at, verified_at, row_version]
+        the questions and capture rules this task was raised with. scope_kind 'park' is a whole-park task
+        (2026-09-17 revision): ONE per occurrence, naming no pen, so shed_id, shed_name, partition_label and
+        operational_location_display are all "" (never null) on it.
+      required: [task_id, routine_id, routine_version, routine_name, title, park_id, park_name, scope_kind, shed_id, shed_name, partition_label, operational_location_display, trigger_kinds, reason_line, source_business_date, planned_business_date, due_business_date, work_state, status, state_chip, state_tone, instruction, evidence_line, review_kind, form, answers, answer_rows, proofs, presence_required, presence_line, in_pen, can_check_in, entered_at, left_at, can_submit, verified, done_line, submitted_at, verified_at, row_version]
       properties:
         task_id: { type: string, format: uuid }
         routine_id: { type: string, format: uuid }
@@ -42416,15 +42418,19 @@ components:
         routine_name: { type: string }
         title:
           type: string
-          description: 'Backend-composed card title, e.g. "Pen cleaning · Castro 2 · Coimbatore".'
+          description: 'Backend-composed card title, e.g. "Pen cleaning · Castro 2 · Coimbatore", or "Medicine store · Coimbatore" for a whole-park task.'
         park_id: { type: string, format: uuid }
         park_name: { type: string }
-        shed_id: { type: string, format: uuid }
-        shed_name: { type: string }
-        partition_label: { type: string, description: The pen label; empty for an undivided shed. }
+        scope_kind:
+          type: string
+          enum: [all_pens, selected_pens, park]
+          description: The routine's scope. 'park' is a whole-park task with every pen field "".
+        shed_id: { type: string, description: 'The pen''s shed id (uuid); "" for a whole-park task.' }
+        shed_name: { type: string, description: '"" for a whole-park task.' }
+        partition_label: { type: string, description: 'The pen label; "" for an undivided shed and for a whole-park task.' }
         operational_location_display:
           type: string
-          description: 'The canonical pen display ("Castro 2", "Godel 1 - Part 3").'
+          description: 'The canonical pen display ("Castro 2", "Godel 1 - Part 3"); "" for a whole-park task.'
         trigger_kinds:
           type: array
           description: For an after_work routine, which work raised this task; empty for a calendar cadence.
@@ -42442,7 +42448,7 @@ components:
           description: 'Backend-composed, e.g. "Due today", "Delayed since 14/09/2026", "In review", "Sent back", "Done", "Verified".'
         state_tone: { type: string, enum: [info, review, danger, success, muted] }
         instruction: { type: string, description: The detail screen's sentence of what to do, from the routine's own words. }
-        evidence_line: { type: string, description: 'e.g. "2 questions · 1 photo · check in to pen".' }
+        evidence_line: { type: string, description: 'e.g. "2 questions · 1 photo · check in to pen" ("check in" for a whole-park task).' }
         review_kind: { type: string, enum: [verifier, none] }
         form:
           $ref: "#/components/schemas/PenRoutineEvidence"

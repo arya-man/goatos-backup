@@ -4708,7 +4708,7 @@ export interface components {
             /** @description The rendered answer (option labels */
             value: string;
         };
-        /** @description One routine check in one pen, as every surface renders it (maintainer instruction 2026-09-16, docs/decisions/pen-routines.md): the phone card and detail, the web Today table and the Work Board subtask. Every string is backend-composed; the client maps state_tone to a colour and renders the rest verbatim. status is the gate (open -> pending_verification -> completed | rework for a verifier-reviewed routine; open -> completed on submit for review none) and work_state the kernel clock (scheduled -> delayed -> completed | canceled). form is the PINNED version's evidence: the questions and capture rules this task was raised with. */
+        /** @description One routine check in one pen, as every surface renders it (maintainer instruction 2026-09-16, docs/decisions/pen-routines.md): the phone card and detail, the web Today table and the Work Board subtask. Every string is backend-composed; the client maps state_tone to a colour and renders the rest verbatim. status is the gate (open -> pending_verification -> completed | rework for a verifier-reviewed routine; open -> completed on submit for review none) and work_state the kernel clock (scheduled -> delayed -> completed | canceled). form is the PINNED version's evidence: the questions and capture rules this task was raised with. scope_kind 'park' is a whole-park task (2026-09-17 revision): ONE per occurrence, naming no pen, so shed_id, shed_name, partition_label and operational_location_display are all "" (never null) on it. */
         PenRoutineStep: {
             /** Format: uuid */
             task_id: string;
@@ -4716,17 +4716,23 @@ export interface components {
             routine_id: string;
             routine_version: number;
             routine_name: string;
-            /** @description Backend-composed card title, e.g. "Pen cleaning · Castro 2 · Coimbatore". */
+            /** @description Backend-composed card title, e.g. "Pen cleaning · Castro 2 · Coimbatore", or "Medicine store · Coimbatore" for a whole-park task. */
             title: string;
             /** Format: uuid */
             park_id: string;
             park_name: string;
-            /** Format: uuid */
+            /**
+             * @description The routine's scope. 'park' is a whole-park task with every pen field "".
+             * @enum {string}
+             */
+            scope_kind: "all_pens" | "selected_pens" | "park";
+            /** @description The pen's shed id (uuid); "" for a whole-park task. */
             shed_id: string;
+            /** @description "" for a whole-park task. */
             shed_name: string;
-            /** @description The pen label; empty for an undivided shed. */
+            /** @description The pen label; "" for an undivided shed and for a whole-park task. */
             partition_label: string;
-            /** @description The canonical pen display ("Castro 2", "Godel 1 - Part 3"). */
+            /** @description The canonical pen display ("Castro 2", "Godel 1 - Part 3"); "" for a whole-park task. */
             operational_location_display: string;
             /** @description For an after_work routine, which work raised this task; empty for a calendar cadence. */
             trigger_kinds: ("vaccination" | "deworming" | "anti_protozoan" | "ticks_removal" | "hoof_trimming" | "hair_trimming" | "weighing" | "feed_distribution" | "shifting")[];
@@ -4757,7 +4763,7 @@ export interface components {
             state_tone: "info" | "review" | "danger" | "success" | "muted";
             /** @description The detail screen's sentence of what to do */
             instruction: string;
-            /** @description e.g. "2 questions · 1 photo · check in to pen". */
+            /** @description e.g. "2 questions · 1 photo · check in to pen" ("check in" for a whole-park task). */
             evidence_line: string;
             /** @enum {string} */
             review_kind: "verifier" | "none";
@@ -4868,10 +4874,20 @@ export interface components {
             /** @description The canonical pen display ("Castro 2", "Godel 1 - Part 3"). */
             operational_location_display: string;
         };
-        PenRoutineAssignee: {
+        /** @description One role a routine is for, with its farm label (the closed vocabulary of the 2026-09-17 revision). */
+        PenRoutineRole: {
+            /** @enum {string} */
+            key: "park_head" | "pc_director" | "breeding_director" | "growth_director" | "feed_director" | "health_director" | "procurement_director" | "ceo_internal";
+            /** @description e.g. "Park Head", "Preventive Care Director", "CXO". */
+            label: string;
+        };
+        /** @description One person who currently holds one of the routine's roles for its park -- a read-only preview; the routine stores roles, never people, and a new holder of a role inherits it with no edit. */
+        PenRoutineRolePerson: {
             /** Format: uuid */
             user_id: string;
             display_name: string;
+            /** @description The first of the routine's roles this person holds, as its farm label. */
+            role_label: string;
         };
         /** @description One routine as the /routines table and drawer render it; every line is backend copy. */
         PenRoutineRow: {
@@ -4882,16 +4898,26 @@ export interface components {
             park_name: string;
             name: string;
             instruction: string;
-            /** @enum {string} */
-            scope_kind: "all_pens" | "selected_pens";
+            /**
+             * @description 'park' raises ONE whole-park task per occurrence, naming no pen.
+             * @enum {string}
+             */
+            scope_kind: "all_pens" | "selected_pens" | "park";
             occupied_only: boolean;
             pens: components["schemas"]["PenRoutinePen"][];
             /** @enum {string} */
-            cadence_kind: "daily" | "weekly" | "monthly" | "after_work";
+            cadence_kind: "daily" | "weekly" | "monthly" | "every_n_days" | "after_work";
             weekdays: number[];
             month_days: number[];
             after_work_kinds: ("vaccination" | "deworming" | "anti_protozoan" | "ticks_removal" | "hoof_trimming" | "hair_trimming" | "weighing" | "feed_distribution" | "shifting")[];
-            /** @description e.g. "Every day", "Every Mon, Wed, Fri", "1st and 15th of the month", "The day after deworming". */
+            /** @description The N of an every_n_days routine; null for every other cadence. */
+            interval_days: number | null;
+            /**
+             * Format: date
+             * @description Nothing raises before this IST business date; every_n_days counts from it.
+             */
+            start_date: string;
+            /** @description e.g. "Every day", "Every Mon, Wed, Fri", "Every 3 days", "1st and 15th of the month", "The day after deworming". */
             cadence_line: string;
             due_offset_days: number;
             /** @description Local IST "HH:MM". */
@@ -4904,7 +4930,10 @@ export interface components {
             current_version: number;
             evidence: components["schemas"]["PenRoutineEvidence"];
             evidence_line: string;
-            assignees: components["schemas"]["PenRoutineAssignee"][];
+            /** @description Who the routine is for, in vocabulary order. */
+            assignee_roles: components["schemas"]["PenRoutineRole"][];
+            /** @description Who holds those roles for the routine's park right now (read-only preview, at most 50). */
+            people: components["schemas"]["PenRoutineRolePerson"][];
             /** @description Checks of this routine still owed today. */
             open_today: number;
             /** @description Checks of this routine carried past their planned date. */
@@ -4942,7 +4971,14 @@ export interface components {
             /** Format: uuid */
             user_id: string;
             display_name: string;
-            designation: string;
+        };
+        /** @description One assignable role and who holds it FOR THE REQUESTED PARK (the same resolution every task read uses). */
+        PenRoutineCatalogRole: {
+            /** @enum {string} */
+            key: "park_head" | "pc_director" | "breeding_director" | "growth_director" | "feed_director" | "health_director" | "procurement_director" | "ceo_internal";
+            label: string;
+            /** @description At most 50; empty when nobody holds the role for this park. */
+            people: components["schemas"]["PenRoutinePerson"][];
         };
         PenRoutineKeyLabel: {
             key: string;
@@ -4951,10 +4987,18 @@ export interface components {
         PenRoutineCatalogDefaults: {
             notify_time: string;
             due_offset_days: number;
+            /**
+             * Format: date
+             * @description Today (IST).
+             */
+            start_date: string;
+            /** @description What "Every few days" pre-fills (3). */
+            interval_days: number;
         };
         PenRoutineCatalogResponse: {
             pens: components["schemas"]["PenRoutineCatalogPen"][];
-            people: components["schemas"]["PenRoutinePerson"][];
+            /** @description Every assignable role in vocabulary order, each with who holds it for the requested park. */
+            roles: components["schemas"]["PenRoutineCatalogRole"][];
             work_kinds: components["schemas"]["PenRoutineKeyLabel"][];
             question_kinds: components["schemas"]["PenRoutineKeyLabel"][];
             cadence_kinds: components["schemas"]["PenRoutineKeyLabel"][];
@@ -4976,16 +5020,26 @@ export interface components {
             park_id: string;
             name: string;
             instruction?: string;
-            /** @enum {string} */
-            scope_kind: "all_pens" | "selected_pens";
+            /**
+             * @description 'park' names no pens (pens must be empty) and cannot be after_work.
+             * @enum {string}
+             */
+            scope_kind: "all_pens" | "selected_pens" | "park";
             /** @default true */
             occupied_only: boolean;
             pens?: components["schemas"]["PenRoutinePenWrite"][];
             /** @enum {string} */
-            cadence_kind: "daily" | "weekly" | "monthly" | "after_work";
+            cadence_kind: "daily" | "weekly" | "monthly" | "every_n_days" | "after_work";
             weekdays?: number[];
             month_days?: number[];
             after_work_kinds?: ("vaccination" | "deworming" | "anti_protozoan" | "ticks_removal" | "hoof_trimming" | "hair_trimming" | "weighing" | "feed_distribution" | "shifting")[];
+            /** @description Required (2..90) for every_n_days; ignored otherwise. */
+            interval_days?: number | null;
+            /**
+             * Format: date
+             * @description Nothing raises before it. Absent on create means today (IST); absent on update keeps the stored date.
+             */
+            start_date?: string;
             /** @description Absent means 0 (1 for after_work). */
             due_offset_days?: number;
             /** @description Local IST "HH:MM"; absent means 07:00. */
@@ -4993,7 +5047,8 @@ export interface components {
             /** @enum {string} */
             review_kind: "verifier" | "none";
             evidence: components["schemas"]["PenRoutineEvidence"];
-            assignee_user_ids: string[];
+            /** @description Who the routine is for. Whoever holds one of these roles for the park gets the task; an empty list is refused (no_roles). */
+            assignee_roles: ("park_head" | "pc_director" | "breeding_director" | "growth_director" | "feed_director" | "health_director" | "procurement_director" | "ceo_internal")[];
             /** @description Update only -- the version the drawer loaded with; 0 skips the fence. */
             row_version?: number;
         };
@@ -8676,7 +8731,7 @@ export interface operations {
             401: components["responses"]["Unauthorized"];
             403: components["responses"]["Forbidden"];
             409: components["responses"]["WriteConflict"];
-            /** @description The routine, its evidence or an assignee is not valid (invalid_routine, invalid_evidence, assignee_not_eligible, park_immutable). */
+            /** @description The routine or its evidence is not valid (invalid_routine, invalid_evidence, no_roles, park_immutable). */
             422: {
                 headers: {
                     [name: string]: unknown;
@@ -8801,7 +8856,7 @@ export interface operations {
             403: components["responses"]["Forbidden"];
             404: components["responses"]["NotFound"];
             409: components["responses"]["WriteConflict"];
-            /** @description The routine, its evidence or an assignee is not valid (invalid_routine, invalid_evidence, assignee_not_eligible, park_immutable). */
+            /** @description The routine or its evidence is not valid (invalid_routine, invalid_evidence, no_roles, park_immutable). */
             422: {
                 headers: {
                     [name: string]: unknown;
