@@ -1,15 +1,40 @@
-# Config & SOP studio v2 (static prototype)
+# Config & SOP studio — Claude prototype (v2)
 
-Run from this folder:
+Static browser prototype. Two prototypes exist side by side:
+
+| Prototype | Folder | Branch / PR | Port |
+|---|---|---|---|
+| **Claude** (this) | `docs/prototypes/config-sop-studio-v2/` | `design/config-sop-studio-v2` · vgoats/goatos#288 | 4391 |
+| Codex | `docs/prototypes/config-sop-studio/` | `design/manju-mock-refinement-20260916` · vgoats/goatos#287 | 4320 |
+
+## Run both
 
 ```sh
+git fetch origin design/config-sop-studio-v2 design/manju-mock-refinement-20260916
+git worktree add ../goatos-claude-proto origin/design/config-sop-studio-v2
+git worktree add ../goatos-codex-proto  origin/design/manju-mock-refinement-20260916
+
+# Claude prototype
+cd ../goatos-claude-proto/docs/prototypes/config-sop-studio-v2
 python3 -m http.server 4391 --bind 127.0.0.1
-# open http://127.0.0.1:4391/
+# open http://127.0.0.1:4391/#/configuration/items
+
+# Codex prototype (separate terminal)
+cd ../goatos-codex-proto/docs/prototypes/config-sop-studio
+python3 -m http.server 4320 --bind 127.0.0.1
+# open http://127.0.0.1:4320/#/configuration/items
 ```
 
-No build step. State lives in localStorage (`mesha.config-sop-studio.v2.state@9`); user menu → Reset data restores the seed.
+No build step, no install. Excel templates load SheetJS from jsdelivr (CSV works offline). State lives in the browser's localStorage (key in `js/store.js`); user menu → **Reset data** restores the seed. After pulling new commits, hard-reload (⌘⇧R) — scripts are cache-busted with `?v=` in `index.html`.
 
-Routes
+## Where to start
+- **Configuration → Items and settings** — farm places, animal types (global Female/Male), animals grid + import, catalogues (Medicines / Vaccines / Feed, locked owner department) and your lists, **Inventory** (lots, receive / use / transfer / write off, serial ranges), people and approval chains, **Sales** (price rules, eligibility 35 kg + margin, valuation rates), business settings.
+- **Configuration → Work instructions** — SOPs per department on one draw.io-style canvas (drag, connect, reconnect, delete, undo), operator phone view, versions/publish; master SOP stages (procurement purchase → transit → warm-up).
+
+## Data sources
+Seed values come from goatos-stg (read-only, queried 17/09/2026), the Drive docs *Goats and Parks*, *Shifting Reports*, *Transit-SOP*, and the Android forms. Proposed SOPs not published in stg are marked Draft. Nothing is written to any backend.
+
+## Routes
 - `#/configuration/items/<register>` — Items and settings (parks, pens, partitions, farms, species, breeds, sexes, stages, groups, healthStates, animals, items, people, roles, reference lists, settings; `groups` is shown as Pen tags; old `approvers` links open Approval chains)
 - `#/configuration/items/{saleProducts,costKinds,identifierPolicies,designations,approvalChains}` — business rules (register when defined, else read-only table)
 - `#/configuration/items/park/<id|new>` — park with pens grid
