@@ -140,9 +140,15 @@ private fun SlotRow(slot: ShiftingSopSlotUi, locked: Boolean, onCapture: (String
                 else -> "Record live video"
             }
             Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                ActionButton(label = verb, enabled = !locked, modifier = Modifier.weight(1f), onClick = { onCapture(slot.key, null) })
+                ActionButton(
+                    label = verb,
+                    enabled = !locked,
+                    glyph = shiftingSlotButtonGlyph(slot.kind, slot.captured, slot.capturedPhoto),
+                    modifier = Modifier.weight(1f),
+                    onClick = { onCapture(slot.key, null) },
+                )
                 if (slot.kind == "either" && !locked) {
-                    ActionButton(label = "Take live photo", enabled = true, modifier = Modifier.weight(1f), onClick = { onCapture(slot.key, "photo") })
+                    ActionButton(label = "Take live photo", enabled = true, glyph = ShiftingCaptureGlyph.PHOTO, modifier = Modifier.weight(1f), onClick = { onCapture(slot.key, "photo") })
                 }
             }
         }
@@ -222,7 +228,14 @@ private fun QuestionRow(
 }
 
 @Composable
-private fun ActionButton(label: String, enabled: Boolean, onClick: () -> Unit, modifier: Modifier = Modifier, loading: Boolean = false) {
+private fun ActionButton(
+    label: String,
+    enabled: Boolean,
+    onClick: () -> Unit,
+    modifier: Modifier = Modifier,
+    loading: Boolean = false,
+    glyph: ShiftingCaptureGlyph = ShiftingCaptureGlyph.VIDEO,
+) {
     Row(
         modifier = modifier
             .fillMaxWidth()
@@ -240,7 +253,12 @@ private fun ActionButton(label: String, enabled: Boolean, onClick: () -> Unit, m
             if (loading) {
                 CircularProgressIndicator(modifier = Modifier.fillMaxSize(), strokeWidth = 2.dp, color = MeshaColors.Muted)
             } else {
-                Icon(MeshaIcons.Video, contentDescription = null, tint = iconTint, modifier = Modifier.fillMaxSize())
+                Icon(
+                    if (glyph == ShiftingCaptureGlyph.PHOTO) MeshaIcons.Photo else MeshaIcons.Video,
+                    contentDescription = null,
+                    tint = iconTint,
+                    modifier = Modifier.fillMaxSize(),
+                )
             }
         }
         Text(label, color = if (enabled || loading) MeshaColors.Ink else MeshaColors.Faint, style = MeshaType.cta)
@@ -254,3 +272,11 @@ private fun cardModifier(): Modifier = Modifier
     .background(MeshaColors.Surf)
     .border(1.dp, MeshaColors.Hair, RoundedCornerShape(16.dp))
     .padding(14.dp)
+
+/** Which camera a slot's capture button opens, so its icon matches its label. */
+internal enum class ShiftingCaptureGlyph { VIDEO, PHOTO }
+
+/** The primary capture button's glyph for a slot. */
+internal fun shiftingSlotButtonGlyph(kind: String, captured: Boolean, capturedPhoto: Boolean): ShiftingCaptureGlyph =
+    // Mirrors the label: a photo slot, or an either slot whose capture was a photo, opens the photo camera.
+    if (kind == "photo" || (captured && capturedPhoto)) ShiftingCaptureGlyph.PHOTO else ShiftingCaptureGlyph.VIDEO
