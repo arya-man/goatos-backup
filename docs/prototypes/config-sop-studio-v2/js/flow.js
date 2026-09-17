@@ -20,7 +20,7 @@
   /* ---------- geometry constants ---------- */
   const NW=264, GRID=20, RH=72, CW=320;
   const PILL=t=>t==='start'||t==='end'||t==='join';
-  const estH=n=>PILL(n.type)?60:100;
+  const estH=n=>PILL(n.type)?60:100+(F.settingIds&&F.settingIds(n).length?34:0);
   const snap=v=>Math.round(v/GRID)*GRID;
 
   /* topological rank (longest path, back-edges ignored) + lane columns, top-down */
@@ -150,8 +150,12 @@
   F.drift=function(items,ver){if(!ver)return [];const pins=F.pinsOf(ver,ver.nodes||ver.stages);
     return F.settingIds(items).map(id=>{const st=S.get('settings',id);return st&&pins[id]!==undefined&&String(pins[id])!==String(st.value)?{id,name:st.name,unit:st.unit,was:pins[id],now:st.value}:null;}).filter(Boolean);};
   F.settingChips=function(obj,ver){const d={};F.drift(obj,ver).forEach(x=>d[x.id]=x);
-    return F.settingIds(obj).map(id=>{const st=S.get('settings',id);const x=d[id];
-      return `<div class="fx-set ${x?'moved':''}" title="${x?'Running work keeps '+esc(x.was)+'; publish to use '+esc(x.now):'From business settings'}">Uses setting: ${esc(st.name)} = ${esc(st.value)}${st.unit&&st.unit!=='time'?' '+esc(st.unit):''}${x?` <b>(was ${esc(x.was)})</b>`:''}</div>`;}).join('');};
+    const ids=F.settingIds(obj).filter(id=>S.get('settings',id));if(!ids.length)return '';
+    const lbl=id=>{const st=S.get('settings',id);return st.name+' = '+st.value+(st.unit&&st.unit!=='time'?' '+st.unit:'');};
+    const first=ids.find(id=>d[id])||ids[0],rest=ids.filter(id=>id!==first);
+    const more=rest.length?`<div class="fx-set fx-set-more ${rest.some(id=>d[id])?'moved':''}" title="${esc(rest.map(lbl).join('\n'))}" aria-label="${rest.length} more settings: ${esc(rest.map(lbl).join('; '))}">+${rest.length}</div>`:'';
+    return `<div class="fx-sets">`+[first].map(id=>{const st=S.get('settings',id);const x=d[id];
+      return `<div class="fx-set ${x?'moved':''}" title="${x?'Running work keeps '+esc(x.was)+'; publish to use '+esc(x.now):'From business settings'}">Uses setting: ${esc(st.name)} = ${esc(st.value)}${st.unit&&st.unit!=='time'?' '+esc(st.unit):''}${x?` <b>(was ${esc(x.was)})</b>`:''}</div>`;}).join('')+more+`</div>`;};
   F.changed=function(sop){const v=sop.versions[sop.versions.length-1];if(!v)return true;
     F.META.forEach(k=>{if(v[k]===undefined)v[k]=sop[k];});
     F.linkChains(sop);
@@ -224,7 +228,7 @@
 
 
   /* ---------- stylesheet (owned by this module) ---------- */
-  (function(){if(document.querySelector('link[data-flow-css]'))return;const l=document.createElement('link');l.rel='stylesheet';l.href='styles/flow.css?v=eng2';l.dataset.flowCss='1';l.onload=()=>document.querySelectorAll('.fx-root').forEach(r=>syncChrome(r));document.head.appendChild(l);})();
+  (function(){if(document.querySelector('link[data-flow-css]'))return;const l=document.createElement('link');l.rel='stylesheet';l.href='styles/flow.css?v=20260917u';l.dataset.flowCss='1';l.onload=()=>document.querySelectorAll('.fx-root').forEach(r=>syncChrome(r));document.head.appendChild(l);})();
 
   /* =====================================================================
      Shared canvas engine. Every flowchart (SOP steps, master SOP stages) is
@@ -295,7 +299,12 @@
     es.forEach(e=>{if(!e.label)return;const w=(String(e.label).length*6.7+18)*f,h=20*f;let best=null;
       for(const s of segsOf(e)){if(s.len<22)continue;for(const t of [.5,.35,.65,.2,.8]){const cx=s.a[0]+(s.b[0]-s.a[0])*t,cy=s.a[1]+(s.b[1]-s.a[1])*t;
         const r={x:cx-w/2,y:cy-h/2,w,h};if(fits(r)){best={cx,cy,r};break;}}if(best)break;}
-      if(!best){const s=segsOf(e)[0];const cx=(s.a[0]+s.b[0])/2,cy=(s.a[1]+s.b[1])/2;best={cx,cy,r:{x:cx-w/2,y:cy-h/2,w,h}};}
+      if(!best){/* no free stretch (e.g. short hop between side-by-side cards): nearest clear spot beside the line's midpoint */
+        const s=segsOf(e)[0];const mx=(s.a[0]+s.b[0])/2,my=(s.a[1]+s.b[1])/2;const cands=[];
+        for(let dy=-160;dy<=160;dy+=8)for(let dx=-160;dx<=160;dx+=8)cands.push([dx,dy,Math.hypot(dx,dy)]);
+        cands.sort((a,b)=>a[2]-b[2]);
+        for(const [dx,dy] of cands){const cx=mx+dx,cy=my+dy,r={x:cx-w/2,y:cy-h/2,w,h};if(fits(r)){best={cx,cy,r};break;}}
+        if(!best)best={cx:mx,cy:my,r:{x:mx-w/2,y:my-h/2,w,h}};}
       pills.push(best.r);e.lp=best;});
     es.forEach(e=>{const s=segsOf(e)[0];if(!s||s.len<76)return;
       for(const t of [.5,.25,.75]){const cx=s.a[0]+(s.b[0]-s.a[0])*t,cy=s.a[1]+(s.b[1]-s.a[1])*t;if(!pills.some(p=>inter({x:cx-14,y:cy-14,w:28,h:28},p))){e.pp=[cx,cy];break;}}});
@@ -322,7 +331,7 @@
     return {edges:`<defs><marker id="fxah" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="8" markerHeight="8" orient="auto-start-reverse"><path d="M0,1 L10,5 L0,9 z" class="fx-ah"/></marker><marker id="fxahs" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="8" markerHeight="8" orient="auto-start-reverse"><path d="M0,1 L10,5 L0,9 z" class="fx-ah sel"/></marker></defs>`+wires+labels,handles};
   }
   function plusHtml(K,d,es){if(!K.insertOnEdge)return '';const sel=edgeSelKey(K,d);
-    return es.filter(e=>e.pp).map(e=>`<button class="fx-plus ${sel===e.key?'show':''}" data-plus="${esc(e.key)}" style="left:${e.pp[0]}px;top:${e.pp[1]}px" aria-label="Insert step here">+</button>`).join('');}
+    return es.filter(e=>e.pp).map(e=>`<button class="fx-plus ${sel===e.key?'show':''}" data-plus="${esc(e.key)}" style="left:${e.pp[0]}px;top:${e.pp[1]}px" aria-label="Insert step here"></button>`).join('');}
 
   /* ---------- SOP kind ---------- */
   function sopGroupsHtml(sop,pos){
@@ -458,7 +467,7 @@
         <button class="fx-tb" data-fx="redo" aria-label="Redo" title="Redo ⇧⌘Z" ${hist(K,d).redo.length?'':'disabled'}><span class="fx-flip">${ic('undo','',16)}</span></button>
         <i class="fx-sep"></i>
         ${pages.length>1?`<select class="fx-jump" data-fxjump aria-label="Jump to page"><option value="">Jump to page</option>${pages.map(p=>`<option>${esc(p)}</option>`).join('')}</select>`:''}
-        <button class="fx-tb txt fx-val ${iss.length?'bad':'ok'}" data-fx="validate">${ic(iss.length?'reject':'check','',15)}Validate${iss.length?` <b>${iss.length}</b>`:''}</button>
+        <button class="fx-tb txt fx-val ${iss.length?'bad':'ok'}" data-fx="validate" aria-label="Validate${iss.length?' · '+iss.length+' issues':''}" title="Validate">${ic(iss.length?'reject':'check','',15)}<span class="fx-vl">Validate</span><span class="fx-vs">Check</span>${iss.length?` <b>${iss.length}</b>`:''}</button>
         <span class="sp"></span>
         <button class="fx-tb" data-fx="out" aria-label="Zoom out">${ic('zoomout','',16)}</button>
         <span class="fx-zoom">${Math.round(v.k*100)}%</span>
@@ -537,7 +546,7 @@
     let x0=1e9,y0=1e9,x1=-1e9,y1=-1e9;ids.forEach(n=>{const p=pos[n.id],h=hOf(K,d,n);x0=Math.min(x0,p.x);y0=Math.min(y0,p.y);x1=Math.max(x1,p.x+NW);y1=Math.max(y1,p.y+h);});
     return {x0,y0,x1,y1};}
   function palInset(root,r){const pal=root.querySelector('.fx-palette');const bottomPal=pal&&pal.offsetWidth>r.width*.6;return {pal,bottomPal,left:bottomPal?8:(pal?pal.offsetWidth+pal.offsetLeft+12:8)};}
-  function fit(root,K,d){
+  function fit(root,K,d,auto){
     const pos=K.positions(d); const b=kbounds(K,d,pos); const v=view(dkey(K,d));
     const r=root.getBoundingClientRect(); if(r.width<50||r.height<50)return;
     const {pal,bottomPal,left}=palInset(root,r);
@@ -546,7 +555,7 @@
     const padR=pad+(F.miniOff||narrow?0:196);
     const aw=Math.max(120,r.width-padL-padR), ah=Math.max(120,r.height-padT-padB);
     const bw=b.x1-b.x0+40, bh=b.y1-b.y0+40;
-    const floor=window.innerWidth>=1280?1:narrow?Math.max(.75,Math.min(1,aw/(NW+40))):.75;
+    const floor=window.innerWidth>=1280?(auto?1:.6):narrow?Math.max(.75,Math.min(1,aw/(NW+40))):.75;
     let k=Math.min(aw/bw,ah/bh,1); k=Math.max(floor,k);
     v.k=k; v.x=padL+(aw-(b.x1-b.x0)*k)/2-b.x0*k;
     if((b.x1-b.x0)*k>aw){const s=(K.starts?K.starts(d):[])[0];const sp=s&&pos[s];v.x=Math.min(padL-b.x0*k,sp?padL+aw/2-(sp.x+NW/2)*k:1e9);}
@@ -894,7 +903,7 @@
     if(fx==='more'){e.stopPropagation();const click=k=>{const t=root.querySelector(`.fx-tools [data-fx="${k}"]`);if(t)t.click();};
       const tight=root.classList.contains('tb-tight');
       setTimeout(()=>UI.menu(b,[].concat(tight?[{label:'Zoom in',icon:'zoomin',run:()=>click('in')},{label:'Zoom out',icon:'zoomout',run:()=>click('out')}]:[],
-        [{label:'Tidy layout',icon:'workflow',run:()=>click('tidy')},{label:(F.miniOff?'Show':'Hide')+' minimap',icon:'layers',run:()=>click('mini')},{label:'Shortcuts',icon:'help',run:()=>click('help')}])),0);}
+        [...(innerWidth<=420?[{label:'Redo',icon:'undo',run:()=>click('redo')}]:[]),{label:'Tidy layout',icon:'workflow',run:()=>click('tidy')},{label:(F.miniOff?'Show':'Hide')+' minimap',icon:'layers',run:()=>click('mini')},{label:'Shortcuts',icon:'help',run:()=>click('help')}])),0);}
   });
 
   const typing=t=>t&&(t.isContentEditable||/^(INPUT|TEXTAREA|SELECT)$/.test(t.tagName));

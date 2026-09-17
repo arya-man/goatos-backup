@@ -62,7 +62,7 @@
 
   /* ---------- editor ---------- */
   function vtags(s){const v=Flow.latest(s),ch=Flow.changed(s),dr=v?Flow.drift(s.nodes,v):[];const edits=ch&&(!dr.length||Flow.diff(s,v).some(d=>d.type!=='setting'));
-    return (v?UI.tag('v'+v.v+' published','ok'):UI.tag('Never published','warn'))+(v&&edits?UI.tag('Draft changes','warn'):'')+(dr.length?UI.tag('Setting changed · publish to apply','warn'):'')+(v&&v.running?UI.tag(v.running+' running on v'+v.v,'info'):'');}
+    return (v?UI.tag('v'+v.v+' published','ok'):UI.tag('Draft','warn'))+(v&&edits?UI.tag('Draft changes','warn'):'')+(dr.length?UI.tag('Setting changed · publish to apply','warn'):'')+(v&&v.running?UI.tag(v.running+' running on v'+v.v,'info'):'');}
   W.editorPage=function(id,view){
     const s=S.get('sops',id); if(!s)return '<div class="empty">SOP not found</div>';
     const iss=Flow.validate(s); const v=Flow.latest(s); const ch=Flow.changed(s);

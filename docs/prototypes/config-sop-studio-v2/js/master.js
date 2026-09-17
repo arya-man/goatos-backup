@@ -60,8 +60,8 @@
     const m=S.get('masters',id); if(!m)return '<div class="empty">Not found</div>';
     const iss=validate(m); const v=m.versions[m.versions.length-1]; const T=tr(id); const pd=pending(m);
     const canvas=`<div class="canvas" data-canvas>${Flow.kindCanvas('master',m,M.sel[id],{view})}</div>`;
-    const head=`<div class="phead"><div><div class="crumb">Configuration / <a href="#/configuration/work-instructions">Work instructions</a> / <b>${esc(m.dept)}</b></div><h1>${esc(m.title)}</h1>
-      <div class="vstrip" style="margin-top:6px">${v?UI.tag('v'+v.v+' published','ok'):UI.tag('Never published','warn')}${v&&pd.edits?UI.tag('Draft changes','warn'):''}${pd.drift.length?UI.tag('Setting changed · publish to apply','warn'):''}${v&&v.running?UI.tag(v.running+' running','info'):''}${UI.tag(m.stages.length+' stages','mut')}${iss.length?UI.tag(iss.length+' issues','dng'):''}</div></div><div class="sp"></div>
+    const head=`<div class="phead"><div><div class="crumb">Configuration / <a href="#/configuration/work-instructions">Work instructions</a> / <b>${esc(m.dept)}</b></div><h1 class="mst-h1">${esc(m.title).replace(/-/g,'\u2011')}</h1>
+      <div class="vstrip" style="margin-top:6px">${v?UI.tag('v'+v.v+' published','ok'):UI.tag('Draft','warn')}${v&&pd.edits?UI.tag('Draft changes','warn'):''}${pd.drift.length?UI.tag('Setting changed · publish to apply','warn'):''}${v&&v.running?UI.tag(v.running+' running','info'):''}${UI.tag(m.stages.length+' stages','mut')}${iss.length?UI.tag(iss.length+' issues','dng'):''}</div></div><div class="sp"></div>
       <div class="seg"><a class="${view!=='try'?'on':''}" href="${base}${id}">${ic('layers')}Stages</a><a class="${view==='try'?'on':''}" href="${base}${id}/try">${ic('play')}Try</a></div>
       <button class="btn p" data-a="mst-publish" data-id="${id}" ${iss.length||!pd.changed?'disabled':''} title="${pd.changed?'':'No changes since v'+(v?v.v:0)}">${ic('check')}Publish v${v?v.v+1:1}</button></div>`;
     const side=view==='try'?trySide(m,T):inspector(m,iss);
@@ -71,7 +71,7 @@
   function inspector(m,iss){
     const s=m.stages.find(x=>x.id===M.sel[m.id]);
     if(!s)return `<div class="hd"><h3>Master SOP</h3></div><div class="bd">
-      <div class="fld"><label>Title</label><input data-ms="title" value="${esc(m.title)}"></div>
+      <div class="fld full"><label>Title</label><textarea data-ms="title" rows="2" class="mst-title">${esc(m.title)}</textarea></div>
       ${(()=>{const pd=pending(m);return pd.drift.length?`<div class="eyebrow mt">Pending setting changes</div><div class="stack" style="gap:4px;margin-top:6px">${pd.drift.map(x=>`<div class="fx-set moved">Uses setting: ${esc(x.name)} = ${esc(x.now)}${x.unit?' '+esc(x.unit):''} <b>(was ${esc(x.was)})</b></div>`).join('')}<div class="small muted">Running work keeps the old value. Publish to use the new one.</div></div>`:'';})()}
       <div class="eyebrow mt">Issues</div>${iss.length?iss.map(i=>`<div class="small" style="color:var(--danger);margin-top:6px">${esc(i)}</div>`).join(''):`<div class="mt">${UI.tag('Ready to publish','ok')}</div>`}</div>`;
     const others=m.stages.filter(x=>x.id!==s.id);
@@ -176,7 +176,7 @@
     nodeInner(m,n,i,opts){const s=stg(m,n.id);const c=S.get('sops',s.sopId);const v=m.versions[m.versions.length-1];
       const par=s.deps.some(d=>d.state==='started');let run='';
       if(opts&&opts.view==='try'){const [l,t]=stageState(m,s,tr(m.id));run=UI.tag(l,t);}
-      const tags=[s.approvalRoleId?UI.tag('Approval · '+REG.labelById('roles',s.approvalRoleId),'pur'):'',
+      const tags=[c&&!(c.versions||[]).length?UI.tag('Draft','warn'):'',s.approvalRoleId?UI.tag('Approval · '+REG.labelById('roles',s.approvalRoleId),'pur'):'',
         s.waitDays||s.waitSetting?UI.tag('Wait '+val(s,'waitDays','waitSetting')+' d','warn'):'',
         s.repeatHours||s.repeatSetting?UI.tag('Every '+val(s,'repeatHours','repeatSetting')+' h','warn'):''].join('');
       return `<div class="fx-eyebrow">${ic(par?'split':'layers','',13)}<span>Stage ${i+1}</span>${run}</div>
