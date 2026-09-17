@@ -38,16 +38,19 @@ func NewFeedDirectionLifecycleStage(deps Deps, tenantID string) *FeedDirectionLi
 //   - the issue store and dispatch clock the three operations run on;
 //   - the published feed SOP cards, so an issued sheet pins the card in force (FEED SOP,
 //     2026-09-16) -- the same source the API's freeze-on-read uses;
-//   - the PACKING store, through which the correction reopens every packed session of a pen whose
-//     head count moved (maintainer decision 2026-08-10). Without it AmendDirection skips the reopen
-//     silently; both scheduled roots shipped that way until 2026-09-17.
+//
+// It deliberately does NOT wire the PACKING store, so the scheduled 14:00 correction amends the
+// sheet but reopens no packed bag -- exactly as origin/main (what STG runs) behaves. AGENTS.md
+// "AFTERNOON FEED CORRECTION" describes the reopen, but turning it on in the scheduled paths
+// changes daily operations on deploy without any SOP edit, so it is a PENDING MAINTAINER DECISION
+// (2026-09-17 parity revert). Pinned by TestFeedDirectionLifecycleServicePinsTheCardAndKeepsMainsCorrection
+// and the feed-direction-issue job's TestIssueServiceDoesNotReopenPackingOnCorrection.
 func NewFeedDirectionLifecycleService(deps Deps, generatedBy string) *feeddirectionapp.Service {
 	repo := feeddirectionpg.NewRepository(deps.Pool, deps.PgCfg.QueryTimeout)
 	countsService := countsapp.NewService(countspg.NewRepository(deps.Pool, deps.PgCfg.QueryTimeout))
 	return feeddirectionapp.NewService(repo, feeddirectioncounts.NewReader(countsService)).
 		WithIssueStore(repo).
 		WithScheduleReader(repo).
-		WithPackingStore(repo).
 		WithSOPRules(feedsoppg.NewRulesSource(deps.Pool, deps.PgCfg.QueryTimeout)).
 		WithGeneratedBy(generatedBy)
 }

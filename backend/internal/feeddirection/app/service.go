@@ -159,9 +159,8 @@ func (s *Service) PinsPublishedFeedSOP() bool { return s.sopRules != nil }
 
 // ReopensPackingOnCorrection reports whether the packing completion store is wired. The 14:00
 // correction (AmendDirection) reopens every packed session of a pen whose head count moved THROUGH
-// that store, and silently skips the reopen when it is nil -- which is exactly what both scheduled
-// composition roots did until 2026-09-17: the correction amended the sheet and every bag already
-// packed for the old head count stayed marked done.
+// that store, and skips the reopen when it is nil. Both scheduled composition roots leave it nil on
+// purpose, matching origin/main; wiring it there is a pending maintainer decision (2026-09-17).
 func (s *Service) ReopensPackingOnCorrection() bool { return s.packing != nil }
 
 func (s *Service) WithScheduleReader(schedule ports.ScheduleReader) *Service {
