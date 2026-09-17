@@ -1,4 +1,4 @@
-// Package postgres persists pen routines and their tasks (migration 000320).
+// Package postgres persists pen routines and their tasks (migration 000328).
 //
 // Boundary: this module reads its own pen_routine_* tables, the org tables every module may
 // read (locations, workforce_members, shed_partitions, the person-access tables), the
