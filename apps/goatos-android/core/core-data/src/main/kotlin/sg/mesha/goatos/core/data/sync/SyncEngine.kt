@@ -1381,7 +1381,7 @@ class SyncEngine(
         // not-yet-uploaded capture suspends the raise on the shared proof lane). A raise with none
         // sends the request exactly as it was queued.
         val request = if (payload.slotProofs.isEmpty()) payload.request
-        else payload.request.copy(proofs = resolveFeedSlotProofs(payload.slotProofs))
+        else payload.request.copy(proofs = resolveSlotProofs(payload.slotProofs))
         val response = api.recordCountsShiftingEvent(item.idempotencyKey, request)
         return syncJson.encodeToString(response)
     }

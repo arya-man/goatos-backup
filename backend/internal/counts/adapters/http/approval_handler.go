@@ -252,7 +252,7 @@ func shiftingCaptureFromSummary(requestType string, summary json.RawMessage) *ap
 		out.Rows = append(out.Rows, appApprovalCaptureRow{Label: row.Label, Value: row.Value, Group: row.Group})
 	}
 	for _, media := range payload.Capture.Media {
-		out.Media = append(out.Media, appApprovalCaptureMedia{ProofID: media.Ref, Label: media.Label, Kind: media.Kind})
+		out.Media = append(out.Media, appApprovalCaptureMedia{ProofID: media.ProofID, Label: media.Label, Kind: media.Kind})
 	}
 	return out
 }
