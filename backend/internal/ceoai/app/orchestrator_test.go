@@ -63,13 +63,26 @@ func (f *fakeExec) Execute(_ context.Context, _ domain.Actor, sub domain.SubQues
 }
 
 type fakeSQLFallback struct {
-	calls   int
-	lastSQL string
-	result  domain.ToolResult
+	calls        int
+	trustedCalls int
+	lastSQL      string
+	result       domain.ToolResult
 }
 
 func (f *fakeSQLFallback) Execute(_ context.Context, _ domain.Actor, sql string, _ []any) (domain.ToolResult, error) {
 	f.calls++
+	f.lastSQL = sql
+	r := f.result
+	r.Route = domain.RouteSQL
+	r.ToolName = "sql_fallback"
+	if r.Surface == "" {
+		r.Surface = "Mesha operational data"
+	}
+	return r, nil
+}
+
+func (f *fakeSQLFallback) ExecuteTrusted(_ context.Context, _ domain.Actor, sql string, _ []any) (domain.ToolResult, error) {
+	f.trustedCalls++
 	f.lastSQL = sql
 	r := f.result
 	r.Route = domain.RouteSQL
@@ -462,6 +475,47 @@ func TestNaturalFeedQuestionUsesAsOfDate(t *testing.T) {
 	}
 	if !strings.Contains(ans.Answer, "-42") {
 		t.Fatalf("expected feed fact in answer, got %q", ans.Answer)
+	}
+}
+
+func TestNaturalSQLQuestionRemembersScopedParkForFollowup(t *testing.T) {
+	sqlFB := &fakeSQLFallback{result: domain.ToolResult{
+		Facts: []domain.Fact{{Label: "Feed variance kg", Value: "-42", Scope: "Godel 2"}},
+	}}
+	reg := NewRegistry(nil, nil, sqlFB)
+	mem := &fakeMemory{}
+	a := NewAssistant(Config{}, Deps{Provider: &fakeProvider{}, Registry: reg, Memory: mem})
+
+	_, err := a.Ask(context.Background(), domain.Question{Actor: leadershipActor(), ConversationID: "c1", Text: "feed pending today for cpt"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if mem.remembered.ParkLabel != "Channapatna" {
+		t.Fatalf("expected natural SQL turn to remember Channapatna, got %+v", mem.remembered)
+	}
+}
+
+func TestNaturalHealthQuestionScopesToKnownPark(t *testing.T) {
+	sqlFB := &fakeSQLFallback{result: domain.ToolResult{
+		Facts: []domain.Fact{{Label: "Vendor A", Value: "2", Scope: "Load 12345678"}},
+	}}
+	reg := NewRegistry(nil, nil, sqlFB)
+	a := NewAssistant(Config{}, Deps{Provider: &fakeProvider{}, Registry: reg})
+
+	ans, err := a.Ask(context.Background(), domain.Question{Actor: leadershipActor(), Text: "source entry health issues in cpt"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if sqlFB.trustedCalls != 1 || sqlFB.calls != 0 {
+		t.Fatalf("expected health natural SQL to use trusted server-authored fallback, regular=%d trusted=%d", sqlFB.calls, sqlFB.trustedCalls)
+	}
+	for _, want := range []string{"procurement_source_health_checks", "arrival_intake_reviews", "air.park_location_id = '00000000-0000-4000-8000-000000003002'"} {
+		if !strings.Contains(sqlFB.lastSQL, want) {
+			t.Fatalf("health SQL missing %q: %s", want, sqlFB.lastSQL)
+		}
+	}
+	if !strings.Contains(ans.Answer, "Vendor A") || !strings.Contains(ans.Answer, "2") {
+		t.Fatalf("expected grounded health fact, got %q", ans.Answer)
 	}
 }
 

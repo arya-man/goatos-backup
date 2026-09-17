@@ -123,10 +123,38 @@ func (r *Registry) Execute(ctx context.Context, actor domain.Actor, sub domain.S
 		}
 		sql, _ := sub.Params["sql"].(string)
 		args, _ := sub.Params["args"].([]any)
-		return r.sqlFB.Execute(ctx, actor, sql, args)
+		if trusted, _ := sub.Params["trusted_sql"].(string); trusted == "server_natural" {
+			res, err := r.sqlFB.ExecuteTrusted(ctx, actor, sql, args)
+			if err == nil {
+				res = annotateNaturalSQLResult(res, sub)
+			}
+			return res, err
+		}
+		res, err := r.sqlFB.Execute(ctx, actor, sql, args)
+		if err == nil {
+			res = annotateNaturalSQLResult(res, sub)
+		}
+		return res, err
 	default:
 		return domain.ToolResult{}, fmt.Errorf("unroutable sub-question %q (route=%q)", sub.ID, sub.Route)
 	}
+}
+
+func annotateNaturalSQLResult(res domain.ToolResult, sub domain.SubQuestion) domain.ToolResult {
+	if len(res.Facts) != 0 || strings.TrimSpace(res.Summary) != "" {
+		return res
+	}
+	natural, _ := sub.Params["natural_sql"].(string)
+	park, _ := sub.Params["park_label"].(string)
+	switch natural {
+	case "health_issue":
+		if park != "" {
+			res.Summary = "No source-entry health issues found for " + park + "."
+		} else {
+			res.Summary = "No source-entry health issues found."
+		}
+	}
+	return res
 }
 
 // cubeParams normalizes a plan's flat params into a Cube metric request. Both

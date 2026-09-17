@@ -403,6 +403,18 @@ func (a *sqlFallbackAdapter) Execute(ctx context.Context, actor domain.Actor, sq
 	if err != nil {
 		return domain.ToolResult{}, fmt.Errorf("sqlguard fallback: %w", err)
 	}
+	return rowsToToolResult(rows), nil
+}
+
+func (a *sqlFallbackAdapter) ExecuteTrusted(ctx context.Context, actor domain.Actor, sql string, _ []any) (domain.ToolResult, error) {
+	rows, err := a.exec.ExecuteTrustedReadOnlyForTenant(ctx, actor.TenantID, sql)
+	if err != nil {
+		return domain.ToolResult{}, fmt.Errorf("trusted sql fallback: %w", err)
+	}
+	return rowsToToolResult(rows), nil
+}
+
+func rowsToToolResult(rows []sqlguard.Row) domain.ToolResult {
 	tr := domain.ToolResult{
 		Route:    domain.RouteSQL,
 		ToolName: "sql_fallback",
@@ -426,7 +438,7 @@ func (a *sqlFallbackAdapter) Execute(ctx context.Context, actor domain.Actor, sq
 			tr.Facts = append(tr.Facts, domain.Fact{Label: k, Value: scalarString(v)})
 		}
 	}
-	return tr, nil
+	return tr
 }
 
 // ---------------------------------------------------------------------------

@@ -594,22 +594,12 @@ func (a *Assistant) strictRecompose(results []domain.ToolResult) string {
 			lines = append(lines, fmt.Sprintf("%s: no records found.", surfaceOrRoute(r)))
 			continue
 		}
-		max := len(r.Facts)
-		if max > 10 {
-			max = 10
-		}
-		for _, f := range r.Facts[:max] {
-			if f.Scope != "" {
-				lines = append(lines, fmt.Sprintf("%s from %s in %s: %s.", surfaceOrRoute(r), f.Label, f.Scope, strings.TrimRight(f.Value, ".")))
-			} else {
-				lines = append(lines, fmt.Sprintf("%s from %s: %s.", surfaceOrRoute(r), f.Label, strings.TrimRight(f.Value, ".")))
-			}
-		}
+		lines = append(lines, renderAnswerBlock(r))
 	}
 	if len(lines) == 0 {
 		return ""
 	}
-	return "Here is what I found from the live read models:\n" + strings.Join(lines, "\n")
+	return strings.Join(lines, "\n\n")
 }
 
 func (a *Assistant) recordAudit(ctx context.Context, q domain.Question, requestID, convoID string, mode domain.Mode, results []domain.ToolResult, traces []domain.StepTrace, verdict domain.ReviewVerdict, start time.Time) {

@@ -62,6 +62,38 @@ func TestSynthesizeLeadNoNumericFacts(t *testing.T) {
 	}
 }
 
+func TestComposerRendersSalesAsConversationNotFactDump(t *testing.T) {
+	body, _, _ := composer{}.compose([]domain.ToolResult{{
+		Surface: "Mesha read API · Sales overview",
+		Facts: []domain.Fact{
+			{Label: "Sold animals this month in 2026-09", Value: "114"},
+			{Label: "Sold sheep this month in 2026-09", Value: "0"},
+			{Label: "Sold goats this month in 2026-09", Value: "114"},
+			{Label: "Sales revenue this month in 2026-09", Value: "1221067"},
+		},
+	}})
+	for _, want := range []string{"For 2026-09", "114 animals were sold", "114 goats", "0 sheep", "1221067"} {
+		if !strings.Contains(body, want) {
+			t.Fatalf("answer missing %q: %q", want, body)
+		}
+	}
+	if strings.Contains(body, "In short") || strings.Count(body, "114") > 3 {
+		t.Fatalf("sales answer should not be a repeated metric dump, got %q", body)
+	}
+}
+
+func TestComposerRendersSingleMetricBreakdownInOneSentence(t *testing.T) {
+	body, _, _ := composer{}.compose([]domain.ToolResult{{
+		Facts: []domain.Fact{
+			{Label: "Active animals", Value: "185", Scope: "goat"},
+			{Label: "Active animals", Value: "531", Scope: "sheep"},
+		},
+	}})
+	if body != "Active animals: goat 185, sheep 531." {
+		t.Fatalf("unexpected concise breakdown: %q", body)
+	}
+}
+
 func TestInMemoryMemoryRecallByConversation(t *testing.T) {
 	m := NewInMemoryMemory(0, 0)
 	actor := domain.Actor{TenantID: "t1", UserID: "u1"}
