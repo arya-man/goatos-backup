@@ -95,6 +95,7 @@
     "adminWeb": {
       "prefixes": [
         "apps/admin-web/",
+        "backend/internal/adminui/app/",
         "mock/"
       ],
       "files": []

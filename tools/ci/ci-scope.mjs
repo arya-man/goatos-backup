@@ -154,6 +154,10 @@ function selfTest() {
     common: true, backend: true, adminWeb: false, android: false, full: false,
     selectedJobs: ["common", "backend"],
   });
+  assert.deepEqual(pick(["backend/internal/adminui/app/service.go"]), {
+    common: true, backend: true, adminWeb: true, android: false, full: false,
+    selectedJobs: ["common", "backend", "admin-web"],
+  });
   const obligationQueryChange = classifyPaths([
     "backend/internal/obligation/adapters/postgres/repository.go",
   ]);

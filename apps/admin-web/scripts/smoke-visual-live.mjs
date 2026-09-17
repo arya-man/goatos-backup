@@ -272,6 +272,8 @@ const pagerMinimums = new Map([
 ]);
 
 const failureScreenMarkers = [
+  "Something went wrong",
+  "This screen failed to render",
   "backend_down",
   "Admin-web contract unavailable",
   "The board could not be loaded",
