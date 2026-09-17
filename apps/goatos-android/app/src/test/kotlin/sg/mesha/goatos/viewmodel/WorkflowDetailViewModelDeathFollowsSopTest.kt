@@ -265,6 +265,21 @@ class WorkflowDetailViewModelDeathFollowsSopTest {
         assertEquals(listOf("photo"), sync.completes.last().proofOutboxItems.map { it.kind })
     }
 
+    @Test
+    fun `a blocked death or reconcile step never talks about birth steps`() = runTest(dispatcher) {
+        val vm = viewModel(DraftingWorkflowsRepository(death(videoStep("a-death", "death_video", 1), videoStep("a-pm", "post_mortem_video", 2))))
+        advanceUntilIdle()
+        assertEquals("Finish the earlier steps first.", vm.state.value.actions.single { it.actionId == "a-pm" }.footer)
+
+        val reconcile = death(
+            WorkflowActionDto(actionId = "r1", actionKey = "gate_photo", seq = 1, section = "main", actionType = "action", title = "Photo of the pen gate", status = "pending", proofMinPhotos = 1),
+            WorkflowActionDto(actionId = "r2", actionKey = "why_wrong_pen", seq = 2, section = "main", actionType = "question", answerType = "yes_no", title = "Why was it in the wrong pen?", status = "pending", blocked = true, blockedReason = "previous_action"),
+        ).copy(module = "reconcile", templateKey = "reconcile")
+        val reconcileVm = viewModel(DraftingWorkflowsRepository(reconcile))
+        advanceUntilIdle()
+        assertEquals("Finish the earlier steps first.", reconcileVm.state.value.actions.single { it.actionId == "r2" }.footer)
+    }
+
     private fun videoStep(id: String, key: String, seq: Int) = WorkflowActionDto(
         actionId = id, actionKey = key, seq = seq, section = "main", actionType = "action",
         title = key, requiresVideo = true, status = "pending",
