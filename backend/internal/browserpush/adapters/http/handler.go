@@ -81,6 +81,12 @@ func (h *Handler) RegisterBrowser(w http.ResponseWriter, r *http.Request) {
 		h.fail(w, r, "browser_push_register_failed", err)
 		return
 	}
+	// The response echoes the stored Registration, workforce_member_id included, so the client
+	// can tell a new subscription from a refreshed one. That is safe only because the repository
+	// upsert can no longer write -- and therefore no longer RETURN -- a row belonging to another
+	// member: see the DO UPDATE predicate on upsertRegistrationSQL. A conflicting browser profile
+	// is refused above instead, and that refusal deliberately names nobody.
+	//
 	// The token is NEVER logged, not even fingerprinted here: it is a bearer push credential
 	// (see the notification service's own note on fingerprintRecipientRef). The browser install
 	// id is a client-generated opaque id and is safe.
@@ -133,6 +139,21 @@ func (h *Handler) fail(w http.ResponseWriter, r *http.Request, event string, err
 			Message:     "this account is not an active member of the tenant",
 			FieldErrors: []fieldError{},
 			TraceID:     traceID(r),
+		}
+	case errors.Is(err, browserpush.ErrBrowserInstallConflict):
+		// 409, not 403. That browser profile carries another member's live registration and the
+		// caller did not present its token, so nothing was written -- but the caller has done
+		// nothing wrong and has a recovery: mint a fresh browser install id and register again.
+		// The code is what lib/web-push.ts keys that retry on, so it is part of the contract;
+		// the message is the person-facing half and names no other member (see the note on the
+		// Register response, above).
+		status = http.StatusConflict
+		envelope = errorEnvelope{
+			Code:        "browser_push_install_conflict",
+			Message:     "another account is already receiving notifications in this browser",
+			FieldErrors: []fieldError{},
+			TraceID:     traceID(r),
+			Retryable:   true,
 		}
 	case isValidationError(err):
 		status = http.StatusBadRequest

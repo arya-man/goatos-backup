@@ -129,6 +129,30 @@ export function getBrowserInstallId(): string {
   }
 }
 
+/**
+ * Mint and STORE a fresh id for this browser profile, discarding the current one.
+ *
+ * The recovery for 409 `browser_push_install_conflict`: the profile's stored id already carries a
+ * colleague's live registration (the id survives sign-out, so everyone who signs in on one office
+ * desktop inherits it) and the caller could not prove it is at that browser, because Chrome had
+ * since rotated the token. A fresh id is the honest answer -- it costs nothing, it is opaque and
+ * identifies no person, and it is what lets this person receive their OWN notifications here
+ * instead of silently receiving none. The colleague's registration is left exactly as it is.
+ *
+ * Storage failures are swallowed on purpose: the minted id still works for this tab, which is the
+ * same degraded-but-functional path getBrowserInstallId already takes in a private window.
+ */
+export function resetBrowserInstallId(): string {
+  const minted = mintInstallId();
+  if (typeof window === "undefined") return minted;
+  try {
+    window.localStorage.setItem(INSTALL_ID_STORAGE_KEY, minted);
+  } catch {
+    // Storage blocked; the id is still usable for this session.
+  }
+  return minted;
+}
+
 export function mintInstallId(): string {
   if (typeof crypto !== "undefined" && typeof crypto.randomUUID === "function") {
     return `web-${crypto.randomUUID()}`;

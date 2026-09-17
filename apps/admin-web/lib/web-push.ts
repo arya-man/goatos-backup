@@ -7,6 +7,7 @@ import {
   describeBrowser,
   detectWebPushSupport,
   getBrowserInstallId,
+  resetBrowserInstallId,
   type WebPushState,
 } from "@/lib/web-push-state";
 import {
@@ -42,6 +43,7 @@ export {
   describeBrowser,
   detectWebPushSupport,
   getBrowserInstallId,
+  resetBrowserInstallId,
   leadershipTaskDeepLink,
   readNotificationPermission,
   resolveWebPushState,
@@ -84,16 +86,33 @@ async function mintToken(vapidKey: string): Promise<string> {
   return token;
 }
 
-/** Mint a token and hand it to the backend. Shared by the click path and the silent refresh. */
+/**
+ * Mint a token and hand it to the backend. Shared by the click path and the silent refresh.
+ *
+ * THE SHARED-DESKTOP RETRY. The browser install id lives in this Chrome profile's localStorage and
+ * SURVIVES SIGN-OUT, so on a shared office desktop the id this session presents may already carry
+ * a COLLEAGUE's live registration. The backend refuses that with 409
+ * `browser_push_install_conflict` -- it will not re-point another member's row at this session,
+ * because the notification body (a leadership-task mention carries the task title and a note
+ * excerpt) would then be delivered to whoever is sitting here. The answer is not to fail: it is to
+ * take a fresh id for ourselves and register again, so this person receives their OWN
+ * notifications on this desktop. The colleague's registration is untouched.
+ *
+ * Retried ONCE and never in a loop: a freshly minted id cannot collide, so a second conflict would
+ * mean something else is wrong and retrying would only hide it.
+ */
 async function mintAndRegister(vapidKey: string, browserInstallId: string): Promise<WebPushState> {
   const token = await mintToken(vapidKey);
-  const result = await registerBrowserPush({
-    browserInstallId,
-    token,
-    browserLabel: describeBrowser(navigator.userAgent),
-  });
-  if (!result.ok) return { status: "error", reason: result.error };
-  return { status: "enabled", browserInstallId };
+  const browserLabel = describeBrowser(navigator.userAgent);
+  const result = await registerBrowserPush({ browserInstallId, token, browserLabel });
+  if (result.ok) return { status: "enabled", browserInstallId };
+  if (result.code !== "browser_push_install_conflict") {
+    return { status: "error", reason: result.error };
+  }
+  const ownInstallId = resetBrowserInstallId();
+  const retried = await registerBrowserPush({ browserInstallId: ownInstallId, token, browserLabel });
+  if (!retried.ok) return { status: "error", reason: retried.error };
+  return { status: "enabled", browserInstallId: ownInstallId };
 }
 
 /**

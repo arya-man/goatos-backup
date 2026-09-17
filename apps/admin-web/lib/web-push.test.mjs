@@ -6,7 +6,10 @@ import test from "node:test";
 
 import {
   describeBrowser,
+  getBrowserInstallId,
   leadershipTaskDeepLink,
+  mintInstallId,
+  resetBrowserInstallId,
   resolveWebPushState,
 } from "./web-push-state.ts";
 
@@ -239,4 +242,77 @@ test("the service worker imports no external script", () => {
   // importScripts of a CDN bundle inside a worker is a third-party dependency on the delivery
   // path and a second copy of the Firebase config to keep in sync.
   assert.ok(!/importScripts/.test(serviceWorkerCode), "the service worker must not importScripts");
+});
+
+/**
+ * The shared-office-desktop recovery, at the layer that owns the id.
+ *
+ * The install id is per-BROWSER-PROFILE and survives sign-out, so on a shared desktop the stored
+ * id can already carry a colleague's live registration; the backend refuses to re-point that row
+ * (409 browser_push_install_conflict) because the colleague's notification body would then land on
+ * this screen. Minting a fresh id is how this person gets their OWN registration for the same
+ * browser instead of silently receiving nothing -- so the reset must actually REPLACE the stored
+ * value, or the retry would present the same conflicting id again.
+ */
+function withFakeLocalStorage(initial) {
+  const store = new Map(Object.entries(initial ?? {}));
+  const previous = globalThis.window;
+  globalThis.window = {
+    localStorage: {
+      getItem: (key) => (store.has(key) ? store.get(key) : null),
+      setItem: (key, value) => void store.set(key, String(value)),
+    },
+  };
+  return {
+    store,
+    restore: () => {
+      if (previous === undefined) delete globalThis.window;
+      else globalThis.window = previous;
+    },
+  };
+}
+
+const INSTALL_ID_KEY = "mesha.web-push.browser-install-id";
+
+test("resetBrowserInstallId replaces the stored id so the retry cannot reuse the conflicting one", () => {
+  const fake = withFakeLocalStorage({ [INSTALL_ID_KEY]: "web-colleague-owned" });
+  try {
+    assert.equal(getBrowserInstallId(), "web-colleague-owned");
+    const fresh = resetBrowserInstallId();
+    assert.notEqual(fresh, "web-colleague-owned");
+    assert.match(fresh, /^web-/);
+    // Persisted, not just returned: the next dashboard load must keep registering as this person.
+    assert.equal(fake.store.get(INSTALL_ID_KEY), fresh);
+    assert.equal(getBrowserInstallId(), fresh);
+  } finally {
+    fake.restore();
+  }
+});
+
+test("a fresh install id is opaque, and two of them never collide", () => {
+  const fake = withFakeLocalStorage({});
+  try {
+    const first = resetBrowserInstallId();
+    const second = resetBrowserInstallId();
+    assert.notEqual(first, second);
+    // It identifies a browser, never a person: nothing in it is derived from the session.
+    assert.match(first, /^web-[0-9a-z-]+$/i);
+    assert.notEqual(mintInstallId(), mintInstallId());
+  } finally {
+    fake.restore();
+  }
+});
+
+test("the register path retries a browser-profile conflict exactly once, on the backend CODE", () => {
+  const source = readFileSync(join(repoAdminWeb, "lib/web-push.ts"), "utf8");
+  const code = source
+    .replace(/\/\*[\s\S]*?\*\//g, "")
+    .replace(/^[ \t]*\/\/.*$/gm, "");
+  // Keyed on the machine-readable code, never on the person-facing sentence, which is
+  // backend-owned copy and may be reworded.
+  assert.ok(code.includes('result.code !== "browser_push_install_conflict"'));
+  assert.ok(code.includes("resetBrowserInstallId()"));
+  // Exactly two register calls on the conflict path -- the original and one retry. A loop here
+  // would hammer the endpoint and hide a genuine fault behind an id churn.
+  assert.equal((code.match(/(?<!un)registerBrowserPush\(/g) ?? []).length, 2);
 });

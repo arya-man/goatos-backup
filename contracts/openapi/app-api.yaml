@@ -39,6 +39,7 @@ tags:
   - name: Leadership Tasks
   - name: Pen Visits
   - name: AnimalPurchases
+  - name: Notifications
 paths:
   /herd-signals/packets:
     post:
@@ -9880,6 +9881,127 @@ paths:
           $ref: "#/components/responses/Forbidden"
         "404":
           $ref: "#/components/responses/NotFoundOrNotAllowed"
+        "500":
+          $ref: "#/components/responses/ServerError"
+  /app/notifications:
+    get:
+      tags:
+        - Notifications
+      operationId: listAppNotifications
+      summary: One page of the caller's OWN in-app notifications.
+      description: >-
+        The in-app notification centre (the bell). Serves the notifications addressed to the
+        CALLING PERSON, newest first, keyset-paged, plus their whole-feed unread total for the
+        badge.
+
+
+        SCOPE. The feed is filtered inside the query by the caller's own resolved ACTIVE
+        workforce_member_id -- the `member_id` every notification producer stamps into
+        `context`, which is the same identity the per-member alert indexes and the weighing /
+        vaccination / feed / counts alert feeds already key on. It is NOT filtered by
+        `recipient_ref`: that column holds the recipient DEVICE's push token (or, for the
+        escalation sweeper, a role slug), rotates on reinstall, and is documented as a stale
+        snapshot that must never be trusted as an address. There is deliberately no parameter,
+        scope or role on this route that names another person, so a caller cannot ask for
+        anybody's notifications but their own. A caller whose roster row is no longer active
+        resolves to nothing and sees an empty feed, never an unfiltered one.
+
+
+        ONE NOTIFICATION, NOT ONE DELIVERY. The queue holds one row per recipient DEVICE, so a
+        worker with two phones has two rows for one event. The feed collapses them back to one
+        item on the producer's event key, and `unread_count` counts notifications, not rows.
+
+
+        Gated on `app.bootstrap`: every authenticated app principal reads their own bell. It is
+        deliberately not a module or leadership permission -- anyone who can be sent a
+        notification must be able to read it.
+      parameters:
+        - name: limit
+          in: query
+          required: false
+          schema: { type: integer, minimum: 1, maximum: 50, default: 20 }
+          description: >-
+            Page size. Absent means 20. A value outside 1..50 is 400 `invalid_limit` rather than
+            silently clamped: a caller who asked for 200 rows and got 20 would page straight past
+            the rows it never saw.
+        - name: cursor
+          in: query
+          required: false
+          schema: { type: string }
+          description: >-
+            Opaque keyset cursor from a previous page's `next_cursor`. It carries the last row's
+            (requested_at, notification_request_id) so two notifications stamped in the same
+            instant still page stably; there is one sort order on this feed, so a cursor never
+            has to be dropped. A cursor this feed did not mint is 400 `invalid_cursor`, never
+            served as page one.
+      responses:
+        "200":
+          description: One page of the caller's own notifications plus their whole-feed unread total.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AppNotificationPage"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "500":
+          $ref: "#/components/responses/ServerError"
+  /app/notifications/read:
+    post:
+      tags:
+        - Notifications
+      operationId: markAppNotificationsRead
+      summary: Mark some of the caller's OWN notifications read.
+      description: >-
+        Stamps the caller's own notifications read and answers how many NOTIFICATIONS moved from
+        unread to read (not how many delivery rows were touched -- every device row of one
+        notification is stamped together, which is what keeps the badge and the list in
+        agreement).
+
+
+        Ids that do not belong to the caller are IGNORED: they are neither updated nor counted.
+        They are deliberately not a 403 either, because answering 403 would confirm that the row
+        exists and belongs to somebody -- an existence oracle over other people's
+        notifications. A mixed batch therefore succeeds and reports only the caller's own half.
+
+
+        An id that is already read contributes 0. A row still in flight to the push provider
+        keeps its delivery status and simply gains its read stamp, so marking a notification read
+        in the app never strands the dispatcher's lease.
+
+
+        The `Idempotency-Key` header is REQUIRED: an exact replay returns the ORIGINAL
+        `read_count` with no second write, and the same key re-presented with a DIFFERENT id set
+        is 409 `idempotency_conflict` rather than applied.
+      parameters:
+        - name: Idempotency-Key
+          in: header
+          required: true
+          schema: { type: string, minLength: 8, maxLength: 200 }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/AppNotificationsReadRequest"
+      responses:
+        "200":
+          description: How many of the caller's own notifications moved from unread to read.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AppNotificationsReadResponse"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "409":
+          $ref: "#/components/responses/WriteConflict"
         "500":
           $ref: "#/components/responses/ServerError"
   /procurement/feed-purchases/{purchase_id}/payments:
@@ -20654,6 +20776,98 @@ components:
         count: { type: integer, description: Whole-list count for the selected leadership task monitoring scope. }
         selected: { type: boolean }
         empty_message: { type: string }
+    AppNotificationContext:
+      type: object
+      description: >-
+        The routing envelope the producing consumer stamped on the notification. Every field is
+        OPTIONAL and omitted when the producer did not stamp it -- a notification that names no
+        task carries no task_id. Every value is a string because each is read out of the row's
+        jsonb context.
+      properties:
+        task_id: { type: string, description: The leadership task this notification is about, when it is about one. }
+        task_no:
+          type: string
+          description: That task's running number, as the producer stamped it -- a decimal string such as 12.
+        screen:
+          type: string
+          description: The client screen that owns this notification (e.g. weighing, leadership_tasks).
+        group_key: { type: string, description: The producer's grouping key, for collapsing a run of related notices in the list. }
+        priority:
+          type: string
+          description: The producer's urgency word -- normal or high. The client styles on it.
+        message_key:
+          type: string
+          description: The producer's canonical copy key (e.g. weighing.verdict.rework). The module prefix identifies which vertical raised it.
+        target: { type: string, description: The in-app route to open when the card is tapped. }
+        status:
+          type: string
+          description: The BUSINESS status of the thing the notification is about (e.g. a task being open), NOT the notification's own delivery status.
+    AppNotification:
+      type: object
+      required: [notification_request_id, notification_type, title, body, status, requested_at, context]
+      properties:
+        notification_request_id:
+          type: string
+          format: uuid
+          description: >-
+            The id to send back to POST /app/notifications/read. Where one notification fanned out
+            to several of the caller's devices, this is the newest of those rows and marking it
+            read stamps all of them.
+        notification_type:
+          type: string
+          description: The producer's notification kind (reminder, nudge, escalation, rework, due_today, verification_* ...).
+        title: { type: string, description: Backend-owned copy, rendered verbatim. }
+        body: { type: string, description: Backend-owned copy, rendered verbatim. May be empty. }
+        status:
+          type: string
+          description: >-
+            The row's delivery status (queued, sending, sent, failed, exhausted, suppressed, read).
+            READ STATE IS `read_at`, NOT THIS FIELD: a notification read in the app while its push
+            was still in flight keeps its delivery status and gains its read stamp.
+        requested_at: { type: string, format: date-time, description: When the notification was raised. The feed's sort key, newest first. }
+        read_at: { type: string, format: date-time, description: When the caller marked it read. ABSENT while unread. }
+        actor_name: { type: string, description: The display name of the person whose action raised it. ABSENT for system-raised notifications (the sweepers). }
+        context:
+          $ref: "#/components/schemas/AppNotificationContext"
+    AppNotificationPage:
+      type: object
+      required: [items, unread_count, trace_id]
+      properties:
+        items:
+          type: array
+          items:
+            $ref: "#/components/schemas/AppNotification"
+        unread_count:
+          type: integer
+          description: >-
+            The caller's unread total across their WHOLE feed, never the returned page's own
+            unread rows -- the bell badge must not shrink because the reader paged. Counts
+            notifications, not delivery rows.
+        next_cursor: { type: string, description: Pass as `cursor` for the next page. ABSENT on the last page. }
+        trace_id: { type: string }
+    AppNotificationsReadRequest:
+      type: object
+      required: [notification_request_ids]
+      properties:
+        notification_request_ids:
+          type: array
+          minItems: 1
+          maxItems: 200
+          items: { type: string, format: uuid }
+          description: >-
+            The notifications to mark read. Duplicates within one batch collapse and are counted
+            once. A malformed uuid is 400 `invalid_notification_id` -- it is not silently dropped,
+            because "mark these 5 read" answering success while one card stays lit forever is the
+            worse failure. Ids belonging to another person are ignored, never updated.
+    AppNotificationsReadResponse:
+      type: object
+      required: [read_count]
+      properties:
+        read_count:
+          type: integer
+          description: >-
+            How many of the caller's OWN notifications moved from unread to read. Ids that were
+            already read, or that belong to somebody else, contribute 0.
     LeadershipTaskPage:
       type: object
       required: [title, rows, scopes, filters, unseen_count, can_raise, trace_id]

@@ -136,8 +136,12 @@ export const leadershipTasksFixtureContract: AdminUiPageContract = {
     "feedback.invalid_status_change": "That status change could not be applied.",
     "feedback.invalid_idempotency_key": "The form expired. Reload the page and try again.",
     "feedback.too_many_attachments": "A task carries at most 12 attachments.",
-    // Shared base map (same Go file), read by this page's chips, banner and sheet.
+    // Shared base map (same Go file), read by this page's chips, banner and sheet -- and by the
+    // SHARED `components/worklist-pager.tsx` this page renders, which is where `action.previous`,
+    // `action.next`, `pager.page` and `pager.rows` are read from.
     "action.apply": "Apply",
+    "action.previous": "Previous",
+    "action.next": "Next",
     "action.clear": "Clear",
     "action.close": "Close",
     "action.failed_title": "Action failed",

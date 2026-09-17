@@ -27,10 +27,28 @@
 -- endpoint/keys triple instead would have required a second, parallel send path, a second
 -- delivery credential, and a second dead-address detector for no gain.
 --
--- GRAIN: one row per (tenant, workforce member, browser profile). browser_install_id is a
+-- GRAIN: one row per (tenant, browser profile) -- NOT per (tenant, member, browser profile), and
+-- the difference is a security property rather than bookkeeping. browser_install_id is a
 -- client-generated opaque id persisted in that profile's localStorage; it is what makes a
 -- re-register from the same Chrome profile an UPDATE instead of a second live registration, and
 -- it is what lets the backend target one browser rather than a person's every browser.
+--
+-- WHY THE MEMBER IS NOT IN THE KEY: an FCM web registration token is issued to a browser PROFILE
+-- and does not change when the signed-in user does, and the fan-out addresses the TOKEN. Two
+-- members each holding a live registration for one profile would therefore both resolve to the
+-- same physical browser, and one person's notification body would render on the other person's
+-- screen. One live registration per browser profile is a statement about where the push
+-- physically arrives.
+--
+-- A PROFILE CAN CHANGE HANDS, ON PROOF ONLY. Because the install id survives sign-out, two
+-- colleagues sharing an office desktop present the same one. The upsert therefore rewrites a
+-- conflicting row only when the caller already owns it, or presents the token that row holds
+-- (proof of sitting at that browser), or the previous owner's registration is no longer active;
+-- on a hand-over workforce_member_id, registered_by and created_at all move to the new owner.
+-- Anything else is refused (409 browser_push_install_conflict) and the client mints itself a
+-- fresh install id. The predicate and the reasoning for each branch live on
+-- upsertRegistrationSQL in backend/internal/browserpush/adapters/postgres/repository.go; this
+-- table's unique index below is the half that makes it enforceable.
 --
 -- EXPIRY IS NORMAL, NOT EXCEPTIONAL: Chrome silently invalidates a push subscription on profile
 -- clear, on a long idle period, and whenever the user revokes the site's notification
@@ -80,14 +98,16 @@ CREATE TABLE IF NOT EXISTS public.workforce_member_browser_push_registrations (
 );
 
 COMMENT ON TABLE public.workforce_member_browser_push_registrations IS
-  'Browser (Chrome) web push addresses for admin-web, one per tenant/member/browser profile. fcm_token is an FCM web registration token addressed by the existing push_fcm channel. status=stale is written by the send path on a provider-confirmed dead address.';
+  'Browser (Chrome) web push addresses for admin-web, one per tenant/browser profile -- NOT per member: the fan-out addresses the browser-scoped fcm_token, so two members holding live rows for one profile would both resolve to the same screen. fcm_token is an FCM web registration token addressed by the existing push_fcm channel. status=stale is written by the send path on a provider-confirmed dead address.';
 
 COMMENT ON COLUMN public.workforce_member_browser_push_registrations.browser_install_id IS
-  'Opaque client-generated id persisted in that browser profile localStorage. Upsert conflict target: a re-register from the same profile refreshes the token in place.';
+  'Opaque client-generated id persisted in that browser profile localStorage; it survives sign-out and is shared by every user of that profile, so it identifies a BROWSER and never a person. Upsert conflict target: a re-register from the same profile refreshes the token in place, and a re-register by a DIFFERENT member is refused unless it proves possession of the browser (same token) or the stored registration is no longer active.';
 
 -- The upsert target. A browser profile holds exactly one registration per tenant, whatever its
 -- current status -- re-enabling after an unsubscribe revives the same row rather than racing a
--- second one into existence.
+-- second one into existence. It is (tenant_id, browser_install_id) and NOT
+-- (tenant_id, workforce_member_id, browser_install_id): see the grain note at the top of this
+-- file for why a per-member key would deliver one person's notifications to another's screen.
 CREATE UNIQUE INDEX IF NOT EXISTS workforce_member_browser_push_registrations_install_unique_idx
     ON public.workforce_member_browser_push_registrations (tenant_id, browser_install_id);
 

@@ -55,6 +55,18 @@ const (
 // ErrRegistrationNotFound means no registration exists for that (tenant, browser install).
 var ErrRegistrationNotFound = errors.New("browser push registration not found")
 
+// ErrBrowserInstallConflict means that browser profile already carries ANOTHER member's live
+// registration and the caller offered no proof of being at that browser.
+//
+// IT IS NOT AN AUTHORIZATION FAILURE AND MUST NOT BE REPORTED AS ONE. browser_install_id is
+// per-browser-profile and survives sign-out, so the ordinary cause is two colleagues sharing one
+// office desktop while the Chrome token has since rotated -- nobody did anything wrong. It is a
+// RECOVERABLE conflict: the client mints itself a fresh install id and registers again, which is
+// why it is a distinct sentinel rather than folded into ErrRegistrationNotFound. Reporting it as
+// a permission problem would leave the second person with no registration and no action to take,
+// which is the silent-unreachability half of the defect this sentinel exists to close.
+var ErrBrowserInstallConflict = errors.New("browser push registration belongs to another member")
+
 // Registration is one browser profile's push address.
 type Registration struct {
 	BrowserRegistrationID string     `json:"browser_registration_id"`
@@ -137,7 +149,9 @@ type Repository interface {
 	// Upsert stores or refreshes one browser profile's address, keyed on
 	// (tenant_id, browser_install_id). A refresh must revive a row that was previously stale or
 	// unsubscribed rather than insert a second one -- a browser that comes back is the same
-	// browser.
+	// browser. It must refuse ErrBrowserInstallConflict rather than rewrite a conflicting row
+	// that belongs to a DIFFERENT active member with a different token: the row would stay
+	// attributed to that member while delivering to the caller's screen.
 	Upsert(ctx context.Context, tenantID, memberOrUserID string, in RegisterRequest, now time.Time) (Registration, bool, error)
 	// MarkUnsubscribed switches one browser off at the person's own request. Reports false when
 	// there was nothing active to switch off.

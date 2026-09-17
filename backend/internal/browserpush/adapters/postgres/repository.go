@@ -89,6 +89,42 @@ const registrationColumnsQualified = `
 // can NAME it -- an inline literal inside a function body is structurally unreachable to both.
 // Params: $1 tenant, $2 member-or-user id, $3 provider, $4 browser install id, $5 token,
 // $6 user agent, $7 browser label, $8 now.
+//
+// THE DO UPDATE PREDICATE IS THE WHOLE SECURITY PROPERTY OF THIS FILE. Read it before changing
+// any clause above it. Without it, a conflicting row was refreshed no matter WHOSE it was, and
+// because browser_install_id is per-browser-PROFILE rather than per-user (admin-web mints it once
+// into localStorage, where it survives sign-out), the second person to sign in on a shared office
+// desktop silently refreshed the FIRST person's registration: the row stayed attributed to the
+// first person, went back to 'active', and every push for them -- leadership-task mention and
+// comment bodies carry the task title and a note excerpt -- was delivered to the browser the
+// second person was sitting at. The three OR branches are the only ways a conflicting row may be
+// written, and each is a different kind of proof that writing it is legitimate:
+//
+//  1. SAME MEMBER -- the ordinary case, and the overwhelming majority of calls: this person's own
+//     browser re-registering a rotated token. Nothing changes hands.
+//  2. SAME TOKEN -- the genuine shared-profile HAND-OVER. An FCM web registration token is issued
+//     to a browser PROFILE, not to a signed-in user, and it does not change across sign-out, so a
+//     caller presenting the token the stored row already holds is demonstrably sitting at that
+//     physical browser. That is the one proof of possession this endpoint has, and it is what
+//     separates the person who really took the desk over from someone who merely learned an
+//     install id: from a different browser an attacker holds a different token and falls through
+//     to no branch at all.
+//  3. NOT ACTIVE -- the previous owner's registration is 'unsubscribed' (they switched it off) or
+//     'stale' (the provider confirmed the address is dead). Nobody is relying on that address, so
+//     the browser is free to be claimed.
+//
+// ON A HAND-OVER THE ROW IS TRANSFERRED, NOT DUPLICATED, and the unique index on
+// (tenant_id, browser_install_id) is deliberately kept rather than widened to include the member.
+// Keying on the member would let two members hold live registrations for one browser profile
+// carrying the SAME browser-scoped token, and the fan-out addresses the TOKEN -- so the first
+// person's push would still land on the second person's screen. One live registration per browser
+// profile is a statement about where the notification physically arrives, not bookkeeping.
+// workforce_member_id, registered_by and created_at therefore all move to the new owner: the
+// registration is hers from now on, and dating it from the previous person's first sign-in would
+// misreport whose address it is and since when.
+//
+// A caller matching NO branch writes nothing, which the RETURNING turns into zero rows, and Upsert
+// raises browserpush.ErrBrowserInstallConflict rather than reporting a success it did not perform.
 const upsertRegistrationSQL = targetMemberCTE + `
 INSERT INTO workforce_member_browser_push_registrations (
   tenant_id, workforce_member_id, provider, browser_install_id, fcm_token,
@@ -99,14 +135,24 @@ SELECT $1::uuid, tm.workforce_member_id, $3::text, $4::text, $5::text,
   FROM target_member tm
  WHERE tm.workforce_member_id IS NOT NULL
 ON CONFLICT (tenant_id, browser_install_id) DO UPDATE
-   SET fcm_token    = EXCLUDED.fcm_token,
+   SET workforce_member_id = EXCLUDED.workforce_member_id,
+       registered_by = EXCLUDED.registered_by,
+       fcm_token    = EXCLUDED.fcm_token,
        user_agent   = EXCLUDED.user_agent,
        browser_label = EXCLUDED.browser_label,
        status       = 'active',
        stale_at     = NULL,
        stale_reason = NULL,
+       created_at   = CASE
+                        WHEN workforce_member_browser_push_registrations.workforce_member_id = EXCLUDED.workforce_member_id
+                          THEN workforce_member_browser_push_registrations.created_at
+                        ELSE EXCLUDED.created_at
+                      END,
        last_seen_at = EXCLUDED.last_seen_at,
        row_version  = workforce_member_browser_push_registrations.row_version + 1
+ WHERE workforce_member_browser_push_registrations.workforce_member_id = EXCLUDED.workforce_member_id
+    OR workforce_member_browser_push_registrations.fcm_token = EXCLUDED.fcm_token
+    OR workforce_member_browser_push_registrations.status <> 'active'
 RETURNING` + registrationColumns + `, (row_version = 1) AS created`
 
 // unsubscribeRegistrationSQL switches one browser off at the person's own request.
@@ -161,6 +207,18 @@ UPDATE workforce_member_browser_push_registrations
    AND fcm_token = $2::text
    AND status = 'active'`
 
+// resolveTargetMemberSQL answers ONE question, and only on the failure path: does this caller
+// resolve to an active workforce member of this tenant at all? It is what lets Upsert tell an
+// authorization gap (the caller is not a member here) apart from a browser-ownership conflict
+// (they are, but that browser profile is somebody else's live registration) after the upsert has
+// already written nothing. Two very different answers to the client -- 403 versus 409 with an
+// install id to re-mint -- so guessing between them is not an option.
+// Params: $1 tenant, $2 member-or-user id.
+const resolveTargetMemberSQL = targetMemberCTE + `
+SELECT workforce_member_id::text
+  FROM target_member
+ WHERE workforce_member_id IS NOT NULL`
+
 // Upsert stores or refreshes one browser profile's push address.
 //
 // ON CONFLICT REVIVES, IT DOES NOT SKIP. The conflict target is the browser profile, so a person
@@ -170,10 +228,20 @@ UPDATE workforce_member_browser_push_registrations
 // alternative -- insert-only, leaving the dead row behind -- would accumulate one dead row per
 // permission cycle per browser and make "is this person reachable" ambiguous.
 //
-// workforce_member_id is NOT in the SET list: a browser profile belongs to whoever first claimed
-// it, and a silent re-assignment on conflict would let a second person's session inherit an
-// address the first person's browser still holds. A shared-machine hand-over therefore has to go
-// through the first person's unregister, which is the honest behaviour.
+// A BROWSER PROFILE CAN CHANGE HANDS, BUT ONLY ON PROOF. browser_install_id lives in that Chrome
+// profile's localStorage and survives sign-out, so two colleagues sharing one office desktop
+// present the SAME install id. The conflicting row is therefore rewritten only when the caller
+// owns it already, or presents the token the row holds (proof they are at that physical browser,
+// since an FCM web token belongs to the profile and not to the signed-in user), or the previous
+// owner's registration is no longer active. Anything else is somebody else's live address and is
+// refused with ErrBrowserInstallConflict -- see the predicate on upsertRegistrationSQL, which is
+// where the reasoning for each branch lives. The client answers a conflict by minting a fresh
+// install id for itself, so the person still gets their own registration for that browser; they
+// are never left silently unreachable, which is what the pre-fix behaviour did to the second
+// person to sign in.
+//
+// Because the predicate can only ever write the CALLER's own row, the returned Registration --
+// which the POST echoes back verbatim -- can no longer carry another member's workforce_member_id.
 func (r *Repository) Upsert(ctx context.Context, tenantID, memberOrUserID string, in browserpush.RegisterRequest, now time.Time) (browserpush.Registration, bool, error) {
 	ctx, cancel := context.WithTimeout(ctx, r.timeout)
 	defer cancel()
@@ -186,15 +254,33 @@ func (r *Repository) Upsert(ctx context.Context, tenantID, memberOrUserID string
 	)
 	if err := scanRegistration(row, &registration, &created); err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
-			// The INSERT ... SELECT produced no row, which means target_member resolved to
-			// nothing: the caller is authenticated but is not an active workforce member of this
-			// tenant. That is an authorization gap, not an empty result, and must not be reported
-			// as a successful registration.
-			return browserpush.Registration{}, false, fmt.Errorf("browser push: %w", browserpush.ErrRegistrationNotFound)
+			// Zero rows has exactly two causes and they are not the same answer. Either the
+			// INSERT ... SELECT produced nothing because target_member resolved to nothing (the
+			// caller is authenticated but is not an active workforce member of this tenant -- an
+			// authorization gap), or it conflicted and the DO UPDATE predicate refused because
+			// that browser profile holds somebody else's live registration. Ask the database
+			// which, on this cold path only, rather than reporting a registration that never
+			// happened as a success.
+			return browserpush.Registration{}, false, r.classifyUpsertNoRows(ctx, tenantID, memberOrUserID)
 		}
 		return browserpush.Registration{}, false, fmt.Errorf("browser push: upsert registration: %w", err)
 	}
 	return registration, created, nil
+}
+
+// classifyUpsertNoRows turns "the upsert wrote nothing" into the one honest error for it.
+func (r *Repository) classifyUpsertNoRows(ctx context.Context, tenantID, memberOrUserID string) error {
+	var memberID string
+	if err := r.pool.QueryRow(ctx, resolveTargetMemberSQL, tenantID, memberOrUserID).Scan(&memberID); err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return fmt.Errorf("browser push: %w", browserpush.ErrRegistrationNotFound)
+		}
+		// The diagnosis itself failed. Report the conflict -- the write demonstrably did not
+		// happen -- but keep the cause, because swallowing it would hide a real database fault
+		// behind a routine 409.
+		return fmt.Errorf("browser push: %w: resolve target member: %v", browserpush.ErrBrowserInstallConflict, err)
+	}
+	return fmt.Errorf("browser push: %w", browserpush.ErrBrowserInstallConflict)
 }
 
 // MarkUnsubscribed switches one browser off at the person's own request.

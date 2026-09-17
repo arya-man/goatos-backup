@@ -21,7 +21,13 @@ import { getServerConfig } from "@/lib/api/server";
  * bearer-style push credential -- whoever holds it can notify that browser.
  */
 
-export type WebPushResult<T> = { ok: true; data: T } | { ok: false; error: string };
+/**
+ * `code` is the backend's own machine-readable error code, carried alongside the person-facing
+ * message. It exists for exactly one caller today -- lib/web-push.ts keys its recovery from
+ * `browser_push_install_conflict` on it -- and a UI branch must never be taken on the SENTENCE,
+ * which is backend-owned copy and may be reworded.
+ */
+export type WebPushResult<T> = { ok: true; data: T } | { ok: false; error: string; code?: string };
 
 export type BrowserPushRegistration = {
   browser_registration_id: string;
@@ -133,11 +139,21 @@ async function callBackend<T>(
     if (!response.ok) {
       // Surface the backend's own message when it sent one: its refusals name the exact field, and
       // replacing them with a generic sentence would hide the answer from the reader.
-      return { ok: false, error: backendErrorMessage(text, response.status) };
+      return { ok: false, error: backendErrorMessage(text, response.status), code: backendErrorCode(text) };
     }
     return { ok: true, data: (text ? JSON.parse(text) : {}) as T };
   } catch (error) {
     return { ok: false, error: error instanceof Error ? error.message : "Could not reach the notification service." };
+  }
+}
+
+function backendErrorCode(text: string): string | undefined {
+  try {
+    const parsed = JSON.parse(text) as { code?: string };
+    const code = parsed?.code?.trim();
+    return code ? code : undefined;
+  } catch {
+    return undefined;
   }
 }
 
