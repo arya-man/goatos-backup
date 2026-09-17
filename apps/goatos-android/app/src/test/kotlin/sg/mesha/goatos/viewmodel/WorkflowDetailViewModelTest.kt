@@ -444,12 +444,13 @@ class WorkflowDetailViewModelTest {
             override suspend fun capturePhoto(context: sg.mesha.goatos.capture.PhotoCaptureContext) =
                 sg.mesha.goatos.capture.CapturedPhoto(localUri = "file:///gate.jpg", capturedAtMs = 5L)
         }
+        val analytics = FakeAnalyticsPort()
         val viewModel = WorkflowDetailViewModel(
             repo = workflowsRepository,
             syncRepository = syncRepository,
             proofCaptureSource = FakeProofCaptureSource(mutableListOf()),
             proofCaptureRepository = proofs,
-            analytics = FakeAnalyticsPort(),
+            analytics = analytics,
             crashReporter = NoopCrashReporter(),
             savedStateHandle = SavedStateHandle(mapOf(WorkflowDetailViewModel.ARG_WORKFLOW_ID to "wf-1")),
             photoCaptureSource = photos,
@@ -469,6 +470,9 @@ class WorkflowDetailViewModelTest {
         val refs = syncRepository.completeCalls.single().proofOutboxItems.map { it.outboxItemId }
         assertEquals("the photo rides the completion exactly once", refs.distinct(), refs)
         assertEquals(1, refs.size)
+        // Telemetry names what was captured: a photo is not a video.
+        val captureEvents = analytics.events.map { it.first }.filter { it.endsWith("_captured") }
+        assertEquals(listOf("workflow_photo_captured"), captureEvents)
     }
 
     /** Realme E2E 2026-09-17: after "Answer kept" the proof step did not show which answer was kept. */

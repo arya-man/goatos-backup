@@ -71,12 +71,12 @@ class WorkflowDetailViewModelDeathFollowsSopTest {
     @After
     fun tearDown() = Dispatchers.resetMain()
 
-    private fun viewModel(repo: DraftingWorkflowsRepository) = WorkflowDetailViewModel(
+    private fun viewModel(repo: DraftingWorkflowsRepository, analytics: sg.mesha.goatos.core.analytics.AnalyticsPort = NoopAnalytics()) = WorkflowDetailViewModel(
         repo = repo,
         syncRepository = sync,
         proofCaptureSource = videos,
         proofCaptureRepository = FakeProofCaptureRepository(),
-        analytics = NoopAnalytics(),
+        analytics = analytics,
         crashReporter = NoopCrashReporter(),
         savedStateHandle = saved,
         photoCaptureSource = photos,
@@ -242,7 +242,8 @@ class WorkflowDetailViewModelDeathFollowsSopTest {
                 ),
             ),
         )
-        val vm = viewModel(repo)
+        val analytics = FakeAnalyticsPort()
+        val vm = viewModel(repo, analytics)
         advanceUntilIdle()
 
         val reshoot = vm.state.value.actions.single { it.actionId == "a-reshoot" }
@@ -260,6 +261,11 @@ class WorkflowDetailViewModelDeathFollowsSopTest {
         vm.onEvent(WorkflowDetailEvent.TakePhoto("a-reshoot"))
         advanceUntilIdle()
         assertTrue(vm.state.value.deathSubmissionEnabled)
+        assertEquals(
+            "two video drafts and one photo draft",
+            listOf("workflow_video_captured", "workflow_video_captured", "workflow_photo_captured"),
+            analytics.events.map { it.first }.filter { it.endsWith("_captured") },
+        )
 
         vm.onEvent(WorkflowDetailEvent.SubmitDeath)
         advanceUntilIdle()
