@@ -275,7 +275,6 @@ class SyncEngine(
             }
         }
         if (!connectivityGate.isOnline()) return false
-        withContext(dispatchers.io) { settleConflictedWorkflowWritesTheServerHolds() }
         val earliestRetryAt = AtomicLong(NO_RETRY_DUE)
         fun rememberRetryDue(epochMillis: Long) {
             while (true) {
@@ -284,6 +283,7 @@ class SyncEngine(
                 if (earliestRetryAt.compareAndSet(current, epochMillis)) return
             }
         }
+        withContext(dispatchers.io) { settleConflictedWorkflowWritesTheServerHolds(::rememberRetryDue) }
         drainMutex.withLock {
             withContext(dispatchers.io) {
                 // Recover rows stranded IN_FLIGHT by a prior crash/process-death mid-dispatch.
@@ -2222,14 +2222,24 @@ class SyncEngine(
     } catch (error: Exception) {
         if (error is CancellationException) throw error
         if (error.appApiStatusCode() != 409) throw error
-        workflowStepTheServerHolds(workflowId, actionId) ?: throw error
+        val refusedCode = error.serverErrorText()?.code
+        val duplicate = refusedCode == WORKFLOW_REFUSED_ALREADY_COMPLETED || refusedCode == WORKFLOW_REFUSED_IN_REVIEW
+        workflowStepTheServerHolds(workflowId, actionId, supersededDuplicate = duplicate) ?: throw error
     }
 
-    /** The server's own record of a step when it is already recorded (completed / in review). */
-    private suspend fun workflowStepTheServerHolds(workflowId: String, actionId: String): WorkflowActionWriteResponseDto? {
+    /**
+     * The server's own record of a step when it is already recorded (completed / in review), or --
+     * for a [supersededDuplicate] -- when that recording has since been sent back for rework.
+     */
+    private suspend fun workflowStepTheServerHolds(
+        workflowId: String,
+        actionId: String,
+        supersededDuplicate: Boolean = false,
+    ): WorkflowActionWriteResponseDto? {
         val detail = api.getWorkflow(workflowId)
         val step = detail.actions.firstOrNull { it.actionId == actionId } ?: return null
-        if (step.status != WORKFLOW_STEP_COMPLETED && step.status != WORKFLOW_STEP_IN_REVIEW) return null
+        val recorded = step.status == WORKFLOW_STEP_COMPLETED || step.status == WORKFLOW_STEP_IN_REVIEW
+        if (!recorded && !(supersededDuplicate && step.status == WORKFLOW_STEP_REWORK)) return null
         return WorkflowActionWriteResponseDto(
             workflowId = workflowId,
             actionId = actionId,
@@ -2247,7 +2257,7 @@ class SyncEngine(
      * conflict WORKFLOW_ACTION_COMPLETE / ANSWER row whose step the server shows recorded is settled
      * as succeeded so it stops holding its lane. Bounded per pass and tried once per process per row.
      */
-    private suspend fun settleConflictedWorkflowWritesTheServerHolds() {
+    private suspend fun settleConflictedWorkflowWritesTheServerHolds(rememberRetryDue: (Long) -> Unit) {
         store.findConflictedWorkflowActionWrites(SUCCESS_RECONCILE_LIMIT).forEach { row ->
             if (!settleAttemptedRows.add(row.id)) return@forEach
             try {
@@ -2257,16 +2267,32 @@ class SyncEngine(
                     else ->
                         syncJson.decodeFromString<WorkflowActionAnswerPayload>(row.payloadJson).let { it.workflowId to it.actionId }
                 }
-                val held = workflowStepTheServerHolds(workflowId, actionId) ?: return@forEach
+                val held = workflowStepTheServerHolds(workflowId, actionId, supersededDuplicate = row.refusedAsAlreadyRecorded())
+                    ?: return@forEach
                 store.settleConflictAsSucceeded(row.id, syncJson.encodeToString(held), clock())
             } catch (error: Exception) {
                 if (error is CancellationException) throw error
-                // Offline / server error: forget the attempt so a later pass can try again.
+                // Offline / server error: forget the attempt so a later pass can try again, and book
+                // that pass. Nothing else would: the rows this conflict holds are not eligible, so the
+                // drain schedules no retry and the lane waited for the next app launch (Realme
+                // 2026-09-17).
                 settleAttemptedRows.remove(row.id)
                 reportCacheReconcileFailure(row, error)
+                rememberRetryDue(clock() + backoff.delayMillis(1))
             }
         }
     }
+
+    /**
+     * The server refused this step write because it ALREADY HELD a recording of the step: the write
+     * was a duplicate of an accepted one. Such a write can never matter again -- once that recording
+     * is reviewed and sent back for rework, re-sending the duplicate would re-submit the rejected
+     * proofs -- so it must not hold the lane in front of the re-shoot.
+     */
+    private fun OutboxEntity.refusedAsAlreadyRecorded(): Boolean =
+        lastErrorCode == WORKFLOW_REFUSED_ALREADY_COMPLETED ||
+            lastErrorCode == WORKFLOW_REFUSED_IN_REVIEW ||
+            (lastErrorCode.isNullOrBlank() && lastError?.trim() == WORKFLOW_REFUSED_ALREADY_COMPLETED_TEXT)
 
     /** Resolves every queued proof of a multi-proof step to its uploaded server id, in capture
      *  order; null when the step carried none (a one-video step keeps using proof_ref). */
@@ -2457,6 +2483,11 @@ class SyncEngine(
         const val SUCCESS_RECONCILE_LIMIT = 20
         private const val WORKFLOW_STEP_COMPLETED = "completed"
         private const val WORKFLOW_STEP_IN_REVIEW = "in_review"
+        private const val WORKFLOW_STEP_REWORK = "rework"
+        /** backend tasks/adapters/http handler: a step write refused because the step is recorded. */
+        private const val WORKFLOW_REFUSED_ALREADY_COMPLETED = "action_already_completed"
+        private const val WORKFLOW_REFUSED_IN_REVIEW = "action_in_review"
+        private const val WORKFLOW_REFUSED_ALREADY_COMPLETED_TEXT = "this action is already completed"
         // Max rows pulled into memory per drain iteration. A long offline backlog drains in
         // successive batches of this size rather than one unbounded SELECT * materialization.
         const val DRAIN_BATCH_SIZE = 200

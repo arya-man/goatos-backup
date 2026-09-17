@@ -140,6 +140,73 @@ class SyncEngineWorkflowAlreadyRecordedTest {
         assertEquals(listOf("key-next-answer"), api.answerKeys)
     }
 
+    /**
+     * Realme E2E 2026-09-17: an older build left a duplicate step write refused 409
+     * `action_already_completed`. The verifier then REJECTED the step, so the server shows it in
+     * `rework` and the settle above left the row a conflict -- which held the workflow's lane, so
+     * the re-shoot's proof uploads and answers stayed queued behind a write that can never matter
+     * again (re-sending it would re-submit the rejected proofs).
+     */
+    @Test
+    fun `an already-recorded duplicate for a step since sent back for rework is superseded and frees the lane`() = runBlocking {
+        val store = FakeOutboxStore()
+        store.insert(
+            row("legacy-dup", OutboxOpType.WORKFLOW_ACTION_COMPLETE, completePayload, createdAt = 1L, status = OutboxStatus.FAILED, conflict = true)
+                .copy(lastErrorCode = "action_already_completed"),
+        )
+        store.insert(row("next-answer", OutboxOpType.WORKFLOW_ACTION_ANSWER, answerPayload, createdAt = 2L))
+        val api = WorkflowApi(serverStatus = "rework")
+
+        engine(store, api).drainOnce()
+
+        val settled = store.findById("legacy-dup")!!
+        assertEquals("a superseded duplicate no longer holds the lane", false, settled.status == OutboxStatus.FAILED.name && settled.conflict)
+        assertTrue("the superseded duplicate is never re-sent", api.completeKeys.isEmpty())
+        assertEquals("the re-shoot behind it drains", listOf("key-next-answer"), api.answerKeys)
+    }
+
+    @Test
+    fun `a step write refused for another reason stays a visible conflict while the step is in rework`() = runBlocking {
+        val store = FakeOutboxStore()
+        store.insert(
+            row("refused", OutboxOpType.WORKFLOW_ACTION_COMPLETE, completePayload, createdAt = 1L, status = OutboxStatus.FAILED, conflict = true)
+                .copy(lastError = "Record the proof first.", lastErrorCode = "proof_required"),
+        )
+        val api = WorkflowApi(serverStatus = "rework")
+
+        engine(store, api).drainOnce()
+
+        val failed = store.findById("refused")!!
+        assertEquals(OutboxStatus.FAILED.name, failed.status)
+        assertTrue(failed.conflict)
+    }
+
+    /** Realme 2026-09-17: the settle re-read failed on a flaky network and no later drain ran. */
+    @Test
+    fun `a settle re-read that fails in transit schedules another pass`() = runBlocking {
+        val store = FakeOutboxStore()
+        store.insert(
+            row("legacy-dup", OutboxOpType.WORKFLOW_ACTION_COMPLETE, completePayload, createdAt = 1L, status = OutboxStatus.FAILED, conflict = true)
+                .copy(lastErrorCode = "action_already_completed"),
+        )
+        store.insert(row("next-answer", OutboxOpType.WORKFLOW_ACTION_ANSWER, answerPayload, createdAt = 2L))
+        val offlineApi = object : AppApi by WorkflowApi(serverStatus = "rework") {
+            override suspend fun getWorkflow(workflowId: String, lens: String?, date: String?): WorkflowDetailResponseDto =
+                throw java.io.IOException("network is unreachable")
+        }
+        val scheduled = mutableListOf<Long>()
+        val engine = SyncEngine(
+            store = store, api = offlineApi, connectivityGate = { true }, dispatchers = dispatchers, clock = { 10_000L },
+            retryScheduler = SyncRetryScheduler { scheduled += it },
+        )
+
+        engine.drainOnce()
+
+        assertEquals("the row is still waiting to be settled", OutboxStatus.FAILED.name, store.findById("legacy-dup")!!.status)
+        assertEquals("a retry is scheduled so the lane is not left waiting for a relaunch", 1, scheduled.size)
+        assertTrue(scheduled.single() > 10_000L)
+    }
+
     private companion object {
         const val WORKFLOW = "wf-reconcile-1"
         const val STEP = "step-gate-photo"
