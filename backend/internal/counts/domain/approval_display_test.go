@@ -56,6 +56,13 @@ func TestApprovalSummaryLineNeverRendersAnID(t *testing.T) {
 			want:        "Tag 981098102345678 · Female · Osmanabadi · born 5 Aug 2026",
 		},
 		{
+			// A birth payload stores dob as an ISO date; the approver reads the farm's dd/mm/yyyy.
+			name:        "birth renders an ISO date of birth the farm way",
+			requestType: ApprovalRequestTypeBirth,
+			summary:     `{"sex":"Male","dob":"2026-09-17"}`,
+			want:        "Male · born 17/09/2026",
+		},
+		{
 			// A death payload's goat_id is a UUID with no name source, so it is deliberately not
 			// in the line at all -- the approver is deciding on the reason.
 			name:        "death renders the reason and never the goat id",

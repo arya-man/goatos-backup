@@ -101,7 +101,7 @@ func TestBirthStepReachesTheVerifierTheMomentItIsRecorded(t *testing.T) {
 	if len(item.ProofRefs) != 1 || item.ProofRefs[0] != "proof-babies" {
 		t.Fatalf("item proofs = %v, want exactly this step's clip", item.ProofRefs)
 	}
-	if item.SubjectLabel != first.Action.Title+" · Mother CPT-00045 · 2026-09-16" {
+	if item.SubjectLabel != first.Action.Title+" · Mother CPT-00045 · 16/09/2026" {
 		t.Fatalf("subject label %q must name the step, the animal and the date -- and NOT the pen, which both verifier surfaces render themselves", item.SubjectLabel)
 	}
 	if item.IdempotencyKey != domain.BirthStepReviewKey(first.Action) {
