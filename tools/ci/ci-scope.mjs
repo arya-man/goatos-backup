@@ -24,6 +24,18 @@ function allComponents() {
   return { backend: true, adminWeb: true, android: true };
 }
 
+function docsOnlyPaths(paths, rules) {
+  if (paths.length === 0) return false;
+  const group = rules.docsOnly ?? {};
+  return paths.every((filePath) => (
+    filePath.endsWith(".md")
+    && (
+      (group.files ?? []).includes(filePath)
+      || (group.prefixes ?? []).some((prefix) => filePath.startsWith(prefix))
+    )
+  ));
+}
+
 export function classifyPaths(inputPaths, rules = JSON.parse(readFileSync(rulesPath, "utf8"))) {
   const paths = [...new Set(inputPaths.map(normalized).filter(Boolean))].sort();
   const components = { backend: false, adminWeb: false, android: false };
@@ -38,6 +50,18 @@ export function classifyPaths(inputPaths, rules = JSON.parse(readFileSync(rulesP
       paths,
       reasons: ["no diff paths were available; conservative full suite"],
       selectedJobs: ["common", "backend", "query-plans", "admin-web", "android"],
+    };
+  }
+
+  if (docsOnlyPaths(paths, rules)) {
+    return {
+      common: false,
+      ...components,
+      queryPlans: false,
+      full: false,
+      paths,
+      reasons: paths.map((filePath) => `${filePath}: docs-only fast lane`),
+      selectedJobs: ["docs-only"],
     };
   }
 
@@ -217,7 +241,15 @@ function selfTest() {
     common: true, backend: true, adminWeb: true, android: true, full: false,
     selectedJobs: ["common", "backend", "query-plans", "admin-web", "android"],
   });
-  assert.deepEqual(pick(["docs/runbooks/local-ci.md"]), {
+  assert.deepEqual(pick(["docs/progress/local-ci.md"]), {
+    common: false, backend: false, adminWeb: false, android: false, full: false,
+    selectedJobs: ["docs-only"],
+  });
+  assert.deepEqual(pick(["docs/strategy/livestock-backed-exchange.md", "docs/progress/digital-goat-exchange-strategy-20260918.md"]), {
+    common: false, backend: false, adminWeb: false, android: false, full: false,
+    selectedJobs: ["docs-only"],
+  });
+  assert.deepEqual(pick(["AGENTS.md"]), {
     common: true, backend: false, adminWeb: false, android: false, full: false,
     selectedJobs: ["common"],
   });

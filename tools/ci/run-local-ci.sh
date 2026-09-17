@@ -16,6 +16,7 @@
 # Usage:
 #   tools/ci/run-local-ci.sh             # auto: common + affected components
 #   tools/ci/run-local-ci.sh all         # force every component job
+#   tools/ci/run-local-ci.sh docs-only   # docs/progress/reviews/research/strategy markdown fast lane
 #   tools/ci/run-local-ci.sh backend     # one partial job (no push receipt)
 #   tools/ci/run-local-ci.sh query-plans # one required DB-plan job (no push receipt)
 #   tools/ci/run-local-ci.sh guardrails  # compatibility: common + backend + mobile static guards
@@ -518,6 +519,14 @@ run_common() {
   return 0
 }
 
+run_docs_only() {
+  current_job="docs-only"
+  step "git diff --check" git diff --check
+  step "ci-scope self-test" node tools/ci/ci-scope.mjs --self-test
+  step "local-ci-evidence self-test" node tools/ci/check-local-ci-evidence.mjs --self-test
+  return 0
+}
+
 run_backend() {
   current_job="backend"
   step "backend-foundations-guard" make backend-foundations-guard
@@ -892,6 +901,7 @@ run_guardrails() {
 
 run_job() {
   case "$1" in
+    docs-only) run_docs_only ;;
     common)    run_common ;;
     backend)   run_backend ;;
     query-plans) run_query_plans ;;
@@ -923,6 +933,7 @@ case "$only" in
     if [ "$is_full" = "true" ]; then receipt_mode="all"; else receipt_mode="scoped"; fi
     ;;
   common)      run_common ;;
+  docs-only)   run_docs_only ;;
   backend)     run_backend ;;
   query-plans) run_query_plans ;;
   guardrails) run_guardrails ;;
@@ -933,7 +944,7 @@ case "$only" in
     receipt_mode="all"
 	receipt_jobs="common,backend,query-plans,admin-web,android"
     ;;
-	*) echo "unknown job/mode: $only (auto|common|backend|query-plans|guardrails|admin-web|android|all)"; exit 2 ;;
+	*) echo "unknown job/mode: $only (auto|docs-only|common|backend|query-plans|guardrails|admin-web|android|all)"; exit 2 ;;
 esac
 
 # MUST stay ahead of the receipt-writing branch below. See ci_trace_only: moving
