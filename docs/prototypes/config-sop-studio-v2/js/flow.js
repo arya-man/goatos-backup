@@ -420,6 +420,11 @@
         const c=JSON.parse(JSON.stringify(n));c.id=F.nid(sop.nodes);c.next=[];sop.nodes.push(c);pos[c.id]={x:pos[id].x+40,y:pos[id].y+40};out.push(c.id);});
       persist(KINDS.sop,sop,pos);return out;},
     addAt:(sop,type,x,y)=>sopAddAt(sop,type,x,y).id,
+    /* new connection dropped on empty canvas: a one-exit step gets the new step spliced in (source → new → old next) */
+    wireDrop(sop,from,type,x,y){const a=nfind(sop,from);if(!a||MULTI(a.type)||(a.next||[]).length!==1)return null;
+      if(a.type==='end')return 'An End step has no next step';
+      if(type==='end'||type==='start')return (type==='end'?'End':'Start')+' cannot go between two connected steps';
+      const n=sopAddAt(sop,type,x,y);const old=a.next[0];n.next=[{to:old.to}];old.to=n.id;return n.id;},
     addAfter:(sop,type,afterId)=>{const n=insertAfterSel(sop,type,afterId);return n&&n.id;},
     canAddAfter:(sop,id)=>{const n=nfind(sop,id);return n&&n.type!=='end';},
     insertOnEdge(sop,key,type){const [fid,i]=ekey(key);const n=insertAfterSel(sop,type,fid,i);return n&&n.id;},
@@ -446,7 +451,7 @@
     const es=route(K,d,pos,v.k);const iss=K.validate(d);
     schedule(key);
     const pages=K.pages?K.pages(d):[];
-    return `<div class="fx-root ${F.palOpen?'pal-open':''} tool-${F.tool} ${v.k<.9?'zoomed-out':''}" data-flow="${esc(d.id)}" data-kind="${kind}" tabindex="0" style="${bgStyle(v)};--fxk:${v.k}">
+    return `<div class="fx-root ${F.palOpen?'pal-open':''} tool-${F.tool} ${v.k<.9?'zoomed-out':''} ${v.k<.2?'zoomed-far':''}" data-flow="${esc(d.id)}" data-kind="${kind}" tabindex="0" style="${bgStyle(v)};--fxk:${v.k}">
       <div class="fx-clip"><div class="fx-world" style="transform:translate(${v.x}px,${v.y}px) scale(${v.k})">
         <div class="fx-groups">${K.groups?K.groups(d,pos):''}</div>
         <svg class="fx-edges" width="1" height="1">${edgesSvg(K,d,es).edges}</svg>
@@ -466,7 +471,7 @@
         <button class="fx-tb" data-fx="undo" aria-label="Undo" title="Undo ⌘Z" ${hist(K,d).undo.length?'':'disabled'}>${ic('undo','',16)}</button>
         <button class="fx-tb" data-fx="redo" aria-label="Redo" title="Redo ⇧⌘Z" ${hist(K,d).redo.length?'':'disabled'}><span class="fx-flip">${ic('undo','',16)}</span></button>
         <i class="fx-sep"></i>
-        ${pages.length>1?`<select class="fx-jump" data-fxjump aria-label="Jump to page"><option value="">Jump to page</option>${pages.map(p=>`<option>${esc(p)}</option>`).join('')}</select>`:''}
+        ${pages.length>1?`<select class="fx-jump" data-fxjump aria-label="Jump to page"><option value="">${innerWidth<=420?'Pages':'Jump to page'}</option>${pages.map(p=>`<option>${esc(p)}</option>`).join('')}</select>`:''}
         <button class="fx-tb txt fx-val ${iss.length?'bad':'ok'}" data-fx="validate" aria-label="Validate${iss.length?' · '+iss.length+' issues':''}" title="Validate">${ic(iss.length?'reject':'check','',15)}<span class="fx-vl">Validate</span><span class="fx-vs">Check</span>${iss.length?` <b>${iss.length}</b>`:''}</button>
         <span class="sp"></span>
         <button class="fx-tb" data-fx="out" aria-label="Zoom out">${ic('zoomout','',16)}</button>
@@ -537,7 +542,7 @@
     const key=dkey(K,d);const v=view(key);
     root.querySelector('.fx-world').style.transform=`translate(${v.x}px,${v.y}px) scale(${v.k})`;
     root.style.backgroundSize=`${GRID*v.k}px ${GRID*v.k}px`; root.style.backgroundPosition=`${v.x}px ${v.y}px`;
-    if(root._k!==v.k){const was=root._k;root._k=v.k;root.style.setProperty('--fxk',v.k);root.classList.toggle('zoomed-out',v.k<.9);
+    if(root._k!==v.k){const was=root._k;root._k=v.k;root.style.setProperty('--fxk',v.k);root.classList.toggle('zoomed-out',v.k<.9);root.classList.toggle('zoomed-far',v.k<.2);
       if(was!=null){cancelAnimationFrame(root._kr);root._kr=requestAnimationFrame(()=>{measure(root,K,d);redraw(root,K,d);});}}
     const z=root.querySelector('.fx-zoom'); if(z)z.textContent=Math.round(v.k*100)+'%';
     minimap(root,K,d);
@@ -569,7 +574,11 @@
     if(tools){root.classList.remove('tb-compact','tb-tight');const over=()=>tools.scrollWidth>tools.clientWidth+1;
       if(over()){root.classList.add('tb-compact');if(over())root.classList.add('tb-tight');}}
     root.style.setProperty('--fx-top',topInset(root)+'px');
+    [tools,root.querySelector('.fx-palette')].forEach(el=>{if(!el)return;edgeFade(el);if(!el._fade){el._fade=1;el.addEventListener('scroll',()=>edgeFade(el),{passive:true});}});
   }
+  /* sideways-scrolling strips (phone toolbar / bottom palette) fade at the edge that has more */
+  function edgeFade(el){const horiz=el.scrollWidth>el.clientWidth+1&&getComputedStyle(el).flexDirection==='row';
+    el.classList.toggle('fade-l',horiz&&el.scrollLeft>2);el.classList.toggle('fade-r',horiz&&el.scrollLeft+el.clientWidth<el.scrollWidth-2);}
   function focusNode(root,K,d,id,center){
     const pos=K.positions(d);const p=pos[id]; if(!p)return; const v=view(dkey(K,d)); const r=root.getBoundingClientRect();
     const n=K.nodes(d).find(x=>x.id===id);const h=n?hOf(K,d,n):100;
@@ -758,9 +767,14 @@
     const rr=root.getBoundingClientRect(); const v=view(dkey(K,d)); v.x=rr.width/2-wx*v.k; v.y=rr.height/2-wy*v.k; applyView(root,K,d);
   }
   /* create a node where a dangling connection was dropped */
-  function dropCreate(K,d,w,cx,cy,after){
-    menuAt(cx,cy,typeItems(K,t=>{S.snap('Add '+K.noun);const id=K.addAt(d,t,w.x,w.y);const res=after(id);
-      if(typeof res==='string'){UI.toast(res);}K.setSel(d,id);multiSet(dkey(K,d)).clear();S.save();App.render();refocus(dkey(K,d));}));
+  const nfindK=(K,d,id)=>K.nodes(d).some(n=>n.id===id);
+  function dropCreate(K,d,w,cx,cy,after,wireFrom){
+    menuAt(cx,cy,typeItems(K,t=>{S.snap('Add '+K.noun);
+      const r=wireFrom&&K.wireDrop?K.wireDrop(d,wireFrom,t,w.x,w.y):null;
+      if(typeof r==='string'&&!nfindK(K,d,r)){UI.toast(r);rerenderKey(dkey(K,d));return;}
+      const id=r||K.addAt(d,t,w.x,w.y);const res=r?true:after(id);
+      if(typeof res==='string'&&res!=='moved'){K.removeNodes(d,[id]);commit(K,d,res);return;}
+      K.setSel(d,id);multiSet(dkey(K,d)).clear();commit(K,d,true,(K.noun[0].toUpperCase()+K.noun.slice(1))+' added');}));
   }
   function doConnect(K,d,from,to,cx,cy){
     if(K.askEdge){K.askEdge(d,from,to,cx,cy,opt=>{S.snap('Connect');commit(K,d,K.connect(d,from,to,opt));});rerenderKey(dkey(K,d));return;}
@@ -784,7 +798,7 @@
       const w=world(root,key,e);
       if(g.target){doConnect(K,d,g.from,g.target.id,e.clientX,e.clientY);return;}
       if(!g.moved&&g.edgeUnder){F._edgeSel={doc:key,key:g.edgeUnder};if(K.getSel(d)||multiSet(key).size){K.setSel(d,null);multiSet(key).clear();App.render();refocus(key);}else redraw(root,K,d);return;}
-      if(g.moved)dropCreate(K,d,w,e.clientX,e.clientY,id=>K.askEdge?K.connect(d,g.from,id,K.defaultEdge):K.connect(d,g.from,id));
+      if(g.moved)dropCreate(K,d,w,e.clientX,e.clientY,id=>K.askEdge?K.connect(d,g.from,id,K.defaultEdge):K.connect(d,g.from,id),g.from);
       return;}
     if(g.kind==='reconn'){
       const w=world(root,key,e);

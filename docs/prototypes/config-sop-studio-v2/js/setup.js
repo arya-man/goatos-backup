@@ -520,7 +520,7 @@
           const dl=t.closest('[data-pndel]');if(dl){const j=+dl.dataset.pndel,pt=f.parts[j];const n=pt&&pt.id?S.active('animals').filter(a=>a.partitionId===pt.id).length:0;
             if(n){err.del={};err.del[j]=n;redraw();return;}f.parts.splice(j,1);err.del=null;redraw();}
           const pu=t.closest('[data-pnusers]');if(pu){e.preventDefault();const ids=S.active('animals').filter(a=>a.partitionId===pu.dataset.pnusers).map(a=>a.id);const pt=S.get('partitions',pu.dataset.pnusers);UI.closeDrawer();List.showIds('animals',ids,'Using '+(pt?REG.fullLabel('partitions',pt):'partition'),'partitions');}
-          if(t.closest('[data-pnsave]')){err={};const nm=f.name.trim();if(!nm)err.name='Required';
+          if(t.closest('[data-pnsave]')){const blocked=err.del&&Object.keys(err.del).length&&!err.ack;err={};if(blocked){err.ack=1;err.parts='Not saved: that partition still has animals, so it stays. Save again to keep your other edits.';redraw();return;}const nm=f.name.trim();if(!nm)err.name='Required';
             else if(S.active('pens').some(x=>x.id!==pen.id&&x.parkId===pen.parkId&&REG.norm(x.name)===REG.norm(nm)))err.name='Already exists';
             if(f.capacity!==''&&(isNaN(+f.capacity)||+f.capacity<0))err.capacity='0 or more';
             const seen={};f.parts.forEach(t=>{const n=REG.norm(t.name);if(!n)err.parts='Partition name required';else if(seen[n])err.parts='Duplicate partition '+t.name;seen[n]=1;if(t.capacity!==''&&(isNaN(+t.capacity)||+t.capacity<0))err.parts='Partition capacity: 0 or more';});

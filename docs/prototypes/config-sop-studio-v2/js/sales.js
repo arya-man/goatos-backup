@@ -252,7 +252,7 @@
           const iso=fromDMY(v.from);if(!iso)return fieldErr(dr,'from','Enter a date as DD/MM/YYYY');
           fieldErr(dr);
           UI.closeDrawer();
-          UI.undoable(r?'Price rule saved':'Rule added',()=>{
+          UI.undoable(r?(isP?'Price rule saved':'Minimum sale weight saved'):(isP?'Price rule added':'Minimum sale weight added'),()=>{
             let breedId=v.breedId;if(breedId==='__new')breedId=S.add('breeds',{name:v.newBreed.trim(),speciesId:v.speciesId,aliases:[]}).id;
             const scope={speciesId:v.speciesId,breedId,sexId:v.sexId};if(isP)scope.stageId=v.stageId;
             const vals=isP?{price:Number(v.price),basis:v.basis}:{minKg:Number(v.minKg)};

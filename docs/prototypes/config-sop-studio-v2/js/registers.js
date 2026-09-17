@@ -99,7 +99,7 @@
     /* stock is transactional (inventory lots + movements), never an item field; this register is the stock receipt import */
     lots:{label:'Stock receipts',one:'Lot',coll:'lots',icon:'download',
       cols:[ref('item','Item','items','itemId',{req:1,w:'wide'}),txt('lotNo','Lot no.',{req:1}),ref('park','Park','parks','parkId',{req:1}),
-        num('qty','Quantity',{req:1,min:0}),txt('serialFrom','Serial from'),txt('serialTo','Serial to'),Object.assign(txt('expiresOn','Expires on'),{type:'date'}),Object.assign(txt('receivedOn','Received on'),{type:'date'}),
+        Object.assign(num('qty','Quantity',{req:1,min:0}),{reqUnless:v=>!!serialCount(String(v.serialFrom||'').trim(),String(v.serialTo||'').trim())}),txt('serialFrom','Serial from'),txt('serialTo','Serial to'),Object.assign(txt('expiresOn','Expires on'),{type:'date'}),Object.assign(txt('receivedOn','Received on'),{type:'date'}),
         ref('vendor','Vendor','vendors','vendorId')],
       key:v=>norm(v.item)+'|'+norm(v.lotNo),
       check:(v,iss,existing,opts,rows,idx)=>{
@@ -269,7 +269,7 @@
   function serialOverlap(itemId,from,to,exceptId){return S.all('lots').find(l=>l.itemId===itemId&&l.id!==exceptId&&(l.rangeFrom||l.serialFrom)&&(l.rangeTo||l.serialTo)&&rangesOverlap(l.rangeFrom||l.serialFrom,l.rangeTo||l.serialTo,from,to))||null;}
   const serialMax=l=>isSerialLot(l)?serialCount(l.rangeFrom||l.serialFrom,l.serialTo)||+l.qty:null;
   function setQty(l,q){q=+q;if(isSerialLot(l))l.serialFrom=serialAt(l.serialTo,-(q-1));l.qty=q;}
-  function receive(o){const l=S.add('lots',{itemId:o.itemId,lotNo:o.lotNo,parkId:o.parkId,qty:+o.qty,serialFrom:o.serialFrom||'',serialTo:o.serialTo||'',rangeFrom:o.serialFrom||'',rangeTo:o.serialTo||'',expiresOn:o.expiresOn||'',receivedOn:o.receivedOn||today(),vendorId:o.vendorId||''});move('receive',l,+o.qty);return l;}
+  function receive(o){if(String(o.qty==null?'':o.qty).trim()===''&&o.serialFrom&&o.serialTo)o=Object.assign({},o,{qty:serialCount(o.serialFrom,o.serialTo)});const l=S.add('lots',{itemId:o.itemId,lotNo:o.lotNo,parkId:o.parkId,qty:+o.qty,serialFrom:o.serialFrom||'',serialTo:o.serialTo||'',rangeFrom:o.serialFrom||'',rangeTo:o.serialTo||'',expiresOn:o.expiresOn||'',receivedOn:o.receivedOn||today(),vendorId:o.vendorId||''});move('receive',l,+o.qty);return l;}
   function adjust(lotId,newQty,reason){const l=S.get('lots',lotId);if(!l)return false;const mx=serialMax(l);if(mx!=null&&+newQty>mx)return false;const d=+newQty-(+l.qty);setQty(l,newQty);move(reason==='Used'?'consume':'adjust',l,d,{reason:reason||''});return true;}
   function writeOff(lotId){const l=S.get('lots',lotId);if(!l)return;move('expire',l,-(+l.qty),{reason:'Expired'});setQty(l,0);}
   /* SOP / vaccination usage: first-expiry-first-out from the park's lots */
@@ -511,7 +511,7 @@
       reg.cols.forEach(c=>{
         if(v[c.k]===undefined&&existing)return;
         const raw=String(v[c.k]==null?'':v[c.k]).trim();
-        if(!raw){if(c.req)iss(c.k,'err','Required');return;}
+        if(!raw){if(c.req&&!(c.reqUnless&&c.reqUnless(v)))iss(c.k,'err','Required');return;}
         if(/^=/.test(raw)){iss(c.k,'err','Formula');return;}
         if(c.type==='num'){if(isNaN(Number(raw)))iss(c.k,'err','Not a number');else if(c.min!=null&&Number(raw)<c.min)iss(c.k,'err','Min '+c.min);}
         if(c.type==='date'&&!parseDate(raw))iss(c.k,'err','YYYY-MM-DD');

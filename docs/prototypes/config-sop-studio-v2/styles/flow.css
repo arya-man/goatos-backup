@@ -328,3 +328,10 @@ textarea.mst-title{resize:vertical;min-height:52px;font:inherit;line-height:1.35
   .fx-root.tb-tight .fx-tools .sp{min-width:0}
   .fx-root.tb-tight .fx-tb{min-width:30px;padding:0 6px}
 }
+/* 390px polish: jump select shows its short label in full; count chips get a gap */
+@media(max-width:420px){
+  .fx-root.tb-tight .fx-jump,.fx-jump{max-width:none;width:84px;flex:none;padding:0 2px 0 8px}
+}
+.chip>span.muted{margin-left:6px}
+/* overview zoom: the 12px text floor would blow labels up past their boxes, so show shapes only */
+.fx-root.zoomed-far .fx-eyebrow,.fx-root.zoomed-far .fx-sum,.fx-root.zoomed-far .fx-title,.fx-root.zoomed-far .fx-group-head,.fx-root.zoomed-far .fx-elabel{visibility:hidden}
