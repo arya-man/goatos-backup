@@ -3811,7 +3811,7 @@ paths:
         "409":
           $ref: "#/components/responses/WriteConflict"
         "422":
-          description: The routine, its evidence or an assignee is not valid (invalid_routine, invalid_evidence, assignee_not_eligible, park_immutable).
+          description: The routine or its evidence is not valid (invalid_routine, invalid_evidence, no_roles, park_immutable).
           content:
             application/json:
               schema:
@@ -3959,7 +3959,7 @@ paths:
         "409":
           $ref: "#/components/responses/WriteConflict"
         "422":
-          description: The routine, its evidence or an assignee is not valid (invalid_routine, invalid_evidence, assignee_not_eligible, park_immutable).
+          description: The routine or its evidence is not valid (invalid_routine, invalid_evidence, no_roles, park_immutable).
           content:
             application/json:
               schema:
@@ -12286,8 +12286,10 @@ components:
         renders the rest verbatim. status is the gate (open -> pending_verification -> completed | rework
         for a verifier-reviewed routine; open -> completed on submit for review none) and work_state the
         kernel clock (scheduled -> delayed -> completed | canceled). form is the PINNED version's evidence:
-        the questions and capture rules this task was raised with.
-      required: [task_id, routine_id, routine_version, routine_name, title, park_id, park_name, shed_id, shed_name, partition_label, operational_location_display, trigger_kinds, reason_line, source_business_date, planned_business_date, due_business_date, work_state, status, state_chip, state_tone, instruction, evidence_line, review_kind, form, answers, answer_rows, proofs, presence_required, presence_line, in_pen, can_check_in, entered_at, left_at, can_submit, verified, done_line, submitted_at, verified_at, row_version]
+        the questions and capture rules this task was raised with. scope_kind 'park' is a whole-park task
+        (2026-09-17 revision): ONE per occurrence, naming no pen, so shed_id, shed_name, partition_label and
+        operational_location_display are all "" (never null) on it.
+      required: [task_id, routine_id, routine_version, routine_name, title, park_id, park_name, scope_kind, shed_id, shed_name, partition_label, operational_location_display, trigger_kinds, reason_line, source_business_date, planned_business_date, due_business_date, work_state, status, state_chip, state_tone, instruction, evidence_line, review_kind, form, answers, answer_rows, proofs, presence_required, presence_line, in_pen, can_check_in, entered_at, left_at, can_submit, verified, done_line, submitted_at, verified_at, row_version]
       properties:
         task_id: { type: string, format: uuid }
         routine_id: { type: string, format: uuid }
@@ -12295,15 +12297,19 @@ components:
         routine_name: { type: string }
         title:
           type: string
-          description: 'Backend-composed card title, e.g. "Pen cleaning · Castro 2 · Coimbatore".'
+          description: 'Backend-composed card title, e.g. "Pen cleaning · Castro 2 · Coimbatore", or "Medicine store · Coimbatore" for a whole-park task.'
         park_id: { type: string, format: uuid }
         park_name: { type: string }
-        shed_id: { type: string, format: uuid }
-        shed_name: { type: string }
-        partition_label: { type: string, description: The pen label; empty for an undivided shed. }
+        scope_kind:
+          type: string
+          enum: [all_pens, selected_pens, park]
+          description: The routine's scope. 'park' is a whole-park task with every pen field "".
+        shed_id: { type: string, description: 'The pen''s shed id (uuid); "" for a whole-park task.' }
+        shed_name: { type: string, description: '"" for a whole-park task.' }
+        partition_label: { type: string, description: 'The pen label; "" for an undivided shed and for a whole-park task.' }
         operational_location_display:
           type: string
-          description: 'The canonical pen display ("Castro 2", "Godel 1 - Part 3").'
+          description: 'The canonical pen display ("Castro 2", "Godel 1 - Part 3"); "" for a whole-park task.'
         trigger_kinds:
           type: array
           description: For an after_work routine, which work raised this task; empty for a calendar cadence.
@@ -12321,7 +12327,7 @@ components:
           description: 'Backend-composed, e.g. "Due today", "Delayed since 14/09/2026", "In review", "Sent back", "Done", "Verified".'
         state_tone: { type: string, enum: [info, review, danger, success, muted] }
         instruction: { type: string, description: The detail screen's sentence of what to do, from the routine's own words. }
-        evidence_line: { type: string, description: 'e.g. "2 questions · 1 photo · check in to pen".' }
+        evidence_line: { type: string, description: 'e.g. "2 questions · 1 photo · check in to pen" ("check in" for a whole-park task).' }
         review_kind: { type: string, enum: [verifier, none] }
         form:
           $ref: "#/components/schemas/PenRoutineEvidence"
@@ -12438,35 +12444,48 @@ components:
         shed_name: { type: string }
         partition_label: { type: string, description: Empty for an undivided shed. }
         operational_location_display: { type: string, description: 'The canonical pen display ("Castro 2", "Godel 1 - Part 3").' }
-    PenRoutineAssignee:
+    PenRoutineRole:
       type: object
-      required: [user_id, display_name]
+      description: One role a routine is for, with its farm label (the closed vocabulary of the 2026-09-17 revision).
+      required: [key, label]
+      properties:
+        key: { type: string, enum: [park_head, pc_director, breeding_director, growth_director, feed_director, health_director, procurement_director, ceo_internal] }
+        label: { type: string, description: 'e.g. "Park Head", "Preventive Care Director", "CXO".' }
+    PenRoutineRolePerson:
+      type: object
+      description: >-
+        One person who currently holds one of the routine's roles for its park -- a read-only preview;
+        the routine stores roles, never people, and a new holder of a role inherits it with no edit.
+      required: [user_id, display_name, role_label]
       properties:
         user_id: { type: string, format: uuid }
         display_name: { type: string }
+        role_label: { type: string, description: "The first of the routine's roles this person holds, as its farm label." }
     PenRoutineRow:
       type: object
       description: One routine as the /routines table and drawer render it; every line is backend copy.
-      required: [routine_id, park_id, park_name, name, instruction, scope_kind, occupied_only, pens, cadence_kind, weekdays, month_days, after_work_kinds, cadence_line, due_offset_days, notify_time, review_kind, status, status_label, current_version, evidence, evidence_line, assignees, open_today, delayed, created_at, updated_at, row_version]
+      required: [routine_id, park_id, park_name, name, instruction, scope_kind, occupied_only, pens, cadence_kind, weekdays, month_days, after_work_kinds, interval_days, start_date, cadence_line, due_offset_days, notify_time, review_kind, status, status_label, current_version, evidence, evidence_line, assignee_roles, people, open_today, delayed, created_at, updated_at, row_version]
       properties:
         routine_id: { type: string, format: uuid }
         park_id: { type: string, format: uuid }
         park_name: { type: string }
         name: { type: string }
         instruction: { type: string }
-        scope_kind: { type: string, enum: [all_pens, selected_pens] }
+        scope_kind: { type: string, enum: [all_pens, selected_pens, park], description: "'park' raises ONE whole-park task per occurrence, naming no pen." }
         occupied_only: { type: boolean }
         pens:
           type: array
           items:
             $ref: "#/components/schemas/PenRoutinePen"
-        cadence_kind: { type: string, enum: [daily, weekly, monthly, after_work] }
+        cadence_kind: { type: string, enum: [daily, weekly, monthly, every_n_days, after_work] }
         weekdays: { type: array, items: { type: integer, minimum: 1, maximum: 7 } }
         month_days: { type: array, items: { type: integer, minimum: 1, maximum: 31 } }
         after_work_kinds:
           type: array
           items: { type: string, enum: [vaccination, deworming, anti_protozoan, ticks_removal, hoof_trimming, hair_trimming, weighing, feed_distribution, shifting] }
-        cadence_line: { type: string, description: 'e.g. "Every day", "Every Mon, Wed, Fri", "1st and 15th of the month", "The day after deworming".' }
+        interval_days: { type: integer, nullable: true, minimum: 2, maximum: 90, description: The N of an every_n_days routine; null for every other cadence. }
+        start_date: { type: string, format: date, description: Nothing raises before this IST business date; every_n_days counts from it. }
+        cadence_line: { type: string, description: 'e.g. "Every day", "Every Mon, Wed, Fri", "Every 3 days", "1st and 15th of the month", "The day after deworming".' }
         due_offset_days: { type: integer }
         notify_time: { type: string, description: Local IST "HH:MM". }
         review_kind: { type: string, enum: [verifier, none] }
@@ -12476,10 +12495,16 @@ components:
         evidence:
           $ref: "#/components/schemas/PenRoutineEvidence"
         evidence_line: { type: string }
-        assignees:
+        assignee_roles:
           type: array
+          description: Who the routine is for, in vocabulary order.
           items:
-            $ref: "#/components/schemas/PenRoutineAssignee"
+            $ref: "#/components/schemas/PenRoutineRole"
+        people:
+          type: array
+          description: Who holds those roles for the routine's park right now (read-only preview, at most 50).
+          items:
+            $ref: "#/components/schemas/PenRoutineRolePerson"
         open_today: { type: integer, description: Checks of this routine still owed today. }
         delayed: { type: integer, description: Checks of this routine carried past their planned date. }
         created_at: { type: string, format: date-time }
@@ -12522,11 +12547,22 @@ components:
         occupied: { type: boolean, description: The pen holds at least one live animal today. }
     PenRoutinePerson:
       type: object
-      required: [user_id, display_name, designation]
+      required: [user_id, display_name]
       properties:
         user_id: { type: string, format: uuid }
         display_name: { type: string }
-        designation: { type: string }
+    PenRoutineCatalogRole:
+      type: object
+      description: One assignable role and who holds it FOR THE REQUESTED PARK (the same resolution every task read uses).
+      required: [key, label, people]
+      properties:
+        key: { type: string, enum: [park_head, pc_director, breeding_director, growth_director, feed_director, health_director, procurement_director, ceo_internal] }
+        label: { type: string }
+        people:
+          type: array
+          description: At most 50; empty when nobody holds the role for this park.
+          items:
+            $ref: "#/components/schemas/PenRoutinePerson"
     PenRoutineKeyLabel:
       type: object
       required: [key, label]
@@ -12535,22 +12571,25 @@ components:
         label: { type: string }
     PenRoutineCatalogDefaults:
       type: object
-      required: [notify_time, due_offset_days]
+      required: [notify_time, due_offset_days, start_date, interval_days]
       properties:
         notify_time: { type: string }
         due_offset_days: { type: integer }
+        start_date: { type: string, format: date, description: Today (IST). }
+        interval_days: { type: integer, description: 'What "Every few days" pre-fills (3).' }
     PenRoutineCatalogResponse:
       type: object
-      required: [pens, people, work_kinds, question_kinds, cadence_kinds, review_kinds, presence_kinds, scope_kinds, defaults, trace_id]
+      required: [pens, roles, work_kinds, question_kinds, cadence_kinds, review_kinds, presence_kinds, scope_kinds, defaults, trace_id]
       properties:
         pens:
           type: array
           items:
             $ref: "#/components/schemas/PenRoutineCatalogPen"
-        people:
+        roles:
           type: array
+          description: Every assignable role in vocabulary order, each with who holds it for the requested park.
           items:
-            $ref: "#/components/schemas/PenRoutinePerson"
+            $ref: "#/components/schemas/PenRoutineCatalogRole"
         work_kinds:
           type: array
           items:
@@ -12587,31 +12626,36 @@ components:
     PenRoutineWrite:
       type: object
       description: The create / update body. Unknown keys are refused.
-      required: [park_id, name, scope_kind, cadence_kind, review_kind, evidence, assignee_user_ids]
+      required: [park_id, name, scope_kind, cadence_kind, review_kind, evidence, assignee_roles]
       properties:
         park_id: { type: string, format: uuid }
         name: { type: string, maxLength: 80 }
         instruction: { type: string, maxLength: 600 }
-        scope_kind: { type: string, enum: [all_pens, selected_pens] }
+        scope_kind: { type: string, enum: [all_pens, selected_pens, park], description: "'park' names no pens (pens must be empty) and cannot be after_work." }
         occupied_only: { type: boolean, default: true }
         pens:
           type: array
           items:
             $ref: "#/components/schemas/PenRoutinePenWrite"
-        cadence_kind: { type: string, enum: [daily, weekly, monthly, after_work] }
+        cadence_kind: { type: string, enum: [daily, weekly, monthly, every_n_days, after_work] }
         weekdays: { type: array, items: { type: integer, minimum: 1, maximum: 7 } }
         month_days: { type: array, items: { type: integer, minimum: 1, maximum: 31 } }
         after_work_kinds:
           type: array
           items: { type: string, enum: [vaccination, deworming, anti_protozoan, ticks_removal, hoof_trimming, hair_trimming, weighing, feed_distribution, shifting] }
+        interval_days: { type: integer, nullable: true, minimum: 2, maximum: 90, description: Required (2..90) for every_n_days; ignored otherwise. }
+        start_date: { type: string, format: date, description: 'Nothing raises before it. Absent on create means today (IST); absent on update keeps the stored date.' }
         due_offset_days: { type: integer, minimum: 0, maximum: 30, description: Absent means 0 (1 for after_work). }
         notify_time: { type: string, description: Local IST "HH:MM"; absent means 07:00. }
         review_kind: { type: string, enum: [verifier, none] }
         evidence:
           $ref: "#/components/schemas/PenRoutineEvidence"
-        assignee_user_ids:
+        assignee_roles:
           type: array
-          items: { type: string, format: uuid }
+          minItems: 1
+          uniqueItems: true
+          description: Who the routine is for. Whoever holds one of these roles for the park gets the task; an empty list is refused (no_roles).
+          items: { type: string, enum: [park_head, pc_director, breeding_director, growth_director, feed_director, health_director, procurement_director, ceo_internal] }
         row_version: { type: integer, description: Update only -- the version the drawer loaded with; 0 skips the fence. }
     PenRoutineStatusWrite:
       type: object

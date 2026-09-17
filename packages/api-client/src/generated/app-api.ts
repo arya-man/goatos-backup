@@ -18351,7 +18351,7 @@ export interface components {
             /** @description The rendered answer (option labels */
             value: string;
         };
-        /** @description One routine check in one pen, as every surface renders it (maintainer instruction 2026-09-16, docs/decisions/pen-routines.md): the phone card and detail, the web Today table and the Work Board subtask. Every string is backend-composed; the client maps state_tone to a colour and renders the rest verbatim. status is the gate (open -> pending_verification -> completed | rework for a verifier-reviewed routine; open -> completed on submit for review none) and work_state the kernel clock (scheduled -> delayed -> completed | canceled). form is the PINNED version's evidence: the questions and capture rules this task was raised with. */
+        /** @description One routine check in one pen, as every surface renders it (maintainer instruction 2026-09-16, docs/decisions/pen-routines.md): the phone card and detail, the web Today table and the Work Board subtask. Every string is backend-composed; the client maps state_tone to a colour and renders the rest verbatim. status is the gate (open -> pending_verification -> completed | rework for a verifier-reviewed routine; open -> completed on submit for review none) and work_state the kernel clock (scheduled -> delayed -> completed | canceled). form is the PINNED version's evidence: the questions and capture rules this task was raised with. scope_kind 'park' is a whole-park task (2026-09-17 revision): ONE per occurrence, naming no pen, so shed_id, shed_name, partition_label and operational_location_display are all "" (never null) on it. */
         PenRoutineStep: {
             /** Format: uuid */
             task_id: string;
@@ -18359,17 +18359,23 @@ export interface components {
             routine_id: string;
             routine_version: number;
             routine_name: string;
-            /** @description Backend-composed card title, e.g. "Pen cleaning · Castro 2 · Coimbatore". */
+            /** @description Backend-composed card title, e.g. "Pen cleaning · Castro 2 · Coimbatore", or "Medicine store · Coimbatore" for a whole-park task. */
             title: string;
             /** Format: uuid */
             park_id: string;
             park_name: string;
-            /** Format: uuid */
+            /**
+             * @description The routine's scope. 'park' is a whole-park task with every pen field "".
+             * @enum {string}
+             */
+            scope_kind: "all_pens" | "selected_pens" | "park";
+            /** @description The pen's shed id (uuid); "" for a whole-park task. */
             shed_id: string;
+            /** @description "" for a whole-park task. */
             shed_name: string;
-            /** @description The pen label; empty for an undivided shed. */
+            /** @description The pen label; "" for an undivided shed and for a whole-park task. */
             partition_label: string;
-            /** @description The canonical pen display ("Castro 2", "Godel 1 - Part 3"). */
+            /** @description The canonical pen display ("Castro 2", "Godel 1 - Part 3"); "" for a whole-park task. */
             operational_location_display: string;
             /** @description For an after_work routine, which work raised this task; empty for a calendar cadence. */
             trigger_kinds: ("vaccination" | "deworming" | "anti_protozoan" | "ticks_removal" | "hoof_trimming" | "hair_trimming" | "weighing" | "feed_distribution" | "shifting")[];
@@ -18400,7 +18406,7 @@ export interface components {
             state_tone: "info" | "review" | "danger" | "success" | "muted";
             /** @description The detail screen's sentence of what to do */
             instruction: string;
-            /** @description e.g. "2 questions · 1 photo · check in to pen". */
+            /** @description e.g. "2 questions · 1 photo · check in to pen" ("check in" for a whole-park task). */
             evidence_line: string;
             /** @enum {string} */
             review_kind: "verifier" | "none";

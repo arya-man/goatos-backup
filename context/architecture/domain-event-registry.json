@@ -1790,13 +1790,13 @@
     },
     {
       "eventType": "pen_routine.created",
-      "producer": "penroutines Materialize (kernel stage pen-routine-kernel): one task per pen per occurrence of every ACTIVE routine that raises on the business date -- calendar cadences from Definition.RaisesOn, after_work routines from the verification items created in that IST day whose category maps to one of the routine's kinds -- inserted with its audit row and this outbox emit in ONE set-based transaction, idempotent on (tenant, routine, shed, pen, planned date). A routine with no assignee raises nothing and is named in the log. Maintainer instruction 2026-09-16.",
+      "producer": "penroutines Materialize (kernel stage pen-routine-kernel): one task per pen (or ONE shed-less task for a whole-park routine) per occurrence of every ACTIVE routine that raises on the business date -- calendar cadences (daily / weekly / monthly / every_n_days, never before start_date) from Definition.RaisesOn, after_work routines from the verification items created in that IST day whose category maps to one of the routine's kinds -- inserted with its audit row and this outbox emit in ONE set-based transaction, idempotent on (tenant, routine, shed_key, pen, planned date). A routine whose assignee roles nobody holds in its park raises nothing and is named in the log. Maintainer instruction 2026-09-16, revised 2026-09-17 (assign by role).",
       "producerFiles": [
         "backend/internal/penroutines/adapters/postgres/outbox.go",
         "backend/internal/penroutines/adapters/postgres/materialize.go"
       ],
       "consumers": [],
-      "consumerNote": "Produced for the audit/event spine; the day's push is NOT event-driven. It is one digest per ROUTINE per business date queued by the kernel stage once the routine's own IST notify time has passed (notificationbridge.PenRoutineDueNotifier, event key pen_routine.due:<date>:<routine>), pushed to every assignee's devices, because one push per pen would be ten pushes for one morning's round.",
+      "consumerNote": "Produced for the audit/event spine; the day's push is NOT event-driven. It is one digest per ROUTINE per business date queued by the kernel stage once the routine's own IST notify time has passed (notificationbridge.PenRoutineDueNotifier, event key pen_routine.due:<date>:<routine>), pushed to the devices of every holder of the routine's roles for its park, because one push per pen would be ten pushes for one morning's round.",
       "owningDoc": "docs/decisions/pen-routines.md",
       "e2eProof": [
         "backend/internal/penroutines/adapters/postgres/repository_integration_test.go"

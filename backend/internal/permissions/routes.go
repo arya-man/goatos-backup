@@ -436,7 +436,8 @@ var protectedRoutes = []Route{
 	// PEN ROUTINES (maintainer instruction 2026-09-16, docs/decisions/pen-routines.md): the
 	// configurable recurring pen checks. The phone routes ride PenRoutinesExecute alone -- the
 	// same permission the Routines module requires -- so nobody holds a route they have no
-	// screen for; WHO may work a task is decided per row against pen_routine_assignees. The
+	// screen for; WHO may work a task is decided per row by the routine's assignee_roles resolved
+	// against the caller's grants for the task's park (2026-09-17 revision). The
 	// admin reads ride PenRoutinesRead and the routine writes PenRoutinesConfigure (both halves
 	// of the capability-gated lock: the page contract's controls AND this table). Patterns must
 	// stay byte-identical to penroutines/adapters/http.Register and RegisterAdmin.
