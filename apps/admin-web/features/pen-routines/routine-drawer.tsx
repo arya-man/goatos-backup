@@ -20,6 +20,8 @@ import {
   FORM_JSON_FIELDS,
   LIMITS,
   slugQuestionId,
+  type CadenceKind,
+  type ScopeKind,
   type PenRoutineEvidenceBody,
   type PenRoutineQuestionBody,
 } from "./routine-form-model";
@@ -32,9 +34,10 @@ import {
  * and the page's revalidation has already re-read the table.
  *
  * Every visible word arrives resolved from the page contract or from the catalog the backend
- * composed (pens, people, the closed vocabularies with their labels). This file composes none.
+ * composed (pens, roles and who holds them, the closed vocabularies with their labels). This file
+ * composes none.
  *
- * The lists (pens, weekdays, month days, after-work kinds, people) and the evidence block travel to
+ * The lists (pens, weekdays, month days, after-work kinds, roles) and the evidence block travel to
  * the action as ONE hidden JSON field each (routine-form-model), so the decoder stays simple.
  */
 
@@ -46,17 +49,21 @@ type Draft = {
   parkId: string;
   name: string;
   instruction: string;
-  scopeKind: "all_pens" | "selected_pens";
+  scopeKind: ScopeKind;
   occupiedOnly: boolean;
   pens: string[];
-  cadenceKind: "daily" | "weekly" | "monthly" | "after_work";
+  cadenceKind: CadenceKind;
   weekdays: number[];
   monthDays: number[];
   afterWorkKinds: string[];
-  dueOffsetDays: number;
+  /** Kept as the input's own text so a cleared field stays blank rather than turning into 0. */
+  intervalDays: string;
+  startDate: string;
+  /** "" means absent: the backend's default (0, or 1 after work) applies. */
+  dueOffsetDays: string;
   notifyTime: string;
   reviewKind: "verifier" | "none";
-  assignees: string[];
+  roles: string[];
   questions: QuestionDraft[];
   photo: { min: number; max: number };
   video: { min: number; max: number };
@@ -82,10 +89,12 @@ function draftFrom(routine: PenRoutineRow | undefined, parkId: string, catalog: 
       weekdays: [],
       monthDays: [],
       afterWorkKinds: [],
-      dueOffsetDays: catalog?.defaults.due_offset_days ?? 0,
+      intervalDays: catalog ? String(catalog.defaults.interval_days) : "",
+      startDate: catalog?.defaults.start_date ?? "",
+      dueOffsetDays: "",
       notifyTime: catalog?.defaults.notify_time ?? "",
       reviewKind: "none",
-      assignees: [],
+      roles: [],
       questions: [],
       photo: { min: 0, max: 0 },
       video: { min: 0, max: 0 },
@@ -103,10 +112,12 @@ function draftFrom(routine: PenRoutineRow | undefined, parkId: string, catalog: 
     weekdays: [...routine.weekdays],
     monthDays: [...routine.month_days],
     afterWorkKinds: [...routine.after_work_kinds],
-    dueOffsetDays: routine.due_offset_days,
+    intervalDays: routine.interval_days !== null ? String(routine.interval_days) : catalog ? String(catalog.defaults.interval_days) : "",
+    startDate: routine.start_date,
+    dueOffsetDays: String(routine.due_offset_days),
     notifyTime: routine.notify_time,
     reviewKind: routine.review_kind,
-    assignees: routine.assignees.map((person) => person.user_id),
+    roles: routine.assignee_roles.map((option) => option.key),
     questions: routine.evidence.questions.map((question) => ({
       ...question,
       options: question.options ? question.options.map((option) => ({ ...option })) : undefined,
@@ -179,7 +190,7 @@ export function RoutineDrawerForm({
   /** Absent for the create form. */
   routine?: PenRoutineRow;
   parks: PenRoutinePark[];
-  /** The page's ONE catalog, read for `catalogParkId`; null when that read failed (no pens or people offered). */
+  /** The page's ONE catalog, read for `catalogParkId`; null when that read failed (no pens or roles offered). */
   catalog: PenRoutineCatalog | null;
   catalogParkId: string;
   /** Create only: choosing another park is a real navigation to that park's page with the drawer open. */
@@ -215,6 +226,20 @@ export function RoutineDrawerForm({
     setDraft((current) => ({ ...current, questions: current.questions.map((q) => (q.key === key ? { ...q, ...patch } : q)) }));
 
   const pens: PenRoutineCatalogPen[] = catalog?.pens ?? [];
+  const roles = catalog?.roles ?? [];
+  // Roles travel in the catalog's vocabulary order; a stored role the catalog did not serve is kept.
+  const orderedRoles = [...roles.map((option) => option.key).filter((key) => draft.roles.includes(key)), ...draft.roles.filter((key) => !roles.some((option) => option.key === key))];
+  const storedCadence = routine?.cadence_kind;
+  const chooseScope = (scopeKind: ScopeKind) =>
+    // A whole-park task names no pens and cannot follow work done in a pen.
+    setDraft((current) =>
+      scopeKind === "park"
+        ? { ...current, scopeKind, pens: [], occupiedOnly: false, cadenceKind: current.cadenceKind === "after_work" ? "daily" : current.cadenceKind }
+        : { ...current, scopeKind, occupiedOnly: current.scopeKind === "park" ? true : current.occupiedOnly },
+    );
+  const chooseCadence = (cadenceKind: CadenceKind) =>
+    // Switching cadence drops a typed offset back to the backend default, unless returning to the stored cadence.
+    setDraft((current) => ({ ...current, cadenceKind, dueOffsetDays: cadenceKind === storedCadence && routine ? String(routine.due_offset_days) : "" }));
   const occupiedCount = pens.filter((pen) => pen.occupied).length;
   const outcome = (item: PenRoutineActionState) =>
     item.status === "idle" ? "" : item.detail || copy(pageContract, `action.${item.code}`, copy(pageContract, "action.failed_message"));
@@ -238,7 +263,7 @@ export function RoutineDrawerForm({
         <input type="hidden" name={FORM_JSON_FIELDS.weekdays} value={JSON.stringify(draft.weekdays)} />
         <input type="hidden" name={FORM_JSON_FIELDS.monthDays} value={JSON.stringify(draft.monthDays)} />
         <input type="hidden" name={FORM_JSON_FIELDS.afterWorkKinds} value={JSON.stringify(draft.afterWorkKinds)} />
-        <input type="hidden" name={FORM_JSON_FIELDS.assignees} value={JSON.stringify(draft.assignees)} />
+        <input type="hidden" name={FORM_JSON_FIELDS.assigneeRoles} value={JSON.stringify(orderedRoles)} />
         <input type="hidden" name={FORM_JSON_FIELDS.evidence} value={JSON.stringify(evidenceBody(draft))} />
         <input type="hidden" name="occupied_only" value={draft.occupiedOnly ? "on" : "off"} />
 
@@ -285,13 +310,32 @@ export function RoutineDrawerForm({
           )}
         </div>
 
-        {/* Scope: every active pen of the park, or a ticked list from the partition catalog. */}
+        {/* Who does it: roles, never named people. Under each, who holds it for this park today. */}
+        <fieldset className="fld" disabled={readOnly}>
+          <legend>{field("assignee_roles")}</legend>
+          <div className="pen-routine-checklist">
+            {roles.map((option) => (
+              <label key={option.key} className="pen-routine-check" style={{ alignItems: "flex-start" }}>
+                <input type="checkbox" checked={draft.roles.includes(option.key)} onChange={() => update({ roles: toggle(draft.roles, option.key) })} />
+                <span style={{ display: "flex", flexDirection: "column" }}>
+                  <span>{option.label}</span>
+                  <span className="muted small">
+                    {option.people.length ? option.people.map((person) => person.display_name).join(", ") : copy(pageContract, "empty.role_people")}
+                  </span>
+                </span>
+              </label>
+            ))}
+          </div>
+          <p className="muted small">{copy(pageContract, "hint.assignee_roles")}</p>
+        </fieldset>
+
+        {/* Where: every pen, a ticked list from the partition catalog, or ONE task for the whole park. */}
         <fieldset className="fld" disabled={readOnly}>
           <legend>{field("scope")}</legend>
           <div className="pen-routine-radios">
             {kinds(catalog?.scope_kinds).map((option) => (
               <label key={option.key} className="pen-routine-check">
-                <input type="radio" name="scope_kind" value={option.key} checked={draft.scopeKind === option.key} onChange={() => update({ scopeKind: option.key as Draft["scopeKind"] })} />
+                <input type="radio" name="scope_kind" value={option.key} checked={draft.scopeKind === option.key} onChange={() => chooseScope(option.key as Draft["scopeKind"])} />
                 <span>{option.label}</span>
               </label>
             ))}
@@ -304,7 +348,8 @@ export function RoutineDrawerForm({
                 {occupiedCount} / {pens.length}
               </span>
             </label>
-          ) : (
+          ) : null}
+          {draft.scopeKind === "selected_pens" ? (
             <div className="pen-routine-checklist">
               {pens.map((pen) => {
                 const key = penKey(pen);
@@ -317,19 +362,24 @@ export function RoutineDrawerForm({
                 );
               })}
             </div>
-          )}
+          ) : null}
+          {draft.scopeKind === "park" ? <p className="muted small">{copy(pageContract, "hint.park_scope")}</p> : null}
         </fieldset>
 
-        {/* Cadence: which business dates raise a task. */}
+        {/* When: which business dates raise a task, from which day, and when the push goes out. */}
         <fieldset className="fld" disabled={readOnly}>
           <legend>{field("cadence")}</legend>
           <div className="pen-routine-radios">
-            {kinds(catalog?.cadence_kinds).map((option) => (
-              <label key={option.key} className="pen-routine-check">
-                <input type="radio" name="cadence_kind" value={option.key} checked={draft.cadenceKind === option.key} onChange={() => update({ cadenceKind: option.key as Draft["cadenceKind"] })} />
-                <span>{option.label}</span>
-              </label>
-            ))}
+            {kinds(catalog?.cadence_kinds).map((option) => {
+              // Work happens IN a pen, so a whole-park task cannot follow it.
+              const unavailable = option.key === "after_work" && draft.scopeKind === "park";
+              return (
+                <label key={option.key} className={unavailable ? "pen-routine-check muted" : "pen-routine-check"}>
+                  <input type="radio" name="cadence_kind" value={option.key} checked={draft.cadenceKind === option.key} disabled={unavailable} onChange={() => chooseCadence(option.key as Draft["cadenceKind"])} />
+                  <span>{option.label}</span>
+                </label>
+              );
+            })}
           </div>
           {draft.cadenceKind === "weekly" ? (
             <div className="fld">
@@ -362,56 +412,52 @@ export function RoutineDrawerForm({
               </div>
             </div>
           ) : null}
-          {draft.cadenceKind === "after_work" ? (
+          {draft.cadenceKind === "every_n_days" ? (
             <div className="fld">
-              <span className="muted small">{field("after_work_kinds")}</span>
-              <div className="pen-routine-checklist">
-                {kinds(catalog?.work_kinds).map((option) => (
-                  <label key={option.key} className="pen-routine-check">
-                    <input type="checkbox" checked={draft.afterWorkKinds.includes(option.key)} onChange={() => update({ afterWorkKinds: toggle(draft.afterWorkKinds, option.key) })} />
-                    <span>{option.label}</span>
-                  </label>
-                ))}
-              </div>
+              <label htmlFor="pr-interval">{field("interval_days")}</label>
+              <input
+                id="pr-interval"
+                name="interval_days"
+                type="number"
+                required
+                min={LIMITS.intervalMin}
+                max={LIMITS.intervalMax}
+                value={draft.intervalDays}
+                onChange={(e) => update({ intervalDays: e.target.value })}
+              />
             </div>
           ) : null}
+          {draft.cadenceKind === "after_work" ? (
+            <>
+              <div className="fld">
+                <span className="muted small">{field("after_work_kinds")}</span>
+                <div className="pen-routine-checklist">
+                  {kinds(catalog?.work_kinds).map((option) => (
+                    <label key={option.key} className="pen-routine-check">
+                      <input type="checkbox" checked={draft.afterWorkKinds.includes(option.key)} onChange={() => update({ afterWorkKinds: toggle(draft.afterWorkKinds, option.key) })} />
+                      <span>{option.label}</span>
+                    </label>
+                  ))}
+                </div>
+              </div>
+              <div className="fld">
+                <label htmlFor="pr-due-offset">{field("due_offset_days")}</label>
+                <input id="pr-due-offset" name="due_offset_days" type="number" min={LIMITS.dueOffsetMin} max={LIMITS.dueOffsetMax} value={draft.dueOffsetDays} onChange={(e) => update({ dueOffsetDays: e.target.value })} />
+              </div>
+            </>
+          ) : (
+            // A calendar cadence keeps a stored offset untouched; a blank one lets the backend default apply.
+            <input type="hidden" name="due_offset_days" value={draft.dueOffsetDays} />
+          )}
           <div className="grid g2">
             <div className="fld">
-              <label htmlFor="pr-due-offset">{field("due_offset_days")}</label>
-              <input id="pr-due-offset" name="due_offset_days" type="number" min={LIMITS.dueOffsetMin} max={LIMITS.dueOffsetMax} value={draft.dueOffsetDays} onChange={(e) => update({ dueOffsetDays: Number.parseInt(e.target.value, 10) || 0 })} />
+              <label htmlFor="pr-start-date">{field("start_date")}</label>
+              <input id="pr-start-date" name="start_date" type="date" value={draft.startDate} onChange={(e) => update({ startDate: e.target.value })} />
             </div>
             <div className="fld">
               <label htmlFor="pr-notify-time">{field("notify_time")}</label>
               <input id="pr-notify-time" name="notify_time" type="time" value={draft.notifyTime} onChange={(e) => update({ notifyTime: e.target.value })} />
             </div>
-          </div>
-        </fieldset>
-
-        {/* Review: what a submit does. */}
-        <fieldset className="fld" disabled={readOnly}>
-          <legend>{field("review")}</legend>
-          <div className="pen-routine-radios">
-            {kinds(catalog?.review_kinds).map((option) => (
-              <label key={option.key} className="pen-routine-check">
-                <input type="radio" name="review_kind" value={option.key} checked={draft.reviewKind === option.key} onChange={() => update({ reviewKind: option.key as Draft["reviewKind"] })} />
-                <span>{option.label}</span>
-              </label>
-            ))}
-          </div>
-        </fieldset>
-
-        {/* People: the routine's assignees, offered from the park's Routines holders. */}
-        <fieldset className="fld" disabled={readOnly}>
-          <legend>{field("assignees")}</legend>
-          <p className="muted small">{copy(pageContract, "hint.assignees")}</p>
-          <div className="pen-routine-checklist">
-            {(catalog?.people ?? []).map((person) => (
-              <label key={person.user_id} className="pen-routine-check">
-                <input type="checkbox" checked={draft.assignees.includes(person.user_id)} onChange={() => update({ assignees: toggle(draft.assignees, person.user_id) })} />
-                <span>{person.display_name}</span>
-                <span className="muted small">{person.designation}</span>
-              </label>
-            ))}
           </div>
         </fieldset>
 
@@ -556,6 +602,19 @@ export function RoutineDrawerForm({
           </div>
         </fieldset>
 
+        {/* Review: what a submit does. */}
+        <fieldset className="fld" disabled={readOnly}>
+          <legend>{field("review")}</legend>
+          <div className="pen-routine-radios">
+            {kinds(catalog?.review_kinds).map((option) => (
+              <label key={option.key} className="pen-routine-check">
+                <input type="radio" name="review_kind" value={option.key} checked={draft.reviewKind === option.key} onChange={() => update({ reviewKind: option.key as Draft["reviewKind"] })} />
+                <span>{option.label}</span>
+              </label>
+            ))}
+          </div>
+        </fieldset>
+
         {readOnly ? (
           <div className="note">{copy(pageContract, "configure.disabled_no_access")}</div>
         ) : (
@@ -595,7 +654,7 @@ export function RoutineDrawerForm({
             disabled={statusPending}
             onClick={(event) => {
               // Retire is permanent for the routine (never raises again), so it asks once.
-              if (!window.confirm(`${copy(pageContract, "action.retire")} · ${routine.name}`)) event.preventDefault();
+              if (!window.confirm(copy(pageContract, "action.retire.confirm"))) event.preventDefault();
             }}
           >
             {copy(pageContract, "action.retire")}
