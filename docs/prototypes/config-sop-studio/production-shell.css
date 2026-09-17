@@ -74,3 +74,19 @@ body.production-shell{font-family:system-ui,sans-serif}
 .production-shell.editorpage .flow-node-summary{font-size:13px;line-height:18px;margin-top:4px;color:#b4c4b7}
 .production-shell.editorpage .flow-port-caption{font-size:11px;line-height:14px}
 .production-shell.editorpage .toolbar #canvaszoom{font-size:13px}
+
+/* Match admin-web mesha-theme typography; cancel legacy icon-only sidebar text sizing. */
+.production-shell{-webkit-font-smoothing:antialiased;-moz-osx-font-smoothing:grayscale}
+.production-shell #nav .prod-nav-text{font-size:inherit;line-height:inherit;letter-spacing:0}
+.production-shell #nav .prod-group-button{font-size:14px;font-weight:700;letter-spacing:0}
+.production-shell #nav .prod-chevron{font-size:14px;line-height:1}
+.production-shell select{appearance:none;-webkit-appearance:none;min-height:36px;padding-right:30px;background-image:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='8' viewBox='0 0 12 8'%3E%3Cpath d='m1 1 5 5 5-5' fill='none' stroke='%2394A89A' stroke-width='1.5'/%3E%3C/svg%3E")!important;background-repeat:no-repeat!important;background-position:right 10px center!important}
+@media(max-width:760px){
+ .production-shell.editorpage .toolbar{flex-wrap:wrap!important;overflow:visible;gap:8px}
+ .production-shell.editorpage .toolbar .actions{flex-wrap:wrap;min-width:0;max-width:100%}
+ .production-shell.editorpage .toolbar button{white-space:normal}
+}
+@media(max-width:760px){
+ .production-shell.editorpage .toolbar>.actions{flex-wrap:wrap!important;width:100%;flex:0 1 100%!important}
+ .production-shell.editorpage .toolbar button{flex-shrink:0;white-space:nowrap}
+}

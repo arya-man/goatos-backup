@@ -36,3 +36,24 @@ run("state.sops.Health.nodes[1].label='Edited source step';ensureSourceSops()");
 console.log('PASS source SOPs: one procurement import; Health source rows; assigned-mode weighing proof identity and rework; Feed graph access; idempotent migration');
 
 run("current='Health';ensureSourceSops()");assert.equal(run('sourcePages().reduce((sum,p)=>sum+p.count,0)'),16);assert.equal(run('sourcePages().map(p=>p.count).join(",")'),'6,5,5');
+
+for(const kind of ['direction','packing','transport']){
+ run(`window.feedGraph=feedSeed('${kind}')`);assert.equal(run('validateWorkflow(window.feedGraph,"Feed").length'),0);
+ run('window.feedCompiled=compileWorkflow(window.feedGraph,"Feed",1)');
+ assert.equal(run('window.feedGraph.nodes.find(n=>n.id==="verify").next'),'feed-review-result');
+ assert.equal(run('window.feedGraph.nodes.find(n=>n.id==="feed-review-branch").yes'),'end');
+ assert.equal(run('window.feedGraph.nodes.find(n=>n.id==="feed-review-branch").no'),'feed-rework');
+ assert.equal(run('window.feedGraph.nodes.find(n=>n.id==="feed-rework").label'),run(`FEED_SOURCE['${kind}'].workflow.nodes.find(n=>n.key==='rework').label`));
+ assert.equal(run('JSON.stringify(window.feedGraph.sourceWorkflow)'),run(`JSON.stringify(FEED_SOURCE['${kind}'].workflow)`));
+ if(kind!=='transport'){assert.equal(run('window.feedGraph.nodes.find(n=>n.label==="Session").unitOptional'),true);assert.equal(run('window.feedGraph.nodes.find(n=>n.label==="Session").max'),null);}
+}
+run("window.lump=weighingSeed('lump_sum').nodes.find(n=>n.sourceQuestionId==='total_weight_kg')");assert.equal(run('window.lump.max'),null);assert(!run('simInput(window.lump)').includes('max="999"'));
+// Correct persisted generated fields while retaining authored limits and graph layout.
+run("state.sops.Feed=feedSeed('direction');state.sops.Feed.nodes.find(n=>n.label==='Session').unitOptional=false;state.sops.Feed.nodes.find(n=>n.label==='Session').max=999;state.sops.Feed.nodes.find(n=>n.label==='Session').x=888;state.sops.Weighing=weighingSeed('lump_sum');state.sops.Weighing.nodes.find(n=>n.sourceQuestionId==='total_weight_kg').max=12000;migrateSourceFieldCorrections()");assert.equal(run("state.sops.Feed.nodes.find(n=>n.label==='Session').max"),null);assert.equal(run("state.sops.Feed.nodes.find(n=>n.label==='Session').x"),888);assert.equal(run("state.sops.Weighing.nodes.find(n=>n.sourceQuestionId==='total_weight_kg').max"),12000);
+run("var oldFeed=feedSeed('transport');oldFeed.nodes=oldFeed.nodes.filter(n=>!n.id.startsWith('feed-review')&&n.id!=='feed-rework');oldFeed.nodes.find(n=>n.id==='verify').next='end';oldFeed.nodes.find(n=>n.id==='verify').label='Verifier reviews submitted evidence';state.sops.Feed=oldFeed;migrateSourceFieldCorrections();migrateSourceFieldCorrections()");assert.equal(run("state.sops.Feed.nodes.filter(n=>n.id==='feed-rework').length"),1);assert.equal(run('validateWorkflow(state.sops.Feed,"Feed").length'),0);
+console.log('PASS all Feed source graphs validate/compile, exact approval/rework paths, dimensionless sessions, unbounded weight source and idempotent saved-draft repair');
+
+// Startup migration must repair direct editor routes without a visit to the SOP list.
+run("var retained=feedSeed('transport');retained.nodes=retained.nodes.filter(n=>!n.id.startsWith('feed-review')&&n.id!=='feed-rework');retained.nodes.find(n=>n.id==='verify').next='end';retained.nodes.find(n=>n.id==='verify').label='Verifier reviews submitted evidence';Object.assign(retained.nodes.find(n=>n.id==='end'),{label:'Custom approved terminal',x:999,y:2222});state.sops.Feed=retained;location.hash='#Feed/Editor';migrateBuiltInSops()");
+assert.equal(run("state.sops.Feed.nodes.find(n=>n.id==='end').label"),'Custom approved terminal');assert.equal(run("state.sops.Feed.nodes.find(n=>n.id==='end').x"),999);assert.equal(run("state.sops.Feed.nodes.find(n=>n.id==='end').y"),2222);assert.equal(run("state.sops.Feed.nodes.find(n=>n.id==='verify').next"),'feed-review-result');assert.equal(run("state.sops.Feed.nodes.filter(n=>n.id==='feed-rework').length"),1);assert.equal(run('validateWorkflow(state.sops.Feed,"Feed").length'),0);
+console.log('PASS direct editor startup migration repairs Feed review edges and preserves authored terminal text and position');

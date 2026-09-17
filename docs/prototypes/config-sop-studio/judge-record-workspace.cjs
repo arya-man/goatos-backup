@@ -105,3 +105,11 @@ run('recordManagedCategory="cat-health-medicines";recordCategoryEdit="";recordMa
 vm.runInContext(fs.readFileSync(__dirname+'/animal-register.js','utf8'),context);
 run('rowTestPen=EntityRegistryModel.save(entityRegistryData(),"pens",{name:"Row activation pen",parentId:"practice-cbe"});EntityRegistryModel.save(entityRegistryData(),"animals",{name:"Row activation animal",tag1:"ROW-ACTIVATION-1",parentId:rowTestPen.id,species:"species-goat"});recordStatus="all";recordSearch="";renderAnimalRows()');verifyOpenRows(element('#animal-register-rows').innerHTML,'animalEdit');
 console.log('PASS rendered entity, partner, subcategory and herd rows activate by pointer/Enter/Space with stable IDs and no child Edit buttons');
+
+// Parent filter is applied after opening the form; dependent stage choices must follow it.
+run('recordSelection="entity:shed_tags";recordSubcategory="species-goat";recordAdd()');assert.equal(element('#entity-parent').value,'species-goat');assert.match(element('#entity-stage').innerHTML,/stage-k0/);assert.doesNotMatch(element('#entity-stage').innerHTML,/stage-fish-growout/);
+console.log('PASS filtered Add shed tag preselects species and refreshes matching lifecycle stages');
+
+run('itemById(savedId).active=false;itemCategory(savedSub).archived=true;recordItemDialog(savedId,recordCategories().find(c=>c.category===custom.category))');assert.match(element('#overlay').innerHTML,new RegExp('value="'+run('savedSub')+'" selected'));assert.match(element('#overlay').innerHTML,/\(archived\)/);
+fill({'record-name':'Restore request','record-form-subcategory':run('savedSub'),'record-notes':'','record-active':'true'});run('restoreBefore=JSON.stringify(state.items);recordSave(savedId,custom.id,"")');assert.match(element('#record-error').textContent,/active subcategory/);assert.equal(run('JSON.stringify(state.items)'),run('restoreBefore'));
+console.log('PASS archived record retains its original subcategory and cannot restore into an archived group');

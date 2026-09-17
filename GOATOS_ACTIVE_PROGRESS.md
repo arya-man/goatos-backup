@@ -55,3 +55,17 @@ Implementation commit: 69b6a4eba. Final independent staged review reports no rem
 ## SOP typography correction — 2026-09-17
 
 Increased shared SOP flow titles13→16px, summaries11→13px, inspector inputs13→15px and buttons13→14px; clearer heading/label hierarchy, inherited system font and brighter card summaries. Preserved node dimensions/connection anchors, adjusting inner spacing for two-line titles. CSS-only change plus asset cache version. Chrome visually verified Feed Transport and Animal Purchase Inspection at4322, including computed sizes and intact property controls. Full33-judge run passed (/tmp/pr287-typography-checks.log); whitespace clean. No backend or deployment change. PR287 follow-up push pending.
+
+## CODEX identity, full requirement re-review and startup guide — 2026-09-17
+
+Scope: follow-up to typography rejection; user requested independent requirement/functional/visual judges, refinements, PR push, CODEX identity and reproducible startup documentation.
+
+Fixed actual typography root cause: legacy editor selector enlarged sidebar button spans to19px while links remained14px. Explicit inherited label sizing now yields14px across groups/links; smoothing matches production theme. Chrome computed readback and desktop screenshot verified. Mobile Chrome390x844 revealed nowrap toolbar clipping; wrapping controls verified after fix. Native select appearance/height normalized with visible arrow; mobile tag form/Herd verified. User asked Chrome-tab-only; no native-app actions after that instruction.
+
+Independent CRUD judge fixed dependent Stage options when adding a filtered shed tag, and archived subcategory loss during record edits/restoration. Parent Chrome Goat tag form showed stage choices. Independent SOP judge fixed dimensionless Session validation, invented999 numeric bounds, missing Feed approve/rework branches, and startup correction for direct editor routes. Second independent reviewer found/fixed saved terminal text/position overwrite; final reviewer clean after preservation and startup regressions.
+
+Startup: added start.sh (loopback-only4322 by default, optional port, resolves own directory) and full README: prerequisites, branch identity, exact commands/routes, stop/restart, conflict/cache guidance, browser-local data. Invoked absolute launcher from/tmp on4323; curl HTML byte-matched index.html; Ctrl+C stopped task server. Claude4391 untouched.
+
+Final proof after edits: all33 judge scripts pass (`/tmp/pr287-codex-final-review.log`), git diff --check clean. Three independent review scopes and detailed requirement matrix are in docs/prototypes/config-sop-studio/REVIEW-2026-09-17.md. Browser limitation: Chrome tab automation detached during final corrected Feed graph follow-up. Earlier desktop/mobile visual checks passed, but final new Feed branches have executable—not fresh browser—proof. No claim of complete final browser certification or production API/sync behavior.
+
+PR287 title changed to 'CODEX prototype: Mesha configuration and SOP studio'. Base SHA ddb357dfc944dec7d2e36ae9de60f4c92156423d; commit/push and final remote readback next. No main merge or deployment. No performance claims.
