@@ -821,6 +821,11 @@ func TestAdminApprovalReleasesBothVideosToVerifier(t *testing.T) {
 	if got := enq.calls[0].ProofRefs; len(got) != 2 || got[0] != "proof-death_video" || got[1] != "proof-post_mortem_video" {
 		t.Fatalf("released proofs = %v, want both operator videos", got)
 	}
+	// The verifier reads the date the farm way (dd/mm/yyyy), never the ISO storage form.
+	eventDate := repo.workflows[workflowID].EventDate
+	if want := "Death evidence · " + biztime.FarmDateFromBusinessDate(eventDate); !strings.HasPrefix(enq.calls[0].SubjectLabel, want) || strings.Contains(enq.calls[0].SubjectLabel, eventDate) {
+		t.Fatalf("death subject label = %q, want it to start %q with no ISO date", enq.calls[0].SubjectLabel, want)
+	}
 }
 
 func TestVerdictApprovedCompletesWorkflow(t *testing.T) {

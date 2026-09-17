@@ -310,7 +310,7 @@ func (s *Service) deathEvidenceRequest(ctx context.Context, tenantID string, w d
 		ProofRefs:      bundle.Refs,
 		MediaMeta:      bundle.Meta,
 		ContextRows:    bundle.Rows,
-		SubjectLabel:   appendLocation("Death evidence · "+w.EventDate, shedName, partitionLabel),
+		SubjectLabel:   appendLocation("Death evidence · "+biztime.FarmDateFromBusinessDate(w.EventDate), shedName, partitionLabel),
 		CapturedAt:     capturedAt,
 		IdempotencyKey: domain.DeathEvidenceKey(w.WorkflowID, w.RowVersion, bundle.Refs),
 	}
@@ -439,7 +439,7 @@ func (s *Service) enqueueBirthStepIfRecorded(ctx context.Context, tenantID strin
 		ProofRefs:      step.AllProofRefs(),
 		Proofs:         step.ProofRefs, ProofLabel: step.Title,
 		MediaMeta: domain.StepMediaMeta(step), ContextRows: rows,
-		SubjectLabel:   step.Title + " · " + subject + " · " + w.EventDate,
+		SubjectLabel:   step.Title + " · " + subject + " · " + biztime.FarmDateFromBusinessDate(w.EventDate),
 		CapturedAt:     capturedAt,
 		IdempotencyKey: domain.BirthStepReviewKey(step),
 	})

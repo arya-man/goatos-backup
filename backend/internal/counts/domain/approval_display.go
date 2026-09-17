@@ -5,6 +5,7 @@ import (
 	"strconv"
 	"strings"
 
+	"github.com/vgoats/goatos/backend/internal/platform/biztime"
 	"github.com/vgoats/goatos/backend/internal/platform/oploc"
 )
 
@@ -92,7 +93,8 @@ func ApprovalSummaryLine(requestType string, summary json.RawMessage, subjectGoa
 		add(fields.str("sex"))
 		add(fields.str("breed"))
 		if dob := fields.str("dob"); dob != "" {
-			add("born " + dob)
+			// The payload keeps the ISO date; the approver reads the farm's dd/mm/yyyy.
+			add("born " + biztime.FarmDateFromBusinessDate(dob))
 		}
 	case ApprovalRequestTypeDeath:
 		// Deliberately NOT the goat_id itself: it is a UUID with no name source. The approver is
