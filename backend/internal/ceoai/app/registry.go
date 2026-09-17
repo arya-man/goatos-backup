@@ -123,7 +123,7 @@ func (r *Registry) Execute(ctx context.Context, actor domain.Actor, sub domain.S
 		}
 		sql, _ := sub.Params["sql"].(string)
 		args, _ := sub.Params["args"].([]any)
-		if trusted, _ := sub.Params["trusted_sql"].(string); trusted == "server_natural" {
+		if sub.TrustedSQL {
 			res, err := r.sqlFB.ExecuteTrusted(ctx, actor, sql, args)
 			if err == nil {
 				res = annotateNaturalSQLResult(res, sub)

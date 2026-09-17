@@ -38,7 +38,7 @@ type rule struct {
 // Ordered rules: governed KPIs (Cube) are matched with priority over the
 // operational read-API tools. Order matters — first match wins.
 var rules = []rule{
-	{regexp.MustCompile(`(?i)\b(sale|sales|sold|selling|buyer|buyers|revenue)\b`), "sales_overview", "sales_overview", domain.RouteAPI, ""},
+	{regexp.MustCompile(`(?i)\b(sale|sales|sold|selling|buyer|buyers|customer|customers|purchased|bought|revenue)\b`), "sales_overview", "sales_overview", domain.RouteAPI, ""},
 	// Operator-based vaccination drive questions (operator grain). These MUST be
 	// matched before the shed-grain overdue/capacity rules below, or "which
 	// operators are behind" would collapse to the shed-grain vaccination_overdue.

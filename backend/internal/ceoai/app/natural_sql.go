@@ -15,7 +15,7 @@ var breedQuestion = regexp.MustCompile(`(?i)\b(breed|breeds)\b`)
 var weighingQuestion = regexp.MustCompile(`(?i)\b(weighing|weight|avg wt|avg weight|average weight|lowest avg|lowest average|low average weight)\b`)
 var vaccinationQuestion = regexp.MustCompile(`(?i)\b(vaccination|vaccinations|vaccinate|vaccine|overdue|missed)\b`)
 var feedQuestion = regexp.MustCompile(`(?i)\b(feed|fed|feeding)\b`)
-var healthQuestion = regexp.MustCompile(`(?i)\b(health|sick|issue|issues|blocker|blockers|source entry health)\b`)
+var sourceEntryHealthQuestion = regexp.MustCompile(`(?i)\b(source[- ]?entry health|source health|import health|procurement health|arrival health)\b`)
 var opsRiskQuestion = regexp.MustCompile(`(?i)\b(worry|risk|exception|exceptions|gap|gaps|action center)\b`)
 
 type knownParkScope struct {
@@ -94,9 +94,9 @@ func naturalOperationalSQLPlan(q domain.Question, normalizedText string, mem []d
 		return sqlSubQuestion(q, "vaccination_operator_live_sql", vaccinationOperatorSQL(q.Actor.TenantID, scope, hasScope), "vaccination_operator", scope, hasScope), true
 	case feedQuestion.MatchString(normalizedText):
 		return sqlSubQuestion(q, "feed_live_sql", feedSQL(q.Actor.TenantID, scope, hasScope, q.AsOf), "feed", scope, hasScope), true
-	case healthQuestion.MatchString(normalizedText):
+	case sourceEntryHealthQuestion.MatchString(normalizedText):
 		sub := sqlSubQuestion(q, "health_issue_live_sql", healthIssueSQL(q.Actor.TenantID, scope, hasScope), "health_issue", scope, hasScope)
-		sub.Params["trusted_sql"] = "server_natural"
+		sub.TrustedSQL = true
 		return sub, true
 	case opsRiskQuestion.MatchString(normalizedText):
 		return sqlSubQuestion(q, "ops_risk_live_sql", opsRiskSQL(q.Actor.TenantID, scope, hasScope), "ops_risk", scope, hasScope), true
@@ -192,7 +192,7 @@ func wantsLowestWeightRanking(text string) bool {
 }
 
 func asksForSales(text string) bool {
-	for _, kw := range []string{"sale", "sales", "sold", "selling"} {
+	for _, kw := range []string{"sale", "sales", "sold", "selling", "buyer", "buyers", "customer", "customers", "purchased", "bought", "revenue"} {
 		if strings.Contains(text, kw) {
 			return true
 		}

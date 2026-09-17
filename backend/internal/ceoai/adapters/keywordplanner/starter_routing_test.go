@@ -14,7 +14,7 @@ func TestStarterQuestionsRouteToAnswerableTools(t *testing.T) {
 	}{
 		"How many animals were sold this month?":      {"sales_overview", domain.RouteAPI},
 		"What is sales revenue this month?":           {"sales_overview", domain.RouteAPI},
-		"Show sheep vs goat sales this month.":        {"sales_overview", domain.RouteAPI},
+		"Which customers bought the most this month?": {"sales_overview", domain.RouteAPI},
 		"Who are the top buyers by sales revenue?":    {"sales_overview", domain.RouteAPI},
 		"How many active goats and sheep do we have?": {"active_animals", domain.RouteCube},
 		"What feed direction is pending today?":       {"feed_direction_today", domain.RouteAPI},
