@@ -21452,7 +21452,7 @@ components:
         (Pregnant, Non-Pregnant, K2, Buck...), across the whole window, every sheet feed combined.
         The category is the PEN's tag on the frozen sheet, not each animal's own stage; a pen tagged
         with a mix of stages is its own row. Milk has no pen-wise split and is not included.
-      required: [pen_tag_key, pen_tag_label, mixed, directed_kg, head_days, feed_days, pens, avg_animals, per_head_grams]
+      required: [pen_tag_key, pen_tag_label, mixed, directed_kg, head_days, feed_days, pens, avg_animals, per_head_grams, per_head_kg, rupees_per_day]
       properties:
         pen_tag_key:
           type: string
@@ -21482,6 +21482,15 @@ components:
         per_head_grams:
           type: string
           description: directed_kg x 1000 divided by head_days; empty when head_days is zero.
+        per_head_kg:
+          type: string
+          description: directed_kg divided by head_days, two decimals; empty when head_days is zero.
+        rupees_per_day:
+          type: string
+          description: >-
+            Rupees spent per day on this tag's pens: directed kg priced at each farm's latest reached
+            load rate on or before each day (the Stock tab's expenditure rule), divided by feed_days.
+            Feeds with no load rate add nothing. Empty when none of the tag's feed is priced.
     FeedAnalyticsDirectedResponse:
       type: object
       description: >-

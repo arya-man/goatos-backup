@@ -265,6 +265,10 @@
   .chartcard h4,.chartcard .cap{overflow-wrap:anywhere}
   /* Feed Items cards: the per-day money/quantity strip above each item's chart. */
   .chartcard .feed-item-strip{display:flex;flex-wrap:wrap;gap:6px 22px;margin:0 0 10px;padding:8px 0;border-top:1px solid var(--line);border-bottom:1px solid var(--line)}
+  /* Feed Analytics > Consumption > Status-wise: one Feed Items-style card per status, no chart. */
+  .feed-status-cards{display:grid;grid-template-columns:repeat(auto-fill,minmax(260px,1fr));gap:14px;margin-top:10px}
+  .feed-status-cards .chartcard{cursor:default}
+  .feed-status-cards .chartcard .feed-item-strip{margin-bottom:0;border-bottom:0;padding-bottom:0}
   .chartcard .feed-item-strip .val{font-size:16px;font-weight:600;letter-spacing:-.01em;line-height:1.2}
   .chartcard .lg,.wchart .lg{display:flex;gap:14px 18px;flex-wrap:wrap;font-size:11px;color:var(--muted);margin-top:8px}
   .chartcard .lg span,.wchart .lg span{display:inline-flex;align-items:center;gap:5px;min-width:0}

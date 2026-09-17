@@ -79,8 +79,20 @@ func penTagWindow(fromDay, toDay int) domain.DirectedAnalyticsQuery {
 // OneToMany: sessions × feed items per pen, and pens × days, must not multiply animals.
 func TestDirectedPenTagsOneToManySessionsItemsAndDays(t *testing.T) {
 	ctx := context.Background()
-	repo, _ := setupIssueDB(t, ctx)
+	repo, pool := setupIssueDB(t, ctx)
 	seedPenTagIssues(t, ctx, repo)
+	// Concentrate has a reached load at ₹40/kg before the window; hay has no load, so it adds kg but
+	// no rupees. Pregnant: 2.0 kg/day concentrate × ₹40 = ₹80/day; K2: 0.8 × 40 = ₹32; mixed: ₹48.
+	if _, err := pool.Exec(ctx, `
+INSERT INTO feed_purchases (tenant_id, park_id, farm_label, feed_item_label, batch_no,
+                            purchase_date, quantity_kg, per_kg_cost, total_cost,
+                            consumed_at_import_kg, depletes_from, vendor, payment_status,
+                            delivery_status, reached_on)
+VALUES ($1, $2, 'CBE', 'concentrate', 901, DATE '2026-07-01', 1000, 40, 40000,
+        0, DATE '2026-07-01', 'Test Vendor', 'Pending', 'reached', DATE '2026-07-01')`,
+		fdiTenant, fdiPark); err != nil {
+		t.Fatalf("insert load: %v", err)
+	}
 	window := penTagWindow(30, 31)
 	got, err := repo.DirectedAnalytics(ctx, fdiTenant, window)
 	if err != nil {
@@ -90,9 +102,9 @@ func TestDirectedPenTagsOneToManySessionsItemsAndDays(t *testing.T) {
 		t.Errorf("pen_tags alone must not compute days/items, got %d days %d items", len(got.Days), len(got.Items))
 	}
 	want := []domain.DirectedPenTag{
-		{PenTagLabel: "Pregnant", DirectedKg: "6.000", HeadDays: 20, FeedDays: 2, Pens: 1, AvgAnimals: "10", PerHeadGrams: "300.0"},
-		{PenTagLabel: "F2-Male + K3", Mixed: true, DirectedKg: "2.400", HeadDays: 12, FeedDays: 2, Pens: 1, AvgAnimals: "6", PerHeadGrams: "200.0"},
-		{PenTagLabel: "K2", DirectedKg: "1.600", HeadDays: 8, FeedDays: 2, Pens: 1, AvgAnimals: "4", PerHeadGrams: "200.0"},
+		{PenTagLabel: "Pregnant", DirectedKg: "6.000", HeadDays: 20, FeedDays: 2, Pens: 1, AvgAnimals: "10", PerHeadGrams: "300.0", PerHeadKg: "0.30", RupeesPerDay: "80"},
+		{PenTagLabel: "F2-Male + K3", Mixed: true, DirectedKg: "2.400", HeadDays: 12, FeedDays: 2, Pens: 1, AvgAnimals: "6", PerHeadGrams: "200.0", PerHeadKg: "0.20", RupeesPerDay: "48"},
+		{PenTagLabel: "K2", DirectedKg: "1.600", HeadDays: 8, FeedDays: 2, Pens: 1, AvgAnimals: "4", PerHeadGrams: "200.0", PerHeadKg: "0.20", RupeesPerDay: "32"},
 	}
 	if len(got.PenTags) != len(want) {
 		t.Fatalf("pen tags: want %d rows, got %+v", len(want), got.PenTags)

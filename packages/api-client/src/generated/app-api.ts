@@ -9554,6 +9554,10 @@ export interface components {
             avg_animals: string;
             /** @description directed_kg x 1000 divided by head_days; empty when head_days is zero. */
             per_head_grams: string;
+            /** @description directed_kg divided by head_days, two decimals; empty when head_days is zero. */
+            per_head_kg: string;
+            /** @description Rupees spent per day on this tag's pens: directed kg priced at each farm's latest reached load rate on or before each day (the Stock tab's expenditure rule), divided by feed_days. Feeds with no load rate add nothing. Empty when none of the tag's feed is priced. */
+            rupees_per_day: string;
         };
         /** @description The Feed Analytics directed rollup. DIRECTED kg only -- the sheet's instruction, not a measured weight. */
         FeedAnalyticsDirectedResponse: {

@@ -44,6 +44,8 @@ type analyticsPenTagDTO struct {
 	Pens         int64  `json:"pens"`
 	AvgAnimals   string `json:"avg_animals"`
 	PerHeadGrams string `json:"per_head_grams"`
+	PerHeadKg    string `json:"per_head_kg"`
+	RupeesPerDay string `json:"rupees_per_day"`
 }
 
 type directedAnalyticsDTO struct {

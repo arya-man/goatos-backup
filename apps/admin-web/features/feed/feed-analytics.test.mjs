@@ -217,7 +217,9 @@ test("Consumption's Status-wise view reads only the pen-tag arm and skips Genera
   assert.match(source, /const wantShedFeed = tab === "overview" && !statusWise;/);
   assert.match(source, /\{!stockOnly && statusWise && directed\?\.ok \? \(\s*<FeedStatusWise /);
   assert.match(source, /\{!stockOnly && !statusWise && directed\?\.ok && \(tab === "overview"/);
-  // The chart compares single-stage categories; mixed-tag pens are split on the BACKEND's flag.
+  // Only single-status categories are shown (maintainer 2026-09-17: no mixed-tag pens section),
+  // filtered on the BACKEND's flag.
   assert.match(source, /const single = data\.pen_tags\.filter\(\(t\) => !t\.mixed\);/);
+  assert.doesNotMatch(source, /status\.mixed\./);
   assert.doesNotMatch(source, /pen_tag_label\.includes\("\+"\)/);
 });
