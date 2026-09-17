@@ -9,6 +9,54 @@ video / photo, or any clock-in and clock-out stating some person entered the she
 Status: ACCEPTED, built on `feat/pen-routines`. On screen the module is **Routines**; the word
 is *pen*, never *shed* (`docs/decisions/pen-not-shed-vocabulary.md`).
 
+## 2026-09-17 revision: assign by ROLE, general tasks, every N days (SUPERSEDES the parts named)
+
+Maintainer instruction (chat, 2026-09-17): *"in web I need to configure whom the task is for --
+preventive care director, breeding director, park heads, CXOs -- whether it is daily, weekly or
+three days once, what the task is for, and for completion questions and answers or photo, video
+or both."* Asked two questions, the maintainer answered: assign **by role**, not by named person;
+a task is **either per pen or a general park task, chosen per task**. Also: *"we have two park
+heads, check that."*
+
+1. **ASSIGN BY ROLE (replaces the named-people list, `pen_routine_assignees` is gone).** A routine
+   carries `assignee_roles`, one or more of the closed vocabulary below. Whoever holds that role
+   for the routine's park gets the task; any one of them doing it is enough; a new holder of the
+   role inherits it with no edit.
+
+   | key | on screen |
+   |---|---|
+   | `park_head` | Park Head |
+   | `pc_director` | Preventive Care Director |
+   | `breeding_director` | Breeding Director |
+   | `growth_director` | Growth Director |
+   | `feed_director` | Feed Director |
+   | `health_director` | Health Director |
+   | `procurement_director` | Procurement Director |
+   | `ceo_internal` | CXO |
+
+   **Which park a role holder covers.** A park-scoped grant covers its park. A tenant-scoped grant
+   covers every park -- EXCEPT `park_head`: the farm's two park heads (Chandrakant, Dinakar) both
+   hold `park_head` at TENANT scope on the live data (checked 2026-09-17), so tenant scope would
+   hand each of them both parks' tasks. A tenant-scoped park head covers only the park named by
+   his HRMS profile, `workforce_members.primary_location_id` (Chandrakant -> Channapatna, Dinakar ->
+   Coimbatore -- the same split `pen_visit_park_assignees` records). A park head with no home park
+   covers none, loudly. Only an active grant (`status = 'active'`, `valid_to` null or future) on an
+   active workforce member with a `user_id` counts. A routine whose roles resolve to nobody raises
+   nothing and the kernel names it (never a fallback person).
+
+   **CXOs now execute** (reverses the V1 "CEO writes the rule but never walks pens"): every role
+   above holds `pen_routines.execute`, because a task assigned to a CXO must be openable by one.
+
+2. **GENERAL TASKS.** `scope_kind` gains `park`: ONE task per occurrence for the park, no pen
+   ("Check the medicine store"). A park task has no shed and no pen label; its title is
+   "<routine> · <park>". `after_work` needs pens (work happens IN a pen) and is refused with
+   `scope_kind = park`. The check-in is still available on a park task and reads "Check in" rather
+   than "Check in to the pen".
+
+3. **EVERY N DAYS.** `cadence_kind` gains `every_n_days` with `interval_days` (2..90). Every
+   routine now carries `start_date` (defaults to today, IST): nothing raises before it, and an
+   every-N-days routine raises on start_date, start_date + N, start_date + 2N, ...
+
 ## What it is in one paragraph
 
 A **routine** is a rule the CEO writes once, per park: *"In Coimbatore, every day, for every
