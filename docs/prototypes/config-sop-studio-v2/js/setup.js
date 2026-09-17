@@ -372,7 +372,7 @@
       const n=S.snap('Adjust');REG.adjust(lot.id,to,a.reason||'Used');S.save();f.act=null;redraw();App.render();UI.toast('Lot '+lot.lotNo+' now '+to,()=>{S.undoTo(n);App.render();});};
     const snapF=()=>JSON.stringify([v,f.root,f.sub,f.newSub,f.status,rbp]);const init0=snapF();
     const actTyped=()=>!!(f.act&&['lotNo','parkId','qty','serialFrom','serialTo','vendorId','expiresOn','used','count','toParkId'].some(k=>String(f.act[k]==null?'':f.act[k]).trim()));
-    UI.drawer({head:head(),body:body(),wide:true,cls:'idr',foot:foot(),dirty:()=>snapF()!==init0||actTyped(),
+    UI.drawer({head:head(),body:body(),cls:'idr',foot:foot(),dirty:()=>snapF()!==init0||actTyped(),
       onClose(){const dr=document.getElementById('drawer');if(dr&&dr._ifH){['input','click','change'].forEach(k=>dr.removeEventListener(k,dr._ifH[k]));dr._ifH=null;}},
       mount(dr){
         if(dr._ifH)['input','click','change'].forEach(k=>dr.removeEventListener(k,dr._ifH[k]));
@@ -711,7 +711,15 @@
   };
 
   /* ---------- router entry ---------- */
-  P.render=function(parts){
+  /* v2 roles: contractor may add, edit and import animals and farm places, never archive/delete; every other register
+     (animal types, catalogues, people, reference lists, business rules, approval chains, settings) is read-only */
+  const CTR_EDIT=new Set(['parks','pens','partitions','farms','animals','park','places']);
+  function roleFlags(parts){const ctr=!!(window.App&&App.role()==='contractor');let k=parts[0]||'parks';
+    if(k==='sheet'||k==='import')k=parts[1]||(k==='import'?'':'');if(k==='places')k='parks';
+    const imp=parts[0]==='import';/* import page: allowed, the importer itself limits what a contractor can bring in */
+    document.body.classList.toggle('role-ctr',ctr);document.body.classList.toggle('cfg-ro',ctr&&!imp&&!CTR_EDIT.has(k));}
+  P.render=function(parts){roleFlags(parts);return renderCfg(parts);};
+  function renderCfg(parts){
     let key=parts[0]||'parks';
     const legacy={places:parts[1]||'parks','animal-types':parts[1]&&!['edit'].includes(parts[1])?parts[1]:'species',animals:'animals',items:'items',people:parts[1]==='approvers'?'approvalChains':parts[1]||'people',approvers:'approvalChains',settings:'settings'};
     Sheet.activeGetter=null;
@@ -731,6 +739,16 @@
     if(!PANELS[key])key='parks';
     PD=null; ED=null;
     return {html:header()+`<div class="cfg">${rail(key)}<div class="cfgpanel">${PANELS[key]()}</div></div>`};
-  };
+  }
+  const RO_SEL='[data-a="rec-new"],[data-a="io-menu"],[data-a="wb-menu"],[data-a="inv-receive"],[data-a="inv-io"],[data-a^="bulk-"],[data-a="row-menu"],[data-a^="sh-"],[data-a^="cat-new"],[data-a="cat-menu"],[data-a^="ed-"],[data-rf-save],[data-rfarch],[data-vdarch],[data-vdsave],[data-sact],[data-rfsave],[data-pdsave],[data-sdsave],[data-nlsave],[data-ifsave],[data-crsave],[data-a="list-new"],[data-a="cat-add"]';
+  const DEL_SEL='[data-a="bulk-status"][data-v="archived"],[data-a="bulk-del"],[data-a="sh-delrows"],[data-rfarch],[data-vdarch],[data-ifst="archived"]';
+  /* hard stop behind the hidden controls */
+  document.addEventListener('click',e=>{const b=document.body;if(!b.classList.contains('role-ctr')||!(App.route&&App.route.parts[0]==='configuration'&&App.route.parts[1]==='items'))return;
+    const t=e.target.closest&&e.target.closest(b.classList.contains('cfg-ro')?RO_SEL+','+DEL_SEL:DEL_SEL);if(t){e.preventDefault();e.stopImmediatePropagation();UI.toast('Contractors can’t change this');}},true);
+  /* read-only registers: drawers open for viewing only */
+  const drawer0=UI.drawer;UI.drawer=function(o){drawer0(o);if(!document.body.classList.contains('cfg-ro')||!(App.route&&App.route.parts[1]==='items'))return;
+    const dr=document.getElementById('drawer');dr.classList.add('ro');dr.querySelectorAll('.dc input,.dc select,.dc textarea,.dc button:not([data-a="drawer-close"])').forEach(x=>x.disabled=true);};
+  /* row / list menus: no archive or delete for a contractor */
+  const menu0=UI.menu;UI.menu=function(anchor,items){if(document.body.classList.contains('role-ctr')&&App.route&&App.route.parts[1]==='items'){items=items.filter(it=>it==='-'||!(it.danger||/^(Archive|Delete)/.test(it.label||'')));items=items.filter((it,i,a)=>!(it==='-'&&(i===0||i===a.length-1||a[i-1]==='-')));if(!items.length)return;}return menu0(anchor,items);};
   window.SetupPage=P;
 })();

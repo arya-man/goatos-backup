@@ -142,6 +142,7 @@
       +sopRow('#/procurement/vendors');
   }
   function sopRow(href){const m=STG.mod[href];const sop=m&&m.sop||SOP_OF[href.split('/')[1]]||['Work instructions','#/configuration/work-instructions'];
+    if(!App.roleCan(sop[1]))return '';/* v2: never link a role to a page it can't open */
     return `<section class="card mt"><a class="linkrow" href="${sop[1]}">${ic('clipboard-list')}<b>${esc(sop[0])}</b><span class="sp"></span>${ic('chevron-right')}</a></section>`;}
   function placeholder(){
     const act=activeHref(); let grp='',leaf='';

@@ -15,7 +15,9 @@
 .fx-elabel rect{fill:var(--panel-2);stroke:var(--line)}.fx-elabel text{fill:var(--ink);font-size:12px;font-weight:700;text-anchor:middle}
 .fx-preview path{fill:none;stroke:var(--brand);stroke-width:2.2;stroke-dasharray:7 5}
 
-.fx-groups{position:absolute;left:0;top:0;z-index:0}
+.fx-groups{position:absolute;left:0;top:0;z-index:auto}
+/* v2: group title sits above wires (opaque, own layer) */
+.fx-group-head{z-index:2}
 .fx-group{position:absolute;border-radius:18px;border:1px dashed color-mix(in srgb,var(--brand) 38%,var(--line));background:color-mix(in srgb,var(--brand) 5%,transparent);pointer-events:none}
 .fx-group.lane{border-color:color-mix(in srgb,var(--info) 40%,var(--line));background:color-mix(in srgb,var(--info) 6%,transparent)}
 .fx-group-head{position:absolute;left:10px;top:9px;max-width:calc(100% - 20px);display:flex;align-items:flex-start;gap:6px;pointer-events:auto;cursor:move;padding:3px 9px 3px 7px;border-radius:12px;line-height:1.25;background:var(--panel);border:1px solid var(--line);font-size:12px;color:var(--brand)}
@@ -343,9 +345,19 @@ textarea.mst-title{resize:vertical;min-height:52px;font:inherit;line-height:1.35
 /* r7: zoomed-out text caps at 1.15x; group title sits above its box; labels become dots below 50% */
 .fx-eyebrow,.fx-sum,.fx-group-head,.fx-port.out span{font-size:calc(12.5px * max(1, min(1.15, 1 / var(--fxk,1))))}
 .fx-elabel text{font-size:calc(12px * max(1, min(1.15, 1 / var(--fxk,1))))}
-.fx-edot{display:none;fill:var(--panel-2);stroke:var(--muted);stroke-width:calc(1.5px / var(--fxk,1));r:calc(6px / var(--fxk,1))}
-.fx-root.zoomed-lo .fx-elabel rect,.fx-root.zoomed-lo .fx-elabel text{display:none}
-.fx-root.zoomed-lo .fx-edot{display:inline}
+/* v2: below 50% short text pills (SOP branches) / type icons (master deps), constant 12px on screen; full label on hover */
+.fx-elo{display:none}
+.fx-root.zoomed-lo .fx-elabel>rect,.fx-root.zoomed-lo .fx-elabel>text,.fx-elabel.short>rect,.fx-elabel.short>text{display:none}
+.fx-root.zoomed-lo .fx-elo{display:inline}
+.fx-elo-s{transform:scale(calc(1 / var(--fxk,1)))}
+.fx-elo rect,.fx-elo circle{fill:var(--panel-2);stroke:var(--line);stroke-width:1}
+.fx-elo text{fill:var(--ink);font-size:12px;font-weight:700;text-anchor:middle}
+.fx-elo .ic{fill:none;stroke:currentColor;stroke-width:2.2;stroke-linecap:round;stroke-linejoin:round;color:var(--ink)}
+.fx-elabel.dep-started .fx-elo .ic{color:var(--info)}.fx-elabel.dep-approved .fx-elo .ic{color:var(--purple,#a78bfa)}
+.fx-elo-tip{display:none;pointer-events:none}.fx-elo-tip rect{stroke:var(--brand)}
+.fx-elabel:hover .fx-elo-tip,.fx-elabel.sel .fx-elo-tip{display:inline}
+.fx-elabel:hover .fx-elo rect,.fx-elabel:hover .fx-elo circle,.fx-elabel.sel .fx-elo circle,.fx-elabel.sel .fx-elo>g>rect{stroke:var(--brand)}
+.fx-elabel:hover{isolation:isolate}
 .fx-root.zoomed-out .fx-group-head{top:4px;line-height:1.1;max-width:none;white-space:nowrap;align-items:center;font-size:min(calc(12px / var(--fxk,1)),35px);padding:1px calc(6px / var(--fxk,1));border-radius:calc(8px / var(--fxk,1))}
 .fx-root.zoomed-out .fx-group-head .ic{margin-top:0;width:min(calc(12px / var(--fxk,1)),35px);height:min(calc(12px / var(--fxk,1)),35px)}
 .fx-root.zoomed-out .fx-group-head b{white-space:nowrap;overflow:visible}

@@ -239,7 +239,7 @@
   const KINDS={}; F.kinds=KINDS;
   F.registerKind=(name,k)=>{k.name=name;KINDS[name]=k;};
   const PALETTE=['question','evidence','decision','approval','wait','repeat','child','action','parallel','end'];
-  F._h={}; F._opts={}; F.miniOff=true; F._focus={}; F.palOpen=false; F.tool='pan'; F._edgeSel=null;
+  F._h={}; F._opts={}; F.miniOff=null;/* null = auto: shown only for flows too long to fit */ F._focus={}; F.palOpen=false; F.tool='pan'; F._edgeSel=null;
   const dkey=(K,d)=>K.name+':'+d.id;
   const hOf=(K,d,n)=>((F._h[dkey(K,d)]||{})[n.id])||K.estH(n);
   const inter=(a,b)=>a.x<b.x+b.w&&a.x+a.w>b.x&&a.y<b.y+b.h&&a.y+a.h>b.y;
@@ -296,7 +296,7 @@
     const f=Math.max(1,Math.min(1.15,1/(k||1)));const pills=[];
     const fits=r=>!rects.some(o=>inter(r,{x:o.x-4,y:o.y-4,w:o.w+8,h:o.h+8}))&&!pills.some(p=>inter(r,{x:p.x-4,y:p.y-4,w:p.w+8,h:p.h+8}));
     const segsOf=e=>e.pts.slice(1).map((p,i)=>({a:e.pts[i],b:p,len:Math.hypot(p[0]-e.pts[i][0],p[1]-e.pts[i][1])})).sort((x,y)=>y.len-x.len);
-    es.forEach(e=>{if(!e.label)return;if((k||1)<.6&&segsOf(e)[0]&&segsOf(e)[0].len*(k||1)<60)return;const w=(String(e.label).length*6.7+18)*f,h=20*f;let best=null;
+    es.forEach(e=>{if(!e.label)return;if((k||1)<.6&&segsOf(e)[0]&&segsOf(e)[0].len*(k||1)<60){const s=segsOf(e)[0];const cx=(s.a[0]+s.b[0])/2,cy=(s.a[1]+s.b[1])/2;e.lp={cx,cy,r:{x:cx,y:cy,w:0,h:0},short:1};return;}const w=(String(e.label).length*6.7+18)*f,h=20*f;let best=null;
       for(const s of segsOf(e)){if(s.len<22)continue;for(const t of [.5,.35,.65,.2,.8]){const cx=s.a[0]+(s.b[0]-s.a[0])*t,cy=s.a[1]+(s.b[1]-s.a[1])*t;
         const r={x:cx-w/2,y:cy-h/2,w,h};if(fits(r)){best={cx,cy,r};break;}}if(best)break;}
       if(!best){/* no free stretch (e.g. short hop between side-by-side cards): nearest clear spot beside the line's midpoint */
@@ -321,12 +321,19 @@
     }
     const l=pts[pts.length-1]; return d+` L${l[0]},${l[1]}`;
   }
+  /* below 50%: decision branches keep a short readable pill (<=8 chars); master dependencies show a type icon. Full label on hover. */
+  const DEP_IC={'dep-completed':'flag','dep-approved':'check','dep-started':'split'};
+  function loLabel(e){const L=String(e.label||''),full=esc(L);const dep=/(^|\s)dep-/.test(e.cls||'');const icn=dep&&DEP_IC[(e.cls||'').trim()];
+    const tipW=L.length*7+20;const tip=`<g class="fx-elo-tip" transform="translate(${icn?16:0},${icn?0:-24})"><rect x="${icn?0:-tipW/2}" y="-11" width="${tipW}" height="22" rx="11"/><text x="${icn?tipW/2:0}" y="0" dominant-baseline="central">${full}</text></g>`;
+    if(icn)return `<g class="fx-elo dep" transform="translate(${e.lp.cx},${e.lp.cy})"><g class="fx-elo-s"><title>${full}</title><circle r="11"/><g class="ic" transform="translate(-6.5,-6.5) scale(${13/24})">${ic(icn).replace(/^<svg[^>]*>|<\/svg>$/g,'')}</g>${tip}</g></g>`;
+    const sh=L.length>8?L.slice(0,7)+'…':L,w=sh.length*7+16;
+    return `<g class="fx-elo" transform="translate(${e.lp.cx},${e.lp.cy})"><g class="fx-elo-s"><title>${full}</title><rect x="${-w/2}" y="-10" width="${w}" height="20" rx="10"/><text x="0" y="0" dominant-baseline="central">${esc(sh)}</text>${sh!==L?tip:''}</g></g>`;}
   const edgeSelKey=(K,d)=>F._edgeSel&&F._edgeSel.doc===dkey(K,d)?F._edgeSel.key:null;
   function edgesSvg(K,d,es){
     const sel=edgeSelKey(K,d);let wires='',labels='',handles='';
     es.forEach(e=>{const on=sel===e.key;
       wires+=`<g class="fx-eg ${on?'sel':''} ${e.cls||''}" data-eg="${esc(e.key)}"><path class="fx-wire ${e.cls||''}" d="${e.d}" marker-end="url(#fxah${on?'s':''})"/><path class="fx-wire-hit" data-edge="${esc(e.key)}" d="${e.d}"/></g>`;
-      if(e.lp){const r=e.lp.r;labels+=`<g class="fx-elabel ${on?'sel':''} ${e.cls||''}" data-edge="${esc(e.key)}"><rect x="${r.x}" y="${r.y}" width="${r.w}" height="${r.h}" rx="${r.h/2}"/><text x="${e.lp.cx}" y="${e.lp.cy}" dominant-baseline="central">${esc(e.label)}</text><circle class="fx-edot" cx="${e.lp.cx}" cy="${e.lp.cy}" r="6"><title>${esc(e.label)}</title></circle></g>`;}
+      if(e.lp){const r=e.lp.r;labels+=`<g class="fx-elabel ${on?'sel':''} ${e.lp.short?'short':''} ${e.cls||''}" data-edge="${esc(e.key)}"><rect x="${r.x}" y="${r.y}" width="${r.w}" height="${r.h}" rx="${r.h/2}"/><text x="${e.lp.cx}" y="${e.lp.cy}" dominant-baseline="central">${esc(e.label)}</text>${loLabel(e)}</g>`;}
       handles+=`<g class="fx-ehs ${on?'on':''}" data-ehs="${esc(e.key)}"><circle class="fx-ehit" data-eh="s" data-edge="${esc(e.key)}" cx="${e.sp[0]}" cy="${e.sp[1]}" r="12"/><circle class="fx-ehit" data-eh="t" data-edge="${esc(e.key)}" cx="${e.tp[0]}" cy="${e.tp[1]}" r="12"/><circle class="fx-eh" data-eh="s" data-edge="${esc(e.key)}" cx="${e.sp[0]}" cy="${e.sp[1]}" r="6"/><circle class="fx-eh" data-eh="t" data-edge="${esc(e.key)}" cx="${e.tp[0]}" cy="${e.tp[1]}" r="6"/></g>`;});
     return {edges:`<defs><marker id="fxah" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="8" markerHeight="8" orient="auto-start-reverse"><path d="M0,1 L10,5 L0,9 z" class="fx-ah"/></marker><marker id="fxahs" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="8" markerHeight="8" orient="auto-start-reverse"><path d="M0,1 L10,5 L0,9 z" class="fx-ah sel"/></marker></defs>`+wires+labels,handles};
   }
@@ -488,13 +495,13 @@
         <button class="fx-tb" data-fx="in" aria-label="Zoom in">${ic('zoomin','',16)}</button>
         <button class="fx-tb txt" data-fx="fit">Fit</button>
         <button class="fx-tb txt" data-fx="tidy" title="Auto-arrange">Tidy</button>
-        <button class="fx-tb ${F.miniOff?'':'on'}" data-fx="mini" aria-label="Toggle minimap">${ic('layers','',16)}</button>
+        <button class="fx-tb ${F.miniOff===false?'on':''}" data-fx="mini" aria-label="Toggle minimap">${ic('layers','',16)}</button>
         <button class="fx-tb txt" data-fx="help" aria-label="Shortcuts" aria-expanded="false">?</button>
         <button class="fx-tb fx-more" data-fx="more" aria-label="More tools">${ic('more','',16)}</button>
       </div>
       <div class="fx-help" hidden><div><kbd>Drag canvas</kbd>Pan (V/H switch tool)</div><div><kbd>Shift drag</kbd>Box select</div><div><kbd>⌘ scroll / pinch</kbd>Zoom</div><div><kbd>Dot on a box</kbd>Drag to connect</div><div><kbd>Arrow end</kbd>Drag to reconnect</div><div><kbd>Double-click label</kbd>Rename branch</div><div><kbd>Right-click</kbd>More actions</div><div><kbd>Del</kbd>Delete</div><div><kbd>⌘D</kbd>Duplicate</div><div><kbd>⌘Z / ⇧⌘Z</kbd>Undo / redo</div><div><kbd>Esc</kbd>Cancel drag</div><div><kbd>⌘0</kbd>Fit</div></div>
       <div class="fx-issues" hidden></div>
-      <div class="fx-mini ${F.miniOff?'hidden':''}"><svg></svg></div>
+      <div class="fx-mini ${F.miniOff===false?'':'hidden'}"><svg></svg></div>
     </div>`;
   };
   F.canvasHtml=function(sop,sel){return F.kindCanvas('sop',sop,sel);};
@@ -531,11 +538,12 @@
     const clip=root.querySelector('.fx-clip');if(clip&&!clip._lock){clip._lock=1;clip.addEventListener('scroll',()=>{clip.scrollTop=0;clip.scrollLeft=0;});}
     const u=root.querySelector('[data-fx=undo]'),r=root.querySelector('[data-fx=redo]');if(u)u.disabled=!hist(K,d).undo.length;if(r)r.disabled=!hist(K,d).redo.length;
     syncChrome(root); requestAnimationFrame(()=>{if(root.isConnected)syncChrome(root);}); measure(root,K,d);
+    syncLong(root,K,d);
     const v=view(key); if(v.fresh){v.fresh=false;fit(root,K,d,true);}
     redraw(root,K,d);
     const f=F._focus[key]||F._focus[d.id]; if(f){delete F._focus[key];delete F._focus[d.id];focusNode(root,K,d,f.id||f,!!f.center);}
     if(!root._ro&&window.ResizeObserver){let w=root.clientWidth,h=root.clientHeight;root._ro=new ResizeObserver(()=>{if(!root.isConnected){root._ro.disconnect();return;}
-      if(Math.abs(root.clientWidth-w)<2&&Math.abs(root.clientHeight-h)<2)return;w=root.clientWidth;h=root.clientHeight;syncChrome(root);if(view(key).auto)fit(root,K,d,true);else minimap(root,K,d);});root._ro.observe(root);}
+      if(Math.abs(root.clientWidth-w)<2&&Math.abs(root.clientHeight-h)<2)return;w=root.clientWidth;h=root.clientHeight;syncChrome(root);syncLong(root,K,d);if(view(key).auto)fit(root,K,d,true);else minimap(root,K,d);});root._ro.observe(root);}
   }
   function measure(root,K,d){const h=F._h[dkey(K,d)]=F._h[dkey(K,d)]||{};root.querySelectorAll('.fx-node').forEach(el=>{h[el.dataset.node]=el.offsetHeight;});}
   function redraw(root,K,d,pos,light){
@@ -566,12 +574,14 @@
     const {pal,bottomPal,left}=palInset(root,r);
     const narrow=r.width<600, pad=narrow?16:32;
     const padL=bottomPal?pad:left+12, padT=topInset(root)+(narrow?16:28), padB=(bottomPal?pal.offsetHeight+20:0)+pad;
-    const padR=pad+(F.miniOff||narrow?0:196);
+    const padR=pad+(!miniShown(root)||narrow?0:196);
     const aw=Math.max(120,r.width-padL-padR), ah=Math.max(120,r.height-padT-padB);
     const bw=b.x1-b.x0+40, bh=b.y1-b.y0+40;
     /* manual Fit floors at 35% (scroll or the minimap for the rest); first open floors at 75% */
     const floor=!auto?.35:narrow?Math.max(.75,Math.min(1,aw/(NW+40))):.75;
     let k=Math.min(aw/bw,ah/bh,1); k=Math.max(floor,k);
+    /* long flow: whole height can't fit even at the floor -> Fit width (readable), start at the top, minimap to navigate */
+    if(!auto&&bh*.35>ah)k=Math.max(.35,Math.min(aw/bw,1));
     v.k=k; v.x=padL+(aw-(b.x1-b.x0)*k)/2-b.x0*k;
     if((b.x1-b.x0)*k>aw){const s=(K.starts?K.starts(d):[])[0];const sp=s&&pos[s];v.x=Math.min(padL-b.x0*k,sp?padL+aw/2-(sp.x+NW/2)*k:1e9);}
     v.y=(bh*k>ah)?padT-b.y0*k:padT+(ah-bh*k)/2-b.y0*k;
@@ -584,6 +594,14 @@
           for(let dy=2;dy<400;dy+=2){const ok=o=>!rows.some(([t,bb])=>t+o<line+6&&bb+o>line-10);if(ok(y0+dy)){v.y=y0+dy;break;}if(y0-dy+b.y0*k>padT-200&&ok(y0-dy)){v.y=y0-dy;break;}}}}}
     applyView(root,K,d);
   }
+  function longInfo(root,K,d){const r=root.getBoundingClientRect();if(r.width<50||r.height<50)return root._long||false;
+    const pos=K.positions(d),b=kbounds(K,d,pos);const {pal,bottomPal}=palInset(root,r);const narrow=r.width<600,pad=narrow?16:32;
+    const ah=Math.max(120,r.height-(topInset(root)+(narrow?16:28))-((bottomPal?pal.offsetHeight+20:0)+pad));return (b.y1-b.y0+40)*.35>ah;}
+  const miniShown=root=>F.miniOff===null?!!(root&&root._long&&root.clientWidth>=900):!F.miniOff;/* auto only on wide canvases */
+  function syncLong(root,K,d){root._long=longInfo(root,K,d);const on=miniShown(root);
+    const mi=root.querySelector('.fx-mini');if(mi)mi.classList.toggle('hidden',!on);root.querySelectorAll('[data-fx=mini]').forEach(x=>{x.classList.toggle('on',on);x.setAttribute('aria-pressed',String(on));});
+    root.querySelectorAll('[data-fx=fit]').forEach(x=>{x.textContent=root._long?'Fit width':'Fit';x.title=root._long?'Too long to fit: fits the width, use the minimap to move around':'Fit the whole flow';});
+    minimap(root,K,d);}
   function topInset(root){const t=root.querySelector('.fx-tools');return t?t.offsetTop+t.offsetHeight:48;}
   function syncChrome(root){
     const tools=root.querySelector('.fx-tools');
@@ -615,7 +633,7 @@
     const wx=(cx-v.x)/v.k, wy=(cy-v.y)/v.k; v.k=k; v.x=cx-wx*k; v.y=cy-wy*k; applyView(root,K,d);
   }
   function minimap(root,K,d,pos){
-    const mm=root.querySelector('.fx-mini svg'); if(!mm||F.miniOff)return;
+    const mm=root.querySelector('.fx-mini svg'); if(!mm||!miniShown(root))return;
     pos=pos||K.positions(d); const b=kbounds(K,d,pos); const v=view(dkey(K,d));
     const r=root.getBoundingClientRect(); const vx0=-v.x/v.k,vy0=-v.y/v.k,vx1=vx0+r.width/v.k,vy1=vy0+r.height/v.k;
     const x0=Math.min(b.x0,vx0)-40,y0=Math.min(b.y0,vy0)-40,x1=Math.max(b.x1,vx1)+40,y1=Math.max(b.y1,vy1)+40;
@@ -935,12 +953,12 @@
       box.innerHTML=is.length?`<div class="fx-issues-h">${is.length} issue${is.length>1?'s':''}</div>`+is.map(i=>`<button data-fxissue="${esc(i.id||'')}">${ic('reject','',14)}<span>${esc(i.msg)}</span></button>`).join(''):`<div class="fx-issues-ok">${ic('check','',15)}Ready to publish</div>`;
       box.hidden=false;}
     if(fx==='help'){const h=root.querySelector('.fx-help');h.hidden=!h.hidden;b.setAttribute('aria-expanded',String(!h.hidden));b.classList.toggle('on',!h.hidden);}
-    if(fx==='mini'){F.miniOff=!F.miniOff;root.querySelector('.fx-mini').classList.toggle('hidden',F.miniOff);root.querySelectorAll('[data-fx=mini]').forEach(x=>x.classList.toggle('on',!F.miniOff));minimap(root,K,d);}
+    if(fx==='mini'){F.miniOff=miniShown(root);syncLong(root,K,d);}
     if(fx==='pal'){F.palOpen=!F.palOpen;root.classList.toggle('pal-open',F.palOpen);b.setAttribute('aria-expanded',String(F.palOpen));syncChrome(root);if(v.auto)fit(root,K,d);}
     if(fx==='more'){e.stopPropagation();const click=k=>{const t=root.querySelector(`.fx-tools [data-fx="${k}"]`);if(t)t.click();};
       const tight=root.classList.contains('tb-tight');
       setTimeout(()=>UI.menu(b,[].concat(tight?[{label:'Zoom in',icon:'zoomin',run:()=>click('in')},{label:'Zoom out',icon:'zoomout',run:()=>click('out')}]:[],
-        [...(innerWidth<=420?[{label:'Redo',icon:'undo',run:()=>click('redo')}]:[]),{label:'Tidy layout',icon:'workflow',run:()=>click('tidy')},{label:(F.miniOff?'Show':'Hide')+' minimap',icon:'layers',run:()=>click('mini')},{label:'Shortcuts',icon:'help',run:()=>click('help')}])),0);}
+        [...(innerWidth<=420?[{label:'Redo',icon:'undo',run:()=>click('redo')}]:[]),{label:'Tidy layout',icon:'workflow',run:()=>click('tidy')},{label:(miniShown(root)?'Hide':'Show')+' minimap',icon:'layers',run:()=>click('mini')},{label:'Shortcuts',icon:'help',run:()=>click('help')}])),0);}
   });
 
   const typing=t=>t&&(t.isContentEditable||/^(INPUT|TEXTAREA|SELECT)$/.test(t.tagName));

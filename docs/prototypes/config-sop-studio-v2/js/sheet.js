@@ -93,7 +93,20 @@
         [data-sheet] .sheet td.rn label{height:34px;flex-wrap:nowrap;gap:4px;padding:0}
         [data-sheet] .rnst{display:inline-flex}[data-sheet] .rnst .tag{font-size:0;width:9px;height:9px;min-width:0;padding:0;border-radius:50%}
         [data-sheet] .sheet th.stc,[data-sheet] .sheet td.st{display:none}
-        [data-sheet] .sheet{-webkit-mask-image:linear-gradient(to right,#000 calc(100% - 28px),transparent);mask-image:linear-gradient(to right,#000 calc(100% - 28px),transparent)}}</style>
+        [data-sheet] .sheet{-webkit-mask-image:linear-gradient(to right,#000 calc(100% - 28px),transparent);mask-image:linear-gradient(to right,#000 calc(100% - 28px),transparent)}}
+        @media(max-width:600px){/* v2: one card per row, issues inline, every field as label: value */
+        [data-sheet] .sheet{-webkit-mask-image:none;mask-image:none;overflow:visible;max-height:none}
+        [data-sheet] .sheet table,[data-sheet] .sheet tbody{display:block;width:100%;min-width:0}
+        [data-sheet] .sheet thead{display:none}
+        [data-sheet] .sheet tbody tr:not(.hid){display:grid;grid-template-columns:auto minmax(0,1fr);column-gap:8px;margin:0 10px 10px;padding:8px 10px;border:1px solid var(--line);border-radius:12px;background:var(--panel)}
+        [data-sheet] .sheet tbody tr.selr{border-color:var(--brand)}
+        [data-sheet] .sheet td.rn,[data-sheet] .sheet td.msg{position:static!important;box-shadow:none!important;border:0!important;background:transparent!important;min-width:0!important;max-width:none!important;width:auto!important}
+        [data-sheet] .sheet td.rn label{height:auto;gap:6px;font-weight:700}
+        [data-sheet] .sheet td.msg{padding:2px 0 8px!important;border-bottom:1px solid var(--line)!important;margin-bottom:4px}
+        [data-sheet] .sheet td[data-label]{grid-column:1/-1;display:grid;grid-template-columns:minmax(90px,38%) minmax(0,1fr);align-items:center;gap:8px;padding:2px 0;border:0;min-width:0;max-width:none;width:auto}
+        [data-sheet] .sheet td[data-label]::before{content:attr(data-label);font-size:12px;font-weight:650;color:var(--muted);overflow-wrap:anywhere}
+        [data-sheet] .sheet td[data-label] input.cell{width:100%;min-width:0;border:1px solid var(--line);border-radius:8px;height:36px}
+        [data-sheet] .sheet td[data-label].err input.cell{border-color:var(--danger,#f87171)}[data-sheet] .sheet td[data-label].warn input.cell{border-color:var(--warn,#fbbf24)}}</style>
       <div class="sheet" data-grid style="min-height:0">
         <table><thead><tr><th class="rn" style="${stick(0,RN_W)}z-index:4"><input type="checkbox" data-a="sh-selall" aria-label="Select all"></th><th class="iss" style="${stick(RN_W,ISSUE_W)}z-index:4;border-right:1px solid var(--line);box-shadow:4px 0 6px -4px rgba(0,0,0,.45)">Issues</th><th class="stc">Status</th>
           ${reg.cols.map(c=>`<th class="${c.req?'req':''}">${esc(c.label)}</th>`).join('')}</tr></thead>
@@ -108,7 +121,7 @@
       <td class="rn" style="left:0;z-index:3;min-width:${RN_W}px;max-width:${RN_W}px"><label><input type="checkbox" data-a="sh-sel" data-id="${row.id}" ${G.sel.has(row.id)?'checked':''}>${ri+1}<span class="rnst">${st[0]?UI.tag(st[0],st[1]):''}</span></label></td>
       <td class="msg" data-issues style="position:sticky;left:${RN_W}px;z-index:3;min-width:${ISSUE_W}px;max-width:${ISSUE_W}px;white-space:normal;padding:2px 8px;background:var(--panel);background-clip:padding-box;border-right:1px solid var(--line);box-shadow:4px 0 6px -4px rgba(0,0,0,.45)">${Sheet.issuesHtml(G,ri,r)}</td>
       <td class="st">${st[0]?UI.tag(st[0],st[1]):''}</td>
-      ${reg.cols.map((c,ci)=>{const iss=r.issues[c.k];return `<td class="w-${c.w||''} ${iss?(iss[0]==='err'?'err':iss[0]==='warn'?'warn':'info'):''}" title="${iss?esc(iss[1]):''}"><input class="cell" data-r="${ri}" data-c="${ci}" value="${esc(row.v[c.k]==null?'':row.v[c.k])}" autocomplete="off" aria-label="${esc(c.label)} row ${ri+1}"></td>`;}).join('')}
+      ${reg.cols.map((c,ci)=>{const iss=r.issues[c.k];return `<td data-label="${esc(c.label)}" class="w-${c.w||''} ${iss?(iss[0]==='err'?'err':iss[0]==='warn'?'warn':'info'):''}" title="${iss?esc(iss[1]):''}"><input class="cell" data-r="${ri}" data-c="${ci}" value="${esc(row.v[c.k]==null?'':row.v[c.k])}" autocomplete="off" aria-label="${esc(c.label)} row ${ri+1}"></td>`;}).join('')}
     </tr>`;
   };
 

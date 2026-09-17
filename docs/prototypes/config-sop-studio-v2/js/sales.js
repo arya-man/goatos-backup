@@ -29,6 +29,8 @@
     });
     return out;
   }
+  /* rules seeded without a date have applied since the configuration was set up */
+  const fromOf=r=>(r&&r.from)||String((S.state.meta&&S.state.meta.created)||today()).slice(0,10);
   const current=coll=>{const st=states(coll);return S.active(coll).filter(r=>st[r.id].state==='current');};
   const policy=()=>{const c=current('salePolicy');return c[c.length-1]||{toleranceG:0,reportKg:'',stageIds:[]};};
 
@@ -103,7 +105,7 @@
           {label:'Sex',w:70,html:r=>any('sexes',r.sexId)},{label:'Stage',w:130,html:r=>any('stages',r.stageId)},
 {label:'Price',w:120,html:r=>`<span class="num">${inr(r.price)}</span><span class="muted small">${r.basis==='per_kg'?' /kg':' /animal'}</span>`},
           {label:'Animals',w:76,html:r=>st[r.id]&&st[r.id].state==='current'?`<span class="num">${n[r.id]||0}</span>`:'<span class="muted">—</span>'},
-          {label:'Version',w:170,wrap:1,html:r=>(st[r.id]?stateTag(st[r.id],cf[r.id]):UI.tag('Archived','mut'))+(r.from?`<div class="muted small">From ${esc(fmt(r.from))}</div>`:'')}]})
+          {label:'Version',w:170,wrap:1,html:r=>(st[r.id]?stateTag(st[r.id],cf[r.id]):UI.tag('Archived','mut'))+`<div class="muted small">From ${esc(fmt(fromOf(r)))}</div>`}]})
       +preview();
   };
 
@@ -116,17 +118,17 @@
         <div class="slpol">
           <div class="kv"><div class="lab">Weight error margin</div><div class="val"><span class="num">${esc(p.toleranceG)}</span> g</div></div>
           <div class="kv"><div class="lab">Reporting threshold</div><div class="val"><span class="num">${esc(p.reportKg)}</span> kg</div></div>
-          <div class="kv"><div class="lab">Effective from</div><div class="val">${p.from?esc(fmt(p.from)):'<span class="muted">—</span>'}</div></div>
+          <div class="kv"><div class="lab">Effective from</div><div class="val">${esc(fmt(fromOf(p)))}</div></div>
           <div class="kv wide"><div class="lab">Eligible stages</div><div class="chips">${stages.length?stages.map(s=>UI.tag(s.name+' · '+REG.labelById('species',s.speciesId),'teal')).join(''):'<span class="muted">None</span>'}</div></div>
         </div>
         <div class="grid g3 slkpi">${kp('In eligible stages',`<span data-rc="eligible">${c.eligible}</span>`,c.ineligible+' in other stages')+kp('Sale-ready',`<span data-rc="ready">${c.ready}</span>`,marginNote(c.margin,p))+kp('Below sale weight',`<span data-rc="below">${c.below}</span>`,c.none?c.none+' not weighed or no minimum':'')}</div>
       </section>`
       +`<div class="mt">${list('saleMinWeights',{eyebrow:'Sale eligibility',title:'Minimum sale weight',filters:['species'],addLabel:'Add override',sort:sortScope('saleMinWeights'),
         noStatus:1,onNew:()=>ruleDrawer('saleMinWeights',null),onOpen:id=>ruleDrawer('saleMinWeights',id),extraBtns:histBtn('saleMinWeights')+gridBtn('saleMinWeights'),
-        columns:[{label:'Species',html:r=>`<b>${esc(REG.labelById('species',r.speciesId))}</b>`},{label:'Breed',html:r=>any('breeds',r.breedId)},{label:'Sex',w:80,html:r=>any('sexes',r.sexId)},
-          {label:'Minimum',w:110,html:r=>`<span class="num">${esc(r.minKg)}</span> kg`},{label:'Effective from',w:120,html:r=>r.from?esc(fmt(r.from)):'<span class="muted">—</span>'},
+        columns:[{label:'Species',html:r=>`<b>${esc(REG.labelById('species',r.speciesId))}</b>`},{label:'Breed',w:120,html:r=>any('breeds',r.breedId)},{label:'Sex',w:80,html:r=>any('sexes',r.sexId)},
+          {label:'Minimum',w:100,html:r=>`<span class="num">${esc(r.minKg)}</span> kg`},{label:'Effective from',w:120,html:r=>esc(fmt(fromOf(r)))},
           {label:'Applies to',w:100,html:r=>st[r.id]&&st[r.id].state==='current'?`<span class="num">${n[r.id]||0}</span> <span class="muted small">animals</span>`:'<span class="muted">—</span>'},
-          {label:'Version',w:200,wrap:1,html:r=>st[r.id]?stateTag(st[r.id],cf[r.id]):UI.tag('Archived','mut')}]})}</div>`
+          {label:'Version',w:130,wrap:1,html:r=>st[r.id]?stateTag(st[r.id],cf[r.id]):UI.tag('Archived','mut')}]})}</div>`
       +preview();
   };
 
@@ -138,7 +140,7 @@
         columns:[{label:'Group',html:r=>`<b>${esc(r.name)}</b>`},{label:'Stages',low:1,html:r=>esc(r.stages||'')},{label:'Rate',w:120,html:r=>`<span class="num">${inr(r.rate)}</span><span class="muted small"> /kg</span>`},
           {label:'Assumed weight',w:150,html:r=>r.assumedKg===''||r.assumedKg==null?'<span class="muted">Measured average</span>':`<span class="num">${esc(r.assumedKg)}</span> kg`},
           {label:'Value per animal',w:140,low:1,html:r=>r.assumedKg===''||r.assumedKg==null?'<span class="muted">—</span>':`<span class="num">${inr(r.rate*r.assumedKg)}</span>`},
-          {label:'Effective from',w:120,html:r=>r.from?esc(fmt(r.from)):'<span class="muted">—</span>'},{label:'Version',w:200,wrap:1,html:r=>st[r.id]?stateTag(st[r.id]):UI.tag('Archived','mut')}]});
+          {label:'Effective from',w:120,html:r=>esc(fmt(fromOf(r)))},{label:'Version',w:200,wrap:1,html:r=>st[r.id]?stateTag(st[r.id]):UI.tag('Archived','mut')}]});
   };
   X.count={salePrices:()=>S.active('salePrices').length,saleEligibility:()=>S.active('saleMinWeights').length,valuationRates:()=>S.active('valuationRates').length};
 
@@ -185,7 +187,7 @@
   function histTable(coll,rows,st){
     const f=FIELDS[coll]||[];
     return `<div class="sltbl-wrap"><table class="sltbl"><thead><tr><th>Effective from</th>${coll==='salePolicy'?'<th>Margin</th><th>Reporting</th><th>Stages</th>':f.map(x=>`<th>${esc(x[1])}</th>`).join('')}<th>Status</th></tr></thead><tbody>${
-      rows.slice().reverse().map(r=>`<tr><td>${r.from?esc(fmt(r.from)):'<span class="muted">—</span>'}</td>${coll==='salePolicy'?`<td class="num">${esc(r.toleranceG)} g</td><td class="num">${esc(r.reportKg)} kg</td><td>${(r.stageIds||[]).length}</td>`
+      rows.slice().reverse().map(r=>`<tr><td>${esc(fmt(fromOf(r)))}</td>${coll==='salePolicy'?`<td class="num">${esc(r.toleranceG)} g</td><td class="num">${esc(r.reportKg)} kg</td><td>${(r.stageIds||[]).length}</td>`
         :f.map(x=>`<td>${x[2]==='enum'?esc(r[x[0]]==='per_kg'?'/kg live':'/animal'):esc(r[x[0]]===''||r[x[0]]==null?'—':r[x[0]])}</td>`).join('')}<td>${st[r.id]?stateTag(st[r.id]):''}</td></tr>`).join('')}</tbody></table></div>`;
   }
   const DH=(icon,crumb,title)=>`<div class="ihead"><span class="ikic">${ic(icon,'',18)}</span><div class="ihead-t"><div class="icrumb">${esc(crumb)}</div><h2>${esc(title)}</h2></div></div>`;
@@ -193,7 +195,7 @@
   function versionDrawer(coll,id){
     const r=S.get(coll,id);if(!r)return;const st=states(coll),s=st[r.id],f=FIELDS[coll];
     const v={from:toDMY(today())};f.forEach(x=>v[x[0]]=r[x[0]]==null?'':String(r[x[0]]));
-    UI.drawer({head:DH('banknote',REG.R[coll].label,scopeLine(coll,r)),cls:'idr',wide:1,
+    UI.drawer({head:DH('banknote',REG.R[coll].label,scopeLine(coll,r)),cls:'idr',
       body:SEC(REG.R[coll].one,`<div class="fgrid">${f.map(([k,l,t,o])=>`<div class="fld"><label>${esc(l)}</label>${t==='enum'?`<select data-vd="${k}">${o.map(x=>`<option value="${x}" ${v[k]===x?'selected':''}>${esc(REG.enumLabel(x))}</option>`).join('')}</select>`:`<input data-vd="${k}" value="${esc(v[k])}" ${t==='num'?'inputmode="decimal"':''}>`}</div>`).join('')}
         <div class="fld"><label>Effective from</label><input data-vd="from" inputmode="numeric" placeholder="DD/MM/YYYY" value="${v.from}"></div></div>`)+SEC('History',histTable(coll,s?s.versions:[r],st)),
       foot:`<button class="btn dngo" data-vdarch>${ic('archive')}Archive</button><span class="sp"></span><button class="btn" data-a="drawer-close">Cancel</button><button class="btn p" data-vdsave>Save version</button>`,
@@ -232,7 +234,7 @@
         <div class="fld"><label>Unit</label>${segs('basis',[['per_kg','/kg live'],['per_animal','/animal']])}</div>`
         :`<div class="fld"><label>Minimum sale weight</label><div class="inpfx sfx"><input data-rf="minKg" inputmode="decimal" value="${esc(v.minKg)}" placeholder="35"><span>kg</span></div></div>`}
         <div class="fld"><label>Effective from</label><input data-rf="from" inputmode="numeric" placeholder="DD/MM/YYYY" value="${esc(v.from)}"></div></div>`)+(r?SEC('History',histTable(coll,s?s.versions:[r],st)):'');
-    UI.drawer({head:DH('banknote',isP?'Sale price rules':'Sale eligibility',r?ruleName(coll,r):(isP?'Add price rule':'Add minimum sale weight')),cls:'idr',wide:1,body:body(),
+    UI.drawer({head:DH('banknote',isP?'Sale price rules':'Sale eligibility',r?ruleName(coll,r):(isP?'Add price rule':'Add minimum sale weight')),cls:'idr',body:body(),
       foot:`${r?`<button class="btn dngo" data-rfarch>${ic('archive')}Archive</button>`:''}<span class="sp"></span><button class="btn" data-a="drawer-close">Cancel</button><button class="btn p" data-rfsave>${r?'Save version':'Add'}</button>`,
       mount(dr){
         const wire=()=>{
@@ -270,7 +272,7 @@
     const groups=S.active('species').map(sp=>{const ss=S.active('stages').filter(x=>x.speciesId===sp.id);
       return SEC(sp.name,`<div class="fgrid">${['Fattening','Adults','Kids'].map(g=>{const gs=ss.filter(x=>grp(x)===g);return gs.length?`<div class="fld full"><label>${g}</label><div class="chips">${gs.map(x=>
         `<button type="button" class="chip ${sel.has(x.id)?'on':''}" data-pst="${x.id}" data-sp="${sp.id}" aria-pressed="${sel.has(x.id)}">${esc(x.name)}</button>`).join('')}</div></div>`:'';}).join('')}</div>`,`<span class="cnt" data-pstn="${sp.id}">${ss.filter(x=>sel.has(x.id)).length}</span>`);}).join('');
-    UI.drawer({head:DH('banknote','Sales · Weighing','Sale eligibility'),cls:'idr',wide:1,
+    UI.drawer({head:DH('banknote','Sales · Weighing','Sale eligibility'),cls:'idr',
       body:SEC('Weights',`<div class="fgrid"><div class="fld"><label>Weight error margin (g)</label><input data-pd="toleranceG" inputmode="numeric" value="${esc(v.toleranceG)}"></div>
         <div class="fld"><label>Reporting threshold (kg)</label><input data-pd="reportKg" inputmode="decimal" value="${esc(v.reportKg)}"></div>
         <div class="fld"><label>Effective from</label><input data-pd="from" inputmode="numeric" placeholder="DD/MM/YYYY" value="${v.from}"></div></div>`)+groups+SEC('History',histTable('salePolicy',states('salePolicy')[p.id]?states('salePolicy')[p.id].versions:[],states('salePolicy'))),
@@ -297,7 +299,7 @@
     const label=coll==='salePolicy'?'Sale eligibility':REG.R[coll].label;
     UI.drawer({head:DH('rotate',label,'History'),wide:1,cls:'idr',
       body:rows.length?`<div class="sltbl-wrap"><table class="sltbl"><thead><tr><th>Effective from</th><th>Scope</th><th>Value</th><th>Status</th></tr></thead><tbody>${rows.map(r=>`<tr>
-        <td>${r.from?esc(fmt(r.from)):'<span class="muted">—</span>'}</td><td>${coll==='salePolicy'?'All':esc(scopeLine(coll,r))}</td>
+        <td>${esc(fmt(fromOf(r)))}</td><td>${coll==='salePolicy'?'All':esc(scopeLine(coll,r))}</td>
         <td class="num">${coll==='salePrices'?inr(r.price)+(r.basis==='per_kg'?'/kg':'/animal'):coll==='saleMinWeights'?esc(r.minKg)+' kg':coll==='valuationRates'?inr(r.rate)+'/kg':esc(r.toleranceG)+' g · '+esc(r.reportKg)+' kg'}</td>
         <td>${stateTag(st[r.id])}</td></tr>`).join('')}</tbody></table></div>`:'<div class="empty">No versions</div>'});
   }
