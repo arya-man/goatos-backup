@@ -49,3 +49,5 @@ Browser proof: IAB real4322 routes, CEO saved450/kg +35kg +500g +>=;34.5 passes 
 Evidence: `/Users/raviteja/mesha/tmp/pr287-business-rules-evidence/desktop.png` and `mobile-rule.png`, both opened/visually inspected before reporting. Restored missing task worktree and restarted only task server4322; Claude4391 untouched.
 
 SHA before this commit: a2627c39418ac42b44bb046fb2ba52d3e1c2283b. Judge status green. Pending: commit/push this change to existing PR287 and verify remote SHA. Deployment: none; no main merge/push. Production API persistence remains outside this prototype change.
+
+Implementation commit: 69b6a4eba. Final independent staged review reports no remaining material blockers. Follow-up cache-version update ensures existing browsers receive the legacy-preview sharing correction. PR-only push/readback follows this receipt; no deployment.
