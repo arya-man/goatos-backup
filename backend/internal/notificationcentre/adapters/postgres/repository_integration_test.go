@@ -44,7 +44,9 @@ func seedExternalFacts(t *testing.T, ctx context.Context, pool *pgxpool.Pool) {
 	people := []struct{ userID, code, name, status string }{
 		{ncUserA, "AAA", "Anita", "active"},
 		{ncUserB, "BBB", "Bhaskar", "active"},
-		{ncUserGone, "CCC", "Chandra", "left"},
+		// Chandra is ACTIVE at seed time -- they receive notifications like anyone else, and
+		// the test below makes them LEAVE afterwards, which is the real sequence.
+		{ncUserGone, "CCC", "Chandra", "active"},
 	}
 	for _, p := range people {
 		if _, err := pool.Exec(ctx, `
@@ -138,7 +140,13 @@ func TestNotificationCentreScopesStrictlyToTheCallingUser(t *testing.T) {
 	queueFor(t, ctx, pool, ncUserB, "bhaskar.event.1", "Bhaskar task one", "Only Bhaskar may read this.", map[string]string{
 		"message_key": "leadership_task.raised", "screen": "leadership_tasks",
 	})
-	queueFor(t, ctx, pool, ncUserGone, "chandra.event.1", "Chandra task one", "Chandra has left.", nil)
+	// Chandra receives one while still employed, and then leaves. Their session must go
+	// blind the moment the roster row stops being active -- the departure is an EXTERNAL HR
+	// fact, so the test applies it to workforce_members and nothing else.
+	queueFor(t, ctx, pool, ncUserGone, "chandra.event.1", "Chandra task one", "Queued while employed.", nil)
+	if _, err := pool.Exec(ctx, `UPDATE workforce_members SET status = 'left' WHERE tenant_id = $1::uuid AND user_id = $2::uuid`, ncTenant, ncUserGone); err != nil {
+		t.Fatalf("mark Chandra as left: %v", err)
+	}
 
 	// --- 1. A's feed is A's rows and nothing else. ---
 	pageA, err := repo.ListNotifications(ctx, ports.ListParams{TenantID: ncTenant, MemberOrUserID: ncUserA, Limit: 20})

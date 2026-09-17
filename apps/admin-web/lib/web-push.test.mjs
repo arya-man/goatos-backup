@@ -183,6 +183,27 @@ test("the task id is encoded, so a hostile id cannot forge query parameters", ()
   assert.equal(link.split("scope=").length, 2);
 });
 
+test("every leadership-task notification type deep-links to the task", () => {
+  // A type missing from DEEP_LINKS still SHOWS the notification but sends the click to "/",
+  // which reads as a broken notification rather than a missing one. These four are the types
+  // the bridge actually queues (leadership_task_activity_notify_consumer.go and
+  // leadership_task_notify_consumer.go), so any new type must be added here too.
+  for (const type of [
+    "leadership_task_raised",
+    "leadership_task_done",
+    "leadership_task_status",
+    "leadership_task_mentioned",
+    "leadership_task_commented",
+    "leadership_task_updated",
+  ]) {
+    assert.match(
+      serviceWorkerCode,
+      new RegExp(`${type}:\\s*\\(data\\)\\s*=>\\s*leadershipTaskLink\\(data\\)`),
+      `${type} is not in the service worker DEEP_LINKS map, so its click would land on "/"`,
+    );
+  }
+});
+
 test("the service worker builds the SAME web route as the app", () => {
   // The worker is served verbatim from public/ and cannot import the app's helper, so the route
   // shape exists twice. This is the only thing standing between that and silent drift, which

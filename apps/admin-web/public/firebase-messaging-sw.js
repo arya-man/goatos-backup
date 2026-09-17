@@ -41,6 +41,8 @@ const DEEP_LINKS = {
   leadership_task_done: (data) => leadershipTaskLink(data),
   leadership_task_status: (data) => leadershipTaskLink(data),
   leadership_task_mentioned: (data) => leadershipTaskLink(data),
+  leadership_task_commented: (data) => leadershipTaskLink(data),
+  leadership_task_updated: (data) => leadershipTaskLink(data),
 };
 
 // Every leadership-task notification opens the task itself on the team-progress scope, which is
