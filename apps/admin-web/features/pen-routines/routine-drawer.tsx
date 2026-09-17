@@ -498,14 +498,10 @@ export function RoutineDrawerForm({
                     <input id={`pr-q-hint-${question.key}`} value={question.hint ?? ""} onChange={(e) => updateQuestion(question.key, { hint: e.target.value })} />
                   </div>
                   <div className="fld">
-                    <label htmlFor={`pr-q-required-${question.key}`}>{label(pageContract, "field.question_required", "field.presence")}</label>
-                    <select id={`pr-q-required-${question.key}`} value={question.required ? "required" : "off"} onChange={(e) => updateQuestion(question.key, { required: e.target.value === "required" })}>
-                      {kinds(catalog?.presence_kinds).map((option) => (
-                        <option key={option.key} value={option.key}>
-                          {option.label}
-                        </option>
-                      ))}
-                    </select>
+                    <label className="pen-routine-check" htmlFor={`pr-q-required-${question.key}`}>
+                      <input id={`pr-q-required-${question.key}`} type="checkbox" checked={question.required} onChange={(e) => updateQuestion(question.key, { required: e.target.checked })} />
+                      <span>{label(pageContract, "field.question_required", "field.presence")}</span>
+                    </label>
                   </div>
                   {question.kind === "number" ? (
                     <>
@@ -575,17 +571,29 @@ export function RoutineDrawerForm({
 
           <div className="grid g2" style={{ marginTop: 10 }}>
             <div className="fld">
-              <label htmlFor="pr-photo-min">{field("photo")}</label>
-              <div style={{ display: "flex", gap: 6, alignItems: "center" }}>
-                <input id="pr-photo-min" type="number" min={0} max={LIMITS.proofMax} value={draft.photo.min} aria-label={`${field("photo")} · ${field("min")}`} onChange={(e) => update({ photo: { ...draft.photo, min: Number.parseInt(e.target.value, 10) || 0 } })} />
-                <input type="number" min={0} max={LIMITS.proofMax} value={draft.photo.max} aria-label={`${field("photo")} · ${field("max")}`} onChange={(e) => update({ photo: { ...draft.photo, max: Number.parseInt(e.target.value, 10) || 0 } })} />
+              <span className="muted small">{field("photo")}</span>
+              <div className="pen-routine-proof">
+                <div className="fld">
+                  <label htmlFor="pr-photo-min">{field("min")}</label>
+                  <input id="pr-photo-min" type="number" min={0} max={LIMITS.proofMax} value={draft.photo.min} onChange={(e) => update({ photo: { ...draft.photo, min: Number.parseInt(e.target.value, 10) || 0 } })} />
+                </div>
+                <div className="fld">
+                  <label htmlFor="pr-photo-max">{field("max")}</label>
+                  <input id="pr-photo-max" type="number" min={0} max={LIMITS.proofMax} value={draft.photo.max} onChange={(e) => update({ photo: { ...draft.photo, max: Number.parseInt(e.target.value, 10) || 0 } })} />
+                </div>
               </div>
             </div>
             <div className="fld">
-              <label htmlFor="pr-video-min">{field("video")}</label>
-              <div style={{ display: "flex", gap: 6, alignItems: "center" }}>
-                <input id="pr-video-min" type="number" min={0} max={LIMITS.proofMax} value={draft.video.min} aria-label={`${field("video")} · ${field("min")}`} onChange={(e) => update({ video: { ...draft.video, min: Number.parseInt(e.target.value, 10) || 0 } })} />
-                <input type="number" min={0} max={LIMITS.proofMax} value={draft.video.max} aria-label={`${field("video")} · ${field("max")}`} onChange={(e) => update({ video: { ...draft.video, max: Number.parseInt(e.target.value, 10) || 0 } })} />
+              <span className="muted small">{field("video")}</span>
+              <div className="pen-routine-proof">
+                <div className="fld">
+                  <label htmlFor="pr-video-min">{field("min")}</label>
+                  <input id="pr-video-min" type="number" min={0} max={LIMITS.proofMax} value={draft.video.min} onChange={(e) => update({ video: { ...draft.video, min: Number.parseInt(e.target.value, 10) || 0 } })} />
+                </div>
+                <div className="fld">
+                  <label htmlFor="pr-video-max">{field("max")}</label>
+                  <input id="pr-video-max" type="number" min={0} max={LIMITS.proofMax} value={draft.video.max} onChange={(e) => update({ video: { ...draft.video, max: Number.parseInt(e.target.value, 10) || 0 } })} />
+                </div>
               </div>
             </div>
           </div>
