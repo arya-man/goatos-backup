@@ -306,3 +306,25 @@ private fun CaptureQuestionField(
         }
     }
 }
+
+/** What the whole-pen primary capture button says. */
+sealed interface WholePenCaptureLabel {
+    /** The SOP's own title for the slot, verbatim. */
+    data class Authored(val title: String) : WholePenCaptureLabel
+    data object TakePhoto : WholePenCaptureLabel
+    data object GroupVideo : WholePenCaptureLabel
+    data object AddAnotherVideo : WholePenCaptureLabel
+}
+
+/**
+ * The whole-pen primary capture button's label. The first capture names the slot the way the SOP
+ * author did -- the operator is filming THAT, not a generic "group video" -- and a pen with no
+ * authored title (older pinned card) keeps the generic wording. Later captures keep the add-another
+ * wording, since the title already sits on the strip above them.
+ */
+fun wholePenPrimaryCaptureLabel(sop: WeighingCaptureSopUi, captured: Int): WholePenCaptureLabel = when {
+    captured == 0 && sop.primaryPenSlotTitle.isNotBlank() -> WholePenCaptureLabel.Authored(sop.primaryPenSlotTitle.trim())
+    sop.primaryPenSlotKind == "photo" -> WholePenCaptureLabel.TakePhoto
+    captured == 0 -> WholePenCaptureLabel.GroupVideo
+    else -> WholePenCaptureLabel.AddAnotherVideo
+}
