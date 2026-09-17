@@ -73,35 +73,56 @@
     if(regKey!=='items'&&!cols.some(c=>c.key||/^(key|code)$/i.test(c.label))&&S.all(reg.coll).some(r=>r.key))
       cols=cols.concat([{label:'Key',key:1,w:170,html:r=>`<span class="mono muted">${esc(r.key||'')}</span>`}]);
     if(!s.showKeys)cols=cols.filter(c=>!(c.key||/^(key|code)$/i.test(c.label)));
+    if(regKey==='items'&&!list.some(r=>L.itemChips(r)))cols=cols.filter(c=>c.label!=='Tracking');
     cols=cols.map(c=>c.low?Object.assign({},c,{cls:'lowpri'}):c);
     cols=cols.map(c=>c.key?Object.assign({},c,{cls:'keycol'}):/^grade$/i.test(c.label)?Object.assign({},c,{html:r=>esc(REG.gradeLabel(r.grade))}):c);
     /* count columns that are zero on every row say nothing: drop them */
     cols=cols.filter(c=>!c.num||!list.length||list.slice(0,500).some(r=>{const v=String(c.html(r)).replace(/<[^>]*>/g,'').trim();return v!==''&&v!=='0'&&v!=='—';}));
-    if(!list.length)return `<div class="empty">${S.all(reg.coll).length?'No matches':'No '+esc(reg.label.toLowerCase())+' yet'}</div>`;
+    if(!list.length){const scoped=S.all(reg.coll).filter(opts.where||(()=>true));
+      return scoped.length?`<div class="empty">No matches</div>`:`<div class="empty">No ${esc(reg.label.toLowerCase())} yet${regKey==='items'?`<div style="margin-top:10px"><button class="btn sm p" data-a="rec-new" data-reg="items">${ic('plus')}Add item</button></div>`:''}</div>`;}
     const shown=list.slice(0,500);
     /* widths by content: tables scroll inside .twrap instead of truncating */
     const MINW={rfid:170,'second tag':130,stage:190,'lifecycle stage':190,park:140,pen:140,partition:150,breed:150,species:110,name:180};
     const widthOf=c=>c.w||MINW[String(c.label).toLowerCase()]||(c.num?110:130);
     const plain=h=>String(h).replace(/<[^>]*>/g,'').replace(/&amp;/g,'&').replace(/&lt;/g,'<').replace(/&gt;/g,'>').replace(/&quot;/g,'"').replace(/&#39;/g,"'").trim();
     const allSel=shown.every(r=>s.sel.has(r.id));
-    return `<style>@media(max-width:760px){.ltbl .keycol,.ltbl td.keycol,.ltbl th.keycol{display:none!important}}</style><table class="ltbl" style="width:max-content;min-width:100%;table-layout:fixed"><colgroup><col style="width:44px">${cols.map(c=>`<col class="${c.cls||''}" style="width:${widthOf(c)}px">`).join('')}<col style="width:104px"><col style="width:52px"></colgroup>
+    return `<style>@media(max-width:760px){.ltbl .keycol,.ltbl td.keycol,.ltbl th.keycol{display:none!important}}</style><table class="ltbl${regKey==='items'?' itbl':''}" style="${regKey==='items'?'width:100%':'width:max-content;min-width:100%'};table-layout:fixed"><colgroup><col style="width:44px">${cols.map(c=>`<col class="${c.cls||''}" style="width:${c.pct?c.pct+'%':c.auto?'auto':widthOf(c)+'px'}">`).join('')}<col style="width:${regKey==='items'?100:104}px"><col style="width:52px"></colgroup>
       <thead><tr><th class="ck"><input type="checkbox" data-a="sel-all" data-reg="${regKey}" ${allSel?'checked':''} aria-label="Select all"></th>${cols.map(c=>`<th class="${c.num?'num':''} ${c.cls||''}">${esc(c.label)}</th>`).join('')}<th>Status</th><th></th></tr></thead>
       <tbody>${shown.map((r,i)=>{const g=opts.groupBy&&opts.groupBy(r);const gh=g!=null&&(i===0||opts.groupBy(shown[i-1])!==g)?`<tr class="grow"><td colspan="${cols.length+3}">${esc(g)} <span class="muted">${shown.filter(x=>opts.groupBy(x)===g).length}</span></td></tr>`:'';return gh+`<tr class="clk ${r.status==='archived'?'arch':''}" data-a="row-open" data-reg="${regKey}" data-id="${r.id}">
         <td class="ck" data-label=""><input type="checkbox" data-a="sel-one" data-reg="${regKey}" data-id="${r.id}" ${s.sel.has(r.id)?'checked':''} aria-label="Select" title="Shift-click selects a range"></td>
-        ${cols.map(c=>{const h=c.html(r);return `<td class="${c.num?'num':''} ${c.cls||''}" data-label="${esc(c.label)}" ${c.wrap?'style="white-space:normal;overflow:visible"':`title="${esc(plain(h))}"`}>${h}</td>`;}).join('')}<td data-label="Status">${UI.statusTag(r.status)}</td>
+        ${cols.map(c=>{const h=c.html(r);return `<td class="${c.num?'num':''} ${c.cls||''}" data-label="${esc(c.label)}" ${c.wrap?'style="white-space:normal;overflow:visible"':`title="${esc(plain(h))}"`}>${h}</td>`;}).join('')}<td data-label="Status"${regKey==='items'?' style="white-space:normal"':''}>${UI.statusTag(r.status)}${regKey==='items'&&REG.itemMissing(r).length?' '+UI.tag('Incomplete','warn'):''}</td>
         <td class="act" data-label=""><button class="btn icon gh" data-a="row-menu" data-reg="${regKey}" data-id="${r.id}" aria-label="Row actions">${ic('more')}</button></td></tr>`;}).join('')}</tbody></table>
       ${list.length>500?`<div class="empty">${shown.length} of ${list.length}</div>`:''}`;
   };
 
   /* Items: unit sits under the item name; departments wrap as tags */
+  const daysTo=d=>{const t=Date.parse(d);return isNaN(t)?null:Math.ceil((t-Date.now())/864e5);};
+  L.itemChips=function(r){
+    const out=[];
+    const st=REG.stockOf(r.id);const fd=d=>d?d.slice(8,10)+'/'+d.slice(5,7)+'/'+d.slice(0,4):'';
+    if(REG.on(r.trackStock)){
+      out.push(UI.tag(st.lots?st.qty+(st.expiresOn?' · exp '+fd(st.expiresOn).slice(0,5):' in stock'):'No stock yet',REG.lowStock(r)?'warn':'mut'));}
+    if(REG.on(r.trackExpiry)&&st.expiresOn){const n=daysTo(st.expiresOn);if(n!=null&&n<=(+r.expiryAlertDays||0)){out.push(UI.tag(n<0?'Expired':'Expires in '+n+' d',n<0?'dng':'warn'));return out.join('');}}
+    if(REG.on(r.trackCheck)&&+r.checkEvery)out.push(UI.tag('Check every '+r.checkEvery+' d','mut'));
+    const uses=REG.itemUses(r.id);const sops=uses.filter(u=>u.type==='sop');
+    if(sops.length===1)out.push(UI.tag(sops[0].label.replace(/^Individual /,'').replace(/^./,c=>c.toUpperCase())+' SOP','info'));
+    else if(sops.length)out.push(UI.tag(sops.length+' SOPs','info'));
+    if(+r.protocols)out.push(UI.tag(r.protocols+' protocol'+(+r.protocols===1?'':'s'),'mut'));
+    if(r.plan)out.push(UI.tag('Vaccination plan','mut'));
+    if(r.feedConfig)out.push(UI.tag('Feed Config','mut'));
+    return out.slice(0,2).join('')+(out.length>2?UI.tag('+'+(out.length-2),'mut'):'');
+  };
+  /* Items: unit, subcategory path and departments sit under the item name; tracking chips */
   const ITEM_COLS=[
-    {label:'Item',w:140,wrap:1,html:r=>`<b>${esc(r.name)}</b>${r.unit?`<div class="muted small">${esc(r.unit)}</div>`:''}`},
-    {label:'Category',w:120,wrap:1,html:r=>`<span class="muted">${esc(REG.catPath(r.categoryId))}</span>`},
-    {label:'Departments',w:120,wrap:1,html:r=>`<div style="display:flex;flex-wrap:wrap;gap:4px">${(r.depts||[]).map(d=>UI.tag(REG.enumLabel(d),'teal')).join('')}</div>`}];
+    {label:'Item',auto:1,wrap:1,html:r=>{const path=REG.catPath(r.categoryId).split(' > ');const p=(window.ItemsCat?path.slice(1):path).join(' › ');
+      const sub=[r.unit,p,(r.depts||[]).map(REG.enumLabel).join(', ')].filter(Boolean).join(' · ');
+      return `<b>${esc(r.name)}</b>${sub?`<div class="muted small">${esc(sub)}</div>`:''}`;}},
+    {label:'Tracking',w:210,wrap:1,html:r=>{const c=L.itemChips(r);return c?`<div class="chips" style="display:flex;flex-wrap:wrap;gap:4px">${c}</div>`:'';}}];
 
   /* archive blocked: "In use by 3 animals" links to those records, selected for bulk actions */
   const ROUTE={tags:'shed-tags'};
   L.blockToast=function(coll,ids,title){
+    if(coll==='items'){const u=[].concat(ids).map(id=>REG.itemUses(id,null,true).filter(x=>x.published)).flat();if(u.length){const f=u[0];UI.toast(title||'Cannot archive',null,{label:'Used in '+f.label+(u.length>1?' +'+(u.length-1):''),link:true,run:()=>{location.hash=f.href;}});return true;}}
     const agg=[];[].concat(ids).forEach(id=>REG.activeUsers(coll,id).forEach(u=>{const cur=agg.find(a=>a.regKey===u.regKey);if(cur)u.ids.forEach(i=>{if(!cur.ids.includes(i))cur.ids.push(i);});else agg.push({regKey:u.regKey,label:u.label,ids:u.ids.slice()});}));
     if(!agg.length)return false;
     const txt='In use by '+agg.map(a=>a.ids.length+' '+a.label.toLowerCase()).join(', ');
@@ -114,7 +135,11 @@
       if(location.hash===h)App.render();else location.hash=h;}});
     return true;
   };
-  const archiveOne=(reg,rec)=>{if(REG.archiveBlock(reg.coll,rec.id))return L.blockToast(reg.coll,rec.id);UI.undoable('Archived',()=>{rec.status='archived';App.render();});};
+  L.showIds=function(regKey,ids,label,coll){const s=state(regKey);s.only={ids,coll:coll||REG.R[regKey].coll,label:label||'Selected'};s.sel=new Set(ids);s.status='active';s.q='';s.f={};
+    const h='#/configuration/items/'+(ROUTE[regKey]||regKey);App._allow=true;if(location.hash===h)App.render();else location.hash=h;};
+  const archiveOne=(reg,rec)=>{if(REG.archiveBlock(reg.coll,rec.id))return L.blockToast(reg.coll,rec.id);
+    const d=reg.coll==='items'?REG.itemUses(rec.id,null,true).filter(u=>u.type==='sop'&&!u.published):[];
+    UI.undoable('Archived'+(d.length?' · used in draft of '+d[0].label+(d.length>1?' +'+(d.length-1):''):''),()=>{rec.status='archived';App.render();});};
 
   L.opts={}; // regKey -> opts used on current screen (set by page renderers)
   L.refreshTable=function(regKey){const el=document.querySelector(`[data-ltable="${regKey}"]`);if(el)el.innerHTML=L.table(regKey,L.opts[regKey]||{});};

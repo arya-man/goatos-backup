@@ -1,7 +1,7 @@
 /* Import / export / templates (CSV + XLSX via SheetJS, loaded on demand) */
 (function(){
   const IO={};
-  const WORKBOOK_ORDER=['farms','parks','pens','partitions','species','breeds','sexes','stages','tags','healthStates','statusDefs','exitReasons','purposes','movementReasons','weightBands','animals','categories','items','roles','people','designations','approvalChains','saleProducts','costKinds','identifierPolicies','sopCategories','taskTypes','settings'].filter(k=>REG.R[k]);
+  const WORKBOOK_ORDER=['farms','parks','pens','partitions','species','breeds','sexes','stages','tags','healthStates','statusDefs','exitReasons','purposes','movementReasons','weightBands','animals','categories','items','lots','roles','people','designations','approvalChains','saleProducts','costKinds','identifierPolicies','sopCategories','taskTypes','settings'].filter(k=>REG.R[k]);
   IO.ORDER=WORKBOOK_ORDER;
   IO.LIMITS={rows:10000,bytes:5*1024*1024,cols:60};
   const ALIASES={
@@ -61,6 +61,8 @@
   /* per-species animal templates drop Breed/Stage when that species has none */
   function colsFor(regKey,speciesId){
     const reg=REG.R[regKey];
+    /* items: kind fields of the open catalogue (all kinds when none is open) + capability columns */
+    if(regKey==='items'){const kind=window.ItemsKind||'';return reg.cols.filter(c=>!c.kinds||!kind||c.kinds.includes(kind));}
     if(regKey!=='animals'||!speciesId)return reg.cols;
     return reg.cols.filter(c=>!(c.k==='breed'&&!S.active('breeds').some(x=>x.speciesId===speciesId))&&!(c.k==='stage'&&!S.active('stages').some(x=>x.speciesId===speciesId)));
   }
@@ -129,7 +131,7 @@
   };
   IO.exportRegister=function(regKey,fmt,ids){
     const aoa=[header(regKey).concat(['Status'])].concat(
-      (ids&&ids.length?ids.map(id=>S.get(REG.R[regKey].coll,id)).filter(Boolean):S.all(REG.R[regKey].coll)).map(r=>{const v=REG.toRow(regKey,r);return REG.R[regKey].cols.map(c=>v[c.k]).concat([REG.enumLabel(r.status||'active')]);}));
+      (ids&&ids.length?ids.map(id=>S.get(REG.R[regKey].coll,id)).filter(Boolean):S.all(REG.R[regKey].coll).filter(r=>regKey!=='items'||!window.ItemsKind||REG.itemKindOfCat(r.categoryId)===window.ItemsKind)).map(r=>{const v=REG.toRow(regKey,r);return colsFor(regKey).map(c=>v[c.k]).concat([REG.enumLabel(r.status||'active')]);}));
     if(fmt==='csv')return UI.download(fname(regKey,'export','csv'),IO.toCSV(aoa.map(r=>r.map(safeCell))));
     writeBook([[REG.R[regKey].label,aoa]],fname(regKey,'export','xlsx'),[idCols(regKey)]);
   };
@@ -154,11 +156,12 @@
     App.render();
   };
   /* sheet name -> register: exact label/key first, then the earliest word that names a register ("Goat animals" -> Animals, "Pens & partitions" -> Pens) */
-  const SHEET_WORDS={staff:'people',team:'people',employees:'people',approvals:'approvalChains',approvers:'approvalChains',sheds:'pens',shed:'pens',goats:'animals',sheep:'animals',herd:'animals',stock:'animals',
-    tags:'tags',stages:'stages',lifecycle:'stages',catalogue:'items',catalog:'items',inventory:'items',titles:'designations',jobs:'designations',rules:'settings'};
+  const SHEET_WORDS={staff:'people',team:'people',employees:'people',approvals:'approvalChains',approvers:'approvalChains',sheds:'pens',shed:'pens',goats:'animals',sheep:'animals',herd:'animals',stock:'lots',receipts:'lots',receipt:'lots',lots:'lots',
+    tags:'tags',stages:'stages',lifecycle:'stages',catalogue:'items',catalog:'items',inventory:'lots',titles:'designations',jobs:'designations',rules:'settings'};
   IO.sheetRegFor=function(name,fallback){
     const n=nk(name); if(!n)return fallback;
     if(n==='lists'||n==='allowed values')return null;
+    if(REG.R.lots&&/^(inventory|stock|stock in|stock receipts?|receipts?|lots?|goods received)$/.test(n))return 'lots';
     const keys=Object.keys(REG.R);
     const exact=keys.find(k=>nk(REG.R[k].label)===n||nk(k)===n||nk(REG.R[k].one)===n||nk(REG.R[k].coll)===n);
     if(exact)return exact;

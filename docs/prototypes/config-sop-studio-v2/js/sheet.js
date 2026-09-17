@@ -9,6 +9,7 @@
     return {regKey,rows:rowVals.map(v=>({id:rid(),v:Object.assign({},v.v||v),recId:v.recId||null})),sel:new Set(),view:'all',
       createParents:!!opts.createParents,skipErrors:false,active:{r:0,c:0},pending:opts.pending||null,summary:null,title:opts.title,mode:opts.mode||'entry'};
   };
+  const make0=Sheet.make;Sheet.make=function(){const G=make0.apply(Sheet,arguments);G.sig0=rowsSig(G);return G;};
 
   /* open an entry grid page for a register */
   Sheet.openEntry=function(regKey,ids,vals){
@@ -18,14 +19,21 @@
     else rows=(vals&&vals.length?vals:[{}]);
     Sheet.cur=Sheet.make(regKey,rows,{title:ids&&ids.length?'Edit '+reg.label.toLowerCase():'Add '+reg.label.toLowerCase()});
     Sheet.cur.back=location.hash;
+    if(!(ids&&ids.length)&&vals&&vals.some(v=>Object.keys(v||{}).length))Sheet.cur.quiet=true;
     App._allow=true;
     location.hash='#/configuration/items/sheet/'+regKey;
     App.render();
   };
 
+  const rowsSig=G=>JSON.stringify(G.rows.map(r=>[r.recId||'',Object.keys(r.v).sort().filter(k=>String(r.v[k]==null?'':r.v[k]).trim()!=='').map(k=>[k,String(r.v[k]).trim()])]).filter(x=>x[0]||x[1].length));
+  /* a grid is dirty only when its rows differ from what it opened with */
+  Sheet.isDirty=G=>!!G&&rowsSig(G)!==G.sig0;
   Sheet.results=function(G){
     const pend=G.pending?G.pending():{};
-    return REG.validate(G.regKey,G.rows,{createParents:G.createParents,pending:pend});
+    const res=REG.validate(G.regKey,G.rows,{createParents:G.createParents,pending:pend});
+    if(!G.quiet)return res;
+    /* prefilled rows stay quiet until the person edits a cell or saves */
+    return res.map(r=>{const iss={};Object.entries(r.issues).forEach(([k,i])=>{if(i[0]!=='err')iss[k]=i;});return Object.assign({},r,{issues:iss,status:r.status==='error'?(r.recId?'update':'create'):r.status});});
   };
   Sheet.counts=function(res){
     const cnt={all:0,error:0,warn:0,info:0,create:0,update:0,unchanged:0,newv:0,unresolved:0};const nv=new Set();
@@ -155,7 +163,7 @@
     root.addEventListener('input',e=>{
       const inp=e.target.closest('input.cell'); if(!inp)return;
       const g=G(),reg=REG.R[g.regKey],c=reg.cols[+inp.dataset.c];
-      g.rows[+inp.dataset.r].v[c.k]=inp.value;
+      g.rows[+inp.dataset.r].v[c.k]=inp.value;g.quiet=false;
       if(isPick(c))openPop(inp);
       clearTimeout(t); t=setTimeout(()=>Sheet.repaint(g,root),120);
     });
@@ -190,7 +198,7 @@
       const text=(e.clipboardData||window.clipboardData).getData('text');
       if(!/[\t\n]/.test(text.replace(/\n$/,'')))return;
       e.preventDefault();
-      Sheet.pasteAt(G(),+inp.dataset.r,+inp.dataset.c,text); rerender();
+      G().quiet=false;Sheet.pasteAt(G(),+inp.dataset.r,+inp.dataset.c,text); rerender();
     });
     function move(inp,dr,dc){
       const g=G(); let r=+inp.dataset.r+dr; if(r>=g.rows.length){g.rows.push({id:rid(),v:{}});rerender();}
@@ -319,7 +327,7 @@
     'sh-err-prev'(){Sheet.jumpError(-1);},
     'sh-errors'(){const g=Sheet.active();IO.downloadErrors(g);},
     'sh-cancel'(){const g=cur();App.leave(g&&g.back&&!g.back.includes('/sheet/')?g.back:'#/configuration/items/'+(g?g.regKey:''));},
-    'sh-save'(){const g=Sheet.active();if(Sheet.saveHook)return Sheet.saveHook(g);Sheet.save(g);Sheet.rerender();},
+    'sh-save'(){const g=Sheet.active();if(g.quiet){g.quiet=false;if(Sheet.counts(Sheet.results(g)).error){Sheet.rerender();return;}}if(Sheet.saveHook)return Sheet.saveHook(g);Sheet.save(g);Sheet.rerender();},
     'sh-undo'(){const g=Sheet.active();S.undoTo(g.snapN);g.summary=null;if(g.lastRows)g.rows=g.lastRows;App.render();UI.toast('Undone');}
   });
   Sheet.active=()=>Sheet.activeGetter?Sheet.activeGetter():Sheet.cur;

@@ -90,8 +90,10 @@
     return undefined;
   }
   function pickList(n,a){
-    const coll=n.refColl, L=(window.Flow&&Flow.REFS&&Flow.REFS[coll])||'List';
-    const recs=((st()[coll])||[]).filter(x=>x.status!=='archived');
+    const coll=n.refColl; let L=(window.Flow&&Flow.REFS&&Flow.REFS[coll])||'List';
+    let recs=((st()[coll])||[]).filter(x=>x.status!=='archived');
+    /* items: options = active items of the chosen category (and its subcategories); answer stores the item id */
+    if(coll==='items'&&n.refCat&&window.REG){const cat=(st().categories||[]).find(c=>c.id===n.refCat);const sub=REG.catSubtree(n.refCat);recs=recs.filter(x=>sub.has(x.categoryId));if(cat)L=cat.name;}
     /* partitions: numeric labels join with a space ("Castro 1"), worded ones with " - " ("Godel 1 - Part 3") */
     const partLabel=x=>{const p=(st().pens||[]).find(y=>y.id===x.penId);const nm=x.name||'';if(!p)return nm;const pn=p.displayName||p.name;return /^\d+$/.test(nm)?pn+' '+nm:pn+' - '+nm;};
     const opt=x=>{const t=coll==='partitions'?partLabel(x):recLabel(x);return `<option value="${E(x.id)}" ${a===x.id?'selected':''}>${E(t)}</option>`;};
@@ -101,7 +103,7 @@
       const groups=new Map(); recs.forEach(x=>{const k=parkOf(coll,x)||'';if(!groups.has(k))groups.set(k,[]);groups.get(k).push(x);});
       opts=[...groups].map(([k,xs])=>`<optgroup label="${E(parkName(k))}">${xs.map(opt).join('')}</optgroup>`).join('');
     }else opts=recs.map(opt).join('');
-    return `<div class="op-input"><select data-op="sel" data-n="${n.id}" aria-label="${E(n.label||L)}"><option value="">Select ${E(L.toLowerCase())}</option>${opts}</select></div>`;
+    return `<div class="op-input"><select data-op="sel" data-n="${n.id}" aria-label="${E(n.label||L)}"><option value="">Select ${E(L.toLowerCase().replace(/([^s])s$/,'$1'))}</option>${opts}</select></div>`;
   }
 
   function fieldHtml(n,r,sop){

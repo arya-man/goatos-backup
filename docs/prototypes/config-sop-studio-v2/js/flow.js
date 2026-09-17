@@ -191,7 +191,7 @@
       case 'start':return 'Operator starts';
       case 'question':{const a=ANSWERS[n.answer]||'Text';const o=(n.options||[]).map(o=>o.l);
         const lim=n.answer==='number'?F.limitText(n,sop):'';
-        return [a==='Single choice'||a==='Multiple choice'?(o.slice(0,3).join(' / ')+(o.length>3?' …':'')||a):a,n.unit,lim,n.required?'required':'',n.reject?'can reject':''].filter(Boolean).join(' · ');}
+        return [a==='Single choice'||a==='Multiple choice'?(o.slice(0,3).join(' / ')+(o.length>3?' …':'')||a):n.answer==='ref'?a+' · '+(n.refColl==='items'&&n.refCat&&window.REG?REG.catPath(n.refCat):(REFS[n.refColl]||'')):a,n.unit,lim,n.required?'required':'',n.reject?'can reject':''].filter(Boolean).join(' · ');}
       case 'evidence':return (n.media||['photo']).join(' or ')+' · '+(n.min||0)+(n.max&&n.max!==n.min?'–'+n.max:'')+' file'+((n.max||1)>1?'s':'');
       case 'decision':{const q=m[n.q];if(n.op==='duplicate')return 'Already scanned?';if(!q)return 'Choose a question';
         const val=String(n.value).startsWith('@')?(m[n.value.slice(1)]||{}).label:(((q.options||[]).find(o=>o.v===n.value)||{}).l||n.value);return 'If answer '+n.op+' '+val;}

@@ -101,14 +101,18 @@
     <div class="twrap screen ltable"><table class="ltbl"><thead><tr>${heads.map(h=>`<th class="${h[1]?'num':''}">${esc(h[0])}</th>`).join('')}</tr></thead>
     <tbody>${rows.map(r=>`<tr>${r.map((c,i)=>`<td class="${heads[i][1]?"num":""}" data-label="${esc(heads[i][0])}">${c}</td>`).join('')}</tr>`).join('')}</tbody></table></div></section>`;
   const head=(grp,leaf)=>`<div class="phead"><div><div class="crumb">${esc(grp)} / <b>${esc(leaf)}</b></div><h1>${esc(leaf)}</h1></div></div>`;
+  /* items carrying this department: every item of the owning fixed catalogue, plus list items that opted in */
+  const deptItems=(dept,title)=>{const xs=S.active('items').filter(i=>(i.depts||[]).includes(dept)).sort((a,b)=>{const ra=REG.catRoot(a.categoryId),rb=REG.catRoot(b.categoryId);return ((rb&&rb.system)-(ra&&ra.system))||a.name.localeCompare(b.name);});
+    return tbl(title,xs.length,[['Item'],['From'],['In stock',1]],xs.map(i=>{const r=REG.catRoot(i.categoryId),st=REG.stockOf(i.id);
+      return [`<a href="#/configuration/items/items"><b>${esc(i.name)}</b></a>`,r?(r.system?UI.tag(r.name,'teal'):UI.tag(r.name,'mut')):'',REG.on(i.trackStock)?st.qty:'<span class="muted">—</span>'];}));};
   const MODULE_PAGES={
     '#/health/config':()=>head('Health','Health Config')+`<div class="grid g4 kpis">${kpi('Diseases',STG.health.diseases.length)}${kpi('Published protocols',STG.health.published,'Adult + kid')}${kpi('Drafts',STG.health.drafts)}${kpi('Longest course',Math.max(...STG.health.diseases.map(d=>d[1]))+'<small> days</small>')}</div>`
-      +tbl('Treatment protocols',STG.health.diseases.length,[['Disease'],['Age bands'],['Version',1],['Course (days)',1]],STG.health.diseases.map(([n,d])=>[`<b>${esc(n)}</b>`,UI.tag('Adult','mut')+' '+UI.tag('Kid','mut'),'v1',d])),
+      +tbl('Treatment protocols',STG.health.diseases.length,[['Disease'],['Age bands'],['Version',1],['Course (days)',1]],STG.health.diseases.map(([n,d])=>[`<b>${esc(n)}</b>`,UI.tag('Adult','mut')+' '+UI.tag('Kid','mut'),'v1',d]))+deptItems('Health','Medicines and items'),
     '#/feed/config':()=>head('Feed','Feed Config')+`<div class="grid g4 kpis">${kpi('Ration groups',new Set(STG.feed.rations.map(r=>r[1])).size,STG.feed.rations.length+' breeds')}${kpi('Feed items',STG.feed.items.length,STG.feed.retiredItems+' retired')}${kpi('Pen tags',STG.feed.shedTags)}${kpi('Sessions',STG.feed.sessions.length,STG.feed.sessions.join(' · '))}</div>`
       +tbl('Ration groups',STG.feed.rations.length,[['Breed'],['Ration group']],STG.feed.rations.map(([b,g])=>[`<b>${esc(b)}</b>`,esc(g)]))
-      +tbl('Feed items',STG.feed.items.length,[['Item'],['Status']],STG.feed.items.map(([n,st])=>[`<b>${esc(n)}</b>`,UI.statusTag(st)])),
+      +tbl('Feed items',STG.feed.items.length,[['Item'],['Status']],STG.feed.items.map(([n,st])=>[`<b>${esc(n)}</b>`,UI.statusTag(st)]))+deptItems('Feed','Feed catalogue and items'),
     '#/vaccination/plan':()=>{const v=STG.vacc;return head('Preventive Care','Vaccination plan')+`<div class="grid g4 kpis">${kpi('Published plan',v.version,v.publishedAt+' · '+v.draft+' draft')}${kpi('Vaccines',v.vaccines.length,v.rules+' rules')}${kpi('Animals per operator-day',v.capPerDay)}${kpi('Max shots per animal',v.maxShots,'Buffer '+v.bufferDays+' days')}</div>`
-      +tbl('Vaccines · '+v.version,v.vaccines.length,[['Vaccine'],['Doses']],v.vaccines.map(([n,d])=>[`<b>${esc(n)}</b>`,d.map(x=>UI.tag(x,'mut')).join(' ')]))
+      +tbl('Vaccines · '+v.version,v.vaccines.length,[['Vaccine'],['Doses']],v.vaccines.map(([n,d])=>[`<b>${esc(n)}</b>`,d.map(x=>UI.tag(x,'mut')).join(' ')]))+deptItems('Preventive Care','Vaccines and items')
 ;},
     '#/sales/config':()=>head('Sales','Sales Config')+`<div class="grid g4 kpis">${kpi('Market questions',STG.sales.questions.length)}${kpi('Daily market call',STG.sales.callTime)}</div>`
       +tbl('Market questions',STG.sales.questions.length,[['Question'],['Unit']],STG.sales.questions.map(q=>[`<b>${esc(q)}</b>`,esc(STG.sales.unit)]))
@@ -162,10 +166,33 @@
     const sameSection=(App._lastPath||'').split('/').slice(0,3).join('/')===h.split('/').slice(0,3).join('/');
     wrap.innerHTML=out.html;
     if(out.mount)out.mount(wrap);
+    enhanceHead(wrap,h);
     if(App._lastPath===h)main.scrollTop=keepScroll; else if(!sameSection)main.scrollTop=0;
     keep.forEach(([q,t])=>{const e=document.querySelector(q);if(e)e.scrollTop=t;});
+    if(App._lastPath!==h)App._prevPath=App._lastPath;
     App._lastPath=h;
   };
+  /* nested pages: back arrow to the parent route + every breadcrumb segment is a link */
+  const CRUMB_HREF=h=>{const m={Configuration:'#/configuration/items'};NAV.forEach(n=>{if(n.group&&n.leaves){const l=n.leaves.find(x=>x[1]!==h);if(l)m[n.group]=l[1];}});return m;};
+  function parentOf(h,crumb){
+    if(/^#\/configuration\/items\/(places\/)?park\//.test(h))return '#/configuration/items/parks';
+    const as=crumb?[...crumb.querySelectorAll('a[href^="#"]')]:[];const last=as[as.length-1];
+    if(last&&last.getAttribute('href')!==h)return last.getAttribute('href');
+    const n=NAV.find(x=>(x.leaves||[]).some(([,hh])=>hh===h));
+    if(n&&!/^#\/configuration\//.test(h)&&(n.leaves[0][1]!==h||/\/config$/.test(h))){const l=n.leaves.find(x=>x[1]!==h);if(l)return l[1];}
+    return '';
+  }
+  function enhanceHead(wrap,h){
+    const ph=wrap.querySelector('.phead');if(!ph)return;const crumb=ph.querySelector('.crumb');
+    const top=/^#\/configuration\/items(\/(?!import$|sheet\/|park\/|places\/park\/|animal-types\/)[^/]+)?$/.test(h)||h==='#/configuration/work-instructions';
+    const parent=top?'':parentOf(h,crumb);
+    if(crumb){const map=CRUMB_HREF(h);[...crumb.childNodes].forEach(nd=>{if(nd.nodeType!==3)return;
+      const frag=document.createDocumentFragment();nd.textContent.split(/(\s*\/\s*)/).forEach(t=>{const k=t.trim();
+        if(k&&k!=='/'&&map[k]&&map[k]!==h){const a=document.createElement('a');a.href=map[k];a.textContent=k;frag.appendChild(a);}else frag.appendChild(document.createTextNode(t));});
+      nd.replaceWith(frag);});}
+    /* the back arrow lives in the crumb row so it never shifts the title or squeezes header actions */
+    if(parent&&crumb&&!crumb.querySelector('.backlink')){const b=document.createElement('a');b.className='backlink';b.href=parent;b.dataset.a='nav-back';b.setAttribute('aria-label','Back');b.title='Back';b.innerHTML=ic('arrow-left','',14);crumb.insertBefore(b,crumb.firstChild);crumb.classList.add('hasback');}
+  }
   App.renderCanvasOnly=function(){
     const p=App.route.parts; if(p[1]!=='work-instructions'||!p[2])return;
     const s=S.get('sops',p[2]); const cv=document.querySelector('[data-canvas]'); if(!s||!cv)return;
@@ -186,7 +213,8 @@
     'user-menu'(el){UI.menu(el,[
       {label:'Theme',icon:'sun',run:()=>A.theme()},
       {label:'Reset data',icon:'rotate',danger:true,run:()=>{S.reset();Object.keys(List.st).forEach(k=>delete List.st[k]);Sheet.cur=null;IO.state=null;if(window.MeshaOperator)S.all('sops').forEach(x=>MeshaOperator.reset(x.id));App._allow=true;App.render();UI.toast('Data reset');}}]);},
-    'drawer-close'(){UI.closeDrawer();}
+    'drawer-close'(){UI.closeDrawer();},
+    'nav-back'(el,e){e.preventDefault();const to=el.getAttribute('href');if(App._prevPath===to&&history.length>1)history.back();else location.hash=to;}
   });
 
   document.addEventListener('click',e=>{
@@ -203,6 +231,7 @@
   let escPop=false; /* captured before the field's own popKey closes the popup */
   window.addEventListener('keydown',e=>{if(e.key==='Escape'){const pop=document.getElementById('cbpop');escPop=!!(UI._popCfg||(pop&&pop.style.display!=='none'&&pop.offsetParent!==null));}},true);
   document.addEventListener('keydown',e=>{if(e.key!=='Escape')return;
+    const lg=document.getElementById('leaveg');if(lg){lg.remove();e.stopPropagation();return;}
     const m=document.getElementById('menu');
     if(escPop||UI._popCfg){escPop=false;UI.closePop();e.stopPropagation();return;}
     if(m&&m.offsetParent!==null&&m.innerHTML.trim()){UI.closeMenu();e.stopPropagation();return;}
@@ -222,12 +251,24 @@
     if(force){const x=SetupPage.dirty&&SetupPage.dirty();if(x)x.discard();}
     App._allow=true; if(location.hash===hash)App.render(); else location.hash=hash;
   };
+  /* a dirty drawer asks before its edits are dropped; the drawer stays open behind the prompt */
+  function drawerGuard(onDiscard){
+    const old=document.getElementById('leaveg');if(old)old.remove();
+    const m=document.createElement('div');m.id='leaveg';m.className='leaveg';m.setAttribute('role','dialog');m.setAttribute('aria-modal','true');m.setAttribute('aria-label','Unsaved changes');
+    m.innerHTML=`<div class="leaveg-b"><h3>Unsaved changes</h3><div class="row"><button class="btn" data-lg="keep">Keep editing</button><span class="sp"></span><button class="btn dngo" data-lg="discard">Discard</button></div></div>`;
+    document.body.appendChild(m);m.querySelector('[data-lg="keep"]').focus();
+    m.onclick=e=>{const b=e.target.closest('[data-lg]');if(!b&&e.target!==m)return;m.remove();if(b&&b.dataset.lg==='discard')onDiscard();};
+  }
+  App.drawerDirty=()=>!!(UI._drawer&&UI._drawer.dirty&&UI._drawer.dirty());
   window.addEventListener('hashchange',e=>{
-    UI.closeMenu();UI.closePop();if(UI._drawer)UI.closeDrawer();
-    if(!App._allow&&App._lastPath&&SetupPage.dirty){const d=SetupPage.dirty();
-      if(d){const target=location.hash;history.replaceState(null,'',App._lastPath);guard(d,target);return;}}
+    const prev=App._lastPath;
+    if(!App._allow&&prev&&App.drawerDirty()){const target=location.hash;history.replaceState(null,'',prev);
+      drawerGuard(()=>{UI._drawer.dirty=null;UI.closeDrawer();App._allow=true;location.hash=target;});return;}
+    UI.closeMenu();UI.closePop();if(UI._drawer)UI.closeDrawer();document.querySelectorAll('.toast').forEach(t=>t.remove());
+    if(!App._allow&&prev&&SetupPage.dirty){const d=SetupPage.dirty();
+      if(d){const target=location.hash;history.replaceState(null,'',prev);guard(d,target);return;}}
     App._allow=false;App.render();});
-  window.addEventListener('beforeunload',e=>{const d=SetupPage.dirty&&SetupPage.dirty();if(d){e.preventDefault();e.returnValue='';}});
+  window.addEventListener('beforeunload',e=>{const d=(SetupPage.dirty&&SetupPage.dirty())||App.drawerDirty();if(d){e.preventDefault();e.returnValue='';}});
   /* 861-1179px: icon-only nav rail with tooltips; phones keep the drawer */
   /* 861-1179px everywhere; SOP / master editors also collapse up to 1366px so the canvas gets the room */
   function railMode(){const w=window.innerWidth,l=document.getElementById('layout');const ed=/^#\/configuration\/work-instructions\/[^/?]+/.test(location.hash||'');l.classList.toggle('rail-icons',w>860&&(w<1180||(ed&&w<=1366)));}

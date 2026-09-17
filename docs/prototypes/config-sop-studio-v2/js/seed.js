@@ -357,8 +357,8 @@
     const bid=n=>'br_g_'+n.toLowerCase().replace(/[^a-z]+/g,'_');
     st.breeds=goatBreeds.map(([b,al,stt])=>({id:bid(b),speciesId:'sp_goat',name:b,aliases:al||[],status:stt||'active'}));
     st.breeds.push({id:'br_s_anantapur_sheep',speciesId:'sp_sheep',name:'Anantapur Sheep',aliases:[],status:'active'});
-    st.sexes=[{id:'sx_gf',speciesId:'sp_goat',name:'Female',status:'active'},{id:'sx_gm',speciesId:'sp_goat',name:'Male',status:'active'},
-      {id:'sx_sf',speciesId:'sp_sheep',name:'Female',status:'active'},{id:'sx_sm',speciesId:'sp_sheep',name:'Male',status:'active'}];
+    /* One global list, not per species: goatos-stg goats.sex CHECK (female, male). Castrated / wether is not a sex. */
+    st.sexes=window.GLOBAL_SEXES();
     // animals
     const rnd=(()=>{let x=20260917;return()=>{x=(x*1103515245+12345)%2147483648;return x/2147483648;};})();
     st.animals=[];
@@ -370,17 +370,26 @@
       const female=pen===pc?true:(pen===pm?rnd()>.8:rnd()>.45);
       const kid=pen===pk; const stage=stg('sp_goat',kid?'K3':(pen===pc?'FAT-F':(female?'NP':'FAT-M')));
       st.animals.push({id:'ani_'+i,rfid:'982000'+String(Math.floor(rnd()*1e9)).padStart(9,'0'),tag2:'T-'+(1400+Math.floor(rnd()*900)),
-        speciesId:'sp_goat',breedId:aBreeds[Math.floor(rnd()*aBreeds.length)],sexId:female?'sx_gf':'sx_gm',stageId:stage,
+        speciesId:'sp_goat',breedId:aBreeds[Math.floor(rnd()*aBreeds.length)],sexId:female?'sx_female':'sx_male',stageId:stage,
         dob:'2026-0'+(1+Math.floor(rnd()*6))+'-1'+Math.floor(rnd()*9),weight:+(kid?9+rnd()*6:22+rnd()*18).toFixed(1),
         parkId:park,penId:pen,partitionId:pen===pc?partOf(pen,i%3):partOf(pen,i%4),tagIds:[],status:'active'});
     }
-    st.animals.slice(20,24).forEach(a=>{a.speciesId='sp_sheep';a.breedId='br_s_anantapur_sheep';a.sexId=a.sexId==='sx_gf'?'sx_sf':'sx_sm';a.stageId=stg('sp_sheep',a.sexId==='sx_sf'?'FAT-F':'FAT-M');});
+    st.animals.slice(20,24).forEach(a=>{a.speciesId='sp_sheep';a.breedId='br_s_anantapur_sheep';a.stageId=stg('sp_sheep',a.sexId==='sx_female'?'FAT-F':'FAT-M');});
 
     /* items = goatos-stg inventory_items (7 active rows, all category 'vaccine', base unit dose). Feed items live in Feed Config;
        medicines are named inside Health Config protocols, not in inventory_items. */
-    st.categories=[{id:'cat_vac',parentId:'',name:'Vaccines',status:'active'}];
+    st.categories=[{id:'cat_med',parentId:'',name:'Medicines',kind:'medicine',system:true,depts:['Health'],status:'active'},
+      {id:'cat_vac',parentId:'',name:'Vaccines',kind:'vaccine',system:true,depts:['Preventive Care'],status:'active'},
+      {id:'cat_feed',parentId:'',name:'Feed items',kind:'feed',system:true,depts:['Feed'],status:'active'}];
+    /* plan = vaccine name in the published Vaccination plan (V9); ET+TT has no plan row */
+    const VPLAN={'VAC-BT':'Blue Tongue','VAC-FMD':'FMD','VAC-GP':'Goat Pox','VAC-HS':'HS','VAC-PPR':'PPR','VAC-SP':'Sheep Pox'};
+    /* only plan-sourced facts: disease = plan vaccine; booster gap from the plan's "+21d" second dose. Dose ml and live/killed are not in the plan, so rows stay Incomplete */
+    const VBOOST={'VAC-BT':21};
     st.items=[['VAC-BT','Blue Tongue vaccine'],['VAC-ET-TT','ET+TT vaccine'],['VAC-FMD','FMD vaccine'],['VAC-GP','Goat Pox vaccine'],['VAC-HS','HS vaccine'],['VAC-PPR','PPR vaccine'],['VAC-SP','Sheep Pox vaccine']]
-      .map(([code,name],i)=>({id:'itm_vac'+i,categoryId:'cat_vac',code,name,unit:'dose',depts:['Preventive Care'],status:'active'}));
+      .map(([code,name],i)=>({id:'itm_vac'+i,categoryId:'cat_vac',code,name,unit:'dose',depts:['Preventive Care'],plan:VPLAN[code]||'',disease:VPLAN[code]||'',doseMl:'',vaccineType:'',boosterDays:VBOOST[code]||'',trackStock:'no',trackExpiry:'no',status:'active'}))
+    /* goatos-stg feed_item_catalog active rows (Feed Config readback 17/09/2026) */
+      .concat([['feed_bhusa','Dry Masoor Bhusa','kg'],['feed_uht','UHT Milk','litre'],['feed_kids','Mesha Kids Concentrate','kg'],['feed_adult','Mesha Adult Concentrate','kg']]
+        .map(([id,name,unit])=>({id:'itm_'+id,categoryId:'cat_feed',name,unit,depts:['Feed'],feedConfig:true,status:'active'})));
 
     /* RBAC roles = goatos-stg org_role_catalog (tier x vertical rows + the legacy flat roles still granted). The six legacy
        '<vertical>_director' duplicates of director_<vertical> are left out. Job titles are a separate list: st.designations (seed-refs). */
@@ -461,7 +470,7 @@
     const warmup=linear([
       ['start',{label:'Arrived at destination'}],
       ['question',{label:'Animals received into pen',answer:'number',unit:'animals',min:0,required:true,page:'Arrival'}],
-      ['action',{label:'Feed transition per Feed config',link:'#/feed/config',linkLabel:'Feed config',page:'Arrival'}],
+      ['action',{label:'Feed transition per Feed Config',link:'#/feed/config',linkLabel:'Feed Config',page:'Arrival'}],
       ['repeat',{label:'Daily warm-up check',every:24,everyUnit:'hours',forAmount:14,forUnit:'days',forSetting:'set_warmup',media:['photo']}],
       ['approval',{label:'Release to herd',roleId:'role_ceo_internal',outcomes:['Release','Extend warm-up']}],
       ['end',{label:'Released',outcome:'done'}]]);

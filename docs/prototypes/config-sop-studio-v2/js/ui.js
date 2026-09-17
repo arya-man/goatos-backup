@@ -14,8 +14,8 @@
   UI.drawer=function(o){
     UI.closeMenu(); UI.closePop();
     let scrim=$('#scrim'),dr=$('#drawer');
-    dr.className='drawer'+(o.wide?' wide':'');
-    dr.innerHTML=`<div class="dh"><div><h2>${esc(o.title)}</h2>${o.sub?`<div class="sb">${esc(o.sub)}</div>`:''}</div><button class="x" data-a="drawer-close" aria-label="Close">${ic('x')}</button></div>
+    dr.className='drawer'+(o.wide?' wide':'')+(o.cls?' '+o.cls:'')+(dr.classList.contains('on')?' on':'');
+    dr.innerHTML=`<div class="dh">${o.head?`<div class="dhx">${o.head}</div>`:`<div><h2>${esc(o.title)}</h2>${o.sub?`<div class="sb">${esc(o.sub)}</div>`:''}</div>`}<button class="x" data-a="drawer-close" aria-label="Close">${ic('x')}</button></div>
       <div class="dc">${o.body||''}</div>${o.foot?`<div class="df">${o.foot}</div>`:''}`;
     scrim.classList.remove('hidden');
     requestAnimationFrame(()=>dr.classList.add('on'));
@@ -48,7 +48,7 @@
     document.body.appendChild(t);
     if(undo)t.querySelector('[data-undo]').onclick=()=>{t.remove();undo();};
     if(action)t.querySelector('[data-act]').onclick=()=>{t.remove();action.run();};
-    tt=setTimeout(()=>t.remove(),undo||action?7000:3200);
+    tt=setTimeout(()=>t.remove(),undo||action?5000:3200);
   };
   UI.undoable=function(label,fn){
     const n=S.snap(label); fn(); S.save();
@@ -159,7 +159,7 @@
   function subFor(coll,x){
     if(coll==='pens'){const p=S.get('parks',x.parkId);return p?p.name:'';}
     if(coll==='partitions'){const p=S.get('pens',x.penId);return p?REG.label('pens',p):'';}
-    if(['breeds','stages','sexes'].includes(coll)){const s=S.get('species',x.speciesId);return (x.code&&coll==='stages'?x.code+' · ':'')+(s?s.name:'');}
+    if(['breeds','stages'].includes(coll)){const s=S.get('species',x.speciesId);return (x.code&&coll==='stages'?x.code+' · ':'')+(s?s.name:'');}
     if(coll==='parks'){const f=S.get('farms',x.farmId);return f?f.code:'';}
     return '';
   }

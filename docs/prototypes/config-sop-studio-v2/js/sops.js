@@ -88,7 +88,7 @@
       const g=n.page||n.lane||''; let head='';
       if(g!==lastGroup){head=g?`<div class="lgroup eyebrow">${esc(g)}</div>`:'';lastGroup=g;}
       const T=Flow.TYPES[n.type]||Flow.TYPES.action; const step=['start','end','join','parallel'].includes(n.type)?'':++i;
-      const sub=[n.type==='question'?(Flow.ANSWERS[n.answer]||'')+(n.unit?' · '+n.unit:''):'',n.required?'Required':'',n.reject?'Reject rule':'',n.onlyIf?'Conditional':'',
+      const sub=[n.type==='question'?(Flow.ANSWERS[n.answer]||'')+(n.answer==='ref'?' · '+(n.refColl==='items'&&n.refCat?REG.catPath(n.refCat):(Flow.REFS[n.refColl]||'')):'')+(n.unit?' · '+n.unit:''):'',n.required?'Required':'',n.reject?'Reject rule':'',n.onlyIf?'Conditional':'',
         n.type==='approval'?REG.labelById('roles',n.roleId):'',n.type==='evidence'?(n.media||[]).join('/')+' '+(n.min||0)+'–'+(n.max||1):'',
         n.type==='child'?((S.get('sops',n.sopId)||{}).title||'Not set'):'',n.link?'Opens '+(n.linkLabel||'linked module'):''].filter(Boolean).join(' · ');
       return head+`<div class="lstep k-${n.type} ${sel===n.id?'sel':''}" data-a="node-sel" data-id="${n.id}">
@@ -133,7 +133,8 @@
         ${fld('Required',`<select data-np="required" data-bool><option value="1" ${n.required?'selected':''}>Yes</option><option value="" ${n.required?'':'selected'}>No</option></select>`)}
         ${n.answer==='number'?fld('Unit',`<input data-np="unit" value="${esc(n.unit||'')}">`)+fld('Min – max',`<div class="row nw"><input class="inl" style="width:50%" data-np="min" value="${esc(n.min==null?'':n.min)}"><input class="inl" style="width:50%" data-np="max" value="${esc(n.max==null?'':n.max)}"></div>`)
           +limitFields(s,n):''}
-        ${n.answer==='ref'?fld('List',`<select data-np="refColl">${Object.entries(Flow.REFS).map(([k,v])=>`<option value="${k}" ${n.refColl===k?'selected':''}>${v}</option>`).join('')}</select>`+(n.refColl==='vendors'?`<a class="tag t-info" style="margin-top:6px;text-decoration:none" href="#/procurement/vendors">Vendors ›</a>`:'')):''}
+        ${n.answer==='ref'?fld('List',`<select data-np="refColl">${Object.entries(Flow.REFS).map(([k,v])=>`<option value="${k}" ${n.refColl===k?'selected':''}>${v}</option>`).join('')}</select>`+(n.refColl==='vendors'?`<a class="tag t-info" style="margin-top:6px;text-decoration:none" href="#/procurement/vendors">Vendors ›</a>`:''))
+          +(n.refColl==='items'?fld('Category',`<select data-np="refCat"><option value="">All items</option>${[['Catalogues',c=>c.system],['Your lists',c=>!c.system]].map(([g,fn])=>{const roots=S.active('categories').filter(c=>!c.parentId&&fn(c));return roots.length?`<optgroup label="${g}">${S.active('categories').filter(c=>roots.some(r=>REG.catSubtree(r.id).has(c.id))).sort((a,b)=>REG.catPath(a.id).localeCompare(REG.catPath(b.id))).map(c=>`<option value="${c.id}" ${n.refCat===c.id?'selected':''}>${esc(REG.catPath(c.id))}</option>`).join('')}</optgroup>`:'';}).join('')}</select>`):''):''}
         ${pageF}</div>
         ${(n.answer==='choice'||n.answer==='multi')?`<div class="eyebrow">Options</div><table class="mini opts"><tbody>${(n.options||[]).map((o,i)=>`<tr><td><input data-opt="${i}" data-k="l" value="${esc(o.l)}" aria-label="Option label"></td><td class="x"><button class="btn icon gh" data-a="opt-del" data-i="${i}" aria-label="Remove option">${ic('x')}</button></td></tr>`).join('')}</tbody></table>
           <div class="row mt"><button class="btn sm" data-a="opt-add">${ic('plus')}Option</button><label class="row small"><input type="checkbox" data-np="allowOther" data-check ${n.allowOther?'checked':''}>Other with detail</label></div>`:''}
@@ -224,6 +225,7 @@
         if(i.hasAttribute('data-list'))v=v.split(',').map(x=>x.trim()).filter(Boolean);
         if((k==='min'||k==='max')&&n.type==='question')v=v===''?undefined:Number(v);
         if(v===undefined||v==='')delete n[k]; else n[k]=v;
+        if(k==='refColl'&&v!=='items')delete n.refCat;
         if(k==='answer'&&(v==='choice'||v==='multi')&&!(n.options||[]).length)n.options=[{v:'yes',l:'Yes'},{v:'no',l:'No'}];
         if(k==='q'){const q=s.nodes.find(x=>x.id===v);if(q&&q.options&&q.options[0])n.value=q.options[0].v;}};
       if(i.tagName==='SELECT'||i.type==='checkbox')i.onchange=()=>commit(apply);
