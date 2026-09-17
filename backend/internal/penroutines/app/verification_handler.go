@@ -40,12 +40,15 @@ const (
 
 // VerificationEnqueueRequest is what the bridge needs to mint the verifier item.
 type VerificationEnqueueRequest struct {
-	TenantID       string
-	TaskID         string
-	RoutineName    string
-	CadenceLine    string
-	ParkID         string
-	ParkName       string
+	TenantID    string
+	TaskID      string
+	RoutineName string
+	CadenceLine string
+	ParkID      string
+	ParkName    string
+	// ScopeKind is the routine's scope; a whole-park task (domain.ScopePark) carries no shed,
+	// partition or pen label.
+	ScopeKind      string
 	ShedID         string
 	PartitionLabel string
 	PenLabel       string
@@ -70,6 +73,7 @@ type submittedPayload struct {
 	ReviewKind     string             `json:"review_kind"`
 	ParkID         string             `json:"park_id"`
 	ParkName       string             `json:"park_name"`
+	ScopeKind      string             `json:"scope_kind"`
 	ShedID         string             `json:"shed_id"`
 	PartitionLabel string             `json:"partition_label"`
 	PenLabel       string             `json:"pen_label"`
@@ -152,6 +156,7 @@ func (h *PendingVerificationHandler) HandleEvent(ctx context.Context, e eventbus
 		CadenceLine:    cadence,
 		ParkID:         strings.TrimSpace(p.ParkID),
 		ParkName:       strings.TrimSpace(p.ParkName),
+		ScopeKind:      strings.TrimSpace(p.ScopeKind),
 		ShedID:         strings.TrimSpace(p.ShedID),
 		PartitionLabel: strings.TrimSpace(p.PartitionLabel),
 		PenLabel:       strings.TrimSpace(p.PenLabel),

@@ -35,11 +35,13 @@ type taskRow struct {
 // after_work routines from the verification items created in that IST day whose category maps
 // to one of the routine's kinds -- resolved through the routine's scope (all active pens of
 // the park, occupied only by default, or the ticked list), written in ONE set-based upsert on
-// the natural key. Idempotent: a replay inserts nothing and widens nothing. A task born late
-// (worker outage, routine created mid-day) is due the LATER of its planned date and today,
-// delayed with the date it was owed. A routine with no assignee raises nothing and is named.
+// the natural key. A whole-park routine raises exactly ONE task per occurrence, with no shed
+// (shed_key 'park' in the natural key). Nothing raises before a routine's start date.
+// Idempotent: a replay inserts nothing and widens nothing. A task born late (worker outage,
+// routine created mid-day) is due the LATER of its planned date and today, delayed with the date
+// it was owed. A routine whose roles NOBODY holds in its park raises nothing and is named.
 //
-// projection-review: membership=(active routine x pen) pairs for ONE business date, where the pen set is the routine's scope (pen catalog or ticked pens) intersected with the day's worked pens for after_work; group_key=(tenant_id, routine_id, shed_id, partition_key, planned_business_date) -- the natural unique constraint pen_routine_tasks_natural_uq, folded in Go before the UNNEST so no two rows of one statement share a key; join_cardinality=the worked-pen read joins nothing (DISTINCT over verification_items in the IST window on verification_items_created_pen_idx), the catalog read is the shed/partition LEFT JOIN keyed on the catalog PK, the upsert is one INSERT ... ON CONFLICT per statement; pagination=none -- bounded by routines x pens of one day (tens to low hundreds), never paged; scope=tenant, then per routine through its park and assignees, a routine with no assignee is skipped and named
+// projection-review: membership=(active routine x pen) pairs for ONE business date, where the pen set is the routine's scope (pen catalog or ticked pens) intersected with the day's worked pens for after_work; group_key=(tenant_id, routine_id, shed_key, partition_key, planned_business_date) -- the natural unique constraint (shed_key 'park' for the one whole-park task) pen_routine_tasks_natural_uq, folded in Go before the UNNEST so no two rows of one statement share a key; join_cardinality=the worked-pen read joins nothing (DISTINCT over verification_items in the IST window on verification_items_created_pen_idx), the catalog read is the shed/partition LEFT JOIN keyed on the catalog PK, the upsert is one INSERT ... ON CONFLICT per statement; pagination=none -- bounded by routines x pens of one day (tens to low hundreds), never paged; scope=tenant, then per routine through its park and its role holders (resolved by the one batched readRoutines read), a routine whose roles nobody holds in its park is skipped and named
 func (r *Repository) Materialize(ctx context.Context, tenantID, businessDate, today string, now time.Time) (ports.MaterializeResult, error) {
 	result := ports.MaterializeResult{BusinessDate: businessDate}
 	if _, err := time.Parse("2006-01-02", businessDate); err != nil {
@@ -53,7 +55,8 @@ func (r *Repository) Materialize(ctx context.Context, tenantID, businessDate, to
 	}
 	defer func() { _ = tx.Rollback(ctx) }()
 
-	// 1. Every active routine of the tenant (a handful per park), with its pens and people.
+	// 1. Every active routine of the tenant (a handful per park), with its pens and its role
+	// holders for its park.
 	routines, err := r.readRoutines(ctx, tx, "d.status = $3", "", tenantID, today, domain.StatusActive)
 	if err != nil {
 		return result, err
@@ -66,7 +69,7 @@ func (r *Repository) Materialize(ctx context.Context, tenantID, businessDate, to
 		if row.Definition.CadenceKind == domain.CadenceAfterWork {
 			needWorked = true
 		}
-		if row.Definition.ScopeKind == domain.ScopeAllPens {
+		if row.Definition.ScopeKind == domain.ScopeAllPens && row.Definition.CadenceKind != domain.CadenceAfterWork {
 			needCatalog = true
 		}
 	}
@@ -148,6 +151,9 @@ func (r *Repository) Materialize(ctx context.Context, tenantID, businessDate, to
 			kinds             []string
 		}
 		hits := []penHit{}
+		if !d.StartedBy(businessDate) {
+			continue // nothing raises before the start date, for every cadence
+		}
 		switch d.CadenceKind {
 		case domain.CadenceAfterWork:
 			for _, pen := range worked {
@@ -170,6 +176,9 @@ func (r *Repository) Materialize(ctx context.Context, tenantID, businessDate, to
 				continue
 			}
 			switch d.ScopeKind {
+			case domain.ScopePark:
+				// ONE task for the whole park: no shed, no pen.
+				hits = append(hits, penHit{})
 			case domain.ScopeSelectedPens:
 				for _, p := range d.Pens {
 					hits = append(hits, penHit{shedID: p.ShedID, partition: p.Partition})
@@ -183,10 +192,10 @@ func (r *Repository) Materialize(ctx context.Context, tenantID, businessDate, to
 				}
 			}
 		}
-		if len(d.AssigneeIDs) == 0 {
-			// Loud, and no fallback: a routine nobody is assigned to raises nothing.
+		if len(d.People) == 0 {
+			// Loud, and no fallback: a routine whose roles nobody holds in its park raises nothing.
 			if len(hits) > 0 {
-				result.RoutinesWithoutAssignee = append(result.RoutinesWithoutAssignee, ports.RoutineRef{RoutineID: d.RoutineID, Name: d.Name, ParkID: d.ParkID})
+				result.RoutinesWithoutAssignee = append(result.RoutinesWithoutAssignee, ports.RoutineRef{RoutineID: d.RoutineID, Name: d.Name, ParkID: d.ParkID, Roles: d.AssigneeRoles})
 				result.PensSkipped += len(hits)
 			}
 			continue
@@ -340,10 +349,10 @@ INSERT INTO pen_routine_tasks (
   source_business_date, planned_business_date, due_business_date, work_state,
   delayed_since_business_date, rolled_forward_count
 )
-SELECT $1::uuid, p.routine_id, p.routine_version, p.park_id, p.shed_id, NULLIF(p.partition_label, ''),
+SELECT $1::uuid, p.routine_id, p.routine_version, p.park_id, NULLIF(p.shed_id, '')::uuid, NULLIF(p.partition_label, ''),
        CASE WHEN p.kinds_csv = '' THEN '{}'::text[] ELSE string_to_array(p.kinds_csv, ',') END,
        $8::date, p.planned::date, p.due::date, p.work_state, NULLIF(p.delayed_since, '')::date, p.rolled_forward
-FROM unnest($2::uuid[], $3::integer[], $4::uuid[], $5::uuid[], $6::text[], $7::text[], $9::text[], $10::text[], $11::text[], $12::text[], $13::integer[])
+FROM unnest($2::uuid[], $3::integer[], $4::uuid[], $5::text[], $6::text[], $7::text[], $9::text[], $10::text[], $11::text[], $12::text[], $13::integer[])
   AS p(routine_id, routine_version, park_id, shed_id, partition_label, kinds_csv, planned, due, work_state, delayed_since, rolled_forward)
 ON CONFLICT ON CONSTRAINT pen_routine_tasks_natural_uq DO UPDATE
 SET trigger_kinds = (SELECT COALESCE(array_agg(DISTINCT k ORDER BY k), '{}'::text[]) FROM unnest(pen_routine_tasks.trigger_kinds || EXCLUDED.trigger_kinds) AS k),

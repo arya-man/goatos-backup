@@ -3,9 +3,10 @@
 // subtitle the routine's cadence line or the work that raised it -- the same place the phone
 // lists it (the Routines module).
 //
-// ONE source for every routine. It reads pen_routine_tasks, pen_routine_definitions,
-// pen_routine_versions and pen_routine_assignees (this module's own tables) plus the org
-// tables every module may read (locations, workforce_members).
+// ONE source for every routine. It reads pen_routine_tasks, pen_routine_definitions and
+// pen_routine_versions (this module's own tables) plus the org tables every module may read
+// (locations, workforce_members, user_scope_grants). WHO owes a task -- the owner and the
+// owner-scope filter -- is the ONE role resolution in penroutines/adapters/postgres/assignees.go.
 //
 // READ-ONLY and REPORTING-ONLY. Nothing here gates a submit or a verdict; the mapping from a
 // task's (status, work_state) to a board work state is the ONLY business meaning this file
@@ -23,6 +24,7 @@ import (
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
 
+	prpostgres "github.com/vgoats/goatos/backend/internal/penroutines/adapters/postgres"
 	prdomain "github.com/vgoats/goatos/backend/internal/penroutines/domain"
 	"github.com/vgoats/goatos/backend/internal/platform/biztime"
 	"github.com/vgoats/goatos/backend/internal/platform/oploc"
@@ -64,20 +66,18 @@ END`
 // baseWhere binds every read to one tenant, one park and one business date on
 // pen_routine_tasks_park_day_idx (tenant_id, park_id, due_business_date, work_state, task_id).
 // The business date is the CURRENT due date: a rolled-forward task appears on the day it is
-// now due, and its clock label names the day it was owed. The owner scope matches any
-// ASSIGNEE of the routine (pen_routine_assignees, PK (tenant, routine, user)).
+// now due, and its clock label names the day it was owed. The owner scope matches anyone who
+// holds one of the routine's roles for the park (an EXISTS, never multiplying a task).
 func (s *Source) baseWhere() string {
 	return `
   v.tenant_id = $1::uuid
   AND v.park_id = $2::uuid
   AND v.due_business_date = $3::date
   AND v.work_state <> 'canceled'
-  AND ($4::uuid IS NULL OR EXISTS (
-        SELECT 1 FROM pen_routine_assignees a
-        WHERE a.tenant_id = v.tenant_id AND a.routine_id = v.routine_id AND a.user_id = $4::uuid))`
+  AND ($4::uuid IS NULL OR ` + prpostgres.CallerHoldsRoutineRoleSQL("v", "$4::uuid") + `)`
 }
 
-// projection-review: membership=pen_routine_tasks rows of ONE tenant, park and due_business_date (canceled excluded), one row per task (primary key); group_key=(tenant_id, task_id) for the list and the derived board_state for the count; join_cardinality=definition and pinned version 1:1 on their PKs, the owner a LATERAL LIMIT 1 over pen_routine_assignees ordered by the submitter then the scoped caller then profile (one row), the assignee count a window inside it, locations park/shed 1:1 (PK), and the owner-scope EXISTS matches ANY assignee without multiplying rows; pagination=keyset on task_id ASC after the cursor with LIMIT, state filter inside WHERE; scope=tenant_id, park_id, due_business_date and the optional assignee EXISTS, repeated verbatim in the count query.
+// projection-review: membership=pen_routine_tasks rows of ONE tenant, park and due_business_date (canceled excluded), one row per task (primary key); group_key=(tenant_id, task_id) for the list and the derived board_state for the count; join_cardinality=definition and pinned version 1:1 on their PKs, the owner a LATERAL LIMIT 1 over the routine's role holders for the park (DISTINCT per user inside, ordered by the submitter then the scoped caller then profile -- one row), the holder count a window inside it, locations park/shed 1:1 (PK, the shed null for a whole-park task), and the owner-scope EXISTS matches ANY role holder without multiplying rows; pagination=keyset on task_id ASC after the cursor with LIMIT, state filter inside WHERE; scope=tenant_id, park_id, due_business_date and the optional assignee EXISTS, repeated verbatim in the count query.
 func (s *Source) listSQL() string {
 	return `
 WITH tasks AS (
@@ -90,8 +90,8 @@ WITH tasks AS (
     AND ($5::uuid IS NULL OR v.task_id > $5::uuid)
 )
 SELECT i.task_id::text, i.park_id::text, COALESCE(park.name, ''),
-       i.shed_id::text, COALESCE(NULLIF(shed.name, ''), shed.location_code, ''), i.partition_label,
-       ver.name, d.cadence_kind, d.weekdays, d.month_days, d.after_work_kinds, d.due_offset_days,
+       COALESCE(i.shed_id::text, ''), COALESCE(NULLIF(shed.name, ''), shed.location_code, ''), i.partition_label,
+       ver.name, d.scope_kind, d.cadence_kind, d.weekdays, d.month_days, d.after_work_kinds, d.interval_days, d.due_offset_days,
        i.trigger_kinds, i.source_business_date::text, i.planned_business_date::text, i.due_business_date::text,
        i.work_state, i.status, i.board_state,
        COALESCE(owner.user_id, ''), COALESCE(owner.member_id, ''), COALESCE(owner.display_name, ''),
@@ -102,17 +102,17 @@ JOIN pen_routine_versions ver ON ver.tenant_id = $1::uuid AND ver.routine_id = i
 LEFT JOIN locations park ON park.tenant_id = $1::uuid AND park.location_id = i.park_id
 LEFT JOIN locations shed ON shed.tenant_id = $1::uuid AND shed.location_id = i.shed_id
 LEFT JOIN LATERAL (
-  SELECT a.user_id::text AS user_id,
-         m.workforce_member_id::text AS member_id,
-         m.display_name,
+  SELECT h.user_id::text AS user_id,
+         h.member_id::text AS member_id,
+         h.display_name,
          count(*) OVER ()::int AS assignee_count
-  FROM pen_routine_assignees a
-  LEFT JOIN workforce_members m
-    ON m.tenant_id = a.tenant_id AND m.user_id = a.user_id AND m.status = 'active'
-  WHERE a.tenant_id = $1::uuid AND a.routine_id = i.routine_id
-  ORDER BY (a.user_id = i.submitted_by) DESC NULLS LAST,
-           (a.user_id = $4::uuid) DESC NULLS LAST,
-           m.workforce_member_id ASC NULLS LAST, a.user_id ASC
+  FROM (
+    SELECT DISTINCT rg.user_id, rm.workforce_member_id AS member_id, COALESCE(rm.display_name, '') AS display_name
+    ` + prpostgres.RoleHoldersFromSQL("$1::uuid", "d.assignee_roles", "i.park_id") + `
+  ) h
+  ORDER BY (h.user_id = i.submitted_by) DESC NULLS LAST,
+           (h.user_id = $4::uuid) DESC NULLS LAST,
+           h.member_id ASC NULLS LAST, h.user_id ASC
   LIMIT 1
 ) owner ON true
 WHERE ($6::text[] IS NULL OR i.board_state = ANY($6::text[]))
@@ -120,7 +120,7 @@ ORDER BY i.task_id
 LIMIT $7`
 }
 
-// projection-review: membership=pen_routine_tasks rows of ONE tenant, park and due_business_date (canceled excluded), one row per task (primary key); group_key=(tenant_id, task_id) (the count groups by the SAME derived board_state over the SAME membership); join_cardinality=none in the count (the owner-scope EXISTS matches ANY assignee without multiplying rows); pagination=none, whole-filter aggregate; scope=tenant_id, park_id, due_business_date and the optional assignee EXISTS, repeated verbatim from the list query.
+// projection-review: membership=pen_routine_tasks rows of ONE tenant, park and due_business_date (canceled excluded), one row per task (primary key); group_key=(tenant_id, task_id) (the count groups by the SAME derived board_state over the SAME membership); join_cardinality=none in the count (the owner-scope EXISTS matches ANY role holder without multiplying rows); pagination=none, whole-filter aggregate; scope=tenant_id, park_id, due_business_date and the optional assignee EXISTS, repeated verbatim from the list query.
 func (s *Source) countSQL() string {
 	return `
 SELECT board_state, count(*)
@@ -188,8 +188,9 @@ func (s *Source) CountByState(ctx context.Context, q ports.SourceQuery) (map[dom
 func (s *Source) scanRow(rows pgx.Rows) (domain.Row, error) {
 	var (
 		taskID, parkID, parkName, shedID, shedName, partitionLabel string
-		routineName, cadenceKind                                   string
+		routineName, scopeKind, cadenceKind                        string
 		weekdays, monthDays                                        []int16
+		intervalDays                                               *int32
 		afterWorkKinds, triggerKinds                               []string
 		dueOffset                                                  int
 		sourceDate, planned, due, kernelState, status, boardState  string
@@ -197,7 +198,7 @@ func (s *Source) scanRow(rows pgx.Rows) (domain.Row, error) {
 		assigneeCount                                              int
 	)
 	if err := rows.Scan(&taskID, &parkID, &parkName, &shedID, &shedName, &partitionLabel,
-		&routineName, &cadenceKind, &weekdays, &monthDays, &afterWorkKinds, &dueOffset,
+		&routineName, &scopeKind, &cadenceKind, &weekdays, &monthDays, &afterWorkKinds, &intervalDays, &dueOffset,
 		&triggerKinds, &sourceDate, &planned, &due, &kernelState, &status, &boardState,
 		&ownerUserID, &ownerMemberID, &ownerName, &assigneeCount); err != nil {
 		return domain.Row{}, fmt.Errorf("pen routine boardsource scan: %w", err)
@@ -205,8 +206,15 @@ func (s *Source) scanRow(rows pgx.Rows) (domain.Row, error) {
 	if oploc.NormalizePartition(partitionLabel) == oploc.WholeSentinel {
 		partitionLabel = ""
 	}
-	loc := oploc.OperationalLocation{ParkID: parkID, ParkName: parkName, ShedID: shedID, ShedName: shedName, PartitionLabel: partitionLabel}
-	pen := domain.Pen{ShedID: shedID, ShedName: shedName, PartitionLabel: partitionLabel, Display: loc.Display()}
+	pen := domain.Pen{}
+	if shedID != "" {
+		loc := oploc.OperationalLocation{ParkID: parkID, ParkName: parkName, ShedID: shedID, ShedName: shedName, PartitionLabel: partitionLabel}
+		pen = domain.Pen{ShedID: shedID, ShedName: shedName, PartitionLabel: partitionLabel, Display: loc.Display()}
+	}
+	interval := 0
+	if intervalDays != nil {
+		interval = int(*intervalDays)
+	}
 
 	state := domain.WorkState(boardState)
 	severity := domain.SeverityOK
@@ -222,16 +230,21 @@ func (s *Source) scanRow(rows pgx.Rows) (domain.Row, error) {
 		severity = domain.SeverityAtRisk
 	}
 
-	// Title and subtitle are the domain's own words: the routine at the pen, and why today.
+	// Title and subtitle are the domain's own words: the routine at the pen (or, for a whole-park
+	// task, at the park), and why today.
 	task := prdomain.Task{
 		RoutineName:  routineName,
+		ScopeKind:    scopeKind,
 		PenLabel:     pen.Display,
 		TriggerKinds: triggerKinds,
 		SourceDate:   sourceDate,
 		CadenceLine: prdomain.CadenceLine(prdomain.Definition{
-			CadenceKind: cadenceKind, Weekdays: toInts(weekdays), MonthDays: toInts(monthDays),
+			CadenceKind: cadenceKind, IntervalDays: interval, Weekdays: toInts(weekdays), MonthDays: toInts(monthDays),
 			AfterWorkKinds: afterWorkKinds, DueOffsetDays: dueOffset,
 		}),
+	}
+	if scopeKind == prdomain.ScopePark {
+		task.ParkName = parkName
 	}
 	title := prdomain.Title(task)
 	subtitle := prdomain.ReasonLine(task, due)
@@ -249,7 +262,7 @@ func (s *Source) scanRow(rows pgx.Rows) (domain.Row, error) {
 
 	owner := domain.Owner{UserID: ownerUserID, WorkforceMemberID: ownerMemberID, Name: ownerName}
 	if assigneeCount > 1 && owner.Name != "" && status == prdomain.StatusOpen {
-		// Owed to any of the routine's people: name the first and say how many more.
+		// Owed to anyone holding the routine's roles: name the first and say how many more.
 		owner.Name += " +" + strconv.Itoa(assigneeCount-1)
 	}
 	ownerState := domain.OwnerStateAssigned

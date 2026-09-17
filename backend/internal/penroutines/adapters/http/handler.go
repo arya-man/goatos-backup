@@ -237,7 +237,8 @@ func traceID(r *http.Request) string {
 }
 
 // actorFrom resolves who is asking. Authority is the route table's (pen_routines.execute);
-// WHO may work a task is decided against the stored assignees, never a role string.
+// WHO may work a task is decided per row by the routine's roles resolved against the caller's
+// grants for the task's park (adapters/postgres/assignees.go), never by a role string here.
 func actorFrom(r *http.Request) domain.Actor {
 	return domain.Actor{UserID: strings.TrimSpace(httpmiddleware.ActorIDFromContext(r.Context()))}
 }

@@ -15,6 +15,9 @@ import (
 	verificationdomain "github.com/vgoats/goatos/backend/internal/verification/domain"
 )
 
+// wholePark is the location a whole-park routine's evidence is for.
+const wholePark = "Whole park"
+
 // verificationCreator is the ONE verification-service method this bridge consumes.
 type verificationCreator interface {
 	CreateItem(ctx context.Context, in verificationdomain.CreateItem) (verificationdomain.CreateItemResult, error)
@@ -42,7 +45,11 @@ func (e *Enqueuer) EnqueuePenRoutineVerification(ctx context.Context, in proutap
 	if label == "" {
 		label = "Routine check"
 	}
-	if pen := strings.TrimSpace(in.PenLabel); pen != "" {
+	// A whole-park task names no pen: the verifier reads "Whole park" where a pen would be.
+	parkTask := in.ScopeKind == proutdomain.ScopePark
+	if parkTask {
+		label = label + " · " + wholePark
+	} else if pen := strings.TrimSpace(in.PenLabel); pen != "" {
 		label = label + " · " + pen
 	}
 	rows := make([]verificationdomain.ContextRow, 0, 4+len(in.AnswerRows))
@@ -67,7 +74,9 @@ func (e *Enqueuer) EnqueuePenRoutineVerification(ctx context.Context, in proutap
 	if park := strings.TrimSpace(in.ParkName); park != "" {
 		rows = append(rows, verificationdomain.ContextRow{Label: "Park", Value: park})
 	}
-	if pen := strings.TrimSpace(in.PenLabel); pen != "" {
+	if parkTask {
+		rows = append(rows, verificationdomain.ContextRow{Label: "Where", Value: wholePark})
+	} else if pen := strings.TrimSpace(in.PenLabel); pen != "" {
 		rows = append(rows, verificationdomain.ContextRow{Label: "Pen", Value: pen})
 	}
 	for _, a := range in.AnswerRows {

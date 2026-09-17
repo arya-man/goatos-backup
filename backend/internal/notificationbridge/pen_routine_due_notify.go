@@ -13,7 +13,8 @@ import (
 	"github.com/vgoats/goatos/backend/internal/platform/biztime"
 )
 
-// NotificationTypePenRoutineDue is the push naming the pens a routine's people owe today
+// NotificationTypePenRoutineDue is the push naming the pens (or, for a whole-park routine, the
+// park) the holders of a routine's roles owe today
 // (maintainer instruction 2026-09-16). One push per ROUTINE per business date, sent once the
 // routine's own notify time has passed in IST -- never one per pen: a round of ten pens is one
 // morning's work and one message.
@@ -42,8 +43,8 @@ func (n *PenRoutineDueNotifier) WithClock(now func() time.Time) *PenRoutineDueNo
 	return n
 }
 
-// NotifyDue queues one push per digest whose notify time has passed today, to EVERY assignee's
-// devices. A digest before its notify time is skipped this tick and offered again next tick.
+// NotifyDue queues one push per digest whose notify time has passed today, to the devices of
+// EVERY person holding one of the routine's roles for its park (resolved by the digest read). A digest before its notify time is skipped this tick and offered again next tick.
 func (n *PenRoutineDueNotifier) NotifyDue(ctx context.Context, tenantID string, digests []proutports.DueDigest) error {
 	if n == nil || n.recipients == nil || n.queue == nil {
 		return nil
@@ -62,8 +63,8 @@ func (n *PenRoutineDueNotifier) NotifyDue(ctx context.Context, tenantID string, 
 			continue
 		}
 		recipients := []calendarports.NotificationRecipient{}
-		// Bounded by the routine's assignees -- a handful of people, never by pens.
-		// scale-guard:ignore: bounded per-assignee recipient resolution, one read per routine assignee (a handful of people per routine).
+		// Bounded by the routine's role holders in one park -- a handful of people, never by pens.
+		// scale-guard:ignore: bounded per-holder recipient resolution, one read per role holder of the routine in its park (a handful of people per routine).
 		for _, userID := range d.AssigneeIDs {
 			devices, err := n.recipients.ResolveMemberRecipients(ctx, tenantID, userID)
 			if err != nil {
@@ -130,8 +131,9 @@ func notifyTimePassed(notifyTime string, now time.Time) bool {
 	return !local.Before(at)
 }
 
-// PenRoutineDueCopy composes the push: the routine, the park, how many pens and which, and
-// the day -- every fact the notification-specificity rule requires, in farm words.
+// PenRoutineDueCopy composes the push: the routine, the park, how many pens and which (or the
+// whole park, for a general task), and the day -- every fact the notification-specificity rule
+// requires, in farm words.
 func PenRoutineDueCopy(d proutports.DueDigest) (title, body string) {
 	park := strings.TrimSpace(d.ParkName)
 	if park == "" {
@@ -140,6 +142,13 @@ func PenRoutineDueCopy(d proutports.DueDigest) (title, body string) {
 	name := strings.TrimSpace(d.RoutineName)
 	if name == "" {
 		name = "Routine check"
+	}
+	if len(d.Tasks) > 0 && d.Tasks[0].IsParkTask() {
+		// A whole-park routine raises ONE task per day: there are no pens to count or name.
+		due := biztime.FarmDateFromBusinessDate(d.DueDate)
+		title = fmt.Sprintf("%s: due at %s", name, park)
+		body = fmt.Sprintf("Due %s for the whole of %s. Open the card, answer, capture what is asked for and submit.", due, park)
+		return title, body
 	}
 	count := len(d.Tasks)
 	noun := "pens"

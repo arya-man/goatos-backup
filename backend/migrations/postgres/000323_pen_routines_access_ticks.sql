@@ -11,25 +11,25 @@
 -- 403 for the exact people the module was built for. The 000245 (sale_allocation) and 000302
 -- (animal_purchases) shape, with the 000302 ledger so the Down path removes exactly these rows.
 --
--- WHO GETS WHAT mirrors capability_backfill.go byte for byte on the mobile side:
+-- WHO GETS WHAT (2026-09-17 revision: routines are assigned BY ROLE, and every role in the
+-- vocabulary -- the CXO included -- may be handed one, so every holder must be able to open it):
 --
---   park_head                         mobile {view, do}     one(assign("pen_routines", SurfaceMobile, View, Do))
---   the six director roles            mobile {view, do}     bothSurfaces("pen_routines", View, Do)
---   the six director roles            web    {view}         the /routines page (pen_routines.read);
---                                                           web `do` would carry pen_routines.execute onto a
---                                                           surface with no execute screen, so only view is
---                                                           written here (the backfill map's web `do` is inert)
---   ceo_internal                      NOTHING               the CEO floor (permissions/ceo_floor.go) serves
---                                                           ceo_internal from the ROLE regardless of person
---                                                           rows, and TestCEOFloorReachesEveryWebModuleAndPage
---                                                           pins the catalog; writing a row here would only be
---                                                           a second copy of a decision the floor already makes
+--   park_head                         mobile {view, do}
+--   the six director roles            mobile {view, do}     web {view}   (the /routines page)
+--   ceo_internal                      mobile {view, do}     web {view, configure}
 --
--- The six director roles are the ones executeRoles in penroutines/adapters/postgres/authoring.go
--- names beside park_head: pc_director, growth_director, feed_director, health_director,
--- breeding_director, procurement_director. Every write is keyed on the ACTIVE ROLE GRANT
--- (user_scope_grants), the same population the backfill would have written, never on a stored
--- row of another module.
+-- A web `do` would carry pen_routines.execute onto a surface with no execute screen, so a
+-- director's web row is view only. The CXO's web row carries configure: the desk writes the
+-- rules. The CEO floor (permissions/ceo_floor.go) would serve the web half from the role anyway;
+-- the row is written so the stored ticks on /people say what the person can do, and the PHONE
+-- half is not floor-served at all.
+--
+-- The eight roles are penroutines/domain.AssignableRoles: park_head, pc_director,
+-- breeding_director, growth_director, feed_director, health_director, procurement_director,
+-- ceo_internal. Every write is keyed on the ACTIVE ROLE GRANT (user_scope_grants), the same
+-- population the backfill would have written, never on a stored row of another module. A
+-- person holding several of the roles gets ONE row per surface (GROUP BY the member), the CXO
+-- capabilities winning on web.
 --
 -- ADDITIVE ONLY. A person who already holds a pen_routines row -- ticked on /people since the
 -- module shipped -- is left exactly as they are (ON CONFLICT DO NOTHING). Only people the
@@ -48,7 +48,7 @@ CREATE TABLE IF NOT EXISTS public.person_module_access_pen_routines_web_backfill
   PRIMARY KEY (tenant_id, workforce_member_id)
 );
 
--- (a) The PHONE module: park heads and directors walk pens.
+-- (a) The PHONE module: every role a routine can be assigned to works it there.
 WITH inserted AS (
   INSERT INTO public.person_module_access (tenant_id, workforce_member_id, surface, module_key, capabilities, updated_at, pages)
   SELECT DISTINCT m.tenant_id, m.workforce_member_id, 'mobile', 'pen_routines', ARRAY['view','do']::text[], now(), '{}'::text[]
@@ -60,7 +60,8 @@ WITH inserted AS (
    AND (g.valid_to IS NULL OR g.valid_to > now())
    AND g.role IN ('park_head',
                   'pc_director', 'growth_director', 'feed_director',
-                  'health_director', 'breeding_director', 'procurement_director')
+                  'health_director', 'breeding_director', 'procurement_director',
+                  'ceo_internal')
   WHERE m.status = 'active'
     AND m.user_id IS NOT NULL
     AND EXISTS (
@@ -75,11 +76,13 @@ INSERT INTO public.person_module_access_pen_routines_mobile_backfill (tenant_id,
 SELECT tenant_id, workforce_member_id FROM inserted
 ON CONFLICT DO NOTHING;
 
--- (b) The WEB /routines page: directors read what the park owes; only the CXO desk authors it,
--- and the CXO desk is served by the floor, not by a row.
+-- (b) The WEB /routines page: directors read what the park owes; the CXO desk also authors it.
 WITH inserted AS (
   INSERT INTO public.person_module_access (tenant_id, workforce_member_id, surface, module_key, capabilities, updated_at, pages)
-  SELECT DISTINCT m.tenant_id, m.workforce_member_id, 'web', 'pen_routines', ARRAY['view']::text[], now(), '{}'::text[]
+  SELECT m.tenant_id, m.workforce_member_id, 'web', 'pen_routines',
+         CASE WHEN bool_or(g.role = 'ceo_internal') THEN ARRAY['view','configure']::text[]
+              ELSE ARRAY['view']::text[] END,
+         now(), '{}'::text[]
   FROM public.workforce_members m
   JOIN public.user_scope_grants g
     ON g.tenant_id = m.tenant_id
@@ -87,7 +90,8 @@ WITH inserted AS (
    AND g.status = 'active'
    AND (g.valid_to IS NULL OR g.valid_to > now())
    AND g.role IN ('pc_director', 'growth_director', 'feed_director',
-                  'health_director', 'breeding_director', 'procurement_director')
+                  'health_director', 'breeding_director', 'procurement_director',
+                  'ceo_internal')
   WHERE m.status = 'active'
     AND m.user_id IS NOT NULL
     AND EXISTS (
@@ -95,6 +99,7 @@ WITH inserted AS (
       WHERE pa.tenant_id = m.tenant_id
         AND pa.workforce_member_id = m.workforce_member_id
     )
+  GROUP BY m.tenant_id, m.workforce_member_id
   ON CONFLICT (tenant_id, workforce_member_id, surface, module_key) DO NOTHING
   RETURNING tenant_id, workforce_member_id
 )

@@ -279,9 +279,10 @@ var flatRoleAssignments = map[string][]ModuleAssignment{
 		one(assign("alerts", SurfaceWeb, LevelView, LevelConfigure)),
 		// Leadership Tasks: the CEO/CXO desk can assign work downward and answer asks sent to it.
 		one(assign("leadership_tasks", SurfaceMobile, LevelView, LevelOversee, LevelConfigure)),
-		// Pen routines (2026-09-16): the CXO writes the rule and reads what it raised; View +
-		// Configure and NOT Do, the toxin shape -- the desk never walks pens.
-		bothSurfaces("pen_routines", LevelView, LevelConfigure),
+		// Pen routines (2026-09-16, revised 2026-09-17): the CXO writes the rule on the web and,
+		// since a routine can be assigned to the CXO role, works it on the phone.
+		one(assign("pen_routines", SurfaceWeb, LevelView, LevelConfigure)),
+		one(assign("pen_routines", SurfaceMobile, LevelView, LevelDo)),
 		bothSurfaces("leave_approvals", LevelView, LevelOversee, LevelConfigure),
 		bothSurfaces("vaccination", LevelView, LevelOversee, LevelConfigure),
 		bothSurfaces("weighing", LevelView, LevelConfigure),

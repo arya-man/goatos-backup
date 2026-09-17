@@ -64,3 +64,26 @@ func TestPenRoutineDueCopyNamesRoutineParkAndPens(t *testing.T) {
 		t.Fatalf("stale digest must queue nothing: %v / %d", err, len(queue.queued))
 	}
 }
+
+// TestPenRoutineDueCopyForAWholeParkTaskNamesThePark pins the general-task push (2026-09-17
+// revision): a whole-park routine owes no pens, so the push names the routine, the park and the
+// date and never counts "1 pen".
+func TestPenRoutineDueCopyForAWholeParkTaskNamesThePark(t *testing.T) {
+	digest := proutports.DueDigest{
+		RoutineID: "r-2", RoutineName: "Medicine store", ParkID: "park-cbe", ParkName: "Coimbatore",
+		NotifyTime: "07:00", AssigneeIDs: []string{"u-cxo"}, DueDate: "2026-09-16",
+		Tasks: []proutdomain.Task{{TaskID: "task-9", ScopeKind: proutdomain.ScopePark}},
+	}
+	title, body := PenRoutineDueCopy(digest)
+	if title != "Medicine store: due at Coimbatore" {
+		t.Fatalf("title = %q", title)
+	}
+	for _, want := range []string{"Coimbatore", "16/09/2026", "whole", "submit"} {
+		if !strings.Contains(body, want) {
+			t.Fatalf("body %q must name %q", body, want)
+		}
+	}
+	if strings.Contains(title+" "+body, " pen") {
+		t.Fatalf("a whole-park push must not speak of pens: %q / %q", title, body)
+	}
+}
