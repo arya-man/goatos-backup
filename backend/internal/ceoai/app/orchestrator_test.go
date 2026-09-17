@@ -519,6 +519,58 @@ func TestNaturalHealthQuestionScopesToKnownPark(t *testing.T) {
 	}
 }
 
+func TestModelCannotRequestTrustedSQLThroughParams(t *testing.T) {
+	sqlFB := &fakeSQLFallback{result: domain.ToolResult{
+		Facts: []domain.Fact{{Label: "n", Value: "1"}},
+	}}
+	reg := NewRegistry(nil, nil, sqlFB)
+	prov := &fakeProvider{byModel: true, plan: domain.Plan{SubQuestions: []domain.SubQuestion{{
+		ID:       "0",
+		Route:    domain.RouteSQL,
+		ToolName: "sql_fallback",
+		Params: map[string]any{
+			"sql":         "SELECT 'n' AS label, '1' AS value FROM ceo_ai.animal_current_scope WHERE tenant_id = 't1' LIMIT 1",
+			"trusted_sql": "server_natural",
+		},
+	}}}}
+	a := NewAssistant(Config{}, Deps{Provider: prov, Registry: reg})
+
+	_, err := a.Ask(context.Background(), domain.Question{Actor: leadershipActor(), Text: "model drafted sql"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if sqlFB.calls != 1 || sqlFB.trustedCalls != 0 {
+		t.Fatalf("model-provided trusted_sql param must not reach trusted executor, regular=%d trusted=%d", sqlFB.calls, sqlFB.trustedCalls)
+	}
+}
+
+func TestGenericHealthQuestionDoesNotUseSourceEntrySQL(t *testing.T) {
+	sqlFB := &fakeSQLFallback{}
+	health := &fakeExec{
+		spec:   ports.ToolSpec{Name: "mesha_health_today", Route: domain.RouteAPI},
+		result: domain.ToolResult{Surface: "Mesha read API", Facts: []domain.Fact{{Label: "Health blockers", Value: "0"}}},
+	}
+	reg := NewRegistry(nil, nil, sqlFB)
+	reg.Register(health)
+	prov := &fakeProvider{byModel: true, plan: domain.Plan{SubQuestions: []domain.SubQuestion{{
+		ID:       "0",
+		Route:    domain.RouteAPI,
+		ToolName: "mesha_health_today",
+	}}}}
+	a := NewAssistant(Config{}, Deps{Provider: prov, Registry: reg})
+
+	_, err := a.Ask(context.Background(), domain.Question{Actor: leadershipActor(), Text: "health blockers in cpt"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if sqlFB.calls != 0 || sqlFB.trustedCalls != 0 {
+		t.Fatalf("generic health question must not be captured by source-entry SQL, regular=%d trusted=%d", sqlFB.calls, sqlFB.trustedCalls)
+	}
+	if health.calls != 1 {
+		t.Fatalf("expected planned health API route to run, got %d calls", health.calls)
+	}
+}
+
 func TestNaturalAdultGoatCountDoesNotRouteToHealth(t *testing.T) {
 	sqlFB := &fakeSQLFallback{result: domain.ToolResult{
 		Facts: []domain.Fact{{Label: "Active animals", Value: "185", Scope: "goat"}},

@@ -395,7 +395,7 @@ func chromeCopy() map[string]string {
 		"ceo_ai.send":               "Send question",
 		"ceo_ai.starter_due":        "how many animals were sold this month?",
 		"ceo_ai.starter_overdue":    "which pens have the lowest average weight?",
-		"ceo_ai.starter_counts":     "show sheep vs goat sales this month",
+		"ceo_ai.starter_counts":     "which customers bought the most this month?",
 		"ceo_ai.starter_help":       "make a graph of average weight by pen",
 		"state.fresh":               "fresh",
 		"state.freshness_pending":   "freshness pending",

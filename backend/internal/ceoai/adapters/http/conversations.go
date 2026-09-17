@@ -62,7 +62,7 @@ func (a Actor) leadership() bool { return a.Role == permissions.RoleCEOInternal 
 var defaultStarters = []string{
 	"How many animals were sold this month?",
 	"What is sales revenue this month?",
-	"Show sheep vs goat sales this month.",
+	"Which customers bought the most this month?",
 	"Who are the top buyers by sales revenue?",
 	"What is the average weight in CPT?",
 	"Which pens have the lowest average weight?",
