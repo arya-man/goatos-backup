@@ -94,8 +94,10 @@ interface OutboxDao {
             // corrects the form and submits again under a fresh key in the same lane, so the new
             // report REPLACES the refused one rather than following it -- holding the lane behind
             // the dead row left the corrected report queued forever. Same-type only: a dead report
-            // still holds any other write in its lane.
-            "AND NOT (candidate.opType = older.opType AND candidate.opType IN ('COUNTS_BIRTH', 'COUNTS_DEATH')) " +
+            // still holds any other write in its lane. TERMINAL older rows only: a report still
+            // waiting out its retry backoff may yet land, so a newer report must not overtake it.
+            "AND NOT (candidate.opType = older.opType AND candidate.opType IN ('COUNTS_BIRTH', 'COUNTS_DEATH') " +
+            "  AND (older.conflict = 1 OR older.attemptCount >= older.maxAttempts)) " +
             "AND NOT (candidate.opType = 'PROOF_UPLOAD' AND older.opType = 'PROOF_UPLOAD') " +
             "AND NOT (candidate.opType = older.opType AND candidate.opType IN ('WEIGHING_ANIMAL_OBSERVATION', 'WEIGHING_SHED_OBSERVATION')) " +
             "AND NOT (older.opType IN ('PC_CARE_SLOT_REGISTER', 'PC_CARE_TASK_PROOF_REGISTER') " +

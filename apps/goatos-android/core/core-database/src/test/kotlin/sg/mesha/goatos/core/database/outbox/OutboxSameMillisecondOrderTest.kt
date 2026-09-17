@@ -241,6 +241,28 @@ class OutboxSameMillisecondOrderTest {
         database.close()
     }
 
+    /**
+     * The exemption is TERMINAL rows only. An older report still waiting out its retry backoff may
+     * yet succeed, and letting the newer report past it would land the two out of order.
+     */
+    @Test
+    fun `a retry pending death report still holds the newer death report in its lane`() = runBlocking {
+        val database = db()
+        val dao = database.outboxDao()
+        dao.insert(
+            row(
+                "flaky-death", "COUNTS_DEATH", "goat-1", createdAt = 5L,
+                status = "FAILED", nextAttemptAt = 5_000L, attempts = 2,
+            ),
+        )
+        dao.insert(row("newer-death", "COUNTS_DEATH", "goat-1", createdAt = 6L))
+
+        val eligible = dao.eligibleForDrain(now = 1_000L, limit = 50).map { it.id }
+
+        assertEquals(emptyList<String>(), eligible)
+        database.close()
+    }
+
     /** The exemption is same-op-type only: a dead death report still holds a different write in its lane. */
     @Test
     fun `a dead lettered death report still holds a non report write in the same lane`() = runBlocking {
