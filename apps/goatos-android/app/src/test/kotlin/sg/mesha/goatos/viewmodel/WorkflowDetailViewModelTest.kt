@@ -36,7 +36,6 @@ import sg.mesha.goatos.core.network.dto.WorkflowCardDto
 import sg.mesha.goatos.core.network.dto.WorkflowChipsDto
 import sg.mesha.goatos.core.network.dto.WorkflowDetailResponseDto
 import sg.mesha.goatos.core.network.dto.WorkflowOverdueDateDto
-import sg.mesha.goatos.core.network.dto.WorkflowProofItemDto
 import sg.mesha.goatos.core.network.dto.WorkflowSubjectDto
 import sg.mesha.goatos.core.network.dto.VerificationVerdictMeasurementDto
 import sg.mesha.goatos.feature.counts.WorkflowDetailEvent
@@ -306,10 +305,13 @@ class WorkflowDetailViewModelTest {
             title = "Record kid video",
             status = "rework",
             proofMinVideos = 2,
-            proofRefs = listOf(WorkflowProofItemDto(ref = "old-proof", kind = "video")),
+            // A verifier reject clears the step's proofs on the server (tasks/domain.ApplyStepVerdict).
+            proofRefs = emptyList(),
         )
         val workflowsRepository = FakeWorkflowDetailRepository(requiresVideoDetail().copy(actions = listOf(action)))
         val syncRepository = FakeWorkflowDetailSyncRepository()
+        // The rejected round's step write is still on this phone, queued after its capture.
+        syncRepository.holdOutboxItems(heldStepWrite("wf-complete:action-1:old", createdAt = 1L, opType = "WORKFLOW_ACTION_COMPLETE"))
         val proofCaptureRepository = FakeProofCaptureRepository()
         proofCaptureRepository.seedProofs(
             workflowProofRow(
@@ -505,6 +507,225 @@ class WorkflowDetailViewModelTest {
         assertEquals(yes, viewModel.state.value.actions.single().answerValue)
     }
 
+    // -----------------------------------------------------------------------------------------
+    // REWORK ROUND (Realme E2E 2026-09-17, P0). A verifier reject clears the step's proof_refs on
+    // the server, but this phone still holds the round-1 capture rows. Recovering them as this
+    // round's proofs hid the capture button, and re-sent the REJECTED proofs under round 1's key,
+    // which collapsed onto the old SUCCEEDED outbox row: the card was stuck.
+    // -----------------------------------------------------------------------------------------
+
+    private fun heldStepWrite(
+        key: String,
+        createdAt: Long,
+        opType: String = "WORKFLOW_ACTION_ANSWER",
+        status: sg.mesha.goatos.core.data.sync.SyncItemStatus = sg.mesha.goatos.core.data.sync.SyncItemStatus.SUCCEEDED,
+        conflict: Boolean = false,
+    ) = SyncQueueItem(
+        id = "held-$key",
+        opType = opType,
+        idempotencyKey = key,
+        groupKey = "wf-1",
+        status = status,
+        attemptCount = 1,
+        maxAttempts = 5,
+        conflict = conflict,
+        createdAt = createdAt,
+        updatedAt = createdAt,
+        lastError = if (conflict) "this action is already completed" else null,
+    )
+
+    /** The key round 1 wrote for [actionId] carrying these upload outbox ids (the VM's own formula). */
+    private fun roundOneKey(prefix: String, actionId: String, vararg outboxIds: String): String =
+        "$prefix:$actionId:" + outboxIds.joinToString(",").hashCode().toUInt().toString(16)
+
+    private fun staleRow(actionId: String, kind: String, ordinal: Int, capturedAtMs: Long) = workflowProofRow(
+        id = "stale-$actionId-$kind-$ordinal",
+        fieldKey = workflowProofFieldKey(actionId) + "_" + kind + "_" + ordinal,
+        serverProofId = "rejected-$actionId-$kind-$ordinal",
+        outboxItemId = "stale-outbox-$actionId-$kind-$ordinal",
+        capturedAtMs = capturedAtMs,
+    )
+
+    private fun photoSource(capturedAtMs: Long) = object : sg.mesha.goatos.capture.PhotoCaptureSource {
+        override suspend fun capturePhoto(context: sg.mesha.goatos.capture.PhotoCaptureContext) =
+            sg.mesha.goatos.capture.CapturedPhoto(localUri = "file:///reshoot.jpg", capturedAtMs = capturedAtMs)
+    }
+
+    private fun reconcileReworkDetail() = requiresVideoDetail().copy(
+        module = "reconcile",
+        templateKey = "reconcile",
+        actions = listOf(
+            WorkflowActionDto(
+                actionId = "gate", actionKey = "gate_ok", seq = 1, actionType = "question", answerType = "yes_no",
+                taskType = "record_yes_no", title = "Gate OK?", status = "rework", proofMinPhotos = 1,
+                answerValue = "yes", reworkReason = "Ear tag not visible in the pen video",
+            ),
+            WorkflowActionDto(
+                actionId = "reason", actionKey = "reason", seq = 2, actionType = "question_select",
+                title = "Why?", status = "completed", options = listOf("a", "b"), answerValue = "a",
+            ),
+            WorkflowActionDto(
+                actionId = "ret", actionKey = "return_to_pen", seq = 3, actionType = "action", title = "Return to pen",
+                status = "rework", blocked = true, blockedReason = "previous_action", proofMinVideos = 1, proofMinPhotos = 1,
+            ),
+        ),
+    )
+
+    @Test
+    fun `rework round of a yes-no photo question offers the photo and sends one fresh answer write`() = runTest(dispatcher) {
+        val repo = FakeWorkflowDetailRepository(reconcileReworkDetail())
+        val sync = FakeWorkflowDetailSyncRepository()
+        val gateRoundOne = roundOneKey("wf-answer", "gate", "stale-outbox-gate-photo-1")
+        sync.holdOutboxItems(
+            heldStepWrite(gateRoundOne, createdAt = 15L),
+            heldStepWrite(roundOneKey("wf-complete", "ret", "stale-outbox-ret-video-1", "stale-outbox-ret-photo-1"), 30L, "WORKFLOW_ACTION_COMPLETE"),
+            heldStepWrite("wf-complete:ret:f303dbb3", 31L, "WORKFLOW_ACTION_COMPLETE", sg.mesha.goatos.core.data.sync.SyncItemStatus.FAILED, conflict = true),
+        )
+        val proofs = FakeProofCaptureRepository().apply {
+            seedProofs(staleRow("gate", "photo", 1, 10L), staleRow("ret", "video", 1, 20L), staleRow("ret", "photo", 1, 21L))
+        }
+        val viewModel = buildViewModel(repo, sync, proofs, FakeProofCaptureSource(mutableListOf()), photoSource(100L))
+        backgroundScope.launch { viewModel.state.collect {} }
+        advanceUntilIdle()
+
+        assertEquals("a rejected round's proofs must never be re-sent on open", emptyList<Any>(), sync.answerCalls + sync.completeCalls)
+        val gate = viewModel.state.value.actions.first { it.actionId == "gate" }
+        assertEquals("the rework step offers Take photo", true, gate.canTakePhoto)
+        assertEquals("the rework step offers its choices", true, gate.canAnswer)
+        assertEquals("no rejected photo counts toward the re-shoot", 0, gate.proofPhotosCaptured)
+
+        viewModel.onEvent(WorkflowDetailEvent.Answer("gate", "yes"))
+        advanceUntilIdle()
+        assertEquals("tapping the answer waits for the photo", 0, sync.answerCalls.size)
+        assertEquals("tapping the answer is visible", true, viewModel.state.value.message != null)
+
+        viewModel.onEvent(WorkflowDetailEvent.TakePhoto("gate"))
+        advanceUntilIdle()
+
+        assertEquals("exactly one answer write for the re-shoot, got ${sync.answerCalls}", 1, sync.answerCalls.size)
+        val write = sync.answerCalls.single()
+        assertEquals("yes", write.answerValue)
+        assertEquals("a round-distinct key, never round 1's SUCCEEDED key", true, write.idempotencyKey != gateRoundOne)
+        assertEquals(listOf("proof-outbox-1"), write.proofOutboxItems.map { it.outboxItemId })
+    }
+
+    @Test
+    fun `rework round of a select photo question keeps its answer and sends one fresh write`() = runTest(dispatcher) {
+        val action = WorkflowActionDto(
+            actionId = "band", actionKey = "weight_band", seq = 1, actionType = "question_select", title = "Weight band",
+            status = "rework", options = listOf("2-3 kg", "3-4 kg"), answerValue = "3-4 kg", proofMinPhotos = 1,
+        )
+        val repo = FakeWorkflowDetailRepository(requiresVideoDetail().copy(actions = listOf(action)))
+        val sync = FakeWorkflowDetailSyncRepository()
+        val roundOne = roundOneKey("wf-answer", "band", "stale-outbox-band-photo-1")
+        sync.holdOutboxItems(heldStepWrite(roundOne, createdAt = 15L))
+        val proofs = FakeProofCaptureRepository().apply { seedProofs(staleRow("band", "photo", 1, 10L)) }
+        val viewModel = buildViewModel(repo, sync, proofs, FakeProofCaptureSource(mutableListOf()), photoSource(100L))
+        backgroundScope.launch { viewModel.state.collect {} }
+        advanceUntilIdle()
+
+        assertEquals(true, viewModel.state.value.actions.single().canTakePhoto)
+        assertEquals(0, sync.answerCalls.size)
+
+        // The kept answer is pre-selected: the operator only re-shoots the photo.
+        viewModel.onEvent(WorkflowDetailEvent.TakePhoto("band"))
+        advanceUntilIdle()
+
+        assertEquals("exactly one answer write, got ${sync.answerCalls}", 1, sync.answerCalls.size)
+        assertEquals("3-4 kg", sync.answerCalls.single().answerValue)
+        assertEquals(true, sync.answerCalls.single().idempotencyKey != roundOne)
+        assertEquals(1, sync.answerCalls.single().proofOutboxItems.size)
+    }
+
+    @Test
+    fun `rework round of a video and photo action records both again and sends one fresh completion`() = runTest(dispatcher) {
+        val detail = reconcileReworkDetail().let { d ->
+            d.copy(
+                actions = d.actions.map {
+                    when (it.actionId) {
+                        "gate" -> it.copy(status = "completed")
+                        "ret" -> it.copy(blocked = false, blockedReason = "")
+                        else -> it
+                    }
+                },
+            )
+        }
+        val repo = FakeWorkflowDetailRepository(detail)
+        val sync = FakeWorkflowDetailSyncRepository()
+        val roundOne = roundOneKey("wf-complete", "ret", "stale-outbox-ret-video-1", "stale-outbox-ret-photo-1")
+        sync.holdOutboxItems(
+            heldStepWrite(roundOne, 30L, "WORKFLOW_ACTION_COMPLETE"),
+            heldStepWrite("wf-complete:ret:f303dbb3", 31L, "WORKFLOW_ACTION_COMPLETE", sg.mesha.goatos.core.data.sync.SyncItemStatus.FAILED, conflict = true),
+        )
+        val proofs = FakeProofCaptureRepository().apply {
+            seedProofs(staleRow("ret", "video", 1, 20L), staleRow("ret", "photo", 1, 21L))
+        }
+        val video = FakeProofCaptureSource(mutableListOf(CapturedVideo(localUri = "/proof/ret.mp4", startedAtMs = 100L, endedAtMs = 110L)))
+        val viewModel = buildViewModel(repo, sync, proofs, video, photoSource(120L))
+        backgroundScope.launch { viewModel.state.collect {} }
+        advanceUntilIdle()
+
+        val ret = viewModel.state.value.actions.first { it.actionId == "ret" }
+        assertEquals(true, ret.canRecordVideo)
+        assertEquals(true, ret.canTakePhoto)
+        assertEquals(0, sync.completeCalls.size)
+
+        viewModel.onEvent(WorkflowDetailEvent.RecordVideo("ret"))
+        advanceUntilIdle()
+        assertEquals("one proof is not the whole step", 0, sync.completeCalls.size)
+        viewModel.onEvent(WorkflowDetailEvent.TakePhoto("ret"))
+        advanceUntilIdle()
+
+        assertEquals("exactly one completion, got ${sync.completeCalls.map { it.idempotencyKey }}", 1, sync.completeCalls.size)
+        val write = sync.completeCalls.single()
+        assertEquals(true, write.idempotencyKey != roundOne)
+        assertEquals(listOf("video", "photo"), write.proofOutboxItems.map { it.kind })
+        assertEquals("only this round's proofs ride the write", true, write.proofOutboxItems.none { it.outboxItemId.startsWith("stale-") })
+    }
+
+    @Test
+    fun `rework round of a photo-only birth action sends one fresh completion`() = runTest(dispatcher) {
+        val action = WorkflowActionDto(
+            actionId = "kid", actionKey = "kid_photo", seq = 1, actionType = "action", title = "Kid photo",
+            status = "rework", proofMinPhotos = 1, reworkReason = "Blurred",
+        )
+        val repo = FakeWorkflowDetailRepository(requiresVideoDetail().copy(actions = listOf(action)))
+        val sync = FakeWorkflowDetailSyncRepository()
+        val roundOne = roundOneKey("wf-complete", "kid", "stale-outbox-kid-photo-1")
+        sync.holdOutboxItems(heldStepWrite(roundOne, 15L, "WORKFLOW_ACTION_COMPLETE"))
+        val proofs = FakeProofCaptureRepository().apply { seedProofs(staleRow("kid", "photo", 1, 10L)) }
+        val viewModel = buildViewModel(repo, sync, proofs, FakeProofCaptureSource(mutableListOf()), photoSource(100L))
+        backgroundScope.launch { viewModel.state.collect {} }
+        advanceUntilIdle()
+
+        assertEquals(0, sync.completeCalls.size)
+        assertEquals(true, viewModel.state.value.actions.single().canTakePhoto)
+
+        viewModel.onEvent(WorkflowDetailEvent.TakePhoto("kid"))
+        advanceUntilIdle()
+
+        assertEquals(1, sync.completeCalls.size)
+        assertEquals(true, sync.completeCalls.single().idempotencyKey != roundOne)
+        assertEquals(listOf("proof-outbox-1"), sync.completeCalls.single().proofOutboxItems.map { it.outboxItemId })
+    }
+
+    @Test
+    fun `a rework step whose earlier write is no longer on the phone never recovers an uploaded proof`() = runTest(dispatcher) {
+        val action = WorkflowActionDto(
+            actionId = "kid", actionKey = "kid_photo", seq = 1, actionType = "action", title = "Kid photo",
+            status = "rework", proofMinPhotos = 1,
+        )
+        val repo = FakeWorkflowDetailRepository(requiresVideoDetail().copy(actions = listOf(action)))
+        val sync = FakeWorkflowDetailSyncRepository() // round 1's SUCCEEDED write was pruned
+        val proofs = FakeProofCaptureRepository().apply { seedProofs(staleRow("kid", "photo", 1, 10L)) }
+        val viewModel = buildViewModel(repo, sync, proofs, FakeProofCaptureSource(mutableListOf()), photoSource(100L))
+        backgroundScope.launch { viewModel.state.collect {} }
+        advanceUntilIdle()
+
+        assertEquals("an uploaded proof of unknown round is never re-sent as the re-shoot", 0, sync.completeCalls.size)
+        assertEquals(true, viewModel.state.value.actions.single().canTakePhoto)
+    }
+
     @Test
     fun `terminal complete failure rolls optimistic action back to pending`() = runTest(dispatcher) {
         val workflowsRepository = FakeWorkflowDetailRepository(
@@ -651,7 +872,20 @@ private class FakeWorkflowDetailSyncRepository : SyncRepository {
         val proofOutboxItemId: String?,
         val proofOutboxItems: List<WorkflowProofOutboxRef>,
     )
-    data class AnswerCall(val groupKey: String, val idempotencyKey: String, val workflowId: String, val actionId: String, val answerValue: String, val proofOutboxItemId: String?)
+    data class AnswerCall(
+        val groupKey: String,
+        val idempotencyKey: String,
+        val workflowId: String,
+        val actionId: String,
+        val answerValue: String,
+        val proofOutboxItemId: String?,
+        val proofOutboxItems: List<WorkflowProofOutboxRef> = emptyList(),
+    )
+
+    /** Seeds the outbox rows this phone already holds (e.g. an earlier round's SUCCEEDED step write). */
+    fun holdOutboxItems(vararg held: SyncQueueItem) {
+        status.value = status.value.copy(items = held.toList())
+    }
 
     val completeCalls = mutableListOf<CompleteCall>()
     /** Production's enqueue suspends on Room I/O; true models that suspension. */
@@ -690,7 +924,7 @@ private class FakeWorkflowDetailSyncRepository : SyncRepository {
         proofOutboxItemId: String?,
         proofOutboxItems: List<WorkflowProofOutboxRef>,
     ): AppResult<String> {
-        answerCalls += AnswerCall(groupKey, idempotencyKey, workflowId, actionId, answerValue, proofOutboxItemId)
+        answerCalls += AnswerCall(groupKey, idempotencyKey, workflowId, actionId, answerValue, proofOutboxItemId, proofOutboxItems)
         val id = outboxItemIdByKey.getOrPut(idempotencyKey) { "wf-outbox-${nextOutboxId++}" }
         return AppResult.Ok(id)
     }

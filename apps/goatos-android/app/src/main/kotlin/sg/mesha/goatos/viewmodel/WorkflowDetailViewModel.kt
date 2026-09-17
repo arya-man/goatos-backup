@@ -40,6 +40,7 @@ import sg.mesha.goatos.core.data.capture.CaptureSyncStatus
 import sg.mesha.goatos.core.data.forms.ProofPolicy
 import sg.mesha.goatos.core.data.sync.SyncRepository
 import sg.mesha.goatos.core.data.sync.SyncItemStatus
+import sg.mesha.goatos.core.data.sync.SyncQueueItem
 import sg.mesha.goatos.core.data.sync.WorkflowProofOutboxRef
 import sg.mesha.goatos.core.network.dto.CountsDestinationParkDto
 import sg.mesha.goatos.core.network.dto.WorkflowActionDto
@@ -272,8 +273,9 @@ class WorkflowDetailViewModel @Inject constructor(
             combine(
                 repo.observeDetail(workflowId, lens, lensDate),
                 proofCaptureRepository.observeProofs(workflowId),
-            ) { detail, proofs -> detail to proofs }
-                .collect { (detail, proofs) ->
+                syncRepository.observeStatus(),
+            ) { detail, proofs, sync -> Triple(detail, proofs, sync.items) }
+                .collect { (detail, proofs, outboxItems) ->
                     // Death sends every step from its one Submit; recovering its uploads here as
                     // auto-submits would send a multi-proof step a second time.
                     if (detail?.module == MODULE_DEATH) return@collect
@@ -284,7 +286,7 @@ class WorkflowDetailViewModel @Inject constructor(
                     // process death between capture and write, never for a capture in flight.
                     if (_state.value.isCapturingVideo) return@collect
                     val actions = detail?.actions.orEmpty()
-                    val recovered = recoverMultiProofRefs(actions, proofs)
+                    val recovered = recoverMultiProofRefs(actions, proofs, outboxItems)
                     if (recovered.isNotEmpty()) {
                         val merged = pendingProofs.value + recovered
                         if (merged != pendingProofs.value) rememberPendingProofs(merged)
@@ -311,6 +313,7 @@ class WorkflowDetailViewModel @Inject constructor(
     private fun recoverMultiProofRefs(
         actions: List<WorkflowActionDto>,
         proofs: List<ProofCaptureRow>,
+        outboxItems: List<SyncQueueItem>,
     ): Map<String, List<WorkflowProofOutboxRef>> =
         actions
             .filter { it.proofMinPhotos > 0 || it.proofMinVideos > 1 }
@@ -318,13 +321,19 @@ class WorkflowDetailViewModel @Inject constructor(
             .associate { action ->
                 val prefix = workflowProofFieldKey(action.actionId) + "_"
                 val backendProofRefs = action.proofRefs.mapNotNull { it.ref.takeIf(String::isNotBlank) }.toSet()
+                val latestStepWriteAt = if (action.status == STATUS_REWORK) {
+                    latestWorkflowStepWriteAt(workflowId, action.actionId, outboxItems)
+                } else {
+                    null
+                }
                 action.actionId to proofs
                     .asSequence()
                     .filter { row ->
                         row.syncStatus != CaptureSyncStatus.FAILED &&
                             (!row.outboxItemId.isNullOrBlank() || !row.serverProofId.isNullOrBlank()) &&
                             row.fieldKey.startsWith(prefix) &&
-                            (action.status != STATUS_REWORK || row.serverProofId.isNullOrBlank() || row.serverProofId !in backendProofRefs)
+                            (action.status != STATUS_REWORK || row.serverProofId.isNullOrBlank() || row.serverProofId !in backendProofRefs) &&
+                            (action.status != STATUS_REWORK || workflowReworkRoundCapture(row, latestStepWriteAt))
                     }
                     .sortedBy { it.capturedAtMs }
                     .mapNotNull { row ->
@@ -585,10 +594,13 @@ class WorkflowDetailViewModel @Inject constructor(
             rememberPendingProofs(pendingProofs.value + (actionId to queued))
             val latest = _state.value.actions.firstOrNull { it.actionId == actionId } ?: action
             val needsAnswer = latest.answerKind != "none" && latest.canAnswer
-            if (proofsSatisfied(latest, queued) && (!needsAnswer || pendingAnswers[actionId] != null)) {
+            // The answer chosen on this phone, else the one the step already carries (a rework round
+            // keeps its answer, pre-selected, so the operator only re-shoots the proof).
+            val answer = pendingAnswers[actionId] ?: latest.answerValue?.takeIf { needsAnswer && it.isNotBlank() }
+            if (proofsSatisfied(latest, queued) && (!needsAnswer || answer != null)) {
                 // The capture is over; the step write is durable in the outbox from here.
                 _state.update { it.copy(isCapturingVideo = false) }
-                submitMultiProof(actionId, pendingAnswers[actionId])
+                submitMultiProof(actionId, answer)
             } else {
                 _state.update { it.copy(isCapturingVideo = false, message = MULTI_PROOF_QUEUED_MESSAGE, isErrorMessage = false) }
             }
@@ -1306,6 +1318,40 @@ class WorkflowDetailViewModel @Inject constructor(
         private const val ACTION_FAILED_MESSAGE = "This action did not go through. Review it and try again."
     }
 }
+
+/**
+ * When this phone last queued a step write for [actionId] (any status), or null when it holds none
+ * (never written here, or the SUCCEEDED row was pruned).
+ */
+internal fun latestWorkflowStepWriteAt(workflowId: String, actionId: String, items: List<SyncQueueItem>): Long? =
+    items
+        .filter { item ->
+            item.groupKey == workflowId &&
+                (item.opType == "WORKFLOW_ACTION_COMPLETE" || item.opType == "WORKFLOW_ACTION_ANSWER") &&
+                listOf("wf-complete:$actionId", "wf-answer:$actionId").any { prefix ->
+                    item.idempotencyKey == prefix || item.idempotencyKey.startsWith("$prefix:")
+                }
+        }
+        .maxOfOrNull { it.createdAt }
+
+/**
+ * Whether a locally held capture belongs to a REWORK round, i.e. may be recovered as its proof.
+ *
+ * A verifier reject clears the step's proofs on the server, so the server cannot tell this phone
+ * which of its captures were the rejected ones. Recovering the earlier round's rows hid the capture
+ * button and re-sent the REJECTED proofs under round 1's key, which collapsed onto that round's
+ * SUCCEEDED outbox row: nothing reached the server and the card was stuck (Realme E2E 2026-09-17).
+ *
+ * A capture made after this phone's last step write for the action is this round's. With no such
+ * write on the phone only a proof still uploading can be this round's -- an already uploaded one
+ * of unknown round is never re-sent; at worst the operator takes that proof again.
+ */
+internal fun workflowReworkRoundCapture(row: ProofCaptureRow, latestStepWriteAtMs: Long?): Boolean =
+    if (latestStepWriteAtMs != null) {
+        row.capturedAtMs > latestStepWriteAtMs
+    } else {
+        row.serverProofId.isNullOrBlank() && row.syncStatus != CaptureSyncStatus.SYNCED
+    }
 
 /** The step's queued proofs with each proof once: keyed by its upload outbox id, or by its server
  *  id when the outbox row is already gone. Capture order is kept. */
