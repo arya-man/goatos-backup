@@ -1,4 +1,4 @@
-/* Lifecycle seed: shed-tag stages, health states, groups. Source: Goats and Parks (PARK SHED TAGS). Swappable data file. */
+/* Lifecycle seed: pen-tag stages, health states, groups. Source: Goats and Parks (PARK SHED TAGS). Swappable data file. */
 (function(){
   const T=[
     ['K0','K0 - Newborn',1,2,'any'],['K1','K1 - Milk Training',3,9,'any'],['K2','K2 - Milk Drinking',10,77,'any'],['K3','K3 - Weaning',78,84,'any'],
@@ -13,7 +13,7 @@
   [['sp_goat','g'],['sp_sheep','s']].forEach(([sp,p])=>T.forEach(t=>stages.push({id:'stg_'+p+'_'+t[0].toLowerCase().replace(/-/g,''),speciesId:sp,code:t[0],name:t[1],fromD:t[2],toD:t[3],sex:t[4],aliases:t[5]||[]})));
   window.LIFECYCLE_SEED={
     stages,
-    /* Breeding is a shed-tag stage only (G&P). F2 / "F2 - Fattening" are legacy names for plain Fattening; sex comes from the animal. */
+    /* Breeding is a pen-tag stage only (G&P). F2 / "F2 - Fattening" are legacy names for plain Fattening; sex comes from the animal. */
     tags:[{name:'Fattening',kind:'group',aliases:['F2','F2 - Fattening']}],
     healthStates:[
       {name:'ICU Milk Kids',group:'Milk Kids',fromD:3,toD:77,aliases:['ICU-Kid']},{name:'Quarantine Milk Kids',group:'Milk Kids',fromD:3,toD:77,aliases:['Quarantine kids']},

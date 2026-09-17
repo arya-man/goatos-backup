@@ -238,7 +238,10 @@ td.act{width:40px;text-align:right}
 .trylist tr.cur td{background:var(--infox)}
 
 /* toast */
-.toast{position:fixed;left:50%;bottom:22px;transform:translateX(-50%);z-index:600;background:var(--panel);border:1px solid var(--line);box-shadow:var(--pop);border-radius:12px;padding:10px 12px 10px 16px;display:flex;align-items:center;gap:12px;font-weight:600;font-size:13px;max-width:calc(100vw - 24px)}
+.toast{position:fixed;right:22px;bottom:22px;left:auto;transform:none;z-index:600;background:var(--panel);border:1px solid var(--line);box-shadow:var(--pop);border-radius:12px;padding:10px 12px 10px 16px;display:flex;align-items:center;gap:12px;font-weight:600;font-size:13px;max-width:min(560px,calc(100vw - 24px))}
+.toast>:first-child{white-space:nowrap}
+.toast a,.toast .link{overflow-wrap:anywhere}
+@media(max-width:560px){.toast{left:12px;right:12px;bottom:12px}}
 .hidden{display:none!important}
 .vstrip{display:flex;gap:6px;align-items:center;flex-wrap:wrap}
 .link{color:var(--brand-d);font-weight:650;cursor:pointer}

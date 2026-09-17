@@ -13,7 +13,7 @@
     const rows={};stages.forEach(s=>(rows[rank[s.id]]=rows[rank[s.id]]||[]).push(s.id));
     Object.values(rows).forEach(ids=>ids.forEach((id,i)=>col[id]=i));
     /* estimated card height: header + name + child line + one row per tag (tags wrap); stages keep a >=48px connector gap */
-    const hOf=s=>84+26*(s.deps.length+(s.approvalRoleId?1:0)+(s.waitDays?1:0)+(s.repeatHours?1:0));
+    const hOf=s=>84+26*(s.deps.length+(s.approvalRoleId?1:0)+(s.waitDays||s.waitSetting?1:0)+(s.repeatHours||s.repeatSetting?1:0))+44*((S.get('settings',s.waitSetting)?1:0)+(S.get('settings',s.repeatSetting)?1:0));
     const maxR=Math.max(0,...Object.values(rank)); const rowY=[]; let y=34;
     for(let r=0;r<=maxR;r++){rowY[r]=y;y+=Math.max(112,...stages.filter(s=>rank[s.id]===r).map(hOf))+56;}
     const pos={};let maxc=0;stages.forEach(s=>{pos[s.id]={x:34+col[s.id]*300,y:rowY[rank[s.id]],w:260,h:Math.max(112,hOf(s))};maxc=Math.max(maxc,col[s.id]);});
@@ -44,10 +44,21 @@
     return [s.approvalRoleId?'Approved':'Completed','ok'];
   }
   const val=(s,k,sk)=>{const st=S.get('settings',s[sk]);return st?st.value:s[k];};
+  /* published snapshot vs draft; values that follow a setting compare by the setting, not the copied number */
+  const norm=stages=>(stages||[]).map(x=>{const y=Object.assign({},x);if(y.waitSetting)delete y.waitDays;if(y.repeatSetting)delete y.repeatHours;
+    Object.keys(y).forEach(k=>{if(y[k]===''||y[k]==null)delete y[k];});return y;});
+  let seedM=null;
+  function snapshot(m,v){if(!v)return null;if(!v.stages){if(!seedM){try{seedM={};(window.buildSeed().masters||[]).forEach(x=>seedM[x.id]=x.stages);}catch(e){seedM={};}}
+      v.stages=JSON.parse(JSON.stringify(seedM[m.id]||m.stages));}
+    return v.stages;}
+  function pending(m){const v=m.versions[m.versions.length-1];if(!v)return {changed:true,drift:[],edits:true};
+    const snap=snapshot(m,v);const edits=Flow.stable(norm(snap))!==Flow.stable(norm(m.stages))||(v.title!==undefined&&v.title!==m.title);
+    const drift=Flow.drift(m.stages,v);return {changed:edits||drift.length>0,drift,edits};}
+  M.pending=pending;
 
   M.page=function(id,view){
     const m=S.get('masters',id); if(!m)return '<div class="empty">Not found</div>';
-    const iss=validate(m); const v=m.versions[m.versions.length-1]; const T=tr(id);
+    const iss=validate(m); const v=m.versions[m.versions.length-1]; const T=tr(id); const pd=pending(m);
     const L=layout(m.stages); const by={};m.stages.forEach(s=>by[s.id]=s);
     let edges='';
     m.stages.forEach(s=>s.deps.forEach(d=>{const a=L.pos[d.stage],b=L.pos[s.id];if(!a||!b)return;
@@ -63,13 +74,14 @@
         <div class="small muted">${c?esc(c.title)+' · '+Flow.stepCount(c.nodes)+' steps':'No child SOP'}</div>
         <div class="nb">${s.deps.map(d=>UI.tag('After '+((by[d.stage]||{}).label||'?')+' '+STATE_L[d.state],d.state==='started'?'info':d.state==='approved'?'pur':'mut')).join('')}
           ${s.approvalRoleId?UI.tag('Approval · '+REG.labelById('roles',s.approvalRoleId),'pur'):''}
-          ${s.waitDays?UI.tag('Wait '+val(s,'waitDays','waitSetting')+' d','warn'):''}${s.repeatHours?UI.tag('Every '+val(s,'repeatHours','repeatSetting')+' h','warn'):''}</div></div>`;}).join('');
+          ${s.waitDays||s.waitSetting?UI.tag('Wait '+val(s,'waitDays','waitSetting')+' d','warn'):''}${s.repeatHours||s.repeatSetting?UI.tag('Every '+val(s,'repeatHours','repeatSetting')+' h','warn'):''}</div>
+          ${Flow.settingChips?`<div class="mst-sets">${Flow.settingChips({waitSetting:s.waitSetting,repeatSetting:s.repeatSetting},v)}</div>`:''}</div>`;}).join('');
     const canvas=`<div class="canvas" style="height:auto;min-height:${Math.min(L.H+20,900)}px"><div class="board" style="width:${L.W}px;height:${L.H}px;position:relative">
       <svg class="edges" width="${L.W}" height="${L.H}"><defs><marker id="mah" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" style="fill:var(--muted);stroke:none"/></marker></defs>${edges}</svg>${nodes}</div></div>`;
     const head=`<div class="phead"><div><div class="crumb">Configuration / <a href="#/configuration/work-instructions">Work instructions</a> / <b>${esc(m.dept)}</b></div><h1>${esc(m.title)}</h1>
-      <div class="vstrip" style="margin-top:6px">${v?UI.tag('v'+v.v+' published','ok'):''}${v&&v.running?UI.tag(v.running+' running','info'):''}${UI.tag(m.stages.length+' stages','mut')}${iss.length?UI.tag(iss.length+' issues','dng'):''}</div></div><div class="sp"></div>
+      <div class="vstrip" style="margin-top:6px">${v?UI.tag('v'+v.v+' published','ok'):UI.tag('Never published','warn')}${v&&pd.edits?UI.tag('Draft changes','warn'):''}${pd.drift.length?UI.tag('Setting changed · publish to apply','warn'):''}${v&&v.running?UI.tag(v.running+' running','info'):''}${UI.tag(m.stages.length+' stages','mut')}${iss.length?UI.tag(iss.length+' issues','dng'):''}</div></div><div class="sp"></div>
       <div class="seg"><a class="${view!=='try'?'on':''}" href="${base}${id}">${ic('layers')}Stages</a><a class="${view==='try'?'on':''}" href="${base}${id}/try">${ic('play')}Try</a></div>
-      <button class="btn p" data-a="mst-publish" data-id="${id}" ${iss.length?'disabled':''}>${ic('check')}Publish v${v?v.v+1:1}</button></div>`;
+      <button class="btn p" data-a="mst-publish" data-id="${id}" ${iss.length||!pd.changed?'disabled':''} title="${pd.changed?'':'No changes since v'+(v?v.v:0)}">${ic('check')}Publish v${v?v.v+1:1}</button></div>`;
     const side=view==='try'?trySide(m,T):inspector(m,iss);
     return head+`<div class="editor"><section class="card"><div class="canvasbar"><div class="legend"><span><i></i>Completed</span><span><i class="a"></i>Approved</span><span><i class="s"></i>Started (parallel)</span></div><span class="sp"></span>
       ${view!=='try'?`<button class="btn sm" data-a="stage-add">${ic('plus')}Stage</button>`:''}</div>${canvas}</section><section class="card insp">${side}</section></div>`;
@@ -79,6 +91,7 @@
     const s=m.stages.find(x=>x.id===M.sel[m.id]);
     if(!s)return `<div class="hd"><h3>Master SOP</h3></div><div class="bd">
       <div class="fld"><label>Title</label><input data-ms="title" value="${esc(m.title)}"></div>
+      ${(()=>{const pd=pending(m);return pd.drift.length?`<div class="eyebrow mt">Pending setting changes</div><div class="stack" style="gap:4px;margin-top:6px">${pd.drift.map(x=>`<div class="fx-set moved">Uses setting: ${esc(x.name)} = ${esc(x.now)}${x.unit?' '+esc(x.unit):''} <b>(was ${esc(x.was)})</b></div>`).join('')}<div class="small muted">Running work keeps the old value. Publish to use the new one.</div></div>`:'';})()}
       <div class="eyebrow mt">Issues</div>${iss.length?iss.map(i=>`<div class="small" style="color:var(--danger);margin-top:6px">${esc(i)}</div>`).join(''):`<div class="mt">${UI.tag('Ready to publish','ok')}</div>`}</div>`;
     const others=m.stages.filter(x=>x.id!==s.id);
     return `<div class="hd">${ic('layers')}<h3>Stage</h3><span class="sp"></span><button class="btn sm gh" data-a="stage-sel" data-id="">${ic('x')}</button></div><div class="bd">
@@ -101,7 +114,7 @@
   }
 
   function trySide(m,T){
-    if(!T.cohort)T.cohort=Object.assign({},m.cohort||{offered:100,selected:70,boarded:0,received:0});
+    if(!T.cohort)T.cohort=Object.assign({offered:'',selected:'',boarded:'',received:''},m.cohort||{});
     const rows=m.stages.map((s,i)=>{const [l,t]=stageState(m,s,T);const x=T.st[s.id]||{};const b=[];
       if(l==='Ready')b.push(`<button class="btn sm p" data-a="try-do" data-s="${s.id}" data-v="start">Start</button>`);
       if(l==='Waiting')b.push(`<button class="btn sm" data-a="try-do" data-s="${s.id}" data-v="wait">Mark ${val(s,'waitDays','waitSetting')} d elapsed</button>`);
@@ -113,7 +126,7 @@
         <div class="trysub">${UI.tag(l,t)}<span class="sp"></span>${b.join('')}</div></td></tr>`;}).join('');
     const c=T.cohort;
     return `<div class="hd"><h3>Try run</h3><span class="sp"></span><button class="btn sm" data-a="try-reset">${ic('rotate')}Reset</button></div>
-      <div class="trycoh">${['offered','selected','boarded','received'].map(k=>`<label>${k[0].toUpperCase()+k.slice(1)}<input class="inl num" data-coh="${k}" value="${esc(c[k])}" inputmode="numeric"></label>`).join('')}</div>
+      <div class="trycoh">${['offered','selected','boarded','received'].map(k=>`<label>${k[0].toUpperCase()+k.slice(1)}<input class="inl num" data-coh="${k}" value="${esc(c[k])}" placeholder="0" inputmode="numeric"></label>`).join('')}</div>
       <div class="twrap screen trylist"><table><tbody>${rows}</tbody></table></div>`;
   }
 
@@ -143,7 +156,8 @@
     'dep-add'(){const m=cur();const s=m.stages.find(x=>x.id===M.sel[m.id]);const o=m.stages.find(x=>x.id!==s.id&&!s.deps.some(d=>d.stage===x.id));if(!o)return;s.deps.push({stage:o.id,state:'completed'});S.save();App.render();},
     'dep-del'(el){const m=cur();const s=m.stages.find(x=>x.id===M.sel[m.id]);s.deps.splice(+el.dataset.i,1);S.save();App.render();},
     'mst-publish'(el){const m=S.get('masters',el.dataset.id);const iss=validate(m);if(iss.length){UI.toast('Fix '+iss.length+' issues before publishing');return;}
-      const prev=m.versions[m.versions.length-1];S.snap('Publish');m.versions.push({v:(prev?prev.v:0)+1,at:new Date().toISOString(),by:'Ravi Teja',running:0,stages:JSON.parse(JSON.stringify(m.stages))});S.save();App.render();
+      if(!pending(m).changed){UI.toast('No changes to publish');return;}
+      const prev=m.versions[m.versions.length-1];S.snap('Publish');m.versions.push({v:(prev?prev.v:0)+1,at:new Date().toISOString(),by:'Ravi Teja',running:0,title:m.title,stages:JSON.parse(JSON.stringify(m.stages)),pins:Flow.pinNow(m.stages)});S.save();App.render();
       UI.toast('Published v'+(prev?prev.v+1:1)+(prev&&prev.running?' · '+prev.running+' running stay on v'+prev.v:''),()=>{S.undo();App.render();});},
     'try-do'(el){const m=cur(),T=tr(m.id),x=T.st[el.dataset.s]||(T.st[el.dataset.s]={});const v=el.dataset.v;
       if(v==='start')x.started=true;if(v==='wait')x.waitDone=true;if(v==='check')x.checks=(x.checks||0)+1;if(v==='complete')x.completed=true;if(v==='approve')x.approved=true;

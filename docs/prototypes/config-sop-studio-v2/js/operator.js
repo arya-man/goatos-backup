@@ -5,7 +5,8 @@
   const E=s=>String(s==null?'':s).replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
   const HIDDEN=new Set(['start','end','join']);
   const st=()=>(window.S&&window.S.state)||{};
-  const roleName=id=>{const r=(st().roles||[]).find(x=>x.id===id);return r?r.name:(id?String(id).replace(/^role_/,''):'Approver');};
+  const roleName=id=>{const r=(st().roles||[]).find(x=>x.id===id);return r?(window.REG?REG.labelById('roles',id):r.name):'Approver';};
+  const approverText=n=>{const ap=window.Flow&&Flow.approvers?Flow.approvers(n):[];return ap.length?ap.map(x=>x.label).join(' → '):roleName(n.roleId);};
   const setting=id=>{const r=id&&(st().settings||[]).find(x=>x.id===id);return r?Number(r.value):null;};
 
   function run(sop){
@@ -45,9 +46,23 @@
     return true;
   }
   function rejected(n,r){return window.Flow&&Flow.rejectHit?Flow.rejectHit(n,r.ans[n.id]):false;}
+  /* number answers outside their limits (fixed or read from business settings); a decision on the answer handles it instead */
+  let curSop=null;
+  function numCheck(n,r){
+    if(n.type!=='question'||n.answer!=='number'||!window.Flow||!Flow.limits)return null;
+    const a=r.ans[n.id]; if(a===undefined||a===''||a==='__cannot')return null; const x=Number(a);
+    const sop=curSop||{nodes:[]}; const L=Flow.limits(n,sop,r.ans);
+    const nm=s=>s?' ('+s.name+')':'';
+    if(isNaN(x))return {msg:'Enter a number'};
+    if(L.min!=null&&x<L.min)return {msg:'Below the minimum '+L.min+nm(L.minSet),handled:handled(n,sop)};
+    if(L.max!=null&&x>L.max)return {msg:'Above the maximum '+L.max+nm(L.maxSet),handled:handled(n,sop)};
+    return null;
+  }
+  const handled=(n,sop)=>(sop.nodes||[]).some(d=>d.type==='decision'&&d.q===n.id);
+  const numErr=(n,r)=>{const c=numCheck(n,r);return !!(c&&!c.handled);};
   function nodeDone(n,r){
     switch(n.type){
-      case 'question':{const a=r.ans[n.id];if(!n.required)return true;return a!==undefined&&a!==''&&!(Array.isArray(a)&&!a.length);}
+      case 'question':{const a=r.ans[n.id];if(numErr(n,r))return false;if(!n.required)return true;return a!==undefined&&a!==''&&!(Array.isArray(a)&&!a.length);}
       case 'evidence':return (r.media[n.id]||0)>=(n.min||0);
       case 'approval':return !!r.appr[n.id];
       case 'action':case 'child':case 'wait':return !!r.ans[n.id];
@@ -67,7 +82,7 @@
   const lbl=(n,extra)=>`<div class="op-flabel">${E(n.label||'')}${n.required?'<b>*</b>':''}${extra||''}</div>`;
 
   /* one pick-list component for every ref question; pens/partitions grouped by park */
-  const recLabel=x=>x.name||x.number||x.code||x.id;
+  const recLabel=x=>x.displayName||x.name||x.number||x.code||x.id;
   const parkName=id=>{const p=(st().parks||[]).find(x=>x.id===id);return p?p.name:'No park';};
   function parkOf(coll,x){
     if(coll==='pens')return x.parkId;
@@ -77,14 +92,15 @@
   function pickList(n,a){
     const coll=n.refColl, L=(window.Flow&&Flow.REFS&&Flow.REFS[coll])||'List';
     const recs=((st()[coll])||[]).filter(x=>x.status!=='archived');
-    const penName=id=>{const p=(st().pens||[]).find(x=>x.id===id);return p?p.name+' - ':'';};
-    const opt=x=>{const v=recLabel(x),t=coll==='partitions'?penName(x.penId)+v:v;return `<option value="${E(v)}" ${a===v?'selected':''}>${E(t)}</option>`;};
+    /* partitions: numeric labels join with a space ("Castro 1"), worded ones with " - " ("Godel 1 - Part 3") */
+    const partLabel=x=>{const p=(st().pens||[]).find(y=>y.id===x.penId);const nm=x.name||'';if(!p)return nm;const pn=p.displayName||p.name;return /^\d+$/.test(nm)?pn+' '+nm:pn+' - '+nm;};
+    const opt=x=>{const t=coll==='partitions'?partLabel(x):recLabel(x);return `<option value="${E(x.id)}" ${a===x.id?'selected':''}>${E(t)}</option>`;};
     let opts;
-    if(!recs.length)opts='<option>Sample 1</option><option>Sample 2</option>';
+    if(!recs.length)return `<div class="op-input op-none">No ${E(L.toLowerCase())} set up yet</div>`;
     else if(coll==='pens'||coll==='partitions'){
       const groups=new Map(); recs.forEach(x=>{const k=parkOf(coll,x)||'';if(!groups.has(k))groups.set(k,[]);groups.get(k).push(x);});
       opts=[...groups].map(([k,xs])=>`<optgroup label="${E(parkName(k))}">${xs.map(opt).join('')}</optgroup>`).join('');
-    }else opts=recs.slice(0,60).map(opt).join('');
+    }else opts=recs.map(opt).join('');
     return `<div class="op-input"><select data-op="sel" data-n="${n.id}" aria-label="${E(n.label||L)}"><option value="">Select ${E(L.toLowerCase())}</option>${opts}</select></div>`;
   }
 
@@ -104,7 +120,11 @@
             return `<button class="op-opt ${on?'on':''}" data-op="${ans==='multi'?'multi':'pick'}" data-n="${n.id}" data-v="${E(o.v)}"><i></i>${E(o.l)}</button>`;}).join('')}</div>`;
           if(n.reject&&n.reject.op==='cannot')inner+=`<button class="op-link" data-op="pick" data-n="${n.id}" data-v="__cannot">Cannot check</button>`;
         }else if(ans==='number'){
-          inner=`<div class="op-input"><input inputmode="decimal" data-op="num" data-n="${n.id}" value="${E(a==null?'':a)}" placeholder="${n.min!=null&&n.max!=null?E(n.min+' – '+n.max):'0'}"><span>${E(n.unit||'')}</span></div>`;
+          const L=window.Flow&&Flow.limits?Flow.limits(n,sop,r.ans):{min:n.min,max:n.max};const chk=numCheck(n,r);
+          const ph=L.min!=null&&L.max!=null?L.min+' – '+L.max:L.max!=null?'Max '+L.max:L.min!=null?'Min '+L.min:'0';
+          inner=`<div class="op-input ${chk?'bad':''}"><input inputmode="decimal" data-op="num" data-n="${n.id}" value="${E(a==null?'':a)}" placeholder="${E(ph)}"><span>${E(n.unit||'')}</span></div>`
+            +(L.minSet||L.maxSet?`<div class="op-row op-lims">${[L.minSet&&pill('Min '+L.min+' · '+L.minSet.name,'mut'),L.maxSet&&pill('Max '+L.max+' · '+L.maxSet.name,'mut')].filter(Boolean).join('')}</div>`:'')
+            +(chk?`<div class="op-err ${chk.handled?'soft':''}">${E(chk.msg)}</div>`:'');
           if(n.reject&&n.reject.op==='cannot')inner+=`<button class="op-link" data-op="pick" data-n="${n.id}" data-v="__cannot">Cannot check</button>`;
         }else if(ans==='ref'){
           inner=pickList(n,a);
@@ -121,7 +141,7 @@
         return `<div class="op-card">${lbl(n)}<div class="op-row">${media.map(m=>pill(m,'mut')).join('')}${pill(c+' / '+max,c>=(n.min||0)&&c?'ok':'warn')}</div><div class="op-tiles">${tiles.join('')}</div></div>`;
       }
       case 'approval':{
-        const d=r.appr[n.id]; const who=roleName(n.roleId); const outs=n.outcomes&&n.outcomes.length?n.outcomes:['Approve','Send back'];
+        const d=r.appr[n.id]; const who=approverText(n); const outs=n.outcomes&&n.outcomes.length?n.outcomes:['Approve','Send back'];
         const body=d?`<div class="op-row">${pill(d,/back|reject|redo|refer/i.test(d)?'dng':'ok')}<span class="op-mut">by ${E(who)}</span></div>`
           :(r.role==='approver'?`<div class="op-btns">${outs.map((o,i)=>`<button class="op-btn ${i?'ghost':''}" data-op="approve" data-n="${n.id}" data-v="${E(o)}">${E(o)}</button>`).join('')}</div>`
           :`<div class="op-wait"><span class="op-spin"></span>Waiting for approver<span class="op-mut">${E(who)}</span></div>`);
@@ -166,7 +186,7 @@
   function render(container,sop,opts){
     opts=opts||{}; if(!container)return;
     if(!sop||!Array.isArray(sop.nodes)){container.innerHTML='<div class="op-wrap"><div class="op-phone"><div class="op-screen"><div class="op-head"><div class="op-eyebrow">SOP</div><div class="op-title">No steps</div></div></div></div></div>';return;}
-    const r=run(sop); const P=pages(sop); if(r.i>P.length)r.i=P.length;
+    curSop=sop; const r=run(sop); const P=pages(sop); if(r.i>P.length)r.i=P.length;
     const dept=(sop.dept||'Work').toUpperCase();
     const states=P.map(p=>pageState(p,r));
     const summary=r.i>=P.length; const p=P[r.i];
@@ -204,7 +224,7 @@
           <div class="op-hrow"><button class="op-ib" data-op="back" aria-label="Back">‹</button><div><div class="op-eyebrow">${E(dept)}</div><div class="op-title">${E(sop.title||'SOP')}</div></div></div>
           <div class="op-row">${summary?'':p?pill(stLabel[states[r.i]],tone[states[r.i]]):''}${pill(summary?'Summary of '+P.length:'Page '+(r.i+1)+' of '+P.length,'mut')}${r.role==='approver'?pill('Approver','info'):''}</div>
           <div class="op-prog"><i style="width:${pct}%"></i></div>
-          <div class="op-dots">${P.map((_,k)=>`<button class="op-dot ${states[k]} ${k===r.i?'cur':''}" data-op="goto" data-k="${k}" aria-label="Page ${k+1}" ${k>reach?'disabled':''}></button>`).join('')}</div>
+          <div class="op-dots">${P.map((_,k)=>`<button class="op-dot ${states[k]==='done'&&(k<r.i||summary)?'done':states[k]==='blocked'?'blocked':k<r.i?'pending':''} ${k===r.i?'cur':''}" data-op="goto" data-k="${k}" aria-label="Page ${k+1}" ${k>reach?'disabled':''}></button>`).join('')}</div>
         </div>
         <div class="op-body">${summary||!p||sameTitle(p)?'':`<div class="op-section">${E(p.title)}</div>`}${body}</div>
         ${panel}
@@ -214,7 +234,7 @@
     if(container.__opBound)return; container.__opBound=true;
     container.addEventListener('click',ev=>{
       const b=ev.target.closest('[data-op]'); if(!b||!container.contains(b))return;
-      const cs=container.__opSop||sop, R=run(cs), id=b.dataset.n, v=b.dataset.v, op=b.dataset.op;
+      const cs=container.__opSop||sop, R=run(cs), id=b.dataset.n, v=b.dataset.v, op=b.dataset.op; curSop=cs;
       const n=(cs.nodes||[]).find(x=>x.id===id); const PP=pages(cs);
       if(op==='num'||op==='txt'||op==='sel')return;
       if(op==='scan')R.ans[id]=R.ans[id]?'':'E'+(100000000000+Math.floor(Math.random()*899999999999));
@@ -238,7 +258,7 @@
     });
     container.addEventListener('change',ev=>{
       const t=ev.target; if(!t.dataset||!t.dataset.op)return;
-      const cs=container.__opSop||sop,R=run(cs);
+      const cs=container.__opSop||sop,R=run(cs); curSop=cs;
       R.ans[t.dataset.n]=t.value; const o=container.__opOpts||opts;
       setTimeout(()=>{render(container,cs,o); if(o.onChange)o.onChange(runMap(cs));},0);
     });
@@ -251,7 +271,7 @@
 
   /* node id -> 'done' | 'pending' | 'blocked' | 'waiting' for the current try run */
   function runMap(sop){
-    const r=RUNS[sop&&sop.id]; const out={}; if(!r||!sop)return out;
+    const r=RUNS[sop&&sop.id]; const out={}; if(!r||!sop)return out; curSop=sop;
     pages(sop).forEach(p=>p.nodes.forEach(n=>{
       if(!visible(n,r))return;
       out[n.id]=rejected(n,r)?'blocked':(n.type==='approval'&&!r.appr[n.id])||(n.type==='wait'&&!r.ans[n.id])?'waiting':nodeDone(n,r)?'done':'pending';

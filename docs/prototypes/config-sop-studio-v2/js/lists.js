@@ -59,8 +59,19 @@
 
   L.table=function(regKey,opts,list){
     const reg=REG.R[regKey], s=state(regKey); list=list||rows(regKey,opts);
-    const firstText=(reg.cols.find(c=>c.type==='text'&&c.req)||reg.cols[0]).k;
-    const cols=(regKey==='items'?ITEM_COLS:null)||opts.columns||reg.cols.filter(c=>!c.hideInList).map(c=>({label:c.label,num:c.type==='num',w:c.type==='num'?110:null,html:r=>{const v=REG.cellValue(reg,c,r);return c.k===firstText?`<b>${esc(v)}</b>`:`<span class="${c.type==='ref'&&!v?'muted':''}">${esc(v||(c.blankLabel||''))}</span>`;}}));
+    /* human name first; a raw key (column "Key", or a record's key/code) goes last, muted, hidden on phones */
+    const isKeyCol=c=>/^key$/i.test(c.label);
+    const nameCol=reg.cols.find(c=>c.k==='name'&&!isKeyCol(c))||reg.cols.find(c=>c.type==='text'&&c.req&&!isKeyCol(c))||reg.cols[0];
+    const firstText=nameCol.k;
+    const ordered=[nameCol].concat(reg.cols.filter(c=>c!==nameCol&&!isKeyCol(c)),reg.cols.filter(c=>c!==nameCol&&isKeyCol(c))).filter(c=>!c.hideInList);
+    const gradeCell=(c,r)=>c.k==='grade'?REG.gradeLabel(r.grade):REG.cellValue(reg,c,r);
+    let cols=(regKey==='items'?ITEM_COLS:null)||opts.columns||ordered.map(c=>isKeyCol(c)?{label:'Key',key:1,w:150,html:r=>`<span class="mono muted">${esc(REG.cellValue(reg,c,r))}</span>`}
+      :{label:c.label,num:c.type==='num',w:c.type==='num'?110:null,html:r=>{const v=gradeCell(c,r);if(c.ref==='pens'){const pn=S.get('pens',r[c.attr]);if(pn&&pn.displayName)return esc(pn.displayName);}if(regKey==='pens'&&c.k===firstText&&r.displayName)return `<b>${esc(r.displayName)}</b>`;return c.k===firstText?`<b>${esc(v)}</b>`:`<span class="${c.type==='ref'&&!v?'muted':''}">${esc(v||(c.blankLabel||''))}</span>`;}});
+    if(regKey!=='items'&&!cols.some(c=>c.key||/^(key|code)$/i.test(c.label))&&S.all(reg.coll).some(r=>r.key))
+      cols=cols.concat([{label:'Key',key:1,w:170,html:r=>`<span class="mono muted">${esc(r.key||'')}</span>`}]);
+    cols=cols.map(c=>c.key?Object.assign({},c,{cls:'keycol'}):/^grade$/i.test(c.label)?Object.assign({},c,{html:r=>esc(REG.gradeLabel(r.grade))}):c);
+    /* count columns that are zero on every row say nothing: drop them */
+    cols=cols.filter(c=>!c.num||!list.length||list.slice(0,500).some(r=>{const v=String(c.html(r)).replace(/<[^>]*>/g,'').trim();return v!==''&&v!=='0'&&v!=='—';}));
     if(!list.length)return `<div class="empty">${S.all(reg.coll).length?'No matches':'No '+esc(reg.label.toLowerCase())+' yet'}</div>`;
     const shown=list.slice(0,500);
     /* widths by content: tables scroll inside .twrap instead of truncating */
@@ -68,11 +79,11 @@
     const widthOf=c=>c.w||MINW[String(c.label).toLowerCase()]||(c.num?110:130);
     const plain=h=>String(h).replace(/<[^>]*>/g,'').replace(/&amp;/g,'&').replace(/&lt;/g,'<').replace(/&gt;/g,'>').replace(/&quot;/g,'"').replace(/&#39;/g,"'").trim();
     const allSel=shown.every(r=>s.sel.has(r.id));
-    return `<table class="ltbl" style="width:max-content;min-width:100%;table-layout:fixed"><colgroup><col style="width:44px">${cols.map(c=>`<col style="width:${widthOf(c)}px">`).join('')}<col style="width:104px"><col style="width:52px"></colgroup>
-      <thead><tr><th class="ck"><input type="checkbox" data-a="sel-all" data-reg="${regKey}" ${allSel?'checked':''} aria-label="Select all"></th>${cols.map(c=>`<th class="${c.num?'num':''}">${esc(c.label)}</th>`).join('')}<th>Status</th><th></th></tr></thead>
+    return `<style>@media(max-width:760px){.ltbl .keycol,.ltbl td.keycol,.ltbl th.keycol{display:none!important}}</style><table class="ltbl" style="width:max-content;min-width:100%;table-layout:fixed"><colgroup><col style="width:44px">${cols.map(c=>`<col class="${c.cls||''}" style="width:${widthOf(c)}px">`).join('')}<col style="width:104px"><col style="width:52px"></colgroup>
+      <thead><tr><th class="ck"><input type="checkbox" data-a="sel-all" data-reg="${regKey}" ${allSel?'checked':''} aria-label="Select all"></th>${cols.map(c=>`<th class="${c.num?'num':''} ${c.cls||''}">${esc(c.label)}</th>`).join('')}<th>Status</th><th></th></tr></thead>
       <tbody>${shown.map(r=>`<tr class="clk ${r.status==='archived'?'arch':''}" data-a="row-open" data-reg="${regKey}" data-id="${r.id}">
         <td class="ck" data-label=""><input type="checkbox" data-a="sel-one" data-reg="${regKey}" data-id="${r.id}" ${s.sel.has(r.id)?'checked':''} aria-label="Select" title="Shift-click selects a range"></td>
-        ${cols.map(c=>{const h=c.html(r);return `<td class="${c.num?'num':''}" data-label="${esc(c.label)}" ${c.wrap?'style="white-space:normal;overflow:visible"':`title="${esc(plain(h))}"`}>${h}</td>`;}).join('')}<td data-label="Status">${UI.statusTag(r.status)}</td>
+        ${cols.map(c=>{const h=c.html(r);return `<td class="${c.num?'num':''} ${c.cls||''}" data-label="${esc(c.label)}" ${c.wrap?'style="white-space:normal;overflow:visible"':`title="${esc(plain(h))}"`}>${h}</td>`;}).join('')}<td data-label="Status">${UI.statusTag(r.status)}</td>
         <td class="act" data-label=""><button class="btn icon gh" data-a="row-menu" data-reg="${regKey}" data-id="${r.id}" aria-label="Row actions">${ic('more')}</button></td></tr>`).join('')}</tbody></table>
       ${list.length>500?`<div class="empty">${shown.length} of ${list.length}</div>`:''}`;
   };
@@ -85,12 +96,12 @@
 
   /* archive blocked: "In use by 3 animals" links to those records, selected for bulk actions */
   const ROUTE={tags:'shed-tags'};
-  L.blockToast=function(coll,ids){
+  L.blockToast=function(coll,ids,title){
     const agg=[];[].concat(ids).forEach(id=>REG.activeUsers(coll,id).forEach(u=>{const cur=agg.find(a=>a.regKey===u.regKey);if(cur)u.ids.forEach(i=>{if(!cur.ids.includes(i))cur.ids.push(i);});else agg.push({regKey:u.regKey,label:u.label,ids:u.ids.slice()});}));
     if(!agg.length)return false;
     const txt='In use by '+agg.map(a=>a.ids.length+' '+a.label.toLowerCase()).join(', ');
     const names=[].concat(ids).map(id=>REG.labelById(coll,id)).filter(Boolean);
-    UI.toast('Cannot archive',null,{label:txt,link:true,run:()=>{
+    UI.toast(title||'Cannot archive',null,{label:txt,link:true,run:()=>{
       const u=agg[0],s=state(u.regKey);
       s.only={ids:u.ids,coll,label:'Using '+(names.length===1?names[0]:names.length+' '+REG.R[Object.keys(REG.R).find(k=>REG.R[k].coll===coll)].label.toLowerCase())};
       s.sel=new Set(u.ids);s.status='active';s.q='';s.f={};
@@ -126,7 +137,7 @@
         rec.status==='archived'?{label:'Restore',icon:'rotate',run:()=>UI.undoable('Restored',()=>{rec.status='active';App.render();})}
           :{label:'Archive',icon:'archive',run:()=>archiveOne(reg,rec)},
         '-',
-        {label:'Delete',icon:'trash',danger:true,run:()=>{const u=REG.usage(reg.coll,id);if(u.length){UI.toast('In use · '+u.map(x=>x.n+' '+x.label.toLowerCase()).join(', '),null,{label:'Archive',run:()=>archiveOne(reg,rec)});return;}
+        {label:'Delete',icon:'trash',danger:true,run:()=>{const u=REG.usage(reg.coll,id);if(u.length){if(L.blockToast(reg.coll,id,'Cannot delete'))return;UI.toast('In use · '+u.map(x=>x.n+' '+x.label.toLowerCase()).join(', '),null,{label:'Archive',run:()=>archiveOne(reg,rec)});return;}
           UI.undoable('Deleted',()=>{S.remove(reg.coll,id);state(k).sel.delete(id);App.render();});}}
       ]);
     },
@@ -153,7 +164,7 @@
     'lonly-clear'(el){const s=state(el.dataset.reg);s.only=null;s.sel.clear();App.render();},
     'bulk-tag'(el){L.pickApply(el.dataset.reg,'tags','Add tag','Choose shed tag',(a,t)=>{if(t.speciesId&&t.speciesId!==a.speciesId)return false;a.tagIds=[...new Set((a.tagIds||[]).concat(t.id))];return true;});},
     'bulk-del'(el){const k=el.dataset.reg,s=state(k),reg=REG.R[k];const ids=[...s.sel];const used=ids.filter(id=>REG.usage(reg.coll,id).length);const free=ids.filter(id=>!used.includes(id));
-      if(!free.length){UI.toast(used.length+' in use · archive instead');return;}
+      if(!free.length){if(L.blockToast(reg.coll,used,'Cannot delete'))return;UI.toast(used.length+' in use · archive instead');return;}
       UI.undoable('Deleted '+free.length+(used.length?' · '+used.length+' in use kept':''),()=>{S.remove(reg.coll,free);free.forEach(id=>s.sel.delete(id));App.render();});},
     'bulk-dup'(el){const k=el.dataset.reg,s=state(k),reg=REG.R[k];const ids=[...s.sel];
       Sheet.openEntry(k,null,ids.map(id=>UI.dupRow(k,S.get(reg.coll,id))));},

@@ -9,7 +9,7 @@
   F.TYPES=TYPES;
   const ANSWERS={text:'Text',number:'Number',choice:'Single choice',multi:'Multiple choice',scan:'RFID scan',date:'Date',ref:'Pick from list'};
   F.ANSWERS=ANSWERS;
-  const REFS={pens:'Pens',partitions:'Partitions',vendors:'Vendors',trucks:'Trucks',parks:'Parks',items:'Items',people:'People'};
+  const REFS={pens:'Pens',partitions:'Partitions',vendors:'Vendors',parks:'Parks',items:'Items',people:'People',movementReasons:'Movement reasons'};
   F.REFS=REFS;
 
   F.byId=nodes=>{const m={};nodes.forEach(n=>m[n.id]=n);return m;};
@@ -83,7 +83,7 @@
     const a=answers[n.q];
     if(n.op==='duplicate')return ctx&&ctx.prevScans?ctx.prevScans.includes(a):false;
     if(a===undefined||a===''||a===null)return undefined;
-    let v=n.value; if(typeof v==='string'&&v.startsWith('@'))v=answers[v.slice(1)];
+    let v=n.value; const vs=n.valueSetting&&S.get('settings',n.valueSetting); if(vs)v=vs.value; else if(typeof v==='string'&&v.startsWith('@'))v=answers[v.slice(1)];
     if(n.op==='=')return String(a)===String(v);
     if(n.op==='≠')return String(a)!==String(v);
     if(n.op==='<')return Number(a)<Number(v);
@@ -113,7 +113,7 @@
       if(n.type==='question'&&(n.answer==='choice'||n.answer==='multi')&&!(n.options||[]).length)iss.push({id:n.id,msg:L+': no options'});
       if(n.type==='decision'&&n.op!=='duplicate'&&(!n.q||!m[n.q]))iss.push({id:n.id,msg:L+': choose a question'});
       if(n.type==='decision'&&(n.next||[]).length<2)iss.push({id:n.id,msg:L+': needs Yes and No'});
-      if(n.type==='approval'&&!(n.roleId&&S.get('roles',n.roleId)))iss.push({id:n.id,msg:L+': choose approver role'});
+      if(n.type==='approval'&&!(n.chainId?S.get('approvalChains',n.chainId)&&F.approvers(n).length:(n.roleId&&S.get('roles',n.roleId))))iss.push({id:n.id,msg:L+': choose an approval chain or role'});
       if(n.type==='child'&&!S.get('sops',n.sopId))iss.push({id:n.id,msg:L+': choose child SOP'});
       if(n.type==='child'&&n.sopId===sop.id)iss.push({id:n.id,msg:L+': cannot follow itself'});
       else if(n.type==='child'&&n.sopId&&F.childLoop(n.sopId,sop.id))iss.push({id:n.id,msg:L+': loops back to this SOP'});
@@ -130,15 +130,54 @@
     return (s.nodes||[]).some(n=>n.type==='child'&&n.sopId&&(n.sopId===fromId?!targetId:walk(n.sopId)));
   };
   F.META=['title','dept','category'];
+  /* key-order-insensitive compare; undefined keys dropped (an inspector delete+re-add must not read as an edit) */
+  F.stable=function(o){return JSON.stringify(o,function(k,v){if(v&&typeof v==='object'&&!Array.isArray(v)){const r={};Object.keys(v).sort().forEach(x=>{if(v[x]!==undefined)r[x]=v[x];});return r;}return v;});};
+  /* ---------- settings referenced by steps: pinned per published version ---------- */
+  let seedSettings=null;
+  const seedSetting=id=>{if(!seedSettings){try{seedSettings={};((window.buildSeed&&window.buildSeed().settings)||[]).forEach(x=>seedSettings[x.id]=x.value);}catch(e){seedSettings={};}}return seedSettings[id];};
+  F.settingIds=function(obj){const out=[];const walk=(v,k)=>{if(k==='next'||k==='label'||v==null)return;
+      if(typeof v==='string'){if(/^set_/.test(v)&&S.get('settings',v)&&!out.includes(v))out.push(v);return;}
+      if(Array.isArray(v))v.forEach(x=>walk(x));else if(typeof v==='object')Object.keys(v).forEach(x=>walk(v[x],x));};
+    walk(obj);return out;};
+  /* {settingId: value} the version was published with; versions from before pinning take the seeded value */
+  F.pinsOf=function(ver,items){if(!ver)return {};
+    const refs=F.settingIds(items||ver.nodes||ver.stages||[]); ver.pins=Array.isArray(ver.pins)?ver.pins:[];
+    refs.forEach(id=>{if(ver.pins.some(p=>p.id===id))return;const st=S.get('settings',id);const sv=seedSetting(id);
+      ver.pins.push({id,name:st?st.name:id,value:sv!==undefined?sv:(st?st.value:''),unit:st?st.unit:''});});
+    const m={};ver.pins.forEach(p=>m[p.id]=p.value);return m;};
+  F.pinNow=function(items){return F.settingIds(items).map(id=>{const st=S.get('settings',id);return {id,name:st.name,value:st.value,unit:st.unit};});};
+  /* settings whose value moved since the published version: [{id,name,unit,was,now}] */
+  F.drift=function(items,ver){if(!ver)return [];const pins=F.pinsOf(ver,ver.nodes||ver.stages);
+    return F.settingIds(items).map(id=>{const st=S.get('settings',id);return st&&pins[id]!==undefined&&String(pins[id])!==String(st.value)?{id,name:st.name,unit:st.unit,was:pins[id],now:st.value}:null;}).filter(Boolean);};
+  F.settingChips=function(obj,ver){const d={};F.drift(obj,ver).forEach(x=>d[x.id]=x);
+    return F.settingIds(obj).map(id=>{const st=S.get('settings',id);const x=d[id];
+      return `<div class="fx-set ${x?'moved':''}" title="${x?'Running work keeps '+esc(x.was)+'; publish to use '+esc(x.now):'From business settings'}">Uses setting: ${esc(st.name)} = ${esc(st.value)}${st.unit&&st.unit!=='time'?' '+esc(st.unit):''}${x?` <b>(was ${esc(x.was)})</b>`:''}</div>`;}).join('');};
   F.changed=function(sop){const v=sop.versions[sop.versions.length-1];if(!v)return true;
     F.META.forEach(k=>{if(v[k]===undefined)v[k]=sop[k];});
-    return JSON.stringify(v.nodes)!==JSON.stringify(sop.nodes)||F.META.some(k=>v[k]!==sop[k]);};
+    F.linkChains(sop);
+    return F.stable(v.nodes)!==F.stable(sop.nodes)||F.META.some(k=>v[k]!==sop[k])||F.drift(sop.nodes,v).length>0;};
+  /* approvers of an approval step: its chain (live) or its single role */
+  F.approvers=function(n){
+    if(n.chainId){const ch=S.get('approvalChains',n.chainId);if(!ch)return [];
+      const list=(window.REG&&typeof REG.approversFor==='function')?(REG.approversFor(ch.id)||[]):(ch.steps||[]).map(x=>({label:x.role||x.designation||x.person}));
+      return list.map(x=>typeof x==='string'?{label:x}:x).filter(x=>x&&x.label);}
+    return n.roleId&&S.get('roles',n.roleId)?[{label:REG.labelById('roles',n.roleId)}]:[];};
+  /* seeded approval steps whose role is the first approver of their department's chain follow that chain */
+  F.linkChains=function(sop){
+    const chains=S.active('approvalChains'); if(!chains.length)return;
+    const t=REG.norm(sop.title); const ch=chains.find(c=>c.dept===sop.dept&&(t===REG.norm(c.name)||t.startsWith(REG.norm(c.name)+' ')));
+    if(!ch)return; const keys=(ch.steps||[]).map(x=>x.role||x.designation).filter(Boolean);
+    const vn={};(F.latest(sop)?F.latest(sop).nodes:[]).forEach(x=>vn[x.id]=x);
+    sop.nodes.forEach(n=>{if(n.type!=='approval'||n.chainId!==undefined)return;const r=S.get('roles',n.roleId);if(!r||!keys.includes(r.key))return;
+      n.chainId=ch.id;if(vn[n.id]&&vn[n.id].chainId===undefined&&vn[n.id].roleId===n.roleId)vn[n.id].chainId=ch.id;});
+  };
   /* step-level diff vs a version: [{kind:'added'|'removed'|'changed', label}] plus SOP detail changes */
   F.diff=function(sop,v){if(!v)return sop.nodes.filter(n=>!['start','end'].includes(n.type)).map(n=>({kind:'added',label:n.label||F.TYPES[n.type].label,type:n.type}));
     const out=[];const old=F.byId(v.nodes),cur=F.byId(sop.nodes);
     F.META.forEach(k=>{if(v[k]!==undefined&&v[k]!==sop[k])out.push({kind:'changed',label:(k==='dept'?'Department':k[0].toUpperCase()+k.slice(1))+': '+v[k]+' → '+sop[k],type:'meta'});});
-    sop.nodes.forEach(n=>{const o=old[n.id];if(!o)out.push({kind:'added',label:n.label||F.TYPES[n.type].label,type:n.type});else if(JSON.stringify(o)!==JSON.stringify(n))out.push({kind:'changed',label:n.label||F.TYPES[n.type].label,type:n.type});});
+    sop.nodes.forEach(n=>{const o=old[n.id];if(!o)out.push({kind:'added',label:n.label||F.TYPES[n.type].label,type:n.type});else if(F.stable(o)!==F.stable(n))out.push({kind:'changed',label:n.label||F.TYPES[n.type].label,type:n.type});});
     v.nodes.forEach(o=>{if(!cur[o.id])out.push({kind:'removed',label:o.label||F.TYPES[o.type].label,type:o.type});});
+    F.drift(sop.nodes,v).forEach(d=>out.push({kind:'changed',label:'Setting '+d.name+': '+d.was+' → '+d.now+(d.unit&&d.unit!=='time'?' '+d.unit:'')+' (running work keeps '+d.was+')',type:'setting'}));
     return out;};
   F.latest=sop=>sop.versions[sop.versions.length-1];
 
@@ -148,11 +187,13 @@
     switch(n.type){
       case 'start':return 'Operator starts';
       case 'question':{const a=ANSWERS[n.answer]||'Text';const o=(n.options||[]).map(o=>o.l);
-        return [a==='Single choice'||a==='Multiple choice'?(o.slice(0,3).join(' / ')+(o.length>3?' …':'')||a):a,n.unit,n.required?'required':'',n.reject?'can reject':''].filter(Boolean).join(' · ');}
+        const lim=n.answer==='number'?F.limitText(n,sop):'';
+        return [a==='Single choice'||a==='Multiple choice'?(o.slice(0,3).join(' / ')+(o.length>3?' …':'')||a):a,n.unit,lim,n.required?'required':'',n.reject?'can reject':''].filter(Boolean).join(' · ');}
       case 'evidence':return (n.media||['photo']).join(' or ')+' · '+(n.min||0)+(n.max&&n.max!==n.min?'–'+n.max:'')+' file'+((n.max||1)>1?'s':'');
       case 'decision':{const q=m[n.q];if(n.op==='duplicate')return 'Already scanned?';if(!q)return 'Choose a question';
         const val=String(n.value).startsWith('@')?(m[n.value.slice(1)]||{}).label:(((q.options||[]).find(o=>o.v===n.value)||{}).l||n.value);return 'If answer '+n.op+' '+val;}
-      case 'approval':return n.roleId&&S.get('roles',n.roleId)?REG.labelById('roles',n.roleId)+' signs off':'Choose approver role';
+      case 'approval':{const ap=F.approvers(n);if(n.chainId){const ch=S.get('approvalChains',n.chainId);return ch&&ap.length?ch.name+' chain: '+ap.map(x=>x.label).join(' → '):'Choose an approval chain';}
+        return ap.length?ap[0].label+' signs off':'Choose approver';}
       case 'wait':return n.until==='age'?'Until '+n.amount+' days old':'Wait '+setv(n.setting,n.amount,n.unit);
       case 'repeat':if((n.times||[]).length)return n.times.length+'×/day ('+n.times[0]+'–'+n.times[n.times.length-1]+') · '+(n.slotCount||n.times.length*(n.forAmount||1))+' checks';
         return 'Every '+setv(n.everySetting,n.every,n.everyUnit)+' for '+setv(n.forSetting,n.forAmount,n.forUnit||'days');
@@ -164,10 +205,22 @@
     }
     return '';
   };
+  /* number limits: fixed min/max, or read from a setting (optionally per answer of a choice question) */
+  F.limitSetting=function(spec,sop,answers){if(!spec)return null;
+    if(typeof spec==='string')return S.get('settings',spec)||null;
+    const keys=Object.keys(spec); if(!keys.length)return null;
+    const q=(sop.nodes||[]).find(x=>x.type==='question'&&(x.options||[]).some(o=>keys.includes(o.v)));
+    const a=q&&answers?answers[q.id]:undefined; const k=q?(a!==undefined&&spec[a]?a:null):(keys.length===1?keys[0]:null);
+    return k?S.get('settings',spec[k])||null:null;};
+  F.limits=function(n,sop,answers){const rule=n.rule||{};
+    const mx=F.limitSetting(rule.maxFromSetting||n.maxFromSetting,sop,answers),mn=F.limitSetting(rule.minFromSetting||n.minFromSetting,sop,answers);
+    return {min:mn?Number(mn.value):(n.min==null||n.min===''?null:Number(n.min)),max:mx?Number(mx.value):(n.max==null||n.max===''?null:Number(n.max)),minSet:mn,maxSet:mx};};
+  F.limitText=function(n,sop){const rule=n.rule||{};const has=rule.maxFromSetting||n.maxFromSetting||rule.minFromSetting||n.minFromSetting;
+    if(has)return 'limits from settings';const L=F.limits(n,sop);return L.min!=null&&L.max!=null?L.min+'–'+L.max:L.max!=null?'max '+L.max:'';};
   function childLabel(n){if(n.type!=='child')return n.label;const c=S.get('sops',n.sopId);return c?c.title:n.label;}
 
   /* ---------- stylesheet (owned by this module) ---------- */
-  (function(){if(document.querySelector('link[data-flow-css]'))return;const l=document.createElement('link');l.rel='stylesheet';l.href='styles/flow.css';l.dataset.flowCss='1';document.head.appendChild(l);})();
+  (function(){if(document.querySelector('link[data-flow-css]'))return;const l=document.createElement('link');l.rel='stylesheet';l.href='styles/flow.css';l.dataset.flowCss='1';l.onload=()=>document.querySelectorAll('.fx-root').forEach(r=>syncChrome(r));document.head.appendChild(l);})();
 
   /* ---------- rendering ---------- */
   const PALETTE=['question','evidence','decision','approval','wait','repeat','child','action','parallel','end'];
@@ -225,7 +278,7 @@
   function plusHtml(sop,pos){
     let out='';
     sop.nodes.forEach(n=>(n.next||[]).forEach((e,i)=>{const g=edgeGeom(sop,pos,n,e,i);if(!g||g.px==null)return;
-      out+=`<button class="fx-plus" data-plus="${n.id}:${i}" style="left:${g.px}px;top:${g.py}px" aria-label="Insert step here">+</button>`;}));
+      out+=`<button class="fx-plus ${F._edgeSel&&F._edgeSel.sop===sop.id&&F._edgeSel.key===n.id+':'+i?'show':''}" data-plus="${n.id}:${i}" style="left:${g.px}px;top:${g.py}px" aria-label="Insert step here">+</button>`;}));
     return out;
   }
   function groupsHtml(sop,pos){
@@ -249,7 +302,8 @@
       ${n.type!=='start'?'<i class="fx-port in"></i>':''}
       <div class="fx-eyebrow">${ic(n.link?'workflow':ty.icon,'',13)}<span>${n.link?'Linked module':ty.label}</span>${runTag}</div>
       <div class="fx-title">${esc(childLabel(n)||'Untitled')}</div>
-      ${sum&&!PILL(n.type)?`<div class="fx-sum">${n.link?`<a href="${esc(n.link)}" class="fx-link">${esc(sum)} ›</a>`:esc(sum)}</div>`:''}
+      ${sum&&!PILL(n.type)?`<div class="fx-sum" title="${esc(sum)}">${n.link?`<a href="${esc(n.link)}" class="fx-link">${esc(sum)} ›</a>`:esc(sum)}</div>`:''}
+      ${PILL(n.type)?'':F.settingChips(n,F.latest(sop))}
       ${ports}</div>`;
   }
 
@@ -260,7 +314,7 @@
     const st={sel,multi:multiSet(sop),edge:F._edgeSel&&F._edgeSel.sop===sop.id?F._edgeSel.key:null};
     F._run=F._run||{}; F._run[sop.id]=run;
     schedule(sop.id);
-    return `<div class="fx-root" data-flow="${sop.id}" tabindex="0" style="${bgStyle(v)};--fxk:${v.k}">
+    return `<div class="fx-root ${F.palOpen?'pal-open':''}" data-flow="${sop.id}" tabindex="0" style="${bgStyle(v)};--fxk:${v.k}">
       <div class="fx-clip"><div class="fx-world" style="transform:translate(${v.x}px,${v.y}px) scale(${v.k})">
         <div class="fx-groups">${groupsHtml(sop,pos)}</div>
         <svg class="fx-edges" width="1" height="1">${edgesSvg(sop,pos,st)}</svg>
@@ -268,8 +322,8 @@
         <div class="fx-nodes">${sop.nodes.map(n=>nodeHtml(sop,n,pos[n.id],st,run)).join('')}</div>
         <svg class="fx-preview" width="1" height="1"><path d=""/></svg>
       </div></div>
-      <div class="fx-palette" aria-label="Add step"><div class="fx-palette-h">Add step</div>
-        ${PALETTE.map(t=>`<button class="fx-pal k-${t}" data-pal="${t}" aria-label="Add ${TYPES[t].label}"><i class="fx-pal-ic">${ic(TYPES[t].icon,'',16)}</i><b>${TYPES[t].label}</b></button>`).join('')}
+      <div class="fx-palette" aria-label="Add step"><div class="fx-palette-h"><span>Add step</span><button class="fx-palt" data-fx="pal" aria-label="${F.palOpen?'Collapse':'Expand'} step list" aria-expanded="${F.palOpen?'true':'false'}" title="${F.palOpen?'Show icons only':'Show names'}">${ic('chevron-right','',14)}</button></div>
+        ${PALETTE.map(t=>`<button class="fx-pal k-${t}" data-pal="${t}" aria-label="Add ${TYPES[t].label}" title="${TYPES[t].label}"><i class="fx-pal-ic">${ic(TYPES[t].icon,'',16)}</i><b>${TYPES[t].label}</b></button>`).join('')}
       </div>
       <div class="fx-tools">
         <button class="fx-tb" data-fx="undo" aria-label="Undo" title="Undo ⌘Z" ${hist(sop).undo.length?'':'disabled'}>${ic('undo','',16)}</button>
@@ -284,6 +338,7 @@
         <button class="fx-tb txt" data-fx="tidy" title="Auto-arrange every step">Tidy</button>
         <button class="fx-tb ${F.miniOff?'':'on'}" data-fx="mini" aria-label="Toggle minimap">${ic('layers','',16)}</button>
         <button class="fx-tb txt" data-fx="help" aria-label="Shortcuts" aria-expanded="false">?</button>
+        <button class="fx-tb fx-more" data-fx="more" aria-label="More tools" title="More">${ic('more','',16)}</button>
       </div>
       <div class="fx-help" hidden><div><kbd>Drag</kbd>Pan</div><div><kbd>⌘ scroll</kbd>Zoom</div><div><kbd>Dot ↓</kbd>Connect</div><div><kbd>+</kbd>Insert step</div><div><kbd>Shift click</kbd>Multi-select</div><div><kbd>Del</kbd>Delete</div><div><kbd>⌘D</kbd>Duplicate</div><div><kbd>⌘Z</kbd>Undo</div><div><kbd>⇧⌘Z</kbd>Redo</div><div><kbd>⌘0</kbd>Fit</div></div>
       <div class="fx-issues" hidden></div>
@@ -291,6 +346,7 @@
     </div>`;
   };
   function multiSet(sop){return F.multi[sop.id]||(F.multi[sop.id]=new Set());}
+  F.palOpen=false;
   function bgStyle(v){const s=GRID*v.k;return `background-size:${s}px ${s}px;background-position:${v.x}px ${v.y}px`;}
 
   /* post-render: measure heights, redraw wires, first fit, minimap */
@@ -323,7 +379,7 @@
     const root=rootOf(id),sop=sopOf(id); if(!root||!sop)return;
     const hb=hist(sop).undo.length,hr=hist(sop).redo.length; record(sop);
     if(hist(sop).undo.length!==hb||hist(sop).redo.length!==hr){const u=root.querySelector('[data-fx=undo]'),r=root.querySelector('[data-fx=redo]');if(u)u.disabled=!hist(sop).undo.length;if(r)r.disabled=!hist(sop).redo.length;}
-    syncChrome(root); measure(root,sop);
+    syncChrome(root); requestAnimationFrame(()=>{if(root.isConnected)syncChrome(root);}); measure(root,sop);
     const v=view(sop); if(v.fresh){v.fresh=false;fit(root,sop,true);}
     redraw(root,sop);
     const f=F._focus[sop.id]; if(f){delete F._focus[sop.id];focusNode(root,sop,f.id||f,!!f.center);}
@@ -370,6 +426,10 @@
   function topInset(root){const t=root.querySelector('.fx-tools');return t?t.offsetTop+t.offsetHeight+6:54;}
   /* nothing on the canvas renders (or takes clicks) under the floating toolbar */
   function syncChrome(root){
+    /* toolbar never clips: Tidy / minimap / shortcuts fold into "More" when the strip is short of room */
+    const tools=root.querySelector('.fx-tools');
+    if(tools){root.classList.remove('tb-compact','tb-tight');const over=()=>tools.scrollWidth>tools.clientWidth+1;
+      if(over()){root.classList.add('tb-compact');if(over())root.classList.add('tb-tight');}}
     root.style.setProperty('--fx-top',topInset(root)+'px');
     root.querySelectorAll('.fx-tools,.fx-palette').forEach(el=>{
       const fade=()=>{const hz=el.scrollWidth>el.clientWidth+1;el.classList.toggle('fade-l',hz&&el.scrollLeft>2);el.classList.toggle('fade-r',hz&&el.scrollLeft<el.scrollWidth-el.clientWidth-2);};
@@ -385,7 +445,13 @@
     if(center&&v.k<.8){v.k=.85;}
     const top=topInset(root)+8;
     if(!center&&sx>=left&&ex<=r.width-8&&sy>=top&&ey<=bottom)return;
-    v.auto=false; v.x=left+(r.width-left)/2-(p.x+NW/2)*v.k; v.y=top+(bottom-top)/2-(p.y+h/2)*v.k; applyView(root,sop);
+    v.auto=false;
+    if(center){v.x=left+(r.width-left)/2-(p.x+NW/2)*v.k; v.y=top+(bottom-top)/2-(p.y+h/2)*v.k;}
+    else{/* smallest pan that brings the step in, so the steps just above it stay on screen */
+      const pad=16;
+      if(ey>bottom)v.y-=Math.min(ey-bottom+pad,sy-top); else if(sy<top)v.y+=top-sy+pad;
+      if(ex>r.width-8)v.x-=Math.min(ex-(r.width-8)+pad,sx-left); else if(sx<left)v.x+=left-sx+pad;}
+    applyView(root,sop);
   }
   function zoomAt(root,sop,k,cx,cy){
     const v=view(sop); v.auto=false; k=Math.max(.2,Math.min(2.5,k));
@@ -409,8 +475,12 @@
     const ms=multiSet(sop);
     if(additive){if(!id)return;const cur=Work.sel[sop.id];if(cur&&cur!==id)ms.add(cur);if(ms.has(id)){ms.delete(id);if(Work.sel[sop.id]===id)Work.sel[sop.id]=[...ms].pop()||null;}else{ms.add(id);Work.sel[sop.id]=id;}if(ms.size===1&&ms.has(Work.sel[sop.id]))ms.clear();}
     else{ms.clear();Work.sel[sop.id]=id||null;}
-    F._edgeSel=null; App.render();
+    F._edgeSel=null; App.render(); revealInspector();
   }
+  /* narrow layouts: the step inspector is a bottom sheet; if it is ever in page flow, bring it into view */
+  function revealInspector(){if(window.innerWidth>860)return;const i=document.querySelector('.insp.has-node');if(!i)return;
+    const r=i.getBoundingClientRect();if(getComputedStyle(i).position!=='fixed'&&(r.top>window.innerHeight-80||r.bottom<0))i.scrollIntoView({block:'nearest',behavior:'smooth'});}
+  F.revealInspector=revealInspector;
   function selectedIds(sop){const ms=multiSet(sop);const ids=new Set(ms);const s=Work.sel[sop.id];if(s)ids.add(s);return [...ids].filter(id=>sop.nodes.some(n=>n.id===id));}
   function refocus(id){requestAnimationFrame(()=>{const r=rootOf(id);if(r)r.focus({preventScroll:true});});}
 
@@ -516,8 +586,19 @@
   });
   function capture(root,e){try{root.setPointerCapture(e.pointerId);}catch(_){}}
 
+  /* insert "+" on pointer devices: shown for the hovered connector (or the hovered step's outgoing connectors) */
+  function hotPlus(e){
+    const root=e.target.closest&&e.target.closest('.fx-root');
+    const prev=document.querySelectorAll('.fx-plus.show');
+    if(!root){prev.forEach(x=>x.classList.remove('show'));return;}
+    let keys=[];const edge=e.target.closest('[data-edge]'),pl=e.target.closest('[data-plus]'),node=e.target.closest('.fx-node');
+    if(edge)keys=[edge.dataset.edge];else if(pl)keys=[pl.dataset.plus];
+    else if(node){const sop=sopOf(root.dataset.flow);const n=sop&&sop.nodes.find(x=>x.id===node.dataset.node);if(n)keys=(n.next||[]).map((_,i)=>n.id+':'+i);}
+    prev.forEach(x=>{if(!keys.includes(x.dataset.plus))x.classList.remove('show');});
+    keys.forEach(k=>{const b=root.querySelector(`.fx-plus[data-plus="${k}"]`);if(b)b.classList.add('show');});
+  }
   document.addEventListener('pointermove',e=>{
-    if(!drag)return; const {root,sop}=drag;
+    if(!drag){if(e.pointerType==='mouse')hotPlus(e);return;} const {root,sop}=drag;
     if(drag.kind==='pan'){const v=view(sop);v.auto=false;if(Math.abs(e.clientX-drag.sx)+Math.abs(e.clientY-drag.sy)>3)drag.moved=true;v.x=drag.vx+e.clientX-drag.sx;v.y=drag.vy+e.clientY-drag.sy;applyView(root,sop);return;}
     if(drag.kind==='mini'){miniJump(root,sop,e);return;}
     if(drag.kind==='wire'){wireMove(e);return;}
@@ -574,7 +655,7 @@
         else{const t=lastStep(sop,d.type==='end');
           if(t)n=insertAfterSel(sop,d.type,t.id,t.edge);
           if(!n){const r=root.getBoundingClientRect(),v=view(sop);n=addAt(sop,d.type,(r.width/2-v.x)/v.k,(r.height/2-v.y)/v.k);}}
-        if(n){S.save();multiSet(sop).clear();Work.sel[sop.id]=n.id;F._focus[sop.id]=n.id;App.render();refocus(sop.id);}
+        if(n){S.save();multiSet(sop).clear();Work.sel[sop.id]=n.id;F._focus[sop.id]=n.id;App.render();refocus(sop.id);revealInspector();}
         return;
       }
       const rr=root.getBoundingClientRect(); if(e.clientX<rr.left||e.clientX>rr.right||e.clientY<rr.top||e.clientY>rr.bottom)return;
@@ -640,7 +721,12 @@
       box.innerHTML=iss.length?`<div class="fx-issues-h">${iss.length} issue${iss.length>1?'s':''}</div>`+iss.map(i=>`<button data-fxissue="${esc(i.id||'')}">${ic('reject','',14)}<span>${esc(i.msg)}</span></button>`).join(''):`<div class="fx-issues-ok">${ic('check','',15)}Ready to publish</div>`;
       box.hidden=false;}
     if(fx==='help'){const h=root.querySelector('.fx-help');h.hidden=!h.hidden;b.setAttribute('aria-expanded',String(!h.hidden));b.classList.toggle('on',!h.hidden);}
-    if(fx==='mini'){F.miniOff=!F.miniOff;root.querySelector('.fx-mini').classList.toggle('hidden',F.miniOff);b.classList.toggle('on',!F.miniOff);minimap(root,sop);}
+    if(fx==='mini'){F.miniOff=!F.miniOff;root.querySelector('.fx-mini').classList.toggle('hidden',F.miniOff);root.querySelectorAll('[data-fx=mini]').forEach(x=>x.classList.toggle('on',!F.miniOff));minimap(root,sop);}
+    if(fx==='pal'){F.palOpen=!F.palOpen;root.classList.toggle('pal-open',F.palOpen);b.setAttribute('aria-expanded',String(F.palOpen));b.setAttribute('aria-label',(F.palOpen?'Collapse':'Expand')+' step list');syncChrome(root);if(view(sop).auto)fit(root,sop,true);}
+    if(fx==='more'){e.stopPropagation();const click=k=>{const t=root.querySelector(`.fx-tools [data-fx="${k}"]`);if(t)t.click();};
+      const tight=root.classList.contains('tb-tight');
+      setTimeout(()=>UI.menu(b,[].concat(tight?[{label:'Zoom in',icon:'zoomin',run:()=>click('in')},{label:'Zoom out',icon:'zoomout',run:()=>click('out')}]:[],
+        [{label:'Tidy layout',icon:'workflow',run:()=>click('tidy')},{label:(F.miniOff?'Show':'Hide')+' minimap',icon:'layers',run:()=>click('mini')},{label:'Shortcuts',icon:'help',run:()=>click('help')}])),0);}
   });
 
   const typing=t=>t&&(t.isContentEditable||/^(INPUT|TEXTAREA|SELECT)$/.test(t.tagName));
@@ -672,7 +758,10 @@
     else if(e.key==='-'&&!e.metaKey&&!e.ctrlKey){const r=root.getBoundingClientRect();zoomAt(root,sop,view(sop).k/1.2,r.width/2,r.height/2);}
   });
   document.addEventListener('keyup',e=>{if(e.code==='Space'){spaceDown=false;document.querySelectorAll('.fx-root').forEach(r=>r.classList.remove('space'));}});
-  window.addEventListener('resize',()=>{document.querySelectorAll('.fx-root').forEach(r=>{const s=sopOf(r.dataset.flow);if(s)minimap(r,s);});});
+  window.addEventListener('resize',()=>{document.querySelectorAll('.fx-root').forEach(r=>{const s=sopOf(r.dataset.flow);if(s){syncChrome(r);minimap(r,s);}});});
+  /* re-measure the toolbar once layout settles (stylesheets, fonts, sidebar collapse) */
+  const resync=()=>document.querySelectorAll('.fx-root').forEach(r=>syncChrome(r));
+  window.addEventListener('load',resync); if(document.fonts&&document.fonts.ready)document.fonts.ready.then(resync);
 
   /* ---------- structural edits ---------- */
   F.defaults=function(type,sop){

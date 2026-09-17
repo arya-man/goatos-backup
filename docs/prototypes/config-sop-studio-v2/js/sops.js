@@ -61,7 +61,8 @@
   });
 
   /* ---------- editor ---------- */
-  function vtags(s){const v=Flow.latest(s),ch=Flow.changed(s);return (v?UI.tag('v'+v.v+' published','ok'):UI.tag('Never published','warn'))+(v&&ch?UI.tag('Draft changes','warn'):'')+(v&&v.running?UI.tag(v.running+' running on v'+v.v,'info'):'');}
+  function vtags(s){const v=Flow.latest(s),ch=Flow.changed(s),dr=v?Flow.drift(s.nodes,v):[];const edits=ch&&(!dr.length||Flow.diff(s,v).some(d=>d.type!=='setting'));
+    return (v?UI.tag('v'+v.v+' published','ok'):UI.tag('Never published','warn'))+(v&&edits?UI.tag('Draft changes','warn'):'')+(dr.length?UI.tag('Setting changed · publish to apply','warn'):'')+(v&&v.running?UI.tag(v.running+' running on v'+v.v,'info'):'');}
   W.editorPage=function(id,view){
     const s=S.get('sops',id); if(!s)return '<div class="empty">SOP not found</div>';
     const iss=Flow.validate(s); const v=Flow.latest(s); const ch=Flow.changed(s);
@@ -71,10 +72,11 @@
       <button class="btn" data-a="sop-versions" data-id="${s.id}">${ic('history')}Versions</button>
       <button class="btn p" data-a="sop-publish" data-id="${s.id}" ${ch?'':'disabled'}>${ic('check')}Publish v${v?v.v+1:1}${iss.length?` <span class="tag t-dng">${iss.length}</span>`:''}</button></div>`;
     if(view==='operator')return head+'<div data-meshaop></div>';
-    if(view==='list')return head+`<div class="editor"><section class="card">${listView(s,W.sel[s.id])}</section><section class="card insp">${inspector(s,W.sel[s.id],iss)}</section></div>`;
+    const hn=s.nodes.some(x=>x.id===W.sel[s.id])?'has-node':'';
+    if(view==='list')return head+`<div class="editor"><section class="card">${listView(s,W.sel[s.id])}</section><section class="card insp ${hn}">${inspector(s,W.sel[s.id],iss)}</section></div>`;
     const sel=W.sel[s.id];
     return head+`<div class="editor"><section class="card"><div class="canvas" data-canvas>${Flow.canvasHtml(s,sel)}</div></section>
-      <section class="card insp">${inspector(s,sel,iss)}</section></div>`;
+      <section class="card insp ${hn}">${inspector(s,sel,iss)}</section></div>`;
   };
 
   function listView(s,sel){
@@ -96,11 +98,20 @@
     }).join('');
     return `<div class="hd"><h3>Steps <span class="cnt">${Flow.stepCount(s.nodes)}</span></h3></div><div class="lsteps">${rows}</div>`;
   }
+  /* number limits read from business settings: one setting, or one per answer of a choice question (e.g. load type) */
+  function limitFields(s,n){
+    const rule=n.rule||{}; const one=(k,label)=>{const spec=rule[k]||n[k];
+      if(spec&&typeof spec==='object'){const q=s.nodes.find(x=>x.type==='question'&&(x.options||[]).some(o=>Object.keys(spec).includes(o.v)));
+        return fld(label,`<div class="stack" style="gap:4px">${Object.entries(spec).map(([ans,id])=>{const st=S.get('settings',id);const ol=q&&(q.options.find(o=>o.v===ans)||{}).l||ans;
+          return `<div class="small"><span class="muted">${esc(q?q.label+' = '+ol:ans)}:</span> ${st?esc(st.name)+' <b>'+esc(st.value)+'</b>':'<span class="muted">missing setting</span>'}</div>`;}).join('')}<a class="small" href="#/configuration/items/settings">Business settings ›</a></div>`,1);}
+      return fld(label,`<select data-lim="${k}">${settingOpts(typeof spec==='string'?spec:'',null,true)}</select>`);};
+    return one('minFromSetting','Min · from setting')+one('maxFromSetting','Max · from setting');}
   function roleOpts(val){return S.active('roles').map(r=>`<option value="${r.id}" ${val===r.id?'selected':''}>${esc(r.name)}</option>`).join('');}
-  function settingOpts(val,units){return `<option value="">Fixed value</option>`+S.active('settings').filter(x=>!units||units.includes(x.unit)).map(x=>`<option value="${x.id}" ${val===x.id?'selected':''}>${esc(x.dept)} · ${esc(x.name)} (${esc(x.value)} ${esc(x.unit)})</option>`).join('');}
+  function settingOpts(val,units,numOnly){return `<option value="">Fixed value</option>`+S.active('settings').filter(x=>(!units||units.includes(x.unit))&&(!numOnly||x.type!=='time')).map(x=>`<option value="${x.id}" ${val===x.id?'selected':''}>${esc(x.dept)} · ${esc(x.name)} (${esc(x.value)} ${esc(x.unit)})</option>`).join('');}
   function nodeOpts(s,val,filter){return s.nodes.filter(filter||(()=>true)).map(n=>`<option value="${n.id}" ${val===n.id?'selected':''}>${esc((Flow.TYPES[n.type]||{}).label+' · '+(n.label||''))}</option>`).join('');}
   const fld=(label,inner,full)=>`<div class="fld ${full?'full':''}"><label>${label}</label>${inner}</div>`;
 
+  const v0=s=>Flow.latest(s);
   function inspector(s,selId,iss){
     const n=s.nodes.find(x=>x.id===selId);
     if(!n){
@@ -108,6 +119,7 @@
         ${fld('Title',`<input data-sp="title" value="${esc(s.title)}">`)}
         ${fld('Department',`<input data-sp="dept" value="${esc(s.dept)}" autocomplete="off">`)}
         ${fld('Category',`<select data-sp="category">${['commodity','problem','event','action','equipment'].map(c=>`<option ${s.category===c?'selected':''}>${c}</option>`).join('')}</select>`)}
+        ${(()=>{const d=Flow.drift(s.nodes,v0(s));return d.length?`<div class="eyebrow mt">Pending setting changes</div><div class="stack" style="gap:4px;margin-top:6px">${d.map(x=>`<div class="fx-set moved">Uses setting: ${esc(x.name)} = ${esc(x.now)}${x.unit&&x.unit!=='time'?' '+esc(x.unit):''} <b>(was ${esc(x.was)})</b></div>`).join('')}<div class="small muted">Running work keeps the old value. Publish to use the new one.</div></div>`:'';})()}
         <div class="eyebrow mt">Issues</div>
         ${iss.length?`<div class="stack" style="gap:6px;margin-top:6px">${iss.map(i=>`<button class="btn sm dngo" style="justify-content:flex-start;white-space:normal;text-align:left" data-a="node-sel" data-id="${i.id||''}">${ic('reject')}${esc(i.msg)}</button>`).join('')}</div>`:`<div class="mt">${UI.tag('Ready to publish','ok')}</div>`}
       </div>`;
@@ -119,7 +131,8 @@
     if(n.type==='question'){
       f=lab+`<div class="fgrid">${fld('Answer',`<select data-np="answer">${Object.entries(Flow.ANSWERS).map(([k,v])=>`<option value="${k}" ${n.answer===k?'selected':''}>${v}</option>`).join('')}</select>`)}
         ${fld('Required',`<select data-np="required" data-bool><option value="1" ${n.required?'selected':''}>Yes</option><option value="" ${n.required?'':'selected'}>No</option></select>`)}
-        ${n.answer==='number'?fld('Unit',`<input data-np="unit" value="${esc(n.unit||'')}">`)+fld('Min – max',`<div class="row nw"><input class="inl" style="width:50%" data-np="min" value="${esc(n.min==null?'':n.min)}"><input class="inl" style="width:50%" data-np="max" value="${esc(n.max==null?'':n.max)}"></div>`):''}
+        ${n.answer==='number'?fld('Unit',`<input data-np="unit" value="${esc(n.unit||'')}">`)+fld('Min – max',`<div class="row nw"><input class="inl" style="width:50%" data-np="min" value="${esc(n.min==null?'':n.min)}"><input class="inl" style="width:50%" data-np="max" value="${esc(n.max==null?'':n.max)}"></div>`)
+          +limitFields(s,n):''}
         ${n.answer==='ref'?fld('List',`<select data-np="refColl">${Object.entries(Flow.REFS).map(([k,v])=>`<option value="${k}" ${n.refColl===k?'selected':''}>${v}</option>`).join('')}</select>`+(n.refColl==='vendors'?`<a class="tag t-info" style="margin-top:6px;text-decoration:none" href="#/procurement/vendors">Vendors ›</a>`:'')):''}
         ${pageF}</div>
         ${(n.answer==='choice'||n.answer==='multi')?`<div class="eyebrow">Options</div><table class="mini opts"><tbody>${(n.options||[]).map((o,i)=>`<tr><td><input data-opt="${i}" data-k="l" value="${esc(o.l)}" aria-label="Option label"></td><td class="x"><button class="btn icon gh" data-a="opt-del" data-i="${i}" aria-label="Remove option">${ic('x')}</button></td></tr>`).join('')}</tbody></table>
@@ -144,7 +157,13 @@
         ${(n.next||[]).map((e,i)=>fld(esc(e.when||'Branch '+(i+1))+' goes to',`<select data-nnext="${i}">${nodeOpts(s,e.to,x=>x.id!==n.id&&x.type!=='start')}</select>`)).join('')}</div>`;
     }
     if(n.type==='approval'){
-      f=lab+fld('Approver role',`<select data-np="roleId"><option value="">—</option>${roleOpts(n.roleId)}</select>`)+fld('Outcomes',`<input data-np="outcomes" data-list value="${esc((n.outcomes||[]).join(', '))}">`)+next;
+      const ch=n.chainId?S.get('approvalChains',n.chainId):null; const ap=Flow.approvers(n);
+      const chains=S.active('approvalChains').sort((a,b)=>(a.dept===s.dept?0:1)-(b.dept===s.dept?0:1)||String(a.dept).localeCompare(b.dept));
+      f=lab+`<div class="fgrid">`+fld('Approval chain',`<select data-chain><option value="">None · one role approves</option>${chains.map(c=>`<option value="${c.id}" ${ch&&ch.id===c.id?'selected':''}>${esc(c.dept)} · ${esc(c.name)}</option>`).join('')}</select>`,1)
+        +(ch?'':fld('Approver role',`<select data-np="roleId"><option value="">—</option>${S.active('roles').map(r=>`<option value="${r.id}" ${n.roleId===r.id?'selected':''}>${esc(REG.labelById('roles',r.id))}</option>`).join('')}</select>`,1))+`</div>`
+        +(ch?`<div class="apchain"><div class="eyebrow">Approvers, in order</div>${ap.length?`<ol>${ap.map(x=>`<li>${esc(x.label)}</li>`).join('')}</ol>`:'<div class="small muted">This chain has no approvers yet</div>'}
+            <a class="btn sm" href="#/configuration/items/approvalChains">Edit chain ›</a></div>`:'')
+        +fld('Outcomes',`<input data-np="outcomes" data-list value="${esc((n.outcomes||[]).join(', '))}">`)+next;
     }
     if(n.type==='wait'){
       const st=S.get('settings',n.setting);
@@ -179,7 +198,8 @@
     }
     if(n.type==='start'||n.type==='join')f=lab+next;
     if(n.type==='end')f=lab+fld('Outcome',`<select data-np="outcome"><option value="done" ${n.outcome!=='rejected'?'selected':''}>Completed</option><option value="rejected" ${n.outcome==='rejected'?'selected':''}>Rejected</option></select>`);
-    return `<div class="hd">${ic(T.icon)}<h3>${T.label}</h3><span class="sp"></span><button class="btn sm gh" data-a="node-sel" data-id="">${ic('x')}</button></div><div class="bd">${f}
+    const setc=Flow.settingChips(n,Flow.latest(s));
+    return `<div class="hd">${ic(T.icon)}<h3>${T.label}</h3><span class="sp"></span><button class="btn sm gh" data-a="node-sel" data-id="" aria-label="Close">${ic('x')}</button></div><div class="bd">${setc?`<div class="stack insp-sets" style="gap:4px;margin-bottom:10px">${setc}</div>`:''}${f}
       ${n.type!=='start'?`<button class="btn sm dngo mt" data-a="node-del">${ic('trash')}Delete step</button>`:''}</div>`;
   }
 
@@ -209,6 +229,9 @@
       if(i.tagName==='SELECT'||i.type==='checkbox')i.onchange=()=>commit(apply);
       else{i.oninput=()=>{apply();S.save();App.renderCanvasOnly&&App.renderCanvasOnly();};i.onchange=()=>commit(apply);}
     });
+    const chs=insp.querySelector('[data-chain]');
+    if(chs)chs.onchange=()=>commit(()=>{n.chainId=chs.value;});
+    insp.querySelectorAll('[data-lim]').forEach(i=>i.onchange=()=>commit(()=>{const k=i.dataset.lim;if(n.rule){if(i.value)n.rule[k]=i.value;else delete n.rule[k];if(!Object.keys(n.rule).length)delete n.rule;}else if(i.value)n[k]=i.value;else delete n[k];}));
     insp.querySelectorAll('[data-nnext]').forEach(i=>i.onchange=()=>commit(()=>{const ix=+i.dataset.nnext;if(!i.value){n.next.splice(ix,1);return;}if(n.next[ix])n.next[ix].to=i.value;else n.next[ix]={to:i.value};}));
     insp.querySelectorAll('[data-lane]').forEach(i=>i.onchange=()=>commit(()=>{n.next[+i.dataset.lane].when=i.value;const t=s.nodes.find(x=>x.id===n.next[+i.dataset.lane].to);if(t&&t.lane!==undefined)t.lane=i.value;}));
     insp.querySelectorAll('[data-opt]').forEach(i=>i.onchange=()=>commit(()=>{const o=n.options[+i.dataset.opt];o.l=i.value;if(!o.v||o.v.startsWith('opt'))o.v=REG.norm(i.value).replace(/[^a-z0-9]+/g,'_')||o.v;}));
@@ -253,7 +276,7 @@
           const go=dr.querySelector('[data-pubgo]'); if(go)go.onclick=()=>{
             UI.closeDrawer();
             const snapN=S.snap('Publish');
-            const pins=[];s.nodes.forEach(nd=>['setting','everySetting','forSetting'].forEach(k=>{const st=S.get('settings',nd[k]);if(st)pins.push({id:st.id,name:st.name,value:st.value,unit:st.unit});}));
+            const pins=Flow.pinNow(s.nodes);
             s.versions.push({v:(prev?prev.v:0)+1,at:new Date().toISOString(),by:'Ravi Teja',nodes:JSON.parse(JSON.stringify(s.nodes)),title:s.title,dept:s.dept,category:s.category,running:0,pins});
             S.save(); App.render();
             UI.toast('Published v'+(prev?prev.v+1:1)+(prev&&prev.running?' · '+prev.running+' running stay on v'+prev.v:''),()=>{S.undoTo(snapN);App.render();});

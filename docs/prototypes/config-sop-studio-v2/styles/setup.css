@@ -101,4 +101,21 @@ input.bad,.inl.bad,.mini input.bad{border-color:var(--danger)!important}
 
   table.ltbl:has(td[data-label]) td:empty{display:none}
   .twrap:has(table.ltbl td[data-label]),.ltable:has(table.ltbl td[data-label]){overflow:visible;background:none;box-shadow:none}
+  /* inside a card the rows are dividers, not nested cards (no double border, last row not flush) */
+  .card table.ltbl:has(td[data-label]) tr{border:0;border-bottom:1px solid var(--line2);border-radius:0;margin:0;padding:10px 14px;background:none}
+  .card table.ltbl:has(td[data-label]) tr:last-child{border-bottom:0}
+  .card table.ltbl:has(td[data-label]) td.ck{left:14px!important}
 }
+/* dry-run / register tables flush inside a card: the card is the only border */
+.card>.twrap:last-child,.card>.ltable:last-child{border-bottom-left-radius:14px;border-bottom-right-radius:14px}
+.card .twrap table tbody tr:last-child td{border-bottom:0}
+/* column widths at desktop: Items name wider than Category; Pens keep Sex/Status readable within the card */
+table.ltbl:has([data-a=sel-all][data-reg=items]) col:nth-child(2){width:176px!important}
+table.ltbl:has([data-a=sel-all][data-reg=items]) col:nth-child(3){width:92px!important}
+table.ltbl:has([data-a=sel-all][data-reg=pens]) col:nth-child(2){width:140px!important}
+table.ltbl:has([data-a=sel-all][data-reg=pens]) col:nth-child(3){width:120px!important}
+table.ltbl:has([data-a=sel-all][data-reg=pens]) col:nth-child(4),table.ltbl:has([data-a=sel-all][data-reg=pens]) col:nth-child(5),table.ltbl:has([data-a=sel-all][data-reg=pens]) col:nth-child(6){width:88px!important}
+table.ltbl:has([data-a=sel-all][data-reg=pens]) col:nth-child(7){width:140px!important}
+table.ltbl col:nth-last-child(2){min-width:104px}
+table.ltbl td .tag{white-space:nowrap}
+

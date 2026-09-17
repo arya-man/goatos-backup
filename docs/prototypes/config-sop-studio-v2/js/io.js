@@ -1,7 +1,7 @@
 /* Import / export / templates (CSV + XLSX via SheetJS, loaded on demand) */
 (function(){
   const IO={};
-  const WORKBOOK_ORDER=['farms','parks','pens','partitions','species','breeds','sexes','stages','tags','healthStates','statusDefs','exitReasons','purposes','movementReasons','weightBands','animals','categories','items','roles','people','approvers','designations','approvalChains','saleProducts','costKinds','identifierPolicies','sopCategories','taskTypes','settings'].filter(k=>REG.R[k]);
+  const WORKBOOK_ORDER=['farms','parks','pens','partitions','species','breeds','sexes','stages','tags','healthStates','statusDefs','exitReasons','purposes','movementReasons','weightBands','animals','categories','items','roles','people','designations','approvalChains','saleProducts','costKinds','identifierPolicies','sopCategories','taskTypes','settings'].filter(k=>REG.R[k]);
   IO.ORDER=WORKBOOK_ORDER;
   IO.LIMITS={rows:10000,bytes:5*1024*1024,cols:60};
   const ALIASES={
@@ -153,10 +153,24 @@
     location.hash='#/configuration/items/import';
     App.render();
   };
+  /* sheet name -> register: exact label/key first, then the earliest word that names a register ("Goat animals" -> Animals, "Pens & partitions" -> Pens) */
+  const SHEET_WORDS={staff:'people',team:'people',employees:'people',approvals:'approvalChains',approvers:'approvalChains',sheds:'pens',shed:'pens',goats:'animals',sheep:'animals',herd:'animals',stock:'animals',
+    tags:'tags',stages:'stages',lifecycle:'stages',catalogue:'items',catalog:'items',inventory:'items',titles:'designations',jobs:'designations',rules:'settings'};
   IO.sheetRegFor=function(name,fallback){
-    const n=nk(name);
-    const k=Object.keys(REG.R).find(k=>nk(REG.R[k].label)===n||nk(k)===n||nk(REG.R[k].one)===n||nk(REG.R[k].label).replace(/ & /,' ')===n);
-    return k||(n==='lists'?null:fallback);
+    const n=nk(name); if(!n)return fallback;
+    if(n==='lists'||n==='allowed values')return null;
+    const keys=Object.keys(REG.R);
+    const exact=keys.find(k=>nk(REG.R[k].label)===n||nk(k)===n||nk(REG.R[k].one)===n||nk(REG.R[k].coll)===n);
+    if(exact)return exact;
+    const sing=w=>w.replace(/ies$/,'y').replace(/s$/,'');
+    const words=n.split(' ').filter(w=>w.length>1&&w!=='and');
+    for(const w of words){
+      const hit=keys.find(k=>{const lw=nk(REG.R[k].label).split(' ').concat(nk(REG.R[k].one).split(' '));return nk(REG.R[k].label).split(' ').length===1&&lw.some(x=>sing(x)===sing(w));})
+        ||keys.find(k=>nk(REG.R[k].label).split(' ').concat(nk(REG.R[k].one).split(' ')).some(x=>x.length>3&&sing(x)===sing(w)))
+        ||(SHEET_WORDS[w]&&REG.R[SHEET_WORDS[w]]?SHEET_WORDS[w]:null);
+      if(hit)return hit;
+    }
+    return fallback;
   };
   IO.reject=function(msg){const st=IO.state;st.error=msg;st.step=1;App.render();UI.toast(msg);};
   IO.readFile=async function(file){
@@ -237,7 +251,7 @@
       tr.querySelector('[data-k="same"]').textContent=x.same;tr.querySelector('[data-k="err"]').innerHTML=cell(x.err,'dng');tr.querySelector('[data-k="newv"]').innerHTML=cell(x.newv+x.unk,x.unk?'warn':'pur');});
     const saveN=t.create+t.update, ok=saveN&&(!t.err||st.skipErrors);
     const b=root.querySelector('[data-a="imp-commit"]'); if(b){b.disabled=!ok;b.innerHTML=IO.commitLabel(t,st);}
-    const sk=root.querySelector('[data-impskip]'); if(sk){sk.hidden=!t.err;const n=sk.querySelector('[data-skiptxt]');if(n)n.textContent=Sheet.skipText(t.err);}
+    const sk=root.querySelector('[data-impskip]'); if(sk){sk.style.display=t.err?'':'none';const n=sk.querySelector('[data-skiptxt]');if(n)n.textContent=Sheet.skipText(t.err);}
   };
 
   IO.commitLabel=(t,st)=>{const n=t.create+t.update;return ic('check')+(t.err&&!st.skipErrors?'Fix '+t.err+' row'+(t.err===1?'':'s')+' to import':n?'Import '+n+' row'+(n===1?'':'s'):'No changes');};
@@ -255,7 +269,7 @@
           ${st.target==='workbook'?`<button class="btn sm" data-a="imp-export-wb">${ic('download')}Export workbook</button>`:`<button class="btn sm" data-a="imp-tpl" data-f="csv">${ic('download')}Template .csv</button>`}
         </div><div class="bd stack">
           ${st.error?`<div class="note dng" role="alert" style="color:var(--danger);font-weight:650">${ic('alert-triangle','',14)} ${esc(st.error)}</div>`:''}
-          ${st.target==='animals'?`<div class="row" style="flex-wrap:wrap;gap:6px"><span class="muted small">Template per animal type</span>${S.active('species').map(sp=>`<button class="btn sm" data-a="imp-tpl" data-f="xlsx" data-sp="${sp.id}">${ic('download')}${esc(sp.name)} .xlsx</button>`).join('')}</div>`:''}
+          ${st.target==='animals'?`<div class="row" style="flex-wrap:wrap;gap:6px"><span class="muted small">Template</span>${S.active('species').map(sp=>`<button class="btn sm" data-a="imp-tpl" data-f="xlsx" data-sp="${sp.id}">${ic('download')}${esc(sp.name)} .xlsx</button>`).join('')}</div>`:''}
           <label class="drop" data-drop>${ic('upload')}<div style="font-weight:700;margin-top:8px">Drop .xlsx or .csv</div>
             <input type="file" accept=".xlsx,.xls,.csv,.tsv,.txt" data-imp-file hidden></label>
           ${st.target!=='workbook'?`<div class="row"><button class="btn" data-a="imp-paste">${ic('sheet')}Paste from spreadsheet</button></div>`:''}
@@ -279,14 +293,14 @@
       const t=IO.totals(); const totals=t.rows;
       const saveN=t.create+t.update, errN=t.err;
       const cell=(n,tone)=>n?UI.tag(n,tone):0;
-      body=`<section class="card mb"><div class="hd"><h3>Dry run</h3><span class="sp"></span><button class="btn sm" data-a="imp-report">${ic('download')}Report .csv</button></div>
+      body=`<section class="card mb"><div class="hd"><h3>Preview</h3><span class="sp"></span>${errN?`<button class="btn sm" data-a="imp-report">${ic('download')}Download errors</button>`:''}</div>
         <div class="twrap screen"><table class="ltbl"><thead><tr><th>Sheet</th><th class="num">New</th><th class="num">Updates</th><th class="num">Unchanged</th><th class="num">Errors</th><th class="num">New values</th></tr></thead><tbody>
         ${totals.map((x,i)=>`<tr class="clk" data-a="imp-tab" data-i="${i}" data-tot="${i}"><td data-label="Sheet"><b>${esc(x.label)}</b></td><td class="num" data-label="New" data-k="create">${cell(x.create,'ok')}</td><td class="num" data-label="Updates" data-k="update">${cell(x.update,'info')}</td><td class="num" data-label="Unchanged" data-k="same">${x.same}</td><td class="num" data-label="Errors" data-k="err">${cell(x.err,'dng')}</td><td class="num" data-label="New values" data-k="newv">${cell(x.newv+x.unk,x.unk?'warn':'pur')}</td></tr>`).join('')}
         </tbody></table></div></section>
         ${st.sheets.length>1?`<div class="tabs">${st.sheets.map((x,i)=>`<a href="javascript:void 0" class="${i===st.tab?'on':''}" data-a="imp-tab" data-i="${i}">${esc(REG.R[x.regKey].label)} ${totals[i].err?UI.tag(totals[i].err,'dng'):''}</a>`).join('')}</div>`:''}
         <div data-impsheet>${Sheet.html(s.G,{noFoot:true})}</div>
         <div class="row mt"><button class="btn" data-a="imp-back">Back</button><span class="sp"></span>
-          <label class="row small" data-impskip ${errN?'':'hidden'} style="font-weight:650"><input type="checkbox" data-a="imp-skip" ${st.skipErrors?'checked':''}><span data-skiptxt>${Sheet.skipText(errN)}</span></label>
+          <label class="row small" data-impskip style="font-weight:650;${errN?'':'display:none'}"><input type="checkbox" data-a="imp-skip" ${st.skipErrors?'checked':''}><span data-skiptxt>${Sheet.skipText(errN)}</span></label>
           <button class="btn p" data-a="imp-commit" ${saveN&&(!errN||st.skipErrors)?'':'disabled'}>${IO.commitLabel(t,st)}</button></div>`;
     }
     if(st.step===4){
@@ -320,8 +334,8 @@
     'imp-commit'(){IO.commitAll();},
     'imp-report'(){const st=IO.state;const aoa=[['Sheet','Row','Result','Issues']];
       st.sheets.forEach((x,i)=>{const r=REG.validate(x.regKey,x.G.rows,{createParents:x.G.createParents,pending:IO.pendingBefore(i)});const reg=REG.R[x.regKey];
-        r.forEach((y,j)=>{if(y.status==='empty')return;aoa.push([reg.label,j+2,{create:'New',update:'Update',unchanged:'Unchanged',error:'Error'}[y.status],Object.entries(y.issues).map(([k,v])=>(reg.cols.find(c=>c.k===k)||{label:k}).label+': '+v[1]).join(' · ')].map(safeCell));});});
-      UI.download('mesha-import-dry-run.csv',IO.toCSV(aoa));},
+        r.forEach((y,j)=>{if(y.status!=='error')return;aoa.push([reg.label,j+2,{create:'New',update:'Update',unchanged:'Unchanged',error:'Error'}[y.status],Object.entries(y.issues).map(([k,v])=>(reg.cols.find(c=>c.k===k)||{label:k}).label+': '+v[1]).join(' · ')].map(safeCell));});});
+      UI.download('mesha-import-errors.csv',IO.toCSV(aoa));},
     'imp-undo'(){const st=IO.state;S.undoTo(st.snapN);st.sheets.forEach((s,i)=>{if(st.lastRows)s.G.rows=st.lastRows[i];});st.step=3;App.render();UI.toast('Import undone');},
     'imp-again'(){IO.start(IO.state.target);}
   });

@@ -104,3 +104,11 @@ a.op-btn{text-decoration:none;text-align:center;display:inline-flex;align-items:
 .op-chain span{padding:4px 10px;border-radius:999px;background:var(--bg);border:1px solid var(--hair)}
 .op-chain i{font-style:normal;color:var(--faint)}
 .op-linkcard.on{border-color:rgba(138,212,87,.5)}
+
+/* round 3: dots green only once a page is completed; visited-but-open pages are outlined */
+.op-dot.pending{background:transparent!important;border:1.5px solid var(--mut)!important}
+.op-input.bad{border-color:var(--dng)}
+.op-err{margin-top:6px;font-size:13px;font-weight:600;color:var(--dng)}
+.op-err.soft{color:var(--mut);font-weight:500}
+.op-lims{margin-top:6px;flex-wrap:wrap;gap:4px}
+.op-none{padding:12px;color:var(--mut);font-size:14px}

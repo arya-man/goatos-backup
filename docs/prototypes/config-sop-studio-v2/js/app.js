@@ -60,6 +60,8 @@
     asOf:'17/09/2026',
     vendors:{total:674,procurement:313,sales:361,types:[['Butcher',183,1],['Farmer',109,1],['Sheep Agent',89],['Agent',57,1],['Transport Agent',56],['Manure Agent',37],['Feed Agent',31],['Pellet Factory',13],['Goats Agent',13],['Sheep Stockist',12],['Company',12,1],['Goat Stockist',10],['Breeding Agent',7],['Labor Agent',6],['Goat Farm',5],['UHT Milk Supplier',4],['Feed Stockist',4],['Insurance',4],['Veterinary Accessories',4],['Test Lab',4],['Chain Link Mesh Contractor',3],['Solar Light Supplier',3],['Flooring Mat',2],['Grain Supplier',2],['Steel Material Supplier',2],['Vet Doctor',1],['Grass Cutter',1]]},
     /* per nav leaf: read-only counts, SELECT-only against goatos-stg on 17/09/2026 */
+    /* procurement_loads, all accepted intake; linked = procurement_load_goats rows */
+    loads:[['22/06/2026',63,63,'23/06/2026'],['12/06/2026',77,75,'13/06/2026'],['01/06/2026',78,77,'02/06/2026'],['26/05/2026',70,66,'27/05/2026'],['11/05/2026',67,63,'12/05/2026'],['13/11/2025',100,0,'14/11/2025'],['23/10/2025',76,1,'24/10/2025'],['21/10/2025',70,3,'22/10/2025']],
     mod:{
       '#/approvals':{k:[['Shifting awaiting approval',2],['Birth / death pending',0],['Approved',55,'51 shifting · 3 death · 1 birth'],['Rejected',19,'Shifting']]},
       '#/verify':{k:[['Pending videos','2,677'],['Feed packing','1,447'],['Feed distribution',769],['Weighing',122,'Proof · fasting · animal · pen']],
@@ -73,7 +75,7 @@
       '#/weighing/analytics':{k:[['Animal weighs, 30 days','1,761'],['Pen weighs, 30 days',36],['Animals weighed, 60 days',580],['Tasks open',5,'1 in progress · 4 published']]},
       '#/sales/sold':{k:[['Closed deals',71],['Animals sold',691],['Sales value','₹88.5L'],['Failed deals',1,'46 animals']]},
       '#/sales/farm-value':{k:[['Live animals','1,521'],['Coimbatore',805],['Channapatna',716],['Parks',2]]},
-      '#/sales/loads':{k:[['Loads',8],['Animals bought',601],['Status','Accepted intake']]},
+      '#/sales/loads':{k:[['Loads',8],['Animals bought',601],['Status','Accepted intake']],t:['Loads',[['Purchased'],['Expected',1],['Animals linked',1],['Arrived']],null]},
       '#/sales/market-analytics':{k:[['Market benchmarks',10,'Updated 19/08/2026'],['Daily market call','08:00'],['Market questions',6]]},
       '#/sales/buyer-analytics':{k:[['Buyers',26],['Closed deals',71],['Animals sold',691]]},
       '#/sales/vendors':{k:[['Sales-side vendors',361],['Butcher',183],['Farmer',109],['Agent · Company',69,'57 · 12']]},
@@ -82,12 +84,14 @@
       '#/vaccination/live-tracker':{k:[['Queued sheds',537],['Submitted',3],['Needs review',11],['Accepted',10]]},
       '#/procurement/source-entry':{k:[['Loads',8],['Animals expected',601],['Status','Accepted intake']]},
       '#/procurement/feed-purchases':{k:[['Loads',239],['Reached',238],['In transit',1],['Toxin tests open',11]]},
-      '#/procurement/animal-purchases':{k:[['Loads',8],['Animals',601]]},
+      '#/procurement/animal-purchases':{k:[['Loads',8],['Animals',601],['Purchase loads open',2,'80 animals expected']],t:['Loads',[['Purchased'],['Expected',1],['Animals linked',1],['Arrived']],null]},
       '#/health/analytics':{k:[['Health cases',0],['Published protocols',54],['Diseases',27],['ICU-Kid animals',24]]},
       '#/counts/milk-preparation':{k:[['Preparations, 30 days',48],['Completed',13],['Awaiting verification',35],['Feeding sessions pending',78,'Awaiting verification']],sop:['Milk SOP','#/milk/sops']},
       '#/herd-signals':{k:[['Tags',19],['Low movement',14],['Quiet',3],['Not moving',2]]},
-      '#/operations/audit':{k:[['Events, 24 h','8,214'],['Events, 7 days','71,269']]},
-      '#/people':{k:[['Active people',41],['Inactive',1]]},
+      '#/operations/audit':{k:[['Events, 24 h','8,214'],['Events, 7 days','71,269']],
+        t:['Events by record, 7 days',[['Record'],['Events',1]],[['Calendar notifications','35,228'],['Device check-ins','24,085'],['Feed packing','3,025'],['Feed distribution','2,551'],['Preventive care animals','2,306'],['Sign-ins','1,686'],['Weighing','744'],['Feed wastage',602],['Preventive care tasks',236],['Feed transport',210],['Purchase candidates',123],['Pen visits',71]].map(([a,b])=>[`<b>${a}</b>`,b])]},
+      '#/people':{k:[['Active people',41],['Inactive',1]],
+        t:['Active people by role',[['Role'],['People',1]],[['Operator',30],['CEO / CXO',6],['Verifier',1],['Health Director',1],['Feed Director',1],['Preventive Care Director',1],['Other',1]].map(([a,b])=>[`<b>${a}</b>`,b])]},
       '#/leave':{k:[['Leave requests',0]]}
     },
     sales:{callTime:'08:00',questions:['Goat live price','Sheep live price','Goat carcass price','Sheep carcass price','Goat offals price','Sheep offals price'],unit:'₹/kg'},
@@ -124,15 +128,15 @@
     NAV.forEach(n=>{if(!n.group&&n.href===act)leaf=n.label;(n.leaves||[]).forEach(([l,h])=>{if(h===act){grp=n.group;leaf=l;}});});
     const m=STG.mod[act];
     const kp=m?`<div class="grid g4 kpis">${m.k.map(([l,v,sub])=>kpi(l,v,sub)).join('')}</div>`:'';
-    const rows=m&&m.t?tbl(m.t[0],m.t[2].length,m.t[1],m.t[2]):'';
-    return `<div class="phead"><div>${grp?`<div class="crumb">${esc(grp)} / <b>${esc(leaf)}</b></div>`:''}<h1>${esc(leaf||'Mesha')}</h1></div><div class="sp"></div>${m?UI.tag('goatos-stg · '+STG.asOf,'mut'):''}</div>${kp}${rows}${act?sopRow(act):''}`;
+    const rows=m&&m.t&&!m.t[2]?tbl(m.t[0],STG.loads.length,m.t[1],STG.loads.map(([d,e,g,a])=>[`<b>${d}</b>`,e,g,a])):m&&m.t?tbl(m.t[0],m.t[2].length,m.t[1],m.t[2]):'';
+    return `<div class="phead"><div>${grp?`<div class="crumb">${esc(grp)} / <b>${esc(leaf)}</b></div>`:''}<h1>${esc(leaf||'Mesha')}</h1></div></div>${kp}${rows}${act?sopRow(act):''}`;
   }
 
   App.render=function(){
     const h=location.hash||'#/configuration/items';
     const parts=h.replace(/^#\/?/,'').split('?')[0].split('/').filter(Boolean);
     App.route={path:h,parts,params:{}};
-    renderTop(); renderSide();
+    railMode(); renderTop(); renderSide();
     const wrap=document.getElementById('wrap'), main=document.getElementById('main');
     const keepScroll=App._lastPath===h?main.scrollTop:0;
     let out={html:''};
@@ -192,7 +196,14 @@
     if(el.tagName==='A'&&el.getAttribute('href')==='javascript:void 0')e.preventDefault();
     fn(el,e);
   });
-  document.addEventListener('keydown',e=>{if(e.key==='Escape'){UI.closeMenu();UI.closePop();if(UI._drawer)UI.closeDrawer();}});
+  /* Esc closes the innermost layer only: picker popup, then menu, then drawer */
+  let escPop=false; /* captured before the field's own popKey closes the popup */
+  window.addEventListener('keydown',e=>{if(e.key==='Escape'){const pop=document.getElementById('cbpop');escPop=!!(UI._popCfg||(pop&&pop.style.display!=='none'&&pop.offsetParent!==null));}},true);
+  document.addEventListener('keydown',e=>{if(e.key!=='Escape')return;
+    const m=document.getElementById('menu');
+    if(escPop||UI._popCfg){escPop=false;UI.closePop();e.stopPropagation();return;}
+    if(m&&m.offsetParent!==null&&m.innerHTML.trim()){UI.closeMenu();e.stopPropagation();return;}
+    if(UI._drawer)UI.closeDrawer();});
   /* unsaved-draft guard: Keep editing / Save and leave / Discard */
   function guard(d,target){
     UI.drawer({title:'Unsaved changes',body:'',
@@ -215,7 +226,8 @@
     App._allow=false;App.render();});
   window.addEventListener('beforeunload',e=>{const d=SetupPage.dirty&&SetupPage.dirty();if(d){e.preventDefault();e.returnValue='';}});
   /* 861-1179px: icon-only nav rail with tooltips; phones keep the drawer */
-  function railMode(){const w=window.innerWidth,l=document.getElementById('layout');l.classList.toggle('rail-icons',w>860&&w<1180);}
+  /* 861-1179px everywhere; SOP / master editors also collapse up to 1366px so the canvas gets the room */
+  function railMode(){const w=window.innerWidth,l=document.getElementById('layout');const ed=/^#\/configuration\/work-instructions\/[^/?]+/.test(location.hash||'');l.classList.toggle('rail-icons',w>860&&(w<1180||(ed&&w<=1366)));}
   window.addEventListener('resize',()=>{railMode();if(UI._popCfg)UI._popRender();});
 
   window.App=App;

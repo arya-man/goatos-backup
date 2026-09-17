@@ -3,10 +3,10 @@
   const P={};
   const SECTIONS=[
     ['Farm places',[['parks','Parks'],['pens','Pens'],['partitions','Partitions'],['farms','Farms']]],
-    ['Animal types',[['species','Species'],['breeds','Breeds'],['sexes','Sexes'],['stages','Lifecycle stages'],['groups','Shed tags'],['healthStates','Health states']]],
+    ['Animal types',[['species','Species'],['breeds','Breeds'],['sexes','Sexes'],['stages','Lifecycle stages'],['groups','Pen tags'],['healthStates','Health states']]],
     ['Animals',[['animals','Animals']]],
     ['Catalogue',[['items','Items & categories']]],
-    ['People & approvers',[['people','People'],['roles','Roles'],['approvers','Approvers']]],
+    ['People',[['people','People'],['roles','Roles']]],
     ['Reference lists',[['statusDefs','Status definitions'],['exitReasons','Exit reasons'],['purposes','Animal purposes'],['movementReasons','Movement reasons'],['weightBands','Weight bands'],['sopCategories','SOP categories'],['taskTypes','Task types']]],
     ['Business rules',[['saleProducts','Sale product types'],['costKinds','Cost kinds'],['identifierPolicies','Identifier policies'],['designations','Designations'],['approvalChains','Approval chains']]],
     ['Business settings',[['settings','Business settings']]]
@@ -44,8 +44,8 @@
       columns:[{label:'Partition',html:r=>`<b>${esc(REG.fullLabel('partitions',r))}</b>`},{label:'Park',html:r=>{const p=S.get('pens',r.penId);return esc(p?REG.labelById('parks',p.parkId):'');}},
         {label:'Capacity',w:100,num:1,html:r=>esc(r.capacity===''||r.capacity==null?'—':r.capacity)},{label:'Animals',w:90,num:1,html:r=>S.active('animals').filter(a=>a.partitionId===r.id).length}]}),
     farms:()=>list('farms',{eyebrow:'Farm places',columns:[{label:'Code',w:90,html:r=>`<b class="mono">${esc(r.code)}</b>`},{label:'Farm',html:r=>esc(r.name)},{label:'Type',w:110,html:r=>esc(REG.enumLabel(r.kind))},{label:'Parks',w:80,num:1,html:r=>S.active('parks').filter(p=>p.farmId===r.id).length}]}),
-    species:()=>list('species',{eyebrow:'Animal types',onOpen:id=>location.hash='#/configuration/items/animal-types/'+id,onNew:()=>location.hash='#/configuration/items/animal-types/new',addLabel:'New animal types',
-      extraBtns:`<a class="btn sm" href="#/configuration/items/animal-types/all">${ic('edit-3')}Edit together</a>`,
+    species:()=>list('species',{eyebrow:'Animal types',onOpen:id=>location.hash='#/configuration/items/animal-types/'+id,onNew:()=>location.hash='#/configuration/items/animal-types/new',addLabel:'Add species',
+      extraBtns:`<a class="btn sm" href="#/configuration/items/animal-types/all">${ic('edit-3')}Edit in grid</a>`,
       columns:[{label:'Species',html:r=>`<b>${esc(r.name)}</b>`},{label:'Code',w:90,html:r=>`<span class="mono">${esc(r.code||'')}</span>`},
         ...['breeds','sexes','stages'].map(c=>({label:REG.R[c].label.replace('Lifecycle ',''),w:90,num:1,html:r=>S.active(c).filter(x=>x.speciesId===r.id).length})),
         {label:'Animals',w:90,num:1,html:r=>S.active('animals').filter(a=>a.speciesId===r.id).length}]}),
@@ -54,8 +54,8 @@
     stages:()=>list('stages',{eyebrow:'Animal types',filters:['species','sex'],columns:[
       {label:'Stage',html:r=>`<b>${esc(r.name)}</b>`},{label:'Code',w:100,html:r=>`<span class="mono">${esc(r.code)}</span>`},{label:'Species',w:110,html:r=>esc(REG.labelById('species',r.speciesId))},
       {label:'From (days)',w:110,num:1,html:r=>esc(r.fromD===''||r.fromD==null?'—':r.fromD)},{label:'To (days)',w:100,num:1,html:r=>esc(r.toD===''||r.toD==null?'—':r.toD)},{label:'Sex',w:90,html:r=>esc(REG.enumLabel(r.sex))}]}),
-    'shed-tags':()=>list('tags',{eyebrow:'Animal types',title:'Shed tags',filters:['species'],where:r=>r.kind!=='group',defaults:()=>({kind:'tag'}),addLabel:'Add shed tag'}),
-    groups:()=>list('tags',{eyebrow:'Animal types',title:'Shed tags',filters:['species','kind'],addLabel:'Add shed tag'}),
+    'shed-tags':()=>list('tags',{eyebrow:'Animal types',title:'Pen tags',filters:['species'],where:r=>r.kind!=='group',defaults:()=>({kind:'tag'}),addLabel:'Add pen tag'}),
+    groups:()=>list('tags',{eyebrow:'Animal types',title:'Pen tags',filters:['species','kind'],addLabel:'Add pen tag'}),
     healthStates:()=>list('healthStates',{eyebrow:'Animal types',filters:['group']}),
     animals:()=>list('animals',{eyebrow:'Animals',filters:['species','park','pen','stage','sex'],addLabel:'Add animals',onNew:()=>Sheet.openEntry('animals',null,[{}]),
       extraBtns:`<button class="btn sm" data-a="rec-one" data-reg="animals">${ic('plus')}Add one</button>`,
@@ -64,10 +64,9 @@
         {label:'Sex',w:80,html:r=>esc(REG.labelById('sexes',r.sexId))},{label:'Stage',html:r=>esc(REG.labelById('stages',r.stageId))},
         {label:'Park',html:r=>esc(REG.labelById('parks',r.parkId))},{label:'Pen',html:r=>esc(penDisplay(r))},{label:'Weight (kg)',w:100,num:1,html:r=>esc(r.weight===''||r.weight==null?'':r.weight)}]}),
     items:()=>items(),
-    people:()=>list('people',{eyebrow:'People & approvers',filters:['role','parks'],columns:[{label:'Name',html:r=>`<b>${esc(r.name)}</b>`},{label:'Role',html:r=>esc(REG.labelById('roles',r.roleId))},
+    people:()=>list('people',{eyebrow:'People',filters:['role','parks'],columns:[{label:'Name',html:r=>`<b>${esc(/\s0\d$/.test(r.name||'')?REG.labelById('roles',r.roleId):r.name)}</b>`},{label:'Role',html:r=>esc(REG.labelById('roles',r.roleId))},
       {label:'Parks',html:r=>(r.parkIds||[]).length?(r.parkIds||[]).map(id=>UI.tag(REG.labelById('parks',id),'mut')).join(' '):'<span class="muted">All parks</span>'},{label:'Email',html:r=>esc(r.email||'')},{label:'Phone',html:r=>esc(r.phone||'')}]}),
-    roles:()=>list('roles',{eyebrow:'People & approvers',columns:[{label:'Role',html:r=>`<b>${esc(r.name)}</b>`},{label:'Grade',w:140,html:r=>esc(r.grade||'')},{label:'People',w:90,num:1,html:r=>S.active('people').filter(p=>p.roleId===r.id).length},{label:'Approves',w:100,num:1,html:r=>S.active('approvers').filter(p=>p.roleId===r.id).length}]}),
-    approvers:()=>list('approvers',{eyebrow:'People & approvers',filters:['dept','role'],columns:[{label:'Department',w:160,html:r=>UI.tag(r.dept,'teal')},{label:'Approval step',html:r=>`<b>${esc(r.step)}</b>`},{label:'Approver role',html:r=>esc(REG.labelById('roles',r.roleId))}]}),
+    roles:()=>list('roles',{eyebrow:'People',columns:[{label:'Role',html:r=>`<b>${esc(r.name)}</b>`},{label:'Grade',w:140,html:r=>esc(r.grade||'')},{label:'People',w:90,num:1,html:r=>S.active('people').filter(p=>p.roleId===r.id).length}]}),
     settings:()=>list('settings',{eyebrow:'Business settings',filters:['dept'],onOpen:id=>settingDrawer(id),
       where:r=>{const st=List.st.settings;const q=st&&REG.norm(st.q);return !q||REG.norm(r.name).includes(q);},
       columns:[{label:'Setting',html:r=>`<b>${esc(r.name)}</b>`},{label:'Department',w:160,html:r=>UI.tag(r.dept,'teal')},
@@ -268,6 +267,13 @@
     const card=root.querySelector('[data-penscard]');
     if(card)card.addEventListener('paste',e=>{if(e.target.closest('[data-pp],[data-pt],[data-pg]'))return;const t=(e.clipboardData||window.clipboardData).getData('text');if(!t.trim())return;e.preventDefault();penPaste(d,d.pens.length,'name',t);});
   }
+  /* paste with focus outside any field on the park page (nothing clicked yet) also appends pens */
+  document.addEventListener('paste',e=>{
+    if(!PD||!/\/configuration\/items\/(places\/)?park\//.test(location.hash)||UI._drawer)return;
+    const t=e.target;if(t&&t.closest&&(t.closest('input,textarea,select,[contenteditable],[data-penscard]')))return;
+    const txt=(e.clipboardData||window.clipboardData).getData('text');if(!txt.trim())return;
+    e.preventDefault();penPaste(PD,PD.pens.length,'name',txt);
+  });
   function saveFarm(d){const col=REG.R.parks.cols.find(c=>c.k==='farm');return d.farm.trim()?REG.findRef('parks',col,d.farm,{}):{rec:null};}
   function savePark(target){
     const d=PD; d.err={};
@@ -345,7 +351,7 @@
   function editorPage(ids){
     const d=editorDraft(ids); const E=d.err;
     const er=k=>E[k]?`<div class="ferr">${esc(E[k])}</div>`:'';
-    return `<div class="phead"><div><div class="crumb">Configuration / <a href="#/configuration/items/species">Items and settings</a> / <b>Animal types</b></div><h1>${ids==='new'?'New animal types':'Edit animal types'}</h1></div><div class="sp"></div>
+    return `<div class="phead"><div><div class="crumb">Configuration / <a href="#/configuration/items/species">Items and settings</a> / <b>Animal types</b></div><h1>${ids==='new'?'Add species':'Edit species'}</h1></div><div class="sp"></div>
       <button class="btn" data-a="ed-cancel">Cancel</button><button class="btn p" data-a="ed-save">${ic('check')}Save ${d.blocks.length} species</button></div>
       <div class="stack">${d.blocks.map((b,bi)=>`<section class="spblk">
         <div class="hd"><div style="flex:1;min-width:160px"><input class="inl" style="width:100%;font-size:15px;font-weight:700" data-ed="${bi}" data-k="name" value="${esc(b.name)}" placeholder="Species" aria-label="Species name">${er(bi+'.name')}</div>
@@ -355,7 +361,7 @@
         <div class="bd"><div class="fgrid">
           <div class="fld full"><label>Breeds <span class="muted">${b.breeds.length}</span></label>${chipField(bi,'breeds',b.breeds,'Add breed')}</div>
           <div class="fld"><label>Sexes</label>${chipField(bi,'sexes',b.sexes,'Add sex','info')}</div>
-          <div class="fld"><label>Shed tags</label>${chipField(bi,'tags',b.tags,'Add shed tag','mut')}</div>
+          <div class="fld"><label>Pen tags</label>${chipField(bi,'tags',b.tags,'Add pen tag','mut')}</div>
           <div class="fld"><label>Groups</label>${chipField(bi,'groups',b.groups,'Add group','pur')}</div>
           <div class="fld full"><label>Lifecycle stages <span class="muted">${b.stages.length}</span></label>${er(bi+'.stages')}
             <div class="twrap"><table class="mini" style="min-width:600px"><thead><tr><th style="width:110px">Code</th><th>Stage</th><th style="width:100px">From (days)</th><th style="width:100px">To (days)</th><th style="width:110px">Sex</th><th style="width:40px"></th></tr></thead><tbody>
@@ -468,7 +474,7 @@
   /* ---------- router entry ---------- */
   P.render=function(parts){
     let key=parts[0]||'parks';
-    const legacy={places:parts[1]||'parks','animal-types':parts[1]&&!['edit'].includes(parts[1])?parts[1]:'species',animals:'animals',items:'items',people:parts[1]||'people',settings:'settings'};
+    const legacy={places:parts[1]||'parks','animal-types':parts[1]&&!['edit'].includes(parts[1])?parts[1]:'species',animals:'animals',items:'items',people:parts[1]==='approvers'?'approvalChains':parts[1]||'people',approvers:'approvalChains',settings:'settings'};
     Sheet.activeGetter=null;
     if(key==='import')return {html:IO.page(),mount:IO.mount};
     if(key==='sheet'){

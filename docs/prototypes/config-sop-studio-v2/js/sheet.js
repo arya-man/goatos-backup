@@ -48,6 +48,9 @@
         ${x&&x.create?`<button class="btn sm" data-a="sh-pick" data-r="${ri}" data-c="${ci}" data-t="${esc(x.text)}">Pick existing</button><button class="btn sm gh" data-a="sh-create" data-r="${ri}" data-c="${ci}" data-t="${esc(x.text)}">${ic('plus','',12)}${x.archived?'Restore':'Create'} “${esc(x.text)}”</button>`:''}</div>`;}).join('');
   };
 
+  const HIDE_ZERO=['warn','info','create','update'];
+  Sheet.chipHidden=(G,k,cnt)=>HIDE_ZERO.includes(k)&&!cnt[k]&&G.view!==k;
+  Sheet.parentsShown=(G,cnt)=>!!(cnt.unresolved||cnt.newv||G.createParents);
   const STAT={create:['New','ok'],update:['Update','info'],unchanged:['Unchanged','mut'],error:['Error','dng'],empty:['','mut']};
 
   Sheet.html=function(G,opts){
@@ -64,19 +67,26 @@
         <button class="btn sm" data-a="sh-fill">${ic('arrow-down')}Fill down</button>
         <button class="btn sm" data-a="sh-delrows" ${G.sel.size?'':'disabled'}>${ic('trash')}Delete rows</button>
         <span class="sp"></span>
-        <div class="chips">${chips.map(([k,l])=>`<button class="chip ${G.view===k?'on':''}" data-a="sh-view" data-v="${k}">${l}&nbsp;<span data-cnt="${k}">${cnt[k]}</span></button>`).join('')}</div>
+        <div class="chips">${chips.map(([k,l])=>`<button class="chip ${G.view===k?'on':''}" data-a="sh-view" data-v="${k}" style="${Sheet.chipHidden(G,k,cnt)?'display:none':''}">${l}&nbsp;<span data-cnt="${k}">${cnt[k]}</span></button>`).join('')}</div>
       </div>
       <div class="sheetbar">
-        <label class="row small" style="font-weight:650"><input type="checkbox" data-a="sh-parents" ${G.createParents?'checked':''}>Create all new values <span class="muted" data-cnt="unresolved">${cnt.unresolved?'('+cnt.unresolved+' unknown)':''}</span></label>
-        ${opts.noFoot?'':`<label class="row small" style="font-weight:650" data-skipwrap ${cnt.error?'':'hidden'}><input type="checkbox" data-a="sh-skip" ${G.skipErrors?'checked':''}><span data-skiptxt>${Sheet.skipText(cnt.error)}</span></label>`}
+        <label class="row small" data-parentswrap style="font-weight:650;${Sheet.parentsShown(G,cnt)?'':'display:none'}"><input type="checkbox" data-a="sh-parents" ${G.createParents?'checked':''}>Create all new values <span class="muted" data-cnt="unresolved">${cnt.unresolved?'('+cnt.unresolved+' unknown)':''}</span></label>
+        ${opts.noFoot?'':`<label class="row small" style="font-weight:650;${cnt.error?'':'display:none'}" data-skipwrap><input type="checkbox" data-a="sh-skip" ${G.skipErrors?'checked':''}><span data-skiptxt>${Sheet.skipText(cnt.error)}</span></label>`}
         <span class="sp"></span>
-        ${cnt.error?`<button class="btn sm" data-a="sh-errors">${ic('download')}Rows with errors</button>`:''}
+        <span data-errnav class="row nw" style="gap:4px;${cnt.error?'':'display:none'}"><button class="btn sm" data-a="sh-err-prev" title="Previous error (Shift+F8 or ⌘↑)" aria-keyshortcuts="Shift+F8 Meta+ArrowUp"><span style="display:inline-flex;transform:rotate(180deg)">${ic('arrow-down')}</span>Previous error</button><button class="btn sm" data-a="sh-err-next" title="Next error (F8 or ⌘↓)" aria-keyshortcuts="F8 Meta+ArrowDown">${ic('arrow-down')}Next error</button></span>
+        ${cnt.error?`<button class="btn sm" data-a="sh-errors">${ic('download')}Download errors</button>`:''}
         ${opts.noFoot?'':`<button class="btn sm" data-a="sh-cancel">Close</button>
         <button class="btn sm p" data-a="sh-save" ${Sheet.canSave(G,cnt)?'':'disabled'}>${ic('check')}${Sheet.saveLabel(G,cnt)}</button>`}
       </div>
-      <style>@media(max-width:760px){[data-sheet] .sheet td.msg,[data-sheet] .sheet th.iss{position:static!important;box-shadow:none!important;min-width:200px!important;max-width:200px!important}}</style>
+      <style>[data-sheet] .rnst{display:none}
+        @media(max-width:760px){[data-sheet] .sheet td.msg,[data-sheet] .sheet th.iss{position:static!important;box-shadow:none!important;min-width:200px!important;max-width:200px!important}
+        [data-sheet] .sheet th.rn,[data-sheet] .sheet td.rn{min-width:88px!important;max-width:88px!important;width:88px!important;box-shadow:4px 0 6px -4px rgba(0,0,0,.45)}
+        [data-sheet] .sheet td.rn label{height:auto;min-height:34px;flex-wrap:wrap;gap:2px 6px;padding:3px 0}
+        [data-sheet] .rnst{display:block;width:100%}[data-sheet] .rnst .tag{font-size:10.5px;padding:1px 6px}
+        [data-sheet] .sheet th.stc,[data-sheet] .sheet td.st{display:none}
+        [data-sheet] .sheet{-webkit-mask-image:linear-gradient(to right,#000 calc(100% - 28px),transparent);mask-image:linear-gradient(to right,#000 calc(100% - 28px),transparent)}}</style>
       <div class="sheet" data-grid style="min-height:0">
-        <table><thead><tr><th class="rn" style="${stick(0,RN_W)}z-index:4"><input type="checkbox" data-a="sh-selall" aria-label="Select all"></th><th class="iss" style="${stick(RN_W,ISSUE_W)}z-index:4;border-right:1px solid var(--line);box-shadow:4px 0 6px -4px rgba(0,0,0,.45)">Issues</th><th>Status</th>
+        <table><thead><tr><th class="rn" style="${stick(0,RN_W)}z-index:4"><input type="checkbox" data-a="sh-selall" aria-label="Select all"></th><th class="iss" style="${stick(RN_W,ISSUE_W)}z-index:4;border-right:1px solid var(--line);box-shadow:4px 0 6px -4px rgba(0,0,0,.45)">Issues</th><th class="stc">Status</th>
           ${reg.cols.map(c=>`<th class="${c.req?'req':''}">${esc(c.label)}</th>`).join('')}</tr></thead>
         <tbody>${G.rows.map((row,ri)=>Sheet.rowHtml(G,row,ri,res[ri])).join('')}</tbody></table>
       </div></div>`;
@@ -86,7 +96,7 @@
     const reg=REG.R[G.regKey]; const st=STAT[r.status]||STAT.empty;
     const hid=Sheet.hidden(G,r);
     return `<tr data-r="${ri}" class="${G.sel.has(row.id)?'selr':''} ${hid?'hid':''}">
-      <td class="rn" style="left:0;z-index:3;min-width:${RN_W}px;max-width:${RN_W}px"><label><input type="checkbox" data-a="sh-sel" data-id="${row.id}" ${G.sel.has(row.id)?'checked':''}>${ri+1}</label></td>
+      <td class="rn" style="left:0;z-index:3;min-width:${RN_W}px;max-width:${RN_W}px"><label><input type="checkbox" data-a="sh-sel" data-id="${row.id}" ${G.sel.has(row.id)?'checked':''}>${ri+1}<span class="rnst">${st[0]?UI.tag(st[0],st[1]):''}</span></label></td>
       <td class="msg" data-issues style="position:sticky;left:${RN_W}px;z-index:3;min-width:${ISSUE_W}px;max-width:${ISSUE_W}px;white-space:normal;padding:2px 8px;background:var(--panel);background-clip:padding-box;border-right:1px solid var(--line);box-shadow:4px 0 6px -4px rgba(0,0,0,.45)">${Sheet.issuesHtml(G,ri,r)}</td>
       <td class="st">${st[0]?UI.tag(st[0],st[1]):''}</td>
       ${reg.cols.map((c,ci)=>{const iss=r.issues[c.k];return `<td class="w-${c.w||''} ${iss?(iss[0]==='err'?'err':iss[0]==='warn'?'warn':'info'):''}" title="${iss?esc(iss[1]):''}"><input class="cell" data-r="${ri}" data-c="${ci}" value="${esc(row.v[c.k]==null?'':row.v[c.k])}" autocomplete="off" aria-label="${esc(c.label)} row ${ri+1}"></td>`;}).join('')}
@@ -112,14 +122,17 @@
     const res=Sheet.results(G); G._res=res; const reg=REG.R[G.regKey];
     root.querySelectorAll('tbody tr[data-r]').forEach(tr=>{
       const ri=+tr.dataset.r, r=res[ri]; if(!r)return; const st=STAT[r.status]||STAT.empty;
-      tr.querySelector('td.st').innerHTML=st[0]?UI.tag(st[0],st[1]):'';
+      tr.querySelector('td.st').innerHTML=st[0]?UI.tag(st[0],st[1]):'';const rs=tr.querySelector('.rnst');if(rs)rs.innerHTML=st[0]?UI.tag(st[0],st[1]):'';
       reg.cols.forEach((c,ci)=>{const inp=tr.querySelector(`input.cell[data-c="${ci}"]`);if(!inp)return;const td=inp.parentElement,iss=r.issues[c.k];
         td.classList.toggle('err',!!iss&&iss[0]==='err');td.classList.toggle('warn',!!iss&&iss[0]==='warn');td.classList.toggle('info',!!iss&&iss[0]==='info');td.title=iss?iss[1]:'';});
       tr.querySelector('[data-issues]').innerHTML=Sheet.issuesHtml(G,ri,r);
     });
     const cnt=Sheet.counts(res);
-    root.querySelectorAll('[data-cnt]').forEach(el=>{const k=el.dataset.cnt;el.textContent=k==='unresolved'?(cnt.unresolved?'('+cnt.unresolved+' unknown)':''):cnt[k];});
-    const sk=root.querySelector('[data-skipwrap]'); if(sk){sk.hidden=!cnt.error;const t=sk.querySelector('[data-skiptxt]');if(t)t.textContent=Sheet.skipText(cnt.error);}
+    root.querySelectorAll('[data-cnt]').forEach(el=>{const k=el.dataset.cnt;el.textContent=k==='unresolved'?(cnt.unresolved?'('+cnt.unresolved+' unknown)':''):cnt[k];
+      const chip=el.closest('.chip');if(chip)chip.style.display=Sheet.chipHidden(G,k,cnt)?'none':'';});
+    const pw=root.querySelector('[data-parentswrap]'); if(pw)pw.style.display=Sheet.parentsShown(G,cnt)?'':'none';
+    const en=root.querySelector('[data-errnav]'); if(en)en.style.display=cnt.error?'':'none';
+    const sk=root.querySelector('[data-skipwrap]'); if(sk){sk.style.display=cnt.error?'':'none';const t=sk.querySelector('[data-skiptxt]');if(t)t.textContent=Sheet.skipText(cnt.error);}
     const sv=root.querySelector('[data-a="sh-save"]');
     if(sv){sv.disabled=!Sheet.canSave(G,cnt);sv.innerHTML=ic('check')+Sheet.saveLabel(G,cnt);}
     if(G.onChange)G.onChange(cnt,res);
@@ -148,7 +161,7 @@
     });
     root.addEventListener('focusin',e=>{
       const inp=e.target.closest('input.cell'); if(!inp)return;
-      const g=G(); g.active={r:+inp.dataset.r,c:+inp.dataset.c};
+      const g=G(); g.active={r:+inp.dataset.r,c:+inp.dataset.c}; Sheet._lastCell={r:inp.dataset.r,c:inp.dataset.c};
       const c=REG.R[g.regKey].cols[g.active.c]; if(isPick(c))openPop(inp); else UI.closePop();
     });
     root.addEventListener('change',e=>{const inp=e.target.closest('input.cell');if(!inp)return;const g=G(),c=REG.R[g.regKey].cols[+inp.dataset.c],ri=+inp.dataset.r;
@@ -156,8 +169,16 @@
     root.addEventListener('focusout',e=>{const inp=e.target.closest('input.cell');if(inp)setTimeout(()=>{if(UI._popCfg&&UI._popCfg.input===inp&&document.activeElement!==inp)UI.closePop();},150);});
     root.addEventListener('keydown',e=>{
       const inp=e.target.closest('input.cell');
+      if(e.key==='F8'||(e.metaKey||e.ctrlKey)&&(e.key==='ArrowDown'||e.key==='ArrowUp'))return;
       if(inp){
         if(UI.popKey(e)){return;}
+        const g=G();
+        if(e.key==='Tab'&&g.view==='error'){e.preventDefault();Sheet.jumpError(e.shiftKey?-1:1,inp);return;}
+        if(e.key==='Enter'&&!e.altKey&&inp.parentElement.classList.contains('err')){
+          const ri=+inp.dataset.r,ci=+inp.dataset.c,c=REG.R[g.regKey].cols[ci],r=(g._res||[])[ri],iss=r&&r.issues[c.k];
+          if(iss&&iss[2]&&iss[2].create){e.preventDefault();Sheet.pickPop(g,inp,ri,ci,iss[2].text);return;}
+          if(isPick(c)){e.preventDefault();openPop(inp);return;}
+        }
         if(e.key==='Enter'||e.key==='ArrowDown'&&e.altKey){e.preventDefault();move(inp,1,0);}
         if(e.key==='ArrowUp'&&e.altKey){e.preventDefault();move(inp,-1,0);}
       }
@@ -175,12 +196,32 @@
       const g=G(); let r=+inp.dataset.r+dr; if(r>=g.rows.length){g.rows.push({id:rid(),v:{}});rerender();}
       setTimeout(()=>{const n=root.querySelector(`input.cell[data-r="${r}"][data-c="${+inp.dataset.c+dc}"]`);if(n){n.focus();n.select();}},0);
     }
-    function isPick(c){return ['ref','path','enum','multi','multienum'].includes(c.type);}
+    function isPick(c){return ['ref','path','enum','multi','multienum','steps'].includes(c.type);}
     function openPop(inp){
       const g=G(),regKey=g.regKey,reg=REG.R[regKey],c=reg.cols[+inp.dataset.c],row=g.rows[+inp.dataset.r];
       UI.pop(inp,UI.pickerCfg(regKey,c,row.v,inp,()=>{row.v[c.k]=inp.value;syncInputs(root,g,+inp.dataset.r,Sheet.cascade(g,row,c.k));Sheet.repaint(g,root);},null));
     }
   };
+
+  /* error navigation: F8 / Shift+F8 or Cmd/Ctrl+Down / Up; wraps around; focuses the cell */
+  Sheet.errorCells=()=>Array.from(document.querySelectorAll('[data-sheet] tbody tr[data-r]:not(.hid) td.err input.cell'));
+  Sheet.jumpError=function(dir,from){
+    const cells=Sheet.errorCells(); if(!cells.length){UI.toast('No errors');return;}
+    let cur=from||document.activeElement;
+    if(!(cur&&cur.matches&&cur.matches('input.cell'))&&Sheet._lastCell){const l=document.querySelector(`[data-sheet] input.cell[data-r="${Sheet._lastCell.r}"][data-c="${Sheet._lastCell.c}"]`);if(l)cur=l;}
+    let i=cells.indexOf(cur);
+    if(i<0){i=dir>0?cells.findIndex(c=>cur&&cur.compareDocumentPosition&&(cur.compareDocumentPosition(c)&Node.DOCUMENT_POSITION_FOLLOWING)):-1;
+      if(dir>0){if(i<0)i=0;}else{const after=cells.findIndex(c=>cur&&cur.compareDocumentPosition&&(cur.compareDocumentPosition(c)&Node.DOCUMENT_POSITION_FOLLOWING));i=(after<0?cells.length:after)-1;if(i<0)i=cells.length-1;}}
+    else i=(i+dir+cells.length)%cells.length;
+    const el=cells[i]; UI.closePop(); el.focus(); el.select();
+    try{el.scrollIntoView({block:'center',inline:'center'});}catch(e){}
+  };
+  document.addEventListener('keydown',e=>{
+    if(!document.querySelector('[data-sheet]'))return;
+    const nav=e.key==='F8'?(e.shiftKey?-1:1):(e.metaKey||e.ctrlKey)&&!e.altKey&&(e.key==='ArrowDown'||e.key==='ArrowUp')?(e.key==='ArrowDown'?1:-1):0;
+    if(!nav)return;
+    e.preventDefault(); Sheet.jumpError(nav);
+  });
 
   /* Pick existing for an unknown value: filtered by that value, best match highlighted,
      applied to every row with the same value unless unticked */
@@ -274,6 +315,8 @@
     'sh-selall'(el){const g=Sheet.active();g.rows.forEach(r=>el.checked?g.sel.add(r.id):g.sel.delete(r.id));Sheet.rerender();},
     'sh-delrows'(){const g=Sheet.active();g.rows=g.rows.filter(r=>!g.sel.has(r.id));if(!g.rows.length)g.rows=[{id:rid(),v:{}}];g.sel.clear();Sheet.rerender();},
     'sh-fill'(){const g=Sheet.active();const n=Sheet.fillDown(g);Sheet.rerender();UI.toast(n?'Filled '+n+' rows':'Focus a cell first');},
+    'sh-err-next'(){Sheet.jumpError(1);},
+    'sh-err-prev'(){Sheet.jumpError(-1);},
     'sh-errors'(){const g=Sheet.active();IO.downloadErrors(g);},
     'sh-cancel'(){const g=cur();App.leave(g&&g.back&&!g.back.includes('/sheet/')?g.back:'#/configuration/items/'+(g?g.regKey:''));},
     'sh-save'(){const g=Sheet.active();if(Sheet.saveHook)return Sheet.saveHook(g);Sheet.save(g);Sheet.rerender();},

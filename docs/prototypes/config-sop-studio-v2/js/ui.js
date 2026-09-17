@@ -151,12 +151,13 @@
   /* ref options for a register column in the context of a row */
   UI.refOptions=function(regKey,col,row){
     if(col.type==='enum'||col.type==='multienum')return col.opts.filter(Boolean).map(o=>({id:o,label:REG.enumLabel(o)}));
+    if(col.type==='steps')return REG.stepOptions();
     if(col.type==='path')return S.active('categories').map(c=>({id:c.id,label:REG.catPath(c.id)}));
     const list=col.scope&&!String(row[col.scope.col]||'').trim()?S.active(col.ref):REG.candidates(regKey,Object.assign({},col,{type:'ref'}),row);
     return list.map(x=>({id:x.id,label:REG.label(col.ref,x),sub:subFor(col.ref,x),alias:x.aliases}));
   };
   function subFor(coll,x){
-    if(coll==='pens'){const p=S.get('parks',x.parkId);return p?p.name:'';}
+    if(coll==='pens'){const p=S.get('parks',x.parkId);return x.displayName&&x.displayName!==x.name?x.displayName:(p?p.name:'');}
     if(coll==='partitions'){const p=S.get('pens',x.penId);return p?p.name:'';}
     if(['breeds','stages','sexes'].includes(coll)){const s=S.get('species',x.speciesId);return (x.code&&coll==='stages'?x.code+' · ':'')+(s?s.name:'');}
     if(coll==='parks'){const f=S.get('farms',x.farmId);return f?f.code:'';}
@@ -175,13 +176,20 @@
       const st=rec&&!dup?`<div class="fld"><label>Status</label><select data-fstatus>${reg.statuses.map(x=>`<option value="${x}" ${(row.v.status||'active')===x?'selected':''}>${REG.enumLabel(x)}</option>`).join('')}</select></div>`:'';
       return `<div class="fgrid">${reg.cols.filter(c=>!c.virtual||c.scope||reg.cols.some(x=>x.scope&&x.scope.col===c.k)).map(c=>{
         const iss=shown&&res.issues[c.k]; const full=c.w==='wide'||c.type==='multi'||c.type==='multienum';
-        const input=(c.type==='ref'||c.type==='path'||c.type==='enum'||c.type==='multi')
+        const input=c.type==='steps'?stepsField(c):(c.type==='ref'||c.type==='path'||c.type==='enum'||c.type==='multi')
           ?`<input data-ff="${c.k}" value="${esc(row.v[c.k]||'')}" placeholder="${c.blankLabel?esc(c.blankLabel):'Search or create'}" autocomplete="off" aria-label="${esc(c.label)}">`
           :(c.type==='multienum'?`<div class="chkrow">${c.opts.map(o=>`<label><input type="checkbox" data-fm="${c.k}" value="${esc(REG.enumLabel(o))}" ${String(row.v[c.k]||'').split(/;\s*/).map(REG.norm).includes(REG.norm(REG.enumLabel(o)))?'checked':''}>${esc(REG.enumLabel(o))}</label>`).join('')}</div>`
           :`<input data-ff="${c.k}" value="${esc(row.v[c.k]||'')}" ${c.type==='num'?'inputmode="decimal"':''} ${c.type==='date'?'placeholder="YYYY-MM-DD"':''} aria-label="${esc(c.label)}">`);
         return `<div class="fld ${full?'full':''}"><label>${esc(c.label)}${c.req?' *':''}</label>${input}${iss?`<div class="ferr ${iss[0]==='err'?'':'w'}">${esc(iss[1])}${iss[2]&&iss[2].create?` <button type="button" class="btn sm" data-rf-create="${c.k}">${ic('plus','',12)}Create “${esc(iss[2].text)}”</button>`:''}</div>`:''}</div>`;
       }).join('')}${st}</div>`;
     };
+    /* ordered approver chips picked from Roles / Designations / People; stored as "A; B" like the grid */
+    const stepList=k=>String(row.v[k]||'').split(';').map(x=>x.trim()).filter(Boolean);
+    const stepsField=c=>{const list=stepList(c.k);
+      return `<div class="stepchips" style="display:flex;flex-wrap:wrap;gap:6px;align-items:center">${list.map((t,i)=>`<span class="tag t-mut" style="display:inline-flex;align-items:center;gap:4px;padding-right:2px"><b>${i+1}.</b> ${esc(t)}
+        ${i?`<button type="button" class="btn icon gh sm" data-step-up="${c.k}" data-i="${i}" aria-label="Move ${esc(t)} earlier" style="width:22px;height:22px;min-height:0"><span style="display:inline-flex;transform:rotate(180deg)">${ic('arrow-down','',12)}</span></button>`:''}
+        <button type="button" class="btn icon gh sm" data-step-rm="${c.k}" data-i="${i}" aria-label="Remove ${esc(t)}" style="width:22px;height:22px;min-height:0">${ic('x','',12)}</button></span>`).join('')}
+        <input data-steps-add="${c.k}" placeholder="${list.length?'Add next approver':'Add approver: role, designation or person'}" autocomplete="off" aria-label="Add approver" style="flex:1;min-width:180px"></div>`;};
     const save=()=>{
       shown=true;
       const res=REG.validate(regKey,[row],{})[0];
@@ -200,6 +208,15 @@
         dr.querySelectorAll('[data-rf-create]').forEach(b=>b.onclick=e=>{const c=reg.cols.find(x=>x.k===b.dataset.rfCreate);const ch=REG.createChoices(regKey,c.type==='multi'?Object.assign({},c,{type:'ref'}):c,row.v,(REG.validate(regKey,[row],{})[0].issues[c.k][2]||{}).text);
           const doIt=x=>{S.snap('Created');x.run();created=true;S.save();UI.redrawDrawer({body:body()});};
           if(ch.length===1)doIt(ch[0]);else UI.menu(b,ch.map(x=>({label:x.label,icon:'plus',run:()=>doIt(x)})));});
+        const redraw=k=>{UI.redrawDrawer({body:body()});const n=$(`#drawer [data-steps-add="${k}"]`);if(n)n.focus();};
+        dr.querySelectorAll('[data-step-rm]').forEach(b=>b.onclick=()=>{const k=b.dataset.stepRm,l=stepList(k);l.splice(+b.dataset.i,1);row.v[k]=l.join('; ');redraw(k);});
+        dr.querySelectorAll('[data-step-up]').forEach(b=>b.onclick=()=>{const k=b.dataset.stepUp,l=stepList(k),i=+b.dataset.i;[l[i-1],l[i]]=[l[i],l[i-1]];row.v[k]=l.join('; ');redraw(k);});
+        dr.querySelectorAll('[data-steps-add]').forEach(inp=>{const k=inp.dataset.stepsAdd;
+          const open=()=>UI.pop(inp,{options:()=>{const have=stepList(k).map(x=>REG.norm(x.replace(/\(per person\)\s*$/i,'')));return REG.stepOptions().filter(o=>!have.includes(REG.norm(o.label)));},
+            onPick(o){row.v[k]=stepList(k).concat([o.label]).join('; ');setTimeout(()=>redraw(k),0);}});
+          inp.addEventListener('focus',open);inp.addEventListener('input',open);
+          inp.addEventListener('keydown',e=>{if(UI.popKey(e))return;if(e.key==='Backspace'&&!inp.value){const l=stepList(k);if(l.length){l.pop();row.v[k]=l.join('; ');redraw(k);}}});
+          inp.addEventListener('blur',()=>setTimeout(()=>{if(UI._popCfg&&UI._popCfg.input===inp)UI.closePop();},120));});
         const stSel=dr.querySelector('[data-fstatus]'); if(stSel)stSel.onchange=()=>{row.v.status=stSel.value;};
         dr.querySelectorAll('[data-fm]').forEach(cb=>cb.onchange=()=>{const k=cb.dataset.fm;row.v[k]=Array.from(dr.querySelectorAll(`[data-fm="${k}"]:checked`)).map(x=>x.value).join('; ');});
         dr.querySelectorAll('[data-ff]').forEach(inp=>{
@@ -216,7 +233,7 @@
 
   /* shared picker config for forms and grids: options + inline create (incl. multi) */
   UI.pickerCfg=function(regKey,c,rowV,inp,changed,onCreated){
-    const multi=c.type==='multi';
+    const multi=c.type==='multi'||c.type==='steps';
     const last=()=>multi?inp.value.split(';').pop():inp.value;
     return {
       multi,query:last,
@@ -225,7 +242,7 @@
         if(multi){const parts=inp.value.split(';').map(s=>s.trim());parts.pop();parts.push(o.label);inp.value=parts.filter(Boolean).join('; ');}
         changed&&changed();
       },
-      creates:c.type==='enum'||c.type==='multienum'?null:(text)=>REG.createChoices(regKey,multi?Object.assign({},c,{type:'ref'}):c,rowV,text).map(x=>({label:x.label,run:()=>{onCreated&&onCreated();return x.run();}}))
+      creates:c.type==='enum'||c.type==='multienum'||c.type==='steps'?null:(text)=>REG.createChoices(regKey,multi?Object.assign({},c,{type:'ref'}):c,rowV,text).map(x=>({label:x.label,run:()=>{onCreated&&onCreated();return x.run();}}))
     };
   };
 

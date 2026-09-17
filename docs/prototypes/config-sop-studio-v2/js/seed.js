@@ -70,9 +70,9 @@
      server census snapshot (docs/decisions/weighing-lump-sum-census-count.md), never typed by the operator. */
   function lumpSumWeighingFlow(){
     const f=flow();
-    const s=f.add('start',{label:'Open assigned lump-sum shed'});
-    const pen=f.add('question',{label:'Shed / pen',answer:'ref',refColl:'pens',required:true,page:'Shed'});
-    const w=f.add('question',{label:'Total weight of the shed',answer:'number',unit:'kg',min:0,max:20000,required:true,page:'Weight'});
+    const s=f.add('start',{label:'Open assigned lump-sum pen'});
+    const pen=f.add('question',{label:'Pen',answer:'ref',refColl:'pens',required:true,page:'Pen'});
+    const w=f.add('question',{label:'Total weight of the pen',answer:'number',unit:'kg',min:0,max:20000,required:true,page:'Weight'});
     const v=f.add('evidence',{label:'Lump-sum pen video',media:['video'],min:1,max:5,page:'Weight'});
     const a=f.add('approval',{label:'Verifier reviews lump-sum video and total weight',roleId:'role_verifier',outcomes:['Verified','Rework']});
     const ok=f.add('end',{label:'Verified',outcome:'done'});
@@ -141,14 +141,14 @@
     const s=f.add('start',{label:'Transit started'});
     const pen=f.add('question',{label:'Destination pen',answer:'ref',refColl:'pens',required:true,page:'Allocate'});
     const par=f.add('parallel',{label:'Prepare in parallel'});
-    const e1=f.add('evidence',{label:'Shed emptied',media:['video'],min:1,max:2,lane:'Shed'});
-    const e2=f.add('evidence',{label:'Shed sanitized',media:['video'],min:1,max:2,lane:'Shed'});
+    const e1=f.add('evidence',{label:'Pen emptied',media:['video'],min:1,max:2,lane:'Pen'});
+    const e2=f.add('evidence',{label:'Pen sanitized',media:['video'],min:1,max:2,lane:'Pen'});
     const w1=f.add('action',{label:'Fill water with ORS',lane:'Water'});
     const w2=f.add('evidence',{label:'Water trough with ORS',media:['photo'],min:1,max:3,lane:'Water'});
     const j=f.add('join',{label:'Both lanes done'});
-    const ap=f.add('approval',{label:'Shed ready',roleId:'role_park_head',outcomes:['Ready','Redo']});
+    const ap=f.add('approval',{label:'Pen ready',roleId:'role_park_head',outcomes:['Ready','Redo']});
     const e=f.add('end',{label:'Destination ready',outcome:'done'});
-    f.link(s,pen); f.link(pen,par); f.link(par,e1,'Shed'); f.link(e1,e2); f.link(par,w1,'Water'); f.link(w1,w2); f.link(e2,j); f.link(w2,j); f.link(j,ap); f.link(ap,e);
+    f.link(s,pen); f.link(pen,par); f.link(par,e1,'Pen'); f.link(e1,e2); f.link(par,w1,'Water'); f.link(w1,w2); f.link(e2,j); f.link(w2,j); f.link(j,ap); f.link(ap,e);
     return f.nodes;
   }
 
@@ -168,10 +168,12 @@
     const hay=vid('Hay bed video','Day before loading');
     const rain=vid('Rain cover and ventilation video','Day before loading');
     const kind=f.add('question',{label:'Load type',answer:'choice',options:[{v:'fattening',l:'Fattening'},{v:'breeding',l:'Breeding stock'}],required:true,page:'Loading'});
-    const c=f.add('question',{label:'Animals boarded',answer:'number',unit:'animals',min:0,required:true,page:'Loading',hint:'Count every animal while loading'});
+    const c=f.add('question',{label:'Animals boarded',answer:'number',unit:'animals',min:0,required:true,page:'Loading',hint:'Count every animal while loading',rule:{maxFromSetting:{fattening:'set_load_max_fat',breeding:'set_load_max_breed'},minFromSetting:{fattening:'set_load_min_fat'}}});
     const dk=f.add('decision',{label:'Breeding stock?',q:kind,op:'=',value:'breeding'});
-    const dF=f.add('decision',{label:'More than 80 (fattening max)?',q:c,op:'>',value:80});
-    const dB=f.add('decision',{label:'More than 50 (breeding max)?',q:c,op:'>',value:50});
+    const dF=f.add('decision',{label:'More than the fattening max (80)?',q:c,op:'>',value:80,valueSetting:'set_load_max_fat'});
+    const dFmin=f.add('decision',{label:'Fewer than the fattening min (75)?',q:c,op:'<',value:75,valueSetting:'set_load_min_fat'});
+    const under=f.add('end',{label:'Under the load minimum: add animals before dispatch',outcome:'rejected'});
+    const dB=f.add('decision',{label:'More than the breeding max (50)?',q:c,op:'>',value:50,valueSetting:'set_load_max_breed'});
     const over=f.add('end',{label:'Over the load limit: reduce the load',outcome:'rejected'});
     const order=f.add('action',{label:'Load in order: heavily pregnant (lower deck, near cabin) → pregnant (upper, near cabin) → non-pregnant females → bucks; males and females separated',page:'Loading'});
     const load=vid('Loading video (truck inside a boundary, door gap filled with sacks)','Loading');
@@ -187,7 +189,7 @@
     const ver=f.add('approval',{label:'Central Office verifies the count and videos',roleId:'role_verifier',outcomes:['Approve','Rework']});
     const e=f.add('end',{label:'Arrived',outcome:'done'});
     f.chain([s,certs,brA,brV,veh,dis,med,hay,rain,kind,c,dk]);
-    f.link(dk,dB,'Yes'); f.link(dk,dF,'No'); f.link(dF,over,'Yes'); f.link(dB,over,'Yes'); f.link(dF,order,'No'); f.link(dB,order,'No');
+    f.link(dk,dB,'Yes'); f.link(dk,dF,'No'); f.link(dF,over,'Yes'); f.link(dB,over,'Yes'); f.link(dF,dFmin,'No'); f.link(dFmin,under,'Yes'); f.link(dFmin,order,'No'); f.link(dB,order,'No');
     f.chain([order,load,r1,r2,pay,chk,pit,inj,rc,un,d]); f.link(d,ver,'Yes'); f.link(d,e,'No'); f.link(ver,e);
     return f.nodes;
   }
@@ -303,9 +305,13 @@
     return f.nodes;
   }
 
-  function sop(id,dept,title,nodes,v,running,category){
+  function sop(id,dept,title,nodes,v,category){
     const at='2026-09-'+String(2+((v*7)%13)).padStart(2,'0')+'T09:30:00Z';
-    return {id,dept,title,category:category||'action',nodes,versions:v?[{v,at,by:'CEO / CXO 01',nodes:JSON.parse(JSON.stringify(nodes)),running:running||0}]:[],status:'active'};
+    return {id,dept,title,category:category||'action',nodes,versions:v?[{v,at,by:'CEO / CXO',nodes:JSON.parse(JSON.stringify(nodes)),running:0}]:[],status:'active'};
+  }
+  /* Proposed SOP: not in goatos-stg and no Android screen yet, so never published and nothing running. */
+  function draft(id,dept,title,nodes){
+    return {id,dept,title,category:'action',nodes,versions:[],status:'draft',running:0,source:'Proposed · not in the app yet'};
   }
 
   window.buildSeed=function(){
@@ -338,9 +344,11 @@
     Object.keys(sheds).forEach(pk=>sheds[pk].forEach(([name,parts])=>{
       const id='pen_'+pk.slice(5)+'_'+name.toLowerCase().replace(/\s+/g,'_'); penId[pk.slice(5)+'|'+name]=id;
       const prof=(stgProfile[pk.slice(5)+'|'+name]||'');
-      st.pens.push({id,parkId:pk,name,capacity:'',stageId:prof?stg('sp_goat',prof):'',sex:'',hasIcu:false,lifecycleStatus:'',status:'active'});
+      st.pens.push({id,parkId:pk,name,displayName:name,capacity:'',stageId:prof?stg('sp_goat',prof):'',sex:'',hasIcu:false,lifecycleStatus:'',status:'active'});
       parts.forEach(pt=>st.partitions.push({id:id+'_p'+pt.replace(/\D/g,''),penId:id,name:pt,capacity:'',status:'active'}));
     }));
+    /* Pen names repeat across parks (Castro, Gandhi, ...): displayName adds the park code where a name collides. */
+    st.pens.forEach(p=>{if(st.pens.some(q=>q!==p&&q.name===p.name))p.displayName=p.name+' · '+st.parks.find(k=>k.id===p.parkId).code;});
 
     st.species=[{id:'sp_goat',name:'Goat',code:'goat',status:'active'},{id:'sp_sheep',name:'Sheep',code:'sheep',status:'active'}];
     /* stg breeds: goat breeds + Anantapur Sheep under sheep (stg also carries a mis-speciesed goat 'Anantapur Sheep' row, not copied). Aliases from stg breed_aliases (non-identical). */
@@ -376,8 +384,9 @@
 
     /* RBAC roles = goatos-stg org_role_catalog (tier x vertical rows + the legacy flat roles still granted). The six legacy
        '<vertical>_director' duplicates of director_<vertical> are left out. Job titles are a separate list: st.designations (seed-refs). */
-    st.roles=[['am_breeding','Assistant Manager -- Breeding','am',0],['am_feed','Assistant Manager -- Feed','am',0],['am_growth','Assistant Manager -- Growth','am',0],['am_health','Assistant Manager -- Health','am',0],['am_infrastructure','Assistant Manager -- Infrastructure','am',0],['am_milk','Assistant Manager -- Milk','am',0],['am_preventive_care','Assistant Manager -- Preventive Care','am',0],['am_procurement','Assistant Manager -- Procurement','am',0],['am_sales','Assistant Manager -- Sales','am',0],['director_breeding','Director -- Breeding','director',0],['director_feed','Director -- Feed','director',0],['director_growth','Director -- Growth','director',0],['director_health','Director -- Health','director',0],['director_infrastructure','Director -- Infrastructure','director',0],['director_milk','Director -- Milk','director',0],['director_preventive_care','Director -- Preventive Care','director',0],['director_procurement','Director -- Procurement','director',0],['director_sales','Director -- Sales','director',0],['head_breeding','Head (Ops-Head) -- Breeding','head',0],['head_feed','Head (Ops-Head) -- Feed','head',0],['head_growth','Head (Ops-Head) -- Growth','head',0],['head_health','Head (Ops-Head) -- Health','head',0],['head_infrastructure','Head (Ops-Head) -- Infrastructure','head',0],['head_milk','Head (Ops-Head) -- Milk','head',0],['head_preventive_care','Head (Ops-Head) -- Preventive Care','head',0],['head_procurement','Head (Ops-Head) -- Procurement','head',0],['head_sales','Head (Ops-Head) -- Sales','head',0],['manager_breeding','Manager -- Breeding','manager',0],['manager_feed','Manager -- Feed','manager',0],['manager_growth','Manager -- Growth','manager',0],['manager_health','Manager -- Health','manager',0],['manager_infrastructure','Manager -- Infrastructure','manager',0],['manager_milk','Manager -- Milk','manager',0],['manager_preventive_care','Manager -- Preventive Care','manager',0],['manager_procurement','Manager -- Procurement','manager',0],['manager_sales','Manager -- Sales','manager',0],['procurement_manager','Procurement Manager','manager',0],['ceo_internal','CEO / CxO (founder/builder cohort, legacy flat)','ceo_cxo',1],['counts_approver','Counts Approver','director',1],['hr','HR','director',1],['market_reporter','Market Reporter','director',1],['operator','Operator (legacy flat ground executor)','am',1],['park_head','Park Head (legacy flat, pre org-role-model)','head',1],['toxin_tester','Toxin Tester','director',1],['verifier','Verifier (video verification team, cross-vertical, legacy flat)','director',1]]
-      .map(r=>({id:'role_'+r[0],key:r[0],name:r[1],grade:r[2],legacy:!!r[3],status:'active'}));
+    const GRADE={am:'Assistant Manager',manager:'Manager',head:'Head',director:'Director',ceo_cxo:'CEO / CXO',cxo:'CEO / CXO'}; window.GRADE_LABELS=GRADE;
+    st.roles=[['am_breeding','Assistant Manager · Breeding','am',0,''],['am_feed','Assistant Manager · Feed','am',0,''],['am_growth','Assistant Manager · Growth','am',0,''],['am_health','Assistant Manager · Health','am',0,''],['am_infrastructure','Assistant Manager · Infrastructure','am',0,''],['am_milk','Assistant Manager · Milk','am',0,''],['am_preventive_care','Assistant Manager · Preventive Care','am',0,''],['am_procurement','Assistant Manager · Procurement','am',0,''],['am_sales','Assistant Manager · Sales','am',0,''],['director_breeding','Director · Breeding','director',0,''],['director_feed','Director · Feed','director',0,''],['director_growth','Director · Growth','director',0,''],['director_health','Director · Health','director',0,''],['director_infrastructure','Director · Infrastructure','director',0,''],['director_milk','Director · Milk','director',0,''],['director_preventive_care','Director · Preventive Care','director',0,''],['director_procurement','Director · Procurement','director',0,''],['director_sales','Director · Sales','director',0,''],['head_breeding','Head · Breeding','head',0,'Head of operations'],['head_feed','Head · Feed','head',0,'Head of operations'],['head_growth','Head · Growth','head',0,'Head of operations'],['head_health','Head · Health','head',0,'Head of operations'],['head_infrastructure','Head · Infrastructure','head',0,'Head of operations'],['head_milk','Head · Milk','head',0,'Head of operations'],['head_preventive_care','Head · Preventive Care','head',0,'Head of operations'],['head_procurement','Head · Procurement','head',0,'Head of operations'],['head_sales','Head · Sales','head',0,'Head of operations'],['manager_breeding','Manager · Breeding','manager',0,''],['manager_feed','Manager · Feed','manager',0,''],['manager_growth','Manager · Growth','manager',0,''],['manager_health','Manager · Health','manager',0,''],['manager_infrastructure','Manager · Infrastructure','manager',0,''],['manager_milk','Manager · Milk','manager',0,''],['manager_preventive_care','Manager · Preventive Care','manager',0,''],['manager_procurement','Manager · Procurement','manager',0,''],['manager_sales','Manager · Sales','manager',0,''],['procurement_manager','Procurement Manager','manager',0,''],['ceo_internal','CEO / CXO','ceo_cxo',1,'Founder / builder cohort. Older flat role, granted before the org role model.'],['counts_approver','Counts Approver','director',1,'Named approver for birth and death counts.'],['hr','HR','director',1,''],['market_reporter','Market Reporter','director',1,''],['operator','Operator','am',1,'Ground executor. Older flat role.'],['park_head','Park Head','head',1,'Older flat role, granted before the org role model.'],['toxin_tester','Toxin Tester','director',1,''],['verifier','Verifier','director',1,'Video verification team across departments. Older flat role.']]
+      .map(r=>({id:'role_'+r[0],key:r[0],name:r[1],grade:r[2],gradeLabel:GRADE[r[2]]||'',legacy:!!r[3],note:r[4],status:'active'}));
     /* Anonymous people: designation + number only. */
     st.people=[
       {id:'ppl_ceo1',name:'CEO / CXO 01',roleId:'role_ceo_internal',parkIds:[],phone:'',status:'active'},
@@ -419,7 +428,7 @@
       set('set_seller_hold','Procurement','Seller holding period',15,'days'),set('set_hold_min','Procurement','Pre-arrival vaccination window · min',28,'days'),
       set('set_hold_max','Procurement','Pre-arrival vaccination window · max',35,'days'),set('set_travel_days','Procurement','Travel duration',3,'days'),
       set('set_travel_check','Procurement','Transit check interval',3,'hours'),set('set_pitstop_every','Procurement','Pit stop interval',12,'hours'),
-      set('set_load_max_fat','Procurement','Max load · fattening',80,'animals'),set('set_load_max_breed','Procurement','Max load · breeding stock',50,'animals'),set('set_warmup','Procurement','Warm-up period',14,'days'),
+      set('set_load_min_fat','Procurement','Min load · fattening',75,'animals'),set('set_load_max_fat','Procurement','Max load · fattening',80,'animals'),set('set_load_max_breed','Procurement','Max load · breeding stock',50,'animals'),set('set_warmup','Procurement','Warm-up period',14,'days'),
       set('set_w_period','Weighing','Default weights period',15,'days'),set('set_w_alert','Weighing','Weighing alert retention',30,'days'),
       set('set_removal','Weighing','Feed & water removal cutoff','21:00','time','time'),
       set('set_lowstock','Feed','Low-stock threshold',5,'days'),set('set_lownotify','Feed','Low-stock notify',7,'days'),set('set_cbe_conc','Feed','CBE concentrate override',55,'kg/day'),
@@ -451,7 +460,7 @@
       ['end',{label:'Ready to depart',outcome:'done'}]]);
     const warmup=linear([
       ['start',{label:'Arrived at destination'}],
-      ['question',{label:'Animals received into shed',answer:'number',unit:'animals',min:0,required:true,page:'Arrival'}],
+      ['question',{label:'Animals received into pen',answer:'number',unit:'animals',min:0,required:true,page:'Arrival'}],
       ['action',{label:'Feed transition per Feed config',link:'#/feed/config',linkLabel:'Feed config',page:'Arrival'}],
       ['repeat',{label:'Daily warm-up check',every:24,everyUnit:'hours',forAmount:14,forUnit:'days',forSetting:'set_warmup',media:['photo']}],
       ['approval',{label:'Release to herd',roleId:'role_ceo_internal',outcomes:['Release','Extend warm-up']}],
@@ -493,7 +502,7 @@
     const shf=flow();
     (function(f){
       const s=f.add('start',{label:'Animals need to move pens'});
-      const cat=f.add('question',{label:'Category',answer:'choice',options:[{v:'growth',l:'Growth'},{v:'health',l:'Health'},{v:'breeding',l:'Breeding'},{v:'delivery',l:'Delivery'}],required:true,page:'Raise'});
+      const cat=f.add('question',{label:'Category',answer:'ref',refColl:'movementReasons',required:true,page:'Raise',hint:'Options come from the Movement reasons list'});
       const pri=f.add('question',{label:'Priority',answer:'choice',options:[{v:'low',l:'Low'},{v:'high',l:'High'}],required:true,page:'Raise'});
       const an=f.add('question',{label:'Animals',answer:'scan',required:true,page:'Raise'});
       const from=f.add('question',{label:'Source pen',answer:'ref',refColl:'pens',required:true,page:'Raise'});
@@ -549,11 +558,10 @@
         f.add('evidence',{label:'Mixing and filling video',media:['video'],min:1,max:1,page:'Videos',hint:'Must be a different clip from clean bottles'})];
       f.chain(ids);
       const a=f.add('approval',{label:'Verifier review · one item per farm, date and session',roleId:'role_verifier',outcomes:['Approve','Rework']});
-      const w=f.add('wait',{label:'Max 7 days in K1',amount:7,unit:'days'});
       const c=f.add('child',{label:'Shift to K2 (Growth)',sopId:'sop_shift'});
       const e=f.add('end',{label:'Moved to K2',outcome:'done'});
       const re=f.add('end',{label:'Rework: re-shoot',outcome:'rejected'});
-      f.link(ids[ids.length-1],a); f.link(a,w,'Approve'); f.link(a,re,'Rework'); f.chain([w,c,e]);
+      f.link(ids[ids.length-1],a); f.link(a,c,'Approve'); f.link(a,re,'Rework'); f.chain([c,e]);
       return f.nodes;
     })();
     const k2=linear([
@@ -569,40 +577,40 @@
       ['child',{label:'Shift to Fattening (Growth)',sopId:'sop_shift'}],
       ['end',{label:'Moved to Fattening',outcome:'done'}]]);
     st.sops=[
-      sop('sop_inspect','Procurement','Animal purchase inspection',inspectionFlow(),7,6,'event'),
-      sop('sop_taghold','Procurement','Tag, vaccinate and hold',tagHold,1,2),
-      sop('sop_reinspect','Procurement','Reinspect and board',reinspect,1,1),
-      sop('sop_transit','Procurement','Transit',transitFlow(),1,1),
-      sop('sop_destprep','Procurement','Destination shed preparation',destPrepFlow(),1,0),
-      sop('sop_warmup','Procurement','Warm-up and feed transition',warmup,1,1),
-      sop('sop_weigh','Weighing','Individual weighing',weighingFlow(),2,14),
-      sop('sop_weigh_lump','Weighing','Lump-sum weighing',lumpSumWeighingFlow(),1,3),
-      sop('sop_removal','Weighing','Feed and water removal',removal,1,3),
-      Object.assign(sop('sop_feeddist','Feed','Feed distribution',feedDist,1,22,'commodity'),{source:'goatos-stg feed.direction v1'}),
-      sop('sop_feedpack','Feed','Feed packing',feedPack,1,9,'commodity'),
-      sop('sop_feedtrans','Feed','Feed transport',feedTrans,1,9,'commodity'),
-      Object.assign(sop('sop_fever','Health','Sick animal report',healthFlow(),1,4,'problem'),{source:'Android ObservationFormScreen.kt · DiagnosisProposalScreen.kt'}),
-      Object.assign(sop('sop_k0','Milk','K0 newborn care (birth follow-up)',k0,1,0,'event'),{source:'goatos-stg counts.birth v1 follow_up kid track'}),
-      Object.assign(sop('sop_k1','Milk','K1 milk training (milk feeding)',k1,1,0,'action'),{source:'goatos-stg milk.feeding v1'}),
-      sop('sop_k2','Milk','K2 milk drinking',k2,1,0,'action'),
-      sop('sop_k3','Milk','K3 weaning',k3,1,0,'action'),
-      sop('sop_shift','Counts','Shifting',shf.nodes,2,5,'action'),
-      Object.assign(sop('sop_birth','Counts','Birth recording',birthFlow(),1,0,'event'),{source:'goatos-stg counts.birth v1'}),
-      Object.assign(sop('sop_death','Counts','Death recording',deathFlow(),1,0,'event'),{source:'goatos-stg counts.death v1'}),
-      Object.assign(sop('sop_reconcile','Counts','Pen reconcile',reconcileFlow(),1,0,'problem'),{source:'goatos-stg counts.reconcile v1'}),
-      Object.assign(sop('sop_milkprep','Milk','Milk preparation',milkPrepFlow(),1,0,'commodity'),{source:'goatos-stg milk.preparation v1'}),
-      Object.assign(sop('sop_vacdrive','Preventive Care','Vaccination session',vaccinationDriveFlow(),1,0,'action'),{source:'goatos-stg vaccination.drive v1'})];
+      sop('sop_inspect','Procurement','Animal purchase inspection',inspectionFlow(),7,'event'),
+      draft('sop_taghold','Procurement','Tag, vaccinate and hold',tagHold),
+      draft('sop_reinspect','Procurement','Reinspect and board',reinspect),
+      draft('sop_transit','Procurement','Transit',transitFlow()),
+      draft('sop_destprep','Procurement','Destination pen preparation',destPrepFlow()),
+      draft('sop_warmup','Procurement','Warm-up and feed transition',warmup),
+      sop('sop_weigh','Weighing','Individual weighing',weighingFlow(),2),
+      sop('sop_weigh_lump','Weighing','Lump-sum weighing',lumpSumWeighingFlow(),1),
+      sop('sop_removal','Weighing','Feed and water removal',removal,1),
+      Object.assign(sop('sop_feeddist','Feed','Feed distribution',feedDist,1,'commodity'),{source:'goatos-stg feed.direction v1'}),
+      sop('sop_feedpack','Feed','Feed packing',feedPack,1,'commodity'),
+      sop('sop_feedtrans','Feed','Feed transport',feedTrans,1,'commodity'),
+      Object.assign(sop('sop_fever','Health','Sick animal report',healthFlow(),1,'problem'),{source:'Android ObservationFormScreen.kt · DiagnosisProposalScreen.kt'}),
+      Object.assign(sop('sop_k0','Milk','K0 newborn care (birth follow-up)',k0,1,'event'),{source:'goatos-stg counts.birth v1 follow_up kid track'}),
+      Object.assign(sop('sop_k1','Milk','K1 milk training (milk feeding)',k1,1,'action'),{source:'goatos-stg milk.feeding v1'}),
+      sop('sop_k2','Milk','K2 milk drinking',k2,1,'action'),
+      sop('sop_k3','Milk','K3 weaning',k3,1,'action'),
+      sop('sop_shift','Counts','Shifting',shf.nodes,2,'action'),
+      Object.assign(sop('sop_birth','Counts','Birth recording',birthFlow(),1,'event'),{source:'goatos-stg counts.birth v1'}),
+      Object.assign(sop('sop_death','Counts','Death recording',deathFlow(),1,'event'),{source:'goatos-stg counts.death v1'}),
+      Object.assign(sop('sop_reconcile','Counts','Pen reconcile',reconcileFlow(),1,'problem'),{source:'goatos-stg counts.reconcile v1'}),
+      Object.assign(sop('sop_milkprep','Milk','Milk preparation',milkPrepFlow(),1,'commodity'),{source:'goatos-stg milk.preparation v1'}),
+      Object.assign(sop('sop_vacdrive','Preventive Care','Vaccination session',vaccinationDriveFlow(),1,'action'),{source:'goatos-stg vaccination.drive v1'})];
 
     st.masters=[{id:'mst_proc',dept:'Procurement',title:'Procurement: purchase → transit → warm-up',status:'active',
-      versions:[{v:1,at:'2026-09-10T08:00:00Z',by:'CEO / CXO 01',running:1}],
+      versions:[{v:1,at:'2026-09-10T08:00:00Z',by:'CEO / CXO',running:0}],
       stages:[
         {id:'s0',label:'Seller inspection and selection',sopId:'sop_inspect',deps:[],approvalRoleId:'role_ceo_internal',waitDays:'',waitSetting:'',repeatHours:'',repeatSetting:''},
         {id:'s1',label:'Tag, vaccinate and hold',sopId:'sop_taghold',deps:[{stage:'s0',state:'approved'}],approvalRoleId:'',waitDays:15,waitSetting:'set_seller_hold',repeatHours:'',repeatSetting:''},
         {id:'s2',label:'Reinspect and board',sopId:'sop_reinspect',deps:[{stage:'s1',state:'completed'}],approvalRoleId:'role_ceo_internal',waitDays:'',waitSetting:'',repeatHours:'',repeatSetting:''},
         {id:'s3',label:'Transit',sopId:'sop_transit',deps:[{stage:'s2',state:'approved'}],approvalRoleId:'',waitDays:3,waitSetting:'set_travel_days',repeatHours:3,repeatSetting:'set_travel_check'},
-        {id:'s4',label:'Prepare destination sheds',sopId:'sop_destprep',deps:[{stage:'s3',state:'started'}],approvalRoleId:'',waitDays:'',waitSetting:'',repeatHours:'',repeatSetting:''},
+        {id:'s4',label:'Prepare destination pens',sopId:'sop_destprep',deps:[{stage:'s3',state:'started'}],approvalRoleId:'',waitDays:'',waitSetting:'',repeatHours:'',repeatSetting:''},
         {id:'s5',label:'Warm-up and feed transition',sopId:'sop_warmup',deps:[{stage:'s3',state:'completed'},{stage:'s4',state:'completed'}],approvalRoleId:'role_ceo_internal',waitDays:14,waitSetting:'set_warmup',repeatHours:24,repeatSetting:''}],
-      cohort:{offered:100,selected:70,boarded:0,received:0}}];
+      cohort:{offered:'',selected:'',boarded:'',received:''}}];
     return st;
   };
 })();

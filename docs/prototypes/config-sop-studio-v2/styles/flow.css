@@ -162,3 +162,78 @@
 .trylist .trysub .sp{flex:1}
 .drawer .screen table.vtbl td.vpub{white-space:nowrap!important;overflow:visible;text-overflow:clip;width:1%}
 .drawer .screen table.vtbl{table-layout:auto}
+
+/* ---- round 3 ---- */
+/* settings a step reads: live value, and what running work keeps after a change */
+.fx-set{align-self:flex-start;max-width:100%;font-size:max(12px,calc(12px / var(--fxk,1)));line-height:1.3;padding:2px 8px;border-radius:8px;color:var(--muted);background:color-mix(in srgb,var(--muted) 12%,transparent);overflow-wrap:anywhere}
+.fx-set.moved{color:var(--ink);background:color-mix(in srgb,var(--warn,#d9a300) 22%,transparent);box-shadow:inset 0 0 0 1px color-mix(in srgb,var(--warn,#d9a300) 55%,transparent)}
+.fx-set b{font-weight:750}
+
+/* toolbar "More": only when Tidy / minimap / shortcuts do not fit */
+.fx-tb.fx-more{display:none}
+.fx-root.tb-compact .fx-tb.fx-more{display:inline-flex}
+.fx-root.tb-compact .fx-tools [data-fx="tidy"],.fx-root.tb-compact .fx-tools [data-fx="mini"],.fx-root.tb-compact .fx-tools [data-fx="help"]{display:none}
+
+/* connector "+": on hover/focus for mouse users, always for touch */
+.fx-plus{width:32px;height:32px;margin:-16px 0 0 -16px;border:0;background:transparent;box-shadow:none}
+.fx-plus::before{content:"+";position:absolute;inset:5px;border-radius:50%;border:2px solid var(--brand);background:var(--panel);color:var(--brand);display:grid;place-items:center;box-shadow:0 1px 4px rgba(0,0,0,.25);transition:background .12s,color .12s}
+.fx-plus{font-size:0}.fx-plus::before{font:800 16px/1 system-ui,sans-serif}
+.fx-plus:hover,.fx-plus:focus-visible{background:transparent;transform:scale(1.15)}
+.fx-plus:hover::before,.fx-plus:focus-visible::before{background:var(--brand);color:var(--panel)}
+.fx-plus:focus-visible{outline:none}.fx-plus:focus-visible::before{outline:2px solid var(--brand);outline-offset:2px}
+@media (hover:hover) and (pointer:fine){
+  .fx-plus{opacity:0;transition:opacity .12s,transform .12s}
+  .fx-plus.show,.fx-plus:hover,.fx-plus:focus-visible{opacity:1}
+}
+@media (pointer:coarse){.fx-plus{opacity:1}}
+
+/* output port: 32px target, 16px dot */
+.fx-port.out{width:32px;height:32px;bottom:-16px;border:0;background:transparent;opacity:1}
+.fx-port.out::before{content:"";position:absolute;left:8px;top:8px;width:16px;height:16px;box-sizing:border-box;border-radius:50%;background:var(--panel);border:2px solid var(--k,var(--brand));opacity:.75;transition:opacity .12s}
+.fx-port.out::after{inset:0}
+.fx-node:hover .fx-port.out::before,.fx-node.sel .fx-port.out::before{opacity:1}
+.fx-port.out:hover{transform:translateX(-50%);background:transparent}
+.fx-port.out:hover::before{background:var(--brand);border-color:var(--brand);opacity:1}
+.fx-port.out span{top:26px}
+.fx-tb,.fx-jump{min-height:32px}
+
+/* palette: collapsible to icons; icons-only by default below 1180px */
+.fx-palette-h{display:flex;align-items:center;gap:4px}
+.fx-palette-h span{flex:1}
+.fx-palt{display:none;width:32px;height:32px;padding:0;border:0;border-radius:8px;background:transparent;color:var(--muted);cursor:pointer;place-items:center}
+.fx-palt:hover{background:var(--panel-2);color:var(--ink)}
+.fx-root.pal-open .fx-palt .ic{transform:scaleX(-1)}
+@media(min-width:761px) and (max-width:1179px){
+  .fx-palt{display:grid}
+  .fx-root:not(.pal-open) .fx-palette{width:54px;padding:6px;gap:2px;bottom:auto;max-height:calc(100% - 24px)}
+  .fx-root:not(.pal-open) .fx-palette-h{padding:0 0 4px;justify-content:center}
+  .fx-root:not(.pal-open) .fx-palette-h span,.fx-root:not(.pal-open) .fx-pal b{display:none}
+  .fx-root:not(.pal-open) .fx-pal{padding:3px;justify-content:center;min-height:36px}
+  .fx-root.pal-open .fx-palette{bottom:auto;max-height:calc(100% - 24px)}
+}
+
+/* tablet (861-1179px): canvas and a narrower step inspector side by side, so selecting a step shows its fields at once */
+@media(min-width:861px) and (max-width:1179px){
+  .editor:has(.fx-root){grid-template-columns:minmax(0,1fr) 300px;gap:12px}
+  .editor:has(.fx-root) .insp{position:sticky;top:0}
+  .editor:has(.fx-root) .insp .bd{max-height:calc(100dvh - 290px);overflow:auto}
+  .editor:has(.fx-root) .insp .fgrid{grid-template-columns:1fr}
+}
+/* narrow (<=860px): the step inspector is a bottom sheet over the canvas; the page header stays visible */
+@media(max-width:860px){
+  .editor:has(.fx-root) .insp.has-node{position:fixed;left:0;right:0;bottom:0;top:auto;width:auto;max-height:50dvh;z-index:70;display:flex;flex-direction:column;overflow:hidden;margin:0;border-radius:16px 16px 0 0;box-shadow:0 -12px 40px rgba(0,0,0,.45)}
+  .editor:has(.fx-root) .insp.has-node .bd{max-height:none;flex:1;overflow:auto}
+}
+/* phones: fade where the tool strip / palette scroll sideways */
+@media(max-width:600px){
+  .fx-tools:not(.fade-l):not(.fade-r),.fx-palette:not(.fade-l):not(.fade-r){-webkit-mask-image:none;mask-image:none}
+  .fx-tools.fade-r,.fx-palette.fade-r{-webkit-mask-image:linear-gradient(90deg,#000 calc(100% - 44px),transparent);mask-image:linear-gradient(90deg,#000 calc(100% - 44px),transparent)}
+  .fx-root.tb-compact .fx-tools [data-fx="tidy"],.fx-root.tb-compact .fx-tools [data-fx="help"]{display:none}
+}
+.mst-sets{display:flex;flex-direction:column;gap:4px;margin-top:6px}.mst-sets:empty{display:none}
+.apchain{margin:4px 0 12px;padding:10px 12px;border:1px solid var(--line);border-radius:10px;background:var(--panel-2)}
+.apchain ol{margin:6px 0 10px;padding-left:20px;display:grid;gap:3px;font-size:13px}
+.fx-root.tb-tight .fx-tools [data-fx="in"],.fx-root.tb-tight .fx-tools [data-fx="out"]{display:none}
+.fx-root.tb-tight .fx-val{font-size:0;gap:4px}.fx-root.tb-tight .fx-val b{font-size:12px}
+.fx-root.tb-tight .fx-jump{max-width:128px}
+.fx-root.tb-tight .fx-tools .fx-sep:nth-of-type(2){display:none}

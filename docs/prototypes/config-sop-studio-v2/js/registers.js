@@ -7,8 +7,9 @@
   const num=(k,label,extra)=>Object.assign({k,label,type:'num',attr:k,w:'num'},extra||{});
   const en=(k,label,opts,extra)=>Object.assign({k,label,type:'enum',opts,attr:k},extra||{});
   /* enum values are stored as codes; people see and may type human-case labels */
-  const ENUM_WORDS={any:'Any',cxo:'CXO',assistant_manager:'Assistant manager',yes_no:'Yes / no',multiselect:'Multi-select',growth_cohort:'Growth cohort'};
+  const ENUM_WORDS={any:'Any',cxo:'CEO / CXO',ceo_cxo:'CEO / CXO',am:'Assistant manager',assistant_manager:'Assistant manager',yes_no:'Yes / no',multiselect:'Multi-select',growth_cohort:'Growth cohort'};
   const enumLabel=o=>{o=String(o==null?'':o);if(!o)return '';if(ENUM_WORDS[o])return ENUM_WORDS[o];if(o!==o.toLowerCase())return o;const t=o.replace(/_/g,' ');return t[0].toUpperCase()+t.slice(1);};
+  const gradeLabel=g=>{g=String(g==null?'':g);return (window.GRADE_LABELS&&window.GRADE_LABELS[g])||enumLabel(g);};
   const enumValue=(c,raw)=>{const n=norm(raw);return c.opts.find(o=>norm(o)===n||norm(enumLabel(o))===n);};
   /* animal identifiers compare ignoring case and spaces */
   const idNorm=s=>String(s==null?'':s).toLowerCase().replace(/\s+/g,'');
@@ -62,16 +63,13 @@
         Object.assign(en('depts','Departments',DEPTS),{type:'multienum'})],
       key:v=>norm(v.name)},
     roles:{label:'Roles',one:'Role',coll:'roles',
-      cols:[txt('name','Role',{req:1,w:'wide'}),en('grade','Grade',['','cxo','director','manager','assistant_manager'])],key:v=>norm(v.name)},
+      cols:[txt('name','Role',{req:1,w:'wide'}),en('grade','Grade',['','ceo_cxo','director','head','manager','am'])],key:v=>norm(v.name)},
     people:{label:'People',one:'Person',coll:'people',icon:'user',
       cols:[txt('name','Name',{req:1,w:'wide'}),ref('role','Role','roles','roleId',{req:1}),Object.assign(ref('parks','Parks','parks','parkIds'),{type:'multi',blankLabel:'All parks'}),txt('email','Email',{unique:1}),txt('phone','Phone')],
       key:v=>norm(v.name)},
-    approvers:{label:'Approvers',one:'Approver',coll:'approvers',
-      cols:[en('dept','Department',DEPTS,{req:1}),txt('step','Approval step',{req:1,w:'wide'}),ref('role','Approver role','roles','roleId',{req:1})],
-      key:v=>norm(v.dept)+'|'+norm(v.step)},
     /* Vendors & trucks are owned by Procurement (prod admin-web /procurement/vendors); not a register here. */
     statusDefs:{label:'Status definitions',one:'Status',coll:'statusDefs',
-      cols:[en('axis','Axis',['lifecycle','reproductive','health','growth_cohort','management'],{req:1}),txt('code','Code',{req:1,w:'num'}),txt('name','Status',{req:1}),num('days','Expected days',{min:0})],
+      cols:[en('axis','Axis',['lifecycle','reproductive','health','growth_cohort','management'],{req:1}),txt('code','Key',{req:1,w:'num'}),txt('name','Status',{req:1}),num('days','Expected days',{min:0})],
       key:v=>norm(v.axis)+'|'+norm(v.code)},
     exitReasons:{label:'Exit reasons',one:'Exit reason',coll:'exitReasons',cols:[txt('name','Exit reason',{req:1,w:'wide'})],key:v=>norm(v.name)},
     purposes:{label:'Animal purposes',one:'Purpose',coll:'purposes',cols:[txt('name','Purpose',{req:1,w:'wide'})],key:v=>norm(v.name)},
@@ -92,23 +90,33 @@
       key:v=>norm(v.code)},
     /* job titles; RBAC roles stay in Roles and are never repeated here */
     designations:{label:'Designations',one:'Designation',coll:'designations',
-      cols:[txt('code','Key',{req:1,w:'num'}),txt('name','Designation',{req:1,w:'wide'}),en('grade','Grade',['','cxo','director','manager'])],
-      key:v=>norm(v.code),
-      check:(v,iss)=>{const r=roleDup(v.code,v.name);if(r)iss(norm(v.code)===norm(r.key)?'code':'name','err','Already a role: '+r.name);}},
+      cols:[txt('code','Key',{req:1,w:'num'}),txt('name','Designation',{req:1,w:'wide'}),en('grade','Grade',['','cxo','director','head','manager','am'])],
+      key:v=>norm(v.code)},
     approvalChains:{label:'Approval chains',one:'Approval chain',coll:'approvalChains',
-      cols:[en('dept','Department',DEPTS,{req:1}),txt('name','Request',{req:1,w:'wide'}),{k:'steps',label:'Approvers',type:'steps',attr:'steps',req:1,w:'wide'}],
+      cols:[en('dept','Department',DEPTS,{req:1}),txt('name','Request',{req:1,w:'wide'}),{k:'steps',label:'Approvers (in order)',type:'steps',attr:'steps',req:1,w:'wide'}],
       key:v=>norm(v.dept)+'|'+norm(v.name)},
     settings:{label:'Business settings',one:'Setting',coll:'settings',
       cols:[en('dept','Department',DEPTS,{req:1}),txt('name','Setting',{req:1,w:'wide'}),txt('value','Value',{req:1,w:'num'}),txt('unit','Unit',{w:'num'})],
       key:v=>norm(v.dept)+'|'+norm(v.name)}
   };
-  /* roles vs designations: compare key and the role name without its "(legacy …)" note */
+  /* approval chains are the ONE approver source. A step is a role, a designation or a named person:
+     "Counts Approver (per person); Park Head; Operator 01" <-> [{role,perPerson}|{designation}|{person}] */
   const baseName=s=>norm(String(s||'').replace(/\s*\(.*\)\s*$/,''));
-  function roleDup(code,name){const c=norm(code),n=baseName(name);return S.active('roles').find(r=>(c&&norm(r.key)===c)||(n&&baseName(r.name)===n))||null;}
-  /* approval steps: "Counts Approver (per person); Park Head" <-> [{role,perPerson}|{designation}] */
-  function stepLabel(s){
-    if(s.role){const r=S.active('roles').concat(S.all('roles')).find(x=>x.key===s.role);return (r?r.name.replace(/\s*\(.*\)\s*$/,''):enumLabel(s.role))+(s.perPerson?' (per person)':'');}
-    const d=S.all('designations').find(x=>x.code===s.designation);return d?d.name:enumLabel(s.designation);
+  const cleanRole=n=>String(n||'').replace(/\s*\(.*\)\s*$/,'');
+  const recKey=r=>r.key||r.code;
+  function stepInfo(s){
+    if(s.role){const r=S.all('roles').find(x=>x.key===s.role);return {kind:'role',key:s.role,id:r&&r.id,label:(r?cleanRole(r.name):enumLabel(s.role))+(s.perPerson?' (per person)':''),perPerson:!!s.perPerson};}
+    if(s.person){const p=S.get('people',s.person);return {kind:'person',key:s.person,id:s.person,label:p?p.name:s.person};}
+    const d=S.all('designations').find(x=>recKey(x)===s.designation);return {kind:'designation',key:s.designation,id:d&&d.id,label:d?d.name:enumLabel(s.designation)};
+  }
+  const stepLabel=s=>stepInfo(s).label;
+  /* picker options for a step: roles, then designations, then people (same label is offered once) */
+  function stepOptions(){
+    const out=[],seen=new Set();const add=(label,sub)=>{const n=norm(label);if(seen.has(n))return;seen.add(n);out.push({id:label,label,sub});};
+    S.active('roles').forEach(r=>add(cleanRole(r.name),'Role'));
+    S.active('designations').forEach(d=>add(d.name,'Designation'));
+    S.active('people').forEach(p=>add(p.name,'Person'));
+    return out;
   }
   function parseSteps(raw){
     const steps=[],bad=[];
@@ -116,25 +124,42 @@
       const per=/\(per person\)\s*$/i.test(t); const n=norm(t.replace(/\(per person\)\s*$/i,''));
       const r=S.active('roles').find(x=>norm(x.key)===n||baseName(x.name)===n||norm(x.name)===n);
       if(r)return steps.push(per?{role:r.key,perPerson:true}:{role:r.key});
-      const d=S.active('designations').find(x=>norm(x.code)===n||norm(x.name)===n);
-      if(d)return steps.push({designation:d.code});
+      const d=S.active('designations').find(x=>norm(recKey(x))===n||norm(x.name)===n);
+      if(d)return steps.push({designation:recKey(d)});
+      const p=S.active('people').find(x=>norm(x.name)===n);
+      if(p)return steps.push({person:p.id});
       bad.push(t);
     });
     return {steps,bad};
   }
-  /* stored-state shape for the business-rule registers (flat rows, no role duplicates); idempotent */
+  /* approvers for a chain: id, "Dept|Request" or request name -> ordered [{kind,key,id,label,perPerson}] */
+  function approversFor(chainKey){
+    const n=norm(chainKey);const all=S.active('approvalChains');
+    const ch=S.get('approvalChains',chainKey)||all.find(c=>norm(c.dept)+'|'+norm(c.name)===n)||all.find(c=>norm(c.name)===n);
+    return ch?(ch.steps||[]).map(stepInfo):[];
+  }
+  /* stored-state shape for the business-rule registers (flat rows, one approver source); idempotent */
   function migrate(st){
     if(!st)return;
     const idp=st.identifierPolicies;
     if(Array.isArray(idp)&&idp.some(p=>Array.isArray(p.types))){
       st.identifierPolicies=[].concat(...idp.map(p=>Array.isArray(p.types)?p.types.map(t=>({id:'idp_'+t.code,code:t.code,name:t.name,primaryAllowed:t.primaryAllowed?'yes':'no',autoLink:t.autoLink?'yes':'no',policy:p.code+(p.version?' v'+p.version:''),status:p.status||'active'})):[p]));
     }
-    const roles=st.roles||[];
-    if(Array.isArray(st.designations)){
-      const dup=d=>roles.some(r=>r.status!=='archived'&&(norm(r.key)===norm(d.code)||baseName(r.name)===baseName(d.name)));
-      const dropped=new Set(st.designations.filter(dup).map(d=>d.code));
-      st.designations=st.designations.filter(d=>!dropped.has(d.code));
-      (st.approvalChains||[]).forEach(ch=>{ch.steps=(ch.steps||[]).map(s=>s.designation&&dropped.has(s.designation)&&roles.some(r=>r.key===s.designation)?{role:s.designation}:s);});
+    /* the old flat "Approvers" list folds into approval chains (department + request + role step) */
+    if(Array.isArray(st.approvers)){
+      st.approvalChains=st.approvalChains||[];
+      st.approvers.forEach(a=>{
+        const role=(st.roles||[]).find(r=>r.id===a.roleId);if(!role)return;
+        let ch=st.approvalChains.find(c=>norm(c.dept)===norm(a.dept)&&norm(c.name)===norm(a.step));
+        if(!ch){ch={id:'apc_'+a.id,dept:a.dept,name:a.step,steps:[],status:a.status||'active'};st.approvalChains.push(ch);}
+        if(!(ch.steps||[]).some(x=>x.role===role.key||x.designation===role.key))ch.steps=(ch.steps||[]).concat([{role:role.key}]);
+      });
+      delete st.approvers;
+    }
+    /* designations and roles are separate lists: restore seed designations an older build dropped */
+    if(Array.isArray(st.designations)&&window.buildSeed&&window.seedRefs&&!st._dsgRestored){
+      try{const seed=window.buildSeed();window.seedRefs(seed);(seed.designations||[]).forEach(d=>{if(!st.designations.some(x=>recKey(x)===recKey(d)))st.designations.push(d);});}catch(e){}
+      st._dsgRestored=1;
     }
   }
   if(window.S&&!S._regMigrate){S._regMigrate=1;const load=S.load,reset=S.reset;
@@ -192,7 +217,7 @@
     return list;
   }
   function matches(col,list,n,row){
-    let hits=list.filter(x=>norm(label(col.ref,x))===n||(col.ref!=='parks'&&norm(x.code)===n)||norm(x.number)===n);
+    let hits=list.filter(x=>norm(label(col.ref,x))===n||(x.displayName&&norm(x.displayName)===n)||(col.ref!=='parks'&&norm(x.code)===n)||norm(x.number)===n);
     if(!hits.length&&col.ref==='parks')hits=list.filter(x=>norm(x.code)===n);
     if(!hits.length){hits=list.filter(x=>(x.aliases||[]).some(a=>norm(a)===n));
       if(hits.length>1&&col.ref==='stages'&&row){const sx=norm(row.sex);const bySex=hits.filter(x=>x.sex===sx||(sx==='female'&&/female/i.test(x.name))||(sx==='male'&&/\bmale/i.test(x.name)&&!/female/i.test(x.name)));if(bySex.length===1)hits=bySex;}}
@@ -275,18 +300,18 @@
     });});
     if(coll==='categories'){const n=S.all('categories').filter(x=>x.parentId===id).length;if(n)out.push({label:'Subcategories',n});}
     if(coll==='roles'||coll==='items'||coll==='settings'){const n=S.all('sops').filter(s=>s.nodes.some(nd=>nd.roleId===id||nd.itemId===id||nd.setting===id||nd.everySetting===id||nd.forSetting===id)).length;if(n)out.push({label:'SOPs',n});}
-    if(coll==='designations'||coll==='roles'){const n=chainUsers(coll,id).length;if(n)out.push({label:'Approval chains',n});}
+    if(coll==='designations'||coll==='roles'||coll==='people'){const n=chainUsers(coll,id).length;if(n)out.push({label:'Approval chains',n});}
     if(coll==='sops'){const n=S.all('masters').filter(m=>m.stages.some(s=>s.sopId===id)).length+S.all('sops').filter(s=>s.nodes.some(nd=>nd.sopId===id)).length;if(n)out.push({label:'SOPs',n});}
     return out;
   }
 
   function chainUsers(coll,id){
     const rec=S.get(coll,id); if(!rec)return [];
-    return S.active('approvalChains').filter(ch=>(ch.steps||[]).some(s=>coll==='roles'?s.role===rec.key:s.designation===rec.code)).map(ch=>ch.id);
+    return S.active('approvalChains').filter(ch=>(ch.steps||[]).some(s=>coll==='roles'?s.role===rec.key:coll==='people'?s.person===rec.id:s.designation===recKey(rec))).map(ch=>ch.id);
   }
   function activeUsage(coll,id){
     const out=[];
-    if((coll==='designations'||coll==='roles')&&R.approvalChains){const n=chainUsers(coll,id).length;if(n)out.push({label:'Approval chains',n});}
+    if((coll==='designations'||coll==='roles'||coll==='people')&&R.approvalChains){const n=chainUsers(coll,id).length;if(n)out.push({label:'Approval chains',n});}
     Object.keys(R).forEach(k=>{const reg=R[k];reg.cols.forEach(c=>{
       if(c.virtual||!c.attr||c.ref!==coll||!(c.type==='ref'||c.type==='multi'))return;
       const n=S.active(reg.coll).filter(x=>{const v=x[c.attr];return Array.isArray(v)?v.includes(id):v===id;}).length;if(n)out.push({label:reg.label,n});
@@ -296,7 +321,7 @@
   /* active records using a record, with ids, for "show them" links */
   function activeUsers(coll,id){
     const out=[];
-    if((coll==='designations'||coll==='roles')&&R.approvalChains){const ids=chainUsers(coll,id);if(ids.length)out.push({regKey:'approvalChains',label:'Approval chains',ids});}
+    if((coll==='designations'||coll==='roles'||coll==='people')&&R.approvalChains){const ids=chainUsers(coll,id);if(ids.length)out.push({regKey:'approvalChains',label:'Approval chains',ids});}
     Object.keys(R).forEach(k=>{const reg=R[k];reg.cols.forEach(c=>{
       if(c.virtual||!c.attr||c.ref!==coll||!(c.type==='ref'||c.type==='multi'))return;
       const ids=S.active(reg.coll).filter(x=>{const v=x[c.attr];return Array.isArray(v)?v.includes(id):v===id;}).map(x=>x.id);
@@ -467,5 +492,5 @@
     return sum;
   }
 
-  window.REG={R,nameLike,activeUsers,norm,idNorm,enumLabel,enumValue,activeUsage,archiveBlock,usageText,label,fullLabel,labelById,catPath,toRow,cellValue,candidates,findRef,createRef,createChoices,usage,validate,commit,ensurePath,isBlankRow,parseDate};
+  window.REG={R,approversFor,stepOptions,stepLabel,gradeLabel,nameLike,activeUsers,norm,idNorm,enumLabel,enumValue,activeUsage,archiveBlock,usageText,label,fullLabel,labelById,catPath,toRow,cellValue,candidates,findRef,createRef,createChoices,usage,validate,commit,ensurePath,isBlankRow,parseDate};
 })();
