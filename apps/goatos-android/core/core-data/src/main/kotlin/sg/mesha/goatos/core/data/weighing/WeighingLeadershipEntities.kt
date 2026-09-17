@@ -633,10 +633,35 @@ interface WeighingTransitionEpochDao {
     @Insert(onConflict = OnConflictStrategy.IGNORE)
     suspend fun insertIfAbsent(row: WeighingTransitionEpochEntity)
 
-    /** Bounded on disk: only the most recently used scopes are worth a replay window. */
+    /**
+     * Bounded on disk: only the most recently used scopes are worth a replay window. The whole-pen
+     * round floors (see [observe]) share the table but not this budget -- they are pruned on their
+     * own by [pruneRoundFloorsOutsideNewest], so a burst of close/reopen transitions cannot evict
+     * the floor that keeps a reopened pen's superseded captures out of its strip.
+     */
     @Query(
-        "DELETE FROM weighing_transition_epoch WHERE scopeId NOT IN (" +
-            "SELECT scopeId FROM weighing_transition_epoch ORDER BY updatedAt DESC LIMIT :keep)",
+        "DELETE FROM weighing_transition_epoch WHERE scopeId NOT LIKE '$SHED_ROUND_FLOOR_PREFIX%' AND scopeId NOT IN (" +
+            "SELECT scopeId FROM weighing_transition_epoch WHERE scopeId NOT LIKE '$SHED_ROUND_FLOOR_PREFIX%' " +
+            "ORDER BY updatedAt DESC LIMIT :keep)",
     )
     suspend fun pruneOutsideNewest(keep: Int)
+
+    /**
+     * A whole-pen bucket's ROUND FLOOR, observed: the capture time of the last round the server
+     * ACCEPTED for this bucket (epoch holds the epoch-millis as text). Captures at or before it
+     * belong to a closed round; see WeighingScopeState.shedRoundFloorMs.
+     */
+    @Query("SELECT epoch FROM weighing_transition_epoch WHERE scopeId = :scopeId")
+    fun observe(scopeId: String): Flow<String?>
+
+    @Query(
+        "DELETE FROM weighing_transition_epoch WHERE scopeId LIKE '$SHED_ROUND_FLOOR_PREFIX%' AND scopeId NOT IN (" +
+            "SELECT scopeId FROM weighing_transition_epoch WHERE scopeId LIKE '$SHED_ROUND_FLOOR_PREFIX%' " +
+            "ORDER BY updatedAt DESC LIMIT :keep)",
+    )
+    suspend fun pruneRoundFloorsOutsideNewest(keep: Int)
+
+    companion object {
+        const val SHED_ROUND_FLOOR_PREFIX = "shed_round_floor:"
+    }
 }

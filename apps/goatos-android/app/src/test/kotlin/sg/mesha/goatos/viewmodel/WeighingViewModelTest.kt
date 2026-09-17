@@ -538,7 +538,9 @@ class WeighingViewModelTest {
         proofSource.queue(sg.mesha.goatos.capture.CapturedVideo(localUri = "file://new.mp4", startedAtMs = 10_000, endedAtMs = 12_000))
         val analytics = sg.mesha.goatos.boot.RecordingAnalytics()
         val vm = weighingViewModel(
-            repository = FakeWeighingRepository(scopeState = WeighingScopeState(emptyList(), emptyList(), emptyList(), 0)),
+            // The five clips belong to the round the server accepted before the reopen: Room holds
+            // its floor after them.
+            repository = FakeWeighingRepository(scopeState = WeighingScopeState(emptyList(), emptyList(), emptyList(), 0, shedRoundFloorMs = 100)),
             scoped = true,
             proofCaptureRepository = proofs,
             proofCaptureSource = proofSource,
@@ -853,7 +855,7 @@ class WeighingViewModelTest {
     }
 
     @Test
-    fun `latest synced shed proof survives reopen before shed draft exists`() = runTest(dispatcher) {
+    fun `a reopened pen shows only the captures made after its accepted round`() = runTest(dispatcher) {
         val proofs = FakeProofCaptureRepository(maxProofs = 10).also { repo ->
             repo.seedProofs(
                 ProofCaptureRow(
@@ -891,7 +893,7 @@ class WeighingViewModelTest {
             )
         }
         val vm = weighingViewModel(
-            repository = FakeWeighingRepository(scopeState = WeighingScopeState(emptyList(), emptyList(), emptyList(), 0)),
+            repository = FakeWeighingRepository(scopeState = WeighingScopeState(emptyList(), emptyList(), emptyList(), 0, shedRoundFloorMs = 1_500)),
             scoped = true,
             proofCaptureRepository = proofs,
             weighingCategory = "per_shed_partition",
@@ -985,6 +987,125 @@ class WeighingViewModelTest {
         val capture = repository.recordShedPartitionCalls.single()
         assertTrue(capture.resultJson.contains("\"total_weight_kg\":123.0"))
         assertEquals(listOf("server-fresh-shed-proof"), capture.proofArtifactIds)
+    }
+
+    // Realme, 2026-09-17: two group videos + the authored scale photo, all SYNCED in Room, and a
+    // FRESH ViewModel (process restart: no in-heap session ids, no shed draft yet). The strip showed
+    // one video, then none once the photo was the newest capture, because a restart kept only the
+    // single newest synced pen capture.
+    private val penVideoAndScalePhotoRules = sg.mesha.goatos.core.data.weighing.WeighingSopRules.Seeded.copy(
+        lumpSumSlots = listOf(
+            sg.mesha.goatos.core.data.weighing.WeighingCountedProofSlot(key = "pen_video", title = "Pen on scale video", hint = "", kind = "video", min = 1, max = 2),
+            sg.mesha.goatos.core.data.weighing.WeighingCountedProofSlot(key = "scale_photo", title = "Scale display photo", hint = "", kind = "photo", min = 1, max = 1),
+        ),
+    )
+
+    private suspend fun kotlinx.coroutines.test.TestScope.assertRestartedPenKeepsEveryRoomCapture(photoAtMs: Long, videoAtMs: List<Long>) {
+        val repository = FakeWeighingRepository(captureRules = penVideoAndScalePhotoRules)
+        val proofs = FakeProofCaptureRepository(maxProofs = 10).also { repo ->
+            repo.seedProofs(
+                proofRow(
+                    id = "pen-video-1", fieldKey = "weighing_shed_partition_video", proofSubject = ProofSubject.SHED,
+                    subjectId = "shed-1", caption = "Pen on scale video 1", syncStatus = CaptureSyncStatus.SYNCED,
+                    serverProofId = "server-video-1", capturedAtMs = videoAtMs[0], capturedStartMs = videoAtMs[0], capturedEndMs = videoAtMs[0] + 1,
+                ),
+                proofRow(
+                    id = "pen-video-2", fieldKey = "weighing_shed_partition_video", proofSubject = ProofSubject.SHED,
+                    subjectId = "shed-1", caption = "Pen on scale video 2", syncStatus = CaptureSyncStatus.SYNCED,
+                    serverProofId = "server-video-2", capturedAtMs = videoAtMs[1], capturedStartMs = videoAtMs[1], capturedEndMs = videoAtMs[1] + 1,
+                ),
+                proofRow(
+                    id = "scale-photo-1", fieldKey = "weighing_shed_slot_scale_photo", proofSubject = ProofSubject.SHED,
+                    subjectId = "shed-1", caption = "Scale display photo 1 of 1", syncStatus = CaptureSyncStatus.SYNCED,
+                    serverProofId = "server-photo-1", capturedAtMs = photoAtMs, capturedStartMs = photoAtMs, capturedEndMs = photoAtMs,
+                ),
+            )
+        }
+        val vm = weighingViewModel(repository, scoped = true, proofCaptureRepository = proofs, weighingCategory = "per_shed_partition")
+        backgroundScope.launch(dispatcher) { vm.state.collect {} }
+        advanceUntilIdle()
+
+        val state = vm.state.value
+        assertEquals(listOf("pen-video-1", "pen-video-2"), state.shedProofs.map { it.id })
+        val photoSlot = state.captureSop!!.penExtraSlots.single { it.key == "scale_photo" }
+        assertEquals(1, photoSlot.proofs.count { it.status == ProofUploadStatus.SYNCED })
+        assertEquals(emptyList<String>(), state.captureSop!!.penCapturesMissing)
+
+        vm.onWeightInputChange("120")
+        vm.recordShedPartition()
+        advanceUntilIdle()
+        val capture = repository.recordShedPartitionCalls.single()
+        assertEquals(listOf("server-video-1", "server-video-2"), capture.proofArtifactIds)
+        assertEquals(mapOf("pen_video" to listOf("server-video-1", "server-video-2"), "scale_photo" to listOf("server-photo-1")), capture.proofSlots)
+    }
+
+    @Test
+    fun `a restarted pen keeps both synced group videos and the scale photo taken after them`() = runTest(dispatcher) {
+        assertRestartedPenKeepsEveryRoomCapture(photoAtMs = 3_000, videoAtMs = listOf(1_000, 2_000))
+    }
+
+    @Test
+    fun `a restarted pen keeps both synced group videos taken after the scale photo`() = runTest(dispatcher) {
+        assertRestartedPenKeepsEveryRoomCapture(photoAtMs = 1_000, videoAtMs = listOf(2_000, 3_000))
+    }
+
+    // The per-animal twin of the restarted pen: a weighed animal's synced video and synced scale
+    // photo, a FRESH ViewModel (no session ids), and the photo taken a while after the weight.
+    private suspend fun kotlinx.coroutines.test.TestScope.assertRestartedAnimalKeepsItsSlotPhoto(photoAfterWeightMs: Long) {
+        val weighedAt = 10_000_000L
+        val rules = sg.mesha.goatos.core.data.weighing.WeighingSopRules.Seeded.copy(
+            individualProofs = listOf(
+                sg.mesha.goatos.core.data.weighing.WeighingSopRules.Seeded.individualProofs.first(),
+                sg.mesha.goatos.core.data.weighing.WeighingRemovalProofSlot("scale_photo", "Scale display photo", "", "photo", true),
+            ),
+        )
+        val repository = FakeWeighingRepository(
+            captureRules = rules,
+            scopeState = WeighingScopeState(
+                listOf(rosterRow()),
+                listOf(
+                    IndividualWeighingDraft(
+                        observationId = "observation-1", scannedIdentifier = TEST_TAG, weightKg = 21.0,
+                        capturedAtMs = weighedAt, proofCaptureId = "animal-video", proofReady = true,
+                        readyToSubmit = true, syncedToBackend = false, idempotencyKey = "weighing:individual:1",
+                        serverProofId = "server-animal-video",
+                    ),
+                ),
+                emptyList(),
+                1,
+            ),
+        )
+        val proofs = FakeProofCaptureRepository().also {
+            it.seedProofs(
+                proofRow(
+                    id = "animal-video", rfidTag = TEST_TAG, syncStatus = CaptureSyncStatus.SYNCED, serverProofId = "server-animal-video",
+                    capturedAtMs = weighedAt - 60_000, capturedStartMs = weighedAt - 60_000, capturedEndMs = weighedAt - 50_000,
+                ),
+                proofRow(
+                    id = "animal-scale-photo", fieldKey = "weighing_individual_slot_scale_photo", proofSubject = ProofSubject.OTHER,
+                    subjectId = null, caption = "Scale display photo · $TEST_TAG", rfidTag = TEST_TAG,
+                    syncStatus = CaptureSyncStatus.SYNCED, serverProofId = "server-animal-scale-photo",
+                    capturedAtMs = weighedAt + photoAfterWeightMs, capturedStartMs = weighedAt + photoAfterWeightMs, capturedEndMs = weighedAt + photoAfterWeightMs,
+                ),
+            )
+        }
+        val vm = weighingViewModel(repository, scoped = true, proofCaptureRepository = proofs)
+        backgroundScope.launch(dispatcher) { vm.state.collect {} }
+        advanceUntilIdle()
+
+        val row = vm.state.value.visibleRows.single { it.animalId == TEST_TAG }
+        assertEquals(ProofUploadStatus.SYNCED, row.extraSlotStatuses["scale_photo"])
+        assertEquals(emptyList<String>(), row.capturesMissing)
+    }
+
+    @Test
+    fun `a restarted animal row keeps its synced slot photo taken just after the weight`() = runTest(dispatcher) {
+        assertRestartedAnimalKeepsItsSlotPhoto(photoAfterWeightMs = 60_000)
+    }
+
+    @Test
+    fun `a restarted animal row keeps its synced slot photo taken long after the weight`() = runTest(dispatcher) {
+        assertRestartedAnimalKeepsItsSlotPhoto(photoAfterWeightMs = 45 * 60_000L)
     }
 
     @Test

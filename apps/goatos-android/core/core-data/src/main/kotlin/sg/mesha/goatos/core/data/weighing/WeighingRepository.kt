@@ -107,6 +107,18 @@ data class WeighingScopeState(
     val individualDrafts: List<IndividualWeighingDraft>,
     val shedDrafts: List<ShedWeighingDraft>,
     val totalExpected: Int,
+    /**
+     * The whole-pen ROUND FLOOR, from Room: when the server last ACCEPTED a round for this bucket,
+     * the capture time of that round's local record. Pen captures at or before it belong to a
+     * closed (and, if the pen is back in hand, reopened and superseded) round; captures after it are
+     * the round being built now. Null = this phone never saw a round of this bucket accepted, so
+     * every pen capture in Room is current.
+     *
+     * Durable on purpose (Realme, 2026-09-17): the screen used to tell the current round apart by
+     * in-heap session ids and, after a restart, by keeping only the newest synced pen capture --
+     * so two synced group videos showed as one, and as none once the scale photo was newer.
+     */
+    val shedRoundFloorMs: Long? = null,
 )
 
 data class WeighingAssignment(
@@ -982,6 +994,7 @@ class DefaultWeighingRepository(
      * one). With a database present Room is the SSOT and this is never read.
      */
     private val inMemoryTransitionEpochs = java.util.concurrent.ConcurrentHashMap<String, String>()
+    private val inMemoryShedRoundFloors = kotlinx.coroutines.flow.MutableStateFlow<Map<String, Long>>(emptyMap())
 
     private suspend fun transitionIdempotencyKey(transition: String, rawScopeId: String): String {
         // The epoch is keyed by (transition, scope), never by scope alone. `update` and
@@ -1034,14 +1047,41 @@ class DefaultWeighingRepository(
             rosterDao.observeScopeTotal(scopeKey),
             observationDao.observeForScope(scopeKey),
             shedObservationDao.observeForScope(scopeKey),
-        ) { roster, total, observations, shedObservations ->
+            observeShedRoundFloor(scopeKey),
+        ) { roster, total, observations, shedObservations, roundFloor ->
             WeighingScopeState(
                 rosterWindow = roster,
                 totalExpected = total,
                 individualDrafts = observations.map { it.toDraft() },
                 shedDrafts = shedObservations.map { it.toDraft() },
+                shedRoundFloorMs = roundFloor,
             )
         }.flowOn(Dispatchers.Default)
+
+    private fun observeShedRoundFloor(scopeKey: String): Flow<Long?> {
+        val floorScopeId = WeighingTransitionEpochDao.SHED_ROUND_FLOOR_PREFIX + scopeKey
+        return epochDao?.observe(floorScopeId)?.map { it?.toLongOrNull() }
+            ?: inMemoryShedRoundFloors.map { it[floorScopeId] }
+    }
+
+    /**
+     * Closes this bucket's whole-pen round locally: the server accepted the pen record [accepted],
+     * so every capture made up to its record time belongs to that round. Called in the refresh
+     * transaction right before the accepted row is retired, which is the moment the phone would
+     * otherwise forget where the round ended.
+     */
+    private suspend fun recordShedRoundFloor(scopeKey: String, accepted: WeighingShedObservationEntity) {
+        val floorScopeId = WeighingTransitionEpochDao.SHED_ROUND_FLOOR_PREFIX + scopeKey
+        val dao = epochDao ?: run {
+            inMemoryShedRoundFloors.value = inMemoryShedRoundFloors.value.let { floors ->
+                floors + (floorScopeId to maxOf(floors[floorScopeId] ?: 0L, accepted.capturedAtMs))
+            }
+            return
+        }
+        val floor = maxOf(dao.get(floorScopeId)?.toLongOrNull() ?: 0L, accepted.capturedAtMs)
+        dao.upsert(WeighingTransitionEpochEntity(scopeId = floorScopeId, epoch = floor.toString(), updatedAt = clock()))
+        dao.pruneRoundFloorsOutsideNewest(WEIGHING_CACHED_SHED_ROUND_FLOORS)
+    }
 
     override suspend fun replaceRoster(scopeKey: String, rows: List<WeighingRosterRowEntity>) {
         rosterDao.replaceScope(scopeKey, rows)
@@ -2083,6 +2123,9 @@ class DefaultWeighingRepository(
                 } else {
                     observationDao.deleteAcceptedNotIn(key, activeAcceptedIds)
                 }
+                shedObservationDao.findByScope(key)
+                    ?.takeIf { it.syncStatus == WeighingSyncStatus.ACCEPTED.name }
+                    ?.let { recordShedRoundFloor(key, it) }
                 shedObservationDao.deleteAcceptedForScope(key)
                 accepted.values.forEach { observation ->
                     // The scanned tag is the whole identity of a free-flow capture. The old guard
@@ -2980,6 +3023,9 @@ private const val WEIGHING_CACHED_BUCKET_PARKS = 4
  * closed on the device.
  */
 private const val WEIGHING_CACHED_TRANSITION_SCOPES = 50
+
+/** Whole-pen round floors kept on disk; far above the buckets one phone works in a season. */
+private const val WEIGHING_CACHED_SHED_ROUND_FLOORS = 500
 
 /**
  * Sanity ceiling on the park picker, matching the backend's own cap. Parks are few — this bounds

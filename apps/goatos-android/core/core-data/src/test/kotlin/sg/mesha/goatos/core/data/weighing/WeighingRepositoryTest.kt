@@ -353,6 +353,54 @@ class WeighingRepositoryTest {
         assertEquals(1, repository.observeScope(scopeKey, windowSize = 20).first().shedDrafts.size)
     }
 
+    // The whole-pen ROUND FLOOR is Room's, so it survives a restart: retiring the accepted pen
+    // record on refresh stores when that round was recorded, and observeScope carries it. A pen
+    // that never had a round accepted has no floor (every capture in Room is current).
+    @Test
+    fun `retiring an accepted pen record stores the round floor in Room and observeScope carries it`() = runTest {
+        val api = object : AppApi by FakeAppApi() {
+            override suspend fun getWeighingRoster(
+                campaignId: String,
+                campaignShedId: String,
+                observationsCursor: String?,
+                limit: Int,
+            ): WeighingRosterResponseDto = WeighingRosterResponseDto(observations = emptyList())
+        }
+        fun repo() = DefaultWeighingRepository(
+            api = api,
+            database = db,
+            rosterDao = db.weighingRosterDao(),
+            observationDao = db.weighingObservationDao(),
+            shedObservationDao = db.weighingShedObservationDao(),
+            clock = { 5_000L },
+            idGenerator = stableIds().iterator()::next,
+        )
+        repository = repo()
+        repository.refreshScope("campaign-1", "group-1", "campaign-shed-1")
+        assertEquals(null, repository.observeScope(scopeKey, windowSize = 20).first().shedRoundFloorMs)
+
+        val recorded = repository.recordShedPartition(
+            ShedPartitionWeighingCapture(
+                tenantId = "tenant",
+                campaignId = "campaign-1",
+                workGroupId = "group-1",
+                campaignShedId = "campaign-shed-1",
+                expectedLocationId = "shed-1",
+                expectedLocationLabel = "Gandhi 1",
+                resultJson = """{"weight": 180.5, "unit": "kg"}""",
+                capturedAtMs = 4_200L,
+            ),
+        ) as AppResult.Ok
+        db.weighingShedObservationDao().markAcceptedByIdempotencyKey(recorded.value.idempotencyKey)
+        repository.refreshScope("campaign-1", "group-1", "campaign-shed-1")
+
+        // A fresh repository over the same database: nothing in-heap carries the floor.
+        repository = repo()
+        val state = repository.observeScope(scopeKey, windowSize = 20).first()
+        assertEquals(emptyList<ShedWeighingDraft>(), state.shedDrafts)
+        assertEquals(4_200L, state.shedRoundFloorMs)
+    }
+
     // FREE-FLOW: the roster leg of this read is GONE (no `items`, no roster cursor, no
     // `include_roster` gate). Only the observations cursor is drained, and it must drain fully --
     // everything past page one used to be dropped, so a re-weighed animal kept reading as

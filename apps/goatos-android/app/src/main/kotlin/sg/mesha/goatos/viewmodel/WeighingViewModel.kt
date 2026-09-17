@@ -3849,21 +3849,18 @@ class WeighingViewModel @Inject constructor(
             .associate { it.scannedIdentifier to it.capturedAtMs }
         scope?.individualDrafts.orEmpty()
             .mapNotNullTo(activeIds) { it.proofCaptureId?.takeIf(String::isNotBlank) }
-        val hasOpenShedRound = scope?.shedDrafts.orEmpty().isNotEmpty()
-        val latestLocalShedProofId = if (hasOpenShedRound) {
-            null
-        } else {
-            proofs
-                .filter { it.syncStatus == CaptureSyncStatus.SYNCED && it.belongsToThisShedScope() }
-                .maxByOrNull { it.capturedAtMs }
-                ?.id
-        }
+        // The whole pen's CURRENT round is every pen capture in Room made after the last round the
+        // server accepted (a durable floor, not session memory). Before it: a closed round, which a
+        // reopen superseded -- reviving those filled the video cap with dead clips. After it: the
+        // round being built, in full, whatever was captured last and however often the process
+        // restarted (Realme, 2026-09-17: keeping only the newest synced capture showed two synced
+        // group videos as one, then as none once the scale photo was newer).
+        val shedRoundFloorMs = scope?.shedRoundFloorMs
         return proofs.filter { proof ->
             proof.syncStatus != CaptureSyncStatus.SYNCED ||
                 proof.id in activeIds ||
-                (hasOpenShedRound && proof.belongsToThisShedScope()) ||
-                proof.matchesOpenIndividualDraft(openIndividualDrafts) ||
-                proof.id == latestLocalShedProofId
+                (proof.belongsToThisShedScope() && (shedRoundFloorMs == null || proof.capturedAtMs > shedRoundFloorMs)) ||
+                proof.matchesOpenIndividualDraft(openIndividualDrafts)
         }
     }
 
@@ -3877,7 +3874,7 @@ class WeighingViewModel @Inject constructor(
      * serverProofId and its file was already on the server. The operator's proof was unreachable
      * with no way to recover short of filming it again.
      */
-    /** Caller gates this on an open round; see [activeWeighingProofs]. */
+    /** The round it belongs to is decided by the floor; see [activeWeighingProofs]. */
     private fun ProofCaptureRow.belongsToThisShedScope(): Boolean =
         (fieldKey == SHED_PARTITION_PROOF_FIELD_KEY || fieldKey.startsWith(SHED_SLOT_FIELD_PREFIX)) &&
             subjectId == expectedLocationId &&
@@ -3887,7 +3884,15 @@ class WeighingViewModel @Inject constructor(
         (fieldKey == INDIVIDUAL_PROOF_FIELD_KEY || fieldKey.startsWith(INDIVIDUAL_SLOT_FIELD_PREFIX)) &&
             rfidTag?.let { tag ->
                 openIndividualDrafts[tag]?.let { draftCapturedAtMs ->
-                    isCompatibleWithWeighingDraft(draftCapturedAtMs)
+                    if (fieldKey.startsWith(INDIVIDUAL_SLOT_FIELD_PREFIX)) {
+                        // An authored slot is captured on an animal ALREADY weighed, so any time after
+                        // the open weigh belongs to it -- however long after. Bounding it above as well
+                        // dropped a synced scale photo taken 45 minutes after the weight the moment the
+                        // process restarted, and the row asked for it again (2026-09-17).
+                        capturedStartMs >= draftCapturedAtMs - WEIGHING_PROOF_DRAFT_MATCH_TOLERANCE_MS
+                    } else {
+                        isCompatibleWithWeighingDraft(draftCapturedAtMs)
+                    }
                 }
             } == true
 
