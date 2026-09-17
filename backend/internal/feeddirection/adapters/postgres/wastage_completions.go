@@ -249,6 +249,14 @@ RETURNING row_version`,
 	}, nil
 }
 
+// wastageRoundItemQueuedSQL: does the completion have a pending or approved feed wastage item?
+// Bounded by the verification_items source-ref lookup (one completion's handful of rounds).
+const wastageRoundItemQueuedSQL = `
+SELECT EXISTS (
+  SELECT 1 FROM verification_items
+  WHERE tenant_id = $1::uuid AND source_module = 'feed' AND source_ref_type = 'feed_wastage_completion'
+    AND source_ref_id = $2::uuid AND status IN ('pending', 'approved'))`
+
 // wastageRoundItemQueued reports whether the completion's CURRENT submission round already has a
 // verifier item. A round's item is pending until judged; an approved item whose apply has not landed
 // yet (the relay lags) still belongs to the round. A rejected item closed an EARLIER round -- its
@@ -260,11 +268,7 @@ RETURNING row_version`,
 // (feed_verdict_fence.go); bounded by verification_items' source index.
 func wastageRoundItemQueued(ctx context.Context, tx pgx.Tx, tenantID, completionID string) (bool, error) {
 	var queued bool
-	if err := tx.QueryRow(ctx, `
-SELECT EXISTS (
-  SELECT 1 FROM verification_items
-  WHERE tenant_id = $1::uuid AND source_module = 'feed' AND source_ref_type = 'feed_wastage_completion'
-    AND source_ref_id = $2::uuid AND status IN ('pending', 'approved'))`, tenantID, completionID).Scan(&queued); err != nil {
+	if err := tx.QueryRow(ctx, wastageRoundItemQueuedSQL, tenantID, completionID).Scan(&queued); err != nil {
 		return false, fmt.Errorf("feeddirection: read wastage round verification item: %w", err)
 	}
 	return queued, nil
