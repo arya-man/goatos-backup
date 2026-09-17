@@ -593,7 +593,19 @@
         else{const rows=K.nodes(d).filter(n=>pos[n.id]).map(n=>[pos[n.id].y*k,(pos[n.id].y+hOf(K,d,n))*k]);const y0=v.y;
           for(let dy=2;dy<400;dy+=2){const ok=o=>!rows.some(([t,bb])=>t+o<line+6&&bb+o>line-10);if(ok(y0+dy)){v.y=y0+dy;break;}if(y0-dy+b.y0*k>padT-200&&ok(y0-dy)){v.y=y0-dy;break;}}}}}
     applyView(root,K,d);
+    if(bottomPal)palClear(root,K,d,v,pal);
   }
+  /* measured pass: visible bottom = palette top - 8; no card may straddle [that, palette bottom] */
+  function palClear(root,K,d,v,pal){const pr=pal.getBoundingClientRect(),top=pr.top-8,bot=pr.bottom;
+    const cards=[...root.querySelectorAll('.fx-node')].map(n=>n.getBoundingClientRect());
+    const ok=o=>!cards.some(c=>c.top+o<bot&&c.bottom+o>top);if(ok(0))return;
+    const c=[];cards.forEach(r=>{if(r.top<bot&&r.bottom>top){c.push(bot-r.top+2,top-r.bottom-2);}});
+    const rt=root.getBoundingClientRect(),ti=topInset(root);
+    /* prefer pushing partial cards below the fold; pulling up must not hide the first card under the toolbar */
+    const firstTop=Math.min(...cards.map(r=>r.top));
+    const pick=c.filter(ok).sort((a,b)=>(a<0)-(b<0)||Math.abs(a)-Math.abs(b)).find(o=>o>0||firstTop+o>=rt.top+ti)
+      ??[...Array(200)].map((_,i)=>(i+1)*4).find(o=>ok(o));
+    if(pick==null)return;v.y+=pick;applyView(root,K,d);}
   function longInfo(root,K,d){const r=root.getBoundingClientRect();if(r.width<50||r.height<50)return root._long||false;
     const pos=K.positions(d),b=kbounds(K,d,pos);const {pal,bottomPal}=palInset(root,r);const narrow=r.width<600,pad=narrow?16:32;
     const ah=Math.max(120,r.height-(topInset(root)+(narrow?16:28))-((bottomPal?pal.offsetHeight+20:0)+pad));return (b.y1-b.y0+40)*.35>ah;}
