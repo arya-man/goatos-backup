@@ -1,8 +1,8 @@
 "use client";
 
-import { useMemo, useState, useTransition } from "react";
+import { useEffect, useMemo, useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
-import { Plus, Trash2 } from "lucide-react";
+import { ArrowLeft, Plus, Trash2 } from "lucide-react";
 
 import { copy, optionalCopy, optionGroup, type AdminUiOption, type AdminUiPageContract } from "@/lib/admin-ui-contract";
 import type { HealthConfigProtocolDetail, HealthConfigStep } from "@/lib/api/server";
@@ -35,6 +35,69 @@ import { afterSubmit, CLOSED_STATE, openIntent, type AuthoringIdempotencyState }
 // guard scans for `>text<` to catch visible JSX copy, and an inline generic return type trips it.
 type ActionResult = Promise<HealthConfigActionResult>;
 type SubmitAction = (formData: FormData) => ActionResult;
+const BACK_TO_LIST_MARKER = "mesha.healthConfig.openedFromCatalog";
+const BACK_TO_LIST_HISTORY_NONCE = "meshaHealthConfigBackNonce";
+
+type BackToListMarker = {
+  editorHref: string;
+  listHref: string;
+  nonce: string;
+};
+
+const activeBackToListNonces = new Set<string>();
+
+function pathAndSearch(href: string): string {
+  try {
+    const url = new URL(href, window.location.origin);
+    return `${url.pathname}${url.search}`;
+  } catch {
+    return href.split("#", 1)[0];
+  }
+}
+
+function readBackToListMarker(): BackToListMarker | null {
+  try {
+    const raw = window.sessionStorage.getItem(BACK_TO_LIST_MARKER);
+    if (!raw) return null;
+    const parsed = JSON.parse(raw) as Partial<BackToListMarker>;
+    if (
+      typeof parsed.editorHref !== "string" ||
+      typeof parsed.listHref !== "string" ||
+      typeof parsed.nonce !== "string"
+    ) {
+      return null;
+    }
+    return { editorHref: parsed.editorHref, listHref: parsed.listHref, nonce: parsed.nonce };
+  } catch {
+    return null;
+  }
+}
+
+function historyBackToListNonce(): string | null {
+  const state = window.history.state as Record<string, unknown> | null;
+  const nonce = state?.[BACK_TO_LIST_HISTORY_NONCE];
+  return typeof nonce === "string" ? nonce : null;
+}
+
+function bindBackToListHistoryEntry(href: string) {
+  const marker = readBackToListMarker();
+  if (
+    !marker ||
+    pathAndSearch(marker.editorHref) !== `${window.location.pathname}${window.location.search}` ||
+    pathAndSearch(marker.listHref) !== pathAndSearch(href)
+  ) {
+    window.sessionStorage.removeItem(BACK_TO_LIST_MARKER);
+    return;
+  }
+
+  window.sessionStorage.removeItem(BACK_TO_LIST_MARKER);
+  activeBackToListNonces.add(marker.nonce);
+  window.history.replaceState(
+    { ...(window.history.state ?? {}), [BACK_TO_LIST_HISTORY_NONCE]: marker.nonce },
+    "",
+    window.location.href,
+  );
+}
 
 /** One editable step row. `key` is a stable client id so React does not reuse rows across edits. */
 type DraftStep = {
@@ -298,7 +361,13 @@ export function ProtocolActionButton({
             if (navigateOnSuccess === "base") {
               router.push(basePath);
             } else if (outcome.versionId) {
-              router.push(`${basePath}?hc_version=${encodeURIComponent(outcome.versionId)}`);
+              const separator = basePath.includes("?") ? "&" : "?";
+              const editorHref = `${basePath}${separator}hc_version=${encodeURIComponent(outcome.versionId)}`;
+              window.sessionStorage.setItem(
+                BACK_TO_LIST_MARKER,
+                JSON.stringify({ editorHref, listHref: basePath, nonce: crypto.randomUUID() } satisfies BackToListMarker),
+              );
+              router.push(editorHref);
             }
           }
           // The version this screen is showing is GONE -- someone else published or discarded it,
@@ -358,6 +427,37 @@ export function ProtocolActionButton({
       ) : null}
       <FieldErrors result={result} pageContract={pageContract} />
     </form>
+  );
+}
+
+export function BackToListButton({ href, label }: { href: string; label: string }) {
+  const router = useRouter();
+  useEffect(() => {
+    bindBackToListHistoryEntry(href);
+  }, [href]);
+
+  return (
+    <a
+      className="btn sm"
+      href={href}
+      onClick={(event) => {
+        // Only the catalog's Edit action binds the current history entry to an in-memory nonce.
+        // URL equality alone is not enough: a stale marker can match a later direct-opened editor.
+        // Reloads also lose the in-memory nonce, so the safe filtered href wins there too.
+        const nonce = historyBackToListNonce();
+        if (!nonce || !activeBackToListNonces.has(nonce)) {
+          window.sessionStorage.removeItem(BACK_TO_LIST_MARKER);
+          return;
+        }
+        event.preventDefault();
+        activeBackToListNonces.delete(nonce);
+        window.sessionStorage.removeItem(BACK_TO_LIST_MARKER);
+        router.back();
+      }}
+    >
+      <ArrowLeft className="ic" aria-hidden="true" />
+      {label}
+    </a>
   );
 }
 

@@ -316,7 +316,7 @@
           "timeSeriesList": {},
           "promQLQuery": {
             "projectName": "goatos-stg",
-            "expr": "sum(increase(logging_googleapis_com:user_goatos_rum_exceptions[5m]))",
+            "expr": "sum(increase(logging_googleapis_com:user_goatos_rum_exceptions{monitored_resource=\"cloud_run_revision\"}[5m]))",
             "step": "300s"
           },
           "goatosDataCondition": {
@@ -362,7 +362,7 @@
           "timeSeriesList": {},
           "promQLQuery": {
             "projectName": "goatos-stg",
-            "expr": "sum(increase(logging_googleapis_com:user_goatos_rum_session_starts[5m]))",
+            "expr": "sum(increase(logging_googleapis_com:user_goatos_rum_session_starts{monitored_resource=\"cloud_run_revision\"}[5m]))",
             "step": "300s"
           }
         }
@@ -403,7 +403,7 @@
           "timeSeriesList": {},
           "promQLQuery": {
             "projectName": "goatos-stg",
-            "expr": "sum(increase(logging_googleapis_com:user_goatos_rum_route_views[5m]))",
+            "expr": "sum(increase(logging_googleapis_com:user_goatos_rum_route_views{monitored_resource=\"cloud_run_revision\"}[5m]))",
             "step": "300s"
           }
         }
@@ -445,7 +445,7 @@
           "aliasBy": "{{browser}}",
           "promQLQuery": {
             "projectName": "goatos-stg",
-            "expr": "sum by (browser)(increase(logging_googleapis_com:user_goatos_rum_session_starts[5m]))",
+            "expr": "sum by (browser)(increase(logging_googleapis_com:user_goatos_rum_session_starts{monitored_resource=\"cloud_run_revision\"}[5m]))",
             "step": "300s"
           }
         }

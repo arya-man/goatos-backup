@@ -1173,6 +1173,7 @@
       "id": 15,
       "title": "Enqueue duration p50 / p99",
       "description": "kernel.cloudtasks.enqueue.duration \u2014 one CreateTask call's latency.",
+      "goatosMissingCapability": "kernel_cloudtasks_enqueue_duration_seconds is not emitted in STG yet",
       "type": "timeseries",
       "gridPos": {
         "h": 7,

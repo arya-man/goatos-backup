@@ -65,7 +65,7 @@
             "type": "grafana-postgresql-datasource",
             "uid": "postgres-analytics"
           },
-          "rawSql": "SELECT ((event_date + 1)::timestamp AT TIME ZONE 'Asia/Kolkata') - interval '1 second' AS time, concat(app_version, ' \u00b7 ', http_method, ' ', route_pattern, ' \u00b7 ', response_class) AS metric, p50_ms AS p50, p95_ms AS p95, p99_ms AS p99 FROM analytics.app_network_daily WHERE source_app_id = 'sg.mesha.goatos' AND total_requests > 0 AND $__timeFilter(((event_date + 1)::timestamp AT TIME ZONE 'Asia/Kolkata') - interval '1 second') ORDER BY time",
+          "rawSql": "SELECT time, metric, p50, p95, p99 FROM (SELECT ((event_date + 1)::timestamp AT TIME ZONE 'Asia/Kolkata') - interval '1 second' AS time, concat(app_version, ' \u00b7 ', http_method, ' ', route_pattern, ' \u00b7 ', response_class) AS metric, p50_ms AS p50, p95_ms AS p95, p99_ms AS p99 FROM analytics.app_network_daily WHERE source_app_id = 'sg.mesha.goatos' AND total_requests > 0) q WHERE $__timeFilter(time) ORDER BY time",
           "format": "time_series",
           "editorMode": "code",
           "rawQuery": true
@@ -93,6 +93,7 @@
       "id": 2,
       "title": "Analytics-rollup job run duration by outcome",
       "description": "kernel.analytics_rollup.run.duration (Cloud Run Job, GA4/Crashlytics BigQuery aggregation + Postgres upsert), label outcome (succeeded/failed/skipped). 'skipped' is the expected exit-0 path today, since GOATOS_GA4_EXPORT_DATASET is unset in stg until the Firebase GA4 BigQuery export is manually linked (infra/envs/stg/analytics_rollup.tf).",
+      "goatosMissingCapability": "kernel_analytics_rollup_run_duration_seconds is not emitted in STG yet",
       "type": "timeseries",
       "gridPos": {
         "h": 7,
@@ -153,6 +154,7 @@
       "id": 3,
       "title": "Analytics summary rows replaced per run",
       "description": "Rows atomically replaced in daily summary tables by a rollup run. This is write volume, not new event count: rerunning the same day replaces rows again. No metric means the job has not exported an observed run.",
+      "goatosMissingCapability": "kernel_analytics_rollup_rows_written_total is not emitted in STG yet",
       "type": "stat",
       "gridPos": {
         "h": 7,
@@ -253,7 +255,7 @@
             "type": "grafana-postgresql-datasource",
             "uid": "postgres-analytics"
           },
-          "rawSql": "SELECT ((event_date + 1)::timestamp AT TIME ZONE 'Asia/Kolkata') - interval '1 second' AS time, journey_key AS metric, CASE WHEN completions > 0 THEN p50_ms/1000.0 END AS p50, CASE WHEN completions > 0 THEN p90_ms/1000.0 END AS p90, CASE WHEN completions > 0 THEN p99_ms/1000.0 END AS p99 FROM analytics.journey_daily WHERE tenant_id = ${tenant:sqlstring}::uuid AND journey_key IN ('proof_delivery','camera_capture','login_to_bootstrap') AND $__timeFilter(((event_date + 1)::timestamp AT TIME ZONE 'Asia/Kolkata') - interval '1 second') ORDER BY time",
+          "rawSql": "SELECT time, metric, p50, p90, p99 FROM (SELECT ((event_date + 1)::timestamp AT TIME ZONE 'Asia/Kolkata') - interval '1 second' AS time, journey_key AS metric, CASE WHEN completions > 0 THEN p50_ms/1000.0 END AS p50, CASE WHEN completions > 0 THEN p90_ms/1000.0 END AS p90, CASE WHEN completions > 0 THEN p99_ms/1000.0 END AS p99 FROM analytics.journey_daily WHERE tenant_id = ${tenant:sqlstring}::uuid AND journey_key IN ('proof_delivery','camera_capture','login_to_bootstrap')) q WHERE $__timeFilter(time) ORDER BY time",
           "format": "time_series",
           "editorMode": "code",
           "rawQuery": true
@@ -297,7 +299,7 @@
             "type": "grafana-postgresql-datasource",
             "uid": "postgres-analytics"
           },
-          "rawSql": "SELECT ((event_date + 1)::timestamp AT TIME ZONE 'Asia/Kolkata') - interval '1 second' AS time, app_version AS metric, crash_free_sessions_pct FROM analytics.app_crash_daily WHERE source_app_id = 'sg.mesha.goatos' AND total_sessions > 0 AND $__timeFilter(((event_date + 1)::timestamp AT TIME ZONE 'Asia/Kolkata') - interval '1 second') ORDER BY time",
+          "rawSql": "SELECT time, metric, crash_free_sessions_pct FROM (SELECT ((event_date + 1)::timestamp AT TIME ZONE 'Asia/Kolkata') - interval '1 second' AS time, app_version AS metric, crash_free_sessions_pct FROM analytics.app_crash_daily WHERE source_app_id = 'sg.mesha.goatos' AND total_sessions > 0) q WHERE $__timeFilter(time) ORDER BY time",
           "format": "time_series",
           "editorMode": "code",
           "rawQuery": true
@@ -334,7 +336,7 @@
             "type": "grafana-postgresql-datasource",
             "uid": "postgres-analytics"
           },
-          "rawSql": "SELECT event_date, funnel_key, step_index, step_key, conversions AS reached_cohorts, users AS distinct_users, sessions AS work_sessions FROM analytics.funnel_daily WHERE tenant_id = ${tenant:sqlstring}::uuid AND $__timeFilter(((event_date + 1)::timestamp AT TIME ZONE 'Asia/Kolkata') - interval '1 second') ORDER BY event_date, funnel_key, step_index",
+          "rawSql": "SELECT event_date, funnel_key, step_index, step_key, reached_cohorts, distinct_users, work_sessions FROM (SELECT ((event_date + 1)::timestamp AT TIME ZONE 'Asia/Kolkata') - interval '1 second' AS time, event_date, funnel_key, step_index, step_key, conversions AS reached_cohorts, users AS distinct_users, sessions AS work_sessions FROM analytics.funnel_daily WHERE tenant_id = ${tenant:sqlstring}::uuid) q WHERE $__timeFilter(time) ORDER BY event_date, funnel_key, step_index",
           "format": "table",
           "editorMode": "code",
           "rawQuery": true
@@ -378,7 +380,7 @@
             "type": "grafana-postgresql-datasource",
             "uid": "postgres-analytics"
           },
-          "rawSql": "SELECT ((event_date + 1)::timestamp AT TIME ZONE 'Asia/Kolkata') - interval '1 second' AS time, journey_key AS metric, CASE WHEN completions > 0 THEN p50_ms/1000.0 END AS p50, CASE WHEN completions > 0 THEN p90_ms/1000.0 END AS p90, CASE WHEN completions > 0 THEN p99_ms/1000.0 END AS p99 FROM analytics.journey_daily WHERE tenant_id = ${tenant:sqlstring}::uuid AND journey_key IN ('feed_distribution','feed_packing','feed_wastage','feed_transport') AND $__timeFilter(((event_date + 1)::timestamp AT TIME ZONE 'Asia/Kolkata') - interval '1 second') ORDER BY time",
+          "rawSql": "SELECT time, metric, p50, p90, p99 FROM (SELECT ((event_date + 1)::timestamp AT TIME ZONE 'Asia/Kolkata') - interval '1 second' AS time, journey_key AS metric, CASE WHEN completions > 0 THEN p50_ms/1000.0 END AS p50, CASE WHEN completions > 0 THEN p90_ms/1000.0 END AS p90, CASE WHEN completions > 0 THEN p99_ms/1000.0 END AS p99 FROM analytics.journey_daily WHERE tenant_id = ${tenant:sqlstring}::uuid AND journey_key IN ('feed_distribution','feed_packing','feed_wastage','feed_transport')) q WHERE $__timeFilter(time) ORDER BY time",
           "format": "time_series",
           "editorMode": "code",
           "rawQuery": true
@@ -422,7 +424,7 @@
             "type": "grafana-postgresql-datasource",
             "uid": "postgres-analytics"
           },
-          "rawSql": "SELECT ((event_date + 1)::timestamp AT TIME ZONE 'Asia/Kolkata') - interval '1 second' AS time, dau AS daily_users, wau_approx AS seven_day_users, sessions AS work_sessions FROM analytics.engagement_daily WHERE tenant_id = ${tenant:sqlstring}::uuid AND $__timeFilter(((event_date + 1)::timestamp AT TIME ZONE 'Asia/Kolkata') - interval '1 second') ORDER BY time",
+          "rawSql": "SELECT time, daily_users, seven_day_users, work_sessions FROM (SELECT ((event_date + 1)::timestamp AT TIME ZONE 'Asia/Kolkata') - interval '1 second' AS time, dau AS daily_users, wau_approx AS seven_day_users, sessions AS work_sessions FROM analytics.engagement_daily WHERE tenant_id = ${tenant:sqlstring}::uuid) q WHERE $__timeFilter(time) ORDER BY time",
           "format": "time_series",
           "editorMode": "code",
           "rawQuery": true
@@ -461,7 +463,7 @@
             "type": "grafana-postgresql-datasource",
             "uid": "postgres-analytics"
           },
-          "rawSql": "SELECT event_date, app_version, route_pattern, http_method, response_class, total_requests FROM analytics.app_network_daily WHERE source_app_id = 'sg.mesha.goatos' AND total_requests > 0 AND $__timeFilter(((event_date + 1)::timestamp AT TIME ZONE 'Asia/Kolkata') - interval '1 second') ORDER BY event_date, route_pattern, http_method, response_class",
+          "rawSql": "SELECT event_date, app_version, route_pattern, http_method, response_class, total_requests FROM (SELECT ((event_date + 1)::timestamp AT TIME ZONE 'Asia/Kolkata') - interval '1 second' AS time, event_date, app_version, route_pattern, http_method, response_class, total_requests FROM analytics.app_network_daily WHERE source_app_id = 'sg.mesha.goatos' AND total_requests > 0) q WHERE $__timeFilter(time) ORDER BY event_date, route_pattern, http_method, response_class",
           "format": "table",
           "editorMode": "code",
           "rawQuery": true

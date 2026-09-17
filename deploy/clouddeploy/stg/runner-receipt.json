@@ -1,23 +1,23 @@
 {
   "schemaVersion": 1,
-  "image": "asia-south1-docker.pkg.dev/goatos-stg/goatos/clouddeploy-stg-runner@sha256:de417bd83c42d1cb3fdb479cf9ab8a23aac6ef45ec0528cdd345f23d30c42b8b",
+  "image": "asia-south1-docker.pkg.dev/goatos-stg/goatos/clouddeploy-stg-runner@sha256:f9a56dc35acfd5290f8b41224c62abf23b2bf183d88a50bd229876139534b12c",
   "files": {
     "deploy/clouddeploy/stg/runner.Dockerfile": "e638e40b0064e725c23c7355ef86e62428042777fbfbeb35642b3bd58b27757f",
     "infra/grafana/dashboards/00-feature-health.json": "a3a80e7cbd3e9e46fd7516002ba70123669675c789f78b4f334519098bb9472f",
     "infra/grafana/dashboards/01-api-red.json": "163a38d6de546b9ff52bedc3acdf185fad05c0191e76e76978fe2eeeea3357e1",
     "infra/grafana/dashboards/02-db.json": "09e0fa83e5acbb5aad2931e678aedd0f1a0f4a54965d473f847d31dc0e049a7a",
-    "infra/grafana/dashboards/03-kernel-pipeline.json": "aa2b14ed7950795fedee2f280385dda80b89612a396f956d9f39dfb7a2edf17e",
-    "infra/grafana/dashboards/04-frontend-rum.json": "95d56c798c31d2f6872feae6f70de613b3a3ef0f7127a5bf9a6e74d0eed55226",
-    "infra/grafana/dashboards/05-mobile.json": "2a4a5ae7ee9784c074ff1dc05ea1fd2d3b1e6cec2bdcdb3ab5edbff387b85f0a",
+    "infra/grafana/dashboards/03-kernel-pipeline.json": "9280602103475369696ed2a1801de4bd5e68a35de9fd3edb3cd9dfae3cf4eb75",
+    "infra/grafana/dashboards/04-frontend-rum.json": "c4856969fb3b526d74bef369bf854efd92a6a49906a746f0160930894fe05a6f",
+    "infra/grafana/dashboards/05-mobile.json": "be0ec4dce264b6ab0cd12cd126f7298922b6db086eaf13348345d22b2a745578",
     "infra/grafana/dashboards/06-slo-burn.json": "2a8dd3a151ca3ba1a31e12d2e619c02c541c1d70733b08dcdb7229837b3acc5e",
     "infra/grafana/provisioning/dashboards/dashboards.yaml": "6cf993e6b6936d8fad87d71f1a8e4d3051452d39b0ce260759efd6f0959ef4d9",
     "infra/grafana/provisioning/datasources/datasources.yaml": "af94934458d749bd8dceb81f20e6516af1aec8d114135985a451355604a74aa8",
     "infra/observability/faro-log-metrics.json": "6f7d07c3a8f1871562466a59edce4b406983eb1dc3ec447a9cf8040fca906265",
     "infra/observability/firebase-initial-export.json": "a9560c7987da69420abc953ab30fdf7e0d75cdea74afc313c1db2d933b79d4e7",
-    "tools/deploy/smoke-stg-grafana-dashboards.mjs": "2c39bd869104cda2790d7df7fc8dae375cb98fac09e5b08a188b44fa2f3c8af9",
+    "tools/deploy/smoke-stg-grafana-dashboards.mjs": "c0baaf82bb098f197b1ed9ed5bf53af16a8dba28c3738b5c29f31b935e296de1",
     "tools/deploy/stg-analytics-events-routing.sh": "6fe6e271b66cd08c576fd26353643ab1c4a14bf1fd4e23542ae71ccf6764fa54",
     "tools/deploy/stg-clouddeploy-task.sh": "26e532c19cbe77a25801bf8b12ab9823066c620b9025eb7404ad278541d322c1",
     "tools/deploy/stg-grafana-sso.py": "9c8daedb6aba40e7ad923444b7452a5428167c1bd73e4ee668db90340845ce55",
-    "tools/deploy/stg-observability.py": "7f4d035af45de43ed52fd3c59f15479228b7a2e7475e5b7c8e0e4ae121c813c9"
+    "tools/deploy/stg-observability.py": "4de4120a11dff7a4487d5ddd7ea38ebc8232214a20156dcfb0f845dd819857f6"
   }
 }
