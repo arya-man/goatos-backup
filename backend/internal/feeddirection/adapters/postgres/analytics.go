@@ -358,7 +358,7 @@ ORDER BY feed_day, row_kind, feed_item_label`
 // Status-wise: per PEN TAG over the whole window, the average DIRECTED feed per animal per day and
 // the rupees spent on that tag's pens per day.
 //
-// projection-review: membership=the SAME issue-row set as directedAnalyticsCombinedSQL — feed_direction_issue_rows reached through the at-most-one live issue per (tenant, park, feed_day, workflow), states issued/amended/locked, workflows normal+experiment, blocked cells (quantity_kg NULL) excluded; producer natural key=(tenant_id, feed_direction_issue_id, shed_id, partition_key, session_no, shed_tag_key, breed_key, feed_item_key) vs consumer keys: cells collapses sessions to (feed_day, park_id, shed_id, partition_key, shed_tag_key, breed_key, feed_item_key); pen_day collapses feed items to (feed_day, shed_id, partition_key, shed_tag_key, breed_key) — the identical pen-grain the day totals use — with SUM(kg) and MAX(heads); tag_item_day collapses to (feed_day, park_id, shed_tag_key, feed_item_key) for pricing; the outer query groups by shed_tag_key; join_cardinality=issues to rows 1:N pre-aggregated in cells, tag_item_day to price is 1:0..1 via the LIMIT 1 lateral (the same farm-latest-load rule as stockItemExpenditureSQL), and tag_heads to tag_spend is 1:0..1 on shed_tag_key, so no join repeats a head count or a rupee; ratio check=per_head_grams and per_head_kg divide SUM(grain_kg) by SUM(grain_heads), avg_animals divides SUM(grain_heads) by COUNT(DISTINCT feed_day), all over the SAME pen_day rows of one tag; rupees_per_day divides the tag's priced rupees by that same tag's COUNT(DISTINCT feed_day); pagination=none, one row per pen tag (a small authored vocabulary); scope=tenant_id on issues, rows and purchases plus the caller's authorized park set via park_id = ANY($2)
+// projection-review: membership=the SAME issue-row set as directedAnalyticsCombinedSQL — feed_direction_issue_rows reached through the at-most-one live issue per (tenant, park, feed_day, workflow), states issued/amended/locked, workflows normal+experiment, blocked cells (quantity_kg NULL) excluded; producer natural key=(tenant_id, feed_direction_issue_id, shed_id, partition_key, session_no, shed_tag_key, breed_key, feed_item_key) vs consumer keys: cells collapses sessions to (feed_day, park_id, shed_id, partition_key, shed_tag_key, breed_key, feed_item_key); pen_day collapses feed items to (feed_day, shed_id, partition_key, shed_tag_key, breed_key) — the identical pen-grain the day totals use — with SUM(kg) and MAX(heads); tag_item_day collapses to (feed_day, park_id, shed_tag_key, feed_item_key) for pricing; the outer query groups by shed_tag_key; join_cardinality=issues to rows 1:N pre-aggregated in cells, tag_item_day to price is 1:0..1 via the LIMIT 1 lateral (the same farm-latest-load rule as stockItemExpenditureSQL), and tag_heads to tag_spend is 1:0..1 on shed_tag_key, so no join repeats a head count or a rupee; ratio check=per_head_grams and per_head_kg divide SUM(grain_kg) by SUM(grain_heads) (per tag, and per tag×day for the day rows over tag_day, the same pen_day rows grouped one key finer), avg_animals divides SUM(grain_heads) by COUNT(DISTINCT feed_day), all over the SAME pen_day rows of one tag; rupees_per_day divides the tag's priced rupees by that same tag's COUNT(DISTINCT feed_day); pagination=none, one row per pen tag (a small authored vocabulary); scope=tenant_id on issues, rows and purchases plus the caller's authorized park set via park_id = ANY($2)
 //
 // scale-guard:ignore: 5k-50k-envelope — bounded windowed aggregate (≤92 days × ≤2 parks), rows
 // reached via the issue-id natural-key prefix, the ADR's canonical-indexed-SQL default.
@@ -413,8 +413,8 @@ tag_item_day AS (
     FROM cells
     GROUP BY feed_day, park_id, shed_tag_key, feed_item_key
 ),
-tag_spend AS (
-    SELECT t.shed_tag_key, SUM(t.kg * price.per_kg) AS rupees
+priced_day AS (
+    SELECT t.shed_tag_key, t.feed_day, SUM(t.kg * price.per_kg) AS rupees
     FROM tag_item_day t
     JOIN LATERAL (
         SELECT COALESCE(p.per_kg_cost, p.total_cost / NULLIF(p.stock_kg, 0)) AS per_kg
@@ -427,23 +427,55 @@ tag_spend AS (
         ORDER BY p.depletes_from DESC, p.purchase_date DESC, p.batch_no DESC
         LIMIT 1
     ) price ON price.per_kg IS NOT NULL
-    GROUP BY t.shed_tag_key
+    GROUP BY t.shed_tag_key, t.feed_day
+),
+tag_spend AS (
+    SELECT shed_tag_key, SUM(rupees) AS rupees
+    FROM priced_day
+    GROUP BY shed_tag_key
+),
+tag_day AS (
+    SELECT shed_tag_key, feed_day, SUM(grain_kg) AS kg, SUM(grain_heads) AS heads
+    FROM pen_day
+    GROUP BY shed_tag_key, feed_day
 )
-SELECT h.shed_tag_key,
+SELECT 'tag'::text                                                      AS row_kind,
+       ''::text                                                         AS feed_day,
+       h.shed_tag_key,
        h.pen_tag_label,
        -- feed_config_norm keeps the "+" that joins stages in a mixed pen's tag ("F2-Male + K3").
-       position('+' in h.shed_tag_key) > 0,
-       COALESCE(h.kg, 0)::text,
-       COALESCE(h.heads, 0)::bigint,
-       h.feed_days::bigint,
-       h.pens::bigint,
-       COALESCE(round(h.heads::numeric / NULLIF(h.feed_days, 0), 0)::text, ''),
-       COALESCE(round(h.kg * 1000 / NULLIF(h.heads, 0), 1)::text, ''),
-       COALESCE(round(h.kg / NULLIF(h.heads, 0), 2)::text, ''),
-       COALESCE(round(s.rupees / NULLIF(h.feed_days, 0), 0)::text, '')
+       position('+' in h.shed_tag_key) > 0                              AS mixed,
+       COALESCE(h.kg, 0)::text                                          AS directed_kg,
+       COALESCE(h.heads, 0)::bigint                                     AS heads,
+       h.feed_days::bigint                                              AS feed_days,
+       h.pens::bigint                                                   AS pens,
+       COALESCE(round(h.heads::numeric / NULLIF(h.feed_days, 0), 0)::text, '') AS avg_animals,
+       COALESCE(round(h.kg * 1000 / NULLIF(h.heads, 0), 1)::text, '')   AS per_head_grams,
+       COALESCE(round(h.kg / NULLIF(h.heads, 0), 2)::text, '')          AS per_head_kg,
+       COALESCE(round(s.rupees / NULLIF(h.feed_days, 0), 0)::text, '')  AS rupees,
+       h.kg * 1000 / NULLIF(h.heads, 0)                                 AS sort_grams
 FROM tag_heads h
 LEFT JOIN tag_spend s ON s.shed_tag_key = h.shed_tag_key
-ORDER BY h.kg * 1000 / NULLIF(h.heads, 0) DESC NULLS LAST, h.pen_tag_label`
+UNION ALL
+-- One point per (tag, day) for the card's line: that day's kg per animal, and that day's priced
+-- rupees (empty when nothing fed that day had a load rate, which draws a gap, not a zero).
+SELECT 'day'::text,
+       d.feed_day::text,
+       d.shed_tag_key,
+       '',
+       false,
+       COALESCE(d.kg, 0)::text,
+       COALESCE(d.heads, 0)::bigint,
+       1::bigint,
+       0::bigint,
+       '',
+       COALESCE(round(d.kg * 1000 / NULLIF(d.heads, 0), 1)::text, ''),
+       COALESCE(round(d.kg / NULLIF(d.heads, 0), 2)::text, ''),
+       COALESCE(round(pd.rupees, 0)::text, ''),
+       NULL::numeric
+FROM tag_day d
+LEFT JOIN priced_day pd ON pd.shed_tag_key = d.shed_tag_key AND pd.feed_day = d.feed_day
+ORDER BY row_kind DESC, sort_grams DESC NULLS LAST, pen_tag_label, feed_day`
 
 // DirectedAnalytics serves the windowed directed rollup. One set-based read
 // produces both arrays; no per-day fan-out and no duplicate scan for day totals.
@@ -504,13 +536,33 @@ func (r *Repository) directedPenTags(
 	}
 	defer rows.Close()
 	out := []domain.DirectedPenTag{}
+	index := map[string]int{}
 	for rows.Next() {
+		var kind, feedDay, rupees string
 		var t domain.DirectedPenTag
-		if err := rows.Scan(&t.PenTagKey, &t.PenTagLabel, &t.Mixed, &t.DirectedKg, &t.HeadDays, &t.FeedDays,
-			&t.Pens, &t.AvgAnimals, &t.PerHeadGrams, &t.PerHeadKg, &t.RupeesPerDay); err != nil {
+		var sortGrams *float64
+		if err := rows.Scan(&kind, &feedDay, &t.PenTagKey, &t.PenTagLabel, &t.Mixed, &t.DirectedKg, &t.HeadDays,
+			&t.FeedDays, &t.Pens, &t.AvgAnimals, &t.PerHeadGrams, &t.PerHeadKg, &rupees, &sortGrams); err != nil {
 			return nil, fmt.Errorf("feed analytics pen-tag rollup scan: %w", err)
 		}
-		out = append(out, t)
+		switch kind {
+		case "tag":
+			t.RupeesPerDay = rupees
+			t.Days = []domain.DirectedPenTagDay{}
+			index[t.PenTagKey] = len(out)
+			out = append(out, t)
+		case "day":
+			// Tag rows sort first, so every day row finds its tag.
+			at, ok := index[t.PenTagKey]
+			if !ok {
+				return nil, fmt.Errorf("feed analytics pen-tag rollup: day row for unknown tag %q", t.PenTagKey)
+			}
+			out[at].Days = append(out[at].Days, domain.DirectedPenTagDay{
+				FeedDay: feedDay, PerHeadKg: t.PerHeadKg, Rupees: rupees,
+			})
+		default:
+			return nil, fmt.Errorf("feed analytics pen-tag rollup unknown row kind %q", kind)
+		}
 	}
 	if err := rows.Err(); err != nil {
 		return nil, fmt.Errorf("feed analytics pen-tag rollup rows: %w", err)
