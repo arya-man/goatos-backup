@@ -141,7 +141,7 @@ export function RoutinesPage({ searchParams, pageContract, data }: { searchParam
   // Park segments in the backend's served order: CBE, then CPT. The unfiltered segment carries
   // the filter's own label because the contract names no "all parks" sentence yet.
   const parkSegments: SegmentedOption[] = [
-    { value: "", label: c("filter.park"), href: href(sp, { [PARAM_PARK]: undefined, [PARAM_ROUTINE]: undefined }) },
+    { value: "", label: copy(pageContract, "filter.park.all", c("filter.park")), href: href(sp, { [PARAM_PARK]: undefined, [PARAM_ROUTINE]: undefined }) },
     ...parks.map((park) => ({ value: park.park_id, label: park.name, href: href(sp, { [PARAM_PARK]: park.park_id, [PARAM_ROUTINE]: undefined }) })),
   ];
 
@@ -268,7 +268,7 @@ export function RoutinesPage({ searchParams, pageContract, data }: { searchParam
       <div className="phead" style={{ marginTop: 12, alignItems: "flex-end", paddingBottom: 6 }}>
         <div>
           <div className="crumb">
-            <b>{c("crumb")}</b> · {pageContract.title}
+            <b>{c("crumb")}</b>
           </div>
           <h1>{pageContract.title}</h1>
           <div className="sub">{pageContract.subtitle}</div>

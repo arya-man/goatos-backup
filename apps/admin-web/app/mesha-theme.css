@@ -2679,6 +2679,16 @@
 .card .bd { padding: 6px 16px 16px; }
 .sales-config-card-copy{margin:0;padding:10px 16px 14px;line-height:1.45}
 /* Market survey config (Sales Config): the body sits inside the card's .bd, blocks are spaced, rows breathe. */
+/* Routines drawer (pen routines): option rows are checkbox/radio + text on ONE line. They sit
+   inside .fld, whose label rule is the small uppercase field caption, so the reset is scoped to
+   the option class and must stay more specific than `.fld label`. */
+.pen-routine-radios{display:flex;flex-wrap:wrap;gap:6px 18px;margin:4px 0 2px}
+.fld label.pen-routine-check,.pen-routine-check{display:inline-flex;align-items:center;gap:8px;margin:0;font-size:13px;font-weight:500;text-transform:none;letter-spacing:0;color:var(--ink);cursor:pointer}
+.pen-routine-check input[type=radio],.pen-routine-check input[type=checkbox]{width:auto;margin:0;flex:0 0 auto}
+.pen-routine-checklist{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:10px 16px;margin:4px 0 6px}
+.pen-routine-checklist .pen-routine-check{align-items:flex-start}
+.pen-routine-proof{display:grid;grid-template-columns:1fr 1fr;gap:6px}
+.fld .pen-routine-proof label{margin-bottom:3px}
 .market-config-body{display:flex;flex-direction:column;gap:18px;padding-top:12px}
 .market-config-h4{margin:0 0 2px;font-size:13.5px}
 .market-config-hint{margin:0 0 10px;line-height:1.4}
