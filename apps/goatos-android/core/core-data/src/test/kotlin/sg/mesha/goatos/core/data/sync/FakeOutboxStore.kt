@@ -148,6 +148,22 @@ class FakeOutboxStore : OutboxStore {
             it.copy(status = OutboxStatus.SUCCEEDED.name, resultJson = resultJson, lastError = null, updatedAt = now)
         }
 
+    override suspend fun findConflictedWorkflowActionWrites(limit: Int): List<OutboxEntity> =
+        rows.value
+            .filter {
+                it.status == OutboxStatus.FAILED.name && it.conflict &&
+                    it.opType in setOf(OutboxOpType.WORKFLOW_ACTION_COMPLETE.name, OutboxOpType.WORKFLOW_ACTION_ANSWER.name)
+            }
+            .sortedBy { it.createdAt }
+            .take(limit)
+
+    override suspend fun settleConflictAsSucceeded(id: String, resultJson: String, now: Long): Boolean {
+        if (rows.value.firstOrNull { it.id == id }?.conflict != true) return false
+        return mutateIf(id, expected = setOf(OutboxStatus.FAILED.name)) {
+            it.copy(status = OutboxStatus.SUCCEEDED.name, conflict = false, resultJson = resultJson, lastError = null, updatedAt = now)
+        }
+    }
+
     override suspend fun markFailed(
         id: String,
         attemptCount: Int,

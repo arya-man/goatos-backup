@@ -270,6 +270,21 @@ interface OutboxDao {
     )
     suspend fun markSucceeded(id: String, resultJson: String, now: Long): Int
 
+    /** Dead-letter Birth/Death/Reconcile step writes, oldest first. Bounded by [limit]. */
+    @Query(
+        "SELECT * FROM outbox WHERE status = 'FAILED' AND conflict = 1 " +
+            "AND opType IN ('WORKFLOW_ACTION_COMPLETE', 'WORKFLOW_ACTION_ANSWER') " +
+            "ORDER BY createdAt ASC LIMIT :limit",
+    )
+    suspend fun findConflictedWorkflowActionWrites(limit: Int): List<OutboxEntity>
+
+    /** A conflict row whose write the server already holds becomes SUCCEEDED (see SyncEngine). */
+    @Query(
+        "UPDATE outbox SET status = 'SUCCEEDED', conflict = 0, resultJson = :resultJson, lastError = NULL, lastErrorCode = NULL, lastErrorField = NULL, updatedAt = :now " +
+            "WHERE id = :id AND status = 'FAILED' AND conflict = 1",
+    )
+    suspend fun settleConflictAsSucceeded(id: String, resultJson: String, now: Long): Int
+
     @Query(
         "UPDATE outbox SET status = 'FAILED', attemptCount = :attemptCount, nextAttemptAt = :nextAttemptAt, " +
             "conflict = :conflict, lastError = :lastError, lastErrorCode = :lastErrorCode, lastErrorField = :lastErrorField, updatedAt = :now " +

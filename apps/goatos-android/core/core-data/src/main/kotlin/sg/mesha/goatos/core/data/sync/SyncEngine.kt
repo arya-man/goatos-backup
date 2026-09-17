@@ -21,6 +21,7 @@ import sg.mesha.goatos.core.database.outbox.OutboxOpType
 import sg.mesha.goatos.core.database.outbox.OutboxStatus
 import sg.mesha.goatos.core.network.AppApi
 import sg.mesha.goatos.core.network.appApiStatusCode
+import sg.mesha.goatos.core.network.dto.WorkflowActionWriteResponseDto
 import sg.mesha.goatos.core.network.dto.CountsSopCaptureDto
 import sg.mesha.goatos.core.network.dto.FeedDirectionCompleteRequestDto
 import sg.mesha.goatos.core.network.dto.FeedDistributionCompleteRequestDto
@@ -215,6 +216,8 @@ class SyncEngine(
      * replays each recent terminal exactly once, which is the process-death repair this exists for.
      */
     private val replayedTerminals = BoundedKeySet(capacity = SUCCESS_RECONCILE_LIMIT * 8)
+    /** Conflicted step writes already re-read against the server in this process. */
+    private val settleAttemptedRows = BoundedKeySet(capacity = SUCCESS_RECONCILE_LIMIT * 8)
 
     suspend fun deleteProof(proofId: String) = withContext(dispatchers.io) {
         api.deleteProof(proofId)
@@ -267,6 +270,7 @@ class SyncEngine(
             }
         }
         if (!connectivityGate.isOnline()) return false
+        withContext(dispatchers.io) { settleConflictedWorkflowWritesTheServerHolds() }
         val earliestRetryAt = AtomicLong(NO_RETRY_DUE)
         fun rememberRetryDue(epochMillis: Long) {
             while (true) {
@@ -2067,42 +2071,110 @@ class SyncEngine(
      */
     private suspend fun dispatchWorkflowActionAnswer(item: OutboxEntity): String {
         val payload = syncJson.decodeFromString<WorkflowActionAnswerPayload>(item.payloadJson)
-        val response = api.answerWorkflowAction(
-            payload.workflowId,
-            payload.actionId,
-            item.idempotencyKey,
-            WorkflowActionAnswerRequestDto(
-                answerValue = payload.answerValue,
-                proofRef = payload.proofOutboxItemId?.let { resolveUploadedProofRef(it) },
-                proofs = resolveWorkflowProofs(payload.proofOutboxItems),
-            ),
-        )
+        val response = settleWorkflowWriteTheServerHolds(payload.workflowId, payload.actionId) {
+            api.answerWorkflowAction(
+                payload.workflowId,
+                payload.actionId,
+                item.idempotencyKey,
+                WorkflowActionAnswerRequestDto(
+                    answerValue = payload.answerValue,
+                    proofRef = payload.proofOutboxItemId?.let { resolveUploadedProofRef(it) },
+                    proofs = resolveWorkflowProofs(payload.proofOutboxItems),
+                ),
+            )
+        }
         return syncJson.encodeToString(response)
+    }
+
+    /**
+     * A step write refused `409` (`action_already_completed` / `action_in_review`, or a key the
+     * server already holds under another payload) for a step the SERVER SHOWS RECORDED is done, not
+     * a conflict. Parking it as a dead conflict row held the workflow's whole outbox lane: the next
+     * step's proof upload and answers sat queued and the card stayed stuck (Realme E2E 2026-09-17).
+     * The step is re-read, never assumed: a 409 for a step still open stays a visible conflict.
+     */
+    private suspend fun settleWorkflowWriteTheServerHolds(
+        workflowId: String,
+        actionId: String,
+        write: suspend () -> WorkflowActionWriteResponseDto,
+    ): WorkflowActionWriteResponseDto = try {
+        write()
+    } catch (error: Exception) {
+        if (error is CancellationException) throw error
+        if (error.appApiStatusCode() != 409) throw error
+        workflowStepTheServerHolds(workflowId, actionId) ?: throw error
+    }
+
+    /** The server's own record of a step when it is already recorded (completed / in review). */
+    private suspend fun workflowStepTheServerHolds(workflowId: String, actionId: String): WorkflowActionWriteResponseDto? {
+        val detail = api.getWorkflow(workflowId)
+        val step = detail.actions.firstOrNull { it.actionId == actionId } ?: return null
+        if (step.status != WORKFLOW_STEP_COMPLETED && step.status != WORKFLOW_STEP_IN_REVIEW) return null
+        return WorkflowActionWriteResponseDto(
+            workflowId = workflowId,
+            actionId = actionId,
+            status = step.status,
+            actionsDone = detail.actionsDone,
+            actionsTotal = detail.actionsTotal,
+            awaitingVerification = step.status == WORKFLOW_STEP_IN_REVIEW,
+            completedAt = step.completedAt,
+            idempotentReplay = true,
+        )
+    }
+
+    /**
+     * Recovery for phones that already hold a dead-letter step write from an older build: a
+     * conflict WORKFLOW_ACTION_COMPLETE / ANSWER row whose step the server shows recorded is settled
+     * as succeeded so it stops holding its lane. Bounded per pass and tried once per process per row.
+     */
+    private suspend fun settleConflictedWorkflowWritesTheServerHolds() {
+        store.findConflictedWorkflowActionWrites(SUCCESS_RECONCILE_LIMIT).forEach { row ->
+            if (!settleAttemptedRows.add(row.id)) return@forEach
+            try {
+                val (workflowId, actionId) = when (row.opType) {
+                    OutboxOpType.WORKFLOW_ACTION_COMPLETE.name ->
+                        syncJson.decodeFromString<WorkflowActionCompletePayload>(row.payloadJson).let { it.workflowId to it.actionId }
+                    else ->
+                        syncJson.decodeFromString<WorkflowActionAnswerPayload>(row.payloadJson).let { it.workflowId to it.actionId }
+                }
+                val held = workflowStepTheServerHolds(workflowId, actionId) ?: return@forEach
+                store.settleConflictAsSucceeded(row.id, syncJson.encodeToString(held), clock())
+            } catch (error: Exception) {
+                if (error is CancellationException) throw error
+                // Offline / server error: forget the attempt so a later pass can try again.
+                settleAttemptedRows.remove(row.id)
+                reportCacheReconcileFailure(row, error)
+            }
+        }
     }
 
     /** Resolves every queued proof of a multi-proof step to its uploaded server id, in capture
      *  order; null when the step carried none (a one-video step keeps using proof_ref). */
     private suspend fun resolveWorkflowProofs(items: List<WorkflowProofOutboxRef>): List<WorkflowProofItemDto>? {
         if (items.isEmpty()) return null
+        // A step carries each proof once: a row queued by a build that appended one capture twice
+        // must not send the same proof twice.
         return items.map {
             WorkflowProofItemDto(
                 ref = it.proofRef.takeIf { ref -> ref.isNotBlank() } ?: resolveUploadedProofRef(it.outboxItemId),
                 kind = it.kind,
             )
-        }
+        }.distinctBy { it.ref }
     }
 
     private suspend fun dispatchWorkflowActionComplete(item: OutboxEntity): String {
         val payload = syncJson.decodeFromString<WorkflowActionCompletePayload>(item.payloadJson)
-        val response = api.completeWorkflowAction(
-            payload.workflowId,
-            payload.actionId,
-            item.idempotencyKey,
-            WorkflowActionCompleteRequestDto(
-                proofRef = payload.proofOutboxItemId?.let { resolveUploadedProofRef(it) },
-                proofs = resolveWorkflowProofs(payload.proofOutboxItems),
-            ),
-        )
+        val response = settleWorkflowWriteTheServerHolds(payload.workflowId, payload.actionId) {
+            api.completeWorkflowAction(
+                payload.workflowId,
+                payload.actionId,
+                item.idempotencyKey,
+                WorkflowActionCompleteRequestDto(
+                    proofRef = payload.proofOutboxItemId?.let { resolveUploadedProofRef(it) },
+                    proofs = resolveWorkflowProofs(payload.proofOutboxItems),
+                ),
+            )
+        }
         return syncJson.encodeToString(response)
     }
 
@@ -2263,6 +2335,8 @@ class SyncEngine(
 
     private companion object {
         const val SUCCESS_RECONCILE_LIMIT = 20
+        private const val WORKFLOW_STEP_COMPLETED = "completed"
+        private const val WORKFLOW_STEP_IN_REVIEW = "in_review"
         // Max rows pulled into memory per drain iteration. A long offline backlog drains in
         // successive batches of this size rather than one unbounded SELECT * materialization.
         const val DRAIN_BATCH_SIZE = 200
