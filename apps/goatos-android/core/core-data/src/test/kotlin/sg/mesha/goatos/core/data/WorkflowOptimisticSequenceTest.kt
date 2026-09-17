@@ -191,6 +191,52 @@ class WorkflowOptimisticSequenceTest {
         assertTrue(optimistic.actions.single { it.actionKey == "post_mortem_video" }.blocked)
     }
 
+    @Test
+    fun `a death capture re-shoot is never held behind the reworked death videos`() {
+        // Real phone E2E 2026-09-17: a verifier reject of a death puts both videos back to rework
+        // AND appends "Re-shoot report proof" (task_type reshoot_report, one photo). The backend
+        // says the re-shoot is never blocked (tasks/domain.OperatorActionBlocked); the phone's
+        // optimistic pass re-blocked it behind the reworked videos with NO reason, so the step
+        // rendered without any capture control and the rework could never be finished.
+        val detail = deathDetail(firstStatus = "rework", secondBlocked = true).let { base ->
+            base.copy(
+                actions = base.actions.map { if (it.actionKey == "post_mortem_video") it.copy(status = "rework", blockedReason = "previous_action") else it } +
+                    WorkflowActionDto(
+                        actionId = "reshoot",
+                        actionKey = "reshoot_report_0_ab12cd34",
+                        seq = 3,
+                        actionType = "action",
+                        taskType = "reshoot_report",
+                        status = "rework",
+                        proofMinPhotos = 1,
+                        blocked = false,
+                    ),
+            )
+        }
+
+        val optimistic = detail.withOptimisticOperatorSequence()
+
+        assertFalse(
+            "the re-shoot must stay recordable while the death videos are reworked",
+            optimistic.actions.single { it.actionId == "reshoot" }.blocked,
+        )
+        assertTrue(optimistic.actions.single { it.actionKey == "post_mortem_video" }.blocked)
+    }
+
+    @Test
+    fun `a birth capture re-shoot is never held behind a pending later-day step`() {
+        val detail = WorkflowDetailResponseDto(
+            module = "birth",
+            templateKey = "birth_mother",
+            actions = listOf(
+                WorkflowActionDto(actionId = "ors", actionKey = "ors_water_day_2", seq = 1, actionType = "action", status = "pending", blocked = false),
+                WorkflowActionDto(actionId = "reshoot", actionKey = "reshoot_report_0_ab12cd34", seq = 2, actionType = "action", taskType = "reshoot_report", status = "rework", proofMinPhotos = 1, blocked = false),
+            ),
+        )
+
+        assertFalse(detail.withOptimisticOperatorSequence().actions.single { it.actionId == "reshoot" }.blocked)
+    }
+
     private fun deathDetail(firstStatus: String, secondBlocked: Boolean) =
         WorkflowDetailResponseDto(
             module = "death",

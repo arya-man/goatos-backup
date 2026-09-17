@@ -520,6 +520,9 @@ internal fun WorkflowCardDto.withActiveCachedProgressPreserved(
     this
 }
 
+/** The appended step that re-records a rejected capture-form proof (tasks/domain.EngineHookReshootReport). */
+internal const val WORKFLOW_TASK_TYPE_RESHOOT_REPORT = "reshoot_report"
+
 /** Pure optimistic projection used while a durable action outbox group drains. Both `completed`
  * and `in_review` are finished from the operator's perspective; only a later `rework` reopens it.
  *
@@ -536,6 +539,12 @@ internal fun WorkflowDetailResponseDto.withOptimisticOperatorSequence(): Workflo
 
     val sequencedActions = actions.map { action ->
         if (action.actionType == "approval") {
+            action
+        } else if (action.taskType == WORKFLOW_TASK_TYPE_RESHOOT_REPORT) {
+            // A capture re-shoot answers a verdict on the REPORT, not a step of the track, so the
+            // backend never holds it behind earlier steps (tasks/domain.OperatorActionBlocked).
+            // Re-blocking it here left a death's re-shoot with no capture control while its two
+            // videos sat in rework -- the operator could never finish the rework.
             action
         } else {
             val hasIncompletePredecessor = actions.any { previous ->
