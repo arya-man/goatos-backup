@@ -85,6 +85,10 @@ class SyncRepositoryTest {
         }
 
         override suspend fun pruneOutsideNewest(keep: Int) = Unit
+
+        override fun observe(scopeId: String) = kotlinx.coroutines.flow.flowOf(rows[scopeId]?.epoch)
+
+        override suspend fun pruneRoundFloorsOutsideNewest(keep: Int) = Unit
     }
 
     private fun submitRequest(key: String) = SubmitTaskRequestDto(sopVersionId = "sop-1", idempotencyKey = key)
