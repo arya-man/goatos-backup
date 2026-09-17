@@ -9443,7 +9443,9 @@ paths:
         The caller sees the tasks they are party to -- tasks addressed to them and, when they can
         raise tasks, tasks they raised -- newest first, keyset-paged. CEO/COO-style monitors can
         also open `team_progress` for read-only cross-team progress. `filters` are whole-list counts
-        over the same scope predicate, never page sums. Every visible word (chips, meta line, number
+        over the same scope predicate AND the same q/person/date filters as the rows, never page sums --
+        a chip never advertises a row the list hides; `scopes` counts are the same, each tab counting
+        what that tab would show under the current filters. Every visible word (chips, meta line, number
         label, status button labels, empty messages) is backend-owned and rendered verbatim.
       parameters:
         - name: scope
@@ -9468,7 +9470,71 @@ paths:
           in: query
           required: false
           schema: { type: string }
-          description: Keyset cursor from a previous page's next_cursor.
+          description: >-
+            Keyset cursor from a previous page's next_cursor. The cursor is SORT-AWARE: it carries
+            the name of the sort it was minted under, and a cursor presented under a different
+            `sort` is refused 400 `invalid_cursor` rather than served as a wrong page. Drop the
+            cursor whenever the sort changes.
+        - name: q
+          in: query
+          required: false
+          schema: { type: string, maxLength: 120 }
+          description: >-
+            Free text, trimmed. Matches the title OR the brief, case-insensitive, anywhere in the
+            text. When the text is a bare integer it ALSO matches the task's own number exactly,
+            so "15" finds task #15. Empty or whitespace is the same as absent; over 120 characters
+            is 400 `invalid_query`.
+        - name: assignee_user_id
+          in: query
+          required: false
+          schema: { type: string, format: uuid }
+          description: >-
+            Narrow to one assignee. IGNORED (never an error) when the scope already pins the
+            assignee (`assigned_to_me`), so switching tabs with the filter bar set does not fail.
+            A malformed uuid is 400 `invalid_filter`.
+        - name: raised_by
+          in: query
+          required: false
+          schema: { type: string, format: uuid }
+          description: >-
+            Narrow to one raiser. IGNORED when the scope already pins the raiser
+            (`assigned_by_me`). A malformed uuid is 400 `invalid_filter`.
+        - name: deadline_from
+          in: query
+          required: false
+          schema: { type: string }
+          description: >-
+            INCLUSIVE lower bound on `deadline_at`: an RFC3339 instant, or a bare YYYY-MM-DD read
+            as the start of that UTC day. Required TOGETHER with `deadline_to`; one end alone, or
+            a start after its end, is 400 `invalid_date_range`. A deadline range never matches a
+            task that has no deadline.
+        - name: deadline_to
+          in: query
+          required: false
+          schema: { type: string }
+          description: >-
+            INCLUSIVE upper bound on `deadline_at`. A bare YYYY-MM-DD covers that whole UTC day.
+        - name: raised_from
+          in: query
+          required: false
+          schema: { type: string }
+          description: >-
+            INCLUSIVE lower bound on `raised_at`, same shapes and same both-ends rule as
+            `deadline_from`.
+        - name: raised_to
+          in: query
+          required: false
+          schema: { type: string }
+          description: INCLUSIVE upper bound on `raised_at`.
+        - name: sort
+          in: query
+          required: false
+          schema: { type: string, enum: [raised_at_desc, raised_at_asc, deadline_asc, deadline_desc], default: raised_at_desc }
+          description: >-
+            Row order. A task with NO deadline sorts LAST under both deadline orders -- it is
+            neither the most nor the least urgent. An unknown value is 400 `invalid_sort`, never a
+            silent fallback: a leader who asked for the deadline order and got the raise order
+            would read the wrong list as the truth.
       responses:
         "200":
           description: One page plus whole-list chip counts, the unseen count and the caller's raise capability.

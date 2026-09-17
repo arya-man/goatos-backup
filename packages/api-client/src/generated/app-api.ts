@@ -3646,7 +3646,7 @@ export interface paths {
         };
         /**
          * One page of the caller's leadership tasks.
-         * @description Leadership Tasks (maintainer decisions 2026-09-04 and Manju ask 2026-09-08): an authorized leader can raise a manual, non-event-driven task for a director, park head, or employee. The caller sees the tasks they are party to -- tasks addressed to them and, when they can raise tasks, tasks they raised -- newest first, keyset-paged. CEO/COO-style monitors can also open `team_progress` for read-only cross-team progress. `filters` are whole-list counts over the same scope predicate, never page sums. Every visible word (chips, meta line, number label, status button labels, empty messages) is backend-owned and rendered verbatim.
+         * @description Leadership Tasks (maintainer decisions 2026-09-04 and Manju ask 2026-09-08): an authorized leader can raise a manual, non-event-driven task for a director, park head, or employee. The caller sees the tasks they are party to -- tasks addressed to them and, when they can raise tasks, tasks they raised -- newest first, keyset-paged. CEO/COO-style monitors can also open `team_progress` for read-only cross-team progress. `filters` are whole-list counts over the same scope predicate AND the same q/person/date filters as the rows, never page sums -- a chip never advertises a row the list hides; `scopes` counts are the same, each tab counting what that tab would show under the current filters. Every visible word (chips, meta line, number label, status button labels, empty messages) is backend-owned and rendered verbatim.
          */
         get: operations["listLeadershipTasks"];
         put?: never;
@@ -25444,8 +25444,24 @@ export interface operations {
                 /** @description The chip KEY. Absent or unknown resolves to `all` (which hides cancelled tasks). */
                 filter?: "all" | "open" | "in_progress" | "done";
                 limit?: number;
-                /** @description Keyset cursor from a previous page's next_cursor. */
+                /** @description Keyset cursor from a previous page's next_cursor. The cursor is SORT-AWARE: it carries the name of the sort it was minted under, and a cursor presented under a different `sort` is refused 400 `invalid_cursor` rather than served as a wrong page. Drop the cursor whenever the sort changes. */
                 cursor?: string;
+                /** @description Free text, trimmed. Matches the title OR the brief, case-insensitive, anywhere in the text. When the text is a bare integer it ALSO matches the task's own number exactly, so "15" finds task #15. Empty or whitespace is the same as absent; over 120 characters is 400 `invalid_query`. */
+                q?: string;
+                /** @description Narrow to one assignee. IGNORED (never an error) when the scope already pins the assignee (`assigned_to_me`), so switching tabs with the filter bar set does not fail. A malformed uuid is 400 `invalid_filter`. */
+                assignee_user_id?: string;
+                /** @description Narrow to one raiser. IGNORED when the scope already pins the raiser (`assigned_by_me`). A malformed uuid is 400 `invalid_filter`. */
+                raised_by?: string;
+                /** @description INCLUSIVE lower bound on `deadline_at`: an RFC3339 instant, or a bare YYYY-MM-DD read as the start of that UTC day. Required TOGETHER with `deadline_to`; one end alone, or a start after its end, is 400 `invalid_date_range`. A deadline range never matches a task that has no deadline. */
+                deadline_from?: string;
+                /** @description INCLUSIVE upper bound on `deadline_at`. A bare YYYY-MM-DD covers that whole UTC day. */
+                deadline_to?: string;
+                /** @description INCLUSIVE lower bound on `raised_at`, same shapes and same both-ends rule as `deadline_from`. */
+                raised_from?: string;
+                /** @description INCLUSIVE upper bound on `raised_at`. */
+                raised_to?: string;
+                /** @description Row order. A task with NO deadline sorts LAST under both deadline orders -- it is neither the most nor the least urgent. An unknown value is 400 `invalid_sort`, never a silent fallback: a leader who asked for the deadline order and got the raise order would read the wrong list as the truth. */
+                sort?: "raised_at_desc" | "raised_at_asc" | "deadline_asc" | "deadline_desc";
             };
             header?: never;
             path?: never;

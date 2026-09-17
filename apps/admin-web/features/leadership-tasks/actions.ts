@@ -4,31 +4,45 @@ import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
 import {
   changeLeadershipTaskStatus,
+  editLeadershipTask,
   raiseLeadershipTask,
   setLeadershipTaskComment,
   uploadLeadershipTaskAttachment,
 } from "@/lib/api/server";
 import { farmDeadlineToRFC3339 } from "./deadline";
+import { TASK_PARAM } from "./params";
+import { safeTaskReturnTo, TASKS_PATHNAME } from "./task-url";
 
-const PATHNAME = "/tasks";
+const PATHNAME = TASKS_PATHNAME;
 
 function redirectTarget(formData: FormData): URL {
-  const returnTo = String(
-    formData.get("return_to") ?? `${PATHNAME}?scope=assigned_by_me`,
+  // The allowlist lives in task-url.ts and is unit-tested: it used to be a bare
+  // startsWith("/tasks"), which accepted the /tasks-preview FIXTURE host as the landing page for
+  // a live write.
+  return new URL(
+    safeTaskReturnTo(
+      formData.get("return_to") === null
+        ? undefined
+        : String(formData.get("return_to")),
+    ),
+    "https://admin.mesha.local",
   );
-  const safe = returnTo.startsWith(PATHNAME)
-    ? returnTo
-    : `${PATHNAME}?scope=assigned_by_me`;
-  return new URL(safe, "https://admin.mesha.local");
 }
 
+/**
+ * Stamps the outcome on the redirect URL for the page's banner to render.
+ *
+ * `task_status` / `task_code`, NOT `lt_status` / `lt_code`:
+ * `features/vaccination-live-tracker/params.ts` already owns `lt_status`, so the old names meant a
+ * task write could hand the live tracker a value it reads as its own filter.
+ */
 function withFeedback(
   url: URL,
   status: "success" | "error",
   code: string,
 ): string {
-  url.searchParams.set("lt_status", status);
-  url.searchParams.set("lt_code", code);
+  url.searchParams.set(TASK_PARAM.feedbackStatus, status);
+  url.searchParams.set(TASK_PARAM.feedbackCode, code);
   const qs = url.searchParams.toString();
   return qs ? `${url.pathname}?${qs}` : url.pathname;
 }
@@ -148,6 +162,77 @@ export async function setLeadershipTaskCommentAction(
     );
   }
   redirect(withFeedback(url, "success", "note_added"));
+}
+
+/**
+ * The EDIT command — the one the web desk never had.
+ *
+ * POST /app/leadership-tasks/{task_id}/edit has existed all along with no web client, which is
+ * exactly what "task editing is not working" meant. The server owns every rule: raiser-only,
+ * open/in_progress only (409 `task_closed`), the `row_version` fence (409 `version_conflict`),
+ * and an ABSENT `deadline_at` keeps the stored deadline. So `deadline_at` is omitted from the
+ * body when the form leaves it blank rather than sent empty — sending "" would be a malformed
+ * instant, and sending the rendered value back would silently re-stamp a deadline nobody touched.
+ *
+ * `attachments` is a FULL replacement list (max 12): the form re-posts the refs the reader kept
+ * plus whatever they added, and anything they removed is simply absent.
+ */
+export async function editLeadershipTaskAction(
+  formData: FormData,
+): Promise<void> {
+  const url = redirectTarget(formData);
+  const taskID = String(formData.get("task_id") ?? "").trim();
+  const title = String(formData.get("title") ?? "").trim();
+  const body = String(formData.get("body") ?? "").trim();
+  const rowVersion = Number.parseInt(
+    String(formData.get("row_version") ?? ""),
+    10,
+  );
+  const idempotencyKey = String(formData.get("idempotency_key") ?? "").trim();
+  const deadlineRaw = String(formData.get("deadline_at") ?? "").trim();
+  const deadlineAt = farmDeadlineToRFC3339(deadlineRaw);
+
+  if (!taskID || !title || !Number.isFinite(rowVersion)) {
+    redirect(withFeedback(url, "error", !title ? "missing_title" : "invalid_edit"));
+  }
+  if (deadlineRaw && !deadlineAt) {
+    redirect(withFeedback(url, "error", "invalid_deadline"));
+  }
+  if (idempotencyKey.length < 8 || idempotencyKey.length > 200) {
+    redirect(withFeedback(url, "error", "invalid_idempotency_key"));
+  }
+
+  const existingRefs = attachmentRefs(formData);
+  const files = attachmentFiles(formData);
+  if (existingRefs.length + files.length > 12) {
+    redirect(withFeedback(url, "error", "too_many_attachments"));
+  }
+
+  const uploads = await uploadedAttachmentRefs(files, idempotencyKey);
+  if (!uploads.ok) {
+    redirect(withFeedback(url, "error", uploads.error));
+  }
+
+  const result = await editLeadershipTask(
+    taskID,
+    {
+      title,
+      body,
+      row_version: rowVersion,
+      // Omitted, not blank: absence is the contract's "keep the stored deadline".
+      ...(deadlineAt ? { deadline_at: deadlineAt } : {}),
+      attachments: [...existingRefs, ...uploads.refs],
+    },
+    idempotencyKey,
+  );
+
+  revalidatePath(PATHNAME);
+  if (!result.ok) {
+    redirect(
+      withFeedback(url, "error", result.error.code ?? result.error.kind),
+    );
+  }
+  redirect(withFeedback(url, "success", "task_edited"));
 }
 
 async function uploadedAttachmentRefs(

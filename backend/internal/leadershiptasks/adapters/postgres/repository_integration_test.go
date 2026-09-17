@@ -437,6 +437,55 @@ VALUES ($1::uuid, $2::uuid, 'park_head', 'tenant', $1::uuid, 'active', now() - i
 	if err != nil || len(assignees) != 3 || assignees[0].Name != "Dinakar" {
 		t.Fatalf("assignees after park head grant = %+v err %v", assignees, err)
 	}
+
+	// THE WORKLIST FILTERS ON TOP OF THE SAME PAGE. The party scope binds $2, the status filter
+	// binds $3, and every request filter must number itself AFTER those -- this is the shape
+	// that broke before (repository.go's per-scope bind rule). The chip counts are SEPARATE
+	// queries, so they are asserted here too: under a filter they must count the FILTERED
+	// whole list, never the unfiltered one and never the page.
+	filtered, err := repo.ListTasks(ctx, ports.ListParams{
+		TenantID: ltTenant, UserID: ltCXO, Scope: domain.ScopeAssignedToMe,
+		Statuses: domain.StatusesForFilter(domain.FilterAll), Limit: 3,
+		Query: "Ravi ask", RaisedBy: ltDirector, Sort: ports.SortRaisedAtAsc,
+	})
+	if err != nil {
+		t.Fatalf("filtered page: %v", err)
+	}
+	if len(filtered.Rows) != 3 || filtered.NextCursor == "" {
+		t.Fatalf("filtered page rows=%d cursor=%q, want 3 of the 4 uncancelled Ravi asks", len(filtered.Rows), filtered.NextCursor)
+	}
+	// Four uncancelled Ravi asks match, plus the cancelled one the status filter hides from the
+	// rows but not from the chips: the chips report each bucket of the FILTERED list.
+	wantFiltered := map[string]int{domain.StatusOpen: 2, domain.StatusInProgress: 1, domain.StatusDone: 1, domain.StatusCancelled: 1}
+	for status, n := range wantFiltered {
+		if filtered.StatusCounts[status] != n {
+			t.Fatalf("filtered status counts = %v, want %v", filtered.StatusCounts, wantFiltered)
+		}
+	}
+	// Manohar's two asks are outside the text filter, so the tenant-wide tab drops from 6 to 4.
+	if filtered.ScopeCounts[domain.ScopeTeamProgress] != 4 || filtered.ScopeCounts[domain.ScopeAssignedToMe] != 4 {
+		t.Fatalf("filtered scope counts = %v, want team_progress=4 assigned_to_me=4 (the filters narrow the tabs too)", filtered.ScopeCounts)
+	}
+	// One more page under the SAME filters and sort: the filter set has to survive the cursor.
+	filtered2, err := repo.ListTasks(ctx, ports.ListParams{
+		TenantID: ltTenant, UserID: ltCXO, Scope: domain.ScopeAssignedToMe,
+		Statuses: domain.StatusesForFilter(domain.FilterAll), Limit: 3,
+		Query: "Ravi ask", RaisedBy: ltDirector, Sort: ports.SortRaisedAtAsc, Cursor: filtered.NextCursor,
+	})
+	if err != nil || len(filtered2.Rows) != 1 || filtered2.NextCursor != "" {
+		t.Fatalf("filtered page 2 rows=%d cursor=%q err=%v", len(filtered2.Rows), filtered2.NextCursor, err)
+	}
+	if filtered2.Rows[0].TaskID == filtered.Rows[2].TaskID {
+		t.Fatalf("filtered paging repeated a row across the boundary")
+	}
+	// Manohar's own list under the same text filter is empty, and its chips say so.
+	other, err := repo.ListTasks(ctx, ports.ListParams{
+		TenantID: ltTenant, UserID: ltCXO2, Scope: domain.ScopeAssignedToMe,
+		Statuses: domain.StatusesForFilter(domain.FilterAll), Limit: 20, Query: "Ravi ask",
+	})
+	if err != nil || len(other.Rows) != 0 || other.StatusCounts[domain.StatusOpen] != 0 {
+		t.Fatalf("another person's filtered list = %d rows, counts %v, err %v", len(other.Rows), other.StatusCounts, err)
+	}
 	_ = cxo
 }
 
@@ -663,5 +712,289 @@ func TestLeadershipTaskDeadlineRoundTripsAndEditKeepsItWhenNotSent(t *testing.T)
 	flag, err := repo.Raise(ctx, raiseParams(ltCXO2, "Check · Weigh Godel 1 - Part 3", "raise-dl-flag"))
 	if err != nil || flag.DeadlineAt != nil {
 		t.Fatalf("flag raise = %v err %v", flag.DeadlineAt, err)
+	}
+}
+
+// raiseWithDeadline raises a task the deadline sorts can order. The stored CHECK demands a
+// deadline later than the raise instant, so every offset here is in the future.
+func raiseWithDeadline(assignee, title, key string, deadline *time.Time) ports.RaiseParams {
+	p := raiseParams(assignee, title, key)
+	p.DeadlineAt = deadline
+	return p
+}
+
+// TestLeadershipTaskListFiltersSortsAndCursorStayHonest pins the worklist contract added for the
+// Jira-like list:
+//   - the four sorts order the page, and a task with NO deadline sorts LAST in BOTH deadline
+//     directions (it is neither the most nor the least urgent);
+//   - the keyset stays TOTAL across the null boundary: paging a sort two rows at a time serves
+//     exactly the same sequence as one big page, with no duplicate and no gap;
+//   - a cursor minted under one sort is REFUSED under another instead of silently serving a
+//     wrong page, and the legacy plaintext cursor still works under the sort it was minted for;
+//   - the free text, person and date filters narrow the rows AND the chip counts together, so a
+//     chip never advertises a row the list hides.
+func TestLeadershipTaskListFiltersSortsAndCursorStayHonest(t *testing.T) {
+	pgtest.SkipIfNoDocker(t)
+	ctx := context.Background()
+	pool := pgtest.StartPostgres(t, ctx)
+	seedLeadershipFixture(t, ctx, pool)
+	repo := NewRepository(pool, 10*time.Second)
+
+	base := time.Now().UTC()
+	at := func(d time.Duration) *time.Time { v := base.Add(d); return &v }
+	// Raised oldest-first, so raise order is alpha and the deadline order is deliberately not.
+	seeds := []struct {
+		title    string
+		deadline *time.Time
+	}{
+		{"Alpha vendor contract", at(4 * time.Hour)},
+		{"Bravo vendor contract", at(1 * time.Hour)},
+		{"Charlie audit", nil},
+		{"Delta audit", at(2 * time.Hour)},
+		{"Echo audit", nil},
+	}
+	byTitle := map[string]string{}
+	for i, s := range seeds {
+		task, err := repo.Raise(ctx, raiseWithDeadline(ltCXO, s.title, fmt.Sprintf("sortseed-%d", i), s.deadline))
+		if err != nil {
+			t.Fatalf("raise %s: %v", s.title, err)
+		}
+		byTitle[s.title] = task.TaskID
+		time.Sleep(2 * time.Millisecond) // distinct raised_at for a deterministic keyset
+	}
+	titles := func(rows []domain.Task) []string {
+		out := make([]string, 0, len(rows))
+		for _, r := range rows {
+			out = append(out, r.Title)
+		}
+		return out
+	}
+	list := func(t *testing.T, p ports.ListParams) ports.Page {
+		t.Helper()
+		p.TenantID, p.UserID = ltTenant, ltCXO
+		if p.Scope == "" {
+			p.Scope = domain.ScopeAssignedToMe
+		}
+		if p.Statuses == nil {
+			p.Statuses = domain.StatusesForFilter(domain.FilterAll)
+		}
+		if p.Limit == 0 {
+			p.Limit = 20
+		}
+		page, err := repo.ListTasks(ctx, p)
+		if err != nil {
+			t.Fatalf("list %+v: %v", p, err)
+		}
+		return page
+	}
+	sameOrder := func(got, want []string) bool {
+		if len(got) != len(want) {
+			return false
+		}
+		for i := range got {
+			if got[i] != want[i] {
+				return false
+			}
+		}
+		return true
+	}
+
+	// 1. The four orders. Both deadline directions park the two NULL-deadline tasks at the END,
+	// ordered among themselves by task_id so the sequence is total.
+	wantByDeadlineAsc := []string{"Bravo vendor contract", "Delta audit", "Alpha vendor contract"}
+	ascPage := list(t, ports.ListParams{Sort: ports.SortDeadlineAsc})
+	got := titles(ascPage.Rows)
+	if len(got) != 5 || !sameOrder(got[:3], wantByDeadlineAsc) {
+		t.Fatalf("deadline_asc = %v, want the three dated tasks %v first", got, wantByDeadlineAsc)
+	}
+	for _, r := range ascPage.Rows[3:] {
+		if r.DeadlineAt != nil {
+			t.Fatalf("deadline_asc put a dated task after an undated one: %v", titles(ascPage.Rows))
+		}
+	}
+	descPage := list(t, ports.ListParams{Sort: ports.SortDeadlineDesc})
+	got = titles(descPage.Rows)
+	wantByDeadlineDesc := []string{"Alpha vendor contract", "Delta audit", "Bravo vendor contract"}
+	if len(got) != 5 || !sameOrder(got[:3], wantByDeadlineDesc) {
+		t.Fatalf("deadline_desc = %v, want %v first", got, wantByDeadlineDesc)
+	}
+	for _, r := range descPage.Rows[3:] {
+		if r.DeadlineAt != nil {
+			t.Fatalf("deadline_desc must ALSO park undated tasks last: %v", titles(descPage.Rows))
+		}
+	}
+	raisedDesc := titles(list(t, ports.ListParams{Sort: ports.SortRaisedAtDesc}).Rows)
+	raisedAsc := titles(list(t, ports.ListParams{Sort: ports.SortRaisedAtAsc}).Rows)
+	if len(raisedAsc) != 5 || raisedAsc[0] != "Alpha vendor contract" || raisedDesc[0] != "Echo audit" {
+		t.Fatalf("raise orders = asc %v / desc %v", raisedAsc, raisedDesc)
+	}
+
+	// 2. The keyset is total in every sort: two rows at a time must reproduce the one-page order
+	// exactly, INCLUDING across the dated/undated boundary the deadline sorts introduce.
+	for _, sortKey := range ports.SortKeys {
+		whole := titles(list(t, ports.ListParams{Sort: sortKey}).Rows)
+		paged := make([]string, 0, 5)
+		seen := map[string]bool{}
+		cursor := ""
+		for page := 0; page < 5; page++ {
+			p := list(t, ports.ListParams{Sort: sortKey, Limit: 2, Cursor: cursor})
+			for _, r := range p.Rows {
+				if seen[r.TaskID] {
+					t.Fatalf("%s served %s twice across a page boundary", sortKey, r.Title)
+				}
+				seen[r.TaskID] = true
+				paged = append(paged, r.Title)
+			}
+			cursor = p.NextCursor
+			if cursor == "" {
+				break
+			}
+		}
+		if !sameOrder(paged, whole) {
+			t.Fatalf("%s paged 2-at-a-time = %v, want the whole-page order %v (no gap, no duplicate)", sortKey, paged, whole)
+		}
+	}
+
+	// 3. A cursor minted under one sort is REFUSED under another: the same instant means a
+	// different position in a different order, so serving it would hand back a wrong page.
+	crossPage := list(t, ports.ListParams{Sort: ports.SortDeadlineAsc, Limit: 2})
+	if crossPage.NextCursor == "" {
+		t.Fatal("expected a next cursor to carry across sorts")
+	}
+	if _, err := repo.ListTasks(ctx, ports.ListParams{
+		TenantID: ltTenant, UserID: ltCXO, Scope: domain.ScopeAssignedToMe,
+		Statuses: domain.StatusesForFilter(domain.FilterAll), Limit: 2,
+		Sort: ports.SortRaisedAtDesc, Cursor: crossPage.NextCursor,
+	}); !errors.Is(err, ports.ErrInvalidArgument) {
+		t.Fatalf("cursor reused under a changed sort: err = %v, want ErrInvalidArgument", err)
+	}
+	// An unknown sort is refused outright rather than silently falling back to the default.
+	if _, err := repo.ListTasks(ctx, ports.ListParams{TenantID: ltTenant, UserID: ltCXO, Scope: domain.ScopeAssignedToMe, Sort: "title_asc"}); !errors.Is(err, ports.ErrInvalidArgument) {
+		t.Fatalf("unknown sort: err = %v, want ErrInvalidArgument", err)
+	}
+	// The legacy plaintext cursor an in-flight Android build already holds still pages, but only
+	// under the default sort it was minted for.
+	firstDesc := list(t, ports.ListParams{Sort: ports.SortRaisedAtDesc, Limit: 2})
+	legacy := firstDesc.Rows[1].RaisedAt.UTC().Format(time.RFC3339Nano) + "|" + firstDesc.Rows[1].TaskID
+	legacyPage := list(t, ports.ListParams{Limit: 2, Cursor: legacy})
+	if len(legacyPage.Rows) != 2 || legacyPage.Rows[0].Title != raisedDesc[2] {
+		t.Fatalf("legacy cursor page = %v, want it to resume at %q", titles(legacyPage.Rows), raisedDesc[2])
+	}
+	if _, err := repo.ListTasks(ctx, ports.ListParams{TenantID: ltTenant, UserID: ltCXO, Scope: domain.ScopeAssignedToMe, Sort: ports.SortDeadlineAsc, Cursor: legacy}); !errors.Is(err, ports.ErrInvalidArgument) {
+		t.Fatalf("legacy cursor under a deadline sort: err = %v, want ErrInvalidArgument", err)
+	}
+
+	// 4. Free text narrows the rows AND the chips together. "audit" is three of the five.
+	textPage := list(t, ports.ListParams{Query: "AUDIT"})
+	if len(textPage.Rows) != 3 {
+		t.Fatalf("q=AUDIT rows = %v, want the three audits (case-insensitive substring)", titles(textPage.Rows))
+	}
+	if textPage.StatusCounts[domain.StatusOpen] != 3 {
+		t.Fatalf("q=AUDIT status counts = %v, want open=3: a chip must never advertise a row the list hides", textPage.StatusCounts)
+	}
+	if textPage.ScopeCounts[domain.ScopeAssignedToMe] != 3 || textPage.ScopeCounts[domain.ScopeTeamProgress] != 3 {
+		t.Fatalf("q=AUDIT scope counts = %v, want 3 on the caller's tab and 3 tenant-wide", textPage.ScopeCounts)
+	}
+	// The brief is searched too; every seeded task shares the same body.
+	if bodyPage := list(t, ports.ListParams{Query: "look at this"}); len(bodyPage.Rows) != 5 {
+		t.Fatalf("q over the brief matched %d rows, want 5", len(bodyPage.Rows))
+	}
+	// A bare integer ALSO matches the task's own number exactly: "3" finds #3 as well as any
+	// title carrying a 3.
+	third, err := repo.GetTask(ctx, ltTenant, byTitle["Charlie audit"])
+	if err != nil {
+		t.Fatal(err)
+	}
+	no := third.TaskNo
+	numberPage := list(t, ports.ListParams{Query: fmt.Sprintf("%d", no), QueryTaskNo: &no})
+	foundByNumber := false
+	for _, r := range numberPage.Rows {
+		if r.TaskID == third.TaskID {
+			foundByNumber = true
+		}
+	}
+	if !foundByNumber {
+		t.Fatalf("q=%d did not find task #%d by its number: %v", no, no, titles(numberPage.Rows))
+	}
+	if miss := list(t, ports.ListParams{Query: "no such words here"}); len(miss.Rows) != 0 || miss.StatusCounts[domain.StatusOpen] != 0 || miss.ScopeCounts[domain.ScopeTeamProgress] != 0 {
+		t.Fatalf("a text miss must empty the rows AND the chips: rows=%d status=%v scope=%v", len(miss.Rows), miss.StatusCounts, miss.ScopeCounts)
+	}
+
+	// 5. The person filters. On the caller's own tab the assignee is already pinned, so an
+	// assignee filter is dropped upstream; the raiser filter still narrows, and on the
+	// tenant-wide tab both do.
+	if byRaiser := list(t, ports.ListParams{RaisedBy: ltDirector}); len(byRaiser.Rows) != 5 {
+		t.Fatalf("raised_by the seeding director = %d rows, want 5", len(byRaiser.Rows))
+	}
+	if byOther := list(t, ports.ListParams{RaisedBy: ltDirector2}); len(byOther.Rows) != 0 || byOther.StatusCounts[domain.StatusOpen] != 0 {
+		t.Fatalf("raised_by someone who raised nothing: rows=%d counts=%v", len(byOther.Rows), byOther.StatusCounts)
+	}
+	teamByAssignee := list(t, ports.ListParams{Scope: domain.ScopeTeamProgress, AssigneeUserID: ltCXO2})
+	if len(teamByAssignee.Rows) != 0 || teamByAssignee.ScopeCounts[domain.ScopeTeamProgress] != 0 {
+		t.Fatalf("team progress filtered to an assignee with no tasks: rows=%d scope=%v", len(teamByAssignee.Rows), teamByAssignee.ScopeCounts)
+	}
+	// The tenant-wide tab still binds only what it reads: the team_progress branch binds ONE
+	// arg for the scope, and the filters must number themselves after it (the "expected 1
+	// arguments, got 2" trap at the top of ListTasks).
+	teamFiltered := list(t, ports.ListParams{Scope: domain.ScopeTeamProgress, Query: "audit", AssigneeUserID: ltCXO, RaisedBy: ltDirector, Sort: ports.SortDeadlineDesc})
+	if len(teamFiltered.Rows) != 3 {
+		t.Fatalf("team progress with every filter at once = %v, want the three audits", titles(teamFiltered.Rows))
+	}
+
+	// 6. The date ranges are INCLUSIVE on both ends, and a deadline range excludes the tasks
+	// that have no deadline at all.
+	from, to := base.Add(30*time.Minute), base.Add(2*time.Hour)
+	dl := list(t, ports.ListParams{DeadlineFrom: &from, DeadlineTo: &to})
+	if got := titles(dl.Rows); len(got) != 2 {
+		t.Fatalf("deadline range = %v, want Bravo (+1h) and Delta (+2h, the inclusive upper end)", got)
+	}
+	if dl.StatusCounts[domain.StatusOpen] != 2 {
+		t.Fatalf("deadline range chips = %v, want open=2", dl.StatusCounts)
+	}
+	oldest, err := repo.GetTask(ctx, ltTenant, byTitle["Alpha vendor contract"])
+	if err != nil {
+		t.Fatal(err)
+	}
+	rFrom, rTo := oldest.RaisedAt, oldest.RaisedAt
+	raised := list(t, ports.ListParams{RaisedFrom: &rFrom, RaisedTo: &rTo})
+	if len(raised.Rows) != 1 || raised.Rows[0].TaskID != oldest.TaskID {
+		t.Fatalf("a raise range whose ends are the SAME instant must include that row: %v", titles(raised.Rows))
+	}
+
+	// 7. THE TYPED TEXT IS LITERAL. `%` and `_` are ILIKE wildcards, so a leader searching for
+	// "50%" or "shed_4" must match those characters themselves -- an unescaped `_` would match
+	// any single character and quietly return rows whose text the reader never typed.
+	if _, err := repo.Raise(ctx, raiseWithDeadline(ltCXO, "Cut wastage by 50% this month", "literal-pct", at(6*time.Hour))); err != nil {
+		t.Fatalf("raise literal percent: %v", err)
+	}
+	if _, err := repo.Raise(ctx, raiseWithDeadline(ltCXO, "Repair shed_4 water line", "literal-underscore", at(7*time.Hour))); err != nil {
+		t.Fatalf("raise literal underscore: %v", err)
+	}
+	pct := list(t, ports.ListParams{Query: "50%"})
+	if len(pct.Rows) != 1 || pct.Rows[0].Title != "Cut wastage by 50% this month" {
+		t.Fatalf(`q="50%%" = %v, want only the task carrying a literal per-cent sign`, titles(pct.Rows))
+	}
+	// Bare "50" still matches it as ordinary text, so the escape narrowed nothing it should not.
+	if plain := list(t, ports.ListParams{Query: "50"}); len(plain.Rows) != 1 {
+		t.Fatalf(`q="50" = %v, want the same row by plain substring`, titles(plain.Rows))
+	}
+	under := list(t, ports.ListParams{Query: "shed_4"})
+	if len(under.Rows) != 1 || under.Rows[0].Title != "Repair shed_4 water line" {
+		t.Fatalf(`q="shed_4" = %v, want only the task carrying a literal underscore`, titles(under.Rows))
+	}
+	// The wildcard reading of the same text would have matched "shed 4"; the literal one must not.
+	if _, err := repo.Raise(ctx, raiseWithDeadline(ltCXO, "Repair shed 4 gate", "literal-space", at(8*time.Hour))); err != nil {
+		t.Fatalf("raise wildcard decoy: %v", err)
+	}
+	under = list(t, ports.ListParams{Query: "shed_4"})
+	if len(under.Rows) != 1 || under.Rows[0].Title != "Repair shed_4 water line" {
+		t.Fatalf(`q="shed_4" matched a wildcard decoy: %v`, titles(under.Rows))
+	}
+	if space := list(t, ports.ListParams{Query: "shed 4"}); len(space.Rows) != 1 || space.Rows[0].Title != "Repair shed 4 gate" {
+		t.Fatalf(`q="shed 4" = %v, want only the space-separated task`, titles(space.Rows))
+	}
+	// A bare escape character is escaped too, and finds nothing rather than erroring.
+	if esc := list(t, ports.ListParams{Query: `\`}); len(esc.Rows) != 0 {
+		t.Fatalf(`q="\\" = %v, want no rows and no error`, titles(esc.Rows))
 	}
 }

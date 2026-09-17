@@ -26,7 +26,7 @@ import (
 // Service is the behaviour this transport depends on.
 type Service interface {
 	ListAssignees(ctx context.Context, tenantID string) ([]ports.Assignee, error)
-	ListTasks(ctx context.Context, tenantID, userID, scopeKey, filterKey string, limit int, cursor string, actor domain.Actor) (ports.Page, error)
+	ListTasks(ctx context.Context, req app.ListRequest) (ports.Page, error)
 	GetTask(ctx context.Context, tenantID string, actor domain.Actor, taskID string) (domain.Task, error)
 	Raise(ctx context.Context, p ports.RaiseParams) (domain.Task, error)
 	Edit(ctx context.Context, p ports.EditParams) (domain.Task, error)
@@ -75,6 +75,9 @@ const maxRequestBytes = 64 * 1024
 
 // ListTasks serves GET /app/leadership-tasks.
 func (h *Handler) ListTasks(w http.ResponseWriter, r *http.Request) {
+	// Unknown query params stay silently ignored on this READ path: the filter bar and the
+	// Android client evolve separately, and a stale extra param must not blank the list.
+	// (DisallowUnknownFields is for the write bodies only.)
 	q := r.URL.Query()
 	filterKey := domain.FilterKeyOrDefault(q.Get("filter"))
 	limit := 0
@@ -88,7 +91,23 @@ func (h *Handler) ListTasks(w http.ResponseWriter, r *http.Request) {
 	}
 	actor := actorFrom(r)
 	scopeKey := domain.ScopeKeyOrDefault(q.Get("scope"), actor)
-	page, err := h.service.ListTasks(r.Context(), tenantID(r), actor.UserID, scopeKey, filterKey, limit, q.Get("cursor"), actor)
+	page, err := h.service.ListTasks(r.Context(), app.ListRequest{
+		TenantID:       tenantID(r),
+		UserID:         actor.UserID,
+		ScopeKey:       scopeKey,
+		FilterKey:      filterKey,
+		Limit:          limit,
+		Cursor:         q.Get("cursor"),
+		Query:          q.Get("q"),
+		AssigneeUserID: q.Get("assignee_user_id"),
+		RaisedBy:       q.Get("raised_by"),
+		DeadlineFrom:   q.Get("deadline_from"),
+		DeadlineTo:     q.Get("deadline_to"),
+		RaisedFrom:     q.Get("raised_from"),
+		RaisedTo:       q.Get("raised_to"),
+		Sort:           q.Get("sort"),
+		Actor:          actor,
+	})
 	if err != nil {
 		h.writeCause(w, r, err)
 		return

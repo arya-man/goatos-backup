@@ -6,6 +6,7 @@ package app
 import (
 	"context"
 	"errors"
+	"strconv"
 	"strings"
 	"time"
 
@@ -68,16 +69,156 @@ func (s *Service) ListAssignees(ctx context.Context, tenantID string) ([]ports.A
 	return s.repo.ListAssignees(ctx, tenantID)
 }
 
-// ListTasks pages the caller's tasks for one chip.
-func (s *Service) ListTasks(ctx context.Context, tenantID, userID, scopeKey, filterKey string, limit int, cursor string, actor domain.Actor) (ports.Page, error) {
-	return s.repo.ListTasks(ctx, ports.ListParams{
-		TenantID: tenantID,
-		UserID:   userID,
-		Scope:    domain.ScopeKeyOrDefault(scopeKey, actor),
-		Statuses: domain.StatusesForFilter(domain.FilterKeyOrDefault(filterKey)),
-		Limit:    ClampPageSize(limit),
-		Cursor:   strings.TrimSpace(cursor),
-	})
+// ListRequest is one list read as the transport received it: raw strings and the actor. The
+// app layer owns validation and normalization so the codes the screen reads (invalid_sort,
+// invalid_date_range, invalid_filter, invalid_query) are decided in ONE place and can be
+// tested without a request.
+type ListRequest struct {
+	TenantID string
+	UserID   string
+	ScopeKey string
+	// FilterKey and ScopeKey are normalized (an unknown value falls back), because a stale
+	// client must keep working. Everything below is VALIDATED (an unknown value is a 400),
+	// because a leader who asked for a narrowed list and silently got the whole one would read
+	// the wrong list as the truth.
+	FilterKey      string
+	Limit          int
+	Cursor         string
+	Query          string
+	AssigneeUserID string
+	RaisedBy       string
+	DeadlineFrom   string
+	DeadlineTo     string
+	RaisedFrom     string
+	RaisedTo       string
+	Sort           string
+	Actor          domain.Actor
+}
+
+// ListTasks pages the caller's tasks for one chip, under the request's filters and sort.
+func (s *Service) ListTasks(ctx context.Context, req ListRequest) (ports.Page, error) {
+	params, err := s.listParams(req)
+	if err != nil {
+		return ports.Page{}, err
+	}
+	return s.repo.ListTasks(ctx, params)
+}
+
+// listParams validates the request and lowers it onto the repository port.
+func (s *Service) listParams(req ListRequest) (ports.ListParams, error) {
+	scope := domain.ScopeKeyOrDefault(req.ScopeKey, req.Actor)
+	sortKey := ports.SortOrDefault(strings.TrimSpace(req.Sort))
+	if !ports.IsSortKey(sortKey) {
+		return ports.ListParams{}, BadRequest("invalid_sort", "That sort order is not one of the ones on offer.")
+	}
+	text := strings.TrimSpace(req.Query)
+	if len([]rune(text)) > ports.MaxQueryLen {
+		return ports.ListParams{}, BadRequest("invalid_query", "Search with fewer than 120 characters.")
+	}
+	var taskNo *int64
+	if n, err := strconv.ParseInt(text, 10, 64); err == nil && n >= 1 {
+		// "15" is how a leader names task #15 out loud; the number is matched as well as the text.
+		taskNo = &n
+	}
+	assignee, err := optionalUUID(req.AssigneeUserID)
+	if err != nil {
+		return ports.ListParams{}, err
+	}
+	raiser, err := optionalUUID(req.RaisedBy)
+	if err != nil {
+		return ports.ListParams{}, err
+	}
+	// A scope that already pins a person ignores the matching filter rather than refusing it:
+	// the filter bar is shared across the tabs, and switching tab must not error.
+	switch scope {
+	case domain.ScopeAssignedToMe:
+		assignee = ""
+	case domain.ScopeAssignedByMe:
+		raiser = ""
+	}
+	deadlineFrom, deadlineTo, err := instantRange(req.DeadlineFrom, req.DeadlineTo)
+	if err != nil {
+		return ports.ListParams{}, err
+	}
+	raisedFrom, raisedTo, err := instantRange(req.RaisedFrom, req.RaisedTo)
+	if err != nil {
+		return ports.ListParams{}, err
+	}
+	return ports.ListParams{
+		TenantID:       req.TenantID,
+		UserID:         req.UserID,
+		Scope:          scope,
+		Statuses:       domain.StatusesForFilter(domain.FilterKeyOrDefault(req.FilterKey)),
+		Limit:          ClampPageSize(req.Limit),
+		Cursor:         strings.TrimSpace(req.Cursor),
+		Query:          text,
+		QueryTaskNo:    taskNo,
+		AssigneeUserID: assignee,
+		RaisedBy:       raiser,
+		DeadlineFrom:   deadlineFrom,
+		DeadlineTo:     deadlineTo,
+		RaisedFrom:     raisedFrom,
+		RaisedTo:       raisedTo,
+		Sort:           sortKey,
+	}, nil
+}
+
+// optionalUUID accepts an absent person filter and refuses a malformed one.
+func optionalUUID(raw string) (string, error) {
+	trimmed := strings.TrimSpace(raw)
+	if trimmed == "" {
+		return "", nil
+	}
+	if !uuidutil.IsUUIDString(trimmed) {
+		return "", BadRequest("invalid_filter", "That filter is not valid. Pick the person from the list.")
+	}
+	return trimmed, nil
+}
+
+// instantRange reads an INCLUSIVE date range. BOTH ends are required together
+// (verification/ports/ports.go:53-98 precedent): a half-open range would have to invent the
+// missing end, and "today" and "the beginning of time" mean opposite things to a reader. A
+// bare date is read as that whole day in UTC -- the start for the lower end, the last instant
+// for the upper -- so "from 2026-09-01 to 2026-09-01" is one full day, not an empty range.
+func instantRange(fromRaw, toRaw string) (*time.Time, *time.Time, error) {
+	from := strings.TrimSpace(fromRaw)
+	to := strings.TrimSpace(toRaw)
+	if from == "" && to == "" {
+		return nil, nil, nil
+	}
+	if from == "" || to == "" {
+		return nil, nil, BadRequest("invalid_date_range", "Give both a start and an end date for that range.")
+	}
+	lower, err := parseRangeEnd(from, false)
+	if err != nil {
+		return nil, nil, err
+	}
+	upper, err := parseRangeEnd(to, true)
+	if err != nil {
+		return nil, nil, err
+	}
+	if lower.After(*upper) {
+		return nil, nil, BadRequest("invalid_date_range", "That range starts after it ends.")
+	}
+	return lower, upper, nil
+}
+
+// parseRangeEnd reads one end of a range: an RFC3339 instant, or a bare YYYY-MM-DD widened to
+// the start or the very end of that UTC day.
+func parseRangeEnd(raw string, upper bool) (*time.Time, error) {
+	if t, err := time.Parse(time.RFC3339, raw); err == nil {
+		utc := t.UTC()
+		return &utc, nil
+	}
+	day, err := time.ParseInLocation("2006-01-02", raw, time.UTC)
+	if err != nil {
+		return nil, BadRequest("invalid_date_range", "That date is not valid.")
+	}
+	if upper {
+		end := day.Add(24*time.Hour - time.Nanosecond)
+		return &end, nil
+	}
+	return &day, nil
 }
 
 // GetTask reads one task the caller is party to, or a task the caller may monitor through

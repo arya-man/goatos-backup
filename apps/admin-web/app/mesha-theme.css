@@ -3457,6 +3457,64 @@ select:disabled { opacity: .45; }
 .lt-page .lt-fnote{color:var(--faint);font-size:11px;margin-left:auto;white-space:nowrap}
 .lt-page .lt-fbar.wfbusy{box-shadow:0 0 0 2px var(--ring)}
 
+/* ---- Tasks desk toolbar (/tasks). Same `.lt-fbar` / `.lt-fsel` / `.lt-chips` / `.lt-fnote`
+   anatomy as the live-tracker bar above, plus ONE extra behaviour: on a phone the whole control
+   set becomes a bottom SHEET instead of a squeezed bar. /tasks is opened inside the WhatsApp
+   in-app webview at phone width, where a nine-control bar folded into a single column is a page
+   of chrome above the first row.
+   Every rule is scoped to `.lt-fsheet-host` so the live tracker's own `.lt-fbar` is untouched, and
+   the compound selector is what lets these beat the generic phone `.lt-fbar` rule further down the
+   sheet (specificity, not source order). Colours are var() / color-mix only -- no new palette. */
+.lt-page .lt-fbar.lt-fsheet-host{flex-wrap:nowrap;gap:8px}
+.lt-page .lt-fsheet-host .lt-fsearch{display:inline-flex;align-items:center;gap:7px;flex:1 1 220px;min-width:0;max-width:340px;background:var(--bg);border:1px solid var(--line);border-radius:8px;padding:6px 9px;color:var(--muted)}
+.lt-page .lt-fsheet-host .lt-fsearch input{border:0;background:transparent;outline:0;font:inherit;color:var(--ink);width:100%;min-width:0}
+.lt-page .lt-fsheet-host .lt-fsearch input::-webkit-search-cancel-button{display:none}
+.lt-page .lt-fsheet-host .lt-qclr{border:0;background:transparent;color:var(--muted);cursor:pointer;display:inline-flex;align-items:center;padding:2px;border-radius:5px}
+.lt-page .lt-fsheet-host .lt-qclr:hover{color:var(--ink)}
+.lt-page .lt-fsheet-host .lt-fgroup{display:flex;flex-wrap:wrap;align-items:center;gap:8px;min-width:0;flex:1}
+.lt-page .lt-fsheet-host .lt-franges{display:inline-flex;flex-wrap:wrap;align-items:center;gap:8px}
+.lt-page .lt-fsheet-host .lt-fsel input[type=date]{border:0;background:transparent;outline:0;font:inherit;font-weight:650;color:var(--ink);min-width:0}
+.lt-page .lt-fsheet-host .lt-fclear{text-decoration:none}
+/* The sheet's own header and opener exist only at phone width. */
+.lt-page .lt-fsheet-host .lt-fsheet-hd,.lt-page .lt-fsheet-host .lt-fmore{display:none}
+@media(max-width:760px){
+  .lt-page .lt-fbar.lt-fsheet-host{position:static;display:flex;flex-wrap:nowrap;align-items:center;gap:8px;padding:10px}
+  .lt-page .lt-fsheet-host .lt-fsearch{max-width:none}
+  .lt-page .lt-fsheet-host .lt-fmore{display:inline-flex;flex:none}
+  .lt-page .lt-fsheet-host .lt-fgroup{display:none}
+  .lt-page .lt-fsheet-host .lt-fgroup.open{display:grid;gap:11px;position:fixed;left:0;right:0;bottom:0;z-index:151;max-height:84vh;overflow-y:auto;padding:14px 16px calc(16px + env(safe-area-inset-bottom));background:var(--panel);border-top:1px solid var(--line);border-radius:16px 16px 0 0;box-shadow:var(--shadow)}
+  .lt-page .lt-fsheet-host .lt-fgroup.open .lt-fsheet-hd{display:flex;align-items:center;gap:9px;font-size:14px}
+  .lt-page .lt-fsheet-host .lt-fgroup.open .lt-fsel{width:100%;justify-content:space-between;min-height:42px}
+  .lt-page .lt-fsheet-host .lt-fgroup.open .lt-fsel select,.lt-page .lt-fsheet-host .lt-fgroup.open .lt-fsel input[type=date]{width:100%;max-width:100%;text-align:right}
+  .lt-page .lt-fsheet-host .lt-fgroup.open .lt-franges{display:grid;grid-template-columns:1fr;gap:8px}
+  .lt-page .lt-fsheet-host .lt-fgroup.open .lt-chips{gap:7px}
+  .lt-page .lt-fsheet-host .lt-fnote{margin-left:0;white-space:normal}
+  .lt-page .lt-fscrim{z-index:150}
+}
+
+/* ---- What a write SAID. Nothing rendered the outcome of a status change, a note or an edit
+   before this, so a 409 and a success looked identical. Tone comes from the existing state
+   backgrounds; no new colour is introduced. */
+.lt-page .lt-banner{display:flex;align-items:flex-start;gap:11px;padding:11px 13px;margin:0 0 14px;border:1px solid var(--line);border-radius:11px;background:var(--panel)}
+.lt-page .lt-banner .ic{width:18px;height:18px;flex:none;margin-top:1px}
+.lt-page .lt-banner.ok{background:var(--okx);border-color:color-mix(in srgb,var(--ok) 40%,var(--line))}
+.lt-page .lt-banner.ok .ic{color:var(--ok)}
+.lt-page .lt-banner.bad{background:var(--dangerx);border-color:color-mix(in srgb,var(--danger) 40%,var(--line))}
+.lt-page .lt-banner.bad .ic{color:var(--danger)}
+.lt-page .lt-banner-tx{display:grid;gap:2px;min-width:0;flex:1;font-size:12.5px;line-height:1.5}
+.lt-page .lt-banner-tx b{font-size:13px}
+
+/* ---- Detail panel head: the Edit opener and the close link sit beside the task number. */
+.lt-page .lt-detail-top{display:flex;align-items:center;gap:8px;flex-wrap:wrap;margin-bottom:6px}
+.lt-page .lt-table-empty{display:block;padding:18px 4px;text-align:center;line-height:1.6}
+
+/* ---- Edit modal: the attachment list is a FULL replacement, so each stored file is a tick. */
+.lt-modal .lt-keeplist{display:grid;gap:6px;margin-top:6px}
+.lt-modal .lt-keep{display:flex;align-items:center;gap:8px;padding:7px 9px;border:1px solid var(--line);border-radius:8px;font-size:12.5px;cursor:pointer}
+.lt-modal .lt-keep .ic{width:14px;height:14px;flex:none;color:var(--muted)}
+.lt-modal .lt-keep span{min-width:0;overflow-wrap:anywhere}
+.lt-modal .lt-keep input[type=checkbox]{flex:none;accent-color:var(--brand)}
+
 /* Tables. Both dense boards pin every cell to a single line so a long shed or
    operator name cannot silently re-wrap the row into two. */
 .lt-page table{width:100%;border-collapse:collapse}

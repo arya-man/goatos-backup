@@ -40,7 +40,69 @@ type ListParams struct {
 	Statuses []string
 	Limit    int
 	Cursor   string
+
+	// Query is the trimmed free-text box: a case-insensitive substring of the title OR the
+	// body, served by the pg_trgm GIN indexes on both columns (migration 000345). When the
+	// same text is a bare integer the list ALSO matches task_no exactly, so typing "15" finds
+	// "#15" -- that is how a leader refers to a task out loud.
+	Query string
+	// QueryTaskNo is set by the app layer when Query parses as a bare positive integer. The
+	// repository binds it as the extra task_no arm of the search predicate; nil means the text
+	// is not a number and only title/body are searched.
+	QueryTaskNo *int64
+	// AssigneeUserID / RaisedBy narrow the list to one person. The app layer DROPS whichever
+	// one the active scope already pins (assigned_to_me pins the assignee, assigned_by_me pins
+	// the raiser), so the same filter never appears twice in one predicate. The scope-count
+	// query re-applies that rule per branch, so each tab's badge counts what that tab shows.
+	AssigneeUserID string
+	RaisedBy       string
+	// DeadlineFrom/DeadlineTo and RaisedFrom/RaisedTo are INCLUSIVE instants on both ends. Each
+	// pair is required together (verification/ports/ports.go:53-98 precedent): a half-open range
+	// would have to invent the missing end, and the two plausible inventions mean opposite
+	// things to a reader. A deadline range never matches a task with no deadline.
+	DeadlineFrom *time.Time
+	DeadlineTo   *time.Time
+	RaisedFrom   *time.Time
+	RaisedTo     *time.Time
+	// Sort is a CLOSED enum; the empty string means SortRaisedAtDesc.
+	Sort string
 }
+
+// The list's four sort orders. A cursor carries the name of the sort it was minted under, so
+// changing the sort mid-page is refused rather than served as a wrong page.
+const (
+	SortRaisedAtDesc = "raised_at_desc"
+	SortRaisedAtAsc  = "raised_at_asc"
+	SortDeadlineAsc  = "deadline_asc"
+	SortDeadlineDesc = "deadline_desc"
+)
+
+// SortKeys is the order the picker offers.
+var SortKeys = []string{SortRaisedAtDesc, SortRaisedAtAsc, SortDeadlineAsc, SortDeadlineDesc}
+
+// IsSortKey reports whether a requested sort is one of the four. Unknown values are an
+// explicit 400 (invalid_sort), never a silent fallback: a leader who asked for the deadline
+// order and silently got the raise order would read the wrong list as the truth.
+func IsSortKey(key string) bool {
+	switch key {
+	case SortRaisedAtDesc, SortRaisedAtAsc, SortDeadlineAsc, SortDeadlineDesc:
+		return true
+	}
+	return false
+}
+
+// SortOrDefault normalizes the empty string to the default sort. It does NOT normalize an
+// unknown value; callers validate with IsSortKey first.
+func SortOrDefault(key string) string {
+	if key == "" {
+		return SortRaisedAtDesc
+	}
+	return key
+}
+
+// MaxQueryLen bounds the free-text box. Longer text is a 400 (invalid_query), not a silent
+// truncation that would return rows the caller did not ask for.
+const MaxQueryLen = 120
 
 // Page is one page plus the whole-list counts the chips show.
 type Page struct {

@@ -6,6 +6,7 @@ package postgres
 
 import (
 	"context"
+	"encoding/base64"
 	"errors"
 	"fmt"
 	"strings"
@@ -111,19 +112,25 @@ func (r *Repository) ListAssignees(ctx context.Context, tenantID string) ([]port
 	return out, rows.Err()
 }
 
-// ListTasks pages the caller's tasks by keyset, newest first, and batch-loads each page
-// row's attachments in ONE query.
+// ListTasks pages the caller's tasks by keyset in the requested sort order, applies the
+// request's filters, and batch-loads each page row's attachments in ONE query.
 //
-// projection-review: membership=leadership_tasks at its task_id key (one row per task) filtered by the party predicate raised_by = $user OR assignee_user_id = $user, which the page rows, the status counts AND the unseen count all share so a chip never advertises a row the list hides; group_key=status for the chip counts, over that same party predicate; join_cardinality=leadership_task_attachments is at most 12 rows per task and is fetched as a second bounded query keyed by the page's task ids (never multiplied into the page query), and the two workforce_members name LEFT JOINs are 1:1 on workforce_members_active_user_unique_idx; pagination=keyset on (raised_at DESC, task_id DESC) with counts computed whole-list never page-local; scope=tenant_id on every branch, party predicate on every read
+// projection-review: membership=leadership_tasks at its task_id key (one row per task) filtered by the party predicate raised_by = $user OR assignee_user_id = $user PLUS the request filters (free text over title/body/task_no, assignee, raiser, deadline range, raise range), which the page rows, the status counts AND the scope counts all share so a chip never advertises a row the list hides; group_key=status for the chip counts and scope for the tab counts, each over that same filter set minus only the one predicate the chip itself varies (status for filters[], party for scopes[]); join_cardinality=leadership_task_attachments is at most 12 rows per task and is fetched as a second bounded query keyed by the page's task ids (never multiplied into the page query), and the two workforce_members name LEFT JOINs are 1:1 on workforce_members_active_user_unique_idx; pagination=keyset on (raised_at, task_id) or on (deadline_at IS NULL, deadline_at, task_id) per the active sort -- NULL deadlines sort LAST in both directions so the order stays total -- with counts computed whole-list never page-local and NO OFFSET anywhere; scope=tenant_id on every branch, party predicate on every read
 func (r *Repository) ListTasks(ctx context.Context, p ports.ListParams) (ports.Page, error) {
 	ctx, cancel := context.WithTimeout(ctx, r.timeout)
 	defer cancel()
 
+	sortKey := ports.SortOrDefault(p.Sort)
+	if !ports.IsSortKey(sortKey) {
+		return ports.Page{}, fmt.Errorf("%w: unknown sort %q", ports.ErrInvalidArgument, sortKey)
+	}
+
 	// Bind only what the predicate reads. Team progress is tenant-wide and names no party, so
 	// the user id must NOT be bound for it: pgx counts placeholders, and an unused $2 with no
 	// later $3 is "expected 1 arguments, got 2" -- which is exactly the unfiltered web read
-	// (CXO, scope_mode=company). The status and cursor placeholders are numbered from
-	// len(args), so they follow whichever shape was bound.
+	// (CXO, scope_mode=company). EVERY predicate below this switch takes its placeholder
+	// number from bindArg (len(args) after the append), so no filter, sort or cursor can
+	// disturb the per-scope $2 rule however many of them the request carries.
 	args := []any{p.TenantID}
 	where := "t.tenant_id = $1"
 	switch p.Scope {
@@ -137,22 +144,21 @@ func (r *Repository) ListTasks(ctx context.Context, p ports.ListParams) (ports.P
 		where += " AND t.assignee_user_id = $2::uuid"
 	}
 	if len(p.Statuses) > 0 {
-		args = append(args, p.Statuses)
-		where += fmt.Sprintf(" AND t.status = ANY($%d)", len(args))
+		where += fmt.Sprintf(" AND t.status = ANY($%d)", bindArg(&args, p.Statuses))
 	}
+	where += filterPredicates(&args, "t.", p, true, true)
 	if p.Cursor != "" {
-		raisedAt, taskID, err := decodeCursor(p.Cursor)
+		frag, err := keysetPredicate(&args, sortKey, p.Cursor)
 		if err != nil {
 			return ports.Page{}, err
 		}
-		args = append(args, raisedAt, taskID)
-		where += fmt.Sprintf(" AND (t.raised_at, t.task_id) < ($%d::timestamptz, $%d::uuid)", len(args)-1, len(args))
+		where += frag
 	}
 	limit := p.Limit
 	if limit <= 0 {
 		limit = 20
 	}
-	query := fmt.Sprintf(`SELECT %s %s WHERE %s ORDER BY t.raised_at DESC, t.task_id DESC LIMIT %d`, taskColumns, taskFrom, where, limit+1)
+	query := fmt.Sprintf(`SELECT %s %s WHERE %s ORDER BY %s LIMIT %d`, taskColumns, taskFrom, where, orderByForSort(sortKey), limit+1)
 	rows, err := r.pool.Query(ctx, query, args...)
 	if err != nil {
 		return ports.Page{}, fmt.Errorf("leadership task: list: %w", err)
@@ -172,7 +178,7 @@ func (r *Repository) ListTasks(ctx context.Context, p ports.ListParams) (ports.P
 	page := ports.Page{StatusCounts: map[string]int{}, ScopeCounts: map[string]int{}}
 	if len(tasks) > limit {
 		last := tasks[limit-1]
-		page.NextCursor = encodeCursor(last.RaisedAt, last.TaskID)
+		page.NextCursor = encodeSortCursor(sortKey, last)
 		tasks = tasks[:limit]
 	}
 	if err := r.attachTo(ctx, r.pool, p.TenantID, tasks); err != nil {
@@ -183,12 +189,12 @@ func (r *Repository) ListTasks(ctx context.Context, p ports.ListParams) (ports.P
 	}
 	page.Rows = tasks
 
-	countArgs := []any{p.TenantID, p.UserID}
-	if p.Scope == domain.ScopeTeamProgress {
-		// Tenant-wide: the count names no party, so bind none (same placeholder rule as the list).
-		countArgs = countArgs[:1]
-	}
-	countRows, err := r.pool.Query(ctx, sqlStatusCountsForScope(p.Scope), countArgs...)
+	// The chip counts are SEPARATE queries, so they must be built from the SAME filters as the
+	// rows or the chips advertise rows the list hides (ports/repository.go:49-51). Each starts a
+	// fresh bind list from the tenant, and every predicate is numbered by bindArg, so the
+	// filters cannot collide with the party placeholder here either.
+	countArgs := []any{p.TenantID}
+	countRows, err := r.pool.Query(ctx, sqlStatusCountsForScope(&countArgs, p), countArgs...)
 	if err != nil {
 		return ports.Page{}, fmt.Errorf("leadership task: status counts: %w", err)
 	}
@@ -209,7 +215,8 @@ func (r *Repository) ListTasks(ctx context.Context, p ports.ListParams) (ports.P
 		return ports.Page{}, err
 	}
 	page.UnseenCount = unseen
-	scopeRows, err := r.pool.Query(ctx, sqlRepository14, p.TenantID, p.UserID)
+	scopeArgs := []any{p.TenantID}
+	scopeRows, err := r.pool.Query(ctx, sqlScopeCounts(&scopeArgs, p), scopeArgs...)
 	if err != nil {
 		return ports.Page{}, fmt.Errorf("leadership task: scope counts: %w", err)
 	}
@@ -227,6 +234,178 @@ func (r *Repository) ListTasks(ctx context.Context, p ports.ListParams) (ports.P
 	}
 	return page, nil
 }
+
+// bindArg appends one bind value and returns ITS placeholder number. Every predicate added
+// after the per-scope switch numbers itself this way: the scope branch binds 1 arg for
+// team_progress and 2 for the party scopes, and a hand-counted $3 would be wrong for one of
+// them (the bug TestTeamProgressUnfilteredReadBindsOnlyWhatItReads pins).
+func bindArg(args *[]any, v any) int {
+	*args = append(*args, v)
+	return len(*args)
+}
+
+// filterPredicates renders the request filters shared by the row query, the status counts and
+// the scope counts. alias is "t." for the aliased row query and "" for the bare count queries.
+// withAssignee/withRaiser are false where the surrounding query already pins that person, so
+// one person is never filtered twice with two different ids (which would always be zero rows).
+func filterPredicates(args *[]any, alias string, p ports.ListParams, withAssignee, withRaiser bool) string {
+	var b strings.Builder
+	if p.Query != "" {
+		// ILIKE on the bare column (never lower(col) LIKE '%..%', which is the non-SARGable
+		// form the scale guard bans): the pg_trgm GIN indexes from migration 000345 serve this
+		// leading wildcard on both title and body, escaped patterns included.
+		//
+		// The typed text is ESCAPED, so a leader searching for "50%" or "shed_4" matches those
+		// characters LITERALLY. Unescaped, `%` and `_` are ILIKE wildcards, and a search that
+		// silently matches more than the words typed reads as a broken box rather than a
+		// feature. Only the two wildcards this query adds itself stay live.
+		text := bindArg(args, escapeLikePattern(p.Query))
+		arms := fmt.Sprintf("%stitle ILIKE '%%' || $%d || '%%' ESCAPE '\\' OR %sbody ILIKE '%%' || $%d || '%%' ESCAPE '\\'", alias, text, alias, text)
+		if p.QueryTaskNo != nil {
+			// "15" is how a leader names task #15 out loud, so a bare integer also matches the
+			// farm's own number exactly -- served by leadership_tasks_no_uq.
+			arms += fmt.Sprintf(" OR %stask_no = $%d", alias, bindArg(args, *p.QueryTaskNo))
+		}
+		b.WriteString(" AND (" + arms + ")")
+	}
+	if withAssignee && p.AssigneeUserID != "" {
+		b.WriteString(fmt.Sprintf(" AND %sassignee_user_id = $%d::uuid", alias, bindArg(args, p.AssigneeUserID)))
+	}
+	if withRaiser && p.RaisedBy != "" {
+		b.WriteString(fmt.Sprintf(" AND %sraised_by = $%d::uuid", alias, bindArg(args, p.RaisedBy)))
+	}
+	// Both ends of a range are required together upstream, so a half-range never reaches here.
+	// A deadline range therefore also excludes every task that has no deadline at all.
+	if p.DeadlineFrom != nil && p.DeadlineTo != nil {
+		b.WriteString(fmt.Sprintf(" AND %sdeadline_at >= $%d::timestamptz AND %sdeadline_at <= $%d::timestamptz",
+			alias, bindArg(args, *p.DeadlineFrom), alias, bindArg(args, *p.DeadlineTo)))
+	}
+	if p.RaisedFrom != nil && p.RaisedTo != nil {
+		b.WriteString(fmt.Sprintf(" AND %sraised_at >= $%d::timestamptz AND %sraised_at <= $%d::timestamptz",
+			alias, bindArg(args, *p.RaisedFrom), alias, bindArg(args, *p.RaisedTo)))
+	}
+	return b.String()
+}
+
+// escapeLikePattern neutralizes the ILIKE metacharacters in text a person typed, so the
+// pattern matches those characters literally. The escape character itself goes first: escaping
+// it after the wildcards would re-escape the backslashes this function just added.
+func escapeLikePattern(text string) string {
+	text = strings.ReplaceAll(text, `\`, `\\`)
+	text = strings.ReplaceAll(text, "%", `\%`)
+	return strings.ReplaceAll(text, "_", `\_`)
+}
+
+// orderByForSort is the total order for one sort key. A NULL deadline sorts LAST in BOTH
+// deadline directions -- a task with no deadline is not "the most urgent" and not "the least
+// urgent", it is simply not on the deadline list -- and task_id breaks every tie so the
+// keyset below can never skip or repeat a row.
+//
+// The null rule is written as NULLS LAST rather than as a leading `(deadline_at IS NULL)`
+// term deliberately: the two mean the same thing, but only this form is servable by a btree,
+// and EXPLAIN on 40k tenant rows turns the leading-expression form into a Seq Scan plus a
+// top-N sort while this form is an Index Only Scan of the two deadline indexes from 000345.
+func orderByForSort(sortKey string) string {
+	switch sortKey {
+	case ports.SortRaisedAtAsc:
+		return "t.raised_at ASC, t.task_id ASC"
+	case ports.SortDeadlineAsc:
+		return "t.deadline_at ASC NULLS LAST, t.task_id ASC"
+	case ports.SortDeadlineDesc:
+		return "t.deadline_at DESC NULLS LAST, t.task_id DESC"
+	default:
+		return "t.raised_at DESC, t.task_id DESC"
+	}
+}
+
+// keysetPredicate turns a cursor into the "strictly after the last row of the previous page"
+// predicate for the ACTIVE sort. The cursor carries the sort it was minted under; a mismatch
+// is refused rather than served, because the same instant means a different position in a
+// different order and the caller would silently read a wrong page.
+func keysetPredicate(args *[]any, sortKey, cursor string) (string, error) {
+	c, err := decodeSortCursor(sortKey, cursor)
+	if err != nil {
+		return "", err
+	}
+	switch sortKey {
+	case ports.SortRaisedAtAsc:
+		return fmt.Sprintf(" AND (t.raised_at, t.task_id) > ($%d::timestamptz, $%d::uuid)",
+			bindArg(args, c.value), bindArg(args, c.taskID)), nil
+	case ports.SortDeadlineAsc:
+		if c.valueNull {
+			// Already inside the trailing NULL-deadline block: stay in it and walk task_id.
+			return fmt.Sprintf(" AND t.deadline_at IS NULL AND t.task_id > $%d::uuid", bindArg(args, c.taskID)), nil
+		}
+		return fmt.Sprintf(" AND (t.deadline_at IS NULL OR (t.deadline_at, t.task_id) > ($%d::timestamptz, $%d::uuid))",
+			bindArg(args, c.value), bindArg(args, c.taskID)), nil
+	case ports.SortDeadlineDesc:
+		if c.valueNull {
+			return fmt.Sprintf(" AND t.deadline_at IS NULL AND t.task_id < $%d::uuid", bindArg(args, c.taskID)), nil
+		}
+		return fmt.Sprintf(" AND (t.deadline_at IS NULL OR (t.deadline_at, t.task_id) < ($%d::timestamptz, $%d::uuid))",
+			bindArg(args, c.value), bindArg(args, c.taskID)), nil
+	default:
+		return fmt.Sprintf(" AND (t.raised_at, t.task_id) < ($%d::timestamptz, $%d::uuid)",
+			bindArg(args, c.value), bindArg(args, c.taskID)), nil
+	}
+}
+
+// sqlStatusCountsForScope is the filters[] count query: whole-list, over the SAME scope and
+// the SAME request filters as the rows, MINUS the status predicate the chips themselves vary.
+//
+// projection-review: membership=leadership_tasks for tenant plus the active scope's party predicate and the request filters; group_key=status; join_cardinality=no joins; pagination=whole-result summary independent of the task page, no OFFSET; scope=tenant plus actor party (tenant-wide for the monitor scope)
+func sqlStatusCountsForScope(args *[]any, p ports.ListParams) string {
+	// DELIBERATE FOR NOW, and out of scope for the worklist change: this query drops the status
+	// predicate entirely, including the team_progress row query's own `status <> 'cancelled'`,
+	// so the monitor scope still reports a `cancelled` bucket for rows that tab never lists.
+	// That is the behaviour this list shipped with; the filters are honest about q, the people
+	// and the date ranges, and only that one bucket overstates. Do not read these counts as
+	// fully scope-exact until that is fixed on its own.
+	where := "tenant_id = $1"
+	switch p.Scope {
+	case domain.ScopeAssignedByMe:
+		// The scope pins the raiser, so a raised_by filter is dropped here as it is for the rows.
+		where += fmt.Sprintf(" AND raised_by = $%d::uuid", bindArg(args, p.UserID))
+		where += filterPredicates(args, "", p, true, false)
+	case domain.ScopeTeamProgress:
+		where += filterPredicates(args, "", p, true, true)
+	default:
+		where += fmt.Sprintf(" AND assignee_user_id = $%d::uuid", bindArg(args, p.UserID))
+		where += filterPredicates(args, "", p, false, true)
+	}
+	return "SELECT status, count(*) FROM public.leadership_tasks WHERE " + where + " GROUP BY status"
+}
+
+// sqlScopeCounts is the scopes[] tab count query: for each tab, how many rows THAT tab would
+// show under the request's current filters, MINUS the scope predicate itself. Each branch
+// drops the person filter its own scope pins, exactly as the row query does when that tab is
+// opened -- otherwise the badge would count rows the tab then refuses to filter on.
+//
+// projection-review: membership=leadership_tasks for tenant, three disjoint party arms unioned; group_key=scope; join_cardinality=no joins (a task counts once per arm it belongs to, which is the tab semantics); pagination=whole-result summary, no OFFSET; scope=tenant on every arm
+func sqlScopeCounts(args *[]any, p ports.ListParams) string {
+	toMe := fmt.Sprintf("tenant_id = $1 AND assignee_user_id = $%d::uuid AND status <> 'cancelled'", bindArg(args, p.UserID))
+	toMe += filterPredicates(args, "", p, false, true)
+	byMe := fmt.Sprintf("tenant_id = $1 AND raised_by = $%d::uuid AND status <> 'cancelled'", bindArg(args, p.UserID))
+	byMe += filterPredicates(args, "", p, true, false)
+	team := "tenant_id = $1 AND status <> 'cancelled'" + filterPredicates(args, "", p, true, true)
+	return fmt.Sprintf(sqlScopeCountsTemplate, toMe, byMe, team)
+}
+
+// sqlScopeCountsTemplate is the scope-count skeleton, hoisted to package level so a
+// query-plan test and the scale guard can reach it; the three %s are the per-tab WHERE
+// clauses sqlScopeCounts builds (tab predicate plus the request filters that tab honours).
+const sqlScopeCountsTemplate = `
+SELECT scope, count(*) FROM (
+  SELECT '` + domain.ScopeAssignedToMe + `'::text AS scope FROM public.leadership_tasks
+  WHERE %s
+  UNION ALL
+  SELECT '` + domain.ScopeAssignedByMe + `'::text AS scope FROM public.leadership_tasks
+  WHERE %s
+  UNION ALL
+  SELECT '` + domain.ScopeTeamProgress + `'::text AS scope FROM public.leadership_tasks
+  WHERE %s
+) s
+GROUP BY scope`
 
 // attachTo loads the attachments of a bounded task set in one query and fills them in.
 func (r *Repository) attachTo(ctx context.Context, q querier, tenantID string, tasks []domain.Task) error {
@@ -292,11 +471,70 @@ func (r *Repository) notesTo(ctx context.Context, q querier, tenantID string, ta
 	return rows.Err()
 }
 
-func encodeCursor(raisedAt time.Time, taskID string) string {
-	return raisedAt.UTC().Format(time.RFC3339Nano) + "|" + taskID
+// The cursor is base64url of "<sort>\x1f<value>\x1f<task_id>": the name of the sort it was
+// minted under, the row's sort value (RFC3339Nano of raised_at or deadline_at, or "" for a
+// NULL deadline), and the tie-breaking task id. The sort name is IN the payload so a cursor
+// carried across a sort change is refused instead of silently paging the wrong order.
+const cursorSep = "\x1f"
+
+// sortCursor is one decoded cursor position.
+type sortCursor struct {
+	value     string
+	valueNull bool
+	taskID    string
 }
 
-func decodeCursor(cursor string) (string, string, error) {
+// encodeSortCursor mints the next-page cursor from the last row served.
+func encodeSortCursor(sortKey string, last domain.Task) string {
+	value := ""
+	switch sortKey {
+	case ports.SortDeadlineAsc, ports.SortDeadlineDesc:
+		if last.DeadlineAt != nil {
+			value = last.DeadlineAt.UTC().Format(time.RFC3339Nano)
+		}
+	default:
+		value = last.RaisedAt.UTC().Format(time.RFC3339Nano)
+	}
+	return base64.RawURLEncoding.EncodeToString([]byte(sortKey + cursorSep + value + cursorSep + last.TaskID))
+}
+
+// decodeSortCursor reads a cursor for the ACTIVE sort. It also still accepts the legacy
+// plaintext "<RFC3339Nano>|<uuid>" form, but ONLY under the default sort it was minted for,
+// so an Android build in flight keeps paging while a new sort can never inherit it.
+func decodeSortCursor(sortKey, cursor string) (sortCursor, error) {
+	if raw, err := base64.RawURLEncoding.DecodeString(cursor); err == nil {
+		parts := strings.Split(string(raw), cursorSep)
+		if len(parts) == 3 && ports.IsSortKey(parts[0]) {
+			if parts[0] != sortKey {
+				return sortCursor{}, fmt.Errorf("%w: cursor was minted for sort %q, not %q", ports.ErrInvalidArgument, parts[0], sortKey)
+			}
+			c := sortCursor{value: parts[1], valueNull: parts[1] == "", taskID: parts[2]}
+			if !c.valueNull {
+				if _, err := time.Parse(time.RFC3339Nano, c.value); err != nil {
+					return sortCursor{}, fmt.Errorf("%w: bad cursor timestamp: %v", ports.ErrInvalidArgument, err)
+				}
+			} else if sortKey != ports.SortDeadlineAsc && sortKey != ports.SortDeadlineDesc {
+				// Only a deadline sort has a NULL sort value; raised_at is NOT NULL.
+				return sortCursor{}, fmt.Errorf("%w: bad cursor", ports.ErrInvalidArgument)
+			}
+			if !uuidutil.IsUUIDString(c.taskID) {
+				return sortCursor{}, fmt.Errorf("%w: bad cursor task id", ports.ErrInvalidArgument)
+			}
+			return c, nil
+		}
+	}
+	if sortKey != ports.SortRaisedAtDesc {
+		return sortCursor{}, fmt.Errorf("%w: bad cursor for sort %q", ports.ErrInvalidArgument, sortKey)
+	}
+	raisedAt, taskID, err := decodeLegacyCursor(cursor)
+	if err != nil {
+		return sortCursor{}, err
+	}
+	return sortCursor{value: raisedAt, taskID: taskID}, nil
+}
+
+// decodeLegacyCursor reads the pre-sort plaintext cursor shape.
+func decodeLegacyCursor(cursor string) (string, string, error) {
 	parts := strings.SplitN(cursor, "|", 2)
 	if len(parts) != 2 || parts[0] == "" || parts[1] == "" {
 		return "", "", fmt.Errorf("%w: bad cursor", ports.ErrInvalidArgument)
@@ -849,45 +1087,7 @@ INSERT INTO public.leadership_task_attachments (
 ) VALUES ($1::uuid, $2::uuid, $3::uuid, $4, $5, $6, $7, $8, $9)
 ON CONFLICT (tenant_id, task_id, proof_id) DO UPDATE
 SET kind = EXCLUDED.kind, file_name = EXCLUDED.file_name, position = EXCLUDED.position`
-	sqlRepository14 = `
-SELECT scope, count(*) FROM (
-  SELECT '` + domain.ScopeAssignedToMe + `'::text AS scope FROM public.leadership_tasks
-  WHERE tenant_id = $1 AND assignee_user_id = $2::uuid AND status <> 'cancelled'
-  UNION ALL
-  SELECT '` + domain.ScopeAssignedByMe + `'::text AS scope FROM public.leadership_tasks
-  WHERE tenant_id = $1 AND raised_by = $2::uuid AND status <> 'cancelled'
-  UNION ALL
-  SELECT '` + domain.ScopeTeamProgress + `'::text AS scope FROM public.leadership_tasks
-  WHERE tenant_id = $1 AND status <> 'cancelled'
-) s
-GROUP BY scope`
-	sqlStatusCountsAssignedByMe = `
--- projection-review: membership=leadership_tasks for tenant and raiser; group_key=status; join_cardinality=no joins; pagination=whole-result summary independent of task page; scope=tenant plus actor raiser
-SELECT status, count(*) FROM public.leadership_tasks
-WHERE tenant_id = $1 AND raised_by = $2::uuid
-GROUP BY status`
-	sqlStatusCountsTeamProgress = `
--- projection-review: membership=leadership_tasks for tenant; group_key=status; join_cardinality=no joins; pagination=whole-result summary independent of task page; scope=tenant-wide monitor scope
-SELECT status, count(*) FROM public.leadership_tasks
-WHERE tenant_id = $1
-GROUP BY status`
-	sqlStatusCountsAssignedToMe = `
--- projection-review: membership=leadership_tasks for tenant and assignee; group_key=status; join_cardinality=no joins; pagination=whole-result summary independent of task page; scope=tenant plus actor assignee
-SELECT status, count(*) FROM public.leadership_tasks
-WHERE tenant_id = $1 AND assignee_user_id = $2::uuid
-GROUP BY status`
 )
-
-func sqlStatusCountsForScope(scope string) string {
-	switch scope {
-	case domain.ScopeAssignedByMe:
-		return sqlStatusCountsAssignedByMe
-	case domain.ScopeTeamProgress:
-		return sqlStatusCountsTeamProgress
-	default:
-		return sqlStatusCountsAssignedToMe
-	}
-}
 
 const sqlSetComment = `
 UPDATE public.leadership_tasks

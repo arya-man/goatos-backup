@@ -3512,12 +3512,29 @@ export async function listPCCareTasks(params: {
   );
 }
 
+export type LeadershipTaskSort =
+  | "raised_at_desc"
+  | "raised_at_asc"
+  | "deadline_asc"
+  | "deadline_desc";
+
 export async function listLeadershipTasks(
   params: {
     scope?: "assigned_to_me" | "assigned_by_me" | "team_progress";
     filter?: "all" | "open" | "in_progress" | "done";
     limit?: number;
     cursor?: string;
+    /** Free text over title, brief and (for a bare integer) the task number. Max 120 chars. */
+    q?: string;
+    assigneeUserId?: string;
+    raisedBy?: string;
+    /** Both ends of a range are required together; the backend refuses a half-open one. */
+    deadlineFrom?: string;
+    deadlineTo?: string;
+    raisedFrom?: string;
+    raisedTo?: string;
+    /** The cursor is sort-aware: change the sort and drop the cursor together. */
+    sort?: LeadershipTaskSort;
   } = {},
 ): Promise<ApiResult<LeadershipTaskPage>> {
   const config = await getServerConfig();
@@ -3531,6 +3548,14 @@ export async function listLeadershipTasks(
         filter: params.filter,
         limit: params.limit ?? 50,
         cursor: params.cursor,
+        q: params.q,
+        assignee_user_id: params.assigneeUserId,
+        raised_by: params.raisedBy,
+        deadline_from: params.deadlineFrom,
+        deadline_to: params.deadlineTo,
+        raised_from: params.raisedFrom,
+        raised_to: params.raisedTo,
+        sort: params.sort,
       }),
     }),
   );
@@ -3565,6 +3590,38 @@ export async function raiseLeadershipTask(
   const client = createAppApiClient(apiClientOptions(config.data));
   return request(() =>
     client.request<LeadershipTaskDetail>("/app/leadership-tasks", {
+      method: "POST",
+      cache: "no-store",
+      headers: { "Idempotency-Key": idempotencyKey },
+      body,
+    }),
+  );
+}
+
+// The raiser's edit of an open task: title and row_version are required, and an OMITTED
+// deadline_at KEEPS the stored deadline (an older client that does not know the field must not
+// wipe it). `attachments` is a FULL replacement list, max 12 -- send the ones that should
+// remain, not just the new ones. Server-side: raiser-only, open/in_progress only
+// (409 task_closed), and the row_version fence (409 version_conflict).
+export async function editLeadershipTask(
+  taskId: string,
+  body: {
+    title: string;
+    row_version: number;
+    body?: string;
+    deadline_at?: string;
+    attachments?: Array<{ proof_id: string; kind: string; file_name?: string }>;
+  },
+  idempotencyKey: string,
+): Promise<ApiResult<LeadershipTaskDetail>> {
+  const config = await getServerConfig();
+  if (!config.ok) return config;
+  const client = createAppApiClient(apiClientOptions(config.data));
+  const path =
+    `/app/leadership-tasks/${encodeURIComponent(taskId)}/edit` as keyof AppApiPaths &
+      string;
+  return request(() =>
+    client.request<LeadershipTaskDetail>(path, {
       method: "POST",
       cache: "no-store",
       headers: { "Idempotency-Key": idempotencyKey },
