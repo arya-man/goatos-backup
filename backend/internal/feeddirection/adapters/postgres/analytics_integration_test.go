@@ -1687,15 +1687,39 @@ VALUES ($1, $2, 'CBE', 'Concentrate', 400, DATE '2026-08-16', 130.000, 25.0000, 
 		t.Fatalf("insert purchase: %v", err)
 	}
 	issuedAt := time.Date(2026, 8, 20, 9, 0, 0, 0, biztime.DefaultLocation())
-	for i, day := range []string{"2026-08-18", "2026-08-19", "2026-08-20"} {
+	// Two feeds that stop being fed, the two shapes STG shows (2026-09-17):
+	//   - 2026-08-01 carries "Mesha Concentrate Goat", an old grid label that then drops
+	//     off the sheets entirely;
+	//   - "Mesha Kids Goat Concentrate" is fed 10 kg on 2026-08-18, then stays on the
+	//     sheet at 0 kg on 2026-08-19 and is gone after -- the retired split feed that
+	//     Channapatna stopped feeding on 2026-09-11 but whose rows lingered at 0 kg.
+	// Each keeps a positive average over its own last three rows, so without the rule
+	// it would forecast a week's demand for a feed nobody is fed any more. The kids feed
+	// is still in the park's last three feed days here, so it SHOWS in the first read;
+	// the second phase adds three more days and it must drop out.
+	for i, day := range []string{"2026-08-01", "2026-08-18", "2026-08-19", "2026-08-20"} {
+		label, key := "Concentrate", "concentrate"
+		if day == "2026-08-01" {
+			label, key = "Mesha Concentrate Goat", "mesha_concentrate_goat"
+		}
 		cells := []domain.StoredCell{{
 			ParkID: fdiPark, ParkLabel: "CBE", ShedID: fdiShedA, ShedLabel: "Castro",
 			PartitionLabel: "1", ShedTag: "Non-Pregnant", Breed: "Beetal",
 			RationGroup: "Beetal/Sirohi", SessionNo: 1, SessionLabel: "Morning",
 			HeadCount: 10, Workflow: domain.WorkflowNormal,
-			FeedItemLabel: "Concentrate", FeedItemKey: "concentrate",
+			FeedItemLabel: label, FeedItemKey: key,
 			QuantityKg: kg("10.000"), SessionTotalKg: "10.000",
 		}}
+		if kidsKg, ok := map[string]string{"2026-08-18": "10.000", "2026-08-19": "0.000"}[day]; ok {
+			cells = append(cells, domain.StoredCell{
+				ParkID: fdiPark, ParkLabel: "CBE", ShedID: fdiShedA, ShedLabel: "Castro",
+				PartitionLabel: "1", ShedTag: "Non-Pregnant", Breed: "Beetal",
+				RationGroup: "Beetal/Sirohi", SessionNo: 1, SessionLabel: "Morning",
+				HeadCount: 10, Workflow: domain.WorkflowNormal,
+				FeedItemLabel: "Mesha Kids Goat Concentrate", FeedItemKey: "mesha_kids_goat_concentrate",
+				QuantityKg: kg(kidsKg), SessionTotalKg: kidsKg,
+			})
+		}
 		if _, err := repo.PersistIssue(ctx, ports.PersistIssueCommand{
 			TenantID: fdiTenant, ParkID: fdiPark, FeedDay: day, Workflow: domain.WorkflowNormal,
 			IssuedAt: issuedAt, Fingerprint: fmt.Sprintf("fp-short-%d", i),
@@ -1715,8 +1739,8 @@ VALUES ($1, $2, 'CBE', 'Concentrate', 400, DATE '2026-08-16', 130.000, 25.0000, 
 	if err != nil {
 		t.Fatalf("StockAnalytics: %v", err)
 	}
-	if len(got.Forecast) != 1 {
-		t.Fatalf("forecast rows = %d, want 1: %+v", len(got.Forecast), got.Forecast)
+	if len(got.Forecast) != 2 || got.Forecast[1].FeedItemKey != "mesha_kids_goat_concentrate" {
+		t.Fatalf("forecast rows = %+v, want concentrate + the still-recent kids feed (and no stale grid label)", got.Forecast)
 	}
 	// avg 10.0 → need 70.0; stock = 130 − 30 fed = 100.0. Wait, that covers it;
 	// the fixture is built so it does NOT: depletes_from is 2026-08-17 and all
@@ -1760,11 +1784,141 @@ VALUES ($1, $2, 'CBE', 'Concentrate', 400, DATE '2026-08-16', 130.000, 25.0000, 
 	if err != nil {
 		t.Fatalf("StockAnalytics after: %v", err)
 	}
+	if len(got.Forecast) != 1 {
+		t.Fatalf("forecast rows after = %+v, want only concentrate: a feed with no kg on the park's last three feed days is not being fed", got.Forecast)
+	}
 	assertForecast(t, "concentrate", got.Forecast[0], domain.StockForecastItem{
 		FarmLabel: "CBE", FeedItemLabel: "Concentrate", FeedItemKey: "concentrate",
 		AvgDailyKg: "30.0", RequiredKg: "210.0", StockKg: "10.0", ShortfallKg: "200.0",
 		PerKgCost: "25.00", RequiredCost: "5250",
 	})
+}
+
+// A feed the farm has STOPPED feeding forecasts no demand, decided per park from
+// that park's own last three LOCKED feed days (STG 2026-09-17: Channapatna's
+// retired "Mesha Kids Goat Concentrate" and "Mesha Adult Concentrate Goat" were
+// last fed 2026-09-11 and lingered on the sheets at 0 kg; the old grid label
+// "Mesha Concentrate Goat" was last fed 2026-08-10). Each kept a positive average
+// over its own last three rows and read as a week of feed still to buy.
+//
+// ONE-TO-MANY: CBE feeds its concentrates across two sheds per day, so fed_days
+// collapses several issue rows per (park, item, day) -- the kids feed at 0 kg in
+// BOTH sheds must stay 0, never be revived by a sibling row. STATUS BUCKETS: an
+// UNLOCKED CBE sheet dated after every locked day carries every feed at real kg
+// and must not count as feeding. PARK SCOPE: CPT's sheets paused on 2026-08-20;
+// its rows are judged on CPT's own last days, so CBE's later sheets cannot drop
+// them, and a CBE-only filter returns CBE alone. PAGE BOUNDARY: the table takes no
+// limit/offset, so the row count is the whole answer.
+func TestStockForecastDropsStoppedFeedsOneToManyStatusBucketsParkScopeNoPageBoundary(t *testing.T) {
+	ctx := context.Background()
+	repo, pool := setupIssueDB(t, ctx)
+
+	parkCBE := fdiPark
+	parkCPT := "fd100000-0000-4000-8000-000000003002"
+	if _, err := pool.Exec(ctx, `
+INSERT INTO locations (location_id, tenant_id, location_type, location_code, name, status)
+VALUES ($2::uuid, $1::uuid, 'park', 'CPT', 'CPT', 'active')
+ON CONFLICT (location_id) DO NOTHING`, fdiTenant, parkCPT); err != nil {
+		t.Fatalf("seed CPT park: %v", err)
+	}
+
+	issuedAt := time.Date(2026, 8, 18, 9, 0, 0, 0, biztime.DefaultLocation())
+	persist := func(parkID, farm, day string, lock bool, sheds []string, items map[string]string) {
+		t.Helper()
+		var cells []domain.StoredCell
+		for shedSeq, shedID := range sheds {
+			var itemSeq int32
+			for _, label := range []string{"Concentrate", "Mesha Kids Goat Concentrate", "Mesha Concentrate Goat"} {
+				qty, ok := items[label]
+				if !ok {
+					continue
+				}
+				cells = append(cells, domain.StoredCell{
+					ParkID: parkID, ParkLabel: farm, ShedID: shedID, ShedLabel: farm + " Shed " + shedID[len(shedID)-1:],
+					PartitionLabel: "1", ShedTag: "Non-Pregnant", Breed: "Beetal",
+					RationGroup: "Beetal/Sirohi", SessionNo: 1, SessionLabel: "Morning",
+					HeadCount: 10, Workflow: domain.WorkflowNormal,
+					FeedItemLabel: label, FeedItemKey: map[string]string{
+						"Concentrate":                 "concentrate",
+						"Mesha Kids Goat Concentrate": "mesha_kids_goat_concentrate",
+						"Mesha Concentrate Goat":      "mesha_concentrate_goat",
+					}[label],
+					QuantityKg: kg(qty), SessionTotalKg: qty,
+					RowSeq: int32(shedSeq), ItemSeq: itemSeq,
+				})
+				itemSeq++
+			}
+		}
+		if _, err := repo.PersistIssue(ctx, ports.PersistIssueCommand{
+			TenantID: fdiTenant, ParkID: parkID, FeedDay: day, Workflow: domain.WorkflowNormal,
+			IssuedAt: issuedAt, Fingerprint: "fp-stop-" + farm + "-" + day,
+			IdempotencyKey: "issue:" + fdiTenant + ":" + parkID + ":" + day + ":stop",
+			GeneratedBy:    "test", Cells: cells,
+		}); err != nil {
+			t.Fatalf("persist %s %s: %v", farm, day, err)
+		}
+		if !lock {
+			return
+		}
+		if locked, err := repo.LockIssue(ctx, ports.LockIssueCommand{
+			TenantID: fdiTenant, ParkID: parkID, FeedDay: day,
+			Workflow: domain.WorkflowNormal, LockedAt: issuedAt,
+		}); err != nil || locked.Outcome != "locked" {
+			t.Fatalf("lock %s %s = (%v, %v)", farm, day, locked.Outcome, err)
+		}
+	}
+	bothSheds := []string{fdiShedA, fdiShedB}
+
+	// CBE: the old grid label is fed once, early; the kids feed is fed through
+	// 2026-08-19 and then sits on the sheet at 0 kg in both sheds.
+	persist(parkCBE, "CBE", "2026-08-10", true, bothSheds, map[string]string{
+		"Concentrate": "50.000", "Mesha Concentrate Goat": "20.000"})
+	for _, day := range []string{"2026-08-18", "2026-08-19"} {
+		persist(parkCBE, "CBE", day, true, bothSheds, map[string]string{
+			"Concentrate": "50.000", "Mesha Kids Goat Concentrate": "5.000"})
+	}
+	for _, day := range []string{"2026-08-20", "2026-08-21", "2026-08-22"} {
+		persist(parkCBE, "CBE", day, true, bothSheds, map[string]string{
+			"Concentrate": "50.000", "Mesha Kids Goat Concentrate": "0.000"})
+	}
+	persist(parkCBE, "CBE", "2026-08-23", false, bothSheds, map[string]string{
+		"Concentrate": "500.000", "Mesha Kids Goat Concentrate": "50.000", "Mesha Concentrate Goat": "50.000"})
+
+	// CPT: still feeds the kids feed, but its sheets paused on 2026-08-20.
+	for _, day := range []string{"2026-08-18", "2026-08-19", "2026-08-20"} {
+		persist(parkCPT, "CPT", day, true, []string{fdiShedB}, map[string]string{
+			"Mesha Kids Goat Concentrate": "8.000"})
+	}
+
+	got, err := repo.StockAnalytics(ctx, fdiTenant, domain.DirectedAnalyticsQuery{})
+	if err != nil {
+		t.Fatalf("StockAnalytics: %v", err)
+	}
+	var keys []string
+	for _, r := range got.Forecast {
+		keys = append(keys, r.FarmLabel+"/"+r.FeedItemKey)
+	}
+	want := []string{"CBE/concentrate", "CPT/mesha_kids_goat_concentrate"}
+	if fmt.Sprint(keys) != fmt.Sprint(want) {
+		t.Fatalf("forecast rows = %v, want %v (full rows: %+v)", keys, want, got.Forecast)
+	}
+	// Two sheds x 50 kg per locked day; the unlocked 500 kg sheet stays out.
+	if got.Forecast[0].AvgDailyKg != "100.0" {
+		t.Errorf("CBE concentrate avg = %q, want 100.0", got.Forecast[0].AvgDailyKg)
+	}
+	if got.Forecast[1].AvgDailyKg != "8.0" {
+		t.Errorf("CPT kids feed avg = %q, want 8.0", got.Forecast[1].AvgDailyKg)
+	}
+
+	cbeOnly, err := repo.StockAnalytics(ctx, fdiTenant, domain.DirectedAnalyticsQuery{
+		ParkIDs: []uuid.UUID{uuid.MustParse(parkCBE)},
+	})
+	if err != nil {
+		t.Fatalf("StockAnalytics CBE only: %v", err)
+	}
+	if len(cbeOnly.Forecast) != 1 || cbeOnly.Forecast[0].FeedItemKey != "concentrate" {
+		t.Errorf("CBE-only forecast = %+v, want concentrate alone", cbeOnly.Forecast)
+	}
 }
 
 func assertForecast(t *testing.T, name string, got, want domain.StockForecastItem) {

@@ -1629,7 +1629,9 @@ ORDER BY days_left NULLS LAST, fs.family_label, fs.farm_label`
 // projection-review: membership=fed items at (park_id, feed_item_key) from
 // locked feed_direction_issue_rows UNION feed_effective_external_consumption, collapsed
 // to one row per (park_id, feed_item_key, feed_day) BEFORE ranking so a feed
-// carried by both sources on one day averages once; group_key=(park_id,
+// carried by both sources on one day averages once, and kept only while it has
+// kg > 0 on one of the park's last three feed days (park_recent_days, 1 row per
+// (park_id, feed_day)); group_key=(park_id,
 // feed_item_key) on every side -- recent/first_day GROUP BY that pair, the
 // purchase side aggregates feed_purchases to the same pair before joining, and
 // the rate LATERAL returns one row by construction; join_cardinality=fed LEFT
@@ -1671,6 +1673,16 @@ WITH fed_days AS (
     ) both_sources
     GROUP BY park_id, feed_item_key, feed_day
 ),
+-- The park's last three feed days, across every feed it carries.
+park_recent_days AS (
+    SELECT park_id, feed_day
+    FROM (
+        SELECT park_id, feed_day,
+               ROW_NUMBER() OVER (PARTITION BY park_id ORDER BY feed_day DESC) AS rn
+        FROM (SELECT DISTINCT park_id, feed_day FROM fed_days) d
+    ) ranked_days
+    WHERE rn <= 3
+),
 recent AS (
     SELECT park_id, feed_item_key,
            AVG(kg)              AS avg_kg,
@@ -1682,6 +1694,23 @@ recent AS (
     ) ranked
     WHERE rn <= 3
     GROUP BY park_id, feed_item_key
+    -- Only a feed the farm is STILL FEEDING forecasts demand: it must carry real
+    -- kg on at least one of the park's last three feed days. A feed that stopped
+    -- keeps a positive average over its own last three rows -- retired split feeds
+    -- linger on the sheets at 0 kg (Channapatna's "Mesha Kids Goat Concentrate",
+    -- last fed 2026-09-11) and old grid labels vanish entirely ("Mesha Concentrate
+    -- Goat", last fed 2026-08-10) -- and would read as a week of feed still needed.
+    -- Anchored on the park's own latest sheets, not the clock, so a park whose
+    -- sheets pause keeps its rows.
+    HAVING EXISTS (
+        SELECT 1
+        FROM fed_days f
+        JOIN park_recent_days prd
+          ON prd.park_id = f.park_id AND prd.feed_day = f.feed_day
+        WHERE f.park_id = ranked.park_id
+          AND f.feed_item_key = ranked.feed_item_key
+          AND f.kg > 0
+    )
 ),
 -- Ledger balance at the SAME (park, item) grain the stock cards use: purchased
 -- net of import-time consumption, minus everything fed since the bootstrap
