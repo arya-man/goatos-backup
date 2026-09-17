@@ -45,7 +45,7 @@ const (
 
 // Slot ceilings. MaxShedProofArtifacts (5) is now the PER-SLOT ceiling of a whole-pen slot and
 // the mirror window older clients read; MaxLumpSumProofsTotal is the row's ceiling (migration
-// 000328 widens proof_position to 1..10).
+// 000344 widens proof_position to 1..10).
 const (
 	MaxIndividualProofSlots = 4
 	MaxLumpSumProofSlots    = 4

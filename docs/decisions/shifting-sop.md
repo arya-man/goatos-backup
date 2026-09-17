@@ -62,7 +62,7 @@ verifier items are never relabelled. The pending-execution read serves each row'
   422 `shifting_answer_invalid` (`question`). The legacy columns `proof_ref` /
   `feed_packing_proof_ref` / `feed_given_proof_ref` mirror the seeded slots (`proof_ref` falls back
   to the first capture; it is never NULL on a completed move). The 000053 feed-evidence CHECK is
-  re-added strictly weaker in 000325 so an authored high-priority card may rename or replace the
+  re-added strictly weaker in 000341 so an authored high-priority card may rename or replace the
   two seeded clips.
 - **Verifier**: ONE `shifting_move` item; media in order completion -> high priority -> raise, each
   with `media_meta` {slot title, kind the register judged} (raise captures read
@@ -95,11 +95,11 @@ fingerprint is byte-identical to the pre-SOP handler's (goldens pinned in
 
 ## Schema
 
-- `000324_shifting_sop.sql`: `shifting_events` + `sop_version`, `raise_sop_proofs`,
+- `000340_shifting_sop.sql`: `shifting_events` + `sop_version`, `raise_sop_proofs`,
   `raise_sop_answers`, `raise_capture_evidence`, `sop_proofs`, `sop_answers` (no defaults,
   metadata-only); the seeded section added IN PLACE to each tenant's published `shifting` version
   (pinned by `TestMigrationEmbedsTheSeededShiftingSOP`).
-- `000325_shifting_feed_evidence_check_authored.sql`: the same-named CHECK re-added strictly weaker
+- `000341_shifting_feed_evidence_check_authored.sql`: the same-named CHECK re-added strictly weaker
   (NOT VALID then VALIDATE, no transaction, lock_timeout).
 
 ## Where the rules live
@@ -135,7 +135,7 @@ fingerprint is byte-identical to the pre-SOP handler's (goldens pinned in
   legacy fingerprints unchanged, seeded slot map = legacy triple, legacy proof_required pre-check
   only for the legacy shape, approvals list carries the capture) and the error-mapping test.
 - Postgres (OCI): `counts/adapters/postgres/shifting_sop_integration_test.go` (stored map +
-  mirrors + replay, authored high card satisfies the 000325 CHECK, feed_config_changed still
+  mirrors + replay, authored high card satisfies the 000341 CHECK, feed_config_changed still
   refused, publish-after-raise keeps the pin, rework queues a fresh item and keeps applied);
   `shiftingsop/adapters/postgres/rules_source_integration_test.go` (published / pinned / batch /
   cache / unknown; migration adds the section in place).

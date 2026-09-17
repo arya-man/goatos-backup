@@ -8,7 +8,7 @@
 //
 // WHAT IT CHECKS:
 //   1. seed-drifted-from-migration    -- the embedded seed document is present verbatim, exactly
-//                                        once, in migration 000324 (the in-place add).
+//                                        once, in migration 000340 (the in-place add).
 //   2. sop-table-inside-counts        -- backend/internal/counts never names sop_versions /
 //                                        sop_definitions: the only reader is backend/internal/
 //                                        shiftingsop (counts receives rules through its port).
@@ -34,7 +34,7 @@ import { join, resolve, basename } from "node:path";
 import { tmpdir } from "node:os";
 
 const REPO = resolve(new URL("../..", import.meta.url).pathname);
-const MIGRATION = "backend/migrations/postgres/000324_shifting_sop.sql";
+const MIGRATION = "backend/migrations/postgres/000340_shifting_sop.sql";
 const SEED = "backend/internal/counts/domain/sopseed/shifting.json";
 const JUDGE_FILE = "backend/internal/counts/app/shifting_sop.go";
 const COUNTS_DIR = "backend/internal/counts";
@@ -95,7 +95,7 @@ export function check(root) {
     const marker = "$seed$" + seed + "$seed$";
     const count = migration.split(marker).length - 1;
     if (count !== 1) {
-      findings.push({ rule: "seed-drifted-from-migration", file: SEED, detail: `embedded verbatim ${count} time(s) in migration 000324, want 1` });
+      findings.push({ rule: "seed-drifted-from-migration", file: SEED, detail: `embedded verbatim ${count} time(s) in migration 000340, want 1` });
     }
   }
   for (const f of walk(join(root, COUNTS_DIR))) {

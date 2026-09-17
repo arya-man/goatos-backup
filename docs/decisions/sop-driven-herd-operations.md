@@ -155,8 +155,8 @@ inside it: the card is what the operator records AT REPORT time, the track is th
   rows for birth steps, death and reconcile.
 - **Reconcile**: a workflow-backed card now completes through its own workflow (the completion SQL
   matched `workflow_id IS NULL` only), and the debt list carries the full proof set with media labels.
-- Schema: migrations `000321` (workflow capture evidence, reconcile media meta), `000322` (counts
-  approval capture columns), `000323` (birth-reported outbox index). These numbers collide with
+- Schema: migrations `000337` (workflow capture evidence, reconcile media meta), `000338` (counts
+  approval capture columns), `000339` (birth-reported outbox index). These numbers were rebased after
   `origin/main` and are renumbered at merge.
 
 **Unavoidable deploy-day differences with no SOP edited:** verifier items carry media labels (the step

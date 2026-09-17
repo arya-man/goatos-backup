@@ -255,7 +255,7 @@ feed projection.
 - `shifting_verification_integration_test.go`: low/high proof gates, exact feed resolution,
   stale-config rejection, evidence snapshot, and approve/rework idempotency.
 - `shifting_sop_integration_test.go`: the SOP-driven completion (stored slot map, legacy mirrors,
-  authored high-priority card under the 000325 CHECK, pin kept after a later publish, rework
+  authored high-priority card under the 000341 CHECK, pin kept after a later publish, rework
   reuse refused) -- see `shifting-sop.md`.
 - `countsbridge/shifting_verification_enqueue_test.go`: three high-priority videos stay together in
   one Shifting verification item.

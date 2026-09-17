@@ -4747,23 +4747,6 @@ fun AppNavHost(
         composable(Routes.COUNTS_APPROVALS) {
             val vm: ApprovalViewModel = hiltViewModel()
             val state by vm.state.collectAsStateWithLifecycle()
-            val approvalContext = LocalContext.current
-            val captureViewerUnavailableMessage = stringResource(R.string.counts_approval_capture_viewer_unavailable)
-            // SHIFTING SOP: a tapped raise capture opens in the phone's own viewer via its signed URL.
-            LaunchedEffect(vm, captureViewerUnavailableMessage) {
-                vm.openMedia.collect { media ->
-                    val intent = Intent(Intent.ACTION_VIEW)
-                        .setDataAndType(android.net.Uri.parse(media.url), if (media.kind == "photo") "image/*" else "video/*")
-                        .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
-                    try {
-                        approvalContext.startActivity(intent)
-                    } catch (err: ActivityNotFoundException) {
-                        // No app on this phone plays that capture; say so rather than doing nothing.
-                        Log.w("GoatOSNav", "No viewer found for approval capture", err)
-                        Toast.makeText(approvalContext, captureViewerUnavailableMessage, Toast.LENGTH_SHORT).show()
-                    }
-                }
-            }
             // Room-backed Paging window: one bounded page at a time, next page prefetched on
             // scroll. No manual load-more, and no whole-backlog pull.
             val rows = vm.rows.collectAsLazyPagingItems()

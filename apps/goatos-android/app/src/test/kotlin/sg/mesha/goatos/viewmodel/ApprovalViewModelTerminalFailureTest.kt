@@ -9,7 +9,6 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.test.StandardTestDispatcher
-import kotlinx.coroutines.launch
 import kotlinx.coroutines.test.advanceUntilIdle
 import kotlinx.coroutines.test.resetMain
 import kotlinx.coroutines.test.runTest
@@ -83,13 +82,10 @@ class ApprovalViewModelTerminalFailureTest {
             crashReporter = NoopApprovalCrashReporter(),
             savedStateHandle = SavedStateHandle(),
         )
-        val opened = mutableListOf<ApprovalOpenMedia>()
-        val job = launch { viewModel.openMedia.collect { opened += it } }
-        viewModel.onEvent(ApprovalEvent.OpenCaptureMedia("proof-r1", "photo"))
+        viewModel.onEvent(ApprovalEvent.OpenCaptureMedia("proof-r1"))
         advanceUntilIdle()
         assertEquals(listOf("proof-r1"), repository.resolved)
-        assertEquals(listOf(ApprovalOpenMedia("https://signed/proof-r1", "photo")), opened)
-        job.cancel()
+        assertEquals(mapOf("proof-r1" to "https://signed/proof-r1"), viewModel.state.value.openedMediaUrls)
     }
 
     private companion object {
@@ -108,9 +104,9 @@ private class RecordingApprovalRepository : CountsApprovalRepository {
     }
 
     val resolved = mutableListOf<String>()
-    override suspend fun captureMediaUrl(proofId: String): AppResult<String> {
+    override suspend fun proofDownloadUrl(proofId: String): String {
         resolved += proofId
-        return AppResult.Ok("https://signed/$proofId")
+        return "https://signed/$proofId"
     }
 }
 

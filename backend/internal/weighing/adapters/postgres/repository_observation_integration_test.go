@@ -469,7 +469,7 @@ GROUP BY wso.average_weight_kg`, repoTenant, obs.ObservationID).Scan(&average, &
 }
 
 // THE WEIGH CAPTURES ARE AUTHORED (2026-09-16): the STORE's ceiling is ten captures per pen
-// (migration 000328 -- up to four counted slots of at most five each). Five stays the ceiling of
+// (migration 000344 -- up to four counted slots of at most five each). Five stays the ceiling of
 // ONE slot and of an older app's flat list, both enforced by the service
 // (app.applyLumpSumCaptureRules), not by the store. This used to pin six as the store's refusal.
 func TestRecordShedObservationRejectsMoreThanTenProofs(t *testing.T) {

@@ -2621,7 +2621,7 @@ WHERE tenant_id=$1::uuid AND campaign_shed_id=$2::uuid`,
 	  )
 	), proof_bundle AS (
 	  -- THE WEIGH CAPTURES ARE AUTHORED (2026-09-16): each capture's register KIND must match
-	  -- its slot (video / photo / either); up to ten captures per pen (migration 000328).
+	  -- its slot (video / photo / either); up to ten captures per pen (migration 000344).
 	  SELECT array_agg(proof.proof_id ORDER BY requested.proof_position) AS proof_ids
 	  FROM scope
 	  CROSS JOIN unnest($5::uuid[], $10::text[]) WITH ORDINALITY AS requested(proof_id, kind, proof_position)

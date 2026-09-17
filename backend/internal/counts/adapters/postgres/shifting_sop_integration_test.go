@@ -131,7 +131,7 @@ func TestCompleteShiftingStoresSOPProofsAndMirrorsLegacyColumns(t *testing.T) {
 
 // An authored high-priority card with ONE `either` slot (no seeded feed keys): the row stores the
 // capture under its own key, the legacy feed columns stay NULL beside a non-blank fingerprint, and
-// the re-added CHECK (000325) accepts it where the 000053 shape would have refused.
+// the re-added CHECK (000341) accepts it where the 000053 shape would have refused.
 func TestHighPrioritySectionWithoutSeededFeedSlotsSatisfiesAuthoredCheck(t *testing.T) {
 	ctx := context.Background()
 	pool := setupCountsDB(t, ctx)

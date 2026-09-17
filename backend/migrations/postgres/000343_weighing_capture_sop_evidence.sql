@@ -1,5 +1,5 @@
 -- +goose Up
--- 000327_weighing_capture_sop_evidence.sql
+-- 000343_weighing_capture_sop_evidence.sql
 --
 -- THE WEIGH CAPTURES ARE AUTHORED (maintainer decision 2026-09-16, docs/decisions/weighing-sop.md
 -- -> "The weigh captures are authored"). The weighing SOP now carries TWO separate capture
@@ -19,7 +19,7 @@
 --
 -- Rollout-safe: every column is defaulted or nullable, no row is rewritten, the flat proof list
 -- and proof_artifact_id stay exactly what every existing reader reads. The per-slot ceiling on a
--- whole-pen row is widened by the next migration (000328).
+-- whole-pen row is widened by the next migration (000344).
 --
 -- seed-fixture-guard:ignore: three defaulted jsonb / nullable text columns on weighing-owned
 -- evidence tables; no vaccination / HRMS / goats schema moves.

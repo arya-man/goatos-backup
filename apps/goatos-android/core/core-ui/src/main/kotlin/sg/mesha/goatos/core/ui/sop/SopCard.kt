@@ -572,6 +572,7 @@ fun SopQuestionCard(
                             color = if (on) MeshaColors.OnBrand else MeshaColors.Ink,
                             style = MeshaType.cta,
                             modifier = Modifier
+                                .minimumInteractiveComponentSize()
                                 .clip(RoundedCornerShape(14.dp))
                                 .background(if (on) MeshaColors.Brand else MeshaColors.Surf2)
                                 .clickable(enabled = enabled) {

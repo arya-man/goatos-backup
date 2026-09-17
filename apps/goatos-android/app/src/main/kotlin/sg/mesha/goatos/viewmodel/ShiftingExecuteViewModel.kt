@@ -130,7 +130,7 @@ class ShiftingExecuteViewModel @Inject constructor(
             )
         },
         photoContext = { slot -> sg.mesha.goatos.capture.sopSlotPhotoContext(title = slot.title, hint = slot.hint) },
-        events = FeedSopSlotController.Events(
+        events = SopSlotController.Events(
             captureTapped = AnalyticsEvents.COUNTS_SHIFTING_CAPTURE_TAPPED,
             captured = AnalyticsEvents.COUNTS_SHIFTING_EXECUTE_VIDEO_CAPTURED,
             uploadSynced = AnalyticsEvents.COUNTS_SHIFTING_PROOF_SYNCED,

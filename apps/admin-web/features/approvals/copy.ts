@@ -42,10 +42,6 @@ export const APPROVALS_COPY = {
     // "Raised by" was dropped because the raiser is stored as a user id with no name source yet.
     columns: ["Type", "Subject", "Raised", "Status", "Action"],
   },
-  capture: {
-    title: "Captured at raise",
-    empty: "Nothing captured at raise.",
-  },
   drawer: {
     eyebrow: "Approval request",
     aria: "Approval request record",

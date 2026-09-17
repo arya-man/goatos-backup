@@ -89,7 +89,7 @@ type ShiftingRules struct {
 //go:embed sopseed/shifting.json
 var seededShiftingJSON []byte
 
-// SeededShiftingSOPJSON is the day-one document, embedded verbatim in migration 000324.
+// SeededShiftingSOPJSON is the day-one document, embedded verbatim in migration 000340.
 func SeededShiftingSOPJSON() []byte { return append([]byte(nil), seededShiftingJSON...) }
 
 // SeededShiftingRules compiles the embedded document; a tenant with no published version runs it.

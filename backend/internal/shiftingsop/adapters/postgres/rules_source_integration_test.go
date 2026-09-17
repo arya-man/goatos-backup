@@ -89,9 +89,9 @@ VALUES ($1::uuid, $2::uuid, 3, 'v3', 'retired', $3::jsonb, '{}'::jsonb, '{}'::js
 	}
 }
 
-// TestMigration000324AddsSectionInPlace: on a migrated database no published `shifting` version
+// TestMigration000340AddsSectionInPlace: on a migrated database no published `shifting` version
 // lacks the section, and every one that carries it validates.
-func TestMigration000324AddsSectionInPlace(t *testing.T) {
+func TestMigration000340AddsSectionInPlace(t *testing.T) {
 	pgtest.SkipIfNoDocker(t)
 	ctx := context.Background()
 	pool := pgtest.StartPostgres(t, ctx)
@@ -103,7 +103,7 @@ WHERE d.code = 'shifting' AND v.status = 'published' AND NOT (v.form_dsl ? 'shif
 		t.Fatal(err)
 	}
 	if lacking != 0 {
-		t.Fatalf("migration 000324 left %d published shifting version(s) without the section", lacking)
+		t.Fatalf("migration 000340 left %d published shifting version(s) without the section", lacking)
 	}
 	rows, err := pool.Query(ctx, `SELECT v.version, v.form_dsl FROM sop_versions v
 JOIN sop_definitions d ON d.tenant_id = v.tenant_id AND d.sop_id = v.sop_id

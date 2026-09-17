@@ -10,7 +10,8 @@ const drawer = readFileSync(new URL("./approvals-drawer.tsx", import.meta.url), 
 const server = readFileSync(new URL("../../lib/api/server.ts", import.meta.url), "utf8");
 
 test("the drawer renders item.capture rows, media and the missing note verbatim", () => {
-  assert.match(drawer, /item\.capture \? <CaptureSection capture=\{item\.capture\} \/> : null/);
+  assert.match(drawer, /<CaptureSection item=\{item\} \/>/);
+  assert.match(drawer, /const capture = item\.capture;/);
   assert.match(drawer, /capture\.rows/);
   assert.match(drawer, /capture\.media\.map/);
   assert.match(drawer, /capture\.missing_note/);

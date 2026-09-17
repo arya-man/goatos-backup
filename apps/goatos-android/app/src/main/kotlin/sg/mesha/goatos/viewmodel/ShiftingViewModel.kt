@@ -124,7 +124,7 @@ class ShiftingViewModel @Inject constructor(
             caption = { title -> proofOverlayContextLine(feature = "Shifting", parkLabel = "", locationLabel = _state.value.destinationShedId, extraLabel = title) },
             videoContext = { title -> ProofCaptureContext(title = title, primaryTag = _state.value.destinationShedId, workLabel = title, prompt = ProofCapturePrompt.SHIFTING) },
             photoContext = { slot -> sg.mesha.goatos.capture.sopSlotPhotoContext(title = slot.title, hint = slot.hint) },
-            events = FeedSopSlotController.Events(
+            events = SopSlotController.Events(
                 captureTapped = AnalyticsEvents.COUNTS_SHIFTING_CAPTURE_TAPPED,
                 captured = AnalyticsEvents.COUNTS_SHIFTING_RAISE_CAPTURED,
                 uploadSynced = AnalyticsEvents.COUNTS_SHIFTING_PROOF_SYNCED,

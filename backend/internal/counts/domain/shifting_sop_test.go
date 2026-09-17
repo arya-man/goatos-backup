@@ -43,11 +43,11 @@ func TestSeededShiftingSOPIsThePreSOPBehaviour(t *testing.T) {
 	}
 }
 
-// TestMigrationEmbedsTheSeededShiftingSOP pins migration 000324 to the embedded seed: the
+// TestMigrationEmbedsTheSeededShiftingSOP pins migration 000340 to the embedded seed: the
 // section it adds in place to each tenant's published `shifting` version is the same bytes the
 // code compiles for a tenant with no authored version.
 func TestMigrationEmbedsTheSeededShiftingSOP(t *testing.T) {
-	path := filepath.Join("..", "..", "..", "migrations", "postgres", "000324_shifting_sop.sql")
+	path := filepath.Join("..", "..", "..", "migrations", "postgres", "000340_shifting_sop.sql")
 	sql, err := os.ReadFile(path)
 	if err != nil {
 		t.Fatal(err)

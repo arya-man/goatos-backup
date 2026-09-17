@@ -1,5 +1,5 @@
 -- +goose Up
--- 000328_weighing_shed_proof_position_ceiling.sql
+-- 000344_weighing_shed_proof_position_ceiling.sql
 --
 -- THE WEIGH CAPTURES ARE AUTHORED (2026-09-16): a whole-pen weigh may carry up to four counted
 -- slots of at most five captures each, ten in total (domain.MaxLumpSumProofsTotal). The 000008

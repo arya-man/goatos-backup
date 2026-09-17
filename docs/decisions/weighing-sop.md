@@ -165,7 +165,7 @@ questions, authored independently**; nothing may merge them.
   applier compares (`verification_verdict.go`), an invariant both sites now state. A whole-pen
   submit carries `proofs {slot: refs}` + `answers`; the flat `proof_artifact_ids` is derived in
   slot order and `weighing_shed_observation_proofs.slot_key` records each capture's slot
-  (positions up to 10, migration 000328). The store checks every capture's REGISTER kind
+  (positions up to 10, migration 000344). The store checks every capture's REGISTER kind
   against its slot inside the write transaction (a photo in a video slot is refused there), and
   the changed-test that opens a new evidence round now compares the whole slot map and the
   answers, not only the primary. The rejected-proof reuse guard covers every slot.
@@ -189,9 +189,9 @@ questions, authored independently**; nothing may merge them.
   enqueueVerification`). The grain is unchanged: one item per animal, one per pen (ledger B-5).
   Leadership's "N of M" denominator is the pinned whole-pen Σmax and its media carry each
   capture's title (`decorateLeadershipEvidence`).
-- **Storage.** Migration 000327 adds `weighing_observations.sop_proofs` / `sop_answers`,
+- **Storage.** Migration 000343 adds `weighing_observations.sop_proofs` / `sop_answers`,
   `weighing_shed_observations.sop_answers`, `weighing_shed_observation_proofs.slot_key`; no row is
-  rewritten (`'{}'` / NULL = the seeded slot). Migration 000328 widens the child CHECK to 1..10
+  rewritten (`'{}'` / NULL = the seeded slot). Migration 000344 widens the child CHECK to 1..10
   (NOT VALID -> VALIDATE -> drop the old constraint by catalog name).
 - **Web.** `/weighing/sops` shows the two sections as distinct titled blocks -- "Per animal"
   and "Whole pen" -- in the editor and the drawer summary, never one shared list; the model
