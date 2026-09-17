@@ -94,6 +94,15 @@ svg.ic,.ic{width:18px;height:18px;stroke:currentColor;fill:none;stroke-width:1.7
 .layout.rail .side .nav,.layout.rail .side .ggrp{justify-content:center;gap:0;font-size:0;padding:11px 0}
 .layout.rail .side .ic{width:20px;height:20px}
 .layout.rail .side .chev,.layout.rail .side .subnav,.layout.rail .side .sidefoot{display:none}
+/* 861-1179px: nav collapses to an icon rail (app.js toggles .rail-icons); group click opens a flyout menu. .mnav expands it back. */
+@media(min-width:861px){
+  .layout.rail-icons:not(.mnav) .side{width:62px;padding:12px 7px}
+  .layout.rail-icons:not(.mnav) .side .nav,.layout.rail-icons:not(.mnav) .side .ggrp{justify-content:center;gap:0;font-size:0;padding:11px 0;min-height:42px}
+  .layout.rail-icons:not(.mnav) .side .ic{width:20px;height:20px;opacity:1}
+  .layout.rail-icons:not(.mnav) .side .nav .ct{display:none}
+  .layout.rail-icons:not(.mnav) .side .chev,.layout.rail-icons:not(.mnav) .side .subnav,.layout.rail-icons:not(.mnav) .side .sidefoot{display:none}
+  .layout.rail-icons:not(.mnav) .side .ggrp.on,.layout.rail-icons:not(.mnav) .side .ggrp:has(+.subnav .leaf.on){background:var(--sidebar-2);color:var(--sidebar-ink2);box-shadow:inset 2px 0 0 var(--brand)}
+}
 
 .phead{display:flex;align-items:flex-end;gap:14px;margin-bottom:18px;flex-wrap:wrap}
 .phead h1{margin:0;font-size:21px;letter-spacing:-.4px}
@@ -130,10 +139,9 @@ svg.ic,.ic{width:18px;height:18px;stroke:currentColor;fill:none;stroke-width:1.7
 .t-mut{background:var(--bg);color:var(--muted);border:1px solid var(--line)}
 .btn{display:inline-flex;align-items:center;justify-content:center;gap:7px;box-sizing:border-box;height:36px;min-height:36px;border:1px solid var(--line);background:var(--panel);color:var(--ink);font:inherit;font-size:14px;line-height:1;font-weight:600;padding:0 13px;border-radius:10px;cursor:pointer;white-space:nowrap}
 .btn:hover{border-color:var(--brand)}
-.btn:disabled,.btn[aria-disabled="true"]{opacity:.45;cursor:not-allowed;pointer-events:none}
+.btn:disabled,.btn[aria-disabled="true"]{opacity:.45;cursor:not-allowed;pointer-events:none} /* primary/danger keep their fill (prod pattern) */
 .btn.p{background:var(--brand);border-color:var(--brand);color:#08130B} .btn.p:hover{background:var(--brand-d)}
 .btn.sm{height:30px;min-height:30px;padding:0 10px;font-size:12.5px;border-radius:8px}
-.btn.p:disabled,.btn.p[aria-disabled="true"],.btn.dng:disabled,.btn.dng[aria-disabled="true"]{background:var(--panel);border-color:var(--line);color:var(--muted);opacity:.68}
 .btn.icon{width:36px;height:36px;min-height:36px;padding:0;justify-content:center;flex:0 0 auto}
 .btn.icon.sm{width:30px;height:30px;min-height:30px}
 .btn.gh{background:transparent;border-color:transparent;color:var(--brand-d)}
@@ -150,8 +158,9 @@ svg.ic,.ic{width:18px;height:18px;stroke:currentColor;fill:none;stroke-width:1.7
 .fld input:focus,.fld select:focus,.fld textarea:focus{border-color:var(--brand);box-shadow:0 0 0 3px var(--brand-soft)}
 
 .scrim{position:fixed;inset:0;background:rgba(6,12,9,.42);z-index:219}
-.drawer{position:fixed;top:0;right:0;height:100%;width:498px;max-width:94vw;background:var(--bg);box-shadow:-12px 0 40px rgba(0,0,0,.4);display:flex;flex-direction:column;z-index:220;transform:translateX(100%);transition:.22s}
-.drawer.wide{width:760px}
+.drawer{position:fixed;top:0;right:0;height:100%;width:460px;max-width:94vw;background:var(--bg);box-shadow:-12px 0 40px rgba(0,0,0,.4);display:flex;flex-direction:column;z-index:220;transform:translateX(100%);transition:.22s}
+.drawer.wide{width:720px}
+.drawer td.vpub,.drawer .date,.drawer time{white-space:nowrap}
 .drawer.on{transform:none}
 .drawer .dh{display:flex;align-items:center;gap:10px;padding:16px 22px;border-bottom:1px solid var(--line)}
 .drawer .dh h2{margin:0;font-size:18px;font-weight:640;line-height:1.2}

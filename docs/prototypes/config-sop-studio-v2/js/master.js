@@ -12,8 +12,12 @@
     stages.forEach(s=>rk(s.id));
     const rows={};stages.forEach(s=>(rows[rank[s.id]]=rows[rank[s.id]]||[]).push(s.id));
     Object.values(rows).forEach(ids=>ids.forEach((id,i)=>col[id]=i));
-    const pos={};let maxc=0;stages.forEach(s=>{pos[s.id]={x:34+col[s.id]*300,y:34+rank[s.id]*160,w:260};maxc=Math.max(maxc,col[s.id]);});
-    return {pos,W:34+(maxc+1)*300,H:34+(Math.max(0,...Object.values(rank))+1)*160};
+    /* estimated card height: header + name + child line + one row per tag (tags wrap); stages keep a >=48px connector gap */
+    const hOf=s=>84+26*(s.deps.length+(s.approvalRoleId?1:0)+(s.waitDays?1:0)+(s.repeatHours?1:0));
+    const maxR=Math.max(0,...Object.values(rank)); const rowY=[]; let y=34;
+    for(let r=0;r<=maxR;r++){rowY[r]=y;y+=Math.max(112,...stages.filter(s=>rank[s.id]===r).map(hOf))+56;}
+    const pos={};let maxc=0;stages.forEach(s=>{pos[s.id]={x:34+col[s.id]*300,y:rowY[rank[s.id]],w:260,h:Math.max(112,hOf(s))};maxc=Math.max(maxc,col[s.id]);});
+    return {pos,W:34+(maxc+1)*300,H:y-22};
   }
   function validate(m){
     const iss=[],by={};m.stages.forEach(s=>by[s.id]=s);
@@ -49,11 +53,11 @@
     m.stages.forEach(s=>s.deps.forEach(d=>{const a=L.pos[d.stage],b=L.pos[s.id];if(!a||!b)return;
       let path;
       if(d.state==='started'&&a.y===b.y)path=`M${a.x+a.w},${a.y+56} L${b.x-4},${b.y+56}`;
-      else path=`M${a.x+a.w/2},${a.y+120} C${a.x+a.w/2},${a.y+146} ${b.x+b.w/2},${b.y-26} ${b.x+b.w/2},${b.y-3}`;
+      else{const sy=a.y+a.h+2;path=`M${a.x+a.w/2},${sy} C${a.x+a.w/2},${sy+26} ${b.x+b.w/2},${b.y-26} ${b.x+b.w/2},${b.y-3}`;}
       edges+=`<path class="dep-${d.state}" d="${path}" marker-end="url(#mah)"/>`;}));
     const nodes=m.stages.map((s,i)=>{const p=L.pos[s.id];const c=S.get('sops',s.sopId);const [stl,stt]=stageState(m,s,T);
       const par=s.deps.some(d=>d.state==='started');
-      return `<div class="node k-stage ${M.sel[id]===s.id?'sel':''}" style="left:${p.x}px;top:${p.y}px;${par?'--k:var(--info)':''}" data-a="stage-sel" data-id="${s.id}">
+      return `<div class="node k-stage ${M.sel[id]===s.id?'sel':''}" style="left:${p.x}px;top:${p.y}px;min-height:${p.h}px;${par?'--k:var(--info)':''}" data-a="stage-sel" data-id="${s.id}">
         <div class="nt">${ic(par?'split':'layers')}Stage ${i+1}${view==='try'?`<span class="sp"></span>${UI.tag(stl,stt)}`:''}</div>
         <div class="nl">${esc(s.label)}</div>
         <div class="small muted">${c?esc(c.title)+' · '+Flow.stepCount(c.nodes)+' steps':'No child SOP'}</div>
@@ -105,7 +109,8 @@
       if(l==='In progress')b.push(`<button class="btn sm p" data-a="try-do" data-s="${s.id}" data-v="complete">Complete</button>`);
       if(l==='Awaiting approval')b.push(`<button class="btn sm p" data-a="try-do" data-s="${s.id}" data-v="approve">Approve · ${esc(REG.labelById('roles',s.approvalRoleId))}</button>`);
       const blocked=l==='Locked'?s.deps.filter(d=>{const y=T.st[d.stage]||{};return !(d.state==='started'?y.started:d.state==='completed'?y.completed:y.approved);}).map(d=>(m.stages.find(z=>z.id===d.stage)||{}).label+' '+d.state).join(', '):'';
-      return `<tr><td class="muted small">${i+1}</td><td><b>${esc(s.label)}</b>${blocked?`<div class="small muted">Needs ${esc(blocked)}</div>`:''}${x.checks?`<div class="small muted">${x.checks} checks</div>`:''}</td><td>${UI.tag(l,t)}</td><td><div class="row" style="justify-content:flex-end">${b.join('')}</div></td></tr>`;}).join('');
+      return `<tr><td class="muted small">${i+1}</td><td class="trymain"><div class="tryname" title="${esc(s.label)}">${esc(s.label)}</div>${blocked?`<div class="small muted">Needs ${esc(blocked)}</div>`:''}${x.checks?`<div class="small muted">${x.checks} checks</div>`:''}
+        <div class="trysub">${UI.tag(l,t)}<span class="sp"></span>${b.join('')}</div></td></tr>`;}).join('');
     const c=T.cohort;
     return `<div class="hd"><h3>Try run</h3><span class="sp"></span><button class="btn sm" data-a="try-reset">${ic('rotate')}Reset</button></div>
       <div class="trycoh">${['offered','selected','boarded','received'].map(k=>`<label>${k[0].toUpperCase()+k.slice(1)}<input class="inl num" data-coh="${k}" value="${esc(c[k])}" inputmode="numeric"></label>`).join('')}</div>

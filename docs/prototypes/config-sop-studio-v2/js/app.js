@@ -17,6 +17,7 @@
     {group:'Others',icon:'edit-3',leaves:[['Milk Preparation','#/counts/milk-preparation'],['Milk SOP','#/milk/sops'],['Live Monitor','#/herd-signals'],['Audit Log','#/operations/audit'],['People / HRMS','#/people'],['Leave','#/leave']]},
     {group:'Configuration',icon:'settings',leaves:[['Items and settings','#/configuration/items'],['Work instructions','#/configuration/work-instructions']]}
   ];
+  const SOP_OF={counts:['Herd Operations SOP','#/counts/sops'],weighing:['Weighing SOP','#/weighing/sops'],feed:['Feed SOP','#/feed/sops'],vaccination:['Preventive Care SOP','#/preventive-care/sops'],procurement:['Procurement SOP','#/procurement/sops'],health:['Health SOP','#/health/sops'],milk:['Milk SOP','#/milk/sops']};
   const SOP_DEPT={'#/counts/sops':'Counts','#/weighing/sops':'Weighing','#/feed/sops':'Feed','#/procurement/sops':'Procurement','#/milk/sops':'Milk','#/health/sops':'Health','#/preventive-care/sops':'Preventive Care'};
 
   function activeHref(){
@@ -27,9 +28,9 @@
   function renderSide(){
     const act=activeHref();
     const html=NAV.map(n=>{
-      if(!n.group)return `<a class="nav ${act===n.href?'on':''}" href="${n.href}">${ic(n.icon)}${esc(n.label)}</a>`;
+      if(!n.group)return `<a class="nav ${act===n.href?'on':''}" href="${n.href}" title="${esc(n.label)}" aria-label="${esc(n.label)}">${ic(n.icon)}${esc(n.label)}</a>`;
       const has=n.leaves.some(([,h])=>h===act); const open=App.ui.open[n.group]!=null?App.ui.open[n.group]:has;
-      return `<div><div class="ggrp ${open?'open':''}" role="button" aria-expanded="${open}" data-a="grp" data-g="${esc(n.group)}">${ic(n.icon)}${esc(n.group)}${ic('chevron-right','chev')}</div>
+      return `<div><div class="ggrp ${open?'open':''} ${has?'on':''}" role="button" tabindex="0" title="${esc(n.group)}" aria-label="${esc(n.group)}" aria-expanded="${open}" data-a="grp" data-g="${esc(n.group)}">${ic(n.icon)}${esc(n.group)}${ic('chevron-right','chev')}</div>
         <div class="subnav ${open?'open':''}">${n.leaves.map(([l,h])=>`<a class="leaf ${act===h?'on':''}" href="${h}">${esc(l)}</a>`).join('')}</div></div>`;
     }).join('')+`<div class="grow"></div><div class="sidefoot">Mesha · goat operating system</div>`;
     document.getElementById('side').innerHTML=html;
@@ -56,6 +57,39 @@
       rations:[['Anantapur Sheep','Anantapur Sheep'],['Beetal','Beetal/Sirohi'],['Beetal x Malai','Beetal/Sirohi'],['Beetal x Sojat','Beetal/Sirohi'],['Boer','Boer'],['Boer x Beetal','Beetal/Sirohi'],['Boer x Malai','Beetal/Sirohi'],['Boer x Sirohi','Beetal/Sirohi'],['Boer x Sojat','Beetal/Sirohi'],['Malai','Malai'],['Malai x Osmanabadi','Malai'],['Malai x Sojat','Sojat'],['Osmanabadi','Osmanabadi'],['Osmanabadi x Sojat','Sojat'],['Sirohi','Beetal/Sirohi'],['Sojat','Sojat']]},
     vacc:{version:'V9',label:'V9 screenshot rules restored: PPR 16w FMD HS 12w',publishedAt:'30/08/2026',draft:'V10',rules:25,capPerDay:200,maxShots:3,bufferDays:7,
       vaccines:[['Z1+Z3',['Kid 4w','Kid 7w','Adult dose 1','Adult dose 2 (+21d)','Every 182d']],['FMD',['Kid 12w','Adult','Every 274d']],['PPR',['Kid 16w','Adult','Every 1095d']],['HS',['Kid 12w','Adult','Every 365d']],['Blue Tongue',['Kid 16w','Kid 19w','Adult dose 1','Adult dose 2 (+21d)','Every 365d']],['Goat Pox',['Kid 16w','Adult','Every 365d']],['Sheep Pox',['Kid 16w','Adult','Every 365d']]]},
+    asOf:'17/09/2026',
+    vendors:{total:674,procurement:313,sales:361,types:[['Butcher',183,1],['Farmer',109,1],['Sheep Agent',89],['Agent',57,1],['Transport Agent',56],['Manure Agent',37],['Feed Agent',31],['Pellet Factory',13],['Goats Agent',13],['Sheep Stockist',12],['Company',12,1],['Goat Stockist',10],['Breeding Agent',7],['Labor Agent',6],['Goat Farm',5],['UHT Milk Supplier',4],['Feed Stockist',4],['Insurance',4],['Veterinary Accessories',4],['Test Lab',4],['Chain Link Mesh Contractor',3],['Solar Light Supplier',3],['Flooring Mat',2],['Grain Supplier',2],['Steel Material Supplier',2],['Vet Doctor',1],['Grass Cutter',1]]},
+    /* per nav leaf: read-only counts, SELECT-only against goatos-stg on 17/09/2026 */
+    mod:{
+      '#/approvals':{k:[['Shifting awaiting approval',2],['Birth / death pending',0],['Approved',55,'51 shifting · 3 death · 1 birth'],['Rejected',19,'Shifting']]},
+      '#/verify':{k:[['Pending videos','2,677'],['Feed packing','1,447'],['Feed distribution',769],['Weighing',122,'Proof · fasting · animal · pen']],
+        t:['Pending by category',[['Category'],['Pending',1]],[['Feed packing','1,447'],['Feed distribution',769],['Feed wastage',134],['Feed transport',96],['Weighing proof',75],['Milk feeding',52],['Weighing fasting',39],['Milk preparation',34],['Shifting move',11],['Hoof trimming',6],['Weighing animal',5],['Deworming',4],['Weighing pen',3],['Birth evidence',1],['Death evidence',1]].map(([a,b])=>[`<b>${a}</b>`,b])]},
+      '#/tasks':{k:[['Vaccination queued',537],['Vaccination in review',14,'11 needs review · 3 submitted'],['Pen visits open',26,'13 delayed'],['Toxin tests open',11,'2 awaiting review']]},
+      '#/work-board':{k:[['Reconcile cards open',25],['Birth tracks open',1],['Shifting authorized',13,'2 pending'],['Feed removal assigned',1]]},
+      '#/alerts':{k:[['Notifications, 7 days','35,183'],['Alert rules',0],['Pen visits delayed',13],['Milk feeds not submitted',162,'Last 30 days']]},
+      '#/counts/analytics':{k:[['Live animals','1,521','CBE 805 · CPT 716'],['Goats',697,'578 F · 119 M'],['Sheep',824,'407 F · 417 M'],['Sold',145,'3 dead · 14 inactive']]},
+      '#/counts/breakdown':{k:[['Non-Pregnant',759],['F2-Male',465],['F2-Female',187],['Buck',38]],
+        t:['Animals by stage',[['Stage'],['Animals',1]],[['Non-Pregnant',759],['F2-Male',465],['F2-Female',187],['Buck',38],['K3',34],['ICU-Kid',24],['K2',8],['Mother',5],['K0',1]].map(([a,b])=>[`<b>${a}</b>`,b])]},
+      '#/weighing/analytics':{k:[['Animal weighs, 30 days','1,761'],['Pen weighs, 30 days',36],['Animals weighed, 60 days',580],['Tasks open',5,'1 in progress · 4 published']]},
+      '#/sales/sold':{k:[['Closed deals',71],['Animals sold',691],['Sales value','₹88.5L'],['Failed deals',1,'46 animals']]},
+      '#/sales/farm-value':{k:[['Live animals','1,521'],['Coimbatore',805],['Channapatna',716],['Parks',2]]},
+      '#/sales/loads':{k:[['Loads',8],['Animals bought',601],['Status','Accepted intake']]},
+      '#/sales/market-analytics':{k:[['Market benchmarks',10,'Updated 19/08/2026'],['Daily market call','08:00'],['Market questions',6]]},
+      '#/sales/buyer-analytics':{k:[['Buyers',26],['Closed deals',71],['Animals sold',691]]},
+      '#/sales/vendors':{k:[['Sales-side vendors',361],['Butcher',183],['Farmer',109],['Agent · Company',69,'57 · 12']]},
+      '#/feed/analytics':{k:[['Distributions done, 30 days','4,984'],['Awaiting verification',769],['Rework',66],['Feed loads reached',238,'1 purchased, in transit']]},
+      '#/vaccination':{k:[['Drive days ahead',12],['Pen assignments ahead',106],['Animals ahead','1,652'],['Next drive','22/09/2026','4 animals']]},
+      '#/vaccination/live-tracker':{k:[['Queued sheds',537],['Submitted',3],['Needs review',11],['Accepted',10]]},
+      '#/procurement/source-entry':{k:[['Loads',8],['Animals expected',601],['Status','Accepted intake']]},
+      '#/procurement/feed-purchases':{k:[['Loads',239],['Reached',238],['In transit',1],['Toxin tests open',11]]},
+      '#/procurement/animal-purchases':{k:[['Loads',8],['Animals',601]]},
+      '#/health/analytics':{k:[['Health cases',0],['Published protocols',54],['Diseases',27],['ICU-Kid animals',24]]},
+      '#/counts/milk-preparation':{k:[['Preparations, 30 days',48],['Completed',13],['Awaiting verification',35],['Feeding sessions pending',78,'Awaiting verification']],sop:['Milk SOP','#/milk/sops']},
+      '#/herd-signals':{k:[['Tags',19],['Low movement',14],['Quiet',3],['Not moving',2]]},
+      '#/operations/audit':{k:[['Events, 24 h','8,214'],['Events, 7 days','71,269']]},
+      '#/people':{k:[['Active people',41],['Inactive',1]]},
+      '#/leave':{k:[['Leave requests',0]]}
+    },
     sales:{callTime:'08:00',questions:['Goat live price','Sheep live price','Goat carcass price','Sheep carcass price','Goat offals price','Sheep offals price'],unit:'₹/kg'},
   };
   const kpi=(l,v,sub)=>`<div class="kpi"><div class="lab">${esc(l)}</div><div class="val">${v}</div>${sub?`<div class="dl">${esc(sub)}</div>`:''}</div>`;
@@ -75,19 +109,23 @@
     '#/sales/config':()=>head('Sales','Sales Config')+`<div class="grid g4 kpis">${kpi('Market questions',STG.sales.questions.length)}${kpi('Daily market call',STG.sales.callTime)}</div>`
       +tbl('Market questions',STG.sales.questions.length,[['Question'],['Unit']],STG.sales.questions.map(q=>[`<b>${esc(q)}</b>`,esc(STG.sales.unit)]))
   };
-  /* Procurement owns the one vendor register (admin-web /procurement/vendors); trucks on the same page */
-  function vendorsPage(tab){
-    const vs=S.all('vendors'),tr=S.all('trucks');
-    const tabs=`<div class="tabs"><a class="${tab==='trucks'?'':'on'}" href="#/procurement/vendors">Vendors <span class="muted">${vs.filter(v=>v.status!=='archived').length}</span></a><a class="${tab==='trucks'?'on':''}" href="#/procurement/vendors/trucks">Trucks <span class="muted">${tr.filter(t=>t.status!=='archived').length}</span></a></div>`;
-    const body=tab==='trucks'
-      ?tbl('Trucks',tr.length,[['Number'],['Vendor'],['Capacity',1],['Status']],tr.map(t=>{const v=S.get('vendors',t.vendorId);return [`<b class="mono">${esc(t.number)}</b>`,esc(v?v.name:''),esc(t.capacity==null?'':t.capacity),UI.statusTag(t.status)];}))
-      :tbl('Vendors',vs.length,[['Vendor'],['Supplies'],['City'],['Trucks',1],['Status']],vs.map(v=>[`<b>${esc(v.name)}</b>`,esc(v.supplies||''),esc(v.city||''),tr.filter(t=>t.vendorId===v.id).length,UI.statusTag(v.status)]));
-    return `<div class="phead"><div><div class="crumb">Procurement / <b>Vendors</b></div><h1>Vendors</h1></div></div>${tabs}${body.replace('card mt','card')}`;
+  /* Procurement owns the one vendor register (admin-web /procurement/vendors); counts are goatos-stg procurement_vendors */
+  function vendorsPage(){
+    const vs=S.all('vendors'),v=STG.vendors;
+    return head('Procurement','Vendors')+`<div class="grid g4 kpis">${kpi('Register',v.total,STG.asOf)}${kpi('Procurement side',v.procurement,v.types.filter(t=>!t[2]).length+' types')}${kpi('Sales side',v.sales,'Sales › Vendors')}${kpi('Top type',v.types[0][1],v.types[0][0])}</div>`
+      +(vs.length?tbl('Vendors',vs.length,[['Vendor'],['Type'],['City'],['Status']],vs.map(x=>[`<b>${esc(x.name)}</b>`,esc(x.recordType||x.supplies||''),esc(x.city||''),UI.statusTag(x.status)])):'')
+      +tbl('Record types',v.types.length,[['Record type'],['Side'],['Vendors',1]],v.types.map(([t,n,sale])=>[`<b>${esc(t)}</b>`,sale?UI.tag('Sales','teal'):UI.tag('Procurement','mut'),n]))
+      +sopRow('#/procurement/vendors');
   }
+  function sopRow(href){const m=STG.mod[href];const sop=m&&m.sop||SOP_OF[href.split('/')[1]]||['Work instructions','#/configuration/work-instructions'];
+    return `<section class="card mt"><a class="linkrow" href="${sop[1]}">${ic('clipboard-list')}<b>${esc(sop[0])}</b><span class="sp"></span>${ic('chevron-right')}</a></section>`;}
   function placeholder(){
     const act=activeHref(); let grp='',leaf='';
     NAV.forEach(n=>{if(!n.group&&n.href===act)leaf=n.label;(n.leaves||[]).forEach(([l,h])=>{if(h===act){grp=n.group;leaf=l;}});});
-    return `<div class="phead"><div>${grp?`<div class="crumb">${esc(grp)} / <b>${esc(leaf)}</b></div>`:''}<h1>${esc(leaf||'Mesha')}</h1></div></div><section class="card" style="min-height:260px"></section>`;
+    const m=STG.mod[act];
+    const kp=m?`<div class="grid g4 kpis">${m.k.map(([l,v,sub])=>kpi(l,v,sub)).join('')}</div>`:'';
+    const rows=m&&m.t?tbl(m.t[0],m.t[2].length,m.t[1],m.t[2]):'';
+    return `<div class="phead"><div>${grp?`<div class="crumb">${esc(grp)} / <b>${esc(leaf)}</b></div>`:''}<h1>${esc(leaf||'Mesha')}</h1></div><div class="sp"></div>${m?UI.tag('goatos-stg · '+STG.asOf,'mut'):''}</div>${kp}${rows}${act?sopRow(act):''}`;
   }
 
   App.render=function(){
@@ -111,7 +149,8 @@
         else out={html:Work.listPage()};
       }
       else if(SOP_DEPT[h]){const n=NAV.find(x=>(x.leaves||[]).some(([,hh])=>hh===h));out={html:Work.listPage(SOP_DEPT[h],n?n.group:'')};}
-      else if(h==='#/procurement/vendors'||h==='#/procurement/vendors/trucks')out={html:vendorsPage(parts[2])};
+      else if(h==='#/procurement/vendors/trucks'){location.replace('#/procurement/vendors');return;}
+      else if(h==='#/procurement/vendors')out={html:vendorsPage()};
       else if(MODULE_PAGES[h])out={html:MODULE_PAGES[h]()};
       else out={html:placeholder()};
     }catch(e){console.error(e);out={html:`<div class="phead"><h1>Something went wrong</h1></div><section class="card pad"><pre class="mono" style="white-space:pre-wrap">${esc(e.stack||e)}</pre></section>`};}
@@ -127,7 +166,11 @@
   };
 
   Object.assign(A,{
-    'grp'(el){const g=el.dataset.g;const cur=el.classList.contains('open');App.ui.open[g]=!cur;renderSide();},
+    'grp'(el){const g=el.dataset.g;
+      if(document.getElementById('layout').classList.contains('rail-icons')){const n=NAV.find(x=>x.group===g);const act=activeHref();
+        UI.menu(el,n.leaves.map(([l,h])=>({label:(h===act?'• ':'')+l,run:()=>{location.hash=h;}})));
+        const m=document.getElementById('menu'),r=el.getBoundingClientRect();if(m){m.style.left=(r.right+6)+'px';m.style.top=Math.max(8,Math.min(r.top,window.innerHeight-m.offsetHeight-8))+'px';}return;}
+      const cur=el.classList.contains('open');App.ui.open[g]=!cur;renderSide();},
     'nav-toggle'(){const l=document.getElementById('layout');if(window.innerWidth<=860){const on=!document.getElementById('side').classList.contains('open');document.getElementById('side').classList.toggle('open',on);document.querySelector('.navscrim').classList.toggle('on',on);}else l.classList.toggle('mnav');},
     'nav-close'(){document.getElementById('side').classList.remove('open');document.querySelector('.navscrim').classList.remove('on');},
     'theme'(){const r=document.documentElement;r.classList.toggle('light');r.classList.toggle('dark');try{localStorage.setItem('mesha.theme',r.classList.contains('light')?'light':'dark');}catch(e){}renderTop();},
@@ -171,10 +214,13 @@
       if(d){const target=location.hash;history.replaceState(null,'',App._lastPath);guard(d,target);return;}}
     App._allow=false;App.render();});
   window.addEventListener('beforeunload',e=>{const d=SetupPage.dirty&&SetupPage.dirty();if(d){e.preventDefault();e.returnValue='';}});
-  window.addEventListener('resize',()=>{if(UI._popCfg)UI._popRender();});
+  /* 861-1179px: icon-only nav rail with tooltips; phones keep the drawer */
+  function railMode(){const w=window.innerWidth,l=document.getElementById('layout');l.classList.toggle('rail-icons',w>860&&w<1180);}
+  window.addEventListener('resize',()=>{railMode();if(UI._popCfg)UI._popRender();});
 
   window.App=App;
   try{if(localStorage.getItem('mesha.theme')==='light'){document.documentElement.classList.add('light');document.documentElement.classList.remove('dark');}}catch(e){}
+  railMode();
   S.load();
   if(!location.hash)history.replaceState(null,'','#/configuration/items');
   App.render();

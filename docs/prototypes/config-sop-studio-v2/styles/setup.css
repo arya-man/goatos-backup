@@ -65,17 +65,20 @@ input.bad,.inl.bad,.mini input.bad{border-color:var(--danger)!important}
 .vtbl td{white-space:normal!important}
 @media(max-width:860px){.screen table.ltbl td{white-space:normal;word-break:normal}}
 
-/* Horizontal scroll cue: edges fade only while there is more to scroll (scroll-driven; no-op when not scrollable) */
-@property --scl{syntax:'<length>';inherits:false;initial-value:0px}
+/* Horizontal scroll cue */
 @property --scr{syntax:'<length>';inherits:false;initial-value:0px}
-@keyframes scrollcue{from{--scl:0px;--scr:32px}to{--scl:32px;--scr:0px}}
 @keyframes scrollcue-r{from{--scr:32px}to{--scr:0px}}
 @supports (animation-timeline:scroll()){
-  .twrap,.ltable{mask-image:linear-gradient(to right,rgba(0,0,0,.15) 0,#000 var(--scl),#000 calc(100% - var(--scr)),rgba(0,0,0,.15) 100%);animation:scrollcue linear both;animation-timeline:scroll(self inline)}
-  /* grid keeps sticky left columns crisp: right-edge cue only */
+  /* grid (sticky left columns, opaque cells): right-edge fade via scroll timeline */
   .sheet{mask-image:linear-gradient(to right,#000 calc(100% - var(--scr)),rgba(0,0,0,.15) 100%);animation:scrollcue-r linear both;animation-timeline:scroll(self inline)}
 }
 .twrap,.ltable,.sheet{box-shadow:inset -1px 0 0 var(--line2)}
+/* Right/left edge shadow while a table overflows its card: 'local' covers scroll with the content and hide the 'scroll' shadows at the ends */
+.twrap,.ltable{background:
+  linear-gradient(to right,var(--panel) 30%,transparent) left center/40px 100% no-repeat local,
+  linear-gradient(to left,var(--panel) 30%,transparent) right center/40px 100% no-repeat local,
+  linear-gradient(to right,color-mix(in srgb,var(--ink) 16%,transparent),transparent) left center/26px 100% no-repeat scroll,
+  linear-gradient(to left,color-mix(in srgb,var(--ink) 16%,transparent),transparent) right center/26px 100% no-repeat scroll}
 
 /* Phone: list tables become stacked cards (cells carry data-label) */
 @media(max-width:560px){
@@ -87,9 +90,15 @@ input.bad,.inl.bad,.mini input.bad{border-color:var(--danger)!important}
     padding:5px 0!important;border:0!important;white-space:normal!important;overflow:visible;text-overflow:clip;text-align:right;word-break:break-word;min-width:0}
   table.ltbl:has(td[data-label]) td[data-label]::before{content:attr(data-label);flex:none;max-width:45%;text-align:left;color:var(--muted);font-size:12px;font-weight:650}
   table.ltbl:has(td[data-label]) td:not([data-label]){justify-content:flex-start;text-align:left}
-  table.ltbl:has(td[data-label]) td.ck{position:absolute!important;left:auto!important;right:10px;top:8px;width:auto;padding:0!important;background:none}
-  table.ltbl:has(td[data-label]) tr:has(td.ck){padding-right:40px}
-  table.ltbl:has(td[data-label]) td.act{justify-content:flex-end}
+  table.ltbl:has(td[data-label]) td{flex-wrap:wrap;justify-content:flex-end;row-gap:6px}
+  table.ltbl:has(td[data-label]) td[data-label]::before{margin-right:auto}
+  table.ltbl:has(td[data-label]) td .tag{max-width:100%;white-space:normal}
+  /* card header row: checkbox · name (card title) · row menu */
+  .screen table.ltbl:has(td[data-label]) td.ck,table.ltbl:has(td[data-label]) td.ck{position:absolute!important;left:12px!important;right:auto;top:11px;width:auto;display:block;padding:0!important;background:none}
+  .screen table.ltbl:has(td[data-label]) td.act,table.ltbl:has(td[data-label]) td.act{position:absolute!important;right:4px;top:3px;width:auto;display:block;padding:0!important;background:none}
+  .screen table.ltbl:has(td[data-label]) td.ck+td,table.ltbl:has(td[data-label]) td.ck+td{justify-content:flex-start;text-align:left;font-size:15px;font-weight:650;padding:3px 34px 7px 28px!important;margin-bottom:2px;border-bottom:1px solid var(--line2)!important}
+  table.ltbl:has(td[data-label]) td.ck+td::before{display:none}
+
   table.ltbl:has(td[data-label]) td:empty{display:none}
-  .twrap:has(table.ltbl td[data-label]),.ltable:has(table.ltbl td[data-label]){overflow:visible;mask-image:none;animation:none;box-shadow:none}
+  .twrap:has(table.ltbl td[data-label]),.ltable:has(table.ltbl td[data-label]){overflow:visible;background:none;box-shadow:none}
 }

@@ -16,11 +16,11 @@
 .op-head{padding:14px 16px 10px;border-bottom:1px solid var(--line);display:flex;flex-direction:column;gap:8px}
 .op-hrow{display:flex;gap:10px;align-items:center}
 .op-ib{width:34px;height:34px;border-radius:12px;background:var(--surf)!important;border:1px solid var(--hair)!important;font-size:22px;line-height:1;flex:none}
-.op-eyebrow{font-size:11.5px;font-weight:700;letter-spacing:1.6px;color:var(--brand);text-transform:uppercase}
+.op-eyebrow{font-size:12px;font-weight:700;letter-spacing:.06em;color:var(--brand);text-transform:uppercase}
 .op-title{font-size:20px;font-weight:700;line-height:1.2}
 .op-row{display:flex;gap:6px;align-items:center;flex-wrap:wrap}
 .op-row.between{justify-content:space-between;flex-wrap:nowrap}
-.op-pill{display:inline-flex;align-items:center;padding:3px 9px;border-radius:999px;font-size:11px;font-weight:700;white-space:nowrap;background:rgba(138,212,87,.14);color:var(--brand)}
+.op-pill{display:inline-flex;align-items:center;padding:3px 9px;border-radius:999px;font-size:12px;font-weight:700;white-space:nowrap;background:rgba(138,212,87,.14);color:var(--brand)}
 .op-pill.ok{background:rgba(138,212,87,.15);color:var(--brand)}
 .op-pill.warn{background:rgba(240,181,75,.15);color:var(--warn)}
 .op-pill.dng{background:rgba(251,111,99,.15);color:var(--dng)}
@@ -35,7 +35,7 @@
 .op-dot.cur{background:var(--ink)!important;border-color:var(--ink)!important;transform:scale(1.25)}
 .op-dot:disabled{opacity:.5}
 .op-body{flex:1;overflow-y:auto;padding:12px 16px 16px;display:flex;flex-direction:column;gap:10px;scrollbar-width:thin}
-.op-section{font-size:11px;font-weight:700;letter-spacing:1.2px;text-transform:uppercase;color:var(--mut)}
+.op-section{font-size:12px;font-weight:700;letter-spacing:.06em;text-transform:uppercase;color:var(--mut)}
 .op-card{background:var(--surf);border:1px solid var(--hair);border-radius:16px;padding:12px;display:flex;flex-direction:column;gap:10px;text-align:left;width:100%}
 .op-card.slim{padding:10px 12px}
 .op-card.rej{border-color:rgba(251,111,99,.6)}
@@ -59,11 +59,11 @@
 .op-ring{width:84px;height:84px;border-radius:50%;border:3px solid var(--brand);box-shadow:0 0 0 8px rgba(138,212,87,.12)}
 .op-scan.on .op-ring{background:var(--brand)}
 .op-scan-t{font-size:15px;font-weight:700;font-variant-numeric:tabular-nums}
-.op-scan-s{font-size:11px;font-weight:700;letter-spacing:1px;text-transform:uppercase;color:var(--mut)}
+.op-scan-s{font-size:12px;font-weight:700;letter-spacing:1px;text-transform:uppercase;color:var(--mut)}
 .op-verdict{display:flex;gap:8px;align-items:center;font-size:12.5px;color:var(--dng);font-weight:600}
 .op-verdict.big{padding:8px 10px;border-radius:12px;background:rgba(251,111,99,.1)}
 .op-tiles{display:grid;grid-template-columns:repeat(3,1fr);gap:6px}
-.op-tile{aspect-ratio:1;border-radius:12px;border:1px dashed var(--hair)!important;background:var(--bg)!important;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:2px;font-size:11px;color:var(--mut)}
+.op-tile{aspect-ratio:1;border-radius:12px;border:1px dashed var(--hair)!important;background:var(--bg)!important;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:2px;font-size:12px;color:var(--mut)}
 .op-tile b{font-size:20px;color:var(--faint)}
 .op-tile.on{border:1px solid var(--brand)!important;background:rgba(138,212,87,.12)!important;color:var(--brand)}
 .op-tile.on b{color:var(--brand)}
@@ -90,7 +90,7 @@
 .op-btn.dng{background:var(--dng)!important;color:#1a0806!important}
 .op-sumhead{display:flex}
 .op-sumrow{display:grid;grid-template-columns:26px 1fr auto;gap:10px;align-items:center;padding:11px 12px;border-radius:14px;background:var(--surf)!important;border:1px solid var(--hair)!important;text-align:left;font-size:14px}
-.op-num{width:24px;height:24px;border-radius:50%;background:var(--line);display:grid;place-items:center;font-size:11px;font-weight:700;color:var(--mut)}
+.op-num{width:24px;height:24px;border-radius:50%;background:var(--line);display:grid;place-items:center;font-size:12px;font-weight:700;color:var(--mut)}
 .op-sumt{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .op-empty{padding:30px 0;text-align:center;color:var(--faint);font-size:13px}
 @media (max-width:430px){.op-phone{border-radius:0;padding:0;box-shadow:none;aspect-ratio:auto;height:78vh}.op-screen{border-radius:0}.op-panel{border-radius:0}}

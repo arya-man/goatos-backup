@@ -30,16 +30,18 @@
         id=f.add('question',p);
       }
       byKey[q.id]=id; ids.push(id);
+      if(q.hint){f.nodes.find(x=>x.id===id).hint=q.hint;}
       if(q.only_if){const nn=f.nodes.find(x=>x.id===id); nn.onlyIf={q:byKey[q.only_if.question_id],v:q.only_if.value};}
     };
-    src.load.forEach(q=>addQ(Object.assign({},q,{id:'load_'+q.id}),'Load details'));
-    /* goatos-stg published procurement.animal_purchase v7 = 7 load + 40 animal questions; v7 added Breed and Stage (identity page). */
-    const v7=[{id:'b',kind:'text',title:'Breed of animal',required:true},{id:'s',kind:'text',title:'Stage of animal',required:true}];
-    src.pages.forEach(p=>{const qs=p.key==='identity'?p.questions.concat(v7.filter(x=>!p.questions.some(y=>y.id===x.id))):p.questions;qs.forEach(q=>addQ(q,p.title));});
+    /* goatos-stg published procurement.animal_purchase v7: 7 load + 40 animal questions, stg keys and operator hints kept.
+       Load keys keep the stg key (w, h, ...); only a key that also exists on an animal page (notes) gets a load_ prefix. */
+    const pageKeys=new Set(src.pages.flatMap(p=>p.questions.map(q=>q.id)));
+    src.load.forEach(q=>addQ(Object.assign({},q,{id:pageKeys.has(q.id)?'load_'+q.id:q.id}),'Load details'));
+    src.pages.forEach(p=>p.questions.forEach(q=>addQ(q,p.title)));
     const nd=k=>f.nodes.find(x=>x.id===byKey[k]);
     nd('well_fed').reject={op:'=',value:'no',reason:'Visibly empty or weak'};
     nd('teeth').reject={op:'cannot',value:'',reason:"Mouth can't be opened"};
-    const ap=f.add('approval',{label:'Reviewer decision per animal',roleId:'role_ceo',outcomes:['Accept','Reject']});
+    const ap=f.add('approval',{label:'CEO decides per animal on the web',roleId:'role_ceo_internal',outcomes:['Accept','Reject']});
     const end=f.add('end',{label:'Inspection closed',outcome:'done'});
     ids.push(ap,end); f.chain(ids);
     return f.nodes;
@@ -79,33 +81,58 @@
     return f.nodes;
   }
 
-  /* Sick-animal report. Mirrors Android feature-health ObservationFormScreen (4 steps: vitals, head, body, final;
-     no disease names, no medicines on the operator form). The operator records findings only; the server proposes an
-     assessment and the Health Director approves it. Treatment comes from the versioned Health protocol, never from here. */
+  /* Sick-animal report = Android feature-health ObservationFormScreen.kt + ObservationForm.kt (ObservationOptions), field for field:
+     4 steps Vitals / Head / Body / Final; sex- and kid-specific cards on Final. The animal's sex and kid class come from its record,
+     so those pages are named "Female only", "Male only", "Kid only", "Milk kid only". No photo step, no disease names, no medicines.
+     Director decision = DiagnosisProposalScreen.kt buttons "Approve treatment" / "Treat none of these"; treatment follows Health Config. */
   function healthFlow(){
     const f=flow();
-    const yn=[{v:'no',l:'No'},{v:'yes',l:'Yes'}];
-    const q=(label,page,p)=>f.add('question',Object.assign({label,answer:'choice',options:yn,required:true,page},p||{}));
+    const o=(...xs)=>xs.map(([v,l])=>({v,l}));
+    const yn=o(['no','No'],['yes','Yes']);
+    const Q=(label,page,answer,options,p)=>f.add('question',Object.assign({label,answer,required:true,page},options?{options}:{},p||{}));
     const s=f.add('start',{label:'Sick animal reported'});
     const ids=[s,
-      f.add('question',{label:'RFID or goat tag',answer:'scan',required:true,page:'Animal'}),
-      f.add('question',{label:'Rectal temperature',answer:'number',unit:'°F',min:90,max:112,required:true,page:'Vitals'}),
-      q('Skin tent','Vitals'),q('Sunken flank','Vitals'),
-      f.add('question',{label:'Eyes',answer:'multi',options:[{v:'normal',l:'Normal'},{v:'pale',l:'Pale'},{v:'yellow',l:'Yellow'}],required:true,page:'Vitals'}),
-      f.add('question',{label:'Mouth',answer:'multi',options:[{v:'normal',l:'Normal'},{v:'scabs',l:'Scabs'},{v:'froth',l:'Froth'},{v:'cannot_open',l:'Cannot open'}],required:true,page:'Head'}),
-      q('Breathing difficulty','Head'),q('Runny nose','Head'),
-      q('Left side swollen','Body'),q('Rumen movement absent','Body'),q('Loose motion','Body'),q('Not eating','Body'),
-      f.add('question',{label:'Skin & coat',answer:'multi',options:[{v:'normal',l:'Normal'},{v:'ticks',l:'Ticks'},{v:'hair_loss',l:'Hair loss'}],required:true,page:'Body'}),
-      q('Wounds','Body'),q('Lumps','Body'),q('Rashes','Body'),
-      f.add('question',{label:'Maggots and ear tag',answer:'multi',options:[{v:'normal',l:'Normal'},{v:'body',l:'On the body'},{v:'tag',l:'At the ear tag'},{v:'torn',l:'Ear tag torn'}],required:true,page:'Body'}),
-      q('Cannot stand normally','Final'),q('Legs or feet problem','Final'),q('Nervous signs','Final'),
-      f.add('evidence',{label:'Animal photo',media:['photo'],min:1,max:3,page:'Final'})];
+      Q('Animal RFID','Animal','scan'),
+      Q('Rectal temperature','Vitals','number',null,{unit:'°F',hint:'Below 100 warm it now · above 106 cool it now'}),
+      Q('FAMACHA','Vitals','choice',o(['1','1'],['2','2'],['3','3'],['4','4'],['5','5'])),
+      Q('FAMACHA · Yellow','Vitals','choice',yn,{hint:'Same look at the eyelid as the FAMACHA score'}),
+      Q('Skin tent','Vitals','choice',o(['lt2','Snaps back'],['2-4','Slow'],['gt4','Very slow'])),
+      Q('Sunken flank','Vitals','choice',yn),
+      Q('Eyes','Head','multi',o(['normal','Normal'],['red','Red'],['cloudy','Cloudy'],['discharge','Discharge'])),
+      Q('Mouth','Head','multi',o(['normal','Normal'],['scabs','Scabs'],['froth','Froth'],['cannot_open','Cannot open'])),
+      Q('Breathing','Head','multi',o(['normal','Normal'],['fast','Fast'],['labored','Struggling'],['cough','Coughing'],['pant','Panting'])),
+      Q('Runny nose','Head','choice',yn),
+      Q('Left side','Body · gut and belly','multi',o(['normal','Normal'],['bloating','Blown up'],['acidosis','Water sound'])),
+      Q('Rumen movement','Body · gut and belly','choice',o(['felt','Moving'],['not_felt','Not moving'])),
+      Q('Loose motion','Body · gut and belly','choice',yn),
+      Q('Eating','Body · gut and belly','multi',o(['normal','Eating well'],['not_eating','Not eating'],['concentrate','Took feed'],['green_feed','Took green'],['dry_feed','Took dry'])),
+      Q('Skin & coat','Body · skin, body, legs','multi',o(['normal','Normal'],['ticks','Ticks'],['hair_loss','Hair loss'])),
+      Q('Wounds','Body · skin, body, legs','multi',o(['no','None'],['horn','Horn'],['neck','Neck'],['body','Body'],['legs','Legs'])),
+      Q('Lumps','Body · skin, body, legs','choice',o(['no','None'],['neck','Neck'],['body','Body'])),
+      Q('Rashes','Body · skin, body, legs','choice',o(['none','None'],['flat_itchy','Flat and itchy'],['nodular','Raised bumps'])),
+      Q('Maggots and ear tag','Body · skin, body, legs','multi',o(['normal','Normal'],['body','On the body'],['tag','At the ear tag'],['torn','Ear tag torn'])),
+      Q('How it stands','Body · skin, body, legs','choice',o(['standing','Standing'],['down','Cannot stand'],['limping','Limping'],['back_leg_drag','Dragging back legs'],['front_knees','On front knees'],['weak','Weak'])),
+      Q('Legs and feet','Body · skin, body, legs','choice',o(['normal','Normal'],['arthritis','Swollen joint'],['fracture','Bone out of place'],['foot_rot','Rotten hoof'])),
+      Q('Nervous signs','Body · skin, body, legs','multi',o(['none','Normal'],['circling','Circling'],['head_tilt','Head tilted'],['star_gazing','Head back'],['blind','Cannot see'],['tremors','Shivering'],['ataxia','Unsteady'])),
+      Q('Udder','Final · female only','choice',o(['normal','Normal'],['swollen_hard','Hard and swollen'],['rashes','Rash'],['wound','Wound'],['lumps','Lumps'])),
+      Q('Milk','Final · female only','choice',o(['no','No milk'],['milk','Milk'],['colostrum','First milk'],['water','Watery'],['pus','Pus'])),
+      Q('Milk test','Final · female only','choice',o(['pos','Positive'],['neg','Negative']),{hint:'Asked only when there is milk'}),
+      Q('Back passage','Final · female only','choice',o(['none','Normal'],['lochia_normal','Clean discharge'],['discharge_bad_smell','Bad smell'],['pus','Pus'],['prolapse','Tissue hanging'])),
+      Q('Passing urine','Final · male only','choice',o(['no','Normal'],['straining','Straining'],['no_urine','No urine'])),
+      Q('Anything else','Final','multi',o(['none','None'],['red_urine','Red urine'],['edema','Swelling under the jaw'],['pushed','Pushed off feed'])),
+      Q('Suckle test','Final · kid only','choice',o(['present','Sucks'],['absent','No suckle']),{hint:'Finger in the mouth'}),
+      Q('Responsiveness','Final · kid only','choice',o(['alert','Alert'],['dull','Dull'],['unresponsive','Unresponsive'])),
+      Q('Navel','Final · milk kid only','choice',o(['normal','Normal'],['wet','Wet'],['swollen','Swollen'],['painful','Painful'])),
+      Q('Drop test','Final · milk kid only','choice',o(['spiderman','Lands like Spider-Man'],['barely','Barely stays up'],['falls','Falls'],['na','Not done']),{hint:'Land the kid from about 20 cm; not done when the kid is already down'}),
+      Q('Milk bar','Final · milk kid only','multi',o(['normal','Drinking'],['not_drinking','Not drinking']),{hint:'K2 free-choice milk bar only'}),
+      Q('Feeds refused today','Final · kid only','number',null,{min:0,max:3,required:false,hint:'Required for K1 (3 bar sessions) and weaning kids (2 bottles)'}),
+      Q('Which feed','Final · kid only','choice',o(['1','Feed 1'],['2','Feed 2'],['3','Feed 3']),{required:false})];
     f.chain(ids);
-    const ap=f.add('approval',{label:'Director approves assessment',roleId:'role_health',outcomes:['Treat in pen','Move to ICU','Check again']});
+    const ap=f.add('approval',{label:'Health Director reviews the proposed assessment',roleId:'role_director_health',outcomes:['Approve treatment','Treat none of these']});
     const tr=f.add('action',{label:'Treat per Health protocol',link:'#/health/config',linkLabel:'Health protocol'});
-    const mv=f.add('child',{label:'Shift to ICU (Health)',sopId:'sop_shift',reason:'health'});
-    const e=f.add('end',{label:'Case handed to Health protocol',outcome:'done'});
-    f.link(ids[ids.length-1],ap); f.link(ap,tr,'Treat in pen'); f.link(ap,mv,'Move to ICU'); const re=f.add('end',{label:'Re-check requested',outcome:'rejected'}); f.link(ap,re,'Check again'); f.link(mv,tr); f.link(tr,e);
+    const e=f.add('end',{label:'Treatment approved',outcome:'done'});
+    const cl=f.add('end',{label:'Assessment closed',outcome:'rejected'});
+    f.link(ids[ids.length-1],ap); f.link(ap,tr,'Approve treatment'); f.link(ap,cl,'Treat none of these'); f.link(tr,e);
     return f.nodes;
   }
 
@@ -116,33 +143,169 @@
     const par=f.add('parallel',{label:'Prepare in parallel'});
     const e1=f.add('evidence',{label:'Shed emptied',media:['video'],min:1,max:2,lane:'Shed'});
     const e2=f.add('evidence',{label:'Shed sanitized',media:['video'],min:1,max:2,lane:'Shed'});
-    const w1=f.add('action',{label:'Fill water with ORS',itemId:'itm_ors',lane:'Water'});
+    const w1=f.add('action',{label:'Fill water with ORS',lane:'Water'});
     const w2=f.add('evidence',{label:'Water trough with ORS',media:['photo'],min:1,max:3,lane:'Water'});
     const j=f.add('join',{label:'Both lanes done'});
-    const ap=f.add('approval',{label:'Shed ready',roleId:'role_parkhead',outcomes:['Ready','Redo']});
+    const ap=f.add('approval',{label:'Shed ready',roleId:'role_park_head',outcomes:['Ready','Redo']});
     const e=f.add('end',{label:'Destination ready',outcome:'done'});
     f.link(s,pen); f.link(pen,par); f.link(par,e1,'Shed'); f.link(e1,e2); f.link(par,w1,'Water'); f.link(w1,w2); f.link(e2,j); f.link(w2,j); f.link(j,ap); f.link(ap,e);
     return f.nodes;
   }
 
+  /* Transit = Drive "Transit-SOP" v1 (2026-09-15): Phase 1 briefing + certificates, Phase 2 Viruflex-S disinfection the day before,
+     Phase 3 weighbridge References 1/2 before payment, load limits, loading order, Phase 4 checks every 3 h (video) + 48 h medicine,
+     Phase 5 pit stop every 12 h (4-6 h rest), Phase 6 unloading. Max 72 h (set_travel_days = 3 days). No truck register exists in stg. */
   function transitFlow(){
     const f=flow();
+    const vid=(label,page,p)=>f.add('evidence',Object.assign({label,media:['video'],min:1,max:5,page},p||{}));
     const s=f.add('start',{label:'Boarding list approved'});
-    const t=f.add('question',{label:'Truck',answer:'ref',refColl:'trucks',required:true,page:'Departure'});
-    const c=f.add('question',{label:'Animals boarded',answer:'number',unit:'animals',min:0,required:true,page:'Departure'});
-    const p=f.add('evidence',{label:'Departure photo',media:['photo'],min:1,max:3,page:'Departure'});
-    const r=f.add('repeat',{label:'Transit check',every:3,everyUnit:'hours',everySetting:'set_travel_check',forAmount:3,forUnit:'days',forSetting:'set_travel_days',media:['photo','video']});
-    const rc=f.add('question',{label:'Animals received',answer:'number',unit:'animals',min:0,required:true,page:'Arrival'});
+    const certs=f.add('question',{label:'Certificates in hand',answer:'multi',options:[{v:'vet',l:'Veterinary certificate'},{v:'eway',l:'Transit certificate (E-Way Bill)'},{v:'invoice',l:'Invoice'}],required:true,page:'Pre-dispatch',hint:'All three are required'});
+    const brA=f.add('question',{label:'Briefing audio call recording sent to Central Office?',answer:'choice',options:YN,required:true,page:'Pre-dispatch',hint:'Required before truck booking; briefing at least 30 minutes',reject:{op:'=',value:'no',reason:'No briefing recording: do not book the truck'}});
+    const brV=vid('Standup briefing video with all transit staff','Pre-dispatch');
+    const veh=f.add('question',{label:'Vehicle type',answer:'choice',options:[{v:'bolero',l:'Bolero Pickup (up to 40 animals)'},{v:'eicher',l:'Eicher (41 to 100 animals)'}],required:true,page:'Day before loading'});
+    const dis=vid('Vehicle disinfection video (Viruflex-S 5 ml per litre: interiors, wheels, exterior)','Day before loading');
+    const med=vid('Medicine and equipment stock video','Day before loading');
+    const hay=vid('Hay bed video','Day before loading');
+    const rain=vid('Rain cover and ventilation video','Day before loading');
+    const kind=f.add('question',{label:'Load type',answer:'choice',options:[{v:'fattening',l:'Fattening'},{v:'breeding',l:'Breeding stock'}],required:true,page:'Loading'});
+    const c=f.add('question',{label:'Animals boarded',answer:'number',unit:'animals',min:0,required:true,page:'Loading',hint:'Count every animal while loading'});
+    const dk=f.add('decision',{label:'Breeding stock?',q:kind,op:'=',value:'breeding'});
+    const dF=f.add('decision',{label:'More than 80 (fattening max)?',q:c,op:'>',value:80});
+    const dB=f.add('decision',{label:'More than 50 (breeding max)?',q:c,op:'>',value:50});
+    const over=f.add('end',{label:'Over the load limit: reduce the load',outcome:'rejected'});
+    const order=f.add('action',{label:'Load in order: heavily pregnant (lower deck, near cabin) → pregnant (upper, near cabin) → non-pregnant females → bucks; males and females separated',page:'Loading'});
+    const load=vid('Loading video (truck inside a boundary, door gap filled with sacks)','Loading');
+    const r1=f.add('question',{label:'Reference 1: empty vehicle and vehicle with empty-stomach animals',answer:'number',unit:'kg',min:0,required:true,page:'Weighbridge'});
+    const r2=f.add('question',{label:'Reference 2: vehicle + animals at a different weighbridge on the route',answer:'number',unit:'kg',min:0,required:true,page:'Weighbridge',hint:'Payment is released only after Reference 2 is confirmed'});
+    const pay=f.add('approval',{label:'Central Office confirms Reference 2 before payment',roleId:'role_director_procurement',outcomes:['Release payment','Hold payment']});
+    const chk=f.add('repeat',{label:'Transit check: no stampede',every:3,everyUnit:'hours',everySetting:'set_travel_check',forAmount:3,forUnit:'days',forSetting:'set_travel_days',media:['video']});
+    const pit=f.add('repeat',{label:'Pit stop: site video, unload and count, 4-6 h rest (males and females 50 m apart), fresh hay bed, count and reload video',every:12,everyUnit:'hours',everySetting:'set_pitstop_every',forAmount:3,forUnit:'days',forSetting:'set_travel_days',media:['video']});
+    const inj=f.add('action',{label:'Every 48 h at a pit stop: chocolate injection after feed, then a 30-min water session; never inject and load',link:'#/health/config',linkLabel:'Health protocol'});
+    const rc=f.add('question',{label:'Animals received',answer:'number',unit:'animals',min:0,required:true,page:'Arrival',hint:'Count every animal while unloading'});
+    const un=vid('Unloading video (one person, one animal)','Arrival');
     const d=f.add('decision',{label:'Received less than boarded?',q:rc,op:'<',value:'@'+c,page:'Arrival'});
-    const ap=f.add('approval',{label:'Shortage review',roleId:'role_procdir',outcomes:['Accept','Investigate']});
+    const ver=f.add('approval',{label:'Central Office verifies the count and videos',roleId:'role_verifier',outcomes:['Approve','Rework']});
     const e=f.add('end',{label:'Arrived',outcome:'done'});
-    f.link(s,t); f.link(t,c); f.link(c,p); f.link(p,r); f.link(r,rc); f.link(rc,d); f.link(d,ap,'Yes'); f.link(d,e,'No'); f.link(ap,e);
+    f.chain([s,certs,brA,brV,veh,dis,med,hay,rain,kind,c,dk]);
+    f.link(dk,dB,'Yes'); f.link(dk,dF,'No'); f.link(dF,over,'Yes'); f.link(dB,over,'Yes'); f.link(dF,order,'No'); f.link(dB,order,'No');
+    f.chain([order,load,r1,r2,pay,chk,pit,inj,rc,un,d]); f.link(d,ver,'Yes'); f.link(d,e,'No'); f.link(ver,e);
+    return f.nodes;
+  }
+
+  /* ---- Published goatos-stg SOPs (sop_versions.status='published', form_dsl transcribed read-only 2026-09-17) ---- */
+  const YN=[{v:'yes',l:'Yes'},{v:'no',l:'No'}];
+  function verifyEnd(f,from,label){
+    const a=f.add('approval',{label:label||'Verifier reviews the evidence',roleId:'role_verifier',outcomes:['Approve','Rework']});
+    const ok=f.add('end',{label:'Evidence verified',outcome:'done'});
+    const re=f.add('end',{label:'Evidence rework',outcome:'rejected'});
+    f.link(from,a); f.link(a,ok,'Approve'); f.link(a,re,'Rework');
+    return a;
+  }
+
+  /* counts.birth v1: recording form → Counts approver → follow-up tracks (kid = K0 SOP, mother) → evidence review */
+  function birthFlow(){
+    const f=flow();
+    const s=f.add('start',{label:'Kid born'});
+    const ids=[s,
+      f.add('question',{label:'Mother RFID',answer:'scan',required:true,page:'Record birth',hint:'Must resolve to a female on the herd register'}),
+      f.add('question',{label:'Litter size',answer:'choice',options:[{v:'1',l:'1'},{v:'2',l:'2'},{v:'3',l:'3'}],required:true,page:'Record birth',hint:'One register entry per kid, each with a provisional tag'}),
+      f.add('question',{label:'Birth location (pen)',answer:'ref',refColl:'pens',required:true,page:'Record birth'}),
+      f.add('question',{label:'Date of birth',answer:'date',required:true,page:'Record birth'}),
+      f.add('question',{label:'Time of birth (optional)',answer:'text',required:false,page:'Record birth',hint:'24-hour IST, e.g. 06:45; unknown falls back to 07:00'}),
+      f.add('question',{label:'Species',answer:'choice',options:[{v:'goat',l:'Goat'},{v:'sheep',l:'Sheep'}],required:true,page:'Record birth'}),
+      f.add('question',{label:'Breed',answer:'text',required:true,page:'Record birth'}),
+      f.add('question',{label:'Sex',answer:'choice',options:[{v:'female',l:'Female'},{v:'male',l:'Male'}],required:true,page:'Record birth'}),
+      f.add('question',{label:'Birth weight',answer:'number',unit:'kg',min:0,required:false,page:'Record birth'}),
+      f.add('evidence',{label:'Birth proof video (live camera)',media:['video'],min:1,max:1,page:'Record birth',hint:'Newborn(s) with the mother; no gallery or import'}),
+      f.add('question',{label:'1st colostrum given (immediately after delivery)',answer:'choice',options:YN,required:true,page:'Record birth'}),
+      f.add('question',{label:'Notes',answer:'text',required:false,page:'Record birth'})];
+    f.chain(ids);
+    const ap=f.add('approval',{label:'Counts approver review',roleId:'role_counts_approver',outcomes:['Approve','Reject']});
+    const rej=f.add('end',{label:'Rejected',outcome:'rejected'});
+    const par=f.add('parallel',{label:'Birth follow-up tracks'});
+    const kid=f.add('child',{label:'Kid track (K0 newborn care)',sopId:'sop_k0',lane:'Kid'});
+    const M=(label,answer,p)=>f.add(answer?'question':'action',Object.assign({label,lane:'Mother'},answer?{answer,options:YN,required:true}:{},p||{}));
+    const mv=label=>f.add('evidence',{label,media:['video'],min:1,max:1,lane:'Mother'});
+    const m=[M('Are any babies still inside?','choice'),mv('Babies-inside check video'),
+      M('Is the mother licking her babies?','choice'),mv('Mother licking video'),
+      M("Mother's medicine",null,{hint:'Chocolate Injection 1.5 ml SQ · Meloxicam Paracetamol 4 ml IM · Exapar 20 ml · Glucoboost 100 ml mixed with 150 g concentrate'}),mv("Mother's medicine video"),
+      M('ORS water (1st round)'),mv('ORS water video'),
+      M('Is the mother eating?','choice'),mv('Mother eating video'),
+      f.add('wait',{label:'Exactly 50 min after the 1st ORS round',amount:50,unit:'minutes',lane:'Mother'}),
+      M('ORS water (2nd round)'),mv('ORS water 2nd round video')];
+    for(let i=0;i<m.length-1;i++)f.link(m[i],m[i+1]);
+    const j=f.add('join',{label:'Both tracks done'});
+    f.link(ids[ids.length-1],ap); f.link(ap,par,'Approve'); f.link(ap,rej,'Reject');
+    f.link(par,kid,'Kid'); f.link(par,m[0],'Mother'); f.link(kid,j); f.link(m[m.length-1],j);
+    verifyEnd(f,j,'Birth evidence review (one item per mother or child)');
+    return f.nodes;
+  }
+
+  /* counts.death v1: exactly two operator video steps → Counts approver → media verification */
+  function deathFlow(){
+    const f=flow();
+    const s=f.add('start',{label:'Animal found dead'});
+    const ids=[s,
+      f.add('question',{label:'Animal RFID',answer:'scan',required:true,page:'Death'}),
+      f.add('question',{label:'What happened',answer:'text',required:true,page:'Death',hint:'3 to 500 characters'}),
+      f.add('question',{label:'When the death occurred',answer:'date',required:false,page:'Death',hint:'Defaults to the time recorded'}),
+      f.add('evidence',{label:'Death video (live camera, ear tag visible)',media:['video'],min:1,max:1,page:'Death video'}),
+      f.add('evidence',{label:'Post-mortem video (live camera, timestamp visible, one continuous take)',media:['video'],min:1,max:1,page:'Post-mortem video'})];
+    f.chain(ids);
+    const ap=f.add('approval',{label:'Counts approver review',roleId:'role_counts_approver',outcomes:['Approve','Reject']});
+    const rej=f.add('end',{label:'Rejected',outcome:'rejected'});
+    const applied=f.add('action',{label:'Animal exited as dead; open work cancelled'});
+    f.link(ids[ids.length-1],ap); f.link(ap,applied,'Approve'); f.link(ap,rej,'Reject');
+    verifyEnd(f,applied,'Media verification');
+    return f.nodes;
+  }
+
+  /* counts.reconcile v1: return a stray animal to its registered pen, verified before apply */
+  function reconcileFlow(){
+    const f=flow();
+    const ids=[f.add('start',{label:'Animal scanned in the wrong pen'}),
+      f.add('question',{label:'Animal RFID',answer:'scan',required:true,page:'Reconcile',hint:'The tag exactly as the weighing operator scanned it'}),
+      f.add('question',{label:'Registered pen',answer:'ref',refColl:'pens',required:true,page:'Reconcile'}),
+      f.add('evidence',{label:'Return to registered pen video (ear tag inside that pen)',media:['video'],min:1,max:1,page:'Pen return'})];
+    f.chain(ids); verifyEnd(f,ids[ids.length-1]);
+    return f.nodes;
+  }
+
+  /* milk.preparation v1: one preparation per farm per day (feeds tomorrow); goat-milk steps only when goat milk is used */
+  function milkPrepFlow(){
+    const f=flow();
+    const P='Preparation';
+    const num=(label,unit,req,p)=>f.add('question',Object.assign({label,answer:'number',unit,min:0,required:req,page:P},p||{}));
+    const v=label=>f.add('evidence',{label,media:['video'],min:1,max:1,page:P});
+    const s=f.add('start',{label:"Read the day's milk plan"});
+    const farm=f.add('question',{label:'Farm',answer:'ref',refColl:'parks',required:true,page:P});
+    const am=num('Goat milk collected · morning','litres',true,{hint:'May be zero'});
+    const pm=num('Goat milk collected · evening','litres',true);
+    const used=f.add('question',{label:'Goat milk used in this preparation',answer:'choice',options:YN,required:true,page:P});
+    const d=f.add('decision',{label:'Goat milk used?',q:used,op:'=',value:'yes'});
+    const g=[num('Goat milk quantity','litres',true,{page:'Goat milk'}),f.add('evidence',{label:'Goat milk quantity video',media:['video'],min:1,max:1,page:'Goat milk'}),
+      num('Boiling temperature','°C',true,{page:'Goat milk'}),f.add('evidence',{label:'Boiling temperature video',media:['video'],min:1,max:1,page:'Goat milk'}),
+      num('Cooled temperature','°C',true,{page:'Goat milk'}),f.add('evidence',{label:'Cooled temperature video',media:['video'],min:1,max:1,page:'Goat milk'})];
+    const u=[num('UHT milk quantity','litres',true,{hint:'Recorded into the UHT Milk feed stock on approval'}),v('UHT milk quantity video'),
+      num('Citric acid','g',true,{hint:'Plan: 5.5 g per litre of prepared milk'}),v('Citric acid mixing video')];
+    f.chain([s,farm,am,pm,used,d]); f.link(d,g[0],'Yes'); f.link(d,u[0],'No'); f.chain(g); f.link(g[g.length-1],u[0]); f.chain(u);
+    verifyEnd(f,u[u.length-1],'Verifier review · one farm-day item with every step video');
+    return f.nodes;
+  }
+
+  /* vaccination.drive v1: scan each goat when the vaccine is given; 1-5 pen videos (camera or gallery); verified before apply */
+  function vaccinationDriveFlow(){
+    const f=flow();
+    const ids=[f.add('start',{label:'Protocol window due'}),
+      f.add('question',{label:'Goats vaccinated',answer:'scan',required:true,page:'Vaccinate',hint:'Scan each goat exactly when the vaccine is given; the scan time is the vaccination time'}),
+      f.add('evidence',{label:'Pen proof videos',media:['video'],min:1,max:5,page:'Pen video',hint:'Camera or gallery, up to 5 videos'})];
+    f.chain(ids); verifyEnd(f,ids[ids.length-1],'Proof verification');
     return f.nodes;
   }
 
   function sop(id,dept,title,nodes,v,running,category){
     const at='2026-09-'+String(2+((v*7)%13)).padStart(2,'0')+'T09:30:00Z';
-    return {id,dept,title,category:category||'action',nodes,versions:v?[{v,at,by:'Ravi Teja',nodes:JSON.parse(JSON.stringify(nodes)),running:running||0}]:[],status:'active'};
+    return {id,dept,title,category:category||'action',nodes,versions:v?[{v,at,by:'CEO / CXO 01',nodes:JSON.parse(JSON.stringify(nodes)),running:running||0}]:[],status:'active'};
   }
 
   window.buildSeed=function(){
@@ -150,10 +313,10 @@
     st.farms=[
       {id:'farm_cbe',code:'CBE',name:'Coimbatore',kind:'core',status:'active'},
       {id:'farm_cpt',code:'CPT',name:'Channapatna',kind:'core',status:'active'}];
-    /* stg locations(type=park) CBE / CPT; park codes kept distinct from farm codes */
+    /* stg locations(type=park) codes CBE / CPT */
     st.parks=[
-      {id:'park_cbe',code:'CBE-PARK',name:'Coimbatore',farmId:'farm_cbe',status:'active'},
-      {id:'park_cpt',code:'CPT-PARK',name:'Channapatna',farmId:'farm_cpt',status:'active'}];
+      {id:'park_cbe',code:'CBE',name:'Coimbatore',farmId:'farm_cbe',status:'active'},
+      {id:'park_cpt',code:'CPT',name:'Channapatna',farmId:'farm_cpt',status:'active'}];
     const L=window.LIFECYCLE_SEED;
     st.stages=L.stages.map((x,i)=>Object.assign({order:i,status:'active'},x));
     st.tags=L.tags.map((x,i)=>Object.assign({id:'tag_'+i,speciesId:'',status:'active'},x));
@@ -205,43 +368,45 @@
     }
     st.animals.slice(20,24).forEach(a=>{a.speciesId='sp_sheep';a.breedId='br_s_anantapur_sheep';a.sexId=a.sexId==='sx_gf'?'sx_sf':'sx_sm';a.stageId=stg('sp_sheep',a.sexId==='sx_sf'?'FAT-F':'FAT-M');});
 
-    // items
-    st.categories=[
-      {id:'cat_vac',parentId:'',name:'Vaccines'},{id:'cat_med',parentId:'',name:'Medicines'},{id:'cat_ab',parentId:'cat_med',name:'Antibiotics'},
-      {id:'cat_ai',parentId:'cat_med',name:'Anti-inflammatory'},{id:'cat_inj',parentId:'cat_med',name:'Injections'},{id:'cat_dew',parentId:'',name:'Dewormers'},
-      {id:'cat_feed',parentId:'',name:'Feed'},{id:'cat_conc',parentId:'cat_feed',name:'Concentrate'},{id:'cat_rough',parentId:'cat_feed',name:'Roughage'},
-      {id:'cat_sup',parentId:'',name:'Supplements'},{id:'cat_supplies',parentId:'',name:'Supplies'},{id:'cat_needle',parentId:'cat_supplies',name:'Needles'},
-      {id:'cat_elec',parentId:'',name:'Electrical appliances'},{id:'cat_fans',parentId:'cat_elec',name:'Fans'}].map(c=>Object.assign(c,{status:'active'}));
-    const it=(id,cat,name,unit,depts,status)=>({id,categoryId:cat,name,unit,depts,status:status||'active'});
-    st.items=[
-      ...['BT','ET+TT','FMD','Goat Pox','HS','PPR','Sheep Pox'].map((v,i)=>it('itm_vac'+i,'cat_vac',v,'dose',['Preventive Care','Procurement'])),
-      it('itm_tylosin','cat_ab','Tylosin','ml',['Health']),it('itm_melox','cat_ai','Meloxicam-Paracetamol','ml',['Health']),
-      it('itm_choc','cat_inj','Chocolate injection','ml',['Health'],'review'),it('itm_ors','cat_sup','ORS','g',['Procurement','Health']),
-      it('itm_conc','cat_conc','Concentrate mix','kg',['Feed','Procurement']),it('itm_hay','cat_rough','Dry fodder','kg',['Feed']),
-      it('itm_needle','cat_needle','Needle 18G','piece',['Health','Preventive Care']),it('itm_fan','cat_fans','Shed fan','piece',['Counts'])];
+    /* items = goatos-stg inventory_items (7 active rows, all category 'vaccine', base unit dose). Feed items live in Feed Config;
+       medicines are named inside Health Config protocols, not in inventory_items. */
+    st.categories=[{id:'cat_vac',parentId:'',name:'Vaccines',status:'active'}];
+    st.items=[['VAC-BT','Blue Tongue vaccine'],['VAC-ET-TT','ET+TT vaccine'],['VAC-FMD','FMD vaccine'],['VAC-GP','Goat Pox vaccine'],['VAC-HS','HS vaccine'],['VAC-PPR','PPR vaccine'],['VAC-SP','Sheep Pox vaccine']]
+      .map(([code,name],i)=>({id:'itm_vac'+i,categoryId:'cat_vac',code,name,unit:'dose',depts:['Preventive Care'],status:'active'}));
 
-    st.roles=[['role_ceo','CEO / CXO','cxo'],['role_pcdir','Preventive Care Director','director'],['role_growth','Growth Director','director'],['role_feeddir','Feed Director','director'],
-      ['role_health','Health Director','director'],['role_procdir','Procurement Director','director'],['role_procmgr','Procurement Manager','manager'],['role_parkhead','Park Head','manager'],
-      ['role_verifier','Verifier',''],['role_operator','Operator',''],['role_breeding','Breeding Director','director'],['role_hr','HR','director']]
-      .map(r=>({id:r[0],name:r[1],grade:r[2],status:'active'}));
+    /* RBAC roles = goatos-stg org_role_catalog (tier x vertical rows + the legacy flat roles still granted). The six legacy
+       '<vertical>_director' duplicates of director_<vertical> are left out. Job titles are a separate list: st.designations (seed-refs). */
+    st.roles=[['am_breeding','Assistant Manager -- Breeding','am',0],['am_feed','Assistant Manager -- Feed','am',0],['am_growth','Assistant Manager -- Growth','am',0],['am_health','Assistant Manager -- Health','am',0],['am_infrastructure','Assistant Manager -- Infrastructure','am',0],['am_milk','Assistant Manager -- Milk','am',0],['am_preventive_care','Assistant Manager -- Preventive Care','am',0],['am_procurement','Assistant Manager -- Procurement','am',0],['am_sales','Assistant Manager -- Sales','am',0],['director_breeding','Director -- Breeding','director',0],['director_feed','Director -- Feed','director',0],['director_growth','Director -- Growth','director',0],['director_health','Director -- Health','director',0],['director_infrastructure','Director -- Infrastructure','director',0],['director_milk','Director -- Milk','director',0],['director_preventive_care','Director -- Preventive Care','director',0],['director_procurement','Director -- Procurement','director',0],['director_sales','Director -- Sales','director',0],['head_breeding','Head (Ops-Head) -- Breeding','head',0],['head_feed','Head (Ops-Head) -- Feed','head',0],['head_growth','Head (Ops-Head) -- Growth','head',0],['head_health','Head (Ops-Head) -- Health','head',0],['head_infrastructure','Head (Ops-Head) -- Infrastructure','head',0],['head_milk','Head (Ops-Head) -- Milk','head',0],['head_preventive_care','Head (Ops-Head) -- Preventive Care','head',0],['head_procurement','Head (Ops-Head) -- Procurement','head',0],['head_sales','Head (Ops-Head) -- Sales','head',0],['manager_breeding','Manager -- Breeding','manager',0],['manager_feed','Manager -- Feed','manager',0],['manager_growth','Manager -- Growth','manager',0],['manager_health','Manager -- Health','manager',0],['manager_infrastructure','Manager -- Infrastructure','manager',0],['manager_milk','Manager -- Milk','manager',0],['manager_preventive_care','Manager -- Preventive Care','manager',0],['manager_procurement','Manager -- Procurement','manager',0],['manager_sales','Manager -- Sales','manager',0],['procurement_manager','Procurement Manager','manager',0],['ceo_internal','CEO / CxO (founder/builder cohort, legacy flat)','ceo_cxo',1],['counts_approver','Counts Approver','director',1],['hr','HR','director',1],['market_reporter','Market Reporter','director',1],['operator','Operator (legacy flat ground executor)','am',1],['park_head','Park Head (legacy flat, pre org-role-model)','head',1],['toxin_tester','Toxin Tester','director',1],['verifier','Verifier (video verification team, cross-vertical, legacy flat)','director',1]]
+      .map(r=>({id:'role_'+r[0],key:r[0],name:r[1],grade:r[2],legacy:!!r[3],status:'active'}));
+    /* Anonymous people: designation + number only. */
     st.people=[
-      {id:'ppl_ravi',name:'Ravi Teja',roleId:'role_ceo',parkIds:[],phone:'',status:'active'},
+      {id:'ppl_ceo1',name:'CEO / CXO 01',roleId:'role_ceo_internal',parkIds:[],phone:'',status:'active'},
       {id:'ppl_op1',name:'Operator 01',roleId:'role_operator',parkIds:['park_cpt'],phone:'',status:'active'},
       {id:'ppl_op2',name:'Operator 02',roleId:'role_operator',parkIds:['park_cbe'],phone:'',status:'active'},
       {id:'ppl_ver1',name:'Verifier 01',roleId:'role_verifier',parkIds:['park_cpt','park_cbe'],phone:'',status:'active'},
-      {id:'ppl_ph1',name:'Park Head 01',roleId:'role_parkhead',parkIds:['park_cpt'],phone:'',status:'active'}];
+      {id:'ppl_ph1',name:'Park Head 01',roleId:'role_park_head',parkIds:['park_cpt'],phone:'',status:'active'},
+      {id:'ppl_ca1',name:'Counts Approver 01',roleId:'role_counts_approver',parkIds:[],phone:'',status:'active'}];
+    /* Approvers per published stg workflow (approval / proof_verification nodes). */
     st.approvers=[
-      ['Procurement','Animal selection','role_ceo'],['Procurement','Final boarding list','role_ceo'],['Procurement','Transit shortage','role_procdir'],['Procurement','Warm-up release','role_ceo'],
-      ['Weighing','Weight and video','role_verifier'],['Feed','Distribution proof','role_verifier'],['Counts','Birth','role_parkhead'],['Counts','Death','role_parkhead'],['Counts','Shifting','role_parkhead'],
-      ['Health','Assessment approval','role_health'],['People','Leave','role_hr']].map((a,i)=>({id:'apr_'+i,dept:a[0],step:a[1],roleId:a[2],status:'active'}));
+      ['Procurement','Animal selection (CEO decides on the web)','role_ceo_internal'],['Procurement','Final boarding list','role_ceo_internal'],['Procurement','Reference 2 weighbridge before payment','role_director_procurement'],['Procurement','Warm-up release','role_ceo_internal'],
+      ['Weighing','Weight and video','role_verifier'],['Feed','Distribution proof','role_verifier'],['Counts','Birth','role_counts_approver'],['Counts','Death','role_counts_approver'],['Counts','Shifting','role_park_head'],
+      ['Counts','Evidence review','role_verifier'],['Milk','Session and preparation proof','role_verifier'],['Preventive Care','Vaccination proof','role_verifier'],
+      ['Health','Assessment approval','role_director_health']].map((a,i)=>({id:'apr_'+i,dept:a[0],step:a[1],roleId:a[2],status:'active'}));
 
-    /* Read-only mirror of the Procurement vendor register (prod /procurement/vendors) for SOP pickers. */
-    st.vendors=[
-      {id:'ven_1',name:'Anantapur Livestock Traders',supplies:'Animals',farmId:'farm_cpt',city:'Anantapur',phone:'',status:'active'},
-      {id:'ven_2',name:'Sirohi Goat Suppliers',supplies:'Animals',farmId:'farm_cbe',city:'Sirohi',phone:'',status:'active'},
-      {id:'ven_3',name:'Kolar Feed Depot',supplies:'Feed',farmId:'farm_cpt',city:'Kolar',phone:'',status:'active'},
-      {id:'ven_4',name:'Hosur Transport',supplies:'Transport',farmId:'',city:'Hosur',phone:'',status:'active'}];
-    st.trucks=[{id:'trk_1',number:'KA 05 AB 4412',vendorId:'ven_4',capacity:120,status:'active'},{id:'trk_2',number:'TN 37 CK 9021',vendorId:'ven_4',capacity:90,status:'active'}];
+    /* Read-only sample of the Procurement vendor register (goatos-stg procurement_vendors: 674 rows, 609 active). Business names and
+       cities as stored; record_type as 'supplies'. No truck/vehicle table exists in stg, so there is no truck seed. */
+    st.vendors=[['Company','Lenatural','Coimbatore'],['Company','Venkateshwara','Coimbatore'],['Pellet Factory','Hindustan Feedscare Pvt Ltd','Erode'],
+      ['Pellet Factory','Kamadhenu Feeds (P) Limited','Vijayawada'],['Pellet Factory','Vallabha Feeds Pvt Ltd','Narasaraopet'],['Feed Agent','Mishka Cattle Feeds','Coimbatore'],
+      ['Feed Agent','Standard Growth Agri Products','Erode'],['Feed Agent','Shri Bannaramma Agro Industries','Mandya'],['Feed Agent','GS Silage','Kinathukadavu'],
+      ['Goat Farm','Renuka Goat Farm','Pune'],['Goat Farm','Sawant Naad Goat Farm','Pune'],['Goat Farm','Shanthan Goat Farm','Bengaluru'],
+      ['Goat Stockist','Bhopal Goat And Agro','Bhopal'],['Goat Stockist','Gokul Agronomics','Bhopal'],['Goat Stockist','Goat World Farm','Hanumangarh'],
+      ['Transport Agent','Aashka Logistics Solution','Bhopal'],['Transport Agent','Arya Logistics','Bhopal'],['Transport Agent','Best Road Carriers','Bhopal'],
+      ['Test Lab','EKA Eureka Lab','Bengaluru'],['Test Lab','Mettex Labs Pvt Ltd','Chennai'],['UHT Milk Supplier','Doddla Milk','Coimbatore'],
+      ['Veterinary Accessories','Cattle Garage','Coimbatore'],['Insurance','Iffco Tokio General Insurance','Coimbatore']]
+      .map(([t,n,c],i)=>({id:'ven_'+(i+1),name:n,supplies:t,farmId:'',city:c,phone:'',status:'active'}));
+    st.vendorSummary={total:674,active:609,activeByType:{'Butcher':182,'Farmer':109,'Sheep Agent':87,'Agent':57,'Transport Agent':54,'Feed Agent':25,'Sheep Stockist':12,'Company':10,
+      'Pellet Factory':8,'Goat Stockist':7,'Breeding Agent':7,'Manure Agent':7,'Labor Agent':6,'Goat Farm':5,'Test Lab':4,'Feed Stockist':4,'Insurance':4,'UHT Milk Supplier':4,
+      'Veterinary Accessories':4,'Chain Link Mesh Contractor':3,'Solar Light Supplier':3,'Flooring Mat':2,'Grain Supplier':2,'Vet Doctor':1,'Goats Agent':1,'Grass Cutter':1}};
 
     const set=(id,dept,name,value,unit,type)=>({id,dept,name,value,unit,type:type||'number',status:'active'});
     st.settings=[
@@ -253,7 +418,8 @@
       set('set_w_k2','Sales','Assumed weight · K2',8,'kg'),set('set_w_k3','Sales','Assumed weight · K3',15,'kg'),set('set_sale_ahead','Sales','Max sale date ahead',60,'days'),
       set('set_seller_hold','Procurement','Seller holding period',15,'days'),set('set_hold_min','Procurement','Pre-arrival vaccination window · min',28,'days'),
       set('set_hold_max','Procurement','Pre-arrival vaccination window · max',35,'days'),set('set_travel_days','Procurement','Travel duration',3,'days'),
-      set('set_travel_check','Procurement','Transit check interval',3,'hours'),set('set_warmup','Procurement','Warm-up period',14,'days'),
+      set('set_travel_check','Procurement','Transit check interval',3,'hours'),set('set_pitstop_every','Procurement','Pit stop interval',12,'hours'),
+      set('set_load_max_fat','Procurement','Max load · fattening',80,'animals'),set('set_load_max_breed','Procurement','Max load · breeding stock',50,'animals'),set('set_warmup','Procurement','Warm-up period',14,'days'),
       set('set_w_period','Weighing','Default weights period',15,'days'),set('set_w_alert','Weighing','Weighing alert retention',30,'days'),
       set('set_removal','Weighing','Feed & water removal cutoff','21:00','time','time'),
       set('set_lowstock','Feed','Low-stock threshold',5,'days'),set('set_lownotify','Feed','Low-stock notify',7,'days'),set('set_cbe_conc','Feed','CBE concentrate override',55,'kg/day'),
@@ -279,7 +445,7 @@
       ['question',{label:'Rectal temperature',answer:'number',unit:'°C',min:30,max:45,required:true,page:'Reinspect'}],
       ['evidence',{label:'Animal photo and video',media:['photo','video'],min:1,max:5,page:'Reinspect'}],
       ['question',{label:'Boarding decision',answer:'choice',options:[{v:'board',l:'Board'},{v:'hold',l:'Hold'},{v:'reject',l:'Reject'}],required:true,page:'Reinspect',reject:{op:'=',value:'reject',reason:'Rejected at reinspection'}}],
-      ['approval',{label:'Final boarding list',roleId:'role_ceo',outcomes:['Approve','Send back']}],
+      ['approval',{label:'Final boarding list',roleId:'role_ceo_internal',outcomes:['Approve','Send back']}],
       ['evidence',{label:'Truck sanitized',media:['video'],min:1,max:2,page:'Truck'}],
       ['question',{label:'Familiar feed packed',answer:'number',unit:'kg',min:0,required:true,page:'Truck'}],
       ['end',{label:'Ready to depart',outcome:'done'}]]);
@@ -288,7 +454,7 @@
       ['question',{label:'Animals received into shed',answer:'number',unit:'animals',min:0,required:true,page:'Arrival'}],
       ['action',{label:'Feed transition per Feed config',link:'#/feed/config',linkLabel:'Feed config',page:'Arrival'}],
       ['repeat',{label:'Daily warm-up check',every:24,everyUnit:'hours',forAmount:14,forUnit:'days',forSetting:'set_warmup',media:['photo']}],
-      ['approval',{label:'Release to herd',roleId:'role_ceo',outcomes:['Release','Extend warm-up']}],
+      ['approval',{label:'Release to herd',roleId:'role_ceo_internal',outcomes:['Release','Extend warm-up']}],
       ['end',{label:'Released',outcome:'done'}]]);
     const removal=linear([
       ['start',{label:'Pen scheduled for weighing tomorrow'}],
@@ -297,13 +463,15 @@
       ['evidence',{label:'Water removal video',media:['video'],min:1,max:1,page:'Removal'}],
       ['approval',{label:'Verifier reviews removal',roleId:'role_verifier',outcomes:['Approve','Send back']}],
       ['end',{label:'Pen ready for weighing',outcome:'done'}]]);
+    /* stg feed.direction v1: weight photo, distribution video, water video, plus the feed.wastage leftover-feed video; verified before apply */
     const feedDist=linear([
       ['start',{label:'Session due'}],
       ['question',{label:'Pen',answer:'ref',refColl:'pens',required:true,page:'Session'}],
-      ['question',{label:'Session',answer:'number',min:1,required:true,page:'Session'}],
-      ['evidence',{label:'Feed weight on scale',media:['photo'],min:1,max:1,page:'Proof'}],
+      ['question',{label:'Session',answer:'number',min:1,required:true,page:'Session',hint:'Morning / evening per the session template'}],
+      ['evidence',{label:'Feed weight photo (on the scale, before it is given out)',media:['photo'],min:1,max:1,page:'Proof'}],
       ['evidence',{label:'Feed distribution video',media:['video'],min:1,max:1,page:'Proof'}],
-      ['evidence',{label:'Water distribution video',media:['video'],min:1,max:1,page:'Proof'}],
+      ['evidence',{label:'Water distribution video',media:['video'],min:1,max:1,page:'Proof',hint:'Video only: a photo of a full trough does not prove it was filled today'}],
+      ['evidence',{label:'Leftover feed video (before the trough is cleared)',media:['video'],min:1,max:1,page:'Wastage',hint:'The verifier reads the leftover weight off the clip'}],
       ['approval',{label:'Verifier reviews proof',roleId:'role_verifier',outcomes:['Approve','Send back']}],
       ['end',{label:'Fed',outcome:'done'}]]);
     const feedPack=linear([
@@ -320,42 +488,74 @@
       ['approval',{label:'Verifier reviews transport',roleId:'role_verifier',outcomes:['Approve','Send back']}],
       ['end',{label:'Delivered',outcome:'done'}]]);
 
+    /* stg shifting v2: every movement goes to Park Head approval first; low priority is due next day (raised at/after 13:30 IST: the day
+       after); high priority adds feed packing + feeding videos; completion video; verifier evidence review. */
     const shf=flow();
     (function(f){
       const s=f.add('start',{label:'Animals need to move pens'});
-      const kind=f.add('question',{label:'Shift type',answer:'choice',options:[{v:'request',l:'Shifting request'},{v:'direction',l:'Shifting direction'}],required:true,page:'Raise'});
-      const why=f.add('question',{label:'Reason',answer:'choice',options:[{v:'growth',l:'Growth'},{v:'delivery',l:'Delivery'},{v:'breeding',l:'Breeding'},{v:'health',l:'Health'}],required:true,page:'Raise'});
-      const pri=f.add('question',{label:'Priority',answer:'choice',options:[{v:'high',l:'High'},{v:'low',l:'Low'}],required:true,page:'Raise'});
-      const from=f.add('question',{label:'From pen',answer:'ref',refColl:'pens',required:true,page:'Raise'});
-      const to=f.add('question',{label:'To pen',answer:'ref',refColl:'pens',required:true,page:'Raise'});
-      const an=f.add('question',{label:'Scan animals to move',answer:'scan',required:true,page:'Animals'});
-      const d1=f.add('decision',{label:'Shifting request?',q:kind,op:'=',value:'request'});
-      const ap=f.add('approval',{label:'Park head authorises',roleId:'role_parkhead',outcomes:['Approve','Reject']});
+      const cat=f.add('question',{label:'Category',answer:'choice',options:[{v:'growth',l:'Growth'},{v:'health',l:'Health'},{v:'breeding',l:'Breeding'},{v:'delivery',l:'Delivery'}],required:true,page:'Raise'});
+      const pri=f.add('question',{label:'Priority',answer:'choice',options:[{v:'low',l:'Low'},{v:'high',l:'High'}],required:true,page:'Raise'});
+      const an=f.add('question',{label:'Animals',answer:'scan',required:true,page:'Raise'});
+      const from=f.add('question',{label:'Source pen',answer:'ref',refColl:'pens',required:true,page:'Raise'});
+      const to=f.add('question',{label:'Destination pen',answer:'ref',refColl:'pens',required:true,page:'Raise',hint:'Pen moves are within one park only'});
+      const tag=f.add('question',{label:'Tag on arrival',answer:'choice',options:[{v:'destination_stage',l:'Adopt the destination pen tag'},{v:'keep_current',l:'Keep the current tag'}],required:true,page:'Raise'});
+      const why=f.add('question',{label:'Why are the animals being shifted',answer:'text',required:false,page:'Raise'});
+      const ap=f.add('approval',{label:'Park Head approval',roleId:'role_park_head',outcomes:['Approve','Reject']});
+      const rej=f.add('end',{label:'Rejected by Park Head',outcome:'rejected'});
       const d2=f.add('decision',{label:'High priority?',q:pri,op:'=',value:'high'});
-      const w=f.add('wait',{label:'Due 9 AM next day (after 1:30 PM: day after)',amount:1,unit:'days'});
-      const v=f.add('evidence',{label:'Video at destination pen',media:['video'],min:1,max:1,page:'Complete'});
-      const vr=f.add('approval',{label:'Central team verifies video',roleId:'role_verifier',outcomes:['Approve','Send back']});
-      const e=f.add('end',{label:'Shift completed',outcome:'done'});
-      f.chain([s,kind,why,pri,from,to,an,d1]); f.link(d1,ap,'Yes'); f.link(d1,d2,'No'); f.link(ap,d2); f.link(d2,v,'Yes'); f.link(d2,w,'No'); f.link(w,v); f.link(v,vr); f.link(vr,e);
+      const w=f.add('wait',{label:'Due next day (raised at or after 13:30 IST: the day after)',amount:1,unit:'days'});
+      const fp=f.add('evidence',{label:'Feed packing video (high priority)',media:['video'],min:1,max:1,page:'Feed'});
+      const fd=f.add('evidence',{label:'Feeding video (high priority)',media:['video'],min:1,max:1,page:'Feed'});
+      const v=f.add('evidence',{label:'Shifting video (ear tags visible inside the destination pen)',media:['video'],min:1,max:1,page:'Complete'});
+      const vr=f.add('approval',{label:'Verifier reviews the evidence',roleId:'role_verifier',outcomes:['Approve','Rework']});
+      const e=f.add('end',{label:'Evidence verified',outcome:'done'});
+      const re=f.add('end',{label:'Evidence rework',outcome:'rejected'});
+      f.chain([s,cat,pri,an,from,to,tag,why,ap]); f.link(ap,d2,'Approve'); f.link(ap,rej,'Reject');
+      f.link(d2,fp,'Yes'); f.link(d2,w,'No'); f.link(fp,fd); f.link(fd,v); f.link(w,v); f.link(v,vr); f.link(vr,e,'Approve'); f.link(vr,re,'Rework');
     })(shf);
-    /* Lifecycle SOPs. Sources: Goats and Parks (PARK SHED TAGS, lifecycle 2-4); colostrum session times tasks/domain/templates.go:188-199;
-       300 ml bottle feed on K1 entry (drive-docs-findings:418-421); moves use the Pen shifting SOP (Shifting Reports). */
-    const k0=linear([
-      ['start',{label:'Kid born · K0 - Newborn'}],
-      ['question',{label:'Scan kid RFID',answer:'scan',required:true,page:'Kid'}],
-      ['action',{label:'1st colostrum feed (right after birth)',page:'Kid'}],
-      ['evidence',{label:'1st colostrum video',media:['video'],min:1,max:1,page:'Kid'}],
-      /* tasks/domain/templates.go colostrumSessionTimes: 5 IST slots; birth day gets slots not yet started, next day all 5 (up to 10). */
-      ['repeat',{label:'Scheduled colostrum feed',times:['07:00','11:00','15:00','18:30','22:00'],every:1,everyUnit:'days',forAmount:2,forUnit:'days',slotCount:10,notifySetting:'set_colostrum_notify',media:['video']}],
-      ['child',{label:'Shift to K1 (Growth)',sopId:'sop_shift'}],
-      ['end',{label:'Moved to K1',outcome:'done'}]]);
-    const k1=linear([
-      ['start',{label:'Kid in K1 - Milk Training'}],
-      ['action',{label:'Bottle feed 300 ml per session',page:'Milk'}],
-      ['evidence',{label:'Milk feeding video',media:['video'],min:1,max:1,page:'Milk'}],
-      ['wait',{label:'Max 7 days in K1',amount:7,unit:'days'}],
-      ['child',{label:'Shift to K2 (Growth)',sopId:'sop_shift'}],
-      ['end',{label:'Moved to K2',outcome:'done'}]]);
+    /* K0 = stg counts.birth follow_up kid track (the mother track runs in the Birth SOP). Every step carries one video. */
+    const k0=(function(){
+      const f=flow(), yn=[{v:'yes',l:'Yes'},{v:'no',l:'No'}];
+      const step=(label,answer,page,p)=>[answer?f.add('question',Object.assign({label,answer,required:true,page},answer==='choice'?{options:yn}:{},p||{})):f.add('action',Object.assign({label,page},p||{})),
+        f.add('evidence',{label:label.replace(/\?$/,'')+' video',media:['video'],min:1,max:1,page})];
+      const R='Right after birth';
+      const ids=[f.add('start',{label:'Kid born · K0 - Newborn'}),
+        ...step('Is the kid clean?','choice',R,{hint:'Cleaned and dried after delivery'}),
+        ...step('Iodine dipping of umbilical cord',null,R),
+        ...step('Are the front teeth outside the lower gum?','choice',R),
+        ...step('Does the kid have a suck reflex?','choice',R,{hint:'Clean finger in the mouth; it should start sucking'}),
+        ...step('1st colostrum',null,R),
+        ...step('Kid weight','number',R,{unit:'kg',min:0}),
+        f.add('question',{label:'Record pen',answer:'ref',refColl:'pens',required:false,page:R,hint:'Only when the park has no kid pen yet; this pen becomes the kid pen'}),
+        f.add('wait',{label:'1 hour after birth',amount:60,unit:'minutes'}),
+        ...step('Is the kid standing?','choice','+1 hour'),
+        f.add('repeat',{label:'Colostrum (2nd onwards)',times:['07:00','11:00','15:00','18:30','22:00'],every:1,everyUnit:'days',forAmount:2,forUnit:'days',slotCount:10,notifySetting:'set_colostrum_notify',media:['video']}),
+        f.add('wait',{label:'Until 07:00 on day 2 (after all colostrum rounds)',amount:2,unit:'days'}),
+        f.add('question',{label:'Tag the kid: permanent RFID',answer:'scan',required:true,page:'Tag the kid',hint:'The temporary identifier is retired; same goat record'}),
+        f.add('evidence',{label:'Tagging video',media:['video'],min:1,max:1,page:'Tag the kid'}),
+        f.add('child',{label:'Shift to K1 (Growth)',sopId:'sop_shift'}),
+        f.add('end',{label:'Moved to K1',outcome:'done'})];
+      f.chain(ids); return f.nodes;
+    })();
+    /* K1 milk training runs the stg milk.feeding v1 session form (4 sessions a day, refusal watchlist, two distinct videos). */
+    const k1=(function(){
+      const f=flow(), S='Feeding session';
+      const ids=[f.add('start',{label:'Kid in K1 - Milk Training'}),
+        f.add('question',{label:'Farm',answer:'ref',refColl:'parks',required:true,page:S}),
+        f.add('question',{label:'Feeding session',answer:'number',min:1,max:4,required:true,page:S,hint:'One of the four daily sessions; each is its own task and verification'}),
+        f.add('question',{label:'Watchlist: did each listed kid drink?',answer:'choice',options:[{v:'yes',l:'Yes'},{v:'no',l:'No'}],required:true,page:S,hint:'Two verified Yes answers in a row take a kid off the list; a No resets it'}),
+        f.add('question',{label:'New refusals this session',answer:'scan',required:false,page:S}),
+        f.add('evidence',{label:'Clean bottles video',media:['video'],min:1,max:1,page:'Videos'}),
+        f.add('evidence',{label:'Mixing and filling video',media:['video'],min:1,max:1,page:'Videos',hint:'Must be a different clip from clean bottles'})];
+      f.chain(ids);
+      const a=f.add('approval',{label:'Verifier review · one item per farm, date and session',roleId:'role_verifier',outcomes:['Approve','Rework']});
+      const w=f.add('wait',{label:'Max 7 days in K1',amount:7,unit:'days'});
+      const c=f.add('child',{label:'Shift to K2 (Growth)',sopId:'sop_shift'});
+      const e=f.add('end',{label:'Moved to K2',outcome:'done'});
+      const re=f.add('end',{label:'Rework: re-shoot',outcome:'rejected'});
+      f.link(ids[ids.length-1],a); f.link(a,w,'Approve'); f.link(a,re,'Rework'); f.chain([w,c,e]);
+      return f.nodes;
+    })();
     const k2=linear([
       ['start',{label:'Kid in K2 - Milk Drinking'}],
       ['action',{label:'Milk freely from feeding system',page:'Milk'}],
@@ -378,25 +578,30 @@
       sop('sop_weigh','Weighing','Individual weighing',weighingFlow(),2,14),
       sop('sop_weigh_lump','Weighing','Lump-sum weighing',lumpSumWeighingFlow(),1,3),
       sop('sop_removal','Weighing','Feed and water removal',removal,1,3),
-      sop('sop_feeddist','Feed','Feed distribution',feedDist,3,22,'commodity'),
+      Object.assign(sop('sop_feeddist','Feed','Feed distribution',feedDist,1,22,'commodity'),{source:'goatos-stg feed.direction v1'}),
       sop('sop_feedpack','Feed','Feed packing',feedPack,1,9,'commodity'),
       sop('sop_feedtrans','Feed','Feed transport',feedTrans,1,9,'commodity'),
-      Object.assign(sop('sop_fever','Health','Sick animal report',healthFlow(),1,4,'problem'),{source:'Android health observation form · Health protocol'}),
-      sop('sop_k0','Milk','K0 colostrum and newborn care',k0,1,0,'event'),
-      sop('sop_k1','Milk','K1 milk training',k1,1,0,'action'),
+      Object.assign(sop('sop_fever','Health','Sick animal report',healthFlow(),1,4,'problem'),{source:'Android ObservationFormScreen.kt · DiagnosisProposalScreen.kt'}),
+      Object.assign(sop('sop_k0','Milk','K0 newborn care (birth follow-up)',k0,1,0,'event'),{source:'goatos-stg counts.birth v1 follow_up kid track'}),
+      Object.assign(sop('sop_k1','Milk','K1 milk training (milk feeding)',k1,1,0,'action'),{source:'goatos-stg milk.feeding v1'}),
       sop('sop_k2','Milk','K2 milk drinking',k2,1,0,'action'),
       sop('sop_k3','Milk','K3 weaning',k3,1,0,'action'),
-      sop('sop_shift','Counts','Pen shifting',shf.nodes,1,5,'action')];
+      sop('sop_shift','Counts','Shifting',shf.nodes,2,5,'action'),
+      Object.assign(sop('sop_birth','Counts','Birth recording',birthFlow(),1,0,'event'),{source:'goatos-stg counts.birth v1'}),
+      Object.assign(sop('sop_death','Counts','Death recording',deathFlow(),1,0,'event'),{source:'goatos-stg counts.death v1'}),
+      Object.assign(sop('sop_reconcile','Counts','Pen reconcile',reconcileFlow(),1,0,'problem'),{source:'goatos-stg counts.reconcile v1'}),
+      Object.assign(sop('sop_milkprep','Milk','Milk preparation',milkPrepFlow(),1,0,'commodity'),{source:'goatos-stg milk.preparation v1'}),
+      Object.assign(sop('sop_vacdrive','Preventive Care','Vaccination session',vaccinationDriveFlow(),1,0,'action'),{source:'goatos-stg vaccination.drive v1'})];
 
     st.masters=[{id:'mst_proc',dept:'Procurement',title:'Procurement: purchase → transit → warm-up',status:'active',
-      versions:[{v:1,at:'2026-09-10T08:00:00Z',by:'Ravi Teja',running:1}],
+      versions:[{v:1,at:'2026-09-10T08:00:00Z',by:'CEO / CXO 01',running:1}],
       stages:[
-        {id:'s0',label:'Seller inspection and selection',sopId:'sop_inspect',deps:[],approvalRoleId:'role_ceo',waitDays:'',waitSetting:'',repeatHours:'',repeatSetting:''},
+        {id:'s0',label:'Seller inspection and selection',sopId:'sop_inspect',deps:[],approvalRoleId:'role_ceo_internal',waitDays:'',waitSetting:'',repeatHours:'',repeatSetting:''},
         {id:'s1',label:'Tag, vaccinate and hold',sopId:'sop_taghold',deps:[{stage:'s0',state:'approved'}],approvalRoleId:'',waitDays:15,waitSetting:'set_seller_hold',repeatHours:'',repeatSetting:''},
-        {id:'s2',label:'Reinspect and board',sopId:'sop_reinspect',deps:[{stage:'s1',state:'completed'}],approvalRoleId:'role_ceo',waitDays:'',waitSetting:'',repeatHours:'',repeatSetting:''},
+        {id:'s2',label:'Reinspect and board',sopId:'sop_reinspect',deps:[{stage:'s1',state:'completed'}],approvalRoleId:'role_ceo_internal',waitDays:'',waitSetting:'',repeatHours:'',repeatSetting:''},
         {id:'s3',label:'Transit',sopId:'sop_transit',deps:[{stage:'s2',state:'approved'}],approvalRoleId:'',waitDays:3,waitSetting:'set_travel_days',repeatHours:3,repeatSetting:'set_travel_check'},
         {id:'s4',label:'Prepare destination sheds',sopId:'sop_destprep',deps:[{stage:'s3',state:'started'}],approvalRoleId:'',waitDays:'',waitSetting:'',repeatHours:'',repeatSetting:''},
-        {id:'s5',label:'Warm-up and feed transition',sopId:'sop_warmup',deps:[{stage:'s3',state:'completed'},{stage:'s4',state:'completed'}],approvalRoleId:'role_ceo',waitDays:14,waitSetting:'set_warmup',repeatHours:24,repeatSetting:''}],
+        {id:'s5',label:'Warm-up and feed transition',sopId:'sop_warmup',deps:[{stage:'s3',state:'completed'},{stage:'s4',state:'completed'}],approvalRoleId:'role_ceo_internal',waitDays:14,waitSetting:'set_warmup',repeatHours:24,repeatSetting:''}],
       cohort:{offered:100,selected:70,boarded:0,received:0}}];
     return st;
   };

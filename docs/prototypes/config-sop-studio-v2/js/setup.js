@@ -7,12 +7,13 @@
     ['Animals',[['animals','Animals']]],
     ['Catalogue',[['items','Items & categories']]],
     ['People & approvers',[['people','People'],['roles','Roles'],['approvers','Approvers']]],
-    ['Reference lists',[['statusDefs','Status definitions'],['exitReasons','Exit reasons'],['purposes','Animal purposes'],['movementReasons','Movement reasons'],['weightBands','Weight bands'],['deathCauses','Death causes'],['marketCities','Market cities'],['sopCategories','SOP categories'],['taskTypes','Task types']]],
+    ['Reference lists',[['statusDefs','Status definitions'],['exitReasons','Exit reasons'],['purposes','Animal purposes'],['movementReasons','Movement reasons'],['weightBands','Weight bands'],['sopCategories','SOP categories'],['taskTypes','Task types']]],
+    ['Business rules',[['saleProducts','Sale product types'],['costKinds','Cost kinds'],['identifierPolicies','Identifier policies'],['designations','Designations'],['approvalChains','Approval chains']]],
     ['Business settings',[['settings','Business settings']]]
   ];
-  const LINKS=[['Vendors &amp; trucks','#/procurement/vendors'],['Diseases','#/health/config'],['Ration groups','#/feed/config'],['Vaccination plan','#/vaccination/plan']];
+  const LINKS=[['Vendors','#/procurement/vendors'],['Market cities','#/sales/config'],['Diseases','#/health/config'],['Ration groups','#/feed/config'],['Vaccination plan','#/vaccination/plan']];
   const regOf=k=>k==='shed-tags'||k==='groups'?'tags':k;
-  const count=k=>{if(k==='groups')return S.active('tags').length;const r=REG.R[regOf(k)];return r?S.active(r.coll).length:0;};
+  const count=k=>{if(k==='groups')return S.active('tags').length;if(k==='identifierPolicies'&&!REG.R[k]){const v=S.active(k)[0];return v?(v.types||[]).length:0;}const r=REG.R[regOf(k)];return r?S.active(r.coll).length:S.active(k).length;};
   const penDisplay=a=>{const pen=S.get('pens',a.penId),pt=S.get('partitions',a.partitionId);return pen?pen.name+(pt?' - '+pt.name:''):'';};
   const num=v=>`<span class="num">${esc(v)}</span>`;
 
@@ -67,14 +68,53 @@
       {label:'Parks',html:r=>(r.parkIds||[]).length?(r.parkIds||[]).map(id=>UI.tag(REG.labelById('parks',id),'mut')).join(' '):'<span class="muted">All parks</span>'},{label:'Email',html:r=>esc(r.email||'')},{label:'Phone',html:r=>esc(r.phone||'')}]}),
     roles:()=>list('roles',{eyebrow:'People & approvers',columns:[{label:'Role',html:r=>`<b>${esc(r.name)}</b>`},{label:'Grade',w:140,html:r=>esc(r.grade||'')},{label:'People',w:90,num:1,html:r=>S.active('people').filter(p=>p.roleId===r.id).length},{label:'Approves',w:100,num:1,html:r=>S.active('approvers').filter(p=>p.roleId===r.id).length}]}),
     approvers:()=>list('approvers',{eyebrow:'People & approvers',filters:['dept','role'],columns:[{label:'Department',w:160,html:r=>UI.tag(r.dept,'teal')},{label:'Approval step',html:r=>`<b>${esc(r.step)}</b>`},{label:'Approver role',html:r=>esc(REG.labelById('roles',r.roleId))}]}),
-    settings:()=>list('settings',{eyebrow:'Business settings',filters:['dept'],
+    settings:()=>list('settings',{eyebrow:'Business settings',filters:['dept'],onOpen:id=>settingDrawer(id),
+      where:r=>{const st=List.st.settings;const q=st&&REG.norm(st.q);return !q||REG.norm(r.name).includes(q);},
       columns:[{label:'Setting',html:r=>`<b>${esc(r.name)}</b>`},{label:'Department',w:160,html:r=>UI.tag(r.dept,'teal')},
         {label:'Value',w:200,html:r=>`<div class="valcell"><input class="inl num" data-setval="${r.id}" value="${esc(r.value)}" aria-label="${esc(r.name)}" ${r.type==='time'?'':'inputmode="decimal"'}><span class="u">${esc(r.unit||'')}</span></div>`}]})
       +`<section class="card mt"><div class="hd"><h3>Module configuration</h3></div>${[['Vaccination plan','#/vaccination/plan','Preventive Care'],['Feed Config','#/feed/config','Feed'],['Health Config','#/health/config','Health'],['Sales Config','#/sales/config','Sales']]
         .map(([l,h,dp])=>`<a class="linkrow" href="${h}"><b>${l}</b><span class="tag t-teal">${dp}</span><span class="sp"></span>${ic('chevron-right')}</a>`).join('')}</section>`
   };
-  ['statusDefs','exitReasons','purposes','movementReasons','weightBands','deathCauses','marketCities','sopCategories','taskTypes'].filter(k=>REG.R[k])
+  ['statusDefs','exitReasons','purposes','movementReasons','weightBands','sopCategories','taskTypes'].filter(k=>REG.R[k])
     .forEach(k=>PANELS[k]=()=>list(k,{eyebrow:'Reference lists',filters:REG.R[k].cols.filter(c=>c.type==='enum'||c.type==='ref').map(c=>c.k).slice(0,2)}));
+
+  /* business rules that were code constants: A's register when it exists, else a read-only table from the seed */
+  const roTable=(title,heads,rows)=>`<section class="card" data-ro="${esc(title)}"><div class="hd lhd"><div class="ttl"><div class="eyebrow">Business rules</div><h3>${esc(title)} <span class="cnt">${rows.length}</span></h3></div><span class="sp"></span>${UI.tag('Read only','mut')}</div>
+    <div class="twrap screen ltable"><table class="ltbl"><thead><tr>${heads.map(h=>`<th class="${h[1]?'num':''}">${esc(h[0])}</th>`).join('')}</tr></thead>
+    <tbody>${rows.length?rows.map(r=>`<tr>${r.map((c,i)=>`<td class="${heads[i][1]?'num':''}" data-label="${esc(heads[i][0])}">${c}</td>`).join('')}</tr>`).join(''):`<tr><td colspan="${heads.length}" class="empty">None</td></tr>`}</tbody></table></div></section>`;
+  const yes=v=>v?UI.tag('Yes','ok'):`<span class="muted">No</span>`;
+  const RULES={
+    saleProducts:()=>roTable('Sale product types',[['Product'],['Species']],S.active('saleProducts').map(r=>[`<b>${esc(r.name)}</b>`,esc(r.speciesId?REG.labelById('species',r.speciesId):'')])),
+    costKinds:()=>roTable('Cost kinds',[['Cost kind'],['Key']],S.active('costKinds').map(r=>[`<b>${esc(r.name)}</b>`,`<span class="mono">${esc(r.code)}</span>`])),
+    identifierPolicies:()=>{const v=S.active('identifierPolicies')[0]||{types:[]};return roTable('Identifier policies'+(v.version?' · v'+v.version:''),[['Identifier'],['Key'],['Primary allowed'],['Auto link']],(v.types||[]).map(t=>[`<b>${esc(t.name)}</b>`,`<span class="mono">${esc(t.code)}</span>`,yes(t.primaryAllowed),yes(t.autoLink)]));},
+    designations:()=>roTable('Designations',[['Designation'],['Key'],['Grade']],S.active('designations').map(r=>[`<b>${esc(r.name)}</b>`,`<span class="mono">${esc(r.code)}</span>`,esc(REG.enumLabel(r.grade||''))])),
+    approvalChains:()=>roTable('Approval chains',[['Department'],['Request'],['Approvers']],S.active('approvalChains').map(r=>[UI.tag(r.dept,'teal'),`<b>${esc(r.name)}</b>`,(r.steps||[]).map(st=>UI.tag(st.role?REG.enumLabel(st.role)+(st.perPerson?' · per person':''):(S.active('designations').find(d=>d.code===st.designation)||{name:REG.enumLabel(st.designation)}).name,'mut')).join(' ')]))
+  };
+  Object.keys(RULES).forEach(k=>PANELS[k]=()=>REG.R[k]?list(k,{eyebrow:'Business rules'}):RULES[k]());
+
+  /* settings drawer: name + department fixed; value, unit, effective date editable */
+  function settingDrawer(id){
+    const s=S.get('settings',id); if(!s)return;
+    const f={value:s.value==null?'':String(s.value),unit:s.unit||'',eff:s.effectiveFrom||''};
+    UI.drawer({title:s.name,sub:s.dept,
+      body:`<div class="fgrid"><div class="fld"><label>Setting</label><input value="${esc(s.name)}" readonly aria-readonly="true" tabindex="-1" style="background:transparent;border-style:dashed;color:var(--muted)"></div>
+        <div class="fld"><label>Department</label><input value="${esc(s.dept)}" readonly aria-readonly="true" tabindex="-1" style="background:transparent;border-style:dashed;color:var(--muted)"></div>
+        <div class="fld"><label>Value *</label><input data-sd="value" value="${esc(f.value)}" ${s.type==='time'?'placeholder="HH:MM"':'inputmode="decimal"'}></div>
+        <div class="fld"><label>Unit</label><input data-sd="unit" value="${esc(f.unit)}"></div>
+        <div class="fld"><label>Effective from</label><input data-sd="eff" value="${esc(f.eff)}" placeholder="DD/MM/YYYY"></div>
+        <div class="fld full" data-sderr></div></div>`,
+      foot:`<button class="btn" data-a="drawer-close">Cancel</button><span class="sp"></span><button class="btn p" data-sdsave>Save</button>`,
+      mount(dr){
+        dr.querySelectorAll('[data-sd]').forEach(i=>i.oninput=()=>{f[i.dataset.sd]=i.value;});
+        const err=t=>{dr.querySelector('[data-sderr]').innerHTML=t?`<div class="ferr">${esc(t)}</div>`:'';};
+        dr.querySelector('[data-sdsave]').onclick=()=>{
+          const raw=f.value.trim(),eff=f.eff.trim();
+          if(s.type==='time'?!/^\d{1,2}:\d{2}$/.test(raw):(raw===''||isNaN(Number(raw))))return err(s.type==='time'?'Value: HH:MM':'Value: number');
+          if(eff&&!/^\d{2}\/\d{2}\/\d{4}$/.test(eff))return err('Effective from: DD/MM/YYYY');
+          UI.closeDrawer();
+          UI.undoable('Saved '+s.name,()=>{s.value=s.type==='time'?raw:Number(raw);s.unit=f.unit.trim();if(eff)s.effectiveFrom=eff;else delete s.effectiveFrom;App.render();});
+        };}});
+  }
 
   document.addEventListener('change',e=>{
     const t=e.target; if(!(t.matches&&t.matches('[data-setval]')))return;
@@ -142,9 +182,9 @@
   function parkDraft(id){
     if(PD&&PD.id===id)return PD;
     const p=id!=='new'?S.get('parks',id):null;
-    PD={id,snap:JSON.stringify(S.state),created:false,dirty:false,name:p?p.name:'',code:p?p.code:'',farm:p?REG.labelById('farms',p.farmId):'',farmAsk:'',
+    PD={id,snap:JSON.stringify(S.state),created:false,dirty:false,name:p?p.name:'',code:p?p.code:'',farm:p?REG.labelById('farms',p.farmId):'',
       pens:p?S.all('pens').filter(x=>x.parkId===p.id&&x.status!=='archived').map(x=>({id:x.id,name:x.name,capacity:x.capacity==null?'':x.capacity,
-        parts:S.active('partitions').filter(t=>t.penId===x.id).map(t=>({id:t.id,name:t.name,capacity:t.capacity==null?'':t.capacity})),
+        parts:S.active('partitions').filter(t=>t.penId===x.id).map(t=>({id:t.id,name:t.name,capacity:t.capacity==null?'':t.capacity,auto:false})),
         stage:REG.labelById('stages',x.stageId),sex:x.sex||'mixed'})):[],
       gen:{n:4,cap:40,prefix:'Pen',start:1,parts:0},removed:[],err:{}};
     return PD;
@@ -156,12 +196,11 @@
     return `<div class="phead"><div><div class="crumb">Configuration / <a href="#/configuration/items/parks">Items and settings</a> / <b>${id==='new'?'New park':esc(d.name)}</b></div><h1>${id==='new'?'New park':esc(d.name)}</h1></div><div class="sp"></div>
       <button class="btn" data-a="pd-cancel">Cancel</button><button class="btn p" data-a="park-save">${ic('check')}Save park</button></div>
       <section class="card mb"><div class="bd"><div class="fgrid fg3">
-        <div class="fld"><label>Farm</label><input data-pd="farm" value="${esc(d.farm)}" placeholder="Search or create" autocomplete="off">
-          ${d.farmAsk?`<div class="ferr w" data-farmask>“${esc(d.farmAsk)}” is new <button class="btn sm out" data-a="pd-farmcreate">${ic('plus')}Create farm</button></div>`:''}</div>
+        <div class="fld"><label>Farm <span data-newfarm>${farmIsNew(d.farm)?UI.tag('New farm','info'):''}</span></label><input data-pd="farm" value="${esc(d.farm)}" placeholder="Search or type a new farm" autocomplete="off"></div>
         <div class="fld"><label>Park name *</label><input data-pd="name" value="${esc(d.name)}">${errTxt('name')}</div>
         <div class="fld"><label>Code</label><input data-pd="code" value="${esc(d.code)}"></div>
       </div></div></section>
-      <section class="card"><div class="hd"><h3>Pens <span class="cnt">${d.pens.length}</span></h3><span class="sp"></span>
+      <section class="card" data-penscard><div class="hd"><h3>Pens <span class="cnt">${d.pens.length}</span></h3><span class="sp"></span>
         <button class="btn sm" data-a="pd-addpen">${ic('plus')}Pen</button></div>
         <div class="sheetbar genbar">
           <label class="gl">Number of pens<input class="inl num" data-pg="n" value="${esc(d.gen.n)}" inputmode="numeric"></label>
@@ -181,53 +220,61 @@
           <td class="num muted">${p.id?S.active('animals').filter(a=>a.penId===p.id).length:'—'}</td>
           <td class="x"><button class="btn icon gh" data-a="pd-delpen" data-i="${i}" aria-label="Remove pen">${ic('x')}</button></td></tr>
           ${p.parts.length?`<tr class="subr"><td colspan="7" style="padding:0 4px 8px 24px"><div style="display:flex;flex-wrap:wrap;gap:6px">${p.parts.map((t,j)=>`<span style="display:inline-flex;gap:4px;align-items:center">
-            <input style="width:110px" data-pt="${i}" data-j="${j}" data-k="name" value="${esc(t.name)}" aria-label="Partition name" class="${e['pt'+i+'.'+j]?'bad':''}">
+            <input style="width:130px" data-pt="${i}" data-j="${j}" data-k="name" value="${esc(t.name)}" aria-label="Partition name" class="${e['pt'+i+'.'+j]?'bad':''}">
             <input style="width:64px" data-pt="${i}" data-j="${j}" data-k="capacity" value="${esc(t.capacity)}" placeholder="Cap" inputmode="numeric" aria-label="Partition capacity">
             <button class="btn icon gh" data-a="pd-delpart" data-i="${i}" data-j="${j}" aria-label="Remove partition">${ic('x','',13)}</button></span>`).join('')}</div>
             ${Object.keys(e).some(k=>k.startsWith('pt'+i+'.'))?`<div class="ferr">${esc(e[Object.keys(e).find(k=>k.startsWith('pt'+i+'.'))])}</div>`:''}</td></tr>`:''}`).join('')
-          :`<tr><td colspan="7" class="empty">No pens</td></tr>`}
+          :`<tr><td colspan="7" class="empty"><input data-penpaste placeholder="Paste pens from a sheet" aria-label="Paste pens" style="max-width:320px;width:100%;text-align:center"></td></tr>`}
         </tbody></table></div></section>`;
   }
   function stageCreates(text){
     return [{label:'Create stage “'+text+'”',run:()=>{S.active('species').forEach(sp=>{if(!S.active('stages').some(x=>x.speciesId===sp.id&&REG.norm(x.name)===REG.norm(text)))S.add('stages',{speciesId:sp.id,code:text.replace(/\s+/g,'').toUpperCase().slice(0,10),name:text,fromD:'',toD:'',sex:'any'});});PD.created=true;return text;}}];
   }
   const PEN_COLS=['name','capacity','parts','stage','sex'];
+  const farmIsNew=t=>{t=String(t||'').trim();return !!t&&!S.active('farms').some(f=>REG.norm(f.name)===REG.norm(t)||REG.norm(f.code)===REG.norm(t));};
+  /* default partition names follow the pen: "Castro A", "Castro B"; renamed ones stay as typed */
+  const partName=(pen,j)=>{const L=j<26?String.fromCharCode(65+j):'P'+(j+1);const b=String(pen||'').trim();return b?b+' '+L:L;};
+  const newPart=(p,j)=>({name:partName(p.name,j),capacity:'',auto:true});
+  function syncPartNames(p){p.parts.forEach((t,j)=>{if(t.auto)t.name=partName(p.name,j);});}
   function penPaste(d,startRow,startKey,text){
     const rows=parseTSV(text); const c0=PEN_COLS.indexOf(startKey);
     rows.forEach((r,ri)=>{let p=d.pens[startRow+ri];if(!p){p={name:'',capacity:'',parts:[],stage:'',sex:'mixed'};d.pens.push(p);}
       r.forEach((v,ci)=>{const k=PEN_COLS[c0+ci];v=v.trim();if(!k)return;
-        if(k==='parts'){const n=Math.max(0,parseInt(v)||0);while(p.parts.length<n)p.parts.push({name:'Part '+(p.parts.length+1),capacity:''});}
+        if(k==='parts'){const n=Math.max(0,parseInt(v)||0);while(p.parts.length<n)p.parts.push(newPart(p,p.parts.length));}
         else if(k==='sex')p.sex=['female','male'].includes(v.toLowerCase())?v.toLowerCase():'mixed';
-        else p[k]=v;});});
+        else p[k]=v;});syncPartNames(p);});
     d.dirty=true;App.render();UI.toast(rows.length+' rows pasted');
   }
   function parkMount(root){
     const d=PD; if(!d)return;
     root.querySelectorAll('[data-pd]').forEach(inp=>{
-      inp.oninput=()=>{d[inp.dataset.pd]=inp.value;d.dirty=true;if(inp.dataset.pd==='farm'){if(d.farmAsk){d.farmAsk='';const a=root.querySelector('[data-farmask]');if(a)a.remove();}pop();}};
+      inp.oninput=()=>{d[inp.dataset.pd]=inp.value;d.dirty=true;if(inp.dataset.pd==='farm'){markFarm();pop();}};
       if(inp.dataset.pd==='farm'){inp.onfocus=pop;inp.onkeydown=e=>UI.popKey(e);inp.onblur=()=>setTimeout(()=>{if(UI._popCfg&&UI._popCfg.input===inp)UI.closePop();},150);}
-      function pop(){UI.pop(inp,{options:()=>S.active('farms').map(f=>({id:f.id,label:f.name,sub:f.code})),onPick(o){d.farm=inp.value;},
-        creates:t=>[{label:'Create farm “'+t+'”',run:()=>{d.created=true;return REG.createRef('parks',REG.R.parks.cols.find(c=>c.k==='farm'),t,{});}}]});}
+      function markFarm(){const t=root.querySelector('[data-newfarm]');if(t)t.innerHTML=farmIsNew(d.farm)?UI.tag('New farm','info'):'';}
+      function pop(){UI.pop(inp,{options:()=>S.active('farms').map(f=>({id:f.id,label:f.name,sub:f.code})),onPick(o){d.farm=inp.value;markFarm();}});}
     });
     root.querySelectorAll('[data-pg]').forEach(inp=>inp.oninput=()=>{d.gen[inp.dataset.pg]=inp.value;});
     root.querySelectorAll('[data-pp]').forEach(inp=>{
       const i=+inp.dataset.pp,p=d.pens[i],k=inp.dataset.k;
-      inp.oninput=inp.onchange=()=>{p[k]=inp.value;d.dirty=true;if(k==='stage')pop();};
+      inp.oninput=inp.onchange=()=>{p[k]=inp.value;d.dirty=true;if(k==='stage')pop();
+        if(k==='name'){syncPartNames(p);p.parts.forEach((t,j)=>{const x=root.querySelector(`[data-pt="${i}"][data-j="${j}"][data-k="name"]`);if(x&&t.auto)x.value=t.name;});}};
       inp.onpaste=e=>{const t=(e.clipboardData||window.clipboardData).getData('text');if(/[\t\n]/.test(t.replace(/\n$/,''))){e.preventDefault();penPaste(d,i,k,t);}};
       if(k==='stage'){inp.onfocus=pop;inp.onkeydown=e=>UI.popKey(e);inp.onblur=()=>setTimeout(()=>{if(UI._popCfg&&UI._popCfg.input===inp)UI.closePop();},150);}
       function pop(){const seen=new Map();S.active('stages').forEach(s=>{const key=REG.norm(s.name);if(!seen.has(key))seen.set(key,{id:s.name,label:s.name,sub:[]});seen.get(key).sub.push(REG.labelById('species',s.speciesId));});
         UI.pop(inp,{options:()=>[...seen.values()].map(o=>({id:o.id,label:o.label,sub:o.sub.join(' · ')})),onPick(o){p.stage=inp.value;},creates:t=>stageCreates(t)});}
     });
-    root.querySelectorAll('[data-pt]').forEach(inp=>{inp.oninput=()=>{d.pens[+inp.dataset.pt].parts[+inp.dataset.j][inp.dataset.k]=inp.value;d.dirty=true;};});
+    root.querySelectorAll('[data-pt]').forEach(inp=>{inp.oninput=()=>{const t=d.pens[+inp.dataset.pt].parts[+inp.dataset.j];t[inp.dataset.k]=inp.value;if(inp.dataset.k==='name')t.auto=false;d.dirty=true;};});
+    /* paste TSV anywhere on the pens card (empty grid, generate bar) appends pens */
+    const card=root.querySelector('[data-penscard]');
+    if(card)card.addEventListener('paste',e=>{if(e.target.closest('[data-pp],[data-pt],[data-pg]'))return;const t=(e.clipboardData||window.clipboardData).getData('text');if(!t.trim())return;e.preventDefault();penPaste(d,d.pens.length,'name',t);});
   }
   function saveFarm(d){const col=REG.R.parks.cols.find(c=>c.k==='farm');return d.farm.trim()?REG.findRef('parks',col,d.farm,{}):{rec:null};}
   function savePark(target){
     const d=PD; d.err={};
     if(!d.name.trim())d.err.name='Required';
-    const farm=saveFarm(d);
-    if(d.farm.trim()&&!farm.rec){d.farmAsk=d.farm.trim();App.render();const b=document.querySelector('[data-a="pd-farmcreate"]');if(b)b.focus();return false;}
-    const farmId=farm.rec?farm.rec.id:'';
-    if(d.name.trim()&&S.all('parks').some(x=>x.id!==d.id&&(x.farmId||'')===farmId&&REG.norm(x.name)===REG.norm(d.name)))d.err.name='Already exists';
+    const farm=saveFarm(d); const makeFarm=d.farm.trim()&&!farm.rec?d.farm.trim():'';
+    const farmId0=farm.rec?farm.rec.id:'';
+    if(d.name.trim()&&!makeFarm&&S.all('parks').some(x=>x.id!==d.id&&(x.farmId||'')===farmId0&&REG.norm(x.name)===REG.norm(d.name)))d.err.name='Already exists';
     const seen={};
     d.pens.forEach((p,i)=>{const nm=REG.norm(p.name);if(!nm)d.err['pen'+i]='Required';else if(seen[nm]!=null)d.err['pen'+i]='Duplicate';seen[nm]=i;
       if(p.capacity!==''&&(isNaN(Number(p.capacity))||Number(p.capacity)<0))d.err['cap'+i]='0 or more';
@@ -236,6 +283,8 @@
         if(t.capacity!==''&&(isNaN(Number(t.capacity))||Number(t.capacity)<0))d.err['pt'+i+'.'+j]='Partition capacity: 0 or more';});});
     if(Object.keys(d.err).length){App.render();UI.toast('Fix highlighted fields');return false;}
     const n=S.snap('Saved park');
+    if(makeFarm){REG.createRef('parks',REG.R.parks.cols.find(c=>c.k==='farm'),makeFarm,{});}
+    const farmId=makeFarm?(saveFarm(d).rec||{}).id||'':farmId0;
     let park=d.id!=='new'?S.get('parks',d.id):null;
     if(park)Object.assign(park,{name:d.name.trim(),code:d.code.trim(),farmId});
     else park=S.add('parks',{name:d.name.trim(),code:d.code.trim(),farmId});
@@ -252,21 +301,20 @@
     });
     S.save(); PD=null;
     App.leave(target||'#/configuration/items/parks',true);
-    UI.toast('Saved '+park.name,()=>{S.undoTo(n);App.render();});
+    UI.toast('Saved '+park.name+(makeFarm?' · new farm '+makeFarm:''),()=>{S.undoTo(n);App.render();});
     return true;
   }
   Object.assign(A,{
     'pd-addpen'(){PD.pens.push({name:'',capacity:'',parts:[],stage:'',sex:'mixed'});PD.dirty=true;App.render();},
     'pd-delpen'(el){const p=PD.pens.splice(+el.dataset.i,1)[0];if(p&&p.id)PD.removed.push(p.id);PD.dirty=true;App.render();},
-    'pd-addpart'(el){const p=PD.pens[+el.dataset.i];p.parts.push({name:'Part '+(p.parts.length+1),capacity:''});PD.dirty=true;App.render();
+    'pd-addpart'(el){const p=PD.pens[+el.dataset.i];p.parts.push(newPart(p,p.parts.length));PD.dirty=true;App.render();
       const ins=document.querySelectorAll(`[data-pt="${el.dataset.i}"][data-k="name"]`);if(ins.length){ins[ins.length-1].focus();ins[ins.length-1].select();}},
     'pd-delpart'(el){PD.pens[+el.dataset.i].parts.splice(+el.dataset.j,1);PD.dirty=true;App.render();},
-    'pd-farmcreate'(){const d=PD;const t=d.farmAsk||d.farm.trim();if(!t)return;REG.createRef('parks',REG.R.parks.cols.find(c=>c.k==='farm'),t,{});d.created=true;d.farm=t;d.farmAsk='';App.render();UI.toast('Farm “'+t+'” created');},
     'pd-gen'(){const g=PD.gen;const n=Math.min(200,Math.max(0,parseInt(g.n)||0));const st=parseInt(g.start)||1;const cap=parseInt(g.cap);
       if(isNaN(cap)||cap<0){UI.toast('Capacity: 0 or more');return;}
       const names=new Set(PD.pens.map(p=>REG.norm(p.name)));let made=0,i=st;const np=Math.max(0,parseInt(g.parts)||0);
       while(made<n&&i<st+1000){const nm=(g.prefix||'Pen')+' '+i;i++;if(names.has(REG.norm(nm)))continue;
-        PD.pens.push({name:nm,capacity:cap,parts:Array.from({length:np},(_,k)=>({name:'Part '+(k+1),capacity:''})),stage:'',sex:'mixed'});made++;}
+        const pen={name:nm,capacity:cap,parts:[],stage:'',sex:'mixed'};for(let k=0;k<np;k++)pen.parts.push(newPart(pen,k));PD.pens.push(pen);made++;}
       PD.dirty=true;App.render();UI.toast(made+' pens added');},
     'pd-cancel'(){App.leave('#/configuration/items/parks');},
     'park-save'(){savePark();}

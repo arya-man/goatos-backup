@@ -253,13 +253,14 @@
       ${ports}</div>`;
   }
 
-  F.canvasHtml=function(sop,sel,run){
+  F.canvasHtml=function(sop,sel){
+    const run=null; /* run state renders only in Try / Operator view */
     const pos=F.positions(sop); const v=view(sop);
     if(F.zoom[sop.id]!=null&&F.zoom[sop.id]!==v.legacyZ){v.legacyZ=F.zoom[sop.id];v.k=F.zoom[sop.id];}
     const st={sel,multi:multiSet(sop),edge:F._edgeSel&&F._edgeSel.sop===sop.id?F._edgeSel.key:null};
     F._run=F._run||{}; F._run[sop.id]=run;
     schedule(sop.id);
-    return `<div class="fx-root" data-flow="${sop.id}" tabindex="0" style="${bgStyle(v)}">
+    return `<div class="fx-root" data-flow="${sop.id}" tabindex="0" style="${bgStyle(v)};--fxk:${v.k}">
       <div class="fx-clip"><div class="fx-world" style="transform:translate(${v.x}px,${v.y}px) scale(${v.k})">
         <div class="fx-groups">${groupsHtml(sop,pos)}</div>
         <svg class="fx-edges" width="1" height="1">${edgesSvg(sop,pos,st)}</svg>
@@ -299,27 +300,35 @@
   function sopOf(id){return S.get('sops',id);}
   /* per-SOP undo/redo: snapshot of editable SOP state, recorded after every render; quick successive edits coalesce */
   F.hist={};
-  function hist(sop){return F.hist[sop.id]||(F.hist[sop.id]={undo:[],redo:[],cur:null,t:0});}
+  const HKEY=id=>'mesha.fxhist.'+id;
+  function hist(sop){
+    if(F.hist[sop.id])return F.hist[sop.id];
+    let h=null; try{h=JSON.parse(sessionStorage.getItem(HKEY(sop.id))||'null');}catch(_){h=null;}
+    if(!h||!Array.isArray(h.undo)||!Array.isArray(h.redo))h={undo:[],redo:[],cur:null,key:null};
+    return F.hist[sop.id]=h;}
+  function saveHist(sop){const h=hist(sop);try{sessionStorage.setItem(HKEY(sop.id),JSON.stringify({undo:h.undo,redo:h.redo,cur:h.cur,key:h.key}));}catch(_){}}
+  /* inspector sets F.editKey (node:field) while typing; only consecutive edits of the same text field merge */
+  F.editKey=null;
   const snapOf=sop=>JSON.stringify({nodes:sop.nodes,layout:sop.layout||null,title:sop.title,dept:sop.dept,category:sop.category});
-  function record(sop){const h=hist(sop),now=snapOf(sop);
-    if(h.cur===null){h.cur=now;return;} if(now===h.cur)return;
-    if(!(h.t&&Date.now()-h.t<700)){h.undo.push(h.cur);if(h.undo.length>60)h.undo.shift();}
-    h.redo=[];h.cur=now;h.t=Date.now();}
+  function record(sop){const h=hist(sop),now=snapOf(sop),key=F.editKey; F.editKey=null;
+    if(h.cur===null){h.cur=now;saveHist(sop);return;} if(now===h.cur)return;
+    if(!(key&&h.key===key)){h.undo.push(h.cur);if(h.undo.length>60)h.undo.shift();}
+    h.redo=[];h.cur=now;h.key=key||null;saveHist(sop);}
   function histStep(sop,dir){const h=hist(sop);const from=dir<0?h.undo:h.redo,to=dir<0?h.redo:h.undo;if(!from.length)return;
     to.push(snapOf(sop));const x=JSON.parse(from.pop());sop.nodes=x.nodes;if(x.layout)sop.layout=x.layout;else delete sop.layout;sop.title=x.title;sop.dept=x.dept;sop.category=x.category;
-    h.cur=snapOf(sop);h.t=0;S.save();if(window.Work&&!sop.nodes.some(n=>n.id===Work.sel[sop.id]))Work.sel[sop.id]=null;App.render();refocus(sop.id);}
+    h.cur=snapOf(sop);h.key=null;saveHist(sop);S.save();if(window.Work&&!sop.nodes.some(n=>n.id===Work.sel[sop.id]))Work.sel[sop.id]=null;App.render();refocus(sop.id);}
   F.undo=id=>{const s=sopOf(id);if(s)histStep(s,-1);}; F.redo=id=>{const s=sopOf(id);if(s)histStep(s,1);};
   F.record=id=>{const s=sopOf(id);if(s)record(s);};
   function mount(id){
     const root=rootOf(id),sop=sopOf(id); if(!root||!sop)return;
     const hb=hist(sop).undo.length,hr=hist(sop).redo.length; record(sop);
     if(hist(sop).undo.length!==hb||hist(sop).redo.length!==hr){const u=root.querySelector('[data-fx=undo]'),r=root.querySelector('[data-fx=redo]');if(u)u.disabled=!hist(sop).undo.length;if(r)r.disabled=!hist(sop).redo.length;}
-    measure(root,sop);
+    syncChrome(root); measure(root,sop);
     const v=view(sop); if(v.fresh){v.fresh=false;fit(root,sop,true);}
     redraw(root,sop);
     const f=F._focus[sop.id]; if(f){delete F._focus[sop.id];focusNode(root,sop,f.id||f,!!f.center);}
     if(!root._ro&&window.ResizeObserver){let w=root.clientWidth,h=root.clientHeight;root._ro=new ResizeObserver(()=>{if(!root.isConnected){root._ro.disconnect();return;}
-      if(Math.abs(root.clientWidth-w)<2&&Math.abs(root.clientHeight-h)<2)return;w=root.clientWidth;h=root.clientHeight;if(view(sop).auto)fit(root,sop,true);else minimap(root,sop);});root._ro.observe(root);}
+      if(Math.abs(root.clientWidth-w)<2&&Math.abs(root.clientHeight-h)<2)return;w=root.clientWidth;h=root.clientHeight;syncChrome(root);if(view(sop).auto)fit(root,sop,true);else minimap(root,sop);});root._ro.observe(root);}
   }
   function measure(root,sop){const h=F._h[sop.id]=F._h[sop.id]||{};root.querySelectorAll('.fx-node').forEach(el=>{h[el.dataset.node]=el.offsetHeight;});}
   function redraw(root,sop,pos){
@@ -334,6 +343,8 @@
     const v=view(sop);
     root.querySelector('.fx-world').style.transform=`translate(${v.x}px,${v.y}px) scale(${v.k})`;
     root.style.backgroundSize=`${GRID*v.k}px ${GRID*v.k}px`; root.style.backgroundPosition=`${v.x}px ${v.y}px`;
+    if(root._k!==v.k){const was=root._k;root._k=v.k;root.style.setProperty('--fxk',v.k);
+      if(was!=null&&(was<1||v.k<1)){cancelAnimationFrame(root._kr);root._kr=requestAnimationFrame(()=>{measure(root,sop);redraw(root,sop);});}}
     const z=root.querySelector('.fx-zoom'); if(z)z.textContent=Math.round(v.k*100)+'%';
     minimap(root,sop);
   }
@@ -347,14 +358,24 @@
     const padR=pad+(F.miniOff||narrow?0:196);
     const aw=Math.max(120,r.width-padL-padR), ah=Math.max(120,r.height-padT-padB);
     const bw=b.x1-b.x0+40, bh=b.y1-b.y0+60;
-    let k=Math.min(aw/bw,ah/bh,1); k=Math.max(initial?(narrow?Math.min(1,aw/(NW+40)):.8):.2,k);
+    /* never shrink to unreadable: >=1280px viewport stays at 100%, otherwise >=75%; the canvas pans for the rest */
+    const floor=window.innerWidth>=1280?1:narrow?Math.max(.75,Math.min(1,aw/(NW+40))):.75;
+    let k=Math.min(aw/bw,ah/bh,1); k=Math.max(floor,k);
     v.k=k; v.x=padL+(aw-(b.x1-b.x0)*k)/2-b.x0*k;
     if((b.x1-b.x0)*k>aw){const s=sop.nodes.find(n=>n.type==='start');const sp=s&&pos[s.id];v.x=sp?padL+aw/2-(sp.x+NW/2)*k:padL-b.x0*k;}
     v.y=(bh*k>ah)?padT+60*k-b.y0*k:padT+(ah-bh*k)/2+60*k-b.y0*k;
     applyView(root,sop);
   }
   /* bring a node into view (keep zoom) when it is off-screen */
-  function topInset(root){const t=root.querySelector('.fx-tools');return t?t.offsetTop+t.offsetHeight:48;}
+  function topInset(root){const t=root.querySelector('.fx-tools');return t?t.offsetTop+t.offsetHeight+6:54;}
+  /* nothing on the canvas renders (or takes clicks) under the floating toolbar */
+  function syncChrome(root){
+    root.style.setProperty('--fx-top',topInset(root)+'px');
+    root.querySelectorAll('.fx-tools,.fx-palette').forEach(el=>{
+      const fade=()=>{const hz=el.scrollWidth>el.clientWidth+1;el.classList.toggle('fade-l',hz&&el.scrollLeft>2);el.classList.toggle('fade-r',hz&&el.scrollLeft<el.scrollWidth-el.clientWidth-2);};
+      if(!el._fade){el._fade=1;el.addEventListener('scroll',fade,{passive:true});}
+      fade();});
+  }
   function focusNode(root,sop,id,center){
     const p=F.positions(sop)[id]; if(!p)return; const v=view(sop); const r=root.getBoundingClientRect();
     const h=hOf(sop,{id,type:(sop.nodes.find(n=>n.id===id)||{}).type});
@@ -433,6 +454,14 @@
       if(join)pos[join.id]={x:ap.x,y:snap(baseY+estH(n)+RH+estH(lanes[0]||n)+RH)};}
     else added.forEach(x=>pos[x.id]={x:ap.x,y:snap(baseY)});
     persist(sop,pos); return n;
+  }
+  /* the step that feeds End (lowest on the canvas), or the lowest step with no way out */
+  function lastStep(sop,openOnly){
+    const pos=F.positions(sop),ends=new Set(sop.nodes.filter(n=>n.type==='end').map(n=>n.id));const c=[];
+    sop.nodes.forEach(n=>{if(n.type==='end')return;(n.next||[]).forEach((e,i)=>{if(ends.has(e.to))c.push({id:n.id,edge:i});});if(!(n.next||[]).length)c.push({id:n.id,edge:null,open:1});});
+    const y=x=>(pos[x.id]||{y:0}).y;
+    c.sort((a,b)=>(a.open||0)-(b.open||0)||y(b)-y(a));
+    const r=c[0]||null; return openOnly&&r&&!r.open?null:r;
   }
   function duplicate(sop,ids){
     const pos=F.positions(sop); S.snap('Duplicate step'); const out=[];
@@ -542,7 +571,9 @@
         const after=Work.sel[sop.id]; const a=sop.nodes.find(x=>x.id===after);
         let n;
         if(a&&a.type!=='end')n=insertAfterSel(sop,d.type,after);
-        else{const r=root.getBoundingClientRect(),v=view(sop);n=addAt(sop,d.type,(r.width/2-v.x)/v.k,(r.height/2-v.y)/v.k);UI.toast('Added — drag its dot to connect it');}
+        else{const t=lastStep(sop,d.type==='end');
+          if(t)n=insertAfterSel(sop,d.type,t.id,t.edge);
+          if(!n){const r=root.getBoundingClientRect(),v=view(sop);n=addAt(sop,d.type,(r.width/2-v.x)/v.k,(r.height/2-v.y)/v.k);}}
         if(n){S.save();multiSet(sop).clear();Work.sel[sop.id]=n.id;F._focus[sop.id]=n.id;App.render();refocus(sop.id);}
         return;
       }

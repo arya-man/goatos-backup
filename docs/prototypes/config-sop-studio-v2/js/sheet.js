@@ -28,14 +28,15 @@
     return REG.validate(G.regKey,G.rows,{createParents:G.createParents,pending:pend});
   };
   Sheet.counts=function(res){
-    const cnt={all:0,error:0,warn:0,create:0,update:0,unchanged:0,newv:0,unresolved:0};const nv=new Set();
-    res.forEach(r=>{if(r.status==='empty')return;cnt.all++;cnt[r.status]++;if(Object.values(r.issues).some(i=>i[0]==='warn'||i[0]==='info'))cnt.warn++;
+    const cnt={all:0,error:0,warn:0,info:0,create:0,update:0,unchanged:0,newv:0,unresolved:0};const nv=new Set();
+    res.forEach(r=>{if(r.status==='empty')return;cnt.all++;cnt[r.status]++;const lv=Object.values(r.issues).map(i=>i[0]);if(lv.includes('warn'))cnt.warn++;if(lv.includes('info'))cnt.info++;
       (r.creates||[]).forEach(c=>nv.add(c.toLowerCase()));cnt.unresolved+=(r.unresolved||[]).length;});
     cnt.newv=nv.size; return cnt;
   };
   /* commit is blocked while any row has an error, unless the person explicitly chose to skip those rows */
   Sheet.canSave=(G,cnt)=>cnt.create+cnt.update>0&&(!cnt.error||G.skipErrors);
-  Sheet.saveLabel=(G,cnt)=>{const n=cnt.create+cnt.update;return cnt.error&&!G.skipErrors?'Fix '+cnt.error+' row'+(cnt.error===1?'':'s')+' to save':'Save '+n+' row'+(n===1?'':'s');};
+  Sheet.saveLabel=(G,cnt)=>{const n=cnt.create+cnt.update;return cnt.error&&!G.skipErrors?'Fix '+cnt.error+' row'+(cnt.error===1?'':'s')+' to save':n?'Save '+n+' row'+(n===1?'':'s'):'No changes';};
+  Sheet.skipText=n=>'Skip '+n+' row'+(n===1?'':'s')+' with errors';
   const ISSUE_W=280, RN_W=60;
   Sheet.issuesHtml=function(G,ri,r){
     const reg=REG.R[G.regKey];
@@ -44,7 +45,7 @@
     return ents.map(([k,i])=>{const ci=reg.cols.findIndex(x=>x.k===k),c=reg.cols[ci];const tone=i[0]==='err'?'dng':i[0]==='warn'?'warn':'info';
       const x=i[2];
       return `<div class="iss" style="display:flex;flex-wrap:wrap;align-items:center;gap:4px;padding:3px 0;white-space:normal">${UI.tag(i[0]==='err'?'Error':i[0]==='warn'?'Warning':'Info',tone)}<span>${esc((c?c.label+': ':'')+i[1])}</span>
-        ${x&&x.create?`<button class="btn sm" data-a="sh-create" data-r="${ri}" data-c="${ci}" data-t="${esc(x.text)}">${ic('plus','',12)}${x.archived?'Restore':'Create'} “${esc(x.text)}”</button><button class="btn sm gh" data-a="sh-pick" data-r="${ri}" data-c="${ci}">Pick existing</button>`:''}</div>`;}).join('');
+        ${x&&x.create?`<button class="btn sm" data-a="sh-pick" data-r="${ri}" data-c="${ci}" data-t="${esc(x.text)}">Pick existing</button><button class="btn sm gh" data-a="sh-create" data-r="${ri}" data-c="${ci}" data-t="${esc(x.text)}">${ic('plus','',12)}${x.archived?'Restore':'Create'} “${esc(x.text)}”</button>`:''}</div>`;}).join('');
   };
 
   const STAT={create:['New','ok'],update:['Update','info'],unchanged:['Unchanged','mut'],error:['Error','dng'],empty:['','mut']};
@@ -53,7 +54,7 @@
     opts=opts||{};
     const reg=REG.R[G.regKey]; const res=Sheet.results(G); G._res=res;
     const cnt=Sheet.counts(res);
-    const chips=[['all','All'],['error','Errors'],['warn','Warnings'],['create','New'],['update','Updates'],['unchanged','Unchanged']];
+    const chips=[['all','All'],['error','Errors'],['warn','Warnings'],['info','Info'],['create','New'],['update','Updates'],['unchanged','Unchanged']];
     const stick=(left,w)=>`position:sticky;left:${left}px;min-width:${w}px;max-width:${w}px;width:${w}px;background:var(--panel-2);background-clip:padding-box;`;
     return `<div class="card screen" data-sheet>
       ${G.summary?Sheet.summaryHtml(G.summary):''}
@@ -66,15 +67,16 @@
         <div class="chips">${chips.map(([k,l])=>`<button class="chip ${G.view===k?'on':''}" data-a="sh-view" data-v="${k}">${l}&nbsp;<span data-cnt="${k}">${cnt[k]}</span></button>`).join('')}</div>
       </div>
       <div class="sheetbar">
-        <label class="row small" style="font-weight:650" title="Off: unknown values stay errors until you create or pick each one"><input type="checkbox" data-a="sh-parents" ${G.createParents?'checked':''}>Create all new values <span class="muted" data-cnt="unresolved">${cnt.unresolved?'('+cnt.unresolved+' unknown)':''}</span></label>
-        ${opts.noFoot?'':`<label class="row small" style="font-weight:650" data-skipwrap ${cnt.error?'':'hidden'}><input type="checkbox" data-a="sh-skip" ${G.skipErrors?'checked':''}>Skip <span data-cnt="error">${cnt.error}</span>&nbsp;rows with errors</label>`}
+        <label class="row small" style="font-weight:650"><input type="checkbox" data-a="sh-parents" ${G.createParents?'checked':''}>Create all new values <span class="muted" data-cnt="unresolved">${cnt.unresolved?'('+cnt.unresolved+' unknown)':''}</span></label>
+        ${opts.noFoot?'':`<label class="row small" style="font-weight:650" data-skipwrap ${cnt.error?'':'hidden'}><input type="checkbox" data-a="sh-skip" ${G.skipErrors?'checked':''}><span data-skiptxt>${Sheet.skipText(cnt.error)}</span></label>`}
         <span class="sp"></span>
         ${cnt.error?`<button class="btn sm" data-a="sh-errors">${ic('download')}Rows with errors</button>`:''}
         ${opts.noFoot?'':`<button class="btn sm" data-a="sh-cancel">Close</button>
         <button class="btn sm p" data-a="sh-save" ${Sheet.canSave(G,cnt)?'':'disabled'}>${ic('check')}${Sheet.saveLabel(G,cnt)}</button>`}
       </div>
-      <div class="sheet" data-grid>
-        <table><thead><tr><th class="rn" style="${stick(0,RN_W)}z-index:4"><input type="checkbox" data-a="sh-selall" aria-label="Select all"></th><th style="${stick(RN_W,ISSUE_W)}z-index:4;border-right:1px solid var(--line);box-shadow:4px 0 6px -4px rgba(0,0,0,.45)">Issues</th><th>Status</th>
+      <style>@media(max-width:760px){[data-sheet] .sheet td.msg,[data-sheet] .sheet th.iss{position:static!important;box-shadow:none!important;min-width:200px!important;max-width:200px!important}}</style>
+      <div class="sheet" data-grid style="min-height:0">
+        <table><thead><tr><th class="rn" style="${stick(0,RN_W)}z-index:4"><input type="checkbox" data-a="sh-selall" aria-label="Select all"></th><th class="iss" style="${stick(RN_W,ISSUE_W)}z-index:4;border-right:1px solid var(--line);box-shadow:4px 0 6px -4px rgba(0,0,0,.45)">Issues</th><th>Status</th>
           ${reg.cols.map(c=>`<th class="${c.req?'req':''}">${esc(c.label)}</th>`).join('')}</tr></thead>
         <tbody>${G.rows.map((row,ri)=>Sheet.rowHtml(G,row,ri,res[ri])).join('')}</tbody></table>
       </div></div>`;
@@ -94,7 +96,7 @@
   Sheet.hidden=function(G,r){
     if(G.view==='all')return false;
     if(r.status==='empty')return true;
-    if(G.view==='warn')return !Object.values(r.issues).some(i=>i[0]==='warn');
+    if(G.view==='warn'||G.view==='info')return !Object.values(r.issues).some(i=>i[0]===G.view);
     return r.status!==G.view;
   };
 
@@ -117,7 +119,7 @@
     });
     const cnt=Sheet.counts(res);
     root.querySelectorAll('[data-cnt]').forEach(el=>{const k=el.dataset.cnt;el.textContent=k==='unresolved'?(cnt.unresolved?'('+cnt.unresolved+' unknown)':''):cnt[k];});
-    const sk=root.querySelector('[data-skipwrap]'); if(sk)sk.hidden=!cnt.error;
+    const sk=root.querySelector('[data-skipwrap]'); if(sk){sk.hidden=!cnt.error;const t=sk.querySelector('[data-skiptxt]');if(t)t.textContent=Sheet.skipText(cnt.error);}
     const sv=root.querySelector('[data-a="sh-save"]');
     if(sv){sv.disabled=!Sheet.canSave(G,cnt);sv.innerHTML=ic('check')+Sheet.saveLabel(G,cnt);}
     if(G.onChange)G.onChange(cnt,res);
@@ -178,6 +180,28 @@
       const g=G(),regKey=g.regKey,reg=REG.R[regKey],c=reg.cols[+inp.dataset.c],row=g.rows[+inp.dataset.r];
       UI.pop(inp,UI.pickerCfg(regKey,c,row.v,inp,()=>{row.v[c.k]=inp.value;syncInputs(root,g,+inp.dataset.r,Sheet.cascade(g,row,c.k));Sheet.repaint(g,root);},null));
     }
+  };
+
+  /* Pick existing for an unknown value: filtered by that value, best match highlighted,
+     applied to every row with the same value unless unticked */
+  Sheet.pickPop=function(G,inp,ri,ci,text){
+    const reg=REG.R[G.regKey],c=reg.cols[ci],row=G.rows[ri]; if(!c||!row)return;
+    const multi=c.type==='multi'; text=String(text||row.v[c.k]||'').trim(); const nt=REG.norm(text);
+    const toks=v=>String(v==null?'':v).split(/[;,]/).map(s=>s.trim()).filter(Boolean);
+    const has=r=>multi?toks(r.v[c.k]).some(s=>REG.norm(s)===nt):REG.norm(r.v[c.k])===nt;
+    const targets=G.rows.map((r,i)=>has(r)?i:-1).filter(i=>i>=0);
+    const cfg={multi:true,fuzzy:true,applyAll:true,query:()=>text,
+      header:()=>targets.length>1?`<label class="none" style="display:flex;gap:6px;align-items:center;cursor:pointer;border-bottom:1px solid var(--line2)"><input type="checkbox" data-popall ${cfg.applyAll?'checked':''}>Apply to all ${targets.length} rows with “${esc(text)}”</label>`:'',
+      options:()=>UI.refOptions(G.regKey,c,row.v),
+      creates:q=>REG.createChoices(G.regKey,multi?Object.assign({},c,{type:'ref'}):c,row.v,q),
+      onPick(o){
+        const idx=cfg.applyAll?targets:[ri];
+        idx.forEach(i=>{const r=G.rows[i];
+          r.v[c.k]=multi?toks(r.v[c.k]).map(s=>REG.norm(s)===nt?o.label:s).join('; '):o.label;
+          Sheet.cascade(G,r,c.k);});
+        setTimeout(()=>{Sheet.rerender();UI.toast((o.created?'Created':'Set')+' “'+o.label+'” · '+idx.length+' row'+(idx.length===1?'':'s'));},0);
+      }};
+    UI.pop(inp,cfg);
   };
 
   Sheet.pasteAt=function(G,r0,c0,text){
@@ -245,7 +269,7 @@
       if(!ch.length)return UI.toast('Set '+(c.scope?reg.cols.find(x=>x.k===c.scope.col).label:'the value')+' first');
       if(ch.length===1)doIt(ch[0]);else UI.menu(el,ch.map(x=>({label:x.label,icon:'plus',run:()=>doIt(x)})));},
     'sh-pick'(el){const inp=document.querySelector(`[data-sheet] input.cell[data-r="${el.dataset.r}"][data-c="${el.dataset.c}"]`);if(!inp)return;
-      inp.focus();inp.select();setTimeout(()=>{if(UI._popCfg&&UI._popCfg.input===inp){UI._popCfg.cfg.query=()=>'';UI._popRender();}},0);},
+      inp.focus();inp.select();setTimeout(()=>Sheet.pickPop(Sheet.active(),inp,+el.dataset.r,+el.dataset.c,el.dataset.t),0);},
     'sh-sel'(el){const g=Sheet.active();el.checked?g.sel.add(el.dataset.id):g.sel.delete(el.dataset.id);Sheet.rerender();},
     'sh-selall'(el){const g=Sheet.active();g.rows.forEach(r=>el.checked?g.sel.add(r.id):g.sel.delete(r.id));Sheet.rerender();},
     'sh-delrows'(){const g=Sheet.active();g.rows=g.rows.filter(r=>!g.sel.has(r.id));if(!g.rows.length)g.rows=[{id:rid(),v:{}}];g.sel.clear();Sheet.rerender();},

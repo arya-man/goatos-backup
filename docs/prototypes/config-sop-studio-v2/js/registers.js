@@ -32,7 +32,7 @@
       cols:[txt('name','Name',{req:1}),txt('code','Code',{w:'num'})],key:v=>norm(v.name)},
     breeds:{label:'Breeds',one:'Breed',coll:'breeds',
       cols:[ref('species','Species','species','speciesId',{req:1}),txt('name','Breed',{req:1})],
-      statuses:['active','review','archived'],key:v=>norm(v.species)+'|'+norm(v.name)},
+      key:v=>norm(v.species)+'|'+norm(v.name)},
     sexes:{label:'Sexes',one:'Sex',coll:'sexes',
       cols:[ref('species','Species','species','speciesId',{req:1}),txt('name','Sex',{req:1})],
       key:v=>norm(v.species)+'|'+norm(v.name)},
@@ -60,7 +60,7 @@
     items:{label:'Items',one:'Item',coll:'items',icon:'folder',
       cols:[txt('name','Item',{req:1,w:'wide'}),{k:'category',label:'Category',type:'path',attr:'categoryId',w:'wide'},txt('unit','Unit',{w:'num'}),
         Object.assign(en('depts','Departments',DEPTS),{type:'multienum'})],
-      statuses:['active','review','archived'],key:v=>norm(v.name)},
+      key:v=>norm(v.name)},
     roles:{label:'Roles',one:'Role',coll:'roles',
       cols:[txt('name','Role',{req:1,w:'wide'}),en('grade','Grade',['','cxo','director','manager','assistant_manager'])],key:v=>norm(v.name)},
     people:{label:'People',one:'Person',coll:'people',icon:'user',
@@ -80,14 +80,71 @@
       cols:[ref('species','Species','species','speciesId',{blankLabel:'All species'}),txt('name','Band',{req:1}),num('fromKg','From (kg)',{min:0}),num('toKg','To (kg)',{min:0})],
       key:v=>norm(v.species)+'|'+norm(v.name)},
     /* Diseases, symptoms and ration groups are owned by Health Config (#/health/config) and Feed Config (#/feed/config); not registers here. */
-    deathCauses:{label:'Death causes',one:'Death cause',coll:'deathCauses',cols:[txt('name','Death cause',{req:1,w:'wide'})],key:v=>norm(v.name)},
-    marketCities:{label:'Market cities',one:'Market city',coll:'marketCities',cols:[txt('name','City',{req:1,w:'wide'}),txt('state','State')],key:v=>norm(v.name)},
     sopCategories:{label:'SOP categories',one:'SOP category',coll:'sopCategories',cols:[txt('code','Key',{req:1,w:'num'}),txt('name','Category',{req:1,w:'wide'})],key:v=>norm(v.code)},
     taskTypes:{label:'Task types',one:'Task type',coll:'taskTypes',cols:[txt('code','Key',{req:1,w:'wide'}),txt('name','Task type',{req:1,w:'wide'}),en('answer','Answer',['none','yes_no','select','multiselect','number','text'])],key:v=>norm(v.code)},
+    /* business rules that used to be code constants */
+    saleProducts:{label:'Sale product types',one:'Sale product type',coll:'saleProducts',
+      cols:[txt('name','Product',{req:1,w:'wide'}),ref('species','Species','species','speciesId',{blankLabel:'Any species'})],key:v=>norm(v.name)},
+    costKinds:{label:'Cost kinds',one:'Cost kind',coll:'costKinds',
+      cols:[txt('code','Key',{req:1,w:'num'}),txt('name','Cost kind',{req:1,w:'wide'})],key:v=>norm(v.code)},
+    identifierPolicies:{label:'Identifier policies',one:'Identifier',coll:'identifierPolicies',
+      cols:[txt('code','Key',{req:1,w:'wide'}),txt('name','Identifier',{req:1}),en('primaryAllowed','Primary allowed',['yes','no']),en('autoLink','Auto link',['yes','no']),txt('policy','Policy',{w:'wide'})],
+      key:v=>norm(v.code)},
+    /* job titles; RBAC roles stay in Roles and are never repeated here */
+    designations:{label:'Designations',one:'Designation',coll:'designations',
+      cols:[txt('code','Key',{req:1,w:'num'}),txt('name','Designation',{req:1,w:'wide'}),en('grade','Grade',['','cxo','director','manager'])],
+      key:v=>norm(v.code),
+      check:(v,iss)=>{const r=roleDup(v.code,v.name);if(r)iss(norm(v.code)===norm(r.key)?'code':'name','err','Already a role: '+r.name);}},
+    approvalChains:{label:'Approval chains',one:'Approval chain',coll:'approvalChains',
+      cols:[en('dept','Department',DEPTS,{req:1}),txt('name','Request',{req:1,w:'wide'}),{k:'steps',label:'Approvers',type:'steps',attr:'steps',req:1,w:'wide'}],
+      key:v=>norm(v.dept)+'|'+norm(v.name)},
     settings:{label:'Business settings',one:'Setting',coll:'settings',
       cols:[en('dept','Department',DEPTS,{req:1}),txt('name','Setting',{req:1,w:'wide'}),txt('value','Value',{req:1,w:'num'}),txt('unit','Unit',{w:'num'})],
       key:v=>norm(v.dept)+'|'+norm(v.name)}
   };
+  /* roles vs designations: compare key and the role name without its "(legacy …)" note */
+  const baseName=s=>norm(String(s||'').replace(/\s*\(.*\)\s*$/,''));
+  function roleDup(code,name){const c=norm(code),n=baseName(name);return S.active('roles').find(r=>(c&&norm(r.key)===c)||(n&&baseName(r.name)===n))||null;}
+  /* approval steps: "Counts Approver (per person); Park Head" <-> [{role,perPerson}|{designation}] */
+  function stepLabel(s){
+    if(s.role){const r=S.active('roles').concat(S.all('roles')).find(x=>x.key===s.role);return (r?r.name.replace(/\s*\(.*\)\s*$/,''):enumLabel(s.role))+(s.perPerson?' (per person)':'');}
+    const d=S.all('designations').find(x=>x.code===s.designation);return d?d.name:enumLabel(s.designation);
+  }
+  function parseSteps(raw){
+    const steps=[],bad=[];
+    String(raw||'').split(/;/).map(t=>t.trim()).filter(Boolean).forEach(t=>{
+      const per=/\(per person\)\s*$/i.test(t); const n=norm(t.replace(/\(per person\)\s*$/i,''));
+      const r=S.active('roles').find(x=>norm(x.key)===n||baseName(x.name)===n||norm(x.name)===n);
+      if(r)return steps.push(per?{role:r.key,perPerson:true}:{role:r.key});
+      const d=S.active('designations').find(x=>norm(x.code)===n||norm(x.name)===n);
+      if(d)return steps.push({designation:d.code});
+      bad.push(t);
+    });
+    return {steps,bad};
+  }
+  /* stored-state shape for the business-rule registers (flat rows, no role duplicates); idempotent */
+  function migrate(st){
+    if(!st)return;
+    const idp=st.identifierPolicies;
+    if(Array.isArray(idp)&&idp.some(p=>Array.isArray(p.types))){
+      st.identifierPolicies=[].concat(...idp.map(p=>Array.isArray(p.types)?p.types.map(t=>({id:'idp_'+t.code,code:t.code,name:t.name,primaryAllowed:t.primaryAllowed?'yes':'no',autoLink:t.autoLink?'yes':'no',policy:p.code+(p.version?' v'+p.version:''),status:p.status||'active'})):[p]));
+    }
+    const roles=st.roles||[];
+    if(Array.isArray(st.designations)){
+      const dup=d=>roles.some(r=>r.status!=='archived'&&(norm(r.key)===norm(d.code)||baseName(r.name)===baseName(d.name)));
+      const dropped=new Set(st.designations.filter(dup).map(d=>d.code));
+      st.designations=st.designations.filter(d=>!dropped.has(d.code));
+      (st.approvalChains||[]).forEach(ch=>{ch.steps=(ch.steps||[]).map(s=>s.designation&&dropped.has(s.designation)&&roles.some(r=>r.key===s.designation)?{role:s.designation}:s);});
+    }
+  }
+  if(window.S&&!S._regMigrate){S._regMigrate=1;const load=S.load,reset=S.reset;
+    S.load=function(){const r=load.apply(S,arguments);migrate(S.state);S.save();return S.state||r;};
+    S.reset=function(){const r=reset.apply(S,arguments);migrate(S.state);S.save();return r;};}
+
+  /* optional registers exist only while their seed collection does */
+  const OPTIONAL=[];
+  try{const st=window.buildSeed?window.buildSeed():null;if(st&&window.seedRefs)window.seedRefs(st);
+    if(st)OPTIONAL.forEach(k=>{if(!Array.isArray(st[R[k].coll]))delete R[k];});}catch(e){}
   Object.keys(R).forEach(k=>{R[k].key_=k; if(!R[k].statuses)R[k].statuses=ST;});
 
   /* labels */
@@ -113,9 +170,9 @@
     if(col.type==='multi')return (v||[]).map(id=>labelById(col.ref,id)).filter(Boolean).join('; ');
     if(col.type==='path')return reg.coll==='categories'?catPath(rec.id):(v?catPath(v):'');
     if(col.type==='multienum')return (v||[]).map(enumLabel).join('; ');
+    if(col.type==='steps')return (v||[]).map(stepLabel).join('; ');
     if(col.type==='enum')return enumLabel(v);
-    if(col.type==='date'&&v&&/^\d{4}-\d{2}-\d{2}$/.test(v))return v.slice(8,10)+'/'+v.slice(5,7)+'/'+v.slice(0,4);
-    return v==null?'':String(v);
+        return v==null?'':String(v);
   }
   function toRow(regKey,rec){const reg=R[regKey],o={};reg.cols.forEach(c=>o[c.k]=cellValue(reg,c,rec));o.status=rec.status||'active';return o;}
 
@@ -186,8 +243,10 @@
     return S.add(c,attrs).id;
   }
   /* inline-create choices for a picker: one per possible parent when the parent is not chosen */
+  /* a new master value must look like a name: at least one letter, not a number or formula */
+  const nameLike=t=>{t=String(t==null?'':t).trim();return /\p{L}/u.test(t)&&!/^[=+@-]/.test(t)&&!/^\d+(\.\d+)?e\+?\d+$/i.test(t);};
   function createChoices(regKey,col,row,text){
-    text=String(text||'').trim(); if(!text||col.type==='enum'||col.type==='multienum')return [];
+    text=String(text||'').trim(); if(!text||col.type==='enum'||col.type==='multienum'||!nameLike(text))return [];
     const refCol=Object.assign({},col,{type:col.type==='path'?'path':'ref'});
     if(col.type==='path')return [{label:'Create “'+text+'”',run:()=>createRef(regKey,refCol,text,row)}];
     if(!col.scope&&(col.ref==='stages'||col.ref==='breeds'||col.ref==='sexes'))return S.active('species').map(sp=>({label:'Create “'+text+'” · '+sp.name,run:()=>{const id=createRef(regKey,refCol,text,row);const r=S.get(col.ref,id);if(r)r.speciesId=sp.id;return id;}}));
@@ -216,15 +275,32 @@
     });});
     if(coll==='categories'){const n=S.all('categories').filter(x=>x.parentId===id).length;if(n)out.push({label:'Subcategories',n});}
     if(coll==='roles'||coll==='items'||coll==='settings'){const n=S.all('sops').filter(s=>s.nodes.some(nd=>nd.roleId===id||nd.itemId===id||nd.setting===id||nd.everySetting===id||nd.forSetting===id)).length;if(n)out.push({label:'SOPs',n});}
+    if(coll==='designations'||coll==='roles'){const n=chainUsers(coll,id).length;if(n)out.push({label:'Approval chains',n});}
     if(coll==='sops'){const n=S.all('masters').filter(m=>m.stages.some(s=>s.sopId===id)).length+S.all('sops').filter(s=>s.nodes.some(nd=>nd.sopId===id)).length;if(n)out.push({label:'SOPs',n});}
     return out;
   }
 
+  function chainUsers(coll,id){
+    const rec=S.get(coll,id); if(!rec)return [];
+    return S.active('approvalChains').filter(ch=>(ch.steps||[]).some(s=>coll==='roles'?s.role===rec.key:s.designation===rec.code)).map(ch=>ch.id);
+  }
   function activeUsage(coll,id){
     const out=[];
+    if((coll==='designations'||coll==='roles')&&R.approvalChains){const n=chainUsers(coll,id).length;if(n)out.push({label:'Approval chains',n});}
     Object.keys(R).forEach(k=>{const reg=R[k];reg.cols.forEach(c=>{
       if(c.virtual||!c.attr||c.ref!==coll||!(c.type==='ref'||c.type==='multi'))return;
       const n=S.active(reg.coll).filter(x=>{const v=x[c.attr];return Array.isArray(v)?v.includes(id):v===id;}).length;if(n)out.push({label:reg.label,n});
+    });});
+    return out;
+  }
+  /* active records using a record, with ids, for "show them" links */
+  function activeUsers(coll,id){
+    const out=[];
+    if((coll==='designations'||coll==='roles')&&R.approvalChains){const ids=chainUsers(coll,id);if(ids.length)out.push({regKey:'approvalChains',label:'Approval chains',ids});}
+    Object.keys(R).forEach(k=>{const reg=R[k];reg.cols.forEach(c=>{
+      if(c.virtual||!c.attr||c.ref!==coll||!(c.type==='ref'||c.type==='multi'))return;
+      const ids=S.active(reg.coll).filter(x=>{const v=x[c.attr];return Array.isArray(v)?v.includes(id):v===id;}).map(x=>x.id);
+      const cur=out.find(o=>o.regKey===k);if(cur)ids.forEach(i=>{if(!cur.ids.includes(i))cur.ids.push(i);});else if(ids.length)out.push({regKey:k,label:reg.label,ids});
     });});
     return out;
   }
@@ -268,10 +344,11 @@
         if(v[c.k]===undefined&&existing)return;
         const raw=String(v[c.k]==null?'':v[c.k]).trim();
         if(!raw){if(c.req)iss(c.k,'err','Required');return;}
-        if(/^=/.test(raw)){iss(c.k,'err','Formulas are not allowed');return;}
+        if(/^=/.test(raw)){iss(c.k,'err','Formula');return;}
         if(c.type==='num'){if(isNaN(Number(raw)))iss(c.k,'err','Not a number');else if(c.min!=null&&Number(raw)<c.min)iss(c.k,'err','Min '+c.min);}
-        if(c.type==='date'&&!parseDate(raw))iss(c.k,'err','DD/MM/YYYY');
+        if(c.type==='date'&&!parseDate(raw))iss(c.k,'err','YYYY-MM-DD');
         if(c.type==='enum'&&enumValue(c,raw)===undefined)iss(c.k,'err','Use '+c.opts.filter(Boolean).map(enumLabel).join(' · '));
+        if(c.type==='steps'){const p=parseSteps(raw);if(p.bad.length)iss(c.k,'err','Unknown: '+p.bad.join(', '));}
         if(c.type==='multienum'){const bad=raw.split(/[;,]/).map(s=>s.trim()).filter(s=>s&&enumValue(c,s)===undefined);if(bad.length)iss(c.k,'err','Unknown: '+bad.join(', '));}
         if(c.unique){const x=norm(raw);if(uniq[c.k+'|'+x]>1)iss(c.k,'err','Duplicate in sheet');const other=S.all(reg.coll).find(y=>norm(y[c.attr])===x&&(!existing||y.id!==existing.id));if(other)iss(c.k,'err','Already used');}
         if(c.idTag){
@@ -292,6 +369,7 @@
             const pend=pending[c.ref]&&pending[c.ref].has(norm(raw));
             const wrong=!pend&&c.scope&&c.scope.attr==='speciesId'?matches(c,S.active(c.ref),norm(raw)).filter(x=>x.speciesId):[];
             if(pend){}
+            else if(!nameLike(raw)){iss(c.k,'err','Not a valid '+(R[Object.keys(R).find(k=>R[k].coll===(c.type==='path'?'categories':c.ref))]||{one:c.label}).one.toLowerCase());}
             else if(wrong.length){iss(c.k,'err',raw+' belongs to '+wrong.map(x=>labelById('species',x.speciesId)).join(', ')+', not '+String(v[c.scope.col]||'').trim());}
             else if(f.archived){if(create||chosen[c.k+'|'+norm(raw)]){iss(c.k,'warn','Archived · will restore');res.creates.push(c.label+': '+raw);}else{iss(c.k,'err','Archived · restore or pick another',{create:true,text:raw,archived:true});res.unresolved.push(c.k);}}
             else if(create){iss(c.k,'warn','New');res.creates.push(c.label+': '+raw);}
@@ -306,6 +384,7 @@
             else if(!f.rec){
               const wrong=c.scope&&c.scope.attr==='speciesId'?matches(cc,S.active(c.ref),norm(t)).filter(x=>x.speciesId):[];
               if(wrong.length)iss(c.k,'err',t+' belongs to '+wrong.map(x=>labelById('species',x.speciesId)).join(', '));
+              else if(!nameLike(t)){iss(c.k,'err','Not a valid name: '+t);}
               else if(create){iss(c.k,'warn','New: '+t);res.creates.push(c.label+': '+t);}
               else{iss(c.k,'err','Not found: '+t,{create:true,text:t});res.unresolved.push(c.k);}
             }
@@ -374,6 +453,7 @@
         else if(c.type==='multienum')attrs[c.attr]=raw.split(/[;,]/).map(s=>s.trim()).filter(Boolean).map(s=>enumValue(c,s));
         else if(c.type==='ref'||c.type==='path'){const f=findRef(regKey,c,raw,v);attrs[c.attr]=f.rec?f.rec.id:createRef(regKey,c,raw,v);}
         else if(c.type==='multi')attrs[c.attr]=raw.split(/[;,]/).map(s=>s.trim()).filter(Boolean).map(t=>{const cc=Object.assign({},c,{type:'ref'});const f=findRef(regKey,cc,t,v);return f.rec?f.rec.id:createRef(regKey,cc,t,v);});
+        else if(c.type==='steps')attrs[c.attr]=parseSteps(raw).steps;
         else if(c.type==='date')attrs[c.attr]=parseDate(raw)||raw;
         else if(c.idTag)attrs[c.attr]=raw.replace(/\s+/g,'');
         else attrs[c.attr]=raw;
@@ -387,5 +467,5 @@
     return sum;
   }
 
-  window.REG={R,norm,idNorm,enumLabel,enumValue,activeUsage,archiveBlock,usageText,label,fullLabel,labelById,catPath,toRow,cellValue,candidates,findRef,createRef,createChoices,usage,validate,commit,ensurePath,isBlankRow,parseDate};
+  window.REG={R,nameLike,activeUsers,norm,idNorm,enumLabel,enumValue,activeUsage,archiveBlock,usageText,label,fullLabel,labelById,catPath,toRow,cellValue,candidates,findRef,createRef,createChoices,usage,validate,commit,ensurePath,isBlankRow,parseDate};
 })();

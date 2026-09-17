@@ -130,7 +130,7 @@
       case 'wait':{
         const age=n.until==='age',amt=age?n.amount:(setting(n.setting)||setting(n.amountSetting)||n.amount||1),unit=age?'days old':(n.unit||'days'); const over=!!r.ans[n.id];
         return `<div class="op-card">${lbl(n)}${over?`<div class="op-row">${pill(age?'Age reached':'Elapsed','ok')}<span class="op-mut">${age?'Until ':''}${E(amt)} ${E(unit)}</span></div>`
-          :`<div class="op-timer">${age?'<span>Until</span>':''}<b>${E(amt)}</b><span>${E(unit)}${age?'':' remaining'}</span></div><button class="op-link" data-op="elapse" data-n="${n.id}">Skip timer (try run)</button>`}</div>`;
+          :`<div class="op-timer">${age?'<span>Until</span>':''}<b>${E(amt)}</b><span>${E(unit)}${age?'':' remaining'}</span></div><button class="op-link" data-op="elapse" data-n="${n.id}">Skip wait</button>`}</div>`;
       }
       case 'repeat':{
         const every=setting(n.everySetting)||n.every||1,eu=n.everyUnit||'hours',fa=setting(n.forSetting)||n.forAmount||1,fu=n.forUnit||'days';
@@ -160,6 +160,9 @@
     }
   }
 
+  /* skip the caps page title when the page's only field already says the same thing */
+  const norm=t=>String(t||'').trim().toLowerCase();
+  const sameTitle=p=>!p.parallel&&p.nodes.length===1&&norm(p.nodes[0].label)===norm(p.title);
   function render(container,sop,opts){
     opts=opts||{}; if(!container)return;
     if(!sop||!Array.isArray(sop.nodes)){container.innerHTML='<div class="op-wrap"><div class="op-phone"><div class="op-screen"><div class="op-head"><div class="op-eyebrow">SOP</div><div class="op-title">No steps</div></div></div></div></div>';return;}
@@ -203,7 +206,7 @@
           <div class="op-prog"><i style="width:${pct}%"></i></div>
           <div class="op-dots">${P.map((_,k)=>`<button class="op-dot ${states[k]} ${k===r.i?'cur':''}" data-op="goto" data-k="${k}" aria-label="Page ${k+1}" ${k>reach?'disabled':''}></button>`).join('')}</div>
         </div>
-        <div class="op-body">${summary?'':`<div class="op-section">${E(p?p.title:'')}</div>`}${body}</div>
+        <div class="op-body">${summary||!p||sameTitle(p)?'':`<div class="op-section">${E(p.title)}</div>`}${body}</div>
         ${panel}
       </div></div></div>`;
 

@@ -11,20 +11,17 @@ window.seedRefs=function(st){
   st.purposes=mk(['Breeding','Fattening'].map(n=>({name:n})),'pu_');
   st.movementReasons=mk(['Growth','Delivery','Breeding','Health'].map(n=>({name:n})),'mv_');
   st.weightBands=mk([['Under 20 kg','',20],['20–35 kg',20,35],['35–40 kg',35,40],['40 kg +',40,'']].map(x=>({speciesId:'',name:x[0],fromKg:x[1],toKg:x[2]})),'wb_');
-  st.symptoms=mk([['FEVER','Fever'],['HIGH_FEVER','High fever'],['HYPOTHERMIA','Hypothermia'],['TENT_GT4','Skin tent over 4 s']].map(x=>({code:x[0],name:x[1]})),'sy_');
-  st.diseases=mk(['Bloat','Acidosis','Diarrhea','Fever','Heat stress','Mastitis','Anemia','PPR','Pox','ORF','Foot rot','Pinkeye'].map(n=>({name:n,ageBand:''})),'di_');
   /* 03-hardcoded-config: entities that were code constants / CHECKs with no editor. */
   st.saleProducts=mk([['Goat','sp_goat'],['Sheep','sp_sheep'],['Manure',''],['Mixed','']].map(x=>({name:x[0],speciesId:x[1]})),'spd_'); /* sales/domain ProductTypes */
   st.costKinds=mk(['animal','transport','booking','labour','transit','transition_feed','other'].map(c=>({code:c,name:c.replace(/_/g,' ').replace(/^./,m=>m.toUpperCase())})),'ck_'); /* procurement_load_cost_lines CK */
-  /* identifier_policies v1: types stay code-owned; policy is versioned data */
-  st.identifierPolicies=[{id:'idp_1',version:1,status:'active',types:[
-    {code:'animal_identifier_1',name:'RFID 1',primaryAllowed:true,autoLink:false},{code:'animal_identifier_2',name:'RFID 2',primaryAllowed:true,autoLink:false},
-    {code:'temporary_tag',name:'Temporary tag',primaryAllowed:false,autoLink:false},{code:'smart_ble_tag',name:'Smart BLE tag',primaryAllowed:false,autoLink:false}]}];
-  /* designation_catalog (12) — job titles, separate from RBAC roles */
+  /* goatos-stg identifier_policies phase1-identifier-v1: primary_allowed t/f/t/f, auto_link_allowed f everywhere; types stay code-owned */
+  st.identifierPolicies=[{id:'idp_1',version:1,code:'phase1-identifier-v1',status:'active',types:[
+    {code:'animal_identifier_1',name:'RFID 1',primaryAllowed:true,autoLink:false},{code:'animal_identifier_2',name:'RFID 2',primaryAllowed:false,autoLink:false},
+    {code:'temporary_tag',name:'Temporary tag',primaryAllowed:true,autoLink:false},{code:'smart_ble_tag',name:'Smart BLE tag',primaryAllowed:false,autoLink:false}]}];
+  /* goatos-stg designation_catalog (12): job titles. RBAC roles are st.roles (org_role_catalog) in seed.js */
   st.designations=mk([['ceo_internal','CEO / CXO','cxo'],['pc_director','Preventive Care Director','director'],['growth_director','Growth Director','director'],['feed_director','Feed Director','director'],
     ['health_director','Health Director','director'],['breeding_director','Breeding Director','director'],['procurement_director','Procurement Director','director'],['procurement_manager','Procurement Manager','manager'],
     ['park_head','Park Head','manager'],['verifier','Verifier',''],['operator','Operator',''],['hr','HR','director']].map(x=>({code:x[0],name:x[1],grade:x[2]})),'dsg_');
   /* counts_approval_requests kinds; shifting approved by Park Head, birth/death by named counts approvers */
   st.approvalChains=mk([['Counts','Birth',['counts_approver']],['Counts','Death',['counts_approver']],['Counts','Shifting',['park_head']]].map(x=>({dept:x[0],name:x[1],steps:x[2].map(d=>d==='counts_approver'?{role:d,perPerson:true}:{designation:d})})),'apc_');
-  st.deathCauses=st.deathCauses||[];st.marketCities=st.marketCities||[];st.rationGroups=st.rationGroups||[];
 };

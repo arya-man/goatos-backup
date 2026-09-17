@@ -4,7 +4,7 @@
   const $=(s,r)=>(r||document).querySelector(s);
   const $$=(s,r)=>Array.from((r||document).querySelectorAll(s));
   const tag=(t,tone)=>`<span class="tag t-${tone||'mut'}">${esc(t)}</span>`;
-  const statusTag=s=>s==='archived'?tag('Archived','mut'):s==='review'?tag('Review','warn'):tag('Active','ok');
+  const statusTag=s=>s==='archived'?tag('Archived','mut'):tag('Active','ok');
   const fmtDate=iso=>{if(!iso)return '';const d=new Date(iso);if(isNaN(d))return esc(iso);const p=n=>String(n).padStart(2,'0');return p(d.getDate())+'/'+p(d.getMonth()+1)+'/'+d.getFullYear();};
   const fmtDateTime=iso=>{const d=new Date(iso);if(isNaN(d))return '';const p=n=>String(n).padStart(2,'0');return fmtDate(iso)+' '+p(d.getHours())+':'+p(d.getMinutes());};
 
@@ -44,7 +44,7 @@
   UI.toast=function(msg,undo,action){
     let t=$('#toast'); if(t)t.remove(); clearTimeout(tt);
     t=document.createElement('div'); t.className='toast'; t.id='toast'; t.setAttribute('role','status');
-    t.innerHTML=`<span>${esc(msg)}</span>${action?`<button class="btn sm" data-act>${esc(action.label)}</button>`:''}${undo?`<button class="btn sm" data-undo>${ic('undo')}Undo</button>`:''}`;
+    t.innerHTML=`<span>${esc(msg)}</span>${action?(action.link?`<a href="javascript:void 0" data-act style="color:var(--brand);text-decoration:underline">${esc(action.label)}</a>`:`<button class="btn sm" data-act>${esc(action.label)}</button>`):''}${undo?`<button class="btn sm" data-undo>${ic('undo')}Undo</button>`:''}`;
     document.body.appendChild(t);
     if(undo)t.querySelector('[data-undo]').onclick=()=>{t.remove();undo();};
     if(action)t.querySelector('[data-act]').onclick=()=>{t.remove();action.run();};
@@ -70,7 +70,8 @@
   UI.pop=function(input,cfg){
     UI._popCfg={input,cfg,hi:-1,touched:false};
     let p=$('#cbpop'); if(!p){p=document.createElement('div');p.id='cbpop';p.className='cbpop';p.setAttribute('role','listbox');document.body.appendChild(p);
-      p.addEventListener('mousedown',e=>{e.preventDefault();const o=e.target.closest('[data-oi]');if(o)UI._popChoose(+o.dataset.oi,true);});}
+      p.addEventListener('mousedown',e=>{e.preventDefault();const o=e.target.closest('[data-oi]');if(o)UI._popChoose(+o.dataset.oi,true);});
+      p.addEventListener('change',e=>{const x=e.target.closest('[data-popall]');if(x&&UI._popCfg)UI._popCfg.cfg.applyAll=x.checked;});}
     UI._popRender();
   };
   UI._popItems=function(){
@@ -78,7 +79,19 @@
     const all=cfg.options(q)||[];
     const hay=o=>REG.norm(o.label+' '+(o.sub||''));
     let opts=all;
-    if(nq){
+    UI._popCfg.noMatch=false;
+    if(nq&&cfg.fuzzy){
+      /* best match first: exact / contains, then word overlap, then letter-pair similarity */
+      const pairs=s=>{const a=[];for(let i=0;i<s.length-1;i++)a.push(s.slice(i,i+2));return a;};
+      const dice=(a,b)=>{const x=pairs(a),y=pairs(b);if(!x.length||!y.length)return 0;let m=0;const pool=y.slice();x.forEach(p=>{const i=pool.indexOf(p);if(i>=0){m++;pool.splice(i,1);}});return 2*m/(x.length+y.length);};
+      const qw=nq.split(/[\s·>\-]+/).filter(Boolean);
+      const score=o=>{const l=REG.norm(o.label);if(l===nq)return 3;let s=dice(nq,l);if(l.includes(nq)||nq.includes(l))s=Math.max(s,1.5);
+        const lw=l.split(/[\s·>\-]+/);if(qw.some(w=>w.length>2&&lw.some(v=>v.startsWith(w)||w.startsWith(v)&&v.length>2)))s=Math.max(s,1);
+        if((o.alias||[]).some(a=>REG.norm(a)===nq))s=Math.max(s,2);return s;};
+      const ranked=all.map(o=>[score(o),o]).filter(x=>x[0]>=0.4).sort((a,b)=>b[0]-a[0]).map(x=>x[1]);
+      if(ranked.length)opts=ranked;else UI._popCfg.noMatch=true;
+    }
+    else if(nq){
       const rank=o=>{const l=REG.norm(o.label);if(l===nq)return 0;if(l.startsWith(nq))return 1;if(hay(o).split(/[\s·>\-]+/).some(w=>w.startsWith(nq)))return 2;if(hay(o).includes(nq))return 3;if((o.alias||[]).some(a=>REG.norm(a)===nq))return 4;return 9;};
       opts=all.map(o=>[rank(o),o]).filter(x=>x[0]<9).sort((a,b)=>a[0]-b[0]).map(x=>x[1]);
     }
@@ -95,12 +108,12 @@
     const items=UI._popItems(); c.items=items;
     const firstExisting=items.findIndex(o=>!o.create);
     const q=(c.cfg.query?c.cfg.query():c.input.value).trim();
-    if(!c.touched)c.hi=q?firstExisting:-1;
+    if(!c.touched)c.hi=q&&!c.noMatch?firstExisting:-1;
     if(c.hi>=items.length)c.hi=items.length-1;
     const hasExisting=firstExisting>=0;
-    p.innerHTML=(items.length?items.map((o,i)=>o.create?`<div class="o new ${i===c.hi?'hi':''}" data-oi="${i}" role="option">${ic('plus','',14)}${esc(o.label)}${i===c.hi?'<small>Click or Ctrl+Enter</small>':''}</div>`
+    p.innerHTML=(c.cfg.header?c.cfg.header():'')+(items.length?items.map((o,i)=>o.create?`<div class="o new ${i===c.hi?'hi':''}" data-oi="${i}" role="option">${ic('plus','',14)}${esc(o.label)}${i===c.hi?'<small>Click or Ctrl+Enter</small>':''}</div>`
       :`<div class="o ${i===c.hi?'hi':''}" data-oi="${i}" role="option" aria-selected="${i===c.hi}">${esc(o.label)}${o.sub?`<small>${esc(o.sub)}</small>`:''}</div>`).join(''):'')
-      +(!hasExisting&&q?'<div class="none">No existing match</div>':'')+(!items.length&&!q?'<div class="none">No values yet</div>':'');
+      +((!hasExisting||c.noMatch)&&q?'<div class="none">No close match</div>':'')+(!items.length&&!q?'<div class="none">No values yet</div>':'');
     const r=c.input.getBoundingClientRect();
     p.style.minWidth=Math.max(200,r.width)+'px';
     p.style.display='block';
@@ -159,13 +172,13 @@
     const baseline=JSON.stringify(S.state); let created=false, saved=false, shown=false;
     const body=()=>{
       const res=REG.validate(regKey,[row],{})[0];
-      const st=reg.statuses.length>2||rec?`<div class="fld"><label>Status</label><select data-fstatus>${reg.statuses.map(x=>`<option value="${x}" ${(row.v.status||'active')===x?'selected':''}>${REG.enumLabel(x)}</option>`).join('')}</select></div>`:'';
+      const st=rec&&!dup?`<div class="fld"><label>Status</label><select data-fstatus>${reg.statuses.map(x=>`<option value="${x}" ${(row.v.status||'active')===x?'selected':''}>${REG.enumLabel(x)}</option>`).join('')}</select></div>`:'';
       return `<div class="fgrid">${reg.cols.filter(c=>!c.virtual||c.scope||reg.cols.some(x=>x.scope&&x.scope.col===c.k)).map(c=>{
         const iss=shown&&res.issues[c.k]; const full=c.w==='wide'||c.type==='multi'||c.type==='multienum';
         const input=(c.type==='ref'||c.type==='path'||c.type==='enum'||c.type==='multi')
           ?`<input data-ff="${c.k}" value="${esc(row.v[c.k]||'')}" placeholder="${c.blankLabel?esc(c.blankLabel):'Search or create'}" autocomplete="off" aria-label="${esc(c.label)}">`
           :(c.type==='multienum'?`<div class="chkrow">${c.opts.map(o=>`<label><input type="checkbox" data-fm="${c.k}" value="${esc(REG.enumLabel(o))}" ${String(row.v[c.k]||'').split(/;\s*/).map(REG.norm).includes(REG.norm(REG.enumLabel(o)))?'checked':''}>${esc(REG.enumLabel(o))}</label>`).join('')}</div>`
-          :`<input data-ff="${c.k}" value="${esc(row.v[c.k]||'')}" ${c.type==='num'?'inputmode="decimal"':''} ${c.type==='date'?'placeholder="DD/MM/YYYY"':''} aria-label="${esc(c.label)}">`);
+          :`<input data-ff="${c.k}" value="${esc(row.v[c.k]||'')}" ${c.type==='num'?'inputmode="decimal"':''} ${c.type==='date'?'placeholder="YYYY-MM-DD"':''} aria-label="${esc(c.label)}">`);
         return `<div class="fld ${full?'full':''}"><label>${esc(c.label)}${c.req?' *':''}</label>${input}${iss?`<div class="ferr ${iss[0]==='err'?'':'w'}">${esc(iss[1])}${iss[2]&&iss[2].create?` <button type="button" class="btn sm" data-rf-create="${c.k}">${ic('plus','',12)}Create “${esc(iss[2].text)}”</button>`:''}</div>`:''}</div>`;
       }).join('')}${st}</div>`;
     };

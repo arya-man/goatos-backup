@@ -1,7 +1,7 @@
 /* Import / export / templates (CSV + XLSX via SheetJS, loaded on demand) */
 (function(){
   const IO={};
-  const WORKBOOK_ORDER=['farms','parks','pens','partitions','species','breeds','sexes','stages','tags','healthStates','statusDefs','exitReasons','purposes','movementReasons','weightBands','animals','categories','items','roles','people','approvers','deathCauses','marketCities','sopCategories','taskTypes','settings'];
+  const WORKBOOK_ORDER=['farms','parks','pens','partitions','species','breeds','sexes','stages','tags','healthStates','statusDefs','exitReasons','purposes','movementReasons','weightBands','animals','categories','items','roles','people','approvers','designations','approvalChains','saleProducts','costKinds','identifierPolicies','sopCategories','taskTypes','settings'].filter(k=>REG.R[k]);
   IO.ORDER=WORKBOOK_ORDER;
   IO.LIMITS={rows:10000,bytes:5*1024*1024,cols:60};
   const ALIASES={
@@ -122,8 +122,8 @@
   IO.template=function(regKey,fmt,speciesId){
     if(regKey==='workbook')return IO.workbookTemplate(fmt);
     const sp=speciesId&&S.get('species',speciesId);
-    const aoa=[header(regKey,speciesId)].concat(sampleRows(regKey,null,speciesId).slice(0,2));
-    if(sp&&aoa.length===1){const cols=colsFor(regKey,speciesId);aoa.push(cols.map(c=>c.k==='species'?sp.name:''));}
+    /* animal templates carry headers only (never real animals); allowed values live on their own sheet */
+    const aoa=[header(regKey,speciesId)].concat(regKey==='animals'?[]:sampleRows(regKey,null,speciesId).slice(0,2));
     if(fmt==='csv')return UI.download(fname(regKey,'template','csv',sp&&sp.name),IO.toCSV(aoa));
     writeBook([[sp?sp.name+' '+REG.R[regKey].label.toLowerCase():REG.R[regKey].label,aoa],['Allowed values',listsSheet([regKey],speciesId)]],fname(regKey,'template','xlsx',sp&&sp.name),[idCols(regKey,speciesId)]);
   };
@@ -134,7 +134,7 @@
     writeBook([[REG.R[regKey].label,aoa]],fname(regKey,'export','xlsx'),[idCols(regKey)]);
   };
   IO.workbookTemplate=function(fmt,withData){
-    const sheets=WORKBOOK_ORDER.map(k=>[REG.R[k].label,[header(k)].concat(withData?sampleRows(k):sampleRows(k).slice(0,2))]);
+    const sheets=WORKBOOK_ORDER.map(k=>[REG.R[k].label,[header(k)].concat(withData?sampleRows(k):k==='animals'?[]:sampleRows(k).slice(0,2))]);
     sheets.push(['Allowed values',listsSheet(WORKBOOK_ORDER)]);
     writeBook(sheets,fname('workbook',withData?'export':'template','xlsx'),WORKBOOK_ORDER.map(k=>idCols(k)));
   };
@@ -169,9 +169,9 @@
       let wb,X;
       try{X=await IO.xlsx();wb=X.read(await file.arrayBuffer(),{type:'array',cellDates:true,cellFormula:true});}
       catch(e){UI.toast('Could not read Excel file offline · use CSV');return;}
+      /* formula cells come in as their text and are flagged per cell in review */
       for(const n of wb.SheetNames){const ws=wb.Sheets[n];
-        const f=Object.keys(ws).find(k=>k[0]!=='!'&&ws[k]&&ws[k].f);
-        if(f)return IO.reject('Formulas are not allowed · sheet “'+n+'” cell '+f+' · paste values only');}
+        Object.keys(ws).forEach(k=>{const x=ws[k];if(k[0]!=='!'&&x&&x.f){const t='='+x.f;ws[k]={t:'s',v:t,w:t};}});}
       raw=wb.SheetNames.filter(n=>n!=='Allowed values'&&n!=='Lists').map(n=>({name:n,aoa:X.utils.sheet_to_json(wb.Sheets[n],{header:1,raw:false,defval:''})}));
     }
     IO.load(raw);
@@ -182,8 +182,6 @@
     if(big)return IO.reject('“'+big.name+'” has more than '+IO.LIMITS.rows.toLocaleString()+' rows · split the file');
     const wide=raw.find(s=>(s.aoa||[]).some(r=>r.length>IO.LIMITS.cols&&r.slice(IO.LIMITS.cols).some(c=>String(c).trim())));
     if(wide)return IO.reject('“'+wide.name+'” has more than '+IO.LIMITS.cols+' columns');
-    const formula=raw.find(s=>(s.aoa||[]).some(r=>r.some(c=>/^=[A-Za-z(]/.test(String(c).trim()))));
-    if(formula)return IO.reject('Formulas are not allowed · “'+formula.name+'” · paste values only');
     st.sheets=raw.map(s=>{
       const aoa=(s.aoa||[]).filter(r=>r.some(c=>String(c).trim()!==''));
       const regKey=st.target==='workbook'?IO.sheetRegFor(s.name,null):(raw.length>1?IO.sheetRegFor(s.name,null)||st.target:st.target);
@@ -238,10 +236,11 @@
       tr.querySelector('[data-k="create"]').innerHTML=cell(x.create,'ok');tr.querySelector('[data-k="update"]').innerHTML=cell(x.update,'info');
       tr.querySelector('[data-k="same"]').textContent=x.same;tr.querySelector('[data-k="err"]').innerHTML=cell(x.err,'dng');tr.querySelector('[data-k="newv"]').innerHTML=cell(x.newv+x.unk,x.unk?'warn':'pur');});
     const saveN=t.create+t.update, ok=saveN&&(!t.err||st.skipErrors);
-    const b=root.querySelector('[data-a="imp-commit"]'); if(b){b.disabled=!ok;b.innerHTML=ic('check')+(t.err&&!st.skipErrors?'Fix '+t.err+' row'+(t.err===1?'':'s')+' to import':'Import '+saveN+' row'+(saveN===1?'':'s'));}
-    const sk=root.querySelector('[data-impskip]'); if(sk){sk.hidden=!t.err;const n=sk.querySelector('[data-n]');if(n)n.textContent=t.err;}
+    const b=root.querySelector('[data-a="imp-commit"]'); if(b){b.disabled=!ok;b.innerHTML=IO.commitLabel(t,st);}
+    const sk=root.querySelector('[data-impskip]'); if(sk){sk.hidden=!t.err;const n=sk.querySelector('[data-skiptxt]');if(n)n.textContent=Sheet.skipText(t.err);}
   };
 
+  IO.commitLabel=(t,st)=>{const n=t.create+t.update;return ic('check')+(t.err&&!st.skipErrors?'Fix '+t.err+' row'+(t.err===1?'':'s')+' to import':n?'Import '+n+' row'+(n===1?'':'s'):'No changes');};
   /* ---------- page ---------- */
   IO.page=function(){
     const st=IO.state||(IO.state={step:1,target:'animals',sheets:[]});
@@ -257,7 +256,6 @@
         </div><div class="bd stack">
           ${st.error?`<div class="note dng" role="alert" style="color:var(--danger);font-weight:650">${ic('alert-triangle','',14)} ${esc(st.error)}</div>`:''}
           ${st.target==='animals'?`<div class="row" style="flex-wrap:wrap;gap:6px"><span class="muted small">Template per animal type</span>${S.active('species').map(sp=>`<button class="btn sm" data-a="imp-tpl" data-f="xlsx" data-sp="${sp.id}">${ic('download')}${esc(sp.name)} .xlsx</button>`).join('')}</div>`:''}
-          <div class="muted small">Up to ${IO.LIMITS.rows.toLocaleString()} rows and 5 MB · values only, no formulas · use names, not ids</div>
           <label class="drop" data-drop>${ic('upload')}<div style="font-weight:700;margin-top:8px">Drop .xlsx or .csv</div>
             <input type="file" accept=".xlsx,.xls,.csv,.tsv,.txt" data-imp-file hidden></label>
           ${st.target!=='workbook'?`<div class="row"><button class="btn" data-a="imp-paste">${ic('sheet')}Paste from spreadsheet</button></div>`:''}
@@ -288,8 +286,8 @@
         ${st.sheets.length>1?`<div class="tabs">${st.sheets.map((x,i)=>`<a href="javascript:void 0" class="${i===st.tab?'on':''}" data-a="imp-tab" data-i="${i}">${esc(REG.R[x.regKey].label)} ${totals[i].err?UI.tag(totals[i].err,'dng'):''}</a>`).join('')}</div>`:''}
         <div data-impsheet>${Sheet.html(s.G,{noFoot:true})}</div>
         <div class="row mt"><button class="btn" data-a="imp-back">Back</button><span class="sp"></span>
-          <label class="row small" data-impskip ${errN?'':'hidden'} style="font-weight:650"><input type="checkbox" data-a="imp-skip" ${st.skipErrors?'checked':''}>Skip <span data-n>${errN}</span>&nbsp;rows with errors</label>
-          <button class="btn p" data-a="imp-commit" ${saveN&&(!errN||st.skipErrors)?'':'disabled'}>${ic('check')}${errN&&!st.skipErrors?'Fix '+errN+' row'+(errN===1?'':'s')+' to import':'Import '+saveN+' row'+(saveN===1?'':'s')}</button></div>`;
+          <label class="row small" data-impskip ${errN?'':'hidden'} style="font-weight:650"><input type="checkbox" data-a="imp-skip" ${st.skipErrors?'checked':''}><span data-skiptxt>${Sheet.skipText(errN)}</span></label>
+          <button class="btn p" data-a="imp-commit" ${saveN&&(!errN||st.skipErrors)?'':'disabled'}>${IO.commitLabel(t,st)}</button></div>`;
     }
     if(st.step===4){
       body=`<section class="card"><div class="hd"><h3>Imported</h3><span class="sp"></span><button class="btn sm" data-a="imp-undo">${ic('undo')}Undo import</button><button class="btn sm p" data-a="imp-again">${ic('upload')}Import another</button></div>
