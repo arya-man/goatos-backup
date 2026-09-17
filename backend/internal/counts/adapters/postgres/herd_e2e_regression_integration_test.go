@@ -8,7 +8,6 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"sync"
 	"testing"
 	"time"
 
@@ -65,15 +64,17 @@ func TestReplayedBirthStillResolvesItsMotherPg(t *testing.T) {
 	}
 }
 
-// TestSecondDeathReportForAPendingGoatIsRefusedPg: two operators reporting the same death opened
-// TWO pending approvals for one animal. Approving one killed the goat and left the other stuck
-// (its approve 500'd on the identity row version), and REJECTING the leftover as a duplicate
-// canceled the applied death's workflow under a pending verifier item (E2E 2026-09-17). While a
-// death report for an animal is pending, a second one is refused -- sequentially and under a race.
-func TestSecondDeathReportForAPendingGoatIsRefusedPg(t *testing.T) {
+// TestSecondDeathReportForAPendingGoatIsAcceptedAsOnMainPg: a second death report for an animal
+// whose first report is still pending is ACCEPTED, exactly as origin/main does (2026-09-17 parity
+// revert of a submit-time 409 death_already_reported that no SOP edit asked for). The duplicate is
+// handled at DECIDE time instead: once the first report is approved the animal has left the herd,
+// and approving the second is refused cleanly with ErrDeathAlreadyApplied (409, never a 500),
+// leaving it pending to be rejected.
+func TestSecondDeathReportForAPendingGoatIsAcceptedAsOnMainPg(t *testing.T) {
 	ctx := context.Background()
 	pool := setupCountsDB(t, ctx)
-	repo := newApprovalRepo(t, pool, &fakeIdentityTx{})
+	identity := identitypg.NewRepository(pool, 10*time.Second)
+	repo := newApprovalRepo(t, pool, identity)
 	goatID := "00000000-0000-4000-8000-00000000c0d1"
 	seedApprovalGoat(t, ctx, pool, goatID, countsShedA)
 	submit := func(key string) (domain.ApprovalRequest, bool, error) {
@@ -92,32 +93,37 @@ func TestSecondDeathReportForAPendingGoatIsRefusedPg(t *testing.T) {
 	if again, replay, err := submit("death-dup-1"); err != nil || !replay || again.ApprovalRequestID != first.ApprovalRequestID {
 		t.Fatalf("replay = %v %v %v", again.ApprovalRequestID, replay, err)
 	}
-	if _, _, err := submit("death-dup-2"); !errors.Is(err, ports.ErrDeathAlreadyReported) {
-		t.Fatalf("second report err = %v, want ErrDeathAlreadyReported", err)
+	second, replay, err := submit("death-dup-2")
+	if err != nil || replay || second.ApprovalRequestID == first.ApprovalRequestID {
+		t.Fatalf("second report = %v replay=%v err=%v; want a new pending request (origin/main accepts it)", second.ApprovalRequestID, replay, err)
 	}
-	// A race of fresh keys on another goat lands exactly one pending report.
-	raceGoat := "00000000-0000-4000-8000-00000000c0d2"
-	seedApprovalGoat(t, ctx, pool, raceGoat, countsShedA)
-	var wg sync.WaitGroup
-	for i := 0; i < 6; i++ {
-		wg.Add(1)
-		go func(i int) {
-			defer wg.Done()
-			_, _, _ = repo.CreateApprovalRequest(ctx, domain.ApprovalRequestSubmission{
-				TenantID: countsTenant, RequestType: domain.ApprovalRequestTypeDeath,
-				Payload:       json.RawMessage(`{"goat_id":"` + raceGoat + `","lifecycle_status":"dead","exit_reason":"died"}`),
-				SubjectGoatID: strPtr(raceGoat), RaisedByUserID: countsOperator, RaisedAt: time.Now(),
-				IdempotencyKey: fmt.Sprintf("death-race-%d", i), RequestFingerprint: fmt.Sprintf("death-race-%d-fp", i),
-			})
-		}(i)
+	approve := func(id, key string) error {
+		_, _, err := repo.DecideApprovalRequest(ctx, domain.ApprovalDecision{
+			TenantID: countsTenant, ApprovalRequestID: id, Status: domain.ApprovalStatusApproved,
+			DecidedByUserID: countsApprover, DecidedAt: time.Now(),
+			IdempotencyKey: key, RequestFingerprint: key + "-fp",
+			Effect: &domain.ApprovalEffect{ExitGoat: identityports.ExitGoatCommand{
+				TenantID: countsTenant, ActorID: countsApprover, ClientIdempotencyKey: "exit-" + key,
+				StoredIdempotencyKey: countsTenant + ":identity.admin.goat_exit:exit-" + key,
+				IdempotencyScope:     "identity.admin.goat_exit", RequestHash: "exit-hash-" + key,
+				GoatID: goatID, LifecycleStatus: "dead", ExitReason: "died", Reason: "found dead",
+				OccurredAt: time.Now(), RowVersion: 1, GuardrailApproved: true,
+			}},
+		})
+		return err
 	}
-	wg.Wait()
-	var pending int
-	if err := pool.QueryRow(ctx, `SELECT count(*) FROM counts_approval_requests WHERE subject_goat_id=$1::uuid AND request_type='death' AND status='pending'`, raceGoat).Scan(&pending); err != nil {
+	if err := approve(first.ApprovalRequestID, "decide-dup-1"); err != nil {
+		t.Fatalf("approve first report: %v", err)
+	}
+	if err := approve(second.ApprovalRequestID, "decide-dup-2"); !errors.Is(err, ports.ErrDeathAlreadyApplied) {
+		t.Fatalf("approve second report err = %v, want ErrDeathAlreadyApplied (409 death_already_applied)", err)
+	}
+	var status string
+	if err := pool.QueryRow(ctx, `SELECT status FROM counts_approval_requests WHERE approval_request_id = $1::uuid`, second.ApprovalRequestID).Scan(&status); err != nil {
 		t.Fatal(err)
 	}
-	if pending != 1 {
-		t.Fatalf("pending death reports after a race = %d, want 1", pending)
+	if status != domain.ApprovalStatusPending {
+		t.Fatalf("refused duplicate status = %s, want pending (to be rejected)", status)
 	}
 }
 
