@@ -2583,17 +2583,20 @@ private fun canonicalWorkflowStepFingerprintPayload(
     opType: OutboxOpType,
     payloadJson: String,
     json: kotlinx.serialization.json.Json,
-): String = runCatching {
+): String {
     fun List<WorkflowProofOutboxRef>.canonical() =
         map { if (it.outboxItemId.isNotBlank()) it.copy(proofRef = "") else it }
-    if (opType == OutboxOpType.WORKFLOW_ACTION_COMPLETE) {
-        val payload = json.decodeFromString<WorkflowActionCompletePayload>(payloadJson)
-        json.encodeToString(payload.copy(proofOutboxItems = payload.proofOutboxItems.canonical()))
-    } else {
-        val payload = json.decodeFromString<WorkflowActionAnswerPayload>(payloadJson)
-        json.encodeToString(payload.copy(proofOutboxItems = payload.proofOutboxItems.canonical()))
-    }
-}.getOrDefault(payloadJson)
+    // exception:exempt a payload this build cannot decode keeps its raw text as the fingerprint, which is exactly the pre-canonical identity; nothing is lost.
+    return runCatching {
+        if (opType == OutboxOpType.WORKFLOW_ACTION_COMPLETE) {
+            val payload = json.decodeFromString<WorkflowActionCompletePayload>(payloadJson)
+            json.encodeToString(payload.copy(proofOutboxItems = payload.proofOutboxItems.canonical()))
+        } else {
+            val payload = json.decodeFromString<WorkflowActionAnswerPayload>(payloadJson)
+            json.encodeToString(payload.copy(proofOutboxItems = payload.proofOutboxItems.canonical()))
+        }
+    }.getOrDefault(payloadJson)
+}
 
 /** Pure projection used by the production outbox-backed Health pending-report read path. */
 internal fun projectPendingHealthCaseOpens(
