@@ -33,7 +33,22 @@
     <string name="verify_scope_all">सभी</string>
     <string name="verify_scope_individual">व्यक्तिगत (%1$d)</string>
     <string name="verify_scope_lumpsum">कुल वजन (%1$d)</string>
-    <string name="verify_shed_group_summary">%1$d पंक्तियाँ · %2$d वीडियो</string>
+    <plurals name="verify_shed_group_rows">
+        <item quantity="one">%1$d पंक्ति</item>
+        <item quantity="other">%1$d पंक्तियाँ</item>
+    </plurals>
+    <plurals name="verify_proof_videos">
+        <item quantity="one">%1$d वीडियो</item>
+        <item quantity="other">%1$d वीडियो</item>
+    </plurals>
+    <plurals name="verify_proof_photos">
+        <item quantity="one">%1$d फ़ोटो</item>
+        <item quantity="other">%1$d फ़ोटो</item>
+    </plurals>
+    <plurals name="verify_proof_other">
+        <item quantity="one">%1$d प्रमाण</item>
+        <item quantity="other">%1$d प्रमाण</item>
+    </plurals>
     <string name="verify_shed_group_progress">%1$d बकरियाँ · %2$d समीक्षा शेष</string>
 
     <string name="verify_detail_close">बंद करें</string>

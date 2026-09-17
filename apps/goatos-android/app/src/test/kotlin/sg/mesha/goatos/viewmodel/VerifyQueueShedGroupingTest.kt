@@ -139,6 +139,38 @@ class VerifyQueueShedGroupingTest {
         )
     }
 
+    /**
+     * Realme E2E 2026-09-17: a whole-pen weighing item carrying two videos and a photo read
+     * "3 videos · Dinakar" in the queue. The row counts each kind from the backend mime.
+     */
+    @Test
+    fun `a whole-pen item with two videos and a photo says so, not three videos`() = runTest(dispatcher) {
+        val lumpSum = VerificationQueueItem(
+            itemId = "lump-1",
+            category = "weighing_proof",
+            status = VerificationStatus.PENDING,
+            subjectLabel = "Godel 2 - Part 1",
+            shedLabel = "Godel 2",
+            operatorName = "Dinakar",
+            source = VerificationSourceRef(refType = "weighing_shed_observation"),
+            media = listOf(
+                VerificationMediaItem(proofId = "v1", downloadUrl = "/v1", mimeType = "video/mp4"),
+                VerificationMediaItem(proofId = "v2", downloadUrl = "/v2", mimeType = "video/mp4"),
+                VerificationMediaItem(proofId = "p1", downloadUrl = "/p1", mimeType = "image/jpeg"),
+            ),
+        )
+        val vm = VerifyQueueViewModel(repo = ShedQueueRepository(listOf(lumpSum)), syncRepo = QueueGroupingNoopSyncRepository(), analytics = NoopAnalytics(), savedStateHandle = SavedStateHandle())
+        backgroundScope.launch { vm.state.collect {} }
+        advanceUntilIdle()
+
+        val row = vm.state.value.rows.single()
+        assertEquals("2 videos · 1 photo", row.mediaCountLabel)
+        assertEquals(
+            "2 videos · 1 photo · Dinakar",
+            listOf(row.weightLabel, row.mediaCountLabel, row.operatorLabel).filter { it.isNotBlank() }.joinToString(" · "),
+        )
+    }
+
     @Test
     fun `submission fallback still separates sibling partitions`() {
         fun item(partition: String) = VerificationQueueItem(

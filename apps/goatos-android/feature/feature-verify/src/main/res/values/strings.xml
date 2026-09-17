@@ -39,7 +39,22 @@
     <string name="verify_scope_all">All</string>
     <string name="verify_scope_individual">Individual (%1$d)</string>
     <string name="verify_scope_lumpsum">Lump-sum (%1$d)</string>
-    <string name="verify_shed_group_summary">%1$d rows · %2$d videos</string>
+    <plurals name="verify_shed_group_rows">
+        <item quantity="one">%1$d row</item>
+        <item quantity="other">%1$d rows</item>
+    </plurals>
+    <plurals name="verify_proof_videos">
+        <item quantity="one">%1$d video</item>
+        <item quantity="other">%1$d videos</item>
+    </plurals>
+    <plurals name="verify_proof_photos">
+        <item quantity="one">%1$d photo</item>
+        <item quantity="other">%1$d photos</item>
+    </plurals>
+    <plurals name="verify_proof_other">
+        <item quantity="one">%1$d proof</item>
+        <item quantity="other">%1$d proofs</item>
+    </plurals>
     <string name="verify_shed_group_progress">%1$d goats · %2$d to review</string>
 
     <string name="verify_detail_close">Close</string>

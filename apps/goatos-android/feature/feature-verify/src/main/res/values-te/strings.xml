@@ -33,7 +33,22 @@
     <string name="verify_scope_all">అన్నీ</string>
     <string name="verify_scope_individual">వ్యక్తిగతం (%1$d)</string>
     <string name="verify_scope_lumpsum">మొత్తం బరువు (%1$d)</string>
-    <string name="verify_shed_group_summary">%1$d వరుసలు · %2$d వీడియోలు</string>
+    <plurals name="verify_shed_group_rows">
+        <item quantity="one">%1$d వరుస</item>
+        <item quantity="other">%1$d వరుసలు</item>
+    </plurals>
+    <plurals name="verify_proof_videos">
+        <item quantity="one">%1$d వీడియో</item>
+        <item quantity="other">%1$d వీడియోలు</item>
+    </plurals>
+    <plurals name="verify_proof_photos">
+        <item quantity="one">%1$d ఫోటో</item>
+        <item quantity="other">%1$d ఫోటోలు</item>
+    </plurals>
+    <plurals name="verify_proof_other">
+        <item quantity="one">%1$d రుజువు</item>
+        <item quantity="other">%1$d రుజువులు</item>
+    </plurals>
     <string name="verify_shed_group_progress">%1$d మేకలు · %2$d సమీక్షించాలి</string>
 
     <string name="verify_detail_close">మూయి</string>

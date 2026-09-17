@@ -33,7 +33,22 @@
     <string name="verify_scope_all">ಎಲ್ಲಾ</string>
     <string name="verify_scope_individual">ಪ್ರತ್ಯೇಕ (%1$d)</string>
     <string name="verify_scope_lumpsum">ಒಟ್ಟು ತೂಕ (%1$d)</string>
-    <string name="verify_shed_group_summary">%1$d ಸಾಲುಗಳು · %2$d ವೀಡಿಯೊಗಳು</string>
+    <plurals name="verify_shed_group_rows">
+        <item quantity="one">%1$d ಸಾಲು</item>
+        <item quantity="other">%1$d ಸಾಲುಗಳು</item>
+    </plurals>
+    <plurals name="verify_proof_videos">
+        <item quantity="one">%1$d ವೀಡಿಯೊ</item>
+        <item quantity="other">%1$d ವೀಡಿಯೊಗಳು</item>
+    </plurals>
+    <plurals name="verify_proof_photos">
+        <item quantity="one">%1$d ಫೋಟೋ</item>
+        <item quantity="other">%1$d ಫೋಟೋಗಳು</item>
+    </plurals>
+    <plurals name="verify_proof_other">
+        <item quantity="one">%1$d ಪುರಾವೆ</item>
+        <item quantity="other">%1$d ಪುರಾವೆಗಳು</item>
+    </plurals>
     <string name="verify_shed_group_progress">%1$d ಮೇಕೆಗಳು · %2$d ಪರಿಶೀಲಿಸಬೇಕಾಗಿದೆ</string>
 
     <string name="verify_detail_close">ಮುಚ್ಚಿ</string>
