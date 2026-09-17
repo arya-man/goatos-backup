@@ -433,7 +433,7 @@ private fun ApprovalCaptureSection(row: ApprovalRowUi, state: ApprovalUiState, o
                 Text(captureRow.group, color = MeshaColors.Faint, style = MeshaType.sectionLabel)
                 lastGroup = captureRow.group
             }
-            Text("${captureRow.label}: ${captureRow.value}", color = MeshaColors.Ink, style = MeshaType.cardSubtitle)
+            Text(approvalAnswerLine(captureRow.label, captureRow.value), color = MeshaColors.Ink, style = MeshaType.cardSubtitle)
         }
         if (row.captureMissingNote.isNotBlank()) {
             Text(
@@ -469,4 +469,14 @@ private fun ApprovalCaptureSection(row: ApprovalRowUi, state: ApprovalUiState, o
             }
         }
     }
+}
+
+/**
+ * One recorded answer as a line: "<label>: <value>". A label that already ends in its own
+ * punctuation -- an authored question "Why move these animals?", or "Delivery type:" -- is not given
+ * a second mark ("Why move these animals?: Space" on the Realme E2E 2026-09-17).
+ */
+internal fun approvalAnswerLine(label: String, value: String): String {
+    val trimmed = label.trimEnd()
+    return if (trimmed.endsWith('?') || trimmed.endsWith(':')) "$trimmed $value" else "$trimmed: $value"
 }
