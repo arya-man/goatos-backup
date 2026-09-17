@@ -57,6 +57,18 @@ heads, check that."*
    routine now carries `start_date` (defaults to today, IST): nothing raises before it, and an
    every-N-days routine raises on start_date, start_date + N, start_date + 2N, ...
 
+## 2026-09-17 answers to the open questions (maintainer, chat)
+
+1. **Verifier review stays an OPTION per routine.** `review_kind = none` closes the check the
+   moment the assignee submits the required answers and captures; `review_kind = verifier`
+   closes it when the verifier accepts, and a rejection sends it back to be done again. Nothing
+   else closes a check.
+2. **No distance rule on check-in for now.** The check-in records GPS, address and the
+   mock-location flag for the verifier and refuses nothing.
+3. **A routine is never a care visit.** Vaccination, deworming, preventive-care work and the
+   next-day pen visit are their own modules; a routine never closes, reopens or changes any of
+   them, including an `after_work` routine raised by that work.
+
 ## What it is in one paragraph
 
 A **routine** is a rule the CEO writes once, per park: *"In Coimbatore, every day, for every
@@ -74,14 +86,14 @@ and never disappears. Everything the maintainer listed is a column on the routin
 |---|---|---|
 | Park | one park | A routine belongs to ONE park; the same check in both parks is two routines, each with its own people. |
 | Name, instruction | text | The card title and the sentence on the detail screen. |
-| Scope | `all_pens` / `selected_pens` | All ACTIVE pens of the park (partition catalog, the same source the herd register pickers use), or a ticked list. |
+| Scope | `all_pens` / `selected_pens` / `park` | All ACTIVE pens of the park (partition catalog, the same source the herd register pickers use), or a ticked list. |
 | Occupied only | bool, default true | With `all_pens`, skip pens holding no live animals that day. A cleaning check on an empty pen is noise. |
-| Cadence | `daily` / `weekly` / `monthly` / `after_work` | See *Cadence* below. |
+| Cadence | `daily` / `weekly` / `monthly` / `every_n_days` / `after_work` | See *Cadence* below. |
 | Weekdays / month days | `[1..7]` (Mon=1) / `[1..31]` | For weekly / monthly. A month day past the month's end means the last day. |
 | After-work kinds | `vaccination`, `deworming`, `anti_protozoan`, `ticks_removal`, `hoof_trimming`, `hair_trimming`, `weighing`, `feed_distribution`, `shifting` | For `after_work`: work of these kinds SUBMITTED in a pen raises the routine there. |
 | Due offset | days, default 0 (`after_work` default 1) | Planned date = the cadence day (or the work day) + offset. |
 | Notify time | local IST `HH:MM`, default 07:00 | When the day's push goes out. |
-| Assignees | one or more people | Per routine (and so per park). Any one of them doing it is enough — the pen-visit rule. A routine with nobody assigned raises nothing and is reported loudly; there is never a fallback person. |
+| Who does it | one or more ROLES | See the 2026-09-17 revision: resolved per park against live role grants; any holder doing it is enough; nobody resolved means nothing raised, loudly. |
 | Evidence | questions, photo min/max, video min/max, presence | See *Evidence* below. |
 | Review | `verifier` / `none` | `verifier`: submit hands ONE verification item (all proofs + the answers as context rows) to the verifier; `none`: submit completes the task. |
 | Status | `active` / `paused` / `retired` | Paused raises nothing until resumed; retired never raises again. Open tasks are untouched by either. |
@@ -174,13 +186,14 @@ bounces it (rework re-collects everything; the old answers stay as history on th
 
 | Permission | Who | Opens |
 |---|---|---|
-| `pen_routines.execute` | `park_head` role, the six director roles, anyone ticked Do on Routines | phone module + `/app/pen-routines*` |
+| `pen_routines.execute` | every assignable role (`park_head`, the six director roles, `ceo_internal`), anyone ticked Do on Routines | phone module + `/app/pen-routines*` |
 | `pen_routines.read` | `ceo_internal`, directors, park heads | `/routines` page + `/admin/pen-routines*` reads |
 | `pen_routines.configure` | `ceo_internal` only on the role; per-person Configure tick | routine writes |
 
-`ceo_internal` holds read + configure and NOT execute: the CXO desk writes the rule, it does
-not walk pens (the toxin rule). WHO may work a given task is decided per row against
-`pen_routine_assignees`, never by a role string.
+WHO may work a given check is decided per row by resolving the routine's `assignee_roles`
+against live role grants for its park (see the 2026-09-17 revision), never by a role string the
+client sends. A verifier sees routine checks through her position's `pen_routines` verify duty
+(migration `000332`, added after the 2026-09-17 proof run found existing databases had none).
 
 ## Relationship to pen visits
 
@@ -190,20 +203,18 @@ video, closes the parent care task). A routine is the CONFIGURABLE generalisatio
 closes no parent and is not a substitute. Folding pen visits into routines is a separate
 maintainer decision; this change does not touch `penvisits/`.
 
-## Open questions surfaced to the maintainer
+## Questions answered
 
-1. Whether a routine should ever close a parent task the way a pen visit does (V1: no).
-2. Whether presence should refuse a check-in by GPS distance from the park (V1: recorded, not
-   refused — the workforce clock's own D3 decision).
-3. Whether the `Routines` list should fold into the Tasks module's "For me" tab as a second
-   card type (the 2026-09-14 pen-visit note). V1 gives Routines its own module because its
-   audience is the park head, who holds no Tasks module today.
+All three V1 questions are closed by the maintainer's 2026-09-17 answers above: no parent
+closure, no distance refusal, and Routines stays its own phone module (its audience includes
+park heads and CXOs, who hold no Tasks "For me" tab).
 
 ## Pinned by
 
 `penroutines/domain` unit tests (cadence, clamped month days, submit rules, answer validation,
 copy), the Postgres integration tests (natural-key idempotency, roll-forward, presence gate,
-verifier vs none review, version pinning), `permissions` tests (CEO never executes; routes are
+verifier vs none review, version pinning), `permissions` tests (every assignable role executes, configure is CXO-only; routes are
 gated), the workforce module-offer test, and the Android `PenRoutine*ViewModelTest`s.
-Schema: migration `000320_pen_routines.sql` (+ `000321` notification type, `000322` outbox
-validator).
+Schema: migrations `000328_pen_routines.sql` (tables), `000329` notification type, `000330`
+outbox validator, `000331` per-person access ticks, `000332` verifier verify duty. The kernel
+E2E proof is `TestKernelStory_PenRoutineDailyCheck`.
