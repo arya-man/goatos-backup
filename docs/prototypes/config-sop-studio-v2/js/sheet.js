@@ -121,7 +121,7 @@
       <td class="rn" style="left:0;z-index:3;min-width:${RN_W}px;max-width:${RN_W}px"><label><input type="checkbox" data-a="sh-sel" data-id="${row.id}" ${G.sel.has(row.id)?'checked':''}>${ri+1}<span class="rnst">${st[0]?UI.tag(st[0],st[1]):''}</span></label></td>
       <td class="msg" data-issues style="position:sticky;left:${RN_W}px;z-index:3;min-width:${ISSUE_W}px;max-width:${ISSUE_W}px;white-space:normal;padding:2px 8px;background:var(--panel);background-clip:padding-box;border-right:1px solid var(--line);box-shadow:4px 0 6px -4px rgba(0,0,0,.45)">${Sheet.issuesHtml(G,ri,r)}</td>
       <td class="st">${st[0]?UI.tag(st[0],st[1]):''}</td>
-      ${reg.cols.map((c,ci)=>{const iss=r.issues[c.k];return `<td data-label="${esc(c.label)}" class="w-${c.w||''} ${iss?(iss[0]==='err'?'err':iss[0]==='warn'?'warn':'info'):''}" title="${iss?esc(iss[1]):''}"><input class="cell" data-r="${ri}" data-c="${ci}" value="${esc(row.v[c.k]==null?'':row.v[c.k])}" autocomplete="off" aria-label="${esc(c.label)} row ${ri+1}"></td>`;}).join('')}
+      ${reg.cols.map((c,ci)=>{const iss=r.issues[c.k];return `<td data-label="${esc(c.label)}" class="w-${c.w||''} ${iss?(iss[0]==='err'?'err':iss[0]==='warn'?'warn':'info'):''}" title="${iss?esc(iss[1]):''}"><input class="cell" data-r="${ri}" data-c="${ci}" value="${esc(row.v[c.k]==null?'':row.v[c.k])}" ${c.ph?`placeholder="${esc(c.ph)}"`:''} autocomplete="off" aria-label="${esc(c.label)} row ${ri+1}"></td>`;}).join('')}
     </tr>`;
   };
 

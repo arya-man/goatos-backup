@@ -32,6 +32,13 @@
 
   function list(regKey,opts){opts=opts||{};List.opts[regKey]=opts;return List.html(regKey,opts);}
 
+  /* stage day range as one cell: both bounds blank means unbounded on purpose (stg NULL), shown as "Any age" */
+  const hasD=v=>v!==''&&v!=null&&!isNaN(v);
+  const stageRange=r=>hasD(r.fromD)&&hasD(r.toD)?esc(r.fromD)+'–'+esc(r.toD)+' d'
+    :hasD(r.fromD)?esc(r.fromD)+' d +'
+    :hasD(r.toD)?'Up to '+esc(r.toD)+' d'
+    :'<span class="muted">Any age</span>';
+
   const PANELS={
     parks:()=>list('parks',{eyebrow:'Farm places',filters:['farm'],onOpen:id=>location.hash='#/configuration/items/park/'+id,onNew:()=>location.hash='#/configuration/items/park/new',addLabel:'Add park',
       columns:[{label:'Park',html:r=>`<b>${esc(r.name)}</b>`},{label:'Code',w:150,html:r=>`<span class="mono">${esc(r.code||'')}</span>`},{label:'Farm',html:r=>esc(REG.labelById('farms',r.farmId))},
@@ -55,7 +62,8 @@
     sexes:()=>list('sexes',{eyebrow:'Animal types',filters:[]}),
     stages:()=>list('stages',{eyebrow:'Animal types',filters:['species','sex'],columns:[
       {label:'Stage',html:r=>`<b>${esc(r.name)}</b>`},{label:'Code',w:100,html:r=>`<span class="mono">${esc(r.code)}</span>`},{label:'Species',w:110,html:r=>esc(REG.labelById('species',r.speciesId))},
-      {label:'From (days)',w:110,num:1,html:r=>esc(r.fromD===''||r.fromD==null?'—':r.fromD)},{label:'To (days)',w:100,num:1,html:r=>esc(r.toD===''||r.toD==null?'—':r.toD)},{label:'Sex',w:90,html:r=>esc(REG.enumLabel(r.sex))}]}),
+      /* one merged range cell: unbounded stages (stg NULL min/max) read as "Any age", not as a missing number */
+      {label:'Age range',w:130,num:1,html:r=>stageRange(r)},{label:'Sex',w:90,html:r=>esc(REG.enumLabel(r.sex))}]}),
     'shed-tags':()=>list('tags',{eyebrow:'Animal types',title:'Pen tags',filters:['species'],where:r=>r.kind!=='group',defaults:()=>({kind:'tag'}),addLabel:'Add pen tag'}),
     groups:()=>list('tags',{eyebrow:'Animal types',title:'Pen tags',filters:['species','kind'],addLabel:'Add pen tag'}),
     healthStates:()=>list('healthStates',{eyebrow:'Animal types',filters:['group']}),
@@ -607,7 +615,7 @@
           <div class="fld full"><label>Lifecycle stages <span class="muted">${b.stages.length}</span></label>${er(bi+'.stages')}
             <div class="twrap"><table class="mini" style="min-width:600px"><thead><tr><th style="width:110px">Code</th><th>Stage</th><th style="width:100px">From (days)</th><th style="width:100px">To (days)</th><th style="width:110px">Sex</th><th style="width:40px"></th></tr></thead><tbody>
             ${b.stages.map((s,si)=>`<tr><td><input data-es="${bi}" data-s="${si}" data-k="code" value="${esc(s.code)}" aria-label="Code" class="${E[bi+'.s'+si]?'bad':''}"></td><td><input data-es="${bi}" data-s="${si}" data-k="name" value="${esc(s.name)}" aria-label="Stage"></td>
-              <td><input data-es="${bi}" data-s="${si}" data-k="fromD" value="${esc(s.fromD)}" inputmode="numeric" aria-label="From days"></td><td><input data-es="${bi}" data-s="${si}" data-k="toD" value="${esc(s.toD)}" inputmode="numeric" aria-label="To days" class="${E[bi+'.r'+si]?'bad':''}"></td>
+              <td><input data-es="${bi}" data-s="${si}" data-k="fromD" value="${esc(s.fromD)}" placeholder="Any" inputmode="numeric" aria-label="From days"></td><td><input data-es="${bi}" data-s="${si}" data-k="toD" value="${esc(s.toD)}" placeholder="Any" inputmode="numeric" aria-label="To days" class="${E[bi+'.r'+si]?'bad':''}"></td>
               <td><select data-es="${bi}" data-s="${si}" data-k="sex" aria-label="Sex">${['any','female','male'].map(x=>`<option ${s.sex===x?'selected':''}>${x}</option>`).join('')}</select></td>
               <td class="x"><button class="btn icon gh" data-a="ed-stagedel" data-b="${bi}" data-s="${si}" aria-label="Remove stage">${ic('x')}</button></td></tr>`).join('')}
             </tbody></table></div>

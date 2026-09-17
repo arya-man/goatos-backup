@@ -43,7 +43,7 @@
       key:v=>norm(v.name)},
     stages:{label:'Lifecycle stages',one:'Stage',coll:'stages',
       cols:[ref('species','Species','species','speciesId',{req:1}),txt('code','Code',{req:1,w:'num'}),txt('name','Stage',{req:1}),
-        num('fromD','From (days)',{min:0}),num('toD','To (days)',{min:0}),en('sex','Sex',['any','female','male'])],
+        num('fromD','From (days)',{min:0,ph:'Any'}),num('toD','To (days)',{min:0,ph:'Any'}),en('sex','Sex',['any','female','male'])],
       key:v=>norm(v.species)+'|'+norm(v.code),
       check:(v,iss)=>{if(v.fromD!==''&&v.toD!==''&&v.fromD!=null&&v.toD!=null&&!isNaN(v.fromD)&&!isNaN(v.toD)&&Number(v.toD)<Number(v.fromD))iss('toD','err','Before From');}},
     tags:{label:'Shed tags',one:'Shed tag',coll:'tags',

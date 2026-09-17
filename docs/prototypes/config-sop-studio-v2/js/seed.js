@@ -622,7 +622,10 @@
       const c=f.add('child',{label:'Shift to K2 (Growth)',sopId:'sop_shift'});
       const e=f.add('end',{label:'Moved to K2',outcome:'done'});
       const re=f.add('end',{label:'Rework: re-shoot',outcome:'rejected'});
-      f.link(ids[ids.length-1],a); f.link(a,c,'Approve'); f.link(a,re,'Rework'); f.chain([c,e]);
+      /* 8 days = K2 min_age_days in goatos-stg animal_stage_lookup (queried 2026-09-18); the same stg-derived
+         age gate K0 (day 2) and K2 (day 43) carry, so all three kid transitions read from one source. */
+      const w=f.add('wait',{label:'Until the kid is 8 days old (K2)',until:'age',amount:8,unit:'days of age',stageId:'stg_g_k2'});
+      f.link(ids[ids.length-1],a); f.link(a,w,'Approve'); f.link(a,re,'Rework'); f.chain([w,c,e]);
       return f.nodes;
     })();
     const k2=linear([
@@ -636,8 +639,8 @@
       ['start',{label:'Kid in K3 - Weaning'}],
       ['action',{label:'Cut milk ration; offer hay, concentrate and water',page:'Weaning'}],
       /* goatos-stg has no age boundary here: K3 max_age_days is NULL and F2/F2-Male/F2-Female have no min_age_days
-         (queried 2026-09-18). The Drive doc's 85 days is not in stg, so this exit is weaning completion, not an age. */
-      ['action',{label:'Weaning complete - ready for Fattening',page:'Weaning'}],
+         (queried 2026-09-18). The Drive doc's 85 days is not in stg, so there is no wait step and no invented day
+         number: the stage exits on the Shifting SOP alone, the same single child-SOP exit K0/K1/K2 use. */
       ['child',{label:'Shift to Fattening (Growth)',sopId:'sop_shift'}],
       ['end',{label:'Moved to Fattening',outcome:'done'}]]);
     st.sops=[

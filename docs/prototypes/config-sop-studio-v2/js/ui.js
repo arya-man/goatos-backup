@@ -179,7 +179,7 @@
         const input=c.type==='steps'?stepsField(c):(c.type==='ref'||c.type==='path'||c.type==='enum'||c.type==='multi')
           ?`<input data-ff="${c.k}" value="${esc(row.v[c.k]||'')}" placeholder="${c.blankLabel?esc(c.blankLabel):'Search or create'}" autocomplete="off" aria-label="${esc(c.label)}">`
           :(c.type==='multienum'?`<div class="chkrow">${c.opts.map(o=>`<label><input type="checkbox" data-fm="${c.k}" value="${esc(REG.enumLabel(o))}" ${String(row.v[c.k]||'').split(/;\s*/).map(REG.norm).includes(REG.norm(REG.enumLabel(o)))?'checked':''}>${esc(REG.enumLabel(o))}</label>`).join('')}</div>`
-          :`<input data-ff="${c.k}" value="${esc(row.v[c.k]||'')}" ${c.type==='num'?'inputmode="decimal"':''} ${c.type==='date'?'placeholder="YYYY-MM-DD"':''} aria-label="${esc(c.label)}">`);
+          :`<input data-ff="${c.k}" value="${esc(row.v[c.k]||'')}" ${c.type==='num'?'inputmode="decimal"':''} ${c.type==='date'?'placeholder="YYYY-MM-DD"':c.ph?`placeholder="${esc(c.ph)}"`:''} aria-label="${esc(c.label)}">`);
         return `<div class="fld ${full?'full':''}"><label>${esc(c.label)}${c.req?' *':''}</label>${input}${iss?`<div class="ferr ${iss[0]==='err'?'':'w'}">${esc(iss[1])}${iss[2]&&iss[2].create?` <button type="button" class="btn sm" data-rf-create="${c.k}">${ic('plus','',12)}Create “${esc(iss[2].text)}”</button>`:''}</div>`:''}</div>`;
       }).join('')}${st}</div>`;
     };

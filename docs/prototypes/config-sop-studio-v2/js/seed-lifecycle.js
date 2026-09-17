@@ -18,6 +18,9 @@
     ['MOTHER','Mother','','','female'],['MMW','Mother Milking Waiting','','','female'],['MWU','Milking Warmup','','','female'],
     ['MILK','Milking','','','female'],['BUCK','Buck','','','male']];
   const stages=[];
+  /* SHEEP: goatos-stg animal_stage_lookup has no species column - it is one table for the whole tenant - so the
+     same day ranges are mirrored onto sheep here. They are the goat-derived stg rows, not sheep-specific bounds;
+     when stg gains a species column, seed sheep from its own rows instead of this mirror. */
   [['sp_goat','g'],['sp_sheep','s']].forEach(([sp,p])=>T.forEach(t=>stages.push({id:'stg_'+p+'_'+t[0].toLowerCase().replace(/-/g,''),speciesId:sp,code:t[0],name:t[1],fromD:t[2],toD:t[3],sex:t[4],aliases:t[5]||[]})));
   window.LIFECYCLE_SEED={
     stages,
