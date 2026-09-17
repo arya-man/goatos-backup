@@ -277,6 +277,12 @@ class WorkflowDetailViewModel @Inject constructor(
                     // Death sends every step from its one Submit; recovering its uploads here as
                     // auto-submits would send a multi-proof step a second time.
                     if (detail?.module == MODULE_DEATH) return@collect
+                    // A live capture owns its own step write. Recovering its row here while the
+                    // capture call is still returning queued the step a second time with the same
+                    // proof appended twice under a different key (Realme E2E 2026-09-17): the server
+                    // refused it 409 and the dead row held the workflow's lane. Recovery exists for a
+                    // process death between capture and write, never for a capture in flight.
+                    if (_state.value.isCapturingVideo) return@collect
                     val actions = detail?.actions.orEmpty()
                     val recovered = recoverMultiProofRefs(actions, proofs)
                     if (recovered.isNotEmpty()) {
@@ -573,11 +579,15 @@ class WorkflowDetailViewModel @Inject constructor(
                 AnalyticsEvents.WORKFLOW_VIDEO_CAPTURED,
                 mapOf(AnalyticsEvents.Params.ITEM_ID to workflowId, AnalyticsEvents.Params.ACTION to "$actionId:$kind"),
             )
-            val queued = pendingProofs.value[actionId].orEmpty() + WorkflowProofOutboxRef(outboxItemId = proofItemId, kind = kind)
+            val queued = distinctWorkflowProofRefs(
+                pendingProofs.value[actionId].orEmpty() + WorkflowProofOutboxRef(outboxItemId = proofItemId, kind = kind),
+            )
             rememberPendingProofs(pendingProofs.value + (actionId to queued))
             val latest = _state.value.actions.firstOrNull { it.actionId == actionId } ?: action
             val needsAnswer = latest.answerKind != "none" && latest.canAnswer
             if (proofsSatisfied(latest, queued) && (!needsAnswer || pendingAnswers[actionId] != null)) {
+                // The capture is over; the step write is durable in the outbox from here.
+                _state.update { it.copy(isCapturingVideo = false) }
                 submitMultiProof(actionId, pendingAnswers[actionId])
             } else {
                 _state.update { it.copy(isCapturingVideo = false, message = MULTI_PROOF_QUEUED_MESSAGE, isErrorMessage = false) }
@@ -586,7 +596,9 @@ class WorkflowDetailViewModel @Inject constructor(
     }
 
     private fun submitMultiProof(actionId: String, answerValue: String?) {
-        val proofs = pendingProofs.value[actionId].orEmpty()
+        // One capture is one proof: never send the same queued proof twice, and key the write on
+        // the distinct set so the same proofs always produce the same command.
+        val proofs = distinctWorkflowProofRefs(pendingProofs.value[actionId].orEmpty())
         if (proofs.isEmpty()) return
         val fingerprint = proofs.joinToString(",") { it.outboxItemId }.hashCode().toUInt().toString(16)
         val submittedKey = "$actionId:$fingerprint:${answerValue.orEmpty()}"
@@ -1285,6 +1297,11 @@ class WorkflowDetailViewModel @Inject constructor(
         private const val ACTION_FAILED_MESSAGE = "This action did not go through. Review it and try again."
     }
 }
+
+/** The step's queued proofs with each proof once: keyed by its upload outbox id, or by its server
+ *  id when the outbox row is already gone. Capture order is kept. */
+internal fun distinctWorkflowProofRefs(refs: List<WorkflowProofOutboxRef>): List<WorkflowProofOutboxRef> =
+    refs.distinctBy { ref -> ref.outboxItemId.ifBlank { "ref:" + ref.proofRef.ifBlank { ref.hashCode().toString() } } }
 
 /** Names what a queued step carried: all photos, all videos, or a mix of both. */
 internal fun workflowProofSavedKind(kinds: Collection<String>): WorkflowProofSavedKind = when {
