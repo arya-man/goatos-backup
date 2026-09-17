@@ -822,6 +822,8 @@ object AnalyticsEvents {
 
     /** A mandatory video was recorded/picked for a requires_video workflow action. */
     const val WORKFLOW_VIDEO_CAPTURED = "workflow_video_captured"
+    /** A photo proof captured for a workflow step (live, or a death draft). */
+    const val WORKFLOW_PHOTO_CAPTURED = "workflow_photo_captured"
 
     /**
      * The vaccination sheds/overview screen rendered its first non-loading state — the operator's

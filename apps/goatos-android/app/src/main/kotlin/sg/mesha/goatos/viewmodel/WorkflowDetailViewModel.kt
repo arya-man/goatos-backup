@@ -576,7 +576,7 @@ class WorkflowDetailViewModel @Inject constructor(
                 return@launch
             }
             analytics.track(
-                AnalyticsEvents.WORKFLOW_VIDEO_CAPTURED,
+                workflowCaptureEvent(kind),
                 mapOf(AnalyticsEvents.Params.ITEM_ID to workflowId, AnalyticsEvents.Params.ACTION to "$actionId:$kind"),
             )
             val queued = distinctWorkflowProofRefs(
@@ -839,7 +839,7 @@ class WorkflowDetailViewModel @Inject constructor(
             val previous = repo.replaceVideoDraft(captured.copy(fieldKey = workflowDeathDraftFieldKey(action.actionId, kind, n)))
             previous?.localUri?.let(::deletePrivateDraftFile)
             analytics.track(
-                AnalyticsEvents.WORKFLOW_VIDEO_CAPTURED,
+                workflowCaptureEvent(kind),
                 mapOf(AnalyticsEvents.Params.ITEM_ID to workflowId, AnalyticsEvents.Params.ACTION to "death_draft"),
             )
             _state.update {
@@ -1311,6 +1311,10 @@ class WorkflowDetailViewModel @Inject constructor(
  *  id when the outbox row is already gone. Capture order is kept. */
 internal fun distinctWorkflowProofRefs(refs: List<WorkflowProofOutboxRef>): List<WorkflowProofOutboxRef> =
     refs.distinctBy { ref -> ref.outboxItemId.ifBlank { "ref:" + ref.proofRef.ifBlank { ref.hashCode().toString() } } }
+
+/** The capture event for a proof of [kind]: a photo is reported as a photo, never as a video. */
+internal fun workflowCaptureEvent(kind: String): String =
+    if (kind == "photo") AnalyticsEvents.WORKFLOW_PHOTO_CAPTURED else AnalyticsEvents.WORKFLOW_VIDEO_CAPTURED
 
 /** Names what a queued step carried: all photos, all videos, or a mix of both. */
 internal fun workflowProofSavedKind(kinds: Collection<String>): WorkflowProofSavedKind = when {

@@ -8,7 +8,7 @@
   and the `MILK_FEEDING_*` equivalents (item_id instead of park_id), emitted from real ViewModels
   (injected AnalyticsPort) with identifying params for diagnostics. Any statement below showing
   milk without params or reusing `WEIGHING_*` names is STALE.
-- **Workflow detail analytics now carry params** — `WORKFLOW_VIDEO_CAPTURED (item_id, action)`,
+- **Workflow detail analytics now carry params** — `WORKFLOW_VIDEO_CAPTURED (item_id, action)` (a photo proof emits `WORKFLOW_PHOTO_CAPTURED` with the same params),
   `WORKFLOW_ACTION_ANSWERED/COMPLETED (no params yet)`. Previous stale gap about no capture-fail
   events is still accurate (no distinct cancel/error event).
 - **Durable backend events (`BackendAnalyticsAdapter.CRITICAL_EVENT_ALLOWLIST`)** are exactly:
