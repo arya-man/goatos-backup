@@ -7,7 +7,7 @@
   const num=(k,label,extra)=>Object.assign({k,label,type:'num',attr:k,w:'num'},extra||{});
   const en=(k,label,opts,extra)=>Object.assign({k,label,type:'enum',opts,attr:k},extra||{});
   /* enum values are stored as codes; people see and may type human-case labels */
-  const ENUM_WORDS={any:'Any',cxo:'CEO / CXO',ceo_cxo:'CEO / CXO',am:'Assistant manager',assistant_manager:'Assistant manager',yes_no:'Yes / no',multiselect:'Multi-select',growth_cohort:'Growth cohort'};
+  const ENUM_WORDS={any:'Any',cxo:'CEO / CXO',ceo_cxo:'CEO / CXO',am:'Assistant manager',assistant_manager:'Assistant manager',yes_no:'Yes / no',multiselect:'Multi-select',growth_cohort:'Growth cohort',per_kg:'INR per kg live weight',per_animal:'INR per animal'};
   const enumLabel=o=>{o=String(o==null?'':o);if(!o)return '';if(ENUM_WORDS[o])return ENUM_WORDS[o];if(o!==o.toLowerCase())return o;const t=o.replace(/_/g,' ');return t[0].toUpperCase()+t.slice(1);};
   const gradeLabel=g=>{g=String(g==null?'':g);return (window.GRADE_LABELS&&window.GRADE_LABELS[g])||enumLabel(g);};
   const enumValue=(c,raw)=>{const n=norm(raw);return c.opts.find(o=>norm(o)===n||norm(enumLabel(o))===n);};
@@ -149,7 +149,21 @@
       key:v=>norm(v.dept)+'|'+norm(v.name)},
     settings:{label:'Business settings',one:'Setting',coll:'settings',
       cols:[en('dept','Department',DEPTS,{req:1}),txt('name','Setting',{req:1,w:'wide'}),txt('value','Value',{req:1,w:'num'}),txt('unit','Unit',{w:'num'})],
-      key:v=>norm(v.dept)+'|'+norm(v.name)}
+      key:v=>norm(v.dept)+'|'+norm(v.name)},
+    /* Sales: each row is one dated version of a scope; the latest version on or before today is current */
+    salePrices:{label:'Sale price rules',one:'Sale price rule',coll:'salePrices',
+      cols:[ref('species','Species','species','speciesId',{req:1}),ref('breed','Breed','breeds','breedId',{scope:{col:'species',attr:'speciesId'},blankLabel:'Any'}),
+        ref('sex','Sex','sexes','sexId',{blankLabel:'Any'}),ref('stage','Stage','stages','stageId',{scope:{col:'species',attr:'speciesId'},blankLabel:'Any'}),
+        en('basis','Price basis',['per_kg','per_animal'],{req:1}),num('price','Price (INR)',{req:1,min:0}),Object.assign(txt('from','Effective from',{req:1}),{type:'date'})],
+      key:v=>[v.species,v.breed,v.sex,v.stage,v.from].map(norm).join('|')},
+    saleMinWeights:{label:'Minimum sale weight',one:'Minimum sale weight',coll:'saleMinWeights',
+      cols:[ref('species','Species','species','speciesId',{req:1}),ref('breed','Breed','breeds','breedId',{scope:{col:'species',attr:'speciesId'},blankLabel:'Any'}),
+        ref('sex','Sex','sexes','sexId',{blankLabel:'Any'}),num('minKg','Minimum (kg)',{req:1,min:0}),Object.assign(txt('from','Effective from'),{type:'date'})],
+      check:(v,iss)=>{if(v.minKg!==''&&v.minKg!=null&&!isNaN(v.minKg)&&Number(v.minKg)<=0)iss('minKg','err','Above 0');},
+      key:v=>[v.species,v.breed,v.sex,v.from].map(norm).join('|')},
+    valuationRates:{label:'Valuation rates',one:'Valuation rate',coll:'valuationRates',
+      cols:[txt('name','Group',{req:1}),txt('stages','Stages'),num('rate','Rate (INR/kg)',{req:1,min:0}),num('assumedKg','Assumed weight (kg)',{min:0}),Object.assign(txt('from','Effective from'),{type:'date'})],
+      key:v=>norm(v.name)+'|'+norm(v.from)}
   };
   /* approval chains are the ONE approver source. A step is a role, a designation or a named person:
      "Counts Approver (per person); Park Head; Operator 01" <-> [{role,perPerson}|{designation}|{person}] */

@@ -126,7 +126,7 @@
           const ph=L.min!=null&&L.max!=null?L.min+' – '+L.max:L.max!=null?'Max '+L.max:L.min!=null?'Min '+L.min:'0';
           inner=`<div class="op-input ${chk?'bad':''}"><input inputmode="decimal" data-op="num" data-n="${n.id}" value="${E(a==null?'':a)}" placeholder="${E(ph)}"><span>${E(n.unit||'')}</span></div>`
             +(L.minSet||L.maxSet?`<div class="op-row op-lims">${[L.minSet&&pill('Min '+L.min+' · '+L.minSet.name,'mut'),L.maxSet&&pill('Max '+L.max+' · '+L.maxSet.name,'mut')].filter(Boolean).join('')}</div>`:'')
-            +(chk?`<div class="op-err ${chk.handled?'soft':''}">${E(chk.msg)}</div>`:'');
+            +(chk?`<div class="op-err ${chk.handled?'soft':''}">${E(chk.msg)}</div>`:'')+(window.Sales&&Sales.opVerdict?Sales.opVerdict(n,sop,r):'');
           if(n.reject&&n.reject.op==='cannot')inner+=`<button class="op-link" data-op="pick" data-n="${n.id}" data-v="__cannot">Cannot check</button>`;
         }else if(ans==='ref'){
           inner=pickList(n,a);

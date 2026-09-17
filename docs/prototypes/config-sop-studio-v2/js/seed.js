@@ -428,12 +428,7 @@
 
     const set=(id,dept,name,value,unit,type)=>({id,dept,name,value,unit,type:type||'number',status:'active'});
     st.settings=[
-      set('set_sale_min','Sales','Sale-ready minimum weight',35,'kg'),Object.assign(set('set_sale_tol','Sales','Weight tolerance',200,'g'),{meta:{codeDefault:0,max:1000,source:'weighing/domain/shed_weights.go (default 0 g, max 1000 g); 200 g is the requirement example'}}),
-      set('set_report_w','Sales','Reporting weight threshold',30,'kg'),set('set_val_fat','Sales','Valuation rate · fattening',450,'INR/kg'),
-      set('set_val_af','Sales','Valuation rate · adult female',600,'INR/kg'),set('set_w_af','Sales','Assumed weight · adult female',40,'kg'),
-      set('set_val_am','Sales','Valuation rate · adult male',500,'INR/kg'),set('set_w_am','Sales','Assumed weight · adult male',60,'kg'),
-      set('set_val_kid','Sales','Valuation rate · kids',500,'INR/kg'),set('set_w_k0','Sales','Assumed weight · K0/K1',3,'kg'),
-      set('set_w_k2','Sales','Assumed weight · K2',8,'kg'),set('set_w_k3','Sales','Assumed weight · K3',15,'kg'),set('set_sale_ahead','Sales','Max sale date ahead',60,'days'),
+      set('set_sale_ahead','Sales','Max sale date ahead',60,'days'),
       set('set_seller_hold','Procurement','Seller holding period',15,'days'),set('set_hold_min','Procurement','Pre-arrival vaccination window · min',28,'days'),
       set('set_hold_max','Procurement','Pre-arrival vaccination window · max',35,'days'),set('set_travel_days','Procurement','Travel duration',3,'days'),
       set('set_travel_check','Procurement','Transit check interval',3,'hours'),set('set_pitstop_every','Procurement','Pit stop interval',12,'hours'),
@@ -446,6 +441,14 @@
       set('set_health_max','Health','Max course duration',90,'days'),set('set_ble_inactive','Health','Herd signal · inactive after',180,'min'),
       set('set_ble_missing','Health','Herd signal · missing after',30,'min'),
       set('set_milk_sessions','Milk','Max milk feeding sessions',4,'sessions/day'),set('set_colostrum_notify','Milk','Colostrum pre-notify',15,'min')];
+
+    /* Sales config. Sources: weighing/domain/shed_weights.go (30 kg reporting, 35 kg sale-ready, tolerance 0-1000 g, default 0; 500 g per requirement),
+       sales/adapters/postgres/overview_repository.go farm-value rates. No sourced breed prices: price rules start empty. */
+    st.salePrices=[];
+    st.saleMinWeights=['sp_goat','sp_sheep'].map((sp,i)=>({id:'smw_'+i,speciesId:sp,breedId:'',sexId:'',minKg:35,from:'',status:'active'}));
+    st.salePolicy=[{id:'spol_0',toleranceG:500,reportKg:30,stageIds:st.stages.filter(x=>x.code==='FAT-M'||x.code==='FAT-F').map(x=>x.id),from:'',status:'active'}];
+    st.valuationRates=[['Fattening animals','Fattening',450,''],['Adult females','Adult female',600,40],['Adult males / bucks','Adult male, Buck',500,60],
+      ['K0','K0',500,3],['K1','K1',500,3],['K2','K2',500,8],['K3','K3',500,15]].map(([n,g,r,w],i)=>({id:'val_'+i,name:n,stages:g,rate:r,assumedKg:w,from:'',status:'active'}));
 
     // SOPs
     const tagHold=linear([

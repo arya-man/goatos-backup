@@ -9,11 +9,12 @@
     ['People',[['people','People'],['roles','Roles']]],
     ['Reference lists',[['statusDefs','Status definitions'],['exitReasons','Exit reasons'],['purposes','Animal purposes'],['movementReasons','Movement reasons'],['weightBands','Weight bands'],['sopCategories','SOP categories'],['taskTypes','Task types']]],
     ['Business rules',[['saleProducts','Sale product types'],['costKinds','Cost kinds'],['identifierPolicies','Identifier policies'],['designations','Designations'],['approvalChains','Approval chains']]],
+    ['Sales',[['salePrices','Sale price rules'],['saleEligibility','Sale eligibility'],['valuationRates','Valuation rates']]],
     ['Business settings',[['settings','Business settings']]]
   ];
   const LINKS=[['Vendors','#/procurement/vendors'],['Market cities','#/sales/config'],['Diseases','#/health/config'],['Ration groups','#/feed/config'],['Vaccination plan','#/vaccination/plan']];
   const regOf=k=>k==='shed-tags'||k==='groups'?'tags':k;
-  const count=k=>{if(k==='inventory')return S.active('items').filter(i=>REG.on(i.trackStock)).length;if(k==='groups')return S.active('tags').length;if(k==='identifierPolicies'&&!REG.R[k]){const v=S.active(k)[0];return v?(v.types||[]).length:0;}const r=REG.R[regOf(k)];return r?S.active(r.coll).length:S.active(k).length;};
+  const count=k=>{if(window.Sales&&Sales.count[k])return Sales.count[k]();if(k==='inventory')return S.active('items').filter(i=>REG.on(i.trackStock)).length;if(k==='groups')return S.active('tags').length;if(k==='identifierPolicies'&&!REG.R[k]){const v=S.active(k)[0];return v?(v.types||[]).length:0;}const r=REG.R[regOf(k)];return r?S.active(r.coll).length:S.active(k).length;};
   const penDisplay=a=>{const pen=S.get('pens',a.penId),pt=S.get('partitions',a.partitionId);return pen?REG.label('pens',pen)+(pt?' - '+pt.name:''):'';};
   const num=v=>`<span class="num">${esc(v)}</span>`;
 
@@ -76,6 +77,7 @@
       +`<section class="card mt"><div class="hd"><h3>Module configuration</h3></div>${[['Vaccination plan','#/vaccination/plan','Preventive Care'],['Feed Config','#/feed/config','Feed'],['Health Config','#/health/config','Health'],['Sales Config','#/sales/config','Sales']]
         .map(([l,h,dp])=>`<a class="linkrow" href="${h}"><b>${l}</b><span class="tag t-teal">${dp}</span><span class="sp"></span>${ic('chevron-right')}</a>`).join('')}</section>`
   };
+  PANELS.salePrices=()=>Sales.prices();PANELS.saleEligibility=()=>Sales.eligibility();PANELS.valuationRates=()=>Sales.valuation();
   ['statusDefs','exitReasons','purposes','movementReasons','weightBands','sopCategories','taskTypes'].filter(k=>REG.R[k])
     .forEach(k=>PANELS[k]=()=>list(k,{eyebrow:'Reference lists',filters:REG.R[k].cols.filter(c=>c.type==='enum'||c.type==='ref').map(c=>c.k).slice(0,2)}));
 

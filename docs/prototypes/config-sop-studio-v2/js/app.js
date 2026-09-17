@@ -106,6 +106,9 @@
     return tbl(title,xs.length,[['Item'],['From'],['In stock',1]],xs.map(i=>{const r=REG.catRoot(i.categoryId),st=REG.stockOf(i.id);
       return [`<a href="#/configuration/items/items"><b>${esc(i.name)}</b></a>`,r?(r.system?UI.tag(r.name,'teal'):UI.tag(r.name,'mut')):'',REG.on(i.trackStock)?st.qty:'<span class="muted">—</span>'];}));};
   const MODULE_PAGES={
+    '#/weighing/analytics':()=>placeholder().replace(/(<section class="card mt"><a class="linkrow")/,()=>Sales.weighingCard()+'<section class="card mt"><a class="linkrow"'),
+    '#/sales/farm-value':()=>placeholder().replace(/(<section class="card mt"><a class="linkrow")/,()=>Sales.valueCard()+'<section class="card mt"><a class="linkrow"'),
+    '#/sales/sold':()=>placeholder().replace(/(<section class="card mt"><a class="linkrow")/,()=>Sales.valueCard()+'<section class="card mt"><a class="linkrow"'),
     '#/health/config':()=>head('Health','Health Config')+`<div class="grid g4 kpis">${kpi('Diseases',STG.health.diseases.length)}${kpi('Published protocols',STG.health.published,'Adult + kid')}${kpi('Drafts',STG.health.drafts)}${kpi('Longest course',Math.max(...STG.health.diseases.map(d=>d[1]))+'<small> days</small>')}</div>`
       +tbl('Treatment protocols',STG.health.diseases.length,[['Disease'],['Age bands'],['Version',1],['Course (days)',1]],STG.health.diseases.map(([n,d])=>[`<b>${esc(n)}</b>`,UI.tag('Adult','mut')+' '+UI.tag('Kid','mut'),'v1',d]))+deptItems('Health','Medicines and items'),
     '#/feed/config':()=>head('Feed','Feed Config')+`<div class="grid g4 kpis">${kpi('Ration groups',new Set(STG.feed.rations.map(r=>r[1])).size,STG.feed.rations.length+' breeds')}${kpi('Feed items',STG.feed.items.length,STG.feed.retiredItems+' retired')}${kpi('Pen tags',STG.feed.shedTags)}${kpi('Sessions',STG.feed.sessions.length,STG.feed.sessions.join(' · '))}</div>`

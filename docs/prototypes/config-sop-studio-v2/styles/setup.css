@@ -323,3 +323,27 @@ body:has(#drawer.on .df) .toast{bottom:84px}
 .drawer.idr .rbp input.hsfx{padding-right:52px}
 .partferr{margin:-2px 0 4px}
 .partferr a{color:inherit;text-decoration:underline;text-underline-offset:2px}
+/* Items and settings / Sales */
+.usedby{display:flex;align-items:center;gap:6px;flex-wrap:wrap;margin:0 0 10px}
+.usedby .chip{font-size:12px;text-decoration:none}
+.slwarn{display:flex;align-items:center;gap:8px;padding:10px 14px;margin:0 0 10px;border:1px solid var(--danger);border-radius:10px;color:var(--danger);font-size:13px}
+.slpol{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:14px 16px;padding:14px 16px}
+.slpol .kv .lab{font-size:12px;color:var(--muted);margin-bottom:4px}.slpol .kv .val{font-size:15px;font-weight:600}
+.slpol .kv.wide{grid-column:1/-1}
+.slkpi{padding:0 16px 16px;gap:10px}
+.pvgrid{display:grid;grid-template-columns:minmax(0,1.2fr) minmax(0,1fr);gap:16px;padding:14px 16px}
+.pvf{gap:0 12px}.pvf .fld{margin-bottom:10px}
+.pvout{border:1px solid var(--line2);border-radius:10px;padding:4px 14px;align-self:start}
+.pvr{display:flex;justify-content:space-between;gap:12px;padding:9px 0;border-bottom:1px solid var(--line2);font-size:13px;align-items:center;flex-wrap:wrap}
+.pvr:last-child{border-bottom:0}
+.stgrp{margin-bottom:10px}.stchk{display:flex;flex-wrap:wrap;gap:6px 14px;font-size:13px}.stchk label{display:flex;align-items:center;gap:6px;font-weight:400}
+@media(max-width:860px){.pvgrid{grid-template-columns:1fr}.slpol{grid-template-columns:1fr 1fr}.slkpi.g3{grid-template-columns:repeat(3,minmax(0,1fr))}}
+@media(max-width:520px){.slpol{grid-template-columns:1fr}.slkpi .kpi .val{font-size:18px}}
+.sltbl-wrap{overflow-x:auto;border:1px solid var(--line2);border-radius:10px}
+.sltbl{width:100%;border-collapse:collapse;font-size:13px}
+.sltbl th{text-align:left;font-size:12px;font-weight:600;color:var(--muted);padding:9px 12px;border-bottom:1px solid var(--line2);white-space:nowrap}
+.sltbl td{padding:9px 12px;border-bottom:1px solid var(--line2);white-space:nowrap}
+.sltbl tr:last-child td{border-bottom:0}
+.sltbl .num{text-align:right}
+@media(max-width:760px){.slkpi.g4{grid-template-columns:repeat(2,minmax(0,1fr))}}
+@media(max-width:520px){.slkpi.g3{grid-template-columns:1fr}}

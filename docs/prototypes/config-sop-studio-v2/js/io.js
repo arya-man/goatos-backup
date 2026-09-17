@@ -1,7 +1,7 @@
 /* Import / export / templates (CSV + XLSX via SheetJS, loaded on demand) */
 (function(){
   const IO={};
-  const WORKBOOK_ORDER=['farms','parks','pens','partitions','species','breeds','sexes','stages','tags','healthStates','statusDefs','exitReasons','purposes','movementReasons','weightBands','animals','categories','items','lots','roles','people','designations','approvalChains','saleProducts','costKinds','identifierPolicies','sopCategories','taskTypes','settings'].filter(k=>REG.R[k]);
+  const WORKBOOK_ORDER=['farms','parks','pens','partitions','species','breeds','sexes','stages','tags','healthStates','statusDefs','exitReasons','purposes','movementReasons','weightBands','animals','categories','items','lots','roles','people','designations','approvalChains','saleProducts','costKinds','identifierPolicies','sopCategories','taskTypes','salePrices','saleMinWeights','valuationRates','settings'].filter(k=>REG.R[k]);
   IO.ORDER=WORKBOOK_ORDER;
   IO.LIMITS={rows:10000,bytes:5*1024*1024,cols:60};
   const ALIASES={
