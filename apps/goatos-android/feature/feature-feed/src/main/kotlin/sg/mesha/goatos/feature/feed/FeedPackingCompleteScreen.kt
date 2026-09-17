@@ -25,6 +25,8 @@ import sg.mesha.goatos.core.designsystem.icon.MeshaIcons
 import sg.mesha.goatos.core.designsystem.theme.MeshaColors
 import sg.mesha.goatos.core.designsystem.theme.MeshaType
 import sg.mesha.goatos.core.ui.SyncIconButton
+import sg.mesha.goatos.core.ui.sop.SopCardProgress
+import sg.mesha.goatos.core.ui.sop.progress
 
 /**
  * Feed-PACKING completion detail (L2), reached by tapping a shed-session row on Feed Packing. The
@@ -163,10 +165,13 @@ private fun FeedPackingStatusCard(
     val statusText = when {
         committed -> stringResource(R.string.feed_pack_complete_submitted)
         completionFailed -> state.result.message
-        state.submitEnabled -> stringResource(R.string.feed_pack_complete_ready_to_submit)
-        state.card.compulsorySlotsFilled && !state.card.requiredAnswersGiven -> stringResource(R.string.feed_slot_answer_questions)
-        state.card.anyCaptured -> stringResource(R.string.feed_pack_complete_waiting_sync)
-        else -> stringResource(R.string.feed_slot_need_all)
+        else -> when (val progress = state.card.progress(state.submitEnabled)) {
+            SopCardProgress.Ready -> stringResource(R.string.feed_pack_complete_ready_to_submit)
+            // A required capture/answer not yet recorded is NAMED -- never "upload in progress" (Realme 2026-09-17).
+            is SopCardProgress.StillNeeded -> stringResource(R.string.feed_slot_still_needed, progress.titles.joinToString(", "))
+            SopCardProgress.Uploading -> stringResource(R.string.feed_pack_complete_waiting_sync)
+            SopCardProgress.NothingCaptured -> stringResource(R.string.feed_slot_need_all)
+        }
     }
     val tone = when {
         committed -> MeshaColors.Ok

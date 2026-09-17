@@ -55,6 +55,8 @@ import sg.mesha.goatos.core.ui.sop.SopSlotCaptureKind
 import sg.mesha.goatos.core.ui.sop.SopSlotUi
 import sg.mesha.goatos.core.ui.sop.isQueuedForSubmit as sopQueuedForSubmit
 import sg.mesha.goatos.core.ui.sop.sopProofLabel
+import sg.mesha.goatos.core.ui.sop.SopCardProgress
+import sg.mesha.goatos.core.ui.sop.progress
 
 /**
  * Feed-DISTRIBUTION completion detail (L2), reached by tapping a shed-session row on Feed DIRECTION.
@@ -239,10 +241,13 @@ private fun FeedDistStatusCard(
     val statusText = when {
         committed -> stringResource(R.string.feed_dist_submitted)
         completionFailed -> state.result.message
-        state.submitEnabled -> stringResource(R.string.feed_dist_ready_to_submit)
-        state.compulsorySlotsFilled && !state.requiredAnswersGiven -> stringResource(R.string.feed_slot_answer_questions)
-        state.anyCaptured -> stringResource(R.string.feed_dist_waiting_sync)
-        else -> stringResource(R.string.feed_slot_need_all)
+        else -> when (val progress = FeedSopCardUi(state.instruction, state.slots, state.questions, state.answers).progress(state.submitEnabled)) {
+            SopCardProgress.Ready -> stringResource(R.string.feed_dist_ready_to_submit)
+            // A required capture/answer not yet recorded is NAMED -- never "upload in progress" (Realme 2026-09-17).
+            is SopCardProgress.StillNeeded -> stringResource(R.string.feed_slot_still_needed, progress.titles.joinToString(", "))
+            SopCardProgress.Uploading -> stringResource(R.string.feed_dist_waiting_sync)
+            SopCardProgress.NothingCaptured -> stringResource(R.string.feed_slot_need_all)
+        }
     }
     val tone = when {
         committed -> MeshaColors.Ok

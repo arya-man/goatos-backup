@@ -97,7 +97,7 @@
     <string name="feed_slot_optional">ఐచ్ఛికం</string>
     <string name="feed_slot_retry">మళ్లీ · %1$s</string>
     <string name="feed_slot_need_all">సమర్పించడానికి ప్రతి తప్పనిసరి క్యాప్చర్‌ను రికార్డ్ చేయండి.</string>
-    <string name="feed_slot_answer_questions">సమర్పించడానికి ఈ కార్డ్ ప్రశ్నలకు సమాధానం ఇవ్వండి.</string>
+    <string name="feed_slot_still_needed">ఇంకా కావాలి: %1$s</string>
     <string name="feed_dist_play_preview">ప్లే</string>
     <string name="feed_dist_pause_preview">పాజ్</string>
     <string name="feed_transport_title">దాణా రవాణా</string>

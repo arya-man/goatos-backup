@@ -97,7 +97,7 @@
     <string name="feed_slot_optional">वैकल्पिक</string>
     <string name="feed_slot_retry">फिर से · %1$s</string>
     <string name="feed_slot_need_all">जमा करने के लिए हर ज़रूरी कैप्चर रिकॉर्ड करें।</string>
-    <string name="feed_slot_answer_questions">जमा करने के लिए इस कार्ड के सवालों के जवाब दें।</string>
+    <string name="feed_slot_still_needed">अभी बाकी: %1$s</string>
     <string name="feed_dist_play_preview">चलाएँ</string>
     <string name="feed_dist_pause_preview">रोकें</string>
     <string name="feed_transport_title">फ़ीड परिवहन</string>

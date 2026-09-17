@@ -156,6 +156,9 @@ data class SopCardUi(
      */
     val answerProblem: SopAnswerProblem? by lazy { questions.firstNotNullOfOrNull { q -> checkAnswer(q) } }
 
+    /** Every answer the server would refuse right now, in card order (questions that apply only). */
+    val answerProblems: List<SopAnswerProblem> by lazy { questions.mapNotNull { q -> checkAnswer(q) } }
+
     /** Every question the card asks is answered the way the server will accept. */
     val requiredAnswersGiven: Boolean
         get() = answerProblem == null
@@ -224,6 +227,38 @@ data class SopCardUi(
         get() = slots.filter { it.required }.all { it.readyForSubmit } &&
             slots.filter { it.captured }.all { it.status.isQueuedForSubmit() } &&
             requiredAnswersGiven
+}
+
+/**
+ * What a card's status line says before submit (Realme E2E 2026-09-17). The line used to read
+ * "upload is in progress" as soon as ANY capture existed, so a card still owed a required capture
+ * -- nothing uploading at all -- told the operator to wait for an upload that would never come.
+ * A missing capture or answer is now NAMED by the card's own title; the in-progress words are
+ * kept for the one case they are true: everything recorded and answered, submit still pending.
+ */
+sealed interface SopCardProgress {
+    /** Submit is available. */
+    data object Ready : SopCardProgress
+
+    /** Nothing recorded yet: the card's generic "record every required capture" words. */
+    data object NothingCaptured : SopCardProgress
+
+    /** Every required capture and answer is in; an upload (or the completion) is still pending. */
+    data object Uploading : SopCardProgress
+
+    /** Required captures / answers still owed, by the card's own titles, in card order. */
+    data class StillNeeded(val titles: List<String>) : SopCardProgress
+}
+
+fun SopCardUi.progress(submitEnabled: Boolean): SopCardProgress {
+    if (submitEnabled) return SopCardProgress.Ready
+    val owed = slots.filter { it.required && !it.captured }.map { it.title } + answerProblems.map { it.title }
+    if (owed.isEmpty()) return if (anyCaptured) SopCardProgress.Uploading else SopCardProgress.NothingCaptured
+    // Before anything is recorded the card keeps its generic words (the seeded single-video card
+    // said exactly this and still does); a card with no authored titles falls back to them too.
+    val titles = owed.filter { it.isNotBlank() }.distinct()
+    if (!anyCaptured || titles.isEmpty()) return SopCardProgress.NothingCaptured
+    return SopCardProgress.StillNeeded(titles)
 }
 
 /** The server's limit on a written answer (`sop/authored` MaxTextLength, bytes). */
