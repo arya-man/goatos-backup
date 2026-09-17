@@ -243,6 +243,8 @@ class WeighingViewModel @Inject constructor(
     private val _hasLoadedOnce = MutableStateFlow(false)
     /** Which assignments query the marker belongs to; a different park filter has not been read yet. */
     private var loadedAssignmentsScopeKey: String? = null
+    /** A submit landed while a list read was in flight; read once more when it finishes. */
+    private var assignmentsRefreshQueued = false
 
     /**
      * What the viewer may do to the ASSIGNMENT rows, as the backend states it on the same read.
@@ -1237,6 +1239,7 @@ class WeighingViewModel @Inject constructor(
                 // the weighing handler's capabilities block) says the call can succeed; everyone
                 // else keeps the paged park fallback instead of a guaranteed-forbidden request.
             }
+            refreshAssignmentsWhenSubmitsLand()
         }
         // Observe sync status for weight write conflicts. When the server rejects a
         // WEIGHING_ANIMAL_OBSERVATION write with 409, mark that animal as having a conflict so the
@@ -1356,6 +1359,46 @@ class WeighingViewModel @Inject constructor(
         }
     }
 
+    /**
+     * Re-reads the card list the moment a weighing submit this list can show reaches the server.
+     *
+     * A whole-pen or scanned-pen submit is an OUTBOX write. Returning to My work fires the resume
+     * refresh at once, while that write is usually still draining, so the server answers with the
+     * bucket unsubmitted and the card kept its "Record shed" action until someone tapped Refresh
+     * (Realme E2E 2026-09-17: 45 s and counting). The server's own answer is the only thing that
+     * may move the card, so the list waits for the write to land and then asks again.
+     *
+     * Only a row seen to become SUCCEEDED while this list is alive triggers a read; rows already
+     * settled on the first emission are history. The remembered set is the status window's own
+     * rows, so it stays bounded however long the screen lives.
+     */
+    private fun refreshAssignmentsWhenSubmitsLand() {
+        val statuses = syncRepository?.observeStatus() ?: return
+        viewModelScope.launch {
+            var settled: Set<String>? = null
+            statuses.collect { status ->
+                val nowSettled = status.items
+                    .filter { it.opType in WEIGHING_BUCKET_SUBMIT_OPS && it.status == SyncItemStatus.SUCCEEDED }
+                    .map { it.id }
+                    .toSet()
+                val previous = settled
+                settled = nowSettled
+                if (previous != null && (nowSettled - previous).isNotEmpty()) {
+                    refreshAssignmentsOrQueue()
+                }
+            }
+        }
+    }
+
+    /** A read already in flight may have started before the write landed, so ask once more after it. */
+    private fun refreshAssignmentsOrQueue() {
+        if (loadingAssignments.value) {
+            assignmentsRefreshQueued = true
+        } else {
+            refreshAssignments()
+        }
+    }
+
     fun refreshAssignments() {
         if (scopeKey != null) return
         if (loadingAssignments.value) return
@@ -1410,6 +1453,10 @@ class WeighingViewModel @Inject constructor(
                 // forever and wedge the empty-work card on a spinner over a blank list.
                 _hasLoadedOnce.value = true
                 loadedAssignmentsScopeKey = assignmentsScopeKey
+                if (assignmentsRefreshQueued) {
+                    assignmentsRefreshQueued = false
+                    refreshAssignments()
+                }
             }
         }
     }
@@ -4574,6 +4621,8 @@ private data class WeighingWeek(
 // Room types (module boundary: feature-*/:app -> core-*, never straight to Room).
 private const val WEIGHING_ANIMAL_OBSERVATION_OP = "WEIGHING_ANIMAL_OBSERVATION"
 private const val WEIGHING_SCOPE_SUBMIT_OP = "WEIGHING_SCOPE_SUBMIT"
+// The two writes that move a My work card: a whole-pen result and a scanned pen's submit.
+private val WEIGHING_BUCKET_SUBMIT_OPS = setOf("WEIGHING_SHED_OBSERVATION", WEIGHING_SCOPE_SUBMIT_OP)
 private const val WEIGHING_PROOF_DRAFT_MATCH_TOLERANCE_MS = 30 * 60 * 1000L
 
 

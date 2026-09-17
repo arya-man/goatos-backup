@@ -228,6 +228,54 @@ class WeighingViewModelTest {
         assertEquals(27, vm.state.value.operatorSummaries.single().animalsSubmitted)
     }
 
+    /**
+     * Realme E2E 2026-09-17: after a whole-pen submit the operator came back to My work and the
+     * card still read "scheduled · Record shed" for 45 s, until he tapped Refresh. The submit is an
+     * outbox write: the resume refresh on return reads the server BEFORE the write has drained, so
+     * nothing re-read the list once it did. The list must re-read when a weighing submit it can
+     * show reaches the server.
+     */
+    @Test
+    fun `my work re-reads its cards when a whole-pen submit reaches the server`() = runTest(dispatcher) {
+        val pen = phoneQaBuckets().first().copy(label = "Godel 2 - Part 1", status = "scheduled")
+        val repository = FakeWeighingRepository(assignmentsByPark = mapOf(null to listOf(pen)))
+        val sync = FakeWeighingSyncRepository()
+        val vm = weighingViewModel(repository = repository, syncRepository = sync)
+        backgroundScope.launch(dispatcher) { vm.state.collect {} }
+        advanceUntilIdle()
+        assertEquals("scheduled", vm.state.value.assignments.single().backendStatus)
+
+        fun submitRow(status: SyncItemStatus) = SyncQueueItem(
+            id = "shed-observation-row",
+            idempotencyKey = "weighing-shed:${pen.campaignShedId}",
+            opType = "WEIGHING_SHED_OBSERVATION",
+            groupKey = pen.campaignShedId,
+            status = status,
+            attemptCount = 1,
+            maxAttempts = 5,
+            conflict = false,
+            createdAt = 10L,
+            updatedAt = 20L,
+            lastError = null,
+        )
+        sync.items(submitRow(SyncItemStatus.QUEUED))
+        advanceUntilIdle()
+        val readsBeforeDrain = repository.listAssignmentsCalls
+
+        // The write drains and the server now holds the bucket as submitted.
+        repository.assignmentsByPark = mapOf(null to listOf(pen.copy(status = "submitted")))
+        sync.items(submitRow(SyncItemStatus.SUCCEEDED))
+        advanceUntilIdle()
+
+        assertEquals("the list re-reads once the submit is on the server", readsBeforeDrain + 1, repository.listAssignmentsCalls)
+        assertEquals("submitted", vm.state.value.assignments.single().backendStatus)
+
+        // An unrelated status tick with the same settled row does not re-read again.
+        sync.touch()
+        advanceUntilIdle()
+        assertEquals(readsBeforeDrain + 1, repository.listAssignmentsCalls)
+    }
+
     @Test
     fun `read failure hides raw localhost transport detail from weighing screen`() = runTest(dispatcher) {
         val repository = FakeWeighingRepository(
@@ -3247,6 +3295,11 @@ class WeighingViewModelTest {
             )
         }
 
+        /** Replaces the outbox rows the status stream reports, as Room would after a drain step. */
+        fun items(vararg rows: SyncQueueItem) {
+            status.value = status.value.copy(lastSyncAt = (status.value.lastSyncAt ?: 0L) + 1, items = rows.toList())
+        }
+
         override fun observeStatus(): StateFlow<SyncStatus> = status
         override fun observeItem(itemId: String): Flow<SyncQueueItem?> = flowOf(null)
         override suspend fun enqueueShedSubmit(
@@ -3304,7 +3357,7 @@ class WeighingViewModelTest {
         // a fake that mimics that (rather than always returning the same full list regardless of
         // parkId) is needed to reproduce "selecting a park collapses the chip row".
         // Keyed by parkId; `null` is the unfiltered ("All parks") page.
-        private val assignmentsByPark: Map<String?, List<WeighingAssignment>> = emptyMap(),
+        assignmentsByPark: Map<String?, List<WeighingAssignment>> = emptyMap(),
         // The OPERATOR-grain roll-up the backend answers the same request with. Held apart from
         // `assignmentsByPark` on purpose, exactly as the wire holds it apart from `items`: these
         // numbers are whole-filter truth and are never derivable from the returned page.
@@ -3450,6 +3503,11 @@ class WeighingViewModelTest {
         override fun observeScope(scopeKey: String, windowSize: Int): Flow<WeighingScopeState> =
             observedScope
 
+        /** The server's answer to the next read; a test replaces it to model work landing server-side. */
+        var assignmentsByPark: Map<String?, List<WeighingAssignment>> = assignmentsByPark
+        var listAssignmentsCalls = 0
+            private set
+
         override suspend fun listAssignments(
             cursor: String?,
             scope: String,
@@ -3457,7 +3515,7 @@ class WeighingViewModelTest {
         ): AppResult<WeighingPage<WeighingAssignment>> =
             AppResult.Ok(
                 WeighingPage(
-                    items = assignmentsByPark[parkId] ?: emptyList(),
+                    items = (assignmentsByPark[parkId] ?: emptyList()).also { listAssignmentsCalls++ },
                     nextCursor = null,
                     capabilities = assignmentCapabilities,
                     operatorSummaries = operatorSummariesByPark[parkId] ?: emptyList(),
