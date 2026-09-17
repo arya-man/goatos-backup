@@ -9,6 +9,7 @@ import (
 
 	"github.com/vgoats/goatos/backend/internal/ceoai/domain"
 	"github.com/vgoats/goatos/backend/internal/ceoai/ports"
+	"github.com/vgoats/goatos/backend/internal/ceoai/sqlguard"
 	"github.com/vgoats/goatos/backend/internal/permissions"
 )
 
@@ -330,8 +331,41 @@ func TestNaturalActiveAnimalQuestionUsesLiveSQLFallbackForCPT(t *testing.T) {
 			t.Fatalf("SQL missing %q: %s", wantSQL, sqlFB.lastSQL)
 		}
 	}
+	if err := sqlguard.Validate(sqlFB.lastSQL); err != nil {
+		t.Fatalf("active-animal natural SQL must pass the real sqlguard validator: %v; sql=%s", err, sqlFB.lastSQL)
+	}
 	if len(ans.Citations) == 0 || ans.Citations[0].Route != domain.RouteSQL {
 		t.Fatalf("expected SQL citation, got %+v", ans.Citations)
+	}
+}
+
+func TestNaturalActiveAnimalOneToManyPageBoundaryDateShiftParkScopeSQLGuard(t *testing.T) {
+	sql := activeAnimalsSQL(
+		"t1",
+		knownParkScope{code: "CPT", label: "Channapatna", id: "00000000-0000-4000-8000-000000003002"},
+		"breed",
+		"how many active animals in cpt by breed",
+	)
+	if err := sqlguard.Validate(sql); err != nil {
+		t.Fatalf("active-animal SQL must pass the real sqlguard validator: %v; sql=%s", err, sql)
+	}
+	for _, want := range []string{
+		"SELECT 'Active animals' AS label",
+		"ceo_ai.animal_current_scope",
+		"tenant_id = 't1'",
+		"park_id = '00000000-0000-4000-8000-000000003002'",
+		"lifecycle_status = 'alive'",
+		"GROUP BY breed",
+		"LIMIT 50",
+	} {
+		if !strings.Contains(sql, want) {
+			t.Fatalf("active-animal SQL missing %q: %s", want, sql)
+		}
+	}
+	for _, forbidden := range []string{"/*", "*/", "--", ";"} {
+		if strings.Contains(sql, forbidden) {
+			t.Fatalf("active-animal SQL must not contain %q: %s", forbidden, sql)
+		}
 	}
 }
 
@@ -512,6 +546,15 @@ func TestNaturalHealthOneToManyPageBoundaryDateShiftParkScope(t *testing.T) {
 	for _, want := range []string{"procurement_source_health_checks", "arrival_intake_reviews", "air.park_location_id = '00000000-0000-4000-8000-000000003002'"} {
 		if !strings.Contains(sqlFB.lastSQL, want) {
 			t.Fatalf("health SQL missing %q: %s", want, sqlFB.lastSQL)
+		}
+	}
+	trimmedSQL := strings.TrimSpace(sqlFB.lastSQL)
+	if !strings.HasPrefix(strings.ToUpper(trimmedSQL), "SELECT") {
+		t.Fatalf("trusted health SQL must begin with SELECT: %s", sqlFB.lastSQL)
+	}
+	for _, forbidden := range []string{"/*", "*/", "--", ";"} {
+		if strings.Contains(trimmedSQL, forbidden) {
+			t.Fatalf("trusted health SQL must not contain %q: %s", forbidden, sqlFB.lastSQL)
 		}
 	}
 	if !strings.Contains(ans.Answer, "Vendor A") || !strings.Contains(ans.Answer, "2") {

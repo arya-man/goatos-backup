@@ -31,6 +31,14 @@ procurement, source-entry health, and operations exceptions.
 - Added tests for active animal questions, typo handling, breed follow-ups,
   graph/pen breakdowns, weighing shorthand, sales priority, feed `as_of`,
   adult goat count routing, and conversation-aware cache keys.
+- Moved `projection-review` evidence for natural active-animal and source-entry
+  health SQL out of emitted SQL strings and into Go source comments so the real
+  sqlguard/trusted executors do not reject server-authored fallbacks.
+- Added regression coverage that validates active-animal generated SQL with the
+  real sqlguard validator and asserts trusted source-entry health SQL starts
+  with `SELECT` and contains no comment/statement syntax.
+- Added aggregate-projection guard coverage for active-animal SQL cardinality,
+  pagination, date-shift neutrality, and park scope.
 
 ## Pending
 
@@ -43,6 +51,12 @@ procurement, source-entry health, and operations exceptions.
   `goatos-stg:asia-south1:goatos-stg-core-db` with Secret Manager read-only DSN.
 - Local tests passed:
   `cd backend && go test ./internal/ceoai/app ./internal/bootstrap ./internal/ceoai/adapters/readtools ./internal/ceoai/adapters/keywordplanner ./internal/ceoai/safety ./internal/ceoai/sqlguard`
+- SQL comment regression proof passed:
+  `cd backend && go test ./internal/ceoai/app ./internal/ceoai/sqlguard`
+- Leadership assistant coverage guard passed:
+  `tools/agent-hooks/check-leadership-assistant-coverage.mjs`
+- Aggregate projection guard passed:
+  `make aggregate-projection-guard`
 - Live local API probes against `goatos-stg` returned:
   sales this month 114 animals; CPT adult goats 95; CPT feed variance rows for
   today's feed day; CPT active split 185 goats / 531 sheep; and breed follow-up
@@ -53,7 +67,7 @@ procurement, source-entry health, and operations exceptions.
 
 ## Current SHA
 
-33ffceb0d before committing this work.
+85b4ed209 before committing the SQL comment regression fix.
 
 ## Deployment State
 
