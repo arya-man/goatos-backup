@@ -37,11 +37,28 @@ test("production Tasks page uses live backend data, with fixtures confined to pr
     /searchParams/,
     "production /tasks must read the selected scope from query params",
   );
+  // The route threads the WHOLE list state through, not just the scope: the status filter, the
+  // page size and the keyset cursor are URL state now, so pinning the old literal
+  // `listLeadershipTasks({ scope, filter: "all", limit: 50 })` would pin the page to the one
+  // un-filterable, un-pageable call the rewrite exists to replace. What must stay true is that
+  // every one of these comes from the parsed params and nothing is hardcoded.
   assert.match(
     route,
-    /listLeadershipTasks\(\{ scope, filter: "all", limit: 50 \}\)/,
-    "production /tasks must pass the selected scope to the backend",
+    /parseTasksParams\(/,
+    "production /tasks must parse its list state from the URL",
   );
+  for (const field of [
+    /scope: params\.scope/,
+    /filter: params\.filter/,
+    /limit: params\.limit/,
+    /cursor: params\.cursor/,
+    /sort: params\.sort/,
+    /q: params\.q/,
+  ]) {
+    assert.match(route, field, `production /tasks must pass ${field} to the backend`);
+  }
+  // No offset and no total: OFFSET pagination on this endpoint is blocked by `make scale-guard`.
+  assert.doesNotMatch(route, /offset/i, "production /tasks must not paginate by offset");
 
   const component = readFileSync(
     join(root, "features/leadership-tasks/leadership-tasks-page.tsx"),
@@ -56,11 +73,13 @@ test("production Tasks page uses live backend data, with fixtures confined to pr
     /page \? rowsFromPage\(page\) : preview \? fixtureTasks : \[\]/,
   );
   assert.doesNotMatch(component, /page \? rowsFromPage\(page\) : fixtureTasks/);
-  assert.ok(
-    component.includes(
-      'href={`${preview ? "/tasks-preview" : "/tasks"}?scope=${scope.key}`}',
-    ),
-    "scope chips must navigate to the selected backend scope",
+  // The scope tabs are the shared `SegmentedLinks` control now, and their hrefs are built by the
+  // feature's own URL helper so the rest of the filter state survives a scope change.
+  assert.match(component, /<SegmentedLinks/, "scope tabs must use the shared segmented control");
+  assert.match(
+    component,
+    /\[TASK_PARAM\.scope\]: scope\.key/,
+    "scope tabs must navigate to the selected backend scope",
   );
   assert.match(
     component,
@@ -69,13 +88,23 @@ test("production Tasks page uses live backend data, with fixtures confined to pr
   );
   assert.match(
     component,
-    /liveFeedRows\(selected\)/,
+    /liveFeedRows\(selected, pageContract\)/,
     "production activity must be derived from live task fields",
   );
+  // Row selection moved into the contract-driven table component with the column set.
+  const tasksTable = readFileSync(
+    join(root, "features/leadership-tasks/leadership-tasks-table.tsx"),
+    "utf8",
+  );
   assert.match(
-    component,
+    tasksTable,
     /task=\$\{encodeURIComponent\(task\.id\)\}/,
     "web task rows must be selectable so any task's notes and attachments can be inspected",
+  );
+  assert.match(
+    tasksTable,
+    /columnsFromContract<TaskRow>\(contract/,
+    "the task table's columns must come from the backend table contract",
   );
   assert.match(
     component,
@@ -98,10 +127,32 @@ test("production Tasks page uses live backend data, with fixtures confined to pr
     "web monitor must open task-scoped attachments through the admin proxy",
   );
 
+  // THE EDIT COMMAND. POST /app/leadership-tasks/{task_id}/edit existed with no web client at
+  // all, which is what "task editing is not working" meant.
+  const editModal = readFileSync(
+    join(root, "features/leadership-tasks/edit-task-modal.tsx"),
+    "utf8",
+  );
+  assert.match(component, /action=\{editLeadershipTaskAction\}/, "the detail panel must offer Edit");
+  assert.match(component, /selected\.canEdit \?/, "Edit must be offered only when the row allows it");
+  assert.match(editModal, /name="row_version"/, "the edit form must carry the row version fence");
+  // Nothing rendered the outcome of a write before this change.
+  assert.match(component, /<TaskFeedbackBanner/, "writes must report their outcome on the page");
+
   const actions = readFileSync(
     join(root, "features/leadership-tasks/actions.ts"),
     "utf8",
   );
+  // The feedback params are task_status / task_code: features/vaccination-live-tracker/params.ts
+  // already owns the name `lt_status`.
+  // Comments stripped first: the prose that NAMES the retired parameter must not read as a use
+  // of it.
+  assert.doesNotMatch(
+    actions.replace(/\/\*[\s\S]*?\*\//g, "").replace(/(^|[^:])\/\/.*$/gm, "$1"),
+    /lt_(?:status|code)/,
+    "task feedback params must not collide with the live tracker's",
+  );
+  assert.match(actions, /editLeadershipTask\(/, "the edit server action must call the backend edit command");
   assert.doesNotMatch(
     actions,
     /randomUUID\(/,
