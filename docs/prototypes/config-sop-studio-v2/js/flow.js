@@ -228,7 +228,7 @@
 
 
   /* ---------- stylesheet (owned by this module) ---------- */
-  (function(){if(document.querySelector('link[data-flow-css]'))return;const l=document.createElement('link');l.rel='stylesheet';l.href='styles/flow.css?v=20260917z3';l.dataset.flowCss='1';l.onload=()=>document.querySelectorAll('.fx-root').forEach(r=>syncChrome(r));document.head.appendChild(l);})();
+  (function(){if(document.querySelector('link[data-flow-css]'))return;const l=document.createElement('link');l.rel='stylesheet';l.href='styles/flow.css?v=20260917z5';l.dataset.flowCss='1';l.onload=()=>document.querySelectorAll('.fx-root').forEach(r=>syncChrome(r));document.head.appendChild(l);})();
 
   /* =====================================================================
      Shared canvas engine. Every flowchart (SOP steps, master SOP stages) is
@@ -239,6 +239,13 @@
   const KINDS={}; F.kinds=KINDS;
   F.registerKind=(name,k)=>{k.name=name;KINDS[name]=k;};
   const PALETTE=['question','evidence','decision','approval','wait','repeat','child','action','parallel','end'];
+  /* one read-only rule for work instructions: Contractor and Store keeper inspect (pan/zoom/select) but never edit */
+  F.RO_ROLES=['contractor','store'];
+  F.readOnly=function(role){if(role==null)role=window.App&&App.role?App.role():'';return F.RO_ROLES.includes(role);};
+  F.EDIT_ACTIONS=['sop-new','sop-publish','sop-more','node-del','opt-add','opt-del','lane-add','list-ins','stage-add','stage-del','dep-add','dep-del','mst-publish'];
+  /* disable every field in an inspector / drawer and drop its edit buttons */
+  F.lockPanel=function(el){if(!el)return;el.classList.add('ro');el.querySelectorAll('input,select,textarea').forEach(i=>{i.disabled=true;});
+    el.querySelectorAll('[data-a]').forEach(b=>{if(F.EDIT_ACTIONS.includes(b.dataset.a))b.remove();});el.querySelectorAll('[data-restore],[data-pubgo]').forEach(b=>b.remove());};
   F._h={}; F._opts={}; F.miniOff=null;/* null = auto: shown only for flows too long to fit */ F._focus={}; F.palOpen=false; F.tool='pan'; F._edgeSel=null;
   const dkey=(K,d)=>K.name+':'+d.id;
   const hOf=(K,d,n)=>((F._h[dkey(K,d)]||{})[n.id])||K.estH(n);
@@ -467,25 +474,26 @@
     const es=route(K,d,pos,v.k);const iss=K.validate(d);
     schedule(key);
     const pages=K.pages?K.pages(d):[];
-    return `<div class="fx-root ${F.palOpen?'pal-open':''} tool-${F.tool} ${v.k<.9?'zoomed-out':''} ${v.k<.6?'zoomed-mid':''} ${v.k<.5?'zoomed-lo':''} ${v.k<.2?'zoomed-far':''}" data-flow="${esc(d.id)}" data-kind="${kind}" tabindex="0" style="${bgStyle(v)};--fxk:${v.k}">
+    const RO=F.readOnly();
+    return `<div class="fx-root ${RO?'ro':''} ${F.palOpen?'pal-open':''} tool-${F.tool} ${v.k<.9?'zoomed-out':''} ${v.k<.6?'zoomed-mid':''} ${v.k<.5?'zoomed-lo':''} ${v.k<.2?'zoomed-far':''}" data-flow="${esc(d.id)}" data-kind="${kind}" tabindex="0" style="${bgStyle(v)};--fxk:${v.k}">
       <div class="fx-clip"><div class="fx-world" style="transform:translate(${v.x}px,${v.y}px) scale(${v.k})">
         <div class="fx-groups">${K.groups?K.groups(d,pos):''}</div>
         <svg class="fx-edges" width="1" height="1">${edgesSvg(K,d,es).edges}</svg>
-        <div class="fx-pluses">${plusHtml(K,d,es)}</div>
+        <div class="fx-pluses">${RO?'':plusHtml(K,d,es)}</div>
         <div class="fx-nodes">${K.nodes(d).map((n,i)=>nodeHtml(K,d,n,pos[n.id],st,i)).join('')}</div>
         <svg class="fx-handles" width="1" height="1">${edgesSvg(K,d,es).handles}</svg>
         <svg class="fx-preview" width="1" height="1"><path d=""/></svg>
       </div></div>
       <div class="fx-marq" hidden></div>
-      <div class="fx-palette" aria-label="Add ${K.noun}"><div class="fx-palette-h"><span>Add ${K.noun}</span><button class="fx-palt" data-fx="pal" aria-label="${F.palOpen?'Collapse':'Expand'} list" aria-expanded="${F.palOpen?'true':'false'}">${ic('chevron-right','',14)}</button></div>
+      ${RO?'':`<div class="fx-palette" aria-label="Add ${K.noun}"><div class="fx-palette-h"><span>Add ${K.noun}</span><button class="fx-palt" data-fx="pal" aria-label="${F.palOpen?'Collapse':'Expand'} list" aria-expanded="${F.palOpen?'true':'false'}">${ic('chevron-right','',14)}</button></div>
         ${K.palette.map(t=>`<button class="fx-pal k-${t}" data-pal="${t}" aria-label="Add ${K.typeLabel(t)}" title="${K.typeLabel(t)}"><i class="fx-pal-ic">${ic(K.typeIcon(t),'',16)}</i><b>${K.typeLabel(t)}</b></button>`).join('')}
-      </div>
+      </div>`}
       <div class="fx-tools">
         <button class="fx-tb ${F.tool==='select'?'on':''}" data-fx="tool-select" aria-label="Select tool" title="Select: drag to box-select (V)"><svg class="ic" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round"><path d="M5 3l14 8-6 1.5L10 19z"/></svg></button>
         <button class="fx-tb ${F.tool==='pan'?'on':''}" data-fx="tool-pan" aria-label="Pan tool" title="Pan: drag to move the canvas (H) · Shift-drag box-selects"><svg class="ic" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M8 13V5.5a1.5 1.5 0 013 0V12M11 11.5v-7a1.5 1.5 0 013 0V12M14 6.5a1.5 1.5 0 013 0V13M17 8.5a1.5 1.5 0 013 0V15a6 6 0 01-6 6h-2a6 6 0 01-4.9-2.5L4 14a1.5 1.5 0 012.5-1.7L8 14"/></svg></button>
         <i class="fx-sep"></i>
-        <button class="fx-tb" data-fx="undo" aria-label="Undo" title="Undo ⌘Z" ${hist(K,d).undo.length?'':'disabled'}>${ic('undo','',16)}</button>
-        <button class="fx-tb" data-fx="redo" aria-label="Redo" title="Redo ⇧⌘Z" ${hist(K,d).redo.length?'':'disabled'}><span class="fx-flip">${ic('undo','',16)}</span></button>
+        ${RO?'<span class="fx-ro">View only</span>':`<button class="fx-tb" data-fx="undo" aria-label="Undo" title="Undo ⌘Z" ${hist(K,d).undo.length?'':'disabled'}>${ic('undo','',16)}</button>
+        <button class="fx-tb" data-fx="redo" aria-label="Redo" title="Redo ⇧⌘Z" ${hist(K,d).redo.length?'':'disabled'}><span class="fx-flip">${ic('undo','',16)}</span></button>`}
         <i class="fx-sep"></i>
         ${pages.length>1?`<select class="fx-jump" data-fxjump aria-label="Jump to page"><option value="">${innerWidth<=420?'Pages':'Jump to page'}</option>${pages.map(p=>`<option>${esc(p)}</option>`).join('')}</select>`:''}
         <button class="fx-tb txt fx-val ${iss.length?'bad':'ok'}" data-fx="validate" aria-label="Validate${iss.length?' · '+iss.length+' issues':''}" title="Validate">${ic(iss.length?'reject':'check','',15)}<span class="fx-vl">Validate</span><span class="fx-vs">Check</span>${iss.length?` <b>${iss.length}</b>`:''}</button>
@@ -494,7 +502,7 @@
         <span class="fx-zoom">${Math.round(v.k*100)}%</span>
         <button class="fx-tb" data-fx="in" aria-label="Zoom in">${ic('zoomin','',16)}</button>
         <button class="fx-tb txt" data-fx="fit">Fit</button>
-        <button class="fx-tb txt" data-fx="tidy" title="Auto-arrange">Tidy</button>
+        ${RO?'':'<button class="fx-tb txt" data-fx="tidy" title="Auto-arrange">Tidy</button>'}
         <button class="fx-tb ${F.miniOff===false?'on':''}" data-fx="mini" aria-label="Toggle minimap">${ic('layers','',16)}</button>
         <button class="fx-tb txt" data-fx="help" aria-label="Shortcuts" aria-expanded="false">?</button>
         <button class="fx-tb fx-more" data-fx="more" aria-label="More tools">${ic('more','',16)}</button>
@@ -545,18 +553,18 @@
     if(!root._ro&&window.ResizeObserver){let w=root.clientWidth,h=root.clientHeight;root._ro=new ResizeObserver(()=>{if(!root.isConnected){root._ro.disconnect();return;}
       if(Math.abs(root.clientWidth-w)<2&&Math.abs(root.clientHeight-h)<2)return;w=root.clientWidth;h=root.clientHeight;syncChrome(root);syncLong(root,K,d);if(view(key).auto)fit(root,K,d,true);else minimap(root,K,d);});root._ro.observe(root);}
   }
-  function measure(root,K,d){const h=F._h[dkey(K,d)]=F._h[dkey(K,d)]||{};root.querySelectorAll('.fx-node').forEach(el=>{h[el.dataset.node]=el.offsetHeight;});}
+  function measure(root,K,d){const h=F._h[dkey(K,d)]=F._h[dkey(K,d)]||{};root.querySelectorAll(".fx-node:not(.fx-fold)").forEach(el=>{h[el.dataset.node]=el.offsetHeight;});}
   function redraw(root,K,d,pos,light){
     pos=pos||K.positions(d);const es=route(K,d,pos,view(dkey(K,d)).k);
     const sv=edgesSvg(K,d,es);root.querySelector('.fx-edges').innerHTML=sv.edges;root.querySelector('.fx-handles').innerHTML=sv.handles;
     root.querySelector('.fx-groups').innerHTML=K.groups?K.groups(d,pos):'';
-    if(!light){root.querySelector('.fx-pluses').innerHTML=plusHtml(K,d,es);minimap(root,K,d,pos);}
+    if(!light){root.querySelector('.fx-pluses').innerHTML=F.readOnly()?'':plusHtml(K,d,es);minimap(root,K,d,pos);}
     return es;
   }
   function rerender(root){const c=ctxOf(root);if(!c)return;const had=document.activeElement===root;
     const html=F.kindCanvas(c.K.name,c.d,c.K.getSel(c.d),F._opts[c.key]);root.outerHTML=html;if(had)refocus(c.key);}
   function applyView(root,K,d){
-    const key=dkey(K,d);const v=view(key);
+    const key=dkey(K,d);const v=view(key);root.querySelectorAll('.fx-node.fx-fold').forEach(n=>n.classList.remove('fx-fold'));
     root.querySelector('.fx-world').style.transform=`translate(${v.x}px,${v.y}px) scale(${v.k})`;
     root.style.backgroundSize=`${GRID*v.k}px ${GRID*v.k}px`; root.style.backgroundPosition=`${v.x}px ${v.y}px`;
     if(root._k!==v.k){const was=root._k;root._k=v.k;root.style.setProperty('--fxk',v.k);root.classList.toggle('zoomed-out',v.k<.9);root.classList.toggle('zoomed-mid',v.k<.6);root.classList.toggle('zoomed-lo',v.k<.5);root.classList.toggle('zoomed-far',v.k<.2);
@@ -585,34 +593,28 @@
     v.k=k; v.x=padL+(aw-(b.x1-b.x0)*k)/2-b.x0*k;
     if((b.x1-b.x0)*k>aw){const s=(K.starts?K.starts(d):[])[0];const sp=s&&pos[s];v.x=Math.min(padL-b.x0*k,sp?padL+aw/2-(sp.x+NW/2)*k:1e9);}
     v.y=(bh*k>ah)?padT-b.y0*k:padT+(ah-bh*k)/2-b.y0*k;
-    /* bottom palette (phones): never leave a card half under it; shrink a little, else push that card fully below */
-    if(bottomPal&&bh*k>ah){const line=pal.offsetTop;
-      const cut=K.nodes(d).filter(n=>pos[n.id]).map(n=>({t:pos[n.id].y,b:pos[n.id].y+hOf(K,d,n)})).filter(o=>o.t*k+v.y<line+6&&o.b*k+v.y>line-10).sort((x,y)=>x.t-y.t)[0];
-      if(cut){const k2=(line-12-padT)/(cut.b-b.y0);
-        if(k2>=Math.max(.6,k*.8)){k=k2;v.k=k;v.x=padL+(aw-(b.x1-b.x0)*k)/2-b.x0*k;if((b.x1-b.x0)*k>aw){const s0=(K.starts?K.starts(d):[])[0];const sp=s0&&pos[s0];v.x=Math.min(padL-b.x0*k,sp?padL+aw/2-(sp.x+NW/2)*k:1e9);}v.y=padT-b.y0*k;}
-        else{const rows=K.nodes(d).filter(n=>pos[n.id]).map(n=>[pos[n.id].y*k,(pos[n.id].y+hOf(K,d,n))*k]);const y0=v.y;
-          for(let dy=2;dy<400;dy+=2){const ok=o=>!rows.some(([t,bb])=>t+o<line+6&&bb+o>line-10);if(ok(y0+dy)){v.y=y0+dy;break;}if(y0-dy+b.y0*k>padT-200&&ok(y0-dy)){v.y=y0-dy;break;}}}}}
+    /* bottom palette (phones): flow is TOP-aligned (START 12px under the toolbar), centred sideways.
+       Visible bottom = palette top - 8. Never move START down; shrink slightly so no card straddles the fold, else hide the straddlers. */
+    if(bottomPal){root.querySelectorAll('.fx-node.fx-fold').forEach(n=>n.classList.remove('fx-fold'));
+      const t0=topInset(root)+12, line=pal.offsetTop-8;
+      const rows=K.nodes(d).filter(n=>pos[n.id]).map(n=>[pos[n.id].y-b.y0,pos[n.id].y-b.y0+hOf(K,d,n)]);
+      const clean=kk=>!rows.some(([t,bb])=>t0+t*kk<pal.offsetTop+pal.offsetHeight&&t0+bb*kk>line);
+      const setX=kk=>{let x=padL+(aw-(b.x1-b.x0)*kk)/2-b.x0*kk;if((b.x1-b.x0)*kk>aw){const s=(K.starts?K.starts(d):[])[0];const sp=s&&pos[s];x=Math.min(padL-b.x0*kk,sp?padL+aw/2-(sp.x+NW/2)*kk:1e9);}return x;};
+      if(bh*k>ah||(pad+bh*k>line-t0)){if(!clean(k)){for(let kk=k-.01;kk>=Math.max(.6,k*.66);kk-=.01)if(clean(kk)){k=kk;break;}}
+        v.k=k;v.x=setX(k);v.y=t0-b.y0*k;}}
     applyView(root,K,d);
-    if(bottomPal)palClear(root,K,d,v,pal);
+    if(bottomPal)foldHide(root,pal);
   }
-  /* measured pass: visible bottom = palette top - 8; no card may straddle [that, palette bottom] */
-  function palClear(root,K,d,v,pal){const pr=pal.getBoundingClientRect(),top=pr.top-8,bot=pr.bottom;
-    const cards=[...root.querySelectorAll('.fx-node')].map(n=>n.getBoundingClientRect());
-    const ok=o=>!cards.some(c=>c.top+o<bot&&c.bottom+o>top);if(ok(0))return;
-    const c=[];cards.forEach(r=>{if(r.top<bot&&r.bottom>top){c.push(bot-r.top+2,top-r.bottom-2);}});
-    const rt=root.getBoundingClientRect(),ti=topInset(root);
-    /* prefer pushing partial cards below the fold; pulling up must not hide the first card under the toolbar */
-    const firstTop=Math.min(...cards.map(r=>r.top));
-    const pick=c.filter(ok).sort((a,b)=>(a<0)-(b<0)||Math.abs(a)-Math.abs(b)).find(o=>o>0||firstTop+o>=rt.top+ti)
-      ??[...Array(200)].map((_,i)=>(i+1)*4).find(o=>ok(o));
-    if(pick==null)return;v.y+=pick;applyView(root,K,d);}
+  /* measured pass: a card that still straddles the fold (palette top - 8 .. palette bottom) is hidden until the view moves */
+  function foldHide(root,pal){const pr=pal.getBoundingClientRect(),top=pr.top-8,bot=pr.bottom;
+    root.querySelectorAll('.fx-node').forEach(n=>{const c=n.getBoundingClientRect();n.classList.toggle('fx-fold',c.top<bot&&c.bottom>top);});}
   function longInfo(root,K,d){const r=root.getBoundingClientRect();if(r.width<50||r.height<50)return root._long||false;
     const pos=K.positions(d),b=kbounds(K,d,pos);const {pal,bottomPal}=palInset(root,r);const narrow=r.width<600,pad=narrow?16:32;
     const ah=Math.max(120,r.height-(topInset(root)+(narrow?16:28))-((bottomPal?pal.offsetHeight+20:0)+pad));return (b.y1-b.y0+40)*.35>ah;}
   const miniShown=root=>F.miniOff===null?!!(root&&root._long&&root.clientWidth>=900):!F.miniOff;/* auto only on wide canvases */
   function syncLong(root,K,d){root._long=longInfo(root,K,d);const on=miniShown(root);
     const mi=root.querySelector('.fx-mini');if(mi)mi.classList.toggle('hidden',!on);root.querySelectorAll('[data-fx=mini]').forEach(x=>{x.classList.toggle('on',on);x.setAttribute('aria-pressed',String(on));});
-    root.querySelectorAll('[data-fx=fit]').forEach(x=>{x.textContent=root._long?'Fit width':'Fit';x.title=root._long?'Too long to fit: fits the width, use the minimap to move around':'Fit the whole flow';});
+    root.querySelectorAll('[data-fx=fit]').forEach(x=>{x.textContent=root._long&&root.clientWidth>420?'Fit width':'Fit';x.title=root._long?'Too long to fit: fits the width, use the minimap to move around':'Fit the whole flow';});
     minimap(root,K,d);}
   function topInset(root){const t=root.querySelector('.fx-tools');return t?t.offsetTop+t.offsetHeight:48;}
   function syncChrome(root){
@@ -719,7 +721,10 @@
     if(e.target.closest('.fx-palette'))return;
     const pan=e.button===1||spaceDown;
     e.preventDefault();
-    if(!pan){
+    if(!pan&&F.readOnly()){const nodeEl=e.target.closest('.fx-node');
+      if(nodeEl){drag={kind:'node',ro:true,root,K,d,key,id:nodeEl.dataset.node,ids:[nodeEl.dataset.node],pos:K.positions(d),start:world(root,key,e),orig:{},moved:false,shift:false};capture(root,e);return;}
+      if(e.shiftKey||F.tool==='select'){const p=local(root,e);drag={kind:'marq',root,K,d,key,p0:p,add:e.shiftKey,base:e.shiftKey?selectedIds(K,d):[],pos:K.positions(d)};capture(root,e);return;}}
+    else if(!pan){
       const pos=K.positions(d);
       let eh=e.target.closest('[data-eh]');
       let edgeUnder=null;
@@ -798,6 +803,7 @@
         const over=document.elementFromPoint(e.clientX,e.clientY); const t=over&&over.closest('.fx-node'); if(t&&root.contains(t))t.classList.add('drop');}
       return;}
     if(drag.kind==='node'){
+      if(drag.ro)return;
       const w=world(root,key,e); const dx=w.x-drag.start.x, dy=w.y-drag.start.y;
       if(!drag.moved&&Math.hypot(dx,dy)*view(key).k<4)return;
       if(!drag.moved){drag.moved=true;root.classList.add('dragging');}
@@ -879,7 +885,7 @@
 
   document.addEventListener('dblclick',e=>{
     const root=e.target.closest&&e.target.closest('.fx-root');if(!root)return;const c=ctxOf(root);if(!c)return;
-    const el=e.target.closest('[data-edge]');if(!el)return;e.preventDefault();
+    const el=e.target.closest('[data-edge]');if(!el||F.readOnly())return;e.preventDefault();
     c.K.editEdge&&c.K.editEdge(c.d,el.dataset.edge,e.clientX,e.clientY,()=>{S.save();App.render();refocus(c.key);},root);
   });
   /* inline label editor for SOP branches */
@@ -896,7 +902,7 @@
 
   document.addEventListener('contextmenu',e=>{
     const root=e.target.closest&&e.target.closest('.fx-root');if(!root||e.target.closest('.fx-tools,.fx-palette,.fx-mini'))return;
-    const c=ctxOf(root);if(!c)return;const {K,d,key}=c;e.preventDefault();cancelDrag();
+    const c=ctxOf(root);if(!c)return;const {K,d,key}=c;e.preventDefault();cancelDrag();if(F.readOnly())return;
     const nodeEl=e.target.closest('.fx-node'),edgeEl=e.target.closest('[data-edge]');
     const done=msg=>{S.save();App.render();refocus(key);if(msg)UI.toast(msg,()=>F.undoKey(key));};
     if(nodeEl){const id=nodeEl.dataset.node;let ids=selectedIds(K,d);
@@ -945,6 +951,7 @@
       else root.querySelector('.fx-issues').hidden=true;
       return;}
     const plus=e.target.closest&&e.target.closest('.fx-root [data-plus]');
+    if(plus&&F.readOnly())return;
     if(plus){e.stopPropagation();const root=plus.closest('.fx-root'),c=ctxOf(root);if(!c)return;
       setTimeout(()=>UI.menu(plus,c.K.palette.filter(t=>t!=='end').map(t=>({label:c.K.typeLabel(t),icon:c.K.typeIcon(t),run(){
         S.snap('Insert');const id=c.K.insertOnEdge(c.d,plus.dataset.plus,t); if(!id)return; S.save(); multiSet(c.key).clear(); c.K.setSel(c.d,id); F._focus[c.key]=id; App.render(); refocus(c.key);}}))),0);
@@ -952,6 +959,7 @@
     const b=e.target.closest&&e.target.closest('.fx-root [data-fx]'); if(!b)return;
     const root=b.closest('.fx-root'),c=ctxOf(root); if(!c)return; const {K,d,key}=c;
     const r=root.getBoundingClientRect(),v=view(key),fx=b.dataset.fx;
+    if(F.readOnly()&&['tidy','undo','redo'].includes(fx))return;
     if(fx==='tool-select'||fx==='tool-pan'){F.tool=fx==='tool-select'?'select':'pan';document.querySelectorAll('.fx-root').forEach(x=>{x.classList.toggle('tool-select',F.tool==='select');x.classList.toggle('tool-pan',F.tool==='pan');
       x.querySelector('[data-fx=tool-select]').classList.toggle('on',F.tool==='select');x.querySelector('[data-fx=tool-pan]').classList.toggle('on',F.tool==='pan');});}
     if(fx==='in')zoomAt(root,K,d,v.k*1.2,r.width/2,r.height/2);
@@ -970,7 +978,7 @@
     if(fx==='more'){e.stopPropagation();const click=k=>{const t=root.querySelector(`.fx-tools [data-fx="${k}"]`);if(t)t.click();};
       const tight=root.classList.contains('tb-tight');
       setTimeout(()=>UI.menu(b,[].concat(tight?[{label:'Zoom in',icon:'zoomin',run:()=>click('in')},{label:'Zoom out',icon:'zoomout',run:()=>click('out')}]:[],
-        [...(innerWidth<=420?[{label:'Redo',icon:'undo',run:()=>click('redo')}]:[]),{label:'Tidy layout',icon:'workflow',run:()=>click('tidy')},{label:(miniShown(root)?'Hide':'Show')+' minimap',icon:'layers',run:()=>click('mini')},{label:'Shortcuts',icon:'help',run:()=>click('help')}])),0);}
+        [...(innerWidth<=420&&!F.readOnly()?[{label:'Redo',icon:'undo',run:()=>click('redo')}]:[]),...(F.readOnly()?[]:[{label:'Tidy layout',icon:'workflow',run:()=>click('tidy')}]),{label:(miniShown(root)?'Hide':'Show')+' minimap',icon:'layers',run:()=>click('mini')},{label:'Shortcuts',icon:'help',run:()=>click('help')}])),0);}
   });
 
   const typing=t=>t&&(t.isContentEditable||/^(INPUT|TEXTAREA|SELECT)$/.test(t.tagName));
@@ -979,6 +987,8 @@
     if(e.code==='Space'&&!typing(e.target)&&document.querySelector('.fx-root')){if(!spaceDown){spaceDown=true;document.querySelectorAll('.fx-root').forEach(r=>r.classList.add('space'));}if(e.target.closest&&e.target.closest('.fx-root'))e.preventDefault();return;}
     const root=e.target.closest&&e.target.closest('.fx-root'); if(!root||typing(e.target))return;
     const c=ctxOf(root); if(!c)return; const {K,d,key}=c;
+    const RO=F.readOnly();
+    if(RO&&(e.key==='Delete'||e.key==='Backspace'||((e.metaKey||e.ctrlKey)&&/^[zZyYdD]$/.test(e.key)))){e.preventDefault();return;}
     if((e.metaKey||e.ctrlKey)&&(e.key==='z'||e.key==='Z')){e.preventDefault();histStep(K,d,e.shiftKey?1:-1);return;}
     if((e.metaKey||e.ctrlKey)&&e.key==='y'){e.preventDefault();histStep(K,d,1);return;}
     if((e.metaKey||e.ctrlKey)&&(e.key==='a'||e.key==='A')){e.preventDefault();const ms=multiSet(key);ms.clear();const all=K.nodes(d).map(n=>n.id);all.forEach(x=>ms.add(x));K.setSel(d,all[all.length-1]||null);App.render();refocus(key);return;}

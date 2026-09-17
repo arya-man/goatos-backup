@@ -16,8 +16,8 @@
     const hOf=s=>84+26*(s.deps.length+(s.approvalRoleId?1:0)+(s.waitDays||s.waitSetting?1:0)+(s.repeatHours||s.repeatSetting?1:0))+44*((S.get('settings',s.waitSetting)?1:0)+(S.get('settings',s.repeatSetting)?1:0));
     const maxR=Math.max(0,...Object.values(rank)); const rowY=[]; let y=34;
     for(let r=0;r<=maxR;r++){rowY[r]=y;y+=Math.max(112,...stages.filter(s=>rank[s.id]===r).map(hOf))+56;}
-    const pos={};let maxc=0;stages.forEach(s=>{pos[s.id]={x:34+col[s.id]*300,y:rowY[rank[s.id]],w:260,h:Math.max(112,hOf(s))};maxc=Math.max(maxc,col[s.id]);});
-    return {pos,W:34+(maxc+1)*300,H:y-22};
+    const pos={};let maxc=0;stages.forEach(s=>{pos[s.id]={x:34+col[s.id]*360,y:rowY[rank[s.id]],w:260,h:Math.max(112,hOf(s))};maxc=Math.max(maxc,col[s.id]);});
+    return {pos,W:34+(maxc+1)*360,H:y-22};
   }
   function validate(m){
     const iss=[],by={};m.stages.forEach(s=>by[s.id]=s);
@@ -63,7 +63,7 @@
     const head=`<div class="phead"><div><div class="crumb">Configuration / <a href="#/configuration/work-instructions">Work instructions</a> / <b>${esc(m.dept)}</b></div><h1 class="mst-h1">${esc(m.title).replace(/-/g,'\u2011')}</h1>
       <div class="vstrip" style="margin-top:6px">${v?UI.tag('v'+v.v+' published','ok'):UI.tag('Draft','warn')}${v&&pd.edits?UI.tag('Draft changes','warn'):''}${pd.drift.length?UI.tag('Setting changed · publish to apply','warn'):''}${v&&v.running?UI.tag(v.running+' running','info'):''}${UI.tag(m.stages.length+' stages','mut')}${iss.length?UI.tag(iss.length+' issues','dng'):''}</div></div><div class="sp"></div>
       <div class="seg"><a class="${view!=='try'?'on':''}" href="${base}${id}">${ic('layers')}Stages</a><a class="${view==='try'?'on':''}" href="${base}${id}/try">${ic('play')}Try</a></div>
-      <button class="btn p" data-a="mst-publish" data-id="${id}" ${iss.length||!pd.changed?'disabled':''} title="${pd.changed?'':'No changes since v'+(v?v.v:0)}">${ic('check')}Publish v${v?v.v+1:1}</button></div>`;
+      ${Flow.readOnly()?UI.tag('View only','mut'):`<button class="btn p" data-a="mst-publish" data-id="${id}" ${iss.length||!pd.changed?'disabled':''} title="${pd.changed?'':'No changes since v'+(v?v.v:0)}">${ic('check')}Publish v${v?v.v+1:1}</button>`}</div>`;
     const side=view==='try'?trySide(m,T):inspector(m,iss);
     return head+`<div class="editor"><section class="card"><div class="canvasbar"><div class="fx-legend"><span><i></i>After completed</span><span><i class="a"></i>After approved</span><span><i class="s"></i>Parallel (after started)</span></div></div>${canvas}</section><section class="card insp ${M.sel[id]&&m.stages.some(x=>x.id===M.sel[id])?'has-node':''}">${side}</section></div>`;
   };
@@ -113,6 +113,7 @@
 
   M.mount=function(root,id){
     const m=S.get('masters',id); if(!m)return;
+    if(Flow.readOnly()&&!root.querySelector('.trycoh')){Flow.lockPanel(root.querySelector('.insp'));return;}
     const s=m.stages.find(x=>x.id===M.sel[id]);
     root.querySelectorAll('[data-ms]').forEach(i=>i.onchange=()=>{m[i.dataset.ms]=i.value;S.save();App.render();});
     root.querySelectorAll('[data-coh]').forEach(i=>i.oninput=()=>{tr(id).cohort[i.dataset.coh]=i.value;});

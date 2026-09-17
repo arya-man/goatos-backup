@@ -244,6 +244,7 @@
     if(e.target.closest('.side a')&&window.innerWidth<=860)A['nav-close']();
     if(!el)return;
     const fn=A[el.dataset.a]; if(!fn)return;
+    if(window.Flow&&Flow.readOnly&&Flow.readOnly()&&Flow.EDIT_ACTIONS.includes(el.dataset.a)){UI.toast('View only for your role');return;}
     if(el.tagName==='A'&&el.getAttribute('href')==='javascript:void 0')e.preventDefault();
     fn(el,e);
   });

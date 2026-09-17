@@ -28,7 +28,7 @@
     const running=sops.reduce((a,s)=>a+((Flow.latest(s)||{}).running||0),0);
     const k=(l,v,sub)=>`<div class="kpi stat"><div class="lab">${l}</div><div class="val">${v}</div><div class="dl">${sub}</div></div>`;
     return `<div class="phead"><div><div class="crumb">${crumb||'Configuration'} / <b>${presetDept?esc(presetDept)+' SOP':'Work instructions'}</b></div><h1>${presetDept?esc(presetDept)+' SOP':'Work instructions'}</h1></div><div class="sp"></div>
-      <button class="btn out" data-a="sop-new" data-dept="${esc(presetDept||'')}">${ic('plus')}New SOP</button></div>
+      ${Flow.readOnly()?UI.tag('View only','mut'):`<button class="btn out" data-a="sop-new" data-dept="${esc(presetDept||'')}">${ic('plus')}New SOP</button>`}</div>
       <div class="lbar card" style="margin-bottom:6px"><label class="search">${ic('search')}<input data-sopq value="${esc(W.q)}" placeholder="Search SOPs"></label>
         ${presetDept?'':`<div class="chips"><button class="chip ${dept?'':'on'}" data-a="sop-dept" data-v="">All</button>${depts.map(d=>`<button class="chip ${dept===d?'on':''}" data-a="sop-dept" data-v="${esc(d)}">${esc(d)} <span class="muted">${sops.filter(s=>s.dept===d).length}</span></button>`).join('')}</div>`}</div>
       ${masters.length?`<div class="dhead">${ic('layers')}<h2>Master SOPs</h2><span class="cnt">${masters.length}</span></div><div class="sopgrid">${masters.map(masterCard).join('')}</div>`:''}
@@ -70,7 +70,7 @@
       <div class="vstrip" style="margin-top:6px">${vtags(s)}${UI.tag(Flow.stepCount(s.nodes)+' steps','mut')}${iss.length?UI.tag(iss.length+' issues','dng'):''}</div></div><div class="sp"></div>
       <div class="seg"><a class="${!view?'on':''}" href="${base}/${s.id}">${ic('workflow')}Flowchart</a><a class="${view==='list'?'on':''}" href="${base}/${s.id}/list">${ic('list-checks')}List</a><a class="${view==='operator'?'on':''}" href="${base}/${s.id}/operator">${ic('smartphone')}Operator view</a></div>
       <button class="btn" data-a="sop-versions" data-id="${s.id}">${ic('history')}Versions</button>
-      <button class="btn p" data-a="sop-publish" data-id="${s.id}" ${ch?'':'disabled'}>${ic('check')}Publish v${v?v.v+1:1}${iss.length?` <span class="tag t-dng">${iss.length}</span>`:''}</button></div>`;
+      ${Flow.readOnly()?UI.tag('View only','mut'):`<button class="btn p" data-a="sop-publish" data-id="${s.id}" ${ch?'':'disabled'}>${ic('check')}Publish v${v?v.v+1:1}${iss.length?` <span class="tag t-dng">${iss.length}</span>`:''}</button>`}</div>`;
     if(view==='operator')return head+'<div data-meshaop></div>';
     const hn=s.nodes.some(x=>x.id===W.sel[s.id])?'has-node':'';
     if(view==='list')return head+`<div class="editor"><section class="card">${listView(s,W.sel[s.id])}</section><section class="card insp ${hn}">${inspector(s,W.sel[s.id],iss)}</section></div>`;
@@ -216,7 +216,9 @@
     const cv=root.querySelector('[data-canvas]');
     if(cv&&W.scroll&&W.scroll.id===id){cv.scrollLeft=W.scroll.l;cv.scrollTop=W.scroll.t;}
     if(cv)cv.onscroll=()=>{W.scroll={id,l:cv.scrollLeft,t:cv.scrollTop};};
-    const insp=root.querySelector('.insp'); if(!insp)return;
+    const insp=root.querySelector('.insp');
+    if(Flow.readOnly()){root.querySelectorAll('[data-a="list-ins"]').forEach(b=>b.remove());Flow.lockPanel(insp);return;}
+    if(!insp)return;
     /* undo: consecutive typing in the same text field is one step; anything else is its own step */
     const tagEdit=e=>{const t=e.target;const k=t.dataset&&(t.dataset.np||t.dataset.sp||t.dataset.opt||t.dataset.rj);
       Flow.editKey=(k!=null&&(t.tagName==='TEXTAREA'||(t.tagName==='INPUT'&&!/checkbox|radio/.test(t.type))))?(W.sel[id]||'sop')+':'+Object.keys(t.dataset).join(',')+':'+k:null;};
@@ -305,7 +307,7 @@
           <td>${v===cur&&!ch?'':`<button class="btn sm" data-restore="${v.v}">${ic('rotate')}Restore</button>`}</td></tr>`).join('')||'<tr><td colspan="5" class="empty">Not published yet</td></tr>'}
         ${oldest>1?`<tr><td class="muted"><b>v1${oldest>2?'–v'+(oldest-1):''}</b></td><td colspan="4" class="small muted">Not in this prototype's data</td></tr>`:''}
         </tbody></table></div></div>`,
-        mount(dr){dr.querySelectorAll('[data-restore]').forEach(b=>b.onclick=()=>{const v=s.versions.find(x=>x.v===+b.dataset.restore);UI.closeDrawer();UI.undoable('Draft set to v'+v.v,()=>{s.nodes=JSON.parse(JSON.stringify(v.nodes));W.sel[s.id]=null;App.render();});});}});
+        mount(dr){if(Flow.readOnly()){Flow.lockPanel(dr);return;}dr.querySelectorAll('[data-restore]').forEach(b=>b.onclick=()=>{const v=s.versions.find(x=>x.v===+b.dataset.restore);UI.closeDrawer();UI.undoable('Draft set to v'+v.v,()=>{s.nodes=JSON.parse(JSON.stringify(v.nodes));W.sel[s.id]=null;App.render();});});}});
     }
   });
 

@@ -361,3 +361,12 @@ textarea.mst-title{resize:vertical;min-height:52px;font:inherit;line-height:1.35
 .fx-root.zoomed-out .fx-group-head{top:4px;line-height:1.1;max-width:none;white-space:nowrap;align-items:center;font-size:min(calc(12px / var(--fxk,1)),35px);padding:1px calc(6px / var(--fxk,1));border-radius:calc(8px / var(--fxk,1))}
 .fx-root.zoomed-out .fx-group-head .ic{margin-top:0;width:min(calc(12px / var(--fxk,1)),35px);height:min(calc(12px / var(--fxk,1)),35px)}
 .fx-root.zoomed-out .fx-group-head b{white-space:nowrap;overflow:visible}
+
+/* phone fit: a card cut by the bottom palette fold stays hidden until the view moves */
+.fx-node.fx-fold{display:none}
+
+/* read-only (Contractor / Store keeper): inspect only */
+.fx-root.ro .fx-anc,.fx-root.ro .fx-ehs,.fx-root.ro .fx-handles,.fx-root.ro .fx-plus{display:none!important}
+.fx-root.ro .fx-node{cursor:pointer}
+.fx-ro{font-size:12px;font-weight:700;color:var(--muted);padding:0 8px;white-space:nowrap}
+.insp.ro input:disabled,.insp.ro select:disabled,.insp.ro textarea:disabled{opacity:.75;cursor:default}
