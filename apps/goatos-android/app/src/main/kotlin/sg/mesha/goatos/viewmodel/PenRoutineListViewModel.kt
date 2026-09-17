@@ -22,6 +22,7 @@ import sg.mesha.goatos.core.analytics.CrashReporter
 import sg.mesha.goatos.core.data.PenRoutinesRepository
 import sg.mesha.goatos.core.data.sync.SyncRepository
 import sg.mesha.goatos.core.data.sync.penRoutineGrainKey
+import sg.mesha.goatos.core.network.dto.PEN_ROUTINE_SCOPE_PARK
 import sg.mesha.goatos.core.network.dto.PenRoutineTaskDto
 import sg.mesha.goatos.feature.penroutines.PenRoutineCardUi
 import sg.mesha.goatos.feature.penroutines.PenRoutineFilterUi
@@ -158,6 +159,7 @@ internal fun PenRoutineTaskDto.toCardUi(sending: Boolean = false): PenRoutineCar
     title = title,
     penLabel = operationalLocationDisplay,
     parkName = parkName,
+    parkTask = scopeKind == PEN_ROUTINE_SCOPE_PARK,
     reasonLine = reasonLine,
     evidenceLine = evidenceLine,
     stateChip = stateChip,

@@ -8,6 +8,7 @@ import kotlinx.coroutines.test.advanceUntilIdle
 import kotlinx.coroutines.test.resetMain
 import kotlinx.coroutines.test.runTest
 import kotlinx.coroutines.test.setMain
+import kotlinx.serialization.json.Json
 import org.junit.After
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
@@ -19,6 +20,9 @@ import sg.mesha.goatos.core.analytics.AnalyticsEvents
 import sg.mesha.goatos.core.analytics.AnalyticsEventsPenRoutines
 import sg.mesha.goatos.core.analytics.NoopCrashReporter
 import sg.mesha.goatos.core.data.PenRoutinePageMeta
+import sg.mesha.goatos.core.network.dto.PEN_ROUTINE_SCOPE_ALL_PENS
+import sg.mesha.goatos.core.network.dto.PEN_ROUTINE_SCOPE_PARK
+import sg.mesha.goatos.core.network.dto.PenRoutineTaskDto
 import sg.mesha.goatos.feature.penroutines.PenRoutineListEvent
 import sg.mesha.goatos.feature.penroutines.PenRoutineTone
 
@@ -54,6 +58,34 @@ class PenRoutineListViewModelTest {
         assertEquals(PenRoutineTone.DANGER, card.tone)
         assertFalse(card.sending)
         assertFalse(card.done)
+    }
+
+    @Test
+    fun `a general park task renders with no pen line`() {
+        val card = penRoutineParkTask().toCardUi()
+
+        assertTrue(card.parkTask)
+        assertEquals("", card.penLabel)
+        assertEquals("Medicine store check · Coimbatore", card.title)
+        assertEquals(PEN_ROUTINE_TEST_TASK_ID, card.listKey)
+        assertFalse(penRoutineTask().toCardUi().parkTask)
+    }
+
+    @Test
+    fun `a task without scope_kind decodes as all_pens`() {
+        val json = Json { ignoreUnknownKeys = true }
+        val legacy = json.decodeFromString<PenRoutineTaskDto>(
+            """{"task_id":"t-1","title":"Pen cleaning · Castro 2 · Coimbatore","operational_location_display":"Castro 2"}""",
+        )
+        assertEquals(PEN_ROUTINE_SCOPE_ALL_PENS, legacy.scopeKind)
+        assertFalse(legacy.toCardUi().parkTask)
+        assertEquals("Castro 2", legacy.toCardUi().penLabel)
+
+        val park = json.decodeFromString<PenRoutineTaskDto>(
+            """{"task_id":"t-2","scope_kind":"park","shed_id":"","operational_location_display":""}""",
+        )
+        assertEquals(PEN_ROUTINE_SCOPE_PARK, park.scopeKind)
+        assertTrue(park.toCardUi().parkTask)
     }
 
     @Test

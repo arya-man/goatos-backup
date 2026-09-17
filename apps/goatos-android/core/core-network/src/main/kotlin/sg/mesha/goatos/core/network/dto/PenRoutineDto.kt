@@ -80,6 +80,13 @@ data class PenRoutineTaskDto(
     @SerialName("title") val title: String = "",
     @SerialName("park_id") val parkId: String = "",
     @SerialName("park_name") val parkName: String = "",
+    /**
+     * `all_pens` | `selected_pens` | `park` (2026-09-17 revision). A `park` task is a GENERAL park
+     * task: no pen, so [shedId], [shedName], [partitionLabel] and [operationalLocationDisplay]
+     * arrive as "". Absent (an installed APK's cached row, an older server) means `all_pens` —
+     * the only shape that existed before the field.
+     */
+    @SerialName("scope_kind") val scopeKind: String = PEN_ROUTINE_SCOPE_ALL_PENS,
     @SerialName("shed_id") val shedId: String = "",
     @SerialName("shed_name") val shedName: String = "",
     @SerialName("partition_label") val partitionLabel: String = "",
@@ -124,6 +131,10 @@ data class PenRoutineTaskDto(
     @SerialName("verified_at") val verifiedAt: String? = null,
     @SerialName("row_version") val rowVersion: Int = 0,
 )
+
+const val PEN_ROUTINE_SCOPE_ALL_PENS = "all_pens"
+const val PEN_ROUTINE_SCOPE_SELECTED_PENS = "selected_pens"
+const val PEN_ROUTINE_SCOPE_PARK = "park"
 
 @Serializable
 data class PenRoutineDetailDto(

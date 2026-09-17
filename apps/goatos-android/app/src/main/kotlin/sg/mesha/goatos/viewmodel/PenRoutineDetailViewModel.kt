@@ -61,6 +61,7 @@ import sg.mesha.goatos.core.data.sync.penRoutineGrainKey
 import sg.mesha.goatos.core.data.sync.penRoutinePhotoFieldKey
 import sg.mesha.goatos.core.data.sync.penRoutineTaskGroupKey
 import sg.mesha.goatos.core.data.sync.penRoutineVideoFieldKey
+import sg.mesha.goatos.core.network.dto.PEN_ROUTINE_SCOPE_PARK
 import sg.mesha.goatos.core.network.dto.PenRoutineIntegrityDto
 import sg.mesha.goatos.core.network.dto.PenRoutineLocationDto
 import sg.mesha.goatos.core.network.dto.PenRoutineQuestionDto
@@ -575,6 +576,7 @@ class PenRoutineDetailViewModel @Inject constructor(
             title = detail.title,
             penLabel = detail.operationalLocationDisplay,
             parkName = detail.parkName,
+            parkTask = detail.scopeKind == PEN_ROUTINE_SCOPE_PARK,
             reasonLine = detail.reasonLine,
             evidenceLine = detail.evidenceLine,
             stateChip = detail.stateChip,
