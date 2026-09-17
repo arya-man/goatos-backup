@@ -57,3 +57,20 @@ body.production-shell{font-family:system-ui,sans-serif}
 .entity-inline{margin-bottom:18px}.entity-inline-grid{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:10px}.entity-inline-grid article{border:1px solid var(--line);border-radius:14px;background:rgba(255,255,255,.025);padding:12px;display:flex;flex-direction:column;gap:8px;min-height:150px}.entity-inline-grid h3{font-size:15px;margin:4px 0}.entity-inline-grid p,.entity-inline-grid small{color:var(--muted);font-size:12px;line-height:1.35}.entity-inline-grid button{margin-top:auto;align-self:flex-start}@media(max-width:1200px){.entity-inline-grid{grid-template-columns:repeat(3,minmax(0,1fr))}}@media(max-width:820px){.entity-inline-grid{grid-template-columns:repeat(2,minmax(0,1fr))}}@media(max-width:560px){.entity-inline-grid{grid-template-columns:1fr}}
 
 .production-shell a.buttonlike{display:inline-flex;align-items:center;justify-content:center;gap:6px;background:var(--panel2);border:1px solid var(--line);color:var(--ink);border-radius:10px;padding:8px 12px;text-decoration:none;font-size:13px;font-weight:600}.production-shell a.buttonlike:hover{border-color:var(--brand);background:#263724}.production-shell a.buttonlike.primary{background:var(--brand);border-color:var(--brand);color:var(--on-brand)}.production-shell.editorpage .heading .actions a.buttonlike,.production-shell.editorpage .toolbar a.buttonlike{font-size:13px;padding:8px 12px;border-radius:9px}
+
+/* Readable SOP typography without changing graph geometry or connection anchors. */
+.production-shell.editorpage :is(button,input,select,textarea){font-family:inherit}
+.production-shell.editorpage .heading h1{font-size:26px;line-height:1.25;letter-spacing:-.4px}
+.production-shell.editorpage .heading p,.production-shell.editorpage .inspector p{font-size:14px;line-height:1.5}
+.production-shell.editorpage :is(.toolbar,.heading .actions,.inspector) :is(button,a.buttonlike){font-size:14px;line-height:1.4}
+.production-shell.editorpage .inspector :is(input,select,textarea){font-size:15px;line-height:1.45;min-height:42px}
+.production-shell.editorpage .inspector h2{font-size:18px;line-height:1.35}
+.production-shell.editorpage .inspector h3{font-size:16px;line-height:1.4}
+.production-shell.editorpage .inspector :is(.field>span,.label),.production-shell.editorpage .canvas-properties-label{font-size:12px;line-height:1.5;letter-spacing:.45px}
+.production-shell.editorpage :is(.notice,.canvas-instruction,.canvas-help,.hint){font-size:13px;line-height:1.5}
+.production-shell.editorpage .flow-node{padding:10px 14px}
+.production-shell.editorpage .flow-node-head{font-size:11px;line-height:16px;height:16px;margin-bottom:6px;letter-spacing:.65px}
+.production-shell.editorpage .flow-node-title{font-size:16px;font-weight:600;line-height:20px;max-height:40px}
+.production-shell.editorpage .flow-node-summary{font-size:13px;line-height:18px;margin-top:4px;color:#b4c4b7}
+.production-shell.editorpage .flow-port-caption{font-size:11px;line-height:14px}
+.production-shell.editorpage .toolbar #canvaszoom{font-size:13px}

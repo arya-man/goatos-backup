@@ -51,3 +51,7 @@ Evidence: `/Users/raviteja/mesha/tmp/pr287-business-rules-evidence/desktop.png` 
 SHA before this commit: a2627c39418ac42b44bb046fb2ba52d3e1c2283b. Judge status green. Pending: commit/push this change to existing PR287 and verify remote SHA. Deployment: none; no main merge/push. Production API persistence remains outside this prototype change.
 
 Implementation commit: 69b6a4eba. Final independent staged review reports no remaining material blockers. Follow-up cache-version update ensures existing browsers receive the legacy-preview sharing correction. PR-only push/readback follows this receipt; no deployment.
+
+## SOP typography correction — 2026-09-17
+
+Increased shared SOP flow titles13→16px, summaries11→13px, inspector inputs13→15px and buttons13→14px; clearer heading/label hierarchy, inherited system font and brighter card summaries. Preserved node dimensions/connection anchors, adjusting inner spacing for two-line titles. CSS-only change plus asset cache version. Chrome visually verified Feed Transport and Animal Purchase Inspection at4322, including computed sizes and intact property controls. Full33-judge run passed (/tmp/pr287-typography-checks.log); whitespace clean. No backend or deployment change. PR287 follow-up push pending.
