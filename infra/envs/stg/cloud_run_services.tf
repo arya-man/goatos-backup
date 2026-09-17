@@ -186,12 +186,12 @@ resource "google_cloud_run_v2_service" "api" {
 
       env {
         name  = "MESHA_VERTEX_LOCATION"
-        value = var.region
+        value = "global"
       }
 
       env {
         name  = "MESHA_VERTEX_MODEL"
-        value = "gemini-3.5-flash-lite"
+        value = "gemini-3.8-flash"
       }
 
       env {

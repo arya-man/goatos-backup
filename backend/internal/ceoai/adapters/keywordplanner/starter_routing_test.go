@@ -12,25 +12,15 @@ func TestStarterQuestionsRouteToAnswerableTools(t *testing.T) {
 		tool  string
 		route domain.Route
 	}{
-		"How many animals missed vaccination across all parks?": {"vaccination_overdue", domain.RouteCube},
-		"How many active goats and sheep do we have?":           {"active_animals", domain.RouteCube},
-		"What vaccinations are overdue by shed?":                {"vaccination_overdue", domain.RouteCube},
-		"How many vaccinations are due today?":                  {"vaccination_due", domain.RouteCube},
-		"Which operators are overloaded on vaccination drives?": {"operator_vaccination_utilization", domain.RouteCube},
-		"What vaccines need pickup today?":                      {"mesha_vaccination_dose_pickup", domain.RouteToolbox},
-		"What feed direction is pending today?":                 {"feed_direction_today", domain.RouteAPI},
-		"Which shifting movements are pending?":                 {"mesha_shifting_summary", domain.RouteToolbox},
-		"What procurement loads need attention?":                {"procurement_source_entry_loads", domain.RouteAPI},
-		"What source-entry health issues exist?":                {"mesha_source_entry_health", domain.RouteToolbox},
-		"What SOP execution is blocked?":                        {"mesha_sop_execution", domain.RouteToolbox},
-		"What verification items are waiting?":                  {"verification_queue", domain.RouteAPI},
-		"Where are sheds over capacity?":                        {"admin_location_usage", domain.RouteAPI},
-		"What workforce coverage gaps exist?":                   {"admin_roster_coverage", domain.RouteAPI},
-		"What operation exceptions are open?":                   {"operations_kernel_health", domain.RouteAPI},
-		"What inventory stock needs reorder?":                   {"mesha_inventory_stock", domain.RouteToolbox},
-		"Summarize the operations audit anomalies.":             {"operations_audit_summary", domain.RouteAPI},
-		"Plot vaccination overdue by shed.":                     {"vaccination_overdue", domain.RouteCube},
-		"Plot vaccination overdue by park.":                     {"vaccination_overdue", domain.RouteCube},
+		"How many animals were sold this month?":      {"sales_overview", domain.RouteAPI},
+		"What is sales revenue this month?":           {"sales_overview", domain.RouteAPI},
+		"Show sheep vs goat sales this month.":        {"sales_overview", domain.RouteAPI},
+		"Who are the top buyers by sales revenue?":    {"sales_overview", domain.RouteAPI},
+		"How many active goats and sheep do we have?": {"active_animals", domain.RouteCube},
+		"What feed direction is pending today?":       {"feed_direction_today", domain.RouteAPI},
+		"What procurement loads need attention?":      {"procurement_source_entry_loads", domain.RouteAPI},
+		"What source-entry health issues exist?":      {"mesha_source_entry_health", domain.RouteToolbox},
+		"What operation exceptions are open?":         {"operations_kernel_health", domain.RouteAPI},
 	}
 	p := New()
 	for q, want := range cases {

@@ -109,7 +109,7 @@ func (m *HeuristicModerator) Moderate(_ context.Context, stage ModerationStage, 
 		return Verdict{
 			Decision:    DecisionRefuse,
 			Reason:      "moderation:off_domain",
-			UserMessage: "I can only answer questions about Mesha farm operations — herd counts, vaccination, feed, procurement, workforce, and related operational topics.",
+			UserMessage: "I can only answer questions about Mesha farm operations — sales, weighing, herd counts, feed, procurement, health, workforce, and related operational topics.",
 		}
 	}
 	return allow()

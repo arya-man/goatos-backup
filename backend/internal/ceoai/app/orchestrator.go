@@ -46,7 +46,7 @@ func (c Config) withDefaults() Config {
 		c.MemoryTurns = 6
 	}
 	if c.ModelVersion == "" {
-		c.ModelVersion = "gemini-3.5-flash-lite"
+		c.ModelVersion = "gemini-3.8-flash"
 	}
 	if c.PromptVersion == "" {
 		c.PromptVersion = "v1"
@@ -177,7 +177,6 @@ func (a *Assistant) ask(ctx context.Context, q domain.Question, opts askOptions)
 	if q.AsOf.IsZero() {
 		q.AsOf = biztime.BusinessDayStart(a.now())
 	}
-
 	if a.limiter != nil && !a.limiter.Allow(q.Actor.TenantID, q.Actor.UserID) {
 		if a.telemetry != nil {
 			a.telemetry.RateLimitTrip(ctx)
@@ -237,17 +236,27 @@ func (a *Assistant) ask(ctx context.Context, q domain.Question, opts askOptions)
 	// so the UI shows progressive status within <1s instead of a frozen blank.
 	opts.progress.emit("planning", "")
 
-	plan, planned, err := a.planWithFallback(ctx, q, mem, catalog)
-	if err != nil {
-		// A cancelled/expired context is the client disconnecting (or the wall
-		// clock firing), not a transient planner fault: propagate it so the
-		// caller (streaming transport) stops upstream work instead of degrading
-		// to a graceful answer for a request nobody is listening to.
-		if ctxErr := ctx.Err(); ctxErr != nil {
-			return domain.Answer{}, ctxErr
+	var plan domain.Plan
+	planned := false
+	if a.registry != nil && a.registry.HasSQLFallback() {
+		if sub, ok := naturalSQLPlan(q, mem); ok {
+			plan.SubQuestions = []domain.SubQuestion{sub}
 		}
-		return a.plainAnswer(requestID, q.ConversationID, domain.ModePartial,
-			"I couldn't process that request just now. Please try again."), nil
+	}
+	if len(plan.SubQuestions) == 0 {
+		var err error
+		plan, planned, err = a.planWithFallback(ctx, q, mem, catalog)
+		if err != nil {
+			// A cancelled/expired context is the client disconnecting (or the wall
+			// clock firing), not a transient planner fault: propagate it so the
+			// caller (streaming transport) stops upstream work instead of degrading
+			// to a graceful answer for a request nobody is listening to.
+			if ctxErr := ctx.Err(); ctxErr != nil {
+				return domain.Answer{}, ctxErr
+			}
+			return a.plainAnswer(requestID, q.ConversationID, domain.ModePartial,
+				"I couldn't process that request just now. Please try again."), nil
+		}
 	}
 	if plan.Refusal != "" {
 		return a.refusal(requestID, q.ConversationID, plan.Refusal), nil
@@ -479,6 +488,11 @@ func preferActiveCensus(questionText string, subs []domain.SubQuestion) {
 			return
 		}
 	}
+	for _, kw := range []string{"sale", "sales", "sold", "selling"} {
+		if strings.Contains(low, kw) {
+			return
+		}
+	}
 	for i := range subs {
 		if subs[i].ToolName == "total_animals" {
 			subs[i].ToolName = "active_animals"
@@ -500,6 +514,11 @@ var overloadIntent = regexp.MustCompile(`(?i)(overload|over.?capacit|at capacity
 func ensureUtilizationForOverload(questionText string, subs []domain.SubQuestion) []domain.SubQuestion {
 	if !overloadIntent.MatchString(questionText) {
 		return subs
+	}
+	for _, s := range subs {
+		if s.Route == domain.RouteSQL || s.ToolName == "sql_fallback" {
+			return subs
+		}
 	}
 	for _, s := range subs {
 		if s.ToolName == "operator_vaccination_utilization" {
@@ -621,7 +640,11 @@ func (a *Assistant) recordAudit(ctx context.Context, q domain.Question, requestI
 func (a *Assistant) cacheKey(q domain.Question) string {
 	day := q.AsOf.In(biztime.DefaultLocation()).Format("2006-01-02")
 	norm := strings.ToLower(strings.Join(strings.Fields(q.Text), " "))
-	return q.Actor.TenantID + "|" + day + "|" + norm
+	conversation := strings.TrimSpace(q.ConversationID)
+	if conversation == "" {
+		conversation = "no-conversation"
+	}
+	return q.Actor.TenantID + "|" + conversation + "|" + day + "|" + norm
 }
 
 func (a *Assistant) plainAnswer(requestID, convoID string, mode domain.Mode, body string) domain.Answer {

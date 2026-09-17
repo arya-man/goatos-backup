@@ -73,9 +73,13 @@ func New(ctx context.Context, cfg Config) (*Planner, error) {
 }
 
 func defaultEndpoint(cfg Config) string {
+	host := fmt.Sprintf("%s-aiplatform.googleapis.com", cfg.Location)
+	if strings.EqualFold(cfg.Location, "global") {
+		host = "aiplatform.googleapis.com"
+	}
 	return fmt.Sprintf(
-		"https://%s-aiplatform.googleapis.com/v1/projects/%s/locations/%s/publishers/google/models/%s:generateContent",
-		cfg.Location, cfg.Project, cfg.Location, cfg.Model,
+		"https://%s/v1/projects/%s/locations/%s/publishers/google/models/%s:generateContent",
+		host, cfg.Project, cfg.Location, cfg.Model,
 	)
 }
 

@@ -109,6 +109,9 @@ func parseWiredReaders(t *testing.T) map[string]bool {
 	if regexp.MustCompile(`SetProcurementDataReader\(`).MatchString(src) {
 		wired["procurement_source_entry_loads"] = true
 	}
+	if regexp.MustCompile(`SetSalesDataReader\(`).MatchString(src) {
+		wired["sales_overview"] = true
+	}
 	if regexp.MustCompile(`SetWorkforceDataReader\(`).MatchString(src) {
 		wired["admin_roster_coverage"] = true
 	}

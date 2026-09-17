@@ -19,6 +19,7 @@ func TestPreferActiveCensus(t *testing.T) {
 	}{
 		{"species headcount", "How many goats vs sheep do we have?", "total_animals", "active_animals"},
 		{"how many animals", "how many animals do we have", "total_animals", "active_animals"},
+		{"sales question not active herd", "sales this month how many animals sold?", "total_animals", "total_animals"},
 		{"explicit all-time keeps total", "how many animals all-time including dead", "total_animals", "total_animals"},
 		{"non-census metric untouched", "vaccinations overdue", "vaccination_overdue", "vaccination_overdue"},
 	}
@@ -75,6 +76,12 @@ func TestEnsureUtilizationForOverload(t *testing.T) {
 		[]domain.SubQuestion{{ToolName: "operator_vaccination_utilization", Route: domain.RouteCube}})
 	if len(already) != 1 {
 		t.Fatalf("utilization already present must not be duplicated, got %d subs", len(already))
+	}
+
+	sqlRouted := ensureUtilizationForOverload("who is overloaded for vax",
+		[]domain.SubQuestion{{ToolName: "sql_fallback", Route: domain.RouteSQL}})
+	if len(sqlRouted) != 1 {
+		t.Fatalf("SQL-routed overload question must not append cube fallback, got %d subs", len(sqlRouted))
 	}
 }
 
