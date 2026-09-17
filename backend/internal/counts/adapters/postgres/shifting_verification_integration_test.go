@@ -196,7 +196,7 @@ func TestHighPriorityShiftingStoresThreeVideosAndConfiguredFeedSnapshot(t *testi
 		t.Fatalf("resolve feed requirement: %v", err)
 	}
 	requirement := requirements[eventID]
-	if requirement.Status != "ready" || len(requirement.Items) != 1 || requirement.Items[0].QuantityGrams != "250.0000" {
+	if requirement.Status != "ready" || len(requirement.Items) != 1 || requirement.Items[0].QuantityGrams != "250" {
 		t.Fatalf("feed requirement=%+v, want one ready 250g concentrate instruction", requirement)
 	}
 	page, err := repo.ListShiftingEventsPendingExecution(ctx, domain.ShiftingExecutionQuery{

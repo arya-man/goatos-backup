@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"strings"
 	"time"
 
 	"github.com/vgoats/goatos/backend/internal/sop/authored"
@@ -339,6 +340,20 @@ type ShiftingFeedRequirement struct {
 type ShiftingFeedRequirementItem struct {
 	FeedItemLabel string `json:"feed_item_label"`
 	QuantityGrams string `json:"quantity_grams"`
+}
+
+// ShiftingFeedGramsDisplay returns an exact decimal gram total without the numeric column's padding:
+// "400.0000" -> "400", "250.5000" -> "250.5", "0.0000" -> "0". It works on the TEXT, never through a
+// float, so the value stays the exact decimal the contract promises. The phone renders it verbatim
+// before " g"; the raw numeric text still feeds the config fingerprint, so trimming changes no
+// fingerprint and cannot raise a spurious feed_config_changed.
+func ShiftingFeedGramsDisplay(raw string) string {
+	v := strings.TrimSpace(raw)
+	if !strings.Contains(v, ".") {
+		return v
+	}
+	v = strings.TrimRight(v, "0")
+	return strings.TrimSuffix(v, ".")
 }
 
 // ShiftingExecutionAnimal identifies one animal in a movement well enough for an operator to find

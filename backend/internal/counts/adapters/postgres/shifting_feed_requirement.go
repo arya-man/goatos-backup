@@ -207,7 +207,7 @@ ORDER BY shifting_event_id, feed_item_label`, tenantID, eventIDs, asOf.In(biztim
 			}
 		}
 		if label != nil && quantity != nil {
-			req.Items = append(req.Items, domain.ShiftingFeedRequirementItem{FeedItemLabel: *label, QuantityGrams: *quantity})
+			req.Items = append(req.Items, domain.ShiftingFeedRequirementItem{FeedItemLabel: *label, QuantityGrams: domain.ShiftingFeedGramsDisplay(*quantity)})
 			fingerprintRows[eventID] = append(fingerprintRows[eventID], fingerprintRow{*label, *quantity, valueOrEmpty(material)})
 		}
 		out[eventID] = req
