@@ -13,6 +13,8 @@ import sg.mesha.goatos.core.network.dto.WeighingSopOptionDto
 import sg.mesha.goatos.core.network.dto.WeighingSopQuestionDto
 import sg.mesha.goatos.feature.scan.ProofUploadStatus
 import sg.mesha.goatos.feature.weighing.WeighingProofUiRow
+import sg.mesha.goatos.feature.weighing.WholePenCaptureLabel
+import sg.mesha.goatos.feature.weighing.wholePenPrimaryCaptureLabel
 
 /**
  * THE WEIGH CAPTURES ARE AUTHORED (maintainer decision 2026-09-16): the capture screen renders the
@@ -49,6 +51,26 @@ class WeighingCaptureSopMappingTest {
         assertEquals(3, ui.primaryPenSlotMax)
         assertTrue("no pen question leaks onto the animal row", ui.animalQuestions.none { it.id == "count_seen" })
         assertTrue("no animal slot leaks into the pen block", ui.penExtraSlots.none { it.key == "scale_photo" })
+    }
+
+    /**
+     * DAY ONE (maintainer rule): with no SOP edited the whole-pen button must read exactly as before
+     * -- the translated "Capture group video" -- not the seeded slot's English noun "Weighing video".
+     */
+    @Test
+    fun `the seeded whole-pen slot keeps the translated group video label`() {
+        val seeded = WeighingSopRules.Seeded.copy(lumpSumSlots = listOf(WeighingCountedProofSlot.seededPenVideo(1, 5)))
+        val ui = seeded.toCaptureSopUi(emptyMap(), 0, null)
+        assertEquals("", ui.primaryPenSlotTitle)
+        assertEquals(WholePenCaptureLabel.GroupVideo, wholePenPrimaryCaptureLabel(ui, captured = 0))
+    }
+
+    @Test
+    fun `an authored whole-pen title is the button label`() {
+        val retitled = WeighingSopRules.Seeded.copy(lumpSumSlots = listOf(WeighingCountedProofSlot("pen_video", "Pen on scale video", "", "video", 1, 5)))
+        assertEquals(WholePenCaptureLabel.Authored("Pen on scale video"), wholePenPrimaryCaptureLabel(retitled.toCaptureSopUi(emptyMap(), 0, null), captured = 0))
+        val authored = WeighingSopRules.Seeded.copy(lumpSumSlots = listOf(WeighingCountedProofSlot("scale_clip", "Weighing video", "", "video", 1, 5)))
+        assertEquals(WholePenCaptureLabel.Authored("Weighing video"), wholePenPrimaryCaptureLabel(authored.toCaptureSopUi(emptyMap(), 0, null), captured = 0))
     }
 
     @Test
