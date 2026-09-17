@@ -1,8 +1,8 @@
 const vm=require('node:vm'),fs=require('node:fs'),assert=require('node:assert/strict');
 const listeners={};let legacy=0,consumer=0;const nodes={};const node=key=>nodes[key]||(nodes[key]={innerHTML:'',value:'CEO / CXO',textContent:''});const classes=new Set();
 const context={location:{hash:''},history:{replaceState(a,b,path){context.location.hash=path}},current:'Items',tab:'Registry',esc:s=>String(s??''),$:node,document:{body:{classList:{add:k=>classes.add(k),remove:k=>classes.delete(k),toggle(k,v){if(v)classes.add(k);else classes.delete(k)}}},documentElement:{classList:{contains:()=>false,toggle(){}}},querySelector:node,querySelectorAll:()=>[]},render(){legacy++},go(module,page){context.current=module;context.tab=page;context.render()},addEventListener(name,fn){(listeners[name]??=[]).push(fn)},innerWidth:1728};context.window=context;vm.createContext(context);vm.runInContext(fs.readFileSync(__dirname+'/production-shell.js','utf8'),context);
-assert.equal(context.productionRoutes.length,38);assert.equal(context.productionRoutes.filter(r=>r.module!=='Configuration').length,36);assert.equal(new Set(context.productionRoutes.map(r=>r.path)).size,38);
-assert.equal(context.productionRoutes.filter(r=>r.module==='Sales').map(r=>r.label).join('|'),'Summary|Farm value|Load wise|Market analytics|Buyer analytics|Vendors|Sales Config');
+assert.equal(context.productionRoutes.length,41);assert.equal(context.productionRoutes.filter(r=>r.module!=='Configuration').length,38);assert.equal(new Set(context.productionRoutes.map(r=>r.path)).size,41);
+assert.equal(context.productionRoutes.filter(r=>r.module==='Sales').map(r=>r.label).join('|'),'Summary|Farm value|Load wise|Market analytics|Buyer analytics|Vendors|Sales Config|Business rules');
 context.renderConsumerSurface=(m,l)=>{consumer++;return m==='Sales'&&l==='Sales Config'};
 let before=legacy;assert.equal(context.productionNavigate('Sales','Sales Config'),true);assert.equal(context.tab,'Production');assert.equal(legacy,before,'real Config must not enter legacy numeric policy screen');assert.equal(consumer,1);assert.equal(context.location.hash,'#/sales/config');
 context.productionNavigate('Weighing','Weighing SOP');assert.equal(context.tab,'SOPs');assert.equal(legacy,before+1);context.go('Weighing','Editor');assert.equal(context.tab,'Editor');assert.equal(context.productionCurrentRoute().label,'Weighing SOP');
@@ -14,10 +14,10 @@ console.log('PASS: live-sidebar baseline + 2 additive routes, exact Sales labels
 context.productionNavigate('Configuration','Workflow links');context.current='Items';context.tab='Registry';listeners.DOMContentLoaded.forEach(fn=>fn());assert.equal(context.current,'Common');assert.equal(context.tab,'Work instructions');
 console.log('PASS: DOM-ready legacy bootstrap cannot replace modern workflow deep-link content.');
 
-assert.deepEqual(Array.from(context.productionRoutes.filter(r=>r.module==='Configuration'),r=>r.label),['Items and settings','Work instructions']);
+assert.deepEqual(Array.from(context.productionRoutes.filter(r=>r.module==='Configuration'),r=>r.label),['Items and settings','Business rules','Work instructions']);
 for(const [path,label,page] of [['/configuration/tools','Work instructions','Work instructions'],['/configuration/workflow-links','Work instructions','Work instructions'],['/configuration/run-insights','Work instructions','Work instructions'],['/configuration/connect-related-work','Work instructions','Work instructions']]){context.location.hash='#'+path;listeners.hashchange[0]();assert.equal(context.productionCurrentRoute().label,label);assert.equal(context.tab,page);}
 context.productionNavigate('Configuration','Work instructions');assert.equal(context.tab,'Work instructions');assert(!node('#nav').innerHTML.includes('Run insights'));context.go('Common','Action library');assert.equal(context.tab,'Action library');assert.equal(context.productionCurrentRoute().label,'Work instructions');context.go('Health','SOPs');assert.equal(context.current,'Health');assert.equal(context.tab,'SOPs');
-console.log('PASS CEO routes: exactly two additive destinations, legacy aliases and department/secondary tools retained');
+console.log('PASS CEO routes: three Configuration destinations, legacy aliases and department/secondary tools retained');
 
 assert(!fs.readFileSync(__dirname+'/foundation-workspace.js','utf8').includes('renderOrchestration('));assert.equal(context.productionRoutes.some(r=>r.module==='Workspace'&&r.label==='Alerts'),false);console.log('PASS: no standalone event engine, legacy aliases lead to SOP authoring, no top-level Alerts route in live-sidebar shell');
 
@@ -31,3 +31,7 @@ console.log('PASS module tabs explain rules, SOPs and history; Sales has no exis
 
 assert(context.productionRoutes.some(r=>r.module==='Health'&&r.label==='Health SOP'&&r.path==='/health/sops'));
 context.productionNavigate('Health','Health SOP');assert.equal(context.tab,'SOPs');assert.equal(context.location.hash,'#/health/sops');
+
+assert(context.productionRoutes.some(r=>r.path==='/sales/business-rules'&&r.label==='Business rules'));
+assert(context.productionRoutes.some(r=>r.path==='/weighing/rules'&&r.label==='Weight rules'));
+assert(context.productionRoutes.some(r=>r.path==='/configuration/business-rules'&&r.label==='Business rules'));
