@@ -28,9 +28,9 @@ func feedAnalyticsCacheKey(prefix string, tenantID string, q domain.DirectedAnal
 		parkIDs = append(parkIDs, id.String())
 	}
 	sort.Strings(parkIDs)
-	return fmt.Sprintf("%s|%s|%v|%s|%s|%s|%v|%v|%d|%d|%s|%s|%s|%d|%d|%s|%s|%s",
+	return fmt.Sprintf("%s|%s|%v|%s|%s|%s|%v|%v|%v|%d|%d|%s|%s|%s|%d|%d|%s|%s|%s",
 		prefix, tenantID, parkIDs, q.DateFrom.Format("2006-01-02"), q.DateTo.Format("2006-01-02"),
-		q.WastageDay.Format("2006-01-02"), q.Sections, q.StockSections, q.PackingVarianceLimit, q.PackingVarianceOffset,
+		q.WastageDay.Format("2006-01-02"), q.Sections, q.StockSections, q.DirectedSections, q.PackingVarianceLimit, q.PackingVarianceOffset,
 		q.PackingVarianceParkLabel, q.PackingVarianceFeedItemKey, q.CompletionDay.Format("2006-01-02"),
 		q.CompletionLimit, q.CompletionOffset, q.CompletionParkID, q.CompletionShedID, q.CompletionStatus)
 }
@@ -355,6 +355,52 @@ FROM (
 ) rows
 ORDER BY feed_day, row_kind, feed_item_label`
 
+// Status-wise: average DIRECTED feed per animal per PEN TAG over the whole window.
+//
+// projection-review: membership=the SAME issue-row set as directedAnalyticsCombinedSQL — feed_direction_issue_rows reached through the at-most-one live issue per (tenant, park, feed_day, workflow), states issued/amended/locked, workflows normal+experiment, blocked cells (quantity_kg NULL) excluded; producer natural key=(tenant_id, feed_direction_issue_id, shed_id, partition_key, session_no, shed_tag_key, breed_key, feed_item_key) vs consumer keys: pen_day collapses sessions and feed items to (feed_day, shed_id, partition_key, shed_tag_key, breed_key) — the identical pen-grain the day totals use — with SUM(kg) and MAX(head_count), then the outer query groups by shed_tag_key alone; join_cardinality=issues to rows 1:N by feed_direction_issue_id, pre-aggregated in pen_day before the outer GROUP BY, so no item or session cell can repeat a head count; ratio check=per_head_grams divides SUM(grain_kg) by SUM(grain_heads) and avg_animals divides SUM(grain_heads) by COUNT(DISTINCT feed_day), all three ranging over the SAME pen_day rows of one shed_tag_key group (same FROM, same GROUP BY); pagination=none, a whole-window aggregate with one row per pen tag (a small authored vocabulary); scope=tenant_id on both tables plus the caller's authorized park set via park_id = ANY($2)
+//
+// scale-guard:ignore: 5k-50k-envelope — bounded windowed aggregate (≤92 days × ≤2 parks), rows
+// reached via the issue-id natural-key prefix, the ADR's canonical-indexed-SQL default.
+const directedPenTagSQL = `
+WITH iss AS (
+    SELECT feed_direction_issue_id, feed_day
+    FROM feed_direction_issues
+    WHERE tenant_id = $1
+      AND (coalesce(cardinality($2::uuid[]), 0) = 0 OR park_id = ANY ($2::uuid[]))
+      AND feed_day BETWEEN $3 AND $4
+      AND state IN ('issued', 'amended', 'locked')
+      AND workflow IN ('normal', 'experiment')
+),
+pen_day AS (
+    SELECT i.feed_day,
+           r.shed_id,
+           r.partition_key,
+           r.shed_tag_key,
+           r.breed_key,
+           MIN(r.shed_tag)                                       AS pen_tag_label,
+           SUM(r.quantity_kg)                                    AS grain_kg,
+           MAX(r.head_count)                                     AS grain_heads
+    FROM iss i
+    JOIN feed_direction_issue_rows r
+      ON r.tenant_id = $1
+     AND r.feed_direction_issue_id = i.feed_direction_issue_id
+    WHERE r.quantity_kg IS NOT NULL
+    GROUP BY i.feed_day, r.shed_id, r.partition_key, r.shed_tag_key, r.breed_key
+)
+SELECT shed_tag_key,
+       MIN(pen_tag_label),
+       -- feed_config_norm keeps the "+" that joins stages in a mixed pen's tag ("F2-Male + K3").
+       position('+' in shed_tag_key) > 0,
+       COALESCE(SUM(grain_kg), 0)::text,
+       COALESCE(SUM(grain_heads), 0)::bigint,
+       COUNT(DISTINCT feed_day)::bigint,
+       COUNT(DISTINCT (shed_id, partition_key))::bigint,
+       COALESCE(round(SUM(grain_heads)::numeric / NULLIF(COUNT(DISTINCT feed_day), 0), 0)::text, ''),
+       COALESCE(round(SUM(grain_kg) * 1000 / NULLIF(SUM(grain_heads), 0), 1)::text, '')
+FROM pen_day
+GROUP BY shed_tag_key
+ORDER BY SUM(grain_kg) * 1000 / NULLIF(SUM(grain_heads), 0) DESC NULLS LAST, MIN(pen_tag_label)`
+
 // DirectedAnalytics serves the windowed directed rollup. One set-based read
 // produces both arrays; no per-day fan-out and no duplicate scan for day totals.
 func (r *Repository) DirectedAnalytics(ctx context.Context, tenantID string, q domain.DirectedAnalyticsQuery) (domain.DirectedAnalytics, error) {
@@ -375,9 +421,65 @@ func (r *Repository) DirectedAnalytics(ctx context.Context, tenantID string, q d
 	fromArg := from.Format("2006-01-02")
 	toArg := to.Format("2006-01-02")
 
+	days := []domain.DirectedDayTotal{}
+	items := []domain.DirectedDayItem{}
+	penTags := []domain.DirectedPenTag{}
+	wantDays := q.WantsDirected(domain.DirectedSectionDays)
+	wantItems := q.WantsDirected(domain.DirectedSectionItems)
+	if wantDays || wantItems {
+		var err error
+		days, items, err = r.directedDaysAndItems(ctx, tenantID, parkIDs, fromArg, toArg)
+		if err != nil {
+			return domain.DirectedAnalytics{}, err
+		}
+		if !wantDays {
+			days = []domain.DirectedDayTotal{}
+		}
+		if !wantItems {
+			items = []domain.DirectedDayItem{}
+		}
+	}
+	if q.WantsDirected(domain.DirectedSectionPenTags) {
+		var err error
+		penTags, err = r.directedPenTags(ctx, tenantID, parkIDs, fromArg, toArg)
+		if err != nil {
+			return domain.DirectedAnalytics{}, err
+		}
+	}
+	out := domain.DirectedAnalytics{Days: days, Items: items, PenTags: penTags}
+	r.setReadCacheIfEpoch(cacheKey, out, cacheEpoch)
+	return out, nil
+}
+
+func (r *Repository) directedPenTags(
+	ctx context.Context, tenantID string, parkIDs []uuid.UUID, fromArg, toArg string,
+) ([]domain.DirectedPenTag, error) {
+	rows, err := r.pool.Query(ctx, directedPenTagSQL, tenantID, parkIDs, fromArg, toArg)
+	if err != nil {
+		return nil, fmt.Errorf("feed analytics pen-tag rollup: %w", err)
+	}
+	defer rows.Close()
+	out := []domain.DirectedPenTag{}
+	for rows.Next() {
+		var t domain.DirectedPenTag
+		if err := rows.Scan(&t.PenTagKey, &t.PenTagLabel, &t.Mixed, &t.DirectedKg, &t.HeadDays, &t.FeedDays,
+			&t.Pens, &t.AvgAnimals, &t.PerHeadGrams); err != nil {
+			return nil, fmt.Errorf("feed analytics pen-tag rollup scan: %w", err)
+		}
+		out = append(out, t)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("feed analytics pen-tag rollup rows: %w", err)
+	}
+	return out, nil
+}
+
+func (r *Repository) directedDaysAndItems(
+	ctx context.Context, tenantID string, parkIDs []uuid.UUID, fromArg, toArg string,
+) ([]domain.DirectedDayTotal, []domain.DirectedDayItem, error) {
 	rows, err := r.pool.Query(ctx, directedAnalyticsCombinedSQL, tenantID, parkIDs, fromArg, toArg)
 	if err != nil {
-		return domain.DirectedAnalytics{}, fmt.Errorf("feed analytics directed rollup: %w", err)
+		return nil, nil, fmt.Errorf("feed analytics directed rollup: %w", err)
 	}
 	defer rows.Close()
 
@@ -388,7 +490,7 @@ func (r *Repository) DirectedAnalytics(ctx context.Context, tenantID string, q d
 		var feedDay, feedItemLabel, feedItemKey, directedKg, perHeadGrams string
 		var headDays int64
 		if err := rows.Scan(&kind, &feedDay, &feedItemLabel, &feedItemKey, &directedKg, &headDays, &perHeadGrams); err != nil {
-			return domain.DirectedAnalytics{}, fmt.Errorf("feed analytics directed rollup scan: %w", err)
+			return nil, nil, fmt.Errorf("feed analytics directed rollup scan: %w", err)
 		}
 		switch kind {
 		case "day":
@@ -401,15 +503,13 @@ func (r *Repository) DirectedAnalytics(ctx context.Context, tenantID string, q d
 				DirectedKg: directedKg, HeadDays: headDays, PerHeadGrams: perHeadGrams,
 			})
 		default:
-			return domain.DirectedAnalytics{}, fmt.Errorf("feed analytics directed rollup unknown row kind %q", kind)
+			return nil, nil, fmt.Errorf("feed analytics directed rollup unknown row kind %q", kind)
 		}
 	}
 	if err := rows.Err(); err != nil {
-		return domain.DirectedAnalytics{}, fmt.Errorf("feed analytics directed rollup rows: %w", err)
+		return nil, nil, fmt.Errorf("feed analytics directed rollup rows: %w", err)
 	}
-	out := domain.DirectedAnalytics{Days: days, Items: items}
-	r.setReadCacheIfEpoch(cacheKey, out, cacheEpoch)
-	return out, nil
+	return days, items, nil
 }
 
 // ---------------------------------------------------------------------------

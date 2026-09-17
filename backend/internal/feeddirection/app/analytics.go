@@ -30,6 +30,8 @@ type DirectedAnalyticsInput struct {
 	Sections []domain.ExecutionSection
 	// StockSections narrows the STOCK read to the arms the caller renders; empty means all.
 	StockSections []domain.StockSection
+	// DirectedSections narrows the DIRECTED read to the arms the caller renders; empty means all.
+	DirectedSections []domain.DirectedSection
 	// PackingVarianceLimit / PackingVarianceOffset page the mismatch list; zero limit takes the
 	// contract default.
 	PackingVarianceLimit       int
@@ -68,9 +70,10 @@ func (s *Service) DirectedAnalytics(ctx context.Context, in DirectedAnalyticsInp
 		return domain.DirectedAnalytics{}, err
 	}
 	return s.analytics.DirectedAnalytics(ctx, in.TenantID, domain.DirectedAnalyticsQuery{
-		ParkIDs:  parkIDs,
-		DateFrom: in.DateFrom,
-		DateTo:   in.DateTo,
+		ParkIDs:          parkIDs,
+		DateFrom:         in.DateFrom,
+		DateTo:           in.DateTo,
+		DirectedSections: in.DirectedSections,
 	})
 }
 

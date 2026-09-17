@@ -9527,6 +9527,34 @@ export interface components {
             head_days: number;
             per_head_grams: string;
         };
+        /** @description Status-wise: the average DIRECTED feed one animal gets per day in pens carrying one pen tag (Pregnant, Non-Pregnant, K2, Buck...), across the whole window, every sheet feed combined. The category is the PEN's tag on the frozen sheet, not each animal's own stage; a pen tagged with a mix of stages is its own row. Milk has no pen-wise split and is not included. */
+        FeedAnalyticsDirectedPenTag: {
+            pen_tag_key: string;
+            pen_tag_label: string;
+            /** @description True when the pen tag joins several stages, e.g. "F2-Male + K3". */
+            mixed: boolean;
+            /** @description Every sheet feed directed to pens carrying this tag across the window. */
+            directed_kg: string;
+            /**
+             * Format: int64
+             * @description Animals in those pens, each pen-grain counted once per feed day.
+             */
+            head_days: number;
+            /**
+             * Format: int64
+             * @description Window days on which at least one pen carried the tag.
+             */
+            feed_days: number;
+            /**
+             * Format: int64
+             * @description Distinct pens that carried the tag in the window.
+             */
+            pens: number;
+            /** @description head_days divided by feed_days, whole animals; empty when feed_days is zero. */
+            avg_animals: string;
+            /** @description directed_kg x 1000 divided by head_days; empty when head_days is zero. */
+            per_head_grams: string;
+        };
         /** @description The Feed Analytics directed rollup. DIRECTED kg only -- the sheet's instruction, not a measured weight. */
         FeedAnalyticsDirectedResponse: {
             /**
@@ -9538,6 +9566,8 @@ export interface components {
             date_to: string;
             days: components["schemas"]["FeedAnalyticsDirectedDay"][];
             items: components["schemas"]["FeedAnalyticsDirectedItem"][];
+            /** @description One row per pen tag, highest grams per animal first. */
+            pen_tags: components["schemas"]["FeedAnalyticsDirectedPenTag"][];
         };
         /** @description One business date of proof-gated feed execution statuses. */
         FeedAnalyticsExecutionDay: {
@@ -22366,6 +22396,8 @@ export interface operations {
                 date_from?: string;
                 /** @description Inclusive window end. Defaults to YESTERDAY: today's sheet is still being executed, so the backend owns the exclude-today rule rather than each client subtracting a day. */
                 date_to?: string;
+                /** @description Comma-separated arms to compute: `days`, `items`, `pen_tags`. Absent means every arm. An arm not named comes back as an empty array. An unknown name is a 400, never a silent drop. */
+                sections?: string;
             };
             header?: never;
             path?: never;

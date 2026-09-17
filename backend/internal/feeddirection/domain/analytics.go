@@ -59,6 +59,10 @@ type DirectedAnalyticsQuery struct {
 	// StockSections narrows the STOCK read to the arms the caller will actually render. Empty means
 	// every arm, preserving the existing stock endpoint contract.
 	StockSections []StockSection
+	// DirectedSections narrows the DIRECTED read to the arms the caller renders. Empty means every
+	// arm. The Consumption tab's General view asks for days+items and its Status-wise view asks for
+	// pen_tags alone, so neither pays for the other's query.
+	DirectedSections []DirectedSection
 	// PackingVarianceLimit / PackingVarianceOffset page the mismatch list. Zero limit means
 	// DefaultPackingVariancePageSize.
 	PackingVarianceLimit  int
@@ -237,6 +241,49 @@ func ParseStockSection(raw string) (StockSection, bool) {
 	return "", false
 }
 
+// DirectedSection names one arm of the directed payload.
+type DirectedSection string
+
+const (
+	// DirectedSectionDays is the per-day totals series.
+	DirectedSectionDays DirectedSection = "days"
+	// DirectedSectionItems is the per-(day, feed item) series.
+	DirectedSectionItems DirectedSection = "items"
+	// DirectedSectionPenTags is the whole-window average feed per animal per PEN TAG.
+	DirectedSectionPenTags DirectedSection = "pen_tags"
+)
+
+// DirectedSections lists every directed arm, in payload order.
+var DirectedSections = []DirectedSection{
+	DirectedSectionDays,
+	DirectedSectionItems,
+	DirectedSectionPenTags,
+}
+
+// WantsDirected reports whether the directed query asked for an arm. An empty selection wants
+// everything.
+func (q DirectedAnalyticsQuery) WantsDirected(section DirectedSection) bool {
+	if len(q.DirectedSections) == 0 {
+		return true
+	}
+	for _, s := range q.DirectedSections {
+		if s == section {
+			return true
+		}
+	}
+	return false
+}
+
+// ParseDirectedSection maps a caller's string to a directed arm. Unknown names are rejected.
+func ParseDirectedSection(raw string) (DirectedSection, bool) {
+	for _, s := range DirectedSections {
+		if string(s) == raw {
+			return s, true
+		}
+	}
+	return "", false
+}
+
 // MaxAnalyticsWindowDays caps the window: three months of daily points is the
 // widest range the page offers, and the cap keeps the aggregate bounded no
 // matter what a caller passes.
@@ -273,6 +320,37 @@ type DirectedDayItem struct {
 type DirectedAnalytics struct {
 	Days  []DirectedDayTotal
 	Items []DirectedDayItem
+	// PenTags is the Status-wise view: one row per pen tag over the whole window.
+	PenTags []DirectedPenTag
+}
+
+// DirectedPenTag is the average DIRECTED feed one animal gets per day, for every pen carrying one
+// pen tag (Pregnant, Non-Pregnant, K2, Buck...), over the whole window, all sheet feeds combined.
+//
+// The category is the PEN's tag on the frozen sheet, not each animal's own stage (maintainer
+// decision 2026-09-17): the ration grid is keyed on the pen tag, so these grams are exactly what the
+// sheet directed for that category. A pen tagged with several stages ("F2-Male + K3") is its own
+// row, because its ration was authored for that mix and splitting it would invent a distribution.
+// Milk has no pen-wise split and is not in this view.
+type DirectedPenTag struct {
+	PenTagKey   string
+	PenTagLabel string
+	// Mixed is true for a pen tag that joins several stages ("F2-Male + K3"). The page charts the
+	// single-stage categories and lists mixed pens beside them.
+	Mixed bool
+	// DirectedKg is every sheet feed directed to pens carrying this tag across the window.
+	DirectedKg string
+	// HeadDays counts each pen-grain's animals once per feed day, the same denominator the day
+	// totals use.
+	HeadDays int64
+	// FeedDays is the number of window days at least one pen carried this tag.
+	FeedDays int64
+	// Pens is the distinct operational locations that carried the tag in the window.
+	Pens int64
+	// AvgAnimals is HeadDays ÷ FeedDays, whole animals, empty when FeedDays is zero.
+	AvgAnimals string
+	// PerHeadGrams is DirectedKg×1000 ÷ HeadDays, empty when HeadDays is zero.
+	PerHeadGrams string
 }
 
 // ClampAnalyticsWindow normalises a query window: swaps inverted ends and caps
