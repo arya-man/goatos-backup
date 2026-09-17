@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { readFileSync } from "node:fs";
+import { existsSync, readFileSync } from "node:fs";
 import test from "node:test";
 
 const source = readFileSync(new URL("./weights.tsx", import.meta.url), "utf8");
@@ -32,6 +32,14 @@ test("admin weighing read coalescer covers the browser route sweep", () => {
 	assert.match(serverSource, /auth=\$\{authCacheFingerprint\(config\.bearerToken\)\}/);
 	assert.match(serverSource, /createHash\("sha256"\)\.update\(token\)\.digest\("base64url"\)\.slice\(0, 16\)/);
 	assert.match(serverSource, /new ShortReadCache\(SHORT_READ_CACHE_TTL_MS\)/);
+});
+
+test("weighing routes keep a local loading boundary instead of the global app fallback", () => {
+  const loadingUrl = new URL("../../app/(admin)/weighing/loading.tsx", import.meta.url);
+  assert.equal(existsSync(loadingUrl), true, "weighing must not fall back to app/loading.tsx");
+  const loadingSource = readFileSync(loadingUrl, "utf8");
+  assert.match(loadingSource, /aria-label="Weighing analytics loading"/);
+  assert.doesNotMatch(loadingSource, /Loading Mesha admin data/);
 });
 
 test("the period control is a calendar, not a fixed-window select", () => {
