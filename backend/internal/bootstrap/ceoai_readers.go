@@ -28,6 +28,7 @@ import (
 	"github.com/vgoats/goatos/backend/internal/platform/oploc"
 	processintegritydomain "github.com/vgoats/goatos/backend/internal/processintegrity/domain"
 	procurementdomain "github.com/vgoats/goatos/backend/internal/procurement/domain"
+	salesdomain "github.com/vgoats/goatos/backend/internal/sales/domain"
 	vaccexecd "github.com/vgoats/goatos/backend/internal/vaccinationexecution/domain"
 	verificationapp "github.com/vgoats/goatos/backend/internal/verification/app"
 	verificationports "github.com/vgoats/goatos/backend/internal/verification/ports"
@@ -71,6 +72,10 @@ type opsAuditSummarizer interface {
 
 type countsBreakdownLister interface {
 	GetBreakdown(ctx context.Context, req countsdomain.CountsBreakdownQuery) (countsdomain.CountsBreakdown, error)
+}
+
+type salesOverviewGetter interface {
+	GetOverview(ctx context.Context, tenantID, farm string) (salesdomain.Overview, error)
 }
 
 // parkResolver resolves the planner's human park_label (e.g. "Castro 1") to
@@ -232,6 +237,77 @@ func speciesCountsFromBreeds(points []countsdomain.CountsBreakdownSeriesPoint) (
 		}
 	}
 	return goats, sheep
+}
+
+func buildSalesOverviewReader(svc salesOverviewGetter) func(ctx context.Context, tenantID string, params map[string]any) ([]ceodomain.Fact, error) {
+	return func(ctx context.Context, tenantID string, params map[string]any) ([]ceodomain.Fact, error) {
+		farm := ""
+		if raw, ok := params["farm"].(string); ok {
+			farm = raw
+		}
+		overview, err := svc.GetOverview(ctx, tenantID, farm)
+		if err != nil {
+			return nil, err
+		}
+
+		month := ""
+		if rawMonth, ok := params["month"].(string); ok {
+			month = strings.TrimSpace(rawMonth)
+		}
+		monthRequested := month != ""
+		if month == "" || month == "current" || month == "this_month" {
+			if asOf, ok := params["as_of"].(string); ok && len(asOf) >= 7 {
+				month = asOf[:7]
+			}
+		}
+		if monthRequested && month != "" {
+			for _, row := range overview.Monthly {
+				if row.Month != month {
+					continue
+				}
+				animals := row.SheepCount + row.GoatCount
+				revenue := row.SheepRevenue + row.GoatRevenue + row.ManureRevenue
+				return []ceodomain.Fact{
+					ceodomain.Fact{Label: "Sold animals this month", Value: formatFloatFact(animals), Scope: month},
+					ceodomain.Fact{Label: "Sold sheep this month", Value: formatFloatFact(row.SheepCount), Scope: month},
+					ceodomain.Fact{Label: "Sold goats this month", Value: formatFloatFact(row.GoatCount), Scope: month},
+					ceodomain.Fact{Label: "Sales revenue this month", Value: formatFloatFact(revenue), Scope: month},
+				}, nil
+			}
+			return []ceodomain.Fact{
+				{Label: "Sold animals this month", Value: "0", Scope: month},
+				{Label: "Sold sheep this month", Value: "0", Scope: month},
+				{Label: "Sold goats this month", Value: "0", Scope: month},
+				{Label: "Sales revenue this month", Value: "0", Scope: month},
+			}, nil
+		}
+
+		facts := []ceodomain.Fact{
+			{Label: "Closed sales deals", Value: fmt.Sprintf("%d", overview.Summary.Deals)},
+			{Label: "Sold animals", Value: formatFloatFact(overview.Summary.Animals)},
+			{Label: "Sold sheep", Value: formatFloatFact(overview.Summary.Sheep)},
+			{Label: "Sold goats", Value: formatFloatFact(overview.Summary.Goats)},
+			{Label: "Sales revenue", Value: formatFloatFact(overview.Summary.Revenue)},
+		}
+		for i, buyer := range overview.Buyers {
+			if i >= 5 {
+				break
+			}
+			facts = append(facts, ceodomain.Fact{
+				Label: "Top buyer",
+				Value: fmt.Sprintf("Deals: %d, Animals: %s, Revenue: %s", buyer.Deals, formatFloatFact(buyer.Animals), formatFloatFact(buyer.Revenue)),
+				Scope: buyer.BuyerName,
+			})
+		}
+		return facts, nil
+	}
+}
+
+func formatFloatFact(v float64) string {
+	if v == float64(int64(v)) {
+		return fmt.Sprintf("%d", int64(v))
+	}
+	return fmt.Sprintf("%.2f", v)
 }
 
 // buildProcurementReader maps ONLY "status" -- the sole advertised param

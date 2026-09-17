@@ -48,6 +48,12 @@ func (r *Registry) Register(execs ...ports.ToolExecutor) {
 	}
 }
 
+func (r *Registry) HasSQLFallback() bool {
+	r.mu.RLock()
+	defer r.mu.RUnlock()
+	return r.sqlFB != nil
+}
+
 // Catalog returns the full model-facing tool catalog in Cube-first order.
 func (r *Registry) Catalog(ctx context.Context) []ports.ToolSpec {
 	r.mu.RLock()

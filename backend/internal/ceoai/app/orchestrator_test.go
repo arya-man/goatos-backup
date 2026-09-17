@@ -62,6 +62,24 @@ func (f *fakeExec) Execute(_ context.Context, _ domain.Actor, sub domain.SubQues
 	return r, nil
 }
 
+type fakeSQLFallback struct {
+	calls   int
+	lastSQL string
+	result  domain.ToolResult
+}
+
+func (f *fakeSQLFallback) Execute(_ context.Context, _ domain.Actor, sql string, _ []any) (domain.ToolResult, error) {
+	f.calls++
+	f.lastSQL = sql
+	r := f.result
+	r.Route = domain.RouteSQL
+	r.ToolName = "sql_fallback"
+	if r.Surface == "" {
+		r.Surface = "Mesha operational data"
+	}
+	return r, nil
+}
+
 type fakeAudit struct{ rec *ports.AuditRecord }
 
 func (f *fakeAudit) Record(_ context.Context, rec ports.AuditRecord) error { f.rec = &rec; return nil }
@@ -260,6 +278,247 @@ func TestMultiToolDecompositionSynthesizesOneAnswer(t *testing.T) {
 	}
 	if len(ans.Citations) != 2 {
 		t.Fatalf("expected 2 citations, got %d", len(ans.Citations))
+	}
+}
+
+func TestNaturalActiveAnimalQuestionUsesLiveSQLFallbackForCPT(t *testing.T) {
+	sqlFB := &fakeSQLFallback{result: domain.ToolResult{
+		Facts: []domain.Fact{
+			{Label: "Active animals", Value: "185", Scope: "goat"},
+			{Label: "Active animals", Value: "531", Scope: "sheep"},
+		},
+	}}
+	reg := NewRegistry(nil, nil, sqlFB)
+	api := &fakeExec{spec: ports.ToolSpec{Name: "counts_breakdown", Route: domain.RouteAPI},
+		result: domain.ToolResult{Surface: "Mesha read API", Facts: []domain.Fact{{Label: "wrong", Value: "1"}}}}
+	reg.Register(api)
+	prov := &fakeProvider{byModel: true, plan: domain.Plan{SubQuestions: []domain.SubQuestion{
+		{ID: "0", ToolName: "counts_breakdown", Route: domain.RouteAPI},
+	}}}
+	a := NewAssistant(Config{}, Deps{Provider: prov, Registry: reg})
+
+	ans, err := a.Ask(context.Background(), domain.Question{Actor: leadershipActor(), Text: "how many animals present in cpt"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if sqlFB.calls != 1 {
+		t.Fatalf("expected guarded SQL fallback to answer natural CPT count, got %d calls", sqlFB.calls)
+	}
+	if api.calls != 0 {
+		t.Fatalf("natural CPT count must not fall through to API/MCP route, api calls=%d", api.calls)
+	}
+	for _, want := range []string{"185", "531"} {
+		if !strings.Contains(ans.Answer, want) {
+			t.Fatalf("answer missing %s: %q", want, ans.Answer)
+		}
+	}
+	for _, wantSQL := range []string{"ceo_ai.animal_current_scope", "park_id = '00000000-0000-4000-8000-000000003002'", "lifecycle_status = 'alive'"} {
+		if !strings.Contains(sqlFB.lastSQL, wantSQL) {
+			t.Fatalf("SQL missing %q: %s", wantSQL, sqlFB.lastSQL)
+		}
+	}
+	if len(ans.Citations) == 0 || ans.Citations[0].Route != domain.RouteSQL {
+		t.Fatalf("expected SQL citation, got %+v", ans.Citations)
+	}
+}
+
+func TestNaturalActiveAnimalQuestionToleratesTyposAndCBEAbbrev(t *testing.T) {
+	sqlFB := &fakeSQLFallback{result: domain.ToolResult{
+		Facts: []domain.Fact{
+			{Label: "Active animals", Value: "805", Scope: "sheep"},
+			{Label: "Active animals", Value: "0", Scope: "goat"},
+		},
+	}}
+	reg := NewRegistry(nil, nil, sqlFB)
+	prov := &fakeProvider{byModel: true, plan: domain.Plan{SubQuestions: []domain.SubQuestion{
+		{ID: "0", ToolName: "counts_breakdown", Route: domain.RouteAPI},
+	}}}
+	a := NewAssistant(Config{}, Deps{Provider: prov, Registry: reg})
+
+	ans, err := a.Ask(context.Background(), domain.Question{Actor: leadershipActor(), Text: "what abt cbe goats sheep split"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if sqlFB.calls != 1 {
+		t.Fatalf("expected typo/split question to use SQL fallback, got %d calls", sqlFB.calls)
+	}
+	if !strings.Contains(sqlFB.lastSQL, "park_id = '00000000-0000-4000-8000-000000003001'") {
+		t.Fatalf("expected CBE scope in SQL, got %s", sqlFB.lastSQL)
+	}
+	if !strings.Contains(ans.Answer, "805") {
+		t.Fatalf("answer missing SQL fact: %q", ans.Answer)
+	}
+}
+
+func TestNaturalActiveAnimalFollowupUsesRememberedParkForBreed(t *testing.T) {
+	sqlFB := &fakeSQLFallback{result: domain.ToolResult{
+		Facts: []domain.Fact{
+			{Label: "Active animals", Value: "531", Scope: "Anantapur Sheep"},
+			{Label: "Active animals", Value: "159", Scope: "Beetal"},
+		},
+	}}
+	reg := NewRegistry(nil, nil, sqlFB)
+	prov := &fakeProvider{byModel: true, plan: domain.Plan{SubQuestions: []domain.SubQuestion{
+		{ID: "0", ToolName: "counts_breakdown", Route: domain.RouteAPI},
+	}}}
+	mem := &fakeMemory{recall: []domain.ResolvedEntities{{ParkLabel: "CPT"}}}
+	a := NewAssistant(Config{}, Deps{Provider: prov, Registry: reg, Memory: mem})
+
+	ans, err := a.Ask(context.Background(), domain.Question{
+		Actor:          leadershipActor(),
+		ConversationID: "c1",
+		Text:           "and their breed?",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if sqlFB.calls != 1 {
+		t.Fatalf("expected breed follow-up to use SQL fallback, got %d calls", sqlFB.calls)
+	}
+	if !strings.Contains(sqlFB.lastSQL, "breed AS scope") || !strings.Contains(sqlFB.lastSQL, "00000000-0000-4000-8000-000000003002") {
+		t.Fatalf("expected remembered CPT breed SQL, got %s", sqlFB.lastSQL)
+	}
+	if !strings.Contains(ans.Answer, "Anantapur Sheep") || !strings.Contains(ans.Answer, "Beetal") {
+		t.Fatalf("answer missing breed facts: %q", ans.Answer)
+	}
+}
+
+func TestNaturalActiveAnimalGraphByPenUsesSQLAndReturnsChart(t *testing.T) {
+	sqlFB := &fakeSQLFallback{result: domain.ToolResult{
+		Facts: []domain.Fact{
+			{Label: "Active animals", Value: "136", Scope: "Godel 2"},
+			{Label: "Active animals", Value: "121", Scope: "Mandela 1"},
+		},
+	}}
+	reg := NewRegistry(nil, nil, sqlFB)
+	prov := &fakeProvider{byModel: true, plan: domain.Plan{SubQuestions: []domain.SubQuestion{
+		{ID: "0", ToolName: "mesha_count_by_scope", Route: domain.RouteToolbox},
+	}}}
+	a := NewAssistant(Config{}, Deps{Provider: prov, Registry: reg})
+
+	ans, err := a.Ask(context.Background(), domain.Question{Actor: leadershipActor(), Text: "make graph of animals present in cpt by pen"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if sqlFB.calls != 1 {
+		t.Fatalf("expected SQL fallback call, got %d", sqlFB.calls)
+	}
+	if !strings.Contains(sqlFB.lastSQL, "shed_label AS scope") {
+		t.Fatalf("expected pen/shed grouping SQL, got %s", sqlFB.lastSQL)
+	}
+	if ans.Chart == nil {
+		t.Fatal("expected chart for graph-by-pen request")
+	}
+	if len(ans.Chart.X) != 2 || ans.Chart.X[0] != "Godel 2" || ans.Chart.Series[0].Data[0] != 136 {
+		t.Fatalf("unexpected chart: %+v", ans.Chart)
+	}
+}
+
+func TestNaturalWeighingQuestionToleratesAvgShorthand(t *testing.T) {
+	sqlFB := &fakeSQLFallback{result: domain.ToolResult{
+		Facts: []domain.Fact{
+			{Label: "Average weight kg", Value: "21.4", Scope: "Castro 1"},
+			{Label: "Average weight kg", Value: "22.1", Scope: "Godel 2"},
+		},
+	}}
+	reg := NewRegistry(nil, nil, sqlFB)
+	prov := &fakeProvider{byModel: true, plan: domain.Plan{Refusal: "wrong fallback"}}
+	a := NewAssistant(Config{}, Deps{Provider: prov, Registry: reg})
+
+	ans, err := a.Ask(context.Background(), domain.Question{Actor: leadershipActor(), Text: "which pens have lowest avg weight?"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if sqlFB.calls != 1 {
+		t.Fatalf("expected shorthand weighing question to use SQL fallback, got %d calls", sqlFB.calls)
+	}
+	if !strings.Contains(sqlFB.lastSQL, "ceo_ai.weighing_capture_activity") || !strings.Contains(sqlFB.lastSQL, "ORDER BY shed_weight_avg_kg ASC") {
+		t.Fatalf("expected weighing pen SQL ordered lowest-first, got %s", sqlFB.lastSQL)
+	}
+	if !strings.Contains(ans.Answer, "Castro 1") || strings.Contains(ans.Answer, "wrong fallback") {
+		t.Fatalf("expected grounded weighing answer, got %q", ans.Answer)
+	}
+}
+
+func TestNaturalFeedQuestionUsesAsOfDate(t *testing.T) {
+	sqlFB := &fakeSQLFallback{result: domain.ToolResult{
+		Facts: []domain.Fact{{Label: "Feed variance kg", Value: "-42", Scope: "Godel 2"}},
+	}}
+	reg := NewRegistry(nil, nil, sqlFB)
+	a := NewAssistant(Config{}, Deps{Provider: &fakeProvider{}, Registry: reg})
+
+	asOf := time.Date(2026, 9, 18, 9, 0, 0, 0, time.FixedZone("IST", 5*60*60+30*60))
+	ans, err := a.Ask(context.Background(), domain.Question{Actor: leadershipActor(), Text: "feed pending today for cpt", AsOf: asOf})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if sqlFB.calls != 1 {
+		t.Fatalf("expected feed natural SQL fallback, got %d calls", sqlFB.calls)
+	}
+	for _, want := range []string{"ceo_ai.feed_adherence", "feed_day = '2026-09-18'", "park_label = 'Channapatna'"} {
+		if !strings.Contains(sqlFB.lastSQL, want) {
+			t.Fatalf("feed SQL missing %q: %s", want, sqlFB.lastSQL)
+		}
+	}
+	if !strings.Contains(ans.Answer, "-42") {
+		t.Fatalf("expected feed fact in answer, got %q", ans.Answer)
+	}
+}
+
+func TestNaturalAdultGoatCountDoesNotRouteToHealth(t *testing.T) {
+	sqlFB := &fakeSQLFallback{result: domain.ToolResult{
+		Facts: []domain.Fact{{Label: "Active animals", Value: "185", Scope: "goat"}},
+	}}
+	reg := NewRegistry(nil, nil, sqlFB)
+	a := NewAssistant(Config{}, Deps{Provider: &fakeProvider{}, Registry: reg})
+
+	_, err := a.Ask(context.Background(), domain.Question{Actor: leadershipActor(), Text: "how many adult goats in cpt"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if sqlFB.calls != 1 {
+		t.Fatalf("expected adult goat count to use SQL fallback, got %d calls", sqlFB.calls)
+	}
+	for _, want := range []string{"ceo_ai.animal_current_scope", "species = 'goat'", "age_days >= 365"} {
+		if !strings.Contains(sqlFB.lastSQL, want) {
+			t.Fatalf("adult goat count SQL missing %q: %s", want, sqlFB.lastSQL)
+		}
+	}
+	if strings.Contains(sqlFB.lastSQL, "source_entry_health_status") {
+		t.Fatalf("adult goat count should not use health SQL, got %s", sqlFB.lastSQL)
+	}
+}
+
+func TestNaturalSalesQuestionWinsOverAnimalCountWords(t *testing.T) {
+	sales := &fakeExec{
+		spec: ports.ToolSpec{Name: "sales_overview", Route: domain.RouteAPI},
+		result: domain.ToolResult{Surface: "Mesha read API · Sales overview", Facts: []domain.Fact{
+			{Label: "Sold animals this month in 2026-09", Value: "114"},
+		}},
+	}
+	reg := NewRegistry(nil, nil, &fakeSQLFallback{})
+	reg.Register(sales)
+	a := NewAssistant(Config{}, Deps{Provider: &fakeProvider{}, Registry: reg})
+
+	ans, err := a.Ask(context.Background(), domain.Question{Actor: leadershipActor(), Text: "sales this month how many animals sold?"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if sales.calls != 1 {
+		t.Fatalf("expected sales overview executor, got %d calls", sales.calls)
+	}
+	if !strings.Contains(ans.Answer, "114") {
+		t.Fatalf("expected sales fact, got %q", ans.Answer)
+	}
+}
+
+func TestCacheKeyIncludesConversation(t *testing.T) {
+	a := NewAssistant(Config{}, Deps{Registry: NewRegistry(nil, nil, nil)})
+	asOf := time.Date(2026, 9, 18, 9, 0, 0, 0, time.UTC)
+	q1 := domain.Question{Actor: leadershipActor(), ConversationID: "cpt-thread", Text: "and their breed?", AsOf: asOf}
+	q2 := domain.Question{Actor: leadershipActor(), ConversationID: "cbe-thread", Text: "and their breed?", AsOf: asOf}
+	if a.cacheKey(q1) == a.cacheKey(q2) {
+		t.Fatalf("cache key must include conversation context for follow-up questions")
 	}
 }
 

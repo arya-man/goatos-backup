@@ -49,7 +49,7 @@ func NewVertexProvider(ctx context.Context, log *slog.Logger) *vertex.Planner {
 	p, err := vertex.New(ctx, vertex.Config{
 		Project:  os.Getenv("MESHA_VERTEX_PROJECT"),
 		Location: os.Getenv("MESHA_VERTEX_LOCATION"),
-		Model:    envOr("MESHA_VERTEX_MODEL", "gemini-3.5-flash-lite"),
+		Model:    envOr("MESHA_VERTEX_MODEL", "gemini-3.8-flash"),
 	})
 	if err != nil {
 		if log != nil {
@@ -412,6 +412,16 @@ func (a *sqlFallbackAdapter) Execute(ctx context.Context, actor domain.Actor, sq
 		AsOf:    time.Now(),
 	}
 	for _, row := range rows {
+		if label, ok := row["label"]; ok {
+			if value, hasValue := row["value"]; hasValue {
+				fact := domain.Fact{Label: scalarString(label), Value: scalarString(value)}
+				if scope, hasScope := row["scope"]; hasScope {
+					fact.Scope = scalarString(scope)
+				}
+				tr.Facts = append(tr.Facts, fact)
+				continue
+			}
+		}
 		for k, v := range row {
 			tr.Facts = append(tr.Facts, domain.Fact{Label: k, Value: scalarString(v)})
 		}

@@ -53,6 +53,18 @@ func buildPlanPrompt(q domain.Question, mem []domain.ResolvedEntities, catalog [
 		"To break a metric down by a dimension (e.g. goats vs sheep), set that param as a group-by via \"group_by\" " +
 		"(e.g. \"group_by\":\"species\") or as an equality filter (e.g. \"species\":\"goat\"). " +
 		"Never claim a supported param is unavailable, and never invent a param a tool does not list.")
+	sb.WriteString(fmt.Sprintf(`
+
+SQL fallback: when the catalog cannot naturally answer a read-only operational question or a follow-up needs a specific slice, you may choose route "sql", tool "sql_fallback", and params {"sql":"..."}.
+The SQL is only a DRAFT. The server will validate it with sqlguard and run it through the read-only role. Rules for drafted SQL:
+- Use only one flat SELECT over one ceo_ai.* view; no joins, CTEs, subqueries, comments, semicolons, writes, functions that mutate state, or raw per-animal dumps.
+- Always include WHERE tenant_id = %q and a LIMIT <= 100.
+- Prefer aggregate answers with count(*) grouped by the user's requested dimension.
+- For animal/headcount/census/breed/species/sex/stage/pen/park follow-ups, use ceo_ai.animal_current_scope. Useful columns: tenant_id, park_id, park_label, shed_id, shed_label, species, breed, sex, management_stage, age_band, lifecycle_status.
+- Living/current herd questions must include lifecycle_status = 'alive'.
+- Known park mappings: CPT/Channapatna park_id '00000000-0000-4000-8000-000000003002'; CBE/Coimbatore park_id '00000000-0000-4000-8000-000000003001'.
+- Return SQL columns as label, value, scope when possible; e.g. SELECT 'Active animals by breed' AS label, CAST(count(*) AS text) AS value, breed AS scope ...
+`, q.Actor.TenantID))
 	if len(mem) > 0 {
 		last := mem[len(mem)-1]
 		sb.WriteString(fmt.Sprintf("\nPrior turn context (for pronoun follow-ups): park=%q shed=%q metric=%q\n", last.ParkLabel, last.ShedLabel, last.Metric))

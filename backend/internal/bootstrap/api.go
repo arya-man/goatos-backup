@@ -38,6 +38,7 @@ import (
 	ceoai "github.com/vgoats/goatos/backend/internal/ceoai"
 	ceoobs "github.com/vgoats/goatos/backend/internal/ceoai/adapters/observability"
 	ceoreadtools "github.com/vgoats/goatos/backend/internal/ceoai/adapters/readtools"
+	"github.com/vgoats/goatos/backend/internal/ceoai/sqlguard"
 	countsboard "github.com/vgoats/goatos/backend/internal/counts/adapters/boardsource"
 	countshttp "github.com/vgoats/goatos/backend/internal/counts/adapters/http"
 	countspg "github.com/vgoats/goatos/backend/internal/counts/adapters/postgres"
@@ -906,8 +907,9 @@ func NewAPI(ctx context.Context, cfg Config, log *slog.Logger) (*API, error) {
 	workforceService.WithModuleBadges(penroutinesapp.NewModuleBadges(penvisitsapp.NewModuleBadges(leadershipTasksService, penVisitsService), penRoutinesService))
 	// The sales module: its own bounded ledger (sales_*) with a thin service -- a commercial
 	// record with no state machine to orchestrate.
+	salesService := salesapp.NewSalesService(salespg.NewRepository(pool, cfg.Postgres.QueryTimeout))
 	salesHandler := saleshttp.NewSalesHandler(
-		salesapp.NewSalesService(salespg.NewRepository(pool, cfg.Postgres.QueryTimeout)), log)
+		salesService, log)
 	vaccinationRepo := vaccinationpg.NewRepository(pool, cfg.Postgres.QueryTimeout)
 	vaccinationService := vaccinationapp.NewService(vaccinationRepo).WithAnchorObligationSuppressor(obligationRepo)
 	inventoryService := inventoryapp.NewService(inventorypg.NewRepository(pool, cfg.Postgres.QueryTimeout))
@@ -1186,6 +1188,8 @@ func NewAPI(ctx context.Context, cfg Config, log *slog.Logger) (*API, error) {
 			ceoreadtools.SetVaccinationDataReader(readToolExecs, buildVaccinationReader(vaccExecService))
 		case "procurement_source_entry_loads":
 			ceoreadtools.SetProcurementDataReader(exec, buildProcurementReader(procurementService))
+		case "sales_overview":
+			ceoreadtools.SetSalesDataReader(exec, buildSalesOverviewReader(salesService))
 		case "admin_roster_coverage":
 			ceoreadtools.SetWorkforceDataReader(exec, buildWorkforceReader(rosterService))
 		case "verification_queue":
@@ -1217,6 +1221,11 @@ func NewAPI(ctx context.Context, cfg Config, log *slog.Logger) (*API, error) {
 		// starters probe GET /ceo-ai/starters (the launcher visibility gate).
 		ConvStore: ceoai.NewConversationHTTPStore(pool, cfg.Postgres.QueryTimeout),
 		Logger:    log,
+	}
+	if ceoSQL, err := sqlguard.NewExecutor(ctx, sqlguard.PoolConfigFromEnv()); err == nil {
+		ceoOpts.SQL = ceoai.NewSQLFallback(ceoSQL)
+	} else {
+		log.Warn("ceoai: sql fallback unavailable", "err", err)
 	}
 	if ceoVertex != nil {
 		ceoOpts.Provider = ceoVertex

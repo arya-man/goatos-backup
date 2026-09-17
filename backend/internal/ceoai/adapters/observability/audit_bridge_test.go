@@ -27,7 +27,7 @@ func TestAuditTraceSinkPersistsReadableTrace(t *testing.T) {
 		ToolsCalled:    []string{"vaccination_overdue", "active_animals"},
 		RowCount:       7,
 		LatencyMS:      123,
-		ModelVersion:   "gemini-3.5-flash-lite",
+		ModelVersion:   "gemini-3.8-flash",
 		PromptVersion:  "v1",
 		Review:         domain.ReviewVerdict{Grounded: true, ScopeSafe: true, Complete: true},
 		Steps: []domain.StepTrace{

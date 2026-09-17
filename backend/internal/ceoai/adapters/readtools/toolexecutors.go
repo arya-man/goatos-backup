@@ -3,6 +3,7 @@ package readtools
 import (
 	"context"
 	"fmt"
+	"strings"
 
 	"github.com/vgoats/goatos/backend/internal/ceoai/domain"
 	"github.com/vgoats/goatos/backend/internal/ceoai/ports"
@@ -222,6 +223,64 @@ func (e *procurementExecutor) Spec() ports.ToolSpec {
 		// load read model gains a park column.
 		Params: []string{"status"},
 	}
+}
+
+// salesOverviewExecutor provides the same closed-deal summary the Sales page
+// reads from GET /sales/overview. It is intentionally an API-tier read, not SQL
+// fallback, so Ask Mesha reuses the governed sales module contract.
+type salesOverviewExecutor struct {
+	salesDataReader scopedReader
+}
+
+func (e *salesOverviewExecutor) Spec() ports.ToolSpec {
+	return ports.ToolSpec{
+		Name:        "sales_overview",
+		Route:       domain.RouteAPI,
+		Description: "Sales overview for closed deals: sold animals, sheep/goat split, revenue, deals, monthly sales",
+		Params:      []string{"farm", "month", "time_range", "group_by"},
+	}
+}
+
+func (e *salesOverviewExecutor) Execute(ctx context.Context, actor domain.Actor, sub domain.SubQuestion) (domain.ToolResult, error) {
+	if e.salesDataReader == nil {
+		return domain.ToolResult{
+			Surface:  "Mesha read API",
+			ToolName: sub.ToolName,
+			Facts:    []domain.Fact{},
+			Err:      fmt.Errorf("sales overview reader not wired"),
+		}, nil
+	}
+
+	params := sub.Params
+	if strings.Contains(strings.ToLower(sub.Text), "this month") || strings.Contains(strings.ToLower(sub.Text), "month") {
+		params = cloneParams(params)
+		if _, ok := params["month"]; !ok {
+			params["month"] = "current"
+		}
+	}
+	facts, err := e.salesDataReader(ctx, actor.TenantID, params)
+	if err != nil {
+		return domain.ToolResult{
+			Surface:  "Mesha read API",
+			ToolName: sub.ToolName,
+			Facts:    []domain.Fact{},
+			Err:      err,
+		}, nil
+	}
+
+	return domain.ToolResult{
+		Surface:  "Mesha read API · Sales overview",
+		ToolName: sub.ToolName,
+		Facts:    facts,
+	}, nil
+}
+
+func cloneParams(params map[string]any) map[string]any {
+	next := make(map[string]any, len(params)+1)
+	for k, v := range params {
+		next[k] = v
+	}
+	return next
 }
 
 func (e *procurementExecutor) Execute(ctx context.Context, actor domain.Actor, sub domain.SubQuestion) (domain.ToolResult, error) {
@@ -496,11 +555,19 @@ func NewToolExecutors() []ports.ToolExecutor {
 		&vaccinationExecutionExecutor{},
 		&feedDirectionTodayExecutor{},
 		&procurementExecutor{},
+		&salesOverviewExecutor{},
 		&workforceExecutor{},
 		&verificationExecutor{},
 		&actionCenterExecutor{},
 		&opsKernelHealthExecutor{},
 		&opsAuditSummaryExecutor{},
+	}
+}
+
+// SetSalesDataReader wires the sales overview reader into the sales executor.
+func SetSalesDataReader(exec ports.ToolExecutor, reader func(context.Context, string, map[string]any) ([]domain.Fact, error)) {
+	if e, ok := exec.(*salesOverviewExecutor); ok {
+		e.salesDataReader = reader
 	}
 }
 
