@@ -42,6 +42,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.res.pluralStringResource
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
@@ -100,6 +101,8 @@ data class VerificationQueueRow(
     val animalLabel: String = "",
     val weightLabel: String = "",
     val mediaCountLabel: String = "",
+    /** Per-kind proof counts behind [mediaCountLabel]; the pen group header sums these. */
+    val proofCounts: VerifyProofCounts = VerifyProofCounts(),
     val thumbnailUrl: String? = null,
     val parkLabel: String = "",
     val operatorLabel: String = "",
@@ -583,9 +586,13 @@ private fun WeighingScopeTabs(
 
 @Composable
 private fun ShedGroupHeader(shedLabel: String, rows: List<VerificationQueueRow>) {
-    val videoCount = rows.sumOf { row ->
-        row.mediaCountLabel.substringBefore(' ').toIntOrNull() ?: 0
-    }
+    val proofs = verifyGroupProofCounts(rows)
+    val summary = listOfNotNull(
+        pluralStringResource(R.plurals.verify_shed_group_rows, rows.size, rows.size),
+        proofs.videos.takeIf { it > 0 }?.let { pluralStringResource(R.plurals.verify_proof_videos, it, it) },
+        proofs.photos.takeIf { it > 0 }?.let { pluralStringResource(R.plurals.verify_proof_photos, it, it) },
+        proofs.other.takeIf { it > 0 }?.let { pluralStringResource(R.plurals.verify_proof_other, it, it) },
+    ).joinToString(" · ")
     Row(
         modifier = Modifier
             .fillMaxWidth()
@@ -600,7 +607,7 @@ private fun ShedGroupHeader(shedLabel: String, rows: List<VerificationQueueRow>)
                 fontWeight = FontWeight.W800,
             )
             Text(
-                text = stringResource(R.string.verify_shed_group_summary, rows.size, videoCount),
+                text = summary,
                 color = MeshaColors.Faint,
                 fontSize = 11.sp,
                 fontWeight = FontWeight.W700,

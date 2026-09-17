@@ -38,7 +38,9 @@ import sg.mesha.goatos.feature.verify.VerifyLocationFilterOption
 import sg.mesha.goatos.feature.verify.VerifyModuleTab
 import sg.mesha.goatos.feature.verify.VerifyQueueEvent
 import sg.mesha.goatos.feature.verify.VerifyQueueUiState
+import sg.mesha.goatos.feature.verify.VerifyProofCounts
 import sg.mesha.goatos.feature.verify.VerifyScopeType
+import sg.mesha.goatos.feature.verify.verifyProofCountLabel
 import sg.mesha.goatos.feature.verify.VerifyStatusOption
 import sg.mesha.goatos.feature.verify.VerifyTone
 import java.time.Instant
@@ -662,7 +664,7 @@ class VerifyQueueViewModel @Inject constructor(
             representative.operatorName,
             representative.capturedAt.takeIf { it.isNotBlank() }?.let { formatCapturedAtIST(it) },
         ).joinToString(" · ")
-        val mediaCount = sumOf { it.media.size }
+        val proofCounts = VerifyProofCounts.ofMimeTypes(flatMap { item -> item.media.map { it.mimeType } })
         val groupStatusTone = when {
             all { it.status == VerificationStatus.APPROVED } -> VerifyTone.APPROVED
             any { it.status == VerificationStatus.REJECTED } -> VerifyTone.REJECTED
@@ -680,11 +682,8 @@ class VerifyQueueViewModel @Inject constructor(
             shedLabel = shedLabel.orEmpty(),
             animalLabel = "",
             weightLabel = "",
-            mediaCountLabel = when (mediaCount) {
-                0 -> ""
-                1 -> "1 video"
-                else -> "$mediaCount videos"
-            },
+            mediaCountLabel = verifyProofCountLabel(proofCounts),
+            proofCounts = proofCounts,
             thumbnailUrl = firstNotNullOfOrNull { item ->
                 item.media.firstNotNullOfOrNull { media -> media.thumbnailUrl?.takeIf(String::isNotBlank) }
             },
@@ -711,7 +710,7 @@ class VerifyQueueViewModel @Inject constructor(
         ).joinToString(" · ").ifBlank { humanizeCategory(category) }
         val subtitle = listOfNotNull(parkLabel, operatorName, capturedAt.takeIf { it.isNotBlank() }?.let { formatCapturedAtIST(it) })
             .joinToString(" · ")
-        val mediaCount = media.size
+        val proofCounts = VerifyProofCounts.ofMimeTypes(media.map { it.mimeType })
         val firstMedia = media.firstOrNull()
         val scopeType = weighingScopeType()
         return VerificationQueueRow(
@@ -730,11 +729,8 @@ class VerifyQueueViewModel @Inject constructor(
                 VerifyScopeType.OTHER -> ""
             },
             weightLabel = firstMedia?.answer.orEmpty(),
-            mediaCountLabel = when (mediaCount) {
-                0 -> ""
-                1 -> "1 video"
-                else -> "$mediaCount videos"
-            },
+            mediaCountLabel = verifyProofCountLabel(proofCounts),
+            proofCounts = proofCounts,
             thumbnailUrl = media.firstNotNullOfOrNull { it.thumbnailUrl?.takeIf(String::isNotBlank) },
             parkLabel = parkLabel.orEmpty(),
             operatorLabel = operatorName.orEmpty(),
