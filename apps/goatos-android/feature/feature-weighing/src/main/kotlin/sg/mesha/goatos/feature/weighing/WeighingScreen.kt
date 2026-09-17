@@ -2105,10 +2105,11 @@ private fun WeighingLumpSumCapture(
             }
         }
         ActionButton(
-            text = when {
-                state.captureSop.primaryPenSlotKind == "photo" -> stringResource(R.string.weighing_capture_take_photo)
-                state.shedProofs.isEmpty() -> stringResource(R.string.weighing_capture_group_video)
-                else -> stringResource(R.string.weighing_add_another_video)
+            text = when (val label = wholePenPrimaryCaptureLabel(state.captureSop, state.shedProofs.size)) {
+                is WholePenCaptureLabel.Authored -> label.title
+                WholePenCaptureLabel.TakePhoto -> stringResource(R.string.weighing_capture_take_photo)
+                WholePenCaptureLabel.GroupVideo -> stringResource(R.string.weighing_capture_group_video)
+                WholePenCaptureLabel.AddAnotherVideo -> stringResource(R.string.weighing_add_another_video)
             },
             enabled = !state.actionInFlight && state.shedProofs.size < state.captureSop.primaryPenSlotMax,
             onClick = {
