@@ -250,8 +250,8 @@ function selfTest() {
     selectedJobs: ["docs-only"],
   });
   assert.deepEqual(pick(["AGENTS.md"]), {
-    common: true, backend: false, adminWeb: false, android: false, full: false,
-    selectedJobs: ["common"],
+    common: false, backend: false, adminWeb: false, android: false, full: false,
+    selectedJobs: ["docs-only"],
   });
   assert.deepEqual(pick(["fixtures/vaccination-cpt-operator-drive-2026-07-23/expected-drive-schedules.json"]), {
     common: true, backend: false, adminWeb: false, android: false, full: false,

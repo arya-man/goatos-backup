@@ -38,6 +38,12 @@
       "docs/reviews/",
       "docs/research/",
       "docs/strategy/"
+    ],
+    "files": [
+      "AGENTS.md",
+      "CLAUDE.md",
+      "CODEX.md",
+      "SKILLS.md"
     ]
   },
   "queryPlans": {
