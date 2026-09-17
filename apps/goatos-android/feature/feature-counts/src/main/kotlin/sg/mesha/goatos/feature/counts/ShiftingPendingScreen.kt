@@ -103,6 +103,9 @@ data class ShiftingPendingRowUi(
      */
     val videosCaptured: Int = 0,
     val videosRequired: Int = 1,
+    /** False when the movement's SOP counts a photo among its required captures: the progress then
+     *  reads "Proofs recorded", never "Videos recorded" over a count that includes photos. */
+    val evidenceIsVideoOnly: Boolean = true,
 ) {
     /** Shown only on tasks still awaiting the operator — a finished movement has no progress left. */
     val showsEvidenceProgress: Boolean get() = primaryActionKey == "execute" && videosRequired > 0
@@ -434,7 +437,7 @@ private fun ShiftingPendingRowCard(row: ShiftingPendingRowUi, onClick: () -> Uni
             val complete = row.videosCaptured >= row.videosRequired
             Row(modifier = Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
                 Text(
-                    text = stringResource(R.string.counts_shifting_videos_label),
+                    text = stringResource(if (row.evidenceIsVideoOnly) R.string.counts_shifting_videos_label else R.string.counts_shifting_proofs_label),
                     color = MeshaColors.Faint,
                     fontSize = 11.sp,
                     fontWeight = FontWeight.W700,

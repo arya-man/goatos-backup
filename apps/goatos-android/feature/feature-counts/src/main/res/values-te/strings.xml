@@ -252,6 +252,7 @@
     <string name="counts_workflow_photo_saved">ఫోటో ఈ ఫోన్‌లో సేవ్ అయింది. ఇది ఆటోమేటిక్‌గా అప్‌లోడ్ అయి సమర్పించబడుతుంది.</string>
     <string name="counts_workflow_proofs_saved">ఫోటోలు మరియు వీడియోలు ఈ ఫోన్‌లో సేవ్ అయ్యాయి. అవి ఆటోమేటిక్‌గా అప్‌లోడ్ అయి సమర్పించబడతాయి.</string>
     <string name="counts_shifting_videos_label">రికార్డ్ చేసిన వీడియోలు</string>
+    <string name="counts_shifting_proofs_label">రికార్డ్ చేసిన ఆధారాలు</string>
     <string name="counts_group_cause_of_death">మరణ కారణం</string>
     <string name="counts_death_cause_normal">సాధారణ</string>
     <string name="counts_death_cause_disease">వ్యాధి వల్ల</string>

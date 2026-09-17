@@ -556,4 +556,26 @@ class ShiftingActionsEvidenceProgressTest {
         assertEquals(1, shiftingRequiredCaptures(CountsShiftingPendingExecutionItemDto(priority = "low", sop = completion, highPrioritySop = high)))
         assertEquals(2, shiftingRequiredCaptures(CountsShiftingPendingExecutionItemDto(priority = "high", sop = completion, highPrioritySop = high)))
     }
+
+    /** Realme E2E 2026-09-17: a card with a photo slot read "Videos recorded 0/4". */
+    @Test
+    fun `progress over a required photo is not called videos`() {
+        val seeded = CountsShiftingPendingExecutionItemDto(priority = "High")
+        assertTrue("the seeded cards are all videos", shiftingRequiredCapturesAreVideoOnly(seeded))
+        val withPhoto = ShiftingSopCardDto(
+            proofs = listOf(
+                WeighingRemovalProofSlotDto(key = "move", kind = "video", required = true),
+                WeighingRemovalProofSlotDto(key = "gate", kind = "photo", required = true),
+                WeighingRemovalProofSlotDto(key = "extra", kind = "photo", required = false),
+            ),
+        )
+        assertFalse(shiftingRequiredCapturesAreVideoOnly(CountsShiftingPendingExecutionItemDto(priority = "low", sop = withPhoto)))
+        val optionalPhotoOnly = ShiftingSopCardDto(
+            proofs = listOf(
+                WeighingRemovalProofSlotDto(key = "move", kind = "video", required = true),
+                WeighingRemovalProofSlotDto(key = "extra", kind = "photo", required = false),
+            ),
+        )
+        assertTrue("an optional photo is not counted", shiftingRequiredCapturesAreVideoOnly(CountsShiftingPendingExecutionItemDto(priority = "low", sop = optionalPhotoOnly)))
+    }
 }
