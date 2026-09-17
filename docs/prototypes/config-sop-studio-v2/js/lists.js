@@ -2,7 +2,9 @@
 (function(){
   window.A=window.A||{};
   const L={st:{}};
-  const state=k=>L.st[k]||(L.st[k]={q:'',f:{},status:'active',sel:new Set(),anchor:null});
+  const state=k=>L.st[k]||(L.st[k]={q:'',f:{},status:'active',sel:new Set(),anchor:null,showKeys:!KEYS_HIDDEN.includes(k)});
+  /* raw keys are noise on these lists: hidden until "Show keys" in the Import / export menu */
+  const KEYS_HIDDEN=['designations','roles','identifierPolicies'];
   /* phone width card layout is styled by app.css from td[data-label] */
 
   function rows(regKey,opts){
@@ -16,6 +18,7 @@
       list=list.filter(r=>{const v=c.derive?c.derive(r):r[c.attr];return Array.isArray(v)?v.includes(val):String(v)===String(val);});});
     const q=REG.norm(s.q);
     if(q)list=list.filter(r=>REG.norm(Object.values(REG.toRow(regKey,r)).join(' ')).includes(q));
+    if(opts&&opts.sort)list=list.slice().sort(opts.sort);
     return list;
   }
   L.rows=rows;
@@ -69,6 +72,8 @@
       :{label:c.label,num:c.type==='num',w:c.type==='num'?110:null,html:r=>{const v=gradeCell(c,r);if(c.ref==='pens'){const pn=S.get('pens',r[c.attr]);if(pn&&pn.displayName)return esc(pn.displayName);}if(regKey==='pens'&&c.k===firstText&&r.displayName)return `<b>${esc(r.displayName)}</b>`;return c.k===firstText?`<b>${esc(v)}</b>`:`<span class="${c.type==='ref'&&!v?'muted':''}">${esc(v||(c.blankLabel||''))}</span>`;}});
     if(regKey!=='items'&&!cols.some(c=>c.key||/^(key|code)$/i.test(c.label))&&S.all(reg.coll).some(r=>r.key))
       cols=cols.concat([{label:'Key',key:1,w:170,html:r=>`<span class="mono muted">${esc(r.key||'')}</span>`}]);
+    if(!s.showKeys)cols=cols.filter(c=>!(c.key||/^(key|code)$/i.test(c.label)));
+    cols=cols.map(c=>c.low?Object.assign({},c,{cls:'lowpri'}):c);
     cols=cols.map(c=>c.key?Object.assign({},c,{cls:'keycol'}):/^grade$/i.test(c.label)?Object.assign({},c,{html:r=>esc(REG.gradeLabel(r.grade))}):c);
     /* count columns that are zero on every row say nothing: drop them */
     cols=cols.filter(c=>!c.num||!list.length||list.slice(0,500).some(r=>{const v=String(c.html(r)).replace(/<[^>]*>/g,'').trim();return v!==''&&v!=='0'&&v!=='—';}));
@@ -81,10 +86,10 @@
     const allSel=shown.every(r=>s.sel.has(r.id));
     return `<style>@media(max-width:760px){.ltbl .keycol,.ltbl td.keycol,.ltbl th.keycol{display:none!important}}</style><table class="ltbl" style="width:max-content;min-width:100%;table-layout:fixed"><colgroup><col style="width:44px">${cols.map(c=>`<col class="${c.cls||''}" style="width:${widthOf(c)}px">`).join('')}<col style="width:104px"><col style="width:52px"></colgroup>
       <thead><tr><th class="ck"><input type="checkbox" data-a="sel-all" data-reg="${regKey}" ${allSel?'checked':''} aria-label="Select all"></th>${cols.map(c=>`<th class="${c.num?'num':''} ${c.cls||''}">${esc(c.label)}</th>`).join('')}<th>Status</th><th></th></tr></thead>
-      <tbody>${shown.map(r=>`<tr class="clk ${r.status==='archived'?'arch':''}" data-a="row-open" data-reg="${regKey}" data-id="${r.id}">
+      <tbody>${shown.map((r,i)=>{const g=opts.groupBy&&opts.groupBy(r);const gh=g!=null&&(i===0||opts.groupBy(shown[i-1])!==g)?`<tr class="grow"><td colspan="${cols.length+3}">${esc(g)} <span class="muted">${shown.filter(x=>opts.groupBy(x)===g).length}</span></td></tr>`:'';return gh+`<tr class="clk ${r.status==='archived'?'arch':''}" data-a="row-open" data-reg="${regKey}" data-id="${r.id}">
         <td class="ck" data-label=""><input type="checkbox" data-a="sel-one" data-reg="${regKey}" data-id="${r.id}" ${s.sel.has(r.id)?'checked':''} aria-label="Select" title="Shift-click selects a range"></td>
         ${cols.map(c=>{const h=c.html(r);return `<td class="${c.num?'num':''} ${c.cls||''}" data-label="${esc(c.label)}" ${c.wrap?'style="white-space:normal;overflow:visible"':`title="${esc(plain(h))}"`}>${h}</td>`;}).join('')}<td data-label="Status">${UI.statusTag(r.status)}</td>
-        <td class="act" data-label=""><button class="btn icon gh" data-a="row-menu" data-reg="${regKey}" data-id="${r.id}" aria-label="Row actions">${ic('more')}</button></td></tr>`).join('')}</tbody></table>
+        <td class="act" data-label=""><button class="btn icon gh" data-a="row-menu" data-reg="${regKey}" data-id="${r.id}" aria-label="Row actions">${ic('more')}</button></td></tr>`;}).join('')}</tbody></table>
       ${list.length>500?`<div class="empty">${shown.length} of ${list.length}</div>`:''}`;
   };
 
@@ -130,7 +135,8 @@
     'grid-add'(el){const k=el.dataset.reg;const o=L.opts[k]||{};Sheet.openEntry(k,null,[o.defaults?o.defaults():{}]);},
     'row-menu'(el,e){
       e.stopPropagation(); const k=el.dataset.reg,id=el.dataset.id,reg=REG.R[k],rec=S.get(reg.coll,id),o=L.opts[k]||{};
-      UI.menu(el,[
+      const low=((L.opts[k]||{}).columns||[]).filter(c=>c.low&&window.matchMedia('(max-width:1180px)').matches).map(c=>({label:c.label+': '+(String(c.html(rec)).replace(/<[^>]*>/g,'').replace(/&amp;/g,'&').trim()||'—'),disabled:1}));
+      UI.menu(el,[...low,...(low.length?['-']:[]),
         {label:'Edit',icon:'edit-3',run:()=>o.onOpen?o.onOpen(id):UI.recordForm(k,id)},
         {label:'Edit in grid',icon:'sheet',run:()=>Sheet.openEntry(k,[id])},
         {label:'Duplicate',icon:'copy',run:()=>UI.recordForm(k,id,{duplicate:true})},
@@ -149,7 +155,7 @@
       const body=()=>{const pens=S.active('pens').filter(p=>p.parkId===f.park),parts=S.active('partitions').filter(p=>p.penId===f.pen);
         const cap=f.pen&&S.get('pens',f.pen).capacity;const load=f.pen?S.active('animals').filter(a=>a.penId===f.pen&&!ids.includes(a.id)).length+ids.length:0;
         return `<div class="fgrid"><div class="fld full"><label>Park *</label><select data-mv="park"><option value="">Choose park</option>${S.active('parks').map(p=>`<option value="${p.id}" ${f.park===p.id?'selected':''}>${esc(p.name)}</option>`).join('')}</select></div>
-          <div class="fld full"><label>Pen *</label><select data-mv="pen" ${f.park?'':'disabled'}><option value="">Choose pen</option>${pens.map(p=>`<option value="${p.id}" ${f.pen===p.id?'selected':''}>${esc(p.name)}</option>`).join('')}</select></div>
+          <div class="fld full"><label>Pen *</label><select data-mv="pen" ${f.park?'':'disabled'}><option value="">Choose pen</option>${pens.map(p=>`<option value="${p.id}" ${f.pen===p.id?'selected':''}>${esc(REG.label('pens',p))}</option>`).join('')}</select></div>
           <div class="fld full"><label>Partition</label><select data-mv="part" ${f.pen&&parts.length?'':'disabled'}><option value="">${parts.length?'No partition':'This pen has no partitions'}</option>${parts.map(p=>`<option value="${p.id}" ${f.part===p.id?'selected':''}>${esc(REG.fullLabel('partitions',p))}</option>`).join('')}</select>
 </div>
           ${cap&&load>cap?`<div class="fld full"><div class="ferr w">Over capacity ${load}/${cap}</div></div>`:''}</div>`;};
@@ -178,7 +184,8 @@
       {label:'Template (.csv)',icon:'download',run:()=>IO.template(k,'csv')},
       '-',
       {label:'Export (.xlsx)',icon:'download',run:()=>IO.exportRegister(k,'xlsx')},
-      {label:'Export (.csv)',icon:'download',run:()=>IO.exportRegister(k,'csv')}]);}
+      {label:'Export (.csv)',icon:'download',run:()=>IO.exportRegister(k,'csv')},
+      ...(KEYS_HIDDEN.includes(k)?['-',{label:state(k).showKeys?'Hide keys':'Show keys',icon:'eye',run:()=>{const s=state(k);s.showKeys=!s.showKeys;App.render();}}]:[])]);}
   });
 
   /* bulk "pick one existing value and apply" (stage / tag), species-checked per animal */

@@ -5,7 +5,7 @@
   const E=s=>String(s==null?'':s).replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
   const HIDDEN=new Set(['start','end','join']);
   const st=()=>(window.S&&window.S.state)||{};
-  const roleName=id=>{const r=(st().roles||[]).find(x=>x.id===id);return r?(window.REG?REG.labelById('roles',id):r.name):'Approver';};
+  const roleName=id=>{const r=(st().roles||[]).find(x=>x.id===id);return r?r.name:'Approver';};
   const approverText=n=>{const ap=window.Flow&&Flow.approvers?Flow.approvers(n):[];return ap.length?ap.map(x=>x.label).join(' → '):roleName(n.roleId);};
   const setting=id=>{const r=id&&(st().settings||[]).find(x=>x.id===id);return r?Number(r.value):null;};
 
@@ -165,7 +165,7 @@
       }
       case 'decision':{
         let res; try{res=window.Flow&&Flow.evalDecision?Flow.evalDecision(n,r.ans,{prevScans:[]}):undefined;}catch(e){}
-        return `<div class="op-card slim"><div class="op-row between"><span class="op-flabel">${E(n.label)}</span>${res===undefined?pill('Pending','mut'):pill(res?'Yes':'No',res?'warn':'ok')}</div></div>`;
+        return `<div class="op-card slim"><div class="op-row between"><span class="op-flabel">${E(Flow.label?Flow.label(n):n.label)}</span>${res===undefined?pill('Pending','mut'):pill(res?'Yes':'No',res?'warn':'ok')}</div></div>`;
       }
       case 'action':case 'child':{
         if(n.link){const on=!!r.ans[n.id]; const steps=n.linkSteps||(/vaccin/i.test(n.link)?['Calendar','Sheds','Scan']:[]);

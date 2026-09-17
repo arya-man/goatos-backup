@@ -92,7 +92,7 @@
         n.type==='approval'?REG.labelById('roles',n.roleId):'',n.type==='evidence'?(n.media||[]).join('/')+' '+(n.min||0)+'–'+(n.max||1):'',
         n.type==='child'?((S.get('sops',n.sopId)||{}).title||'Not set'):'',n.link?'Opens '+(n.linkLabel||'linked module'):''].filter(Boolean).join(' · ');
       return head+`<div class="lstep k-${n.type} ${sel===n.id?'sel':''}" data-a="node-sel" data-id="${n.id}">
-        <span class="lnum">${step}</span><div class="lbody"><div class="row nw"><span class="ltype">${ic(T.icon,'',13)}${T.label}</span><b class="lttl">${esc(n.type==='child'&&S.get('sops',n.sopId)?S.get('sops',n.sopId).title:n.label||T.label)}</b></div>
+        <span class="lnum">${step}</span><div class="lbody"><div class="row nw"><span class="ltype">${ic(T.icon,'',13)}${T.label}</span><b class="lttl">${esc(n.type==='child'&&S.get('sops',n.sopId)?S.get('sops',n.sopId).title:(Flow.label(n)||T.label))}</b></div>
         ${sub?`<div class="small muted">${esc(sub)}</div>`:''}${(n.next||[]).length?`<div class="small muted">${esc(nextTxt(n))}</div>`:''}</div>
         ${n.type!=='end'?`<button class="btn sm" data-a="list-ins" data-id="${n.id}" aria-label="Insert step after">${ic('plus')}<span class="ins-t">Insert</span></button>`:''}</div>`;
     }).join('');
@@ -118,7 +118,7 @@
       return `<div class="hd"><h3>SOP</h3><span class="sp"></span><button class="btn sm" data-a="sop-more" data-id="${s.id}">${ic('more')}</button></div><div class="bd">
         ${fld('Title',`<input data-sp="title" value="${esc(s.title)}">`)}
         ${fld('Department',`<input data-sp="dept" value="${esc(s.dept)}" autocomplete="off">`)}
-        ${fld('Category',`<select data-sp="category">${['commodity','problem','event','action','equipment'].map(c=>`<option ${s.category===c?'selected':''}>${c}</option>`).join('')}</select>`)}
+        ${fld('Category',`<select data-sp="category">${['commodity','problem','event','action','equipment'].map(c=>`<option value="${c}" ${s.category===c?'selected':''}>${({commodity:'Commodity',problem:'Problem',event:'Event',action:'Action',equipment:'Equipment'})[c]}</option>`).join('')}</select>`)}
         ${(()=>{const d=Flow.drift(s.nodes,v0(s));return d.length?`<div class="eyebrow mt">Pending setting changes</div><div class="stack" style="gap:4px;margin-top:6px">${d.map(x=>`<div class="fx-set moved">Uses setting: ${esc(x.name)} = ${esc(x.now)}${x.unit&&x.unit!=='time'?' '+esc(x.unit):''} <b>(was ${esc(x.was)})</b></div>`).join('')}<div class="small muted">Running work keeps the old value. Publish to use the new one.</div></div>`:'';})()}
         <div class="eyebrow mt">Issues</div>
         ${iss.length?`<div class="stack" style="gap:6px;margin-top:6px">${iss.map(i=>`<button class="btn sm dngo" style="justify-content:flex-start;white-space:normal;text-align:left" data-a="node-sel" data-id="${i.id||''}">${ic('reject')}${esc(i.msg)}</button>`).join('')}</div>`:`<div class="mt">${UI.tag('Ready to publish','ok')}</div>`}

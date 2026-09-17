@@ -29,7 +29,7 @@
   UI.menu=function(anchor,items){
     UI.closeMenu();
     const m=document.createElement('div'); m.className='menu'; m.id='menu';
-    m.innerHTML=items.map((it,i)=>it==='-'?'<hr>':`<button data-mi="${i}" class="${it.danger?'dng':''}">${it.icon?ic(it.icon):''}${esc(it.label)}</button>`).join('');
+    m.innerHTML=items.map((it,i)=>it==='-'?'<hr>':`<button data-mi="${i}" class="${it.danger?'dng':''}" ${it.disabled?'disabled style="opacity:1;color:var(--muted);cursor:default"':''}>${it.icon?ic(it.icon):''}${esc(it.label)}</button>`).join('');
     document.body.appendChild(m);
     const r=anchor.getBoundingClientRect(); const w=m.offsetWidth,hh=m.offsetHeight;
     let left=Math.min(r.right-w,window.innerWidth-w-8); left=Math.max(8,left);
@@ -157,8 +157,8 @@
     return list.map(x=>({id:x.id,label:REG.label(col.ref,x),sub:subFor(col.ref,x),alias:x.aliases}));
   };
   function subFor(coll,x){
-    if(coll==='pens'){const p=S.get('parks',x.parkId);return x.displayName&&x.displayName!==x.name?x.displayName:(p?p.name:'');}
-    if(coll==='partitions'){const p=S.get('pens',x.penId);return p?p.name:'';}
+    if(coll==='pens'){const p=S.get('parks',x.parkId);return p?p.name:'';}
+    if(coll==='partitions'){const p=S.get('pens',x.penId);return p?REG.label('pens',p):'';}
     if(['breeds','stages','sexes'].includes(coll)){const s=S.get('species',x.speciesId);return (x.code&&coll==='stages'?x.code+' · ':'')+(s?s.name:'');}
     if(coll==='parks'){const f=S.get('farms',x.farmId);return f?f.code:'';}
     return '';

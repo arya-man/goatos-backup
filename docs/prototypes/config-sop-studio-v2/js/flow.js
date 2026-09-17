@@ -156,12 +156,15 @@
     F.META.forEach(k=>{if(v[k]===undefined)v[k]=sop[k];});
     F.linkChains(sop);
     return F.stable(v.nodes)!==F.stable(sop.nodes)||F.META.some(k=>v[k]!==sop[k])||F.drift(sop.nodes,v).length>0;};
+  /* node label with {value} filled from the live setting (decisions bound to a setting) */
+  F.label=function(n){const l=n&&n.label||'';if(!l.includes('{value}'))return l;const vs=n.valueSetting&&S.get('settings',n.valueSetting);return l.replace(/\{value\}/g,vs?vs.value:(n.value!=null?n.value:''));};
+  F.roleLabel=function(id){const r=id&&S.get('roles',id);return r?r.name:'';};
   /* approvers of an approval step: its chain (live) or its single role */
   F.approvers=function(n){
     if(n.chainId){const ch=S.get('approvalChains',n.chainId);if(!ch)return [];
       const list=(window.REG&&typeof REG.approversFor==='function')?(REG.approversFor(ch.id)||[]):(ch.steps||[]).map(x=>({label:x.role||x.designation||x.person}));
       return list.map(x=>typeof x==='string'?{label:x}:x).filter(x=>x&&x.label);}
-    return n.roleId&&S.get('roles',n.roleId)?[{label:REG.labelById('roles',n.roleId)}]:[];};
+    return n.roleId&&S.get('roles',n.roleId)?[{label:F.roleLabel(n.roleId)}]:[];};
   /* seeded approval steps whose role is the first approver of their department's chain follow that chain */
   F.linkChains=function(sop){
     const chains=S.active('approvalChains'); if(!chains.length)return;
@@ -217,7 +220,7 @@
     return {min:mn?Number(mn.value):(n.min==null||n.min===''?null:Number(n.min)),max:mx?Number(mx.value):(n.max==null||n.max===''?null:Number(n.max)),minSet:mn,maxSet:mx};};
   F.limitText=function(n,sop){const rule=n.rule||{};const has=rule.maxFromSetting||n.maxFromSetting||rule.minFromSetting||n.minFromSetting;
     if(has)return 'limits from settings';const L=F.limits(n,sop);return L.min!=null&&L.max!=null?L.min+'–'+L.max:L.max!=null?'max '+L.max:'';};
-  function childLabel(n){if(n.type!=='child')return n.label;const c=S.get('sops',n.sopId);return c?c.title:n.label;}
+  function childLabel(n){if(n.type!=='child')return F.label(n);const c=S.get('sops',n.sopId);return c?c.title:n.label;}
 
   /* ---------- stylesheet (owned by this module) ---------- */
   (function(){if(document.querySelector('link[data-flow-css]'))return;const l=document.createElement('link');l.rel='stylesheet';l.href='styles/flow.css';l.dataset.flowCss='1';l.onload=()=>document.querySelectorAll('.fx-root').forEach(r=>syncChrome(r));document.head.appendChild(l);})();

@@ -14,7 +14,7 @@
   const LINKS=[['Vendors','#/procurement/vendors'],['Market cities','#/sales/config'],['Diseases','#/health/config'],['Ration groups','#/feed/config'],['Vaccination plan','#/vaccination/plan']];
   const regOf=k=>k==='shed-tags'||k==='groups'?'tags':k;
   const count=k=>{if(k==='groups')return S.active('tags').length;if(k==='identifierPolicies'&&!REG.R[k]){const v=S.active(k)[0];return v?(v.types||[]).length:0;}const r=REG.R[regOf(k)];return r?S.active(r.coll).length:S.active(k).length;};
-  const penDisplay=a=>{const pen=S.get('pens',a.penId),pt=S.get('partitions',a.partitionId);return pen?pen.name+(pt?' - '+pt.name:''):'';};
+  const penDisplay=a=>{const pen=S.get('pens',a.penId),pt=S.get('partitions',a.partitionId);return pen?REG.label('pens',pen)+(pt?' - '+pt.name:''):'';};
   const num=v=>`<span class="num">${esc(v)}</span>`;
 
   function header(){
@@ -36,8 +36,9 @@
       columns:[{label:'Park',html:r=>`<b>${esc(r.name)}</b>`},{label:'Code',w:150,html:r=>`<span class="mono">${esc(r.code||'')}</span>`},{label:'Farm',html:r=>esc(REG.labelById('farms',r.farmId))},
         {label:'Pens',w:80,num:1,html:r=>S.active('pens').filter(p=>p.parkId===r.id).length},{label:'Capacity',w:100,num:1,html:r=>{const t=S.active('pens').filter(p=>p.parkId===r.id).reduce((a,p)=>a+(+p.capacity||0),0);return t||'—';}},
         {label:'Animals',w:90,num:1,html:r=>S.active('animals').filter(a=>a.parkId===r.id).length}]}),
-    pens:()=>list('pens',{eyebrow:'Farm places',filters:['park','stage','sex'],
-      columns:[{label:'Pen',html:r=>`<b>${esc(r.name)}</b>`},{label:'Park',html:r=>esc(REG.labelById('parks',r.parkId))},{label:'Partitions',w:100,num:1,html:r=>S.active('partitions').filter(p=>p.penId===r.id).length},
+    pens:()=>list('pens',{eyebrow:'Farm places',filters:['park','stage','sex'],groupBy:r=>REG.labelById('parks',r.parkId)||'No park',
+      sort:(a,b)=>(REG.labelById('parks',a.parkId)||'\uffff').localeCompare(REG.labelById('parks',b.parkId)||'\uffff')||REG.label('pens',a).localeCompare(REG.label('pens',b),undefined,{numeric:true}),
+      columns:[{label:'Pen',html:r=>`<b>${esc(REG.label('pens',r))}</b>`},{label:'Partitions',w:100,num:1,html:r=>S.active('partitions').filter(p=>p.penId===r.id).length},
         {label:'Animals',w:90,num:1,html:r=>S.active('animals').filter(a=>a.penId===r.id).length},{label:'Capacity',w:90,num:1,html:r=>{const n=S.active('animals').filter(a=>a.penId===r.id).length;return (r.capacity===''||r.capacity==null?'—':esc(r.capacity))+(r.capacity&&n>r.capacity?' '+UI.tag('Over','dng'):'');}},
         {label:'Stage',html:r=>esc(REG.labelById('stages',r.stageId))},{label:'Sex',w:90,html:r=>esc(REG.enumLabel(r.sex))}]}),
     partitions:()=>list('partitions',{eyebrow:'Farm places',filters:['park','pen'],
@@ -59,14 +60,14 @@
     healthStates:()=>list('healthStates',{eyebrow:'Animal types',filters:['group']}),
     animals:()=>list('animals',{eyebrow:'Animals',filters:['species','park','pen','stage','sex'],addLabel:'Add animals',onNew:()=>Sheet.openEntry('animals',null,[{}]),
       extraBtns:`<button class="btn sm" data-a="rec-one" data-reg="animals">${ic('plus')}Add one</button>`,
-      columns:[{label:'RFID',html:r=>`<b class="mono">${esc(r.rfid)}</b>`},{label:'Second tag',html:r=>`<span class="muted">${esc(r.tag2||'')}</span>`},
+      columns:[{label:'RFID',html:r=>`<b class="mono">${esc(r.rfid)}</b>`},{label:'Second tag',low:1,html:r=>`<span class="muted">${esc(r.tag2||'')}</span>`},
         {label:'Species',html:r=>esc(REG.labelById('species',r.speciesId))},{label:'Breed',html:r=>esc(REG.labelById('breeds',r.breedId))},
-        {label:'Sex',w:80,html:r=>esc(REG.labelById('sexes',r.sexId))},{label:'Stage',html:r=>esc(REG.labelById('stages',r.stageId))},
-        {label:'Park',html:r=>esc(REG.labelById('parks',r.parkId))},{label:'Pen',html:r=>esc(penDisplay(r))},{label:'Weight (kg)',w:100,num:1,html:r=>esc(r.weight===''||r.weight==null?'':r.weight)}]}),
+        {label:'Sex',w:80,low:1,html:r=>esc(REG.labelById('sexes',r.sexId))},{label:'Stage',html:r=>esc(REG.labelById('stages',r.stageId))},
+        {label:'Park',low:1,html:r=>esc(REG.labelById('parks',r.parkId))},{label:'Pen',html:r=>esc(penDisplay(r))},{label:'Weight (kg)',w:100,num:1,low:1,html:r=>esc(r.weight===''||r.weight==null?'':r.weight)}]}),
     items:()=>items(),
     people:()=>list('people',{eyebrow:'People',filters:['role','parks'],columns:[{label:'Name',html:r=>`<b>${esc(/\s0\d$/.test(r.name||'')?REG.labelById('roles',r.roleId):r.name)}</b>`},{label:'Role',html:r=>esc(REG.labelById('roles',r.roleId))},
       {label:'Parks',html:r=>(r.parkIds||[]).length?(r.parkIds||[]).map(id=>UI.tag(REG.labelById('parks',id),'mut')).join(' '):'<span class="muted">All parks</span>'},{label:'Email',html:r=>esc(r.email||'')},{label:'Phone',html:r=>esc(r.phone||'')}]}),
-    roles:()=>list('roles',{eyebrow:'People',columns:[{label:'Role',html:r=>`<b>${esc(r.name)}</b>`},{label:'Grade',w:140,html:r=>esc(r.grade||'')},{label:'People',w:90,num:1,html:r=>S.active('people').filter(p=>p.roleId===r.id).length}]}),
+    roles:()=>list('roles',{eyebrow:'People',columns:[{label:'Role',html:r=>`<b>${esc(r.name)}</b>`},{label:'Grade',w:140,html:r=>esc(r.grade||'')},{label:'People',w:90,num:1,html:r=>{const n=S.active('people').filter(p=>p.roleId===r.id).length;return n||'<span class="muted">—</span>';}}]}),
     settings:()=>list('settings',{eyebrow:'Business settings',filters:['dept'],onOpen:id=>settingDrawer(id),
       where:r=>{const st=List.st.settings;const q=st&&REG.norm(st.q);return !q||REG.norm(r.name).includes(q);},
       columns:[{label:'Setting',html:r=>`<b>${esc(r.name)}</b>`},{label:'Department',w:160,html:r=>UI.tag(r.dept,'teal')},
@@ -184,14 +185,15 @@
     PD={id,snap:JSON.stringify(S.state),created:false,dirty:false,name:p?p.name:'',code:p?p.code:'',farm:p?REG.labelById('farms',p.farmId):'',
       pens:p?S.all('pens').filter(x=>x.parkId===p.id&&x.status!=='archived').map(x=>({id:x.id,name:x.name,capacity:x.capacity==null?'':x.capacity,
         parts:S.active('partitions').filter(t=>t.penId===x.id).map(t=>({id:t.id,name:t.name,capacity:t.capacity==null?'':t.capacity,auto:false})),
-        stage:REG.labelById('stages',x.stageId),sex:x.sex||'mixed'})):[],
+        stage:REG.labelById('stages',x.stageId),sex:x.sex||'mixed',icu:x.hasIcu===true||x.hasIcu==='yes'?'yes':'no',life:REG.labelById('stages',x.lifecycleStatus)})):[],
       gen:{n:4,cap:40,prefix:'Pen',start:1,parts:0},removed:[],err:{}};
     return PD;
   }
   function parkPage(id){
     const d=parkDraft(id); const e=d.err;
     const errTxt=k=>e[k]?`<div class="ferr">${esc(e[k])}</div>`:'';
-    const cols=`<colgroup><col><col style="width:100px"><col style="width:120px"><col><col style="width:110px"><col style="width:80px"><col style="width:40px"></colgroup>`;
+    const cols=`<colgroup><col><col style="width:100px"><col style="width:120px"><col><col style="width:110px"><col style="width:80px"><col style="width:170px"><col style="width:80px"><col style="width:40px"></colgroup>`;
+    const lifeNames=[...new Set(S.active('stages').map(s=>s.name))];
     return `<div class="phead"><div><div class="crumb">Configuration / <a href="#/configuration/items/parks">Items and settings</a> / <b>${id==='new'?'New park':esc(d.name)}</b></div><h1>${id==='new'?'New park':esc(d.name)}</h1></div><div class="sp"></div>
       <button class="btn" data-a="pd-cancel">Cancel</button><button class="btn p" data-a="park-save">${ic('check')}Save park</button></div>
       <section class="card mb"><div class="bd"><div class="fgrid fg3">
@@ -209,21 +211,23 @@
           <label class="gl">Partitions per pen<input class="inl num" data-pg="parts" value="${esc(d.gen.parts)}" inputmode="numeric"></label>
           <button class="btn sm out" data-a="pd-gen">${ic('layers')}Generate</button>
         </div>
-        <div class="twrap"><table class="mini" style="min-width:720px">${cols}<thead><tr><th>Pen *</th><th>Capacity</th><th>Partitions</th><th>Stage</th><th>Sex</th><th>Animals</th><th></th></tr></thead><tbody>
+        <div class="twrap"><table class="mini" style="min-width:970px">${cols}<thead><tr><th>Pen *</th><th>Capacity</th><th>Partitions</th><th>Stage</th><th>Sex</th><th>ICU</th><th>Lifecycle status</th><th>Animals</th><th></th></tr></thead><tbody>
         ${d.pens.length?d.pens.map((p,i)=>`<tr>
           <td><input data-pp="${i}" data-k="name" value="${esc(p.name)}" aria-label="Pen name" class="${e['pen'+i]?'bad':''}">${e['pen'+i]?`<div class="ferr">${esc(e['pen'+i])}</div>`:''}</td>
           <td><input data-pp="${i}" data-k="capacity" value="${esc(p.capacity)}" inputmode="numeric" aria-label="Capacity" class="${e['cap'+i]?'bad':''}"></td>
           <td><button class="btn sm" data-a="pd-addpart" data-i="${i}" aria-label="Add partition">${ic('plus','',13)}${p.parts.length}</button></td>
           <td><input data-pp="${i}" data-k="stage" value="${esc(p.stage)}" placeholder="Any stage" autocomplete="off" aria-label="Stage" class="${e['stg'+i]?'bad':''}">${e['stg'+i]?`<div class="ferr">${esc(e['stg'+i])}</div>`:''}</td>
           <td><select data-pp="${i}" data-k="sex" aria-label="Sex">${['mixed','female','male'].map(x=>`<option ${p.sex===x?'selected':''}>${x}</option>`).join('')}</select></td>
+          <td><select data-pp="${i}" data-k="icu" aria-label="ICU">${[['no','No'],['yes','Yes']].map(([v,l])=>`<option value="${v}" ${(p.icu||'no')===v?'selected':''}>${l}</option>`).join('')}</select></td>
+          <td><select data-pp="${i}" data-k="life" aria-label="Lifecycle status"><option value="">None</option>${lifeNames.map(n=>`<option ${REG.norm(p.life||'')===REG.norm(n)?'selected':''}>${esc(n)}</option>`).join('')}</select></td>
           <td class="num muted">${p.id?S.active('animals').filter(a=>a.penId===p.id).length:'—'}</td>
           <td class="x"><button class="btn icon gh" data-a="pd-delpen" data-i="${i}" aria-label="Remove pen">${ic('x')}</button></td></tr>
-          ${p.parts.length?`<tr class="subr"><td colspan="7" style="padding:0 4px 8px 24px"><div style="display:flex;flex-wrap:wrap;gap:6px">${p.parts.map((t,j)=>`<span style="display:inline-flex;gap:4px;align-items:center">
+          ${p.parts.length?`<tr class="subr"><td colspan="9" style="padding:0 4px 8px 24px"><div style="display:flex;flex-wrap:wrap;gap:6px">${p.parts.map((t,j)=>`<span style="display:inline-flex;gap:4px;align-items:center">
             <input style="width:130px" data-pt="${i}" data-j="${j}" data-k="name" value="${esc(t.name)}" aria-label="Partition name" class="${e['pt'+i+'.'+j]?'bad':''}">
             <input style="width:64px" data-pt="${i}" data-j="${j}" data-k="capacity" value="${esc(t.capacity)}" placeholder="Cap" inputmode="numeric" aria-label="Partition capacity">
             <button class="btn icon gh" data-a="pd-delpart" data-i="${i}" data-j="${j}" aria-label="Remove partition">${ic('x','',13)}</button></span>`).join('')}</div>
             ${Object.keys(e).some(k=>k.startsWith('pt'+i+'.'))?`<div class="ferr">${esc(e[Object.keys(e).find(k=>k.startsWith('pt'+i+'.'))])}</div>`:''}</td></tr>`:''}`).join('')
-          :`<tr><td colspan="7" class="empty"><input data-penpaste placeholder="Paste pens from a sheet" aria-label="Paste pens" style="max-width:320px;width:100%;text-align:center"></td></tr>`}
+          :`<tr><td colspan="9" class="empty"><input data-penpaste placeholder="Paste pens from a sheet" aria-label="Paste pens" style="max-width:320px;width:100%;text-align:center"></td></tr>`}
         </tbody></table></div></section>`;
   }
   function stageCreates(text){
@@ -237,7 +241,7 @@
   function syncPartNames(p){p.parts.forEach((t,j)=>{if(t.auto)t.name=partName(p.name,j);});}
   function penPaste(d,startRow,startKey,text){
     const rows=parseTSV(text); const c0=PEN_COLS.indexOf(startKey);
-    rows.forEach((r,ri)=>{let p=d.pens[startRow+ri];if(!p){p={name:'',capacity:'',parts:[],stage:'',sex:'mixed'};d.pens.push(p);}
+    rows.forEach((r,ri)=>{let p=d.pens[startRow+ri];if(!p){p={name:'',capacity:'',parts:[],stage:'',sex:'mixed',icu:'no',life:''};d.pens.push(p);}
       r.forEach((v,ci)=>{const k=PEN_COLS[c0+ci];v=v.trim();if(!k)return;
         if(k==='parts'){const n=Math.max(0,parseInt(v)||0);while(p.parts.length<n)p.parts.push(newPart(p,p.parts.length));}
         else if(k==='sex')p.sex=['female','male'].includes(v.toLowerCase())?v.toLowerCase():'mixed';
@@ -298,7 +302,8 @@
     d.pens.forEach(p=>{
       let pen=p.id?S.get('pens',p.id):null;
       const hits=String(p.stage).trim()?stageByName(p.stage):[];
-      const attrs={parkId:park.id,name:String(p.name).trim(),capacity:p.capacity===''?'':Number(p.capacity),stageId:hits.length?hits[0].id:'',stageName:hits.length?hits[0].name:'',sex:p.sex};
+      const attrs={parkId:park.id,name:String(p.name).trim(),capacity:p.capacity===''?'':Number(p.capacity),stageId:hits.length?hits[0].id:'',stageName:hits.length?hits[0].name:'',sex:p.sex,hasIcu:p.icu==='yes',lifecycleStatus:(String(p.life||'').trim()&&stageByName(p.life)[0]||{}).id||''};
+      if(!pen||!pen.displayName||pen.displayName===pen.name)attrs.displayName=attrs.name;
       if(pen)Object.assign(pen,attrs); else pen=S.add('pens',attrs);
       const keep=new Set();
       p.parts.forEach(t=>{const a={penId:pen.id,name:String(t.name).trim(),capacity:t.capacity===''?'':Number(t.capacity)};
@@ -311,7 +316,7 @@
     return true;
   }
   Object.assign(A,{
-    'pd-addpen'(){PD.pens.push({name:'',capacity:'',parts:[],stage:'',sex:'mixed'});PD.dirty=true;App.render();},
+    'pd-addpen'(){PD.pens.push({name:'',capacity:'',parts:[],stage:'',sex:'mixed',icu:'no',life:''});PD.dirty=true;App.render();},
     'pd-delpen'(el){const p=PD.pens.splice(+el.dataset.i,1)[0];if(p&&p.id)PD.removed.push(p.id);PD.dirty=true;App.render();},
     'pd-addpart'(el){const p=PD.pens[+el.dataset.i];p.parts.push(newPart(p,p.parts.length));PD.dirty=true;App.render();
       const ins=document.querySelectorAll(`[data-pt="${el.dataset.i}"][data-k="name"]`);if(ins.length){ins[ins.length-1].focus();ins[ins.length-1].select();}},
@@ -320,7 +325,7 @@
       if(isNaN(cap)||cap<0){UI.toast('Capacity: 0 or more');return;}
       const names=new Set(PD.pens.map(p=>REG.norm(p.name)));let made=0,i=st;const np=Math.max(0,parseInt(g.parts)||0);
       while(made<n&&i<st+1000){const nm=(g.prefix||'Pen')+' '+i;i++;if(names.has(REG.norm(nm)))continue;
-        const pen={name:nm,capacity:cap,parts:[],stage:'',sex:'mixed'};for(let k=0;k<np;k++)pen.parts.push(newPart(pen,k));PD.pens.push(pen);made++;}
+        const pen={name:nm,capacity:cap,parts:[],stage:'',sex:'mixed',icu:'no',life:''};for(let k=0;k<np;k++)pen.parts.push(newPart(pen,k));PD.pens.push(pen);made++;}
       PD.dirty=true;App.render();UI.toast(made+' pens added');},
     'pd-cancel'(){App.leave('#/configuration/items/parks');},
     'park-save'(){savePark();}

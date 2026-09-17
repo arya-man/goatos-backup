@@ -48,7 +48,7 @@
         ${x&&x.create?`<button class="btn sm" data-a="sh-pick" data-r="${ri}" data-c="${ci}" data-t="${esc(x.text)}">Pick existing</button><button class="btn sm gh" data-a="sh-create" data-r="${ri}" data-c="${ci}" data-t="${esc(x.text)}">${ic('plus','',12)}${x.archived?'Restore':'Create'} “${esc(x.text)}”</button>`:''}</div>`;}).join('');
   };
 
-  const HIDE_ZERO=['warn','info','create','update'];
+  const HIDE_ZERO=['warn','info','create','update','unchanged'];
   Sheet.chipHidden=(G,k,cnt)=>HIDE_ZERO.includes(k)&&!cnt[k]&&G.view!==k;
   Sheet.parentsShown=(G,cnt)=>!!(cnt.unresolved||cnt.newv||G.createParents);
   const STAT={create:['New','ok'],update:['Update','info'],unchanged:['Unchanged','mut'],error:['Error','dng'],empty:['','mut']};

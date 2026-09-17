@@ -57,7 +57,7 @@
     const q=f.add('question',{label:'Scan RFID tag',answer:'scan',required:true,page:'Scan'});
     const d=f.add('decision',{label:'Tag already weighed in this bucket?',q:q,op:'duplicate',value:''});
     const blk=f.add('end',{label:'Duplicate scan blocked',outcome:'rejected'});
-    const w=f.add('question',{label:'Weight',answer:'number',unit:'kg',min:0,max:20000,required:true,page:'Weight'});
+    const w=f.add('question',{label:'Weight',answer:'number',unit:'kg',min:0.001,max:100000,required:true,page:'Weight'});
     const v=f.add('evidence',{label:'Weighing video',media:['video'],min:1,max:5,page:'Weight'});
     const a=f.add('approval',{label:'Verifier reviews video and weight',roleId:'role_verifier',outcomes:['Approve','Send back']});
     const e=f.add('end',{label:'Weight accepted',outcome:'done'});
@@ -72,7 +72,7 @@
     const f=flow();
     const s=f.add('start',{label:'Open assigned lump-sum pen'});
     const pen=f.add('question',{label:'Pen',answer:'ref',refColl:'pens',required:true,page:'Pen'});
-    const w=f.add('question',{label:'Total weight of the pen',answer:'number',unit:'kg',min:0,max:20000,required:true,page:'Weight'});
+    const w=f.add('question',{label:'Total weight of the pen',answer:'number',unit:'kg',min:0.001,max:100000,required:true,page:'Weight'});
     const v=f.add('evidence',{label:'Lump-sum pen video',media:['video'],min:1,max:5,page:'Weight'});
     const a=f.add('approval',{label:'Verifier reviews lump-sum video and total weight',roleId:'role_verifier',outcomes:['Verified','Rework']});
     const ok=f.add('end',{label:'Verified',outcome:'done'});
@@ -170,10 +170,10 @@
     const kind=f.add('question',{label:'Load type',answer:'choice',options:[{v:'fattening',l:'Fattening'},{v:'breeding',l:'Breeding stock'}],required:true,page:'Loading'});
     const c=f.add('question',{label:'Animals boarded',answer:'number',unit:'animals',min:0,required:true,page:'Loading',hint:'Count every animal while loading',rule:{maxFromSetting:{fattening:'set_load_max_fat',breeding:'set_load_max_breed'},minFromSetting:{fattening:'set_load_min_fat'}}});
     const dk=f.add('decision',{label:'Breeding stock?',q:kind,op:'=',value:'breeding'});
-    const dF=f.add('decision',{label:'More than the fattening max (80)?',q:c,op:'>',value:80,valueSetting:'set_load_max_fat'});
-    const dFmin=f.add('decision',{label:'Fewer than the fattening min (75)?',q:c,op:'<',value:75,valueSetting:'set_load_min_fat'});
+    const dF=f.add('decision',{label:'More than the fattening max ({value})?',q:c,op:'>',value:80,valueSetting:'set_load_max_fat'});
+    const dFmin=f.add('decision',{label:'Fewer than the fattening min ({value})?',q:c,op:'<',value:75,valueSetting:'set_load_min_fat'});
     const under=f.add('end',{label:'Under the load minimum: add animals before dispatch',outcome:'rejected'});
-    const dB=f.add('decision',{label:'More than the breeding max (50)?',q:c,op:'>',value:50,valueSetting:'set_load_max_breed'});
+    const dB=f.add('decision',{label:'More than the breeding max ({value})?',q:c,op:'>',value:50,valueSetting:'set_load_max_breed'});
     const over=f.add('end',{label:'Over the load limit: reduce the load',outcome:'rejected'});
     const order=f.add('action',{label:'Load in order: heavily pregnant (lower deck, near cabin) → pregnant (upper, near cabin) → non-pregnant females → bucks; males and females separated',page:'Loading'});
     const load=vid('Loading video (truck inside a boundary, door gap filled with sacks)','Loading');
@@ -585,15 +585,15 @@
       draft('sop_warmup','Procurement','Warm-up and feed transition',warmup),
       sop('sop_weigh','Weighing','Individual weighing',weighingFlow(),2),
       sop('sop_weigh_lump','Weighing','Lump-sum weighing',lumpSumWeighingFlow(),1),
-      sop('sop_removal','Weighing','Feed and water removal',removal,1),
+      draft('sop_removal','Weighing','Feed and water removal',removal),
       Object.assign(sop('sop_feeddist','Feed','Feed distribution',feedDist,1,'commodity'),{source:'goatos-stg feed.direction v1'}),
       sop('sop_feedpack','Feed','Feed packing',feedPack,1,'commodity'),
       sop('sop_feedtrans','Feed','Feed transport',feedTrans,1,'commodity'),
       Object.assign(sop('sop_fever','Health','Sick animal report',healthFlow(),1,'problem'),{source:'Android ObservationFormScreen.kt · DiagnosisProposalScreen.kt'}),
       Object.assign(sop('sop_k0','Milk','K0 newborn care (birth follow-up)',k0,1,'event'),{source:'goatos-stg counts.birth v1 follow_up kid track'}),
       Object.assign(sop('sop_k1','Milk','K1 milk training (milk feeding)',k1,1,'action'),{source:'goatos-stg milk.feeding v1'}),
-      sop('sop_k2','Milk','K2 milk drinking',k2,1,'action'),
-      sop('sop_k3','Milk','K3 weaning',k3,1,'action'),
+      draft('sop_k2','Milk','K2 milk drinking',k2),
+      draft('sop_k3','Milk','K3 weaning',k3),
       sop('sop_shift','Counts','Shifting',shf.nodes,2,'action'),
       Object.assign(sop('sop_birth','Counts','Birth recording',birthFlow(),1,'event'),{source:'goatos-stg counts.birth v1'}),
       Object.assign(sop('sop_death','Counts','Death recording',deathFlow(),1,'event'),{source:'goatos-stg counts.death v1'}),

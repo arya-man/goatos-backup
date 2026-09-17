@@ -23,7 +23,8 @@
       key:v=>norm(v.farm)+'|'+norm(v.name)},
     pens:{label:'Pens',one:'Pen',coll:'pens',icon:'layers',
       cols:[ref('park','Park','parks','parkId',{req:1}),txt('name','Pen',{req:1}),num('capacity','Capacity',{min:0}),
-        ref('stage','Stage','stages','stageId'),en('sex','Sex',['mixed','female','male'])],
+        ref('stage','Stage','stages','stageId'),en('sex','Sex',['mixed','female','male']),
+        Object.assign(en('hasIcu','ICU',['no','yes']),{bool:1,derive:r=>r.hasIcu===true||r.hasIcu==='yes'?'yes':'no'}),ref('lifecycle','Lifecycle status','stages','lifecycleStatus')],
       key:v=>norm(v.park)+'|'+norm(v.name)},
     partitions:{label:'Partitions',one:'Partition',coll:'partitions',icon:'layers',
       cols:[Object.assign(ref('park','Park','parks',null,{virtual:true}),{derive:r=>{const p=S.get('pens',r.penId);return p?p.parkId:'';}}),
@@ -178,12 +179,13 @@
     if(!rec)return '';
     if(coll==='categories')return catPath(rec.id);
     if(coll==='partitions'){const p=S.get('pens',rec.penId);return rec.name;}
+    if(coll==='pens')return rec.displayName||rec.name||'';
     return rec.name||rec.number||rec.code||rec.rfid||'';
   }
   function fullLabel(coll,rec){
     if(!rec)return '';
-    if(coll==='partitions'){const p=S.get('pens',rec.penId);return (p?p.name+' - ':'')+rec.name;}
-    if(coll==='pens'){const p=S.get('parks',rec.parkId);return rec.name+(p?' · '+p.name:'');}
+    if(coll==='partitions'){const p=S.get('pens',rec.penId);return (p?label('pens',p)+' - ':'')+rec.name;}
+    if(coll==='pens'){const p=S.get('parks',rec.parkId);return label('pens',rec)+(p?' · '+p.name:'');}
     if(coll==='breeds'||coll==='stages'||coll==='sexes'){const s=S.get('species',rec.speciesId);return label(coll,rec)+(s?' · '+s.name:'');}
     return label(coll,rec);
   }
@@ -472,9 +474,9 @@
         if(c.virtual)return;
         if(v[c.k]===undefined&&res.match)return;
         const raw=String(v[c.k]==null?'':v[c.k]).trim();
-        if(!raw){attrs[c.attr]=(c.type==='multi'||c.type==='multienum')?[]:'';return;}
+        if(!raw){attrs[c.attr]=(c.type==='multi'||c.type==='multienum')?[]:c.bool?false:'';return;}
         if(c.type==='num')attrs[c.attr]=Number(raw);
-        else if(c.type==='enum')attrs[c.attr]=enumValue(c,raw);
+        else if(c.type==='enum')attrs[c.attr]=c.bool?enumValue(c,raw)==='yes':enumValue(c,raw);
         else if(c.type==='multienum')attrs[c.attr]=raw.split(/[;,]/).map(s=>s.trim()).filter(Boolean).map(s=>enumValue(c,s));
         else if(c.type==='ref'||c.type==='path'){const f=findRef(regKey,c,raw,v);attrs[c.attr]=f.rec?f.rec.id:createRef(regKey,c,raw,v);}
         else if(c.type==='multi')attrs[c.attr]=raw.split(/[;,]/).map(s=>s.trim()).filter(Boolean).map(t=>{const cc=Object.assign({},c,{type:'ref'});const f=findRef(regKey,cc,t,v);return f.rec?f.rec.id:createRef(regKey,cc,t,v);});

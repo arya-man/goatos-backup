@@ -27,4 +27,8 @@ window.seedRefs=function(st){
     ['park_head','Park Head','manager'],['verifier','Verifier',''],['operator','Operator',''],['hr','HR','director']].map(x=>({code:x[0],key:x[0],name:x[1],grade:x[2],gradeLabel:({cxo:'CEO / CXO',director:'Director',manager:'Manager'})[x[2]]||''})),'dsg_');
   /* counts_approval_requests kinds; shifting approved by Park Head, birth/death by named counts approvers */
   st.approvalChains=mk([['Counts','Birth',['counts_approver']],['Counts','Death',['counts_approver']],['Counts','Shifting',['park_head']]].map(x=>({dept:x[0],name:x[1],steps:x[2].map(d=>d==='counts_approver'?{role:d,perPerson:true}:{designation:d})})),'apc_');
+  /* approval steps whose role is the first approver of a same-department chain named like the SOP follow that chain */
+  (st.sops||[]).forEach(sp=>{const ch=st.approvalChains.find(c=>c.dept===sp.dept&&sp.title.toLowerCase().startsWith(c.name.toLowerCase()));if(!ch)return;
+    const keys=ch.steps.map(x=>'role_'+(x.role||x.designation));
+    [sp.nodes].concat((sp.versions||[]).map(v=>v.nodes)).forEach(ns=>(ns||[]).forEach(n=>{if(n.type==='approval'&&keys.includes(n.roleId))n.chainId=ch.id;}));});
 };

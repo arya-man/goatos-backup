@@ -119,3 +119,16 @@ table.ltbl:has([data-a=sel-all][data-reg=pens]) col:nth-child(7){width:140px!imp
 table.ltbl col:nth-last-child(2){min-width:104px}
 table.ltbl td .tag{white-space:nowrap}
 
+/* park group header rows (Pens list) */
+.screen table.ltbl tr.grow td{background:var(--panel-2);font-size:12px;font-weight:750;letter-spacing:.4px;text-transform:uppercase;padding:8px 16px;color:var(--text)}
+.screen table.ltbl tr.grow td .muted{font-weight:600;margin-left:6px}
+@media(max-width:560px){.screen table.ltbl tr.grow{display:block}.screen table.ltbl tr.grow td{display:block;border:0}}
+/* tablet: Animals keeps RFID, Species, Breed, Stage, Pen, Status; the rest move into the row menu */
+@media(max-width:1180px) and (min-width:561px){
+  .ltbl col.lowpri,.ltbl th.lowpri,.ltbl td.lowpri{display:none}
+  [data-list="animals"] table.ltbl{min-width:0;width:100%!important}
+  [data-list="animals"] table.ltbl col:not(:first-child):not(:nth-last-child(-n+2)){width:auto!important}
+  [data-list="animals"] .screen table.ltbl th,[data-list="animals"] .screen table.ltbl td{padding-left:10px;padding-right:10px}
+  [data-list="animals"] table.ltbl td.act{text-overflow:clip;padding:6px 4px}
+  [data-list="animals"] table.ltbl td:not(.ck):not(.act){white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+}

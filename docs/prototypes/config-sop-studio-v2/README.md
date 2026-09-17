@@ -7,7 +7,7 @@ python3 -m http.server 4391 --bind 127.0.0.1
 # open http://127.0.0.1:4391/
 ```
 
-No build step. State lives in localStorage (`mesha.config-sop-studio.v2.state@7`); user menu → Reset data restores the seed.
+No build step. State lives in localStorage (`mesha.config-sop-studio.v2.state@8`); user menu → Reset data restores the seed.
 
 Routes
 - `#/configuration/items/<register>` — Items and settings (parks, pens, partitions, farms, species, breeds, sexes, stages, groups, healthStates, animals, items, people, roles, reference lists, settings; `groups` is shown as Pen tags; old `approvers` links open Approval chains)

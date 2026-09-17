@@ -242,6 +242,10 @@
     const sum=k=>rows.reduce((a,b)=>a+b[k],0);
     return {rows,create:sum('create'),update:sum('update'),err:sum('err'),newv:sum('newv'),unk:sum('unk')};
   };
+  /* preview totals: a column that is zero on every sheet says nothing, so it is hidden (New stays) */
+  const TOT_COLS=[['create','New'],['update','Updates'],['same','Unchanged'],['err','Errors'],['newv','New values']];
+  const totVal=(x,k)=>k==='newv'?x.newv+x.unk:x[k];
+  const totHide=(rows,k)=>k!=='create'&&!rows.some(x=>totVal(x,k));
   /* live refresh of the dry-run totals while cells are fixed (no rebuild, keeps focus) */
   IO.refreshTotals=function(root){
     const st=IO.state; if(!st||st.step!==3)return; const t=IO.totals();
@@ -249,6 +253,7 @@
     t.rows.forEach((x,i)=>{const tr=root.querySelector(`[data-tot="${i}"]`);if(!tr)return;
       tr.querySelector('[data-k="create"]').innerHTML=cell(x.create,'ok');tr.querySelector('[data-k="update"]').innerHTML=cell(x.update,'info');
       tr.querySelector('[data-k="same"]').textContent=x.same;tr.querySelector('[data-k="err"]').innerHTML=cell(x.err,'dng');tr.querySelector('[data-k="newv"]').innerHTML=cell(x.newv+x.unk,x.unk?'warn':'pur');});
+    TOT_COLS.forEach(([k])=>{const d=totHide(t.rows,k)?'none':'';root.querySelectorAll(`[data-totk="${k}"],[data-tot] [data-k="${k}"]`).forEach(e=>e.style.display=d);});
     const saveN=t.create+t.update, ok=saveN&&(!t.err||st.skipErrors);
     const b=root.querySelector('[data-a="imp-commit"]'); if(b){b.disabled=!ok;b.innerHTML=IO.commitLabel(t,st);}
     const sk=root.querySelector('[data-impskip]'); if(sk){sk.style.display=t.err?'':'none';const n=sk.querySelector('[data-skiptxt]');if(n)n.textContent=Sheet.skipText(t.err);}
@@ -294,8 +299,8 @@
       const saveN=t.create+t.update, errN=t.err;
       const cell=(n,tone)=>n?UI.tag(n,tone):0;
       body=`<section class="card mb"><div class="hd"><h3>Preview</h3><span class="sp"></span>${errN?`<button class="btn sm" data-a="imp-report">${ic('download')}Download errors</button>`:''}</div>
-        <div class="twrap screen"><table class="ltbl"><thead><tr><th>Sheet</th><th class="num">New</th><th class="num">Updates</th><th class="num">Unchanged</th><th class="num">Errors</th><th class="num">New values</th></tr></thead><tbody>
-        ${totals.map((x,i)=>`<tr class="clk" data-a="imp-tab" data-i="${i}" data-tot="${i}"><td data-label="Sheet"><b>${esc(x.label)}</b></td><td class="num" data-label="New" data-k="create">${cell(x.create,'ok')}</td><td class="num" data-label="Updates" data-k="update">${cell(x.update,'info')}</td><td class="num" data-label="Unchanged" data-k="same">${x.same}</td><td class="num" data-label="Errors" data-k="err">${cell(x.err,'dng')}</td><td class="num" data-label="New values" data-k="newv">${cell(x.newv+x.unk,x.unk?'warn':'pur')}</td></tr>`).join('')}
+        <div class="twrap screen"><table class="ltbl"><thead><tr><th>Sheet</th>${TOT_COLS.map(([k,l])=>`<th class="num" data-totk="${k}" style="${totHide(totals,k)?'display:none':''}">${l}</th>`).join('')}</tr></thead><tbody>
+        ${totals.map((x,i)=>`<tr class="clk" data-a="imp-tab" data-i="${i}" data-tot="${i}"><td data-label="Sheet"><b>${esc(x.label)}</b></td><td class="num" data-label="New" data-k="create" style="${totHide(totals,'create')?'display:none':''}">${cell(x.create,'ok')}</td><td class="num" data-label="Updates" data-k="update" style="${totHide(totals,'update')?'display:none':''}">${cell(x.update,'info')}</td><td class="num" data-label="Unchanged" data-k="same" style="${totHide(totals,'same')?'display:none':''}">${x.same}</td><td class="num" data-label="Errors" data-k="err" style="${totHide(totals,'err')?'display:none':''}">${cell(x.err,'dng')}</td><td class="num" data-label="New values" data-k="newv" style="${totHide(totals,'newv')?'display:none':''}">${cell(x.newv+x.unk,x.unk?'warn':'pur')}</td></tr>`).join('')}
         </tbody></table></div></section>
         ${st.sheets.length>1?`<div class="tabs">${st.sheets.map((x,i)=>`<a href="javascript:void 0" class="${i===st.tab?'on':''}" data-a="imp-tab" data-i="${i}">${esc(REG.R[x.regKey].label)} ${totals[i].err?UI.tag(totals[i].err,'dng'):''}</a>`).join('')}</div>`:''}
         <div data-impsheet>${Sheet.html(s.G,{noFoot:true})}</div>
