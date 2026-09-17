@@ -351,6 +351,12 @@ type DirectedPenTag struct {
 	AvgAnimals string
 	// PerHeadGrams is DirectedKg×1000 ÷ HeadDays, empty when HeadDays is zero.
 	PerHeadGrams string
+	// PerHeadKg is the same figure in kg, two decimals.
+	PerHeadKg string
+	// RupeesPerDay is the tag's pens' directed feed priced at each farm's latest reached load rate
+	// on or before each day (the Stock tab's expenditure rule), divided by FeedDays. Feeds with no
+	// load rate yet add no rupees. Empty when nothing the tag was fed has a price.
+	RupeesPerDay string
 }
 
 // ClampAnalyticsWindow normalises a query window: swaps inverted ends and caps

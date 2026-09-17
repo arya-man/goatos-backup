@@ -572,9 +572,9 @@ export async function FeedAnalyticsPage({
 }
 
 // ---------------------------------------------------------------------------
-// Status-wise: average directed feed per animal per PEN TAG, whole window. Every figure is the
-// backend's (grams, average animals, pens); this only splits the served rows into the single-stage
-// categories the chart compares and the mixed-tag pens listed beside them, on the backend's flag.
+// Status-wise: per PEN TAG over the whole window, rupees spent per day and kg per animal per day.
+// Every figure is the backend's. Mixed-tag pens ("F2-Male + K3") are left out on the backend's
+// flag: the maintainer asked for the single-status categories only (2026-09-17).
 // ---------------------------------------------------------------------------
 
 function FeedStatusWise({
@@ -585,9 +585,7 @@ function FeedStatusWise({
   pageContract: AdminUiPageContract;
 }) {
   const single = data.pen_tags.filter((t) => !t.mixed);
-  const mixed = data.pen_tags.filter((t) => t.mixed);
-  const unit = fa(pageContract, "unit.g_per_animal_day");
-  if (data.pen_tags.length === 0) {
+  if (single.length === 0) {
     return (
       <section className="card">
         <h2 className="h">{fa(pageContract, "empty.title")}</h2>
@@ -595,59 +593,37 @@ function FeedStatusWise({
       </section>
     );
   }
-  const table = (rows: FeedAnalyticsDirectedResponse["pen_tags"], label: string) => (
-    <div className="tablewrap" tabIndex={0} role="group" aria-label={label}>
-      <table className="tbl">
-        <thead>
-          <tr>
-            <th>{fa(pageContract, "col.status.tag")}</th>
-            <th>{fa(pageContract, "col.status.per_animal")}</th>
-            <th>{fa(pageContract, "col.status.animals")}</th>
-            <th>{fa(pageContract, "col.status.pens")}</th>
-            <th>{fa(pageContract, "col.status.directed")}</th>
-          </tr>
-        </thead>
-        <tbody>
-          {rows.map((row) => (
-            <tr key={row.pen_tag_key}>
-              <td>{row.pen_tag_label}</td>
-              <td>{row.per_head_grams === "" ? "—" : `${nf(num(row.per_head_grams))} ${unit}`}</td>
-              <td>{row.avg_animals === "" ? "—" : nf(num(row.avg_animals))}</td>
-              <td>{nf(row.pens)}</td>
-              <td>{`${nf(num(row.directed_kg))} ${fa(pageContract, "unit.kg")}`}</td>
-            </tr>
-          ))}
-        </tbody>
-      </table>
-    </div>
-  );
   return (
     <>
-      <section className="card wchart" aria-label={fa(pageContract, "status.title")}>
-        <h2 className="h">{fa(pageContract, "status.title")}</h2>
-        <p className="muted small">{fa(pageContract, "status.hint")}</p>
-        <ChartHover>
-          <SvgBars
-            data={single
-              .filter((row) => row.per_head_grams !== "")
-              .map((row) => ({ key: row.pen_tag_key, label: row.pen_tag_label, value: num(row.per_head_grams) }))}
-            valueNoun={unit}
-            chartLabel={fa(pageContract, "status.title")}
-            emptyLabel={fa(pageContract, "status.empty")}
-            maxBars={Math.max(single.length, 1)}
-          />
-        </ChartHover>
-        {single.length > 0 ? table(single, fa(pageContract, "status.title")) : null}
-      </section>
-      {mixed.length > 0 ? (
-        <section className="card" aria-label={fa(pageContract, "status.mixed.title")}>
-          <div className="hd">
-            <h3>{fa(pageContract, "status.mixed.title")}</h3>
-            <span className="small muted">{fa(pageContract, "status.mixed.hint")}</span>
+      <p className="muted small" style={{ margin: "4px 0 0" }}>{fa(pageContract, "status.hint")}</p>
+      {/* One card per status, the Feed Items card anatomy without its chart (maintainer request
+          2026-09-17): the two figures a reader asks of a status — what it costs a day, and how
+          much one animal eats — sit top left, and nothing else competes with them. */}
+      <div className="feed-status-cards">
+        {single.map((row) => (
+          <div className="chartcard" key={row.pen_tag_key}>
+            <h4>{row.pen_tag_label}</h4>
+            <div className="cap">
+              {fa(pageContract, "status.animals").replace(
+                "{count}",
+                row.avg_animals === "" ? "—" : nf(num(row.avg_animals)),
+              )}
+            </div>
+            <div className="feed-item-strip">
+              <div>
+                <div className="val">{row.rupees_per_day === "" ? "—" : `₹${money(num(row.rupees_per_day))}`}</div>
+                <div className="muted small">
+                  {fa(pageContract, "status.spend_per_day")}
+                </div>
+              </div>
+              <div>
+                <div className="val">{row.per_head_kg === "" ? "—" : rate(num(row.per_head_kg))}</div>
+                <div className="muted small">{fa(pageContract, "status.kg_per_animal")}</div>
+              </div>
+            </div>
           </div>
-          {table(mixed, fa(pageContract, "status.mixed.title"))}
-        </section>
-      ) : null}
+        ))}
+      </div>
     </>
   );
 }
