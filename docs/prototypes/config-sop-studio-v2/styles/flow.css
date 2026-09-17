@@ -370,3 +370,13 @@ textarea.mst-title{resize:vertical;min-height:52px;font:inherit;line-height:1.35
 .fx-root.ro .fx-node{cursor:pointer}
 .fx-ro{font-size:12px;font-weight:700;color:var(--muted);padding:0 8px;white-space:nowrap}
 .insp.ro input:disabled,.insp.ro select:disabled,.insp.ro textarea:disabled{opacity:.75;cursor:default}
+/* r16 phones: ADD STEP palette shows whole chips only (5 per view, snap-scrolled), never a chip cut at the edge */
+@media(max-width:600px){
+  .fx-palette{gap:4px;scroll-snap-type:x mandatory;scroll-padding:0 6px}
+  .fx-palette .fx-palette-h{display:none}
+  .fx-palette .fx-pal{flex:0 0 calc((100% - 16px) / 5);min-width:0;flex-direction:column;gap:3px;padding:5px 2px;scroll-snap-align:start;justify-content:center}
+  .fx-palette .fx-pal b{font-size:12px;font-weight:700;max-width:100%;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+  .fx-palette.fade-r{-webkit-mask-image:linear-gradient(90deg,#000 calc(100% - 14px),transparent);mask-image:linear-gradient(90deg,#000 calc(100% - 14px),transparent)}
+  .fx-palette.fade-l{-webkit-mask-image:linear-gradient(90deg,transparent,#000 14px);mask-image:linear-gradient(90deg,transparent,#000 14px)}
+  .fx-palette.fade-l.fade-r{-webkit-mask-image:linear-gradient(90deg,transparent,#000 14px,#000 calc(100% - 14px),transparent);mask-image:linear-gradient(90deg,transparent,#000 14px,#000 calc(100% - 14px),transparent)}
+}

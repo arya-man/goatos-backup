@@ -1,9 +1,10 @@
 /* Master SOP composition: stages with prerequisites, parallel lanes, approvals, waits; try run */
 (function(){
-  const M={sel:{},try:{}};
+  const M={sel:{},try:{},_tidied:{}};
   const base='#/configuration/work-instructions/master/';
   const STATE_L={started:'started',completed:'completed',approved:'approved'};
 
+  const RG=88, CG=200, MIN_GAP=64;
   function layout(stages){
     const by={};stages.forEach(s=>by[s.id]=s);
     const rank={},col={};
@@ -13,11 +14,14 @@
     const rows={};stages.forEach(s=>(rows[rank[s.id]]=rows[rank[s.id]]||[]).push(s.id));
     Object.values(rows).forEach(ids=>ids.forEach((id,i)=>col[id]=i));
     /* estimated card height: header + name + child line + one row per tag (tags wrap); stages keep a >=48px connector gap */
-    const hOf=s=>84+26*(s.deps.length+(s.approvalRoleId?1:0)+(s.waitDays||s.waitSetting?1:0)+(s.repeatHours||s.repeatSetting?1:0))+44*((S.get('settings',s.waitSetting)?1:0)+(S.get('settings',s.repeatSetting)?1:0));
+    const hm=(window.Flow&&Flow.drawnH&&M._cur)?Flow.drawnH('master',M._cur):{};
+    const est=s=>84+26*(s.deps.length+(s.approvalRoleId?1:0)+(s.waitDays||s.waitSetting?1:0)+(s.repeatHours||s.repeatSetting?1:0))+44*((S.get('settings',s.waitSetting)?1:0)+(S.get('settings',s.repeatSetting)?1:0));
+    /* measured card height (tallest seen) wins over the estimate; uniform rank gap RG, parallel lanes CG apart (room for the label pill) */
+    const hOf=s=>hm[s.id]||est(s);
     const maxR=Math.max(0,...Object.values(rank)); const rowY=[]; let y=34;
-    for(let r=0;r<=maxR;r++){rowY[r]=y;y+=Math.max(112,...stages.filter(s=>rank[s.id]===r).map(hOf))+56;}
-    const pos={};let maxc=0;stages.forEach(s=>{pos[s.id]={x:34+col[s.id]*360,y:rowY[rank[s.id]],w:260,h:Math.max(112,hOf(s))};maxc=Math.max(maxc,col[s.id]);});
-    return {pos,W:34+(maxc+1)*360,H:y-22};
+    for(let r=0;r<=maxR;r++){rowY[r]=y;y+=Math.max(60,...stages.filter(s=>rank[s.id]===r).map(hOf))+RG;}
+    const pos={};let maxc=0;stages.forEach(s=>{pos[s.id]={x:34+col[s.id]*(264+CG),y:rowY[rank[s.id]],w:264,h:hOf(s)};maxc=Math.max(maxc,col[s.id]);});
+    return {pos,W:34+(maxc+1)*(264+CG),H:y-22,hOf};
   }
   function validate(m){
     const iss=[],by={};m.stages.forEach(s=>by[s.id]=s);
@@ -152,8 +156,18 @@
   const stg=(m,id)=>m.stages.find(x=>x.id===id);
   const ek=key=>{const i=key.lastIndexOf(':');return [key.slice(0,i),+key.slice(i+1)];};
   const newStage=(m,label,deps)=>({id:'s'+Date.now().toString(36)+Math.random().toString(36).slice(2,5),label:label||'New stage',sopId:'',deps:deps||[],approvalRoleId:'',waitDays:'',waitSetting:'',repeatHours:'',repeatSetting:''});
+  /* a stored layout that overlaps cards or squeezes a connector below MIN_GAP is re-tidied on load (migrated: the stored positions are dropped once per load) */
+  function crowded(m,saved,hOf){const ids=m.stages.map(s=>s.id).filter(id=>saved[id]);const W=264;
+    for(let i=0;i<ids.length;i++)for(let j=i+1;j<ids.length;j++){const a=saved[ids[i]],b=saved[ids[j]],sa=stg(m,ids[i]),sb=stg(m,ids[j]);
+      const ha=hOf(sa),hb=hOf(sb);const xo=a.x<b.x+W+MIN_GAP&&b.x<a.x+W+MIN_GAP, yo=a.y<b.y+hb+MIN_GAP&&b.y<a.y+ha+MIN_GAP;
+      if(a.x<b.x+W&&b.x<a.x+W&&a.y<b.y+hb&&b.y<a.y+ha)return true;
+      const linked=sa.deps.some(d=>d.stage===sb.id)||sb.deps.some(d=>d.stage===sa.id);
+      if(linked&&xo&&yo)return true;}
+    return false;}
   function positions(m){
-    const auto=layout(m.stages).pos, saved=m.layout||{}, pos={};
+    M._cur=m.id;const L=layout(m.stages);const auto=L.pos;let saved=m.layout||{};const pos={};
+    /* migrate once per page load: later manual drags are the user's call */
+    if(!M._tidied[m.id]){M._tidied[m.id]=1;if(Object.keys(saved).length&&crowded(m,saved,L.hOf)){delete m.layout;saved={};}}
     m.stages.forEach(s=>{if(saved[s.id])pos[s.id]={x:saved[s.id].x,y:saved[s.id].y};});
     if(!Object.keys(pos).length){m.stages.forEach(s=>pos[s.id]={x:auto[s.id].x,y:auto[s.id].y});return pos;}
     m.stages.forEach(s=>{if(pos[s.id])return;
@@ -165,7 +179,7 @@
     get:id=>S.get('masters',id), noun:'stage',
     nodes:m=>m.stages.map(s=>({id:s.id,type:'stage',label:s.label,deps:s.deps})),
     edges:m=>{const out=[];m.stages.forEach(s=>s.deps.forEach((d,j)=>out.push({key:s.id+':'+j,from:d.stage,to:s.id,label:STATE_TXT[d.state]||d.state,cls:'dep-'+d.state})));return out;},
-    estH:n=>{const s=n;return 112;},
+    estH:n=>112, measuredLayout:true,
     positions,
     getSel:m=>M.sel[m.id]||null, setSel:(m,id)=>{M.sel[m.id]=id||null;},
     snapshot:m=>JSON.stringify({stages:m.stages,layout:m.layout||null,title:m.title}),

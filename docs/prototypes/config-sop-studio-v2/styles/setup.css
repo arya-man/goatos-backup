@@ -367,3 +367,8 @@ body:has(#drawer.on .df) .toast{bottom:84px}
 body.role-ctr .main [data-a="wb-menu"],body.role-ctr [data-a="bulk-status"][data-v="archived"],body.role-ctr [data-a="bulk-del"],body.role-ctr [data-a="sh-delrows"],body.role-ctr [data-rfarch],body.role-ctr [data-vdarch],body.role-ctr [data-ifst="archived"]{display:none!important}
 body.cfg-ro .main [data-a="rec-new"],body.cfg-ro .main [data-a="io-menu"],body.cfg-ro .main [data-a="inv-receive"],body.cfg-ro .main [data-a="inv-io"],body.cfg-ro .main [data-a="row-menu"],body.cfg-ro .main [data-a^="bulk-"],body.cfg-ro .main [data-a^="sh-"],body.cfg-ro .main [data-a="cat-menu"],body.cfg-ro .main [data-a^="cat-new"],body.cfg-ro .main [data-a^="ed-"],body.cfg-ro .main .lsel,body.cfg-ro #drawer [data-rf-save],body.cfg-ro #drawer [data-vdsave],body.cfg-ro #drawer [data-sact],body.cfg-ro #drawer [data-rf-create],body.cfg-ro [data-rfsave],body.cfg-ro [data-pdsave],body.cfg-ro [data-sdsave],body.cfg-ro [data-nlsave],body.cfg-ro [data-ifsave],body.cfg-ro [data-crsave],body.cfg-ro [data-a="list-new"],body.cfg-ro [data-a="cat-add"]{display:none!important}
 body.cfg-ro .main .ltbl .ck input{visibility:hidden}
+/* r16: incomplete dot explains itself on hover / focus */
+.stwrap{position:relative}
+.idot{position:relative;cursor:help}
+.idot:hover::after,.idot:focus-visible::after{content:"Incomplete";position:absolute;left:50%;bottom:calc(100% + 8px);transform:translateX(-50%);padding:3px 7px;border-radius:6px;background:var(--panel-2,#222);border:1px solid var(--line,#333);color:var(--ink,#fff);font-size:12px;font-weight:600;white-space:nowrap;z-index:5;pointer-events:none}
+.screen table.ltbl td:has(.idot){overflow:visible}

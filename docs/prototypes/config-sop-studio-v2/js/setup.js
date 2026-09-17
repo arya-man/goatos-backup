@@ -211,7 +211,7 @@
           <td data-label="Lots">${r.lots.length?r.lots.length+' · '+esc([...new Set(r.lots.map(l=>REG.labelById('parks',l.parkId)))].join(', ')):'<span class="muted">No stock yet</span>'}</td>
           <td data-label="Nearest expiry">${r.exp?esc(fmtD(r.exp)):''}</td>
           <td data-label="Alerts">${[r.low?UI.tag(r.lots.length?'Low stock':'Out of stock','warn'):'',r.expiring?UI.tag(r.days<0?'Expired':'Expires in '+r.days+' d',r.days<0?'dng':'warn'):''].join(' ')}</td></tr>`).join('')}</tbody></table>`
-        :tracked.length&&(INV.q||INV.cat||INV.park||INV.flag)?`<div class="empty">No items match</div>`:`<div class="empty"><button class="btn p" data-a="inv-receive">${ic('plus')}Receive stock</button></div>`}</div></section>`;
+        :tracked.length&&(INV.q||INV.cat||INV.park||INV.flag)?`<div class="empty">No items match</div>`:`<div class="empty">No stock yet</div>`}</div></section>`;
   }
   document.addEventListener('change',e=>{const t=e.target;if(t.matches&&t.matches('select[data-inv]')){INV[t.dataset.inv]=t.value;App.render();}});
   document.addEventListener('input',e=>{const t=e.target;if(t.matches&&t.matches('[data-invq]')){INV.q=t.value;const p=t.selectionStart;App.render();const n=document.querySelector('[data-invq]');if(n){n.focus();n.setSelectionRange(p,p);}}});

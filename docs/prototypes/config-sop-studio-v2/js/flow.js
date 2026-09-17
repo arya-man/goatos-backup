@@ -246,7 +246,7 @@
   /* disable every field in an inspector / drawer and drop its edit buttons */
   F.lockPanel=function(el){if(!el)return;el.classList.add('ro');el.querySelectorAll('input,select,textarea').forEach(i=>{i.disabled=true;});
     el.querySelectorAll('[data-a]').forEach(b=>{if(F.EDIT_ACTIONS.includes(b.dataset.a))b.remove();});el.querySelectorAll('[data-restore],[data-pubgo]').forEach(b=>b.remove());};
-  F._h={}; F._opts={}; F.miniOff=null;/* null = auto: shown only for flows too long to fit */ F._focus={}; F.palOpen=false; F.tool='pan'; F._edgeSel=null;
+  F._h={}; F._hmax={}; F._opts={}; F.miniOff=null;/* null = auto: shown only for flows too long to fit */ F._focus={}; F.palOpen=false; F.tool='pan'; F._edgeSel=null;
   const dkey=(K,d)=>K.name+':'+d.id;
   const hOf=(K,d,n)=>((F._h[dkey(K,d)]||{})[n.id])||K.estH(n);
   const inter=(a,b)=>a.x<b.x+b.w&&a.x+a.w>b.x&&a.y<b.y+b.h&&a.y+a.h>b.y;
@@ -546,14 +546,23 @@
     const clip=root.querySelector('.fx-clip');if(clip&&!clip._lock){clip._lock=1;clip.addEventListener('scroll',()=>{clip.scrollTop=0;clip.scrollLeft=0;});}
     const u=root.querySelector('[data-fx=undo]'),r=root.querySelector('[data-fx=redo]');if(u)u.disabled=!hist(K,d).undo.length;if(r)r.disabled=!hist(K,d).redo.length;
     syncChrome(root); requestAnimationFrame(()=>{if(root.isConnected)syncChrome(root);}); measure(root,K,d);
+    if(K.measuredLayout)placeNodes(root,K.positions(d));
     syncLong(root,K,d);
     const v=view(key); if(v.fresh){v.fresh=false;fit(root,K,d,true);}
+    /* zoom classes (e.g. zoomed-out hides tags) change card heights: edges must anchor to the heights as drawn now */
+    measure(root,K,d);
     redraw(root,K,d);
     const f=F._focus[key]||F._focus[d.id]; if(f){delete F._focus[key];delete F._focus[d.id];focusNode(root,K,d,f.id||f,!!f.center);}
     if(!root._ro&&window.ResizeObserver){let w=root.clientWidth,h=root.clientHeight;root._ro=new ResizeObserver(()=>{if(!root.isConnected){root._ro.disconnect();return;}
       if(Math.abs(root.clientWidth-w)<2&&Math.abs(root.clientHeight-h)<2)return;w=root.clientWidth;h=root.clientHeight;syncChrome(root);syncLong(root,K,d);if(view(key).auto)fit(root,K,d,true);else minimap(root,K,d);});root._ro.observe(root);}
   }
-  function measure(root,K,d){const h=F._h[dkey(K,d)]=F._h[dkey(K,d)]||{};root.querySelectorAll(".fx-node:not(.fx-fold)").forEach(el=>{h[el.dataset.node]=el.offsetHeight;});}
+  function measure(root,K,d){const kk=dkey(K,d);const h=F._h[kk]=F._h[kk]||{};const hm=F._hmax[kk]=F._hmax[kk]||{};let grew=false;
+    root.querySelectorAll(".fx-node:not(.fx-fold)").forEach(el=>{const id=el.dataset.node,oh=el.offsetHeight;h[id]=oh;if(!(hm[id]>=oh)){hm[id]=oh;grew=true;}});return grew;}
+  /* tallest measured height per node (full content, all zoom levels): layout engines use it so rank gaps hold at every zoom */
+  F.fullH=(kind,id)=>F._hmax[kind+':'+id]||{};
+  F.drawnH=(kind,id)=>Object.assign({},F._hmax[kind+':'+id]||{},F._h[kind+':'+id]||{});
+  /* re-place node cards to the current positions (layout may depend on measured heights) */
+  function placeNodes(root,pos){root.querySelectorAll('.fx-node').forEach(el=>{const p=pos[el.dataset.node];if(p)el.style.transform=`translate(${p.x}px,${p.y}px)`;});}
   function redraw(root,K,d,pos,light){
     pos=pos||K.positions(d);const es=route(K,d,pos,view(dkey(K,d)).k);
     const sv=edgesSvg(K,d,es);root.querySelector('.fx-edges').innerHTML=sv.edges;root.querySelector('.fx-handles').innerHTML=sv.handles;
@@ -568,7 +577,7 @@
     root.querySelector('.fx-world').style.transform=`translate(${v.x}px,${v.y}px) scale(${v.k})`;
     root.style.backgroundSize=`${GRID*v.k}px ${GRID*v.k}px`; root.style.backgroundPosition=`${v.x}px ${v.y}px`;
     if(root._k!==v.k){const was=root._k;root._k=v.k;root.style.setProperty('--fxk',v.k);root.classList.toggle('zoomed-out',v.k<.9);root.classList.toggle('zoomed-mid',v.k<.6);root.classList.toggle('zoomed-lo',v.k<.5);root.classList.toggle('zoomed-far',v.k<.2);
-      if(was!=null){cancelAnimationFrame(root._kr);root._kr=requestAnimationFrame(()=>{measure(root,K,d);redraw(root,K,d);});}}
+      cancelAnimationFrame(root._kr);root._kr=requestAnimationFrame(()=>{if(!root.isConnected)return;measure(root,K,d);if(K.measuredLayout)placeNodes(root,K.positions(d));redraw(root,K,d);});}
     const z=root.querySelector('.fx-zoom'); if(z)z.textContent=Math.round(v.k*100)+'%';
     minimap(root,K,d);
   }
@@ -577,8 +586,10 @@
     return {x0,y0,x1,y1};}
   function palInset(root,r){const pal=root.querySelector('.fx-palette');const bottomPal=pal&&pal.offsetWidth>r.width*.6;return {pal,bottomPal,left:bottomPal?8:(pal?pal.offsetWidth+pal.offsetLeft+12:8)};}
   function fit(root,K,d,auto){
-    const pos=K.positions(d); const b=kbounds(K,d,pos); const v=view(dkey(K,d));
+    const pos=K.positions(d); const b=Object.assign({},kbounds(K,d,pos)); const v=view(dkey(K,d));
     const r=root.getBoundingClientRect(); if(r.width<50||r.height<50)return;
+    /* edge label pills count toward the bounds so a label below the last card never lands outside the canvas */
+    try{route(K,d,pos,.75).forEach(e=>{const q=e.lp&&e.lp.r;if(!q||!q.w)return;b.x0=Math.min(b.x0,q.x-6);b.y0=Math.min(b.y0,q.y-6);b.x1=Math.max(b.x1,q.x+q.w+6);b.y1=Math.max(b.y1,q.y+q.h+6);});}catch(_){}
     const {pal,bottomPal,left}=palInset(root,r);
     const narrow=r.width<600, pad=narrow?16:32;
     const padL=bottomPal?pad:left+12, padT=topInset(root)+(narrow?16:28), padB=(bottomPal?pal.offsetHeight+20:0)+pad;
@@ -586,7 +597,8 @@
     const aw=Math.max(120,r.width-padL-padR), ah=Math.max(120,r.height-padT-padB);
     const bw=b.x1-b.x0+40, bh=b.y1-b.y0+40;
     /* manual Fit floors at 35% (scroll or the minimap for the rest); first open floors at 75% */
-    const floor=!auto?.35:narrow?Math.max(.75,Math.min(1,aw/(NW+40))):.75;
+    /* phones: first open never below 90% (readable), top-anchored, pan sideways; Fit stays the explicit whole-flow view */
+    const floor=!auto?.35:narrow?Math.max(bottomPal?.9:.75,Math.min(1,aw/(NW+40))):.75;
     let k=Math.min(aw/bw,ah/bh,1); k=Math.max(floor,k);
     /* long flow: whole height can't fit even at the floor -> Fit width (readable), start at the top, minimap to navigate */
     if(!auto&&bh*.35>ah)k=Math.max(.35,Math.min(aw/bw,1));
@@ -600,7 +612,7 @@
       const rows=K.nodes(d).filter(n=>pos[n.id]).map(n=>[pos[n.id].y-b.y0,pos[n.id].y-b.y0+hOf(K,d,n)]);
       const clean=kk=>!rows.some(([t,bb])=>t0+t*kk<pal.offsetTop+pal.offsetHeight&&t0+bb*kk>line);
       const setX=kk=>{let x=padL+(aw-(b.x1-b.x0)*kk)/2-b.x0*kk;if((b.x1-b.x0)*kk>aw){const s=(K.starts?K.starts(d):[])[0];const sp=s&&pos[s];x=Math.min(padL-b.x0*kk,sp?padL+aw/2-(sp.x+NW/2)*kk:1e9);}return x;};
-      if(bh*k>ah||(pad+bh*k>line-t0)){if(!clean(k)){for(let kk=k-.01;kk>=Math.max(.6,k*.66);kk-=.01)if(clean(kk)){k=kk;break;}}
+      if(bh*k>ah||(pad+bh*k>line-t0)){if(!clean(k)){for(let kk=k-.01;kk>=Math.max(auto?.9:.6,k*.66);kk-=.01)if(clean(kk)){k=kk;break;}}
         v.k=k;v.x=setX(k);v.y=t0-b.y0*k;}}
     applyView(root,K,d);
     if(bottomPal)foldHide(root,pal);
