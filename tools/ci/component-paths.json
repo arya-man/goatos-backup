@@ -142,7 +142,8 @@
       "SKILLS.md"
     ],
     "extensions": [
-      ".md"
+      ".md",
+      ".example"
     ]
   }
 }

@@ -253,6 +253,14 @@ function selfTest() {
     common: false, backend: false, adminWeb: false, android: false, full: false,
     selectedJobs: ["docs-only"],
   });
+  assert.deepEqual(pick([".env.ceo-ai.local.example"]), {
+    common: true, backend: false, adminWeb: false, android: false, full: false,
+    selectedJobs: ["common"],
+  });
+  assert.deepEqual(pick(["apps/goatos-android/local.properties.example"]), {
+    common: true, backend: false, adminWeb: false, android: true, full: false,
+    selectedJobs: ["common", "android"],
+  });
   assert.deepEqual(pick(["fixtures/vaccination-cpt-operator-drive-2026-07-23/expected-drive-schedules.json"]), {
     common: true, backend: false, adminWeb: false, android: false, full: false,
     selectedJobs: ["common"],
