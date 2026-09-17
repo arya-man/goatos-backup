@@ -91,13 +91,15 @@ svg.ic,.ic{width:18px;height:18px;stroke:currentColor;fill:none;stroke-width:1.7
 .main{flex:1;min-width:0;overflow:auto}
 .wrap{max-width:1320px;margin:0 auto;padding:20px 26px 60px}
 .layout.rail .side{width:62px;padding:12px 7px}
-.layout.rail .side .nav,.layout.rail .side .ggrp{justify-content:center;gap:0;font-size:0;padding:11px 0}
+.layout.rail .side .nav,.layout.rail .side .ggrp{justify-content:center;gap:0;padding:11px 0}
+.layout.rail .side .nl{display:none}
 .layout.rail .side .ic{width:20px;height:20px}
 .layout.rail .side .chev,.layout.rail .side .subnav,.layout.rail .side .sidefoot{display:none}
 /* 861-1179px: nav collapses to an icon rail (app.js toggles .rail-icons); group click opens a flyout menu. .mnav expands it back. */
 @media(min-width:861px){
   .layout.rail-icons:not(.mnav) .side{width:62px;padding:12px 7px}
-  .layout.rail-icons:not(.mnav) .side .nav,.layout.rail-icons:not(.mnav) .side .ggrp{justify-content:center;gap:0;font-size:0;padding:11px 0;min-height:42px}
+  .layout.rail-icons:not(.mnav) .side .nav,.layout.rail-icons:not(.mnav) .side .ggrp{justify-content:center;gap:0;padding:11px 0;min-height:42px}
+  .layout.rail-icons:not(.mnav) .side .nl{display:none}
   .layout.rail-icons:not(.mnav) .side .ic{width:20px;height:20px;opacity:1}
   .layout.rail-icons:not(.mnav) .side .nav .ct{display:none}
   .layout.rail-icons:not(.mnav) .side .chev,.layout.rail-icons:not(.mnav) .side .subnav,.layout.rail-icons:not(.mnav) .side .sidefoot{display:none}
@@ -178,6 +180,7 @@ svg.ic,.ic{width:18px;height:18px;stroke:currentColor;fill:none;stroke-width:1.7
   .layout.rail .side{width:100vw;padding:12px}
   .layout.rail .side .nav,.layout.rail .side .ggrp{justify-content:flex-start;gap:11px;font-size:14px;padding:9px 12px}
   .layout.rail .side .chev,.layout.rail .side .sidefoot{display:block}
+  .layout.rail .side .nl{display:inline}
   .layout.rail .side .subnav.open{display:flex}
   .navscrim.on,.layout.mnav .navscrim{background:var(--bg)}
   .side .nav,.side .leaf,.side .ggrp{min-height:40px}

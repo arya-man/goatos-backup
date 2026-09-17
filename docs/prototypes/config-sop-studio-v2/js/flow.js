@@ -228,7 +228,7 @@
 
 
   /* ---------- stylesheet (owned by this module) ---------- */
-  (function(){if(document.querySelector('link[data-flow-css]'))return;const l=document.createElement('link');l.rel='stylesheet';l.href='styles/flow.css?v=20260917u';l.dataset.flowCss='1';l.onload=()=>document.querySelectorAll('.fx-root').forEach(r=>syncChrome(r));document.head.appendChild(l);})();
+  (function(){if(document.querySelector('link[data-flow-css]'))return;const l=document.createElement('link');l.rel='stylesheet';l.href='styles/flow.css?v=20260917v';l.dataset.flowCss='1';l.onload=()=>document.querySelectorAll('.fx-root').forEach(r=>syncChrome(r));document.head.appendChild(l);})();
 
   /* =====================================================================
      Shared canvas engine. Every flowchart (SOP steps, master SOP stages) is
@@ -555,7 +555,8 @@
     const padR=pad+(F.miniOff||narrow?0:196);
     const aw=Math.max(120,r.width-padL-padR), ah=Math.max(120,r.height-padT-padB);
     const bw=b.x1-b.x0+40, bh=b.y1-b.y0+40;
-    const floor=window.innerWidth>=1280?(auto?1:.6):narrow?Math.max(.75,Math.min(1,aw/(NW+40))):.75;
+    /* manual Fit: always show the whole flow (tall SOPs need <.35) */
+    const floor=!auto?.04:window.innerWidth>=1280?1:narrow?Math.max(.75,Math.min(1,aw/(NW+40))):.75;
     let k=Math.min(aw/bw,ah/bh,1); k=Math.max(floor,k);
     v.k=k; v.x=padL+(aw-(b.x1-b.x0)*k)/2-b.x0*k;
     if((b.x1-b.x0)*k>aw){const s=(K.starts?K.starts(d):[])[0];const sp=s&&pos[s];v.x=Math.min(padL-b.x0*k,sp?padL+aw/2-(sp.x+NW/2)*k:1e9);}
@@ -585,7 +586,7 @@
     applyView(root,K,d);
   }
   function zoomAt(root,K,d,k,cx,cy){
-    const v=view(dkey(K,d)); v.auto=false; k=Math.max(.2,Math.min(2.5,k));
+    const v=view(dkey(K,d)); v.auto=false; k=Math.max(Math.min(.2,v.k),Math.min(2.5,k));
     const wx=(cx-v.x)/v.k, wy=(cy-v.y)/v.k; v.k=k; v.x=cx-wx*k; v.y=cy-wy*k; applyView(root,K,d);
   }
   function minimap(root,K,d,pos){

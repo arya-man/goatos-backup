@@ -28,9 +28,9 @@
   function renderSide(){
     const act=activeHref();
     const html=NAV.map(n=>{
-      if(!n.group)return `<a class="nav ${act===n.href?'on':''}" href="${n.href}" title="${esc(n.label)}" aria-label="${esc(n.label)}">${ic(n.icon)}${esc(n.label)}</a>`;
+      if(!n.group)return `<a class="nav ${act===n.href?'on':''}" href="${n.href}" title="${esc(n.label)}" aria-label="${esc(n.label)}">${ic(n.icon)}<span class="nl">${esc(n.label)}</span></a>`;
       const has=n.leaves.some(([,h])=>h===act); const open=App.ui.open[n.group]!=null?App.ui.open[n.group]:has;
-      return `<div><div class="ggrp ${open?'open':''} ${has?'on':''}" role="button" tabindex="0" title="${esc(n.group)}" aria-label="${esc(n.group)}" aria-expanded="${open}" data-a="grp" data-g="${esc(n.group)}">${ic(n.icon)}${esc(n.group)}${ic('chevron-right','chev')}</div>
+      return `<div><div class="ggrp ${open?'open':''} ${has?'on':''}" role="button" tabindex="0" title="${esc(n.group)}" aria-label="${esc(n.group)}" aria-expanded="${open}" data-a="grp" data-g="${esc(n.group)}">${ic(n.icon)}<span class="nl">${esc(n.group)}</span>${ic('chevron-right','chev')}</div>
         <div class="subnav ${open?'open':''}">${n.leaves.map(([l,h])=>`<a class="leaf ${act===h?'on':''}" href="${h}">${esc(l)}</a>`).join('')}</div></div>`;
     }).join('')+`<div class="grow"></div><div class="sidefoot">Mesha · goat operating system</div>`;
     document.getElementById('side').innerHTML=html;
