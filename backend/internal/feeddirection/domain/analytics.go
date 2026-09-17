@@ -357,6 +357,17 @@ type DirectedPenTag struct {
 	// on or before each day (the Stock tab's expenditure rule), divided by FeedDays. Feeds with no
 	// load rate yet add no rupees. Empty when nothing the tag was fed has a price.
 	RupeesPerDay string
+	// Days is the card's line: one point per window day the tag was fed, feed day ascending.
+	Days []DirectedPenTagDay
+}
+
+// DirectedPenTagDay is one feed day of one pen tag.
+type DirectedPenTagDay struct {
+	FeedDay string
+	// PerHeadKg is that day's directed kg per animal, two decimals.
+	PerHeadKg string
+	// Rupees is that day's priced spend; empty when nothing fed had a load rate.
+	Rupees string
 }
 
 // ClampAnalyticsWindow normalises a query window: swaps inverted ends and caps

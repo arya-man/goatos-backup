@@ -35,17 +35,24 @@ type analyticsItemDTO struct {
 }
 
 type analyticsPenTagDTO struct {
-	PenTagKey    string `json:"pen_tag_key"`
-	PenTagLabel  string `json:"pen_tag_label"`
-	Mixed        bool   `json:"mixed"`
-	DirectedKg   string `json:"directed_kg"`
-	HeadDays     int64  `json:"head_days"`
-	FeedDays     int64  `json:"feed_days"`
-	Pens         int64  `json:"pens"`
-	AvgAnimals   string `json:"avg_animals"`
-	PerHeadGrams string `json:"per_head_grams"`
-	PerHeadKg    string `json:"per_head_kg"`
-	RupeesPerDay string `json:"rupees_per_day"`
+	PenTagKey    string                  `json:"pen_tag_key"`
+	PenTagLabel  string                  `json:"pen_tag_label"`
+	Mixed        bool                    `json:"mixed"`
+	DirectedKg   string                  `json:"directed_kg"`
+	HeadDays     int64                   `json:"head_days"`
+	FeedDays     int64                   `json:"feed_days"`
+	Pens         int64                   `json:"pens"`
+	AvgAnimals   string                  `json:"avg_animals"`
+	PerHeadGrams string                  `json:"per_head_grams"`
+	PerHeadKg    string                  `json:"per_head_kg"`
+	RupeesPerDay string                  `json:"rupees_per_day"`
+	Days         []analyticsPenTagDayDTO `json:"days"`
+}
+
+type analyticsPenTagDayDTO struct {
+	FeedDay   string `json:"feed_day"`
+	PerHeadKg string `json:"per_head_kg"`
+	Rupees    string `json:"rupees"`
 }
 
 type directedAnalyticsDTO struct {
@@ -93,7 +100,15 @@ func (h *Handler) GetDirectedAnalytics(w http.ResponseWriter, r *http.Request) {
 		dto.Items = append(dto.Items, analyticsItemDTO(it))
 	}
 	for _, t := range result.PenTags {
-		dto.PenTags = append(dto.PenTags, analyticsPenTagDTO(t))
+		days := make([]analyticsPenTagDayDTO, 0, len(t.Days))
+		for _, d := range t.Days {
+			days = append(days, analyticsPenTagDayDTO(d))
+		}
+		dto.PenTags = append(dto.PenTags, analyticsPenTagDTO{
+			PenTagKey: t.PenTagKey, PenTagLabel: t.PenTagLabel, Mixed: t.Mixed, DirectedKg: t.DirectedKg,
+			HeadDays: t.HeadDays, FeedDays: t.FeedDays, Pens: t.Pens, AvgAnimals: t.AvgAnimals,
+			PerHeadGrams: t.PerHeadGrams, PerHeadKg: t.PerHeadKg, RupeesPerDay: t.RupeesPerDay, Days: days,
+		})
 	}
 	httpresponse.WriteJSON(w, http.StatusOK, dto)
 }

@@ -9527,6 +9527,15 @@ export interface components {
             head_days: number;
             per_head_grams: string;
         };
+        /** @description One feed day of one pen tag. */
+        FeedAnalyticsDirectedPenTagDay: {
+            /** Format: date */
+            feed_day: string;
+            /** @description That day's directed kg per animal, two decimals. */
+            per_head_kg: string;
+            /** @description That day's priced spend; empty when nothing fed had a load rate. */
+            rupees: string;
+        };
         /** @description Status-wise: the average DIRECTED feed one animal gets per day in pens carrying one pen tag (Pregnant, Non-Pregnant, K2, Buck...), across the whole window, every sheet feed combined. The category is the PEN's tag on the frozen sheet, not each animal's own stage; a pen tagged with a mix of stages is its own row. Milk has no pen-wise split and is not included. */
         FeedAnalyticsDirectedPenTag: {
             pen_tag_key: string;
@@ -9558,6 +9567,8 @@ export interface components {
             per_head_kg: string;
             /** @description Rupees spent per day on this tag's pens: directed kg priced at each farm's latest reached load rate on or before each day (the Stock tab's expenditure rule), divided by feed_days. Feeds with no load rate add nothing. Empty when none of the tag's feed is priced. */
             rupees_per_day: string;
+            /** @description One point per window day the tag was fed, feed day ascending. */
+            days: components["schemas"]["FeedAnalyticsDirectedPenTagDay"][];
         };
         /** @description The Feed Analytics directed rollup. DIRECTED kg only -- the sheet's instruction, not a measured weight. */
         FeedAnalyticsDirectedResponse: {

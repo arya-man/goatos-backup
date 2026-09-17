@@ -593,36 +593,77 @@ function FeedStatusWise({
       </section>
     );
   }
+  // The shared day axis is the served window, so every card's line starts and ends on the same
+  // days and a day a stage was not fed draws a gap rather than being squeezed out.
+  const dayLabels: string[] = [];
+  for (let day = data.date_from; day <= data.date_to; day = istDayPlus(day, 1)) dayLabels.push(day);
+  const kgNoun = fa(pageContract, "status.kg_per_animal");
+  const rupeeNoun = fa(pageContract, "unit.rupees");
   return (
     <>
       <p className="muted small" style={{ margin: "4px 0 0" }}>{fa(pageContract, "status.hint")}</p>
-      {/* One card per status, the Feed Items card anatomy without its chart (maintainer request
-          2026-09-17): the two figures a reader asks of a status — what it costs a day, and how
-          much one animal eats — sit top left, and nothing else competes with them. */}
+      {/* One card per stage in the Feed Items card anatomy (maintainer request 2026-09-17): the two
+          figures on top, and the line below shows how the stage has run across the range. */}
       <div className="feed-status-cards">
-        {single.map((row) => (
-          <div className="chartcard" key={row.pen_tag_key}>
-            <h4>{row.pen_tag_label}</h4>
-            <div className="cap">
-              {fa(pageContract, "status.animals").replace(
-                "{count}",
-                row.avg_animals === "" ? "—" : nf(num(row.avg_animals)),
-              )}
-            </div>
-            <div className="feed-item-strip">
-              <div>
-                <div className="val">{row.rupees_per_day === "" ? "—" : `₹${money(num(row.rupees_per_day))}`}</div>
-                <div className="muted small">
-                  {fa(pageContract, "status.spend_per_day")}
+        {single.map((row, index) => {
+          const byDay = new Map(row.days.map((d) => [d.feed_day, d]));
+          const priced = row.days.some((d) => d.rupees !== "");
+          const colorVar = seriesColorVar(index);
+          const kgSeries: LineSeries = {
+            label: fa(pageContract, "status.series.kg"),
+            colorVar,
+            points: dayLabels.map((day) => {
+              const point = byDay.get(day);
+              return point && point.per_head_kg !== "" ? num(point.per_head_kg) : null;
+            }),
+          };
+          const animals = row.avg_animals === "" ? "—" : nf(num(row.avg_animals));
+          return (
+            <div className="chartcard" key={row.pen_tag_key}>
+              <h4>{row.pen_tag_label}</h4>
+              <div className="cap">{fa(pageContract, "status.chart.cap").replace("{count}", animals)}</div>
+              <div className="feed-item-strip">
+                <div>
+                  <div className="val">{row.rupees_per_day === "" ? "—" : `₹${money(num(row.rupees_per_day))}`}</div>
+                  <div className="muted small">{fa(pageContract, "status.spend_per_day")}</div>
+                </div>
+                <div>
+                  <div className="val">{row.per_head_kg === "" ? "—" : rate(num(row.per_head_kg))}</div>
+                  <div className="muted small">{kgNoun}</div>
                 </div>
               </div>
-              <div>
-                <div className="val">{row.per_head_kg === "" ? "—" : rate(num(row.per_head_kg))}</div>
-                <div className="muted small">{fa(pageContract, "status.kg_per_animal")}</div>
-              </div>
+              <ChartHover>
+                {priced ? (
+                  <FeedLines
+                    series={[
+                      {
+                        label: fa(pageContract, "status.series.spend"),
+                        colorVar,
+                        points: dayLabels.map((day) => {
+                          const point = byDay.get(day);
+                          return point && point.rupees !== "" ? num(point.rupees) : null;
+                        }),
+                      },
+                    ]}
+                    secondary={{ series: kgSeries, valueNoun: kgNoun }}
+                    dayLabels={dayLabels}
+                    valueNoun={rupeeNoun}
+                    chartLabel={row.pen_tag_label}
+                    emptyLabel={fa(pageContract, "status.empty")}
+                  />
+                ) : (
+                  <FeedLines
+                    series={[kgSeries]}
+                    dayLabels={dayLabels}
+                    valueNoun={kgNoun}
+                    chartLabel={row.pen_tag_label}
+                    emptyLabel={fa(pageContract, "status.empty")}
+                  />
+                )}
+              </ChartHover>
             </div>
-          </div>
-        ))}
+          );
+        })}
       </div>
     </>
   );

@@ -2,6 +2,7 @@ package postgres
 
 import (
 	"context"
+	"reflect"
 	"strconv"
 	"testing"
 	"time"
@@ -116,8 +117,18 @@ VALUES ($1, $2, 'CBE', 'concentrate', 901, DATE '2026-07-01', 1000, 40, 40000,
 			t.Errorf("row %d: empty pen tag key", i)
 		}
 		g.PenTagKey = ""
-		if g != want[i] {
+		days := g.Days
+		g.Days = nil
+		if !reflect.DeepEqual(g, want[i]) {
 			t.Errorf("row %d: want %+v, got %+v", i, want[i], g)
+		}
+		// The card's line: one point per day, each day carrying that day's kg per animal and spend.
+		wantDays := []domain.DirectedPenTagDay{
+			{FeedDay: "2026-07-30", PerHeadKg: want[i].PerHeadKg, Rupees: want[i].RupeesPerDay},
+			{FeedDay: "2026-07-31", PerHeadKg: want[i].PerHeadKg, Rupees: want[i].RupeesPerDay},
+		}
+		if !reflect.DeepEqual(days, wantDays) {
+			t.Errorf("row %d days: want %+v, got %+v", i, wantDays, days)
 		}
 	}
 
@@ -161,7 +172,7 @@ func TestDirectedPenTagsParkScope(t *testing.T) {
 		t.Fatalf("own park and unrestricted must agree, got %d vs %d", len(scoped.PenTags), len(all.PenTags))
 	}
 	for i := range all.PenTags {
-		if scoped.PenTags[i] != all.PenTags[i] {
+		if !reflect.DeepEqual(scoped.PenTags[i], all.PenTags[i]) {
 			t.Errorf("row %d: scoped %+v != unrestricted %+v", i, scoped.PenTags[i], all.PenTags[i])
 		}
 	}
