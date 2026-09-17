@@ -119,18 +119,16 @@ func (s *Service) WithProofKindResolver(r ProofKindResolver) *Service {
 	return s
 }
 
-// resolveProofKinds replaces every proof's kind with the register's verdict where the register
-// knows the ref. A bare legacy proof_ref the register calls a photo moves into the typed list
-// so the step's photo minimum can recognise it. Unknown refs and a register error keep what the
-// client sent: the register labels, it never blocks.
+// resolveProofKinds replaces each TYPED proof's kind with the register's verdict where the register
+// knows the ref. A bare legacy proof_ref is left exactly as the client sent it -- the client's video,
+// as on origin/main: re-kinding it to a photo made a video-required step refuse a capture main
+// accepts (2026-09-17 parity revert). Unknown refs and a register error keep what the client sent:
+// the register labels, it never blocks.
 func (s *Service) resolveProofKinds(ctx context.Context, tenantID, proofRef string, proofs []domain.ProofItem) (string, []domain.ProofItem) {
 	if s.proofKinds == nil {
 		return proofRef, proofs
 	}
-	refs := make([]string, 0, len(proofs)+1)
-	if r := strings.TrimSpace(proofRef); r != "" {
-		refs = append(refs, r)
-	}
+	refs := make([]string, 0, len(proofs))
 	for _, p := range proofs {
 		if r := strings.TrimSpace(p.Ref); r != "" {
 			refs = append(refs, r)
@@ -144,18 +142,12 @@ func (s *Service) resolveProofKinds(ctx context.Context, tenantID, proofRef stri
 		s.log.Warn("tasks_proof_kind_resolve_failed", "tenant_id", tenantID, "error", err)
 		return proofRef, proofs
 	}
-	out := make([]domain.ProofItem, 0, len(proofs)+1)
+	out := make([]domain.ProofItem, 0, len(proofs))
 	for _, p := range proofs {
 		if k, ok := kinds[strings.TrimSpace(p.Ref)]; ok && k != "" {
 			p.Kind = k
 		}
 		out = append(out, p)
-	}
-	if r := strings.TrimSpace(proofRef); r != "" {
-		if k, ok := kinds[r]; ok && k == domain.ProofKindPhoto {
-			out = append(out, domain.ProofItem{Ref: r, Kind: domain.ProofKindPhoto})
-			proofRef = ""
-		}
 	}
 	return proofRef, out
 }

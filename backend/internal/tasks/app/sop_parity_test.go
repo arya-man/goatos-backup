@@ -382,3 +382,39 @@ func TestSeededDeathDocumentBehavesAsToday(t *testing.T) {
 		t.Fatal("rework must not add steps on the seeded document")
 	}
 }
+
+// TestBareLegacyProofRefStaysTheClientsVideo pins parity with origin/main: a bare legacy proof_ref
+// (an older phone's single capture) is the client's VIDEO, whatever the proof register calls it.
+// The register only re-kinds the typed proofs list. Moving a register-photo legacy ref into the
+// photo list made a video-required step refuse a capture origin/main accepts (2026-09-17).
+func TestBareLegacyProofRefStaysTheClientsVideo(t *testing.T) {
+	svc, repo, _, workflowID := newServiceWithMotherWorkflow(t)
+	svc.WithProofKindResolver(&fakeProofKinds{kinds: map[string]string{"legacy-ref": domain.ProofKindPhoto}})
+	step := actionByKeyT(t, repo, workflowID, domain.ActionKeyBabiesStillInside)
+	if !step.RequiresVideo && step.ProofMinVideos == 0 {
+		t.Fatalf("fixture step must require a video: %+v", step)
+	}
+	if _, err := svc.AnswerAction(context.Background(), AnswerActionInput{
+		TenantID: testTenant, WorkflowID: workflowID, ActionID: step.ActionID, AnswerValue: "yes",
+		ProofRef: "legacy-ref", AnsweredBy: testOperator, IdempotencyKey: "k-legacy", RequestFingerprint: "fp-legacy",
+	}); err != nil {
+		t.Fatalf("bare legacy proof_ref on a video step refused (origin/main accepts it): %v", err)
+	}
+	got := actionByKeyT(t, repo, workflowID, domain.ActionKeyBabiesStillInside)
+	if got.ProofRef == nil || *got.ProofRef != "legacy-ref" {
+		t.Fatalf("stored proof_ref = %v, want the client's legacy-ref kept as the video", got.ProofRef)
+	}
+	for _, p := range got.ProofRefs {
+		if p.Ref == "legacy-ref" && p.Kind == domain.ProofKindPhoto {
+			t.Fatalf("legacy ref was re-kinded to a photo: %+v", got.ProofRefs)
+		}
+	}
+	// The same on a COMPLETE write of a video step.
+	third := actionByKeyT(t, repo, workflowID, domain.ActionKeyMothersMedicine)
+	if _, err := svc.CompleteAction(context.Background(), CompleteActionInput{
+		TenantID: testTenant, WorkflowID: workflowID, ActionID: third.ActionID,
+		ProofRef: "legacy-ref", CompletedBy: testOperator, IdempotencyKey: "k-legacy-2", RequestFingerprint: "fp-legacy-2",
+	}); err != nil {
+		t.Fatalf("bare legacy proof_ref complete refused (origin/main accepts it): %v", err)
+	}
+}
