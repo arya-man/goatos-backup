@@ -376,7 +376,10 @@ func TestKernelStory_PenRoutineDailyCheck(t *testing.T) {
 	story.Assert("the production consumer minted exactly ONE verifier item", items == 1, "items=%d", items)
 	item := itemFor(godelTask.TaskID)
 	story.Assert("the item is category pen_routine and carries the photo", item.Category == penroutinesapp.VerificationCategory && len(item.MediaRefs) == 1, "item=%+v", item)
-	story.Assert("the answers ride as context rows in farm words", contextValue(item, "Was the pen cleaned?") == "Yes" && contextValue(item, "Sick animals") == "0" && contextValue(item, "Pen") == "Godel 1 - Part 3", "rows=%+v", item.ContextRows)
+	story.Assert("the answers ride as context rows in farm words", contextValue(item, "Was the pen cleaned?") == "Yes" && contextValue(item, "Sick animals") == "0", "rows=%+v", item.ContextRows)
+	// The pen rides on the item's OWN location fields, which the verifier drawer renders as its
+	// Park / Pen facts; repeating it as a context row showed it twice (2026-09-17 browser proof).
+	story.Assert("the pen is the item's own location, not a repeated context row", item.PartitionLabel != nil && *item.PartitionLabel == "Part 3" && contextValue(item, "Pen") == "" && contextValue(item, "Park") == "", "partition=%v rows=%+v", item.PartitionLabel, item.ContextRows)
 
 	// ---------------------------------------------------------------------------
 	story.Step("The verifier REJECTS: the check is sent back and the check-in cleared; a redo is APPROVED and completes",
