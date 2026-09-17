@@ -6,6 +6,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"log/slog"
 	"sort"
 	"strings"
 	"sync"
@@ -92,9 +93,14 @@ func (s *Service) CreateItem(ctx context.Context, in domain.CreateItem) (domain.
 	}
 	// MediaMeta is POSITIONAL against MediaRefs. Fewer entries is legal (the tail is unnamed and
 	// resolved like any unnamed proof); MORE names proofs the item does not carry, which can only be
-	// a producer bug that would silently shift every label once a ref is dropped -- refuse it.
+	// a producer bug. It is TRUNCATED and logged rather than refused: a refusal blocked the enqueue
+	// and every recovery loop retrying it, so the work never reached a verifier (2026-09-17).
 	if len(in.MediaMeta) > len(in.MediaRefs) {
-		return domain.CreateItemResult{}, BadRequest("invalid_media_meta", "media_meta cannot name more proofs than media_refs carries")
+		slog.Default().WarnContext(ctx, "verification_media_meta_truncated",
+			"tenant_id", in.TenantID, "category", in.Category,
+			"source_module", in.Source.Module, "source_ref_type", in.Source.RefType, "source_ref_id", in.Source.RefID,
+			"media_refs", len(in.MediaRefs), "media_meta", len(in.MediaMeta))
+		in.MediaMeta = in.MediaMeta[:len(in.MediaRefs)]
 	}
 	if len(in.MediaMeta) > 0 {
 		normalized := make([]domain.MediaMeta, len(in.MediaMeta))

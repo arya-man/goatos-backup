@@ -221,17 +221,25 @@ func TestListQueueNumbersRepeatedProducerLabels(t *testing.T) {
 	}
 }
 
-func TestCreateItemRefusesMoreMediaMetaThanRefs(t *testing.T) {
-	svc := kindService(t, &kindRegister{})
-	_, err := svc.CreateItem(context.Background(), domain.CreateItem{
+// A producer that names more proofs than it sends is a producer bug, but refusing the item blocked
+// the enqueue -- and every recovery loop that retries it -- so the work never reached a verifier
+// (2026-09-17 hardening). The item is created and the extra meta is dropped.
+func TestCreateItemTruncatesMediaMetaLongerThanRefs(t *testing.T) {
+	repo := newFakeRepo()
+	svc := NewService(repo, &kindRegister{})
+	_ = svc.RegisterCategory(domain.CategoryDefinition{Vertical: "feed", Module: "feed", Category: "feed_distribution"})
+	result, err := svc.CreateItem(context.Background(), domain.CreateItem{
 		TenantID: testTenant, Vertical: "feed", Module: "feed", Category: "feed_distribution",
 		Source:    domain.SourceRef{Module: "feed", RefType: "feed_distribution_completion", RefID: "c1"},
 		MediaRefs: []string{"p1"}, IdempotencyKey: "k1",
 		MediaMeta: []domain.MediaMeta{{Label: "a", Kind: "video"}, {Label: "b", Kind: "photo"}},
 	})
-	var appErr *Error
-	if !errors.As(err, &appErr) || appErr.Code != "invalid_media_meta" {
-		t.Fatalf("err = %v, want invalid_media_meta", err)
+	if err != nil {
+		t.Fatalf("CreateItem refused an item whose media_meta outnumbers its refs: %v", err)
+	}
+	got := repo.items[result.Item.ItemID].MediaMeta
+	if len(got) != 1 || got[0] != (domain.MediaMeta{Label: "a", Kind: "video"}) {
+		t.Fatalf("stored meta = %+v, want truncated to the one ref", got)
 	}
 }
 
