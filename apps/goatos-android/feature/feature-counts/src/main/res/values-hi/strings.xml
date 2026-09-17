@@ -235,6 +235,7 @@
     <string name="counts_workflow_pick_video">अपलोड</string>
     <string name="counts_workflow_mark_done">पूर्ण करें</string>
     <string name="counts_workflow_submit">जमा करें</string>
+    <string name="counts_workflow_submit_missing">अभी रिकॉर्ड करना बाकी: %1$s</string>
     <string name="counts_add_birth_subtitle">नवजात दर्ज करें</string>
     <string name="counts_group_born">जन्म</string>
     <string name="counts_add_birth_tag_note">बच्चे को अपने आप एक अस्थायी टैग मिलता है। स्थायी RFID बाद में \"बच्चे को टैग करें\" चरण से लगाएँ।</string>

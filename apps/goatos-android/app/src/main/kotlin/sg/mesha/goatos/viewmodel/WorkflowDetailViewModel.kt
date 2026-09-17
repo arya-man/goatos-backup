@@ -1078,6 +1078,14 @@ class WorkflowDetailViewModel @Inject constructor(
             subjectLocationDisplay = listOf(parkLabel, shedLabel).filter { it.isNotBlank() }.joinToString(" / "),
             deathStepsReady = isDeathModule && mainActions.any { !operatorFinishedWorkflowStatus(it.status) } &&
                 mainActions.all { operatorFinishedWorkflowStatus(it.status) || it.actionId in draftedActionIds },
+            deathStepsMissing = if (isDeathModule) {
+                mainActions.sortedBy(::workflowDisplayOrder)
+                    .filterNot { operatorFinishedWorkflowStatus(it.status) || it.actionId in draftedActionIds }
+                    .map { it.title }
+                    .filter { it.isNotBlank() }
+            } else {
+                emptyList()
+            },
             deathDraftsSubmitting = draftsSubmitting,
             deathUploadFailed = deathUploadFailed,
         )

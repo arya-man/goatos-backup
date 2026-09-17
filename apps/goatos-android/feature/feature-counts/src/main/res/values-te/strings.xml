@@ -235,6 +235,7 @@
     <string name="counts_workflow_pick_video">అప్\u200cలోడ్</string>
     <string name="counts_workflow_mark_done">పూర్తయిందని గుర్తించండి</string>
     <string name="counts_workflow_submit">సమర్పించండి</string>
+    <string name="counts_workflow_submit_missing">ఇంకా రికార్డ్ చేయాలి: %1$s</string>
     <string name="counts_add_birth_subtitle">నవజాత శిశువును నమోదు చేయండి</string>
     <string name="counts_group_born">జననం</string>
     <string name="counts_add_birth_tag_note">పిల్లకు తాత్కాలిక ట్యాగ్ ఆటోమేటిక్\u200cగా వస్తుంది. శాశ్వత RFIDని తర్వాత \"పిల్లకు ట్యాగ్ వేయండి\" దశ ద్వారా వేయండి.</string>

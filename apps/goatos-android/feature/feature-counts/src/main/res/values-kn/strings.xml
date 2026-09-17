@@ -235,6 +235,7 @@
     <string name="counts_workflow_pick_video">ಅಪ್\u200cಲೋಡ್</string>
     <string name="counts_workflow_mark_done">ಮುಗಿಯಿತು ಎಂದು ಗುರುತಿಸಿ</string>
     <string name="counts_workflow_submit">ಸಲ್ಲಿಸಿ</string>
+    <string name="counts_workflow_submit_missing">ಇನ್ನೂ ರೆಕಾರ್ಡ್ ಮಾಡಬೇಕು: %1$s</string>
     <string name="counts_add_birth_subtitle">ನವಜಾತ ದಾಖಲಿಸಿ</string>
     <string name="counts_group_born">ಜನನ</string>
     <string name="counts_add_birth_tag_note">ಮರಿಗೆ ತಾತ್ಕಾಲಿಕ ಟ್ಯಾಗ್ ತಾನಾಗಿಯೇ ಸಿಗುತ್ತದೆ. ಶಾಶ್ವತ RFID ಅನ್ನು ನಂತರ \"ಮರಿಗೆ ಟ್ಯಾಗ್ ಹಾಕಿ\" ಹಂತದಿಂದ ಹಾಕಿ.</string>

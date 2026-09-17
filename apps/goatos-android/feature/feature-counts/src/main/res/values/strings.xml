@@ -255,6 +255,7 @@
     <string name="counts_workflow_pick_video">Upload</string>
     <string name="counts_workflow_mark_done">Mark done</string>
     <string name="counts_workflow_submit">Submit</string>
+    <string name="counts_workflow_submit_missing">Still to record: %1$s</string>
 
     <!-- Add-birth form (server generates the provisional tag; DOB locked to today) -->
     <string name="counts_add_birth_subtitle">Record a newborn</string>

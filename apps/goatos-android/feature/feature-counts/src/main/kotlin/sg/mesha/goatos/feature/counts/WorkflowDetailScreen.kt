@@ -160,6 +160,9 @@ data class WorkflowDetailUiState(
     val isSubmittingDeath: Boolean = false,
     /** Death: every step the operator still owes is recorded on the phone (drafts + answers). */
     val deathStepsReady: Boolean = false,
+    /** The titles of the death steps still to be recorded on this phone, in step order -- the
+     *  reason a disabled Submit gives instead of sitting greyed out with nothing to act on. */
+    val deathStepsMissing: List<String> = emptyList(),
     val deathDraftsSubmitting: Boolean = false,
     val deathUploadFailed: Boolean = false,
     /** Transient action-write feedback (queued offline / failure), rendered verbatim. */
@@ -294,6 +297,20 @@ fun WorkflowDetailScreen(
                         enabled = state.deathSubmissionEnabled,
                         onClick = { onEvent(WorkflowDetailEvent.SubmitDeath) },
                     )
+                }
+                // A greyed-out Submit says why: the steps still to be recorded, by their own titles.
+                if (state.deathSubmissionLabel == WorkflowDeathSubmissionLabel.SUBMIT &&
+                    !state.deathSubmissionEnabled &&
+                    !state.isCapturingVideo &&
+                    state.deathStepsMissing.isNotEmpty()
+                ) {
+                    item(key = "death-submission-missing") {
+                        Text(
+                            text = stringResource(R.string.counts_workflow_submit_missing, state.deathStepsMissing.joinToString(", ")),
+                            color = MeshaColors.Muted,
+                            style = MeshaType.caption,
+                        )
+                    }
                 }
             }
         }
