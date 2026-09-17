@@ -188,6 +188,13 @@ func applyPersonPageControlLens(page domain.PageContract, personPerms []string, 
 		allowed := personPermsResolved && personPermissionsAuthorize(personPerms, permissions.AlertsConfigure)
 		page.Controls = upsertControl(page.Controls, alertsConfigureControl(allowed, page.Copy))
 		return page
+	case "pen-routines":
+		// Same shape as Alerts: once per-person access decides this principal's routes, the
+		// page controls must follow the person's own Routines configure tick instead of the
+		// role path used by the initial compiler.
+		allowed := personPermsResolved && personPermissionsAuthorize(personPerms, permissions.PenRoutinesConfigure)
+		page.Controls = penRoutineControls(page.Controls, allowed, page.Copy)
+		return page
 	case "sales-buyer-analytics":
 	default:
 		return page

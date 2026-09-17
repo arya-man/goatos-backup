@@ -1334,6 +1334,10 @@ func compileAnimalPurchaseControls(controls []domain.Control, input BootstrapInp
 // capability lock: these controls, and the route table (POST/PUT /admin/pen-routines*).
 func compilePenRoutineControls(controls []domain.Control, input BootstrapInput, copy map[string]string) []domain.Control {
 	allowed := len(input.Grants) == 0 || grantsAuthorize(input.Grants, input.TenantID, []string{permissions.PenRoutinesConfigure})
+	return penRoutineControls(controls, allowed, copy)
+}
+
+func penRoutineControls(controls []domain.Control, allowed bool, copy map[string]string) []domain.Control {
 	reason := ""
 	if !allowed {
 		reason = controlCopy(copy, "configure.disabled_no_access", "Writing routines is limited to the CEO and CXO.")

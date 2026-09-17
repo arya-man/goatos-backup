@@ -62,3 +62,41 @@ func TestPenRoutinesPageControlsAreCapabilityGated(t *testing.T) {
 		})
 	}
 }
+
+// TestPenRoutinesControlsFollowThePersonTick pins the per-person override used by /people.
+func TestPenRoutinesControlsFollowThePersonTick(t *testing.T) {
+	const tenant = "00000000-0000-4000-8000-000000000001"
+	resp := NewService(fakeFamilies{}).Bootstrap(context.Background(), BootstrapInput{
+		TenantID: tenant,
+		ActorID:  "00000000-0000-4000-8000-000000000099",
+	})
+	access := permissions.PageAccess{
+		Pages:   map[string]struct{}{"pen-routines": {}},
+		Modules: map[string]struct{}{"pen_routines": {}},
+	}
+
+	for _, tc := range []struct {
+		name    string
+		perms   []string
+		enabled bool
+	}{
+		{"view only", []string{permissions.PenRoutinesRead}, false},
+		{"configure", []string{permissions.PenRoutinesRead, permissions.PenRoutinesConfigure}, true},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			page := pageByRouteID(t, applyPersonPageLens(resp, access, tc.perms, true).Pages, "pen-routines")
+			for _, id := range []string{"create_routine", "edit_routine", "set_routine_status"} {
+				control := controlByID(t, page.Controls, id)
+				if control.Enabled != tc.enabled {
+					t.Fatalf("%s enabled = %v, want %v: %+v", id, control.Enabled, tc.enabled, control)
+				}
+				if !tc.enabled && control.DisabledReason != page.Copy["configure.disabled_no_access"] {
+					t.Fatalf("%s disabled reason = %q, want backend reason %q", id, control.DisabledReason, page.Copy["configure.disabled_no_access"])
+				}
+				if tc.enabled && control.DisabledReason != "" {
+					t.Fatalf("%s configure tick must clear disabled reason: %+v", id, control)
+				}
+			}
+		})
+	}
+}
