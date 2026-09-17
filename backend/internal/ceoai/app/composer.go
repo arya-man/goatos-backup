@@ -30,7 +30,7 @@ func (composer) compose(results []domain.ToolResult) (body string, citations []d
 		if len(r.Facts) == 0 && strings.TrimSpace(r.Summary) == "" {
 			sections = append(sections, fmt.Sprintf("%s: no records found for the requested scope.", surfaceOrRoute(r)))
 		} else {
-			sections = append(sections, renderFacts(r))
+			sections = append(sections, renderAnswerBlock(r))
 			for _, f := range r.Facts {
 				groundValues = append(groundValues, f.Value)
 			}
@@ -43,18 +43,6 @@ func (composer) compose(results []domain.ToolResult) (body string, citations []d
 		}
 	}
 	body = strings.Join(sections, "\n\n")
-	// Narrative synthesis: a short grounded lead sentence so a leadership answer
-	// reads as prose ("In short — goat 972, sheep 336.") instead of a raw metric
-	// dump. Every number and scope word in the lead is copied verbatim from a
-	// Fact, so it stays inside the grounding contract the reviewer enforces (no
-	// computed totals, no invented figures).
-	lead := synthesizeOverloadLead(results)
-	if lead == "" {
-		lead = synthesizeLead(results)
-	}
-	if lead != "" {
-		body = lead + "\n\n" + body
-	}
 	return body, citations, groundValues
 }
 
@@ -161,6 +149,136 @@ func synthesizeLead(results []domain.ToolResult) string {
 		}
 		return "In short — " + label + " breaks down as " + strings.Join(parts, ", ") + "."
 	}
+}
+
+func renderAnswerBlock(r domain.ToolResult) string {
+	block := ""
+	if block := renderSalesAnswer(r); block != "" {
+		return appendMetricStatus(block, r)
+	}
+	if block := renderSingleMetricBreakdown(r); block != "" {
+		return appendMetricStatus(block, r)
+	}
+	block = renderFacts(r)
+	return block
+}
+
+func appendMetricStatus(block string, r domain.ToolResult) string {
+	if r.MetricStatus == domain.MetricDraft {
+		return block + "\n(draft metric — pending business sign-off)"
+	}
+	return block
+}
+
+func renderSalesAnswer(r domain.ToolResult) string {
+	var soldTotal, soldGoats, soldSheep, revenue, month string
+	thisMonth := false
+	for _, f := range r.Facts {
+		label := strings.ToLower(strings.TrimSpace(f.Label))
+		value := strings.TrimSpace(f.Value)
+		if value == "" {
+			continue
+		}
+		if strings.Contains(label, "this month") {
+			thisMonth = true
+		}
+		if strings.Contains(label, "sold animals") {
+			soldTotal = value
+			month = monthFromLabel(f.Label)
+		} else if strings.Contains(label, "sold goats") {
+			soldGoats = value
+			if month == "" {
+				month = monthFromLabel(f.Label)
+			}
+		} else if strings.Contains(label, "sold sheep") {
+			soldSheep = value
+			if month == "" {
+				month = monthFromLabel(f.Label)
+			}
+		} else if strings.Contains(label, "sales revenue") {
+			revenue = value
+			if month == "" {
+				month = monthFromLabel(f.Label)
+			}
+		}
+	}
+	if soldTotal == "" && soldGoats == "" && soldSheep == "" && revenue == "" {
+		return ""
+	}
+
+	var b strings.Builder
+	if month != "" {
+		b.WriteString("For " + month + ", ")
+	} else if thisMonth {
+		b.WriteString("This month, ")
+	} else {
+		b.WriteString("For the selected period, ")
+	}
+	switch {
+	case soldTotal != "" && soldGoats != "" && soldSheep != "" && revenue != "":
+		b.WriteString(fmt.Sprintf("%s animals were sold: %s goats and %s sheep. Sales revenue was %s.", soldTotal, soldGoats, soldSheep, revenue))
+	case soldTotal != "" && soldGoats != "" && soldSheep != "":
+		b.WriteString(fmt.Sprintf("%s animals were sold: %s goats and %s sheep.", soldTotal, soldGoats, soldSheep))
+	case soldTotal != "" && revenue != "":
+		b.WriteString(fmt.Sprintf("%s animals were sold. Sales revenue was %s.", soldTotal, revenue))
+	case soldTotal != "":
+		b.WriteString(fmt.Sprintf("%s animals were sold.", soldTotal))
+	case revenue != "":
+		b.WriteString(fmt.Sprintf("sales revenue was %s.", revenue))
+	default:
+		b.WriteString(strings.TrimSuffix(renderFacts(r), ".") + ".")
+	}
+	return b.String()
+}
+
+func monthFromLabel(label string) string {
+	fields := strings.Fields(label)
+	for _, field := range fields {
+		field = strings.Trim(field, ".,;:()[]{}")
+		if len(field) == len("2006-01") && field[4] == '-' {
+			if _, err := strconv.Atoi(field[:4]); err == nil {
+				if _, err := strconv.Atoi(field[5:]); err == nil {
+					return field
+				}
+			}
+		}
+	}
+	return ""
+}
+
+func renderSingleMetricBreakdown(r domain.ToolResult) string {
+	if len(r.Facts) == 0 {
+		return ""
+	}
+	label := ""
+	var parts []string
+	for _, f := range r.Facts {
+		if _, ok := parseNumber(f.Value); !ok {
+			return ""
+		}
+		fl := strings.TrimSpace(f.Label)
+		if fl == "" {
+			return ""
+		}
+		if label == "" {
+			label = fl
+		} else if fl != label {
+			return ""
+		}
+		value := strings.TrimSpace(f.Value)
+		if scope := strings.TrimSpace(f.Scope); scope != "" {
+			parts = append(parts, scope+" "+value)
+		} else {
+			parts = append(parts, value)
+		}
+	}
+	if len(parts) == 0 || len(parts) > 8 {
+		return ""
+	}
+	if len(parts) == 1 {
+		return label + ": " + parts[0] + "."
+	}
+	return label + ": " + strings.Join(parts, ", ") + "."
 }
 
 // numericLeadParts extracts the label and the scoped "scope value" (or bare

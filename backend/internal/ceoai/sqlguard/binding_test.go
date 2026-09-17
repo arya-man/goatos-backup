@@ -53,3 +53,16 @@ func TestExecuteReadOnlyForTenantBindsSession(t *testing.T) {
 		t.Fatalf("expected ErrTenantBinding for empty session tenant, got %v", err)
 	}
 }
+
+func TestTrustedReadOnlyForTenantStillBindsSession(t *testing.T) {
+	e := &Executor{} // nil pool: only tenant-bind failures should return before pool use.
+	other := `SELECT l.load_id FROM procurement_loads l JOIN procurement_source_health_checks h ON h.tenant_id = l.tenant_id AND h.load_id = l.load_id WHERE l.tenant_id = '00000000-0000-0000-0000-000000000002' LIMIT 10`
+	if _, err := e.ExecuteTrustedReadOnlyForTenant(nil, "00000000-0000-0000-0000-000000000001", other); err != ErrTenantBinding {
+		t.Fatalf("expected ErrTenantBinding for trusted mismatched tenant literal, got %v", err)
+	}
+
+	stacked := `SELECT l.load_id FROM procurement_loads l WHERE l.tenant_id = '00000000-0000-0000-0000-000000000001'; SELECT 1`
+	if _, err := e.ExecuteTrustedReadOnlyForTenant(nil, "00000000-0000-0000-0000-000000000001", stacked); err == nil {
+		t.Fatal("trusted SQL must still reject statement stacking")
+	}
+}

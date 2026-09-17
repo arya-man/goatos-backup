@@ -83,6 +83,7 @@ type MetricQuery struct {
 // mandatory tenant predicate before touching mesha_ceo_readonly.
 type SQLFallback interface {
 	Execute(ctx context.Context, actor domain.Actor, sql string, args []any) (domain.ToolResult, error)
+	ExecuteTrusted(ctx context.Context, actor domain.Actor, sql string, args []any) (domain.ToolResult, error)
 }
 
 // Toolbox is the MCP Toolbox curated-tool port (adapter = toolboxclient).

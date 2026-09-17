@@ -89,31 +89,38 @@ func naturalOperationalSQLPlan(q domain.Question, normalizedText string, mem []d
 	scope, hasScope := resolveKnownParkScope(normalizedText, mem)
 	switch {
 	case weighingQuestion.MatchString(normalizedText):
-		return sqlSubQuestion(q, "weighing_live_sql", weighingSQL(q.Actor.TenantID, scope, hasScope, wantsPenBreakdown(normalizedText) || wantsLowestWeightRanking(normalizedText)), "weighing"), true
+		return sqlSubQuestion(q, "weighing_live_sql", weighingSQL(q.Actor.TenantID, scope, hasScope, wantsPenBreakdown(normalizedText) || wantsLowestWeightRanking(normalizedText)), "weighing", scope, hasScope), true
 	case vaccinationQuestion.MatchString(normalizedText) && (strings.Contains(normalizedText, "overload") || strings.Contains(normalizedText, "over capacity")):
-		return sqlSubQuestion(q, "vaccination_operator_live_sql", vaccinationOperatorSQL(q.Actor.TenantID, scope, hasScope), "vaccination_operator"), true
+		return sqlSubQuestion(q, "vaccination_operator_live_sql", vaccinationOperatorSQL(q.Actor.TenantID, scope, hasScope), "vaccination_operator", scope, hasScope), true
 	case feedQuestion.MatchString(normalizedText):
-		return sqlSubQuestion(q, "feed_live_sql", feedSQL(q.Actor.TenantID, scope, hasScope, q.AsOf), "feed"), true
+		return sqlSubQuestion(q, "feed_live_sql", feedSQL(q.Actor.TenantID, scope, hasScope, q.AsOf), "feed", scope, hasScope), true
 	case healthQuestion.MatchString(normalizedText):
-		return sqlSubQuestion(q, "health_issue_live_sql", healthIssueSQL(q.Actor.TenantID), "health_issue"), true
+		sub := sqlSubQuestion(q, "health_issue_live_sql", healthIssueSQL(q.Actor.TenantID, scope, hasScope), "health_issue", scope, hasScope)
+		sub.Params["trusted_sql"] = "server_natural"
+		return sub, true
 	case opsRiskQuestion.MatchString(normalizedText):
-		return sqlSubQuestion(q, "ops_risk_live_sql", opsRiskSQL(q.Actor.TenantID, scope, hasScope), "ops_risk"), true
+		return sqlSubQuestion(q, "ops_risk_live_sql", opsRiskSQL(q.Actor.TenantID, scope, hasScope), "ops_risk", scope, hasScope), true
 	default:
 		return domain.SubQuestion{}, false
 	}
 }
 
-func sqlSubQuestion(q domain.Question, intentClass, sql, natural string) domain.SubQuestion {
+func sqlSubQuestion(q domain.Question, intentClass, sql, natural string, scope knownParkScope, hasScope bool) domain.SubQuestion {
+	params := map[string]any{
+		"sql":         sql,
+		"natural_sql": natural,
+	}
+	if hasScope {
+		params["park_label"] = scope.label
+		params["park_code"] = scope.code
+	}
 	return domain.SubQuestion{
 		ID:          "0",
 		Text:        q.Text,
 		IntentClass: intentClass,
 		Route:       domain.RouteSQL,
 		ToolName:    "sql_fallback",
-		Params: map[string]any{
-			"sql":         sql,
-			"natural_sql": natural,
-		},
+		Params:      params,
 	}
 }
 
@@ -268,10 +275,26 @@ func feedSQL(tenantID string, scope knownParkScope, hasScope bool, asOf time.Tim
 	)
 }
 
-func healthIssueSQL(tenantID string) string {
+func healthIssueSQL(tenantID string, scope knownParkScope, hasScope bool) string {
+	where := "l.tenant_id = " + sqlStringLiteral(tenantID)
+	if hasScope {
+		where += " AND air.park_location_id = " + sqlStringLiteral(scope.id)
+	}
 	return fmt.Sprintf(
-		"SELECT source_label AS label, CAST(health_blockers AS text) AS value, load_label AS scope FROM ceo_ai.source_entry_health_status WHERE tenant_id = %s AND health_blockers > 0 ORDER BY health_blockers DESC LIMIT 50",
-		sqlStringLiteral(tenantID),
+		`SELECT COALESCE(pt.display_name, loc.name, 'Unknown source') AS label,
+		       CAST(COUNT(*) FILTER (WHERE h.health_state IN ('blocked','failed','sick','quarantine')) AS text) AS value,
+		       ('Load ' || left(l.load_id::text, 8) || COALESCE(' · ' || to_char(l.purchase_date, 'DD Mon'), '')) AS scope
+		FROM procurement_loads l
+		LEFT JOIN parties pt ON pt.party_id = l.source_party_id
+		LEFT JOIN locations loc ON loc.location_id = l.source_location_id
+		LEFT JOIN arrival_intake_reviews air ON air.tenant_id = l.tenant_id AND air.load_id = l.load_id
+		JOIN procurement_source_health_checks h ON h.tenant_id = l.tenant_id AND h.load_id = l.load_id
+		WHERE %s
+		GROUP BY l.load_id, l.purchase_date, pt.display_name, loc.name
+		HAVING COUNT(*) FILTER (WHERE h.health_state IN ('blocked','failed','sick','quarantine')) > 0
+		ORDER BY COUNT(*) FILTER (WHERE h.health_state IN ('blocked','failed','sick','quarantine')) DESC
+		LIMIT 50`,
+		where,
 	)
 }
 

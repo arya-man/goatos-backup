@@ -169,6 +169,29 @@ func (e *Executor) ExecuteReadOnlyForTenant(ctx context.Context, sessionTenantID
 	return e.execValidated(ctx, sql)
 }
 
+// ExecuteTrustedReadOnlyForTenant runs server-authored read-only SQL that needs
+// relational joins the generic model-SQL guard intentionally forbids. It is NOT
+// for model-drafted SQL: callers must only pass deterministic SQL assembled by
+// backend code. The same session tenant binding, read-only transaction, timeout,
+// and hard row cap still apply.
+func (e *Executor) ExecuteTrustedReadOnlyForTenant(ctx context.Context, sessionTenantID, sql string) ([]Row, error) {
+	if strings.TrimSpace(sessionTenantID) == "" {
+		return nil, ErrTenantBinding
+	}
+	stmt := strings.TrimSpace(sql)
+	if !strings.HasPrefix(strings.ToUpper(stmt), "SELECT") {
+		return nil, rejit("trusted query must begin with SELECT")
+	}
+	if strings.Contains(stmt, ";") || strings.Contains(stmt, "--") || strings.Contains(stmt, "/*") || strings.Contains(stmt, "*/") {
+		return nil, rejit("trusted query contains disallowed statement/comment syntax")
+	}
+	got, ok := ExtractTenantEquals(sql)
+	if !ok || got != sessionTenantID {
+		return nil, ErrTenantBinding
+	}
+	return e.execValidated(ctx, sql)
+}
+
 // ExecuteReadOnly validates sql, then runs it inside a READ ONLY transaction with
 // a bounded statement timeout, wrapping the query so the result can never exceed
 // MaxRowLimit rows even if the LIMIT clause were somehow bypassed. Validation is
