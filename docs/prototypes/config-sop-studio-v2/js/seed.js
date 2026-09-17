@@ -628,13 +628,16 @@
     const k2=linear([
       ['start',{label:'Kid in K2 - Milk Drinking'}],
       ['action',{label:'Milk freely from feeding system',page:'Milk'}],
-      ['wait',{label:'Until the kid is 78 days old (K3)',until:'age',amount:78,unit:'days of age',stageId:'stg_g_k3'}],
+      /* 43 days = K3 min_age_days in goatos-stg animal_stage_lookup (queried 2026-09-18); supersedes the Drive doc's 78. */
+      ['wait',{label:'Until the kid is 43 days old (K3)',until:'age',amount:43,unit:'days of age',stageId:'stg_g_k3'}],
       ['child',{label:'Shift to K3 (Growth)',sopId:'sop_shift'}],
       ['end',{label:'Moved to K3',outcome:'done'}]]);
     const k3=linear([
       ['start',{label:'Kid in K3 - Weaning'}],
       ['action',{label:'Cut milk ration; offer hay, concentrate and water',page:'Weaning'}],
-      ['wait',{label:'Until the kid is 85 days old (Fattening)',until:'age',amount:85,unit:'days of age'}],
+      /* goatos-stg has no age boundary here: K3 max_age_days is NULL and F2/F2-Male/F2-Female have no min_age_days
+         (queried 2026-09-18). The Drive doc's 85 days is not in stg, so this exit is weaning completion, not an age. */
+      ['action',{label:'Weaning complete - ready for Fattening',page:'Weaning'}],
       ['child',{label:'Shift to Fattening (Growth)',sopId:'sop_shift'}],
       ['end',{label:'Moved to Fattening',outcome:'done'}]]);
     st.sops=[
