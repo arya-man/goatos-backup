@@ -1322,8 +1322,8 @@ func TestLeadershipTaskAggregateDateShiftDeadlineRangeCountsWhatItLists(t *testi
 // but "each arm's number equals the rows that tab actually serves, walked page by page".
 //
 // The fixture makes the three populations three genuinely DIFFERENT sizes (3 / 4 / 9 unfiltered
-// and 3 / 4 / 2 filtered), so an arm that dropped the wrong person filter or read the wrong
-// party column cannot land on the right number by luck. It also pins the disjointness the union
+// and 3 / 3 / 2 filtered, from three distinct filter sets), so an arm that dropped the wrong
+// person filter or read the wrong party column cannot land on the right number by luck. It also pins the disjointness the union
 // relies on: the leadership_tasks_not_self CHECK forbids raising a task to yourself, so no task
 // can sit in both party arms and the two inboxes never double-count one fact.
 func TestLeadershipTaskAggregateScopeHierarchyCountsWhatEachTabLists(t *testing.T) {
@@ -1332,6 +1332,16 @@ func TestLeadershipTaskAggregateScopeHierarchyCountsWhatEachTabLists(t *testing.
 	pool := pgtest.StartPostgres(t, ctx)
 	seedLeadershipFixture(t, ctx, pool)
 	repo := NewRepository(pool, 10*time.Second)
+	// A THIRD assignable person. The seed fixture ticks Dinakar without a leadership grant, so
+	// he is not assignable by default; granting him one gives the outbox two distinct assignees,
+	// which is what lets the assignee filter actually narrow assigned_by_me below. Without a
+	// second assignee on that arm, an arm that dropped the assignee filter instead of the raiser
+	// filter would still land on the right number and the honesty assertion would prove nothing.
+	if _, err := pool.Exec(ctx, `
+INSERT INTO user_scope_grants (tenant_id, user_id, role, scope_type, scope_id, status, valid_from)
+VALUES ($1::uuid, $2::uuid, 'park_head', 'tenant', $1::uuid, 'active', now() - interval '1 day')`, ltTenant, ltDirector2); err != nil {
+		t.Fatalf("seed park head grant: %v", err)
+	}
 
 	seeds := []struct {
 		raiser, assignee, title string
@@ -1341,7 +1351,7 @@ func TestLeadershipTaskAggregateScopeHierarchyCountsWhatEachTabLists(t *testing.
 		{ltDirector, ltCXO, "ScopeHierarchy to me 2", false},
 		{ltDirector, ltCXO, "ScopeHierarchy to me 3", false},
 		{ltDirector, ltCXO, "ScopeHierarchy to me 4 cancelled", true},
-		{ltCXO, ltCXO2, "ScopeHierarchy by me 4", false},
+		{ltCXO, ltDirector2, "ScopeHierarchy by me 4", false},
 		{ltCXO, ltCXO2, "ScopeHierarchy by me 1", false},
 		{ltCXO, ltCXO2, "ScopeHierarchy by me 2", false},
 		{ltCXO, ltCXO2, "ScopeHierarchy by me 3", false},
@@ -1459,26 +1469,49 @@ func TestLeadershipTaskAggregateScopeHierarchyCountsWhatEachTabLists(t *testing.
 	// tab drops the one it pins -- assigned_to_me keeps only the raiser filter, assigned_by_me
 	// keeps only the assignee filter, team_progress keeps both -- and each arm must drop exactly
 	// what its tab drops. The three populations come out 3 / 4 / 2, all different, so an arm
-	// that dropped the WRONG filter cannot land on the right number by luck.
+	// that dropped the WRONG filter reports 4 where the tab lists 3.
 	toMeFiltered, toMeFilteredPage := walk(t, ports.ListParams{Scope: domain.ScopeAssignedToMe, Query: "ScopeHierarchy", RaisedBy: ltDirector})
 	byMeFiltered, byMeFilteredPage := walk(t, ports.ListParams{Scope: domain.ScopeAssignedByMe, Query: "ScopeHierarchy", AssigneeUserID: ltCXO2})
 	teamFiltered, teamFilteredPage := walk(t, ports.ListParams{Scope: domain.ScopeTeamProgress, Query: "ScopeHierarchy", AssigneeUserID: ltCXO2, RaisedBy: ltDirector})
-	if len(toMeFiltered) != 3 || len(byMeFiltered) != 4 || len(teamFiltered) != 2 {
-		t.Fatalf("filtered tab row counts = to_me %d %v / by_me %d %v / team %d %v, want 3 / 4 / 2", len(toMeFiltered), toMeFiltered, len(byMeFiltered), byMeFiltered, len(teamFiltered), teamFiltered)
+	if len(toMeFiltered) != 3 || len(byMeFiltered) != 3 || len(teamFiltered) != 2 {
+		t.Fatalf("filtered tab row counts = to_me %d %v / by_me %d %v / team %d %v, want 3 / 3 / 2", len(toMeFiltered), toMeFiltered, len(byMeFiltered), byMeFiltered, len(teamFiltered), teamFiltered)
 	}
-	wantFilteredArms := map[string]int{
-		domain.ScopeAssignedToMe: len(toMeFiltered),
-		domain.ScopeAssignedByMe: len(byMeFiltered),
-		domain.ScopeTeamProgress: len(teamFiltered),
-	}
-	// Every tab renders the same three badges, so all three responses must agree with all three
-	// row walks. This is the assertion that catches an arm dropping the wrong person filter.
-	for _, from := range []struct {
+	// EACH TAB'S OWN BADGE EQUALS THE ROWS THAT TAB SERVED. That is the honesty rule, and it is
+	// the per-tab one: the badge is computed under the filter set the REQUEST carries, and the
+	// request's filter set is itself per-tab because the app drops the person filter the open tab
+	// pins. So the claim proved here is the one a leader can act on -- the number on the tab I am
+	// standing on is the number of rows this tab just gave me -- asserted for all three tabs.
+	for _, own := range []struct {
 		name string
 		page ports.Page
-	}{{"assigned_to_me", toMeFilteredPage}, {"assigned_by_me", byMeFilteredPage}, {"team_progress", teamFilteredPage}} {
-		if !reflect.DeepEqual(from.page.ScopeCounts, wantFilteredArms) {
-			t.Fatalf("read from the filtered %s tab, the badges say %v but the tabs LIST %v", from.name, from.page.ScopeCounts, wantFilteredArms)
+		rows int
+	}{
+		{domain.ScopeAssignedToMe, toMeFilteredPage, len(toMeFiltered)},
+		{domain.ScopeAssignedByMe, byMeFilteredPage, len(byMeFiltered)},
+		{domain.ScopeTeamProgress, teamFilteredPage, len(teamFiltered)},
+	} {
+		if own.page.ScopeCounts[own.name] != own.rows {
+			t.Fatalf("on the filtered %s tab the badge says %d but the tab LISTED %d rows (badges %v)", own.name, own.page.ScopeCounts[own.name], own.rows, own.page.ScopeCounts)
+		}
+	}
+	// AND THE OTHER TABS' BADGES ARE THE SAME ARITHMETIC UNDER THIS REQUEST'S FILTERS, which is a
+	// different question and a different number. Standing on assigned_to_me, the request carries
+	// only the raiser filter (the tab pins the assignee), so the tenant-wide badge counts the
+	// raiser's uncancelled tenant tasks -- 5 -- while OPENING that tab re-applies the assignee
+	// filter too and lists 2. Pinned exactly, so that the design cannot drift unnoticed: these
+	// are the numbers each arm owes for the filters it was actually given.
+	wantPerRequest := []struct {
+		name string
+		page ports.Page
+		arms map[string]int
+	}{
+		{domain.ScopeAssignedToMe, toMeFilteredPage, map[string]int{domain.ScopeAssignedToMe: 3, domain.ScopeAssignedByMe: 4, domain.ScopeTeamProgress: 5}},
+		{domain.ScopeAssignedByMe, byMeFilteredPage, map[string]int{domain.ScopeAssignedToMe: 3, domain.ScopeAssignedByMe: 3, domain.ScopeTeamProgress: 5}},
+		{domain.ScopeTeamProgress, teamFilteredPage, map[string]int{domain.ScopeAssignedToMe: 3, domain.ScopeAssignedByMe: 3, domain.ScopeTeamProgress: 2}},
+	}
+	for _, from := range wantPerRequest {
+		if !reflect.DeepEqual(from.page.ScopeCounts, from.arms) {
+			t.Fatalf("read from the filtered %s tab, the badges say %v, want %v", from.name, from.page.ScopeCounts, from.arms)
 		}
 	}
 	// One filter that matches nothing empties the rows and every arm together.
