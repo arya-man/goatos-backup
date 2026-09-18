@@ -97,6 +97,10 @@ no stored routine changes meaning and no migration is needed (the evidence docum
   Video / Photo or video) and, when set, "How many" (One / Up to 5). Both vocabularies are
   served by the catalog (`question_proof_kinds`, `question_proof_counts`) and rendered
   verbatim; `none` is the catalog's key for no proof and never travels.
+- **Rollout gate.** The catalog exposes only `No proof` until
+  `GOATOS_PEN_ROUTINE_QUESTION_PROOF_AUTHORING=true` is set after the compatible Android APK
+  is adopted, or a force-update/min-version gate is active. Existing saved rules still render
+  and validate, but admins cannot create new per-question proof requirements for older APKs.
 - The routine list's evidence line adds "N questions with proof" so a reader can tell a
   routine that asks per question from one that asks per task.
 

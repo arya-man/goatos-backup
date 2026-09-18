@@ -4,6 +4,7 @@ import (
 	"context"
 	"log/slog"
 	"net/http"
+	"os"
 	"strconv"
 	"strings"
 
@@ -101,12 +102,7 @@ func (h *AdminHandler) Catalog(w http.ResponseWriter, r *http.Request) {
 			[2]string{domain.QuestionNumber, "Number"},
 			[2]string{domain.QuestionText, "Text"},
 		),
-		QuestionProofKinds: options(
-			[2]string{"none", "No proof"},
-			[2]string{domain.QuestionProofPhoto, "Photo"},
-			[2]string{domain.QuestionProofVideo, "Video"},
-			[2]string{domain.QuestionProofPhotoOrVideo, "Photo or video"},
-		),
+		QuestionProofKinds: questionProofKindOptions(),
 		QuestionProofCounts: options(
 			[2]string{domain.QuestionProofSingle, "One"},
 			[2]string{domain.QuestionProofMultiple, "Up to " + strconv.Itoa(domain.MaxProofPerKind)},
@@ -145,6 +141,27 @@ func (h *AdminHandler) Catalog(w http.ResponseWriter, r *http.Request) {
 		out.Roles = append(out.Roles, catalogRolePayload{Key: role.Role, Label: domain.RoleLabel(role.Role), People: people})
 	}
 	httpresponse.WriteJSON(w, http.StatusOK, out)
+}
+
+func questionProofKindOptions() []optionPayload {
+	kinds := [][2]string{{"none", "No proof"}}
+	if questionProofAuthoringEnabled() {
+		kinds = append(kinds,
+			[2]string{domain.QuestionProofPhoto, "Photo"},
+			[2]string{domain.QuestionProofVideo, "Video"},
+			[2]string{domain.QuestionProofPhotoOrVideo, "Photo or video"},
+		)
+	}
+	return options(kinds...)
+}
+
+func questionProofAuthoringEnabled() bool {
+	switch strings.ToLower(strings.TrimSpace(os.Getenv("GOATOS_PEN_ROUTINE_QUESTION_PROOF_AUTHORING"))) {
+	case "1", "true", "yes", "on", "enabled":
+		return true
+	default:
+		return false
+	}
 }
 
 // Create serves POST /admin/pen-routines.
