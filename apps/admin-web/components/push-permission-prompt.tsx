@@ -198,7 +198,7 @@ export function PushPermissionPrompt({
         // anything, so a button here would be a button that cannot work. The only true thing to
         // say is where the person can undo it themselves.
         <div className="flex items-center gap-2 text-sm">
-          <BellOff className="h-4 w-4" aria-hidden="true" />
+          <BellOff className="h-4 w-4 shrink-0" aria-hidden="true" />
           <span>{copy("push.blocked")}</span>
         </div>
       ) : null}
@@ -210,7 +210,7 @@ export function PushPermissionPrompt({
         // vocabulary in front of a CXO on every page. The reason stays for logs; the reader
         // gets the business sentence from the contract.
         <div className="flex items-center gap-2 text-sm">
-          <BellOff className="h-4 w-4" aria-hidden="true" />
+          <BellOff className="h-4 w-4 shrink-0" aria-hidden="true" />
           <span>
             {copy(
               state.status === "unconfigured"
