@@ -49,6 +49,8 @@ export type FeedWeightBandExitScope = {
 export type FeedWeightBandExitsDrawerLabels = {
   aria: string;
   eyebrow: string;
+  /** The exits' bucket and weighed split, shown under the period line. */
+  detail: string;
   close: string;
   period: string;
   search: string;
@@ -140,6 +142,7 @@ export function FeedWeightBandExitsDrawer({
             </h2>
             <div className="sb">
               {labels.period} {periodLabel}
+              {labels.detail ? <span className="muted"> · {labels.detail}</span> : null}
             </div>
           </div>
           <span className="sp" style={{ flex: 1 }} />

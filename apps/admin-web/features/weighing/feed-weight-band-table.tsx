@@ -37,6 +37,8 @@ export type FeedWeightBandTableRow = {
   park: string;
   weightSource: string;
   weightSourceLabel: string;
+  /** The desktop table's compact pill ("Lump" / "Animal"); the full label is its title. */
+  weightSourceShort: string;
   band: string;
   bandLabel: string;
   pen: string;
@@ -45,6 +47,8 @@ export type FeedWeightBandTableRow = {
   breed: string;
   feedType: string;
   feedTypeLabel: string;
+  /** The desktop table's compact pill ("Exp." / "Normal"); the full label is its title. */
+  feedTypeShort: string;
   feedGiven: string;
   penKgPerDay: number;
   weightAnimals: number;
@@ -74,8 +78,52 @@ export type FeedWeightBandTableLabels = {
 const kg = (value: number, digits = 1) =>
   value.toLocaleString("en-IN", { minimumFractionDigits: digits, maximumFractionDigits: digits });
 
-function FeedTypeTag({ feedType, label }: { feedType: string; label: string }) {
-  return <Tag tone={feedType === "experiment" ? "pur" : "mut"}>{label}</Tag>;
+function FeedTypeTag({ feedType, label, title }: { feedType: string; label: string; title?: string }) {
+  return (
+    <Tag tone={feedType === "experiment" ? "pur" : "mut"} title={title}>
+      {label}
+    </Tag>
+  );
+}
+
+/** "Bhusa 250 g/head + Kids Concentrate 1450 g/head" as one line per item, never truncated. */
+function FeedGivenLines({ value }: { value: string }) {
+  const parts = value.split(" + ").filter(Boolean);
+  return (
+    <span className="wt-feedband-feed">
+      {parts.map((part, index) => (
+        <span key={part + index} className="wt-feedband-feedline">
+          {index > 0 ? "+ " : ""}
+          {part}
+        </span>
+      ))}
+    </span>
+  );
+}
+
+function ExitNotes({ row, labels }: { row: FeedWeightBandTableRow; labels: FeedWeightBandTableLabels }) {
+  const notes: string[] = [];
+  const prefix = row.includeExited ? `${labels.incl} ` : "+";
+  if (row.exitedSold > 0) notes.push(`${prefix}${row.exitedSold.toLocaleString("en-IN")} ${labels.sold}`);
+  if (row.exitedDied > 0) notes.push(`${prefix}${row.exitedDied.toLocaleString("en-IN")} ${labels.died}`);
+  if (row.exitedOther > 0) notes.push(`${prefix}${row.exitedOther.toLocaleString("en-IN")} ${labels.other}`);
+  return (
+    <>
+      {notes.map((note) =>
+        row.exitHref ? (
+          // A click opens the exited panel for THIS pen and bracket, the app's local drawer: no
+          // route re-run, filters untouched.
+          <LocalOverlayLink key={note} href={row.exitHref} className="wt-feedband-gone" scroll={false}>
+            {note}
+          </LocalOverlayLink>
+        ) : (
+          <span key={note} className="wt-feedband-gone">
+            {note}
+          </span>
+        ),
+      )}
+    </>
+  );
 }
 
 /**
@@ -94,66 +142,93 @@ export function FeedWeightBandTable({
   labels: FeedWeightBandTableLabels;
 }) {
   const columns = columnsFromContract<FeedWeightBandTableRow>(contract, {
-    park: { cell: (row) => row.park },
+    park: { cell: (row) => <Tag tone="mut">{row.park}</Tag> },
     weight_source: {
       cell: (row) => (
-        <Tag tone={row.weightSource === "per_animal" ? "info" : "mut"}>{row.weightSourceLabel}</Tag>
+        <Tag tone={row.weightSource === "per_animal" ? "info" : "mut"} title={row.weightSourceLabel}>
+          {row.weightSourceShort}
+        </Tag>
       ),
     },
-    band: { cell: (row) => <BandCell band={row.band} label={row.bandLabel} /> },
-    pen: { cell: (row) => <b title={row.pen}>{row.pen}</b>, meta: { cellClassName: "wt-feedband-clip" } },
-    group: { cell: (row) => <span title={row.group}>{row.group}</span>, meta: { cellClassName: "wt-feedband-clip" } },
-    gender: { cell: (row) => (row.gender ? row.gender : <span className="muted">{labels.noGender}</span>) },
-    breed: { cell: (row) => <span title={row.breed}>{row.breed}</span>, meta: { cellClassName: "wt-feedband-wrap" } },
-    feed_type: { cell: (row) => <FeedTypeTag feedType={row.feedType} label={row.feedTypeLabel} /> },
-    feed_given: { cell: (row) => <span className="wt-feedband-feed" title={row.feedGiven}>{row.feedGiven}</span> },
+    // Label only on the desktop table; the six-step bar rides under the label on the phone cards.
+    band: { cell: (row) => <b className="wt-feedband-bandlabel">{row.bandLabel}</b> },
+    pen: { cell: (row) => <b>{row.pen}</b>, meta: { cellClassName: "wt-feedband-pen" } },
+    group: { cell: (row) => row.group, meta: { cellClassName: "wt-feedband-narrow" } },
+    gender: { cell: (row) => (row.gender ? row.gender : <span className="muted">{labels.noGender}</span>), meta: { cellClassName: "wt-feedband-narrow" } },
+    breed: { cell: (row) => row.breed, meta: { cellClassName: "wt-feedband-breed" } },
+    feed_type: { cell: (row) => <FeedTypeTag feedType={row.feedType} label={row.feedTypeShort} title={row.feedTypeLabel} /> },
+    feed_given: { cell: (row) => <FeedGivenLines value={row.feedGiven} />, meta: { cellClassName: "wt-feedband-feedcell" } },
     pen_kg_per_day: {
       cell: (row) => kg(row.penKgPerDay),
-      meta: { cellClassName: "num" },
+      meta: { cellClassName: "num wt-feedband-num" },
     },
     weight_animals: {
-      cell: (row) => {
-        const notes: string[] = [];
-        const prefix = row.includeExited ? `${labels.incl} ` : "+";
-        if (row.exitedSold > 0) notes.push(`${prefix}${row.exitedSold.toLocaleString("en-IN")} ${labels.sold}`);
-        if (row.exitedDied > 0) notes.push(`${prefix}${row.exitedDied.toLocaleString("en-IN")} ${labels.died}`);
-        if (row.exitedOther > 0) notes.push(`${prefix}${row.exitedOther.toLocaleString("en-IN")} ${labels.other}`);
-        return (
-          <>
-            {row.weightAnimals.toLocaleString("en-IN")}
-            {notes.map((note) =>
-              row.exitHref ? (
-                // A click opens the exited panel for THIS pen and bracket, the app's local
-                // drawer: no route re-run, filters untouched.
-                <LocalOverlayLink key={note} href={row.exitHref} className="wt-feedband-gone" scroll={false}>
-                  {note}
-                </LocalOverlayLink>
-              ) : (
-                <span key={note} className="wt-feedband-gone">
-                  {note}
-                </span>
-              ),
-            )}
-          </>
-        );
-      },
-      meta: { cellClassName: "num" },
+      cell: (row) => (
+        <>
+          {row.weightAnimals.toLocaleString("en-IN")}
+          <ExitNotes row={row} labels={labels} />
+        </>
+      ),
+      meta: { cellClassName: "num wt-feedband-num" },
     },
     average_weight: {
       cell: (row) => kg(row.averageKg),
-      meta: { cellClassName: "num" },
+      meta: { cellClassName: "num wt-feedband-num" },
     },
   });
+  const visible = new Set(contract.columns.filter((column) => column.visible).map((column) => column.key));
 
   return (
-    <DataTable<FeedWeightBandTableRow>
-      className="tbl wt-feedband"
-      columns={columns}
-      data={rows}
-      getRowId={(row) => row.key}
-      ariaLabel={labels.ariaLabel}
-      empty={labels.empty}
-    />
+    <>
+      <div className="wt-feedband-tablehost">
+        <DataTable<FeedWeightBandTableRow>
+          className="tbl wt-feedband"
+          columns={columns}
+          data={rows}
+          getRowId={(row) => row.key}
+          ariaLabel={labels.ariaLabel}
+          empty={labels.empty}
+        />
+      </div>
+      {/* Phone (< 768px): one stacked card per row instead of the twelve-column table, so Feed
+          given and Breed read in full and nothing scrolls sideways. Same rows, same order. */}
+      <ul className="wt-feedband-cards" aria-label={labels.ariaLabel}>
+        {rows.length === 0 ? <li className="wt-feedband-cardempty muted small">{labels.empty}</li> : null}
+        {rows.map((row) => (
+          <li key={row.key} className="wt-feedband-cardrow">
+            <div className="wt-feedband-cardline">
+              <b className="wt-feedband-cardpen">{row.pen}</b>
+              {visible.has("park") ? <Tag tone="mut">{row.park}</Tag> : null}
+              <Tag tone={row.weightSource === "per_animal" ? "info" : "mut"}>{row.weightSourceLabel}</Tag>
+            </div>
+            <div className="wt-feedband-cardline">
+              <BandCell band={row.band} label={row.bandLabel} />
+            </div>
+            <div className="wt-feedband-cardline wt-feedband-cardfeed">
+              <FeedTypeTag feedType={row.feedType} label={row.feedTypeLabel} />
+              <FeedGivenLines value={row.feedGiven} />
+            </div>
+            <div className="wt-feedband-cardline muted small">
+              {row.breed} · {row.group} · {row.gender || labels.noGender}
+            </div>
+            <div className="wt-feedband-cardline wt-feedband-cardnums">
+              <span>
+                <span className="muted small">{contract.columns.find((column) => column.key === "pen_kg_per_day")?.label} </span>
+                <b>{kg(row.penKgPerDay)}</b>
+              </span>
+              <span>
+                <span className="muted small">{contract.columns.find((column) => column.key === "weight_animals")?.label} </span>
+                <b>{row.weightAnimals.toLocaleString("en-IN")}</b> <ExitNotes row={row} labels={labels} />
+              </span>
+              <span>
+                <span className="muted small">{contract.columns.find((column) => column.key === "average_weight")?.label} </span>
+                <b>{kg(row.averageKg)}</b>
+              </span>
+            </div>
+          </li>
+        ))}
+      </ul>
+    </>
   );
 }
 

@@ -37,8 +37,8 @@ latest sheet even when one is a day older (the first cut filtered every selected
 `max(feed_day)` and dropped the park with the older sheet; Codex P1 on PR #304, pinned by the
 integration fixture where park B's latest sheet is one day older than park A's).
 `reconciliation.feed_sheets` lists the sheet read per park and workflow; `feed_day` is the newest
-of them. The chip reads "Feed sheet 19/09/2026" when every sheet is the same day, otherwise
-"Feed sheets · CBE 19/09/2026 · CPT 18/09/2026" (with the workflow named when a park's normal
+of them. The chip reads "Feed plan 19/09/2026" when every plan is the same day, otherwise
+"Feed plans · CBE 19/09/2026 · CPT 18/09/2026" (with the workflow named when a park's normal
 and experiment sheets differ).
 
 1. **Feed day** = `max(feed_day)` over `feed_direction_issues` with `state IN ('amended','locked')`
@@ -235,9 +235,11 @@ with the General tab and is not changed here. Browser Animals toggle, click → 
 
 ## UI
 
-- One card under the Weight-wise chart: feed-day chip, clickable "N fed pens not shown" chip
-  (→ Not shown view) and "N exited in period · N sold · N died · N other — N weighed, N no
-  weighing in period" chip (→ panel), a
+- One card under the Weight-wise chart: one-line caption (the rules live in the ⓘ, which also
+  defines "Feed plan" = the locked daily feed-direction record in GoATOS for that date, not a
+  spreadsheet), feed-plan chip, clickable "N fed pens not shown" chip
+  (→ Not shown view) and "N exited · N weighed" chip (→ panel; the sold / died / other split and
+  the not-weighed count are its tooltip and the panel header), a
   `Matched | Not shown` segmented view, `On farm | Include exited` (Matched only), table-level filters (Feed type,
   Weight source*, Band*, Pen, Group*; * Matched only) with the bar's own Clear, a text search,
   at most eight stat tiles, the table, and the shared pager (10/25/50, default 25; lump-sum rows first within

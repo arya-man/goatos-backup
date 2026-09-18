@@ -5423,7 +5423,7 @@ func pageSpecificCopy(id string) map[string]string {
 			// the feed is today's sheet (it is the latest LOCKED sheet, named in the line above
 			// the table).
 			"section.feed_band.title":         "Feed by weight band",
-			"section.feed_band.caption":       "What each pen is fed on the latest locked feed sheet, beside its weighing in the selected period, counted the way the General tab counts: a pen weighed whole on two dates is one row on its latest average; a pen weighed per animal is one row per weight bracket, each animal at its latest weigh after an earlier one. Park, period, weighing, sex and origin apply; the period bounds the weighings only. Animals that have since exited the register (sold, died or otherwise) sit outside the head count unless included.",
+			"info.feed_band.caption":          "What each pen is being fed, placed against the observed 5 kg weight band of its animals — not consumption per band.",
 			"section.feed_band.aria":          "Feed given by weight bracket and pen",
 			"empty.feed_band.body":            "No fed pen has a weighing in this period.",
 			"empty.feed_band.filtered":        "No row matches these filters.",
@@ -5438,6 +5438,12 @@ func pageSpecificCopy(id string) map[string]string {
 			"filter.feed_band.search_aria":    "Search the feed by weight band table",
 			"value.feed_band.type.normal":     "Normal",
 			"value.feed_band.type.experiment": "Experiment",
+			// Compact pills on the desktop table so Breed and Feed given never truncate (maintainer,
+			// 2026-09-19); the full words stay on each pill's title and on the phone cards.
+			"value.feed_band.type.short.normal":          "Normal",
+			"value.feed_band.type.short.experiment":      "Exp.",
+			"value.feed_band.source.short.pen_average":   "Lump",
+			"value.feed_band.source.short.per_animal":    "Animal",
 			"value.feed_band.animals.on_farm": "On farm",
 			"value.feed_band.animals.all":     "Include exited",
 			"value.feed_band.no_gender":       "—",
@@ -5446,6 +5452,9 @@ func pageSpecificCopy(id string) map[string]string {
 			// row, what Excluded counts, and what the two pills are. Backend copy, rendered verbatim.
 			"info.feed_band.hint":     "How to read this table",
 			"info.feed_band.title":    "Reading this table",
+			// The former card caption, verbatim (maintainer request 2026-09-19: one-line caption, rules in the popover).
+			"info.feed_band.plan":     "Feed plan = the locked daily feed-direction record in GoATOS for that date (what each pen was issued), not a spreadsheet.",
+			"info.feed_band.rules":    "What each pen is fed on the latest locked feed plan, beside its weighing in the selected period, counted the way the General tab counts: a pen weighed whole on two dates is one row on its latest average; a pen weighed per animal is one row per weight bracket, each animal at its latest weigh after an earlier one. Park, period, weighing, sex and origin apply; the period bounds the weighings only. Animals that have since exited the register (sold, died or otherwise) sit outside the head count unless included.",
 			"info.feed_band.wt_n":     "Wt n is the animals behind the weight: the bracket's head count on a per-animal row, the pen's head count at its latest whole-pen weigh on a lump-sum row.",
 			"info.feed_band.kg_day":   "Pen kg/day is the whole rollup's feed for the day; a per-animal pen repeats it on every bracket row, so do not add those rows up.",
 			"info.feed_band.excluded": "Excluded counts feed rollups whose pen has no qualifying weighing in the period, including pens whose weighed animals have all since exited.",
@@ -5457,7 +5466,7 @@ func pageSpecificCopy(id string) map[string]string {
 			"view.feed_band.matched":   "Matched",
 			"view.feed_band.unmatched": "Not shown",
 			"view.feed_band.exited":    "Exited",
-			"note.feed_band.unmatched": "Feed rollups on the latest sheet whose pen has no qualifying weighing in the selected period. They are on the sheet and counted; they are never banded or guessed.",
+			"note.feed_band.unmatched": "Feed rollups on the latest feed plan whose pen has no qualifying weighing in the selected period. They are on the plan and counted; they are never banded or guessed.",
 			// The exited panel (the app's record drawer): opened from the count chip, the stat tile,
 			// or a band row's "+N sold" note, scoped to what was clicked. Three buckets (sold /
 			// died / other = domain.FeedExitBucket); the stored reason is shown beside the bucket.
@@ -5514,11 +5523,9 @@ func pageSpecificCopy(id string) map[string]string {
 			// Above the table (maintainer request 2026-09-18): the sheet day as a chip and the
 			// count of fed pens not shown. The full sheet-to-rows chain is in the design doc
 			// (docs/weighing/feed-direction-by-weight-band.md) and on the wire, not on screen.
-			"recon.feed_band.sheet":    "Feed sheet",
-			"recon.feed_band.sheets":   "Feed sheets",
-			"recon.feed_band.excluded": "fed pens not shown — no weighing in period",
-			"recon.feed_band.exited":   "exited in period",
-			"recon.feed_band.no_sheet": "No locked feed sheet on record.",
+			"recon.feed_band.sheet":    "Feed plan",
+			"recon.feed_band.sheets":   "Feed plans",
+			"recon.feed_band.no_sheet": "No locked feed plan on record.",
 			"pager.feed_band.noun":     "row",
 			// Column labels, read by feedWeightBandTable.
 			"column.feed_band.weight_source":  "Weight source",

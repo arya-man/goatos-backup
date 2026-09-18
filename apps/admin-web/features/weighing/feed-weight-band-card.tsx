@@ -4,7 +4,6 @@ import { useEffect, useMemo, useState } from "react";
 import { Search, Wheat } from "lucide-react";
 
 import { LocalOverlayLink } from "@/components/local-overlay-link";
-import { Tag } from "@/components/ui-primitives";
 import { copy, table, type AdminUiPageContract } from "@/lib/admin-ui-contract";
 import type { FeedWeightBandResponse } from "@/lib/api/server";
 import { fmtDate } from "@/lib/format";
@@ -264,10 +263,11 @@ export function FeedWeightBandCard({
     });
   }
 
-  // One chip when every park's sheet is the same day; otherwise each park's own day (each
-  // park reads its own latest sheet), and the workflow too when a park's two sheets differ.
-  const sheetChip = (() => {
-    if (!recon?.feed_day) return "";
+  // "· plan 19/09/2026" beside the title: one date when every park's plan is the same day,
+  // otherwise each park's own day (each park reads its own latest plan), with the workflow
+  // named when a park's normal and experiment plans differ. Every plan is on the tooltip.
+  const planLine = (() => {
+    if (!recon?.feed_day) return copy(pageContract, "recon.feed_band.no_sheet");
     const sheets = recon.feed_sheets;
     const days = new Set(sheets.map((sheet) => sheet.feed_day));
     if (days.size <= 1) return `${copy(pageContract, "recon.feed_band.sheet")} ${fmtDate(recon.feed_day)}`;
@@ -281,7 +281,13 @@ export function FeedWeightBandCard({
       .map((sheet) => (perPark.get(sheet.park_name)!.size > 1 ? `${sheet.park_name} ${typeLabel(sheet.workflow)} ${fmtDate(sheet.feed_day)}` : `${sheet.park_name} ${fmtDate(sheet.feed_day)}`));
     return `${copy(pageContract, "recon.feed_band.sheets")} · ${parts.join(" · ")}`;
   })();
-  const excludedCount = recon ? (includeExited ? recon.excluded_rollups_all : recon.excluded_rollups) : 0;
+  const planTitle = recon ? recon.feed_sheets.map((sheet) => `${sheet.park_name} · ${typeLabel(sheet.workflow)} · ${fmtDate(sheet.feed_day)}`).join(" · ") : "";
+  // "56 sold · 3 died · 6 other — 10 no weighing in period": the exit chip's tooltip and the
+  // panel's header line.
+  const exitDetail =
+    recon && recon.exited_animals > 0
+      ? `${exitBreakdown(recon.exited_sold, recon.exited_died, recon.exited_other)} — ${n(recon.exited_not_weighed)} ${copy(pageContract, "stat.feed_band.not_weighed")}`
+      : "";
   // One park in the payload: the Park column would repeat one word on every row, so the table
   // contract handed down hides it (density, not vocabulary).
   const singlePark = parkNames.length <= 1;
@@ -314,6 +320,15 @@ export function FeedWeightBandCard({
           <span className="wgl-pop">
             <b>{copy(pageContract, "info.feed_band.title")}</b>
             <span className="wgl-pop-list">
+              {recon ? (
+                <span title={planTitle}>
+                  <b>{planLine}</b>
+                  {recon.exited_animals > 0 ? ` · ${n(recon.exited_animals)} ${copy(pageContract, "stat.feed_band.exited").toLowerCase()}: ${exitDetail}` : ""}
+                </span>
+              ) : null}
+              <span>{copy(pageContract, "info.feed_band.caption")}</span>
+              <span>{copy(pageContract, "info.feed_band.plan")}</span>
+              <span>{copy(pageContract, "info.feed_band.rules")}</span>
               <span>{copy(pageContract, "info.feed_band.wt_n")}</span>
               <span>{copy(pageContract, "info.feed_band.kg_day")}</span>
               <span>{copy(pageContract, "info.feed_band.excluded")}</span>
@@ -323,33 +338,7 @@ export function FeedWeightBandCard({
           </span>
         </span>
       </h2>
-      <p className="muted small">{copy(pageContract, "section.feed_band.caption")}</p>
-      {recon ? (
-        <p className="muted small wt-feedband-recon">
-          {recon.feed_day ? (
-            <Tag tone="mut" title={recon.feed_sheets.map((sheet) => `${sheet.park_name} · ${typeLabel(sheet.workflow)} · ${fmtDate(sheet.feed_day)}`).join(" · ")}>
-              {sheetChip}
-            </Tag>
-          ) : (
-            copy(pageContract, "recon.feed_band.no_sheet")
-          )}
-          {recon.feed_day ? (
-            <>
-              {" "}
-              <button type="button" className="wt-feedband-chip" onClick={() => update({ view: "unmatched", source: "", group: "", band: "" })}>
-                {n(excludedCount)} {copy(pageContract, "recon.feed_band.excluded")}
-              </button>{" "}
-              <LocalOverlayLink href={exitHref("all")} className="wt-feedband-chip" scroll={false}>
-                {n(recon.exited_animals)} {copy(pageContract, "recon.feed_band.exited")}
-                {recon.exited_animals > 0 ? ` · ${exitBreakdown(recon.exited_sold, recon.exited_died, recon.exited_other)}` : ""}
-                {recon.exited_animals > 0 ? ` — ${n(recon.exited_weighed)} ${copy(pageContract, "stat.feed_band.weighed")}, ${n(recon.exited_not_weighed)} ${copy(pageContract, "stat.feed_band.not_weighed")}` : ""}
-              </LocalOverlayLink>
-            </>
-          ) : null}
-        </p>
-      ) : (
-        <p className="muted small">{copy(pageContract, "error.load.body")}</p>
-      )}
+      {recon ? null : <p className="muted small">{copy(pageContract, "error.load.body")}</p>}
       <div className="wt-feedband-segments">
         <nav className="metricseg" aria-label={copy(pageContract, "view.feed_band.aria")}>
           <button type="button" className={view === "matched" ? "on" : ""} aria-current={view === "matched" ? "true" : undefined} onClick={() => update({ view: "matched" })}>
@@ -436,6 +425,7 @@ export function FeedWeightBandCard({
               park: row.park_name,
               weightSource: row.weight_source,
               weightSourceLabel: sourceLabel(row.weight_source),
+              weightSourceShort: copy(pageContract, `value.feed_band.source.short.${row.weight_source}`, sourceLabel(row.weight_source)),
               band: row.band,
               bandLabel: bandLabel(row.band),
               pen: row.pen,
@@ -444,6 +434,7 @@ export function FeedWeightBandCard({
               breed: row.breed,
               feedType: row.feed_type,
               feedTypeLabel: typeLabel(row.feed_type),
+              feedTypeShort: copy(pageContract, `value.feed_band.type.short.${row.feed_type}`, typeLabel(row.feed_type)),
               feedGiven: row.feed_given,
               penKgPerDay: row.pen_kg_per_day,
               weightAnimals: includeExited ? row.weight_animals_all : row.weight_animals,
@@ -519,6 +510,7 @@ export function FeedWeightBandCard({
         labels={{
           aria: copy(pageContract, "drawer.feed_band.aria"),
           eyebrow: copy(pageContract, "drawer.feed_band.eyebrow"),
+          detail: exitDetail,
           close: copy(pageContract, "drawer.feed_band.close"),
           period: copy(pageContract, "drawer.feed_band.period"),
           search: copy(pageContract, "drawer.feed_band.search"),
