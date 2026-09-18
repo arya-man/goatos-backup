@@ -234,15 +234,29 @@ function PeopleFilter({
 }
 
 /**
- * The wording for a column the response does not describe. Only `cancelled` reaches this: the
- * other three always arrive with a backend label, which is the wording the status chips use.
+ * The wording for a column the response does not describe. Only `cancelled` reaches this today:
+ * the other three always arrive with a backend label, which is the wording the status chips use.
+ *
+ * NEVER THE COLUMN KEY. The third argument used to be `column` itself, so the branch that fires
+ * when that assumption stops holding fired with the worst possible value and rendered the raw
+ * wire token `in_progress` as a column heading. A status token is a wire value, not presentation
+ * copy. Every column now has a contract key (`board.column.*` in the leadership-tasks page copy)
+ * and a human sentence here for the deploy-skew window before the backend serves it.
  */
+const COLUMN_FALLBACK_LABELS: Record<TaskBoardColumn, string> = {
+  open: "Open",
+  in_progress: "Doing",
+  done: "Done",
+  cancelled: "Cancelled",
+};
+
 function columnFallbackLabel(
   pageContract: AdminUiPageContract,
   column: TaskBoardColumn,
 ): string {
-  if (column === "cancelled") {
-    return copy(pageContract, "board.column.cancelled", "Cancelled");
-  }
-  return copy(pageContract, `board.column.${column}`, column);
+  return copy(
+    pageContract,
+    `board.column.${column}`,
+    COLUMN_FALLBACK_LABELS[column],
+  );
 }
