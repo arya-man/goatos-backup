@@ -171,6 +171,15 @@ once, and a phase end is fenced on the job still being in that phase — a cance
 mid-chunk wins, and rows it marked skipped are not re-marked by the chunk in flight (both
 mutation-tested).
 
+**Excel files are READ by a stdlib reader, not excelize.** excelize 2.11.0 writes the downloads
+(its stream writer is clear), but its row reader carries an unfixed advisory (GO-2026-6452, a
+crafted shared-string index panics the reader) and an uploaded sheet is untrusted input, so
+`configuration/app/xlsx_reader.go` streams the first worksheet with `archive/zip` +
+`encoding/xml`: shared and inline strings, booleans, numbers as written, and a numeric cell under a
+date number format rendered as YYYY-MM-DD (a date of birth typed in Excel arrives as the register
+expects). Out-of-range string indexes read as blank. Pinned by `xlsx_reader_test.go`, which writes a
+workbook with excelize and reads it back.
+
 **Animals** are the one register the importer does not write: each 500-row chunk is handed to
 identity's `PreviewAdminGoatBulkImport` (validate) and preview + `CommitAdminGoatBulkImport`
 (apply) with park and pen resolved here by code or name. Identity's per-row rules (identifier

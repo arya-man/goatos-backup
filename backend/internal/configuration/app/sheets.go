@@ -3,6 +3,7 @@ package app
 import (
 	"context"
 	"encoding/csv"
+	"errors"
 	"fmt"
 	"io"
 	"strings"
@@ -189,21 +190,15 @@ type csvReader struct{ r *csv.Reader }
 
 func (c csvReader) Next() ([]string, error) { return c.r.Read() }
 
-type xlsxReader struct {
-	f    *excelize.File
-	rows *excelize.Rows
-}
+type xlsxReader struct{ wb *xlsxWorkbook }
 
 func (x *xlsxReader) Next() ([]string, error) {
-	if !x.rows.Next() {
-		if err := x.rows.Error(); err != nil {
-			return nil, err
-		}
-		_ = x.rows.Close()
-		_ = x.f.Close()
+	row, err := x.wb.Next()
+	if errors.Is(err, io.EOF) {
+		_ = x.wb.Close()
 		return nil, io.EOF
 	}
-	return x.rows.Columns()
+	return row, err
 }
 
 // OpenSheet opens an uploaded file of the format for streaming. An XLSX is read from its first
@@ -218,22 +213,17 @@ func OpenSheet(format string, src io.Reader) (SheetReader, error) {
 		r.LazyQuotes = true
 		return csvReader{r: r}, nil
 	case domain.FormatXLSX:
-		f, err := excelize.OpenReader(src)
+		// The upload is bounded by the transport (64 MB); the workbook is held while its first
+		// sheet streams out row by row through the stdlib reader.
+		data, err := io.ReadAll(src)
 		if err != nil {
-			// The cause travels in the transport error's detail; the person sees the farm sentence.
+			return nil, &Error{Code: "invalid_file", HTTPStatus: 400, Message: "That file could not be read.", Fields: []domain.FieldError{{Field: "file", Code: "invalid", Message: err.Error()}}}
+		}
+		wb, err := openXLSX(data)
+		if err != nil {
 			return nil, &Error{Code: "invalid_file", HTTPStatus: 400, Message: "That file could not be read as an Excel workbook.", Fields: []domain.FieldError{{Field: "file", Code: "invalid", Message: err.Error()}}}
 		}
-		sheets := f.GetSheetList()
-		if len(sheets) == 0 {
-			_ = f.Close()
-			return nil, BadRequest("invalid_file", "That workbook has no sheet in it.")
-		}
-		rows, err := f.Rows(sheets[0])
-		if err != nil {
-			_ = f.Close()
-			return nil, &Error{Code: "invalid_file", HTTPStatus: 400, Message: "That workbook could not be read.", Fields: []domain.FieldError{{Field: "file", Code: "invalid", Message: err.Error()}}}
-		}
-		return &xlsxReader{f: f, rows: rows}, nil
+		return &xlsxReader{wb: wb}, nil
 	}
 	return nil, BadRequest("invalid_format", "Upload a .csv or .xlsx file.")
 }
