@@ -23,7 +23,8 @@ const maxRequestBytes = 256 << 10
 
 // Service is the slice of the app service the transport needs.
 type Service interface {
-	Registers() []domain.Register
+	Registers(ctx context.Context, tenantID string) ([]domain.Register, error)
+	Register(ctx context.Context, tenantID, key string) (domain.Register, error)
 	Counts(ctx context.Context, tenantID string) (map[string]int, error)
 	List(ctx context.Context, tenantID, register string, p ports.ListParams) (ports.Page, error)
 	Get(ctx context.Context, tenantID, register, id string) (domain.Row, error)
@@ -120,14 +121,20 @@ func (h *Handler) Registers(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, r, h.log, app.HTTPError(err))
 		return
 	}
+	registers, err := h.service.Registers(r.Context(), tenantID(r))
+	if err != nil {
+		writeErr(w, r, h.log, app.HTTPError(err))
+		return
+	}
 	httpresponse.WriteJSON(w, http.StatusOK, registersPayload{
-		Registers: h.service.Registers(),
+		Registers: registers,
 		Counts:    counts,
 		Groups: []groupPayload{
 			{Key: domain.GroupFarmPlaces, Label: "Farm places"},
 			{Key: domain.GroupAnimalTypes, Label: "Animal types"},
 			{Key: domain.GroupCatalogue, Label: "Catalogue"},
 			{Key: domain.GroupPeople, Label: "People"},
+			{Key: domain.GroupReference, Label: "Reference lists"},
 		},
 		TraceID: traceID(r),
 	})
@@ -136,9 +143,9 @@ func (h *Handler) Registers(w http.ResponseWriter, r *http.Request) {
 // List serves GET /admin/configuration/{register}?status&q&cursor&limit&f.<column>=.
 func (h *Handler) List(w http.ResponseWriter, r *http.Request) {
 	register := r.PathValue("register")
-	reg, ok := domain.RegisterByKey(register)
-	if !ok {
-		writeErr(w, r, h.log, app.HTTPError(domain.ErrUnknownRegister))
+	reg, err := h.service.Register(r.Context(), tenantID(r), register)
+	if err != nil {
+		writeErr(w, r, h.log, app.HTTPError(err))
 		return
 	}
 	q := r.URL.Query()

@@ -4474,7 +4474,8 @@ components:
       name: register
       in: path
       required: true
-      schema: { type: string, enum: [farms, parks, pens, partitions, species, sexes, stages, categories, items, feed_items] }
+      description: A static register key, or `ref:<list_key>` for one of the farm's own reference lists.
+      schema: { type: string }
     ConfigurationRowID:
       name: row_id
       in: path
@@ -13067,6 +13068,7 @@ components:
         edit_label: { type: string, description: The name of that screen. }
         hidden: { type: boolean, description: Kept out of the rail; still served and written. }
         layout: { type: string, enum: [catalogue], description: "catalogue = the Lists panel + items table layout." }
+        list_key: { type: string, description: Set on a dynamic reference-list register (`ref:<key>`), the reference_lists row it renders. }
         filters:
           type: array
           items: { type: string }

@@ -11,6 +11,7 @@ import (
 	"io"
 	"log/slog"
 	"net/http"
+	"regexp"
 	"sort"
 	"strings"
 	"time"
@@ -159,10 +160,15 @@ type GoatLifecycleValidator interface {
 	ListTemporaryTaggedGoats(ctx context.Context, in identityapp.ListTemporaryTaggedGoatsInput) (*identitydomain.TemporaryTaggedGoatsResult, error)
 }
 
+// ReferenceEntryLookup answers "is this code an active entry of the tenant's reference list"
+// (Configuration -> Reference lists); the movement_reasons list is the one this handler asks.
+type ReferenceEntryLookup func(ctx context.Context, tenantID, listKey, code string) (bool, error)
+
 type AppWriteHandler struct {
-	shifting  ShiftingEventRecorder
-	approvals ApprovalWorkflow
-	validator GoatLifecycleValidator
+	referenceLookup ReferenceEntryLookup
+	shifting        ShiftingEventRecorder
+	approvals       ApprovalWorkflow
+	validator       GoatLifecycleValidator
 	// execution owns what happens AFTER a shifting is authorized: complete, cancel, and the
 	// operator's pending-execution queue. See shifting_execution_handler.go.
 	execution ShiftingExecutionWorkflow
@@ -196,6 +202,12 @@ func NewAppWriteHandler(shifting ShiftingEventRecorder, log *slog.Logger) *AppWr
 		log = slog.Default()
 	}
 	return &AppWriteHandler{shifting: shifting, log: log}
+}
+
+// WithReferenceLookup wires the reference-list membership check a farm-added movement reason needs.
+func (h *AppWriteHandler) WithReferenceLookup(lookup ReferenceEntryLookup) *AppWriteHandler {
+	h.referenceLookup = lookup
+	return h
 }
 
 // WithApprovalWorkflow turns the three submit routes into PENDING-request writers and enables the
@@ -406,6 +418,8 @@ type appApprovalSubmitResponse struct {
 // matches Postgres char_length() in shifting_events_raise_comment_length_check exactly.
 const maxShiftingCommentRunes = 1000
 
+var customShiftReasonCode = regexp.MustCompile(`^[a-z][a-z0-9_]{0,39}$`)
+
 var (
 	// Priority High/Low (maintainer decision 2026-07-20). Category is no longer mere taxonomy:
 	// since the 2026-08-20 shifting rewrite the category IS the shift TYPE, and the type decides
@@ -463,6 +477,23 @@ func (h *AppWriteHandler) RecordShiftingEvent(w http.ResponseWriter, r *http.Req
 	if err != nil {
 		h.writeAppError(w, r, err)
 		return
+	}
+	if normalized.Category != "" && !allowedShiftingCategory[normalized.Category] {
+		// A farm-added movement reason must be an ACTIVE entry of the tenant's movement_reasons
+		// list (Configuration -> Reference lists). No lookup wired means no custom reasons.
+		allowed := false
+		if h.referenceLookup != nil {
+			ok, lookupErr := h.referenceLookup(r.Context(), tenantID, "movement_reasons", normalized.Category)
+			if lookupErr != nil {
+				h.writeError(w, r, http.StatusInternalServerError, "reference_lookup_failed", "could not check the movement reason", lookupErr)
+				return
+			}
+			allowed = ok
+		}
+		if !allowed {
+			h.writeAppError(w, r, identityapp.BadRequest("invalid_category", "category must be one of the farm's movement reasons"))
+			return
+		}
 	}
 	// THE RAISER'S TAG TOGGLE (maintainer decision 2026-08-15, superseding the 2026-08-03 rule that
 	// the operator is never asked). Two positions, and the raise still resolves the actual tag
@@ -1022,8 +1053,11 @@ func normalizeShiftingEventRequest(req appShiftingEventRequest) (appShiftingEven
 		return req, identityapp.BadRequest("invalid_priority", "priority must be high or low")
 	}
 	if req.Category != "" && !allowedShiftingCategory[req.Category] {
-		return req, identityapp.BadRequest("invalid_category",
-			"category must be growth, health, breeding, delivery, spacing, flushing, or normal")
+		// A farm-added movement reason (Configuration -> Reference lists): shape here, membership
+		// against the tenant's movement_reasons list in the raise, where the tenant is known.
+		if !customShiftReasonCode.MatchString(req.Category) {
+			return req, identityapp.BadRequest("invalid_category", "category must be one of the farm's movement reasons")
+		}
 	}
 	// A present-but-invalid mode is REJECTED, never silently rewritten. Quietly falling back to the
 	// default would apply the destination pen's tag to a movement whose raiser asked for the

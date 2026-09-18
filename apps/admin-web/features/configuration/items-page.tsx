@@ -108,10 +108,15 @@ export type ItemsPageData = {
   options: Record<string, ConfigurationRefOption[]>;
   /** The catalogue layout's lists (every category, active and archived, with counts); null otherwise. */
   lists: ConfigurationRow[] | null;
+  /** The reference_lists row of the open dynamic register (its name, description); null otherwise. */
+  openList: ConfigurationRow | null;
 };
 
 /** The catalogue layout's drawer ids for a list: `cat:new` / `cat:<id>`, beside the items' own ids. */
 const LIST_EDIT_PREFIX = "cat:";
+/** The reference-lists drawer ids: `reflist:new` (Add list) / `reflist:<key>` (the open list itself). */
+const REFLIST_EDIT_PREFIX = "reflist:";
+const REFERENCE_GROUP = "reference_lists";
 
 /** The parameters the page reads for its data, resolved once so page.tsx and the feature agree. */
 export function itemsPageParams(sp: RouteSearchParams, pageContract: AdminUiPageContract) {
@@ -304,6 +309,27 @@ export function ItemsPage({ searchParams, pageContract, data }: { searchParams?:
       });
     }
   }
+  // Reference lists: the "Add list" drawer, and the open list's own drawer (rename / archive /
+  // delete the list, not its entries).
+  const referenceListsRegister = registers.find((item) => item.key === "reference_lists");
+  if (referenceListsRegister && canCreate) {
+    drawerItems.push({
+      id: REFLIST_EDIT_PREFIX + "new",
+      eyebrow: referenceListsRegister.label,
+      title: `${c("drawer.create_title")} ${referenceListsRegister.one.toLowerCase()}`,
+      icon: <Settings className="ic" aria-hidden="true" />,
+      body: <RowDrawerForm pageContract={pageContract} register={referenceListsRegister} options={data.options} canEdit={canCreate} canSetStatus={false} canDelete={false} listHref={listHref} />,
+    });
+  }
+  if (referenceListsRegister && register?.list_key && data.openList) {
+    drawerItems.push({
+      id: REFLIST_EDIT_PREFIX + register.list_key,
+      eyebrow: referenceListsRegister.label,
+      title: canEdit ? `${c("drawer.edit_title")} ${referenceListsRegister.one.toLowerCase()}` : data.openList.display,
+      icon: <Settings className="ic" aria-hidden="true" />,
+      body: <RowDrawerForm pageContract={pageContract} register={referenceListsRegister} row={data.openList} options={data.options} canEdit={canEdit} canSetStatus={canSetStatus} canDelete={canDelete} listHref={listHref} />,
+    });
+  }
   const departmentColumn = register?.columns.find((column) => column.key === "department");
   const departmentLabel = (value: unknown) => departmentColumn?.options?.find((option) => option.value === String(value ?? ""))?.label ?? "";
 
@@ -331,7 +357,7 @@ export function ItemsPage({ searchParams, pageContract, data }: { searchParams?:
         <aside className="card cfg-rail" aria-label={c("rail.title")}>
           {groups.map((group) => {
             const members = registers.filter((item) => item.group === group.key && !item.hidden);
-            if (!members.length) return null;
+            if (!members.length && group.key !== REFERENCE_GROUP) return null;
             return (
               <div key={group.key} className="cfg-rail-group">
                 <div className="cfg-rail-title">{group.label}</div>
@@ -344,6 +370,11 @@ export function ItemsPage({ searchParams, pageContract, data }: { searchParams?:
                     </Link>
                   );
                 })}
+                {group.key === REFERENCE_GROUP && referenceListsRegister && canCreate ? (
+                  <LocalOverlayLink href={href(sp, { [PARAM_EDIT]: REFLIST_EDIT_PREFIX + "new" }, true)} scroll={false} className="cfg-rail-add">
+                    <Plus className="ic" aria-hidden="true" /> {c("reference.add_list")}
+                  </LocalOverlayLink>
+                ) : null}
               </div>
             );
           })}
@@ -381,6 +412,11 @@ export function ItemsPage({ searchParams, pageContract, data }: { searchParams?:
               {register?.hint ? <div className="muted small" style={{ marginTop: 3 }}>{register.hint}</div> : null}
             </div>
             <div className="sp" style={{ flex: 1 }} />
+            {register?.list_key && canEdit && data.openList ? (
+              <LocalOverlayLink href={href(sp, { [PARAM_EDIT]: REFLIST_EDIT_PREFIX + register.list_key }, true)} scroll={false} className="btn sm ghost">
+                {c("reference.edit_list")}
+              </LocalOverlayLink>
+            ) : null}
             {register?.read_only && register.edit_href ? (
               <Link href={register.edit_href} className="btn sm">
                 {c("action.edit_elsewhere")} {register.edit_label ?? register.edit_href}

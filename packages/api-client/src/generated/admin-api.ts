@@ -5242,6 +5242,8 @@ export interface components {
              * @enum {string}
              */
             layout?: "catalogue";
+            /** @description Set on a dynamic reference-list register (`ref:<key>`) */
+            list_key?: string;
             filters?: string[];
         };
         ConfigurationGroup: {
@@ -5467,7 +5469,8 @@ export interface components {
         IdentifierId: string;
         Limit: number;
         Cursor: string;
-        ConfigurationRegister: "farms" | "parks" | "pens" | "partitions" | "species" | "sexes" | "stages" | "categories" | "items" | "feed_items";
+        /** @description A static register key, or `ref:<list_key>` for one of the farm's own reference lists. */
+        ConfigurationRegister: string;
         /** @description The row id. A uuid for most registers; `shed_id:normalized_label` for a partition. */
         ConfigurationRowID: string;
         IdempotencyKey: string;
@@ -9210,6 +9213,7 @@ export interface operations {
             };
             header?: never;
             path: {
+                /** @description A static register key, or `ref:<list_key>` for one of the farm's own reference lists. */
                 register: components["parameters"]["ConfigurationRegister"];
             };
             cookie?: never;
@@ -9239,6 +9243,7 @@ export interface operations {
                 "Idempotency-Key": components["parameters"]["IdempotencyKey"];
             };
             path: {
+                /** @description A static register key, or `ref:<list_key>` for one of the farm's own reference lists. */
                 register: components["parameters"]["ConfigurationRegister"];
             };
             cookie?: never;
@@ -9280,6 +9285,7 @@ export interface operations {
             query?: never;
             header?: never;
             path: {
+                /** @description A static register key, or `ref:<list_key>` for one of the farm's own reference lists. */
                 register: components["parameters"]["ConfigurationRegister"];
             };
             cookie?: never;
@@ -9306,6 +9312,7 @@ export interface operations {
             query?: never;
             header?: never;
             path: {
+                /** @description A static register key, or `ref:<list_key>` for one of the farm's own reference lists. */
                 register: components["parameters"]["ConfigurationRegister"];
                 /** @description The row id. A uuid for most registers; `shed_id:normalized_label` for a partition. */
                 row_id: components["parameters"]["ConfigurationRowID"];
@@ -9336,6 +9343,7 @@ export interface operations {
                 "Idempotency-Key": components["parameters"]["IdempotencyKey"];
             };
             path: {
+                /** @description A static register key, or `ref:<list_key>` for one of the farm's own reference lists. */
                 register: components["parameters"]["ConfigurationRegister"];
                 /** @description The row id. A uuid for most registers; `shed_id:normalized_label` for a partition. */
                 row_id: components["parameters"]["ConfigurationRowID"];
@@ -9381,6 +9389,7 @@ export interface operations {
                 "Idempotency-Key": components["parameters"]["IdempotencyKey"];
             };
             path: {
+                /** @description A static register key, or `ref:<list_key>` for one of the farm's own reference lists. */
                 register: components["parameters"]["ConfigurationRegister"];
                 /** @description The row id. A uuid for most registers; `shed_id:normalized_label` for a partition. */
                 row_id: components["parameters"]["ConfigurationRowID"];
@@ -9422,6 +9431,7 @@ export interface operations {
             query?: never;
             header?: never;
             path: {
+                /** @description A static register key, or `ref:<list_key>` for one of the farm's own reference lists. */
                 register: components["parameters"]["ConfigurationRegister"];
                 /** @description The row id. A uuid for most registers; `shed_id:normalized_label` for a partition. */
                 row_id: components["parameters"]["ConfigurationRowID"];
@@ -9452,6 +9462,7 @@ export interface operations {
                 "Idempotency-Key": components["parameters"]["IdempotencyKey"];
             };
             path: {
+                /** @description A static register key, or `ref:<list_key>` for one of the farm's own reference lists. */
                 register: components["parameters"]["ConfigurationRegister"];
                 /** @description The row id. A uuid for most registers; `shed_id:normalized_label` for a partition. */
                 row_id: components["parameters"]["ConfigurationRowID"];

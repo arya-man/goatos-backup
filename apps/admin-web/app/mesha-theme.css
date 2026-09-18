@@ -5368,3 +5368,6 @@ input[type=date],input[type=datetime-local],input[type=time],input[type=month],i
 @media (max-width:1180px){.cfg-layout-3{grid-template-columns:1fr}.cfg-lists.card{position:static}}
 .cfg-sublists{display:flex;align-items:center;gap:10px;flex-wrap:wrap;padding:10px 16px 0}
 .cfg-sublists .subtabs{flex-wrap:wrap}
+.cfg-rail-add{display:flex;align-items:center;gap:6px;padding:7px 10px;color:var(--brand-d);font-weight:600;font-size:13px;text-decoration:none;border-radius:8px}
+.cfg-rail-add .ic{width:14px;height:14px}
+.cfg-rail-add:hover{background:var(--panel-2)}

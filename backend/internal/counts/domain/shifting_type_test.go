@@ -548,9 +548,25 @@ func TestTypedShiftsRefuseAnUncataloguedDestination(t *testing.T) {
 	}
 }
 
+// A malformed type is refused; a code-shaped one the rulebook does not know is a farm-added
+// movement reason (Configuration -> Reference lists, 2026-09-18) and resolves as the plain move.
+// Whether the code is really on the tenant's list is the raise handler's check, not the rulebook's.
 func TestUnknownTypeRefuses(t *testing.T) {
-	ctx := knownDest(ShiftTypeContext{Type: "warmup", Animals: animals("K2", "male")})
+	ctx := knownDest(ShiftTypeContext{Type: "Not A Type", Animals: animals("K2", "male")})
 	wantRefusal(t, ctx, "invalid_category")
+}
+
+func TestFarmAddedReasonIsThePlainMove(t *testing.T) {
+	custom := knownDest(ShiftTypeContext{Type: "warmup", Animals: animals("K2", "male")})
+	normal := knownDest(ShiftTypeContext{Type: ShiftTypeNormal, Animals: animals("K2", "male")})
+	gotCustom, refCustom := ResolveShiftTypeDecision(custom)
+	gotNormal, refNormal := ResolveShiftTypeDecision(normal)
+	if (refCustom == nil) != (refNormal == nil) || (refCustom != nil && refCustom.Code != refNormal.Code) {
+		t.Fatalf("custom reason refusal %+v, normal %+v: must match", refCustom, refNormal)
+	}
+	if refCustom == nil && gotCustom != gotNormal {
+		t.Fatalf("custom reason decision %+v, normal %+v: must match", gotCustom, gotNormal)
+	}
 }
 
 func TestKnownShiftTypeVocabulary(t *testing.T) {

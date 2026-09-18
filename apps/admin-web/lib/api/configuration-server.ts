@@ -62,6 +62,14 @@ export async function listCatalogueLists(): Promise<ApiResult<ConfigurationListR
   return listConfigurationRows("categories", { status: "all", limit: 200 });
 }
 
+/** One reference_lists row: the list a dynamic `ref:<key>` register renders. */
+export async function getReferenceList(listKey: string): Promise<ApiResult<ConfigurationRowResponse>> {
+  const config = await getServerConfig(true);
+  if (!config.ok) return config;
+  const client = createAdminApiClient(apiClientOptions(config.data));
+  return request(() => client.request<ConfigurationRowResponse>(rowPath("reference_lists", listKey), { cache: "no-store" }));
+}
+
 /** Every active row of a register as ref choices for a drawer select. */
 export async function listConfigurationOptions(register: string): Promise<ApiResult<ConfigurationOptionsResponse>> {
   const config = await getServerConfig(true);

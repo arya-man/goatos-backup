@@ -1296,3 +1296,17 @@ SELECT EXISTS (SELECT 1 FROM %[1]s WHERE tenant_id = $1 AND %[2]s = $2 AND statu
 	}
 	return ok, nil
 }
+
+// ReferenceEntryAllowed reports whether a code is an ACTIVE entry of the tenant's reference list
+// (Configuration -> Reference lists, migration 000348). A tenant with no such list at all is
+// treated as unconfigured: only the codes the product names in Go are accepted, which the
+// caller checks before asking.
+func (r *Repository) ReferenceEntryAllowed(ctx context.Context, tenantID, listKey, code string) (bool, error) {
+	var ok bool
+	err := r.pool.QueryRow(ctx, `
+SELECT EXISTS (SELECT 1 FROM reference_list_entries WHERE tenant_id = $1 AND list_key = $2 AND entry_code = $3 AND status = 'active')`, tenantID, listKey, code).Scan(&ok)
+	if err != nil {
+		return false, fmt.Errorf("identity: reference list %s: %w", listKey, err)
+	}
+	return ok, nil
+}

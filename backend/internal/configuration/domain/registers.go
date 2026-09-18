@@ -28,6 +28,7 @@ const (
 	GroupAnimalTypes = "animal_types"
 	GroupCatalogue   = "catalogue"
 	GroupPeople      = "people"
+	GroupReference   = "reference_lists"
 )
 
 // Option is one choice of an enum column.
@@ -86,6 +87,8 @@ type Register struct {
 	// Layout names the page layout for the register: "" (table) or "catalogue" (lists panel +
 	// items table, the prototype's Items & categories screen).
 	Layout string `json:"layout,omitempty"`
+	// ListKey is set on a dynamic reference-list register: the reference_lists row it renders.
+	ListKey string `json:"list_key,omitempty"`
 }
 
 // Register keys.
@@ -101,7 +104,54 @@ const (
 	RegItems      = "items"
 	RegFeedItems  = "feed_items"
 	RegRoles      = "roles"
+	// The static reference registers.
+	RegStatusDefinitions = "status_definitions"
+	RegSOPCategories     = "sop_categories"
+	RegTaskTypes         = "task_types"
+	// RegReferenceLists is the register OF lists (hidden from the rail; the "Add list" drawer);
+	// each list's entries are a dynamic register keyed RefPrefix + list_key.
+	RegReferenceLists = "reference_lists"
+	RefPrefix         = "ref:"
 )
+
+// ReferenceList is one farm-defined vocabulary (a reference_lists row).
+type ReferenceList struct {
+	Key         string
+	Name        string
+	Description string
+	SortOrder   int
+	IsBuiltin   bool
+}
+
+// IsReferenceRegister reports a dynamic reference-list register key.
+func IsReferenceRegister(key string) bool {
+	return len(key) > len(RefPrefix) && key[:len(RefPrefix)] == RefPrefix
+}
+
+// ReferenceListKey is the list a dynamic register key names.
+func ReferenceListKey(register string) string {
+	if !IsReferenceRegister(register) {
+		return ""
+	}
+	return register[len(RefPrefix):]
+}
+
+// ReferenceRegister is the register a reference list renders as: the same entry columns for
+// every list, labelled with the list's own name.
+func ReferenceRegister(list ReferenceList) Register {
+	return Register{
+		Key: RefPrefix + list.Key, Label: list.Name, One: "Entry", Group: GroupReference, ListKey: list.Key,
+		Hint:    list.Description,
+		Columns: referenceEntryColumns,
+	}
+}
+
+var referenceEntryColumns = []Column{
+	{Key: "name", Label: "Name", Type: TypeText, Required: true},
+	{Key: "code", Label: "Code", Type: TypeCode, Required: true, Immutable: true, Hint: "Lowercase key; cannot change once saved. Left blank, one is made from the name."},
+	{Key: "description", Label: "Description", Type: TypeNotes, ListHidden: true},
+	{Key: "sort_order", Label: "Order", Type: TypeNumber, Min: zero(), Integer: true},
+}
 
 // RoleGrades is the HR grade a role sits at (designation_catalog.grade, matching
 // workforce_members.hr_designation_grade).
@@ -291,6 +341,55 @@ var Registers = []Register{
 			{Key: "wastage_factor", Label: "Wastage", Type: TypeNumber},
 		},
 	},
+	{
+		// Reference lists (maintainer instruction 2026-09-18). Status definitions are the axes
+		// of an animal's state (lifecycle, reproductive, health, growth cohort, management), a
+		// product-wide catalog whose codes Go names: rename only.
+		Key: RegStatusDefinitions, Label: "Status definitions", One: "Status", Group: GroupReference,
+		Hint:    "The states an animal can be in, by axis. Codes are built into the product; names can change.",
+		Filters: []string{"axis"},
+		Columns: []Column{
+			{Key: "name", Label: "Name", Type: TypeText, Required: true},
+			{Key: "axis", Label: "Axis", Type: TypeEnum, Required: true, Options: []Option{{Value: "lifecycle", Label: "Lifecycle"}, {Value: "reproductive", Label: "Reproductive"}, {Value: "growth_cohort", Label: "Growth cohort"}, {Value: "management", Label: "Management"}, {Value: "health", Label: "Health"}}},
+			{Key: "code", Label: "Code", Type: TypeText, Required: true, Immutable: true},
+			{Key: "short_label", Label: "Short label", Type: TypeText, Required: true},
+			{Key: "description", Label: "Description", Type: TypeNotes, ListHidden: true},
+			{Key: "expected_duration_days", Label: "Expected days", Type: TypeNumber, Min: zero(), Integer: true},
+			{Key: "sort_order", Label: "Order", Type: TypeNumber, Min: zero(), Integer: true},
+		},
+	},
+	{
+		Key: RegSOPCategories, Label: "SOP categories", One: "SOP category", Group: GroupReference,
+		Hint: "How work instructions are grouped: commodity, problem, event, action, equipment.",
+		Columns: []Column{
+			{Key: "name", Label: "Name", Type: TypeText, Required: true},
+			{Key: "code", Label: "Code", Type: TypeCode, Required: true, Immutable: true},
+			{Key: "description", Label: "Description", Type: TypeNotes, ListHidden: true},
+			{Key: "sort_order", Label: "Order", Type: TypeNumber, Min: zero(), Integer: true},
+		},
+	},
+	{
+		Key: RegTaskTypes, Label: "Task types", One: "Task type", Group: GroupReference,
+		Hint:    "The kinds of step a work instruction can ask for, and what the operator answers.",
+		Filters: []string{"answer_kind"},
+		Columns: []Column{
+			{Key: "name", Label: "Name", Type: TypeText, Required: true},
+			{Key: "code", Label: "Code", Type: TypeCode, Required: true, Immutable: true},
+			{Key: "answer_kind", Label: "Answer", Type: TypeEnum, Required: true, Options: []Option{{Value: "none", Label: "None"}, {Value: "yes_no", Label: "Yes / no"}, {Value: "select", Label: "Pick one"}, {Value: "multiselect", Label: "Pick many"}, {Value: "number", Label: "Number"}, {Value: "text", Label: "Text"}}},
+			{Key: "description", Label: "Description", Type: TypeNotes, ListHidden: true},
+			{Key: "sort_order", Label: "Order", Type: TypeNumber, Min: zero(), Integer: true},
+		},
+	},
+	{
+		Key: RegReferenceLists, Label: "Reference lists", One: "List", Group: GroupReference, Hidden: true,
+		Hint: "A list of your own: name it, then add its entries.",
+		Columns: []Column{
+			{Key: "name", Label: "Name", Type: TypeText, Required: true},
+			{Key: "code", Label: "Code", Type: TypeCode, Required: true, Immutable: true, Hint: "Lowercase key; cannot change once saved."},
+			{Key: "description", Label: "Description", Type: TypeNotes},
+			{Key: "sort_order", Label: "Order", Type: TypeNumber, Min: zero(), Integer: true},
+		},
+	},
 }
 
 var registerIndex = func() map[string]Register {
@@ -321,8 +420,13 @@ var registerIndex = func() map[string]Register {
 	return out
 }()
 
-// RegisterByKey resolves a register; ok is false for an unknown key.
+// RegisterByKey resolves a register; ok is false for an unknown key. A dynamic reference-list
+// key resolves to the entry template labelled with its key; callers that know the list
+// substitute the list's name through ReferenceRegister.
 func RegisterByKey(key string) (Register, bool) {
+	if IsReferenceRegister(key) {
+		return ReferenceRegister(ReferenceList{Key: ReferenceListKey(key), Name: ReferenceListKey(key)}), true
+	}
 	r, ok := registerIndex[key]
 	return r, ok
 }

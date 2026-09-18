@@ -91,6 +91,8 @@ type RefOption struct {
 
 // Repository is what the service needs from a store.
 type Repository interface {
+	// ReferenceLists is the tenant's own vocabularies, in sort order, active and archived.
+	ReferenceLists(ctx context.Context, tenantID string) ([]domain.ReferenceList, error)
 	Counts(ctx context.Context, tenantID string) (map[string]int, error)
 	List(ctx context.Context, tenantID, register string, p ListParams) (Page, error)
 	Get(ctx context.Context, tenantID, register, id string) (domain.Row, error)

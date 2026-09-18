@@ -29,11 +29,38 @@ const (
 	MaxPageSize     = 200
 )
 
-// Registers is the catalog the screen renders from.
-func (s *Service) Registers() []domain.Register {
-	out := make([]domain.Register, len(domain.Registers))
-	copy(out, domain.Registers)
-	return out
+// Registers is the catalog the screen renders from: the static registers plus one per
+// reference list the tenant keeps, in rail order.
+func (s *Service) Registers(ctx context.Context, tenantID string) ([]domain.Register, error) {
+	lists, err := s.repo.ReferenceLists(ctx, tenantID)
+	if err != nil {
+		return nil, err
+	}
+	out := make([]domain.Register, 0, len(domain.Registers)+len(lists))
+	out = append(out, domain.Registers...)
+	for _, list := range lists {
+		out = append(out, domain.ReferenceRegister(list))
+	}
+	return out, nil
+}
+
+// Register resolves one register with its real label (a reference list's own name).
+func (s *Service) Register(ctx context.Context, tenantID, key string) (domain.Register, error) {
+	reg, ok := domain.RegisterByKey(key)
+	if !ok {
+		return domain.Register{}, domain.ErrUnknownRegister
+	}
+	if !domain.IsReferenceRegister(key) {
+		return reg, nil
+	}
+	list, err := s.repo.Get(ctx, tenantID, domain.RegReferenceLists, domain.ReferenceListKey(key))
+	if err != nil {
+		if errors.Is(err, ports.ErrNotFound) {
+			return domain.Register{}, domain.ErrUnknownRegister
+		}
+		return domain.Register{}, err
+	}
+	return domain.ReferenceRegister(domain.ReferenceList{Key: list.ID, Name: domain.FieldString(list.Fields, "name"), Description: domain.FieldString(list.Fields, "description"), IsBuiltin: list.IsBuiltin}), nil
 }
 
 // Counts is the active-row count per register, for the rail.

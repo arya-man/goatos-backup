@@ -1,6 +1,7 @@
 package domain
 
 import (
+	"regexp"
 	"strings"
 
 	protocoldomain "github.com/vgoats/goatos/backend/internal/protocol/domain"
@@ -193,9 +194,20 @@ func ResolveShiftTypeDecision(ctx ShiftTypeContext) (ShiftTypeDecision, *ShiftTy
 	case ShiftTypeNormal:
 		return resolveNormalShift(ctx)
 	}
+	if customShiftReason(ctx.Type) {
+		// A reason the farm added to its movement_reasons list (Configuration -> Reference
+		// lists, migration 000348): it names WHY the animals move and carries no tag rule, so it
+		// is the plain move. Membership in the list is the raise handler's check.
+		return resolveNormalShift(ctx)
+	}
 	return ShiftTypeDecision{}, refuse("invalid_category",
-		"category must be growth, health, breeding, delivery, spacing, flushing, or normal")
+		"category must be one of the farm's movement reasons")
 }
+
+var shiftReasonCode = regexp.MustCompile(`^[a-z][a-z0-9_]{0,39}$`)
+
+// customShiftReason reports a code-shaped category that is not one of the seven typed rules.
+func customShiftReason(s string) bool { return !KnownShiftType(s) && shiftReasonCode.MatchString(s) }
 
 // destinationEffectiveTag is the tag the destination pen offers a movement: the authored tag
 // first (what somebody decided the pen is for), else the residents' single shared stage, else "".

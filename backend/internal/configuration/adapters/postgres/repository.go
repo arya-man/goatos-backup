@@ -70,17 +70,21 @@ func NewRepository(pool *pgxpool.Pool, timeout time.Duration) *Repository {
 	}
 	r := &Repository{pool: pool, timeout: timeout, now: time.Now}
 	r.stores = map[string]store{
-		domain.RegFarms:      farmStore{},
-		domain.RegParks:      parkStore{},
-		domain.RegPens:       penStore{},
-		domain.RegPartitions: partitionStore{},
-		domain.RegSpecies:    codeLookupStore{table: "species_lookup", codeCol: "species_code", goatCol: "species", breedCol: "species"},
-		domain.RegSexes:      codeLookupStore{table: "sex_lookup", codeCol: "sex_code", goatCol: "sex"},
-		domain.RegStages:     stageStore{},
-		domain.RegCategories: categoryStore{},
-		domain.RegItems:      itemStore{},
-		domain.RegFeedItems:  feedItemStore{},
-		domain.RegRoles:      roleStore{},
+		domain.RegFarms:             farmStore{},
+		domain.RegParks:             parkStore{},
+		domain.RegPens:              penStore{},
+		domain.RegPartitions:        partitionStore{},
+		domain.RegSpecies:           codeLookupStore{table: "species_lookup", codeCol: "species_code", goatCol: "species", breedCol: "species"},
+		domain.RegSexes:             codeLookupStore{table: "sex_lookup", codeCol: "sex_code", goatCol: "sex"},
+		domain.RegStages:            stageStore{},
+		domain.RegCategories:        categoryStore{},
+		domain.RegItems:             itemStore{},
+		domain.RegFeedItems:         feedItemStore{},
+		domain.RegRoles:             roleStore{},
+		domain.RegStatusDefinitions: statusDefinitionStore{},
+		domain.RegSOPCategories:     sopCategoryStore,
+		domain.RegTaskTypes:         taskTypeStore,
+		domain.RegReferenceLists:    referenceListStore,
 	}
 	for _, reg := range domain.Registers {
 		if _, ok := r.stores[reg.Key]; !ok {
@@ -91,6 +95,9 @@ func NewRepository(pool *pgxpool.Pool, timeout time.Duration) *Repository {
 }
 
 func (r *Repository) storeFor(register string) (store, error) {
+	if domain.IsReferenceRegister(register) {
+		return referenceEntryStore(domain.ReferenceListKey(register)), nil
+	}
 	s, ok := r.stores[register]
 	if !ok {
 		return nil, domain.ErrUnknownRegister
@@ -109,6 +116,17 @@ func (r *Repository) Counts(ctx context.Context, tenantID string) (map[string]in
 			return nil, fmt.Errorf("configuration: count %s: %w", key, err)
 		}
 		out[key] = n
+	}
+	lists, err := r.ReferenceLists(ctx, tenantID)
+	if err != nil {
+		return nil, err
+	}
+	for _, list := range lists {
+		n, err := referenceEntryStore(list.Key).count(ctx, r.pool, tenantID)
+		if err != nil {
+			return nil, fmt.Errorf("configuration: count %s: %w", list.Key, err)
+		}
+		out[domain.RefPrefix+list.Key] = n
 	}
 	return out, nil
 }

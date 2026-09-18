@@ -2157,6 +2157,8 @@ func pageSpecificCopy(id string) map[string]string {
 			"lists.sublists":               "Sub-lists",
 			"lists.all_in":                 "All in",
 			"lists.new_under":              "New list under",
+			"reference.add_list":           "Add list",
+			"reference.edit_list":          "Edit list",
 			"value.yes":                    "Yes",
 			"value.no":                     "No",
 			"tag.builtin":                  "Built in",
