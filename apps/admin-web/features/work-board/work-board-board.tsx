@@ -1,6 +1,6 @@
 "use client";
 
-import { Calendar, ChevronDown, Search } from "lucide-react";
+import { Calendar, Check, ChevronDown, Search } from "lucide-react";
 import { AssigneePicker } from "@/components/assignee-picker";
 import Link from "@/components/no-prefetch-link";
 import { LocalOverlayLink } from "@/components/local-overlay-link";
@@ -131,7 +131,7 @@ function ModuleMenu({ pageContract, options, selected, none, onChange }: { pageC
                 const next = on ? chosen.filter((k) => k !== option.key) : [...chosen, option.key];
                 onChange(next.length === options.length ? [] : next.length === 0 ? [PARAM_MODULE_NONE] : next);
               }}>
-                <span className="cb">{on ? "✓" : ""}</span>
+                <span className="cb" aria-hidden="true">{on ? <Check className="ic" strokeWidth={3} /> : null}</span>
                 <span className={moduleClass(option.key)}>{option.label}</span>
               </button>
             );

@@ -5682,7 +5682,9 @@ aside.drawer.wt-feedband-drawer{width:94vw;max-width:960px}
 .lt-modal .avs-single .opt{width:100%;min-height:44px;text-align:left;border:0;padding:8px 9px;border-radius:7px;display:flex;align-items:center;gap:9px;font:inherit;font-size:13px;color:var(--ink);background:transparent;cursor:pointer}
 .lt-modal .avs-single .opt:hover,.lt-modal .avs-single .opt.hl{background:var(--bg)}
 .lt-modal .avs-single .opt.on{color:var(--brand-d);background:var(--brand-soft)}
-.lt-modal .avs-single .opt .cb{width:15px;height:15px;border:1.5px solid var(--line);border-radius:50%;display:grid;place-items:center;font-size:10px;color:var(--brand);flex:none}
+.lt-modal .avs-single .opt .cb{width:16px;height:16px;border:1.5px solid var(--line);border-radius:4px;display:grid;place-items:center;color:#fff;flex:none}
+.lt-modal .avs-single .opt .cb .ic{width:11px;height:11px}
+.lt-modal .avs-single .opt.on .cb{background:var(--brand);border-color:var(--brand)}
 .lt-modal .avs-single .avs-row{min-width:0;flex:1;display:block;overflow-wrap:anywhere}
 .lt-modal .avs-single .avs-name{font-weight:650}
 .lt-modal .avs-single .avs-title{font-size:12px}
@@ -5743,8 +5745,20 @@ aside.drawer.wt-feedband-drawer{width:94vw;max-width:960px}
 .wb .avmenu .cnt{margin-left:auto;font-size:11px;color:var(--faint);font-weight:700}
 .wb .avmenu .nomatch{color:var(--faint);font-size:12px;padding:6px 9px}
 .wb .avmenu .foot{color:var(--muted);font-size:12px;border-top:1px solid var(--line2);margin-top:4px}
-.wb .cb{width:15px;height:15px;border:1.5px solid var(--line);border-radius:4px;display:grid;place-items:center;font-size:10px;color:var(--navon);flex:none}
+.wb .cb{width:16px;height:16px;border:1.5px solid var(--line);border-radius:4px;background:var(--bg);display:grid;place-items:center;color:#fff;flex:none}
+.wb .cb .ic{width:11px;height:11px}
 .wb .on>.cb{background:var(--brand);border-color:var(--brand)}
+.wb .avmenu .opt.all{border-bottom:1px solid var(--line2);border-radius:7px 7px 0 0;margin-bottom:4px}
+
+/* ONE CHECKBOX. Every native checkbox in the app draws the same 16px box: hairline on the panel
+   background unticked, brand fill with a white tick when checked (the same anatomy as `.wb .cb`
+   and `.lt-people-box`, which draw it by hand for their custom rows). The tick is an inline SVG
+   mask so no glyph font or undefined colour token can make it vanish into the fill. */
+input[type="checkbox"]:not(.lt-people-row input){appearance:none;-webkit-appearance:none;width:16px;height:16px;min-width:16px;min-height:16px;margin:0;flex:none;border:1.5px solid var(--line);border-radius:4px;background:var(--bg);cursor:pointer;display:inline-grid;place-items:center;vertical-align:middle;position:relative}
+input[type="checkbox"]:not(.lt-people-row input):focus-visible{outline:0;border-color:var(--brand);box-shadow:0 0 0 2px var(--ring)}
+input[type="checkbox"]:not(.lt-people-row input):checked{background:var(--brand);border-color:var(--brand)}
+input[type="checkbox"]:not(.lt-people-row input):checked::after{content:"";width:11px;height:11px;background:#fff;-webkit-mask:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='3' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M20 6 9 17l-5-5'/%3E%3C/svg%3E") center/contain no-repeat;mask:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='3' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M20 6 9 17l-5-5'/%3E%3C/svg%3E") center/contain no-repeat}
+input[type="checkbox"]:not(.lt-people-row input):disabled{opacity:.5;cursor:not-allowed}
 .wb .parkpick{display:flex;background:var(--bg);border:1px solid var(--line);border-radius:9px;padding:3px}
 .wb .parkpick a{border:0;background:transparent;padding:6px 12px;border-radius:7px;font:inherit;font-weight:600;color:var(--muted);text-decoration:none}
 .wb .parkpick a.on{background:var(--panel);color:var(--brand-d);box-shadow:var(--shadow)}
@@ -6408,7 +6422,7 @@ aside.drawer.ltd-drawer{width:min(720px,94vw);overflow-y:auto;overscroll-behavio
 .lt-page .lt-people-row:hover{background:var(--bg)}
 .lt-page .lt-people-row input{position:absolute;width:1px;height:1px;opacity:0;pointer-events:none}
 .lt-page .lt-people-row:has(input:focus-visible){outline:2px solid var(--brand);outline-offset:-2px}
-.lt-page .lt-people-box{flex:none;width:18px;height:18px;border:1.5px solid var(--line);border-radius:4px;background:var(--panel);display:grid;place-items:center;color:var(--navon)}
+.lt-page .lt-people-box{flex:none;width:18px;height:18px;border:1.5px solid var(--line);border-radius:4px;background:var(--panel);display:grid;place-items:center;color:#fff}
 .lt-page .lt-people-box .ic{width:13px;height:13px;stroke-width:3}
 .lt-page .lt-people-row.is-on .lt-people-box{background:var(--brand);border-color:var(--brand)}
 .lt-page .lt-people-name{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
@@ -6418,7 +6432,7 @@ aside.drawer.ltd-drawer{width:min(720px,94vw);overflow-y:auto;overscroll-behavio
   .lt-page .lt-people-row{min-height:44px}
 }
 /* Phone Filters button: a count badge while any filter is applied (Judge A, D2). */
-.lt-page .lt-fmore-badge{display:inline-grid;place-items:center;min-width:18px;height:18px;padding:0 5px;margin-left:6px;border-radius:999px;background:var(--brand);color:var(--navon);font-size:11px;font-weight:750;line-height:1}
+.lt-page .lt-fmore-badge{display:inline-grid;place-items:center;min-width:18px;height:18px;padding:0 5px;margin-left:6px;border-radius:999px;background:var(--brand);color:#fff;font-size:11px;font-weight:750;line-height:1}
 /* Every column body keeps the same floor so four columns read as four equal lanes, whether
    a column holds cards, a sentence, or nothing under a status filter (Judge A, D4). */
 .lt-page .ltb-colbd{min-height:120px}
