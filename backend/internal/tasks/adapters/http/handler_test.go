@@ -9,6 +9,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/vgoats/goatos/backend/internal/permissions"
 	"github.com/vgoats/goatos/backend/internal/platform/httpmiddleware"
 	tasksapp "github.com/vgoats/goatos/backend/internal/tasks/app"
 	"github.com/vgoats/goatos/backend/internal/tasks/domain"
@@ -150,6 +151,14 @@ func newTestMux(svc *stubService) *http.ServeMux {
 }
 
 func doRequest(mux *http.ServeMux, method, target, body string, headers map[string]string, tenant bool) *httptest.ResponseRecorder {
+	var perms []string
+	if tenant {
+		perms = []string{permissions.CountsWrite}
+	}
+	return doRequestWithPermissions(mux, method, target, body, headers, tenant, perms)
+}
+
+func doRequestWithPermissions(mux *http.ServeMux, method, target, body string, headers map[string]string, tenant bool, perms []string) *httptest.ResponseRecorder {
 	var reader *strings.Reader
 	if body == "" {
 		reader = strings.NewReader("")
@@ -159,6 +168,9 @@ func doRequest(mux *http.ServeMux, method, target, body string, headers map[stri
 	req := httptest.NewRequest(method, target, reader)
 	if tenant {
 		req = req.WithContext(httpmiddleware.WithTenantID(req.Context(), "11111111-1111-1111-1111-111111111111"))
+	}
+	if perms != nil {
+		req = req.WithContext(httpmiddleware.WithPersonPermissions(req.Context(), perms))
 	}
 	for k, v := range headers {
 		req.Header.Set(k, v)
@@ -217,6 +229,66 @@ func TestListWorkflowsParamValidation(t *testing.T) {
 	rec := doRequest(mux, http.MethodGet, "/app/workflows?module=death&date=2026-07-27&filter=overdue&page_size=10", "", nil, true)
 	if rec.Code != http.StatusOK || svc.listCalls != 1 {
 		t.Fatalf("valid list: status=%d calls=%d (%s)", rec.Code, svc.listCalls, rec.Body.String())
+	}
+}
+
+func TestWorkInstructionsPermissionCannotReadCountsWorkflowLists(t *testing.T) {
+	svc := &stubService{}
+	mux := newTestMux(svc)
+	perms := []string{permissions.WorkInstructionsExecute}
+
+	rec := doRequestWithPermissions(mux, http.MethodGet, "/app/workflows?module=birth", "", nil, true, perms)
+	if rec.Code != http.StatusForbidden || errCode(t, rec) != "permission_denied" {
+		t.Fatalf("birth list with work-instructions tick: status=%d code=%s", rec.Code, errCode(t, rec))
+	}
+	if svc.listCalls != 0 {
+		t.Fatalf("birth list reached service with only work-instructions permission: %d calls", svc.listCalls)
+	}
+
+	rec = doRequestWithPermissions(mux, http.MethodGet, "/app/workflows?module=general", "", nil, true, perms)
+	if rec.Code != http.StatusOK || svc.listCalls != 1 {
+		t.Fatalf("general list with work-instructions tick: status=%d calls=%d (%s)", rec.Code, svc.listCalls, rec.Body.String())
+	}
+}
+
+func TestWorkInstructionsPermissionCannotReadOrWriteCountsWorkflowDetail(t *testing.T) {
+	svc := &stubService{detail: domain.WorkflowDetail{
+		Card: domain.WorkflowCard{WorkflowID: "wf-death", Module: domain.ModuleDeath, TemplateKey: domain.TemplateKeyDeath},
+	}}
+	mux := newTestMux(svc)
+	perms := []string{permissions.WorkInstructionsExecute}
+
+	rec := doRequestWithPermissions(mux, http.MethodGet, "/app/workflows/wf-death", "", nil, true, perms)
+	if rec.Code != http.StatusForbidden || errCode(t, rec) != "permission_denied" {
+		t.Fatalf("death detail with work-instructions tick: status=%d code=%s", rec.Code, errCode(t, rec))
+	}
+
+	rec = doRequestWithPermissions(mux, http.MethodPost, "/app/workflows/wf-death/actions/act-1/answer",
+		`{"answer_value":"yes"}`, map[string]string{"Idempotency-Key": "long-enough-key"}, true, perms)
+	if rec.Code != http.StatusForbidden || errCode(t, rec) != "permission_denied" {
+		t.Fatalf("death write with work-instructions tick: status=%d code=%s", rec.Code, errCode(t, rec))
+	}
+	if svc.writeCalls != 0 {
+		t.Fatalf("death write reached mutation service with only work-instructions permission: %d calls", svc.writeCalls)
+	}
+}
+
+func TestWorkInstructionsPermissionCanReadAndWriteGeneralWorkflow(t *testing.T) {
+	svc := &stubService{detail: domain.WorkflowDetail{
+		Card: domain.WorkflowCard{WorkflowID: "wf-general", Module: domain.ModuleGeneral, TemplateKey: domain.GeneralTemplateKey("general.gate_visitor_check")},
+	}}
+	mux := newTestMux(svc)
+	perms := []string{permissions.WorkInstructionsExecute}
+
+	rec := doRequestWithPermissions(mux, http.MethodGet, "/app/workflows/wf-general", "", nil, true, perms)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("general detail with work-instructions tick: status=%d (%s)", rec.Code, rec.Body.String())
+	}
+
+	rec = doRequestWithPermissions(mux, http.MethodPost, "/app/workflows/wf-general/actions/act-1/answer",
+		`{"answer_value":"yes"}`, map[string]string{"Idempotency-Key": "long-enough-key"}, true, perms)
+	if rec.Code != http.StatusOK || svc.writeCalls != 1 {
+		t.Fatalf("general write with work-instructions tick: status=%d calls=%d (%s)", rec.Code, svc.writeCalls, rec.Body.String())
 	}
 }
 

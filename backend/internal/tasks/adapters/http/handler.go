@@ -16,6 +16,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/vgoats/goatos/backend/internal/permissions"
 	"github.com/vgoats/goatos/backend/internal/platform/httpmiddleware"
 	"github.com/vgoats/goatos/backend/internal/platform/httpresponse"
 	tasksapp "github.com/vgoats/goatos/backend/internal/tasks/app"
@@ -256,6 +257,10 @@ func (h *Handler) ListWorkflows(w http.ResponseWriter, r *http.Request) {
 		h.writeError(w, r, http.StatusBadRequest, "invalid_module", "module must be birth, death, colostrum, or general", nil)
 		return
 	}
+	if module != domain.ModuleGeneral && !hasWorkflowPermission(r.Context(), permissions.CountsWrite) {
+		h.writeError(w, r, http.StatusForbidden, "permission_denied", "permission denied", nil)
+		return
+	}
 	date := strings.TrimSpace(query.Get("date"))
 	if date != "" {
 		if _, err := time.Parse("2006-01-02", date); err != nil {
@@ -364,6 +369,10 @@ func (h *Handler) GetWorkflow(w http.ResponseWriter, r *http.Request) {
 
 	now := time.Now().UTC()
 	if lens == domain.ModuleColostrum {
+		if !hasWorkflowPermission(r.Context(), permissions.CountsWrite) {
+			h.writeError(w, r, http.StatusForbidden, "permission_denied", "permission denied", nil)
+			return
+		}
 		colostrum, err := h.svc.GetColostrumDay(r.Context(), tenantID, workflowID, date)
 		if err != nil {
 			h.writeDomainError(w, r, err)
@@ -388,6 +397,10 @@ func (h *Handler) GetWorkflow(w http.ResponseWriter, r *http.Request) {
 	detail, err := h.svc.GetWorkflow(r.Context(), tenantID, workflowID)
 	if err != nil {
 		h.writeDomainError(w, r, err)
+		return
+	}
+	if detail.Card.Module != domain.ModuleGeneral && !hasWorkflowPermission(r.Context(), permissions.CountsWrite) {
+		h.writeError(w, r, http.StatusForbidden, "permission_denied", "permission denied", nil)
 		return
 	}
 	actions := make([]workflowActionDTO, 0, len(detail.Actions))
@@ -440,6 +453,9 @@ func (h *Handler) AnswerAction(w http.ResponseWriter, r *http.Request) {
 	if !ok {
 		return
 	}
+	if !h.authorizeWorkflowWrite(w, r, tenantID, workflowID) {
+		return
+	}
 	body, ok := h.readBody(w, r)
 	if !ok {
 		return
@@ -483,6 +499,9 @@ type completeActionRequest struct {
 func (h *Handler) CompleteAction(w http.ResponseWriter, r *http.Request) {
 	tenantID, workflowID, actionID, clientKey, ok := h.writePreamble(w, r)
 	if !ok {
+		return
+	}
+	if !h.authorizeWorkflowWrite(w, r, tenantID, workflowID) {
 		return
 	}
 	body, ok := h.readBody(w, r)
@@ -674,6 +693,39 @@ func writeResponse(result domain.ActionWriteResult) workflowActionWriteResponse 
 		CompletedAt:          result.Action.CompletedAt,
 		IdempotentReplay:     result.Replayed,
 	}
+}
+
+func (h *Handler) authorizeWorkflowWrite(w http.ResponseWriter, r *http.Request, tenantID, workflowID string) bool {
+	if hasWorkflowPermission(r.Context(), permissions.CountsWrite) {
+		return true
+	}
+	detail, err := h.svc.GetWorkflow(r.Context(), tenantID, workflowID)
+	if err != nil {
+		h.writeDomainError(w, r, err)
+		return false
+	}
+	if detail.Card.Module != domain.ModuleGeneral {
+		h.writeError(w, r, http.StatusForbidden, "permission_denied", "permission denied", nil)
+		return false
+	}
+	return true
+}
+
+func hasWorkflowPermission(ctx context.Context, permission string) bool {
+	if perms, ok := httpmiddleware.PersonPermissionsFromContext(ctx); ok {
+		for _, p := range perms {
+			if p == permission {
+				return true
+			}
+		}
+		return false
+	}
+	for _, grant := range httpmiddleware.AuthGrantsFromContext(ctx) {
+		if permissions.RoleHasPermission(grant.Role, permission) {
+			return true
+		}
+	}
+	return false
 }
 
 func (h *Handler) writePreamble(w http.ResponseWriter, r *http.Request) (tenantID, workflowID, actionID, clientKey string, ok bool) {
