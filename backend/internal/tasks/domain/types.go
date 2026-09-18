@@ -352,6 +352,15 @@ func ApplyAnswer(a WorkflowAction, cmd AnswerActionCommand) (WorkflowAction, boo
 			return a, false, ErrInvalidAnswer
 		}
 	}
+	// A yes/no step takes exactly yes or no, stored lower-case: an answer-driven branch compares
+	// the stored value against the authored "yes"/"no", so anything else would satisfy neither
+	// branch and skip work on an answer nobody authored.
+	if a.AnswerType == AnswerKindYesNo {
+		answer = strings.ToLower(answer)
+		if answer != "yes" && answer != "no" {
+			return a, false, ErrInvalidAnswer
+		}
+	}
 	// The Record shed answer names an operational location. Only its FORMAT is checked here, in the
 	// pure state machine; whether the pen actually exists is proved against live location rows in
 	// the same transaction as the write (see the postgres adapter). A malformed value is rejected

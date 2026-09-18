@@ -187,3 +187,23 @@ func findKey(actions []WorkflowAction, key string) int {
 	}
 	return -1
 }
+
+// A yes/no step takes exactly "yes" or "no" (any case, normalized to lower). Found by the
+// 2026-09-18 edge-case audit: "maybe" was stored verbatim, and with answer-driven branches a
+// value that is neither yes nor no satisfies neither branch, so the whole branch silently
+// skipped on an answer nobody authored.
+func TestAnswerYesNoRefusesAnythingButYesOrNo(t *testing.T) {
+	base := WorkflowAction{ActionID: "a", ActionKey: "q", ActionType: ActionTypeQuestion, AnswerType: AnswerKindYesNo, Status: ActionStatusPending}
+	for _, bad := range []string{"maybe", "y", "true", "yes|no", "1"} {
+		updated, _, err := ApplyAnswer(base, AnswerActionCommand{AnswerValue: bad, IdempotencyKey: "k-" + bad, RequestFingerprint: "f", AnsweredAt: birthMoment()})
+		if err == nil || updated.Status == ActionStatusCompleted {
+			t.Fatalf("yes/no must refuse %q, got err=%v status=%q", bad, err, updated.Status)
+		}
+	}
+	for raw, want := range map[string]string{"yes": "yes", "No": "no", " YES ": "yes"} {
+		updated, _, err := ApplyAnswer(base, AnswerActionCommand{AnswerValue: raw, IdempotencyKey: "k-" + raw, RequestFingerprint: "f", AnsweredAt: birthMoment()})
+		if err != nil || updated.AnswerValue == nil || *updated.AnswerValue != want {
+			t.Fatalf("yes/no must accept %q as %q, got err=%v value=%v", raw, want, err, updated.AnswerValue)
+		}
+	}
+}
