@@ -1,13 +1,16 @@
 "use client";
 
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState, useTransition } from "react";
 import { XCircle } from "lucide-react";
 
 import { copy, type AdminUiPageContract } from "@/lib/admin-ui-contract";
 
 import { statusTone } from "./task-presentation";
 import type { TaskRow } from "./task-row";
-import { useTaskRowVersion } from "./task-row-version";
+import { changeLeadershipTaskStatusInPlaceAction, type StatusChangeResult } from "./actions";
+import { refusalSentence } from "./task-feedback-copy";
+import { publishTaskRow, useTaskRow } from "./task-row-store";
+import { rowFromTask } from "./task-row";
 
 /**
  * THE status control of the task drawer: one dropdown, the Work Board's menu.
@@ -35,18 +38,23 @@ import { useTaskRowVersion } from "./task-row-version";
  * this component is not mounted, so the caret is never a dead promise.
  */
 export function TaskStatusMenu({
-  task,
+  task: serverTask,
   pageContract,
   action,
   returnTo,
 }: {
   task: TaskRow;
   pageContract: AdminUiPageContract;
+  /** The redirecting action: the no-JS form's path only. With JS the change RETURNS. */
   action: (formData: FormData) => void | Promise<void>;
   returnTo: string;
 }) {
-  const rowVersion = useTaskRowVersion(task.id, task.rowVersion);
+  // The row as the browser knows it -- a change made here, or a comment that bumped the version.
+  const task = useTaskRow(serverTask);
+  const rowVersion = task.rowVersion;
   const [open, setOpen] = useState(false);
+  const [pending, startTransition] = useTransition();
+  const [refusal, setRefusal] = useState<string>("");
   const close = useCallback(() => setOpen(false), []);
   const ref = useOutsideClose(open, close);
   const formRef = useRef<HTMLFormElement>(null);
@@ -68,7 +76,32 @@ export function TaskStatusMenu({
       keyRef.current.value = `admin-web-leadership-task-status:${task.id}:${key}:${crypto.randomUUID()}`;
     }
     close();
-    formRef.current?.requestSubmit();
+    // IN PLACE: the write returns the task; the pill, the fence and the board card update from
+    // the published row. No redirect, no route re-render, no skeleton (the flicker the CEO saw).
+    const form = formRef.current;
+    if (!form) return;
+    const formData = new FormData(form);
+    setRefusal("");
+    startTransition(async () => {
+      let result: StatusChangeResult;
+      try {
+        result = await changeLeadershipTaskStatusInPlaceAction(formData);
+      } catch {
+        result = { ok: false, code: "network" };
+      }
+      if (result.ok) {
+        publishTaskRow(task.id, rowFromTask(result.task));
+        return;
+      }
+      const sentence =
+        refusalSentence(
+          (k, fb) => copy(pageContract, k, fb),
+          result.code,
+          result.statusNow,
+          result.who,
+        ) || copy(pageContract, "action.failed_message", "Action could not be completed.");
+      setRefusal(sentence);
+    });
   };
 
   return (
@@ -95,11 +128,18 @@ export function TaskStatusMenu({
         aria-expanded={open}
         aria-controls={menuId}
         aria-label={`${copy(pageContract, "label.status", "Status")}: ${task.statusLabel}`}
+        aria-busy={pending || undefined}
+        disabled={pending}
         onClick={() => setOpen((v) => !v)}
       >
         {task.statusLabel}
         <span className="ltd-status-caret" aria-hidden="true" />
       </button>
+      {refusal ? (
+        <p className="ltd-status-refusal" role="alert">
+          {refusal}
+        </p>
+      ) : null}
       {open ? (
         <div className="menu ltd-status-pop" role="menu" id={menuId} aria-label={copy(pageContract, "status.menu_aria", "Change status")}>
           {moves.map((option) => (

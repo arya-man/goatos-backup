@@ -32,8 +32,8 @@ import {
   tasksSearchParams,
 } from "./params";
 import { personOptions, rowFromTask, rowsFromPage, type TaskRow } from "./task-row";
-import { TaskDetailDrawer } from "./task-detail-drawer";
-import { TaskDetailPanel } from "./task-detail-panel";
+import { TaskDrawerHost } from "./task-drawer-host";
+import { TaskViewBody, TaskViewProvider, TaskViewToggle } from "./task-view-switch";
 import { TaskFeedbackBanner } from "./task-feedback-banner";
 import { TASK_VIEW_ALIAS, TASK_VIEWS, TASKS_PATHNAME, TASKS_PREVIEW_PATHNAME } from "./task-url";
 
@@ -191,7 +191,6 @@ export function LeadershipTasksPage({
     tasksHref(basePath, sp, { [TASK_PARAM.limit]: String(limit) }, { resetPaging: true });
 
   const assigneeChoices = personOptions(assignees);
-  const isBoard = params.view === "board";
   /**
    * The detail panel exists ONLY when there is a task to show, and then it is a DRAWER over the
    * board or the table (`task-detail-drawer.tsx`), never a rail beside them.
@@ -204,25 +203,32 @@ export function LeadershipTasksPage({
    * the full width (`lt-grid-solo`). `TaskDetailPanel` stays the single call site; the drawer
    * merely wraps it. Same href as the panel's own Close link.
    */
-  const hasSidePanel = Boolean(selected);
   const closeHref = tasksHref(
     TASKS_PATHNAME,
     tasksSearchParams(params),
     { [TASK_PARAM.task]: null },
     { resetPaging: false },
   );
-  const detailPanel = hasSidePanel ? (
-    <TaskDetailPanel
-      detail={selected ?? null}
+  // The drawer is client-local (task-drawer-host.tsx): it opens from the row on screen with no
+  // navigation, fetches the feed inside, and closes through history. A deep link hands it the
+  // detail row from the server so the first paint already carries the feed.
+  const detailPanel = (
+    <TaskDrawerHost
+      rows={tasks}
+      initialDetail={selectedTask && selected ? selected : null}
       pageContract={pageContract}
       scopeKey={scopeKey}
       params={params}
       assignees={assignees}
       canRaise={Boolean(page?.can_raise)}
+      ariaLabel={copy(pageContract, "section.selected.title")}
+      closeLabel={copy(pageContract, "action.close")}
+      closeHref={closeHref}
     />
-  ) : null;
+  );
 
   return (
+    <TaskViewProvider initial={params.view}>
     <div className="screen on lt-page">
       <div className="phead lt-phead">
         <div>
@@ -298,11 +304,7 @@ export function LeadershipTasksPage({
           <div className="lt-unavailable">{copy(pageContract, "state.unavailable_tasks")}</div>
         )}
         <div className="ltb-viewswitch">
-          <SegmentedLinks
-            options={viewOptions}
-            current={params.view}
-            ariaLabel={copy(pageContract, "board.view.aria", "Task view")}
-          />
+          <TaskViewToggle options={viewOptions} ariaLabel={copy(pageContract, "board.view.aria", "Task view")} />
         </div>
       </div>
 
@@ -337,7 +339,10 @@ export function LeadershipTasksPage({
       {/* The BOARD sits on the page ground like the Work Board's: its columns are the structure,
           so a card box with a "Team progress · 408" header around them was a frame around a
           frame. The LIST keeps the card: a table wants an edge. */}
-      {hasTasks && isBoard ? (
+      <TaskViewBody
+        board={
+          <>
+      {hasTasks ? (
         <div className="ltb-ground">
           <LeadershipTasksBoard
             pageContract={pageContract}
@@ -362,7 +367,11 @@ export function LeadershipTasksPage({
           />
         </div>
       ) : null}
-      {hasTasks && isBoard ? null : (
+          </>
+        }
+        list={
+          <>
+      {(
       <div className="lt-grid lt-grid-solo">
         <section className="card lt-card" style={{ minWidth: 0 }}>
           <div className="hd">
@@ -432,17 +441,12 @@ export function LeadershipTasksPage({
       </div>
       )}
 
-      {selected ? (
-        <TaskDetailDrawer
-          taskId={selected.id}
-          closeHref={closeHref}
-          ariaLabel={copy(pageContract, "section.selected.title")}
-          closeLabel={copy(pageContract, "action.close")}
-        >
-          {detailPanel}
-        </TaskDetailDrawer>
-      ) : null}
+          </>
+        }
+      />
+      {detailPanel}
     </div>
+    </TaskViewProvider>
   );
 }
 

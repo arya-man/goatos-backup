@@ -1,6 +1,5 @@
 "use client";
 
-import { useRouter } from "next/navigation";
 import { useCallback, useEffect, useRef, type ReactNode } from "react";
 
 /**
@@ -38,25 +37,24 @@ function anotherOverlayIsOpen(): boolean {
 
 export function TaskDetailDrawer({
   taskId,
-  closeHref,
+  onClose,
   ariaLabel,
   closeLabel,
   children,
 }: {
   taskId: string;
-  /** The same href the panel's own Close link carries: `task=` dropped, everything else kept. */
-  closeHref: string;
+  /** Pops the local overlay (history entry or URL replace); never a route navigation. */
+  onClose: () => void;
   ariaLabel: string;
   closeLabel: string;
   children: ReactNode;
 }) {
-  const router = useRouter();
   const drawerRef = useRef<HTMLElement>(null);
   const openerRef = useRef<HTMLElement | null>(null);
 
   const close = useCallback(() => {
-    router.push(closeHref, { scroll: false });
-  }, [closeHref, router]);
+    onClose();
+  }, [onClose]);
 
   useEffect(() => {
     const drawer = drawerRef.current;

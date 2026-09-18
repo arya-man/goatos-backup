@@ -2,7 +2,7 @@
 
 import { MessageSquareText } from "lucide-react";
 import { useOptimistic, useRef, useState, useTransition } from "react";
-import { publishTaskRowVersion } from "./task-row-version";
+import { publishTaskRowVersion } from "./task-row-store";
 
 import { copy, type AdminUiPageContract } from "@/lib/admin-ui-contract";
 import type { LeadershipTaskActivity } from "@/lib/api/server";

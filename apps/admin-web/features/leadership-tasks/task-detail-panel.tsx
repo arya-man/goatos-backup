@@ -1,3 +1,5 @@
+"use client";
+
 import Link from "@/components/no-prefetch-link";
 import { ClipboardList, Paperclip } from "lucide-react";
 
@@ -52,6 +54,8 @@ export function TaskDetailPanel({
   params,
   assignees = [],
   canRaise = false,
+  onClose,
+  loadingDetail = false,
 }: {
   /** The selected row, or nothing at all when the reader has not picked one yet. */
   detail?: TaskRow | null;
@@ -60,6 +64,10 @@ export function TaskDetailPanel({
   params: TasksParams;
   assignees?: readonly LeadershipTaskAssignee[];
   canRaise?: boolean;
+  /** Set by the drawer host: Close pops the local overlay instead of navigating. */
+  onClose?: () => void;
+  /** True while the host is fetching the task's notes and activity. */
+  loadingDetail?: boolean;
 }) {
   // The whole URL, rebuilt from the PARSED state: this component is handed `TasksParams` and no
   // raw search params, and `tasksSearchParams` is the seam that keeps the repeated cursor stack
@@ -134,9 +142,15 @@ export function TaskDetailPanel({
               />
             </span>
           ) : null}
-          <Link href={closeHref} scroll={false} className="btn sm ltd-close">
-            {copy(pageContract, "action.close")}
-          </Link>
+          {onClose ? (
+            <button type="button" className="btn sm ltd-close" onClick={onClose}>
+              {copy(pageContract, "action.close")}
+            </button>
+          ) : (
+            <Link href={closeHref} scroll={false} className="btn sm ltd-close">
+              {copy(pageContract, "action.close")}
+            </Link>
+          )}
         </div>
       </div>
 
@@ -233,14 +247,19 @@ export function TaskDetailPanel({
                 render, no page banner. The candidate list, the mention-id contract and the
                 no-JS submit are unchanged. The idempotency key minted here is for the NO-JS
                 submit only; the island mints a fresh one per press. */}
+            {loadingDetail ? (
+              <p className="ltd-feed-loading" aria-live="polite">
+                {copy(pageContract, "activity.loading", "Loading activity…")}
+              </p>
+            ) : null}
             <TaskActivityComposer
-              key={detail.id}
+              key={`${detail.id}:${loadingDetail ? "summary" : "detail"}`}
               task={detail}
               pageContract={pageContract}
               action={postLeadershipTaskCommentAction}
               returnTo={returnTo}
               mentionCandidates={assignees}
-              initialIdempotencyKey={`admin-web-leadership-task-note:${detail.id}:${crypto.randomUUID()}`}
+              initialIdempotencyKey={`admin-web-leadership-task-note:${detail.id}:r${detail.rowVersion}`}
             />
           </Section>
         </div>

@@ -8,7 +8,7 @@ import { rfc3339ToFarmDeadlineLocal } from "./deadline";
 import { TaskDeadlineFields } from "./task-write-forms";
 import { useDialogShell } from "./use-dialog-shell";
 import type { TaskRow } from "./task-row";
-import { useTaskRowVersion } from "./task-row-version";
+import { useTaskRowVersion } from "./task-row-store";
 
 /**
  * The EDIT modal — the piece the web desk never had.

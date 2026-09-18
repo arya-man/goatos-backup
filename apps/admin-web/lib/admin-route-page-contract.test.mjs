@@ -94,16 +94,34 @@ test("production Tasks page uses live backend data, with fixtures confined to pr
     /preview \?/,
     "preview-only activity must stay behind the preview flag",
   );
-  // The page renders the rail through ONE call site and passes the selected row (or null) down.
+  // The drawer is CLIENT-LOCAL (2026-09-18, evening): the page renders ONE drawer host and
+  // hands it the deep-linked detail row (or null); the host opens the panel from a card click
+  // without a route navigation. The page itself must not render the panel any more -- doing so
+  // would put a server-rendered drawer behind every card click again.
   assert.match(
     component,
-    /<TaskDetailPanel\b/,
-    "the page must render the selected task through the detail panel component",
+    /<TaskDrawerHost\b/,
+    "the page must render the task drawer through the client-local drawer host",
   );
   assert.match(
     component,
-    /detail=\{selected \?\? null\}/,
-    "the panel owns the no-selection state; the page passes the row or null",
+    /initialDetail=\{selectedTask && selected \? selected : null\}/,
+    "the host owns the no-selection state; the page passes the deep-linked row or null",
+  );
+  assert.doesNotMatch(
+    component,
+    /<TaskDetailPanel\b/,
+    "the page must not render the detail panel itself; the drawer host does",
+  );
+  const drawerHost = readFileSync(
+    join(root, "features/leadership-tasks/task-drawer-host.tsx"),
+    "utf8",
+  );
+  assert.match(drawerHost, /<TaskDetailPanel\b/, "the drawer host renders the detail panel");
+  assert.match(
+    drawerHost,
+    /pushLocalOverlayUrl\(/,
+    "opening the drawer changes the URL through history only, never a navigation",
   );
   // Production activity is the task's OWN feed and notes (`LeadershipTask.activity` /
   // `notes`), handed verbatim to the tabbed feed -- never invented on the client and never a

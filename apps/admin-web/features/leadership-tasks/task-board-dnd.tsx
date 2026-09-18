@@ -7,6 +7,7 @@ import { copy, type AdminUiPageContract } from "@/lib/admin-ui-contract";
 
 import { TaskBoardCard } from "./task-board-card";
 import type { TaskRow } from "./task-row";
+import { taskRowPatch, useTaskRowsVersion } from "./task-row-store";
 import type { TaskBoardColumn } from "./task-url";
 
 /**
@@ -105,7 +106,7 @@ type PendingMove = { taskID: string; to: TaskBoardColumn };
 export function TaskBoardColumns({
   pageContract,
   columns,
-  rows,
+  rows: serverRows,
   cardHrefs,
   selectedTaskID,
   activeFilter,
@@ -127,6 +128,29 @@ export function TaskBoardColumns({
 }) {
   const dragCapable = useDragCapable();
   const [, startTransition] = useTransition();
+  /**
+   * The rows as the browser knows them: a status changed in the drawer is published to the row
+   * store and the card moves lane HERE, without the route re-rendering. The pills follow: a
+   * published move is +1 / -1 against the server's whole-list totals.
+   */
+  useTaskRowsVersion();
+  const rows = serverRows.map((row) => {
+    const patch = taskRowPatch(row.id);
+    return patch && typeof patch.rowVersion === "number" && patch.rowVersion > row.rowVersion
+      ? { ...row, ...patch }
+      : row;
+  });
+  const totalDelta = (columnKey: string): number => {
+    let delta = 0;
+    for (let i = 0; i < rows.length; i += 1) {
+      const before = serverRows[i].status;
+      const after = rows[i].status;
+      if (before === after) continue;
+      if (after === columnKey) delta += 1;
+      if (before === columnKey) delta -= 1;
+    }
+    return delta;
+  };
   /**
    * The move in flight. Optimistic, so React itself discards it when the transition that set it
    * settles — which is the whole revert-on-refusal mechanism (see the file comment).
@@ -271,7 +295,7 @@ export function TaskBoardColumns({
                         : undefined
                     }
                   >
-                    {column.total === null ? cards.length : column.total}
+                    {column.total === null ? cards.length : Math.max(0, column.total + totalDelta(column.key))}
                   </span>
                 </header>
                 <div className="ltb-colbd">

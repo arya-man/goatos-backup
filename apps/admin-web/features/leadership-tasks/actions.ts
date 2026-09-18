@@ -10,6 +10,7 @@ import {
   setLeadershipTaskComment,
   uploadLeadershipTaskAttachment,
   type LeadershipTaskActivity,
+  type LeadershipTaskDetail,
 } from "@/lib/api/server";
 import { farmDeadlineLocalFromForm, farmDeadlineToRFC3339 } from "./deadline";
 import { TASK_PARAM } from "./params";
@@ -469,3 +470,70 @@ function attachmentRefs(
   return refs;
 }
 
+
+/**
+ * The status change that RETURNS instead of redirecting -- the drawer's and the board's path.
+ *
+ * `changeLeadershipTaskStatusAction` above redirects and re-runs the route, which showed the
+ * route's loading skeleton and repainted the board for a one-field change (the flicker the CEO
+ * saw). This one validates and writes exactly the same way and hands back the task as the
+ * backend now has it, so the caller moves the card and the status pill in place. On a refusal
+ * it carries the same two facts the redirect used to put in the URL (the task's current status
+ * chip when it moved under the reader; the owner's name for a permission refusal), so the
+ * sentence is as specific as before. The redirecting action stays for the no-JS form.
+ */
+export type StatusChangeResult =
+  | { ok: true; task: LeadershipTaskDetail["task"] }
+  | { ok: false; code: string; statusNow?: string; who?: string };
+
+export async function changeLeadershipTaskStatusInPlaceAction(
+  formData: FormData,
+): Promise<StatusChangeResult> {
+  const taskID = String(formData.get("task_id") ?? "").trim();
+  const status = String(formData.get("status") ?? "").trim();
+  const rowVersion = Number.parseInt(String(formData.get("row_version") ?? ""), 10);
+  const idempotencyKey = String(formData.get("idempotency_key") ?? "").trim();
+  const fromStatus = String(formData.get("from_status") ?? "").trim();
+  if (!taskID || !status || !Number.isFinite(rowVersion)) {
+    return { ok: false, code: "invalid_status_change" };
+  }
+  if (idempotencyKey.length < 8 || idempotencyKey.length > 200) {
+    return { ok: false, code: "invalid_idempotency_key" };
+  }
+  const result = await changeLeadershipTaskStatus(
+    taskID,
+    { status, row_version: rowVersion },
+    idempotencyKey,
+  );
+  // No revalidatePath here: the list read is `no-store`, so the next server render is fresh by
+  // construction, and a revalidate inside a RETURNING action makes the router re-fetch the whole
+  // route right after -- the very repaint this action exists to avoid.
+  if (!result.ok) {
+    const code = result.error.code ?? result.error.kind;
+    const out: StatusChangeResult = { ok: false, code };
+    if (STATUS_REFUSALS_WORTH_A_REREAD.includes(code)) {
+      const fresh = await getLeadershipTask(taskID);
+      if (fresh.ok) {
+        const task = fresh.data.task;
+        if (task.status_chip && task.status !== fromStatus) out.statusNow = task.status_chip;
+        if (code === "not_assignee" && task.assignee_name) out.who = task.assignee_name;
+        if (code === "not_raiser" && task.raised_by_name) out.who = task.raised_by_name;
+      }
+    }
+    return out;
+  }
+  return { ok: true, task: result.data.task };
+}
+
+/**
+ * The drawer's own read: the task with its notes and activity, for a drawer opened from a list
+ * row (which carries no activity). One authenticated call; the page is not re-rendered.
+ */
+export async function loadLeadershipTaskAction(
+  taskID: string,
+): Promise<{ ok: true; task: LeadershipTaskDetail["task"] } | { ok: false; code: string }> {
+  if (!taskID || taskID.length > 64) return { ok: false, code: "invalid_task" };
+  const result = await getLeadershipTask(taskID);
+  if (!result.ok) return { ok: false, code: result.error.code ?? result.error.kind };
+  return { ok: true, task: result.data.task };
+}
