@@ -12,7 +12,7 @@ The target stated by the maintainer: *everything configurable*, so a new owner a
 animal types, places, feeds, medicines and categories without a developer.
 
 Phase 1 registers (maintainer's picks): **Farms, Parks, Pens, Partitions** (farm places);
-**Species, Sexes, Lifecycle stages** (animal types); **Item categories, Items, Feed items**
+**Species, Gender (register key `sexes`), Lifecycle stages** (animal types); **Item categories, Items, Feed items**
 (catalogue; feed items read-only, edited on `/feed/config`). Inventory stock, breeds, the
 animals grid, people/roles and sales rules are later phases.
 

@@ -146,7 +146,7 @@ var Registers = []Register{
 			{Key: "name", Label: "Name", Type: TypeText, Required: true},
 			{Key: "capacity", Label: "Capacity", Type: TypeNumber, Min: zero(), Integer: true},
 			{Key: "stage_id", Label: "Stage", Type: TypeRef, Ref: RegStages, Hint: "The lifecycle stage the pen is kept for, when it has one."},
-			{Key: "sex", Label: "Sex", Type: TypeEnum, Options: []Option{{Value: "mixed", Label: "Mixed"}, {Value: "female", Label: "Female"}, {Value: "male", Label: "Male"}}},
+			{Key: "sex", Label: "Gender", Type: TypeEnum, Options: []Option{{Value: "mixed", Label: "Mixed"}, {Value: "female", Label: "Female"}, {Value: "male", Label: "Male"}}},
 			{Key: "has_icu", Label: "ICU", Type: TypeBool},
 			{Key: "notes", Label: "Notes", Type: TypeNotes, ListHidden: true},
 		},
@@ -172,7 +172,9 @@ var Registers = []Register{
 		},
 	},
 	{
-		Key: RegSexes, Label: "Sexes", One: "Sex", Group: GroupAnimalTypes,
+		// Labelled "Gender" on screen (maintainer instruction 2026-09-18); the key stays `sexes`
+		// and the stored column stays goats.sex -- a vocabulary choice, not a schema one.
+		Key: RegSexes, Label: "Gender", One: "Gender", Group: GroupAnimalTypes,
 		Hint: "Female and Male are built in and cannot be removed.",
 		Columns: []Column{
 			{Key: "name", Label: "Name", Type: TypeText, Required: true},
