@@ -472,6 +472,9 @@ func TemplateLabel(templateKey string) string {
 	case TemplateKeyShifting:
 		return "Pen move"
 	}
+	if _, general := GeneralSOPCode(templateKey); general {
+		return "Work instruction"
+	}
 	return ""
 }
 

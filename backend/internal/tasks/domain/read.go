@@ -112,6 +112,9 @@ type WorkflowCard struct {
 	EventDate            string
 	ParkLabel            string
 	ShedLabel            string
+	// SOPName is the authored name of the SOP a GENERAL run was started from ("" on the
+	// herd-operations templates, whose label comes from the template key).
+	SOPName string
 	ActionsDone          int
 	ActionsTotal         int
 	NextAction           *WorkflowNextAction

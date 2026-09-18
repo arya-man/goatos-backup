@@ -368,7 +368,8 @@ const cardSelectColumns = `
   COALESCE(tag.identifier_value, ''),
   COALESCE(park.name, ''), COALESCE(shed.name, ''),
   COALESCE(CASE WHEN gsp.shed_id = wi.shed_id AND lower(btrim(gsp.partition_label)) <> 'whole'
-                THEN btrim(gsp.partition_label) END, '')`
+                THEN btrim(gsp.partition_label) END, ''),
+  COALESCE(gsd.name, '')`
 
 const cardJoins = `
 FROM workflow_instances wi
@@ -388,7 +389,9 @@ LEFT JOIN locations park
 LEFT JOIN locations shed
   ON shed.tenant_id = wi.tenant_id AND shed.location_id = wi.shed_id
 LEFT JOIN goat_shed_partitions gsp
-  ON gsp.tenant_id = wi.tenant_id AND gsp.goat_id = wi.subject_goat_id`
+  ON gsp.tenant_id = wi.tenant_id AND gsp.goat_id = wi.subject_goat_id
+LEFT JOIN sop_definitions gsd
+  ON gsd.tenant_id = wi.tenant_id AND wi.template_key = 'general:' || gsd.code`
 
 // ListWorkflows serves one keyset page of cards plus the requested day's chip counts.
 //
@@ -567,7 +570,7 @@ func scanCard(row cardScanner, now time.Time) (domain.WorkflowCard, error) {
 		&nextKey, &nextTitle, &nextDue, &card.AwaitingVerification,
 		&card.Subject.DisplayID, &card.Subject.RowVersion, &card.Subject.Sex, &card.Subject.Breed,
 		&card.Subject.Tag,
-		&card.ParkLabel, &card.ShedLabel, &partitionLabel,
+		&card.ParkLabel, &card.ShedLabel, &partitionLabel, &card.SOPName,
 	); err != nil {
 		return domain.WorkflowCard{}, err
 	}

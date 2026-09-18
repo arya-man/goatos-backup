@@ -198,3 +198,34 @@ data class WorkflowActionWriteResponseDto(
     @SerialName("completed_at") val completedAt: String? = null,
     @SerialName("idempotent_replay") val idempotentReplay: Boolean = false,
 )
+
+// ---------------------------------------------------------------------------------------------
+// GENERAL work instructions (SOP studio phase 2, docs/decisions/sop-studio.md): farm-wide SOPs
+// tied to no module, started by hand. The run then rides the workflow routes above.
+// ---------------------------------------------------------------------------------------------
+
+/** One startable general SOP (GET /app/sops/general). All strings are backend copy. */
+@Serializable
+data class GeneralSopDto(
+    @SerialName("code") val code: String = "",
+    @SerialName("name") val name: String = "",
+    @SerialName("description") val description: String = "",
+    @SerialName("step_count") val stepCount: Int = 0,
+)
+
+@Serializable
+data class GeneralSopsResponseDto(
+    @SerialName("sops") val sops: List<GeneralSopDto> = emptyList(),
+)
+
+/** POST /app/workflows/start body. */
+@Serializable
+data class StartWorkflowRequestDto(
+    @SerialName("sop_code") val sopCode: String,
+    @SerialName("park_id") val parkId: String? = null,
+)
+
+@Serializable
+data class StartWorkflowResponseDto(
+    @SerialName("workflow_id") val workflowId: String = "",
+)

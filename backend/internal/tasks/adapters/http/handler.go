@@ -537,7 +537,7 @@ func cardDTO(card domain.WorkflowCard) workflowCardDTO {
 		WorkflowID:           card.WorkflowID,
 		Module:               card.Module,
 		TemplateKey:          card.TemplateKey,
-		TemplateLabel:        domain.TemplateLabel(card.TemplateKey),
+		TemplateLabel:        templateLabelFor(card),
 		Subject:              card.Subject,
 		EventAt:              card.EventAt,
 		EventDate:            card.EventDate,
@@ -555,6 +555,15 @@ func cardDTO(card domain.WorkflowCard) workflowCardDTO {
 // served steps (approval rows excluded, canceled excluded, recorded = completed or awaiting a
 // verdict), so a card written before the internal approval left the operator count reads the
 // same as one written after, whatever number of steps the SOP authored.
+// templateLabelFor is the card's operator-facing kind: the herd-operations label by template
+// key, or the authored SOP name of a general run.
+func templateLabelFor(card domain.WorkflowCard) string {
+	if card.SOPName != "" {
+		return card.SOPName
+	}
+	return domain.TemplateLabel(card.TemplateKey)
+}
+
 func cardDTOWithActions(card domain.WorkflowCard, actions []domain.WorkflowAction) workflowCardDTO {
 	out := cardDTO(card)
 	if len(actions) == 0 {

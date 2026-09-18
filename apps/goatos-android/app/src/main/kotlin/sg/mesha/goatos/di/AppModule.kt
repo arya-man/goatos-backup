@@ -64,6 +64,8 @@ import sg.mesha.goatos.core.data.HealthRepository
 import sg.mesha.goatos.core.data.PenReconciliationRepository
 import sg.mesha.goatos.core.data.ShiftingPendingRepository
 import sg.mesha.goatos.core.data.WorkflowsRepository
+import sg.mesha.goatos.core.data.DefaultWorkInstructionsRepository
+import sg.mesha.goatos.core.data.WorkInstructionsRepository
 import sg.mesha.goatos.core.data.DefaultCountsRepository
 import sg.mesha.goatos.core.data.DefaultMilkPreparationRepository
 import sg.mesha.goatos.core.data.MilkPreparationRepository
@@ -506,6 +508,14 @@ object AppModule {
         database: GoatDatabase,
         outboxStore: OutboxStore,
     ): WorkflowsRepository = DefaultWorkflowsRepository(api, database, outboxStore)
+
+    /** Work instructions (2026-09-18): the startable general SOPs and the start itself. */
+    @Provides
+    @Singleton
+    fun provideWorkInstructionsRepository(
+        api: AppApi,
+        database: GoatDatabase,
+    ): WorkInstructionsRepository = DefaultWorkInstructionsRepository(api, database)
 
     @Provides
     @Singleton

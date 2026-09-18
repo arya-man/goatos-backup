@@ -228,6 +228,9 @@ import sg.mesha.goatos.core.network.dto.WorkflowActionAnswerRequestDto
 import sg.mesha.goatos.core.network.dto.WorkflowActionCompleteRequestDto
 import sg.mesha.goatos.core.network.dto.WorkflowActionWriteResponseDto
 import sg.mesha.goatos.core.network.dto.WorkflowDetailResponseDto
+import sg.mesha.goatos.core.network.dto.GeneralSopsResponseDto
+import sg.mesha.goatos.core.network.dto.StartWorkflowRequestDto
+import sg.mesha.goatos.core.network.dto.StartWorkflowResponseDto
 import sg.mesha.goatos.core.network.dto.WorkflowListResponseDto
 import sg.mesha.goatos.core.network.dto.WeighingAnimalObservationRequestDto
 import sg.mesha.goatos.core.network.dto.WeighingCampaignResponseDto
@@ -2074,6 +2077,18 @@ interface AppApi {
     ): WorkflowDetailResponseDto
 
     /**
+     * GET /app/sops/general — the general work instructions the caller may start by hand
+     * (docs/decisions/sop-studio.md). Gated on work_instructions.execute.
+     */
+    suspend fun listGeneralSops(): GeneralSopsResponseDto
+
+    /**
+     * POST /app/workflows/start — opens one run of a general SOP. The [idempotencyKey] IS the
+     * run: a retried tap returns the same workflow id, never a second run.
+     */
+    suspend fun startWorkflow(idempotencyKey: String, request: StartWorkflowRequestDto): StartWorkflowResponseDto
+
+    /**
      * POST /app/workflows/{workflow_id}/actions/{action_id}/answer — answers a question /
      * question_select action and completes it. Drained through the offline outbox with a stable
      * [idempotencyKey]: an exact replay returns the original result with `idempotent_replay=true`.
@@ -2951,6 +2966,11 @@ class FakeAppApi(private val chrome: String = "expanded") : AppApi {
         lens: String?,
         date: String?,
     ): WorkflowDetailResponseDto = WorkflowDetailResponseDto(workflowId = workflowId)
+
+    override suspend fun listGeneralSops(): GeneralSopsResponseDto = GeneralSopsResponseDto()
+
+    override suspend fun startWorkflow(idempotencyKey: String, request: StartWorkflowRequestDto): StartWorkflowResponseDto =
+        StartWorkflowResponseDto(workflowId = "fake-run-" + request.sopCode)
 
     override suspend fun answerWorkflowAction(
         workflowId: String,
