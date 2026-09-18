@@ -5061,6 +5061,13 @@ components:
             - draft
             - active
             - retired
+        kind:
+          type: string
+          enum: [module, general]
+          description: module = owned and run by a module; general = farm-wide, started by hand.
+        module_key:
+          type: string
+          description: The owning module of a module-level SOP ("" for general).
         active_sop_version_id:
           type:
             - string
@@ -5251,6 +5258,13 @@ components:
           type: string
         name:
           type: string
+        kind:
+          type: string
+          enum: [module, general]
+          description: The SOP kind. Defaults to module; a `general.` code defaults to general.
+        module_key:
+          type: string
+          description: The owning module of a module-level SOP; derived from the code prefix when blank.
         description:
           type: string
     CreateSOPVersionRequest:

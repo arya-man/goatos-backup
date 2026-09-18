@@ -174,6 +174,7 @@ var modulePages = []ModulePage{
 
 	// Configuration (2026-09-18): Items and settings, one page carrying every register.
 	{Key: "configuration-items", Module: "configuration", Label: "Items and settings", Href: "/configuration/items", Permissions: []string{ConfigurationRead}},
+	{Key: "configuration-work-instructions", Module: "configuration", Label: "Work instructions", Href: "/configuration/work-instructions", Permissions: []string{SOPRead}},
 }
 
 // moduleRoutePrefixes says which module owns a ROUTE NAMESPACE, for the page contracts

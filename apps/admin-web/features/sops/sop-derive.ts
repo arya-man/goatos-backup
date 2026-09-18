@@ -81,6 +81,9 @@ export function classifyDomain(code: string, name: string): DomainId | "general"
 // under "Counts" ("weigh").
 export function sopSliceKey(code: string, name: string): "vaccination" | "counts" | "feed" | "milk" | "weighing" | "procurement" | "general" {
   const c = (code || "").toLowerCase();
+  // GENERAL SOPs (SOP studio phase 2, 2026-09-18): the `general.` prefix is the kind, authored on
+  // Configuration -> Work instructions.
+  if (c.startsWith("general.")) return "general";
   if (c.startsWith("procurement.")) return "procurement";
   if (c.startsWith("milk.")) return "milk";
   if (c === "weighing" || c.startsWith("weighing.")) return "weighing";
@@ -94,7 +97,8 @@ export function sopSliceKey(code: string, name: string): "vaccination" | "counts
 // vaccination, plus the migration-seeded Counts (birth / death / shifting) and Feed (distribution /
 // packing / transport) library documents. isVaccinationSop still decides which cards carry the
 // "Vaccination" chip label and which map to the vaccination filter chip.
-export const SOP_SLICE_LABEL: Record<"vaccination" | "counts" | "feed" | "milk" | "weighing" | "procurement", string> = {
+export const SOP_SLICE_LABEL: Record<"vaccination" | "counts" | "feed" | "milk" | "weighing" | "procurement" | "general", string> = {
+  general: "General",
   vaccination: "Vaccination",
   counts: "Herd Operations",
   feed: "Feed",
@@ -530,7 +534,7 @@ export type SubjectScope = "batch" | "goat";
 
 // The New SOP builder is locked by its mounted module page. The domain is not a free choice inside
 // the builder; each route passes its own slice so new SOPs stay visible on the page that authored them.
-export type SopSliceDomain = "vaccination" | "counts" | "feed" | "milk" | "weighing" | "procurement";
+export type SopSliceDomain = "vaccination" | "counts" | "feed" | "milk" | "weighing" | "procurement" | "general";
 
 export type SopBuilderInput = {
   name: string;
@@ -678,6 +682,40 @@ function parsedBound(raw: string): number | undefined {
 // type, so the version always passes service.ValidateFormDSL. Per-type config (choices, number bounds,
 // unit, placeholder, help text) is carried as field metadata; conditional visibility + conditional
 // requirement are emitted as declarative visible_if / required_if rules the backend evaluator honours.
+// GENERAL SOP (SOP studio phase 2, 2026-09-18): a work instruction's steps ARE its operator
+// steps, so the builder's steps become the `main` follow-up track the engine runs; there is no
+// capture form. Each builder step maps to the registry task type that records the same answer.
+const GENERAL_TASK_TYPE: Record<string, { taskType: string; proof?: { video?: number; photo?: number } }> = {
+  text: { taskType: "record_text" },
+  number: { taskType: "record_number" },
+  yesno: { taskType: "record_yes_no" },
+  select: { taskType: "record_select" },
+  multiselect: { taskType: "record_multiselect" },
+  photo_proof: { taskType: "photo_record", proof: { photo: 1 } },
+  video_proof: { taskType: "video_record", proof: { video: 1 } },
+};
+
+export function buildGeneralFollowUp(input: SopBuilderInput): Record<string, unknown> {
+  const keys = fieldKeys(input.steps);
+  const steps = input.steps.map((step, i) => {
+    const map = GENERAL_TASK_TYPE[step.type] ?? { taskType: "do_and_confirm" };
+    const out: Record<string, unknown> = {
+      key: keys[i],
+      task_type: map.taskType,
+      title: step.label.trim() || `Step ${i + 1}`,
+      detail: step.helpText.trim(),
+      proof: map.proof ?? {},
+      schedule: { kind: "immediately" },
+    };
+    if (step.type === "select" || step.type === "multiselect") out.options = step.options.map((o) => o.label.trim()).filter(Boolean);
+    return out;
+  });
+  return {
+    schema_version: "goatos.sop-followup.v1",
+    tracks: [{ key: "main", module: "general", label: input.name.trim(), subject: "run", steps }],
+  };
+}
+
 export function buildFormDsl(input: SopBuilderInput): EmittedFormDsl {
   const keys = fieldKeys(input.steps);
   const fields: EmittedField[] = input.steps.map((step, i) => {

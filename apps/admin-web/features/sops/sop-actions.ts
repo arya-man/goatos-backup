@@ -25,6 +25,7 @@ import {
 import {
   SOP_SLICE_LABEL,
   buildFormDsl,
+  buildGeneralFollowUp,
   buildProofPolicy,
   buildSopCode,
   hasProofField,
@@ -57,9 +58,13 @@ export async function saveSopDraft(input: SopBuilderInput): Promise<SaveSopResul
   const def = await createSop({ code, name, description: `${SOP_SLICE_LABEL[input.domain]} · ${input.trigger} SOP` });
   if (!def.ok) return { ok: false, message: def.error.message ?? "create SOP failed", code: def.error.code };
 
+  // A general work instruction carries its steps as the follow-up track the phone runs, not
+  // as a capture form.
+  const formDsl = buildFormDsl(input) as unknown as Record<string, unknown>;
+  if (input.domain === "general") formDsl.follow_up = buildGeneralFollowUp(input);
   const version = await createSopVersion(def.data.sop.sop_id, {
     version_label: "v1 draft",
-    form_dsl: buildFormDsl(input) as unknown as Record<string, unknown>,
+    form_dsl: formDsl,
     proof_policy: buildProofPolicy(input),
   });
   if (!version.ok) {

@@ -270,6 +270,10 @@ func navigation() domain.NavigationContract {
 				ID: "configuration", Label: "Configuration", Icon: "settings", DefaultOpen: false,
 				Leaves: []domain.NavigationItem{
 					navLeafDomain("configuration-items", "Items and settings", "/configuration/items", "configuration", nil),
+					// SOP studio phase 2 (maintainer instruction 2026-09-18): GENERAL work instructions
+					// -- SOPs tied to no module, started by hand -- are authored here; module-level
+					// SOPs stay on their module's SOP page. Gated on sop.read like every SOP page.
+					navLeaf("configuration-work-instructions", "Work instructions", "/configuration/work-instructions", nil),
 				},
 			},
 		},
@@ -1036,6 +1040,11 @@ func pages() []domain.PageContract {
 			[]domain.TableContract{table("sop-library", "Milk SOPs", "/admin/sops", []string{"sop", "domain", "trigger", "steps", "gates", "status"}, "sop_id")}),
 		page("weighing-sops", "/weighing/sops", "/weighing/sops", "Weighing SOP", "The scan-and-submit weighing session document.", "module-surface",
 			[]domain.TableContract{table("sop-library", "Weighing SOPs", "/admin/sops", []string{"sop", "domain", "trigger", "steps", "gates", "status"}, "sop_id")}),
+		// SOP studio phase 2 (2026-09-18): general work instructions, the SOP kind tied to no
+		// module. Same library + operator-steps editor shape as the module pages; the code
+		// prefix `general.` and kind = general are set by the builder.
+		page("configuration-work-instructions", "/configuration/work-instructions", "/configuration/work-instructions", "Work instructions", "General SOPs: farm-wide work tied to no module, started by hand from the phone.", "module-surface",
+			[]domain.TableContract{table("sop-library", "Work instructions", "/admin/sops", []string{"sop", "domain", "trigger", "steps", "gates", "status"}, "sop_id")}),
 		// PROCUREMENT SOP (maintainer decision 2026-09-14): the animal-purchase inspection --
 		// its pages, questions, proof and compulsory flags -- is authored here and served to the
 		// phone from the published version.
@@ -7965,7 +7974,7 @@ func pageSpecificCopy(id string) map[string]string {
 		}
 	// Vaccination is deliberately absent: its SOP page is gone, and its content lives on
 	// the vaccination plan console. milk and weighing arrived on main meanwhile and stay.
-	case "counts-sops", "feed-sops", "milk-sops", "weighing-sops", "procurement-sops":
+	case "counts-sops", "feed-sops", "milk-sops", "weighing-sops", "procurement-sops", "configuration-work-instructions":
 		m := map[string]string{
 			"filter.search_label":                     "Search SOPs",
 			"filter.search_placeholder":               "Search SOP name, trigger, step, or proof...",
@@ -8268,6 +8277,18 @@ func pageSpecificCopy(id string) map[string]string {
 				m[k] = v
 			}
 			addHerdOpsCaptureCardCopy(m)
+		case "configuration-work-instructions":
+			m["crumb"] = "Configuration"
+			m["filter.domain.current"] = "This page shows general work instructions: SOPs tied to no module, started by hand"
+			m["modal.builder.domain_aria"] = "Domain — locked to General"
+			m["modal.builder.domain_title"] = "Domain is locked to General on this page"
+			m["modal.builder.domain_label"] = "General"
+			m["modal.builder.default_name"] = "Work instruction"
+			m["modal.builder.placeholder.name"] = "Work instruction"
+			m["modal.builder.policy_label"] = "general work instruction"
+			m["modal.builder.eyebrow"] = "SOP · GENERAL"
+			m["followup.subtitle"] = "What the operator does once they start this work instruction, in order. Each step names its type, the proof it needs, and when it is due. Publishing applies to runs started from then on; a run already started keeps the steps it started with."
+			m["followup.notice.capture_kept"] = "Started by hand from the phone; every run is its own record."
 		case "feed-sops":
 			m["crumb"] = "Feed"
 			m["filter.domain.current"] = "This page shows Feed SOPs (distribution, packing, transport)"
@@ -9154,6 +9175,8 @@ func pageOptionGroups(id string) []domain.OptionGroup {
 		return withGenericOptionGroups(append(sopOptionGroupsFor(id), weighingSOPOptionGroups()...))
 	case "weighing-sops":
 		return withGenericOptionGroups(append(sopOptionGroupsFor(id), weighingSOPOptionGroups()...))
+	case "configuration-work-instructions":
+		return withGenericOptionGroups(sopOptionGroupsFor(id))
 	case "procurement-sops":
 		return withGenericOptionGroups(append(sopOptionGroupsFor(id), inspectionOptionGroups()...))
 	case "action-center":

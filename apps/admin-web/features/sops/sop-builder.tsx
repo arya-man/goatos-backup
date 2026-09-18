@@ -276,6 +276,17 @@ export function SopBuilder({
                     <span className="tag t-pur">{copy(pc, "modal.builder.domain_label")}</span>
                     <span className="muted small">{copy(pc, "modal.builder.domain_locked")}</span>
                   </div>
+                  {/* The SOP KIND (2026-09-18) is decided by the page: a module page authors
+                      module-level SOPs, Configuration › Work instructions authors general ones. */}
+                  <div
+                    aria-label={copy(pc, "studio.kind.label")}
+                    title={copy(pc, domain === "general" ? "studio.kind.general_hint" : "studio.kind.module_hint")}
+                    style={{ display: "flex", alignItems: "center", gap: 8, border: "1px solid var(--line)", background: "var(--bg)", borderRadius: 8, padding: "8px 10px" }}
+                    data-testid="builder-kind"
+                  >
+                    <span className="muted small">{copy(pc, "studio.kind.label")}</span>
+                    <span className="tag">{copy(pc, domain === "general" ? "studio.kind.general" : "studio.kind.module")}</span>
+                  </div>
                 </div>
                 <div className="muted small" style={{ marginTop: 5 }}>
                   {copy(pc, "modal.builder.code_prefix")} <span className="mono">{code}</span> · {copy(pc, "modal.builder.policy_label")}

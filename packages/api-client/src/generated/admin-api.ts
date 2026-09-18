@@ -2183,6 +2183,13 @@ export interface components {
             description: string;
             /** @enum {string} */
             status: "draft" | "active" | "retired";
+            /**
+             * @description module = owned and run by a module; general = farm-wide, started by hand.
+             * @enum {string}
+             */
+            kind?: "module" | "general";
+            /** @description The owning module of a module-level SOP ("" for general). */
+            module_key?: string;
             /** Format: uuid */
             active_sop_version_id?: string | null;
             version_count: number;
@@ -2255,6 +2262,13 @@ export interface components {
         CreateSOPRequest: {
             code: string;
             name: string;
+            /**
+             * @description The SOP kind. Defaults to module; a `general.` code defaults to general.
+             * @enum {string}
+             */
+            kind?: "module" | "general";
+            /** @description The owning module of a module-level SOP; derived from the code prefix when blank. */
+            module_key?: string;
             description?: string;
         };
         CreateSOPVersionRequest: {
