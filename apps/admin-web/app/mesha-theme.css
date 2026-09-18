@@ -6000,6 +6000,10 @@ input[type=date],input[type=datetime-local],input[type=time],input[type=month],i
 .ltd-statusmenu .ltd-status:hover,.ltd-statusmenu .ltd-status.on{filter:brightness(1.12)}
 .ltd-statusmenu .ltd-status:focus-visible{outline:2px solid var(--brand);outline-offset:2px}
 .ltd-statusmenu .ltd-status-pop{min-width:220px}
+.ltd-statusmenu .ltd-status[aria-busy="true"]{cursor:progress;opacity:.85}
+.ltd-statusmenu .ltd-status-saving{width:11px;height:11px;flex:none;border-radius:50%;border:2px solid currentColor;border-right-color:transparent;animation:ltd-status-spin .7s linear infinite}
+@keyframes ltd-status-spin{to{transform:rotate(360deg)}}
+@media (prefers-reduced-motion:reduce){.ltd-statusmenu .ltd-status-saving{animation:none;border-right-color:currentColor;opacity:.5}}
 .ltd-statusmenu .ltd-status-dot{width:9px;height:9px;border-radius:50%;flex:none;border-width:1px;border-style:solid;padding:0;min-height:0}
 .ltd-statusmenu .ltd-status-foot{padding-top:4px}
 .ltd-statusmenu .opt.ltd-opt-danger{color:var(--danger)}

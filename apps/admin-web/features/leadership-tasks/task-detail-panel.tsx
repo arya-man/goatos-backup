@@ -178,7 +178,9 @@ export function TaskDetailPanel({
         </div>
         {detail.canEdit ? null : (
           <p className="ltd-quiet ltd-readonly" data-testid="ltd-read-only">
-            {copy(pageContract, "detail.read_only", "Only the person who raised this task can edit it.")}
+            {detail.status === "done" || detail.status === "cancelled"
+              ? copy(pageContract, "detail.read_only_closed", "A finished task can't be edited. Reopen it to change the details.")
+              : copy(pageContract, "detail.read_only", "Only the person who raised this task can edit it.")}
           </p>
         )}
       </div>

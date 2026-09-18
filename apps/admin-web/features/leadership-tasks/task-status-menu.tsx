@@ -82,6 +82,18 @@ export function TaskStatusMenu({
     if (!form) return;
     const formData = new FormData(form);
     setRefusal("");
+    // OPTIMISTIC: the write is 0.5-0.7 s over the farm's link, and a pill that sits unchanged for
+    // that long reads as dead (the CEO clicked it three times, 2026-09-18). The pill and the board
+    // card move NOW with the chosen status; the backend's row replaces it when it lands, and a
+    // refusal puts the old status back beside the reason.
+    const chosen = task.statusOptions.find((option) => option.key === key);
+    const before = { status: task.status, statusLabel: task.statusLabel, statusOptions: task.statusOptions };
+    publishTaskRow(task.id, {
+      status: key as TaskRow["status"],
+      statusLabel: chosen?.label ?? task.statusLabel,
+      // No moves are offered until the real row (with its real options) comes back.
+      statusOptions: [],
+    });
     startTransition(async () => {
       let result: StatusChangeResult;
       try {
@@ -93,6 +105,7 @@ export function TaskStatusMenu({
         publishTaskRow(task.id, rowFromTask(result.task));
         return;
       }
+      publishTaskRow(task.id, before);
       const sentence =
         refusalSentence(
           (k, fb) => copy(pageContract, k, fb),
@@ -133,7 +146,11 @@ export function TaskStatusMenu({
         onClick={() => setOpen((v) => !v)}
       >
         {task.statusLabel}
-        <span className="ltd-status-caret" aria-hidden="true" />
+        {pending ? (
+          <span className="ltd-status-saving" aria-hidden="true" />
+        ) : (
+          <span className="ltd-status-caret" aria-hidden="true" />
+        )}
       </button>
       {refusal ? (
         <p className="ltd-status-refusal" role="alert">

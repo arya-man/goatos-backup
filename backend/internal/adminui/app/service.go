@@ -2132,6 +2132,9 @@ func pageSpecificCopy(id string) map[string]string {
 			// status pill is then a plain badge, not a control). Leadership monitors edit
 			// anything since 2026-09-18, so this reads for a non-party without that authority.
 			"detail.read_only": "Only the person who raised this task can edit it.",
+			// A finished task is not editable by anyone (CanEdit requires open-for-work); saying
+			// "only the raiser" to the CEO looking at a Done task was wrong (2026-09-18).
+			"detail.read_only_closed": "A finished task can't be edited. Reopen it to change the details.",
 			// The drawer's ONE status control: the pill opens a menu of the task's status_options
 			// (Cancel task last, in the danger tone). The confirm is asked before a cancel only,
 			// because a cancelled task cannot be reopened.
