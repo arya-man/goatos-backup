@@ -48,6 +48,7 @@ export function TaskDrawerHost({
   ariaLabel,
   closeLabel,
   closeHref,
+  preview = false,
 }: {
   rows: TaskRow[];
   initialDetail: TaskRow | null;
@@ -60,6 +61,8 @@ export function TaskDrawerHost({
   closeLabel: string;
   /** The page's URL with `task=` dropped: what the address bar shows once the drawer is closed. */
   closeHref: string;
+  /** /tasks-preview: fixture rows are complete and read-only; nothing here may call a live action. */
+  preview?: boolean;
 }) {
   const [openID, setOpenID] = useState<string | null>(initialDetail?.id ?? params.selectedTaskID ?? null);
   // Detail rows (with notes + activity) by task id, from the deep-link render or a fetch here.
@@ -133,7 +136,7 @@ export function TaskDrawerHost({
 
   // ---------------------------------------------------------------- the detail read
   useEffect(() => {
-    if (!openID || details[openID]) return;
+    if (!openID || details[openID] || preview) return;
     let cancelled = false;
     startTransition(async () => {
       setLoadingID(openID);
@@ -149,7 +152,7 @@ export function TaskDrawerHost({
     return () => {
       cancelled = true;
     };
-  }, [openID, details]);
+  }, [openID, details, preview]);
 
   if (!openID) return null;
 

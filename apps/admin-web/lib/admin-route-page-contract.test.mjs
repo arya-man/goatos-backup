@@ -76,11 +76,15 @@ test("production Tasks page uses live backend data, with fixtures confined to pr
     join(root, "features/leadership-tasks/task-detail-panel.tsx"),
     "utf8",
   );
+  // Fixture rows reach the page READ-ONLY (judge P1, 2026-09-18): the preview drawer must never
+  // carry a live write affordance or fetch a fake id.
   assert.match(
     component,
-    /page \? rowsFromPage\(page\) : preview \? fixtureTasks : \[\]/,
+    /page \? rowsFromPage\(page\) : preview \? fixtureTasks\.map\(readOnlyRow\) : \[\]/,
   );
+  assert.match(component, /canEdit: false, canComment: false, statusOptions: \[\]/, "readOnlyRow strips every write affordance");
   assert.doesNotMatch(component, /page \? rowsFromPage\(page\) : fixtureTasks/);
+  assert.match(component, /<TaskDrawerHost\s+preview=\{preview\}/, "the drawer host is told it is in preview");
   // The scope tabs are the shared `SegmentedLinks` control now, and their hrefs are built by the
   // feature's own URL helper so the rest of the filter state survives a scope change.
   assert.match(component, /<SegmentedLinks/, "scope tabs must use the shared segmented control");
@@ -122,6 +126,11 @@ test("production Tasks page uses live backend data, with fixtures confined to pr
     drawerHost,
     /pushLocalOverlayUrl\(/,
     "opening the drawer changes the URL through history only, never a navigation",
+  );
+  assert.match(
+    drawerHost,
+    /if \(!openID \|\| details\[openID\] \|\| preview\) return;/,
+    "the host never fetches live detail in preview",
   );
   // Production activity is the task's OWN feed and notes (`LeadershipTask.activity` /
   // `notes`), handed verbatim to the tabbed feed -- never invented on the client and never a

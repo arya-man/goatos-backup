@@ -10,6 +10,8 @@ import { ThemedDatePicker } from "@/components/themed-date-picker";
 import { copy, type AdminUiPageContract } from "@/lib/admin-ui-contract";
 import { worklistFilterShownValue } from "@/lib/worklist-filter-value";
 import { TASK_PAGING_PARAMS, TASK_PARAM } from "./params";
+import type { TaskRow } from "./task-row";
+import { taskRowPatch, useTaskRowsVersion } from "./task-row-store";
 import { TASK_SORTS, type TaskSort } from "./task-url";
 import { useDialogShell } from "./use-dialog-shell";
 
@@ -85,6 +87,7 @@ export function LeadershipTasksFilters({
   rangeIncomplete,
   sort,
   statusChips,
+  rows = [],
   hasFilters,
   clearedHref,
   assigneeCounts = {},
@@ -109,6 +112,8 @@ export function LeadershipTasksFilters({
   rangeIncomplete: boolean;
   sort: TaskSort;
   statusChips: TaskStatusChip[];
+  /** The page's rows as the server sent them; the chips adjust their counts by what the row store moved. */
+  rows?: readonly TaskRow[];
   hasFilters: boolean;
   clearedHref: string;
   /** How many cards on THIS page each person holds, shown beside their name in the picker's
@@ -175,6 +180,28 @@ export function LeadershipTasksFilters({
     setDates({ deadlineFrom, deadlineTo, raisedFrom, raisedTo });
   }
 
+  // The chip counts are whole-list server numbers; a status changed in the drawer moves ONE row
+  // between them, and the row store knows which. Same arithmetic the board's column pills use:
+  // +1 into the new status, -1 out of the old, and the overdue lens counts only late WORKING rows.
+  useTaskRowsVersion();
+  const chipDelta = (key: string): number => {
+    let delta = 0;
+    for (const row of rows) {
+      const patch = taskRowPatch(row.id);
+      const after = patch?.status ?? row.status;
+      if (after === row.status) continue;
+      const late = row.daysLeft !== null && row.daysLeft < 0;
+      const working = (status: string) => status === "open" || status === "in_progress";
+      if (key === "overdue") {
+        if (late && working(after) && !working(row.status)) delta += 1;
+        if (late && working(row.status) && !working(after)) delta -= 1;
+        continue;
+      }
+      if (after === key) delta += 1;
+      if (row.status === key) delta -= 1;
+    }
+    return delta;
+  };
   const debounceRef = useRef<number | null>(null);
   /**
    * One writer for the whole bar: it records the optimistic URL, then navigates inside a
@@ -466,7 +493,7 @@ export function LeadershipTasksFilters({
               }}
             >
               {chip.label}
-              <b>{chip.count}</b>
+              <b>{Math.max(0, chip.count + chipDelta(chip.key))}</b>
             </Link>
           ))}
         </div>

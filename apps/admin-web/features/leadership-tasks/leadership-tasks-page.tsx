@@ -80,7 +80,9 @@ export function LeadershipTasksPage({
   const params = parseTasksParams(sp, pageSizeOptions);
   const basePath = preview ? TASKS_PREVIEW_PATHNAME : TASKS_PATHNAME;
 
-  const tasks = page ? rowsFromPage(page) : preview ? fixtureTasks : [];
+  // Preview rows are READ-ONLY on purpose: no status moves, no comment, no edit, so the fixture
+  // drawer can never call a live action with a fake id (judge P1, 2026-09-18).
+  const tasks = page ? rowsFromPage(page) : preview ? fixtureTasks.map(readOnlyRow) : [];
   const scopes = page?.scopes?.length ? page.scopes : preview ? fixtureScopes : [];
   const selectedTaskID = selectedTaskIDProp ?? params.selectedTaskID;
   const selected = selectedTaskID
@@ -214,6 +216,7 @@ export function LeadershipTasksPage({
   // detail row from the server so the first paint already carries the feed.
   const detailPanel = (
     <TaskDrawerHost
+      preview={preview}
       rows={tasks}
       initialDetail={selectedTask && selected ? selected : null}
       pageContract={pageContract}
@@ -327,6 +330,7 @@ export function LeadershipTasksPage({
         rangeIncomplete={params.deadline.incomplete || params.raised.incomplete}
         sort={params.sort}
         statusChips={statusChips}
+        rows={tasks}
         hasFilters={hasTaskFilters(params)}
         clearedHref={tasksClearedHref(basePath, sp)}
         // The Work Board's picker shows how many cards on THIS page each person holds; the
@@ -451,6 +455,10 @@ export function LeadershipTasksPage({
 }
 
 
+
+function readOnlyRow(row: TaskRow): TaskRow {
+  return { ...row, canEdit: false, canComment: false, statusOptions: [] };
+}
 
 // ---------------------------------------------------------------- fixture rows for /tasks-preview
 const fixtureTasks: TaskRow[] = [
