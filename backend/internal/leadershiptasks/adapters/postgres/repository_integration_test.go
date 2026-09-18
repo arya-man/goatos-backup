@@ -392,6 +392,10 @@ func TestLeadershipTaskListOneToManyPaginationPageBoundaryAndEveryStatusBuckets(
 	if page1.ScopeCounts[domain.ScopeAssignedToMe] != 4 || page1.ScopeCounts[domain.ScopeAssignedByMe] != 0 || page1.ScopeCounts[domain.ScopeTeamProgress] != 6 {
 		t.Fatalf("scope counts = %v, want assigned_to_me=4 assigned_by_me=0 team_progress=6", page1.ScopeCounts)
 	}
+	// With no request filter the tab SIZES equal the tab counts, arm for arm.
+	if !reflect.DeepEqual(page1.ScopeTotals, page1.ScopeCounts) {
+		t.Fatalf("scope totals = %v, want the same as the unfiltered scope counts %v", page1.ScopeTotals, page1.ScopeCounts)
+	}
 	page2, err := repo.ListTasks(ctx, ports.ListParams{TenantID: ltTenant, UserID: ltCXO, Scope: domain.ScopeAssignedToMe, Statuses: domain.StatusesForFilter(domain.FilterAll), Limit: 3, Cursor: page1.NextCursor})
 	if err != nil {
 		t.Fatalf("page 2: %v", err)
@@ -569,6 +573,11 @@ VALUES ($1::uuid, $2::uuid, 'park_head', 'tenant', $1::uuid, 'active', now() - i
 	// Manohar's two asks are outside the text filter, so the tenant-wide tab drops from 6 to 4.
 	if filtered.ScopeCounts[domain.ScopeTeamProgress] != 4 || filtered.ScopeCounts[domain.ScopeAssignedToMe] != 4 {
 		t.Fatalf("filtered scope counts = %v, want team_progress=4 assigned_to_me=4 (the filters narrow the tabs too)", filtered.ScopeCounts)
+	}
+	// ...while the tab SIZES ignore the text filter: they are what the tab label shows and what
+	// "Clear the filters to see all N" names (Gate-1 #2), so they must not move with the search.
+	if filtered.ScopeTotals[domain.ScopeTeamProgress] != 6 || filtered.ScopeTotals[domain.ScopeAssignedToMe] != 4 {
+		t.Fatalf("filtered scope totals = %v, want team_progress=6 assigned_to_me=4 (the filters never narrow the tab sizes)", filtered.ScopeTotals)
 	}
 	// One more page under the SAME filters and sort: the filter set has to survive the cursor.
 	filtered2, err := repo.ListTasks(ctx, ports.ListParams{
@@ -1095,8 +1104,8 @@ func TestLeadershipTaskListFiltersSortsAndCursorStayHonest(t *testing.T) {
 	if !foundByNumber {
 		t.Fatalf("q=%d did not find task #%d by its number: %v", no, no, titles(numberPage.Rows))
 	}
-	if miss := list(t, ports.ListParams{Query: "no such words here"}); len(miss.Rows) != 0 || miss.StatusCounts[domain.StatusOpen] != 0 || miss.ScopeCounts[domain.ScopeTeamProgress] != 0 {
-		t.Fatalf("a text miss must empty the rows AND the chips: rows=%d status=%v scope=%v", len(miss.Rows), miss.StatusCounts, miss.ScopeCounts)
+	if miss := list(t, ports.ListParams{Query: "no such words here"}); len(miss.Rows) != 0 || miss.StatusCounts[domain.StatusOpen] != 0 || miss.ScopeCounts[domain.ScopeTeamProgress] != 0 || miss.ScopeTotals[domain.ScopeTeamProgress] == 0 {
+		t.Fatalf("a text miss must empty the rows AND the chips, and leave the tab sizes alone: rows=%d status=%v scope=%v totals=%v", len(miss.Rows), miss.StatusCounts, miss.ScopeCounts, miss.ScopeTotals)
 	}
 
 	// 5. The person filters. On the caller's own tab the assignee is already pinned, so an

@@ -3487,6 +3487,11 @@ select:disabled { opacity: .45; }
 .lt-page .lt-empty-state .ic{width:22px;height:22px;color:var(--brand);margin-top:1px}
 .lt-page .lt-empty-state b{display:block;font-size:15px;margin-bottom:5px}
 .lt-page .lt-empty-state p{max-width:620px;margin:0;color:var(--muted);font-size:13px;line-height:1.55}
+/* The no-hits empty state's way back (Gate-1 #2): "Clear the filters" is a real link and looks
+   like one -- brand colour, underlined, 44px-tall hit box on a phone via padding. */
+.lt-page .lt-empty-state .lt-empty-clear{color:var(--brand);font-weight:700;text-decoration:underline;text-underline-offset:2px;display:inline-block;padding:4px 0}
+.lt-page .lt-empty-state .lt-empty-clear:hover{color:var(--brand-d)}
+.lt-page .lt-empty-state .lt-empty-clear:focus-visible{outline:2px solid var(--brand);outline-offset:2px;border-radius:4px}
 
 /* Page head: the mock's own top bar collapses into the page head, since brand,
    park/date scope and theme are the app shell's job. */

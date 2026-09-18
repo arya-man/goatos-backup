@@ -103,6 +103,8 @@ export type LeadershipTaskPage =
       key: "assigned_to_me" | "assigned_by_me" | "team_progress";
       label: string;
       count: number;
+      /** The scope's unfiltered size; absent from a backend older than the field. */
+      total?: number;
       selected: boolean;
       empty_message: string;
     }>;

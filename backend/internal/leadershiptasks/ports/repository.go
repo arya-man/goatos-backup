@@ -123,6 +123,13 @@ type Page struct {
 	// tenant-wide), keyed by status.
 	StatusCounts map[string]int
 	ScopeCounts  map[string]int
+	// ScopeTotals is each tab's size with NO request filter applied -- the same party
+	// predicate as ScopeCounts, minus the search text, people and date spans. It is what the
+	// tab's label shows (Gate-1 #2: a search with no hits collapsed every tab to "(0)" and
+	// read as an empty desk on top of 408 tasks), and what "Clear the filters to see all N"
+	// names. ScopeCounts stays the filtered number the header and the empty state reconcile
+	// against; the two are equal when no filter is active.
+	ScopeTotals map[string]int
 	// UnseenCount is the number of tasks addressed to the caller they have not opened yet,
 	// excluding cancelled ones. The drawer badge shows the same number.
 	UnseenCount int

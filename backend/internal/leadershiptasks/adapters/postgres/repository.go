@@ -180,7 +180,7 @@ func (r *Repository) ListTasks(ctx context.Context, p ports.ListParams) (ports.P
 	if err := rows.Err(); err != nil {
 		return ports.Page{}, fmt.Errorf("leadership task: list rows: %w", err)
 	}
-	page := ports.Page{StatusCounts: map[string]int{}, ScopeCounts: map[string]int{}}
+	page := ports.Page{StatusCounts: map[string]int{}, ScopeCounts: map[string]int{}, ScopeTotals: map[string]int{}}
 	if len(tasks) > limit {
 		last := tasks[limit-1]
 		page.NextCursor = encodeSortCursor(sortKey, last)
@@ -213,6 +213,8 @@ func (r *Repository) ListTasks(ctx context.Context, p ports.ListParams) (ports.P
 			page.StatusCounts[key] = n
 		case "scope":
 			page.ScopeCounts[key] = n
+		case "scope_total":
+			page.ScopeTotals[key] = n
 		case "unseen":
 			page.UnseenCount = n
 		case "overdue":
@@ -406,9 +408,23 @@ func scopeCountsWheres(args *[]any, p ports.ListParams) (toMe, byMe, team string
 // and the unseen arm last.
 //
 // projection-review: membership=leadership_tasks, three independent aggregate arms over the same tenant plus the scope/party predicates and request filters the individual count queries already used; group_key=(kind, key) -- status for the chip arm, scope for the tab arm, a single row for the unseen arm; join_cardinality=no joins on any arm; pagination=whole-result summaries independent of the task page, no OFFSET; scope=tenant_id on every arm, plus the actor party predicate on every arm that names a person
+// scopeTotalsWheres is the scopes[] tab SIZE predicates: the same three party arms as
+// scopeCountsWheres with NO request filter appended, so each answers "how many tasks are on
+// that tab at all". They feed ports.Page.ScopeTotals (see the comment there for why the tab
+// label needs the unfiltered number beside the filtered one).
+//
+// projection-review: membership=leadership_tasks for tenant, three disjoint party arms unioned; group_key=scope; join_cardinality=no joins (a task counts once per arm it belongs to, which is the tab semantics); pagination=whole-result summary, no OFFSET; scope=tenant on every arm
+func scopeTotalsWheres(args *[]any, p ports.ListParams) (toMe, byMe, team string) {
+	toMe = fmt.Sprintf("tenant_id = $1 AND assignee_user_id = $%d::uuid AND status <> 'cancelled'", bindArg(args, p.UserID))
+	byMe = fmt.Sprintf("tenant_id = $1 AND raised_by = $%d::uuid AND status <> 'cancelled'", bindArg(args, p.UserID))
+	team = "tenant_id = $1 AND status <> 'cancelled'"
+	return toMe, byMe, team
+}
+
 func sqlListAggregates(args *[]any, p ports.ListParams) string {
 	statusWhere := statusCountsWhere(args, p)
 	toMe, byMe, team := scopeCountsWheres(args, p)
+	toMeAll, byMeAll, teamAll := scopeTotalsWheres(args, p)
 
 	// The unseen badge is the caller's own; a non-UUID actor has no badge rather than a cast
 	// error, which is the guard unseenCount applies before it binds anything.
@@ -426,13 +442,14 @@ func sqlListAggregates(args *[]any, p ports.ListParams) string {
 		overdueArm = fmt.Sprintf(sqlListAggregatesOverdueArmTemplate, overdueWhere, bindArg(args, domain.OverdueStatuses), bindArg(args, p.OverdueAt))
 	}
 
-	return fmt.Sprintf(sqlListAggregatesTemplate, statusWhere, toMe, byMe, team, unseenArm, overdueArm)
+	return fmt.Sprintf(sqlListAggregatesTemplate, statusWhere, toMe, byMe, team, toMeAll, byMeAll, teamAll, unseenArm, overdueArm)
 }
 
 // sqlListAggregatesTemplate is the aggregate-bundle skeleton, hoisted to package level so a
 // query-plan test and the scale guard can reach it (the convention the retired scope-count
-// template used). The six %s are, in bind order: the status arm's WHERE, the three per-tab
-// WHEREs, the unseen arm and the overdue arm.
+// template used). The nine %s are, in bind order: the status arm's WHERE, the three per-tab
+// filtered WHEREs, the three per-tab unfiltered WHEREs (the tab sizes), the unseen arm and
+// the overdue arm.
 const sqlListAggregatesTemplate = `
 SELECT 'status'::text AS kind, status AS key, count(*) AS n FROM public.leadership_tasks
   WHERE %s
@@ -448,6 +465,18 @@ SELECT 'scope'::text, scope, count(*) FROM (
   SELECT '` + domain.ScopeTeamProgress + `'::text AS scope FROM public.leadership_tasks
   WHERE %s
 ) s
+  GROUP BY scope
+UNION ALL
+SELECT 'scope_total'::text, scope, count(*) FROM (
+  SELECT '` + domain.ScopeAssignedToMe + `'::text AS scope FROM public.leadership_tasks
+  WHERE %s
+  UNION ALL
+  SELECT '` + domain.ScopeAssignedByMe + `'::text AS scope FROM public.leadership_tasks
+  WHERE %s
+  UNION ALL
+  SELECT '` + domain.ScopeTeamProgress + `'::text AS scope FROM public.leadership_tasks
+  WHERE %s
+) st
   GROUP BY scope
 UNION ALL
 %s

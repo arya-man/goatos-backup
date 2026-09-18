@@ -9204,8 +9204,10 @@ export interface components {
             /** @enum {string} */
             key: "assigned_to_me" | "assigned_by_me" | "team_progress";
             label: string;
-            /** @description Whole-list count for the selected leadership task monitoring scope. */
+            /** @description Whole-list count for the selected leadership task monitoring scope, under the request's filters. */
             count: number;
+            /** @description The scope's size with no request filter applied (search text, people, date spans); equal to count when none is active. What the tab label shows. */
+            total?: number;
             selected: boolean;
             empty_message: string;
         };

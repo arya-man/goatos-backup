@@ -182,6 +182,26 @@ function defaultLimit(pageSizeOptions: readonly number[]): number {
 }
 
 /** True when the reader has narrowed the list with anything the bar owns (status aside). */
+/**
+ * Whether the request NARROWS the list: search text, a person, a date span or a status chip.
+ * Unlike `hasTaskFilters` it ignores the sort, which reorders but hides nothing -- this is the
+ * question the empty state and the card-header count ask (Gate-1 #2, #4): "are there tasks
+ * this screen is not showing because of something the reader chose?"
+ */
+export function hasTaskNarrowing(params: TasksParams): boolean {
+  return Boolean(
+    params.q ||
+      params.rawQ ||
+      params.assigneeUserID ||
+      params.raisedBy ||
+      params.deadline.from ||
+      params.deadline.to ||
+      params.raised.from ||
+      params.raised.to ||
+      params.filter !== "all",
+  );
+}
+
 export function hasTaskFilters(params: TasksParams): boolean {
   return Boolean(
     params.q ||

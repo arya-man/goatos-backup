@@ -97,7 +97,12 @@ test("an empty Cancelled column is a rail that keeps its header and drops its bo
   const rail = html.match(/<section class="ltb-col ltb-col-cancelled is-rail[^"]*"[^>]*data-ltb-rail="true"[^>]*aria-label="Cancelled"[^>]*>([\s\S]*?)<\/section>/);
   assert.ok(rail, `no rail in: ${html.slice(0, 400)}`);
   assert.match(rail[1], /class="ltb-colname">Cancelled</);
-  assert.match(rail[1], /class="ltb-colcount"[^>]*>—</);
+  // The pill reads "0" in the same pill as every other header, never a button-looking "—"
+  // (Gate-1 #14): no whole-list total is published for Cancelled, so it counts this page's
+  // cards and its tooltip says so.
+  assert.match(rail[1], /class="ltb-colcount"[^>]*>0</);
+  assert.doesNotMatch(rail[1], /class="ltb-colcount"[^>]*>—</);
+  assert.match(rail[1], /title="[^"]*counts the cards on this page/);
   // The body and the "0 on this page" line are STILL rendered (the drop target's markup does not
   // change) and hidden by the rail's CSS; what must not appear is a second header treatment.
   assert.equal((rail[1].match(/ltb-colhd/g) || []).length, 1);

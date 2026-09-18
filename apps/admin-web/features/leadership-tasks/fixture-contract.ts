@@ -146,6 +146,12 @@ export const leadershipTasksFixtureContract: AdminUiPageContract = {
     "empty.tasks_detail": "This queue is clear for the current role and park scope. When work is raised, it will appear here with the owner, evidence, and next status action.",
     "empty.selected": "Select a task",
     "empty.selected_detail": "Choose a row to view its brief, status actions, attachments, and activity updates.",
+    // Numbers that reconcile (Gate-1 #2, #4, #14); same text as the backend contract.
+    "empty.filtered": "No tasks match.",
+    "empty.filtered_action": "Clear the filters",
+    "empty.filtered_rest": "to see all {count}.",
+    "count.of": "{shown} of {total}",
+    "board.total_on_page": "The whole-list total for this column is not published; this counts the cards on this page.",
     "note.label": "Activity update",
     "note.placeholder": "Write the latest status or reply.",
     "note.send": "Send update",

@@ -2289,6 +2289,22 @@ func pageSpecificCopy(id string) map[string]string {
 			"activity.empty":            "Nothing has happened on this task yet.",
 			"activity.empty_history":    "No changes recorded on this task yet.",
 			"activity.empty_comments":   "No comments on this task yet.",
+
+			// ── NUMBERS THAT RECONCILE (Gate-1 #2, #4, #14) ─────────────────────────────
+			// A search or filter with no hits is NOT an empty queue: `empty.filtered` says
+			// nothing matched, and `empty.filtered_action` + `empty.filtered_rest` are the
+			// sentence "Clear the filters to see all {count}." with the first half a link and
+			// {count} the scope's unfiltered size (`scopes[].total`). `count.of` is the card
+			// header under a status chip or any narrowing: "{shown} of {total}", so the header
+			// and the chip on screen together never contradict. `board.total_on_page` is the
+			// tooltip on a column pill whose whole-list total the list query does not publish
+			// (the overdue lens and Cancelled), where the pill counts this page's cards instead
+			// of reading "—".
+			"empty.filtered":        "No tasks match.",
+			"empty.filtered_action": "Clear the filters",
+			"empty.filtered_rest":   "to see all {count}.",
+			"count.of":              "{shown} of {total}",
+			"board.total_on_page":   "The whole-list total for this column is not published; this counts the cards on this page.",
 		}
 	case "pen-routines":
 		return map[string]string{

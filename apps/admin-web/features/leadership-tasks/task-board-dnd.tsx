@@ -109,7 +109,6 @@ export function TaskBoardColumns({
   cardHrefs,
   selectedTaskID,
   activeFilter,
-  placeholder,
   action,
   returnTo,
 }: {
@@ -120,7 +119,9 @@ export function TaskBoardColumns({
   cardHrefs: Record<string, string>;
   selectedTaskID?: string;
   activeFilter: string;
-  placeholder: string;
+  /** The contract's dash. Accepted for the callers that pass it; no pill renders it any more
+   *  (Gate-1 #4, #14 -- see the pill below), so it is not read here. */
+  placeholder?: string;
   action: (formData: FormData) => void | Promise<void>;
   returnTo: string;
 }) {
@@ -257,19 +258,24 @@ export function TaskBoardColumns({
               >
                 <header className="ltb-colhd">
                   <span className="ltb-colname">{column.label}</span>
+                  {/* A pill never reads "—" (Gate-1 #4, #14): where the list query publishes
+                      no whole-list total for a column -- the overdue lens, and Cancelled --
+                      the pill counts the cards on this page and its tooltip says so, so the
+                      numbers beside each other reconcile (the header's "142 of 408", the
+                      column pills, the "N on this page" lines). */}
                   <span
                     className="ltb-colcount"
                     title={
                       column.total === null
                         ? copy(
                             pageContract,
-                            "board.total_unavailable",
-                            "The whole-list total for this status is not published.",
+                            "board.total_on_page",
+                            "The whole-list total for this column is not published; this counts the cards on this page.",
                           )
                         : undefined
                     }
                   >
-                    {column.total === null ? placeholder : column.total}
+                    {column.total === null ? cards.length : column.total}
                   </span>
                 </header>
                 <div className="ltb-colmeta">

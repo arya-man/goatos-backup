@@ -150,10 +150,13 @@ type taskDetailPayload struct {
 }
 
 type filterPayload struct {
-	Key          string `json:"key"`
-	Label        string `json:"label"`
-	Count        int    `json:"count"`
-	Selected     bool   `json:"selected"`
+	Key      string `json:"key"`
+	Label    string `json:"label"`
+	Count    int    `json:"count"`
+	Selected bool   `json:"selected"`
+	// Total is the scope tab's size with no request filter applied (ports.Page.ScopeTotals);
+	// the status chips do not carry one, so it is omitted for them.
+	Total        *int   `json:"total,omitempty"`
 	EmptyMessage string `json:"empty_message"`
 }
 
@@ -365,11 +368,13 @@ func toScopePayloads(selected string, page ports.Page, actor domain.Actor) []fil
 		if key == domain.ScopeTeamProgress && !actor.CanMonitor {
 			continue
 		}
+		total := page.ScopeTotals[key]
 		out = append(out, filterPayload{
 			Key:          key,
 			Label:        domain.ScopeLabel(key),
 			Count:        page.ScopeCounts[key],
 			Selected:     key == selected,
+			Total:        &total,
 			EmptyMessage: domain.ScopeEmptyMessage(key),
 		})
 	}

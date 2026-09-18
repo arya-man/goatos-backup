@@ -23,6 +23,7 @@ import { LeadershipTasksTable } from "./leadership-tasks-table";
 import { NewTaskModal } from "./new-task-modal";
 import {
   hasTaskFilters,
+  hasTaskNarrowing,
   parseTasksParams,
   TASK_PARAM,
   tasksAliasFixedHref,
@@ -94,9 +95,34 @@ export function LeadershipTasksPage({
     scopes[0];
   const scopeKey = selectedScope?.key ?? params.scope;
 
+  /**
+   * THE NUMBERS ON THIS SCREEN RECONCILE (Gate-1 #2, #4).
+   *
+   * `scopes[].count` is the backend's count under the request's filters; `scopes[].total` is the
+   * tab's size with none applied. The tabs show the TOTAL: a search for "zzzz" used to collapse
+   * them to "Raised by me (0) · Team progress (0)" and the desk read as empty on top of 408
+   * tasks. The card header shows what the list is narrowed to against that total ("142 of 408"
+   * under the Overdue chip, "0 of 408" under a search with no hits), and reads the plain total
+   * when nothing narrows it. `shownCount` is the selected status chip's count when one is
+   * active (that is the number the chip itself shows, so the two agree by construction) and
+   * the scope's filtered count otherwise.
+   */
+  const scopeTotal = (scope: (typeof scopes)[number]) => scope.total ?? scope.count;
+  const narrowed = hasTaskNarrowing(params);
+  const selectedChip = (page?.filters ?? []).find((filter) => filter.key === params.filter);
+  const shownCount =
+    params.filter !== "all" && selectedChip ? selectedChip.count : selectedScope?.count;
+  const headerCount = !selectedScope
+    ? copy(pageContract, "label.placeholder")
+    : !narrowed || shownCount === undefined || shownCount === scopeTotal(selectedScope)
+      ? `${scopeTotal(selectedScope)}`
+      : copy(pageContract, "count.of", "{shown} of {total}")
+          .replace("{shown}", `${shownCount}`)
+          .replace("{total}", `${scopeTotal(selectedScope)}`);
+
   const scopeOptions: SegmentedOption[] = scopes.map((scope) => ({
     value: scope.key,
-    label: `${scope.label} (${scope.count})`,
+    label: `${scope.label} (${scopeTotal(scope)})`,
     // A scope change restarts paging and drops the selected task: a cursor and a row id from one
     // scope mean nothing in another.
     href: tasksHref(
@@ -305,7 +331,7 @@ export function LeadershipTasksPage({
             <ClipboardList className="ic" style={{ color: "var(--brand)" }} aria-hidden="true" />
             <h3>{selectedScope?.label || tableContract.title}</h3>
             <div className="sp" style={{ flex: 1 }} />
-            <Tag tone="info">{selectedScope ? `${selectedScope.count}` : "—"}</Tag>
+            <Tag tone="info">{headerCount}</Tag>
           </div>
           {hasTasks && isBoard ? (
             <div className="bd ltb-bd">
@@ -353,6 +379,25 @@ export function LeadershipTasksPage({
                 hrefForOffset={hrefForOffset}
                 hrefForLimit={hrefForLimit}
               />
+            </div>
+          ) : narrowed && selectedScope && scopeTotal(selectedScope) > 0 ? (
+            /* NO HITS IS NOT AN EMPTY QUEUE (Gate-1 #2): the scope holds tasks and the reader's
+               search / chip / person / dates hid every one of them, so say that and offer the way
+               back. The scope's own empty_message is for a scope that is truly empty. */
+            <div className="bd lt-empty-state" data-lt-empty="filtered">
+              <ClipboardList className="ic" aria-hidden="true" />
+              <div>
+                <b>{copy(pageContract, "empty.filtered", "No tasks match.")}</b>
+                <p>
+                  <a href={tasksClearedHref(basePath, sp)} className="lt-empty-clear">
+                    {copy(pageContract, "empty.filtered_action", "Clear the filters")}
+                  </a>{" "}
+                  {copy(pageContract, "empty.filtered_rest", "to see all {count}.").replace(
+                    "{count}",
+                    `${scopeTotal(selectedScope)}`,
+                  )}
+                </p>
+              </div>
             </div>
           ) : (
             <div className="bd lt-empty-state">

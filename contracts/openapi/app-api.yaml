@@ -20990,7 +20990,8 @@ components:
       properties:
         key: { type: string, enum: [assigned_to_me, assigned_by_me, team_progress] }
         label: { type: string }
-        count: { type: integer, description: Whole-list count for the selected leadership task monitoring scope. }
+        count: { type: integer, description: "Whole-list count for the selected leadership task monitoring scope, under the request's filters." }
+        total: { type: integer, description: "The scope's size with no request filter applied (search text, people, date spans); equal to count when none is active. What the tab label shows." }
         selected: { type: boolean }
         empty_message: { type: string }
     AppNotificationContext:
