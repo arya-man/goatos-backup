@@ -22,6 +22,48 @@ import (
 const importJobColumns = `job_id::text, register_key, file_name, file_format, status, total_rows, valid_rows, invalid_rows,
        applied_rows, failed_rows, progress_row_no, error, created_by, created_at, updated_at, finished_at`
 
+// Every statement is a package-level const so a query-plan test and the scale guard can reach it.
+const (
+	sqlImportJobInsert = `
+INSERT INTO configuration_import_jobs (job_id, tenant_id, register_key, file_name, file_format, status, total_rows, created_by)
+VALUES ($1::uuid, $2::uuid, $3, $4, $5, $6, $7, $8)`
+	sqlImportJobClaim = `
+UPDATE configuration_import_jobs
+SET claimed_at = now(), claimed_by = $3, updated_at = now()
+WHERE tenant_id = $1::uuid AND job_id = $2::uuid
+  AND status IN ('validating', 'applying')
+  AND (claimed_at IS NULL OR claimed_by = $3 OR claimed_at < now() - make_interval(secs => $4))
+RETURNING ` + importJobColumns
+	sqlImportJobsDue = `
+SELECT job_id::text FROM configuration_import_jobs
+WHERE tenant_id = $1::uuid AND status IN ('validating', 'applying')
+  AND (claimed_at IS NULL OR claimed_at < now() - make_interval(secs => $2))
+ORDER BY created_at LIMIT $3`
+	sqlImportRowsAfter = `
+SELECT row_no, fields, state, errors, result_id FROM configuration_import_rows
+WHERE tenant_id = $1::uuid AND job_id = $2::uuid AND state = ANY($3::text[]) AND row_no > $4
+ORDER BY row_no LIMIT $5`
+	sqlImportRowsPage = `
+SELECT row_no, fields, state, errors, result_id FROM configuration_import_rows
+WHERE tenant_id = $1::uuid AND job_id = $2::uuid AND ($3 = '' OR state = $3) AND row_no > $4
+ORDER BY row_no LIMIT $5`
+	sqlImportRowsUpdate = `
+UPDATE configuration_import_rows x
+SET state = u.state, errors = u.errors::jsonb, result_id = u.result_id, fields = COALESCE(u.fields::jsonb, x.fields)
+FROM unnest($3::int[], $4::text[], $5::text[], $6::text[], $7::text[]) AS u(row_no, state, errors, result_id, fields)
+WHERE x.tenant_id = $1::uuid AND x.job_id = $2::uuid AND x.row_no = u.row_no AND x.state = $8`
+	sqlImportApplyRequest = `
+UPDATE configuration_import_jobs
+SET status = 'applying', progress_row_no = 0, apply_requested_at = now(), claimed_at = NULL, claimed_by = '', updated_at = now()
+WHERE tenant_id = $1::uuid AND job_id = $2::uuid AND status = 'previewed'
+RETURNING ` + importJobColumns
+	sqlImportCancel = `
+UPDATE configuration_import_jobs
+SET status = 'cancelled', finished_at = now(), claimed_at = NULL, claimed_by = '', updated_at = now()
+WHERE tenant_id = $1::uuid AND job_id = $2::uuid AND status IN ('validating', 'previewed', 'applying')
+RETURNING ` + importJobColumns
+)
+
 func scanImportJob(row pgx.Row) (domain.ImportJob, error) {
 	var (
 		j        domain.ImportJob
@@ -45,9 +87,7 @@ func scanImportJob(row pgx.Row) (domain.ImportJob, error) {
 func (r *Repository) CreateImportJob(ctx context.Context, job domain.ImportJob, tenantID string) error {
 	ctx, cancel := context.WithTimeout(ctx, r.timeout)
 	defer cancel()
-	_, err := r.pool.Exec(ctx, `
-INSERT INTO configuration_import_jobs (job_id, tenant_id, register_key, file_name, file_format, status, total_rows, created_by)
-VALUES ($1::uuid, $2::uuid, $3, $4, $5, $6, $7, $8)`,
+	_, err := r.pool.Exec(ctx, sqlImportJobInsert,
 		job.ID, tenantID, job.Register, job.FileName, job.Format, job.Status, job.TotalRows, job.CreatedBy)
 	return err
 }
@@ -118,13 +158,7 @@ func (r *Repository) ListImportJobs(ctx context.Context, tenantID, register stri
 func (r *Repository) ClaimImportJob(ctx context.Context, tenantID, jobID, worker string, lease time.Duration) (domain.ImportJob, bool, error) {
 	ctx, cancel := context.WithTimeout(ctx, r.timeout)
 	defer cancel()
-	job, err := scanImportJob(r.pool.QueryRow(ctx, `
-UPDATE configuration_import_jobs
-SET claimed_at = now(), claimed_by = $3, updated_at = now()
-WHERE tenant_id = $1::uuid AND job_id = $2::uuid
-  AND status IN ('validating', 'applying')
-  AND (claimed_at IS NULL OR claimed_by = $3 OR claimed_at < now() - make_interval(secs => $4))
-RETURNING `+importJobColumns, tenantID, jobID, worker, lease.Seconds()))
+	job, err := scanImportJob(r.pool.QueryRow(ctx, sqlImportJobClaim, tenantID, jobID, worker, lease.Seconds()))
 	if errors.Is(err, pgx.ErrNoRows) {
 		return domain.ImportJob{}, false, nil
 	}
@@ -135,11 +169,7 @@ RETURNING `+importJobColumns, tenantID, jobID, worker, lease.Seconds()))
 func (r *Repository) DueImportJobIDs(ctx context.Context, tenantID string, lease time.Duration, limit int) ([]string, error) {
 	ctx, cancel := context.WithTimeout(ctx, r.timeout)
 	defer cancel()
-	rows, err := r.pool.Query(ctx, `
-SELECT job_id::text FROM configuration_import_jobs
-WHERE tenant_id = $1::uuid AND status IN ('validating', 'applying')
-  AND (claimed_at IS NULL OR claimed_at < now() - make_interval(secs => $2))
-ORDER BY created_at LIMIT $3`, tenantID, lease.Seconds(), limit)
+	rows, err := r.pool.Query(ctx, sqlImportJobsDue, tenantID, lease.Seconds(), limit)
 	if err != nil {
 		return nil, err
 	}
@@ -186,10 +216,7 @@ func scanImportRows(rows pgx.Rows) ([]domain.ImportRow, error) {
 func (r *Repository) ImportRowsAfter(ctx context.Context, tenantID, jobID string, states []string, afterRowNo, limit int) ([]domain.ImportRow, error) {
 	ctx, cancel := context.WithTimeout(ctx, r.timeout)
 	defer cancel()
-	rows, err := r.pool.Query(ctx, `
-SELECT row_no, fields, state, errors, result_id FROM configuration_import_rows
-WHERE tenant_id = $1::uuid AND job_id = $2::uuid AND state = ANY($3::text[]) AND row_no > $4
-ORDER BY row_no LIMIT $5`, tenantID, jobID, states, afterRowNo, limit)
+	rows, err := r.pool.Query(ctx, sqlImportRowsAfter, tenantID, jobID, states, afterRowNo, limit)
 	if err != nil {
 		return nil, err
 	}
@@ -203,10 +230,7 @@ func (r *Repository) ImportRows(ctx context.Context, tenantID, jobID string, p p
 	if p.Limit < 1 {
 		p.Limit = 50
 	}
-	rows, err := r.pool.Query(ctx, `
-SELECT row_no, fields, state, errors, result_id FROM configuration_import_rows
-WHERE tenant_id = $1::uuid AND job_id = $2::uuid AND ($3 = '' OR state = $3) AND row_no > $4
-ORDER BY row_no LIMIT $5`, tenantID, jobID, p.State, p.AfterRowNo, p.Limit)
+	rows, err := r.pool.Query(ctx, sqlImportRowsPage, tenantID, jobID, p.State, p.AfterRowNo, p.Limit)
 	if err != nil {
 		return nil, err
 	}
@@ -249,11 +273,7 @@ func (r *Repository) UpdateImportRows(ctx context.Context, tenantID, jobID, from
 		results = append(results, u.ResultID)
 		fields = append(fields, f)
 	}
-	_, err := r.pool.Exec(ctx, `
-UPDATE configuration_import_rows x
-SET state = u.state, errors = u.errors::jsonb, result_id = u.result_id, fields = COALESCE(u.fields::jsonb, x.fields)
-FROM unnest($3::int[], $4::text[], $5::text[], $6::text[], $7::text[]) AS u(row_no, state, errors, result_id, fields)
-WHERE x.tenant_id = $1::uuid AND x.job_id = $2::uuid AND x.row_no = u.row_no AND x.state = $8`,
+	_, err := r.pool.Exec(ctx, sqlImportRowsUpdate,
 		tenantID, jobID, rowNos, states, errs, results, fields, fromState)
 	return err
 }
@@ -303,11 +323,7 @@ func (r *Repository) PatchImportJob(ctx context.Context, tenantID, jobID string,
 func (r *Repository) RequestImportApply(ctx context.Context, tenantID, jobID, actorID string) (domain.ImportJob, bool, error) {
 	ctx, cancel := context.WithTimeout(ctx, r.timeout)
 	defer cancel()
-	job, err := scanImportJob(r.pool.QueryRow(ctx, `
-UPDATE configuration_import_jobs
-SET status = 'applying', progress_row_no = 0, apply_requested_at = now(), claimed_at = NULL, claimed_by = '', updated_at = now()
-WHERE tenant_id = $1::uuid AND job_id = $2::uuid AND status = 'previewed'
-RETURNING `+importJobColumns, tenantID, jobID))
+	job, err := scanImportJob(r.pool.QueryRow(ctx, sqlImportApplyRequest, tenantID, jobID))
 	if errors.Is(err, pgx.ErrNoRows) {
 		return domain.ImportJob{}, false, nil
 	}
@@ -319,11 +335,7 @@ RETURNING `+importJobColumns, tenantID, jobID))
 func (r *Repository) CancelImportJob(ctx context.Context, tenantID, jobID string) (domain.ImportJob, bool, error) {
 	ctx, cancel := context.WithTimeout(ctx, r.timeout)
 	defer cancel()
-	job, err := scanImportJob(r.pool.QueryRow(ctx, `
-UPDATE configuration_import_jobs
-SET status = 'cancelled', finished_at = now(), claimed_at = NULL, claimed_by = '', updated_at = now()
-WHERE tenant_id = $1::uuid AND job_id = $2::uuid AND status IN ('validating', 'previewed', 'applying')
-RETURNING `+importJobColumns, tenantID, jobID))
+	job, err := scanImportJob(r.pool.QueryRow(ctx, sqlImportCancel, tenantID, jobID))
 	if errors.Is(err, pgx.ErrNoRows) {
 		return domain.ImportJob{}, false, nil
 	}

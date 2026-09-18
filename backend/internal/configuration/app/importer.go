@@ -679,6 +679,7 @@ func (i *Importer) refIndex(ctx context.Context, tenantID, register string) (dom
 	var ids, labels []string
 	cursor := ""
 	for {
+		// scale-guard:ignore: keyset page walk over a bounded reference catalog; cursor advances each iteration and the loop returns on an empty NextCursor
 		page, err := i.svc.List(ctx, tenantID, register, ports.ListParams{Status: domain.StatusActive, Cursor: cursor, Limit: MaxPageSize})
 		if err != nil {
 			return domain.RefIndex{}, err
@@ -709,6 +710,7 @@ func (i *Importer) placeIndex(ctx context.Context, tenantID, register, codeKey, 
 	idx := placeLookup{byKey: map[string][]string{}, byID: map[string]bool{}}
 	cursor := ""
 	for {
+		// scale-guard:ignore: keyset page walk over the parks / pens catalog, loaded once per job; cursor advances each iteration and the loop returns on an empty NextCursor
 		page, err := i.svc.List(ctx, tenantID, register, ports.ListParams{Status: domain.StatusActive, Cursor: cursor, Limit: MaxPageSize})
 		if err != nil {
 			return idx, err

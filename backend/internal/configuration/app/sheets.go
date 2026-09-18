@@ -128,6 +128,7 @@ func (s *Service) Export(ctx context.Context, tenantID, register, status, format
 	}
 	cursor := ""
 	for {
+		// scale-guard:ignore: the export IS a keyset page walk -- one page of rows in memory at a time, streamed out; cursor advances each iteration and the loop breaks on an empty NextCursor
 		page, err := s.repo.List(ctx, tenantID, register, ports.ListParams{Status: status, Cursor: cursor, Limit: exportPageSize})
 		if err != nil {
 			return err
