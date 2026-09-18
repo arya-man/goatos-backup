@@ -206,13 +206,15 @@ export function FeedWeightBandCard({
     }
     let animals = 0;
     for (const entry of perPenBand.values()) animals += entry;
+    const totalWeighed = recon ? recon.individual_animals_weighed + recon.lump_sum_animals_weighed : 0;
+    const animalsSub = totalWeighed > 0 ? `${n(totalWeighed)} ${copy(pageContract, "stat.feed_band.total_weighed")}` : undefined;
     tiles.push({ label: copy(pageContract, "stat.feed_band.rows"), value: n(matched.length) });
     for (const park of parkNames) tiles.push({ label: park, value: n(matched.filter((row) => row.park_name === park).length) });
     tiles.push(
       { label: copy(pageContract, "stat.feed_band.pens"), value: n(new Set(matched.map((row) => `${row.park_id}|${row.pen}`)).size) },
       { label: copy(pageContract, "stat.feed_band.lump"), value: n(matched.filter((row) => row.weight_source === "pen_average").length) },
       { label: copy(pageContract, "stat.feed_band.per_animal"), value: n(matched.filter((row) => row.weight_source === "per_animal").length) },
-      { label: copy(pageContract, "stat.feed_band.animals"), value: n(animals) },
+      { label: copy(pageContract, "stat.feed_band.animals"), value: n(animals), sub: animalsSub },
       // The period's exits, the Herd Analytics figure (recon), with the weighed / not-weighed
       // split; the band rows' own exit notes are the weighed subset of this.
       {
