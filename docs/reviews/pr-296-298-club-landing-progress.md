@@ -16,11 +16,12 @@ Date: 2026-09-18
 - First `make land-main` attempt ran the selected `common,backend,query-plans,admin-web,android` local CI scope at `c2a53eba2`; every reported step passed except `agent: ai-doctor`.
 - Repaired the isolated worktree's local AI indexes with `make ai-setup`; the setup command finished by running `make ai-doctor`, which passed with `.repowise index current enough (c2a53eba2..., mode=fast)`.
 - Rebasing onto `origin/main` changed the candidate SHA to `272b8ed00`; `make ai-doctor` correctly failed stale, then `make ai-rebuild-repowise && make ai-doctor` passed with `.repowise index current enough (272b8ed00..., mode=fast)`.
+- After the final receipt-doc commit, `make ai-doctor` still passed (`.repowise` at HEAD^ was accepted as current enough). The next `make land-main` attempt started against `origin/main` `1da3a688b`, launched the selected CI legs, then was externally terminated with SIGTERM before a pass/fail receipt or push.
 
 ## Pending
 
 - Commit this final repair receipt update.
-- Rerun final `make land-main` from the clean, rebased candidate.
+- Rerun final `make land-main` from the clean, rebased candidate after the SIGTERM interruption.
 - Confirm `origin/main` readback after the landing gate pushes.
 
 ## Tests / E2E Performed
@@ -33,6 +34,7 @@ Date: 2026-09-18
 - First `make land-main` attempt failed before push on exactly one local CI step: `agent: ai-doctor`. The same receipt reported PASS for backend `go test ./...` with Postgres disabled, required PostgreSQL query plans, command-board query plans, admin-web deps/lint/typecheck/unit/build, Android `:app` compile+unit+lint, and Android benchmark compile.
 - `make ai-setup` passed after rebuilding `.code-review-graph` and `.repowise`; it emitted non-fatal `repowise` health persistence warnings about SQLite variable limits, then `make ai-doctor` passed.
 - After rebase onto `origin/main` `1da3a688b`, `make ai-doctor` failed stale as expected; `make ai-rebuild-repowise && make ai-doctor` passed. The repowise refresh again emitted non-fatal SQLite variable-limit health persistence warnings before the final PASS.
+- Second `make land-main` attempt at candidate `1751cbdee` was terminated by SIGTERM before it produced a CI summary. No push occurred; `origin/main` remained `1da3a688b`.
 
 ## Known Failures
 
@@ -57,6 +59,7 @@ Date: 2026-09-18
 - Candidate with initial progress receipt: `48754b76e`.
 - Candidate with focused-check receipt and first failed landing attempt: `c2a53eba2d1453d8db37626986492d33bbc47e5b`.
 - Rebased candidate after `origin/main` advanced: `272b8ed000fcfb2913c20e1753396cbde3cf815a`.
+- Candidate after final receipt-doc commit and SIGTERM landing attempt: `1751cbdee74fa811f240afcc945ea918b7c98f79`.
 
 ## Deployment State
 
