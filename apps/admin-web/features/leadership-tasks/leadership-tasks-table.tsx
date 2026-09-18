@@ -4,9 +4,10 @@ import Link from "@/components/no-prefetch-link";
 import { Paperclip } from "lucide-react";
 
 import { columnsFromContract, DataTable } from "@/components/data-table";
-import { Tag, type Tone } from "@/components/ui-primitives";
+import { Tag } from "@/components/ui-primitives";
 import { copy, type AdminUiPageContract, type AdminUiTableContract } from "@/lib/admin-ui-contract";
 import { DeadlineClock } from "./deadline-clock";
+import { initials, statusTone } from "./task-presentation";
 import type { TaskRow } from "./task-row";
 
 /**
@@ -122,18 +123,11 @@ export function LeadershipTasksTable({
   );
 }
 
-export function statusTone(status: TaskRow["status"]): Tone {
-  if (status === "in_progress") return "info";
-  if (status === "done") return "ok";
-  if (status === "cancelled") return "mut";
-  return "warn";
-}
-
-export function initials(name: string): string {
-  return name
-    .split(/\s+/)
-    .map((part) => part.charAt(0))
-    .join("")
-    .slice(0, 2)
-    .toUpperCase();
-}
+/**
+ * Re-exported for the callers that have always imported them from here. They now LIVE in
+ * `task-presentation.ts` because this module is `"use client"`, and a function exported from a
+ * client module cannot be CALLED by a server component — which the board and the detail panel
+ * both are. A server caller must import from `./task-presentation` directly; importing them
+ * through this file would hand it a client reference again.
+ */
+export { initials, statusTone };

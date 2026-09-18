@@ -70,7 +70,6 @@ export function LeadershipTasksPage({
   const selectedTaskID = selectedTaskIDProp ?? params.selectedTaskID;
   const selected = selectedTaskID ? tasks.find((task) => task.id === selectedTaskID) : undefined;
   const hasTasks = tasks.length > 0;
-  const hasSidePanel = Boolean(selected || hasTasks);
 
   /**
    * The scope this screen is showing.
@@ -147,6 +146,16 @@ export function LeadershipTasksPage({
 
   const assigneeChoices = personOptions(assignees);
   const isBoard = params.view === "board";
+  /**
+   * The detail rail takes a column of the page ONLY when it has a task to show, or when the table
+   * is on screen.
+   *
+   * The board needs the width: four columns beside a 360px rail left two of them off-screen at
+   * 1440, so a reader comparing this with Jira saw half a board next to an empty placeholder
+   * card. The table has always reserved the rail (its rows are narrow and the reader expects the
+   * panel to be there), so that behaviour is unchanged.
+   */
+  const hasSidePanel = Boolean(selected) || (!isBoard && hasTasks);
 
   return (
     <div className="screen on lt-page">

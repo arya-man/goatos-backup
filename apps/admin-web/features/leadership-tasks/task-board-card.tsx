@@ -4,7 +4,7 @@ import { Paperclip } from "lucide-react";
 import { copy, type AdminUiPageContract } from "@/lib/admin-ui-contract";
 
 import { DeadlineClock } from "./deadline-clock";
-import { initials } from "./leadership-tasks-table";
+import { initials } from "./task-presentation";
 import type { TaskRow } from "./task-row";
 
 /**
@@ -45,7 +45,13 @@ export function TaskBoardCard({
       aria-current={selected ? "true" : undefined}
       aria-label={`${copy(pageContract, "action.open_task")} ${task.number}: ${task.title}`}
     >
-      <span className="ltb-card-title">{task.title}</span>
+      {/* The clamp sits on an INNER span on purpose: a direct grid item has its `display`
+          blockified, which silently discards `-webkit-box` and takes the three-line clamp with
+          it. Measured on the live board — as a grid item the title computed to `flow-root` with a
+          height of ZERO and every card rendered its title invisible. */}
+      <span className="ltb-card-title">
+        <span className="ltb-card-titletx">{task.title}</span>
+      </span>
 
       {task.deadlineTone ? (
         <span className="ltb-card-clock">

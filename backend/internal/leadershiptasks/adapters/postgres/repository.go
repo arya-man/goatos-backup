@@ -1187,6 +1187,28 @@ func deadlineFingerprint(deadline *time.Time) string {
 }
 
 // SQL hoisted to package level so the scale guard and query-plan tests can reach it.
+//
+// Two of these are COUNT projections rather than row reads -- sqlRepository4 (the per-status
+// chip counts over the party-OR predicate) and sqlRepository12 (the assignee's unseen badge) --
+// so they carry their own grain proof. Both are the pre-optimisation single-purpose forms: the
+// list page now answers the chips through sqlListAggregates instead, and sqlRepository12's text
+// is the unseen arm of that bundle, still reached on its own by UnseenCount/unseenCount.
+//
+// projection-review: membership=leadership_tasks at its task_id primary key, one row per task,
+// for one tenant plus the party predicate (raised_by = $2 OR assignee_user_id = $2 for the
+// status chips, assignee_user_id = $2 AND seen_at IS NULL AND status <> 'cancelled' for the
+// unseen badge) -- no other table decides who belongs to either population; group_key=status
+// for sqlRepository4 (one row per live status value, disjoint because status is a single
+// non-null column, so the buckets sum to the filtered population exactly once) and none for
+// sqlRepository12, which returns one scalar; join_cardinality=neither statement joins at all --
+// they read public.leadership_tasks alone, so no dimension, attachment, note or grant row can
+// multiply a task into two counted rows (the name LEFT JOINs of sqlRepository2 belong to the
+// ROW projection and are 1:1 on workforce_members_active_user_unique_idx); pagination=both are
+// whole-result aggregates over the full filtered population, computed independently of the
+// row page -- there is no LIMIT, no OFFSET and no cursor predicate in either, so neither
+// number can change with the page size or the page position; scope=tenant_id = $1 is the first
+// predicate of both, and each also pins the actor party, so neither can count another tenant's
+// or another person's task.
 const (
 	sqlRepository1 = `
 	t.task_id::text, t.tenant_id::text, t.task_no, t.title, t.body, t.status,
@@ -1303,7 +1325,20 @@ var assignableLeadershipRoles = []string{
 	permissions.RoleProcurementDirector,
 }
 
-// projection-review: membership=person_module_access ticked at oversee for the mobile Tasks module; group_key=none (one row per ticked person, user_id); join_cardinality=workforce_members 1:1 on member PK, workforce_member_titles 1:1 on (tenant, member) PK, person_access 1:1 on (tenant, member), designation_catalog 1:1 on code; grants filtered by EXISTS so a person with several roles is still one row; pagination=none, bounded by the leadership tick; scope=tenant.
+// projection-review: membership=person_module_access ticked at oversee on the mobile Tasks
+// module, intersected with an active leadership user_scope_grants role -- the picker's
+// population is decided by those two facts and nothing else; group_key=none, the statement
+// aggregates nothing and emits exactly one row per ticked person, keyed on m.user_id;
+// join_cardinality=workforce_members is 1:1 on the member PK, workforce_member_titles 1:1 on
+// (tenant_id, workforce_member_id) PK, person_access 1:1 on (tenant_id, workforce_member_id),
+// designation_catalog 1:1 on designation_code, and the grant is read as a SEMIJOIN (EXISTS)
+// rather than a JOIN precisely so a person holding several leadership roles is still one row
+// -- no arm of this statement can fan one person out, which is what
+// TestListAssigneesTitleJoinsKeepOneToManyGrantsPaginationAndStatusBucketsHonest pins;
+// pagination=none and no OFFSET, the result is bounded by the leadership tick itself and is
+// returned whole, so no caller derives a count from a page of it;
+// scope=tenant_id on person_module_access, on both title joins, on person_access and inside
+// the grant semijoin, so no row can cross a tenant.
 const sqlListAssignees = `
 SELECT m.user_id::text, m.display_name,
        COALESCE(NULLIF(btrim(wt.title), ''), dc.label, '') AS title

@@ -4,9 +4,9 @@ import { copy, type AdminUiPageContract } from "@/lib/admin-ui-contract";
 import type { RouteSearchParams } from "@/lib/search-params";
 import type { LeadershipTaskAssignee, LeadershipTaskPage } from "@/lib/api/server";
 
-import { initials } from "./leadership-tasks-table";
 import { TASK_PARAM, tasksHref } from "./params";
 import { TaskBoardCard } from "./task-board-card";
+import { initials } from "./task-presentation";
 import type { TaskRow } from "./task-row";
 import {
   boardColumnHasTotal,

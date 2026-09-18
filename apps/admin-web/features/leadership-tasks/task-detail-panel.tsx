@@ -11,7 +11,9 @@ import {
 } from "./actions";
 import { DeadlineClock } from "./deadline-clock";
 import { EditTaskModal } from "./edit-task-modal";
-import { initials, statusTone } from "./leadership-tasks-table";
+// `task-presentation.ts`, not the `"use client"` table: this panel is server-rendered and a
+// function exported from a client module cannot be called here.
+import { initials, statusTone } from "./task-presentation";
 import { TASK_PARAM, tasksHref, tasksSearchParams, type TasksParams } from "./params";
 import type { TaskRow } from "./task-row";
 import { TASKS_PATHNAME } from "./task-url";

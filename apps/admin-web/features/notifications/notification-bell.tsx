@@ -25,7 +25,7 @@
  */
 
 import { usePathname } from "next/navigation";
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { Bell } from "lucide-react";
 import {
   loadNotificationFeedAction,
@@ -42,11 +42,7 @@ import {
   type NotificationFeed,
 } from "./notification-model";
 import { NotificationPanel } from "./notification-panel";
-
-/** The panel's ideal width -- the same 300px the shared `.parkmenu` uses on a wide bar. */
-const NOTIFICATION_PANEL_WIDTH = 300;
-/** The smallest gap the panel keeps from either viewport edge. */
-const NOTIFICATION_PANEL_GUTTER = 8;
+import { placeNotificationPanel, type NotificationPanelBox } from "./notification-placement";
 
 export function NotificationBell({
   openLabel,
@@ -68,20 +64,17 @@ export function NotificationBell({
   const [errorCode, setErrorCode] = useState<string | undefined>(undefined);
   const rootRef = useRef<HTMLDivElement>(null);
   const buttonRef = useRef<HTMLButtonElement>(null);
+  const panelRef = useRef<HTMLDivElement>(null);
   const liveRef = useRef(true);
-  // WHERE THE PANEL SITS. The shared `.parkmenu` idiom is `position:absolute;top:46px;right:0`,
-  // which lays a 300px panel out LEFTWARDS from a 40px button. That works for the park and account
-  // menus because they sit at the END of the top bar; the bell does not. Measured in Chromium
-  // against the real stylesheet, with the top bar wrapped to two rows at <=560px the panel's left
-  // edge landed at -191px (320px viewport, 97 of 288px visible) and -250px (360px viewport, 50 of
-  // 300px visible) -- and `html,body{overflow-x:hidden;max-width:100vw}` at <=860px means the rest
-  // could NEVER be scrolled to. A long park name reproduced it at 700px too, so it is a
-  // wrap-POSITION problem, not a 320px problem: nothing in CSS knows where the bell wrapped to.
-  // So the panel is placed from the button's measured rect and CLAMPED to the viewport: still
-  // right-aligned to the bell when there is room, flipped rightwards when there is not, never
-  // closer than an 8px gutter to either edge. Vertical fit is unchanged (the list keeps its
-  // 55vh/55dvh cap).
-  const [panelBox, setPanelBox] = useState<{ top: number; left: number; width: number } | null>(null);
+  // WHERE THE PANEL SITS. The arithmetic and the reason it exists at all are in
+  // `./notification-placement`. What lives here is the MEASUREMENT, and the rule that goes with
+  // it: this is never a cached value. It is null whenever the panel is closed and is measured
+  // afresh, before paint, every single time the panel opens (see the layout effect below). A
+  // `panelBox` that survived a close would be coordinates for a viewport that may no longer
+  // exist -- WhatsApp's chrome retracting and a phone rotating both change the width while
+  // nobody has the panel open, and a value measured at 1440px (left ~1132) would put the panel
+  // far off the right edge of a 360px phone.
+  const [panelBox, setPanelBox] = useState<NotificationPanelBox | null>(null);
 
   useEffect(() => {
     liveRef.current = true;
@@ -116,18 +109,34 @@ export function NotificationBell({
   // through screens, so navigation is the revalidation point and there is no interval anywhere.
   useEffect(() => {
     let cancelled = false;
-    void (async () => {
-      try {
-        const result = await loadNotificationFeedAction();
-        if (!cancelled) applyFeedResult(result);
-      } catch {
-        // Same silence as above; a failed read is not the shell's problem.
-      }
-    })();
+    // The first read must NOT be dispatched from inside the hydration commit. A Server Action goes
+    // through the App Router's action queue, and on a fresh page load that queue is not
+    // initialised yet -- Next throws `Internal Next.js error: Router action dispatched before
+    // initialization` from its own internals, where this component's try/catch cannot reach it,
+    // and the read is lost until the next route change. One macrotask is enough, and the bell has
+    // no deadline: nobody is reading an unread badge in the first frame.
+    const timer = setTimeout(() => {
+      void (async () => {
+        try {
+          const result = await loadNotificationFeedAction();
+          if (!cancelled) applyFeedResult(result);
+        } catch {
+          // Same silence as above; a failed read is not the shell's problem.
+        }
+      })();
+    }, 0);
     return () => {
       cancelled = true;
+      clearTimeout(timer);
     };
   }, [applyFeedResult, pathname]);
+
+  // Closing DROPS the measurement, so a stale box can never be painted on the next open. The
+  // layout effect below is the only thing that ever sets one.
+  const closePanel = useCallback(() => {
+    setOpen(false);
+    setPanelBox(null);
+  }, []);
 
   // The popover closes with the rest of the top bar's menus: a click outside any menu root, or
   // Escape. `data-menu-root` on the wrapper is the shell's own convention.
@@ -136,10 +145,10 @@ export function NotificationBell({
     function onDown(event: MouseEvent) {
       const element = event.target as HTMLElement | null;
       if (element && rootRef.current?.contains(element)) return;
-      setOpen(false);
+      closePanel();
     }
     function onKey(event: KeyboardEvent) {
-      if (event.key === "Escape") setOpen(false);
+      if (event.key === "Escape") closePanel();
     }
     document.addEventListener("mousedown", onDown);
     document.addEventListener("keydown", onKey);
@@ -147,30 +156,74 @@ export function NotificationBell({
       document.removeEventListener("mousedown", onDown);
       document.removeEventListener("keydown", onKey);
     };
-  }, [open]);
+  }, [closePanel, open]);
 
   const placePanel = useCallback(() => {
+    const panel = panelRef.current;
     const anchor = buttonRef.current?.getBoundingClientRect();
-    if (!anchor) return;
-    const viewport = document.documentElement.clientWidth;
-    const width = Math.min(NOTIFICATION_PANEL_WIDTH, viewport - NOTIFICATION_PANEL_GUTTER * 2);
-    // Preferred: right edge flush with the bell, exactly as `.parkmenu` does on a wide bar.
-    const preferred = anchor.right - width;
-    const rightmost = viewport - NOTIFICATION_PANEL_GUTTER - width;
-    const left = Math.max(NOTIFICATION_PANEL_GUTTER, Math.min(preferred, rightmost));
-    setPanelBox({ top: Math.round(anchor.bottom + 6), left: Math.round(left), width: Math.round(width) });
+    if (!panel || !anchor) return;
+    const target = placeNotificationPanel(anchor, document.documentElement.clientWidth);
+    // CONTAINING-BLOCK CORRECTION, HORIZONTAL ONLY. `.top` carries `backdrop-filter`, which makes
+    // it the containing block for this `position:fixed` panel -- so `left`/`top` resolve against
+    // `.top`'s border box, not the viewport, while `target` is in viewport space. Today `.top` sits
+    // at (0,0) at full width so the two frames coincide, which is load-bearing coincidence rather
+    // than design: a margin, an offset or a transform on `.top` would silently shift the panel by
+    // that much, and horizontally that is the difference between on screen and off it. So rather
+    // than depend on the shell's geometry, ask for the coordinates and then correct by however far
+    // the element actually landed from where we asked. Both reads happen inside a layout effect (or
+    // a synchronous event handler), so no uncorrected frame is ever painted.
+    //
+    // ONLY X IS CORRECTED, deliberately. `.parkmenu` animates itself in with
+    // `transform:translateY(-6px)` -> `transform:none` over 160ms, so the panel's own VERTICAL
+    // offset is mid-transition at the instant this measures; correcting against it would fight the
+    // animation and leave the panel 6px low once the transition settled. A vertical offset on
+    // `.top` would move the panel down with the bar it hangs from and it stays reachable, so the
+    // trade is worth taking. Horizontal has no transform and no such excuse.
+    panel.style.position = "fixed";
+    panel.style.right = "auto";
+    panel.style.width = `${target.width}px`;
+    panel.style.left = `${target.left}px`;
+    panel.style.top = `${target.top}px`;
+    const landed = panel.getBoundingClientRect();
+    setPanelBox({
+      top: target.top,
+      left: Math.round(target.left + (target.left - landed.left)),
+      width: target.width,
+    });
   }, []);
 
-  // Re-place on resize and on any scroll (the top bar is not sticky on every route, so a scroll can
-  // move the bell). Placement itself happens in the click handler and in these listeners -- never
-  // synchronously in an effect body (react-hooks/set-state-in-effect).
+  // MEASURE AFTER THE PANEL IS VISIBLE, BEFORE IT IS PAINTED -- which is why this is a LAYOUT
+  // effect keyed on `open`, and not the click handler it used to be.
+  //   * Not inside the `setOpen` updater, which is where it was: a state updater must be a pure
+  //     function of the previous state, because React invokes it twice in StrictMode and may
+  //     re-run it when rebasing an update. Measuring and dispatching from in there produced a real
+  //     `Cannot update a component (Router) while rendering a different component
+  //     (NotificationBell)` on every open.
+  //   * Not the click handler either, because the panel's own box is one of the two things being
+  //     measured (the containing-block correction above), and on the first open the panel is still
+  //     `display:none` via `.parkmenu:not(.on)` when the handler runs -- a zero-size element
+  //     measures as zero.
+  //   * A layout effect runs after React has committed `open` to the DOM, so `.parkmenu.on` is
+  //     laid out and measurable, and before the browser paints, so there is no frame in which the
+  //     panel is on screen at the wrong coordinates.
+  useLayoutEffect(() => {
+    if (!open) return;
+    placePanel();
+  }, [open, placePanel]);
+
+  // Re-place while the panel is open: the viewport can change under it (rotation, WhatsApp's
+  // retracting chrome) and the top bar is not sticky on every route, so a scroll can move the
+  // bell. These listeners only need to exist while open -- every OPEN re-measures from scratch, so
+  // a resize that happens while the panel is closed needs nothing kept up to date.
   useEffect(() => {
     if (!open) return;
     const reposition = () => placePanel();
     window.addEventListener("resize", reposition);
+    window.addEventListener("orientationchange", reposition);
     window.addEventListener("scroll", reposition, true);
     return () => {
       window.removeEventListener("resize", reposition);
+      window.removeEventListener("orientationchange", reposition);
       window.removeEventListener("scroll", reposition, true);
     };
   }, [open, placePanel]);
@@ -218,16 +271,17 @@ export function NotificationBell({
         aria-expanded={open}
         aria-haspopup="dialog"
         onClick={() => {
-          setOpen((current) => {
-            const next = !current;
-            if (next) {
-              // Measured HERE, from an event handler, so the first paint of the panel is already
-              // clamped -- there is no frame in which it renders off-screen.
-              placePanel();
-              void refresh();
-            }
-            return next;
-          });
+          // The updater is gone on purpose: it used to call `placePanel()` and `void refresh()`
+          // from inside `setOpen`, and a state updater must be pure. `open` is already in this
+          // closure -- `aria-expanded` above reads it -- so the toggle needs no updater, and the
+          // two effects belong out here where they run exactly once per click. Placement itself is
+          // the layout effect's job now, not this handler's.
+          if (open) {
+            closePanel();
+            return;
+          }
+          setOpen(true);
+          void refresh();
         }}
       >
         <Bell className="ic" />
@@ -243,6 +297,7 @@ export function NotificationBell({
         ) : null}
       </button>
       <div
+        ref={panelRef}
         className={`parkmenu ${open ? "on" : ""}`}
         role="dialog"
         aria-label={centreCopy.title}
@@ -274,7 +329,7 @@ export function NotificationBell({
             onMarkRead={(id) => void markRead([id])}
             onMarkAllRead={() => void markRead(idsToMarkAllRead(feed, locallyRead))}
             onRefresh={() => void refresh()}
-            onClose={() => setOpen(false)}
+            onClose={closePanel}
           />
         ) : null}
       </div>

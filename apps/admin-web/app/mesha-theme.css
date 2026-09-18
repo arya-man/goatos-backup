@@ -5552,7 +5552,11 @@ input[type=date],input[type=datetime-local],input[type=time],input[type=month],i
 .lt-page .ltb-scroll{overflow-x:auto;overscroll-behavior-x:contain;scrollbar-gutter:stable;padding:2px 0 8px;margin:0 -2px;min-width:0}
 .lt-page .ltb-cols{display:flex;align-items:flex-start;gap:12px;padding:0 2px;min-width:0}
 
-.lt-page .ltb-col{display:flex;flex-direction:column;gap:8px;width:284px;min-width:284px;padding:11px 10px 10px;border:1px solid var(--line2);border-top:2px solid var(--line);border-radius:13px;background:color-mix(in srgb,var(--panel-2) 66%,transparent)}
+/* `flex:1 1 0` with a 262px floor: four columns FIT the card at 1440 and share the slack on a
+   wider screen, and on a narrower one they hold the floor and hand the overflow to
+   `.ltb-scroll`. A fixed 284px track clipped the fourth column's header and empty state at 1440,
+   which is where the reader compares this with Jira. */
+.lt-page .ltb-col{display:flex;flex-direction:column;gap:8px;flex:1 1 0;width:262px;min-width:262px;padding:11px 10px 10px;border:1px solid var(--line2);border-top:2px solid var(--line);border-radius:13px;background:color-mix(in srgb,var(--panel-2) 66%,transparent)}
 .lt-page .ltb-col-open{border-top-color:color-mix(in srgb,var(--warn) 62%,var(--line))}
 .lt-page .ltb-col-in_progress{border-top-color:color-mix(in srgb,var(--info) 62%,var(--line))}
 .lt-page .ltb-col-done{border-top-color:color-mix(in srgb,var(--ok) 62%,var(--line))}
@@ -5573,13 +5577,24 @@ input[type=date],input[type=datetime-local],input[type=time],input[type=month],i
 .lt-page .ltb-colempty{margin:0;padding:14px 8px;color:var(--faint);font-size:11.5px;line-height:1.5;text-align:center;border:1px dashed var(--line);border-radius:10px}
 
 /* ---- the card. */
-.lt-page .ltb-card{display:grid;gap:8px;min-height:40px;padding:10px 11px;border:1px solid var(--line);border-radius:11px;background:var(--panel);box-shadow:var(--shadow);color:inherit;text-decoration:none;transition:border-color .14s,transform .14s,box-shadow .14s}
+/* `flex:0 0 auto` is NOT decoration: `.ltb-colbd` is a height-capped column flex container, so a
+   default `flex-shrink:1` card SHRANK to its 40px floor once the stack exceeded the cap. Measured
+   on the live board — 25 cards of ~145px each rendered as 40px boxes with their own contents
+   spilling over the card below. */
+.lt-page .ltb-card{display:grid;gap:8px;flex:0 0 auto;min-height:40px;padding:10px 11px;border:1px solid var(--line);border-radius:11px;background:var(--panel);box-shadow:var(--shadow);color:inherit;text-decoration:none;transition:border-color .14s,transform .14s,box-shadow .14s}
 .lt-page .ltb-card:hover{border-color:color-mix(in srgb,var(--brand) 48%,var(--line));transform:translateY(-1px)}
 .lt-page .ltb-card:focus-visible{outline:2px solid var(--brand);outline-offset:2px}
 .lt-page .ltb-card.is-selected{border-color:var(--brand);box-shadow:0 0 0 2px var(--ring),var(--shadow);background:color-mix(in srgb,var(--brand) 6%,var(--panel))}
 @media (prefers-reduced-motion: reduce){.lt-page .ltb-card{transition:none}.lt-page .ltb-card:hover{transform:none}}
 
-.lt-page .ltb-card-title{font-size:13px;font-weight:650;line-height:1.36;color:var(--ink);display:-webkit-box;-webkit-line-clamp:3;line-clamp:3;-webkit-box-orient:vertical;overflow:hidden;overflow-wrap:anywhere}
+/* THE TITLE IS CLAMPED ON AN INNER SPAN, and both halves of that are load-bearing.
+   A direct grid item has its `display` BLOCKIFIED, which discards `-webkit-box` and the clamp
+   with it: measured on the live board, the title computed to `display:flow-root` with a HEIGHT OF
+   ZERO, the card's grid got a 0px first row, its children overflowed the box, and every card
+   rendered its title invisible under an overlapping assignee name. The standard `line-clamp`
+   shorthand is also deliberately absent — in Chrome 121+ it resets `display` too. */
+.lt-page .ltb-card-title{display:block;min-width:0;font-size:13px;font-weight:650;line-height:1.36;color:var(--ink);overflow-wrap:anywhere}
+.lt-page .ltb-card-titletx{display:-webkit-box;-webkit-line-clamp:3;-webkit-box-orient:vertical;overflow:hidden}
 /* The deadline clock IS this product's priority indicator; it sits where Jira puts its label chip. */
 .lt-page .ltb-card-clock{display:block}
 .lt-page .ltb-card-clock .lt-clock-compact{max-width:100%}
@@ -5604,12 +5619,13 @@ input[type=date],input[type=datetime-local],input[type=time],input[type=month],i
   /* Columns STACK: no sideways track to fight the webview's own vertical scroll, and no nested
      scroller, so the page scrolls once and every card is reachable with a thumb. */
   .lt-page .ltb-cols{flex-direction:column;gap:11px;padding:0}
-  .lt-page .ltb-col{width:auto;min-width:0;max-width:100%}
+  .lt-page .ltb-col{flex:1 1 auto;width:auto;min-width:0;max-width:100%}
   .lt-page .ltb-colbd{max-height:none;overflow-y:visible}
   .lt-page .ltb-scroll{padding-bottom:0;margin:0}
   /* Tap targets: the card, the person chips and "show only this" are all >=40px. */
   .lt-page .ltb-card{min-height:56px;padding:11px 12px}
-  .lt-page .ltb-card-title{-webkit-line-clamp:2;line-clamp:2;font-size:13.5px}
+  .lt-page .ltb-card-title{font-size:13.5px}
+  .lt-page .ltb-card-titletx{-webkit-line-clamp:2}
   .lt-page .ltb-colmore{display:inline-flex;align-items:center;min-height:40px;padding:0 4px}
   .lt-page .ltb-colmeta{min-height:40px}
   .lt-page .ltb-person-all{min-height:40px;display:inline-grid;place-items:center}
@@ -5637,7 +5653,7 @@ input[type=date],input[type=datetime-local],input[type=time],input[type=month],i
    needs for its two columns. Guarded above the existing 1080px breakpoint so the phone/tablet
    behaviour of `.lt-grid` is left exactly as it is. */
 @media(min-width:1180px){
-  .lt-page .lt-grid:has(.ltd-panel){grid-template-columns:minmax(380px,1fr) minmax(0,46%)}
+  .lt-page .lt-grid:has(.ltd-panel){grid-template-columns:minmax(340px,1fr) minmax(0,54%)}
 }
 
 .ltd-panel{container-type:inline-size;min-width:0;border:1px solid var(--line);border-radius:14px;background:var(--panel);overflow:hidden}
@@ -5677,8 +5693,8 @@ input[type=date],input[type=datetime-local],input[type=time],input[type=month],i
 /* Two columns as soon as the panel itself is wide enough. A CONTAINER query, not a viewport one:
    the panel is a grid child whose width does not follow the viewport, so a media query would put
    two columns into a 360px rail. */
-@container (min-width:600px){
-  .ltd-body{display:grid;grid-template-columns:minmax(0,1fr) 250px;gap:26px;align-items:start}
+@container (min-width:540px){
+  .ltd-body{display:grid;grid-template-columns:minmax(0,1fr) 232px;gap:24px;align-items:start}
 }
 
 /* --------------------------------------------------------------------- Description / Activity */
@@ -5722,7 +5738,7 @@ input[type=date],input[type=datetime-local],input[type=time],input[type=month],i
 /* Phones see Details directly under the title and status, not at the bottom of the activity
    feed: the deadline is the urgency signal on this screen and it must not be scrolled to. */
 .ltd-details{order:-1}
-@container (min-width:600px){.ltd-details{order:0;position:sticky;top:12px}}
+@container (min-width:540px){.ltd-details{order:0;position:sticky;top:12px}}
 .ltd-details-hd{display:flex;align-items:center;gap:8px;min-height:40px;padding:0 13px;cursor:pointer;list-style:none;font-size:11px;font-weight:800;letter-spacing:.7px;text-transform:uppercase;color:var(--muted);border-bottom:1px solid transparent}
 .ltd-details-hd::-webkit-details-marker{display:none}
 .ltd-details[open] .ltd-details-hd{border-bottom-color:var(--line)}
@@ -5753,8 +5769,10 @@ input[type=date],input[type=datetime-local],input[type=time],input[type=month],i
 .ltd-blank-hint{color:color-mix(in srgb,var(--muted) 80%,var(--ink))}
 
 /* ---------------------------------------------------------------------------- phone width */
-/* `vh` FIRST and `dvh` only as a progressive upgrade: WhatsApp's in-app webview retracts its
-   chrome, and a bare `dvh` cap clips the panel as the viewport resizes mid-scroll. */
+/* The activity feed is NOT given its own scrollbox at phone width: a nested scroll region inside
+   the page scroll is a trap in the WhatsApp in-app webview, and this feed is a handful of notes.
+   Where a height cap IS needed (a pathologically long feed) `vh` comes FIRST and `dvh` only as a
+   progressive upgrade — WhatsApp's chrome retracts, and a bare `dvh` cap clips mid-scroll. */
 @media(max-width:760px){
   .ltd-panel{border-radius:12px}
   .ltd-top{padding:10px 13px}
@@ -5762,7 +5780,7 @@ input[type=date],input[type=datetime-local],input[type=time],input[type=month],i
   .ltd-title{font-size:18.5px}
   .ltd-body{padding:0 14px 16px;gap:16px}
   .ltd-main{gap:20px}
-  .ltd-activity{max-height:56vh;max-height:56dvh;overflow:auto}
+  .ltd-activity{max-height:none}
   .ltd-blank{padding:34px 20px;min-height:180px}
   /* A long file name or a long person name wraps instead of pushing the page sideways. */
   .ltd-att-name{white-space:normal;overflow:visible;overflow-wrap:anywhere}
