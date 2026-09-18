@@ -52,6 +52,9 @@ sealed interface WorkInstructionsEvent {
     data object DismissMessage : WorkInstructionsEvent
 }
 
+// telemetry: the screen's events (list opened, start, failure) are tracked by
+// WorkInstructionsViewModel through AnalyticsPort / AnalyticsEventsWorkInstructions; this file is
+// the pure presentational composable the host renders from that ViewModel's state.
 /**
  * The Work instructions module (SOP studio phase 2, docs/decisions/sop-studio.md): the general
  * SOPs a person may start by hand -- the gate visitor check and whatever the farm authors on
