@@ -202,12 +202,10 @@ assert.deepEqual(
 // screen reads identically before and after the contract arrives and nobody rewords one side.
 const BOARD_KEYS = [
   "board.aria",
-  "board.on_this_page",
   // `board.total_unavailable` is still served but no pill reads it since Gate-1 #4/#14: a
   // column with no published total counts this page's cards and carries this tooltip instead.
   "board.total_on_page",
   "board.column_empty",
-  "board.drag_hint",
   "board.drag_moving",
   // The reconciling numbers (Gate-1 #2, #4): the no-hits empty state and the "N of M" header.
   "empty.filtered",

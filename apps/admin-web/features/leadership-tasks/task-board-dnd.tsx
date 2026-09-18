@@ -278,13 +278,6 @@ export function TaskBoardColumns({
                     {column.total === null ? cards.length : column.total}
                   </span>
                 </header>
-                <div className="ltb-colmeta">
-                  <span>
-                    {cards.length} {copy(pageContract, "board.on_this_page", "on this page")}
-                  </span>
-                  {/* No per-column "see every task" link: the toolbar's status chips already
-                      narrow the page to one status, and the CEO asked for the duplicate to go. */}
-                </div>
                 <div className="ltb-colbd">
                   {cards.length ? (
                     cards.map((task) => (
@@ -316,7 +309,7 @@ export function TaskBoardColumns({
                       />
                     ))
                   ) : (
-                    <p className="ltb-colempty">{column.emptyMessage}</p>
+                    column.emptyMessage ? <p className="ltb-colempty">{column.emptyMessage}</p> : null
                   )}
                 </div>
               </section>
@@ -325,15 +318,6 @@ export function TaskBoardColumns({
         </div>
       </div>
 
-      {/* The drag is an accelerator and the sentence says what the real control is. Desktop-only
-          wording for a desktop-only affordance: `.ltb-dndhint` is display:none below 761px. */}
-      <p className="ltb-dndhint">
-        {copy(
-          pageContract,
-          "board.drag_hint",
-          "Drag a card onto a status it is allowed to move to, or open a task and use its status buttons.",
-        )}
-      </p>
       {/* Not `aria-grabbed` (deprecated): the move in flight is announced as text instead. */}
       <p className="ltb-dndlive" role="status" aria-live="polite">
         {announcement}

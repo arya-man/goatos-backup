@@ -325,6 +325,35 @@ export function LeadershipTasksPage({
       />
       </div>
 
+      {/* The BOARD sits on the page ground like the Work Board's: its columns are the structure,
+          so a card box with a "Team progress · 408" header around them was a frame around a
+          frame. The LIST keeps the card: a table wants an edge. */}
+      {hasTasks && isBoard ? (
+        <div className="ltb-ground">
+          <LeadershipTasksBoard
+            pageContract={pageContract}
+            rows={tasks}
+            filters={page?.filters ?? []}
+            basePath={basePath}
+            sp={sp}
+            scopeKey={scopeKey}
+            activeFilter={params.filter}
+            selectedTaskID={selected?.id}
+          />
+          <WorklistPager
+            pageContract={pageContract}
+            offset={displayOffset}
+            limit={params.limit}
+            rowCount={tasks.length}
+            hasMore={Boolean(nextHref)}
+            noun={copy(pageContract, "table.tasks.noun")}
+            pageSizeOptions={pageSizeOptions}
+            hrefForOffset={hrefForOffset}
+            hrefForLimit={hrefForLimit}
+          />
+        </div>
+      ) : null}
+      {hasTasks && isBoard ? null : (
       <div className="lt-grid lt-grid-solo">
         <section className="card lt-card" style={{ minWidth: 0 }}>
           <div className="hd">
@@ -333,31 +362,7 @@ export function LeadershipTasksPage({
             <div className="sp" style={{ flex: 1 }} />
             <Tag tone="info">{headerCount}</Tag>
           </div>
-          {hasTasks && isBoard ? (
-            <div className="bd ltb-bd">
-              <LeadershipTasksBoard
-                pageContract={pageContract}
-                rows={tasks}
-                filters={page?.filters ?? []}
-                basePath={basePath}
-                sp={sp}
-                scopeKey={scopeKey}
-                activeFilter={params.filter}
-                selectedTaskID={selected?.id}
-              />
-              <WorklistPager
-                pageContract={pageContract}
-                offset={displayOffset}
-                limit={params.limit}
-                rowCount={tasks.length}
-                hasMore={Boolean(nextHref)}
-                noun={copy(pageContract, "table.tasks.noun")}
-                pageSizeOptions={pageSizeOptions}
-                hrefForOffset={hrefForOffset}
-                hrefForLimit={hrefForLimit}
-              />
-            </div>
-          ) : hasTasks ? (
+          {hasTasks ? (
             <div className="bd lt-tablewrap">
               <LeadershipTasksTable
                 pageContract={pageContract}
@@ -416,6 +421,7 @@ export function LeadershipTasksPage({
         {/* No rail in the grid: the selected task's panel renders in the drawer below, outside
             this grid, and with no selection there is nothing to render (see `hasSidePanel`). */}
       </div>
+      )}
 
       {selected ? (
         <TaskDetailDrawer

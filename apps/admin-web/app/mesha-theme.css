@@ -6218,3 +6218,22 @@ aside.drawer.ltd-drawer{width:min(720px,94vw);overflow-y:auto;overscroll-behavio
   /* Drag is not offered at phone width, so the sentence describing it would be a lie. */
   .lt-page .ltb-dndhint{display:none}
 }
+
+/* ---- BOARD ON THE PAGE GROUND, JIRA-COMPACT CARDS (CEO, 2026-09-18 13:30) -----------------
+   The board's columns are the structure: no card box, no "Team progress · 408" header, no
+   "N on this page" line, no hint paragraphs. Cards carry what Jira's do -- title, one due-date
+   line, key + avatar -- and the column header block (coloured rule, name, count pill) is the
+   one the CEO approved, untouched. */
+.lt-page .ltb-ground{display:grid;gap:12px;min-width:0}
+.lt-page .ltb-ground .ltb{padding:0}
+.lt-page .ltb-ground .ltb-col{background:color-mix(in srgb,var(--panel-2) 78%,transparent)}
+.lt-page .ltb-card{gap:6px;padding:10px 11px 9px}
+.lt-page .ltb-card-title{font-size:13px}
+.lt-page .ltb-card-titletx{-webkit-line-clamp:2}
+.lt-page .ltb-card-due{display:grid;gap:1px;font-size:11px;line-height:1.35;color:var(--muted)}
+.lt-page .ltb-card-due-k{font-size:10px;font-weight:650;letter-spacing:.4px;text-transform:uppercase;color:var(--faint)}
+.lt-page .ltb-card-due-v{font-weight:650;color:var(--ink);font-variant-numeric:tabular-nums}
+.lt-page .ltb-card-due.is-over .ltb-card-due-v{color:var(--danger)}
+.lt-page .ltb-card-foot{padding-top:7px;gap:8px}
+.lt-page .ltb-card-av{margin-left:auto;flex:none;width:24px;height:24px;font-size:10px}
+.lt-page .ltb-card-att{margin-left:0}

@@ -10,6 +10,7 @@ import { TaskBoardColumns, type BoardColumnMeta } from "./task-board-dnd";
 import type { TaskRow } from "./task-row";
 import {
   boardColumnHasTotal,
+  boardColumnTotal,
   boardColumnsForFilter,
   TASK_FILTER_OVERDUE,
   TASKS_PATHNAME,
@@ -33,7 +34,7 @@ import {
  *   - when the total exceeds what is shown, the column offers "show only this status", which sets
  *     `filter=<status>` and hands the whole keyset pager to that one column. That is the honest
  *     "show more": paging one status is something the endpoint can really do.
- *   - under a status FILTER the board draws only that one column (`boardColumnsForFilter`), because
+ *   - under a status FILTER the board keeps every column and the others read 0 (`boardColumnTotal`), because
  *     the row query can only return that status: four columns under a `filter=done` read left Open
  *     and Doing saying "0 on this page" beneath header pills reading 179 and 118. See
  *     `boardColumnsForFilter` in `task-url.ts` for the three behaviours that were available and
@@ -79,9 +80,11 @@ export function LeadershipTasksBoard({
   const totals = new Map<string, (typeof filters)[number]>(
     filters.map((filter) => [filter.key, filter]),
   );
+  const totalsByKey = new Map<string, number>(
+    filters.flatMap((filter) => (typeof filter.count === "number" ? [[filter.key, filter.count]] : [])),
+  );
   const placeholder = copy(pageContract, "label.placeholder");
 
-  const focused = activeFilter !== "all";
   const columns: BoardColumnMeta[] = boardColumnsForFilter(activeFilter).map((column) => {
     const filter = totals.get(column);
     const cards = rows.filter((task) => task.status === column);
@@ -89,22 +92,18 @@ export function LeadershipTasksBoard({
     return {
       key: column,
       label: filter?.label ?? columnFallbackLabel(pageContract, column),
-      total: hasTotal ? filter!.count : null,
+      total: boardColumnTotal(column, activeFilter, totalsByKey),
+      // A column the active status filter excludes is simply empty -- no sentence, the way
+      // Jira leaves its other columns blank under a status filter.
       emptyMessage:
-        filter?.empty_message ||
-        copy(pageContract, "board.column_empty", "Nothing in this status on this page."),
+        activeFilter !== "all" && column !== activeFilter
+          ? ""
+          : filter?.empty_message ||
+            copy(pageContract, "board.column_empty", "Nothing in this status on this page."),
       // Narrowing to a status is only offered when the endpoint HAS that filter, when the whole
       // list holds more of it than this page is showing, and when the board is NOT already
       // narrowed — a column that is the only column on screen has nothing left to narrow to.
-      focusHref:
-        !focused && boardColumnHasTotal(column, activeFilter) && hasTotal && filter!.count > cards.length
-          ? tasksHref(
-              basePath,
-              sp,
-              { [TASK_PARAM.filter]: column, [TASK_PARAM.task]: null },
-              { resetPaging: true },
-            )
-          : null,
+      focusHref: null,
     };
   });
 
@@ -135,38 +134,6 @@ export function LeadershipTasksBoard({
 
   return (
     <div className="ltb">
-      {/* A board narrowed to one status says so, and carries the way back. Without this the
-          single column is indistinguishable from a tenant that only has one status. */}
-      {focused ? (
-        <p className="ltb-focusnote">
-          <span>
-            {activeFilter === TASK_FILTER_OVERDUE
-              ? copy(
-                  pageContract,
-                  "board.overdue_note",
-                  "This board is showing only tasks past their deadline, so you can page through all of them.",
-                )
-              : copy(
-                  pageContract,
-                  "board.focused_note",
-                  "This board is showing one status only, so you can page through all of it.",
-                )}
-          </span>
-          <Link
-            href={tasksHref(
-              basePath,
-              sp,
-              { [TASK_PARAM.filter]: null },
-              { resetPaging: true },
-            )}
-            scroll={false}
-            className="ltb-focusback"
-          >
-            {copy(pageContract, "board.all_statuses", "Back to all statuses")}
-          </Link>
-        </p>
-      ) : null}
-
       <TaskBoardColumns
         pageContract={pageContract}
         columns={columns}
@@ -179,13 +146,6 @@ export function LeadershipTasksBoard({
         returnTo={returnTo}
       />
 
-      <p className="ltb-note">
-        {copy(
-          pageContract,
-          "board.partial_note",
-          "Each column shows the tasks on this page of the list. The number beside a status is its true total across the whole list; open one status to page through all of it.",
-        )}
-      </p>
     </div>
   );
 }

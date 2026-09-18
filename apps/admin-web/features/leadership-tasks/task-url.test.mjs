@@ -10,6 +10,7 @@ import {
   normalizeTaskScope,
   normalizeTaskSort,
   boardColumnsForFilter,
+  boardColumnTotal,
   boardColumnHasTotal,
   safeTaskReturnTo,
   resolveTaskView,
@@ -108,29 +109,31 @@ test("the page keeps OFFSET pagination and the top-bar scope keys out of the fea
   }
 });
 
-test("a board under a status filter draws only that status's column", () => {
-  // B4: with four columns under a `filter=done` read, Open and Doing rendered "0 on this page"
-  // beneath header pills of 179 and 118. No combination of parameters may produce that again.
-  assert.deepEqual([...boardColumnsForFilter("all")], ["open", "in_progress", "done", "cancelled"]);
-  assert.deepEqual([...boardColumnsForFilter("done")], ["done"]);
-  assert.deepEqual([...boardColumnsForFilter("open")], ["open"]);
-  assert.deepEqual([...boardColumnsForFilter("in_progress")], ["in_progress"]);
-  // Every filter the endpoint offers collapses to exactly one column, and that column is a
-  // column the board knows how to draw.
-  for (const filter of ["open", "in_progress", "done"]) {
-    const columns = boardColumnsForFilter(filter);
-    assert.equal(columns.length, 1);
-    assert.equal(columns[0], filter);
+test("a board keeps every column under a status filter, and the other columns read 0", () => {
+  // B4, second answer (CEO, 2026-09-18): Jira keeps all columns under a status filter and lets
+  // the others read 0. The earlier collapse-to-one-column made one status a full-width wall of
+  // cards. What must still never happen is a live count above an empty column, so the excluded
+  // columns' totals are 0, not the whole-list number.
+  const all = ["open", "in_progress", "done", "cancelled"];
+  for (const filter of ["all", "open", "in_progress", "done", "overdue"]) {
+    assert.deepEqual([...boardColumnsForFilter(filter)], all, filter);
   }
+  const totals = new Map([["open", 172], ["in_progress", 119], ["done", 117]]);
+  assert.equal(boardColumnTotal("open", "all", totals), 172);
+  assert.equal(boardColumnTotal("done", "done", totals), 117);
+  assert.equal(boardColumnTotal("open", "done", totals), 0);
+  assert.equal(boardColumnTotal("in_progress", "done", totals), 0);
+  assert.equal(boardColumnTotal("cancelled", "all", totals), null);
+  assert.equal(boardColumnTotal("open", "overdue", totals), null);
 });
 
-test("the overdue lens is a filter value, and the board keeps its two working columns under it", () => {
+test("the overdue lens is a filter value, and no column claims a total under it", () => {
   // `overdue` is a lens the endpoint offers (open or in-progress tasks past their deadline),
   // never a status: it round-trips as a filter value, never normalises to `all`, and the board
   // under it draws To do + In progress -- each holding only its late cards -- rather than
   // inventing an "Overdue" column the Work Board has no lane for.
   assert.equal(normalizeTaskFilter("overdue"), "overdue");
-  assert.deepEqual([...boardColumnsForFilter("overdue")], ["open", "in_progress"]);
+  assert.deepEqual([...boardColumnsForFilter("overdue")], ["open", "in_progress", "done", "cancelled"]);
   // No column has a publishable whole-list total under the lens: the response's status counts
   // are the STATUS totals, not the late subset on screen, so the pill must read "—" like the
   // cancelled column's rather than a number the column is visibly not showing.

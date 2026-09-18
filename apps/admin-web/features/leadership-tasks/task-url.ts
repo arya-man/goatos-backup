@@ -57,31 +57,16 @@ export const TASK_BOARD_COLUMNS = ["open", "in_progress", "done", "cancelled"] a
 export type TaskBoardColumn = (typeof TASK_BOARD_COLUMNS)[number];
 
 /**
- * The columns a board renders under a status filter.
+ * The columns a board renders: ALWAYS all four, whatever the status filter says.
  *
- * ── WHY THE BOARD COLLAPSES INSTEAD OF IGNORING THE FILTER ────────────────────────────────────
- * A status filter and a status-column board say the SAME thing two ways, and when both were
- * active the board showed "0 on this page" under column pills reading 179 and 118: every number
- * correct on its own, the combination nonsense. Three behaviours were available —
- *   (a) the board ignores `filter` — but then the status chips are dead in board view and
- *       "see every task in this status" has nowhere to land;
- *   (b) the board collapses to the filtered column — one column, its TRUE whole-list total, and
- *       the whole keyset pager walking it;
- *   (c) the status segment is disabled in board view — which removes a control the reader can
- *       see working in list view, and makes a shared `?filter=done` link mean two different
- *       things depending on `t_view`.
- * (b) is the one where no combination of URL parameters can produce a board that looks empty
- * above counts that say otherwise: the columns the board draws are exactly the statuses the row
- * query is allowed to return. `all` draws all four; any other filter draws that one.
+ * Jira keeps every column under a status filter and lets the others read 0; the CEO asked for
+ * exactly that. The earlier "collapse to the filtered column" behaviour turned one status into a
+ * single full-width column of oversized cards, which read as a broken page. A filtered-out
+ * column's total is reported as 0 by `boardColumnTotal`, so no column ever shows a live count
+ * above an empty body.
  */
-export function boardColumnsForFilter(filter: TaskFilter): readonly TaskBoardColumn[] {
-  if (filter === "all") return TASK_BOARD_COLUMNS;
-  // The overdue lens keeps the board's own shape and drops what cannot be late: the two working
-  // columns stay, each holding only its overdue cards. Overdue is a card state on the Work
-  // Board too ("Amber card: ... past its clock"), never a lane of its own, so no "Overdue"
-  // column is invented here — the same status can never sit under two headings.
-  if (filter === TASK_FILTER_OVERDUE) return OVERDUE_BOARD_COLUMNS;
-  return TASK_BOARD_COLUMNS.filter((column) => column === filter);
+export function boardColumnsForFilter(_filter: TaskFilter): readonly TaskBoardColumn[] {
+  return TASK_BOARD_COLUMNS;
 }
 
 /**
@@ -138,11 +123,27 @@ export function unprefixedTaskParamAliases(
 }
 
 /**
- * True when the whole-list count for this column is a number the backend actually publishes.
- * Under the overdue lens no column has one: the response's status counts are the status
- * totals (172 To do), not the late subset the column is showing, and the one overdue count
- * is not split by status — so the pill reads "—" exactly as the cancelled column's does.
+ * The whole-list count a column's pill shows under the active filter, or null when the backend
+ * publishes none for it (cancelled today).
+ *
+ * `all`: the status's own total. A status filter: that status's total, and 0 for every other
+ * column -- the row query returns nothing for them, so the pill must not claim otherwise.
+ * Overdue: the late count is not split by status, so every pill is null.
  */
+export function boardColumnTotal(
+  column: TaskBoardColumn,
+  filter: TaskFilter,
+  totals: ReadonlyMap<string, number>,
+): number | null {
+  if (filter === TASK_FILTER_OVERDUE) return null;
+  if (!(TASK_FILTERS as readonly string[]).includes(column)) return null;
+  const own = totals.get(column);
+  if (typeof own !== "number") return null;
+  if (filter === "all" || filter === column) return own;
+  return 0;
+}
+
+/** True when the backend publishes a whole-list count for this column at all. */
 export function boardColumnHasTotal(column: TaskBoardColumn, filter: TaskFilter = "all"): boolean {
   if (filter === TASK_FILTER_OVERDUE) return false;
   return (TASK_FILTERS as readonly string[]).includes(column);
