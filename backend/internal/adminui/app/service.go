@@ -2054,10 +2054,17 @@ func pageSpecificCopy(id string) map[string]string {
 		// vocabulary here. The feedback.* family is the backend error vocabulary: it is an
 		// OPEN key space the screen reads with an empty default, so an unrecognised code
 		// falls back to the generic sentence rather than throwing.
+		// `filter.search_label` and `filter.search_hint` are separate keys: at 2000px the
+		// search box holds ~160px of input and the old single placeholder ("Search tasks, or
+		// type a number") clipped mid-word inside it. The short form is the placeholder; the
+		// number affordance is the control's title / aria-label. `filter.range_any` is what a
+		// date disclosure reads with no span applied: "Deadline · any".
 		return map[string]string{
 			"crumb":                  "Operations",
 			"filter.bar_aria":        "Filter tasks",
-			"filter.search_label":    "Search tasks, or type a number",
+			"filter.search_label":    "Search tasks…",
+			"filter.search_hint":     "Search by title, or type a task number",
+			"filter.range_any":       "any",
 			"filter.all_option":      "All",
 			"filter.assignee":        "Assignee",
 			"filter.assignee_pinned": "This scope is already only your tasks.",

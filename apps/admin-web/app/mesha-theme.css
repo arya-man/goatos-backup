@@ -3448,6 +3448,20 @@ select:disabled { opacity: .45; }
 .lt-page .lt-emptynote{margin-bottom:14px}
 .lt-page .lt-scopebar{display:flex;align-items:center;justify-content:space-between;gap:12px;margin-bottom:14px}
 .lt-page .lt-scopebar .subtabs{margin-bottom:0}
+/* The generic `.metricseg` carries `margin-left:auto`; on this bar the SCOPE tabs are the
+   page's primary navigation and sit at the left, the Board / List pair at the right. */
+.lt-page .lt-scopebar>.metricseg:first-child{margin-left:0}
+/* ---- ONE STICKY GROUP (/tasks): the scope tabs and the filter bar pin together. `.lt-fbar`
+   alone was `position:sticky;top:0`, so after the slightest scroll the page's primary
+   navigation slid up behind the toolbar and stayed there (measured at 1440: tab tops at
+   -2.8px after a 300px scroll; at 1180: -36px). The wrapper owns the stickiness now, the bar
+   inside it is static, and the wrapper paints the page background so nothing scrolls through
+   the gap between the two rows. NO `backdrop-filter` and NO `transform` here: either would
+   make this the containing block for the phone's `position:fixed` sheet (see the 760px
+   block). At phone width only the scope bar stays pinned (see the 760px block). */
+.lt-page .lt-fsticky{position:sticky;top:0;z-index:12;margin:0 0 14px;padding-top:2px;background:var(--bg)}
+.lt-page .lt-fsticky .lt-scopebar{margin-bottom:10px}
+.lt-page .lt-fsticky .lt-fbar{position:static;margin-bottom:0}
 .lt-page .lt-unavailable{border:1px solid var(--line);background:var(--panel);border-radius:10px;color:var(--muted);font-size:12.5px;font-weight:650;padding:10px 13px}
 .lt-page .lt-empty-state{display:flex;align-items:flex-start;gap:13px;padding:26px 24px;min-height:140px;background:linear-gradient(180deg,color-mix(in srgb,var(--panel-2) 48%,transparent),transparent)}
 .lt-page .lt-empty-state .ic{width:22px;height:22px;color:var(--brand);margin-top:1px}
@@ -3512,8 +3526,38 @@ select:disabled { opacity: .45; }
    is correct there: at <=760px the only two children are the search box and the Filters opener,
    and they must compress rather than split. */
 .lt-page .lt-fbar.lt-fsheet-host{flex-wrap:wrap;gap:8px;row-gap:8px}
-.lt-page .lt-fsheet-host .lt-fsearch{display:inline-flex;align-items:center;gap:7px;flex:1 1 200px;min-width:0;max-width:280px;background:var(--bg);border:1px solid var(--line);border-radius:8px;padding:6px 9px;color:var(--muted)}
+/* ---- ONE CONTROL LANGUAGE. Measured at 2000/1440/1180 before this block: search 34.3px,
+   status segment 29.4px, person pills 34px, the sort box 47px, the date disclosures 32px --
+   five heights, plus "Assignee" / "Raised by" as floating text beside pills that read only
+   "All" and "Sort" as a floating label beside a native select. Every control on the bar is
+   now `--lt-ctl` tall (40px; 44px in the phone sheet), the same radius, the same `--line`
+   border, the same `--bg` fill, and every label lives INSIDE its control as `.lt-fkey`
+   ("Assignee · All", "Sort · Newest first", "Deadline · any"). This is the herd-signals
+   `.fbar` / `.fsel` anatomy (`.fsel select{padding:0;line-height:normal}` is what keeps the
+   native select from stretching its box to 47px). Tokens only, no new palette. */
+.lt-page .lt-fsheet-host{--lt-ctl:40px}
+.lt-page .lt-fsheet-host .lt-fsearch,
+.lt-page .lt-fsheet-host .lt-chips.lt-seg,
+.lt-page .lt-fsheet-host .lt-pf-trigger,
+.lt-page .lt-fsheet-host .lt-fsel,
+.lt-page .lt-fsheet-host .lt-fdrop>button,
+.lt-page .lt-fsheet-host .btn.lt-fmore{box-sizing:border-box;height:var(--lt-ctl);min-height:var(--lt-ctl);border-radius:8px;border:1px solid var(--line);background:var(--bg);padding-top:0;padding-bottom:0;font-size:12.5px}
+/* The person-picker slots: containers the bar owns so a different picker can drop in. */
+.lt-page .lt-fsheet-host .lt-fslot{display:contents}
+.lt-page .lt-fsheet-host .lt-fkey{color:var(--muted);font-weight:650;white-space:nowrap}
+.lt-page .lt-fsheet-host .lt-fkey::after{content:"\00b7";margin-left:6px;color:var(--faint)}
+.lt-page .lt-fsheet-host .lt-fsel select,
+.lt-page .lt-fsheet-host .lt-fsel input[type=date],
+.lt-page .lt-fsheet-host .lt-fsearch input{min-height:0;height:auto;padding:0;line-height:normal}
+.lt-page .lt-fsheet-host .lt-fsearch{display:inline-flex;align-items:center;gap:7px;flex:1 1 190px;min-width:0;max-width:250px;padding:0 10px;color:var(--muted)}
 .lt-page .lt-fsheet-host .lt-fsearch input{border:0;background:transparent;outline:0;font:inherit;color:var(--ink);width:100%;min-width:0}
+.lt-page .lt-fsheet-host .lt-fsearch input::placeholder{color:var(--muted)}
+.lt-page .lt-fsheet-host .lt-fsel{padding:0 9px}
+.lt-page .lt-fsheet-host .lt-fsel select{max-width:130px}
+.lt-page .lt-fsheet-host .lt-fdrop>button{padding:0 9px}
+.lt-page .lt-fsheet-host .lt-pf-trigger{padding:0 9px}
+.lt-page .lt-fsheet-host .lt-pf{gap:0}
+.lt-page .lt-fsheet-host .lt-seg a{padding:0 9px;font-size:12.5px}
 .lt-page .lt-fsheet-host .lt-fsearch input::-webkit-search-cancel-button{display:none}
 .lt-page .lt-fsheet-host .lt-qclr{border:0;background:transparent;color:var(--muted);cursor:pointer;display:inline-flex;align-items:center;padding:2px;border-radius:5px}
 .lt-page .lt-fsheet-host .lt-qclr:hover{color:var(--ink)}
@@ -3598,7 +3642,19 @@ select:disabled { opacity: .45; }
      the 76px bar rather than to the viewport -- anchored at the bar's bottom edge and growing UP
      off the top of the screen (measured at 390: sheet top -22px before the person list opened,
      -236px after). The bar is `position:static` here and the blur was decorating nothing. */
-  .lt-page .lt-fbar.lt-fsheet-host{position:static;display:flex;flex-wrap:nowrap;align-items:center;gap:8px;padding:10px;backdrop-filter:none}
+  /* On a phone the SCOPE TABS alone stay pinned (the filter bar below them is one row that
+     opens a sheet, and pinning both would hold ~190px of a 390px screen). The wrapper becomes
+     `display:contents` so the scope bar is a child of the page and can stick the whole way
+     down, not just within the wrapper's own ~200px box. */
+  .lt-page .lt-fsticky{display:contents}
+  .lt-page .lt-fsticky .lt-scopebar{position:sticky;top:0;z-index:12;margin:0 0 12px;padding:2px 0 8px;background:var(--bg)}
+  /* The shell's `@media(max-width:860px){.wrap{overflow-x:hidden}}` makes `.wrap` a SCROLL
+     CONTAINER (a hidden axis forces the other to auto), so any sticky child of the page stuck
+     to `.wrap` -- which is its full content height and never scrolls -- instead of to `.main`.
+     `clip` still clips sideways overflow and creates no scroll container. */
+  .wrap:has(.lt-page){overflow-x:clip}
+  .lt-page .lt-fsticky .lt-fbar{margin-bottom:14px}
+  .lt-page .lt-fbar.lt-fsheet-host{position:static;display:flex;flex-wrap:nowrap;align-items:center;gap:8px;padding:10px;backdrop-filter:none;--lt-ctl:44px}
   .lt-page .lt-fsheet-host .lt-fsearch{max-width:none}
   .lt-page .lt-fsheet-host .lt-fmore{display:inline-flex;flex:none}
   .lt-page .lt-fsheet-host .lt-fgroup{display:none}
@@ -3607,7 +3663,7 @@ select:disabled { opacity: .45; }
      reader has and the bottom of the sheet becomes unreachable. */
   .lt-page .lt-fsheet-host .lt-fgroup.open{display:grid;gap:11px;position:fixed;left:0;right:0;bottom:0;z-index:151;max-height:84vh;max-height:84dvh;overflow-y:auto;padding:14px 16px calc(16px + env(safe-area-inset-bottom));background:var(--panel);border-top:1px solid var(--line);border-radius:16px 16px 0 0;box-shadow:var(--shadow)}
   .lt-page .lt-fsheet-host .lt-fgroup.open .lt-fsheet-hd{display:flex;align-items:center;gap:9px;font-size:14px}
-  .lt-page .lt-fsheet-host .lt-fgroup.open .lt-fsel{width:100%;justify-content:space-between;min-height:42px}
+  .lt-page .lt-fsheet-host .lt-fgroup.open .lt-fsel{width:100%;justify-content:space-between}
   .lt-page .lt-fsheet-host .lt-fgroup.open .lt-fsel select,.lt-page .lt-fsheet-host .lt-fgroup.open .lt-fsel input[type=date]{width:100%;max-width:100%;text-align:right}
   .lt-page .lt-fsheet-host .lt-fgroup.open .lt-franges{display:grid;grid-template-columns:1fr;gap:8px}
   .lt-page .lt-fsheet-host .lt-fgroup.open .lt-chips{gap:7px}
@@ -3626,19 +3682,25 @@ select:disabled { opacity: .45; }
   .lt-page .lt-fsheet-host button{min-height:40px}
   .lt-page .lt-fsheet-host .lt-qclr{min-width:40px;min-height:40px;justify-content:center}
   .lt-page .lt-fsheet-host .lt-fsearch,
-  .lt-page .lt-fsheet-host .lt-fsel{min-height:40px}
+  .lt-page .lt-fsheet-host .lt-fsel{min-height:var(--lt-ctl)}
   /* ---- The new anatomy inside the SHEET. A popover cannot hang off a fixed sheet without being
      clipped by it, so each date disclosure opens IN PLACE here; the segment and the active chips
      go full width. Tap targets stay >=40px, which is this page's floor. */
   .lt-page .lt-fsheet-host .lt-chips.lt-seg{display:grid;grid-template-columns:repeat(auto-fit,minmax(104px,1fr));width:100%}
-  .lt-page .lt-fsheet-host .lt-seg a{min-height:40px;justify-content:center;padding:4px 10px;font-size:12.5px}
+  .lt-page .lt-fsheet-host .lt-chips.lt-seg{height:auto}
+  .lt-page .lt-fsheet-host .lt-seg a{min-height:40px;min-height:var(--lt-ctl);justify-content:center;padding:4px 10px;font-size:12.5px}
   .lt-page .lt-fsheet-host .lt-seg a:nth-child(odd){border-left:0}
   .lt-page .lt-fsheet-host .lt-franges{display:grid;grid-template-columns:1fr;gap:8px;width:100%}
   .lt-page .lt-fsheet-host .lt-fdrop{width:100%}
-  .lt-page .lt-fsheet-host .lt-fdrop>button{width:100%;justify-content:space-between;min-height:42px}
+  .lt-page .lt-fsheet-host .lt-fdrop>button{width:100%;justify-content:space-between}
+  .lt-page .lt-fsheet-host .lt-fdrop>button>.lt-fkey{margin-right:auto}
+  /* In the sheet the key sits at the left edge and the value at the right, so the glue dot
+     between them would float alone in the middle of the row. */
+  .lt-page .lt-fsheet-host .lt-fgroup.open .lt-fkey::after{content:none}
   .lt-page .lt-fsheet-host .lt-fdrop-pop{position:static;min-width:0;width:100%;box-shadow:none;border-color:var(--line2)}
   .lt-page .lt-fsheet-host .lt-pf{display:grid;grid-template-columns:1fr;gap:5px;width:100%}
-  .lt-page .lt-fsheet-host .lt-pf-trigger{width:100%;min-height:44px;justify-content:space-between}
+  .lt-page .lt-fsheet-host .lt-pf-trigger{width:100%;justify-content:space-between}
+  .lt-page .lt-fsheet-host .lt-pf-trigger>.lt-fkey{margin-right:auto}
   .lt-page .lt-fsheet-host .lt-pf-pop{position:static;width:100%;max-width:100%;box-shadow:none;border-color:var(--line2)}
   .lt-page .lt-fsheet-host .lt-pf-pop>ul{max-height:30vh;max-height:30dvh}
   .lt-page .lt-fsheet-host .lt-pf-search{min-height:44px}
@@ -5927,7 +5989,11 @@ aside.drawer.ltd-drawer{width:min(720px,94vw);overflow-y:auto;overscroll-behavio
 /* The move-in-flight announcement. Reachable by a screen reader, not laid out for a sighted
    reader: the card's own brand ring already says it on screen. Not `display:none`, which would
    take it out of the accessibility tree along with the announcement. */
-.lt-page .ltb-dndlive{position:absolute;width:1px;height:1px;margin:-1px;padding:0;overflow:hidden;clip-path:inset(50%);white-space:nowrap;border:0}
+/* `top:0;left:0` is load-bearing: with auto offsets this visually-hidden live region sat at its
+   static position (~1037px down) while its containing block was the BODY, not the scrolling
+   `.main`, so it extended the DOCUMENT by ~238px and let the whole layout -- top bar, sidebar,
+   the sticky scope tabs -- scroll off the window (measured at 1180/1440 before the fix). */
+.lt-page .ltb-dndlive{position:absolute;top:0;left:0;width:1px;height:1px;margin:-1px;padding:0;overflow:hidden;clip-path:inset(50%);white-space:nowrap;border:0}
 
 @media(max-width:760px){
   /* Drag is not offered at phone width, so the sentence describing it would be a lie. */

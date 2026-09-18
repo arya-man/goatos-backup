@@ -68,7 +68,9 @@ export const leadershipTasksFixtureContract: AdminUiPageContract = {
   copy: {
     "crumb": "Operations",
     "filter.bar_aria": "Filter tasks",
-    "filter.search_label": "Search tasks, or type a number",
+    "filter.search_label": "Search tasks…",
+    "filter.search_hint": "Search by title, or type a task number",
+    "filter.range_any": "any",
     "filter.all_option": "All",
     "filter.assignee": "Assignee",
     "filter.assignee_pinned": "This scope is already only your tasks.",

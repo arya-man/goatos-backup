@@ -257,6 +257,15 @@ export function LeadershipTasksFilters({
   }, [openRange]);
 
   const searchLabel = copy(pageContract, "filter.search_label");
+  /**
+   * The placeholder and the long-form hint are two keys. At 2000px the search box is ~160px of
+   * input and "Search tasks, or type a number" is ~200px of text, so the placeholder clipped to
+   * "Search tasks, or type a n…" -- the bar's first control was truncating its own label. The
+   * placeholder is now the short form; the number affordance lives in the title / aria-label.
+   */
+  const searchHint = copy(pageContract, "filter.search_hint", "Search by title, or type a task number");
+  /** What a date disclosure reads when no span is applied: "Deadline · any". */
+  const anyLabel = copy(pageContract, "filter.range_any", "any");
   const rangeNote = copy(pageContract, "filter.range_note");
   const allOption = copy(pageContract, "filter.all_option");
   const applyLabel = copy(pageContract, "action.apply");
@@ -331,14 +340,14 @@ export function LeadershipTasksFilters({
       aria-label={copy(pageContract, "filter.bar_aria")}
       aria-busy={isPending || undefined}
     >
-      <span className="lt-fsearch" title={searchLabel}>
+      <span className="lt-fsearch" title={searchHint}>
         <Search className="ic" style={{ width: 15 }} aria-hidden="true" />
         <input
           type="search"
           value={text}
           onChange={(event) => onSearchChange(event.target.value)}
           placeholder={searchLabel}
-          aria-label={searchLabel}
+          aria-label={searchHint}
           autoComplete="off"
           maxLength={120}
         />
@@ -432,6 +441,11 @@ export function LeadershipTasksFilters({
             carried a THIRD spelling of `t_assignee` as an avatar group whose `+5` overflow was a
             dead `<span aria-hidden>`. `task-people-filter.tsx` is now the only person filter on
             this desk; see that file for why the three converged into one. */}
+        {/* `.lt-fslot` is the bar's PERSON-PICKER slot: a `display:contents` container the
+            toolbar owns, so whichever picker component sits in it (this one, or the shared
+            Work Board assignee picker it is due to be replaced by) inherits the bar's row and
+            the sheet's column without the picker knowing either. */}
+        <div className="lt-fslot" data-slot="assignee">
         <TaskPeopleFilter
           param={TASK_PARAM.assignee}
           value={fieldValue(TASK_PARAM.assignee, assignee)}
@@ -450,7 +464,9 @@ export function LeadershipTasksFilters({
             go(paramsWith({ [TASK_PARAM.assignee]: next }));
           }}
         />
+        </div>
 
+        <div className="lt-fslot" data-slot="raiser">
         <TaskPeopleFilter
           param={TASK_PARAM.raiser}
           value={fieldValue(TASK_PARAM.raiser, raiser)}
@@ -469,9 +485,14 @@ export function LeadershipTasksFilters({
             go(paramsWith({ [TASK_PARAM.raiser]: next }));
           }}
         />
+        </div>
 
+        {/* "Sort · Newest first": the label is INSIDE the control, as it is for the two people
+            pickers and the two date disclosures. The bar had three label treatments in one row
+            (floating text beside a pill, a floating label beside a native select, and a bare
+            disclosure); `.lt-fkey` is the one treatment now. */}
         <label className="lt-fsel">
-          <span>{copy(pageContract, "filter.sort")}</span>
+          <span className="lt-fkey">{copy(pageContract, "filter.sort")}</span>
           <select value={fieldValue(TASK_PARAM.sort, sort)} onChange={(event) => go(paramsWith({ [TASK_PARAM.sort]: event.target.value }))}>
             {TASK_SORTS.map((option) => (
               <option key={option} value={option}>
@@ -532,9 +553,11 @@ export function LeadershipTasksFilters({
                 onClick={() => setOpenRange((current) => (current === range.id ? null : range.id))}
               >
                 <CalendarRange className="ic" style={{ width: 14 }} aria-hidden="true" />
-                {/* The applied span IS the label once there is one, so the bar states what it is
-                    hiding without being opened. */}
-                <span>{range.span || range.label}</span>
+                {/* "Deadline · any" until a span is applied, then "Deadline · 2026-01-01 – …": the
+                    bar states what it is hiding without being opened, and a bare "Deadline" no
+                    longer has to be guessed to be a date range. */}
+                <span className="lt-fkey">{range.label}</span>
+                <span>{range.span || anyLabel}</span>
                 <ChevronDown className="ic" style={{ width: 13 }} aria-hidden="true" />
               </button>
               {openRange === range.id ? (
