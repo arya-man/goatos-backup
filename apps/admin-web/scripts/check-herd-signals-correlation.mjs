@@ -47,7 +47,7 @@ async function main() {
   try {
     const context = await browser.newContext({
       extraHTTPHeaders: {
-        "X-Tenant-Id": TENANT_ID,
+        "X-GoatOS-Tenant-ID": TENANT_ID,
       },
     });
     const page = await context.newPage();

@@ -1,6 +1,6 @@
 import "server-only";
 
-import type { AppApiComponents } from "@goatos/api-client";
+import { TENANT_CONTEXT_HEADER, type AppApiComponents } from "@goatos/api-client";
 import { getServerConfig } from "@/lib/api/server";
 import { resolveVapidKeyConfig, type WebPushVapidKey } from "@/lib/web-push-state";
 
@@ -127,7 +127,11 @@ async function callBackend<T>(
     Authorization: `Bearer ${config.data.bearerToken}`,
     Accept: "application/json",
   };
-  if (config.data.tenantId) headers["X-Tenant-Id"] = config.data.tenantId;
+  // The backend reads the tenant ONLY from this header (Firebase tokens carry no tenant claim), so
+  // the name must be the client's constant, not a hand-typed twin: a mistyped header meant every
+  // register/list call came back 401 "tenant context is required" and the bell kept offering
+  // "Enable notifications" to a browser that had already granted permission.
+  if (config.data.tenantId) headers[TENANT_CONTEXT_HEADER] = config.data.tenantId;
   if (config.data.traceparent) headers.traceparent = config.data.traceparent;
   if (body !== undefined) headers["Content-Type"] = "application/json";
   // The operation's stable key, derived from the browser (see stableMutationKey in
