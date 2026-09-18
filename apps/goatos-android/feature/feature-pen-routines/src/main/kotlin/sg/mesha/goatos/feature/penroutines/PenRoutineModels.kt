@@ -87,7 +87,31 @@ data class PenRoutineQuestionUi(
     val text: String = "",
     /** A NUMBER answer that does not parse or sits outside min/max — the field is marked. */
     val invalid: Boolean = false,
+    /** The capture this question asks for; null when its value alone answers it. */
+    val proofKind: PenRoutineQuestionProofKind? = null,
+    /** The question's own capture slots (up to its count), empty when it asks for no proof. */
+    val proofSlots: List<PenRoutineSlotUi> = emptyList(),
+    /** True while the question owes a capture it does not yet have: always when required,
+     *  otherwise once answered. The Submit gate reads this. */
+    val proofMissing: Boolean = false,
 )
+
+/** What medium a question's own proof accepts (backend `proof.kind`). */
+enum class PenRoutineQuestionProofKind {
+    PHOTO,
+    VIDEO,
+    EITHER,
+    ;
+
+    companion object {
+        fun from(raw: String): PenRoutineQuestionProofKind? = when (raw) {
+            "photo" -> PHOTO
+            "video" -> VIDEO
+            "photo_or_video" -> EITHER
+            else -> null
+        }
+    }
+}
 
 enum class PenRoutineSlotKind { PHOTO, VIDEO }
 
@@ -113,6 +137,11 @@ data class PenRoutineSlotUi(
     val progressLabel: String = "",
     /** The pipeline's own sentence when the upload failed for good; blank otherwise. */
     val failureReason: String = "",
+    /**
+     * For an EMPTY slot of a photo-or-video question: the field key a VIDEO capture would take,
+     * so the card offers both cameras. Blank everywhere else.
+     */
+    val videoFieldKey: String = "",
 )
 
 /** One stored answer as the backend renders it, for the read-only view. */

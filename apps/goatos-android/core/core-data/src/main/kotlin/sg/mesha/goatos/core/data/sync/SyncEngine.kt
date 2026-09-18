@@ -2014,6 +2014,7 @@ class SyncEngine(
             sg.mesha.goatos.core.network.dto.PenRoutineProofDto(
                 ref = resolveUploadedProofRef(proof.proofOutboxItemId),
                 kind = proof.kind,
+                questionId = proof.questionId,
             )
         }
         fun request(rowVersion: Int) = sg.mesha.goatos.core.network.dto.PenRoutineSubmitRequestDto(

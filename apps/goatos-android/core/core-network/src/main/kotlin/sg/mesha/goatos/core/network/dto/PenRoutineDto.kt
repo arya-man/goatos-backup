@@ -38,6 +38,15 @@ data class PenRoutineQuestionDto(
     @SerialName("min") val min: Double? = null,
     @SerialName("max") val max: Double? = null,
     @SerialName("unit") val unit: String = "",
+    /** The capture THIS question needs to count as answered; null when its value alone answers it. */
+    @SerialName("proof") val proof: PenRoutineQuestionProofDto? = null,
+)
+
+/** Per-question proof rule: [kind] `photo` | `video` | `photo_or_video`, [count] `single` | `multiple`. */
+@Serializable
+data class PenRoutineQuestionProofDto(
+    @SerialName("kind") val kind: String = "",
+    @SerialName("count") val count: String = "single",
 )
 
 @Serializable
@@ -68,6 +77,8 @@ data class PenRoutineAnswerRowDto(
 data class PenRoutineProofDto(
     @SerialName("ref") val ref: String = "",
     @SerialName("kind") val kind: String = "",
+    /** The question this capture answers; blank for a task-wide capture. */
+    @SerialName("question_id") val questionId: String = "",
 )
 
 @Serializable
