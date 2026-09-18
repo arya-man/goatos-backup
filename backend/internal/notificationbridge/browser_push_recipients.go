@@ -50,6 +50,17 @@ type browserRecipientSource interface {
 	ResolveBrowserRecipients(ctx context.Context, tenantID, memberOrUserID string) ([]browserpush.Recipient, error)
 }
 
+// NoBrowsers is the browser source for a process that has no database to read registrations
+// from (the pool-less dispatch tests): the decorator still stands at the seam, it simply finds
+// no browsers. Production composition never uses it -- a consumer built on the raw roster is a
+// test failure (TestEveryNotifierInAnAsyncProcessReachesBrowsers) precisely so the seam cannot
+// be skipped by accident.
+type NoBrowsers struct{}
+
+func (NoBrowsers) ResolveBrowserRecipients(context.Context, string, string) ([]browserpush.Recipient, error) {
+	return nil, nil
+}
+
 // BrowserAwareRecipients decorates a RecipientResolver so a person's reachable browsers are
 // returned beside their reachable phones.
 type BrowserAwareRecipients struct {

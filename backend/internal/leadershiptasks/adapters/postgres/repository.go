@@ -839,6 +839,10 @@ func (r *Repository) lockedRowWithReservation(ctx context.Context, tx pgx.Tx, te
 		}
 		t.ParticipantUserIDs = append(t.ParticipantUserIDs, userID)
 	}
+	if err := partRows.Err(); err != nil {
+		partRows.Close()
+		return idemReservation{}, domain.Task{}, fmt.Errorf("leadership task: participants: %w", err)
+	}
 	partRows.Close()
 	if err := results.Close(); err != nil {
 		return idemReservation{}, domain.Task{}, err
@@ -886,6 +890,42 @@ func (r *Repository) fullRow(ctx context.Context, q batchQuerier, tenantID, task
 		return domain.Task{}, err
 	}
 	return tasks[0], results.Close()
+}
+
+// PeekTask: the row and its participants (one batch), no attachments, notes or activity.
+func (r *Repository) PeekTask(ctx context.Context, tenantID, taskID string) (domain.Task, error) {
+	ctx, cancel := context.WithTimeout(ctx, r.timeout)
+	defer cancel()
+	b := &pgx.Batch{}
+	b.Queue(fmt.Sprintf(`SELECT %s %s WHERE t.tenant_id = $1 AND t.task_id = $2`, taskColumns, taskFrom), tenantID, taskID)
+	b.Queue(sqlListParticipants, tenantID, []string{taskID})
+	results := r.pool.SendBatch(ctx, b)
+	defer results.Close()
+	t, err := scanTask(results.QueryRow())
+	if errors.Is(err, pgx.ErrNoRows) {
+		return domain.Task{}, ports.ErrTaskNotFound
+	}
+	if err != nil {
+		return domain.Task{}, fmt.Errorf("leadership task: peek: %w", err)
+	}
+	partRows, err := results.Query()
+	if err != nil {
+		return domain.Task{}, fmt.Errorf("leadership task: list participants: %w", err)
+	}
+	for partRows.Next() {
+		var tID, userID string
+		if err := partRows.Scan(&tID, &userID); err != nil {
+			partRows.Close()
+			return domain.Task{}, fmt.Errorf("leadership task: participants scan: %w", err)
+		}
+		t.ParticipantUserIDs = append(t.ParticipantUserIDs, userID)
+	}
+	if err := partRows.Err(); err != nil {
+		partRows.Close()
+		return domain.Task{}, fmt.Errorf("leadership task: participants: %w", err)
+	}
+	partRows.Close()
+	return t, results.Close()
 }
 
 // getRow is the full detail read: the task row, then its attachments, notes, mentions,

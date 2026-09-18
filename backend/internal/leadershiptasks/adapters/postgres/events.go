@@ -164,19 +164,24 @@ WHERE e.tenant_id = $1 AND e.task_id = $2::uuid
 ORDER BY e.occurred_at DESC, e.event_id DESC
 LIMIT $5`
 
-// The notes the page's comment rows name -- the same window predicate, so the two queries in
-// the batch agree on which rows they describe.
+// The notes the page's comment rows name: the window subquery is byte-for-byte the events
+// window, so the two queries in the batch describe the same rows (Judge A, P3).
 const sqlListNotesBefore = `
 SELECT n.task_id::text, n.note_id::text, n.author_user_id::text, COALESCE(w.display_name, ''), n.body, n.created_at
 FROM public.leadership_task_notes n
 LEFT JOIN public.workforce_members w
        ON w.tenant_id = n.tenant_id AND w.user_id = n.author_user_id AND w.status = 'active'
 WHERE n.tenant_id = $1 AND n.note_id IN (
-  SELECT e.note_id FROM public.leadership_task_events e
-  WHERE e.tenant_id = $1 AND e.task_id = $2::uuid AND e.note_id IS NOT NULL
-    AND (e.occurred_at, e.event_id) < ($3::timestamptz, $4::uuid)
-  ORDER BY e.occurred_at DESC, e.event_id DESC
-  LIMIT $5
+  -- The SAME window as sqlListEventsBefore: limit first, THEN keep the comment rows -- so the
+  -- page's notes are exactly the notes its events name, not the newest N comments overall.
+  SELECT w.note_id FROM (
+    SELECT e.note_id FROM public.leadership_task_events e
+    WHERE e.tenant_id = $1 AND e.task_id = $2::uuid
+      AND (e.occurred_at, e.event_id) < ($3::timestamptz, $4::uuid)
+    ORDER BY e.occurred_at DESC, e.event_id DESC
+    LIMIT $5
+  ) w
+  WHERE w.note_id IS NOT NULL
 )
 ORDER BY n.created_at DESC, n.note_id`
 

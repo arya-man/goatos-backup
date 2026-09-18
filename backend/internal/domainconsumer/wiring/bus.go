@@ -1,6 +1,7 @@
 package wiring
 
 import (
+	"context"
 	"github.com/vgoats/goatos/backend/internal/browserpush"
 	browserpushpg "github.com/vgoats/goatos/backend/internal/browserpush/adapters/postgres"
 	"log/slog"
@@ -99,10 +100,13 @@ func buildDomainBusOn(bus eventbus.Bus, pool *pgxpool.Pool, queryTimeout time.Du
 	// exactly the async ones -- a comment, a mention, a status -- that must reach Chrome too.
 	// The pool-less dispatch test hands a nil pool; a Postgres browser repository on a nil pool
 	// panics when used, so that test keeps the bare roster.
-	var notifyRecipients notificationbridge.RecipientResolver = rosterService
+	var browsers interface {
+		ResolveBrowserRecipients(context.Context, string, string) ([]browserpush.Recipient, error)
+	} = notificationbridge.NoBrowsers{}
 	if pool != nil {
-		notifyRecipients = notificationbridge.WithBrowserRecipients(rosterService, browserpush.NewService(browserpushpg.NewRepository(pool, queryTimeout)), logger)
+		browsers = browserpush.NewService(browserpushpg.NewRepository(pool, queryTimeout))
 	}
+	notifyRecipients := notificationbridge.WithBrowserRecipients(rosterService, browsers, logger)
 	healthRepo := healthpg.NewRepository(pool, queryTimeout)
 	obligationapp.NewGoatShiftedHandler(obligationRepo).Register(bus)
 	obligationapp.NewGoatExitedHandler(obligationRepo).Register(bus)

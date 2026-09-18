@@ -40,6 +40,9 @@ func (f *fakeRepo) ListTasks(context.Context, ports.ListParams) (ports.Page, err
 func (f *fakeRepo) GetTask(context.Context, string, string) (domain.Task, error) {
 	return f.task, f.getErr
 }
+func (f *fakeRepo) PeekTask(context.Context, string, string) (domain.Task, error) {
+	return f.task, f.getErr
+}
 func (f *fakeRepo) ActivityPage(context.Context, string, string, string) (ports.ActivityPage, error) {
 	return ports.ActivityPage{}, nil
 }

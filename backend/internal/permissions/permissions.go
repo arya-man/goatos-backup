@@ -469,7 +469,9 @@ const (
 	//                           EXPLICIT, never inferred: until PR 295's review it was derived
 	//                           as Raise AND Act AND NOT PenVisitsExecute, which silently made
 	//                           anyone ticked Configure + Oversee a tenant-wide editor. It is
-	//                           the CEO/CXO role's, and the Tasks module's Configure tick.
+	//                           the CEO/CXO role's, and the `leadership_tasks_monitor` module's
+	//                           Oversee tick -- NEVER a level of the `leadership_tasks` module,
+	//                           whose Configure is raise-only (capability.go).
 	//
 	// Assignment is still narrowed by person_module_access for the picker/write check; these
 	// route permissions only decide whether a signed-in principal may open the surface.

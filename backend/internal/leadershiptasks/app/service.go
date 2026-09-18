@@ -269,8 +269,17 @@ func (s *Service) GetTask(ctx context.Context, tenantID string, actor domain.Act
 // (CanRead), checked on the task row first, so the cursor cannot page a feed the caller was
 // never shown.
 func (s *Service) ActivityPage(ctx context.Context, tenantID string, actor domain.Actor, taskID, before string) (ports.ActivityPage, error) {
-	if _, err := s.GetTask(ctx, tenantID, actor, taskID); err != nil {
+	if !uuidutil.IsUUIDString(taskID) {
+		return ports.ActivityPage{}, ports.ErrTaskNotFound
+	}
+	// The visibility check reads the row and its participants only -- not the detail
+	// enrichment the older page is about to replace (Judge A, P3).
+	task, err := s.repo.PeekTask(ctx, tenantID, taskID)
+	if err != nil {
 		return ports.ActivityPage{}, err
+	}
+	if !task.CanRead(actor) {
+		return ports.ActivityPage{}, ports.ErrTaskNotFound
 	}
 	if strings.TrimSpace(before) == "" {
 		return ports.ActivityPage{}, ports.ErrInvalidArgument

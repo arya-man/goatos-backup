@@ -98,7 +98,7 @@ func envTruthy(key string) bool {
 // left them phone-only (review of PR 295, 2026-09-18). Fail-open like the decorator itself.
 func notifyRecipients(deps Deps, roster notificationbridge.RecipientResolver, logger *slog.Logger) notificationbridge.RecipientResolver {
 	if deps.Pool == nil {
-		return roster
+		return notificationbridge.WithBrowserRecipients(roster, notificationbridge.NoBrowsers{}, logger)
 	}
 	return notificationbridge.WithBrowserRecipients(roster, browserpush.NewService(browserpushpg.NewRepository(deps.Pool, deps.PgCfg.QueryTimeout)), logger)
 }

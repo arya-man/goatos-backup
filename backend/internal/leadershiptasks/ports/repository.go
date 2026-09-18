@@ -216,6 +216,9 @@ type Repository interface {
 	// ActivityPage is one older window of a task's feed: the rows strictly before the cursor
 	// (ActivityNextBefore of the previous window), newest first, with the notes those rows name.
 	ActivityPage(ctx context.Context, tenantID, taskID, before string) (ActivityPage, error)
+	// PeekTask is the row plus its participants and nothing else -- enough for CanRead -- for
+	// a caller that must not pay for the detail enrichment (the activity page's visibility check).
+	PeekTask(ctx context.Context, tenantID, taskID string) (domain.Task, error)
 	Raise(ctx context.Context, p RaiseParams) (domain.Task, error)
 	Edit(ctx context.Context, p EditParams) (domain.Task, error)
 	ChangeStatus(ctx context.Context, p StatusParams) (domain.Task, error)
