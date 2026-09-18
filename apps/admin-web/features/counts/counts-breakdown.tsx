@@ -602,7 +602,6 @@ export async function CountsBreakdownPage({
       <CountsBreakdownLoads
         loads={breakdown?.loads ?? []}
         pageContract={pageContract}
-        noStageLabel={noStageLabel}
         genderLabels={new Map(genderChoices.map((choice) => [choice.value, choice.label] as const))}
       />
     </div>

@@ -66,6 +66,19 @@ func goatUUID(n int) string {
 // goatDisplayID satisfies goats_display_id_format_check (^G-[0-9]{6,}$).
 func goatDisplayID(n int) string { return fmt.Sprintf("G-9%05d", n) }
 
+func seedBreakdownGoatIdentifier(t *testing.T, ctx context.Context, pool *pgxpool.Pool, goatID, typ, value string) {
+	t.Helper()
+	if _, err := pool.Exec(ctx, `
+INSERT INTO goat_identifiers (
+  tenant_id, goat_id, identifier_type, identifier_value, normalized_value,
+  scope_key, is_primary_for_goat, status, valid_from, normalizer_version
+) VALUES (
+  $1::uuid, $2::uuid, $3, $4, lower($4), $4, $3 = 'animal_identifier_1', 'active', now(), 'v1'
+)`, countsTenant, goatID, typ, value); err != nil {
+		t.Fatalf("seed goat identifier %s %s: %v", goatID, value, err)
+	}
+}
+
 func newBreakdownRepo(t *testing.T, ctx context.Context) (*Repository, *pgxpool.Pool) {
 	t.Helper()
 	pool := setupCountsDB(t, ctx)
@@ -2620,6 +2633,12 @@ VALUES ($1::uuid, $2::uuid, $3::uuid, 'accepted_herd_intake', 'accepted_herd_int
 	insertBreakdownGoat(t, ctx, pool, goatUUID(3), goatDisplayID(3), "female", "Beetal", "alive", "Kid", strp(countsPark), strp(countsShedB), nil)
 	insertBreakdownGoat(t, ctx, pool, goatUUID(4), goatDisplayID(4), "male", "Beetal", "dead", "Fattening", strp(countsPark), strp(countsShedA), nil)
 	insertBreakdownGoat(t, ctx, pool, goatUUID(5), goatDisplayID(5), "female", "Sojat", "alive", "Fattening", strp(countsPark), strp(countsShedB), nil)
+	seedBreakdownGoatIdentifier(t, ctx, pool, goatUUID(1), "animal_identifier_1", "RFID-A-001")
+	seedBreakdownGoatIdentifier(t, ctx, pool, goatUUID(1), "animal_identifier_2", "TAG-A-001")
+	seedBreakdownGoatIdentifier(t, ctx, pool, goatUUID(2), "animal_identifier_1", "RFID-A-002")
+	seedBreakdownGoatIdentifier(t, ctx, pool, goatUUID(3), "animal_identifier_1", "RFID-A-003")
+	seedBreakdownGoatIdentifier(t, ctx, pool, goatUUID(4), "animal_identifier_1", "RFID-A-004")
+	seedBreakdownGoatIdentifier(t, ctx, pool, goatUUID(5), "animal_identifier_1", "RFID-B-005")
 	for _, id := range []int{1, 2, 3, 4} {
 		accept(loadA, goatUUID(id), "2026-08-01T10:00:00Z")
 	}
@@ -2663,6 +2682,16 @@ VALUES ($1::uuid, $2::uuid, 'sold', 2)`, countsTenant, loadA); err != nil {
 	if !reflect.DeepEqual(a.Stages, wantStagesA) || !reflect.DeepEqual(a.Sexes, wantSexesA) {
 		t.Errorf("load A split: stages=%+v sexes=%+v", a.Stages, a.Sexes)
 	}
+	wantTagsA := []domain.CountsBreakdownLoadTag{
+		{Type: "animal_identifier_1", Value: "RFID-A-001", Count: 1},
+		{Type: "animal_identifier_1", Value: "RFID-A-002", Count: 1},
+		{Type: "animal_identifier_1", Value: "RFID-A-003", Count: 1},
+		{Type: "animal_identifier_2", Value: "TAG-A-001", Count: 1},
+	}
+	wantTagsB := []domain.CountsBreakdownLoadTag{{Type: "animal_identifier_1", Value: "RFID-B-005", Count: 1}}
+	if !reflect.DeepEqual(a.CurrentTags, wantTagsA) || !reflect.DeepEqual(b.CurrentTags, wantTagsB) {
+		t.Errorf("current tags: load A=%+v load B=%+v", a.CurrentTags, b.CurrentTags)
+	}
 	// Rule (3), on every load.
 	for _, row := range got.Loads {
 		var stages, sexes int64
@@ -2689,6 +2718,14 @@ VALUES ($1::uuid, $2::uuid, 'sold', 2)`, countsTenant, loadA); err != nil {
 	if fa.Purchased != 6 || fa.OnFarm != 2 || len(fa.Stages) != 1 || fa.Stages[0].Key != "Fattening" {
 		t.Errorf("filtered load A = %+v, want bought 6 unchanged, on_farm 2, one Fattening bucket", fa)
 	}
+	wantFatteningTagsA := []domain.CountsBreakdownLoadTag{
+		{Type: "animal_identifier_1", Value: "RFID-A-001", Count: 1},
+		{Type: "animal_identifier_1", Value: "RFID-A-002", Count: 1},
+		{Type: "animal_identifier_2", Value: "TAG-A-001", Count: 1},
+	}
+	if !reflect.DeepEqual(fa.CurrentTags, wantFatteningTagsA) {
+		t.Errorf("filtered load A tags = %+v, want only current Fattening animal tags %+v", fa.CurrentTags, wantFatteningTagsA)
+	}
 
 	// A load with none of its animals surviving the filter is still listed, with an empty split
 	// rather than a missing row -- "bought 10, none under these filters" is the honest answer.
@@ -2699,6 +2736,9 @@ VALUES ($1::uuid, $2::uuid, 'sold', 2)`, countsTenant, loadA); err != nil {
 	kb := kids.Loads[0]
 	if kb.LoadID != loadB || kb.OnFarm != 0 || len(kb.Stages) != 0 || len(kb.Sexes) != 0 || kb.Purchased != 10 {
 		t.Errorf("load B under Kid filter = %+v, want listed with on_farm 0 and empty splits", kb)
+	}
+	if len(kb.CurrentTags) != 0 {
+		t.Errorf("load B under Kid filter current_tags = %+v, want empty", kb.CurrentTags)
 	}
 
 	read := func(t *testing.T, q domain.CountsBreakdownQuery) []domain.CountsBreakdownLoadRow {
@@ -2754,7 +2794,8 @@ VALUES ($1::uuid, $2::uuid, 'sold', 2)`, countsTenant, loadA); err != nil {
 		da := dead[1]
 		if da.LoadID != loadA || da.OnFarm != 1 || da.Purchased != 6 ||
 			!reflect.DeepEqual(da.Stages, []domain.CountsBreakdownSeriesPoint{{Key: "Fattening", Label: "Fattening", Count: 1}}) ||
-			!reflect.DeepEqual(da.Sexes, []domain.CountsBreakdownSeriesPoint{{Key: "male", Label: "male", Count: 1}}) {
+			!reflect.DeepEqual(da.Sexes, []domain.CountsBreakdownSeriesPoint{{Key: "male", Label: "male", Count: 1}}) ||
+			!reflect.DeepEqual(da.CurrentTags, []domain.CountsBreakdownLoadTag{{Type: "animal_identifier_1", Value: "RFID-A-004", Count: 1}}) {
 			t.Errorf("dead bucket load A = %+v, want the one dead Fattening male and bought 6", da)
 		}
 		if dead[0].OnFarm != 0 {
