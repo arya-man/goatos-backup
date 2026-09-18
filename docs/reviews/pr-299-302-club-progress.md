@@ -14,21 +14,24 @@
   - PR 301: `8da1a8b7f18ce1c0ea4962dd24c252cb4906e709`
   - PR 302: `5bddbb60f7b012d9bfc7d4b9b7b2cd7bad5715cb`
 - Merged all four PR heads into `club/pr299-pr302` with no conflicts.
+- Focused backend, admin-web, and Android checks passed.
 
 ## Pending
 
 - Resolve conflicts, regenerate generated clients if needed, and commit the integrated candidate.
-- Run focused guards for touched backend/admin-web/Android surfaces.
 - Run the required local landing receipt after final rebase.
 - Push certified `main`, confirm local/remote SHA, close PRs, and run STG deployment.
 
 ## Exact Tests / E2E Performed
 
-- None yet for the integrated branch.
+- `go test ./internal/counts/adapters/postgres ./internal/feeddirection/adapters/postgres ./internal/penroutines/...` from `backend` passed.
+- `node --test --experimental-strip-types features/feed/feed-shed-feed-charts.test.mjs features/pen-routines/pen-routines.test.mjs` from `apps/admin-web` passed.
+- `ANDROID_HOME=/Users/raviteja/Library/Android/sdk ANDROID_SDK_ROOT=/Users/raviteja/Library/Android/sdk ./gradlew :app:testStgDebugUnitTest --tests 'sg.mesha.goatos.viewmodel.PenRoutineDetailViewModelTest'` from `apps/goatos-android` passed.
 
 ## Known Failures
 
-- None yet.
+- Initial Android command `./gradlew :app:testDebugUnitTest --tests 'sg.mesha.goatos.viewmodel.PenRoutineDetailViewModelTest'` failed because the task name is ambiguous across `dev`, `prod`, and `stg` flavors.
+- Retried `:app:testStgDebugUnitTest` without SDK environment failed because the fresh worktree has no `local.properties`; rerun with `ANDROID_HOME` and `ANDROID_SDK_ROOT` passed.
 
 ## Before / After Metrics
 
@@ -36,11 +39,11 @@
 
 ## Judge Status
 
-- Not started.
+- Focused guards green. Full landing receipt pending.
 
 ## Current SHA
 
-- Club branch is at merge commit `aa8d85028` before committing this progress document.
+- Club branch is at `083987f9c` before committing this progress update.
 
 ## Deployment State
 
