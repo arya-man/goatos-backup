@@ -8,6 +8,8 @@ import { Tag } from "@/components/ui-primitives";
 import { copy, type AdminUiPageContract, type AdminUiTableContract } from "@/lib/admin-ui-contract";
 import { DeadlineClock } from "./deadline-clock";
 import { initials, statusTone } from "./task-presentation";
+import type { RouteSearchParams } from "@/lib/search-params";
+import { TASK_PARAM, tasksHref } from "./params";
 import type { TaskRow } from "./task-row";
 
 /**
@@ -27,6 +29,7 @@ export function LeadershipTasksTable({
   contract,
   rows,
   basePath,
+  sp,
   scopeKey,
   selectedTaskID,
 }: {
@@ -34,13 +37,18 @@ export function LeadershipTasksTable({
   contract: AdminUiTableContract;
   rows: TaskRow[];
   basePath: string;
+  sp: RouteSearchParams;
   scopeKey: string;
   selectedTaskID?: string;
 }) {
   const taskCell = (task: TaskRow) => (
     <>
       <Link
-        href={`${basePath}?scope=${encodeURIComponent(scopeKey)}&task=${encodeURIComponent(task.id)}`}
+        // The same deep link the board card mints: `task=<id>` ADDED to the current URL, so the
+        // view, status filter, sort, people filters and page survive the click. Building the href
+        // from scratch here dropped `t_view=list`, which is why clicking a list row flipped the
+        // page back to the board.
+        href={tasksHref(basePath, sp, { [TASK_PARAM.scope]: scopeKey, [TASK_PARAM.task]: task.id })}
         scroll={false}
         className="lt-tasklink"
         aria-label={`${copy(pageContract, "action.open_task")} ${task.number}: ${task.title}`}

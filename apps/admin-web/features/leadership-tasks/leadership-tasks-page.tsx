@@ -224,6 +224,12 @@ export function LeadershipTasksPage({
         </div>
       ) : null}
 
+      {/* ONE STICKY GROUP: the scope tabs and the filter bar pin together. The filter bar alone
+          was `position:sticky`, so after the slightest scroll the page's primary navigation (For
+          me / Raised by me / Team progress, and the Board / List pair) slid up behind the toolbar
+          and stayed there -- both of the maintainer's 2000px screenshots show the tabs half
+          clipped. `.lt-fsticky` owns the stickiness now and the bar inside it is static. */}
+      <div className="lt-fsticky">
       <div className="lt-scopebar">
         {scopeOptions.length ? (
           <SegmentedLinks
@@ -265,6 +271,7 @@ export function LeadershipTasksPage({
         hasFilters={hasTaskFilters(params)}
         clearedHref={tasksClearedHref(basePath, sp)}
       />
+      </div>
 
       <div className={`lt-grid${hasSidePanel ? "" : " lt-grid-solo"}`}>
         <section className="card lt-card" style={{ minWidth: 0 }}>
@@ -305,6 +312,7 @@ export function LeadershipTasksPage({
                 contract={tableContract}
                 rows={tasks}
                 basePath={basePath}
+                sp={sp}
                 scopeKey={scopeKey}
                 selectedTaskID={selected?.id}
               />
