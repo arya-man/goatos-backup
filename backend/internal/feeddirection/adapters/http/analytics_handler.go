@@ -804,10 +804,14 @@ type shedFeedPenRowDTO struct {
 }
 
 type shedFeedDayDTO struct {
-	FeedDay      string `json:"feed_day"`
-	DirectedKg   string `json:"directed_kg"`
-	HeadCount    int    `json:"head_count"`
-	PerHeadGrams string `json:"per_head_grams"`
+	FeedDay              string `json:"feed_day"`
+	DirectedKg           string `json:"directed_kg"`
+	HeadCount            int    `json:"head_count"`
+	PerHeadGrams         string `json:"per_head_grams"`
+	VerifiedKg           string `json:"verified_kg"`
+	VerifiedPerHeadGrams string `json:"verified_per_head_grams"`
+	VerifiedBags         int    `json:"verified_bags"`
+	PlannedBags          int    `json:"planned_bags"`
 }
 
 type shedFeedAnalyticsDTO struct {

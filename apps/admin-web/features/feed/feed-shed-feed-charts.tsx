@@ -21,11 +21,27 @@ import { FeedFilters, type FeedFilterField } from "./feed-filters";
 // A day the sheet directed nothing resolvable to the pen is ABSENT from the
 // response and renders as a GAP with the backend's gap copy, never as a zero bar
 // that would read as "the animals were given nothing".
+//
+// VERIFIED beside DIRECTED (maintainer request 2026-09-18): each day carries a
+// second bar, the backend's `verified_per_head_grams` -- the packed kg the
+// verifier typed when approving that day's packing videos, over the SAME head
+// count -- so the two bars of one day are comparable and the pens still share
+// one scale across both series. A day with no approved bag yet is a gap on the
+// verified side only, with the backend's "not yet verified" copy; a day only
+// partly approved shows what is verified so far and says "1 of 2 bags" in its
+// tooltip (maintainer choice, same day), so a half-day is never read as a short
+// measure. The coverage fraction is the backend's verified_bags / planned_bags,
+// rendered, never derived here.
 
 type PenRow = FeedAnalyticsShedFeedResponse["rows"][number];
 type PenDay = PenRow["days"][number];
 
+// A blank wire figure is ABSENT, never zero: `Number("")` is 0, and reading the
+// backend's empty verified_per_head_grams as 0 drew a "0 g · 0 / 2 bags verified"
+// bar on a day nobody had verified yet -- the exact "she measured nothing" the
+// empty string exists to prevent.
 const num = (raw: string) => {
+  if (raw.trim() === "") return null;
   const parsed = Number(raw);
   return Number.isFinite(parsed) ? parsed : null;
 };
@@ -48,8 +64,9 @@ function daySlots(from: string, to: string): string[] {
   return out;
 }
 
-/** "Mon 08" -- a date, not copy; the weekday is what lets a reader spot a feed-day pattern. */
 const DAY_LABEL = new Intl.DateTimeFormat("en-IN", { weekday: "short", day: "2-digit", timeZone: "UTC" });
+
+/** "Mon 08" -- a date, not copy; the weekday is what lets a reader spot a feed-day pattern. */
 function dayLabel(iso: string): string {
   return DAY_LABEL.format(new Date(`${iso}T00:00:00Z`));
 }
@@ -99,6 +116,8 @@ export function FeedShedFeedCharts({
       days.set(day.feed_day, day);
       const value = num(day.per_head_grams);
       if (value !== null && value > max) max = value;
+      const verified = num(day.verified_per_head_grams);
+      if (verified !== null && verified > max) max = verified;
     }
     byPen.set(rowId(pen), days);
   }
@@ -136,6 +155,19 @@ export function FeedShedFeedCharts({
 
       <FeedFilters basePath={basePath} pageParam="fsf_offset" fields={fields} pageContract={pageContract} />
 
+      {rows.length > 0 && pens.length > 0 ? (
+        <div className="penbars-legend" aria-hidden="true">
+          <span>
+            <i />
+            {fc("shedfeed.legend.directed")}
+          </span>
+          <span>
+            <i className="verified" />
+            {fc("shedfeed.legend.verified")}
+          </span>
+        </div>
+      ) : null}
+
       {rows.length === 0 ? (
         <p className="muted small">{fc("shedfeed.empty")}</p>
       ) : pens.length === 0 ? (
@@ -156,22 +188,46 @@ export function FeedShedFeedCharts({
                     const day = days.get(iso);
                     const value = day ? num(day.per_head_grams) : null;
                     const total = day ? num(day.directed_kg) : null;
-                    const tip =
+                    const verified = day ? num(day.verified_per_head_grams) : null;
+                    const verifiedTotal = day ? num(day.verified_kg) : null;
+                    const directedTip =
                       day && value !== null
-                        ? `${dayLabel(iso)} · ${grams(value)} ${fc("unit.g_per_head")} · ${day.head_count.toLocaleString("en-IN")} ${fc("shedfeed.day.animals")} · ${total === null ? "" : kg(total)} ${fc("shedfeed.day.total")}`
-                        : `${dayLabel(iso)} · ${fc("shedfeed.day.gap")}`;
+                        ? `${fc("shedfeed.legend.directed")} · ${grams(value)} ${fc("unit.g_per_head")} · ${day.head_count.toLocaleString("en-IN")} ${fc("shedfeed.day.animals")} · ${total === null ? "" : kg(total)} ${fc("shedfeed.day.total")}`
+                        : `${fc("shedfeed.legend.directed")} · ${fc("shedfeed.day.gap")}`;
+                    const verifiedTip =
+                      day && verified !== null
+                        ? `${fc("shedfeed.legend.verified")} · ${grams(verified)} ${fc("unit.g_per_head")} · ${verifiedTotal === null ? "" : kg(verifiedTotal)} ${fc("shedfeed.day.total")} · ${day.verified_bags} / ${day.planned_bags} ${fc("shedfeed.day.bags")}`
+                        : `${fc("shedfeed.legend.verified")} · ${fc("shedfeed.day.verified_gap")}`;
+                    const tip = `${dayLabel(iso)}\n${directedTip}\n${verifiedTip}`;
                     return (
                       <div className="penbars-slot" key={iso} title={tip}>
-                        <span className="penbars-value small">{value === null ? "" : grams(value)}</span>
-                        <div className="penbars-track">
-                          {value === null ? (
-                            <div className="penbars-gap" aria-hidden="true" />
-                          ) : (
-                            <div
-                              className="penbars-bar"
-                              style={{ height: `${Math.max(2, Math.round((value / scale) * 100))}%` }}
-                            />
-                          )}
+                        <div className="penbars-pair">
+                          <div className="penbars-col">
+                            <span className="penbars-value">{value === null ? "" : grams(value)}</span>
+                            <div className="penbars-track">
+                              {value === null ? (
+                                <div className="penbars-gap" aria-hidden="true" />
+                              ) : (
+                                <div
+                                  className="penbars-bar"
+                                  style={{ height: `${Math.max(2, Math.round((value / scale) * 100))}%` }}
+                                />
+                              )}
+                            </div>
+                          </div>
+                          <div className="penbars-col">
+                            <span className="penbars-value">{verified === null ? "" : grams(verified)}</span>
+                            <div className="penbars-track">
+                              {verified === null ? (
+                                <div className="penbars-gap" aria-hidden="true" />
+                              ) : (
+                                <div
+                                  className="penbars-bar verified"
+                                  style={{ height: `${Math.max(2, Math.round((verified / scale) * 100))}%` }}
+                                />
+                              )}
+                            </div>
+                          </div>
                         </div>
                         <span className="penbars-day small muted">{dayLabel(iso)}</span>
                       </div>

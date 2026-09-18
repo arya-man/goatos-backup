@@ -22256,7 +22256,8 @@ components:
         One pen's feed for ONE feed day: directed kg across every item, the pen's head count that
         day (each shed-tag x breed grain counted ONCE, never per session or item cell), and the
         two divided as grams per animal. What the overview's per-pen bars draw.
-      required: [feed_day, directed_kg, head_count, per_head_grams]
+      required:
+        [feed_day, directed_kg, head_count, per_head_grams, verified_kg, verified_per_head_grams, verified_bags, planned_bags]
       properties:
         feed_day:
           type: string
@@ -22269,6 +22270,22 @@ components:
         per_head_grams:
           type: string
           description: Decimal string grams per animal per day; EMPTY when the pen had no heads that day.
+        verified_kg:
+          type: string
+          description: >-
+            The packed kg the verifier typed when approving the pen-day's packing videos, summed over
+            its approved bags and their items. EMPTY when no bag of the day is approved yet.
+        verified_per_head_grams:
+          type: string
+          description: >-
+            verified_kg over the SAME head_count as per_head_grams, so the directed and verified bars
+            of one day are comparable. EMPTY when verified_kg is empty or the pen had no heads.
+        verified_bags:
+          type: integer
+          description: Approved bags (session x workflow) the verified figure covers so far.
+        planned_bags:
+          type: integer
+          description: Bags the sheet planned for the pen-day; verified_bags of planned_bags is the day's coverage.
     FeedAnalyticsShedFeedResponse:
       type: object
       description: The per-pen feed-mix rollup. DIRECTED kg only — the sheet's instruction, not a measured weight.

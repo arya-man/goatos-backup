@@ -1012,11 +1012,24 @@ type ShedFeedItemTotal struct {
 // (shed tag x breed) head counts summed, each taken ONCE per day rather than per
 // session or per item cell. PerHeadGrams is EMPTY when the pen had no heads that
 // day -- a figure over a herd nobody counted is not reported as a number.
+//
+// The VERIFIED side (maintainer request 2026-09-18) sits beside it: VerifiedKg is
+// the packed kg the verifier typed when approving the pen-day's packing videos,
+// summed over its approved bags and their items, and VerifiedPerHeadGrams divides
+// it by the SAME HeadCount so the two bars of one day are comparable. Both are
+// EMPTY when no bag of the day is approved yet. VerifiedBags of PlannedBags says
+// how much of the day that figure covers -- a day with one of two bags approved
+// shows what is verified so far (maintainer choice, same day), and the client
+// says "1 of 2 bags" rather than letting a half-day read as a short measure.
 type ShedFeedPenDay struct {
-	FeedDay      string
-	DirectedKg   string
-	HeadCount    int
-	PerHeadGrams string
+	FeedDay              string
+	DirectedKg           string
+	HeadCount            int
+	PerHeadGrams         string
+	VerifiedKg           string
+	VerifiedPerHeadGrams string
+	VerifiedBags         int
+	PlannedBags          int
 }
 
 // ShedFeedPenRow is one operational location's (shed + optional partition)

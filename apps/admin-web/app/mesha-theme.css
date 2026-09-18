@@ -1284,11 +1284,24 @@
   .main .penbars-title{display:flex;align-items:baseline;justify-content:space-between;gap:8px;margin-bottom:6px}
   .main .penbars-bars{display:grid;grid-auto-flow:column;grid-auto-columns:1fr;gap:6px;align-items:end}
   .main .penbars-slot{display:flex;flex-direction:column;align-items:center;gap:3px;min-width:0}
-  .main .penbars-value{font-variant-numeric:tabular-nums;line-height:1;min-height:1em;color:var(--ink)}
+  /* Two bars per day (2026-09-18): the sheet's DIRECTED figure and what the verifier
+     WEIGHED on the packing videos, side by side in one slot on one scale. */
+  .main .penbars-pair{display:flex;align-items:flex-end;justify-content:center;gap:3px;width:100%}
+  .main .penbars-col{display:flex;flex-direction:column;align-items:center;gap:3px;min-width:0;flex:1 1 0}
+  .main .penbars-value{font-variant-numeric:tabular-nums;line-height:1;min-height:1em;color:var(--ink);font-size:11px;white-space:nowrap}
   .main .penbars-track{width:100%;height:96px;display:flex;align-items:flex-end;justify-content:center}
-  .main .penbars-bar{width:70%;max-width:26px;border-radius:3px 3px 0 0;background:var(--brand)}
-  .main .penbars-gap{width:70%;max-width:26px;height:2px;border-top:1px dashed var(--faint)}
+  .main .penbars-bar{width:80%;max-width:22px;border-radius:3px 3px 0 0;background:var(--brand)}
+  .main .penbars-bar.verified{background:var(--info)}
+  .main .penbars-gap{width:80%;max-width:22px;height:2px;border-top:1px dashed var(--faint)}
   .main .penbars-day{white-space:nowrap;line-height:1}
+  /* Two bars per slot need ~70px each: seven slots + padding is ~540px, so a card
+     wraps to the next row before its value labels can run into each other. */
+  .main .penbars-grid{grid-template-columns:repeat(auto-fill,minmax(540px,1fr))}
+  @media(max-width:600px){.main .penbars-grid{grid-template-columns:1fr}.main .penbars{overflow-x:auto}.main .penbars-bars{min-width:500px}}
+  .main .penbars-legend{display:flex;flex-wrap:wrap;gap:14px;margin:0 0 10px;font-size:11.5px;color:var(--muted);font-weight:600}
+  .main .penbars-legend>span{display:flex;align-items:center;gap:6px}
+  .main .penbars-legend i{width:8px;height:8px;border-radius:2px;display:block;flex:none;background:var(--brand)}
+  .main .penbars-legend i.verified{background:var(--info)}
   .main table.feed-stock-table{width:100%;min-width:0;table-layout:fixed}
   .main table.feed-stock-table th,.main table.feed-stock-table td{padding-left:9px;padding-right:9px;white-space:normal;overflow-wrap:anywhere;vertical-align:middle}
   .main table.feed-stock-table th{font-size:10px;letter-spacing:.08em;line-height:1.25}
