@@ -74,6 +74,7 @@ func NewRepository(pool *pgxpool.Pool, timeout time.Duration) *Repository {
 		domain.RegPens:              penStore{},
 		domain.RegPartitions:        partitionStore{},
 		domain.RegSpecies:           codeLookupStore{table: "species_lookup", codeCol: "species_code", goatCol: "species", breedCol: "species"},
+		domain.RegBreeds:            breedStore{},
 		domain.RegSexes:             codeLookupStore{table: "sex_lookup", codeCol: "sex_code", goatCol: "sex"},
 		domain.RegStages:            stageStore{},
 		domain.RegCategories:        categoryStore{},

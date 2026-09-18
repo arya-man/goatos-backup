@@ -42,6 +42,7 @@ No second copy of a place or an item:
 | Parks / Pens | `locations` (type park / shed) + `farm_profiles` / `park_profiles` / `shed_profiles` |
 | Partitions | `shed_partitions` (id on the wire is `shed_id:normalized_label`; the table has no surrogate key) |
 | Species / Sexes | `species_lookup` / `sex_lookup` (migration 000346) |
+| Breeds | `breeds` (product-wide; a breed animals carry cannot be deleted, a rename follows onto `goats.breed`) |
 | Lifecycle stages | `animal_stage_lookup` |
 | Item categories | `item_categories` (000346), an editable tree over `inventory_items` |
 | Items | `inventory_items` (+ `vaccines` for a vaccine's facts; kind-specific facts in `context`) |

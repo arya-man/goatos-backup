@@ -97,6 +97,7 @@ const (
 	RegPens       = "pens"
 	RegPartitions = "partitions"
 	RegSpecies    = "species"
+	RegBreeds     = "breeds"
 	RegSexes      = "sexes"
 	RegStages     = "stages"
 	RegCategories = "categories"
@@ -266,6 +267,19 @@ var Registers = []Register{
 			{Key: "name", Label: "Name", Type: TypeText, Required: true},
 			{Key: "code", Label: "Code", Type: TypeCode, Required: true, Immutable: true, Hint: "Lowercase key such as goat; cannot change once saved."},
 			{Key: "sort_order", Label: "Order", Type: TypeNumber, Min: zero(), Integer: true},
+		},
+	},
+	{
+		// Breeds (maintainer instruction 2026-09-18): the breeds table the herd register and
+		// procurement already name, one row per (species, breed). 'review' rows -- a breed the
+		// importer saw but nobody confirmed -- show as archived until someone restores them.
+		Key: RegBreeds, Label: "Breeds", One: "Breed", Group: GroupAnimalTypes,
+		Hint:    "The breeds each species comes in. A breed still carried by animals cannot be removed.",
+		Filters: []string{"species"},
+		Columns: []Column{
+			{Key: "name", Label: "Breed", Type: TypeText, Required: true},
+			{Key: "species", Label: "Species", Type: TypeRef, Ref: RegSpecies, Required: true},
+			{Key: "notes", Label: "Notes", Type: TypeNotes, ListHidden: true},
 		},
 	},
 	{

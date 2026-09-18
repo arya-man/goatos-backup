@@ -2,9 +2,11 @@ package postgres
 
 import (
 	"context"
+	"errors"
 	"fmt"
 
 	"github.com/jackc/pgx/v5"
+	"github.com/jackc/pgx/v5/pgconn"
 
 	"github.com/vgoats/goatos/backend/internal/configuration/domain"
 	"github.com/vgoats/goatos/backend/internal/configuration/ports"
@@ -324,3 +326,159 @@ func (roleStore) del(ctx context.Context, tx pgx.Tx, t, id string, rv int) error
 	}
 	return nil
 }
+
+// ---------------------------------------------------------------------------------------------
+// Breeds: the product-wide breeds table (no tenant column; $1 consumed so the wrapper lines up).
+// A breed is keyed by (species, canonical_name); goats name it by breed_id and by the text
+// column, so usage counts both.
+
+type breedStore struct{}
+
+var breedProjection = projection{sql: sqlBreedProjection}
+
+const sqlBreedProjection = `
+SELECT b.breed_id::text AS id,
+       b.canonical_name AS display,
+       CASE WHEN b.status = 'active' THEN 'active' ELSE 'archived' END AS status,
+       0 AS row_version,
+       false AS is_builtin,
+       jsonb_build_object('name', b.canonical_name, 'species', b.species, 'notes', NULLIF(b.review_notes, '')) AS fields,
+       jsonb_strip_nulls(jsonb_build_object('species', sl.name)) AS labels,
+       jsonb_build_object('animals', (SELECT count(*) FROM goats g WHERE g.tenant_id = $1::uuid AND g.lifecycle_status = 'alive' AND (g.breed_id = b.breed_id OR lower(g.breed) = lower(b.canonical_name)))) AS counts,
+       b.species || ' ' || lower(b.canonical_name) AS sort_key
+FROM breeds b
+LEFT JOIN species_lookup sl ON sl.tenant_id = $1::uuid AND sl.species_code = b.species
+WHERE $1::uuid IS NOT NULL`
+
+func (breedStore) count(ctx context.Context, q querier, t string) (int, error) {
+	return breedProjection.count(ctx, q, t)
+}
+func (breedStore) list(ctx context.Context, q querier, t string, p ports.ListParams) (ports.Page, error) {
+	return breedProjection.list(ctx, q, t, p)
+}
+func (breedStore) get(ctx context.Context, q querier, t, id string) (domain.Row, error) {
+	if !isUUID(id) {
+		return domain.Row{}, ports.ErrNotFound
+	}
+	return breedProjection.get(ctx, q, t, id)
+}
+func (breedStore) options(ctx context.Context, q querier, t string) ([]ports.RefOption, error) {
+	return breedProjection.options(ctx, q, t)
+}
+func (breedStore) usage(ctx context.Context, q querier, t, id string) (domain.Usage, error) {
+	if !isUUID(id) {
+		return domain.Usage{}, ports.ErrNotFound
+	}
+	return usageOf(ctx, q, t, id, usageCheck{"animals", sqlBreedUsage})
+}
+
+func (breedStore) insert(ctx context.Context, tx pgx.Tx, t string, f map[string]any) (string, error) {
+	species := domain.FieldString(f, "species")
+	var one int
+	if err := tx.QueryRow(ctx, sqlBreedSpeciesExists, t, species).Scan(&one); err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return "", &ports.RefError{Field: "species", Label: "Species"}
+		}
+		return "", err
+	}
+	var id string
+	if err := tx.QueryRow(ctx, sqlBreedInsert, species, domain.FieldString(f, "name"), nullText(f, "notes")).Scan(&id); err != nil {
+		var pgErr *pgconn.PgError
+		if errors.As(err, &pgErr) && pgErr.Code == "23505" {
+			return "", &ports.DuplicateError{Field: "name", Message: "That species already has a breed with this name."}
+		}
+		return "", err
+	}
+	return id, nil
+}
+
+func (breedStore) update(ctx context.Context, tx pgx.Tx, t, id string, f map[string]any, rv int) (string, error) {
+	if !isUUID(id) {
+		return "", ports.ErrNotFound
+	}
+	if sent(f, "species") {
+		// The species is part of the breed's identity and of every animal carrying it.
+		var animals int
+		if err := tx.QueryRow(ctx, sqlBreedUsage, t, id).Scan(&animals); err != nil {
+			return "", err
+		}
+		if animals > 0 {
+			return "", &ports.InUseError{Usage: domain.Usage{Blocked: true, Uses: []domain.UsageCount{{Noun: "animals; a breed's species cannot change while animals carry it", Count: animals}}}}
+		}
+		var one int
+		if err := tx.QueryRow(ctx, sqlBreedSpeciesExists, t, domain.FieldString(f, "species")).Scan(&one); err != nil {
+			if errors.Is(err, pgx.ErrNoRows) {
+				return "", &ports.RefError{Field: "species", Label: "Species"}
+			}
+			return "", err
+		}
+	}
+	set, args := setClause(f, []colBind{{"name", "canonical_name", textOrEmpty("name")}, {"species", "species", textOrEmpty("species")}, {"notes", "review_notes", textArg("notes")}}, 2)
+	if set == "" {
+		return "", nil
+	}
+	tag, err := tx.Exec(ctx, fmt.Sprintf(`UPDATE breeds SET %s, updated_at = now() WHERE breed_id = $1::uuid`, set), append([]any{id}, args...)...)
+	if err != nil {
+		var pgErr *pgconn.PgError
+		if errors.As(err, &pgErr) && pgErr.Code == "23505" {
+			return "", &ports.DuplicateError{Field: "name", Message: "That species already has a breed with this name."}
+		}
+		return "", err
+	}
+	if tag.RowsAffected() == 0 {
+		return "", ports.ErrNotFound
+	}
+	if sent(f, "name") {
+		// goats.breed carries the name as text beside breed_id; keep them agreeing.
+		if _, err := tx.Exec(ctx, sqlBreedRenameGoats, t, id, domain.FieldString(f, "name")); err != nil {
+			return "", err
+		}
+	}
+	return "", nil
+}
+
+func (breedStore) setStatus(ctx context.Context, tx pgx.Tx, t, id, status string, rv int) error {
+	if !isUUID(id) {
+		return ports.ErrNotFound
+	}
+	dbStatus := "inactive"
+	if status == domain.StatusActive {
+		dbStatus = "active"
+	}
+	tag, err := tx.Exec(ctx, `UPDATE breeds SET status = $2, updated_at = now() WHERE breed_id = $1::uuid`, id, dbStatus)
+	if err != nil {
+		return err
+	}
+	if tag.RowsAffected() == 0 {
+		return ports.ErrNotFound
+	}
+	return nil
+}
+
+func (breedStore) del(ctx context.Context, tx pgx.Tx, t, id string, rv int) error {
+	if !isUUID(id) {
+		return ports.ErrNotFound
+	}
+	if _, err := tx.Exec(ctx, `DELETE FROM breed_aliases WHERE breed_id = $1::uuid`, id); err != nil {
+		return err
+	}
+	tag, err := tx.Exec(ctx, `DELETE FROM breeds WHERE breed_id = $1::uuid`, id)
+	if err != nil {
+		return mapWriteError(err)
+	}
+	if tag.RowsAffected() == 0 {
+		return ports.ErrNotFound
+	}
+	return nil
+}
+
+// SQL hoisted to package level so the scale guard and query-plan tests can reach it.
+const (
+	sqlBreedUsage = `
+SELECT count(*) FROM goats g
+WHERE g.tenant_id = $1 AND g.lifecycle_status = 'alive'
+  AND (g.breed_id = $2::uuid OR lower(g.breed) = lower((SELECT canonical_name FROM breeds WHERE breed_id = $2::uuid)))`
+	sqlBreedSpeciesExists = `SELECT 1 FROM species_lookup WHERE tenant_id = $1 AND species_code = $2 AND status = 'active'`
+	sqlBreedInsert        = `INSERT INTO breeds (species, canonical_name, status, review_notes) VALUES ($1, $2, 'active', $3) RETURNING breed_id::text`
+	sqlBreedRenameGoats   = `UPDATE goats SET breed = $3 WHERE tenant_id = $1 AND breed_id = $2::uuid`
+)
