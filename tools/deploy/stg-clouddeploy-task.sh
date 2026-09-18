@@ -659,21 +659,9 @@ deploy() {
     echo "zero-downtime STG deploy: keeping public API/admin revisions serving during migration"
   else
     # Emergency fallback for a known destructive migration. Keep current public
-    # API/admin traffic pinned; create candidate revisions without traffic so a
-    # failed migration cannot take dashboard.mesha.sg or mobile APIs down.
-    run gcloud run services update "$ADMIN_WEB_SERVICE" \
-      --project="$PROJECT_ID" \
-      --region="$REGION" \
-      --ingress=internal-and-cloud-load-balancing \
-      --min=0 \
-      --max=1 \
-      --min-instances=0 \
-      --max-instances=1 \
-      --no-traffic \
-      --update-labels="commit_sha=${COMMIT_SHA},deployed_by=cloud-deploy,rollout_phase=pre_migration_quiesce" \
-      --quiet
-    wait_service_ready "$ADMIN_WEB_SERVICE" "pre-migration quiesce"
-
+    # API/admin traffic pinned; only prepare an API candidate revision without
+    # traffic. Admin-web is not touched until after migrations pass, so a failed
+    # migration cannot take dashboard.mesha.sg down.
     while IFS= read -r revision; do
       [[ -n "$revision" ]] && old_api_revisions+=("$revision")
     done < <(capture_serving_revisions "$API_SERVICE")

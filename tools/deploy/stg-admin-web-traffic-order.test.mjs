@@ -99,6 +99,11 @@ test("pre-migration fallback cannot take public dashboard or API traffic", () =>
 
   assert.doesNotMatch(
     preMigrationBlock,
+    /run gcloud run services update "\$ADMIN_WEB_SERVICE"/,
+    "admin-web must not be mutated before migrations pass",
+  );
+  assert.doesNotMatch(
+    preMigrationBlock,
     /--ingress=internal\s+\\/,
     "pre-migration updates must not block the HTTPS load balancer",
   );
