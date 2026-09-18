@@ -3746,10 +3746,19 @@ select:disabled { opacity: .45; }
   /* ---- The new anatomy inside the SHEET. A popover cannot hang off a fixed sheet without being
      clipped by it, so each date disclosure opens IN PLACE here; the segment and the active chips
      go full width. Tap targets stay >=40px, which is this page's floor. */
-  .lt-page .lt-fsheet-host .lt-chips.lt-seg{display:grid;grid-template-columns:repeat(auto-fit,minmax(104px,1fr));width:100%}
+  /* Inside the SHEET the segment is a TWO-column grid of equal cells, not `auto-fit`: five chips
+     at 390 gave 3 + 2 cells of 114px with "In progress 119" jammed on the right border and one
+     stray divider. Two columns of 1fr, the last odd chip (Overdue) spanning the row, and the
+     dividers drawn by position: a left border on the right-hand cell, a top border on every row
+     after the first. `gap:0` here beats the `.lt-fgroup.open .lt-chips{gap:7px}` rule above,
+     which is for the ACTIVE-filter pills and not for a bordered segment. */
+  .lt-page .lt-fsheet-host .lt-chips.lt-seg,
+  .lt-page .lt-fsheet-host .lt-fgroup.open .lt-chips.lt-seg{display:grid;grid-template-columns:1fr 1fr;grid-auto-rows:1fr;gap:0;width:100%}
   .lt-page .lt-fsheet-host .lt-chips.lt-seg{height:auto}
-  .lt-page .lt-fsheet-host .lt-seg a{min-height:40px;min-height:var(--lt-ctl);justify-content:center;padding:4px 10px;font-size:12.5px}
-  .lt-page .lt-fsheet-host .lt-seg a:nth-child(odd){border-left:0}
+  .lt-page .lt-fsheet-host .lt-seg a{min-height:40px;min-height:var(--lt-ctl);justify-content:center;padding:4px 10px;font-size:12.5px;border-left:0;min-width:0}
+  .lt-page .lt-fsheet-host .lt-seg a:nth-child(even){border-left:1px solid var(--line)}
+  .lt-page .lt-fsheet-host .lt-seg a:nth-child(n+3){border-top:1px solid var(--line)}
+  .lt-page .lt-fsheet-host .lt-seg a:last-child:nth-child(odd){grid-column:1 / -1;border-left:0}
   .lt-page .lt-fsheet-host .lt-franges{display:grid;grid-template-columns:1fr;gap:8px;width:100%}
   .lt-page .lt-fsheet-host .lt-fdrop{width:100%;display:grid;grid-template-columns:1fr;gap:8px}
   .lt-page .lt-fsheet-host .lt-fdrop>button{width:100%;justify-content:space-between}

@@ -440,6 +440,10 @@ export function LeadershipTasksFilters({
                   return;
                 }
                 event.preventDefault();
+                // On a phone the chip lives inside the bottom sheet: the pick closes it, as the
+                // people pickers already do, so the reader SEES the board change instead of the
+                // sheet still covering it. No-op on desktop, where the sheet is never open.
+                if (sheetOpen) closeSheet();
                 go(paramsWith({ [TASK_PARAM.filter]: chip.key }));
               }}
             >
