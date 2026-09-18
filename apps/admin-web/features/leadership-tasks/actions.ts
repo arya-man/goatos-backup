@@ -9,6 +9,7 @@ import {
   raiseLeadershipTask,
   setLeadershipTaskComment,
   uploadLeadershipTaskAttachment,
+  type LeadershipTaskActivity,
 } from "@/lib/api/server";
 import { farmDeadlineLocalFromForm, farmDeadlineToRFC3339 } from "./deadline";
 import { TASK_PARAM } from "./params";
@@ -262,6 +263,71 @@ export async function setLeadershipTaskCommentAction(
     );
   }
   redirect(withFeedback(url, "success", "note_added"));
+}
+
+/** What `postLeadershipTaskCommentAction` hands back to the composer that called it. */
+export type CommentPostResult =
+  | {
+      ok: true;
+      /** The task's activity and notes AFTER the write, newest first, as the backend composed them. */
+      activity: LeadershipTaskActivity[];
+      notes: Array<{
+        note_id: string;
+        author_name: string;
+        body: string;
+        created_at: string;
+        mentions?: Array<{ user_id: string; name: string }>;
+      }>;
+    }
+  | { ok: false; code: string };
+
+/**
+ * The comment write that RETURNS instead of redirecting -- the in-place composer's action.
+ *
+ * `setLeadershipTaskCommentAction` above ends in `redirect(...)`, which is a whole-document
+ * navigation: the CEO typed "@Manju let", pressed Send, and the page reloaded (scroll reset,
+ * drawer remounted, board re-fetched) with a green banner at the top-left instead of the comment
+ * appearing in the feed (2026-09-18). This action does the SAME write with the same validation
+ * and the same idempotency gate, and hands the composer the backend's own post-write `activity`
+ * and `notes` so the feed can reconcile its optimistic row with the real one -- id, actor,
+ * `occurred_label` -- without touching the route. It deliberately does NOT `revalidatePath`:
+ * that would make the response carry a fresh render of the whole /tasks tree (the board and
+ * every card) for a change that is one row of one task's feed, and the route is `force-dynamic`
+ * so the next real navigation reads fresh anyway. No redirect means no `task_status=success`
+ * banner either: the comment appearing in the feed IS the success.
+ *
+ * Without JavaScript the same form still posts here (Next runs the action and re-renders the
+ * page); the returned value is simply unused on that path.
+ */
+export async function postLeadershipTaskCommentAction(
+  formData: FormData,
+): Promise<CommentPostResult> {
+  const taskID = String(formData.get("task_id") ?? "").trim();
+  const comment = String(formData.get("comment") ?? "").trim();
+  const idempotencyKey = String(formData.get("idempotency_key") ?? "").trim();
+  const mentions = String(formData.get("mention_user_ids") ?? "")
+    .split(",")
+    .map((id) => id.trim())
+    .filter(Boolean)
+    .map((userID) => ({ user_id: userID }));
+
+  if (!taskID || !comment) return { ok: false, code: "missing_note" };
+  if (idempotencyKey.length < 8 || idempotencyKey.length > 200) {
+    return { ok: false, code: "invalid_idempotency_key" };
+  }
+  const body: { comment: string; mentions?: { user_id: string }[] } = mentions.length
+    ? { comment, mentions }
+    : { comment };
+  const result = await setLeadershipTaskComment(taskID, body, idempotencyKey);
+  if (!result.ok) {
+    return { ok: false, code: result.error.code ?? result.error.kind };
+  }
+  const task = result.data.task;
+  return {
+    ok: true,
+    activity: task.activity ?? [],
+    notes: task.notes ?? [],
+  };
 }
 
 /**

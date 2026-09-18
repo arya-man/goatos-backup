@@ -105,7 +105,9 @@ test("a status change draws the two status chips and an arrow, toned from the st
 test("Comments reads each comment's text from its note and shows the empty copy when there are none", () => {
   const html = render({ initialView: "comments" });
   assert.match(html, /data-ltd-kind="commented"/);
-  assert.match(html, /<p>Report shared with the lab\.<\/p>/);
+  // The body renders through `note-mentions.ts` (prose runs and mention chips), so the text sits
+  // inside the `.ltd-note` paragraph rather than being the paragraph's only child.
+  assert.match(html, /<p class="ltd-note"><span>Report shared with the lab\.<\/span><\/p>/);
   assert.doesNotMatch(html, /data-ltd-kind="status_changed"/);
   const empty = render({ initialView: "comments", activity: activity.filter((e) => e.kind !== "commented") });
   assert.match(empty, new RegExp(contract.copy["activity.empty_comments"]));

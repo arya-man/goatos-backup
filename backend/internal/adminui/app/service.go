@@ -2129,6 +2129,11 @@ func pageSpecificCopy(id string) map[string]string {
 			// status pill is then a plain badge, not a control). Leadership monitors edit
 			// anything since 2026-09-18, so this reads for a non-party without that authority.
 			"detail.read_only": "Only the person who raised this task can edit it.",
+			// The drawer's ONE status control: the pill opens a menu of the task's status_options
+			// (Cancel task last, in the danger tone). The confirm is asked before a cancel only,
+			// because a cancelled task cannot be reopened.
+			"status.menu_aria":      "Change status",
+			"status.cancel_confirm": "Cancel this task? It cannot be reopened afterwards.",
 			// An unprefixed parameter this page does not read. `?view=list` looks like it
 			// selects a view and does not: `view` belongs to /vaccination, the calendar and
 			// procurement, so Tasks cannot honour it without re-creating the collision its
@@ -2160,6 +2165,10 @@ func pageSpecificCopy(id string) map[string]string {
 			"feed.video":              "Video attached",
 			"feed.files":              "Files attached",
 			"picker.voice":            "Voice note",
+			"note.sending":            "Sending…",
+			"note.just_now":           "just now",
+			"note.you":                "You",
+			"note.failed":             "The update could not be sent. Try again.",
 			"picker.media":            "Photo or video",
 			"picker.file":             "File",
 			"deadline.day":            "Choose a day",

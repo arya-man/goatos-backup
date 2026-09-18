@@ -18,7 +18,8 @@ import { TASK_PARAM, tasksHref, tasksSearchParams, type TasksParams } from "./pa
 import type { TaskRow } from "./task-row";
 import { TASKS_PATHNAME } from "./task-url";
 import { TaskActivityFeed } from "./task-activity-feed";
-import { TaskCommentForm, TaskStatusActions } from "./task-write-forms";
+import { TaskCommentForm } from "./task-write-forms";
+import { TaskStatusMenu } from "./task-status-menu";
 
 /**
  * The task detail panel, shaped like a modern Jira ISSUE VIEW and carrying only this product's
@@ -142,27 +143,25 @@ export function TaskDetailPanel({
 
       <div className="ltd-head">
         <h2 className="ltd-title">{detail.title}</h2>
-        {/* THE status control: the current status reads as Jira's dropdown-looking button, and the
-            transitions beside it are the backend's own `status_options` rendered verbatim by the
-            shared write form. No status name is invented here. */}
+        {/* THE status control is ONE dropdown (`task-status-menu.tsx`): the pill names the current
+            status in the backend's words and opens the Work Board's menu of the backend's own
+            `status_options`, Cancel task last. With no options (a reader who may not move this
+            task, or a cancelled one) the pill is a plain badge: no caret, nothing dead behind it.
+            `data-ltd-status` names which of the two it is for tests. */}
         <div className="ltd-statusrow">
           <span className="ltd-statuslab">{copy(pageContract, "label.status", "Status")}</span>
-          {/* The caret is a PROMISE of a move. With no `status_options` (a reader who may not move
-              this task, or a cancelled one) the pill is a plain badge: no caret, nothing dead
-              behind it. `data-ltd-status` names which of the two it is for tests. */}
-          <span
-            className={`ltd-status ltd-status-${statusTone(detail.status)}`}
-            data-ltd-status={detail.statusOptions.length ? "control" : "badge"}
-          >
-            {detail.statusLabel}
-            {detail.statusOptions.length ? <span className="ltd-status-caret" aria-hidden="true" /> : null}
-          </span>
-          <TaskStatusActions
-            task={detail}
-            pageContract={pageContract}
-            action={changeLeadershipTaskStatusAction}
-            returnTo={returnTo}
-          />
+          {detail.statusOptions.length ? (
+            <TaskStatusMenu
+              task={detail}
+              pageContract={pageContract}
+              action={changeLeadershipTaskStatusAction}
+              returnTo={returnTo}
+            />
+          ) : (
+            <span className={`ltd-status ltd-status-${statusTone(detail.status)}`} data-ltd-status="badge">
+              {detail.statusLabel}
+            </span>
+          )}
         </div>
         {detail.canEdit ? null : (
           <p className="ltd-quiet ltd-readonly" data-testid="ltd-read-only">

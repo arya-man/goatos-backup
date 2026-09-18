@@ -5848,6 +5848,21 @@ input[type=date],input[type=datetime-local],input[type=time],input[type=month],i
 .ltd-status-mut{background:color-mix(in srgb,var(--muted) 14%,var(--panel));border-color:var(--line);color:var(--muted)}
 .ltd-status-pur{background:color-mix(in srgb,var(--purple) 17%,var(--panel));border-color:color-mix(in srgb,var(--purple) 46%,var(--line));color:color-mix(in srgb,var(--purple) 72%,var(--ink))}
 .ltd-status-dng{background:color-mix(in srgb,var(--danger) 17%,var(--panel));border-color:color-mix(in srgb,var(--danger) 46%,var(--line));color:color-mix(in srgb,var(--danger) 74%,var(--ink))}
+/* The drawer's ONE status control (task-status-menu.tsx): the status pill is the trigger and it
+   opens the Work Board's `.menu` (the local `.wb` scope makes `.wb .menu .opt` apply verbatim, so
+   the items look exactly like the board's Module and Assignee menus). Only what the board has no
+   word for is here: the pill as a button, the status dot per item, and the destructive last item. */
+.ltd-statusmenu{position:relative;display:inline-flex}
+.ltd-statusmenu .ltd-status{cursor:pointer;font:inherit;font-size:12.5px;font-weight:780}
+.ltd-statusmenu .ltd-status:hover,.ltd-statusmenu .ltd-status.on{filter:brightness(1.12)}
+.ltd-statusmenu .ltd-status:focus-visible{outline:2px solid var(--brand);outline-offset:2px}
+.ltd-statusmenu .ltd-status-pop{min-width:220px}
+.ltd-statusmenu .ltd-status-dot{width:9px;height:9px;border-radius:50%;flex:none;border-width:1px;border-style:solid;padding:0;min-height:0}
+.ltd-statusmenu .ltd-status-foot{padding-top:4px}
+.ltd-statusmenu .opt.ltd-opt-danger{color:var(--danger)}
+.ltd-statusmenu .opt.ltd-opt-danger .ic{width:14px;height:14px;flex:none}
+.ltd-statusmenu .opt.ltd-opt-danger:hover{background:color-mix(in srgb,var(--danger) 12%,var(--panel))}
+@media (max-width:600px){.ltd-statusmenu .opt{min-height:44px}}
 .ltd-statusrow .lt-status-actions{margin:0;gap:8px}
 .ltd-statusrow .lt-status-actions .btn{min-height:40px}
 
@@ -5915,6 +5930,14 @@ input[type=date],input[type=datetime-local],input[type=time],input[type=month],i
 
 /* ------------------------------------------------------------------ the boxed Details panel */
 .ltd-details{min-width:0;border:1px solid var(--line);border-radius:11px;background:color-mix(in srgb,var(--panel-2) 62%,var(--panel));overflow:hidden}
+/* IN-PLACE comment composer (task-activity-composer.tsx) — Builder J, 2026-09-18. A mention a
+   note NAMED draws as a brand-toned chip; a comment still travelling to the server is dimmed and
+   says "just now"; a refused send reads its sentence under the field, with the text kept. */
+.ltd-mention{display:inline;padding:1px 5px;border-radius:5px;font-weight:720;color:var(--brand);background:color-mix(in srgb,var(--brand) 13%,transparent);white-space:nowrap}
+.ltd-act[data-ltd-pending="true"]{opacity:.62}
+.ltd-act[data-ltd-pending="true"] .ltd-act-when{font-style:italic}
+.ltd-composer-error{margin:0;font-size:12.5px;line-height:1.45;color:var(--danger)}
+.ltd-composer .btn[aria-busy="true"]{opacity:.7;cursor:progress}
 /* Phones see Details directly under the title and status, not at the bottom of the activity
    feed: the deadline is the urgency signal on this screen and it must not be scrolled to. */
 .ltd-details{order:-1}

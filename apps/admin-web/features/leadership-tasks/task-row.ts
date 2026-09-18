@@ -43,6 +43,8 @@ export type TaskRow = {
     author_name: string;
     body: string;
     created_at: string;
+    /** The people the note named, resolved and stored by the backend; the feed draws them as chips. */
+    mentions?: Array<{ user_id: string; name: string }>;
   }>;
   /**
    * The task's history feed, NEWEST FIRST, exactly as the backend composed it: who created

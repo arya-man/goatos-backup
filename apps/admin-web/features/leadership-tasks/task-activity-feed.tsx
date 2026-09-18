@@ -1,10 +1,12 @@
 "use client";
 
+import { MessageSquareText } from "lucide-react";
 import { useState } from "react";
 
 import { copy, type AdminUiPageContract } from "@/lib/admin-ui-contract";
 import type { LeadershipTaskActivity } from "@/lib/api/server";
 
+import { segmentNoteBody } from "./note-mentions";
 import { statusTone } from "./task-presentation";
 import type { TaskRow } from "./task-row";
 
@@ -29,6 +31,9 @@ import type { TaskRow } from "./task-row";
 export type ActivityView = "all" | "history" | "comments";
 
 export const ACTIVITY_VIEWS: readonly ActivityView[] = ["all", "history", "comments"];
+
+/** The id prefix of an activity row the composer has NOT yet had confirmed by the backend. */
+export const PENDING_ACTIVITY_PREFIX = "pending:";
 
 export function isCommentEntry(entry: Pick<LeadershipTaskActivity, "kind">): boolean {
   return entry.kind === "commented";
@@ -60,7 +65,7 @@ export function TaskActivityFeed({
 }) {
   const [view, setView] = useState<ActivityView>(initialView);
   const rows = activityForView(activity, view);
-  const noteBodies = new Map(notes.map((note) => [note.note_id, note.body]));
+  const notesByID = new Map(notes.map((note) => [note.note_id, note]));
   const counts = {
     all: activity.length,
     history: activity.filter((entry) => !isCommentEntry(entry)).length,
@@ -102,10 +107,15 @@ export function TaskActivityFeed({
 
       {rows.length ? (
         <ol className="ltd-activity" role="tabpanel">
-          {rows.map((entry) => (
-            <li key={entry.id} className="ltd-act" data-ltd-kind={entry.kind}>
-              <span className="ltd-av ltd-av-sm" aria-hidden="true">
-                {entry.actor_initials || "·"}
+          {rows.map((entry) => {
+            // A comment still travelling to the server (`task-activity-composer.tsx` mints its
+            // provisional id with this prefix) is dimmed, and wears the composer's own "me"
+            // avatar, until the backend's row -- real actor, real initials -- replaces it.
+            const pending = entry.id.startsWith(PENDING_ACTIVITY_PREFIX);
+            return (
+            <li key={entry.id} className="ltd-act" data-ltd-kind={entry.kind} data-ltd-pending={pending ? "true" : undefined}>
+              <span className={`ltd-av ltd-av-sm${pending ? " ltd-av-me" : ""}`} aria-hidden="true">
+                {pending ? <MessageSquareText className="ic" /> : entry.actor_initials || "·"}
               </span>
               <div className="ltd-act-tx">
                 <div className="ltd-act-line">
@@ -116,14 +126,15 @@ export function TaskActivityFeed({
                   <Change entry={entry} />
                 </div>
                 {isCommentEntry(entry) ? (
-                  <p>{noteBodies.get(entry.note_id) ?? entry.summary}</p>
+                  <NoteBody note={notesByID.get(entry.note_id)} fallback={entry.summary} />
                 ) : null}
                 <time className="ltd-act-when" dateTime={entry.occurred_at}>
                   {entry.occurred_label}
                 </time>
               </div>
             </li>
-          ))}
+            );
+          })}
         </ol>
       ) : (
         <p className="ltd-quiet" role="tabpanel">
@@ -133,6 +144,35 @@ export function TaskActivityFeed({
 
       {composer}
     </div>
+  );
+}
+
+/**
+ * A comment's text, with each person it NAMED drawn as a brand-toned chip (`.ltd-mention`).
+ * The chips come from the note's stored `mentions` (`note-mentions.ts`), so "@Manju" reads as a
+ * mention only when Manju was actually picked and stored -- never from a regex over the prose.
+ */
+function NoteBody({
+  note,
+  fallback,
+}: {
+  note: TaskRow["notes"][number] | undefined;
+  fallback: string;
+}) {
+  if (!note) return <p>{fallback}</p>;
+  const segments = segmentNoteBody(note.body, note.mentions ?? []);
+  return (
+    <p className="ltd-note">
+      {segments.map((segment, index) =>
+        segment.kind === "mention" ? (
+          <span key={index} className="ltd-mention" data-mention-user-id={segment.user_id}>
+            {segment.text}
+          </span>
+        ) : (
+          <span key={index}>{segment.text}</span>
+        ),
+      )}
+    </p>
   );
 }
 
