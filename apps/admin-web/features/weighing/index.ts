@@ -9,4 +9,4 @@ export { WeighingWeightsPage } from "./weights";
 // are different questions and the second one wants the whole screen.
 export { WeighingWeightsAnalyticsPage } from "./weights-analytics";
 export { landingWindow } from "./landing-window";
-export { WINDOW_FROM_PARAM, WINDOW_TO_PARAM } from "./landing-window-constants";
+export { weightsWindowSettings, WINDOW_FROM_PARAM, WINDOW_TO_PARAM } from "./landing-window-constants";

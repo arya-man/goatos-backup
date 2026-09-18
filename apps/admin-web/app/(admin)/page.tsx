@@ -1,8 +1,11 @@
 import { ControlTowerPage } from "@/features/control-tower";
+import { landingWindow, weightsWindowSettings, WINDOW_FROM_PARAM, WINDOW_TO_PARAM } from "@/features/weighing";
 import { getAdminWebBootstrap } from "@/lib/api/server";
+import { todayIso } from "@/lib/format";
 import { one, type RouteSearchParams } from "@/lib/search-params";
 import { parseScope, scopeHref } from "@/lib/scope";
 import { redirect } from "next/navigation";
+import { hrefWithWindow } from "./landing-href.mjs";
 
 export const dynamic = "force-dynamic";
 
@@ -24,12 +27,42 @@ function firstEnabledPublishedHref(contract: Awaited<ReturnType<typeof getAdminW
 const LANDING_ROUTE_ID = "weighing-analytics";
 const CONTROL_TOWER_LENS = "control-tower";
 
+function weighingModeFilter(raw: string | undefined): string {
+  return raw === "individual_animal" || raw === "per_shed_partition" ? raw : "all";
+}
+
+async function landingHref(landing: { href: string; copy?: Record<string, string> }, params: RouteSearchParams): Promise<string> {
+  if (landing.href !== "/weighing/analytics") return scopeHref(landing.href, parseScope(params));
+  const selectedFrom = one(params, WINDOW_FROM_PARAM);
+  const selectedTo = one(params, WINDOW_TO_PARAM);
+  if (selectedFrom && selectedTo) return hrefWithWindow(landing.href, params, selectedFrom, selectedTo);
+
+  const rawSex = one(params, "sex");
+  const sexFilter = rawSex === "female" ? "female" : rawSex === "all" ? "" : "male";
+  const rawOrigin = one(params, "origin");
+  const originFilter = rawOrigin === "farm_born" || rawOrigin === "purchased" ? rawOrigin : "";
+  const modeFilter = weighingModeFilter(one(params, "weighing"));
+  const weighingCategoryFilter = modeFilter !== "all" ? modeFilter : "";
+  const today = todayIso();
+  const windowSettings = weightsWindowSettings(landing.copy, today);
+  const window = await landingWindow(
+    params,
+    today,
+    one(params, "park") ?? "",
+    sexFilter,
+    originFilter,
+    weighingCategoryFilter,
+    windowSettings,
+  );
+  return hrefWithWindow(landing.href, params, window.from, window.to);
+}
+
 export default async function Page({ searchParams }: { searchParams: Promise<RouteSearchParams> }) {
   const [sp, contract] = await Promise.all([searchParams, getAdminWebBootstrap()]);
   const requestedControlTower = one(sp, "lens") === CONTROL_TOWER_LENS;
   const landing = contract.ok ? contract.data.pages.find((item) => item.route_id === LANDING_ROUTE_ID) : null;
   if (!requestedControlTower && landing?.href) {
-    redirect(scopeHref(landing.href, parseScope(sp)));
+    redirect(await landingHref(landing, sp));
   }
   const controlTower = contract.ok ? contract.data.pages.find((item) => item.route_id === "control-tower") : null;
   if (requestedControlTower && controlTower) {
