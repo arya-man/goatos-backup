@@ -329,16 +329,17 @@ func (h *Handler) Page(w http.ResponseWriter, r *http.Request) {
 		out.Lanes[result.lane] = result.payload
 		out.Degraded = appendModules(out.Degraded, result.payload.Degraded...)
 	}
+	ownerVocabFailed := false
 	if ownerVocabCh != nil {
 		vocab := <-ownerVocabCh
 		prof.mark("owner_vocabulary_wait")
-		if vocab.err != nil {
-			h.writeServiceErr(w, r, vocab.err)
-			return
+		if vocab.err == nil {
+			out.OwnerVocabulary = vocab.owners
+		} else {
+			ownerVocabFailed = true
 		}
-		out.OwnerVocabulary = vocab.owners
 	}
-	if shouldIncludeOwnerVocabulary(r) && len(out.OwnerVocabulary) == 0 && !own {
+	if shouldIncludeOwnerVocabulary(r) && len(out.OwnerVocabulary) == 0 && !own && !ownerVocabFailed {
 		rows := []domain.Row{}
 		for _, result := range results {
 			rows = append(rows, result.payload.Rows...)

@@ -3,6 +3,7 @@ package http
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -39,13 +40,14 @@ type fakeService struct {
 	degraded     []domain.Module
 	listDegraded []domain.Module
 	// found is what FindRow answers; lastRowKey / lastAfter / lastLimit record the subtask read.
-	found      bool
-	lastRowKey string
-	lastAfter  string
-	lastLimit  int
-	listDelay  time.Duration
-	activeList int
-	maxList    int
+	found               bool
+	lastRowKey          string
+	lastAfter           string
+	lastLimit           int
+	listDelay           time.Duration
+	activeList          int
+	maxList             int
+	failOwnerVocabulary bool
 }
 
 func (f *fakeService) FindRow(_ context.Context, q domain.Query, rowKey string) (domain.Row, bool, error) {
@@ -79,6 +81,9 @@ func (f *fakeService) List(_ context.Context, q domain.Query) (domain.Page, erro
 	f.mu.Unlock()
 	if f.listDelay > 0 {
 		time.Sleep(f.listDelay)
+	}
+	if f.failOwnerVocabulary && q.OwnerUserID == "" && q.Limit == 100 {
+		return domain.Page{}, errors.New("owner vocabulary unavailable")
 	}
 	defer func() {
 		f.mu.Lock()
@@ -486,6 +491,30 @@ func TestPageOwnerVocabularyUsesWorkBoardScopeNotSelectedOwnerRows(t *testing.T)
 	}
 	if len(svc.lists) != 2 {
 		t.Fatalf("expected one lane read plus one Work Board-authorized owner vocabulary read, got %d list reads", len(svc.lists))
+	}
+}
+
+func TestPageOwnerVocabularyFailureDoesNotBlankBoard(t *testing.T) {
+	svc := &fakeService{
+		counts:              map[domain.WorkState]int{domain.WorkStateDue: 1},
+		failOwnerVocabulary: true,
+	}
+	h := NewHandler(svc, nil)
+	rec, body := get(t, h, "/work-board/page?park="+parkCBE+"&owner="+actorOp+"&include_owner_vocabulary=1", actorCEO, tenantGrant(permissions.RoleCEOInternal))
+	if rec.Code != http.StatusOK {
+		t.Fatalf("optional owner vocabulary failure must not fail the board, got %d %v", rec.Code, body)
+	}
+	lanes := body["lanes"].(map[string]any)
+	todo := lanes["todo"].(map[string]any)
+	rows := todo["rows"].([]any)
+	if len(rows) != 1 {
+		t.Fatalf("board lane rows should still render, got %#v", todo)
+	}
+	if _, ok := body["owner_vocabulary"]; ok {
+		t.Fatalf("failed optional vocabulary should be omitted, got %#v", body["owner_vocabulary"])
+	}
+	if len(svc.lists) != 2 {
+		t.Fatalf("expected one lane read plus one attempted owner vocabulary read, got %d list reads", len(svc.lists))
 	}
 }
 
