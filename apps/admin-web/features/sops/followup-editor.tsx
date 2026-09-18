@@ -45,6 +45,7 @@ export function FollowUpEditor({
   sopCode,
   versionLabel,
   initial,
+  initialView = "list",
 }: {
   pageContract: AdminUiPageContract;
   basePath: string;
@@ -53,6 +54,8 @@ export function FollowUpEditor({
   sopCode: string;
   versionLabel: string;
   initial: FollowUpRows;
+  /** The view the page opened on (`?view=flow`), read on the server so SSR and client agree. */
+  initialView?: "list" | "flow";
 }) {
   const pc = pageContract;
   const router = useRouter();
@@ -72,7 +75,7 @@ export function FollowUpEditor({
   // The studio's two views (maintainer instruction 2026-09-18): LIST is the default, FLOW is the
   // chart. Both edit the same rows; the choice is per page, kept in the address bar so a link
   // opens the view it was copied from.
-  const [view, setView] = useState<"list" | "flow">(() => (typeof window !== "undefined" && new URL(window.location.href).searchParams.get("view") === "flow" ? "flow" : "list"));
+  const [view, setView] = useState<"list" | "flow">(initialView);
   const [selectedStep, setSelectedStep] = useState<string>("");
   const answerKindLabels = useMemo(
     () => Object.fromEntries(["yes_no", "select", "multiselect", "number", "text"].map((k) => [k, copy(pc, `studio.answer.${k}`)])),

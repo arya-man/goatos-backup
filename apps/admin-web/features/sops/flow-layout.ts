@@ -40,7 +40,7 @@ export type FlowEdge = {
 export type FlowLayout = { nodes: FlowNode[]; edges: FlowEdge[]; width: number; height: number };
 
 export const NODE_W = 230;
-export const NODE_H = 66;
+export const NODE_H = 78;
 export const DECISION_H = 56;
 const GAP_Y = 54;
 const COL_X = 270;
@@ -160,15 +160,16 @@ export function layoutTrack(
       place(decision);
       edge(s.id, decision.id, { index: idx + 1, when: inherited });
       cursorY += DECISION_H + GAP_Y;
-      const columns = branches.length + 1; // + otherwise
-      const leftX = x - ((columns - 1) * COL_X) / 2;
+      // Branch columns sit beside the spine -- left, right, further left, further right -- and
+      // never ON it, so the otherwise line runs straight down the centre through no node.
       const branchTails: string[] = [];
       const branchLabels: string[] = [];
       let deepest = cursorY;
       branches.forEach((b, bi) => {
         const members = subtree(b.steps, remaining);
         remaining = remaining.filter((r) => !members.includes(r));
-        const bx = leftX + bi * COL_X;
+        const slot = Math.floor(bi / 2) + 1;
+        const bx = x + (bi % 2 === 0 ? -slot : slot) * COL_X;
         const first = members[0];
         const result = chain(members, bx, cursorY, b.condition, { ids: [decision.id], labels: [phrase(b.condition)] });
         void first;
@@ -191,7 +192,7 @@ export function layoutTrack(
   }
   const otherwiseInsert = new Map<string, FlowInsert>();
   const start: FlowNode = { id: "start", kind: "start", x: 0, y: 0, w: NODE_W, h: NODE_H };
-  const centreX = NODE_W / 2 + COL_X * 1.5;
+  const centreX = NODE_W / 2 + COL_X * 2;
   start.x = centreX - NODE_W / 2;
   place(start);
   const result = chain(steps, centreX, NODE_H + GAP_Y, null, { ids: ["start"], labels: [""] });

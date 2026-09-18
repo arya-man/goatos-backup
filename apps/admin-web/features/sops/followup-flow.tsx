@@ -71,6 +71,12 @@ export function FollowUpFlow({
   const typeLabel = (key: string) => taskTypes.find((t) => t.key === key)?.label ?? key;
   const selected = track.steps.find((s) => s.id === selectedId);
   const selectedIndex = track.steps.findIndex((s) => s.id === selectedId);
+  // Stable, human test ids: a step's key (not its row id), the decision as key:decision.
+  const testId = (id: string) => {
+    const n = layout.nodes.find((x) => x.id === id);
+    if (!n || !n.step) return id;
+    return n.kind === "decision" ? `${n.step.key}:decision` : n.step.key || `row${n.index}`;
+  };
   const nodeCentre = (id: string) => {
     const n = layout.nodes.find((x) => x.id === id)!;
     return { top: { x: n.x + n.w / 2, y: n.y }, bottom: { x: n.x + n.w / 2, y: n.y + n.h } };
@@ -113,12 +119,26 @@ export function FollowUpFlow({
             {layout.edges.map((e) => {
               const a = nodeCentre(e.from).bottom;
               const b = nodeCentre(e.to).top;
-              const mx = (a.x + b.x) / 2;
-              const my = (a.y + b.y) / 2;
+              // Points along the same cubic the SVG draws: the label near the top of the line
+              // (a branch line is read at its fork), the + past the middle.
+              const at = (t: number) => {
+                const my = (a.y + b.y) / 2;
+                const u = 1 - t;
+                return {
+                  x: u * u * u * a.x + 3 * u * u * t * a.x + 3 * u * t * t * b.x + t * t * t * b.x,
+                  y: u * u * u * a.y + 3 * u * u * t * my + 3 * u * t * t * my + t * t * t * b.y,
+                };
+              };
+              const plus = at(e.label ? 0.62 : 0.5);
+              const label = at(0.42);
               return (
-                <div key={e.id + ":ins"} className="studio-flow-edge-ctl" style={{ left: mx, top: my }}>
-                  {e.label ? <span className="studio-flow-edge-label">{e.label}</span> : null}
-                  <button type="button" className="studio-flow-plus" title={copy(pc, "studio.flow.insert")} aria-label={copy(pc, "studio.flow.insert")} onClick={() => onInsert(e.insert)} data-testid={`flow-insert-${e.from}-${e.to}`}>
+                <div key={e.id + ":ins"}>
+                  {e.label ? (
+                    <span className="studio-flow-edge-label" style={{ left: label.x, top: label.y }}>
+                      {e.label}
+                    </span>
+                  ) : null}
+                  <button type="button" className="studio-flow-plus" style={{ left: plus.x, top: plus.y }} title={copy(pc, "studio.flow.insert")} aria-label={copy(pc, "studio.flow.insert")} onClick={() => onInsert(e.insert)} data-testid={`flow-insert-${testId(e.from)}-${testId(e.to)}`}>
                     +
                   </button>
                 </div>
