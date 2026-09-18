@@ -106,6 +106,10 @@ type WorkflowAction struct {
 	RequiresKeys       []string
 	AfterActionKey     string
 	AfterOffsetSeconds int
+	// AnswerGate is the branch condition this step runs under (nil = always). Until the question
+	// it names is answered the step is blocked; once answered it is either on the path (pending)
+	// or skipped.
+	AnswerGate *AnswerCondition
 	// ReworkReason is the verifier's words when this step was sent back; cleared on completion.
 	ReworkReason       *string
 	CompletedBy        *string
@@ -588,6 +592,23 @@ func OperatorActionBlocked(templateKey string, a WorkflowAction, siblings []Work
 		a.Status == ActionStatusCanceled {
 		return false
 	}
+	// A skipped step is off the path: nothing to do, so nothing is "blocked".
+	if a.Status == ActionStatusSkipped {
+		return true
+	}
+	// An answer-gated step waits for its question; the branch is resolved when that answer lands.
+	if a.AnswerGate != nil {
+		answered := false
+		for _, q := range siblings {
+			if q.ActionKey == a.AnswerGate.Step {
+				answered = q.Status == ActionStatusCompleted || q.Status == ActionStatusInReview || q.Status == ActionStatusRework
+				break
+			}
+		}
+		if !answered {
+			return true
+		}
+	}
 	// A capture re-shoot answers a verdict on the REPORT, not a step of the track: it is appended
 	// after every step, and the lane rule held it behind the whole track (next-day ORS water on a
 	// mother) so a rejected report proof could not be re-recorded (E2E 2026-09-17).
@@ -595,7 +616,8 @@ func OperatorActionBlocked(templateKey string, a WorkflowAction, siblings []Work
 		return false
 	}
 	done := func(prerequisite WorkflowAction) bool {
-		return StepRecorded(templateKey, prerequisite)
+		// A skipped step is not in the way: the path simply does not pass through it.
+		return prerequisite.Status == ActionStatusSkipped || StepRecorded(templateKey, prerequisite)
 	}
 	if a.WaitForAll || (a.TaskType == "" && a.ActionKey == ActionKeyTagTheKid) {
 		for _, prerequisite := range siblings {
@@ -654,6 +676,104 @@ func StepRecorded(templateKey string, a WorkflowAction) bool {
 		return ReviewedPerStep(templateKey)
 	}
 	return false
+}
+
+// AnswerGateUnresolved reports a gated step whose question has not been answered yet.
+func AnswerGateUnresolved(a WorkflowAction, siblings []WorkflowAction) bool {
+	if a.AnswerGate == nil || a.Status != ActionStatusPending {
+		return false
+	}
+	for _, q := range siblings {
+		if q.ActionKey == a.AnswerGate.Step {
+			return !(q.Status == ActionStatusCompleted || q.Status == ActionStatusInReview || q.Status == ActionStatusRework)
+		}
+	}
+	return true
+}
+
+// BranchNote is the farm-worded sentence for a gated step: which question, which answer. The
+// question is named by its title so the sentence reads the way the SOP author wrote it.
+func BranchNote(a WorkflowAction, siblings []WorkflowAction) string {
+	if a.AnswerGate == nil {
+		return ""
+	}
+	question := a.AnswerGate.Step
+	for _, q := range siblings {
+		if q.ActionKey == a.AnswerGate.Step && strings.TrimSpace(q.Title) != "" {
+			question = q.Title
+			break
+		}
+	}
+	return "Only if \u201c" + question + "\u201d " + a.AnswerGate.Phrase()
+}
+
+// Phrase renders the comparison in words: "is No", "is not Bloat", "is one of A, B", "is more than 30".
+func (c AnswerCondition) Phrase() string {
+	values := strings.Join(c.Value, ", ")
+	switch c.Op {
+	case AnswerOpEq:
+		if len(c.Value) == 1 {
+			return "is " + values
+		}
+		return "is one of " + values
+	case AnswerOpNe:
+		if len(c.Value) == 1 {
+			return "is not " + values
+		}
+		return "is none of " + values
+	case AnswerOpIn:
+		return "is one of " + values
+	case AnswerOpNotIn:
+		return "is none of " + values
+	case AnswerOpGt:
+		return "is more than " + values
+	case AnswerOpGte:
+		return "is " + values + " or more"
+	case AnswerOpLt:
+		return "is less than " + values
+	case AnswerOpLte:
+		return "is " + values + " or less"
+	}
+	return "is " + values
+}
+
+// ResolveAnswerBranches settles every branch that hangs on the step just answered: a sibling
+// whose gate names it is SKIPPED when the answer does not satisfy the gate, and a step gated on a
+// skipped question is skipped with it (the whole branch goes). Steps whose gate is satisfied stay
+// pending and become reachable through OperatorActionBlocked. Returns the rows that changed.
+// Pure; the repository persists the result inside the answer's transaction.
+func ResolveAnswerBranches(answered WorkflowAction, siblings []WorkflowAction) []WorkflowAction {
+	answers := map[string]string{}
+	skipped := map[string]bool{}
+	for _, s := range siblings {
+		if s.Status == ActionStatusSkipped {
+			skipped[s.ActionKey] = true
+		}
+		if s.AnswerValue != nil && (s.Status == ActionStatusCompleted || s.Status == ActionStatusInReview || s.Status == ActionStatusRework) {
+			answers[s.ActionKey] = *s.AnswerValue
+		}
+	}
+	if answered.AnswerValue != nil {
+		answers[answered.ActionKey] = *answered.AnswerValue
+	}
+	var changed []WorkflowAction
+	// Steps are in seq order, so a skip cascades forward within one pass.
+	for i := range siblings {
+		s := siblings[i]
+		if s.AnswerGate == nil || s.Status != ActionStatusPending || s.ActionID == answered.ActionID {
+			continue
+		}
+		gateKey := s.AnswerGate.Step
+		answer, has := answers[gateKey]
+		switch {
+		case skipped[gateKey], has && !s.AnswerGate.Satisfied(answer):
+			s.Status = ActionStatusSkipped
+			s.RowVersion++
+			skipped[s.ActionKey] = true
+			changed = append(changed, s)
+		}
+	}
+	return changed
 }
 
 // HoldStepForReview is the per-step review gate, applied right after ApplyAnswer/ApplyComplete in
@@ -766,6 +886,10 @@ func RecomputeCard(w WorkflowInstance, actions []WorkflowAction) WorkflowInstanc
 	var next *WorkflowAction
 	for i := range actions {
 		a := actions[i]
+		if a.Status == ActionStatusSkipped {
+			// Off the taken path: not owed, not counted, never next.
+			continue
+		}
 		if a.Status == ActionStatusInReview {
 			anyInReview = true
 			if !perStep {

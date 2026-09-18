@@ -49,6 +49,10 @@ const (
 	ActionStatusCompleted = "completed"
 	ActionStatusRework    = "rework"
 	ActionStatusCanceled  = "canceled"
+	// ActionStatusSkipped is a step on a branch the operator's answer did NOT take (maintainer
+	// decision 2026-09-18): never owed, never the next step, out of every count, and hidden from
+	// the phone. Distinct from canceled, which is the whole workflow being withdrawn.
+	ActionStatusSkipped = "skipped"
 )
 
 // Verification wiring constants for the death evidence trail. One item (category death_evidence)
@@ -159,6 +163,8 @@ type ActionTemplate struct {
 	HardTimeGate bool
 	WaitForAll   bool
 	Requires     []string
+	// AnswerGate is the answer-driven branch condition (nil = always on the path).
+	AnswerGate *AnswerCondition
 }
 
 // IsDependencyTimed reports a step whose due time is set by another step's completion.

@@ -114,6 +114,80 @@ type FollowUpStep struct {
 	WaitForAll   bool             `json:"wait_for_all,omitempty"`
 	Requires     []string         `json:"requires,omitempty"`
 	When         string           `json:"when,omitempty"`
+	// WhenAnswer is an ANSWER-DRIVEN branch (maintainer decision 2026-09-18, SOP studio phase 2):
+	// the step runs only when an earlier question's answer satisfies the condition, and is SKIPPED
+	// -- off this path, never owed -- when it does not. Nil = the step always runs.
+	WhenAnswer *AnswerCondition `json:"when_answer,omitempty"`
+}
+
+// AnswerCondition is one branch condition: the earlier question step, the comparison and the
+// value(s). The condition is resolved the moment the question is answered, inside the answer's
+// own transaction, so a workflow's steps are stamped in full at open (the operator sees what may
+// come) and the branch not taken is marked skipped rather than left owed.
+type AnswerCondition struct {
+	Step  string   `json:"step"`
+	Op    string   `json:"op"`
+	Value []string `json:"value"`
+}
+
+// Answer-condition operators. eq/ne/in/not_in compare answer text (a pick-many answer is the
+// `|`-joined list and matches when ANY picked value does); gt/gte/lt/lte compare numbers.
+const (
+	AnswerOpEq    = "eq"
+	AnswerOpNe    = "ne"
+	AnswerOpIn    = "in"
+	AnswerOpNotIn = "not_in"
+	AnswerOpGt    = "gt"
+	AnswerOpGte   = "gte"
+	AnswerOpLt    = "lt"
+	AnswerOpLte   = "lte"
+)
+
+// Satisfied evaluates the condition against a recorded answer.
+func (c AnswerCondition) Satisfied(answer string) bool {
+	answer = strings.TrimSpace(answer)
+	switch c.Op {
+	case AnswerOpEq, AnswerOpIn:
+		return answerMatchesAny(answer, c.Value)
+	case AnswerOpNe, AnswerOpNotIn:
+		return !answerMatchesAny(answer, c.Value)
+	case AnswerOpGt, AnswerOpGte, AnswerOpLt, AnswerOpLte:
+		if len(c.Value) == 0 {
+			return false
+		}
+		got, err := strconv.ParseFloat(answer, 64)
+		if err != nil {
+			return false
+		}
+		want, err := strconv.ParseFloat(strings.TrimSpace(c.Value[0]), 64)
+		if err != nil {
+			return false
+		}
+		switch c.Op {
+		case AnswerOpGt:
+			return got > want
+		case AnswerOpGte:
+			return got >= want
+		case AnswerOpLt:
+			return got < want
+		default:
+			return got <= want
+		}
+	}
+	return false
+}
+
+func answerMatchesAny(answer string, values []string) bool {
+	picked := strings.Split(answer, "|")
+	for _, v := range values {
+		v = strings.TrimSpace(v)
+		for _, p := range picked {
+			if strings.EqualFold(strings.TrimSpace(p), v) {
+				return true
+			}
+		}
+	}
+	return false
 }
 
 // FollowUpProof is what evidence a step needs before it counts as done.
@@ -227,6 +301,7 @@ func ValidateFollowUp(d FollowUpDSL, taskTypes map[string]FollowUpTaskTy) []stri
 			add("%s.steps: at least one step is required", p)
 		}
 		seenSteps := map[string]struct{}{}
+		answerKinds := map[string]stepAnswer{}
 		for si, s := range t.Steps {
 			sp := fmt.Sprintf("%s.steps.%d", p, si)
 			if strings.TrimSpace(s.Key) == "" {
@@ -342,6 +417,95 @@ func ValidateFollowUp(d FollowUpDSL, taskTypes map[string]FollowUpTaskTy) []stri
 			default:
 				add("%s.when: %q is not a step condition", sp, s.When)
 			}
+			if c := s.WhenAnswer; c != nil {
+				for _, problem := range validateAnswerCondition(*c, s.Key, answerKinds) {
+					add("%s.when_answer: %s", sp, problem)
+				}
+			}
+			answerKinds[s.Key] = answerKindOf(s, taskTypes)
+		}
+	}
+	return problems
+}
+
+// answerKindOf is the answer kind a step records: its own override, else its task type's.
+func answerKindOf(s FollowUpStep, taskTypes map[string]FollowUpTaskTy) stepAnswer {
+	kind := s.Answer
+	if kind == "" {
+		if tt, ok := taskTypes[s.TaskType]; ok {
+			kind = tt.AnswerKind
+		}
+	}
+	return stepAnswer{kind: kind, options: s.Options}
+}
+
+type stepAnswer struct {
+	kind    string
+	options []string
+}
+
+// validateAnswerCondition checks a branch condition against the EARLIER steps of its track: the
+// question must exist before this step and record an answer; the operator must fit the answer
+// kind; every value must be one the question can produce (yes/no, a listed option, a number).
+func validateAnswerCondition(c AnswerCondition, stepKey string, earlier map[string]stepAnswer) []string {
+	var problems []string
+	q, ok := earlier[c.Step]
+	switch {
+	case c.Step == "" || c.Step == stepKey || !ok:
+		return []string{fmt.Sprintf("step %q must name an EARLIER question step in the same track", c.Step)}
+	case q.kind == AnswerKindNone || q.kind == "":
+		return []string{fmt.Sprintf("step %q records no answer to branch on", c.Step)}
+	}
+	if len(c.Value) == 0 {
+		problems = append(problems, "a value is required")
+	}
+	numeric := c.Op == AnswerOpGt || c.Op == AnswerOpGte || c.Op == AnswerOpLt || c.Op == AnswerOpLte
+	switch c.Op {
+	case AnswerOpEq, AnswerOpNe, AnswerOpIn, AnswerOpNotIn:
+		if q.kind == AnswerKindNumber {
+			for _, v := range c.Value {
+				if _, err := strconv.ParseFloat(strings.TrimSpace(v), 64); err != nil {
+					problems = append(problems, fmt.Sprintf("%q is not a number", v))
+				}
+			}
+		}
+	case AnswerOpGt, AnswerOpGte, AnswerOpLt, AnswerOpLte:
+		if q.kind != AnswerKindNumber {
+			problems = append(problems, fmt.Sprintf("%s compares numbers; step %q answers %s", c.Op, c.Step, q.kind))
+		}
+		if len(c.Value) > 1 {
+			problems = append(problems, "a number comparison takes one value")
+		}
+		for _, v := range c.Value {
+			if _, err := strconv.ParseFloat(strings.TrimSpace(v), 64); err != nil {
+				problems = append(problems, fmt.Sprintf("%q is not a number", v))
+			}
+		}
+	default:
+		return append(problems, fmt.Sprintf("%q is not a comparison", c.Op))
+	}
+	if numeric {
+		return problems
+	}
+	switch q.kind {
+	case AnswerKindYesNo:
+		for _, v := range c.Value {
+			if lv := strings.ToLower(strings.TrimSpace(v)); lv != "yes" && lv != "no" {
+				problems = append(problems, fmt.Sprintf("%q is not yes or no", v))
+			}
+		}
+	case AnswerKindSelect, AnswerKindMultiSelect:
+		for _, v := range c.Value {
+			found := false
+			for _, o := range q.options {
+				if strings.EqualFold(strings.TrimSpace(o), strings.TrimSpace(v)) {
+					found = true
+					break
+				}
+			}
+			if !found {
+				problems = append(problems, fmt.Sprintf("%q is not one of step %q's options", v, c.Step))
+			}
 		}
 	}
 	return problems
@@ -387,6 +551,7 @@ func CompileTrack(track FollowUpTrack, taskTypes map[string]FollowUpTaskTy, opts
 			HardTimeGate:  s.HardTimeGate,
 			WaitForAll:    s.WaitForAll,
 			Requires:      append([]string(nil), s.Requires...),
+			AnswerGate:    s.WhenAnswer,
 		}
 		switch s.Schedule.Kind {
 		case ScheduleKindSeries:

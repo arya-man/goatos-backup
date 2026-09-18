@@ -219,16 +219,16 @@ RETURNING workflow_id::text`,
 	sb.WriteString(`INSERT INTO workflow_actions (
   tenant_id, workflow_id, action_key, seq, section, action_type, title, detail, requires_video, options, due_at,
   task_type, answer_type, engine_hook, proof_min_videos, proof_min_photos, hard_time_gate, wait_for_all,
-  requires_keys, after_action_key, after_offset_seconds
+  requires_keys, after_action_key, after_offset_seconds, answer_gate
 ) VALUES `)
 	for i, a := range template.Actions {
 		if i > 0 {
 			sb.WriteString(", ")
 		}
 		base := len(args)
-		sb.WriteString(fmt.Sprintf("($%d::uuid, $%d::uuid, $%d, $%d, $%d, $%d, $%d, $%d, $%d, $%d::jsonb, $%d::timestamptz, $%d, $%d, $%d, $%d, $%d, $%d, $%d, $%d::jsonb, $%d, $%d)",
+		sb.WriteString(fmt.Sprintf("($%d::uuid, $%d::uuid, $%d, $%d, $%d, $%d, $%d, $%d, $%d, $%d::jsonb, $%d::timestamptz, $%d, $%d, $%d, $%d, $%d, $%d, $%d, $%d::jsonb, $%d, $%d, $%d::jsonb)",
 			base+1, base+2, base+3, base+4, base+5, base+6, base+7, base+8, base+9, base+10, base+11,
-			base+12, base+13, base+14, base+15, base+16, base+17, base+18, base+19, base+20, base+21))
+			base+12, base+13, base+14, base+15, base+16, base+17, base+18, base+19, base+20, base+21, base+22))
 		var options any
 		if len(a.Options) > 0 {
 			raw, err := json.Marshal(a.Options)
@@ -255,9 +255,17 @@ RETURNING workflow_id::text`,
 		if answerKind == "" {
 			answerKind = domain.AnswerKindNone
 		}
+		var answerGate any
+		if a.AnswerGate != nil {
+			raw, err := json.Marshal(a.AnswerGate)
+			if err != nil {
+				return false, err
+			}
+			answerGate = string(raw)
+		}
 		args = append(args, cmd.TenantID, workflowID, a.Key, a.Seq, a.Section, a.Type, a.Title, a.Detail, a.RequiresVideo, options, dueAt,
 			a.TaskType, answerKind, a.EngineHook, a.Proof.Video, a.Proof.Photo, a.HardTimeGate, a.WaitForAll,
-			string(requires), a.Schedule.AfterStepKey, int(a.Schedule.Offset.Seconds()))
+			string(requires), a.Schedule.AfterStepKey, int(a.Schedule.Offset.Seconds()), answerGate)
 	}
 	if _, err := tx.Exec(ctx, sb.String(), args...); err != nil {
 		return false, err
@@ -692,7 +700,7 @@ SELECT action_id::text, tenant_id::text, workflow_id::text, action_key, seq, sec
        answer_value, proof_ref, completed_by::text, completed_at, verification_item_id::text,
        idempotency_key, request_fingerprint, row_version,
        task_type, answer_type, engine_hook, proof_min_videos, proof_min_photos, proof_refs,
-       hard_time_gate, wait_for_all, requires_keys, after_action_key, after_offset_seconds, rework_reason
+       hard_time_gate, wait_for_all, requires_keys, after_action_key, after_offset_seconds, rework_reason, answer_gate
 FROM workflow_actions
 WHERE tenant_id = $1::uuid AND workflow_id = $2::uuid
 ORDER BY seq ASC`+lock, tenantID, workflowID)
@@ -704,10 +712,11 @@ ORDER BY seq ASC`+lock, tenantID, workflowID)
 	var out []domain.WorkflowAction
 	for rows.Next() {
 		var (
-			a         domain.WorkflowAction
-			options   []byte
-			proofRefs []byte
-			requires  []byte
+			a          domain.WorkflowAction
+			options    []byte
+			proofRefs  []byte
+			requires   []byte
+			answerGate []byte
 		)
 		if err := rows.Scan(
 			&a.ActionID, &a.TenantID, &a.WorkflowID, &a.ActionKey, &a.Seq, &a.Section, &a.ActionType,
@@ -715,9 +724,16 @@ ORDER BY seq ASC`+lock, tenantID, workflowID)
 			&a.AnswerValue, &a.ProofRef, &a.CompletedBy, &a.CompletedAt, &a.VerificationItemID,
 			&a.IdempotencyKey, &a.RequestFingerprint, &a.RowVersion,
 			&a.TaskType, &a.AnswerType, &a.EngineHook, &a.ProofMinVideos, &a.ProofMinPhotos, &proofRefs,
-			&a.HardTimeGate, &a.WaitForAll, &requires, &a.AfterActionKey, &a.AfterOffsetSeconds, &a.ReworkReason,
+			&a.HardTimeGate, &a.WaitForAll, &requires, &a.AfterActionKey, &a.AfterOffsetSeconds, &a.ReworkReason, &answerGate,
 		); err != nil {
 			return nil, err
+		}
+		if len(answerGate) > 0 && string(answerGate) != "null" {
+			var gate domain.AnswerCondition
+			if err := json.Unmarshal(answerGate, &gate); err != nil {
+				return nil, err
+			}
+			a.AnswerGate = &gate
 		}
 		if len(options) > 0 {
 			if err := json.Unmarshal(options, &a.Options); err != nil {
@@ -799,7 +815,7 @@ func (r *Repository) workflowMutation(
 	}
 
 	for _, a := range changed {
-		// scale-guard:ignore: bounded — `changed` holds at most 3 template actions (written action + death sign-off / two video resets) out of <=13 per workflow; never a data-sized set
+		// scale-guard:ignore: bounded — `changed` holds the written action plus its side effects (death sign-off, two video resets, or the branch steps an answer skipped) out of one workflow's <=18 template actions; never a data-sized set
 		if _, err := tx.Exec(ctx, `
 UPDATE workflow_actions
 SET status = $3, answer_value = $4, proof_ref = $5, completed_by = nullif($6::text,'')::uuid,
@@ -938,7 +954,19 @@ func (r *Repository) AnswerAction(ctx context.Context, cmd domain.AnswerActionCo
 			if deathApplied && w.TemplateKey == domain.TemplateKeyDeath && domain.DeathStepsComplete(actions) {
 				w.AwaitingVerification = true
 			}
-			return []domain.WorkflowAction{updated}, false, nil
+			// ANSWER-DRIVEN BRANCHES settle in the same transaction as the answer: every step
+			// gated on this question that the answer does not satisfy is skipped now, so the
+			// card, the next step and the phone list agree the moment the answer lands.
+			changed := []domain.WorkflowAction{updated}
+			for _, skippedRow := range domain.ResolveAnswerBranches(updated, actions) {
+				for k := range actions {
+					if actions[k].ActionID == skippedRow.ActionID {
+						actions[k] = skippedRow
+					}
+				}
+				changed = append(changed, skippedRow)
+			}
+			return changed, false, nil
 		})
 	if err != nil {
 		return domain.ActionWriteResult{}, err

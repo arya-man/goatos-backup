@@ -119,7 +119,10 @@ type workflowActionDTO struct {
 	ProofMinPhotos int            `json:"proof_min_photos"`
 	ProofRefs      []proofItemDTO `json:"proof_refs"`
 	// ReworkReason is the verifier's words when the step was sent back; render verbatim.
-	ReworkReason       string     `json:"rework_reason"`
+	ReworkReason string `json:"rework_reason"`
+	// BranchNote is the backend-composed sentence for a step on an answer-driven branch ("Only
+	// if 'Is the animal ready?' is No"); blank on an unconditional step. Render verbatim.
+	BranchNote         string     `json:"branch_note,omitempty"`
 	CompletedByLabel   string     `json:"completed_by_label"`
 	CompletedAt        *time.Time `json:"completed_at"`
 	VerificationStatus string     `json:"verification_status"`
@@ -306,7 +309,8 @@ func (h *Handler) GetWorkflow(w http.ResponseWriter, r *http.Request) {
 	}
 	actions := make([]workflowActionDTO, 0, len(detail.Actions))
 	for _, a := range detail.Actions {
-		if a.ActionType == domain.ActionTypeApproval {
+		// A skipped step is the branch the answer did not take: never shown, never owed.
+		if a.ActionType == domain.ActionTypeApproval || a.Status == domain.ActionStatusSkipped {
 			continue
 		}
 		actions = append(actions, actionDTO(detail.Card.TemplateKey, a, detail.Actions, now))
@@ -475,7 +479,7 @@ func cardDTOWithActions(card domain.WorkflowCard, actions []domain.WorkflowActio
 	}
 	total, done := 0, 0
 	for _, a := range actions {
-		if a.ActionType == domain.ActionTypeApproval || a.Status == domain.ActionStatusCanceled {
+		if a.ActionType == domain.ActionTypeApproval || a.Status == domain.ActionStatusCanceled || a.Status == domain.ActionStatusSkipped {
 			continue
 		}
 		total++
@@ -503,6 +507,9 @@ func actionDTO(templateKey string, a domain.WorkflowAction, siblings []domain.Wo
 	switch {
 	case domain.ActionTimeBlocked(a, now):
 		blockedReason = "not_yet_due"
+	case domain.AnswerGateUnresolved(a, siblings):
+		// The branch condition is not decided yet: the question it hangs on is unanswered.
+		blockedReason = "awaiting_answer"
 	case domain.OperatorActionBlocked(templateKey, a, siblings):
 		blockedReason = "previous_action"
 	case domain.SignoffBlocked(a, siblings):
@@ -522,6 +529,7 @@ func actionDTO(templateKey string, a domain.WorkflowAction, siblings []domain.Wo
 		Status:             a.Status,
 		Blocked:            blockedReason != "",
 		BlockedReason:      blockedReason,
+		BranchNote:         domain.BranchNote(a, siblings),
 		AnswerValue:        a.AnswerValue,
 		ProofRef:           a.ProofRef,
 		TaskType:           a.TaskType,
