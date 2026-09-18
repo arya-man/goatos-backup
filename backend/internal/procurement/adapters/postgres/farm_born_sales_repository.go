@@ -57,7 +57,7 @@ deal_share AS (
            d.sale_date, d.buyer_name,
            CASE WHEN d.sales_value > 0 THEN (d.sales_value / cnt.tagged)::float8 END AS share
     FROM public.goat_sale_allocations a
-    JOIN public.sales_deals d ON d.tenant_id = a.tenant_id AND d.id = a.sales_deal_id
+    JOIN public.sales_deals d ON d.tenant_id = a.tenant_id AND d.id = a.sales_deal_id AND d.status = 'Deal Closed'
     JOIN (
         SELECT tenant_id, sales_deal_id, count(*)::numeric AS tagged
         FROM public.goat_sale_allocations

@@ -82,6 +82,9 @@ VALUES ($1::uuid, $2::uuid, 'animal_identifier_1', $3, lower($3), $3, true, 'act
 	goat("sold-nodeal", "birth", "goat", "Osmanabadi", "female", "F2-Female", "sold", "sold", fx.cbePark, fx.cbeShed, "Part 5", "2026-09-16T19:30:00Z")
 	// Sold farm born OUTSIDE the window (July).
 	goat("sold-old", "birth", "goat", "Malai", "male", "F2-Male", "sold", "sold", fx.cbePark, fx.cbeShed, "Part 3", "2026-07-01T04:00:00Z")
+	// Sold outside the window but tagged to a non-closed deal inside it: the deal must not pull
+	// the animal into farm-born revenue or the period ledger.
+	advanceTagged := goat("sold-advance-open", "birth", "goat", "Malai", "female", "F2-Female", "sold", "sold", fx.cbePark, fx.cbeShed, "Part 3", "2026-07-02T04:00:00Z")
 	// Dead farm born: neither on farm nor sold.
 	goat("dead", "birth", "goat", "Malai", "male", "F2-Male", "dead", "died", fx.cbePark, fx.cbeShed, "Part 3", "2026-09-02T04:00:00Z")
 	// Merged: excluded outright.
@@ -115,15 +118,21 @@ VALUES ($1, $2::uuid, $3::uuid, 'rejected', 'source_rejected', 'canceled')`, tes
 	// the deal's date must win). A released allocation on the same deal must not dilute the share.
 	var dealID string
 	if err := pool.QueryRow(ctx, `
-INSERT INTO sales_deals (tenant_id, sale_date, farm, buyer_name, product_type, breed, animal_count, sales_value)
-VALUES ($1, '2026-09-06', 'CBE', 'Farm Born Buyer', 'Goat', 'Malai', 2, 20000) RETURNING id::text`, testTenant).Scan(&dealID); err != nil {
+	INSERT INTO sales_deals (tenant_id, sale_date, farm, buyer_name, product_type, breed, animal_count, sales_value)
+	VALUES ($1, '2026-09-06', 'CBE', 'Farm Born Buyer', 'Goat', 'Malai', 2, 20000) RETURNING id::text`, testTenant).Scan(&dealID); err != nil {
 		t.Fatalf("seed deal: %v", err)
+	}
+	var advanceDealID string
+	if err := pool.QueryRow(ctx, `
+	INSERT INTO sales_deals (tenant_id, sale_date, farm, buyer_name, product_type, breed, animal_count, sales_value, status)
+	VALUES ($1, '2026-09-08', 'CBE', 'Advance Buyer', 'Goat', 'Malai', 1, 15000, 'Advance Paid') RETURNING id::text`, testTenant).Scan(&advanceDealID); err != nil {
+		t.Fatalf("seed advance deal: %v", err)
 	}
 	tag := func(goatID, status, key string) {
 		if _, err := pool.Exec(ctx, `
-INSERT INTO goat_sale_allocations (tenant_id, goat_id, sales_deal_id, status, idempotency_key, park_id, shed_id, partition_label, released_at, release_reason)
-VALUES ($1, $2::uuid, $3::uuid, $4, $5, $6::uuid, $7::uuid, 'Part 3',
-        CASE WHEN $4 = 'released' THEN now() END, CASE WHEN $4 = 'released' THEN 'test' END)`,
+	INSERT INTO goat_sale_allocations (tenant_id, goat_id, sales_deal_id, status, idempotency_key, park_id, shed_id, partition_label, released_at, release_reason)
+	VALUES ($1, $2::uuid, $3::uuid, $4, $5, $6::uuid, $7::uuid, 'Part 3',
+	        CASE WHEN $4 = 'released' THEN now() END, CASE WHEN $4 = 'released' THEN 'test' END)`,
 			testTenant, goatID, dealID, status, key, fx.cbePark, fx.cbeShed); err != nil {
 			t.Fatalf("seed allocation: %v", err)
 		}
@@ -131,6 +140,12 @@ VALUES ($1, $2::uuid, $3::uuid, $4, $5, $6::uuid, $7::uuid, 'Part 3',
 	tag(soldDealA, "tagged", "fb-alloc-a")
 	tag(soldDealB, "tagged", "fb-alloc-b")
 	tag(fx.facts["sold-nodeal"], "released", "fb-alloc-released")
+	if _, err := pool.Exec(ctx, `
+	INSERT INTO goat_sale_allocations (tenant_id, goat_id, sales_deal_id, status, idempotency_key, park_id, shed_id, partition_label)
+	VALUES ($1, $2::uuid, $3::uuid, 'tagged', 'fb-alloc-advance-open', $4::uuid, $5::uuid, 'Part 3')`,
+		testTenant, advanceTagged, advanceDealID, fx.cbePark, fx.cbeShed); err != nil {
+		t.Fatalf("seed advance allocation: %v", err)
+	}
 	return fx
 }
 
@@ -229,15 +244,18 @@ func TestFarmBornAnimalsStatusMatrixAndOriginBuckets(t *testing.T) {
 		return farmBornByName(fx, facts)
 	}
 	birth := read(domain.FarmBornOriginBirth, "2026-08-18", "2026-09-18")
-	for _, absent := range []string{"dead", "merged", "on-load", "sold-old", "procured-noload", "origin-null"} {
+	for _, absent := range []string{"dead", "merged", "on-load", "sold-old", "sold-advance-open", "procured-noload", "origin-null"} {
 		if _, ok := birth[absent]; ok {
 			t.Fatalf("%s must be absent from the farm-born read", absent)
 		}
 	}
 	// Widen the window back to July: the old sale appears, nothing else moves.
 	wide := read(domain.FarmBornOriginBirth, "2026-06-01", "2026-09-18")
-	if wide["sold-old"].Bucket != domain.FarmBornSold || len(wide) != len(birth)+1 {
+	if wide["sold-old"].Bucket != domain.FarmBornSold || len(wide) != len(birth)+2 {
 		t.Fatalf("widened window: sold-old = %+v, %d facts vs %d", wide["sold-old"], len(wide), len(birth))
+	}
+	if wide["sold-advance-open"].SaleValue != nil || wide["sold-advance-open"].SaleDate != "2026-07-02" || wide["sold-advance-open"].BuyerName != "" {
+		t.Fatalf("non-closed deal must not contribute revenue/date/buyer: %+v", wide["sold-advance-open"])
 	}
 	// A window with no sales still lists every on-farm animal.
 	empty := read(domain.FarmBornOriginBirth, "2026-01-01", "2026-01-31")
