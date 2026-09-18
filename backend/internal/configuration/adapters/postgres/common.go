@@ -20,7 +20,9 @@ import (
 //	is_builtin bool, fields jsonb, labels jsonb, counts jsonb, sort_key text
 //
 // $1 is always the tenant. A register's SQL may join what it likes as long as it lands on
-// these columns; the wrapper below adds status / search / filter / keyset on top.
+// these columns; the wrapper below adds status / search / filter / keyset on top. The search
+// also reads fields->>'label' (a partition's own label), because a partition's display is
+// composed in Go and its SQL display column carries the shed name alone.
 type projection struct {
 	sql string
 	// parentField is the fields key whose value becomes RefOption.ParentID (a pen's park).
@@ -40,7 +42,7 @@ const listWrapSQL = `
 SELECT id, display, status, row_version, is_builtin, fields, labels, counts, sort_key
 FROM (%s) r
 WHERE ($2 = 'all' OR r.status = $2)
-  AND ($3 = '' OR r.display ILIKE '%%' || $3 || '%%')
+  AND ($3 = '' OR r.display ILIKE '%%' || $3 || '%%' OR COALESCE(r.fields->>'label', '') ILIKE '%%' || $3 || '%%')
   AND ($4::jsonb = '{}'::jsonb OR r.fields @> $4::jsonb)
   AND ($5 = '' OR (r.sort_key, r.id) > (split_part($5, E'\x1f', 1), split_part($5, E'\x1f', 2)))
 ORDER BY r.sort_key, r.id
@@ -51,7 +53,7 @@ const countWrapSQL = `
 SELECT count(*)
 FROM (%s) r
 WHERE ($2 = 'all' OR r.status = $2)
-  AND ($3 = '' OR r.display ILIKE '%%' || $3 || '%%')
+  AND ($3 = '' OR r.display ILIKE '%%' || $3 || '%%' OR COALESCE(r.fields->>'label', '') ILIKE '%%' || $3 || '%%')
   AND ($4::jsonb = '{}'::jsonb OR r.fields @> $4::jsonb)`
 
 const getWrapSQL = `
@@ -197,11 +199,13 @@ func (p projection) options(ctx context.Context, q querier, tenantID string) ([]
 	return out, rows.Err()
 }
 
-// usageOf runs each (noun, sql) pair with ($1 tenant, $2 id) and collects the counts.
+// usageOf runs each (noun, sql) pair with ($1 tenant, $2 id) and collects the counts. The loop
+// is over the register's FIXED list of dependent nouns (at most three), never over data rows.
 func usageOf(ctx context.Context, q querier, tenantID, id string, checks ...usageCheck) (domain.Usage, error) {
 	out := domain.Usage{Uses: make([]domain.UsageCount, 0, len(checks))}
 	for _, c := range checks {
 		var n int
+		// scale-guard:ignore: bounded by the register's fixed usage-check list (<= 3), one row, not a data loop
 		if err := q.QueryRow(ctx, c.sql, tenantID, id).Scan(&n); err != nil {
 			return domain.Usage{}, fmt.Errorf("usage %s: %w", c.noun, err)
 		}

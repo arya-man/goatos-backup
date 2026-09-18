@@ -22,7 +22,11 @@ type codeLookupStore struct {
 }
 
 func (s codeLookupStore) projection() projection {
-	return projection{sql: fmt.Sprintf(`
+	return projection{sql: fmt.Sprintf(sqlCodeLookupProjection, s.table, s.codeCol, s.goatCol)}
+}
+
+// SQL hoisted to package level so the scale guard and query-plan tests can reach it.
+const sqlCodeLookupProjection = `
 SELECT l.%[2]s AS id,
        l.name AS display,
        l.status,
@@ -33,8 +37,7 @@ SELECT l.%[2]s AS id,
        jsonb_build_object('animals', (SELECT count(*) FROM goats g WHERE g.tenant_id = l.tenant_id AND g.%[3]s = l.%[2]s AND g.lifecycle_status = 'alive')) AS counts,
        lpad(l.sort_order::text, 6, '0') || ' ' || lower(l.name) AS sort_key
 FROM %[1]s l
-WHERE l.tenant_id = $1`, s.table, s.codeCol, s.goatCol)}
-}
+WHERE l.tenant_id = $1`
 
 func (s codeLookupStore) count(ctx context.Context, q querier, t string) (int, error) {
 	return s.projection().count(ctx, q, t)
@@ -149,10 +152,7 @@ func (stageStore) insert(ctx context.Context, tx pgx.Tx, t string, f map[string]
 		sort = 100
 	}
 	var id string
-	err := tx.QueryRow(ctx, `
-INSERT INTO animal_stage_lookup (tenant_id, stage_code, name, min_age_days, max_age_days, sort_order, status)
-VALUES ($1, $2, $3, $4, $5, $6, 'active')
-RETURNING animal_stage_id::text`, t, domain.FieldString(f, "code"), domain.FieldString(f, "name"), nullInt(f, "min_age_days"), nullInt(f, "max_age_days"), sort).Scan(&id)
+	err := tx.QueryRow(ctx, sqlAnimals1, t, domain.FieldString(f, "code"), domain.FieldString(f, "name"), nullInt(f, "min_age_days"), nullInt(f, "max_age_days"), sort).Scan(&id)
 	return id, err
 }
 
@@ -206,3 +206,11 @@ func (stageStore) del(ctx context.Context, tx pgx.Tx, t, id string, rv int) erro
 	}
 	return nil
 }
+
+// SQL hoisted to package level so the scale guard and query-plan tests can reach it.
+const (
+	sqlAnimals1 = `
+INSERT INTO animal_stage_lookup (tenant_id, stage_code, name, min_age_days, max_age_days, sort_order, status)
+VALUES ($1, $2, $3, $4, $5, $6, 'active')
+RETURNING animal_stage_id::text`
+)

@@ -76,7 +76,9 @@ ON CONFLICT DO NOTHING;
 -- goats carries no FK to tenants, and the integration fixtures across 86 files insert goats
 -- under ad-hoc tenant ids with no tenants row, which an FK into a tenant-owned lookup would
 -- refuse wholesale. A lookup-backed app validator is the same guarantee on every real write.
+-- seed-migration-guard:ignore owner=manohark issue=configuration-items reason=drops-the-species-and-sex-CHECKs-only-the-seeds-write-goat-sheep-female-male-which-the-lookups-carry-as-built-ins expiry=2026-12-31
 ALTER TABLE public.goats DROP CONSTRAINT IF EXISTS goats_species_check;
+-- seed-migration-guard:ignore owner=manohark issue=configuration-items reason=drops-the-species-and-sex-CHECKs-only-the-seeds-write-goat-sheep-female-male-which-the-lookups-carry-as-built-ins expiry=2026-12-31
 ALTER TABLE public.goats DROP CONSTRAINT IF EXISTS goats_sex_check;
 
 -- 2. The category tree.
@@ -142,7 +144,9 @@ DROP INDEX IF EXISTS public.inventory_items_category_idx;
 ALTER TABLE public.inventory_items DROP CONSTRAINT IF EXISTS inventory_items_category_fk;
 ALTER TABLE public.inventory_items DROP COLUMN IF EXISTS category_id;
 DROP TABLE IF EXISTS public.item_categories;
+-- seed-migration-guard:ignore owner=manohark issue=configuration-items reason=drops-the-species-and-sex-CHECKs-only-the-seeds-write-goat-sheep-female-male-which-the-lookups-carry-as-built-ins expiry=2026-12-31
 ALTER TABLE public.goats ADD CONSTRAINT goats_species_check CHECK (species = ANY (ARRAY['goat'::text, 'sheep'::text])) NOT VALID;
+-- seed-migration-guard:ignore owner=manohark issue=configuration-items reason=drops-the-species-and-sex-CHECKs-only-the-seeds-write-goat-sheep-female-male-which-the-lookups-carry-as-built-ins expiry=2026-12-31
 ALTER TABLE public.goats ADD CONSTRAINT goats_sex_check CHECK (sex = ANY (ARRAY['female'::text, 'male'::text])) NOT VALID;
 DROP TABLE IF EXISTS public.sex_lookup;
 DROP TABLE IF EXISTS public.species_lookup;

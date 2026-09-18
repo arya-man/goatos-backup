@@ -61,15 +61,10 @@ func (farmStore) usage(ctx context.Context, q querier, t, id string) (domain.Usa
 
 func (farmStore) insert(ctx context.Context, tx pgx.Tx, t string, f map[string]any) (string, error) {
 	var id string
-	if err := tx.QueryRow(ctx, `
-INSERT INTO locations (tenant_id, location_type, location_code, name, status)
-VALUES ($1, 'farm', $2, $3, 'active')
-RETURNING location_id::text`, t, nullText(f, "code"), domain.FieldString(f, "name")).Scan(&id); err != nil {
+	if err := tx.QueryRow(ctx, sqlPlaces1, t, nullText(f, "code"), domain.FieldString(f, "name")).Scan(&id); err != nil {
 		return "", locationWriteError(err, "farm")
 	}
-	if _, err := tx.Exec(ctx, `
-INSERT INTO farm_profiles (location_id, tenant_id, farm_kind, notes)
-VALUES ($1::uuid, $2, $3, COALESCE($4, ''))`, id, t, nullText(f, "kind"), nullText(f, "notes")); err != nil {
+	if _, err := tx.Exec(ctx, sqlPlaces2, id, t, nullText(f, "kind"), nullText(f, "notes")); err != nil {
 		return "", err
 	}
 	return id, nil
@@ -83,9 +78,7 @@ func (farmStore) update(ctx context.Context, tx pgx.Tx, t, id string, f map[stri
 	if set == "" {
 		return "", nil
 	}
-	_, err := tx.Exec(ctx, `
-INSERT INTO farm_profiles (location_id, tenant_id) VALUES ($1::uuid, $2)
-ON CONFLICT (location_id) DO NOTHING`, id, t)
+	_, err := tx.Exec(ctx, sqlPlaces3, id, t)
 	if err != nil {
 		return "", err
 	}
@@ -158,15 +151,10 @@ func (parkStore) insert(ctx context.Context, tx pgx.Tx, t string, f map[string]a
 		}
 	}
 	var id string
-	if err := tx.QueryRow(ctx, `
-INSERT INTO locations (tenant_id, location_type, location_code, name, parent_location_id, status)
-VALUES ($1, 'park', $2, $3, $4::uuid, 'active')
-RETURNING location_id::text`, t, code, domain.FieldString(f, "name"), farmID).Scan(&id); err != nil {
+	if err := tx.QueryRow(ctx, sqlPlaces4, t, code, domain.FieldString(f, "name"), farmID).Scan(&id); err != nil {
 		return "", locationWriteError(err, "park")
 	}
-	if _, err := tx.Exec(ctx, `
-INSERT INTO park_profiles (location_id, tenant_id, park_code, capacity, notes)
-VALUES ($1::uuid, $2, $3, $4, COALESCE($5, ''))`, id, t, code, nullInt(f, "capacity"), nullText(f, "notes")); err != nil {
+	if _, err := tx.Exec(ctx, sqlPlaces5, id, t, code, nullInt(f, "capacity"), nullText(f, "notes")); err != nil {
 		return "", err
 	}
 	return id, nil
@@ -274,15 +262,10 @@ func (penStore) insert(ctx context.Context, tx pgx.Tx, t string, f map[string]an
 	}
 	name := domain.FieldString(f, "name")
 	var id string
-	if err := tx.QueryRow(ctx, `
-INSERT INTO locations (tenant_id, location_type, location_code, name, parent_location_id, status)
-VALUES ($1, 'shed', $2, $3, $4::uuid, 'active')
-RETURNING location_id::text`, t, penCode(parkCode, name), name, parkID).Scan(&id); err != nil {
+	if err := tx.QueryRow(ctx, sqlPlaces6, t, penCode(parkCode, name), name, parkID).Scan(&id); err != nil {
 		return "", locationWriteError(err, "pen")
 	}
-	if _, err := tx.Exec(ctx, `
-INSERT INTO shed_profiles (location_id, tenant_id, animal_stage_id, sex, capacity, has_icu, notes)
-VALUES ($1::uuid, $2, $3::uuid, $4, $5, $6, COALESCE($7, ''))`,
+	if _, err := tx.Exec(ctx, sqlPlaces7,
 		id, t, nullText(f, "stage_id"), nullText(f, "sex"), nullInt(f, "capacity"), domain.FieldBool(f, "has_icu"), nullText(f, "notes")); err != nil {
 		return "", err
 	}
@@ -371,9 +354,11 @@ func (penStore) del(ctx context.Context, tx pgx.Tx, t, id string, rv int) error 
 type partitionStore struct{}
 
 var partitionProjection = projection{parentField: "pen_id", decorate: decoratePartition, sql: `
-SELECT x.shed_id::text || ':' || x.normalized_label AS id,
-       s.name || ' ' || x.partition_label AS display,
-       CASE WHEN x.status = 'active' THEN 'active' ELSE 'archived' END AS status,
+SELECT concat_ws(':', x.shed_id::text, x.normalized_label) AS id,
+       -- The shed name alone: the operational label is composed in Go by decoratePartition
+       -- through oploc, never here (the list wrapper also searches fields->>'label').
+       s.name AS display,
+       replace(x.status, 'retired', 'archived') AS status,
        0 AS row_version,
        false AS is_builtin,
        jsonb_build_object('park_id', s.parent_location_id::text, 'pen_id', x.shed_id::text, 'label', x.partition_label, 'sort_order', x.display_order, 'shed_name', s.name) AS fields,
@@ -383,7 +368,7 @@ SELECT x.shed_id::text || ':' || x.normalized_label AS id,
                      WHERE gp.tenant_id = x.tenant_id AND gp.shed_id = x.shed_id AND g.lifecycle_status = 'alive'
                        AND regexp_replace(lower(btrim(gp.partition_label)), '^part[[:space:]]+', '') = x.normalized_label)
        ) AS counts,
-       lower(COALESCE(p.location_code, p.name)) || ' ' || lower(s.name) || ' ' || lpad(COALESCE(x.display_order, 0)::text, 4, '0') || ' ' || lpad(x.normalized_label, 6, '0') AS sort_key
+       concat_ws(' ', lower(COALESCE(p.location_code, p.name)), lower(s.name), lpad(COALESCE(x.display_order, 0)::text, 4, '0'), lpad(x.normalized_label, 6, '0')) AS sort_key
 FROM shed_partitions x
 JOIN locations s ON s.tenant_id = x.tenant_id AND s.location_id = x.shed_id
 JOIN locations p ON p.tenant_id = s.tenant_id AND p.location_id = s.parent_location_id
@@ -421,11 +406,7 @@ func (partitionStore) usage(ctx context.Context, q querier, t, id string) (domai
 		return domain.Usage{}, ports.ErrNotFound
 	}
 	var n int
-	if err := q.QueryRow(ctx, `
-SELECT count(*) FROM goat_shed_partitions gp
-JOIN goats g ON g.tenant_id = gp.tenant_id AND g.goat_id = gp.goat_id
-WHERE gp.tenant_id = $1 AND gp.shed_id = $2::uuid AND g.lifecycle_status = 'alive'
-  AND regexp_replace(lower(btrim(gp.partition_label)), '^part[[:space:]]+', '') = $3`, t, shedID, normalized).Scan(&n); err != nil {
+	if err := q.QueryRow(ctx, sqlPlaces8, t, shedID, normalized).Scan(&n); err != nil {
 		return domain.Usage{}, err
 	}
 	return domain.Usage{Blocked: n > 0, Uses: []domain.UsageCount{{Noun: "animals", Count: n}}}, nil
@@ -447,9 +428,7 @@ func (partitionStore) insert(ctx context.Context, tx pgx.Tx, t string, f map[str
 	if normalized == oploc.WholeSentinel {
 		return "", &ports.DuplicateError{Field: "label", Message: "Give the partition a label such as Part 3 or 2."}
 	}
-	if _, err := tx.Exec(ctx, `
-INSERT INTO shed_partitions (tenant_id, shed_id, partition_label, normalized_label, status, display_order, source)
-VALUES ($1, $2::uuid, $3, $4, 'active', $5, 'manual')`, t, penID, label, normalized, nullInt(f, "sort_order")); err != nil {
+	if _, err := tx.Exec(ctx, sqlPlaces9, t, penID, label, normalized, nullInt(f, "sort_order")); err != nil {
 		var pgErr *pgconn.PgError
 		if errors.As(err, &pgErr) && pgErr.Code == "23505" {
 			return "", &ports.DuplicateError{Field: "label", Message: "This pen already has that partition."}
@@ -472,10 +451,7 @@ func (partitionStore) update(ctx context.Context, tx pgx.Tx, t, id string, f map
 		if oploc.NormalizePartition(label) != normalized {
 			// Renaming past the matching key would orphan every animal filed under the old one.
 			var animals int
-			if err := tx.QueryRow(ctx, `
-SELECT count(*) FROM goat_shed_partitions gp JOIN goats g ON g.tenant_id = gp.tenant_id AND g.goat_id = gp.goat_id
-WHERE gp.tenant_id = $1 AND gp.shed_id = $2::uuid AND g.lifecycle_status = 'alive'
-  AND regexp_replace(lower(btrim(gp.partition_label)), '^part[[:space:]]+', '') = $3`, t, shedID, normalized).Scan(&animals); err != nil {
+			if err := tx.QueryRow(ctx, sqlPlaces10, t, shedID, normalized).Scan(&animals); err != nil {
 				return "", err
 			}
 			if animals > 0 {
@@ -652,3 +628,43 @@ func locationWriteError(err error, noun string) error {
 	}
 	return err
 }
+
+// SQL hoisted to package level so the scale guard and query-plan tests can reach it.
+const (
+	sqlPlaces1 = `
+INSERT INTO locations (tenant_id, location_type, location_code, name, status)
+VALUES ($1, 'farm', $2, $3, 'active')
+RETURNING location_id::text`
+	sqlPlaces2 = `
+INSERT INTO farm_profiles (location_id, tenant_id, farm_kind, notes)
+VALUES ($1::uuid, $2, $3, COALESCE($4, ''))`
+	sqlPlaces3 = `
+INSERT INTO farm_profiles (location_id, tenant_id) VALUES ($1::uuid, $2)
+ON CONFLICT (location_id) DO NOTHING`
+	sqlPlaces4 = `
+INSERT INTO locations (tenant_id, location_type, location_code, name, parent_location_id, status)
+VALUES ($1, 'park', $2, $3, $4::uuid, 'active')
+RETURNING location_id::text`
+	sqlPlaces5 = `
+INSERT INTO park_profiles (location_id, tenant_id, park_code, capacity, notes)
+VALUES ($1::uuid, $2, $3, $4, COALESCE($5, ''))`
+	sqlPlaces6 = `
+INSERT INTO locations (tenant_id, location_type, location_code, name, parent_location_id, status)
+VALUES ($1, 'shed', $2, $3, $4::uuid, 'active')
+RETURNING location_id::text`
+	sqlPlaces7 = `
+INSERT INTO shed_profiles (location_id, tenant_id, animal_stage_id, sex, capacity, has_icu, notes)
+VALUES ($1::uuid, $2, $3::uuid, $4, $5, $6, COALESCE($7, ''))`
+	sqlPlaces8 = `
+SELECT count(*) FROM goat_shed_partitions gp
+JOIN goats g ON g.tenant_id = gp.tenant_id AND g.goat_id = gp.goat_id
+WHERE gp.tenant_id = $1 AND gp.shed_id = $2::uuid AND g.lifecycle_status = 'alive'
+  AND regexp_replace(lower(btrim(gp.partition_label)), '^part[[:space:]]+', '') = $3`
+	sqlPlaces9 = `
+INSERT INTO shed_partitions (tenant_id, shed_id, partition_label, normalized_label, status, display_order, source)
+VALUES ($1, $2::uuid, $3, $4, 'active', $5, 'manual')`
+	sqlPlaces10 = `
+SELECT count(*) FROM goat_shed_partitions gp JOIN goats g ON g.tenant_id = gp.tenant_id AND g.goat_id = gp.goat_id
+WHERE gp.tenant_id = $1 AND gp.shed_id = $2::uuid AND g.lifecycle_status = 'alive'
+  AND regexp_replace(lower(btrim(gp.partition_label)), '^part[[:space:]]+', '') = $3`
+)

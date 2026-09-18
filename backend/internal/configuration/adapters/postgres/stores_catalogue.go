@@ -82,13 +82,7 @@ func categoryKind(ctx context.Context, q querier, t, id string) (string, error) 
 		return "", ports.ErrNotFound
 	}
 	var kind string
-	err := q.QueryRow(ctx, `
-WITH RECURSIVE up AS (
-  SELECT category_id, parent_category_id, item_kind, 1 AS depth FROM item_categories WHERE tenant_id = $1 AND category_id = $2::uuid AND status = 'active'
-  UNION ALL
-  SELECT c.category_id, c.parent_category_id, c.item_kind, up.depth + 1 FROM item_categories c JOIN up ON c.category_id = up.parent_category_id WHERE c.tenant_id = $1 AND up.depth < 8
-)
-SELECT item_kind FROM up WHERE parent_category_id IS NULL LIMIT 1`, t, id).Scan(&kind)
+	err := q.QueryRow(ctx, sqlCatalogue1, t, id).Scan(&kind)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return "", ports.ErrNotFound
 	}
@@ -122,10 +116,7 @@ func (categoryStore) insert(ctx context.Context, tx pgx.Tx, t string, f map[stri
 		sort = 100
 	}
 	var id string
-	err := tx.QueryRow(ctx, `
-INSERT INTO item_categories (tenant_id, parent_category_id, name, normalized_name, item_kind, sort_order)
-VALUES ($1, $2::uuid, $3, lower(btrim($3)), $4, $5)
-RETURNING category_id::text`, t, parent, name, kind, sort).Scan(&id)
+	err := tx.QueryRow(ctx, sqlCatalogue2, t, parent, name, kind, sort).Scan(&id)
 	if err != nil {
 		var pgErr *pgconn.PgError
 		if errors.As(err, &pgErr) && pgErr.Code == "23505" {
@@ -148,13 +139,7 @@ func (categoryStore) update(ctx context.Context, tx pgx.Tx, t, id string, f map[
 			}
 			// The new parent must not be a descendant, or the tree loops.
 			var loops bool
-			if err := tx.QueryRow(ctx, `
-WITH RECURSIVE down AS (
-  SELECT category_id, 1 AS depth FROM item_categories WHERE tenant_id = $1 AND parent_category_id = $2::uuid
-  UNION ALL
-  SELECT c.category_id, down.depth + 1 FROM item_categories c JOIN down ON c.parent_category_id = down.category_id WHERE c.tenant_id = $1 AND down.depth < 8
-)
-SELECT EXISTS (SELECT 1 FROM down WHERE category_id = $3::uuid)`, t, id, *parent).Scan(&loops); err != nil {
+			if err := tx.QueryRow(ctx, sqlCatalogue3, t, id, *parent).Scan(&loops); err != nil {
 				return "", err
 			}
 			if loops {
@@ -202,13 +187,7 @@ SELECT EXISTS (SELECT 1 FROM down WHERE category_id = $3::uuid)`, t, id, *parent
 				return "", &domain.ValidationError{Fields: []domain.FieldError{{Field: "kind", Code: "required", Message: "Kind is required for a top-level category."}}}
 			}
 			var items int
-			if err := tx.QueryRow(ctx, `
-WITH RECURSIVE down AS (
-  SELECT category_id FROM item_categories WHERE tenant_id = $1 AND category_id = $2::uuid
-  UNION ALL
-  SELECT c.category_id FROM item_categories c JOIN down ON c.parent_category_id = down.category_id WHERE c.tenant_id = $1
-)
-SELECT count(*) FROM inventory_items i WHERE i.tenant_id = $1 AND i.category_id IN (SELECT category_id FROM down) AND i.category <> $3`, t, id, k).Scan(&items); err != nil {
+			if err := tx.QueryRow(ctx, sqlCatalogue4, t, id, k).Scan(&items); err != nil {
 				return "", err
 			}
 			if items > 0 {
@@ -376,10 +355,7 @@ func (itemStore) insert(ctx context.Context, tx pgx.Tx, t string, f map[string]a
 		return "", err
 	}
 	var id string
-	if err := tx.QueryRow(ctx, `
-INSERT INTO inventory_items (tenant_id, item_code, name, category, category_id, base_unit, status, context)
-VALUES ($1, $2, $3, $4, $5::uuid, $6, 'active', $7::jsonb)
-RETURNING item_id::text`, t, itemCode(f), domain.FieldString(f, "name"), kind, domain.FieldString(f, "category_id"), domain.FieldString(f, "unit"), contextJSON).Scan(&id); err != nil {
+	if err := tx.QueryRow(ctx, sqlCatalogue5, t, itemCode(f), domain.FieldString(f, "name"), kind, domain.FieldString(f, "category_id"), domain.FieldString(f, "unit"), contextJSON).Scan(&id); err != nil {
 		var pgErr *pgconn.PgError
 		if errors.As(err, &pgErr) && pgErr.Code == "23505" {
 			return "", &ports.DuplicateError{Field: "code", Message: "An item with that code already exists."}
@@ -395,15 +371,7 @@ RETURNING item_id::text`, t, itemCode(f), domain.FieldString(f, "name"), kind, d
 }
 
 func upsertVaccine(ctx context.Context, tx pgx.Tx, t, itemID string, f map[string]any) error {
-	_, err := tx.Exec(ctx, `
-INSERT INTO vaccines (tenant_id, item_id, disease, manufacturer, doses_per_vial, withdrawal_days)
-VALUES ($1, $2::uuid, $3, $4, $5, $6)
-ON CONFLICT (tenant_id, item_id) DO UPDATE SET
-  disease = COALESCE(EXCLUDED.disease, vaccines.disease),
-  manufacturer = COALESCE(EXCLUDED.manufacturer, vaccines.manufacturer),
-  doses_per_vial = COALESCE(EXCLUDED.doses_per_vial, vaccines.doses_per_vial),
-  withdrawal_days = COALESCE(EXCLUDED.withdrawal_days, vaccines.withdrawal_days),
-  updated_at = now()`, t, itemID, nullText(f, "disease"), nullText(f, "manufacturer"), nullInt(f, "doses_per_vial"), nullInt(f, "withdrawal_days"))
+	_, err := tx.Exec(ctx, sqlCatalogue6, t, itemID, nullText(f, "disease"), nullText(f, "manufacturer"), nullInt(f, "doses_per_vial"), nullInt(f, "withdrawal_days"))
 	return err
 }
 
@@ -554,3 +522,45 @@ func (feedItemStore) setStatus(context.Context, pgx.Tx, string, string, string, 
 func (feedItemStore) del(context.Context, pgx.Tx, string, string, int) error {
 	return domain.ErrReadOnlyRegister
 }
+
+// SQL hoisted to package level so the scale guard and query-plan tests can reach it.
+const (
+	sqlCatalogue1 = `
+WITH RECURSIVE up AS (
+  SELECT category_id, parent_category_id, item_kind, 1 AS depth FROM item_categories WHERE tenant_id = $1 AND category_id = $2::uuid AND status = 'active'
+  UNION ALL
+  SELECT c.category_id, c.parent_category_id, c.item_kind, up.depth + 1 FROM item_categories c JOIN up ON c.category_id = up.parent_category_id WHERE c.tenant_id = $1 AND up.depth < 8
+)
+SELECT item_kind FROM up WHERE parent_category_id IS NULL LIMIT 1`
+	sqlCatalogue2 = `
+INSERT INTO item_categories (tenant_id, parent_category_id, name, normalized_name, item_kind, sort_order)
+VALUES ($1, $2::uuid, $3, lower(btrim($3)), $4, $5)
+RETURNING category_id::text`
+	sqlCatalogue3 = `
+WITH RECURSIVE down AS (
+  SELECT category_id, 1 AS depth FROM item_categories WHERE tenant_id = $1 AND parent_category_id = $2::uuid
+  UNION ALL
+  SELECT c.category_id, down.depth + 1 FROM item_categories c JOIN down ON c.parent_category_id = down.category_id WHERE c.tenant_id = $1 AND down.depth < 8
+)
+SELECT EXISTS (SELECT 1 FROM down WHERE category_id = $3::uuid)`
+	sqlCatalogue4 = `
+WITH RECURSIVE down AS (
+  SELECT category_id FROM item_categories WHERE tenant_id = $1 AND category_id = $2::uuid
+  UNION ALL
+  SELECT c.category_id FROM item_categories c JOIN down ON c.parent_category_id = down.category_id WHERE c.tenant_id = $1
+)
+SELECT count(*) FROM inventory_items i WHERE i.tenant_id = $1 AND i.category_id IN (SELECT category_id FROM down) AND i.category <> $3`
+	sqlCatalogue5 = `
+INSERT INTO inventory_items (tenant_id, item_code, name, category, category_id, base_unit, status, context)
+VALUES ($1, $2, $3, $4, $5::uuid, $6, 'active', $7::jsonb)
+RETURNING item_id::text`
+	sqlCatalogue6 = `
+INSERT INTO vaccines (tenant_id, item_id, disease, manufacturer, doses_per_vial, withdrawal_days)
+VALUES ($1, $2::uuid, $3, $4, $5, $6)
+ON CONFLICT (tenant_id, item_id) DO UPDATE SET
+  disease = COALESCE(EXCLUDED.disease, vaccines.disease),
+  manufacturer = COALESCE(EXCLUDED.manufacturer, vaccines.manufacturer),
+  doses_per_vial = COALESCE(EXCLUDED.doses_per_vial, vaccines.doses_per_vial),
+  withdrawal_days = COALESCE(EXCLUDED.withdrawal_days, vaccines.withdrawal_days),
+  updated_at = now()`
+)

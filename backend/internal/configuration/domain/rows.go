@@ -29,7 +29,7 @@ type Row struct {
 	Fields     map[string]any `json:"fields"`
 	// Labels carries the display name of every ref column's target, keyed by column.
 	Labels map[string]string `json:"labels"`
-	// Counts carries what the row holds (a park's pens, a category's items), keyed by noun.
+	// Counts carries what the row holds (a category's items, a place's animals), keyed by noun.
 	Counts map[string]int `json:"counts,omitempty"`
 }
 

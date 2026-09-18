@@ -1658,3 +1658,12 @@ reporting paths.
 
 | rollup_dispatch | EXCLUDED | Internal durable dispatch lease for the existing analytics Cloud Run job. No business fact; final job status remains rollup_run and the lease must not be interpreted as completion. |
 | func:NewAnalyticsRollupStage | EXCLUDED | Shared kernel-worker cadence adapter for operational diagnostics refresh, not a leadership read API. |
+
+## Configuration: Items and settings (2026-09-18)
+
+| Surface | Decision | Reason |
+| --- | --- | --- |
+| species_lookup | EXCLUDED | Tenant-scoped species vocabulary the CEO edits on `/configuration/items` (maintainer instruction 2026-09-18): the codes `goats.species` may carry. A vocabulary, not a business fact; leadership answers about animals by species keep reading the existing herd, weighing and feed surfaces. |
+| sex_lookup | EXCLUDED | Tenant-scoped sex vocabulary, same screen and same reasoning as species_lookup: the codes `goats.sex` may carry. |
+| item_categories | EXCLUDED | The editable category tree over `inventory_items` (parent, name, kind). It groups items for the catalogue screen; stock and item answers keep reading `inventory_items` / `inventory_stock` through the existing surfaces. |
+| func:NewHandler, func:Register, func:Registers, func:List, func:Get, func:Options, func:Usage, func:Create, func:Update, func:SetStatus, func:Delete, func:NewService, func:Counts, func:HTTPError, func:BadRequest, func:NewRepository, func:RegisterByKey, func:Column, func:IsBuiltinCode, func:ValidateWrite, func:NormalizeCode, func:FieldString, func:FieldInt, func:FieldBool, func:Sentence, func:Error, func:Unwrap | EXCLUDED | The `backend/internal/configuration` register CRUD -- admin transport, validation, stores and error mapping behind `/admin/configuration/*`. An authoring surface for reference lists (farm places, animal types, catalogues); it reads no operational fact and is not a leadership reporting source. The per-register counts on its rail are rail decoration, not KPIs. |
