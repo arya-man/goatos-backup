@@ -16,14 +16,14 @@ earn" had no screen.
 1. **Its own page under Sales, beside Load wise.** The two pages partition the
    herd: an animal is on exactly one of them. Membership is the exact complement
    of the load-wise membership (accepted rows on `procurement_load_goats`).
-2. **Origin is a filter, and "farm born" is the default reading.** On the live
-   herd 536 alive animals carry no `origin_type` and 392 are marked `procured`
-   while sitting on no load (founding stock bought before loads were recorded).
-   Filing them as farm born would invent a birth nobody recorded; dropping them
-   would hide a third of the herd from both pages. So the page offers three
-   readings of the not-on-a-load population — *Farm born* (`origin_type =
-   'birth'`, default), *Bought, no load record* (`procured`), *Origin not
-   recorded* (null / anything else) — each labelled for what it is.
+2. **The page is farm born only: `origin_type = 'birth'`, no origin control.**
+   On the live herd 536 alive animals carry no `origin_type` and 392 are marked
+   `procured` while sitting on no load (founding stock bought before loads were
+   recorded). The read still accepts `origin=bought_no_load|not_recorded` for
+   those readings, but the maintainer removed the Origin filter from the page
+   the same day it was offered (2026-09-18): the screen answers one question,
+   and those animals are not "my farm's kids". They remain reachable through
+   the API only.
 3. **The period binds the SOLD side only.** "How many do I have" is answered
    live, today, whatever the period. "How many did I sell, of what, for how
    much" is answered for the sales whose date falls in the period. Default
@@ -39,11 +39,11 @@ earn" had no screen.
    `goats.shed_id` + `goat_shed_partitions` row, which outlives the exit. The
    display is `oploc.Display()`; the wire key is `<shed_id>|<partition>`.
 6. **Filter bar governs the whole page** (period, park, pen, species, breed,
-   sex, stage, origin) — every KPI, every breakdown and the ledger range over the
+   sex, stage) — every KPI, every breakdown and the ledger range over the
    same animals, so each breakdown's On farm / Sold columns sum to the headline
    by construction. Vocabularies for park / pen / breed / stage are LIVE herd
    facts served by the read for the origin reading (not narrowed by the other
-   filters); origin / sex / species are contract option groups.
+   filters); sex / species are contract option groups.
 7. **Read-only by contract.** No control; entry stays on Sales Config.
 
 ## Where it lives

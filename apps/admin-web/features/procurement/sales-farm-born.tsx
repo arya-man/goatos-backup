@@ -17,8 +17,6 @@ const PAGE_PATH = "/sales/farm-born";
 /** Only used when an older backend contract carries no sold table; the contract page size wins. */
 const FALLBACK_LIMIT = 25;
 const MAX_OFFSET = 10000;
-/** The origin reading the page opens on: every animal recorded as born here. */
-const DEFAULT_ORIGIN = "farm_born";
 
 /** Fills a backend copy template's `{name}` slots; the sentence itself stays backend-owned. */
 function fill(template: string, values: Record<string, string>): string {
@@ -249,7 +247,7 @@ function FarmBornSections({
  * Farm born (maintainer request 2026-09-18): the animals the farm did NOT buy on a load -- the
  * counterpart of Load wise. How many are on the farm today, how many sold in the chosen period,
  * which breed / sex / stage / pen the sold ones came from, and what they earned, behind a filter
- * bar (period, park, pen, species, breed, sex, stage, origin) that governs the whole page.
+ * bar (period, park, pen, species, breed, sex, stage) that governs the whole page.
  *
  * The period binds the SOLD side only (maintainer decision, same day): the on-farm count is
  * today's whatever the period. Read-only by contract, the /sales/sold shape: the page declares
@@ -267,13 +265,12 @@ export async function SalesFarmBornPage({
   const defaultFrom = monthBefore(today);
   const defaultTo = today;
 
-  // Every filter value is validated against the SERVED vocabulary before it is trusted: the
-  // origin, sex and species against the contract's option groups here, the park / pen / breed /
-  // stage against the payload's own options once it arrives (an unknown value simply matches
-  // nothing, which the backend reports honestly as zero rows).
-  const originOptions = optionGroup(pageContract, "farm_born_origins");
-  const rawOrigin = one(sp, "origin") ?? DEFAULT_ORIGIN;
-  const origin = originOptions.some((option) => option.key === rawOrigin) ? rawOrigin : DEFAULT_ORIGIN;
+  // Every filter value is validated against the SERVED vocabulary before it is trusted: sex and
+  // species against the contract's option groups here, the park / pen / breed / stage against the
+  // payload's own options once it arrives (an unknown value simply matches nothing, which the
+  // backend reports honestly as zero rows). The page reads ONE origin -- animals recorded as born
+  // here (maintainer instruction 2026-09-18: no origin control) -- so the backend's default
+  // applies and no URL parameter can widen it.
   const sexOptions = optionGroup(pageContract, "farm_born_sexes");
   const rawSex = one(sp, "sex") ?? "";
   const sex = sexOptions.some((option) => option.key === rawSex) ? rawSex : "";
@@ -295,7 +292,6 @@ export async function SalesFarmBornPage({
   const result = await getFarmBornSales({
     from: from || undefined,
     to: to || undefined,
-    origin: origin === DEFAULT_ORIGIN ? undefined : origin,
     park_id: park || undefined,
     pen: pen || undefined,
     species: species || undefined,
@@ -393,17 +389,6 @@ export async function SalesFarmBornPage({
       value: stage,
       allowAll: true,
       options: (options?.stages ?? []).map((option) => ({ value: option.key, label: option.label })),
-    },
-    {
-      // allowAll:false: origin has no "all" -- every reading is one slice of the not-on-a-load
-      // herd, and Farm born (the default) is a real value the page opens on.
-      kind: "select",
-      param: "origin",
-      label: copy(pageContract, "filter.origin.label"),
-      value: origin,
-      allowAll: false,
-      note: copy(pageContract, "filter.origin.note"),
-      options: originOptions.map((option) => ({ value: option.key, label: option.label })),
     },
   ];
 

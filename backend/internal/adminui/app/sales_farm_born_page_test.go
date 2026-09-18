@@ -7,8 +7,8 @@ import (
 
 // TestSalesFarmBornPageContract pins the Farm born page (maintainer request 2026-09-18): its own
 // route under Sales beside Load wise, read-only by contract, one sold-animal ledger served by the
-// procurement farm-born read with farm-worded column labels, the Origin / Sex / Species
-// vocabularies, and every copy key the renderer needs -- including the pen-not-shed rule.
+// procurement farm-born read with farm-worded column labels, the Sex / Species vocabularies
+// and NO origin control, and every copy key the renderer needs -- including the pen-not-shed rule.
 func TestSalesFarmBornPageContract(t *testing.T) {
 	resp := NewService(fakeFamilies{}).Bootstrap(context.Background(), BootstrapInput{
 		TenantID: "00000000-0000-4000-8000-000000000001",
@@ -57,8 +57,9 @@ func TestSalesFarmBornPageContract(t *testing.T) {
 			groups[g.ID] = append(groups[g.ID], o.Key)
 		}
 	}
-	if got := groups["farm_born_origins"]; len(got) != 3 || got[0] != "farm_born" || got[1] != "bought_no_load" || got[2] != "not_recorded" {
-		t.Fatalf("farm_born_origins = %v", got)
+	// No origin control (maintainer instruction 2026-09-18): the page is farm born, full stop.
+	if _, present := groups["farm_born_origins"]; present {
+		t.Fatal("farm born page must serve no origin option group")
 	}
 	if got := groups["farm_born_sexes"]; len(got) != 2 || got[0] != "male" || got[1] != "female" {
 		t.Fatalf("farm_born_sexes = %v", got)
@@ -73,7 +74,7 @@ func TestSalesFarmBornPageContract(t *testing.T) {
 		"filter.period.aria", "filter.period.previous_month", "filter.period.next_month",
 		"filter.period.range_start_hint", "filter.period.range_end_hint", "filter.period.range_separator",
 		"filter.park.label", "filter.pen.label", "filter.species.label", "filter.breed.label",
-		"filter.sex.label", "filter.stage.label", "filter.origin.label", "filter.origin.note", "filter.all_option",
+		"filter.sex.label", "filter.stage.label", "filter.all_option",
 		"filter.bar_aria", "filter.apply", "filter.clear_all",
 		"section.headline.aria", "kpi.on_farm", "kpi.on_farm.detail", "kpi.sold", "kpi.sold.detail",
 		"kpi.revenue", "kpi.revenue.detail", "kpi.revenue.unpriced", "kpi.avg_price", "kpi.avg_price.detail",

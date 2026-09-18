@@ -550,7 +550,7 @@ func pages() []domain.PageContract {
 		// FARM BORN (maintainer request 2026-09-18): the animals the farm did NOT buy on a load,
 		// the counterpart of Load wise. What is on the farm today, what sold in the chosen
 		// period, which breed / sex / stage / pen the sold ones came from, and what they brought
-		// in; a filter bar on top (period, park, pen, species, breed, sex, stage, origin). Served
+		// in; a filter bar on top (period, park, pen, species, breed, sex, stage). Served
 		// by the procurement farm-born read (the load-wise shape; docs/decisions/sales-farm-born.md).
 		// READ-ONLY by contract, the /sales/sold shape: no write control, so nothing here opens a
 		// form. The sold ledger is the one table; its row is an animal and opens nothing.
@@ -4067,8 +4067,6 @@ func pageSpecificCopy(id string) map[string]string {
 			"filter.breed.label":             "Breed",
 			"filter.sex.label":               "Sex",
 			"filter.stage.label":             "Stage",
-			"filter.origin.label":            "Origin",
-			"filter.origin.note":             "Farm born is every animal recorded as born here. The other two readings cover animals that came without a purchase load: bought before loads were recorded, or with no origin on the register.",
 			"filter.all_option":              "All",
 			"filter.bar_aria":                "Filter farm born animals",
 			"filter.apply":                   "Apply filters",
@@ -7950,19 +7948,12 @@ func pageOptionGroups(id string) []domain.OptionGroup {
 			},
 		})
 	case "sales-farm-born":
-		// The Origin readings over the not-on-a-load population (maintainer request 2026-09-18).
-		// Farm born first, and the default. Sex and species are fixed register vocabularies; the
-		// other filters' choices (parks, pens, breeds, stages) are LIVE herd facts and ride on
-		// the data read itself, never here.
+		// Sex and species are fixed register vocabularies; the other filters' choices (parks,
+		// pens, breeds, stages) are LIVE herd facts and ride on the data read itself, never
+		// here. There is deliberately NO origin option group (maintainer instruction
+		// 2026-09-18): the page reads the animals recorded as born here and nothing else; the
+		// read's other origin readings stay server-side for the assistant and future use.
 		return withGenericOptionGroups([]domain.OptionGroup{
-			{
-				ID: "farm_born_origins",
-				Options: []domain.Option{
-					option("farm_born", "Farm born", "Recorded as born on the farm", ""),
-					option("bought_no_load", "Bought, no load record", "Recorded as bought, but on no purchase load", ""),
-					option("not_recorded", "Origin not recorded", "No origin on the register", ""),
-				},
-			},
 			{
 				ID: "farm_born_sexes",
 				Options: []domain.Option{
