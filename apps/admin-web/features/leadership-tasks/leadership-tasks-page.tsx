@@ -295,6 +295,10 @@ export function LeadershipTasksPage({
         statusChips={statusChips}
         hasFilters={hasTaskFilters(params)}
         clearedHref={tasksClearedHref(basePath, sp)}
+        // The Work Board's picker shows how many cards on THIS page each person holds; the
+        // filter itself is whole-list, so the roster stays the full assignable list.
+        assigneeCounts={countBy(tasks, (row) => row.assigneeUserID)}
+        raiserCounts={countBy(tasks, (row) => row.raisedByUserID)}
       />
       </div>
 
@@ -526,3 +530,13 @@ const fixtureScopes: NonNullable<LeadershipTaskPage["scopes"]> = [
     empty_message: "No tasks in this scope.",
   },
 ];
+
+/** Cards on this page per person id, for the picker's per-person count. */
+function countBy(items: readonly TaskRow[], key: (item: TaskRow) => string): Record<string, number> {
+  const out: Record<string, number> = {};
+  for (const item of items) {
+    const k = key(item);
+    if (k) out[k] = (out[k] ?? 0) + 1;
+  }
+  return out;
+}

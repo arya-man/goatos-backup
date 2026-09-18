@@ -3593,6 +3593,38 @@ select:disabled { opacity: .45; }
 .lt-page .lt-seg a[data-filter="overdue"].on{background:var(--dangerx);color:var(--danger)}
 .lt-page .lt-seg a[data-filter="overdue"].on b{color:var(--danger)}
 
+/* ONE ROW, the Work Board's shape (CEO review 2026-09-18). `.wb .tbar` is a bare flex row on the
+   page ground -- no card box, no padding, a hairline under it -- so this bar is the same box from
+   the laptop width up: search (flex, 140-300px like the board's), status segment, two avatar
+   stacks, ONE dates disclosure, sort. The stack avatars are 24px here (the size the board's own
+   menu rows use; its toolbar stack is 30px, its cards 22px) so two stacks of nine people fit
+   beside a five-chip segment at 1440px; every other rule is the board's own, scoped by the `wb` class on the slot. */
+.lt-page .lt-fsheet-host .lt-fslot.wb{display:inline-flex;flex-direction:column;align-items:flex-start;justify-content:center;gap:2px;position:relative}
+.lt-page .lt-fsheet-host .lt-fslot.wb::before{content:attr(data-key);font-size:9px;line-height:1;font-weight:800;letter-spacing:.6px;text-transform:uppercase;color:var(--muted);white-space:nowrap}
+@media (min-width:761px){
+  .lt-page .lt-fbar.lt-fsheet-host{padding:0 0 10px;border:0;border-bottom:1px solid var(--line2);border-radius:0;background:transparent;backdrop-filter:none;box-shadow:none;gap:8px}
+  .lt-page .lt-fsticky .lt-fbar.lt-fsheet-host{margin-bottom:0}
+  .lt-page .lt-fsheet-host .lt-fsearch{flex:1 1 130px;min-width:130px;max-width:300px}
+  .lt-page .lt-fsheet-host .lt-seg a{padding:0 8px;font-size:12px;gap:4px}
+  .lt-page .lt-fsheet-host .lt-fsel select{max-width:118px}
+  .lt-page .lt-fsheet-host .lt-fslot.wb .avs{height:var(--lt-ctl)}
+  /* The two stacks are told apart by a small CAPTION over the avatars, drawn from the slot's own
+     `data-key` (the contract's "Assignee" / "Raised by") in the `.ltd-statuslab` treatment. It
+     sits inside the control's 40px (9px caption + 24px stack) so it costs the row no width.
+     The stack's own height rule above is released so the caption and the avatars share it. */
+  .lt-page .lt-fsheet-host .lt-fslot.wb{height:var(--lt-ctl)}
+  .lt-page .lt-fsheet-host .lt-fslot.wb .avs{height:auto}
+  .lt-page .lt-fsheet-host .lt-fslot.wb .av{width:24px;height:24px;font-size:10px}
+  .lt-page .lt-fsheet-host .lt-fslot.wb .avs>.av{margin-left:-10px}
+  .lt-page .lt-fsheet-host .lt-fslot.wb .avs>.av:first-child{margin-left:0}
+  .lt-page .lt-fsheet-host .lt-fslot.wb .avs .more{width:24px;height:24px;margin-left:-10px;font-size:10px}
+}
+/* The ONE dates disclosure: both spans inside, each its own labelled group with its own Apply. */
+.lt-page .lt-fdrop-pop.lt-fdrop-dates{min-width:280px;gap:12px}
+.lt-page .lt-fdrop-range{display:grid;gap:8px}
+.lt-page .lt-fdrop-range+.lt-fdrop-range{padding-top:12px;border-top:1px solid var(--line2)}
+.lt-page .lt-fdrop-rangekey{font-size:10.5px;font-weight:800;letter-spacing:.5px;text-transform:uppercase;color:var(--faint)}
+
 /* ---- A DATE SPAN, collapsed. Four raw `dd/mm/yyyy` inputs across a row, plus a lone Apply
    beneath them, dominated a bar whose reader almost never touches a date. Each span is now one
    compact trigger that STATES its applied range, with the two inputs and the one Apply press
@@ -3699,7 +3731,7 @@ select:disabled { opacity: .45; }
   .lt-page .lt-fsheet-host .lt-seg a{min-height:40px;min-height:var(--lt-ctl);justify-content:center;padding:4px 10px;font-size:12.5px}
   .lt-page .lt-fsheet-host .lt-seg a:nth-child(odd){border-left:0}
   .lt-page .lt-fsheet-host .lt-franges{display:grid;grid-template-columns:1fr;gap:8px;width:100%}
-  .lt-page .lt-fsheet-host .lt-fdrop{width:100%}
+  .lt-page .lt-fsheet-host .lt-fdrop{width:100%;display:grid;grid-template-columns:1fr;gap:8px}
   .lt-page .lt-fsheet-host .lt-fdrop>button{width:100%;justify-content:space-between}
   .lt-page .lt-fsheet-host .lt-fdrop>button>.lt-fkey{margin-right:auto}
   /* In the sheet the key sits at the left edge and the value at the right, so the glue dot
@@ -3712,6 +3744,15 @@ select:disabled { opacity: .45; }
   .lt-page .lt-fsheet-host .lt-pf-pop{position:static;width:100%;max-width:100%;box-shadow:none;border-color:var(--line2)}
   .lt-page .lt-fsheet-host .lt-pf-pop>ul{max-height:30vh;max-height:30dvh}
   .lt-page .lt-fsheet-host .lt-pf-search{min-height:44px}
+  /* The Work Board's picker inside the SHEET: full-width stack row, the list opening IN PLACE
+     (a popover cannot hang off a fixed sheet without being clipped), 44px rows. */
+  .lt-page .lt-fsheet-host .lt-fslot.wb{display:flex;width:100%;gap:6px}
+  .lt-page .lt-fsheet-host .lt-fslot.wb::before{font-size:10px}
+  .lt-page .lt-fsheet-host .lt-fslot.wb .avs{flex-wrap:wrap;gap:6px 0;min-height:44px}
+  .lt-page .lt-fsheet-host .lt-fslot.wb .avmenu{position:static;width:100%;margin-top:6px;box-shadow:none;border-color:var(--line2)}
+  .lt-page .lt-fsheet-host .lt-fslot.wb .avmenu .list{max-height:30vh;max-height:30dvh}
+  .lt-page .lt-fsheet-host .lt-fslot.wb .avmenu .opt{min-height:44px}
+  .lt-page .lt-fsheet-host .lt-fslot.wb .avmenu .avq{min-height:44px}
   .lt-page .lt-fsheet-host .lt-fdrop-act .btn{flex:1}
   .lt-page .lt-fsheet-host .lt-factive{width:100%}
   .lt-page .lt-fsheet-host .lt-factive .achip{min-height:40px;padding:4px 12px;font-size:12.5px}

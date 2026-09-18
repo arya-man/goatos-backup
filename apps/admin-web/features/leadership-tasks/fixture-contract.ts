@@ -77,6 +77,7 @@ export const leadershipTasksFixtureContract: AdminUiPageContract = {
     "filter.raiser": "Raised by",
     "filter.raiser_pinned": "This scope is already only the tasks you raised.",
     "filter.sort": "Sort",
+    "filter.dates": "Dates",
     "filter.deadline_from": "Deadline from",
     "filter.deadline_to": "Deadline to",
     "filter.raised_from": "Raised from",

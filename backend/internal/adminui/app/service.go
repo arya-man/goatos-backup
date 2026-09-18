@@ -2071,6 +2071,9 @@ func pageSpecificCopy(id string) map[string]string {
 			"filter.raiser":          "Raised by",
 			"filter.raiser_pinned":   "This scope is already only the tasks you raised.",
 			"filter.sort":            "Sort",
+			// The ONE dates disclosure on the toolbar (both spans inside it), the Work Board's one
+			// date control restated for this desk.
+			"filter.dates":           "Dates",
 			"filter.deadline_from":   "Deadline from",
 			"filter.deadline_to":     "Deadline to",
 			"filter.raised_from":     "Raised from",

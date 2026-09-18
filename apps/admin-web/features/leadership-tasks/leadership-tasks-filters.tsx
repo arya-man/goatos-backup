@@ -5,10 +5,11 @@ import { CalendarRange, ChevronDown, ListFilter, Search, SlidersHorizontal, X } 
 import { useCallback, useEffect, useMemo, useRef, useState, useTransition } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 
+import { AssigneePicker } from "@/components/assignee-picker";
 import { copy, type AdminUiPageContract } from "@/lib/admin-ui-contract";
 import { worklistFilterShownValue } from "@/lib/worklist-filter-value";
 import { TASK_PAGING_PARAMS, TASK_PARAM } from "./params";
-import { TaskPeopleFilter, type TaskPeopleOption } from "./task-people-filter";
+import { type TaskPeopleOption } from "./task-people-filter";
 import { TASK_SORTS, type TaskSort } from "./task-url";
 import { useDialogShell } from "./use-dialog-shell";
 
@@ -78,6 +79,8 @@ export function LeadershipTasksFilters({
   statusChips,
   hasFilters,
   clearedHref,
+  assigneeCounts = {},
+  raiserCounts = {},
 }: {
   pageContract: AdminUiPageContract;
   basePath: string;
@@ -100,13 +103,17 @@ export function LeadershipTasksFilters({
   statusChips: TaskStatusChip[];
   hasFilters: boolean;
   clearedHref: string;
+  /** How many cards on THIS page each person holds, shown beside their name in the picker's
+   *  list exactly as the Work Board shows "N rows" (`board.on_this_page` is the unit here). */
+  assigneeCounts?: Record<string, number>;
+  raiserCounts?: Record<string, number>;
 }) {
   const router = useRouter();
   const routerSearchParams = useSearchParams();
   const [isPending, startTransition] = useTransition();
   const [sheetOpen, setSheetOpen] = useState(false);
-  /** Which date disclosure is open, if any. Only one at a time: they are alternatives, not a pair. */
-  const [openRange, setOpenRange] = useState<"deadline" | "raised" | null>(null);
+  /** Whether the ONE dates disclosure (both spans inside it) is open. */
+  const [openRange, setOpenRange] = useState<"dates" | null>(null);
   const sheetRef = useRef<HTMLDivElement>(null);
   const rangesRef = useRef<HTMLDivElement>(null);
   const moreRef = useRef<HTMLButtonElement>(null);
@@ -276,6 +283,8 @@ export function LeadershipTasksFilters({
   const deadlineLabel = copy(pageContract, "filter.deadline", copy(pageContract, "label.deadline", "Deadline"));
   const raisedLabel = copy(pageContract, "filter.raised", "Raised");
   const peopleSearchLabel = copy(pageContract, "filter.people_search", "Type a name");
+  const onThisPageLabel = copy(pageContract, "board.on_this_page", "on this page");
+  const datesLabel = copy(pageContract, "filter.dates", "Dates");
   const peopleNoMatchesLabel = copy(pageContract, "filter.people_no_matches", "Nobody by that name.");
 
   /**
@@ -448,46 +457,41 @@ export function LeadershipTasksFilters({
             toolbar owns, so whichever picker component sits in it (this one, or the shared
             Work Board assignee picker it is due to be replaced by) inherits the bar's row and
             the sheet's column without the picker knowing either. */}
-        <div className="lt-fslot" data-slot="assignee">
-        <TaskPeopleFilter
-          param={TASK_PARAM.assignee}
-          value={fieldValue(TASK_PARAM.assignee, assignee)}
-          options={assigneeOptions}
-          copy={{
-            label: assigneeLabel,
-            allLabel: allOption,
-            searchLabel: peopleSearchLabel,
-            noMatchesLabel: peopleNoMatchesLabel,
-          }}
-          disabled={assigneePinned}
-          disabledTitle={assigneePinned ? copy(pageContract, "filter.assignee_pinned") : undefined}
-          hrefFor={(next) => hrefWith({ [TASK_PARAM.assignee]: next })}
-          onPick={(next) => {
-            closeSheet();
-            go(paramsWith({ [TASK_PARAM.assignee]: next }));
-          }}
-        />
+        {/* The two slots host the Work Board's OWN assignee picker (`components/assignee-picker.tsx`,
+            multi mode: the avatar stack, `+N`, one pick, per-person counts on this page, the
+            "All" foot) so the two toolbars are one control language. A scope that already pins
+            the person renders NO picker, as the Work Board drops its stack for `ownRowsOnly`.
+            The `wb` class on the slot scopes the board's own `.avs` rules onto it verbatim. */}
+        <div className="lt-fslot wb" data-slot="assignee" data-key={assigneeLabel} title={assigneePinned ? copy(pageContract, "filter.assignee_pinned") : assigneeLabel}>
+          {assigneePinned ? null : (
+            <AssigneePicker
+              mode="multi"
+              labels={{ label: assigneeLabel, search: peopleSearchLabel, none: peopleNoMatchesLabel, selectAll: allOption, rows: onThisPageLabel }}
+              owners={assigneeOptions.map((option) => ({ id: option.value, name: option.label, title: option.title }))}
+              cardsByOwner={assigneeCounts}
+              selected={fieldValue(TASK_PARAM.assignee, assignee) || undefined}
+              onSelect={(next) => {
+                closeSheet();
+                go(paramsWith({ [TASK_PARAM.assignee]: next ?? "" }));
+              }}
+            />
+          )}
         </div>
 
-        <div className="lt-fslot" data-slot="raiser">
-        <TaskPeopleFilter
-          param={TASK_PARAM.raiser}
-          value={fieldValue(TASK_PARAM.raiser, raiser)}
-          options={raiserOptions}
-          copy={{
-            label: raiserLabel,
-            allLabel: allOption,
-            searchLabel: peopleSearchLabel,
-            noMatchesLabel: peopleNoMatchesLabel,
-          }}
-          disabled={raiserPinned}
-          disabledTitle={raiserPinned ? copy(pageContract, "filter.raiser_pinned") : undefined}
-          hrefFor={(next) => hrefWith({ [TASK_PARAM.raiser]: next })}
-          onPick={(next) => {
-            closeSheet();
-            go(paramsWith({ [TASK_PARAM.raiser]: next }));
-          }}
-        />
+        <div className="lt-fslot wb" data-slot="raiser" data-key={raiserLabel} title={raiserPinned ? copy(pageContract, "filter.raiser_pinned") : raiserLabel}>
+          {raiserPinned ? null : (
+            <AssigneePicker
+              mode="multi"
+              labels={{ label: raiserLabel, search: peopleSearchLabel, none: peopleNoMatchesLabel, selectAll: allOption, rows: onThisPageLabel }}
+              owners={raiserOptions.map((option) => ({ id: option.value, name: option.label, title: option.title }))}
+              cardsByOwner={raiserCounts}
+              selected={fieldValue(TASK_PARAM.raiser, raiser) || undefined}
+              onSelect={(next) => {
+                closeSheet();
+                go(paramsWith({ [TASK_PARAM.raiser]: next ?? "" }));
+              }}
+            />
+          )}
         </div>
 
         {/* "Sort · Newest first": the label is INSIDE the control, as it is for the two people
@@ -505,16 +509,15 @@ export function LeadershipTasksFilters({
           </select>
         </label>
 
-        {/* THE DATE SPANS, behind two compact disclosures. They used to be four raw `dd/mm/yyyy`
-            inputs stretched across a row of their own with a lone Apply button under them, which
-            is most of what made this bar five rows tall -- and almost no session touches them.
-            Each disclosure commits its OWN span, whole, on one press: half a span is a 400
-            (`invalid_date_range`) on this endpoint, so these are the one set of controls here that
-            cannot apply on change. Every other control does, which is why there is no Apply on
-            the bar any more. */}
+        {/* THE DATE SPANS, behind ONE compact disclosure -- the Work Board's toolbar has one date
+            control, and this bar now has one too. It STATES what is applied ("Dates · any", or
+            "Dates · Deadline 01/09/2026 – 30/09/2026 · Raised …") without being opened; inside,
+            the two spans sit as two labelled groups, each committing its OWN span whole on one
+            press (half a span is a 400 `invalid_date_range` on this endpoint, so these are the one
+            set of controls here that cannot apply on change -- every other control does). */}
         <div className="lt-franges" ref={rangesRef}>
-          {(
-            [
+          {(() => {
+            const ranges = [
               {
                 id: "deadline" as const,
                 label: deadlineLabel,
@@ -545,74 +548,81 @@ export function LeadershipTasksFilters({
                   [TASK_PARAM.raisedTo]: to,
                 }),
               },
-            ] as const
-          ).map((range) => (
-            <div className="lt-fdrop" key={range.id}>
-              <button
-                type="button"
-                className={range.span ? "set" : ""}
-                aria-expanded={openRange === range.id}
-                aria-haspopup="true"
-                onClick={() => setOpenRange((current) => (current === range.id ? null : range.id))}
-              >
-                <CalendarRange className="ic" style={{ width: 14 }} aria-hidden="true" />
-                {/* "Deadline · any" until a span is applied, then "Deadline · 2026-01-01 – …": the
-                    bar states what it is hiding without being opened, and a bare "Deadline" no
-                    longer has to be guessed to be a date range. */}
-                <span className="lt-fkey">{range.label}</span>
-                <span>{range.span || anyLabel}</span>
-                <ChevronDown className="ic" style={{ width: 13 }} aria-hidden="true" />
-              </button>
-              {openRange === range.id ? (
-                <div className="lt-fdrop-pop" role="group" aria-label={range.label}>
-                  <label className="lt-fsel">
-                    <span>{range.fromLabel}</span>
-                    <input
-                      type="date"
-                      value={range.from}
-                      onChange={(event) => range.setFrom(event.target.value)}
-                    />
-                  </label>
-                  <label className="lt-fsel">
-                    <span>{range.toLabel}</span>
-                    <input
-                      type="date"
-                      value={range.to}
-                      onChange={(event) => range.setTo(event.target.value)}
-                    />
-                  </label>
-                  <div className="lt-fdrop-act">
-                    {range.span ? (
-                      <button
-                        type="button"
-                        className="btn sm"
-                        onClick={() => {
-                          range.setFrom("");
-                          range.setTo("");
-                          setOpenRange(null);
-                          closeSheet();
-                          go(paramsWith(range.commit("", "")));
-                        }}
-                      >
-                        {clearLabel}
-                      </button>
-                    ) : null}
-                    <button
-                      type="button"
-                      className="btn sm p"
-                      onClick={() => {
-                        setOpenRange(null);
-                        closeSheet();
-                        go(paramsWith(range.commit(range.from, range.to)));
-                      }}
-                    >
-                      {applyLabel}
-                    </button>
+            ] as const;
+            const applied = ranges.filter((range) => range.span);
+            const stated = applied.length
+              ? applied.map((range) => `${range.label} ${range.span}`).join(" · ")
+              : anyLabel;
+            return (
+              <div className="lt-fdrop">
+                <button
+                  type="button"
+                  className={applied.length ? "set" : ""}
+                  aria-expanded={openRange === "dates"}
+                  aria-haspopup="true"
+                  onClick={() => setOpenRange((current) => (current === "dates" ? null : "dates"))}
+                >
+                  <CalendarRange className="ic" style={{ width: 14 }} aria-hidden="true" />
+                  <span className="lt-fkey">{datesLabel}</span>
+                  <span>{stated}</span>
+                  <ChevronDown className="ic" style={{ width: 13 }} aria-hidden="true" />
+                </button>
+                {openRange === "dates" ? (
+                  <div className="lt-fdrop-pop lt-fdrop-dates" role="group" aria-label={datesLabel}>
+                    {ranges.map((range) => (
+                      <div className="lt-fdrop-range" role="group" aria-label={range.label} key={range.id}>
+                        <span className="lt-fdrop-rangekey">{range.label}</span>
+                        <label className="lt-fsel">
+                          <span>{range.fromLabel}</span>
+                          <input
+                            type="date"
+                            value={range.from}
+                            onChange={(event) => range.setFrom(event.target.value)}
+                          />
+                        </label>
+                        <label className="lt-fsel">
+                          <span>{range.toLabel}</span>
+                          <input
+                            type="date"
+                            value={range.to}
+                            onChange={(event) => range.setTo(event.target.value)}
+                          />
+                        </label>
+                        <div className="lt-fdrop-act">
+                          {range.span ? (
+                            <button
+                              type="button"
+                              className="btn sm"
+                              onClick={() => {
+                                range.setFrom("");
+                                range.setTo("");
+                                setOpenRange(null);
+                                closeSheet();
+                                go(paramsWith(range.commit("", "")));
+                              }}
+                            >
+                              {clearLabel}
+                            </button>
+                          ) : null}
+                          <button
+                            type="button"
+                            className="btn sm p"
+                            onClick={() => {
+                              setOpenRange(null);
+                              closeSheet();
+                              go(paramsWith(range.commit(range.from, range.to)));
+                            }}
+                          >
+                            {applyLabel}
+                          </button>
+                        </div>
+                      </div>
+                    ))}
                   </div>
-                </div>
-              ) : null}
-            </div>
-          ))}
+                ) : null}
+              </div>
+            );
+          })()}
         </div>
 
         {/* WHAT IS NARROWING THE LIST, each chip removing exactly itself. */}
