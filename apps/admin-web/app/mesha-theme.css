@@ -6101,6 +6101,14 @@ input[type=date],input[type=datetime-local],input[type=time],input[type=month],i
    default is 498px, which would collapse it to one column. On a phone the drawer is the screen. */
 aside.drawer.ltd-drawer{width:min(720px,94vw);overflow-y:auto;overscroll-behavior:contain;outline:none;background:var(--panel)}
 .ltd-drawer>.ltd-panel{flex:none;border:0;border-radius:0;background:transparent}
+/* The header (breadcrumb + Edit + Close) is PINNED to the top of the drawer while the body
+   scrolls: the content runs to ~1150px on a phone, and Close scrolled away with it, so a reader
+   who had read the brief or opened Comments had no way out on screen. The drawer is the scroll
+   container, so `sticky` needs the panel's own `overflow:hidden` lifted here (it is what clips
+   the panel's corners in the grid, and the drawer has no corners). Opaque `--panel` under it:
+   the header's translucent tint let cards show through as they passed underneath. */
+.ltd-drawer>.ltd-panel{overflow:visible}
+.ltd-drawer .ltd-top{position:sticky;top:0;z-index:5;background:var(--panel);box-shadow:0 1px 0 var(--line)}
 /* The mention popup in the composer already lifts the panel's own clip; inside the drawer the
    scroller is the drawer, so the popup simply extends the scrollable content. */
 @media(max-width:760px){
