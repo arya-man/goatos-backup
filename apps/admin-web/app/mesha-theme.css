@@ -3593,7 +3593,12 @@ select:disabled { opacity: .45; }
 /* The sheet's own header and opener exist only at phone width. */
 .lt-page .lt-fsheet-host .lt-fsheet-hd,.lt-page .lt-fsheet-host .lt-fmore{display:none}
 @media(max-width:760px){
-  .lt-page .lt-fbar.lt-fsheet-host{position:static;display:flex;flex-wrap:nowrap;align-items:center;gap:8px;padding:10px}
+  /* `backdrop-filter:none` is load-bearing: the desktop bar's `backdrop-filter:blur(8px)` makes it
+     the CONTAINING BLOCK for every `position:fixed` descendant, so the sheet below was "fixed" to
+     the 76px bar rather than to the viewport -- anchored at the bar's bottom edge and growing UP
+     off the top of the screen (measured at 390: sheet top -22px before the person list opened,
+     -236px after). The bar is `position:static` here and the blur was decorating nothing. */
+  .lt-page .lt-fbar.lt-fsheet-host{position:static;display:flex;flex-wrap:nowrap;align-items:center;gap:8px;padding:10px;backdrop-filter:none}
   .lt-page .lt-fsheet-host .lt-fsearch{max-width:none}
   .lt-page .lt-fsheet-host .lt-fmore{display:inline-flex;flex:none}
   .lt-page .lt-fsheet-host .lt-fgroup{display:none}
