@@ -63,6 +63,56 @@ const (
 	OriginPurchased = "purchased"
 )
 
+// originScopeShedTargetsCTE is the whole-shed resolution shared with the sex scope, byte for
+// byte (see scopeShedTargetsCTE in sex_scope.go for the rule and why it is set-based); pinned
+// equal by TestOriginScopeShedTargetsCTEIsTheSexScopeOne so the two cannot drift.
+const originScopeShedTargetsCTE = `
+-- SET-BASED, NOT PER ROW (2026-09-18, found by PR #304's cold-path gate). The first version
+-- wrote the "does this shed hold anyone" test and the parent-shed lookup as correlated
+-- subqueries inside the SELECT list. Postgres evaluated both once PER scoped bucket, and the
+-- parent lookup nested a seq scan of locations inside another (8,154 inner loops on the
+-- staging clone), so this one CTE cost ~160 ms of a ~200 ms read and every cold Weights read
+-- paid it. The same facts are now computed ONCE as sets and joined on their keys: occupied
+-- is the set of sheds with a live resident, parent_sheds is one row per (parent, name), and
+-- the bucket's own location row supplies the parent name it is matched on. MATERIALIZED keeps
+-- the planner from inlining this into the goats join below and re-evaluating it per resident
+-- (which is what turned the bucket-only origin read into a 1.8 s query). Same rows, same
+-- rule, same resolution as before -- only the shape; verified byte-identical against the old
+-- query on the staging clone for every filter value, window and park combination.
+occupied AS (
+  SELECT DISTINCT gg.shed_id
+  FROM goats gg
+  WHERE gg.tenant_id = $1::uuid AND gg.lifecycle_status = 'alive' AND gg.shed_id IS NOT NULL
+),
+-- Every physical shed of the tenant, ONE per (parent, name): the same row the old
+-- "LIMIT 1" picked, now chosen deterministically (lowest location_id) and joined on its key.
+parent_sheds AS (
+  SELECT DISTINCT ON (ps.parent_location_id, ps.name) ps.location_id, ps.parent_location_id, ps.name
+  FROM locations ps
+  WHERE ps.tenant_id = $1::uuid AND ps.location_type = 'shed'
+  ORDER BY ps.parent_location_id, ps.name, ps.location_id
+),
+shed_targets AS MATERIALIZED (
+  SELECT DISTINCT s.location_id, s.partition_label,
+         COALESCE(CASE WHEN occ.shed_id IS NOT NULL THEN s.location_id END, phys.location_id) AS resolved_id,
+         COALESCE(NULLIF(s.partition_label, ''),
+                  NULLIF((regexp_match(s.location_name, '\s*(?:-\s*)?(?:Part\s*)?([0-9]+)$'))[1], ''),
+                  '') AS resolved_partition_label
+  FROM (
+    SELECT s.location_id, s.partition_label, s.weighing_category,
+           loc.tenant_id AS location_tenant_id, loc.parent_location_id, loc.name AS location_name,
+           regexp_replace(loc.name, '\s*(-\s*)?(Part\s*)?[0-9]+$', '') AS parent_name
+    FROM scoped s
+    LEFT JOIN locations loc ON loc.location_id = s.location_id
+  ) s
+  LEFT JOIN occupied occ ON occ.shed_id = s.location_id
+  LEFT JOIN parent_sheds phys ON s.location_tenant_id = $1::uuid
+   AND phys.parent_location_id = s.parent_location_id
+   AND phys.name = s.parent_name
+  WHERE s.weighing_category = 'per_shed_partition'
+),
+`
+
 // normalizeOriginFilter accepts the two cohorts and rejects everything else, rather than passing
 // an arbitrary string into a predicate. An unknown value is an error, never a silent "no filter":
 // silently widening a filter shows a reader more kids than they asked for under a heading that
@@ -118,59 +168,7 @@ func resolveOriginBucketScope(ctx context.Context, pool *pgxpool.Pool, tenantID 
 		return out, nil
 	}
 
-	const q = ` -- scale-guard:ignore: bounded by whole-shed weighing buckets for selected parks; no scanned-tag arm
-WITH scoped AS (
-  SELECT DISTINCT cs.location_id, COALESCE(cs.partition_label, '') AS partition_label
-  FROM weighing_campaign_sheds cs
-  JOIN weighing_campaigns c ON c.campaign_id = cs.campaign_id AND c.tenant_id = cs.tenant_id
-  WHERE cs.tenant_id = $1::uuid AND c.park_id = ANY($2::uuid[]) AND cs.status <> 'canceled'
-    AND cs.weighing_category = 'per_shed_partition'
-),
-bought AS (
-  SELECT DISTINCT goat_id FROM procurement_load_goats WHERE tenant_id = $1::uuid
-),
-shed_targets AS (
-  SELECT s.location_id, s.partition_label,
-         COALESCE(
-           CASE WHEN EXISTS (SELECT 1 FROM goats gg WHERE gg.tenant_id = $1::uuid
-                              AND gg.lifecycle_status = 'alive' AND gg.shed_id = s.location_id)
-                THEN s.location_id END,
-           phys.location_id
-         ) AS resolved_id,
-         COALESCE(NULLIF(s.partition_label, ''),
-                  NULLIF((regexp_match(loc.name, '\s*(?:-\s*)?(?:Part\s*)?([0-9]+)$'))[1], ''),
-                  '') AS resolved_partition_label
-  FROM scoped s
-  JOIN locations loc ON loc.location_id = s.location_id AND loc.tenant_id = $1::uuid
-  LEFT JOIN LATERAL (
-    SELECT phys.location_id
-    FROM locations phys
-    WHERE phys.tenant_id = loc.tenant_id
-      AND phys.parent_location_id = loc.parent_location_id
-      AND phys.location_type = 'shed'
-      AND phys.name = regexp_replace(loc.name, '\s*(-\s*)?(Part\s*)?[0-9]+$', '')
-    LIMIT 1
-  ) phys ON TRUE
-),
-origin_buckets AS (
-  SELECT src.location_id, src.partition_label
-  FROM shed_targets src
-  JOIN goats g ON g.shed_id = src.resolved_id AND g.tenant_id = $1::uuid
-   AND g.lifecycle_status = 'alive'
-  LEFT JOIN goat_shed_partitions gsp ON gsp.tenant_id = g.tenant_id AND gsp.goat_id = g.goat_id
-  WHERE src.resolved_partition_label = ''
-     OR regexp_replace(lower(btrim(gsp.partition_label)), '^(part|pt)[\s.-]*', '')
-        = regexp_replace(lower(btrim(src.resolved_partition_label)), '^(part|pt)[\s.-]*', '')
-  GROUP BY src.location_id, src.partition_label
-  HAVING count(*) > 0
-     AND CASE WHEN $3::text = ` + "'" + OriginPurchased + "'" + `
-              THEN count(*) FILTER (WHERE EXISTS (SELECT 1 FROM bought b WHERE b.goat_id = g.goat_id)) = count(*)
-              ELSE count(*) FILTER (WHERE EXISTS (SELECT 1 FROM bought b WHERE b.goat_id = g.goat_id)) = 0
-         END
-)
-SELECT
-  (SELECT COALESCE(array_agg(location_id::text ORDER BY location_id::text, partition_label), '{}') FROM origin_buckets),
-  (SELECT COALESCE(array_agg(partition_label ORDER BY location_id::text, partition_label), '{}') FROM origin_buckets)`
+	q := originBucketScopeQuery
 
 	if err := pool.QueryRow(ctx, q, tenantID, parkIDs, normalized).Scan(&out.LocationIDs, &out.PartitionLabels); err != nil {
 		return ReportScope{}, err
@@ -213,7 +211,25 @@ func resolveOriginScope(ctx context.Context, pool *pgxpool.Pool, tenantID string
 		return out, nil
 	}
 
-	const q = ` -- scale-guard:ignore: bounded by the selected window and park list; one reporting read per Weights page load, resolving only the tags actually weighed and the lump-sum buckets actually scoped. The one unwindowed arm is OPT-IN behind $6 and executes as a One-Time Filter for every caller that does not ask, exactly as the sibling sex scope does
+	q := originScopeQuery
+
+	// The two bucket arrays are aggregated under the SAME ORDER BY over the same rows, so index i
+	// names one bucket in both.
+	if err := pool.QueryRow(ctx, q, tenantID, parkIDs, periodStart, periodEnd, normalized, includeAllTime).Scan(
+		&out.Tags, &out.AllTimeTags, &out.LocationIDs, &out.PartitionLabels,
+	); err != nil {
+		return ReportScope{}, err
+	}
+	out.allTimeResolved = includeAllTime
+	if err := assertBucketArraysAgree("origin scope", out); err != nil {
+		return ReportScope{}, err
+	}
+	return out, nil
+}
+
+// originScopeQuery is the SQL behind resolveOriginScope, package-level so the equivalence test can run the
+// identical text against the retired shed_targets CTE.
+const originScopeQuery = ` -- scale-guard:ignore: bounded by the selected window and park list; one reporting read per Weights page load, resolving only the tags actually weighed and the lump-sum buckets actually scoped. The one unwindowed arm is OPT-IN behind $6 and executes as a One-Time Filter for every caller that does not ask, exactly as the sibling sex scope does
 WITH scoped AS (
   SELECT cs.campaign_shed_id, cs.location_id, COALESCE(cs.partition_label, '') AS partition_label, cs.weighing_category
   FROM weighing_campaign_sheds cs
@@ -293,28 +309,7 @@ origin_tags_ever AS (
 -- to its parent shed's -- the same resolution the sex scope and the demographics read use, for the
 -- same reason: looking only at the partition finds nothing and silently drops every whole-shed
 -- weigh.
-shed_targets AS (
-  SELECT DISTINCT s.location_id, s.partition_label,
-         COALESCE(
-           CASE WHEN EXISTS (SELECT 1 FROM goats gg WHERE gg.tenant_id = $1::uuid
-                              AND gg.lifecycle_status = 'alive' AND gg.shed_id = s.location_id)
-                THEN s.location_id END,
-           (SELECT phys.location_id FROM locations phys
-            JOIN locations l ON l.location_id = s.location_id AND l.tenant_id = $1::uuid
-            WHERE phys.tenant_id = l.tenant_id
-              AND phys.parent_location_id = l.parent_location_id
-              AND phys.location_type = 'shed'
-              AND phys.name = regexp_replace(l.name, '\s*(-\s*)?(Part\s*)?[0-9]+$', '')
-            LIMIT 1)
-         ) AS resolved_id,
-         COALESCE(NULLIF(s.partition_label, ''),
-                  NULLIF((regexp_match((SELECT l.name FROM locations l WHERE l.location_id = s.location_id),
-                                       '\s*(?:-\s*)?(?:Part\s*)?([0-9]+)$'))[1], ''),
-                  '') AS resolved_partition_label
-  FROM scoped s
-  WHERE s.weighing_category = 'per_shed_partition'
-),
--- AGREE OR GO TO NEITHER SIDE. A pen is claimed only when EVERY live resident answers the same
+` + originScopeShedTargetsCTE + `-- AGREE OR GO TO NEITHER SIDE. A pen is claimed only when EVERY live resident answers the same
 -- way: all bought, or none bought. A pen holding both -- Mandela 1 - Part 1 is 4 of 13 -- has one
 -- average weight that cannot be divided between the two cohorts, so splitting it would invent a
 -- distribution nobody measured and claiming it whole would put nine farm-born kids in the bought
@@ -349,16 +344,35 @@ SELECT
   (SELECT COALESCE(array_agg(location_id::text ORDER BY location_id::text, partition_label), '{}') FROM origin_buckets),
   (SELECT COALESCE(array_agg(partition_label ORDER BY location_id::text, partition_label), '{}') FROM origin_buckets)`
 
-	// The two bucket arrays are aggregated under the SAME ORDER BY over the same rows, so index i
-	// names one bucket in both.
-	if err := pool.QueryRow(ctx, q, tenantID, parkIDs, periodStart, periodEnd, normalized, includeAllTime).Scan(
-		&out.Tags, &out.AllTimeTags, &out.LocationIDs, &out.PartitionLabels,
-	); err != nil {
-		return ReportScope{}, err
-	}
-	out.allTimeResolved = includeAllTime
-	if err := assertBucketArraysAgree("origin scope", out); err != nil {
-		return ReportScope{}, err
-	}
-	return out, nil
-}
+// originBucketScopeQuery is the SQL behind resolveOriginBucketScope, package-level so the equivalence test can run the
+// identical text against the retired shed_targets CTE.
+const originBucketScopeQuery = ` -- scale-guard:ignore: bounded by whole-shed weighing buckets for selected parks; no scanned-tag arm
+WITH scoped AS (
+  SELECT DISTINCT cs.location_id, COALESCE(cs.partition_label, '') AS partition_label, cs.weighing_category
+  FROM weighing_campaign_sheds cs
+  JOIN weighing_campaigns c ON c.campaign_id = cs.campaign_id AND c.tenant_id = cs.tenant_id
+  WHERE cs.tenant_id = $1::uuid AND c.park_id = ANY($2::uuid[]) AND cs.status <> 'canceled'
+    AND cs.weighing_category = 'per_shed_partition'
+),
+bought AS (
+  SELECT DISTINCT goat_id FROM procurement_load_goats WHERE tenant_id = $1::uuid
+),
+` + originScopeShedTargetsCTE + `origin_buckets AS (
+  SELECT src.location_id, src.partition_label
+  FROM shed_targets src
+  JOIN goats g ON g.shed_id = src.resolved_id AND g.tenant_id = $1::uuid
+   AND g.lifecycle_status = 'alive'
+  LEFT JOIN goat_shed_partitions gsp ON gsp.tenant_id = g.tenant_id AND gsp.goat_id = g.goat_id
+  WHERE src.resolved_partition_label = ''
+     OR regexp_replace(lower(btrim(gsp.partition_label)), '^(part|pt)[\s.-]*', '')
+        = regexp_replace(lower(btrim(src.resolved_partition_label)), '^(part|pt)[\s.-]*', '')
+  GROUP BY src.location_id, src.partition_label
+  HAVING count(*) > 0
+     AND CASE WHEN $3::text = ` + "'" + OriginPurchased + "'" + `
+              THEN count(*) FILTER (WHERE EXISTS (SELECT 1 FROM bought b WHERE b.goat_id = g.goat_id)) = count(*)
+              ELSE count(*) FILTER (WHERE EXISTS (SELECT 1 FROM bought b WHERE b.goat_id = g.goat_id)) = 0
+         END
+)
+SELECT
+  (SELECT COALESCE(array_agg(location_id::text ORDER BY location_id::text, partition_label), '{}') FROM origin_buckets),
+  (SELECT COALESCE(array_agg(partition_label ORDER BY location_id::text, partition_label), '{}') FROM origin_buckets)`
