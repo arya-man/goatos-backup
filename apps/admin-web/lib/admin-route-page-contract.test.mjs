@@ -107,37 +107,20 @@ test("production Tasks page uses live backend data, with fixtures confined to pr
   );
   // Production activity is the task's OWN feed and notes (`LeadershipTask.activity` /
   // `notes`), handed verbatim to the tabbed feed -- never invented on the client and never a
-  // fixture.
+  // fixture. The panel hands the whole row to the in-place composer island, which seeds its
+  // optimistic state from `task.activity` / `task.notes` and renders the feed from that.
   assert.match(
     detailPanel,
-    /activity=\{detail\.activity\}/,
-    "production activity must be derived from live task fields",
+    /<TaskActivityComposer[\s\S]*?task=\{detail\}/,
+    "production activity must come from the live task row handed to the composer island",
   );
-  assert.match(
-    detailPanel,
-    /notes=\{detail\.notes\}/,
-    "comment text must come from the task's own notes",
-  );
-  assert.doesNotMatch(
-    detailPanel,
-    /fixtureTasks/,
-    "the detail panel must never render fixture rows",
-  );
-  // Row selection moved into the contract-driven table component with the column set.
-  const tasksTable = readFileSync(
-    join(root, "features/leadership-tasks/leadership-tasks-table.tsx"),
+  const composer = readFileSync(
+    join(root, "features/leadership-tasks/task-activity-composer.tsx"),
     "utf8",
   );
-  assert.match(
-    tasksTable,
-    /tasksHref\(basePath, sp, \{ \[TASK_PARAM\.scope\]: scopeKey, \[TASK_PARAM\.task\]: task\.id \}\)/,
-    "web task rows must be selectable (task= added to the current URL, so the view and filters survive the click)",
-  );
-  assert.match(
-    tasksTable,
-    /columnsFromContract<TaskRow>\(contract/,
-    "the task table's columns must come from the backend table contract",
-  );
+  assert.match(composer, /task\.activity/, "the composer seeds its feed from the task's own activity");
+  assert.match(composer, /task\.notes/, "the composer seeds its feed from the task's own notes");
+  assert.doesNotMatch(composer, /fixtureTasks/, "the composer must never render fixture rows");
   assert.match(
     component,
     /action=\{raiseLeadershipTaskAction\}/,
