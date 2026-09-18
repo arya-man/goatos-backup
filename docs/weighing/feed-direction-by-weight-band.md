@@ -190,9 +190,17 @@ rework and verified alike — but a whole-pen weigh contributes only when the pe
 **two dates** in the period (`summary_lump`'s pairing), and a single date is not a pair. The
 pen's scanned animals do pair, so the per-animal rows stand. The rule is not changed here.
 
-The "Animals weighed" tile dedupes by pen × band × source (a pen with four feed rows counts its
-animals once); the "Exited in period" tile is the reconciliation figure with its weighed /
-not-weighed split.
+**Reconciliation note added 2026-09-19.** On live `goatos-stg`, for all parks, 03/08/2026–
+15/09/2026, Sex = Male, General reported `515 = 183 individual + 332 lump`. Feed by weight band
+carried that same reconciliation split, but its table rows are a narrower feed-plan view: on-farm
+matched rows showed `462`, and Include exited showed `506` after row de-dupe, because rows only
+count animals attached to the latest feed rollups/bands under the card's display rules. The tile is
+therefore labeled `Matched animals` and carries `515 total weighed in period` as its subline, so it
+cannot be mistaken for the General-tab denominator.
+
+The "Matched animals" tile dedupes by pen × band × source (a pen with four feed rows counts its
+animals once) and shows the General-tab total weighed as context; the "Exited in period" tile is
+the reconciliation figure with its weighed / not-weighed split.
 
 ### Serving shape and measured latency
 
