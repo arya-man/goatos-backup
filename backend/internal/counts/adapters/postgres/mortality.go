@@ -15,7 +15,7 @@ import (
 )
 
 // Mortality — the Counts leadership read on deaths. Three canonical SQL reads in one
-// batch: the at-risk population with its deaths flagged (every RATE series), the deaths
+// batch: the live population with the window's deaths flagged (every RATE series), the deaths
 // alone sliced by facts about the death (every COUNT series, the months and the cross
 // tabs), and a bounded most-recent list.
 //
@@ -24,15 +24,18 @@ import (
 // aggregation over the tenant's own rows with no per-row fan-out and no page walk; this
 // screen earns its own projection only under that ADR's scale-out ladder.
 
-// projection-review: membership=canonical goats rows for the tenant with merged_into_goat_id IS NULL that overlapped the window -- entry on or before the window end, and no exit before the window start -- so deaths are a strict subset of at_risk in every bucket, including historical windows where an animal was sold after the window; group_key=kid/adult band | management_stage | breed | sex | species | park_id | (shed_id, normalized partition) | load_id, one dimension per UNION branch, each ranging over the SAME per-animal key set as the total branch, with the death flag evaluated per animal BEFORE grouping; join_cardinality=goat_shed_partitions is PK (tenant_id, goat_id) so 1:{0,1}, member is DISTINCT ON goat_id so 1:{0,1}, and locations / procurement_loads are primary-key label lookups AFTER aggregation; pagination=none, every series is a whole-scope rollup; scope=tenant_id plus one optional park equality predicate
+// projection-review: membership=canonical goats rows for the tenant with merged_into_goat_id IS NULL that are either LIVE today (the Counts Breakdown head count) or died on an IST day inside the window, each row flagged live / died so a bucket's animals and its deaths are counted off the same rows; group_key=kid/adult band | management_stage | breed | sex | species | park_id | (shed_id, normalized partition) | load_id, one dimension per UNION branch, each ranging over the SAME per-animal key set as the total branch, with the death flag evaluated per animal BEFORE grouping; join_cardinality=goat_shed_partitions is PK (tenant_id, goat_id) so 1:{0,1}, member is DISTINCT ON goat_id so 1:{0,1}, and locations / procurement_loads are primary-key label lookups AFTER aggregation; pagination=none, every series is a whole-scope rollup; scope=tenant_id plus one optional park equality predicate
 //
 // Expanded rationale:
 //
 //	producer key = goats primary key (tenant_id, goat_id). The CTE emits one row per animal;
 //	               the two LEFT JOINs are each 1:{0,1} by primary key / DISTINCT ON, so no
-//	               animal can appear twice and deaths/at_risk range over identical rows.
-//	ratio keys   = every branch's deaths FILTER and its count(*) range over the same `pop`
-//	               rows, so rate_pct = deaths / at_risk is a ratio of like over like.
+//	               animal can appear twice and deaths/animals range over identical rows.
+//	ratio keys   = every branch's deaths FILTER and its live FILTER range over the same `pop`
+//	               rows grouped by the same attribute, so rate_pct = deaths / animals divides a
+//	               section's deaths by that same section's head count (maintainer decision
+//	               2026-09-18: the denominator is "how many animals are in that section", i.e.
+//	               the live count Counts Breakdown reports, not an at-risk population).
 //	status matrix= died is exit_reason='died' OR (NULL exit_reason AND lifecycle 'dead'), the
 //	               identical predicate Herd Analytics' deaths column uses, so the two Counts
 //	               screens cannot disagree about how many died. Pinned by
@@ -53,6 +56,7 @@ pop AS MATERIALIZED (
     (g.exit_reason = 'died' OR (g.exit_reason IS NULL AND g.lifecycle_status = 'dead'))
       AND COALESCE((g.exited_at AT TIME ZONE 'Asia/Kolkata')::date,
                    (g.updated_at AT TIME ZONE 'Asia/Kolkata')::date) BETWEEN b.from_date AND b.to_date AS died,
+    g.lifecycle_status NOT IN ('dead', 'sold', 'culled', 'transferred', 'lost', 'merged', 'inactive') AS live,
     COALESCE(btrim(g.breed), '')            AS breed,
     COALESCE(btrim(g.management_stage), '') AS stage,
     COALESCE(g.sex, '')                     AS sex,
@@ -71,37 +75,37 @@ pop AS MATERIALIZED (
   WHERE g.tenant_id = $1::uuid
     AND g.merged_into_goat_id IS NULL
     AND ($4 = '' OR g.park_id = NULLIF($4, '')::uuid)
-    AND COALESCE(g.entry_date, g.dob, (g.created_at AT TIME ZONE 'Asia/Kolkata')::date) <= b.to_date
     AND (
       g.lifecycle_status NOT IN ('dead', 'sold', 'culled', 'transferred', 'lost', 'merged', 'inactive')
       OR
-      COALESCE((g.exited_at AT TIME ZONE 'Asia/Kolkata')::date,
-               (g.updated_at AT TIME ZONE 'Asia/Kolkata')::date) >= b.from_date
+      ((g.exit_reason = 'died' OR (g.exit_reason IS NULL AND g.lifecycle_status = 'dead'))
+         AND COALESCE((g.exited_at AT TIME ZONE 'Asia/Kolkata')::date,
+                      (g.updated_at AT TIME ZONE 'Asia/Kolkata')::date) BETWEEN b.from_date AND b.to_date)
     )
 )
 SELECT 'total'::text AS dim, ''::text AS key, ''::text AS label, ''::text AS extra,
-       count(*) FILTER (WHERE died)::bigint AS deaths, count(*)::bigint AS at_risk
+       count(*) FILTER (WHERE died)::bigint AS deaths, count(*) FILTER (WHERE live)::bigint AS animals
   FROM pop
 UNION ALL
 SELECT 'kid_adult', CASE WHEN is_kid THEN 'kid' ELSE 'adult' END, '', '',
-       count(*) FILTER (WHERE died)::bigint, count(*)::bigint
+       count(*) FILTER (WHERE died)::bigint, count(*) FILTER (WHERE live)::bigint
   FROM pop GROUP BY 2
 UNION ALL
-SELECT 'stage', stage, stage, '', count(*) FILTER (WHERE died)::bigint, count(*)::bigint
+SELECT 'stage', stage, stage, '', count(*) FILTER (WHERE died)::bigint, count(*) FILTER (WHERE live)::bigint
   FROM pop GROUP BY stage
 UNION ALL
-SELECT 'breed', breed, breed, '', count(*) FILTER (WHERE died)::bigint, count(*)::bigint
+SELECT 'breed', breed, breed, '', count(*) FILTER (WHERE died)::bigint, count(*) FILTER (WHERE live)::bigint
   FROM pop GROUP BY breed
 UNION ALL
-SELECT 'sex', sex, sex, '', count(*) FILTER (WHERE died)::bigint, count(*)::bigint
+SELECT 'sex', sex, sex, '', count(*) FILTER (WHERE died)::bigint, count(*) FILTER (WHERE live)::bigint
   FROM pop GROUP BY sex
 UNION ALL
-SELECT 'species', species, species, '', count(*) FILTER (WHERE died)::bigint, count(*)::bigint
+SELECT 'species', species, species, '', count(*) FILTER (WHERE died)::bigint, count(*) FILTER (WHERE live)::bigint
   FROM pop GROUP BY species
 UNION ALL
 SELECT 'park', COALESCE(p.park_id::text, ''), COALESCE(NULLIF(loc.location_code, ''), loc.name, ''), '',
-       p.deaths, p.at_risk
-  FROM (SELECT park_id, count(*) FILTER (WHERE died)::bigint AS deaths, count(*)::bigint AS at_risk
+       p.deaths, p.animals
+  FROM (SELECT park_id, count(*) FILTER (WHERE died)::bigint AS deaths, count(*) FILTER (WHERE live)::bigint AS animals
           FROM pop GROUP BY park_id) p
   LEFT JOIN locations loc ON loc.tenant_id = $1::uuid AND loc.location_id = p.park_id
 UNION ALL
@@ -110,11 +114,11 @@ UNION ALL
 -- same-named sheds in different parks never merge (Rule 4), label parts compose in Go.
 SELECT 'pen', COALESCE(p.shed_id::text, '') || ':' || p.partition_key,
        COALESCE(NULLIF(shed.name, ''), shed.location_code, ''), p.partition_label,
-       p.deaths, p.at_risk
+       p.deaths, p.animals
   FROM (SELECT shed_id,
                lower(regexp_replace(partition_label, '[^A-Za-z0-9]+', '', 'g')) AS partition_key,
                min(partition_label) AS partition_label,
-               count(*) FILTER (WHERE died)::bigint AS deaths, count(*)::bigint AS at_risk
+               count(*) FILTER (WHERE died)::bigint AS deaths, count(*) FILTER (WHERE live)::bigint AS animals
           FROM pop
          GROUP BY shed_id, lower(regexp_replace(partition_label, '[^A-Za-z0-9]+', '', 'g'))
         HAVING count(*) FILTER (WHERE died) > 0) p
@@ -124,8 +128,8 @@ SELECT 'load', l.load_key,
        CASE WHEN l.load_key IN ('farm_born', 'no_load') THEN ''
             ELSE COALESCE(NULLIF(pl.context->>'load_ref', ''), to_char(pl.purchase_date, 'DD Mon YYYY'), '') END,
        COALESCE(pl.purchase_date::text, ''),
-       l.deaths, l.at_risk
-  FROM (SELECT load_key, count(*) FILTER (WHERE died)::bigint AS deaths, count(*)::bigint AS at_risk
+       l.deaths, l.animals
+  FROM (SELECT load_key, count(*) FILTER (WHERE died)::bigint AS deaths, count(*) FILTER (WHERE live)::bigint AS animals
           FROM pop GROUP BY load_key
         HAVING count(*) FILTER (WHERE died) > 0 OR load_key IN ('farm_born', 'no_load')) l
   -- The synthetic keys are not uuids, and a bare cast in the ON clause is evaluated for
@@ -415,22 +419,22 @@ func (r *Repository) GetMortality(ctx context.Context, req domain.MortalityQuery
 	}
 	for popRows.Next() {
 		var dim, key, label, extra string
-		var deaths, atRisk int64
-		if err := popRows.Scan(&dim, &key, &label, &extra, &deaths, &atRisk); err != nil {
+		var deaths, animals int64
+		if err := popRows.Scan(&dim, &key, &label, &extra, &deaths, &animals); err != nil {
 			popRows.Close()
 			return domain.Mortality{}, fmt.Errorf("mortality: population scan: %w", err)
 		}
-		bucket := domain.MortalityBucket{Key: key, Label: label, Deaths: deaths, AtRisk: atRisk, RatePct: domain.MortalityRatePct(deaths, atRisk)}
+		bucket := domain.MortalityBucket{Key: key, Label: label, Deaths: deaths, Animals: animals, RatePct: domain.MortalityRatePct(deaths, animals)}
 		switch dim {
 		case "total":
-			out.Totals.Deaths, out.Totals.AtRisk, out.Totals.RatePct = deaths, atRisk, bucket.RatePct
+			out.Totals.Deaths, out.Totals.Animals, out.Totals.RatePct = deaths, animals, bucket.RatePct
 		case "kid_adult":
 			bucket.Label = domain.MortalityKidAdultLabel(key)
 			out.KidAdult = append(out.KidAdult, bucket)
 			if key == "kid" {
-				out.Totals.KidDeaths, out.Totals.KidAtRisk, out.Totals.KidRatePct = deaths, atRisk, bucket.RatePct
+				out.Totals.KidDeaths, out.Totals.KidAnimals, out.Totals.KidRatePct = deaths, animals, bucket.RatePct
 			} else {
-				out.Totals.AdultDeaths, out.Totals.AdultAtRisk, out.Totals.AdultRatePct = deaths, atRisk, bucket.RatePct
+				out.Totals.AdultDeaths, out.Totals.AdultAnimals, out.Totals.AdultRatePct = deaths, animals, bucket.RatePct
 			}
 		case "stage":
 			out.Stage = append(out.Stage, bucket)
@@ -539,7 +543,7 @@ func (r *Repository) GetMortality(ctx context.Context, req domain.MortalityQuery
 		out.DaysSinceArrival = append(out.DaysSinceArrival, domain.MortalityBucket{Key: key, Label: domain.MortalityDaysSinceArrivalLabel(key), Deaths: arrivalCounts[key]})
 		out.DaysSinceVaccine = append(out.DaysSinceVaccine, domain.MortalityBucket{Key: key, Label: domain.MortalityDaysSinceVaccineLabel(key), Deaths: vaccineCounts[key]})
 	}
-	// Rate series: most deaths first, then most at risk, then label, so the chart reads
+	// Rate series: most deaths first, then most animals, then label, so the chart reads
 	// top-down and two equal buckets keep a stable order across reloads.
 	for _, series := range []*[]domain.MortalityBucket{&out.Stage, &out.Breed, &out.Sex, &out.Species, &out.Park, &out.Pen, &out.Load, &out.KidAdult} {
 		sortBuckets(*series)
@@ -614,8 +618,8 @@ func sortBuckets(buckets []domain.MortalityBucket) {
 		if buckets[i].Deaths != buckets[j].Deaths {
 			return buckets[i].Deaths > buckets[j].Deaths
 		}
-		if buckets[i].AtRisk != buckets[j].AtRisk {
-			return buckets[i].AtRisk > buckets[j].AtRisk
+		if buckets[i].Animals != buckets[j].Animals {
+			return buckets[i].Animals > buckets[j].Animals
 		}
 		return buckets[i].Label < buckets[j].Label
 	})

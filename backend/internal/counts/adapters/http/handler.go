@@ -507,7 +507,7 @@ func (h *Handler) GetHerdAnalytics(w http.ResponseWriter, r *http.Request) {
 }
 
 // GetMortality serves the Counts -> Mortality read: deaths in the window sliced by every
-// attribute the animal's row froze at death, beside the at-risk population for the rate
+// attribute the animal's row froze at death, beside each section's live head count for the rate
 // series. The window is validated by the SAME resolver Herd Analytics uses, so the two
 // Counts leadership screens agree on what a default window is and reject the same shapes.
 func (h *Handler) GetMortality(w http.ResponseWriter, r *http.Request) {

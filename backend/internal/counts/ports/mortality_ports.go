@@ -7,8 +7,8 @@ import (
 )
 
 // MortalityRepository serves the Counts -> Mortality read: deaths in a window sliced by
-// every attribute the animal's own row froze at death, beside the at-risk population for
-// the rate series.
+// every attribute the animal's own row froze at death, beside each section's live head count
+// for the rate series.
 //
 // OPTIONAL capability resolved by type assertion, exactly like HerdAnalyticsRepository, so
 // adding it cannot break the fakes implementing Repository across the counts suite. A repo

@@ -411,8 +411,8 @@ load × cause, breed × cause — with a bounded recent-deaths list. It reads
 `GET /counts/mortality`, three canonical indexed SQL statements in one batch
 under the 5k-50k envelope. A death is the SAME row and predicate Herd Analytics
 counts (`exit_reason = 'died'` on the animal's own exit), so the two screens
-cannot disagree, and every RATE divides by the animals of that bucket that were
-on the farm during the window; COUNT series (age, season, cause, days-since)
+cannot disagree, and every RATE divides the window's deaths by the animals in
+that section today (the Counts Breakdown head count); COUNT series (age, season, cause, days-since)
 carry no rate because no denominator exists for a fact about the death alone.
 Every label — bands, seasons, causes, pens, loads — is backend-owned.
 

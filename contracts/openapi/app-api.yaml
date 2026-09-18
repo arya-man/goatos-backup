@@ -12819,8 +12819,8 @@ paths:
         deaths with, so the two screens cannot disagree. Every attribute is read off the animal's
         row as it stood when it died (the exit touches only lifecycle columns). RATE series
         (`kid_adult`, `stage`, `breed`, `sex`, `species`, `park`, `pen`, `load`) carry
-        `at_risk` -- animals of that bucket that were on the farm during the window (alive today
-        with an entry on or before the window end, or exited inside it) -- and `rate_pct`; COUNT
+        `animals` -- the live head count of that bucket today, the same number
+        `/counts/breakdown` reports -- and `rate_pct` = deaths / animals; COUNT
         series (`age_at_death`, `season`, `cause`, `days_since_arrival`,
         `days_since_vaccination`) are facts about the death alone and carry no rate. Cause has
         three disjoint bases: `recorded` (named on the death form), `inferred` (a case open when
@@ -38058,16 +38058,16 @@ components:
           format: date-time
     MortalityBucket:
       description: >-
-        One slice of the deaths. On a RATE series at_risk is the bucket's own denominator and
-        rate_pct is deaths / at_risk (absent when at_risk is zero); on a COUNT series both are
-        zero/absent and a client must not draw a rate. basis is set on the cause series only.
+        One slice of the deaths. On a RATE series animals is the bucket's live head count today
+        and rate_pct is deaths / animals (absent when animals is zero); on a COUNT series both
+        are zero/absent and a client must not draw a rate. basis is set on the cause series only.
       type: object
       additionalProperties: false
       required:
         - key
         - label
         - deaths
-        - at_risk
+        - animals
       properties:
         key:
           type: string
@@ -38076,7 +38076,7 @@ components:
         deaths:
           type: integer
           format: int64
-        at_risk:
+        animals:
           type: integer
           format: int64
         rate_pct:
@@ -38197,11 +38197,11 @@ components:
       additionalProperties: false
       required:
         - deaths
-        - at_risk
+        - animals
         - kid_deaths
-        - kid_at_risk
+        - kid_animals
         - adult_deaths
-        - adult_at_risk
+        - adult_animals
         - first_week_deaths
         - cause_recorded
         - cause_inferred
@@ -38210,7 +38210,7 @@ components:
         deaths:
           type: integer
           format: int64
-        at_risk:
+        animals:
           type: integer
           format: int64
         rate_pct:
@@ -38219,7 +38219,7 @@ components:
         kid_deaths:
           type: integer
           format: int64
-        kid_at_risk:
+        kid_animals:
           type: integer
           format: int64
         kid_rate_pct:
@@ -38228,7 +38228,7 @@ components:
         adult_deaths:
           type: integer
           format: int64
-        adult_at_risk:
+        adult_animals:
           type: integer
           format: int64
         adult_rate_pct:

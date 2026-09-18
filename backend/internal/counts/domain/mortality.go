@@ -18,11 +18,11 @@ import (
 //
 // TWO KINDS OF SERIES, and the payload names which is which:
 //
-//   RATE series carry a denominator. `at_risk` is the animals that were on the farm at any
-//   point in the window -- alive today with an entry date inside or before the window, or
-//   exited during it -- grouped by the SAME attribute the deaths are. A breed with 3 deaths
-//   out of 40 at risk and one with 3 out of 400 read very differently, and the rate is what
-//   separates them. `rate_pct` is deaths / at_risk and is omitted when at_risk is zero.
+//   RATE series carry a denominator. `animals` is how many animals are IN that section today
+//   -- the same live head count Counts Breakdown reports, grouped by the SAME attribute the
+//   deaths are (maintainer decision 2026-09-18: "how many animals there are in that section",
+//   not an at-risk population). A breed with 3 deaths against 40 and one with 3 against 400
+//   read very differently. `rate_pct` is deaths / animals, omitted when a section has no live animal.
 //
 //   COUNT series carry deaths alone. Age at death, season, cause, days since arrival and
 //   days since the last vaccination are facts ABOUT a death and have no living counterpart
@@ -34,16 +34,15 @@ import (
 // MortalityBucket is one slice of the deaths in the window.
 //
 // Key is the raw stored value (empty for an unrecorded one) or a fixed band key the domain
-// labels; Label is what a reader sees. AtRisk and RatePct are set only on RATE series; on a
+// labels; Label is what a reader sees. Animals and RatePct are set only on RATE series; on a
 // COUNT series both are zero and the client must not draw a rate.
 type MortalityBucket struct {
 	Key    string `json:"key"`
 	Label  string `json:"label"`
 	Deaths int64  `json:"deaths"`
-	// AtRisk is the denominator for a rate series: animals of this bucket that were on the
-	// farm during the window (live today, or exited inside the window). Zero on count series.
-	AtRisk int64 `json:"at_risk"`
-	// RatePct is deaths as a percentage of at_risk, nil when there is no denominator.
+	// Animals is the denominator for a rate series: the live animals in this bucket today.
+	Animals int64 `json:"animals"`
+	// RatePct is deaths as a percentage of animals, nil when the bucket holds no live animal.
 	RatePct *float64 `json:"rate_pct,omitempty"`
 	// Basis is set on the CAUSE series only: "recorded" when the death form named the cause,
 	// "inferred" when an older death is attributed from a case that was open when the animal
@@ -101,14 +100,14 @@ type MortalityDeath struct {
 // the series by a client.
 type MortalityTotals struct {
 	Deaths  int64    `json:"deaths"`
-	AtRisk  int64    `json:"at_risk"`
+	Animals int64    `json:"animals"`
 	RatePct *float64 `json:"rate_pct,omitempty"`
 
 	KidDeaths    int64    `json:"kid_deaths"`
-	KidAtRisk    int64    `json:"kid_at_risk"`
+	KidAnimals   int64    `json:"kid_animals"`
 	KidRatePct   *float64 `json:"kid_rate_pct,omitempty"`
 	AdultDeaths  int64    `json:"adult_deaths"`
-	AdultAtRisk  int64    `json:"adult_at_risk"`
+	AdultAnimals int64    `json:"adult_animals"`
 	AdultRatePct *float64 `json:"adult_rate_pct,omitempty"`
 
 	// FirstWeekDeaths is the 0-7 day band alone: the single highest-risk window on any
@@ -129,7 +128,7 @@ type Mortality struct {
 	Totals     MortalityTotals  `json:"totals"`
 	Months     []MortalityMonth `json:"months"`
 
-	// RATE series (deaths beside at-risk, same attribute on both sides).
+	// RATE series (deaths beside live animals, same attribute on both sides).
 	KidAdult []MortalityBucket `json:"kid_adult"`
 	Stage    []MortalityBucket `json:"stage"`
 	Breed    []MortalityBucket `json:"breed"`
@@ -328,14 +327,14 @@ const (
 // or the death predates the field, and both are complete answers.
 const MortalityCauseNoneLabel = "No cause recorded"
 
-// MortalityRatePct returns deaths as a percentage of atRisk, nil when there is nothing to
+// MortalityRatePct returns deaths as a percentage of animals, nil when there is nothing to
 // divide by. One decimal, because "7.5%" is the grain a farm reads a mortality rate at and
 // "7.4999" reads as false precision.
-func MortalityRatePct(deaths, atRisk int64) *float64 {
-	if atRisk <= 0 {
+func MortalityRatePct(deaths, animals int64) *float64 {
+	if animals <= 0 {
 		return nil
 	}
-	pct := float64(deaths) * 100 / float64(atRisk)
+	pct := float64(deaths) * 100 / float64(animals)
 	rounded := float64(int64(pct*10+0.5)) / 10
 	return &rounded
 }

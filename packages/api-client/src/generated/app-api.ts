@@ -4950,7 +4950,7 @@ export interface paths {
         };
         /**
          * Deaths in a window from every angle the farm asks -- stage, age, breed, load, cause, season, pen -- beside the population at risk.
-         * @description The Counts mortality read. A death is the animal's own exit row (`exit_reason = 'died'`, dated the IST day of `exited_at`), the SAME predicate `/counts/herd-analytics` counts deaths with, so the two screens cannot disagree. Every attribute is read off the animal's row as it stood when it died (the exit touches only lifecycle columns). RATE series (`kid_adult`, `stage`, `breed`, `sex`, `species`, `park`, `pen`, `load`) carry `at_risk` -- animals of that bucket that were on the farm during the window (alive today with an entry on or before the window end, or exited inside it) -- and `rate_pct`; COUNT series (`age_at_death`, `season`, `cause`, `days_since_arrival`, `days_since_vaccination`) are facts about the death alone and carry no rate. Cause has three disjoint bases: `recorded` (named on the death form), `inferred` (a case open when the animal died, for deaths before the form carried a cause), `none`. `totals` are whole-window rollups and must never be re-derived from the series. `deaths` is a bounded most-recent list capped at `recent_limit`; nothing above it moves with the cap. Window rules are those of `/counts/herd-analytics`.
+         * @description The Counts mortality read. A death is the animal's own exit row (`exit_reason = 'died'`, dated the IST day of `exited_at`), the SAME predicate `/counts/herd-analytics` counts deaths with, so the two screens cannot disagree. Every attribute is read off the animal's row as it stood when it died (the exit touches only lifecycle columns). RATE series (`kid_adult`, `stage`, `breed`, `sex`, `species`, `park`, `pen`, `load`) carry `animals` -- the live head count of that bucket today, the same number `/counts/breakdown` reports -- and `rate_pct` = deaths / animals; COUNT series (`age_at_death`, `season`, `cause`, `days_since_arrival`, `days_since_vaccination`) are facts about the death alone and carry no rate. Cause has three disjoint bases: `recorded` (named on the death form), `inferred` (a case open when the animal died, for deaths before the form carried a cause), `none`. `totals` are whole-window rollups and must never be re-derived from the series. `deaths` is a bounded most-recent list capped at `recent_limit`; nothing above it moves with the cap. Window rules are those of `/counts/herd-analytics`.
          */
         get: operations["getCountsMortality"];
         put?: never;
@@ -16252,14 +16252,14 @@ export interface components {
             /** Format: date-time */
             generated_at: string;
         };
-        /** @description One slice of the deaths. On a RATE series at_risk is the bucket's own denominator and rate_pct is deaths / at_risk (absent when at_risk is zero); on a COUNT series both are zero/absent and a client must not draw a rate. basis is set on the cause series only. */
+        /** @description One slice of the deaths. On a RATE series animals is the bucket's live head count today and rate_pct is deaths / animals (absent when animals is zero); on a COUNT series both are zero/absent and a client must not draw a rate. basis is set on the cause series only. */
         MortalityBucket: {
             key: string;
             label: string;
             /** Format: int64 */
             deaths: number;
             /** Format: int64 */
-            at_risk: number;
+            animals: number;
             /** Format: double */
             rate_pct?: number;
             /** @enum {string} */
@@ -16314,19 +16314,19 @@ export interface components {
             /** Format: int64 */
             deaths: number;
             /** Format: int64 */
-            at_risk: number;
+            animals: number;
             /** Format: double */
             rate_pct?: number;
             /** Format: int64 */
             kid_deaths: number;
             /** Format: int64 */
-            kid_at_risk: number;
+            kid_animals: number;
             /** Format: double */
             kid_rate_pct?: number;
             /** Format: int64 */
             adult_deaths: number;
             /** Format: int64 */
-            adult_at_risk: number;
+            adult_animals: number;
             /** Format: double */
             adult_rate_pct?: number;
             /** Format: int64 */

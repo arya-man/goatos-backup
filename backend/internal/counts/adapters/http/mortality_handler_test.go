@@ -29,7 +29,7 @@ func TestGetMortalityPassesParkAndWindowThrough(t *testing.T) {
 	rate := 7.5
 	service := &mortalityHandlerService{out: domain.Mortality{
 		WindowFrom: "2026-03-04", WindowTo: "2026-09-17",
-		Totals: domain.MortalityTotals{Deaths: 3, AtRisk: 40, RatePct: &rate, KidDeaths: 2, AdultDeaths: 1},
+		Totals: domain.MortalityTotals{Deaths: 3, Animals: 40, RatePct: &rate, KidDeaths: 2, AdultDeaths: 1},
 	}}
 	handler := NewHandler(service, slog.Default())
 	req := httptest.NewRequest(http.MethodGet, "/counts/mortality?park_id=20000000-0000-4000-8000-000000000001&from=2026-03-04&to=2026-09-17", nil)

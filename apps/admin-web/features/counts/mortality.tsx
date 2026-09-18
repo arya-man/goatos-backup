@@ -26,7 +26,7 @@ import { MortalityTelemetry } from "./mortality-telemetry";
 // Two kinds of series, and the page keeps them visibly apart:
 //
 //   RATE series (kids/adults, stage, breed, sex, species, farm, pen, load) are drawn as a
-//   rate table: deaths, at risk and the rate with a proportional bar, because a breed with
+//   rate table: deaths, animals in the section today and the rate with a proportional bar, because a breed with
 //   3 deaths out of 40 and one with 3 out of 400 must not look alike.
 //
 //   COUNT series (age at death, season, cause, days since arrival, days since vaccination)
@@ -90,7 +90,7 @@ function ChartCard({ title, hint, children }: { title: string; hint: string; chi
 }
 
 /**
- * A RATE series: one row per bucket with deaths, at risk and the rate, plus a bar whose length
+ * A RATE series: one row per bucket with deaths, the section's live animals and the rate, plus a bar whose length
  * is the rate against the series' highest rate. Buckets with no deaths still list (a breed with
  * zero deaths out of 400 is a finding), sorted by the backend — most deaths first.
  */
@@ -98,7 +98,7 @@ function RateTable({
   buckets,
   unassignedLabel,
   deathsLabel,
-  atRiskLabel,
+  animalsLabel,
   rateLabel,
   noRateLabel,
   emptyLabel,
@@ -107,7 +107,7 @@ function RateTable({
   buckets: MortalityBucket[];
   unassignedLabel: string;
   deathsLabel: string;
-  atRiskLabel: string;
+  animalsLabel: string;
   rateLabel: string;
   noRateLabel: string;
   emptyLabel: string;
@@ -130,7 +130,7 @@ function RateTable({
             {deathsLabel}
           </th>
           <th scope="col" className="num">
-            {atRiskLabel}
+            {animalsLabel}
           </th>
           <th scope="col" className="num">
             {rateLabel}
@@ -146,7 +146,7 @@ function RateTable({
             <tr key={bucket.key || "__unassigned"}>
               <th scope="row">{bucket.label || unassignedLabel}</th>
               <td className="num">{bucket.deaths > 0 ? <strong>{nf(bucket.deaths)}</strong> : nf(bucket.deaths)}</td>
-              <td className="num muted">{nf(bucket.at_risk)}</td>
+              <td className="num muted">{nf(bucket.animals)}</td>
               <td className="num">{rate == null ? <span className="muted" title={noRateLabel}>—</span> : pct(rate)}</td>
               <td className="bar">
                 <span className="mortality-rate-bar" style={{ width: `${width}%` }} aria-hidden="true" />
@@ -396,11 +396,11 @@ export async function MortalityPage({
   const totals = data.totals;
   const deathsNoun = mc(pageContract, "label.deaths_noun");
   const emptyChart = mc(pageContract, "chart.empty");
-  const atRiskWord = mc(pageContract, "kpi.at_risk");
+  const animalsWord = mc(pageContract, "kpi.animals");
   const noRate = mc(pageContract, "kpi.no_rate");
   const rateLabels = {
     deathsLabel: mc(pageContract, "series.deaths"),
-    atRiskLabel: mc(pageContract, "kpi.at_risk"),
+    animalsLabel: mc(pageContract, "kpi.animals"),
     rateLabel: mc(pageContract, "series.rate"),
     noRateLabel: noRate,
     emptyLabel: emptyChart,
@@ -419,8 +419,8 @@ export async function MortalityPage({
     { label: mc(pageContract, "series.adults"), colorVar: seriesColorVar(1) },
   ];
   const causeEstablished = totals.cause_recorded + totals.cause_inferred;
-  const rateWithAtRisk = (rate: number | null | undefined, atRisk: number) =>
-    rate == null ? noRate : `${pct(rate)} · ${nf(atRisk)} ${atRiskWord}`;
+  const rateWithAnimals = (rate: number | null | undefined, animals: number) =>
+    rate == null ? noRate : `${pct(rate)} · ${nf(animals)} ${animalsWord}`;
   const nothing = totals.deaths === 0;
   const showParks = data.park.length > 1;
   const showSpecies = data.species.length > 1;
@@ -459,10 +459,10 @@ export async function MortalityPage({
           accent="var(--brand)"
           label={mc(pageContract, "kpi.rate.label")}
           value={pct(totals.rate_pct) ?? "—"}
-          sub={totals.rate_pct == null ? noRate : `${nf(totals.at_risk)} ${atRiskWord} · ${mc(pageContract, "kpi.rate.sub")}`}
+          sub={totals.rate_pct == null ? noRate : `${nf(totals.animals)} ${animalsWord} · ${mc(pageContract, "kpi.rate.sub")}`}
         />
-        <Kpi accent="var(--amber)" label={mc(pageContract, "kpi.kids.label")} value={nf(totals.kid_deaths)} sub={rateWithAtRisk(totals.kid_rate_pct, totals.kid_at_risk)} />
-        <Kpi accent="var(--purple)" label={mc(pageContract, "kpi.adults.label")} value={nf(totals.adult_deaths)} sub={rateWithAtRisk(totals.adult_rate_pct, totals.adult_at_risk)} />
+        <Kpi accent="var(--amber)" label={mc(pageContract, "kpi.kids.label")} value={nf(totals.kid_deaths)} sub={rateWithAnimals(totals.kid_rate_pct, totals.kid_animals)} />
+        <Kpi accent="var(--purple)" label={mc(pageContract, "kpi.adults.label")} value={nf(totals.adult_deaths)} sub={rateWithAnimals(totals.adult_rate_pct, totals.adult_animals)} />
         <Kpi accent="var(--teal)" label={mc(pageContract, "kpi.first_week.label")} value={nf(totals.first_week_deaths)} sub={mc(pageContract, "kpi.first_week.sub")} />
         <Kpi
           accent="var(--info)"

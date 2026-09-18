@@ -618,10 +618,10 @@ func pages() []domain.PageContract {
 		// and the flow table's columns come from this table contract.
 		page("herd-analytics", "/counts/analytics", "/counts/analytics", "Herd Analytics", "Herd composition by breed, pen tag, sex and age, beside month-by-month births, deaths and sales over a chosen window. Composition is the live herd right now; flow is counted off the canonical row that recorded each event.", "module-surface", nil),
 		// Counts -> Mortality. Deaths in a window sliced by everything the animal's own row
-		// froze at death, beside the population at risk for the rate series. No table
+		// froze at death, beside the live head count of each section for the rate series. No table
 		// contract: every mark is drawn from the one /counts/mortality payload and the
 		// recent-deaths list carries its columns in the copy map below.
-		page("counts-mortality", "/counts/mortality", "/counts/mortality", "Mortality", "Deaths over a chosen window from every angle: overall rate, kids and adults, stage, age at death, breed, purchase load, cause, season, pen, sex, and the cross tabs between them. Every rate divides by the animals that were on the farm in that window.", "module-surface",
+		page("counts-mortality", "/counts/mortality", "/counts/mortality", "Mortality", "Deaths over a chosen window from every angle: overall rate, kids and adults, stage, age at death, breed, purchase load, cause, season, pen, sex, and the cross tabs between them. Every rate divides the deaths by the animals in that section today.", "module-surface",
 			[]domain.TableContract{
 				// The bounded most-recent list under the charts. Its columns are this contract's;
 				// the figures above it count the whole window and do not move with its cap.
@@ -5055,9 +5055,10 @@ func pageSpecificCopy(id string) map[string]string {
 	// common -- asked from every angle the farm can ask it. Two kinds of series, and the
 	// copy has to keep them apart:
 	//
-	//   RATE series (kids/adults, stage, breed, sex, farm, pen, load) divide deaths by the
-	//   animals of that same bucket that were on the farm during the window. A bucket with
-	//   3 deaths out of 40 and one with 3 out of 400 read very differently.
+	//   RATE series (kids/adults, stage, breed, sex, farm, pen, load) divide the window's deaths
+	//   by the animals in that same section TODAY -- the Counts Breakdown head count (maintainer
+	//   decision 2026-09-18). A section with 3 deaths against 40 and one with 3 against 400
+	//   read very differently.
 	//
 	//   COUNT series (age at death, season, cause, days since arrival, days since the last
 	//   vaccination) are facts about the death alone and carry no rate; inventing a
@@ -5070,7 +5071,7 @@ func pageSpecificCopy(id string) map[string]string {
 	case "counts-mortality":
 		return map[string]string{
 			"crumb":        "Counts",
-			"banner.basis": "Deaths are counted on the day the animal was recorded dead. Every rate divides by the animals that were on the farm during the window. Breed, sex, stage, pen and load are read as they stood when the animal died.",
+			"banner.basis": "Deaths are counted on the day the animal was recorded dead. Every rate divides the deaths in the window by the animals in that section today. Breed, sex, stage, pen and load are read as they stood when the animal died.",
 
 			"filter.date":                  "Window",
 			"filter.date.today":            "Today",
@@ -5088,7 +5089,7 @@ func pageSpecificCopy(id string) map[string]string {
 			"kpi.deaths.label":     "Deaths",
 			"kpi.deaths.sub":       "Animals recorded dead in the window",
 			"kpi.rate.label":       "Mortality rate",
-			"kpi.rate.sub":         "Deaths as a share of the animals on the farm in the window",
+			"kpi.rate.sub":         "Deaths in the window against the animals in the herd today",
 			"kpi.kids.label":       "Kid deaths",
 			"kpi.kids.sub":         "Kids (K-stage or kid age band) recorded dead, with their rate",
 			"kpi.adults.label":     "Adult deaths",
@@ -5097,8 +5098,8 @@ func pageSpecificCopy(id string) map[string]string {
 			"kpi.first_week.sub":   "The highest-risk window on any goat farm",
 			"kpi.cause.label":      "Cause established",
 			"kpi.cause.sub":        "Deaths with a disease named on the death form or an open case at the time",
-			"kpi.at_risk":          "at risk",
-			"kpi.no_rate":          "No animals on the farm in this window",
+			"kpi.animals":          "animals",
+			"kpi.no_rate":          "No live animals in this section",
 
 			"chart.months.title":    "Deaths by month",
 			"chart.months.hint":     "One point per India calendar month, kids and adults kept apart because their causes differ. A window that starts or ends mid-month leaves that month covering only the days inside it.",
@@ -5117,7 +5118,7 @@ func pageSpecificCopy(id string) map[string]string {
 			"chart.park.title":      "By farm",
 			"chart.park.hint":       "Deaths and rate at each farm",
 			"chart.pen.title":       "By pen",
-			"chart.pen.hint":        "Pens that saw a death, with the rate against that pen's own animals — a single bad pen points at ventilation, drainage or crowding rather than a farm-wide problem",
+			"chart.pen.hint":        "Pens that saw a death, with the rate against the animals in that pen today — a single bad pen points at ventilation, drainage or crowding rather than a farm-wide problem",
 			"chart.load.title":      "By purchase load",
 			"chart.load.hint":       "Deaths and rate per load the animals came in on, beside farm-born animals — a bad batch shows here before it shows anywhere else",
 			"chart.cause.title":     "By cause",
@@ -5133,7 +5134,7 @@ func pageSpecificCopy(id string) map[string]string {
 			"chart.value_aria":      "deaths",
 			"chart.rate_aria":       "mortality rate",
 
-			"section.rates.aria":       "Mortality rate charts",
+			"section.rates.aria":       "Mortality rate tables",
 			"section.counts.aria":      "Death profile charts",
 			"section.cross.aria":       "Cross tabs",
 			"cross.season_stage.title": "Season × stage",
