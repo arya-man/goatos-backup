@@ -129,6 +129,28 @@ func (r *Repository) ValidateAdminGoatCreate(ctx context.Context, cmd ports.Vali
 	} else {
 		out.ShedID = shedID
 	}
+	// Species and sex are codes in the tenant's lookups (migration 000346, editable on
+	// Configuration -> Items and settings). A tenant with no lookup rows at all -- a fixture that
+	// never ran the seed -- still accepts the four built-ins, so the check adds a refusal only
+	// where a farm has actually configured its vocabulary.
+	if cmd.Species != "" {
+		ok, err := r.lookupCodeAllowed(ctx, cmd.TenantID, "species_lookup", "species_code", cmd.Species, []string{"goat", "sheep"})
+		if err != nil {
+			return out, err
+		}
+		if !ok {
+			out.Conflicts = append(out.Conflicts, domain.FieldError{Field: "species", Code: "not_found", Message: "species is not one of the farm's configured species"})
+		}
+	}
+	if cmd.Sex != "" {
+		ok, err := r.lookupCodeAllowed(ctx, cmd.TenantID, "sex_lookup", "sex_code", cmd.Sex, []string{"female", "male"})
+		if err != nil {
+			return out, err
+		}
+		if !ok {
+			out.Conflicts = append(out.Conflicts, domain.FieldError{Field: "sex", Code: "not_found", Message: "sex is not one of the farm's configured sexes"})
+		}
+	}
 	if out.ParkID != "" && out.ShedID != "" {
 		if err := r.ensureShedUnderPark(ctx, cmd.TenantID, out.ShedID, out.ParkID); err != nil {
 			out.Conflicts = append(out.Conflicts, domain.FieldError{Field: "shed_id", Code: "wrong_parent", Message: "shed does not belong to the selected park"})
@@ -1260,4 +1282,31 @@ func uuidArg(value pgtype.UUID) any {
 		return nil
 	}
 	return value.String()
+}
+
+// lookupCodeAllowed reports whether a species / sex code is an active row of the tenant's lookup,
+// or one of the built-ins when the tenant has no lookup rows at all.
+func (r *Repository) lookupCodeAllowed(ctx context.Context, tenantID, table, codeCol, code string, builtins []string) (bool, error) {
+	var ok bool
+	err := r.pool.QueryRow(ctx, fmt.Sprintf(`
+SELECT EXISTS (SELECT 1 FROM %[1]s WHERE tenant_id = $1 AND %[2]s = $2 AND status = 'active')
+    OR (NOT EXISTS (SELECT 1 FROM %[1]s WHERE tenant_id = $1) AND $2 = ANY($3::text[]))`, table, codeCol), tenantID, code, builtins).Scan(&ok)
+	if err != nil {
+		return false, fmt.Errorf("identity: %s lookup: %w", table, err)
+	}
+	return ok, nil
+}
+
+// ReferenceEntryAllowed reports whether a code is an ACTIVE entry of the tenant's reference list
+// (Configuration -> Reference lists, migration 000348). A tenant with no such list at all is
+// treated as unconfigured: only the codes the product names in Go are accepted, which the
+// caller checks before asking.
+func (r *Repository) ReferenceEntryAllowed(ctx context.Context, tenantID, listKey, code string) (bool, error) {
+	var ok bool
+	err := r.pool.QueryRow(ctx, `
+SELECT EXISTS (SELECT 1 FROM reference_list_entries WHERE tenant_id = $1 AND list_key = $2 AND entry_code = $3 AND status = 'active')`, tenantID, listKey, code).Scan(&ok)
+	if err != nil {
+		return false, fmt.Errorf("identity: reference list %s: %w", listKey, err)
+	}
+	return ok, nil
 }

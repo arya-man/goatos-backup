@@ -166,6 +166,9 @@ var modulePages = []ModulePage{
 
 	// Pen routines (2026-09-16): the routines table and the Today table, one page.
 	{Key: "pen-routines", Module: "pen_routines", Label: "Routines", Href: "/routines", Permissions: []string{PenRoutinesRead}},
+
+	// Configuration (2026-09-18): Items and settings, one page carrying every register.
+	{Key: "configuration-items", Module: "configuration", Label: "Items and settings", Href: "/configuration/items", Permissions: []string{ConfigurationRead}},
 }
 
 // moduleRoutePrefixes says which module owns a ROUTE NAMESPACE, for the page contracts
@@ -212,6 +215,7 @@ var moduleRoutePrefixes = map[string]string{
 	"/work-board":                   "work_board",
 	"/alerts":                       "alerts",
 	"/routines":                     "pen_routines",
+	"/configuration":                "configuration",
 }
 
 var modulePageIndex = func() map[string]ModulePage {

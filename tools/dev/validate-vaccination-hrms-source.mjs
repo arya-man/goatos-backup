@@ -225,6 +225,8 @@ export function auditSourceDirectory(directory, { dataAsOf = "2026-07-20" } = {}
   const managerColumns = headerMap(managers[0] ?? []);
   const schemaProblems = [];
   const goatHeader = (goats[0] ?? []).map((value) => String(value).trim());
+  // A species value must be one of the built-in lookup codes (migration 000346): the source
+  // never names a farm-added species, and the seed writes the literals the lookups seed.
   if (!arraysEqual(goatHeader, GOAT_HEADERS) && !arraysEqual(goatHeader, [...GOAT_HEADERS, "species"])) schemaProblems.push("goats.json header/order");
   if (!arraysEqual(vaccination[0] ?? [], VACCINATION_HEADER)) schemaProblems.push("vaccination.json vaccine header/order");
   if (!arraysEqual(vaccination[1] ?? [], VACCINATION_DOSE_HEADER)) schemaProblems.push("vaccination.json dose header/order");

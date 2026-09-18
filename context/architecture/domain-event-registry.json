@@ -2007,6 +2007,11 @@
       "path": "backend/cmd/seed-vaccination-per-goat-qa/main.go",
       "owner": "seed",
       "reason": "idempotent local QA seed for per-goat proof testing; not a production herd mutation writer"
+    },
+    {
+      "path": "backend/internal/configuration/adapters/postgres/stores_animals.go",
+      "owner": "configuration",
+      "reason": "breed RENAME on Configuration -> Breeds keeps the denormalized goats.breed label equal to breeds.canonical_name for the animals already keyed by breed_id; a label sync inside the audited register write, never a lifecycle, location, stage or identity mutation (those stay on identity's producers)"
     }
   ],
   "futureFeatureContracts": [

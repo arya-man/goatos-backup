@@ -172,6 +172,20 @@ func (s *Service) exitGoat(ctx context.Context, input ExitGoatInput, commandName
 	if err := validate(body); err != nil {
 		return nil, err
 	}
+	if !allowedExitReasons[body.ExitReason] {
+		// A farm-added reason must be an ACTIVE entry of the tenant's exit_reasons list.
+		lookup, ok := s.repo.(referenceEntryLookup)
+		if !ok {
+			return nil, BadRequest("invalid_exit_reason", "exit_reason must be one of the farm's exit reasons")
+		}
+		allowed, err := lookup.ReferenceEntryAllowed(ctx, tenantID, "exit_reasons", body.ExitReason)
+		if err != nil {
+			return nil, err
+		}
+		if !allowed {
+			return nil, BadRequest("invalid_exit_reason", "exit_reason must be one of the farm's exit reasons")
+		}
+	}
 	raw, err := json.Marshal(body)
 	if err != nil {
 		return nil, fmt.Errorf("exit goat request normalization failed: %w", err)
@@ -632,14 +646,23 @@ func validateExitGoatCommon(body *domain.ExitGoatRequest) error {
 	if !ok {
 		return BadRequest("invalid_lifecycle_status", "lifecycle_status must be dead, sold, culled, transferred, or lost")
 	}
+	// Exit reasons are the farm's own list since migration 000348 (Configuration -> Items and
+	// settings -> Reference lists). The five built-ins keep their lifecycle pairing; a reason the
+	// farm added is a shape-checked code here and a membership check against the list in
+	// exitGoat, and it may record any exit EXCEPT a death -- a death stays on the guarded path
+	// with its own coded cause.
 	if !allowedExitReasons[body.ExitReason] {
-		return BadRequest("invalid_exit_reason", "exit_reason must be sold, died, culled, transferred, or lost")
+		if !lookupCodePattern.MatchString(body.ExitReason) {
+			return BadRequest("invalid_exit_reason", "exit_reason must be one of the farm's exit reasons")
+		}
+		if body.LifecycleStatus == "dead" {
+			return BadRequest("invalid_exit_reason", "a death is recorded with the exit reason died")
+		}
+	} else if body.ExitReason != expectedReason {
+		return BadRequest("invalid_exit_reason", "exit_reason must match lifecycle_status")
 	}
 	if err := validateExitDeathCause(body); err != nil {
 		return err
-	}
-	if body.ExitReason != expectedReason {
-		return BadRequest("invalid_exit_reason", "exit_reason must match lifecycle_status")
 	}
 	// The written account is REQUIRED on a normal death and OPTIONAL once a disease is
 	// named (maintainer decision 2026-09-05): the coded cause is then the recorded fact,
@@ -810,6 +833,12 @@ func criticalDeathExit(lifecycleStatus, exitReason string) bool {
 // primitive — the fix is the route, not a role escalation.
 func criticalDeathTransitionError() *Error {
 	return GuardrailRequired("critical_death_transition_requires_guardrail", "death exits must use the critical-action guardrail path")
+}
+
+// referenceEntryLookup is the optional repository capability that answers "is this code an
+// active entry of the tenant's reference list" (Configuration -> Reference lists).
+type referenceEntryLookup interface {
+	ReferenceEntryAllowed(ctx context.Context, tenantID, listKey, code string) (bool, error)
 }
 
 var allowedExitReasons = map[string]bool{

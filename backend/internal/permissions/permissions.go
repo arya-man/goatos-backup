@@ -534,6 +534,12 @@ const (
 	PenRoutinesExecute   = "pen_routines.execute"
 	PenRoutinesRead      = "pen_routines.read"
 	PenRoutinesConfigure = "pen_routines.configure"
+	// Configuration -> Items and settings (maintainer instruction 2026-09-18): the farm's
+	// reference lists -- places, animal types, catalogues -- edited on screen instead of seeded.
+	// ConfigurationRead opens /configuration/items and its reads; ConfigurationWrite is every
+	// register write. ceo_internal on the role; anyone else by a per-person tick on /people.
+	ConfigurationRead  = "configuration.read"
+	ConfigurationWrite = "configuration.write"
 	// ClockPresenceRead gates the CROSS-PERSON attendance reads of the Clock
 	// In / Out module (docs/features/clock-in-out/plan.md): the phone Team
 	// presence board (GET /app/clock/presence*) and the admin-web People/HRMS
@@ -1391,6 +1397,8 @@ var rolePermissions = map[string]map[string]struct{}{
 		// what it raised, and -- since routines are assigned by role and CXO is one of those
 		// roles -- works the tasks assigned to it.
 		PenRoutinesRead: {}, PenRoutinesConfigure: {}, PenRoutinesExecute: {},
+		// Configuration (2026-09-18): the CEO floor reads and writes every register.
+		ConfigurationRead: {}, ConfigurationWrite: {},
 		// Work Board (2026-09-10): both parks, every module (the CEO floor).
 		WorkBoardRead: {}, WorkBoardOversee: {},
 		// Alerts (2026-09-16): reads the page and configures the rules (the CEO floor).

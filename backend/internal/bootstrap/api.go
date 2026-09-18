@@ -42,6 +42,9 @@ import (
 	ceoobs "github.com/vgoats/goatos/backend/internal/ceoai/adapters/observability"
 	ceoreadtools "github.com/vgoats/goatos/backend/internal/ceoai/adapters/readtools"
 	"github.com/vgoats/goatos/backend/internal/ceoai/sqlguard"
+	configurationhttp "github.com/vgoats/goatos/backend/internal/configuration/adapters/http"
+	configurationpg "github.com/vgoats/goatos/backend/internal/configuration/adapters/postgres"
+	configurationapp "github.com/vgoats/goatos/backend/internal/configuration/app"
 	countsboard "github.com/vgoats/goatos/backend/internal/counts/adapters/boardsource"
 	countshttp "github.com/vgoats/goatos/backend/internal/counts/adapters/http"
 	countspg "github.com/vgoats/goatos/backend/internal/counts/adapters/postgres"
@@ -920,6 +923,16 @@ func NewAPI(ctx context.Context, cfg Config, log *slog.Logger) (*API, error) {
 		WithProofValidator(penroutinesproof.NewValidator(proofRepo))
 	penRoutinesHandler := penroutineshttp.NewHandler(penRoutinesService, log)
 	penRoutinesAdminHandler := penroutineshttp.NewAdminHandler(penroutinesapp.NewAuthoringService(penRoutinesRepo), log)
+	// Configuration -> Items and settings (2026-09-18): the reference registers, read on
+	// configuration.read and written on configuration.write (route table).
+	configurationRepo := configurationpg.NewRepository(pool, cfg.Postgres.QueryTimeout)
+	configurationService := configurationapp.NewService(configurationRepo)
+	// Bulk sheets (2026-09-18): uploads are staged and validated/applied by an in-process
+	// importer kicked per job; the kernel worker's ConfigurationImportStage finishes any job whose
+	// claim lapsed. Animals sheets ride identity's own bulk pipeline.
+	configurationImporter := configurationapp.NewImporter(configurationService, configurationRepo, identityService, "", log)
+	configurationHandler := configurationhttp.NewHandler(configurationService, log).
+		WithBulk(configurationService, configurationImporter, configurationRepo)
 	workforceService.WithModuleBadges(penroutinesapp.NewModuleBadges(penvisitsapp.NewModuleBadges(leadershipTasksService, penVisitsService), penRoutinesService))
 	// The sales module: its own bounded ledger (sales_*) with a thin service -- a commercial
 	// record with no state machine to orchestrate.
@@ -1438,6 +1451,8 @@ func NewAPI(ctx context.Context, cfg Config, log *slog.Logger) (*API, error) {
 	penvisitshttp.Register(protectedMux, penVisitsHandler)
 	penroutineshttp.Register(protectedMux, penRoutinesHandler)
 	penroutineshttp.RegisterAdmin(protectedMux, penRoutinesAdminHandler)
+	configurationhttp.Register(protectedMux, configurationHandler)
+	configurationhttp.RegisterBulk(protectedMux, configurationHandler)
 	saleshttp.Register(protectedMux, salesHandler)
 	vaccinationhttp.Register(protectedMux, vaccinationHandler)
 	vaccexechttp.Register(protectedMux, vaccExecHandler)
