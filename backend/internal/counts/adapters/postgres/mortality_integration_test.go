@@ -477,3 +477,36 @@ func TestMortalityRecentListPageBoundaryLeavesTotalsUntouched(t *testing.T) {
 		t.Fatalf("first recent row died %s, want %s (most recent first)", mort.Deaths[0].DiedOn, died)
 	}
 }
+
+// THE HISTORICAL DENOMINATOR LOCK. The at-risk denominator is animals that were on the
+// farm at any point in the selected window, not only animals still live today or exited
+// inside that same window. A goat sold after the window was still exposed during the
+// window and must remain in the denominator for historical mortality rates.
+func TestMortalityAtRiskIncludesAnimalsExitedAfterTheWindow(t *testing.T) {
+	ctx := context.Background()
+	repo, pool := newHerdAnalyticsRepo(t, ctx)
+	from, to := "2026-07-01", "2026-07-31"
+
+	insertMortalityGoat(t, ctx, pool, mortalityGoatID(600), "Beetal", "female", "K1", "kid", "2026-07-01", "birth", "died", "2026-07-15")
+	insertMortalityGoat(t, ctx, pool, mortalityGoatID(601), "Beetal", "female", "K1", "kid", "2026-06-01", "birth", "", "")
+	insertMortalityGoat(t, ctx, pool, mortalityGoatID(602), "Beetal", "female", "K1", "kid", "2026-06-01", "procured", "sold", "2026-08-15")
+
+	mort, err := repo.GetMortality(ctx, domain.MortalityQuery{TenantID: countsTenant, FromDate: from, ToDate: to})
+	if err != nil {
+		t.Fatalf("mortality: %v", err)
+	}
+	if mort.Totals.Deaths != 1 {
+		t.Fatalf("deaths=%d want 1", mort.Totals.Deaths)
+	}
+	if mort.Totals.AtRisk != 3 {
+		t.Fatalf("at_risk=%d want 3 (death + live animal + animal sold after the window)", mort.Totals.AtRisk)
+	}
+	if mort.Totals.RatePct == nil || *mort.Totals.RatePct != 33.3 {
+		t.Fatalf("rate=%v want 33.3", mort.Totals.RatePct)
+	}
+	for _, b := range mort.Stage {
+		if b.Key == "K1" && b.AtRisk != 3 {
+			t.Fatalf("K1 bucket %+v, want at_risk=3", b)
+		}
+	}
+}

@@ -24,7 +24,7 @@ import (
 // aggregation over the tenant's own rows with no per-row fan-out and no page walk; this
 // screen earns its own projection only under that ADR's scale-out ladder.
 
-// projection-review: membership=canonical goats rows for the tenant with merged_into_goat_id IS NULL that were ON THE FARM during the window -- not exited with an entry date on or before the window end, OR exited (any reason) on an IST day inside the window -- so deaths are a strict subset of at_risk in every bucket; group_key=kid/adult band | management_stage | breed | sex | species | park_id | (shed_id, normalized partition) | load_id, one dimension per UNION branch, each ranging over the SAME per-animal key set as the total branch, with the death flag evaluated per animal BEFORE grouping; join_cardinality=goat_shed_partitions is PK (tenant_id, goat_id) so 1:{0,1}, member is DISTINCT ON goat_id so 1:{0,1}, and locations / procurement_loads are primary-key label lookups AFTER aggregation; pagination=none, every series is a whole-scope rollup; scope=tenant_id plus one optional park equality predicate
+// projection-review: membership=canonical goats rows for the tenant with merged_into_goat_id IS NULL that overlapped the window -- entry on or before the window end, and no exit before the window start -- so deaths are a strict subset of at_risk in every bucket, including historical windows where an animal was sold after the window; group_key=kid/adult band | management_stage | breed | sex | species | park_id | (shed_id, normalized partition) | load_id, one dimension per UNION branch, each ranging over the SAME per-animal key set as the total branch, with the death flag evaluated per animal BEFORE grouping; join_cardinality=goat_shed_partitions is PK (tenant_id, goat_id) so 1:{0,1}, member is DISTINCT ON goat_id so 1:{0,1}, and locations / procurement_loads are primary-key label lookups AFTER aggregation; pagination=none, every series is a whole-scope rollup; scope=tenant_id plus one optional park equality predicate
 //
 // Expanded rationale:
 //
@@ -71,13 +71,12 @@ pop AS MATERIALIZED (
   WHERE g.tenant_id = $1::uuid
     AND g.merged_into_goat_id IS NULL
     AND ($4 = '' OR g.park_id = NULLIF($4, '')::uuid)
+    AND COALESCE(g.entry_date, g.dob, (g.created_at AT TIME ZONE 'Asia/Kolkata')::date) <= b.to_date
     AND (
-      (g.lifecycle_status NOT IN ('dead', 'sold', 'culled', 'transferred', 'lost', 'merged', 'inactive')
-         AND COALESCE(g.entry_date, g.dob, (g.created_at AT TIME ZONE 'Asia/Kolkata')::date) <= b.to_date)
+      g.lifecycle_status NOT IN ('dead', 'sold', 'culled', 'transferred', 'lost', 'merged', 'inactive')
       OR
-      (g.lifecycle_status IN ('dead', 'sold', 'culled', 'transferred', 'lost')
-         AND COALESCE((g.exited_at AT TIME ZONE 'Asia/Kolkata')::date,
-                      (g.updated_at AT TIME ZONE 'Asia/Kolkata')::date) BETWEEN b.from_date AND b.to_date)
+      COALESCE((g.exited_at AT TIME ZONE 'Asia/Kolkata')::date,
+               (g.updated_at AT TIME ZONE 'Asia/Kolkata')::date) >= b.from_date
     )
 )
 SELECT 'total'::text AS dim, ''::text AS key, ''::text AS label, ''::text AS extra,
