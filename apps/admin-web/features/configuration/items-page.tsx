@@ -167,7 +167,16 @@ export function ItemsPage({ searchParams, pageContract, data }: { searchParams?:
   // Table columns: the display name first, then every column not hidden from the list and not the
   // one the display already shows, then what the row holds, then status.
   const nameKey = register?.columns.find((column) => column.key === "name" || column.key === "label")?.key;
-  const listColumns = (register?.columns ?? []).filter((column) => !column.list_hidden && column.key !== nameKey);
+  // A kind-scoped item column (route, disease, ...) earns its place in the table only when a row
+  // on this page carries a value: seven vaccines beside four empty medicine columns say nothing.
+  const listColumns = (register?.columns ?? []).filter((column) => {
+    if (column.list_hidden || column.key === nameKey) return false;
+    if (!column.kinds || !column.kinds.length) return true;
+    return rows.some((row) => {
+      const value = row.fields[column.key];
+      return value !== null && value !== undefined && value !== "";
+    });
+  });
   const hasCounts = rows.some((row) => row.counts && Object.keys(row.counts).length > 0);
 
   const filterColumns = (register?.filters ?? []).map((key) => register?.columns.find((column) => column.key === key)).filter((column): column is ConfigurationColumn => !!column);
@@ -354,7 +363,7 @@ export function ItemsPage({ searchParams, pageContract, data }: { searchParams?:
         </section>
       </div>
 
-      <LocalOverlayDrawer items={drawerItems} selectionKey={PARAM_EDIT} initialSelectedId={one(sp, PARAM_EDIT)} closeHref={listHref} ariaLabel={register?.label ?? c("crumb")} closeLabel={c("action.cancel")} />
+      <LocalOverlayDrawer items={drawerItems} selectionKey={PARAM_EDIT} initialSelectedId={one(sp, PARAM_EDIT)} closeHref={listHref} ariaLabel={register?.label ?? c("crumb")} closeLabel={c("action.close")} />
     </div>
   );
 }

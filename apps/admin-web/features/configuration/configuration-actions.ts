@@ -41,8 +41,6 @@ export type ConfigurationActionState = {
   ticket: number;
 };
 
-export const INITIAL_ACTION_STATE: ConfigurationActionState = { status: "idle", code: "", detail: "", fields: {}, ticket: 0 };
-
 function outcome(previous: ConfigurationActionState, result: ApiResult<unknown>, successCode = "success_message"): ConfigurationActionState {
   const ticket = previous.ticket + 1;
   if (!result.ok) {

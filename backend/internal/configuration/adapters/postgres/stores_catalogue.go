@@ -271,7 +271,9 @@ func (categoryStore) del(ctx context.Context, tx pgx.Tx, t, id string, rv int) e
 
 // ---------------------------------------------------------------------------------------------
 // Items: inventory_items, with the kind-specific facts in its context jsonb and, for a vaccine,
-// mirrored onto the vaccines detail row the vaccination module reads.
+// mirrored onto the vaccines detail row the vaccination module reads. On read the vaccines row
+// wins for the four facts it carries, so a vaccine seeded before this screen existed shows its
+// disease and doses without a rewrite.
 
 type itemStore struct{}
 
@@ -295,11 +297,13 @@ SELECT i.item_id::text AS id,
        i.row_version,
        false AS is_builtin,
        jsonb_build_object('name', i.name, 'category_id', i.category_id::text, 'code', i.item_code, 'unit', i.base_unit, 'kind', i.category)
-         || COALESCE((SELECT jsonb_object_agg(e.key, e.value) FROM jsonb_each(i.context) e WHERE e.key IN (__CONTEXT_KEYS__)), '{}'::jsonb) AS fields,
+         || COALESCE((SELECT jsonb_object_agg(e.key, e.value) FROM jsonb_each(i.context) e WHERE e.key IN (__CONTEXT_KEYS__)), '{}'::jsonb)
+         || COALESCE(jsonb_strip_nulls(jsonb_build_object('disease', v.disease, 'manufacturer', v.manufacturer, 'doses_per_vial', v.doses_per_vial, 'withdrawal_days', v.withdrawal_days)), '{}'::jsonb) AS fields,
        jsonb_strip_nulls(jsonb_build_object('category_id', cp.path)) AS labels,
        jsonb_build_object('stock_lots', (SELECT count(*) FROM inventory_stock s WHERE s.tenant_id = i.tenant_id AND s.item_id = i.item_id AND s.status = 'active')) AS counts,
        lower(i.name) AS sort_key
 FROM inventory_items i
+LEFT JOIN vaccines v ON v.tenant_id = i.tenant_id AND v.item_id = i.item_id
 LEFT JOIN LATERAL (
   WITH RECURSIVE up AS (
     SELECT c.category_id, c.parent_category_id, c.name::text AS path, 1 AS depth FROM item_categories c WHERE c.tenant_id = i.tenant_id AND c.category_id = i.category_id

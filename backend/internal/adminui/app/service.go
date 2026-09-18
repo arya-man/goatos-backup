@@ -2127,6 +2127,7 @@ func pageSpecificCopy(id string) map[string]string {
 			"action.delete":                "Delete",
 			"action.save":                  "Save",
 			"action.cancel":                "Cancel",
+			"action.close":                 "Close",
 			"action.edit_elsewhere":        "Edit in",
 			"action.success_message":       "Saved.",
 			"action.deleted_message":       "Deleted.",

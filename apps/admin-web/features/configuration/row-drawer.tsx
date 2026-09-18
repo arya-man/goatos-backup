@@ -6,7 +6,7 @@ import { currentHistoryEntryIsLocalOverlay, replaceLocalOverlayUrl } from "@/com
 import { Tag } from "@/components/ui-primitives";
 import { copy, type AdminUiPageContract } from "@/lib/admin-ui-contract";
 import type { ConfigurationColumn, ConfigurationRefOption, ConfigurationRegister, ConfigurationRow } from "@/lib/api/configuration-server";
-import { createRowAction, deleteRowAction, INITIAL_ACTION_STATE, setRowStatusAction, updateRowAction, type ConfigurationActionState } from "./configuration-actions";
+import { createRowAction, deleteRowAction, setRowStatusAction, updateRowAction, type ConfigurationActionState } from "./configuration-actions";
 
 /**
  * The register row drawer: ONE form rendered from the register DEFINITION -- an input per column,
@@ -23,6 +23,9 @@ import { createRowAction, deleteRowAction, INITIAL_ACTION_STATE, setRowStatusAct
  */
 
 type Draft = Record<string, string | boolean>;
+
+// A "use server" module may export only async functions, so the idle state lives here.
+const INITIAL_ACTION_STATE: ConfigurationActionState = { status: "idle", code: "", detail: "", fields: {}, ticket: 0 };
 
 /** Closes the overlay the same way the drawer's own X does: Back when the entry is local, else replace. */
 function closeOverlay(listHref: string): void {
@@ -209,7 +212,9 @@ export function RowDrawerForm({
               control = <input id={id} type="number" inputMode={column.integer ? "numeric" : "decimal"} step={column.integer ? 1 : "any"} min={column.min ?? undefined} value={String(value ?? "")} onChange={(e) => update(column.key, e.target.value)} readOnly={disabled} required={column.required} />;
               break;
             default:
-              control = <input id={id} type="text" value={String(value ?? "")} onChange={(e) => update(column.key, e.target.value)} readOnly={disabled} required={column.required} maxLength={500} />;
+              // An immutable column (a code) is DISABLED on edit, not merely read-only, so it reads
+              // as fixed; the draft still carries its stored value and changedFields never sends it.
+              control = <input id={id} type="text" value={String(value ?? "")} onChange={(e) => update(column.key, e.target.value)} readOnly={readOnly} disabled={column.immutable && isEdit} required={column.required} maxLength={500} />;
           }
           return (
             <div className="fld" key={column.key}>
