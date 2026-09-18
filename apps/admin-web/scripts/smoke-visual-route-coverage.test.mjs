@@ -83,6 +83,7 @@ test("visual smoke visits every live sidebar navigation leaf", () => {
     ["weighing-sops", "/weighing/sops?scope_mode=company"],
     ["weighing-weights", "/weighing/weights?scope_mode=company"],
     ["counts-analytics", "/counts/analytics?scope_mode=company"],
+    ["counts-mortality", "/counts/mortality?scope_mode=company"],
     ["counts-breakdown", "/counts/breakdown?scope_mode=company"],
     ["counts-sops", "/counts/sops?scope_mode=company"],
     ["counts-sops-builder", "/counts/sops?compose=1&scope_mode=company"],

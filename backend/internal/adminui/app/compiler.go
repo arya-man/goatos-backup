@@ -2200,7 +2200,7 @@ func permissionsForNav(id string) []string {
 	// nine of them across four real people. Each gate below is the permission that leaf's
 	// OWN data route already requires (permissions/routes.go), so the leaf is offered
 	// exactly when it can be opened.
-	case "counts-herd-analytics", "milk-preparation", "counts-breakdown":
+	case "counts-herd-analytics", "milk-preparation", "counts-breakdown", "counts-mortality":
 		// counts.read, which is what these three screens' own data routes require. Counts
 		// Breakdown was gated on goat.read while /counts/breakdown checks counts.read, so it
 		// rendered for three real people and 403'd when they opened it. Counts is a

@@ -86,3 +86,20 @@ func (s *DeathCauseCatalogService) build() {
 	}
 	s.catalog = domain.BuildDeathCauseCatalog(rules, versions)
 }
+
+// LabelDeathCause resolves a stored cause key to the farm's word for the disease, for the
+// Counts -> Mortality read. A register rule is looked up in the catalog; a treatment-card
+// key (the pre-engine vocabulary the dropdown never offers) is humanised from the key
+// itself, because no register names it. An unknown key is returned humanised
+// rather than blank, so a cause recorded under a rule the register has since retired still
+// shows on the mortality board instead of vanishing into "no cause".
+func (s *DeathCauseCatalogService) LabelDeathCause(ctx context.Context, key string) string {
+	if catalog, err := s.Catalog(ctx); err == nil {
+		for _, option := range catalog.Options {
+			if option.Key == key {
+				return option.Label
+			}
+		}
+	}
+	return domain.DeathCauseLabel(key)
+}

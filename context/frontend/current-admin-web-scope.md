@@ -374,10 +374,11 @@ UX. Exact backend filters may live in URL params and active chips for entity
 history links. These dependencies must use current GoatOS contracts, canonical
 Postgres truth, generated clients, and the mock. They must not revive old
 dashboard/admin code, old `/herd`, legacy Counting DB runtime shapes, old
-import-review, or old Operations. The Counts sidebar shows exactly two leaves in
-this slice — `Herd Analytics` (`/counts/analytics`) and `Counts Breakdown`
-(`/counts/breakdown`). Do not show disabled `Tagging & identity`, `Weights &
-ADG`, or `Count reconciliation` leaves for mock fidelity.
+import-review, or old Operations. The Counts sidebar shows exactly three read
+leaves in this slice — `Herd Analytics` (`/counts/analytics`), `Counts
+Breakdown` (`/counts/breakdown`) and `Mortality` (`/counts/mortality`) — plus
+the Herd Operations SOP leaf. Do not show disabled `Tagging & identity`,
+`Weights & ADG`, or `Count reconciliation` leaves for mock fidelity.
 
 `Herd Register` (`/counts/herd`) is HIDDEN from the sidebar (maintainer decision
 2026-08-20), the same way `Feed Packing` is hidden under Feed: the page, its
@@ -396,6 +397,24 @@ indexed SQL round trip under the 5k-50k envelope — not a projection table. Its
 composition population is byte-for-byte the one `/counts/breakdown` reports, so
 the two Counts screens can never disagree about the denominator, and every
 figure on the page is backend-owned: the renderer derives no count of its own.
+
+`Mortality` (`/counts/mortality`) was opened by maintainer request (2026-09-18)
+as the Counts mortality read. It asks one question from every angle the farm can
+ask it: total deaths and mortality rate; kids against adults; the stage the
+animal carried when it died (pregnant, non-pregnant, fattening, bucks, K0–K4);
+age at death (0–7 days, 8–30, 1–3 months, …); breed; purchase load beside farm
+born; cause (the disease named on the death form, an inferred open case for
+older deaths, or no cause recorded); season (summer / monsoon / post-monsoon /
+winter on the IST death date); pen; sex; species; farm; days on the farm before
+death; days since the last vaccination; and three cross tabs — season × stage,
+load × cause, breed × cause — with a bounded recent-deaths list. It reads
+`GET /counts/mortality`, three canonical indexed SQL statements in one batch
+under the 5k-50k envelope. A death is the SAME row and predicate Herd Analytics
+counts (`exit_reason = 'died'` on the animal's own exit), so the two screens
+cannot disagree, and every RATE divides by the animals of that bucket that were
+on the farm during the window; COUNT series (age, season, cause, days-since)
+carry no rate because no denominator exists for a fact about the death alone.
+Every label — bands, seasons, causes, pens, loads — is backend-owned.
 
 `Milk` is its own sidebar group (maintainer decision 2026-08-11), holding
 `Milk Preparation` (`/counts/milk-preparation`). It was moved out of the Counts
@@ -494,6 +513,7 @@ These are the only current implemented admin-web product routes:
 /counts/herd               Herd Register for vaccination trigger closure (route live, nav leaf withheld)
 /counts/analytics          Herd Analytics: composition now, movement by month
 /counts/breakdown          Counts Breakdown census
+/counts/mortality          Mortality: deaths by stage, age, breed, load, cause, season, pen
 /counts/milk-preparation   Current milk preparation worklist
 /operations/audit          Admin / Data Ops Audit Log (business surface)
 /config

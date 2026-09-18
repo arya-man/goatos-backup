@@ -53,6 +53,10 @@ export type HerdAnalyticsSeriesPoint =
   AppApiComponents["schemas"]["HerdAnalyticsSeriesPoint"];
 export type HerdAnalyticsMonth =
   AppApiComponents["schemas"]["HerdAnalyticsMonth"];
+export type MortalityResponse = AppApiComponents["schemas"]["MortalityResponse"];
+export type MortalityBucket = AppApiComponents["schemas"]["MortalityBucket"];
+export type MortalityCrossCell = AppApiComponents["schemas"]["MortalityCrossCell"];
+export type MortalityDeath = AppApiComponents["schemas"]["MortalityDeath"];
 export type CountsBreakdownRow =
   AppApiComponents["schemas"]["CountsBreakdownRow"];
 export type CountsBreakdownSeriesPoint =
@@ -1034,6 +1038,28 @@ export async function getHerdAnalytics(params: {
   const client = createAppApiClient(apiClientOptions(config.data));
   return request(() =>
     client.request<HerdAnalyticsResponse>("/counts/herd-analytics", {
+      cache: "no-store",
+      query: compactQuery(params),
+    }),
+  );
+}
+
+/**
+ * Counts -> Mortality. ONE call serves the whole screen: totals, every rate and count series,
+ * the three cross tabs and the bounded recent list. `totals` is a WHOLE-WINDOW aggregate and
+ * must never be re-derived by summing a series or counting the capped `deaths` list.
+ */
+export async function getCountsMortality(params: {
+  park_id?: string;
+  /** Inclusive IST business-day bounds, "YYYY-MM-DD". Both or neither. */
+  from?: string;
+  to?: string;
+}): Promise<ApiResult<MortalityResponse>> {
+  const config = await getServerConfig();
+  if (!config.ok) return config;
+  const client = createAppApiClient(apiClientOptions(config.data));
+  return request(() =>
+    client.request<MortalityResponse>("/counts/mortality", {
       cache: "no-store",
       query: compactQuery(params),
     }),

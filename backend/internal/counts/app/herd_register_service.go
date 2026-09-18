@@ -31,7 +31,11 @@ type HerdRegisterService struct {
 	// fake implementing ports.Repository. Without it, GetHerdAnalytics fails closed with
 	// ErrHerdAnalyticsUnavailable. See herd_analytics.go.
 	herdAnalytics ports.HerdAnalyticsRepository
-	now           func() time.Time
+	// mortality is the OPTIONAL reader behind Counts -> Mortality, same type-assertion
+	// shape; deathCauses is Health's vocabulary for naming a recorded cause. See mortality.go.
+	mortality   ports.MortalityRepository
+	deathCauses ports.DeathCauseLabeler
+	now         func() time.Time
 }
 
 // NewHerdRegisterService creates a new herd register service.
@@ -48,6 +52,9 @@ func NewHerdRegisterService(repo ports.Repository) *HerdRegisterService {
 	}
 	if store, ok := repo.(ports.HerdAnalyticsRepository); ok {
 		service.herdAnalytics = store
+	}
+	if store, ok := repo.(ports.MortalityRepository); ok {
+		service.mortality = store
 	}
 	return service
 }

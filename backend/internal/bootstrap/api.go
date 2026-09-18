@@ -641,9 +641,16 @@ func NewAPI(ctx context.Context, cfg Config, log *slog.Logger) (*API, error) {
 	countsRepo := countspg.NewRepository(pool, cfg.Postgres.QueryTimeout)
 	countsService := countsapp.NewService(countsRepo)
 	countsProofValidator := countsproof.NewValidator(proofRepo)
+	// The cause-of-death vocabulary: the diagnosis register, folded once into a searchable
+	// list. It is the death form's dropdown AND the check that refuses a cause the register
+	// does not name — one source, so the list an operator picks from and the list the
+	// server accepts cannot drift apart. Built here, ahead of Health's own wiring below,
+	// because Counts -> Mortality also reads it to NAME a recorded cause.
+	healthDeathCauseService := healthapp.NewDeathCauseCatalogService()
 	herdRegisterService := countsapp.NewHerdRegisterService(countsRepo).
 		WithMilkPreparationProofValidator(countsProofValidator).
-		WithMilkFeedingProofValidator(countsProofValidator)
+		WithMilkFeedingProofValidator(countsProofValidator).
+		WithDeathCauseLabeler(healthDeathCauseService)
 	herdRegisterHandler := countshttp.NewHandler(herdRegisterService, log)
 	// App-tier Counts writes (shifting/birth/death) + the lifecycle approval workflow.
 	//
@@ -696,11 +703,6 @@ func NewAPI(ctx context.Context, cfg Config, log *slog.Logger) (*API, error) {
 	// service opens no case and completes no session.
 	healthAnalyticsService := healthapp.NewAnalyticsService(healthRepo)
 	healthAnalyticsHandler := healthhttp.NewAnalyticsHandler(healthAnalyticsService, log)
-	// The cause-of-death vocabulary: the diagnosis register, folded once into a searchable
-	// list. It is the death form's dropdown AND the check that refuses a cause the register
-	// does not name — one source, so the list an operator picks from and the list the
-	// server accepts cannot drift apart.
-	healthDeathCauseService := healthapp.NewDeathCauseCatalogService()
 	healthDeathCauseHandler := healthhttp.NewDeathCauseHandler(healthDeathCauseService, log)
 	countsApprovalRepo := countspg.NewRepository(pool, cfg.Postgres.QueryTimeout).
 		WithIdentityTxWriter(identityRepo).

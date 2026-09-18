@@ -185,6 +185,7 @@ function buildRoutes({ goatId, procurementLoadId, workflowRowId, calendarEventId
     { name: "counts-sops-builder", path: "/counts/sops?compose=1&scope_mode=company" },
     { name: "counts-herd", path: "/counts/herd?scope_mode=company" },
     { name: "counts-analytics", path: "/counts/analytics?scope_mode=company" },
+    { name: "counts-mortality", path: "/counts/mortality?scope_mode=company" },
     { name: "counts-breakdown", path: "/counts/breakdown?scope_mode=company" },
     { name: "counts-milk-preparation", path: "/counts/milk-preparation?scope_mode=company" },
     { name: "milk-sops", path: "/milk/sops?scope_mode=company" },

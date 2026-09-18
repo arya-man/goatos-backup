@@ -13,4 +13,5 @@ export { HerdPassportLocalDrawer, type HerdPassportDrawerItem } from "./herd-pas
 export { HerdPassportVaccinationBlock } from "./herd-passport-vaccination";
 export { CountsBreakdownPage } from "./counts-breakdown";
 export { HerdAnalyticsPage } from "./herd-analytics";
+export { MortalityPage } from "./mortality";
 export { MilkPreparationPage } from "./milk-preparation";
