@@ -3324,12 +3324,11 @@ select:disabled { opacity: .45; }
 /* Dense rows (visual judge 2026-09-18): breed and feed are the long cells. Breed ellipsizes at
    one line with the full text on hover; feed ellipsizes at one line too, so every row is one
    line tall like the sibling tables. Both carry title= for the full value. */
-.wt-feedband .wt-feedband-feed{display:block;overflow:hidden;white-space:nowrap;text-overflow:ellipsis;min-width:96px;max-width:15ch;color:var(--muted);font-size:12px;line-height:1.3}
+.wt-feedband .wt-feedband-feed{display:block;overflow:hidden;white-space:nowrap;text-overflow:ellipsis;min-width:90px;max-width:13ch;color:var(--muted);font-size:12px;line-height:1.3}
 .wt-feedband td.wt-feedband-wrap{white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:90px}
 /* Pen and group ellipsize at one line too, so twelve columns fit a 1280 laptop (visual judge). */
 .wt-feedband td.wt-feedband-clip{white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:100px}
 .wt-feedband td,.wt-feedband th{padding-left:4px;padding-right:4px}
-.wt-feedband .wt-feedband-gone{white-space:normal;max-width:9ch}
 /* "+N sold" under the head count: the artifact's small amber note, in the theme's amber. A link
    when it opens the panel, the same words when there is nothing to open. */
 .wt-feedband .wt-feedband-gone{display:block;white-space:nowrap;font-size:11px;line-height:1.3;color:var(--amber);text-decoration:none}
