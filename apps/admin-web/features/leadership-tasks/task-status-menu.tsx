@@ -55,7 +55,13 @@ export function TaskStatusMenu({
   const [open, setOpen] = useState(false);
   const [pending, startTransition] = useTransition();
   const [refusal, setRefusal] = useState<string>("");
-  const close = useCallback(() => setOpen(false), []);
+  // The cancel confirm is IN the menu (the console's own control), never the browser's
+  // `window.confirm` dialog -- "127.0.0.1 says" is not a thing the CEO should read (2026-09-18).
+  const [confirmingCancel, setConfirmingCancel] = useState(false);
+  const close = useCallback(() => {
+    setOpen(false);
+    setConfirmingCancel(false);
+  }, []);
   const ref = useOutsideClose(open, close);
   const formRef = useRef<HTMLFormElement>(null);
   const keyRef = useRef<HTMLInputElement>(null);
@@ -67,10 +73,6 @@ export function TaskStatusMenu({
   const cancelConfirm = copy(pageContract, "status.cancel_confirm", "Cancel this task? It cannot be reopened afterwards.");
 
   const submit = (key: string) => {
-    if (key === "cancelled" && !window.confirm(cancelConfirm)) {
-      close();
-      return;
-    }
     if (statusRef.current) statusRef.current.value = key;
     if (keyRef.current) {
       keyRef.current.value = `admin-web-leadership-task-status:${task.id}:${key}:${crypto.randomUUID()}`;
@@ -166,12 +168,25 @@ export function TaskStatusMenu({
               {option.label}
             </button>
           ))}
-          {cancel ? (
+          {cancel && !confirmingCancel ? (
             <div className={moves.length ? "foot ltd-status-foot" : "ltd-status-foot"}>
-              <button type="button" role="menuitem" className="opt ltd-opt-danger" onClick={() => submit(cancel.key)}>
+              <button type="button" role="menuitem" className="opt ltd-opt-danger" onClick={() => setConfirmingCancel(true)}>
                 <XCircle className="ic" aria-hidden="true" />
                 {cancel.label}
               </button>
+            </div>
+          ) : null}
+          {cancel && confirmingCancel ? (
+            <div className={`${moves.length ? "foot " : ""}ltd-status-foot ltd-cancel-confirm`} role="group" aria-label={cancel.label}>
+              <p className="ltd-cancel-confirm-copy">{cancelConfirm}</p>
+              <div className="ltd-cancel-confirm-actions">
+                <button type="button" className="btn dng sm" onClick={() => submit(cancel.key)}>
+                  {copy(pageContract, "status.cancel_yes", "Yes, cancel task")}
+                </button>
+                <button type="button" className="btn ghost sm" onClick={() => setConfirmingCancel(false)}>
+                  {copy(pageContract, "status.cancel_no", "Keep task")}
+                </button>
+              </div>
             </div>
           ) : null}
         </div>
@@ -188,7 +203,10 @@ function useOutsideClose(open: boolean, close: () => void) {
   const ref = useRef<HTMLDivElement>(null);
   useEffect(() => {
     if (!open) return;
-    const onDoc = (event: MouseEvent) => {
+    // On POINTERDOWN, not click: by the time a click bubbles to the document the button that
+    // was pressed may already be gone from the DOM (the cancel item re-renders into its
+    // confirm), and `contains()` then reads a press INSIDE the menu as one outside it.
+    const onDoc = (event: PointerEvent) => {
       if (ref.current && !ref.current.contains(event.target as Node)) close();
     };
     const onKey = (event: KeyboardEvent) => {
@@ -197,10 +215,10 @@ function useOutsideClose(open: boolean, close: () => void) {
       close();
       ref.current?.querySelector<HTMLElement>("[aria-expanded]")?.focus();
     };
-    document.addEventListener("click", onDoc);
+    document.addEventListener("pointerdown", onDoc);
     document.addEventListener("keydown", onKey, true);
     return () => {
-      document.removeEventListener("click", onDoc);
+      document.removeEventListener("pointerdown", onDoc);
       document.removeEventListener("keydown", onKey, true);
     };
   }, [open, close]);

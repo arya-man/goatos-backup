@@ -31,6 +31,12 @@
 //                               is a form post that `redirect()`s. Not both.
 //                               (`features/leadership-tasks/actions.ts` -> changeLeadershipTaskStatusInPlaceAction)
 //
+//   native-dialog               `window.confirm(` / `window.alert(` / `window.prompt(` (or bare
+//                               `confirm(` etc.): the browser's "127.0.0.1 says" box in the middle
+//                               of the console. A confirm is an in-place control -- two buttons
+//                               where the action was -- or the console's own modal
+//                               (`features/leadership-tasks/task-status-menu.tsx`, cancel).
+//
 //   view-toggle-navigation      a `<Link>` / `<a>` whose href carries a `view=` / `_view=` query
 //                               param: Board <-> List, Table <-> Cards -- two renderings of rows the
 //                               page already holds, swapped by re-running the route. A view toggle is
@@ -118,6 +124,7 @@ const CHECKED_ATTR_TAG = /<([a-zA-Z][\w.]*)\b[^>]*?(?:\brole\s*=\s*["'](?:checkb
 const REVALIDATE = /\brevalidate(?:Path|Tag)\s*\(/g;
 const OBJECT_RETURN = /\breturn\s*\{/;
 const FUNCTION_HEAD = /(?:^|\n)\s*(?:export\s+)?(?:async\s+)?function\s+([A-Za-z0-9_$]+)\s*\(/g;
+const NATIVE_DIALOG = /(?:\bwindow\.|(?<![\w.$]))(?:confirm|alert|prompt)\(/g;
 const VIEW_HREF_TAG = /<(?:Link|a)\b[^>]*?\bhref\s*=\s*(?:["'`][^"'`]*?[?&_]view=[^"'`]*["'`]|\{[^}]*?[?&_]view=[^}]*\})/g;
 
 function scanNativeDateInputs(rel, text, lines) {
@@ -161,6 +168,17 @@ function scanReturningRevalidate(rel, text, lines) {
   return out;
 }
 
+function scanNativeDialogs(rel, text, lines) {
+  const out = [];
+  for (const m of text.matchAll(NATIVE_DIALOG)) {
+    const line = lineOf(text, m.index);
+    if (ignoredAt(lines, line)) continue;
+    // A method named confirm on our own object (`dialog.confirm(`) is excluded by the lookbehind.
+    out.push({ file: rel, line, rule: "native-dialog", detail: "browser dialog (confirm/alert/prompt); use an in-place confirm or the console's own modal" });
+  }
+  return out;
+}
+
 function scanViewToggleNavigation(rel, text, lines) {
   const out = [];
   for (const m of text.matchAll(VIEW_HREF_TAG)) {
@@ -178,6 +196,7 @@ function scanText(rel, text) {
     ...scanFakeCheckboxes(rel, text, lines),
     ...scanReturningRevalidate(rel, text, lines),
     ...scanViewToggleNavigation(rel, text, lines),
+    ...scanNativeDialogs(rel, text, lines),
   ];
 }
 
@@ -270,6 +289,12 @@ function selfTest() {
     ['"use server";\nexport async function a() {\n  redirect("/");\n}\nexport async function b() {\n  revalidateTag("t");\n  return { ok: false };\n}', ["revalidate-in-returning-action"]],
     // not a server module: no finding
     ['export async function saveAction(f) {\n  revalidatePath("/x");\n  return { ok: true };\n}', []],
+    // native-dialog
+    ['if (!window.confirm(copy)) return;', ["native-dialog"]],
+    ["alert('saved')", ["native-dialog"]],
+    ['const ok = confirm("Sure?");', ["native-dialog"]],
+    ['await dialog.confirm({ title })', []],
+    ['const confirmingCancel = true; setConfirmingCancel(false)', []],
     // view-toggle-navigation
     ['<Link href="/tasks?scope=x&view=list">List</Link>', ["view-toggle-navigation"]],
     ['<a href={`/tasks?t_view=${next}`}>Board</a>', ["view-toggle-navigation"]],

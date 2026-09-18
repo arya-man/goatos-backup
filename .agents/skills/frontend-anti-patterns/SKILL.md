@@ -115,7 +115,8 @@ chapters below; do not review from the summary.
   `task-row-store.ts`, `task-view-switch.tsx`.
 - **Controls are the console's own:** a tick is a real `<input type="checkbox">`
   in a `<label>` (never a coloured square or `aria-checked` button); a date is
-  `ThemedDatePicker` (never `<input type="date">`).
+  `ThemedDatePicker` (never `<input type="date">`); a confirm is two buttons in
+  place (never `window.confirm`).
 - **Public write surfaces:** re-authenticate, authorize, validate, and preserve a
   stable idempotency key inside every Server Action/Route Handler; page auth and
   a disabled button are not security boundaries.

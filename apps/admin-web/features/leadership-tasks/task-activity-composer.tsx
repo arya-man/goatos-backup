@@ -75,6 +75,15 @@ export function TaskActivityComposer({
     activity: LeadershipTaskActivity[];
     notes: TaskRow["notes"];
   }>({ activity: task.activity, notes: task.notes });
+  // The row moves under the composer too: a status change in the same drawer returns the task
+  // with its new history row, published to the row store and handed down as `task`. Follow it
+  // (derived-state form, keyed on the version fence) so the feed shows the move without a
+  // route render -- the CEO changed a status and the feed did not list it (2026-09-18).
+  const [seenVersion, setSeenVersion] = useState(task.rowVersion);
+  if (task.rowVersion > seenVersion) {
+    setSeenVersion(task.rowVersion);
+    setRecord({ activity: task.activity, notes: task.notes });
+  }
   const [pending, addPending] = useOptimistic<
     { activity: LeadershipTaskActivity[]; notes: TaskRow["notes"] },
     { entry: LeadershipTaskActivity; note: TaskRow["notes"][number] }

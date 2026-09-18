@@ -200,7 +200,7 @@ newest states are frontend-owned forever.
 Belongs in the **backend contract**, `chromeCopy()`:
 
 ```diff
- 		"push.blocked": "Notifications are blocked for this site. Turn them back on in your browser's site settings (the icon beside the address bar), then reload this page.",
+		"push.blocked": "Notifications are blocked for this site. Turn them back on in your browser's site settings (the icon beside the address bar), then reload this page.",
 +		// The retryable timeout: permission was granted and nothing is known to be wrong.
 +		"push.timed_out": "That took too long and did not finish. Nothing is switched on yet — click again to retry.",
 +		"push.retry":     "Try again",

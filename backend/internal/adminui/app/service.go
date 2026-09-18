@@ -2135,6 +2135,9 @@ func pageSpecificCopy(id string) map[string]string {
 			// A finished task is not editable by anyone (CanEdit requires open-for-work); saying
 			// "only the raiser" to the CEO looking at a Done task was wrong (2026-09-18).
 			// The feed carries its newest 20 rows; these page the rest, one window at a time.
+			// The cancel confirm lives inside the status menu: two buttons, no browser dialog.
+			"status.cancel_yes":       "Yes, cancel task",
+			"status.cancel_no":        "Keep task",
 			"activity.older":          "Show older activity",
 			"activity.older_loading":  "Loading older…",
 			"activity.older_failed":   "Older activity could not be loaded. Try again.",

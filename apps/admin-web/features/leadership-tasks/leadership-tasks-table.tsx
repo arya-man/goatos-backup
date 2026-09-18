@@ -11,6 +11,7 @@ import { initials, statusTone } from "./task-presentation";
 import type { RouteSearchParams } from "@/lib/search-params";
 import { TASK_PARAM, tasksHref } from "./params";
 import type { TaskRow } from "./task-row";
+import { taskRowPatch, useTaskRowsVersion } from "./task-row-store";
 
 /**
  * The task list, with its column set taken from the compiled table contract.
@@ -41,6 +42,15 @@ export function LeadershipTasksTable({
   scopeKey: string;
   selectedTaskID?: string;
 }) {
+  // The rows as the browser knows them: a status changed in the drawer, a comment that bumped a
+  // version -- published to the row store and read here, so the chip in the row changes with
+  // the pill in the drawer, with no route render (maintainer, 2026-09-18: "coming back to the
+  // list not showing updated state").
+  useTaskRowsVersion();
+  const liveRows = rows.map((row) => {
+    const patch = taskRowPatch(row.id);
+    return patch ? { ...row, ...patch } : row;
+  });
   const taskCell = (task: TaskRow) => (
     <>
       <Link
@@ -122,7 +132,7 @@ export function LeadershipTasksTable({
   return (
     <DataTable<TaskRow>
       columns={columns}
-      data={rows}
+      data={liveRows}
       getRowId={(task) => task.id}
       ariaLabel={contract.title}
       className="lt-task-table"

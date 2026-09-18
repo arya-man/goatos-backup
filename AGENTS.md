@@ -3810,7 +3810,9 @@ git rev-parse --show-toplevel  # Must print THIS repo root, not another checkout
   presentation is client state + `replaceLocalOverlayUrl`; (4) a coloured
   square or `aria-checked` button standing in for a checkbox -- a tick is a real
   `<input type="checkbox">` in a `<label>`; (5) `<input type="date|time">` -- the
-  console has ONE date field, `ThemedDatePicker`. Machine gate:
+  console has ONE date field, `ThemedDatePicker`; (6) `window.confirm` /
+  `alert` / `prompt` -- a confirm is two buttons where the action was, never
+  the browser's "127.0.0.1 says" box. Machine gate:
   `make admin-web-interaction-patterns-guard` (whole-tree, shrink-only baseline)
   beside `admin-web-local-overlay-guard`; canonical prose:
   `docs/decisions/admin-web-interaction-patterns.md`. Chrome with the network

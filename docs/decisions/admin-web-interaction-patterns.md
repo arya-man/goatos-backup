@@ -58,7 +58,12 @@ not machine-checked for this feature's shape, and the other four had no rule at 
    hour/minute `<select>`s beside it for a time (`task-write-forms.tsx`). Never
    `<input type="date|datetime-local|time|month">`. Guard rule: `native-date-input`.
 
-6. **A list payload carries what the list renders.** The task list dropped the activity feed
+6. **No browser dialogs.** `window.confirm` / `alert` / `prompt` put a "127.0.0.1 says" box
+   over the console. A confirm is an in-place control -- the two buttons appear where the
+   action was (`task-status-menu.tsx`, Cancel task) -- or the console's own modal. Guard
+   rule: `native-dialog` (3 pre-existing callers baselined).
+
+7. **A list payload carries what the list renders.** The task list dropped the activity feed
    and notes (77.5 KB -> 45 KB); the drawer fetches them. Backend rule, not statically
    guarded: the latency gate (`tools/perf/hot-paths.admin-all.json`, p90 <= 300 ms) and the
    payload-size column are the evidence.

@@ -33,4 +33,3 @@ export function initials(name: string): string {
     .slice(0, 2)
     .toUpperCase();
 }
-
