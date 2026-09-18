@@ -2550,6 +2550,8 @@
   .studio-node-decision{border-top:3px solid #e0b252;background:var(--panel-2,var(--panel));justify-content:space-between;flex-direction:row;align-items:center;gap:8px}
   .studio-node-decision .btn{white-space:nowrap;flex:none}
   .studio-node-start{border-top:3px solid var(--brand-d)}
+  .studio-node-start b,.studio-node-finish b,.studio-node-fixed b,.studio-node-group b{-webkit-line-clamp:1}
+  .sop-inspection .acts .studio-view-toggle,.sop-feed .acts .studio-view-toggle{display:inline-flex;margin-right:8px}
   .studio-node-fixed{border-style:dashed;opacity:.85}
   .studio-node-group{border-top:3px solid #a78bfa}
   .studio-node-actions{display:flex;gap:4px;flex-wrap:wrap}

@@ -134,6 +134,7 @@ export async function renderSopModulePage(
               sopCode={detail.data.sop.code}
               versionLabel={`${version.version_label} · ${version.status}`}
               initial={feed}
+              initialView={sp.view === "flow" ? "flow" : "list"}
             />
           );
         }

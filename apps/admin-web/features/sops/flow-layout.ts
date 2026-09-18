@@ -40,14 +40,11 @@ export type FlowEdge = {
 export type FlowLayout = { nodes: FlowNode[]; edges: FlowEdge[]; width: number; height: number };
 
 export const NODE_W = 230;
-export const NODE_H = 78;
+export const NODE_H = 84;
 export const DECISION_H = 56;
 const GAP_Y = 54;
 const COL_X = 270;
 
-function conditionKey(s: FollowUpStepRow): string {
-  return `${s.whenStep}|${s.whenOp}|${s.whenValues.map((v) => v.trim().toLowerCase()).sort().join(",")}`;
-}
 
 function sameCondition(a: FlowCondition, b: FlowCondition): boolean {
   return a.whenStep === b.whenStep && a.whenOp === b.whenOp && a.whenValues.map((v) => v.trim().toLowerCase()).sort().join(",") === b.whenValues.map((v) => v.trim().toLowerCase()).sort().join(",");
