@@ -436,7 +436,7 @@ export function SopBuilder({
               <div style={{ display: "flex", gap: 6, flexWrap: "wrap", marginBottom: 10 }}>
                 <span className="tag t-mut">{fieldCount} {copy(pc, "builder.summary.fields")}</span>
                 <span className="tag t-mut">{ruleCount} {copy(pc, "builder.summary.rules")}</span>
-                {proofRequired ? <span className="tag t-pur">{proofType} {copy(pc, "builder.summary.proof")}</span> : null}
+                {proofRequired && domain !== "general" ? <span className="tag t-pur">{proofType} {copy(pc, "builder.summary.proof")}</span> : null}
               </div>
 
               {saved?.report ? (
