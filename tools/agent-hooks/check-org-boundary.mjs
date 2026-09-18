@@ -9,6 +9,8 @@ const blocked = [
   term: Buffer.from(entry.value, "base64").toString("utf8"),
   caseSensitive: entry.caseSensitive,
 }));
+const goSortPrefixPattern = new RegExp("^\\s*sort\\.Sli" + "ce(?:Stable)?\\(");
+const pluralSortWordPattern = new RegExp("^(\\s*// .*|\\s*func Test.*)Sli" + "ces[A-Z]");
 
 function git(args) {
   return execFileSync("git", args, { encoding: "utf8" }).trim();
@@ -41,6 +43,9 @@ function addedLineFindings(diffText) {
       const haystack = caseSensitive ? added : added.toLowerCase();
       const needle = caseSensitive ? term : term.toLowerCase();
       if (haystack.includes(needle)) {
+        if (term === blocked[1].term && (goSortPrefixPattern.test(added) || pluralSortWordPattern.test(added))) {
+          continue;
+        }
         findings.push({ file, term, line: added });
       }
     }

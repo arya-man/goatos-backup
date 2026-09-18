@@ -106,10 +106,10 @@ type Task struct {
 	Attachments     []Attachment
 	AttachmentCount int
 	Notes           []Note
-	// ParticipantUserIDs are the people a mention pulled onto this task (migration 000346).
+	// ParticipantUserIDs are the people a mention pulled onto this task (migration 000352).
 	// They may OPEN the task; see IsParticipant / CanRead in mentions.go.
 	ParticipantUserIDs []string
-	// Activity is the task's own history (migration 000349, activity.go), NEWEST FIRST: who
+	// Activity is the task's own history (migration 000355, activity.go), NEWEST FIRST: who
 	// created it, who moved its status, who edited its title, brief or deadline, who commented.
 	// The panel's History / Comments / All tabs are all views over this one list.
 	Activity []Event
@@ -142,7 +142,7 @@ type Note struct {
 	Body       string
 	CreatedAt  time.Time
 	// Mentions are the people this note named, resolved and stored at write time
-	// (mentions.go, migration 000346). The phone renders them as chips over the body.
+	// (mentions.go, migration 000352). The phone renders them as chips over the body.
 	Mentions []Mention
 }
 

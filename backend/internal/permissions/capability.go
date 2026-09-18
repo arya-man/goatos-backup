@@ -628,7 +628,7 @@ var moduleCapabilities = []ModuleCapability{
 		// tasks and must NOT become a tenant-wide editor. Until PR 295's review that is exactly
 		// what happened: monitor was INFERRED as Raise AND Act AND NOT PenVisitsExecute. Now it
 		// is this explicit tick, held by the CEO/CXO desk (capability_backfill.go, migration
-		// 000350) and by nobody a heuristic happens to match.
+		// 000356) and by nobody a heuristic happens to match.
 		Key:      "leadership_tasks_monitor",
 		Label:    "Tasks · Leadership desk",
 		Blurb:    "See every task in the company and edit, move or close any of them.",

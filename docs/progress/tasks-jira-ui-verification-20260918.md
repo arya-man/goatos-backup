@@ -76,7 +76,7 @@ Chip counts narrow with the filters, which is the property most likely to rot:
 
 ## Index design note
 
-Migration `000345` carries **two** deadline indexes, not one. A btree is NULLS
+Migration `000351` carries **two** deadline indexes, not one. A btree is NULLS
 LAST ascending but NULLS FIRST descending, so a single index cannot serve both
 deadline directions; `EXPLAIN` showed the originally-specified expression-led
 ordering (`(deadline_at IS NULL) ASC, deadline_at ASC`) degrading to a Seq Scan

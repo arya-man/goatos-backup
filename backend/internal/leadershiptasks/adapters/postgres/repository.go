@@ -270,7 +270,7 @@ func filterPredicates(args *[]any, alias string, p ports.ListParams, withAssigne
 	var b strings.Builder
 	if p.Query != "" {
 		// ILIKE on the bare column (never lower(col) LIKE '%..%', which is the non-SARGable
-		// form the scale guard bans): the pg_trgm GIN indexes from migration 000345 serve this
+		// form the scale guard bans): the pg_trgm GIN indexes from migration 000351 serve this
 		// leading wildcard on both title and body, escaped patterns included.
 		//
 		// The typed text is ESCAPED, so a leader searching for "50%" or "shed_4" matches those
@@ -326,7 +326,7 @@ func escapeLikePattern(text string) string {
 // term deliberately: the two mean the same thing, but only this form is servable by a btree,
 // and EXPLAIN on 40k tenant rows turns the leading-expression form into a Seq Scan plus a
 // top-N sort of the whole tenant while this form walks the matching deadline index from
-// 000345 in order, with no Sort node at all. It is an ordinary Index Scan and not an Index
+// 000351 in order, with no Sort node at all. It is an ordinary Index Scan and not an Index
 // ONLY Scan -- taskColumns projects 19 columns, so each ordered row still costs a heap
 // fetch -- and the property worth having is the absent sort, not the absent heap access.
 func orderByForSort(sortKey string) string {
@@ -1105,7 +1105,7 @@ func (r *Repository) Raise(ctx context.Context, p ports.RaiseParams) (domain.Tas
 	if err := insertAttachments(ctx, tx, p.TenantID, taskID, p.Attachments); err != nil {
 		return domain.Task{}, err
 	}
-	// The feed's first row, written by the raise itself (migration 000349).
+	// The feed's first row, written by the raise itself (migration 000355).
 	if err := recordEvent(ctx, tx, p.TenantID, taskID, now, p.ActorID, domain.EventCreated, "", "", ""); err != nil {
 		return domain.Task{}, err
 	}

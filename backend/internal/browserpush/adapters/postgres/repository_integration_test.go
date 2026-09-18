@@ -214,7 +214,7 @@ func TestBothMembersOfOneDesktopReceiveTheirOwnPushes(t *testing.T) {
 // Alice presents the token the stored row already holds. Only a session at that physical browser
 // can, because an FCM web token is issued to the profile and does not change when the signed-in
 // user does. The row is TRANSFERRED rather than duplicated -- see the grain note on migration
-// 000347: two live rows for one profile would both carry that one browser-scoped token, so Bob's
+// 000353: two live rows for one profile would both carry that one browser-scoped token, so Bob's
 // notification would still arrive on Alice's screen.
 func TestHandOverOnProofOfTheBrowserTransfersTheRow(t *testing.T) {
 	repo, ctx := newBrowserPushRepo(t)

@@ -9,7 +9,7 @@ import (
 
 // Activity of a task (CEO instruction 2026-09-18, the Jira issue panel): one row per FACT
 // that changed, written by the same transaction that changed it, read newest first.
-// Migration 000349 is the store; the closed kind vocabulary below mirrors its CHECK.
+// Migration 000355 is the store; the closed kind vocabulary below mirrors its CHECK.
 //
 // A row carries the two PLAIN stored values (a status key, an RFC3339 deadline, a title) and
 // never a rendered label. The words a screen shows -- "Doing", "20/09/2026 17:00", the

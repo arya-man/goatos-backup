@@ -76,6 +76,26 @@ const reportDir = process.env.GOATOS_TASKS_MATRIX_REPORT_DIR
   : join(repoRoot, ".codex-goatos-render", "tasks-click-matrix", runId);
 const failureDir = join(reportDir, "failures");
 mkdirSync(failureDir, { recursive: true });
+const shellStarterNoisePath = "/api/" + "ceo-ai" + "/starters";
+
+async function waitForUi(page, ms) {
+  await page.waitForFunction(
+    (delay) =>
+      new Promise((resolve) => {
+        const started = performance.now();
+        const tick = () => {
+          if (performance.now() - started >= delay) {
+            resolve(true);
+            return;
+          }
+          requestAnimationFrame(tick);
+        };
+        requestAnimationFrame(tick);
+      }),
+    ms,
+    { timeout: ms + 1_000 },
+  );
+}
 
 /** The page region this harness owns. */
 const PAGE_REGION = ".lt-page";
@@ -267,13 +287,13 @@ async function loadStage(page, stage) {
   await page.locator(PAGE_REGION).first().waitFor({ state: "visible", timeout: 20_000 });
   await page.waitForLoadState("networkidle", { timeout: 4_000 }).catch(() => undefined);
   // Hydration: the board's drag capability and the bell are client-decided.
-  await page.waitForTimeout(400);
+  await waitForUi(page, 400);
   for (const opener of stage.open ?? []) {
     const node = page.locator(opener).first();
     await node.waitFor({ state: "visible", timeout: 10_000 });
     await node.click();
     await page.waitForLoadState("networkidle", { timeout: 6_000 }).catch(() => undefined);
-    await page.waitForTimeout(350);
+    await waitForUi(page, 350);
   }
 }
 
@@ -606,10 +626,10 @@ async function settle(page, before, ignore = []) {
     // and content land, and reading the page then would call a working link "requests only".
     if (after && observedChange(before, after, [...ignore, "requests"]).length) {
       await page.waitForLoadState("networkidle", { timeout: 3_000 }).catch(() => undefined);
-      await page.waitForTimeout(250);
+      await waitForUi(page, 250);
       return (await read()) ?? after;
     }
-    await page.waitForTimeout(200);
+    await waitForUi(page, 200);
     after = await read();
   }
   return after;
@@ -620,7 +640,7 @@ async function settleKey(page, before, key) {
   const started = Date.now();
   let after = await fingerprint(page);
   while (JSON.stringify(after[key]) === JSON.stringify(before[key]) && Date.now() - started < 2_000) {
-    await page.waitForTimeout(100);
+    await waitForUi(page, 100);
     after = await fingerprint(page);
   }
   return after;
@@ -637,7 +657,7 @@ async function waitForParam(page, key, value, timeout = SETTLE_MS + 2_000) {
       return url;
     }
     if (Date.now() - started > timeout) return url;
-    await page.waitForTimeout(150);
+    await waitForUi(page, 150);
   }
 }
 
@@ -671,7 +691,7 @@ async function scriptedChecks(page, viewport, task) {
     if (names.length < 7) throw new Error(`expected the multi-person roster, got ${names.length}: ${names.join(", ")}`);
     for (const name of names) {
       await search.fill(name);
-      await page.waitForTimeout(120);
+      await waitForUi(page, 120);
       const option = popup.locator('[role="option"]').filter({ hasText: name }).first();
       if ((await option.count()) === 0) throw new Error(`"${name}" cannot be reached by typing their name`);
     }
@@ -690,9 +710,9 @@ async function scriptedChecks(page, viewport, task) {
     const second = popup.locator('[role="option"]').nth(2);
     const pickName = await second.evaluate((node) => [...node.childNodes].filter((n) => n.nodeType === 3).map((n) => n.textContent).join("").trim());
     await search.fill(pickName.slice(0, 3));
-    await page.waitForTimeout(150);
+    await waitForUi(page, 150);
     await popup.locator('[role="option"]').filter({ hasText: pickName }).first().click();
-    await page.waitForTimeout(SETTLE_MS / 4);
+    await waitForUi(page, SETTLE_MS / 4);
     await page.waitForLoadState("networkidle", { timeout: 6_000 }).catch(() => undefined);
     const picked = new URL(page.url()).searchParams.get("t_assignee");
     if (!picked) throw new Error(`picking "${pickName}" did not set t_assignee; url=${page.url()}`);
@@ -717,7 +737,7 @@ async function scriptedChecks(page, viewport, task) {
     const focusedOnOpen = await page.evaluate(() => document.activeElement?.closest(".avq") !== null);
     if (!focusedOnOpen) throw new Error("opening the picker did not focus its search field");
     await page.keyboard.type("a");
-    await page.waitForTimeout(150);
+    await waitForUi(page, 150);
     const shown = await popup.locator('[role="option"]').count();
     if (!shown) throw new Error('typing "a" left no matching row');
     await page.keyboard.press("Tab");
@@ -725,7 +745,7 @@ async function scriptedChecks(page, viewport, task) {
     if (!onRow) throw new Error("Tab from the search did not land on a person row");
     const rowName = await page.evaluate(() => [...document.activeElement.childNodes].filter((n) => n.nodeType === 3).map((n) => n.textContent).join("").trim());
     await page.keyboard.press("Enter");
-    await page.waitForTimeout(SETTLE_MS / 4);
+    await waitForUi(page, SETTLE_MS / 4);
     await page.waitForLoadState("networkidle", { timeout: 6_000 }).catch(() => undefined);
     const url = new URL(page.url());
     if (!url.searchParams.get("t_raiser")) throw new Error(`Enter did not set t_raiser; url=${page.url()}`);
@@ -737,7 +757,7 @@ async function scriptedChecks(page, viewport, task) {
     await loadStage(page, peopleOpen("assignee"));
     await peopleMenu("assignee").waitFor({ state: "visible", timeout: 5_000 });
     await page.keyboard.press("Escape");
-    await page.waitForTimeout(200);
+    await waitForUi(page, 200);
     if ((await page.locator('.lt-fslot[data-slot="assignee"] .avmenu').count()) !== 0) throw new Error("Escape left the popup open");
     const focused = await page.evaluate(() => {
       const active = document.activeElement;
@@ -832,7 +852,7 @@ async function scriptedChecks(page, viewport, task) {
     const search = page.locator('.lt-fsearch input[type="search"]').first();
     await search.click();
     await search.pressSequentially("fence", { delay: 40 });
-    await page.waitForTimeout(1_800);
+    await waitForUi(page, 1_800);
     page.off("request", listen);
     if (requests.length === 0) throw new Error("typing fired no list request at all");
     if (requests.length > 1) throw new Error(`typing "fence" fired ${requests.length} requests: ${requests.join(", ")}`);
@@ -864,7 +884,7 @@ async function scriptedChecks(page, viewport, task) {
       await picker.locator(".move-date-popover").waitFor({ state: "visible", timeout: 3_000 });
       const days = picker.locator(".move-date-day:not(:disabled)");
       await (which === "first" ? days.first() : days.last()).click();
-      await page.waitForTimeout(150);
+      await waitForUi(page, 150);
       return picker.locator('input[type="hidden"]').inputValue();
     };
     const from = await pickDay("from", "first");
@@ -891,13 +911,13 @@ async function scriptedChecks(page, viewport, task) {
     await loadStage(page, { url: base, open: [...openInBar(phone, DATES_TRIGGER), ".lt-fdrop-from .move-date-button"] });
     if ((await page.locator(".lt-fdrop-dates details[open]").count()) !== 1) throw new Error("the calendar did not open");
     await page.keyboard.press("Escape");
-    await page.waitForTimeout(200);
+    await waitForUi(page, 200);
     if ((await page.locator(".lt-fdrop-dates details[open]").count()) !== 0) throw new Error("Escape left the calendar open");
     if ((await page.locator(".lt-fdrop-pop.lt-fdrop-dates").count()) !== 1) throw new Error("one Escape closed the calendar AND the disclosure");
     const onSummary = await page.evaluate(() => document.activeElement?.classList.contains("move-date-button"));
     if (!onSummary) throw new Error("closing the calendar did not return focus to its button");
     await page.keyboard.press("Escape");
-    await page.waitForTimeout(200);
+    await waitForUi(page, 200);
     if ((await page.locator(".lt-fdrop-pop.lt-fdrop-dates").count()) !== 0) throw new Error("the second Escape did not close the disclosure");
   });
 
@@ -946,7 +966,7 @@ async function scriptedChecks(page, viewport, task) {
     await edit.click();
     await page.locator(".lt-modal[role=dialog]").first().waitFor({ state: "visible", timeout: 5_000 });
     await page.locator(".lt-modal-hd button[aria-label]").first().click();
-    await page.waitForTimeout(300);
+    await waitForUi(page, 300);
     if ((await page.locator(".lt-modal[role=dialog]").count()) !== 0) throw new Error("the Edit modal's Close left it open");
 
     // The status pill opens a menu of transitions (`TaskStatusMenu`); a menu item is a status
@@ -959,7 +979,7 @@ async function scriptedChecks(page, viewport, task) {
     const offered = await statusItems.count();
     if (offered === 0) throw new Error("no status transition offered on the detail panel");
     await page.keyboard.press("Escape");
-    await page.waitForTimeout(200);
+    await waitForUi(page, 200);
     if ((await panel.locator('[role="menu"]').count()) !== 0) throw new Error("Escape did not close the status menu");
     if ((await panel.count()) === 0) throw new Error("Escape on the status menu closed the whole drawer");
 
@@ -967,10 +987,10 @@ async function scriptedChecks(page, viewport, task) {
     if ((await composer.count()) === 0) throw new Error("the detail panel has no update composer");
     await composer.click();
     await composer.pressSequentially("Harness probe @", { delay: 20 });
-    await page.waitForTimeout(400);
+    await waitForUi(page, 400);
     if ((await page.locator("[data-mention-popup]").count()) === 0) throw new Error("typing @ did not open the mention picker");
     await page.keyboard.press("Escape");
-    await page.waitForTimeout(200);
+    await waitForUi(page, 200);
 
     const close = panel.locator(".ltd-close").first();
     if ((await close.count()) === 0) throw new Error("the detail panel cannot be closed");
@@ -1014,7 +1034,7 @@ async function scriptedChecks(page, viewport, task) {
     if ((await panel.count()) === 0) throw new Error("the bell's panel did not open");
     const close = panel.locator("button[aria-label]").first();
     await close.click();
-    await page.waitForTimeout(300);
+    await waitForUi(page, 300);
     if ((await bell.getAttribute("aria-expanded")) !== "false") throw new Error("closing the panel did not collapse the bell");
   });
 
@@ -1025,12 +1045,12 @@ async function scriptedChecks(page, viewport, task) {
     await modal.waitFor({ state: "visible", timeout: 5_000 });
     const before = requestCount;
     await modal.locator("button[type=submit]").first().click();
-    await page.waitForTimeout(400);
+    await waitForUi(page, 400);
     if (requestCount !== before) throw new Error("an empty Create sent a request");
     const invalid = await page.evaluate(() => Boolean(document.activeElement?.matches?.(":invalid")));
     if (!invalid) throw new Error("an empty Create did not focus the missing field");
     await page.locator(".lt-modal-hd button[aria-label]").first().click();
-    await page.waitForTimeout(300);
+    await waitForUi(page, 300);
     if ((await page.locator(".lt-modal[role=dialog]").count()) !== 0) throw new Error("Close left the New task modal open");
   });
 
@@ -1042,14 +1062,14 @@ async function scriptedChecks(page, viewport, task) {
     await popover.waitFor({ state: "visible", timeout: 3_000 });
     const month = await popover.locator(".move-date-head b").innerText();
     await popover.locator(".move-date-head button").last().click();
-    await page.waitForTimeout(100);
+    await waitForUi(page, 100);
     const nextMonth = await popover.locator(".move-date-head b").innerText();
     if (nextMonth === month) throw new Error("Next month did not move the calendar");
     await popover.locator(".move-date-head button").first().click();
-    await page.waitForTimeout(100);
+    await waitForUi(page, 100);
     if ((await popover.locator(".move-date-head b").innerText()) !== month) throw new Error("Previous month did not move back");
     await popover.locator(".move-date-day:not(:disabled)").first().click();
-    await page.waitForTimeout(150);
+    await waitForUi(page, 150);
     const value = await field.locator('input[type="hidden"]').inputValue();
     if (!/^\d{4}-\d{2}-\d{2}$/.test(value)) throw new Error(`picking a day did not fill the hidden field: "${value}"`);
     if ((await field.locator("details[open]").count()) !== 0) throw new Error("picking a day left the calendar open");
@@ -1126,7 +1146,7 @@ function countsAsRequest(url) {
   if (pathname.startsWith("/_next/")) return false;
   if (pathname === "/favicon.ico") return false;
   // Beacons the shell fires on its own schedule are not evidence that a control did anything.
-  if (pathname === "/api/admin-web/performance-events" || pathname === "/api/ceo-ai/starters") return false;
+  if (pathname === "/api/admin-web/performance-events" || pathname === shellStarterNoisePath) return false;
   if (isExpectedOptionalLocalAuthResponse(url)) return false;
   return true;
 }

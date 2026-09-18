@@ -1,7 +1,7 @@
 # Sales > Farm born: the not-on-a-load half of the herd
 
 Maintainer request 2026-09-18. Status: built; page `/sales/farm-born`, read
-`GET /procurement/farm-born-sales`, migration `000346`.
+`GET /procurement/farm-born-sales`, migration `000357`.
 
 ## What was missing
 

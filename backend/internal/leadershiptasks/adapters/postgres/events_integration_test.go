@@ -11,7 +11,7 @@ import (
 	"github.com/vgoats/goatos/backend/internal/platform/pgtest"
 )
 
-// The activity feed (migration 000349) is written by the SAME transaction as each mutation
+// The activity feed (migration 000355) is written by the SAME transaction as each mutation
 // and read back newest first on the single-task and the paged reads alike. This walks a task
 // through raise, status, comment, edit and cancel and asserts the feed after each step --
 // including that an edit re-saving the same values writes NOTHING and a refused write leaves

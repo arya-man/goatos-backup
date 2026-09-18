@@ -9,7 +9,7 @@
 // knowing browsers exist.
 //
 // WHY AN FCM WEB REGISTRATION TOKEN AND NOT A RAW WEB PUSH SUBSCRIPTION: see the design note on
-// migration 000347. In one line: admin-web already ships the Firebase JS SDK for auth, so
+// migration 000353. In one line: admin-web already ships the Firebase JS SDK for auth, so
 // firebase/messaging getToken() yields a single opaque token of exactly the shape the backend
 // already addresses, and FCM does the VAPID signing and payload encryption that a raw
 // {endpoint, p256dh, auth} subscription would have obliged this package to implement itself.

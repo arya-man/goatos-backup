@@ -42,7 +42,7 @@ type notePayload struct {
 	Mentions []mentionPayload `json:"mentions"`
 }
 
-// activityPayload is one row of the task's history feed (migration 000349), newest first.
+// activityPayload is one row of the task's history feed (migration 000355), newest first.
 // Every word is composed server-side: the actor's name and initials, the two ends of the
 // change as the screen shows them ("Open" → "Doing", "17/09/2026 17:00" → "20/09/2026 17:00")
 // and the one-line sentence. Kind is the closed vocabulary the console keys its tabs and

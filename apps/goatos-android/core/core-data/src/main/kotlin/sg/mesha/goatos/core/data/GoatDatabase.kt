@@ -137,6 +137,12 @@ import sg.mesha.goatos.core.data.cache.PenVisitItemDao
 import sg.mesha.goatos.core.data.cache.PenVisitItemEntity
 import sg.mesha.goatos.core.data.cache.PenVisitRemoteKeyDao
 import sg.mesha.goatos.core.data.cache.PenVisitRemoteKeyEntity
+import sg.mesha.goatos.core.data.cache.PenRoutineDetailCacheDao
+import sg.mesha.goatos.core.data.cache.PenRoutineDetailCacheEntity
+import sg.mesha.goatos.core.data.cache.PenRoutineItemDao
+import sg.mesha.goatos.core.data.cache.PenRoutineItemEntity
+import sg.mesha.goatos.core.data.cache.PenRoutineRemoteKeyDao
+import sg.mesha.goatos.core.data.cache.PenRoutineRemoteKeyEntity
 import sg.mesha.goatos.core.data.cache.AnimalPurchaseAnimalItemDao
 import sg.mesha.goatos.core.data.cache.AnimalPurchaseAnimalItemEntity
 import sg.mesha.goatos.core.data.cache.AnimalPurchaseAnimalRemoteKeyDao
@@ -383,6 +389,9 @@ import sg.mesha.goatos.core.data.weighing.WeighingShedObservationEntity
         PenVisitItemEntity::class,
         PenVisitRemoteKeyEntity::class,
         PenVisitDetailCacheEntity::class,
+        PenRoutineItemEntity::class,
+        PenRoutineRemoteKeyEntity::class,
+        PenRoutineDetailCacheEntity::class,
         WorkBoardMetaCacheEntity::class,
         WorkBoardItemEntity::class,
         WorkBoardRemoteKeyEntity::class,
@@ -439,7 +448,9 @@ import sg.mesha.goatos.core.data.weighing.WeighingShedObservationEntity
     // v66 (see [MIGRATION_65_66]) adds the SOP capture tables (maintainer decisions 2026-09-16):
     // `counts_capture_card_cache` (the Add birth / Add death capture card, one row per form kind)
     // and `workflow_step_draft_answer` (a death workflow's draft answers held until the one Submit).
-    version = 66,
+    // v67 (see [MIGRATION_66_67]) adds the three Pen Routines read-model tables: paged routine
+    // rows, their per-filter cursor, and the task-detail JSON cache.
+    version = 67,
     // exportSchema=true writes schemas/<db-fqcn>/<version>.json (see build.gradle.kts
     // room.schemaLocation). The committed schema JSON is the golden schema
     // MigrationTestHelper validates each migration against, and it makes every schema
@@ -657,6 +668,9 @@ abstract class GoatDatabase : RoomDatabase() {
     abstract fun penVisitItemDao(): PenVisitItemDao
     abstract fun penVisitRemoteKeyDao(): PenVisitRemoteKeyDao
     abstract fun penVisitDetailCacheDao(): PenVisitDetailCacheDao
+    abstract fun penRoutineItemDao(): PenRoutineItemDao
+    abstract fun penRoutineRemoteKeyDao(): PenRoutineRemoteKeyDao
+    abstract fun penRoutineDetailCacheDao(): PenRoutineDetailCacheDao
     abstract fun workBoardMetaCacheDao(): WorkBoardMetaCacheDao
     abstract fun workBoardItemDao(): WorkBoardItemDao
     abstract fun workBoardRemoteKeyDao(): WorkBoardRemoteKeyDao

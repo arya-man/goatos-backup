@@ -12,7 +12,7 @@ import (
 // write time, from explicit user ids the client sends alongside the text -- never by reading
 // "@Ravi" back out of the body. Two active people can carry the same display name, a person
 // can be renamed, and a regex over free text cannot tell a mention from a quoted handle. The
-// resolved targets are stored (migration 000346) and read back as chips.
+// resolved targets are stored (migration 000352) and read back as chips.
 //
 // The rule that matters is the VISIBILITY one below: only the leadership population (and the
 // task's own parties) may be mentioned at all, and a mention RECORDS the mentioned person as a
@@ -72,7 +72,7 @@ const (
 )
 
 // IsParticipant reports whether the actor was pulled onto this task by a mention (migration
-// 000346's leadership_task_participants). A MENTION GRANTS READ, the Jira behaviour: the push
+// 000352's leadership_task_participants). A MENTION GRANTS READ, the Jira behaviour: the push
 // names the task title, so tapping it must open the task rather than 404, and the recipient is
 // legitimately entitled to what the push already told them.
 func (t Task) IsParticipant(a Actor) bool {

@@ -249,7 +249,7 @@ export function TaskActivityComposer({
         <input type="hidden" name="idempotency_key" value={initialIdempotencyKey} readOnly />
         <input type="hidden" name="return_to" value={returnTo} />
         <input type="hidden" name="task_id" value={task.id} />
-        {/* A refused send's picked ids, restored. Rendered BEFORE the composer's own hidden
+        {/* A refused send's picked recipients are restored before the composer's hidden
             field so `formData.get("mention_user_ids")` reads them; it is gone on the next
             submit, when the composer's own field is authoritative again. */}
         {retained && retained.ids.length ? (

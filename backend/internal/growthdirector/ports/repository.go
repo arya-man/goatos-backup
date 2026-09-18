@@ -89,7 +89,7 @@ type FeedExitedAnimal struct {
 type FeedRollup struct {
 	// FeedDay is the sheet day (YYYY-MM-DD) of the latest locked/amended issue for this
 	// rollup's park and workflow.
-	FeedDay string
+	FeedDay       string
 	ParkID        string
 	ParkName      string
 	Pen           string

@@ -42,7 +42,7 @@ type ListParams struct {
 	Cursor   string
 
 	// Query is the trimmed free-text box: a case-insensitive substring of the title OR the
-	// body, served by the pg_trgm GIN indexes on both columns (migration 000345). When the
+	// body, served by the pg_trgm GIN indexes on both columns (migration 000351). When the
 	// same text is a bare integer the list ALSO matches task_no exactly, so typing "15" finds
 	// "#15" -- that is how a leader refers to a task out loud.
 	Query string
@@ -70,7 +70,7 @@ type ListParams struct {
 	// this instant (the service's farm clock at request time) -- the overdue lens. Statuses
 	// carries the two working statuses beside it, so the predicate is
 	// `status = ANY(open, in_progress) AND deadline_at < $now`, served by
-	// leadership_tasks_tenant_deadline_idx (000345). The status and scope counts do NOT apply
+	// leadership_tasks_tenant_deadline_idx (000351). The status and scope counts do NOT apply
 	// it (they answer "how many in each bucket under the other filters"); the overdue chip's
 	// own count is Page.OverdueCount, computed against the same clock.
 	OverdueBefore *time.Time

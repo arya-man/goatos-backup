@@ -14,7 +14,7 @@ import (
 	"github.com/vgoats/goatos/backend/internal/platform/uuidutil"
 )
 
-// The activity feed (migration 000349). One row per FACT that changed, written INSIDE the
+// The activity feed (migration 000355). One row per FACT that changed, written INSIDE the
 // same transaction as the change -- a rolled-back edit leaves no history, a committed one
 // always does -- and read newest first for the panel's History / Comments / All tabs.
 //

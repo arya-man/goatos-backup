@@ -1855,3 +1855,37 @@ val MIGRATION_65_66: Migration = object : Migration(65, 66) {
         )
     }
 }
+
+/**
+ * v66 -> v67: adds the Pen Routines offline-first read-model tables. The list uses the same
+ * filter-scoped Paging 3 shape as Pen Visits: item rows, one remote-key row per filter scope, and a
+ * detail JSON cache keyed by task id. Purely additive; no user-authored outbox state is touched.
+ */
+val MIGRATION_66_67: Migration = object : Migration(66, 67) {
+    override fun migrate(db: SupportSQLiteDatabase) {
+        db.execSQL(
+            "CREATE TABLE IF NOT EXISTS `pen_routine_items` (" +
+                "`queryKey` TEXT NOT NULL, `grainKey` TEXT NOT NULL, `sortIndex` INTEGER NOT NULL, " +
+                "`dtoJson` TEXT NOT NULL, `updatedAt` INTEGER NOT NULL, " +
+                "PRIMARY KEY(`queryKey`, `grainKey`))",
+        )
+        db.execSQL(
+            "CREATE INDEX IF NOT EXISTS `index_pen_routine_items_queryKey_sortIndex` " +
+                "ON `pen_routine_items` (`queryKey`, `sortIndex`)",
+        )
+        db.execSQL(
+            "CREATE INDEX IF NOT EXISTS `index_pen_routine_items_grainKey` " +
+                "ON `pen_routine_items` (`grainKey`)",
+        )
+        db.execSQL(
+            "CREATE TABLE IF NOT EXISTS `pen_routine_remote_keys` (" +
+                "`queryKey` TEXT NOT NULL, `nextCursor` TEXT NOT NULL, `endReached` INTEGER NOT NULL, " +
+                "`updatedAt` INTEGER NOT NULL, PRIMARY KEY(`queryKey`))",
+        )
+        db.execSQL(
+            "CREATE TABLE IF NOT EXISTS `pen_routine_detail_cache` (" +
+                "`cacheKey` TEXT NOT NULL, `dtoJson` TEXT NOT NULL, `updatedAt` INTEGER NOT NULL, " +
+                "PRIMARY KEY(`cacheKey`))",
+        )
+    }
+}

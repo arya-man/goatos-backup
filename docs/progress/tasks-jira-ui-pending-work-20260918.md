@@ -28,7 +28,7 @@ The `/tasks` page is the Work Board's product, not a Jira look-alike:
   `make admin-web-interaction-patterns-guard` + the drawer host pinned in
   `admin-web-local-overlay-guard` (`docs/decisions/admin-web-interaction-patterns.md`). One status control (Cancel task inside it). Edit for leadership on any task.
   Activity feed with All / History / Comments, newest first, from the
-  `leadership_task_events` table (migration 000349, written in the same transaction as every
+  `leadership_task_events` table (migration 000355, written in the same transaction as every
   mutation, backfilled). Comments post in place; a picked @mention is final and renders as a
   brand chip.
 - New task: Work Board's assignee picker for "For", the console's own calendar + hour/minute,
@@ -62,7 +62,7 @@ any of the three (was one full route render each).
 1. ~~Leadership write authority is inferred, not granted~~ -- RESOLVED (review of PR 295, evening).
    `leadership_tasks.monitor` is an explicit permission on its own module tick,
    `leadership_tasks_monitor` (the `verification_policy` shape): the CEO/CXO role holds it,
-   migration 000350 hands the tick to the people already on that grant, and a director ticked
+   migration 000356 hands the tick to the people already on that grant, and a director ticked
    View + Do + Oversee + Configure on Tasks keeps their own tasks only. The heuristic
    (Raise AND Act AND NOT PenVisitsExecute) is gone from the http adapter and pinned by
    `TestActorFromMonitorIsAnExplicitTickNeverInferred`.

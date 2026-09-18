@@ -29,7 +29,7 @@ import {
  * the `push_fcm` channel, and the identical shape the Android device registry already stores. A
  * raw `PushManager.subscribe()` would instead hand us {endpoint, keys.p256dh, keys.auth}, which
  * fits no existing column and would oblige the backend to implement VAPID signing and aes128gcm
- * payload encryption itself. FCM does both for us. Fuller reasoning: migration 000347.
+ * payload encryption itself. FCM does both for us. Fuller reasoning: migration 000353.
  *
  * THE PERMISSION PROMPT IS NEVER FIRED ON LOAD. Nothing here calls
  * Notification.requestPermission() except `enableWebPush`, which exists to be called from a click

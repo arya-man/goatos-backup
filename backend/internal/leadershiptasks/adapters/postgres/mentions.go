@@ -12,7 +12,7 @@ import (
 	"github.com/vgoats/goatos/backend/internal/permissions"
 )
 
-// MENTIONS AND PARTICIPANTS (maintainer decision 2026-09-18, migration 000346).
+// MENTIONS AND PARTICIPANTS (maintainer decision 2026-09-18, migration 000352).
 //
 // Who may be mentioned on a task is answered by ONE query, mentionableUsers, and that same
 // query is what the write path re-validates against under the task's row lock. The read the

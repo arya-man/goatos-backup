@@ -22,7 +22,7 @@ import (
 // see the comment at its call site for why it may write `status` where the phone statement beside
 // it deliberately may not. Hoisted to a package-level const so a query-plan gate and the scale
 // guard can NAME it; it runs on the dispatcher's hot path, once per provider-confirmed dead
-// address, and is served by workforce_member_browser_push_registrations_token_idx (000347).
+// address, and is served by workforce_member_browser_push_registrations_token_idx (000353).
 // Params: $1 tenant, $2 the rejected recipient_ref (the token), $3 now, $4 reason.
 const retireInvalidBrowserRegistrationSQL = `
 UPDATE workforce_member_browser_push_registrations
@@ -176,7 +176,7 @@ WHERE tenant_id = $1::uuid
 		return 0, fmt.Errorf("notification: clear invalid fcm token: %w", err)
 	}
 	// THE SAME DEAD ADDRESS, ON THE BROWSER SIDE. A Chrome web push registration is an FCM
-	// registration token too (see migration 000347), so it arrives here through the identical
+	// registration token too (see migration 000353), so it arrives here through the identical
 	// recipient_ref and the identical provider verdict -- FCM does not distinguish the two when it
 	// says the address is gone. A browser subscription gives NO other expiry signal: Chrome
 	// invalidates it on profile clear, on a long idle stretch and whenever the person revokes the

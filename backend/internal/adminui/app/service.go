@@ -2394,7 +2394,7 @@ func pageSpecificCopy(id string) map[string]string {
 			"feedback.mention_without_note": "Write the update before naming anyone in it.",
 			// ── THE ACTIVITY FEED (CEO instruction 2026-09-18, the Jira issue panel) ─────
 			// Three views over ONE backend list (`LeadershipTask.activity`, migration
-			// 000349): History is every change of fact, Comments is the notes, All is both,
+			// 000355): History is every change of fact, Comments is the notes, All is both,
 			// newest first. The verb keys are the sentence AFTER the actor's name -- the
 			// console renders "<name> <verb> <from> → <to>" from the row's own labels, and
 			// the phone shows the backend's `summary` verbatim; both must read the same.

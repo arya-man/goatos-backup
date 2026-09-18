@@ -585,6 +585,7 @@ func TestSameCaptureResubmitAfterReworkKeysTheNewRound(t *testing.T) {
 		t.Fatalf("first-round key = %q, want %q", enq.request.IdempotencyKey, want)
 	}
 }
+
 // OLDER APP on a card with NO slot that takes its video (program decision 7): the clip is kept under
 // the reserved older-app key -- never dropped -- reaches the verifier labelled "Recorded on an older
 // app" with its real kind, and every compulsory slot it could not send reads not captured.

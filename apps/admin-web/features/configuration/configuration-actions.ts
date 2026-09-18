@@ -6,9 +6,8 @@
 // and reports the outcome.
 //
 // EVERY ACTION LANDS IN PLACE (the market-config rule, maintainer report 2026-09-15): the outcome
-// is RETURNED to the form that posted it (`useActionState` in row-drawer), and the
-// `revalidatePath` re-reads the page's server data inside the same response, so the new or
-// changed row appears in the table under the reader's eyes. Nothing navigates.
+// is RETURNED to the form that posted it (`useActionState` in row-drawer), beside the row being
+// edited. Nothing navigates.
 //
 // This file composes no visible sentence of its own. `code` is a SUFFIX of a page-copy key the
 // drawer resolves through the backend contract; `detail` is the backend's OWN refusal sentence
@@ -16,7 +15,6 @@
 // shown under the input it names.
 
 import { randomUUID } from "node:crypto";
-import { revalidatePath } from "next/cache";
 
 import {
   createConfigurationRow,
@@ -26,8 +24,6 @@ import {
   type ConfigurationRowWrite,
 } from "@/lib/api/configuration-server";
 import type { ApiResult } from "@/lib/api/server";
-
-const ITEMS_PATH = "/configuration/items";
 
 export type ConfigurationActionState = {
   status: "idle" | "success" | "error";
@@ -49,7 +45,6 @@ function outcome(previous: ConfigurationActionState, result: ApiResult<unknown>,
     for (const entry of result.error.fieldErrors ?? []) fields[entry.field] = entry.message;
     return { status: "error", code: "failed_message", detail, fields, ticket };
   }
-  revalidatePath(ITEMS_PATH);
   return { status: "success", code: successCode, detail: "", fields: {}, ticket };
 }
 

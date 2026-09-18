@@ -136,7 +136,7 @@ Both were mine, and both are recorded because the wrong version was acted on.
   outbox→consumer→recipient-decorator chain was never triggered by a real
   mention.
 - **The notification-feed CTE** still materialises a member's whole deduped
-  history per page. Migration 000348 is the index half; an anti-join rewrite was
+  history per page. Migration 000354 is the index half; an anti-join rewrite was
   measured at 31.3ms → 1.3ms and verified semantically identical by md5, but
   belongs to whoever owns that query.
 
@@ -151,4 +151,4 @@ Green: `ci-local` (full affected-component suite, receipt at `c55556621`),
 Pre-existing and not caused by this branch: `make validate-migrations` and
 `validate-hot-index-migrations` fail with **29 findings both with and without**
 each new migration (verified by moving each file aside and re-counting); none
-name 000345, 000346, 000347 or 000348.
+name 000351, 000352, 000353 or 000354.
