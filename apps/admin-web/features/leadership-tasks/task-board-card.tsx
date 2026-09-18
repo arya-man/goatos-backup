@@ -4,6 +4,7 @@ import type { DragEvent } from "react";
 
 import { copy, type AdminUiPageContract } from "@/lib/admin-ui-contract";
 
+import { DeadlineClock } from "./deadline-clock";
 import { initials } from "./task-presentation";
 import type { TaskRow } from "./task-row";
 
@@ -76,21 +77,29 @@ export function TaskBoardCard({
         <span className="ltb-card-titletx">{task.title}</span>
       </span>
 
-      {/* Jira's card anatomy: title, the due date as one quiet line (red when the clock is
-          over), then the key and the assignee's avatar. The big deadline block and the
-          "Raised by" line moved to the drawer, where there is room for them. */}
-      {task.deadlineLabel ? (
-        <span className={`ltb-card-due${task.deadlineTone === "over" ? " is-over" : ""}`}>
-          <span className="ltb-card-due-k">{deadlineWord}</span>
-          <span className="ltb-card-due-v">
-            {task.deadlineLabel}
-            {task.deadlineTone === "over" && task.daysLeftLabel ? ` · ${task.daysLeftLabel}` : ""}
-          </span>
+      {task.deadlineTone ? (
+        <span className="ltb-card-clock">
+          <DeadlineClock task={task} compact deadlineWord={deadlineWord} />
         </span>
       ) : null}
 
+      <span className="ltb-card-people">
+        <span className="lt-avx" aria-hidden="true">
+          {initials(task.assignee)}
+        </span>
+        <span className="ltb-card-who">
+          <span className="ltb-card-name" title={task.assignee}>
+            {task.assignee}
+          </span>
+          <span className="ltb-card-raiser" title={task.raisedBy}>
+            {copy(pageContract, "column.raised_by")} {task.raisedBy}
+          </span>
+        </span>
+      </span>
+
       <span className="ltb-card-foot">
         <b className="ltb-card-key">{task.number}</b>
+        <span className="ltb-card-age">{task.age}</span>
         {task.attachments > 0 ? (
           <span
             className="ltb-card-att"
@@ -100,9 +109,6 @@ export function TaskBoardCard({
             <b>{task.attachments}</b>
           </span>
         ) : null}
-        <span className="lt-avx ltb-card-av" title={task.assignee} aria-label={task.assignee}>
-          {initials(task.assignee)}
-        </span>
       </span>
     </Link>
   );

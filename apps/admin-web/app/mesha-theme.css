@@ -5932,8 +5932,7 @@ input[type=date],input[type=datetime-local],input[type=time],input[type=month],i
   /* Tap targets: the card, the person chips and "show only this" are all >=40px. */
   .lt-page .ltb-card{min-height:56px;padding:11px 12px}
   .lt-page .ltb-card-title{font-size:13.5px}
-  .lt-page .ltb-card-titletx{-webkit-line-clamp:2}
-  .lt-page .ltb-colmeta{min-height:40px}
+    .lt-page .ltb-colmeta{min-height:40px}
   .lt-page .ltb-focusback{display:inline-flex;align-items:center;min-height:40px}
   .lt-page .lt-scopebar{flex-wrap:wrap}
   .lt-page .lt-scopebar .ltb-viewswitch{width:100%}
@@ -6221,22 +6220,12 @@ aside.drawer.ltd-drawer{width:min(720px,94vw);overflow-y:auto;overscroll-behavio
 
 /* ---- BOARD ON THE PAGE GROUND, JIRA-COMPACT CARDS (CEO, 2026-09-18 13:30) -----------------
    The board's columns are the structure: no card box, no "Team progress · 408" header, no
-   "N on this page" line, no hint paragraphs. Cards carry what Jira's do -- title, one due-date
-   line, key + avatar -- and the column header block (coloured rule, name, count pill) is the
-   one the CEO approved, untouched. */
+   "N on this page" line, no hint paragraphs. The card itself keeps its earlier anatomy (deadline
+   block, assignee + raised-by, key + date) -- the CEO asked for that back. */
 .lt-page .ltb-ground{display:grid;gap:12px;min-width:0}
 .lt-page .ltb-ground .ltb{padding:0}
 .lt-page .ltb-ground .ltb-col{background:color-mix(in srgb,var(--panel-2) 78%,transparent)}
-.lt-page .ltb-card{gap:6px;padding:10px 11px 9px}
-.lt-page .ltb-card-title{font-size:13px}
 .lt-page .ltb-card-titletx{-webkit-line-clamp:2}
-.lt-page .ltb-card-due{display:grid;gap:1px;font-size:11px;line-height:1.35;color:var(--muted)}
-.lt-page .ltb-card-due-k{font-size:10px;font-weight:650;letter-spacing:.4px;text-transform:uppercase;color:var(--faint)}
-.lt-page .ltb-card-due-v{font-weight:650;color:var(--ink);font-variant-numeric:tabular-nums}
-.lt-page .ltb-card-due.is-over .ltb-card-due-v{color:var(--danger)}
-.lt-page .ltb-card-foot{padding-top:7px;gap:8px}
-.lt-page .ltb-card-av{margin-left:auto;flex:none;width:24px;height:24px;font-size:10px}
-.lt-page .ltb-card-att{margin-left:0}
 
 /* ---- PEOPLE FILTERS ARE A PLAIN DROPDOWN OF CHECKBOXES (CEO, 2026-09-18 13:50) ---------------
    "Assignee · All" opens a list: All, then every person, each with a REAL tick box. No avatar
