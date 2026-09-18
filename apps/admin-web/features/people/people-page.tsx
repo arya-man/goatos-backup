@@ -16,17 +16,6 @@ const VaccinationOperatorsScreen = async ({
   return <mod.VaccinationOperatorsScreen initialParkId={initialParkId} pageContract={pageContract} />;
 };
 
-const VaccinationOperatorsScreen = async ({
-  initialParkId,
-  pageContract,
-}: {
-  initialParkId?: string;
-  pageContract: AdminUiPageContract;
-}) => {
-  const mod = await import("./vaccination-operators-screen");
-  return <mod.VaccinationOperatorsScreen initialParkId={initialParkId} pageContract={pageContract} />;
-};
-
 /**
  * The /people shell: page header + the backend-owned `people_view_tabs` module
  * strip, hosting the ALL-PEOPLE directory (default) and the Vaccination

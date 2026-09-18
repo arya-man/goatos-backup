@@ -22,6 +22,12 @@ test("vaccination schedule workload labels tolerate stale backend page contracts
   assert.equal(copy(page, "label.done"), "done");
 });
 
+test("vaccination inventory progress title tolerates stale backend page contracts", () => {
+  const page = pageWithCopy();
+  assert.equal(copy(page, "inventory_progress.title"), "Vaccine fridge stock checks");
+  assert.equal(copy(page, "section.inventory_progress.title"), "Vaccine fridge stock checks");
+});
+
 test("control tower drawer labels tolerate stale backend page contracts", () => {
   const page = pageWithCopy({}, "control-tower");
   assert.equal(copy(page, "label.scope"), "Scope");

@@ -125,6 +125,12 @@ func TestVaccinationLeadershipCopyUsesActionablePenAndDateLanguage(t *testing.T)
 	if page.Copy["command_board.filter.operator_day"] != "Operator day (optional)" {
 		t.Fatalf("operator-day filter copy = %q", page.Copy["command_board.filter.operator_day"])
 	}
+	if got := page.Copy["inventory_progress.title"]; got != "Vaccine fridge stock checks" {
+		t.Fatalf("legacy inventory progress title copy = %q", got)
+	}
+	if got := page.Copy["section.inventory_progress.title"]; got != "Vaccine fridge stock checks" {
+		t.Fatalf("section inventory progress title copy = %q", got)
+	}
 
 	var found bool
 	for _, table := range page.Tables {

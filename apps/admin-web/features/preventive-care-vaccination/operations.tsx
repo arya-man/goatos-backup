@@ -1,6 +1,6 @@
 import { Suspense } from "react";
 import { one, type RouteSearchParams } from "@/lib/search-params";
-import { copy, optionGroup, type AdminUiPageContract } from "@/lib/admin-ui-contract";
+import { copy, type AdminUiPageContract } from "@/lib/admin-ui-contract";
 import { parseScope } from "@/lib/scope";
 import { VaccinationShedBoard, VaccinationShedBoardSkeleton } from "@/features/vaccination-sheds";
 import { VaccinationFullScheduleButton } from "./vaccination-action-dialogs";
@@ -28,11 +28,6 @@ export function VaccinationOperationsPage({
   const scope = parseScope(sp);
   const isFullSchedule = one(sp, "view") === "schedule";
   const scheduleYear = vaccinationScheduleYear(sp);
-
-  const driveSteps = optionGroup(pageContract, "drive_steps").map((step) => {
-    const [title, detail] = (step.title || "").split("|");
-    return { key: step.key, step: step.label, title, detail };
-  });
 
   return (
     <div className="screen on">

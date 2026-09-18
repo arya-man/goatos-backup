@@ -7,7 +7,7 @@
 // screens, plus technical constants such as key names, locale IDs, and time
 // zones.
 import { existsSync, readdirSync, readFileSync, statSync } from "node:fs";
-import { join, relative } from "node:path";
+import { join, relative, resolve } from "node:path";
 
 const ROOT = process.cwd();
 const SCAN_PATHS = ["app", "components", "features", "lib/scope.ts"];
@@ -147,6 +147,75 @@ const files = [];
 for (const scanPath of SCAN_PATHS) walk(join(ROOT, scanPath), files);
 
 const findings = [];
+
+function readIfExists(path) {
+  return existsSync(path) ? readFileSync(path, "utf8") : "";
+}
+
+function addMatches(set, source, pattern) {
+  for (const match of source.matchAll(pattern)) {
+    if (match[1]) set.add(match[1]);
+  }
+}
+
+function readAdminUiBackendSources(repoRoot) {
+  const dir = join(repoRoot, "backend/internal/adminui/app");
+  if (!existsSync(dir)) return "";
+  return readdirSync(dir)
+    .filter((entry) => entry.endsWith(".go"))
+    .map((entry) => readIfExists(join(dir, entry)))
+    .join("\n");
+}
+
+function contractSourceIndex() {
+  const repoRoot = resolve(ROOT, "../..");
+  const backendService = readAdminUiBackendSources(repoRoot);
+  const frontendContract = readIfExists(join(ROOT, "lib/admin-ui-contract.ts"));
+  const copyKeys = new Set();
+  const optionGroups = new Set();
+  const tables = new Set();
+  const controls = new Set();
+
+  // Backend page contracts and frontend stale-contract fallbacks are both valid producers. This
+  // deliberately scans producer syntax, not rendered route output, so a newly introduced frontend
+  // copy key fails before it becomes a production Server Components crash.
+  addMatches(copyKeys, backendService, /"([^"]+)"\s*:/g);
+  addMatches(copyKeys, backendService, /\[\s*"([^"]+)"\s*\]\s*=/g);
+  addMatches(copyKeys, frontendContract, /"([^"]+)"\s*:/g);
+  addMatches(optionGroups, backendService, /\bID:\s*"([^"]+)"/g);
+  addMatches(optionGroups, frontendContract, /\b([A-Za-z0-9_.-]+)\s*:\s*\[/g);
+  addMatches(tables, backendService, /\btableP?\(\s*"([^"]+)"/g);
+  addMatches(tables, frontendContract, /"([^"]+)"\s*:\s*\{\s*\n\s*id:\s*"[^"]+"/g);
+  addMatches(controls, backendService, /\bID:\s*"([^"]+)"/g);
+  addMatches(controls, frontendContract, /\bcontrol(?:Enabled)?\([^,\n]+,\s*"([^"]+)"/g);
+  return { copyKeys, optionGroups, tables, controls };
+}
+
+const contractIndex = contractSourceIndex();
+
+const CONTRACT_LOOKUPS = [
+  { kind: "copy key", set: contractIndex.copyKeys, pattern: /\bcopy\(\s*[^,\n]+,\s*["']([^"'$]+)["']/g },
+  { kind: "action feedback copy key", set: contractIndex.copyKeys, pattern: /\bactionFeedbackCopy\(\s*[^,\n]+,\s*[^,\n]+,\s*["']([^"'$]+)["']/g },
+  { kind: "option group", set: contractIndex.optionGroups, pattern: /\b(?:optionGroup|optionalOptionGroup)\(\s*[^,\n]+,\s*["']([^"'$]+)["']/g },
+  { kind: "option group", set: contractIndex.optionGroups, pattern: /\b(?:optionLabel|optionTitle|optionTone|optionalOption)\(\s*[^,\n]+,\s*["']([^"'$]+)["']/g },
+  { kind: "table", set: contractIndex.tables, pattern: /\b(?:table|tableLabels|tablePageSizes)\(\s*[^,\n]+,\s*["']([^"'$]+)["']/g },
+  { kind: "control", set: contractIndex.controls, pattern: /\b(?:control|controlEnabled)\(\s*[^,\n]+,\s*["']([^"'$]+)["']/g },
+];
+
+function checkContractReferences(rel, code, lineNumber) {
+  for (const lookup of CONTRACT_LOOKUPS) {
+    lookup.pattern.lastIndex = 0;
+    for (const match of code.matchAll(lookup.pattern)) {
+      const key = match[1];
+      if (!lookup.set.has(key)) {
+        findings.push(
+          `${rel}:${lineNumber}  ${lookup.kind} "${key}" has no backend AdminWebPageContract producer or explicit frontend fallback`,
+        );
+      }
+    }
+  }
+}
+
 for (const file of files) {
   if (isSkipped(file)) continue;
   const rel = relative(ROOT, file).replaceAll("\\", "/");
@@ -155,6 +224,7 @@ for (const file of files) {
     if (isCommentOrBlank(line)) return;
     const code = line.split("//")[0] ?? "";
     if (ALLOW_LINE.some((pattern) => pattern.test(code))) return;
+    checkContractReferences(rel, code, index + 1);
     if (/\.tsx$/.test(rel) && FORBIDDEN_RENDER_META.test(code)) {
       findings.push(`${rel}:${index + 1}  renderer must consume backend option_groups, not local *_META label/tone maps`);
       return;
@@ -211,8 +281,8 @@ for (const file of files) {
 if (findings.length > 0) {
   console.error("admin UI contract literal guard failed:");
   for (const finding of findings) console.error(`  ${finding}`);
-  console.error("\nMove visible copy/options into backend/internal/adminui/app/service.go and the OpenAPI AdminWeb* contract, or document an exception in context/frontend/admin-web-backend-ui-contract.md.");
+  console.error("\nMove visible copy/options into backend/internal/adminui/app/service.go and the OpenAPI AdminWeb* contract, add an explicit stale-contract fallback in apps/admin-web/lib/admin-ui-contract.ts, or document an exception in context/frontend/admin-web-backend-ui-contract.md.");
   process.exit(1);
 }
 
-console.log("admin UI contract literal guard passed.");
+console.log("admin UI contract literal/reference guard passed.");
