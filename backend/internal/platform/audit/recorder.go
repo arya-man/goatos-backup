@@ -62,7 +62,8 @@ func (r *PostgresRecorder) InTx(tx pgx.Tx) TxRecorder {
 }
 
 type txRecorder struct {
-	tx pgx.Tx
+	tx   pgx.Tx
+	exec executor
 }
 
 func NewTxRecorder(tx pgx.Tx) TxRecorder {
@@ -70,11 +71,32 @@ func NewTxRecorder(tx pgx.Tx) TxRecorder {
 }
 
 func (r txRecorder) Record(ctx context.Context, event Event) error {
+	if r.exec != nil {
+		return record(ctx, r.exec, event)
+	}
 	return record(ctx, r.tx, event)
 }
 
 type executor interface {
 	Exec(context.Context, string, ...any) (pgconn.CommandTag, error)
+}
+
+// Executor is the one method the recorder needs of a connection, a transaction, or a batch.
+type Executor = executor
+
+// NewBatchRecorder queues the audit INSERT onto a pgx.Batch instead of executing it: a write
+// transaction that already pipelines its own statements can carry the audit row in the same
+// round trip. The statement runs when the caller sends the batch; an error from it surfaces
+// there, not here.
+func NewBatchRecorder(b *pgx.Batch) TxRecorder {
+	return txRecorder{tx: nil, exec: batchExecutor{b: b}}
+}
+
+type batchExecutor struct{ b *pgx.Batch }
+
+func (q batchExecutor) Exec(_ context.Context, sql string, args ...any) (pgconn.CommandTag, error) {
+	q.b.Queue(sql, args...)
+	return pgconn.CommandTag{}, nil
 }
 
 func record(ctx context.Context, exec executor, event Event) error {

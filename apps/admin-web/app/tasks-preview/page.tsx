@@ -1,4 +1,7 @@
-import { LeadershipTasksPage } from "@/features/leadership-tasks";
+import {
+  leadershipTasksFixtureContract,
+  LeadershipTasksPage,
+} from "@/features/leadership-tasks";
 import { MeshaShell } from "@/components/mesha-shell";
 import type { AdminWebBootstrapResponse } from "@/lib/api/server";
 import type { Park } from "@/lib/scope";
@@ -185,13 +188,15 @@ export default async function TasksPreviewRoute({
 }: {
   searchParams?: Promise<Record<string, string | string[] | undefined>>;
 }) {
-  const params = (await searchParams) ?? {};
-  const rawTask = Array.isArray(params.task) ? params.task[0] : params.task;
+  const sp = (await searchParams) ?? {};
   return (
     <MeshaShell parks={previewParks} contract={previewContract}>
+      {/* The fixture host renders the REAL component against a fixture page contract, so the
+          preview cannot show a column set or any wording the live screen does not have. */}
       <LeadershipTasksPage
         preview
-        selectedTaskID={typeof rawTask === "string" ? rawTask : undefined}
+        pageContract={leadershipTasksFixtureContract}
+        searchParams={sp}
       />
     </MeshaShell>
   );

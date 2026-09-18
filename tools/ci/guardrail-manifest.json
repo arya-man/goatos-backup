@@ -51,6 +51,17 @@
       "ciStep": "admin-web-local-overlay-guard"
     },
     {
+      "id": "admin-web-interaction-patterns",
+      "script": "tools/agent-hooks/check-admin-web-interaction-patterns.mjs",
+      "makeTarget": "admin-web-interaction-patterns-guard",
+      "realCheck": "node tools/agent-hooks/check-admin-web-interaction-patterns.mjs",
+      "selfTest": "node tools/agent-hooks/check-admin-web-interaction-patterns.mjs --self-test",
+      "owningDoc": "docs/decisions/admin-web-interaction-patterns.md",
+      "requiredInCI": true,
+      "ciStep": "admin-web-interaction-patterns-guard",
+      "notes": "Maintainer rule 2026-09-18 from the Tasks page: no native date/time inputs (ThemedDatePicker is the one date field), no ARIA-faked checkboxes (a tick is a real <input type=checkbox> in a <label>), no server action that returns a row AND revalidates the route (the drawer applies the row in place; the revalidate is the page flicker), no Board/List view toggle that navigates (client state + replaceLocalOverlayUrl). Whole-tree, count-ratcheted baseline in tools/admin-web-interaction-patterns/baseline.json (shrink-only). Self-test is adversarial per rule and also pins the reference implementations (themed-date-picker, task-people-dropdown, task-view-switch, task-row-store, the in-place status action having no revalidate). Card-click-navigates-to-open-a-drawer stays with admin-web-local-overlays, which now pins the Tasks drawer host."
+    },
+    {
       "id": "admin-web-nav-icon-coverage",
       "script": "tools/agent-hooks/check-admin-web-nav-icon-coverage.mjs",
       "makeTarget": "frontend-foundations-guard",
@@ -70,6 +81,16 @@
       "owningDoc": "docs/decisions/high-scale-dashboard-projections.md",
       "requiredInCI": true,
       "ciStep": "admin-web-prefetch-guard"
+    },
+    {
+      "id": "admin-web-server-client-values",
+      "script": "tools/agent-hooks/check-admin-web-server-client-values.mjs",
+      "makeTarget": "admin-web-server-client-values-guard",
+      "realCheck": "node tools/agent-hooks/check-admin-web-server-client-values.mjs",
+      "selfTest": "node tools/agent-hooks/check-admin-web-server-client-values.mjs --self-test",
+      "requiredInCI": true,
+      "ciStep": "admin-web-server-client-values-guard",
+      "notes": "A server component must not import a plain value (helper/const, not a component) from a \"use client\" module: it is a client reference, and calling it during server render fails at runtime while tsc/eslint/unit tests stay green (PR #295: 206 \"Attempted to call initials() from the server\" errors, zero task cards, React #419)."
     },
     {
       "id": "admin-web-request-reads",
@@ -606,7 +627,7 @@
       "owningDoc": "docs/decisions/android-offline-first.md",
       "requiredInCI": true,
       "ciStep": "feed-submitted-overlay-wiring-guard",
-      "notes": "Keeps the queued-submit badge overlay wired end to end (bug 254.mp4: submit a shed-session, return to the worklist, row still reads Pending because the write is only in the outbox). Every Feed worklist renders its chip from lifecycleStatus, so three parts must all survive: the submit ViewModel calls markSubmittedForReview on ENQUEUE SUCCESS; the list ViewModel combines feedCompletionStore.submittedForReviewKeys; and its row mapping runs the status through overlayFeedLifecycleStatus. Deleting any one silently restores the bug while every unit test still passes, because the rule's own tests call the pure function directly and cannot see a severed call site. Also pins overlayFeedLifecycleStatus to exactly ONE definition: Feed Packing and Feed Direction previously drifted apart with per-flow copies. A paging-level test was tried first and rejected — `rows` ends in cachedIn(viewModelScope) and asSnapshot() never settles under runTest (UncompletedCoroutinesError), so a structural guard is deterministic where that test was flaky."
+      "notes": "Keeps the queued-submit badge overlay wired end to end (bug 254.mp4: submit a shed-session, return to the worklist, row still reads Pending because the write is only in the outbox). Every Feed worklist renders its chip from lifecycleStatus, so three parts must all survive: the submit ViewModel calls markSubmittedForReview on ENQUEUE SUCCESS; the list ViewModel combines feedCompletionStore.submittedForReviewKeys; and its row mapping runs the status through overlayFeedLifecycleStatus. Deleting any one silently restores the bug while every unit test still passes, because the rule's own tests call the pure function directly and cannot see a severed call site. Also pins overlayFeedLifecycleStatus to exactly ONE definition: Feed Packing and Feed Direction previously drifted apart with per-flow copies. A paging-level test was tried first and rejected \u2014 `rows` ends in cachedIn(viewModelScope) and asSnapshot() never settles under runTest (UncompletedCoroutinesError), so a structural guard is deterministic where that test was flaky."
     },
     {
       "id": "firebase-analytics-param-budget",
@@ -1353,7 +1374,7 @@
       "owningDoc": "context/repo-audits/weighing-implementation-do-not-reopen-ledger.md",
       "requiredInCI": true,
       "ciStep": "weighing-free-flow-guard",
-      "notes": "Weighing is free-flow (maintainer decision 2026-07-31, STRICT form). The observation write path may touch ONLY weighing-owned tables plus proof/idempotency/audit/outbox: no goats, no weighing_expected_animals, no vaccination tables, no clinical state; the write REQUEST must never require or carry animal_id; and no weighing UI may render an expected-animal denominator. Ten failure modes: (1) vaccination/herd-roster read in the write path; (2) animal_id NOT NULL reintroduced; (3) UNIQUE on scanned_identifier collapsing it across campaign_shed_id buckets; (4) rejecting a null animal_id instead of routing to the scanned_identifier path; (5) clinical-state read (goats.health_status / lifecycle_status / a clinical-defer vocabulary) used to gate a write; (6) weighing_expected_animals.status / availability_status used as a gate rather than a label; (7) STRICT allowlist catch-all for any table outside the weighing-owned set; (8) a Go struct tag or validator-library call making AnimalID a required/non-empty precondition anywhere in the module; (9) an Android Kotlin `Weighing*RequestDto` (the write-request DTO shape) declaring an animal_id/animalId field — scoped narrowly to that naming convention, so it does not fire on the read/response DTO, a Room entity, or Vaccination DTOs; (10) a weighing UI surface (Android Compose weighing screens, admin-web weighing pages) rendering/computing a ratio against an expected/roster-named denominator, or a literal N/N or /100 progress token. Scans the transitive closure of same-file helpers called from the write entry points, so extracting a gate into a private helper does not hide it. Vaccination stays strict and is untouched by this guard."
+      "notes": "Weighing is free-flow (maintainer decision 2026-07-31, STRICT form). The observation write path may touch ONLY weighing-owned tables plus proof/idempotency/audit/outbox: no goats, no weighing_expected_animals, no vaccination tables, no clinical state; the write REQUEST must never require or carry animal_id; and no weighing UI may render an expected-animal denominator. Ten failure modes: (1) vaccination/herd-roster read in the write path; (2) animal_id NOT NULL reintroduced; (3) UNIQUE on scanned_identifier collapsing it across campaign_shed_id buckets; (4) rejecting a null animal_id instead of routing to the scanned_identifier path; (5) clinical-state read (goats.health_status / lifecycle_status / a clinical-defer vocabulary) used to gate a write; (6) weighing_expected_animals.status / availability_status used as a gate rather than a label; (7) STRICT allowlist catch-all for any table outside the weighing-owned set; (8) a Go struct tag or validator-library call making AnimalID a required/non-empty precondition anywhere in the module; (9) an Android Kotlin `Weighing*RequestDto` (the write-request DTO shape) declaring an animal_id/animalId field \u2014 scoped narrowly to that naming convention, so it does not fire on the read/response DTO, a Room entity, or Vaccination DTOs; (10) a weighing UI surface (Android Compose weighing screens, admin-web weighing pages) rendering/computing a ratio against an expected/roster-named denominator, or a literal N/N or /100 progress token. Scans the transitive closure of same-file helpers called from the write entry points, so extracting a gate into a private helper does not hide it. Vaccination stays strict and is untouched by this guard."
     },
     {
       "id": "weighing-isolation-on-edit",

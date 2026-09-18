@@ -61,6 +61,20 @@ func HTTPError(err error) *Error {
 		return BadRequest("title_too_long", "Keep the title under 80 characters.")
 	case errors.Is(err, domain.ErrBodyTooLong):
 		return BadRequest("body_too_long", "Keep the brief under 4000 characters.")
+	case errors.Is(err, domain.ErrTooManyMentions):
+		return BadRequest("too_many_mentions", "Mention at most 20 people in one note.")
+	case errors.Is(err, domain.ErrInvalidMention):
+		// Names nobody: the sentinel carries no display name, and "one of the people you
+		// mentioned" gestures at a person the sender already picked BY NAME. The clause is
+		// dropped and the rule named instead.
+		return BadRequest("invalid_mention", "A name that is not on this farm's leadership roster cannot be mentioned. Pick the person from the list that appears when you type @.")
+	case errors.Is(err, domain.ErrMentionNotVisible):
+		// 403, not 404: the caller named a REAL person who simply cannot see this task. Saying
+		// so is what stops a leader retrying the same send, and it reveals nothing about the
+		// task -- the caller can already read it.
+		// Same reason as invalid_mention above: no name is in hand here, so the sentence
+		// names the rule rather than saying "that person".
+		return Forbidden("mention_not_visible", "A person can only be mentioned on a task they can already see. Pick from the list that appears when you type @, or share the task with them first.")
 	case errors.Is(err, domain.ErrCommentTooLong):
 		return BadRequest("comment_too_long", "Keep the comment under 2000 characters.")
 	case errors.Is(err, domain.ErrAssigneeRequired):

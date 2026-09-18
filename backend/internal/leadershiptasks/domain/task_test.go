@@ -29,12 +29,16 @@ func sample(status string) Task {
 var (
 	director = Actor{UserID: raiser, CanRaise: true}
 	cxo      = Actor{UserID: assignee, CanAct: true}
-	nobody   = Actor{UserID: stranger, CanRaise: true, CanAct: true, CanMonitor: true}
+	nobody   = Actor{UserID: stranger, CanRaise: true, CanAct: true}
+	// leader is a CEO/COO-style monitor who is neither party to the sample task. Since
+	// 2026-09-18 leadership edits anything: the full ladder plus cancel.
+	leader = Actor{UserID: stranger, CanRaise: true, CanAct: true, CanMonitor: true}
 )
 
 // The status ladder from each side: the CXO walks it, the director only cancels, a
-// stranger (even one holding both permissions) gets nothing. Cancelled is terminal for
-// everyone; done can be reopened by the CXO only.
+// leadership monitor gets both, a stranger (even one holding both permissions but not
+// monitor) gets nothing. Cancelled is terminal for everyone; done can be reopened by the
+// CXO or a monitor.
 func TestStatusOptionsAndTransitionsAgree(t *testing.T) {
 	cases := []struct {
 		status string
@@ -50,6 +54,12 @@ func TestStatusOptionsAndTransitionsAgree(t *testing.T) {
 		{StatusDone, director, nil},
 		{StatusCancelled, director, nil},
 		{StatusOpen, nobody, nil},
+		{StatusInProgress, nobody, nil},
+		{StatusDone, nobody, nil},
+		{StatusOpen, leader, []string{StatusInProgress, StatusDone, StatusCancelled}},
+		{StatusInProgress, leader, []string{StatusDone, StatusCancelled}},
+		{StatusDone, leader, []string{StatusInProgress}},
+		{StatusCancelled, leader, nil},
 	}
 	for _, c := range cases {
 		task := sample(c.status)
@@ -90,6 +100,40 @@ func TestStatusOptionsAndTransitionsAgree(t *testing.T) {
 	}
 	if err := CheckTransition(sample(StatusOpen), nobody, StatusDone); !errors.Is(err, ErrNotAssignee) {
 		t.Fatalf("a stranger completing must read as not-assignee, got %v", err)
+	}
+	if err := CheckTransition(sample(StatusDone), leader, StatusCancelled); !errors.Is(err, ErrTaskClosed) {
+		t.Fatalf("a monitor cancelling a done task must read as closed, got %v", err)
+	}
+	if err := CheckTransition(sample(StatusCancelled), leader, StatusOpen); !errors.Is(err, ErrTaskClosed) {
+		t.Fatalf("a monitor reopening a cancelled task must read as closed, got %v", err)
+	}
+}
+
+// Leadership edits anything (CEO decision 2026-09-18): a monitor who is neither party
+// holds every capability a raiser or assignee holds, bounded by the same status rules.
+func TestMonitorHoldsEveryCapability(t *testing.T) {
+	cases := []struct {
+		status                                          string
+		actor                                           Actor
+		canEdit, canCancel, canChangeStatus, canComment bool
+	}{
+		{StatusOpen, leader, true, true, true, true},
+		{StatusInProgress, leader, true, true, true, true},
+		{StatusDone, leader, false, false, true, true},
+		{StatusCancelled, leader, false, false, false, false},
+		{StatusOpen, nobody, false, false, false, false},
+		{StatusInProgress, nobody, false, false, false, false},
+		// A monitor who is ALSO a party keeps the union, never less.
+		{StatusOpen, Actor{UserID: raiser, CanRaise: true, CanMonitor: true}, true, true, true, true},
+		{StatusOpen, Actor{UserID: assignee, CanAct: true, CanMonitor: true}, true, true, true, true},
+	}
+	for _, c := range cases {
+		task := sample(c.status)
+		got := [4]bool{task.CanEdit(c.actor), task.CanCancel(c.actor), task.CanChangeStatus(c.actor), task.CanComment(c.actor)}
+		want := [4]bool{c.canEdit, c.canCancel, c.canChangeStatus, c.canComment}
+		if got != want {
+			t.Fatalf("%s/%s monitor=%v: edit/cancel/status/comment = %v, want %v", c.status, c.actor.UserID, c.actor.CanMonitor, got, want)
+		}
 	}
 }
 
@@ -162,7 +206,7 @@ func TestCopyIsFarmWordedFromTheViewersSide(t *testing.T) {
 	if got := NumberLabel(task.TaskNo); got != "#12" {
 		t.Fatalf("number label = %q", got)
 	}
-	if StatusChip(StatusInProgress) != "Doing" || StatusChip(StatusCancelled) != "Cancelled" {
+	if StatusChip(StatusOpen) != "To do" || StatusChip(StatusInProgress) != "In progress" || StatusChip(StatusCancelled) != "Cancelled" {
 		t.Fatal("status chips must be the farm words")
 	}
 	unnamed := task

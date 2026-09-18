@@ -106,6 +106,18 @@ type Task struct {
 	Attachments     []Attachment
 	AttachmentCount int
 	Notes           []Note
+	// ParticipantUserIDs are the people a mention pulled onto this task (migration 000346).
+	// They may OPEN the task; see IsParticipant / CanRead in mentions.go.
+	ParticipantUserIDs []string
+	// Activity is the task's own history (migration 000349, activity.go), NEWEST FIRST: who
+	// created it, who moved its status, who edited its title, brief or deadline, who commented.
+	// The panel's History / Comments / All tabs are all views over this one list.
+	Activity []Event
+	// ActivityHasMore says the feed above is the NEWEST window (ActivityWindow rows) and older
+	// rows exist; ActivityNextBefore is the opaque cursor that fetches the next older window
+	// through the activity page read. A task with a short feed carries neither.
+	ActivityHasMore    bool
+	ActivityNextBefore string
 }
 
 // Attachment is one stored attachment of a task. ProofID points at the proof store row that
@@ -129,6 +141,9 @@ type Note struct {
 	AuthorName string
 	Body       string
 	CreatedAt  time.Time
+	// Mentions are the people this note named, resolved and stored at write time
+	// (mentions.go, migration 000346). The phone renders them as chips over the body.
+	Mentions []Mention
 }
 
 // AttachmentRef is what a raise/edit request names: the proof the phone already uploaded,
@@ -213,25 +228,33 @@ func (t Task) IsRaiser(a Actor) bool { return a.UserID != "" && a.UserID == t.Ra
 // IsAssignee reports whether the task is addressed to the actor.
 func (t Task) IsAssignee(a Actor) bool { return a.UserID != "" && a.UserID == t.AssigneeUserID }
 
-// CanEdit: the raiser, while the task is still open for work.
-func (t Task) CanEdit(a Actor) bool { return a.CanRaise && t.IsRaiser(a) && IsOpenForWork(t.Status) }
+// CanEdit: the raiser, or a leadership monitor (CEO decision 2026-09-18: leadership edits
+// anything), while the task is still open for work. These four predicates are THE write
+// rule: every write path (edit, cancel, status, comment) checks them, never "is raiser"
+// re-derived inline, so the flags a screen reads and the refusal a write gets cannot
+// disagree.
+func (t Task) CanEdit(a Actor) bool {
+	return ((a.CanRaise && t.IsRaiser(a)) || t.CanMonitor(a)) && IsOpenForWork(t.Status)
+}
 
-// CanCancel: the raiser, while the task is still open for work.
+// CanCancel: whoever may edit, while the task is still open for work.
 func (t Task) CanCancel(a Actor) bool { return t.CanEdit(a) }
 
-// CanChangeStatus: the assignee, while the task is not cancelled. A done task can be
-// reopened by the assignee (they marked it done by mistake); a cancelled one cannot.
+// CanChangeStatus: the assignee or a leadership monitor, while the task is not cancelled. A
+// done task can be reopened (it was marked done by mistake); a cancelled one cannot.
 func (t Task) CanChangeStatus(a Actor) bool {
-	return a.CanAct && t.IsAssignee(a) && t.Status != StatusCancelled
+	return ((a.CanAct && t.IsAssignee(a)) || t.CanMonitor(a)) && t.Status != StatusCancelled
 }
 
-// CanComment: either task party can append a note while the task is not cancelled.
+// CanComment: either task party, or a leadership monitor, can append a note while the task
+// is not cancelled.
 func (t Task) CanComment(a Actor) bool {
-	return (t.IsAssignee(a) || t.IsRaiser(a)) && t.Status != StatusCancelled
+	return (t.IsAssignee(a) || t.IsRaiser(a) || t.CanMonitor(a)) && t.Status != StatusCancelled
 }
 
-// CanMonitor reports read-only team-progress visibility for CEO/COO-style monitors. It is
-// deliberately separate from raise authority so directors can raise without receiving a
+// CanMonitor reports the CEO/COO-style leadership authority: tenant-wide Team progress
+// visibility, and (since 2026-09-18) the right to edit, move, cancel and note any task. It
+// is deliberately separate from raise authority so directors can raise without receiving a
 // tenant-wide task dashboard.
 func (t Task) CanMonitor(a Actor) bool { return a.CanMonitor }
 
@@ -250,7 +273,8 @@ type StatusOption struct {
 }
 
 // StatusOptionsFor lists the transitions THIS actor may make, in the order the screen shows
-// them. The raiser only ever cancels; the assignee walks the ladder. Empty means read-only.
+// them. The raiser only ever cancels; the assignee walks the ladder; a leadership monitor
+// gets the full legal ladder for the current status plus cancel. Empty means read-only.
 func StatusOptionsFor(t Task, a Actor) []StatusOption {
 	var out []StatusOption
 	if t.CanChangeStatus(a) {
@@ -286,12 +310,12 @@ func CheckTransition(t Task, a Actor, to string) error {
 		}
 	}
 	if to == StatusCancelled {
-		if !t.IsRaiser(a) {
+		if !t.IsRaiser(a) && !t.CanMonitor(a) {
 			return ErrNotRaiser
 		}
 		return ErrTaskClosed
 	}
-	if !t.IsAssignee(a) {
+	if !t.IsAssignee(a) && !t.CanMonitor(a) {
 		return ErrNotAssignee
 	}
 	if t.Status == StatusCancelled {
@@ -300,13 +324,15 @@ func CheckTransition(t Task, a Actor, to string) error {
 	return ErrInvalidStatusTransition
 }
 
-// StatusChip is the label the card and detail show for a status.
+// StatusChip is the label the card and detail show for a status. The words are the Work
+// Board's (lane.todo / lane.in_progress: "To do", "In progress"), so the two boards in the
+// console name a status one way (CEO review 2026-09-18). The enum values do not change.
 func StatusChip(status string) string {
 	switch status {
 	case StatusOpen:
-		return "Open"
+		return "To do"
 	case StatusInProgress:
-		return "Doing"
+		return "In progress"
 	case StatusDone:
 		return "Done"
 	case StatusCancelled:
@@ -349,10 +375,21 @@ const (
 	FilterOpen       = "open"
 	FilterInProgress = "in_progress"
 	FilterDone       = "done"
+	// FilterOverdue is the LENS over the two working statuses: a task still open or in
+	// progress whose deadline has already passed on the farm clock (deadline_at < now). It is
+	// not a fifth status -- the card keeps its status, the column keeps its heading -- so the
+	// enum stays four values and the Work Board's vocabulary stays intact. The count beside
+	// the chip is whole-list, computed by the same aggregate query as the status counts.
+	FilterOverdue = "overdue"
 )
 
-// FilterKeys is the chip order.
-var FilterKeys = []string{FilterAll, FilterOpen, FilterInProgress, FilterDone}
+// FilterKeys is the chip order. Overdue sits last: it is a lens over the other chips'
+// statuses, and reads naturally after the ladder the three status chips walk.
+var FilterKeys = []string{FilterAll, FilterOpen, FilterInProgress, FilterDone, FilterOverdue}
+
+// OverdueStatuses are the statuses the overdue lens ranges over: a done or cancelled task is
+// finished and can no longer be late.
+var OverdueStatuses = []string{StatusOpen, StatusInProgress}
 
 const (
 	ScopeAssignedToMe = "assigned_to_me"
@@ -406,7 +443,7 @@ func ScopeEmptyMessage(key string) string {
 // still sees its list rather than an empty screen.
 func FilterKeyOrDefault(key string) string {
 	switch strings.TrimSpace(key) {
-	case FilterOpen, FilterInProgress, FilterDone:
+	case FilterOpen, FilterInProgress, FilterDone, FilterOverdue:
 		return strings.TrimSpace(key)
 	}
 	return FilterAll
@@ -422,19 +459,24 @@ func StatusesForFilter(key string) []string {
 		return []string{StatusInProgress}
 	case FilterDone:
 		return []string{StatusDone}
+	case FilterOverdue:
+		return OverdueStatuses
 	}
 	return []string{StatusOpen, StatusInProgress, StatusDone}
 }
 
-// FilterLabel is the chip text.
+// FilterLabel is the chip text: the same words as StatusChip, so a chip and the cards it
+// lists never name the status two ways.
 func FilterLabel(key string) string {
 	switch key {
 	case FilterOpen:
-		return "Open"
+		return StatusChip(StatusOpen)
 	case FilterInProgress:
-		return "Doing"
+		return StatusChip(StatusInProgress)
 	case FilterDone:
 		return "Done"
+	case FilterOverdue:
+		return "Overdue"
 	}
 	return "All"
 }
@@ -450,6 +492,8 @@ func FilterEmptyMessage(key string, canRaise bool) string {
 			return "Nothing is being worked on right now."
 		case FilterDone:
 			return "Nothing has been completed yet."
+		case FilterOverdue:
+			return "Nothing is past its deadline."
 		}
 		return "No tasks yet. Tap + to raise one."
 	}
@@ -460,11 +504,15 @@ func FilterEmptyMessage(key string, canRaise bool) string {
 		return "Nothing in progress."
 	case FilterDone:
 		return "Nothing completed yet."
+	case FilterOverdue:
+		return "Nothing is past its deadline."
 	}
 	return "No tasks for you yet."
 }
 
-// FilterCount resolves a chip's count from whole-list status counts.
+// FilterCount resolves a chip's count from whole-list status counts. The overdue chip is NOT
+// a sum of statuses (it is the late subset of two of them); its count is carried separately
+// by the page (ports.Page.OverdueCount) and the caller substitutes it.
 func FilterCount(key string, statusCounts map[string]int) int {
 	total := 0
 	for _, s := range StatusesForFilter(key) {

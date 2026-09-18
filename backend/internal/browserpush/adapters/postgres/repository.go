@@ -1,0 +1,399 @@
+// Package postgres persists browser web push registrations.
+package postgres
+
+import (
+	"context"
+	"errors"
+	"fmt"
+	"time"
+
+	"github.com/jackc/pgx/v5"
+	"github.com/jackc/pgx/v5/pgxpool"
+
+	"github.com/vgoats/goatos/backend/internal/browserpush"
+)
+
+const defaultQueryTimeout = 3 * time.Second
+
+// Repository is the postgres implementation of browserpush.Repository.
+type Repository struct {
+	pool    *pgxpool.Pool
+	timeout time.Duration
+}
+
+// NewRepository wires the repository over a pool.
+func NewRepository(pool *pgxpool.Pool, queryTimeout time.Duration) *Repository {
+	if queryTimeout <= 0 {
+		queryTimeout = defaultQueryTimeout
+	}
+	return &Repository{pool: pool, timeout: queryTimeout}
+}
+
+var _ browserpush.Repository = (*Repository)(nil)
+
+// targetMemberCTE resolves the caller to a canonical, ACTIVE workforce member from either their
+// workforce_member_id or their linked authenticated user_id. It is a deliberate copy of the
+// resolution ResolveMemberRecipients uses (workforce/adapters/postgres/roster_repository.go): the
+// admin-web session carries the Firebase user id, while some internal callers hold the member id,
+// and a push address must land on the same canonical member whichever one arrived.
+//
+// ACTIVE IS PART OF THE PREDICATE, NOT AN AFTERTHOUGHT: a deactivated person must not be able to
+// attach a new delivery address, and every query below therefore resolves to nothing rather than
+// silently registering against an inactive row. $1 tenant, $2 member-or-user id.
+const targetMemberCTE = `
+WITH target_member AS (
+  SELECT COALESCE(
+    (SELECT wm.workforce_member_id
+       FROM workforce_members wm
+      WHERE wm.tenant_id = $1::uuid
+        AND wm.workforce_member_id = $2::uuid
+        AND wm.status = 'active'),
+    (SELECT wm.workforce_member_id
+       FROM workforce_members wm
+      WHERE wm.tenant_id = $1::uuid
+        AND wm.user_id = $2::uuid
+        AND wm.status = 'active')
+  ) AS workforce_member_id
+)`
+
+const registrationColumns = `
+  browser_registration_id::text,
+  workforce_member_id::text,
+  provider,
+  browser_install_id,
+  browser_label,
+  status,
+  created_at,
+  last_seen_at,
+  stale_at,
+  COALESCE(stale_reason, ''),
+  row_version`
+
+// registrationColumnsQualified is the same projection for queries that JOIN target_member, which
+// also exposes a workforce_member_id and would otherwise make the reference ambiguous.
+const registrationColumnsQualified = `
+  reg.browser_registration_id::text,
+  reg.workforce_member_id::text,
+  reg.provider,
+  reg.browser_install_id,
+  reg.browser_label,
+  reg.status,
+  reg.created_at,
+  reg.last_seen_at,
+  reg.stale_at,
+  COALESCE(reg.stale_reason, ''),
+  reg.row_version`
+
+// upsertRegistrationSQL stores or refreshes one browser profile's push address. Hoisted to a
+// package-level const, like every other statement here, so a query-plan gate and the scale guard
+// can NAME it -- an inline literal inside a function body is structurally unreachable to both.
+// Params: $1 tenant, $2 member-or-user id, $3 provider, $4 browser install id, $5 token,
+// $6 user agent, $7 browser label, $8 now.
+//
+// THE DO UPDATE PREDICATE IS THE WHOLE SECURITY PROPERTY OF THIS FILE. Read it before changing
+// any clause above it. Without it, a conflicting row was refreshed no matter WHOSE it was, and
+// because browser_install_id is per-browser-PROFILE rather than per-user (admin-web mints it once
+// into localStorage, where it survives sign-out), the second person to sign in on a shared office
+// desktop silently refreshed the FIRST person's registration: the row stayed attributed to the
+// first person, went back to 'active', and every push for them -- leadership-task mention and
+// comment bodies carry the task title and a note excerpt -- was delivered to the browser the
+// second person was sitting at. The three OR branches are the only ways a conflicting row may be
+// written, and each is a different kind of proof that writing it is legitimate:
+//
+//  1. SAME MEMBER -- the ordinary case, and the overwhelming majority of calls: this person's own
+//     browser re-registering a rotated token. Nothing changes hands.
+//  2. SAME TOKEN -- the genuine shared-profile HAND-OVER. An FCM web registration token is issued
+//     to a browser PROFILE, not to a signed-in user, and it does not change across sign-out, so a
+//     caller presenting the token the stored row already holds is demonstrably sitting at that
+//     physical browser. That is the one proof of possession this endpoint has, and it is what
+//     separates the person who really took the desk over from someone who merely learned an
+//     install id: from a different browser an attacker holds a different token and falls through
+//     to no branch at all.
+//  3. NOT ACTIVE -- the previous owner's registration is 'unsubscribed' (they switched it off) or
+//     'stale' (the provider confirmed the address is dead). Nobody is relying on that address, so
+//     the browser is free to be claimed.
+//
+// ON A HAND-OVER THE ROW IS TRANSFERRED, NOT DUPLICATED, and the unique index on
+// (tenant_id, browser_install_id) is deliberately kept rather than widened to include the member.
+// Keying on the member would let two members hold live registrations for one browser profile
+// carrying the SAME browser-scoped token, and the fan-out addresses the TOKEN -- so the first
+// person's push would still land on the second person's screen. One live registration per browser
+// profile is a statement about where the notification physically arrives, not bookkeeping.
+// workforce_member_id, registered_by and created_at therefore all move to the new owner: the
+// registration is hers from now on, and dating it from the previous person's first sign-in would
+// misreport whose address it is and since when.
+//
+// A caller matching NO branch writes nothing, which the RETURNING turns into zero rows, and Upsert
+// raises browserpush.ErrBrowserInstallConflict rather than reporting a success it did not perform.
+const upsertRegistrationSQL = targetMemberCTE + `
+INSERT INTO workforce_member_browser_push_registrations (
+  tenant_id, workforce_member_id, provider, browser_install_id, fcm_token,
+  user_agent, browser_label, status, created_at, last_seen_at, registered_by
+)
+SELECT $1::uuid, tm.workforce_member_id, $3::text, $4::text, $5::text,
+       $6::text, $7::text, 'active', $8::timestamptz, $8::timestamptz, tm.workforce_member_id
+  FROM target_member tm
+ WHERE tm.workforce_member_id IS NOT NULL
+ON CONFLICT (tenant_id, browser_install_id) DO UPDATE
+   SET workforce_member_id = EXCLUDED.workforce_member_id,
+       registered_by = EXCLUDED.registered_by,
+       fcm_token    = EXCLUDED.fcm_token,
+       user_agent   = EXCLUDED.user_agent,
+       browser_label = EXCLUDED.browser_label,
+       status       = 'active',
+       stale_at     = NULL,
+       stale_reason = NULL,
+       created_at   = CASE
+                        WHEN workforce_member_browser_push_registrations.workforce_member_id = EXCLUDED.workforce_member_id
+                          THEN workforce_member_browser_push_registrations.created_at
+                        ELSE EXCLUDED.created_at
+                      END,
+       last_seen_at = EXCLUDED.last_seen_at,
+       row_version  = workforce_member_browser_push_registrations.row_version + 1
+ WHERE workforce_member_browser_push_registrations.workforce_member_id = EXCLUDED.workforce_member_id
+    OR workforce_member_browser_push_registrations.fcm_token = EXCLUDED.fcm_token
+    OR workforce_member_browser_push_registrations.status <> 'active'
+RETURNING` + registrationColumns + `, (row_version = 1) AS created`
+
+// unsubscribeRegistrationSQL switches one browser off at the person's own request.
+// Params: $1 tenant, $2 member-or-user id, $3 browser install id, $4 now.
+const unsubscribeRegistrationSQL = targetMemberCTE + `
+UPDATE workforce_member_browser_push_registrations reg
+   SET status       = 'unsubscribed',
+       stale_at     = $4::timestamptz,
+       stale_reason = 'unsubscribed_by_user',
+       last_seen_at = $4::timestamptz,
+       row_version  = reg.row_version + 1
+  FROM target_member tm
+ WHERE reg.tenant_id = $1::uuid
+   AND reg.workforce_member_id = tm.workforce_member_id
+   AND reg.browser_install_id = $3::text
+   AND reg.status = 'active'`
+
+// listRegistrationsSQL returns the caller's registrations, whatever their status.
+// Params: $1 tenant, $2 member-or-user id.
+const listRegistrationsSQL = targetMemberCTE + `
+SELECT` + registrationColumnsQualified + `
+  FROM workforce_member_browser_push_registrations reg
+  JOIN target_member tm ON tm.workforce_member_id = reg.workforce_member_id
+ WHERE reg.tenant_id = $1::uuid
+ ORDER BY reg.last_seen_at DESC, reg.browser_registration_id
+ LIMIT 50`
+
+// resolveRecipientsSQL returns one person's reachable browsers, for the notification fan-out.
+// Params: $1 tenant, $2 member-or-user id.
+const resolveRecipientsSQL = targetMemberCTE + `
+SELECT DISTINCT ON (reg.fcm_token)
+       reg.workforce_member_id::text,
+       reg.browser_registration_id::text,
+       reg.fcm_token
+  FROM workforce_member_browser_push_registrations reg
+  JOIN target_member tm ON tm.workforce_member_id = reg.workforce_member_id
+ WHERE reg.tenant_id = $1::uuid
+   AND reg.status = 'active'
+ ORDER BY reg.fcm_token, reg.browser_registration_id
+ LIMIT 50`
+
+// markTokenStaleSQL is the PRUNE: retire every active registration holding a provider-confirmed
+// dead token. Addressed BY TOKEN because that is all a delivery failure knows.
+// Params: $1 tenant, $2 token, $3 reason, $4 now.
+const markTokenStaleSQL = `
+UPDATE workforce_member_browser_push_registrations
+   SET status       = 'stale',
+       stale_at     = $4::timestamptz,
+       stale_reason = $3::text,
+       row_version  = row_version + 1
+ WHERE tenant_id = $1::uuid
+   AND fcm_token = $2::text
+   AND status = 'active'`
+
+// resolveTargetMemberSQL answers ONE question, and only on the failure path: does this caller
+// resolve to an active workforce member of this tenant at all? It is what lets Upsert tell an
+// authorization gap (the caller is not a member here) apart from a browser-ownership conflict
+// (they are, but that browser profile is somebody else's live registration) after the upsert has
+// already written nothing. Two very different answers to the client -- 403 versus 409 with an
+// install id to re-mint -- so guessing between them is not an option.
+// Params: $1 tenant, $2 member-or-user id.
+const resolveTargetMemberSQL = targetMemberCTE + `
+SELECT workforce_member_id::text
+  FROM target_member
+ WHERE workforce_member_id IS NOT NULL`
+
+// Upsert stores or refreshes one browser profile's push address.
+//
+// ON CONFLICT REVIVES, IT DOES NOT SKIP. The conflict target is the browser profile, so a person
+// who turned notifications off and later turned them back on, or whose address was pruned as
+// stale and has now produced a fresh token, reuses the SAME row: status returns to 'active' and
+// stale_at/stale_reason are cleared (the table's stale CHECK requires exactly that pairing). The
+// alternative -- insert-only, leaving the dead row behind -- would accumulate one dead row per
+// permission cycle per browser and make "is this person reachable" ambiguous.
+//
+// A BROWSER PROFILE CAN CHANGE HANDS, BUT ONLY ON PROOF. browser_install_id lives in that Chrome
+// profile's localStorage and survives sign-out, so two colleagues sharing one office desktop
+// present the SAME install id. The conflicting row is therefore rewritten only when the caller
+// owns it already, or presents the token the row holds (proof they are at that physical browser,
+// since an FCM web token belongs to the profile and not to the signed-in user), or the previous
+// owner's registration is no longer active. Anything else is somebody else's live address and is
+// refused with ErrBrowserInstallConflict -- see the predicate on upsertRegistrationSQL, which is
+// where the reasoning for each branch lives. The client answers a conflict by minting a fresh
+// install id for itself, so the person still gets their own registration for that browser; they
+// are never left silently unreachable, which is what the pre-fix behaviour did to the second
+// person to sign in.
+//
+// Because the predicate can only ever write the CALLER's own row, the returned Registration --
+// which the POST echoes back verbatim -- can no longer carry another member's workforce_member_id.
+func (r *Repository) Upsert(ctx context.Context, tenantID, memberOrUserID string, in browserpush.RegisterRequest, now time.Time) (browserpush.Registration, bool, error) {
+	ctx, cancel := context.WithTimeout(ctx, r.timeout)
+	defer cancel()
+	row := r.pool.QueryRow(ctx, upsertRegistrationSQL,
+		tenantID, memberOrUserID, browserpush.ProviderWebFCM, in.BrowserInstallID, in.Token,
+		in.UserAgent, in.BrowserLabel, now)
+	var (
+		registration browserpush.Registration
+		created      bool
+	)
+	if err := scanRegistration(row, &registration, &created); err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			// Zero rows has exactly two causes and they are not the same answer. Either the
+			// INSERT ... SELECT produced nothing because target_member resolved to nothing (the
+			// caller is authenticated but is not an active workforce member of this tenant -- an
+			// authorization gap), or it conflicted and the DO UPDATE predicate refused because
+			// that browser profile holds somebody else's live registration. Ask the database
+			// which, on this cold path only, rather than reporting a registration that never
+			// happened as a success.
+			return browserpush.Registration{}, false, r.classifyUpsertNoRows(ctx, tenantID, memberOrUserID)
+		}
+		return browserpush.Registration{}, false, fmt.Errorf("browser push: upsert registration: %w", err)
+	}
+	return registration, created, nil
+}
+
+// classifyUpsertNoRows turns "the upsert wrote nothing" into the one honest error for it.
+func (r *Repository) classifyUpsertNoRows(ctx context.Context, tenantID, memberOrUserID string) error {
+	var memberID string
+	if err := r.pool.QueryRow(ctx, resolveTargetMemberSQL, tenantID, memberOrUserID).Scan(&memberID); err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return fmt.Errorf("browser push: %w", browserpush.ErrRegistrationNotFound)
+		}
+		// The diagnosis itself failed. Report the conflict -- the write demonstrably did not
+		// happen -- but keep the cause, because swallowing it would hide a real database fault
+		// behind a routine 409.
+		return fmt.Errorf("browser push: %w: resolve target member: %v", browserpush.ErrBrowserInstallConflict, err)
+	}
+	return fmt.Errorf("browser push: %w", browserpush.ErrBrowserInstallConflict)
+}
+
+// MarkUnsubscribed switches one browser off at the person's own request.
+//
+// Scoped to the CALLER's own member id as well as the browser install id: the install id is
+// client-supplied, so without the member predicate one person could switch off another person's
+// browser by guessing or replaying an id.
+func (r *Repository) MarkUnsubscribed(ctx context.Context, tenantID, memberOrUserID, browserInstallID string, now time.Time) (bool, error) {
+	ctx, cancel := context.WithTimeout(ctx, r.timeout)
+	defer cancel()
+	tag, err := r.pool.Exec(ctx, unsubscribeRegistrationSQL, tenantID, memberOrUserID, browserInstallID, now)
+	if err != nil {
+		return false, fmt.Errorf("browser push: unsubscribe registration: %w", err)
+	}
+	return tag.RowsAffected() > 0, nil
+}
+
+// ListForMember returns the caller's registrations, whatever their status.
+// scale-guard: bounded per-person fan-out LIMIT 50; a person's browser count is small and a
+// larger result would be a bug, not a legitimate read.
+func (r *Repository) ListForMember(ctx context.Context, tenantID, memberOrUserID string) ([]browserpush.Registration, error) {
+	ctx, cancel := context.WithTimeout(ctx, r.timeout)
+	defer cancel()
+	rows, err := r.pool.Query(ctx, listRegistrationsSQL, tenantID, memberOrUserID)
+	if err != nil {
+		return nil, fmt.Errorf("browser push: list registrations: %w", err)
+	}
+	defer rows.Close()
+	registrations := make([]browserpush.Registration, 0, 4)
+	for rows.Next() {
+		var registration browserpush.Registration
+		if err := scanRegistration(rows, &registration, nil); err != nil {
+			return nil, fmt.Errorf("browser push: scan registration: %w", err)
+		}
+		registrations = append(registrations, registration)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("browser push: list registrations: %w", err)
+	}
+	return registrations, nil
+}
+
+// ResolveMemberRecipients returns one person's reachable browsers.
+//
+// Mirrors ResolveMemberRecipients on the phone path (workforce roster repository) down to the
+// bounded fan-out and the DISTINCT: the same token can legitimately appear under two browser
+// install ids after a profile copy, and sending twice to one browser is a duplicate notification,
+// not redundancy.
+// scale-guard: bounded recipient fan-out LIMIT 50 prevents unbounded multi-browser notifications.
+func (r *Repository) ResolveMemberRecipients(ctx context.Context, tenantID, memberOrUserID string) ([]browserpush.Recipient, error) {
+	ctx, cancel := context.WithTimeout(ctx, r.timeout)
+	defer cancel()
+	rows, err := r.pool.Query(ctx, resolveRecipientsSQL, tenantID, memberOrUserID)
+	if err != nil {
+		return nil, fmt.Errorf("browser push: resolve recipients: %w", err)
+	}
+	defer rows.Close()
+	recipients := make([]browserpush.Recipient, 0, 4)
+	for rows.Next() {
+		var recipient browserpush.Recipient
+		if err := rows.Scan(&recipient.WorkforceMemberID, &recipient.BrowserRegistrationID, &recipient.Token); err != nil {
+			return nil, fmt.Errorf("browser push: scan recipient: %w", err)
+		}
+		recipients = append(recipients, recipient)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("browser push: resolve recipients: %w", err)
+	}
+	return recipients, nil
+}
+
+// MarkTokenStale retires every active registration holding a provider-confirmed dead token.
+//
+// Addressed by token, not by browser or member, because a delivery failure knows only the
+// recipient_ref FCM rejected -- see browserpush.Service.PruneToken for why this is the only
+// signal a browser subscription's death ever produces. Idempotent: an already-stale row does not
+// match, so a redelivered failure is a no-op rather than a second row_version bump.
+func (r *Repository) MarkTokenStale(ctx context.Context, tenantID, token, reason string, now time.Time) (int, error) {
+	ctx, cancel := context.WithTimeout(ctx, r.timeout)
+	defer cancel()
+	tag, err := r.pool.Exec(ctx, markTokenStaleSQL, tenantID, token, reason, now)
+	if err != nil {
+		return 0, fmt.Errorf("browser push: mark token stale: %w", err)
+	}
+	return int(tag.RowsAffected()), nil
+}
+
+// scanner is the shared shape of pgx.Row and pgx.Rows for the registration projection.
+type scanner interface {
+	Scan(dest ...any) error
+}
+
+func scanRegistration(src scanner, out *browserpush.Registration, created *bool) error {
+	var staleAt *time.Time
+	dest := []any{
+		&out.BrowserRegistrationID,
+		&out.WorkforceMemberID,
+		&out.Provider,
+		&out.BrowserInstallID,
+		&out.BrowserLabel,
+		&out.Status,
+		&out.CreatedAt,
+		&out.LastSeenAt,
+		&staleAt,
+		&out.StaleReason,
+		&out.RowVersion,
+	}
+	if created != nil {
+		dest = append(dest, created)
+	}
+	if err := src.Scan(dest...); err != nil {
+		return err
+	}
+	out.StaleAt = staleAt
+	return nil
+}

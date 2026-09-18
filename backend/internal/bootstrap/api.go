@@ -29,6 +29,9 @@ import (
 	appanalyticshttp "github.com/vgoats/goatos/backend/internal/appanalytics/adapters/http"
 	appconfighttp "github.com/vgoats/goatos/backend/internal/appconfig/adapters/http"
 	appconfigapp "github.com/vgoats/goatos/backend/internal/appconfig/app"
+	"github.com/vgoats/goatos/backend/internal/browserpush"
+	browserpushhttp "github.com/vgoats/goatos/backend/internal/browserpush/adapters/http"
+	browserpushpg "github.com/vgoats/goatos/backend/internal/browserpush/adapters/postgres"
 	bulkstatushttp "github.com/vgoats/goatos/backend/internal/bulkstatus/adapters/http"
 	bulkstatuspg "github.com/vgoats/goatos/backend/internal/bulkstatus/adapters/postgres"
 	bulkstatusapp "github.com/vgoats/goatos/backend/internal/bulkstatus/app"
@@ -93,6 +96,9 @@ import (
 	notificationaudiencepg "github.com/vgoats/goatos/backend/internal/notificationaudience/adapters/postgres"
 	notificationaudienceapp "github.com/vgoats/goatos/backend/internal/notificationaudience/app"
 	"github.com/vgoats/goatos/backend/internal/notificationbridge"
+	notificationcentrehttp "github.com/vgoats/goatos/backend/internal/notificationcentre/adapters/http"
+	notificationcentrepg "github.com/vgoats/goatos/backend/internal/notificationcentre/adapters/postgres"
+	notificationcentreapp "github.com/vgoats/goatos/backend/internal/notificationcentre/app"
 	obligationpg "github.com/vgoats/goatos/backend/internal/obligation/adapters/postgres"
 	obligationapp "github.com/vgoats/goatos/backend/internal/obligation/app"
 	operationsaudithttp "github.com/vgoats/goatos/backend/internal/operationsaudit/adapters/http"
@@ -561,6 +567,11 @@ func NewAPI(ctx context.Context, cfg Config, log *slog.Logger) (*API, error) {
 	accessHandler := workforcehttp.NewAccessHandler(accessService, log)
 	notificationAudienceHandler := notificationaudiencehttp.NewHandler(
 		notificationaudienceapp.NewConfigService(notificationaudiencepg.NewRepository(pool, cfg.Postgres.QueryTimeout)), log)
+	// Browser (Chrome) web push registrations for admin-web. Built beside the designation matrix
+	// because both answer "who hears a notification", from opposite ends: that one is the tenant's
+	// per-designation audience, this one is one person's own delivery addresses.
+	browserPushService := browserpush.NewService(browserpushpg.NewRepository(pool, cfg.Postgres.QueryTimeout))
+	browserPushHandler := browserpushhttp.NewHandler(browserPushService, log)
 	rosterService := workforceapp.NewRosterService(workforceRepo, workforceRepo)
 	rosterHandler := workforcehttp.NewRosterHandler(rosterService, log)
 	// Clock In / Out (docs/features/clock-in-out/plan.md): punches + presence.
@@ -848,6 +859,11 @@ func NewAPI(ctx context.Context, cfg Config, log *slog.Logger) (*API, error) {
 		leadershiptaskspg.NewRepository(pool, cfg.Postgres.QueryTimeout), leadershiptasksproof.NewResolver(proofRepo)).
 		WithAttachmentDownloader(proofService)
 	leadershipTasksHandler := leadershiptaskshttp.NewHandler(leadershipTasksService, log)
+	// In-app notification centre: the caller's own notification feed and the mark-as-read
+	// write, read straight off notification_requests. It owns no table and produces no
+	// notification -- the bridge consumers remain the only writers of the feed's rows.
+	notificationCentreHandler := notificationcentrehttp.NewHandler(
+		notificationcentreapp.NewService(notificationcentrepg.NewRepository(pool, cfg.Postgres.QueryTimeout)), log)
 	// Work Board (maintainer decision 2026-09-10): the cross-module read. Every module
 	// contributes a Source over its OWN tables; the board composes them here and reads no
 	// table itself. Registration order does not matter -- the service sorts into board order.
@@ -1282,17 +1298,26 @@ func NewAPI(ctx context.Context, cfg Config, log *slog.Logger) (*API, error) {
 	// WHO hears each leadership push is per-designation config (maintainer decision 2026-09-08):
 	// every upward-routing consumer below resolves its audience through the stored override,
 	// falling back to the catalog default. Pinned by notificationbridge's audience wiring test.
+	// THE DASHBOARD IS A DEVICE (2026-09-18). The roster's device registry is Android-only by its
+	// own CHECK constraint, so every push below reached phones and left Chrome -- where the CEOs
+	// actually spend the day -- silent. This decorator returns a person's subscribed browsers
+	// BESIDE their phones at the one seam every consumer already talks to, so no consumer, no
+	// notification type and no copy changes. Additive and fail-open: a browser lookup that errors
+	// logs and returns the phones untouched. See notificationbridge/browser_push_recipients.go for
+	// what it deliberately does NOT cover (the position/module-duty paths).
+	notifyRecipients := notificationbridge.WithBrowserRecipients(rosterService, browserPushService, log)
 	leadershipAudience := notificationbridge.NewStoredAudience(rosterService, notificationaudiencepg.NewRepository(pool, cfg.Postgres.QueryTimeout), log)
-	notificationbridge.NewVerificationEventConsumer(rosterService, calendarService, log).WithAudience(leadershipAudience).WithVaccineLabels(vaccineLabels).WithLocationNames(locationNames).Register(bus)
-	notificationbridge.NewWeighingSubmissionEventConsumer(rosterService, calendarService, log).WithAudience(leadershipAudience).Register(bus)
+	notificationbridge.NewVerificationEventConsumer(notifyRecipients, calendarService, log).WithAudience(leadershipAudience).WithVaccineLabels(vaccineLabels).WithLocationNames(locationNames).Register(bus)
+	notificationbridge.NewWeighingSubmissionEventConsumer(notifyRecipients, calendarService, log).WithAudience(leadershipAudience).Register(bus)
 	// Weighing publish/verdict/close pushes. Registered next to the submission
 	// consumer so no weighing state change is push-silent.
-	notificationbridge.NewWeighingLifecycleEventConsumer(rosterService, calendarService, log).WithAudience(leadershipAudience).Register(bus)
+	notificationbridge.NewWeighingLifecycleEventConsumer(notifyRecipients, calendarService, log).WithAudience(leadershipAudience).Register(bus)
 	// Leadership Tasks: raised and every status change, gated per designation (2026-09-08).
-	notificationbridge.NewLeadershipTaskNotifyConsumer(rosterService, calendarService, log).WithAudience(leadershipAudience).Register(bus)
-	notificationbridge.NewLeaveRequestNotifyConsumer(rosterService, calendarService, log).WithAudience(leadershipAudience).Register(bus)
-	notificationbridge.NewAnimalPurchaseNotifyConsumer(rosterService, calendarService, log).WithAudience(leadershipAudience).Register(bus)
-	notificationbridge.NewVerificationNotifier(calendarService, rosterService, calendarService, log).WithLocationNames(locationNames).Register(bus)
+	notificationbridge.NewLeadershipTaskNotifyConsumer(notifyRecipients, calendarService, log).WithAudience(leadershipAudience).Register(bus)
+	notificationbridge.NewLeadershipTaskActivityNotifyConsumer(notifyRecipients, calendarService, log).Register(bus)
+	notificationbridge.NewLeaveRequestNotifyConsumer(notifyRecipients, calendarService, log).WithAudience(leadershipAudience).Register(bus)
+	notificationbridge.NewAnimalPurchaseNotifyConsumer(notifyRecipients, calendarService, log).WithAudience(leadershipAudience).Register(bus)
+	notificationbridge.NewVerificationNotifier(calendarService, notifyRecipients, calendarService, log).WithLocationNames(locationNames).Register(bus)
 	sopService.
 		WithSubmissionHook(sopbridge.NewVaccinationSubmissionBridge(vaccinationService).
 			WithVerificationProducer(verificationService).
@@ -1389,6 +1414,7 @@ func NewAPI(ctx context.Context, cfg Config, log *slog.Logger) (*API, error) {
 	workforcehttp.RegisterPeople(protectedMux, peopleHandler)
 	workforcehttp.RegisterAccess(protectedMux, accessHandler)
 	notificationaudiencehttp.Register(protectedMux, notificationAudienceHandler)
+	browserpushhttp.Register(protectedMux, browserPushHandler)
 	workforcehttp.RegisterClock(protectedMux, clockHandler)
 	workforcehttp.RegisterLeave(protectedMux, leaveHandler)
 	proofhttp.Register(protectedMux, proofHandler)
@@ -1406,6 +1432,7 @@ func NewAPI(ctx context.Context, cfg Config, log *slog.Logger) (*API, error) {
 	toxinhttp.Register(protectedMux, toxinHandler)
 	markethttp.Register(protectedMux, marketHandler)
 	leadershiptaskshttp.Register(protectedMux, leadershipTasksHandler)
+	notificationcentrehttp.Register(protectedMux, notificationCentreHandler)
 	workboardhttp.Register(protectedMux, workBoardHandler)
 	alertshttp.Register(protectedMux, alertsHandler)
 	penvisitshttp.Register(protectedMux, penVisitsHandler)

@@ -3,6 +3,7 @@ package app
 import (
 	"context"
 	"errors"
+	"strings"
 	"testing"
 	"time"
 
@@ -24,14 +25,26 @@ type fakeRepo struct {
 	seen    int
 	getErr  error
 	unseenN int
+
+	mentionable []domain.MentionableUser
+	comments    []ports.CommentParams
 }
 
 func (f *fakeRepo) ListAssignees(context.Context, string) ([]ports.Assignee, error) { return nil, nil }
+func (f *fakeRepo) ListMentionableUsers(context.Context, string, string) ([]domain.MentionableUser, error) {
+	return f.mentionable, nil
+}
 func (f *fakeRepo) ListTasks(context.Context, ports.ListParams) (ports.Page, error) {
 	return ports.Page{}, nil
 }
 func (f *fakeRepo) GetTask(context.Context, string, string) (domain.Task, error) {
 	return f.task, f.getErr
+}
+func (f *fakeRepo) PeekTask(context.Context, string, string) (domain.Task, error) {
+	return f.task, f.getErr
+}
+func (f *fakeRepo) ActivityPage(context.Context, string, string, string) (ports.ActivityPage, error) {
+	return ports.ActivityPage{}, nil
 }
 func (f *fakeRepo) Raise(_ context.Context, p ports.RaiseParams) (domain.Task, error) {
 	f.raised = append(f.raised, p)
@@ -244,5 +257,75 @@ func TestRaiseRequiresADeadlineUnlessTheRaiseHasNoForm(t *testing.T) {
 	}
 	if len(repo.raised) != 2 || repo.raised[1].DeadlineAt == nil || !repo.raised[1].DeadlineAt.Equal(future) {
 		t.Fatalf("deadline must be forwarded to the write: %+v", repo.raised)
+	}
+}
+
+// TestListParamsValidatesTheWorklistFiltersAndIgnoresPinnedPeople pins the error CODES the
+// screen reads and the one filter rule that is deliberately forgiving: a person filter the
+// active scope already pins is IGNORED, not refused, because the filter bar is shared across
+// the tabs and switching tab must never error.
+func TestListParamsValidatesTheWorklistFiltersAndIgnoresPinnedPeople(t *testing.T) {
+	service := NewService(&fakeRepo{}, &fakeResolver{})
+	actor := domain.Actor{UserID: raiser, CanRaise: true, CanMonitor: true}
+	base := ListRequest{TenantID: tenant, UserID: raiser, Actor: actor, ScopeKey: domain.ScopeTeamProgress}
+	with := func(mutate func(*ListRequest)) ListRequest {
+		req := base
+		mutate(&req)
+		return req
+	}
+
+	for _, tc := range []struct {
+		name string
+		req  ListRequest
+		code string
+	}{
+		{"unknown sort", with(func(r *ListRequest) { r.Sort = "title_asc" }), "invalid_sort"},
+		{"bad assignee uuid", with(func(r *ListRequest) { r.AssigneeUserID = "not-a-uuid" }), "invalid_filter"},
+		{"bad raiser uuid", with(func(r *ListRequest) { r.RaisedBy = "17" }), "invalid_filter"},
+		{"half-open deadline range", with(func(r *ListRequest) { r.DeadlineFrom = "2026-09-01" }), "invalid_date_range"},
+		{"half-open raise range", with(func(r *ListRequest) { r.RaisedTo = "2026-09-01" }), "invalid_date_range"},
+		{"inverted range", with(func(r *ListRequest) { r.RaisedFrom, r.RaisedTo = "2026-09-09", "2026-09-01" }), "invalid_date_range"},
+		{"unparseable date", with(func(r *ListRequest) { r.DeadlineFrom, r.DeadlineTo = "last tuesday", "2026-09-01" }), "invalid_date_range"},
+		{"over-long text", with(func(r *ListRequest) { r.Query = strings.Repeat("a", ports.MaxQueryLen+1) }), "invalid_query"},
+	} {
+		_, err := service.listParams(tc.req)
+		var appErr *Error
+		if !errors.As(err, &appErr) || appErr.Code != tc.code {
+			t.Fatalf("%s: err = %v, want code %q", tc.name, err, tc.code)
+		}
+	}
+
+	// assigned_to_me pins the assignee, so an assignee filter falls away; the raiser filter stays.
+	toMe, err := service.listParams(with(func(r *ListRequest) {
+		r.ScopeKey, r.AssigneeUserID, r.RaisedBy = domain.ScopeAssignedToMe, assignee, raiser
+	}))
+	if err != nil || toMe.AssigneeUserID != "" || toMe.RaisedBy != raiser {
+		t.Fatalf("assigned_to_me params = %+v err %v (the pinned assignee filter must be dropped, not refused)", toMe, err)
+	}
+	// assigned_by_me pins the raiser, the mirror image.
+	byMe, err := service.listParams(with(func(r *ListRequest) {
+		r.ScopeKey, r.AssigneeUserID, r.RaisedBy = domain.ScopeAssignedByMe, assignee, raiser
+	}))
+	if err != nil || byMe.RaisedBy != "" || byMe.AssigneeUserID != assignee {
+		t.Fatalf("assigned_by_me params = %+v err %v", byMe, err)
+	}
+
+	// A bare integer carries the task-number arm; other text does not. A bare date range is
+	// INCLUSIVE of the whole upper day, so one day named twice is a full day, not an empty range.
+	numeric, err := service.listParams(with(func(r *ListRequest) {
+		r.Query, r.DeadlineFrom, r.DeadlineTo = " 15 ", "2026-09-01", "2026-09-01"
+	}))
+	if err != nil {
+		t.Fatalf("numeric query: %v", err)
+	}
+	if numeric.Query != "15" || numeric.QueryTaskNo == nil || *numeric.QueryTaskNo != 15 {
+		t.Fatalf("query params = %+v, want the trimmed text and task_no 15", numeric)
+	}
+	if numeric.DeadlineFrom == nil || numeric.DeadlineTo == nil || !numeric.DeadlineTo.After(numeric.DeadlineFrom.Add(23*time.Hour)) {
+		t.Fatalf("one-day range = %v..%v, want the whole UTC day", numeric.DeadlineFrom, numeric.DeadlineTo)
+	}
+	text, err := service.listParams(with(func(r *ListRequest) { r.Query = "vendor 15" }))
+	if err != nil || text.QueryTaskNo != nil || text.Sort != ports.SortRaisedAtDesc {
+		t.Fatalf("text query = %+v err %v, want no task_no arm and the default sort", text, err)
 	}
 }

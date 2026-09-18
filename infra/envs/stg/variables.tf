@@ -462,3 +462,28 @@ variable "trace_sample_ratio" {
     error_message = "trace_sample_ratio must be a number between 0 and 1."
   }
 }
+
+# The VAPID application server key admin-web hands to the Firebase JS SDK so a Chrome profile can
+# mint an FCM web registration token (browser web push, migration 000347).
+#
+# IT IS A PUBLIC KEY and is deliberately NOT a Secret Manager secret: the browser transmits it to
+# the push service on every subscribe, so it is public by construction. The matching PRIVATE key
+# never leaves the Firebase project and is never handled by this repo -- FCM signs with it on our
+# behalf, which is the whole reason this design uses FCM web rather than raw VAPID.
+#
+# EMPTY IS THE DEFAULT AND BROWSER PUSH STILL WORKS. The Firebase JS SDK carries its own default
+# VAPID key pair and getToken() uses it when none is supplied, so an unset variable means "use the
+# SDK default", NOT "feature disabled" -- admin-web offers the control and mints a deliverable
+# token. Setting this variable is OPTIONAL and buys PROVENANCE and INDEPENDENT ROTATION: a key this
+# project owns and can roll on its own schedule. Source it from Firebase console ->
+# Project settings -> Cloud Messaging -> Web Push certificates -> Key pair.
+#
+# A key that is SET BUT MALFORMED fails loudly in admin-web rather than falling back to the
+# default, because a wrong key mints a token FCM accepts and can never deliver to -- so a typo
+# here switches push OFF visibly instead of leaving a channel that reports "enabled" and delivers
+# nothing. Either leave it blank or set a real 87-character key; there is no half-configured state.
+variable "firebase_web_push_vapid_key" {
+  description = "OPTIONAL public VAPID key pair (Firebase Cloud Messaging web push certificate) for admin-web browser notifications. Public by design. Empty uses the Firebase JS SDK's own default key and browser push still works; set it only for provenance/rotation. A malformed value disables push loudly."
+  type        = string
+  default     = ""
+}

@@ -11,6 +11,12 @@ const publicDashboardPrefixes = [
   "/api/auth",
   "/_next",
   "/apple-icon.png",
+  // The push service worker MUST be fetchable without a session. The browser requests
+  // /firebase-messaging-sw.js on its own -- on registration, on every update check, and after a
+  // restart -- outside any page navigation. Behind the login redirect it resolves to the /login
+  // HTML, which is not a valid worker script, so registration fails and NOTHING is ever
+  // delivered. It is a static asset from public/ and carries no data of its own.
+  "/firebase-messaging-sw.js",
   "/auth/action",
   "/favicon.ico",
   "/icon.png",

@@ -2,6 +2,7 @@ package http
 
 import (
 	"encoding/json"
+	"strings"
 	"testing"
 	"time"
 
@@ -50,7 +51,7 @@ func TestTaskPayloadCarriesBackendCopyAndCapabilitiesPerParty(t *testing.T) {
 		"number_label":      "#12",
 		"title":             task.Title,
 		"status":            "open",
-		"status_chip":       "Open",
+		"status_chip":       "To do",
 		"raised_by_name":    "Hemant",
 		"assignee_name":     "Ravi",
 		"raised_on_label":   "04/09/2026",
@@ -79,7 +80,7 @@ func TestTaskPayloadCarriesBackendCopyAndCapabilitiesPerParty(t *testing.T) {
 	if got["can_comment"] != true || got["comment"] != "" {
 		t.Fatalf("assignee comment = %v can_comment %v", got["comment"], got["can_comment"])
 	}
-	if len(options) != 2 || options[0].(map[string]any)["key"] != "in_progress" || options[0].(map[string]any)["label"] != "Doing" {
+	if len(options) != 2 || options[0].(map[string]any)["key"] != "in_progress" || options[0].(map[string]any)["label"] != "In progress" {
 		t.Fatalf("assignee status options = %v", options)
 	}
 	att := got["attachments"].([]any)[0].(map[string]any)
@@ -103,13 +104,57 @@ func TestTaskPayloadCarriesBackendCopyAndCapabilitiesPerParty(t *testing.T) {
 	if len(options) != 1 || options[0].(map[string]any)["key"] != "cancelled" {
 		t.Fatalf("director status options = %v", options)
 	}
+
+	// A leadership monitor who is neither party (the CEO opening a director's task) reads
+	// every capability and the full ladder plus cancel (CEO decision 2026-09-18). Before
+	// this the payload answered all-false with status_options: [] -- a dead status pill.
+	leader := domain.Actor{UserID: "66666666-6666-4666-8666-666666666666", CanRaise: true, CanAct: true, CanMonitor: true}
+	monitorCases := []struct {
+		status                                          string
+		canEdit, canCancel, canChangeStatus, canComment bool
+		options                                         []string
+	}{
+		{domain.StatusOpen, true, true, true, true, []string{"in_progress", "done", "cancelled"}},
+		{domain.StatusInProgress, true, true, true, true, []string{"done", "cancelled"}},
+		{domain.StatusDone, false, false, true, true, []string{"in_progress"}},
+		{domain.StatusCancelled, false, false, false, false, nil},
+	}
+	for _, c := range monitorCases {
+		task.Status = c.status
+		raw, _ = json.Marshal(toTaskPayload(task, leader, now))
+		got = map[string]any{}
+		_ = json.Unmarshal(raw, &got)
+		if got["can_edit"] != c.canEdit || got["can_cancel"] != c.canCancel || got["can_change_status"] != c.canChangeStatus || got["can_comment"] != c.canComment {
+			t.Fatalf("monitor/%s capabilities = edit %v cancel %v status %v comment %v", c.status, got["can_edit"], got["can_cancel"], got["can_change_status"], got["can_comment"])
+		}
+		if got["is_assignee"] != false || got["is_raiser"] != false {
+			t.Fatalf("monitor/%s party = assignee %v raiser %v", c.status, got["is_assignee"], got["is_raiser"])
+		}
+		options, _ = got["status_options"].([]any)
+		if len(options) != len(c.options) {
+			t.Fatalf("monitor/%s status options = %v, want %v", c.status, options, c.options)
+		}
+		for i, want := range c.options {
+			if options[i].(map[string]any)["key"] != want {
+				t.Fatalf("monitor/%s status option %d = %v, want %s", c.status, i, options[i], want)
+			}
+		}
+	}
+	if got["meta_line"] != "Hemant → Ravi · 04/09/2026" {
+		t.Fatalf("monitor meta line = %v", got["meta_line"])
+	}
 }
 
 func TestFilterPayloadsAreWholeListCountsWithTheSelectedChipMarked(t *testing.T) {
-	page := ports.Page{StatusCounts: map[string]int{"open": 2, "in_progress": 1, "done": 3, "cancelled": 5}}
+	page := ports.Page{StatusCounts: map[string]int{"open": 2, "in_progress": 1, "done": 3, "cancelled": 5}, OverdueCount: 1}
 	filters := toFilterPayloads(domain.FilterDone, page, true)
-	if len(filters) != 4 {
+	if len(filters) != 5 {
 		t.Fatalf("filters = %+v", filters)
+	}
+	// The overdue chip is the LATE subset of open + in_progress (3 here), never their sum: its
+	// count is the page's own, measured against the request clock.
+	if filters[4].Key != "overdue" || filters[4].Label != "Overdue" || filters[4].Count != 1 || filters[4].Selected || filters[4].EmptyMessage == "" {
+		t.Fatalf("overdue chip = %+v", filters[4])
 	}
 	if filters[0].Key != "all" || filters[0].Count != 6 || filters[0].Selected {
 		t.Fatalf("all chip = %+v", filters[0])
@@ -184,5 +229,51 @@ func TestParseDeadlineReadsRFC3339WithOffset(t *testing.T) {
 	}
 	if _, err := parseDeadline("15/09/2026 17:00"); err == nil {
 		t.Fatal("farm-formatted string must be refused on the wire")
+	}
+}
+
+// The activity feed rides the task payload newest first with every word composed here: the
+// actor's initials for the avatar, the farm-clock time, the two ends of the change as labels
+// AND as keys (the console picks a chip tone from the key), and the sentence.
+func TestTaskPayloadCarriesTheActivityFeedNewestFirstWithServerSideLabels(t *testing.T) {
+	task := domain.Task{
+		TaskID: "22222222-2222-4222-8222-222222222222", TaskNo: 12, Status: domain.StatusInProgress,
+		RaisedAt: time.Date(2026, 9, 17, 3, 56, 0, 0, time.UTC), UpdatedAt: time.Date(2026, 9, 18, 5, 0, 0, 0, time.UTC),
+		Activity: []domain.Event{
+			{EventID: "e2", Kind: domain.EventStatusChanged, OccurredAt: time.Date(2026, 9, 18, 5, 0, 0, 0, time.UTC), ActorUserID: "u1", ActorName: "Ravi Teja", FromValue: domain.StatusOpen, ToValue: domain.StatusInProgress},
+			{EventID: "e1", Kind: domain.EventCreated, OccurredAt: time.Date(2026, 9, 17, 3, 56, 0, 0, time.UTC), ActorUserID: "u2", ActorName: "Hemant"},
+		},
+	}
+	raw, err := json.Marshal(toTaskPayload(task, domain.Actor{UserID: "u1"}, time.Date(2026, 9, 18, 6, 0, 0, 0, time.UTC)))
+	if err != nil {
+		t.Fatal(err)
+	}
+	var got struct {
+		Activity []map[string]any `json:"activity"`
+	}
+	if err := json.Unmarshal(raw, &got); err != nil {
+		t.Fatal(err)
+	}
+	if len(got.Activity) != 2 {
+		t.Fatalf("activity = %+v", got.Activity)
+	}
+	first := got.Activity[0]
+	for key, want := range map[string]any{
+		"id": "e2", "kind": "status_changed", "occurred_at": "2026-09-18T05:00:00Z", "occurred_label": "18/09/2026 10:30",
+		"actor_user_id": "u1", "actor_name": "Ravi Teja", "actor_initials": "RT",
+		"from_label": "To do", "to_label": "In progress", "from_value": "open", "to_value": "in_progress", "note_id": "",
+		"summary": "Ravi Teja changed the status To do → In progress",
+	} {
+		if first[key] != want {
+			t.Errorf("activity[0].%s = %v, want %v", key, first[key], want)
+		}
+	}
+	if got.Activity[1]["summary"] != "Hemant created the task" || got.Activity[1]["actor_initials"] != "H" {
+		t.Fatalf("activity[1] = %+v", got.Activity[1])
+	}
+	// An empty feed is an empty array on the wire, never null.
+	rawEmpty, _ := json.Marshal(toTaskPayload(domain.Task{TaskID: "x"}, domain.Actor{}, time.Now()))
+	if !strings.Contains(string(rawEmpty), `"activity":[]`) {
+		t.Fatalf("empty activity must serialize as []: %s", rawEmpty)
 	}
 }

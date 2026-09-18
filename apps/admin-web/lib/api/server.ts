@@ -103,6 +103,8 @@ export type LeadershipTaskPage =
       key: "assigned_to_me" | "assigned_by_me" | "team_progress";
       label: string;
       count: number;
+      /** The scope's unfiltered size; absent from a backend older than the field. */
+      total?: number;
       selected: boolean;
       empty_message: string;
     }>;
@@ -113,8 +115,12 @@ export type LeadershipTaskAssignees =
   AppApiComponents["schemas"]["LeadershipTaskAssignees"];
 export type LeadershipTaskDetail =
   AppApiComponents["schemas"]["LeadershipTaskDetail"];
+export type LeadershipTaskActivityPage =
+  AppApiComponents["schemas"]["LeadershipTaskActivityPage"];
 export type LeadershipTaskAttachment =
   AppApiComponents["schemas"]["LeadershipTaskAttachment"];
+export type LeadershipTaskActivity =
+  AppApiComponents["schemas"]["LeadershipTaskActivity"];
 export type LeadershipTaskDownload = { download_url: string; trace_id: string };
 
 // Process-integrity read model — the canonical truth feeding Action Center, Protocol Adherence,
@@ -3512,12 +3518,29 @@ export async function listPCCareTasks(params: {
   );
 }
 
+export type LeadershipTaskSort =
+  | "raised_at_desc"
+  | "raised_at_asc"
+  | "deadline_asc"
+  | "deadline_desc";
+
 export async function listLeadershipTasks(
   params: {
     scope?: "assigned_to_me" | "assigned_by_me" | "team_progress";
-    filter?: "all" | "open" | "in_progress" | "done";
+    filter?: "all" | "open" | "in_progress" | "done" | "overdue";
     limit?: number;
     cursor?: string;
+    /** Free text over title, brief and (for a bare integer) the task number. Max 120 chars. */
+    q?: string;
+    assigneeUserId?: string;
+    raisedBy?: string;
+    /** Both ends of a range are required together; the backend refuses a half-open one. */
+    deadlineFrom?: string;
+    deadlineTo?: string;
+    raisedFrom?: string;
+    raisedTo?: string;
+    /** The cursor is sort-aware: change the sort and drop the cursor together. */
+    sort?: LeadershipTaskSort;
   } = {},
 ): Promise<ApiResult<LeadershipTaskPage>> {
   const config = await getServerConfig();
@@ -3531,8 +3554,53 @@ export async function listLeadershipTasks(
         filter: params.filter,
         limit: params.limit ?? 50,
         cursor: params.cursor,
+        q: params.q,
+        assignee_user_id: params.assigneeUserId,
+        raised_by: params.raisedBy,
+        deadline_from: params.deadlineFrom,
+        deadline_to: params.deadlineTo,
+        raised_from: params.raisedFrom,
+        raised_to: params.raisedTo,
+        sort: params.sort,
       }),
     }),
+  );
+}
+
+/**
+ * ONE task, read fresh.
+ *
+ * The board's write path needs this to say something TRUE after a refusal: the 409
+ * `version_conflict` envelope carries only its code and a generic sentence, so the only way to
+ * tell the reader what the task IS now (and who owns the move they were refused) is to re-read
+ * it. Called from the status Server Action on a refusal only — never on the happy path, and never
+ * per row.
+ */
+export async function getLeadershipTask(
+  taskId: string,
+): Promise<ApiResult<LeadershipTaskDetail>> {
+  const config = await getServerConfig();
+  if (!config.ok) return config;
+  const client = createAppApiClient(apiClientOptions(config.data));
+  const path = `/app/leadership-tasks/${encodeURIComponent(taskId)}` as keyof AppApiPaths &
+    string;
+  return request(() =>
+    client.request<LeadershipTaskDetail>(path, { cache: "no-store" }),
+  );
+}
+
+/** One older window of a task's feed, strictly before `before` (see the OpenAPI note). */
+export async function getLeadershipTaskActivity(
+  taskId: string,
+  before: string,
+): Promise<ApiResult<LeadershipTaskActivityPage>> {
+  const config = await getServerConfig();
+  if (!config.ok) return config;
+  const client = createAppApiClient(apiClientOptions(config.data));
+  const path = `/app/leadership-tasks/${encodeURIComponent(taskId)}/activity?before=${encodeURIComponent(before)}` as keyof AppApiPaths &
+    string;
+  return request(() =>
+    client.request<LeadershipTaskActivityPage>(path, { cache: "no-store" }),
   );
 }
 
@@ -3565,6 +3633,38 @@ export async function raiseLeadershipTask(
   const client = createAppApiClient(apiClientOptions(config.data));
   return request(() =>
     client.request<LeadershipTaskDetail>("/app/leadership-tasks", {
+      method: "POST",
+      cache: "no-store",
+      headers: { "Idempotency-Key": idempotencyKey },
+      body,
+    }),
+  );
+}
+
+// The raiser's edit of an open task: title and row_version are required, and an OMITTED
+// deadline_at KEEPS the stored deadline (an older client that does not know the field must not
+// wipe it). `attachments` is a FULL replacement list, max 12 -- send the ones that should
+// remain, not just the new ones. Server-side: raiser-only, open/in_progress only
+// (409 task_closed), and the row_version fence (409 version_conflict).
+export async function editLeadershipTask(
+  taskId: string,
+  body: {
+    title: string;
+    row_version: number;
+    body?: string;
+    deadline_at?: string;
+    attachments?: Array<{ proof_id: string; kind: string; file_name?: string }>;
+  },
+  idempotencyKey: string,
+): Promise<ApiResult<LeadershipTaskDetail>> {
+  const config = await getServerConfig();
+  if (!config.ok) return config;
+  const client = createAppApiClient(apiClientOptions(config.data));
+  const path =
+    `/app/leadership-tasks/${encodeURIComponent(taskId)}/edit` as keyof AppApiPaths &
+      string;
+  return request(() =>
+    client.request<LeadershipTaskDetail>(path, {
       method: "POST",
       cache: "no-store",
       headers: { "Idempotency-Key": idempotencyKey },
@@ -5663,11 +5763,20 @@ function envelopeFieldErrors(body: unknown): ApiUiError["fieldErrors"] {
 
 function parseEnvelope(body: unknown): ErrorEnvelope | null {
   if (!body || typeof body !== "object") return null;
-  const maybe = body as Partial<ErrorEnvelope>;
-  if (typeof maybe.code !== "string" || typeof maybe.message !== "string") {
-    return null;
+  const maybe = body as Partial<ErrorEnvelope> & { error?: unknown };
+  if (typeof maybe.message !== "string") return null;
+  if (typeof maybe.code === "string") return maybe as ErrorEnvelope;
+  // The SECOND envelope shape this backend actually serves: `{"error": "<code>", "message": ...}`.
+  // The leadership-tasks write endpoints use it for every refusal, so requiring `code` dropped
+  // the code on the floor and EVERY refusal reached the screen as the generic `api_error` kind.
+  // Measured on the live API: a stale `row_version` returns 409 `{"error":"version_conflict"}`
+  // and the Tasks banner read "Action could not be completed" — the one sentence that cannot tell
+  // a reader someone else moved the task. `kind` mapping below is unchanged; this only recovers
+  // the code, so a caller that was comparing against one starts seeing it instead of `undefined`.
+  if (typeof maybe.error === "string" && maybe.error.trim() !== "") {
+    return { ...(maybe as object), code: maybe.error } as ErrorEnvelope;
   }
-  return maybe as ErrorEnvelope;
+  return null;
 }
 
 export function compactQuery(

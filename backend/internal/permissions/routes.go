@@ -152,6 +152,19 @@ var protectedRoutes = []Route{
 	// OperatorsWrite that creates a person.
 	{OperationID: "getNotificationDesignationMatrix", Method: "GET", Pattern: "/admin/notifications/designations", Permissions: []string{OperatorsRead}},
 	{OperationID: "saveNotificationDesignationAudience", Method: "PUT", Pattern: "/admin/notifications/designations/{alert_key}", Permissions: []string{OperatorsManageCapability}},
+	// Browser (Chrome) web push registrations for admin-web. The CEOs work in Chrome, so the
+	// dashboard is a delivery target and a browser has to be able to hand the backend its own
+	// push address.
+	//
+	// AdminWebBootstrap, not an operators/notifications ADMIN grant: these three routes act ONLY
+	// on the CALLER's own browser -- the tenant, the member and the browser all come from the
+	// session, never the body -- so the authority they need is "may open the dashboard", exactly
+	// as the CEO assistant routes above it do. Gating them on OperatorsManageCapability (which
+	// the designation matrix beside them carries, because that edits a TENANT-WIDE audience)
+	// would refuse the CEO her own notifications unless she also administers people.
+	{OperationID: "listBrowserPushRegistrations", Method: "GET", Pattern: "/admin/notifications/browser-registrations", Permissions: []string{AdminWebBootstrap}},
+	{OperationID: "registerBrowserPushRegistration", Method: "POST", Pattern: "/admin/notifications/browser-registrations", Permissions: []string{AdminWebBootstrap}},
+	{OperationID: "unregisterBrowserPushRegistration", Method: "POST", Pattern: "/admin/notifications/browser-registrations/unregister", Permissions: []string{AdminWebBootstrap}},
 
 	{OperationID: "appMe", Method: "GET", Pattern: "/app/me", Permissions: []string{AppBootstrap}},
 	{OperationID: "appBootstrap", Method: "GET", Pattern: "/app/bootstrap", Permissions: []string{AppBootstrap}},
@@ -200,6 +213,19 @@ var protectedRoutes = []Route{
 	// transitions/failures. The event payload carries module/device context; feature authority stays
 	// on the underlying action routes, not on this observability write.
 	{OperationID: "recordAppAnalyticsEvent", Method: "POST", Pattern: "/app/analytics/events", Permissions: []string{AppBootstrap}},
+
+	// In-app notification centre. These are the caller's OWN notifications and nobody
+	// else's: the feed is filtered by the caller's own resolved workforce_member_id inside
+	// the query (notificationcentre/adapters/postgres/repository.go), and no parameter on
+	// either route names a person. So the gate is the same "any authenticated app
+	// principal" AppBootstrap that /app/me, /app/config and the caller's own leave
+	// requests ride -- NOT a leadership or module permission. Gating these on a module
+	// permission would mean a worker could be pushed a notification they are then
+	// forbidden to read, which is the defect the bell exists to fix.
+	//
+	// Patterns are byte-identical to notificationcentre/adapters/http.Register.
+	{OperationID: "listAppNotifications", Method: "GET", Pattern: "/app/notifications", Permissions: []string{AppBootstrap}},
+	{OperationID: "markAppNotificationsRead", Method: "POST", Pattern: "/app/notifications/read", Permissions: []string{AppBootstrap}},
 
 	{OperationID: "listSOPs", Method: "GET", Pattern: "/admin/sops", Permissions: []string{SOPRead}},
 	{OperationID: "createSOP", Method: "POST", Pattern: "/admin/sops", Permissions: []string{SOPWrite}},
@@ -414,6 +440,11 @@ var protectedRoutes = []Route{
 	{OperationID: "listLeadershipTasks", Method: "GET", Pattern: "/app/leadership-tasks", Permissions: []string{LeadershipTasksRead}},
 	{OperationID: "listLeadershipTaskAssignees", Method: "GET", Pattern: "/app/leadership-tasks/assignees", Permissions: []string{LeadershipTasksRaise}},
 	{OperationID: "getLeadershipTask", Method: "GET", Pattern: "/app/leadership-tasks/{task_id}", Permissions: []string{LeadershipTasksRead}},
+	{OperationID: "getLeadershipTaskActivity", Method: "GET", Pattern: "/app/leadership-tasks/{task_id}/activity", Permissions: []string{LeadershipTasksRead}},
+	// The `@` autocomplete of ONE task. LeadershipTasksRead like the detail it belongs to, and
+	// the service additionally refuses a task the caller cannot read, so the list cannot be
+	// used to enumerate the leadership roster from a task nobody showed them.
+	{OperationID: "listLeadershipTaskMentionableUsers", Method: "GET", Pattern: "/app/leadership-tasks/{task_id}/mentionable-users", Permissions: []string{LeadershipTasksRead}},
 	{OperationID: "raiseLeadershipTask", Method: "POST", Pattern: "/app/leadership-tasks", Permissions: []string{LeadershipTasksRaise}},
 	{OperationID: "editLeadershipTask", Method: "POST", Pattern: "/app/leadership-tasks/{task_id}/edit", Permissions: []string{LeadershipTasksRaise}},
 	{OperationID: "changeLeadershipTaskStatus", Method: "POST", Pattern: "/app/leadership-tasks/{task_id}/status", Permissions: []string{LeadershipTasksRead}},

@@ -67,6 +67,16 @@ export type DataTableColumnMeta = {
   align?: "left" | "right";
   /** Extra className for this column's body cells. */
   cellClassName?: string;
+  /**
+   * Extra className for this column's HEADER cell.
+   *
+   * Separate from the body-cell className on purpose: most callers only want a body modifier such
+   * as `num`, which would be wrong on a `<th>`. But a column that is HIDDEN at some viewport has
+   * to hide its header with its body -- a `display:none` that reaches only the `<td>`s leaves the
+   * header row one cell longer than every body row, so the labels after it sit over the wrong
+   * column (found 2026-09-18 on /tasks at phone width, where the urgency column is dropped).
+   */
+  headerClassName?: string;
   /** Extra inline style for this column's body cells. */
   cellStyle?: React.CSSProperties;
 };
@@ -163,6 +173,7 @@ export function DataTable<Row>({
               return (
                 <th
                   key={header.id}
+                  className={meta?.headerClassName}
                   style={meta?.align === "right" ? { textAlign: "right" } : undefined}
                   // Announced so a screen-reader user hears the current order, not just the label.
                   aria-sort={!canSort ? undefined : direction === "asc" ? "ascending" : direction === "desc" ? "descending" : "none"}

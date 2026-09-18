@@ -181,6 +181,14 @@ drawer, modal, table, form, and navigation surface:
   a search parameter. `make admin-web-local-overlay-guard` enforces a zero
   baseline for route-driven overlay open/close controls across the whole feature
   tree and requires its adversarial self-test. Never add a legacy allowance;
+- the same accounting applies to the click AFTER the overlay opens: a write
+  made from a drawer returns the row and the client publishes it to the
+  feature's row store; the action must not also `revalidatePath` (that re-fetch
+  is the page flicker). A Board/List or table/cards toggle is presentation state
+  (`replaceLocalOverlayUrl`), not a `view=` link. Ticks are real
+  `<input type="checkbox">`s; dates are `ThemedDatePicker`.
+  `make admin-web-interaction-patterns-guard` (shrink-only baseline) --
+  `docs/decisions/admin-web-interaction-patterns.md`;
 
 - an overlay whose open state lives in the URL re-renders the page on every step,
   so a page-level entry animation replays underneath it and the overlay reads as

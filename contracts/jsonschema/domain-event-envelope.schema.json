@@ -131,6 +131,8 @@
         "workforce.leave.withdrawn",
         "leadership_task.raised",
         "leadership_task.status_changed",
+        "leadership_task.commented",
+        "leadership_task.updated",
         "pen_visit.created",
         "pen_visit.submitted",
         "pen_visit.verified",

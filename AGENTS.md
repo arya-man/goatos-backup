@@ -3807,6 +3807,25 @@ git rev-parse --show-toplevel  # Must print THIS repo root, not another checkout
   Server Action/Route Handler. Query-only Next links, native anchor/forms, or
   router pushes used to toggle an overlay are banned. Keep
   `make admin-web-local-overlay-guard` at a zero legacy baseline.
+- Admin-web interaction patterns (maintainer lock 2026-09-18, Claude AND Codex):
+  a click costs what it changes, and a control is the console's own. Caught on
+  the Tasks page in one afternoon and banned for every future feature: (1) a
+  card/row click that navigates to open a drawer -- intercept in the capture
+  phase, open from the row in memory, fetch only the missing detail inside the
+  drawer (`features/leadership-tasks/task-drawer-host.tsx`); (2) a server action
+  that RETURNS a row AND `revalidatePath`s -- the client applies the row through
+  the feature row store, the revalidate is the page flicker; return-the-row or
+  `redirect()`, never both; (3) a Board/List view toggle as a `view=` link --
+  presentation is client state + `replaceLocalOverlayUrl`; (4) a coloured
+  square or `aria-checked` button standing in for a checkbox -- a tick is a real
+  `<input type="checkbox">` in a `<label>`; (5) `<input type="date|time">` -- the
+  console has ONE date field, `ThemedDatePicker`; (6) `window.confirm` /
+  `alert` / `prompt` -- a confirm is two buttons where the action was, never
+  the browser's "127.0.0.1 says" box. Machine gate:
+  `make admin-web-interaction-patterns-guard` (whole-tree, shrink-only baseline)
+  beside `admin-web-local-overlay-guard`; canonical prose:
+  `docs/decisions/admin-web-interaction-patterns.md`. Chrome with the network
+  panel open on the click is still the proof.
 - When the user asks to fix a frontend/UI issue, rendered browser review is part
   of the requested fix for Codex, Claude, and every developer. Do not treat it
   as optional judgment or defer it to the user. Reproduce the user’s route,

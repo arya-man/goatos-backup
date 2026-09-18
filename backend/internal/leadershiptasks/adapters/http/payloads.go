@@ -3,6 +3,7 @@ package http
 import (
 	"strings"
 	"time"
+	"unicode"
 
 	"github.com/vgoats/goatos/backend/internal/leadershiptasks/domain"
 	"github.com/vgoats/goatos/backend/internal/leadershiptasks/ports"
@@ -34,6 +35,62 @@ type notePayload struct {
 	AuthorName string `json:"author_name"`
 	Body       string `json:"body"`
 	CreatedAt  string `json:"created_at"`
+	// Mentions are the people this note named, resolved and stored at write time. The body
+	// stays PLAIN TEXT exactly as it was typed -- there is no inline token format, because an
+	// older phone would render one raw to a reader -- so the client overlays these as chips by
+	// matching the names it is given.
+	Mentions []mentionPayload `json:"mentions"`
+}
+
+// activityPayload is one row of the task's history feed (migration 000349), newest first.
+// Every word is composed server-side: the actor's name and initials, the two ends of the
+// change as the screen shows them ("Open" → "Doing", "17/09/2026 17:00" → "20/09/2026 17:00")
+// and the one-line sentence. Kind is the closed vocabulary the console keys its tabs and
+// chip rendering on; a `commented` row names its note in note_id and the note carries the
+// text, so a comment is never stored twice.
+type activityPayload struct {
+	ID            string `json:"id"`
+	Kind          string `json:"kind"`
+	OccurredAt    string `json:"occurred_at"`
+	OccurredLabel string `json:"occurred_label"`
+	ActorUserID   string `json:"actor_user_id"`
+	ActorName     string `json:"actor_name"`
+	ActorInitials string `json:"actor_initials"`
+	FromLabel     string `json:"from_label"`
+	ToLabel       string `json:"to_label"`
+	// FromValue / ToValue are the stored KEYS behind the two labels (a status key, an RFC3339
+	// instant). The console picks a status chip's tone token from the key, the same way every
+	// other chip on the desk does; it never parses a label.
+	FromValue string `json:"from_value"`
+	ToValue   string `json:"to_value"`
+	NoteID    string `json:"note_id"`
+	Summary   string `json:"summary"`
+}
+
+type mentionPayload struct {
+	MentionID string `json:"mention_id"`
+	UserID    string `json:"user_id"`
+	Name      string `json:"name"`
+}
+
+type mentionableUserPayload struct {
+	UserID string `json:"user_id"`
+	Name   string `json:"name"`
+	Title  string `json:"title"`
+	// Relation is why this person may be named: "raiser", "assignee" or "leadership".
+	Relation string `json:"relation"`
+}
+
+type mentionableUsersPayload struct {
+	Users   []mentionableUserPayload `json:"users"`
+	TraceID string                   `json:"trace_id"`
+}
+
+// mentionRefPayload is what the client SENDS: the user id it resolved from its own picker.
+// The server re-validates every id under the task's row lock, so this is a request, never an
+// authority.
+type mentionRefPayload struct {
+	UserID string `json:"user_id"`
 }
 
 type taskPayload struct {
@@ -83,6 +140,19 @@ type taskPayload struct {
 	AttachmentCount int                   `json:"attachment_count"`
 	Attachments     []attachmentPayload   `json:"attachments"`
 	Notes           []notePayload         `json:"notes"`
+	// Activity is the Jira-style history feed, newest first (activityPayload) -- the newest
+	// window only; ActivityHasMore / ActivityNextBefore page the rest.
+	Activity           []activityPayload `json:"activity"`
+	ActivityHasMore    bool              `json:"activity_has_more"`
+	ActivityNextBefore string            `json:"activity_next_before"`
+}
+
+type activityPagePayload struct {
+	Activity   []activityPayload `json:"activity"`
+	Notes      []notePayload     `json:"notes"`
+	HasMore    bool              `json:"has_more"`
+	NextBefore string            `json:"next_before"`
+	TraceID    string            `json:"trace_id"`
 }
 
 type taskDetailPayload struct {
@@ -91,10 +161,13 @@ type taskDetailPayload struct {
 }
 
 type filterPayload struct {
-	Key          string `json:"key"`
-	Label        string `json:"label"`
-	Count        int    `json:"count"`
-	Selected     bool   `json:"selected"`
+	Key      string `json:"key"`
+	Label    string `json:"label"`
+	Count    int    `json:"count"`
+	Selected bool   `json:"selected"`
+	// Total is the scope tab's size with no request filter applied (ports.Page.ScopeTotals);
+	// the status chips do not carry one, so it is omitted for them.
+	Total        *int   `json:"total,omitempty"`
 	EmptyMessage string `json:"empty_message"`
 }
 
@@ -153,6 +226,10 @@ type editPayload struct {
 
 type commentPayload struct {
 	Comment string `json:"comment"`
+	// Mentions carries EXPLICIT targets alongside the text. The server does NOT parse "@Ravi"
+	// out of the body: two active people can share a display name, and a regex over free text
+	// cannot tell a mention from a quoted handle.
+	Mentions []mentionRefPayload `json:"mentions"`
 }
 
 type statusPayload struct {
@@ -182,16 +259,8 @@ func toTaskPayload(t domain.Task, actor domain.Actor, now time.Time) taskPayload
 	for _, o := range options {
 		optionPayloads = append(optionPayloads, statusOptionPayload{Key: o.Key, Label: o.Label})
 	}
-	notes := make([]notePayload, 0, len(t.Notes))
-	for _, n := range t.Notes {
-		notes = append(notes, notePayload{
-			NoteID:     n.NoteID,
-			AuthorID:   n.AuthorID,
-			AuthorName: n.AuthorName,
-			Body:       n.Body,
-			CreatedAt:  n.CreatedAt.UTC().Format(time.RFC3339),
-		})
-	}
+	notes := notePayloads(t.Notes)
+	activity := activityPayloads(t.Activity)
 	return taskPayload{
 		TaskID:             t.TaskID,
 		TaskNo:             t.TaskNo,
@@ -229,16 +298,42 @@ func toTaskPayload(t domain.Task, actor domain.Actor, now time.Time) taskPayload
 		AttachmentCount:    len(t.Attachments),
 		Attachments:        attachments,
 		Notes:              notes,
+		Activity:           activity,
+		ActivityHasMore:    t.ActivityHasMore,
+		ActivityNextBefore: t.ActivityNextBefore,
 	}
+}
+
+// initialsOf is the avatar's two letters, the same rule the console's `initials()` applies
+// to every other name on the Tasks desk: first letter of the first two words, upper-cased.
+// Blank in, blank out -- the client draws a generic mark for a name it does not have.
+func initialsOf(name string) string {
+	var out []rune
+	for _, part := range strings.Fields(name) {
+		for _, r := range part {
+			out = append(out, unicode.ToUpper(r))
+			break
+		}
+		if len(out) == 2 {
+			break
+		}
+	}
+	return string(out)
 }
 
 func toFilterPayloads(selected string, page ports.Page, canRaise bool) []filterPayload {
 	out := make([]filterPayload, 0, len(domain.FilterKeys))
 	for _, key := range domain.FilterKeys {
+		count := domain.FilterCount(key, page.StatusCounts)
+		if key == domain.FilterOverdue {
+			// The overdue lens is the LATE subset of two statuses, not their sum; the
+			// repository counts it against the same clock the rows are read with.
+			count = page.OverdueCount
+		}
 		out = append(out, filterPayload{
 			Key:          key,
 			Label:        domain.FilterLabel(key),
-			Count:        domain.FilterCount(key, page.StatusCounts),
+			Count:        count,
 			Selected:     key == selected,
 			EmptyMessage: domain.FilterEmptyMessage(key, canRaise),
 		})
@@ -255,11 +350,13 @@ func toScopePayloads(selected string, page ports.Page, actor domain.Actor) []fil
 		if key == domain.ScopeTeamProgress && !actor.CanMonitor {
 			continue
 		}
+		total := page.ScopeTotals[key]
 		out = append(out, filterPayload{
 			Key:          key,
 			Label:        domain.ScopeLabel(key),
 			Count:        page.ScopeCounts[key],
 			Selected:     key == selected,
+			Total:        &total,
 			EmptyMessage: domain.ScopeEmptyMessage(key),
 		})
 	}
@@ -273,6 +370,14 @@ func daysLeftPtr(t domain.Task, now time.Time) *int {
 	}
 	days := domain.DaysLeft(t, now)
 	return &days
+}
+
+func toMentionUserIDs(in []mentionRefPayload) []string {
+	out := make([]string, 0, len(in))
+	for _, m := range in {
+		out = append(out, strings.TrimSpace(m.UserID))
+	}
+	return out
 }
 
 // parseDeadline reads an RFC3339 deadline off a request; blank means none was sent.
@@ -295,4 +400,45 @@ func rfc3339Ptr(t *time.Time) *string {
 	}
 	s := t.UTC().Format(time.RFC3339)
 	return &s
+}
+
+func notePayloads(in []domain.Note) []notePayload {
+	notes := make([]notePayload, 0, len(in))
+	for _, n := range in {
+		mentions := make([]mentionPayload, 0, len(n.Mentions))
+		for _, m := range n.Mentions {
+			mentions = append(mentions, mentionPayload{MentionID: m.MentionID, UserID: m.UserID, Name: m.Name})
+		}
+		notes = append(notes, notePayload{
+			NoteID:     n.NoteID,
+			AuthorID:   n.AuthorID,
+			AuthorName: n.AuthorName,
+			Body:       n.Body,
+			CreatedAt:  n.CreatedAt.UTC().Format(time.RFC3339),
+			Mentions:   mentions,
+		})
+	}
+	return notes
+}
+
+func activityPayloads(in []domain.Event) []activityPayload {
+	activity := make([]activityPayload, 0, len(in))
+	for _, e := range in {
+		activity = append(activity, activityPayload{
+			ID:            e.EventID,
+			Kind:          e.Kind,
+			OccurredAt:    e.OccurredAt.UTC().Format(time.RFC3339),
+			OccurredLabel: domain.EventOccurredLabel(e.OccurredAt),
+			ActorUserID:   e.ActorUserID,
+			ActorName:     e.ActorName,
+			ActorInitials: initialsOf(e.ActorName),
+			FromLabel:     domain.EventValueLabel(e.Kind, e.FromValue),
+			ToLabel:       domain.EventValueLabel(e.Kind, e.ToValue),
+			FromValue:     e.FromValue,
+			ToValue:       e.ToValue,
+			NoteID:        e.NoteID,
+			Summary:       domain.EventSummary(e),
+		})
+	}
+	return activity
 }

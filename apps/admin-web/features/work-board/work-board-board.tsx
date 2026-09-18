@@ -1,6 +1,7 @@
 "use client";
 
 import { Calendar, ChevronDown, Search } from "lucide-react";
+import { AssigneePicker } from "@/components/assignee-picker";
 import Link from "@/components/no-prefetch-link";
 import { LocalOverlayLink } from "@/components/local-overlay-link";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
@@ -93,76 +94,11 @@ function Avatar({ name, className = "" }: { name: string; className?: string }) 
   );
 }
 
-// The mock's assignee picker: a stack of avatars, a "+N" chip, and a dropdown with a user search.
-// The backend read takes ONE owner, so picking a person narrows to them; the stack shows everyone
-// on the page when nobody is picked.
-function AssigneePicker({ pageContract, owners, cardsByOwner, selected, onSelect }: { pageContract: AdminUiPageContract; owners: OwnerOption[]; cardsByOwner: Record<string, number>; selected?: string; onSelect: (id: string | undefined) => void }) {
-  const [open, setOpen] = useState(false);
-  const [query, setQuery] = useState("");
-  const inputRef = useRef<HTMLInputElement>(null);
-  const ref = useOutsideClose(open, () => {
-    setOpen(false);
-    setQuery("");
-  });
-  useEffect(() => {
-    if (open) inputRef.current?.focus();
-  }, [open]);
-  const shown = useMemo(() => {
-    const q = query.trim().toLowerCase();
-    return q ? owners.filter((o) => o.name.toLowerCase().includes(q)) : owners;
-  }, [owners, query]);
-  const current = owners.find((o) => o.id === selected);
-  const visible = current ? [current] : owners.slice(0, 6);
-  const overflow = current ? 0 : Math.max(0, owners.length - 6);
-  const toggle = () => setOpen((v) => !v);
-  return (
-    <div ref={ref} className="avs" aria-label={copy(pageContract, "filter.assignee")}>
-      {visible.map((o) => (
-        <button type="button" key={o.id} className={`av${o.id === selected ? " on" : ""}`} title={o.name} aria-expanded={open} onClick={toggle}>
-          {initials(o.name)}
-        </button>
-      ))}
-      {overflow > 0 ? (
-        <button type="button" className={`more${open ? " on" : ""}`} aria-expanded={open} aria-label={copy(pageContract, "filter.assignee")} onClick={toggle}>
-          +{overflow}
-        </button>
-      ) : null}
-      {owners.length === 0 || current ? (
-        <button type="button" className={`more${owners.length === 0 ? " assignee-empty" : ""}${open ? " on" : ""}`} aria-expanded={open} aria-label={copy(pageContract, "filter.assignee")} onClick={toggle} style={owners.length === 0 ? { width: "auto", minWidth: 104, padding: "0 14px", borderRadius: 999, lineHeight: "1" } : undefined}>
-          {owners.length === 0 ? copy(pageContract, "filter.assignee") : "▾"}
-        </button>
-      ) : null}
-      {open ? (
-        <div className="avmenu" role="listbox" aria-label={copy(pageContract, "filter.assignee")}>
-          <div className="avq">
-            <Search className="ic" aria-hidden="true" />
-            <input ref={inputRef} value={query} onChange={(e) => setQuery(e.target.value)} placeholder={copy(pageContract, "filter.assignee.search")} aria-label={copy(pageContract, "filter.assignee.search")} autoComplete="off" />
-          </div>
-          <div className="list">
-            {shown.map((o) => {
-              const on = selected ? o.id === selected : true;
-              return (
-                <button type="button" key={o.id} role="option" aria-selected={o.id === selected} className={`opt${on ? " on" : ""}`} onClick={() => { onSelect(o.id === selected ? undefined : o.id); setOpen(false); setQuery(""); }}>
-                  <span className="cb">{on ? "✓" : ""}</span>
-                  <Avatar name={o.name} />
-                  {o.name}
-                  <span className="cnt">{cardsByOwner[o.id] ?? 0} {copy(pageContract, "pager.rows")}</span>
-                </button>
-              );
-            })}
-            {shown.length === 0 ? <div className="nomatch">{copy(pageContract, "filter.assignee.none")}</div> : null}
-          </div>
-          {selected ? (
-            <button type="button" className="opt foot" onClick={() => { onSelect(undefined); setOpen(false); }}>
-              {copy(pageContract, "filter.assignee.select_all")}
-            </button>
-          ) : null}
-        </div>
-      ) : null}
-    </div>
-  );
-}
-
+// The mock's assignee picker -- a stack of avatars, a "+N" chip, and a dropdown with a user
+// search -- now lives in `components/assignee-picker.tsx` so the Tasks desk can host the same
+// control as a form field. This board uses its `multi` mode, which is the picker exactly as it
+// shipped here: the backend read takes ONE owner, so picking a person narrows to them, and the
+// stack shows everyone on the page when nobody is picked.
 // The mock's Module menu: a checkbox list of epic tags, "Clear all" / "Select all" at the foot,
 // and the trigger reading "Module · all" or the first chosen tag "+N".
 // `selected` empty means every module; `none` is the explicit empty selection after "Clear all".
@@ -329,7 +265,7 @@ export function WorkBoardBoard({
           <Search className="ic" aria-hidden="true" />
           <input value={q} onChange={(e) => setQ(e.target.value)} placeholder={copy(pageContract, "filter.search")} aria-label={copy(pageContract, "filter.search")} />
         </label>
-        {ownRowsOnly ? null : <AssigneePicker pageContract={pageContract} owners={owners} cardsByOwner={cardsByOwner} selected={selectedOwner} onSelect={(id) => write((p) => setParam(p, pageContract, PARAM_OWNER, id))} />}
+        {ownRowsOnly ? null : <AssigneePicker mode="multi" labels={{ label: copy(pageContract, "filter.assignee"), search: copy(pageContract, "filter.assignee.search"), none: copy(pageContract, "filter.assignee.none"), selectAll: copy(pageContract, "filter.assignee.select_all"), rows: copy(pageContract, "pager.rows") }} owners={owners} cardsByOwner={cardsByOwner} selected={selectedOwner} onSelect={(id) => write((p) => setParam(p, pageContract, PARAM_OWNER, id))} />}
         {parks.length > 1 ? (
           <nav className="parkpick" aria-label={copy(pageContract, "filter.park")}>
             <Link href={allParksHref} className={selectedPark === "" ? "on" : ""} aria-current={selectedPark === "" ? "true" : undefined}>

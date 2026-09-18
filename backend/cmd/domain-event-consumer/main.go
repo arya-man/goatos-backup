@@ -15,6 +15,8 @@ import (
 
 	"github.com/jackc/pgx/v5/pgxpool"
 
+	"github.com/vgoats/goatos/backend/internal/browserpush"
+	browserpushpg "github.com/vgoats/goatos/backend/internal/browserpush/adapters/postgres"
 	calendarpg "github.com/vgoats/goatos/backend/internal/calendar/adapters/postgres"
 	calendarapp "github.com/vgoats/goatos/backend/internal/calendar/app"
 	countspg "github.com/vgoats/goatos/backend/internal/counts/adapters/postgres"
@@ -144,6 +146,10 @@ func buildDomainBus(pool *pgxpool.Pool, pgCfg platformpg.Config, logger *slog.Lo
 	vaccinationGeneration := vaccinationapp.NewGenerationService(protocolRepo, vaccinationRepo, obligationRepo)
 	workforceRepo := workforcepg.NewRepository(pool, pgCfg.QueryTimeout)
 	rosterService := workforceapp.NewRosterService(workforceRepo, workforceRepo)
+	// The same seam bootstrap/api.go uses: a person's subscribed browsers BESIDE their phones, so
+	// a push delivered through the outbox reaches Chrome too. This process is where the async
+	// task/mention/status pushes actually originate; wiring it in the API alone left them phone-only.
+	notifyRecipients := notificationbridge.WithBrowserRecipients(rosterService, browserpush.NewService(browserpushpg.NewRepository(pool, pgCfg.QueryTimeout)), logger)
 	// Counts approval + feed-direction repos so this durable-bus consumer can apply the shifting,
 	// feed-distribution, and feed-packing verification verdicts. These handlers live on the API's
 	// in-process bus too (bootstrap/api.go), but that bus never receives the async verdict events --
@@ -178,24 +184,25 @@ func buildDomainBus(pool *pgxpool.Pool, pgCfg platformpg.Config, logger *slog.Lo
 	// every upward-routing consumer below resolves its audience through the stored override,
 	// falling back to the catalog default. Pinned by notificationbridge's audience wiring test.
 	leadershipAudience := notificationbridge.NewStoredAudience(rosterService, notificationaudiencepg.NewRepository(pool, pgCfg.QueryTimeout), logger)
-	notificationbridge.NewVerificationEventConsumer(rosterService, calendarService, logger).WithAudience(leadershipAudience).WithVaccineLabels(vaccineLabels).WithLocationNames(locationNames).Register(bus)
-	notificationbridge.NewWeighingSubmissionEventConsumer(rosterService, calendarService, logger).WithAudience(leadershipAudience).Register(bus)
-	notificationbridge.NewWeighingLifecycleEventConsumer(rosterService, calendarService, logger).WithAudience(leadershipAudience).Register(bus)
+	notificationbridge.NewVerificationEventConsumer(notifyRecipients, calendarService, logger).WithAudience(leadershipAudience).WithVaccineLabels(vaccineLabels).WithLocationNames(locationNames).Register(bus)
+	notificationbridge.NewWeighingSubmissionEventConsumer(notifyRecipients, calendarService, logger).WithAudience(leadershipAudience).Register(bus)
+	notificationbridge.NewWeighingLifecycleEventConsumer(notifyRecipients, calendarService, logger).WithAudience(leadershipAudience).Register(bus)
 	// The afternoon feed correction's packing reopen: DOWNWARD push to the packer whose bag was
 	// taken back, carrying the old-vs-new quantities (feed.packing.reopened; maintainer decision
 	// 2026-08-29).
-	notificationbridge.NewFeedPackingReopenNotifyConsumer(rosterService, calendarService, logger).Register(bus)
+	notificationbridge.NewFeedPackingReopenNotifyConsumer(notifyRecipients, calendarService, logger).Register(bus)
 	// Sale -> Feed Director notice (maintainer decision 2026-09-07): goat.sale_allocated, emitted once
 	// per confirm with the pen-by-pen breakdown, pushes the pens and the feed day to reduce from.
-	notificationbridge.NewSaleFeedReduceNotifier(rosterService, calendarService, logger).WithAudience(leadershipAudience).WithFeedClocks(feeddirectionpg.NewRepository(pool, pgCfg.QueryTimeout)).Register(bus)
-	notificationbridge.NewLeadershipTaskNotifyConsumer(rosterService, calendarService, logger).WithAudience(leadershipAudience).Register(bus)
-	notificationbridge.NewLeaveRequestNotifyConsumer(rosterService, calendarService, logger).WithAudience(leadershipAudience).Register(bus)
-	notificationbridge.NewAnimalPurchaseNotifyConsumer(rosterService, calendarService, logger).WithAudience(leadershipAudience).Register(bus)
+	notificationbridge.NewSaleFeedReduceNotifier(notifyRecipients, calendarService, logger).WithAudience(leadershipAudience).WithFeedClocks(feeddirectionpg.NewRepository(pool, pgCfg.QueryTimeout)).Register(bus)
+	notificationbridge.NewLeadershipTaskNotifyConsumer(notifyRecipients, calendarService, logger).WithAudience(leadershipAudience).Register(bus)
+	notificationbridge.NewLeadershipTaskActivityNotifyConsumer(notifyRecipients, calendarService, logger).Register(bus)
+	notificationbridge.NewLeaveRequestNotifyConsumer(notifyRecipients, calendarService, logger).WithAudience(leadershipAudience).Register(bus)
+	notificationbridge.NewAnimalPurchaseNotifyConsumer(notifyRecipients, calendarService, logger).WithAudience(leadershipAudience).Register(bus)
 	// A missed obligation must reach people, not just open an escalation row: DOWN to the assigned
 	// operator, UP to the park head and the owning module's director. locationNames enriches the
 	// push with the park's human name (confirmed maintainer defect: pushes were too abstract to
 	// act on) -- a tiny, dependency-free lookup owned entirely by notificationbridge.
-	calendarapp.NewObligationMissedHandler(calendarService).WithNotifier(notificationbridge.NewObligationMissedNotifier(calendarService, rosterService, calendarService, logger).WithAudience(leadershipAudience).WithLocationNames(locationNames)).Register(bus)
+	calendarapp.NewObligationMissedHandler(calendarService).WithNotifier(notificationbridge.NewObligationMissedNotifier(calendarService, notifyRecipients, calendarService, logger).WithAudience(leadershipAudience).WithLocationNames(locationNames)).Register(bus)
 	countsapp.NewProjectionInputHandler(countsService).Register(bus)
 	// Keep every durable verdict applier on the shared registration path so the
 	// production consumer cannot drift from API/outbox-relay wiring. This path

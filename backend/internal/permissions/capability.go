@@ -620,6 +620,24 @@ var moduleCapabilities = []ModuleCapability{
 		},
 	},
 	{
+		// The LEADERSHIP DESK over Tasks: the tenant-wide Team progress scope and the authority to
+		// edit / move / cancel / comment on ANY open task (maintainer decision 2026-09-18,
+		// "leadership edits anything"). Its own module rather than a level on `leadership_tasks`
+		// -- the `verification_policy` shape -- because it is a different authority: a director
+		// ticked View + Do + Oversee + Configure on Tasks raises, works and configures their OWN
+		// tasks and must NOT become a tenant-wide editor. Until PR 295's review that is exactly
+		// what happened: monitor was INFERRED as Raise AND Act AND NOT PenVisitsExecute. Now it
+		// is this explicit tick, held by the CEO/CXO desk (capability_backfill.go, migration
+		// 000350) and by nobody a heuristic happens to match.
+		Key:      "leadership_tasks_monitor",
+		Label:    "Tasks · Leadership desk",
+		Blurb:    "See every task in the company and edit, move or close any of them.",
+		Surfaces: []string{SurfaceMobile, SurfaceWeb},
+		Levels: map[string][]string{
+			LevelOversee: {LeadershipTasksMonitor},
+		},
+	},
+	{
 		// Pen routines (maintainer instruction 2026-09-16, docs/decisions/pen-routines.md): the
 		// configurable recurring pen checks -- "each pen cleaned?" -- per park, daily / weekly /
 		// monthly or after work, with the people, questions, captures and pen check-in authored

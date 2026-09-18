@@ -1335,3 +1335,20 @@ func optionalNavLeafByID(groups []domain.NavigationGroup, id string) *domain.Nav
 	}
 	return nil
 }
+
+// The bell in the top bar opens a live notification centre, so the control must be served
+// ENABLED with its label as the accessible name. It was served disabled with a "not wired yet"
+// reason that the shell then used as the bell's aria-label/tooltip (gate-1 #5, 2026-09-18).
+func TestTopBarNotificationsControlIsEnabledWithARealLabel(t *testing.T) {
+	bootstrap := NewService().Bootstrap(context.Background(), BootstrapInput{})
+	bell := bootstrap.TopBar.Notifications
+	if !bell.Enabled {
+		t.Fatalf("the notification bell is live; the control must be enabled: %#v", bell)
+	}
+	if bell.Label != "Notifications" {
+		t.Fatalf("the bell's open label must be the plain control label, got %q", bell.Label)
+	}
+	if bell.DisabledReason != "" {
+		t.Fatalf("an enabled control must not carry a disabled reason (the shell would show it as the tooltip), got %q", bell.DisabledReason)
+	}
+}

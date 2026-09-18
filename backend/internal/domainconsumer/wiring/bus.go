@@ -1,6 +1,9 @@
 package wiring
 
 import (
+	"context"
+	"github.com/vgoats/goatos/backend/internal/browserpush"
+	browserpushpg "github.com/vgoats/goatos/backend/internal/browserpush/adapters/postgres"
 	"log/slog"
 	"time"
 
@@ -93,6 +96,17 @@ func buildDomainBusOn(bus eventbus.Bus, pool *pgxpool.Pool, queryTimeout time.Du
 	vaccinationGeneration := vaccinationapp.NewGenerationService(protocolRepo, vaccinationRepo, obligationRepo)
 	workforceRepo := workforcepg.NewRepository(pool, queryTimeout)
 	rosterService := workforceapp.NewRosterService(workforceRepo, workforceRepo)
+	// Browsers beside phones (bootstrap/api.go, kernelstages): the pushes this bus delivers are
+	// exactly the async ones -- a comment, a mention, a status -- that must reach Chrome too.
+	// The pool-less dispatch test hands a nil pool; a Postgres browser repository on a nil pool
+	// panics when used, so that test keeps the bare roster.
+	var browsers interface {
+		ResolveBrowserRecipients(context.Context, string, string) ([]browserpush.Recipient, error)
+	} = notificationbridge.NoBrowsers{}
+	if pool != nil {
+		browsers = browserpush.NewService(browserpushpg.NewRepository(pool, queryTimeout))
+	}
+	notifyRecipients := notificationbridge.WithBrowserRecipients(rosterService, browsers, logger)
 	healthRepo := healthpg.NewRepository(pool, queryTimeout)
 	obligationapp.NewGoatShiftedHandler(obligationRepo).Register(bus)
 	obligationapp.NewGoatExitedHandler(obligationRepo).Register(bus)
@@ -107,22 +121,22 @@ func buildDomainBusOn(bus eventbus.Bus, pool *pgxpool.Pool, queryTimeout time.Du
 	// produced through cmd/domain-event-consumer's bus degraded to generic no-park copy.
 	// WHO hears each leadership push is per-designation config (maintainer decision 2026-09-08).
 	leadershipAudience := notificationbridge.NewStoredAudience(rosterService, notificationaudiencepg.NewRepository(pool, queryTimeout), logger)
-	notificationbridge.NewVerificationEventConsumer(rosterService, calendarService, logger).WithAudience(leadershipAudience).WithVaccineLabels(notificationbridge.NewVaccineLabelResolver(pool, logger)).WithLocationNames(notificationbridge.NewLocationNameResolver(pool)).Register(bus)
-	notificationbridge.NewWeighingSubmissionEventConsumer(rosterService, calendarService, logger).WithAudience(leadershipAudience).Register(bus)
-	notificationbridge.NewWeighingLifecycleEventConsumer(rosterService, calendarService, logger).WithAudience(leadershipAudience).Register(bus)
+	notificationbridge.NewVerificationEventConsumer(notifyRecipients, calendarService, logger).WithAudience(leadershipAudience).WithVaccineLabels(notificationbridge.NewVaccineLabelResolver(pool, logger)).WithLocationNames(notificationbridge.NewLocationNameResolver(pool)).Register(bus)
+	notificationbridge.NewWeighingSubmissionEventConsumer(notifyRecipients, calendarService, logger).WithAudience(leadershipAudience).Register(bus)
+	notificationbridge.NewWeighingLifecycleEventConsumer(notifyRecipients, calendarService, logger).WithAudience(leadershipAudience).Register(bus)
 	// The afternoon feed correction's packing reopen: DOWNWARD push to the packer whose bag was
 	// taken back, carrying the old-vs-new quantities (feed.packing.reopened; maintainer decision
 	// 2026-08-29). Registered here as well as in kernelstages/bus.go, cmd/domain-event-consumer and
 	// cmd/outbox-relay -- this builder is also the bus the kernel E2E fixture relays through, so a
 	// consumer missing here is invisible to the story suite.
-	notificationbridge.NewFeedPackingReopenNotifyConsumer(rosterService, calendarService, logger).Register(bus)
+	notificationbridge.NewFeedPackingReopenNotifyConsumer(notifyRecipients, calendarService, logger).Register(bus)
 	// Leave requests (maintainer decision 2026-09-10): raise -> the park head + HR who must sign it;
 	// final approve/reject -> the requester. Registered on every bus builder (cascade-event-wiring guard).
-	notificationbridge.NewLeaveRequestNotifyConsumer(rosterService, calendarService, logger).WithAudience(leadershipAudience).Register(bus)
-	notificationbridge.NewAnimalPurchaseNotifyConsumer(rosterService, calendarService, logger).WithAudience(leadershipAudience).Register(bus)
+	notificationbridge.NewLeaveRequestNotifyConsumer(notifyRecipients, calendarService, logger).WithAudience(leadershipAudience).Register(bus)
+	notificationbridge.NewAnimalPurchaseNotifyConsumer(notifyRecipients, calendarService, logger).WithAudience(leadershipAudience).Register(bus)
 	// Sale -> Feed Director notice (maintainer decision 2026-09-07): goat.sale_allocated, emitted once
 	// per confirm with the pen-by-pen breakdown, pushes the pens and the feed day to reduce from.
-	notificationbridge.NewSaleFeedReduceNotifier(rosterService, calendarService, logger).WithAudience(leadershipAudience).WithFeedClocks(feeddirectionpg.NewRepository(pool, queryTimeout)).Register(bus)
+	notificationbridge.NewSaleFeedReduceNotifier(notifyRecipients, calendarService, logger).WithAudience(leadershipAudience).WithFeedClocks(feeddirectionpg.NewRepository(pool, queryTimeout)).Register(bus)
 	// Verifier-verdict appliers: the ONE shared registration (internal/eventwiring), the same call
 	// bootstrap/api.go and cmd/outbox-relay make. This builder previously hand-listed consumers and
 	// carried ONLY the weighing applier, so every shifting / feed-distribution / feed-packing /

@@ -9,7 +9,8 @@ description: >-
   dashboards. Thin entrypoint: detailed rules live in the canonical chapters
   linked below. Invoke before touching an admin-web page/route/data-read and
   before pushing. Machine gates: npm run check:mock-fidelity + make
-  admin-web-request-reads-guard + admin-web-local-overlay-guard.
+  admin-web-request-reads-guard + admin-web-local-overlay-guard +
+  admin-web-interaction-patterns-guard.
 ---
 
 # Frontend (admin-web) anti-patterns — lens entrypoint
@@ -57,6 +58,10 @@ chapters below; do not review from the summary.
   latency gate ran against a live stack and recorded samples.
 - `make admin-web-local-overlay-guard` — zero route-driven same-page overlays;
   no Next/native open, close, veil, or schedule-drawer navigation baseline.
+- `make admin-web-interaction-patterns-guard` — no native date/time input, no
+  ARIA-faked checkbox, no server action that returns a row AND revalidates the
+  route, no `view=` link for a Board/List toggle. Whole-tree, shrink-only
+  baseline. [`docs/decisions/admin-web-interaction-patterns.md`](../../../docs/decisions/admin-web-interaction-patterns.md).
 - `node tools/agent-hooks/check-refresh-binding.mjs` — selected-window binding.
 - `make calendar-endpoint-grain-guard` — no narrow schedule/full-schedule surface
   wired to the broad Calendar events endpoint.
@@ -99,6 +104,19 @@ chapters below; do not review from the summary.
   not in the list response, open from the summary immediately and fetch only
   the detail inside the drawer. A query-only Next `Link`, native anchor/form, or
   router push used to toggle an overlay is a merge-blocking anti-pattern.
+- **A click costs what it changes (2026-09-18, Tasks page):** a card click, a
+  status change in a drawer and a Board/List toggle each re-rendered the whole
+  route (~0.9 s + skeleton flash) for rows already on screen. Now: the drawer
+  host intercepts the click (capture phase) and opens client-locally, fetching
+  only the missing detail inside the drawer; an in-place write RETURNS the row
+  and the client publishes it to the feature row store — it never also
+  `revalidatePath`s (that is the flicker); a view toggle is client state with
+  `replaceLocalOverlayUrl`. Reference: `features/leadership-tasks/task-drawer-host.tsx`,
+  `task-row-store.ts`, `task-view-switch.tsx`.
+- **Controls are the console's own:** a tick is a real `<input type="checkbox">`
+  in a `<label>` (never a coloured square or `aria-checked` button); a date is
+  `ThemedDatePicker` (never `<input type="date">`); a confirm is two buttons in
+  place (never `window.confirm`).
 - **Public write surfaces:** re-authenticate, authorize, validate, and preserve a
   stable idempotency key inside every Server Action/Route Handler; page auth and
   a disabled button are not security boundaries.

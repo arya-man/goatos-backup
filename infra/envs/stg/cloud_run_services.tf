@@ -365,6 +365,11 @@ resource "google_cloud_run_v2_service" "admin_web" {
       }
 
       env {
+        name  = "GOATOS_FIREBASE_WEB_PUSH_VAPID_KEY"
+        value = var.firebase_web_push_vapid_key
+      }
+
+      env {
         name  = "GOATOS_API_BASE_URL"
         value = var.api_base_url
       }

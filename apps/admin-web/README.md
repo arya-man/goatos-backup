@@ -195,3 +195,66 @@ make api-client-check
   `/vaccination/calendar`, or `/vaccination/workflows`.
 - No old cyan/slate/admin-primitives visual system.
 - No global Goat Passport search as the primary workflow.
+
+## Browser (Chrome) web push
+
+The CEOs work in Chrome, so browser push is a primary delivery channel for admin-web, not an
+extra. **It needs no configuration to work.** The Firebase JS SDK ships its own default VAPID key
+pair and `getToken()` uses it when none is supplied; FCM holds the matching private key, so the
+token is fully deliverable with nothing set. Proven end to end in real Chrome on this branch: a
+real 142-char registration token minted with the variable UNSET, registered through the real
+backend endpoint, and a real push rendered by the real service worker with the correct deep link.
+
+One OPTIONAL environment variable switches it onto this project's own key:
+
+```bash
+# OPTIONAL. The PUBLIC VAPID key pair from Firebase console -> Project settings -> Cloud
+# Messaging -> Web Push certificates. Public by construction (the browser transmits it to the push
+# service on every subscribe); the matching private key never leaves the Firebase project and is
+# never handled by this repo. NEVER commit a service-account JSON for this -- FCM sending uses the
+# worker's own service account (see backend/cmd/notification-dispatcher).
+#
+# Set it when this project wants its own key for PROVENANCE and INDEPENDENT ROTATION; leave it
+# blank to use the SDK default. It is not required for delivery.
+GOATOS_FIREBASE_WEB_PUSH_VAPID_KEY=
+```
+
+Read at RUNTIME by the `getWebPushVapidKey` server action in `lib/web-push-actions.ts`, not
+inlined as a `NEXT_PUBLIC_*` build arg, for the same reason `/api/auth/firebase-config` resolves
+the Firebase config at runtime: one image is deployed to more than one environment, and a key
+baked in at build time would be the wrong project's key in the other one.
+
+**Empty is safe, is the default, and OFFERS the control.** An absent key omits `vapidKey` from
+the `getToken()` call so the SDK's default applies; the browser is asked for permission and
+registers normally. It used to report "browser notifications are not configured for this
+environment yet" and offer nothing, which left push dead in staging waiting on a console step for
+a key that is not needed to deliver.
+
+**A key that IS set but malformed fails loudly** and is never silently replaced by the default:
+that is the real trap the old wording was about, because a wrong key yields a token FCM accepts
+and can never deliver to, and a silent fallback would turn a typo in Terraform into a channel
+that reports "enabled" and delivers nothing. The three-state rule lives in one pure, tested
+place, `resolveVapidKeyConfig` in `lib/web-push-state.ts`:
+
+| `GOATOS_FIREBASE_WEB_PUSH_VAPID_KEY` | behaviour |
+| --- | --- |
+| absent / empty | `vapidKey` omitted; the SDK default applies; the control is offered |
+| present, well-formed | used verbatim |
+| present, malformed | refused; the control reports the unusable key and offers nothing |
+
+Relying on the SDK default costs nothing operationally: every FCM registration, refresh and
+delete is `POST`/`DELETE https://fcmregistrations.googleapis.com/v1/projects/{projectId}/registrations`
+authenticated by this project's API key and its own Firebase Installations token, so revocation
+and rotation are project-scoped either way. The VAPID key travels only as a `web.applicationPubKey`
+field on the registration body and confers no authority over the subscription. Setting a project
+key later is a clean migration: the SDK compares the stored key against the requested one
+(`isTokenValid`), deletes the old token and mints a new one on the next load.
+
+Delivery also needs the backend's existing FCM config (`GOATOS_FCM_PROJECT_ID` plus the
+dispatcher's service-account credentials, already provisioned in
+`infra/envs/{dev,stg}/cloud_run_worker.tf`). Browser push reuses that send path verbatim: a
+Firebase-JS-SDK web registration token is the same opaque shape the `push_fcm` channel already
+addresses.
+
+Web push also requires a **secure context** (https, or localhost). On a plain-http host the
+control reports it and nothing subscribes.

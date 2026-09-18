@@ -31,7 +31,7 @@ func NewMarketSurveyStage(deps Deps, tenantID string, logger *slog.Logger) *Mark
 	workforceRepo := workforcepg.NewRepository(deps.Pool, deps.PgCfg.QueryTimeout)
 	rosterService := workforceapp.NewRosterService(workforceRepo, workforceRepo)
 	return &MarketSurveyStage{
-		notifier: notificationbridge.NewMarketSurveyNotifier(marketapp.NewService(repo), repo, rosterService, calendarService, logger),
+		notifier: notificationbridge.NewMarketSurveyNotifier(marketapp.NewService(repo), repo, notifyRecipients(deps, rosterService, logger), calendarService, logger),
 		tenantID: tenantID,
 	}
 }

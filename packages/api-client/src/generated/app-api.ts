@@ -3646,7 +3646,7 @@ export interface paths {
         };
         /**
          * One page of the caller's leadership tasks.
-         * @description Leadership Tasks (maintainer decisions 2026-09-04 and Manju ask 2026-09-08): an authorized leader can raise a manual, non-event-driven task for a director, park head, or employee. The caller sees the tasks they are party to -- tasks addressed to them and, when they can raise tasks, tasks they raised -- newest first, keyset-paged. CEO/COO-style monitors can also open `team_progress` for read-only cross-team progress. `filters` are whole-list counts over the same scope predicate, never page sums. Every visible word (chips, meta line, number label, status button labels, empty messages) is backend-owned and rendered verbatim.
+         * @description Leadership Tasks (maintainer decisions 2026-09-04 and Manju ask 2026-09-08): an authorized leader can raise a manual, non-event-driven task for a director, park head, or employee. The caller sees the tasks they are party to -- tasks addressed to them and, when they can raise tasks, tasks they raised -- newest first, keyset-paged. CEO/COO-style monitors can also open `team_progress` for read-only cross-team progress. `filters` are whole-list counts over the same scope predicate AND the same q/person/date filters as the rows, never page sums -- a chip never advertises a row the list hides; `scopes` counts are the same, each tab counting what that tab would show under the current filters. Every visible word (chips, meta line, number label, status button labels, empty messages) is backend-owned and rendered verbatim.
          */
         get: operations["listLeadershipTasks"];
         put?: never;
@@ -3681,6 +3681,26 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/app/leadership-tasks/{task_id}/mentionable-users": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * The people who may be named in a note on this task.
+         * @description The `@` autocomplete for ONE task. It is deliberately NOT `/app/leadership-tasks/assignees`, which is narrowed to people a task may be raised FOR: this list answers who may be NAMED in a note on THIS task -- the task's own raiser and assignee, plus the leadership population (an active Tasks Oversee tick and one of the eight leadership grants). Requires `leadership_tasks.read`, and a task the caller cannot read answers 404, so the list cannot be used to enumerate the leadership team from a task nobody showed them.
+         */
+        get: operations["listLeadershipTaskMentionableUsers"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/app/leadership-tasks/{task_id}": {
         parameters: {
             query?: never;
@@ -3701,6 +3721,26 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/app/leadership-tasks/{task_id}/activity": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * One older window of a task's history feed.
+         * @description The detail read carries the newest 20 feed rows; this returns the next 20 strictly before `before` (the previous window's `next_before` / the task's `activity_next_before`), with the notes those rows name. Keyset on the feed's own index -- never an offset, never the whole history. Same visibility as the detail: a task the caller cannot read answers 404.
+         */
+        get: operations["getLeadershipTaskActivity"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/app/leadership-tasks/{task_id}/edit": {
         parameters: {
             query?: never;
@@ -3711,8 +3751,8 @@ export interface paths {
         get?: never;
         put?: never;
         /**
-         * Replace the brief and attachment list of a task the caller raised.
-         * @description Raiser only, and only while the task is open or in progress (409 task_closed otherwise). `attachments` is the FULL new list: the server keeps exactly that, removing rows it no longer names and adding new ones. `row_version` fences the write (409 version_conflict). The `Idempotency-Key` header is REQUIRED.
+         * Replace the brief and attachment list of a task the caller raised or monitors.
+         * @description The raiser, or a leadership monitor (the CEO/COO-style authority behind Team progress; leadership edits anything since 2026-09-18), and only while the task is open or in progress (409 task_closed otherwise; 403 not_raiser for anyone else). `attachments` is the FULL new list: the server keeps exactly that, removing rows it no longer names and adding new ones. `row_version` fences the write (409 version_conflict). The `Idempotency-Key` header is REQUIRED.
          */
         post: operations["editLeadershipTask"];
         delete?: never;
@@ -3732,7 +3772,7 @@ export interface paths {
         put?: never;
         /**
          * Move a task along its status ladder.
-         * @description The accepted moves are exactly the task's `status_options` for THIS caller: the assignee walks open -> in_progress -> done (and may reopen a done task); the raiser may only cancel, and only while the task is open for work. Anything else answers 422 invalid_status_transition, 403 not_assignee / not_raiser, or 409 task_closed. `row_version` fences the write; the `Idempotency-Key` header is REQUIRED. A move to done pushes `leadership_task.status_changed` back to the raiser.
+         * @description The accepted moves are exactly the task's `status_options` for THIS caller: the assignee walks open -> in_progress -> done (and may reopen a done task); the raiser may only cancel, and only while the task is open for work; a leadership monitor gets the assignee's ladder plus the raiser's cancel. Anything else answers 422 invalid_status_transition, 403 not_assignee / not_raiser, or 409 task_closed. `row_version` fences the write; the `Idempotency-Key` header is REQUIRED. A move to done pushes `leadership_task.status_changed` back to the raiser.
          */
         post: operations["changeLeadershipTaskStatus"];
         delete?: never;
@@ -3752,7 +3792,7 @@ export interface paths {
         put?: never;
         /**
          * Add a two-way note to a task.
-         * @description Appends a chronological task note while the task is not cancelled. The assignee and raiser can both write; the compatibility `comment` field is also refreshed for older clients when the assignee writes. The `Idempotency-Key` header is REQUIRED.
+         * @description Appends a chronological task note while the task is not cancelled. The assignee, the raiser and a leadership monitor can all write; the compatibility `comment` field is also refreshed for older clients when the assignee writes. The `Idempotency-Key` header is REQUIRED.
          */
         post: operations["setLeadershipTaskComment"];
         delete?: never;
@@ -3795,6 +3835,118 @@ export interface paths {
         get: operations["downloadLeadershipTaskAttachment"];
         put?: never;
         post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/app/notifications": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * One page of the caller's OWN in-app notifications.
+         * @description The in-app notification centre (the bell). Serves the notifications addressed to the CALLING PERSON, newest first, keyset-paged, plus their whole-feed unread total for the badge.
+         *
+         *     SCOPE. The feed is filtered inside the query by the caller's own resolved ACTIVE workforce_member_id -- the `member_id` every notification producer stamps into `context`, which is the same identity the per-member alert indexes and the weighing / vaccination / feed / counts alert feeds already key on. It is NOT filtered by `recipient_ref`: that column holds the recipient DEVICE's push token (or, for the escalation sweeper, a role slug), rotates on reinstall, and is documented as a stale snapshot that must never be trusted as an address. There is deliberately no parameter, scope or role on this route that names another person, so a caller cannot ask for anybody's notifications but their own. A caller whose roster row is no longer active resolves to nothing and sees an empty feed, never an unfiltered one.
+         *
+         *     ONE NOTIFICATION, NOT ONE DELIVERY. The queue holds one row per recipient DEVICE, so a worker with two phones has two rows for one event. The feed collapses them back to one item on the producer's event key, and `unread_count` counts notifications, not rows.
+         *
+         *     Gated on `app.bootstrap`: every authenticated app principal reads their own bell. It is deliberately not a module or leadership permission -- anyone who can be sent a notification must be able to read it.
+         */
+        get: operations["listAppNotifications"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/app/notifications/read": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Mark some of the caller's OWN notifications read.
+         * @description Stamps the caller's own notifications read and answers how many NOTIFICATIONS moved from unread to read (not how many delivery rows were touched -- every device row of one notification is stamped together, which is what keeps the badge and the list in agreement).
+         *
+         *     Ids that do not belong to the caller are IGNORED: they are neither updated nor counted. They are deliberately not a 403 either, because answering 403 would confirm that the row exists and belongs to somebody -- an existence oracle over other people's notifications. A mixed batch therefore succeeds and reports only the caller's own half.
+         *
+         *     An id that is already read contributes 0. A row still in flight to the push provider keeps its delivery status and simply gains its read stamp, so marking a notification read in the app never strands the dispatcher's lease.
+         *
+         *     The `Idempotency-Key` header is REQUIRED: an exact replay returns the ORIGINAL `read_count` with no second write, and the same key re-presented with a DIFFERENT id set is 409 `idempotency_conflict` rather than applied.
+         */
+        post: operations["markAppNotificationsRead"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/admin/notifications/browser-registrations": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * List the caller's OWN browser push registrations.
+         * @description Returns this person's browser (web push) registrations in this tenant, whatever their status, newest activity first.
+         *
+         *     SCOPE. Scoped to the CALLER: the tenant and the workforce member are both resolved from the session, and there is deliberately no parameter on this route that names another person, so it can never read somebody else's registrations. Bounded to 50 rows -- a person's browser count is small, and a larger result would be a bug rather than a page.
+         *
+         *     Gated on `admin_web.bootstrap`, not an admin/people grant: this acts only on the caller's own browsers, so the authority it needs is "may open the dashboard". The designation-matrix routes next door carry `operators.manage` because those edit a tenant-wide audience; gating this the same way would refuse the CEO her own notifications unless she also administers people.
+         */
+        get: operations["listBrowserPushRegistrations"];
+        put?: never;
+        /**
+         * Store or refresh THIS browser's push address.
+         * @description Upsert, keyed on (tenant, browser_install_id). A refresh REVIVES a row that was previously stale or unsubscribed rather than inserting a second one -- a browser that comes back is the same browser -- so `created` is true only for a genuinely new registration.
+         *
+         *     A REFRESH IS THE COMMON CASE, NOT THE EDGE CASE. Chrome rotates an FCM web token on its own schedule and admin-web re-reads it on every dashboard load, so most calls here are a same-token `last_seen_at` touch or a new-token replacement of a row that already exists.
+         *
+         *     `token` is an FCM WEB REGISTRATION TOKEN from the Firebase JS SDK's `getToken()` -- one opaque string, the same shape the Android device registry stores and the same shape the backend's FCM HTTP v1 send path already addresses. It is deliberately NOT a raw Web Push subscription (`{endpoint, keys.p256dh, keys.auth}`): FCM performs the VAPID signing and aes128gcm encryption, so the backend needs no second send path. It is a bearer-style push credential -- whoever holds it can notify that browser -- and must never appear in a URL, a query string or a log line.
+         *
+         *     THE BODY NAMES NO PERSON. Tenant and member come from the authenticated session; a browser must not be able to register a push address against somebody else's name.
+         */
+        post: operations["registerBrowserPushRegistration"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/admin/notifications/browser-registrations/unregister": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Turn browser notifications off for THIS browser.
+         * @description Marks the caller's registration for that browser `unsubscribed`.
+         *
+         *     IDEMPOTENT BY DESIGN: `removed` is false when there was nothing active to switch off, and that is a 200 rather than an error -- the client calls this on a permission revocation it may already have reported, and on every load where `Notification.permission` reads `denied`.
+         *
+         *     `unsubscribed` is deliberately a DIFFERENT status from `stale`: stale is a fact about the address (the provider says it is gone, written by the send path's permanent-failure branch), unsubscribed is a choice about the human, and "why did my alerts stop?" has a different answer for each.
+         *
+         *     Scoped to the caller's own member id as well as the browser install id. The install id is client-supplied, so without the member predicate one person could switch off another person's browser by replaying an id.
+         */
+        post: operations["unregisterBrowserPushRegistration"];
         delete?: never;
         options?: never;
         head?: never;
@@ -8916,9 +9068,71 @@ export interface components {
             /** Format: uuid */
             author_user_id: string;
             author_name: string;
+            /** @description PLAIN TEXT, exactly as it was typed. There is no inline mention token format: an older app would render one raw to a reader, so the resolved targets ride `mentions` beside the words instead. */
             body: string;
             /** Format: date-time */
             created_at: string;
+            /** @description The people this note named, resolved and stored when it was written. The client overlays them on the body as chips. */
+            mentions: components["schemas"]["LeadershipTaskMention"][];
+        };
+        /** @description One row of the task's Jira-style history feed (migration 000349), NEWEST FIRST in `LeadershipTask.activity`. Every word is composed server-side: the actor's name and avatar initials, the two ends of the change as the screen shows them and the one-line sentence. `kind` is the closed vocabulary the console keys its History / Comments tabs and chip rendering on. A `commented` row names its note in `note_id` and the note in `notes[]` carries the text, so a comment is never stored twice. */
+        LeadershipTaskActivity: {
+            /** Format: uuid */
+            id: string;
+            /** @enum {string} */
+            kind: "created" | "status_changed" | "assignee_changed" | "deadline_changed" | "title_changed" | "brief_changed" | "commented" | "cancelled";
+            /** Format: date-time */
+            occurred_at: string;
+            /** @description Farm-clock "DD/MM/YYYY HH:MM" of the change. */
+            occurred_label: string;
+            /** Format: uuid */
+            actor_user_id: string;
+            /** @description Blank when the actor no longer has an active roster row. */
+            actor_name: string;
+            /** @description Up to two letters for the avatar; blank with no name. */
+            actor_initials: string;
+            /** @description The value BEFORE the change, as words: a status chip ("Open"), a deadline ("17/09/2026 17:00"), a title. Blank for created / commented / cancelled and for a deadline that was not set before. */
+            from_label: string;
+            /** @description The value AFTER the change */
+            to_label: string;
+            /** @description The stored KEY behind from_label (a status key such as `in_progress`, an RFC3339 deadline, a title). A client picks a status chip's tone from it; it never parses the label. */
+            from_value: string;
+            /** @description The stored key behind to_label. */
+            to_value: string;
+            /** @description The note a `commented` row refers to; blank otherwise. */
+            note_id: string;
+            /** @description "Hemant created the task", "Ravi Teja changed the status To do → In progress". */
+            summary: string;
+        };
+        /** @description One stored, resolved mention on a note. */
+        LeadershipTaskMention: {
+            /** Format: uuid */
+            mention_id: string;
+            /** Format: uuid */
+            user_id: string;
+            /** @description The mentioned person's display name */
+            name: string;
+        };
+        /** @description One mention target the CLIENT sends alongside the note text. The server re-validates every id under the task's row lock, so this is a request and never an authority. */
+        LeadershipTaskMentionRef: {
+            /** Format: uuid */
+            user_id: string;
+        };
+        LeadershipTaskMentionableUser: {
+            /** Format: uuid */
+            user_id: string;
+            name: string;
+            /** @description The person's HRMS business title, falling back to their designation label. */
+            title: string;
+            /**
+             * @description Why this person may be named -- the picker groups by it.
+             * @enum {string}
+             */
+            relation: "raiser" | "assignee" | "leadership";
+        };
+        LeadershipTaskMentionableUsers: {
+            users: components["schemas"]["LeadershipTaskMentionableUser"][];
+            trace_id: string;
         };
         /** @description One leadership task as seen by THIS caller. The capability booleans and status_options are resolved per request from the caller's grants and their party to the task; the client renders controls from them and never from a role string. */
         LeadershipTask: {
@@ -8984,20 +9198,35 @@ export interface components {
             /** @description Compatibility assignee note field for older mobile clients; newer clients render notes. */
             comment: string;
             can_comment: boolean;
-            /** @description The statuses THIS caller may move the task to, in display order; empty when read-only. */
+            /** @description The statuses THIS caller may move the task to, in display order; empty when read-only (a screen then shows the status as a plain badge, not a control). */
             status_options: components["schemas"]["LeadershipTaskStatusOption"][];
             attachment_count: number;
             attachments: components["schemas"]["LeadershipTaskAttachment"][];
             /** @description Chronological two-way task notes; either task party may append while active. */
             notes: components["schemas"]["LeadershipTaskNote"][];
+            /** @description The NEWEST window of the task's history feed (20 rows), newest first; never empty (the raise itself is the first row). A longer feed sets activity_has_more and the client pages older rows through GET /app/leadership-tasks/{task_id}/activity?before=. */
+            activity: components["schemas"]["LeadershipTaskActivity"][];
+            /** @description Older feed rows exist beyond the window carried in activity. */
+            activity_has_more?: boolean;
+            /** @description Opaque cursor for the next older window; empty when activity_has_more is false. */
+            activity_next_before?: string;
         };
         LeadershipTaskDetail: {
             task: components["schemas"]["LeadershipTask"];
             trace_id: string;
         };
+        /** @description One older window of a task's history feed, newest first, with the notes its comment rows name. */
+        LeadershipTaskActivityPage: {
+            activity: components["schemas"]["LeadershipTaskActivity"][];
+            notes: components["schemas"]["LeadershipTaskNote"][];
+            has_more: boolean;
+            /** @description Cursor for the next older window; empty at the end. */
+            next_before: string;
+            trace_id: string;
+        };
         LeadershipTaskFilter: {
             /** @enum {string} */
-            key: "all" | "open" | "in_progress" | "done";
+            key: "all" | "open" | "in_progress" | "done" | "overdue";
             label: string;
             /** @description Whole-list count over the caller's party predicate */
             count: number;
@@ -9008,10 +9237,134 @@ export interface components {
             /** @enum {string} */
             key: "assigned_to_me" | "assigned_by_me" | "team_progress";
             label: string;
-            /** @description Whole-list count for the selected leadership task monitoring scope. */
+            /** @description Whole-list count for the selected leadership task monitoring scope, under the request's filters. */
             count: number;
+            /** @description The scope's size with no request filter applied (search text, people, date spans); equal to count when none is active. What the tab label shows. */
+            total?: number;
             selected: boolean;
             empty_message: string;
+        };
+        /** @description The routing envelope the producing consumer stamped on the notification. Every field is OPTIONAL and omitted when the producer did not stamp it -- a notification that names no task carries no task_id. Every value is a string because each is read out of the row's jsonb context. */
+        AppNotificationContext: {
+            /** @description The leadership task this notification is about */
+            task_id?: string;
+            /** @description That task's running number, as the producer stamped it -- a decimal string such as 12. */
+            task_no?: string;
+            /** @description The client screen that owns this notification (e.g. weighing, leadership_tasks). */
+            screen?: string;
+            /** @description The producer's grouping key */
+            group_key?: string;
+            /** @description The producer's urgency word -- normal or high. The client styles on it. */
+            priority?: string;
+            /** @description The producer's canonical copy key (e.g. weighing.verdict.rework). The module prefix identifies which vertical raised it. */
+            message_key?: string;
+            /** @description The in-app route to open when the card is tapped. */
+            target?: string;
+            /** @description The BUSINESS status of the thing the notification is about (e.g. a task being open), NOT the notification's own delivery status. */
+            status?: string;
+        };
+        AppNotification: {
+            /**
+             * Format: uuid
+             * @description The id to send back to POST /app/notifications/read. Where one notification fanned out to several of the caller's devices, this is the newest of those rows and marking it read stamps all of them.
+             */
+            notification_request_id: string;
+            /** @description The producer's notification kind (reminder, nudge, escalation, rework, due_today, verification_* ...). */
+            notification_type: string;
+            /** @description Backend-owned copy */
+            title: string;
+            /** @description Backend-owned copy */
+            body: string;
+            /** @description The row's delivery status (queued, sending, sent, failed, exhausted, suppressed, read). READ STATE IS `read_at`, NOT THIS FIELD: a notification read in the app while its push was still in flight keeps its delivery status and gains its read stamp. */
+            status: string;
+            /**
+             * Format: date-time
+             * @description When the notification was raised. The feed's sort key
+             */
+            requested_at: string;
+            /**
+             * Format: date-time
+             * @description When the caller marked it read. ABSENT while unread.
+             */
+            read_at?: string;
+            /** @description The display name of the person whose action raised it. ABSENT for system-raised notifications (the sweepers). */
+            actor_name?: string;
+            context: components["schemas"]["AppNotificationContext"];
+        };
+        AppNotificationPage: {
+            items: components["schemas"]["AppNotification"][];
+            /** @description The caller's unread total across their WHOLE feed, never the returned page's own unread rows -- the bell badge must not shrink because the reader paged. Counts notifications, not delivery rows. */
+            unread_count: number;
+            /** @description Pass as `cursor` for the next page. ABSENT on the last page. */
+            next_cursor?: string;
+            trace_id: string;
+        };
+        AppNotificationsReadRequest: {
+            /** @description The notifications to mark read. Duplicates within one batch collapse and are counted once. A malformed uuid is 400 `invalid_notification_id` -- it is not silently dropped, because "mark these 5 read" answering success while one card stays lit forever is the worse failure. Ids belonging to another person are ignored, never updated. */
+            notification_request_ids: string[];
+        };
+        AppNotificationsReadResponse: {
+            /** @description How many of the caller's OWN notifications moved from unread to read. Ids that were already read, or that belong to somebody else, contribute 0. */
+            read_count: number;
+        };
+        BrowserPushRegisterRequest: {
+            /**
+             * @description Opaque client-generated id persisted in that browser profile's localStorage. It is the upsert key: it makes a re-register from the same Chrome profile refresh ONE row instead of leaving a second live registration behind, and it is what lets the backend target one browser rather than all of a person's browsers. It identifies no person.
+             * @example web-2f1c9a4e-63b0-4d4a-9b8f-0a1c2d3e4f50
+             */
+            browser_install_id: string;
+            /** @description FCM web registration token from the Firebase JS SDK. A bearer-style push credential: never log it, never put it in a URL or a query string. Control characters are REFUSED, not stripped. */
+            token: string;
+            /** @description Short human label ("Google Chrome") so a person with three registrations can tell them apart. Display only, never a routing or matching input; an over-long value is TRUNCATED rather than refused, because a cosmetic label must not cost someone their notifications. */
+            browser_label?: string;
+            /** @description Optional. The server prefers the request's own User-Agent header and only falls back to this, because the header is the honest source and the body's copy would be a second, forgeable one. Diagnostics only, never a predicate; an over-long value is truncated. */
+            user_agent?: string;
+        };
+        BrowserPushUnregisterRequest: {
+            /** @description The browser profile to switch off. Always paired server-side with the caller's own member id. */
+            browser_install_id: string;
+        };
+        BrowserPushRegistration: {
+            /** Format: uuid */
+            browser_registration_id: string;
+            /** Format: uuid */
+            workforce_member_id: string;
+            /**
+             * @description Stored rather than assumed, so a future second transport is an added value here and not a reinterpretation of every existing row.
+             * @enum {string}
+             */
+            provider: "web_fcm";
+            browser_install_id: string;
+            browser_label: string;
+            /**
+             * @description active -- believed reachable. stale -- the PROVIDER confirmed the address is gone (subscription expired, profile cleared, site permission revoked); written by the send path's permanent-failure branch, never by a person. unsubscribed -- the person switched it off themselves.
+             * @enum {string}
+             */
+            status: "active" | "stale" | "unsubscribed";
+            /** Format: date-time */
+            created_at: string;
+            /** Format: date-time */
+            last_seen_at: string;
+            /**
+             * Format: date-time
+             * @description Set exactly when status is not `active`; null while active.
+             */
+            stale_at?: string | null;
+            /** @description Empty while active. Free text for observability; never a client predicate. */
+            stale_reason?: string;
+            row_version: number;
+        };
+        BrowserPushRegistrationList: {
+            registrations: components["schemas"]["BrowserPushRegistration"][];
+        };
+        BrowserPushRegisterResponse: {
+            registration: components["schemas"]["BrowserPushRegistration"];
+            /** @description True only for a genuinely new registration. False for a refresh or a revive, which lets the client tell "you are newly subscribed" from "your existing subscription was refreshed" without a second read. */
+            created: boolean;
+        };
+        BrowserPushUnregisterResponse: {
+            /** @description False when nothing active matched. Not an error -- unregister is idempotent, because the client calls it on revocations it may already have reported. */
+            removed: boolean;
         };
         LeadershipTaskPage: {
             /** @description The L0 header title; mirrors the nav label. */
@@ -9063,6 +9416,8 @@ export interface components {
         };
         LeadershipTaskCommentRequest: {
             comment: string;
+            /** @description EXPLICIT mention targets, sent alongside the text. The server does NOT parse "@Ravi" out of the body -- two active people can share a display name, and a regex over free text cannot tell a mention from a quoted handle. Pick the ids from `GET /app/leadership-tasks/{task_id}/mentionable-users`; every one is re-validated server-side under the task's row lock. Naming someone who cannot see the task is refused 403 `mention_not_visible`, an id that names nobody is 400 `invalid_mention`, more than 20 is 400 `too_many_mentions`, and mentions with an empty `comment` are 400 `mention_without_note`. A mention of the author is ignored. A stored mention also makes that person a PARTICIPANT of the task, which is what lets them open the task the notification points at; it does not add the task to any of their list tabs. */
+            mentions?: components["schemas"]["LeadershipTaskMentionRef"][];
         };
         LeadershipTaskStatusRequest: {
             /** @enum {string} */
@@ -25531,11 +25886,27 @@ export interface operations {
             query?: {
                 /** @description Monitoring scope key. Callers without `leadership_tasks.raise` are confined to `assigned_to_me`; `assigned_by_me` requires raise authority, and `team_progress` requires CEO/COO-style monitor authority. Unknown or unavailable scopes resolve to the caller's default scope. */
                 scope?: "assigned_to_me" | "assigned_by_me" | "team_progress";
-                /** @description The chip KEY. Absent or unknown resolves to `all` (which hides cancelled tasks). */
-                filter?: "all" | "open" | "in_progress" | "done";
+                /** @description The chip KEY. Absent or unknown resolves to `all` (which hides cancelled tasks). `overdue` is a LENS, not a fifth status: open or in-progress tasks whose deadline_at is before the server's farm clock at request time. Its chip count in `filters[]` is that same late subset, whole-list, under the request's other filters. */
+                filter?: "all" | "open" | "in_progress" | "done" | "overdue";
                 limit?: number;
-                /** @description Keyset cursor from a previous page's next_cursor. */
+                /** @description Keyset cursor from a previous page's next_cursor. The cursor is SORT-AWARE: it carries the name of the sort it was minted under, and a cursor presented under a different `sort` is refused 400 `invalid_cursor` rather than served as a wrong page. Drop the cursor whenever the sort changes. */
                 cursor?: string;
+                /** @description Free text, trimmed. Matches the title OR the brief, case-insensitive, anywhere in the text. When the text is a bare integer it ALSO matches the task's own number exactly, so "15" finds task #15. Empty or whitespace is the same as absent; over 120 characters is 400 `invalid_query`. */
+                q?: string;
+                /** @description Narrow to one assignee. IGNORED (never an error) when the scope already pins the assignee (`assigned_to_me`), so switching tabs with the filter bar set does not fail. A malformed uuid is 400 `invalid_filter`. */
+                assignee_user_id?: string;
+                /** @description Narrow to one raiser. IGNORED when the scope already pins the raiser (`assigned_by_me`). A malformed uuid is 400 `invalid_filter`. */
+                raised_by?: string;
+                /** @description INCLUSIVE lower bound on `deadline_at`: an RFC3339 instant, or a bare YYYY-MM-DD read as the start of that UTC day. Required TOGETHER with `deadline_to`; one end alone, or a start after its end, is 400 `invalid_date_range`. A deadline range never matches a task that has no deadline. */
+                deadline_from?: string;
+                /** @description INCLUSIVE upper bound on `deadline_at`. A bare YYYY-MM-DD covers that whole UTC day. */
+                deadline_to?: string;
+                /** @description INCLUSIVE lower bound on `raised_at`, same shapes and same both-ends rule as `deadline_from`. */
+                raised_from?: string;
+                /** @description INCLUSIVE upper bound on `raised_at`. */
+                raised_to?: string;
+                /** @description Row order. A task with NO deadline sorts LAST under both deadline orders -- it is neither the most nor the least urgent. An unknown value is 400 `invalid_sort`, never a silent fallback: a leader who asked for the deadline order and got the raise order would read the wrong list as the truth. */
+                sort?: "raised_at_desc" | "raised_at_asc" | "deadline_asc" | "deadline_desc";
             };
             header?: never;
             path?: never;
@@ -25613,6 +25984,32 @@ export interface operations {
             500: components["responses"]["ServerError"];
         };
     };
+    listLeadershipTaskMentionableUsers: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                task_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The people this task's notes may name. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["LeadershipTaskMentionableUsers"];
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFoundOrNotAllowed"];
+            500: components["responses"]["ServerError"];
+        };
+    };
     getLeadershipTask: {
         parameters: {
             query?: never;
@@ -25633,6 +26030,35 @@ export interface operations {
                     "application/json": components["schemas"]["LeadershipTaskDetail"];
                 };
             };
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFoundOrNotAllowed"];
+            500: components["responses"]["ServerError"];
+        };
+    };
+    getLeadershipTaskActivity: {
+        parameters: {
+            query: {
+                before: string;
+            };
+            header?: never;
+            path: {
+                task_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The older window. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["LeadershipTaskActivityPage"];
+                };
+            };
+            400: components["responses"]["BadRequest"];
             401: components["responses"]["Unauthorized"];
             403: components["responses"]["Forbidden"];
             404: components["responses"]["NotFoundOrNotAllowed"];
@@ -25793,6 +26219,181 @@ export interface operations {
             401: components["responses"]["Unauthorized"];
             403: components["responses"]["Forbidden"];
             404: components["responses"]["NotFoundOrNotAllowed"];
+            500: components["responses"]["ServerError"];
+        };
+    };
+    listAppNotifications: {
+        parameters: {
+            query?: {
+                /** @description Page size. Absent means 20. A value outside 1..50 is 400 `invalid_limit` rather than silently clamped: a caller who asked for 200 rows and got 20 would page straight past the rows it never saw. */
+                limit?: number;
+                /** @description Opaque keyset cursor from a previous page's `next_cursor`. It carries the last row's (requested_at, notification_request_id) so two notifications stamped in the same instant still page stably; there is one sort order on this feed, so a cursor never has to be dropped. A cursor this feed did not mint is 400 `invalid_cursor`, never served as page one. */
+                cursor?: string;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description One page of the caller's own notifications plus their whole-feed unread total. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AppNotificationPage"];
+                };
+            };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            500: components["responses"]["ServerError"];
+        };
+    };
+    markAppNotificationsRead: {
+        parameters: {
+            query?: never;
+            header: {
+                "Idempotency-Key": string;
+            };
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["AppNotificationsReadRequest"];
+            };
+        };
+        responses: {
+            /** @description How many of the caller's own notifications moved from unread to read. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AppNotificationsReadResponse"];
+                };
+            };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            409: components["responses"]["WriteConflict"];
+            500: components["responses"]["ServerError"];
+        };
+    };
+    listBrowserPushRegistrations: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The caller's own registrations. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["BrowserPushRegistrationList"];
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            500: components["responses"]["ServerError"];
+        };
+    };
+    registerBrowserPushRegistration: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["BrowserPushRegisterRequest"];
+            };
+        };
+        responses: {
+            /** @description The stored registration, plus whether it was newly created. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["BrowserPushRegisterResponse"];
+                };
+            };
+            /** @description Invalid request. `browser_push_invalid_request` for a missing or oversized browser_install_id or token, or a token containing control characters (refused, never silently stripped, because that is what log injection looks like). `invalid_request_body` for malformed JSON or an unknown field. */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelope"];
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            /** @description `browser_push_member_not_found` -- the caller is authenticated but is not an ACTIVE workforce member of this tenant, so there is no person to attach a delivery address to. This is the real authorization gap; a browser profile held by a COLLEAGUE is the 409 below, not this. */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelope"];
+                };
+            };
+            /**
+             * @description `browser_push_install_conflict` -- that browser profile already carries ANOTHER member's live registration and the caller could not prove possession of it, so NOTHING was written and the row stays attributed to its owner.
+             *
+             *     IT IS NOT AN AUTHORIZATION FAILURE AND MUST NOT BE REPORTED AS ONE. `browser_install_id` is per-browser-profile and survives sign-out, so the ordinary cause is two colleagues sharing one office desktop after the Chrome token rotated -- nobody did anything wrong. It is LOAD-BEARING on the client: `apps/admin-web/lib/web-push.ts` keys on this CODE (never on the message), mints a fresh browser install id and retries exactly ONCE -- a freshly minted id cannot collide, so a second conflict is a real fault and is surfaced rather than looped. The message deliberately names no other member.
+             */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelope"];
+                };
+            };
+            500: components["responses"]["ServerError"];
+        };
+    };
+    unregisterBrowserPushRegistration: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["BrowserPushUnregisterRequest"];
+            };
+        };
+        responses: {
+            /** @description Whether an active registration was actually switched off. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["BrowserPushUnregisterResponse"];
+                };
+            };
+            /** @description `browser_push_invalid_request` -- browser_install_id is required, and is refused when oversized. `invalid_request_body` for malformed JSON or an unknown field. */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelope"];
+                };
+            };
+            401: components["responses"]["Unauthorized"];
             500: components["responses"]["ServerError"];
         };
     };

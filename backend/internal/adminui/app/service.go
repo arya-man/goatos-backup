@@ -335,7 +335,12 @@ func topBar() domain.TopBarContract {
 				{Key: "last_30_days", Label: "Last 30 days", Enabled: false, DisabledReason: "Backend range filtering is not defined for the current process-integrity slice."},
 			},
 		},
-		Notifications: domain.TopBarControl{Label: "Notifications", Enabled: false, DisabledReason: "Notifications are not wired in this admin-web slice yet.", Options: []domain.TopBarOption{}},
+		// The bell is LIVE (in-app notification centre + browser push ride this slot), so the
+		// control is enabled and its `label` is the bell's accessible name / tooltip. The
+		// disabled_reason is empty: the shell only falls back to it when `enabled` is false. It
+		// used to say "Notifications are not wired in this admin-web slice yet." while the bell
+		// opened a working panel (gate-1 #5).
+		Notifications: domain.TopBarControl{Label: "Notifications", Enabled: true, DisabledReason: "", Options: []domain.TopBarOption{}},
 		RolePreview:   domain.RolePreviewActor{DisplayName: "Signed-in CEO/CXO", Initials: "CX", Subtitle: "Role and park scope resolved by backend RBAC"},
 	}
 }
@@ -400,6 +405,37 @@ func chromeCopy() map[string]string {
 		"state.fresh":               "fresh",
 		"state.freshness_pending":   "freshness pending",
 		"state.days_old_suffix":     "d old",
+		// Browser (Chrome) web push permission control, rendered inside the top-bar bell's panel
+		// on EVERY admin route (components/push-permission-prompt.tsx via components/mesha-shell.tsx).
+		// It lives in the bootstrap chrome copy map rather than a page contract for exactly that
+		// reason: the control is shell chrome, not one screen's copy, so there is no single
+		// AdminWebPageContract that owns it. Each key is also config-overridable through the
+		// generic "chrome.copy.<key>" global entry the config compiler already accepts.
+		"push.checking":          "Notifications",
+		"push.checking_label":    "Checking notification support",
+		"push.enable":            "Enable notifications",
+		"push.enable_hint":       "Get notified in this browser",
+		"push.enabling":          "Turning on",
+		"push.enabled":           "Notifications on",
+		"push.disable_hint":      "Turn off notifications in this browser",
+		"push.disabling":         "Turning off",
+		"push.this_browser_only": "This browser only. Each browser and profile is enabled separately.",
+		"push.dismissed":         "No choice was made. Click again when you are ready.",
+		// Permission is 'denied': requestPermission() resolves without showing anything, so the
+		// only true thing to say is where the person can undo it themselves.
+		"push.blocked": "Notifications are blocked for this site. Turn them back on in your browser's site settings (the icon beside the address bar), then reload this page.",
+		// The retryable timeout: permission was granted and nothing is known to be wrong, so it
+		// says what happened and invites the retry the button beside it offers. These two were
+		// the only push states left with no contract key, so the frontend map was their source
+		// rather than a deploy-skew net.
+		"push.timed_out": "That took too long and did not finish. Nothing is switched on yet — click again to retry.",
+		"push.retry":     "Try again",
+		// The two states nothing the reader can do will fix. They used to render the raw
+		// engineering sentence behind them verbatim in the top bar on EVERY admin route
+		// ("...is not a usable VAPID key..."), which is implementation vocabulary a CXO should
+		// never see. The shape check that sentence documents is kept as a LOG line only.
+		"push.unconfigured": "Notifications are not set up for this site yet. Ask your Goat OS administrator to switch them on.",
+		"push.unsupported":  "This browser cannot show notifications here. Open the dashboard in Chrome on a laptop or an Android phone, on its secure (https) address, to get them.",
 	}
 }
 
@@ -447,7 +483,7 @@ func pages() []domain.PageContract {
 				withoutRowClick(tableP("alerts", "Alerts", "/alerts/rows", []string{"severity", "alert", "park", "pen", "detail", "rule"}, "key", []int{25, 50, 100})),
 			}),
 		page("leadership-tasks", "/tasks", "/tasks", "Tasks", "Tasks raised across CXOs, directors and park heads, with notes and attachments.", "monitoring-screen",
-			[]domain.TableContract{table("leadership-task-progress", "Team progress", "/app/leadership-tasks", []string{"task", "assignee", "raised_by", "status", "evidence", "priority"}, "task_id")}),
+			[]domain.TableContract{table("leadership-task-progress", "Team progress", "/app/leadership-tasks", []string{"task", "assignee", "raised_by", "status", "evidence", "days_left"}, "task_id")}),
 		// Routines (maintainer instruction 2026-09-16, docs/decisions/pen-routines.md). Two
 		// tables: the routines of a park (the rule, its cadence and evidence lines, its people,
 		// what it raised today) and the Today table of the tasks the kernel raised. Authoring
@@ -1707,6 +1743,7 @@ func pageSpecificCopy(id string) map[string]string {
 			"action.open_config":                  "Open the vaccination plan",
 			"action.open_sops":                    "Open the vaccination plan",
 			"action.success_tag":                  "done",
+			"action.success_title":                "Done",
 			"action.success_message":              "Action completed.",
 			"action.failed_title":                 "Action failed",
 			"action.assign_owner_chain":           "Assign operator",
@@ -2017,6 +2054,256 @@ func pageSpecificCopy(id string) map[string]string {
 			"action.config_invalid":                "Enter a whole number for the threshold.",
 			"action.config_conflict":               "That change was already sent with different values. Reload and try again.",
 			"pager.noun":                           "alerts",
+		}
+	case "leadership-tasks":
+		// The Tasks page. Urgency on this page IS the deadline, so there is no priority
+		// vocabulary here. The feedback.* family is the backend error vocabulary: it is an
+		// OPEN key space the screen reads with an empty default, so an unrecognised code
+		// falls back to the generic sentence rather than throwing.
+		// `filter.search_label` and `filter.search_hint` are separate keys: at 2000px the
+		// search box holds ~160px of input and the old single placeholder ("Search tasks, or
+		// type a number") clipped mid-word inside it. The short form is the placeholder; the
+		// number affordance is the control's title / aria-label. `filter.range_any` is what a
+		// date disclosure reads with no span applied: "Deadline · any".
+		return map[string]string{
+			"crumb":               "Operations",
+			"filter.bar_aria":     "Filter tasks",
+			"filter.search_label": "Search tasks…",
+			"filter.search_hint":  "Search by title, or type a task number",
+			"filter.range_any":    "any",
+			"filter.all_option":   "All",
+			"filter.assignee":     "Assignee",
+			"filter.raiser":       "Raised by",
+			"filter.sort":         "Sort",
+			// The ONE dates disclosure on the toolbar (both spans inside it), the Work Board's one
+			// date control restated for this desk.
+			"filter.dates":         "Dates",
+			"filter.deadline_from": "Deadline from",
+			"filter.deadline_to":   "Deadline to",
+			"filter.raised_from":   "Raised from",
+			"filter.raised_to":     "Raised to",
+			"filter.range_note":    "Pick both ends of a date range — a half range is not applied.",
+			"sort.raised_at_desc":  "Newest first",
+			"sort.raised_at_asc":   "Oldest first",
+			"sort.deadline_asc":    "Deadline soonest",
+			"sort.deadline_desc":   "Deadline latest",
+			"scope.aria":           "Task scopes",
+			// Status-board column headings. They are the SAME wording as the status chips
+			// (domain.StatusChip), so a column and the cards under it never name the status
+			// two different ways. The board previously had no contract key for these at all,
+			// and an unlabelled column fell back to the column KEY — rendering the raw wire
+			// token `in_progress` as a heading.
+			"board.column.open":        "To do",
+			"board.column.in_progress": "In progress",
+			"board.column.done":        "Done",
+			"board.column.cancelled":   "Cancelled",
+			// ── WHAT A COLUMN'S "MORE" LINK PROMISES ─────────────────────────────────────
+			// This read "Show only this", which described the IMPLEMENTATION (it sets
+			// `filter=<status>` so the keyset pager can walk one status) and was read as
+			// belonging to the card under it. The intent is the whole of that status, which
+			// is the one thing a column cannot show: a column holds this page of the list,
+			// and Open is 179 rows.
+			// ── THE REST OF THE BOARD'S OWN WORDS ────────────────────────────────────────
+			// These rendered from the screen's 3-arg `copy(contract, key, fallback)` defaults
+			// because the contract never carried them; the text is the fallback verbatim so
+			// nothing on the live board changes hands. The board owns its own group label,
+			// per-column count sentence, the tooltip for a total the list query does not
+			// publish, an empty column, and the two drag sentences: the hint under the
+			// columns (desktop-only, where a drag exists) and the live-region prefix that
+			// announces the move in flight to a screen reader.
+			"board.aria":         "Tasks by status",
+			"board.column_empty": "Nothing in this status on this page.",
+			"board.drag_moving":  "Moving",
+			// The board under a status filter draws ONLY that status's column, because the
+			// row query can only return that status — four columns under `filter=done` left
+			// Open and Doing reading "0 on this page" beneath header pills of 179 and 118.
+			// These two say the board is narrowed and carry the way back.
+			// Under the overdue lens the board keeps its two working columns and shows only the
+			// cards past their deadline; the sentence says so where the one-status note would lie.
+			// The person filter is one searchable control now (it was a `<select>` that could
+			// not be typed into, plus a board avatar group whose overflow chip was dead). The
+			// same control is the New task modal's "For" field. The `deadline.*` keys below
+			// are that modal's deadline: the console's own calendar (a day) plus hour and
+			// minute selects on the farm clock -- a native datetime picker drew Chrome's own
+			// popover over the modal's buttons. "{date}" is the earliest day allowed.
+			"filter.people_search":     "Type a name",
+			"filter.people_no_matches": "Nobody by that name.",
+			// The muted line under the title when the viewer may not edit this task (the
+			// status pill is then a plain badge, not a control). Leadership monitors edit
+			// anything since 2026-09-18, so this reads for a non-party without that authority.
+			"detail.read_only": "Only the person who raised this task can edit it.",
+			// A finished task is not editable by anyone (CanEdit requires open-for-work); saying
+			// "only the raiser" to the CEO looking at a Done task was wrong (2026-09-18).
+			// The feed carries its newest 20 rows; these page the rest, one window at a time.
+			// The cancel confirm lives inside the status menu: two buttons, no browser dialog.
+			"status.cancel_yes":       "Yes, cancel task",
+			"status.cancel_no":        "Keep task",
+			"activity.older":          "Show older activity",
+			"activity.older_loading":  "Loading older…",
+			"activity.older_failed":   "Older activity could not be loaded. Try again.",
+			"detail.read_only_closed": "A finished task can't be edited. Reopen it to change the details.",
+			// The drawer's ONE status control: the pill opens a menu of the task's status_options
+			// (Cancel task last, in the danger tone). The confirm is asked before a cancel only,
+			// because a cancelled task cannot be reopened.
+			"status.menu_aria":      "Change status",
+			"status.cancel_confirm": "Cancel this task? It cannot be reopened afterwards.",
+			// An unprefixed parameter this page does not read. `?view=list` looks like it
+			// selects a view and does not: `view` belongs to /vaccination, the calendar and
+			// procurement, so Tasks cannot honour it without re-creating the collision its
+			// `t_` prefix exists to prevent. It is ignored OUT LOUD instead.
+			"state.ignored_params":    "This link sets a filter this page does not read. Tasks names its own filters with a t_ prefix.",
+			"action.fix_link":         "Use the link this page reads",
+			"column.assignee":         "Assignee",
+			"column.raised_by":        "Raised by",
+			"column.evidence":         "Evidence",
+			"table.tasks.noun":        "task",
+			"label.deadline":          "Deadline",
+			"label.brief":             "Brief",
+			"label.assignee_note":     "Assignee note",
+			"section.selected.title":  "Selected task",
+			"action.open_task":        "Open task",
+			"action.edit":             "Edit",
+			"state.preview":           "Preview data",
+			"state.can_raise":         "Can raise",
+			"state.unavailable_tasks": "Tasks could not be loaded. Try again.",
+			"empty.tasks":             "No tasks match these filters.",
+			"empty.tasks_detail":      "This queue is clear for the current role and park scope. When work is raised, it will appear here with the owner, evidence, and next status action.",
+			"empty.selected":          "Select a task",
+			"empty.selected_detail":   "Choose a row to view its brief, status actions, attachments, and activity updates.",
+			"note.label":              "Activity update",
+			"note.placeholder":        "Write the latest status or reply.",
+			"note.send":               "Send update",
+			"feed.update":             "Task update",
+			"picker.voice":            "Voice note",
+			"note.sending":            "Sending…",
+			"note.just_now":           "just now",
+			"note.you":                "You",
+			"note.failed":             "The update could not be sent. Try again.",
+			"picker.media":            "Photo or video",
+			"picker.file":             "File",
+			"deadline.day":            "Choose a day",
+			"deadline.hour":           "Hour",
+			"deadline.minute":         "Minute",
+			"deadline.day_min":        "Pick a day on or after {date}.",
+			"date.previous_month":     "Previous month",
+			"date.next_month":         "Next month",
+			"edit.title":              "Edit task",
+			"edit.title_field":        "Title",
+			"edit.body_field":         "Brief",
+			"edit.deadline_field":     "Deadline",
+			"edit.deadline_hint":      "Date and time the task is due, farm clock (IST). Leave it as it is to keep the stored deadline.",
+			"edit.attachments":        "Attachments",
+			"edit.too_many":           "A task carries at most 12 attachments.",
+			"edit.save":               "Save changes",
+			// The New task modal (`new-task-modal.tsx`): every label it shows, so the modal
+			// never hard-codes a word the backend does not own (gate-1 #17, 2026-09-18).
+			"new.open":              "New task",
+			"new.title":             "New task",
+			"new.for_field":         "For",
+			"new.for_placeholder":   "Choose who this is for",
+			"new.assigned_to":       "Assigned to",
+			"new.title_field":       "Title",
+			"new.body_field":        "Brief",
+			"new.deadline_field":    "Deadline",
+			"new.deadline_hint":     "Date and time the task is due, farm clock (IST).",
+			"new.attachments":       "Attachments",
+			"new.send":              "Send",
+			"feedback.task_raised":  "Task raised.",
+			"feedback.task_updated": "Task status updated.",
+			"feedback.task_edited":  "Task saved.",
+			"feedback.note_added":   "Update added to the task.",
+			// ── A REFUSED WRITE ON THE TASKS DESK ────────────────────────────────────────
+			// Three keys per outcome code, the screen trying the MOST SPECIFIC first:
+			// `.named` (the person whose move it is resolved), `.status` (the task's current
+			// chip resolved), then the plain key. A template is used only when every
+			// placeholder it carries has a value, so an unresolved fact costs its CLAUSE and
+			// never renders "{name}", a raw id, or the word "someone".
+			//
+			// WHAT CANNOT BE SAID, and why the conflict sentence names a STATUS and not a
+			// PERSON: neither the 409 envelope nor the single-task read reports WHO made the
+			// last status change, so "Chandrakant already moved this to Doing" is not
+			// composable today. There is deliberately NO `feedback.version_conflict.named`:
+			// the screen only tries that key when a name resolved, and a name never resolves
+			// on a conflict (the Tasks page sends one only for a refusal that is ABOUT a
+			// person). Adding `status_changed_by_name` to the leadership-task read is the
+			// backend follow-up that would let this name them; until it lands, naming the new
+			// status is the whole honest sentence.
+			"feedback.version_conflict.status": "This task was moved to {status} while this board was open, so your move was not applied. The board now shows that — move it from what you see now.",
+			"feedback.version_conflict":        "This task was changed while this board was open, so your move was not applied. The board now shows the current version.",
+			// Fires on a DRAG as well as an edit, so it says what the task IS and that a
+			// closed task cannot be MOVED — not that it "can no longer be edited".
+			"feedback.task_closed.status": "This task is {status}, and a closed task cannot be moved.",
+			"feedback.task_closed":        "This task is closed, so its status cannot be changed.",
+			"feedback.forbidden":          "Only the person who raised this task can edit it.",
+			// The three commonest drag refusals, which had no sentence at all and collapsed
+			// into the page's generic failure line.
+			"feedback.not_assignee.named":               "Only {name}, the person this task is assigned to, can move it.",
+			"feedback.not_assignee":                     "Only the person this task is assigned to can move it.",
+			"feedback.not_raiser.named":                 "Only {name}, who raised this task, can cancel it.",
+			"feedback.not_raiser":                       "Only the person who raised this task can cancel it.",
+			"feedback.invalid_status_transition.status": "This task is {status}, and that is not a move it can make from there.",
+			"feedback.invalid_status_transition":        "That is not a move this task can make from where it is now.",
+			"feedback.missing_title":                    "A task needs a title.",
+			"feedback.missing_assignee":                 "Choose who the task is for.",
+			"feedback.missing_deadline":                 "A task needs a deadline.",
+			"feedback.missing_note":                     "Write the update before sending it.",
+			"feedback.invalid_deadline":                 "That deadline is not a date and time.",
+			"feedback.invalid_edit":                     "The task could not be saved. Reload the page and try again.",
+			// Minted on the page BEFORE the write, when the dragged card carried no task, no
+			// target status or no version — so NO status of this task is known at that point
+			// and naming one would be an invention. It says which fact was missing instead.
+			"feedback.invalid_status_change":   "That move did not say which task to move, or where to move it to. Reload the board and drag the card again.",
+			"feedback.invalid_idempotency_key": "The form expired. Reload the page and try again.",
+			"feedback.too_many_attachments":    "A task carries at most 12 attachments.",
+			// ── A REFUSED @MENTION ───────────────────────────────────────────────────────
+			// All four of these reached the screen as the generic failure line, so a reader
+			// who named the wrong person on an update they can SEE was told only that
+			// something went wrong. None of them carries {name}: the send stamps the outcome
+			// code alone, so the offending person's name does not reach this sentence and the
+			// repo's rule is to DROP the unresolvable clause rather than say "that person".
+			// Each one names the RULE instead, which is the fact the reader can act on.
+			"feedback.mention_not_visible":  "A person can only be named on a task they can already see. Pick from the list that appears when you type @, or share the task with them first.",
+			"feedback.invalid_mention":      "A name that is not on this farm's leadership roster cannot be named on a task. Pick the person from the list that appears when you type @.",
+			"feedback.too_many_mentions":    "One update can name at most 20 people.",
+			"feedback.mention_without_note": "Write the update before naming anyone in it.",
+			// ── THE ACTIVITY FEED (CEO instruction 2026-09-18, the Jira issue panel) ─────
+			// Three views over ONE backend list (`LeadershipTask.activity`, migration
+			// 000349): History is every change of fact, Comments is the notes, All is both,
+			// newest first. The verb keys are the sentence AFTER the actor's name -- the
+			// console renders "<name> <verb> <from> → <to>" from the row's own labels, and
+			// the phone shows the backend's `summary` verbatim; both must read the same.
+			"activity.tabs_aria":        "Activity views",
+			"activity.tab_all":          "All",
+			"activity.tab_history":      "History",
+			"activity.tab_comments":     "Comments",
+			"activity.created":          "created the task",
+			"activity.status_changed":   "changed the status",
+			"activity.assignee_changed": "changed the assignee",
+			"activity.deadline_changed": "changed the deadline",
+			"activity.title_changed":    "changed the title",
+			"activity.brief_changed":    "edited the brief",
+			"activity.commented":        "commented",
+			"activity.cancelled":        "cancelled the task",
+			"activity.updated":          "updated the task",
+			"activity.empty":            "Nothing has happened on this task yet.",
+			"activity.empty_history":    "No changes recorded on this task yet.",
+			"activity.empty_comments":   "No comments on this task yet.",
+
+			// ── NUMBERS THAT RECONCILE (Gate-1 #2, #4, #14) ─────────────────────────────
+			// A search or filter with no hits is NOT an empty queue: `empty.filtered` says
+			// nothing matched, and `empty.filtered_action` + `empty.filtered_rest` are the
+			// sentence "Clear the filters to see all {count}." with the first half a link and
+			// {count} the scope's unfiltered size (`scopes[].total`). `count.of` is the card
+			// header under a status chip or any narrowing: "{shown} of {total}", so the header
+			// and the chip on screen together never contradict. `board.total_on_page` is the
+			// tooltip on a column pill whose whole-list total the list query does not publish
+			// (the overdue lens and Cancelled), where the pill counts this page's cards instead
+			// of reading "—".
+			"empty.filtered":        "No tasks match.",
+			"empty.filtered_action": "Clear the filters",
+			"empty.filtered_rest":   "to see all {count}.",
+			"count.of":              "{shown} of {total}",
+			"board.total_on_page":   "The whole-list total for this column is not published; this counts the cards on this page.",
 		}
 	case "pen-routines":
 		return map[string]string{

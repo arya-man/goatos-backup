@@ -1658,3 +1658,22 @@ reporting paths.
 
 | rollup_dispatch | EXCLUDED | Internal durable dispatch lease for the existing analytics Cloud Run job. No business fact; final job status remains rollup_run and the lease must not be interpreted as completion. |
 | func:NewAnalyticsRollupStage | EXCLUDED | Shared kernel-worker cadence adapter for operational diagnostics refresh, not a leadership read API. |
+
+## In-app notification centre (the bell) (2026-09-18)
+
+`GET /app/notifications` and `POST /app/notifications/read` serve ONE PERSON their own
+notification queue rows out of the existing `notification_requests` table, filtered by the
+caller's own resolved active `workforce_member_id` (the `member_id` every producer stamps into
+`context`). The module creates no table, writes no notification, and computes no cross-person
+or cross-park aggregate: its only number, `unread_count`, is that one caller's own unread
+total, which is a per-session UI badge and is meaningless as a leadership fact. Leadership
+answers about notification delivery continue to come from the existing notification queue and
+per-module alert reads, which are already covered above.
+
+| Surface | Decision | Reason |
+| --- | --- | --- |
+| path:/app/notifications, path:/app/notifications/read | EXCLUDED | The caller's own in-app notification feed and their own mark-as-read write. Self-scoped by construction -- no parameter on either route names another person, and the query is filtered by the caller's own member id -- so there is no tenant-wide or leadership read here to expose. Notification DELIVERY facts remain on the existing notification queue surfaces. |
+| func:ListNotifications, func:MarkRead, func:List, func:ClampLimit | EXCLUDED | One person's own notification page (keyset, newest first), their own mark-as-read, the use-case wrapper, and the page-size validator. Per-caller inbox reads and a bounded per-caller write; no aggregate, no `ceo_ai.*` view, no Cube metric, no MCP tool. `unread_count` is that single caller's own badge, not a reportable count. |
+| func:NewRepository, func:NewService, func:NewHandler, func:Register | EXCLUDED | Constructors and route registration for the notification centre module. Wiring only. |
+| func:HTTPError, func:Error, func:BadRequest, func:Conflict, func:Internal | EXCLUDED | Transport error mapping for the two routes above: stable codes and farm-worded messages, with an unknown cause deliberately reduced to a generic 500 so no storage detail reaches a screen. No business fact. |
+| notification_requests.read_at, notification_requests.status = 'read' | EXCLUDED | The caller's own read stamp on an EXISTING queue row (no schema change). A per-person UI state -- whether one worker has opened one card -- not a delivery or business fact. Delivery status remains the dispatcher's, and a row still in flight keeps it. |

@@ -4,31 +4,50 @@ import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
 import {
   changeLeadershipTaskStatus,
+  editLeadershipTask,
+  getLeadershipTask,
+  getLeadershipTaskActivity,
   raiseLeadershipTask,
   setLeadershipTaskComment,
   uploadLeadershipTaskAttachment,
+  type LeadershipTaskActivity,
+  type LeadershipTaskActivityPage,
+  type LeadershipTaskDetail,
 } from "@/lib/api/server";
-import { farmDeadlineToRFC3339 } from "./deadline";
+import { farmDeadlineLocalFromForm, farmDeadlineToRFC3339 } from "./deadline";
+import { TASK_PARAM } from "./params";
+import { safeTaskReturnTo, TASKS_PATHNAME } from "./task-url";
 
-const PATHNAME = "/tasks";
+const PATHNAME = TASKS_PATHNAME;
 
 function redirectTarget(formData: FormData): URL {
-  const returnTo = String(
-    formData.get("return_to") ?? `${PATHNAME}?scope=assigned_by_me`,
+  // The allowlist lives in task-url.ts and is unit-tested: it used to be a bare
+  // startsWith("/tasks"), which accepted the /tasks-preview FIXTURE host as the landing page for
+  // a live write.
+  return new URL(
+    safeTaskReturnTo(
+      formData.get("return_to") === null
+        ? undefined
+        : String(formData.get("return_to")),
+    ),
+    "https://admin.mesha.local",
   );
-  const safe = returnTo.startsWith(PATHNAME)
-    ? returnTo
-    : `${PATHNAME}?scope=assigned_by_me`;
-  return new URL(safe, "https://admin.mesha.local");
 }
 
+/**
+ * Stamps the outcome on the redirect URL for the page's banner to render.
+ *
+ * `task_status` / `task_code`, NOT `lt_status` / `lt_code`:
+ * `features/vaccination-live-tracker/params.ts` already owns `lt_status`, so the old names meant a
+ * task write could hand the live tracker a value it reads as its own filter.
+ */
 function withFeedback(
   url: URL,
   status: "success" | "error",
   code: string,
 ): string {
-  url.searchParams.set("lt_status", status);
-  url.searchParams.set("lt_code", code);
+  url.searchParams.set(TASK_PARAM.feedbackStatus, status);
+  url.searchParams.set(TASK_PARAM.feedbackCode, code);
   const qs = url.searchParams.toString();
   return qs ? `${url.pathname}?${qs}` : url.pathname;
 }
@@ -41,9 +60,7 @@ export async function raiseLeadershipTaskAction(
   const assigneeUserID = String(formData.get("assignee_user_id") ?? "").trim();
   const body = String(formData.get("body") ?? "").trim();
   const idempotencyKey = String(formData.get("idempotency_key") ?? "").trim();
-  const deadlineAt = farmDeadlineToRFC3339(
-    String(formData.get("deadline_at") ?? ""),
-  );
+  const deadlineAt = farmDeadlineToRFC3339(farmDeadlineLocalFromForm(formData));
 
   if (!title || !assigneeUserID) {
     redirect(
@@ -88,6 +105,20 @@ export async function raiseLeadershipTaskAction(
   redirect(withFeedback(url, "success", "task_raised"));
 }
 
+/**
+ * The refusal codes whose sentence is worth a second request, because each one is a statement
+ * ABOUT the task: what it is now, or whose move it is. A validation refusal minted locally
+ * (`invalid_status_change`, `invalid_idempotency_key`) is about the REQUEST and reads fine on its
+ * own, so it costs no read.
+ */
+const STATUS_REFUSALS_WORTH_A_REREAD = [
+  "version_conflict",
+  "task_closed",
+  "not_assignee",
+  "not_raiser",
+  "invalid_status_transition",
+];
+
 export async function changeLeadershipTaskStatusAction(
   formData: FormData,
 ): Promise<void> {
@@ -99,6 +130,14 @@ export async function changeLeadershipTaskStatusAction(
     10,
   );
   const idempotencyKey = String(formData.get("idempotency_key") ?? "").trim();
+  /**
+   * The status the caller's own screen was SHOWING for this task. Optional, and never trusted as
+   * an input to the write — the backend's `row_version` fence and `CheckTransition` decide that.
+   * It exists so a refusal can tell whether the task actually MOVED under the reader (name the
+   * new status) or merely changed in some other way (do not). An older caller that does not send
+   * it simply gets the refusal sentence without the status clause.
+   */
+  const fromStatus = String(formData.get("from_status") ?? "").trim();
 
   if (!taskID || !status || !Number.isFinite(rowVersion)) {
     redirect(withFeedback(url, "error", "invalid_status_change"));
@@ -114,9 +153,68 @@ export async function changeLeadershipTaskStatusAction(
   );
   revalidatePath(PATHNAME);
   if (!result.ok) {
-    redirect(
-      withFeedback(url, "error", result.error.code ?? result.error.kind),
-    );
+    const code = result.error.code ?? result.error.kind;
+    /**
+     * A REFUSED status change gets the facts that make the sentence mean something.
+     *
+     * "Action could not be completed" is the wording this page had for all three refusals, and it
+     * is the one thing the reader cannot act on: a CXO looking at a board of 424 tasks learns
+     * nothing from it. The refusal envelope carries only its code — no status, no person — so the
+     * task is RE-READ here and two backend-owned values ride the redirect beside the code:
+     *
+     *   task_now  the task's CURRENT `status_chip`, the backend's own chip wording, verbatim.
+     *             This is what a `version_conflict` is really about: the board is out of date and
+     *             this is the truth it is out of date against.
+     *   task_who  the person whose move this is, by name, for a refusal that is ABOUT a person:
+     *             the assignee for a ladder move, the raiser for a cancel. Both names come off
+     *             the task; nothing is guessed. When a name does not resolve the parameter is
+     *             ABSENT and the banner renders the sentence without its name clause, which is
+     *             this repo's rule for an unresolvable identifier — never a placeholder, and
+     *             never a raw id.
+     *
+     * WHO MADE THE CHANGE is deliberately not claimed. Neither the 409 envelope nor
+     * `GET /app/leadership-tasks/{task_id}` reports the actor of the last status change, and
+     * inferring one from the transition would be inventing a name. The banner therefore names the
+     * NEW STATUS on a conflict and names the OWNER of the move on a permission refusal. Adding
+     * `status_changed_by_name` to the task read is the backend follow-up that would let the
+     * sentence name the person who actually moved it.
+     *
+     * The re-read is one extra request on the FAILURE path only.
+     */
+    if (STATUS_REFUSALS_WORTH_A_REREAD.includes(code)) {
+      const fresh = await getLeadershipTask(taskID);
+      if (fresh.ok) {
+        const task = fresh.data.task;
+        /**
+         * The status is sent ONLY when it is the fact that explains the refusal — that is, when
+         * the task has genuinely MOVED since the board was drawn. `from_status` is the status the
+         * reader's own board was showing, so this comparison is exact.
+         *
+         * Without it the sentence is absurd in the commonest case: a `row_version` also moves when
+         * somebody EDITS the task, and the banner then read "This task is already Open" over a
+         * board that says Open — measured on the live desk while proving this path. When the
+         * status did not change there is no status worth naming, so the parameter is absent and
+         * the banner falls to the sentence that does not mention one. Each fact is asserted only
+         * where it is the relevant fact.
+         */
+        if (task.status_chip && task.status !== fromStatus) {
+          url.searchParams.set(TASK_PARAM.feedbackStatusNow, task.status_chip);
+        }
+        /**
+         * The NAME rides only on a refusal that is about a person. `not_assignee` is about the
+         * assignee and `not_raiser` about the raiser — the two the backend's own rulebook names
+         * (`domain.CheckTransition`). Sending a name on a version conflict would put a person in
+         * the reader's mind who may have had nothing to do with it.
+         */
+        if (code === "not_assignee" && task.assignee_name) {
+          url.searchParams.set(TASK_PARAM.feedbackWho, task.assignee_name);
+        }
+        if (code === "not_raiser" && task.raised_by_name) {
+          url.searchParams.set(TASK_PARAM.feedbackWho, task.raised_by_name);
+        }
+      }
+    }
+    redirect(withFeedback(url, "error", code));
   }
   redirect(withFeedback(url, "success", "task_updated"));
 }
@@ -128,6 +226,19 @@ export async function setLeadershipTaskCommentAction(
   const taskID = String(formData.get("task_id") ?? "").trim();
   const comment = String(formData.get("comment") ?? "").trim();
   const idempotencyKey = String(formData.get("idempotency_key") ?? "").trim();
+  /**
+   * The people the writer actually PICKED in the composer, as ids -- the server does not read
+   * "@Ravi" out of the prose, because two active people can share a display name. The field is a
+   * comma-separated hidden input, so this is the whole parse. Every id is re-validated
+   * server-side under the task's row lock (403 `mention_not_visible`, 400 `invalid_mention`,
+   * 400 `too_many_mentions`), so nothing here is an authority; an older page that posts no field
+   * at all sends no mentions, which is the behaviour before the composer existed.
+   */
+  const mentions = String(formData.get("mention_user_ids") ?? "")
+    .split(",")
+    .map((id) => id.trim())
+    .filter(Boolean)
+    .map((userID) => ({ user_id: userID }));
 
   if (!taskID || !comment) {
     redirect(withFeedback(url, "error", "missing_note"));
@@ -136,11 +247,18 @@ export async function setLeadershipTaskCommentAction(
     redirect(withFeedback(url, "error", "invalid_idempotency_key"));
   }
 
-  const result = await setLeadershipTaskComment(
-    taskID,
-    { comment },
-    idempotencyKey,
-  );
+  /**
+   * `mentions` is declared on `LeadershipTaskCommentRequest` in
+   * `contracts/openapi/app-api.yaml` and is present in the generated client, but
+   * `setLeadershipTaskComment`'s own body parameter in `lib/api/server.ts` still reads
+   * `{ comment: string }` -- that file is owned by another agent this round. A typed local is
+   * assignable to the narrower parameter and is serialised whole, so the field does reach the
+   * endpoint; widening that signature to the generated request type is the follow-up.
+   */
+  const body: { comment: string; mentions?: { user_id: string }[] } = mentions.length
+    ? { comment, mentions }
+    : { comment };
+  const result = await setLeadershipTaskComment(taskID, body, idempotencyKey);
   revalidatePath(PATHNAME);
   if (!result.ok) {
     redirect(
@@ -148,6 +266,146 @@ export async function setLeadershipTaskCommentAction(
     );
   }
   redirect(withFeedback(url, "success", "note_added"));
+}
+
+/** What `postLeadershipTaskCommentAction` hands back to the composer that called it. */
+export type CommentPostResult =
+  | {
+      ok: true;
+      /** The task's `row_version` AFTER the write -- the fence every later status/edit must send. */
+      rowVersion: number;
+      /** The task's activity and notes AFTER the write, newest first, as the backend composed them. */
+      activity: LeadershipTaskActivity[];
+      notes: Array<{
+        note_id: string;
+        author_name: string;
+        body: string;
+        created_at: string;
+        mentions?: Array<{ user_id: string; name: string }>;
+      }>;
+    }
+  | { ok: false; code: string };
+
+/**
+ * The comment write that RETURNS instead of redirecting -- the in-place composer's action.
+ *
+ * `setLeadershipTaskCommentAction` above ends in `redirect(...)`, which is a whole-document
+ * navigation: the CEO typed "@Manju let", pressed Send, and the page reloaded (scroll reset,
+ * drawer remounted, board re-fetched) with a green banner at the top-left instead of the comment
+ * appearing in the feed (2026-09-18). This action does the SAME write with the same validation
+ * and the same idempotency gate, and hands the composer the backend's own post-write `activity`
+ * and `notes` so the feed can reconcile its optimistic row with the real one -- id, actor,
+ * `occurred_label` -- without touching the route. It deliberately does NOT `revalidatePath`:
+ * that would make the response carry a fresh render of the whole /tasks tree (the board and
+ * every card) for a change that is one row of one task's feed, and the route is `force-dynamic`
+ * so the next real navigation reads fresh anyway. No redirect means no `task_status=success`
+ * banner either: the comment appearing in the feed IS the success.
+ *
+ * Without JavaScript the same form still posts here (Next runs the action and re-renders the
+ * page); the returned value is simply unused on that path.
+ */
+export async function postLeadershipTaskCommentAction(
+  formData: FormData,
+): Promise<CommentPostResult> {
+  const taskID = String(formData.get("task_id") ?? "").trim();
+  const comment = String(formData.get("comment") ?? "").trim();
+  const idempotencyKey = String(formData.get("idempotency_key") ?? "").trim();
+  const mentions = String(formData.get("mention_user_ids") ?? "")
+    .split(",")
+    .map((id) => id.trim())
+    .filter(Boolean)
+    .map((userID) => ({ user_id: userID }));
+
+  if (!taskID || !comment) return { ok: false, code: "missing_note" };
+  if (idempotencyKey.length < 8 || idempotencyKey.length > 200) {
+    return { ok: false, code: "invalid_idempotency_key" };
+  }
+  const body: { comment: string; mentions?: { user_id: string }[] } = mentions.length
+    ? { comment, mentions }
+    : { comment };
+  const result = await setLeadershipTaskComment(taskID, body, idempotencyKey);
+  if (!result.ok) {
+    return { ok: false, code: result.error.code ?? result.error.kind };
+  }
+  const task = result.data.task;
+  return {
+    ok: true,
+    activity: task.activity ?? [],
+    notes: task.notes ?? [],
+    // The note bumped the row's version; the status/edit fences must send THIS one next.
+    rowVersion: task.row_version,
+  };
+}
+
+/**
+ * The EDIT command — the one the web desk never had.
+ *
+ * POST /app/leadership-tasks/{task_id}/edit has existed all along with no web client, which is
+ * exactly what "task editing is not working" meant. The server owns every rule: raiser-only,
+ * open/in_progress only (409 `task_closed`), the `row_version` fence (409 `version_conflict`),
+ * and an ABSENT `deadline_at` keeps the stored deadline. So `deadline_at` is omitted from the
+ * body when the form leaves it blank rather than sent empty — sending "" would be a malformed
+ * instant, and sending the rendered value back would silently re-stamp a deadline nobody touched.
+ *
+ * `attachments` is a FULL replacement list (max 12): the form re-posts the refs the reader kept
+ * plus whatever they added, and anything they removed is simply absent.
+ */
+export async function editLeadershipTaskAction(
+  formData: FormData,
+): Promise<void> {
+  const url = redirectTarget(formData);
+  const taskID = String(formData.get("task_id") ?? "").trim();
+  const title = String(formData.get("title") ?? "").trim();
+  const body = String(formData.get("body") ?? "").trim();
+  const rowVersion = Number.parseInt(
+    String(formData.get("row_version") ?? ""),
+    10,
+  );
+  const idempotencyKey = String(formData.get("idempotency_key") ?? "").trim();
+  const deadlineRaw = farmDeadlineLocalFromForm(formData);
+  const deadlineAt = farmDeadlineToRFC3339(deadlineRaw);
+
+  if (!taskID || !title || !Number.isFinite(rowVersion)) {
+    redirect(withFeedback(url, "error", !title ? "missing_title" : "invalid_edit"));
+  }
+  if (deadlineRaw && !deadlineAt) {
+    redirect(withFeedback(url, "error", "invalid_deadline"));
+  }
+  if (idempotencyKey.length < 8 || idempotencyKey.length > 200) {
+    redirect(withFeedback(url, "error", "invalid_idempotency_key"));
+  }
+
+  const existingRefs = attachmentRefs(formData);
+  const files = attachmentFiles(formData);
+  if (existingRefs.length + files.length > 12) {
+    redirect(withFeedback(url, "error", "too_many_attachments"));
+  }
+
+  const uploads = await uploadedAttachmentRefs(files, idempotencyKey);
+  if (!uploads.ok) {
+    redirect(withFeedback(url, "error", uploads.error));
+  }
+
+  const result = await editLeadershipTask(
+    taskID,
+    {
+      title,
+      body,
+      row_version: rowVersion,
+      // Omitted, not blank: absence is the contract's "keep the stored deadline".
+      ...(deadlineAt ? { deadline_at: deadlineAt } : {}),
+      attachments: [...existingRefs, ...uploads.refs],
+    },
+    idempotencyKey,
+  );
+
+  revalidatePath(PATHNAME);
+  if (!result.ok) {
+    redirect(
+      withFeedback(url, "error", result.error.code ?? result.error.kind),
+    );
+  }
+  redirect(withFeedback(url, "success", "task_edited"));
 }
 
 async function uploadedAttachmentRefs(
@@ -214,3 +472,84 @@ function attachmentRefs(
   return refs;
 }
 
+
+/**
+ * The status change that RETURNS instead of redirecting -- the drawer's and the board's path.
+ *
+ * `changeLeadershipTaskStatusAction` above redirects and re-runs the route, which showed the
+ * route's loading skeleton and repainted the board for a one-field change (the flicker the CEO
+ * saw). This one validates and writes exactly the same way and hands back the task as the
+ * backend now has it, so the caller moves the card and the status pill in place. On a refusal
+ * it carries the same two facts the redirect used to put in the URL (the task's current status
+ * chip when it moved under the reader; the owner's name for a permission refusal), so the
+ * sentence is as specific as before. The redirecting action stays for the no-JS form.
+ */
+export type StatusChangeResult =
+  | { ok: true; task: LeadershipTaskDetail["task"] }
+  | { ok: false; code: string; statusNow?: string; who?: string };
+
+export async function changeLeadershipTaskStatusInPlaceAction(
+  formData: FormData,
+): Promise<StatusChangeResult> {
+  const taskID = String(formData.get("task_id") ?? "").trim();
+  const status = String(formData.get("status") ?? "").trim();
+  const rowVersion = Number.parseInt(String(formData.get("row_version") ?? ""), 10);
+  const idempotencyKey = String(formData.get("idempotency_key") ?? "").trim();
+  const fromStatus = String(formData.get("from_status") ?? "").trim();
+  if (!taskID || !status || !Number.isFinite(rowVersion)) {
+    return { ok: false, code: "invalid_status_change" };
+  }
+  if (idempotencyKey.length < 8 || idempotencyKey.length > 200) {
+    return { ok: false, code: "invalid_idempotency_key" };
+  }
+  const result = await changeLeadershipTaskStatus(
+    taskID,
+    { status, row_version: rowVersion },
+    idempotencyKey,
+  );
+  // No revalidatePath here: the list read is `no-store`, so the next server render is fresh by
+  // construction, and a revalidate inside a RETURNING action makes the router re-fetch the whole
+  // route right after -- the very repaint this action exists to avoid.
+  if (!result.ok) {
+    const code = result.error.code ?? result.error.kind;
+    const out: StatusChangeResult = { ok: false, code };
+    if (STATUS_REFUSALS_WORTH_A_REREAD.includes(code)) {
+      const fresh = await getLeadershipTask(taskID);
+      if (fresh.ok) {
+        const task = fresh.data.task;
+        if (task.status_chip && task.status !== fromStatus) out.statusNow = task.status_chip;
+        if (code === "not_assignee" && task.assignee_name) out.who = task.assignee_name;
+        if (code === "not_raiser" && task.raised_by_name) out.who = task.raised_by_name;
+      }
+    }
+    return out;
+  }
+  return { ok: true, task: result.data.task };
+}
+
+/**
+ * The drawer's own read: the task with its notes and activity, for a drawer opened from a list
+ * row (which carries no activity). One authenticated call; the page is not re-rendered.
+ */
+export async function loadLeadershipTaskAction(
+  taskID: string,
+): Promise<{ ok: true; task: LeadershipTaskDetail["task"] } | { ok: false; code: string }> {
+  if (!taskID || taskID.length > 64) return { ok: false, code: "invalid_task" };
+  const result = await getLeadershipTask(taskID);
+  if (!result.ok) return { ok: false, code: result.error.code ?? result.error.kind };
+  return { ok: true, task: result.data.task };
+}
+
+/**
+ * The drawer's "older" control: one more window of the feed, strictly before the cursor the
+ * previous window ended on. Same visibility as the detail read; never the whole history.
+ */
+export async function loadLeadershipTaskActivityAction(
+  taskID: string,
+  before: string,
+): Promise<{ ok: true; page: LeadershipTaskActivityPage } | { ok: false; code: string }> {
+  if (!taskID || taskID.length > 64 || !before || before.length > 200) return { ok: false, code: "invalid_cursor" };
+  const result = await getLeadershipTaskActivity(taskID, before);
+  if (!result.ok) return { ok: false, code: result.error.code ?? result.error.kind };
+  return { ok: true, page: result.data };
+}

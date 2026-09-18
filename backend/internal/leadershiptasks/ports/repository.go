@@ -40,7 +40,80 @@ type ListParams struct {
 	Statuses []string
 	Limit    int
 	Cursor   string
+
+	// Query is the trimmed free-text box: a case-insensitive substring of the title OR the
+	// body, served by the pg_trgm GIN indexes on both columns (migration 000345). When the
+	// same text is a bare integer the list ALSO matches task_no exactly, so typing "15" finds
+	// "#15" -- that is how a leader refers to a task out loud.
+	Query string
+	// QueryTaskNo is set by the app layer when Query parses as a bare positive integer. The
+	// repository binds it as the extra task_no arm of the search predicate; nil means the text
+	// is not a number and only title/body are searched.
+	QueryTaskNo *int64
+	// AssigneeUserID / RaisedBy narrow the list to one person. The app layer DROPS whichever
+	// one the active scope already pins (assigned_to_me pins the assignee, assigned_by_me pins
+	// the raiser), so the same filter never appears twice in one predicate. The scope-count
+	// query re-applies that rule per branch, so each tab's badge counts what that tab shows.
+	AssigneeUserID string
+	RaisedBy       string
+	// DeadlineFrom/DeadlineTo and RaisedFrom/RaisedTo are INCLUSIVE instants on both ends. Each
+	// pair is required together (verification/ports/ports.go:53-98 precedent): a half-open range
+	// would have to invent the missing end, and the two plausible inventions mean opposite
+	// things to a reader. A deadline range never matches a task with no deadline.
+	DeadlineFrom *time.Time
+	DeadlineTo   *time.Time
+	RaisedFrom   *time.Time
+	RaisedTo     *time.Time
+	// Sort is a CLOSED enum; the empty string means SortRaisedAtDesc.
+	Sort string
+	// OverdueBefore, when set, narrows the ROWS to tasks whose deadline_at is strictly before
+	// this instant (the service's farm clock at request time) -- the overdue lens. Statuses
+	// carries the two working statuses beside it, so the predicate is
+	// `status = ANY(open, in_progress) AND deadline_at < $now`, served by
+	// leadership_tasks_tenant_deadline_idx (000345). The status and scope counts do NOT apply
+	// it (they answer "how many in each bucket under the other filters"); the overdue chip's
+	// own count is Page.OverdueCount, computed against the same clock.
+	OverdueBefore *time.Time
+	// OverdueAt is the clock the overdue COUNT is measured against on every list read, whether
+	// or not the overdue lens is active, so the chip advertises the same number the lens lists.
+	OverdueAt time.Time
 }
+
+// The list's four sort orders. A cursor carries the name of the sort it was minted under, so
+// changing the sort mid-page is refused rather than served as a wrong page.
+const (
+	SortRaisedAtDesc = "raised_at_desc"
+	SortRaisedAtAsc  = "raised_at_asc"
+	SortDeadlineAsc  = "deadline_asc"
+	SortDeadlineDesc = "deadline_desc"
+)
+
+// SortKeys is the order the picker offers.
+var SortKeys = []string{SortRaisedAtDesc, SortRaisedAtAsc, SortDeadlineAsc, SortDeadlineDesc}
+
+// IsSortKey reports whether a requested sort is one of the four. Unknown values are an
+// explicit 400 (invalid_sort), never a silent fallback: a leader who asked for the deadline
+// order and silently got the raise order would read the wrong list as the truth.
+func IsSortKey(key string) bool {
+	switch key {
+	case SortRaisedAtDesc, SortRaisedAtAsc, SortDeadlineAsc, SortDeadlineDesc:
+		return true
+	}
+	return false
+}
+
+// SortOrDefault normalizes the empty string to the default sort. It does NOT normalize an
+// unknown value; callers validate with IsSortKey first.
+func SortOrDefault(key string) string {
+	if key == "" {
+		return SortRaisedAtDesc
+	}
+	return key
+}
+
+// MaxQueryLen bounds the free-text box. Longer text is a 400 (invalid_query), not a silent
+// truncation that would return rows the caller did not ask for.
+const MaxQueryLen = 120
 
 // Page is one page plus the whole-list counts the chips show.
 type Page struct {
@@ -50,9 +123,19 @@ type Page struct {
 	// tenant-wide), keyed by status.
 	StatusCounts map[string]int
 	ScopeCounts  map[string]int
+	// ScopeTotals is each tab's size with NO request filter applied -- the same party
+	// predicate as ScopeCounts, minus the search text, people and date spans. It is what the
+	// tab's label shows (Gate-1 #2: a search with no hits collapsed every tab to "(0)" and
+	// read as an empty desk on top of 408 tasks), and what "Clear the filters to see all N"
+	// names. ScopeCounts stays the filtered number the header and the empty state reconcile
+	// against; the two are equal when no filter is active.
+	ScopeTotals map[string]int
 	// UnseenCount is the number of tasks addressed to the caller they have not opened yet,
 	// excluding cancelled ones. The drawer badge shows the same number.
 	UnseenCount int
+	// OverdueCount is the whole-list number of open/in-progress tasks whose deadline is before
+	// ListParams.OverdueAt, under the same party and request filters as StatusCounts.
+	OverdueCount int
 }
 
 // RaiseParams raises a task.
@@ -79,8 +162,12 @@ type RaiseParams struct {
 
 // EditParams replaces the brief and the attachment list of an open task.
 type EditParams struct {
-	TenantID       string
-	ActorID        string
+	TenantID string
+	ActorID  string
+	// Actor carries the authorities the route table resolved (monitor in particular), so the
+	// repository can check domain.Task.CanEdit -- the same predicate the detail payload
+	// answers can_edit with. A zero Actor falls back to ActorID as a plain raiser.
+	Actor          domain.Actor
 	TaskID         string
 	Title          string
 	Body           string
@@ -103,20 +190,35 @@ type StatusParams struct {
 	IdempotencyKey string
 }
 
-// CommentParams sets the assignee's note on a task.
+// CommentParams appends one note to a task (and, for the assignee, overwrites the legacy
+// single-comment field).
 type CommentParams struct {
-	TenantID       string
-	Actor          domain.Actor
-	TaskID         string
-	Comment        string
+	TenantID string
+	Actor    domain.Actor
+	TaskID   string
+	Comment  string
+	// MentionUserIDs are the EXPLICIT mention targets the client sent alongside the text
+	// (domain/mentions.go). The app layer normalizes them; the repository re-validates every
+	// one under the task's row lock against domain.Task.CanRead before storing a row, so an id
+	// from a stale or hostile client can never reach someone who cannot see the task.
+	MentionUserIDs []string
 	IdempotencyKey string
 }
 
 // Repository persists tasks.
 type Repository interface {
 	ListAssignees(ctx context.Context, tenantID string) ([]Assignee, error)
+	// ListMentionableUsers answers the `@` autocomplete for ONE task: everyone who can already
+	// read that task. Not the same list as ListAssignees (see domain.MentionableUser).
+	ListMentionableUsers(ctx context.Context, tenantID, taskID string) ([]domain.MentionableUser, error)
 	ListTasks(ctx context.Context, p ListParams) (Page, error)
 	GetTask(ctx context.Context, tenantID, taskID string) (domain.Task, error)
+	// ActivityPage is one older window of a task's feed: the rows strictly before the cursor
+	// (ActivityNextBefore of the previous window), newest first, with the notes those rows name.
+	ActivityPage(ctx context.Context, tenantID, taskID, before string) (ActivityPage, error)
+	// PeekTask is the row plus its participants and nothing else -- enough for CanRead -- for
+	// a caller that must not pay for the detail enrichment (the activity page's visibility check).
+	PeekTask(ctx context.Context, tenantID, taskID string) (domain.Task, error)
 	Raise(ctx context.Context, p RaiseParams) (domain.Task, error)
 	Edit(ctx context.Context, p EditParams) (domain.Task, error)
 	ChangeStatus(ctx context.Context, p StatusParams) (domain.Task, error)
@@ -137,4 +239,13 @@ type AttachmentResolver interface {
 // has already proved the caller may see the task that carries it.
 type AttachmentDownloader interface {
 	DownloadArtifact(ctx context.Context, tenantID, proofID string) (proofdomain.Artifact, string, error)
+}
+
+// ActivityPage is one window of a task's history, newest first, plus the notes the window's
+// comment rows name (so a comment renders its text without a second read).
+type ActivityPage struct {
+	Activity   []domain.Event
+	Notes      []domain.Note
+	HasMore    bool
+	NextBefore string
 }

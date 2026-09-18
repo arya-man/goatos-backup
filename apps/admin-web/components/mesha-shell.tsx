@@ -7,7 +7,6 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   AlertTriangle,
   Banknote,
-  Bell,
   BarChart3,
   CalendarDays,
   Check,
@@ -36,6 +35,13 @@ import {
 } from "lucide-react";
 import { SignOutButton } from "@/components/auth/sign-out-button";
 import { CEOAIChat, type CEOAIChatCopy } from "@/components/ceo-ai-chat";
+// The bell directly, not the notifications barrel: the barrel statically re-exports the mention
+// composer, and the shell is on all 63 routes (Judge B).
+import { NotificationBell } from "@/features/notifications/notification-bell";
+import {
+  PushPermissionPromptLazy,
+  PushRegistrationSync,
+} from "@/components/push-permission-prompt-lazy";
 import { preloadFirebasePerformance, startFirebasePerformanceTrace } from "@/lib/firebase-performance";
 import { reportAdminPerformanceEvent } from "@/lib/performance-events";
 import { parkLabel, parseScope, scopeHref, type Park } from "@/lib/scope";
@@ -794,16 +800,28 @@ export function MeshaShell({
         >
           {isLight ? <Moon className="ic" /> : <Sun className="ic" />}
         </button>
-        <button
-          type="button"
-          className="iconbtn"
-          title={contract.top_bar.notifications.disabled_reason}
-          aria-label={contract.top_bar.notifications.disabled_reason}
-          disabled
-          style={{ opacity: 0.45, cursor: "not-allowed" }}
-        >
-          <Bell className="ic" />
-        </button>
+        {/* The in-app notification centre. The bell slot and its backend-owned label were already
+            here as a DISABLED button; the same slot, the same label key, now live. The component
+            owns its own popover, its own reads and its own failures: if the feed cannot be loaded
+            the bell stays quiet and every screen in the shell renders exactly as before. */}
+        {/* Browser (Chrome) web push rides the SAME bell rather than a second control: the
+            permission ask belongs where a person already goes to read their notifications, and it
+            is behind an explicit click inside the panel -- never a prompt on page load. */}
+        <NotificationBell
+          openLabel={
+            contract.top_bar.notifications.enabled
+              ? contract.top_bar.notifications.label
+              : contract.top_bar.notifications.disabled_reason
+          }
+          contractCopy={contract.copy}
+          permissionSlot={<PushPermissionPromptLazy contractCopy={contract.copy} />}
+        />
+        {/* Renders nothing. It keeps an ALREADY-granted browser's FCM token registered on mount,
+            which the push control used to do from its own mount effect -- now that the control is
+            fetched on the bell's first open, that silent half has to stay out here. It reads
+            `Notification.permission` and imports the push client only when it is "granted", so a
+            browser that never granted loads no firebase. See push-permission-prompt-lazy.tsx. */}
+        <PushRegistrationSync />
         <div className="userpick" data-menu-root>
           <button
             type="button"

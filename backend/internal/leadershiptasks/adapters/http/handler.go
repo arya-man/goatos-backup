@@ -26,8 +26,10 @@ import (
 // Service is the behaviour this transport depends on.
 type Service interface {
 	ListAssignees(ctx context.Context, tenantID string) ([]ports.Assignee, error)
-	ListTasks(ctx context.Context, tenantID, userID, scopeKey, filterKey string, limit int, cursor string, actor domain.Actor) (ports.Page, error)
+	ListMentionableUsers(ctx context.Context, tenantID string, actor domain.Actor, taskID string) ([]domain.MentionableUser, error)
+	ListTasks(ctx context.Context, req app.ListRequest) (ports.Page, error)
 	GetTask(ctx context.Context, tenantID string, actor domain.Actor, taskID string) (domain.Task, error)
+	ActivityPage(ctx context.Context, tenantID string, actor domain.Actor, taskID, before string) (ports.ActivityPage, error)
 	Raise(ctx context.Context, p ports.RaiseParams) (domain.Task, error)
 	Edit(ctx context.Context, p ports.EditParams) (domain.Task, error)
 	ChangeStatus(ctx context.Context, p ports.StatusParams) (domain.Task, error)
@@ -61,6 +63,8 @@ func Register(mux *http.ServeMux, h *Handler) {
 	mux.HandleFunc("GET /app/leadership-tasks", h.ListTasks)
 	mux.HandleFunc("GET /app/leadership-tasks/assignees", h.ListAssignees)
 	mux.HandleFunc("GET /app/leadership-tasks/{task_id}", h.GetTask)
+	mux.HandleFunc("GET /app/leadership-tasks/{task_id}/activity", h.GetTaskActivity)
+	mux.HandleFunc("GET /app/leadership-tasks/{task_id}/mentionable-users", h.ListMentionableUsers)
 	mux.HandleFunc("POST /app/leadership-tasks", h.Raise)
 	mux.HandleFunc("POST /app/leadership-tasks/{task_id}/edit", h.Edit)
 	mux.HandleFunc("POST /app/leadership-tasks/{task_id}/status", h.ChangeStatus)
@@ -75,6 +79,9 @@ const maxRequestBytes = 64 * 1024
 
 // ListTasks serves GET /app/leadership-tasks.
 func (h *Handler) ListTasks(w http.ResponseWriter, r *http.Request) {
+	// Unknown query params stay silently ignored on this READ path: the filter bar and the
+	// Android client evolve separately, and a stale extra param must not blank the list.
+	// (DisallowUnknownFields is for the write bodies only.)
 	q := r.URL.Query()
 	filterKey := domain.FilterKeyOrDefault(q.Get("filter"))
 	limit := 0
@@ -88,7 +95,23 @@ func (h *Handler) ListTasks(w http.ResponseWriter, r *http.Request) {
 	}
 	actor := actorFrom(r)
 	scopeKey := domain.ScopeKeyOrDefault(q.Get("scope"), actor)
-	page, err := h.service.ListTasks(r.Context(), tenantID(r), actor.UserID, scopeKey, filterKey, limit, q.Get("cursor"), actor)
+	page, err := h.service.ListTasks(r.Context(), app.ListRequest{
+		TenantID:       tenantID(r),
+		UserID:         actor.UserID,
+		ScopeKey:       scopeKey,
+		FilterKey:      filterKey,
+		Limit:          limit,
+		Cursor:         q.Get("cursor"),
+		Query:          q.Get("q"),
+		AssigneeUserID: q.Get("assignee_user_id"),
+		RaisedBy:       q.Get("raised_by"),
+		DeadlineFrom:   q.Get("deadline_from"),
+		DeadlineTo:     q.Get("deadline_to"),
+		RaisedFrom:     q.Get("raised_from"),
+		RaisedTo:       q.Get("raised_to"),
+		Sort:           q.Get("sort"),
+		Actor:          actor,
+	})
 	if err != nil {
 		h.writeCause(w, r, err)
 		return
@@ -129,6 +152,27 @@ func (h *Handler) ListAssignees(w http.ResponseWriter, r *http.Request) {
 	httpresponse.WriteJSON(w, http.StatusOK, assigneesPayload{Assignees: out, TraceID: traceID(r)})
 }
 
+// ListMentionableUsers serves GET /app/leadership-tasks/{task_id}/mentionable-users -- the `@`
+// autocomplete for ONE task.
+//
+// It is deliberately NOT /app/leadership-tasks/assignees: that picker is narrowed to people a
+// task may be raised FOR, whereas this list answers who may be NAMED in a note on this task.
+// The caller must be able to read the task itself, so the list cannot be used to enumerate the
+// leadership roster from a task nobody showed them.
+func (h *Handler) ListMentionableUsers(w http.ResponseWriter, r *http.Request) {
+	actor := actorFrom(r)
+	users, err := h.service.ListMentionableUsers(r.Context(), tenantID(r), actor, r.PathValue("task_id"))
+	if err != nil {
+		h.writeCause(w, r, err)
+		return
+	}
+	out := make([]mentionableUserPayload, 0, len(users))
+	for _, u := range users {
+		out = append(out, mentionableUserPayload{UserID: u.UserID, Name: u.Name, Title: u.Title, Relation: u.Relation})
+	}
+	httpresponse.WriteJSON(w, http.StatusOK, mentionableUsersPayload{Users: out, TraceID: traceID(r)})
+}
+
 // GetTask serves GET /app/leadership-tasks/{task_id}.
 func (h *Handler) GetTask(w http.ResponseWriter, r *http.Request) {
 	actor := actorFrom(r)
@@ -138,6 +182,28 @@ func (h *Handler) GetTask(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	httpresponse.WriteJSON(w, http.StatusOK, taskDetailPayload{Task: toTaskPayload(task, actor, h.service.Now()), TraceID: traceID(r)})
+}
+
+// GetTaskActivity serves GET /app/leadership-tasks/{task_id}/activity?before= -- one older
+// window of the feed, for the drawer's "older" control.
+func (h *Handler) GetTaskActivity(w http.ResponseWriter, r *http.Request) {
+	actor := actorFrom(r)
+	page, err := h.service.ActivityPage(r.Context(), tenantID(r), actor, r.PathValue("task_id"), r.URL.Query().Get("before"))
+	if errors.Is(err, ports.ErrInvalidArgument) {
+		h.writeErr(w, r, app.BadRequest("invalid_cursor", "That activity cursor is not valid."))
+		return
+	}
+	if err != nil {
+		h.writeCause(w, r, err)
+		return
+	}
+	httpresponse.WriteJSON(w, http.StatusOK, activityPagePayload{
+		Activity:   activityPayloads(page.Activity),
+		Notes:      notePayloads(page.Notes),
+		HasMore:    page.HasMore,
+		NextBefore: page.NextBefore,
+		TraceID:    traceID(r),
+	})
 }
 
 // Raise serves POST /app/leadership-tasks.
@@ -193,6 +259,7 @@ func (h *Handler) Edit(w http.ResponseWriter, r *http.Request) {
 	task, err := h.service.Edit(r.Context(), ports.EditParams{
 		TenantID:       tenantID(r),
 		ActorID:        actor.UserID,
+		Actor:          actor,
 		TaskID:         r.PathValue("task_id"),
 		Title:          body.Title,
 		Body:           body.Body,
@@ -250,6 +317,7 @@ func (h *Handler) SetComment(w http.ResponseWriter, r *http.Request) {
 		Actor:          actor,
 		TaskID:         r.PathValue("task_id"),
 		Comment:        body.Comment,
+		MentionUserIDs: toMentionUserIDs(body.Mentions),
 		IdempotencyKey: key,
 	})
 	if err != nil {
@@ -435,26 +503,32 @@ func traceID(r *http.Request) string {
 
 // actorFrom resolves who is asking and the two authorities the payload must answer for:
 // raise (the "+" and edit/cancel controls), act (the status buttons), and monitor
-// (the CEO/COO Team progress scope). Derived from the SAME grants the route table
-// authorized against, never from a role string the client sends.
+// (the CEO/COO Team progress scope -- the EXPLICIT leadership_tasks.monitor permission, never
+// inferred from the other two). Derived from the SAME grants the route table authorized
+// against, never from a role string the client sends.
 func actorFrom(r *http.Request) domain.Actor {
 	actor := domain.Actor{UserID: strings.TrimSpace(httpmiddleware.ActorIDFromContext(r.Context()))}
 	if held, ok := httpmiddleware.PersonPermissionsFromContext(r.Context()); ok {
-		canExecutePenVisits := false
 		for _, perm := range held {
 			switch perm {
 			case permissions.LeadershipTasksRaise:
 				actor.CanRaise = true
 			case permissions.LeadershipTasksAct:
 				actor.CanAct = true
-			case permissions.PenVisitsExecute:
-				canExecutePenVisits = true
+			case permissions.LeadershipTasksMonitor:
+				actor.CanMonitor = true
 			}
 		}
-		actor.CanMonitor = actor.CanRaise && actor.CanAct && !canExecutePenVisits
+		if actor.CanRaise {
+			for _, grant := range httpmiddleware.AuthGrantsFromContext(r.Context()) {
+				if permissions.RoleHasPermission(grant.Role, permissions.LeadershipTasksRaise) {
+					actor.RaiseDesignation = grant.Role
+					break
+				}
+			}
+		}
 		return actor
 	}
-	canExecutePenVisits := false
 	for _, grant := range httpmiddleware.AuthGrantsFromContext(r.Context()) {
 		if permissions.RoleHasPermission(grant.Role, permissions.LeadershipTasksRaise) {
 			actor.CanRaise = true
@@ -465,10 +539,9 @@ func actorFrom(r *http.Request) domain.Actor {
 		if permissions.RoleHasPermission(grant.Role, permissions.LeadershipTasksAct) {
 			actor.CanAct = true
 		}
-		if permissions.RoleHasPermission(grant.Role, permissions.PenVisitsExecute) {
-			canExecutePenVisits = true
+		if permissions.RoleHasPermission(grant.Role, permissions.LeadershipTasksMonitor) {
+			actor.CanMonitor = true
 		}
 	}
-	actor.CanMonitor = actor.CanRaise && actor.CanAct && !canExecutePenVisits
 	return actor
 }

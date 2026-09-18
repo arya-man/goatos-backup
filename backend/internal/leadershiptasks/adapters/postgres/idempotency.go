@@ -53,7 +53,7 @@ func reserveIdempotency(ctx context.Context, tx pgx.Tx, tenantID, scope, key, fi
 	return idemReservation{proceed: false, resultType: resultType, resultID: resultID}, nil
 }
 
-func completeIdempotency(ctx context.Context, tx pgx.Tx, tenantID, scope, key, resultType, resultID string) error {
+func completeIdempotency(ctx context.Context, tx execer, tenantID, scope, key, resultType, resultID string) error {
 	scoped := idemScopedKey(tenantID, scope, key)
 	_, err := tx.Exec(ctx, sqlIdempotency3, scoped, resultType, resultID)
 	return err
