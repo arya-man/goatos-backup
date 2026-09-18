@@ -840,12 +840,17 @@ func (r *Repository) Edit(ctx context.Context, p ports.EditParams) (domain.Task,
 	if err != nil {
 		return domain.Task{}, err
 	}
-	actor := domain.Actor{UserID: p.ActorID, CanRaise: true}
-	if !before.IsRaiser(actor) {
-		return domain.Task{}, domain.ErrNotRaiser
+	actor := p.Actor
+	if actor.UserID == "" {
+		actor = domain.Actor{UserID: p.ActorID, CanRaise: true}
 	}
-	if !domain.IsOpenForWork(before.Status) {
-		return domain.Task{}, domain.ErrTaskClosed
+	// ONE rule, domain.Task.CanEdit -- the predicate the detail payload's can_edit answers
+	// with -- so the Edit button and this refusal can never disagree.
+	if !before.CanEdit(actor) {
+		if !domain.IsOpenForWork(before.Status) {
+			return domain.Task{}, domain.ErrTaskClosed
+		}
+		return domain.Task{}, domain.ErrNotRaiser
 	}
 	if before.RowVersion != p.RowVersion {
 		return domain.Task{}, ports.ErrVersionConflict

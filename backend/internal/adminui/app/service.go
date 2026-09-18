@@ -2111,9 +2111,17 @@ func pageSpecificCopy(id string) map[string]string {
 			"board.focused_note": "This board is showing one status only, so you can page through all of it.",
 			"board.all_statuses": "Back to all statuses",
 			// The person filter is one searchable control now (it was a `<select>` that could
-			// not be typed into, plus a board avatar group whose overflow chip was dead).
+			// not be typed into, plus a board avatar group whose overflow chip was dead). The
+			// same control is the New task modal's "For" field. The `deadline.*` keys below
+			// are that modal's deadline: the console's own calendar (a day) plus hour and
+			// minute selects on the farm clock -- a native datetime picker drew Chrome's own
+			// popover over the modal's buttons. "{date}" is the earliest day allowed.
 			"filter.people_search":     "Type a name",
 			"filter.people_no_matches": "Nobody by that name.",
+			// The muted line under the title when the viewer may not edit this task (the
+			// status pill is then a plain badge, not a control). Leadership monitors edit
+			// anything since 2026-09-18, so this reads for a non-party without that authority.
+			"detail.read_only": "Only the person who raised this task can edit it.",
 			// An unprefixed parameter this page does not read. `?view=list` looks like it
 			// selects a view and does not: `view` belongs to /vaccination, the calendar and
 			// procurement, so Tasks cannot honour it without re-creating the collision its

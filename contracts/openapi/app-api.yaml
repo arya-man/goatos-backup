@@ -9684,9 +9684,11 @@ paths:
       tags:
         - Leadership Tasks
       operationId: editLeadershipTask
-      summary: Replace the brief and attachment list of a task the caller raised.
+      summary: Replace the brief and attachment list of a task the caller raised or monitors.
       description: >-
-        Raiser only, and only while the task is open or in progress (409 task_closed otherwise).
+        The raiser, or a leadership monitor (the CEO/COO-style authority behind Team progress;
+        leadership edits anything since 2026-09-18), and only while the task is open or in
+        progress (409 task_closed otherwise; 403 not_raiser for anyone else).
         `attachments` is the FULL new list: the server keeps exactly that, removing rows it no
         longer names and adding new ones. `row_version` fences the write (409 version_conflict).
         The `Idempotency-Key` header is REQUIRED.
@@ -9735,7 +9737,8 @@ paths:
       description: >-
         The accepted moves are exactly the task's `status_options` for THIS caller: the assignee
         walks open -> in_progress -> done (and may reopen a done task); the raiser may only cancel,
-        and only while the task is open for work. Anything else answers 422
+        and only while the task is open for work; a leadership monitor gets the assignee's ladder
+        plus the raiser's cancel. Anything else answers 422
         invalid_status_transition, 403 not_assignee / not_raiser, or 409 task_closed.
         `row_version` fences the write; the `Idempotency-Key` header is REQUIRED. A move to done
         pushes `leadership_task.status_changed` back to the raiser.
@@ -9782,9 +9785,9 @@ paths:
       operationId: setLeadershipTaskComment
       summary: Add a two-way note to a task.
       description: >-
-        Appends a chronological task note while the task is not cancelled. The assignee and raiser
-        can both write; the compatibility `comment` field is also refreshed for older clients when
-        the assignee writes. The `Idempotency-Key` header is REQUIRED.
+        Appends a chronological task note while the task is not cancelled. The assignee, the raiser
+        and a leadership monitor can all write; the compatibility `comment` field is also refreshed
+        for older clients when the assignee writes. The `Idempotency-Key` header is REQUIRED.
       parameters:
         - name: task_id
           in: path
@@ -20943,7 +20946,7 @@ components:
         can_comment: { type: boolean }
         status_options:
           type: array
-          description: The statuses THIS caller may move the task to, in display order; empty when read-only.
+          description: The statuses THIS caller may move the task to, in display order; empty when read-only (a screen then shows the status as a plain badge, not a control).
           items:
             $ref: "#/components/schemas/LeadershipTaskStatusOption"
         attachment_count: { type: integer }
