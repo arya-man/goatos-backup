@@ -3,9 +3,9 @@
 import { FileText, Image, Mic, Plus, X } from "lucide-react";
 import { useCallback, useEffect, useId, useRef, useState } from "react";
 
+import { AssigneePicker } from "@/components/assignee-picker";
 import { copy, type AdminUiPageContract } from "@/lib/admin-ui-contract";
 import type { LeadershipTaskAssignee } from "@/lib/api/server";
-import { TaskPersonPicker } from "./task-people-filter";
 import { TaskDeadlineFields } from "./task-write-forms";
 import { useDialogShell } from "./use-dialog-shell";
 
@@ -16,8 +16,8 @@ import { useDialogShell } from "./use-dialog-shell";
  * client-local state -- no navigation, no document request, Escape / scrim / X close it and
  * focus returns to the button.
  *
- * "For" is the SAME name-search combobox as the bar's person filter (`TaskPersonPicker`), not a
- * native `<select>`. The select listed JOB TITLES ONLY -- "CEO / CXO" twice, two people
+ * "For" is the Work Board's assignee picker in its form mode (`components/assignee-picker.tsx`,
+ * `mode="single"`), not a native `<select>`. The select listed JOB TITLES ONLY -- "CEO / CXO" twice, two people
  * indistinguishable -- which is the dead `+5` chip in another costume: a CXO could not pick a
  * person by name. Every row now reads "Name — Title", typing matches either, and the hidden
  * `assignee_user_id` the Server Action reads is still posted, so the no-JS path is unchanged.
@@ -45,7 +45,7 @@ export function NewTaskModal({
   const [picked, setPicked] = useState<Record<string, number>>({});
   const chosen = assignees.find((a) => a.user_id === assigneeId);
   const openerRef = useRef<HTMLButtonElement>(null);
-  const firstFieldRef = useRef<HTMLButtonElement>(null);
+  const forRef = useRef<HTMLDivElement>(null);
   const dialogRef = useRef<HTMLDivElement>(null);
   const headingId = useId();
   const assigneeErrorId = useId();
@@ -72,7 +72,7 @@ export function NewTaskModal({
 
   useEffect(() => {
     if (!open) return;
-    firstFieldRef.current?.focus();
+    forRef.current?.querySelector<HTMLElement>("[aria-expanded]")?.focus();
   }, [open]);
 
   const pickers: Array<{
@@ -147,36 +147,33 @@ export function NewTaskModal({
                 if (!assigneeId) {
                   event.preventDefault();
                   setAssigneeMissing(true);
-                  firstFieldRef.current?.focus();
+                  forRef.current?.querySelector<HTMLElement>("[aria-expanded]")?.focus();
                 }
               }}
             >
               <input type="hidden" name="idempotency_key" value={idempotencyKey} />
               <input type="hidden" name="return_to" value={returnTo} />
-              <div className="fld lt-for">
+              <div className="fld lt-for" ref={forRef}>
                 <span className="lt-fld-label">For</span>
-                <TaskPersonPicker
-                  param="assignee_user_id"
+                <AssigneePicker
+                  mode="single"
                   name="assignee_user_id"
-                  value={assigneeId}
-                  options={assignees.map((assignee) => ({
-                    value: assignee.user_id,
-                    label: assignee.name,
+                  labels={{
+                    label: "For",
+                    placeholder: "Choose who this is for",
+                    search: text("filter.people_search", "Type a name"),
+                    none: text("filter.people_no_matches", "Nobody by that name."),
+                  }}
+                  owners={assignees.map((assignee) => ({
+                    id: assignee.user_id,
+                    name: assignee.name,
                     title: assignee.title,
                   }))}
-                  copy={{
-                    label: "For",
-                    allLabel: "Choose who this is for",
-                    searchLabel: text("filter.people_search", "Type a name"),
-                    noMatchesLabel: text("filter.people_no_matches", "Nobody by that name."),
-                  }}
-                  onPick={(next) => {
-                    setAssigneeId(next);
+                  selected={assigneeId || undefined}
+                  onSelect={(next) => {
+                    setAssigneeId(next ?? "");
                     if (next) setAssigneeMissing(false);
                   }}
-                  resultLimit={Math.max(assignees.length, 1)}
-                  rowLayout="inline"
-                  triggerRef={firstFieldRef}
                   invalid={assigneeMissing}
                   describedBy={assigneeMissing ? assigneeErrorId : undefined}
                 />

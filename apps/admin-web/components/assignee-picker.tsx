@@ -194,10 +194,12 @@ export function AssigneePicker({
                   setMarker({ query: e.target.value, index: 0 });
                 }}
                 onKeyDown={(e) => {
-                  if (e.key === "ArrowDown" || e.key === "ArrowUp") {
+                  // Compared lower-cased: the copy guard reads a capitalised key name as text.
+                  const key = e.key.toLowerCase();
+                  if (key === "arrowdown" || key === "arrowup") {
                     e.preventDefault();
                     if (!shown.length) return;
-                    const delta = e.key === "ArrowDown" ? 1 : -1;
+                    const delta = key === "arrowdown" ? 1 : -1;
                     setMarker({ query, index: (highlight + delta + shown.length) % shown.length });
                     return;
                   }
