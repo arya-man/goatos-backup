@@ -108,6 +108,7 @@ function BreakdownCard({
           <thead>
             <tr>
               <th />
+              <th className="num">{copy(pageContract, "column.on_farm")}</th>
               <th className="num">{copy(pageContract, "column.sold")}</th>
               <th className="num">{copy(pageContract, "column.share_pct")}</th>
               <th className="num">{copy(pageContract, "column.revenue")}</th>
@@ -116,7 +117,7 @@ function BreakdownCard({
           <tbody>
             {rows.length === 0 ? (
               <tr>
-                <td colSpan={4}>
+                <td colSpan={5}>
                   <div className="empty">{copy(pageContract, "empty.breakdown")}</div>
                 </td>
               </tr>
@@ -127,6 +128,7 @@ function BreakdownCard({
                     <b>{row.label}</b>
                     {row.detail ? <div className="muted small">{row.detail}</div> : null}
                   </td>
+                  <td className="num">{num(row.on_farm)}</td>
                   <td className="num">
                     <b>{num(row.sold)}</b>
                   </td>
@@ -189,10 +191,12 @@ function FarmBornSections({
 
   return (
     <>
-      {/* No "on the farm now" tile (maintainer instruction 2026-09-19): the register's origin
-          field is under-filled -- 264 of this year's kids carry no origin -- so a live farm-born
-          count would be wrong for as long as that stays true. The page reports SALES. */}
-      <section className="grid g3 kpi-row sales-kpi-row" aria-label={copy(pageContract, "section.headline.aria")}>
+      <section className="grid g4 kpi-row sales-kpi-row" aria-label={copy(pageContract, "section.headline.aria")}>
+        <div className="kpi">
+          <div className="lab">{copy(pageContract, "kpi.on_farm")}</div>
+          <div className="val">{num(s.on_farm)}</div>
+          <div className="dl">{copy(pageContract, "kpi.on_farm.detail")}</div>
+        </div>
         <div className="kpi">
           <div className="lab">{copy(pageContract, "kpi.sold")}</div>
           <div className="val">{num(s.sold)}</div>
@@ -301,8 +305,8 @@ function FarmBornSections({
 }
 
 /**
- * Farm born (maintainer request 2026-09-18): the animals the farm did NOT buy on a load -- the
- * counterpart of Load wise. How many are on the farm today, how many sold in the chosen period,
+ * Farm born (maintainer request 2026-09-18): every animal the farm did NOT buy on a load,
+ * whatever the register's origin field says -- the counterpart of Load wise. How many are on the farm today, how many sold in the chosen period,
  * which breed / sex / stage / pen the sold ones came from, and what they earned, behind a filter
  * bar (period, park, pen, species, breed, sex, stage) that governs the whole page.
  *
@@ -325,9 +329,7 @@ export async function SalesFarmBornPage({
   // Every filter value is validated against the SERVED vocabulary before it is trusted: sex and
   // species against the contract's option groups here, the park / pen / breed / stage against the
   // payload's own options once it arrives (an unknown value simply matches nothing, which the
-  // backend reports honestly as zero rows). The page reads ONE origin -- animals recorded as born
-  // here (maintainer instruction 2026-09-18: no origin control) -- so the backend's default
-  // applies and no URL parameter can widen it.
+  // backend reports honestly as zero rows).
   const sexOptions = optionGroup(pageContract, "farm_born_sexes");
   const rawSex = one(sp, "sex") ?? "";
   const sex = sexOptions.some((option) => option.key === rawSex) ? rawSex : "";

@@ -29,15 +29,15 @@ func TestBuildFarmBornSalesBreakdownsSumToTheHeadline(t *testing.T) {
 		// Sold without a deal: counted, unpriced.
 		fbFact("6", FarmBornSold, "Boer", "goat", "female", "F2-Female", "s2", "Yashoda", "", "p2", "2026-09-01", nil),
 	}
-	filter := FarmBornFilter{From: "2026-08-18", To: "2026-09-18", Origin: FarmBornOriginBirth}
+	filter := FarmBornFilter{From: "2026-08-18", To: "2026-09-18"}
 	out := BuildFarmBornSales(facts, filter, 25, 0)
 
 	s := out.Summary
 	if s.OnFarm != 3 || s.Sold != 3 || s.SoldPriced != 2 || s.Revenue != 20000 || s.AvgPrice != 10000 {
 		t.Fatalf("summary = %+v", s)
 	}
-	if s.From != filter.From || s.To != filter.To || s.Origin != FarmBornOriginBirth {
-		t.Fatalf("summary window/origin = %+v", s)
+	if s.From != filter.From || s.To != filter.To {
+		t.Fatalf("summary window = %+v", s)
 	}
 	for name, buckets := range map[string][]FarmBornBucket{"breed": out.ByBreed, "sex": out.BySex, "stage": out.ByStage, "pen": out.ByPen} {
 		onFarm, sold, priced, revenue := 0, 0, 0, 0.0
@@ -146,17 +146,5 @@ func TestDefaultFarmBornWindowIsTheLastMonth(t *testing.T) {
 	if from != "2026-03-03" || to != "2026-03-31" {
 		// Go's AddDate normalises 31 Feb forward, which is the accepted reading.
 		t.Fatalf("window = %s..%s", from, to)
-	}
-}
-
-func TestNormalizeFarmBornOrigin(t *testing.T) {
-	if got, ok := NormalizeFarmBornOrigin(""); !ok || got != FarmBornOriginBirth {
-		t.Fatalf("blank = %q/%v", got, ok)
-	}
-	if got, ok := NormalizeFarmBornOrigin(" not_recorded "); !ok || got != FarmBornOriginNotRecorded {
-		t.Fatalf("not_recorded = %q/%v", got, ok)
-	}
-	if _, ok := NormalizeFarmBornOrigin("purchased"); ok {
-		t.Fatal("purchased must be refused: that half of the herd is Load wise")
 	}
 }
