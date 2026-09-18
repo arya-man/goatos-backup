@@ -3542,8 +3542,6 @@ select:disabled { opacity: .45; }
 .lt-page .lt-fsheet-host .lt-fsel,
 .lt-page .lt-fsheet-host .lt-fdrop>button,
 .lt-page .lt-fsheet-host .btn.lt-fmore{box-sizing:border-box;height:var(--lt-ctl);min-height:var(--lt-ctl);border-radius:8px;border:1px solid var(--line);background:var(--bg);padding-top:0;padding-bottom:0;font-size:12.5px}
-/* The person-picker slots: containers the bar owns so a different picker can drop in. */
-.lt-page .lt-fsheet-host .lt-fslot{display:contents}
 .lt-page .lt-fsheet-host .lt-fkey{color:var(--muted);font-weight:650;white-space:nowrap}
 .lt-page .lt-fsheet-host .lt-fkey::after{content:"\00b7";margin-left:6px;color:var(--faint)}
 .lt-page .lt-fsheet-host .lt-fsel select,
@@ -5687,9 +5685,6 @@ input[type=date],input[type=datetime-local],input[type=time],input[type=month],i
 .lt-page .ltb-colcount{margin-left:auto;flex:none;min-width:22px;padding:1px 7px;border-radius:999px;background:color-mix(in srgb,var(--ink) 9%,transparent);color:var(--ink);font-size:11.5px;font-weight:800;text-align:center;font-variant-numeric:tabular-nums}
 /* The honest second number: how much of that total is on THIS page of the list. */
 .lt-page .ltb-colmeta{display:flex;align-items:center;gap:8px;padding:0 3px;color:var(--faint);font-size:10.5px;font-weight:650;min-height:18px}
-.lt-page .ltb-colmore{margin-left:auto;color:var(--brand-d);font-weight:750;text-decoration:none;white-space:nowrap}
-.lt-page .ltb-colmore:hover{text-decoration:underline}
-.lt-page .ltb-colmore:focus-visible{outline:2px solid var(--brand);outline-offset:2px;border-radius:5px}
 
 .lt-page .ltb-colbd{display:flex;flex-direction:column;gap:9px;min-width:0;max-height:60vh;max-height:60dvh;overflow-y:auto;overscroll-behavior-y:contain;padding:1px 2px 2px;margin:0 -2px}
 .lt-page .ltb-colempty{margin:0;padding:14px 8px;color:var(--faint);font-size:11.5px;line-height:1.5;text-align:center;border:1px dashed var(--line);border-radius:10px}
@@ -5744,7 +5739,6 @@ input[type=date],input[type=datetime-local],input[type=time],input[type=month],i
   .lt-page .ltb-card{min-height:56px;padding:11px 12px}
   .lt-page .ltb-card-title{font-size:13.5px}
   .lt-page .ltb-card-titletx{-webkit-line-clamp:2}
-  .lt-page .ltb-colmore{display:inline-flex;align-items:center;min-height:40px;padding:0 4px}
   .lt-page .ltb-colmeta{min-height:40px}
   .lt-page .ltb-focusback{display:inline-flex;align-items:center;min-height:40px}
   .lt-page .lt-scopebar{flex-wrap:wrap}

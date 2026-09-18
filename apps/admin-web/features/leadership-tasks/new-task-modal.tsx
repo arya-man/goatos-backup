@@ -1,9 +1,12 @@
 "use client";
 
-import { CalendarClock, FileText, Image, Mic, Plus, X } from "lucide-react";
+import { FileText, Image, Mic, Plus, X } from "lucide-react";
 import { useCallback, useEffect, useId, useRef, useState } from "react";
 
+import { copy, type AdminUiPageContract } from "@/lib/admin-ui-contract";
 import type { LeadershipTaskAssignee } from "@/lib/api/server";
+import { TaskPersonPicker } from "./task-people-filter";
+import { TaskDeadlineFields } from "./task-write-forms";
 import { useDialogShell } from "./use-dialog-shell";
 
 /**
@@ -12,34 +15,48 @@ import { useDialogShell } from "./use-dialog-shell";
  * as a modal from the button rather than sitting beside the list, and the modal is
  * client-local state -- no navigation, no document request, Escape / scrim / X close it and
  * focus returns to the button.
+ *
+ * "For" is the SAME name-search combobox as the bar's person filter (`TaskPersonPicker`), not a
+ * native `<select>`. The select listed JOB TITLES ONLY -- "CEO / CXO" twice, two people
+ * indistinguishable -- which is the dead `+5` chip in another costume: a CXO could not pick a
+ * person by name. Every row now reads "Name — Title", typing matches either, and the hidden
+ * `assignee_user_id` the Server Action reads is still posted, so the no-JS path is unchanged.
+ * The required check moved with it: a hidden input cannot be `required`, so the form refuses a
+ * submit with nobody chosen and says so beside the field with the backend's own sentence.
  */
 export function NewTaskModal({
   assignees,
   action,
   returnTo,
+  pageContract,
 }: {
   assignees: LeadershipTaskAssignee[];
   action: (formData: FormData) => void | Promise<void>;
   returnTo: string;
+  /** The page's copy; when the host wires it, every string here is the backend's. */
+  pageContract?: AdminUiPageContract;
 }) {
   const [open, setOpen] = useState(false);
   const [idempotencyKey, setIdempotencyKey] = useState("");
   const [title, setTitle] = useState("");
   const [assigneeId, setAssigneeId] = useState("");
-  const [deadline, setDeadline] = useState("");
+  const [assigneeMissing, setAssigneeMissing] = useState(false);
   const [deadlineMin, setDeadlineMin] = useState("");
   const [picked, setPicked] = useState<Record<string, number>>({});
   const chosen = assignees.find((a) => a.user_id === assigneeId);
   const openerRef = useRef<HTMLButtonElement>(null);
-  const firstFieldRef = useRef<HTMLSelectElement>(null);
+  const firstFieldRef = useRef<HTMLButtonElement>(null);
   const dialogRef = useRef<HTMLDivElement>(null);
   const headingId = useId();
+  const assigneeErrorId = useId();
+  const text = (key: string, fallback: string) =>
+    pageContract ? copy(pageContract, key, fallback) : fallback;
 
   const openModal = useCallback(() => {
     setIdempotencyKey(`admin-web-leadership-task:${crypto.randomUUID()}`);
     setTitle("");
     setAssigneeId("");
-    setDeadline("");
+    setAssigneeMissing(false);
     setDeadlineMin(farmClockNow());
     setPicked({});
     setOpen(true);
@@ -64,9 +81,19 @@ export function NewTaskModal({
     accept: string;
     icon: typeof Mic;
   }> = [
-    { key: "voice", label: "Voice note", accept: "audio/*", icon: Mic },
-    { key: "media", label: "Photo or video", accept: "image/*,video/*", icon: Image },
-    { key: "file", label: "File", accept: ".pdf,.doc,.docx,.xls,.xlsx,.csv,.txt", icon: FileText },
+    { key: "voice", label: text("picker.voice", "Voice note"), accept: "audio/*", icon: Mic },
+    {
+      key: "media",
+      label: text("picker.media", "Photo or video"),
+      accept: "image/*,video/*",
+      icon: Image,
+    },
+    {
+      key: "file",
+      label: text("picker.file", "File"),
+      accept: ".pdf,.doc,.docx,.xls,.xlsx,.csv,.txt",
+      icon: FileText,
+    },
   ];
 
   return (
@@ -111,36 +138,59 @@ export function NewTaskModal({
                 <X className="ic" aria-hidden="true" />
               </button>
             </div>
-            <form action={action} className="lt-modal-bd">
+            <form
+              action={action}
+              className="lt-modal-bd"
+              onSubmit={(event) => {
+                // The person is the one required field the browser cannot check itself (a hidden
+                // input is never validated), so the form checks it and says so in place.
+                if (!assigneeId) {
+                  event.preventDefault();
+                  setAssigneeMissing(true);
+                  firstFieldRef.current?.focus();
+                }
+              }}
+            >
               <input type="hidden" name="idempotency_key" value={idempotencyKey} />
               <input type="hidden" name="return_to" value={returnTo} />
-              <label className="fld">
-                <span>For</span>
-                {/* The picker lists people by what they ARE -- the title from People / HRMS
-                    (maintainer request 2026-09-11); the person is revealed beneath once chosen.
-                    Two people with one title stay distinct because each option is one person. */}
-                <select
-                  ref={firstFieldRef}
+              <div className="fld lt-for">
+                <span className="lt-fld-label">For</span>
+                <TaskPersonPicker
+                  param="assignee_user_id"
                   name="assignee_user_id"
-                  required
                   value={assigneeId}
-                  onChange={(event) => setAssigneeId(event.target.value)}
-                >
-                  <option value="" disabled>
-                    Choose who this is for
-                  </option>
-                  {assignees.map((assignee) => (
-                    <option key={assignee.user_id} value={assignee.user_id}>
-                      {assignee.title || assignee.name}
-                    </option>
-                  ))}
-                </select>
-                {chosen ? (
+                  options={assignees.map((assignee) => ({
+                    value: assignee.user_id,
+                    label: assignee.name,
+                    title: assignee.title,
+                  }))}
+                  copy={{
+                    label: "For",
+                    allLabel: "Choose who this is for",
+                    searchLabel: text("filter.people_search", "Type a name"),
+                    noMatchesLabel: text("filter.people_no_matches", "Nobody by that name."),
+                  }}
+                  onPick={(next) => {
+                    setAssigneeId(next);
+                    if (next) setAssigneeMissing(false);
+                  }}
+                  resultLimit={Math.max(assignees.length, 1)}
+                  rowLayout="inline"
+                  triggerRef={firstFieldRef}
+                  invalid={assigneeMissing}
+                  describedBy={assigneeMissing ? assigneeErrorId : undefined}
+                />
+                {assigneeMissing ? (
+                  <small id={assigneeErrorId} className="lt-fnote" role="alert">
+                    {text("feedback.missing_assignee", "Choose who the task is for.")}
+                  </small>
+                ) : chosen ? (
                   <small className="lt-assignee-hint">
                     Assigned to <b>{chosen.name}</b>
+                    {chosen.title ? <> — {chosen.title}</> : null}
                   </small>
                 ) : null}
-              </label>
+              </div>
               <label className="fld">
                 <span>Title</span>
                 <input
@@ -156,25 +206,14 @@ export function NewTaskModal({
                 <span>Brief</span>
                 <textarea name="body" maxLength={4000} rows={4} />
               </label>
-              <label className="fld">
-                <span>Deadline</span>
-                {/* Date AND time, in the farm's clock (IST). The server action stamps the offset;
-                    the backend refuses a raise without one or one already behind the raise
-                    (maintainer decision 2026-09-14), so this is required here too. */}
-                <input
-                  type="datetime-local"
-                  name="deadline_at"
-                  required
-                  min={deadlineMin || undefined}
-                  step={60}
-                  value={deadline}
-                  onChange={(event) => setDeadline(event.target.value)}
-                />
-                <small className="lt-assignee-hint lt-deadline-hint">
-                  <CalendarClock className="ic" aria-hidden="true" />
-                  <span>Date and time the task is due, farm clock (IST).</span>
-                </small>
-              </label>
+              <TaskDeadlineFields
+                pageContract={pageContract}
+                defaultLocal=""
+                min={deadlineMin.slice(0, 10) || undefined}
+                required
+                label="Deadline"
+                hint="Date and time the task is due, farm clock (IST)."
+              />
               <div className="fld">
                 <span className="lt-fld-label">Attachments</span>
                 <div className="lt-pickers">
@@ -215,9 +254,9 @@ export function NewTaskModal({
 }
 
 /**
- * The earliest deadline the picker offers: now, on the farm's clock (Asia/Kolkata), in the
- * `YYYY-MM-DDTHH:MM` form `datetime-local` speaks. The browser may sit anywhere; the deadline is
- * always read as IST.
+ * The earliest deadline the calendar offers: now, on the farm's clock (Asia/Kolkata), in the
+ * `YYYY-MM-DDTHH:MM` form `deadline.ts` speaks; the day half bounds the calendar. The browser may
+ * sit anywhere; the deadline is always read as IST.
  */
 function farmClockNow(): string {
   const parts = new Intl.DateTimeFormat("en-GB", {

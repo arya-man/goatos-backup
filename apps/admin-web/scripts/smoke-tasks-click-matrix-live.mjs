@@ -680,15 +680,13 @@ async function scriptedChecks(page, viewport, task) {
     if (short > 0) throw new Error(`${short} option rows are under ${PHONE_TAP_FLOOR}px tall`);
   });
 
-  // B3 — the column link says the intent, not the implementation.
-  await check(page, viewport, 'board column "more" link states the intent', async () => {
+  // B3 — the per-column "see every task" link was removed at the CEO's request; the toolbar's
+  // status chips are the one way to narrow to a status. Assert it stays gone.
+  await check(page, viewport, "board columns carry no per-column status link", async () => {
     await loadStage(page, { url: base });
-    const more = page.locator(".ltb-colmore").first();
-    if ((await more.count()) === 0) throw new Error("no column offers to show its whole status");
-    const text = ((await more.textContent()) ?? "").trim();
-    if (/show only this/i.test(text)) throw new Error(`the link still describes the implementation: "${text}"`);
-    if (!/every|all/i.test(text)) throw new Error(`the link does not promise the whole status: "${text}"`);
-    return `"${text}"`;
+    const more = await page.locator(".ltb-colmore").count();
+    if (more > 0) throw new Error(`${more} column(s) still render the removed status link`);
+    return "no .ltb-colmore";
   });
 
   // B4 — no combination of parameters produces an empty column under a non-zero count.

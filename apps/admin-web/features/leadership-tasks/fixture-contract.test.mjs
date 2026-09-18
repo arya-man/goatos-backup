@@ -197,7 +197,6 @@ assert.deepEqual(
 const BOARD_KEYS = [
   "board.aria",
   "board.on_this_page",
-  "board.focus_status",
   "board.total_unavailable",
   "board.column_empty",
   "board.drag_hint",

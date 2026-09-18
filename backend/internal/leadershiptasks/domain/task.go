@@ -223,33 +223,25 @@ func (t Task) IsRaiser(a Actor) bool { return a.UserID != "" && a.UserID == t.Ra
 // IsAssignee reports whether the task is addressed to the actor.
 func (t Task) IsAssignee(a Actor) bool { return a.UserID != "" && a.UserID == t.AssigneeUserID }
 
-// CanEdit: the raiser, or a leadership monitor (CEO decision 2026-09-18: leadership edits
-// anything), while the task is still open for work. These four predicates are THE write
-// rule: every write path (edit, cancel, status, comment) checks them, never "is raiser"
-// re-derived inline, so the flags a screen reads and the refusal a write gets cannot
-// disagree.
-func (t Task) CanEdit(a Actor) bool {
-	return ((a.CanRaise && t.IsRaiser(a)) || t.CanMonitor(a)) && IsOpenForWork(t.Status)
-}
+// CanEdit: the raiser, while the task is still open for work.
+func (t Task) CanEdit(a Actor) bool { return a.CanRaise && t.IsRaiser(a) && IsOpenForWork(t.Status) }
 
-// CanCancel: whoever may edit, while the task is still open for work.
+// CanCancel: the raiser, while the task is still open for work.
 func (t Task) CanCancel(a Actor) bool { return t.CanEdit(a) }
 
-// CanChangeStatus: the assignee or a leadership monitor, while the task is not cancelled. A
-// done task can be reopened (it was marked done by mistake); a cancelled one cannot.
+// CanChangeStatus: the assignee, while the task is not cancelled. A done task can be
+// reopened by the assignee (they marked it done by mistake); a cancelled one cannot.
 func (t Task) CanChangeStatus(a Actor) bool {
-	return ((a.CanAct && t.IsAssignee(a)) || t.CanMonitor(a)) && t.Status != StatusCancelled
+	return a.CanAct && t.IsAssignee(a) && t.Status != StatusCancelled
 }
 
-// CanComment: either task party, or a leadership monitor, can append a note while the task
-// is not cancelled.
+// CanComment: either task party can append a note while the task is not cancelled.
 func (t Task) CanComment(a Actor) bool {
-	return (t.IsAssignee(a) || t.IsRaiser(a) || t.CanMonitor(a)) && t.Status != StatusCancelled
+	return (t.IsAssignee(a) || t.IsRaiser(a)) && t.Status != StatusCancelled
 }
 
-// CanMonitor reports the CEO/COO-style leadership authority: tenant-wide Team progress
-// visibility, and (since 2026-09-18) the right to edit, move, cancel and note any task. It
-// is deliberately separate from raise authority so directors can raise without receiving a
+// CanMonitor reports read-only team-progress visibility for CEO/COO-style monitors. It is
+// deliberately separate from raise authority so directors can raise without receiving a
 // tenant-wide task dashboard.
 func (t Task) CanMonitor(a Actor) bool { return a.CanMonitor }
 
@@ -268,8 +260,7 @@ type StatusOption struct {
 }
 
 // StatusOptionsFor lists the transitions THIS actor may make, in the order the screen shows
-// them. The raiser only ever cancels; the assignee walks the ladder; a leadership monitor
-// gets the full legal ladder for the current status plus cancel. Empty means read-only.
+// them. The raiser only ever cancels; the assignee walks the ladder. Empty means read-only.
 func StatusOptionsFor(t Task, a Actor) []StatusOption {
 	var out []StatusOption
 	if t.CanChangeStatus(a) {
@@ -305,12 +296,12 @@ func CheckTransition(t Task, a Actor, to string) error {
 		}
 	}
 	if to == StatusCancelled {
-		if !t.IsRaiser(a) && !t.CanMonitor(a) {
+		if !t.IsRaiser(a) {
 			return ErrNotRaiser
 		}
 		return ErrTaskClosed
 	}
-	if !t.IsAssignee(a) && !t.CanMonitor(a) {
+	if !t.IsAssignee(a) {
 		return ErrNotAssignee
 	}
 	if t.Status == StatusCancelled {

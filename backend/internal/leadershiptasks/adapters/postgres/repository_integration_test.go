@@ -200,21 +200,6 @@ func TestLeadershipTaskLifecyclePostgresPaths(t *testing.T) {
 	if _, err := repo.Edit(ctx, ports.EditParams{TenantID: ltTenant, ActorID: ltDirector2, TaskID: task.TaskID, Title: "x", RowVersion: edited.RowVersion, IdempotencyKey: "edit-2"}); !errors.Is(err, domain.ErrNotRaiser) {
 		t.Fatalf("another director editing: %v", err)
 	}
-	// 7b. A leadership monitor who is neither party edits and notes the task (CEO decision
-	// 2026-09-18) through the SAME domain predicates the payload flags answer with.
-	leader := domain.Actor{UserID: ltDirector2, CanRaise: true, CanAct: true, CanMonitor: true}
-	edited, err = repo.Edit(ctx, ports.EditParams{
-		TenantID: ltTenant, ActorID: leader.UserID, Actor: leader, TaskID: task.TaskID, Title: "Approve the vendor contract (revised)", Body: "New brief, leadership edit.",
-		Attachments: []domain.Attachment{{ProofID: ltProof1, Kind: domain.AttachmentAudio, MimeType: "audio/mp4", FileName: "note.m4a", SizeBytes: 4096}},
-		RowVersion:  edited.RowVersion, IdempotencyKey: "edit-2b",
-	})
-	if err != nil || edited.Body != "New brief, leadership edit." {
-		t.Fatalf("monitor edit: %+v err %v", edited, err)
-	}
-	edited, err = repo.SetComment(ctx, ports.CommentParams{TenantID: ltTenant, Actor: leader, TaskID: task.TaskID, Comment: "Leadership note.", IdempotencyKey: "cm-2b"})
-	if err != nil || len(edited.Notes) != 3 || edited.Notes[2].AuthorID != leader.UserID {
-		t.Fatalf("monitor note: %+v err %v", edited.Notes, err)
-	}
 
 	// 8. Done, then the raiser can no longer edit; the assignee may reopen.
 	done, err := repo.ChangeStatus(ctx, ports.StatusParams{TenantID: ltTenant, Actor: cxo, TaskID: task.TaskID, Status: domain.StatusDone, RowVersion: edited.RowVersion, IdempotencyKey: "st-4"})
@@ -224,19 +209,7 @@ func TestLeadershipTaskLifecyclePostgresPaths(t *testing.T) {
 	if _, err := repo.Edit(ctx, ports.EditParams{TenantID: ltTenant, ActorID: ltDirector, TaskID: task.TaskID, Title: "late", RowVersion: done.RowVersion, IdempotencyKey: "edit-3"}); !errors.Is(err, domain.ErrTaskClosed) {
 		t.Fatalf("edit after done: %v", err)
 	}
-	if _, err := repo.Edit(ctx, ports.EditParams{TenantID: ltTenant, ActorID: leader.UserID, Actor: leader, TaskID: task.TaskID, Title: "late", RowVersion: done.RowVersion, IdempotencyKey: "edit-3b"}); !errors.Is(err, domain.ErrTaskClosed) {
-		t.Fatalf("monitor edit after done: %v", err)
-	}
-	// A monitor walks the ladder too: reopen, then hand back to the assignee's reopen path.
-	reopened, err := repo.ChangeStatus(ctx, ports.StatusParams{TenantID: ltTenant, Actor: leader, TaskID: task.TaskID, Status: domain.StatusInProgress, RowVersion: done.RowVersion, IdempotencyKey: "st-5b"})
-	if err != nil || reopened.Status != domain.StatusInProgress || reopened.DoneAt != nil {
-		t.Fatalf("monitor reopen: %+v err %v", reopened, err)
-	}
-	done, err = repo.ChangeStatus(ctx, ports.StatusParams{TenantID: ltTenant, Actor: leader, TaskID: task.TaskID, Status: domain.StatusDone, RowVersion: reopened.RowVersion, IdempotencyKey: "st-5c"})
-	if err != nil || done.Status != domain.StatusDone {
-		t.Fatalf("monitor done again: %+v err %v", done, err)
-	}
-	reopened, err = repo.ChangeStatus(ctx, ports.StatusParams{TenantID: ltTenant, Actor: cxo, TaskID: task.TaskID, Status: domain.StatusInProgress, RowVersion: done.RowVersion, IdempotencyKey: "st-5"})
+	reopened, err := repo.ChangeStatus(ctx, ports.StatusParams{TenantID: ltTenant, Actor: cxo, TaskID: task.TaskID, Status: domain.StatusInProgress, RowVersion: done.RowVersion, IdempotencyKey: "st-5"})
 	if err != nil || reopened.Status != domain.StatusInProgress || reopened.DoneAt != nil {
 		t.Fatalf("reopen: %+v err %v", reopened, err)
 	}

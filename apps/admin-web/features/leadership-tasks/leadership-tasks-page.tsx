@@ -28,10 +28,8 @@ import {
   tasksAliasFixedHref,
   tasksClearedHref,
   tasksHref,
-  tasksSearchParams,
 } from "./params";
 import { personOptions, rowsFromPage, type TaskRow } from "./task-row";
-import { TaskDetailDrawer } from "./task-detail-drawer";
 import { TaskDetailPanel } from "./task-detail-panel";
 import { TaskFeedbackBanner } from "./task-feedback-banner";
 import { TASK_VIEW_ALIAS, TASK_VIEWS, TASKS_PATHNAME, TASKS_PREVIEW_PATHNAME } from "./task-url";
@@ -167,29 +165,6 @@ export function LeadershipTasksPage({
    * panel to be there), so that behaviour is unchanged.
    */
   const hasSidePanel = Boolean(selected) || (!isBoard && hasTasks);
-  /**
-   * A SELECTED task is not a rail at all: it opens as a drawer over the board or the table
-   * (`task-detail-drawer.tsx`), so the list underneath keeps its full width -- beside a 54% rail
-   * the board lost its Done and Cancelled columns the moment a card was clicked. The rail below
-   * is left for the table's no-selection placeholder only. `TaskDetailPanel` stays the single
-   * call site; the drawer merely wraps it. Same href as the panel's own Close link.
-   */
-  const closeHref = tasksHref(
-    TASKS_PATHNAME,
-    tasksSearchParams(params),
-    { [TASK_PARAM.task]: null },
-    { resetPaging: false },
-  );
-  const detailPanel = hasSidePanel ? (
-    <TaskDetailPanel
-      detail={selected ?? null}
-      pageContract={pageContract}
-      scopeKey={scopeKey}
-      params={params}
-      assignees={assignees}
-      canRaise={Boolean(page?.can_raise)}
-    />
-  ) : null;
 
   return (
     <div className="screen on lt-page">
@@ -298,7 +273,7 @@ export function LeadershipTasksPage({
       />
       </div>
 
-      <div className={`lt-grid${hasSidePanel && !selected ? "" : " lt-grid-solo"}`}>
+      <div className={`lt-grid${hasSidePanel ? "" : " lt-grid-solo"}`}>
         <section className="card lt-card" style={{ minWidth: 0 }}>
           <div className="hd">
             <ClipboardList className="ic" style={{ color: "var(--brand)" }} aria-hidden="true" />
@@ -369,21 +344,18 @@ export function LeadershipTasksPage({
 
         {/* The detail rail is one call site on purpose: `task-detail-panel.tsx` owns the whole
             panel, including the no-selection state, so the panel can be redesigned without the
-            page changing. `detail` is the selected `TaskRow` or `null`. With a selection the same
-            element renders in the drawer below instead, outside this grid. */}
-        {!selected ? detailPanel : null}
+            page changing. `detail` is the selected `TaskRow` or `null`. */}
+        {hasSidePanel ? (
+          <TaskDetailPanel
+            detail={selected ?? null}
+            pageContract={pageContract}
+            scopeKey={scopeKey}
+            params={params}
+            assignees={assignees}
+            canRaise={Boolean(page?.can_raise)}
+          />
+        ) : null}
       </div>
-
-      {selected ? (
-        <TaskDetailDrawer
-          taskId={selected.id}
-          closeHref={closeHref}
-          ariaLabel={copy(pageContract, "section.selected.title")}
-          closeLabel={copy(pageContract, "action.close")}
-        >
-          {detailPanel}
-        </TaskDetailDrawer>
-      ) : null}
     </div>
   );
 }

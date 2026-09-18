@@ -1,10 +1,11 @@
 "use client";
 
-import { CalendarClock, FileText, Image, Mic, Paperclip, Pencil, X } from "lucide-react";
+import { FileText, Image, Mic, Paperclip, Pencil, X } from "lucide-react";
 import { useCallback, useEffect, useId, useRef, useState } from "react";
 
 import { copy, type AdminUiPageContract } from "@/lib/admin-ui-contract";
 import { rfc3339ToFarmDeadlineLocal } from "./deadline";
+import { TaskDeadlineFields } from "./task-write-forms";
 import { useDialogShell } from "./use-dialog-shell";
 import type { TaskRow } from "./task-row";
 
@@ -163,20 +164,16 @@ export function EditTaskModal({
                   onChange={(event) => setBody(event.target.value)}
                 />
               </label>
-              <label className="fld">
-                <span>{copy(pageContract, "edit.deadline_field")}</span>
-                <input
-                  type="datetime-local"
-                  name="deadline_at"
-                  step={60}
-                  value={deadline}
-                  onChange={(event) => setDeadline(event.target.value)}
-                />
-                <small className="lt-assignee-hint lt-deadline-hint">
-                  <CalendarClock className="ic" aria-hidden="true" />
-                  <span>{copy(pageContract, "edit.deadline_hint")}</span>
-                </small>
-              </label>
+              {/* Pre-filled with the stored deadline on the farm's clock; left as it is, the
+                  Server Action posts the same instant back, which the backend reads as unchanged.
+                  The state hook above is kept as the one place the value is minted on open. */}
+              <TaskDeadlineFields
+                pageContract={pageContract}
+                defaultLocal={deadline}
+                required={false}
+                label={copy(pageContract, "edit.deadline_field")}
+                hint={copy(pageContract, "edit.deadline_hint")}
+              />
               <div className="fld">
                 <span className="lt-fld-label">{copy(pageContract, "edit.attachments")}</span>
                 {task.attachmentRows.length ? (

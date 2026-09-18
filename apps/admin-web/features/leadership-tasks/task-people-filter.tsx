@@ -225,6 +225,7 @@ export function TaskPeopleFilter({
         close(false);
       }}
     >
+      <span className="lt-pf-label">{labels.label}</span>
       <button
         type="button"
         ref={triggerRef}
@@ -236,9 +237,6 @@ export function TaskPeopleFilter({
         aria-label={`${labels.label}: ${selected?.label ?? labels.allLabel}`}
         onClick={() => (open ? close(false) : setOpen(true))}
       >
-        {/* The label is INSIDE the control ("Assignee · All"), not a floating span beside it: on
-            the /tasks bar that orphan text was one of three label treatments in a single row. */}
-        <span className="lt-pf-label lt-fkey">{labels.label}</span>
         {value ? (
           <span className="lt-avx" aria-hidden="true">
             {initials(selected?.label ?? "")}

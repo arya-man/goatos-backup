@@ -141,12 +141,8 @@ type RaiseParams struct {
 
 // EditParams replaces the brief and the attachment list of an open task.
 type EditParams struct {
-	TenantID string
-	ActorID  string
-	// Actor carries the authorities the route table resolved (monitor in particular), so the
-	// repository can check domain.Task.CanEdit -- the same predicate the detail payload
-	// answers can_edit with. A zero Actor falls back to ActorID as a plain raiser.
-	Actor          domain.Actor
+	TenantID       string
+	ActorID        string
 	TaskID         string
 	Title          string
 	Body           string

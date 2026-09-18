@@ -9684,7 +9684,7 @@ paths:
       tags:
         - Leadership Tasks
       operationId: editLeadershipTask
-      summary: Replace the brief and attachment list of a task the caller raised or monitors.
+      summary: Replace the brief and attachment list of a task the caller raised.
       description: >-
         The raiser, or a leadership monitor (the CEO/COO-style authority behind Team progress;
         leadership edits anything since 2026-09-18), and only while the task is open or in

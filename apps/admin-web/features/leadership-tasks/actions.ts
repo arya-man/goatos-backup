@@ -10,7 +10,7 @@ import {
   setLeadershipTaskComment,
   uploadLeadershipTaskAttachment,
 } from "@/lib/api/server";
-import { farmDeadlineToRFC3339 } from "./deadline";
+import { farmDeadlineLocalFromForm, farmDeadlineToRFC3339 } from "./deadline";
 import { TASK_PARAM } from "./params";
 import { safeTaskReturnTo, TASKS_PATHNAME } from "./task-url";
 
@@ -56,9 +56,7 @@ export async function raiseLeadershipTaskAction(
   const assigneeUserID = String(formData.get("assignee_user_id") ?? "").trim();
   const body = String(formData.get("body") ?? "").trim();
   const idempotencyKey = String(formData.get("idempotency_key") ?? "").trim();
-  const deadlineAt = farmDeadlineToRFC3339(
-    String(formData.get("deadline_at") ?? ""),
-  );
+  const deadlineAt = farmDeadlineToRFC3339(farmDeadlineLocalFromForm(formData));
 
   if (!title || !assigneeUserID) {
     redirect(
@@ -291,7 +289,7 @@ export async function editLeadershipTaskAction(
     10,
   );
   const idempotencyKey = String(formData.get("idempotency_key") ?? "").trim();
-  const deadlineRaw = String(formData.get("deadline_at") ?? "").trim();
+  const deadlineRaw = farmDeadlineLocalFromForm(formData);
   const deadlineAt = farmDeadlineToRFC3339(deadlineRaw);
 
   if (!taskID || !title || !Number.isFinite(rowVersion)) {

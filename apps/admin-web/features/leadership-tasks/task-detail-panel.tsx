@@ -123,16 +123,12 @@ export function TaskDetailPanel({
         </nav>
         <div className="ltd-top-actions">
           {detail.canEdit ? (
-            // `display: contents` so the anchor adds no box to the flex row; it exists so a
-            // test can find THIS panel's Edit opener without matching the list's own.
-            <span data-testid="ltd-edit" style={{ display: "contents" }}>
-              <EditTaskModal
-                task={detail}
-                pageContract={pageContract}
-                action={editLeadershipTaskAction}
-                returnTo={returnTo}
-              />
-            </span>
+            <EditTaskModal
+              task={detail}
+              pageContract={pageContract}
+              action={editLeadershipTaskAction}
+              returnTo={returnTo}
+            />
           ) : null}
           <Link href={closeHref} scroll={false} className="btn sm ltd-close">
             {copy(pageContract, "action.close")}
@@ -147,15 +143,9 @@ export function TaskDetailPanel({
             shared write form. No status name is invented here. */}
         <div className="ltd-statusrow">
           <span className="ltd-statuslab">{copy(pageContract, "label.status", "Status")}</span>
-          {/* The caret is a PROMISE of a move. With no `status_options` (a reader who may not move
-              this task, or a cancelled one) the pill is a plain badge: no caret, nothing dead
-              behind it. `data-ltd-status` names which of the two it is for tests. */}
-          <span
-            className={`ltd-status ltd-status-${statusTone(detail.status)}`}
-            data-ltd-status={detail.statusOptions.length ? "control" : "badge"}
-          >
+          <span className={`ltd-status ltd-status-${statusTone(detail.status)}`}>
             {detail.statusLabel}
-            {detail.statusOptions.length ? <span className="ltd-status-caret" aria-hidden="true" /> : null}
+            <span className="ltd-status-caret" aria-hidden="true" />
           </span>
           <TaskStatusActions
             task={detail}
@@ -164,11 +154,6 @@ export function TaskDetailPanel({
             returnTo={returnTo}
           />
         </div>
-        {detail.canEdit ? null : (
-          <p className="ltd-quiet ltd-readonly" data-testid="ltd-read-only">
-            {copy(pageContract, "detail.read_only", "Only the person who raised this task can edit it.")}
-          </p>
-        )}
       </div>
 
       <div className="ltd-body">

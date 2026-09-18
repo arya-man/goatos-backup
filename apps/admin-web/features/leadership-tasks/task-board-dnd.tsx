@@ -3,7 +3,6 @@
 import { useEffect, useOptimistic, useState, useTransition } from "react";
 import { faro } from "@grafana/faro-web-sdk";
 
-import Link from "@/components/no-prefetch-link";
 import { copy, type AdminUiPageContract } from "@/lib/admin-ui-contract";
 
 import { TaskBoardCard } from "./task-board-card";
@@ -269,11 +268,8 @@ export function TaskBoardColumns({
                   <span>
                     {cards.length} {copy(pageContract, "board.on_this_page", "on this page")}
                   </span>
-                  {column.focusHref ? (
-                    <Link href={column.focusHref} scroll={false} className="ltb-colmore">
-                      {copy(pageContract, "board.focus_status", "See every task in this status")}
-                    </Link>
-                  ) : null}
+                  {/* No per-column "see every task" link: the toolbar's status chips already
+                      narrow the page to one status, and the CEO asked for the duplicate to go. */}
                 </div>
                 <div className="ltb-colbd">
                   {cards.length ? (
