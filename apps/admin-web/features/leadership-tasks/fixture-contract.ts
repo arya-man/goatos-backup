@@ -240,6 +240,7 @@ export const leadershipTasksFixtureContract: AdminUiPageContract = {
     "action.failed_title": "Action failed",
     "action.filters": "Filters",
     "action.success_tag": "done",
+    "action.success_title": "Done",
     "filter.close_label": "Close filters",
     "pager.matching_rows": "matching rows",
     "pager.rows": "Rows",

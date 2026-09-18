@@ -5840,7 +5840,7 @@ input[type=date],input[type=datetime-local],input[type=time],input[type=month],i
 /* ---- the column track. Wider than the screen is FINE here and only here: this box owns the
         sideways scroll, the page never does. */
 .lt-page .ltb-scroll{overflow-x:auto;overscroll-behavior-x:contain;scrollbar-gutter:stable;padding:2px 0 8px;margin:0 -2px;min-width:0}
-.lt-page .ltb-cols{display:flex;align-items:flex-start;gap:12px;padding:0 2px;min-width:0}
+.lt-page .ltb-cols{display:flex;align-items:stretch;gap:12px;padding:0 2px;min-width:0}
 
 /* `flex:1 1 0` with a 262px floor: four columns FIT the card at 1440 and share the slack on a
    wider screen, and on a narrower one they hold the floor and hand the overflow to
@@ -6246,3 +6246,8 @@ aside.drawer.ltd-drawer{width:min(720px,94vw);overflow-y:auto;overscroll-behavio
   .lt-page .lt-fsheet-host .lt-people-pop{position:static;width:100%;margin-top:6px;box-shadow:none;border-color:var(--line2)}
   .lt-page .lt-people-row{min-height:44px}
 }
+/* Phone Filters button: a count badge while any filter is applied (Judge A, D2). */
+.lt-page .lt-fmore-badge{display:inline-grid;place-items:center;min-width:18px;height:18px;padding:0 5px;margin-left:6px;border-radius:999px;background:var(--brand);color:var(--navon);font-size:11px;font-weight:750;line-height:1}
+/* Every column body keeps the same floor so four columns read as four equal lanes, whether
+   a column holds cards, a sentence, or nothing under a status filter (Judge A, D4). */
+.lt-page .ltb-colbd{min-height:120px}

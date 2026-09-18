@@ -87,7 +87,7 @@ export function TaskFeedbackBanner({
       <div className="lt-banner-tx">
         <b>
           {success
-            ? copy(pageContract, "action.success_tag")
+            ? copy(pageContract, "action.success_title", "Done")
             : copy(pageContract, "action.failed_title")}
         </b>
         <span>{message}</span>

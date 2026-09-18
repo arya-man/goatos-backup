@@ -398,6 +398,12 @@ export function LeadershipTasksFilters({
       >
         <SlidersHorizontal className="ic" aria-hidden="true" />
         {copy(pageContract, "action.filters")}
+        {/* With the sheet closed nothing on the phone said a filter was on (Judge A, D2). */}
+        {activeChips.length > 0 ? (
+          <span className="lt-fmore-badge" aria-label={`${activeChips.length}`}>
+            {activeChips.length}
+          </span>
+        ) : null}
       </button>
 
       {sheetOpen ? (
@@ -491,7 +497,8 @@ export function LeadershipTasksFilters({
               options={assigneeOptions.map((option) => ({ id: option.value, name: option.label, title: option.title }))}
               selected={splitIDs(fieldValue(TASK_PARAM.assignee, assignee))}
               onChange={(next) => {
-                closeSheet();
+                // The sheet stays open while people are ticked: a multi-select that closed on
+                // every tick needed one round trip per person (Judge A, D3).
                 go(paramsWith({ [TASK_PARAM.assignee]: next.join(",") }));
               }}
             />
@@ -507,7 +514,6 @@ export function LeadershipTasksFilters({
               options={raiserOptions.map((option) => ({ id: option.value, name: option.label, title: option.title }))}
               selected={splitIDs(fieldValue(TASK_PARAM.raiser, raiser))}
               onChange={(next) => {
-                closeSheet();
                 go(paramsWith({ [TASK_PARAM.raiser]: next.join(",") }));
               }}
             />

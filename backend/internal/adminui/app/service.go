@@ -1743,6 +1743,7 @@ func pageSpecificCopy(id string) map[string]string {
 			"action.open_config":                  "Open the vaccination plan",
 			"action.open_sops":                    "Open the vaccination plan",
 			"action.success_tag":                  "done",
+			"action.success_title":                "Done",
 			"action.success_message":              "Action completed.",
 			"action.failed_title":                 "Action failed",
 			"action.assign_owner_chain":           "Assign operator",
