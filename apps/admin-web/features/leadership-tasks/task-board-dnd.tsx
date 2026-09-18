@@ -199,14 +199,22 @@ export function TaskBoardColumns({
             const cards = rows.filter((task) => statusOf(task) === column.key);
             const droppable = legalFor(column.key);
             const over = droppable && overColumn === column.key;
+            // An EMPTY Cancelled column is a slim rail (title + count, ~56px): cancelled work is
+            // the exception on a desk, and a full-width column of "Nothing in this status"
+            // took a quarter of the board to say so. It widens the moment it holds a card,
+            // and it stays a drop target while it is a rail. The other columns never collapse
+            // -- an empty To do is news, not noise.
+            const rail = column.key === "cancelled" && cards.length === 0 && activeFilter !== column.key;
             return (
               <section
                 key={column.key}
                 className={`ltb-col ltb-col-${column.key}${
                   activeFilter === column.key ? " is-focused" : ""
-                }${droppable ? " ltb-drop-ok" : ""}${over ? " ltb-drop-over" : ""}${
+                }${rail ? " is-rail" : ""}${droppable ? " ltb-drop-ok" : ""}${over ? " ltb-drop-over" : ""}${
                   draggingTask && !droppable ? " ltb-drop-no" : ""
                 }`}
+                data-ltb-rail={rail ? "true" : undefined}
+                aria-label={rail ? column.label : undefined}
                 onDragOver={(event) => {
                   // Only a legal column calls preventDefault, which is what MAKES it a drop
                   // target: an illegal one keeps the browser's own `no-drop` cursor and its

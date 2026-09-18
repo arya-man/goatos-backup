@@ -5776,6 +5776,15 @@ input[type=date],input[type=datetime-local],input[type=time],input[type=month],i
 .lt-page .ltb-col-in_progress{border-top-color:color-mix(in srgb,var(--info) 62%,var(--line))}
 .lt-page .ltb-col-done{border-top-color:color-mix(in srgb,var(--ok) 62%,var(--line))}
 .lt-page .ltb-col-cancelled{border-top-color:color-mix(in srgb,var(--faint) 55%,var(--line))}
+/* The EMPTY Cancelled column collapses to a slim RAIL: the same header block (status-coloured
+   top border, the count pill), the title written up the rail, nothing else -- ~56px instead of a
+   quarter of the board saying "Nothing in this status". It widens to a column the moment it
+   holds a card. Still a drop target while a rail (the drop rules are the section's own). */
+.lt-page .ltb-col.is-rail{flex:0 0 56px;width:56px;min-width:56px;padding:11px 8px 12px;align-items:center;min-height:180px}
+.lt-page .ltb-col.is-rail .ltb-colhd{flex-direction:column;align-items:center;gap:10px;padding:0}
+.lt-page .ltb-col.is-rail .ltb-colname{writing-mode:vertical-rl;transform:rotate(180deg);overflow:visible;line-height:1}
+.lt-page .ltb-col.is-rail .ltb-colcount{margin-left:0}
+.lt-page .ltb-col.is-rail .ltb-colmeta,.lt-page .ltb-col.is-rail .ltb-colbd{display:none}
 /* The column the status filter is pinned to: the whole keyset pager belongs to it. */
 .lt-page .ltb-col.is-focused{background:color-mix(in srgb,var(--brand) 7%,var(--panel-2));border-color:color-mix(in srgb,var(--brand) 32%,var(--line))}
 
@@ -5832,6 +5841,11 @@ input[type=date],input[type=datetime-local],input[type=time],input[type=month],i
      scroller, so the page scrolls once and every card is reachable with a thumb. */
   .lt-page .ltb-cols{flex-direction:column;gap:11px;padding:0}
   .lt-page .ltb-col{flex:1 1 auto;width:auto;min-width:0;max-width:100%}
+  /* Stacked columns: the empty Cancelled rail is one slim ROW (title + count), not a strip. */
+  .lt-page .ltb-col.is-rail{width:auto;min-width:0;min-height:0;padding:10px 12px;align-items:stretch}
+  .lt-page .ltb-col.is-rail .ltb-colhd{flex-direction:row;align-items:center;gap:9px;padding:0 3px}
+  .lt-page .ltb-col.is-rail .ltb-colname{writing-mode:horizontal-tb;transform:none}
+  .lt-page .ltb-col.is-rail .ltb-colcount{margin-left:auto}
   .lt-page .ltb-colbd{max-height:none;overflow-y:visible}
   .lt-page .ltb-scroll{padding-bottom:0;margin:0}
   /* Tap targets: the card, the person chips and "show only this" are all >=40px. */
