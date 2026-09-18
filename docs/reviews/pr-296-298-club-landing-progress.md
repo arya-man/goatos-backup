@@ -15,11 +15,11 @@ Date: 2026-09-18
 - Focused backend, API client, admin-web, and Android vendor checks passed.
 - First `make land-main` attempt ran the selected `common,backend,query-plans,admin-web,android` local CI scope at `c2a53eba2`; every reported step passed except `agent: ai-doctor`.
 - Repaired the isolated worktree's local AI indexes with `make ai-setup`; the setup command finished by running `make ai-doctor`, which passed with `.repowise index current enough (c2a53eba2..., mode=fast)`.
+- Rebasing onto `origin/main` changed the candidate SHA to `272b8ed00`; `make ai-doctor` correctly failed stale, then `make ai-rebuild-repowise && make ai-doctor` passed with `.repowise index current enough (272b8ed00..., mode=fast)`.
 
 ## Pending
 
-- Commit this repair receipt update.
-- Rebase onto current `origin/main` (`1da3a688b` observed after the first landing attempt).
+- Commit this final repair receipt update.
 - Rerun final `make land-main` from the clean, rebased candidate.
 - Confirm `origin/main` readback after the landing gate pushes.
 
@@ -32,6 +32,7 @@ Date: 2026-09-18
 - `cd apps/goatos-android && ANDROID_HOME=/Users/raviteja/Library/Android/sdk ./gradlew :app:testDevDebugUnitTest --tests 'sg.mesha.goatos.viewmodel.QueuedWriteFollowTest' --tests 'sg.mesha.goatos.viewmodel.VendorsPresentationTest'` passed.
 - First `make land-main` attempt failed before push on exactly one local CI step: `agent: ai-doctor`. The same receipt reported PASS for backend `go test ./...` with Postgres disabled, required PostgreSQL query plans, command-board query plans, admin-web deps/lint/typecheck/unit/build, Android `:app` compile+unit+lint, and Android benchmark compile.
 - `make ai-setup` passed after rebuilding `.code-review-graph` and `.repowise`; it emitted non-fatal `repowise` health persistence warnings about SQLite variable limits, then `make ai-doctor` passed.
+- After rebase onto `origin/main` `1da3a688b`, `make ai-doctor` failed stale as expected; `make ai-rebuild-repowise && make ai-doctor` passed. The repowise refresh again emitted non-fatal SQLite variable-limit health persistence warnings before the final PASS.
 
 ## Known Failures
 
@@ -55,6 +56,7 @@ Date: 2026-09-18
 - Club candidate before this progress note: `aed3d104a`.
 - Candidate with initial progress receipt: `48754b76e`.
 - Candidate with focused-check receipt and first failed landing attempt: `c2a53eba2d1453d8db37626986492d33bbc47e5b`.
+- Rebased candidate after `origin/main` advanced: `272b8ed000fcfb2913c20e1753396cbde3cf815a`.
 
 ## Deployment State
 
