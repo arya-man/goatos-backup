@@ -15062,6 +15062,7 @@ SELECT
     g.species                                     AS species,
     g.management_stage                            AS management_stage,
     g.lifecycle_status                            AS lifecycle_status,
+    g.origin_type                                 AS origin_type,
     g.sex                                         AS sex,
     COALESCE(b.canonical_name, g.breed)           AS breed,
     -- age at Asia/Kolkata business day; dob preferred, approx_dob fallback
@@ -15754,9 +15755,15 @@ CREATE OR REPLACE VIEW ceo_ai.mortality_base AS
 WITH deaths AS (
     SELECT g.tenant_id, g.park_id,
            (g.exited_at AT TIME ZONE 'Asia/Kolkata')::date AS event_date,
-           COUNT(*)::bigint AS deaths
+           COUNT(*)::bigint AS deaths,
+           COUNT(*) FILTER (WHERE g.management_stage ILIKE 'k%' OR (((g.exited_at AT TIME ZONE 'Asia/Kolkata')::date - COALESCE(g.dob, g.approx_dob)) < 365))::bigint AS kid_deaths,
+           COUNT(*) FILTER (WHERE NOT (g.management_stage ILIKE 'k%' OR (((g.exited_at AT TIME ZONE 'Asia/Kolkata')::date - COALESCE(g.dob, g.approx_dob)) < 365)))::bigint AS adult_deaths,
+           COUNT(*) FILTER (WHERE (((g.exited_at AT TIME ZONE 'Asia/Kolkata')::date - COALESCE(g.dob, g.approx_dob)) BETWEEN 0 AND 7))::bigint AS first_week_deaths,
+           COUNT(*) FILTER (WHERE hdc.goat_id IS NOT NULL)::bigint AS cause_established
     FROM goats g
-    WHERE g.exited_at IS NOT NULL AND g.exit_reason IN ('death','dead','mortality')
+    LEFT JOIN health_death_causes hdc ON hdc.tenant_id = g.tenant_id AND hdc.goat_id = g.goat_id
+    WHERE g.exited_at IS NOT NULL
+      AND (g.exit_reason = 'died' OR (g.exit_reason IS NULL AND g.lifecycle_status = 'dead'))
     GROUP BY g.tenant_id, g.park_id, (g.exited_at AT TIME ZONE 'Asia/Kolkata')::date
 ),
 pop AS (
@@ -15770,6 +15777,10 @@ SELECT
     d.event_date                                  AS event_date,
     pk.name                                       AS park_label,
     d.deaths                                      AS deaths,
+    d.kid_deaths                                  AS kid_deaths,
+    d.adult_deaths                                AS adult_deaths,
+    d.first_week_deaths                           AS first_week_deaths,
+    d.cause_established                           AS cause_established,
     COALESCE(pop.active_population, 0)            AS active_population
 FROM deaths d
 LEFT JOIN locations pk ON pk.location_id = d.park_id

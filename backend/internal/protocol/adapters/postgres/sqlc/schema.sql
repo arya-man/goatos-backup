@@ -2519,7 +2519,8 @@ CREATE VIEW ceo_ai.animal_current_scope AS
     g.sex,
     COALESCE(b.canonical_name, g.breed) AS breed,
     (((now() AT TIME ZONE 'Asia/Kolkata'::text))::date - COALESCE(g.dob, g.approx_dob)) AS age_days,
-    NULLIF(gsp.partition_label, 'whole'::text) AS partition_label
+    NULLIF(gsp.partition_label, 'whole'::text) AS partition_label,
+    g.origin_type
    FROM ((((public.goats g
      LEFT JOIN public.locations pk ON ((pk.location_id = g.park_id)))
      LEFT JOIN public.locations sh ON ((sh.location_id = g.shed_id)))
@@ -3144,9 +3145,14 @@ CREATE VIEW ceo_ai.mortality_base AS
          SELECT g.tenant_id,
             g.park_id,
             ((g.exited_at AT TIME ZONE 'Asia/Kolkata'::text))::date AS event_date,
-            count(*) AS deaths
+            count(*) AS deaths,
+            count(*) FILTER (WHERE ((g.management_stage ~~* 'k%'::text) OR ((((g.exited_at AT TIME ZONE 'Asia/Kolkata'::text))::date - COALESCE(g.dob, g.approx_dob)) < 365))) AS kid_deaths,
+            count(*) FILTER (WHERE (NOT ((g.management_stage ~~* 'k%'::text) OR ((((g.exited_at AT TIME ZONE 'Asia/Kolkata'::text))::date - COALESCE(g.dob, g.approx_dob)) < 365)))) AS adult_deaths,
+            count(*) FILTER (WHERE (((((g.exited_at AT TIME ZONE 'Asia/Kolkata'::text))::date - COALESCE(g.dob, g.approx_dob)) >= 0) AND ((((g.exited_at AT TIME ZONE 'Asia/Kolkata'::text))::date - COALESCE(g.dob, g.approx_dob)) <= 7))) AS first_week_deaths,
+            count(*) FILTER (WHERE (hdc.goat_id IS NOT NULL)) AS cause_established
            FROM public.goats g
-          WHERE ((g.exited_at IS NOT NULL) AND (g.exit_reason = ANY (ARRAY['death'::text, 'dead'::text, 'mortality'::text])))
+             LEFT JOIN public.health_death_causes hdc ON (((hdc.tenant_id = g.tenant_id) AND (hdc.goat_id = g.goat_id)))
+          WHERE ((g.exited_at IS NOT NULL) AND ((g.exit_reason = 'died'::text) OR ((g.exit_reason IS NULL) AND (g.lifecycle_status = 'dead'::text))))
           GROUP BY g.tenant_id, g.park_id, (((g.exited_at AT TIME ZONE 'Asia/Kolkata'::text))::date)
         ), pop AS (
          SELECT goats.tenant_id,
@@ -3160,7 +3166,11 @@ CREATE VIEW ceo_ai.mortality_base AS
     d.event_date,
     pk.name AS park_label,
     d.deaths,
-    COALESCE(pop.active_population, (0)::bigint) AS active_population
+    COALESCE(pop.active_population, (0)::bigint) AS active_population,
+    d.kid_deaths,
+    d.adult_deaths,
+    d.first_week_deaths,
+    d.cause_established
    FROM ((deaths d
      LEFT JOIN public.locations pk ON ((pk.location_id = d.park_id)))
      LEFT JOIN pop ON (((pop.tenant_id = d.tenant_id) AND (NOT (pop.park_id IS DISTINCT FROM d.park_id)))));

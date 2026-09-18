@@ -326,7 +326,7 @@ func TestNaturalActiveAnimalQuestionUsesLiveSQLFallbackForCPT(t *testing.T) {
 			t.Fatalf("answer missing %s: %q", want, ans.Answer)
 		}
 	}
-	for _, wantSQL := range []string{"ceo_ai.animal_current_scope", "park_id = '00000000-0000-4000-8000-000000003002'", "lifecycle_status = 'alive'"} {
+	for _, wantSQL := range []string{"ceo_ai.animal_current_scope", "park_id IN ('00000000-0000-4000-8000-000000003002')", "lifecycle_status = 'alive'"} {
 		if !strings.Contains(sqlFB.lastSQL, wantSQL) {
 			t.Fatalf("SQL missing %q: %s", wantSQL, sqlFB.lastSQL)
 		}
@@ -342,7 +342,7 @@ func TestNaturalActiveAnimalQuestionUsesLiveSQLFallbackForCPT(t *testing.T) {
 func TestNaturalActiveAnimalOneToManyPageBoundaryDateShiftParkScopeSQLGuard(t *testing.T) {
 	sql := activeAnimalsSQL(
 		"t1",
-		knownParkScope{code: "CPT", label: "Channapatna", id: "00000000-0000-4000-8000-000000003002"},
+		[]knownParkScope{{code: "CPT", label: "Channapatna", id: "00000000-0000-4000-8000-000000003002"}},
 		"breed",
 		"how many active animals in cpt by breed",
 	)
@@ -353,7 +353,7 @@ func TestNaturalActiveAnimalOneToManyPageBoundaryDateShiftParkScopeSQLGuard(t *t
 		"SELECT 'Active animals' AS label",
 		"ceo_ai.animal_current_scope",
 		"tenant_id = 't1'",
-		"park_id = '00000000-0000-4000-8000-000000003002'",
+		"park_id IN ('00000000-0000-4000-8000-000000003002')",
 		"lifecycle_status = 'alive'",
 		"GROUP BY breed",
 		"LIMIT 50",
@@ -365,6 +365,60 @@ func TestNaturalActiveAnimalOneToManyPageBoundaryDateShiftParkScopeSQLGuard(t *t
 	for _, forbidden := range []string{"/*", "*/", "--", ";"} {
 		if strings.Contains(sql, forbidden) {
 			t.Fatalf("active-animal SQL must not contain %q: %s", forbidden, sql)
+		}
+	}
+}
+
+func TestNaturalFarmBornQuestionUsesOriginAndParkScope(t *testing.T) {
+	sqlFB := &fakeSQLFallback{result: domain.ToolResult{
+		Facts: []domain.Fact{{Label: "Farm-born animals", Value: "42", Scope: "goat"}},
+	}}
+	reg := NewRegistry(nil, nil, sqlFB)
+	a := NewAssistant(Config{}, Deps{Provider: &fakeProvider{byModel: true}, Registry: reg})
+
+	ans, err := a.Ask(context.Background(), domain.Question{Actor: leadershipActor(), Text: "how many animals are farm born in cbe"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if sqlFB.calls != 1 {
+		t.Fatalf("expected farm-born question to use SQL fallback, got %d calls", sqlFB.calls)
+	}
+	for _, want := range []string{
+		"ceo_ai.animal_current_scope",
+		"park_id IN ('00000000-0000-4000-8000-000000003001')",
+		"origin_type = 'birth'",
+		"lifecycle_status = 'alive'",
+	} {
+		if !strings.Contains(sqlFB.lastSQL, want) {
+			t.Fatalf("farm-born SQL missing %q: %s", want, sqlFB.lastSQL)
+		}
+	}
+	if !strings.Contains(ans.Answer, "42") || !strings.Contains(ans.Answer, "Farm-born") {
+		t.Fatalf("expected farm-born answer, got %q", ans.Answer)
+	}
+}
+
+func TestNaturalOwnFarmsQuestionDefaultsToKnownParks(t *testing.T) {
+	sqlFB := &fakeSQLFallback{result: domain.ToolResult{
+		Facts: []domain.Fact{
+			{Label: "Farm-born animals", Value: "512", Scope: "Coimbatore"},
+			{Label: "Farm-born animals", Value: "345", Scope: "Channapatna"},
+		},
+	}}
+	reg := NewRegistry(nil, nil, sqlFB)
+	a := NewAssistant(Config{}, Deps{Provider: &fakeProvider{byModel: true}, Registry: reg})
+
+	_, err := a.Ask(context.Background(), domain.Question{Actor: leadershipActor(), Text: "how many animals are from our own farms"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, want := range []string{
+		"park_id IN ('00000000-0000-4000-8000-000000003002', '00000000-0000-4000-8000-000000003001')",
+		"origin_type = 'birth'",
+		"park_label AS scope",
+	} {
+		if !strings.Contains(sqlFB.lastSQL, want) {
+			t.Fatalf("own-farms SQL missing %q: %s", want, sqlFB.lastSQL)
 		}
 	}
 }
@@ -389,7 +443,7 @@ func TestNaturalActiveAnimalQuestionToleratesTyposAndCBEAbbrev(t *testing.T) {
 	if sqlFB.calls != 1 {
 		t.Fatalf("expected typo/split question to use SQL fallback, got %d calls", sqlFB.calls)
 	}
-	if !strings.Contains(sqlFB.lastSQL, "park_id = '00000000-0000-4000-8000-000000003001'") {
+	if !strings.Contains(sqlFB.lastSQL, "park_id IN ('00000000-0000-4000-8000-000000003001')") {
 		t.Fatalf("expected CBE scope in SQL, got %s", sqlFB.lastSQL)
 	}
 	if !strings.Contains(ans.Answer, "805") {
@@ -484,6 +538,61 @@ func TestNaturalWeighingQuestionToleratesAvgShorthand(t *testing.T) {
 	}
 	if !strings.Contains(ans.Answer, "Castro 1") || strings.Contains(ans.Answer, "wrong fallback") {
 		t.Fatalf("expected grounded weighing answer, got %q", ans.Answer)
+	}
+}
+
+func TestNaturalWeighingCountQuestionsUseDashboardDenominatorTerms(t *testing.T) {
+	for _, tc := range []struct {
+		name string
+		text string
+		want string
+	}{
+		{name: "lump sum", text: "how many animals weighed by lump sum in cbe", want: "weighing_category = 'per_shed_partition'"},
+		{name: "per animal", text: "how many animals weighed per animal in cpt", want: "weighing_category = 'individual_animal'"},
+		{name: "all weighed", text: "how many animals weighed in weight wise", want: "SELECT 'Animals weighed' AS label"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			sqlFB := &fakeSQLFallback{result: domain.ToolResult{Facts: []domain.Fact{{Label: "Animals weighed", Value: "1", Scope: "Coimbatore"}}}}
+			reg := NewRegistry(nil, nil, sqlFB)
+			a := NewAssistant(Config{}, Deps{Provider: &fakeProvider{}, Registry: reg})
+			_, err := a.Ask(context.Background(), domain.Question{Actor: leadershipActor(), Text: tc.text})
+			if err != nil {
+				t.Fatal(err)
+			}
+			if !strings.Contains(sqlFB.lastSQL, "ceo_ai.weighing_capture_activity") || !strings.Contains(sqlFB.lastSQL, tc.want) {
+				t.Fatalf("weighing SQL missing %q: %s", tc.want, sqlFB.lastSQL)
+			}
+		})
+	}
+}
+
+func TestNaturalMortalityQuestionsUseMortalityBase(t *testing.T) {
+	for _, tc := range []struct {
+		name string
+		text string
+		want string
+	}{
+		{name: "kid deaths", text: "how many kid deaths this month", want: "sum(kid_deaths)"},
+		{name: "adult deaths", text: "adult deaths in cbe", want: "sum(adult_deaths)"},
+		{name: "cause established", text: "how many deaths had cause established", want: "sum(cause_established)"},
+		{name: "rate", text: "mortality rate in cpt", want: "Mortality rate pct"},
+		{name: "monthly", text: "show deaths by month", want: "date_trunc('month', event_date)"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			sqlFB := &fakeSQLFallback{result: domain.ToolResult{Facts: []domain.Fact{{Label: "Deaths", Value: "1", Scope: "Coimbatore"}}}}
+			reg := NewRegistry(nil, nil, sqlFB)
+			a := NewAssistant(Config{}, Deps{Provider: &fakeProvider{}, Registry: reg})
+			_, err := a.Ask(context.Background(), domain.Question{Actor: leadershipActor(), Text: tc.text, AsOf: time.Date(2026, 9, 19, 9, 0, 0, 0, time.UTC)})
+			if err != nil {
+				t.Fatal(err)
+			}
+			if !strings.Contains(sqlFB.lastSQL, "ceo_ai.mortality_base") || !strings.Contains(sqlFB.lastSQL, tc.want) {
+				t.Fatalf("mortality SQL missing %q: %s", tc.want, sqlFB.lastSQL)
+			}
+			if err := sqlguard.Validate(sqlFB.lastSQL); err != nil {
+				t.Fatalf("mortality SQL must pass sqlguard: %v; sql=%s", err, sqlFB.lastSQL)
+			}
+		})
 	}
 }
 
