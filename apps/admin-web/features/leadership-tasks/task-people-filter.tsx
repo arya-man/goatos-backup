@@ -143,7 +143,14 @@ export function TaskPeopleFilter({
     ],
     [labels.allLabel, matches],
   );
-  const highlight = marker.query === query ? Math.min(marker.index, rows.length - 1) : 0;
+  /**
+   * Where the highlight rests when the reader has not moved it: on "All" for an empty query, but
+   * on the FIRST MATCH once something has been typed. Typing "chan" and pressing Enter must pick
+   * Chandrakant; with the highlight parked on "All" it cleared the filter instead -- the reader
+   * typed a name and got everyone.
+   */
+  const restIndex = query.trim().length > 0 && matches.length > 0 ? 1 : 0;
+  const highlight = marker.query === query ? Math.min(marker.index, rows.length - 1) : restIndex;
 
   const close = useCallback(
     (returnFocus: boolean) => {
@@ -206,7 +213,18 @@ export function TaskPeopleFilter({
   }, [open]);
 
   return (
-    <div className="lt-pf" ref={wrapRef}>
+    <div
+      className="lt-pf"
+      ref={wrapRef}
+      // Focus leaving the control (Tab, Shift+Tab, a click that focuses something else) closes
+      // it: the `mousedown` listener alone left an open listbox behind after a keyboard exit.
+      onBlur={(event) => {
+        if (!open) return;
+        const next = event.relatedTarget as Node | null;
+        if (next && wrapRef.current?.contains(next)) return;
+        close(false);
+      }}
+    >
       <span className="lt-pf-label">{labels.label}</span>
       <button
         type="button"
@@ -248,8 +266,10 @@ export function TaskPeopleFilter({
               autoComplete="off"
               maxLength={60}
               onChange={(event) => {
-                setQuery(event.target.value);
-                setMarker({ query: event.target.value, index: 0 });
+                const next = event.target.value;
+                setQuery(next);
+                // A new query starts on its own first match (see `restIndex`), never on "All".
+                setMarker({ query: next, index: next.trim().length > 0 ? 1 : 0 });
               }}
               onKeyDown={(event) => {
                 if (event.key === MENTION_KEYS.down || event.key === MENTION_KEYS.up) {
@@ -258,17 +278,33 @@ export function TaskPeopleFilter({
                   setMarker((current) => ({
                     query,
                     index: moveMentionHighlight(
-                      current.query === query ? current.index : 0,
+                      current.query === query ? current.index : restIndex,
                       rows.length,
                       delta,
                     ),
                   }));
                   return;
                 }
+                // Tab LEAVES without picking, unlike the @-picker, where Tab accepts: there the
+                // reader is mid-sentence and a pick is the cheapest way onward; here a pick is a
+                // navigation, and tabbing past a filter must not narrow the list. The `onBlur`
+                // on the wrapper closes the popup once focus has actually moved outside it.
+                if (event.key === MENTION_KEYS.tab) close(false);
                 if (event.key === MENTION_KEYS.enter) {
                   event.preventDefault();
                   const row = rows[highlight];
                   if (row) pick(row.value, query.trim().length > 0);
+                  return;
+                }
+                // Escape closes THIS popup and nothing else. Inside the phone filter sheet the
+                // sheet's own shell (`use-dialog-shell.tsx`) listens for Escape on `document`;
+                // stopping the native event here means one press closes the list and hands focus
+                // back to the trigger, and a second press closes the sheet -- the reader unwinds
+                // one layer at a time instead of losing the whole sheet.
+                if (event.key === MENTION_KEYS.escape) {
+                  event.preventDefault();
+                  event.nativeEvent.stopImmediatePropagation();
+                  close(true);
                 }
               }}
             />
