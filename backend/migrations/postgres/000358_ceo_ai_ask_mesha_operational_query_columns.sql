@@ -27,6 +27,10 @@ LEFT JOIN locations sh ON sh.location_id = g.shed_id
 LEFT JOIN breeds    b  ON b.breed_id     = g.breed_id
 LEFT JOIN goat_shed_partitions gsp ON gsp.tenant_id = g.tenant_id AND gsp.goat_id = g.goat_id;
 
+-- projection-review: membership=goats rows matching the Counts death predicate (exit_reason = 'died', or unexited with lifecycle_status = 'dead'); group_key=tenant_id + park_id + Asia/Kolkata business day of exited_at (updated_at fallback); join_cardinality=health_death_causes is 1:0..1 by primary key (tenant_id, goat_id) and health_cases is collapsed to 0..1 by LATERAL ... LIMIT 1 before the COUNT, so one dead goat is one death; pagination=view is the whole per-day aggregate, consumers page with ORDER BY ... LIMIT 50 after grouping; scope=tenant plus park, active_population is the whole-park live denominator joined 1:1 on (tenant_id, park_id).
+-- Grain proofs: backend/internal/ceoai/reporting/reporting_views_test.go
+-- (TestMortalityBaseOneToManyCauseJoins, TestMortalityBaseDateShift,
+--  TestMortalityBaseStatusBuckets, TestMortalityBasePageBoundary).
 CREATE OR REPLACE VIEW ceo_ai.mortality_base AS
 WITH dead AS (
     SELECT g.tenant_id, g.park_id,

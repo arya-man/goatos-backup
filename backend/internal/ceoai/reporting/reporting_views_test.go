@@ -7,6 +7,7 @@ package reporting
 
 import (
 	"context"
+	"fmt"
 	"testing"
 	"time"
 
@@ -460,5 +461,281 @@ func TestCountsMovementDailyPartitionLabel(t *testing.T) {
 	}
 	if got["Part 5"] != 1 {
 		t.Fatalf("Part 5 births=%d want 1", got["Part 5"])
+	}
+}
+
+// --- ceo_ai.mortality_base (migration 000358) -------------------------------
+//
+// The Ask Mesha operational-query rebuild widened mortality_base from a bare
+// per-day death count to the dashboard's mortality tiles: kid/adult split,
+// first-week deaths, and cause_established (recorded cause OR an inferred
+// death-review case). That added two LEFT JOINs on the per-goat side, so the
+// grain must be re-proved: one dead goat is one death, whatever it joins to.
+
+// deadGoatWithID inserts a mortality exit on `exited` with the given management
+// stage and date of birth, returning the goat_id so callers can attach
+// health_death_causes / health_cases rows to it.
+func deadGoatWithID(t *testing.T, ctx context.Context, pool *pgxpool.Pool, tenant, parkID, shedID, stage string, dob time.Time, exited time.Time) string {
+	t.Helper()
+	party := custodian(t, ctx, pool, tenant)
+	var id string
+	if err := pool.QueryRow(ctx,
+		`INSERT INTO goats (goat_id, tenant_id, display_id, species, sex, lifecycle_status, management_stage, health_status,
+		                    custodian_party_id, park_id, shed_id, origin_type, dob, exited_at, exit_reason, row_version, created_at, updated_at)
+		 VALUES (gen_random_uuid(), $1, 'G-' || lpad((floor(random()*1000000000))::bigint::text, 9, '0'), 'goat', 'female', 'dead', $2, 'healthy',
+		         $3, $4, $5, 'birth', $6, $7, 'died', 1, now(), now())
+		 RETURNING goat_id::text`,
+		tenant, stage, party, parkID, shedID, dob, exited).Scan(&id); err != nil {
+		t.Fatalf("insert dead goat: %v", err)
+	}
+	return id
+}
+
+func deathCause(t *testing.T, ctx context.Context, pool *pgxpool.Pool, tenant, goatID, key string) {
+	t.Helper()
+	if _, err := pool.Exec(ctx,
+		`INSERT INTO health_death_causes (tenant_id, goat_id, cause_key, cause_kind) VALUES ($1, $2, $3, 'register_rule')`,
+		tenant, goatID, key); err != nil {
+		t.Fatalf("insert death cause: %v", err)
+	}
+}
+
+// healthCase opens one health case for the goat in the given status, starting
+// on start and (when closed is non-nil) closed at that instant.
+func healthCase(t *testing.T, ctx context.Context, pool *pgxpool.Pool, tenant, goatID, status string, start time.Time, closed *time.Time) {
+	t.Helper()
+	var versionID string
+	if err := pool.QueryRow(ctx,
+		`INSERT INTO health_protocol_versions (tenant_id, disease_key, display_name, age_band, version, duration_days, status, content_hash)
+		 VALUES ($1, 'supportive', 'Supportive', 'adult', 1, 3, 'published', 'hash-' || gen_random_uuid()::text)
+		 RETURNING health_protocol_version_id::text`, tenant).Scan(&versionID); err != nil {
+		t.Fatalf("insert protocol version: %v", err)
+	}
+	if _, err := pool.Exec(ctx,
+		`INSERT INTO health_cases (tenant_id, goat_id, health_protocol_version_id, disease_key, disease_name, age_band, start_date, duration_days, status, closed_at, idempotency_key, request_fingerprint)
+		 VALUES ($1, $2, $3, 'supportive', 'Supportive', 'adult', $4, 3, $5, $6, gen_random_uuid()::text, 'fp')`,
+		tenant, goatID, versionID, start, status, closed); err != nil {
+		t.Fatalf("insert health case: %v", err)
+	}
+}
+
+type mortalityRow struct {
+	eventDate        string
+	parkLabel        string
+	deaths           int64
+	kidDeaths        int64
+	adultDeaths      int64
+	firstWeekDeaths  int64
+	causeEstablished int64
+	activePopulation int64
+}
+
+func mortalityRows(t *testing.T, ctx context.Context, pool *pgxpool.Pool, tenant string) []mortalityRow {
+	t.Helper()
+	rows, err := pool.Query(ctx,
+		`SELECT event_date::text, COALESCE(park_label, ''), deaths, kid_deaths, adult_deaths, first_week_deaths, cause_established, active_population
+		   FROM ceo_ai.mortality_base WHERE tenant_id=$1 ORDER BY event_date, park_label`, tenant)
+	if err != nil {
+		t.Fatalf("query mortality_base: %v", err)
+	}
+	defer rows.Close()
+	var out []mortalityRow
+	for rows.Next() {
+		var r mortalityRow
+		if err := rows.Scan(&r.eventDate, &r.parkLabel, &r.deaths, &r.kidDeaths, &r.adultDeaths, &r.firstWeekDeaths, &r.causeEstablished, &r.activePopulation); err != nil {
+			t.Fatalf("scan: %v", err)
+		}
+		out = append(out, r)
+	}
+	return out
+}
+
+// TestMortalityBaseOneToManyCauseJoins proves the health_death_causes and
+// health_cases joins do NOT fan out the death count: a goat with a recorded
+// cause AND two death-review cases is still exactly one death and one
+// cause_established, and a goat with three health cases but none in a death
+// status contributes one death and zero cause_established.
+func TestMortalityBaseOneToManyCauseJoins(t *testing.T) {
+	ctx := context.Background()
+	pool, tenant := newDB(t, ctx)
+	pk := park(t, ctx, pool, tenant, "Park M")
+	sh := shed(t, ctx, pool, tenant, pk, "Shed M1", nil)
+	dob := time.Date(2024, 1, 1, 0, 0, 0, 0, time.UTC)
+	exit := time.Date(2026, 7, 11, 6, 0, 0, 0, time.UTC)
+
+	// Recorded cause + two overlapping death-review cases: every join side is many.
+	multi := deadGoatWithID(t, ctx, pool, tenant, pk, sh, "active_adult", dob, exit)
+	deathCause(t, ctx, pool, tenant, multi, "PPR")
+	healthCase(t, ctx, pool, tenant, multi, "closed_dead", exit.AddDate(0, 0, -3), &exit)
+	healthCase(t, ctx, pool, tenant, multi, "held_death_review", exit.AddDate(0, 0, -1), nil)
+
+	// Three cases, none a death status: must be a death with no cause.
+	noisy := deadGoatWithID(t, ctx, pool, tenant, pk, sh, "active_adult", dob, exit)
+	for _, status := range []string{"active", "recovered", "canceled"} {
+		healthCase(t, ctx, pool, tenant, noisy, status, exit.AddDate(0, 0, -5), nil)
+	}
+
+	got := mortalityRows(t, ctx, pool, tenant)
+	if len(got) != 1 {
+		t.Fatalf("expected one (park, day) row, got %d: %+v", len(got), got)
+	}
+	if got[0].deaths != 2 {
+		t.Fatalf("cause joins fanned out deaths: deaths=%d want 2", got[0].deaths)
+	}
+	if got[0].causeEstablished != 1 {
+		t.Fatalf("cause_established=%d want 1 (recorded/inferred goat once, noisy goat never)", got[0].causeEstablished)
+	}
+	if got[0].adultDeaths != 2 || got[0].kidDeaths != 0 {
+		t.Fatalf("adult/kid split wrong: adult=%d kid=%d want 2/0", got[0].adultDeaths, got[0].kidDeaths)
+	}
+}
+
+// TestMortalityBaseDateShift proves event_date is the Asia/Kolkata business
+// day of exited_at: a death at 2026-07-10 20:30 UTC (02:00 IST on the 11th)
+// lands on 2026-07-11, and the first-week bucket is measured against that
+// business day, not the UTC date.
+func TestMortalityBaseDateShift(t *testing.T) {
+	ctx := context.Background()
+	pool, tenant := newDB(t, ctx)
+	pk := park(t, ctx, pool, tenant, "Park T")
+	sh := shed(t, ctx, pool, tenant, pk, "Shed T1", nil)
+
+	lateUTC := time.Date(2026, 7, 10, 20, 30, 0, 0, time.UTC) // 2026-07-11 02:00 IST
+	earlyUTC := time.Date(2026, 7, 10, 6, 0, 0, 0, time.UTC)  // 2026-07-10 11:30 IST
+	// Born 2026-07-04: 7 days before the IST business day 07-11 (in the first-week
+	// bucket), but 6 days before the UTC date 07-10 -- either way in-bucket; the
+	// date proof is which ROW it lands in.
+	deadGoatWithID(t, ctx, pool, tenant, pk, sh, "kid_preweaning", time.Date(2026, 7, 4, 0, 0, 0, 0, time.UTC), lateUTC)
+	// Born 2026-07-02: 8 days before 07-10 IST -- outside first week on the IST day.
+	deadGoatWithID(t, ctx, pool, tenant, pk, sh, "kid_preweaning", time.Date(2026, 7, 2, 0, 0, 0, 0, time.UTC), earlyUTC)
+
+	byDay := map[string]mortalityRow{}
+	for _, r := range mortalityRows(t, ctx, pool, tenant) {
+		byDay[r.eventDate] = r
+	}
+	if len(byDay) != 2 {
+		t.Fatalf("expected two business-day rows, got %+v", byDay)
+	}
+	if r := byDay["2026-07-11"]; r.deaths != 1 || r.firstWeekDeaths != 1 || r.kidDeaths != 1 {
+		t.Fatalf("late-UTC death did not shift to IST 07-11 row: %+v", r)
+	}
+	if r := byDay["2026-07-10"]; r.deaths != 1 || r.firstWeekDeaths != 0 || r.kidDeaths != 1 {
+		t.Fatalf("07-10 row wrong (first-week must be 0 at 8 days): %+v", r)
+	}
+	if _, leaked := byDay["2026-07-09"]; leaked {
+		t.Fatalf("a UTC-date row leaked into the view")
+	}
+}
+
+// TestMortalityBaseStatusBuckets proves the death predicate matches the
+// Counts dashboard: exit_reason='died' counts; an unexited animal already at
+// lifecycle_status='dead' counts (event day falls back to updated_at); sold,
+// culled, transferred and lost exits and live animals never appear; and
+// active_population excludes every exited/terminal status while the per-day
+// death rows share the same whole-park denominator.
+func TestMortalityBaseStatusBuckets(t *testing.T) {
+	ctx := context.Background()
+	pool, tenant := newDB(t, ctx)
+	pk := park(t, ctx, pool, tenant, "Park S")
+	sh := shed(t, ctx, pool, tenant, pk, "Shed S1", nil)
+	exit := time.Date(2026, 7, 11, 6, 0, 0, 0, time.UTC)
+
+	// Two live animals: the denominator.
+	goat(t, ctx, pool, tenant, pk, sh, "goat", "alive", nil, nil)
+	goat(t, ctx, pool, tenant, pk, sh, "goat", "alive", nil, nil)
+	// Every non-death exit status: none is a death, none is population.
+	for _, exitStatus := range [][2]string{{"sold", "sold"}, {"culled", "culled"}, {"transferred", "transferred"}, {"lost", "lost"}} {
+		party := custodian(t, ctx, pool, tenant)
+		if _, err := pool.Exec(ctx,
+			`INSERT INTO goats (goat_id, tenant_id, display_id, species, sex, lifecycle_status, management_stage, health_status,
+			                    custodian_party_id, park_id, shed_id, origin_type, exited_at, exit_reason, row_version, created_at, updated_at)
+			 VALUES (gen_random_uuid(), $1, 'G-' || lpad((floor(random()*1000000000))::bigint::text, 9, '0'), 'goat', 'female', $2, 'active_adult', 'healthy',
+			         $3, $4, $5, 'procured', $6, $7, 1, now(), now())`,
+			tenant, exitStatus[0], party, pk, sh, exit, exitStatus[1]); err != nil {
+			t.Fatalf("insert %s goat: %v", exitStatus[1], err)
+		}
+	}
+	// One proper death exit.
+	deadGoatWithID(t, ctx, pool, tenant, pk, sh, "active_adult", time.Date(2024, 1, 1, 0, 0, 0, 0, time.UTC), exit)
+	// One animal marked dead without an exit row (legacy Counts predicate): counts, dated by updated_at.
+	party := custodian(t, ctx, pool, tenant)
+	if _, err := pool.Exec(ctx,
+		`INSERT INTO goats (goat_id, tenant_id, display_id, species, sex, lifecycle_status, management_stage, health_status,
+		                    custodian_party_id, park_id, shed_id, origin_type, row_version, created_at, updated_at)
+		 VALUES (gen_random_uuid(), $1, 'G-' || lpad((floor(random()*1000000000))::bigint::text, 9, '0'), 'goat', 'female', 'dead', 'active_adult', 'healthy',
+		         $2, $3, $4, 'procured', 1, $5, $5)`,
+		tenant, party, pk, sh, exit); err != nil {
+		t.Fatalf("insert unexited dead goat: %v", err)
+	}
+
+	got := mortalityRows(t, ctx, pool, tenant)
+	if len(got) != 1 {
+		t.Fatalf("expected one (park, day) row, got %d: %+v", len(got), got)
+	}
+	if got[0].deaths != 2 {
+		t.Fatalf("status predicate wrong: deaths=%d want 2 (died exit + unexited dead), sold/culled/transferred/lost must not count", got[0].deaths)
+	}
+	if got[0].activePopulation != 2 {
+		t.Fatalf("active_population=%d want 2 (only live animals)", got[0].activePopulation)
+	}
+}
+
+// TestMortalityBasePageBoundary proves the natural-SQL consumer's bounded
+// `GROUP BY park_label ... LIMIT 50` reads the FULL per-day aggregate before
+// paging: 60 parks each with one death yield 60 view rows, the top-50 page is
+// an exact prefix of the whole-result ordering, and summing across every row
+// (not the page) reproduces the total.
+func TestMortalityBasePageBoundary(t *testing.T) {
+	ctx := context.Background()
+	pool, tenant := newDB(t, ctx)
+	dob := time.Date(2024, 1, 1, 0, 0, 0, 0, time.UTC)
+	exit := time.Date(2026, 7, 11, 6, 0, 0, 0, time.UTC)
+	const parks = 60
+	for i := 0; i < parks; i++ {
+		pk := park(t, ctx, pool, tenant, fmt.Sprintf("Park %03d", i))
+		sh := shed(t, ctx, pool, tenant, pk, "Shed", nil)
+		deadGoatWithID(t, ctx, pool, tenant, pk, sh, "active_adult", dob, exit)
+		if i%2 == 0 { // every second park has a second death on the same day
+			deadGoatWithID(t, ctx, pool, tenant, pk, sh, "active_adult", dob, exit)
+		}
+	}
+	all := mortalityRows(t, ctx, pool, tenant)
+	if len(all) != parks {
+		t.Fatalf("expected %d park rows, got %d", parks, len(all))
+	}
+	var total int64
+	for _, r := range all {
+		total += r.deaths
+	}
+	if total != parks+parks/2 {
+		t.Fatalf("whole-result deaths=%d want %d", total, parks+parks/2)
+	}
+
+	// The consumer shape from natural_sql.go: grouped, ordered, bounded.
+	rows, err := pool.Query(ctx,
+		`SELECT park_label, sum(deaths) FROM ceo_ai.mortality_base WHERE tenant_id=$1 GROUP BY park_label ORDER BY sum(deaths) DESC, park_label LIMIT 50`, tenant)
+	if err != nil {
+		t.Fatalf("query page: %v", err)
+	}
+	defer rows.Close()
+	var page int
+	var pageTotal int64
+	for rows.Next() {
+		var label string
+		var deaths int64
+		if err := rows.Scan(&label, &deaths); err != nil {
+			t.Fatalf("scan: %v", err)
+		}
+		page++
+		pageTotal += deaths
+		if page <= parks/2 && deaths != 2 {
+			t.Fatalf("page row %d (%s) deaths=%d: two-death parks must fill the head of the page", page, label, deaths)
+		}
+	}
+	if page != 50 {
+		t.Fatalf("page rows=%d want 50", page)
+	}
+	if pageTotal >= total {
+		t.Fatalf("a bounded page must not equal the whole-result total: page=%d total=%d", pageTotal, total)
 	}
 }
