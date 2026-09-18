@@ -381,6 +381,14 @@ var allowedHistoricalChecksums = map[string]checksumPair{
 		current: "sha256:a0b12a06829e63aed9204b5755f522d86c265be46d32778c4efdd22c13070662",
 		applied: "sha256:65e4e4b2dc1cde852eadd602f06a6baa8b306a54f0538cbbf14ee327bea8be64",
 	},
+	"000342_feed_sop_cards": {
+		current: "sha256:35669804c9702d5680676ef65e99c605e64665605bc1e38440a8fe1f7059af7e",
+		applied: "sha256:b1aea1f11dd92936a361e87994fc6ebdc0d59f2c1868e66bc957bc498588bbfd",
+	},
+	"000345_castro1_ettt_history_z1z3_identity_repair": {
+		current: "sha256:555e5f3b03a9c61672c4a1af1960c30f0cd022d624c065634c08a322387d688b",
+		applied: "sha256:2804e4464e8ffbf6ffe8fc505d85a7a6ef43c11a90a1e3de275fa048116a50e7",
+	},
 }
 
 func isAllowedHistoricalChecksum(migration migrationFile, appliedChecksum string) bool {

@@ -124,6 +124,8 @@ func TestAllowedHistoricalChecksumsAcceptOnlyAuditedGoatosDBPairs(t *testing.T) 
 		{"000046_birth_weight_and_colostrum_repair", "sha256:0f0873a5149c5582ccfd96d830674669cd343fbf1efb29a4168c96b5eb0a8d06", "sha256:ef8eb3e8f4ab306b9270831d79aaaa910b646a08ecc70d3988ac5ac073d5e0d7"},
 		{"000047_birth_colostrum_card_counts", "sha256:0abe9e413b9793a3b0a133c09e828adac0e8d7ac8f57f974d880a3c62ddbdacf", "sha256:15053660bb0686a60e496ed645bad7db72d1cab7915aa29e7e859cf3fe9e6274"},
 		{"000052_shifting_management_stage_selection", "sha256:a0b12a06829e63aed9204b5755f522d86c265be46d32778c4efdd22c13070662", "sha256:65e4e4b2dc1cde852eadd602f06a6baa8b306a54f0538cbbf14ee327bea8be64"},
+		{"000342_feed_sop_cards", "sha256:35669804c9702d5680676ef65e99c605e64665605bc1e38440a8fe1f7059af7e", "sha256:b1aea1f11dd92936a361e87994fc6ebdc0d59f2c1868e66bc957bc498588bbfd"},
+		{"000345_castro1_ettt_history_z1z3_identity_repair", "sha256:555e5f3b03a9c61672c4a1af1960c30f0cd022d624c065634c08a322387d688b", "sha256:2804e4464e8ffbf6ffe8fc505d85a7a6ef43c11a90a1e3de275fa048116a50e7"},
 	}
 
 	for _, tc := range cases {
