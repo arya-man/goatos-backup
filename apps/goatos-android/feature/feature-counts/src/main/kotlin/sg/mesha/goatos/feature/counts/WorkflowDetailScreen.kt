@@ -136,6 +136,8 @@ data class WorkflowDetailUiState(
     val loading: Boolean = true,
     val notFound: Boolean = false,
     val isDeath: Boolean = false,
+    /** A general work instruction has no animal: the header wears the document glyph, not the goat. */
+    val isGeneral: Boolean = false,
     val displayId: String = "",
     val roleLabel: String = "",
     /** "Birth · WF-0521"-style template line, VM-built from backend fields. */
@@ -373,7 +375,11 @@ private fun WorkflowContextCard(state: WorkflowDetailUiState) {
                 contentAlignment = Alignment.Center,
             ) {
                 Icon(
-                    imageVector = if (state.isDeath) MeshaIcons.Warn else MeshaIcons.Goat,
+                    imageVector = when {
+                        state.isDeath -> MeshaIcons.Warn
+                        state.isGeneral -> MeshaIcons.Document
+                        else -> MeshaIcons.Goat
+                    },
                     contentDescription = null,
                     tint = if (state.isDeath) MeshaColors.Danger else MeshaColors.BrandD,
                     modifier = Modifier.size(19.dp),

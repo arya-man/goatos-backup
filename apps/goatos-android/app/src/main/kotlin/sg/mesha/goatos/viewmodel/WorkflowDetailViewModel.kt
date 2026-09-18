@@ -1048,6 +1048,7 @@ class WorkflowDetailViewModel @Inject constructor(
             loading = false,
             notFound = false,
             isDeath = module == MODULE_DEATH,
+            isGeneral = module == MODULE_GENERAL,
             // Death (like the birth-mother header) headlines the physical RFID the operator can
             // actually read on the animal; the passport id is only a fallback when no tag exists.
             displayId = if (templateKey == TEMPLATE_KEY_BIRTH_MOTHER || module == MODULE_DEATH) {
@@ -1282,6 +1283,7 @@ class WorkflowDetailViewModel @Inject constructor(
         private val TIME_FORMAT: DateTimeFormatter = DateTimeFormatter.ofPattern("HH:mm")
         private val DATE_TIME_FORMAT: DateTimeFormatter = DateTimeFormatter.ofPattern("dd/MM/yyyy · HH:mm")
         private const val MODULE_DEATH = "death"
+        private const val MODULE_GENERAL = "general"
         private const val TEMPLATE_KEY_BIRTH_MOTHER = "birth_mother"
         private const val TYPE_QUESTION = "question"
         private const val TYPE_QUESTION_SELECT = "question_select"
