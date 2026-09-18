@@ -36,7 +36,10 @@ import {
 import { SignOutButton } from "@/components/auth/sign-out-button";
 import { CEOAIChat, type CEOAIChatCopy } from "@/components/ceo-ai-chat";
 import { NotificationBell } from "@/features/notifications";
-import { PushPermissionPrompt } from "@/components/push-permission-prompt";
+import {
+  PushPermissionPromptLazy,
+  PushRegistrationSync,
+} from "@/components/push-permission-prompt-lazy";
 import { preloadFirebasePerformance, startFirebasePerformanceTrace } from "@/lib/firebase-performance";
 import { reportAdminPerformanceEvent } from "@/lib/performance-events";
 import { parkLabel, parseScope, scopeHref, type Park } from "@/lib/scope";
@@ -805,8 +808,14 @@ export function MeshaShell({
         <NotificationBell
           openLabel={contract.top_bar.notifications.disabled_reason}
           contractCopy={contract.copy}
-          permissionSlot={<PushPermissionPrompt contractCopy={contract.copy} />}
+          permissionSlot={<PushPermissionPromptLazy contractCopy={contract.copy} />}
         />
+        {/* Renders nothing. It keeps an ALREADY-granted browser's FCM token registered on mount,
+            which the push control used to do from its own mount effect -- now that the control is
+            fetched on the bell's first open, that silent half has to stay out here. It reads
+            `Notification.permission` and imports the push client only when it is "granted", so a
+            browser that never granted loads no firebase. See push-permission-prompt-lazy.tsx. */}
+        <PushRegistrationSync />
         <div className="userpick" data-menu-root>
           <button
             type="button"

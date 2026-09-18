@@ -71,10 +71,6 @@ type SubQuestion struct {
 	// Params are validated, server-bound arguments (tenant is NEVER here — it
 	// is injected from the Actor at execution time).
 	Params map[string]any
-	// TrustedSQL is set only by deterministic server-side planners for SQL that
-	// needs a narrow backend-authored read shape. It is intentionally not parsed
-	// from model output or user text.
-	TrustedSQL bool
 }
 
 // Plan is the planner output for a Question: an ordered set of sub-questions.

@@ -25,7 +25,7 @@
  */
 
 import { usePathname } from "next/navigation";
-import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
+import { Suspense, lazy, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { Bell } from "lucide-react";
 import {
   loadNotificationFeedAction,
@@ -41,8 +41,26 @@ import {
   notificationBadgeCount,
   type NotificationFeed,
 } from "./notification-model";
-import { NotificationPanel } from "./notification-panel";
 import { placeNotificationPanel, type NotificationPanelBox } from "./notification-placement";
+
+/**
+ * THE PANEL IS FETCHED ON THE FIRST OPEN, NOT WITH THE SHELL. The bell is mounted in the top bar
+ * of every admin route, so everything it imports statically is paid for on all 63 of them -- and
+ * the panel is the heavy half (its rows, its icons, its `no-prefetch-link`), for a popover most
+ * readers never open. The BELL and its unread BADGE stay eager on purpose: a person must see that
+ * they have notifications without interacting with anything.
+ *
+ * WHAT THIS DOES NOT CHANGE, and it is the thing to check before editing anything below: the
+ * measured geometry. `panelRef` is on the `.parkmenu` WRAPPER, which is rendered on every pass
+ * whether the panel's chunk has arrived or not, and `placeNotificationPanel` derives the box from
+ * the BELL's rect and the viewport width -- never from the panel's content. So the layout effect
+ * measures the same element at the same time it always did, the chunk lands inside an already
+ * placed and already width-fixed box, and the first click still opens on the first try.
+ */
+const NotificationPanel = lazy(async () => {
+  const mod = await import("./notification-panel");
+  return { default: mod.NotificationPanel };
+});
 
 export function NotificationBell({
   openLabel,
@@ -320,6 +338,9 @@ export function NotificationBell({
         }
       >
         {open ? (
+          // `fallback={null}` keeps the popover EMPTY for the tick the chunk takes rather than
+          // showing a spinner that would resize the box the layout effect has just measured.
+          <Suspense fallback={null}>
           <NotificationPanel
             feed={shownFeed}
             centreCopy={centreCopy}
@@ -331,6 +352,7 @@ export function NotificationBell({
             onRefresh={() => void refresh()}
             onClose={closePanel}
           />
+          </Suspense>
         ) : null}
       </div>
     </div>

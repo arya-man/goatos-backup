@@ -681,6 +681,7 @@ run_admin_web() {
   step "admin-web proof media egress" make admin-web-proof-media-egress-guard
   step "admin-web phone viewport"  make admin-web-phone-viewport-guard
   step "admin-web prefetch"      make admin-web-prefetch-guard
+  step "admin-web server/client values" make admin-web-server-client-values-guard
   step "admin-web local overlays" make admin-web-local-overlay-guard
   step "date-format-guard" make date-format-guard
   step "sidebar-typography-guard" make sidebar-typography-guard

@@ -72,6 +72,16 @@
       "ciStep": "admin-web-prefetch-guard"
     },
     {
+      "id": "admin-web-server-client-values",
+      "script": "tools/agent-hooks/check-admin-web-server-client-values.mjs",
+      "makeTarget": "admin-web-server-client-values-guard",
+      "realCheck": "node tools/agent-hooks/check-admin-web-server-client-values.mjs",
+      "selfTest": "node tools/agent-hooks/check-admin-web-server-client-values.mjs --self-test",
+      "requiredInCI": true,
+      "ciStep": "admin-web-server-client-values-guard",
+      "notes": "A server component must not import a plain value (helper/const, not a component) from a \"use client\" module: it is a client reference, and calling it during server render fails at runtime while tsc/eslint/unit tests stay green (PR #295: 206 \"Attempted to call initials() from the server\" errors, zero task cards, React #419)."
+    },
+    {
       "id": "admin-web-request-reads",
       "script": "tools/agent-hooks/check-admin-web-request-reads.mjs",
       "makeTarget": "admin-web-request-reads-guard",
