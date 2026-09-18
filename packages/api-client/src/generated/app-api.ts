@@ -14438,8 +14438,18 @@ export interface components {
             trace_id?: string;
         };
         GrowthDirectorFeedWeightBandReconciliation: {
-            /** @description The sheet day the rows were read from (YYYY-MM-DD); empty when no locked/amended sheet exists. */
+            /** @description The NEWEST sheet day among the selected parks (YYYY-MM-DD); empty when no locked/amended sheet exists. Each park reads its OWN latest locked/amended issue per workflow (see feed_sheets), never one global day. */
             feed_day: string;
+            /** @description The sheet actually read per park and workflow (each park's latest locked/amended issue), ordered park name then workflow; an all-parks read lists both parks even when one park's newest sheet is older. */
+            feed_sheets: {
+                /** Format: uuid */
+                park_id: string;
+                park_name: string;
+                /** @enum {string} */
+                workflow: "normal" | "experiment";
+                /** Format: date */
+                feed_day: string;
+            }[];
             /** @description Sheet rows with quantity_kg > 0 on the latest issue per park and workflow. */
             positive_rows: number;
             /** @description Those rows with session duplicates summed per feed item. */

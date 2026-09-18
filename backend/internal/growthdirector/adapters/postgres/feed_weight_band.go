@@ -123,33 +123,36 @@ var feedWeightBandSQL = strings.NewReplacer(
 	"__GOAT_PEN__", penLabelSQL("l.name", goatPartitionSQL),
 ).Replace(`
 WITH latest_issue AS (
+  -- The latest locked/amended sheet PER PARK AND WORKFLOW (Codex P1 on PR #304: a global
+  -- max(feed_day) across the selected parks dropped a park whose newest sheet was a day older).
   SELECT DISTINCT ON (i.park_id, i.workflow) i.feed_direction_issue_id, i.park_id, i.workflow, i.feed_day
   FROM feed_direction_issues i
   WHERE i.tenant_id = $1::uuid
     AND i.park_id = ANY($2::uuid[])
     AND i.state IN ('amended','locked')
-    AND i.feed_day = (SELECT max(x.feed_day) FROM feed_direction_issues x
-                      WHERE x.tenant_id = $1::uuid AND x.park_id = ANY($2::uuid[]) AND x.state IN ('amended','locked'))
-  ORDER BY i.park_id, i.workflow, COALESCE(i.locked_at, i.amended_at, i.issued_at) DESC
+  ORDER BY i.park_id, i.workflow, i.feed_day DESC, COALESCE(i.locked_at, i.amended_at, i.issued_at) DESC
 ),
 positive_rows AS (
   SELECT r.park_id, r.park_label, r.shed_label, COALESCE(r.partition_label, '') AS partition_label,
          COALESCE(r.shed_tag, '') AS shed_tag, COALESCE(r.ration_group, '') AS ration_group,
          COALESCE(r.experiment_arm, '') AS experiment_arm, COALESCE(r.breed, '') AS breed,
-         r.workflow, r.feed_item_label, r.quantity_kg, r.grams_per_head
+         r.workflow, r.feed_item_label, r.quantity_kg, r.grams_per_head, li.feed_day
   FROM feed_direction_issue_rows r
   JOIN latest_issue li ON li.feed_direction_issue_id = r.feed_direction_issue_id
   WHERE r.tenant_id = $1::uuid AND r.quantity_kg > 0
 ),
 collapsed AS (
   SELECT park_id, park_label, shed_label, partition_label, shed_tag, ration_group, experiment_arm, breed, workflow,
-         feed_item_label, SUM(quantity_kg) AS quantity_kg, MAX(grams_per_head) AS grams_per_head
+         feed_item_label, SUM(quantity_kg) AS quantity_kg, MAX(grams_per_head) AS grams_per_head,
+         -- one sheet per (park, workflow), so feed_day is functionally dependent on the key
+         MAX(feed_day) AS feed_day
   FROM positive_rows
   GROUP BY 1,2,3,4,5,6,7,8,9,10
 ),
 rollup AS MATERIALIZED (
   SELECT park_id, park_label, shed_tag, ration_group, experiment_arm, breed, workflow,
          ` + "__FEED_PEN__" + ` AS pen_label,
+         MAX(feed_day) AS feed_day,
          SUM(quantity_kg) AS kg_per_day,
          json_agg(json_build_object('label', feed_item_label, 'grams_per_head', COALESCE(grams_per_head, 0)) ORDER BY feed_item_label) AS items
   FROM collapsed
@@ -295,7 +298,7 @@ SELECT
   (SELECT count(*) FROM animal_latest)::int,
   (SELECT COALESCE(sum(n), 0) FROM pen_avg)::int,
   r.park_id::text, COALESCE(NULLIF(r.park_label, ''), pk.name, ''), r.pen_label, r.shed_tag, r.ration_group, r.experiment_arm, r.breed, r.workflow,
-  r.kg_per_day::float8, r.items::text,
+  r.feed_day, r.kg_per_day::float8, r.items::text,
   COALESCE(e.source, ''), COALESCE(e.band, ''), COALESCE(e.n, 0), COALESCE(e.avg_kg, 0)::float8,
   COALESCE(e.female_count, 0), COALESCE(e.male_count, 0), COALESCE(e.exited_n, 0), COALESCE(e.sold_n, 0), COALESCE(e.died_n, 0),
   COALESCE(e.n_all, 0), COALESCE(e.avg_kg_all, 0)::float8, COALESCE(e.female_all, 0), COALESCE(e.male_all, 0)
@@ -547,6 +550,7 @@ func (r *Repository) readFeedWeightBandSource(ctx context.Context, tenantID stri
 			parkID, parkName, pen   string
 			tag, ration, arm, breed string
 			workflow, itemsJSON     string
+			rollupDay               time.Time
 			kgPerDay, avgKg         float64
 			source, band            string
 			animals, female, male   int
@@ -556,7 +560,7 @@ func (r *Repository) readFeedWeightBandSource(ctx context.Context, tenantID stri
 			femaleAll, maleAll      int
 		)
 		if err := rows.Scan(&feedDay, &positive, &collapsed, &individual, &lump, &parkID, &parkName, &pen, &tag, &ration, &arm, &breed, &workflow,
-			&kgPerDay, &itemsJSON, &source, &band, &animals, &avgKg, &female, &male, &exited, &sold, &died, &animalsAll, &avgKgAll, &femaleAll, &maleAll); err != nil {
+			&rollupDay, &kgPerDay, &itemsJSON, &source, &band, &animals, &avgKg, &female, &male, &exited, &sold, &died, &animalsAll, &avgKgAll, &femaleAll, &maleAll); err != nil {
 			return out, fmt.Errorf("growthdirector: feed weight band scan: %w", err)
 		}
 		if feedDay != nil {
@@ -580,7 +584,7 @@ func (r *Repository) readFeedWeightBandSource(ctx context.Context, tenantID stri
 			}
 			out.Rollups = append(out.Rollups, ports.FeedRollup{
 				ParkID: parkID, ParkName: parkName, Pen: strings.TrimSpace(pen), ShedTag: tag, RationGroup: ration,
-				ExperimentArm: arm, Breed: breed, Workflow: workflow, KgPerDay: kgPerDay, Items: items,
+				ExperimentArm: arm, Breed: breed, Workflow: workflow, FeedDay: rollupDay.Format("2006-01-02"), KgPerDay: kgPerDay, Items: items,
 				Evidence: []ports.FeedWeightEvidence{},
 			})
 			i = len(out.Rollups) - 1

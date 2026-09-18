@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"math"
+	"sort"
 	"strings"
 
 	"github.com/vgoats/goatos/backend/internal/growthdirector/domain"
@@ -155,7 +156,12 @@ func BuildFeedWeightBand(source ports.FeedWeightBandSource) domain.FeedWeightBan
 		}
 		out.Exited = append(out.Exited, exit)
 	}
+	sheetsSeen := map[[2]string]bool{}
 	for _, rollup := range source.Rollups {
+		if k := [2]string{rollup.ParkID, rollup.Workflow}; !sheetsSeen[k] && rollup.FeedDay != "" {
+			sheetsSeen[k] = true
+			out.Reconciliation.FeedSheets = append(out.Reconciliation.FeedSheets, domain.FeedSheetUsed{ParkID: rollup.ParkID, ParkName: rollup.ParkName, Workflow: rollup.Workflow, FeedDay: rollup.FeedDay})
+		}
 		group := domain.ShedTagGroup(rollup.ShedTag)
 		out.Reconciliation.Rollups++
 		feedGiven := strings.Split(feedGivenOf(rollup), " + ")
@@ -223,6 +229,16 @@ func BuildFeedWeightBand(source ports.FeedWeightBandSource) domain.FeedWeightBan
 				PenKgPerDay:   rollup.KgPerDay,
 			})
 		}
+	}
+	sort.Slice(out.Reconciliation.FeedSheets, func(i, j int) bool {
+		a, b := out.Reconciliation.FeedSheets[i], out.Reconciliation.FeedSheets[j]
+		if a.ParkName != b.ParkName {
+			return a.ParkName < b.ParkName
+		}
+		return a.Workflow < b.Workflow
+	})
+	if out.Reconciliation.FeedSheets == nil {
+		out.Reconciliation.FeedSheets = []domain.FeedSheetUsed{}
 	}
 	domain.DisambiguateGroups(out.Rows)
 	domain.SortFeedWeightBandRows(out.Rows)

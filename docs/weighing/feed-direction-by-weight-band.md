@@ -30,6 +30,17 @@ feed rollup three times, once per band row, and the tiles never add those rows u
 
 ### Feed side
 
+**Latest sheet is per park and per workflow.** `latest_issue` is `DISTINCT ON (park_id, workflow)`
+over locked/amended issues ordered `feed_day DESC, coalesce(locked_at, amended_at, issued_at)
+DESC` — no global newest day. An all-parks read therefore takes CBE's latest sheet AND CPT's
+latest sheet even when one is a day older (the first cut filtered every selected park to one
+`max(feed_day)` and dropped the park with the older sheet; Codex P1 on PR #304, pinned by the
+integration fixture where park B's latest sheet is one day older than park A's).
+`reconciliation.feed_sheets` lists the sheet read per park and workflow; `feed_day` is the newest
+of them. The chip reads "Feed sheet 19/09/2026" when every sheet is the same day, otherwise
+"Feed sheets · CBE 19/09/2026 · CPT 18/09/2026" (with the workflow named when a park's normal
+and experiment sheets differ).
+
 1. **Feed day** = `max(feed_day)` over `feed_direction_issues` with `state IN ('amended','locked')`
    in the parks in scope. Within that day, **one issue per park + workflow**, the latest by
    `coalesce(locked_at, amended_at, issued_at)` (the live unique index already allows only one live

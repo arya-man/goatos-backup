@@ -22,7 +22,7 @@ func feedSourceFixture() ports.FeedWeightBandSource {
 		IndividualAnimalsWeighed: 9, LumpSumAnimalsWeighed: 40,
 		Rollups: []ports.FeedRollup{
 			// A pen-average pen: one evidence row; the register says every resident is male.
-			{ParkID: gdParkA, ParkName: "Coimbatore", Pen: "Castro 1", ShedTag: "F2-Male", RationGroup: "Fattening", Breed: "Beetal x Sojat", Workflow: "normal", KgPerDay: 12.5, Items: items,
+			{ParkID: gdParkA, ParkName: "Coimbatore", Pen: "Castro 1", ShedTag: "F2-Male", RationGroup: "Fattening", Breed: "Beetal x Sojat", Workflow: "normal", FeedDay: "2026-09-02", KgPerDay: 12.5, Items: items,
 				Evidence: []ports.FeedWeightEvidence{{Source: domain.FeedBandSourcePenAverage, Band: "25_30", Animals: 40, AverageWeightKg: 27.2, MaleCount: 38, AnimalsAll: 40, AverageWeightKgAll: 27.2, MaleCountAll: 38}}},
 			// A per-animal pen with two kid rollups that would read identically: two bands
 			// each, the 15-20 band mixed with two sold animals beside it, the under-15 band
@@ -32,7 +32,7 @@ func feedSourceFixture() ports.FeedWeightBandSource {
 			{ParkID: gdParkA, ParkName: "Coimbatore", Pen: "Godel 1 - Part 2", ShedTag: "ICU-Kid", RationGroup: "Kid", Breed: "Sojat", Workflow: "normal", KgPerDay: 1, Items: items[1:],
 				Evidence: []ports.FeedWeightEvidence{{Source: domain.FeedBandSourcePerAnimal, Band: "15_20", Animals: 3, AverageWeightKg: 17, FemaleCount: 2, MaleCount: 1, AnimalsAll: 5, AverageWeightKgAll: 17.4, FemaleCountAll: 3, MaleCountAll: 2, ExitedAnimals: 2, ExitedSold: 1}, {Source: domain.FeedBandSourcePerAnimal, Band: "under_15", Animals: 2, AverageWeightKg: 12, FemaleCount: 2, AnimalsAll: 2, AverageWeightKgAll: 12, FemaleCountAll: 2}}},
 			// A fed pen nobody has weighed in the period: excluded, counted.
-			{ParkID: gdParkA, ParkName: "Coimbatore", Pen: "Sumathi 1 - Part 4", ShedTag: "F2-Female", RationGroup: "Fattening", Breed: "Sojat", Workflow: "experiment", ExperimentArm: "Arm A", KgPerDay: 9, Items: items},
+			{ParkID: gdParkA, ParkName: "Coimbatore", Pen: "Sumathi 1 - Part 4", ShedTag: "F2-Female", RationGroup: "Fattening", Breed: "Sojat", Workflow: "experiment", ExperimentArm: "Arm A", FeedDay: "2026-09-01", KgPerDay: 9, Items: items},
 		},
 		Exited: []ports.FeedExitedAnimal{
 			{GoatID: "g1", ParkID: gdParkA, Tag: "TAG-SOLD", Pen: "Godel 1 - Part 2", Sex: "female", ExitReason: "sold", LifecycleStatus: "sold", ExitedAt: exitedAt, LastWeighedAt: &weighedAt, LastWeightKg: 18.5},
@@ -106,6 +106,10 @@ func TestBuildFeedWeightBandReconcilesAndOrders(t *testing.T) {
 	// The period totals bucket the same way and sum to the exit count.
 	if rec.ExitedSold != 1 || rec.ExitedDied != 1 || rec.ExitedOther != 1 || rec.ExitedSold+rec.ExitedDied+rec.ExitedOther != rec.ExitedAnimals {
 		t.Fatalf("reconciliation exit buckets: want 1/1/1 of 3, got %+v", rec)
+	}
+	// The sheets read, one per park and workflow, each with its own day (park-wise latest).
+	if len(rec.FeedSheets) != 2 || rec.FeedSheets[0].Workflow != "experiment" || rec.FeedSheets[0].FeedDay != "2026-09-01" || rec.FeedSheets[1].Workflow != "normal" || rec.FeedSheets[1].FeedDay != "2026-09-02" {
+		t.Fatalf("feed sheets: want experiment 2026-09-01 then normal 2026-09-02, got %+v", rec.FeedSheets)
 	}
 	// Weighed / not weighed split: only TAG-SOLD carries a weigh in the period.
 	if rec.ExitedWeighed != 1 || rec.ExitedNotWeighed != 2 || rec.ExitedWeighed+rec.ExitedNotWeighed != rec.ExitedAnimals {

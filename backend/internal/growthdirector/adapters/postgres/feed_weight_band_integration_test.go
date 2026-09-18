@@ -43,8 +43,10 @@ VALUES ($1::uuid, $2::uuid, $3::uuid, $4::date, $5, $6, $7::timestamptz, CASE WH
 	// is defensive rather than exercised here).
 	issue(issueNormal, gdPark, "2026-07-15", "normal", "locked", day(14, 10))
 	issue(issueExp, gdPark, "2026-07-15", "experiment", "locked", day(14, 10))
-	// The other park's sheet on the same day, out of scope for a park-A read.
-	issue(issueOther, otherPark, "2026-07-15", "normal", "locked", day(14, 10))
+	// The other park's latest sheet is ONE DAY OLDER (2026-07-14): a park-A read never sees
+	// it, and an all-parks read must still take it -- each park's own latest, never one
+	// global newest day (Codex P1 on PR #304).
+	issue(issueOther, otherPark, "2026-07-14", "normal", "locked", day(13, 10))
 
 	row := func(issueID, park, shedLabel, partition, tag, ration, arm, breed, workflow, item string, session int, kg, grams float64) {
 		execGD(t, ctx, pool, `
@@ -269,6 +271,24 @@ VALUES
 	}
 	if both.PositiveRows != 6 || len(both.Rollups) != 4 {
 		t.Fatalf("both parks: want 6 positive rows and 4 rollups, got %d / %d", both.PositiveRows, len(both.Rollups))
+	}
+	// PER-PARK LATEST SHEET: park A's rollups read the 15th, park B's the 14th, and both parks
+	// are present although B's newest sheet is older; the source's FeedDay is the newest.
+	sheetDays := map[string]map[string]bool{}
+	for _, r := range both.Rollups {
+		if sheetDays[r.ParkID] == nil {
+			sheetDays[r.ParkID] = map[string]bool{}
+		}
+		sheetDays[r.ParkID][r.FeedDay] = true
+	}
+	if len(sheetDays[gdPark]) != 1 || !sheetDays[gdPark]["2026-07-15"] || len(sheetDays[otherPark]) != 1 || !sheetDays[otherPark]["2026-07-14"] || both.FeedDay != "2026-07-15" {
+		t.Fatalf("both parks: want park A on 2026-07-15 and park B on 2026-07-14 (newest 2026-07-15), got %v / %q", sheetDays, both.FeedDay)
+	}
+	// A single-park read is unchanged: three rollups, all on the 15th.
+	for _, r := range got.Rollups {
+		if r.FeedDay != "2026-07-15" {
+			t.Fatalf("park A alone: every rollup reads the 15th, got %+v", r)
+		}
 	}
 	// The window bounds the WEIGHINGS only: a window ending before every weigh leaves the
 	// feed rollups in place with no evidence, never drops the sheet.

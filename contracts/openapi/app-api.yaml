@@ -33723,11 +33723,25 @@ components:
     GrowthDirectorFeedWeightBandReconciliation:
       type: object
       additionalProperties: false
-      required: [feed_day, positive_rows, collapsed_items, rollups, matched_rollups, matched_rollups_all, excluded_rollups, excluded_rollups_all, output_rows, individual_animals_weighed, lump_sum_animals_weighed, exited_animals, exited_sold, exited_died, exited_other, exited_weighed, exited_not_weighed]
+      required: [feed_day, feed_sheets, positive_rows, collapsed_items, rollups, matched_rollups, matched_rollups_all, excluded_rollups, excluded_rollups_all, output_rows, individual_animals_weighed, lump_sum_animals_weighed, exited_animals, exited_sold, exited_died, exited_other, exited_weighed, exited_not_weighed]
       properties:
         feed_day:
           type: string
-          description: The sheet day the rows were read from (YYYY-MM-DD); empty when no locked/amended sheet exists.
+          description: The NEWEST sheet day among the selected parks (YYYY-MM-DD); empty when no locked/amended sheet exists. Each park reads its OWN latest locked/amended issue per workflow (see feed_sheets), never one global day.
+        feed_sheets:
+          type: array
+          description: The sheet actually read per park and workflow (each park's latest locked/amended issue), ordered park name then workflow; an all-parks read lists both parks even when one park's newest sheet is older.
+          items:
+            type: object
+            additionalProperties: false
+            required: [park_id, park_name, workflow, feed_day]
+            properties:
+              park_id: {type: string, format: uuid}
+              park_name: {type: string}
+              workflow:
+                type: string
+                enum: [normal, experiment]
+              feed_day: {type: string, format: date}
         positive_rows:
           type: integer
           description: Sheet rows with quantity_kg > 0 on the latest issue per park and workflow.

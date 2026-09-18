@@ -51,6 +51,8 @@ type Repository interface {
 // read: sheet-stage counts plus every rollup with its evidence rows. The service
 // derives display values, applies the sex filter and builds the reconciliation.
 type FeedWeightBandSource struct {
+	// FeedDay is the newest sheet day among the selected parks; each rollup carries its own
+	// park + workflow sheet day (FeedRollup.FeedDay), which may be older.
 	FeedDay        string
 	PositiveRows   int
 	CollapsedItems int
@@ -85,6 +87,9 @@ type FeedExitedAnimal struct {
 // rollup off the latest sheet. Items are the collapsed feed items in label
 // order; Evidence is empty when the pen has no weigh on record.
 type FeedRollup struct {
+	// FeedDay is the sheet day (YYYY-MM-DD) of the latest locked/amended issue for this
+	// rollup's park and workflow.
+	FeedDay string
 	ParkID        string
 	ParkName      string
 	Pen           string

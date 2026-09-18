@@ -160,12 +160,24 @@ type FeedWeightBandExit struct {
 	FeedGiven string `json:"feed_given,omitempty"`
 }
 
+// FeedSheetUsed names one sheet the read took rows from: a park's latest locked/amended issue
+// for one workflow. Ordered park name, then workflow.
+type FeedSheetUsed struct {
+	ParkID   string `json:"park_id"`
+	ParkName string `json:"park_name"`
+	Workflow string `json:"workflow"`
+	FeedDay  string `json:"feed_day"`
+}
+
 // FeedWeightBandReconciliation is the count at every stage from sheet rows to
 // output rows, so a reader can see where rows went instead of guessing.
 type FeedWeightBandReconciliation struct {
-	// FeedDay is the sheet day the rows were read from (YYYY-MM-DD); empty when there is
-	// no locked/amended sheet at all.
-	FeedDay string `json:"feed_day"`
+	// FeedDay is the NEWEST sheet day among the selected parks (YYYY-MM-DD); empty when there
+	// is no locked/amended sheet at all. FeedSheets is the sheet day actually read per park and
+	// workflow -- the latest locked/amended issue of EACH park, never one global day -- so an
+	// all-parks read names both parks' sheets even when one is a day older.
+	FeedDay    string          `json:"feed_day"`
+	FeedSheets []FeedSheetUsed `json:"feed_sheets"`
 	// PositiveRows is every sheet row with quantity_kg > 0 on the latest issue per park and
 	// workflow.
 	PositiveRows int `json:"positive_rows"`

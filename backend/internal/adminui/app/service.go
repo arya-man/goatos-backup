@@ -4988,6 +4988,7 @@ func pageSpecificCopy(id string) map[string]string {
 			// count of fed pens not shown. The full sheet-to-rows chain is in the design doc
 			// (docs/weighing/feed-direction-by-weight-band.md) and on the wire, not on screen.
 			"recon.feed_band.sheet":    "Feed sheet",
+			"recon.feed_band.sheets":   "Feed sheets",
 			"recon.feed_band.excluded": "fed pens not shown — no weighing in period",
 			"recon.feed_band.exited":   "exited in period",
 			"recon.feed_band.no_sheet": "No locked feed sheet on record.",

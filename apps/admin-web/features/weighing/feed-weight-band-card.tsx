@@ -264,6 +264,23 @@ export function FeedWeightBandCard({
     });
   }
 
+  // One chip when every park's sheet is the same day; otherwise each park's own day (each
+  // park reads its own latest sheet), and the workflow too when a park's two sheets differ.
+  const sheetChip = (() => {
+    if (!recon?.feed_day) return "";
+    const sheets = recon.feed_sheets;
+    const days = new Set(sheets.map((sheet) => sheet.feed_day));
+    if (days.size <= 1) return `${copy(pageContract, "recon.feed_band.sheet")} ${fmtDate(recon.feed_day)}`;
+    const perPark = new Map<string, Set<string>>();
+    for (const sheet of sheets) {
+      if (!perPark.has(sheet.park_name)) perPark.set(sheet.park_name, new Set());
+      perPark.get(sheet.park_name)!.add(sheet.feed_day);
+    }
+    const parts = sheets
+      .filter((sheet, index) => perPark.get(sheet.park_name)!.size > 1 || sheets.findIndex((other) => other.park_name === sheet.park_name) === index)
+      .map((sheet) => (perPark.get(sheet.park_name)!.size > 1 ? `${sheet.park_name} ${typeLabel(sheet.workflow)} ${fmtDate(sheet.feed_day)}` : `${sheet.park_name} ${fmtDate(sheet.feed_day)}`));
+    return `${copy(pageContract, "recon.feed_band.sheets")} · ${parts.join(" · ")}`;
+  })();
   const excludedCount = recon ? (includeExited ? recon.excluded_rollups_all : recon.excluded_rollups) : 0;
   // One park in the payload: the Park column would repeat one word on every row, so the table
   // contract handed down hides it (density, not vocabulary).
@@ -310,8 +327,8 @@ export function FeedWeightBandCard({
       {recon ? (
         <p className="muted small wt-feedband-recon">
           {recon.feed_day ? (
-            <Tag tone="mut">
-              {copy(pageContract, "recon.feed_band.sheet")} {fmtDate(recon.feed_day)}
+            <Tag tone="mut" title={recon.feed_sheets.map((sheet) => `${sheet.park_name} · ${typeLabel(sheet.workflow)} · ${fmtDate(sheet.feed_day)}`).join(" · ")}>
+              {sheetChip}
             </Tag>
           ) : (
             copy(pageContract, "recon.feed_band.no_sheet")
