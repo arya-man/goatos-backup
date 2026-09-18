@@ -2046,11 +2046,14 @@ paths:
         and counted in `reconciliation.excluded_rollups`.
 
 
-        Sold / dead animals (goats.exited_at set) are outside a band row's on-farm head count
-        and average; every row also carries the `*_all` variant that counts them in, plus
-        `exited_animals` / `exited_sold` / `exited_died`, so the screen's Animals toggle is a
-        client-side flip. Every animal that exited inside the period is listed in `exited`
-        with its last weigh.
+        EXITED animals (any `goats.exited_at`: sold, died, or any other exit such as an
+        inactive or transferred record) are outside a band row's on-farm head count and
+        average; every row also carries the `*_all` variant that counts them in, plus
+        `exited_animals` split into `exited_sold` / `exited_died` / `exited_other` (bucketed
+        from `goats.lifecycle_status` / `goats.exit_reason`: sold -> sold; dead / died ->
+        died; everything else -> other), so the screen's Animals toggle is a client-side flip.
+        Every animal that exited inside the period is listed in `exited` with its last weigh
+        and its bucket; the reconciliation carries the same three bucket totals.
 
 
         `from`/`to` are inclusive Asia/Kolkata business dates bounding the weight evidence
@@ -33718,7 +33721,7 @@ components:
     GrowthDirectorFeedWeightBandReconciliation:
       type: object
       additionalProperties: false
-      required: [feed_day, positive_rows, collapsed_items, rollups, matched_rollups, matched_rollups_all, excluded_rollups, excluded_rollups_all, output_rows, individual_animals_weighed, lump_sum_animals_weighed, exited_animals]
+      required: [feed_day, positive_rows, collapsed_items, rollups, matched_rollups, matched_rollups_all, excluded_rollups, excluded_rollups_all, output_rows, individual_animals_weighed, lump_sum_animals_weighed, exited_animals, exited_sold, exited_died, exited_other]
       properties:
         feed_day:
           type: string
@@ -33755,7 +33758,16 @@ components:
           description: The weighing side's own whole-pen total before any feed match, at the General tab's grain.
         exited_animals:
           type: integer
-          description: Animals sold or dead inside the period (the length of `exited`).
+          description: Animals that exited the register inside the period, whatever the reason (the length of `exited`).
+        exited_sold:
+          type: integer
+          description: The sold bucket of exited_animals (lifecycle_status / exit_reason sold).
+        exited_died:
+          type: integer
+          description: The died bucket of exited_animals (lifecycle_status / exit_reason dead or died).
+        exited_other:
+          type: integer
+          description: Every other exit (inactive, transferred, lost, culled, blank). exited_sold + exited_died + exited_other = exited_animals.
     GrowthDirectorFeedWeightBandUnmatched:
       type: object
       additionalProperties: false
@@ -33778,7 +33790,7 @@ components:
     GrowthDirectorFeedWeightBandExit:
       type: object
       additionalProperties: false
-      required: [park_id, park_name, tag, pen, gender, reason, lifecycle_status, exited_at]
+      required: [park_id, park_name, tag, pen, gender, reason, lifecycle_status, bucket, exited_at]
       properties:
         park_id: {type: string, format: uuid}
         park_name: {type: string}
@@ -33789,8 +33801,16 @@ components:
         gender:
           type: string
           description: The register's sex as display copy (Male / Female); empty when unknown.
-        reason: {type: string}
-        lifecycle_status: {type: string}
+        reason:
+          type: string
+          description: The register's exit_reason as stored (may be blank).
+        lifecycle_status:
+          type: string
+          description: The register's lifecycle_status as stored.
+        bucket:
+          type: string
+          enum: [sold, died, other]
+          description: The exit bucket folded from reason and lifecycle_status; the pill the panel shows beside the stored text.
         exited_at: {type: string, format: date}
         last_weighed_at: {type: string, format: date}
         last_band:
@@ -33805,7 +33825,7 @@ components:
     GrowthDirectorFeedWeightBandRow:
       type: object
       additionalProperties: false
-      required: [park_id, park_name, weight_source, band, pen, shed_tag, group, gender, gender_all, breed, feed_type, ration_group, feed_given, pen_kg_per_day, weight_animals, average_weight_kg, weight_animals_all, average_weight_kg_all, exited_animals, exited_sold, exited_died]
+      required: [park_id, park_name, weight_source, band, pen, shed_tag, group, gender, gender_all, breed, feed_type, ration_group, feed_given, pen_kg_per_day, weight_animals, average_weight_kg, weight_animals_all, average_weight_kg_all, exited_animals, exited_sold, exited_died, exited_other]
       properties:
         park_id: {type: string, format: uuid}
         park_name: {type: string}
@@ -33846,20 +33866,23 @@ components:
         average_weight_kg: {type: number}
         weight_animals_all:
           type: integer
-          description: The same head count including animals since sold or dead.
+          description: The same head count including animals that have since exited.
         average_weight_kg_all: {type: number}
         gender_all:
           type: string
-          description: Gender over every weighed animal including those since sold or dead.
+          description: Gender over every weighed animal including those that have since exited.
         exited_animals:
           type: integer
-          description: Weighed animals of this band that have since been sold or died; outside weight_animals unless the read asked to include them. Always 0 on a pen-average row.
+          description: Weighed animals of this band that have since exited the register (any goats.exited_at); outside weight_animals, inside weight_animals_all. Always 0 on a pen-average row.
         exited_sold:
           type: integer
-          description: The sold part of exited_animals.
+          description: The sold bucket of exited_animals.
         exited_died:
           type: integer
-          description: The dead / otherwise-left part of exited_animals.
+          description: The died bucket of exited_animals.
+        exited_other:
+          type: integer
+          description: Every other exit (inactive, transferred, lost, culled, blank). exited_sold + exited_died + exited_other = exited_animals.
     GrowthDirectorFeedWeightBandResponse:
       type: object
       additionalProperties: false

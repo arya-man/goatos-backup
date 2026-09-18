@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/vgoats/goatos/backend/internal/growthdirector/ports"
@@ -72,11 +73,14 @@ const goatPartitionSQL = `CASE WHEN p.partition_label ~ '^[0-9]+$' AND ps.shed_i
 //     (that read pairs per campaign-shed bucket); the lump total can therefore exceed the
 //     General tab's by the pens whose two dates sit in differently-spelled buckets.
 //
-// SOLD AND DEAD ANIMALS (maintainer rule 2026-09-18): an animal whose goat has exited
-// (goats.exited_at set -- sold, dead) is not eating today's feed, so by default it does NOT count
+// EXITED ANIMALS (maintainer rule 2026-09-18; semantics corrected the same day, Codex P1): an
+// animal whose goat has EXITED (goats.exited_at set -- sold, died, or any other exit such as an
+// inactive/transferred record) is not eating today's feed, so by default it does NOT count
 // toward a band's head count or average, but it is never hidden. Every per-animal band row carries
 // BOTH variants -- on-farm animals (n / avg / sexes) and every weighed animal including exited
-// (n_all / avg_all / sexes) -- plus the exited and sold counts, so the screen's Animals toggle is a
+// (n_all / avg_all / sexes) -- plus the exited count split into the SOLD and DIED buckets (the
+// remainder is "other"; the bucket rule is domain.FeedExitBucket, mirrored by the two flags
+// below), so the screen's Animals toggle is a
 // client-side flip. A band row whose animals have all exited comes back with n = 0 and n_all > 0;
 // the screen shows it only under "include". The General-tab reconciliation figure (animal_latest
 // count) counts exited animals, exactly as the General tab does. Lump-sum pens carry a frozen
@@ -188,7 +192,9 @@ animal_latest AS (
 ),
 animal_sex AS (
   SELECT la.park_id, la.pen_label, la.weight_kg, g.sex, (g.exited_at IS NOT NULL) AS exited,
-         (g.exited_at IS NOT NULL AND (g.lifecycle_status = 'sold' OR g.exit_reason = 'sold')) AS sold
+         (g.exited_at IS NOT NULL AND (g.lifecycle_status = 'sold' OR g.exit_reason = 'sold')) AS sold,
+         (g.exited_at IS NOT NULL AND NOT (g.lifecycle_status = 'sold' OR g.exit_reason = 'sold')
+          AND (g.lifecycle_status IN ('dead', 'died') OR g.exit_reason IN ('dead', 'died'))) AS died
   FROM animal_latest la
   LEFT JOIN LATERAL (
     SELECT gi.goat_id
@@ -257,7 +263,7 @@ evidence AS MATERIALIZED (
               WHEN pa.avg_kg < 30 THEN '25_30' WHEN pa.avg_kg < 35 THEN '30_35' ELSE '35_plus' END AS band,
          pa.n, pa.avg_kg, COALESCE(ps.female_count, 0) AS female_count, COALESCE(ps.male_count, 0) AS male_count,
          pa.n AS n_all, pa.avg_kg AS avg_kg_all, COALESCE(ps.female_count, 0) AS female_all, COALESCE(ps.male_count, 0) AS male_all,
-         0 AS exited_n, 0 AS sold_n
+         0 AS exited_n, 0 AS sold_n, 0 AS died_n
   FROM pen_avg pa
   LEFT JOIN pen_sex ps ON ps.park_id = pa.park_id AND ps.pen_label = pa.pen_label
   UNION ALL
@@ -276,7 +282,8 @@ evidence AS MATERIALIZED (
          COUNT(*) FILTER (WHERE la.sex = 'female')::int AS female_all,
          COUNT(*) FILTER (WHERE la.sex = 'male')::int AS male_all,
          COUNT(*) FILTER (WHERE la.exited)::int AS exited_n,
-         COUNT(*) FILTER (WHERE la.sold)::int AS sold_n
+         COUNT(*) FILTER (WHERE la.sold)::int AS sold_n,
+         COUNT(*) FILTER (WHERE la.died)::int AS died_n
   FROM animal_sex la
   WHERE NOT EXISTS (SELECT 1 FROM pen_avg pa WHERE pa.park_id = la.park_id AND pa.pen_label = la.pen_label)
   GROUP BY 1, 2, 3, 4
@@ -290,7 +297,7 @@ SELECT
   r.park_id::text, COALESCE(NULLIF(r.park_label, ''), pk.name, ''), r.pen_label, r.shed_tag, r.ration_group, r.experiment_arm, r.breed, r.workflow,
   r.kg_per_day::float8, r.items::text,
   COALESCE(e.source, ''), COALESCE(e.band, ''), COALESCE(e.n, 0), COALESCE(e.avg_kg, 0)::float8,
-  COALESCE(e.female_count, 0), COALESCE(e.male_count, 0), COALESCE(e.exited_n, 0), COALESCE(e.sold_n, 0),
+  COALESCE(e.female_count, 0), COALESCE(e.male_count, 0), COALESCE(e.exited_n, 0), COALESCE(e.sold_n, 0), COALESCE(e.died_n, 0),
   COALESCE(e.n_all, 0), COALESCE(e.avg_kg_all, 0)::float8, COALESCE(e.female_all, 0), COALESCE(e.male_all, 0)
 FROM rollup r
 LEFT JOIN locations pk ON pk.tenant_id = $1::uuid AND pk.location_id = r.park_id
@@ -298,7 +305,7 @@ LEFT JOIN evidence e ON e.park_id = r.park_id AND e.pen_label = r.pen_label
 ORDER BY r.park_id, r.pen_label, r.shed_tag, r.workflow, r.ration_group, r.experiment_arm, r.breed, e.source, e.band`)
 
 // feedWeightBandExitedSQL lists the animals that were sold or died inside the period, with
-// their last weigh in the period (if any) -- the "Sold / dead in period" list under the table.
+// their last weigh in the period (if any) -- the "Exited in period" panel (sold / died / other).
 // Bounded by the goats that exited in the window in the parks (STG: 128 over six weeks). Under
 // a sex/origin filter only animals whose tag is in the scope list are listed, the same list that
 // narrows the band rows; an exited animal never weighed in the period has no tag to test and is
@@ -374,44 +381,130 @@ func (r *Repository) GetFeedWeightBandSource(ctx context.Context, tenantID strin
 	if len(parkIDs) == 0 {
 		return out, nil
 	}
-	ctx, cancel := r.timeout(ctx)
-	defer cancel()
-
 	weighingCategory = strings.TrimSpace(weighingCategory)
 	if weighingCategory == "all" {
 		weighingCategory = ""
 	}
+	// The same short burst cache and single flight as GetGrowthDirectorWeights (30 s): the read is
+	// five serial round trips (two scope resolvers, the identity map, the sheet query, the exits
+	// query) and the page re-runs it on every top-bar filter change; without this every open of
+	// the tab paid the whole chain again (latency judge, 2026-09-18).
+	cacheKey := growthDirectorReadKey("feed_weight_band", tenantID, strings.Join(append([]string{}, parkIDs...), ","),
+		periodStart.UTC().Format(time.RFC3339), periodEnd.UTC().Format(time.RFC3339), sex, origin, weighingCategory)
+	if cached, ok := r.getCachedRead(cacheKey); ok {
+		if hit, ok := cached.(ports.FeedWeightBandSource); ok {
+			return hit, nil
+		}
+	}
+	flight, owner := r.beginReadFlight(cacheKey)
+	if !owner {
+		select {
+		case <-ctx.Done():
+			return out, ctx.Err()
+		case <-flight.done:
+			if flight.err != nil {
+				return out, flight.err
+			}
+			if hit, ok := flight.val.(ports.FeedWeightBandSource); ok {
+				return hit, nil
+			}
+			return out, fmt.Errorf("growthdirector: cached feed weight band had unexpected type")
+		}
+	}
+	var flightErr error
+	defer func() {
+		if flightErr == nil {
+			r.setCachedRead(cacheKey, out)
+		}
+		r.finishReadFlight(cacheKey, flight, out, flightErr)
+	}()
+	out, flightErr = r.readFeedWeightBandSource(ctx, tenantID, parkIDs, periodStart, periodEnd, sex, origin, weighingCategory)
+	return out, flightErr
+}
+
+// readFeedWeightBandSource is the uncached read behind GetFeedWeightBandSource. The two scope
+// resolvers and the identity map are independent of each other and run concurrently; the sheet
+// query and the exits query need the scope and run concurrently with each other after it.
+// Fan-out is bounded by construction to three concurrent pool queries per request (the three
+// resolvers, then the sheet + exits pair), the same bound weighing's growth read takes with
+// weighingGrowthReadParallelism; nothing here spawns per row.
+func (r *Repository) readFeedWeightBandSource(ctx context.Context, tenantID string, parkIDs []string, periodStart, periodEnd time.Time, sex, origin, weighingCategory string) (ports.FeedWeightBandSource, error) {
+	out := ports.FeedWeightBandSource{Rollups: []ports.FeedRollup{}}
+	ctx, cancel := r.timeout(ctx)
+	defer cancel()
+
 	sexApplied := strings.TrimSpace(sex) != ""
 	originApplied := strings.TrimSpace(origin) != ""
-	var scope weighingpg.ReportScope
+	var (
+		scope, originScope weighingpg.ReportScope
+		idMap              = weighingpg.EmptyAnimalIdentityMap()
+		wg                 sync.WaitGroup
+		errMu              sync.Mutex
+		firstErr           error
+	)
+	fail := func(err error) {
+		errMu.Lock()
+		if firstErr == nil {
+			firstErr = err
+		}
+		errMu.Unlock()
+	}
 	if sexApplied {
-		resolved, err := weighingpg.ResolveSexScope(ctx, r.pool, tenantID, parkIDs, sex, periodStart, periodEnd)
-		if err != nil {
-			return out, err
-		}
-		scope = resolved
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			resolved, err := weighingpg.ResolveSexScope(ctx, r.pool, tenantID, parkIDs, sex, periodStart, periodEnd)
+			if err != nil {
+				fail(err)
+				return
+			}
+			scope = resolved
+		}()
 	}
-	var originScope weighingpg.ReportScope
 	if originApplied {
-		resolved, err := weighingpg.ResolveOriginScope(ctx, r.pool, tenantID, parkIDs, origin, periodStart, periodEnd)
-		if err != nil {
-			return out, err
-		}
-		originScope = resolved
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			resolved, err := weighingpg.ResolveOriginScope(ctx, r.pool, tenantID, parkIDs, origin, periodStart, periodEnd)
+			if err != nil {
+				fail(err)
+				return
+			}
+			originScope = resolved
+		}()
 	}
-	scope = weighingpg.IntersectScopes(scope, sexApplied, originScope, originApplied)
-	filtered := sexApplied || originApplied
 	// Window-bounded and widened by the SAME lookback the pairing arm reads, the shed_weights.go
 	// shape: an animal whose previous weigh sits before the window must merge here exactly as it
 	// merges on the General tab.
-	idMap := weighingpg.EmptyAnimalIdentityMap()
 	if weighingCategory != "per_shed_partition" {
-		resolved, err := weighingpg.ResolveAnimalIdentityMap(ctx, r.pool, tenantID, parkIDs, periodStart.AddDate(0, 0, -feedWeightBandLookbackDays), periodEnd)
-		if err != nil {
-			return out, err
-		}
-		idMap = resolved
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			resolved, err := weighingpg.ResolveAnimalIdentityMap(ctx, r.pool, tenantID, parkIDs, periodStart.AddDate(0, 0, -feedWeightBandLookbackDays), periodEnd)
+			if err != nil {
+				fail(err)
+				return
+			}
+			idMap = resolved
+		}()
 	}
+	wg.Wait()
+	if firstErr != nil {
+		return out, firstErr
+	}
+	scope = weighingpg.IntersectScopes(scope, sexApplied, originScope, originApplied)
+	filtered := sexApplied || originApplied
+
+	// The exits list only needs the scope, so it runs beside the sheet query.
+	type exitsResult struct {
+		rows []ports.FeedExitedAnimal
+		err  error
+	}
+	exitsCh := make(chan exitsResult, 1)
+	go func() {
+		rows, err := r.readFeedWeightBandExits(ctx, tenantID, parkIDs, periodStart, periodEnd, filtered, scope.Tags, weighingCategory)
+		exitsCh <- exitsResult{rows: rows, err: err}
+	}()
 
 	rows, err := r.pool.Query(ctx, feedWeightBandSQL,
 		tenantID, parkIDs, periodStart, periodEnd,
@@ -435,13 +528,13 @@ func (r *Repository) GetFeedWeightBandSource(ctx context.Context, tenantID strin
 			kgPerDay, avgKg         float64
 			source, band            string
 			animals, female, male   int
-			exited, sold            int
+			exited, sold, died      int
 			animalsAll              int
 			avgKgAll                float64
 			femaleAll, maleAll      int
 		)
 		if err := rows.Scan(&feedDay, &positive, &collapsed, &individual, &lump, &parkID, &parkName, &pen, &tag, &ration, &arm, &breed, &workflow,
-			&kgPerDay, &itemsJSON, &source, &band, &animals, &avgKg, &female, &male, &exited, &sold, &animalsAll, &avgKgAll, &femaleAll, &maleAll); err != nil {
+			&kgPerDay, &itemsJSON, &source, &band, &animals, &avgKg, &female, &male, &exited, &sold, &died, &animalsAll, &avgKgAll, &femaleAll, &maleAll); err != nil {
 			return out, fmt.Errorf("growthdirector: feed weight band scan: %w", err)
 		}
 		if feedDay != nil {
@@ -474,7 +567,7 @@ func (r *Repository) GetFeedWeightBandSource(ctx context.Context, tenantID strin
 		if source != "" {
 			out.Rollups[i].Evidence = append(out.Rollups[i].Evidence, ports.FeedWeightEvidence{
 				Source: source, Band: band, Animals: animals, AverageWeightKg: avgKg, FemaleCount: female, MaleCount: male,
-				ExitedAnimals: exited, ExitedSold: sold,
+				ExitedAnimals: exited, ExitedSold: sold, ExitedDied: died,
 				AnimalsAll: animalsAll, AverageWeightKgAll: avgKgAll, FemaleCountAll: femaleAll, MaleCountAll: maleAll,
 			})
 		}
@@ -484,12 +577,21 @@ func (r *Repository) GetFeedWeightBandSource(ctx context.Context, tenantID strin
 	}
 	rows.Close()
 
-	exitedRows, err := r.pool.Query(ctx, feedWeightBandExitedSQL, tenantID, parkIDs, periodStart, periodEnd, filtered, scope.Tags, weighingCategory)
+	exits := <-exitsCh
+	if exits.err != nil {
+		return out, exits.err
+	}
+	out.Exited = exits.rows
+	return out, nil
+}
+
+func (r *Repository) readFeedWeightBandExits(ctx context.Context, tenantID string, parkIDs []string, periodStart, periodEnd time.Time, filtered bool, scopeTags []string, weighingCategory string) ([]ports.FeedExitedAnimal, error) {
+	exitedRows, err := r.pool.Query(ctx, feedWeightBandExitedSQL, tenantID, parkIDs, periodStart, periodEnd, filtered, scopeTags, weighingCategory)
 	if err != nil {
-		return out, fmt.Errorf("growthdirector: feed weight band exits: %w", err)
+		return nil, fmt.Errorf("growthdirector: feed weight band exits: %w", err)
 	}
 	defer exitedRows.Close()
-	out.Exited = []ports.FeedExitedAnimal{}
+	list := []ports.FeedExitedAnimal{}
 	for exitedRows.Next() {
 		var (
 			x         ports.FeedExitedAnimal
@@ -499,17 +601,17 @@ func (r *Repository) GetFeedWeightBandSource(ctx context.Context, tenantID strin
 			hasWeigh  bool
 		)
 		if err := exitedRows.Scan(&x.GoatID, &x.ParkID, &x.Tag, &x.Pen, &x.ExitReason, &x.LifecycleStatus, &exitedAt, &x.Sex, &lastWeigh, &weightKg, &hasWeigh); err != nil {
-			return out, fmt.Errorf("growthdirector: feed weight band exits scan: %w", err)
+			return nil, fmt.Errorf("growthdirector: feed weight band exits scan: %w", err)
 		}
 		x.ExitedAt = exitedAt
 		if hasWeigh && lastWeigh != nil {
 			x.LastWeighedAt = lastWeigh
 			x.LastWeightKg = weightKg
 		}
-		out.Exited = append(out.Exited, x)
+		list = append(list, x)
 	}
 	if err := exitedRows.Err(); err != nil {
-		return out, fmt.Errorf("growthdirector: feed weight band exits rows: %w", err)
+		return nil, fmt.Errorf("growthdirector: feed weight band exits rows: %w", err)
 	}
-	return out, nil
+	return list, nil
 }

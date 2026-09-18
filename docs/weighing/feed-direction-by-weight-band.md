@@ -100,15 +100,32 @@ pen × band (tag → newest active `goat_identifiers` row → `goats.sex`); lump
 goats currently placed in that pen (`goats.current_location_id` + `goat_shed_partitions`).
 Rendered as `Male`, `Female`, `Mixed 12F·10M`, or blank when no animal resolves.
 
-### Sold / dead
+### Exited animals (sold / died / other)
 
-An animal whose goat has `exited_at` set (sold, dead, culled, …) is **shown but excluded from
-Wt n and Avg kg by default** (it is not eating today's feed). Each per-animal band row carries
-`exited_sold` / `exited_died` (rendered `+N sold` / `+N died` in amber); `animals=all` counts them
-in. A pen whose weighed animals have all exited has no band row left and falls to Not shown. The
-`exited` list is every goat with `exited_at` inside the period, with its last weigh in the period
-(tag, last pen, gender, reason, exit date, last weighed, last band, last kg) and what that pen is
-fed today (the pen's first feed rollup). The General-tab reconciliation figure
+**Exited = `goats.exited_at` is set**, whatever the reason: sold, died, or any other removal from
+the register (an `inactive` record, a transfer, a loss, a cull, a blank reason). The rule is
+`domain.FeedExitBucket(lifecycle_status, exit_reason)`, mirrored by the two flags in
+`feedWeightBandSQL`'s `animal_sex` CTE:
+
+| Bucket | Register words (`lifecycle_status` / `exit_reason`, case-folded) |
+|---|---|
+| `sold` | either is `sold` |
+| `died` | either is `dead` or `died` (and not sold) |
+| `other` | everything else with an `exited_at` |
+
+`sold` and `died` are the same two buckets Herd Analytics reports as **Sold** and **Deaths** (104
+and 3 on the OCI clone for 03/08–15/09); `other` is the 13 the register holds as `inactive` with
+no reason. An exited animal is **shown but excluded from Wt n and Avg kg by default** (it is not
+eating today's feed). Every per-animal band row carries **both head-count variants in one
+payload** — `weight_animals` / `average_weight_kg` / `gender` (on farm) and the `*_all` twins
+(every weighed animal) — plus `exited_animals = exited_sold + exited_died + exited_other`, so the
+card's `On farm | Include exited` toggle is a client-side flip with no second read (rendered
+`+2 sold` / `+1 died` / `+1 other` in amber on farm, `incl. 2 sold` when included). A band row
+whose animals have all exited has `weight_animals = 0`: under On farm the card files that pen
+under Not shown; under Include exited it is a Matched row. The `exited` list is every goat with
+`exited_at` inside the period (`bucket` beside the stored `reason` / `lifecycle_status`), with its
+last weigh in the period and what that pen is fed today; `reconciliation.exited_sold / _died /
+_other` are the same three buckets over that list. The General-tab reconciliation figure
 (`individual_animals_weighed`) still counts exited animals, as that tab does.
 
 ### Exclusion
@@ -118,37 +135,67 @@ or only exited animals) is **excluded from the banded table, listed under Not sh
 (`excluded_rollups`). It is never estimated. The count is shown because a fed pen that silently
 vanishes reads as a pen nobody feeds.
 
-## Reconciliation — OCI dev DB, as of 2026-09-18
+## Reconciliation — OCI dev DB, as of 2026-09-18 (post-resync)
 
-**OCI is not the same data as goatos-stg.** OCI's latest locked feed day is **2026-09-10**
-(552 positive rows → 276 items → 137 rollups); STG's is **2026-09-19** (578 → 289 → 140). OCI has
-105 exited goats, STG 128. The figures below are OCI's and are not expected to match STG.
+**OCI is not the same data as goatos-stg.** OCI was re-synced from goatos-stg at ~17:50 IST on
+2026-09-18; at that moment its latest locked feed day is **2026-09-19** (578 positive rows → 289
+items → 140 rollups) and its General tab reads 183 / 332 for the male default, the STG figures
+the maintainer quoted. The two databases drift again from the next STG write; the card on STG
+must be checked against STG's own General tab after deploy.
 
-Period 03/08/2026 – 15/09/2026, page default Weighing = All, Origin = All.
+Period 03/08/2026 – 15/09/2026, page default Weighing = All, Origin = All. Matched / Not shown /
+Band rows are given as `On farm / Include exited`; Individual and Lump sum are the card's
+`reconciliation.*_animals_weighed` beside `/weighing/shed-weights` `summary.*` for the same query.
 
 | Filters (OCI dev DB, as of 2026-09-18) | Sheet rows | Items | Rollups | Matched | Not shown | Band rows | Individual (card / General tab) | Lump sum (card / General tab) | Exited in period |
 |---|---|---|---|---|---|---|---|---|---|
-| All parks, Sex = Male (page default) | 552 | 276 | 137 | 21 | 116 | 47 | 180 / 180 | 336 / 336 | 52 |
-| All parks, Sex = All | 552 | 276 | 137 | 33 | 104 | 94 | 399 / 399 | 336 / 336 | 105 |
-| Park = CBE, Sex = All | 364 | 182 | 90 | 15 | 75 | 42 | 211 / 211 | 197 / 197 | 76 |
-| Park = CBE, Sex = Male | 364 | 182 | 90 | 9 | 81 | 19 | 91 / 91 | 197 / 197 | 36 |
-| All parks, Sex = All, animals = all | 552 | 276 | 137 | 34 | 103 | 110 | 399 / 399 | 336 / 336 | 105 |
+| All parks, Sex = Male (page default) | 578 | 289 | 140 | 20 / 22 | 120 / 118 | 48 / 59 | 183 / 183 | 332 / 332 | 55 = 54 sold + 1 died + 0 other |
+| All parks, Sex = All | 578 | 289 | 140 | 33 / 36 | 107 / 104 | 94 / 111 | 413 / 413 | 332 / 332 | 120 = 104 sold + 3 died + 13 other |
+| Park = CBE, Sex = All | 374 | 187 | 89 | 15 / 18 | 74 / 71 | 41 / 53 | 218 / 218 | 193 / 193 | 91 = 88 sold + 2 died + 1 other |
+| Park = CBE, Sex = Male | 374 | 187 | 89 | 8 / 10 | 81 / 79 | 20 / 26 | 94 / 94 | 193 / 193 | 39 = 38 sold + 1 died + 0 other |
 
-**Data event during verification (2026-09-18, ~12:10 UTC):** `goat_identifiers` on the OCI dev
-DB was emptied by a process outside this work (3,277 rows deleted; the feature's own reads and
-its test harness touch only `goatos_test_*` clones, and none of the test fixtures exist in
-`goatos`). After that, with no identifiers to resolve, the same period reads 464 / 336 (all sex),
-0 / 336 (male), 265 / 197 (CBE) and 0 / 197 (CBE male) on both the card and the General tab —
-still equal, but no longer the figures above. The table above was captured before the wipe.
+The exit list is narrowed by the sex scope like every other row (a male read lists male exits),
+which is why the male default shows 55 of the period's 120 exits.
 
-"Individual" and "Lump sum" are `reconciliation.individual_animals_weighed` /
-`lump_sum_animals_weighed` beside `/weighing/shed-weights` `summary.individual_animals_weighed` /
-`lump_sum_animals_weighed` for the same query string; they are computed by the same rules and
-matched exactly on every combination tried. STG's own General tab reads 183 / 332 for the male
-default on 03/08–15/09; the card on STG must be checked against that after deploy, not against OCI.
+Worked example, CBE Yashoda 3 · 15–20 kg, Sex = Male: On farm `Wt n 9, +2 sold, Avg 17.1`;
+Include exited `Wt n 11 incl. 2 sold, Avg 17.3`. Seven of the 48 rows on the male default change
+between the two readings, and a 30–35 kg Yashoda 3 row (3 animals, all sold) exists only under
+Include exited.
 
-Tiles on the card dedupe by pen × band × source ("Animals weighed") and by pen × band
-("Sold / dead since weighing"); a pen with four feed rows counts its animals once.
+**CBE Godel 2 - Part 3 reads Per animal under Sex = Male, not Lump sum, by the General tab's own
+rule.** STG holds one lump-sum weigh for that pen in the period (21.05 kg average, pending
+verification, n = 2). Pending IS counted — `verification_status <> 'rejected'` admits pending,
+rework and verified alike — but a whole-pen weigh contributes only when the pen was weighed on
+**two dates** in the period (`summary_lump`'s pairing), and a single date is not a pair. The
+pen's scanned animals do pair, so the per-animal rows stand. The rule is not changed here.
+
+Tiles on the card dedupe by pen × band × source ("Animals weighed") and by pen × band ("Exited
+since weighing", with its sold / died / other breakdown); a pen with four feed rows counts its
+animals once.
+
+### Serving shape and measured latency
+
+One read per top-bar change: `GetFeedWeightBandSource` is wrapped in the repository's 30 s burst
+cache + single flight (`growthDirectorReadKey("feed_weight_band", …)`, the `GetGrowthDirectorWeights`
+pattern), the two scope resolvers and the identity map run concurrently, then the sheet query and
+the exits query run concurrently — at most three pool queries in flight per request. Everything on
+the card (view, Animals, the five filters, search, pager) is client state over that one payload;
+opening the exited panel issues no request.
+
+Measured on the laptop against OCI through the SSH tunnel (n = 30 warm after 5 warm-ups; cold =
+20 requests with distinct cache keys), before → after:
+
+| Read | Before p50 / p95 (perf judge, uncached) | After cold p50 / p95 | After warm p50 / p95 |
+|---|---|---|---|
+| default (all parks, sex = male) | 585 / 759 ms | 416 / 667 ms | 51 / 139 ms |
+| park = CBE, sex = male | 371 / 414 ms | 240 / 316 ms | 25 / 128 ms |
+| sex = all | 392 / 442 ms | 291 / 344 ms | 67 / 287 ms |
+| animals = all (now the same read as default) | 585 / 854 ms | — (same key as default) | 63 / 146 ms |
+
+Cold sex = male stays above 500 ms at p95 because `ResolveSexScope` (the weighing module's own
+resolver, 195 ms execution on OCI) precedes the tag-filtered sheet query; that resolver is shared
+with the General tab and is not changed here. Browser Animals toggle, click → rows painted:
+**753 ms with an RSC round trip before → 20–25 ms and 0 requests after**.
 
 ## Column glossary
 
@@ -156,8 +203,8 @@ Tiles on the card dedupe by pen × band × source ("Animals weighed") and by pen
   average) or `Per animal` (tags scanned one by one, one row per bracket).
 - **Band** — the bracket label with a six-step bar filled up to it.
 - **Wt n** — animals behind the weight: the lump-sum head count, or the bracket's on-farm animal
-  count; `+N sold` / `+N died` underneath are weighed animals that have since left (click opens
-  the panel for that pen × bracket).
+  count; `+N sold` / `+N died` / `+N other` underneath are weighed animals that have since exited
+  (click opens the panel for that pen × bracket).
 - **Avg kg** — the pen average, or the mean of the bracket's latest weighs.
 - **Pen kg/day** — the whole rollup's daily feed, repeated on every bracket row of a per-animal
   pen; never summed across bracket rows.
@@ -168,15 +215,15 @@ Tiles on the card dedupe by pen × band × source ("Animals weighed") and by pen
 ## UI
 
 - One card under the Weight-wise chart: feed-day chip, clickable "N fed pens not shown" chip
-  (→ Not shown view) and "N sold / dead in period" chip (→ panel), a `Matched | Not shown`
-  segmented view, `On farm | Include sold & dead` (Matched only), table-level filters (Feed type,
+  (→ Not shown view) and "N exited in period · N sold · N died · N other" chip (→ panel), a
+  `Matched | Not shown` segmented view, `On farm | Include exited` (Matched only), table-level filters (Feed type,
   Weight source*, Band*, Pen, Group*; * Matched only) with the bar's own Clear, a text search,
-  stat tiles, the table, and the shared pager (10/25/50, default 25; lump-sum rows first within
+  at most eight stat tiles, the table, and the shared pager (10/25/50, default 25; lump-sum rows first within
   each park). Table-level state travels in `fb_*` URL params; the page's own Park / Period /
   Weighing / Sex / Origin keep applying on top.
-- The sold / dead panel is the app's local drawer (`useLocalOverlaySelection`, `#fb_exit=` hash):
+- The exited panel is the app's local drawer (`useLocalOverlaySelection`, `#fb_exit=` hash):
   opened from the chip, the tile or a row note, grouped by pen, searchable, header with count and
-  period; Esc / scrim / X / Back close it with filters intact and no route re-run.
+  period, Reason column = bucket pill beside the stored register text; Esc / scrim / X / Back close it with filters intact and no route re-run.
 
 ## Out of scope / known limitations
 
@@ -186,7 +233,8 @@ Tiles on the card dedupe by pen × band × source ("Animals weighed") and by pen
   agree-or-neither rule); the register, not this read, decides sex.
 - Goat placements written as a bare number under a shed that otherwise uses `Part N` are folded;
   a shed that mixes other spellings is not.
-- `exited_died` is everything exited that is not sold (dead, culled, lost, transferred, inactive).
+- `other` exits (inactive, transferred, lost, culled, blank reason) are reported as their own
+  bucket, never folded into died; the register's wording decides the bucket, not this read.
 - No trend/history: one sheet day against one period.
 - Page-level Period defaults come from the weighing SOP window like the rest of the page; when the
   route is opened without a window the page redirects to its canonical dated URL first.

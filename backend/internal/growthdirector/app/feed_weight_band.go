@@ -21,9 +21,9 @@ import (
 // evidence only (the feed side is always the latest sheet), defaulting like the
 // other Growth Director read. `sex`, `origin` and `weighing_category` are the
 // Weights page's own filters, resolved by the weighing module's resolvers so
-// this table and the General tab narrow the identical animals. `includeExited`
-// counts sold / dead animals in the band rows; by default they are noted beside
-// the row and listed below it instead.
+// this table and the General tab narrow the identical animals. Every row carries
+// both head-count variants (on farm / including exited animals) and the exited
+// count split sold / died / other, so the screen's Animals toggle needs no read.
 func (s *Service) GetFeedWeightBand(ctx context.Context, actor domain.Actor, parkID, fromBusinessDate, toBusinessDate, sex, origin, weighingCategory string) (domain.FeedWeightBand, error) {
 	if !permissions.RolesAuthorize(actor.Roles, []string{permissions.WeighingMonitor}, false) {
 		return domain.FeedWeightBand{}, ports.ErrForbidden
@@ -125,6 +125,7 @@ func BuildFeedWeightBand(source ports.FeedWeightBandSource) domain.FeedWeightBan
 			Gender:          domain.SexDisplay(x.Sex),
 			Reason:          x.ExitReason,
 			LifecycleStatus: x.LifecycleStatus,
+			Bucket:          domain.FeedExitBucket(x.LifecycleStatus, x.ExitReason),
 			ExitedAt:        x.ExitedAt.In(loc).Format("2006-01-02"),
 		}
 		if x.LastWeighedAt != nil {
@@ -138,6 +139,14 @@ func BuildFeedWeightBand(source ports.FeedWeightBandSource) domain.FeedWeightBan
 				exit.FeedType = rollup.Workflow
 				exit.FeedGiven = feedGivenOf(rollup)
 			}
+		}
+		switch exit.Bucket {
+		case domain.FeedExitSold:
+			out.Reconciliation.ExitedSold++
+		case domain.FeedExitDied:
+			out.Reconciliation.ExitedDied++
+		default:
+			out.Reconciliation.ExitedOther++
 		}
 		out.Exited = append(out.Exited, exit)
 	}
@@ -179,7 +188,8 @@ func BuildFeedWeightBand(source ports.FeedWeightBandSource) domain.FeedWeightBan
 				GenderAll:          domain.GenderDisplay(evidence.FemaleCountAll, evidence.MaleCountAll),
 				ExitedAnimals:      evidence.ExitedAnimals,
 				ExitedSold:         evidence.ExitedSold,
-				ExitedDied:         evidence.ExitedAnimals - evidence.ExitedSold,
+				ExitedDied:         evidence.ExitedDied,
+				ExitedOther:        evidence.ExitedAnimals - evidence.ExitedSold - evidence.ExitedDied,
 			})
 		}
 		if matched {

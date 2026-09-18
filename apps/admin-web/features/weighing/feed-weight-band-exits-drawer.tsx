@@ -9,15 +9,19 @@ import type { AdminUiTableContract } from "@/lib/admin-ui-contract";
 import { fmtDate } from "@/lib/format";
 import { BandCell } from "./feed-weight-band-table";
 
-/** One animal sold or dead inside the period, already resolved by the server component. */
+/** One animal that exited the register inside the period (sold, died or other), already resolved by the card. */
 export type FeedWeightBandExitItem = {
   key: string;
   park: string;
   pen: string;
   tag: string;
   gender: string;
+  /** The register's stored exit reason / lifecycle text, shown beside the bucket pill. */
   reason: string;
-  sold: boolean;
+  /** The backend's exit bucket: sold / died / other. */
+  bucket: string;
+  /** The bucket as display copy. */
+  bucketLabel: string;
   /** ISO business dates; formatted here. */
   exitedAt: string;
   lastWeighedAt: string;
@@ -62,7 +66,7 @@ function scopeId(scope: FeedWeightBandExitScope): string {
 }
 
 /**
- * The sold / dead panel: the app's local drawer (the Audit Log record drawer's shape and the same
+ * The exited panel: the app's local drawer (the Audit Log record drawer's shape and the same
  * `useLocalOverlaySelection` lifecycle), opened from a `#fb_exit=<scope>` hash so an ordinary
  * click never re-runs the route, Back/Escape/scrim/X close it, and the table's filters are exactly
  * where the reader left them. The list is grouped by pen and searchable inside the panel.
@@ -96,7 +100,7 @@ export function FeedWeightBandExitsDrawer({
   const items = displayedItem.items.filter(
     (item) =>
       q === "" ||
-      [item.tag, item.pen, item.gender, item.reason, item.feedGiven, item.park, item.lastBandLabel].join(" ").toLowerCase().includes(q),
+      [item.tag, item.pen, item.gender, item.reason, item.bucketLabel, item.feedGiven, item.park, item.lastBandLabel].join(" ").toLowerCase().includes(q),
   );
   // Grouped by pen in served order (newest exit first inside a pen); a pen never weighed in the
   // period groups under the "never weighed" label.
@@ -180,7 +184,10 @@ export function FeedWeightBandExitsDrawer({
                               ) : column.key === "gender" ? (
                                 item.gender || <span className="muted">{labels.noGender}</span>
                               ) : column.key === "reason" ? (
-                                <Tag tone="warn">{item.reason}</Tag>
+                                <span className="wt-feedband-reason">
+                                  <Tag tone={item.bucket === "sold" ? "info" : item.bucket === "died" ? "dng" : "warn"}>{item.bucketLabel}</Tag>
+                                  {item.reason && item.reason !== item.bucket ? <span className="muted small"> {item.reason}</span> : null}
+                                </span>
                               ) : column.key === "exited_at" ? (
                                 fmtDate(item.exitedAt)
                               ) : column.key === "last_weighed" ? (

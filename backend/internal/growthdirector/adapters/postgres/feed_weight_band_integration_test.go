@@ -98,6 +98,14 @@ VALUES ($1::uuid, $2::uuid, $3::uuid, 'CBE', $4::uuid, $5, $6, $7, $8, $9, $10, 
 	seedGoatWithTag(t, ctx, pool, "77777777-0000-4000-8000-000000000602", "0602", "TAG-B", "Sojat", "female")
 	execGD(t, ctx, pool, `UPDATE goats SET exited_at = $3::timestamptz, exit_reason = 'sold', lifecycle_status = 'sold' WHERE tenant_id = $1::uuid AND goat_id = $2::uuid`,
 		gdTenant, "77777777-0000-4000-8000-000000000602", day(20, 9))
+	// EXIT BUCKETS (Codex P1, 2026-09-18): an exit is ANY goats.exited_at, not only sold /
+	// died. TAG-G (female, 22 then 23 kg -> 20_25) leaves the register as an INACTIVE record
+	// with a blank reason: it must count as exited (other), never as died, and never vanish.
+	seedScan(t, ctx, pool, gdBucketW1G, "TAG-G", 22.0, day(8, 6), "pending")
+	seedScan(t, ctx, pool, gdBucketW2G, "TAG-G", 23.0, day(15, 6), "pending")
+	seedGoatWithTag(t, ctx, pool, "77777777-0000-4000-8000-000000000603", "0603", "TAG-G", "Sojat", "female")
+	execGD(t, ctx, pool, `UPDATE goats SET exited_at = $3::timestamptz, exit_reason = NULL, lifecycle_status = 'inactive' WHERE tenant_id = $1::uuid AND goat_id = $2::uuid`,
+		gdTenant, "77777777-0000-4000-8000-000000000603", day(21, 9))
 	// Lump 1's residents: 25 animals is the frozen census; the register holds three
 	// females placed there (fewer than the census, which is the honest state after
 	// moves) and nothing else, so the pen reads Female. The location is the undivided
@@ -173,8 +181,15 @@ VALUES
 	}
 	// 15_20 holds TAG-C only by default: TAG-B was sold and rides as exited=1, and its
 	// female count leaves with it; once-weighed TAG-D is nowhere.
-	if bands["15_20"].Animals != 1 || bands["15_20"].ExitedAnimals != 1 || bands["20_25"].Animals != 1 || bands["20_25"].ExitedAnimals != 0 || bands["30_35"].Animals != 2 {
-		t.Fatalf("Part 1 bands: want 15_20=1 (+1 exited), 20_25=1 and 30_35=2 (pending/rework/verified all count), got %v", bands)
+	if bands["15_20"].Animals != 1 || bands["15_20"].ExitedAnimals != 1 || bands["20_25"].Animals != 1 || bands["20_25"].ExitedAnimals != 1 || bands["30_35"].Animals != 2 {
+		t.Fatalf("Part 1 bands: want 15_20=1 (+1 exited), 20_25=1 (+1 exited) and 30_35=2 (pending/rework/verified all count), got %v", bands)
+	}
+	// The buckets: TAG-B sold, TAG-G other (inactive, blank reason) -- and other is NOT died.
+	if e := bands["15_20"]; e.ExitedSold != 1 || e.ExitedDied != 0 {
+		t.Fatalf("15_20 exit buckets: want sold=1 died=0, got %+v", e)
+	}
+	if e := bands["20_25"]; e.ExitedSold != 0 || e.ExitedDied != 0 || e.ExitedAnimals-e.ExitedSold-e.ExitedDied != 1 {
+		t.Fatalf("20_25 exit buckets: an inactive record is exited=1 in the OTHER bucket, got %+v", e)
 	}
 	if bands["15_20"].AverageWeightKg != 18.0 {
 		t.Fatalf("15_20 average must exclude the sold animal (18.0), got %v", bands["15_20"].AverageWeightKg)
@@ -184,12 +199,16 @@ VALUES
 	}
 	// The General-tab figures: five paired animals (sold TAG-B included, as that tab counts it;
 	// once-weighed TAG-D excluded), 25 lump animals in a pen weighed on two dates.
-	if got.IndividualAnimalsWeighed != 5 || got.LumpSumAnimalsWeighed != 25 {
-		t.Fatalf("weighing-side totals must match the General tab grain (5 individual, 25 lump), got %d / %d", got.IndividualAnimalsWeighed, got.LumpSumAnimalsWeighed)
+	if got.IndividualAnimalsWeighed != 6 || got.LumpSumAnimalsWeighed != 25 {
+		t.Fatalf("weighing-side totals must match the General tab grain (6 individual, 25 lump), got %d / %d", got.IndividualAnimalsWeighed, got.LumpSumAnimalsWeighed)
 	}
-	// The sold animal is listed with its last weigh in the window.
-	if len(got.Exited) != 1 || got.Exited[0].Tag != "TAG-B" || got.Exited[0].Pen != "Gandhi 1 - Part 1" || got.Exited[0].LifecycleStatus != "sold" || got.Exited[0].LastWeighedAt == nil || got.Exited[0].LastWeightKg != 16.0 {
-		t.Fatalf("exit list: want TAG-B sold, last weighed 16.0 in Gandhi 1 - Part 1, got %+v", got.Exited)
+	// Both exits are listed with their last weigh in the window, newest exit first; the
+	// inactive one carries its stored (blank) reason and lifecycle so the screen can bucket it.
+	if len(got.Exited) != 2 || got.Exited[0].Tag != "TAG-G" || got.Exited[0].LifecycleStatus != "inactive" || got.Exited[0].ExitReason != "" || got.Exited[0].LastWeightKg != 23.0 {
+		t.Fatalf("exit list: want TAG-G (inactive, other) first, got %+v", got.Exited)
+	}
+	if x := got.Exited[1]; x.Tag != "TAG-B" || x.Pen != "Gandhi 1 - Part 1" || x.LifecycleStatus != "sold" || x.LastWeighedAt == nil || x.LastWeightKg != 16.0 {
+		t.Fatalf("exit list: want TAG-B sold, last weighed 16.0 in Gandhi 1 - Part 1, got %+v", x)
 	}
 	// The same row carries the include-exited variant: TAG-B counted again, 15_20 = 2 at
 	// 17.0 with 1F.

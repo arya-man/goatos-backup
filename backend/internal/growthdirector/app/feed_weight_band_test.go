@@ -37,6 +37,9 @@ func feedSourceFixture() ports.FeedWeightBandSource {
 		Exited: []ports.FeedExitedAnimal{
 			{GoatID: "g1", ParkID: gdParkA, Tag: "TAG-SOLD", Pen: "Godel 1 - Part 2", Sex: "female", ExitReason: "sold", LifecycleStatus: "sold", ExitedAt: exitedAt, LastWeighedAt: &weighedAt, LastWeightKg: 18.5},
 			{GoatID: "g2", ParkID: gdParkA, Tag: "TAG-DEAD", ExitReason: "", LifecycleStatus: "dead", ExitedAt: exitedAt},
+			// An exit that is neither sold nor died: the register's inactive record with a blank
+			// reason (13 of the 120 exits on the OCI clone, 2026-09-18). Bucket "other".
+			{GoatID: "g3", ParkID: gdParkA, Tag: "TAG-INACTIVE", ExitReason: "", LifecycleStatus: "inactive", ExitedAt: exitedAt},
 		},
 	}
 }
@@ -51,7 +54,7 @@ func TestBuildFeedWeightBandReconcilesAndOrders(t *testing.T) {
 		t.Fatalf("reconciliation wrong: %+v", rec)
 	}
 	// The General-tab figures and the exit count ride on the reconciliation verbatim.
-	if rec.IndividualAnimalsWeighed != 9 || rec.LumpSumAnimalsWeighed != 40 || rec.ExitedAnimals != 2 {
+	if rec.IndividualAnimalsWeighed != 9 || rec.LumpSumAnimalsWeighed != 40 || rec.ExitedAnimals != 3 {
 		t.Fatalf("weighing-side totals wrong: %+v", rec)
 	}
 	if len(got.Rows) != 5 {
@@ -92,19 +95,30 @@ func TestBuildFeedWeightBandReconcilesAndOrders(t *testing.T) {
 		t.Fatalf("exited note wrong: %v", exited)
 	}
 	for _, row := range got.Rows[1:] {
-		if row.Band == "15_20" && (row.ExitedSold != 1 || row.ExitedDied != 1) {
-			t.Fatalf("sold/died split wrong: %+v", row)
+		// Fixture: 2 exited, 1 sold, 0 died -> the second is OTHER, never invented as died.
+		if row.Band == "15_20" && (row.ExitedSold != 1 || row.ExitedDied != 0 || row.ExitedOther != 1) {
+			t.Fatalf("sold/died/other split wrong: %+v", row)
 		}
+		if row.ExitedSold+row.ExitedDied+row.ExitedOther != row.ExitedAnimals {
+			t.Fatalf("exit buckets must sum to exited_animals: %+v", row)
+		}
+	}
+	// The period totals bucket the same way and sum to the exit count.
+	if rec.ExitedSold != 1 || rec.ExitedDied != 1 || rec.ExitedOther != 1 || rec.ExitedSold+rec.ExitedDied+rec.ExitedOther != rec.ExitedAnimals {
+		t.Fatalf("reconciliation exit buckets: want 1/1/1 of 3, got %+v", rec)
 	}
 	// The unweighed pen is listed under Not shown with its feed, and nowhere else.
 	if len(got.Unmatched) != 1 || got.Unmatched[0].Pen != "Sumathi 1 - Part 4" || got.Unmatched[0].FeedType != "experiment" || got.Unmatched[0].Group != "Fattening" || got.Unmatched[0].FeedGiven != "Bhusa 400g/head + Kids Concentrate 250g/head" {
 		t.Fatalf("not-shown list wrong: %+v", got.Unmatched)
 	}
 	// The exit list: dates as business dates, the weighed one banded, the unweighed one bare.
-	if len(got.Exited) != 2 {
-		t.Fatalf("want 2 exits, got %+v", got.Exited)
+	if len(got.Exited) != 3 {
+		t.Fatalf("want 3 exits, got %+v", got.Exited)
 	}
-	sold, dead := got.Exited[0], got.Exited[1]
+	sold, dead, other := got.Exited[0], got.Exited[1], got.Exited[2]
+	if sold.Bucket != domain.FeedExitSold || dead.Bucket != domain.FeedExitDied || other.Bucket != domain.FeedExitOther || other.LifecycleStatus != "inactive" {
+		t.Fatalf("exit buckets: want sold/died/other with the stored text kept, got %+v", got.Exited)
+	}
 	if sold.Tag != "TAG-SOLD" || sold.ExitedAt != "2026-09-01" || sold.LastWeighedAt != "2026-08-20" || sold.LastBand != "15_20" || sold.LastWeightKg == nil || *sold.LastWeightKg != 18.5 {
 		t.Fatalf("sold exit wrong: %+v", sold)
 	}
@@ -209,5 +223,24 @@ func TestGetFeedWeightBandGateWindowAndFilters(t *testing.T) {
 	}
 	if got.Reconciliation.OutputRows != 5 {
 		t.Fatalf("service must build rows from the source: %+v", got.Reconciliation)
+	}
+}
+
+func TestFeedExitBucketFoldsRegisterWordsToThreeBuckets(t *testing.T) {
+	cases := []struct{ ls, er, want string }{
+		{"sold", "sold", domain.FeedExitSold},
+		{"", "sold", domain.FeedExitSold},
+		{"dead", "died", domain.FeedExitDied},
+		{"dead", "", domain.FeedExitDied},
+		{"", "died", domain.FeedExitDied},
+		{"inactive", "", domain.FeedExitOther},
+		{"", "transferred", domain.FeedExitOther},
+		{"", "culled", domain.FeedExitOther},
+		{"", "", domain.FeedExitOther},
+	}
+	for _, c := range cases {
+		if got := domain.FeedExitBucket(c.ls, c.er); got != c.want {
+			t.Fatalf("FeedExitBucket(%q, %q) = %q, want %q", c.ls, c.er, got, c.want)
+		}
 	}
 }

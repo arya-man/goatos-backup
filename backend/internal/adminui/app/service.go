@@ -1156,10 +1156,10 @@ func feedWeightBandUnmatchedTable() domain.TableContract {
 	return t
 }
 
-// feedWeightBandExitsTable is the card's "Sold / dead" view: every animal sold or dead inside
-// the period, with its last weigh in it and what its last pen is fed today.
+// feedWeightBandExitsTable is the card's exited panel: every animal that exited the register
+// inside the period (sold, died or other), with its last weigh in it and what its last pen is fed today.
 func feedWeightBandExitsTable() domain.TableContract {
-	t := withoutRowClick(tableP("feed-weight-band-exits", "Sold / dead", "/growth-director/feed-by-weight-band",
+	t := withoutRowClick(tableP("feed-weight-band-exits", "Exited in period", "/growth-director/feed-by-weight-band",
 		[]string{"park", "tag", "pen", "gender", "reason", "exited_at", "last_weighed", "last_band", "last_kg", "feed_type", "feed_given"},
 		"", []int{10, 25, 50}))
 	copy := pageCopy("weighing-analytics")
@@ -4896,7 +4896,7 @@ func pageSpecificCopy(id string) map[string]string {
 			// the feed is today's sheet (it is the latest LOCKED sheet, named in the line above
 			// the table).
 			"section.feed_band.title":         "Feed by weight band",
-			"section.feed_band.caption":       "What each pen is fed on the latest locked feed sheet, beside its weighing in the selected period, counted the way the General tab counts: a pen weighed whole on two dates is one row on its latest average; a pen weighed per animal is one row per weight bracket, each animal at its latest weigh after an earlier one. Park, period, weighing, sex and origin apply; the period bounds the weighings only. Sold and dead animals sit outside the head count unless included.",
+			"section.feed_band.caption":       "What each pen is fed on the latest locked feed sheet, beside its weighing in the selected period, counted the way the General tab counts: a pen weighed whole on two dates is one row on its latest average; a pen weighed per animal is one row per weight bracket, each animal at its latest weigh after an earlier one. Park, period, weighing, sex and origin apply; the period bounds the weighings only. Animals that have since exited the register (sold, died or otherwise) sit outside the head count unless included.",
 			"section.feed_band.aria":          "Feed given by weight bracket and pen",
 			"empty.feed_band.body":            "No fed pen has a weighing in this period.",
 			"empty.feed_band.filtered":        "No row matches these filters.",
@@ -4912,41 +4912,43 @@ func pageSpecificCopy(id string) map[string]string {
 			"value.feed_band.type.normal":     "Normal",
 			"value.feed_band.type.experiment": "Experiment",
 			"value.feed_band.animals.on_farm": "On farm",
-			"value.feed_band.animals.all":     "Include sold & dead",
+			"value.feed_band.animals.all":     "Include exited",
 			"value.feed_band.no_gender":       "—",
-			"value.feed_band.exited_suffix":   "sold/died",
+			"value.feed_band.exited_suffix":   "exited",
 			// The ⓘ beside the title: what the two head counts mean, why the feed repeats per band
 			// row, what Excluded counts, and what the two pills are. Backend copy, rendered verbatim.
 			"info.feed_band.hint":     "How to read this table",
 			"info.feed_band.title":    "Reading this table",
 			"info.feed_band.wt_n":     "Wt n is the animals behind the weight: the bracket's head count on a per-animal row, the pen's head count at its latest whole-pen weigh on a lump-sum row.",
 			"info.feed_band.kg_day":   "Pen kg/day is the whole rollup's feed for the day; a per-animal pen repeats it on every bracket row, so do not add those rows up.",
-			"info.feed_band.excluded": "Excluded counts feed rollups whose pen has no qualifying weighing in the period, including pens whose weighed animals have all been sold or died.",
+			"info.feed_band.excluded": "Excluded counts feed rollups whose pen has no qualifying weighing in the period, including pens whose weighed animals have all since exited.",
 			"info.feed_band.badges":   "Lump sum marks a pen weighed whole, on its average; Per animal marks a pen whose animals were scanned one by one.",
-			"info.feed_band.exited":   "Sold and dead animals are left out of Wt n and Avg kg unless Animals is set to include them; a bracket row notes how many of its weighed animals have since left.",
+			"info.feed_band.exited":   "Exited animals — sold, died, or otherwise removed from the register — are left out of Wt n and Avg kg unless Animals is set to include them; a bracket row notes how many of its weighed animals have since left, by reason.",
 			// The card's three views (maintainer decision 2026-09-18, the STG artifact's shape): one
 			// shell, one pager, one search; the view decides the rows and which filters apply.
 			"view.feed_band.aria":      "Feed by weight band view",
 			"view.feed_band.matched":   "Matched",
 			"view.feed_band.unmatched": "Not shown",
-			"view.feed_band.exited":    "Sold / dead",
+			"view.feed_band.exited":    "Exited",
 			"note.feed_band.unmatched": "Feed rollups on the latest sheet whose pen has no qualifying weighing in the selected period. They are on the sheet and counted; they are never banded or guessed.",
-			// The sold / dead panel (the app's record drawer): opened from the count chip, the stat
-			// tile, or a band row's "+N sold" note, scoped to what was clicked.
-			"drawer.feed_band.aria":        "Animals sold or dead in the period",
-			"drawer.feed_band.eyebrow":     "Sold / dead in period",
+			// The exited panel (the app's record drawer): opened from the count chip, the stat tile,
+			// or a band row's "+N sold" note, scoped to what was clicked. Three buckets (sold /
+			// died / other = domain.FeedExitBucket); the stored reason is shown beside the bucket.
+			"drawer.feed_band.aria":        "Animals that exited in the period",
+			"drawer.feed_band.eyebrow":     "Exited in period",
 			"drawer.feed_band.close":       "Close",
 			"drawer.feed_band.period":      "Period",
 			"drawer.feed_band.animals":     "animals",
 			"drawer.feed_band.animal":      "animal",
 			"drawer.feed_band.search":      "Search tag, pen, reason or feed",
-			"drawer.feed_band.search_aria": "Search the sold / dead list",
+			"drawer.feed_band.search_aria": "Search the exited list",
 			"empty.feed_band.unmatched":    "Every fed pen has a weighing in this period.",
-			"empty.feed_band.exits":        "No animal was sold or died in this period.",
+			"empty.feed_band.exits":        "No animal exited in this period.",
 			"value.feed_band.exits.never":  "not weighed in period",
 			"value.feed_band.no_feed":      "no feed row for this pen today",
 			"value.feed_band.sold":         "sold",
 			"value.feed_band.died":         "died",
+			"value.feed_band.other":        "other",
 			"value.feed_band.incl":         "incl.",
 			// The stat tiles under the filters: what the filtered rows add up to. "Animals weighed"
 			// counts each pen × bracket × source once, however many feed rows the pen has.
@@ -4955,9 +4957,10 @@ func pageSpecificCopy(id string) map[string]string {
 			"stat.feed_band.lump":                       "Lump sum",
 			"stat.feed_band.per_animal":                 "Per animal",
 			"stat.feed_band.animals":                    "Animals weighed",
-			"stat.feed_band.exited":                     "Sold / dead since weighing",
+			"stat.feed_band.exited":                     "Exited since weighing",
 			"stat.feed_band.sold":                       "Sold",
 			"stat.feed_band.died":                       "Died",
+			"stat.feed_band.other":                      "Other",
 			"column.feed_band.park":                     "Park",
 			"column.feed_band_unmatched.park":           "Park",
 			"column.feed_band_unmatched.pen":            "Pen",
@@ -4983,10 +4986,8 @@ func pageSpecificCopy(id string) map[string]string {
 			// (docs/weighing/feed-direction-by-weight-band.md) and on the wire, not on screen.
 			"recon.feed_band.sheet":    "Feed sheet",
 			"recon.feed_band.excluded": "fed pens not shown — no weighing in period",
-			"recon.feed_band.exited":   "sold / dead in period",
+			"recon.feed_band.exited":   "exited in period",
 			"recon.feed_band.no_sheet": "No locked feed sheet on record.",
-			"recon.feed_band.showing":  "Showing",
-			"recon.feed_band.of":       "of",
 			"pager.feed_band.noun":     "row",
 			// Column labels, read by feedWeightBandTable.
 			"column.feed_band.weight_source":  "Weight source",

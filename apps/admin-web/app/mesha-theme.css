@@ -3319,25 +3319,35 @@ select:disabled { opacity: .45; }
 @media(max-width:760px){
   .wt-feedband-head .wgl-i{width:40px;height:40px;font-size:12px}
 }
-.wt-feedband td{white-space:nowrap;vertical-align:top;font-size:12.5px;padding-top:9px;padding-bottom:9px}
+.wt-feedband td{white-space:nowrap;vertical-align:middle;font-size:12.5px;padding-top:9px;padding-bottom:9px}
 .wt-feedband th{font-size:10.5px;white-space:normal;line-height:1.2}
 /* Dense rows (visual judge 2026-09-18): breed and feed are the long cells. Breed ellipsizes at
-   one line with the full text on hover; feed keeps at most two lines. Both carry title= for
-   the full value. */
-.wt-feedband .wt-feedband-feed{display:-webkit-box;-webkit-box-orient:vertical;-webkit-line-clamp:2;overflow:hidden;white-space:normal;min-width:150px;max-width:24ch;color:var(--muted);font-size:12px;line-height:1.3}
-.wt-feedband td.wt-feedband-wrap{white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:136px}
-.wt-feedband td,.wt-feedband th{padding-left:6px;padding-right:6px}
+   one line with the full text on hover; feed ellipsizes at one line too, so every row is one
+   line tall like the sibling tables. Both carry title= for the full value. */
+.wt-feedband .wt-feedband-feed{display:block;overflow:hidden;white-space:nowrap;text-overflow:ellipsis;min-width:96px;max-width:15ch;color:var(--muted);font-size:12px;line-height:1.3}
+.wt-feedband td.wt-feedband-wrap{white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:90px}
+/* Pen and group ellipsize at one line too, so twelve columns fit a 1280 laptop (visual judge). */
+.wt-feedband td.wt-feedband-clip{white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:100px}
+.wt-feedband td,.wt-feedband th{padding-left:4px;padding-right:4px}
 .wt-feedband .wt-feedband-gone{white-space:normal;max-width:9ch}
 /* "+N sold" under the head count: the artifact's small amber note, in the theme's amber. A link
    when it opens the panel, the same words when there is nothing to open. */
 .wt-feedband .wt-feedband-gone{display:block;white-space:nowrap;font-size:11px;line-height:1.3;color:var(--amber);text-decoration:none}
 .wt-feedband a.wt-feedband-gone:hover,.wt-feedband a.wt-feedband-gone:focus-visible{text-decoration:underline;outline:none}
 /* The bracket cell: the artifact's six-step bar beside the label, in line and brand tokens. */
-.wt-bandc{display:inline-flex;align-items:center;gap:8px;white-space:nowrap}
-.wt-bandbar{display:inline-flex;gap:2px;width:42px;flex:0 0 42px}
+.wt-bandc{display:inline-flex;align-items:center;gap:5px;white-space:nowrap}
+.wt-bandbar{display:inline-flex;gap:2px;width:26px;flex:0 0 26px}
 .wt-bandbar i{display:block;flex:1;height:6px;border-radius:2px;background:var(--line)}
 .wt-bandbar i.on{background:var(--brand-d)}
 .wt-feedband-search .tsize{min-width:200px}
+/* The card's client-side segments are buttons, not links (no navigation, no RSC): same look as
+   the mock's .metricseg anchors. */
+.wt-feedband-segments .metricseg button{appearance:none;border:0;background:transparent;font:inherit;cursor:pointer;padding:3px 9px;border-radius:6px;font-size:11.5px;font-weight:650;color:var(--muted);white-space:nowrap;line-height:1.4}
+.wt-feedband-segments .metricseg button:hover{color:var(--brand-d)}
+.wt-feedband-segments .metricseg button.on{background:var(--panel);color:var(--brand-d)}
+@media(max-width:600px){.wt-feedband-segments .metricseg button{min-height:40px}}
+.wt-feedband-stats .wt-feedband-tile-sub{display:block;font-size:11px;font-weight:500;line-height:1.3;white-space:normal}
+.wt-feedband-drawer .wt-feedband-reason{display:inline-flex;flex-wrap:wrap;align-items:center;gap:4px}
 .wt-feedband-recon{overflow-wrap:anywhere;display:flex;flex-wrap:wrap;align-items:center;gap:6px 8px}
 .wt-feedband-chip{display:inline-flex;align-items:center;padding:3px 9px;border:1px solid var(--line);border-radius:999px;background:var(--panel);color:var(--ink);font-size:12px;text-decoration:none}
 .wt-feedband-chip:hover,.wt-feedband-chip:focus-visible{border-color:var(--brand-d);color:var(--brand-d);outline:none}

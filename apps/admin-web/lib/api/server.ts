@@ -1225,8 +1225,6 @@ export async function getFeedWeightBand(params: {
   origin?: string;
   /** `individual_animal` / `per_shed_partition`; omitted means both ways of weighing. */
   weighing_category?: string;
-  /** `all` counts sold / dead animals in the band rows; omitted leaves them out. */
-  animals?: string;
 }): Promise<ApiResult<FeedWeightBandResponse>> {
   const config = await getServerConfig();
   if (!config.ok) return config;

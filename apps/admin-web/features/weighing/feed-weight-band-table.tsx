@@ -49,12 +49,13 @@ export type FeedWeightBandTableRow = {
   penKgPerDay: number;
   weightAnimals: number;
   averageKg: number;
-  /** Weighed animals of this band that have since been sold or died; shown as a note under Wt n. */
+  /** Weighed animals of this band that have since exited the register, by bucket; shown as a note under Wt n. */
   exitedSold: number;
   exitedDied: number;
+  exitedOther: number;
   /** Whether the read counted those animals in Wt n ("incl.") or left them out ("+"). */
   includeExited: boolean;
-  /** Opens the sold / dead panel scoped to this pen × bracket; absent when nothing left. */
+  /** Opens the exited panel scoped to this pen × bracket; absent when nothing left. */
   exitHref?: string;
 };
 
@@ -64,6 +65,7 @@ export type FeedWeightBandTableLabels = {
   noGender: string;
   sold: string;
   died: string;
+  other: string;
   /** The prefix when the exited animals are counted in: "incl. 3 sold". */
   incl: string;
   empty: React.ReactNode;
@@ -99,8 +101,8 @@ export function FeedWeightBandTable({
       ),
     },
     band: { cell: (row) => <BandCell band={row.band} label={row.bandLabel} /> },
-    pen: { cell: (row) => <b>{row.pen}</b> },
-    group: { cell: (row) => row.group },
+    pen: { cell: (row) => <b title={row.pen}>{row.pen}</b>, meta: { cellClassName: "wt-feedband-clip" } },
+    group: { cell: (row) => <span title={row.group}>{row.group}</span>, meta: { cellClassName: "wt-feedband-clip" } },
     gender: { cell: (row) => (row.gender ? row.gender : <span className="muted">{labels.noGender}</span>) },
     breed: { cell: (row) => <span title={row.breed}>{row.breed}</span>, meta: { cellClassName: "wt-feedband-wrap" } },
     feed_type: { cell: (row) => <FeedTypeTag feedType={row.feedType} label={row.feedTypeLabel} /> },
@@ -115,12 +117,13 @@ export function FeedWeightBandTable({
         const prefix = row.includeExited ? `${labels.incl} ` : "+";
         if (row.exitedSold > 0) notes.push(`${prefix}${row.exitedSold.toLocaleString("en-IN")} ${labels.sold}`);
         if (row.exitedDied > 0) notes.push(`${prefix}${row.exitedDied.toLocaleString("en-IN")} ${labels.died}`);
+        if (row.exitedOther > 0) notes.push(`${prefix}${row.exitedOther.toLocaleString("en-IN")} ${labels.other}`);
         return (
           <>
             {row.weightAnimals.toLocaleString("en-IN")}
             {notes.map((note) =>
               row.exitHref ? (
-                // A click opens the sold / dead panel for THIS pen and bracket, the app's local
+                // A click opens the exited panel for THIS pen and bracket, the app's local
                 // drawer: no route re-run, filters untouched.
                 <LocalOverlayLink key={note} href={row.exitHref} className="wt-feedband-gone" scroll={false}>
                   {note}

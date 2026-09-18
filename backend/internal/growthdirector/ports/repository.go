@@ -123,10 +123,11 @@ type FeedWeightEvidence struct {
 	FemaleCountAll     int
 	MaleCountAll       int
 	// ExitedAnimals is how many of the weighed animals behind a per-animal band have since
-	// exited (sold / dead). Outside Animals and AverageWeightKg, inside AnimalsAll. Always 0 on
-	// a pen-average row.
+	// exited (goats.exited_at set, whatever the reason). Outside Animals and AverageWeightKg,
+	// inside AnimalsAll. Always 0 on a pen-average row.
 	ExitedAnimals int
-	// ExitedSold is the part of ExitedAnimals that was sold (lifecycle sold / exit reason
-	// sold); the rest died or otherwise left.
+	// ExitedSold and ExitedDied are the sold and died buckets of ExitedAnimals
+	// (domain.FeedExitBucket); the remainder is "other" (inactive, transferred, lost...).
 	ExitedSold int
+	ExitedDied int
 }

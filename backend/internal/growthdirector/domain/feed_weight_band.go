@@ -71,18 +71,44 @@ type FeedWeightBandRow struct {
 	WeightAnimals   int     `json:"weight_animals"`
 	AverageWeightKg float64 `json:"average_weight_kg"`
 	// WeightAnimalsAll / AverageWeightKgAll / GenderAll are the same figures counting every
-	// weighed animal including those since sold or dead, so the screen's Animals toggle needs
+	// weighed animal including those that have since exited, so the screen's Animals toggle needs
 	// no second read. Equal to the on-farm figures on a pen-average row.
 	WeightAnimalsAll   int     `json:"weight_animals_all"`
 	AverageWeightKgAll float64 `json:"average_weight_kg_all"`
 	GenderAll          string  `json:"gender_all"`
-	// ExitedAnimals is how many weighed animals of this band have since been sold or died:
-	// outside WeightAnimals, inside WeightAnimalsAll; always 0 on a pen-average row, whose head
-	// count is a frozen census.
+	// ExitedAnimals is how many weighed animals of this band have since EXITED the register
+	// (goats.exited_at set: sold, died, or any other exit): outside WeightAnimals, inside
+	// WeightAnimalsAll; always 0 on a pen-average row, whose head count is a frozen census.
 	ExitedAnimals int `json:"exited_animals"`
-	// ExitedSold and ExitedDied split ExitedAnimals: sold, or dead / otherwise left.
-	ExitedSold int `json:"exited_sold"`
-	ExitedDied int `json:"exited_died"`
+	// ExitedSold + ExitedDied + ExitedOther = ExitedAnimals, bucketed by FeedExitBucket.
+	ExitedSold  int `json:"exited_sold"`
+	ExitedDied  int `json:"exited_died"`
+	ExitedOther int `json:"exited_other"`
+}
+
+// Exit buckets: the register's lifecycle status / exit reason folded to the three words the
+// screen shows. "sold" and "died" are the same buckets Herd Analytics reports as Sold and
+// Deaths; everything else with an exited_at (inactive, transferred, lost, culled, blank) is
+// "other" -- shown, never hidden, never mislabelled as dead.
+const (
+	FeedExitSold  = "sold"
+	FeedExitDied  = "died"
+	FeedExitOther = "other"
+)
+
+// FeedExitBucket folds goats.lifecycle_status / goats.exit_reason to one of the three exit
+// buckets. Mirrored by the sold / died flags in feedWeightBandSQL (animal_sex CTE).
+func FeedExitBucket(lifecycleStatus, exitReason string) string {
+	ls := strings.ToLower(strings.TrimSpace(lifecycleStatus))
+	er := strings.ToLower(strings.TrimSpace(exitReason))
+	switch {
+	case ls == "sold" || er == "sold":
+		return FeedExitSold
+	case ls == "dead" || ls == "died" || er == "dead" || er == "died":
+		return FeedExitDied
+	default:
+		return FeedExitOther
+	}
 }
 
 // FeedWeightBandUnmatched is one feed rollup on the latest sheet whose pen has no qualifying
@@ -101,8 +127,8 @@ type FeedWeightBandUnmatched struct {
 	PenKgPerDay   float64 `json:"pen_kg_per_day"`
 }
 
-// FeedWeightBandExit is one animal sold or dead inside the period, with its last weigh in the
-// period when it has one -- the "Sold / dead in period" list under the table.
+// FeedWeightBandExit is one animal that exited the register inside the period (sold, died or
+// other), with its last weigh in the period when it has one -- the "Exited in period" panel.
 type FeedWeightBandExit struct {
 	ParkID   string `json:"park_id"`
 	ParkName string `json:"park_name"`
@@ -111,10 +137,12 @@ type FeedWeightBandExit struct {
 	Pen string `json:"pen"`
 	// Gender is the register's sex as display copy ("Male" / "Female"), empty when unknown.
 	Gender string `json:"gender"`
-	// Reason is the register's exit reason as stored, with the lifecycle status (sold / dead)
-	// beside it for the cases where the reason is blank.
+	// Reason is the register's exit reason as stored, with the lifecycle status beside it for
+	// the cases where the reason is blank; Bucket is FeedExitBucket of the two (sold / died /
+	// other), the pill the panel shows beside the stored text.
 	Reason          string `json:"reason"`
 	LifecycleStatus string `json:"lifecycle_status"`
+	Bucket          string `json:"bucket"`
 	// ExitedAt is the exit business date, YYYY-MM-DD.
 	ExitedAt string `json:"exited_at"`
 	// LastWeighedAt is the business date of the last weigh in the period, or empty.
@@ -144,7 +172,7 @@ type FeedWeightBandReconciliation struct {
 	Rollups int `json:"rollups"`
 	// MatchedRollups is the rollups with at least one weight row in the period whose on-farm
 	// head count is above zero; MatchedRollupsAll counts a rollup whose only weighed animals
-	// have since left as matched too (the screen's "include sold & dead" reading).
+	// have since left as matched too (the screen's "Include exited" reading).
 	MatchedRollups    int `json:"matched_rollups"`
 	MatchedRollupsAll int `json:"matched_rollups_all"`
 	// ExcludedRollups is Rollups - MatchedRollups (and the *All twin): fed pens with no such
@@ -161,8 +189,12 @@ type FeedWeightBandReconciliation struct {
 	// that tab does.
 	IndividualAnimalsWeighed int `json:"individual_animals_weighed"`
 	LumpSumAnimalsWeighed    int `json:"lump_sum_animals_weighed"`
-	// ExitedAnimals is how many animals were sold or died inside the period (the list below).
+	// ExitedAnimals is how many animals exited the register inside the period (the panel's
+	// list); ExitedSold + ExitedDied + ExitedOther = ExitedAnimals (FeedExitBucket).
 	ExitedAnimals int `json:"exited_animals"`
+	ExitedSold    int `json:"exited_sold"`
+	ExitedDied    int `json:"exited_died"`
+	ExitedOther   int `json:"exited_other"`
 }
 
 type FeedWeightBand struct {

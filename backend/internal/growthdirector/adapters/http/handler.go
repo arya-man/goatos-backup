@@ -44,7 +44,7 @@ func Register(mux *http.ServeMux, h *Handler) {
 // GetFeedWeightBand serves the Feed by weight band table. `park_id` is optional;
 // `from`/`to` are inclusive business dates bounding the weight evidence; `sex`,
 // `origin` and `weighing_category` are the Weights page's filters. Both head-count
-// variants (on farm / including sold & dead) ride on every row.
+// variants (on farm / including exited animals) ride on every row.
 func (h *Handler) GetFeedWeightBand(w http.ResponseWriter, r *http.Request) {
 	q := r.URL.Query()
 	result, err := h.service.GetFeedWeightBand(

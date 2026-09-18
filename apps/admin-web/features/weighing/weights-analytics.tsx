@@ -1,30 +1,16 @@
 import { redirect } from "next/navigation";
-import Link from "@/components/no-prefetch-link";
-import { CalendarRange, LayoutGrid, PackageOpen, Scale, Sprout, Warehouse, Wheat } from "lucide-react";
+import { CalendarRange, LayoutGrid, PackageOpen, Scale, Sprout, Warehouse } from "lucide-react";
 
 import { GroupedBars, type BarGroup, type GroupedBar } from "./grouped-bars";
 import { LoadComparisonTab } from "./load-comparison-tab";
 import { WeightBars } from "./weight-bars";
 import { WeightsExportControl, type WeightsExportShed } from "./weights-export";
 import { SegmentedLinks } from "@/components/segmented-links";
-import { Tag } from "@/components/ui-primitives";
 import { WorklistFilters, type WorklistFilterField } from "@/components/worklist-filters";
 import { WorklistPager } from "@/components/worklist-pager";
 import { copy, optionGroup, table, type AdminUiPageContract } from "@/lib/admin-ui-contract";
 import { PensTable, type PensTableRow } from "./pens-table";
-import {
-  FeedWeightBandTable,
-  FeedWeightBandUnmatchedTable,
-  type FeedWeightBandTableRow,
-  type FeedWeightBandUnmatchedRow,
-} from "./feed-weight-band-table";
-import {
-  FeedWeightBandExitsDrawer,
-  type FeedWeightBandExitItem,
-  type FeedWeightBandExitScope,
-} from "./feed-weight-band-exits-drawer";
-import { LocalOverlayLink } from "@/components/local-overlay-link";
-import { FeedWeightBandSearch } from "./feed-weight-band-search";
+import { FeedWeightBandCard } from "./feed-weight-band-card";
 import { PenWeekGainTable, type PenWeekGainPoint } from "./pen-week-gain-table";
 import { LoadWeekGainTable, type LoadWeekGainPoint } from "./load-week-gain-table";
 import { fmtDate, todayIso } from "@/lib/format";
@@ -246,7 +232,6 @@ export async function WeighingWeightsAnalyticsPage({
   // weighing mode through the weighing module's own scope resolvers, so the table narrows exactly
   // as the General tab does.
   const wantsFeedBand = tab === "weight";
-  const feedBandAnimals = one(params, FEED_BAND_ANIMALS_PARAM) === "all" ? "all" : "on_farm";
   const shedParams = wantsLoads
     ? { park_id: parkFilter || undefined, from: LOAD_TAB_ALL_TIME_FROM, to: today }
     : { ...scope, ...readWindow };
@@ -273,7 +258,6 @@ export async function WeighingWeightsAnalyticsPage({
           sex: sexFilter || undefined,
           origin: originFilter || undefined,
           weighing_category: weighingCategoryFilter || undefined,
-          animals: feedBandAnimals === "all" ? "all" : undefined,
           ...readWindow,
         })
       : null,
@@ -1075,20 +1059,10 @@ function WeightTab({
 }
 
 /**
- * FEED BY WEIGHT BAND (maintainer request 2026-09-18, the STG artifact's shape) -- directly under
- * the bracket chart: ONE card with three views over one table shell, pager and search. MATCHED is
- * what each pen is fed on the latest LOCKED sheet beside its weighing in the period at the
- * General tab's own grain (one row per lump-sum pen, one per bracket for a per-animal pen); NOT
- * SHOWN is the fed pens with no qualifying weighing; SOLD / DEAD is the animals that left inside
- * the period. The backend owns every row, count and order; this section narrows the served rows
- * by the table-scoped filters and the search, pages them, and adds the stat tiles the filtered
- * rows add up to.
- *
- * A dead feed read empties THIS card with its own message rather than the whole tab: the bracket
- * chart above is a different read and stays up.
+ * FEED BY WEIGHT BAND -- directly under the bracket chart. The payload is fetched once per page
+ * read (Park / Period / Weighing / Sex / Origin); every control on the card is client-side over
+ * it in FeedWeightBandCard. This wrapper only parses the card's initial state from the URL.
  */
-type FeedBandView = "matched" | "unmatched";
-
 function FeedWeightBandSection({
   pageContract,
   feedBand,
@@ -1101,428 +1075,25 @@ function FeedWeightBandSection({
   /** The selected period as the page shows it (DD/MM/YYYY – DD/MM/YYYY), for the panel header. */
   periodLabel: string;
 }) {
-  const rawView = one(params, FEED_BAND_VIEW_PARAM);
-  const view: FeedBandView = rawView === "unmatched" ? "unmatched" : "matched";
-  const allRows = feedBand?.rows ?? [];
-  const allUnmatched = feedBand?.unmatched ?? [];
-  const allExits = feedBand?.exited ?? [];
-  const typeFilter = one(params, FEED_BAND_TYPE_PARAM) ?? "";
-  const sourceFilter = one(params, FEED_BAND_SOURCE_PARAM) ?? "";
-  const bandFilter = one(params, FEED_BAND_BAND_PARAM) ?? "";
-  const penFilter = one(params, FEED_BAND_PEN_PARAM) ?? "";
-  const groupFilter = one(params, FEED_BAND_GROUP_PARAM) ?? "";
-  const animalsFilter = one(params, FEED_BAND_ANIMALS_PARAM) === "all" ? "all" : "on_farm";
-  const search = (one(params, FEED_BAND_SEARCH_PARAM) ?? "").trim().toLowerCase();
-  const limit = boundedLimit(one(params, FEED_BAND_LIMIT_PARAM));
-  const offset = boundedOffset(one(params, FEED_BAND_OFFSET_PARAM));
-
-  // The weight-source words are the Weights page's own Lump sum / Per animal, the same pills the
-  // Pens table wears; every other word is this page's copy.
-  const sourceLabel = (key: string) =>
-    key === "pen_average" ? copy(pageContract, "value.weighing.lump") : copy(pageContract, "value.weighing.individual");
-  const typeLabel = (key: string) => copy(pageContract, `value.feed_band.type.${key}`, key);
-  const bandLabel = (key: string) => copy(pageContract, `band.weight.${key}`, key);
-  const bandKeys = ["under_15", "15_20", "20_25", "25_30", "30_35", "35_plus"];
-  const hasSearch = (parts: (string | number | null | undefined)[]) =>
-    search === "" || parts.join(" ").toLowerCase().includes(search);
-
-  // Each view's rows AFTER the table filters that apply to it: Feed type and Pen everywhere, Band
-  // on Matched and Sold / dead, Weight source and Group on Matched only. Animals is a server
-  // choice and already shaped the rows.
-  const matched = allRows.filter(
-    (row) =>
-      (typeFilter === "" || row.feed_type === typeFilter) &&
-      (sourceFilter === "" || row.weight_source === sourceFilter) &&
-      (bandFilter === "" || row.band === bandFilter) &&
-      (penFilter === "" || row.pen === penFilter) &&
-      (groupFilter === "" || row.group === groupFilter) &&
-      hasSearch([row.pen, row.group, row.gender, row.breed, row.feed_given, row.shed_tag, row.park_name]),
-  );
-  const unmatched = allUnmatched.filter(
-    (row) =>
-      (typeFilter === "" || row.feed_type === typeFilter) &&
-      (penFilter === "" || row.pen === penFilter) &&
-      hasSearch([row.pen, row.group, row.shed_tag, row.ration_group, row.experiment_arm, row.breed, row.feed_given, row.park_name]),
-  );
-  const total = view === "matched" ? allRows.length : allUnmatched.length;
-  const visible = view === "matched" ? matched.length : unmatched.length;
-  const filtered = visible !== total;
-
-  // Option vocabularies come off the rows the server served for THIS view, so a pen or group that
-  // is not there is never offered. Groups are listed as the backend spelled them, disambiguating
-  // suffix included, because that is the exact value the filter compares.
-  const pens = [...new Set(view === "matched" ? allRows.map((row) => row.pen) : allUnmatched.map((row) => row.pen))];
-  const groups = [...new Set(allRows.map((row) => row.group))].sort((a, b) => a.localeCompare(b));
-  const clears = [FEED_BAND_OFFSET_PARAM];
-  const filterFields: WorklistFilterField[] = [
-    {
-      kind: "select",
-      param: FEED_BAND_TYPE_PARAM,
-      label: copy(pageContract, "filter.feed_band.feed_type"),
-      value: typeFilter,
-      allowAll: true,
-      clears,
-      options: ["normal", "experiment"].map((key) => ({ value: key, label: typeLabel(key) })),
-    },
-    ...(view === "matched"
-      ? [
-          {
-            kind: "select" as const,
-            param: FEED_BAND_SOURCE_PARAM,
-            label: copy(pageContract, "filter.feed_band.weight_source"),
-            value: sourceFilter,
-            allowAll: true,
-            clears,
-            options: ["pen_average", "per_animal"].map((key) => ({ value: key, label: sourceLabel(key) })),
-          },
-        ]
-      : []),
-    ...(view === "matched"
-      ? [
-          {
-            kind: "select" as const,
-            param: FEED_BAND_BAND_PARAM,
-            label: copy(pageContract, "filter.feed_band.band"),
-            value: bandFilter,
-            allowAll: true,
-            clears,
-            options: bandKeys.map((key) => ({ value: key, label: bandLabel(key) })),
-          },
-        ]
-      : []),
-    {
-      kind: "select",
-      param: FEED_BAND_PEN_PARAM,
-      label: copy(pageContract, "filter.feed_band.pen"),
-      value: penFilter,
-      allowAll: true,
-      clears,
-      options: pens.map((pen) => ({ value: pen, label: pen })),
-    },
-    ...(view === "matched"
-      ? [
-          {
-            kind: "select" as const,
-            param: FEED_BAND_GROUP_PARAM,
-            label: copy(pageContract, "filter.feed_band.group"),
-            value: groupFilter,
-            allowAll: true,
-            clears,
-            options: groups.map((group) => ({ value: group, label: group })),
-          },
-        ]
-      : []),
-  ];
-
-  const recon = feedBand?.reconciliation;
-  const n = (value: number) => value.toLocaleString("en-IN");
-  const viewHref = (next: FeedBandView) =>
-    hrefWith(params, {
-      [FEED_BAND_VIEW_PARAM]: next === "matched" ? null : next,
-      [FEED_BAND_OFFSET_PARAM]: null,
-      // Filters that do not apply to the next view are dropped with it, so a Group picked on
-      // Matched cannot silently empty Not shown.
-      ...(next === "matched" ? {} : { [FEED_BAND_SOURCE_PARAM]: null, [FEED_BAND_GROUP_PARAM]: null }),
-      ...(next === "unmatched" ? { [FEED_BAND_BAND_PARAM]: null } : {}),
-    });
-  const viewOptions = [
-    { value: "matched", label: `${copy(pageContract, "view.feed_band.matched")} · ${n(allRows.length)}`, href: viewHref("matched") },
-    { value: "unmatched", label: `${copy(pageContract, "view.feed_band.unmatched")} · ${n(allUnmatched.length)}`, href: viewHref("unmatched") },
-  ];
-
-  // The sold / dead panel's scopes: every exit in the period (the chip and the tile), and the
-  // exits behind each matched pen × bracket row. Opened through the `#fb_exit=` hash, the app's
-  // local-overlay pattern, so the table and its filters stay exactly as they are underneath.
-  const exitBase = hrefWith(params, { fb_exit: null });
-  const exitHref = (scope: string) => `${exitBase}#fb_exit=${encodeURIComponent(scope)}`;
-  const exitItems: FeedWeightBandExitItem[] = allExits.map((row, index) => ({
-    key: `${row.tag}|${row.exited_at}|${index}`,
-    park: row.park_name,
-    pen: row.pen,
-    tag: row.tag,
-    gender: row.gender,
-    reason: row.reason || row.lifecycle_status,
-    sold: row.lifecycle_status === "sold" || row.reason === "sold",
-    exitedAt: row.exited_at,
-    lastWeighedAt: row.last_weighed_at ?? "",
-    lastBand: row.last_band ?? "",
-    lastBandLabel: row.last_band ? bandLabel(row.last_band) : "",
-    lastWeightKg: row.last_weight_kg ?? null,
-    feedType: row.feed_type ?? "",
-    feedTypeLabel: row.feed_type ? typeLabel(row.feed_type) : "",
-    feedGiven: row.feed_given ?? "",
-  }));
-  const exitsByPen = [...exitItems].sort((a, b) => a.park.localeCompare(b.park) || a.pen.localeCompare(b.pen, undefined, { numeric: true }));
-  const exitScopes: FeedWeightBandExitScope[] = [{ id: "all", title: copy(pageContract, "view.feed_band.exited"), items: exitsByPen }];
-  const rowScopeId = (row: FeedWeightBandResponse["rows"][number]) => `${row.park_name}|${row.pen}|${row.band}`;
-  for (const row of allRows) {
-    if (row.exited_animals === 0) continue;
-    const id = rowScopeId(row);
-    if (exitScopes.some((scope) => scope.id === id)) continue;
-    exitScopes.push({
-      id,
-      title: `${row.pen} · ${bandLabel(row.band)}`,
-      items: exitItems.filter((item) => item.park === row.park_name && item.pen === row.pen && item.lastBand === row.band),
-    });
-  }
-  const animalsOptions = [
-    {
-      value: "on_farm",
-      label: copy(pageContract, "value.feed_band.animals.on_farm"),
-      href: hrefWith(params, { [FEED_BAND_ANIMALS_PARAM]: null, [FEED_BAND_OFFSET_PARAM]: null }),
-    },
-    {
-      value: "all",
-      label: copy(pageContract, "value.feed_band.animals.all"),
-      href: hrefWith(params, { [FEED_BAND_ANIMALS_PARAM]: "all", [FEED_BAND_OFFSET_PARAM]: null }),
-    },
-  ];
-
-  // The stat tiles: what the filtered rows of THIS view add up to. "Animals weighed" counts each
-  // pen × bracket × source ONCE, however many feed rows the pen has -- a pen with four feed rows
-  // is still one pen of animals -- and the sold / dead tile dedupes the same way.
-  const parkNames = [...new Set(allRows.map((row) => row.park_name).concat(allUnmatched.map((row) => row.park_name)))].sort();
-  const tiles: { label: string; value: string; href?: string }[] = [];
-  if (view === "matched") {
-    const perPenBand = new Map<string, { animals: number; exited: number }>();
-    for (const row of matched) {
-      perPenBand.set(`${row.park_id}|${row.pen}|${row.band}|${row.weight_source}`, {
-        animals: row.weight_animals,
-        exited: row.exited_animals,
-      });
-    }
-    let animals = 0;
-    let exited = 0;
-    for (const entry of perPenBand.values()) {
-      animals += entry.animals;
-      exited += entry.exited;
-    }
-    tiles.push({ label: copy(pageContract, "stat.feed_band.rows"), value: n(matched.length) });
-    for (const park of parkNames) tiles.push({ label: park, value: n(matched.filter((row) => row.park_name === park).length) });
-    tiles.push(
-      { label: copy(pageContract, "stat.feed_band.pens"), value: n(new Set(matched.map((row) => `${row.park_id}|${row.pen}`)).size) },
-      { label: copy(pageContract, "stat.feed_band.lump"), value: n(matched.filter((row) => row.weight_source === "pen_average").length) },
-      { label: copy(pageContract, "stat.feed_band.per_animal"), value: n(matched.filter((row) => row.weight_source === "per_animal").length) },
-      { label: copy(pageContract, "stat.feed_band.animals"), value: n(animals) },
-      { label: copy(pageContract, "stat.feed_band.exited"), value: n(exited), href: exited > 0 ? exitHref("all") : undefined },
-    );
-  } else {
-    tiles.push({ label: copy(pageContract, "stat.feed_band.rows"), value: n(unmatched.length) });
-    for (const park of parkNames) tiles.push({ label: park, value: n(unmatched.filter((row) => row.park_name === park).length) });
-    tiles.push({ label: copy(pageContract, "stat.feed_band.pens"), value: n(new Set(unmatched.map((row) => `${row.park_id}|${row.pen}`)).size) });
-  }
-
-  const pageRows = view === "matched" ? matched : unmatched;
-  // One park selected on the page: the Park column would repeat one word on every row, so the
-  // contract copy handed to the table hides it. The backend still declares it; this is density,
-  // not vocabulary.
-  const pageParkFilter = one(params, "park") ?? "";
-  const parksOnPage = new Set(pageRows.map((row) => row.park_id)).size;
-  const singlePark = pageParkFilter !== "" && parksOnPage <= 1;
-  const withParkColumn = (contract: ReturnType<typeof table>) =>
-    singlePark ? { ...contract, columns: contract.columns.map((column) => (column.key === "park" ? { ...column, visible: false } : column)) } : contract;
-  const slice = pageRows.slice(offset, offset + limit);
-  const emptyLabel = (all: number, key: string) =>
-    all === 0 ? copy(pageContract, key) : copy(pageContract, "empty.feed_band.filtered");
-
   return (
-    <section className="card wtable wt-feedband-card" aria-label={copy(pageContract, "section.feed_band.aria")}>
-      <h2 className="h wt-feedband-head">
-        <Wheat className="ic" size={15} aria-hidden /> {copy(pageContract, "section.feed_band.title")}
-        {/* The ⓘ: the same hint affordance the Pen-wise legend carries, focusable so the panel is
-            reachable without a pointer; `note` because it describes the table rather than doing
-            anything. Every sentence is backend copy. */}
-        <span className="wgl-hint">
-          <span className="wgl-i" tabIndex={0} role="note" aria-label={copy(pageContract, "info.feed_band.hint")}>
-            i
-          </span>
-          <span className="wgl-pop">
-            <b>{copy(pageContract, "info.feed_band.title")}</b>
-            <span className="wgl-pop-list">
-              <span>{copy(pageContract, "info.feed_band.wt_n")}</span>
-              <span>{copy(pageContract, "info.feed_band.kg_day")}</span>
-              <span>{copy(pageContract, "info.feed_band.excluded")}</span>
-              <span>{copy(pageContract, "info.feed_band.exited")}</span>
-              <span>{copy(pageContract, "info.feed_band.badges")}</span>
-            </span>
-          </span>
-        </span>
-      </h2>
-      <p className="muted small">{copy(pageContract, "section.feed_band.caption")}</p>
-      {/* Two facts above the controls and no more: which sheet the feed came from, as a chip, and
-          the two counts a reader can jump to -- fed pens not shown, and animals sold or dead --
-          each a link into its view. The full sheet-to-rows chain lives in the design doc and on
-          the wire, not on screen. */}
-      {recon ? (
-        <p className="muted small wt-feedband-recon">
-          {recon.feed_day ? (
-            <Tag tone="mut">
-              {copy(pageContract, "recon.feed_band.sheet")} {fmtDate(recon.feed_day)}
-            </Tag>
-          ) : (
-            copy(pageContract, "recon.feed_band.no_sheet")
-          )}
-          {recon.feed_day ? (
-            <>
-              {" "}
-              <Link href={viewHref("unmatched")} className="wt-feedband-chip">
-                {n(recon.excluded_rollups)} {copy(pageContract, "recon.feed_band.excluded")}
-              </Link>{" "}
-              <LocalOverlayLink href={exitHref("all")} className="wt-feedband-chip" scroll={false}>
-                {n(recon.exited_animals)} {copy(pageContract, "recon.feed_band.exited")}
-              </LocalOverlayLink>
-            </>
-          ) : null}
-        </p>
-      ) : (
-        <p className="muted small">{copy(pageContract, "error.load.body")}</p>
-      )}
-      {/* The view and, on Matched, the Animals choice: URL-driven segments so a shared link opens
-          on the same view. */}
-      <div className="wt-feedband-segments">
-        <SegmentedLinks ariaLabel={copy(pageContract, "view.feed_band.aria")} current={view} options={viewOptions} />
-        {view === "matched" ? (
-          <span className="wt-feedband-animals">
-            <span className="muted small">{copy(pageContract, "filter.feed_band.animals")}</span>
-            <SegmentedLinks ariaLabel={copy(pageContract, "filter.feed_band.animals")} current={animalsFilter} options={animalsOptions} />
-          </span>
-        ) : null}
-      </div>
-      {/* Scoped to this card, the pens-table shape: the page's own bar above stays as it is, and
-          this bar's Clear resets only these controls. */}
-      <WorklistFilters
-        basePath={PAGE_PATH}
-        pageParam={FEED_BAND_OFFSET_PARAM}
-        fields={filterFields}
-        pageContract={pageContract}
-        telemetry={{ eventPrefix: "weights_analytics_feed_band_filter", surface: "feed_band_table", route: PAGE_PATH }}
-        trailing={
-          <FeedWeightBandSearch
-            param={FEED_BAND_SEARCH_PARAM}
-            offsetParam={FEED_BAND_OFFSET_PARAM}
-            applied={one(params, FEED_BAND_SEARCH_PARAM) ?? ""}
-            placeholder={copy(pageContract, "filter.feed_band.search")}
-            ariaLabel={copy(pageContract, "filter.feed_band.search_aria")}
-          />
-        }
-      />
-      {view === "unmatched" ? <p className="muted small wt-feedband-note">{copy(pageContract, "note.feed_band.unmatched")}</p> : null}
-      <div className="wt-feedband-stats" role="group" aria-label={copy(pageContract, "section.feed_band.aria")}>
-        {tiles.map((tile) =>
-          tile.href ? (
-            <LocalOverlayLink className="kpi wt-feedband-tile-link" key={tile.label} href={tile.href} scroll={false}>
-              <div className="lab">{tile.label}</div>
-              <div className="val">{tile.value}</div>
-            </LocalOverlayLink>
-          ) : (
-            <div className="kpi" key={tile.label}>
-              <div className="lab">{tile.label}</div>
-              <div className="val">{tile.value}</div>
-            </div>
-          ),
-        )}
-        {filtered ? (
-          <div className="kpi">
-            <div className="lab">{copy(pageContract, "recon.feed_band.showing")}</div>
-            <div className="val">
-              {n(visible)} <span className="muted small">{copy(pageContract, "recon.feed_band.of")} {n(total)}</span>
-            </div>
-          </div>
-        ) : null}
-      </div>
-      <div className="tablewrap" tabIndex={0} role="group" aria-label={copy(pageContract, "section.feed_band.aria")}>
-        {view === "matched" ? (
-          <FeedWeightBandTable
-            contract={withParkColumn(table(pageContract, "feed-weight-band"))}
-            rows={(slice as FeedWeightBandResponse["rows"]).map(
-              (row, index): FeedWeightBandTableRow => ({
-                key: `${row.park_id}|${row.pen}|${row.shed_tag}|${row.feed_type}|${row.ration_group}|${row.experiment_arm ?? ""}|${row.band}|${offset + index}`,
-                park: row.park_name,
-                weightSource: row.weight_source,
-                weightSourceLabel: sourceLabel(row.weight_source),
-                band: row.band,
-                bandLabel: bandLabel(row.band),
-                pen: row.pen,
-                group: row.group,
-                gender: row.gender,
-                breed: row.breed,
-                feedType: row.feed_type,
-                feedTypeLabel: typeLabel(row.feed_type),
-                feedGiven: row.feed_given,
-                penKgPerDay: row.pen_kg_per_day,
-                weightAnimals: row.weight_animals,
-                averageKg: row.average_weight_kg,
-                exitedSold: row.exited_sold,
-                exitedDied: row.exited_died,
-                includeExited: animalsFilter === "all",
-                exitHref: row.exited_animals > 0 ? exitHref(rowScopeId(row)) : undefined,
-              }),
-            )}
-            labels={{
-              ariaLabel: copy(pageContract, "section.feed_band.aria"),
-              noGender: copy(pageContract, "value.feed_band.no_gender"),
-              sold: copy(pageContract, "value.feed_band.sold"),
-              died: copy(pageContract, "value.feed_band.died"),
-              incl: copy(pageContract, "value.feed_band.incl"),
-              empty: emptyLabel(allRows.length, "empty.feed_band.body"),
-            }}
-          />
-        ) : (
-          <FeedWeightBandUnmatchedTable
-            contract={withParkColumn(table(pageContract, "feed-weight-band-unmatched"))}
-            rows={(slice as FeedWeightBandResponse["unmatched"]).map(
-              (row, index): FeedWeightBandUnmatchedRow => ({
-                key: `${row.park_id}|${row.pen}|${row.shed_tag}|${row.feed_type}|${row.ration_group}|${row.experiment_arm ?? ""}|${offset + index}`,
-                park: row.park_name,
-                pen: row.pen,
-                shedTag: row.shed_tag,
-                ration: row.ration_group || row.experiment_arm || "",
-                breed: row.breed,
-                feedType: row.feed_type,
-                feedTypeLabel: typeLabel(row.feed_type),
-                feedGiven: row.feed_given,
-                penKgPerDay: row.pen_kg_per_day,
-              }),
-            )}
-            labels={{
-              ariaLabel: copy(pageContract, "view.feed_band.unmatched"),
-              empty: emptyLabel(allUnmatched.length, "empty.feed_band.unmatched"),
-            }}
-          />
-        )}
-      </div>
-      <WorklistPager
-        pageContract={pageContract}
-        offset={offset}
-        limit={limit}
-        rowCount={slice.length}
-        hasMore={offset + slice.length < pageRows.length}
-        noun={copy(pageContract, "pager.feed_band.noun")}
-        pageSizeOptions={PAGE_SIZE_OPTIONS}
-        hrefForOffset={(next) => hrefWith(params, { [FEED_BAND_OFFSET_PARAM]: String(next) })}
-        hrefForLimit={(next) => hrefWith(params, { [FEED_BAND_LIMIT_PARAM]: String(next), [FEED_BAND_OFFSET_PARAM]: null })}
-      />
-      <FeedWeightBandExitsDrawer
-        scopes={exitScopes}
-        initialSelectedId={one(params, "fb_exit")}
-        closeHref={exitBase}
-        contract={table(pageContract, "feed-weight-band-exits")}
-        periodLabel={periodLabel}
-        labels={{
-          aria: copy(pageContract, "drawer.feed_band.aria"),
-          eyebrow: copy(pageContract, "drawer.feed_band.eyebrow"),
-          close: copy(pageContract, "drawer.feed_band.close"),
-          period: copy(pageContract, "drawer.feed_band.period"),
-          search: copy(pageContract, "drawer.feed_band.search"),
-          searchAria: copy(pageContract, "drawer.feed_band.search_aria"),
-          never: copy(pageContract, "value.feed_band.exits.never"),
-          noFeed: copy(pageContract, "value.feed_band.no_feed"),
-          noGender: copy(pageContract, "value.feed_band.no_gender"),
-          empty: copy(pageContract, "empty.feed_band.exits"),
-          animals: copy(pageContract, "drawer.feed_band.animals"),
-        }}
-      />
-    </section>
+    <FeedWeightBandCard
+      pageContract={pageContract}
+      feedBand={feedBand}
+      periodLabel={periodLabel}
+      initial={{
+        view: one(params, FEED_BAND_VIEW_PARAM) ?? "",
+        type: one(params, FEED_BAND_TYPE_PARAM) ?? "",
+        source: one(params, FEED_BAND_SOURCE_PARAM) ?? "",
+        band: one(params, FEED_BAND_BAND_PARAM) ?? "",
+        pen: one(params, FEED_BAND_PEN_PARAM) ?? "",
+        group: one(params, FEED_BAND_GROUP_PARAM) ?? "",
+        animals: one(params, FEED_BAND_ANIMALS_PARAM) ?? "",
+        search: one(params, FEED_BAND_SEARCH_PARAM) ?? "",
+        limit: Number(one(params, FEED_BAND_LIMIT_PARAM) ?? 25),
+        offset: boundedOffset(one(params, FEED_BAND_OFFSET_PARAM)),
+        exitScope: one(params, "fb_exit"),
+      }}
+    />
   );
 }
 
