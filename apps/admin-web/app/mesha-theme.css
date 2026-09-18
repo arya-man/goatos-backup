@@ -5856,7 +5856,6 @@ input[type=date],input[type=datetime-local],input[type=time],input[type=month],i
 .lt-page .ltb-card-name{display:block;min-width:0;font-size:12.5px;font-weight:750;color:var(--ink);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 .lt-page .ltb-card-raiser{display:block;min-width:0;font-size:10.5px;font-weight:600;color:var(--muted);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 
-  .lt-page .ltb-scroll{padding-bottom:0;margin:0}
 .lt-page .ltb-card-foot{display:flex;align-items:center;gap:8px;padding-top:8px;border-top:1px solid var(--line2);color:var(--muted);font-size:11px;font-weight:650}
 .lt-page .ltb-card-key{flex:none;padding:1px 6px;border-radius:5px;background:var(--brand-soft);color:var(--brand-d);font-family:ui-monospace,Menlo,monospace;font-size:10.5px;font-weight:800;letter-spacing:.2px}
 .lt-page .ltb-card-age{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
@@ -5867,15 +5866,22 @@ input[type=date],input[type=datetime-local],input[type=time],input[type=month],i
 .lt-page .ltb-note{margin:10px 2px 0;padding:9px 11px;border:1px solid var(--line2);border-left:2px solid color-mix(in srgb,var(--info) 55%,var(--line));border-radius:9px;background:color-mix(in srgb,var(--panel-2) 55%,transparent);color:var(--muted);font-size:11.5px;line-height:1.55}
 
 @media(max-width:760px){
-  /* Columns STACK: no sideways track to fight the webview's own vertical scroll, and no nested
-     scroller, so the page scrolls once and every card is reachable with a thumb. */
-  .lt-page .ltb-cols{flex-direction:column;gap:11px;padding:0}
-  .lt-page .ltb-col{flex:1 1 auto;width:auto;min-width:0;max-width:100%}
-  /* Stacked columns: the empty Cancelled rail is one slim ROW (title + count), not a strip. */
-  .lt-page .ltb-col.is-rail{width:auto;min-width:0;min-height:0;padding:10px 12px;align-items:stretch}
-  .lt-page .ltb-col.is-rail .ltb-colhd{flex-direction:row;align-items:center;gap:9px;padding:0 3px}
-  .lt-page .ltb-col.is-rail .ltb-colname{writing-mode:horizontal-tb;transform:none}
-  .lt-page .ltb-col.is-rail .ltb-colcount{margin-left:auto}
+  /* Columns stay SIDE BY SIDE and the reader swipes between them, exactly as the Work Board does
+     at this width (the reference the CEO already knows): a horizontal snap row, one column per
+     swipe, ~85vw wide so the edge of the next column shows and says "there is more". Stacking
+     them (the earlier shape) put To do, In progress and Done end to end in a 4500px page and the
+     reader scrolled through every card of one status to reach the next.
+     `scroll-snap-type:x mandatory` on the track, `snap-align:start` on each column. The column
+     BODY still has no nested scroller here: a scroll region inside the page scroll is a trap in
+     the WhatsApp in-app webview, so the page scrolls vertically once and the track only sideways.
+     The header block of each column (`.ltb-colhd` / `.ltb-colmeta`) is not touched. */
+  .lt-page .ltb-scroll{scroll-snap-type:x mandatory;-webkit-overflow-scrolling:touch;padding:2px 0 6px;margin:0 -2px;scrollbar-width:none}
+  .lt-page .ltb-scroll::-webkit-scrollbar{display:none}
+  .lt-page .ltb-cols{gap:10px;padding:0 2px}
+  .lt-page .ltb-col{flex:0 0 min(85vw,100% - 28px);width:min(85vw,100% - 28px);min-width:0;max-width:none;scroll-snap-align:start}
+  /* The empty Cancelled rail stays the slim upright rail it is on desktop (56px, title written up
+     the rail), snapping into view as the last stop of the swipe. */
+  .lt-page .ltb-col.is-rail{flex:0 0 56px;width:56px;min-width:56px;max-width:56px}
   .lt-page .ltb-colbd{max-height:none;overflow-y:visible}
   /* Tap targets: the card, the person chips and "show only this" are all >=40px. */
   .lt-page .ltb-card{min-height:56px;padding:11px 12px}
