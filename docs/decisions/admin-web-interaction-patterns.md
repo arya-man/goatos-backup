@@ -52,7 +52,7 @@ not machine-checked for this feature's shape, and the other four had no rule at 
 4. **A tick is a real checkbox.** A multi-select dropdown ("All" + names) is a list of
    `<label><input type="checkbox">…</label>` rows; style the box, never fake the control with a
    coloured `<span>`/`<button aria-checked>`. Guard rule: `fake-checkbox`.
-   Reference: `features/leadership-tasks/task-people-dropdown.tsx`.
+   Reference: `components/people-dropdown.tsx`.
 
 5. **One date field.** `components/themed-date-picker.tsx` (`ThemedDatePicker`) for a day;
    hour/minute `<select>`s beside it for a time (`task-write-forms.tsx`). Never

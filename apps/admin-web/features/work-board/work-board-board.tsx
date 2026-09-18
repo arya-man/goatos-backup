@@ -265,9 +265,10 @@ export function WorkBoardBoard({
           <Search className="ic" aria-hidden="true" />
           <input value={q} onChange={(e) => setQ(e.target.value)} placeholder={copy(pageContract, "filter.search")} aria-label={copy(pageContract, "filter.search")} />
         </label>
-        {/* The owner filter is the Tasks page's people dropdown, verbatim (Ravi, 2026-09-19:
-            "follow what's present in Tasks"): "Assignee · All" button, real checkboxes, All first.
-            The board's URL carries ONE owner, so a second tick swaps the pick and "All" clears. */}
+        {/* The owner filter is the Tasks page's people dropdown, verbatim (maintainer request,
+            2026-09-19: follow the Tasks page): a labelled dropdown button over real checkboxes,
+            the everyone row first. The board's URL carries ONE owner, so a second tick swaps the
+            pick and the everyone row clears it. Every string comes from the page contract. */}
         {ownRowsOnly ? null : <TaskPeopleDropdown slot="assignee" label={copy(pageContract, "filter.assignee")} allLabel={copy(pageContract, "filter.assignee.all")} options={owners.map((o) => ({ id: o.id, name: o.name, title: `${cardsByOwner[o.id] ?? 0} ${copy(pageContract, "pager.rows")}` }))} selected={selectedOwner ? [selectedOwner] : []} onChange={(next) => write((p) => setParam(p, pageContract, PARAM_OWNER, next.find((id) => id !== selectedOwner)))} />}
         {parks.length > 1 ? (
           <nav className="parkpick" aria-label={copy(pageContract, "filter.park")}>
