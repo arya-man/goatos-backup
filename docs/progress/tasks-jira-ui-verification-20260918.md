@@ -34,22 +34,36 @@ still at `000327` with 10 tasks).
 Same database, same SSH tunnel, so tunnel RTT inflates every absolute number;
 compare rows against each other, not against a production target.
 
-| endpoint | before (`origin/main`) | after |
-|---|---|---|
-| `team_progress` limit=50 | p50 233ms / p95 305ms | p50 255ms / p95 313ms |
-| `team_progress` limit=20 | — | p50 220ms / p95 291ms |
-| `assigned_to_me` limit=50 | p50 135ms / p95 361ms | p50 127ms / p95 217ms |
-| `q=decking` limit=20 | n/a (new) | p50 285ms / p95 811ms |
-| `sort=deadline_asc` limit=20 | n/a (new) | p50 375ms / p95 528ms |
+| endpoint | before (`origin/main`) | after filters | after round-trip fix |
+|---|---|---|---|
+| `team_progress` limit=50 | p50 233ms / p95 305ms | p50 274ms / p95 316ms | **p50 125ms / p95 211ms** |
+| `team_progress` limit=20 | — | p50 255ms / p95 306ms | **p50 119ms / p95 210ms** |
+| `assigned_to_me` limit=50 | p50 135ms / p95 361ms | p50 135ms / p95 238ms | **p50 89ms / p95 180ms** |
+| `assigned_by_me` limit=50 | — | p50 203ms / p95 285ms | **p50 145ms / p95 225ms** |
+| `q=decking` limit=20 | n/a (new) | p50 279ms / p95 491ms | **p50 128ms / p95 239ms** |
+| `sort=deadline_asc` limit=20 | n/a (new) | p50 213ms / p95 333ms | **p50 147ms / p95 231ms** |
+
+The endpoint ends up **faster than `origin/main` was**, on every scope, while
+doing strictly more work. The reason is not query tuning: every query in this
+endpoint executes in under **1.1ms** server-side. The cost was round trips — the
+endpoint issued ~9-10 of them (row query, attachments, notes, mentions, status
+counts, scope counts, and an unseen count nobody had counted), each paying ~20ms
+of tunnel RTT for under a millisecond of work. So the chips genuinely cost about
+3x the list, but because of network trips, not counting.
+
+Collapsing the three aggregates into one statement and the three enrichment
+reads into one `pgx.Batch` took it to ~5 trips. Nine request shapes were
+verified byte-for-byte identical between the old and new binaries, with mentions
+and attachments seeded so every batch arm actually ran.
+
+**Do not expect this margin on staging.** The SSH tunnel multiplies round-trip
+count by roughly 100x, so these numbers are a magnified view of a real but much
+smaller production cost. Against a co-located database the whole difference is
+single-digit milliseconds.
 
 Note the pre-existing finding this surfaced: `team_progress` — the CEO's default
 view — was already the *slowest* scope, because no index led with `tenant_id`
 alone. The two faster scopes ride the existing assignee/raiser composites.
-
-The two new capabilities are the slowest paths and were under investigation at
-the time of writing; the endpoint issues **three** queries per request (rows plus
-two separate count queries that now take the same filter predicates), so the
-chips cost real time.
 
 ## Correctness verified against real data
 
