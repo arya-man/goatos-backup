@@ -85,6 +85,22 @@ resolve to one goat; it does not change vaccination dates, accepted completion
 history, source DOB/species/stage semantics, roster capacity, or SOP proof
 grain.
 
+CBE Castro ET+TT history repair is source-backed vaccination history, not a
+protocol merge between ET+TT and Z1+Z3. Migration `000345` records the reviewed
+CBE Castro 1/2/3 source facts as accepted ET+TT course history for the mapped
+source animals: the 4-week dose lands on 2026-06-26 IST, and the 7-week booster
+lands on 2026-07-20 IST. It also removes the bad ET+TT source identity metadata
+from Z1+Z3 rules and restores ET+TT as its own active rule family if a published
+protocol only has the mislabelled Z1+Z3 clone. Seed closeout for any environment
+applying this repair is to run migrations before vaccination generation and
+verify three facts: no active Z1+Z3 rule keeps an `et_tt_*` source dose code, the
+CBE Castro linked goats have accepted ET+TT history for both kid-course doses,
+and the next ET+TT revac anchors from the booster completion rather than from
+any Z1+Z3 rule. The migration is intentionally fail-closed when the CBE Castro
+source facts are present: it must resolve exactly 204 linked goats, write
+exactly 408 accepted ET+TT history rows, bind all repair history rows to
+published ET+TT rules, and leave zero Z1+Z3 rows with ET+TT source metadata.
+
 Source shed labels with trailing partition numbers must be normalized before
 canonical DB writes. `Gandhi 1` means physical shed `Gandhi`, partition `1`;
 `Godel 1 - Part 3` means physical shed `Godel 1`, partition `Part 3`. The raw
