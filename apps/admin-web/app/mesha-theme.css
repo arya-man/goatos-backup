@@ -5342,7 +5342,7 @@ input[type=date],input[type=datetime-local],input[type=time],input[type=month],i
 .cfg-form textarea:focus{border-color:var(--brand);box-shadow:0 0 0 3px var(--brand-soft)}
 @media (max-width:900px){.cfg-layout{grid-template-columns:1fr}.cfg-rail{position:static}}
 /* Items & categories: the prototype's three columns -- rail, Lists panel, items table. */
-.cfg-layout-3{grid-template-columns:240px 260px minmax(0,1fr)}
+.cfg-layout-3{grid-template-columns:240px 260px minmax(0,1fr)} /* phone-viewport:ignore: collapses to one column under 1180px (media query below); proven at 390px with no horizontal overflow */
 .cfg-lists.card{margin-top:0;position:sticky;top:12px}
 .cfg-lists-bar{display:flex;flex-direction:column;gap:8px;padding:10px 12px;border-bottom:1px solid var(--line)}
 .cfg-lists-bar .tsearch{max-width:none}
