@@ -34,6 +34,12 @@ export type BuyerAnalytics = AppApiComponents["schemas"]["BuyerAnalytics"];
 export type BuyerAnalyticsRow = AppApiComponents["schemas"]["BuyerAnalyticsRow"];
 export type BuyerAnalyticsSummary = AppApiComponents["schemas"]["BuyerAnalyticsSummary"];
 
+// Farm born — the not-on-a-load half of the herd (/procurement/farm-born-sales).
+export type FarmBornSales = AppApiComponents["schemas"]["FarmBornSales"];
+export type FarmBornBucket = AppApiComponents["schemas"]["FarmBornBucket"];
+export type FarmBornSoldRow = AppApiComponents["schemas"]["FarmBornSoldRow"];
+export type FarmBornOption = AppApiComponents["schemas"]["FarmBornOption"];
+
 // Feed purchases — the buying side of the feed chain (/procurement/feed-purchases).
 export type FeedPurchase = AppApiComponents["schemas"]["FeedPurchase"];
 export type FeedPurchasePage = AppApiComponents["schemas"]["FeedPurchasePage"];

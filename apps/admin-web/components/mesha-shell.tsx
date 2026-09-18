@@ -297,6 +297,8 @@ export function MeshaShell({
     "/sales/sold",
     "/sales/farm-value",
     "/sales/buyer-analytics",
+    // Farm born carries its own Park select in its filter bar (the Weights shape).
+    "/sales/farm-born",
   ];
   const lockTopBarParkSelector = PAGES_OWNING_PARK_SCOPE.includes(pathname);
   const [navOpen, setNavOpen] = useState(false);

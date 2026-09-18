@@ -105,6 +105,10 @@ var modulePages = []ModulePage{
 	// READ is the same commercial fact the board carries, so it ticks with the sales module; the
 	// load-cost write on it is gated separately on LoadCostWrite.
 	{Key: "sales-loads", Module: "sales", Label: "Load wise", Href: "/sales/loads", Permissions: []string{SalesRead}},
+	// Farm born (maintainer request 2026-09-18): the not-on-a-load half of the herd -- on farm,
+	// sold in a period, by breed / sex / stage / pen, and the money. Sales money, so it ticks
+	// with the sales module on SalesRead, the Load wise shape.
+	{Key: "sales-farm-born", Module: "sales", Label: "Farm born", Href: "/sales/farm-born", Permissions: []string{SalesRead}},
 	// Market analytics (maintainer decision 2026-09-14): what goat and sheep fetch in the
 	// markets the procurement director phones each morning, read back over time.
 	{Key: "sales-market-analytics", Module: "sales", Label: "Market analytics", Href: "/sales/market-analytics", Permissions: []string{MarketRead}},
@@ -195,6 +199,7 @@ var moduleRoutePrefixes = map[string]string{
 	"/admin/goats/sale":             "sale_allocation",
 	"/sales":                        "sales",
 	"/sales/loads":                  "sales",
+	"/sales/farm-born":              "sales",
 	"/sales/market-analytics":       "sales",
 	"/sales/buyer-analytics":        "sales",
 	"/sales/vendors":                "sales",

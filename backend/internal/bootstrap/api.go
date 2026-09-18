@@ -841,6 +841,10 @@ func NewAPI(ctx context.Context, cfg Config, log *slog.Logger) (*API, error) {
 	// shape as load-wise, one read behind /sales/buyer-analytics.
 	procurementBuyerAnalyticsHandler := procurementhttp.NewBuyerAnalyticsHandler(
 		procurementapp.NewBuyerAnalyticsService(procurementpg.NewRepository(pool, cfg.Postgres.QueryTimeout)), log)
+	// Farm born (maintainer request 2026-09-18): the not-on-a-load half of the herd, the same
+	// recorded procurement-reads-sales shape as load-wise, one read behind /sales/farm-born.
+	procurementFarmBornHandler := procurementhttp.NewFarmBornSalesHandler(
+		procurementapp.NewFarmBornSalesService(procurementpg.NewRepository(pool, cfg.Postgres.QueryTimeout)), log)
 	// Animal purchases (maintainer decision 2026-09-13): the buying desk's loads and candidate
 	// animals with a video each, and the CEO/CXO's accept / reject.
 	animalPurchaseHandler := animalpurchasehttp.NewHandler(
@@ -1443,6 +1447,7 @@ func NewAPI(ctx context.Context, cfg Config, log *slog.Logger) (*API, error) {
 	procurementhttp.RegisterFeedPurchases(protectedMux, procurementFeedPurchaseHandler)
 	procurementhttp.RegisterLoadwise(protectedMux, procurementLoadwiseHandler)
 	procurementhttp.RegisterBuyerAnalytics(protectedMux, procurementBuyerAnalyticsHandler)
+	procurementhttp.RegisterFarmBornSales(protectedMux, procurementFarmBornHandler)
 	animalpurchasehttp.Register(protectedMux, animalPurchaseHandler)
 	toxinhttp.Register(protectedMux, toxinHandler)
 	markethttp.Register(protectedMux, marketHandler)

@@ -4105,6 +4105,30 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/procurement/farm-born-sales": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * The not-on-a-load half of the herd — on farm, sold in a period, by breed / sex / stage / pen, and the money — for the Sales > Farm born page.
+         * @description The counterpart of load-wise: every animal on NO accepted purchase load, served by the procurement read that joins the herd register to the sales ledger (the load-wise shape). The two pages partition the herd. `origin` picks a reading of that population: `farm_born` (origin recorded as birth, the default), `bought_no_load` (recorded as bought but on no load) or `not_recorded` (no origin on the register).
+         *
+         *     THE WINDOW BINDS THE SOLD SIDE ONLY (maintainer decision 2026-09-18). `summary.on_farm` and every breakdown's `on_farm` are TODAY's live counts whatever the window; `sold`, `sold_priced`, `revenue` and the `sold` ledger cover animals whose sale date (the deal's sale date, else the exit date) falls inside `from`..`to` inclusive. Absent dates mean the last calendar month ending today, in IST business dates.
+         *
+         *     A sold animal's `sale_value` is its share of its deal (deal value over animals tagged to it); an animal exited as sold with no deal is counted in `sold` and omits `sale_value`, and `sold_priced` is the denominator of `avg_price`. Every breakdown ranges over the same animals as `summary`, so its `on_farm` and `sold` columns sum to the headline. `options` is the filter bar's vocabulary for the origin reading — the parks, pens, species, breeds, sexes and stages the population actually has — and is NOT narrowed by the other filters. `limit`/`offset` page the `sold` ledger only.
+         */
+        get: operations["getFarmBornSales"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/procurement/buyer-analytics": {
         parameters: {
             query?: never;
@@ -8038,6 +8062,92 @@ export interface components {
             offset: number;
             /** @description Whether phone numbers were included at all for this caller. */
             phones_visible: boolean;
+        };
+        /** @description One row of a Farm born breakdown (a breed, a sex, a stage or a pen). `on_farm` is today's count; `sold`, `sold_priced` and `revenue` are the window's. */
+        FarmBornBucket: {
+            key: string;
+            label: string;
+            /** @description The species for a breed row, the park for a pen row; so same-named pens in two parks stay apart. */
+            detail?: string;
+            /** @description Set on a pen row. */
+            park_id?: string;
+            on_farm: number;
+            sold: number;
+            /** @description How many of `sold` carry a deal share. */
+            sold_priced: number;
+            revenue: number;
+        };
+        FarmBornSummary: {
+            /** @description Alive today */
+            on_farm: number;
+            /** @description Animals whose sale date falls in the window. */
+            sold: number;
+            /** @description Of `sold` */
+            sold_priced: number;
+            revenue: number;
+            /** @description revenue over sold_priced; 0 when nothing is priced. */
+            avg_price: number;
+            /**
+             * Format: date
+             * @description The window actually applied.
+             */
+            from: string;
+            /** Format: date */
+            to: string;
+            /** @enum {string} */
+            origin: "farm_born" | "bought_no_load" | "not_recorded";
+        };
+        /** @description One animal sold in the window. */
+        FarmBornSoldRow: {
+            goat_id: string;
+            display_id: string;
+            /** @description The animal's RFID / tag; blank when none is active. */
+            tag: string;
+            species: string;
+            /** @description Blank when not recorded. */
+            breed: string;
+            sex: string;
+            /** @description Blank when not recorded. */
+            stage: string;
+            park_name: string;
+            /** @description The backend-composed pen display (`Castro 2`, `Godel 1 - Part 3`); blank when the animal has no pen on the register. */
+            pen: string;
+            /** Format: date */
+            sale_date: string;
+            /** @description The animal's share of its deal's value. ABSENT when the sale carries no deal. */
+            sale_value?: number;
+            /** @description Blank when the sale carries no deal. */
+            buyer_name: string;
+            deal_id?: string;
+        };
+        FarmBornOption: {
+            key: string;
+            label: string;
+            /** @description Set on a pen option */
+            park_id?: string;
+        };
+        /** @description The filter bar's vocabulary for the origin reading, built from the population itself. */
+        FarmBornOptions: {
+            parks: components["schemas"]["FarmBornOption"][];
+            pens: components["schemas"]["FarmBornOption"][];
+            species: components["schemas"]["FarmBornOption"][];
+            breeds: components["schemas"]["FarmBornOption"][];
+            sexes: components["schemas"]["FarmBornOption"][];
+            stages: components["schemas"]["FarmBornOption"][];
+        };
+        FarmBornSales: {
+            summary: components["schemas"]["FarmBornSummary"];
+            by_breed: components["schemas"]["FarmBornBucket"][];
+            by_sex: components["schemas"]["FarmBornBucket"][];
+            by_stage: components["schemas"]["FarmBornBucket"][];
+            by_pen: components["schemas"]["FarmBornBucket"][];
+            /** @description One page of the sold ledger, newest sale first. */
+            sold: components["schemas"]["FarmBornSoldRow"][];
+            /** @description The WHOLE-FILTER sold count; `sold` is one page of it. */
+            total_sold: number;
+            limit: number;
+            offset: number;
+            options: components["schemas"]["FarmBornOptions"];
         };
         /** @description The full cost state of one load. Nullable so "not entered" stays distinct from "entered as 0"; transport and other costs are rejected without an animal cost, and all three null clears the recorded cost. */
         LoadCostWrite: {
@@ -26918,6 +27028,50 @@ export interface operations {
                     "application/json": components["schemas"]["LoadwiseWeights"];
                 };
             };
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            500: components["responses"]["ServerError"];
+        };
+    };
+    getFarmBornSales: {
+        parameters: {
+            query?: {
+                /** @description First sale date of the window (inclusive). Absent means one calendar month before `to`. */
+                from?: string;
+                /** @description Last sale date of the window (inclusive). Absent means today (IST). */
+                to?: string;
+                /** @description Which reading of the not-on-a-load population; absent is `farm_born`. An unknown value is rejected. */
+                origin?: "farm_born" | "bought_no_load" | "not_recorded";
+                park_id?: string;
+                /** @description A pen key from `options.pens` — `<shed_id>` for an undivided pen, `<shed_id>|<partition>` for a partition. */
+                pen?: string;
+                species?: "goat" | "sheep";
+                /** @description A breed key from `options.breeds` (matched case-insensitively). */
+                breed?: string;
+                sex?: "male" | "female";
+                /** @description A management-stage key from `options.stages` (matched case-insensitively). */
+                stage?: string;
+                /** @description Sold-ledger page size; clamped to 25 by default and 100 at most. */
+                limit?: number;
+                /** @description Row offset into the newest-sale-first ledger. */
+                offset?: number;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The farm born read. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["FarmBornSales"];
+                };
+            };
+            400: components["responses"]["BadRequest"];
             401: components["responses"]["Unauthorized"];
             403: components["responses"]["Forbidden"];
             500: components["responses"]["ServerError"];

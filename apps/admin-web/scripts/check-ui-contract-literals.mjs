@@ -377,6 +377,8 @@ const ROUTE_BY_PATH_PREFIX = [
   ["features/procurement/load-cost-drawer", ["sales-loads", "sales-config"]],
   ["features/procurement/load-detail", "source-load"],
   ["features/procurement/sales-buyer-analytics", "sales-buyer-analytics"],
+  ["features/procurement/sales-farm-born", "sales-farm-born"],
+  ["features/procurement/farm-born-sold-table", "sales-farm-born"],
   ["features/procurement/sales-loads", "sales-loads"],
   ["features/action-center/", "action-center"],
   ["features/alerts/", "alerts"],
@@ -441,6 +443,7 @@ const ROUTE_BY_PATH_PREFIX = [
   ["app/(admin)/protocol-adherence/", "protocol-adherence"],
   ["app/(admin)/routines/", "pen-routines"],
   ["app/(admin)/sales/buyer-analytics/", "sales-buyer-analytics"],
+  ["app/(admin)/sales/farm-born/", "sales-farm-born"],
   ["app/(admin)/sales/config/", "sales-config"],
   ["app/(admin)/sales/farm-value/", "sales-farm-value"],
   ["app/(admin)/sales/loads/", "sales-loads"],
@@ -543,7 +546,7 @@ function contractSourceIndex() {
     const routeId = match[1];
     const body = match[0];
     addRouteMatches(tablesByRoute, routeId, body, /\btableP?\(\s*"([^"]+)"/g);
-    for (const helperName of ["loadwiseTable", "buyerAnalyticsTable", "animalPurchaseLoadTable", "animalPurchaseAnimalTable", "feedPurchaseTable", "weightsGainThresholdTable", "vaccinationShedTable", "feedWeightBandTable", "feedWeightBandUnmatchedTable", "feedWeightBandExitsTable"]) {
+    for (const helperName of ["loadwiseTable", "buyerAnalyticsTable", "farmBornSoldTable", "animalPurchaseLoadTable", "animalPurchaseAnimalTable", "feedPurchaseTable", "weightsGainThresholdTable", "vaccinationShedTable", "feedWeightBandTable", "feedWeightBandUnmatchedTable", "feedWeightBandExitsTable"]) {
       if (body.includes(`${helperName}(`)) addAll(setForRoute(tablesByRoute, routeId), tableIdsFromGoBody(functionBody(backendService, helperName)));
     }
   }
