@@ -43,7 +43,17 @@ export type FollowUpStepRow = {
   waitForAll: boolean;
   requires: string[];
   when: string;
+  // Answer-driven branch (SOP studio phase 2): the step runs only when `whenStep`'s answer
+  // satisfies `whenOp` against `whenValues`. Blank whenStep = always runs.
+  whenStep: string;
+  whenOp: AnswerOp;
+  whenValues: string[];
 };
+
+/** Answer comparisons the engine evaluates (tasks/domain.AnswerCondition). */
+export type AnswerOp = "eq" | "ne" | "in" | "not_in" | "gt" | "gte" | "lt" | "lte";
+export const ANSWER_OPS: AnswerOp[] = ["eq", "ne", "in", "not_in", "gt", "gte", "lt", "lte"];
+export const NUMERIC_ANSWER_OPS: AnswerOp[] = ["gt", "gte", "lt", "lte"];
 
 export type FollowUpTrackRows = {
   key: string;
@@ -112,6 +122,9 @@ export function blankStep(taskType = "record_yes_no"): FollowUpStepRow {
     waitForAll: false,
     requires: [],
     when: "",
+    whenStep: "",
+    whenOp: "eq",
+    whenValues: [],
   };
 }
 
@@ -175,6 +188,7 @@ export function parseFollowUp(formDsl: unknown): FollowUpRows | null {
             if (!step) return [];
             const proof = obj(step["proof"]) ?? {};
             const sched = obj(step["schedule"]) ?? {};
+            const whenAnswer = obj(step["when_answer"]) ?? {};
             const kind = (str(sched["kind"], "immediately") || "immediately") as ScheduleKind;
             return [
               {
@@ -206,6 +220,9 @@ export function parseFollowUp(formDsl: unknown): FollowUpRows | null {
                 waitForAll: bool(step["wait_for_all"]),
                 requires: strList(step["requires"]),
                 when: str(step["when"]),
+                whenStep: str(whenAnswer["step"]),
+                whenOp: (ANSWER_OPS.includes(str(whenAnswer["op"]) as AnswerOp) ? str(whenAnswer["op"]) : "eq") as AnswerOp,
+                whenValues: strList(whenAnswer["value"]),
               } satisfies FollowUpStepRow,
             ];
           }),
@@ -293,6 +310,7 @@ export function emitFollowUp(rows: FollowUpRows): Record<string, unknown> {
         if (row.waitForAll) out.wait_for_all = true;
         if (row.requires.length) out.requires = row.requires;
         if (row.when) out.when = row.when;
+        if (row.whenStep) out.when_answer = { step: row.whenStep, op: row.whenOp, value: row.whenValues.map((v) => v.trim()).filter(Boolean) };
         return out;
       }),
     })),
@@ -334,9 +352,34 @@ export function followUpProblems(rows: FollowUpRows, answerKinds: Record<string,
       for (const req of s.requires) {
         if (!t.steps.slice(0, i).some((x) => x.key === req)) problems.push(`${at}: "${req}" must be an earlier step`);
       }
+      if (s.whenStep) {
+        const question = t.steps.slice(0, i).find((x) => x.key === s.whenStep);
+        const kind = question ? stepAnswerKind(question, answerKinds) : "";
+        if (!question) problems.push(`${at}: the branch must hang on an earlier question`);
+        else if (!kind || kind === "none") problems.push(`${at}: "${question.title || question.key}" records no answer to branch on`);
+        else if (NUMERIC_ANSWER_OPS.includes(s.whenOp) && kind !== "number") problems.push(`${at}: a number comparison needs a number question`);
+        const values = s.whenValues.map((v) => v.trim()).filter(Boolean);
+        if (values.length === 0) problems.push(`${at}: the branch needs a value`);
+        if (kind === "yes_no" && values.some((v) => !["yes", "no"].includes(v.toLowerCase()))) problems.push(`${at}: the branch value must be yes or no`);
+        if ((kind === "select" || kind === "multiselect") && question && values.some((v) => !question.options.map((o) => o.trim().toLowerCase()).includes(v.toLowerCase()))) {
+          problems.push(`${at}: the branch value must be one of the question's choices`);
+        }
+        if (kind === "number" && values.some((v) => Number.isNaN(Number(v)))) problems.push(`${at}: the branch value must be a number`);
+      }
     });
   }
   return problems;
+}
+
+/** The answer kind a step records: its own override, else its task type's registry kind. */
+export function stepAnswerKind(step: FollowUpStepRow, answerKinds: Record<string, string>): string {
+  if (step.answer) return step.answer;
+  return answerKindOfTaskType(step.taskType, answerKinds);
+}
+
+/** Answer kind by task type key. `answerKinds` maps task type -> answer kind label/key from the registry option group. */
+export function answerKindOfTaskType(taskType: string, answerKinds: Record<string, string>): string {
+  return answerKinds[taskType] ?? "";
 }
 
 // ---------------------------------------------------------------------------------------------

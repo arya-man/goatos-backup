@@ -1,6 +1,9 @@
 "use client";
 
 import { useMemo, useState, useTransition } from "react";
+import { BranchField } from "./branch-field";
+import { FollowUpFlow } from "./followup-flow";
+import type { FlowInsert } from "./flow-layout";
 import Link from "@/components/no-prefetch-link";
 import { useRouter } from "next/navigation";
 import { AlertTriangle, Check, ChevronLeft, ChevronDown, ChevronUp, Lock, Plus, X } from "lucide-react";
@@ -66,6 +69,41 @@ export function FollowUpEditor({
   const [notice, setNotice] = useState<FollowUpSaveResult | null>(null);
   const [pending, startTransition] = useTransition();
   const [openTrack, setOpenTrack] = useState<string>(initial.tracks[0]?.key ?? "");
+  // The studio's two views (maintainer instruction 2026-09-18): LIST is the default, FLOW is the
+  // chart. Both edit the same rows; the choice is per page, kept in the address bar so a link
+  // opens the view it was copied from.
+  const [view, setView] = useState<"list" | "flow">(() => (typeof window !== "undefined" && new URL(window.location.href).searchParams.get("view") === "flow" ? "flow" : "list"));
+  const [selectedStep, setSelectedStep] = useState<string>("");
+  const answerKindLabels = useMemo(
+    () => Object.fromEntries(["yes_no", "select", "multiselect", "number", "text"].map((k) => [k, copy(pc, `studio.answer.${k}`)])),
+    [pc],
+  );
+  function switchView(next: "list" | "flow") {
+    setView(next);
+    if (typeof window !== "undefined") {
+      const url = new URL(window.location.href);
+      if (next === "flow") url.searchParams.set("view", "flow");
+      else url.searchParams.delete("view");
+      window.history.replaceState(window.history.state, "", url.toString());
+    }
+  }
+  function insertStep(trackKey: string, insert: FlowInsert) {
+    const step = blankStep(taskTypes[0]?.key ?? "record_yes_no");
+    if (insert.when) {
+      step.whenStep = insert.when.whenStep;
+      step.whenOp = insert.when.whenOp;
+      step.whenValues = insert.when.whenValues;
+    }
+    setRows((prev) => ({
+      tracks: prev.tracks.map((t) => {
+        if (t.key !== trackKey) return t;
+        const steps = [...t.steps];
+        steps.splice(Math.min(Math.max(insert.index, 0), steps.length), 0, step);
+        return { ...t, steps };
+      }),
+    }));
+    setSelectedStep(step.id);
+  }
 
   const problems = useMemo(() => followUpProblems(rows, answerKinds), [rows, answerKinds]);
 
@@ -145,6 +183,14 @@ export function FollowUpEditor({
           </div>
         </div>
         <div className="sp" style={{ flex: 1 }} />
+        <div className="subtabs studio-view-toggle" role="tablist" aria-label={copy(pc, "studio.view.label")}>
+          <button type="button" role="tab" className={view === "list" ? "on" : ""} aria-selected={view === "list"} onClick={() => switchView("list")} data-testid="studio-view-list">
+            {copy(pc, "studio.view.list")}
+          </button>
+          <button type="button" role="tab" className={view === "flow" ? "on" : ""} aria-selected={view === "flow"} onClick={() => switchView("flow")} data-testid="studio-view-flow">
+            {copy(pc, "studio.view.flow")}
+          </button>
+        </div>
         <Link className="btn" href={basePath}>
           <ChevronLeft className="ic" /> {copy(pc, "builder.back")}
         </Link>
@@ -177,7 +223,41 @@ export function FollowUpEditor({
               </span>
               {open ? <ChevronUp size={16} /> : <ChevronDown size={16} />}
             </button>
-            {open ? (
+            {open && view === "flow" ? (
+              <FollowUpFlow
+                pc={pc}
+                track={track}
+                answerKinds={answerKinds}
+                answerKindLabels={answerKindLabels}
+                taskTypes={taskTypes}
+                selectedId={selectedStep}
+                onSelect={setSelectedStep}
+                onInsert={(insert) => insertStep(track.key, insert)}
+                renderCard={(step, index) => (
+                  <StepCard
+                    key={step.id}
+                    pc={pc}
+                    index={index}
+                    step={step}
+                    earlier={track.steps.slice(0, index)}
+                    taskTypes={taskTypes}
+                    answerKinds={answerKinds}
+                    scheduleKinds={scheduleKinds}
+                    conditions={conditions}
+                    sections={sections}
+                    onChange={(patch) => updateStep(track.key, step.id, patch)}
+                    onMove={(dir) => moveStep(track.key, step.id, dir)}
+                    onRemove={() => {
+                      removeStep(track.key, step.id);
+                      setSelectedStep("");
+                    }}
+                    takenKeys={new Set(track.steps.filter((s) => s.id !== step.id).map((s) => s.key))}
+                    savedKeys={savedKeys}
+                  />
+                )}
+              />
+            ) : null}
+            {open && view === "list" ? (
               <div className="followup-steps">
                 {track.steps.length === 0 ? <p className="muted">{copy(pc, "followup.empty")}</p> : null}
                 {track.steps.map((step, index) => (
@@ -486,6 +566,7 @@ function StepCard({
             ))}
           </select>
         </label>
+        <BranchField pc={pc} step={step} earlier={earlier} answerKinds={answerKinds} onChange={onChange} />
         <label className="chkline">
           <input type="checkbox" checked={step.hardTimeGate} onChange={(e) => onChange({ hardTimeGate: e.target.checked })} /> {copy(pc, "followup.step.hard_time_gate")}
         </label>
