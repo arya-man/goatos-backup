@@ -271,8 +271,8 @@ BEGIN
   FROM cbe_castro_ettt_linked_goats
   WHERE matched_goat_count <> 1;
 
-  IF source_animals > 0 AND linked_goats <> 204 THEN
-    RAISE EXCEPTION 'CBE Castro ET+TT repair expected 204 linked goats, got %', linked_goats;
+  IF source_animals > 0 AND linked_goats <> 205 THEN
+    RAISE EXCEPTION 'CBE Castro ET+TT repair expected 205 linked goats, got %', linked_goats;
   END IF;
 
   IF source_animals > 0 AND ambiguous_keys <> 0 THEN
@@ -374,8 +374,8 @@ BEGIN
     AND vaccine_code = 'ET_TT'
     AND dose_code IN ('et_tt_kid_4w', 'et_tt_kid_7w');
 
-  IF source_animals > 0 AND history_rows <> 408 THEN
-    RAISE EXCEPTION 'CBE Castro ET+TT repair expected 408 accepted history rows, got %', history_rows;
+  IF source_animals > 0 AND history_rows <> 410 THEN
+    RAISE EXCEPTION 'CBE Castro ET+TT repair expected 410 accepted history rows, got %', history_rows;
   END IF;
 
   SELECT count(*) INTO active_rule_bound_rows
@@ -394,8 +394,8 @@ BEGIN
     AND h.vaccine_code = 'ET_TT'
     AND h.dose_code IN ('et_tt_kid_4w', 'et_tt_kid_7w');
 
-  IF source_animals > 0 AND active_rule_bound_rows <> 408 THEN
-    RAISE EXCEPTION 'CBE Castro ET+TT repair expected 408 history rows bound to published ET+TT rules, got %', active_rule_bound_rows;
+  IF source_animals > 0 AND active_rule_bound_rows <> 410 THEN
+    RAISE EXCEPTION 'CBE Castro ET+TT repair expected 410 history rows bound to published ET+TT rules, got %', active_rule_bound_rows;
   END IF;
 
   SELECT count(*) INTO bad_z1z3_rows

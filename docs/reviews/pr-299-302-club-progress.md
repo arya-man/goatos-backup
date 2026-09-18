@@ -31,12 +31,16 @@
   - `goatos-kernel-worker-stg-00447-5hk` at 100 percent.
 - Cleared one stale `idle in transaction` STG DB session. A direct migration retry then passed `000336` but failed at `000342_feed_sop_cards` because STG already has the three feed SOP proof constraints while the migration version is not recorded.
 - Patched `000342_feed_sop_cards` to drop each new SOP proof constraint before re-adding it, making the migration replay-safe for this partially applied STG state.
+- Restored public Cloud Run ingress to `internal-and-cloud-load-balancing` after the failed rollout left API/admin-web at `internal`, which caused `dashboard.mesha.sg` to return LB 404s.
+- Brought live STG back to green on `8cf66ffb4e16`: dashboard login returned 200, API `/livez` and `/readyz` returned 204, and `/version` reported `migration_drift=false`.
+- The next code hotfix also updates `000345_castro1_ettt_history_z1z3_identity_repair` for the current live Castro ET+TT data cardinality: 205 linked goats and 410 accepted history rows.
 
 ## Pending
 
 - Commit the STG migration replay-safety hotfix.
 - Run the required local landing receipt for the hotfix.
 - Push certified `main`, run STG migration/deployment without shifting traffic until proof is green, then shift traffic to the new revisions.
+- Repair the Cloud Deploy sequence so future STG deploys do not route API/admin-web traffic before migrations and readiness proof are green.
 
 ## Exact Tests / E2E Performed
 
@@ -56,6 +60,7 @@
 - Retried `:app:testStgDebugUnitTest` without SDK environment failed because the fresh worktree has no `local.properties`; rerun with `ANDROID_HOME` and `ANDROID_SDK_ROOT` passed.
 - Initial STG Cloud Deploy rollout `r-8cf66ffb4e16-092507-to-goatos-stg-0001` failed in migration execution `goatos-stg-migrate-8ns56` with `SQLSTATE 55P03` lock timeout on `000336_shifting_verification_round`.
 - Direct migration retry `goatos-stg-migrate-7nngj` then failed on `000342_feed_sop_cards` because `feed_distribution_completions_sop_proofs_check` already existed. STG inspection showed all three feed SOP proof constraints exist while `goatos_schema_migrations` has no `dev00033x` or `dev00034x` migration records.
+- After `000342` was corrected manually on STG, migration retry advanced to `000344` and then failed on `000345` because the migration expected 204 linked goats / 408 history rows while live STG has 205 linked goats / 410 rows.
 
 ## Before / After Metrics
 
@@ -73,3 +78,4 @@
 
 - Main is landed at `8cf66ffb4e16d26ca68dba4c2a578690aaedef57`; PRs 299-302 are merged and closed.
 - STG deploy is not complete. Services were temporarily moved to `8cf66ffb4e16`, migration failed, and traffic has been restored to the previous good STG revisions while the hotfix is prepared.
+- Live STG emergency recovery completed after ingress/readiness repair: dashboard is serving, API is on `8cf66ffb4e16`, and DB migration version matches API binary at `000345#1`.
