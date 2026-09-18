@@ -44,7 +44,7 @@ lt | lte`; a pick-many answer matches when any picked value does). The engine:
    the question must be an EARLIER step of the same track that records an answer; the operator
    must fit its answer kind; every value must be one the question can produce.
 2. **Stamps the condition on the action row** at open (`workflow_actions.answer_gate`, migration
-   000350), so the branch is pinned with the version the workflow started on.
+   000353), so the branch is pinned with the version the workflow started on.
 3. **Blocks** a gated step until its question is answered (`blocked_reason = awaiting_answer`, with a
    backend-composed `branch_note` such as "Only if “Is the kid clean?” is No").
 4. **Settles the branch in the answer's own transaction** (`ResolveAnswerBranches`): a gated step
@@ -67,7 +67,7 @@ it on the line the same way.
 
 `sop_definitions.kind` is `module` (owned and run by a module: birth by Herd Operations, a session by
 Weighing, a card by Feed) or `general` (farm-wide, tied to no module, started by hand); `module_key`
-names the owner of a module-level SOP (migration 000351 backfills both from the code prefix). The kind
+names the owner of a module-level SOP (migration 000354 backfills both from the code prefix). The kind
 is a column, not a naming convention -- but the page decides it: a module SOP page authors module-level
 SOPs, **Configuration › Work instructions** (`/configuration/work-instructions`) authors general ones,
 and the builder shows the kind it will write. A general SOP's code is `general.<slug>`; its builder
@@ -75,13 +75,13 @@ steps become the `main` follow-up track the phone runs (no capture form).
 
 A general run: `POST /app/workflows/start {sop_code}` under an `Idempotency-Key` (the key IS the run:
 a retried tap never opens two) → a workflow keyed on that run id with **no animal**
-(`workflow_instances.subject_goat_id` is nullable from 000351; template key `general:<code>`, module
+(`workflow_instances.subject_goat_id` is nullable from 000354; template key `general:<code>`, module
 `general`), compiled by the same opener the herd operations use, driven through the same workflow
 routes. `GET /app/sops/general` lists what can be started.
 
 The seeded first general SOP is the **Gate visitor check** (five steps, one answer-driven branch:
 footwear disinfection and overshoes only when the visitor has been on another livestock farm this
-week), published v1 for every tenant by 000351 and pinned byte-for-byte to
+week), published v1 for every tenant by 000354 and pinned byte-for-byte to
 `tasks/domain/sopseed/general_gate_visitor_check.json`.
 
 ## What the phone shows

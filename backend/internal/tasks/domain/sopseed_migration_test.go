@@ -24,7 +24,7 @@ func TestMigrationEmbedsTheSeededDocuments(t *testing.T) {
 	files := []string{"categories.json", "task_types.json"}
 	for code, f := range sopseed.FollowUpDocuments {
 		if code == sopseed.SOPCodeGateVisitorCheck {
-			continue // seeded by 000351; pinned by TestMigrationEmbedsTheGeneralSeed
+			continue // seeded by 000354; pinned by TestMigrationEmbedsTheGeneralSeed
 		}
 		files = append(files, f)
 	}
@@ -68,10 +68,10 @@ func TestTaskTypeRegistryCoversEveryHookAndAnswerKind(t *testing.T) {
 	}
 }
 
-// TestMigrationEmbedsTheGeneralSeed pins the first general SOP (migration 000351) to its
+// TestMigrationEmbedsTheGeneralSeed pins the first general SOP (migration 000354) to its
 // sopseed document byte for byte, the same way 000308 is pinned to the herd-operations seeds.
 func TestMigrationEmbedsTheGeneralSeed(t *testing.T) {
-	path := filepath.Join("..", "..", "..", "migrations", "postgres", "000351_sop_kind_and_general_sops.sql")
+	path := filepath.Join("..", "..", "..", "migrations", "postgres", "000354_sop_kind_and_general_sops.sql")
 	raw, err := os.ReadFile(path)
 	if err != nil {
 		t.Fatal(err)
@@ -81,7 +81,7 @@ func TestMigrationEmbedsTheGeneralSeed(t *testing.T) {
 		t.Fatal(err)
 	}
 	if !strings.Contains(string(raw), "$seed$"+strings.TrimSpace(string(doc))+"$seed$") {
-		t.Fatalf("migration 000351 does not embed general_gate_visitor_check.json verbatim")
+		t.Fatalf("migration 000354 does not embed general_gate_visitor_check.json verbatim")
 	}
 	// The seeded general document validates and compiles against the seeded registry, and its
 	// branch is on the right question.

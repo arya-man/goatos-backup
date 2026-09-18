@@ -128,7 +128,7 @@ func TestReportingHookStepsMayBeRemoved(t *testing.T) {
 	}
 }
 
-// The seeded general SOP (migration 000351) ships `fields: []` -- a general SOP has no capture
+// The seeded general SOP (migration 000354) ships `fields: []` -- a general SOP has no capture
 // form -- and the web's Operator-steps editor keeps the capture form untouched when it saves a
 // new version. ValidateFormDSL demanded a field and made the seeded document impossible to edit
 // or re-publish (PR 308 review, P1). The seeded shape must save through the full CreateVersion

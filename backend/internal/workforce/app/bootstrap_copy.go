@@ -1128,7 +1128,7 @@ func permissionOfferedModuleKeys(grants []domain.GrantSummary) []string {
 	// job. An operator holds the permission on the role too (any operator may run the gate
 	// check), but an operator's WORK modules are earned by a module grant, never by the role
 	// (the P1-NAV rule TestVisibleNavigationIsEarnedByAModuleGrant pins): an operator gets this
-	// module from their person tick / department grant, which the 000352 backfill writes.
+	// module from their person tick / department grant, which the 000355 backfill writes.
 	if grantsHavePermission(grants, permissions.WorkInstructionsExecute) && !operatorOnly(grants) {
 		keys = append(keys, "work_instructions")
 	}
