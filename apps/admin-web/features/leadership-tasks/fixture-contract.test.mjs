@@ -75,6 +75,12 @@ for (const [, source] of sources) {
   for (const match of source.matchAll(/\bcopy\(\s*([A-Za-z_$][\w$]*)\s*,\s*"([^"]+)"\s*\)/g)) {
     keys.add(match[2]);
   }
+  // The New task modal reads through a local `text(key, fallback)` (its contract prop is
+  // optional), and those keys are contract keys just the same -- pin them too, so a modal label
+  // cannot slide back into a hard-coded word that the backend map never carried.
+  for (const match of source.matchAll(/\btext\(\s*"([^"]+)"\s*,\s*"[^"]*"\s*\)/g)) {
+    keys.add(match[1]);
+  }
 }
 assert.ok(keys.size > 20, `expected the feature to read many copy keys, found ${keys.size}`);
 for (const key of ["action.previous", "action.next", "pager.page", "pager.rows"]) {

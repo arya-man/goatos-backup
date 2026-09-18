@@ -108,14 +108,14 @@ export function NewTaskModal({
         aria-expanded={open}
       >
         <Plus className="ic" aria-hidden="true" />
-        New task
+        {text("new.open", "New task")}
       </button>
       {open ? (
         <>
           <button
             type="button"
             className="scrim on lt-modal-scrim"
-            aria-label="Close"
+            aria-label={text("action.close", "Close")}
             onClick={closeModal}
           />
           <div
@@ -127,13 +127,13 @@ export function NewTaskModal({
           >
             <div className="lt-modal-hd">
               <Plus className="ic" style={{ color: "var(--brand)" }} aria-hidden="true" />
-              <h3 id={headingId}>New task</h3>
+              <h3 id={headingId}>{text("new.title", "New task")}</h3>
               <div className="sp" style={{ flex: 1 }} />
               <button
                 type="button"
                 className="btn"
                 onClick={closeModal}
-                aria-label="Close"
+                aria-label={text("action.close", "Close")}
               >
                 <X className="ic" aria-hidden="true" />
               </button>
@@ -154,13 +154,13 @@ export function NewTaskModal({
               <input type="hidden" name="idempotency_key" value={idempotencyKey} />
               <input type="hidden" name="return_to" value={returnTo} />
               <div className="fld lt-for" ref={forRef}>
-                <span className="lt-fld-label">For</span>
+                <span className="lt-fld-label">{text("new.for_field", "For")}</span>
                 <AssigneePicker
                   mode="single"
                   name="assignee_user_id"
                   labels={{
-                    label: "For",
-                    placeholder: "Choose who this is for",
+                    label: text("new.for_field", "For"),
+                    placeholder: text("new.for_placeholder", "Choose who this is for"),
                     search: text("filter.people_search", "Type a name"),
                     none: text("filter.people_no_matches", "Nobody by that name."),
                   }}
@@ -183,13 +183,13 @@ export function NewTaskModal({
                   </small>
                 ) : chosen ? (
                   <small className="lt-assignee-hint">
-                    Assigned to <b>{chosen.name}</b>
+                    {text("new.assigned_to", "Assigned to")} <b>{chosen.name}</b>
                     {chosen.title ? <> — {chosen.title}</> : null}
                   </small>
                 ) : null}
               </div>
               <label className="fld">
-                <span>Title</span>
+                <span>{text("new.title_field", "Title")}</span>
                 <input
                   name="title"
                   required
@@ -200,7 +200,7 @@ export function NewTaskModal({
                 <small className="lt-counter">{title.length} / 80</small>
               </label>
               <label className="fld">
-                <span>Brief</span>
+                <span>{text("new.body_field", "Brief")}</span>
                 <textarea name="body" maxLength={4000} rows={4} />
               </label>
               <TaskDeadlineFields
@@ -208,11 +208,11 @@ export function NewTaskModal({
                 defaultLocal=""
                 min={deadlineMin.slice(0, 10) || undefined}
                 required
-                label="Deadline"
-                hint="Date and time the task is due, farm clock (IST)."
+                label={text("new.deadline_field", "Deadline")}
+                hint={text("new.deadline_hint", "Date and time the task is due, farm clock (IST).")}
               />
               <div className="fld">
-                <span className="lt-fld-label">Attachments</span>
+                <span className="lt-fld-label">{text("new.attachments", "Attachments")}</span>
                 <div className="lt-pickers">
                   {pickers.map((picker) => {
                     const Icon = picker.icon;
@@ -240,7 +240,7 @@ export function NewTaskModal({
                 </div>
               </div>
               <button type="submit" className="btn p lt-send">
-                Send
+                {text("new.send", "Send")}
               </button>
             </form>
           </div>

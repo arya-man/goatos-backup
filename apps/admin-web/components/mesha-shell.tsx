@@ -806,7 +806,11 @@ export function MeshaShell({
             permission ask belongs where a person already goes to read their notifications, and it
             is behind an explicit click inside the panel -- never a prompt on page load. */}
         <NotificationBell
-          openLabel={contract.top_bar.notifications.disabled_reason}
+          openLabel={
+            contract.top_bar.notifications.enabled
+              ? contract.top_bar.notifications.label
+              : contract.top_bar.notifications.disabled_reason
+          }
           contractCopy={contract.copy}
           permissionSlot={<PushPermissionPromptLazy contractCopy={contract.copy} />}
         />

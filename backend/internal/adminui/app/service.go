@@ -335,7 +335,12 @@ func topBar() domain.TopBarContract {
 				{Key: "last_30_days", Label: "Last 30 days", Enabled: false, DisabledReason: "Backend range filtering is not defined for the current process-integrity slice."},
 			},
 		},
-		Notifications: domain.TopBarControl{Label: "Notifications", Enabled: false, DisabledReason: "Notifications are not wired in this admin-web slice yet.", Options: []domain.TopBarOption{}},
+		// The bell is LIVE (in-app notification centre + browser push ride this slot), so the
+		// control is enabled and its `label` is the bell's accessible name / tooltip. The
+		// disabled_reason is empty: the shell only falls back to it when `enabled` is false. It
+		// used to say "Notifications are not wired in this admin-web slice yet." while the bell
+		// opened a working panel (gate-1 #5).
+		Notifications: domain.TopBarControl{Label: "Notifications", Enabled: true, DisabledReason: "", Options: []domain.TopBarOption{}},
 		RolePreview:   domain.RolePreviewActor{DisplayName: "Signed-in CEO/CXO", Initials: "CX", Subtitle: "Role and park scope resolved by backend RBAC"},
 	}
 }
@@ -2073,17 +2078,17 @@ func pageSpecificCopy(id string) map[string]string {
 			"filter.sort":            "Sort",
 			// The ONE dates disclosure on the toolbar (both spans inside it), the Work Board's one
 			// date control restated for this desk.
-			"filter.dates":           "Dates",
-			"filter.deadline_from":   "Deadline from",
-			"filter.deadline_to":     "Deadline to",
-			"filter.raised_from":     "Raised from",
-			"filter.raised_to":       "Raised to",
-			"filter.range_note":      "Pick both ends of a date range — a half range is not applied.",
-			"sort.raised_at_desc":    "Newest first",
-			"sort.raised_at_asc":     "Oldest first",
-			"sort.deadline_asc":      "Deadline soonest",
-			"sort.deadline_desc":     "Deadline latest",
-			"scope.aria":             "Task scopes",
+			"filter.dates":         "Dates",
+			"filter.deadline_from": "Deadline from",
+			"filter.deadline_to":   "Deadline to",
+			"filter.raised_from":   "Raised from",
+			"filter.raised_to":     "Raised to",
+			"filter.range_note":    "Pick both ends of a date range — a half range is not applied.",
+			"sort.raised_at_desc":  "Newest first",
+			"sort.raised_at_asc":   "Oldest first",
+			"sort.deadline_asc":    "Deadline soonest",
+			"sort.deadline_desc":   "Deadline latest",
+			"scope.aria":           "Task scopes",
 			// Status-board column headings. They are the SAME wording as the status chips
 			// (domain.StatusChip), so a column and the cards under it never name the status
 			// two different ways. The board previously had no contract key for these at all,
@@ -2191,10 +2196,23 @@ func pageSpecificCopy(id string) map[string]string {
 			"edit.attachments":        "Attachments",
 			"edit.too_many":           "A task carries at most 12 attachments.",
 			"edit.save":               "Save changes",
-			"feedback.task_raised":    "Task raised.",
-			"feedback.task_updated":   "Task status updated.",
-			"feedback.task_edited":    "Task saved.",
-			"feedback.note_added":     "Update added to the task.",
+			// The New task modal (`new-task-modal.tsx`): every label it shows, so the modal
+			// never hard-codes a word the backend does not own (gate-1 #17, 2026-09-18).
+			"new.open":              "New task",
+			"new.title":             "New task",
+			"new.for_field":         "For",
+			"new.for_placeholder":   "Choose who this is for",
+			"new.assigned_to":       "Assigned to",
+			"new.title_field":       "Title",
+			"new.body_field":        "Brief",
+			"new.deadline_field":    "Deadline",
+			"new.deadline_hint":     "Date and time the task is due, farm clock (IST).",
+			"new.attachments":       "Attachments",
+			"new.send":              "Send",
+			"feedback.task_raised":  "Task raised.",
+			"feedback.task_updated": "Task status updated.",
+			"feedback.task_edited":  "Task saved.",
+			"feedback.note_added":   "Update added to the task.",
 			// ── A REFUSED WRITE ON THE TASKS DESK ────────────────────────────────────────
 			// Three keys per outcome code, the screen trying the MOST SPECIFIC first:
 			// `.named` (the person whose move it is resolved), `.status` (the task's current

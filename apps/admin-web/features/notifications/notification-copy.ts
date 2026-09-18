@@ -77,9 +77,9 @@ export function resolveNotificationCentreCopy(
   openLabel?: string,
 ): NotificationCentreCopy {
   return {
-    // The bell's own tooltip already exists as backend-owned copy
-    // (`top_bar.notifications.disabled_reason`, now a label rather than a refusal); the caller
-    // passes it in so the shell keeps using the key it already has.
+    // The bell's own tooltip is backend-owned copy: `top_bar.notifications.label` while the
+    // control is enabled, `top_bar.notifications.disabled_reason` only when it is not. The shell
+    // resolves which one applies and passes it in.
     open: (openLabel ?? "").trim() || notificationCopy(contractCopy, "notifications.open"),
     title: notificationCopy(contractCopy, "notifications.title"),
     subtitle: notificationCopy(contractCopy, "notifications.subtitle"),
