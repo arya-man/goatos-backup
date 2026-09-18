@@ -89,7 +89,7 @@ VALUES ($1::uuid, $2::uuid, 'animal_identifier_1', $3, lower($3), $3, true, 'act
 	goat("dead", "birth", "goat", "Malai", "male", "F2-Male", "dead", "died", fx.cbePark, fx.cbeShed, "Part 3", "2026-09-02T04:00:00Z")
 	// Merged: excluded outright.
 	goat("merged", "birth", "goat", "Malai", "male", "F2-Male", "merged", "", fx.cbePark, fx.cbeShed, "Part 3", "")
-	// Other origin readings.
+	// Not on a load, whatever the origin field says: both are the page's animals.
 	goat("procured-noload", "procured", "goat", "Beetal", "female", "Non-Pregnant", "alive", "", fx.cbePark, fx.cbeShed, "", "")
 	goat("origin-null", "", "sheep", "Anantapur Sheep", "female", "Non-Pregnant", "alive", "", fx.cptPark, fx.cptShed, "", "")
 	// On a load, marked birth by mistake: belongs to Load wise, excluded here.
@@ -173,7 +173,7 @@ func TestFarmBornAnimalsOneToManyLoadsDealsAndTagsResolveToOneFactPerAnimal(t *t
 	fx := seedFarmBornFixture(t, ctx, pool)
 	repo := NewRepository(pool, 5*time.Second)
 
-	facts, err := repo.FarmBornAnimals(ctx, testTenant, domain.FarmBornFilter{From: "2026-08-18", To: "2026-09-18", Origin: domain.FarmBornOriginBirth})
+	facts, err := repo.FarmBornAnimals(ctx, testTenant, domain.FarmBornFilter{From: "2026-08-18", To: "2026-09-18"})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -181,6 +181,7 @@ func TestFarmBornAnimalsOneToManyLoadsDealsAndTagsResolveToOneFactPerAnimal(t *t
 	want := map[string]string{
 		"alive-cbe-p3-a": domain.FarmBornOnFarm, "alive-cbe-p3-b": domain.FarmBornOnFarm, "alive-cbe-p5": domain.FarmBornOnFarm,
 		"alive-cpt": domain.FarmBornOnFarm, "load-rejected": domain.FarmBornOnFarm,
+		"procured-noload": domain.FarmBornOnFarm, "origin-null": domain.FarmBornOnFarm,
 		"sold-deal-a": domain.FarmBornSold, "sold-deal-b": domain.FarmBornSold, "sold-nodeal": domain.FarmBornSold,
 	}
 	if len(facts) != len(want) {
@@ -193,6 +194,18 @@ func TestFarmBornAnimalsOneToManyLoadsDealsAndTagsResolveToOneFactPerAnimal(t *t
 	for name, bucket := range want {
 		if got[name].Bucket != bucket {
 			t.Fatalf("%s bucket = %q, want %q", name, got[name].Bucket, bucket)
+		}
+	}
+	// OneToMany across the origin field (maintainer instruction 2026-09-19): an animal marked
+	// procured with no load row and one with no origin at all are each exactly ONE on-farm fact
+	// -- the origin column neither drops them nor duplicates them.
+	seen := map[string]int{}
+	for _, f := range facts {
+		seen[f.GoatID]++
+	}
+	for _, name := range []string{"procured-noload", "origin-null"} {
+		if seen[fx.facts[name]] != 1 || got[name].Bucket != domain.FarmBornOnFarm {
+			t.Fatalf("OneToMany: %s must be exactly one on-farm fact, got %d / %+v", name, seen[fx.facts[name]], got[name])
 		}
 	}
 	a := got["sold-deal-a"]
@@ -215,8 +228,8 @@ func TestFarmBornAnimalsOneToManyLoadsDealsAndTagsResolveToOneFactPerAnimal(t *t
 
 	// The domain's headline over these facts: the breakdowns sum to it and the breed fold is
 	// case-insensitive ("Malai" and "malai" are one breed).
-	page := domain.BuildFarmBornSales(facts, domain.FarmBornFilter{From: "2026-08-18", To: "2026-09-18", Origin: domain.FarmBornOriginBirth}, 25, 0)
-	if page.Summary.OnFarm != 5 || page.Summary.Sold != 3 || page.Summary.SoldPriced != 2 || page.Summary.Revenue != 20000 || page.Summary.AvgPrice != 10000 {
+	page := domain.BuildFarmBornSales(facts, domain.FarmBornFilter{From: "2026-08-18", To: "2026-09-18"}, 25, 0)
+	if page.Summary.OnFarm != 7 || page.Summary.Sold != 3 || page.Summary.SoldPriced != 2 || page.Summary.Revenue != 20000 || page.Summary.AvgPrice != 10000 {
 		t.Fatalf("summary = %+v", page.Summary)
 	}
 	malai := page.ByBreed[0]
@@ -225,32 +238,34 @@ func TestFarmBornAnimalsOneToManyLoadsDealsAndTagsResolveToOneFactPerAnimal(t *t
 	}
 }
 
-// TestFarmBornAnimalsStatusMatrixAndOriginBuckets pins every lifecycle bucket and every origin
-// reading: sold is lifecycle OR exit reason, the live set is alive + clinical, dead / merged are
-// absent, a sale outside the window is absent while its animal is still absent from on-farm, and
-// the three origin readings partition the not-on-a-load population with no overlap.
+// TestFarmBornAnimalsStatusMatrixAndOriginBuckets pins every lifecycle bucket: sold is lifecycle
+// OR exit reason, the live set is alive + clinical, dead / merged are absent, a sale outside the
+// window is absent while its animal is still absent from on-farm, and the register's origin
+// field is IGNORED (maintainer instruction 2026-09-19) -- an animal marked procured with no load
+// and one with no origin at all are both the page's animals, because "not bought on a load" is
+// the one complete fact.
 func TestFarmBornAnimalsStatusMatrixAndOriginBuckets(t *testing.T) {
 	ctx := context.Background()
 	pool := pgtest.StartPostgres(t, ctx)
 	fx := seedFarmBornFixture(t, ctx, pool)
 	repo := NewRepository(pool, 5*time.Second)
 
-	read := func(origin, from, to string) map[string]domain.FarmBornAnimalFact {
+	read := func(from, to string) map[string]domain.FarmBornAnimalFact {
 		t.Helper()
-		facts, err := repo.FarmBornAnimals(ctx, testTenant, domain.FarmBornFilter{From: from, To: to, Origin: origin})
+		facts, err := repo.FarmBornAnimals(ctx, testTenant, domain.FarmBornFilter{From: from, To: to})
 		if err != nil {
 			t.Fatal(err)
 		}
 		return farmBornByName(fx, facts)
 	}
-	birth := read(domain.FarmBornOriginBirth, "2026-08-18", "2026-09-18")
-	for _, absent := range []string{"dead", "merged", "on-load", "sold-old", "sold-advance-open", "procured-noload", "origin-null"} {
+	birth := read("2026-08-18", "2026-09-18")
+	for _, absent := range []string{"dead", "merged", "on-load", "sold-old", "sold-advance-open"} {
 		if _, ok := birth[absent]; ok {
 			t.Fatalf("%s must be absent from the farm-born read", absent)
 		}
 	}
 	// Widen the window back to July: the old sale appears, nothing else moves.
-	wide := read(domain.FarmBornOriginBirth, "2026-06-01", "2026-09-18")
+	wide := read("2026-06-01", "2026-09-18")
 	if wide["sold-old"].Bucket != domain.FarmBornSold || len(wide) != len(birth)+2 {
 		t.Fatalf("widened window: sold-old = %+v, %d facts vs %d", wide["sold-old"], len(wide), len(birth))
 	}
@@ -258,27 +273,22 @@ func TestFarmBornAnimalsStatusMatrixAndOriginBuckets(t *testing.T) {
 		t.Fatalf("non-closed deal must not contribute revenue/date/buyer: %+v", wide["sold-advance-open"])
 	}
 	// A window with no sales still lists every on-farm animal.
-	empty := read(domain.FarmBornOriginBirth, "2026-01-01", "2026-01-31")
-	if len(empty) != 5 {
-		t.Fatalf("empty window facts = %d, want the 5 on-farm animals", len(empty))
+	empty := read("2026-01-01", "2026-01-31")
+	if len(empty) != 7 {
+		t.Fatalf("empty window facts = %d, want the 7 on-farm animals", len(empty))
 	}
 	for _, f := range empty {
 		if f.Bucket != domain.FarmBornOnFarm {
 			t.Fatalf("empty window must carry no sold fact: %+v", f)
 		}
 	}
-	bought := read(domain.FarmBornOriginBoughtNoLoad, "2026-08-18", "2026-09-18")
-	if len(bought) != 1 || bought["procured-noload"].Bucket != domain.FarmBornOnFarm {
-		t.Fatalf("bought-no-load = %+v", bought)
-	}
-	unknown := read(domain.FarmBornOriginNotRecorded, "2026-08-18", "2026-09-18")
-	if len(unknown) != 1 || unknown["origin-null"].Bucket != domain.FarmBornOnFarm {
-		t.Fatalf("not-recorded = %+v", unknown)
+	if birth["procured-noload"].Bucket != domain.FarmBornOnFarm || birth["origin-null"].Bucket != domain.FarmBornOnFarm {
+		t.Fatalf("origin must not narrow the page: procured-noload = %+v, origin-null = %+v", birth["procured-noload"], birth["origin-null"])
 	}
 
-	// Options for the farm-born reading: parks CBE before CPT, both pens of Godel 1 and the
-	// undivided Gandhi, both species, the breeds folded case-insensitively, every stage seen.
-	options, err := repo.FarmBornOptions(ctx, testTenant, domain.FarmBornOriginBirth)
+	// Options: parks CBE before CPT, the undivided Godel 1 then its two pens, then the undivided
+	// Gandhi, both species, the breeds folded case-insensitively, every stage seen.
+	options, err := repo.FarmBornOptions(ctx, testTenant)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -289,17 +299,17 @@ func TestFarmBornAnimalsStatusMatrixAndOriginBuckets(t *testing.T) {
 	for _, p := range options.Pens {
 		penLabels = append(penLabels, p.Label)
 	}
-	if len(options.Pens) != 3 || penLabels[0] != "Godel 1 - Part 3" || penLabels[1] != "Godel 1 - Part 5" || penLabels[2] != "Gandhi" || options.Pens[2].ParkID != fx.cptPark {
+	if len(options.Pens) != 4 || penLabels[0] != "Godel 1" || penLabels[1] != "Godel 1 - Part 3" || penLabels[2] != "Godel 1 - Part 5" || penLabels[3] != "Gandhi" || options.Pens[3].ParkID != fx.cptPark {
 		t.Fatalf("pens = %+v", options.Pens)
 	}
-	if options.Pens[0].Key != fx.cbeShed+"|Part 3" {
-		t.Fatalf("pen key = %q", options.Pens[0].Key)
+	if options.Pens[0].Key != fx.cbeShed || options.Pens[1].Key != fx.cbeShed+"|Part 3" {
+		t.Fatalf("pen keys = %q / %q", options.Pens[0].Key, options.Pens[1].Key)
 	}
 	breedKeys := []string{}
 	for _, b := range options.Breeds {
 		breedKeys = append(breedKeys, b.Key)
 	}
-	if len(options.Breeds) != 4 || breedKeys[0] != "anantapur sheep" || breedKeys[1] != "malai" || breedKeys[2] != "osmanabadi" || breedKeys[3] != "sirohi" {
+	if len(options.Breeds) != 5 || breedKeys[0] != "anantapur sheep" || breedKeys[1] != "beetal" || breedKeys[2] != "malai" || breedKeys[3] != "osmanabadi" || breedKeys[4] != "sirohi" {
 		t.Fatalf("breeds = %+v", options.Breeds)
 	}
 	if len(options.Species) != 2 || len(options.Sexes) != 2 || len(options.Stages) != 3 {
@@ -318,7 +328,7 @@ func TestFarmBornAnimalsParkScopeAndPenPredicates(t *testing.T) {
 
 	read := func(f domain.FarmBornFilter) map[string]domain.FarmBornAnimalFact {
 		t.Helper()
-		f.From, f.To, f.Origin = "2026-08-18", "2026-09-18", domain.FarmBornOriginBirth
+		f.From, f.To = "2026-08-18", "2026-09-18"
 		facts, err := repo.FarmBornAnimals(ctx, testTenant, f)
 		if err != nil {
 			t.Fatal(err)
@@ -343,16 +353,21 @@ func TestFarmBornAnimalsParkScopeAndPenPredicates(t *testing.T) {
 			}
 		}
 	}
-	assertExactly("park CPT", read(domain.FarmBornFilter{ParkID: fx.cptPark}), "alive-cpt")
+	assertExactly("park CPT", read(domain.FarmBornFilter{ParkID: fx.cptPark}), "alive-cpt", "origin-null")
 	assertExactly("pen Part 3 via normalized key", read(domain.FarmBornFilter{ShedID: fx.cbeShed, Partition: "3"}),
 		"alive-cbe-p3-a", "alive-cbe-p3-b", "load-rejected", "sold-deal-a", "sold-deal-b")
 	assertExactly("pen Part 5", read(domain.FarmBornFilter{ShedID: fx.cbeShed, Partition: "Part 5"}), "alive-cbe-p5", "sold-nodeal")
-	assertExactly("undivided pen", read(domain.FarmBornFilter{ShedID: fx.cptShed}), "alive-cpt")
-	assertExactly("species sheep", read(domain.FarmBornFilter{Species: "sheep"}), "alive-cbe-p5")
+	assertExactly("undivided pen", read(domain.FarmBornFilter{ShedID: fx.cptShed}), "alive-cpt", "origin-null")
+	assertExactly("undivided pen beside partitions", read(domain.FarmBornFilter{ShedID: fx.cbeShed}), "procured-noload")
+	assertExactly("species sheep", read(domain.FarmBornFilter{Species: "sheep"}), "alive-cbe-p5", "origin-null")
 	assertExactly("breed MALAI", read(domain.FarmBornFilter{Breed: "MALAI"}), "alive-cbe-p3-a", "alive-cbe-p3-b", "load-rejected", "sold-deal-a", "sold-deal-b")
-	assertExactly("sex female", read(domain.FarmBornFilter{Sex: "female"}), "alive-cbe-p3-a", "alive-cbe-p5", "sold-deal-b", "sold-nodeal")
+	assertExactly("sex female", read(domain.FarmBornFilter{Sex: "female"}), "alive-cbe-p3-a", "alive-cbe-p5", "sold-deal-b", "sold-nodeal", "procured-noload", "origin-null")
 	assertExactly("stage f2-male", read(domain.FarmBornFilter{Stage: "f2-male"}), "alive-cbe-p3-b", "alive-cpt", "load-rejected", "sold-deal-a")
 	assertExactly("park CBE + sex male", read(domain.FarmBornFilter{ParkID: fx.cbePark, Sex: "male"}), "alive-cbe-p3-b", "load-rejected", "sold-deal-a")
+	// ParkScope ignores the origin field: CBE + female admits the procured-no-load animal beside
+	// the birth-recorded ones, and CPT + Non-Pregnant admits the one with no origin at all.
+	assertExactly("ParkScope CBE + female", read(domain.FarmBornFilter{ParkID: fx.cbePark, Sex: "female"}), "alive-cbe-p3-a", "alive-cbe-p5", "sold-deal-b", "sold-nodeal", "procured-noload")
+	assertExactly("ParkScope CPT + stage", read(domain.FarmBornFilter{ParkID: fx.cptPark, Stage: "non-pregnant"}), "origin-null")
 }
 
 // TestFarmBornSalesPaginationSlicesTheLedgerOnly pins that the page boundary applies to the sold
@@ -364,7 +379,7 @@ func TestFarmBornSalesPaginationSlicesTheLedgerOnly(t *testing.T) {
 	seedFarmBornFixture(t, ctx, pool)
 	repo := NewRepository(pool, 5*time.Second)
 
-	filter := domain.FarmBornFilter{From: "2026-08-18", To: "2026-09-18", Origin: domain.FarmBornOriginBirth}
+	filter := domain.FarmBornFilter{From: "2026-08-18", To: "2026-09-18"}
 	facts, err := repo.FarmBornAnimals(ctx, testTenant, filter)
 	if err != nil {
 		t.Fatal(err)
@@ -376,6 +391,11 @@ func TestFarmBornSalesPaginationSlicesTheLedgerOnly(t *testing.T) {
 	}
 	if first.Summary != second.Summary {
 		t.Fatalf("summary must not move across pages: %+v vs %+v", first.Summary, second.Summary)
+	}
+	// Pagination never touches the on-farm side, and that side counts the origin-less animals:
+	// 7 on every page (5 birth-recorded + procured-no-load + origin-null).
+	if first.Summary.OnFarm != 7 || second.Summary.OnFarm != 7 {
+		t.Fatalf("Pagination: on-farm must read 7 on every page, got %d / %d", first.Summary.OnFarm, second.Summary.OnFarm)
 	}
 	if len(first.ByPen) != len(second.ByPen) || first.ByPen[0] != second.ByPen[0] {
 		t.Fatalf("breakdowns must not move across pages: %+v vs %+v", first.ByPen, second.ByPen)

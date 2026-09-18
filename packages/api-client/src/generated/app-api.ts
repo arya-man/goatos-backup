@@ -4114,11 +4114,11 @@ export interface paths {
         };
         /**
          * The not-on-a-load half of the herd — on farm, sold in a period, by breed / sex / stage / pen, and the money — for the Sales > Farm born page.
-         * @description The counterpart of load-wise: every animal on NO accepted purchase load, served by the procurement read that joins the herd register to the sales ledger (the load-wise shape). The two pages partition the herd. `origin` picks a reading of that population: `farm_born` (origin recorded as birth, the default), `bought_no_load` (recorded as bought but on no load) or `not_recorded` (no origin on the register).
+         * @description The counterpart of load-wise: every animal on NO accepted purchase load, whatever the register's origin field says, served by the procurement read that joins the herd register to the sales ledger (the load-wise shape). The two pages partition the herd.
          *
          *     THE WINDOW BINDS THE SOLD SIDE ONLY (maintainer decision 2026-09-18). `summary.on_farm` and every breakdown's `on_farm` are TODAY's live counts whatever the window; `sold`, `sold_priced`, `revenue` and the `sold` ledger cover animals whose sale date (the deal's sale date, else the exit date) falls inside `from`..`to` inclusive. Absent dates mean the last calendar month ending today, in IST business dates.
          *
-         *     A sold animal's `sale_value` is its share of its deal (deal value over animals tagged to it); an animal exited as sold with no deal is counted in `sold` and omits `sale_value`, and `sold_priced` is the denominator of `avg_price`. Every breakdown ranges over the same animals as `summary`, so its `on_farm` and `sold` columns sum to the headline. `options` is the filter bar's vocabulary for the origin reading — the parks, pens, species, breeds, sexes and stages the population actually has — and is NOT narrowed by the other filters. `limit`/`offset` page the `sold` ledger only.
+         *     A sold animal's `sale_value` is its share of its deal (deal value over animals tagged to it); an animal exited as sold with no deal is counted in `sold` and omits `sale_value`, and `sold_priced` is the denominator of `avg_price`. Every breakdown ranges over the same animals as `summary`, so its `on_farm` and `sold` columns sum to the headline. `options` is the filter bar's vocabulary — the parks, pens, species, breeds, sexes and stages the population actually has — and is NOT narrowed by the other filters. `limit`/`offset` page the `sold` ledger only.
          */
         get: operations["getFarmBornSales"];
         put?: never;
@@ -8094,8 +8094,6 @@ export interface components {
             from: string;
             /** Format: date */
             to: string;
-            /** @enum {string} */
-            origin: "farm_born" | "bought_no_load" | "not_recorded";
         };
         /** @description One animal sold in the window. */
         FarmBornSoldRow: {
@@ -8126,7 +8124,7 @@ export interface components {
             /** @description Set on a pen option */
             park_id?: string;
         };
-        /** @description The filter bar's vocabulary for the origin reading, built from the population itself. */
+        /** @description The filter bar's vocabulary, built from the population itself. */
         FarmBornOptions: {
             parks: components["schemas"]["FarmBornOption"][];
             pens: components["schemas"]["FarmBornOption"][];
@@ -27045,8 +27043,6 @@ export interface operations {
                 from?: string;
                 /** @description Last sale date of the window (inclusive). Absent means today (IST). */
                 to?: string;
-                /** @description Which reading of the not-on-a-load population; absent is `farm_born`. An unknown value is rejected. */
-                origin?: "farm_born" | "bought_no_load" | "not_recorded";
                 park_id?: string;
                 /** @description A pen key from `options.pens` — `<shed_id>` for an undivided pen, `<shed_id>|<partition>` for a partition. */
                 pen?: string;

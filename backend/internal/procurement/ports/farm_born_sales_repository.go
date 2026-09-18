@@ -16,13 +16,13 @@ import (
 // an exit, and the sales module's own lock (migration 000173: sales reads nothing from
 // herd/procurement) is untouched because the dependency points the other way.
 type FarmBornSalesRepository interface {
-	// FarmBornAnimals returns one fact per animal the filter admits: every animal on the farm
-	// today, plus every animal whose sale date falls inside the filter's window. The origin, park,
+	// FarmBornAnimals returns one fact per not-on-a-load animal the filter admits: every one on
+	// the farm today, plus every one whose sale date falls inside the filter's window. The park,
 	// pen, species, breed, sex and stage predicates are applied to both sides.
 	FarmBornAnimals(ctx context.Context, tenantID string, filter domain.FarmBornFilter) ([]domain.FarmBornAnimalFact, error)
 
-	// FarmBornOptions returns the filter bar's vocabulary for one origin reading: the parks, pens,
-	// species, breeds, sexes and stages the population actually has, on farm or sold, so the bar
-	// never offers a choice that matches nothing.
-	FarmBornOptions(ctx context.Context, tenantID, origin string) (domain.FarmBornOptions, error)
+	// FarmBornOptions returns the filter bar's vocabulary: the parks, pens, species, breeds, sexes
+	// and stages the not-on-a-load population actually has, on farm or sold, so the bar never
+	// offers a choice that matches nothing.
+	FarmBornOptions(ctx context.Context, tenantID string) (domain.FarmBornOptions, error)
 }

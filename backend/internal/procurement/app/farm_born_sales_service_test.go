@@ -10,9 +10,9 @@ import (
 )
 
 type stubFarmBornRepo struct {
-	filter        domain.FarmBornFilter
-	optionsOrigin string
-	facts         []domain.FarmBornAnimalFact
+	filter       domain.FarmBornFilter
+	optionsCalls int
+	facts        []domain.FarmBornAnimalFact
 }
 
 func (r *stubFarmBornRepo) FarmBornAnimals(_ context.Context, _ string, f domain.FarmBornFilter) ([]domain.FarmBornAnimalFact, error) {
@@ -20,8 +20,8 @@ func (r *stubFarmBornRepo) FarmBornAnimals(_ context.Context, _ string, f domain
 	return r.facts, nil
 }
 
-func (r *stubFarmBornRepo) FarmBornOptions(_ context.Context, _ string, origin string) (domain.FarmBornOptions, error) {
-	r.optionsOrigin = origin
+func (r *stubFarmBornRepo) FarmBornOptions(_ context.Context, _ string) (domain.FarmBornOptions, error) {
+	r.optionsCalls++
 	return domain.FarmBornOptions{Breeds: []domain.FarmBornOption{{Key: "sirohi", Label: "Sirohi"}}}, nil
 }
 
@@ -36,15 +36,15 @@ func TestFarmBornServiceDefaultsToTheLastMonthInIST(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if repo.filter.From != "2026-08-18" || repo.filter.To != "2026-09-18" || repo.filter.Origin != domain.FarmBornOriginBirth {
+	if repo.filter.From != "2026-08-18" || repo.filter.To != "2026-09-18" {
 		t.Fatalf("filter = %+v", repo.filter)
 	}
 	if out.Summary.From != "2026-08-18" || out.Summary.To != "2026-09-18" {
 		t.Fatalf("summary window = %s..%s", out.Summary.From, out.Summary.To)
 	}
-	// The vocabulary is fetched for the origin reading, not the filtered slice.
-	if repo.optionsOrigin != domain.FarmBornOriginBirth || len(out.Options.Breeds) != 1 {
-		t.Fatalf("options origin = %q, breeds = %+v", repo.optionsOrigin, out.Options.Breeds)
+	// The vocabulary is fetched once, for the whole population.
+	if repo.optionsCalls != 1 || len(out.Options.Breeds) != 1 {
+		t.Fatalf("options calls = %d, breeds = %+v", repo.optionsCalls, out.Options.Breeds)
 	}
 }
 
@@ -55,19 +55,18 @@ func TestFarmBornServiceForwardsThePenAndNormalisesTheRest(t *testing.T) {
 	repo := &stubFarmBornRepo{}
 	svc := NewFarmBornSalesService(repo).WithClock(func() time.Time { return time.Date(2026, 9, 18, 6, 0, 0, 0, time.UTC) })
 	_, err := svc.FarmBornSales(context.Background(), "t", FarmBornRequest{
-		From: "2026-09-01", Origin: "not_recorded", ParkID: " p1 ", Pen: "s1|Part 3", Species: "Goat", Breed: " Sirohi ", Sex: "MALE", Stage: " F2-Male ",
+		From: "2026-09-01", ParkID: " p1 ", Pen: "s1|Part 3", Species: "Goat", Breed: " Sirohi ", Sex: "MALE", Stage: " F2-Male ",
 	})
 	if err != nil {
 		t.Fatal(err)
 	}
-	want := domain.FarmBornFilter{From: "2026-09-01", To: "2026-09-18", Origin: "not_recorded", ParkID: "p1", ShedID: "s1", Partition: "Part 3", Species: "goat", Breed: "Sirohi", Sex: "male", Stage: "F2-Male"}
+	want := domain.FarmBornFilter{From: "2026-09-01", To: "2026-09-18", ParkID: "p1", ShedID: "s1", Partition: "Part 3", Species: "goat", Breed: "Sirohi", Sex: "male", Stage: "F2-Male"}
 	if repo.filter != want {
 		t.Fatalf("filter = %+v, want %+v", repo.filter, want)
 	}
 }
 
-// TestFarmBornServiceRefusesBadFilters pins every refusal: an origin that is not a served reading
-// (purchased is Load wise), an inverted or malformed window, a window past five years, an
+// TestFarmBornServiceRefusesBadFilters pins every refusal: an inverted or malformed window, a window past five years, an
 // out-of-range page, and a sex or species outside the register's vocabulary.
 func TestFarmBornServiceRefusesBadFilters(t *testing.T) {
 	svc := NewFarmBornSalesService(&stubFarmBornRepo{}).WithClock(func() time.Time { return time.Date(2026, 9, 18, 6, 0, 0, 0, time.UTC) })
@@ -76,7 +75,6 @@ func TestFarmBornServiceRefusesBadFilters(t *testing.T) {
 		want error
 		code string
 	}{
-		"origin":   {FarmBornRequest{Origin: "purchased"}, ErrFarmBornOriginInvalid, "invalid_origin"},
 		"inverted": {FarmBornRequest{From: "2026-09-18", To: "2026-09-01"}, ErrFarmBornWindowInvalid, "invalid_window"},
 		"garbage":  {FarmBornRequest{From: "yesterday"}, ErrFarmBornWindowInvalid, "invalid_window"},
 		"too wide": {FarmBornRequest{From: "2019-01-01", To: "2026-09-18"}, ErrFarmBornWindowTooWide, "window_too_wide"},

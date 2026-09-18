@@ -22,43 +22,15 @@ import (
 // (migration 000173: sales reads nothing from herd/procurement) is untouched because the
 // dependency points the other way.
 //
-// WHICH ANIMALS. Origin is not one fact on the register. `goats.origin_type` says `birth` for a
-// kid born here and `procured` for a bought one, but on the live herd 536 alive animals carry NO
-// origin at all and 392 are marked procured while sitting on no load (the founding stock, bought
-// before loads were recorded). Filing the unrecorded ones as farm born would invent a birth nobody
-// recorded; dropping them would hide a third of the herd from both pages. So the page carries an
-// Origin filter over the not-on-a-load population, and the default is the only honest reading of
-// "farm born": origin_type = 'birth'. The other two readings are one click away and labelled for
-// what they are.
+// WHICH ANIMALS (maintainer instruction 2026-09-19): every animal NOT on an accepted purchase
+// load -- the exact complement of the load-wise membership -- whatever the register's origin
+// field says. That field is under-filled (264 of the 2026 kids and 272 older adults carry none),
+// so a reading keyed on it undercounted the farm's own animals; the load table is the one fact
+// that is complete, and "not bought on a load" is what the farm means by its own stock.
 //
 // THE WINDOW BINDS THE SOLD SIDE ONLY (maintainer decision 2026-09-18). "How many do I have" is
 // answered live, today, whatever the window; "how many did I sell, of what, for how much" is
 // answered for the sales whose date falls in the window. The default window is the last month.
-
-// Origin readings over the not-on-a-load population. Wire values.
-const (
-	FarmBornOriginBirth        = "farm_born"
-	FarmBornOriginBoughtNoLoad = "bought_no_load"
-	FarmBornOriginNotRecorded  = "not_recorded"
-)
-
-// FarmBornOrigins is the served option order: farm born first, and the default.
-var FarmBornOrigins = []string{FarmBornOriginBirth, FarmBornOriginBoughtNoLoad, FarmBornOriginNotRecorded}
-
-// NormalizeFarmBornOrigin resolves the page's origin parameter. Absent means farm born; a
-// present-but-unknown value is refused rather than silently widened.
-func NormalizeFarmBornOrigin(raw string) (string, bool) {
-	trimmed := strings.TrimSpace(raw)
-	if trimmed == "" {
-		return FarmBornOriginBirth, true
-	}
-	for _, o := range FarmBornOrigins {
-		if o == trimmed {
-			return o, true
-		}
-	}
-	return "", false
-}
 
 // FarmBornFilter is the whole page's filter: the sold window plus the herd dimensions. Every
 // figure on the page ranges over the same filter, because a page whose cards disagree about
@@ -67,8 +39,6 @@ type FarmBornFilter struct {
 	// From/To bound the SOLD side by sale date, inclusive, YYYY-MM-DD business dates.
 	From string
 	To   string
-	// Origin is one of FarmBornOrigins.
-	Origin string
 	// ParkID narrows to one park; "" is every park.
 	ParkID string
 	// ShedID + Partition narrow to one pen. Partition is the human label ("Part 3", "1") and may
@@ -180,7 +150,6 @@ type FarmBornSummary struct {
 	AvgPrice float64
 	From     string
 	To       string
-	Origin   string
 }
 
 // FarmBornSoldRow is one sold animal on the ledger at the foot of the page.
@@ -303,7 +272,7 @@ func FarmBornSpeciesLabel(species string) string {
 // exactly the facts it was handed.
 //
 // projection-review: membership=FarmBornAnimalFact rows, one per ANIMAL (the repository's own
-// predicate: tenant, not on a load, the origin reading, the herd dimensions; on-farm animals live
+// predicate: tenant, not on a load, the herd dimensions; on-farm animals live
 // today, sold animals with a sale date inside the window), each carrying ONE bucket;
 // group_key=the bucket key (breed / sex / stage / pen key) on both the breakdown rows and the
 // summary, which range over the identical fact slice, so every breakdown's OnFarm sums to
@@ -314,7 +283,7 @@ func FarmBornSpeciesLabel(species string) string {
 // sum of deal shares) and denominator (the count of facts carrying a share) ranging over the same
 // key set, and a zero denominator yields 0 rather than a division.
 func BuildFarmBornSales(facts []FarmBornAnimalFact, filter FarmBornFilter, limit, offset int) FarmBornSales {
-	summary := FarmBornSummary{From: filter.From, To: filter.To, Origin: filter.Origin}
+	summary := FarmBornSummary{From: filter.From, To: filter.To}
 
 	breed := map[string]*FarmBornBucket{}
 	sex := map[string]*FarmBornBucket{}

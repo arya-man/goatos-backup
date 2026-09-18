@@ -10559,11 +10559,9 @@ paths:
       operationId: getFarmBornSales
       summary: The not-on-a-load half of the herd — on farm, sold in a period, by breed / sex / stage / pen, and the money — for the Sales > Farm born page.
       description: >-
-        The counterpart of load-wise: every animal on NO accepted purchase load, served by the
-        procurement read that joins the herd register to the sales ledger (the load-wise shape).
-        The two pages partition the herd. `origin` picks a reading of that population: `farm_born`
-        (origin recorded as birth, the default), `bought_no_load` (recorded as bought but on no
-        load) or `not_recorded` (no origin on the register).
+        The counterpart of load-wise: every animal on NO accepted purchase load, whatever the
+        register's origin field says, served by the procurement read that joins the herd register
+        to the sales ledger (the load-wise shape). The two pages partition the herd.
 
 
         THE WINDOW BINDS THE SOLD SIDE ONLY (maintainer decision 2026-09-18). `summary.on_farm`
@@ -10577,9 +10575,8 @@ paths:
         it); an animal exited as sold with no deal is counted in `sold` and omits `sale_value`,
         and `sold_priced` is the denominator of `avg_price`. Every breakdown ranges over the same
         animals as `summary`, so its `on_farm` and `sold` columns sum to the headline. `options`
-        is the filter bar's vocabulary for the origin reading — the parks, pens, species,
-        breeds, sexes and stages the population actually has — and is NOT narrowed by the other
-        filters. `limit`/`offset` page the `sold` ledger only.
+        is the filter bar's vocabulary — the parks, pens, species, breeds, sexes and stages the
+        population actually has — and is NOT narrowed by the other filters. `limit`/`offset` page the `sold` ledger only.
       parameters:
         - name: from
           in: query
@@ -10591,13 +10588,6 @@ paths:
           required: false
           schema: { type: string, format: date }
           description: Last sale date of the window (inclusive). Absent means today (IST).
-        - name: origin
-          in: query
-          required: false
-          schema:
-            type: string
-            enum: [farm_born, bought_no_load, not_recorded]
-          description: Which reading of the not-on-a-load population; absent is `farm_born`. An unknown value is rejected.
         - name: park_id
           in: query
           required: false
@@ -19676,7 +19666,7 @@ components:
         revenue: { type: number }
     FarmBornSummary:
       type: object
-      required: [on_farm, sold, sold_priced, revenue, avg_price, from, to, origin]
+      required: [on_farm, sold, sold_priced, revenue, avg_price, from, to]
       properties:
         on_farm: { type: integer, description: Alive today, whatever the window. }
         sold: { type: integer, description: Animals whose sale date falls in the window. }
@@ -19685,7 +19675,6 @@ components:
         avg_price: { type: number, description: revenue over sold_priced; 0 when nothing is priced. }
         from: { type: string, format: date, description: The window actually applied. }
         to: { type: string, format: date }
-        origin: { type: string, enum: [farm_born, bought_no_load, not_recorded] }
     FarmBornSoldRow:
       type: object
       description: One animal sold in the window.
@@ -19717,7 +19706,7 @@ components:
         park_id: { type: string, description: Set on a pen option, so the pen list can follow the park select. }
     FarmBornOptions:
       type: object
-      description: The filter bar's vocabulary for the origin reading, built from the population itself.
+      description: The filter bar's vocabulary, built from the population itself.
       required: [parks, pens, species, breeds, sexes, stages]
       properties:
         parks:

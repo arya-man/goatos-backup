@@ -58,7 +58,6 @@ type farmBornSummaryPayload struct {
 	AvgPrice   float64 `json:"avg_price"`
 	From       string  `json:"from"`
 	To         string  `json:"to"`
-	Origin     string  `json:"origin"`
 }
 
 type farmBornSoldRowPayload struct {
@@ -128,7 +127,6 @@ func (h *FarmBornSalesHandler) FarmBornSales(w http.ResponseWriter, r *http.Requ
 	out, err := h.service.FarmBornSales(r.Context(), tenantID(r), app.FarmBornRequest{
 		From:    q.Get("from"),
 		To:      q.Get("to"),
-		Origin:  q.Get("origin"),
 		ParkID:  q.Get("park_id"),
 		Pen:     q.Get("pen"),
 		Species: q.Get("species"),
@@ -168,7 +166,7 @@ func farmBornPayload(out domain.FarmBornSales) farmBornSalesPayload {
 	return farmBornSalesPayload{
 		Summary: farmBornSummaryPayload{
 			OnFarm: s.OnFarm, Sold: s.Sold, SoldPriced: s.SoldPriced, Revenue: s.Revenue,
-			AvgPrice: s.AvgPrice, From: s.From, To: s.To, Origin: s.Origin,
+			AvgPrice: s.AvgPrice, From: s.From, To: s.To,
 		},
 		ByBreed:   bucketsPayload(out.ByBreed),
 		BySex:     bucketsPayload(out.BySex),
