@@ -39,6 +39,8 @@
 - Added audited checksum allowances for the two migration files STG saw during recovery:
   - `000342_feed_sop_cards`: old applied checksum accepted only for the replay-safe current file.
   - `000345_castro1_ettt_history_z1z3_identity_repair`: old applied checksum accepted only for the 205-goat / 410-history current file.
+- Rebuilt and pinned the Cloud Deploy STG runner image so the hardened deploy script and checked-in runner receipt match.
+- Repaired the migration guard/test follow-through for the 205-goat / 410-history STG data count.
 
 ## Pending
 
@@ -62,6 +64,12 @@
 - `go test ./cmd/migrate -run 'TestAllowedHistoricalChecksums|TestRecordedChecksumFormatMatchesLoadMigrations|TestFeedSOPCardsMigrationReplaysWhenSchemaOutranBookkeeping' -count=1` passed after adding the STG checksum allowances.
 - `node --test tools/deploy/stg-admin-web-traffic-order.test.mjs` passed again after making `ai-doctor` advisory.
 - `bash -n tools/ci/run-local-ci.sh tools/deploy/stg-clouddeploy-task.sh` passed after the CI/deploy hardening.
+- Runner image Cloud Build `4b0095b5-b5e0-460e-a80f-86925acb7ad2` succeeded and produced pinned runner digest `sha256:9192eb0725deb0ee2801ae31d85799cb05a9a08560d5cfb7276e36be6ac606d7`.
+- `node tools/ci/check-grafana-durability.mjs` passed after refreshing the runner receipt.
+- `node tools/agent-hooks/check-seed-migration-coupling.mjs` passed after adding reviewed no-seed-impact markers beside the live-STG repair operations.
+- `go test ./migrations/postgres -run TestCastroETTTHistoryProjectionOneToManyPageBoundaryStatusMatrix -count=1` passed after updating the expected STG counts.
+- Fast `GOATOS_FAST_LOCAL_CI=1 tools/ci/run-local-ci.sh common` passed at `fc1522a7f9c4` with `ai-doctor` warning-only.
+- Fast `GOATOS_FAST_LOCAL_CI=1 tools/ci/run-local-ci.sh backend` passed at `fc1522a7f9c4`.
 
 ## Known Failures
 
@@ -77,11 +85,11 @@
 
 ## Judge Status
 
-- Third full landing receipt green for `8cf66ffb4e16`. Hotfix landing receipt pending after migration, deploy-runner, CI, and checksum-allowance hardening patches.
+- Third full landing receipt green for `8cf66ffb4e16`. Fast common/backend hotfix lanes are green at `fc1522a7f9c4`; full hotfix landing receipt is pending.
 
 ## Current SHA
 
-- Club branch/main landed at `8cf66ffb4e16d26ca68dba4c2a578690aaedef57`; hotfix branch is at `9770d63db6461908b111bf6b16f19dee4786f228` plus the checksum-allowance working-tree edits.
+- Club branch/main landed at `8cf66ffb4e16d26ca68dba4c2a578690aaedef57`; hotfix branch is at `fc1522a7f9c4d0cdea19338d71fc819a45264a66`.
 
 ## Deployment State
 
