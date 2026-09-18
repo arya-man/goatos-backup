@@ -13,6 +13,7 @@ import {
   boardColumnTotal,
   boardColumnHasTotal,
   safeTaskReturnTo,
+  resolveTaskViewFromSearch,
   resolveTaskView,
   unprefixedTaskParamAliases,
   TASK_QUERY_MAX,
@@ -157,6 +158,17 @@ test("`view` is read as an alias of `t_view`, and `t_view` wins when both are pr
   assert.equal(resolveTaskView(undefined, undefined), "board");
   // Because it is honoured, it is NOT reported as ignored.
   assert.deepEqual(unprefixedTaskParamAliases(["view"]), []);
+});
+
+test("client-side Back resolves a missing or invalid t_view back to the board", () => {
+  // The local Board/List toggle pushes `?t_view=list`. Pressing Back from a first-load `/tasks`
+  // URL removes `t_view` entirely; popstate must follow the same parser as the server render.
+  assert.equal(resolveTaskViewFromSearch("?t_view=list"), "list");
+  assert.equal(resolveTaskViewFromSearch(""), "board");
+  assert.equal(resolveTaskViewFromSearch("?t_view="), "board");
+  assert.equal(resolveTaskViewFromSearch("?t_view=cards"), "board");
+  assert.equal(resolveTaskViewFromSearch("?view=list"), "list");
+  assert.equal(resolveTaskViewFromSearch("?view=list&t_view=board"), "board");
 });
 
 test("an unprefixed parameter this page does not read is reported, not honoured", () => {

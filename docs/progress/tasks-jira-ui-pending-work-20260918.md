@@ -79,6 +79,26 @@ site now builds its consumers on the decorated resolver (`kernelstages.notifyRec
 stages), pinned by `TestEveryNotifierInAnAsyncProcessReachesBrowsers`, which fails on any
 `notificationbridge.New*` built on the bare roster.
 
+### Agent re-review loop (review of PR 295, evening)
+
+Two independent read-only agents reviewed the pushed PR head `944204b77` after the first fixes.
+They found two follow-up P2s, both fixed before this note was written:
+
+- Back from a client-local List toggle to a default `/tasks` URL left the UI in List because the
+  popstate handler ignored a missing `t_view`. `TaskViewProvider` now resolves popstate through
+  the same URL parser as the server render, and `task-url.test.mjs` pins missing/empty/invalid
+  `t_view` back to Board.
+- Person-access task raisers kept `CanRaise` but lost their role designation because `actorFrom`
+  returned before reading `AuthGrants`. The person-permission branch now preserves
+  `RaiseDesignation` only when the resolved person permissions allow raising; view-only ticks do
+  not regain raise context. `handler_actor_test.go` pins both cases.
+
+Proof after the follow-up fixes:
+
+- `cd apps/admin-web && node --test --experimental-strip-types features/leadership-tasks/task-url.test.mjs features/leadership-tasks/fixture-contract.test.mjs features/leadership-tasks/task-activity-feed.test.mjs features/leadership-tasks/task-board-rail.test.mjs features/leadership-tasks/task-write-modals.test.mjs` PASS (22 tests).
+- `make admin-web-interaction-patterns-guard admin-web-local-overlay-guard admin-web-server-client-values-guard` PASS.
+- `cd backend && go test ./internal/leadershiptasks/adapters/http ./internal/notificationbridge ./internal/permissions ./internal/browserpush ./cmd/outbox-relay ./cmd/domain-event-consumer ./internal/kernelstages ./internal/domainconsumer/wiring` PASS.
+
 ### Engineering follow-ups (not blocking)
 
 - Write transactions are still 11–13 sequential round trips under one query timeout; on a slow

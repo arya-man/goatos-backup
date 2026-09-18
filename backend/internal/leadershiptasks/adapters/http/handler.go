@@ -519,6 +519,14 @@ func actorFrom(r *http.Request) domain.Actor {
 				actor.CanMonitor = true
 			}
 		}
+		if actor.CanRaise {
+			for _, grant := range httpmiddleware.AuthGrantsFromContext(r.Context()) {
+				if permissions.RoleHasPermission(grant.Role, permissions.LeadershipTasksRaise) {
+					actor.RaiseDesignation = grant.Role
+					break
+				}
+			}
+		}
 		return actor
 	}
 	for _, grant := range httpmiddleware.AuthGrantsFromContext(r.Context()) {

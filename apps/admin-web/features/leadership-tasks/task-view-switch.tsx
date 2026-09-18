@@ -5,8 +5,7 @@ import { createContext, useContext, useEffect, useState, type ReactNode } from "
 import { notifyLocalOverlayUrlChange, pushLocalOverlayUrl } from "@/components/local-overlay-link";
 import type { SegmentedOption } from "@/components/segmented-links";
 
-import { TASK_PARAM } from "./params";
-import type { TaskView } from "./task-url";
+import { resolveTaskViewFromSearch, type TaskView } from "./task-url";
 
 /**
  * Board / List as a CLIENT-LOCAL switch.
@@ -32,8 +31,7 @@ export function TaskViewProvider({ initial, children }: { initial: TaskView; chi
   }
   useEffect(() => {
     const onPop = () => {
-      const current = new URL(window.location.href).searchParams.get(TASK_PARAM.view);
-      if (current === "board" || current === "list") setView(current);
+      setView(resolveTaskViewFromSearch(new URL(window.location.href).search));
     };
     window.addEventListener("popstate", onPop);
     return () => window.removeEventListener("popstate", onPop);

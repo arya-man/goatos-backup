@@ -17,6 +17,9 @@ func TestActorFromUsesResolvedPersonPermissionsBeforeRoleGrants(t *testing.T) {
 	if actor.CanRaise || actor.CanAct {
 		t.Fatalf("person view-only ticks must remove role-derived raise/act: %+v", actor)
 	}
+	if actor.RaiseDesignation != "" {
+		t.Fatalf("view-only person ticks must not carry a raise designation: %+v", actor)
+	}
 
 	ctx = httpmiddleware.WithPersonPermissions(ctx, []string{permissions.LeadershipTasksRead, permissions.LeadershipTasksAct})
 	actor = actorFrom((&http.Request{}).WithContext(ctx))
@@ -38,6 +41,9 @@ func TestActorFromSeededDirectorPersonAccessStillRaises(t *testing.T) {
 	actor := actorFrom((&http.Request{}).WithContext(ctx))
 	if !actor.CanRaise || !actor.CanAct || actor.CanMonitor {
 		t.Fatalf("seeded director Tasks tick must keep raise/assignee act without CEO/COO monitor scope: perms=%v actor=%+v", perms, actor)
+	}
+	if actor.RaiseDesignation != permissions.RoleFeedDirector {
+		t.Fatalf("person-access raiser must keep designation for task-done audience routing: perms=%v actor=%+v", perms, actor)
 	}
 
 	assigneePerms := permissions.PermissionsForAssignments([]permissions.ModuleAssignment{{

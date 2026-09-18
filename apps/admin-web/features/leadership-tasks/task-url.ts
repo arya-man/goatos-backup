@@ -87,6 +87,11 @@ export function resolveTaskView(prefixed: string | undefined, alias: string | un
   return normalizeTaskView(alias);
 }
 
+export function resolveTaskViewFromSearch(search: string): TaskView {
+  const params = new URLSearchParams(search);
+  return resolveTaskView(params.get("t_view") ?? undefined, params.get(TASK_VIEW_ALIAS) ?? undefined);
+}
+
 /**
  * The UNPREFIXED names a reader plausibly types for a `t_`-prefixed parameter this page owns,
  * and which the page does NOT read. It IGNORES them LOUDLY: it names the parameter it did not
