@@ -11,21 +11,27 @@ Date: 2026-09-18
 
 - Created isolated worktree at `/Users/raviteja/mesha/.landing-worktrees/club-pr296-pr298` from `origin/main`.
 - Cherry-picked PR 296 and PR 298 in order with no conflicts.
+- Added this progress receipt and committed it as `48754b76e`.
+- Focused backend, API client, admin-web, and Android vendor checks passed.
 
 ## Pending
 
-- Run focused backend/admin-web/Android checks appropriate to the combined surface.
-- Run final `make land-main` after this progress note is committed and the candidate is clean/rebased on current `origin/main`.
+- Run final `make land-main` after the focused-check receipt update is committed and the candidate is clean/rebased on current `origin/main`.
 - Confirm `origin/main` readback after the landing gate pushes.
 
 ## Tests / E2E Performed
 
-- Pending in this candidate.
+- `cd backend && go test ./internal/procurement/app ./internal/feeddirection/domain ./internal/feeddirection/app ./internal/adminui/app ./internal/feeddirection/adapters/http` passed.
+- `make api-client-check` passed; generated client output stayed clean.
+- First admin-web attempt `cd apps/admin-web && npm run typecheck && node --test features/feed/feed-analytics.test.mjs` failed because this fresh worktree did not yet have `tsc` installed.
+- After `cd apps/admin-web && npm install`, `npm run typecheck && node --test features/feed/feed-analytics.test.mjs` passed. The test file reported 17/17 passing. `npm install` produced only local lockfile platform churn under this Node/npm version, and that generated churn was discarded.
+- `cd apps/goatos-android && ANDROID_HOME=/Users/raviteja/Library/Android/sdk ./gradlew :app:testDevDebugUnitTest --tests 'sg.mesha.goatos.viewmodel.QueuedWriteFollowTest' --tests 'sg.mesha.goatos.viewmodel.VendorsPresentationTest'` passed.
 
 ## Known Failures
 
 - None observed in this candidate yet.
 - PR 298 notes that `backend/internal/feeddirection/adapters/postgres/pen_tag_analytics_integration_test.go` needs an OCI throwaway database; do not treat that test as a local fake-db receipt.
+- Admin-web `npm install` warned that local Node is v23.1.0 while the package requests Node 24.x; the focused typecheck and test still passed in this environment.
 
 ## Before / After Metrics
 
@@ -40,6 +46,7 @@ Date: 2026-09-18
 
 - Base before clubbing: `origin/main` = `6e7d3f66aff8bc53d1b64b5ffd12624351280f68`.
 - Club candidate before this progress note: `aed3d104a`.
+- Candidate with initial progress receipt: `48754b76e`.
 
 ## Deployment State
 
