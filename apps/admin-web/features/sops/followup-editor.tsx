@@ -565,9 +565,9 @@ function StepCard({
           </select>
         </label>
         {/* The legacy engine condition (kid pen unresolved) and an answer-driven branch are two
-            gates; showing "Include this step: Always" beside a set "Only if" read as a
-            contradiction (PR 308 review). The legacy select is offered only where it means
-            something -- a track that has such a condition and a step not already on a branch. */}
+            gates; rendering both selects on one step read as a contradiction (PR 308 review).
+            The legacy select is offered only where it means something: a track that has such a
+            condition and a step not already on a branch. */}
         {legacyCondition && !step.whenStep ? (
           <label>
             {copy(pc, "followup.step.condition")}
