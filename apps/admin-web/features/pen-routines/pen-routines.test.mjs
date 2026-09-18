@@ -250,3 +250,32 @@ test("question ids derive from the title as letters, digits and underscores", ()
   assert.equal(slugQuestionId("  Water trough / level  "), "water_trough_level");
   assert.equal(slugQuestionId("!!!"), "");
 });
+
+test("decoder: a question's proof travels only as a recognised medium; none/blank/unknown sends no proof block", () => {
+  const evidence = decodeEvidence({
+    questions: [
+      { id: "clean", kind: "yes_no", title: "Pen cleaned?", required: true, proof: { kind: "photo", count: "multiple" } },
+      { id: "water", kind: "text", title: "Water", required: false, proof: { kind: "video" } },
+      { id: "gate", kind: "yes_no", title: "Gate", required: true, proof: { kind: "none", count: "single" } },
+      { id: "feed", kind: "yes_no", title: "Feed", required: true, proof: { kind: "audio", count: "single" } },
+      { id: "plain", kind: "yes_no", title: "Plain", required: true },
+    ],
+    photo: { min: 0, max: 0 },
+    video: { min: 0, max: 0 },
+    presence: "off",
+  });
+  assert.deepEqual(evidence.questions[0].proof, { kind: "photo", count: "multiple" });
+  assert.deepEqual(evidence.questions[1].proof, { kind: "video", count: "single" }, "a missing count defaults to single");
+  assert.equal("proof" in evidence.questions[2], false, "none is the catalog's key for no proof and never travels");
+  assert.equal("proof" in evidence.questions[3], false, "an unknown medium is dropped, not guessed");
+  assert.equal("proof" in evidence.questions[4], false);
+});
+
+test("the drawer offers per-question proof from the catalog's own vocabulary, never a local list", () => {
+  const drawer = readFileSync(new URL("./routine-drawer.tsx", import.meta.url), "utf8");
+  assert.match(drawer, /catalog\?\.question_proof_kinds/);
+  assert.match(drawer, /catalog\?\.question_proof_counts/);
+  assert.match(drawer, /"field\.question_proof"/);
+  assert.match(drawer, /"field\.question_proof_count"/);
+  assert.doesNotMatch(drawer, /<option[^>]*>\s*(Photo|Video|Photo or video|No proof)\s*<\/option>/, "proof option labels are backend copy");
+});

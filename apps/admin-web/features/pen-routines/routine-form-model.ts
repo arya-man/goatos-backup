@@ -38,7 +38,17 @@ export type PenRoutineQuestionBody = {
   min?: number | null;
   max?: number | null;
   unit?: string;
+  /** The capture this question needs to count as answered; absent = the value alone answers it. */
+  proof?: PenRoutineQuestionProofBody;
 };
+
+export type PenRoutineQuestionProofBody = {
+  kind: "photo" | "video" | "photo_or_video";
+  count: "single" | "multiple";
+};
+
+export const QUESTION_PROOF_KINDS = ["photo", "video", "photo_or_video"] as const;
+export const QUESTION_PROOF_COUNTS = ["single", "multiple"] as const;
 
 export type PenRoutineEvidenceBody = {
   questions: PenRoutineQuestionBody[];
@@ -190,6 +200,18 @@ export function decodeEvidence(raw: unknown): PenRoutineEvidenceBody {
         if (max !== undefined) question.max = max;
         const unit = String(q.unit ?? "").trim();
         if (unit) question.unit = unit;
+      }
+      // Per-question proof: only a recognised medium travels; "none" / blank / unknown means no
+      // proof block at all, so the backend's validate-or-reject sees exactly what was chosen.
+      if (q.proof && typeof q.proof === "object") {
+        const proof = q.proof as { kind?: unknown; count?: unknown };
+        const kind = String(proof.kind ?? "").trim();
+        if ((QUESTION_PROOF_KINDS as readonly string[]).includes(kind)) {
+          question.proof = {
+            kind: kind as PenRoutineQuestionProofBody["kind"],
+            count: oneOf(String(proof.count ?? ""), QUESTION_PROOF_COUNTS, "single"),
+          };
+        }
       }
       questions.push(question);
     }

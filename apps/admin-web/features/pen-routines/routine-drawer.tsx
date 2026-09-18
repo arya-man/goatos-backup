@@ -503,6 +503,44 @@ export function RoutineDrawerForm({
                       <span>{label(pageContract, "field.question_required", "field.presence")}</span>
                     </label>
                   </div>
+                  {/* Per-question proof (maintainer instruction 2026-09-18): what capture this question
+                      needs to count as answered, and one or several. "none" is the catalog's own key for
+                      no proof; it never travels -- the body simply carries no proof block. */}
+                  <div className="fld">
+                    <label htmlFor={`pr-q-proof-${question.key}`}>{label(pageContract, "field.question_proof", "field.photo")}</label>
+                    <select
+                      id={`pr-q-proof-${question.key}`}
+                      value={question.proof?.kind ?? "none"}
+                      onChange={(e) => {
+                        const kind = e.target.value;
+                        updateQuestion(question.key, {
+                          proof: kind === "none" ? undefined : { kind: kind as NonNullable<QuestionDraft["proof"]>["kind"], count: question.proof?.count ?? "single" },
+                        });
+                      }}
+                    >
+                      {kinds(catalog?.question_proof_kinds).map((option) => (
+                        <option key={option.key} value={option.key}>
+                          {option.label}
+                        </option>
+                      ))}
+                    </select>
+                  </div>
+                  {question.proof ? (
+                    <div className="fld">
+                      <label htmlFor={`pr-q-proof-count-${question.key}`}>{label(pageContract, "field.question_proof_count", "field.max")}</label>
+                      <select
+                        id={`pr-q-proof-count-${question.key}`}
+                        value={question.proof.count}
+                        onChange={(e) => updateQuestion(question.key, { proof: { kind: question.proof!.kind, count: e.target.value as NonNullable<QuestionDraft["proof"]>["count"] } })}
+                      >
+                        {kinds(catalog?.question_proof_counts).map((option) => (
+                          <option key={option.key} value={option.key}>
+                            {option.label}
+                          </option>
+                        ))}
+                      </select>
+                    </div>
+                  ) : null}
                   {question.kind === "number" ? (
                     <>
                       <div className="fld">
