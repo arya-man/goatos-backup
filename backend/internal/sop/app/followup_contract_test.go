@@ -7,6 +7,7 @@ import (
 	"testing"
 
 	"github.com/vgoats/goatos/backend/internal/sop/domain"
+	"github.com/vgoats/goatos/backend/internal/sop/ports"
 	tasksdomain "github.com/vgoats/goatos/backend/internal/tasks/domain"
 	"github.com/vgoats/goatos/backend/internal/tasks/domain/sopseed"
 )
@@ -124,5 +125,41 @@ func TestReportingHookStepsMayBeRemoved(t *testing.T) {
 	track["steps"] = kept
 	if r := followUpReport(t, tasksdomain.SOPCodeBirth, dsl); !r.Valid {
 		t.Fatalf("removing reporting steps refused: %+v", r.Errors)
+	}
+}
+
+// The seeded general SOP (migration 000351) ships `fields: []` -- a general SOP has no capture
+// form -- and the web's Operator-steps editor keeps the capture form untouched when it saves a
+// new version. ValidateFormDSL demanded a field and made the seeded document impossible to edit
+// or re-publish (PR 308 review, P1). The seeded shape must save through the full CreateVersion
+// path; a MODULE document with no field is still refused.
+func TestSeededGeneralSOPWithNoFieldsStillSavesAndPublishes(t *testing.T) {
+	repo := newFakeRepo()
+	repo.sop.Code = sopseed.SOPCodeGateVisitorCheck
+	repo.sop.Kind = domain.SOPKindGeneral
+	service := NewService(repo)
+	dsl := seededFollowUpDSL(t, sopseed.SOPCodeGateVisitorCheck)
+	dsl["schema_version"] = "goatos.sop-form.v1"
+	dsl["sop_code"] = sopseed.SOPCodeGateVisitorCheck
+	dsl["title"] = "Gate visitor check"
+	dsl["fields"] = []any{}
+	policy := map[string]any{"subject_scope": "task", "types": []any{"video", "photo"}, "required": false, "minimum_count": float64(0), "verify_before_apply": false, "approval_before_apply": false}
+	created, err := service.CreateVersion(context.Background(), ports.CreateVersionCommand{TenantID: testTenantID, ActorID: testActorID, SOPID: testSOPID, Body: domain.CreateSOPVersionRequest{VersionLabel: "edited on the web", FormDSL: dsl, ProofPolicy: policy}}, "trace")
+	if err != nil {
+		t.Fatalf("the seeded general document must save: %#v", err)
+	}
+	if r := ValidateFormDSL(dsl, policy); !r.Valid {
+		t.Fatalf("the seeded general document must validate: %+v", r.Errors)
+	}
+	if _, err := service.PublishVersion(context.Background(), ports.VersionCommand{TenantID: testTenantID, ActorID: testActorID, SOPID: testSOPID, SOPVersionID: created.Version.SOPVersionID, RowVersion: 1}, "trace"); err != nil {
+		t.Fatalf("the seeded general document must publish: %#v", err)
+	}
+	// A module document without a capture field is still refused: the exemption reads the
+	// general track, not the SOP kind alone.
+	moduleDSL := seededFollowUpDSL(t, tasksdomain.SOPCodeBirth)
+	moduleDSL["schema_version"] = "goatos.sop-form.v1"
+	moduleDSL["fields"] = []any{}
+	if r := ValidateFormDSL(moduleDSL, policy); r.Valid {
+		t.Fatal("a module document with no field must still be refused")
 	}
 }

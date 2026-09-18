@@ -1052,6 +1052,27 @@ func evaluationRequiresProof(evaluation domain.DryRunResponse) bool {
 	return false
 }
 
+// generalDocumentShape reports a document whose follow_up carries the general `main` track: the
+// shape a general SOP is authored and seeded in. Only the shape is read here; the track's own
+// contract is validated by validateFollowUpContract.
+func generalDocumentShape(formDSL map[string]any) bool {
+	followUp, ok := formDSL["follow_up"].(map[string]any)
+	if !ok {
+		return false
+	}
+	tracks, ok := followUp["tracks"].([]any)
+	if !ok {
+		return false
+	}
+	for _, raw := range tracks {
+		track, ok := raw.(map[string]any)
+		if ok && stringValue(track, "key") == "main" && stringValue(track, "module") == "general" {
+			return true
+		}
+	}
+	return false
+}
+
 func ValidateFormDSL(formDSL, proofPolicy map[string]any) domain.ValidationReport {
 	report := domain.ValidationReport{Valid: true, Errors: []domain.ValidationIssue{}, Warnings: []domain.ValidationIssue{}}
 	if formDSL == nil {
@@ -1063,8 +1084,15 @@ func ValidateFormDSL(formDSL, proofPolicy map[string]any) domain.ValidationRepor
 	}
 	fields, ok := formDSL["fields"].([]any)
 	if !ok || len(fields) == 0 {
-		addError(&report, "form_dsl.fields", "required", "at least one field is required")
-		return report
+		// A GENERAL SOP has no capture form: the operator starts it by hand and every step lives
+		// on the follow_up's `main` track (SOP studio decision 3). The seeded Gate visitor check
+		// ships `fields: []`, and demanding a field here made it impossible to edit or
+		// re-publish from the web (PR 308 review, P1). Any other document still needs a field.
+		if !generalDocumentShape(formDSL) {
+			addError(&report, "form_dsl.fields", "required", "at least one field is required")
+			return report
+		}
+		fields = []any{}
 	}
 	seen := map[string]struct{}{}
 	for idx, raw := range fields {
