@@ -1,4 +1,5 @@
 import type {
+  LeadershipTaskActivity,
   LeadershipTaskAssignee,
   LeadershipTaskAttachment,
   LeadershipTaskPage,
@@ -44,6 +45,12 @@ export type TaskRow = {
     created_at: string;
   }>;
   /**
+   * The task's history feed, NEWEST FIRST, exactly as the backend composed it: who created
+   * it, who moved its status, who edited what, who commented. The panel's History / Comments /
+   * All tabs are views over this one list (`task-activity-feed.tsx`); nothing is derived here.
+   */
+  activity: LeadershipTaskActivity[];
+  /**
    * The deadline countdown, backend-composed and rendered verbatim (maintainer decision
    * 2026-09-14): days left to the deadline (0 = due today, negative = overdue), its tone
    * (ok = green; near and over = red), the deadline itself and the sentence beneath. A task
@@ -87,6 +94,7 @@ export function rowsFromPage(page: LeadershipTaskPage): TaskRow[] {
       attachmentKinds,
       attachmentRows: task.attachments ?? [],
       notes: task.notes ?? [],
+      activity: task.activity ?? [],
       daysLeft: task.days_left ?? null,
       daysLeftLabel: task.days_left_label ?? "",
       deadlineTone: (task.deadline_tone ?? "") as TaskRow["deadlineTone"],

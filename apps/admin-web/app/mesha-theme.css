@@ -5775,6 +5775,22 @@ input[type=date],input[type=datetime-local],input[type=time],input[type=month],i
 .ltd-act-tx{min-width:0;flex:1;display:flex;flex-direction:column;gap:3px}
 .ltd-act-tx b{font-size:12.5px;font-weight:720;color:var(--ink)}
 .ltd-act-tx p{margin:0;font-size:13px;line-height:1.55;color:var(--ink);white-space:pre-wrap;overflow-wrap:anywhere}
+/* activity FEED tabs + history rows (task-activity-feed.tsx) — Builder H, 2026-09-18 */
+.ltd-feed{min-width:0}
+.ltd-feed-tabs{display:flex;gap:4px;margin:0 0 12px;padding:3px;border:1px solid var(--line);border-radius:10px;background:var(--panel-2);width:max-content;max-width:100%}
+.ltd-feed-tab{display:inline-flex;align-items:center;gap:6px;min-height:32px;padding:0 11px;border:0;border-radius:8px;background:transparent;color:var(--muted);font:inherit;font-size:12.5px;font-weight:700;cursor:pointer}
+.ltd-feed-tab:hover{color:var(--ink);background:color-mix(in srgb,var(--muted) 12%,transparent)}
+.ltd-feed-tab.on{color:var(--ink);background:var(--panel);box-shadow:0 1px 2px color-mix(in srgb,var(--ink) 10%,transparent);border:1px solid var(--line)}
+.ltd-feed-count{display:inline-flex;align-items:center;justify-content:center;min-width:18px;height:18px;padding:0 5px;border-radius:999px;font-size:10.5px;font-weight:800;font-variant-numeric:tabular-nums;color:var(--muted);background:color-mix(in srgb,var(--muted) 16%,transparent)}
+.ltd-feed-tab.on .ltd-feed-count{color:var(--brand);background:color-mix(in srgb,var(--brand) 14%,transparent)}
+.ltd-act-line{display:flex;flex-wrap:wrap;align-items:center;gap:6px 7px;font-size:12.5px;line-height:1.4;color:var(--ink)}
+.ltd-act-line b{font-weight:720}
+.ltd-act-verb{color:var(--muted)}
+.ltd-act-change{display:inline-flex;flex-wrap:wrap;align-items:center;gap:6px;min-width:0}
+.ltd-act-arrow{color:var(--muted);font-weight:700}
+.ltd-act-val{font-weight:650;color:var(--ink);overflow-wrap:anywhere}
+.ltd-actchip{display:inline-flex;align-items:center;min-height:22px;padding:0 8px;border-radius:6px;font-size:11.5px;font-weight:780;letter-spacing:.1px;border:1px solid var(--line);background:var(--panel-2);color:var(--ink);white-space:nowrap}
+.ltd-act-when{display:block;font-size:11.5px;color:var(--muted);font-variant-numeric:tabular-nums}
 .ltd-composer{display:flex;gap:10px;min-width:0;padding-top:2px}
 .ltd-composer .lt-comment-form{flex:1;min-width:0;margin:0}
 .ltd-composer .lt-comment-form .btn{min-height:40px;justify-self:start}

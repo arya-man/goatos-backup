@@ -105,12 +105,18 @@ test("production Tasks page uses live backend data, with fixtures confined to pr
     /detail=\{selected \?\? null\}/,
     "the panel owns the no-selection state; the page passes the row or null",
   );
-  // Production activity is the task's OWN notes, rendered verbatim -- never invented on the
-  // client and never a fixture.
+  // Production activity is the task's OWN feed and notes (`LeadershipTask.activity` /
+  // `notes`), handed verbatim to the tabbed feed -- never invented on the client and never a
+  // fixture.
   assert.match(
     detailPanel,
-    /detail\.notes\.map\(/,
+    /activity=\{detail\.activity\}/,
     "production activity must be derived from live task fields",
+  );
+  assert.match(
+    detailPanel,
+    /notes=\{detail\.notes\}/,
+    "comment text must come from the task's own notes",
   );
   assert.doesNotMatch(
     detailPanel,

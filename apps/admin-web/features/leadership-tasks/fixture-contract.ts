@@ -186,6 +186,24 @@ export const leadershipTasksFixtureContract: AdminUiPageContract = {
     "feedback.invalid_status_change": "That move did not say which task to move, or where to move it to. Reload the board and drag the card again.",
     "feedback.invalid_idempotency_key": "The form expired. Reload the page and try again.",
     "feedback.too_many_attachments": "A task carries at most 12 attachments.",
+    // The activity feed (task-activity-feed.tsx): three views over the backend's
+    // `LeadershipTask.activity`. Mirrors the ACTIVITY block of pageSpecificCopy("leadership-tasks").
+    "activity.tabs_aria": "Activity views",
+    "activity.tab_all": "All",
+    "activity.tab_history": "History",
+    "activity.tab_comments": "Comments",
+    "activity.created": "created the task",
+    "activity.status_changed": "changed the status",
+    "activity.assignee_changed": "changed the assignee",
+    "activity.deadline_changed": "changed the deadline",
+    "activity.title_changed": "changed the title",
+    "activity.brief_changed": "edited the brief",
+    "activity.commented": "commented",
+    "activity.cancelled": "cancelled the task",
+    "activity.updated": "updated the task",
+    "activity.empty": "Nothing has happened on this task yet.",
+    "activity.empty_history": "No changes recorded on this task yet.",
+    "activity.empty_comments": "No comments on this task yet.",
     // Shared base map (same Go file), read by this page's chips, banner and sheet -- and by the
     // SHARED `components/worklist-pager.tsx` this page renders, which is where `action.previous`,
     // `action.next`, `pager.page` and `pager.rows` are read from.

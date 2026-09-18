@@ -17,6 +17,7 @@ import { initials, statusTone } from "./task-presentation";
 import { TASK_PARAM, tasksHref, tasksSearchParams, type TasksParams } from "./params";
 import type { TaskRow } from "./task-row";
 import { TASKS_PATHNAME } from "./task-url";
+import { TaskActivityFeed } from "./task-activity-feed";
 import { TaskCommentForm, TaskStatusActions } from "./task-write-forms";
 
 /**
@@ -222,42 +223,35 @@ export function TaskDetailPanel({
             )}
           </Section>
 
+          {/* ACTIVITY (CEO instruction 2026-09-18): Jira's History / Comments / All tabs over the
+              backend's own `activity` feed, newest first — who created the task, who moved its
+              status (two chips and an arrow), who edited the title / brief / deadline, who
+              commented. `task-activity-feed.tsx` owns the tabs and the rows; this panel only
+              hands it the data and the composer. */}
           <Section title={copy(pageContract, "section.activity", "Activity")}>
-            {detail.notes.length ? (
-              <ol className="ltd-activity">
-                {detail.notes.map((note) => (
-                  <li key={note.note_id} className="ltd-act">
-                    <span className="ltd-av ltd-av-sm" aria-hidden="true">
-                      {initials(note.author_name || copy(pageContract, "feed.update"))}
+            <TaskActivityFeed
+              activity={detail.activity}
+              notes={detail.notes}
+              pageContract={pageContract}
+              composer={
+                /* The composer last, as Jira has it. `@`-mentions, the idempotency key and the
+                   mention-id contract all come with the shared form. */
+                detail.canComment ? (
+                  <div className="ltd-composer">
+                    <span className="ltd-av ltd-av-sm ltd-av-me" aria-hidden="true">
+                      <MessageSquareText className="ic" />
                     </span>
-                    <div className="ltd-act-tx">
-                      <b>{note.author_name || copy(pageContract, "feed.update")}</b>
-                      <p>{note.body}</p>
-                    </div>
-                  </li>
-                ))}
-              </ol>
-            ) : (
-              <p className="ltd-quiet">
-                {copy(pageContract, "empty.activity", "No updates on this task yet.")}
-              </p>
-            )}
-            {/* The composer last, as Jira has it. `@`-mentions, the idempotency key and the
-                mention-id contract all come with the shared form. */}
-            {detail.canComment ? (
-              <div className="ltd-composer">
-                <span className="ltd-av ltd-av-sm ltd-av-me" aria-hidden="true">
-                  <MessageSquareText className="ic" />
-                </span>
-                <TaskCommentForm
-                  task={detail}
-                  pageContract={pageContract}
-                  action={setLeadershipTaskCommentAction}
-                  returnTo={returnTo}
-                  mentionCandidates={assignees}
-                />
-              </div>
-            ) : null}
+                    <TaskCommentForm
+                      task={detail}
+                      pageContract={pageContract}
+                      action={setLeadershipTaskCommentAction}
+                      returnTo={returnTo}
+                      mentionCandidates={assignees}
+                    />
+                  </div>
+                ) : null
+              }
+            />
           </Section>
         </div>
 
