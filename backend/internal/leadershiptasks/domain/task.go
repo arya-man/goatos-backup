@@ -109,6 +109,10 @@ type Task struct {
 	// ParticipantUserIDs are the people a mention pulled onto this task (migration 000346).
 	// They may OPEN the task; see IsParticipant / CanRead in mentions.go.
 	ParticipantUserIDs []string
+	// Activity is the task's own history (migration 000349, activity.go), NEWEST FIRST: who
+	// created it, who moved its status, who edited its title, brief or deadline, who commented.
+	// The panel's History / Comments / All tabs are all views over this one list.
+	Activity []Event
 }
 
 // Attachment is one stored attachment of a task. ProofID points at the proof store row that
