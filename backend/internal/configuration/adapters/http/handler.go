@@ -127,6 +127,7 @@ func (h *Handler) Registers(w http.ResponseWriter, r *http.Request) {
 			{Key: domain.GroupFarmPlaces, Label: "Farm places"},
 			{Key: domain.GroupAnimalTypes, Label: "Animal types"},
 			{Key: domain.GroupCatalogue, Label: "Catalogue"},
+			{Key: domain.GroupPeople, Label: "People"},
 		},
 		TraceID: traceID(r),
 	})

@@ -27,6 +27,7 @@ const (
 	GroupFarmPlaces  = "farm_places"
 	GroupAnimalTypes = "animal_types"
 	GroupCatalogue   = "catalogue"
+	GroupPeople      = "people"
 )
 
 // Option is one choice of an enum column.
@@ -99,7 +100,18 @@ const (
 	RegCategories = "categories"
 	RegItems      = "items"
 	RegFeedItems  = "feed_items"
+	RegRoles      = "roles"
 )
+
+// RoleGrades is the HR grade a role sits at (designation_catalog.grade, matching
+// workforce_members.hr_designation_grade).
+var RoleGrades = []Option{
+	{Value: "cxo", Label: "CEO / CXO"},
+	{Value: "director", Label: "Director"},
+	{Value: "head", Label: "Head"},
+	{Value: "manager", Label: "Manager"},
+	{Value: "assistant_manager", Label: "Assistant manager"},
+}
 
 // Item kinds are the inventory_items.category enum: every item category root carries one, and
 // stock reserve / PC Care requirements / the vaccines detail table still key on it.
@@ -147,6 +159,20 @@ func zero() *float64 { v := 0.0; return &v }
 
 // Registers is the ordered catalog the rail renders. Order is the rail order.
 var Registers = []Register{
+	{
+		// Roles (maintainer instruction 2026-09-18): the designations a person is given on
+		// /people -- CEO / CXO, CTO, a director, a park head -- with the HR grade each sits at.
+		// Backed by designation_catalog, the same catalog /people offers, so a role added here is
+		// offered there at once. What a role may DO is still the per-person ticks on /people.
+		Key: RegRoles, Label: "Roles", One: "Role", Group: GroupPeople,
+		Hint: "The roles people are given on People / HRMS, and the grade each sits at. What a role may do is set per person there.",
+		Columns: []Column{
+			{Key: "name", Label: "Name", Type: TypeText, Required: true},
+			{Key: "code", Label: "Code", Type: TypeCode, Required: true, Immutable: true, Hint: "Lowercase key such as cto; cannot change once saved."},
+			{Key: "grade", Label: "Grade", Type: TypeEnum, Options: RoleGrades},
+			{Key: "sort_order", Label: "Order", Type: TypeNumber, Min: zero(), Integer: true},
+		},
+	},
 	{
 		Key: RegFarms, Label: "Farms", One: "Farm", Group: GroupFarmPlaces,
 		Hint: "A farm groups parks under one business. Optional: a park may stand on its own.",

@@ -222,10 +222,69 @@ export function ItemsPage({ searchParams, pageContract, data }: { searchParams?:
       });
     }
   }
-  // The catalogue layout also edits its LISTS (the categories register) from the same page.
   const listsRegister = registers.find((item) => item.key === "categories");
   const isCatalogue = register?.layout === "catalogue" && !!listsRegister;
+  // The lists, in tree order, each counting its whole subtree (the prototype's "Vaccines 7").
+  const catalogueLists: CatalogueList[] = [];
+  // The chosen list's root and its sub-lists, rendered on the right above the items.
+  let selectedRoot: ConfigurationRow | null = null;
+  const subLists: { id: string; name: string; depth: number; count: number; href: string; editHref: string }[] = [];
+  if (isCatalogue) {
+    const all = data.lists ?? [];
+    const childrenOf = new Map<string, ConfigurationRow[]>();
+    for (const list of all) {
+      const parent = String(list.fields.parent_id ?? "");
+      childrenOf.set(parent, [...(childrenOf.get(parent) ?? []), list]);
+    }
+    const subtreeCount = (id: string): number => (all.find((l) => l.id === id)?.counts?.items ?? 0) + (childrenOf.get(id) ?? []).reduce((sum, child) => sum + subtreeCount(child.id), 0);
+    // A list sits under CATALOGUES when its ROOT is built in (Medicines > Antibiotics stays with
+    // Medicines), under YOUR LISTS when the farm made the root.
+    // The panel carries only the top-level lists (maintainer instruction 2026-09-18); a list's
+    // sub-lists show on the right, above its items, once it is chosen.
+    for (const list of childrenOf.get("") ?? []) {
+      catalogueLists.push({
+        id: list.id,
+        name: String(list.fields.name ?? list.display),
+        depth: 0,
+        builtin: list.is_builtin,
+        locked: list.is_builtin,
+        archived: list.status === "archived",
+        count: subtreeCount(list.id),
+        href: href(sp, { [FILTER_PREFIX + "category_id"]: list.id, [PARAM_EDIT]: undefined }),
+        editHref: href(sp, { [PARAM_EDIT]: LIST_EDIT_PREFIX + list.id }, true),
+      });
+    }
+    const selectedId = params.filters.category_id ?? "";
+    let rootId = selectedId;
+    for (let guard = 0; guard < 8 && rootId; guard += 1) {
+      const parent = String(all.find((l) => l.id === rootId)?.fields.parent_id ?? "");
+      if (!parent) break;
+      rootId = parent;
+    }
+    selectedRoot = all.find((l) => l.id === rootId) ?? null;
+    if (selectedRoot) {
+      const root = selectedRoot;
+      const collect = (parent: string, depth: number) => {
+        for (const list of childrenOf.get(parent) ?? []) {
+          if (list.status === "archived") continue;
+          subLists.push({ id: list.id, name: String(list.fields.name ?? list.display), depth, count: subtreeCount(list.id), href: href(sp, { [FILTER_PREFIX + "category_id"]: list.id, [PARAM_EDIT]: undefined }), editHref: href(sp, { [PARAM_EDIT]: LIST_EDIT_PREFIX + list.id }, true) });
+          collect(list.id, depth + 1);
+        }
+      };
+      collect(root.id, 0);
+    }
+  }
+  // The catalogue layout also edits its LISTS (the categories register) from the same page.
   if (isCatalogue && listsRegister) {
+    if (canCreate && selectedRoot) {
+      drawerItems.push({
+        id: LIST_EDIT_PREFIX + "new:" + selectedRoot.id,
+        eyebrow: listsRegister.label,
+        title: `${c("drawer.create_title")} ${listsRegister.one.toLowerCase()}`,
+        icon: <Settings className="ic" aria-hidden="true" />,
+        body: <RowDrawerForm pageContract={pageContract} register={listsRegister} options={data.options} canEdit={canCreate} canSetStatus={false} canDelete={false} listHref={listHref} defaults={{ parent_id: selectedRoot.id }} />,
+      });
+    }
     if (canCreate) {
       drawerItems.push({
         id: LIST_EDIT_PREFIX + "new",
@@ -244,37 +303,6 @@ export function ItemsPage({ searchParams, pageContract, data }: { searchParams?:
         body: <RowDrawerForm pageContract={pageContract} register={listsRegister} row={list} options={data.options} canEdit={canEdit} canSetStatus={canSetStatus} canDelete={canDelete} listHref={listHref} />,
       });
     }
-  }
-  // The lists, in tree order, each counting its whole subtree (the prototype's "Vaccines 7").
-  const catalogueLists: CatalogueList[] = [];
-  if (isCatalogue) {
-    const all = data.lists ?? [];
-    const childrenOf = new Map<string, ConfigurationRow[]>();
-    for (const list of all) {
-      const parent = String(list.fields.parent_id ?? "");
-      childrenOf.set(parent, [...(childrenOf.get(parent) ?? []), list]);
-    }
-    const subtreeCount = (id: string): number => (all.find((l) => l.id === id)?.counts?.items ?? 0) + (childrenOf.get(id) ?? []).reduce((sum, child) => sum + subtreeCount(child.id), 0);
-    // A list sits under CATALOGUES when its ROOT is built in (Medicines > Antibiotics stays with
-    // Medicines), under YOUR LISTS when the farm made the root.
-    const walk = (parent: string, depth: number, rootBuiltin: boolean | null) => {
-      for (const list of childrenOf.get(parent) ?? []) {
-        const builtin = rootBuiltin ?? list.is_builtin;
-        catalogueLists.push({
-          id: list.id,
-          name: String(list.fields.name ?? list.display),
-          depth,
-          builtin,
-          locked: list.is_builtin,
-          archived: list.status === "archived",
-          count: subtreeCount(list.id),
-          href: href(sp, { [FILTER_PREFIX + "category_id"]: list.id, [PARAM_EDIT]: undefined }),
-          editHref: href(sp, { [PARAM_EDIT]: LIST_EDIT_PREFIX + list.id }, true),
-        });
-        walk(list.id, depth + 1, builtin);
-      }
-    };
-    walk("", 0, null);
   }
   const departmentColumn = register?.columns.find((column) => column.key === "department");
   const departmentLabel = (value: unknown) => departmentColumn?.options?.find((option) => option.value === String(value ?? ""))?.label ?? "";
@@ -338,7 +366,7 @@ export function ItemsPage({ searchParams, pageContract, data }: { searchParams?:
             lists={catalogueLists}
             allHref={href(sp, { [FILTER_PREFIX + "category_id"]: undefined, [PARAM_EDIT]: undefined })}
             allCount={catalog?.counts[register?.key ?? ""] ?? 0}
-            current={params.filters.category_id ?? ""}
+            current={selectedRoot?.id ?? ""}
             canEdit={canEdit}
             newHref={href(sp, { [PARAM_EDIT]: LIST_EDIT_PREFIX + "new" }, true)}
           />
@@ -366,6 +394,31 @@ export function ItemsPage({ searchParams, pageContract, data }: { searchParams?:
             ) : null}
           </div>
           {!canWrite ? <div className="note" style={{ margin: "10px 16px 0" }}>{c("configure.disabled_no_access")}</div> : null}
+
+          {isCatalogue && selectedRoot ? (
+            <div className="cfg-sublists" aria-label={c("lists.sublists")}>
+              <div className="subtabs">
+                <Link href={href(sp, { [FILTER_PREFIX + "category_id"]: selectedRoot.id, [PARAM_EDIT]: undefined })} scroll={false} className={params.filters.category_id === selectedRoot.id ? "on" : ""}>
+                  {c("lists.all_in")} {String(selectedRoot.fields.name ?? selectedRoot.display)}
+                </Link>
+                {subLists.map((list) => (
+                  <Link key={list.id} href={list.href} scroll={false} className={params.filters.category_id === list.id ? "on" : ""} style={{ marginLeft: list.depth * 10 }}>
+                    {list.name} <span className="cbq">{list.count}</span>
+                  </Link>
+                ))}
+              </div>
+              {canEdit && params.filters.category_id && params.filters.category_id !== selectedRoot.id ? (
+                <LocalOverlayLink href={href(sp, { [PARAM_EDIT]: LIST_EDIT_PREFIX + params.filters.category_id }, true)} scroll={false} className="btn sm ghost">
+                  {c("action.edit_row.label")}
+                </LocalOverlayLink>
+              ) : null}
+              {canCreate ? (
+                <LocalOverlayLink href={href(sp, { [PARAM_EDIT]: LIST_EDIT_PREFIX + "new:" + selectedRoot.id }, true)} scroll={false} className="btn sm ghost">
+                  <Plus className="ic" style={{ width: 13 }} aria-hidden="true" /> {c("lists.new_under")} {String(selectedRoot.fields.name ?? selectedRoot.display)}
+                </LocalOverlayLink>
+              ) : null}
+            </div>
+          ) : null}
 
           <div className="tbar">
             <form method="get" action={ITEMS_PATH} className="tsearch" role="search">

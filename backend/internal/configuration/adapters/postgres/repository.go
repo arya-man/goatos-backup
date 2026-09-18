@@ -80,6 +80,7 @@ func NewRepository(pool *pgxpool.Pool, timeout time.Duration) *Repository {
 		domain.RegCategories: categoryStore{},
 		domain.RegItems:      itemStore{},
 		domain.RegFeedItems:  feedItemStore{},
+		domain.RegRoles:      roleStore{},
 	}
 	for _, reg := range domain.Registers {
 		if _, ok := r.stores[reg.Key]; !ok {

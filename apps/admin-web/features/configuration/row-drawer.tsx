@@ -85,6 +85,7 @@ export function RowDrawerForm({
   canDelete,
   listHref,
   editElsewhere,
+  defaults,
 }: {
   pageContract: AdminUiPageContract;
   register: ConfigurationRegister;
@@ -96,9 +97,11 @@ export function RowDrawerForm({
   listHref: string;
   /** A row owned by another screen (a feed item): read-only here, with the link to where it is edited. */
   editElsewhere?: { href: string; label: string };
+  /** Prefilled fields on create (a new sub-list's parent). */
+  defaults?: Record<string, string>;
 }) {
   const isEdit = !!row;
-  const [draft, setDraft] = useState<Draft>(() => draftFrom(register, row));
+  const [draft, setDraft] = useState<Draft>(() => ({ ...draftFrom(register, row), ...(row ? {} : defaults ?? {}) }));
   const [confirmDelete, setConfirmDelete] = useState(false);
   const [state, formAction, pending] = useActionState(isEdit ? updateRowAction : createRowAction, INITIAL_ACTION_STATE);
   const [statusState, statusFormAction, statusPending] = useActionState(setRowStatusAction, INITIAL_ACTION_STATE);

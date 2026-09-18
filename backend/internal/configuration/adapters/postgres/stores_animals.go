@@ -8,6 +8,7 @@ import (
 
 	"github.com/vgoats/goatos/backend/internal/configuration/domain"
 	"github.com/vgoats/goatos/backend/internal/configuration/ports"
+	"github.com/vgoats/goatos/backend/internal/permissions"
 )
 
 // ---------------------------------------------------------------------------------------------
@@ -214,3 +215,112 @@ INSERT INTO animal_stage_lookup (tenant_id, stage_code, name, min_age_days, max_
 VALUES ($1, $2, $3, $4, $5, $6, 'active')
 RETURNING animal_stage_id::text`
 )
+
+// ---------------------------------------------------------------------------------------------
+// Roles: designation_catalog, the designations /people gives a person. The catalog is not
+// tenant-scoped (one product-wide list); $1 is consumed so the shared wrapper's arguments line
+// up. A designation someone holds (person_access) cannot be deleted; its module defaults
+// (designation_module_defaults) cascade with it when nobody holds it.
+
+type roleStore struct{}
+
+var roleProjection = projection{sql: sqlRoleProjection, decorate: decorateRole}
+
+const sqlRoleProjection = `
+SELECT d.designation_code AS id,
+       d.label AS display,
+       replace(d.status, 'retired', 'archived') AS status,
+       0 AS row_version,
+       false AS is_builtin,
+       jsonb_build_object('name', d.label, 'code', d.designation_code, 'grade', d.grade, 'sort_order', d.sort_order) AS fields,
+       '{}'::jsonb AS labels,
+       jsonb_build_object('people', (SELECT count(*) FROM person_access pa WHERE pa.designation_code = d.designation_code AND ($1::uuid IS NULL OR pa.tenant_id = $1::uuid))) AS counts,
+       lpad(d.sort_order::text, 6, '0') || ' ' || lower(d.label) AS sort_key
+FROM designation_catalog d
+WHERE $1::uuid IS NOT NULL`
+
+func (roleStore) count(ctx context.Context, q querier, t string) (int, error) {
+	return roleProjection.count(ctx, q, t)
+}
+func (roleStore) list(ctx context.Context, q querier, t string, p ports.ListParams) (ports.Page, error) {
+	return roleProjection.list(ctx, q, t, p)
+}
+func (roleStore) get(ctx context.Context, q querier, t, id string) (domain.Row, error) {
+	return roleProjection.get(ctx, q, t, id)
+}
+
+// A designation whose code is an RBAC role (ceo_internal, park_head, ...) is built in: the
+// product names it in code, so it can be renamed but never archived or deleted.
+func decorateRole(row *domain.Row) {
+	if permissions.IsKnownRole(row.ID) {
+		row.IsBuiltin = true
+	}
+}
+func (roleStore) options(ctx context.Context, q querier, t string) ([]ports.RefOption, error) {
+	return roleProjection.options(ctx, q, t)
+}
+func (roleStore) usage(ctx context.Context, q querier, t, id string) (domain.Usage, error) {
+	return usageOf(ctx, q, t, id, usageCheck{"people", `SELECT count(*) FROM person_access WHERE tenant_id = $1 AND designation_code = $2`})
+}
+
+func (roleStore) insert(ctx context.Context, tx pgx.Tx, t string, f map[string]any) (string, error) {
+	sort, ok := domain.FieldInt(f, "sort_order")
+	if !ok {
+		sort = 100
+	}
+	code := domain.FieldString(f, "code")
+	if _, err := tx.Exec(ctx, `INSERT INTO designation_catalog (designation_code, label, grade, sort_order) VALUES ($1, $2, $3, $4)`, code, domain.FieldString(f, "name"), nullText(f, "grade"), sort); err != nil {
+		return "", err
+	}
+	return code, nil
+}
+
+func (roleStore) update(ctx context.Context, tx pgx.Tx, t, id string, f map[string]any, rv int) (string, error) {
+	set, args := setClause(f, []colBind{
+		{"name", "label", textOrEmpty("name")},
+		{"grade", "grade", textArg("grade")},
+		{"sort_order", "sort_order", func(m map[string]any) any {
+			if v, ok := domain.FieldInt(m, "sort_order"); ok {
+				return v
+			}
+			return int64(100)
+		}},
+	}, 2)
+	if set == "" {
+		return "", nil
+	}
+	tag, err := tx.Exec(ctx, fmt.Sprintf(`UPDATE designation_catalog SET %s WHERE designation_code = $1`, set), append([]any{id}, args...)...)
+	if err != nil {
+		return "", err
+	}
+	if tag.RowsAffected() == 0 {
+		return "", ports.ErrNotFound
+	}
+	return "", nil
+}
+
+func (roleStore) setStatus(ctx context.Context, tx pgx.Tx, t, id, status string, rv int) error {
+	dbStatus := "retired"
+	if status == domain.StatusActive {
+		dbStatus = "active"
+	}
+	tag, err := tx.Exec(ctx, `UPDATE designation_catalog SET status = $2 WHERE designation_code = $1`, id, dbStatus)
+	if err != nil {
+		return err
+	}
+	if tag.RowsAffected() == 0 {
+		return ports.ErrNotFound
+	}
+	return nil
+}
+
+func (roleStore) del(ctx context.Context, tx pgx.Tx, t, id string, rv int) error {
+	tag, err := tx.Exec(ctx, `DELETE FROM designation_catalog WHERE designation_code = $1`, id)
+	if err != nil {
+		return mapWriteError(err)
+	}
+	if tag.RowsAffected() == 0 {
+		return ports.ErrNotFound
+	}
+	return nil
+}
