@@ -724,7 +724,6 @@ func NewAPI(ctx context.Context, cfg Config, log *slog.Logger) (*API, error) {
 	// because a reconciliation never rewrites the register.
 	countsPenReconciliationService := countsapp.NewPenReconciliationService(countsRepo, nil)
 	countsAppWriteHandler := countshttp.NewAppWriteHandler(countsService, log).
-		WithReferenceLookup(identityRepo.ReferenceEntryAllowed).
 		WithApprovalWorkflow(countsApprovalService, identityService).
 		// The clinical vocabulary a death may be attributed to belongs to Health. Counts
 		// holds a narrow port over it so a coded cause is refused at RAISE time, in front
