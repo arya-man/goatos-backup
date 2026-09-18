@@ -37,6 +37,28 @@ LEFT JOIN public.workforce_members w
 WHERE e.tenant_id = $1 AND e.task_id = ANY($2::uuid[])
 ORDER BY e.task_id, e.occurred_at DESC, e.event_id DESC`
 
+// listEventsCapPerTask bounds the activity a LIST row carries. The list is a board or a table of
+// 25 rows; a task that has been edited daily for a year would otherwise ship hundreds of events
+// per row. The newest 30 cover what a card or drawer opened from the list shows; the detail read
+// (`getRow`) stays uncapped for the full history.
+const listEventsCapPerTask = 30
+
+// sqlListEventsCapped is sqlListEvents with a per-task cap ($3), newest first, for the list page.
+const sqlListEventsCapped = `
+SELECT task_id, event_id, kind, occurred_at, actor_user_id, actor_name, from_value, to_value, note_id
+FROM (
+  SELECT e.task_id::text AS task_id, e.event_id::text AS event_id, e.kind, e.occurred_at,
+         e.actor_user_id::text AS actor_user_id, COALESCE(w.display_name, '') AS actor_name,
+         e.from_value, e.to_value, COALESCE(e.note_id::text, '') AS note_id,
+         row_number() OVER (PARTITION BY e.task_id ORDER BY e.occurred_at DESC, e.event_id DESC) AS rn
+  FROM public.leadership_task_events e
+  LEFT JOIN public.workforce_members w
+         ON w.tenant_id = e.tenant_id AND w.user_id = e.actor_user_id AND w.status = 'active'
+  WHERE e.tenant_id = $1 AND e.task_id = ANY($2::uuid[])
+) ranked
+WHERE rn <= $3
+ORDER BY task_id, occurred_at DESC, event_id DESC`
+
 // recordEvent writes one activity row inside tx.
 func recordEvent(ctx context.Context, tx pgx.Tx, tenantID, taskID string, at time.Time, actorID, kind, from, to, noteID string) error {
 	if _, err := tx.Exec(ctx, sqlInsertEvent, tenantID, taskID, at, actorID, kind, from, to, noteID); err != nil {

@@ -2065,17 +2065,15 @@ func pageSpecificCopy(id string) map[string]string {
 		// number affordance is the control's title / aria-label. `filter.range_any` is what a
 		// date disclosure reads with no span applied: "Deadline · any".
 		return map[string]string{
-			"crumb":                  "Operations",
-			"filter.bar_aria":        "Filter tasks",
-			"filter.search_label":    "Search tasks…",
-			"filter.search_hint":     "Search by title, or type a task number",
-			"filter.range_any":       "any",
-			"filter.all_option":      "All",
-			"filter.assignee":        "Assignee",
-			"filter.assignee_pinned": "This scope is already only your tasks.",
-			"filter.raiser":          "Raised by",
-			"filter.raiser_pinned":   "This scope is already only the tasks you raised.",
-			"filter.sort":            "Sort",
+			"crumb":               "Operations",
+			"filter.bar_aria":     "Filter tasks",
+			"filter.search_label": "Search tasks…",
+			"filter.search_hint":  "Search by title, or type a task number",
+			"filter.range_any":    "any",
+			"filter.all_option":   "All",
+			"filter.assignee":     "Assignee",
+			"filter.raiser":       "Raised by",
+			"filter.sort":         "Sort",
 			// The ONE dates disclosure on the toolbar (both spans inside it), the Work Board's one
 			// date control restated for this desk.
 			"filter.dates":         "Dates",
@@ -2104,7 +2102,6 @@ func pageSpecificCopy(id string) map[string]string {
 			// belonging to the card under it. The intent is the whole of that status, which
 			// is the one thing a column cannot show: a column holds this page of the list,
 			// and Open is 179 rows.
-			"board.focus_status": "See every task in this status",
 			// ── THE REST OF THE BOARD'S OWN WORDS ────────────────────────────────────────
 			// These rendered from the screen's 3-arg `copy(contract, key, fallback)` defaults
 			// because the contract never carried them; the text is the fallback verbatim so
@@ -2113,21 +2110,15 @@ func pageSpecificCopy(id string) map[string]string {
 			// publish, an empty column, and the two drag sentences: the hint under the
 			// columns (desktop-only, where a drag exists) and the live-region prefix that
 			// announces the move in flight to a screen reader.
-			"board.aria":              "Tasks by status",
-			"board.on_this_page":      "on this page",
-			"board.total_unavailable": "The whole-list total for this status is not published.",
-			"board.column_empty":      "Nothing in this status on this page.",
-			"board.drag_hint":         "Drag a card onto a status it is allowed to move to, or open a task and use its status buttons.",
-			"board.drag_moving":       "Moving",
+			"board.aria":         "Tasks by status",
+			"board.column_empty": "Nothing in this status on this page.",
+			"board.drag_moving":  "Moving",
 			// The board under a status filter draws ONLY that status's column, because the
 			// row query can only return that status — four columns under `filter=done` left
 			// Open and Doing reading "0 on this page" beneath header pills of 179 and 118.
 			// These two say the board is narrowed and carry the way back.
-			"board.focused_note": "This board is showing one status only, so you can page through all of it.",
 			// Under the overdue lens the board keeps its two working columns and shows only the
 			// cards past their deadline; the sentence says so where the one-status note would lie.
-			"board.overdue_note": "This board is showing only tasks past their deadline, so you can page through all of them.",
-			"board.all_statuses": "Back to all statuses",
 			// The person filter is one searchable control now (it was a `<select>` that could
 			// not be typed into, plus a board avatar group whose overflow chip was dead). The
 			// same control is the New task modal's "For" field. The `deadline.*` keys below
@@ -2172,9 +2163,6 @@ func pageSpecificCopy(id string) map[string]string {
 			"note.placeholder":        "Write the latest status or reply.",
 			"note.send":               "Send update",
 			"feed.update":             "Task update",
-			"feed.audio":              "Audio attached",
-			"feed.video":              "Video attached",
-			"feed.files":              "Files attached",
 			"picker.voice":            "Voice note",
 			"note.sending":            "Sending…",
 			"note.just_now":           "just now",

@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { readFileSync } from "node:fs";
+import { existsSync, readFileSync } from "node:fs";
 import { test } from "node:test";
 
 import {
@@ -171,15 +171,13 @@ test("an unprefixed parameter this page does not read is reported, not honoured"
 });
 
 test("the board carries no person filter of its own", () => {
-  // B1/B2: the avatar group and its dead `+5` overflow are gone, and the one searchable person
-  // filter reuses the @-mention picker's ranking rather than being a second implementation.
+  // B1/B2: the avatar group and its dead `+5` overflow are gone. The one person filter is the
+  // toolbar's checkbox dropdown (task-people-dropdown.tsx); the interim searchable picker
+  // (task-people-filter.tsx) is deleted, not merely unmounted.
   const board = readFileSync(new URL("./leadership-tasks-board.tsx", import.meta.url), "utf8");
   assert.doesNotMatch(board, /ltb-person/);
   assert.doesNotMatch(board, /aria-hidden="true">\+/);
-  const picker = readFileSync(new URL("./task-people-filter.tsx", import.meta.url), "utf8");
-  assert.match(picker, /filterMentionCandidates/);
-  assert.match(picker, /moveMentionHighlight/);
-  // Not `@base-ui/react`, which is a dead dependency in this workspace. The prose above names
-  // it, so the test looks for an IMPORT of it rather than a mention of it.
-  assert.doesNotMatch(picker, /from\s+["']@base-ui/);
+  assert.equal(existsSync(new URL("./task-people-filter.tsx", import.meta.url)), false);
+  const dropdown = readFileSync(new URL("./task-people-dropdown.tsx", import.meta.url), "utf8");
+  assert.match(dropdown, /type="checkbox"/);
 });

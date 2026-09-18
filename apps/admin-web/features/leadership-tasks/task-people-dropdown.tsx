@@ -13,6 +13,9 @@ import { useEffect, useId, useRef, useState } from "react";
  */
 export type PeopleDropdownOption = { id: string; name: string; title?: string };
 
+/** A person as the page contract lists them: `value` is the uuid, `label` the name. */
+export type TaskPeopleOption = { value: string; label: string; title?: string };
+
 export function TaskPeopleDropdown({
   label,
   allLabel,

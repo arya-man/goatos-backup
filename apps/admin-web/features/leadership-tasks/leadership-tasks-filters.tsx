@@ -5,12 +5,11 @@ import { CalendarRange, ChevronDown, ListFilter, Search, SlidersHorizontal, X } 
 import { useCallback, useEffect, useMemo, useRef, useState, useTransition } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 
-import { TaskPeopleDropdown } from "./task-people-dropdown";
+import { TaskPeopleDropdown, type TaskPeopleOption } from "./task-people-dropdown";
 import { ThemedDatePicker } from "@/components/themed-date-picker";
 import { copy, type AdminUiPageContract } from "@/lib/admin-ui-contract";
 import { worklistFilterShownValue } from "@/lib/worklist-filter-value";
 import { TASK_PAGING_PARAMS, TASK_PARAM } from "./params";
-import { type TaskPeopleOption } from "./task-people-filter";
 import { TASK_SORTS, type TaskSort } from "./task-url";
 import { useDialogShell } from "./use-dialog-shell";
 

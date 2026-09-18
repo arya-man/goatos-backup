@@ -45,13 +45,11 @@ import {
  *
  * DRAG AND DROP now lives in `task-board-dnd.tsx`, which owns the whole column track because a
  * drop moves a card between columns and that is client state. This component stays the SERVER
- * half: it reads the response, decides each column's wording, its honest totals and its
- * "show only this" link, mints the card deep links (the URL vocabulary lives server-side), and
- * hands all of it plus the status action down. It no longer carries a PERSON filter: the avatar
- * group that lived here wrote the same `t_assignee` the toolbar's control writes, and its `+5`
- * overflow was a dead `<span aria-hidden>` that made five of eleven people unreachable. The one
- * searchable person filter is `task-people-filter.tsx`, on the toolbar, which is on screen in
- * both views. It decides nothing about the drag — legality is
+ * half: it reads the response, decides each column's wording and totals, mints the card deep
+ * links (the URL vocabulary lives server-side), and hands all of it plus the status action
+ * down. It carries no PERSON filter: the toolbar's checkbox dropdown (`task-people-dropdown.tsx`)
+ * is the one control that writes `t_assignee` / `t_raiser`, in both views. It decides nothing
+ * about the drag — legality is
  * the row's own `status_options`, and the reasons a drop can be refused are documented on the
  * client component.
  */

@@ -551,10 +551,10 @@ func (r *Repository) enrichPage(ctx context.Context, tenantID string, tasks []do
 	ids, index := taskIndexOf(tasks)
 
 	batch := &pgx.Batch{}
-	batch.Queue(sqlRepository5, tenantID, ids)  // attachments
-	batch.Queue(sqlListNotes, tenantID, ids)    // notes
-	batch.Queue(sqlListMentions, tenantID, ids) // mentions of those notes
-	batch.Queue(sqlListEvents, tenantID, ids)   // activity (migration 000349), newest first
+	batch.Queue(sqlRepository5, tenantID, ids)                            // attachments
+	batch.Queue(sqlListNotes, tenantID, ids)                              // notes
+	batch.Queue(sqlListMentions, tenantID, ids)                           // mentions of those notes
+	batch.Queue(sqlListEventsCapped, tenantID, ids, listEventsCapPerTask) // activity, newest 30 per row
 	results := r.pool.SendBatch(ctx, batch)
 	defer results.Close()
 

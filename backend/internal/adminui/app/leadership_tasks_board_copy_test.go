@@ -10,13 +10,9 @@ import "testing"
 func TestLeadershipTasksBoardCopyIsServedByTheContract(t *testing.T) {
 	page := pageCopy("leadership-tasks")
 	want := map[string]string{
-		"board.aria":              "Tasks by status",
-		"board.on_this_page":      "on this page",
-		"board.focus_status":      "See every task in this status",
-		"board.total_unavailable": "The whole-list total for this status is not published.",
-		"board.column_empty":      "Nothing in this status on this page.",
-		"board.drag_hint":         "Drag a card onto a status it is allowed to move to, or open a task and use its status buttons.",
-		"board.drag_moving":       "Moving",
+		"board.aria":         "Tasks by status",
+		"board.column_empty": "Nothing in this status on this page.",
+		"board.drag_moving":  "Moving",
 	}
 	for key, text := range want {
 		got, ok := page[key]
