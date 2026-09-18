@@ -5440,18 +5440,18 @@ func pageSpecificCopy(id string) map[string]string {
 			"value.feed_band.type.experiment": "Experiment",
 			// Compact pills on the desktop table so Breed and Feed given never truncate (maintainer,
 			// 2026-09-19); the full words stay on each pill's title and on the phone cards.
-			"value.feed_band.type.short.normal":          "Normal",
-			"value.feed_band.type.short.experiment":      "Exp.",
-			"value.feed_band.source.short.pen_average":   "Lump",
-			"value.feed_band.source.short.per_animal":    "Animal",
-			"value.feed_band.animals.on_farm": "On farm",
-			"value.feed_band.animals.all":     "Include exited",
-			"value.feed_band.no_gender":       "—",
-			"value.feed_band.exited_suffix":   "exited",
+			"value.feed_band.type.short.normal":        "Normal",
+			"value.feed_band.type.short.experiment":    "Exp.",
+			"value.feed_band.source.short.pen_average": "Lump",
+			"value.feed_band.source.short.per_animal":  "Animal",
+			"value.feed_band.animals.on_farm":          "On farm",
+			"value.feed_band.animals.all":              "Include exited",
+			"value.feed_band.no_gender":                "—",
+			"value.feed_band.exited_suffix":            "exited",
 			// The ⓘ beside the title: what the two head counts mean, why the feed repeats per band
 			// row, what Excluded counts, and what the two pills are. Backend copy, rendered verbatim.
-			"info.feed_band.hint":     "How to read this table",
-			"info.feed_band.title":    "Reading this table",
+			"info.feed_band.hint":  "How to read this table",
+			"info.feed_band.title": "Reading this table",
 			// The former card caption, verbatim (maintainer request 2026-09-19: one-line caption, rules in the popover).
 			"info.feed_band.plan":     "Feed plan = the locked daily feed-direction record in GoATOS for that date (what each pen was issued), not a spreadsheet.",
 			"info.feed_band.rules":    "What each pen is fed on the latest locked feed plan, beside its weighing in the selected period, counted the way the General tab counts: a pen weighed whole on two dates is one row on its latest average; a pen weighed per animal is one row per weight bracket, each animal at its latest weigh after an earlier one. Park, period, weighing, sex and origin apply; the period bounds the weighings only. Animals that have since exited the register (sold, died or otherwise) sit outside the head count unless included.",
