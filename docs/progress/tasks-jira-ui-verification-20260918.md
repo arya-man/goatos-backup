@@ -206,3 +206,69 @@ Limits inherent to browser push, not defects:
 - Real staging has the leadership directors oversee-ticked on **mobile only**, so
   the web assignee/mention picker will show fewer people than own tasks until
   those web ticks are set. That is a data decision, not a code one.
+
+## Adversarial review round 2 — mobile webview judge
+
+Full report: `docs/progress/tasks-jira-ui-mobile-judge-20260918.md` (707 lines).
+
+Two corrections to earlier conclusions in this document, both worth recording
+because the first one was mine and it was wrong:
+
+1. **The "Rendered more hooks than during the previous render" error is not a
+   hooks-order bug and not in the shared shell.** It is a knock-on of `/tasks`
+   failing server rendering because `initials()` is imported from a
+   `"use client"` module into two server components; React then falls back to
+   client rendering and the client re-render produces a different hook count.
+   The earlier attribution to `/counts/herd` was an artifact of reading
+   `[browser]` relay lines off a dev server shared by four concurrent agents —
+   it does not reproduce there, and `LeadershipTasksPage` is imported only by
+   `/tasks` and `/tasks-preview`.
+2. **`Router action dispatched before initialization` IS introduced by this
+   change.** The notification bell dispatches a Server Action from a mount
+   effect on every route, racing App Router initialisation.
+
+### The finding reading could not have produced
+
+The notification panel does not re-place on reopen: measured `left:8` at 320,
+360, 375 and 390, including the two widths where the bell sits at x 340→380 and
+the correct clamp is `left:80`. Placement is computed on first open and cached,
+and the `resize`/`scroll` listeners are attached only while the panel is open,
+so a width change that happens while it is closed is never reflected. Benign at
+these widths (8 is the clamp floor) but wrong wide→narrow — which is exactly
+what WhatsApp's retracting chrome and device rotation do. On a fresh 390 load
+the first click also failed to open the panel at all (zero-size element), with
+the second working; the mechanism was not established, so that is logged as an
+open question rather than a confirmed defect.
+
+Probable common cause for both: `placePanel()` and `void refresh()` are invoked
+*inside* the `setOpen` state updater, which must be pure and which React calls
+twice in StrictMode.
+
+### Confirmed fixed
+
+The earlier `left:-250px` panel defect is genuinely gone. At 320 the bell wraps
+to the second row (x 10→50), so the previous idiom would compute exactly
+`50 - 300 = -250`; the clamp now lands it at `8 → 308`, matching hand
+calculation. Top bar fits at every phone width with nothing clipped, tap
+targets are 40px, no bare `vh` remains in new code, and no route produced
+horizontal page scroll.
+
+### Limits of this verification — stated so nobody over-reads it
+
+- **Six of ten sweep routes are unmeasured, not passed.** `/people` wedged
+  Next's serialised dev compiler and blocked everything queued behind it.
+- **The host ran at load 157–256 throughout** (concurrent agents), so no timing
+  figure in the judge report is a performance signal. Only pass/fail geometry
+  observations are trustworthy.
+- Branch HEAD moved twice mid-review, so the report records per-file mtimes for
+  everything measured.
+
+### Coverage gap the judge flagged as worth more than any single fix
+
+`features/notifications/` has no layout test, while the sibling Tasks page has
+`tasks-phone-viewport.test.mjs`. A two-line assertion — open the bell at 320 and
+360, require `left >= 0` and `right <= clientWidth` — would have caught the
+staleness defect, the first-click failure, and a latent containing-block hazard
+where `.top`'s `backdrop-filter` makes it the containing block for the panel's
+`position:fixed` (currently harmless only because `.top` sits at (0,0) full
+width).
