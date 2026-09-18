@@ -5617,7 +5617,7 @@ func pageSpecificCopy(id string) map[string]string {
 			// less. A day the sheet directed nothing resolvable to the pen is a gap, never
 			// a zero bar; the head count behind each bar rides on its tooltip.
 			"shedfeed.title":                 "Feed by pen — last 7 days",
-			"shedfeed.hint":                  "Pick a pen name and each of its pens gets a chart: one bar per day, each bar the feed directed per animal that day, up to yesterday. Pens of the same name share one scale.",
+			"shedfeed.hint":                  "Pick a pen name and each of its pens gets a chart: two bars per day, the feed directed per animal that day beside what the verifier weighed on the packing videos, up to yesterday. Pens of the same name share one scale.",
 			"shedfeed.empty":                 "No feed sheet was issued in the last 7 days, so there is nothing to show.",
 			"shedfeed.empty_filtered":        "No pens match these filters.",
 			"shedfeed.filter.shed":           "Pen",
@@ -5625,6 +5625,10 @@ func pageSpecificCopy(id string) map[string]string {
 			"shedfeed.day.gap":               "Nothing directed",
 			"shedfeed.day.animals":           "animals",
 			"shedfeed.day.total":             "kg in total",
+			"shedfeed.legend.directed":       "Directed",
+			"shedfeed.legend.verified":       "Verified",
+			"shedfeed.day.verified_gap":      "Not yet verified",
+			"shedfeed.day.bags":              "bags verified",
 			"drawer.completion.aria":         "Feeding detail",
 			"drawer.completion.close_label":  "Close feeding detail",
 			"drawer.completion.eyebrow":      "Feed direction",

@@ -2874,20 +2874,77 @@ pen_day AS (
     -- A day where every cell was blocked has NULL kg: absent, never a zero bar.
     HAVING SUM(grain_kg) IS NOT NULL
 ),
+-- The bags the sheet PLANNED for the pen-day: one bag per (session, workflow)
+-- that carries at least one unblocked cell -- the same grain a
+-- feed_packing_completions row is keyed on (000150), so verified_bags below is
+-- counted in the same unit and "1 of 2 bags verified" is an honest fraction.
+planned_bags AS (
+    SELECT r.park_id, r.shed_id, r.partition_key, i.feed_day,
+           COUNT(DISTINCT (r.session_no, r.workflow)) AS planned_bags
+    FROM iss i
+    JOIN feed_direction_issue_rows r
+      ON r.tenant_id = $1
+     AND r.feed_direction_issue_id = i.feed_direction_issue_id
+    WHERE r.quantity_kg IS NOT NULL
+    GROUP BY r.park_id, r.shed_id, r.partition_key, i.feed_day
+),
+-- The VERIFIED side (maintainer request 2026-09-18): the packed kg the verifier
+-- typed when she approved each bag's packing video, summed over the pen-day's
+-- approved bags and every item in them. status='completed' only, so a reading on
+-- a bag since sent back to rework, or one whose verdict is still pending, does
+-- not count; a pen-day with no approved bag at all is NULL here -- "not yet
+-- verified", which the client keeps apart from "she measured nothing".
+--
+-- projection-review: membership=feed_packing_verified_quantities at its
+-- (tenant_id, completion_id, feed_item_key) PK, joined 1:1 to its owning
+-- feed_packing_completions row by the PK prefix; group_key=(park_id, shed_id,
+-- partition_key, target_date) -- the completion's own natural-key coordinates
+-- minus (session_no, workflow), which is exactly the bag fold the pen-day asks
+-- for; join_cardinality=verified_day LEFT JOINed onto pen_day below is 0..1 per
+-- pen-day (it is grouped to that key), as is planned_bags; ratio check=
+-- verified_per_head_grams divides verified_kg by pen_day.day_heads -- the SAME
+-- denominator per_head_grams uses, deliberately, so the two bars of one day are
+-- comparable; verified_bags/planned_bags both count (session, workflow) bags of
+-- one (park, shed, partition, day). scope=tenant_id and the caller's park set.
+verified_day AS (
+    SELECT c.park_id, c.shed_id, c.partition_key, c.target_date AS feed_day,
+           SUM(q.entered_kg)               AS verified_kg,
+           COUNT(DISTINCT c.completion_id) AS verified_bags
+    FROM feed_packing_verified_quantities q
+    JOIN feed_packing_completions c
+      ON c.tenant_id = q.tenant_id AND c.completion_id = q.completion_id
+    WHERE q.tenant_id = $1
+      AND (coalesce(cardinality($2::uuid[]), 0) = 0 OR c.park_id = ANY ($2::uuid[]))
+      AND c.target_date BETWEEN $3 AND $4
+      AND c.status = 'completed'
+    GROUP BY c.park_id, c.shed_id, c.partition_key, c.target_date
+),
 pen_days AS (
-    SELECT park_id, shed_id, partition_key,
+    SELECT d.park_id, d.shed_id, d.partition_key,
            jsonb_agg(
              jsonb_build_object(
-               'feed_day',       feed_day::text,
-               'directed_kg',    day_kg::text,
-               'head_count',     day_heads,
-               'per_head_grams', COALESCE(round(day_kg * 1000 / NULLIF(day_heads, 0), 1)::text, '')
+               'feed_day',       d.feed_day::text,
+               'directed_kg',    d.day_kg::text,
+               'head_count',     d.day_heads,
+               'per_head_grams', COALESCE(round(d.day_kg * 1000 / NULLIF(d.day_heads, 0), 1)::text, ''),
+               'verified_kg',    COALESCE(v.verified_kg::text, ''),
+               'verified_per_head_grams',
+                                 COALESCE(round(v.verified_kg * 1000 / NULLIF(d.day_heads, 0), 1)::text, ''),
+               'verified_bags',  COALESCE(v.verified_bags, 0),
+               'planned_bags',   COALESCE(pb.planned_bags, 0)
              )
-             ORDER BY feed_day
+             ORDER BY d.feed_day
            ) AS days
-    FROM pen_day
-    GROUP BY park_id, shed_id, partition_key
+    FROM pen_day d
+    LEFT JOIN verified_day v
+      ON v.park_id = d.park_id AND v.shed_id = d.shed_id
+     AND v.partition_key = d.partition_key AND v.feed_day = d.feed_day
+    LEFT JOIN planned_bags pb
+      ON pb.park_id = d.park_id AND pb.shed_id = d.shed_id
+     AND pb.partition_key = d.partition_key AND pb.feed_day = d.feed_day
+    GROUP BY d.park_id, d.shed_id, d.partition_key
 ),
+
 pens AS (
     SELECT park_id, shed_id, partition_key,
            MAX(park_label)                                                     AS park_label,
@@ -2929,10 +2986,14 @@ type shedFeedItemWire struct {
 
 // shedFeedDayWire matches pen_days' jsonb_build_object keys above.
 type shedFeedDayWire struct {
-	FeedDay      string `json:"feed_day"`
-	DirectedKg   string `json:"directed_kg"`
-	HeadCount    int    `json:"head_count"`
-	PerHeadGrams string `json:"per_head_grams"`
+	FeedDay              string `json:"feed_day"`
+	DirectedKg           string `json:"directed_kg"`
+	HeadCount            int    `json:"head_count"`
+	PerHeadGrams         string `json:"per_head_grams"`
+	VerifiedKg           string `json:"verified_kg"`
+	VerifiedPerHeadGrams string `json:"verified_per_head_grams"`
+	VerifiedBags         int    `json:"verified_bags"`
+	PlannedBags          int    `json:"planned_bags"`
 }
 
 // ShedFeedAnalytics serves the per-pen feed-mix rollup. One set-based read; the

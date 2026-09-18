@@ -9945,6 +9945,14 @@ export interface components {
             head_count: number;
             /** @description Decimal string grams per animal per day; EMPTY when the pen had no heads that day. */
             per_head_grams: string;
+            /** @description The packed kg the verifier typed when approving the pen-day's packing videos, summed over its approved bags and their items. EMPTY when no bag of the day is approved yet. */
+            verified_kg: string;
+            /** @description verified_kg over the SAME head_count as per_head_grams, so the directed and verified bars of one day are comparable. EMPTY when verified_kg is empty or the pen had no heads. */
+            verified_per_head_grams: string;
+            /** @description Approved bags (session x workflow) the verified figure covers so far. */
+            verified_bags: number;
+            /** @description Bags the sheet planned for the pen-day; verified_bags of planned_bags is the day's coverage. */
+            planned_bags: number;
         };
         /** @description The per-pen feed-mix rollup. DIRECTED kg only — the sheet's instruction, not a measured weight. */
         FeedAnalyticsShedFeedResponse: {
