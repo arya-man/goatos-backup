@@ -122,6 +122,17 @@ first-class, configurable property — where a general SOP lives, who owns it, w
 and SOP categories it draws from (both editable on this screen) — rather than a naming
 convention. This is the design constraint for phase 2; it is not built yet.
 
+## Registers are the pick-lists for every later screen (maintainer question 2026-09-18)
+
+A register here is meant to be SELECTED from elsewhere, not only viewed. The first planned
+consumer is the Health Config / Health SOP rewrite: `health_protocol_steps.medicine_name` is
+free text today; it becomes a select over Catalogue -> Medicines (`inventory_items`), stored as
+`medicine_item_id` plus the label snapshot at publish time (a treated animal stays on the
+version it was diagnosed under), with route / strength / unit coming from the item. The
+options endpoint every register serves (`GET /admin/configuration/{register}/options`) is the
+source for such selects, on the web and on the phone alike; a medicine used by a published
+protocol counts as usage and cannot be deleted. Not built yet.
+
 ## Pinned by
 
 - `configuration/domain/rows_test.go` — definition consistency, validation rules, code shape,
