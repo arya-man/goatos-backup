@@ -251,7 +251,7 @@ func (i *Importer) Process(ctx context.Context, tenantID, jobID string) error {
 	switch job.Status {
 	case domain.ImportValidating:
 		err = i.validate(ctx, tenantID, job, reg)
-	case domain.ImportApplying:
+	case domain.ImportApplying, domain.ImportCancelled:
 		err = i.apply(ctx, tenantID, job, reg)
 	default:
 		return nil
@@ -302,8 +302,12 @@ func (i *Importer) validate(ctx context.Context, tenantID string, job domain.Imp
 				patch.AddInvalid++
 			}
 		}
-		if err := i.jobs.UpdateImportRows(ctx, tenantID, job.ID, domain.ImportRowStaged, updates); err != nil {
+		moved, err := i.jobs.UpdateImportRows(ctx, tenantID, job.ID, domain.ImportRowStaged, updates)
+		if err != nil {
 			return err
+		}
+		if moved == 0 {
+			return nil
 		}
 		after = rows[len(rows)-1].RowNo
 		patch.ProgressRowNo = &after
@@ -497,46 +501,71 @@ func (i *Importer) apply(ctx context.Context, tenantID string, job domain.Import
 	applying := domain.ImportApplying
 	after := job.ProgressRowNo
 	for {
-		rows, err := i.jobs.ImportRowsAfter(ctx, tenantID, job.ID, []string{domain.ImportRowValid}, after, processChunk)
+		states := []string{domain.ImportRowApplying, domain.ImportRowValid}
+		if job.Status == domain.ImportCancelled {
+			states = []string{domain.ImportRowApplying}
+		}
+		rows, err := i.jobs.ImportRowsAfter(ctx, tenantID, job.ID, states, after, processChunk)
 		if err != nil {
 			return err
 		}
 		if len(rows) == 0 {
 			break
 		}
-		updates, err := applyChunk(ctx, rows)
-		if err != nil {
-			return err
-		}
-		patch := ports.ImportJobPatch{}
-		for k := range updates {
-			if updates[k].State == domain.ImportRowValid {
-				updates[k].State = domain.ImportRowApplied
-				if updates[k].Fields != nil {
-					updates[k].ResultID = domain.FieldString(updates[k].Fields, "__result_id")
-					updates[k].Fields = nil
+		for _, row := range rows {
+			if _, ok, err := i.jobs.ClaimImportJob(ctx, tenantID, job.ID, i.worker, claimLease); err != nil || !ok {
+				return err
+			}
+			if row.State == domain.ImportRowValid {
+				claimed := []ports.ImportRowUpdate{{RowNo: row.RowNo, State: domain.ImportRowApplying, Fields: row.Fields}}
+				moved, err := i.jobs.UpdateImportRows(ctx, tenantID, job.ID, domain.ImportRowValid, claimed)
+				if err != nil {
+					return err
 				}
-				patch.AddApplied++
+				if moved == 0 {
+					return nil
+				}
+			}
+			updates, err := applyChunk(ctx, []domain.ImportRow{row})
+			if err != nil {
+				return err
+			}
+			if len(updates) != 1 {
+				return fmt.Errorf("configuration import: apply row %d returned %d updates", row.RowNo, len(updates))
+			}
+			patch := ports.ImportJobPatch{}
+			if updates[0].State == domain.ImportRowValid {
+				updates[0].State = domain.ImportRowApplied
+				if updates[0].Fields != nil {
+					updates[0].ResultID = domain.FieldString(updates[0].Fields, "__result_id")
+					updates[0].Fields = nil
+				}
+				patch.AddApplied = 1
 			} else {
-				updates[k].State = domain.ImportRowFailed
-				patch.AddFailed++
+				updates[0].State = domain.ImportRowFailed
+				patch.AddFailed = 1
+			}
+			moved, err := i.jobs.UpdateImportRows(ctx, tenantID, job.ID, domain.ImportRowApplying, updates)
+			if err != nil {
+				return err
+			}
+			if moved == 0 {
+				return nil
+			}
+			after = row.RowNo
+			patch.ProgressRowNo = &after
+			if _, err := i.jobs.PatchImportJob(ctx, tenantID, job.ID, patch); err != nil {
+				return phaseEnded(err)
 			}
 		}
-		if err := i.jobs.UpdateImportRows(ctx, tenantID, job.ID, domain.ImportRowValid, updates); err != nil {
-			return err
-		}
-		after = rows[len(rows)-1].RowNo
-		patch.ProgressRowNo = &after
-		patch.FromStatus = &applying
-		if _, err := i.jobs.PatchImportJob(ctx, tenantID, job.ID, patch); err != nil {
-			return phaseEnded(err)
-		}
-		if _, ok, err := i.jobs.ClaimImportJob(ctx, tenantID, job.ID, i.worker, claimLease); err != nil || !ok {
-			return err
-		}
 	}
-	status := domain.ImportApplied
-	_, err := i.jobs.PatchImportJob(ctx, tenantID, job.ID, ports.ImportJobPatch{FromStatus: &applying, Status: &status, Finished: true, Release: true})
+	patch := ports.ImportJobPatch{Finished: true, Release: true}
+	if job.Status == domain.ImportApplying {
+		status := domain.ImportApplied
+		patch.FromStatus = &applying
+		patch.Status = &status
+	}
+	_, err := i.jobs.PatchImportJob(ctx, tenantID, job.ID, patch)
 	return phaseEnded(err)
 }
 

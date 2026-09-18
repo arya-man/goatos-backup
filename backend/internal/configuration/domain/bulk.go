@@ -28,12 +28,13 @@ const (
 
 // Import row states.
 const (
-	ImportRowStaged  = "staged"
-	ImportRowValid   = "valid"
-	ImportRowInvalid = "invalid"
-	ImportRowApplied = "applied"
-	ImportRowFailed  = "failed"
-	ImportRowSkipped = "skipped"
+	ImportRowStaged   = "staged"
+	ImportRowValid    = "valid"
+	ImportRowApplying = "applying"
+	ImportRowInvalid  = "invalid"
+	ImportRowApplied  = "applied"
+	ImportRowFailed   = "failed"
+	ImportRowSkipped  = "skipped"
 )
 
 // Import job states.

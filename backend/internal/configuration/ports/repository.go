@@ -155,8 +155,9 @@ type ImportRepository interface {
 	ImportRowsAfter(ctx context.Context, tenantID, jobID string, states []string, afterRowNo, limit int) ([]domain.ImportRow, error)
 	ImportRows(ctx context.Context, tenantID, jobID string, p ImportRowsParams) ([]domain.ImportRow, error)
 	// UpdateImportRows writes a chunk's outcomes; only rows still in fromState move (a cancel
-	// that marked them skipped meanwhile wins).
-	UpdateImportRows(ctx context.Context, tenantID, jobID, fromState string, updates []ImportRowUpdate) error
+	// that marked them skipped meanwhile wins). The return value is the number of rows that
+	// actually transitioned.
+	UpdateImportRows(ctx context.Context, tenantID, jobID, fromState string, updates []ImportRowUpdate) (int, error)
 	PatchImportJob(ctx context.Context, tenantID, jobID string, patch ImportJobPatch) (domain.ImportJob, error)
 	// RequestImportApply moves a previewed job to applying, fenced on the status; ok false when
 	// it is not previewed.

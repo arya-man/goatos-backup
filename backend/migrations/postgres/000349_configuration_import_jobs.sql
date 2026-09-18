@@ -46,9 +46,9 @@ CREATE TABLE public.configuration_import_rows (
     row_no    integer NOT NULL CHECK (row_no >= 1),
     -- The row exactly as the file carried it, keyed by the register's column keys.
     fields    jsonb   NOT NULL,
-    -- staged -> valid | invalid -> applied | failed; skipped is a valid row the apply never reached
-    -- (a cancel mid-apply).
-    state     text    NOT NULL DEFAULT 'staged' CHECK (state IN ('staged', 'valid', 'invalid', 'applied', 'failed', 'skipped')),
+    -- staged -> valid | invalid -> applying -> applied | failed; skipped is a valid row the
+    -- apply never reached (a cancel mid-apply).
+    state     text    NOT NULL DEFAULT 'staged' CHECK (state IN ('staged', 'valid', 'applying', 'invalid', 'applied', 'failed', 'skipped')),
     errors    jsonb   NOT NULL DEFAULT '[]'::jsonb,
     -- The id of the row the apply wrote (create) or touched (update), for the result sheet.
     result_id text    NOT NULL DEFAULT '',

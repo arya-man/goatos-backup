@@ -64,19 +64,19 @@ func (s *xlsxSheet) Close() error {
 }
 
 // NewSheetWriter opens a writer of the format onto out. The XLSX sheet is named after the
-// register so a person opening the workbook sees what it is.
+// register when Excel accepts that name; farm-authored labels can contain characters Excel
+// forbids, so the workbook falls back to Sheet1 instead of failing a download.
 func NewSheetWriter(format, sheetName string, out io.Writer) (SheetWriter, error) {
 	switch format {
 	case domain.FormatCSV:
 		return csvSheet{w: csv.NewWriter(out)}, nil
 	case domain.FormatXLSX:
 		f := excelize.NewFile()
-		name := sheetName
-		if name == "" || len(name) > 31 {
-			name = "Sheet1"
-		}
-		if err := f.SetSheetName("Sheet1", name); err != nil {
-			return nil, err
+		name := safeSheetName(sheetName)
+		if name != "Sheet1" {
+			if err := f.SetSheetName("Sheet1", name); err != nil {
+				name = "Sheet1"
+			}
 		}
 		sw, err := f.NewStreamWriter(name)
 		if err != nil {
@@ -85,6 +85,20 @@ func NewSheetWriter(format, sheetName string, out io.Writer) (SheetWriter, error
 		return &xlsxSheet{f: f, sw: sw, out: out}, nil
 	}
 	return nil, BadRequest("invalid_format", "Choose csv or xlsx.")
+}
+
+func safeSheetName(name string) string {
+	name = strings.TrimSpace(name)
+	if name == "" || len([]rune(name)) > 31 {
+		return "Sheet1"
+	}
+	for _, r := range name {
+		switch r {
+		case ':', '\\', '/', '?', '*', '[', ']':
+			name = "Sheet1"
+		}
+	}
+	return name
 }
 
 // ContentType is the download's media type per format.

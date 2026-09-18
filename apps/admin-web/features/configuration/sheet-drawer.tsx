@@ -133,6 +133,7 @@ export function SheetDrawer({
     setPhase("uploading");
     setMessage("");
     setProblems([]);
+    setJob(null);
     appliedRef.current = false;
     const form = new FormData();
     form.set("file", file, file.name);
@@ -165,6 +166,11 @@ export function SheetDrawer({
       }
       setJob(next);
       setPhase(inFlight(next) ? "polling" : "idle");
+      if (action === "apply" && next.status === "applied" && !appliedRef.current) {
+        appliedRef.current = true;
+        router.refresh();
+        void loadRecent();
+      }
       if (action === "cancel") void loadRecent();
     } catch {
       setPhase("error");

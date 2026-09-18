@@ -440,7 +440,7 @@ func (partitionStore) del(ctx context.Context, tx pgx.Tx, t, id string, rv int) 
 func updateLocation(ctx context.Context, tx pgx.Tx, t, id string, f map[string]any, rv int, noun string) error {
 	set, args := setClause(f, []colBind{{"name", "name", textOrEmpty("name")}, {"code", "location_code", textArg("code")}}, 4)
 	if set == "" {
-		set = "updated_at = now()"
+		set = "updated_at = now(), row_version = row_version + 1"
 	} else {
 		set += ", updated_at = now(), row_version = row_version + 1"
 	}

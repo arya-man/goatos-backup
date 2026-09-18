@@ -4502,7 +4502,7 @@ paths:
         - name: state
           in: query
           required: false
-          schema: { type: string, enum: [staged, valid, invalid, applied, failed, skipped] }
+          schema: { type: string, enum: [staged, valid, applying, invalid, applied, failed, skipped] }
         - name: after
           in: query
           required: false
@@ -13482,7 +13482,7 @@ components:
         fields:
           type: object
           additionalProperties: true
-        state: { type: string, enum: [staged, valid, invalid, applied, failed, skipped] }
+        state: { type: string, enum: [staged, valid, applying, invalid, applied, failed, skipped] }
         errors:
           type: array
           items:

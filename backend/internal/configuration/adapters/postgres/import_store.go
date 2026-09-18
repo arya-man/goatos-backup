@@ -31,12 +31,25 @@ VALUES ($1::uuid, $2::uuid, $3, $4, $5, $6, $7, $8)`
 UPDATE configuration_import_jobs
 SET claimed_at = now(), claimed_by = $3, updated_at = now()
 WHERE tenant_id = $1::uuid AND job_id = $2::uuid
-  AND status IN ('validating', 'applying')
+  AND (status IN ('validating', 'applying')
+       OR (status = 'cancelled' AND EXISTS (
+           SELECT 1 FROM configuration_import_rows r
+           WHERE r.tenant_id = configuration_import_jobs.tenant_id
+             AND r.job_id = configuration_import_jobs.job_id
+             AND r.state = 'applying'
+       )))
   AND (claimed_at IS NULL OR claimed_by = $3 OR claimed_at < now() - make_interval(secs => $4))
 RETURNING ` + importJobColumns
 	sqlImportJobsDue = `
 SELECT job_id::text FROM configuration_import_jobs
-WHERE tenant_id = $1::uuid AND status IN ('validating', 'applying')
+WHERE tenant_id = $1::uuid
+  AND (status IN ('validating', 'applying')
+       OR (status = 'cancelled' AND EXISTS (
+           SELECT 1 FROM configuration_import_rows r
+           WHERE r.tenant_id = configuration_import_jobs.tenant_id
+             AND r.job_id = configuration_import_jobs.job_id
+             AND r.state = 'applying'
+       )))
   AND (claimed_at IS NULL OR claimed_at < now() - make_interval(secs => $2))
 ORDER BY created_at LIMIT $3`
 	sqlImportRowsAfter = `
@@ -238,9 +251,9 @@ func (r *Repository) ImportRows(ctx context.Context, tenantID, jobID string, p p
 }
 
 // UpdateImportRows writes a chunk's outcomes in ONE statement.
-func (r *Repository) UpdateImportRows(ctx context.Context, tenantID, jobID, fromState string, updates []ports.ImportRowUpdate) error {
+func (r *Repository) UpdateImportRows(ctx context.Context, tenantID, jobID, fromState string, updates []ports.ImportRowUpdate) (int, error) {
 	if len(updates) == 0 {
-		return nil
+		return 0, nil
 	}
 	ctx, cancel := context.WithTimeout(ctx, r.timeout)
 	defer cancel()
@@ -256,13 +269,13 @@ func (r *Repository) UpdateImportRows(ctx context.Context, tenantID, jobID, from
 		}
 		errRaw, err := json.Marshal(e)
 		if err != nil {
-			return err
+			return 0, err
 		}
 		var f *string
 		if u.Fields != nil {
 			raw, err := json.Marshal(u.Fields)
 			if err != nil {
-				return err
+				return 0, err
 			}
 			s := string(raw)
 			f = &s
@@ -273,9 +286,9 @@ func (r *Repository) UpdateImportRows(ctx context.Context, tenantID, jobID, from
 		results = append(results, u.ResultID)
 		fields = append(fields, f)
 	}
-	_, err := r.pool.Exec(ctx, sqlImportRowsUpdate,
+	tag, err := r.pool.Exec(ctx, sqlImportRowsUpdate,
 		tenantID, jobID, rowNos, states, errs, results, fields, fromState)
-	return err
+	return int(tag.RowsAffected()), err
 }
 
 // PatchImportJob moves the bounded job columns a phase step may touch.
@@ -331,7 +344,8 @@ func (r *Repository) RequestImportApply(ctx context.Context, tenantID, jobID, ac
 }
 
 // CancelImportJob parks a job that has not finished. Rows already applied stay applied -- the
-// writes were real -- and every other row is marked skipped.
+// writes were real. Rows not yet claimed for apply are marked skipped; a row already in applying
+// is left for the worker sweep to finish through its row idempotency key.
 func (r *Repository) CancelImportJob(ctx context.Context, tenantID, jobID string) (domain.ImportJob, bool, error) {
 	ctx, cancel := context.WithTimeout(ctx, r.timeout)
 	defer cancel()

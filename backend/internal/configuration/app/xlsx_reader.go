@@ -124,7 +124,7 @@ func xlsxFirstSheetPath(files map[string]*zip.File) (string, error) {
 	}
 	target := ""
 	if relFile, ok := files["xl/_rels/workbook.xml.rels"]; ok {
-		_ = readZipXML(relFile, func(dec *xml.Decoder) error {
+		if err := readZipXML(relFile, func(dec *xml.Decoder) error {
 			for {
 				tok, err := dec.Token()
 				if err != nil {
@@ -146,7 +146,9 @@ func xlsxFirstSheetPath(files map[string]*zip.File) (string, error) {
 					}
 				}
 			}
-		})
+		}); err != nil {
+			return "", err
+		}
 	}
 	if target == "" {
 		target = "worksheets/sheet1.xml"

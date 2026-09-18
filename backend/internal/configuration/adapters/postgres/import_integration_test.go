@@ -177,7 +177,7 @@ func TestConfigurationBulkSheetsPostgresPaths(t *testing.T) {
 	if _, err := repo.PatchImportJob(ctx, cfgTenant, job4.ID, ports.ImportJobPatch{FromStatus: &validating, Status: &previewed}); err != ports.ErrVersionConflict {
 		t.Fatalf("a fenced phase end on a cancelled job must miss, got %v", err)
 	}
-	if err := repo.UpdateImportRows(ctx, cfgTenant, job4.ID, domain.ImportRowValid, []ports.ImportRowUpdate{{RowNo: 2, State: domain.ImportRowApplied}}); err != nil {
+	if moved, err := repo.UpdateImportRows(ctx, cfgTenant, job4.ID, domain.ImportRowValid, []ports.ImportRowUpdate{{RowNo: 2, State: domain.ImportRowApplied}}); err != nil || moved != 0 {
 		t.Fatal(err)
 	}
 	rows, _ := repo.ImportRows(ctx, cfgTenant, job4.ID, ports.ImportRowsParams{Limit: 10})
@@ -209,6 +209,33 @@ func TestConfigurationBulkSheetsPostgresPaths(t *testing.T) {
 	}
 	if got, _ := repo.GetImportJob(ctx, cfgTenant, job5.ID); got.Status != domain.ImportApplied || got.AppliedRows != 1 {
 		t.Fatalf("swept job = %+v", got)
+	}
+	// 6. If cancel lands after a row was claimed for apply, the cancelled job remains recoverable
+	// so the claimed row is settled through its idempotency key instead of being stranded.
+	job6 := stage(domain.RegPens, "cancel-applying.csv", "park_id,name\nCBE,Sheet H\n")
+	job6 = waitFor(job6.ID, domain.ImportPreviewed)
+	if _, _, err := repo.RequestImportApply(ctx, cfgTenant, job6.ID, cfgActor); err != nil {
+		t.Fatal(err)
+	}
+	if moved, err := repo.UpdateImportRows(ctx, cfgTenant, job6.ID, domain.ImportRowValid, []ports.ImportRowUpdate{{RowNo: 2, State: domain.ImportRowApplying, Fields: map[string]any{"park_id": cfgParkCBE, "name": "Sheet H"}}}); err != nil || moved != 1 {
+		t.Fatalf("claim row for apply: moved=%d err=%v", moved, err)
+	}
+	if _, ok, err := repo.CancelImportJob(ctx, cfgTenant, job6.ID); err != nil || !ok {
+		t.Fatalf("cancel applying: %v %v", err, ok)
+	}
+	if ids, err := repo.DueImportJobIDs(ctx, cfgTenant, 5*time.Minute, 10); err != nil || len(ids) != 1 || ids[0] != job6.ID {
+		t.Fatalf("cancelled applying due = %v %v", ids, err)
+	}
+	if n, err := importer.ProcessDue(ctx, cfgTenant, 10); err != nil || n != 1 {
+		t.Fatalf("cancelled applying sweep: %d %v", n, err)
+	}
+	got6, _ := repo.GetImportJob(ctx, cfgTenant, job6.ID)
+	if got6.Status != domain.ImportCancelled || got6.AppliedRows != 1 || got6.FinishedAt == "" {
+		t.Fatalf("cancelled applying job = %+v", got6)
+	}
+	rows6, _ := repo.ImportRows(ctx, cfgTenant, job6.ID, ports.ImportRowsParams{Limit: 10})
+	if len(rows6) != 1 || rows6[0].State != domain.ImportRowApplied {
+		t.Fatalf("cancelled applying rows = %+v", rows6)
 	}
 	// The error sheet carries only the rows to fix.
 	var ebuf bytes.Buffer

@@ -5487,7 +5487,7 @@ export interface components {
                 [key: string]: unknown;
             };
             /** @enum {string} */
-            state: "staged" | "valid" | "invalid" | "applied" | "failed" | "skipped";
+            state: "staged" | "valid" | "applying" | "invalid" | "applied" | "failed" | "skipped";
             errors: components["schemas"]["ConfigurationFieldError"][];
             /** @description The row the apply wrote or touched. */
             result_id?: string;
@@ -9901,7 +9901,7 @@ export interface operations {
     listConfigurationImportRows: {
         parameters: {
             query?: {
-                state?: "staged" | "valid" | "invalid" | "applied" | "failed" | "skipped";
+                state?: "staged" | "valid" | "applying" | "invalid" | "applied" | "failed" | "skipped";
                 /** @description The row_no cursor from the previous page. */
                 after?: number;
                 limit?: number;

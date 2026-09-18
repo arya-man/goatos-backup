@@ -208,7 +208,7 @@ func (h *Handler) ImportRows(w http.ResponseWriter, r *http.Request) {
 	}
 	state := strings.TrimSpace(q.Get("state"))
 	switch state {
-	case "", domain.ImportRowStaged, domain.ImportRowValid, domain.ImportRowInvalid, domain.ImportRowApplied, domain.ImportRowFailed, domain.ImportRowSkipped:
+	case "", domain.ImportRowStaged, domain.ImportRowValid, domain.ImportRowApplying, domain.ImportRowInvalid, domain.ImportRowApplied, domain.ImportRowFailed, domain.ImportRowSkipped:
 	default:
 		writeErr(w, r, h.log, app.BadRequest("invalid_state", "Unknown row state."))
 		return

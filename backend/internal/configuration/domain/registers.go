@@ -287,11 +287,14 @@ var Registers = []Register{
 	},
 	{
 		// Breeds (maintainer instruction 2026-09-18): the breeds table the herd register and
-		// procurement already name, one row per (species, breed). 'review' rows -- a breed the
-		// importer saw but nobody confirmed -- show as archived until someone restores them.
+		// procurement already name, one row per (species, breed). The underlying table is still a
+		// product-wide catalog, so this register is read-only here until breeds are tenant-scoped.
 		Key: RegBreeds, Label: "Breeds", One: "Breed", Group: GroupAnimalTypes,
-		Hint:    "The breeds each species comes in. A breed still carried by animals cannot be removed.",
-		Filters: []string{"species"},
+		Hint:      "The breeds already known to the herd register. Breed authoring stays with the herd workflow until breeds are tenant-scoped.",
+		ReadOnly:  true,
+		EditHref:  "/herd-register",
+		EditLabel: "Herd Register",
+		Filters:   []string{"species"},
 		Columns: []Column{
 			{Key: "name", Label: "Breed", Type: TypeText, Required: true},
 			{Key: "species", Label: "Species", Type: TypeRef, Ref: RegSpecies, Required: true},

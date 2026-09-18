@@ -1,6 +1,7 @@
 package app
 
 import (
+	"archive/zip"
 	"bytes"
 	"errors"
 	"io"
@@ -86,5 +87,56 @@ func TestXLSXReaderRefusesGarbageAndBadIndexes(t *testing.T) {
 	}
 	if xlsxColumnIndex("AB7") != 27 || xlsxColumnIndex("A1") != 0 {
 		t.Fatalf("column index")
+	}
+}
+
+func TestXLSXReaderRefusesMalformedWorkbookRelationships(t *testing.T) {
+	var buf bytes.Buffer
+	zw := zip.NewWriter(&buf)
+	files := map[string]string{
+		"xl/workbook.xml":            `<workbook xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships"><sheets><sheet name="Rows" sheetId="1" r:id="rId1"/></sheets></workbook>`,
+		"xl/_rels/workbook.xml.rels": `<Relationships><`,
+		"xl/worksheets/sheet1.xml":   `<worksheet><sheetData><row r="1"><c r="A1" t="inlineStr"><is><t>name</t></is></c></row></sheetData></worksheet>`,
+		"[Content_Types].xml":        `<Types/>`,
+		"_rels/.rels":                `<Relationships/>`,
+		"docProps/core.xml":          `<coreProperties/>`,
+		"docProps/app.xml":           `<Properties/>`,
+	}
+	for name, body := range files {
+		w, err := zw.Create(name)
+		if err != nil {
+			t.Fatalf("create %s: %v", name, err)
+		}
+		if _, err := w.Write([]byte(body)); err != nil {
+			t.Fatalf("write %s: %v", name, err)
+		}
+	}
+	if err := zw.Close(); err != nil {
+		t.Fatalf("close zip: %v", err)
+	}
+	if _, err := OpenSheet(domain.FormatXLSX, bytes.NewReader(buf.Bytes())); err == nil {
+		t.Fatalf("malformed workbook rels must be refused")
+	}
+}
+
+func TestXLSXWriterFallsBackForFarmAuthoredSheetNames(t *testing.T) {
+	var buf bytes.Buffer
+	w, err := NewSheetWriter(domain.FormatXLSX, "Milk/Meat: Bands", &buf)
+	if err != nil {
+		t.Fatalf("writer: %v", err)
+	}
+	if err := w.Row([]string{"name"}); err != nil {
+		t.Fatalf("row: %v", err)
+	}
+	if err := w.Close(); err != nil {
+		t.Fatalf("close: %v", err)
+	}
+	f, err := excelize.OpenReader(bytes.NewReader(buf.Bytes()))
+	if err != nil {
+		t.Fatalf("open written workbook: %v", err)
+	}
+	defer func() { _ = f.Close() }()
+	if got := f.GetSheetName(0); got != "Sheet1" {
+		t.Fatalf("sheet name = %q, want Sheet1 fallback", got)
 	}
 }
