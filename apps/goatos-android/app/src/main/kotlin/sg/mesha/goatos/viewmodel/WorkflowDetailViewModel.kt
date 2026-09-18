@@ -1250,7 +1250,7 @@ class WorkflowDetailViewModel @Inject constructor(
             // "Blocked" chip is a dead end for the person holding the phone.
             // A step sent back carries the verifier's reason so the operator knows what to re-shoot.
             footer = if (status == STATUS_REWORK && reworkReason.isNotBlank()) reworkReason
-            else completedByLabel.orEmpty().ifBlank { workflowBlockedNote(blocked, blockedReason, moduleForCopy) },
+            else completedByLabel.orEmpty().ifBlank { workflowBlockedNote(blocked, blockedReason, moduleForCopy, branchNote) },
             answerValue = answerValue,
         )
     }
@@ -1521,7 +1521,10 @@ internal fun workflowAccessLabel(blockedReason: String?, due: Instant?, now: Ins
  * this line the operator sees "Blocked" with nothing to act on, taps anyway, and gets a rejection
  * (docs/decisions/colostrum-milk-module.md).
  */
-internal fun workflowBlockedNote(blocked: Boolean, blockedReason: String?, module: String = WORKFLOW_MODULE_BIRTH): String {
+internal fun workflowBlockedNote(blocked: Boolean, blockedReason: String?, module: String = WORKFLOW_MODULE_BIRTH, branchNote: String = ""): String {
+    // A step on an answer-driven branch says which answer it waits for, in the backend's words,
+    // whether or not it is blocked yet (SOP studio phase 2, 2026-09-18).
+    if (branchNote.isNotBlank() && (!blocked || blockedReason == WORKFLOW_BLOCKED_AWAITING_ANSWER)) return branchNote
     if (!blocked) return ""
     return when (blockedReason) {
         // Only a kid's Birth track has "birth steps"; a Death or Reconcile card said the same
@@ -1583,7 +1586,8 @@ internal fun workflowVideoAnswerKey(actionId: String, proofOutboxItemId: String)
 private val WORKFLOW_IST: ZoneId = ZoneId.of("Asia/Kolkata")
 private val WORKFLOW_DATE_TIME_FORMAT: DateTimeFormatter = DateTimeFormatter.ofPattern("dd/MM/yyyy · HH:mm")
 private const val WORKFLOW_SECTION_COLOSTRUM = "colostrum_session"
-internal const val WORKFLOW_BLOCKED_PREVIOUS_ACTION = "previous_action"
+internal const val WORKFLOW_BLOCKED_AWAITING_ANSWER = "awaiting_answer"
+const val WORKFLOW_BLOCKED_PREVIOUS_ACTION = "previous_action"
 private const val WORKFLOW_MODULE_BIRTH = "birth"
 private const val WORKFLOW_ACTION_KEY_FIRST_COLOSTRUM = "first_colostrum"
 private const val WORKFLOW_ACTION_KEY_TAG_THE_KID = "tag_the_kid"

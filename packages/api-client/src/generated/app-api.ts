@@ -5657,6 +5657,46 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/app/sops/general": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * The general work instructions an operator may start by hand.
+         * @description GENERAL SOPs (maintainer decision 2026-09-18): farm-wide work tied to no module, authored on Configuration -> Work instructions and started from the phone. Lists the tenant's published general SOPs. Gated on task.execute or counts.write.
+         */
+        get: operations["listAppGeneralSops"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/app/workflows/start": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Start one run of a general work instruction.
+         * @description Opens a workflow from the SOP's published main track, keyed on the Idempotency-Key (the same key replays the same run, never a second one), with no animal. The run is then driven through the workflow routes like any other. Gated on task.execute or counts.write.
+         */
+        post: operations["startAppWorkflow"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/app/workflows/{workflow_id}": {
         parameters: {
             query?: never;
@@ -18041,6 +18081,29 @@ export interface components {
             label: string;
             value: string;
         };
+        GeneralSop: {
+            code: string;
+            name: string;
+            description: string;
+            /** @description Steps on the published main track. */
+            step_count: number;
+        };
+        GeneralSopsResponse: {
+            sops: components["schemas"]["GeneralSop"][];
+        };
+        StartWorkflowRequest: {
+            /** @description A general SOP code (general.*). */
+            sop_code: string;
+            /**
+             * Format: uuid
+             * @description The park the run is for
+             */
+            park_id?: string;
+        };
+        StartWorkflowResponse: {
+            /** Format: uuid */
+            workflow_id: string;
+        };
         /** @description One operator step of a workflow (template-instantiated; only status/answer/proof mutate). */
         WorkflowActionRow: {
             /** Format: uuid */
@@ -18069,7 +18132,7 @@ export interface components {
              * @description Backend-owned reason; absent when blocked is false.
              * @enum {string}
              */
-            blocked_reason?: "previous_action" | "not_yet_due" | "signoff";
+            blocked_reason?: "previous_action" | "not_yet_due" | "signoff" | "awaiting_answer";
             answer_value: string | null;
             proof_ref: string | null;
             completed_by_label: string;
@@ -18092,6 +18155,8 @@ export interface components {
             proof_refs?: components["schemas"]["WorkflowProofItem"][];
             /** @description The verifier's words when this step was sent back for a re-shoot; empty otherwise. Render verbatim. */
             rework_reason?: string;
+            /** @description Backend-composed sentence for a step on an answer-driven branch ("Only if 'Is the animal ready?' is No"); absent on an unconditional step. Render verbatim. Such a step reads blocked_reason=awaiting_answer until its question is answered; a step on the branch NOT taken is never served (it is skipped, off every count). */
+            branch_note?: string;
         };
         WorkflowProofItem: {
             /** @description Server-minted proof id from /app/proofs/*. */
@@ -29760,7 +29825,7 @@ export interface operations {
     listAppWorkflows: {
         parameters: {
             query: {
-                module: "birth" | "death" | "colostrum";
+                module: "birth" | "death" | "colostrum" | "general";
                 /** @description Business date (Asia/Kolkata) to list; defaults to today IST. */
                 date?: string;
                 /** @description Card bucket filter; defaults to all (excludes canceled). */
@@ -29788,6 +29853,60 @@ export interface operations {
             400: components["responses"]["BadRequest"];
             401: components["responses"]["Unauthorized"];
             403: components["responses"]["Forbidden"];
+            500: components["responses"]["ServerError"];
+        };
+    };
+    listAppGeneralSops: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The startable work instructions. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["GeneralSopsResponse"];
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            500: components["responses"]["ServerError"];
+        };
+    };
+    startAppWorkflow: {
+        parameters: {
+            query?: never;
+            header: {
+                "Idempotency-Key": components["parameters"]["IdempotencyKey"];
+            };
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["StartWorkflowRequest"];
+            };
+        };
+        responses: {
+            /** @description The run. */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["StartWorkflowResponse"];
+                };
+            };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFoundOrNotAllowed"];
             500: components["responses"]["ServerError"];
         };
     };

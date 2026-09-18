@@ -132,6 +132,12 @@ data class WorkflowActionDto(
     @SerialName("proof_refs") val proofRefs: List<WorkflowProofItemDto> = emptyList(),
     /** The verifier's words when the step was sent back for a re-shoot; blank otherwise. */
     @SerialName("rework_reason") val reworkReason: String = "",
+    /**
+     * Backend-composed sentence for a step on an answer-driven branch ("Only if … is No");
+     * blank on an unconditional step. Such a step reads blocked_reason `awaiting_answer` until
+     * its question is answered; a step on the branch not taken is never served.
+     */
+    @SerialName("branch_note") val branchNote: String = "",
 )
 
 /** One captured proof on a step: the server proof id and whether it is a video or a photo. */

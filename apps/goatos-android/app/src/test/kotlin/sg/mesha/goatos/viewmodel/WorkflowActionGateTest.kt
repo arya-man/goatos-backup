@@ -281,3 +281,20 @@ class WorkflowActionGateTest {
         assertFalse(workflowTagNeedsPermanentIdentifier(answerValue = "982000123456789"))
     }
 }
+
+class WorkflowBranchNoteTest {
+    // Answer-driven branches (SOP studio phase 2, 2026-09-18): a step on a branch tells the
+    // operator which answer it waits for, in the backend's own words; a blocked step on an
+    // unconditional line keeps the earlier-steps sentence.
+    @Test
+    fun `a branch step shows the backend branch note while it waits for its question`() {
+        val note = "Only if “Has the visitor been on another livestock farm?” is yes"
+        assertEquals(note, workflowBlockedNote(blocked = true, blockedReason = WORKFLOW_BLOCKED_AWAITING_ANSWER, module = "general", branchNote = note))
+        // Once the question is answered and the branch is taken the note still explains the step.
+        assertEquals(note, workflowBlockedNote(blocked = false, blockedReason = "", module = "general", branchNote = note))
+        // A branch step blocked behind an earlier step reads the sequencing sentence, not the note.
+        assertEquals("Finish the earlier steps first.", workflowBlockedNote(blocked = true, blockedReason = WORKFLOW_BLOCKED_PREVIOUS_ACTION, module = "general", branchNote = note))
+        // An unconditional step is unchanged.
+        assertEquals("", workflowBlockedNote(blocked = false, blockedReason = "", module = "general"))
+    }
+}

@@ -14722,6 +14722,7 @@ paths:
               - birth
               - death
               - colostrum
+              - general
         - name: date
           in: query
           required: false
@@ -14769,6 +14770,64 @@ paths:
           $ref: "#/components/responses/Unauthorized"
         "403":
           $ref: "#/components/responses/Forbidden"
+        "500":
+          $ref: "#/components/responses/ServerError"
+  /app/sops/general:
+    get:
+      tags:
+        - Workflows
+      operationId: listAppGeneralSops
+      summary: The general work instructions an operator may start by hand.
+      description: >-
+        GENERAL SOPs (maintainer decision 2026-09-18): farm-wide work tied to no module, authored
+        on Configuration -> Work instructions and started from the phone. Lists the tenant's
+        published general SOPs. Gated on task.execute or counts.write.
+      responses:
+        "200":
+          description: The startable work instructions.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/GeneralSopsResponse"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "500":
+          $ref: "#/components/responses/ServerError"
+  /app/workflows/start:
+    post:
+      tags:
+        - Workflows
+      operationId: startAppWorkflow
+      summary: Start one run of a general work instruction.
+      description: >-
+        Opens a workflow from the SOP's published main track, keyed on the Idempotency-Key (the
+        same key replays the same run, never a second one), with no animal. The run is then driven
+        through the workflow routes like any other. Gated on task.execute or counts.write.
+      parameters:
+        - $ref: "#/components/parameters/IdempotencyKey"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/StartWorkflowRequest"
+      responses:
+        "201":
+          description: The run.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/StartWorkflowResponse"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFoundOrNotAllowed"
         "500":
           $ref: "#/components/responses/ServerError"
   /app/workflows/{workflow_id}:
@@ -42027,6 +42086,37 @@ components:
           type: string
         value:
           type: string
+    GeneralSop:
+      type: object
+      additionalProperties: false
+      required: [code, name, description, step_count]
+      properties:
+        code: { type: string }
+        name: { type: string }
+        description: { type: string }
+        step_count: { type: integer, description: Steps on the published main track. }
+    GeneralSopsResponse:
+      type: object
+      additionalProperties: false
+      required: [sops]
+      properties:
+        sops:
+          type: array
+          items:
+            $ref: "#/components/schemas/GeneralSop"
+    StartWorkflowRequest:
+      type: object
+      additionalProperties: false
+      required: [sop_code]
+      properties:
+        sop_code: { type: string, description: A general SOP code (general.*). }
+        park_id: { type: string, format: uuid, description: The park the run is for, when it is for one. }
+    StartWorkflowResponse:
+      type: object
+      additionalProperties: false
+      required: [workflow_id]
+      properties:
+        workflow_id: { type: string, format: uuid }
     WorkflowActionRow:
       description: One operator step of a workflow (template-instantiated; only status/answer/proof mutate).
       type: object
@@ -42096,6 +42186,7 @@ components:
             - completed
             - rework
             - canceled
+            - skipped
         blocked:
           description: True when the operator cannot start this action yet.
           type: boolean
@@ -42106,6 +42197,7 @@ components:
             - previous_action
             - not_yet_due
             - signoff
+            - awaiting_answer
         answer_value:
           type:
             - string
@@ -42151,6 +42243,13 @@ components:
             $ref: "#/components/schemas/WorkflowProofItem"
         rework_reason:
           description: The verifier's words when this step was sent back for a re-shoot; empty otherwise. Render verbatim.
+          type: string
+        branch_note:
+          description: >-
+            Backend-composed sentence for a step on an answer-driven branch ("Only if 'Is the
+            animal ready?' is No"); absent on an unconditional step. Render verbatim. Such a
+            step reads blocked_reason=awaiting_answer until its question is answered; a step
+            on the branch NOT taken is never served (it is skipped, off every count).
           type: string
     WorkflowProofItem:
       type: object
