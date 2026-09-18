@@ -13,7 +13,8 @@
 //                                   TemplateByKeyAt / TemplateBirthKidAt / TemplateBirthMother /
 //                                   TemplateDeath (the compiler path is the only way to open).
 //   2. seed-drifted-from-migration -- every embedded document in tasks/domain/sopseed/*.json is
-//                                   present verbatim in migration 000308 (the Go test pins the
+//                                   present verbatim in a $seed$-bearing migration (000308 for herd
+//                                   operations, 000351 for the general SOP; the Go test pins the
 //                                   same thing; this catches it before a compile).
 //   3. hardcoded-step-copy-on-phone -- the Android workflow drill-in must not hardcode an
 //                                   operator step title (e.g. "Is the kid clean?", "1st Colostrum",
@@ -79,15 +80,25 @@ export function check(root) {
   }
   // 2. seed vs migration
   const seedDir = join(root, "backend/internal/tasks/domain/sopseed");
+  // A seed document is pinned to whichever migration embeds it between $seed$ quotes: 000308
+  // carries the herd-operations set, 000351 the first general SOP (SOP studio phase 2). Every
+  // migration that embeds a $seed$ document is read, so a later SOP shipped by its own
+  // migration is pinned the same way rather than silently unchecked.
+  const migrationDir = join(root, "backend/migrations/postgres");
   const migration = (() => {
-    try { return readFileSync(join(root, "backend/migrations/postgres/000308_sop_driven_herd_operations.sql"), "utf8"); } catch { return ""; }
+    let names = [];
+    try { names = readdirSync(migrationDir).filter((n) => /^\d{6}_.*\.sql$/.test(n)); } catch { return ""; }
+    return names
+      .map((n) => { try { return readFileSync(join(migrationDir, n), "utf8"); } catch { return ""; } })
+      .filter((text) => text.includes("$seed$"))
+      .join("\n");
   })();
   let seeds = [];
   try { seeds = readdirSync(seedDir).filter((n) => n.endsWith(".json")); } catch { seeds = []; }
   for (const n of seeds) {
     const doc = readFileSync(join(seedDir, n), "utf8").trim();
     if (!migration.includes("$seed$" + doc + "$seed$")) {
-      findings.push({ rule: "seed-drifted-from-migration", file: "backend/internal/tasks/domain/sopseed/" + n, detail: "not embedded verbatim in migration 000308" });
+      findings.push({ rule: "seed-drifted-from-migration", file: "backend/internal/tasks/domain/sopseed/" + n, detail: "not embedded verbatim in any $seed$-bearing migration" });
     }
   }
   // 3. phone hardcoded step copy
