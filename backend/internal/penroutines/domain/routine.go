@@ -268,6 +268,59 @@ type Question struct {
 	Min      *float64 `json:"min,omitempty"`
 	Max      *float64 `json:"max,omitempty"`
 	Unit     string   `json:"unit,omitempty"`
+	// Proof is the capture THIS question needs before it counts as answered (maintainer
+	// instruction 2026-09-18: "for that question to complete it, do they need to add a proof
+	// or not -- photo or video, single or multiple"). Nil means the question is answered by
+	// its value alone; the routine-level Photo/Video rules stay the task-wide captures.
+	Proof *QuestionProof `json:"proof,omitempty"`
+}
+
+// QuestionProof: what a question's own captures must look like. Kind names the medium
+// (photo, video, or either) and Count whether one capture is the whole answer or up to
+// MaxProofPerKind are welcome. The proof is owed whenever the question is answered, and
+// always when the question is required -- a required question with no capture is unanswered.
+type QuestionProof struct {
+	Kind  string `json:"kind"`
+	Count string `json:"count"`
+}
+
+// Question proof vocabulary.
+const (
+	QuestionProofPhoto        = "photo"
+	QuestionProofVideo        = "video"
+	QuestionProofPhotoOrVideo = "photo_or_video"
+
+	QuestionProofSingle   = "single"
+	QuestionProofMultiple = "multiple"
+)
+
+// MaxCaptures is the most captures a question may carry: one for single, MaxProofPerKind
+// for multiple.
+func (p QuestionProof) MaxCaptures() int {
+	if p.Count == QuestionProofMultiple {
+		return MaxProofPerKind
+	}
+	return 1
+}
+
+// Accepts reports whether a capture of this kind answers the question.
+func (p QuestionProof) Accepts(captureKind string) bool {
+	switch p.Kind {
+	case QuestionProofPhoto:
+		return captureKind == ProofKindPhoto
+	case QuestionProofVideo:
+		return captureKind == ProofKindVideo
+	case QuestionProofPhotoOrVideo:
+		return captureKind == ProofKindPhoto || captureKind == ProofKindVideo
+	}
+	return false
+}
+
+// NeedsProof reports whether the question owes at least one capture: always when required,
+// otherwise only once the assignee has answered it (an optional question left blank asks for
+// nothing).
+func (q Question) NeedsProof(answered bool) bool {
+	return q.Proof != nil && (q.Required || answered)
 }
 
 // ProofRule is how many captures of one kind a submit carries.
@@ -286,6 +339,17 @@ type Evidence struct {
 
 // PresenceRequired reports whether the submitter must check in to the pen first.
 func (e Evidence) PresenceRequired() bool { return e.Presence == PresenceRequired }
+
+// QuestionsWithProof counts the questions that carry their own capture rule.
+func (e Evidence) QuestionsWithProof() int {
+	n := 0
+	for _, q := range e.Questions {
+		if q.Proof != nil {
+			n++
+		}
+	}
+	return n
+}
 
 // QuestionByID finds an authored question.
 func (e Evidence) QuestionByID(id string) (Question, bool) {
@@ -328,6 +392,16 @@ func NormalizeEvidence(e Evidence) Evidence {
 		q.Unit = strings.TrimSpace(q.Unit)
 		if q.Kind == QuestionYesNo {
 			q.Options = []Option{{Value: "yes", Label: "Yes"}, {Value: "no", Label: "No"}}
+		}
+		if q.Proof != nil {
+			q.Proof.Kind = strings.TrimSpace(q.Proof.Kind)
+			q.Proof.Count = strings.TrimSpace(q.Proof.Count)
+			if q.Proof.Kind == "" {
+				// A blank proof block is "no proof", never a defaulted medium.
+				q.Proof = nil
+			} else if q.Proof.Count == "" {
+				q.Proof.Count = QuestionProofSingle
+			}
 		}
 		for j := range q.Options {
 			q.Options[j].Value = strings.TrimSpace(q.Options[j].Value)
@@ -391,6 +465,18 @@ func ValidateEvidence(e Evidence) error {
 			}
 		default:
 			return fmt.Errorf("%w: question %q has unknown kind %q", ErrInvalidEvidence, q.ID, q.Kind)
+		}
+		if q.Proof != nil {
+			switch q.Proof.Kind {
+			case QuestionProofPhoto, QuestionProofVideo, QuestionProofPhotoOrVideo:
+			default:
+				return fmt.Errorf("%w: question %q proof must be %q, %q or %q", ErrInvalidEvidence, q.ID, QuestionProofPhoto, QuestionProofVideo, QuestionProofPhotoOrVideo)
+			}
+			switch q.Proof.Count {
+			case QuestionProofSingle, QuestionProofMultiple:
+			default:
+				return fmt.Errorf("%w: question %q proof count must be %q or %q", ErrInvalidEvidence, q.ID, QuestionProofSingle, QuestionProofMultiple)
+			}
 		}
 	}
 	return nil
@@ -464,18 +550,19 @@ type PenRef struct {
 var (
 	ErrInvalidRoutine = errors.New("pen routine: the routine is not valid")
 	// ErrNoRoles wraps ErrInvalidRoutine: a routine for nobody. Its own code on the wire.
-	ErrNoRoles         = fmt.Errorf("%w (no roles)", ErrInvalidRoutine)
-	ErrInvalidEvidence = errors.New("pen routine: the evidence rules are not valid")
-	ErrNotAssignee     = errors.New("pen routine: caller is not an assignee of this routine")
-	ErrAlreadyDone     = errors.New("pen routine: already submitted")
-	ErrInReview        = errors.New("pen routine: the evidence is with the verifier")
-	ErrCanceled        = errors.New("pen routine: task is canceled")
-	ErrAnswerInvalid   = errors.New("pen routine: an answer is missing or not valid")
-	ErrProofCount      = errors.New("pen routine: the photo or video count is outside the routine's rule")
-	ErrInvalidProof    = errors.New("pen routine: a capture could not be verified")
-	ErrPresenceMissing = errors.New("pen routine: check in to the pen before submitting")
-	ErrPresenceState   = errors.New("pen routine: the check-in is not in a state that allows this")
-	ErrVersionConflict = errors.New("pen routine: the task changed since it was loaded")
+	ErrNoRoles              = fmt.Errorf("%w (no roles)", ErrInvalidRoutine)
+	ErrInvalidEvidence      = errors.New("pen routine: the evidence rules are not valid")
+	ErrNotAssignee          = errors.New("pen routine: caller is not an assignee of this routine")
+	ErrAlreadyDone          = errors.New("pen routine: already submitted")
+	ErrInReview             = errors.New("pen routine: the evidence is with the verifier")
+	ErrCanceled             = errors.New("pen routine: task is canceled")
+	ErrAnswerInvalid        = errors.New("pen routine: an answer is missing or not valid")
+	ErrProofCount           = errors.New("pen routine: the photo or video count is outside the routine's rule")
+	ErrQuestionProofMissing = errors.New("pen routine: a question still needs its photo or video")
+	ErrInvalidProof         = errors.New("pen routine: a capture could not be verified")
+	ErrPresenceMissing      = errors.New("pen routine: check in to the pen before submitting")
+	ErrPresenceState        = errors.New("pen routine: the check-in is not in a state that allows this")
+	ErrVersionConflict      = errors.New("pen routine: the task changed since it was loaded")
 )
 
 // ValidateDefinition is the authoring gate on the rule itself (the evidence has its own).
@@ -767,6 +854,13 @@ func EvidenceLineForScope(e Evidence, scopeKind string) string {
 	if s := proofPart("video", e.Video); s != "" {
 		parts = append(parts, s)
 	}
+	if n := e.QuestionsWithProof(); n > 0 {
+		if n == 1 {
+			parts = append(parts, "1 question with proof")
+		} else {
+			parts = append(parts, fmt.Sprintf("%d questions with proof", n))
+		}
+	}
 	if e.PresenceRequired() {
 		if scopeKind == ScopePark {
 			parts = append(parts, "check in")
@@ -907,6 +1001,22 @@ func hasOption(q Question, value string) bool {
 
 // RenderAnswer is the verifier's / web's reading of one stored answer: option labels, "Yes",
 // numbers with their unit, text verbatim. "" when unanswered.
+// AnsweredQuestions is the set of question ids that carry a value after CheckAnswers, the
+// input CheckProofs uses to decide which optional questions owe a capture.
+func AnsweredQuestions(answers map[string]any) map[string]bool {
+	out := make(map[string]bool, len(answers))
+	for id, v := range answers {
+		if v == nil {
+			continue
+		}
+		if s, ok := v.(string); ok && strings.TrimSpace(s) == "" {
+			continue
+		}
+		out[id] = true
+	}
+	return out
+}
+
 func RenderAnswer(q Question, v any) string {
 	switch val := v.(type) {
 	case nil:

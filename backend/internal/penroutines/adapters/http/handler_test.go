@@ -293,6 +293,12 @@ func TestAdminRoutesDecodeTheWriteBodyAndRenderBackendLines(t *testing.T) {
 	if len(cat.WorkKinds) != len(domain.WorkKinds) || cat.WorkKinds[8].Label != "Pen move" || len(cat.QuestionKinds) != 5 || cat.Defaults.NotifyTime != "07:00" || len(cat.Pens) != 1 || cat.Pens[0].Display != "Castro 2" {
 		t.Fatalf("catalog = %+v", cat)
 	}
+	if len(cat.QuestionProofKinds) != 1 || cat.QuestionProofKinds[0] != (optionPayload{Key: "none", Label: "No proof"}) {
+		t.Fatalf("question proof authoring must be hidden until mobile rollout is enabled: %+v", cat.QuestionProofKinds)
+	}
+	if len(cat.QuestionProofCounts) != 2 || cat.QuestionProofCounts[0].Key != domain.QuestionProofSingle || cat.QuestionProofCounts[1].Key != domain.QuestionProofMultiple {
+		t.Fatalf("question proof counts = %+v", cat.QuestionProofCounts)
+	}
 	if len(cat.Roles) != 2 || cat.Roles[0].Label != "Park Head" || len(cat.Roles[0].People) != 1 || cat.Roles[1].Label != "CXO" || cat.Roles[1].People == nil ||
 		cat.Defaults.StartDate != "2026-09-16" || cat.Defaults.IntervalDays != 3 {
 		t.Fatalf("catalog roles/defaults = %+v / %+v", cat.Roles, cat.Defaults)
@@ -317,5 +323,24 @@ func TestAdminRoutesDecodeTheWriteBodyAndRenderBackendLines(t *testing.T) {
 	}
 	if len(tasks.Rows) != 1 || tasks.Rows[0].Title != "Pen cleaning · Castro 2 · Coimbatore" || len(tasks.Rows[0].AssigneeNames) != 1 || tasks.Rows[0].AssigneeNames[0] != "Park Head" || tasks.Summary.Due != 1 {
 		t.Fatalf("tasks = %+v", tasks)
+	}
+}
+
+func TestAdminCatalogEnablesQuestionProofAuthoringOnlyWithRolloutFlag(t *testing.T) {
+	t.Setenv("GOATOS_PEN_ROUTINE_QUESTION_PROOF_AUTHORING", "true")
+	h := NewAdminHandler(&fakeAuthoring{}, nil)
+
+	rec := httptest.NewRecorder()
+	h.Catalog(rec, withActor(httptest.NewRequest(http.MethodGet, "/admin/pen-routines/catalog?park_id=p1", nil), "u-ceo"))
+	var cat catalogPayload
+	if err := json.Unmarshal(rec.Body.Bytes(), &cat); err != nil {
+		t.Fatal(err)
+	}
+	got := map[string]string{}
+	for _, o := range cat.QuestionProofKinds {
+		got[o.Key] = o.Label
+	}
+	if len(got) != 4 || got["none"] != "No proof" || got[domain.QuestionProofPhoto] != "Photo" || got[domain.QuestionProofVideo] != "Video" || got[domain.QuestionProofPhotoOrVideo] != "Photo or video" {
+		t.Fatalf("question proof kinds = %+v", cat.QuestionProofKinds)
 	}
 }

@@ -58,7 +58,9 @@ import sg.mesha.goatos.core.data.sync.SyncItemStatus
 import sg.mesha.goatos.core.data.sync.SyncQueueItem
 import sg.mesha.goatos.core.data.sync.SyncRepository
 import sg.mesha.goatos.core.data.sync.penRoutineGrainKey
+import sg.mesha.goatos.core.data.sync.parsePenRoutineQuestionProofFieldKey
 import sg.mesha.goatos.core.data.sync.penRoutinePhotoFieldKey
+import sg.mesha.goatos.core.data.sync.penRoutineQuestionProofFieldKey
 import sg.mesha.goatos.core.data.sync.penRoutineTaskGroupKey
 import sg.mesha.goatos.core.data.sync.penRoutineVideoFieldKey
 import sg.mesha.goatos.core.network.dto.PEN_ROUTINE_SCOPE_PARK
@@ -73,6 +75,7 @@ import sg.mesha.goatos.feature.penroutines.PenRoutineOptionUi
 import sg.mesha.goatos.feature.penroutines.PenRoutinePhase
 import sg.mesha.goatos.feature.penroutines.PenRoutineQuestionKind
 import sg.mesha.goatos.feature.penroutines.PenRoutineQuestionUi
+import sg.mesha.goatos.feature.penroutines.PenRoutineQuestionProofKind
 import sg.mesha.goatos.feature.penroutines.PenRoutineSlotKind
 import sg.mesha.goatos.feature.penroutines.PenRoutineSlotUi
 import sg.mesha.goatos.feature.penroutines.PenRoutineTone
@@ -408,12 +411,13 @@ class PenRoutineDetailViewModel @Inject constructor(
                 refresh()
                 return@launch
             }
-            val slotRows = slotRows(detail, proofs)
+            val slotRows = slotRows(detail, proofs).filterKeys { key -> key in referencedSlotKeys(ui) }
             val references = slotRows.mapNotNull { (fieldKey, row) ->
                 val outboxId = row.outboxItemId?.takeIf { it.isNotBlank() } ?: return@mapNotNull null
                 PenRoutineSubmitProof(
                     proofOutboxItemId = outboxId,
                     kind = if (slotKindOf(fieldKey) == PenRoutineSlotKind.PHOTO) PEN_ROUTINE_PROOF_KIND_PHOTO else PEN_ROUTINE_PROOF_KIND_VIDEO,
+                    questionId = parsePenRoutineQuestionProofFieldKey(fieldKey)?.questionId.orEmpty(),
                 )
             }
             if (references.size != slotRows.size) {
@@ -511,6 +515,18 @@ class PenRoutineDetailViewModel @Inject constructor(
         .distinct()
         .joinToString(" ")
 
+    /**
+     * The slot keys the rendered form actually shows a capture in: the task-wide slots and every
+     * question slot. A question slot that switched medium on a re-take leaves its older row
+     * behind under the other key; that row is not on screen and must not ride the submit.
+     */
+    private fun referencedSlotKeys(ui: PenRoutineDetailUiState): Set<String> =
+        buildSet {
+            ui.photoSlots.forEach { add(it.fieldKey) }
+            ui.videoSlots.forEach { add(it.fieldKey) }
+            ui.questions.forEach { q -> q.proofSlots.forEach { add(it.fieldKey) } }
+        }
+
     private fun slotFor(fieldKey: String) = EvidenceSlot(
         identity = ProofIdentity(flow = ProofFlow.PEN_ROUTINE, taskId = taskId, subjectKey = fieldKey),
         fieldKey = fieldKey,
@@ -546,8 +562,20 @@ class PenRoutineDetailViewModel @Inject constructor(
             q.submit,
             sendingAlive = submitJustQueued || penRoutineGrainKey(taskId, detail.rowVersion) in q.sending,
         )
-        val questions = detail.form.questions.map { it.toUi(answers[it.id].orEmpty()) }
         val rowsByKey = slotRows(detail, proofs)
+        val questions = detail.form.questions.map { question ->
+            val ui = question.toUi(answers[question.id].orEmpty())
+            val proofKind = question.proof?.let { PenRoutineQuestionProofKind.from(it.kind) }
+            if (proofKind == null) return@map ui
+            val owed = ui.required || ui.isAnswered()
+            val slots = questionProofSlots(question.id, proofKind, question.proof?.count == PEN_ROUTINE_PROOF_COUNT_MULTIPLE, owed, rowsByKey)
+            val taken = slots.any { it.previewPath.isNotBlank() && it.failureReason.isBlank() }
+            ui.copy(
+                proofKind = proofKind,
+                proofSlots = slots,
+                proofMissing = owed && !taken,
+            )
+        }
         val photoSlots = (1..detail.form.photo.max).map { index ->
             val key = penRoutinePhotoFieldKey(index)
             slotUi(key, PenRoutineSlotKind.PHOTO, index, required = index <= detail.form.photo.min, row = rowsByKey[key])
@@ -640,6 +668,48 @@ class PenRoutineDetailViewModel @Inject constructor(
         )
     }
 
+    /**
+     * One question's own capture slots. A photo or video question opens slots of that kind; a
+     * photo-or-video question's slots hold whichever kind was captured there and, while empty,
+     * offer both cameras through [PenRoutineSlotUi.videoFieldKey]. `multiple` allows up to the
+     * cap, but the screen shows only the captures TAKEN plus ONE empty slot -- five stacked
+     * "Record video" buttons read as five owed videos, and the rule is "up to", not "exactly".
+     * The first slot carries the required mark only while the question OWES a capture
+     * (required, or optional and answered) -- an optional question left blank owes nothing
+     * and must not show a star it will never enforce.
+     */
+    private fun questionProofSlots(
+        questionId: String,
+        kind: PenRoutineQuestionProofKind,
+        multiple: Boolean,
+        owed: Boolean,
+        rowsByKey: Map<String, ProofCaptureRow>,
+    ): List<PenRoutineSlotUi> {
+        val cap = if (multiple) PEN_ROUTINE_QUESTION_PROOF_MAX else 1
+        val all = (1..cap).map { index ->
+            val photoKey = penRoutineQuestionProofFieldKey(questionId, PEN_ROUTINE_PROOF_KIND_PHOTO, index)
+            val videoKey = penRoutineQuestionProofFieldKey(questionId, PEN_ROUTINE_PROOF_KIND_VIDEO, index)
+            when (kind) {
+                PenRoutineQuestionProofKind.PHOTO -> slotUi(photoKey, PenRoutineSlotKind.PHOTO, index, required = owed && index == 1, row = rowsByKey[photoKey])
+                PenRoutineQuestionProofKind.VIDEO -> slotUi(videoKey, PenRoutineSlotKind.VIDEO, index, required = owed && index == 1, row = rowsByKey[videoKey])
+                PenRoutineQuestionProofKind.EITHER -> {
+                    val photoRow = rowsByKey[photoKey]
+                    val videoRow = rowsByKey[videoKey]
+                    when {
+                        // Both taken on one slot (a re-take that switched medium): the newer wins.
+                        photoRow != null && (videoRow == null || photoRow.capturedAtMs >= videoRow.capturedAtMs) ->
+                            slotUi(photoKey, PenRoutineSlotKind.PHOTO, index, required = owed && index == 1, row = photoRow)
+                        videoRow != null -> slotUi(videoKey, PenRoutineSlotKind.VIDEO, index, required = owed && index == 1, row = videoRow)
+                        else -> PenRoutineSlotUi(fieldKey = photoKey, kind = PenRoutineSlotKind.PHOTO, index = index, required = owed && index == 1, videoFieldKey = videoKey)
+                    }
+                }
+            }
+        }
+        // Taken slots, then the first empty one; nothing past it until it is filled.
+        val firstEmpty = all.indexOfFirst { it.previewPath.isBlank() }
+        return if (firstEmpty < 0) all else all.take(firstEmpty + 1)
+    }
+
     private companion object {
         const val ARG_TASK_ID = "task_id"
         const val KEY_DRAFT = "pen_routine_draft_answers"
@@ -668,8 +738,18 @@ internal const val PEN_ROUTINE_STATUS_COMPLETED = "completed"
 internal fun slotKindOf(fieldKey: String): PenRoutineSlotKind? = when {
     fieldKey.startsWith("routine-photo-") -> PenRoutineSlotKind.PHOTO
     fieldKey.startsWith("routine-video-") -> PenRoutineSlotKind.VIDEO
-    else -> null
+    else -> when (parsePenRoutineQuestionProofFieldKey(fieldKey)?.kind) {
+        PEN_ROUTINE_PROOF_KIND_PHOTO -> PenRoutineSlotKind.PHOTO
+        PEN_ROUTINE_PROOF_KIND_VIDEO -> PenRoutineSlotKind.VIDEO
+        else -> null
+    }
 }
+
+/** The wire `proof.count` value that opens several slots on one question. */
+internal const val PEN_ROUTINE_PROOF_COUNT_MULTIPLE = "multiple"
+
+/** The most captures one question may carry when its count is `multiple` (server MaxProofPerKind). */
+internal const val PEN_ROUTINE_QUESTION_PROOF_MAX = 5
 
 /**
  * Derives the task's phase from Room truth ONLY — the server's task, the queued submit's outbox
@@ -711,6 +791,7 @@ internal fun penRoutineSubmitGate(
     if (!canSubmit) return false
     if (questions.any { it.invalid }) return false
     if (questions.any { it.required && !it.isAnswered() }) return false
+    if (questions.any { it.proofMissing }) return false
     if (photosTaken < photoMin || videosTaken < videoMin) return false
     if (presenceRequired && !inPen) return false
     return true

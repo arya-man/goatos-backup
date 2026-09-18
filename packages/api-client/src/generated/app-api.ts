@@ -18588,6 +18588,14 @@ export interface components {
             min?: number | null;
             max?: number | null;
             unit?: string;
+            proof?: components["schemas"]["PenRoutineQuestionProof"];
+        };
+        /** @description The capture THIS question needs before it counts as answered (maintainer instruction 2026-09-18). Absent means the value alone answers it. Owed whenever the question is answered, and always when it is required; single is exactly one capture, multiple up to the routine cap (5). */
+        PenRoutineQuestionProof: {
+            /** @enum {string} */
+            kind: "photo" | "video" | "photo_or_video";
+            /** @enum {string} */
+            count: "single" | "multiple";
         };
         PenRoutineProofRule: {
             min: number;
@@ -18612,6 +18620,8 @@ export interface components {
             ref: string;
             /** @enum {string} */
             kind: "photo" | "video";
+            /** @description The question this capture answers; absent for a task-wide capture counted against the routine's photo/video rule. */
+            question_id?: string;
         };
         PenRoutineAnswerRow: {
             question_id: string;

@@ -111,7 +111,7 @@ fun PenRoutineDetailScreen(
                     }
                 }
                 items(state.questions, key = { "question:" + it.id }) { question ->
-                    PenRoutineQuestionCard(question = question, onEvent = onEvent)
+                    PenRoutineQuestionCard(question = question, taskId = state.taskId, enabled = !state.capturing, onEvent = onEvent)
                 }
                 if (state.photoSlots.isNotEmpty()) {
                     item(key = "photos_label") {
@@ -257,6 +257,8 @@ private fun PenRoutinePresenceCard(
 @Composable
 private fun PenRoutineQuestionCard(
     question: PenRoutineQuestionUi,
+    taskId: String,
+    enabled: Boolean,
     onEvent: (PenRoutineDetailEvent) -> Unit,
 ) {
     Column(modifier = penRoutineCardModifier(), verticalArrangement = Arrangement.spacedBy(8.dp)) {
@@ -304,6 +306,17 @@ private fun PenRoutineQuestionCard(
                 supporting = null,
                 isError = false,
                 numeric = false,
+            )
+        }
+        // The question's own captures (maintainer instruction 2026-09-18): the proof that
+        // answers THIS question sits under it, never in the task-wide photo/video lists.
+        question.proofSlots.forEach { slot ->
+            PenRoutineSlotBody(
+                taskId = taskId,
+                slot = slot,
+                enabled = enabled,
+                onEvent = onEvent,
+                framed = false,
             )
         }
     }
@@ -404,8 +417,26 @@ private fun PenRoutineSlotCard(
     enabled: Boolean,
     onEvent: (PenRoutineDetailEvent) -> Unit,
 ) {
+    PenRoutineSlotBody(taskId = taskId, slot = slot, enabled = enabled, onEvent = onEvent, framed = true)
+}
+
+/**
+ * One capture slot: its label, preview, pipeline state and camera button(s). [framed] draws it
+ * as its own card (the task-wide lists); unframed it nests inside a question's card. An empty
+ * slot carrying [PenRoutineSlotUi.videoFieldKey] belongs to a photo-or-video question and
+ * offers the recorder beside the camera.
+ */
+@Composable
+private fun PenRoutineSlotBody(
+    taskId: String,
+    slot: PenRoutineSlotUi,
+    enabled: Boolean,
+    onEvent: (PenRoutineDetailEvent) -> Unit,
+    framed: Boolean,
+) {
     val isPhoto = slot.kind == PenRoutineSlotKind.PHOTO
-    Column(modifier = penRoutineCardModifier(), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+    val modifier = if (framed) penRoutineCardModifier() else Modifier.fillMaxWidth()
+    Column(modifier = modifier, verticalArrangement = Arrangement.spacedBy(10.dp)) {
         Row(modifier = Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
             Text(
                 text = if (isPhoto) {
@@ -482,6 +513,15 @@ private fun PenRoutineSlotCard(
                 modifier = Modifier.fillMaxWidth(),
                 icon = if (isPhoto) MeshaIcons.Camera else MeshaIcons.Video,
             )
+            if (slot.videoFieldKey.isNotBlank()) {
+                PenRoutineGhostButton(
+                    label = stringResource(R.string.pen_routines_action_record_video),
+                    enabled = enabled,
+                    onClick = { onEvent(PenRoutineDetailEvent.CaptureSlot(slot.videoFieldKey)) },
+                    modifier = Modifier.fillMaxWidth(),
+                    icon = MeshaIcons.Video,
+                )
+            }
         }
     }
 }

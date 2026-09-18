@@ -43011,6 +43011,19 @@ components:
         min: { type: number, nullable: true }
         max: { type: number, nullable: true }
         unit: { type: string }
+        proof:
+          $ref: "#/components/schemas/PenRoutineQuestionProof"
+    PenRoutineQuestionProof:
+      type: object
+      description: >-
+        The capture THIS question needs before it counts as answered (maintainer instruction
+        2026-09-18). Absent means the value alone answers it. Owed whenever the question is
+        answered, and always when it is required; single is exactly one capture, multiple up to
+        the routine cap (5).
+      required: [kind, count]
+      properties:
+        kind: { type: string, enum: [photo, video, photo_or_video] }
+        count: { type: string, enum: [single, multiple] }
     PenRoutineProofRule:
       type: object
       required: [min, max]
@@ -43037,6 +43050,7 @@ components:
       properties:
         ref: { type: string, format: uuid, description: A finished in-app-camera proof. }
         kind: { type: string, enum: [photo, video] }
+        question_id: { type: string, description: The question this capture answers; absent for a task-wide capture counted against the routine's photo/video rule. }
     PenRoutineAnswerRow:
       type: object
       required: [question_id, title, value]

@@ -41,6 +41,24 @@ fun penRoutinePhotoFieldKey(index: Int): String = "routine-photo-$index"
 fun penRoutineVideoFieldKey(index: Int): String = "routine-video-$index"
 
 /**
+ * The field key of a capture that answers ONE QUESTION (maintainer instruction 2026-09-18):
+ * `routine-q-<question id>-<photo|video>-<index>`. Question ids are letters, digits and
+ * underscores on the server, so the key parses back unambiguously.
+ */
+fun penRoutineQuestionProofFieldKey(questionId: String, kind: String, index: Int): String =
+    "routine-q-$questionId-$kind-$index"
+
+/** The parsed parts of a question-proof field key, or null for any other key. */
+data class PenRoutineQuestionProofKey(val questionId: String, val kind: String, val index: Int)
+
+private val questionProofKeyPattern = Regex("^routine-q-([A-Za-z0-9_]+)-(photo|video)-(\\d+)$")
+
+fun parsePenRoutineQuestionProofFieldKey(fieldKey: String): PenRoutineQuestionProofKey? {
+    val match = questionProofKeyPattern.matchEntire(fieldKey) ?: return null
+    return PenRoutineQuestionProofKey(match.groupValues[1], match.groupValues[2], match.groupValues[3].toInt())
+}
+
+/**
  * Outbox payload for [sg.mesha.goatos.core.database.outbox.OutboxOpType.PEN_ROUTINE_PRESENCE] —
  * the `enter` punch (`POST /app/pen-routines/{task}/presence`). The location and integrity
  * blocks are captured at TAP time and travel as recorded: the server judges them, the phone
@@ -62,6 +80,8 @@ data class PenRoutineSubmitProof(
     @SerialName("proof_outbox_item_id") val proofOutboxItemId: String,
     /** `photo` | `video`. */
     @SerialName("kind") val kind: String,
+    /** The question this capture answers; blank for a task-wide capture. */
+    @SerialName("question_id") val questionId: String = "",
 )
 
 /**

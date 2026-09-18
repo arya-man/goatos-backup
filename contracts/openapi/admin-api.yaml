@@ -12244,6 +12244,19 @@ components:
         min: { type: number, nullable: true }
         max: { type: number, nullable: true }
         unit: { type: string }
+        proof:
+          $ref: "#/components/schemas/PenRoutineQuestionProof"
+    PenRoutineQuestionProof:
+      type: object
+      description: >-
+        The capture THIS question needs before it counts as answered (maintainer instruction
+        2026-09-18). Absent means the value alone answers it. Owed whenever the question is
+        answered, and always when it is required; single is exactly one capture, multiple up to
+        the routine cap (5).
+      required: [kind, count]
+      properties:
+        kind: { type: string, enum: [photo, video, photo_or_video] }
+        count: { type: string, enum: [single, multiple] }
     PenRoutineProofRule:
       type: object
       required: [min, max]
@@ -12270,6 +12283,7 @@ components:
       properties:
         ref: { type: string, format: uuid, description: A finished in-app-camera proof. }
         kind: { type: string, enum: [photo, video] }
+        question_id: { type: string, description: The question this capture answers; absent for a task-wide capture counted against the routine's photo/video rule. }
     PenRoutineAnswerRow:
       type: object
       required: [question_id, title, value]
@@ -12579,7 +12593,7 @@ components:
         interval_days: { type: integer, description: 'What "Every few days" pre-fills (3).' }
     PenRoutineCatalogResponse:
       type: object
-      required: [pens, roles, work_kinds, question_kinds, cadence_kinds, review_kinds, presence_kinds, scope_kinds, defaults, trace_id]
+      required: [pens, roles, work_kinds, question_kinds, question_proof_kinds, question_proof_counts, cadence_kinds, review_kinds, presence_kinds, scope_kinds, defaults, trace_id]
       properties:
         pens:
           type: array
@@ -12596,6 +12610,16 @@ components:
             $ref: "#/components/schemas/PenRoutineKeyLabel"
         question_kinds:
           type: array
+          items:
+            $ref: "#/components/schemas/PenRoutineKeyLabel"
+        question_proof_kinds:
+          type: array
+          description: Per-question proof media (none | photo | video | photo_or_video), backend-labelled.
+          items:
+            $ref: "#/components/schemas/PenRoutineKeyLabel"
+        question_proof_counts:
+          type: array
+          description: Per-question proof count (single | multiple), backend-labelled.
           items:
             $ref: "#/components/schemas/PenRoutineKeyLabel"
         cadence_kinds:

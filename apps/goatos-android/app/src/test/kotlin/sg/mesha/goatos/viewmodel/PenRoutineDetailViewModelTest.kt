@@ -35,6 +35,9 @@ import sg.mesha.goatos.core.analytics.NoopCrashReporter
 import sg.mesha.goatos.core.data.sync.SyncItemStatus
 import sg.mesha.goatos.core.data.sync.SyncQueueItem
 import sg.mesha.goatos.core.data.sync.penRoutineGrainKey
+import sg.mesha.goatos.core.network.dto.PenRoutineQuestionProofDto
+import sg.mesha.goatos.feature.penroutines.PenRoutineQuestionProofKind
+import sg.mesha.goatos.feature.penroutines.PenRoutineSlotKind
 import sg.mesha.goatos.feature.penroutines.PenRoutineDetailEvent
 import sg.mesha.goatos.feature.penroutines.PenRoutinePhase
 import sg.mesha.goatos.feature.penroutines.PenRoutineQuestionKind
@@ -226,6 +229,72 @@ class PenRoutineDetailViewModelTest {
         assertEquals(PenRoutinePhase.SENDING, vm.state.value.phase)
         assertTrue(analytics.events.any { it.name == AnalyticsEventsPenRoutines.SUBMIT })
         assertEquals("recorded", analytics.events.single { it.name == AnalyticsEventsPenRoutines.CAPTURE_RESULT }.props[AnalyticsEvents.Params.RESULT])
+    }
+
+    @Test
+    fun `a question's own proof gates the submit and rides the submit named by its question`() = runTest(dispatcher) {
+        // "cleaned" (required) wants ONE photo; "note" (optional) wants photos OR videos, several.
+        val questions = penRoutineQuestions().map { q ->
+            when (q.id) {
+                "cleaned" -> q.copy(proof = PenRoutineQuestionProofDto(kind = "photo", count = "single"))
+                "note" -> q.copy(proof = PenRoutineQuestionProofDto(kind = "photo_or_video", count = "multiple"))
+                else -> q
+            }
+        }
+        val form = penRoutineForm(questions = questions, photoMin = 0, photoMax = 0, videoMax = 0, presence = "off")
+        val repository = FakePenRoutinesRepository(penRoutineTask(presenceRequired = false, canCheckIn = false, form = form))
+        val photos = FakePhotoCaptureSource(mutableListOf<CapturedPhoto?>(photo(), photo()))
+        val videos = FakeProofCaptureSource(mutableListOf<CapturedVideo?>(video()))
+        val proofs = FakeProofCaptureRepository()
+        val sync = RecordingPenRoutineSyncRepository()
+        val vm = viewModel(repository, photoSource = photos, videoSource = videos, proofs = proofs, sync = sync)
+        advanceUntilIdle()
+
+        val cleaned = vm.state.value.questions.single { it.id == "cleaned" }
+        assertEquals(PenRoutineQuestionProofKind.PHOTO, cleaned.proofKind)
+        assertEquals(listOf("routine-q-cleaned-photo-1"), cleaned.proofSlots.map { it.fieldKey })
+        assertTrue("required question owes its photo before any answer", cleaned.proofMissing)
+        val note = vm.state.value.questions.single { it.id == "note" }
+        assertEquals(PenRoutineQuestionProofKind.EITHER, note.proofKind)
+        // "Up to 5" shows ONE empty slot, not five owed captures.
+        assertEquals(1, note.proofSlots.size)
+        assertEquals("routine-q-note-video-1", note.proofSlots.first().videoFieldKey)
+        assertFalse("optional question left blank owes nothing", note.proofMissing)
+        assertFalse("and its slot carries no required mark", note.proofSlots.first().required)
+        assertTrue(cleaned.proofSlots.first().required)
+
+        vm.onEvent(PenRoutineDetailEvent.SetChoice("cleaned", "yes"))
+        vm.onEvent(PenRoutineDetailEvent.SetChoice("water", "clean"))
+        advanceUntilIdle()
+        assertFalse("answered but the required question's photo is missing", vm.state.value.submitEnabled)
+
+        vm.onEvent(PenRoutineDetailEvent.CaptureSlot("routine-q-cleaned-photo-1"))
+        advanceUntilIdle()
+        assertFalse(vm.state.value.questions.single { it.id == "cleaned" }.proofMissing)
+        assertTrue("required proof taken", vm.state.value.submitEnabled)
+
+        // Answering the optional question now makes ITS proof owed, until a video lands on it.
+        vm.onEvent(PenRoutineDetailEvent.SetText("note", "Latch loose"))
+        advanceUntilIdle()
+        assertFalse("answered optional owes its capture", vm.state.value.submitEnabled)
+        assertTrue("the mark appears once the answer makes the capture owed", vm.state.value.questions.single { it.id == "note" }.proofSlots.first().required)
+        vm.onEvent(PenRoutineDetailEvent.CaptureSlot("routine-q-note-video-1"))
+        advanceUntilIdle()
+        val noteSlots = vm.state.value.questions.single { it.id == "note" }.proofSlots
+        assertEquals(PenRoutineSlotKind.VIDEO, noteSlots.first().kind)
+        assertEquals("", noteSlots.first().videoFieldKey)
+        // One capture taken on a multiple question: that slot plus the next empty one.
+        assertEquals(listOf("routine-q-note-video-1", "routine-q-note-photo-2"), noteSlots.map { it.fieldKey })
+        assertEquals("routine-q-note-video-2", noteSlots[1].videoFieldKey)
+        assertTrue(vm.state.value.submitEnabled)
+
+        vm.onEvent(PenRoutineDetailEvent.Submit)
+        advanceUntilIdle()
+        val queued = sync.submits.single()
+        assertEquals(
+            listOf("cleaned" to "photo", "note" to "video"),
+            queued.proofs.map { it.questionId to it.kind }.sortedBy { it.first },
+        )
     }
 
     @Test

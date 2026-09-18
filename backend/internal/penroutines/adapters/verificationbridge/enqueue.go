@@ -86,9 +86,15 @@ func (e *Enqueuer) EnqueuePenRoutineVerification(ctx context.Context, in proutap
 	}
 	// Every capture rides with its kind so the verifier's player is the right one for each
 	// (a routine mixes photos and videos); labels count within kind: "Photo 1", "Video 1".
+	// A capture that answers a QUESTION is labelled by that question -- "Pen cleaned? · Photo 1"
+	// -- so the verifier reads the clip beside the claim it proves; counts run per question.
+	questionTitle := make(map[string]string, len(in.AnswerRows))
+	for _, a := range in.AnswerRows {
+		questionTitle[a.QuestionID] = a.Title
+	}
 	media := make([]string, 0, len(in.Proofs))
 	meta := make([]verificationdomain.MediaMeta, 0, len(in.Proofs))
-	photos, videos := 0, 0
+	counts := map[string]int{}
 	for _, p := range in.Proofs {
 		ref := strings.TrimSpace(p.Ref)
 		if ref == "" {
@@ -97,12 +103,13 @@ func (e *Enqueuer) EnqueuePenRoutineVerification(ctx context.Context, in proutap
 		media = append(media, ref)
 		label := "Capture"
 		switch p.Kind {
-		case proutdomain.ProofKindPhoto:
-			photos++
-			label = "Photo " + strconv.Itoa(photos)
-		case proutdomain.ProofKindVideo:
-			videos++
-			label = "Video " + strconv.Itoa(videos)
+		case proutdomain.ProofKindPhoto, proutdomain.ProofKindVideo:
+			key := p.QuestionID + "/" + p.Kind
+			counts[key]++
+			label = kindWord(p.Kind) + " " + strconv.Itoa(counts[key])
+			if title := strings.TrimSpace(questionTitle[p.QuestionID]); p.QuestionID != "" && title != "" {
+				label = title + " · " + label
+			}
 		}
 		meta = append(meta, verificationdomain.MediaMeta{Label: label, Kind: p.Kind})
 	}
@@ -132,4 +139,11 @@ func ptrIfSet(v string) *string {
 		return nil
 	}
 	return &trimmed
+}
+
+func kindWord(kind string) string {
+	if kind == proutdomain.ProofKindVideo {
+		return "Video"
+	}
+	return "Photo"
 }
