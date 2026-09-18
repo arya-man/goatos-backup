@@ -46,15 +46,17 @@
 
 ## Judge Status
 
-- Judge 1 backend Counts Mortality logic: PASS, no findings on pushed SHA `345ff6f42176140c6479e1440bf241044ba9d9a0`.
-- Judge 2 admin-web/API contract wiring: PASS, no findings on pushed SHA `345ff6f42176140c6479e1440bf241044ba9d9a0`.
+- Judge 1 backend Counts Mortality logic: PASS, no findings on code SHA `345ff6f42176140c6479e1440bf241044ba9d9a0`.
+- Judge 2 admin-web/API contract wiring: PASS, no findings on code SHA `345ff6f42176140c6479e1440bf241044ba9d9a0`.
 - Judge 3 coverage/guard adequacy: initial process finding for stale receipt and missing `make api-client-check`; `make api-client-check` now passed and this receipt is updated.
+- Follow-up Judge 3 on pushed receipt SHA `431dca73e5def38e527f3e29f1b67e2536c29ad9`: found the receipt still needed to name the final pushed proof commit; this entry and Current SHA now do that.
 
 ## Current SHA
 
 - Before first fix: `90bf02af6cf739fbaca1f9d3c07383da3fb193b1`.
 - Before strict-live fix: `db8cf68c969d737b49151810a3c0df10f52e2536`.
-- Strict-live fix pushed: `345ff6f42176140c6479e1440bf241044ba9d9a0`.
+- Strict-live code fix pushed: `345ff6f42176140c6479e1440bf241044ba9d9a0`.
+- Current pushed proof head: `431dca73e5def38e527f3e29f1b67e2536c29ad9`.
 
 ## Deployment State
 
