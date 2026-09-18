@@ -1,4 +1,5 @@
 import { NextResponse } from "next/server";
+import { isAllowedPerformanceEvent } from "@/lib/performance-events-allowlist";
 
 type PerformanceEventBody = {
   event_name?: unknown;
@@ -10,11 +11,6 @@ type PerformanceEventBody = {
 
 const MAX_STRING = 500;
 const MAX_ARRAY_ITEMS = 20;
-const ALLOWED_EVENT_PREFIXES = [
-  "feed_config_filter_apply_",
-  "admin_route_",
-  "admin_backend_api_",
-];
 
 export async function POST(request: Request) {
   let body: PerformanceEventBody;
@@ -25,7 +21,7 @@ export async function POST(request: Request) {
   }
 
   const eventName = boundedString(body.event_name);
-  if (!eventName || !ALLOWED_EVENT_PREFIXES.some((prefix) => eventName.startsWith(prefix))) {
+  if (!isAllowedPerformanceEvent(eventName)) {
     return NextResponse.json({ ok: false, error: "unsupported_event" }, { status: 400 });
   }
 
