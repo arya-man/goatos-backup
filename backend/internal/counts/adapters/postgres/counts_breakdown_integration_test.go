@@ -66,6 +66,19 @@ func goatUUID(n int) string {
 // goatDisplayID satisfies goats_display_id_format_check (^G-[0-9]{6,}$).
 func goatDisplayID(n int) string { return fmt.Sprintf("G-9%05d", n) }
 
+func seedBreakdownGoatIdentifier(t *testing.T, ctx context.Context, pool *pgxpool.Pool, goatID, typ, value string) {
+	t.Helper()
+	if _, err := pool.Exec(ctx, `
+INSERT INTO goat_identifiers (
+  tenant_id, goat_id, identifier_type, identifier_value, normalized_value,
+  scope_key, is_primary_for_goat, status, valid_from, normalizer_version
+) VALUES (
+  $1::uuid, $2::uuid, $3, $4, lower($4), $4, $3 = 'animal_identifier_1', 'active', now(), 'v1'
+)`, countsTenant, goatID, typ, value); err != nil {
+		t.Fatalf("seed goat identifier %s %s: %v", goatID, value, err)
+	}
+}
+
 func newBreakdownRepo(t *testing.T, ctx context.Context) (*Repository, *pgxpool.Pool) {
 	t.Helper()
 	pool := setupCountsDB(t, ctx)
@@ -2571,4 +2584,225 @@ ON CONFLICT (tenant_id, stage_code) DO NOTHING`, countsTenant, otherPark, otherS
 	if _, ok := there["K3"]; ok {
 		t.Error("other park stage chart leaked this park's K3 bar")
 	}
+}
+
+// PURCHASED LOADS (maintainer request 2026-09-18). Three things a wrong join would get wrong here,
+// each asserted: (1) an animal accepted on TWO loads is counted on exactly ONE, and it is the same
+// one Sales -> Purchase and Born names; (2) "bought" is the load's OWN figure — declared size when
+// stated, else tracked + prior outcomes, exactly the Sales page's rule — and is NOT narrowed by the
+// page filters, while on-farm/stages/sexes ARE; (3) on_farm equals the sum of the stage split and
+// the sum of the sex split for every load, so the client can render both without re-summing.
+func TestCountsBreakdownLoadsReadCurrentTagAndSexPerLoadAndMatchTheSalesPurchasedRule(t *testing.T) {
+	ctx := context.Background()
+	repo, pool := newBreakdownRepo(t, ctx)
+
+	var vendor string
+	if err := pool.QueryRow(ctx, `
+INSERT INTO parties (party_type, display_name, status) VALUES ('org', 'Sardar Traders', 'active')
+RETURNING party_id::text`).Scan(&vendor); err != nil {
+		t.Fatalf("seed vendor: %v", err)
+	}
+	load := func(key, purchaseDate string, expected int) string {
+		t.Helper()
+		var id string
+		if err := pool.QueryRow(ctx, `
+INSERT INTO procurement_loads (tenant_id, source_party_id, purchase_date, status, expected_count, idempotency_key, context)
+VALUES ($1::uuid, $2::uuid, $3::date, 'accepted_intake', $4, $5, jsonb_build_object('load_ref', $6::text))
+RETURNING load_id::text`, countsTenant, vendor, purchaseDate, expected, key, key).Scan(&id); err != nil {
+			t.Fatalf("seed %s: %v", key, err)
+		}
+		return id
+	}
+	// Load A: undeclared size, so bought = tracked + prior. Load B: declares 10, tracked 1.
+	loadA := load("A", "2026-08-01", 0)
+	loadB := load("B", "2026-08-09", 10)
+	accept := func(loadID, goatID, acceptedAt string) {
+		t.Helper()
+		if _, err := pool.Exec(ctx, `
+INSERT INTO procurement_load_goats (tenant_id, load_id, goat_id, selection_state, current_state, intake_accepted_at)
+VALUES ($1::uuid, $2::uuid, $3::uuid, 'accepted_herd_intake', 'accepted_herd_intake', $4::timestamptz)`,
+			countsTenant, loadID, goatID, acceptedAt); err != nil {
+			t.Fatalf("seed load goat: %v", err)
+		}
+	}
+
+	// Load A's animals: two fattening males and a kid female alive, one dead, one accepted on BOTH
+	// loads (later acceptance on B wins, by the same total order the Sales read uses).
+	insertBreakdownGoat(t, ctx, pool, goatUUID(1), goatDisplayID(1), "male", "Beetal", "alive", "Fattening", strp(countsPark), strp(countsShedA), nil)
+	insertBreakdownGoat(t, ctx, pool, goatUUID(2), goatDisplayID(2), "male", "Beetal", "alive", "Fattening", strp(countsPark), strp(countsShedA), nil)
+	insertBreakdownGoat(t, ctx, pool, goatUUID(3), goatDisplayID(3), "female", "Beetal", "alive", "Kid", strp(countsPark), strp(countsShedB), nil)
+	insertBreakdownGoat(t, ctx, pool, goatUUID(4), goatDisplayID(4), "male", "Beetal", "dead", "Fattening", strp(countsPark), strp(countsShedA), nil)
+	insertBreakdownGoat(t, ctx, pool, goatUUID(5), goatDisplayID(5), "female", "Sojat", "alive", "Fattening", strp(countsPark), strp(countsShedB), nil)
+	seedBreakdownGoatIdentifier(t, ctx, pool, goatUUID(1), "animal_identifier_1", "RFID-A-001")
+	seedBreakdownGoatIdentifier(t, ctx, pool, goatUUID(1), "animal_identifier_2", "TAG-A-001")
+	seedBreakdownGoatIdentifier(t, ctx, pool, goatUUID(2), "animal_identifier_1", "RFID-A-002")
+	seedBreakdownGoatIdentifier(t, ctx, pool, goatUUID(3), "animal_identifier_1", "RFID-A-003")
+	seedBreakdownGoatIdentifier(t, ctx, pool, goatUUID(4), "animal_identifier_1", "RFID-A-004")
+	seedBreakdownGoatIdentifier(t, ctx, pool, goatUUID(5), "animal_identifier_1", "RFID-B-005")
+	for _, id := range []int{1, 2, 3, 4} {
+		accept(loadA, goatUUID(id), "2026-08-01T10:00:00Z")
+	}
+	accept(loadA, goatUUID(5), "2026-08-01T10:00:00Z")
+	accept(loadB, goatUUID(5), "2026-08-09T10:00:00Z")
+	// A pre-register outcome on load A: two animals sold before Goat OS existed.
+	if _, err := pool.Exec(ctx, `
+INSERT INTO procurement_load_prior_outcomes (tenant_id, load_id, outcome, animal_count)
+VALUES ($1::uuid, $2::uuid, 'sold', 2)`, countsTenant, loadA); err != nil {
+		t.Fatalf("seed prior outcome: %v", err)
+	}
+	// A farm-born animal on no load must not appear anywhere in the loads read.
+	insertBreakdownGoat(t, ctx, pool, goatUUID(6), goatDisplayID(6), "female", "Beetal", "alive", "Kid", strp(countsPark), strp(countsShedB), nil)
+
+	got, err := repo.GetCountsBreakdown(ctx, domain.CountsBreakdownQuery{TenantID: countsTenant})
+	if err != nil {
+		t.Fatalf("GetCountsBreakdown: %v", err)
+	}
+	if len(got.Loads) != 2 {
+		t.Fatalf("loads=%d, want 2 (newest first): %+v", len(got.Loads), got.Loads)
+	}
+	b, a := got.Loads[0], got.Loads[1]
+	if b.LoadID != loadB || a.LoadID != loadA {
+		t.Fatalf("load order = [%s %s], want newest purchase first [%s %s]", b.LoadID, a.LoadID, loadB, loadA)
+	}
+	if b.LoadRef != "B" || b.VendorName != "Sardar Traders" || b.PurchaseDate != "2026-08-09" {
+		t.Errorf("load B identity = %+v", b)
+	}
+
+	// Rule (2): bought. A has no declared size: 4 tracked (goat 5 moved to B) + 2 prior = 6.
+	// B declares 10, so 10 -- not the 1 animal it tracks.
+	if a.Purchased != 6 || b.Purchased != 10 {
+		t.Errorf("purchased A=%d B=%d, want 6 and 10 (the Sales page's declared-else-attributed rule)", a.Purchased, b.Purchased)
+	}
+	// Rule (1): goat 5 is on B only, so A's live set is goats 1-3 and B's is goat 5.
+	if a.OnFarm != 3 || b.OnFarm != 1 {
+		t.Errorf("on_farm A=%d B=%d, want 3 and 1", a.OnFarm, b.OnFarm)
+	}
+	wantStagesA := []domain.CountsBreakdownSeriesPoint{{Key: "Fattening", Label: "Fattening", Count: 2}, {Key: "Kid", Label: "Kid", Count: 1}}
+	wantSexesA := []domain.CountsBreakdownSeriesPoint{{Key: "male", Label: "male", Count: 2}, {Key: "female", Label: "female", Count: 1}}
+	if !reflect.DeepEqual(a.Stages, wantStagesA) || !reflect.DeepEqual(a.Sexes, wantSexesA) {
+		t.Errorf("load A split: stages=%+v sexes=%+v", a.Stages, a.Sexes)
+	}
+	wantTagsA := []domain.CountsBreakdownLoadTag{
+		{Type: "animal_identifier_1", Value: "RFID-A-001", Count: 1},
+		{Type: "animal_identifier_1", Value: "RFID-A-002", Count: 1},
+		{Type: "animal_identifier_1", Value: "RFID-A-003", Count: 1},
+		{Type: "animal_identifier_2", Value: "TAG-A-001", Count: 1},
+	}
+	wantTagsB := []domain.CountsBreakdownLoadTag{{Type: "animal_identifier_1", Value: "RFID-B-005", Count: 1}}
+	if !reflect.DeepEqual(a.CurrentTags, wantTagsA) || !reflect.DeepEqual(b.CurrentTags, wantTagsB) {
+		t.Errorf("current tags: load A=%+v load B=%+v", a.CurrentTags, b.CurrentTags)
+	}
+	// Rule (3), on every load.
+	for _, row := range got.Loads {
+		var stages, sexes int64
+		for _, p := range row.Stages {
+			stages += p.Count
+		}
+		for _, p := range row.Sexes {
+			sexes += p.Count
+		}
+		if stages != row.OnFarm || sexes != row.OnFarm {
+			t.Errorf("load %s: on_farm=%d but stages sum %d and sexes sum %d", row.LoadRef, row.OnFarm, stages, sexes)
+		}
+	}
+
+	// Rule (2), the other half: filtering the page to one stage narrows on-farm but never bought.
+	filtered, err := repo.GetCountsBreakdown(ctx, domain.CountsBreakdownQuery{TenantID: countsTenant, ManagementStages: []string{"Fattening"}})
+	if err != nil {
+		t.Fatalf("GetCountsBreakdown(Fattening): %v", err)
+	}
+	if len(filtered.Loads) != 2 {
+		t.Fatalf("filtered loads=%d, want both loads still listed", len(filtered.Loads))
+	}
+	fa := filtered.Loads[1]
+	if fa.Purchased != 6 || fa.OnFarm != 2 || len(fa.Stages) != 1 || fa.Stages[0].Key != "Fattening" {
+		t.Errorf("filtered load A = %+v, want bought 6 unchanged, on_farm 2, one Fattening bucket", fa)
+	}
+	wantFatteningTagsA := []domain.CountsBreakdownLoadTag{
+		{Type: "animal_identifier_1", Value: "RFID-A-001", Count: 1},
+		{Type: "animal_identifier_1", Value: "RFID-A-002", Count: 1},
+		{Type: "animal_identifier_2", Value: "TAG-A-001", Count: 1},
+	}
+	if !reflect.DeepEqual(fa.CurrentTags, wantFatteningTagsA) {
+		t.Errorf("filtered load A tags = %+v, want only current Fattening animal tags %+v", fa.CurrentTags, wantFatteningTagsA)
+	}
+
+	// A load with none of its animals surviving the filter is still listed, with an empty split
+	// rather than a missing row -- "bought 10, none under these filters" is the honest answer.
+	kids, err := repo.GetCountsBreakdown(ctx, domain.CountsBreakdownQuery{TenantID: countsTenant, ManagementStages: []string{"Kid"}})
+	if err != nil {
+		t.Fatalf("GetCountsBreakdown(Kid): %v", err)
+	}
+	kb := kids.Loads[0]
+	if kb.LoadID != loadB || kb.OnFarm != 0 || len(kb.Stages) != 0 || len(kb.Sexes) != 0 || kb.Purchased != 10 {
+		t.Errorf("load B under Kid filter = %+v, want listed with on_farm 0 and empty splits", kb)
+	}
+	if len(kb.CurrentTags) != 0 {
+		t.Errorf("load B under Kid filter current_tags = %+v, want empty", kb.CurrentTags)
+	}
+
+	read := func(t *testing.T, q domain.CountsBreakdownQuery) []domain.CountsBreakdownLoadRow {
+		t.Helper()
+		q.TenantID = countsTenant
+		res, err := repo.GetCountsBreakdown(ctx, q)
+		if err != nil {
+			t.Fatalf("GetCountsBreakdown(%+v): %v", q, err)
+		}
+		return res.Loads
+	}
+
+	// OneToMany: goat 5 has TWO accepted rows and lands on ONE load -- the tracked totals across
+	// both loads add up to the five distinct accepted animals, never six.
+	t.Run("OneToManyAcceptanceRowsCountEachAnimalOnce", func(t *testing.T) {
+		var tracked int64
+		// Load A: 4 tracked (goats 1-4) + 2 prior = 6 bought; load B declares 10 but tracks 1.
+		// on_farm over the unfiltered live set is 3 + 1 = 4 live animals, none counted twice.
+		for _, row := range read(t, domain.CountsBreakdownQuery{}) {
+			tracked += row.OnFarm
+		}
+		if tracked != 4 {
+			t.Errorf("live animals across loads = %d, want 4 (goat 5 on one load only)", tracked)
+		}
+	})
+
+	// PaginationIndependence: the pen table's limit/offset never touch the loads read.
+	t.Run("PaginationOfThePenTableLeavesLoadsWhole", func(t *testing.T) {
+		paged := read(t, domain.CountsBreakdownQuery{GroupByPen: true, Limit: 1, Offset: 1})
+		if !reflect.DeepEqual(paged, got.Loads) {
+			t.Errorf("loads under Limit 1 / Offset 1 = %+v, want the same whole-result rows %+v", paged, got.Loads)
+		}
+	})
+
+	// ParkScopeHierarchy: a park predicate narrows on-farm to that park's animals and leaves
+	// bought -- the load's own fact -- untouched. Every animal here sits in countsPark, so an
+	// unrelated park empties on-farm without dropping a load.
+	t.Run("ParkScopeHierarchyNarrowsOnFarmButNeverBought", func(t *testing.T) {
+		same := read(t, domain.CountsBreakdownQuery{ParkIDs: []string{countsPark}})
+		if !reflect.DeepEqual(same, got.Loads) {
+			t.Errorf("own-park scope changed the loads: %+v", same)
+		}
+		other := read(t, domain.CountsBreakdownQuery{ParkIDs: []string{"00000000-0000-4000-8000-000000003999"}})
+		if len(other) != 2 || other[0].OnFarm != 0 || other[1].OnFarm != 0 || other[1].Purchased != 6 || other[0].Purchased != 10 {
+			t.Errorf("other-park scope = %+v, want both loads listed, on_farm 0, bought 6 and 10", other)
+		}
+	})
+
+	// StatusMatrix: the live default excludes the dead animal; asking for the dead bucket reports
+	// exactly it, on its own load, with the tag it died carrying.
+	t.Run("StatusMatrixLifecycleBucketsAreDisjoint", func(t *testing.T) {
+		dead := read(t, domain.CountsBreakdownQuery{LifecycleStatus: strp("dead")})
+		da := dead[1]
+		if da.LoadID != loadA || da.OnFarm != 1 || da.Purchased != 6 ||
+			!reflect.DeepEqual(da.Stages, []domain.CountsBreakdownSeriesPoint{{Key: "Fattening", Label: "Fattening", Count: 1}}) ||
+			!reflect.DeepEqual(da.Sexes, []domain.CountsBreakdownSeriesPoint{{Key: "male", Label: "male", Count: 1}}) ||
+			!reflect.DeepEqual(da.CurrentTags, []domain.CountsBreakdownLoadTag{{Type: "animal_identifier_1", Value: "RFID-A-004", Count: 1}}) {
+			t.Errorf("dead bucket load A = %+v, want the one dead Fattening male and bought 6", da)
+		}
+		if dead[0].OnFarm != 0 {
+			t.Errorf("dead bucket load B on_farm = %d, want 0", dead[0].OnFarm)
+		}
+		if a.OnFarm+da.OnFarm != 4 {
+			t.Errorf("alive %d + dead %d on load A, want the 4 tracked animals partitioned exactly", a.OnFarm, da.OnFarm)
+		}
+	})
 }

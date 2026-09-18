@@ -21,6 +21,7 @@ import {
   type VaccinationPageSize,
 } from "@/features/preventive-care-vaccination";
 import { CountsBreakdownFilters, type BreakdownFilterField } from "./counts-breakdown-filters";
+import { CountsBreakdownLoads } from "./counts-breakdown-loads";
 import { CountsBreakdownPensTable } from "./counts-breakdown-pens-table";
 import { buildShedFilterOptions } from "./counts-breakdown-sheds";
 import { buildCountsSummaryCards, countsSexDetail } from "./counts-summary-cards";
@@ -595,6 +596,14 @@ export async function CountsBreakdownPage({
           </div>
         ))}
       </section>
+
+      {/* Purchased loads, last (maintainer request 2026-09-18): what each load brought in, what is
+          still here under the current filters, male/female, and the tag those animals carry now. */}
+      <CountsBreakdownLoads
+        loads={breakdown?.loads ?? []}
+        pageContract={pageContract}
+        genderLabels={new Map(genderChoices.map((choice) => [choice.value, choice.label] as const))}
+      />
     </div>
   );
 }

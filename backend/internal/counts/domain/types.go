@@ -604,6 +604,44 @@ type CountsBreakdownPenRow struct {
 	Rows []CountsBreakdownRow `json:"rows"`
 }
 
+// CountsBreakdownLoadTag is one current goat identifier value carried by filtered animals on a
+// purchased load. Values come from goat_identifiers, never goats.display_id.
+type CountsBreakdownLoadTag struct {
+	Type  string `json:"type"`
+	Value string `json:"value"`
+	Count int64  `json:"count"`
+}
+
+// CountsBreakdownLoadRow is one PURCHASED LOAD read against the census (maintainer request
+// 2026-09-18): how many animals the farm bought on that load, and of those still standing in the
+// filtered live herd, the current goat identifier tags they carry now plus the management-stage and
+// male/female split. The tag AT PURCHASE is deliberately not reported -- the maintainer asked for
+// the current one only.
+//
+// Purchased is the load's own fact and is NOT narrowed by the page filters: it is the same figure
+// Sales -> Purchase and Born shows for the load (identical membership rule -- every animal accepted
+// into the herd off that load, deduped to one load per animal by the same total order), so the two
+// screens can never disagree about how many animals a load brought. OnFarm, Stages and Sexes are
+// rolled up over the FILTERED live set, so filtering the page to Stage=Fattening answers "of what
+// we bought on this load, how many are fattening now". OnFarm == sum(Stages) == sum(Sexes) by
+// construction; a client renders the figures and never re-sums them.
+type CountsBreakdownLoadRow struct {
+	LoadID string `json:"load_id"`
+	// LoadRef is the farm's own load number ("101") when recorded, else "".
+	LoadRef      string `json:"load_ref"`
+	VendorName   string `json:"vendor_name"`
+	PurchaseDate string `json:"purchase_date"`
+	Purchased    int64  `json:"purchased"`
+	OnFarm       int64  `json:"on_farm"`
+	// CurrentTags are the active animal_identifier_1 / animal_identifier_2 values on the filtered
+	// animals in this load, largest first. They are actual goat identifiers, not display_id.
+	CurrentTags []CountsBreakdownLoadTag `json:"current_tags"`
+	// Stages is the CURRENT stage mix of the load's filtered live animals, largest first; Key is the
+	// raw stored stage ("" when unrecorded) and Label repeats it, as on the pen rows.
+	Stages []CountsBreakdownSeriesPoint `json:"stages"`
+	Sexes  []CountsBreakdownSeriesPoint `json:"sexes"`
+}
+
 // CountsBreakdown is the whole census breakdown payload: one page of grain rows plus
 // page-independent totals, chart series, and filter facets.
 //
@@ -622,7 +660,10 @@ type CountsBreakdown struct {
 	TotalAdults int64                 `json:"total_adults"`
 	Charts      CountsBreakdownCharts `json:"charts"`
 	Facets      CountsBreakdownFacets `json:"facets"`
-	ProjectedAt time.Time             `json:"projected_at"`
+	// Loads is the purchased-load read, newest purchase first, whole-result (never paged with the
+	// pen table) and never nil. A load none of whose animals were accepted into the herd is absent.
+	Loads       []CountsBreakdownLoadRow `json:"loads"`
+	ProjectedAt time.Time                `json:"projected_at"`
 }
 
 // CountsBreakdownPen selects one pen for the shed filter: a whole physical shed

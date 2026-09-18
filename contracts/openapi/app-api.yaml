@@ -37684,6 +37684,7 @@ components:
         - total_adults
         - charts
         - facets
+        - loads
         - projected_at
       properties:
         items:
@@ -37721,9 +37722,85 @@ components:
           $ref: "#/components/schemas/CountsBreakdownCharts"
         facets:
           $ref: "#/components/schemas/CountsBreakdownFacets"
+        loads:
+          type: array
+          description: >-
+            The purchased-load read, newest purchase first, whole-result (never paged with the
+            pen table). One row per load that brought at least one animal into the herd.
+          items:
+            $ref: "#/components/schemas/CountsBreakdownLoadRow"
         projected_at:
           type: string
           format: date-time
+    CountsBreakdownLoadRow:
+      type: object
+      additionalProperties: false
+      description: >-
+        One purchased load read against the census: how many animals it brought into the herd
+        (the same figure Sales -> Purchase and Born shows, NOT narrowed by the page filters), and
+        of those still standing in the FILTERED live herd, their current goat identifier tags,
+        current management-stage mix, and male/female split. on_farm equals the sum of stages
+        and the sum of sexes; a client never re-sums.
+      required:
+        - load_id
+        - load_ref
+        - vendor_name
+        - purchase_date
+        - purchased
+        - on_farm
+        - current_tags
+        - stages
+        - sexes
+      properties:
+        load_id:
+          type: string
+        load_ref:
+          type: string
+          description: The farm's own load number when recorded, else empty.
+        vendor_name:
+          type: string
+        purchase_date:
+          type: string
+          description: YYYY-MM-DD, or empty when the load carries no purchase date.
+        purchased:
+          type: integer
+          minimum: 0
+        on_farm:
+          type: integer
+          minimum: 0
+        current_tags:
+          type: array
+          description: Active animal_identifier_1 / animal_identifier_2 values carried by the filtered animals on this load. Values come from goat_identifiers, never display_id.
+          items:
+            $ref: "#/components/schemas/CountsBreakdownLoadTag"
+        stages:
+          type: array
+          description: Current management-stage mix of the load's filtered live animals, largest first. key is the raw stored stage, empty when unrecorded.
+          items:
+            $ref: "#/components/schemas/CountsBreakdownSeriesPoint"
+        sexes:
+          type: array
+          items:
+            $ref: "#/components/schemas/CountsBreakdownSeriesPoint"
+    CountsBreakdownLoadTag:
+      type: object
+      additionalProperties: false
+      description: One active current goat identifier value on a purchased load.
+      required:
+        - type
+        - value
+        - count
+      properties:
+        type:
+          type: string
+          enum:
+            - animal_identifier_1
+            - animal_identifier_2
+        value:
+          type: string
+        count:
+          type: integer
+          minimum: 0
     HerdAnalyticsSeriesPoint:
       type: object
       additionalProperties: false

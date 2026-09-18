@@ -3158,6 +3158,128 @@ const (
 	countsBreakdownMaxOffset    = 5000
 )
 
+// scale-guard:ignore: 5k-50k-envelope — indexed reads on procurement_load_goats
+// (tenant, current_state), goats PK and procurement_loads PK; output bounded by the number of
+// LOADS (a catalog that grows with purchases, tens to low hundreds), never by herd size, and the
+// served window is LIMITed to the newest loads.
+//
+// projection-review: membership=procurement_load_goats accepted rows deduped DISTINCT ON (goat_id) by the SAME total order Sales -> Purchase and Born uses (intake_accepted_at DESC NULLS LAST, created_at DESC, load_goat_id DESC), so an animal accepted on two loads lands on exactly one and the two screens name the same one, plus procurement_load_prior_outcomes pre-aggregated to one row per load; group_key=load_id on every side -- tracked GROUP BY m.load_id, prior GROUP BY load_id, live GROUP BY (m.load_id, stage, sex), each attaching 1:1 to procurement_loads on its PK; join_cardinality=goats joined 1:1 on its PK on both branches, goat_shed_partitions 1:{0,1} on its (tenant_id, goat_id) PK for the pen predicate only, parties 1:{0,1} on its PK for the vendor label; pagination=LIMIT newest loads by purchase_date over the whole grouped set, the per-load figures are whole-result and independent of the pen table's limit/offset; scope=tenant on every branch, the LIVE branch additionally carries the page's lifecycle/park/pen/stage/breed/sex predicates while the PURCHASED branch deliberately does not -- purchased is the load's own fact, and narrowing it would make the load read fewer animals than it brought
+//
+// Grain proof, side by side: producer `member` is unique on goat_id (DISTINCT ON); `tracked`
+// groups it by load_id, one row per load; `live` groups it by (load_id, stage, sex) and Go re-rolls
+// that to one row per load with two one-dimensional splits. on_farm ranges over a subset of the
+// same member set that tracked counts, so on_farm <= tracked <= purchased unless the load DECLARED
+// fewer animals than the register attributes to it -- which the Sales page shows in red as a
+// negative Unaccounted, and which this read reports as-is rather than hiding.
+//
+// WHY THE SAME MEMBERSHIP AS loadwiseSalesSQL, restated rather than imported: the two live in
+// different modules and neither may read the other's Go, so the rule is duplicated in SQL with
+// this comment naming the twin. A change to one must change the other, and
+// TestCountsBreakdownLoadsPurchasedMatchesTheSalesLoadRead pins the parity.
+const countsBreakdownLoadsSQL = `
+WITH member AS (
+    SELECT DISTINCT ON (plg.goat_id)
+           plg.goat_id, plg.load_id
+    FROM procurement_load_goats plg
+    WHERE plg.tenant_id = $1::uuid AND plg.current_state = 'accepted_herd_intake'
+    ORDER BY plg.goat_id, plg.intake_accepted_at DESC NULLS LAST, plg.created_at DESC, plg.load_goat_id DESC
+),
+tracked AS (
+    SELECT m.load_id, count(*) AS tracked
+    FROM member m
+    JOIN goats g ON g.tenant_id = $1::uuid AND g.goat_id = m.goat_id
+    GROUP BY m.load_id
+),
+-- Pre-GoatOS outcomes (sold/died before the register existed), one aggregate per load on its
+-- natural key (tenant, load, outcome), so 1:1 with the load it attaches to.
+prior AS (
+    SELECT load_id, COALESCE(sum(animal_count), 0)::bigint AS prior_animals
+    FROM procurement_load_prior_outcomes
+    WHERE tenant_id = $1::uuid
+    GROUP BY load_id
+),
+-- PURCHASED is the SAME rule as Sales -> Purchase and Born (procurement/domain.FinalizeLoadwise):
+-- the load's DECLARED size when it states one, else the animals attributed to it -- tracked plus
+-- prior outcomes. The two screens must name the same number for a load.
+purchased AS (
+    SELECT pl.load_id,
+           CASE WHEN pl.expected_count > 0 THEN pl.expected_count::bigint
+                ELSE COALESCE(t.tracked, 0) + COALESCE(pr.prior_animals, 0) END AS purchased
+    FROM procurement_loads pl
+    LEFT JOIN tracked t ON t.load_id = pl.load_id
+    LEFT JOIN prior pr ON pr.load_id = pl.load_id
+    WHERE pl.tenant_id = $1::uuid
+      AND (t.load_id IS NOT NULL OR pr.load_id IS NOT NULL)
+),
+window_loads AS (
+    SELECT pl.load_id, COALESCE(pl.context->>'load_ref', '') AS load_ref,
+           COALESCE(p.display_name, '') AS vendor_name,
+           COALESCE(to_char(pl.purchase_date, 'YYYY-MM-DD'), '') AS purchase_date,
+           pu.purchased
+    FROM procurement_loads pl
+    JOIN purchased pu ON pu.load_id = pl.load_id
+    LEFT JOIN parties p ON p.party_id = pl.source_party_id
+    WHERE pl.tenant_id = $1::uuid
+    ORDER BY pl.purchase_date DESC NULLS LAST, pl.created_at DESC, pl.load_id
+    LIMIT 100
+),
+live_detail AS (
+    SELECT m.load_id,
+           g.goat_id,
+           COALESCE(g.management_stage, '') AS management_stage,
+           g.sex
+    FROM member m
+    JOIN window_loads w ON w.load_id = m.load_id
+    JOIN goats g ON g.tenant_id = $1::uuid AND g.goat_id = m.goat_id
+    LEFT JOIN goat_shed_partitions gsp
+           ON gsp.tenant_id = g.tenant_id AND gsp.goat_id = g.goat_id
+    WHERE g.merged_into_goat_id IS NULL
+      AND ($2 = '' OR g.lifecycle_status = $2)
+      AND (cardinality($3::text[]) = 0 OR g.park_id = ANY($3::text[]::uuid[]))
+      AND (cardinality($5::text[]) = 0 OR COALESCE(g.management_stage, '') = ANY($5::text[]))
+      AND (cardinality($6::text[]) = 0 OR COALESCE(g.breed, '') = ANY($6::text[]))
+      AND (cardinality($7::text[]) = 0 OR g.sex = ANY($7::text[]))
+      AND (cardinality($4::text[]) = 0 OR EXISTS (
+        SELECT 1
+        -- Same pen predicate as the grouped CTE, wildcard shed included: an empty shed_id
+        -- with a partition selects that partition across every shed.
+        FROM unnest($4::text[], $8::text[]) AS pen(shed_id, partition_label)
+        WHERE (pen.shed_id = '' OR g.shed_id = NULLIF(pen.shed_id, '')::uuid)
+          AND (pen.partition_label = ''
+               OR ` + partitionKeyExpr + ` = regexp_replace(lower(btrim(pen.partition_label)), '^part[[:space:]]+', ''))
+      ))
+),
+live AS (
+    SELECT load_id, management_stage, sex, count(*) AS animal_count
+    FROM live_detail
+    GROUP BY load_id, management_stage, sex
+),
+current_tags AS (
+    SELECT tagged.load_id,
+           COALESCE(jsonb_agg(
+               jsonb_build_object('type', tagged.identifier_type, 'value', tagged.identifier_value, 'count', tagged.tag_count)
+               ORDER BY tagged.tag_count DESC, tagged.identifier_type, tagged.identifier_value
+           ), '[]'::jsonb) AS tags
+    FROM (
+        SELECT ld.load_id, gi.identifier_type, gi.identifier_value, count(*) AS tag_count
+        FROM live_detail ld
+        JOIN goat_identifiers gi
+          ON gi.tenant_id = $1::uuid
+         AND gi.goat_id = ld.goat_id
+         AND gi.status = 'active'
+         AND gi.identifier_type IN ('animal_identifier_1', 'animal_identifier_2')
+        GROUP BY ld.load_id, gi.identifier_type, gi.identifier_value
+    ) tagged
+    GROUP BY tagged.load_id
+)
+SELECT w.load_id::text, w.load_ref, w.vendor_name, w.purchase_date, w.purchased,
+       COALESCE(l.management_stage, ''), COALESCE(l.sex, ''), COALESCE(l.animal_count, 0),
+       COALESCE(ct.tags, '[]'::jsonb)
+FROM window_loads w
+LEFT JOIN live l ON l.load_id = w.load_id
+LEFT JOIN current_tags ct ON ct.load_id = w.load_id
+ORDER BY w.purchase_date DESC, w.load_id, COALESCE(l.animal_count, 0) DESC, l.management_stage, l.sex`
+
 // GetCountsBreakdown serves the Counts Breakdown census: one page of farm x stage x breed x sex x
 // shed grain rows, plus totals, chart series, and filter facets that are all whole-result rollups.
 //
@@ -3224,6 +3346,7 @@ func (r *Repository) GetCountsBreakdown(ctx context.Context, req domain.CountsBr
 	batch.Queue(pageSQL, append(append([]any{}, grainArgs...), limit, offset)...)
 	batch.Queue(countsBreakdownChartsSQL, grainArgs...)
 	batch.Queue(countsBreakdownFacetsSQL, req.TenantID, lifecycle)
+	batch.Queue(countsBreakdownLoadsSQL, grainArgs...)
 
 	results := r.pool.SendBatch(ctx, batch)
 	defer func() { _ = results.Close() }()
@@ -3382,6 +3505,15 @@ func (r *Repository) GetCountsBreakdown(ctx context.Context, req domain.CountsBr
 		return domain.CountsBreakdown{}, fmt.Errorf("counts breakdown: facets iterate: %w", err)
 	}
 
+	loadRows, err := results.Query()
+	if err != nil {
+		return domain.CountsBreakdown{}, fmt.Errorf("counts breakdown: loads query: %w", err)
+	}
+	out.Loads, err = scanCountsBreakdownLoads(loadRows)
+	if err != nil {
+		return domain.CountsBreakdown{}, err
+	}
+
 	if out.Charts.Breed == nil {
 		out.Charts.Breed = []domain.CountsBreakdownSeriesPoint{}
 	}
@@ -3415,6 +3547,91 @@ func (r *Repository) GetCountsBreakdown(ctx context.Context, req domain.CountsBr
 
 	out.ProjectedAt = time.Now().UTC()
 	return out, nil
+}
+
+// scanCountsBreakdownLoads drains the loads read: one row per load x current stage x sex (or one
+// row with a blank stage/sex and a zero count for a load none of whose animals survive the
+// filter), re-rolled to one CountsBreakdownLoadRow per load. Rows arrive load-contiguous.
+func scanCountsBreakdownLoads(rows pgx.Rows) ([]domain.CountsBreakdownLoadRow, error) {
+	defer rows.Close()
+	out := []domain.CountsBreakdownLoadRow{}
+	stageTotals := map[string]int64{}
+	sexTotals := map[string]int64{}
+	var stageOrder, sexOrder []string
+	flush := func() {
+		if len(out) == 0 {
+			return
+		}
+		row := &out[len(out)-1]
+		row.Stages = rollupSeries(stageOrder, stageTotals)
+		row.Sexes = rollupSeries(sexOrder, sexTotals)
+		stageTotals, sexTotals = map[string]int64{}, map[string]int64{}
+		stageOrder, sexOrder = nil, nil
+	}
+	for rows.Next() {
+		var loadID, loadRef, vendor, purchaseDate, stage, sex string
+		var purchased, count int64
+		var tagJSON []byte
+		if err := rows.Scan(&loadID, &loadRef, &vendor, &purchaseDate, &purchased, &stage, &sex, &count, &tagJSON); err != nil {
+			return nil, fmt.Errorf("counts breakdown: loads scan: %w", err)
+		}
+		if len(out) == 0 || out[len(out)-1].LoadID != loadID {
+			flush()
+			tags, err := decodeCountsBreakdownLoadTags(tagJSON)
+			if err != nil {
+				return nil, err
+			}
+			out = append(out, domain.CountsBreakdownLoadRow{
+				LoadID: loadID, LoadRef: loadRef, VendorName: vendor, PurchaseDate: purchaseDate,
+				Purchased:   purchased,
+				CurrentTags: tags,
+				Stages:      []domain.CountsBreakdownSeriesPoint{},
+				Sexes:       []domain.CountsBreakdownSeriesPoint{},
+			})
+		}
+		if count == 0 {
+			continue
+		}
+		row := &out[len(out)-1]
+		row.OnFarm += count
+		if _, seen := stageTotals[stage]; !seen {
+			stageOrder = append(stageOrder, stage)
+		}
+		stageTotals[stage] += count
+		if _, seen := sexTotals[sex]; !seen {
+			sexOrder = append(sexOrder, sex)
+		}
+		sexTotals[sex] += count
+	}
+	flush()
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("counts breakdown: loads iterate: %w", err)
+	}
+	return out, nil
+}
+
+func decodeCountsBreakdownLoadTags(raw []byte) ([]domain.CountsBreakdownLoadTag, error) {
+	if len(raw) == 0 {
+		return []domain.CountsBreakdownLoadTag{}, nil
+	}
+	var tags []domain.CountsBreakdownLoadTag
+	if err := json.Unmarshal(raw, &tags); err != nil {
+		return nil, fmt.Errorf("counts breakdown: loads current tags decode: %w", err)
+	}
+	if tags == nil {
+		return []domain.CountsBreakdownLoadTag{}, nil
+	}
+	return tags, nil
+}
+
+// rollupSeries turns per-key totals into a series, largest first (ties by first appearance).
+func rollupSeries(order []string, totals map[string]int64) []domain.CountsBreakdownSeriesPoint {
+	out := make([]domain.CountsBreakdownSeriesPoint, 0, len(order))
+	for _, k := range order {
+		out = append(out, domain.CountsBreakdownSeriesPoint{Key: k, Label: k, Count: totals[k]})
+	}
+	sort.SliceStable(out, func(i, j int) bool { return out[i].Count > out[j].Count })
+	return out
 }
 
 // scanCountsBreakdownGrain drains the grain page: one row per stage x breed x sex combination.

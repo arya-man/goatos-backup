@@ -16114,8 +16114,33 @@ export interface components {
             total_adults: number;
             charts: components["schemas"]["CountsBreakdownCharts"];
             facets: components["schemas"]["CountsBreakdownFacets"];
+            /** @description The purchased-load read, newest purchase first, whole-result (never paged with the pen table). One row per load that brought at least one animal into the herd. */
+            loads: components["schemas"]["CountsBreakdownLoadRow"][];
             /** Format: date-time */
             projected_at: string;
+        };
+        /** @description One purchased load read against the census: how many animals it brought into the herd (the same figure Sales -> Purchase and Born shows, NOT narrowed by the page filters), and of those still standing in the FILTERED live herd, their current goat identifier tags, current management-stage mix, and male/female split. on_farm equals the sum of stages and the sum of sexes; a client never re-sums. */
+        CountsBreakdownLoadRow: {
+            load_id: string;
+            /** @description The farm's own load number when recorded, else empty. */
+            load_ref: string;
+            vendor_name: string;
+            /** @description YYYY-MM-DD, or empty when the load carries no purchase date. */
+            purchase_date: string;
+            purchased: number;
+            on_farm: number;
+            /** @description Active animal_identifier_1 / animal_identifier_2 values carried by the filtered animals on this load. Values come from goat_identifiers, never display_id. */
+            current_tags: components["schemas"]["CountsBreakdownLoadTag"][];
+            /** @description Current management-stage mix of the load's filtered live animals, largest first. key is the raw stored stage, empty when unrecorded. */
+            stages: components["schemas"]["CountsBreakdownSeriesPoint"][];
+            sexes: components["schemas"]["CountsBreakdownSeriesPoint"][];
+        };
+        /** @description One active current goat identifier value on a purchased load. */
+        CountsBreakdownLoadTag: {
+            /** @enum {string} */
+            type: "animal_identifier_1" | "animal_identifier_2";
+            value: string;
+            count: number;
         };
         /** @description One composition bar. `key` is the raw stored value and is empty for an unassigned bucket; the client renders its own contract copy for that case rather than inventing a label here. */
         HerdAnalyticsSeriesPoint: {
