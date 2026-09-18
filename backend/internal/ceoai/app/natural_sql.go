@@ -13,10 +13,11 @@ import (
 var activeAnimalQuestion = regexp.MustCompile(`(?i)\b(how many|count|present|active|do we have|headcount|census|split|breakdown|break down)\b.*\b(animal|animals|goat|goats|sheep)\b|\b(animal|animals|goat|goats|sheep)\b.*\b(how many|count|present|active|do we have|headcount|census|split|breakdown|break down)\b`)
 var farmBornQuestion = regexp.MustCompile(`(?i)\b(farm[- ]?born|born in (the )?farm|born at (the )?farm|home[- ]?bred|own farms?|our farms?|birth origin)\b`)
 var breedQuestion = regexp.MustCompile(`(?i)\b(breed|breeds)\b`)
-var weighingQuestion = regexp.MustCompile(`(?i)\b(weighing|weighed|weight|avg wt|avg weight|average weight|lowest avg|lowest average|low average weight|lump[- ]?sum|per animal|weight[- ]?wise|weight band|feed by weight band|matched animals)\b`)
+var weighingQuestion = regexp.MustCompile(`(?i)\b(weighing|weighed|weight|avg wt|avg weight|average weight|lowest avg|lowest average|low average weight|lump[- ]?sum|per animal|weight[- ]?wise|weight band)\b`)
 var mortalityQuestion = regexp.MustCompile(`(?i)\b(mortality|death|deaths|dead|died|kid deaths|adult deaths|cause established|first week|7 days of birth)\b`)
 var vaccinationQuestion = regexp.MustCompile(`(?i)\b(vaccination|vaccinations|vaccinate|vaccine|overdue|missed)\b`)
 var feedQuestion = regexp.MustCompile(`(?i)\b(feed|fed|feeding)\b`)
+var feedByWeightBandQuestion = regexp.MustCompile(`(?i)\b(feed by weight band|matched animals)\b`)
 var sourceEntryHealthQuestion = regexp.MustCompile(`(?i)\b(source[- ]?entry health|source health|import health|procurement health|arrival health)\b`)
 var opsRiskQuestion = regexp.MustCompile(`(?i)\b(worry|risk|exception|exceptions|gap|gaps|action center)\b`)
 
@@ -35,6 +36,9 @@ func naturalSQLPlan(q domain.Question, mem []domain.ResolvedEntities) (domain.Su
 	normalizedText := normalizeNaturalSQLText(q.Text)
 	if asksForSales(normalizedText) {
 		return naturalSalesPlan(q, normalizedText, mem), true
+	}
+	if feedByWeightBandQuestion.MatchString(normalizedText) {
+		return domain.SubQuestion{}, false
 	}
 	if mortalityQuestion.MatchString(normalizedText) || weighingQuestion.MatchString(normalizedText) {
 		if sub, ok := naturalOperationalSQLPlan(q, normalizedText, mem); ok {
@@ -104,7 +108,7 @@ func naturalOperationalSQLPlan(q domain.Question, normalizedText string, mem []d
 		return sqlSubQuestion(q, "weighing_live_sql", weighingSQL(q.Actor.TenantID, scope, hasScope, normalizedText), "weighing", scope, hasScope), true
 	case vaccinationQuestion.MatchString(normalizedText) && (strings.Contains(normalizedText, "overload") || strings.Contains(normalizedText, "over capacity")):
 		return sqlSubQuestion(q, "vaccination_operator_live_sql", vaccinationOperatorSQL(q.Actor.TenantID, scope, hasScope), "vaccination_operator", scope, hasScope), true
-	case feedQuestion.MatchString(normalizedText):
+	case feedQuestion.MatchString(normalizedText) && !feedByWeightBandQuestion.MatchString(normalizedText):
 		return sqlSubQuestion(q, "feed_live_sql", feedSQL(q.Actor.TenantID, scope, hasScope, q.AsOf), "feed", scope, hasScope), true
 	case sourceEntryHealthQuestion.MatchString(normalizedText):
 		sub := sqlSubQuestion(q, "health_issue_live_sql", healthIssueSQL(q.Actor.TenantID, scope, hasScope), "health_issue", scope, hasScope)
@@ -293,7 +297,7 @@ func activeAnimalsSQL(tenantID string, scopes []knownParkScope, groupBy, text st
 }
 
 func weighingSQL(tenantID string, scope knownParkScope, hasScope bool, text string) string {
-	where := "tenant_id = " + sqlStringLiteral(tenantID) + " AND shed_weight_avg_kg IS NOT NULL"
+	where := "tenant_id = " + sqlStringLiteral(tenantID)
 	if hasScope {
 		where += " AND park_id_text_not_used = park_id_text_not_used"
 		where = strings.Replace(where, " AND park_id_text_not_used = park_id_text_not_used", " AND park_label = "+sqlStringLiteral(scope.label), 1)
@@ -317,14 +321,16 @@ func weighingSQL(tenantID string, scope knownParkScope, hasScope bool, text stri
 		)
 	}
 	if wantsPenBreakdown(text) || wantsLowestWeightRanking(text) {
+		avgWhere := where + " AND shed_weight_avg_kg IS NOT NULL"
 		return fmt.Sprintf(
 			"SELECT 'Average weight kg' AS label, CAST(shed_weight_avg_kg AS text) AS value, shed_label AS scope FROM ceo_ai.weighing_capture_activity WHERE %s ORDER BY shed_weight_avg_kg ASC LIMIT 50",
-			where,
+			avgWhere,
 		)
 	}
+	avgWhere := where + " AND shed_weight_avg_kg IS NOT NULL"
 	return fmt.Sprintf(
 		"SELECT 'Average weight kg' AS label, CAST(avg(shed_weight_avg_kg) AS text) AS value, 'selected scope' AS scope FROM ceo_ai.weighing_capture_activity WHERE %s LIMIT 50",
-		where,
+		avgWhere,
 	)
 }
 

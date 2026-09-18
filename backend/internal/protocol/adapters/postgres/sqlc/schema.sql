@@ -3141,19 +3141,34 @@ CREATE VIEW ceo_ai.inventory_stock_position AS
 --
 
 CREATE VIEW ceo_ai.mortality_base AS
- WITH deaths AS (
+ WITH dead AS (
          SELECT g.tenant_id,
             g.park_id,
-            ((g.exited_at AT TIME ZONE 'Asia/Kolkata'::text))::date AS event_date,
-            count(*) AS deaths,
-            count(*) FILTER (WHERE ((g.management_stage ~~* 'k%'::text) OR ((((g.exited_at AT TIME ZONE 'Asia/Kolkata'::text))::date - COALESCE(g.dob, g.approx_dob)) < 365))) AS kid_deaths,
-            count(*) FILTER (WHERE (NOT ((g.management_stage ~~* 'k%'::text) OR ((((g.exited_at AT TIME ZONE 'Asia/Kolkata'::text))::date - COALESCE(g.dob, g.approx_dob)) < 365)))) AS adult_deaths,
-            count(*) FILTER (WHERE (((((g.exited_at AT TIME ZONE 'Asia/Kolkata'::text))::date - COALESCE(g.dob, g.approx_dob)) >= 0) AND ((((g.exited_at AT TIME ZONE 'Asia/Kolkata'::text))::date - COALESCE(g.dob, g.approx_dob)) <= 7))) AS first_week_deaths,
-            count(*) FILTER (WHERE (hdc.goat_id IS NOT NULL)) AS cause_established
+            COALESCE(((g.exited_at AT TIME ZONE 'Asia/Kolkata'::text))::date, ((g.updated_at AT TIME ZONE 'Asia/Kolkata'::text))::date) AS event_date,
+            g.management_stage,
+            g.dob,
+            g.approx_dob,
+            g.goat_id,
+            (hdc.goat_id IS NOT NULL) AS recorded_cause,
+            COALESCE(inferred.has_case, false) AS inferred_cause
            FROM public.goats g
              LEFT JOIN public.health_death_causes hdc ON (((hdc.tenant_id = g.tenant_id) AND (hdc.goat_id = g.goat_id)))
-          WHERE ((g.exited_at IS NOT NULL) AND ((g.exit_reason = 'died'::text) OR ((g.exit_reason IS NULL) AND (g.lifecycle_status = 'dead'::text))))
-          GROUP BY g.tenant_id, g.park_id, (((g.exited_at AT TIME ZONE 'Asia/Kolkata'::text))::date)
+             LEFT JOIN LATERAL ( SELECT true AS has_case
+                   FROM public.health_cases c
+                  WHERE ((c.tenant_id = g.tenant_id) AND (c.goat_id = g.goat_id) AND (c.status = ANY (ARRAY['closed_dead'::text, 'held_death_review'::text])) AND (c.start_date <= COALESCE(((g.exited_at AT TIME ZONE 'Asia/Kolkata'::text))::date, ((g.updated_at AT TIME ZONE 'Asia/Kolkata'::text))::date)) AND ((c.closed_at IS NULL) OR (((c.closed_at AT TIME ZONE 'Asia/Kolkata'::text))::date >= COALESCE(((g.exited_at AT TIME ZONE 'Asia/Kolkata'::text))::date, ((g.updated_at AT TIME ZONE 'Asia/Kolkata'::text))::date))))
+                 LIMIT 1) inferred ON (true)
+          WHERE (((g.exited_at IS NOT NULL) OR ((g.exit_reason IS NULL) AND (g.lifecycle_status = 'dead'::text))) AND ((g.exit_reason = 'died'::text) OR ((g.exit_reason IS NULL) AND (g.lifecycle_status = 'dead'::text))))
+        ), deaths AS (
+         SELECT dead.tenant_id,
+            dead.park_id,
+            dead.event_date,
+            count(*) AS deaths,
+            count(*) FILTER (WHERE ((dead.management_stage ~~* 'k%'::text) OR ((dead.event_date - COALESCE(dead.dob, dead.approx_dob)) < 365))) AS kid_deaths,
+            count(*) FILTER (WHERE (NOT ((dead.management_stage ~~* 'k%'::text) OR ((dead.event_date - COALESCE(dead.dob, dead.approx_dob)) < 365)))) AS adult_deaths,
+            count(*) FILTER (WHERE (((dead.event_date - COALESCE(dead.dob, dead.approx_dob)) >= 0) AND ((dead.event_date - COALESCE(dead.dob, dead.approx_dob)) <= 7))) AS first_week_deaths,
+            count(*) FILTER (WHERE (dead.recorded_cause OR dead.inferred_cause)) AS cause_established
+           FROM dead
+          GROUP BY dead.tenant_id, dead.park_id, dead.event_date
         ), pop AS (
          SELECT goats.tenant_id,
             goats.park_id,

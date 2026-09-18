@@ -562,7 +562,17 @@ func TestNaturalWeighingCountQuestionsUseDashboardDenominatorTerms(t *testing.T)
 			if !strings.Contains(sqlFB.lastSQL, "ceo_ai.weighing_capture_activity") || !strings.Contains(sqlFB.lastSQL, tc.want) {
 				t.Fatalf("weighing SQL missing %q: %s", tc.want, sqlFB.lastSQL)
 			}
+			if tc.name != "all weighed" && strings.Contains(sqlFB.lastSQL, "shed_weight_avg_kg IS NOT NULL") {
+				t.Fatalf("counting %s must not require shed averages: %s", tc.name, sqlFB.lastSQL)
+			}
 		})
+	}
+}
+
+func TestNaturalFeedByWeightBandDoesNotUseGenericFeedOrWeighingSQL(t *testing.T) {
+	sub, ok := naturalSQLPlan(domain.Question{Actor: leadershipActor(), Text: "how many matched animals in feed by weight band"}, nil)
+	if ok {
+		t.Fatalf("feed-band matched animals needs a dedicated dashboard reader, not generic %s/%s: %+v", sub.IntentClass, sub.ToolName, sub)
 	}
 }
 

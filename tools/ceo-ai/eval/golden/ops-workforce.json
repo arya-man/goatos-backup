@@ -225,7 +225,7 @@
     },
     "oracle": {
       "kind": "scalar_int",
-      "sql": "SELECT COALESCE(sum(animals_weighed), 0)::bigint FROM ceo_ai.weighing_capture_activity WHERE tenant_id = :'tenant_id'::uuid AND weighing_category = 'per_shed_partition' AND shed_weight_avg_kg IS NOT NULL"
+      "sql": "SELECT COALESCE(sum(animals_weighed), 0)::bigint FROM ceo_ai.weighing_capture_activity WHERE tenant_id = :'tenant_id'::uuid AND weighing_category = 'per_shed_partition'"
     }
   },
   {
@@ -240,7 +240,7 @@
     },
     "oracle": {
       "kind": "scalar_int",
-      "sql": "SELECT COALESCE(sum(animals_weighed), 0)::bigint FROM ceo_ai.weighing_capture_activity WHERE tenant_id = :'tenant_id'::uuid AND weighing_category = 'individual_animal' AND shed_weight_avg_kg IS NOT NULL"
+      "sql": "SELECT COALESCE(sum(animals_weighed), 0)::bigint FROM ceo_ai.weighing_capture_activity WHERE tenant_id = :'tenant_id'::uuid AND weighing_category = 'individual_animal'"
     }
   }
 ]
