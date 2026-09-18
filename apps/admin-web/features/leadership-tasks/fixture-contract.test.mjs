@@ -188,3 +188,37 @@ assert.deepEqual(
   ["task", "assignee", "raised_by", "status", "evidence", "days_left"],
   "fixture columns must mirror the backend contract's column list, in order",
 );
+
+// The board's own sentences were read through the 3-arg `copy(contract, key, fallback)` form,
+// which never throws -- so the contract could silently NOT serve them and the fallback would
+// render instead (pending-work P4). The contract owns copy: each of these must be served by
+// service.go, mirrored in the fixture, and the frontend fallback must say the same thing, so the
+// screen reads identically before and after the contract arrives and nobody rewords one side.
+const BOARD_KEYS = [
+  "board.aria",
+  "board.on_this_page",
+  "board.focus_status",
+  "board.total_unavailable",
+  "board.column_empty",
+  "board.drag_hint",
+  "board.drag_moving",
+];
+const fallbacks = new Map();
+for (const [, source] of sources) {
+  for (const match of source.matchAll(
+    /\bcopy\(\s*([A-Za-z_$][\w$]*)\s*,\s*"([^"]+)"\s*,\s*"((?:[^"\\]|\\.)*)"\s*,?\s*\)/g,
+  )) {
+    fallbacks.set(match[2], match[3]);
+  }
+}
+for (const key of BOARD_KEYS) {
+  assert.ok(backendCopy.has(key), `service.go does not serve ${key} for leadership-tasks (P4)`);
+  assert.ok(key in fixture.copy, `fixture contract is missing ${key}`);
+  assert.equal(fixture.copy[key], backendCopy.get(key), `fixture and service.go disagree on ${key}`);
+  assert.ok(fallbacks.has(key), `expected a literal 3-arg copy() fallback for ${key} in the feature source`);
+  assert.equal(
+    fallbacks.get(key),
+    backendCopy.get(key),
+    `the frontend fallback for ${key} differs from what service.go serves -- reword both together`,
+  );
+}

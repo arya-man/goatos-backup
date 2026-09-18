@@ -2090,6 +2090,20 @@ func pageSpecificCopy(id string) map[string]string {
 			// is the one thing a column cannot show: a column holds this page of the list,
 			// and Open is 179 rows.
 			"board.focus_status": "See every task in this status",
+			// ── THE REST OF THE BOARD'S OWN WORDS ────────────────────────────────────────
+			// These rendered from the screen's 3-arg `copy(contract, key, fallback)` defaults
+			// because the contract never carried them; the text is the fallback verbatim so
+			// nothing on the live board changes hands. The board owns its own group label,
+			// per-column count sentence, the tooltip for a total the list query does not
+			// publish, an empty column, and the two drag sentences: the hint under the
+			// columns (desktop-only, where a drag exists) and the live-region prefix that
+			// announces the move in flight to a screen reader.
+			"board.aria":              "Tasks by status",
+			"board.on_this_page":      "on this page",
+			"board.total_unavailable": "The whole-list total for this status is not published.",
+			"board.column_empty":      "Nothing in this status on this page.",
+			"board.drag_hint":         "Drag a card onto a status it is allowed to move to, or open a task and use its status buttons.",
+			"board.drag_moving":       "Moving",
 			// The board under a status filter draws ONLY that status's column, because the
 			// row query can only return that status — four columns under `filter=done` left
 			// Open and Doing reading "0 on this page" beneath header pills of 179 and 118.
