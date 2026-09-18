@@ -2,7 +2,7 @@
 -- Ask Mesha needs the same operational facts the dashboard cards show: farm-born
 -- animals from the current scope and mortality tiles using the current Counts
 -- death predicate. Both view rebuilds preserve existing column order and append
--- new columns so CREATE OR REPLACE VIEW is safe on already-migrated databases.
+-- new columns, so replacing the views is safe on already-migrated databases.
 
 CREATE OR REPLACE VIEW ceo_ai.animal_current_scope AS
 SELECT
