@@ -5,8 +5,9 @@ import { fmtDate } from "@/lib/format";
 
 // Counts Breakdown -> Purchased loads: the last card on the page (maintainer request 2026-09-18).
 // One column group per purchased load — animals bought, still on farm under the current filters,
-// male and female — and, in the table under the chart, the current RFID/tag identifiers those
-// animals carry now. The tag at purchase is deliberately not shown. A SERVER component that renders the backend's own per-load
+// male and female — repeated as a table under the chart. No tag column (maintainer request
+// 2026-09-18: the per-animal identifiers were noise here; a load with 58 animals listed 58 chips).
+// A SERVER component that renders the backend's own per-load
 // figures verbatim: `on_farm` is the backend's sum of its `stages` and of its `sexes`, and nothing
 // here re-sums either.
 
@@ -51,7 +52,6 @@ export function CountsBreakdownLoads({
     "column.load_bought_on",
     "column.load_purchased",
     "column.load_on_farm",
-    "column.load_current_tags",
     "column.load_male",
     "column.load_female",
   ] as const;
@@ -107,20 +107,6 @@ export function CountsBreakdownLoads({
                   <td style={{ textAlign: "right" }}>{load.purchased}</td>
                   <td style={{ textAlign: "right" }}>
                     <b>{load.on_farm}</b>
-                  </td>
-                  <td>
-                    {load.current_tags.length === 0 ? (
-                      <span className="muted">{copy(pageContract, "value.load_none_on_farm")}</span>
-                    ) : (
-                      <span className="dimchips">
-                        {load.current_tags.map((tag) => (
-                          <span key={`${tag.type}:${tag.value}`} className="dimchip">
-                            <span className="mono">{tag.value}</span>
-                            {tag.count > 1 ? <b>{tag.count}</b> : null}
-                          </span>
-                        ))}
-                      </span>
-                    )}
                   </td>
                   <td style={{ textAlign: "right" }}>{countFor(load.sexes, maleKey)}</td>
                   <td style={{ textAlign: "right" }}>{countFor(load.sexes, femaleKey)}</td>

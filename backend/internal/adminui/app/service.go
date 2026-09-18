@@ -5323,7 +5323,7 @@ func pageSpecificCopy(id string) map[string]string {
 			// would expect the two bars to match.
 			"section.loads.title":         "Purchased loads",
 			"section.loads.aria":          "Purchased loads against the live herd",
-			"section.loads.caption":       "Each load's animals bought, still on farm under the current filters, and male / female — with the tag they carry now. Bought is the load's own total and does not follow the filters.",
+			"section.loads.caption":       "Each load's animals bought, still on farm under the current filters, and male / female. Bought is the load's own total and does not follow the filters.",
 			"chart.loads.aria":            "Animals per purchased load",
 			"chart.loads.empty":           "No purchased load has animals in the herd yet.",
 			"chart.series.load_purchased": "Bought",
@@ -5332,16 +5332,14 @@ func pageSpecificCopy(id string) map[string]string {
 			"chart.series.load_female":    "Female",
 			"label.load":                  "Load",
 			"label.load_unnumbered":       "Unnumbered load",
-			"table.loads.aria":            "Current tag of each purchased load's animals",
+			"table.loads.aria":            "Each purchased load's animals against the live herd",
 			"column.load":                 "Load",
 			"column.load_vendor":          "Vendor",
 			"column.load_bought_on":       "Bought on",
 			"column.load_purchased":       "Bought",
 			"column.load_on_farm":         "On farm",
-			"column.load_current_tags":    "Current tag",
 			"column.load_male":            "Male",
 			"column.load_female":          "Female",
-			"value.load_none_on_farm":     "none under these filters",
 
 			// Whole-pen stage change (maintainer decision 2026-08-12). Copy is deliberately plain
 			// farm language: the operator is retagging a pen, not "reclassifying a cohort".
