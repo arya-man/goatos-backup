@@ -25,76 +25,6 @@ import (
 const locationStatusSQL = `CASE WHEN l.status = 'active' THEN 'active' ELSE 'archived' END`
 
 // ---------------------------------------------------------------------------------------------
-// Farms
-
-type farmStore struct{}
-
-var farmProjection = projection{sql: `
-SELECT l.location_id::text AS id,
-       l.name AS display,
-       ` + locationStatusSQL + ` AS status,
-       l.row_version,
-       false AS is_builtin,
-       jsonb_build_object('name', l.name, 'code', l.location_code, 'kind', fp.farm_kind, 'notes', NULLIF(fp.notes, '')) AS fields,
-       '{}'::jsonb AS labels,
-       jsonb_build_object('parks', (SELECT count(*) FROM locations c WHERE c.tenant_id = l.tenant_id AND c.parent_location_id = l.location_id AND c.location_type = 'park' AND c.status = 'active')) AS counts,
-       lower(l.name) AS sort_key
-FROM locations l
-LEFT JOIN farm_profiles fp ON fp.tenant_id = l.tenant_id AND fp.location_id = l.location_id
-WHERE l.tenant_id = $1 AND l.location_type = 'farm'`}
-
-func (farmStore) count(ctx context.Context, q querier, t string) (int, error) {
-	return farmProjection.count(ctx, q, t)
-}
-func (farmStore) list(ctx context.Context, q querier, t string, p ports.ListParams) (ports.Page, error) {
-	return farmProjection.list(ctx, q, t, p)
-}
-func (farmStore) get(ctx context.Context, q querier, t, id string) (domain.Row, error) {
-	return farmProjection.get(ctx, q, t, id)
-}
-func (farmStore) options(ctx context.Context, q querier, t string) ([]ports.RefOption, error) {
-	return farmProjection.options(ctx, q, t)
-}
-func (farmStore) usage(ctx context.Context, q querier, t, id string) (domain.Usage, error) {
-	return usageOf(ctx, q, t, id, usageCheck{"parks", `SELECT count(*) FROM locations WHERE tenant_id = $1 AND parent_location_id = $2::uuid AND location_type = 'park' AND status = 'active'`})
-}
-
-func (farmStore) insert(ctx context.Context, tx pgx.Tx, t string, f map[string]any) (string, error) {
-	var id string
-	if err := tx.QueryRow(ctx, sqlPlaces1, t, nullText(f, "code"), domain.FieldString(f, "name")).Scan(&id); err != nil {
-		return "", locationWriteError(err, "farm")
-	}
-	if _, err := tx.Exec(ctx, sqlPlaces2, id, t, nullText(f, "kind"), nullText(f, "notes")); err != nil {
-		return "", err
-	}
-	return id, nil
-}
-
-func (farmStore) update(ctx context.Context, tx pgx.Tx, t, id string, f map[string]any, rv int) (string, error) {
-	if err := updateLocation(ctx, tx, t, id, f, rv, "farm"); err != nil {
-		return "", err
-	}
-	set, args := setClause(f, []colBind{{"kind", "farm_kind", textArg("kind")}, {"notes", "notes", textOrEmpty("notes")}}, 3)
-	if set == "" {
-		return "", nil
-	}
-	_, err := tx.Exec(ctx, sqlPlaces3, id, t)
-	if err != nil {
-		return "", err
-	}
-	_, err = tx.Exec(ctx, fmt.Sprintf(`UPDATE farm_profiles SET %s, updated_at = now(), row_version = row_version + 1 WHERE location_id = $1::uuid AND tenant_id = $2`, set), append([]any{id, t}, args...)...)
-	return "", err
-}
-
-func (farmStore) setStatus(ctx context.Context, tx pgx.Tx, t, id, status string, rv int) error {
-	return setLocationStatus(ctx, tx, t, id, status, rv)
-}
-
-func (farmStore) del(ctx context.Context, tx pgx.Tx, t, id string, rv int) error {
-	return deleteLocation(ctx, tx, t, id, rv, "farm_profiles")
-}
-
-// ---------------------------------------------------------------------------------------------
 // Parks
 
 type parkStore struct{}
@@ -105,8 +35,8 @@ SELECT l.location_id::text AS id,
        ` + locationStatusSQL + ` AS status,
        l.row_version,
        false AS is_builtin,
-       jsonb_build_object('name', l.name, 'code', COALESCE(pp.park_code, l.location_code), 'farm_id', l.parent_location_id::text, 'capacity', pp.capacity, 'notes', NULLIF(pp.notes, '')) AS fields,
-       jsonb_strip_nulls(jsonb_build_object('farm_id', f.name)) AS labels,
+       jsonb_build_object('name', l.name, 'code', COALESCE(pp.park_code, l.location_code), 'capacity', pp.capacity, 'notes', NULLIF(pp.notes, '')) AS fields,
+       '{}'::jsonb AS labels,
        jsonb_build_object(
          'pens', (SELECT count(*) FROM locations c WHERE c.tenant_id = l.tenant_id AND c.parent_location_id = l.location_id AND c.location_type = 'shed' AND c.status = 'active' AND ` + penAliasExclusion + `),
          'animals', (SELECT count(*) FROM goats g JOIN locations s ON s.tenant_id = g.tenant_id AND s.location_id = g.shed_id WHERE g.tenant_id = l.tenant_id AND s.parent_location_id = l.location_id AND g.lifecycle_status = 'alive')
@@ -114,7 +44,6 @@ SELECT l.location_id::text AS id,
        lower(COALESCE(pp.park_code, l.location_code, l.name)) AS sort_key
 FROM locations l
 LEFT JOIN park_profiles pp ON pp.tenant_id = l.tenant_id AND pp.location_id = l.location_id
-LEFT JOIN locations f ON f.tenant_id = l.tenant_id AND f.location_id = l.parent_location_id
 WHERE l.tenant_id = $1 AND l.location_type = 'park'`}
 
 // penAliasExclusion keeps the legacy "Castro 1" alias rows (one shed row per partition, kept
@@ -144,14 +73,8 @@ func (parkStore) usage(ctx context.Context, q querier, t, id string) (domain.Usa
 
 func (parkStore) insert(ctx context.Context, tx pgx.Tx, t string, f map[string]any) (string, error) {
 	code := strings.ToUpper(domain.FieldString(f, "code"))
-	farmID := nullText(f, "farm_id")
-	if farmID != nil {
-		if err := requireLocation(ctx, tx, t, *farmID, "farm", "farm_id", "Farm"); err != nil {
-			return "", err
-		}
-	}
 	var id string
-	if err := tx.QueryRow(ctx, sqlPlaces4, t, code, domain.FieldString(f, "name"), farmID).Scan(&id); err != nil {
+	if err := tx.QueryRow(ctx, sqlPlaces4, t, code, domain.FieldString(f, "name")).Scan(&id); err != nil {
 		return "", locationWriteError(err, "park")
 	}
 	if _, err := tx.Exec(ctx, sqlPlaces5, id, t, code, nullInt(f, "capacity"), nullText(f, "notes")); err != nil {
@@ -164,18 +87,8 @@ func (parkStore) update(ctx context.Context, tx pgx.Tx, t, id string, f map[stri
 	if sent(f, "code") {
 		f["code"] = strings.ToUpper(domain.FieldString(f, "code"))
 	}
-	if farmID := nullText(f, "farm_id"); farmID != nil {
-		if err := requireLocation(ctx, tx, t, *farmID, "farm", "farm_id", "Farm"); err != nil {
-			return "", err
-		}
-	}
 	if err := updateLocation(ctx, tx, t, id, f, rv, "park"); err != nil {
 		return "", err
-	}
-	if sent(f, "farm_id") {
-		if _, err := tx.Exec(ctx, `UPDATE locations SET parent_location_id = $3::uuid WHERE tenant_id = $1 AND location_id = $2::uuid`, t, id, nullText(f, "farm_id")); err != nil {
-			return "", err
-		}
 	}
 	set, args := setClause(f, []colBind{{"code", "park_code", textArg("code")}, {"capacity", "capacity", intArg("capacity")}, {"notes", "notes", textOrEmpty("notes")}}, 3)
 	if set == "" {
@@ -631,19 +544,9 @@ func locationWriteError(err error, noun string) error {
 
 // SQL hoisted to package level so the scale guard and query-plan tests can reach it.
 const (
-	sqlPlaces1 = `
-INSERT INTO locations (tenant_id, location_type, location_code, name, status)
-VALUES ($1, 'farm', $2, $3, 'active')
-RETURNING location_id::text`
-	sqlPlaces2 = `
-INSERT INTO farm_profiles (location_id, tenant_id, farm_kind, notes)
-VALUES ($1::uuid, $2, $3, COALESCE($4, ''))`
-	sqlPlaces3 = `
-INSERT INTO farm_profiles (location_id, tenant_id) VALUES ($1::uuid, $2)
-ON CONFLICT (location_id) DO NOTHING`
 	sqlPlaces4 = `
-INSERT INTO locations (tenant_id, location_type, location_code, name, parent_location_id, status)
-VALUES ($1, 'park', $2, $3, $4::uuid, 'active')
+INSERT INTO locations (tenant_id, location_type, location_code, name, status)
+VALUES ($1, 'park', $2, $3, 'active')
 RETURNING location_id::text`
 	sqlPlaces5 = `
 INSERT INTO park_profiles (location_id, tenant_id, park_code, capacity, notes)

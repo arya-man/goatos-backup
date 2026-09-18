@@ -1295,3 +1295,12 @@ most 30 seconds until cross-instance invalidation exists; increasing it hides
 both stale corrected figures and repeated query cost. The two-repository
 `TestAnalyticsSiblingInstanceExpiresWithinThirtySeconds` exercises that bound
 without needing a live database or sleeping.
+
+## Configuration registers: bounded tenant catalogs, keyset paged (2026-09-18)
+
+The Configuration -> Items and settings reads (`backend/internal/configuration/adapters/postgres`)
+search with `ILIKE` and filter with jsonb containment over TENANT REFERENCE CATALOGS -- a few
+hundred places, a few dozen items, never a per-animal or per-event table -- and page by keyset.
+They carry `scale-guard:ignore: bounded tenant reference catalog` for that reason; the guard is
+not disabled. Species and sex are validated against `species_lookup` / `sex_lookup` on the
+identity write path with one indexed EXISTS each, never by scanning goats.

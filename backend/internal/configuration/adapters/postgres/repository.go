@@ -70,7 +70,6 @@ func NewRepository(pool *pgxpool.Pool, timeout time.Duration) *Repository {
 	}
 	r := &Repository{pool: pool, timeout: timeout, now: time.Now}
 	r.stores = map[string]store{
-		domain.RegFarms:             farmStore{},
 		domain.RegParks:             parkStore{},
 		domain.RegPens:              penStore{},
 		domain.RegPartitions:        partitionStore{},

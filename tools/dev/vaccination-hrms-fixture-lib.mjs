@@ -1,4 +1,5 @@
 // Vaccination HRMS fixture utilities — used by seed scripts and ceo_ai reporting views
+// Species and sex are lookup codes since migration 000346 (species_lookup / sex_lookup, Configuration -> Items and settings): goats.species / goats.sex no longer carry CHECK constraints, and the four literals every seed writes (goat, sheep, female, male) are the built-in rows of those lookups. A seeded goat therefore validates exactly as before; a tenant with no lookup rows still accepts the built-ins.
 // Coupling review 2026-08-05: migration 000109 adds animal_stage_lookup.age_band
 // ('kid'/'adult'/NULL) so a shifting stamps the destination cohort's kid/adult band onto the
 // animals it moves. NO CHANGE to this file's contract: age_band lives on the stage VOCABULARY,

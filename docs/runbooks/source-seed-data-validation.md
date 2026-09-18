@@ -402,6 +402,11 @@ generation runtime, and relevant migrations. It fails if those companion files
 are absent from the same diff. Open feature PRs must rebase onto the main commit
 that contains this contract before they can satisfy the gate.
 
+
+### Species and sex are lookup codes (2026-09-18)
+
+Species and sex are lookup codes since migration 000346 (species_lookup / sex_lookup, Configuration -> Items and settings): goats.species / goats.sex no longer carry CHECK constraints, and the four literals every seed writes (goat, sheep, female, male) are the built-in rows of those lookups. A seeded goat therefore validates exactly as before; a tenant with no lookup rows still accepts the built-ins.
+
 ## Database boundary
 
 `make seed-vaccination-source-full` depends on the strict committed-fixture

@@ -93,7 +93,6 @@ type Register struct {
 
 // Register keys.
 const (
-	RegFarms      = "farms"
 	RegParks      = "parks"
 	RegPens       = "pens"
 	RegPartitions = "partitions"
@@ -224,22 +223,13 @@ var Registers = []Register{
 		},
 	},
 	{
-		Key: RegFarms, Label: "Farms", One: "Farm", Group: GroupFarmPlaces,
-		Hint: "A farm groups parks under one business. Optional: a park may stand on its own.",
-		Columns: []Column{
-			{Key: "name", Label: "Name", Type: TypeText, Required: true},
-			{Key: "code", Label: "Code", Type: TypeText, Hint: "Short label used in reports."},
-			{Key: "kind", Label: "Type", Type: TypeEnum, Options: []Option{{Value: "core", Label: "Core"}, {Value: "holding", Label: "Holding"}, {Value: "contract", Label: "Contract"}}},
-			{Key: "notes", Label: "Notes", Type: TypeNotes, ListHidden: true},
-		},
-	},
-	{
 		Key: RegParks, Label: "Parks", One: "Park", Group: GroupFarmPlaces,
+		// No Farms register (maintainer instruction 2026-09-18): the farm IS the tenant; parks
+		// are the top of the place tree on screen.
 		Hint: "A park is one site with its own pens, people and work. Animals never move between parks.",
 		Columns: []Column{
 			{Key: "name", Label: "Name", Type: TypeText, Required: true},
 			{Key: "code", Label: "Code", Type: TypeText, Required: true, Hint: "Short code such as CBE or CPT; used to order parks and name pens."},
-			{Key: "farm_id", Label: "Farm", Type: TypeRef, Ref: RegFarms},
 			{Key: "capacity", Label: "Capacity", Type: TypeNumber, Min: zero(), Integer: true},
 			{Key: "notes", Label: "Notes", Type: TypeNotes, ListHidden: true},
 		},

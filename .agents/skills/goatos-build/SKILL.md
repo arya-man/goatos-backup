@@ -852,3 +852,13 @@ Consequences for anyone touching this:
 <!-- Coupling review 2026-08-30: vaccination combo capacity is 3 vaccines per animal per compatible visit. Existing published rule DSL is immutable, so migrations must use vaccination_capacity_config for persisted tenants; source fixtures stay byte-stable and only the reviewed policy digest changes. -->
 <!-- Coupling review 2026-09-01: when touching vaccination drive assignment storage, keep the persisted identity at operator/date/shed/partition/vaccine_rule_ids grain. Re-run focused sweeper and Postgres adapter tests; do not collapse ET+TT/Z1+Z3 or other same-day vaccine lanes into one assignment. -->
 <!-- Coupling review 2026-09-01: feed experiment per-animal conversion reads goats as a live feed-pen denominator only. When landing feed configuration migrations of this shape, record that vaccination/HRMS source files, hashes, trusted dates, SOP proof grain, parser fields, and roster-capacity rules are unchanged. -->
+
+## Configuration: Items and settings (2026-09-18)
+
+The farm's reference lists are editable registers at `/configuration/items`
+(`docs/decisions/configuration-items-and-settings.md`). A register is DATA
+(`backend/internal/configuration/domain.Registers`); adding a list is one definition plus one
+store. Species / sex are `species_lookup` / `sex_lookup` codes (migration 000346), item
+categories an editable tree, and any vocabulary can be added as a reference list (000348).
+Later screens SELECT from these registers through `GET /admin/configuration/{register}/options`
+rather than typing free text (the Health medicine field is the first planned consumer).

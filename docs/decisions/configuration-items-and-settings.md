@@ -11,7 +11,7 @@ and become tenant-scoped **registers** a person edits on screen at `/configurati
 The target stated by the maintainer: *everything configurable*, so a new owner adds their own
 animal types, places, feeds, medicines and categories without a developer.
 
-Phase 1 registers (maintainer's picks): **Farms, Parks, Pens, Partitions** (farm places);
+Phase 1 registers (maintainer's picks): **Parks, Pens, Partitions** (Farms was dropped the same day: the farm is the tenant) (farm places);
 **Species, Gender (register key `sexes`), Lifecycle stages** (animal types); **Item categories, Items, Feed items**
 (catalogue; feed items read-only, edited on `/feed/config`). Inventory stock, breeds, the
 animals grid, people/roles and sales rules are later phases.
@@ -39,7 +39,7 @@ No second copy of a place or an item:
 
 | Register | Tables |
 | --- | --- |
-| Farms / Parks / Pens | `locations` (type farm / park / shed) + `farm_profiles` / `park_profiles` / `shed_profiles` |
+| Parks / Pens | `locations` (type park / shed) + `farm_profiles` / `park_profiles` / `shed_profiles` |
 | Partitions | `shed_partitions` (id on the wire is `shed_id:normalized_label`; the table has no surrogate key) |
 | Species / Sexes | `species_lookup` / `sex_lookup` (migration 000346) |
 | Lifecycle stages | `animal_stage_lookup` |
