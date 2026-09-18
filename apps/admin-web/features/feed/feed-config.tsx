@@ -1053,22 +1053,32 @@ export async function FeedConfigPage({
                             />
                             {/* Adding a feed item is a PEN-level act, so it sits on the pen's own
                                 header row beside the switch — not on a cell row, which is scoped to
-                                one item that already exists. */}
-                            <ExperimentCellAdder
-                              pageContract={pageContract}
-                              action={saveExperimentCell}
-                              parkId={shed.parkId}
-                              shedId={shed.shedId}
-                              partitionLabel={shed.partitionLabel}
-                              experimentCategory={shed.category}
-                              availableItems={catalogItems.filter(
-                                (item) => !authoredItemKeys(shed).has(normalizeFeedItemKey(item)),
-                              )}
-                            />
+                                one item that already exists. Offered only while the pen is on the
+                                experiment: a pen back on the normal grid is fed from the ration
+                                grid, and its retained cells are hidden below, so an adder here
+                                would author into a list the reader cannot see. */}
+                            {shed.active ? (
+                              <ExperimentCellAdder
+                                pageContract={pageContract}
+                                action={saveExperimentCell}
+                                parkId={shed.parkId}
+                                shedId={shed.shedId}
+                                partitionLabel={shed.partitionLabel}
+                                experimentCategory={shed.category}
+                                availableItems={catalogItems.filter(
+                                  (item) => !authoredItemKeys(shed).has(normalizeFeedItemKey(item)),
+                                )}
+                              />
+                            ) : null}
                           </div>
                         </td>
                       </tr>
-                      {shed.rows.map((row) => {
+                      {/* A pen returned to the normal grid shows its header row only (maintainer
+                          request 2026-09-18). Its cells are retained on the backend so a restore
+                          brings the same quantities back, but while the pen is fed from the ration
+                          grid a list of retired items under it reads as configuration that feeds
+                          something, and it feeds nothing. */}
+                      {shed.active && shed.rows.map((row) => {
                         // TWO BASES RENDER IN ONE COLUMN, so each cell states its own unit. A
                         // per-animal rate and a legacy pen total differ by the pen's whole
                         // population, and a bare number under a shared heading is exactly how the
