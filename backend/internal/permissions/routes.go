@@ -1120,14 +1120,17 @@ var protectedRoutes = []Route{
 	// SOP work opened by an APPROVED birth/death is operator ground work from the same phone as the
 	// Counts writes, so all four routes are gated on CountsWrite: the operator who records the birth
 	// is the operator who runs the kid's follow-up checklist and shoots the death evidence videos.
-	{OperationID: "listAppWorkflows", Method: "GET", Pattern: "/app/workflows", Permissions: []string{CountsWrite}},
-	{OperationID: "getAppWorkflow", Method: "GET", Pattern: "/app/workflows/{workflow_id}", Permissions: []string{CountsWrite}},
-	{OperationID: "answerAppWorkflowAction", Method: "POST", Pattern: "/app/workflows/{workflow_id}/actions/{action_id}/answer", Permissions: []string{CountsWrite}},
-	{OperationID: "completeAppWorkflowAction", Method: "POST", Pattern: "/app/workflows/{workflow_id}/actions/{action_id}/complete", Permissions: []string{CountsWrite}},
-	// General SOPs (maintainer decision 2026-09-18): farm-wide work instructions any task
-	// executor may start; the run itself is driven through the workflow routes above.
-	{OperationID: "listAppGeneralSops", Method: "GET", Pattern: "/app/sops/general", AnyPermissions: []string{TaskExecute, CountsWrite}},
-	{OperationID: "startAppWorkflow", Method: "POST", Pattern: "/app/workflows/start", AnyPermissions: []string{TaskExecute, CountsWrite}},
+	{OperationID: "listAppWorkflows", Method: "GET", Pattern: "/app/workflows", AnyPermissions: []string{CountsWrite, WorkInstructionsExecute}},
+	// The three per-run routes are ORed with WorkInstructionsExecute (2026-09-18): a general SOP
+	// run is driven through the same routes as a birth/death card, and a park head or director
+	// starting one at the gate holds work_instructions.execute, not necessarily counts.write.
+	{OperationID: "getAppWorkflow", Method: "GET", Pattern: "/app/workflows/{workflow_id}", AnyPermissions: []string{CountsWrite, WorkInstructionsExecute}},
+	{OperationID: "answerAppWorkflowAction", Method: "POST", Pattern: "/app/workflows/{workflow_id}/actions/{action_id}/answer", AnyPermissions: []string{CountsWrite, WorkInstructionsExecute}},
+	{OperationID: "completeAppWorkflowAction", Method: "POST", Pattern: "/app/workflows/{workflow_id}/actions/{action_id}/complete", AnyPermissions: []string{CountsWrite, WorkInstructionsExecute}},
+	// General SOPs (maintainer decision 2026-09-18): farm-wide work instructions, listed and
+	// started on the phone's Work instructions module; the run itself rides the routes above.
+	{OperationID: "listAppGeneralSops", Method: "GET", Pattern: "/app/sops/general", Permissions: []string{WorkInstructionsExecute}},
+	{OperationID: "startAppWorkflow", Method: "POST", Pattern: "/app/workflows/start", Permissions: []string{WorkInstructionsExecute}},
 
 	{OperationID: "listAppCountsShiftingPendingExecution", Method: "GET", Pattern: "/app/counts/shifting-events/pending-execution", Permissions: []string{CountsWrite}},
 	{OperationID: "completeAppCountsShiftingEvent", Method: "POST", Pattern: "/app/counts/shifting-events/{shifting_event_id}/complete", Permissions: []string{CountsWrite}},

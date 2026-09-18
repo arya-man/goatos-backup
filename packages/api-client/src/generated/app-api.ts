@@ -18125,7 +18125,7 @@ export interface components {
              * @description Birth steps are reviewed one recorded step at a time (maintainer decision 2026-09-16): recording a step with proof moves it to in_review, where it stays locked until its own verdict (approve -> completed, reject -> rework with rework_reason). A step in_review or rework never blocks the step after it.
              * @enum {string}
              */
-            status: "pending" | "in_review" | "completed" | "rework" | "canceled";
+            status: "pending" | "in_review" | "completed" | "rework" | "canceled" | "skipped";
             /** @description True when the operator cannot start this action yet. */
             blocked: boolean;
             /**

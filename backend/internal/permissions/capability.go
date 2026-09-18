@@ -655,6 +655,19 @@ var moduleCapabilities = []ModuleCapability{
 		},
 	},
 	{
+		// Work instructions (SOP studio phase 2, maintainer decision 2026-09-18): GENERAL SOPs --
+		// farm-wide work tied to no module -- started by hand on the phone. Do is starting and
+		// running one; the phone module offers on it. Authoring lives on the web under
+		// Configuration (sop.read / sop.write), so there is no Configure level here.
+		Key:      "work_instructions",
+		Label:    "Work instructions",
+		Blurb:    "Start and run a farm-wide work instruction on the phone.",
+		Surfaces: []string{SurfaceMobile},
+		Levels: map[string][]string{
+			LevelDo: {WorkInstructionsExecute},
+		},
+	},
+	{
 		// Configuration -> Items and settings (maintainer instruction 2026-09-18): the farm's
 		// reference lists as editable registers. View reads the page; Configure writes every
 		// register. Web only: the phone renders these lists, it never authors them. ceo_internal

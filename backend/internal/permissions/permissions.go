@@ -534,6 +534,11 @@ const (
 	PenRoutinesExecute   = "pen_routines.execute"
 	PenRoutinesRead      = "pen_routines.read"
 	PenRoutinesConfigure = "pen_routines.configure"
+	// WorkInstructionsExecute (SOP studio phase 2, maintainer decision 2026-09-18): start and run a
+	// GENERAL work instruction on the phone -- a farm-wide SOP tied to no module. Every field and
+	// leadership role holds it; a general SOP is what a farm asks of anyone at the gate. The
+	// phone module `work_instructions` offers on it; the run's steps ride the workflow routes.
+	WorkInstructionsExecute = "work_instructions.execute"
 	// Configuration -> Items and settings (maintainer instruction 2026-09-18): the farm's
 	// reference lists -- places, animal types, catalogues -- edited on screen instead of seeded.
 	// ConfigurationRead opens /configuration/items and its reads; ConfigurationWrite is every
@@ -966,7 +971,7 @@ var rolePermissions = map[string]map[string]struct{}{
 		GoatRead:      {},
 		LocationsRead: {},
 		// Pen routines (2026-09-16): the park head works the routine checks of their park.
-		PenRoutinesExecute: {}, PenRoutinesRead: {},
+		PenRoutinesExecute: {}, PenRoutinesRead: {}, WorkInstructionsExecute: {},
 		OperatorsRead: {}, OperatorsManageRoster: {}, OperatorsManageDevice: {}, AppBootstrap: {},
 		LeadershipTasksRead: {}, LeadershipTasksAct: {},
 		SOPRead: {}, TaskRead: {}, TaskAssign: {}, TaskVerify: {},
@@ -999,7 +1004,7 @@ var rolePermissions = map[string]map[string]struct{}{
 	},
 	RolePCDirector: {
 		// Leadership Tasks (2026-09-04): every director raises for the CXO desk.
-		LeadershipTasksRead: {}, LeadershipTasksRaise: {}, PenVisitsExecute: {}, PenRoutinesExecute: {}, PenRoutinesRead: {},
+		LeadershipTasksRead: {}, LeadershipTasksRaise: {}, PenVisitsExecute: {}, PenRoutinesExecute: {}, PenRoutinesRead: {}, WorkInstructionsExecute: {},
 		// Work Board (2026-09-10): a director's portfolio -- both parks, and only the
 		// modules their other permissions already open.
 		WorkBoardRead: {}, WorkBoardOversee: {},
@@ -1078,7 +1083,7 @@ var rolePermissions = map[string]map[string]struct{}{
 	// oversight) are merged in below so nothing that worked before is narrowed.
 	RoleGrowthDirector: {
 		// Leadership Tasks (2026-09-04): every director raises for the CXO desk.
-		LeadershipTasksRead: {}, LeadershipTasksRaise: {}, PenVisitsExecute: {}, PenRoutinesExecute: {}, PenRoutinesRead: {},
+		LeadershipTasksRead: {}, LeadershipTasksRaise: {}, PenVisitsExecute: {}, PenRoutinesExecute: {}, PenRoutinesRead: {}, WorkInstructionsExecute: {},
 		// Work Board (2026-09-10): a director's portfolio -- both parks, and only the
 		// modules their other permissions already open.
 		WorkBoardRead: {}, WorkBoardOversee: {},
@@ -1129,7 +1134,7 @@ var rolePermissions = map[string]map[string]struct{}{
 	//     what TestDirectorModuleSegregation pins in both directions.
 	RoleFeedDirector: {
 		// Leadership Tasks (2026-09-04): every director raises for the CXO desk.
-		LeadershipTasksRead: {}, LeadershipTasksRaise: {}, PenVisitsExecute: {}, PenRoutinesExecute: {}, PenRoutinesRead: {},
+		LeadershipTasksRead: {}, LeadershipTasksRaise: {}, PenVisitsExecute: {}, PenRoutinesExecute: {}, PenRoutinesRead: {}, WorkInstructionsExecute: {},
 		// Work Board (2026-09-10): a director's portfolio -- both parks, and only the
 		// modules their other permissions already open.
 		WorkBoardRead: {}, WorkBoardOversee: {},
@@ -1183,7 +1188,7 @@ var rolePermissions = map[string]map[string]struct{}{
 	//     permission, precisely because health_director is NOT pc_director.
 	RoleHealthDirector: {
 		// Leadership Tasks (2026-09-04): every director raises for the CXO desk.
-		LeadershipTasksRead: {}, LeadershipTasksRaise: {}, PenVisitsExecute: {}, PenRoutinesExecute: {}, PenRoutinesRead: {},
+		LeadershipTasksRead: {}, LeadershipTasksRaise: {}, PenVisitsExecute: {}, PenRoutinesExecute: {}, PenRoutinesRead: {}, WorkInstructionsExecute: {},
 		// Work Board (2026-09-10): a director's portfolio -- both parks, and only the
 		// modules their other permissions already open.
 		WorkBoardRead: {}, WorkBoardOversee: {},
@@ -1296,7 +1301,7 @@ var rolePermissions = map[string]map[string]struct{}{
 	// (maintainer decision 2026-09-03): the Procurement phone module is offered on VendorRead.
 	RoleProcurementDirector: {
 		// Leadership Tasks (2026-09-04): every director raises for the CXO desk.
-		LeadershipTasksRead: {}, LeadershipTasksRaise: {}, PenVisitsExecute: {}, PenRoutinesExecute: {}, PenRoutinesRead: {},
+		LeadershipTasksRead: {}, LeadershipTasksRaise: {}, PenVisitsExecute: {}, PenRoutinesExecute: {}, PenRoutinesRead: {}, WorkInstructionsExecute: {},
 		// Work Board (2026-09-10): a director's portfolio -- both parks, and only the
 		// modules their other permissions already open.
 		WorkBoardRead: {}, WorkBoardOversee: {},
@@ -1320,7 +1325,7 @@ var rolePermissions = map[string]map[string]struct{}{
 	// terms); LocationsRead labels the pens it plans against.
 	RoleBreedingDirector: {
 		// Leadership Tasks (2026-09-04): every director raises for the CXO desk.
-		LeadershipTasksRead: {}, LeadershipTasksRaise: {}, PenVisitsExecute: {}, PenRoutinesExecute: {}, PenRoutinesRead: {},
+		LeadershipTasksRead: {}, LeadershipTasksRaise: {}, PenVisitsExecute: {}, PenRoutinesExecute: {}, PenRoutinesRead: {}, WorkInstructionsExecute: {},
 		// Work Board (2026-09-10): a director's portfolio -- both parks, and only the
 		// modules their other permissions already open.
 		WorkBoardRead: {}, WorkBoardOversee: {},
@@ -1361,8 +1366,9 @@ var rolePermissions = map[string]map[string]struct{}{
 	},
 	RoleOperator: {
 		GoatRead: {}, AppBootstrap: {}, TaskRead: {}, TaskExecute: {}, CalendarRead: {}, ProcurementRead: {}, ProcurementWrite: {},
-		CountsWrite:     {},
-		WeighingExecute: {},
+		CountsWrite:             {},
+		WorkInstructionsExecute: {},
+		WeighingExecute:         {},
 		// Maintainer decision 2026-07-22: operators now see the Feed vertical on the phone. This
 		// reverses the earlier "deliberately NOT granted to RoleOperator" note on the feed reads --
 		// the operator dispatches and packs what the direction says, and the FeedPackingRead comment
@@ -1396,7 +1402,7 @@ var rolePermissions = map[string]map[string]struct{}{
 		// Pen routines (2026-09-16, revised 2026-09-17): the CXO desk writes the rule, reads
 		// what it raised, and -- since routines are assigned by role and CXO is one of those
 		// roles -- works the tasks assigned to it.
-		PenRoutinesRead: {}, PenRoutinesConfigure: {}, PenRoutinesExecute: {},
+		PenRoutinesRead: {}, PenRoutinesConfigure: {}, PenRoutinesExecute: {}, WorkInstructionsExecute: {},
 		// Configuration (2026-09-18): the CEO floor reads and writes every register.
 		ConfigurationRead: {}, ConfigurationWrite: {},
 		// Work Board (2026-09-10): both parks, every module (the CEO floor).

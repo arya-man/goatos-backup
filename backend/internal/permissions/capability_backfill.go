@@ -74,6 +74,8 @@ var flatRoleAssignments = map[string][]ModuleAssignment{
 	RoleOperator: rows(
 		// Work Board (2026-09-10): the phone's My Work -- own rows only.
 		one(assign("work_board", SurfaceMobile, LevelView)),
+		// Work instructions (2026-09-18): any operator may start a general SOP at the gate.
+		one(assign("work_instructions", SurfaceMobile, LevelDo)),
 		one(assign("vaccination", SurfaceMobile, LevelView, LevelDo)),
 		one(assign("weighing", SurfaceMobile, LevelView, LevelDo)),
 		one(assign("counts", SurfaceMobile, LevelView, LevelDo)),
@@ -95,6 +97,8 @@ var flatRoleAssignments = map[string][]ModuleAssignment{
 		one(assign("work_board", SurfaceMobile, LevelView, LevelOversee)),
 		// Pen routines (2026-09-16): the park head works the routine checks of their park.
 		one(assign("pen_routines", SurfaceMobile, LevelView, LevelDo)),
+		// Work instructions (2026-09-18): start and run a general SOP on the phone.
+		one(assign("work_instructions", SurfaceMobile, LevelDo)),
 		one(assign("leadership_tasks", SurfaceMobile, LevelView, LevelOversee)),
 		// Leave approvals (maintainer decision 2026-09-10): the park head signs their park's
 		// leave from the PHONE Approvals module; park heads hold no admin-web bootstrap.
@@ -120,6 +124,7 @@ var flatRoleAssignments = map[string][]ModuleAssignment{
 		one(assign("alerts", SurfaceWeb, LevelView)),
 		one(assign("leadership_tasks", SurfaceMobile, LevelView, LevelDo)),
 		bothSurfaces("pen_routines", LevelView, LevelDo),
+		one(assign("work_instructions", SurfaceMobile, LevelDo)),
 		bothSurfaces("vaccination", LevelView, LevelDo, LevelOversee, LevelConfigure),
 		bothSurfaces("aas_health", LevelOversee),
 		bothSurfaces("pc_care", LevelView, LevelDo, LevelOversee),
@@ -140,6 +145,7 @@ var flatRoleAssignments = map[string][]ModuleAssignment{
 		one(assign("alerts", SurfaceWeb, LevelView)),
 		one(assign("leadership_tasks", SurfaceMobile, LevelView, LevelDo)),
 		bothSurfaces("pen_routines", LevelView, LevelDo),
+		one(assign("work_instructions", SurfaceMobile, LevelDo)),
 		bothSurfaces("weighing", LevelView, LevelDo, LevelOversee),
 		bothSurfaces("people", LevelView, LevelDo, LevelOversee),
 		bothSurfaces("herd_register", LevelView, LevelDo),
@@ -158,6 +164,7 @@ var flatRoleAssignments = map[string][]ModuleAssignment{
 		one(assign("alerts", SurfaceWeb, LevelView)),
 		one(assign("leadership_tasks", SurfaceMobile, LevelView, LevelDo)),
 		bothSurfaces("pen_routines", LevelView, LevelDo),
+		one(assign("work_instructions", SurfaceMobile, LevelDo)),
 		bothSurfaces("feed_direction", LevelView, LevelOversee, LevelConfigure),
 		one(assign("feed_purchases", SurfaceWeb, LevelView)),
 		bothSurfaces("people", LevelView, LevelDo, LevelOversee),
@@ -177,6 +184,7 @@ var flatRoleAssignments = map[string][]ModuleAssignment{
 		one(assign("alerts", SurfaceWeb, LevelView)),
 		one(assign("leadership_tasks", SurfaceMobile, LevelView, LevelDo)),
 		bothSurfaces("pen_routines", LevelView, LevelDo),
+		one(assign("work_instructions", SurfaceMobile, LevelDo)),
 		bothSurfaces("aas_health", LevelConfigure),
 		bothSurfaces("people", LevelView, LevelDo, LevelOversee),
 		bothSurfaces("herd_register", LevelView, LevelDo, LevelOversee),
@@ -213,6 +221,7 @@ var flatRoleAssignments = map[string][]ModuleAssignment{
 		one(assign("alerts", SurfaceWeb, LevelView)),
 		one(assign("leadership_tasks", SurfaceMobile, LevelView, LevelDo)),
 		bothSurfaces("pen_routines", LevelView, LevelDo),
+		one(assign("work_instructions", SurfaceMobile, LevelDo)),
 		// Sales is on BOTH surfaces from 2026-09-05: it became its own phone module (the ledger
 		// moved out of the Procurement module and took the selling half of the vendor register
 		// with it). Migration 000257 copies the same mobile row onto everyone already backfilled.
@@ -236,6 +245,7 @@ var flatRoleAssignments = map[string][]ModuleAssignment{
 		one(assign("alerts", SurfaceWeb, LevelView)),
 		one(assign("leadership_tasks", SurfaceMobile, LevelView, LevelDo)),
 		bothSurfaces("pen_routines", LevelView, LevelDo),
+		one(assign("work_instructions", SurfaceMobile, LevelDo)),
 		bothSurfaces("pc_care", LevelView),
 		bothSurfaces("pc_trimming", LevelView, LevelConfigure),
 		bothSurfaces("people", LevelView),
@@ -286,6 +296,8 @@ var flatRoleAssignments = map[string][]ModuleAssignment{
 		// since a routine can be assigned to the CXO role, works it on the phone.
 		one(assign("pen_routines", SurfaceWeb, LevelView, LevelConfigure)),
 		one(assign("pen_routines", SurfaceMobile, LevelView, LevelDo)),
+		// Work instructions (2026-09-18): start and run a general SOP on the phone.
+		one(assign("work_instructions", SurfaceMobile, LevelDo)),
 		// Configuration (2026-09-18): the CEO floor edits every register.
 		one(assign("configuration", SurfaceWeb, LevelView, LevelConfigure)),
 		bothSurfaces("leave_approvals", LevelView, LevelOversee, LevelConfigure),
