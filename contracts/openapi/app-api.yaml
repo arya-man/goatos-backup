@@ -9461,8 +9461,12 @@ paths:
         - name: filter
           in: query
           required: false
-          schema: { type: string, enum: [all, open, in_progress, done], default: all }
-          description: The chip KEY. Absent or unknown resolves to `all` (which hides cancelled tasks).
+          schema: { type: string, enum: [all, open, in_progress, done, overdue], default: all }
+          description: >-
+            The chip KEY. Absent or unknown resolves to `all` (which hides cancelled tasks).
+            `overdue` is a LENS, not a fifth status: open or in-progress tasks whose deadline_at
+            is before the server's farm clock at request time. Its chip count in `filters[]` is
+            that same late subset, whole-list, under the request's other filters.
         - name: limit
           in: query
           required: false
@@ -20975,7 +20979,7 @@ components:
       type: object
       required: [key, label, count, selected, empty_message]
       properties:
-        key: { type: string, enum: [all, open, in_progress, done] }
+        key: { type: string, enum: [all, open, in_progress, done, overdue] }
         label: { type: string }
         count: { type: integer, description: Whole-list count over the caller's party predicate, never a page sum. }
         selected: { type: boolean }

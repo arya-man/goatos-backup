@@ -3584,6 +3584,14 @@ select:disabled { opacity: .45; }
 .lt-page .lt-seg a b{font-weight:700;font-variant-numeric:tabular-nums;color:var(--faint)}
 .lt-page .lt-seg a.on b{color:var(--brand-d)}
 .lt-page .lt-seg a:focus-visible{outline:2px solid var(--brand);outline-offset:-2px}
+/* The Overdue chip is a LENS over the two working statuses and the one chip that names a
+   problem: it borrows the deadline pill's danger tone (`.lt-clock-late`) so it reads as the same
+   signal the late cards carry, at rest and when it is the current chip. */
+.lt-page .lt-seg a[data-filter="overdue"]{color:color-mix(in srgb,var(--danger) 80%,var(--ink))}
+.lt-page .lt-seg a[data-filter="overdue"] b{color:var(--danger)}
+.lt-page .lt-seg a[data-filter="overdue"]:hover{background:color-mix(in srgb,var(--danger) 8%,transparent)}
+.lt-page .lt-seg a[data-filter="overdue"].on{background:var(--dangerx);color:var(--danger)}
+.lt-page .lt-seg a[data-filter="overdue"].on b{color:var(--danger)}
 
 /* ---- A DATE SPAN, collapsed. Four raw `dd/mm/yyyy` inputs across a row, plus a lone Apply
    beneath them, dominated a bar whose reader almost never touches a date. Each span is now one

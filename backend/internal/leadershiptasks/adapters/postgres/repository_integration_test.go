@@ -1101,6 +1101,47 @@ func TestLeadershipTaskListFiltersSortsAndCursorStayHonest(t *testing.T) {
 	if esc := list(t, ports.ListParams{Query: `\`}); len(esc.Rows) != 0 {
 		t.Fatalf(`q="\\" = %v, want no rows and no error`, titles(esc.Rows))
 	}
+
+	// 6. The OVERDUE lens: only still-working tasks whose deadline is strictly before the clock,
+	// and the chip's count is that same set, whole-list, under the same filters -- never a sum
+	// of status buckets. A done task past its deadline is finished, not late; a task due
+	// exactly at the clock is not late yet.
+	lateOpen, err := repo.Raise(ctx, raiseWithDeadline(ltCXO, "Late open audit", "overdue-open", at(-2*time.Hour)))
+	if err != nil {
+		t.Fatalf("raise late open: %v", err)
+	}
+	lateDone, err := repo.Raise(ctx, raiseWithDeadline(ltCXO, "Late but done audit", "overdue-done", at(-3*time.Hour)))
+	if err != nil {
+		t.Fatalf("raise late done: %v", err)
+	}
+	cxoActor := domain.Actor{UserID: ltCXO, CanAct: true}
+	if _, err := repo.ChangeStatus(ctx, ports.StatusParams{TenantID: ltTenant, Actor: cxoActor, TaskID: lateDone.TaskID, Status: domain.StatusDone, RowVersion: lateDone.RowVersion, IdempotencyKey: "overdue-done-st"}); err != nil {
+		t.Fatalf("finish late task: %v", err)
+	}
+	if _, err := repo.Raise(ctx, raiseWithDeadline(ltCXO, "Due exactly now audit", "overdue-edge", &base)); err != nil {
+		t.Fatalf("raise edge: %v", err)
+	}
+	lens := list(t, ports.ListParams{Statuses: domain.StatusesForFilter(domain.FilterOverdue), OverdueBefore: &base, OverdueAt: base})
+	if len(lens.Rows) != 1 || lens.Rows[0].TaskID != lateOpen.TaskID {
+		t.Fatalf("overdue lens = %v, want only the late open task", titles(lens.Rows))
+	}
+	if lens.OverdueCount != 1 {
+		t.Fatalf("overdue count under the lens = %d, want 1", lens.OverdueCount)
+	}
+	// The count is advertised on EVERY read against the same clock, lens or not, and it follows
+	// the request filters like the status counts do (q narrows it to zero here).
+	if all := list(t, ports.ListParams{OverdueAt: base}); all.OverdueCount != 1 {
+		t.Fatalf("overdue count on the All chip = %d, want 1", all.OverdueCount)
+	}
+	if none := list(t, ports.ListParams{OverdueAt: base, Query: "vendor"}); none.OverdueCount != 0 {
+		t.Fatalf("overdue count under q=vendor = %d, want 0", none.OverdueCount)
+	}
+	// Later clock: the edge task is now late too, and the lens agrees with the count.
+	later := base.Add(time.Minute)
+	lens = list(t, ports.ListParams{Statuses: domain.StatusesForFilter(domain.FilterOverdue), OverdueBefore: &later, OverdueAt: later})
+	if len(lens.Rows) != 2 || lens.OverdueCount != 2 {
+		t.Fatalf("overdue lens a minute later = %v (count %d), want the two late working tasks", titles(lens.Rows), lens.OverdueCount)
+	}
 }
 
 // raiseAs raises one task for an arbitrary raiser, assignee and deadline. raiseParams pins the

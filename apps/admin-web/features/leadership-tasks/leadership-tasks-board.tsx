@@ -11,6 +11,7 @@ import type { TaskRow } from "./task-row";
 import {
   boardColumnHasTotal,
   boardColumnsForFilter,
+  TASK_FILTER_OVERDUE,
   TASKS_PATHNAME,
   type TaskBoardColumn,
   type TaskFilter,
@@ -84,7 +85,7 @@ export function LeadershipTasksBoard({
   const columns: BoardColumnMeta[] = boardColumnsForFilter(activeFilter).map((column) => {
     const filter = totals.get(column);
     const cards = rows.filter((task) => task.status === column);
-    const hasTotal = boardColumnHasTotal(column) && typeof filter?.count === "number";
+    const hasTotal = boardColumnHasTotal(column, activeFilter) && typeof filter?.count === "number";
     return {
       key: column,
       label: filter?.label ?? columnFallbackLabel(pageContract, column),
@@ -96,7 +97,7 @@ export function LeadershipTasksBoard({
       // list holds more of it than this page is showing, and when the board is NOT already
       // narrowed — a column that is the only column on screen has nothing left to narrow to.
       focusHref:
-        !focused && boardColumnHasTotal(column) && hasTotal && filter!.count > cards.length
+        !focused && boardColumnHasTotal(column, activeFilter) && hasTotal && filter!.count > cards.length
           ? tasksHref(
               basePath,
               sp,
@@ -139,11 +140,17 @@ export function LeadershipTasksBoard({
       {focused ? (
         <p className="ltb-focusnote">
           <span>
-            {copy(
-              pageContract,
-              "board.focused_note",
-              "This board is showing one status only, so you can page through all of it.",
-            )}
+            {activeFilter === TASK_FILTER_OVERDUE
+              ? copy(
+                  pageContract,
+                  "board.overdue_note",
+                  "This board is showing only tasks past their deadline, so you can page through all of them.",
+                )
+              : copy(
+                  pageContract,
+                  "board.focused_note",
+                  "This board is showing one status only, so you can page through all of it.",
+                )}
           </span>
           <Link
             href={tasksHref(

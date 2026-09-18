@@ -145,11 +145,19 @@ func (s *Service) listParams(req ListRequest) (ports.ListParams, error) {
 	if err != nil {
 		return ports.ListParams{}, err
 	}
+	filterKey := domain.FilterKeyOrDefault(req.FilterKey)
+	now := s.now()
+	var overdueBefore *time.Time
+	if filterKey == domain.FilterOverdue {
+		overdueBefore = &now
+	}
 	return ports.ListParams{
 		TenantID:       req.TenantID,
 		UserID:         req.UserID,
 		Scope:          scope,
-		Statuses:       domain.StatusesForFilter(domain.FilterKeyOrDefault(req.FilterKey)),
+		Statuses:       domain.StatusesForFilter(filterKey),
+		OverdueBefore:  overdueBefore,
+		OverdueAt:      now,
 		Limit:          ClampPageSize(req.Limit),
 		Cursor:         strings.TrimSpace(req.Cursor),
 		Query:          text,

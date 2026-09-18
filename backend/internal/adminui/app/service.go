@@ -2116,6 +2116,9 @@ func pageSpecificCopy(id string) map[string]string {
 			// Open and Doing reading "0 on this page" beneath header pills of 179 and 118.
 			// These two say the board is narrowed and carry the way back.
 			"board.focused_note": "This board is showing one status only, so you can page through all of it.",
+			// Under the overdue lens the board keeps its two working columns and shows only the
+			// cards past their deadline; the sentence says so where the one-status note would lie.
+			"board.overdue_note": "This board is showing only tasks past their deadline, so you can page through all of them.",
 			"board.all_statuses": "Back to all statuses",
 			// The person filter is one searchable control now (it was a `<select>` that could
 			// not be typed into, plus a board avatar group whose overflow chip was dead). The

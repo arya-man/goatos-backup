@@ -146,6 +146,11 @@ func (r *Repository) ListTasks(ctx context.Context, p ports.ListParams) (ports.P
 	if len(p.Statuses) > 0 {
 		where += fmt.Sprintf(" AND t.status = ANY($%d)", bindArg(&args, p.Statuses))
 	}
+	if p.OverdueBefore != nil {
+		// The overdue lens: still-working tasks (Statuses carries open/in_progress) whose
+		// deadline has passed. Strict `<` so a task due exactly now is not late yet.
+		where += fmt.Sprintf(" AND t.deadline_at < $%d::timestamptz", bindArg(&args, *p.OverdueBefore))
+	}
 	where += filterPredicates(&args, "t.", p, true, true)
 	if p.Cursor != "" {
 		frag, err := keysetPredicate(&args, sortKey, p.Cursor)
@@ -210,6 +215,8 @@ func (r *Repository) ListTasks(ctx context.Context, p ports.ListParams) (ports.P
 			page.ScopeCounts[key] = n
 		case "unseen":
 			page.UnseenCount = n
+		case "overdue":
+			page.OverdueCount = n
 		}
 	}
 	if err := aggRows.Err(); err != nil {
@@ -409,14 +416,23 @@ func sqlListAggregates(args *[]any, p ports.ListParams) string {
 	if uuidutil.IsUUIDString(p.UserID) {
 		unseenArm = fmt.Sprintf(sqlListAggregatesUnseenArmTemplate, bindArg(args, p.UserID))
 	}
+	// The overdue chip's count: the SAME party + request filters as the status arm (so the chip
+	// never advertises a row the lens hides), narrowed to the two working statuses and a
+	// deadline before the request's farm clock. A zero clock counts nothing rather than
+	// comparing against year 1.
+	overdueArm := sqlListAggregatesNoOverdueArm
+	if !p.OverdueAt.IsZero() {
+		overdueWhere := statusCountsWhere(args, p)
+		overdueArm = fmt.Sprintf(sqlListAggregatesOverdueArmTemplate, overdueWhere, bindArg(args, domain.OverdueStatuses), bindArg(args, p.OverdueAt))
+	}
 
-	return fmt.Sprintf(sqlListAggregatesTemplate, statusWhere, toMe, byMe, team, unseenArm)
+	return fmt.Sprintf(sqlListAggregatesTemplate, statusWhere, toMe, byMe, team, unseenArm, overdueArm)
 }
 
 // sqlListAggregatesTemplate is the aggregate-bundle skeleton, hoisted to package level so a
 // query-plan test and the scale guard can reach it (the convention the retired scope-count
-// template used). The five %s are, in bind order: the status arm's WHERE, the three per-tab
-// WHEREs, and the unseen arm.
+// template used). The six %s are, in bind order: the status arm's WHERE, the three per-tab
+// WHEREs, the unseen arm and the overdue arm.
 const sqlListAggregatesTemplate = `
 SELECT 'status'::text AS kind, status AS key, count(*) AS n FROM public.leadership_tasks
   WHERE %s
@@ -434,7 +450,19 @@ SELECT 'scope'::text, scope, count(*) FROM (
 ) s
   GROUP BY scope
 UNION ALL
+%s
+UNION ALL
 %s`
+
+// sqlListAggregatesOverdueArmTemplate is the overdue chip's arm: %s is the status arm's WHERE
+// (rebound), then the working-status array bind and the farm-clock bind. It is served by
+// leadership_tasks_tenant_deadline_idx (tenant_id, deadline_at, task_id): a range scan up to
+// the clock, then the status test on the heap rows -- the same shape the deadline sorts use.
+const sqlListAggregatesOverdueArmTemplate = `SELECT 'overdue'::text, ''::text, count(*) FROM public.leadership_tasks
+  WHERE %s AND status = ANY($%d) AND deadline_at < $%d::timestamptz`
+
+// sqlListAggregatesNoOverdueArm keeps the bundle's shape when no clock was supplied.
+const sqlListAggregatesNoOverdueArm = `SELECT 'overdue'::text, ''::text, 0::bigint`
 
 // sqlListAggregatesUnseenArmTemplate is the unseen-badge arm; its one %d is the actor bind.
 const sqlListAggregatesUnseenArmTemplate = `SELECT 'unseen'::text, ''::text, count(*) FROM public.leadership_tasks

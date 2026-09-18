@@ -370,10 +370,21 @@ const (
 	FilterOpen       = "open"
 	FilterInProgress = "in_progress"
 	FilterDone       = "done"
+	// FilterOverdue is the LENS over the two working statuses: a task still open or in
+	// progress whose deadline has already passed on the farm clock (deadline_at < now). It is
+	// not a fifth status -- the card keeps its status, the column keeps its heading -- so the
+	// enum stays four values and the Work Board's vocabulary stays intact. The count beside
+	// the chip is whole-list, computed by the same aggregate query as the status counts.
+	FilterOverdue = "overdue"
 )
 
-// FilterKeys is the chip order.
-var FilterKeys = []string{FilterAll, FilterOpen, FilterInProgress, FilterDone}
+// FilterKeys is the chip order. Overdue sits last: it is a lens over the other chips'
+// statuses, and reads naturally after the ladder the three status chips walk.
+var FilterKeys = []string{FilterAll, FilterOpen, FilterInProgress, FilterDone, FilterOverdue}
+
+// OverdueStatuses are the statuses the overdue lens ranges over: a done or cancelled task is
+// finished and can no longer be late.
+var OverdueStatuses = []string{StatusOpen, StatusInProgress}
 
 const (
 	ScopeAssignedToMe = "assigned_to_me"
@@ -427,7 +438,7 @@ func ScopeEmptyMessage(key string) string {
 // still sees its list rather than an empty screen.
 func FilterKeyOrDefault(key string) string {
 	switch strings.TrimSpace(key) {
-	case FilterOpen, FilterInProgress, FilterDone:
+	case FilterOpen, FilterInProgress, FilterDone, FilterOverdue:
 		return strings.TrimSpace(key)
 	}
 	return FilterAll
@@ -443,6 +454,8 @@ func StatusesForFilter(key string) []string {
 		return []string{StatusInProgress}
 	case FilterDone:
 		return []string{StatusDone}
+	case FilterOverdue:
+		return OverdueStatuses
 	}
 	return []string{StatusOpen, StatusInProgress, StatusDone}
 }
@@ -457,6 +470,8 @@ func FilterLabel(key string) string {
 		return StatusChip(StatusInProgress)
 	case FilterDone:
 		return "Done"
+	case FilterOverdue:
+		return "Overdue"
 	}
 	return "All"
 }
@@ -472,6 +487,8 @@ func FilterEmptyMessage(key string, canRaise bool) string {
 			return "Nothing is being worked on right now."
 		case FilterDone:
 			return "Nothing has been completed yet."
+		case FilterOverdue:
+			return "Nothing is past its deadline."
 		}
 		return "No tasks yet. Tap + to raise one."
 	}
@@ -482,11 +499,15 @@ func FilterEmptyMessage(key string, canRaise bool) string {
 		return "Nothing in progress."
 	case FilterDone:
 		return "Nothing completed yet."
+	case FilterOverdue:
+		return "Nothing is past its deadline."
 	}
 	return "No tasks for you yet."
 }
 
-// FilterCount resolves a chip's count from whole-list status counts.
+// FilterCount resolves a chip's count from whole-list status counts. The overdue chip is NOT
+// a sum of statuses (it is the late subset of two of them); its count is carried separately
+// by the page (ports.Page.OverdueCount) and the caller substitutes it.
 func FilterCount(key string, statusCounts map[string]int) int {
 	total := 0
 	for _, s := range StatusesForFilter(key) {

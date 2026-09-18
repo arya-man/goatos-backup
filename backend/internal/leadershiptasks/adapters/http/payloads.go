@@ -339,10 +339,16 @@ func initialsOf(name string) string {
 func toFilterPayloads(selected string, page ports.Page, canRaise bool) []filterPayload {
 	out := make([]filterPayload, 0, len(domain.FilterKeys))
 	for _, key := range domain.FilterKeys {
+		count := domain.FilterCount(key, page.StatusCounts)
+		if key == domain.FilterOverdue {
+			// The overdue lens is the LATE subset of two statuses, not their sum; the
+			// repository counts it against the same clock the rows are read with.
+			count = page.OverdueCount
+		}
 		out = append(out, filterPayload{
 			Key:          key,
 			Label:        domain.FilterLabel(key),
-			Count:        domain.FilterCount(key, page.StatusCounts),
+			Count:        count,
 			Selected:     key == selected,
 			EmptyMessage: domain.FilterEmptyMessage(key, canRaise),
 		})

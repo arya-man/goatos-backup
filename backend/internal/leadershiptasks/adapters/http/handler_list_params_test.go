@@ -94,5 +94,48 @@ func TestListTransportCarriesTheWorklistParamsAndRefusesABadSort(t *testing.T) {
 	}
 }
 
+// TestListTransportCarriesTheOverdueFilterAndItsChipCount: `filter=overdue` reaches the service
+// as its own key (never normalised to All), and the response's filters[] carries an "overdue"
+// chip whose count is the page's OverdueCount -- the late subset -- selected when asked for.
+func TestListTransportCarriesTheOverdueFilterAndItsChipCount(t *testing.T) {
+	spy := &listSpyService{page: ports.Page{StatusCounts: map[string]int{"open": 4, "in_progress": 2}, ScopeCounts: map[string]int{}, OverdueCount: 3}}
+	h := NewHandler(spy, nil)
+	rec := httptest.NewRecorder()
+	h.ListTasks(rec, listRequest("scope=team_progress&filter=overdue"))
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status = %d body %s", rec.Code, rec.Body.String())
+	}
+	if spy.got.FilterKey != domain.FilterOverdue {
+		t.Fatalf("filter key = %q, want overdue", spy.got.FilterKey)
+	}
+	var body struct {
+		Filters []struct {
+			Key      string `json:"key"`
+			Label    string `json:"label"`
+			Count    int    `json:"count"`
+			Selected bool   `json:"selected"`
+		} `json:"filters"`
+	}
+	if err := json.Unmarshal(rec.Body.Bytes(), &body); err != nil {
+		t.Fatalf("decode: %v (%s)", err, rec.Body.String())
+	}
+	var found bool
+	for _, f := range body.Filters {
+		if f.Key != "overdue" {
+			if f.Selected {
+				t.Fatalf("chip %q selected under filter=overdue", f.Key)
+			}
+			continue
+		}
+		found = true
+		if f.Label != "Overdue" || f.Count != 3 || !f.Selected {
+			t.Fatalf("overdue chip = %+v, want label Overdue, count 3 (not open+in_progress = 6), selected", f)
+		}
+	}
+	if !found {
+		t.Fatalf("no overdue chip in filters: %+v", body.Filters)
+	}
+}
+
 // compile-time proof the spy satisfies the transport's Service seam without the real service.
 var _ Service = (*listSpyService)(nil)

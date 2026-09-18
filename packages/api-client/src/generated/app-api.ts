@@ -9081,7 +9081,7 @@ export interface components {
             to_value: string;
             /** @description The note a `commented` row refers to; blank otherwise. */
             note_id: string;
-            /** @description "Hemant created the task", "Ravi Teja changed the status Open → Doing". */
+            /** @description "Hemant created the task", "Ravi Teja changed the status To do → In progress". */
             summary: string;
         };
         /** @description One stored, resolved mention on a note. */
@@ -9193,7 +9193,7 @@ export interface components {
         };
         LeadershipTaskFilter: {
             /** @enum {string} */
-            key: "all" | "open" | "in_progress" | "done";
+            key: "all" | "open" | "in_progress" | "done" | "overdue";
             label: string;
             /** @description Whole-list count over the caller's party predicate */
             count: number;
@@ -25761,8 +25761,8 @@ export interface operations {
             query?: {
                 /** @description Monitoring scope key. Callers without `leadership_tasks.raise` are confined to `assigned_to_me`; `assigned_by_me` requires raise authority, and `team_progress` requires CEO/COO-style monitor authority. Unknown or unavailable scopes resolve to the caller's default scope. */
                 scope?: "assigned_to_me" | "assigned_by_me" | "team_progress";
-                /** @description The chip KEY. Absent or unknown resolves to `all` (which hides cancelled tasks). */
-                filter?: "all" | "open" | "in_progress" | "done";
+                /** @description The chip KEY. Absent or unknown resolves to `all` (which hides cancelled tasks). `overdue` is a LENS, not a fifth status: open or in-progress tasks whose deadline_at is before the server's farm clock at request time. Its chip count in `filters[]` is that same late subset, whole-list, under the request's other filters. */
+                filter?: "all" | "open" | "in_progress" | "done" | "overdue";
                 limit?: number;
                 /** @description Keyset cursor from a previous page's next_cursor. The cursor is SORT-AWARE: it carries the name of the sort it was minted under, and a cursor presented under a different `sort` is refused 400 `invalid_cursor` rather than served as a wrong page. Drop the cursor whenever the sort changes. */
                 cursor?: string;

@@ -146,10 +146,15 @@ func TestTaskPayloadCarriesBackendCopyAndCapabilitiesPerParty(t *testing.T) {
 }
 
 func TestFilterPayloadsAreWholeListCountsWithTheSelectedChipMarked(t *testing.T) {
-	page := ports.Page{StatusCounts: map[string]int{"open": 2, "in_progress": 1, "done": 3, "cancelled": 5}}
+	page := ports.Page{StatusCounts: map[string]int{"open": 2, "in_progress": 1, "done": 3, "cancelled": 5}, OverdueCount: 1}
 	filters := toFilterPayloads(domain.FilterDone, page, true)
-	if len(filters) != 4 {
+	if len(filters) != 5 {
 		t.Fatalf("filters = %+v", filters)
+	}
+	// The overdue chip is the LATE subset of open + in_progress (3 here), never their sum: its
+	// count is the page's own, measured against the request clock.
+	if filters[4].Key != "overdue" || filters[4].Label != "Overdue" || filters[4].Count != 1 || filters[4].Selected || filters[4].EmptyMessage == "" {
+		t.Fatalf("overdue chip = %+v", filters[4])
 	}
 	if filters[0].Key != "all" || filters[0].Count != 6 || filters[0].Selected {
 		t.Fatalf("all chip = %+v", filters[0])

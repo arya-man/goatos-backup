@@ -10,6 +10,7 @@ import {
   normalizeTaskScope,
   normalizeTaskSort,
   boardColumnsForFilter,
+  boardColumnHasTotal,
   safeTaskReturnTo,
   resolveTaskView,
   unprefixedTaskParamAliases,
@@ -121,6 +122,23 @@ test("a board under a status filter draws only that status's column", () => {
     assert.equal(columns.length, 1);
     assert.equal(columns[0], filter);
   }
+});
+
+test("the overdue lens is a filter value, and the board keeps its two working columns under it", () => {
+  // `overdue` is a lens the endpoint offers (open or in-progress tasks past their deadline),
+  // never a status: it round-trips as a filter value, never normalises to `all`, and the board
+  // under it draws To do + In progress -- each holding only its late cards -- rather than
+  // inventing an "Overdue" column the Work Board has no lane for.
+  assert.equal(normalizeTaskFilter("overdue"), "overdue");
+  assert.deepEqual([...boardColumnsForFilter("overdue")], ["open", "in_progress"]);
+  // No column has a publishable whole-list total under the lens: the response's status counts
+  // are the STATUS totals, not the late subset on screen, so the pill must read "—" like the
+  // cancelled column's rather than a number the column is visibly not showing.
+  for (const column of ["open", "in_progress"]) {
+    assert.equal(boardColumnHasTotal(column, "overdue"), false);
+    assert.equal(boardColumnHasTotal(column), true);
+  }
+  assert.equal(boardColumnHasTotal("cancelled", "all"), false);
 });
 
 test("`view` is read as an alias of `t_view`, and `t_view` wins when both are present", () => {

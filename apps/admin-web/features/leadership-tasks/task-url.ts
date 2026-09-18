@@ -16,8 +16,17 @@ export const DEFAULT_TASK_SORT: TaskSort = "raised_at_desc";
 export const TASK_SCOPES = ["assigned_to_me", "assigned_by_me", "team_progress"] as const;
 export type TaskScope = (typeof TASK_SCOPES)[number];
 
-export const TASK_FILTERS = ["all", "open", "in_progress", "done"] as const;
+/**
+ * The status chips, in chip order. `overdue` is a LENS, not a fifth status: open or in-progress
+ * tasks whose deadline is already past on the farm clock. The backend answers it with its own
+ * whole-list count (the late subset, never open + in_progress), and its rows keep their status.
+ */
+export const TASK_FILTERS = ["all", "open", "in_progress", "done", "overdue"] as const;
 export type TaskFilter = (typeof TASK_FILTERS)[number];
+export const TASK_FILTER_OVERDUE: TaskFilter = "overdue";
+
+/** The statuses the overdue lens ranges over — the two working columns of the board. */
+export const OVERDUE_BOARD_COLUMNS = ["open", "in_progress"] as const;
 
 /**
  * The two ways this desk renders the SAME list read: the status board and the table.
@@ -67,6 +76,11 @@ export type TaskBoardColumn = (typeof TASK_BOARD_COLUMNS)[number];
  */
 export function boardColumnsForFilter(filter: TaskFilter): readonly TaskBoardColumn[] {
   if (filter === "all") return TASK_BOARD_COLUMNS;
+  // The overdue lens keeps the board's own shape and drops what cannot be late: the two working
+  // columns stay, each holding only its overdue cards. Overdue is a card state on the Work
+  // Board too ("Amber card: ... past its clock"), never a lane of its own, so no "Overdue"
+  // column is invented here — the same status can never sit under two headings.
+  if (filter === TASK_FILTER_OVERDUE) return OVERDUE_BOARD_COLUMNS;
   return TASK_BOARD_COLUMNS.filter((column) => column === filter);
 }
 
@@ -123,8 +137,14 @@ export function unprefixedTaskParamAliases(
     .map(([alias, param]) => ({ alias, param }));
 }
 
-/** True when the whole-list count for this column is a number the backend actually publishes. */
-export function boardColumnHasTotal(column: TaskBoardColumn): boolean {
+/**
+ * True when the whole-list count for this column is a number the backend actually publishes.
+ * Under the overdue lens no column has one: the response's status counts are the status
+ * totals (172 To do), not the late subset the column is showing, and the one overdue count
+ * is not split by status — so the pill reads "—" exactly as the cancelled column's does.
+ */
+export function boardColumnHasTotal(column: TaskBoardColumn, filter: TaskFilter = "all"): boolean {
+  if (filter === TASK_FILTER_OVERDUE) return false;
   return (TASK_FILTERS as readonly string[]).includes(column);
 }
 

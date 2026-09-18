@@ -66,6 +66,17 @@ type ListParams struct {
 	RaisedTo     *time.Time
 	// Sort is a CLOSED enum; the empty string means SortRaisedAtDesc.
 	Sort string
+	// OverdueBefore, when set, narrows the ROWS to tasks whose deadline_at is strictly before
+	// this instant (the service's farm clock at request time) -- the overdue lens. Statuses
+	// carries the two working statuses beside it, so the predicate is
+	// `status = ANY(open, in_progress) AND deadline_at < $now`, served by
+	// leadership_tasks_tenant_deadline_idx (000345). The status and scope counts do NOT apply
+	// it (they answer "how many in each bucket under the other filters"); the overdue chip's
+	// own count is Page.OverdueCount, computed against the same clock.
+	OverdueBefore *time.Time
+	// OverdueAt is the clock the overdue COUNT is measured against on every list read, whether
+	// or not the overdue lens is active, so the chip advertises the same number the lens lists.
+	OverdueAt time.Time
 }
 
 // The list's four sort orders. A cursor carries the name of the sort it was minted under, so
@@ -115,6 +126,9 @@ type Page struct {
 	// UnseenCount is the number of tasks addressed to the caller they have not opened yet,
 	// excluding cancelled ones. The drawer badge shows the same number.
 	UnseenCount int
+	// OverdueCount is the whole-list number of open/in-progress tasks whose deadline is before
+	// ListParams.OverdueAt, under the same party and request filters as StatusCounts.
+	OverdueCount int
 }
 
 // RaiseParams raises a task.

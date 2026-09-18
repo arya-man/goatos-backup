@@ -413,6 +413,9 @@ export function LeadershipTasksFilters({
               replace
               scroll={false}
               className={chipSelected(chip.key) ? "on" : ""}
+              // The overdue chip carries the deadline pill's danger tone (`.lt-clock-late`): it is
+              // the one chip that names a problem rather than a stage.
+              data-filter={chip.key}
               aria-current={chipSelected(chip.key) ? "true" : undefined}
               // A real link with a real href, so open-in-new-tab and sharing still work; the
               // handler only takes over the PLAIN click, to light the segment up before the server
