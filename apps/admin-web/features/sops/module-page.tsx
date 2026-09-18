@@ -1,10 +1,10 @@
-import { SopBuilder, SopLibrary, builderInitialFromVersion, isVersionFaithfullyEditable, sopSliceKey, toSopView } from "@/features/sops";
+import { SopBuilder, SopLibrary, builderInitialFromVersion, isVersionFaithfullyEditable, sopScopeKey, toSopView } from "@/features/sops";
 import { FollowUpEditor } from "./followup-editor";
 import { parseFollowUp } from "./followup-model";
 import type { SopCardView } from "@/features/sops";
 import { getSop, isAuthRequiredError, listSops, requireAdminWebPageContract } from "@/lib/api/server";
 import type { RouteSearchParams } from "@/lib/search-params";
-import type { SopSliceDomain } from "./sop-derive";
+import type { SopScopeDomain } from "./sop-derive";
 import { InspectionEditor } from "./inspection-editor";
 import { publishedFromSearch } from "./published-href";
 import { parseInspection } from "./inspection-model";
@@ -21,7 +21,7 @@ import { parseCaptureCard } from "./capture-model";
 // /vaccination/sops, /counts/sops, and /feed/sops each mount this with their own page-contract key,
 // slice, and base path. The retired top-level /sops authority screen is NOT a valid mount point.
 //
-// Lists real `/admin/sops` definitions scoped to the module's slice (sopSliceKey), then derives the
+// Lists real `/admin/sops` definitions scoped to the module's slice (sopScopeKey), then derives the
 // card facets (domain / trigger / steps / gates) from real form_dsl + proof_policy. No mock rows.
 //
 // `?compose=1` (also the legacy `?new=1` deep link) swaps the library grid for the full-page SOP
@@ -29,7 +29,7 @@ import { parseCaptureCard } from "./capture-model";
 // the builder from the SOP's latest version.
 export async function renderSopModulePage(
   contractKey: string,
-  slice: SopSliceDomain,
+  slice: SopScopeDomain,
   basePath: string,
   searchParams: Promise<RouteSearchParams>,
 ) {
@@ -177,9 +177,9 @@ export async function renderSopModulePage(
   }
 
   // Module scoping: each page lists only its own module's SOP codes. A SOP outside every module
-  // slice (sopSliceKey "general") is not silently dropped into limbo — it belongs to no shipped
+  // slice (sopScopeKey "general") is not silently dropped into limbo — it belongs to no shipped
   // module yet and stays invisible until its module page exists, which is the honest state.
-  const defs = listed.data.items.filter((def) => sopSliceKey(def.code, def.name) === slice);
+  const defs = listed.data.items.filter((def) => sopScopeKey(def.code, def.name) === slice);
   // Latest versions arrive EMBEDDED in the list response, populated by one batched backend query
   // (SOPListResponse.latest_versions, keyed by sop_id) — no per-SOP detail fan-out (C35-015).
   const latestVersions = listed.data.latest_versions ?? {};

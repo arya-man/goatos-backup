@@ -8,12 +8,12 @@ const actionsSource = readFileSync(new URL("./sop-actions.ts", import.meta.url),
 const deriveSource = readFileSync(new URL("./sop-derive.ts", import.meta.url), "utf8");
 
 test("module SOP pages author into their own slice", () => {
-  assert.match(modulePageSource, /slice: SopSliceDomain/);
+  assert.match(modulePageSource, /slice: SopScopeDomain/);
   assert.match(modulePageSource, /<SopBuilder[^>]+domain=\{slice\}/);
-  assert.match(builderSource, /domain: SopSliceDomain;/);
-  assert.doesNotMatch(builderSource, /const domain: SopSliceDomain = "vaccination"/);
+  assert.match(builderSource, /domain: SopScopeDomain;/);
+  assert.doesNotMatch(builderSource, /const domain: SopScopeDomain = "vaccination"/);
   // Procurement joined the split on 2026-09-14 (Procurement SOP: the animal purchase inspection).
-  assert.match(deriveSource, /export type SopSliceDomain = "vaccination" \| "counts" \| "feed" \| "milk" \| "weighing" \| "procurement";/);
+  assert.match(deriveSource, /export type SopScopeDomain = "vaccination" \| "counts" \| "feed" \| "milk" \| "weighing" \| "procurement" \| "general";/);
   assert.match(deriveSource, /const prefix = input\.domain;/);
   assert.match(actionsSource, /SOP_SLICE_LABEL\[input\.domain\]/);
 });

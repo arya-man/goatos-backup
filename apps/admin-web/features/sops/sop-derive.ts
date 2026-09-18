@@ -79,7 +79,7 @@ export function classifyDomain(code: string, name: string): DomainId | "general"
 // (maintainer decision): their codes are module-prefixed by migration 000186, so the prefix is
 // authoritative — keyword guessing would file milk.* under "Breeding" ("milk") and weighing.*
 // under "Counts" ("weigh").
-export function sopSliceKey(code: string, name: string): "vaccination" | "counts" | "feed" | "milk" | "weighing" | "procurement" | "general" {
+export function sopScopeKey(code: string, name: string): "vaccination" | "counts" | "feed" | "milk" | "weighing" | "procurement" | "general" {
   const c = (code || "").toLowerCase();
   // GENERAL SOPs (SOP studio phase 2, 2026-09-18): the `general.` prefix is the kind, authored on
   // Configuration -> Work instructions.
@@ -534,11 +534,11 @@ export type SubjectScope = "batch" | "goat";
 
 // The New SOP builder is locked by its mounted module page. The domain is not a free choice inside
 // the builder; each route passes its own slice so new SOPs stay visible on the page that authored them.
-export type SopSliceDomain = "vaccination" | "counts" | "feed" | "milk" | "weighing" | "procurement" | "general";
+export type SopScopeDomain = "vaccination" | "counts" | "feed" | "milk" | "weighing" | "procurement" | "general";
 
 export type SopBuilderInput = {
   name: string;
-  domain: SopSliceDomain;
+  domain: SopScopeDomain;
   trigger: SopTrigger;
   steps: BuilderStep[];
   proofRequired: boolean;

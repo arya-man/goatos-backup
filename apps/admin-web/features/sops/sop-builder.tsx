@@ -14,7 +14,7 @@ import {
   type BuilderStep,
   type ProofType,
   type SopBuilderInput,
-  type SopSliceDomain,
+  type SopScopeDomain,
   type SopTrigger,
   type StepTypeValue,
   type SubjectScope,
@@ -76,7 +76,7 @@ export function SopBuilder({
   /** The module SOP page path this builder returns to (e.g. "/vaccination/sops"). */
   basePath: string;
   /** The module slice this route authors. Locked by the route, not user-selectable. */
-  domain: SopSliceDomain;
+  domain: SopScopeDomain;
   initial?: BuilderInitial;
   editSopId?: string;
   editBlocked?: boolean;
