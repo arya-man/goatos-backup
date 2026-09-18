@@ -1,6 +1,6 @@
 "use client";
 
-import { ChevronDown, Search } from "lucide-react";
+import { Check, ChevronDown, Search } from "lucide-react";
 import { useEffect, useMemo, useRef, useState } from "react";
 
 /**
@@ -242,7 +242,7 @@ export function AssigneePicker({
                     onMouseEnter={() => setMarker({ query, index })}
                     onClick={() => pick(o.id)}
                   >
-                    <span className="cb">{on ? "✓" : ""}</span>
+                    <span className="cb" aria-hidden="true">{on ? <Check className="ic" strokeWidth={3} /> : null}</span>
                     <Avatar name={o.name} />
                     <span className="avs-row">
                       <b className="avs-name">{o.name}</b>
@@ -292,11 +292,19 @@ export function AssigneePicker({
             <input ref={inputRef} value={query} onChange={(e) => setQuery(e.target.value)} placeholder={labels.search} aria-label={labels.search} autoComplete="off" />
           </div>
           <div className="list">
+            {/* "Select all" is the FIRST row, a checkbox like the rest: ticked while nobody is
+                picked (the board shows everyone), and clicking it clears a pick. */}
+            {query.trim() === "" ? (
+              <button type="button" role="option" aria-selected={!selected} className={`opt all${!selected ? " on" : ""}`} onClick={() => { onSelect(undefined); setOpen(false); setQuery(""); }}>
+                <span className="cb" aria-hidden="true">{!selected ? <Check className="ic" strokeWidth={3} /> : null}</span>
+                {labels.selectAll}
+              </button>
+            ) : null}
             {shown.map((o) => {
               const on = selected ? o.id === selected : true;
               return (
                 <button type="button" key={o.id} role="option" aria-selected={o.id === selected} className={`opt${on ? " on" : ""}`} onClick={() => { onSelect(o.id === selected ? undefined : o.id); setOpen(false); setQuery(""); }}>
-                  <span className="cb">{on ? "✓" : ""}</span>
+                  <span className="cb" aria-hidden="true">{on ? <Check className="ic" strokeWidth={3} /> : null}</span>
                   <Avatar name={o.name} />
                   {o.name}
                   <span className="cnt">{cardsByOwner[o.id] ?? 0} {labels.rows}</span>
@@ -305,11 +313,6 @@ export function AssigneePicker({
             })}
             {shown.length === 0 ? <div className="nomatch">{labels.none}</div> : null}
           </div>
-          {selected ? (
-            <button type="button" className="opt foot" onClick={() => { onSelect(undefined); setOpen(false); }}>
-              {labels.selectAll}
-            </button>
-          ) : null}
         </div>
       ) : null}
     </div>
