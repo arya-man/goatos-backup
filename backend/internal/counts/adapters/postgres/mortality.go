@@ -187,6 +187,10 @@ dead AS MATERIALIZED (
     FROM health_cases c
     WHERE c.tenant_id = $1::uuid AND c.goat_id = g.goat_id
       AND c.status IN ('closed_dead', 'held_death_review')
+      AND c.start_date <= COALESCE((g.exited_at AT TIME ZONE 'Asia/Kolkata')::date,
+                                   (g.updated_at AT TIME ZONE 'Asia/Kolkata')::date)
+      AND (c.closed_at IS NULL OR (c.closed_at AT TIME ZONE 'Asia/Kolkata')::date >= COALESCE((g.exited_at AT TIME ZONE 'Asia/Kolkata')::date,
+                                                                                               (g.updated_at AT TIME ZONE 'Asia/Kolkata')::date))
   ) inferred ON true
   WHERE g.tenant_id = $1::uuid
     AND g.merged_into_goat_id IS NULL
@@ -347,6 +351,8 @@ LEFT JOIN LATERAL (
   FROM health_cases c
   WHERE c.tenant_id = $1::uuid AND c.goat_id = d.goat_id
     AND c.status IN ('closed_dead', 'held_death_review')
+    AND c.start_date <= d.died_on
+    AND (c.closed_at IS NULL OR (c.closed_at AT TIME ZONE 'Asia/Kolkata')::date >= d.died_on)
 ) inferred ON true
 ORDER BY d.died_on DESC, d.goat_id
 `

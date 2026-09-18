@@ -213,7 +213,9 @@ func TestMortalityCauseBasesPartitionDeaths(t *testing.T) {
 	both := mortalityGoatID(201)
 	inferred := mortalityGoatID(202)
 	none := mortalityGoatID(203)
-	for _, id := range []string{recorded, both, inferred, none} {
+	priorCase := mortalityGoatID(204)
+	afterCase := mortalityGoatID(205)
+	for _, id := range []string{recorded, both, inferred, none, priorCase, afterCase} {
 		insertMortalityGoat(t, ctx, pool, id, "Beetal", "female", "F2-Female", "adult", "2025-01-01", "procured", "died", died)
 	}
 	for _, id := range []string{recorded, both} {
@@ -240,16 +242,34 @@ VALUES ($1::uuid, $2::uuid, $3::uuid, 'supportive', 'Pneumonia', 'adult', '2026-
 			t.Fatalf("seed inferred case: %v", err)
 		}
 	}
+	for i, seed := range []struct {
+		goatID   string
+		start    string
+		closedAt string
+	}{
+		{priorCase, "2026-06-01", "2026-06-10"},
+		{afterCase, "2026-07-20", "2026-07-25"},
+	} {
+		if _, err := pool.Exec(ctx, `
+INSERT INTO health_cases (tenant_id, goat_id, health_protocol_version_id, disease_key, disease_name,
+                          age_band, start_date, duration_days, status, closed_at, park_id, shed_id,
+                          idempotency_key, request_fingerprint)
+VALUES ($1::uuid, $2::uuid, $3::uuid, 'supportive', 'Pneumonia', 'adult', $4::date, 5, 'closed_dead',
+        ($5::date + time '18:00') AT TIME ZONE 'Asia/Kolkata',
+        $6::uuid, $7::uuid, $8, $8)`, countsTenant, seed.goatID, versionID, seed.start, seed.closedAt, countsPark, countsShedA, fmt.Sprintf("mortality-non-overlap-case-%d", i)); err != nil {
+			t.Fatalf("seed non-overlap case: %v", err)
+		}
+	}
 
 	mort, err := repo.GetMortality(ctx, domain.MortalityQuery{TenantID: countsTenant, FromDate: from, ToDate: to})
 	if err != nil {
 		t.Fatalf("mortality: %v", err)
 	}
-	if mort.Totals.Deaths != 4 {
-		t.Fatalf("deaths=%d want 4", mort.Totals.Deaths)
+	if mort.Totals.Deaths != 6 {
+		t.Fatalf("deaths=%d want 6", mort.Totals.Deaths)
 	}
-	if mort.Totals.CauseRecorded != 2 || mort.Totals.CauseInferred != 1 || mort.Totals.CauseNone != 1 {
-		t.Fatalf("bases recorded=%d inferred=%d none=%d, want 2/1/1", mort.Totals.CauseRecorded, mort.Totals.CauseInferred, mort.Totals.CauseNone)
+	if mort.Totals.CauseRecorded != 2 || mort.Totals.CauseInferred != 1 || mort.Totals.CauseNone != 3 {
+		t.Fatalf("bases recorded=%d inferred=%d none=%d, want 2/1/3", mort.Totals.CauseRecorded, mort.Totals.CauseInferred, mort.Totals.CauseNone)
 	}
 	var sum int64
 	for _, b := range mort.Cause {
