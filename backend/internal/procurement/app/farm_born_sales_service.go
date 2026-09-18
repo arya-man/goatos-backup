@@ -35,7 +35,6 @@ func (s *FarmBornSalesService) WithClock(now func() time.Time) *FarmBornSalesSer
 // FarmBornRequest is the page's raw query, validated here.
 type FarmBornRequest struct {
 	From, To string
-	Origin   string
 	ParkID   string
 	// Pen is the `<shed_id>|<partition>` key the page round-trips (domain.FarmBornPenKey).
 	Pen     string
@@ -48,7 +47,6 @@ type FarmBornRequest struct {
 }
 
 var (
-	ErrFarmBornOriginInvalid  = errors.New("procurement: farm born origin is not a served reading")
 	ErrFarmBornWindowInvalid  = errors.New("procurement: farm born window is not a valid date range")
 	ErrFarmBornWindowTooWide  = errors.New("procurement: farm born window is wider than the served maximum")
 	ErrFarmBornOffsetInvalid  = errors.New("procurement: farm born page offset is out of range")
@@ -63,10 +61,6 @@ var (
 // request (one date without the other) is completed from the default rather than refused, so a
 // hand-edited URL still answers.
 func (s *FarmBornSalesService) FarmBornSales(ctx context.Context, tenantID string, req FarmBornRequest) (domain.FarmBornSales, error) {
-	origin, ok := domain.NormalizeFarmBornOrigin(req.Origin)
-	if !ok {
-		return domain.FarmBornSales{}, ErrFarmBornOriginInvalid
-	}
 	if req.Offset < 0 || req.Offset > domain.MaxFarmBornOffset {
 		return domain.FarmBornSales{}, ErrFarmBornOffsetInvalid
 	}
@@ -107,7 +101,6 @@ func (s *FarmBornSalesService) FarmBornSales(ctx context.Context, tenantID strin
 	filter := domain.FarmBornFilter{
 		From:      from,
 		To:        to,
-		Origin:    origin,
 		ParkID:    strings.TrimSpace(req.ParkID),
 		ShedID:    shedID,
 		Partition: partition,
@@ -121,9 +114,9 @@ func (s *FarmBornSalesService) FarmBornSales(ctx context.Context, tenantID strin
 		return domain.FarmBornSales{}, err
 	}
 	out := domain.BuildFarmBornSales(facts, filter, req.Limit, req.Offset)
-	// The bar's vocabulary is the ORIGIN reading's whole population, not the filtered slice:
-	// narrowing to one breed must not make the other breeds vanish from the breed select.
-	options, err := s.repo.FarmBornOptions(ctx, tenantID, origin)
+	// The bar's vocabulary is the whole population, not the filtered slice: narrowing to one
+	// breed must not make the other breeds vanish from the breed select.
+	options, err := s.repo.FarmBornOptions(ctx, tenantID)
 	if err != nil {
 		return domain.FarmBornSales{}, err
 	}
@@ -136,8 +129,6 @@ func FarmBornHTTPError(err error) *Error {
 	switch {
 	case err == nil:
 		return nil
-	case errors.Is(err, ErrFarmBornOriginInvalid):
-		return &Error{Code: "invalid_origin", Message: "Pick farm born, bought without a load record, or origin not recorded.", HTTPStatus: http.StatusBadRequest}
 	case errors.Is(err, ErrFarmBornWindowInvalid):
 		return &Error{Code: "invalid_window", Message: "Pick a from date on or before the to date.", HTTPStatus: http.StatusBadRequest}
 	case errors.Is(err, ErrFarmBornWindowTooWide):

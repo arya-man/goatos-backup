@@ -23,8 +23,9 @@ import (
 
 var _ ports.FarmBornSalesRepository = (*Repository)(nil)
 
-// farmBornPopulationSQL is the shared front of both reads: every not-on-a-load animal for one
-// origin reading, with its register facts and its pen resolved ONCE.
+// farmBornPopulationSQL is the shared front of both reads: every not-on-a-load animal, whatever
+// the register's origin field says (maintainer instruction 2026-09-19), with its register facts
+// and its pen resolved ONCE.
 //
 // The population is the exact complement of the load-wise membership (accepted rows on
 // procurement_load_goats), so an animal is on exactly one of the two pages.
@@ -89,11 +90,6 @@ pop AS (
     WHERE g.tenant_id = $1
       AND g.merged_into_goat_id IS NULL
       AND NOT EXISTS (SELECT 1 FROM on_load ol WHERE ol.goat_id = g.goat_id)
-      AND CASE $2::text
-              WHEN 'farm_born' THEN g.origin_type = 'birth'
-              WHEN 'bought_no_load' THEN g.origin_type = 'procured'
-              ELSE g.origin_type IS NULL OR g.origin_type NOT IN ('birth', 'procured')
-          END
 ),
 located AS (
     SELECT p.*,
@@ -110,9 +106,9 @@ located AS (
 // both narrowed by the herd-dimension predicates. Blank predicate parameters mean no filter.
 //
 // projection-review: membership=goats at ROW grain (one animal), narrowed to the tenant, NOT on an
-// accepted load row (a semi-join, so a two-load animal cannot fan out), the origin reading, the
-// optional park / pen / species / breed / sex / stage predicates, and EITHER on farm today OR sold
-// with a sale date inside [$3, $4]; group_key=goat_id -- every CTE it joins is 1:{0,1} per animal
+// accepted load row (a semi-join, so a two-load animal cannot fan out), the optional park / pen /
+// species / breed / sex / stage predicates, and EITHER on farm today OR sold with a sale date
+// inside [$2, $3]; group_key=goat_id -- every CTE it joins is 1:{0,1} per animal
 // (ident DISTINCT ON goat_id, goat_shed_partitions PK (tenant, goat), deal_share through the
 // tagged partial unique index, locations on PK), so the read returns exactly one row per admitted
 // animal and the domain's counts are counts of animals; join_cardinality=1:{0,1} on every branch,
@@ -132,22 +128,22 @@ SELECT l.goat_id::text, l.display_id, l.tag, l.species, l.breed, l.sex, l.stage,
        l.bucket, COALESCE(l.sale_date::text, ''), l.share, l.buyer_name,
        COALESCE(l.sales_deal_id::text, '')
 FROM located l
-WHERE (l.bucket = 'on_farm' OR (l.bucket = 'sold' AND l.sale_date BETWEEN $3::date AND $4::date))
-  AND ($5::text = '' OR l.park_id::text = $5)
-  AND ($6::text = '' OR (l.shed_id::text = $6 AND l.partition_key = $7))
-  AND ($8::text = '' OR l.species = $8)
-  AND ($9::text = '' OR lower(btrim(l.breed)) = $9)
-  AND ($10::text = '' OR l.sex = $10)
-  AND ($11::text = '' OR lower(btrim(l.stage)) = $11)
+WHERE (l.bucket = 'on_farm' OR (l.bucket = 'sold' AND l.sale_date BETWEEN $2::date AND $3::date))
+  AND ($4::text = '' OR l.park_id::text = $4)
+  AND ($5::text = '' OR (l.shed_id::text = $5 AND l.partition_key = $6))
+  AND ($7::text = '' OR l.species = $7)
+  AND ($8::text = '' OR lower(btrim(l.breed)) = $8)
+  AND ($9::text = '' OR l.sex = $9)
+  AND ($10::text = '' OR lower(btrim(l.stage)) = $10)
 ORDER BY l.sale_date DESC NULLS LAST, l.tag, l.goat_id`
 
-// farmBornOptionsSQL is the filter bar's vocabulary for one origin reading: every distinct park,
+// farmBornOptionsSQL is the filter bar's vocabulary: every distinct park,
 // pen, species, breed, sex and stage the population has, on farm or sold, so the bar offers only
 // choices that match something. One row per distinct combination; the Go side splits them into
 // the six lists.
 //
 // projection-review: membership=the same located population as the facts read (tenant, not on a
-// load, origin reading), restricted to animals on farm or sold; group_key=the distinct
+// load), restricted to animals on farm or sold; group_key=the distinct
 // (park, shed, partition_key, species, breed, sex, stage) tuple -- a vocabulary, not a count, so no
 // figure is derived from it; join_cardinality=1:{0,1} per animal on every branch as above;
 // pagination=none; scope=tenant_id on every branch.
@@ -173,7 +169,7 @@ func (r *Repository) FarmBornAnimals(ctx context.Context, tenantID string, f dom
 		partitionKey = oploc.NormalizePartition(f.Partition)
 	}
 	rows, err := r.pool.Query(ctx, farmBornAnimalsSQL,
-		tenantID, f.Origin, f.From, f.To,
+		tenantID, f.From, f.To,
 		strings.TrimSpace(f.ParkID), shedID, partitionKey,
 		strings.ToLower(strings.TrimSpace(f.Species)),
 		strings.ToLower(strings.TrimSpace(f.Breed)),
@@ -213,11 +209,11 @@ func (r *Repository) FarmBornAnimals(ctx context.Context, tenantID string, f dom
 }
 
 // FarmBornOptions implements ports.FarmBornSalesRepository.
-func (r *Repository) FarmBornOptions(ctx context.Context, tenantID, origin string) (domain.FarmBornOptions, error) {
+func (r *Repository) FarmBornOptions(ctx context.Context, tenantID string) (domain.FarmBornOptions, error) {
 	ctx, cancel := context.WithTimeout(ctx, r.timeout)
 	defer cancel()
 
-	rows, err := r.pool.Query(ctx, farmBornOptionsSQL, tenantID, origin)
+	rows, err := r.pool.Query(ctx, farmBornOptionsSQL, tenantID)
 	if err != nil {
 		return domain.FarmBornOptions{}, fmt.Errorf("procurement: farm born options: %w", err)
 	}

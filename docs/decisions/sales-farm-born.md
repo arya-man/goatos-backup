@@ -16,14 +16,14 @@ earn" had no screen.
 1. **Its own page under Sales, beside Load wise.** The two pages partition the
    herd: an animal is on exactly one of them. Membership is the exact complement
    of the load-wise membership (accepted rows on `procurement_load_goats`).
-2. **The page is farm born only: `origin_type = 'birth'`, no origin control.**
-   On the live herd 536 alive animals carry no `origin_type` and 392 are marked
-   `procured` while sitting on no load (founding stock bought before loads were
-   recorded). The read still accepts `origin=bought_no_load|not_recorded` for
-   those readings, but the maintainer removed the Origin filter from the page
-   the same day it was offered (2026-09-18): the screen answers one question,
-   and those animals are not "my farm's kids". They remain reachable through
-   the API only.
+2. **Population = every animal not on an accepted purchase load — the register's
+   origin field is ignored** (maintainer instruction 2026-09-19, replacing two
+   earlier readings the same day). On the live herd 536 alive animals carry no
+   `origin_type` (264 of them this year's kids) and 392 are marked `procured`
+   while on no load; keyed on that field, "on the farm now" read 248 against a
+   herd the farm knows is larger. The load table is the one complete fact, and
+   "not bought on a load" is what the farm means by its own stock. On farm today:
+   1,176; with Load wise's "still on farm" (397) that is the whole live herd.
 3. **The period binds the SOLD side only.** "How many do I have" is answered
    live, today, whatever the period. "How many did I sell, of what, for how
    much" is answered for the sales whose date falls in the period. Default
@@ -42,29 +42,6 @@ earn" had no screen.
    sex, stage) — every KPI, every breakdown and the ledger range over the
    same animals, so each breakdown's On farm / Sold columns sum to the headline
    by construction. Vocabularies for park / pen / breed / stage are LIVE herd
-   facts served by the read for the origin reading (not narrowed by the other
-   filters); sex / species are contract option groups.
+   facts served by the read (not narrowed by the other filters); sex / species
+   are contract option groups.
 7. **Read-only by contract.** No control; entry stays on Sales Config.
-8. **No "on the farm now" figure (maintainer instruction 2026-09-19).** The
-   register's `origin_type` is under-filled: 264 of the 2026 kids and 272 older
-   adults carry no origin at all, so a live farm-born count read 248 against a
-   herd the farm knows is larger. Rather than show a number the register cannot
-   back, the tile and the breakdowns' On farm column were removed; the read still
-   returns `on_farm` (unused by the page) until the origin field is repaired.
-
-## Where it lives
-
-- Domain / port / repo / service / handler: `backend/internal/procurement/**/farm_born_sales*`
-  — a RECORDED cross-module reporting read in the load-wise shape
-  (`docs/decisions/sales-loadwise.md`); procurement joins OUT to goats,
-  goat_identifiers, goat_shed_partitions, locations, goat_sale_allocations and
-  sales_deals. Nothing gates a write; the sales module's own lock (migration
-  000173) is untouched.
-- Page contract and copy: `adminui/app/service.go` (`sales-farm-born`); catalog
-  row in `permissions/capability_pages.go`; route on `SalesRead`.
-- Admin-web: `apps/admin-web/features/procurement/sales-farm-born.tsx` +
-  `farm-born-sold-table.tsx`; the page owns its park control, so it is listed in
-  `PAGES_OWNING_PARK_SCOPE`.
-
-Pinned by `TestSalesFarmBornPageContract`, `TestBuildFarmBornSalesBreakdownsSumToTheHeadline`,
-`TestFarmBornServiceRefusesBadFilters`, `TestFarmBornHandlerForwardsEveryFilterAndSerialisesThePage`.

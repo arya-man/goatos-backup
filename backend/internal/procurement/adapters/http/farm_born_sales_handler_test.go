@@ -46,7 +46,7 @@ func serveFarmBorn(t *testing.T, h *FarmBornSalesHandler, path string) (int, map
 func TestFarmBornHandlerForwardsEveryFilterAndSerialisesThePage(t *testing.T) {
 	value := 9000.0
 	stub := &stubFarmBornService{out: domain.FarmBornSales{
-		Summary:   domain.FarmBornSummary{OnFarm: 3, Sold: 2, SoldPriced: 1, Revenue: 9000, AvgPrice: 9000, From: "2026-08-18", To: "2026-09-18", Origin: "farm_born"},
+		Summary:   domain.FarmBornSummary{OnFarm: 3, Sold: 2, SoldPriced: 1, Revenue: 9000, AvgPrice: 9000, From: "2026-08-18", To: "2026-09-18"},
 		ByBreed:   []domain.FarmBornBucket{{Key: "goat:sirohi", Label: "Sirohi", Detail: "Goat", OnFarm: 3, Sold: 2, SoldPriced: 1, Revenue: 9000}},
 		BySex:     []domain.FarmBornBucket{{Key: "male", Label: "Male", OnFarm: 3, Sold: 2}},
 		ByStage:   []domain.FarmBornBucket{{Key: "f2-male", Label: "F2-Male", OnFarm: 3, Sold: 2}},
@@ -56,16 +56,16 @@ func TestFarmBornHandlerForwardsEveryFilterAndSerialisesThePage(t *testing.T) {
 		Options: domain.FarmBornOptions{Parks: []domain.FarmBornOption{{Key: "p1", Label: "Coimbatore"}}, Pens: []domain.FarmBornOption{{Key: "s1|2", Label: "Castro 2", ParkID: "p1"}}, Breeds: []domain.FarmBornOption{{Key: "sirohi", Label: "Sirohi"}}},
 	}}
 	h := NewFarmBornSalesHandler(stub)
-	code, body := serveFarmBorn(t, h, "/procurement/farm-born-sales?from=2026-08-18&to=2026-09-18&origin=farm_born&park_id=p1&pen=s1%7C2&species=goat&breed=Sirohi&sex=male&stage=F2-Male&limit=50&offset=25")
+	code, body := serveFarmBorn(t, h, "/procurement/farm-born-sales?from=2026-08-18&to=2026-09-18&park_id=p1&pen=s1%7C2&species=goat&breed=Sirohi&sex=male&stage=F2-Male&limit=50&offset=25")
 	if code != http.StatusOK {
 		t.Fatalf("status = %d body %v", code, body)
 	}
-	want := app.FarmBornRequest{From: "2026-08-18", To: "2026-09-18", Origin: "farm_born", ParkID: "p1", Pen: "s1|2", Species: "goat", Breed: "Sirohi", Sex: "male", Stage: "F2-Male", Limit: 50, Offset: 25}
+	want := app.FarmBornRequest{From: "2026-08-18", To: "2026-09-18", ParkID: "p1", Pen: "s1|2", Species: "goat", Breed: "Sirohi", Sex: "male", Stage: "F2-Male", Limit: 50, Offset: 25}
 	if stub.req != want {
 		t.Fatalf("service request = %+v, want %+v", stub.req, want)
 	}
 	summary := body["summary"].(map[string]any)
-	if summary["on_farm"].(float64) != 3 || summary["sold"].(float64) != 2 || summary["revenue"].(float64) != 9000 || summary["from"] != "2026-08-18" || summary["origin"] != "farm_born" {
+	if summary["on_farm"].(float64) != 3 || summary["sold"].(float64) != 2 || summary["revenue"].(float64) != 9000 || summary["from"] != "2026-08-18" {
 		t.Fatalf("summary = %v", summary)
 	}
 	for _, key := range []string{"by_breed", "by_sex", "by_stage", "by_pen"} {
@@ -112,9 +112,5 @@ func TestFarmBornHandlerRefusesBadInput(t *testing.T) {
 	h = NewFarmBornSalesHandler(&stubFarmBornService{err: app.ErrFarmBornWindowInvalid})
 	if code, body := serveFarmBorn(t, h, "/procurement/farm-born-sales?from=2026-09-18&to=2026-08-01"); code != http.StatusBadRequest || body["error"] != "invalid_window" {
 		t.Fatalf("inverted window -> %d %v", code, body)
-	}
-	h = NewFarmBornSalesHandler(&stubFarmBornService{err: app.ErrFarmBornOriginInvalid})
-	if code, body := serveFarmBorn(t, h, "/procurement/farm-born-sales?origin=purchased"); code != http.StatusBadRequest || body["error"] != "invalid_origin" {
-		t.Fatalf("origin=purchased -> %d %v", code, body)
 	}
 }
