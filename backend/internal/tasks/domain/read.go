@@ -104,17 +104,17 @@ type WorkflowNextAction struct {
 
 // WorkflowCard is one list row (read from workflow_instances alone plus bounded display joins).
 type WorkflowCard struct {
-	WorkflowID           string
-	Module               string
-	TemplateKey          string
-	Subject              WorkflowSubject
-	EventAt              time.Time
-	EventDate            string
-	ParkLabel            string
-	ShedLabel            string
+	WorkflowID  string
+	Module      string
+	TemplateKey string
+	Subject     WorkflowSubject
+	EventAt     time.Time
+	EventDate   string
+	ParkLabel   string
+	ShedLabel   string
 	// SOPName is the authored name of the SOP a GENERAL run was started from ("" on the
 	// herd-operations templates, whose label comes from the template key).
-	SOPName string
+	SOPName              string
 	ActionsDone          int
 	ActionsTotal         int
 	NextAction           *WorkflowNextAction
