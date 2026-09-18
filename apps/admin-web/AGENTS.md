@@ -778,6 +778,15 @@ allowed product route or redirect.
   (baseline is shrink-only); stack layouts under `@media (max-width: 600px)`
   instead. The 390px lane of `npm run smoke:visual:live` is the runtime proof.
   Canonical: `docs/decisions/admin-web-phone-viewport.md`.
+- **A click costs what it changes** (maintainer rule 2026-09-18). A same-page
+  drawer opens client-locally from the row already on screen (capture-phase
+  intercept, `pushLocalOverlayUrl`, detail fetched inside the drawer); an
+  in-place write returns the row for the client to apply and never ALSO
+  `revalidatePath`s; a Board/List toggle is client state. Controls are the
+  console's own: a tick is a real `<input type="checkbox">` in a `<label>`, a
+  date is `ThemedDatePicker`. `make admin-web-interaction-patterns-guard`
+  (shrink-only baseline) + `make admin-web-local-overlay-guard`. Canonical:
+  `docs/decisions/admin-web-interaction-patterns.md`.
 
 ## Removed From Active Admin-Web
 

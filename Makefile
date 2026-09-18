@@ -208,6 +208,7 @@ guardrails:
 	$(MAKE) admin-web-prefetch-guard
 	$(MAKE) admin-web-server-client-values-guard
 	$(MAKE) admin-web-local-overlay-guard
+	$(MAKE) admin-web-interaction-patterns-guard
 	$(MAKE) date-format-guard
 	$(MAKE) sidebar-typography-guard
 	$(MAKE) sales-pages-guard
@@ -1115,6 +1116,15 @@ overlay-motion-guard:
 admin-web-local-overlay-guard:
 	node tools/agent-hooks/check-admin-web-local-overlays.mjs --self-test
 	node tools/agent-hooks/check-admin-web-local-overlays.mjs
+
+# admin-web-interaction-patterns-guard: the four interaction shapes the maintainer banned on
+# 2026-09-18 -- native date/time inputs, ARIA-faked checkboxes, a server action that returns a
+# row AND revalidates the route (the flicker), and a Board/List view toggle that navigates.
+# Whole-tree, count-ratcheted (tools/admin-web-interaction-patterns/baseline.json, shrink-only).
+.PHONY: admin-web-interaction-patterns-guard
+admin-web-interaction-patterns-guard:
+	node tools/agent-hooks/check-admin-web-interaction-patterns.mjs --self-test
+	node tools/agent-hooks/check-admin-web-interaction-patterns.mjs
 
 # date-format-guard: every VISIBLE date renders DD/MM/YYYY on every surface —
 # admin-web, Android, and the date strings the backend composes for a screen

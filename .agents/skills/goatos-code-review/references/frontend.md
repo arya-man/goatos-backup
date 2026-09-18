@@ -278,6 +278,15 @@ Review checkpoints:
       Handler inside the open shell; it does not refetch or skeletonize the page
 - [ ] `make admin-web-local-overlay-guard` passes with a zero legacy baseline;
       new bypass patterns extend the adversarial self-test, never an allowlist
+- [ ] **Interaction cost (maintainer, 2026-09-18):** open the network panel and click. A
+      card/row click opens its drawer with NO document/RSC request (detail fetched inside
+      the drawer only); a drawer write shows ONE action POST and no route re-fetch — an
+      action that returns a row must not also `revalidatePath`; a Board/List or table/cards
+      toggle issues no request at all. `make admin-web-interaction-patterns-guard` green
+      with no baseline growth. `docs/decisions/admin-web-interaction-patterns.md`.
+- [ ] **Controls are the console's own:** every tick in a dropdown/filter is a real
+      `<input type="checkbox">` inside a `<label>` (no coloured box, no `aria-checked`
+      button); every date is `ThemedDatePicker` (no `<input type="date">`).
 - [ ] No cross-feature deep imports (`features/x/...` imported inside `features/y/`) — share via `components/`, `lib/`, `packages/`
 - [ ] Server Components remain the default; `'use client'` appears only at the
       smallest interactive boundary and does not pull privileged adapters,

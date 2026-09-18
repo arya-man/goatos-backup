@@ -127,6 +127,11 @@ const requiredWiring = [
   ["apps/admin-web/components/mesha-shell.tsx", ["anchor.dataset.localOverlayNavigation"]],
   ["apps/admin-web/features/process-integrity/work-board.tsx", ["LocalOverlayLink", "localOverlay"]],
   ["apps/admin-web/features/process-integrity/action-center-local-drawer.tsx", ["ActionCenterLocalDrawer", "currentHistoryEntryIsLocalOverlay"]],
+  // The Tasks drawer (2026-09-18): a card click is intercepted in the CAPTURE phase and opens
+  // client-locally; the URL moves through history only. Losing any of these puts a route render
+  // behind every card click again.
+  ["apps/admin-web/features/leadership-tasks/task-drawer-host.tsx", ["TaskDrawerHost", "pushLocalOverlayUrl", "currentHistoryEntryIsLocalOverlay", 'document.addEventListener("click", onClick, true)', "loadLeadershipTaskAction"]],
+  ["apps/admin-web/features/leadership-tasks/leadership-tasks-page.tsx", ["<TaskDrawerHost"]],
 ];
 for (const [file, needles] of requiredWiring) {
   let text = "";

@@ -682,6 +682,7 @@ run_admin_web() {
   step "admin-web prefetch"      make admin-web-prefetch-guard
   step "admin-web server/client values" make admin-web-server-client-values-guard
   step "admin-web local overlays" make admin-web-local-overlay-guard
+  step "admin-web interaction patterns" make admin-web-interaction-patterns-guard
   step "date-format-guard" make date-format-guard
   step "sidebar-typography-guard" make sidebar-typography-guard
   step "sales-pages-guard" make sales-pages-guard

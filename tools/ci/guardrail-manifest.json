@@ -51,6 +51,17 @@
       "ciStep": "admin-web-local-overlay-guard"
     },
     {
+      "id": "admin-web-interaction-patterns",
+      "script": "tools/agent-hooks/check-admin-web-interaction-patterns.mjs",
+      "makeTarget": "admin-web-interaction-patterns-guard",
+      "realCheck": "node tools/agent-hooks/check-admin-web-interaction-patterns.mjs",
+      "selfTest": "node tools/agent-hooks/check-admin-web-interaction-patterns.mjs --self-test",
+      "owningDoc": "docs/decisions/admin-web-interaction-patterns.md",
+      "requiredInCI": true,
+      "ciStep": "admin-web-interaction-patterns-guard",
+      "notes": "Maintainer rule 2026-09-18 from the Tasks page: no native date/time inputs (ThemedDatePicker is the one date field), no ARIA-faked checkboxes (a tick is a real <input type=checkbox> in a <label>), no server action that returns a row AND revalidates the route (the drawer applies the row in place; the revalidate is the page flicker), no Board/List view toggle that navigates (client state + replaceLocalOverlayUrl). Whole-tree, count-ratcheted baseline in tools/admin-web-interaction-patterns/baseline.json (shrink-only). Self-test is adversarial per rule and also pins the reference implementations (themed-date-picker, task-people-dropdown, task-view-switch, task-row-store, the in-place status action having no revalidate). Card-click-navigates-to-open-a-drawer stays with admin-web-local-overlays, which now pins the Tasks drawer host."
+    },
+    {
       "id": "admin-web-nav-icon-coverage",
       "script": "tools/agent-hooks/check-admin-web-nav-icon-coverage.mjs",
       "makeTarget": "frontend-foundations-guard",
