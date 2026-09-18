@@ -64,7 +64,7 @@ const entry = (over) => ({
 const activity = [
   entry({ id: "e4", kind: "commented", occurred_label: "18/09/2026 10:40", actor_name: "Ravi Teja", actor_initials: "RT", note_id: "n1", summary: "Ravi Teja commented" }),
   entry({ id: "e3", kind: "deadline_changed", occurred_label: "18/09/2026 10:31", actor_name: "Ravi Teja", actor_initials: "RT", from_label: "17/09/2026 17:00", to_label: "20/09/2026 17:00", from_value: "2026-09-17T11:30:00Z", to_value: "2026-09-20T11:30:00Z", summary: "Ravi Teja changed the deadline 17/09/2026 17:00 → 20/09/2026 17:00" }),
-  entry({ id: "e2", kind: "status_changed", occurred_label: "18/09/2026 10:30", actor_name: "Ravi Teja", actor_initials: "RT", from_label: "Open", to_label: "Doing", from_value: "open", to_value: "in_progress", summary: "Ravi Teja changed the status Open → Doing" }),
+  entry({ id: "e2", kind: "status_changed", occurred_label: "18/09/2026 10:30", actor_name: "Ravi Teja", actor_initials: "RT", from_label: "To do", to_label: "In progress", from_value: "open", to_value: "in_progress", summary: "Ravi Teja changed the status To do → In progress" }),
   entry({ id: "e1" }),
 ];
 const notes = [{ note_id: "n1", author_name: "Ravi Teja", body: "Report shared with the lab.", created_at: "2026-09-18T05:10:00Z" }];
@@ -95,7 +95,7 @@ test("All renders the tabs with counts and every row newest first, worded from t
 
 test("a status change draws the two status chips and an arrow, toned from the stored keys", () => {
   const html = render({ initialView: "history" });
-  assert.match(html, /<span class="ltd-actchip ltd-status-warn">Open<\/span><span class="ltd-act-arrow" aria-hidden="true">→<\/span><span class="ltd-actchip ltd-status-info">Doing<\/span>/);
+  assert.match(html, /<span class="ltd-actchip ltd-status-warn">To do<\/span><span class="ltd-act-arrow" aria-hidden="true">→<\/span><span class="ltd-actchip ltd-status-info">In progress<\/span>/);
   // A deadline change reads its two labels in plain text.
   assert.match(html, /<span class="ltd-act-val">17\/09\/2026 17:00<\/span><span class="ltd-act-arrow"[^>]*>→<\/span><span class="ltd-act-val">20\/09\/2026 17:00<\/span>/);
   // History hides the comment.

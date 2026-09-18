@@ -319,13 +319,15 @@ func CheckTransition(t Task, a Actor, to string) error {
 	return ErrInvalidStatusTransition
 }
 
-// StatusChip is the label the card and detail show for a status.
+// StatusChip is the label the card and detail show for a status. The words are the Work
+// Board's (lane.todo / lane.in_progress: "To do", "In progress"), so the two boards in the
+// console name a status one way (CEO review 2026-09-18). The enum values do not change.
 func StatusChip(status string) string {
 	switch status {
 	case StatusOpen:
-		return "Open"
+		return "To do"
 	case StatusInProgress:
-		return "Doing"
+		return "In progress"
 	case StatusDone:
 		return "Done"
 	case StatusCancelled:
@@ -445,13 +447,14 @@ func StatusesForFilter(key string) []string {
 	return []string{StatusOpen, StatusInProgress, StatusDone}
 }
 
-// FilterLabel is the chip text.
+// FilterLabel is the chip text: the same words as StatusChip, so a chip and the cards it
+// lists never name the status two ways.
 func FilterLabel(key string) string {
 	switch key {
 	case FilterOpen:
-		return "Open"
+		return StatusChip(StatusOpen)
 	case FilterInProgress:
-		return "Doing"
+		return StatusChip(StatusInProgress)
 	case FilterDone:
 		return "Done"
 	}

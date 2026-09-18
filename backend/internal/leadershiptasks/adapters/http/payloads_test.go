@@ -51,7 +51,7 @@ func TestTaskPayloadCarriesBackendCopyAndCapabilitiesPerParty(t *testing.T) {
 		"number_label":      "#12",
 		"title":             task.Title,
 		"status":            "open",
-		"status_chip":       "Open",
+		"status_chip":       "To do",
 		"raised_by_name":    "Hemant",
 		"assignee_name":     "Ravi",
 		"raised_on_label":   "04/09/2026",
@@ -80,7 +80,7 @@ func TestTaskPayloadCarriesBackendCopyAndCapabilitiesPerParty(t *testing.T) {
 	if got["can_comment"] != true || got["comment"] != "" {
 		t.Fatalf("assignee comment = %v can_comment %v", got["comment"], got["can_comment"])
 	}
-	if len(options) != 2 || options[0].(map[string]any)["key"] != "in_progress" || options[0].(map[string]any)["label"] != "Doing" {
+	if len(options) != 2 || options[0].(map[string]any)["key"] != "in_progress" || options[0].(map[string]any)["label"] != "In progress" {
 		t.Fatalf("assignee status options = %v", options)
 	}
 	att := got["attachments"].([]any)[0].(map[string]any)
@@ -256,8 +256,8 @@ func TestTaskPayloadCarriesTheActivityFeedNewestFirstWithServerSideLabels(t *tes
 	for key, want := range map[string]any{
 		"id": "e2", "kind": "status_changed", "occurred_at": "2026-09-18T05:00:00Z", "occurred_label": "18/09/2026 10:30",
 		"actor_user_id": "u1", "actor_name": "Ravi Teja", "actor_initials": "RT",
-		"from_label": "Open", "to_label": "Doing", "from_value": "open", "to_value": "in_progress", "note_id": "",
-		"summary": "Ravi Teja changed the status Open → Doing",
+		"from_label": "To do", "to_label": "In progress", "from_value": "open", "to_value": "in_progress", "note_id": "",
+		"summary": "Ravi Teja changed the status To do → In progress",
 	} {
 		if first[key] != want {
 			t.Errorf("activity[0].%s = %v, want %v", key, first[key], want)

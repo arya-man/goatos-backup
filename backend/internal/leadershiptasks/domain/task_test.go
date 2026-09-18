@@ -206,7 +206,7 @@ func TestCopyIsFarmWordedFromTheViewersSide(t *testing.T) {
 	if got := NumberLabel(task.TaskNo); got != "#12" {
 		t.Fatalf("number label = %q", got)
 	}
-	if StatusChip(StatusInProgress) != "Doing" || StatusChip(StatusCancelled) != "Cancelled" {
+	if StatusChip(StatusOpen) != "To do" || StatusChip(StatusInProgress) != "In progress" || StatusChip(StatusCancelled) != "Cancelled" {
 		t.Fatal("status chips must be the farm words")
 	}
 	unnamed := task

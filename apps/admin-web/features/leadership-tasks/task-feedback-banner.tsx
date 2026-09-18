@@ -27,7 +27,7 @@ import { refusalSentence } from "./task-feedback-copy";
  * contract with two backend-supplied values substituted in:
  *
  *   {status}  the task's current `status_chip`, re-read after the refusal — the backend's own chip
- *             wording ("Doing", "Done", "Cancelled"), verbatim. On a `version_conflict` this is
+ *             wording ("In progress", "Done", "Cancelled"), verbatim. On a `version_conflict` this is
  *             the point: the board the reader is looking at is out of date, and this is the truth.
  *   {name}    the person whose move it is, by name, off the task itself — the assignee for a
  *             ladder move, the raiser for a cancel.

@@ -20812,7 +20812,7 @@ components:
             deadline, a title). A client picks a status chip's tone from it; it never parses the label.
         to_value: { type: string, description: The stored key behind to_label. }
         note_id: { type: string, description: The note a `commented` row refers to; blank otherwise. }
-        summary: { type: string, description: '"Hemant created the task", "Ravi Teja changed the status Open → Doing".' }
+        summary: { type: string, description: '"Hemant created the task", "Ravi Teja changed the status To do → In progress".' }
     LeadershipTaskMention:
       type: object
       description: One stored, resolved mention on a note.

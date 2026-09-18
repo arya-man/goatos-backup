@@ -14,7 +14,7 @@ func TestEventSummaryReadsActorFirstLikeJiraHistory(t *testing.T) {
 		want string
 	}{
 		{Event{Kind: EventCreated, ActorName: "Hemant"}, "Hemant created the task"},
-		{Event{Kind: EventStatusChanged, ActorName: "Ravi Teja", FromValue: StatusOpen, ToValue: StatusInProgress}, "Ravi Teja changed the status Open → Doing"},
+		{Event{Kind: EventStatusChanged, ActorName: "Ravi Teja", FromValue: StatusOpen, ToValue: StatusInProgress}, "Ravi Teja changed the status To do → In progress"},
 		{Event{Kind: EventCancelled, ActorName: "Hemant", FromValue: StatusInProgress, ToValue: StatusCancelled}, "Hemant cancelled the task"},
 		{Event{Kind: EventDeadlineChanged, ActorName: "Hemant", FromValue: "2026-09-17T11:30:00Z", ToValue: "2026-09-20T11:30:00Z"}, "Hemant changed the deadline 17/09/2026 17:00 → 20/09/2026 17:00"},
 		// A deadline SET where none was: the blank end reads as a dash, never as an empty gap.
@@ -35,7 +35,7 @@ func TestEventSummaryReadsActorFirstLikeJiraHistory(t *testing.T) {
 }
 
 func TestEventValueLabelRendersKeysAsWordsAndLeavesTextAlone(t *testing.T) {
-	if got := EventValueLabel(EventStatusChanged, StatusInProgress); got != "Doing" {
+	if got := EventValueLabel(EventStatusChanged, StatusInProgress); got != "In progress" {
 		t.Fatalf("status label = %q", got)
 	}
 	if got := EventValueLabel(EventDeadlineChanged, "2026-09-20T11:30:00Z"); got != "20/09/2026 17:00" {

@@ -20,7 +20,7 @@
  * Two backend-supplied values are substituted into the sentence instead:
  *
  *   {status}  the task's current `status_chip`, from a re-read after the refusal — the backend's
- *             own chip wording ("Doing", "Done", "Cancelled"), verbatim. On a `version_conflict`
+ *             own chip wording ("In progress", "Done", "Cancelled"), verbatim. On a `version_conflict`
  *             this IS the point: the board is out of date and this is the truth it is out of date
  *             against. It is supplied only when the task genuinely MOVED (see `actions.ts`), so
  *             the sentence never tells a reader a task "is already Open" on a board saying Open.

@@ -2086,8 +2086,8 @@ func pageSpecificCopy(id string) map[string]string {
 			// two different ways. The board previously had no contract key for these at all,
 			// and an unlabelled column fell back to the column KEY — rendering the raw wire
 			// token `in_progress` as a heading.
-			"board.column.open":        "Open",
-			"board.column.in_progress": "Doing",
+			"board.column.open":        "To do",
+			"board.column.in_progress": "In progress",
 			"board.column.done":        "Done",
 			"board.column.cancelled":   "Cancelled",
 			// ── WHAT A COLUMN'S "MORE" LINK PROMISES ─────────────────────────────────────

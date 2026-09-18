@@ -194,8 +194,8 @@ export function LeadershipTasksBoard({
  * and a human sentence here for the deploy-skew window before the backend serves it.
  */
 const COLUMN_FALLBACK_LABELS: Record<TaskBoardColumn, string> = {
-  open: "Open",
-  in_progress: "Doing",
+  open: "To do",
+  in_progress: "In progress",
   done: "Done",
   cancelled: "Cancelled",
 };
