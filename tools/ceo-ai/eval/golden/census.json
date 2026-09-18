@@ -61,6 +61,36 @@
     }
   },
   {
+    "id": "census-farm-born-cbe",
+    "class": "farm_born_count",
+    "question": "How many animals are farm born in CBE?",
+    "notes": "Regression for user wording: farm-born means origin_type='birth' in the named own farm, not generic active animals by species.",
+    "expect": {
+      "grounded": true,
+      "aggregate_first": true,
+      "tiers_any_of": ["sql", "api"]
+    },
+    "oracle": {
+      "kind": "scalar_int",
+      "sql": "SELECT count(*) FROM goats WHERE tenant_id = :'tenant_id'::uuid AND lifecycle_status = 'alive' AND origin_type = 'birth' AND park_id = '00000000-0000-4000-8000-000000003001'::uuid"
+    }
+  },
+  {
+    "id": "census-farm-born-own-farms",
+    "class": "farm_born_count",
+    "question": "How many animals are from our own farms?",
+    "notes": "Own farms means the known Mesha farms (CBE/CPT) with origin_type='birth', grouped compactly by farm.",
+    "expect": {
+      "grounded": true,
+      "aggregate_first": true,
+      "tiers_any_of": ["sql", "api"]
+    },
+    "oracle": {
+      "kind": "scalar_int",
+      "sql": "SELECT count(*) FROM goats WHERE tenant_id = :'tenant_id'::uuid AND lifecycle_status = 'alive' AND origin_type = 'birth' AND park_id IN ('00000000-0000-4000-8000-000000003001'::uuid, '00000000-0000-4000-8000-000000003002'::uuid)"
+    }
+  },
+  {
     "id": "census-shed-count",
     "class": "count_by_scope_dimension",
     "question": "How many sheds do we have?",

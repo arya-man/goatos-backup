@@ -96,6 +96,37 @@
     }
   },
   {
+    "id": "counts-mortality-kid-deaths",
+    "class": "counts_mortality",
+    "question": "How many kid deaths happened this month?",
+    "notes": "Counts Mortality tile wording. Must use death events in the IST window and kid/adult split, not active kid headcount.",
+    "expect": {
+      "grounded": true,
+      "aggregate_first": true,
+      "ist": true,
+      "tiers_any_of": ["sql", "api"]
+    },
+    "oracle": {
+      "kind": "scalar_int",
+      "sql": "SELECT count(*) FROM goats WHERE tenant_id = :'tenant_id'::uuid AND exited_at IS NOT NULL AND (exit_reason = 'died' OR (exit_reason IS NULL AND lifecycle_status = 'dead')) AND (management_stage ILIKE 'k%' OR (((exited_at AT TIME ZONE 'Asia/Kolkata')::date - COALESCE(dob, approx_dob)) < 365)) AND date_trunc('month', exited_at AT TIME ZONE 'Asia/Kolkata') = date_trunc('month', now() AT TIME ZONE 'Asia/Kolkata')"
+    }
+  },
+  {
+    "id": "counts-mortality-cause-established",
+    "class": "counts_mortality",
+    "question": "How many deaths had cause established?",
+    "notes": "Counts Mortality cause-established KPI. Must count deaths with recorded health_death_causes, not open health cases.",
+    "expect": {
+      "grounded": true,
+      "aggregate_first": true,
+      "tiers_any_of": ["sql", "api"]
+    },
+    "oracle": {
+      "kind": "scalar_int",
+      "sql": "SELECT count(*) FROM goats g JOIN health_death_causes hdc ON hdc.tenant_id = g.tenant_id AND hdc.goat_id = g.goat_id WHERE g.tenant_id = :'tenant_id'::uuid AND g.exited_at IS NOT NULL AND (g.exit_reason = 'died' OR (g.exit_reason IS NULL AND g.lifecycle_status = 'dead'))"
+    }
+  },
+  {
     "id": "audit-activity-today",
     "class": "audit_activity",
     "question": "What happened today across operations?",
@@ -180,6 +211,36 @@
       "aggregate_first": true,
       "tiers_any_of": ["api"],
       "external_mcp_tools_any_of": ["get_weighing_weight_demographics", "GET /weighing/weight-demographics"]
+    }
+  },
+  {
+    "id": "weighing-lump-sum-count",
+    "class": "weighing_weight_demographics",
+    "question": "How many animals were weighed by lump sum?",
+    "notes": "Dashboard denominator wording: lump-sum weighing is per_shed_partition capture activity, not generic active animals.",
+    "expect": {
+      "grounded": true,
+      "aggregate_first": true,
+      "tiers_any_of": ["sql", "api"]
+    },
+    "oracle": {
+      "kind": "scalar_int",
+      "sql": "SELECT COALESCE(sum(animals_weighed), 0)::bigint FROM ceo_ai.weighing_capture_activity WHERE tenant_id = :'tenant_id'::uuid AND weighing_category = 'per_shed_partition' AND shed_weight_avg_kg IS NOT NULL"
+    }
+  },
+  {
+    "id": "weighing-per-animal-count",
+    "class": "weighing_weight_demographics",
+    "question": "How many animals were weighed per animal?",
+    "notes": "Dashboard denominator wording: per-animal weighing is individual_animal capture activity, not a headcount from Counts.",
+    "expect": {
+      "grounded": true,
+      "aggregate_first": true,
+      "tiers_any_of": ["sql", "api"]
+    },
+    "oracle": {
+      "kind": "scalar_int",
+      "sql": "SELECT COALESCE(sum(animals_weighed), 0)::bigint FROM ceo_ai.weighing_capture_activity WHERE tenant_id = :'tenant_id'::uuid AND weighing_category = 'individual_animal' AND shed_weight_avg_kg IS NOT NULL"
     }
   }
 ]

@@ -94,6 +94,25 @@ func TestComposerRendersSingleMetricBreakdownInOneSentence(t *testing.T) {
 	}
 }
 
+func TestComposerRendersOperationalCountsAsHumanSentences(t *testing.T) {
+	body, _, _ := composer{}.compose([]domain.ToolResult{{
+		Facts: []domain.Fact{
+			{Label: "Farm-born animals", Value: "172", Scope: "Coimbatore"},
+			{Label: "Farm-born animals", Value: "76", Scope: "Channapatna"},
+		},
+	}})
+	if body != "Farm-born active animals: Coimbatore 172, Channapatna 76." {
+		t.Fatalf("unexpected farm-born prose: %q", body)
+	}
+
+	body, _, _ = composer{}.compose([]domain.ToolResult{{
+		Facts: []domain.Fact{{Label: "Cause established deaths", Value: "0", Scope: "Coimbatore"}},
+	}})
+	if body != "Deaths with an established cause: Coimbatore 0." {
+		t.Fatalf("unexpected mortality prose: %q", body)
+	}
+}
+
 func TestInMemoryMemoryRecallByConversation(t *testing.T) {
 	m := NewInMemoryMemory(0, 0)
 	actor := domain.Actor{TenantID: "t1", UserID: "u1"}

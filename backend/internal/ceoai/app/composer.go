@@ -156,6 +156,9 @@ func renderAnswerBlock(r domain.ToolResult) string {
 	if block := renderSalesAnswer(r); block != "" {
 		return appendMetricStatus(block, r)
 	}
+	if block := renderOperationalAnswer(r); block != "" {
+		return appendMetricStatus(block, r)
+	}
 	if block := renderSingleMetricBreakdown(r); block != "" {
 		return appendMetricStatus(block, r)
 	}
@@ -229,6 +232,67 @@ func renderSalesAnswer(r domain.ToolResult) string {
 		b.WriteString(strings.TrimSuffix(renderFacts(r), ".") + ".")
 	}
 	return b.String()
+}
+
+func renderOperationalAnswer(r domain.ToolResult) string {
+	if len(r.Facts) == 0 {
+		return ""
+	}
+	label := strings.TrimSpace(r.Facts[0].Label)
+	for _, f := range r.Facts {
+		if strings.TrimSpace(f.Label) != label {
+			return ""
+		}
+		if _, ok := parseNumber(f.Value); !ok {
+			return ""
+		}
+	}
+	switch label {
+	case "Farm-born animals":
+		return renderScopedCountSentence(r.Facts, "Farm-born active animals")
+	case "Lump-sum animals weighed":
+		return renderScopedCountSentence(r.Facts, "Lump-sum animals weighed")
+	case "Per-animal animals weighed":
+		return renderScopedCountSentence(r.Facts, "Per-animal animals weighed")
+	case "Animals weighed":
+		return renderScopedCountSentence(r.Facts, "Animals weighed")
+	case "Matched animals":
+		return renderScopedCountSentence(r.Facts, "Matched animals")
+	case "Kid deaths":
+		return renderScopedCountSentence(r.Facts, "Kid deaths")
+	case "Adult deaths":
+		return renderScopedCountSentence(r.Facts, "Adult deaths")
+	case "Deaths":
+		return renderScopedCountSentence(r.Facts, "Deaths")
+	case "Cause established deaths":
+		return renderScopedCountSentence(r.Facts, "Deaths with an established cause")
+	case "Died within 7 days of birth":
+		return renderScopedCountSentence(r.Facts, "Deaths within 7 days of birth")
+	case "Mortality rate pct":
+		return renderScopedCountSentence(r.Facts, "Mortality rate")
+	default:
+		return ""
+	}
+}
+
+func renderScopedCountSentence(facts []domain.Fact, title string) string {
+	var parts []string
+	for _, f := range facts {
+		value := strings.TrimSpace(f.Value)
+		scope := strings.TrimSpace(f.Scope)
+		if scope == "" {
+			parts = append(parts, value)
+		} else {
+			parts = append(parts, scope+" "+value)
+		}
+	}
+	if len(parts) == 0 {
+		return ""
+	}
+	if len(parts) == 1 {
+		return title + ": " + parts[0] + "."
+	}
+	return title + ": " + strings.Join(parts, ", ") + "."
 }
 
 func monthFromLabel(label string) string {
