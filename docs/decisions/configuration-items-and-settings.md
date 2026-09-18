@@ -87,6 +87,41 @@ disabled and its reason. Migration 000347 writes the `configuration` web tick fo
 migrated `ceo_internal` holder (the 000321 shape): on a real database the person rows decide,
 and the page 403'd for the CEO cohort until a row existed.
 
+## Later additions (2026-09-18, same day)
+
+- **Gender** is the on-screen label of the `sexes` register; key and column unchanged.
+- **Items & categories** renders in the prototype's three-column shape: a Lists panel of
+  top-level lists (built-in catalogues locked, the farm's own under Your lists), the chosen
+  list's sub-lists as chips above its items, feed items folded in read-only from Feed Config,
+  a department filter and a tracking chip (both derived on read).
+- **People → Roles** edits `designation_catalog`, the list `/people` picks from; RBAC-role codes
+  are built in (rename only).
+- **Reference lists** (migration 000348): `reference_lists` + `reference_list_entries`, one
+  register per list under Reference lists in the rail, plus **Add list** for a vocabulary of the
+  farm's own. Seeded: exit reasons (built in; identity's goat exit accepts a farm-added reason,
+  never for a death), animal purposes and weight bands (no consumer yet). Status definitions,
+  SOP categories and task types have registers over their own tables.
+- **Shifting is deliberately out** (maintainer instruction): a movement category is a tag rule,
+  not a vocabulary, so it is not a reference list and the raise keeps its seven typed
+  categories.
+
+## Phase 2: Work instructions — two kinds of SOP (maintainer instruction 2026-09-18)
+
+Recorded here so it is not rediscovered: from now on, anything built on the SOP side must
+distinguish and let the CEO configure **two kinds of SOP**:
+
+1. **Module-level SOPs** — owned by a module and executed inside its workflow (Vaccination,
+   Weighing, Feed, Counts / Herd Operations, Procurement, Milk). These are the `/<module>/sops`
+   libraries today, keyed by module code prefix.
+2. **General SOPs** — not tied to one module: farm-wide procedures (a pen inspection, a daily
+   opening routine, a visitor protocol) that stand on their own and can be assigned to people
+   or pens without a module owning them.
+
+The Work instructions screen (the prototype's canvas + operator view) must carry the kind as a
+first-class, configurable property — where a general SOP lives, who owns it, which task types
+and SOP categories it draws from (both editable on this screen) — rather than a naming
+convention. This is the design constraint for phase 2; it is not built yet.
+
 ## Pinned by
 
 - `configuration/domain/rows_test.go` — definition consistency, validation rules, code shape,
