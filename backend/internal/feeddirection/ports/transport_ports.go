@@ -11,6 +11,11 @@ import (
 var (
 	ErrTransportProofRequired     = errors.New("feeddirection: a live feed-transport video is required")
 	ErrTransportTaskNotActionable = errors.New("feeddirection: feed-transport task is not actionable")
+	// ErrTransportRejectedProofReuse: the clip (or any capture of the card) was already on an
+	// attempt the verifier rejected for this task. A rework needs a NEW video (feed-transport
+	// verification rule); re-sending the rejected one is the operator not redoing the work --
+	// weighing refuses the same thing by name (edge-case audit 2026-09-18).
+	ErrTransportRejectedProofReuse = errors.New("feeddirection: this video was already rejected for this task; record a new one")
 	// ErrTransportParkForbidden: the task belongs to a park the caller is not scoped to. This is the
 	// CLAMP that lets a park-scoped operator submit at all -- httpmiddleware.routeAllowsScopedGrants
 	// admits a park grant on this route only because the park is checked here, against the TASK's own

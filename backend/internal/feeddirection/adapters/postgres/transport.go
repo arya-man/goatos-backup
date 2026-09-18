@@ -310,6 +310,26 @@ WHERE t.tenant_id=$1::uuid AND t.task_id=$2::uuid FOR UPDATE`, p.TenantID, p.Tas
 	if status != domain.TransportStatusDue && status != domain.TransportStatusRework {
 		return ports.SubmitTransportResult{}, ports.ErrTransportTaskNotActionable
 	}
+	// A rework needs a NEW video: any capture already on a REJECTED attempt of this task is
+	// refused by name rather than filed as a fresh attempt for the verifier to reject again.
+	refs := []string{strings.TrimSpace(p.ProofRef)}
+	for _, ref := range p.SOPProofs {
+		if ref = strings.TrimSpace(ref); ref != "" {
+			refs = append(refs, ref)
+		}
+	}
+	var reused bool
+	if err = tx.QueryRow(ctx, `SELECT EXISTS (
+  SELECT 1 FROM feed_transport_attempts a
+  WHERE a.tenant_id=$1::uuid AND a.task_id=$2::uuid AND a.status='rejected'
+    AND (a.proof_ref = ANY($3::text[])
+      OR EXISTS (SELECT 1 FROM jsonb_each_text(coalesce(a.sop_proofs,'{}'::jsonb)) slot WHERE slot.value = ANY($3::text[])))
+)`, p.TenantID, p.TaskID, refs).Scan(&reused); err != nil {
+		return res, fmt.Errorf("feeddirection: check rejected transport proof reuse: %w", err)
+	}
+	if reused {
+		return ports.SubmitTransportResult{}, ports.ErrTransportRejectedProofReuse
+	}
 	err = tx.QueryRow(ctx, `
 INSERT INTO feed_transport_attempts(tenant_id,task_id,attempt_no,proof_ref,operator_id,idempotency_key,sop_proofs,sop_answers)
 SELECT $1::uuid,$2::uuid,coalesce(max(attempt_no),0)+1,$3,$4::uuid,$5,$6::jsonb,$7::jsonb

@@ -3,6 +3,7 @@ package postgres
 import (
 	"context"
 	"errors"
+	"github.com/vgoats/goatos/backend/internal/sop/authored"
 	"testing"
 	"time"
 
@@ -112,6 +113,14 @@ func TestFeedTransportDailyShedWorkflowRetainsRejectedAttempt(t *testing.T) {
 	applied, err := repo.BounceTransportForRework(ctx, ports.BounceTransportParams{TenantID: fdTenant, AttemptID: first.AttemptID, Reason: "video unclear", TraceID: "verdict-1"})
 	if err != nil || !applied {
 		t.Fatalf("reject applied=%v err=%v", applied, err)
+	}
+	// A rework needs a NEW video: the clip the verifier just rejected is refused by name, and so
+	// is the same clip riding under a card slot (edge-case audit 2026-09-18).
+	if _, err := repo.SubmitTransportAttempt(ctx, ports.SubmitTransportParams{TenantID: fdTenant, TaskID: task.TaskID, ProofRef: "proof-live-1", OperatorID: transportOperator, IdempotencyKey: "transport-submit-reuse", ActorID: transportOperator, ActorType: "operator"}); !errors.Is(err, ports.ErrTransportRejectedProofReuse) {
+		t.Fatalf("re-sending the rejected clip must be refused, got %v", err)
+	}
+	if _, err := repo.SubmitTransportAttempt(ctx, ports.SubmitTransportParams{TenantID: fdTenant, TaskID: task.TaskID, ProofRef: "proof-live-3", SOPProofs: authored.ProofRefs{"feed_transport_video": "proof-live-1"}, OperatorID: transportOperator, IdempotencyKey: "transport-submit-reuse-slot", ActorID: transportOperator, ActorType: "operator"}); !errors.Is(err, ports.ErrTransportRejectedProofReuse) {
+		t.Fatalf("the rejected clip under a card slot must be refused, got %v", err)
 	}
 	second, err := repo.SubmitTransportAttempt(ctx, ports.SubmitTransportParams{TenantID: fdTenant, TaskID: task.TaskID, ProofRef: "proof-live-2", OperatorID: transportOperator, IdempotencyKey: "transport-submit-0002", ActorID: transportOperator, ActorType: "operator"})
 	if err != nil {

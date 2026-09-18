@@ -794,6 +794,8 @@ func (h *Handler) writeServiceError(w http.ResponseWriter, r *http.Request, op s
 			codedError{Code: "not_experiment_pen", Message: farmMessage(err)}, nil)
 	case errors.Is(err, ports.ErrTransportProofRequired):
 		httpresponse.WriteError(w, r, h.log, http.StatusUnprocessableEntity, codedError{Code: "proof_required", Message: farmMessage(err)}, nil)
+	case errors.Is(err, ports.ErrTransportRejectedProofReuse):
+		httpresponse.WriteError(w, r, h.log, http.StatusConflict, codedError{Code: "rejected_proof_reuse", Message: farmMessage(err)}, nil)
 	case errors.Is(err, ports.ErrTransportAssignedToAnotherOperator), errors.Is(err, ports.ErrTransportTaskNotActionable):
 		httpresponse.WriteError(w, r, h.log, http.StatusConflict, farmMessage(err), nil)
 	case errors.Is(err, ports.ErrDistributionStoreUnavailable),
