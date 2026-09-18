@@ -119,6 +119,36 @@ func TestXLSXReaderRefusesMalformedWorkbookRelationships(t *testing.T) {
 	}
 }
 
+func TestXLSXReaderRefusesOversizedSharedStrings(t *testing.T) {
+	var buf bytes.Buffer
+	zw := zip.NewWriter(&buf)
+	files := map[string]string{
+		"xl/workbook.xml":            `<workbook xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships"><sheets><sheet name="Rows" sheetId="1" r:id="rId1"/></sheets></workbook>`,
+		"xl/_rels/workbook.xml.rels": `<Relationships><Relationship Id="rId1" Target="worksheets/sheet1.xml"/></Relationships>`,
+		"xl/worksheets/sheet1.xml":   `<worksheet><sheetData><row r="1"><c r="A1" t="s"><v>0</v></c></row></sheetData></worksheet>`,
+		"xl/sharedStrings.xml":       `<sst><si><t>` + strings.Repeat("x", xlsxMaxSharedStringCellBytes+1) + `</t></si></sst>`,
+		"[Content_Types].xml":        `<Types/>`,
+		"_rels/.rels":                `<Relationships/>`,
+		"docProps/core.xml":          `<coreProperties/>`,
+		"docProps/app.xml":           `<Properties/>`,
+	}
+	for name, body := range files {
+		w, err := zw.Create(name)
+		if err != nil {
+			t.Fatalf("create %s: %v", name, err)
+		}
+		if _, err := w.Write([]byte(body)); err != nil {
+			t.Fatalf("write %s: %v", name, err)
+		}
+	}
+	if err := zw.Close(); err != nil {
+		t.Fatalf("close zip: %v", err)
+	}
+	if _, err := OpenSheet(domain.FormatXLSX, bytes.NewReader(buf.Bytes())); err == nil {
+		t.Fatalf("oversized shared strings must be refused")
+	}
+}
+
 func TestXLSXWriterFallsBackForFarmAuthoredSheetNames(t *testing.T) {
 	var buf bytes.Buffer
 	w, err := NewSheetWriter(domain.FormatXLSX, "Milk/Meat: Bands", &buf)

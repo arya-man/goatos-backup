@@ -378,7 +378,9 @@ func (i *Importer) registerValidator(ctx context.Context, tenantID string, reg d
 		if raw[domain.SheetColumnID] == nil {
 			id = ""
 		}
+		rowVersion := strings.TrimSpace(fmt.Sprint(raw[domain.SheetColumnRowVersion]))
 		delete(raw, domain.SheetColumnID)
+		delete(raw, domain.SheetColumnRowVersion)
 		delete(raw, domain.SheetColumnStatus)
 		for _, c := range reg.Columns {
 			if c.Derived {
@@ -454,6 +456,13 @@ func (i *Importer) registerValidator(ctx context.Context, tenantID string, reg d
 		}
 		if id != "" {
 			clean[domain.SheetColumnID] = id
+			if rowVersion == "" {
+				return nil, []domain.FieldError{{Field: domain.SheetColumnRowVersion, Code: "required", Message: "Row version is required for updates. Download the latest sheet and try again."}}
+			}
+			if n, err := strconv.Atoi(rowVersion); err != nil || n < 1 {
+				return nil, []domain.FieldError{{Field: domain.SheetColumnRowVersion, Code: "invalid", Message: "Row version must be the positive number from the downloaded sheet."}}
+			}
+			clean[domain.SheetColumnRowVersion] = rowVersion
 		}
 		return clean, nil
 	}, nil
@@ -477,14 +486,19 @@ func (i *Importer) apply(ctx context.Context, tenantID string, job domain.Import
 			if v, ok := fields[domain.SheetColumnID]; ok && v != nil {
 				id = fmt.Sprint(v)
 			}
+			rowVersion := 0
+			if v, ok := fields[domain.SheetColumnRowVersion]; ok && v != nil {
+				rowVersion, _ = strconv.Atoi(strings.TrimSpace(fmt.Sprint(v)))
+			}
 			delete(fields, domain.SheetColumnID)
+			delete(fields, domain.SheetColumnRowVersion)
 			w := ports.WriteParams{TenantID: tenantID, ActorID: job.CreatedBy, IdempotencyKey: importRowKey(job.ID, row.RowNo), TraceID: job.ID}
 			var (
 				written domain.Row
 				err     error
 			)
 			if id != "" {
-				written, err = i.svc.Update(ctx, w, reg.Key, id, fields, 0)
+				written, err = i.svc.Update(ctx, w, reg.Key, id, fields, rowVersion)
 			} else {
 				written, err = i.svc.Create(ctx, w, reg.Key, fields)
 			}

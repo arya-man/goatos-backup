@@ -7,7 +7,7 @@ import (
 
 func TestSheetColumnsCarryIdFirstAndStatusLast(t *testing.T) {
 	cols := SheetColumns(mustRegister(t, RegPens))
-	if cols[0].Key != SheetColumnID || cols[len(cols)-1].Key != SheetColumnStatus {
+	if cols[0].Key != SheetColumnID || cols[1].Key != SheetColumnRowVersion || cols[len(cols)-1].Key != SheetColumnStatus {
 		t.Fatalf("columns = %v", cols)
 	}
 	animals := SheetColumns(mustRegister(t, RegAnimals))
@@ -71,7 +71,8 @@ func TestSheetCellRendersLabelsBoolsAndNumbers(t *testing.T) {
 		t.Fatalf("no column %s", key)
 		return ""
 	}
-	if get("id") != "r1" || get("status") != "active" || get("park_id") != "Coimbatore" || get("has_icu") != "yes" || get("capacity") != "40" || get("name") != "Castro" || get("notes") != "" {
+	row.RowVersion = 7
+	if get("id") != "r1" || get("row_version") != "7" || get("status") != "active" || get("park_id") != "Coimbatore" || get("has_icu") != "yes" || get("capacity") != "40" || get("name") != "Castro" || get("notes") != "" {
 		t.Fatalf("cells: %s %s %s %s %s", get("park_id"), get("has_icu"), get("capacity"), get("name"), get("notes"))
 	}
 }

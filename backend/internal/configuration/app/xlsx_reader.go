@@ -35,6 +35,13 @@ type xlsxWorkbook struct {
 }
 
 const xlsxMaxSharedStrings = 2_000_000
+const (
+	xlsxMaxWorkbookPartBytes     = 4 << 20
+	xlsxMaxStylesPartBytes       = 8 << 20
+	xlsxMaxSharedStringsBytes    = 16 << 20
+	xlsxMaxSharedStringCellBytes = 1 << 20
+	xlsxMaxWorksheetBytes        = 256 << 20
+)
 
 var cellRefRe = regexp.MustCompile(`^([A-Z]+)`)
 
@@ -67,6 +74,9 @@ func openXLSX(data []byte) (*xlsxWorkbook, error) {
 	if !ok {
 		return nil, errors.New("worksheet missing")
 	}
+	if f.UncompressedSize64 > xlsxMaxWorksheetBytes {
+		return nil, errors.New("worksheet too large")
+	}
 	rc, err := f.Open()
 	if err != nil {
 		return nil, err
@@ -84,13 +94,46 @@ func endOfPart(err error) error {
 	return err
 }
 
-func readZipXML(f *zip.File, visit func(dec *xml.Decoder) error) error {
+func readZipXML(f *zip.File, maxBytes int64, visit func(dec *xml.Decoder) error) error {
+	if maxBytes > 0 && f.UncompressedSize64 > uint64(maxBytes) {
+		return errors.New("workbook part too large")
+	}
 	rc, err := f.Open()
 	if err != nil {
 		return err
 	}
 	defer rc.Close()
-	return visit(xml.NewDecoder(rc))
+	r := io.Reader(rc)
+	if maxBytes > 0 {
+		r = io.LimitReader(rc, maxBytes+1)
+	}
+	counting := &countingReader{r: r, max: maxBytes}
+	if err := visit(xml.NewDecoder(counting)); err != nil {
+		return err
+	}
+	return counting.err()
+}
+
+type countingReader struct {
+	r    io.Reader
+	max  int64
+	read int64
+}
+
+func (r *countingReader) Read(p []byte) (int, error) {
+	n, err := r.r.Read(p)
+	r.read += int64(n)
+	if r.max > 0 && r.read > r.max {
+		return n, errors.New("workbook part too large")
+	}
+	return n, err
+}
+
+func (r *countingReader) err() error {
+	if r.max > 0 && r.read > r.max {
+		return errors.New("workbook part too large")
+	}
+	return nil
 }
 
 // xlsxFirstSheetPath resolves workbook.xml's first <sheet> through the workbook rels.
@@ -100,7 +143,7 @@ func xlsxFirstSheetPath(files map[string]*zip.File) (string, error) {
 		return "", errors.New("workbook.xml missing")
 	}
 	firstRel := ""
-	err := readZipXML(wbFile, func(dec *xml.Decoder) error {
+	err := readZipXML(wbFile, xlsxMaxWorkbookPartBytes, func(dec *xml.Decoder) error {
 		for {
 			tok, err := dec.Token()
 			if err != nil {
@@ -124,7 +167,7 @@ func xlsxFirstSheetPath(files map[string]*zip.File) (string, error) {
 	}
 	target := ""
 	if relFile, ok := files["xl/_rels/workbook.xml.rels"]; ok {
-		if err := readZipXML(relFile, func(dec *xml.Decoder) error {
+		if err := readZipXML(relFile, xlsxMaxWorkbookPartBytes, func(dec *xml.Decoder) error {
 			for {
 				tok, err := dec.Token()
 				if err != nil {
@@ -160,12 +203,13 @@ func xlsxFirstSheetPath(files map[string]*zip.File) (string, error) {
 }
 
 func (wb *xlsxWorkbook) loadSharedStrings(f *zip.File) error {
-	return readZipXML(f, func(dec *xml.Decoder) error {
+	return readZipXML(f, xlsxMaxSharedStringsBytes, func(dec *xml.Decoder) error {
 		var (
-			cur   strings.Builder
-			inSI  bool
-			inT   bool
-			count int
+			cur        strings.Builder
+			inSI       bool
+			inT        bool
+			count      int
+			totalBytes int64
 		)
 		for {
 			tok, err := dec.Token()
@@ -182,6 +226,10 @@ func (wb *xlsxWorkbook) loadSharedStrings(f *zip.File) error {
 				}
 			case xml.CharData:
 				if inT {
+					totalBytes += int64(len(t))
+					if totalBytes > xlsxMaxSharedStringsBytes || cur.Len()+len(t) > xlsxMaxSharedStringCellBytes {
+						return errors.New("shared strings too large")
+					}
 					cur.Write(t)
 				}
 			case xml.EndElement:
@@ -204,7 +252,7 @@ func (wb *xlsxWorkbook) loadSharedStrings(f *zip.File) error {
 // loadStyles marks which cell styles (cellXfs, by index) carry a date number format.
 func (wb *xlsxWorkbook) loadStyles(f *zip.File) error {
 	custom := map[string]bool{}
-	return readZipXML(f, func(dec *xml.Decoder) error {
+	return readZipXML(f, xlsxMaxStylesPartBytes, func(dec *xml.Decoder) error {
 		inCellXfs := false
 		for {
 			tok, err := dec.Token()

@@ -10,10 +10,11 @@ import (
 )
 
 type applyCancelRepo struct {
-	rows         []domain.ImportRow
-	status       string
-	creates      int
-	appliedMoves int
+	rows          []domain.ImportRow
+	status        string
+	creates       int
+	updateVersion int
+	appliedMoves  int
 }
 
 func (r *applyCancelRepo) ReferenceLists(context.Context, string) ([]domain.ReferenceList, error) {
@@ -23,7 +24,10 @@ func (r *applyCancelRepo) Counts(context.Context, string) (map[string]int, error
 func (r *applyCancelRepo) List(context.Context, string, string, ports.ListParams) (ports.Page, error) {
 	return ports.Page{}, nil
 }
-func (r *applyCancelRepo) Get(context.Context, string, string, string) (domain.Row, error) {
+func (r *applyCancelRepo) Get(_ context.Context, _, register, id string) (domain.Row, error) {
+	if id == "park-1" {
+		return domain.Row{ID: id, Register: register, Display: "Old", RowVersion: 9, Fields: map[string]any{"name": "Old", "code": "old"}}, nil
+	}
 	return domain.Row{}, ports.ErrNotFound
 }
 func (r *applyCancelRepo) Options(context.Context, string, string) ([]ports.RefOption, error) {
@@ -36,11 +40,34 @@ func (r *applyCancelRepo) Create(_ context.Context, _ ports.WriteParams, registe
 	r.creates++
 	return domain.Row{ID: domain.FieldString(fields, "code"), Register: register, Display: domain.FieldString(fields, "name")}, nil
 }
-func (r *applyCancelRepo) Update(context.Context, ports.WriteParams, string, string, map[string]any, int) (domain.Row, error) {
-	return domain.Row{}, nil
+func (r *applyCancelRepo) Update(_ context.Context, _ ports.WriteParams, register, id string, fields map[string]any, rowVersion int) (domain.Row, error) {
+	r.updateVersion = rowVersion
+	return domain.Row{ID: id, Register: register, Display: domain.FieldString(fields, "name")}, nil
 }
 func (r *applyCancelRepo) SetStatus(context.Context, ports.WriteParams, string, string, string, int) (domain.Row, error) {
 	return domain.Row{}, nil
+}
+
+func TestApplyUsesDownloadedRowVersionForUpdates(t *testing.T) {
+	repo := &applyCancelRepo{
+		status: domain.ImportApplying,
+		rows: []domain.ImportRow{{
+			RowNo: 2, State: domain.ImportRowValid,
+			Fields: map[string]any{domain.SheetColumnID: "park-1", domain.SheetColumnRowVersion: "9", "name": "Updated"},
+		}},
+	}
+	importer := NewImporter(NewService(repo), repo, nil, "test-worker", nil)
+	err := importer.apply(context.Background(), "11111111-1111-1111-1111-111111111111", domain.ImportJob{
+		ID:       "22222222-2222-2222-2222-222222222222",
+		Register: domain.RegParks,
+		Status:   domain.ImportApplying,
+	}, domain.Registers[1])
+	if err != nil {
+		t.Fatalf("apply: %v", err)
+	}
+	if repo.updateVersion != 9 {
+		t.Fatalf("row version = %d, want 9", repo.updateVersion)
+	}
 }
 func (r *applyCancelRepo) Delete(context.Context, ports.WriteParams, string, string, int) error {
 	return nil

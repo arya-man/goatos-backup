@@ -22,8 +22,9 @@ import (
 
 // Sheet column keys the importer owns beside the register's.
 const (
-	SheetColumnID     = "id"
-	SheetColumnStatus = "status"
+	SheetColumnID         = "id"
+	SheetColumnRowVersion = "row_version"
+	SheetColumnStatus     = "status"
 )
 
 // Import row states.
@@ -89,6 +90,7 @@ func SheetColumns(reg Register) []Column {
 	out := make([]Column, 0, len(reg.Columns)+2)
 	if !reg.ImportCreateOnly {
 		out = append(out, Column{Key: SheetColumnID, Label: "Id", Type: TypeText, Hint: "Leave blank for a new row; keep the downloaded value to update that row."})
+		out = append(out, Column{Key: SheetColumnRowVersion, Label: "Row version", Type: TypeNumber, Hint: "Keep the downloaded value so imports refuse stale updates."})
 	}
 	out = append(out, reg.Columns...)
 	out = append(out, Column{Key: SheetColumnStatus, Label: "Status", Type: TypeText, Derived: true})
@@ -173,6 +175,8 @@ func SheetCell(c Column, row Row) string {
 	switch c.Key {
 	case SheetColumnID:
 		return row.ID
+	case SheetColumnRowVersion:
+		return strconv.Itoa(row.RowVersion)
 	case SheetColumnStatus:
 		return row.Status
 	}
