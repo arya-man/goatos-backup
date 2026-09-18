@@ -74,7 +74,10 @@ test('verified initial exports are omitted only for this execution',()=>{
  assert.match(r.stdout,/lookback-days=7,-crashlytics-bq-table=,-crashlytics-sessions-table= --wait/);
  assert.doesNotMatch(r.stdout,/jobs update/);
 });
-test('initial export verification failure prevents job and provisioning',()=>{
+test('initial export verification failure omits Firebase rollup tables for this deploy execution',()=>{
  const r=execute('backend',false,'',true);
- assert.equal(r.status,7); assert.doesNotMatch(r.stdout,/jobs execute|apply-and-strict-smoke|success/);
+ assert.equal(r.status,0,r.stderr);
+ assert.match(r.stderr,/Firebase initial-export verification unavailable/);
+ assert.match(r.stdout,/jobs execute.*-crashlytics-bq-table=,-crashlytics-sessions-table=,-performance-bq-table=/);
+ assert.match(r.stdout,/apply-and-strict-smoke|success/);
 });

@@ -445,9 +445,12 @@ normal_observability_deploy() {
   local receipt="$(dirname "${BASH_SOURCE[0]}")/../../infra/observability/firebase-initial-export.json"
   [[ -f "$receipt" ]] || receipt=/opt/goatos/infra/observability/firebase-initial-export.json
   local pending_args
-  pending_args="$(node "$smoke" --firebase-rollup-args --firebase-initial-export-receipt "$receipt" \
+  if ! pending_args="$(node "$smoke" --firebase-rollup-args --firebase-initial-export-receipt "$receipt" \
     --crash-table "$GOATOS_CRASHLYTICS_BQ_TABLE" --sessions-table "$GOATOS_CRASHLYTICS_SESSIONS_TABLE" \
-    --performance-table "$GOATOS_PERFORMANCE_BQ_TABLE")"
+    --performance-table "$GOATOS_PERFORMANCE_BQ_TABLE")"; then
+    echo "Firebase initial-export verification unavailable; omitting Firebase tables for this deploy-time rollup only." >&2
+    pending_args="-crashlytics-bq-table=,-crashlytics-sessions-table=,-performance-bq-table="
+  fi
   run gcloud run jobs execute goatos-stg-analytics-rollup --project="$PROJECT_ID" --region="$REGION" \
     --args="-timeout=25m,-source=app_events,-lookback-days=7${pending_args:+,$pending_args}" --wait --quiet
   observability_apply_and_smoke
