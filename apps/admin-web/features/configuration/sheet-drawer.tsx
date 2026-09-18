@@ -79,8 +79,12 @@ export function SheetDrawer({
     }
   }, [register.key]);
 
+  // The recent list is fetched once the drawer has painted (a scheduled fetch, not a
+  // synchronous setState inside the effect).
   useEffect(() => {
-    if (register.importable && canWrite) void loadRecent();
+    if (!register.importable || !canWrite) return;
+    const timer = window.setTimeout(() => void loadRecent(), 0);
+    return () => window.clearTimeout(timer);
   }, [register.importable, canWrite, loadRecent]);
 
   const loadProblems = useCallback(async (jobId: string) => {
