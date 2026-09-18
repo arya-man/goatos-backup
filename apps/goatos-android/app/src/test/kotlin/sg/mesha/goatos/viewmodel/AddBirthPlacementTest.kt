@@ -61,6 +61,7 @@ class AddBirthPlacementTest {
         NoopAddCrashReporter(),
         SavedStateHandle(),
         FakeCountsCaptureCardRepository(),
+        InMemoryCaptureDraftRepository(),
         sg.mesha.goatos.capture.FakeProofCaptureSource(),
         sg.mesha.goatos.capture.FakePhotoCaptureSource(),
         FakeProofCaptureRepository(),

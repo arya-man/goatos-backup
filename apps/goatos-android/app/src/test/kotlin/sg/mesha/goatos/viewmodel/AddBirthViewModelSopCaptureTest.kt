@@ -42,6 +42,7 @@ class AddBirthViewModelSopCaptureTest {
     private lateinit var cards: FakeCountsCaptureCardRepository
     private lateinit var photos: FakePhotoCaptureSource
     private lateinit var proofs: FakeProofCaptureRepository
+    private lateinit var drafts: InMemoryCaptureDraftRepository
 
     @Before
     fun setUp() {
@@ -50,19 +51,21 @@ class AddBirthViewModelSopCaptureTest {
         cards = FakeCountsCaptureCardRepository()
         photos = FakePhotoCaptureSource()
         proofs = FakeProofCaptureRepository()
+        drafts = InMemoryCaptureDraftRepository()
     }
 
     @After
     fun tearDown() = Dispatchers.resetMain()
 
-    private fun newViewModel() = AddBirthViewModel(
+    private fun newViewModel(savedStateHandle: SavedStateHandle = SavedStateHandle()) = AddBirthViewModel(
         sync,
         FakeAddCountsRepository(),
         FakeScanSource(),
         NoopAddAnalyticsPort(),
         NoopAddCrashReporter(),
-        SavedStateHandle(),
+        savedStateHandle,
         cards,
+        drafts,
         FakeProofCaptureSource(),
         photos,
         proofs,
@@ -123,6 +126,33 @@ class AddBirthViewModelSopCaptureTest {
         val call = proofs.captureCalls.single()
         assertEquals("a birth's report proof is filed under the pen", ProofSubject.SHED, call.subject)
         assertEquals(SHED_ID, call.subjectId)
+    }
+
+    @Test
+    fun `captured slot and answer survive ViewModel recreation before submit`() = runTest(dispatcher) {
+        cards.publish(birthCard())
+        val saved = SavedStateHandle()
+        val first = newViewModel(saved)
+        advanceUntilIdle()
+        fillPlainForm(first)
+        photos.queue(CapturedPhoto(localUri = "file:///kid.jpg", capturedAtMs = 1_000L))
+        first.onEvent(AddBirthEvent.CaptureSlot("kid_photo", null))
+        first.onEvent(AddBirthEvent.Answer("mother_ok", "Suckling well"))
+        advanceUntilIdle()
+
+        val reopened = newViewModel(saved)
+        advanceUntilIdle()
+
+        assertTrue("the recreated form still sees the photo slot", reopened.state.value.captureCard.slots.single().captured)
+        assertEquals("Suckling well", reopened.state.value.captureCard.answers["mother_ok"])
+        fillPlainForm(reopened)
+        advanceUntilIdle()
+        assertTrue(reopened.state.value.canSubmit)
+        reopened.onEvent(AddBirthEvent.Submit)
+        advanceUntilIdle()
+
+        assertEquals(proofs.allRows().single().outboxItemId, sync.lastBirthCapture?.slotProofs?.get("kid_photo")?.outboxItemId)
+        assertEquals(JsonPrimitive("Suckling well"), sync.lastBirthCapture?.answers?.get("mother_ok"))
     }
 
     @Test

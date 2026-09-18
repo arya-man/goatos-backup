@@ -40,6 +40,7 @@ class AddDeathViewModelSopCaptureTest {
     private lateinit var cards: FakeCountsCaptureCardRepository
     private lateinit var videos: FakeProofCaptureSource
     private lateinit var proofs: FakeProofCaptureRepository
+    private lateinit var drafts: InMemoryCaptureDraftRepository
 
     @Before
     fun setUp() {
@@ -48,6 +49,7 @@ class AddDeathViewModelSopCaptureTest {
         cards = FakeCountsCaptureCardRepository()
         videos = FakeProofCaptureSource()
         proofs = FakeProofCaptureRepository()
+        drafts = InMemoryCaptureDraftRepository()
     }
 
     @After
@@ -55,14 +57,15 @@ class AddDeathViewModelSopCaptureTest {
 
     private val counts = FakeAddCountsRepository()
 
-    private fun newViewModel() = AddDeathViewModel(
+    private fun newViewModel(savedStateHandle: SavedStateHandle = SavedStateHandle()) = AddDeathViewModel(
         sync,
         counts,
         EmptyDeathCauses(),
         NoopAddAnalyticsPort(),
         NoopAddCrashReporter(),
-        SavedStateHandle(),
+        savedStateHandle,
         cards,
+        drafts,
         videos,
         FakePhotoCaptureSource(),
         proofs,
@@ -115,6 +118,30 @@ class AddDeathViewModelSopCaptureTest {
         val call = proofs.captureCalls.single()
         assertEquals(ProofSubject.GOAT, call.subject)
         assertEquals(GOAT_ID, call.subjectId)
+    }
+
+    @Test
+    fun `captured report video survives ViewModel recreation before submit`() = runTest(dispatcher) {
+        cards.publish(deathCard())
+        val saved = SavedStateHandle()
+        val first = newViewModel(saved)
+        advanceUntilIdle()
+        selectAnimalWithAccount(first)
+        videos.queue(CapturedVideo(localUri = "file:///carcass.mp4", startedAtMs = 1_000L, endedAtMs = 5_000L))
+        first.onEvent(AddDeathEvent.CaptureSlot("carcass_video", null))
+        advanceUntilIdle()
+
+        val reopened = newViewModel(saved)
+        advanceUntilIdle()
+
+        assertTrue("the recreated form still sees the video slot", reopened.state.value.captureCard.slots.single().captured)
+        selectAnimalWithAccount(reopened)
+        advanceUntilIdle()
+        assertTrue(reopened.state.value.canSubmit)
+        reopened.onEvent(AddDeathEvent.Submit)
+        advanceUntilIdle()
+
+        assertEquals(proofs.allRows().single().outboxItemId, sync.lastDeathCapture?.slotProofs?.get("carcass_video")?.outboxItemId)
     }
 
     @Test
