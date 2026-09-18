@@ -10,6 +10,7 @@ import (
 	"io"
 	"log/slog"
 	"net/http"
+	"sort"
 	"strconv"
 	"strings"
 	"sync"
@@ -94,6 +95,7 @@ type lanePagePayload struct {
 type pagePayload struct {
 	Summary           summaryPayload                  `json:"summary"`
 	VocabularySummary *summaryPayload                 `json:"vocabulary_summary,omitempty"`
+	OwnerVocabulary   []domain.Owner                  `json:"owner_vocabulary,omitempty"`
 	Lanes             map[domain.Lane]lanePagePayload `json:"lanes"`
 	BusinessDate      string                          `json:"business_date"`
 	ParkID            string                          `json:"park_id"`
@@ -202,6 +204,10 @@ func (h *Handler) Page(w http.ResponseWriter, r *http.Request) {
 		payload summaryPayload
 		err     error
 	}
+	type ownerVocabularyResult struct {
+		owners []domain.Owner
+		err    error
+	}
 	summaryCh := make(chan summaryResult, 1)
 	go func() {
 		start := h.now()
@@ -229,6 +235,26 @@ func (h *Handler) Page(w http.ResponseWriter, r *http.Request) {
 				return
 			}
 			vocabCh <- summaryResult{payload: summaryPayload{Summary: vocab, BusinessDate: vocabQ.BusinessDate, ParkID: vocabQ.ParkID, OwnRowsOnly: own}}
+		}()
+	}
+	var ownerVocabCh chan ownerVocabularyResult
+	if shouldIncludeOwnerVocabulary(r) && !own && strings.TrimSpace(q.OwnerUserID) != "" {
+		ownerVocabQ := q
+		ownerVocabQ.OwnerUserID = ""
+		ownerVocabQ.Cursor = domain.Cursor{}
+		if ownerVocabQ.Limit < 100 {
+			ownerVocabQ.Limit = 100
+		}
+		ownerVocabCh = make(chan ownerVocabularyResult, 1)
+		go func() {
+			start := h.now()
+			page, err := h.service.List(ctx, ownerVocabQ) // scale-guard:ignore: optional owner vocabulary is one bounded Work Board-authorized page read for the toolbar picker.
+			prof.addAsync("owner_vocabulary_service", start)
+			if err != nil {
+				ownerVocabCh <- ownerVocabularyResult{err: err}
+				return
+			}
+			ownerVocabCh <- ownerVocabularyResult{owners: ownersFromRows(page.Rows)}
 		}()
 	}
 	summary := <-summaryCh
@@ -302,6 +328,22 @@ func (h *Handler) Page(w http.ResponseWriter, r *http.Request) {
 	for _, result := range results {
 		out.Lanes[result.lane] = result.payload
 		out.Degraded = appendModules(out.Degraded, result.payload.Degraded...)
+	}
+	if ownerVocabCh != nil {
+		vocab := <-ownerVocabCh
+		prof.mark("owner_vocabulary_wait")
+		if vocab.err != nil {
+			h.writeServiceErr(w, r, vocab.err)
+			return
+		}
+		out.OwnerVocabulary = vocab.owners
+	}
+	if shouldIncludeOwnerVocabulary(r) && len(out.OwnerVocabulary) == 0 && !own {
+		rows := []domain.Row{}
+		for _, result := range results {
+			rows = append(rows, result.payload.Rows...)
+		}
+		out.OwnerVocabulary = ownersFromRows(rows)
 	}
 	body, err := json.Marshal(out)
 	if err != nil {
@@ -463,6 +505,36 @@ func (p *pageTiming) log(log *slog.Logger, r *http.Request) {
 func shouldIncludeVocabulary(r *http.Request) bool {
 	raw := strings.TrimSpace(strings.ToLower(r.URL.Query().Get("include_vocabulary")))
 	return raw == "1" || raw == "true" || raw == "yes"
+}
+
+func shouldIncludeOwnerVocabulary(r *http.Request) bool {
+	raw := strings.TrimSpace(strings.ToLower(r.URL.Query().Get("include_owner_vocabulary")))
+	return raw == "1" || raw == "true" || raw == "yes"
+}
+
+func ownersFromRows(rows []domain.Row) []domain.Owner {
+	seen := map[string]domain.Owner{}
+	for _, row := range rows {
+		owner := row.Owner
+		if strings.TrimSpace(owner.UserID) == "" {
+			continue
+		}
+		if _, ok := seen[owner.UserID]; ok {
+			continue
+		}
+		seen[owner.UserID] = owner
+	}
+	out := make([]domain.Owner, 0, len(seen))
+	for _, owner := range seen {
+		out = append(out, owner)
+	}
+	sort.Slice(out, func(i, j int) bool {
+		if out[i].Name == out[j].Name {
+			return out[i].UserID < out[j].UserID
+		}
+		return out[i].Name < out[j].Name
+	})
+	return out
 }
 
 func modulesWithLaneRows(sum domain.Summary, lane domain.Lane, fallback []domain.Module) []domain.Module {

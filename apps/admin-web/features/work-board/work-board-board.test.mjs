@@ -30,6 +30,18 @@ test("work-board opened subtasks preserve the selected owner filter", () => {
   assert.match(apiSource, /owner: scope\.owner/);
 });
 
+test("work-board owner picker options are not narrowed by the selected owner page rows", () => {
+  const pageSource = readFileSync(new URL("./work-board-page.tsx", import.meta.url), "utf8");
+  const apiSource = readFileSync(new URL("../../lib/api/work-board-server.ts", import.meta.url), "utf8");
+
+  assert.doesNotMatch(pageSource, /listLeadershipTaskAssignees/);
+  assert.match(apiSource, /include_owner_vocabulary: scope\.owner \? "1" : undefined/);
+  assert.match(pageSource, /ownerOptionsFromVocabulary\(pageResults\.flatMap/);
+  assert.match(pageSource, /result\.data\.owner_vocabulary/);
+  assert.match(pageSource, /owners=\{ownerOptions\}/);
+  assert.doesNotMatch(pageSource, /owners=\{ownersOnPage\(rows\)\}/);
+});
+
 test("work-board page requests the optimized vocabulary shape only for module filters", () => {
   const pageSource = readFileSync(new URL("./work-board-page.tsx", import.meta.url), "utf8");
   const apiSource = readFileSync(new URL("../../lib/api/work-board-server.ts", import.meta.url), "utf8");
