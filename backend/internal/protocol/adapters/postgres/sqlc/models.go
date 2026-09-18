@@ -304,6 +304,7 @@ type CeoAiAnimalCurrentScope struct {
 	Breed           string
 	AgeDays         int32
 	PartitionLabel  bool
+	OriginType      pgtype.Text
 }
 
 type CeoAiAnimalsBase struct {
@@ -446,10 +447,14 @@ type CeoAiMessage struct {
 
 type CeoAiMortalityBase struct {
 	TenantID         pgtype.UUID
-	EventDate        pgtype.Date
+	EventDate        interface{}
 	ParkLabel        pgtype.Text
 	Deaths           int64
 	ActivePopulation int64
+	KidDeaths        int64
+	AdultDeaths      int64
+	FirstWeekDeaths  int64
+	CauseEstablished int64
 }
 
 type CeoAiNotificationDeliveryHealth struct {
@@ -1558,6 +1563,16 @@ type HealthConfigWriteLog struct {
 	RetiredVersionID    pgtype.UUID
 	ActorRef            string
 	CreatedAt           pgtype.Timestamptz
+}
+
+type HealthDeathCause struct {
+	TenantID     pgtype.UUID
+	GoatID       pgtype.UUID
+	CauseKey     string
+	CauseKind    string
+	HealthCaseID pgtype.UUID
+	RecordedBy   pgtype.UUID
+	RecordedAt   pgtype.Timestamptz
 }
 
 type HealthMedicineAdministration struct {

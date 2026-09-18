@@ -3137,6 +3137,56 @@ CREATE VIEW ceo_ai.inventory_stock_position AS
 
 
 --
+-- Name: health_cases; Type: TABLE; Schema: public; Owner: -
+--
+
+CREATE TABLE public.health_cases (
+    health_case_id uuid DEFAULT gen_random_uuid() NOT NULL,
+    tenant_id uuid NOT NULL,
+    goat_id uuid NOT NULL,
+    health_protocol_version_id uuid NOT NULL,
+    disease_key text NOT NULL,
+    disease_name text NOT NULL,
+    age_band text NOT NULL,
+    start_date date NOT NULL,
+    duration_days integer NOT NULL,
+    status text DEFAULT 'active'::text NOT NULL,
+    status_before_death_hold text,
+    park_id uuid,
+    shed_id uuid,
+    diagnosed_by uuid,
+    diagnosed_at timestamp with time zone DEFAULT now() NOT NULL,
+    idempotency_key text NOT NULL,
+    request_fingerprint text NOT NULL,
+    row_version integer DEFAULT 1 NOT NULL,
+    created_at timestamp with time zone DEFAULT now() NOT NULL,
+    updated_at timestamp with time zone DEFAULT now() NOT NULL,
+    partition_label text,
+    CONSTRAINT health_cases_age_band_check CHECK ((age_band = ANY (ARRAY['adult'::text, 'kid'::text]))),
+    CONSTRAINT health_cases_duration_days_check CHECK (((duration_days >= 1) AND (duration_days <= 90))),
+    CONSTRAINT health_cases_row_version_check CHECK ((row_version >= 1)),
+    CONSTRAINT health_cases_status_check CHECK ((status = ANY (ARRAY['active'::text, 'recovered'::text, 'continued'::text, 'referred'::text, 'held_death_review'::text, 'closed_dead'::text, 'canceled'::text])))
+);
+
+
+--
+-- Name: health_death_causes; Type: TABLE; Schema: public; Owner: -
+--
+
+CREATE TABLE public.health_death_causes (
+    tenant_id uuid NOT NULL,
+    goat_id uuid NOT NULL,
+    cause_key text NOT NULL,
+    cause_kind text NOT NULL,
+    health_case_id uuid,
+    recorded_by uuid,
+    recorded_at timestamp with time zone DEFAULT now() NOT NULL,
+    CONSTRAINT health_death_causes_cause_key_check CHECK ((btrim(cause_key) <> ''::text)),
+    CONSTRAINT health_death_causes_cause_kind_check CHECK ((cause_kind = ANY (ARRAY['register_rule'::text, 'disease_key'::text])))
+);
+
+
+--
 -- Name: mortality_base; Type: VIEW; Schema: ceo_ai; Owner: -
 --
 
@@ -6254,39 +6304,6 @@ CREATE TABLE public.goat_ownership (
     CONSTRAINT goat_ownership_share_bps_check CHECK (((share_bps >= 0) AND (share_bps <= 10000))),
     CONSTRAINT goat_ownership_status_check CHECK ((status = ANY (ARRAY['active'::text, 'inactive'::text, 'pending_review'::text, 'shared_pending'::text]))),
     CONSTRAINT goat_ownership_valid_window_check CHECK (((valid_to IS NULL) OR (valid_to > valid_from)))
-);
-
-
---
--- Name: health_cases; Type: TABLE; Schema: public; Owner: -
---
-
-CREATE TABLE public.health_cases (
-    health_case_id uuid DEFAULT gen_random_uuid() NOT NULL,
-    tenant_id uuid NOT NULL,
-    goat_id uuid NOT NULL,
-    health_protocol_version_id uuid NOT NULL,
-    disease_key text NOT NULL,
-    disease_name text NOT NULL,
-    age_band text NOT NULL,
-    start_date date NOT NULL,
-    duration_days integer NOT NULL,
-    status text DEFAULT 'active'::text NOT NULL,
-    status_before_death_hold text,
-    park_id uuid,
-    shed_id uuid,
-    diagnosed_by uuid,
-    diagnosed_at timestamp with time zone DEFAULT now() NOT NULL,
-    idempotency_key text NOT NULL,
-    request_fingerprint text NOT NULL,
-    row_version integer DEFAULT 1 NOT NULL,
-    created_at timestamp with time zone DEFAULT now() NOT NULL,
-    updated_at timestamp with time zone DEFAULT now() NOT NULL,
-    partition_label text,
-    CONSTRAINT health_cases_age_band_check CHECK ((age_band = ANY (ARRAY['adult'::text, 'kid'::text]))),
-    CONSTRAINT health_cases_duration_days_check CHECK (((duration_days >= 1) AND (duration_days <= 90))),
-    CONSTRAINT health_cases_row_version_check CHECK ((row_version >= 1)),
-    CONSTRAINT health_cases_status_check CHECK ((status = ANY (ARRAY['active'::text, 'recovered'::text, 'continued'::text, 'referred'::text, 'held_death_review'::text, 'closed_dead'::text, 'canceled'::text])))
 );
 
 

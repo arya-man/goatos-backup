@@ -221,7 +221,8 @@
     "expect": {
       "grounded": true,
       "aggregate_first": true,
-      "tiers_any_of": ["sql", "api"]
+      "tiers_any_of": ["sql", "api"],
+      "external_mcp_tools_any_of": ["get_weighing_weight_demographics", "GET /weighing/weight-demographics"]
     },
     "oracle": {
       "kind": "scalar_int",
@@ -236,7 +237,8 @@
     "expect": {
       "grounded": true,
       "aggregate_first": true,
-      "tiers_any_of": ["sql", "api"]
+      "tiers_any_of": ["sql", "api"],
+      "external_mcp_tools_any_of": ["get_weighing_weight_demographics", "GET /weighing/weight-demographics"]
     },
     "oracle": {
       "kind": "scalar_int",
