@@ -1,7 +1,7 @@
 "use client";
 
 import { Calendar, Check, ChevronDown, Search } from "lucide-react";
-import { TaskPeopleDropdown } from "@/features/leadership-tasks/task-people-dropdown";
+import { TaskPeopleDropdown } from "@/components/people-dropdown";
 import Link from "@/components/no-prefetch-link";
 import { LocalOverlayLink } from "@/components/local-overlay-link";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
