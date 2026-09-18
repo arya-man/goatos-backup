@@ -504,10 +504,12 @@ func deathCause(t *testing.T, ctx context.Context, pool *pgxpool.Pool, tenant, g
 // on start and (when closed is non-nil) closed at that instant.
 func healthCase(t *testing.T, ctx context.Context, pool *pgxpool.Pool, tenant, goatID, status string, start time.Time, closed *time.Time) {
 	t.Helper()
+	// One published version per tenant: (tenant, disease_key, age_band, version) is unique.
 	var versionID string
 	if err := pool.QueryRow(ctx,
 		`INSERT INTO health_protocol_versions (tenant_id, disease_key, display_name, age_band, version, duration_days, status, content_hash)
-		 VALUES ($1, 'supportive', 'Supportive', 'adult', 1, 3, 'published', 'hash-' || gen_random_uuid()::text)
+		 VALUES ($1, 'supportive', 'Supportive', 'adult', 1, 3, 'published', 'hash-test')
+		 ON CONFLICT (tenant_id, disease_key, age_band, version) DO UPDATE SET updated_at = now()
 		 RETURNING health_protocol_version_id::text`, tenant).Scan(&versionID); err != nil {
 		t.Fatalf("insert protocol version: %v", err)
 	}
