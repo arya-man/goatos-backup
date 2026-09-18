@@ -2,23 +2,19 @@ import Link from "@/components/no-prefetch-link";
 
 import { copy, type AdminUiPageContract } from "@/lib/admin-ui-contract";
 import type { RouteSearchParams } from "@/lib/search-params";
-import type { LeadershipTaskAssignee, LeadershipTaskPage } from "@/lib/api/server";
+import type { LeadershipTaskPage } from "@/lib/api/server";
 
 import { changeLeadershipTaskStatusAction } from "./actions";
 import { TASK_PARAM, tasksHref } from "./params";
 import { TaskBoardColumns, type BoardColumnMeta } from "./task-board-dnd";
-import { initials } from "./task-presentation";
 import type { TaskRow } from "./task-row";
 import {
   boardColumnHasTotal,
-  TASK_BOARD_COLUMNS,
+  boardColumnsForFilter,
   TASKS_PATHNAME,
   type TaskBoardColumn,
   type TaskFilter,
 } from "./task-url";
-
-/** How many people the avatar group shows before it collapses into a "+N". */
-const AVATAR_GROUP_MAX = 6;
 
 /**
  * The status board: one column per status, cards stacked inside it.
@@ -36,6 +32,11 @@ const AVATAR_GROUP_MAX = 6;
  *   - when the total exceeds what is shown, the column offers "show only this status", which sets
  *     `filter=<status>` and hands the whole keyset pager to that one column. That is the honest
  *     "show more": paging one status is something the endpoint can really do.
+ *   - under a status FILTER the board draws only that one column (`boardColumnsForFilter`), because
+ *     the row query can only return that status: four columns under a `filter=done` read left Open
+ *     and Doing saying "0 on this page" beneath header pills reading 179 and 118. See
+ *     `boardColumnsForFilter` in `task-url.ts` for the three behaviours that were available and
+ *     why collapsing is the one that cannot lie.
  *   - `cancelled` has no `filters[]` entry at all, so its count renders as the contract's
  *     placeholder with a title saying the total is not published. It is never summed from the
  *     rows on the page, because that number would be a lie about the list.
@@ -44,7 +45,11 @@ const AVATAR_GROUP_MAX = 6;
  * drop moves a card between columns and that is client state. This component stays the SERVER
  * half: it reads the response, decides each column's wording, its honest totals and its
  * "show only this" link, mints the card deep links (the URL vocabulary lives server-side), and
- * hands all of it plus the status action down. It decides nothing about the drag — legality is
+ * hands all of it plus the status action down. It no longer carries a PERSON filter: the avatar
+ * group that lived here wrote the same `t_assignee` the toolbar's control writes, and its `+5`
+ * overflow was a dead `<span aria-hidden>` that made five of eleven people unreachable. The one
+ * searchable person filter is `task-people-filter.tsx`, on the toolbar, which is on screen in
+ * both views. It decides nothing about the drag — legality is
  * the row's own `status_options`, and the reasons a drop can be refused are documented on the
  * client component.
  */
@@ -57,8 +62,6 @@ export function LeadershipTasksBoard({
   scopeKey,
   activeFilter,
   selectedTaskID,
-  assignees,
-  assigneeUserID,
 }: {
   pageContract: AdminUiPageContract;
   rows: TaskRow[];
@@ -69,8 +72,6 @@ export function LeadershipTasksBoard({
   scopeKey: string;
   activeFilter: TaskFilter;
   selectedTaskID?: string;
-  assignees: LeadershipTaskAssignee[];
-  assigneeUserID?: string;
 }) {
   // Keyed by plain string: `cancelled` is a board column the response's filter enum does not
   // contain, and looking it up must be a miss, not a type error.
@@ -79,7 +80,8 @@ export function LeadershipTasksBoard({
   );
   const placeholder = copy(pageContract, "label.placeholder");
 
-  const columns: BoardColumnMeta[] = TASK_BOARD_COLUMNS.map((column) => {
+  const focused = activeFilter !== "all";
+  const columns: BoardColumnMeta[] = boardColumnsForFilter(activeFilter).map((column) => {
     const filter = totals.get(column);
     const cards = rows.filter((task) => task.status === column);
     const hasTotal = boardColumnHasTotal(column) && typeof filter?.count === "number";
@@ -90,10 +92,11 @@ export function LeadershipTasksBoard({
       emptyMessage:
         filter?.empty_message ||
         copy(pageContract, "board.column_empty", "Nothing in this status on this page."),
-      // Narrowing to a status is only offered when the endpoint HAS that filter and when the
-      // whole list holds more of it than this page is showing.
+      // Narrowing to a status is only offered when the endpoint HAS that filter, when the whole
+      // list holds more of it than this page is showing, and when the board is NOT already
+      // narrowed — a column that is the only column on screen has nothing left to narrow to.
       focusHref:
-        boardColumnHasTotal(column) && hasTotal && filter!.count > cards.length
+        !focused && boardColumnHasTotal(column) && hasTotal && filter!.count > cards.length
           ? tasksHref(
               basePath,
               sp,
@@ -131,13 +134,31 @@ export function LeadershipTasksBoard({
 
   return (
     <div className="ltb">
-      <PeopleFilter
-        pageContract={pageContract}
-        assignees={assignees}
-        assigneeUserID={assigneeUserID}
-        basePath={basePath}
-        sp={sp}
-      />
+      {/* A board narrowed to one status says so, and carries the way back. Without this the
+          single column is indistinguishable from a tenant that only has one status. */}
+      {focused ? (
+        <p className="ltb-focusnote">
+          <span>
+            {copy(
+              pageContract,
+              "board.focused_note",
+              "This board is showing one status only, so you can page through all of it.",
+            )}
+          </span>
+          <Link
+            href={tasksHref(
+              basePath,
+              sp,
+              { [TASK_PARAM.filter]: null },
+              { resetPaging: true },
+            )}
+            scroll={false}
+            className="ltb-focusback"
+          >
+            {copy(pageContract, "board.all_statuses", "Back to all statuses")}
+          </Link>
+        </p>
+      ) : null}
 
       <TaskBoardColumns
         pageContract={pageContract}
@@ -158,77 +179,6 @@ export function LeadershipTasksBoard({
           "Each column shows the tasks on this page of the list. The number beside a status is its true total across the whole list; open one status to page through all of it.",
         )}
       </p>
-    </div>
-  );
-}
-
-/**
- * The overlapping avatar group: Jira's "filter by person" control, minted as ordinary links that
- * set `t_assignee`, so it needs no client JavaScript and cannot drift from the assignee dropdown
- * in the filter bar — both write the same parameter.
- */
-function PeopleFilter({
-  pageContract,
-  assignees,
-  assigneeUserID,
-  basePath,
-  sp,
-}: {
-  pageContract: AdminUiPageContract;
-  assignees: LeadershipTaskAssignee[];
-  assigneeUserID?: string;
-  basePath: string;
-  sp: RouteSearchParams;
-}) {
-  if (!assignees.length) return null;
-  // The selected person is pinned into view: a filter whose own chip has scrolled out of the
-  // group is a filter the reader cannot turn off.
-  const selectedIndex = assignees.findIndex((person) => person.user_id === assigneeUserID);
-  const shown =
-    selectedIndex >= AVATAR_GROUP_MAX
-      ? [assignees[selectedIndex]!, ...assignees.slice(0, AVATAR_GROUP_MAX - 1)]
-      : assignees.slice(0, AVATAR_GROUP_MAX);
-  const hidden = assignees.length - shown.length;
-  const personHref = (userID: string | null) =>
-    tasksHref(basePath, sp, { [TASK_PARAM.assignee]: userID }, { resetPaging: true });
-  return (
-    <div
-      className="ltb-people"
-      role="group"
-      aria-label={copy(pageContract, "board.people_aria", "Filter by person")}
-    >
-      <Link
-        href={personHref(null)}
-        scroll={false}
-        className={`ltb-person ltb-person-all${assigneeUserID ? "" : " on"}`}
-        aria-current={assigneeUserID ? undefined : "true"}
-      >
-        {copy(pageContract, "board.people_all", "Everyone")}
-      </Link>
-      {shown.map((person) => {
-        const name = person.name || person.title;
-        const on = person.user_id === assigneeUserID;
-        return (
-          <Link
-            key={person.user_id}
-            href={personHref(on ? null : person.user_id)}
-            scroll={false}
-            className={`ltb-person${on ? " on" : ""}`}
-            title={name}
-            aria-label={`${copy(pageContract, "column.assignee")} ${name}`}
-            aria-current={on ? "true" : undefined}
-          >
-            <span className="lt-avx" aria-hidden="true">
-              {initials(name)}
-            </span>
-          </Link>
-        );
-      })}
-      {hidden > 0 ? (
-        <span className="ltb-person ltb-person-rest" aria-hidden="true">
-          <span className="lt-avx">+{hidden}</span>
-        </span>
-      ) : null}
     </div>
   );
 }

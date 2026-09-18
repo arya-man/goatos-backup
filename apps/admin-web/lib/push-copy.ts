@@ -34,6 +34,12 @@ const PUSH_COPY_FALLBACKS: Record<string, string> = {
   "push.timed_out":
     "That took too long and did not finish. Nothing is switched on yet — click again to retry.",
   "push.retry": "Try again",
+  // Nothing the reader can do fixes either of these, so each says that plainly and names who
+  // can. They replace the raw engineering `state.reason` the control used to print verbatim.
+  "push.unconfigured":
+    "Notifications are not set up for this site yet. Ask your Goat OS administrator to switch them on.",
+  "push.unsupported":
+    "This browser cannot show notifications here. Open the dashboard in Chrome on a laptop or an Android phone, on its secure (https) address, to get them.",
 };
 
 export function pushCopy(contractCopy: Record<string, string> | undefined, key: string): string {

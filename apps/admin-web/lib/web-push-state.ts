@@ -267,8 +267,14 @@ export async function withTimeout<T>(
 export type WebPushVapidKey = { source: "project"; key: string } | { source: "sdk-default" };
 
 /**
- * The sentence shown when the environment's key is set but unusable. One place, because the
- * server adapter and the client state machine must not disagree about what happened.
+ * The DIAGNOSTIC sentence for a key that is set but unusable — for logs and for the
+ * `unconfigured` state's `reason` field. One place, because the server adapter and the client
+ * state machine must not disagree about what happened.
+ *
+ * NOT USER COPY, AND NOT RENDERED. "VAPID key" is a protocol token and "this environment" is
+ * implementation vocabulary; the copy firewall bans both, and this control sits in the top bar
+ * on every admin route. What a reader sees is the contract's `push.unconfigured`. The shape
+ * check this sentence documents is worth keeping; the sentence is not for a reader.
  */
 export const VAPID_KEY_UNUSABLE_MESSAGE =
   "This environment's browser-notification key is not a usable VAPID key, so notifications are off until it is corrected or removed.";

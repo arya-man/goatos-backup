@@ -419,6 +419,18 @@ func chromeCopy() map[string]string {
 		// Permission is 'denied': requestPermission() resolves without showing anything, so the
 		// only true thing to say is where the person can undo it themselves.
 		"push.blocked": "Notifications are blocked for this site. Turn them back on in your browser's site settings (the icon beside the address bar), then reload this page.",
+		// The retryable timeout: permission was granted and nothing is known to be wrong, so it
+		// says what happened and invites the retry the button beside it offers. These two were
+		// the only push states left with no contract key, so the frontend map was their source
+		// rather than a deploy-skew net.
+		"push.timed_out": "That took too long and did not finish. Nothing is switched on yet — click again to retry.",
+		"push.retry":     "Try again",
+		// The two states nothing the reader can do will fix. They used to render the raw
+		// engineering sentence behind them verbatim in the top bar on EVERY admin route
+		// ("...is not a usable VAPID key..."), which is implementation vocabulary a CXO should
+		// never see. The shape check that sentence documents is kept as a LOG line only.
+		"push.unconfigured": "Notifications are not set up for this site yet. Ask your Goat OS administrator to switch them on.",
+		"push.unsupported":  "This browser cannot show notifications here. Open the dashboard in Chrome on a laptop or an Android phone, on its secure (https) address, to get them.",
 	}
 }
 
@@ -2043,76 +2055,127 @@ func pageSpecificCopy(id string) map[string]string {
 		// OPEN key space the screen reads with an empty default, so an unrecognised code
 		// falls back to the generic sentence rather than throwing.
 		return map[string]string{
-			"crumb":                            "Operations",
-			"filter.bar_aria":                  "Filter tasks",
-			"filter.search_label":              "Search tasks, or type a number",
-			"filter.all_option":                "All",
-			"filter.assignee":                  "Assignee",
-			"filter.assignee_pinned":           "This scope is already only your tasks.",
-			"filter.raiser":                    "Raised by",
-			"filter.raiser_pinned":             "This scope is already only the tasks you raised.",
-			"filter.sort":                      "Sort",
-			"filter.deadline_from":             "Deadline from",
-			"filter.deadline_to":               "Deadline to",
-			"filter.raised_from":               "Raised from",
-			"filter.raised_to":                 "Raised to",
-			"filter.range_note":                "Pick both ends of a date range — a half range is not applied.",
-			"sort.raised_at_desc":              "Newest first",
-			"sort.raised_at_asc":               "Oldest first",
-			"sort.deadline_asc":                "Deadline soonest",
-			"sort.deadline_desc":               "Deadline latest",
-			"scope.aria":                       "Task scopes",
-			"column.assignee":                  "Assignee",
-			"column.raised_by":                 "Raised by",
-			"column.evidence":                  "Evidence",
-			"table.tasks.noun":                 "task",
-			"label.deadline":                   "Deadline",
-			"label.brief":                      "Brief",
-			"label.assignee_note":              "Assignee note",
-			"section.selected.title":           "Selected task",
-			"action.open_task":                 "Open task",
-			"action.edit":                      "Edit",
-			"state.preview":                    "Preview data",
-			"state.can_raise":                  "Can raise",
-			"state.unavailable_tasks":          "Tasks could not be loaded. Try again.",
-			"empty.tasks":                      "No tasks match these filters.",
-			"empty.tasks_detail":               "This queue is clear for the current role and park scope. When work is raised, it will appear here with the owner, evidence, and next status action.",
-			"empty.selected":                   "Select a task",
-			"empty.selected_detail":            "Choose a row to view its brief, status actions, attachments, and activity updates.",
-			"note.label":                       "Activity update",
-			"note.placeholder":                 "Write the latest status or reply.",
-			"note.send":                        "Send update",
-			"feed.update":                      "Task update",
-			"feed.audio":                       "Audio attached",
-			"feed.video":                       "Video attached",
-			"feed.files":                       "Files attached",
-			"picker.voice":                     "Voice note",
-			"picker.media":                     "Photo or video",
-			"picker.file":                      "File",
-			"edit.title":                       "Edit task",
-			"edit.title_field":                 "Title",
-			"edit.body_field":                  "Brief",
-			"edit.deadline_field":              "Deadline",
-			"edit.deadline_hint":               "Date and time the task is due, farm clock (IST). Leave it as it is to keep the stored deadline.",
-			"edit.attachments":                 "Attachments",
-			"edit.too_many":                    "A task carries at most 12 attachments.",
-			"edit.save":                        "Save changes",
-			"feedback.task_raised":             "Task raised.",
-			"feedback.task_updated":            "Task status updated.",
-			"feedback.task_edited":             "Task saved.",
-			"feedback.note_added":              "Update added to the task.",
-			"feedback.version_conflict":        "Someone changed this task while you were editing it. Reload the page and try again.",
-			"feedback.task_closed":             "This task is already finished, so it can no longer be edited.",
-			"feedback.forbidden":               "Only the person who raised this task can edit it.",
-			"feedback.missing_title":           "A task needs a title.",
-			"feedback.missing_assignee":        "Choose who the task is for.",
-			"feedback.missing_deadline":        "A task needs a deadline.",
-			"feedback.missing_note":            "Write the update before sending it.",
-			"feedback.invalid_deadline":        "That deadline is not a date and time.",
-			"feedback.invalid_edit":            "The task could not be saved. Reload the page and try again.",
-			"feedback.invalid_status_change":   "That status change could not be applied.",
+			"crumb":                  "Operations",
+			"filter.bar_aria":        "Filter tasks",
+			"filter.search_label":    "Search tasks, or type a number",
+			"filter.all_option":      "All",
+			"filter.assignee":        "Assignee",
+			"filter.assignee_pinned": "This scope is already only your tasks.",
+			"filter.raiser":          "Raised by",
+			"filter.raiser_pinned":   "This scope is already only the tasks you raised.",
+			"filter.sort":            "Sort",
+			"filter.deadline_from":   "Deadline from",
+			"filter.deadline_to":     "Deadline to",
+			"filter.raised_from":     "Raised from",
+			"filter.raised_to":       "Raised to",
+			"filter.range_note":      "Pick both ends of a date range — a half range is not applied.",
+			"sort.raised_at_desc":    "Newest first",
+			"sort.raised_at_asc":     "Oldest first",
+			"sort.deadline_asc":      "Deadline soonest",
+			"sort.deadline_desc":     "Deadline latest",
+			"scope.aria":             "Task scopes",
+			// Status-board column headings. They are the SAME wording as the status chips
+			// (domain.StatusChip), so a column and the cards under it never name the status
+			// two different ways. The board previously had no contract key for these at all,
+			// and an unlabelled column fell back to the column KEY — rendering the raw wire
+			// token `in_progress` as a heading.
+			"board.column.open":        "Open",
+			"board.column.in_progress": "Doing",
+			"board.column.done":        "Done",
+			"board.column.cancelled":   "Cancelled",
+			"column.assignee":          "Assignee",
+			"column.raised_by":         "Raised by",
+			"column.evidence":          "Evidence",
+			"table.tasks.noun":         "task",
+			"label.deadline":           "Deadline",
+			"label.brief":              "Brief",
+			"label.assignee_note":      "Assignee note",
+			"section.selected.title":   "Selected task",
+			"action.open_task":         "Open task",
+			"action.edit":              "Edit",
+			"state.preview":            "Preview data",
+			"state.can_raise":          "Can raise",
+			"state.unavailable_tasks":  "Tasks could not be loaded. Try again.",
+			"empty.tasks":              "No tasks match these filters.",
+			"empty.tasks_detail":       "This queue is clear for the current role and park scope. When work is raised, it will appear here with the owner, evidence, and next status action.",
+			"empty.selected":           "Select a task",
+			"empty.selected_detail":    "Choose a row to view its brief, status actions, attachments, and activity updates.",
+			"note.label":               "Activity update",
+			"note.placeholder":         "Write the latest status or reply.",
+			"note.send":                "Send update",
+			"feed.update":              "Task update",
+			"feed.audio":               "Audio attached",
+			"feed.video":               "Video attached",
+			"feed.files":               "Files attached",
+			"picker.voice":             "Voice note",
+			"picker.media":             "Photo or video",
+			"picker.file":              "File",
+			"edit.title":               "Edit task",
+			"edit.title_field":         "Title",
+			"edit.body_field":          "Brief",
+			"edit.deadline_field":      "Deadline",
+			"edit.deadline_hint":       "Date and time the task is due, farm clock (IST). Leave it as it is to keep the stored deadline.",
+			"edit.attachments":         "Attachments",
+			"edit.too_many":            "A task carries at most 12 attachments.",
+			"edit.save":                "Save changes",
+			"feedback.task_raised":     "Task raised.",
+			"feedback.task_updated":    "Task status updated.",
+			"feedback.task_edited":     "Task saved.",
+			"feedback.note_added":      "Update added to the task.",
+			// ── A REFUSED WRITE ON THE TASKS DESK ────────────────────────────────────────
+			// Three keys per outcome code, the screen trying the MOST SPECIFIC first:
+			// `.named` (the person whose move it is resolved), `.status` (the task's current
+			// chip resolved), then the plain key. A template is used only when every
+			// placeholder it carries has a value, so an unresolved fact costs its CLAUSE and
+			// never renders "{name}", a raw id, or the word "someone".
+			//
+			// WHAT CANNOT BE SAID, and why the conflict sentence names a STATUS and not a
+			// PERSON: neither the 409 envelope nor the single-task read reports WHO made the
+			// last status change, so "Chandrakant already moved this to Doing" is not
+			// composable today. There is deliberately NO `feedback.version_conflict.named`:
+			// the screen only tries that key when a name resolved, and a name never resolves
+			// on a conflict (the Tasks page sends one only for a refusal that is ABOUT a
+			// person). Adding `status_changed_by_name` to the leadership-task read is the
+			// backend follow-up that would let this name them; until it lands, naming the new
+			// status is the whole honest sentence.
+			"feedback.version_conflict.status": "This task was moved to {status} while this board was open, so your move was not applied. The board now shows that — move it from what you see now.",
+			"feedback.version_conflict":        "This task was changed while this board was open, so your move was not applied. The board now shows the current version.",
+			// Fires on a DRAG as well as an edit, so it says what the task IS and that a
+			// closed task cannot be MOVED — not that it "can no longer be edited".
+			"feedback.task_closed.status": "This task is {status}, and a closed task cannot be moved.",
+			"feedback.task_closed":        "This task is closed, so its status cannot be changed.",
+			"feedback.forbidden":          "Only the person who raised this task can edit it.",
+			// The three commonest drag refusals, which had no sentence at all and collapsed
+			// into the page's generic failure line.
+			"feedback.not_assignee.named":               "Only {name}, the person this task is assigned to, can move it.",
+			"feedback.not_assignee":                     "Only the person this task is assigned to can move it.",
+			"feedback.not_raiser.named":                 "Only {name}, who raised this task, can cancel it.",
+			"feedback.not_raiser":                       "Only the person who raised this task can cancel it.",
+			"feedback.invalid_status_transition.status": "This task is {status}, and that is not a move it can make from there.",
+			"feedback.invalid_status_transition":        "That is not a move this task can make from where it is now.",
+			"feedback.missing_title":                    "A task needs a title.",
+			"feedback.missing_assignee":                 "Choose who the task is for.",
+			"feedback.missing_deadline":                 "A task needs a deadline.",
+			"feedback.missing_note":                     "Write the update before sending it.",
+			"feedback.invalid_deadline":                 "That deadline is not a date and time.",
+			"feedback.invalid_edit":                     "The task could not be saved. Reload the page and try again.",
+			// Minted on the page BEFORE the write, when the dragged card carried no task, no
+			// target status or no version — so NO status of this task is known at that point
+			// and naming one would be an invention. It says which fact was missing instead.
+			"feedback.invalid_status_change":   "That move did not say which task to move, or where to move it to. Reload the board and drag the card again.",
 			"feedback.invalid_idempotency_key": "The form expired. Reload the page and try again.",
 			"feedback.too_many_attachments":    "A task carries at most 12 attachments.",
+			// ── A REFUSED @MENTION ───────────────────────────────────────────────────────
+			// All four of these reached the screen as the generic failure line, so a reader
+			// who named the wrong person on an update they can SEE was told only that
+			// something went wrong. None of them carries {name}: the send stamps the outcome
+			// code alone, so the offending person's name does not reach this sentence and the
+			// repo's rule is to DROP the unresolvable clause rather than say "that person".
+			// Each one names the RULE instead, which is the fact the reader can act on.
+			"feedback.mention_not_visible":  "A person can only be named on a task they can already see. Pick from the list that appears when you type @, or share the task with them first.",
+			"feedback.invalid_mention":      "A name that is not on this farm's leadership roster cannot be named on a task. Pick the person from the list that appears when you type @.",
+			"feedback.too_many_mentions":    "One update can name at most 20 people.",
+			"feedback.mention_without_note": "Write the update before naming anyone in it.",
 		}
 	case "pen-routines":
 		return map[string]string{

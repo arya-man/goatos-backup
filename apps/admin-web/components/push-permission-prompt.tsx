@@ -204,9 +204,20 @@ export function PushPermissionPrompt({
       ) : null}
 
       {state.status === "unsupported" || state.status === "unconfigured" ? (
+        // NEVER `state.reason` here. That field is the DIAGNOSTIC sentence
+        // (`VAPID_KEY_UNUSABLE_MESSAGE`, "This browser does not support web push") and this
+        // control renders in the top bar on EVERY admin route, so it put implementation
+        // vocabulary in front of a CXO on every page. The reason stays for logs; the reader
+        // gets the business sentence from the contract.
         <div className="flex items-center gap-2 text-sm">
           <BellOff className="h-4 w-4" aria-hidden="true" />
-          <span>{state.reason}</span>
+          <span>
+            {copy(
+              state.status === "unconfigured"
+                ? "push.unconfigured"
+                : "push.unsupported",
+            )}
+          </span>
         </div>
       ) : null}
 

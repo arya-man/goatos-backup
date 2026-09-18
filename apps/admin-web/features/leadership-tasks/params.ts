@@ -9,6 +9,7 @@ import {
   normalizeTaskSort,
   normalizeTaskView,
   taskUuidFilter,
+  unprefixedTaskParamAliases,
   type TaskDateRange,
   type TaskFilter,
   type TaskScope,
@@ -115,6 +116,13 @@ export type TasksParams = {
   feedbackCode?: string;
   feedbackStatusNow?: string;
   feedbackWho?: string;
+  /**
+   * The unprefixed parameter names in this URL that this page does NOT read, each beside the
+   * `t_`-prefixed name it meant. Non-empty means a hand-written or pasted link is narrower (or
+   * wider) than the reader thinks, and the page says so out loud rather than rendering a default
+   * that looks like an answer. See `unprefixedTaskParamAliases`.
+   */
+  ignoredAliases: Array<{ alias: string; param: string }>;
 };
 
 /**
@@ -159,6 +167,7 @@ export function parseTasksParams(
     feedbackCode: one(params, TASK_PARAM.feedbackCode),
     feedbackStatusNow: one(params, TASK_PARAM.feedbackStatusNow),
     feedbackWho: one(params, TASK_PARAM.feedbackWho),
+    ignoredAliases: unprefixedTaskParamAliases(Object.keys(params)),
   };
 }
 
@@ -226,6 +235,27 @@ export function tasksClearedHref(pathname: string, sp: RouteSearchParams | undef
   const overrides: Record<string, null> = {};
   for (const key of TASK_FILTER_PARAMS) overrides[key] = null;
   return tasksHref(pathname, sp, overrides, { resetPaging: true });
+}
+
+/**
+ * The same URL with every ignored alias RENAMED to the parameter this page really reads.
+ *
+ * The one-click repair behind the ignored-parameter notice, so a reader handed a bad link does
+ * not have to learn the parameter grammar to use it. Paging is reset because the aliases carry
+ * filter and sort names, and a cursor minted over one result set means nothing over another.
+ */
+export function tasksAliasFixedHref(
+  pathname: string,
+  sp: RouteSearchParams | undefined,
+  aliases: ReadonlyArray<{ alias: string; param: string }>,
+): string {
+  const params = sp ?? {};
+  const overrides: Record<string, string | null> = {};
+  for (const { alias, param } of aliases) {
+    overrides[alias] = null;
+    overrides[param] = one(params, alias) ?? null;
+  }
+  return tasksHref(pathname, params, overrides, { resetPaging: true });
 }
 
 /** The repeated cursor-stack values, exposed for the pager's own bookkeeping. */

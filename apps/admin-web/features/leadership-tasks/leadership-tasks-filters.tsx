@@ -8,10 +8,11 @@ import { useRouter, useSearchParams } from "next/navigation";
 import { copy, type AdminUiPageContract } from "@/lib/admin-ui-contract";
 import { worklistFilterShownValue } from "@/lib/worklist-filter-value";
 import { TASK_PAGING_PARAMS, TASK_PARAM } from "./params";
+import { TaskPeopleFilter, type TaskPeopleOption } from "./task-people-filter";
 import { TASK_SORTS, type TaskSort } from "./task-url";
 import { useDialogShell } from "./use-dialog-shell";
 
-export type TaskPersonOption = { value: string; label: string };
+export type TaskPersonOption = TaskPeopleOption;
 export type TaskStatusChip = {
   key: string;
   label: string;
@@ -265,6 +266,8 @@ export function LeadershipTasksFilters({
   const raiserLabel = copy(pageContract, "filter.raiser");
   const deadlineLabel = copy(pageContract, "filter.deadline", copy(pageContract, "label.deadline", "Deadline"));
   const raisedLabel = copy(pageContract, "filter.raised", "Raised");
+  const peopleSearchLabel = copy(pageContract, "filter.people_search", "Type a name");
+  const peopleNoMatchesLabel = copy(pageContract, "filter.people_no_matches", "Nobody by that name.");
 
   /**
    * A span as the disclosure's own label: the reader should not have to open it to learn whether
@@ -425,39 +428,47 @@ export function LeadershipTasksFilters({
           ))}
         </div>
 
-        <label className="lt-fsel">
-          <span>{assigneeLabel}</span>
-          <select
-            value={fieldValue(TASK_PARAM.assignee, assignee)}
-            disabled={assigneePinned}
-            title={assigneePinned ? copy(pageContract, "filter.assignee_pinned") : undefined}
-            onChange={(event) => go(paramsWith({ [TASK_PARAM.assignee]: event.target.value }))}
-          >
-            <option value="">{allOption}</option>
-            {assigneeOptions.map((option) => (
-              <option key={option.value} value={option.value}>
-                {option.label}
-              </option>
-            ))}
-          </select>
-        </label>
+        {/* THE TWO PERSON FILTERS, both searchable. These were native `<select>`s, and the board
+            carried a THIRD spelling of `t_assignee` as an avatar group whose `+5` overflow was a
+            dead `<span aria-hidden>`. `task-people-filter.tsx` is now the only person filter on
+            this desk; see that file for why the three converged into one. */}
+        <TaskPeopleFilter
+          param={TASK_PARAM.assignee}
+          value={fieldValue(TASK_PARAM.assignee, assignee)}
+          options={assigneeOptions}
+          copy={{
+            label: assigneeLabel,
+            allLabel: allOption,
+            searchLabel: peopleSearchLabel,
+            noMatchesLabel: peopleNoMatchesLabel,
+          }}
+          disabled={assigneePinned}
+          disabledTitle={assigneePinned ? copy(pageContract, "filter.assignee_pinned") : undefined}
+          hrefFor={(next) => hrefWith({ [TASK_PARAM.assignee]: next })}
+          onPick={(next) => {
+            closeSheet();
+            go(paramsWith({ [TASK_PARAM.assignee]: next }));
+          }}
+        />
 
-        <label className="lt-fsel">
-          <span>{raiserLabel}</span>
-          <select
-            value={fieldValue(TASK_PARAM.raiser, raiser)}
-            disabled={raiserPinned}
-            title={raiserPinned ? copy(pageContract, "filter.raiser_pinned") : undefined}
-            onChange={(event) => go(paramsWith({ [TASK_PARAM.raiser]: event.target.value }))}
-          >
-            <option value="">{allOption}</option>
-            {raiserOptions.map((option) => (
-              <option key={option.value} value={option.value}>
-                {option.label}
-              </option>
-            ))}
-          </select>
-        </label>
+        <TaskPeopleFilter
+          param={TASK_PARAM.raiser}
+          value={fieldValue(TASK_PARAM.raiser, raiser)}
+          options={raiserOptions}
+          copy={{
+            label: raiserLabel,
+            allLabel: allOption,
+            searchLabel: peopleSearchLabel,
+            noMatchesLabel: peopleNoMatchesLabel,
+          }}
+          disabled={raiserPinned}
+          disabledTitle={raiserPinned ? copy(pageContract, "filter.raiser_pinned") : undefined}
+          hrefFor={(next) => hrefWith({ [TASK_PARAM.raiser]: next })}
+          onPick={(next) => {
+            closeSheet();
+            go(paramsWith({ [TASK_PARAM.raiser]: next }));
+          }}
+        />
 
         <label className="lt-fsel">
           <span>{copy(pageContract, "filter.sort")}</span>

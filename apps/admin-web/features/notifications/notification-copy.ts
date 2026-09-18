@@ -14,6 +14,8 @@
  * instead of scattered through JSX.
  */
 
+import { fmtDateTime } from "@/lib/format";
+
 export const NOTIFICATION_COPY_FALLBACKS: Record<string, string> = {
   "notifications.open": "Notifications",
   "notifications.title": "Notifications",
@@ -107,20 +109,18 @@ export function resolveMentionComposerCopy(contractCopy: Record<string, string> 
 }
 
 /**
- * The row's timestamp, in the reader's locale and the farm's timezone.
+ * The row's timestamp: `DD/MM/YYYY HH:MM` on the farm clock, the one shape every screen uses.
  *
  * Absolute, not "3 hours ago": the notification centre is read alongside a task list that shows
  * real deadlines, and two different time vocabularies on one screen is how a leader misreads one.
- * Asia/Kolkata is the farm clock every other admin-web screen already prints.
+ *
+ * IT CALLS THE SHARED HELPER AND HAS NO FORMAT OF ITS OWN. This used to hand-roll an
+ * `Intl.DateTimeFormat` with `day: "2-digit", month: "short"` and the READER'S LOCALE, rendering
+ * `18 Sep, 14:32` — a second date shape, one panel over from tables printing `18/09/2026`. The
+ * 2026-09-10 maintainer lock is that every visible date is `DD/MM/YYYY` in full, with no compact
+ * variant, because the whole point of that lock was three surfaces disagreeing about one fact. A
+ * farm-readable date is also not a locale question, so the `locale` argument is gone with it.
  */
-export function formatNotificationTime(iso: string, locale?: string): string {
-  const value = new Date(iso);
-  if (Number.isNaN(value.getTime())) return "";
-  return new Intl.DateTimeFormat(locale, {
-    day: "2-digit",
-    month: "short",
-    hour: "2-digit",
-    minute: "2-digit",
-    timeZone: "Asia/Kolkata",
-  }).format(value);
+export function formatNotificationTime(iso: string): string {
+  return fmtDateTime(iso);
 }

@@ -47,6 +47,65 @@ export function normalizeTaskView(value: string | undefined): TaskView {
 export const TASK_BOARD_COLUMNS = ["open", "in_progress", "done", "cancelled"] as const;
 export type TaskBoardColumn = (typeof TASK_BOARD_COLUMNS)[number];
 
+/**
+ * The columns a board renders under a status filter.
+ *
+ * ── WHY THE BOARD COLLAPSES INSTEAD OF IGNORING THE FILTER ────────────────────────────────────
+ * A status filter and a status-column board say the SAME thing two ways, and when both were
+ * active the board showed "0 on this page" under column pills reading 179 and 118: every number
+ * correct on its own, the combination nonsense. Three behaviours were available —
+ *   (a) the board ignores `filter` — but then the status chips are dead in board view and
+ *       "see every task in this status" has nowhere to land;
+ *   (b) the board collapses to the filtered column — one column, its TRUE whole-list total, and
+ *       the whole keyset pager walking it;
+ *   (c) the status segment is disabled in board view — which removes a control the reader can
+ *       see working in list view, and makes a shared `?filter=done` link mean two different
+ *       things depending on `t_view`.
+ * (b) is the one where no combination of URL parameters can produce a board that looks empty
+ * above counts that say otherwise: the columns the board draws are exactly the statuses the row
+ * query is allowed to return. `all` draws all four; any other filter draws that one.
+ */
+export function boardColumnsForFilter(filter: TaskFilter): readonly TaskBoardColumn[] {
+  if (filter === "all") return TASK_BOARD_COLUMNS;
+  return TASK_BOARD_COLUMNS.filter((column) => column === filter);
+}
+
+/**
+ * The UNPREFIXED names a reader plausibly types for a `t_`-prefixed parameter this page owns.
+ *
+ * `?view=list` is silently ignored here, which is how a hand-written link can look like it
+ * selects a view and not select one. The alias is deliberately NOT accepted: `view` is already
+ * owned by three other screens (`/vaccination?view=schedule`, the calendar's month picker,
+ * procurement's sales loads), and honouring it here would re-introduce exactly the cross-screen
+ * collision the `t_` prefix exists to prevent (see `params.ts`). So the page IGNORES it LOUDLY —
+ * it names the parameter it did not read, names the one it does, and offers the corrected link.
+ */
+export const UNPREFIXED_TASK_PARAM_ALIASES: Readonly<Record<string, string>> = {
+  view: "t_view",
+  q: "t_q",
+  sort: "t_sort",
+  assignee: "t_assignee",
+  raiser: "t_raiser",
+  limit: "t_limit",
+  page: "t_page",
+  cursor: "t_cursor",
+} as const;
+
+/**
+ * The aliases present in a URL whose real parameter is ABSENT, as `[alias, realName]` pairs.
+ *
+ * An alias beside its real parameter is not reported: `?view=list&t_view=board` is a link that
+ * does select a view, and the prefixed one wins without ambiguity worth a banner.
+ */
+export function unprefixedTaskParamAliases(
+  keys: readonly string[],
+): Array<{ alias: string; param: string }> {
+  const present = new Set(keys);
+  return Object.entries(UNPREFIXED_TASK_PARAM_ALIASES)
+    .filter(([alias, param]) => present.has(alias) && !present.has(param))
+    .map(([alias, param]) => ({ alias, param }));
+}
+
 /** True when the whole-list count for this column is a number the backend actually publishes. */
 export function boardColumnHasTotal(column: TaskBoardColumn): boolean {
   return (TASK_FILTERS as readonly string[]).includes(column);
