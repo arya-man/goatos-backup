@@ -265,7 +265,9 @@ class VendorCreateViewModel @Inject constructor(
                     when (outcome) {
                         QueuedWriteOutcome.Saved -> it.copy(writeStatus = VendorsWriteStatus.SYNCED, writeMessage = MESSAGE_SAVED, closeAfterSave = true)
                         QueuedWriteOutcome.StillQueued -> it.copy(writeStatus = VendorsWriteStatus.QUEUED, writeMessage = MESSAGE_QUEUED, closeAfterSave = true)
-                        is QueuedWriteOutcome.Rejected -> it.copy(writeStatus = VendorsWriteStatus.FAILED, writeMessage = MESSAGE_NOT_SAVED)
+                        // The server's reason is the copy: a duplicate refusal says "edit it", which "Try again"
+                        // (repeated four times on 2026-09-18) cannot. The generic line is only for a bare reject.
+                        is QueuedWriteOutcome.Rejected -> it.copy(writeStatus = VendorsWriteStatus.FAILED, writeMessage = outcome.reason?.takeIf { r -> r.isNotBlank() } ?: MESSAGE_NOT_SAVED)
                     }
                 }
             }

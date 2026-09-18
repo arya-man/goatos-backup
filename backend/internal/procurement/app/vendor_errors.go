@@ -47,9 +47,11 @@ func VendorHTTPError(err error) *Error {
 		return NotFound("Vendor not found.")
 
 	case errors.Is(err, ports.ErrVendorDuplicate):
+		// Short on purpose: this lands in a phone banner. "Edit it" is the action nine times in ten
+		// (the operator re-added a vendor already on the register); the phone-number clause covers
+		// the other -- a second contact at the same business needs their own number to be a new row.
 		return Conflict("vendor_duplicate",
-			"A vendor with this business name, record type, state and phone number already exists. "+
-				"Add the new contact with their own phone number, or edit the existing vendor.")
+			"This vendor already exists. Edit it, or add the contact with a different phone number.")
 
 	case errors.Is(err, ports.ErrVendorStaleWrite):
 		return Conflict("vendor_stale_write",
