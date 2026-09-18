@@ -40,6 +40,8 @@ class WorkInstructionsViewModel @Inject constructor(
         /** The run just started; the host navigates to it and then clears it. */
         val openWorkflowId: String = "",
         val loadedOnce: Boolean = false,
+        /** One pending backend idempotency key per SOP, kept through failed/lost attempts. */
+        val pendingRunKeys: Map<String, String> = emptyMap(),
     )
 
     private val local = MutableStateFlow(Local())
@@ -87,12 +89,14 @@ class WorkInstructionsViewModel @Inject constructor(
         if (local.value.startingCode.isNotBlank()) return
         local.value = local.value.copy(startingCode = code, message = "")
         viewModelScope.launch {
-            // One fresh key per tap: a retried request with the same key is the same run.
-            val runKey = "work-instruction-run:" + UUID.randomUUID()
+            // Keep the key through failures: if the server opened the run but the response was
+            // lost, a visible retry returns that same workflow instead of creating a duplicate.
+            val runKey = local.value.pendingRunKeys[code] ?: "work-instruction-run:" + UUID.randomUUID()
+            local.value = local.value.copy(pendingRunKeys = local.value.pendingRunKeys + (code to runKey))
             repository.start(code, runKey)
                 .onSuccess { workflowId ->
                     analytics.track(AnalyticsEventsWorkInstructions.START, mapOf(AnalyticsEvents.Params.RESULT to "started", "sop_code" to code))
-                    local.value = local.value.copy(startingCode = "", openWorkflowId = workflowId)
+                    local.value = local.value.copy(startingCode = "", openWorkflowId = workflowId, pendingRunKeys = local.value.pendingRunKeys - code)
                 }
                 .onFailure { e ->
                     crashReporter.recordException(e, "work instruction start failed")

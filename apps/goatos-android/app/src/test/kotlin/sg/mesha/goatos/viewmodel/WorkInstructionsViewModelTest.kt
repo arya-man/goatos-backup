@@ -79,4 +79,19 @@ class WorkInstructionsViewModelTest {
         assertTrue(state.loadedOnce)
         assertTrue(state.rows.none { it.starting })
     }
+
+    @Test
+    fun `retry after a failed start reuses the same run key`() = runTest(dispatcher) {
+        val repo = FakeRepo(startResult = Result.failure(IllegalStateException("timeout")))
+        val vm = WorkInstructionsViewModel(repo, NoopAnalytics(), NoopCrashReporter())
+
+        vm.onEvent(WorkInstructionsEvent.Start("general.gate_visitor_check"))
+        vm.state.first { it.message.isNotBlank() }
+        repo.startResult = Result.success("wf-1")
+        vm.onEvent(WorkInstructionsEvent.Start("general.gate_visitor_check"))
+        vm.state.first { it.openWorkflowId == "wf-1" }
+
+        assertEquals(2, repo.startKeys.size)
+        assertEquals(repo.startKeys[0], repo.startKeys[1])
+    }
 }
