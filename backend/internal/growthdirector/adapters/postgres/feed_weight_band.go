@@ -25,7 +25,10 @@ const feedWeightBandLookbackDays = 400
 // partition is numeric ("Castro" + "1"); name + ' - ' + partition otherwise ("Godel 2" + "Part
 // 1"). Whitespace is collapsed first so a double space cannot split one pen into two keys.
 // Three call sites -- campaign sheds, feed rows, goat placements -- and one expression, because
-// three hand-written copies is how one side stops matching the other two.
+// three hand-written copies is how one side stops matching the other two. The separator rule is
+// oploc.Display() mirrored in SQL (bare numeral joins with a space, a worded label with " - ",
+// blank / 'whole' is not a partition); the "already ends with it" fold is the one addition,
+// for campaign sheds stored as "Godel 2 - Part 1" + "Part 1".
 func penLabelSQL(nameExpr, partitionExpr string) string {
 	n := "regexp_replace(btrim(" + nameExpr + "), '\\s+', ' ', 'g')"
 	p := "btrim(COALESCE(" + partitionExpr + ", ''))"
@@ -36,14 +39,14 @@ func penLabelSQL(nameExpr, partitionExpr string) string {
 }
 
 // goatPartitionSQL is the goat placement's partition, with the register's bare-number form
-// ("3") read as "Part 3" ONLY for a shed whose other partitions are written "Part N" -- the
-// register holds both spellings for one shed, and a bare "3" under Godel 1 is the same pen as
-// its neighbour's "Part 2". A shed whose partitions are all bare numbers (Castro 1/2/3) keeps
-// them bare, because there the number IS the pen name.
-// `ps` is the part_sheds CTE (sheds with at least one 'Part N' partition), joined once rather
-// than probed per goat.
-const goatPartitionSQL = `CASE WHEN p.partition_label ~ '^[0-9]+$' AND ps.shed_id IS NOT NULL
-  THEN 'Part ' || p.partition_label ELSE p.partition_label END`
+// ("3") read as "Part 3" ONLY for a shed whose partitions are written "Part N" in the
+// authoritative partition catalog (shed_partitions, migration 000112) -- goat_shed_partitions
+// holds both spellings for one shed on STG, and a bare "3" under Godel 2 is the same pen as its
+// neighbour's "Part 2". A shed whose catalogued partitions are bare numbers (Castro 1/2/3) keeps
+// them bare, because there the number IS the pen name. `ps` is the part_sheds CTE, joined once
+// rather than probed per goat. The label then goes through penLabelSQL, which mirrors
+// oploc.Display() (bare numeral -> space, worded label -> " - "); this only picks the label.
+const goatPartitionSQL = `CASE WHEN p.partition_label ~ '^[0-9]+$' AND ps.shed_id IS NOT NULL THEN 'Part ' || p.partition_label ELSE p.partition_label END`
 
 // feedWeightBandSQL is the one query behind GetFeedWeightBandSource. Package-level so a
 // query-plan test and the scale guard can reach it. Bounded: one day's sheet (a few hundred
@@ -224,7 +227,7 @@ pen_avg AS (
 ),
 part_sheds AS MATERIALIZED (
   SELECT DISTINCT q.shed_id
-  FROM goat_shed_partitions q
+  FROM shed_partitions q
   WHERE q.tenant_id = $1::uuid AND q.partition_label ~ '^Part [0-9]+$'
 ),
 pen_sex AS MATERIALIZED (

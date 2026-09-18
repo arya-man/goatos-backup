@@ -3349,7 +3349,7 @@ select:disabled { opacity: .45; }
 .wt-feedband-tile-link .val{color:var(--amber)}
 .wt-feedband-note{padding:0 16px}
 /* The sold / dead panel: the record drawer, a touch wider for its eleven-column list. */
-aside.drawer.wt-feedband-drawer{width:960px;max-width:94vw}
+aside.drawer.wt-feedband-drawer{width:94vw;max-width:960px}
 .wt-feedband-drawer .wt-feedband-exitgroup h3.h{font-size:13.5px;margin:6px 0 4px}
 .wt-feedband-drawer .tablewrap{overflow-x:auto}
 @media(max-width:600px){

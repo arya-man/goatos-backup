@@ -177,6 +177,9 @@ function buildRoutes({ goatId, procurementLoadId, workflowRowId, calendarEventId
     { name: "weighing-analytics-birth", path: "/weighing/analytics?scope_mode=company&tab=birth" },
     { name: "weighing-analytics-shed", path: "/weighing/analytics?scope_mode=company&tab=shed" },
     { name: "weighing-analytics-weight", path: "/weighing/analytics?scope_mode=company&tab=weight" },
+    // The Feed by weight band card's second view and a table-level filter (maintainer request 2026-09-18).
+    { name: "weighing-analytics-weight-not-shown", path: "/weighing/analytics?scope_mode=company&tab=weight&fb_view=unmatched" },
+    { name: "weighing-analytics-weight-band-filter", path: "/weighing/analytics?scope_mode=company&tab=weight&fb_band=25_30&fb_animals=all" },
     { name: "weighing-analytics-time", path: "/weighing/analytics?scope_mode=company&tab=time" },
     { name: "weighing-analytics-load", path: "/weighing/analytics?scope_mode=company&tab=load" },
     { name: "weighing-sops", path: "/weighing/sops?scope_mode=company" },

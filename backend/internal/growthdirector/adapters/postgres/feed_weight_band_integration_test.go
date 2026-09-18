@@ -16,7 +16,7 @@ import (
 // live one, a per-animal pen multiplying its feed rollup by every band, a second park's
 // sheet leaking into the first park's scope, an animal weighed once counting as if it were
 // on the General tab, or a sold animal eating today's feed.
-func TestFeedWeightBandOneToManyPageBoundaryParkScope(t *testing.T) {
+func TestFeedWeightBandOneToManyPageBoundaryParkScopeStatusBuckets(t *testing.T) {
 	pgtest.SkipIfNoDocker(t)
 	ctx := context.Background()
 	pool := pgtest.StartPostgres(t, ctx)
@@ -81,6 +81,14 @@ VALUES ($1::uuid, $2::uuid, $3::uuid, 'CBE', $4::uuid, $5, $6, $7, $8, $9, $10, 
 	seedScan(t, ctx, pool, gdBucketW1G, "TAG-C", 17.0, day(8, 6), "pending")
 	seedScan(t, ctx, pool, gdBucketW2G, "TAG-C", 18.0, day(15, 6), "pending")
 	seedScan(t, ctx, pool, gdBucketW2G, "TAG-D", 36.0, day(15, 6), "pending")
+	// STATUS BUCKETS: every verification status the table allows (pending, verified, rework)
+	// is a real weight on the General tab and therefore here -- an unverified or bounced clip
+	// is still a measurement. TAG-E (pending then rework) and TAG-F (rework then verified)
+	// both count, both in 30_35.
+	seedScan(t, ctx, pool, gdBucketW1G, "TAG-E", 20.0, day(8, 6), "pending")
+	seedScan(t, ctx, pool, gdBucketW2G, "TAG-E", 33.0, day(15, 6), "rework")
+	seedScan(t, ctx, pool, gdBucketW1G, "TAG-F", 20.0, day(8, 6), "rework")
+	seedScan(t, ctx, pool, gdBucketW2G, "TAG-F", 33.0, day(15, 6), "verified")
 	// GENDER FROM THE REGISTER: TAG-A resolves to a male, TAG-B to a female, TAG-C to
 	// nothing. The 15_20 band therefore reads 1F (TAG-C unresolved counts nowhere) and
 	// 20_25 reads 1M. TAG-B's goat is then SOLD inside the window: by default it drops
@@ -153,8 +161,8 @@ VALUES
 	}
 	// ONE-TO-MANY: a per-animal pen fans out to one evidence row per band and no more --
 	// the feed rollup is carried once per band, never once per scanned tag.
-	if len(part1.Evidence) != 2 {
-		t.Fatalf("Part 1 evidence: want 2 bands (15_20, 20_25), got %+v", part1.Evidence)
+	if len(part1.Evidence) != 3 {
+		t.Fatalf("Part 1 evidence: want 3 bands (15_20, 20_25, 30_35), got %+v", part1.Evidence)
 	}
 	bands := map[string]ports.FeedWeightEvidence{}
 	for _, e := range part1.Evidence {
@@ -165,8 +173,8 @@ VALUES
 	}
 	// 15_20 holds TAG-C only by default: TAG-B was sold and rides as exited=1, and its
 	// female count leaves with it; once-weighed TAG-D is nowhere.
-	if bands["15_20"].Animals != 1 || bands["15_20"].ExitedAnimals != 1 || bands["20_25"].Animals != 1 || bands["20_25"].ExitedAnimals != 0 {
-		t.Fatalf("Part 1 bands: want 15_20=1 (+1 exited) and 20_25=1, got %v", bands)
+	if bands["15_20"].Animals != 1 || bands["15_20"].ExitedAnimals != 1 || bands["20_25"].Animals != 1 || bands["20_25"].ExitedAnimals != 0 || bands["30_35"].Animals != 2 {
+		t.Fatalf("Part 1 bands: want 15_20=1 (+1 exited), 20_25=1 and 30_35=2 (pending/rework/verified all count), got %v", bands)
 	}
 	if bands["15_20"].AverageWeightKg != 18.0 {
 		t.Fatalf("15_20 average must exclude the sold animal (18.0), got %v", bands["15_20"].AverageWeightKg)
@@ -174,10 +182,10 @@ VALUES
 	if bands["15_20"].FemaleCount != 0 || bands["15_20"].MaleCount != 0 || bands["20_25"].MaleCount != 1 || bands["20_25"].FemaleCount != 0 {
 		t.Fatalf("Part 1 sexes must come from the register per band over on-farm animals (15_20: TAG-C unresolved; 20_25: 1M), got %+v", bands)
 	}
-	// The General-tab figures: three paired animals (sold TAG-B included, as that tab counts
-	// it), 25 lump animals in a pen weighed on two dates.
-	if got.IndividualAnimalsWeighed != 3 || got.LumpSumAnimalsWeighed != 25 {
-		t.Fatalf("weighing-side totals must match the General tab grain (3 individual, 25 lump), got %d / %d", got.IndividualAnimalsWeighed, got.LumpSumAnimalsWeighed)
+	// The General-tab figures: five paired animals (sold TAG-B included, as that tab counts it;
+	// once-weighed TAG-D excluded), 25 lump animals in a pen weighed on two dates.
+	if got.IndividualAnimalsWeighed != 5 || got.LumpSumAnimalsWeighed != 25 {
+		t.Fatalf("weighing-side totals must match the General tab grain (5 individual, 25 lump), got %d / %d", got.IndividualAnimalsWeighed, got.LumpSumAnimalsWeighed)
 	}
 	// The sold animal is listed with its last weigh in the window.
 	if len(got.Exited) != 1 || got.Exited[0].Tag != "TAG-B" || got.Exited[0].Pen != "Gandhi 1 - Part 1" || got.Exited[0].LifecycleStatus != "sold" || got.Exited[0].LastWeighedAt == nil || got.Exited[0].LastWeightKg != 16.0 {
@@ -220,7 +228,7 @@ VALUES
 	for _, r := range male.Rollups {
 		for _, e := range r.Evidence {
 			if r.Pen != "Gandhi 1 - Part 1" || e.Band != "20_25" || e.Animals != 1 {
-				t.Fatalf("male: only TAG-A's 20_25 row may survive, got %s %+v", r.Pen, e)
+				t.Fatalf("male: only TAG-A's 20_25 row may survive (TAG-C/E/F resolve to no animal), got %s %+v", r.Pen, e)
 			}
 		}
 	}

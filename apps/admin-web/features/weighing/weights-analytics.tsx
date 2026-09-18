@@ -1316,7 +1316,9 @@ function FeedWeightBandSection({
   // One park selected on the page: the Park column would repeat one word on every row, so the
   // contract copy handed to the table hides it. The backend still declares it; this is density,
   // not vocabulary.
-  const singlePark = new Set(pageRows.map((row) => row.park_id)).size <= 1 && (one(params, "park") ?? "") !== "";
+  const pageParkFilter = one(params, "park") ?? "";
+  const parksOnPage = new Set(pageRows.map((row) => row.park_id)).size;
+  const singlePark = pageParkFilter !== "" && parksOnPage <= 1;
   const withParkColumn = (contract: ReturnType<typeof table>) =>
     singlePark ? { ...contract, columns: contract.columns.map((column) => (column.key === "park" ? { ...column, visible: false } : column)) } : contract;
   const slice = pageRows.slice(offset, offset + limit);
