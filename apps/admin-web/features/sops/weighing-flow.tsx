@@ -10,6 +10,10 @@ import type { CountedProofRow, RemovalProofRow, WeighingQuestionRow, WeighingRow
 
 /** Which authored list a chart item belongs to. */
 export type WeighingList = "removalProofs" | "removalQuestions" | "individualProofs" | "individualQuestions" | "lumpSumProofs" | "lumpSumQuestions";
+/** The three question lists; the other three hold proof slots. */
+export function isQuestionList(list: WeighingList): boolean {
+  return list === "removalQuestions" || list === "individualQuestions" || list === "lumpSumQuestions";
+}
 
 /** A chart item: one row of one list. */
 export type WeighingRef = { list: WeighingList; id: string };
@@ -196,7 +200,7 @@ export function WeighingFlow({
       );
     }
     const ref = d.ref!;
-    if (ref.list.endsWith("Questions")) {
+    if (isQuestionList(ref.list)) {
       const q = (rows[ref.list] as WeighingQuestionRow[]).find((x) => x.id === ref.id);
       return (
         <>

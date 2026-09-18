@@ -40,7 +40,7 @@ import {
   type WeighingRows,
 } from "./weighing-model";
 import { publishedHref } from "./published-href";
-import { WeighingFlow, type WeighingInsert, type WeighingRef } from "./weighing-flow";
+import { WeighingFlow, isQuestionList, type WeighingInsert, type WeighingRef } from "./weighing-flow";
 import { publishWeighingVersion, saveWeighingVersion, type WeighingSaveResult } from "./sop-actions";
 
 type Props = {
@@ -87,7 +87,7 @@ export function WeighingEditor({ pageContract: pc, basePath, sopId, sopName, sop
   }
   // Insert at an index (the chart's + on a line); the List view's add buttons append.
   function insertAt(insert: WeighingInsert) {
-    const row = insert.list.endsWith("Questions") ? blankQuestion() : insert.list === "lumpSumProofs" ? blankCountedSlot() : blankProofSlot();
+    const row = isQuestionList(insert.list) ? blankQuestion() : insert.list === "lumpSumProofs" ? blankCountedSlot() : blankProofSlot();
     setRows((r) => {
       const list = [...(r[insert.list] as { id: string }[])];
       list.splice(Math.min(Math.max(insert.index, 0), list.length), 0, row);
@@ -97,7 +97,7 @@ export function WeighingEditor({ pageContract: pc, basePath, sopId, sopName, sop
   }
   // The chart's properties panel renders the same card the List view shows for that row.
   function cardFor(ref: WeighingRef) {
-    if (ref.list.endsWith("Questions")) {
+    if (isQuestionList(ref.list)) {
       const list = ref.list as QuestionList;
       const qs = rows[list];
       const qi = qs.findIndex((q) => q.id === ref.id);
