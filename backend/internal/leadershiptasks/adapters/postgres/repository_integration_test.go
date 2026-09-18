@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"reflect"
 	"sync"
 	"testing"
 	"time"
@@ -287,6 +288,16 @@ func TestLeadershipTaskNumberingUnderContention(t *testing.T) {
 // several rows (OneToMany), the chip counts range over the whole party list across every
 // status bucket (StatusMatrix) and never over the page, and a page boundary hands the exact
 // next row through the cursor with no duplicate and no gap.
+//
+// It also pins the two shapes the ONE-ROUND-TRIP page read introduced, because both would be
+// invisible to a test that only counted rows. The three chip aggregates now ride ONE statement
+// (sqlListAggregatesTemplate) as three UNION ALL arms, so the arms must not be able to pick up
+// each other's rows: the same request asked at two page sizes, and at page 1 versus page 2,
+// must return the IDENTICAL chips, because every arm is whole-list and none of them knows the
+// page. And the attachments, notes and note mentions now ride ONE pgx batch, so a task holding
+// all three at once must still be ONE row with each fact hung in the right place -- in
+// particular the mention must land on its NOTE, which only holds if the batch's note result is
+// drained before the mention result is scanned.
 func TestLeadershipTaskListOneToManyPaginationPageBoundaryAndEveryStatusBuckets(t *testing.T) {
 	pgtest.SkipIfNoDocker(t)
 	ctx := context.Background()
@@ -399,6 +410,70 @@ func TestLeadershipTaskListOneToManyPaginationPageBoundaryAndEveryStatusBuckets(
 	if err != nil || len(teamPage.Rows) != 6 {
 		t.Fatalf("team progress sees %d rows (err %v), want 6 uncancelled tenant tasks", len(teamPage.Rows), err)
 	}
+	// THE CHIPS ARE WHOLE-LIST, NOT PAGE-LOCAL. Three UNION ALL arms in one statement is where
+	// an arm could silently inherit the row query's LIMIT or another arm's predicate, so the
+	// proof is that the page size and the page position change NOTHING about the chips.
+	wide, err := repo.ListTasks(ctx, ports.ListParams{TenantID: ltTenant, UserID: ltCXO, Scope: domain.ScopeAssignedToMe, Statuses: domain.StatusesForFilter(domain.FilterAll), Limit: 20})
+	if err != nil {
+		t.Fatalf("wide page: %v", err)
+	}
+	for _, other := range []struct {
+		name string
+		page ports.Page
+	}{{"page 2 of 3", page2}, {"one page of 20", wide}} {
+		if !reflect.DeepEqual(other.page.StatusCounts, page1.StatusCounts) {
+			t.Fatalf("%s status counts = %v, want %v (aggregate is whole-list, never page-local)", other.name, other.page.StatusCounts, page1.StatusCounts)
+		}
+		if !reflect.DeepEqual(other.page.ScopeCounts, page1.ScopeCounts) {
+			t.Fatalf("%s scope counts = %v, want %v (aggregate is whole-list, never page-local)", other.name, other.page.ScopeCounts, page1.ScopeCounts)
+		}
+		if other.page.UnseenCount != page1.UnseenCount {
+			t.Fatalf("%s unseen = %d, want %d (aggregate is whole-list, never page-local)", other.name, other.page.UnseenCount, page1.UnseenCount)
+		}
+	}
+
+	// ATTACHMENTS + NOTES + A MENTION ON ONE TASK, all three fetched in one batch. ids[0]
+	// already carries two attachments; give it a note that mentions the other CXO.
+	noted, err := repo.GetTask(ctx, ltTenant, ids[0])
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := repo.SetComment(ctx, ports.CommentParams{
+		TenantID: ltTenant, Actor: cxo, TaskID: noted.TaskID,
+		Comment: "Sending this to @Manohar for the vendor call.", MentionUserIDs: []string{ltCXO2},
+		IdempotencyKey: "batch-note-1",
+	}); err != nil {
+		t.Fatalf("note with mention: %v", err)
+	}
+	batched, err := repo.ListTasks(ctx, ports.ListParams{TenantID: ltTenant, UserID: ltCXO, Scope: domain.ScopeAssignedToMe, Statuses: domain.StatusesForFilter(domain.FilterAll), Limit: 20})
+	if err != nil {
+		t.Fatalf("batched page: %v", err)
+	}
+	hits := 0
+	for _, r := range batched.Rows {
+		if r.TaskID != ids[0] {
+			continue
+		}
+		hits++
+		if len(r.Attachments) != 2 || r.AttachmentCount != 2 {
+			t.Fatalf("batched attachments = %d (count %d), want 2 -- the batch must not drop or fan the attachment arm", len(r.Attachments), r.AttachmentCount)
+		}
+		if len(r.Notes) != 1 {
+			t.Fatalf("batched notes = %d, want 1", len(r.Notes))
+		}
+		// The mention rides the NOTE, not the task: this is the assertion that fails if the
+		// batch's mention result is scanned before its note result has landed on the row.
+		if len(r.Notes[0].Mentions) != 1 || r.Notes[0].Mentions[0].UserID != ltCXO2 {
+			t.Fatalf("mention did not land on its note: %+v", r.Notes[0])
+		}
+		if r.Notes[0].Mentions[0].NoteID != r.Notes[0].NoteID {
+			t.Fatalf("mention carries note %q but hangs on note %q", r.Notes[0].Mentions[0].NoteID, r.Notes[0].NoteID)
+		}
+	}
+	if hits != 1 {
+		t.Fatalf("task carrying two attachments, a note and a mention appeared %d times, want exactly 1 row", hits)
+	}
+
 	// The picker lists TITLES (maintainer request 2026-09-11): Ravi's HRMS title when one is
 	// set, Manohar's designation label when none is. Ordered by title, so the CTO sorts after
 	// the catalog label. Both title joins are 1:1 on the person's PK: two assignees stay two rows.

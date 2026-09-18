@@ -13,8 +13,14 @@
 --    least urgent. That needs TWO indexes, not one: a btree's default is NULLS LAST ascending
 --    but NULLS FIRST descending, so the descending order needs its own DESC NULLS LAST index.
 --    Measured on 40k tenant rows: with both indexes each direction's first page and each
---    keyset page is an Index Only Scan; with only the ascending one the descending page falls
---    back to a Seq Scan plus a top-N sort of the whole tenant.
+--    keyset page drives off the index with NO sort node; with only the ascending one the
+--    descending page falls back to a Seq Scan plus a top-N sort of the whole tenant.
+--    To be exact about the node, because the earlier wording here said "Index Only Scan" and
+--    that is not what the list query can get: the page projects 19 columns (taskColumns), so
+--    it is an ordinary Index Scan that walks this index in order and fetches each heap row.
+--    The property that matters is the one it does have -- the rows arrive already ordered, so
+--    there is no Sort and no top-N over the tenant -- and an Index ONLY Scan is unreachable
+--    here whatever the index, short of covering all 19 columns, which is not worth it.
 -- 3. THE SEARCH BOX matches a substring ANYWHERE in the title or the body: a leader searches
 --    for "vendor contract" or for the middle of a sentence they remember, not for a prefix.
 --    `title ILIKE '%...%'` is the non-SARGable predicate AGENTS.md bans; the recorded
@@ -22,6 +28,14 @@
 --    extension guard as goat_identifiers_value_trgm_idx (000178) and
 --    procurement_vendors_search_trgm_idx (000156). The task_no arm of the same search is
 --    already served by leadership_tasks_no_uq.
+--
+--    KNOW WHEN THESE START PAYING, so a small-tenant EXPLAIN is not read as a defect. The two
+--    GIN indexes serve the OR as a BitmapOr over both (verified), but the planner only chooses
+--    them once a seq scan costs more than the bitmap build. On a 470-row tenant (21 heap
+--    pages) the seq scan costs 29 against the trgm path's 96, so the planner correctly reads
+--    every page and filters -- and at 21 pages that is the right answer, taking ~1ms. These
+--    indexes are for the tenant that has grown, not for the seed database; do not "fix" a
+--    Seq Scan on a tiny table by hinting around the planner.
 --
 -- Lock-safe: CREATE INDEX CONCURRENTLY outside a transaction. leadership_tasks is not one of
 -- the validator's hot tables, but it is the live leadership worklist -- a plain CREATE INDEX

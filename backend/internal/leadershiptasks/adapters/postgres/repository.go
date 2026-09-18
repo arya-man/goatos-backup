@@ -181,55 +181,38 @@ func (r *Repository) ListTasks(ctx context.Context, p ports.ListParams) (ports.P
 		page.NextCursor = encodeSortCursor(sortKey, last)
 		tasks = tasks[:limit]
 	}
-	if err := r.attachTo(ctx, r.pool, p.TenantID, tasks); err != nil {
-		return ports.Page{}, err
-	}
-	if err := r.notesToWithMentions(ctx, r.pool, p.TenantID, tasks); err != nil {
+	if err := r.enrichPage(ctx, p.TenantID, tasks); err != nil {
 		return ports.Page{}, err
 	}
 	page.Rows = tasks
 
-	// The chip counts are SEPARATE queries, so they must be built from the SAME filters as the
-	// rows or the chips advertise rows the list hides (ports/repository.go:49-51). Each starts a
-	// fresh bind list from the tenant, and every predicate is numbered by bindArg, so the
-	// filters cannot collide with the party placeholder here either.
+	// The chip counts are SEPARATE from the row query, so they must be built from the SAME
+	// filters as the rows or the chips advertise rows the list hides (ports/repository.go:49-51).
+	// They are all three answered in ONE round trip (see sqlListAggregates for the measurement
+	// that motivates that); the bind list starts fresh from the tenant and every predicate is
+	// numbered by bindArg, so the filters cannot collide with the party placeholder here either.
 	countArgs := []any{p.TenantID}
-	countRows, err := r.pool.Query(ctx, sqlStatusCountsForScope(&countArgs, p), countArgs...)
+	aggRows, err := r.pool.Query(ctx, sqlListAggregates(&countArgs, p), countArgs...)
 	if err != nil {
-		return ports.Page{}, fmt.Errorf("leadership task: status counts: %w", err)
+		return ports.Page{}, fmt.Errorf("leadership task: list aggregates: %w", err)
 	}
-	defer countRows.Close()
-	for countRows.Next() {
-		var status string
+	defer aggRows.Close()
+	for aggRows.Next() {
+		var kind, key string
 		var n int
-		if err := countRows.Scan(&status, &n); err != nil {
-			return ports.Page{}, fmt.Errorf("leadership task: status counts scan: %w", err)
+		if err := aggRows.Scan(&kind, &key, &n); err != nil {
+			return ports.Page{}, fmt.Errorf("leadership task: list aggregates scan: %w", err)
 		}
-		page.StatusCounts[status] = n
-	}
-	if err := countRows.Err(); err != nil {
-		return ports.Page{}, err
-	}
-	unseen, err := r.unseenCount(ctx, r.pool, p.TenantID, p.UserID)
-	if err != nil {
-		return ports.Page{}, err
-	}
-	page.UnseenCount = unseen
-	scopeArgs := []any{p.TenantID}
-	scopeRows, err := r.pool.Query(ctx, sqlScopeCounts(&scopeArgs, p), scopeArgs...)
-	if err != nil {
-		return ports.Page{}, fmt.Errorf("leadership task: scope counts: %w", err)
-	}
-	defer scopeRows.Close()
-	for scopeRows.Next() {
-		var scope string
-		var n int
-		if err := scopeRows.Scan(&scope, &n); err != nil {
-			return ports.Page{}, fmt.Errorf("leadership task: scope counts scan: %w", err)
+		switch kind {
+		case "status":
+			page.StatusCounts[key] = n
+		case "scope":
+			page.ScopeCounts[key] = n
+		case "unseen":
+			page.UnseenCount = n
 		}
-		page.ScopeCounts[scope] = n
 	}
-	if err := scopeRows.Err(); err != nil {
+	if err := aggRows.Err(); err != nil {
 		return ports.Page{}, err
 	}
 	return page, nil
@@ -304,7 +287,10 @@ func escapeLikePattern(text string) string {
 // The null rule is written as NULLS LAST rather than as a leading `(deadline_at IS NULL)`
 // term deliberately: the two mean the same thing, but only this form is servable by a btree,
 // and EXPLAIN on 40k tenant rows turns the leading-expression form into a Seq Scan plus a
-// top-N sort while this form is an Index Only Scan of the two deadline indexes from 000345.
+// top-N sort of the whole tenant while this form walks the matching deadline index from
+// 000345 in order, with no Sort node at all. It is an ordinary Index Scan and not an Index
+// ONLY Scan -- taskColumns projects 19 columns, so each ordered row still costs a heap
+// fetch -- and the property worth having is the absent sort, not the absent heap access.
 func orderByForSort(sortKey string) string {
 	switch sortKey {
 	case ports.SortRaisedAtAsc:
@@ -350,11 +336,14 @@ func keysetPredicate(args *[]any, sortKey, cursor string) (string, error) {
 	}
 }
 
-// sqlStatusCountsForScope is the filters[] count query: whole-list, over the SAME scope and
-// the SAME request filters as the rows, MINUS the status predicate the chips themselves vary.
+// statusCountsWhere is the filters[] count predicate: whole-list, over the SAME scope and the
+// SAME request filters as the rows, MINUS the status predicate the chips themselves vary. It is
+// a WHERE clause rather than a whole query because its one caller, sqlListAggregates, inlines it
+// as one arm of the single aggregate statement; the clause text is unchanged from when this was
+// its own SELECT.
 //
 // projection-review: membership=leadership_tasks for tenant plus the active scope's party predicate and the request filters; group_key=status; join_cardinality=no joins; pagination=whole-result summary independent of the task page, no OFFSET; scope=tenant plus actor party (tenant-wide for the monitor scope)
-func sqlStatusCountsForScope(args *[]any, p ports.ListParams) string {
+func statusCountsWhere(args *[]any, p ports.ListParams) string {
 	// DELIBERATE FOR NOW, and out of scope for the worklist change: this query drops the status
 	// predicate entirely, including the team_progress row query's own `status <> 'cancelled'`,
 	// so the monitor scope still reports a `cancelled` bucket for rows that tab never lists.
@@ -373,29 +362,67 @@ func sqlStatusCountsForScope(args *[]any, p ports.ListParams) string {
 		where += fmt.Sprintf(" AND assignee_user_id = $%d::uuid", bindArg(args, p.UserID))
 		where += filterPredicates(args, "", p, false, true)
 	}
-	return "SELECT status, count(*) FROM public.leadership_tasks WHERE " + where + " GROUP BY status"
+	return where
 }
 
-// sqlScopeCounts is the scopes[] tab count query: for each tab, how many rows THAT tab would
-// show under the request's current filters, MINUS the scope predicate itself. Each branch
+// scopeCountsWheres is the scopes[] tab count predicates: for each tab, how many rows THAT tab
+// would show under the request's current filters, MINUS the scope predicate itself. Each branch
 // drops the person filter its own scope pins, exactly as the row query does when that tab is
-// opened -- otherwise the badge would count rows the tab then refuses to filter on.
+// opened -- otherwise the badge would count rows the tab then refuses to filter on. They are
+// returned in the order the aggregate statement -- and therefore the shared bind list --
+// consumes them, and each clause's text is unchanged from when this was its own SELECT.
 //
 // projection-review: membership=leadership_tasks for tenant, three disjoint party arms unioned; group_key=scope; join_cardinality=no joins (a task counts once per arm it belongs to, which is the tab semantics); pagination=whole-result summary, no OFFSET; scope=tenant on every arm
-func sqlScopeCounts(args *[]any, p ports.ListParams) string {
-	toMe := fmt.Sprintf("tenant_id = $1 AND assignee_user_id = $%d::uuid AND status <> 'cancelled'", bindArg(args, p.UserID))
+func scopeCountsWheres(args *[]any, p ports.ListParams) (toMe, byMe, team string) {
+	toMe = fmt.Sprintf("tenant_id = $1 AND assignee_user_id = $%d::uuid AND status <> 'cancelled'", bindArg(args, p.UserID))
 	toMe += filterPredicates(args, "", p, false, true)
-	byMe := fmt.Sprintf("tenant_id = $1 AND raised_by = $%d::uuid AND status <> 'cancelled'", bindArg(args, p.UserID))
+	byMe = fmt.Sprintf("tenant_id = $1 AND raised_by = $%d::uuid AND status <> 'cancelled'", bindArg(args, p.UserID))
 	byMe += filterPredicates(args, "", p, true, false)
-	team := "tenant_id = $1 AND status <> 'cancelled'" + filterPredicates(args, "", p, true, true)
-	return fmt.Sprintf(sqlScopeCountsTemplate, toMe, byMe, team)
+	team = "tenant_id = $1 AND status <> 'cancelled'" + filterPredicates(args, "", p, true, true)
+	return toMe, byMe, team
 }
 
-// sqlScopeCountsTemplate is the scope-count skeleton, hoisted to package level so a
-// query-plan test and the scale guard can reach it; the three %s are the per-tab WHERE
-// clauses sqlScopeCounts builds (tab predicate plus the request filters that tab honours).
-const sqlScopeCountsTemplate = `
-SELECT scope, count(*) FROM (
+// sqlListAggregates is the ONE statement that answers all three chip aggregates the list page
+// renders: the status chips, the scope tabs and the caller's unseen badge.
+//
+// WHY ONE STATEMENT. These were three separate Query/QueryRow calls, and MEASURED against the
+// staging database over its SSH tunnel that was the dominant cost of the whole endpoint: each
+// of the three executes in well under a millisecond of server time (0.24ms, 0.43ms, 0.07ms on
+// 470 tenant rows) while each round trip to reach it costs ~20ms of pure network. Three trips
+// to fetch 1ms of work is the problem; the queries themselves are not. Unioning them spends
+// one trip instead of three and changes no predicate.
+//
+// Every arm's WHERE clause is the SAME text its own query rendered before, taken from
+// statusCountsWhere and scopeCountsWheres, so the chips still cannot advertise a row the list
+// hides -- that invariant lives in those two builders and is unchanged here. The arms bind in
+// textual order through the shared bindArg list, which is why the status arm is rendered first
+// and the unseen arm last.
+//
+// projection-review: membership=leadership_tasks, three independent aggregate arms over the same tenant plus the scope/party predicates and request filters the individual count queries already used; group_key=(kind, key) -- status for the chip arm, scope for the tab arm, a single row for the unseen arm; join_cardinality=no joins on any arm; pagination=whole-result summaries independent of the task page, no OFFSET; scope=tenant_id on every arm, plus the actor party predicate on every arm that names a person
+func sqlListAggregates(args *[]any, p ports.ListParams) string {
+	statusWhere := statusCountsWhere(args, p)
+	toMe, byMe, team := scopeCountsWheres(args, p)
+
+	// The unseen badge is the caller's own; a non-UUID actor has no badge rather than a cast
+	// error, which is the guard unseenCount applies before it binds anything.
+	unseenArm := sqlListAggregatesNoUnseenArm
+	if uuidutil.IsUUIDString(p.UserID) {
+		unseenArm = fmt.Sprintf(sqlListAggregatesUnseenArmTemplate, bindArg(args, p.UserID))
+	}
+
+	return fmt.Sprintf(sqlListAggregatesTemplate, statusWhere, toMe, byMe, team, unseenArm)
+}
+
+// sqlListAggregatesTemplate is the aggregate-bundle skeleton, hoisted to package level so a
+// query-plan test and the scale guard can reach it (the convention the retired scope-count
+// template used). The five %s are, in bind order: the status arm's WHERE, the three per-tab
+// WHEREs, and the unseen arm.
+const sqlListAggregatesTemplate = `
+SELECT 'status'::text AS kind, status AS key, count(*) AS n FROM public.leadership_tasks
+  WHERE %s
+  GROUP BY status
+UNION ALL
+SELECT 'scope'::text, scope, count(*) FROM (
   SELECT '` + domain.ScopeAssignedToMe + `'::text AS scope FROM public.leadership_tasks
   WHERE %s
   UNION ALL
@@ -405,25 +432,114 @@ SELECT scope, count(*) FROM (
   SELECT '` + domain.ScopeTeamProgress + `'::text AS scope FROM public.leadership_tasks
   WHERE %s
 ) s
-GROUP BY scope`
+  GROUP BY scope
+UNION ALL
+%s`
+
+// sqlListAggregatesUnseenArmTemplate is the unseen-badge arm; its one %d is the actor bind.
+const sqlListAggregatesUnseenArmTemplate = `SELECT 'unseen'::text, ''::text, count(*) FROM public.leadership_tasks
+  WHERE tenant_id = $1 AND assignee_user_id = $%d::uuid AND seen_at IS NULL AND status <> 'cancelled'`
+
+// sqlListAggregatesNoUnseenArm is the same arm for an actor who is not a uuid: a literal zero,
+// binding nothing, so the bundle keeps its third row and the badge reads 0 rather than erroring
+// on the cast.
+const sqlListAggregatesNoUnseenArm = `SELECT 'unseen'::text, ''::text, 0::bigint`
+
+// enrichPage fills the page's attachments, notes and note mentions in ONE round trip.
+//
+// WHY PIPELINED. These are three keyed reads over the page's own task ids -- each already ONE
+// set-based query for the whole page, never one per task -- so there was no N+1 left to fix.
+// What remained was three SEQUENTIAL round trips, and MEASURED against the staging database
+// over its SSH tunnel that is what the time actually went on: the three execute in well under
+// a millisecond of server work between them, while each trip to reach them costs ~20ms of pure
+// network. pgx sends the batch as one exchange, so the three queries cost one trip.
+//
+// The SQL is byte-identical to what attachTo / notesTo / mentionsTo send, and the results are
+// read in the order they were queued. The ORDER MATTERS for the third one: the mention scan
+// hangs each mention on a note POINTER, so the notes must already be on the tasks before
+// noteIndexOf is called -- which is why the note result is drained before the mention result
+// even though both were sent together. The mention query is keyed on TASK ids, not note ids,
+// so it is safe to send before the notes have landed; only its scan depends on them.
+func (r *Repository) enrichPage(ctx context.Context, tenantID string, tasks []domain.Task) error {
+	if len(tasks) == 0 {
+		return nil
+	}
+	ids, index := taskIndexOf(tasks)
+
+	batch := &pgx.Batch{}
+	batch.Queue(sqlRepository5, tenantID, ids)  // attachments
+	batch.Queue(sqlListNotes, tenantID, ids)    // notes
+	batch.Queue(sqlListMentions, tenantID, ids) // mentions of those notes
+	results := r.pool.SendBatch(ctx, batch)
+	defer results.Close()
+
+	attachments, err := results.Query()
+	if err != nil {
+		return fmt.Errorf("leadership task: list attachments: %w", err)
+	}
+	if err := scanAttachmentsInto(attachments, tasks, index); err != nil {
+		attachments.Close()
+		return err
+	}
+	attachments.Close()
+
+	noteRows, err := results.Query()
+	if err != nil {
+		return fmt.Errorf("leadership task: list notes: %w", err)
+	}
+	if err := scanNotesInto(noteRows, tasks, index); err != nil {
+		noteRows.Close()
+		return err
+	}
+	noteRows.Close()
+
+	mentionRows, err := results.Query()
+	if err != nil {
+		return fmt.Errorf("leadership task: list mentions: %w", err)
+	}
+	// Built only now, because the notes it points into landed in the step above.
+	if err := scanMentionsInto(mentionRows, noteIndexOf(tasks)); err != nil {
+		mentionRows.Close()
+		return err
+	}
+	mentionRows.Close()
+
+	return results.Close()
+}
 
 // attachTo loads the attachments of a bounded task set in one query and fills them in.
 func (r *Repository) attachTo(ctx context.Context, q querier, tenantID string, tasks []domain.Task) error {
 	if len(tasks) == 0 {
 		return nil
 	}
-	ids := make([]string, 0, len(tasks))
-	index := make(map[string]int, len(tasks))
-	for i := range tasks {
-		ids = append(ids, tasks[i].TaskID)
-		index[tasks[i].TaskID] = i
-		tasks[i].Attachments = nil
-	}
+	ids, index := taskIndexOf(tasks)
 	rows, err := q.Query(ctx, sqlRepository5, tenantID, ids)
 	if err != nil {
 		return fmt.Errorf("leadership task: list attachments: %w", err)
 	}
 	defer rows.Close()
+	return scanAttachmentsInto(rows, tasks, index)
+}
+
+// taskIndexOf is the page's id list and its id -> row index, built once so the three
+// enrichment reads key their rows the same way.
+func taskIndexOf(tasks []domain.Task) ([]string, map[string]int) {
+	ids := make([]string, 0, len(tasks))
+	index := make(map[string]int, len(tasks))
+	for i := range tasks {
+		ids = append(ids, tasks[i].TaskID)
+		index[tasks[i].TaskID] = i
+	}
+	return ids, index
+}
+
+// scanAttachmentsInto hangs one attachment result set on its tasks. Split out of attachTo so
+// the pipelined page read and the single-query path share one scan; the attachment count is
+// derived here, never trusted from a column.
+func scanAttachmentsInto(rows pgx.Rows, tasks []domain.Task, index map[string]int) error {
+	for i := range tasks {
+		tasks[i].Attachments = nil
+	}
 	for rows.Next() {
 		var taskID string
 		var a domain.Attachment
@@ -434,19 +550,13 @@ func (r *Repository) attachTo(ctx context.Context, q querier, tenantID string, t
 			tasks[i].Attachments = append(tasks[i].Attachments, a)
 		}
 	}
+	if err := rows.Err(); err != nil {
+		return err
+	}
 	for i := range tasks {
 		tasks[i].AttachmentCount = len(tasks[i].Attachments)
 	}
-	return rows.Err()
-}
-
-// notesToWithMentions loads the notes of a bounded task set and their mentions -- TWO
-// queries for the whole page, never one per task or one per note.
-func (r *Repository) notesToWithMentions(ctx context.Context, q querier, tenantID string, tasks []domain.Task) error {
-	if err := r.notesTo(ctx, q, tenantID, tasks); err != nil {
-		return err
-	}
-	return r.mentionsTo(ctx, q, tenantID, tasks)
+	return nil
 }
 
 // notesTo loads the chronological task notes of a bounded task set in one query.
@@ -454,18 +564,21 @@ func (r *Repository) notesTo(ctx context.Context, q querier, tenantID string, ta
 	if len(tasks) == 0 {
 		return nil
 	}
-	ids := make([]string, 0, len(tasks))
-	index := make(map[string]int, len(tasks))
-	for i := range tasks {
-		ids = append(ids, tasks[i].TaskID)
-		index[tasks[i].TaskID] = i
-		tasks[i].Notes = nil
-	}
+	ids, index := taskIndexOf(tasks)
 	rows, err := q.Query(ctx, sqlListNotes, tenantID, ids)
 	if err != nil {
 		return fmt.Errorf("leadership task: list notes: %w", err)
 	}
 	defer rows.Close()
+	return scanNotesInto(rows, tasks, index)
+}
+
+// scanNotesInto hangs one note result set on its tasks, split out of notesTo so the pipelined
+// page read and the single-query path share one scan.
+func scanNotesInto(rows pgx.Rows, tasks []domain.Task, index map[string]int) error {
+	for i := range tasks {
+		tasks[i].Notes = nil
+	}
 	for rows.Next() {
 		var taskID string
 		var n domain.Note

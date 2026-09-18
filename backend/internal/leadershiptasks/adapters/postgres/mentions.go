@@ -97,13 +97,7 @@ func (r *Repository) mentionsTo(ctx context.Context, q querier, tenantID string,
 	if len(ids) == 0 {
 		return nil
 	}
-	notes := make(map[string]*domain.Note, 8)
-	for i := range tasks {
-		for j := range tasks[i].Notes {
-			tasks[i].Notes[j].Mentions = nil
-			notes[tasks[i].Notes[j].NoteID] = &tasks[i].Notes[j]
-		}
-	}
+	notes := noteIndexOf(tasks)
 	if len(notes) == 0 {
 		return nil
 	}
@@ -112,6 +106,27 @@ func (r *Repository) mentionsTo(ctx context.Context, q querier, tenantID string,
 		return fmt.Errorf("leadership task: list mentions: %w", err)
 	}
 	defer rows.Close()
+	return scanMentionsInto(rows, notes)
+}
+
+// noteIndexOf is the page's note id -> note pointer, and it CLEARS each note's mentions as it
+// goes. It is built AFTER the notes have landed, so a pipelined read must scan its note result
+// before it calls this.
+func noteIndexOf(tasks []domain.Task) map[string]*domain.Note {
+	notes := make(map[string]*domain.Note, 8)
+	for i := range tasks {
+		for j := range tasks[i].Notes {
+			tasks[i].Notes[j].Mentions = nil
+			notes[tasks[i].Notes[j].NoteID] = &tasks[i].Notes[j]
+		}
+	}
+	return notes
+}
+
+// scanMentionsInto hangs one mention result set on its notes, split out of mentionsTo so the
+// pipelined page read and the single-query path share one scan. A mention whose note is not on
+// this page is DROPPED rather than guessed onto another note.
+func scanMentionsInto(rows pgx.Rows, notes map[string]*domain.Note) error {
 	for rows.Next() {
 		var noteID string
 		var m domain.Mention
