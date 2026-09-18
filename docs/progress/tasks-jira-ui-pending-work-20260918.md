@@ -1,6 +1,6 @@
 # Jira-like tasks — state of the branch and what is still open (2026-09-18, evening)
 
-PR: https://github.com/vgoats/goatos/pull/295 · branch `feat/tasks-jira-ui-20260918` · HEAD `831a43175`
+PR: https://github.com/vgoats/goatos/pull/295 · branch `feat/tasks-jira-ui-20260918` · HEAD `51485db0a`
 Merge base `36b98fd53`.
 
 This replaces the morning's version of this file, which described a design that has since
@@ -19,8 +19,14 @@ The `/tasks` page is the Work Board's product, not a Jira look-alike:
   the approved column header block (status-coloured rule, name, count pill) is unchanged;
   cards carry the deadline block, assignee + raised-by, key + date. On the page ground, no
   wrapper card, no hint paragraphs, no "N on this page".
-- Task detail opens as a **drawer over the board** (Escape / scrim / Close; header pinned on
-  phone). One status control (Cancel task inside it). Edit for leadership on any task.
+- Task detail opens as a **drawer over the board**, CLIENT-LOCALLY: a card or row click is
+  intercepted, the drawer opens from the row on screen (82 ms in the maintainer's Chrome, was
+  ~900 ms + skeleton flash), and notes + activity load inside it by one server action. Status
+  change publishes the row to a shared store -- the card moves and the pills adjust with no
+  route re-fetch. Board <-> List swaps client-side (79 ms, zero route requests). Escape /
+  scrim / Close / Back never navigate; deep links still render open. Machine-guarded:
+  `make admin-web-interaction-patterns-guard` + the drawer host pinned in
+  `admin-web-local-overlay-guard` (`docs/decisions/admin-web-interaction-patterns.md`). One status control (Cancel task inside it). Edit for leadership on any task.
   Activity feed with All / History / Comments, newest first, from the
   `leadership_task_events` table (migration 000349, written in the same transaction as every
   mutation, backfilled). Comments post in place; a picked @mention is final and renders as a
@@ -45,8 +51,9 @@ The `/tasks` page is the Work Board's product, not a Jira look-alike:
 | assignees | 68 | 126 | 139 | 151 | 1 KB |
 
 Policy p90 ≤ 300 / p95,p99 ≤ 500: **PASS**. Writes: comment 1.3s → ~0.5s, status ~0.45–0.8s
-on the tunnel (11–13 round trips; co-located DB ≈ 100ms). Browser (dev server): board↔list
-265–309ms, card open 210ms, close 195ms, CLS 0, one RSC fetch per navigation.
+on the tunnel (11–13 round trips; co-located DB ≈ 100ms). Browser (maintainer's Chrome, dev server): card
+open 82ms, board↔list 79ms, status change = one action POST and nothing else; no RSC fetch on
+any of the three (was one full route render each).
 
 ## Still open
 
@@ -83,6 +90,12 @@ on the tunnel (11–13 round trips; co-located DB ≈ 100ms). Browser (dev serve
 - P3 `status_changed_by_name` from the morning doc is moot: the history feed names the actor.
 - P5 (gateway-originated push observed end to end) and P6 (notification-feed CTE rewrite)
   belong to their own PRs.
+
+### Guard debt this branch put on the books (shrink-only)
+
+`tools/admin-web-interaction-patterns/baseline.json`: 23 native date inputs in older forms, 61
+returning server actions that also `revalidatePath`, 2 ARIA-faked checkboxes -- all pre-existing,
+now frozen and only allowed to go down.
 
 ## Before this merges
 
