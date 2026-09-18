@@ -3724,11 +3724,12 @@ aside.drawer.wt-feedband-drawer{width:94vw;max-width:960px}
 .lt-page .lt-fsheet-host .lt-pf-trigger,
 .lt-page .lt-fsheet-host .lt-fsel,
 .lt-page .lt-fsheet-host .lt-fdrop>button,
+.wb .lt-fdrop>button,
 .lt-page .lt-fsheet-host .btn.lt-fmore{box-sizing:border-box;height:var(--lt-ctl);min-height:var(--lt-ctl);border-radius:8px;border:1px solid var(--line);background:var(--bg);padding-top:0;padding-bottom:0;font-size:12.5px}
 /* The person-picker slots: containers the bar owns so a different picker can drop in. */
 .lt-page .lt-fsheet-host .lt-fslot{display:contents}
-.lt-page .lt-fsheet-host .lt-fkey{color:var(--muted);font-weight:650;white-space:nowrap}
-.lt-page .lt-fsheet-host .lt-fkey::after{content:"\00b7";margin-left:6px;color:var(--faint)}
+.lt-page .lt-fsheet-host .lt-fkey,.wb .lt-fkey{color:var(--muted);font-weight:650;white-space:nowrap}
+.lt-page .lt-fsheet-host .lt-fkey::after,.wb .lt-fkey::after{content:"\00b7";margin-left:6px;color:var(--faint)}
 .lt-page .lt-fsheet-host .lt-fsel select,
 .lt-page .lt-fsheet-host .lt-fsel input[type=date],
 .lt-page .lt-fsheet-host .lt-fsearch input{min-height:0;height:auto;padding:0;line-height:normal}
@@ -3737,7 +3738,8 @@ aside.drawer.wt-feedband-drawer{width:94vw;max-width:960px}
 .lt-page .lt-fsheet-host .lt-fsearch input::placeholder{color:var(--muted)}
 .lt-page .lt-fsheet-host .lt-fsel{padding:0 9px}
 .lt-page .lt-fsheet-host .lt-fsel select{max-width:130px}
-.lt-page .lt-fsheet-host .lt-fdrop>button{padding:0 9px}
+.lt-page .lt-fsheet-host .lt-fdrop>button,.wb .lt-fdrop{--lt-ctl:36px}
+.wb .lt-fdrop>button{padding:0 9px;display:inline-flex;align-items:center;gap:6px;font:inherit;font-weight:600;color:var(--ink);cursor:pointer}
 .lt-page .lt-fsheet-host .lt-pf-trigger{padding:0 9px}
 .lt-page .lt-fsheet-host .lt-pf{gap:0}
 .lt-page .lt-fsheet-host .lt-seg a{padding:0 9px;font-size:12.5px}
@@ -3834,13 +3836,13 @@ aside.drawer.wt-feedband-drawer{width:94vw;max-width:960px}
    beneath them, dominated a bar whose reader almost never touches a date. Each span is now one
    compact trigger that STATES its applied range, with the two inputs and the one Apply press
    inside. `.set` is the only signal that a span is narrowing the list from the closed state. */
-.lt-page .lt-fdrop{position:relative;display:inline-flex;flex:none}
+.lt-page .lt-fdrop,.wb .lt-fdrop{position:relative;display:inline-flex;flex:none}
 .lt-page .lt-fdrop>button{display:inline-flex;align-items:center;gap:6px;max-width:100%;background:var(--bg);border:1px solid var(--line);border-radius:8px;padding:6px 9px;font:inherit;font-size:12.5px;font-weight:650;color:var(--muted);cursor:pointer}
 .lt-page .lt-fdrop>button>span{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .lt-page .lt-fdrop>button:hover{border-color:var(--brand);color:var(--ink)}
 .lt-page .lt-fdrop>button:focus-visible{outline:2px solid var(--brand);outline-offset:2px}
 .lt-page .lt-fdrop>button.set{border-color:color-mix(in srgb,var(--brand) 55%,var(--line));background:color-mix(in srgb,var(--brand) 10%,var(--panel));color:var(--brand-d)}
-.lt-page .lt-fdrop-pop{position:absolute;top:calc(100% + 6px);right:0;z-index:40;display:grid;gap:9px;min-width:240px;padding:11px;background:var(--panel);border:1px solid var(--line);border-radius:11px;box-shadow:var(--shadow)}
+.lt-page .lt-fdrop-pop,.wb .lt-fdrop-pop{position:absolute;top:calc(100% + 6px);right:0;z-index:40;display:grid;gap:9px;min-width:240px;padding:11px;background:var(--panel);border:1px solid var(--line);border-radius:11px;box-shadow:var(--shadow)}
 .lt-page .lt-fdrop-pop .lt-fsel{width:100%;justify-content:space-between}
 .lt-page .lt-fdrop-pop .lt-fsel input[type=date]{text-align:right}
 .lt-page .lt-fdrop-act{display:flex;align-items:center;justify-content:flex-end;gap:7px}
@@ -6418,18 +6420,18 @@ aside.drawer.ltd-drawer{width:min(720px,94vw);overflow-y:auto;overscroll-behavio
 /* ---- PEOPLE FILTERS ARE A PLAIN DROPDOWN OF CHECKBOXES (CEO, 2026-09-18 13:50) ---------------
    "Assignee · All" opens a list: All, then every person, each with a REAL tick box. No avatar
    stack, no +N chip. The native checkbox is kept for a11y/no-JS and drawn by `.lt-people-box`. */
-.lt-page .lt-people{position:relative}
-.lt-page .lt-people>button .lt-people-stated{color:var(--ink);font-weight:650;max-width:140px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
-.lt-page .lt-people-pop{left:0;right:auto;z-index:60;min-width:250px;max-height:min(60vh,420px);overflow:auto;padding:6px;gap:0;background:var(--panel);backdrop-filter:none;opacity:1}
-.lt-page .lt-people-row{display:flex;align-items:center;gap:10px;padding:8px 9px;border-radius:7px;cursor:pointer;font-size:13px;font-weight:600;color:var(--ink);min-height:36px}
-.lt-page .lt-people-row:hover{background:var(--bg)}
-.lt-page .lt-people-row input{position:absolute;width:1px;height:1px;opacity:0;pointer-events:none}
-.lt-page .lt-people-row:has(input:focus-visible){outline:2px solid var(--brand);outline-offset:-2px}
-.lt-page .lt-people-box{flex:none;width:18px;height:18px;border:1.5px solid var(--line);border-radius:4px;background:var(--panel);display:grid;place-items:center;color:var(--on-brand)}
-.lt-page .lt-people-box .ic{width:14px;height:14px;stroke-width:3.5}
-.lt-page .lt-people-row.is-on .lt-people-box{background:var(--brand);border-color:var(--brand)}
-.lt-page .lt-people-name{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
-.lt-page .lt-people-title{color:var(--muted);font-weight:500}
+.lt-page .lt-people,.wb .lt-people{position:relative}
+.lt-page .lt-people>button .lt-people-stated,.wb .lt-people>button .lt-people-stated{color:var(--ink);font-weight:650;max-width:140px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.lt-page .lt-people-pop,.wb .lt-people-pop{left:0;right:auto;z-index:60;min-width:250px;max-height:min(60vh,420px);overflow:auto;padding:6px;gap:0;background:var(--panel);backdrop-filter:none;opacity:1}
+.lt-page .lt-people-row,.wb .lt-people-row{display:flex;align-items:center;gap:10px;padding:8px 9px;border-radius:7px;cursor:pointer;font-size:13px;font-weight:600;color:var(--ink);min-height:36px}
+.lt-page .lt-people-row:hover,.wb .lt-people-row:hover{background:var(--bg)}
+.lt-page .lt-people-row input,.wb .lt-people-row input{position:absolute;width:1px;height:1px;opacity:0;pointer-events:none}
+.lt-page .lt-people-row:has(input:focus-visible),.wb .lt-people-row:has(input:focus-visible){outline:2px solid var(--brand);outline-offset:-2px}
+.lt-page .lt-people-box,.wb .lt-people-box{flex:none;width:18px;height:18px;border:1.5px solid var(--line);border-radius:4px;background:var(--panel);display:grid;place-items:center;color:var(--on-brand)}
+.lt-page .lt-people-box .ic,.wb .lt-people-box .ic{width:14px;height:14px;stroke-width:3.5}
+.lt-page .lt-people-row.is-on .lt-people-box,.wb .lt-people-row.is-on .lt-people-box{background:var(--brand);border-color:var(--brand)}
+.lt-page .lt-people-name,.wb .lt-people-name{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.lt-page .lt-people-title,.wb .lt-people-title{color:var(--muted);font-weight:500}
 @media (max-width:760px){
   .lt-page .lt-fsheet-host .lt-people-pop{position:static;width:100%;margin-top:6px;box-shadow:none;border-color:var(--line2)}
   .lt-page .lt-people-row{min-height:44px}

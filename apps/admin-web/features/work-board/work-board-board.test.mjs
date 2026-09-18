@@ -8,7 +8,7 @@ test("work-board filter changes clear per-lane per-park cursors", () => {
   assert.match(source, /function setParam\(params: URLSearchParams, pageContract: AdminUiPageContract/);
   assert.match(source, /laneCursorParams\(laneKeys\)/);
   assert.match(source, /laneParkResetParams\(laneKeys, parkKeys\)/);
-  assert.match(source, /setParam\(p, pageContract, PARAM_OWNER, id\)/);
+  assert.match(source, /setParam\(p, pageContract, PARAM_OWNER, next\.find\(\(id\) => id !== selectedOwner\)\)/);
   assert.match(source, /setParam\(p, pageContract, PARAM_MODULE/);
 });
 

@@ -2633,6 +2633,7 @@ func pageSpecificCopy(id string) map[string]string {
 			"filter.assignee.none":                "No users match",
 			"filter.assignee.clear":               "Clear all",
 			"filter.assignee.select_all":          "Select all",
+			"filter.assignee.all":                 "All",
 			"filter.park":                         "Park",
 			"filter.park.all":                     "All parks",
 			"filter.date":                         "Date",

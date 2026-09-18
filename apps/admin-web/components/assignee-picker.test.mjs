@@ -9,15 +9,16 @@ import test from "node:test";
 const picker = readFileSync(new URL("./assignee-picker.tsx", import.meta.url), "utf8");
 const board = readFileSync(new URL("../features/work-board/work-board-board.tsx", import.meta.url), "utf8");
 
-test("the Work Board imports the shared picker and keeps its filter behaviour", () => {
-  assert.match(board, /import \{ AssigneePicker \} from "@\/components\/assignee-picker"/);
-  assert.doesNotMatch(board, /function AssigneePicker/, "no second copy on the board");
-  assert.match(board, /<AssigneePicker mode="multi"/);
-  // The owner still writes the URL through the board's own param writer.
-  assert.match(board, /onSelect=\{\(id\) => write\(\(p\) => setParam\(p, pageContract, PARAM_OWNER, id\)\)\}/);
-  // The multi mode is the board's markup: avatar stack, +N chip, ticked-when-all rows, per-owner
-  // counts, and "Select all" as the FIRST checkbox row (ticked while nobody is picked) -- there
-  // is no foot action any more.
+test("the Work Board hosts the Tasks people dropdown; the shared picker keeps its multi mode", () => {
+  // Ravi, 2026-09-19: the board's owner filter is the Tasks page's dropdown, not the avatar stack.
+  assert.match(board, /import \{ TaskPeopleDropdown \} from "@\/features\/leadership-tasks\/task-people-dropdown"/);
+  assert.doesNotMatch(board, /AssigneePicker/, "the avatar-stack picker is off the board");
+  assert.match(board, /<TaskPeopleDropdown slot="assignee"/);
+  assert.match(board, /allLabel=\{copy\(pageContract, "filter\.assignee\.all"\)\}/);
+  // The owner still writes the URL through the board's own param writer, ONE owner at a time.
+  assert.match(board, /setParam\(p, pageContract, PARAM_OWNER, next\.find\(\(id\) => id !== selectedOwner\)\)/);
+  // The multi mode stays intact for any other host: ticked-when-all rows, per-owner counts, and
+  // "Select all" as the FIRST checkbox row (ticked while nobody is picked); no foot action.
   assert.match(picker, /className=\{`av\$\{o\.id === selected \? " on" : ""\}`\}/);
   assert.match(picker, /\+\{overflow\}/);
   assert.match(picker, /const on = selected \? o\.id === selected : true;/);
