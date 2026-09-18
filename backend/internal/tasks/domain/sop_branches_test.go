@@ -207,3 +207,36 @@ func TestAnswerYesNoRefusesAnythingButYesOrNo(t *testing.T) {
 		}
 	}
 }
+
+// A question re-answered the other way -- a verifier sent it back and the operator corrected it
+// -- takes the branch it previously skipped: the skipped steps return to pending and cascade
+// (PR 308 review: before this a skipped branch stayed skipped forever).
+func TestAnswerBranchesUnskipWhenTheQuestionIsReAnswered(t *testing.T) {
+	actions := branchActions()
+	actions[0] = answered(actions[0], "yes")
+	for _, c := range ResolveAnswerBranches(actions[0], actions) {
+		actions[findKey(actions, c.ActionKey)] = c
+	}
+	if actions[findKey(actions, "approve")].Status != ActionStatusSkipped || actions[findKey(actions, "approve_note")].Status != ActionStatusSkipped {
+		t.Fatalf("setup: the no-branch must be skipped after YES")
+	}
+	// Rework, then the corrected answer: NO.
+	actions[0].Status = ActionStatusRework
+	actions[0] = answered(actions[0], "no")
+	changed := ResolveAnswerBranches(actions[0], actions)
+	keys := []string{}
+	for _, c := range changed {
+		keys = append(keys, c.ActionKey+":"+c.Status)
+		actions[findKey(actions, c.ActionKey)] = c
+	}
+	if strings.Join(keys, ",") != "approve:pending,approve_note:pending" {
+		t.Fatalf("changed = %v", keys)
+	}
+	if changed[0].RowVersion != 2 {
+		t.Fatalf("an un-skip is a fenced write, row_version = %d", changed[0].RowVersion)
+	}
+	// And the branch is now the next work: approve is open, approve_note waits on approve.
+	if OperatorActionBlocked("test.branch", actions[findKey(actions, "approve")], actions) {
+		t.Fatalf("the re-taken branch must be open")
+	}
+}

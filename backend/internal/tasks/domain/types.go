@@ -769,19 +769,29 @@ func ResolveAnswerBranches(answered WorkflowAction, siblings []WorkflowAction) [
 		answers[answered.ActionKey] = *answered.AnswerValue
 	}
 	var changed []WorkflowAction
-	// Steps are in seq order, so a skip cascades forward within one pass.
+	// Steps are in seq order, so a skip -- or an un-skip -- cascades forward within one pass.
 	for i := range siblings {
 		s := siblings[i]
-		if s.AnswerGate == nil || s.Status != ActionStatusPending || s.ActionID == answered.ActionID {
+		if s.AnswerGate == nil || s.ActionID == answered.ActionID {
 			continue
 		}
 		gateKey := s.AnswerGate.Step
 		answer, has := answers[gateKey]
 		switch {
-		case skipped[gateKey], has && !s.AnswerGate.Satisfied(answer):
+		case s.Status == ActionStatusPending && (skipped[gateKey] || (has && !s.AnswerGate.Satisfied(answer))):
 			s.Status = ActionStatusSkipped
 			s.RowVersion++
 			skipped[s.ActionKey] = true
+			changed = append(changed, s)
+		case s.Status == ActionStatusSkipped && !skipped[gateKey] && (!has || s.AnswerGate.Satisfied(answer)):
+			// A question re-answered the other way (after a verifier's rework) takes the branch it
+			// previously skipped: the skipped steps return to pending, in place, as if the first
+			// answer had never been given (PR 308 review); a step gated on a question that is
+			// itself back to pending waits for it again. A step the operator already recorded on
+			// the other path is untouched.
+			s.Status = ActionStatusPending
+			s.RowVersion++
+			delete(skipped, s.ActionKey)
 			changed = append(changed, s)
 		}
 	}
