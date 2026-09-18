@@ -3731,8 +3731,8 @@ export interface paths {
         get?: never;
         put?: never;
         /**
-         * Replace the brief and attachment list of a task the caller raised.
-         * @description Raiser only, and only while the task is open or in progress (409 task_closed otherwise). `attachments` is the FULL new list: the server keeps exactly that, removing rows it no longer names and adding new ones. `row_version` fences the write (409 version_conflict). The `Idempotency-Key` header is REQUIRED.
+         * Replace the brief and attachment list of a task the caller raised or monitors.
+         * @description The raiser, or a leadership monitor (the CEO/COO-style authority behind Team progress; leadership edits anything since 2026-09-18), and only while the task is open or in progress (409 task_closed otherwise; 403 not_raiser for anyone else). `attachments` is the FULL new list: the server keeps exactly that, removing rows it no longer names and adding new ones. `row_version` fences the write (409 version_conflict). The `Idempotency-Key` header is REQUIRED.
          */
         post: operations["editLeadershipTask"];
         delete?: never;
@@ -3752,7 +3752,7 @@ export interface paths {
         put?: never;
         /**
          * Move a task along its status ladder.
-         * @description The accepted moves are exactly the task's `status_options` for THIS caller: the assignee walks open -> in_progress -> done (and may reopen a done task); the raiser may only cancel, and only while the task is open for work. Anything else answers 422 invalid_status_transition, 403 not_assignee / not_raiser, or 409 task_closed. `row_version` fences the write; the `Idempotency-Key` header is REQUIRED. A move to done pushes `leadership_task.status_changed` back to the raiser.
+         * @description The accepted moves are exactly the task's `status_options` for THIS caller: the assignee walks open -> in_progress -> done (and may reopen a done task); the raiser may only cancel, and only while the task is open for work; a leadership monitor gets the assignee's ladder plus the raiser's cancel. Anything else answers 422 invalid_status_transition, 403 not_assignee / not_raiser, or 409 task_closed. `row_version` fences the write; the `Idempotency-Key` header is REQUIRED. A move to done pushes `leadership_task.status_changed` back to the raiser.
          */
         post: operations["changeLeadershipTaskStatus"];
         delete?: never;
@@ -3772,7 +3772,7 @@ export interface paths {
         put?: never;
         /**
          * Add a two-way note to a task.
-         * @description Appends a chronological task note while the task is not cancelled. The assignee and raiser can both write; the compatibility `comment` field is also refreshed for older clients when the assignee writes. The `Idempotency-Key` header is REQUIRED.
+         * @description Appends a chronological task note while the task is not cancelled. The assignee, the raiser and a leadership monitor can all write; the compatibility `comment` field is also refreshed for older clients when the assignee writes. The `Idempotency-Key` header is REQUIRED.
          */
         post: operations["setLeadershipTaskComment"];
         delete?: never;
@@ -9055,6 +9055,35 @@ export interface components {
             /** @description The people this note named, resolved and stored when it was written. The client overlays them on the body as chips. */
             mentions: components["schemas"]["LeadershipTaskMention"][];
         };
+        /** @description One row of the task's Jira-style history feed (migration 000349), NEWEST FIRST in `LeadershipTask.activity`. Every word is composed server-side: the actor's name and avatar initials, the two ends of the change as the screen shows them and the one-line sentence. `kind` is the closed vocabulary the console keys its History / Comments tabs and chip rendering on. A `commented` row names its note in `note_id` and the note in `notes[]` carries the text, so a comment is never stored twice. */
+        LeadershipTaskActivity: {
+            /** Format: uuid */
+            id: string;
+            /** @enum {string} */
+            kind: "created" | "status_changed" | "assignee_changed" | "deadline_changed" | "title_changed" | "brief_changed" | "commented" | "cancelled";
+            /** Format: date-time */
+            occurred_at: string;
+            /** @description Farm-clock "DD/MM/YYYY HH:MM" of the change. */
+            occurred_label: string;
+            /** Format: uuid */
+            actor_user_id: string;
+            /** @description Blank when the actor no longer has an active roster row. */
+            actor_name: string;
+            /** @description Up to two letters for the avatar; blank with no name. */
+            actor_initials: string;
+            /** @description The value BEFORE the change, as words: a status chip ("Open"), a deadline ("17/09/2026 17:00"), a title. Blank for created / commented / cancelled and for a deadline that was not set before. */
+            from_label: string;
+            /** @description The value AFTER the change */
+            to_label: string;
+            /** @description The stored KEY behind from_label (a status key such as `in_progress`, an RFC3339 deadline, a title). A client picks a status chip's tone from it; it never parses the label. */
+            from_value: string;
+            /** @description The stored key behind to_label. */
+            to_value: string;
+            /** @description The note a `commented` row refers to; blank otherwise. */
+            note_id: string;
+            /** @description "Hemant created the task", "Ravi Teja changed the status Open → Doing". */
+            summary: string;
+        };
         /** @description One stored, resolved mention on a note. */
         LeadershipTaskMention: {
             /** Format: uuid */
@@ -9149,12 +9178,14 @@ export interface components {
             /** @description Compatibility assignee note field for older mobile clients; newer clients render notes. */
             comment: string;
             can_comment: boolean;
-            /** @description The statuses THIS caller may move the task to, in display order; empty when read-only. */
+            /** @description The statuses THIS caller may move the task to, in display order; empty when read-only (a screen then shows the status as a plain badge, not a control). */
             status_options: components["schemas"]["LeadershipTaskStatusOption"][];
             attachment_count: number;
             attachments: components["schemas"]["LeadershipTaskAttachment"][];
             /** @description Chronological two-way task notes; either task party may append while active. */
             notes: components["schemas"]["LeadershipTaskNote"][];
+            /** @description The task's history feed, newest first; never empty (the raise itself is the first row). */
+            activity: components["schemas"]["LeadershipTaskActivity"][];
         };
         LeadershipTaskDetail: {
             task: components["schemas"]["LeadershipTask"];
