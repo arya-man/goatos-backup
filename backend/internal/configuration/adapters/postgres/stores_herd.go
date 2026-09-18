@@ -45,10 +45,12 @@ SELECT g.goat_id::text AS id,
          'display_id', g.display_id,
          'lifecycle_status', g.lifecycle_status
        )) AS fields,
-       '{}'::jsonb AS labels,
+       jsonb_strip_nulls(jsonb_build_object('species', sl.name, 'sex', xl.name)) AS labels,
        NULL::jsonb AS counts,
        g.display_id AS sort_key
 FROM goats g
+LEFT JOIN species_lookup sl ON sl.tenant_id = g.tenant_id AND sl.species_code = g.species
+LEFT JOIN sex_lookup xl ON xl.tenant_id = g.tenant_id AND xl.sex_code = g.sex
 LEFT JOIN LATERAL (
   SELECT i.identifier_value FROM goat_identifiers i
   WHERE i.tenant_id = g.tenant_id AND i.goat_id = g.goat_id AND i.identifier_type = 'animal_identifier_1' AND i.status = 'active'

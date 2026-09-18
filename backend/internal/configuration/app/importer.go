@@ -572,6 +572,16 @@ func (i *Importer) animalValidator(ctx context.Context, tenantID string, commit 
 	if err != nil {
 		return nil, err
 	}
+	// Species and gender are refs on the animals register: a sheet may say "Sheep" or "sheep".
+	species, err := i.refIndex(ctx, tenantID, domain.RegSpecies)
+	if err != nil {
+		return nil, err
+	}
+	sexes, err := i.refIndex(ctx, tenantID, domain.RegSexes)
+	if err != nil {
+		return nil, err
+	}
+	codes := map[string]domain.RefIndex{"species": species, "sex": sexes}
 	return func(ctx context.Context, rows []domain.ImportRow) ([]ports.ImportRowUpdate, error) {
 		out := make([]ports.ImportRowUpdate, 0, len(rows))
 		for start := 0; start < len(rows); start += animalChunk {
@@ -586,7 +596,7 @@ func (i *Importer) animalValidator(ctx context.Context, tenantID string, commit 
 			_ = cw.Write(animalSheetColumns)
 			pre := make(map[int][]domain.FieldError, len(chunk))
 			for k, row := range chunk {
-				cells, errs := animalCells(row.Fields, parks, pens)
+				cells, errs := animalCells(row.Fields, parks, pens, codes)
 				if len(errs) > 0 {
 					pre[k] = errs
 					cells = make([]string, len(animalSheetColumns)) // keeps the line count aligned
@@ -764,8 +774,18 @@ func (p placeLookup) resolve(parent, cell string) (string, bool, bool) {
 	return "", false, true
 }
 
-func animalCells(fields map[string]any, parks, pens placeLookup) ([]string, []domain.FieldError) {
-	get := func(k string) string { return strings.TrimSpace(cellText(fields[k])) }
+func animalCells(fields map[string]any, parks, pens placeLookup, codes map[string]domain.RefIndex) ([]string, []domain.FieldError) {
+	get := func(k string) string {
+		v := strings.TrimSpace(cellText(fields[k]))
+		// A species / gender given by name resolves to its code; an unknown value is passed
+		// through so the herd register's own message names it.
+		if idx, ok := codes[k]; ok && v != "" {
+			if id, _, ok := idx.Resolve(v); ok {
+				return id
+			}
+		}
+		return v
+	}
 	var errs []domain.FieldError
 	parkID, ok, ambiguous := parks.resolve("", get("park"))
 	switch {
