@@ -47,7 +47,7 @@ import {
  * drop moves a card between columns and that is client state. This component stays the SERVER
  * half: it reads the response, decides each column's wording and totals, mints the card deep
  * links (the URL vocabulary lives server-side), and hands all of it plus the status action
- * down. It carries no PERSON filter: the toolbar's checkbox dropdown (`task-people-dropdown.tsx`)
+ * down. It carries no PERSON filter: the toolbar's checkbox dropdown (`components/people-dropdown.tsx`)
  * is the one control that writes `t_assignee` / `t_raiser`, in both views. It decides nothing
  * about the drag — legality is
  * the row's own `status_options`, and the reasons a drop can be refused are documented on the

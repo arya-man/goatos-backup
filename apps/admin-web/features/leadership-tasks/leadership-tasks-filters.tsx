@@ -5,7 +5,7 @@ import { CalendarRange, ChevronDown, ListFilter, Search, SlidersHorizontal, X } 
 import { useCallback, useEffect, useMemo, useRef, useState, useTransition } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 
-import { TaskPeopleDropdown, type TaskPeopleOption } from "./task-people-dropdown";
+import { TaskPeopleDropdown, type TaskPeopleOption } from "@/components/people-dropdown";
 import { ThemedDatePicker } from "@/components/themed-date-picker";
 import { copy, type AdminUiPageContract } from "@/lib/admin-ui-contract";
 import { worklistFilterShownValue } from "@/lib/worklist-filter-value";

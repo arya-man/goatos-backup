@@ -11,7 +11,7 @@ const board = readFileSync(new URL("../features/work-board/work-board-board.tsx"
 
 test("the Work Board hosts the Tasks people dropdown; the shared picker keeps its multi mode", () => {
   // Ravi, 2026-09-19: the board's owner filter is the Tasks page's dropdown, not the avatar stack.
-  assert.match(board, /import \{ TaskPeopleDropdown \} from "@\/features\/leadership-tasks\/task-people-dropdown"/);
+  assert.match(board, /import \{ TaskPeopleDropdown \} from "@\/components\/people-dropdown"/);
   assert.doesNotMatch(board, /AssigneePicker/, "the avatar-stack picker is off the board");
   assert.match(board, /<TaskPeopleDropdown slot="assignee"/);
   assert.match(board, /allLabel=\{copy\(pageContract, "filter\.assignee\.all"\)\}/);
