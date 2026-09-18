@@ -34,6 +34,7 @@
 - Restored public Cloud Run ingress to `internal-and-cloud-load-balancing` after the failed rollout left API/admin-web at `internal`, which caused `dashboard.mesha.sg` to return LB 404s.
 - Brought live STG back to green on `8cf66ffb4e16`: dashboard login returned 200, API `/livez` and `/readyz` returned 204, and `/version` reported `migration_drift=false`.
 - The next code hotfix also updates `000345_castro1_ettt_history_z1z3_identity_repair` for the current live Castro ET+TT data cardinality: 205 linked goats and 410 accepted history rows.
+- Hardened the Cloud Deploy STG runner so API/admin-web candidate revisions use load-balancer-compatible ingress, stay on `--no-traffic` while migrations run, and traffic switches only to the captured ready revision.
 
 ## Pending
 
@@ -53,6 +54,9 @@
 - Second `make land-main` repeated the screenshot-capable local CI path. Heavy lanes passed again, including required PostgreSQL query plans, command-board query plans, admin-web lint/typecheck/unit/build, Android compile/unit/lint, Android screenshots, and Android benchmark compile.
 - Third `make land-main` passed with `ci-local: GREEN @ 8cf66ffb4e16d26ca68dba4c2a578690aaedef57` and pushed `origin/main` to the same SHA.
 - `go test ./internal/feeddirection/domain -run TestMigrationEmbedsTheSeededFeedSOP -count=1` passed after the `000342` hotfix.
+- `go test ./cmd/migrate ./internal/feeddirection/domain -count=1` passed after the migration fixes.
+- `node --test tools/deploy/stg-admin-web-traffic-order.test.mjs` passed after the deploy runner hardening.
+- `bash -n tools/deploy/stg-clouddeploy-task.sh` passed.
 
 ## Known Failures
 
@@ -68,11 +72,11 @@
 
 ## Judge Status
 
-- Third full landing receipt green for `8cf66ffb4e16`. Hotfix landing receipt pending after `000342` replay-safety patch.
+- Third full landing receipt green for `8cf66ffb4e16`. Hotfix landing receipt pending after migration and deploy-runner hardening patches.
 
 ## Current SHA
 
-- Club branch/main landed at `8cf66ffb4e16d26ca68dba4c2a578690aaedef57`; hotfix worktree has uncommitted `000342` replay-safety changes.
+- Club branch/main landed at `8cf66ffb4e16d26ca68dba4c2a578690aaedef57`; hotfix branch is at `2494df64d` before this progress update.
 
 ## Deployment State
 
