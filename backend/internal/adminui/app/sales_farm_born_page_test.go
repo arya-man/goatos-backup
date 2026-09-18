@@ -82,7 +82,7 @@ func TestSalesFarmBornPageContract(t *testing.T) {
 		"section.by_breed.title", "section.by_sex.title", "section.by_stage.title", "section.by_pen.title",
 		"column.on_farm", "column.sold", "column.revenue", "column.share_pct", "empty.breakdown",
 		"section.sold.title", "section.sold.subtitle", "section.sold.aria",
-		"empty.sold", "value.no_deal", "value.not_recorded", "pager.noun", "error.load",
+		"empty.sold", "value.no_deal", "value.not_recorded", "pager.noun", "pager.pens", "error.load",
 	} {
 		if page.Copy[key] == "" {
 			t.Fatalf("copy %q missing", key)

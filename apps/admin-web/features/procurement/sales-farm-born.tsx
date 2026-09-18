@@ -17,6 +17,9 @@ const PAGE_PATH = "/sales/farm-born";
 /** Only used when an older backend contract carries no sold table; the contract page size wins. */
 const FALLBACK_LIMIT = 25;
 const MAX_OFFSET = 10000;
+/** The By pen card pages its rows: a farm has dozens of pens and the card sat 1,600px tall. */
+const PEN_PAGE_SIZE = 10;
+const PEN_OFFSET_PARAM = "pen_offset";
 
 /** Fills a backend copy template's `{name}` slots; the sentence itself stays backend-owned. */
 function fill(template: string, values: Record<string, string>): string {
@@ -66,16 +69,39 @@ function BreakdownCard({
   rows,
   totalSold,
   pageContract,
+  pager,
 }: {
   title: string;
   rows: FarmBornBucket[];
   totalSold: number;
   pageContract: AdminUiPageContract;
+  /**
+   * Optional page window over `rows`. The rows are the WHOLE breakdown (so the share column is
+   * still over the whole-filter sold count); only the slice shown moves. Server-rendered links,
+   * so the page survives a reload and a shared URL.
+   */
+  pager?: { offset: number; limit: number; noun: string; href: (offset: number) => string };
 }) {
+  // A filter change can leave a pen offset past the end of a now-shorter list (the bar resets the
+  // ledger offset, not this one); an out-of-range page falls back to the first rather than an
+  // empty card.
+  if (pager && pager.offset >= rows.length) pager = { ...pager, offset: 0 };
+  const shown = pager ? rows.slice(pager.offset, pager.offset + pager.limit) : rows;
+  const pageCount = pager ? Math.max(1, Math.ceil(rows.length / pager.limit)) : 1;
+  const pageNumber = pager ? Math.floor(pager.offset / pager.limit) + 1 : 1;
   return (
     <section className="card" aria-label={title}>
       <div className="hd">
         <h3>{title}</h3>
+        {pager && pageCount > 1 ? (
+          <>
+            <div className="sp" style={{ flex: 1 }} />
+            <span className="muted small">
+              {copy(pageContract, "pager.page")} {pageNumber} {copy(pageContract, "pager.of")} {pageCount} ·{" "}
+              {num(rows.length)} {pager.noun}
+            </span>
+          </>
+        ) : null}
       </div>
       <div className="twrap" tabIndex={0} role="region" aria-label={title}>
         <table className="tbl">
@@ -96,7 +122,7 @@ function BreakdownCard({
                 </td>
               </tr>
             ) : (
-              rows.map((row) => (
+              shown.map((row) => (
                 <tr key={row.key}>
                   <td>
                     <b>{row.label}</b>
@@ -114,6 +140,31 @@ function BreakdownCard({
           </tbody>
         </table>
       </div>
+      {pager && pageCount > 1 ? (
+        <div className="pager2">
+          <span className="muted">
+            {copy(pageContract, "pager.page")} {pageNumber} {copy(pageContract, "pager.of")} {pageCount}
+          </span>
+          {pager.offset > 0 ? (
+            <Link href={pager.href(Math.max(0, pager.offset - pager.limit))} scroll={false} className="btn">
+              {copy(pageContract, "action.previous")}
+            </Link>
+          ) : (
+            <span className="btn" aria-disabled="true">
+              {copy(pageContract, "action.previous")}
+            </span>
+          )}
+          {pager.offset + pager.limit < rows.length ? (
+            <Link href={pager.href(pager.offset + pager.limit)} scroll={false} className="btn">
+              {copy(pageContract, "action.next")}
+            </Link>
+          ) : (
+            <span className="btn" aria-disabled="true">
+              {copy(pageContract, "action.next")}
+            </span>
+          )}
+        </div>
+      ) : null}
     </section>
   );
 }
@@ -122,10 +173,14 @@ function FarmBornSections({
   data,
   pageContract,
   pageHref,
+  penOffset,
+  penHref,
 }: {
   data: FarmBornSales;
   pageContract: AdminUiPageContract;
   pageHref: (offset: number) => string;
+  penOffset: number;
+  penHref: (offset: number) => string;
 }) {
   const s = data.summary;
   const unpriced = s.sold - s.sold_priced;
@@ -189,7 +244,13 @@ function FarmBornSections({
         </div>
       </div>
       <div style={{ marginTop: 14 }}>
-        <BreakdownCard title={copy(pageContract, "section.by_pen.title")} rows={data.by_pen} totalSold={s.sold} pageContract={pageContract} />
+        <BreakdownCard
+          title={copy(pageContract, "section.by_pen.title")}
+          rows={data.by_pen}
+          totalSold={s.sold}
+          pageContract={pageContract}
+          pager={{ offset: penOffset, limit: PEN_PAGE_SIZE, noun: copy(pageContract, "pager.pens"), href: penHref }}
+        />
       </div>
 
       <section className="card" aria-label={copy(pageContract, "section.sold.aria")} style={{ marginTop: 14 }}>
@@ -288,6 +349,7 @@ export async function SalesFarmBornPage({
   const defaultLimit = pageSizes[0] ?? FALLBACK_LIMIT;
   const limit = resolveLimit(one(sp, "limit"), pageSizes, defaultLimit);
   const offset = boundedInt(one(sp, "offset"), 0, 0, MAX_OFFSET);
+  const penOffset = boundedInt(one(sp, PEN_OFFSET_PARAM), 0, 0, MAX_OFFSET);
 
   const result = await getFarmBornSales({
     from: from || undefined,
@@ -347,7 +409,7 @@ export async function SalesFarmBornPage({
       label: copy(pageContract, "filter.park.label"),
       value: park,
       allowAll: true,
-      clears: ["pen"],
+      clears: ["pen", PEN_OFFSET_PARAM],
       options: (options?.parks ?? []).map((option) => ({ value: option.key, label: option.label })),
     },
     {
@@ -356,6 +418,7 @@ export async function SalesFarmBornPage({
       label: copy(pageContract, "filter.pen.label"),
       value: pen,
       allowAll: true,
+      clears: [PEN_OFFSET_PARAM],
       options: penOptions.map((option) => ({ value: option.key, label: penOptionLabel(option) })),
     },
     {
@@ -364,6 +427,7 @@ export async function SalesFarmBornPage({
       label: copy(pageContract, "filter.species.label"),
       value: species,
       allowAll: true,
+      clears: [PEN_OFFSET_PARAM],
       options: speciesOptions.map((option) => ({ value: option.key, label: option.label })),
     },
     {
@@ -372,6 +436,7 @@ export async function SalesFarmBornPage({
       label: copy(pageContract, "filter.breed.label"),
       value: breed,
       allowAll: true,
+      clears: [PEN_OFFSET_PARAM],
       options: (options?.breeds ?? []).map((option) => ({ value: option.key, label: option.label })),
     },
     {
@@ -380,6 +445,7 @@ export async function SalesFarmBornPage({
       label: copy(pageContract, "filter.sex.label"),
       value: sex,
       allowAll: true,
+      clears: [PEN_OFFSET_PARAM],
       options: sexOptions.map((option) => ({ value: option.key, label: option.label })),
     },
     {
@@ -388,6 +454,7 @@ export async function SalesFarmBornPage({
       label: copy(pageContract, "filter.stage.label"),
       value: stage,
       allowAll: true,
+      clears: [PEN_OFFSET_PARAM],
       options: (options?.stages ?? []).map((option) => ({ value: option.key, label: option.label })),
     },
   ];
@@ -397,6 +464,7 @@ export async function SalesFarmBornPage({
       offset: nextOffset > 0 ? String(nextOffset) : null,
       limit: limit === defaultLimit ? null : String(limit),
     });
+  const penHref = (nextOffset: number) => hrefWith(sp, { [PEN_OFFSET_PARAM]: nextOffset > 0 ? String(nextOffset) : null });
 
   return (
     <div className="screen on sales-farm-born-page">
@@ -409,7 +477,7 @@ export async function SalesFarmBornPage({
             {result.error.message || copy(pageContract, "error.load")}
           </div>
         ) : (
-          <FarmBornSections data={result.data} pageContract={pageContract} pageHref={pageHref} />
+          <FarmBornSections data={result.data} pageContract={pageContract} pageHref={pageHref} penOffset={penOffset} penHref={penHref} />
         )}
       </WorklistFilters>
     </div>

@@ -4113,6 +4113,7 @@ func pageSpecificCopy(id string) map[string]string {
 			"value.no_deal":         "No deal recorded",
 			"value.not_recorded":    "Not recorded",
 			"pager.noun":            "animals",
+			"pager.pens":            "pens",
 
 			"error.load": "Could not load the farm born figures. Refresh to try again.",
 		}
