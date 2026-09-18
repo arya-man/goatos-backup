@@ -19,8 +19,8 @@
 
 ## Pending
 
-- Push branch to PR.
-- Spin judge agents after push and resolve any confirmed findings.
+- No code findings pending after post-push judges.
+- Remote PR status remains merge-state `BLOCKED`; no main merge attempted in this pass.
 
 ## Tests / E2E Performed
 
@@ -30,6 +30,7 @@
 - `go test ./internal/counts/adapters/postgres -run 'TestMortality|TestCountsBreakdownDefault' -count=1` from `backend`: PASS.
 - `git diff --check origin/main...HEAD && git diff --check`: PASS.
 - `npm run test -- smoke-visual-route-coverage.test.mjs --runInBand` from `apps/admin-web`: PASS (819 node tests, including visual route coverage guard).
+- `make api-client-check` from repo root: PASS; regenerated API clients matched the checked-in files.
 
 ## Known Failures
 
@@ -45,12 +46,15 @@
 
 ## Judge Status
 
-- Manual review finding fixed; focused guards passed.
+- Judge 1 backend Counts Mortality logic: PASS, no findings on pushed SHA `345ff6f42176140c6479e1440bf241044ba9d9a0`.
+- Judge 2 admin-web/API contract wiring: PASS, no findings on pushed SHA `345ff6f42176140c6479e1440bf241044ba9d9a0`.
+- Judge 3 coverage/guard adequacy: initial process finding for stale receipt and missing `make api-client-check`; `make api-client-check` now passed and this receipt is updated.
 
 ## Current SHA
 
 - Before first fix: `90bf02af6cf739fbaca1f9d3c07383da3fb193b1`.
 - Before strict-live fix: `db8cf68c969d737b49151810a3c0df10f52e2536`.
+- Strict-live fix pushed: `345ff6f42176140c6479e1440bf241044ba9d9a0`.
 
 ## Deployment State
 
