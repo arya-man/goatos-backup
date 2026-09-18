@@ -133,10 +133,28 @@ export function FlowCanvas<T, I>({
             const cls = `studio-node studio-node-${n.kind}${selectedId === n.id ? " on" : ""}`;
             const style = { left: n.x, top: n.y, width: n.w, height: n.h };
             if (n.selectable) {
+              // A div with the button role rather than a <button>: a question node carries its own
+              // "Add branch" button (edge-case audit 2026-09-18), and a button inside a button is
+              // invalid HTML. Enter/Space select it exactly as a button would.
               return (
-                <button key={n.id} type="button" className={cls} style={style} onClick={() => onSelect(n)} data-testid={`flow-node-${n.tid}`}>
+                <div
+                  key={n.id}
+                  role="button"
+                  tabIndex={0}
+                  className={cls}
+                  style={style}
+                  onClick={() => onSelect(n)}
+                  onKeyDown={(e) => {
+                    if (e.target !== e.currentTarget) return;
+                    if (e.key === "Enter" || e.key === " ") {
+                      e.preventDefault();
+                      onSelect(n);
+                    }
+                  }}
+                  data-testid={`flow-node-${n.tid}`}
+                >
                   {renderNode(n)}
-                </button>
+                </div>
               );
             }
             return (

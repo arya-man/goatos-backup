@@ -103,11 +103,30 @@ export function FollowUpFlow({
       );
     }
     const proof = [s.proofVideos > 0 ? `${s.proofVideos} ${copy(pc, "studio.flow.videos")}` : "", s.proofPhotos > 0 ? `${s.proofPhotos} ${copy(pc, "studio.flow.photos")}` : ""].filter(Boolean).join(" · ");
+    // A question with NO branch yet still offers "Add branch": that is how the FIRST path is
+    // started from the chart (edge-case audit 2026-09-18 -- before this the control appeared
+    // only once a branch existed, so the first one had to be made from the Only-if field).
+    const canBranch = n.branchable && s.key;
     return (
       <>
         <span className="studio-node-kind">{typeLabel(s.taskType)}</span>
         <b>{s.title || s.titlePattern || copy(pc, "followup.step.title")}</b>
         <span className="muted small">{[kind && kind !== "none" ? answerKindLabels[kind] ?? kind : "", proof].filter(Boolean).join(" · ")}</span>
+        {canBranch ? (
+          <span className="studio-node-actions">
+            <button
+              type="button"
+              className="btn sm ghost"
+              onClick={(e) => {
+                e.stopPropagation();
+                onInsert({ index: n.index! + 1, when: nextBranchCondition(s, kind, []) });
+              }}
+              data-testid={`flow-add-branch-${s.key}`}
+            >
+              <Plus size={12} /> {copy(pc, "studio.flow.add_branch")}
+            </button>
+          </span>
+        ) : null}
       </>
     );
   };

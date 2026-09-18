@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { branchesOf, layoutTrack, nextBranchCondition, otherwiseCondition } from "./flow-layout.ts";
+import { NODE_H, branchesOf, layoutTrack, nextBranchCondition, otherwiseCondition } from "./flow-layout.ts";
 
 const step = (key, extra = {}) => ({ id: key, key, taskType: "do_and_confirm", title: key, options: [], whenStep: "", whenOp: "eq", whenValues: [], ...extra });
 const kinds = { ready: "yes_no", weight: "number", kind: "select" };
@@ -51,4 +51,19 @@ test("otherwise and next-branch conditions follow the answer kind", () => {
   assert.deepEqual(nextBranchCondition(yn, "yes_no", []), { whenStep: "ready", whenOp: "eq", whenValues: ["yes"] });
   assert.deepEqual(otherwiseCondition(yn, "yes_no", [{ condition: { whenStep: "ready", whenOp: "eq", whenValues: ["yes"] } }]), { whenStep: "ready", whenOp: "eq", whenValues: ["no"] });
   assert.equal(branchesOf(yn, [step("x", { whenStep: "ready", whenValues: ["yes"] }), step("y", { whenStep: "ready", whenValues: ["yes"] })]).length, 1);
+});
+
+// A question with no branch offers "Add branch" on itself and stands one row taller; once it has
+// a branch the decision node carries the control and the question is an ordinary node again.
+test("a question without a branch is branchable and taller; with a branch it is not", () => {
+  const kind = (s) => (s.key === "q1" ? "yes_no" : "none");
+  const plain = layoutTrack([step("q1"), step("a1")], kind, phrase);
+  const qn = plain.nodes.find((n) => n.id === "q1");
+  assert.equal(qn.branchable, true);
+  assert.ok(qn.h > NODE_H);
+  const branched = layoutTrack([step("q1"), step("a1", { whenStep: "q1", whenOp: "eq", whenValues: ["yes"] })], kind, phrase);
+  const qb = branched.nodes.find((n) => n.id === "q1");
+  assert.equal(qb.branchable, false);
+  assert.equal(qb.h, NODE_H);
+  assert.ok(branched.nodes.some((n) => n.kind === "decision"));
 });

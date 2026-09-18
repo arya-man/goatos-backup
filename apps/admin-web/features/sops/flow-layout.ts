@@ -18,6 +18,8 @@ export type FlowNode = {
   step?: FollowUpStepRow;
   /** Row index in the track (step / question). */
   index?: number;
+  /** A question with no branch yet: the node itself offers "Add branch" (one row taller). */
+  branchable?: boolean;
 };
 
 export type FlowInsert = {
@@ -42,6 +44,8 @@ export type FlowLayout = { nodes: FlowNode[]; edges: FlowEdge[]; width: number; 
 export const NODE_W = 230;
 export const NODE_H = 84;
 export const DECISION_H = 56;
+/** A question node that still offers "Add branch" on itself. */
+export const QUESTION_BRANCHABLE_H = NODE_H + 30;
 const GAP_Y = 54;
 const COL_X = 270;
 
@@ -141,11 +145,16 @@ export function layoutTrack(
       const idx = indexOf.get(s.id)!;
       const kind = answerKind(s);
       const isQuestion = !!kind && kind !== "none";
-      const node: FlowNode = { id: s.id, kind: isQuestion ? "question" : "step", x: x - NODE_W / 2, y: cursorY, w: NODE_W, h: NODE_H, step: s, index: idx };
+      const branches = isQuestion ? branchesOf(s, remaining) : [];
+      // A question with no branch yet carries its own "Add branch" row (the first path is started
+      // from the chart), so it stands one row taller; once a decision exists that control lives on
+      // the decision node and the question is an ordinary node again.
+      const branchable = isQuestion && branches.length === 0;
+      const h = branchable ? QUESTION_BRANCHABLE_H : NODE_H;
+      const node: FlowNode = { id: s.id, kind: isQuestion ? "question" : "step", x: x - NODE_W / 2, y: cursorY, w: NODE_W, h, step: s, index: idx, branchable };
       place(node);
       tails.forEach((t, k) => edge(t, s.id, { index: idx, when: inherited }, labels[k] ?? ""));
-      cursorY += NODE_H + GAP_Y;
-      const branches = isQuestion ? branchesOf(s, remaining) : [];
+      cursorY += h + GAP_Y;
       if (branches.length === 0) {
         tails = [s.id];
         labels = [""];
