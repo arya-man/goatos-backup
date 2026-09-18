@@ -193,15 +193,28 @@ test("the notification panel stays inside the viewport at every phone width", as
 // `position:fixed` descendants -- so the panel's `left` resolves against `.top`'s border box while
 // the clamp computes in viewport space. Those two frames coincide today only because `.top` starts
 // at x 0. Give it a margin and an uncorrected panel walks off the right edge by exactly that much.
+// Verified directly: with `.top` offset by (24, 30), a `position:fixed` child asked for `left:0;
+// top:0` lands at viewport (24, 30) -- `.top`'s own origin, not the viewport's.
+//
+// 390 IS THE LOAD-BEARING WIDTH HERE, not an arbitrary phone. At 320 and 360 the bell has wrapped
+// and the clamp floors the panel at the 8px gutter, which ABSORBS any offset up to the width of
+// the slack -- an uncorrected panel still lands on screen and the test goes quietly green. At 390
+// the bell is on row 1 and the clamp does not fire, so the offset shows up undiluted: the panel is
+// asked for left 80, an uncorrected one lands at 104, and its right edge passes 390.
 test("the panel stays on screen even when .top is not the viewport origin", async () => {
   await withPage(
-    { width: 360, height: 844 },
+    { width: 390, height: 844 },
     async (page) => {
       const m = await openPanelAndMeasure(page);
       assert.ok(m.panel.left >= 0, `offset .top: panel bleeds left (left ${m.panel.left})`);
       assert.ok(
         m.panel.right <= m.clientWidth,
         `offset .top: panel bleeds right (right ${m.panel.right} > ${m.clientWidth})`,
+      );
+      assert.equal(
+        m.panel.left,
+        m.expectedLeft,
+        "offset .top: the panel must land where the clamp asked, whatever .top's own origin is",
       );
     },
     { topOffset: 24 },

@@ -3466,8 +3466,8 @@ select:disabled { opacity: .45; }
 
 /* Persistent filter bar */
 .lt-page .lt-fbar{position:sticky;top:0;z-index:12;display:flex;flex-wrap:wrap;gap:8px;row-gap:8px;align-items:center;padding:8px 10px;margin:0 0 14px;background:color-mix(in srgb,var(--panel) 92%,transparent);backdrop-filter:blur(8px);border:1px solid var(--line);border-radius:11px;box-shadow:var(--shadow)}
-.lt-page .lt-fsel{display:inline-flex;align-items:center;gap:6px;background:var(--bg);border:1px solid var(--line);border-radius:8px;padding:6px 9px;font-size:12.5px;color:var(--muted)}
-.lt-page .lt-fsel select{border:0;background:transparent;outline:0;font:inherit;font-weight:650;color:var(--ink);cursor:pointer;max-width:210px}
+.lt-page .lt-fsel{display:inline-flex;align-items:center;gap:6px;min-width:0;background:var(--bg);border:1px solid var(--line);border-radius:8px;padding:6px 9px;font-size:12.5px;color:var(--muted)}
+.lt-page .lt-fsel select{border:0;background:transparent;outline:0;font:inherit;font-weight:650;color:var(--ink);cursor:pointer;min-width:0;max-width:170px}
 .lt-page .lt-fsel select option{background:var(--panel);color:var(--ink)}
 .lt-page .lt-chips{display:inline-flex;gap:6px;flex-wrap:wrap;align-items:center}
 .lt-page .lt-chips .achip.clr{font:inherit;font-size:11.5px}
@@ -3488,7 +3488,17 @@ select:disabled { opacity: .45; }
    Every rule is scoped to `.lt-fsheet-host` so the live tracker's own `.lt-fbar` is untouched, and
    the compound selector is what lets these beat the generic phone `.lt-fbar` rule further down the
    sheet (specificity, not source order). Colours are var() / color-mix only -- no new palette. */
-.lt-page .lt-fbar.lt-fsheet-host{flex-wrap:nowrap;gap:8px}
+/* WRAP, never clip. This said `nowrap` -- written when the bar was a nested box whose own
+   `.lt-fgroup` did the wrapping -- and after `.lt-fgroup` became `display:contents` that `nowrap`
+   became the whole bar's, so at 1440 the row ran straight past the card's right edge and the
+   Deadline control was cut in half at the boundary (a clipped control is unreachable, which is
+   worse than a second line). A horizontal scroller is NOT the answer here: a filter bar nobody
+   scrolls sideways is a filter bar nobody finds. So the bar wraps, and every child that can give
+   up width does (`min-width:0` below), which keeps it to one line down to ~1180 and lets it take a
+   second line instead of a clip below that. The phone rule further down restates `nowrap`, which
+   is correct there: at <=760px the only two children are the search box and the Filters opener,
+   and they must compress rather than split. */
+.lt-page .lt-fbar.lt-fsheet-host{flex-wrap:wrap;gap:8px;row-gap:8px}
 .lt-page .lt-fsheet-host .lt-fsearch{display:inline-flex;align-items:center;gap:7px;flex:1 1 220px;min-width:0;max-width:340px;background:var(--bg);border:1px solid var(--line);border-radius:8px;padding:6px 9px;color:var(--muted)}
 .lt-page .lt-fsheet-host .lt-fsearch input{border:0;background:transparent;outline:0;font:inherit;color:var(--ink);width:100%;min-width:0}
 .lt-page .lt-fsheet-host .lt-fsearch input::-webkit-search-cancel-button{display:none}
@@ -3536,7 +3546,7 @@ select:disabled { opacity: .45; }
 /* ---- WHAT IS NARROWING THE LIST, removable one at a time -- the idiom
    `components/worklist-filters.tsx` states in its own multiselect note. The `X` inherits the
    chip's colour; `.achip` already styles a dimmed affordance inside itself. */
-.lt-page .lt-factive{display:inline-flex;flex-wrap:wrap;align-items:center;gap:6px;min-width:0}
+.lt-page .lt-factive{display:inline-flex;flex-wrap:wrap;align-items:center;gap:6px;min-width:0;flex:1 1 auto}
 .lt-page .lt-factive .achip{max-width:100%;min-width:0}
 .lt-page .lt-factive .achip>button{display:inline-flex;align-items:center;justify-content:center;border:0;padding:0;background:transparent;color:inherit;font:inherit;line-height:1;opacity:.6;cursor:pointer;border-radius:4px}
 .lt-page .lt-factive .achip>button:hover{opacity:1}

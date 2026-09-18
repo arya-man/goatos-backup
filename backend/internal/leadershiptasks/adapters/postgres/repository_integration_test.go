@@ -5,6 +5,8 @@ import (
 	"errors"
 	"fmt"
 	"reflect"
+	"sort"
+	"strings"
 	"sync"
 	"testing"
 	"time"
@@ -1071,5 +1073,645 @@ func TestLeadershipTaskListFiltersSortsAndCursorStayHonest(t *testing.T) {
 	// A bare escape character is escaped too, and finds nothing rather than erroring.
 	if esc := list(t, ports.ListParams{Query: `\`}); len(esc.Rows) != 0 {
 		t.Fatalf(`q="\\" = %v, want no rows and no error`, titles(esc.Rows))
+	}
+}
+
+// raiseAs raises one task for an arbitrary raiser, assignee and deadline. raiseParams pins the
+// seeding director as the raiser, which is right for most of this file but not for the scope
+// tabs: assigned_by_me only means something when the ACTOR has raised tasks of their own.
+func raiseAs(raiser, assignee, title, key string, deadline *time.Time) ports.RaiseParams {
+	p := raiseParams(assignee, title, key)
+	p.ActorID = raiser
+	p.DeadlineAt = deadline
+	return p
+}
+
+// sumCounts totals a chip map. Every assertion below that compares a chip total against the
+// rows the list served depends on the buckets being DISJOINT, which is the property
+// TestLeadershipTaskAggregateStatusMatrixOneToManyFanOutAndPageBoundaryStayHonest proves.
+func sumCounts(counts map[string]int) int {
+	total := 0
+	for _, n := range counts {
+		total += n
+	}
+	return total
+}
+
+// TestLeadershipTaskAggregateDateShiftDeadlineRangeCountsWhatItLists is the DATE proof for the
+// unioned list aggregate (repository.go sqlListAggregates).
+//
+// The two date columns of a task mean different things and fall on different DAYS: raised_at is
+// when the leader asked, deadline_at is when they want it back. Every dated task below is
+// raised today and due two, five, nine or twelve days later, so a count arm that silently read
+// raised_at where the rows read deadline_at -- or that dropped the date predicate altogether,
+// which is the cheap way a chip starts advertising rows the list hides -- cannot pass by
+// coincidence the way it could on a single-date fixture.
+//
+// What is proved, in order: the fixture really is date-shifted; a deadline range narrows the
+// rows AND every chip arm by the same predicate; a task with NO deadline leaves the rows and
+// the chips together; a raise range and a deadline range are independent predicates on every
+// arm; and none of it moves when the page size does.
+func TestLeadershipTaskAggregateDateShiftDeadlineRangeCountsWhatItLists(t *testing.T) {
+	pgtest.SkipIfNoDocker(t)
+	ctx := context.Background()
+	pool := pgtest.StartPostgres(t, ctx)
+	seedLeadershipFixture(t, ctx, pool)
+	repo := NewRepository(pool, 10*time.Second)
+
+	base := time.Now().UTC()
+	day := func(n int) *time.Time { v := base.Add(time.Duration(n) * 24 * time.Hour); return &v }
+	seeds := []struct {
+		title    string
+		deadline *time.Time
+		status   string
+	}{
+		{"DateShift alpha", day(2), domain.StatusOpen},
+		{"DateShift bravo", day(5), domain.StatusDone},
+		{"DateShift charlie", day(9), domain.StatusInProgress},
+		{"DateShift delta", nil, domain.StatusOpen},
+		{"DateShift echo", day(12), domain.StatusCancelled},
+	}
+	byTitle := map[string]domain.Task{}
+	for i, s := range seeds {
+		task, err := repo.Raise(ctx, raiseAs(ltDirector, ltCXO, s.title, fmt.Sprintf("dateshift-%d", i), s.deadline))
+		if err != nil {
+			t.Fatalf("raise %s: %v", s.title, err)
+		}
+		if s.status != domain.StatusOpen {
+			actor := domain.Actor{UserID: ltCXO, CanAct: true}
+			if s.status == domain.StatusCancelled {
+				actor = domain.Actor{UserID: ltDirector, CanRaise: true}
+			}
+			if s.status == domain.StatusDone {
+				// The ladder goes through in_progress; done is not reachable in one step from open
+				// for the assignee, so walk it.
+				if _, err := repo.ChangeStatus(ctx, ports.StatusParams{TenantID: ltTenant, Actor: actor, TaskID: task.TaskID, Status: domain.StatusInProgress, RowVersion: task.RowVersion, IdempotencyKey: fmt.Sprintf("dateshift-mid-%d", i)}); err != nil {
+					t.Fatalf("%s -> in_progress: %v", s.title, err)
+				}
+				cur, err := repo.GetTask(ctx, ltTenant, task.TaskID)
+				if err != nil {
+					t.Fatal(err)
+				}
+				task = cur
+			}
+			moved, err := repo.ChangeStatus(ctx, ports.StatusParams{TenantID: ltTenant, Actor: actor, TaskID: task.TaskID, Status: s.status, RowVersion: task.RowVersion, IdempotencyKey: fmt.Sprintf("dateshift-move-%d", i)})
+			if err != nil {
+				t.Fatalf("%s -> %s: %v", s.title, s.status, err)
+			}
+			task = moved
+		}
+		byTitle[s.title] = task
+		time.Sleep(2 * time.Millisecond) // distinct raised_at for a deterministic keyset
+	}
+
+	// 0. THE FIXTURE IS ACTUALLY DATE-SHIFTED. Asserted, not assumed: the reference calls a
+	// single-date fixture a false green, and every proof below is worthless if raised_at and
+	// deadline_at happen to land on the same farm day.
+	ist := time.FixedZone("IST", 5*3600+1800)
+	for _, title := range []string{"DateShift alpha", "DateShift bravo", "DateShift charlie", "DateShift echo"} {
+		task := byTitle[title]
+		if task.DeadlineAt == nil {
+			t.Fatalf("%s lost its deadline", title)
+		}
+		raisedDay := task.RaisedAt.In(ist).Format("2006-01-02")
+		dueDay := task.DeadlineAt.In(ist).Format("2006-01-02")
+		if raisedDay == dueDay {
+			t.Fatalf("%s was raised and is due on the SAME farm day (%s); the date proof needs a shifted fixture", title, raisedDay)
+		}
+	}
+
+	list := func(t *testing.T, p ports.ListParams) ports.Page {
+		t.Helper()
+		p.TenantID, p.UserID = ltTenant, ltCXO
+		if p.Scope == "" {
+			p.Scope = domain.ScopeAssignedToMe
+		}
+		if p.Statuses == nil {
+			p.Statuses = domain.StatusesForFilter(domain.FilterAll)
+		}
+		if p.Limit == 0 {
+			p.Limit = 20
+		}
+		page, err := repo.ListTasks(ctx, p)
+		if err != nil {
+			t.Fatalf("list %+v: %v", p, err)
+		}
+		return page
+	}
+
+	// 1. NO DATE FILTER. Five tasks, one of them cancelled. The rows hide the cancelled one; the
+	// status chips deliberately do not (repository.go statusCountsWhere documents that), so the
+	// chip total is 5 against 4 rows and the scope tabs -- which DO carry status <> 'cancelled'
+	// on every arm -- say 4.
+	wide := list(t, ports.ListParams{})
+	if len(wide.Rows) != 4 {
+		t.Fatalf("unfiltered rows = %d, want the 4 uncancelled tasks", len(wide.Rows))
+	}
+	if got := sumCounts(wide.StatusCounts); got != 5 {
+		t.Fatalf("unfiltered status chips total %d over %v, want 5 (the chips drop the status predicate, so cancelled is in)", got, wide.StatusCounts)
+	}
+	if wide.ScopeCounts[domain.ScopeAssignedToMe] != 4 || wide.ScopeCounts[domain.ScopeTeamProgress] != 4 || wide.ScopeCounts[domain.ScopeAssignedByMe] != 0 {
+		t.Fatalf("unfiltered scope chips = %v, want assigned_to_me=4 team_progress=4 assigned_by_me=0", wide.ScopeCounts)
+	}
+
+	// 2. A DEADLINE RANGE NARROWS THE ROWS AND EVERY CHIP ARM BY THE SAME PREDICATE. Days 1..6
+	// catch alpha (day 2, open) and bravo (day 5, done) and nothing else.
+	from, to := base.Add(24*time.Hour), base.Add(6*24*time.Hour)
+	ranged := list(t, ports.ListParams{DeadlineFrom: &from, DeadlineTo: &to})
+	if len(ranged.Rows) != 2 {
+		t.Fatalf("deadline range rows = %d, want alpha and bravo", len(ranged.Rows))
+	}
+	wantRanged := map[string]int{domain.StatusOpen: 1, domain.StatusDone: 1}
+	if !reflect.DeepEqual(ranged.StatusCounts, wantRanged) {
+		t.Fatalf("deadline range status chips = %v, want exactly %v -- a count arm that dropped the deadline predicate would report the whole list here", ranged.StatusCounts, wantRanged)
+	}
+	if sumCounts(ranged.StatusCounts) != len(ranged.Rows) {
+		t.Fatalf("deadline range chips total %d but the list served %d rows; the chips must count over the SAME date predicate the rows do", sumCounts(ranged.StatusCounts), len(ranged.Rows))
+	}
+	if ranged.ScopeCounts[domain.ScopeAssignedToMe] != 2 || ranged.ScopeCounts[domain.ScopeTeamProgress] != 2 || ranged.ScopeCounts[domain.ScopeAssignedByMe] != 0 {
+		t.Fatalf("deadline range scope chips = %v, want assigned_to_me=2 team_progress=2 assigned_by_me=0", ranged.ScopeCounts)
+	}
+
+	// 3. A TASK WITH NO DEADLINE LEAVES THE ROWS AND THE CHIPS TOGETHER. Days 0..30 catch every
+	// DATED task -- including the cancelled one, which the chips count and the rows do not -- and
+	// must drop delta, which has no deadline at all, from both sides at once.
+	allFrom, allTo := base, base.Add(30*24*time.Hour)
+	dated := list(t, ports.ListParams{DeadlineFrom: &allFrom, DeadlineTo: &allTo})
+	if len(dated.Rows) != 3 {
+		t.Fatalf("wide deadline range rows = %d, want 3 (alpha, bravo, charlie; delta has no deadline and echo is cancelled)", len(dated.Rows))
+	}
+	if got := sumCounts(dated.StatusCounts); got != 4 {
+		t.Fatalf("wide deadline range status chips total %d over %v, want 4 dated tasks; the undated task must drop out of the chips exactly as it drops out of the rows", got, dated.StatusCounts)
+	}
+	if dated.ScopeCounts[domain.ScopeAssignedToMe] != 3 || dated.ScopeCounts[domain.ScopeTeamProgress] != 3 {
+		t.Fatalf("wide deadline range scope chips = %v, want 3 on both arms", dated.ScopeCounts)
+	}
+	for _, r := range dated.Rows {
+		if r.Title == "DateShift delta" {
+			t.Fatal("a deadline range served the task that has no deadline")
+		}
+	}
+
+	// 4. A RANGE THAT MATCHES NOTHING EMPTIES THE ROWS AND EVERY ARM. This is the assertion that
+	// fails loudest if any one arm of the union forgets the request's date predicate: the rows go
+	// to zero while that arm keeps reporting the whole list.
+	farFrom, farTo := base.Add(30*24*time.Hour), base.Add(40*24*time.Hour)
+	empty := list(t, ports.ListParams{DeadlineFrom: &farFrom, DeadlineTo: &farTo})
+	if len(empty.Rows) != 0 || sumCounts(empty.StatusCounts) != 0 {
+		t.Fatalf("a deadline range past every deadline served %d rows and chips %v, want none of either", len(empty.Rows), empty.StatusCounts)
+	}
+	for _, scope := range domain.ScopeKeys {
+		if empty.ScopeCounts[scope] != 0 {
+			t.Fatalf("scope chip %s = %d under a deadline range that matches nothing, want 0 (arm %v)", scope, empty.ScopeCounts[scope], empty.ScopeCounts)
+		}
+	}
+
+	// 5. THE TWO DATE COLUMNS ARE INDEPENDENT PREDICATES ON EVERY ARM. Everything here was raised
+	// TODAY, so a raise range over yesterday must empty the list and all three arms even though
+	// the deadlines it is combined with are squarely inside their own range. An arm that read
+	// raised_at where the rows read deadline_at (or the reverse) cannot satisfy both this and 2.
+	pastFrom, pastTo := base.Add(-48*time.Hour), base.Add(-24*time.Hour)
+	stale := list(t, ports.ListParams{RaisedFrom: &pastFrom, RaisedTo: &pastTo, DeadlineFrom: &from, DeadlineTo: &to})
+	if len(stale.Rows) != 0 || sumCounts(stale.StatusCounts) != 0 || sumCounts(stale.ScopeCounts) != 0 {
+		t.Fatalf("a raise range before every raise served %d rows, status %v, scope %v; want empty everywhere", len(stale.Rows), stale.StatusCounts, stale.ScopeCounts)
+	}
+	// And a raise range that DOES cover today changes nothing about the deadline-ranged answer.
+	todayFrom, todayTo := byTitle["DateShift alpha"].RaisedAt.Add(-time.Minute), base.Add(time.Hour)
+	both := list(t, ports.ListParams{RaisedFrom: &todayFrom, RaisedTo: &todayTo, DeadlineFrom: &from, DeadlineTo: &to})
+	if !reflect.DeepEqual(both.StatusCounts, ranged.StatusCounts) || !reflect.DeepEqual(both.ScopeCounts, ranged.ScopeCounts) || len(both.Rows) != len(ranged.Rows) {
+		t.Fatalf("a raise range covering every raise changed the deadline-ranged answer: rows %d/%d status %v/%v scope %v/%v",
+			len(both.Rows), len(ranged.Rows), both.StatusCounts, ranged.StatusCounts, both.ScopeCounts, ranged.ScopeCounts)
+	}
+
+	// 6. THE DATE-FILTERED CHIPS ARE WHOLE-LIST, NOT PAGE-LOCAL. One row at a time across the
+	// whole ranged list must report the same chips as one page of twenty.
+	cursor := ""
+	pages := 0
+	served := map[string]bool{}
+	for {
+		p := list(t, ports.ListParams{DeadlineFrom: &allFrom, DeadlineTo: &allTo, Limit: 1, Cursor: cursor})
+		pages++
+		for _, r := range p.Rows {
+			if served[r.TaskID] {
+				t.Fatalf("task %s served twice while paging the date-filtered list", r.TaskID)
+			}
+			served[r.TaskID] = true
+		}
+		if !reflect.DeepEqual(p.StatusCounts, dated.StatusCounts) || !reflect.DeepEqual(p.ScopeCounts, dated.ScopeCounts) {
+			t.Fatalf("page %d of 1 under the date filter reports status %v scope %v, want the whole-list %v / %v", pages, p.StatusCounts, p.ScopeCounts, dated.StatusCounts, dated.ScopeCounts)
+		}
+		cursor = p.NextCursor
+		if cursor == "" || pages > 10 {
+			break
+		}
+	}
+	if len(served) != 3 {
+		t.Fatalf("paging the date-filtered list one row at a time served %d distinct tasks over %d pages, want 3", len(served), pages)
+	}
+}
+
+// TestLeadershipTaskAggregateScopeHierarchyCountsWhatEachTabLists is the SCOPE proof for the
+// unioned list aggregate.
+//
+// The three tabs are three different populations, not three views of one: assigned_to_me pins
+// the actor as ASSIGNEE, assigned_by_me pins them as RAISER, team_progress pins neither and is
+// tenant-wide. Each tab's badge is its own arm of the union, and each arm DROPS the person
+// filter its own tab already pins -- otherwise the badge would count rows the tab then refuses
+// to show. That per-tab drop is the thing most likely to be got wrong (the two arms differ only
+// in which of two booleans they pass), so the proof here is not "the numbers look plausible"
+// but "each arm's number equals the rows that tab actually serves, walked page by page".
+//
+// The fixture makes the three populations three genuinely DIFFERENT sizes (3 / 4 / 9 unfiltered
+// and 3 / 4 / 2 filtered), so an arm that dropped the wrong person filter or read the wrong
+// party column cannot land on the right number by luck. It also pins the disjointness the union
+// relies on: the leadership_tasks_not_self CHECK forbids raising a task to yourself, so no task
+// can sit in both party arms and the two inboxes never double-count one fact.
+func TestLeadershipTaskAggregateScopeHierarchyCountsWhatEachTabLists(t *testing.T) {
+	pgtest.SkipIfNoDocker(t)
+	ctx := context.Background()
+	pool := pgtest.StartPostgres(t, ctx)
+	seedLeadershipFixture(t, ctx, pool)
+	repo := NewRepository(pool, 10*time.Second)
+
+	seeds := []struct {
+		raiser, assignee, title string
+		cancel                  bool
+	}{
+		{ltDirector, ltCXO, "ScopeHierarchy to me 1", false},
+		{ltDirector, ltCXO, "ScopeHierarchy to me 2", false},
+		{ltDirector, ltCXO, "ScopeHierarchy to me 3", false},
+		{ltDirector, ltCXO, "ScopeHierarchy to me 4 cancelled", true},
+		{ltCXO, ltCXO2, "ScopeHierarchy by me 4", false},
+		{ltCXO, ltCXO2, "ScopeHierarchy by me 1", false},
+		{ltCXO, ltCXO2, "ScopeHierarchy by me 2", false},
+		{ltCXO, ltCXO2, "ScopeHierarchy by me 3", false},
+		{ltDirector, ltCXO2, "ScopeHierarchy team only 1", false},
+		{ltDirector, ltCXO2, "ScopeHierarchy team only 2", false},
+	}
+	for i, s := range seeds {
+		task, err := repo.Raise(ctx, raiseAs(s.raiser, s.assignee, s.title, fmt.Sprintf("scopeh-%d", i), nil))
+		if err != nil {
+			t.Fatalf("raise %s: %v", s.title, err)
+		}
+		if s.cancel {
+			if _, err := repo.ChangeStatus(ctx, ports.StatusParams{
+				TenantID: ltTenant, Actor: domain.Actor{UserID: s.raiser, CanRaise: true},
+				TaskID: task.TaskID, Status: domain.StatusCancelled, RowVersion: task.RowVersion,
+				IdempotencyKey: fmt.Sprintf("scopeh-cancel-%d", i),
+			}); err != nil {
+				t.Fatalf("cancel %s: %v", s.title, err)
+			}
+		}
+		time.Sleep(2 * time.Millisecond) // distinct raised_at for a deterministic keyset
+	}
+
+	// walk serves ONE tab completely, two rows at a time, and returns the titles it listed. The
+	// small page size is deliberate: the arm-versus-rows comparison below is only worth
+	// something if the rows were genuinely paged across a boundary.
+	walk := func(t *testing.T, p ports.ListParams) ([]string, ports.Page) {
+		t.Helper()
+		p.TenantID, p.UserID = ltTenant, ltCXO
+		p.Statuses = domain.StatusesForFilter(domain.FilterAll)
+		p.Limit = 2
+		titles := []string{}
+		seen := map[string]bool{}
+		var first ports.Page
+		cursor := ""
+		for page := 0; page < 20; page++ {
+			p.Cursor = cursor
+			got, err := repo.ListTasks(ctx, p)
+			if err != nil {
+				t.Fatalf("walk %s: %v", p.Scope, err)
+			}
+			if page == 0 {
+				first = got
+			} else if !reflect.DeepEqual(got.ScopeCounts, first.ScopeCounts) {
+				t.Fatalf("%s page %d reports scope chips %v, want the whole-list %v (the arms must not be page-local)", p.Scope, page, got.ScopeCounts, first.ScopeCounts)
+			}
+			for _, r := range got.Rows {
+				if seen[r.TaskID] {
+					t.Fatalf("%s served %q twice across a page boundary", p.Scope, r.Title)
+				}
+				seen[r.TaskID] = true
+				titles = append(titles, r.Title)
+			}
+			cursor = got.NextCursor
+			if cursor == "" {
+				break
+			}
+		}
+		return titles, first
+	}
+
+	// PART A: NO PERSON FILTERS. assigned_to_me is the actor's live inbox (3 -- the fourth was
+	// cancelled), assigned_by_me is their outbox (4), and team_progress is every uncancelled task
+	// in the tenant (9). Three different numbers from three different party predicates.
+	toMeTitles, toMePage := walk(t, ports.ListParams{Scope: domain.ScopeAssignedToMe})
+	byMeTitles, byMePage := walk(t, ports.ListParams{Scope: domain.ScopeAssignedByMe})
+	teamTitles, teamPage := walk(t, ports.ListParams{Scope: domain.ScopeTeamProgress})
+	wantArms := map[string]int{
+		domain.ScopeAssignedToMe: len(toMeTitles),
+		domain.ScopeAssignedByMe: len(byMeTitles),
+		domain.ScopeTeamProgress: len(teamTitles),
+	}
+	if len(toMeTitles) != 3 || len(byMeTitles) != 4 || len(teamTitles) != 9 {
+		t.Fatalf("tab row counts = to_me %d %v / by_me %d %v / team %d, want 3 / 4 / 9", len(toMeTitles), toMeTitles, len(byMeTitles), byMeTitles, len(teamTitles))
+	}
+	for _, from := range []struct {
+		name string
+		page ports.Page
+	}{{"assigned_to_me", toMePage}, {"assigned_by_me", byMePage}, {"team_progress", teamPage}} {
+		for scope, want := range wantArms {
+			if from.page.ScopeCounts[scope] != want {
+				t.Fatalf("read from the %s tab, the %s badge says %d but that tab LISTS %d rows (all badges %v)", from.name, scope, from.page.ScopeCounts[scope], want, from.page.ScopeCounts)
+			}
+		}
+	}
+	// THE TWO PARTY ARMS ARE DISJOINT, and that is an EXTERNAL fact rather than an assumption:
+	// leadership_tasks_not_self forbids raising a task to yourself, so the inbox and the outbox
+	// cannot share a task and the tenant-wide arm never double-counts one. Asserted both ways --
+	// no title on both party tabs, and the two inboxes fitting inside the tenant-wide arm.
+	onToMe := map[string]bool{}
+	for _, title := range toMeTitles {
+		onToMe[title] = true
+	}
+	for _, title := range byMeTitles {
+		if onToMe[title] {
+			t.Fatalf("%q is on BOTH party tabs; leadership_tasks_not_self should make that impossible", title)
+		}
+	}
+	if _, err := repo.Raise(ctx, raiseAs(ltCXO, ltCXO, "ScopeHierarchy self", "scopeh-self", nil)); err == nil {
+		t.Fatal("raising a task to yourself was accepted; the party arms are only disjoint because the database refuses it")
+	}
+	if len(toMeTitles)+len(byMeTitles) > len(teamTitles) {
+		t.Fatalf("the two party arms (%d + %d) do not fit inside the tenant-wide arm (%d)", len(toMeTitles), len(byMeTitles), len(teamTitles))
+	}
+	// The cancelled task is on no tab and in no arm; every arm carries status <> 'cancelled'.
+	for _, list := range [][]string{toMeTitles, byMeTitles, teamTitles} {
+		for _, title := range list {
+			if title == "ScopeHierarchy to me 4 cancelled" {
+				t.Fatalf("a cancelled task was listed on a tab: %v", list)
+			}
+		}
+	}
+
+	// PART B: THE PER-TAB HONESTY RULE. The request carries BOTH person filters at once. Each
+	// tab drops the one it pins -- assigned_to_me keeps only the raiser filter, assigned_by_me
+	// keeps only the assignee filter, team_progress keeps both -- and each arm must drop exactly
+	// what its tab drops. The three populations come out 3 / 4 / 2, all different, so an arm
+	// that dropped the WRONG filter cannot land on the right number by luck.
+	toMeFiltered, toMeFilteredPage := walk(t, ports.ListParams{Scope: domain.ScopeAssignedToMe, Query: "ScopeHierarchy", RaisedBy: ltDirector})
+	byMeFiltered, byMeFilteredPage := walk(t, ports.ListParams{Scope: domain.ScopeAssignedByMe, Query: "ScopeHierarchy", AssigneeUserID: ltCXO2})
+	teamFiltered, teamFilteredPage := walk(t, ports.ListParams{Scope: domain.ScopeTeamProgress, Query: "ScopeHierarchy", AssigneeUserID: ltCXO2, RaisedBy: ltDirector})
+	if len(toMeFiltered) != 3 || len(byMeFiltered) != 4 || len(teamFiltered) != 2 {
+		t.Fatalf("filtered tab row counts = to_me %d %v / by_me %d %v / team %d %v, want 3 / 4 / 2", len(toMeFiltered), toMeFiltered, len(byMeFiltered), byMeFiltered, len(teamFiltered), teamFiltered)
+	}
+	wantFilteredArms := map[string]int{
+		domain.ScopeAssignedToMe: len(toMeFiltered),
+		domain.ScopeAssignedByMe: len(byMeFiltered),
+		domain.ScopeTeamProgress: len(teamFiltered),
+	}
+	// Every tab renders the same three badges, so all three responses must agree with all three
+	// row walks. This is the assertion that catches an arm dropping the wrong person filter.
+	for _, from := range []struct {
+		name string
+		page ports.Page
+	}{{"assigned_to_me", toMeFilteredPage}, {"assigned_by_me", byMeFilteredPage}, {"team_progress", teamFilteredPage}} {
+		if !reflect.DeepEqual(from.page.ScopeCounts, wantFilteredArms) {
+			t.Fatalf("read from the filtered %s tab, the badges say %v but the tabs LIST %v", from.name, from.page.ScopeCounts, wantFilteredArms)
+		}
+	}
+	// One filter that matches nothing empties the rows and every arm together.
+	missTitles, missPage := walk(t, ports.ListParams{Scope: domain.ScopeTeamProgress, Query: "no such words here"})
+	if len(missTitles) != 0 {
+		t.Fatalf("a text miss listed %v", missTitles)
+	}
+	for _, scope := range domain.ScopeKeys {
+		if missPage.ScopeCounts[scope] != 0 {
+			t.Fatalf("a text miss left the %s badge at %d (all %v)", scope, missPage.ScopeCounts[scope], missPage.ScopeCounts)
+		}
+	}
+}
+
+// liveTaskStatuses reads the status vocabulary from the DATABASE's own CHECK constraint rather
+// than from a remembered list, which the aggregate reference requires: a migration that adds a
+// fifth status must break the status-matrix test rather than leave it silently covering four.
+func liveTaskStatuses(t *testing.T, ctx context.Context, pool *pgxpool.Pool) []string {
+	t.Helper()
+	var def string
+	if err := pool.QueryRow(ctx, `
+SELECT pg_get_constraintdef(c.oid)
+FROM pg_constraint c
+WHERE c.conrelid = 'public.leadership_tasks'::regclass
+  AND c.contype = 'c'
+  AND pg_get_constraintdef(c.oid) ILIKE '%status%'
+ORDER BY c.conname
+LIMIT 1`).Scan(&def); err != nil {
+		t.Fatalf("read the live status CHECK constraint: %v", err)
+	}
+	parts := strings.Split(def, "'")
+	out := make([]string, 0, 4)
+	for i := 1; i < len(parts); i += 2 {
+		out = append(out, parts[i])
+	}
+	if len(out) == 0 {
+		t.Fatalf("no status literals in the CHECK constraint %q", def)
+	}
+	sort.Strings(out)
+	return out
+}
+
+// TestLeadershipTaskAggregateStatusMatrixOneToManyFanOutAndPageBoundaryStayHonest is the
+// STATUS, CARDINALITY and PAGE-BOUNDARY proof for the unioned list aggregate.
+//
+// Three things, and they have to be proved together because each one can hide the others:
+//
+//   - STATUS MATRIX. Every status the live DB CHECK constraint allows is occupied, the
+//     vocabulary is read FROM that constraint rather than from a remembered list, and the
+//     buckets are proved disjoint by summing to the population exactly once.
+//   - ONE-TO-MANY. One task carries two attachments and two notes, one of them with a mention.
+//     Four (attachment, note) combinations exist for it, so a count that reached those tables
+//     would report that task two or four times; the bucket totals must not move at all, and the
+//     row must come back once with all of its children on it.
+//   - PAGE BOUNDARY. The whole list is walked ONE row at a time and the buckets must be
+//     identical on every page and identical to one page of fifty. A bucket that had inherited
+//     the row query's LIMIT would drift page by page.
+func TestLeadershipTaskAggregateStatusMatrixOneToManyFanOutAndPageBoundaryStayHonest(t *testing.T) {
+	pgtest.SkipIfNoDocker(t)
+	ctx := context.Background()
+	pool := pgtest.StartPostgres(t, ctx)
+	seedLeadershipFixture(t, ctx, pool)
+	repo := NewRepository(pool, 10*time.Second)
+	assignee := domain.Actor{UserID: ltCXO, CanAct: true}
+	raiser := domain.Actor{UserID: ltDirector, CanRaise: true}
+
+	// The vocabulary comes from the database, so this test cannot quietly cover a stale set.
+	live := liveTaskStatuses(t, ctx, pool)
+	known := []string{domain.StatusCancelled, domain.StatusDone, domain.StatusInProgress, domain.StatusOpen}
+	if !reflect.DeepEqual(live, known) {
+		t.Fatalf("the live status CHECK allows %v but this module knows %v; the matrix below covers the module's set, so reconcile them before trusting any chip", live, known)
+	}
+
+	// One task per live status, plus a second open and a second done so no bucket is a
+	// degenerate 1 and the fan-out task's bucket has a neighbour to be confused with.
+	want := map[string]int{domain.StatusOpen: 2, domain.StatusInProgress: 1, domain.StatusDone: 2, domain.StatusCancelled: 1}
+	plan := []string{domain.StatusOpen, domain.StatusOpen, domain.StatusInProgress, domain.StatusDone, domain.StatusDone, domain.StatusCancelled}
+	fanOutID := ""
+	for i, status := range plan {
+		p := raiseAs(ltDirector, ltCXO, fmt.Sprintf("StatusMatrix ask %d", i), fmt.Sprintf("statusmatrix-%d", i), nil)
+		// The LAST done task is the one-to-many subject: two attachment proofs on the row.
+		if i == 4 {
+			p = raiseAs(ltDirector, ltCXO, "StatusMatrix ask 4 with children", "statusmatrix-4", nil)
+			p.Attachments = raiseParams(ltCXO, "x", "x", ltProof1, ltProof2).Attachments
+		}
+		task, err := repo.Raise(ctx, p)
+		if err != nil {
+			t.Fatalf("raise %d: %v", i, err)
+		}
+		if i == 4 {
+			fanOutID = task.TaskID
+		}
+		switch status {
+		case domain.StatusInProgress, domain.StatusDone:
+			moved, err := repo.ChangeStatus(ctx, ports.StatusParams{TenantID: ltTenant, Actor: assignee, TaskID: task.TaskID, Status: domain.StatusInProgress, RowVersion: task.RowVersion, IdempotencyKey: fmt.Sprintf("sm-mid-%d", i)})
+			if err != nil {
+				t.Fatalf("%d -> in_progress: %v", i, err)
+			}
+			task = moved
+			if status == domain.StatusDone {
+				if _, err := repo.ChangeStatus(ctx, ports.StatusParams{TenantID: ltTenant, Actor: assignee, TaskID: task.TaskID, Status: domain.StatusDone, RowVersion: task.RowVersion, IdempotencyKey: fmt.Sprintf("sm-done-%d", i)}); err != nil {
+					t.Fatalf("%d -> done: %v", i, err)
+				}
+			}
+		case domain.StatusCancelled:
+			if _, err := repo.ChangeStatus(ctx, ports.StatusParams{TenantID: ltTenant, Actor: raiser, TaskID: task.TaskID, Status: domain.StatusCancelled, RowVersion: task.RowVersion, IdempotencyKey: fmt.Sprintf("sm-cancel-%d", i)}); err != nil {
+				t.Fatalf("%d -> cancelled: %v", i, err)
+			}
+		}
+		time.Sleep(2 * time.Millisecond) // distinct raised_at for a deterministic keyset
+	}
+
+	// TWO notes on the fan-out task, one of them naming another leader. With its two
+	// attachments that is four (attachment, note) pairs for a single task.
+	for n, note := range []struct{ body, key string }{
+		{"Sending this to @Manohar for the vendor call.", "sm-note-1"},
+		{"Second note, same task.", "sm-note-2"},
+	} {
+		cur, err := repo.GetTask(ctx, ltTenant, fanOutID)
+		if err != nil {
+			t.Fatal(err)
+		}
+		mentions := []string{ltCXO2}
+		if n == 1 {
+			mentions = nil
+		}
+		if _, err := repo.SetComment(ctx, ports.CommentParams{
+			TenantID: ltTenant, Actor: assignee, TaskID: cur.TaskID,
+			Comment: note.body, MentionUserIDs: mentions, IdempotencyKey: note.key,
+		}); err != nil {
+			t.Fatalf("note %d: %v", n, err)
+		}
+	}
+
+	list := func(t *testing.T, limit int, cursor string) ports.Page {
+		t.Helper()
+		page, err := repo.ListTasks(ctx, ports.ListParams{
+			TenantID: ltTenant, UserID: ltCXO, Scope: domain.ScopeAssignedToMe,
+			Statuses: domain.StatusesForFilter(domain.FilterAll), Limit: limit, Cursor: cursor,
+		})
+		if err != nil {
+			t.Fatalf("list limit=%d cursor=%q: %v", limit, cursor, err)
+		}
+		return page
+	}
+
+	// 1. EVERY LIVE BUCKET, AND THE BUCKETS ARE DISJOINT. The chips drop the status predicate, so
+	// their population is all six party tasks including the cancelled one; total = sum of the
+	// buckets exactly once, with no bucket outside the live vocabulary.
+	whole := list(t, 50, "")
+	if !reflect.DeepEqual(whole.StatusCounts, want) {
+		t.Fatalf("status buckets = %v, want %v (one per live status, none fanned out by the children)", whole.StatusCounts, want)
+	}
+	if got := sumCounts(whole.StatusCounts); got != len(plan) {
+		t.Fatalf("status buckets total %d over %v, want the %d tasks raised; a fan-out would show up here as a total larger than the population", got, whole.StatusCounts, len(plan))
+	}
+	for bucket := range whole.StatusCounts {
+		if !domain.IsKnownStatus(bucket) {
+			t.Fatalf("status buckets carry %q, which is not in the live vocabulary %v", bucket, live)
+		}
+	}
+	// The rows hide cancelled, so the five uncancelled ones are the list; the unseen badge is
+	// the same five, and neither number is page-local.
+	if len(whole.Rows) != 5 || whole.UnseenCount != 5 {
+		t.Fatalf("whole page: %d rows, unseen %d, want 5 and 5", len(whole.Rows), whole.UnseenCount)
+	}
+
+	// 2. THE FAN-OUT TASK IS ONE ROW WITH ALL ITS CHILDREN, AND ITS BUCKET DID NOT GROW. Its two
+	// attachments and two notes are four combinations; done must still read 2, not 3, 4 or 8.
+	hits := 0
+	for _, r := range whole.Rows {
+		if r.TaskID != fanOutID {
+			continue
+		}
+		hits++
+		if len(r.Attachments) != 2 || r.AttachmentCount != 2 {
+			t.Fatalf("fan-out row attachments = %d (count %d), want 2", len(r.Attachments), r.AttachmentCount)
+		}
+		if len(r.Notes) != 2 {
+			t.Fatalf("fan-out row notes = %d, want 2", len(r.Notes))
+		}
+		mentioned := 0
+		for _, n := range r.Notes {
+			mentioned += len(n.Mentions)
+		}
+		if mentioned != 1 {
+			t.Fatalf("fan-out row mentions = %d across its notes, want 1", mentioned)
+		}
+	}
+	if hits != 1 {
+		t.Fatalf("the task carrying two attachments and two notes came back %d times, want exactly 1 row", hits)
+	}
+
+	// 3. PAGE BOUNDARY. One row at a time over the whole list: same buckets, same unseen badge,
+	// every row exactly once.
+	cursor := ""
+	served := map[string]bool{}
+	for page := 0; page < 10; page++ {
+		p := list(t, 1, cursor)
+		if !reflect.DeepEqual(p.StatusCounts, want) {
+			t.Fatalf("page %d of 1 reports buckets %v, want the whole-list %v (a bucket that inherited the row LIMIT would drift here)", page, p.StatusCounts, want)
+		}
+		if p.UnseenCount != whole.UnseenCount {
+			t.Fatalf("page %d of 1 reports unseen %d, want the whole-list %d", page, p.UnseenCount, whole.UnseenCount)
+		}
+		for _, r := range p.Rows {
+			if served[r.TaskID] {
+				t.Fatalf("task %s served twice while paging one row at a time", r.TaskID)
+			}
+			served[r.TaskID] = true
+		}
+		cursor = p.NextCursor
+		if cursor == "" {
+			break
+		}
+	}
+	if len(served) != 5 {
+		t.Fatalf("paging one row at a time served %d distinct tasks, want 5", len(served))
+	}
+	// 4. AND THE SAME ANSWER FROM A SINGLE FILTERED CHIP. Asking for only the done ones narrows
+	// the ROWS to two while the buckets stay the whole matrix: the chips describe the list the
+	// filter is being applied to, which is what makes them usable as a filter control.
+	doneOnly, err := repo.ListTasks(ctx, ports.ListParams{
+		TenantID: ltTenant, UserID: ltCXO, Scope: domain.ScopeAssignedToMe,
+		Statuses: domain.StatusesForFilter(domain.FilterDone), Limit: 50,
+	})
+	if err != nil {
+		t.Fatalf("done-only page: %v", err)
+	}
+	if len(doneOnly.Rows) != 2 {
+		t.Fatalf("done-only rows = %d, want 2", len(doneOnly.Rows))
+	}
+	if !reflect.DeepEqual(doneOnly.StatusCounts, want) {
+		t.Fatalf("done-only buckets = %v, want the whole matrix %v", doneOnly.StatusCounts, want)
 	}
 }
