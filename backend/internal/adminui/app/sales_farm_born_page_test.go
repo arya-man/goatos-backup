@@ -76,11 +76,11 @@ func TestSalesFarmBornPageContract(t *testing.T) {
 		"filter.park.label", "filter.pen.label", "filter.species.label", "filter.breed.label",
 		"filter.sex.label", "filter.stage.label", "filter.all_option",
 		"filter.bar_aria", "filter.apply", "filter.clear_all",
-		"section.headline.aria", "kpi.on_farm", "kpi.on_farm.detail", "kpi.sold", "kpi.sold.detail",
+		"section.headline.aria", "kpi.sold", "kpi.sold.detail",
 		"kpi.revenue", "kpi.revenue.detail", "kpi.revenue.unpriced", "kpi.avg_price", "kpi.avg_price.detail",
 		"section.breakdowns.title", "section.breakdowns.subtitle",
 		"section.by_breed.title", "section.by_sex.title", "section.by_stage.title", "section.by_pen.title",
-		"column.on_farm", "column.sold", "column.revenue", "column.share_pct", "empty.breakdown",
+		"column.sold", "column.revenue", "column.share_pct", "empty.breakdown",
 		"section.sold.title", "section.sold.subtitle", "section.sold.aria",
 		"empty.sold", "value.no_deal", "value.not_recorded", "pager.noun", "pager.pens", "error.load",
 	} {

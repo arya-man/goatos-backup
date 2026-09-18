@@ -45,6 +45,12 @@ earn" had no screen.
    facts served by the read for the origin reading (not narrowed by the other
    filters); sex / species are contract option groups.
 7. **Read-only by contract.** No control; entry stays on Sales Config.
+8. **No "on the farm now" figure (maintainer instruction 2026-09-19).** The
+   register's `origin_type` is under-filled: 264 of the 2026 kids and 272 older
+   adults carry no origin at all, so a live farm-born count read 248 against a
+   herd the farm knows is larger. Rather than show a number the register cannot
+   back, the tile and the breakdowns' On farm column were removed; the read still
+   returns `on_farm` (unused by the page) until the origin field is repaired.
 
 ## Where it lives
 

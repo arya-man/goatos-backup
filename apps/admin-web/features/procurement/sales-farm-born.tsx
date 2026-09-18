@@ -108,7 +108,6 @@ function BreakdownCard({
           <thead>
             <tr>
               <th />
-              <th className="num">{copy(pageContract, "column.on_farm")}</th>
               <th className="num">{copy(pageContract, "column.sold")}</th>
               <th className="num">{copy(pageContract, "column.share_pct")}</th>
               <th className="num">{copy(pageContract, "column.revenue")}</th>
@@ -117,7 +116,7 @@ function BreakdownCard({
           <tbody>
             {rows.length === 0 ? (
               <tr>
-                <td colSpan={5}>
+                <td colSpan={4}>
                   <div className="empty">{copy(pageContract, "empty.breakdown")}</div>
                 </td>
               </tr>
@@ -128,7 +127,6 @@ function BreakdownCard({
                     <b>{row.label}</b>
                     {row.detail ? <div className="muted small">{row.detail}</div> : null}
                   </td>
-                  <td className="num">{num(row.on_farm)}</td>
                   <td className="num">
                     <b>{num(row.sold)}</b>
                   </td>
@@ -191,12 +189,10 @@ function FarmBornSections({
 
   return (
     <>
-      <section className="grid g4 kpi-row sales-kpi-row" aria-label={copy(pageContract, "section.headline.aria")}>
-        <div className="kpi">
-          <div className="lab">{copy(pageContract, "kpi.on_farm")}</div>
-          <div className="val">{num(s.on_farm)}</div>
-          <div className="dl">{copy(pageContract, "kpi.on_farm.detail")}</div>
-        </div>
+      {/* No "on the farm now" tile (maintainer instruction 2026-09-19): the register's origin
+          field is under-filled -- 264 of this year's kids carry no origin -- so a live farm-born
+          count would be wrong for as long as that stays true. The page reports SALES. */}
+      <section className="grid g3 kpi-row sales-kpi-row" aria-label={copy(pageContract, "section.headline.aria")}>
         <div className="kpi">
           <div className="lab">{copy(pageContract, "kpi.sold")}</div>
           <div className="val">{num(s.sold)}</div>
