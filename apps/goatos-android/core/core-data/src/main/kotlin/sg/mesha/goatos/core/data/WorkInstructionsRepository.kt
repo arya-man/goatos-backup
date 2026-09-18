@@ -67,7 +67,10 @@ class DefaultWorkInstructionsRepository(
         dao.enforceCacheBounds()
     }.onFailure { if (it is CancellationException) throw it }
 
-    override suspend fun start(sopCode: String, runKey: String): Result<String> = runCatching {
+    // A WRITE, not a read: opens a run under the caller's idempotency key (a replay returns the
+    // same run). The list it came from is Room-backed above; the run itself is then observed on the
+    // shared workflow detail, which has its own cache.
+    override suspend fun start(sopCode: String, runKey: String): Result<String> = runCatching { // offline-first-guard:ignore: write path (start a run under an idempotency key), not a screen read
         api.startWorkflow(runKey, StartWorkflowRequestDto(sopCode = sopCode)).workflowId
     }
 
