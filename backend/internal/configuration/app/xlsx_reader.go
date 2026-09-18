@@ -76,6 +76,14 @@ func openXLSX(data []byte) (*xlsxWorkbook, error) {
 	return wb, nil
 }
 
+// endOfPart reads a part's end as done and anything else as the malformed workbook it is.
+func endOfPart(err error) error {
+	if errors.Is(err, io.EOF) {
+		return nil
+	}
+	return err
+}
+
 func readZipXML(f *zip.File, visit func(dec *xml.Decoder) error) error {
 	rc, err := f.Open()
 	if err != nil {
@@ -96,7 +104,7 @@ func xlsxFirstSheetPath(files map[string]*zip.File) (string, error) {
 		for {
 			tok, err := dec.Token()
 			if err != nil {
-				return nil
+				return endOfPart(err)
 			}
 			if se, ok := tok.(xml.StartElement); ok && se.Name.Local == "sheet" {
 				for _, a := range se.Attr {
@@ -120,7 +128,7 @@ func xlsxFirstSheetPath(files map[string]*zip.File) (string, error) {
 			for {
 				tok, err := dec.Token()
 				if err != nil {
-					return nil
+					return endOfPart(err)
 				}
 				if se, ok := tok.(xml.StartElement); ok && se.Name.Local == "Relationship" {
 					id, t := "", ""
@@ -160,7 +168,7 @@ func (wb *xlsxWorkbook) loadSharedStrings(f *zip.File) error {
 		for {
 			tok, err := dec.Token()
 			if err != nil {
-				return nil
+				return endOfPart(err)
 			}
 			switch t := tok.(type) {
 			case xml.StartElement:
@@ -199,7 +207,7 @@ func (wb *xlsxWorkbook) loadStyles(f *zip.File) error {
 		for {
 			tok, err := dec.Token()
 			if err != nil {
-				return nil
+				return endOfPart(err)
 			}
 			switch t := tok.(type) {
 			case xml.StartElement:
