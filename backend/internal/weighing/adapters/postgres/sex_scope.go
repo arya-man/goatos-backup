@@ -45,6 +45,70 @@ import (
 // the identical opaque shape, so a read consumes "which rows did the reader ask for" without
 // knowing which filters produced the answer.
 
+// scopeShedTargetsCTE resolves every scoped lump-sum bucket to the register shed whose residents
+// it holds, and is SHARED by the sex scope, the origin scope and the bucket-only origin scope: all
+// three attribute a whole-shed weigh by the same rule, and three copies of the resolution would
+// drift. It expects a preceding CTE named "scoped" exposing (location_id, partition_label,
+// weighing_category) and emits "shed_targets" (location_id, partition_label, resolved_id,
+// resolved_partition_label).
+//
+// originScopeShedTargetsCTE in origin_scope.go is a BYTE-IDENTICAL copy, pinned by
+// TestOriginScopeShedTargetsCTEIsTheSexScopeOne. Two constants rather than one import because
+// check-weighing-free-flow-guard.mjs reads each exempt file on its own and must see the CTE
+// defined in the file that references it; a shared constant would read to it as a table.
+//
+// A whole-shed weigh has no tags, so it is attributed by the cohort its shed holds. The bucket
+// points at a PARTITION (Castro 1) but the herd register puts the animals on the physical shed
+// (Castro), so each bucket resolves to its partition's own residents when it has any and
+// otherwise to its parent shed's -- the same resolution the demographics read uses, for the same
+// reason: looking only at the partition finds nothing and silently drops every whole-shed weigh.
+const scopeShedTargetsCTE = `
+-- SET-BASED, NOT PER ROW (2026-09-18, found by PR #304's cold-path gate). The first version
+-- wrote the "does this shed hold anyone" test and the parent-shed lookup as correlated
+-- subqueries inside the SELECT list. Postgres evaluated both once PER scoped bucket, and the
+-- parent lookup nested a seq scan of locations inside another (8,154 inner loops on the
+-- staging clone), so this one CTE cost ~160 ms of a ~200 ms read and every cold Weights read
+-- paid it. The same facts are now computed ONCE as sets and joined on their keys: occupied
+-- is the set of sheds with a live resident, parent_sheds is one row per (parent, name), and
+-- the bucket's own location row supplies the parent name it is matched on. MATERIALIZED keeps
+-- the planner from inlining this into the goats join below and re-evaluating it per resident
+-- (which is what turned the bucket-only origin read into a 1.8 s query). Same rows, same
+-- rule, same resolution as before -- only the shape; verified byte-identical against the old
+-- query on the staging clone for every filter value, window and park combination.
+occupied AS (
+  SELECT DISTINCT gg.shed_id
+  FROM goats gg
+  WHERE gg.tenant_id = $1::uuid AND gg.lifecycle_status = 'alive' AND gg.shed_id IS NOT NULL
+),
+-- Every physical shed of the tenant, ONE per (parent, name): the same row the old
+-- "LIMIT 1" picked, now chosen deterministically (lowest location_id) and joined on its key.
+parent_sheds AS (
+  SELECT DISTINCT ON (ps.parent_location_id, ps.name) ps.location_id, ps.parent_location_id, ps.name
+  FROM locations ps
+  WHERE ps.tenant_id = $1::uuid AND ps.location_type = 'shed'
+  ORDER BY ps.parent_location_id, ps.name, ps.location_id
+),
+shed_targets AS MATERIALIZED (
+  SELECT DISTINCT s.location_id, s.partition_label,
+         COALESCE(CASE WHEN occ.shed_id IS NOT NULL THEN s.location_id END, phys.location_id) AS resolved_id,
+         COALESCE(NULLIF(s.partition_label, ''),
+                  NULLIF((regexp_match(s.location_name, '\s*(?:-\s*)?(?:Part\s*)?([0-9]+)$'))[1], ''),
+                  '') AS resolved_partition_label
+  FROM (
+    SELECT s.location_id, s.partition_label, s.weighing_category,
+           loc.tenant_id AS location_tenant_id, loc.parent_location_id, loc.name AS location_name,
+           regexp_replace(loc.name, '\s*(-\s*)?(Part\s*)?[0-9]+$', '') AS parent_name
+    FROM scoped s
+    LEFT JOIN locations loc ON loc.location_id = s.location_id
+  ) s
+  LEFT JOIN occupied occ ON occ.shed_id = s.location_id
+  LEFT JOIN parent_sheds phys ON s.location_tenant_id = $1::uuid
+   AND phys.parent_location_id = s.parent_location_id
+   AND phys.name = s.parent_name
+  WHERE s.weighing_category = 'per_shed_partition'
+),
+`
+
 // normalizeSexFilter accepts the two values the herd register carries and rejects everything
 // else, rather than passing an arbitrary string into a predicate. An unknown value is an
 // error, never a silent "no filter": silently widening a filter shows a reader more kids than
@@ -114,7 +178,27 @@ func resolveSexScope(ctx context.Context, pool *pgxpool.Pool, tenantID string, p
 		return out, nil
 	}
 
-	const q = ` -- scale-guard:ignore: bounded by the selected window and park list; one reporting read per Weights page load, resolving only the tags actually weighed and the lump-sum buckets actually scoped. The one unwindowed arm (weighed_ever) is OPT-IN behind $6 and executes as a One-Time Filter for every caller that does not ask, so a windowed read pays nothing for it; the single caller that does ask, sale readiness, scans no more than it already scans for itself
+	q := sexScopeQuery
+
+	// The two bucket arrays are aggregated under the SAME ORDER BY over the same rows, so index
+	// i names one bucket in both. Built any other way — one DISTINCT and its partner not, or two
+	// differently ordered aggregates — every index would silently shift and pair a location with
+	// another bucket's partition.
+	if err := pool.QueryRow(ctx, q, tenantID, parkIDs, periodStart, periodEnd, normalized, includeAllTime).Scan(
+		&out.Tags, &out.AllTimeTags, &out.LocationIDs, &out.PartitionLabels,
+	); err != nil {
+		return SexScope{}, err
+	}
+	out.allTimeResolved = includeAllTime
+	if err := assertBucketArraysAgree("sex scope", out); err != nil {
+		return SexScope{}, err
+	}
+	return out, nil
+}
+
+// sexScopeQuery is the SQL behind resolveSexScope, package-level so the equivalence test can run the
+// identical text against the retired shed_targets CTE.
+const sexScopeQuery = ` -- scale-guard:ignore: bounded by the selected window and park list; one reporting read per Weights page load, resolving only the tags actually weighed and the lump-sum buckets actually scoped. The one unwindowed arm (weighed_ever) is OPT-IN behind $6 and executes as a One-Time Filter for every caller that does not ask, so a windowed read pays nothing for it; the single caller that does ask, sale readiness, scans no more than it already scans for itself
 WITH scoped AS (
   SELECT cs.campaign_shed_id, cs.location_id, COALESCE(cs.partition_label, '') AS partition_label, cs.weighing_category
   FROM weighing_campaign_sheds cs
@@ -185,28 +269,7 @@ sexed_tags_ever AS (
 -- (Castro), so each bucket resolves to its partition's own residents when it has any and
 -- otherwise to its parent shed's — the same resolution the demographics read uses, for the same
 -- reason: looking only at the partition finds nothing and silently drops every whole-shed weigh.
-shed_targets AS (
-  SELECT DISTINCT s.location_id, s.partition_label,
-         COALESCE(
-           CASE WHEN EXISTS (SELECT 1 FROM goats gg WHERE gg.tenant_id = $1::uuid
-                              AND gg.lifecycle_status = 'alive' AND gg.shed_id = s.location_id)
-                THEN s.location_id END,
-           (SELECT phys.location_id FROM locations phys
-            JOIN locations l ON l.location_id = s.location_id AND l.tenant_id = $1::uuid
-            WHERE phys.tenant_id = l.tenant_id
-              AND phys.parent_location_id = l.parent_location_id
-              AND phys.location_type = 'shed'
-              AND phys.name = regexp_replace(l.name, '\s*(-\s*)?(Part\s*)?[0-9]+$', '')
-            LIMIT 1)
-         ) AS resolved_id,
-         COALESCE(NULLIF(s.partition_label, ''),
-                  NULLIF((regexp_match((SELECT l.name FROM locations l WHERE l.location_id = s.location_id),
-                                       '\s*(?:-\s*)?(?:Part\s*)?([0-9]+)$'))[1], ''),
-                  '') AS resolved_partition_label
-  FROM scoped s
-  WHERE s.weighing_category = 'per_shed_partition'
-),
--- HAVING count(DISTINCT sex) = 1 is what keeps this honest. The maintainer's rule is that a
+` + scopeShedTargetsCTE + `-- HAVING count(DISTINCT sex) = 1 is what keeps this honest. The maintainer's rule is that a
 -- lump-sum shed holds one sex (2026-08-26), and this claims the bucket only when the register
 -- AGREES: a shed that turns out to hold both is claimed by NEITHER side rather than guessed at,
 -- because splitting one shed average across a mix invents a distribution nobody measured.
@@ -234,19 +297,3 @@ SELECT
   (SELECT COALESCE(array_agg(tag), '{}') FROM sexed_tags_ever),
   (SELECT COALESCE(array_agg(location_id::text ORDER BY location_id::text, partition_label), '{}') FROM sexed_buckets),
   (SELECT COALESCE(array_agg(partition_label ORDER BY location_id::text, partition_label), '{}') FROM sexed_buckets)`
-
-	// The two bucket arrays are aggregated under the SAME ORDER BY over the same rows, so index
-	// i names one bucket in both. Built any other way — one DISTINCT and its partner not, or two
-	// differently ordered aggregates — every index would silently shift and pair a location with
-	// another bucket's partition.
-	if err := pool.QueryRow(ctx, q, tenantID, parkIDs, periodStart, periodEnd, normalized, includeAllTime).Scan(
-		&out.Tags, &out.AllTimeTags, &out.LocationIDs, &out.PartitionLabels,
-	); err != nil {
-		return SexScope{}, err
-	}
-	out.allTimeResolved = includeAllTime
-	if err := assertBucketArraysAgree("sex scope", out); err != nil {
-		return SexScope{}, err
-	}
-	return out, nil
-}
