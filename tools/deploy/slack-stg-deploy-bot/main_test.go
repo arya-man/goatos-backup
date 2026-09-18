@@ -81,6 +81,24 @@ func TestDeployPanelCopiesStayIdleAndConsistent(t *testing.T) {
 	}
 }
 
+func TestSlackDeployKeepsZeroDowntimeDefaultEnabled(t *testing.T) {
+	mainContent, err := os.ReadFile("main.go")
+	if err != nil {
+		t.Fatalf("read main.go: %v", err)
+	}
+	if !strings.Contains(string(mainContent), `"_GOATOS_STG_ZERO_DOWNTIME_DEPLOY": "true"`) {
+		t.Fatalf("Slack-triggered backend/web deploys must force the zero-downtime Cloud Build substitution")
+	}
+
+	cloudBuildContent, err := os.ReadFile("../../../cloudbuild.stg.yaml")
+	if err != nil {
+		t.Fatalf("read cloudbuild.stg.yaml: %v", err)
+	}
+	if !strings.Contains(string(cloudBuildContent), `_GOATOS_STG_ZERO_DOWNTIME_DEPLOY: "true"`) {
+		t.Fatalf("Cloud Build default must keep zero-downtime deploy enabled")
+	}
+}
+
 func TestMobileDistributionRequiresForceUpdateRemoteConfig(t *testing.T) {
 	content, err := os.ReadFile("../stg-mobile-distribution.sh")
 	if err != nil {

@@ -11,7 +11,7 @@ PUBLIC_DASHBOARD_HOST="${PUBLIC_DASHBOARD_HOST:-dashboard.mesha.sg}"
 PUBLIC_API_HOST="${PUBLIC_API_HOST:-api.goatos.mesha.sg}"
 EXPECTED_LB_IP="${EXPECTED_LB_IP:-8.233.143.24}"
 URL_MAP_NAME="${URL_MAP_NAME:-goatos-stg-dashboard-map}"
-GOATOS_STG_ZERO_DOWNTIME_DEPLOY="${GOATOS_STG_ZERO_DOWNTIME_DEPLOY:-false}"
+GOATOS_STG_ZERO_DOWNTIME_DEPLOY="${GOATOS_STG_ZERO_DOWNTIME_DEPLOY:-true}"
 
 if repo_root="$(git rev-parse --show-toplevel 2>/dev/null)"; then
   :

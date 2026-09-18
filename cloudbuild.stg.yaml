@@ -10,7 +10,7 @@ substitutions:
   _SLACK_WEBHOOK_SECRET: goatos-stg-deploy-slack-webhook-url
   _DEPLOY_STG: "true"
   _DEPLOY_MOBILE: "false"
-  _GOATOS_STG_ZERO_DOWNTIME_DEPLOY: "false"
+  _GOATOS_STG_ZERO_DOWNTIME_DEPLOY: "true"
   _SLACK_USER_ID: ""
   _TRIGGERED_BY: "unknown Slack user"
 

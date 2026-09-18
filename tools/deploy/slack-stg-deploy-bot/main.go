@@ -771,10 +771,11 @@ func (cfg config) runTrigger(ctx context.Context, deploySTG, mobileDistribution 
 	source := map[string]any{
 		"branchName": "main",
 		"substitutions": map[string]string{
-			"_DEPLOY_STG":    strconv.FormatBool(deploySTG),
-			"_DEPLOY_MOBILE": strconv.FormatBool(mobileDistribution),
-			"_SLACK_USER_ID": slackUserID,
-			"_TRIGGERED_BY":  triggeredBy,
+			"_DEPLOY_STG":                       strconv.FormatBool(deploySTG),
+			"_DEPLOY_MOBILE":                    strconv.FormatBool(mobileDistribution),
+			"_GOATOS_STG_ZERO_DOWNTIME_DEPLOY": "true",
+			"_SLACK_USER_ID":                    slackUserID,
+			"_TRIGGERED_BY":                     triggeredBy,
 		},
 	}
 	if sourceCommitSHA != "" {
