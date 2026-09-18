@@ -13,7 +13,7 @@ Fix PR 303 review finding: keyed configuration registers accepted a stale delete
 
 ## Pending
 
-- Push to PR branch `feat/config-items-settings`.
+- None.
 
 ## Tests / E2E
 
@@ -26,7 +26,7 @@ Fix PR 303 review finding: keyed configuration registers accepted a stale delete
 ## Current SHA
 
 - Base before fix: `52b2bd4928f09ac8cbd725f927ef7ebf9caf7ed6`.
-- Local fix branch pending push.
+- Fix commit pushed: `aa429412c`.
 
 ## Deployment State
 
