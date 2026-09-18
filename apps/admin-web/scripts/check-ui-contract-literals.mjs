@@ -147,6 +147,7 @@ const files = [];
 for (const scanPath of SCAN_PATHS) walk(join(ROOT, scanPath), files);
 
 const findings = [];
+const SELF_TEST = process.argv.includes("--self-test");
 
 function readIfExists(path) {
   return existsSync(path) ? readFileSync(path, "utf8") : "";
@@ -158,62 +159,481 @@ function addMatches(set, source, pattern) {
   }
 }
 
-function readAdminUiBackendSources(repoRoot) {
-  const dir = join(repoRoot, "backend/internal/adminui/app");
-  if (!existsSync(dir)) return "";
-  return readdirSync(dir)
-    .filter((entry) => entry.endsWith(".go"))
-    .map((entry) => readIfExists(join(dir, entry)))
-    .join("\n");
+function union(...sets) {
+  const out = new Set();
+  for (const set of sets) {
+    for (const value of set) out.add(value);
+  }
+  return out;
+}
+
+function setForRoute(map, routeId) {
+  if (!map.has(routeId)) map.set(routeId, new Set());
+  return map.get(routeId);
+}
+
+function addRouteMatches(map, routeId, source, pattern) {
+  addMatches(setForRoute(map, routeId), source, pattern);
+}
+
+function readProductionAdminUiService(repoRoot) {
+  return readIfExists(join(repoRoot, "backend/internal/adminui/app/service.go"));
+}
+
+function findMatchingBrace(source, openIndex) {
+  let depth = 0;
+  let quote = "";
+  let escaped = false;
+  for (let i = openIndex; i < source.length; i += 1) {
+    const ch = source[i];
+    if (quote) {
+      if (escaped) {
+        escaped = false;
+      } else if (ch === "\\") {
+        escaped = true;
+      } else if (ch === quote) {
+        quote = "";
+      }
+      continue;
+    }
+    if (ch === '"' || ch === "`") {
+      quote = ch;
+      continue;
+    }
+    if (ch === "{") depth += 1;
+    if (ch === "}") {
+      depth -= 1;
+      if (depth === 0) return i;
+    }
+  }
+  return -1;
+}
+
+function routeBlocksFromSwitch(source) {
+  const blocks = [];
+  const scanSource = functionBody(source, "pageSpecificCopy");
+  if (!scanSource) return blocks;
+  const casePattern = /case\s+((?:"[^"]+"\s*,?\s*)+):/g;
+  const matches = [...scanSource.matchAll(casePattern)];
+  const matchByRoute = new Map();
+  matches.forEach((match, index) => {
+    for (const label of match[1].matchAll(/"([^"]+)"/g)) {
+      matchByRoute.set(label[1], { match, index });
+    }
+  });
+  const extractRouteBodies = (routeId, seen = new Set()) => {
+    if (seen.has(routeId)) return [];
+    seen.add(routeId);
+    const entry = matchByRoute.get(routeId);
+    if (!entry) return [];
+    const start = entry.match.index;
+    const end = matches[entry.index + 1]?.index ?? scanSource.length;
+    const caseBody = scanSource.slice(start, end);
+    const blockBodies = [];
+    const mapPattern = /map\[string\]string\s*\{/g;
+    for (const mapMatch of caseBody.matchAll(mapPattern)) {
+      const openIndex = scanSource.indexOf("{", start + mapMatch.index);
+      const closeIndex = findMatchingBrace(scanSource, openIndex);
+      if (closeIndex === -1 || closeIndex > end) continue;
+      blockBodies.push(scanSource.slice(openIndex + 1, closeIndex));
+    }
+    for (const helperMatch of caseBody.matchAll(/\b([a-zA-Z][A-Za-z0-9]*)Copy\(\)/g)) {
+      const helperBody = functionBody(source, `${helperMatch[1]}Copy`);
+      for (const helperMapMatch of helperBody.matchAll(mapPattern)) {
+        const openIndex = helperBody.indexOf("{", helperMapMatch.index);
+        const closeIndex = findMatchingBrace(helperBody, openIndex);
+        if (closeIndex === -1) continue;
+        blockBodies.push(helperBody.slice(openIndex + 1, closeIndex));
+      }
+    }
+    for (const includeMatch of caseBody.matchAll(/pageSpecificCopy\("([^"]+)"\)/g)) {
+      blockBodies.push(...extractRouteBodies(includeMatch[1], seen));
+    }
+    return blockBodies;
+  };
+  for (let i = 0; i < matches.length; i += 1) {
+    const match = matches[i];
+    for (const label of match[1].matchAll(/"([^"]+)"/g)) {
+      const routeId = label[1];
+      const blockBodies = extractRouteBodies(routeId);
+      if (blockBodies.length > 0) blocks.push({ routeId, body: blockBodies.join("\n") });
+    }
+  }
+  if (blocks.length > 0) return blocks;
+
+  const fallbackCasePattern = /case\s+"([^"]+)"\s*:\s*return\s+map\[string\]string\s*\{/g;
+  for (const match of source.matchAll(fallbackCasePattern)) {
+    const routeId = match[1];
+    const openIndex = source.indexOf("{", match.index);
+    const closeIndex = findMatchingBrace(source, openIndex);
+    if (closeIndex === -1) continue;
+    blocks.push({ routeId, body: source.slice(openIndex + 1, closeIndex) });
+  }
+  return blocks;
+}
+
+function functionBody(source, name) {
+  const start = source.indexOf(`func ${name}`);
+  if (start === -1) return "";
+  const openIndex = source.indexOf("{", start);
+  const closeIndex = findMatchingBrace(source, openIndex);
+  return closeIndex === -1 ? "" : source.slice(openIndex + 1, closeIndex);
+}
+
+function caseBodiesFromFunction(source, name) {
+  const body = functionBody(source, name);
+  const matches = [...body.matchAll(/case\s+([^:]+)\s*:/g)];
+  return matches.map((match, index) => ({
+    labels: [...match[1].matchAll(/"([^"]+)"/g)].map((label) => label[1]),
+    body: body.slice(match.index, matches[index + 1]?.index ?? body.length),
+  }));
+}
+
+function mapBodyAfter(source, marker) {
+  const start = source.indexOf(marker);
+  if (start === -1) return "";
+  const openIndex = source.indexOf("{", start);
+  const closeIndex = findMatchingBrace(source, openIndex);
+  return closeIndex === -1 ? "" : source.slice(openIndex + 1, closeIndex);
+}
+
+function routeBlocksFromTsRecord(source, recordName) {
+  const start = source.indexOf(`const ${recordName}`);
+  if (start === -1) return [];
+  const firstBrace = source.indexOf("{", start);
+  const end = findMatchingBrace(source, firstBrace);
+  if (end === -1) return [];
+  const blocks = [];
+  let i = firstBrace + 1;
+  while (i < end) {
+    while (i < end && /[\s,]/.test(source[i])) i += 1;
+    while (source.startsWith("//", i)) {
+      const nextLine = source.indexOf("\n", i);
+      i = nextLine === -1 ? end : nextLine + 1;
+      while (i < end && /[\s,]/.test(source[i])) i += 1;
+    }
+    if (i >= end) break;
+    let routeId = "";
+    if (source[i] === '"' || source[i] === "'") {
+      const quote = source[i];
+      const close = source.indexOf(quote, i + 1);
+      if (close === -1 || close > end) break;
+      routeId = source.slice(i + 1, close);
+      i = close + 1;
+    } else {
+      const match = /^[A-Za-z0-9_.-]+/.exec(source.slice(i));
+      if (!match) {
+        i += 1;
+        continue;
+      }
+      routeId = match[0];
+      i += routeId.length;
+    }
+    while (i < end && /\s/.test(source[i])) i += 1;
+    if (source[i] !== ":") continue;
+    i += 1;
+    while (i < end && /\s/.test(source[i])) i += 1;
+    if (source[i] !== "{") continue;
+    const openIndex = i;
+    const closeIndex = findMatchingBrace(source, openIndex);
+    if (closeIndex === -1 || closeIndex > end) continue;
+    blocks.push({ routeId, body: source.slice(openIndex + 1, closeIndex) });
+    i = closeIndex + 1;
+  }
+  return blocks;
+}
+
+function idsFromGoBody(body) {
+  const ids = new Set();
+  addMatches(ids, body, /\bID:\s*"([^"]+)"/g);
+  return ids;
+}
+
+function tableIdsFromGoBody(body) {
+  const ids = new Set();
+  addMatches(ids, body, /\btableP?\(\s*"([^"]+)"/g);
+  return ids;
+}
+
+function addAll(target, values) {
+  for (const value of values) target.add(value);
+}
+
+function controlIdsFromFunction(source, name, seen = new Set()) {
+  if (seen.has(name)) return new Set();
+  seen.add(name);
+  const body = functionBody(source, name);
+  const ids = idsFromGoBody(body);
+  for (const match of body.matchAll(/\b([a-zA-Z][A-Za-z0-9]*(?:Control|Controls))\(/g)) {
+    addAll(ids, controlIdsFromFunction(source, match[1], seen));
+  }
+  return ids;
+}
+
+const ROUTE_BY_PATH_PREFIX = [
+  ["features/procurement/sales-record-drawer", ["sales-sold", "sales-config"]],
+  ["features/procurement/loadwise-section", ["sales-loads", "sales-config"]],
+  ["features/procurement/load-cost-drawer", ["sales-loads", "sales-config"]],
+  ["features/procurement/load-detail", "source-load"],
+  ["features/procurement/sales-buyer-analytics", "sales-buyer-analytics"],
+  ["features/procurement/sales-loads", "sales-loads"],
+  ["features/action-center/", "action-center"],
+  ["features/alerts/", "alerts"],
+  ["features/calendar/", "calendar"],
+  ["features/counts/herd-passport", "herd-register"],
+  ["features/counts/herd-register", "herd-register"],
+  ["features/counts/counts-breakdown", "counts-breakdown"],
+  ["features/feed/feed-analytics", "feed-analytics"],
+  ["features/feed/feed-config", "feed-config"],
+  ["features/feed/feed-direction", "feed-direction"],
+  ["features/feed/feed-packing", "feed-packing"],
+  ["features/health/health-analytics", "health-analytics"],
+  ["features/health/health-config", "health-config"],
+  ["features/goat-passport/", "goat-passport"],
+  ["features/leave/", "leave"],
+  ["features/pen-routines/", "pen-routines"],
+  ["features/procurement/animal-purchases", "animal-purchases"],
+  ["features/procurement/feed-purchase", "feed-purchases"],
+  ["features/procurement/source-load", "source-load"],
+  ["features/process-integrity/action-center", "action-center"],
+  ["features/process-integrity/protocol-adherence", "protocol-adherence"],
+  ["features/process-integrity/workflow-drilldown", "workflow-record"],
+  ["features/process-integrity/workflow", "workflows"],
+  ["features/sales/buyer", "sales-buyer-analytics"],
+  ["features/sales/farm-value", "sales-farm-value"],
+  ["features/sales/sales-config", "sales-config"],
+  ["features/sales/sales-loads", "sales-loads"],
+  ["features/sales/sales-sold", "sales-sold"],
+  ["features/sales/market", "sales-market-analytics"],
+  ["features/sales/vendors", "sales-vendors"],
+  ["features/sales/", "sales-sold"],
+  ["features/verification-review/", "verification-review"],
+  ["features/preventive-care-vaccination/", "vaccination"],
+  ["features/vaccination-sheds/shed-detail", "shed-execution"],
+  ["features/vaccination-sheds/shed-passport-local-drawer", "shed-execution"],
+  ["features/vaccination-sheds/", "vaccination"],
+  ["features/vaccination-execution/execution-board", "vaccination"],
+  ["features/vaccination-execution/", "shed-execution"],
+  ["features/weighing/weights-analytics", "weighing-analytics"],
+  ["features/weighing/weights-export", "weighing-analytics"],
+  ["features/weighing/weights", "weighing-weights"],
+  ["features/work-board/", "work-board"],
+  ["app/(admin)/action-center/", "action-center"],
+  ["app/(admin)/alerts/", "alerts"],
+  ["app/(admin)/calendar/drive/", "calendar"],
+  ["app/(admin)/calendar/", "calendar"],
+  ["app/(admin)/counts/breakdown/", "counts-breakdown"],
+  ["app/(admin)/counts/herd/", "herd-register"],
+  ["app/(admin)/feed/analytics/", "feed-analytics"],
+  ["app/(admin)/feed/config/", "feed-config"],
+  ["app/(admin)/feed/direction/", "feed-direction"],
+  ["app/(admin)/feed/packing/", "feed-packing"],
+  ["app/(admin)/health/analytics/", "health-analytics"],
+  ["app/(admin)/health/config/", "health-config"],
+  ["app/(admin)/goats/", "goat-passport"],
+  ["app/(admin)/leave/", "leave"],
+  ["app/(admin)/procurement/animal-purchases/", "animal-purchases"],
+  ["app/(admin)/procurement/feed-purchases/", "feed-purchases"],
+  ["app/(admin)/procurement/source-entry/loads/", "source-load"],
+  ["app/(admin)/procurement/source-entry/", "source-entry"],
+  ["app/(admin)/procurement/vendors/", "vendors"],
+  ["app/(admin)/protocol-adherence/", "protocol-adherence"],
+  ["app/(admin)/routines/", "pen-routines"],
+  ["app/(admin)/sales/buyer-analytics/", "sales-buyer-analytics"],
+  ["app/(admin)/sales/config/", "sales-config"],
+  ["app/(admin)/sales/farm-value/", "sales-farm-value"],
+  ["app/(admin)/sales/loads/", "sales-loads"],
+  ["app/(admin)/sales/market-analytics/", "sales-market-analytics"],
+  ["app/(admin)/sales/vendors/", "sales-vendors"],
+  ["app/(admin)/sales/sold/", "sales-sold"],
+  ["app/(admin)/vaccination/", "vaccination"],
+  ["app/(admin)/verification/", "verification-review"],
+  ["app/(admin)/verify/", "verification-review"],
+  ["app/(admin)/weighing/analytics/", "weighing-analytics"],
+  ["app/(admin)/weighing/weights/", "weighing-weights"],
+  ["app/(admin)/work-board/", "work-board"],
+  ["app/(admin)/workflows/[row_id]/", "workflow-record"],
+  ["app/(admin)/workflows/", "workflows"],
+  ["app/vaccination/", "vaccination"],
+];
+
+function routeForFile(rel) {
+  if (rel.startsWith("app/(admin)/vaccination/plan/")) return undefined;
+  if (rel === "features/preventive-care-vaccination/passport-section.tsx") return undefined;
+  const route = ROUTE_BY_PATH_PREFIX.find(([prefix]) => rel.startsWith(prefix))?.[1];
+  if (!route) return [];
+  return Array.isArray(route) ? route : [route];
 }
 
 function contractSourceIndex() {
   const repoRoot = resolve(ROOT, "../..");
-  const backendService = readAdminUiBackendSources(repoRoot);
+  const backendService = readProductionAdminUiService(repoRoot);
+  const backendCompiler = readIfExists(join(repoRoot, "backend/internal/adminui/app/compiler.go"));
   const frontendContract = readIfExists(join(ROOT, "lib/admin-ui-contract.ts"));
-  const copyKeys = new Set();
-  const optionGroups = new Set();
-  const tables = new Set();
-  const controls = new Set();
+  const copyKeysByRoute = new Map();
+  const optionGroupsByRoute = new Map();
+  const tablesByRoute = new Map();
+  const controlsByRoute = new Map();
+  const global = {
+    copyKeys: new Set(),
+    optionGroups: new Set(),
+    tables: new Set(),
+    controls: new Set(),
+  };
+  const commonCopyKeys = new Set();
+  const broadCopyKeys = new Set();
 
   // Backend page contracts and frontend stale-contract fallbacks are both valid producers. This
-  // deliberately scans producer syntax, not rendered route output, so a newly introduced frontend
-  // copy key fails before it becomes a production Server Components crash.
-  addMatches(copyKeys, backendService, /"([^"]+)"\s*:/g);
-  addMatches(copyKeys, backendService, /\[\s*"([^"]+)"\s*\]\s*=/g);
-  addMatches(copyKeys, frontendContract, /"([^"]+)"\s*:/g);
-  addMatches(optionGroups, backendService, /\bID:\s*"([^"]+)"/g);
-  addMatches(optionGroups, frontendContract, /\b([A-Za-z0-9_.-]+)\s*:\s*\[/g);
-  addMatches(tables, backendService, /\btableP?\(\s*"([^"]+)"/g);
-  addMatches(tables, frontendContract, /"([^"]+)"\s*:\s*\{\s*\n\s*id:\s*"[^"]+"/g);
-  addMatches(controls, backendService, /\bID:\s*"([^"]+)"/g);
-  addMatches(controls, frontendContract, /\bcontrol(?:Enabled)?\([^,\n]+,\s*"([^"]+)"/g);
-  return { copyKeys, optionGroups, tables, controls };
+  // scans production producers only: service.go and explicit frontend rollout fallbacks. Test
+  // fixtures and unrelated Go maps are intentionally excluded so they cannot bless a lookup that
+  // the real bootstrap response never emits.
+  for (const { routeId, body } of routeBlocksFromSwitch(backendService)) {
+    addRouteMatches(copyKeysByRoute, routeId, body, /"([^"]+)"\s*:/g);
+    addRouteMatches(copyKeysByRoute, routeId, body, /\[\s*"([^"]+)"\s*\]\s*=/g);
+  }
+  addMatches(commonCopyKeys, mapBodyAfter(backendService, "copy := map[string]string"), /"([^"]+)"\s*:/g);
+  addMatches(broadCopyKeys, backendService, /"([^"]+)"\s*:/g);
+  addMatches(broadCopyKeys, backendService, /\[\s*"([^"]+)"\s*\]\s*=/g);
+  addMatches(broadCopyKeys, frontendContract, /"([^"]+)"\s*:/g);
+  for (const { routeId, body } of routeBlocksFromTsRecord(frontendContract, "COPY_FALLBACKS")) {
+    addRouteMatches(copyKeysByRoute, routeId, body, /"([^"]+)"\s*:/g);
+  }
+
+  const optionHelperIDs = new Map([
+    ["genericOptionGroups", idsFromGoBody(functionBody(backendService, "genericOptionGroups"))],
+    ["salesOptionGroups", idsFromGoBody(functionBody(backendService, "salesOptionGroups"))],
+    ["healthConfigOptionGroups", idsFromGoBody(functionBody(backendService, "healthConfigOptionGroups"))],
+    ["configOptionGroups", idsFromGoBody(functionBody(backendService, "configOptionGroups"))],
+    ["liveTrackerOptionGroups", idsFromGoBody(functionBody(backendService, "liveTrackerOptionGroups"))],
+    ["countsBreakdownOptionGroups", idsFromGoBody(functionBody(backendService, "countsBreakdownOptionGroups"))],
+    ["feedOptionGroups", idsFromGoBody(functionBody(backendService, "feedOptionGroups"))],
+    ["herdRegisterOptionGroups", idsFromGoBody(functionBody(backendService, "herdRegisterOptionGroups"))],
+    ["calendarOptionGroups", idsFromGoBody(functionBody(backendService, "calendarOptionGroups"))],
+    ["procurementOptionGroups", idsFromGoBody(functionBody(backendService, "procurementOptionGroups"))],
+    ["processIntegrityOptionGroups", idsFromGoBody(functionBody(backendService, "processIntegrityOptionGroups"))],
+    ["weighingWeightsOptionGroups", idsFromGoBody(functionBody(backendService, "weighingWeightsOptionGroups"))],
+    ["sopOptionGroups", idsFromGoBody(functionBody(backendService, "sopOptionGroups"))],
+    ["shiftingSOPOptionGroups", idsFromGoBody(functionBody(backendService, "shiftingSOPOptionGroups"))],
+    ["weighingSOPOptionGroups", idsFromGoBody(functionBody(backendService, "weighingSOPOptionGroups"))],
+    ["inspectionOptionGroups", idsFromGoBody(functionBody(backendService, "inspectionOptionGroups"))],
+  ]);
+  optionHelperIDs.set("sopOptionGroupsFor", optionHelperIDs.get("sopOptionGroups") ?? new Set());
+  optionHelperIDs.set("shedStatusOptionGroup", idsFromGoBody(functionBody(backendService, "shedStatusOptionGroup")));
+  optionHelperIDs.set("capacityOptionGroup", idsFromGoBody(functionBody(backendService, "capacityOptionGroup")));
+
+  const genericOptionIDs = optionHelperIDs.get("genericOptionGroups") ?? new Set();
+  for (const { labels, body } of caseBodiesFromFunction(backendService, "pageOptionGroups")) {
+    const ids = idsFromGoBody(body);
+    if (/withGenericOptionGroups|genericOptionGroups/.test(body)) addAll(ids, genericOptionIDs);
+    for (const [helperName, helperIDs] of optionHelperIDs) {
+      if (body.includes(`${helperName}(`)) addAll(ids, helperIDs);
+    }
+    for (const routeId of labels) addAll(setForRoute(optionGroupsByRoute, routeId), ids);
+  }
+  for (const { labels, body } of caseBodiesFromFunction(backendCompiler, "compilePages")) {
+    const ids = idsFromGoBody(body);
+    addMatches(ids, body, /replaceOptionGroup\([^,]+,\s*"([^"]+)"/g);
+    addMatches(ids, body, /mergeOptionGroupReferences\([^,]+,\s*"([^"]+)"/g);
+    for (const routeId of labels) addAll(setForRoute(optionGroupsByRoute, routeId), ids);
+  }
+
+  const pagePattern = /page\(\s*"([^"]+)"[\s\S]*?(?=\n\s*(?:\/\/[^\n]*\n\s*)*page\(|\n\s*\)\s*$)/g;
+  for (const match of backendService.matchAll(pagePattern)) {
+    const routeId = match[1];
+    const body = match[0];
+    addRouteMatches(tablesByRoute, routeId, body, /\btableP?\(\s*"([^"]+)"/g);
+    for (const helperName of ["loadwiseTable", "buyerAnalyticsTable", "animalPurchaseLoadTable", "animalPurchaseAnimalTable", "feedPurchaseTable", "weightsGainThresholdTable", "vaccinationShedTable"]) {
+      if (body.includes(`${helperName}(`)) addAll(setForRoute(tablesByRoute, routeId), tableIdsFromGoBody(functionBody(backendService, helperName)));
+    }
+  }
+
+  for (const { labels, body } of caseBodiesFromFunction(backendCompiler, "compilePages")) {
+    const called = [...body.matchAll(/\b(compile[A-Za-z0-9]+Controls|alertsConfigureControl|penRoutineControls)\(/g)].map((match) => match[1]);
+    const ids = idsFromGoBody(body);
+    for (const name of called) addAll(ids, controlIdsFromFunction(backendCompiler, name));
+    for (const routeId of labels) addAll(setForRoute(controlsByRoute, routeId), ids);
+  }
+  for (const { routeId, body } of routeBlocksFromTsRecord(frontendContract, "OPTION_GROUP_FALLBACKS")) {
+    addRouteMatches(optionGroupsByRoute, routeId, body, /\b([A-Za-z0-9_.-]+)\s*:\s*\[/g);
+  }
+  for (const { routeId, body } of routeBlocksFromTsRecord(frontendContract, "TABLE_FALLBACKS")) {
+    addRouteMatches(tablesByRoute, routeId, body, /"([^"]+)"\s*:\s*\{\s*\n\s*id:\s*"[^"]+"/g);
+  }
+
+  // Shared/route-parametric frontend components cannot be assigned to exactly one page contract.
+  // For those files only, keep a broad structural index so the legacy guard still catches typos
+  // without pretending that an arbitrary copy string is an option/control producer.
+  addMatches(global.optionGroups, backendService, /\bID:\s*"([^"]+)"/g);
+  addMatches(global.tables, backendService, /\btableP?\(\s*"([^"]+)"/g);
+  addMatches(global.controls, backendCompiler, /\bID:\s*"([^"]+)"/g);
+
+  for (const set of copyKeysByRoute.values()) for (const key of set) global.copyKeys.add(key);
+  for (const key of commonCopyKeys) global.copyKeys.add(key);
+  for (const set of optionGroupsByRoute.values()) for (const key of set) global.optionGroups.add(key);
+  for (const set of tablesByRoute.values()) for (const key of set) global.tables.add(key);
+  for (const set of controlsByRoute.values()) for (const key of set) global.controls.add(key);
+
+  return { copyKeysByRoute, optionGroupsByRoute, tablesByRoute, controlsByRoute, commonCopyKeys, broadCopyKeys, global };
 }
 
 const contractIndex = contractSourceIndex();
 
 const CONTRACT_LOOKUPS = [
-  { kind: "copy key", set: contractIndex.copyKeys, pattern: /\bcopy\(\s*[^,\n]+,\s*["']([^"'$]+)["']/g },
-  { kind: "action feedback copy key", set: contractIndex.copyKeys, pattern: /\bactionFeedbackCopy\(\s*[^,\n]+,\s*[^,\n]+,\s*["']([^"'$]+)["']/g },
-  { kind: "option group", set: contractIndex.optionGroups, pattern: /\b(?:optionGroup|optionalOptionGroup)\(\s*[^,\n]+,\s*["']([^"'$]+)["']/g },
-  { kind: "option group", set: contractIndex.optionGroups, pattern: /\b(?:optionLabel|optionTitle|optionTone|optionalOption)\(\s*[^,\n]+,\s*["']([^"'$]+)["']/g },
-  { kind: "table", set: contractIndex.tables, pattern: /\b(?:table|tableLabels|tablePageSizes)\(\s*[^,\n]+,\s*["']([^"'$]+)["']/g },
-  { kind: "control", set: contractIndex.controls, pattern: /\b(?:control|controlEnabled)\(\s*[^,\n]+,\s*["']([^"'$]+)["']/g },
+  { kind: "copy key", routeSets: contractIndex.copyKeysByRoute, globalSet: contractIndex.broadCopyKeys, routeGlobalSet: contractIndex.commonCopyKeys, pattern: /\bcopy\(\s*[^,\n]+,\s*["']([^"'$]+)["']/g },
+  { kind: "action feedback copy key", routeSets: contractIndex.copyKeysByRoute, globalSet: contractIndex.broadCopyKeys, routeGlobalSet: contractIndex.commonCopyKeys, pattern: /\bactionFeedbackCopy\(\s*[^,\n]+,\s*[^,\n]+,\s*["']([^"'$]+)["']/g },
+  { kind: "option group", routeSets: contractIndex.optionGroupsByRoute, globalSet: contractIndex.global.optionGroups, pattern: /\boptionGroup\(\s*[^,\n]+,\s*["']([^"'$]+)["']/g },
+  { kind: "option group", routeSets: contractIndex.optionGroupsByRoute, globalSet: contractIndex.global.optionGroups, pattern: /\b(?:optionLabel|optionTitle|optionTone)\(\s*[^,\n]+,\s*["']([^"'$]+)["']/g },
+  { kind: "table", routeSets: contractIndex.tablesByRoute, globalSet: contractIndex.global.tables, pattern: /\b(?:table|tableLabels|tablePageSizes)\(\s*[^,\n]+,\s*["']([^"'$]+)["']/g },
+  { kind: "control", routeSets: contractIndex.controlsByRoute, globalSet: contractIndex.global.controls, pattern: /\bcontrol\(\s*[^,\n]+,\s*["']([^"'$]+)["']/g },
 ];
 
 function checkContractReferences(rel, code, lineNumber) {
+  const routeIds = routeForFile(rel) ?? [];
   for (const lookup of CONTRACT_LOOKUPS) {
     lookup.pattern.lastIndex = 0;
     for (const match of code.matchAll(lookup.pattern)) {
       const key = match[1];
-      if (!lookup.set.has(key)) {
+      const missingRoutes = routeIds.filter((routeId) => !union(lookup.routeSets.get(routeId) ?? new Set(), lookup.routeGlobalSet ?? new Set()).has(key));
+      const isValid = routeIds.length > 0 ? missingRoutes.length === 0 : lookup.globalSet.has(key);
+      if (!isValid) {
+        const routeText = routeIds.length > 0 ? `${missingRoutes.join(", ")} ` : "";
         findings.push(
-          `${rel}:${lineNumber}  ${lookup.kind} "${key}" has no backend AdminWebPageContract producer or explicit frontend fallback`,
+          `${rel}:${lineNumber}  ${lookup.kind} "${key}" has no ${routeText}production AdminWebPageContract producer or explicit frontend fallback`,
         );
       }
     }
   }
+}
+
+function selfTest() {
+  const before = findings.length;
+  checkContractReferences("features/work-board/work-board-modal.tsx", 'copy(pageContract, "definitely_missing_self_test_key")', 1);
+  checkContractReferences("features/preventive-care-vaccination/self-test.tsx", 'copy(pageContract, "player.play_proof")', 2);
+  checkContractReferences("features/preventive-care-vaccination/self-test.tsx", 'optionGroup(pageContract, "inventory_task_work_states")', 3);
+  checkContractReferences("features/preventive-care-vaccination/self-test.tsx", 'optionGroup(pageContract, "inventory_progress.title")', 4);
+  checkContractReferences("features/preventive-care-vaccination/self-test.tsx", 'control(pageContract, "inventory_progress.title")', 5);
+  checkContractReferences("features/goat-passport/self-test.tsx", 'copy(pageContract, "inventory_progress.title")', 6);
+  checkContractReferences("features/counts/herd-register-self-test.tsx", 'copy(pageContract, "inventory_progress.title")', 7);
+  const added = findings.slice(before);
+  const hasMissingUnknownRoute = added.some((finding) => finding.includes("features/work-board/work-board-modal.tsx:1") && finding.includes("definitely_missing_self_test_key"));
+  const hasCrossRouteCopy = added.some((finding) => finding.includes("features/preventive-care-vaccination/self-test.tsx:2") && finding.includes("player.play_proof"));
+  const hasFallbackOptionAccepted = !added.some((finding) => finding.includes("features/preventive-care-vaccination/self-test.tsx:3"));
+  const hasCopyNotOption = added.some((finding) => finding.includes("features/preventive-care-vaccination/self-test.tsx:4") && finding.includes("option group"));
+  const hasCopyNotControl = added.some((finding) => finding.includes("features/preventive-care-vaccination/self-test.tsx:5") && finding.includes("control"));
+  const hasGoatPassportRouteScope = added.some((finding) => finding.includes("features/goat-passport/self-test.tsx:6") && finding.includes("goat-passport"));
+  const hasHerdRegisterRouteScope = added.some((finding) => finding.includes("features/counts/herd-register-self-test.tsx:7") && finding.includes("herd-register"));
+  findings.length = before;
+  const fallbackRouteIds = routeBlocksFromTsRecord(readIfExists(join(ROOT, "lib/admin-ui-contract.ts")), "COPY_FALLBACKS").map((block) => block.routeId);
+  const duplicateFallbackRoutes = fallbackRouteIds.filter((routeId, index) => fallbackRouteIds.indexOf(routeId) !== index);
+  if (!hasMissingUnknownRoute || !hasCrossRouteCopy || !hasFallbackOptionAccepted || !hasCopyNotOption || !hasCopyNotControl || !hasGoatPassportRouteScope || !hasHerdRegisterRouteScope || duplicateFallbackRoutes.length > 0) {
+    throw new Error(`contract guard self-test failed: ${JSON.stringify({ hasMissingUnknownRoute, hasCrossRouteCopy, hasFallbackOptionAccepted, hasCopyNotOption, hasCopyNotControl, hasGoatPassportRouteScope, hasHerdRegisterRouteScope, duplicateFallbackRoutes })}`);
+  }
+  console.log("admin UI contract literal/reference guard self-test passed.");
+}
+
+if (SELF_TEST) {
+  selfTest();
+  process.exit(0);
 }
 
 for (const file of files) {
@@ -223,8 +643,8 @@ for (const file of files) {
   lines.forEach((line, index) => {
     if (isCommentOrBlank(line)) return;
     const code = line.split("//")[0] ?? "";
-    if (ALLOW_LINE.some((pattern) => pattern.test(code))) return;
     checkContractReferences(rel, code, index + 1);
+    if (ALLOW_LINE.some((pattern) => pattern.test(code))) return;
     if (/\.tsx$/.test(rel) && FORBIDDEN_RENDER_META.test(code)) {
       findings.push(`${rel}:${index + 1}  renderer must consume backend option_groups, not local *_META label/tone maps`);
       return;
