@@ -1,0 +1,360 @@
+import { Plus, Search, Settings } from "lucide-react";
+
+import Link from "@/components/no-prefetch-link";
+import { LocalOverlayDrawer, type LocalOverlayDrawerItem } from "@/components/local-overlay-drawer";
+import { LocalOverlayLink } from "@/components/local-overlay-link";
+import { Tag, type Tone } from "@/components/ui-primitives";
+import { ProcurementPager } from "@/features/procurement";
+import { controlEnabled, copy, tablePageSizes, type AdminUiPageContract } from "@/lib/admin-ui-contract";
+import type {
+  ConfigurationColumn,
+  ConfigurationListResponse,
+  ConfigurationRefOption,
+  ConfigurationRegister,
+  ConfigurationRegistersResponse,
+  ConfigurationRow,
+} from "@/lib/api/configuration-server";
+import type { ApiResult } from "@/lib/api/server";
+import { all, boundedInt, one, type RouteSearchParams } from "@/lib/search-params";
+import { RegisterFilter } from "./register-filter";
+import { RowDrawerForm } from "./row-drawer";
+
+/**
+ * /configuration/items (maintainer instruction 2026-09-18, from the Claude prototype merged in
+ * #297): the farm's reference registers -- farm places, animal types, catalogues -- on ONE page.
+ * The rail lists every register with its active count; the table shows the selected one.
+ *
+ * Everything on screen is backend-owned: the register DEFINITIONS (columns, types, labels, hints,
+ * which columns filter) from /admin/configuration/registers, the rows and their composed display
+ * names and ref labels from the list read, the copy from the page contract. This file renders a
+ * register from its definition and composes no column of its own, which is what lets a new
+ * register ship as one backend definition and no page change.
+ *
+ * Writes are capability-gated on BOTH halves: the four controls on the contract (rendered only
+ * when enabled; the backend's reason otherwise) and the route table behind each Server Action.
+ *
+ * The drawer is client-local: `?edit=new` / `?edit=<row id>` open it from data already on the
+ * page through LocalOverlayLink, so opening and closing never re-run this Server Component. The
+ * ref selects' options are read ONCE per ref register the selected register needs.
+ */
+
+export const ITEMS_PATH = "/configuration/items";
+export const PARAM_REGISTER = "register";
+export const PARAM_STATUS = "status";
+export const PARAM_Q = "q";
+export const PARAM_EDIT = "edit";
+export const FILTER_PREFIX = "f.";
+const PARAM_CURSOR = "cursor";
+const PARAM_PAGE = "page";
+const PARAM_STACK = "cursor_stack";
+const DEFAULT_REGISTER = "parks";
+
+const STATUS_TONE: Record<ConfigurationRow["status"], Tone> = { active: "ok", archived: "mut" };
+
+/** Rebuilds the page URL from the current params with a patch; paging keys are always dropped. */
+function href(params: RouteSearchParams, patch: Record<string, string | undefined>, keepPaging = false): string {
+  const next = new URLSearchParams();
+  for (const [key, value] of Object.entries(params)) {
+    if (!keepPaging && (key === PARAM_CURSOR || key === PARAM_PAGE || key === PARAM_STACK)) continue;
+    if (key in patch) continue;
+    if (Array.isArray(value)) for (const item of value) next.append(key, item);
+    else if (value) next.set(key, value);
+  }
+  for (const [key, value] of Object.entries(patch)) if (value) next.set(key, value);
+  const qs = next.toString();
+  return qs ? `${ITEMS_PATH}?${qs}` : ITEMS_PATH;
+}
+
+/** Switching register drops the search, the status, every filter and the drawer. */
+function registerHref(params: RouteSearchParams, register: string): string {
+  const patch: Record<string, string | undefined> = { [PARAM_REGISTER]: register, [PARAM_Q]: undefined, [PARAM_STATUS]: undefined, [PARAM_EDIT]: undefined };
+  for (const key of Object.keys(params)) if (key.startsWith(FILTER_PREFIX)) patch[key] = undefined;
+  return href(params, patch);
+}
+
+function nextHref(params: RouteSearchParams, cursor: string | null | undefined): string | null {
+  if (!cursor) return null;
+  const stack = all(params, PARAM_STACK);
+  const current = one(params, PARAM_CURSOR);
+  if (current) stack.push(current);
+  const page = boundedInt(one(params, PARAM_PAGE), 1, 1, 1000000);
+  const base = new URL(href(params, {}), "http://x");
+  for (const item of stack.slice(-50)) base.searchParams.append(PARAM_STACK, item);
+  base.searchParams.set(PARAM_CURSOR, cursor);
+  base.searchParams.set(PARAM_PAGE, String(page + 1));
+  return `${base.pathname}${base.search}`;
+}
+
+function previousHref(params: RouteSearchParams): string | null {
+  const page = boundedInt(one(params, PARAM_PAGE), 1, 1, 1000000);
+  if (page <= 1) return null;
+  const stack = all(params, PARAM_STACK);
+  const previous = stack.pop();
+  const base = new URL(href(params, {}), "http://x");
+  for (const item of stack) base.searchParams.append(PARAM_STACK, item);
+  if (previous) {
+    base.searchParams.set(PARAM_CURSOR, previous);
+    if (page > 2) base.searchParams.set(PARAM_PAGE, String(page - 1));
+  }
+  return `${base.pathname}${base.search}`;
+}
+
+export type ItemsPageData = {
+  registers: ApiResult<ConfigurationRegistersResponse>;
+  /** The selected register's page; null when the register is unknown. */
+  rows: ApiResult<ConfigurationListResponse> | null;
+  /** Ref options per register the selected register's columns point at. */
+  options: Record<string, ConfigurationRefOption[]>;
+};
+
+/** The parameters the page reads for its data, resolved once so page.tsx and the feature agree. */
+export function itemsPageParams(sp: RouteSearchParams, pageContract: AdminUiPageContract) {
+  const filters: Record<string, string> = {};
+  for (const [key, value] of Object.entries(sp)) {
+    if (!key.startsWith(FILTER_PREFIX)) continue;
+    const v = Array.isArray(value) ? value[0] : value;
+    if (v) filters[key.slice(FILTER_PREFIX.length)] = v;
+  }
+  const status = one(sp, PARAM_STATUS);
+  return {
+    register: one(sp, PARAM_REGISTER) || DEFAULT_REGISTER,
+    status: status === "archived" || status === "all" ? status : "active",
+    q: one(sp, PARAM_Q) || undefined,
+    cursor: one(sp, PARAM_CURSOR) || undefined,
+    limit: tablePageSizes(pageContract, "configuration-rows")[0] ?? 25,
+    filters,
+  };
+}
+
+/** Which ref registers the selected register's columns point at (the options the drawer and filters need). */
+export function refRegistersOf(register: ConfigurationRegister | undefined): string[] {
+  if (!register) return [];
+  const out: string[] = [];
+  for (const column of register.columns) if (column.type === "ref" && column.ref && !out.includes(column.ref)) out.push(column.ref);
+  return out;
+}
+
+function fieldText(row: ConfigurationRow, column: ConfigurationColumn, placeholder: string, yes: string, no: string): string {
+  const value = row.fields[column.key];
+  if (column.type === "ref") return row.labels[column.key] ?? (value ? String(value) : placeholder);
+  if (value === null || value === undefined || value === "") return placeholder;
+  if (column.type === "bool") return value ? yes : no;
+  if (column.type === "enum") return column.options?.find((option) => option.value === String(value))?.label ?? String(value);
+  return String(value);
+}
+
+export function ItemsPage({ searchParams, pageContract, data }: { searchParams?: RouteSearchParams; pageContract: AdminUiPageContract; data: ItemsPageData }) {
+  const sp = searchParams ?? {};
+  const c = (key: string) => copy(pageContract, key);
+  const canCreate = controlEnabled(pageContract, "create_row", false);
+  const canEdit = controlEnabled(pageContract, "edit_row", false);
+  const canSetStatus = controlEnabled(pageContract, "set_row_status", false);
+  const canDelete = controlEnabled(pageContract, "delete_row", false);
+  const canWrite = canCreate || canEdit || canSetStatus || canDelete;
+
+  const params = itemsPageParams(sp, pageContract);
+  const catalog = data.registers.ok ? data.registers.data : null;
+  const registers = catalog?.registers ?? [];
+  const register = registers.find((item) => item.key === params.register);
+  const listHref = href(sp, { [PARAM_EDIT]: undefined }, true);
+  const editHref = (id: string) => href(sp, { [PARAM_EDIT]: id }, true);
+  const page = data.rows && data.rows.ok ? data.rows.data : null;
+  const rows = page?.rows ?? [];
+  const pageNo = boundedInt(one(sp, PARAM_PAGE), 1, 1, 1000000);
+  const placeholder = "—";
+  const writable = !!register && !register.read_only;
+
+  // Table columns: the display name first, then every column not hidden from the list and not the
+  // one the display already shows, then what the row holds, then status.
+  const nameKey = register?.columns.find((column) => column.key === "name" || column.key === "label")?.key;
+  const listColumns = (register?.columns ?? []).filter((column) => !column.list_hidden && column.key !== nameKey);
+  const hasCounts = rows.some((row) => row.counts && Object.keys(row.counts).length > 0);
+
+  const filterColumns = (register?.filters ?? []).map((key) => register?.columns.find((column) => column.key === key)).filter((column): column is ConfigurationColumn => !!column);
+
+  const drawerItems: LocalOverlayDrawerItem[] = [];
+  if (register && writable && canCreate) {
+    drawerItems.push({
+      id: "new",
+      eyebrow: register.label,
+      title: `${c("drawer.create_title")} ${register.one.toLowerCase()}`,
+      icon: <Settings className="ic" aria-hidden="true" />,
+      body: <RowDrawerForm pageContract={pageContract} register={register} options={data.options} canEdit={canCreate} canSetStatus={false} canDelete={false} listHref={listHref} />,
+    });
+  }
+  if (register) {
+    for (const row of rows) {
+      drawerItems.push({
+        id: row.id,
+        eyebrow: register.label,
+        title: writable && canEdit ? `${c("drawer.edit_title")} ${register.one.toLowerCase()}` : row.display,
+        icon: <Settings className="ic" aria-hidden="true" />,
+        body: <RowDrawerForm pageContract={pageContract} register={register} row={row} options={data.options} canEdit={writable && canEdit} canSetStatus={writable && canSetStatus} canDelete={writable && canDelete} listHref={listHref} />,
+      });
+    }
+  }
+
+  const groups = catalog?.groups ?? [];
+
+  return (
+    <div className="screen on cfg-items">
+      <div className="phead" style={{ marginTop: 12, alignItems: "flex-end", paddingBottom: 6 }}>
+        <div>
+          <div className="crumb">
+            <b>{c("crumb")}</b>
+          </div>
+          <h1>{pageContract.title}</h1>
+          <div className="sub">{pageContract.subtitle}</div>
+        </div>
+      </div>
+
+      {!data.registers.ok ? (
+        <div className="alert">
+          <b>{data.registers.error.code ?? data.registers.error.kind}</b>&nbsp;{data.registers.error.message}
+        </div>
+      ) : null}
+
+      <div className="cfg-layout">
+        <aside className="card cfg-rail" aria-label={c("rail.title")}>
+          {groups.map((group) => {
+            const members = registers.filter((item) => item.group === group.key);
+            if (!members.length) return null;
+            return (
+              <div key={group.key} className="cfg-rail-group">
+                <div className="cfg-rail-title">{group.label}</div>
+                {members.map((item) => {
+                  const active = item.key === params.register;
+                  return (
+                    <Link key={item.key} href={registerHref(sp, item.key)} scroll={false} className={active ? "cfg-rail-item on" : "cfg-rail-item"} aria-current={active ? "page" : undefined}>
+                      <span>{item.label}</span>
+                      <span className="cfg-rail-count">{catalog?.counts[item.key] ?? 0}</span>
+                    </Link>
+                  );
+                })}
+              </div>
+            );
+          })}
+        </aside>
+
+        <section className="card cfg-main" aria-label={register?.label ?? c("crumb")}>
+          <div className="hd" style={{ flexWrap: "wrap" }}>
+            <div>
+              <h3>
+                {register?.label ?? params.register} {page ? <span className="cfg-count">{page.total}</span> : null}
+              </h3>
+              {register?.hint ? <div className="muted small" style={{ marginTop: 3 }}>{register.hint}</div> : null}
+            </div>
+            <div className="sp" style={{ flex: 1 }} />
+            {register?.read_only && register.edit_href ? (
+              <Link href={register.edit_href} className="btn sm">
+                {c("action.edit_elsewhere")} {register.edit_label ?? register.edit_href}
+              </Link>
+            ) : null}
+            {register && writable && canCreate ? (
+              <LocalOverlayLink href={editHref("new")} scroll={false} className="btn sm b">
+                <Plus className="ic" style={{ width: 14 }} aria-hidden="true" />
+                {c("action.create_row.label")} {register.one.toLowerCase()}
+              </LocalOverlayLink>
+            ) : null}
+          </div>
+          {!canWrite ? <div className="note" style={{ margin: "10px 16px 0" }}>{c("configure.disabled_no_access")}</div> : null}
+
+          <div className="tbar">
+            <form method="get" action={ITEMS_PATH} className="tsearch" role="search">
+              <input type="hidden" name={PARAM_REGISTER} value={params.register} />
+              {params.status !== "active" ? <input type="hidden" name={PARAM_STATUS} value={params.status} /> : null}
+              {Object.entries(params.filters).map(([key, value]) => (
+                <input key={key} type="hidden" name={FILTER_PREFIX + key} value={value} />
+              ))}
+              <Search className="ic" aria-hidden="true" />
+              <input name={PARAM_Q} defaultValue={params.q ?? ""} placeholder={`${c("search.placeholder")} ${(register?.label ?? "").toLowerCase()}`} aria-label={c("search.placeholder")} />
+            </form>
+            {filterColumns.map((column) => {
+              const opts = (data.options[column.ref ?? ""] ?? []).filter((option) => {
+                // A pen filter narrows to the chosen park when both filters are offered.
+                if (column.key === "pen_id" && params.filters.park_id) return option.parent_id === params.filters.park_id;
+                return true;
+              });
+              const hrefFor: Record<string, string> = { "": href(sp, { [FILTER_PREFIX + column.key]: undefined, ...(column.key === "park_id" ? { [FILTER_PREFIX + "pen_id"]: undefined } : {}) }) };
+              for (const option of opts) hrefFor[option.id] = href(sp, { [FILTER_PREFIX + column.key]: option.id, ...(column.key === "park_id" ? { [FILTER_PREFIX + "pen_id"]: undefined } : {}) });
+              return <RegisterFilter key={column.key} label={column.label} current={params.filters[column.key] ?? ""} options={opts.map((option) => ({ value: option.id, label: option.label }))} hrefFor={hrefFor} />;
+            })}
+            <div className="sp" style={{ flex: 1 }} />
+            <div className="subtabs" aria-label={c("column.status")}>
+              {(["active", "archived", "all"] as const).map((status) => (
+                <Link key={status} href={href(sp, { [PARAM_STATUS]: status === "active" ? undefined : status })} scroll={false} className={params.status === status ? "on" : ""}>
+                  {c(`status.${status}`)}
+                </Link>
+              ))}
+            </div>
+          </div>
+
+          <div className="bd">
+            {data.rows && !data.rows.ok ? (
+              <div className="alert">
+                <b>{data.rows.error.code ?? data.rows.error.kind}</b>&nbsp;{data.rows.error.message}
+              </div>
+            ) : null}
+            {!register ? (
+              <div className="empty">{c("empty.rows")}</div>
+            ) : rows.length === 0 ? (
+              <div className="empty">{params.q || Object.keys(params.filters).length ? c("empty.search") : c("empty.rows")}</div>
+            ) : (
+              <div className="tablewrap" tabIndex={0} role="group" aria-label={register.label}>
+                <table className="tbl">
+                  <thead>
+                    <tr>
+                      <th>{c("column.display")}</th>
+                      {listColumns.map((column) => (
+                        <th key={column.key}>{column.label}</th>
+                      ))}
+                      {hasCounts ? <th>{c("column.counts")}</th> : null}
+                      <th>{c("column.status")}</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {rows.map((row) => (
+                      <tr key={row.id} className={row.status === "archived" ? "cfg-archived" : undefined}>
+                        <td>
+                          <LocalOverlayLink href={editHref(row.id)} scroll={false} className="cfg-row-link">
+                            <b>{row.display}</b>
+                          </LocalOverlayLink>
+                          {row.is_builtin ? (
+                            <span className="muted small" style={{ marginLeft: 8 }}>
+                              {c("tag.builtin")}
+                            </span>
+                          ) : null}
+                        </td>
+                        {listColumns.map((column) => (
+                          <td key={column.key} className={column.type === "number" ? "num" : undefined}>
+                            {column.type === "code" || column.key === "code" ? <span className="mono muted">{fieldText(row, column, placeholder, c("value.yes"), c("value.no"))}</span> : fieldText(row, column, placeholder, c("value.yes"), c("value.no"))}
+                          </td>
+                        ))}
+                        {hasCounts ? (
+                          <td className="muted small">
+                            {row.counts
+                              ? Object.entries(row.counts)
+                                  .filter(([, n]) => n > 0)
+                                  .map(([noun, n]) => `${n} ${noun.replace(/_/g, " ")}`)
+                                  .join(" · ") || placeholder
+                              : placeholder}
+                          </td>
+                        ) : null}
+                        <td>
+                          <Tag tone={STATUS_TONE[row.status]}>{c(`status.${row.status}`)}</Tag>
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            )}
+            <ProcurementPager prevHref={previousHref(sp)} nextHref={nextHref(sp, page?.next_cursor)} page={pageNo} count={rows.length} noun={c("pager.noun").replace(/s$/, "")} />
+          </div>
+        </section>
+      </div>
+
+      <LocalOverlayDrawer items={drawerItems} selectionKey={PARAM_EDIT} initialSelectedId={one(sp, PARAM_EDIT)} closeHref={listHref} ariaLabel={register?.label ?? c("crumb")} closeLabel={c("action.cancel")} />
+    </div>
+  );
+}

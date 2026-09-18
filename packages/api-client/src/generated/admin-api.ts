@@ -5231,6 +5231,8 @@ export interface components {
             read_only?: boolean;
             /** @description Where a read-only register is actually edited. */
             edit_href?: string;
+            /** @description The name of that screen. */
+            edit_label?: string;
             filters?: string[];
         };
         ConfigurationGroup: {

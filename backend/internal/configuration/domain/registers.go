@@ -71,8 +71,9 @@ type Register struct {
 	Hint string `json:"hint,omitempty"`
 	// ReadOnly registers are listed here for completeness but written elsewhere (Feed Config).
 	ReadOnly bool `json:"read_only,omitempty"`
-	// EditHref is where a read-only register's rows are actually edited.
-	EditHref string `json:"edit_href,omitempty"`
+	// EditHref is where a read-only register's rows are actually edited; EditLabel names it.
+	EditHref  string `json:"edit_href,omitempty"`
+	EditLabel string `json:"edit_label,omitempty"`
 	// Filters names the columns the list offers as filter selects.
 	Filters []string `json:"filters,omitempty"`
 }
@@ -220,7 +221,7 @@ var Registers = []Register{
 		},
 	},
 	{
-		Key: RegFeedItems, Label: "Feed items", One: "Feed item", Group: GroupCatalogue, ReadOnly: true, EditHref: "/feed/config",
+		Key: RegFeedItems, Label: "Feed items", One: "Feed item", Group: GroupCatalogue, ReadOnly: true, EditHref: "/feed/config", EditLabel: "Feed Config",
 		Hint: "What the farm feeds. Edited in Feed Config, where the ration grid depends on it.",
 		Columns: []Column{
 			{Key: "name", Label: "Name", Type: TypeText, Required: true},

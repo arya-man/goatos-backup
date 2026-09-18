@@ -2144,6 +2144,9 @@ func pageSpecificCopy(id string) map[string]string {
 			"column.display":               "Name",
 			"column.status":                "Status",
 			"column.counts":                "Holds",
+			"value.yes":                    "Yes",
+			"value.no":                     "No",
+			"tag.builtin":                  "Built in",
 			"configure.disabled_no_access": "Changing these lists is limited to the CEO and CXO.",
 		}
 	case "work-board":

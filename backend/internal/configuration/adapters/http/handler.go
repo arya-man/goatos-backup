@@ -309,7 +309,9 @@ func writeErr(w http.ResponseWriter, r *http.Request, log *slog.Logger, appErr *
 	if appErr == nil {
 		return
 	}
-	body := map[string]any{"error": appErr.Code, "message": appErr.Message}
+	// Both `code` and `error` are carried: admin-web's envelope parser keys on `code` (and reads
+	// `field_errors` to mark inputs), older readers on `error`.
+	body := map[string]any{"code": appErr.Code, "error": appErr.Code, "message": appErr.Message, "trace_id": traceID(r), "retryable": false, "field_errors": []domain.FieldError{}}
 	if len(appErr.Fields) > 0 {
 		body["field_errors"] = appErr.Fields
 	}

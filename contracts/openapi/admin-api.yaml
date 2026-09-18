@@ -13063,6 +13063,7 @@ components:
         hint: { type: string }
         read_only: { type: boolean }
         edit_href: { type: string, description: Where a read-only register is actually edited. }
+        edit_label: { type: string, description: The name of that screen. }
         filters:
           type: array
           items: { type: string }
