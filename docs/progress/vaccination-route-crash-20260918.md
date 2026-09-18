@@ -9,7 +9,7 @@
 
 - Branch: `fix/admin-sidebar-switch-lag`
 - Starting SHA: `c09c95643`
-- Landed SHA: `e3a5e4116dc649fe95a7d687cdb8283f3621368d`
+- Landed SHA: `23e7f24edfc71a0df3378b2b1653f384cfb94d75`
 - Screenshot failure: admin shell loads, `/vaccination?scope_mode=company` content throws generic "Something went wrong"; error reference `61156052`.
 - Last-month scoped git scan found 277 commits matching vaccination/admin-web/route/contract/cache/perf/error terms under admin-web vaccination/backend contract paths.
 
@@ -42,5 +42,5 @@
 
 ## Deployment State
 
-- `make land-main` passed and pushed certified SHA `e3a5e4116dc649fe95a7d687cdb8283f3621368d`; local `HEAD` and `origin/main` matched that SHA during review.
+- `make land-main` passed and pushed certified SHA `23e7f24edfc71a0df3378b2b1653f384cfb94d75`; local `HEAD` and `origin/main` matched that SHA during review.
 - Live readback: `goatos-admin-web-stg-00463-zq8`, 100% traffic, commit label `06bb3baf3abb`.
