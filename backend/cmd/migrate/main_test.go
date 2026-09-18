@@ -176,6 +176,43 @@ INSERT INTO missing_tx_probe VALUES (1);`,
 	}
 }
 
+func TestFeedSOPCardsMigrationReplaysWhenSchemaOutranBookkeeping(t *testing.T) {
+	pgtest.SkipIfNoDocker(t)
+	ctx := context.Background()
+	pool := pgtest.StartPostgres(t, ctx)
+	defer pool.Close()
+
+	migrations, err := loadMigrations("migrations/postgres")
+	if err != nil {
+		t.Fatalf("load migrations: %v", err)
+	}
+	var feedSOP migrationFile
+	for _, migration := range migrations {
+		if migration.Version == "000342_feed_sop_cards" {
+			feedSOP = migration
+			break
+		}
+	}
+	if feedSOP.Version == "" {
+		t.Fatal("000342_feed_sop_cards migration not found")
+	}
+
+	if _, err := pool.Exec(ctx, `DELETE FROM public.goatos_schema_migrations WHERE version = $1`, feedSOP.Version); err != nil {
+		t.Fatalf("delete 000342 migration row: %v", err)
+	}
+
+	if err := applyMigrations(ctx, pool, []migrationFile{feedSOP}, false, false, slog.New(slog.NewTextHandler(io.Discard, nil))); err != nil {
+		t.Fatalf("replay 000342 after schema objects already exist: %v", err)
+	}
+	var recorded int
+	if err := pool.QueryRow(ctx, `SELECT count(*) FROM public.goatos_schema_migrations WHERE version = $1`, feedSOP.Version).Scan(&recorded); err != nil {
+		t.Fatalf("check replayed migration row: %v", err)
+	}
+	if recorded != 1 {
+		t.Fatalf("replayed migration row count = %d, want 1", recorded)
+	}
+}
+
 func TestSplitSQLStatementsPreservesFunctionBodies(t *testing.T) {
 	sql := `
 CREATE FUNCTION f()
