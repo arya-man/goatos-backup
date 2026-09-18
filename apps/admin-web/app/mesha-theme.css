@@ -5707,7 +5707,9 @@ input[type=date],input[type=datetime-local],input[type=time],input[type=month],i
 /* The rail this panel sits in is 360px wide — enough for a list sidebar, not for an issue view.
    Given a viewport that can afford it, the panel takes the share of the grid a Jira issue view
    needs for its two columns. Guarded above the existing 1080px breakpoint so the phone/tablet
-   behaviour of `.lt-grid` is left exactly as it is. */
+   behaviour of `.lt-grid` is left exactly as it is.
+   Since the drawer (`.ltd-drawer`, further down) a SELECTED task is rendered outside this grid, so
+   this only ever matches the table's no-selection placeholder now. */
 @media(min-width:1180px){
   .lt-page .lt-grid:has(.ltd-panel){grid-template-columns:minmax(340px,1fr) minmax(0,54%)}
 }
@@ -5847,6 +5849,25 @@ input[type=date],input[type=datetime-local],input[type=time],input[type=month],i
   .ltd-statusrow .lt-status-actions{width:100%}
   .ltd-statusrow .lt-status-actions form{flex:1;min-width:0}
   .ltd-statusrow .lt-status-actions .btn{width:100%;justify-content:center}
+}
+
+/* ------------------------------------------------------------- the detail as a DRAWER (.ltd-drawer)
+   A selected task no longer takes a grid column beside the board: `.lt-grid:has(.ltd-panel)`
+   above gave it 54% of the row, which left the four fixed-width board columns 537px at 1700 wide
+   and sliced Done and Cancelled clean off the moment a card was clicked. The panel now renders
+   inside the console's shared `aside.drawer` + `button.scrim` pair (`task-detail-drawer.tsx`),
+   OVER the board, which keeps its full width underneath. The 54% rule still governs the table's
+   no-selection placeholder, the only `.ltd-panel` that is still laid out in the grid.
+
+   Width: wide enough for the Jira two-column body (`@container (min-width:540px)` above), so the
+   Details box sits beside Description/Activity exactly as it did in the rail. The `.drawer`
+   default is 498px, which would collapse it to one column. On a phone the drawer is the screen. */
+aside.drawer.ltd-drawer{width:min(720px,94vw);overflow-y:auto;overscroll-behavior:contain;outline:none;background:var(--panel)}
+.ltd-drawer>.ltd-panel{flex:none;border:0;border-radius:0;background:transparent}
+/* The mention popup in the composer already lifts the panel's own clip; inside the drawer the
+   scroller is the drawer, so the popup simply extends the scrollable content. */
+@media(max-width:760px){
+  aside.drawer.ltd-drawer{width:100vw;max-width:100vw}
 }
 
 /* ============================================================================================
