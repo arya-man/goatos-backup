@@ -53,9 +53,12 @@ export function elementKey(descriptor) {
  *
  * Returns `{ how, reason }` where `how` is one of:
  *   hidden       — not rendered at this viewport: recorded, counted for coverage, not clicked
- *   covered      — on a stage that opened an overlay, an element the overlay's scrim sits on
- *                  top of: asserted unreachable (a modal that let clicks through would be the
- *                  defect), not clicked
+ *   covered      — while an overlay is open (a stage that opened one, OR a page that rendered
+ *                  one itself: the detail drawer is `aria-modal` on its URL), an element the
+ *                  overlay's scrim sits on top of: asserted unreachable (a modal that let clicks
+ *                  through would be the defect), not clicked
+ *   current      — a `role=tab` that is already `aria-selected`: re-clicking the selected tab
+ *                  is a no-op by design, not a dead control; the OTHER tabs prove the control
  *   disabled     — asserted disabled/aria-disabled instead of clicked (a pager's Prev on page 1)
  *   drag-absent  — a draggable card at phone width: a FAIL, drag is desktop-only
  *   drag         — desktop draggable card: dragstart/dragend, never a drop
@@ -73,8 +76,11 @@ export function elementKey(descriptor) {
  */
 export function planActivation(descriptor, viewportWidth, overlayStage = false) {
   if (descriptor.hidden) return { how: "hidden", reason: "not rendered at this viewport" };
-  if (descriptor.covered && overlayStage) return { how: "covered", reason: "behind the open overlay's scrim: asserted unreachable while it is open" };
+  // The page can open its own overlay from the URL (`?task=` renders the modal drawer), so the
+  // enumeration reports whether one was open (`descriptor.overlay`) and the stage need not know.
+  if (descriptor.covered && (overlayStage || descriptor.overlay)) return { how: "covered", reason: "behind the open overlay's scrim: asserted unreachable while it is open" };
   if (descriptor.disabled) return { how: "disabled", reason: "asserted disabled/aria-disabled rather than clicked" };
+  if (descriptor.role === "tab" && descriptor.selected) return { how: "current", reason: "the already-selected tab: re-clicking it is a no-op by design (its siblings prove the control)" };
   if (descriptor.draggable === "true") {
     return viewportWidth < DRAG_MIN_WIDTH
       ? { how: "drag-absent", reason: "a draggable card must not exist at phone width" }
@@ -127,7 +133,7 @@ export function coverageGaps(results) {
     if (!entry.key) continue;
     if (entry.how === "hidden") {
       if (!hidden.has(entry.key)) hidden.set(entry.key, entry);
-    } else if (entry.status === "pass" && !["disabled", "covered", "sampled", "coverage"].includes(entry.how)) {
+    } else if (entry.status === "pass" && !["disabled", "covered", "sampled", "coverage", "current"].includes(entry.how)) {
       activated.add(entry.key);
     }
   }

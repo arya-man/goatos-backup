@@ -3629,8 +3629,11 @@ select:disabled { opacity: .45; }
 @media (min-width:761px){
   .lt-page .lt-fbar.lt-fsheet-host{padding:0 0 10px;border:0;border-bottom:1px solid var(--line2);border-radius:0;background:transparent;backdrop-filter:none;box-shadow:none;gap:8px}
   .lt-page .lt-fsticky .lt-fbar.lt-fsheet-host{margin-bottom:0}
-  .lt-page .lt-fsheet-host .lt-fsearch{flex:1 1 130px;min-width:130px;max-width:300px}
-  .lt-page .lt-fsheet-host .lt-seg a{padding:0 8px;font-size:12px;gap:4px}
+  /* Widths at 1440 with the 28px stacks (Gate-1 #6): search 120 + segment 414 + two stacks of
+     116 + sort 181 + dates 133 + five 8px gaps = 1120 in a 1132px bar. The search floor and the
+     segment's padding each gave up a little so the bar stays ONE row with no filter applied. */
+  .lt-page .lt-fsheet-host .lt-fsearch{flex:1 1 120px;min-width:120px;max-width:300px}
+  .lt-page .lt-fsheet-host .lt-seg a{padding:0 7px;font-size:12px;gap:4px}
   .lt-page .lt-fsheet-host .lt-fsel select{max-width:118px}
   .lt-page .lt-fsheet-host .lt-fslot.wb .avs{height:var(--lt-ctl)}
   /* The two stacks are told apart by a small CAPTION over the avatars, drawn from the slot's own
@@ -3639,10 +3642,16 @@ select:disabled { opacity: .45; }
      The stack's own height rule above is released so the caption and the avatars share it. */
   .lt-page .lt-fsheet-host .lt-fslot.wb{height:var(--lt-ctl)}
   .lt-page .lt-fsheet-host .lt-fslot.wb .avs{height:auto}
-  .lt-page .lt-fsheet-host .lt-fslot.wb .av{width:24px;height:24px;font-size:10px}
-  .lt-page .lt-fsheet-host .lt-fslot.wb .avs>.av{margin-left:-10px}
+  /* LEGIBLE INITIALS (Gate-1 #6). At 24px with a 10px overlap each circle showed 14px of itself
+     and the next circle's 2px border cut every letter in half ("D M D M A R" read as "D N C N A
+     R"). The Work Board's stack is the reference: 30px circles, 12px bold, 8px overlap, so 22px
+     of every circle stays visible. The same geometry here, one size down so two stacks still
+     sit beside a five-chip segment at 1440: 28px circles, 11px bold, 6px overlap -- 22px
+     visible per circle, the board's own figure. */
+  .lt-page .lt-fsheet-host .lt-fslot.wb .av{width:28px;height:28px;font-size:11px;letter-spacing:0}
+  .lt-page .lt-fsheet-host .lt-fslot.wb .avs>.av{margin-left:-6px}
   .lt-page .lt-fsheet-host .lt-fslot.wb .avs>.av:first-child{margin-left:0}
-  .lt-page .lt-fsheet-host .lt-fslot.wb .avs .more{width:24px;height:24px;margin-left:-10px;font-size:10px}
+  .lt-page .lt-fsheet-host .lt-fslot.wb .avs .more{width:28px;height:28px;margin-left:-6px;font-size:11px}
 }
 /* The ONE dates disclosure: both spans inside, each its own labelled group, ONE Apply and ONE
    Clear for the four fields. Each field is the console's themed calendar (`.move-date-*`): a
@@ -3660,6 +3669,8 @@ select:disabled { opacity: .45; }
 .lt-page .lt-fdrop-date .move-date-button{height:36px;font-size:12.5px}
 .lt-page .lt-fdrop-date .move-date-button>span{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .lt-page .lt-fdrop-to .move-date-popover{left:auto;right:0}
+/* Hung from the trigger's LEFT edge when the bar has wrapped and the trigger sits at the left. */
+.lt-page .lt-fdrop-pop.lt-fdrop-pop-left{right:auto;left:0}
 
 /* ---- A DATE SPAN, collapsed. Four raw `dd/mm/yyyy` inputs across a row, plus a lone Apply
    beneath them, dominated a bar whose reader almost never touches a date. Each span is now one
@@ -3705,6 +3716,12 @@ select:disabled { opacity: .45; }
 .lt-page .lt-aliasnote code{padding:1px 6px;border:1px solid var(--line);border-radius:5px;background:var(--bg);color:var(--ink);font-size:11.5px}
 .lt-page .lt-aliasnote .achip{margin-left:auto;text-decoration:none}
 
+/* THE APPLIED-FILTER ROW (Gate-1 #9): a full-width flex item of the bar, so the chips and
+   "Clear" always sit together on their own line under the controls and never reflow the bar
+   above them. On a phone it is a block inside the sheet's grid, where the same children keep
+   their own phone rules. */
+.lt-page .lt-fapplied{display:flex;flex-wrap:wrap;align-items:center;gap:6px;flex:1 0 100%;width:100%;min-width:0}
+.lt-page .lt-fapplied .lt-factive{flex:0 1 auto}
 .lt-page .lt-factive{display:inline-flex;flex-wrap:wrap;align-items:center;gap:6px;min-width:0;flex:1 1 auto}
 .lt-page .lt-factive .achip{max-width:100%;min-width:0}
 .lt-page .lt-factive .achip>button{display:inline-flex;align-items:center;justify-content:center;border:0;padding:0;background:transparent;color:inherit;font:inherit;line-height:1;opacity:.6;cursor:pointer;border-radius:4px}

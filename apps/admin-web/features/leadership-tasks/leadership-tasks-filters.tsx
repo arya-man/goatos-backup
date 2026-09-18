@@ -14,6 +14,9 @@ import { type TaskPeopleOption } from "./task-people-filter";
 import { TASK_SORTS, type TaskSort } from "./task-url";
 import { useDialogShell } from "./use-dialog-shell";
 
+/** The Dates popover's desktop width (`.lt-fdrop-pop.lt-fdrop-dates` min-width in mesha-theme.css). */
+const DATES_POP_WIDTH = 352;
+
 export type TaskPersonOption = TaskPeopleOption;
 export type TaskStatusChip = {
   key: string;
@@ -115,6 +118,11 @@ export function LeadershipTasksFilters({
   const [sheetOpen, setSheetOpen] = useState(false);
   /** Whether the ONE dates disclosure (both spans inside it) is open. */
   const [openRange, setOpenRange] = useState<"dates" | null>(null);
+  // Which edge of its trigger the Dates popover hangs from. It is right-aligned (the trigger sits
+  // at the bar's right end at 1440), but a bar that has wrapped puts the trigger at the LEFT, and
+  // a 352px popover hung from the right edge of a 130px button then ran under the sidebar. It is
+  // measured on open: left-aligned when there is room for it to the trigger's right.
+  const [datesAlign, setDatesAlign] = useState<"left" | "right">("right");
   const sheetRef = useRef<HTMLDivElement>(null);
   const rangesRef = useRef<HTMLDivElement>(null);
   const moreRef = useRef<HTMLButtonElement>(null);
@@ -465,12 +473,17 @@ export function LeadershipTasksFilters({
         {/* The two slots host the Work Board's OWN assignee picker (`components/assignee-picker.tsx`,
             multi mode: the avatar stack, `+N`, one pick, per-person counts on this page, the
             "All" foot) so the two toolbars are one control language. A scope that already pins
-            the person renders NO picker, as the Work Board drops its stack for `ownRowsOnly`.
-            The `wb` class on the slot scopes the board's own `.avs` rules onto it verbatim. */}
-        <div className="lt-fslot wb" data-slot="assignee" data-key={assigneeLabel} title={assigneePinned ? copy(pageContract, "filter.assignee_pinned") : assigneeLabel}>
-          {assigneePinned ? null : (
+            the person renders NO SLOT AT ALL (Gate-1 #7): the slot's caption is drawn by CSS
+            from `data-key`, so an empty slot left a floating "ASSIGNEE" with nothing under it;
+            the scope tab already says whose tasks these are. The Work Board likewise drops its
+            stack for `ownRowsOnly`. The `wb` class on the slot scopes the board's own `.avs`
+            rules onto it verbatim; `stackSize={4}` is the 28px stack that stays legible beside
+            a five-chip segment at 1440 (Gate-1 #6). */}
+        {assigneePinned ? null : (
+          <div className="lt-fslot wb" data-slot="assignee" data-key={assigneeLabel} title={assigneeLabel}>
             <AssigneePicker
               mode="multi"
+              stackSize={4}
               labels={{ label: assigneeLabel, search: peopleSearchLabel, none: peopleNoMatchesLabel, selectAll: allOption, all: allOption, rows: onThisPageLabel }}
               owners={assigneeOptions.map((option) => ({ id: option.value, name: option.label, title: option.title }))}
               cardsByOwner={assigneeCounts}
@@ -480,13 +493,14 @@ export function LeadershipTasksFilters({
                 go(paramsWith({ [TASK_PARAM.assignee]: next ?? "" }));
               }}
             />
-          )}
-        </div>
+          </div>
+        )}
 
-        <div className="lt-fslot wb" data-slot="raiser" data-key={raiserLabel} title={raiserPinned ? copy(pageContract, "filter.raiser_pinned") : raiserLabel}>
-          {raiserPinned ? null : (
+        {raiserPinned ? null : (
+          <div className="lt-fslot wb" data-slot="raiser" data-key={raiserLabel} title={raiserLabel}>
             <AssigneePicker
               mode="multi"
+              stackSize={4}
               labels={{ label: raiserLabel, search: peopleSearchLabel, none: peopleNoMatchesLabel, selectAll: allOption, all: allOption, rows: onThisPageLabel }}
               owners={raiserOptions.map((option) => ({ id: option.value, name: option.label, title: option.title }))}
               cardsByOwner={raiserCounts}
@@ -496,8 +510,8 @@ export function LeadershipTasksFilters({
                 go(paramsWith({ [TASK_PARAM.raiser]: next ?? "" }));
               }}
             />
-          )}
-        </div>
+          </div>
+        )}
 
         {/* "Sort · Newest first": the label is INSIDE the control, as it is for the two people
             pickers and the two date disclosures. The bar had three label treatments in one row
@@ -570,7 +584,14 @@ export function LeadershipTasksFilters({
                   className={applied.length ? "set" : ""}
                   aria-expanded={openRange === "dates"}
                   aria-haspopup="true"
-                  onClick={() => setOpenRange((current) => (current === "dates" ? null : "dates"))}
+                  onClick={(event) => {
+                    const button = event.currentTarget;
+                    const bar = button.closest(".lt-fbar") ?? document.body;
+                    const barBox = bar.getBoundingClientRect();
+                    const box = button.getBoundingClientRect();
+                    setDatesAlign(box.left + DATES_POP_WIDTH <= barBox.right ? "left" : "right");
+                    setOpenRange((current) => (current === "dates" ? null : "dates"));
+                  }}
                 >
                   <CalendarRange className="ic" style={{ width: 14 }} aria-hidden="true" />
                   <span className="lt-fkey">{datesLabel}</span>
@@ -579,7 +600,7 @@ export function LeadershipTasksFilters({
                 </button>
                 {openRange === "dates" ? (
                   <div
-                    className="lt-fdrop-pop lt-fdrop-dates"
+                    className={`lt-fdrop-pop lt-fdrop-dates${datesAlign === "left" ? " lt-fdrop-pop-left" : ""}`}
                     role="group"
                     aria-label={datesLabel}
                     // Escape unwinds ONE layer, as in the New task modal: an open calendar
@@ -665,7 +686,14 @@ export function LeadershipTasksFilters({
           })()}
         </div>
 
-        {/* WHAT IS NARROWING THE LIST, each chip removing exactly itself. */}
+        {/* WHAT IS NARROWING THE LIST, each chip removing exactly itself -- on a ROW OF ITS OWN
+            under the bar (`.lt-fapplied`, Gate-1 #9). As loose flex items of the bar the chips
+            and "Clear" landed wherever the row had room: beside the Dates control when the
+            chips were narrow (counts at 0), on a second line when they were not, and "Clear"
+            once wrapped alone to the far left. The row exists whenever a filter is active, so
+            the bar above it never changes shape between two searches. */}
+        {activeChips.length > 0 || hasFilters ? (
+        <div className="lt-fapplied">
         {activeChips.length > 0 ? (
           <div className="lt-factive" role="group" aria-label={copy(pageContract, "filter.active_aria", copy(pageContract, "action.filters", "Filters"))}>
             {activeChips.map((chip) => (
@@ -696,6 +724,8 @@ export function LeadershipTasksFilters({
           <Link href={clearedHref} replace scroll={false} className="achip clr lt-fclear">
             {clearLabel}
           </Link>
+        ) : null}
+        </div>
         ) : null}
 
         {rangeIncomplete ? <span className="lt-fnote">{rangeNote}</span> : null}

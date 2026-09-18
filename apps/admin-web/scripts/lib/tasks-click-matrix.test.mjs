@@ -97,6 +97,29 @@ test("planActivation: behind a scrim is asserted covered only on an overlay stag
   assert.equal(planActivation(el({ tag: "input", type: "datetime-local" }), 1440).how, "date");
 });
 
+test("planActivation: a page-rendered overlay (the ?task= drawer) covers without a stage opener", () => {
+  const chip = el({ covered: true, overlay: true });
+  assert.equal(planActivation(chip, 1440, false).how, "covered");
+  assert.equal(planActivation(el({ covered: true, overlay: false }), 1440, false).how, "click");
+  // The scrim itself is the overlay's own control and is never "covered".
+  assert.equal(planActivation(el({ tag: "button", covered: false, overlay: true, className: "scrim on ltd-scrim" }), 1440, false).how, "click");
+});
+
+test("planActivation: the already-selected tab is a no-op by design, not a dead control", () => {
+  assert.equal(planActivation(el({ tag: "button", role: "tab", selected: true }), 1440).how, "current");
+  assert.equal(planActivation(el({ tag: "button", role: "tab", selected: false }), 1440).how, "click");
+  // A selected OPTION is still clicked: in the people picker a second click clears the pick.
+  assert.equal(planActivation(el({ tag: "button", role: "option", selected: true }), 1440).how, "click");
+});
+
+test("coverageGaps: a `current` tab does not count as activated on its own", () => {
+  const results = [
+    { key: "button[tab]:All", how: "hidden", status: "pass", viewport: "390x844" },
+    { key: "button[tab]:All", how: "current", status: "pass", viewport: "1440x900" },
+  ];
+  assert.deepEqual(coverageGaps(results).map((e) => e.key), ["button[tab]:All"]);
+});
+
 test("coverageGaps: covered and sampled do not count as activated", () => {
   const results = [
     { key: "a:x", how: "hidden", status: "pass", viewport: "390x844" },

@@ -85,6 +85,12 @@ const INTERACTIVE = "a, button, select, input:not([type=hidden]), textarea, [rol
 /** How long an activation is given to show something: the Next dev router can take >1s to land a `router.replace`. */
 const SETTLE_MS = 4_000;
 const SCOPE = "team_progress";
+/** The shared people picker's trigger inside a toolbar slot (`components/assignee-picker.tsx`). */
+const PEOPLE_TRIGGER = (slot) => `.lt-fslot[data-slot="${slot}"] .avs button[aria-expanded]`;
+/** The one merged Dates disclosure. */
+const DATES_TRIGGER = ".lt-franges .lt-fdrop > button";
+/** The detail drawer's status pill → menu (`TaskStatusMenu`). */
+const STATUS_TRIGGER = '.ltd-panel .ltd-status[aria-haspopup="menu"]';
 
 const VIEWPORTS = [
   { label: "1440x900", width: 1440, height: 900, isMobile: false },
@@ -198,14 +204,23 @@ function stages(viewport, task) {
     { name: "ignored-view-param", url: `${base}&view=list` },
     // The phone filter sheet has to be OPEN for its controls to be in the DOM at all.
     phone ? { name: "filter-sheet-open", url: base, open: [".lt-fmore"] } : null,
-    { name: "people-assignee-open", url: base, open: openInBar(phone, ".lt-pf-trigger >> nth=0") },
-    { name: "people-raiser-open", url: base, open: openInBar(phone, ".lt-pf-trigger >> nth=1") },
-    { name: "date-deadline-open", url: base, open: openInBar(phone, ".lt-fdrop >> nth=0 >> button") },
-    { name: "date-raised-open", url: base, open: openInBar(phone, ".lt-fdrop >> nth=1 >> button") },
+    // The two person slots host the shared Work Board picker (`components/assignee-picker.tsx`,
+    // multi mode): the avatar stack / `+N` chip opens `.avmenu`.
+    { name: "people-assignee-open", url: base, open: openInBar(phone, PEOPLE_TRIGGER("assignee")) },
+    { name: "people-raiser-open", url: base, open: openInBar(phone, PEOPLE_TRIGGER("raiser")) },
+    // ONE merged Dates disclosure holds both spans (Deadline from/to, Raised from/to) as four
+    // themed calendars with one Apply and one Clear.
+    { name: "dates-open", url: base, open: openInBar(phone, DATES_TRIGGER) },
+    { name: "dates-calendar-open", url: base, open: [...openInBar(phone, DATES_TRIGGER), ".lt-fdrop-from .move-date-button"] },
+    { name: "detail-status-menu-open", url: detailUrl, open: [STATUS_TRIGGER] },
     { name: "new-task-modal-open", url: base, open: [".lt-page .btn.p:has-text('New task')"] },
+    // The New task deadline calendar: its month arrows and day buttons only exist once the
+    // `<details>` is open, so this stage opens it via its own `.move-date-button`.
+    { name: "new-task-calendar-open", url: base, open: [".lt-page .btn.p:has-text('New task')", ".lt-modal .lt-deadline-date .move-date-button"] },
     { name: "bell-panel-open", url: base, open: ['.top button[aria-haspopup="dialog"]'] },
   ].filter(Boolean);
 }
+
 
 /** On a phone every bar control lives behind the filter sheet, so it is opened first. */
 function openInBar(phone, selector) {
@@ -273,6 +288,18 @@ async function enumerate(page) {
       const roots = [document.querySelector(region), ...extras.map((s) => document.querySelector(s))].filter(Boolean);
       const seen = new Set();
       const out = [];
+      // WHAT IS OPEN OVER THE PAGE. The detail drawer, the Edit / New task modals (`aria-modal`)
+      // and the phone filter sheet (`.lt-fgroup.open`, behind its own `.lt-fscrim`) all sit on
+      // a scrim. While one is open, every control OUTSIDE it is legitimately inert -- the scrim
+      // is the overlay doing its job. The scrim button itself is the overlay's own control.
+      const overlays = [...document.querySelectorAll('[aria-modal="true"], .lt-fgroup.open')];
+      const overlayOpen = overlays.length > 0;
+      const insideOverlay = (node) => overlays.some((root) => root.contains(node));
+      const exposedAt = (node, x, y) => {
+        if (x < 0 || y < 0 || x > window.innerWidth || y > window.innerHeight) return false;
+        const hit = document.elementFromPoint(x, y);
+        return Boolean(hit) && (hit === node || node.contains(hit));
+      };
       const isHidden = (node) => {
         if (typeof node.checkVisibility === "function") {
           return !node.checkVisibility({ checkVisibilityCSS: true, checkOpacity: false });
@@ -288,10 +315,33 @@ async function enumerate(page) {
           node.setAttribute("data-clickmatrix", String(out.length));
           const box = node.getBoundingClientRect();
           const form = node.form ?? node.closest("form");
-          // What a tap at the element's centre would actually hit. Behind a scrim, that is the
-          // scrim — which is the overlay doing its job, not a dead control.
-          const hit = box.width > 0 && box.height > 0 ? document.elementFromPoint(box.left + box.width / 2, box.top + box.height / 2) : null;
-          const covered = Boolean(hit) && hit !== node && !node.contains(hit) && !hit.contains(node);
+          const isScrim = node.matches(".scrim");
+          // A point of the element a tap would actually reach: its centre first, then its
+          // corners and edges (a full-page scrim is only reachable beside the panel it carries).
+          // `point` is relative to the element, for Playwright's `position`; null when nothing
+          // is exposed on screen (off-screen elements report null too -- Playwright scrolls).
+          let point = null;
+          if (box.width > 0 && box.height > 0) {
+            const inset = 6;
+            const candidates = [
+              [box.width / 2, box.height / 2],
+              [inset, inset], [box.width - inset, inset], [inset, box.height - inset], [box.width - inset, box.height - inset],
+              [inset, box.height / 2], [box.width - inset, box.height / 2], [box.width / 2, inset], [box.width / 2, box.height - inset],
+            ];
+            for (const [dx, dy] of candidates) {
+              if (exposedAt(node, box.left + dx, box.top + dy)) { point = { x: dx, y: dy }; break; }
+            }
+          }
+          const onScreen = box.bottom > 0 && box.top < window.innerHeight && box.right > 0 && box.left < window.innerWidth;
+          const covered = !isScrim && (
+            (overlayOpen && !insideOverlay(node)) ||
+            (onScreen && box.width > 0 && box.height > 0 && point === null)
+          );
+          // The TAP TARGET is the padded control a finger lands on, not the bare field inside it:
+          // the toolbar search is a 44px `.lt-fsearch` around an 18px `<input>`, and the sort
+          // select sits inside its `label.lt-fsel`.
+          const hitNode = (node.matches("input, select, textarea") && node.closest("label, .lt-fsearch")) || node;
+          const hitBox = hitNode === node ? box : hitNode.getBoundingClientRect();
           out.push({
             tag: node.tagName.toLowerCase(),
             type: node.getAttribute("type") ?? "",
@@ -300,6 +350,9 @@ async function enumerate(page) {
             disabled: node.hasAttribute("disabled") || node.getAttribute("aria-disabled") === "true",
             hidden: isHidden(node),
             covered,
+            overlay: overlayOpen,
+            selected: node.getAttribute("aria-selected") === "true",
+            point,
             formValid: form ? form.checkValidity() : null,
             className: (typeof node.className === "string" ? node.className : "").slice(0, 80),
             name:
@@ -307,8 +360,8 @@ async function enumerate(page) {
                 .replace(/\s+/g, " ")
                 .trim()
                 .slice(0, 70) || "(unnamed)",
-            width: Math.round(box.width),
-            height: Math.round(box.height),
+            width: Math.round(hitBox.width),
+            height: Math.round(hitBox.height),
           });
         }
       }
@@ -343,7 +396,7 @@ async function fingerprint(page) {
       checked: [...document.querySelectorAll("input:checked, [aria-checked=true]")].length,
       onClass: document.querySelectorAll(".on").length,
       dialogs: document.querySelectorAll('[role="dialog"].on, .lt-modal, .drawer.on, .lt-fgroup.open').length,
-      popovers: document.querySelectorAll("[data-people-popup], .lt-fdrop-pop, [data-mention-popup]").length,
+      popovers: document.querySelectorAll("[data-people-popup], .avmenu, [data-assignee-menu], .lt-fdrop-pop, [data-mention-popup], .ltd-status-pop").length,
       detailsOpen: document.querySelectorAll("details[open]").length,
       cards: document.querySelectorAll(".ltb-card").length,
       rows: document.querySelectorAll("tbody tr").length,
@@ -370,6 +423,10 @@ async function activateOne(page, viewport, stage, index, descriptor, ordinal = 0
   }
   if (plan.how === "covered") {
     record({ ...base, how: "covered", status: "pass", detail: plan.reason });
+    return;
+  }
+  if (plan.how === "current") {
+    record({ ...base, how: "current", status: "pass", detail: plan.reason });
     return;
   }
   if (plan.how === "disabled") {
@@ -427,6 +484,12 @@ async function activateOne(page, viewport, stage, index, descriptor, ordinal = 0
   const before = await fingerprint(page);
   const target = nth(page, index);
   const ignore = [];
+  // A full-page scrim is clicked where it is exposed (beside the drawer / modal it carries),
+  // never at its centre, which the panel usually covers.
+  const fresh = elements[index];
+  const clickOptions = fresh.point && descriptor.className.includes("scrim")
+    ? { timeout: 8_000, position: fresh.point }
+    : { timeout: 8_000 };
   try {
     switch (plan.how) {
       case "select": {
@@ -450,7 +513,7 @@ async function activateOne(page, viewport, stage, index, descriptor, ordinal = 0
         await target.fill(descriptor.type === "datetime-local" ? "2026-10-01T10:00" : descriptor.type === "time" ? "10:00" : descriptor.type === "month" ? "2026-10" : descriptor.type === "week" ? "2026-W40" : "2026-09-01");
         break;
       case "toggle":
-        await target.click({ timeout: 8_000 });
+        await target.click(clickOptions);
         break;
       case "drag": {
         const dataTransfer = await page.evaluateHandle(() => new DataTransfer());
@@ -474,7 +537,7 @@ async function activateOne(page, viewport, stage, index, descriptor, ordinal = 0
       case "submit-invalid":
       case "click":
       default:
-        await target.click({ timeout: 8_000 });
+        await target.click(clickOptions);
         break;
     }
   } catch (error) {
@@ -592,18 +655,19 @@ function nth(page, index) {
 async function scriptedChecks(page, viewport, task) {
   const phone = viewport.isMobile;
   const base = `/tasks?scope=${SCOPE}`;
-  const peopleOpen = (index) => ({ url: base, open: openInBar(phone, `.lt-pf-trigger >> nth=${index}`) });
+  const peopleOpen = (slot) => ({ url: base, open: openInBar(phone, PEOPLE_TRIGGER(slot)) });
+  const peopleMenu = (slot) => page.locator(`.lt-fslot[data-slot="${slot}"] .avmenu`).first();
 
   // B1/B2 — the person filter can reach EVERY assignable person by typing their name.
   await check(page, viewport, "person filter: reaches every assignable person by typing", async () => {
-    await loadStage(page, peopleOpen(0));
-    const popup = page.locator("[data-people-popup]").first();
+    await loadStage(page, peopleOpen("assignee"));
+    const popup = peopleMenu("assignee");
     await popup.waitFor({ state: "visible", timeout: 8_000 });
-    const search = popup.locator('input[type="search"]');
+    const search = popup.locator(".avq input");
     if ((await search.count()) !== 1) throw new Error("the person filter has no search field");
-    const names = (await popup.locator('[role="option"] .lt-pf-name, [role="option"]').allInnerTexts())
-      .map((t) => t.split("\n")[0].trim())
-      .filter((t) => t && !/^all$/i.test(t));
+    const names = await popup.locator('[role="option"]').evaluateAll((nodes) =>
+      nodes.map((node) => [...node.childNodes].filter((n) => n.nodeType === 3).map((n) => n.textContent).join("").trim()).filter(Boolean),
+    );
     if (names.length < 7) throw new Error(`expected the multi-person roster, got ${names.length}: ${names.join(", ")}`);
     for (const name of names) {
       await search.fill(name);
@@ -612,15 +676,19 @@ async function scriptedChecks(page, viewport, task) {
       if ((await option.count()) === 0) throw new Error(`"${name}" cannot be reached by typing their name`);
     }
     if ((await page.locator(".ltb-person-rest, .lt-person-rest").count()) !== 0) throw new Error("the dead +N overflow chip is still rendered");
-    return `${names.length} people reachable by name`;
+    // Nobody picked: the trigger must SAY so ("Assignee: All"), since every row is ticked.
+    const stack = page.locator('.lt-fslot[data-slot="assignee"] .avs').first();
+    const stackLabel = (await stack.getAttribute("aria-label")) ?? "";
+    if (!/:\s*all$/i.test(stackLabel)) throw new Error(`with nobody picked the trigger must read "<Label>: All", got "${stackLabel}"`);
+    return `${names.length} people reachable by name; trigger reads "${stackLabel}"`;
   });
 
   await check(page, viewport, "person filter: type, pick, chip appears, clear", async () => {
-    await loadStage(page, peopleOpen(0));
-    const popup = page.locator("[data-people-popup]").first();
-    const search = popup.locator('input[type="search"]');
+    await loadStage(page, peopleOpen("assignee"));
+    const popup = peopleMenu("assignee");
+    const search = popup.locator(".avq input");
     const second = popup.locator('[role="option"]').nth(2);
-    const pickName = (await second.innerText()).split("\n")[0].trim();
+    const pickName = await second.evaluate((node) => [...node.childNodes].filter((n) => n.nodeType === 3).map((n) => n.textContent).join("").trim());
     await search.fill(pickName.slice(0, 3));
     await page.waitForTimeout(150);
     await popup.locator('[role="option"]').filter({ hasText: pickName }).first().click();
@@ -636,36 +704,53 @@ async function scriptedChecks(page, viewport, task) {
     return `picked ${pickName} → t_assignee=${picked} → chip removed it`;
   });
 
+  // KEYBOARD ONLY, proven: the trigger is reached and opened from the keyboard, the search is
+  // focused on open, typing narrows, Tab lands on the first matching row (a real button), Enter
+  // picks it, and the pick is in the URL. Not one pointer event.
   await check(page, viewport, "person filter: keyboard only, and it lands in the URL", async () => {
-    await loadStage(page, peopleOpen(1));
-    const popup = page.locator("[data-people-popup]").first();
-    const search = popup.locator('input[type="search"]');
-    await search.fill("a");
+    await loadStage(page, { url: base, open: phone ? [".lt-fmore"] : [] });
+    const trigger = page.locator(PEOPLE_TRIGGER("raiser")).first();
+    await trigger.focus();
+    await page.keyboard.press("Enter");
+    const popup = peopleMenu("raiser");
+    await popup.waitFor({ state: "visible", timeout: 5_000 });
+    const focusedOnOpen = await page.evaluate(() => document.activeElement?.closest(".avq") !== null);
+    if (!focusedOnOpen) throw new Error("opening the picker did not focus its search field");
+    await page.keyboard.type("a");
     await page.waitForTimeout(150);
-    const first = await search.getAttribute("aria-activedescendant");
-    await search.press("ArrowDown");
-    const second = await search.getAttribute("aria-activedescendant");
-    if (!first || first === second) throw new Error("ArrowDown did not move the highlight");
-    await search.press("Enter");
+    const shown = await popup.locator('[role="option"]').count();
+    if (!shown) throw new Error('typing "a" left no matching row');
+    await page.keyboard.press("Tab");
+    const onRow = await page.evaluate(() => document.activeElement?.getAttribute("role") === "option");
+    if (!onRow) throw new Error("Tab from the search did not land on a person row");
+    const rowName = await page.evaluate(() => [...document.activeElement.childNodes].filter((n) => n.nodeType === 3).map((n) => n.textContent).join("").trim());
+    await page.keyboard.press("Enter");
     await page.waitForTimeout(SETTLE_MS / 4);
     await page.waitForLoadState("networkidle", { timeout: 6_000 }).catch(() => undefined);
     const url = new URL(page.url());
     if (!url.searchParams.get("t_raiser")) throw new Error(`Enter did not set t_raiser; url=${page.url()}`);
-    return `t_raiser=${url.searchParams.get("t_raiser")}`;
+    return `keyboard: Enter opens → type "a" → Tab → Enter on "${rowName}" → t_raiser=${url.searchParams.get("t_raiser")}`;
   });
 
+  // ESCAPE, proven: it closes the menu and puts focus back on the trigger that opened it.
   await check(page, viewport, "person filter: Escape closes it and returns focus to its trigger", async () => {
-    await loadStage(page, peopleOpen(0));
+    await loadStage(page, peopleOpen("assignee"));
+    await peopleMenu("assignee").waitFor({ state: "visible", timeout: 5_000 });
     await page.keyboard.press("Escape");
     await page.waitForTimeout(200);
-    if ((await page.locator("[data-people-popup]").count()) !== 0) throw new Error("Escape left the popup open");
-    const focused = await page.evaluate(() => document.activeElement?.className ?? "");
-    if (!focused.includes("lt-pf-trigger")) throw new Error(`focus did not return to the trigger; activeElement=${focused}`);
+    if ((await page.locator('.lt-fslot[data-slot="assignee"] .avmenu').count()) !== 0) throw new Error("Escape left the popup open");
+    const focused = await page.evaluate(() => {
+      const active = document.activeElement;
+      return { inSlot: Boolean(active?.closest('.lt-fslot[data-slot="assignee"] .avs')), expanded: active?.getAttribute("aria-expanded"), tag: active?.tagName };
+    });
+    if (!focused.inSlot || focused.tag !== "BUTTON") throw new Error(`focus did not return to the trigger; activeElement=${JSON.stringify(focused)}`);
+    if (phone && (await page.locator(".lt-fgroup.open").count()) !== 1) throw new Error("Escape closed the whole filter sheet instead of just the menu");
+    return `focus on the ${focused.tag.toLowerCase()} trigger (aria-expanded=${focused.expanded})`;
   });
 
   await check(page, viewport, "person filter: does not overflow the viewport; rows are tap targets", async () => {
-    await loadStage(page, peopleOpen(0));
-    const box = await page.locator("[data-people-popup]").first().boundingBox();
+    await loadStage(page, peopleOpen("assignee"));
+    const box = await peopleMenu("assignee").boundingBox();
     const size = page.viewportSize();
     if (!box) throw new Error("no popup box");
     if (box.x < -1 || box.x + box.width > size.width + 1) {
@@ -673,11 +758,13 @@ async function scriptedChecks(page, viewport, task) {
     }
     const overflow = await page.evaluate(() => document.documentElement.scrollWidth - document.documentElement.clientWidth);
     if (overflow > 1) throw new Error(`opening the popup added ${overflow}px of horizontal page scroll`);
-    const short = await page.evaluate(
-      (floor) => [...document.querySelectorAll('[data-people-popup] [role="option"]')].filter((node) => node.getBoundingClientRect().height < floor).length,
-      PHONE_TAP_FLOOR,
-    );
-    if (short > 0) throw new Error(`${short} option rows are under ${PHONE_TAP_FLOOR}px tall`);
+    if (phone) {
+      const short = await page.evaluate(
+        (floor) => [...document.querySelectorAll('.lt-fslot[data-slot="assignee"] .avmenu [role="option"]')].filter((node) => node.getBoundingClientRect().height < floor).length,
+        PHONE_TAP_FLOOR,
+      );
+      if (short > 0) throw new Error(`${short} option rows are under ${PHONE_TAP_FLOOR}px tall`);
+    }
   });
 
   // B3 — the per-column "see every task" link was removed at the CEO's request; the toolbar's
@@ -762,26 +849,56 @@ async function scriptedChecks(page, viewport, task) {
   });
 
   await check(page, viewport, "date disclosure: apply lands both bounds in the URL, clear removes them", async () => {
-    await loadStage(page, { url: base, open: openInBar(phone, ".lt-fdrop >> nth=0 >> button") });
-    const pop = page.locator(".lt-fdrop-pop").first();
+    await loadStage(page, { url: base, open: openInBar(phone, DATES_TRIGGER) });
+    const pop = page.locator(".lt-fdrop-pop.lt-fdrop-dates").first();
     await pop.waitFor({ state: "visible", timeout: 5_000 });
-    const dates = pop.locator('input[type="date"]');
-    if ((await dates.count()) !== 2) throw new Error(`expected 2 date inputs, got ${await dates.count()}`);
-    await dates.nth(0).fill("2026-01-01");
-    await dates.nth(1).fill("2026-12-31");
-    await pop.locator("button.btn.p").first().click();
-    let url = await waitForParam(page, "t_deadline_to", "2026-12-31");
-    if (url.searchParams.get("t_deadline_from") !== "2026-01-01" || url.searchParams.get("t_deadline_to") !== "2026-12-31") {
+    // The four fields are the console's themed calendar, not native date inputs.
+    if ((await pop.locator('input[type="date"]').count()) !== 0) throw new Error("the Dates disclosure still renders a native date input");
+    const pickers = pop.locator(".move-date-picker");
+    if ((await pickers.count()) !== 4) throw new Error(`expected 4 themed calendars (Deadline from/to, Raised from/to), got ${await pickers.count()}`);
+    if ((await pop.locator(".lt-fdrop-act .btn.p").count()) !== 1) throw new Error("the disclosure must offer exactly ONE Apply");
+    const deadline = pop.locator(".lt-fdrop-range").first();
+    const pickDay = async (field, which) => {
+      const picker = deadline.locator(`.lt-fdrop-${field} .move-date-picker`).first();
+      await picker.locator(".move-date-button").click();
+      await picker.locator(".move-date-popover").waitFor({ state: "visible", timeout: 3_000 });
+      const days = picker.locator(".move-date-day:not(:disabled)");
+      await (which === "first" ? days.first() : days.last()).click();
+      await page.waitForTimeout(150);
+      return picker.locator('input[type="hidden"]').inputValue();
+    };
+    const from = await pickDay("from", "first");
+    const to = await pickDay("to", "last");
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(from) || !/^\d{4}-\d{2}-\d{2}$/.test(to)) throw new Error(`the calendars did not yield ISO days: from=${from} to=${to}`);
+    if (from > to) throw new Error(`the picked span is inverted: ${from} > ${to}`);
+    await pop.locator(".lt-fdrop-act .btn.p").first().click();
+    let url = await waitForParam(page, "t_deadline_to", to);
+    if (url.searchParams.get("t_deadline_from") !== from || url.searchParams.get("t_deadline_to") !== to) {
       throw new Error(`apply did not land both bounds: ${page.url()}`);
     }
     if (phone) await page.locator(".lt-fmore").first().click();
-    await page.locator(".lt-fdrop >> nth=0 >> button").first().click();
+    await page.locator(DATES_TRIGGER).first().click();
     await page.locator(".lt-fdrop-pop").first().waitFor({ state: "visible", timeout: 5_000 });
-    const clear = page.locator(".lt-fdrop-pop .lt-fdrop-act button:not(.p)").first();
-    if ((await clear.count()) === 0) throw new Error("an applied range offers no Clear");
-    await clear.click();
+    const clear = page.locator(".lt-fdrop-pop .lt-fdrop-act button:not(.p)");
+    if ((await clear.count()) !== 1) throw new Error(`an applied range must offer exactly ONE Clear, got ${await clear.count()}`);
+    await clear.first().click();
     url = await waitForParam(page, "t_deadline_to", null);
     if (url.searchParams.get("t_deadline_from") || url.searchParams.get("t_deadline_to")) throw new Error(`clear left the bounds: ${page.url()}`);
+    return `themed calendars → t_deadline_from=${from} t_deadline_to=${to} → one Clear removed both`;
+  });
+
+  await check(page, viewport, "date disclosure: Escape closes an open calendar first, the disclosure second", async () => {
+    await loadStage(page, { url: base, open: [...openInBar(phone, DATES_TRIGGER), ".lt-fdrop-from .move-date-button"] });
+    if ((await page.locator(".lt-fdrop-dates details[open]").count()) !== 1) throw new Error("the calendar did not open");
+    await page.keyboard.press("Escape");
+    await page.waitForTimeout(200);
+    if ((await page.locator(".lt-fdrop-dates details[open]").count()) !== 0) throw new Error("Escape left the calendar open");
+    if ((await page.locator(".lt-fdrop-pop.lt-fdrop-dates").count()) !== 1) throw new Error("one Escape closed the calendar AND the disclosure");
+    const onSummary = await page.evaluate(() => document.activeElement?.classList.contains("move-date-button"));
+    if (!onSummary) throw new Error("closing the calendar did not return focus to its button");
+    await page.keyboard.press("Escape");
+    await page.waitForTimeout(200);
+    if ((await page.locator(".lt-fdrop-pop.lt-fdrop-dates").count()) !== 0) throw new Error("the second Escape did not close the disclosure");
   });
 
   await check(page, viewport, "active filters: Clear removes every narrowing at once", async () => {
@@ -832,8 +949,19 @@ async function scriptedChecks(page, viewport, task) {
     await page.waitForTimeout(300);
     if ((await page.locator(".lt-modal[role=dialog]").count()) !== 0) throw new Error("the Edit modal's Close left it open");
 
-    const statusButtons = panel.locator(".lt-status-actions button[type=submit]");
-    if ((await statusButtons.count()) === 0) throw new Error("no status transition offered on the detail panel");
+    // The status pill opens a menu of transitions (`TaskStatusMenu`); a menu item is a status
+    // WRITE, so the menu is opened, counted, and closed again -- never picked.
+    const statusTrigger = panel.locator('.ltd-status[aria-haspopup="menu"]').first();
+    if ((await statusTrigger.count()) === 0) throw new Error("no status control on the detail panel");
+    await statusTrigger.click();
+    const statusItems = panel.locator('[role="menu"] [role="menuitem"]');
+    await statusItems.first().waitFor({ state: "visible", timeout: 3_000 }).catch(() => undefined);
+    const offered = await statusItems.count();
+    if (offered === 0) throw new Error("no status transition offered on the detail panel");
+    await page.keyboard.press("Escape");
+    await page.waitForTimeout(200);
+    if ((await panel.locator('[role="menu"]').count()) !== 0) throw new Error("Escape did not close the status menu");
+    if ((await panel.count()) === 0) throw new Error("Escape on the status menu closed the whole drawer");
 
     const composer = panel.locator("textarea").first();
     if ((await composer.count()) === 0) throw new Error("the detail panel has no update composer");
@@ -848,7 +976,7 @@ async function scriptedChecks(page, viewport, task) {
     if ((await close.count()) === 0) throw new Error("the detail panel cannot be closed");
     await close.click();
     if ((await waitForParam(page, "task", null)).searchParams.get("task")) throw new Error("Close left the task selected in the URL");
-    return `${await statusButtons.count()} status actions offered (not submitted)`;
+    return `${offered} status transitions offered in the menu (not picked)`;
   });
 
   await check(page, viewport, "the pager moves forward and back, and Prev on page one is disabled rather than dead", async () => {
@@ -904,6 +1032,28 @@ async function scriptedChecks(page, viewport, task) {
     await page.locator(".lt-modal-hd button[aria-label]").first().click();
     await page.waitForTimeout(300);
     if ((await page.locator(".lt-modal[role=dialog]").count()) !== 0) throw new Error("Close left the New task modal open");
+  });
+
+  await check(page, viewport, "New task calendar: opens from its button, month arrows move, a day lands in the hidden field", async () => {
+    await loadStage(page, { url: base, open: [".lt-page .btn.p:has-text('New task')"] });
+    const field = page.locator(".lt-modal .lt-deadline-date").first();
+    await field.locator(".move-date-button").click();
+    const popover = field.locator(".move-date-popover");
+    await popover.waitFor({ state: "visible", timeout: 3_000 });
+    const month = await popover.locator(".move-date-head b").innerText();
+    await popover.locator(".move-date-head button").last().click();
+    await page.waitForTimeout(100);
+    const nextMonth = await popover.locator(".move-date-head b").innerText();
+    if (nextMonth === month) throw new Error("Next month did not move the calendar");
+    await popover.locator(".move-date-head button").first().click();
+    await page.waitForTimeout(100);
+    if ((await popover.locator(".move-date-head b").innerText()) !== month) throw new Error("Previous month did not move back");
+    await popover.locator(".move-date-day:not(:disabled)").first().click();
+    await page.waitForTimeout(150);
+    const value = await field.locator('input[type="hidden"]').inputValue();
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(value)) throw new Error(`picking a day did not fill the hidden field: "${value}"`);
+    if ((await field.locator("details[open]").count()) !== 0) throw new Error("picking a day left the calendar open");
+    return `${month} → ${nextMonth} → back; picked ${value}`;
   });
 
   await check(page, viewport, "every scope tab is reachable and marks itself current", async () => {
