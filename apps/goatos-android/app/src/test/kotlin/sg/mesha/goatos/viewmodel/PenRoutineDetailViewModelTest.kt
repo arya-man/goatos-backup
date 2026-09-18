@@ -260,6 +260,8 @@ class PenRoutineDetailViewModelTest {
         assertEquals(1, note.proofSlots.size)
         assertEquals("routine-q-note-video-1", note.proofSlots.first().videoFieldKey)
         assertFalse("optional question left blank owes nothing", note.proofMissing)
+        assertFalse("and its slot carries no required mark", note.proofSlots.first().required)
+        assertTrue(cleaned.proofSlots.first().required)
 
         vm.onEvent(PenRoutineDetailEvent.SetChoice("cleaned", "yes"))
         vm.onEvent(PenRoutineDetailEvent.SetChoice("water", "clean"))
@@ -275,6 +277,7 @@ class PenRoutineDetailViewModelTest {
         vm.onEvent(PenRoutineDetailEvent.SetText("note", "Latch loose"))
         advanceUntilIdle()
         assertFalse("answered optional owes its capture", vm.state.value.submitEnabled)
+        assertTrue("the mark appears once the answer makes the capture owed", vm.state.value.questions.single { it.id == "note" }.proofSlots.first().required)
         vm.onEvent(PenRoutineDetailEvent.CaptureSlot("routine-q-note-video-1"))
         advanceUntilIdle()
         val noteSlots = vm.state.value.questions.single { it.id == "note" }.proofSlots

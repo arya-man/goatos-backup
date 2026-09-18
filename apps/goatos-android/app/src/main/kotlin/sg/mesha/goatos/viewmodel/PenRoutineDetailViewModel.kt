@@ -567,12 +567,13 @@ class PenRoutineDetailViewModel @Inject constructor(
             val ui = question.toUi(answers[question.id].orEmpty())
             val proofKind = question.proof?.let { PenRoutineQuestionProofKind.from(it.kind) }
             if (proofKind == null) return@map ui
-            val slots = questionProofSlots(question.id, proofKind, question.proof?.count == PEN_ROUTINE_PROOF_COUNT_MULTIPLE, rowsByKey)
+            val owed = ui.required || ui.isAnswered()
+            val slots = questionProofSlots(question.id, proofKind, question.proof?.count == PEN_ROUTINE_PROOF_COUNT_MULTIPLE, owed, rowsByKey)
             val taken = slots.any { it.previewPath.isNotBlank() && it.failureReason.isBlank() }
             ui.copy(
                 proofKind = proofKind,
                 proofSlots = slots,
-                proofMissing = (ui.required || ui.isAnswered()) && !taken,
+                proofMissing = owed && !taken,
             )
         }
         val photoSlots = (1..detail.form.photo.max).map { index ->
@@ -673,13 +674,15 @@ class PenRoutineDetailViewModel @Inject constructor(
      * offer both cameras through [PenRoutineSlotUi.videoFieldKey]. `multiple` allows up to the
      * cap, but the screen shows only the captures TAKEN plus ONE empty slot -- five stacked
      * "Record video" buttons read as five owed videos, and the rule is "up to", not "exactly".
-     * The first slot is required only while the question owes a capture (required/answered),
-     * which the caller decides.
+     * The first slot carries the required mark only while the question OWES a capture
+     * (required, or optional and answered) -- an optional question left blank owes nothing
+     * and must not show a star it will never enforce.
      */
     private fun questionProofSlots(
         questionId: String,
         kind: PenRoutineQuestionProofKind,
         multiple: Boolean,
+        owed: Boolean,
         rowsByKey: Map<String, ProofCaptureRow>,
     ): List<PenRoutineSlotUi> {
         val cap = if (multiple) PEN_ROUTINE_QUESTION_PROOF_MAX else 1
@@ -687,17 +690,17 @@ class PenRoutineDetailViewModel @Inject constructor(
             val photoKey = penRoutineQuestionProofFieldKey(questionId, PEN_ROUTINE_PROOF_KIND_PHOTO, index)
             val videoKey = penRoutineQuestionProofFieldKey(questionId, PEN_ROUTINE_PROOF_KIND_VIDEO, index)
             when (kind) {
-                PenRoutineQuestionProofKind.PHOTO -> slotUi(photoKey, PenRoutineSlotKind.PHOTO, index, required = index == 1, row = rowsByKey[photoKey])
-                PenRoutineQuestionProofKind.VIDEO -> slotUi(videoKey, PenRoutineSlotKind.VIDEO, index, required = index == 1, row = rowsByKey[videoKey])
+                PenRoutineQuestionProofKind.PHOTO -> slotUi(photoKey, PenRoutineSlotKind.PHOTO, index, required = owed && index == 1, row = rowsByKey[photoKey])
+                PenRoutineQuestionProofKind.VIDEO -> slotUi(videoKey, PenRoutineSlotKind.VIDEO, index, required = owed && index == 1, row = rowsByKey[videoKey])
                 PenRoutineQuestionProofKind.EITHER -> {
                     val photoRow = rowsByKey[photoKey]
                     val videoRow = rowsByKey[videoKey]
                     when {
                         // Both taken on one slot (a re-take that switched medium): the newer wins.
                         photoRow != null && (videoRow == null || photoRow.capturedAtMs >= videoRow.capturedAtMs) ->
-                            slotUi(photoKey, PenRoutineSlotKind.PHOTO, index, required = index == 1, row = photoRow)
-                        videoRow != null -> slotUi(videoKey, PenRoutineSlotKind.VIDEO, index, required = index == 1, row = videoRow)
-                        else -> PenRoutineSlotUi(fieldKey = photoKey, kind = PenRoutineSlotKind.PHOTO, index = index, required = index == 1, videoFieldKey = videoKey)
+                            slotUi(photoKey, PenRoutineSlotKind.PHOTO, index, required = owed && index == 1, row = photoRow)
+                        videoRow != null -> slotUi(videoKey, PenRoutineSlotKind.VIDEO, index, required = owed && index == 1, row = videoRow)
+                        else -> PenRoutineSlotUi(fieldKey = photoKey, kind = PenRoutineSlotKind.PHOTO, index = index, required = owed && index == 1, videoFieldKey = videoKey)
                     }
                 }
             }
