@@ -106,6 +106,9 @@ func parseWiredReaders(t *testing.T) map[string]bool {
 	if regexp.MustCompile(`SetFeedDataReader\(`).MatchString(src) {
 		wired["feed_direction_today"] = true
 	}
+	if regexp.MustCompile(`SetFeedWeightBandReader\(`).MatchString(src) {
+		wired["feed_weight_band_summary"] = true
+	}
 	if regexp.MustCompile(`SetProcurementDataReader\(`).MatchString(src) {
 		wired["procurement_source_entry_loads"] = true
 	}

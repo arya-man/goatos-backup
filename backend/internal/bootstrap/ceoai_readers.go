@@ -21,9 +21,11 @@ import (
 
 	ceodomain "github.com/vgoats/goatos/backend/internal/ceoai/domain"
 	countsdomain "github.com/vgoats/goatos/backend/internal/counts/domain"
+	growthdirectordomain "github.com/vgoats/goatos/backend/internal/growthdirector/domain"
 	locationsdomain "github.com/vgoats/goatos/backend/internal/locations/domain"
 	locationsports "github.com/vgoats/goatos/backend/internal/locations/ports"
 	operationsauditdomain "github.com/vgoats/goatos/backend/internal/operationsaudit/domain"
+	"github.com/vgoats/goatos/backend/internal/permissions"
 	"github.com/vgoats/goatos/backend/internal/platform/biztime"
 	"github.com/vgoats/goatos/backend/internal/platform/oploc"
 	processintegritydomain "github.com/vgoats/goatos/backend/internal/processintegrity/domain"
@@ -76,6 +78,10 @@ type countsBreakdownLister interface {
 
 type salesOverviewGetter interface {
 	GetOverview(ctx context.Context, tenantID, farm string) (salesdomain.Overview, error)
+}
+
+type feedWeightBandGetter interface {
+	GetFeedWeightBand(ctx context.Context, actor growthdirectordomain.Actor, parkID, fromBusinessDate, toBusinessDate, sex, origin, weighingCategory string) (growthdirectordomain.FeedWeightBand, error)
 }
 
 // parkResolver resolves the planner's human park_label (e.g. "Castro 1") to
@@ -301,6 +307,59 @@ func buildSalesOverviewReader(svc salesOverviewGetter) func(ctx context.Context,
 		}
 		return facts, nil
 	}
+}
+
+func buildFeedWeightBandReader(svc feedWeightBandGetter, resolver parkResolver) func(ctx context.Context, tenantID string, params map[string]any) ([]ceodomain.Fact, error) {
+	return func(ctx context.Context, tenantID string, params map[string]any) ([]ceodomain.Fact, error) {
+		parkID := ""
+		if raw, ok := params["park_id"].(string); ok {
+			parkID = raw
+		} else if parkLabel, ok := params["park_label"].(string); ok && parkLabel != "" {
+			resolved, found, err := resolver.ResolveParkID(ctx, tenantID, parkLabel)
+			if err != nil {
+				return nil, err
+			}
+			if !found {
+				return nil, fmt.Errorf("park_label %q could not be resolved", parkLabel)
+			}
+			parkID = resolved
+		}
+		out, err := svc.GetFeedWeightBand(ctx, growthdirectordomain.Actor{
+			TenantID: tenantID,
+			Roles:    []string{permissions.RoleCEOInternal},
+		}, parkID, stringParam(params, "from"), stringParam(params, "to"), stringParam(params, "sex"), stringParam(params, "origin"), stringParam(params, "weighing_category"))
+		if err != nil {
+			return nil, err
+		}
+		rec := out.Reconciliation
+		totalWeighed := rec.IndividualAnimalsWeighed + rec.LumpSumAnimalsWeighed
+		facts := []ceodomain.Fact{
+			{Label: "Matched animals", Value: fmt.Sprintf("%d", sumFeedBandAnimals(out.Rows, false)), Scope: "on farm"},
+			{Label: "Matched animals including exited", Value: fmt.Sprintf("%d", sumFeedBandAnimals(out.Rows, true)), Scope: "include exited"},
+			{Label: "Matched feed rows", Value: fmt.Sprintf("%d", rec.MatchedRollups), Scope: "on farm"},
+			{Label: "Matched feed rows including exited", Value: fmt.Sprintf("%d", rec.MatchedRollupsAll), Scope: "include exited"},
+			{Label: "Not shown feed rows", Value: fmt.Sprintf("%d", rec.ExcludedRollups), Scope: "on farm"},
+			{Label: "Not shown feed rows including exited", Value: fmt.Sprintf("%d", rec.ExcludedRollupsAll), Scope: "include exited"},
+			{Label: "Animals weighed in period", Value: fmt.Sprintf("%d", totalWeighed), Scope: "general tab total"},
+			{Label: "Per-animal animals weighed", Value: fmt.Sprintf("%d", rec.IndividualAnimalsWeighed), Scope: "general tab"},
+			{Label: "Lump-sum animals weighed", Value: fmt.Sprintf("%d", rec.LumpSumAnimalsWeighed), Scope: "general tab"},
+			{Label: "Exited in period", Value: fmt.Sprintf("%d", rec.ExitedAnimals), Scope: fmt.Sprintf("%d weighed, %d no weighing", rec.ExitedWeighed, rec.ExitedNotWeighed)},
+			{Label: "Feed sheet", Value: rec.FeedDay},
+		}
+		return facts, nil
+	}
+}
+
+func sumFeedBandAnimals(rows []growthdirectordomain.FeedWeightBandRow, includeExited bool) int {
+	total := 0
+	for _, row := range rows {
+		if includeExited {
+			total += row.WeightAnimalsAll
+			continue
+		}
+		total += row.WeightAnimals
+	}
+	return total
 }
 
 func formatFloatFact(v float64) string {

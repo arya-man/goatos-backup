@@ -113,6 +113,25 @@ func TestComposerRendersOperationalCountsAsHumanSentences(t *testing.T) {
 	}
 }
 
+func TestComposerRendersFeedWeightBandReconciliation(t *testing.T) {
+	body, _, _ := composer{}.compose([]domain.ToolResult{{
+		ToolName: "feed_weight_band_summary",
+		Facts: []domain.Fact{
+			{Label: "Matched animals", Value: "462", Scope: "on farm"},
+			{Label: "Matched animals including exited", Value: "506", Scope: "include exited"},
+			{Label: "Animals weighed in period", Value: "515", Scope: "general tab total"},
+			{Label: "Not shown feed rows", Value: "120", Scope: "on farm"},
+			{Label: "Exited in period", Value: "65", Scope: "55 weighed, 10 no weighing"},
+			{Label: "Feed sheet", Value: "2026-09-19"},
+		},
+	}})
+	for _, want := range []string{"462 matched animals on farm", "506 when exited animals are included", "515 animals weighed in the General tab", "120 feed rows not shown"} {
+		if !strings.Contains(body, want) {
+			t.Fatalf("answer missing %q: %s", want, body)
+		}
+	}
+}
+
 func TestInMemoryMemoryRecallByConversation(t *testing.T) {
 	m := NewInMemoryMemory(0, 0)
 	actor := domain.Actor{TenantID: "t1", UserID: "u1"}

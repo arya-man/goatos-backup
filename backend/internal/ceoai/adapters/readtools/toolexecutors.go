@@ -206,6 +206,50 @@ func (e *feedDirectionTodayExecutor) Execute(ctx context.Context, actor domain.A
 	}, nil
 }
 
+// feedWeightBandSummaryExecutor provides the Growth Director "Feed by weight
+// band" reconciliation. It must stay an API read so Ask Mesha answers the same
+// matched/on-farm/include-exited counts as the dashboard, instead of guessing
+// from generic feed or weighing SQL.
+type feedWeightBandSummaryExecutor struct {
+	feedWeightBandReader scopedReader
+}
+
+func (e *feedWeightBandSummaryExecutor) Spec() ports.ToolSpec {
+	return ports.ToolSpec{
+		Name:        "feed_weight_band_summary",
+		Route:       domain.RouteAPI,
+		Description: "Feed by weight band reconciliation: matched feed rollups, not shown, include-exited count, total weighed in period, feed-sheet day",
+		Params:      []string{"park_label", "from", "to", "sex", "origin", "weighing_category"},
+	}
+}
+
+func (e *feedWeightBandSummaryExecutor) Execute(ctx context.Context, actor domain.Actor, sub domain.SubQuestion) (domain.ToolResult, error) {
+	if e.feedWeightBandReader == nil {
+		return domain.ToolResult{
+			Surface:  "Mesha read API",
+			ToolName: sub.ToolName,
+			Facts:    []domain.Fact{},
+			Err:      fmt.Errorf("feed weight band reader not wired"),
+		}, nil
+	}
+
+	facts, err := e.feedWeightBandReader(ctx, actor.TenantID, sub.Params)
+	if err != nil {
+		return domain.ToolResult{
+			Surface:  "Mesha read API",
+			ToolName: sub.ToolName,
+			Facts:    []domain.Fact{},
+			Err:      err,
+		}, nil
+	}
+
+	return domain.ToolResult{
+		Surface:  "Mesha read API · Feed by weight band",
+		ToolName: sub.ToolName,
+		Facts:    facts,
+	}, nil
+}
+
 // procurementExecutor provides procurement loads (source entry) information.
 type procurementExecutor struct {
 	procurementDataReader scopedReader
@@ -554,6 +598,7 @@ func NewToolExecutors() []ports.ToolExecutor {
 		&vaccinationShedSummaryExecutor{},
 		&vaccinationExecutionExecutor{},
 		&feedDirectionTodayExecutor{},
+		&feedWeightBandSummaryExecutor{},
 		&procurementExecutor{},
 		&salesOverviewExecutor{},
 		&workforceExecutor{},
@@ -594,6 +639,13 @@ func SetVaccinationDataReader(execs []ports.ToolExecutor, reader func(context.Co
 func SetFeedDataReader(exec ports.ToolExecutor, reader func(context.Context, string, map[string]any) ([]domain.Fact, error)) {
 	if e, ok := exec.(*feedDirectionTodayExecutor); ok {
 		e.feedDataReader = reader
+	}
+}
+
+// SetFeedWeightBandReader wires the Growth Director feed-band reader.
+func SetFeedWeightBandReader(exec ports.ToolExecutor, reader func(context.Context, string, map[string]any) ([]domain.Fact, error)) {
+	if e, ok := exec.(*feedWeightBandSummaryExecutor); ok {
+		e.feedWeightBandReader = reader
 	}
 }
 

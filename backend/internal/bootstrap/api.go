@@ -1225,6 +1225,8 @@ func NewAPI(ctx context.Context, cfg Config, log *slog.Logger) (*API, error) {
 			ceoreadtools.SetProcurementDataReader(exec, buildProcurementReader(procurementService))
 		case "sales_overview":
 			ceoreadtools.SetSalesDataReader(exec, buildSalesOverviewReader(salesService))
+		case "feed_weight_band_summary":
+			ceoreadtools.SetFeedWeightBandReader(exec, buildFeedWeightBandReader(growthDirectorService, parkResolver))
 		case "admin_roster_coverage":
 			ceoreadtools.SetWorkforceDataReader(exec, buildWorkforceReader(rosterService))
 		case "verification_queue":

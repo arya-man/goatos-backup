@@ -38,7 +38,7 @@ func naturalSQLPlan(q domain.Question, mem []domain.ResolvedEntities) (domain.Su
 		return naturalSalesPlan(q, normalizedText, mem), true
 	}
 	if feedByWeightBandQuestion.MatchString(normalizedText) {
-		return domain.SubQuestion{}, false
+		return naturalFeedWeightBandPlan(q, normalizedText, mem), true
 	}
 	if mortalityQuestion.MatchString(normalizedText) || weighingQuestion.MatchString(normalizedText) {
 		if sub, ok := naturalOperationalSQLPlan(q, normalizedText, mem); ok {
@@ -79,6 +79,22 @@ func naturalSQLPlan(q domain.Question, mem []domain.ResolvedEntities) (domain.Su
 		return sub, true
 	}
 	return domain.SubQuestion{}, false
+}
+
+func naturalFeedWeightBandPlan(q domain.Question, normalizedText string, mem []domain.ResolvedEntities) domain.SubQuestion {
+	params := map[string]any{}
+	if scope, ok := resolveKnownParkScope(normalizedText, mem); ok {
+		params["park_label"] = scope.label
+		params["park_code"] = scope.code
+	}
+	return domain.SubQuestion{
+		ID:          "0",
+		Text:        q.Text,
+		IntentClass: "feed_weight_band_live_api",
+		Route:       domain.RouteAPI,
+		ToolName:    "feed_weight_band_summary",
+		Params:      params,
+	}
 }
 
 func naturalSalesPlan(q domain.Question, normalizedText string, mem []domain.ResolvedEntities) domain.SubQuestion {

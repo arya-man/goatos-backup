@@ -238,6 +238,9 @@ func renderOperationalAnswer(r domain.ToolResult) string {
 	if len(r.Facts) == 0 {
 		return ""
 	}
+	if r.ToolName == "feed_weight_band_summary" {
+		return renderFeedWeightBandSummary(r.Facts)
+	}
 	label := strings.TrimSpace(r.Facts[0].Label)
 	for _, f := range r.Facts {
 		if strings.TrimSpace(f.Label) != label {
@@ -273,6 +276,37 @@ func renderOperationalAnswer(r domain.ToolResult) string {
 	default:
 		return ""
 	}
+}
+
+func renderFeedWeightBandSummary(facts []domain.Fact) string {
+	values := map[string]domain.Fact{}
+	for _, f := range facts {
+		values[strings.TrimSpace(f.Label)] = f
+	}
+	pick := func(label string) string {
+		return strings.TrimSpace(values[label].Value)
+	}
+	if pick("Matched animals") == "" {
+		return ""
+	}
+	var parts []string
+	parts = append(parts, "Feed by weight band has "+pick("Matched animals")+" matched animals on farm")
+	if v := pick("Matched animals including exited"); v != "" {
+		parts = append(parts, v+" when exited animals are included")
+	}
+	if v := pick("Animals weighed in period"); v != "" {
+		parts = append(parts, v+" animals weighed in the General tab for the same period")
+	}
+	if v := pick("Not shown feed rows"); v != "" {
+		parts = append(parts, v+" feed rows not shown because they have no qualifying weighing")
+	}
+	if v := pick("Exited in period"); v != "" {
+		parts = append(parts, v+" exited in the period")
+	}
+	if v := pick("Feed sheet"); v != "" {
+		parts = append(parts, "feed sheet "+v)
+	}
+	return strings.Join(parts, "; ") + "."
 }
 
 func renderScopedCountSentence(facts []domain.Fact, title string) string {

@@ -569,10 +569,13 @@ func TestNaturalWeighingCountQuestionsUseDashboardDenominatorTerms(t *testing.T)
 	}
 }
 
-func TestNaturalFeedByWeightBandDoesNotUseGenericFeedOrWeighingSQL(t *testing.T) {
+func TestNaturalFeedByWeightBandUsesDashboardReader(t *testing.T) {
 	sub, ok := naturalSQLPlan(domain.Question{Actor: leadershipActor(), Text: "how many matched animals in feed by weight band"}, nil)
-	if ok {
-		t.Fatalf("feed-band matched animals needs a dedicated dashboard reader, not generic %s/%s: %+v", sub.IntentClass, sub.ToolName, sub)
+	if !ok {
+		t.Fatal("feed-band matched animals should route to dedicated dashboard reader")
+	}
+	if sub.Route != domain.RouteAPI || sub.ToolName != "feed_weight_band_summary" {
+		t.Fatalf("feed-band matched animals must use dashboard reader, got %s/%s: %+v", sub.Route, sub.ToolName, sub)
 	}
 }
 

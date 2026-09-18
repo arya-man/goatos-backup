@@ -39,6 +39,7 @@ type rule struct {
 // operational read-API tools. Order matters — first match wins.
 var rules = []rule{
 	{regexp.MustCompile(`(?i)\b(sale|sales|sold|selling|buyer|buyers|customer|customers|purchased|bought|revenue)\b`), "sales_overview", "sales_overview", domain.RouteAPI, ""},
+	{regexp.MustCompile(`(?i)(feed by weight band|matched animals|include exited|not shown|exited in period|animals weighed).{0,80}(feed|weight|band)|(feed|weight|band).{0,80}(matched animals|include exited|not shown|exited in period|animals weighed)`), "feed_weight_band_summary", "feed_weight_band_summary", domain.RouteAPI, ""},
 	// Operator-based vaccination drive questions (operator grain). These MUST be
 	// matched before the shed-grain overdue/capacity rules below, or "which
 	// operators are behind" would collapse to the shed-grain vaccination_overdue.
