@@ -1,0 +1,194 @@
+package app
+
+import (
+	"context"
+	"testing"
+	"time"
+
+	"github.com/vgoats/goatos/backend/internal/growthdirector/domain"
+	"github.com/vgoats/goatos/backend/internal/growthdirector/ports"
+	"github.com/vgoats/goatos/backend/internal/permissions"
+)
+
+func feedSourceFixture() ports.FeedWeightBandSource {
+	items := []ports.FeedRollupItem{
+		{Label: "Dry Masoor Bhusa", GramsPerHead: 400},
+		{Label: "Mesha Kids Concentrate", GramsPerHead: 250.4},
+	}
+	exitedAt := time.Date(2026, 9, 1, 6, 0, 0, 0, time.UTC)
+	weighedAt := time.Date(2026, 8, 20, 6, 0, 0, 0, time.UTC)
+	return ports.FeedWeightBandSource{
+		FeedDay: "2026-09-10", PositiveRows: 10, CollapsedItems: 6,
+		IndividualAnimalsWeighed: 9, LumpSumAnimalsWeighed: 40,
+		Rollups: []ports.FeedRollup{
+			// A pen-average pen: one evidence row; the register says every resident is male.
+			{ParkID: gdParkA, ParkName: "Coimbatore", Pen: "Castro 1", ShedTag: "F2-Male", RationGroup: "Fattening", Breed: "Beetal x Sojat", Workflow: "normal", KgPerDay: 12.5, Items: items,
+				Evidence: []ports.FeedWeightEvidence{{Source: domain.FeedBandSourcePenAverage, Band: "25_30", Animals: 40, AverageWeightKg: 27.2, MaleCount: 38}}},
+			// A per-animal pen with two kid rollups that would read identically: two bands
+			// each, the 15-20 band mixed with two sold animals beside it, the under-15 band
+			// all female.
+			{ParkID: gdParkA, ParkName: "Coimbatore", Pen: "Godel 1 - Part 2", ShedTag: "K3", RationGroup: "Kid", Breed: "Sojat", Workflow: "normal", KgPerDay: 3, Items: items[1:],
+				Evidence: []ports.FeedWeightEvidence{{Source: domain.FeedBandSourcePerAnimal, Band: "15_20", Animals: 3, AverageWeightKg: 17, FemaleCount: 2, MaleCount: 1, ExitedAnimals: 2, ExitedSold: 1}, {Source: domain.FeedBandSourcePerAnimal, Band: "under_15", Animals: 2, AverageWeightKg: 12, FemaleCount: 2}}},
+			{ParkID: gdParkA, ParkName: "Coimbatore", Pen: "Godel 1 - Part 2", ShedTag: "ICU-Kid", RationGroup: "Kid", Breed: "Sojat", Workflow: "normal", KgPerDay: 1, Items: items[1:],
+				Evidence: []ports.FeedWeightEvidence{{Source: domain.FeedBandSourcePerAnimal, Band: "15_20", Animals: 3, AverageWeightKg: 17, FemaleCount: 2, MaleCount: 1, ExitedAnimals: 2, ExitedSold: 1}, {Source: domain.FeedBandSourcePerAnimal, Band: "under_15", Animals: 2, AverageWeightKg: 12, FemaleCount: 2}}},
+			// A fed pen nobody has weighed in the period: excluded, counted.
+			{ParkID: gdParkA, ParkName: "Coimbatore", Pen: "Sumathi 1 - Part 4", ShedTag: "F2-Female", RationGroup: "Fattening", Breed: "Sojat", Workflow: "experiment", ExperimentArm: "Arm A", KgPerDay: 9, Items: items},
+		},
+		Exited: []ports.FeedExitedAnimal{
+			{GoatID: "g1", ParkID: gdParkA, Tag: "TAG-SOLD", Pen: "Godel 1 - Part 2", Sex: "female", ExitReason: "sold", LifecycleStatus: "sold", ExitedAt: exitedAt, LastWeighedAt: &weighedAt, LastWeightKg: 18.5},
+			{GoatID: "g2", ParkID: gdParkA, Tag: "TAG-DEAD", ExitReason: "", LifecycleStatus: "dead", ExitedAt: exitedAt},
+		},
+	}
+}
+
+func TestBuildFeedWeightBandReconcilesAndOrders(t *testing.T) {
+	got := BuildFeedWeightBand(feedSourceFixture(), false)
+	rec := got.Reconciliation
+	if rec.FeedDay != "2026-09-10" || rec.PositiveRows != 10 || rec.CollapsedItems != 6 {
+		t.Fatalf("sheet stages not carried: %+v", rec)
+	}
+	if rec.Rollups != 4 || rec.MatchedRollups != 3 || rec.ExcludedRollups != 1 || rec.OutputRows != 5 {
+		t.Fatalf("reconciliation wrong: %+v", rec)
+	}
+	// The General-tab figures and the exit count ride on the reconciliation verbatim.
+	if rec.IndividualAnimalsWeighed != 9 || rec.LumpSumAnimalsWeighed != 40 || rec.ExitedAnimals != 2 || rec.IncludeExited {
+		t.Fatalf("weighing-side totals wrong: %+v", rec)
+	}
+	if len(got.Rows) != 5 {
+		t.Fatalf("want 5 rows, got %d", len(got.Rows))
+	}
+	first := got.Rows[0]
+	if first.WeightSource != domain.FeedBandSourcePenAverage || first.Pen != "Castro 1" {
+		t.Fatalf("pen-average rows must come first: %+v", first)
+	}
+	if first.Group != "Fattening" || first.Gender != "Male" || first.Breed != "Beetal cross Sojat" {
+		t.Fatalf("display derivation wrong: %+v", first)
+	}
+	if first.FeedGiven != "Bhusa 400g/head + Kids Concentrate 250g/head" {
+		t.Fatalf("feed given wrong: %q", first.FeedGiven)
+	}
+	// Per-animal rows: band ascending inside the pen, and the two kid rollups carry
+	// their shed tag so they do not read as one row repeated.
+	if got.Rows[1].Band != "under_15" || got.Rows[2].Band != "under_15" || got.Rows[3].Band != "15_20" {
+		t.Fatalf("bands not ascending: %+v", got.Rows[1:])
+	}
+	groups := map[string]bool{}
+	genders := map[string]string{}
+	exited := map[string]int{}
+	for _, row := range got.Rows[1:] {
+		groups[row.Group] = true
+		genders[row.Band] = row.Gender
+		exited[row.Band] = row.ExitedAnimals
+	}
+	if !groups["Kid (K3)"] || !groups["Kid (ICU-Kid)"] {
+		t.Fatalf("identical kid rollups not disambiguated: %v", groups)
+	}
+	// Gender comes from the animals: the 15-20 kid band holds two females and a male.
+	if genders["15_20"] != "Mixed 2F·1M" || genders["under_15"] != "Female" {
+		t.Fatalf("gender must be read off the register counts, got %v", genders)
+	}
+	// The sold animals ride on the band row as a note, outside the head count, split sold / died.
+	if exited["15_20"] != 2 || exited["under_15"] != 0 {
+		t.Fatalf("exited note wrong: %v", exited)
+	}
+	for _, row := range got.Rows[1:] {
+		if row.Band == "15_20" && (row.ExitedSold != 1 || row.ExitedDied != 1) {
+			t.Fatalf("sold/died split wrong: %+v", row)
+		}
+	}
+	// The unweighed pen is listed under Not shown with its feed, and nowhere else.
+	if len(got.Unmatched) != 1 || got.Unmatched[0].Pen != "Sumathi 1 - Part 4" || got.Unmatched[0].FeedType != "experiment" || got.Unmatched[0].Group != "Fattening" || got.Unmatched[0].FeedGiven != "Bhusa 400g/head + Kids Concentrate 250g/head" {
+		t.Fatalf("not-shown list wrong: %+v", got.Unmatched)
+	}
+	// The exit list: dates as business dates, the weighed one banded, the unweighed one bare.
+	if len(got.Exited) != 2 {
+		t.Fatalf("want 2 exits, got %+v", got.Exited)
+	}
+	sold, dead := got.Exited[0], got.Exited[1]
+	if sold.Tag != "TAG-SOLD" || sold.ExitedAt != "2026-09-01" || sold.LastWeighedAt != "2026-08-20" || sold.LastBand != "15_20" || sold.LastWeightKg == nil || *sold.LastWeightKg != 18.5 {
+		t.Fatalf("sold exit wrong: %+v", sold)
+	}
+	// Gender from the register, and the pen's feed today from that pen's first rollup.
+	if sold.Gender != "Female" || sold.ParkName != "Coimbatore" || sold.FeedType != "normal" || sold.FeedGiven != "Kids Concentrate 250g/head" {
+		t.Fatalf("sold exit context wrong: %+v", sold)
+	}
+	if dead.Tag != "TAG-DEAD" || dead.LifecycleStatus != "dead" || dead.LastWeighedAt != "" || dead.LastBand != "" || dead.LastWeightKg != nil {
+		t.Fatalf("unweighed dead exit must carry no weigh: %+v", dead)
+	}
+}
+
+func TestBuildFeedWeightBandEchoesIncludeExited(t *testing.T) {
+	got := BuildFeedWeightBand(feedSourceFixture(), true)
+	if !got.Reconciliation.IncludeExited {
+		t.Fatalf("include_exited must be echoed: %+v", got.Reconciliation)
+	}
+}
+
+func TestShedTagGroupAndGenderDisplay(t *testing.T) {
+	cases := []struct{ tag, group string }{
+		{"F2-Male", "Fattening"},
+		{"F2-Female", "Fattening"},
+		{"K3", "Kid"},
+		{"ICU-Kid", "Kid"},
+		{"Buck", "Buck"},
+		{"Mother", "Mother"},
+		{"Non-Pregnant", "Non-Pregnant"},
+		{"Warmup", "Warmup"},
+		{"F2-Male + K3", "Fattening + Kid"},
+		{"F2-Male + F2-Female", "Fattening"},
+		{"K3 + K1", "Kid"},
+		{"Something New", "Something New"},
+	}
+	for _, c := range cases {
+		if group := domain.ShedTagGroup(c.tag); group != c.group {
+			t.Errorf("%q: want group %q got %q", c.tag, c.group, group)
+		}
+	}
+	genders := []struct {
+		f, m int
+		want string
+	}{{0, 0, ""}, {3, 0, "Female"}, {0, 7, "Male"}, {12, 10, "Mixed 12F·10M"}}
+	for _, g := range genders {
+		if got := domain.GenderDisplay(g.f, g.m); got != g.want {
+			t.Errorf("GenderDisplay(%d,%d): want %q got %q", g.f, g.m, g.want, got)
+		}
+	}
+}
+
+func TestGetFeedWeightBandGateWindowAndFilters(t *testing.T) {
+	repo := &fakeRepo{parks: []domain.Park{{ParkID: gdParkA, Name: "A"}, {ParkID: gdParkB, Name: "B"}}, feedSource: feedSourceFixture()}
+	svc := NewService(repo)
+	tenantWide := gdContext(permissions.ActiveGrant{Role: permissions.RoleGrowthDirector, ScopeType: "tenant", ScopeID: gdTenant})
+	if _, err := svc.GetFeedWeightBand(context.Background(), domain.Actor{TenantID: gdTenant, Roles: []string{permissions.RoleOperator}}, "", "", "", "", "", "", false); err != ports.ErrForbidden {
+		t.Fatalf("non-monitor must be forbidden, got %v", err)
+	}
+	if _, err := svc.GetFeedWeightBand(tenantWide, gdActor(), "", "2026-13-01", "", "", "", "", false); err != ports.ErrInvalidArgument {
+		t.Fatalf("bad date must be rejected, got %v", err)
+	}
+	if _, err := svc.GetFeedWeightBand(tenantWide, gdActor(), "", "", "", "unknown", "", "", false); err != ports.ErrInvalidArgument {
+		t.Fatalf("bad sex must be rejected, got %v", err)
+	}
+	if _, err := svc.GetFeedWeightBand(tenantWide, gdActor(), "", "", "", "", "imported", "", false); err != ports.ErrInvalidArgument {
+		t.Fatalf("bad origin must be rejected, got %v", err)
+	}
+	if _, err := svc.GetFeedWeightBand(tenantWide, gdActor(), "", "", "", "", "", "by_hand", false); err != ports.ErrInvalidArgument {
+		t.Fatalf("bad weighing category must be rejected, got %v", err)
+	}
+	got, err := svc.GetFeedWeightBand(tenantWide, gdActor(), "", "2026-09-01", "2026-09-10", "male", "purchased", "all", true)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if len(repo.gotParkIDs) != 2 {
+		t.Fatalf("tenant-wide read must cover every park, got %v", repo.gotParkIDs)
+	}
+	if repo.gotStart.Format("2006-01-02") != "2026-09-01" || repo.gotEnd.Format("2006-01-02") != "2026-09-11" {
+		t.Fatalf("window must be inclusive from, exclusive day after to: %v .. %v", repo.gotStart, repo.gotEnd)
+	}
+	// The filters reach the repository as the weighing resolvers expect them: "all" is blank.
+	if repo.gotSex != "male" || repo.gotOrigin != "purchased" || repo.gotMode != "" {
+		t.Fatalf("filters must reach the repository normalised, got sex=%q origin=%q mode=%q", repo.gotSex, repo.gotOrigin, repo.gotMode)
+	}
+	if got.Reconciliation.OutputRows != 5 || !got.Reconciliation.IncludeExited {
+		t.Fatalf("service must build rows from the source: %+v", got.Reconciliation)
+	}
+}

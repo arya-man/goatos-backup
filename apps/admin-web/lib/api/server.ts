@@ -63,6 +63,10 @@ export type WeightDemographicBucket =
   AppApiComponents["schemas"]["WeighingWeightDemographicBucket"];
 export type WeightDemographicsResponse =
   AppApiComponents["schemas"]["WeighingWeightDemographicsResponse"];
+export type FeedWeightBandResponse =
+  AppApiComponents["schemas"]["GrowthDirectorFeedWeightBandResponse"];
+export type FeedWeightBandRow =
+  AppApiComponents["schemas"]["GrowthDirectorFeedWeightBandRow"];
 export type WeighingLosingAnimal =
   AppApiComponents["schemas"]["WeighingGrowthLosingAnimal"];
 export type WeighingGrowthResponse =
@@ -1198,6 +1202,41 @@ export async function getWeightDemographics(params: {
       request(() =>
         client.request<WeightDemographicsResponse>(
           "/weighing/weight-demographics",
+          {
+            cache: "no-store",
+            query: compactQuery(params),
+          },
+        ),
+      ),
+  );
+}
+
+// Feed by weight band (ADG Analytics, Weight-wise tab): the latest locked feed direction per pen
+// beside its weighing in the period at the General tab's own grain. Served by the Growth Director
+// module, the one place allowed to join the feed sheet to weighing. `from`/`to` bound the
+// weighings only.
+export async function getFeedWeightBand(params: {
+  park_id?: string;
+  from?: string;
+  to?: string;
+  /** `male` / `female`, resolved by the weighing module's sex scope; omitted means every kid. */
+  sex?: string;
+  /** `farm_born` / `purchased`, resolved by the weighing module's origin scope; omitted means all. */
+  origin?: string;
+  /** `individual_animal` / `per_shed_partition`; omitted means both ways of weighing. */
+  weighing_category?: string;
+  /** `all` counts sold / dead animals in the band rows; omitted leaves them out. */
+  animals?: string;
+}): Promise<ApiResult<FeedWeightBandResponse>> {
+  const config = await getServerConfig();
+  if (!config.ok) return config;
+  const client = createAppApiClient(apiClientOptions(config.data));
+  return cachedShortRead(
+    apiReadCacheKey("/growth-director/feed-by-weight-band", config.data, params),
+    () =>
+      request(() =>
+        client.request<FeedWeightBandResponse>(
+          "/growth-director/feed-by-weight-band",
           {
             cache: "no-store",
             query: compactQuery(params),
