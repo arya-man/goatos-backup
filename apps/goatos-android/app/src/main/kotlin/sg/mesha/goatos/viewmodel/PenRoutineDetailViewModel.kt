@@ -668,11 +668,13 @@ class PenRoutineDetailViewModel @Inject constructor(
     }
 
     /**
-     * One question's own capture slots. A photo or video question opens N slots of that kind
-     * (N = 1, or the cap for `multiple`). A photo-or-video question opens N slots too, each
-     * holding whichever kind was captured there and, while empty, offering both cameras
-     * through [PenRoutineSlotUi.videoFieldKey]. The first slot is required only while the
-     * question owes a capture, which the caller decides from required/answered.
+     * One question's own capture slots. A photo or video question opens slots of that kind; a
+     * photo-or-video question's slots hold whichever kind was captured there and, while empty,
+     * offer both cameras through [PenRoutineSlotUi.videoFieldKey]. `multiple` allows up to the
+     * cap, but the screen shows only the captures TAKEN plus ONE empty slot -- five stacked
+     * "Record video" buttons read as five owed videos, and the rule is "up to", not "exactly".
+     * The first slot is required only while the question owes a capture (required/answered),
+     * which the caller decides.
      */
     private fun questionProofSlots(
         questionId: String,
@@ -680,8 +682,8 @@ class PenRoutineDetailViewModel @Inject constructor(
         multiple: Boolean,
         rowsByKey: Map<String, ProofCaptureRow>,
     ): List<PenRoutineSlotUi> {
-        val count = if (multiple) PEN_ROUTINE_QUESTION_PROOF_MAX else 1
-        return (1..count).map { index ->
+        val cap = if (multiple) PEN_ROUTINE_QUESTION_PROOF_MAX else 1
+        val all = (1..cap).map { index ->
             val photoKey = penRoutineQuestionProofFieldKey(questionId, PEN_ROUTINE_PROOF_KIND_PHOTO, index)
             val videoKey = penRoutineQuestionProofFieldKey(questionId, PEN_ROUTINE_PROOF_KIND_VIDEO, index)
             when (kind) {
@@ -700,6 +702,9 @@ class PenRoutineDetailViewModel @Inject constructor(
                 }
             }
         }
+        // Taken slots, then the first empty one; nothing past it until it is filled.
+        val firstEmpty = all.indexOfFirst { it.previewPath.isBlank() }
+        return if (firstEmpty < 0) all else all.take(firstEmpty + 1)
     }
 
     private companion object {

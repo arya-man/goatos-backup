@@ -256,7 +256,8 @@ class PenRoutineDetailViewModelTest {
         assertTrue("required question owes its photo before any answer", cleaned.proofMissing)
         val note = vm.state.value.questions.single { it.id == "note" }
         assertEquals(PenRoutineQuestionProofKind.EITHER, note.proofKind)
-        assertEquals(PEN_ROUTINE_QUESTION_PROOF_MAX, note.proofSlots.size)
+        // "Up to 5" shows ONE empty slot, not five owed captures.
+        assertEquals(1, note.proofSlots.size)
         assertEquals("routine-q-note-video-1", note.proofSlots.first().videoFieldKey)
         assertFalse("optional question left blank owes nothing", note.proofMissing)
 
@@ -279,6 +280,9 @@ class PenRoutineDetailViewModelTest {
         val noteSlots = vm.state.value.questions.single { it.id == "note" }.proofSlots
         assertEquals(PenRoutineSlotKind.VIDEO, noteSlots.first().kind)
         assertEquals("", noteSlots.first().videoFieldKey)
+        // One capture taken on a multiple question: that slot plus the next empty one.
+        assertEquals(listOf("routine-q-note-video-1", "routine-q-note-photo-2"), noteSlots.map { it.fieldKey })
+        assertEquals("routine-q-note-video-2", noteSlots[1].videoFieldKey)
         assertTrue(vm.state.value.submitEnabled)
 
         vm.onEvent(PenRoutineDetailEvent.Submit)
