@@ -2,7 +2,7 @@
 
 import { createContext, useContext, useEffect, useState, type ReactNode } from "react";
 
-import { notifyLocalOverlayUrlChange, replaceLocalOverlayUrl } from "@/components/local-overlay-link";
+import { notifyLocalOverlayUrlChange, pushLocalOverlayUrl } from "@/components/local-overlay-link";
 import type { SegmentedOption } from "@/components/segmented-links";
 
 import { TASK_PARAM } from "./params";
@@ -17,7 +17,7 @@ import type { TaskView } from "./task-url";
  * `TaskViewProvider`; `TaskViewBody` mounts the active one (only the active one, so the list's
  * table chunk still loads only when the list is shown) and `TaskViewToggle` is the segmented
  * pair, real hrefs kept for no-JS / middle-click / the next full render, a plain click handled
- * here with the URL updated through history only.
+ * here with the URL updated through history only (a pushed entry: Back restores the view).
  */
 const Ctx = createContext<{ view: TaskView; setView: (v: TaskView) => void } | null>(null);
 
@@ -64,7 +64,8 @@ export function TaskViewToggle({
             event.preventDefault();
             ctx.setView(option.value);
             const url = new URL(option.href, window.location.href);
-            replaceLocalOverlayUrl(url.pathname + url.search + url.hash);
+            // A history entry, so Back restores the view the reader left (Judge B, P2-3).
+            pushLocalOverlayUrl(url.pathname + url.search + url.hash);
             notifyLocalOverlayUrlChange();
           }}
         >

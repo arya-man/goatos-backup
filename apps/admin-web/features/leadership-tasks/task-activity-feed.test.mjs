@@ -83,7 +83,7 @@ test("All renders the tabs with counts and every row newest first, worded from t
   for (const [tab, count] of [["all", 4], ["history", 3], ["comments", 1]]) {
     assert.match(html, new RegExp(`data-ltd-tab="${tab}"[^>]*>${contract.copy[`activity.tab_${tab}`]}<span class="ltd-feed-count"[^>]*>${count}</span>`));
   }
-  assert.match(html, /aria-selected="true" class="ltd-feed-tab on" data-ltd-tab="all"/);
+  assert.match(html, /aria-selected="true" id="[^"]+" aria-controls="[^"]+" class="ltd-feed-tab on" data-ltd-tab="all"/);
   const order = [...html.matchAll(/data-ltd-kind="([a-z_]+)"/g)].map((m) => m[1]);
   assert.deepEqual(order, ["commented", "deadline_changed", "status_changed", "created"]);
   // The verb is the contract's, after the actor's name; the time is the backend's farm-clock label.

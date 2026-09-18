@@ -40,7 +40,7 @@
 //   view-toggle-navigation      a `<Link>` / `<a>` whose href carries a `view=` / `_view=` query
 //                               param: Board <-> List, Table <-> Cards -- two renderings of rows the
 //                               page already holds, swapped by re-running the route. A view toggle is
-//                               client state that `replaceLocalOverlayUrl`s the URL
+//                               client state that pushes/replaces the URL through the local-overlay helpers
 //                               (`features/leadership-tasks/task-view-switch.tsx`). Data-changing
 //                               tabs (scope, status filter) still navigate; only a presentation
 //                               switch is a finding.
@@ -184,7 +184,7 @@ function scanViewToggleNavigation(rel, text, lines) {
   for (const m of text.matchAll(VIEW_HREF_TAG)) {
     const line = lineOf(text, m.index);
     if (ignoredAt(lines, line)) continue;
-    out.push({ file: rel, line, rule: "view-toggle-navigation", detail: "a view= link re-runs the route to swap two renderings of the same rows; make it client state that replaceLocalOverlayUrl()s" });
+    out.push({ file: rel, line, rule: "view-toggle-navigation", detail: "a view= link re-runs the route to swap two renderings of the same rows; make it client state that pushLocalOverlayUrl()s" });
   }
   return out;
 }
@@ -209,7 +209,7 @@ function scanFile(rel) {
 const REQUIRED_WIRING = [
   ["apps/admin-web/components/themed-date-picker.tsx", ["export function ThemedDatePicker"]],
   ["apps/admin-web/features/leadership-tasks/task-people-dropdown.tsx", ['type="checkbox"', "<label"]],
-  ["apps/admin-web/features/leadership-tasks/task-view-switch.tsx", ["preventDefault", "replaceLocalOverlayUrl"]],
+  ["apps/admin-web/features/leadership-tasks/task-view-switch.tsx", ["preventDefault", "LocalOverlayUrl("]],
   ["apps/admin-web/features/leadership-tasks/task-row-store.ts", ["export function publishTaskRow"]],
 ];
 

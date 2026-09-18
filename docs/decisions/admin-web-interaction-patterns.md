@@ -44,8 +44,8 @@ not machine-checked for this feature's shape, and the other four had no rule at 
    action POST; pills adjust from the store).
 
 3. **A view toggle is presentation state.** Board <-> List, table <-> cards: `TaskViewProvider`
-   + `TaskViewToggle` + `TaskViewBody`, `replaceLocalOverlayUrl` for the URL, the heavier view
-   lazy-loaded. Data-changing tabs (scope, status filter) still navigate -- they change what
+   + `TaskViewToggle` + `TaskViewBody`, `pushLocalOverlayUrl` for the URL (a history entry, so
+   Back restores the view the reader left), the heavier view lazy-loaded. Data-changing tabs (scope, status filter) still navigate -- they change what
    the server returns. Guard rule: `view-toggle-navigation` (a `view=` href).
    Reference: `features/leadership-tasks/task-view-switch.tsx` (measured: 79 ms, zero route requests).
 

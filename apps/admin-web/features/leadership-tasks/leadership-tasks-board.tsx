@@ -93,11 +93,16 @@ export function LeadershipTasksBoard({
       total: boardColumnTotal(column, activeFilter, totalsByKey),
       // A column the active status filter excludes is simply empty -- no sentence, the way
       // Jira leaves its other columns blank under a status filter.
+      // A column whose whole-list total is above zero but whose PAGE holds nothing says so;
+      // the backend's "Nothing open. Tap + ..." beside a pill reading 165 contradicts itself
+      // (Judge B, P3-4).
       emptyMessage:
         activeFilter !== "all" && column !== activeFilter
           ? ""
-          : filter?.empty_message ||
-            copy(pageContract, "board.column_empty", "Nothing in this status on this page."),
+          : (boardColumnTotal(column, activeFilter, totalsByKey) ?? 0) > 0
+            ? copy(pageContract, "board.column_empty", "Nothing in this status on this page.")
+            : filter?.empty_message ||
+              copy(pageContract, "board.column_empty", "Nothing in this status on this page."),
       // Narrowing to a status is only offered when the endpoint HAS that filter, when the whole
       // list holds more of it than this page is showing, and when the board is NOT already
       // narrowed — a column that is the only column on screen has nothing left to narrow to.

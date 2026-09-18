@@ -136,7 +136,8 @@ export function TaskBoardColumns({
   useTaskRowsVersion();
   const rows = serverRows.map((row) => {
     const patch = taskRowPatch(row.id);
-    return patch && typeof patch.rowVersion === "number" && patch.rowVersion > row.rowVersion
+    // Applied unless the server row is strictly newer (an optimistic move has no version).
+    return patch && !(typeof patch.rowVersion === "number" && patch.rowVersion < row.rowVersion)
       ? { ...row, ...patch }
       : row;
   });

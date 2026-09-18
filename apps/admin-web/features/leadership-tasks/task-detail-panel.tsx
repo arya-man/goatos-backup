@@ -56,6 +56,7 @@ export function TaskDetailPanel({
   canRaise = false,
   onClose,
   loadingDetail = false,
+  detailLoaded = !loadingDetail,
 }: {
   /** The selected row, or nothing at all when the reader has not picked one yet. */
   detail?: TaskRow | null;
@@ -68,6 +69,8 @@ export function TaskDetailPanel({
   onClose?: () => void;
   /** True while the host is fetching the task's notes and activity. */
   loadingDetail?: boolean;
+  /** The row carries its notes and activity (a deep link, or the drawer's own read landed). */
+  detailLoaded?: boolean;
 }) {
   // The whole URL, rebuilt from the PARSED state: this component is handed `TasksParams` and no
   // raw search params, and `tasksSearchParams` is the seam that keeps the repeated cursor stack
@@ -255,7 +258,9 @@ export function TaskDetailPanel({
               </p>
             ) : null}
             <TaskActivityComposer
-              key={`${detail.id}:${loadingDetail ? "summary" : "detail"}`}
+              // Remounted the moment the detail row (with its feed) replaces the summary row
+              // the drawer opened from -- the composer seeds its feed on mount (Judge B, P1-1).
+              key={`${detail.id}:${detailLoaded ? "detail" : "summary"}`}
               task={detail}
               pageContract={pageContract}
               action={postLeadershipTaskCommentAction}

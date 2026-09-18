@@ -7,7 +7,7 @@ import { copy, type AdminUiPageContract } from "@/lib/admin-ui-contract";
 
 import { statusTone } from "./task-presentation";
 import type { TaskRow } from "./task-row";
-import { changeLeadershipTaskStatusInPlaceAction, type StatusChangeResult } from "./actions";
+import { changeLeadershipTaskStatusInPlaceAction, loadLeadershipTaskAction, type StatusChangeResult } from "./actions";
 import { refusalSentence } from "./task-feedback-copy";
 import { publishTaskRow, useTaskRow } from "./task-row-store";
 import { rowFromTask } from "./task-row";
@@ -89,12 +89,13 @@ export function TaskStatusMenu({
     // card move NOW with the chosen status; the backend's row replaces it when it lands, and a
     // refusal puts the old status back beside the reason.
     const chosen = task.statusOptions.find((option) => option.key === key);
-    const before = { status: task.status, statusLabel: task.statusLabel, statusOptions: task.statusOptions };
+    const before = { status: task.status, statusLabel: task.statusLabel };
+    // The options are deliberately KEPT on the optimistic row: an empty list makes the panel
+    // swap this menu for a plain badge, unmounting it mid-write -- which threw away the spinner
+    // and the refusal sentence (Judge B, P2-1/P2-2). The button is disabled while pending.
     publishTaskRow(task.id, {
       status: key as TaskRow["status"],
       statusLabel: chosen?.label ?? task.statusLabel,
-      // No moves are offered until the real row (with its real options) comes back.
-      statusOptions: [],
     });
     startTransition(async () => {
       let result: StatusChangeResult;
@@ -108,6 +109,12 @@ export function TaskStatusMenu({
         return;
       }
       publishTaskRow(task.id, before);
+      // The refusal names where the task IS now ("moved to In progress while this board was
+      // open ... the board now shows that"); make the board show that (Judge B, P2-2).
+      if (result.code === "version_conflict" || result.statusNow) {
+        const fresh = await loadLeadershipTaskAction(task.id).catch(() => null);
+        if (fresh?.ok) publishTaskRow(task.id, rowFromTask(fresh.task));
+      }
       const sentence =
         refusalSentence(
           (k, fb) => copy(pageContract, k, fb),

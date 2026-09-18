@@ -73,7 +73,7 @@ export function TaskPeopleDropdown({
       <button
         type="button"
         aria-expanded={open}
-        aria-haspopup="listbox"
+        aria-haspopup="true"
         aria-controls={listID}
         onClick={() => setOpen((current) => !current)}
       >

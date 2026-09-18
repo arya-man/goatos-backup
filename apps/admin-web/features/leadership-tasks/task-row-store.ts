@@ -65,8 +65,10 @@ export function useTaskRow(row: TaskRow): TaskRow {
     () => undefined,
   );
   if (!patch) return row;
-  // The server row is newer than the patch once a full render has caught up.
-  if (typeof patch.rowVersion === "number" && patch.rowVersion <= row.rowVersion) return row;
+  // The server row is newer than the patch once a full render has caught up. Equal versions
+  // keep the patch: an optimistic status carries no version of its own and rides on the last
+  // published one (Judge B, P2-1: `<=` here threw every optimistic move away).
+  if (typeof patch.rowVersion === "number" && patch.rowVersion < row.rowVersion) return row;
   return { ...row, ...patch };
 }
 

@@ -2,7 +2,7 @@
 
 import { MessageSquareText } from "lucide-react";
 import { useOptimistic, useRef, useState, useTransition } from "react";
-import { publishTaskRowVersion } from "./task-row-store";
+import { publishTaskRow } from "./task-row-store";
 
 import { copy, type AdminUiPageContract } from "@/lib/admin-ui-contract";
 import type { LeadershipTaskActivity } from "@/lib/api/server";
@@ -79,11 +79,6 @@ export function TaskActivityComposer({
   // with its new history row, published to the row store and handed down as `task`. Follow it
   // (derived-state form, keyed on the version fence) so the feed shows the move without a
   // route render -- the CEO changed a status and the feed did not list it (2026-09-18).
-  const [seenVersion, setSeenVersion] = useState(task.rowVersion);
-  if (task.rowVersion > seenVersion) {
-    setSeenVersion(task.rowVersion);
-    setRecord({ activity: task.activity, notes: task.notes });
-  }
   const [pending, addPending] = useOptimistic<
     { activity: LeadershipTaskActivity[]; notes: TaskRow["notes"] },
     { entry: LeadershipTaskActivity; note: TaskRow["notes"][number] }
@@ -101,6 +96,22 @@ export function TaskActivityComposer({
     hasMore: boolean;
     nextBefore: string;
   }>({ activity: [], notes: [], hasMore: task.activityHasMore, nextBefore: task.activityNextBefore });
+  // A newer window pushes its oldest row past the boundary; that row moves to `older` rather
+  // than falling off the page (Judge B: a post while older pages were loaded lost one row).
+  const keepWindow = (previous: { activity: LeadershipTaskActivity[]; notes: TaskRow["notes"] }) => {
+    if (!previous.activity.length) return;
+    setOlder((current) => ({
+      ...current,
+      activity: [...current.activity, ...previous.activity.filter((entry) => !entry.id.startsWith(PENDING_ACTIVITY_PREFIX))],
+      notes: [...current.notes, ...previous.notes.filter((note) => !note.note_id.startsWith(PENDING_ACTIVITY_PREFIX))],
+    }));
+  };
+  const [seenVersion, setSeenVersion] = useState(task.rowVersion);
+  if (task.rowVersion > seenVersion) {
+    setSeenVersion(task.rowVersion);
+    keepWindow(record);
+    setRecord({ activity: task.activity, notes: task.notes });
+  }
   const [olderPending, startOlder] = useTransition();
   const [olderError, setOlderError] = useState<string | null>(null);
   const loadOlder = () => {
@@ -194,8 +205,16 @@ export function TaskActivityComposer({
         code: "network",
       }));
       if (result.ok) {
+        keepWindow(record);
         setRecord({ activity: result.activity, notes: result.notes });
-        if (typeof result.rowVersion === "number") publishTaskRowVersion(task.id, result.rowVersion);
+        // The whole feed goes to the row store, not just the version: the drawer host hands
+        // `task` back down from the store, and a version-only patch over a stale list made the
+        // derived-state reset below discard this very post (Judge B, P1-2).
+        publishTaskRow(task.id, {
+          activity: result.activity,
+          notes: result.notes,
+          ...(typeof result.rowVersion === "number" ? { rowVersion: result.rowVersion } : {}),
+        });
         return;
       }
       // The text comes back into the field, with the ids it carried, and the sentence under it.

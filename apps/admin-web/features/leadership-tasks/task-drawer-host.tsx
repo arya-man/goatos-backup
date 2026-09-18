@@ -69,7 +69,6 @@ export function TaskDrawerHost({
   const [details, setDetails] = useState<Record<string, TaskRow>>(() =>
     initialDetail ? { [initialDetail.id]: initialDetail } : {},
   );
-  const [loadingID, setLoadingID] = useState<string | null>(null);
   const [, startTransition] = useTransition();
   const pushedRef = useRef(false);
   useTaskRowsVersion();
@@ -139,7 +138,6 @@ export function TaskDrawerHost({
     if (!openID || details[openID] || preview) return;
     let cancelled = false;
     startTransition(async () => {
-      setLoadingID(openID);
       const result = await loadLeadershipTaskAction(openID);
       if (cancelled) return;
       if (result.ok) {
@@ -147,7 +145,6 @@ export function TaskDrawerHost({
         setDetails((current) => ({ ...current, [openID]: row }));
         publishTaskRow(openID, { rowVersion: row.rowVersion });
       }
-      setLoadingID((current) => (current === openID ? null : current));
     });
     return () => {
       cancelled = true;
@@ -162,9 +159,10 @@ export function TaskDrawerHost({
   // The published patch (a status changed here, a version bumped by a comment) on top.
   const patch = taskRowPatch(openID);
   const detail =
-    patch && typeof patch.rowVersion === "number" && patch.rowVersion > base.rowVersion
+    patch && !(typeof patch.rowVersion === "number" && patch.rowVersion < base.rowVersion)
       ? { ...base, ...patch }
       : base;
+  const detailLoaded = Boolean(details[openID]);
 
   return (
     <TaskDetailDrawer taskId={openID} onClose={close} ariaLabel={ariaLabel} closeLabel={closeLabel}>
@@ -176,7 +174,8 @@ export function TaskDrawerHost({
         assignees={assignees}
         canRaise={canRaise}
         onClose={close}
-        loadingDetail={loadingID === openID && !details[openID]}
+        loadingDetail={!detailLoaded}
+        detailLoaded={detailLoaded}
       />
     </TaskDetailDrawer>
   );

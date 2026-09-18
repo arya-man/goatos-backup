@@ -1,7 +1,7 @@
 "use client";
 
 import { MessageSquareText } from "lucide-react";
-import { useState } from "react";
+import { useId, useState } from "react";
 
 import { copy, type AdminUiPageContract } from "@/lib/admin-ui-contract";
 import type { LeadershipTaskActivity } from "@/lib/api/server";
@@ -68,6 +68,7 @@ export function TaskActivityFeed({
   initialView?: ActivityView;
 }) {
   const [view, setView] = useState<ActivityView>(initialView);
+  const panelID = useId();
   const rows = activityForView(activity, view);
   const notesByID = new Map(notes.map((note) => [note.note_id, note]));
   const counts = {
@@ -97,6 +98,8 @@ export function TaskActivityFeed({
             type="button"
             role="tab"
             aria-selected={candidate === view}
+            id={`${panelID}-tab-${candidate}`}
+            aria-controls={`${panelID}-panel`}
             className={`ltd-feed-tab${candidate === view ? " on" : ""}`}
             data-ltd-tab={candidate}
             onClick={() => setView(candidate)}
@@ -112,7 +115,8 @@ export function TaskActivityFeed({
       {composer}
 
       {rows.length ? (
-        <ol className="ltd-activity" role="tabpanel">
+        <div role="tabpanel" id={`${panelID}-panel`} aria-labelledby={`${panelID}-tab-${view}`}>
+        <ol className="ltd-activity">
           {rows.map((entry) => {
             // A comment still travelling to the server (`task-activity-composer.tsx` mints its
             // provisional id with this prefix) is dimmed, and wears the composer's own "me"
@@ -142,8 +146,9 @@ export function TaskActivityFeed({
             );
           })}
         </ol>
+        </div>
       ) : (
-        <p className="ltd-quiet" role="tabpanel">
+        <p className="ltd-quiet" role="tabpanel" id={`${panelID}-panel`} aria-labelledby={`${panelID}-tab-${view}`}>
           {copy(pageContract, emptyKey, emptyFallback)}
         </p>
       )}
