@@ -95,7 +95,7 @@ func (s *Service) GetColostrumDay(ctx context.Context, tenantID, workflowID, dat
 
 	visible := make([]domain.WorkflowAction, 0, len(detail.Actions))
 	for _, a := range detail.Actions {
-		if !domain.IsColostrumAction(a.Section, a.ActionKey) || a.Status == domain.ActionStatusCanceled {
+		if !domain.IsColostrumAction(a.Section, a.ActionKey) || a.Status == domain.ActionStatusCanceled || a.Status == domain.ActionStatusSkipped {
 			continue
 		}
 		if a.DueAt == nil || a.DueAt.Before(start) || !a.DueAt.Before(end) {

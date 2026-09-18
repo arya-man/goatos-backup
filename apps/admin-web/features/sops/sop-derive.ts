@@ -611,7 +611,7 @@ export type EmittedProofPolicy = {
   required: boolean;
   types: ProofType[];
   minimum_count: number;
-  subject_scope: SubjectScope;
+  subject_scope: SubjectScope | "task";
   verify_before_apply: boolean;
 };
 
@@ -784,7 +784,15 @@ export function buildFormDsl(input: SopBuilderInput): EmittedFormDsl {
   return dsl;
 }
 
+// A general work instruction has no capture form and no animal: each step carries its own proof
+// (video x n, photo x n) on the follow-up track, so the document-level policy is the seeded
+// run-scoped one -- never "subject: per-goat" (PR 308 review).
+export function generalProofPolicy(): EmittedProofPolicy {
+  return { subject_scope: "task", types: ["video", "photo"], required: false, minimum_count: 0, verify_before_apply: false };
+}
+
 export function buildProofPolicy(input: SopBuilderInput): EmittedProofPolicy {
+  if (input.domain === "general") return generalProofPolicy();
   return {
     required: input.proofRequired,
     types: [input.proofType],

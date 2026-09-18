@@ -126,7 +126,7 @@ export function SopBuilder({
   const ruleCount = emitted.rules?.length ?? 0;
   // While editing, a new version pins to the existing SOP code — the name may change but the code does not.
   const code = editing && initial ? initial.code : buildSopCode(input);
-  const proofGapOk = !proofRequired || hasProofField(input);
+  const proofGapOk = domain === "general" || !proofRequired || hasProofField(input);
   const canPublish = Boolean(saved?.ok && saved.versionId && saved.report?.valid);
 
   function resetResults() {
@@ -365,7 +365,9 @@ export function SopBuilder({
             </div>
           </section>
 
-          {/* Gates & proof */}
+          {/* Gates & proof -- not for a general work instruction: its steps carry their own proofs
+              and the document policy is the seeded run-scoped one (PR 308 review). */}
+          {domain === "general" ? null : (
           <section className="card">
             <div className="hd">
               <span className="fic" style={{ width: 26, height: 26, background: "var(--brand-soft)", color: "var(--brand-d)" }}>
@@ -412,6 +414,7 @@ export function SopBuilder({
               ) : null}
             </div>
           </section>
+          )}
         </div>
 
         {/* Aside: preview + review */}

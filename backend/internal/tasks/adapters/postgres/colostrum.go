@@ -62,7 +62,8 @@ WITH day AS (
     AND wa.due_at >= $2::timestamptz
     AND wa.due_at <  $3::timestamptz
     AND ` + colostrumActionPredicate + `
-    AND wa.status <> 'canceled'
+    -- A skipped feed is a branch not taken (answer-driven branches): never owed, never counted.
+    AND wa.status NOT IN ('canceled','skipped')
     AND w.state <> 'canceled'
   GROUP BY wa.workflow_id
 )`

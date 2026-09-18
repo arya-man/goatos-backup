@@ -587,6 +587,13 @@ func CompileTrack(track FollowUpTrack, taskTypes map[string]FollowUpTaskTy, opts
 			seq++
 			base.Seq = seq
 			sched, err := scheduleFor(s.Schedule)
+			// A general work instruction is started BY HAND, so "immediately" cannot mean "at the
+			// instant the run opened" -- every step read "1m late" a minute in (PR 308 review).
+			// Hand-started work is owed by the end of the business day it was started on; the
+			// authored after_event / at_fixed_time / after_step schedules are untouched.
+			if err == nil && track.Module == ModuleGeneral && (s.Schedule.Kind == ScheduleKindImmediately || s.Schedule.Kind == "") {
+				sched = Schedule{AtFixedTime: true, DayOffset: 0, Hour: 23, Minute: 59}
+			}
 			if err != nil {
 				return Template{}, fmt.Errorf("%w: step %q: %v", ErrFollowUpInvalid, s.Key, err)
 			}

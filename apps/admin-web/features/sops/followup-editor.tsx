@@ -256,6 +256,7 @@ export function FollowUpEditor({
                     }}
                     takenKeys={new Set(track.steps.filter((s) => s.id !== step.id).map((s) => s.key))}
                     savedKeys={savedKeys}
+                    legacyCondition={track.module !== "general"}
                   />
                 )}
               />
@@ -280,6 +281,7 @@ export function FollowUpEditor({
                     onRemove={() => removeStep(track.key, step.id)}
                     takenKeys={new Set(track.steps.filter((s) => s.id !== step.id).map((s) => s.key))}
                     savedKeys={savedKeys}
+                    legacyCondition={track.module !== "general"}
                   />
                 ))}
                 <button type="button" className="btn sm ghost" onClick={() => addStep(track.key)}>
@@ -330,6 +332,7 @@ function StepCard({
   onRemove,
   takenKeys,
   savedKeys,
+  legacyCondition = true,
 }: {
   pc: AdminUiPageContract;
   index: number;
@@ -346,6 +349,8 @@ function StepCard({
   takenKeys: Set<string>;
   /** Step keys the loaded version carries; a new step's key follows its title until saved. */
   savedKeys: Set<string>;
+  /** Whether the track has an engine condition to offer (herd operations); a general track has none. */
+  legacyCondition?: boolean;
 }) {
   // Example event time for the next-sessions preview: the rounds depend on when the animal was born.
   const [exampleTime, setExampleTime] = useState("15:00");
@@ -559,17 +564,23 @@ function StepCard({
             ))}
           </select>
         </label>
-        <label>
-          {copy(pc, "followup.step.condition")}
-          <select value={step.when} onChange={(e) => onChange({ when: e.target.value })}>
-            {conditions.map((c) => (
-              <option key={c.key || "always"} value={c.key}>
-                {c.label}
-              </option>
-            ))}
-          </select>
-        </label>
-        <BranchField pc={pc} step={step} earlier={earlier} answerKinds={answerKinds} onChange={onChange} />
+        {/* The legacy engine condition (kid pen unresolved) and an answer-driven branch are two
+            gates; showing "Include this step: Always" beside a set "Only if" read as a
+            contradiction (PR 308 review). The legacy select is offered only where it means
+            something -- a track that has such a condition and a step not already on a branch. */}
+        {legacyCondition && !step.whenStep ? (
+          <label>
+            {copy(pc, "followup.step.condition")}
+            <select value={step.when} onChange={(e) => onChange({ when: e.target.value })}>
+              {conditions.map((c) => (
+                <option key={c.key || "always"} value={c.key}>
+                  {c.label}
+                </option>
+              ))}
+            </select>
+          </label>
+        ) : null}
+        {step.when ? null : <BranchField pc={pc} step={step} earlier={earlier} answerKinds={answerKinds} onChange={onChange} />}
         <label className="chkline">
           <input type="checkbox" checked={step.hardTimeGate} onChange={(e) => onChange({ hardTimeGate: e.target.checked })} /> {copy(pc, "followup.step.hard_time_gate")}
         </label>

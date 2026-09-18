@@ -61,7 +61,12 @@ export async function saveSopDraft(input: SopBuilderInput): Promise<SaveSopResul
   // A general work instruction carries its steps as the follow-up track the phone runs, not
   // as a capture form.
   const formDsl = buildFormDsl(input) as unknown as Record<string, unknown>;
-  if (input.domain === "general") formDsl.follow_up = buildGeneralFollowUp(input);
+  if (input.domain === "general") {
+    formDsl.follow_up = buildGeneralFollowUp(input);
+    // No capture form: the steps ARE the work (the seeded general SOP ships fields: []).
+    formDsl.fields = [];
+    delete formDsl.repeat_for_each_goat;
+  }
   const version = await createSopVersion(def.data.sop.sop_id, {
     version_label: "v1 draft",
     form_dsl: formDsl,

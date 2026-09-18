@@ -4,6 +4,7 @@
 // the SOP drawer beside the capture fields. A repeating round (the colostrum series) is expanded
 // into every time it runs so the whole day's timings are visible without opening the editor.
 import { copy, type AdminUiPageContract } from "@/lib/admin-ui-contract";
+import { branchPhrase } from "./branch-field";
 import { describeDue, describeProof, expandSeriesRows, formatAfter, parseFollowUp, type ExpandedRound, type FollowUpCopy } from "./followup-model";
 
 export function followUpCopy(pc: AdminUiPageContract): FollowUpCopy {
@@ -43,7 +44,12 @@ export function FollowUpStepsSummary({ pageContract, formDsl }: { pageContract: 
             <div className="htl">
               {track.steps.flatMap((step) => {
                 const proof = describeProof(step, c);
-                const when = step.when ? ` · ${copy(pageContract, "followup.step.only_when")}` : "";
+                // The legacy `when` (kid pen unresolved) and an answer-driven branch both read as
+                // conditions here; a branch step was rendered as unconditional before (PR 308 review).
+                const when = [
+                  step.when ? copy(pageContract, "followup.step.only_when") : "",
+                  step.whenStep ? branchPhrase(pageContract, step, titleByKey[step.whenStep] ?? step.whenStep) : "",
+                ].filter(Boolean).map((t) => ` · ${t}`).join("");
                 if (step.scheduleKind === "series") {
                   return expandSeriesRows(step).map((r) => {
                     n += 1;

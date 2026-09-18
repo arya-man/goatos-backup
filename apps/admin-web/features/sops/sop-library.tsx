@@ -377,7 +377,9 @@ function SopDetailModal({ view, pageContract, onClose, onEdit, onEditCapture, ed
           ) : null}
 
           {/* An inspection SOP lists its load form and pages below; the generic field list would repeat the load form. */}
-          {view.inspectionFormDsl ? null : (
+          {/* A general SOP has no capture form: its whole content is the operator steps below, so the
+              capture section (and its "no form_dsl fields" note) is not the thing to show (PR 308 review). */}
+          {view.inspectionFormDsl || (view.fields.length === 0 && view.followUpStepCount > 0) ? null : (
             <>
           <div className="b700" style={{ margin: "8px 0" }}>
             {copy(pageContract, "label.steps_questions")}{" "}

@@ -84,7 +84,7 @@ func ColostrumDayCard(actions []WorkflowAction, start, end, now time.Time) Colos
 	var next *WorkflowAction
 	for i := range actions {
 		a := actions[i]
-		if !IsColostrumAction(a.Section, a.ActionKey) || a.Status == ActionStatusCanceled {
+		if !IsColostrumAction(a.Section, a.ActionKey) || a.Status == ActionStatusCanceled || a.Status == ActionStatusSkipped {
 			continue
 		}
 		if a.DueAt == nil || a.DueAt.Before(start) || !a.DueAt.Before(end) {

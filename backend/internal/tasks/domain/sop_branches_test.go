@@ -4,6 +4,9 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/vgoats/goatos/backend/internal/platform/biztime"
+	"github.com/vgoats/goatos/backend/internal/tasks/domain/sopseed"
 )
 
 // Answer-driven branches (maintainer decision 2026-09-18, SOP studio phase 2). The rule in one
@@ -238,5 +241,24 @@ func TestAnswerBranchesUnskipWhenTheQuestionIsReAnswered(t *testing.T) {
 	// And the branch is now the next work: approve is open, approve_note waits on approve.
 	if OperatorActionBlocked("test.branch", actions[findKey(actions, "approve")], actions) {
 		t.Fatalf("the re-taken branch must be open")
+	}
+}
+
+// A general run is started by hand, so its "immediately" steps are owed by the end of that
+// business day rather than at the instant the run opened (PR 308 review: "1m late" a minute in).
+func TestGeneralRunImmediatelyStepsAreDueByEndOfDay(t *testing.T) {
+	dsl := loadSeeded(t, sopseed.SOPCodeGateVisitorCheck)
+	reg, _ := SeededTaskTypes()
+	track, _ := dsl.Track(GeneralTrackKey)
+	openedAt := time.Date(2026, 9, 19, 0, 24, 0, 0, biztime.DefaultLocation())
+	tpl, err := CompileTrack(track, reg, CompileOptions{EventAt: openedAt})
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, a := range tpl.Actions {
+		due := a.Schedule.DueAt(openedAt).In(biztime.DefaultLocation())
+		if !due.After(openedAt.Add(time.Hour)) || due.Hour() != 23 || due.Day() != 19 {
+			t.Fatalf("%s due %s: a hand-started step is owed by the end of its business day, not the instant it opened", a.Key, due)
+		}
 	}
 }

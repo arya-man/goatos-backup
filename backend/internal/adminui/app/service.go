@@ -9656,6 +9656,13 @@ var sopSeedStepsByModule = map[string][]domain.Option{
 		option("goat_scan", "Scan Animal ID", "", ""),
 		option("photo_proof", "Photo of the animal", "", ""),
 	},
+	// A general work instruction has no animal and no module: it starts from a plain checklist,
+	// not the vaccination drive's batch picker and animal scan (PR 308 review).
+	"configuration-work-instructions": {
+		option("yesno", "Is everything in place to start?", "", ""),
+		option("text", "Note what you found", "", ""),
+		option("photo_proof", "Photo of the finished work", "", ""),
+	},
 }
 
 func sopOptionGroups() []domain.OptionGroup {

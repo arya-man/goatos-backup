@@ -81,6 +81,18 @@ WHERE sd.code = 'general.gate_visitor_check'
 ON CONFLICT (tenant_id, sop_id, version) DO NOTHING;
 
 -- +goose Down
+-- General runs (and their actions) go first: they are the only rows with a NULL subject goat and
+-- a "general:" template key, so the NOT NULL and the pre-000351 CHECKs below can be restored.
+DELETE FROM public.workflow_actions wa USING public.workflow_instances w
+WHERE w.tenant_id = wa.tenant_id AND w.workflow_id = wa.workflow_id AND w.module = 'general';
+DELETE FROM public.workflow_instances WHERE module = 'general';
+ALTER TABLE public.workflow_instances DROP CONSTRAINT IF EXISTS workflow_instances_template_key_check;
+ALTER TABLE public.workflow_instances ADD CONSTRAINT workflow_instances_template_key_check
+  CHECK (template_key IN ('birth_kid', 'birth_mother', 'death', 'reconcile', 'shifting'));
+ALTER TABLE public.workflow_instances DROP CONSTRAINT IF EXISTS workflow_instances_module_check;
+ALTER TABLE public.workflow_instances ADD CONSTRAINT workflow_instances_module_check
+  CHECK (module IN ('birth', 'death', 'reconcile', 'shifting'));
+ALTER TABLE public.workflow_instances ALTER COLUMN subject_goat_id SET NOT NULL;
 DELETE FROM public.sop_versions sv USING public.sop_definitions sd
 WHERE sd.tenant_id = sv.tenant_id AND sd.sop_id = sv.sop_id AND sd.code = 'general.gate_visitor_check';
 DELETE FROM public.sop_definitions WHERE code = 'general.gate_visitor_check';
