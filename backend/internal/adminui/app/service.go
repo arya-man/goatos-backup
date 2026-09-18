@@ -617,7 +617,7 @@ func pages() []domain.PageContract {
 		// by the procurement farm-born read (the load-wise shape; docs/decisions/sales-farm-born.md).
 		// READ-ONLY by contract, the /sales/sold shape: no write control, so nothing here opens a
 		// form. The sold ledger is the one table; its row is an animal and opens nothing.
-		page("sales-farm-born", "/sales/farm-born", "/sales/farm-born", "Farm born", "The animals the farm did not buy on a load — how many are on the farm, how many sold in the period, of which breed, sex, stage and pen, and what they earned.", "module-surface",
+		page("sales-farm-born", "/sales/farm-born", "/sales/farm-born", "Farm born", "The animals the farm did not buy on a load — how many sold in the period, of which breed, sex, stage and pen, and what they earned.", "module-surface",
 			[]domain.TableContract{withoutRowClick(farmBornSoldTable())}),
 		// MARKET ANALYTICS (maintainer decision 2026-09-14): the morning market-price calls read
 		// back -- the latest price per city and question, and each one over time. READ-ONLY by
@@ -4550,8 +4550,6 @@ func pageSpecificCopy(id string) map[string]string {
 
 			// Headline tiles -- whole-filter figures, never the page's.
 			"section.headline.aria": "Farm born headline figures",
-			"kpi.on_farm":           "On the farm now",
-			"kpi.on_farm.detail":    "alive today, whatever the period",
 			"kpi.sold":              "Sold in the period",
 			"kpi.sold.detail":       "animals with a sale date in the period",
 			"kpi.revenue":           "Earned",
@@ -4561,13 +4559,12 @@ func pageSpecificCopy(id string) map[string]string {
 			"kpi.avg_price.detail":  "earned over priced sales",
 
 			// The four breakdowns: on farm now beside sold in the period, per dimension.
-			"section.breakdowns.title":    "What sold, and what is still here",
-			"section.breakdowns.subtitle": "Each table splits the same animals one way. On farm is today's count; Sold and Earned are the period's.",
+			"section.breakdowns.title":    "What sold",
+			"section.breakdowns.subtitle": "Each table splits the animals sold in the period one way.",
 			"section.by_breed.title":      "By breed",
 			"section.by_sex.title":        "By sex",
 			"section.by_stage.title":      "By stage",
 			"section.by_pen.title":        "By pen",
-			"column.on_farm":              "On farm",
 			"column.sold":                 "Sold",
 			"column.revenue":              "Earned",
 			"column.share_pct":            "Share of sold",
