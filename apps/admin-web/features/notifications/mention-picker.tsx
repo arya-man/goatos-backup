@@ -1,9 +1,10 @@
 "use client";
 
 /**
- * The @-people picker: the popup, its filtering and ranking, its keyboard movement, and the chips
- * for the people already accepted. Everything here is ENHANCEMENT, which is why it is a separate
- * module the textarea fetches on demand.
+ * The @-people picker: the popup, its filtering and ranking, and its keyboard movement.
+ * Everything here is ENHANCEMENT, which is why it is a separate module the textarea fetches on
+ * demand. (It used to also draw a "Mentioned @Name x" chip row under the field; the name is
+ * already in the text, so that row went -- see the note above the render.)
  *
  * It renders NO field. The textarea and the hidden mentions input are server-rendered by
  * `mention-textarea.tsx` and stay eager, so the note still submits with JavaScript off and the
@@ -26,7 +27,6 @@
  */
 
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { X } from "lucide-react";
 import type { MentionComposerCopy } from "./notification-copy";
 import {
   activeMentionQuery,
@@ -75,7 +75,6 @@ export default function MentionPicker({
   listId,
   selections,
   onApply,
-  onRemove,
   onDismiss,
   registerKeyHandler,
   onPopupStateChange,
@@ -85,7 +84,15 @@ export default function MentionPicker({
   // on a different person than the one under the reader's eye.
   const [marker, setMarker] = useState<{ query: string | null; index: number }>({ query: null, index: 0 });
 
-  const active = useMemo(() => (suppressed ? null : activeMentionQuery(text, caret)), [caret, suppressed, text]);
+  // A PICKED token is not a query (CEO, 2026-09-18: "@Manju " + "let" re-opened the popup on
+  // "Manju let" and drew "Nobody ... matches that." over Send). The model stops the query at the
+  // first whitespace and treats a token already in `selections` as finished, so the popup opens
+  // again only for a fresh "@" at a word boundary.
+  const completed = useMemo(() => selections.map((selection) => selection.token), [selections]);
+  const active = useMemo(
+    () => (suppressed ? null : activeMentionQuery(text, caret, completed)),
+    [caret, completed, suppressed, text],
+  );
   const query = active ? active.query : null;
   const popupOpen = query !== null;
   const matches = useMemo(
@@ -153,49 +160,12 @@ export default function MentionPicker({
     });
   }, [highlighted, listId, matches.length, onPopupStateChange, popupOpen]);
 
-  const removeSelection = useCallback(
-    (selection: MentionSelection) => {
-      // Removing the chip removes the TOKEN too: a name left in the sentence that notifies nobody
-      // is the one outcome the reader cannot see or explain.
-      const nextText = text.replace(selection.token, "").replace(/ {2,}/g, " ");
-      const nextSelections = pruneMentionSelections(nextText, selections).filter(
-        (entry) => entry.user_id !== selection.user_id || entry.token !== selection.token,
-      );
-      onRemove(nextText, nextSelections);
-    },
-    [onRemove, selections, text],
-  );
-
-  const chips = pruneMentionSelections(text, selections);
-
+  // No chip row. The mention is already visible IN the text ("@Manju"), and a second "Mentioned
+  // @Manju x" line under the field said the same thing twice; deleting the name from the text is
+  // how a mention is withdrawn (`pruneMentionSelections` drops its id the moment the token goes).
+  // The hidden `mention_user_ids` input in `mention-textarea.tsx` still carries the ids.
   return (
     <>
-      {/* The picked people, as chips -- the "renders distinctly" half. A textarea cannot style a
-          run of its own text, so the mention is shown as a chip beside the field rather than
-          faked with an overlay that drifts out of alignment on a phone. */}
-      {chips.length > 0 ? (
-        <div style={{ display: "flex", flexWrap: "wrap", gap: 6, marginTop: 6 }}>
-          <span className="muted" style={{ fontSize: 11 }}>
-            {composerCopy.mentionedLabel}
-          </span>
-          {chips.map((selection) => (
-            <span className="achip" key={`${selection.user_id}:${selection.token}`}>
-              {selection.token}
-              <button
-                type="button"
-                className="btn sm ghost"
-                style={{ minWidth: 40, minHeight: 40, padding: 0, border: 0, background: "transparent" }}
-                onClick={() => removeSelection(selection)}
-                title={composerCopy.removeMention}
-                aria-label={composerCopy.removeMention}
-              >
-                <X className="ic" aria-hidden="true" />
-              </button>
-            </span>
-          ))}
-        </div>
-      ) : null}
-
       {popupOpen ? (
         // The popup. Absolute inside the textarea's wrapper (never fixed), full wrapper width so
         // it cannot overflow a 390px viewport.

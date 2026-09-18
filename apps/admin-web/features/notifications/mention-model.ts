@@ -71,10 +71,21 @@ function isBoundary(character: string | undefined): boolean {
  * The mention being typed at the caret, or null.
  *
  * A "@" only triggers at the start of the text or after whitespace/punctuation, so
- * "ravi@mesha.sg" never opens a people picker mid-address. The query may hold ONE space, because
- * rosters are full names and "@Ravi Te" has to keep matching; a second space ends it.
+ * "ravi@mesha.sg" never opens a people picker mid-address. The query ENDS AT THE FIRST
+ * WHITESPACE: "@Manju let us check" is a finished name followed by a sentence, not a query for
+ * "Manju let us check" -- which is exactly what the picker used to search for, and answered with
+ * "Nobody on the leadership roster matches that." over the Send button (CEO, 2026-09-18). A
+ * two-word roster name is still reachable by its first word: "@Ravi" ranks "Ravi Teja" first.
+ *
+ * `completed` is the list of tokens the reader has already PICKED ("@Manju"). A token that is
+ * still exactly what sits under the caret is a finished mention, not a query, so the popup does
+ * not re-open on the name it just inserted; deleting a character from it makes it a query again.
  */
-export function activeMentionQuery(text: string, caret: number): ActiveMention | null {
+export function activeMentionQuery(
+  text: string,
+  caret: number,
+  completed: readonly string[] = [],
+): ActiveMention | null {
   const position = Math.max(0, Math.min(caret, text.length));
   const before = text.slice(0, position);
   const at = before.lastIndexOf(MENTION_TRIGGER);
@@ -82,8 +93,8 @@ export function activeMentionQuery(text: string, caret: number): ActiveMention |
   if (!isBoundary(text[at - 1])) return null;
   const query = before.slice(at + 1);
   if (query.length > MENTION_QUERY_MAX) return null;
-  if (/[\n\r\t@]/.test(query)) return null;
-  if ((query.match(/ /g) ?? []).length > 1) return null;
+  if (/[\s@]/.test(query)) return null;
+  if (completed.includes(`${MENTION_TRIGGER}${query}`)) return null;
   return { start: at, end: position, query };
 }
 

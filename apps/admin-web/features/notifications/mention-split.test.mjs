@@ -68,7 +68,7 @@ assert.match(
 );
 assert.match(
   picker,
-  /activeMentionQuery\(text, caret\)/,
+  /activeMentionQuery\(text, caret, completed\)/,
   "the picker must derive its query from the field's state, so an early `@` still opens it on arrival",
 );
 assert.doesNotMatch(picker, /<textarea/, "the picker must not render a field of its own");
