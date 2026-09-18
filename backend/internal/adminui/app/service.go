@@ -5311,6 +5311,36 @@ func pageSpecificCopy(id string) map[string]string {
 			"state.breakdown_unavailable": "Breakdown unavailable",
 			"state.stage_unrecorded":      "No stage is recorded against any animal in this scope, so every row groups under a single blank stage. This is a source-data gap, not a display error — stage is imported from the source sheet and has not been populated for this herd.",
 
+			// PURCHASED LOADS (maintainer request 2026-09-18): the last card on the page. One
+			// column group per load — what the load brought in, what is still on the farm under the
+			// current filters, the male/female split — and, under the chart, the MANAGEMENT STAGE those
+			// animals carry NOW (the farm's "tag" in Counts vocabulary, never an RFID). The stage at
+			// purchase is deliberately not shown; the maintainer asked for the current one only.
+			// Purchased is the same figure as Sales -> Purchase and Born and is not
+			// narrowed by the filters; the caption has to say so, or a reader filtering to one stage
+			// would expect the two bars to match.
+			"section.loads.title":         "Purchased loads",
+			"section.loads.aria":          "Purchased loads against the live herd",
+			"section.loads.caption":       "Each load's animals bought, still on farm under the current filters, and male / female — with the stage they carry now. Bought is the load's own total and does not follow the filters.",
+			"chart.loads.aria":            "Animals per purchased load",
+			"chart.loads.empty":           "No purchased load has animals in the herd yet.",
+			"chart.series.load_purchased": "Bought",
+			"chart.series.load_on_farm":   "On farm",
+			"chart.series.load_male":      "Male",
+			"chart.series.load_female":    "Female",
+			"label.load":                  "Load",
+			"label.load_unnumbered":       "Unnumbered load",
+			"table.loads.aria":            "Current stage of each purchased load's animals",
+			"column.load":                 "Load",
+			"column.load_vendor":          "Vendor",
+			"column.load_bought_on":       "Bought on",
+			"column.load_purchased":       "Bought",
+			"column.load_on_farm":         "On farm",
+			"column.load_current_tags":    "Current stage",
+			"column.load_male":            "Male",
+			"column.load_female":          "Female",
+			"value.load_none_on_farm":     "none under these filters",
+
 			// Whole-pen stage change (maintainer decision 2026-08-12). Copy is deliberately plain
 			// farm language: the operator is retagging a pen, not "reclassifying a cohort".
 			"stage_change.title":              "Change stage",
