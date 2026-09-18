@@ -244,6 +244,17 @@ WHERE tenant_id = $1 AND user_id = $2 AND status = 'active'
 ORDER BY created_at DESC, workforce_member_id DESC
 LIMIT 1`, tenantID, userID).Scan(&memberID, &existingDepartment)
 	if err == nil {
+		// A row THIS seeder minted earlier (its exact display_code + display_name) is stamped as
+		// a dev account if an older run left it unmarked; a real person's row is never touched.
+		if _, err := pool.Exec(ctx, `
+UPDATE workforce_members
+SET metadata = COALESCE(metadata, '{}'::jsonb) || $4::jsonb, updated_at = now(), row_version = row_version + 1
+WHERE workforce_member_id = $1 AND tenant_id = $2
+  AND display_code = 'auth:' || $3 AND display_name = 'dev-' || $5
+  AND COALESCE((metadata->>'dev_account')::boolean, false) = false`,
+			memberID, tenantID, userID, devAccountMetadata, role); err != nil {
+			return err
+		}
 		if existingDepartment != nil {
 			return nil
 		}
@@ -258,11 +269,18 @@ WHERE workforce_member_id = $1 AND tenant_id = $2 AND department_id IS NULL`, me
 	}
 
 	_, err = pool.Exec(ctx, `
-INSERT INTO workforce_members (tenant_id, user_id, display_code, display_name, status, primary_role_hint, department_id)
-VALUES ($1, $2, $3, $4, 'active', $5, $6)`,
-		tenantID, userID, "auth:"+userID, "dev-"+role, devMemberRoleHint(role), departmentID)
+INSERT INTO workforce_members (tenant_id, user_id, display_code, display_name, status, primary_role_hint, department_id, metadata)
+VALUES ($1, $2, $3, $4, 'active', $5, $6, $7::jsonb)`,
+		tenantID, userID, "auth:"+userID, "dev-"+role, devMemberRoleHint(role), departmentID, devAccountMetadata)
 	return err
 }
+
+// devAccountMetadata marks a workforce row as a LOCAL DEVELOPMENT account, not a person. This
+// seeder is the only writer of such rows (it refuses any non-local database), and the marker
+// is what lets people pickers -- the leadership-tasks assignee list, the @mention candidates --
+// leave the dev login out without guessing from a display name. Any query that lists people
+// for a human to pick from should exclude `metadata->>'dev_account' = 'true'`.
+const devAccountMetadata = `{"source":"seed-dev-grant","dev_account":true}`
 
 func devMemberRoleHint(role string) string {
 	switch role {

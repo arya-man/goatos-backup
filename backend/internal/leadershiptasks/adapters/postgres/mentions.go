@@ -210,6 +210,8 @@ leadership AS (
     ON m.tenant_id = a.tenant_id AND m.workforce_member_id = a.workforce_member_id AND m.status = 'active'
   WHERE a.tenant_id = $1::uuid AND a.surface = $3 AND a.module_key = $4 AND $5 = ANY(a.capabilities)
     AND m.user_id IS NOT NULL
+    -- The local development login is never offered as an @mention (see sqlListAssignees).
+    AND COALESCE((m.metadata->>'dev_account')::boolean, false) = false
     AND EXISTS (
       SELECT 1 FROM public.user_scope_grants g
       WHERE g.tenant_id = m.tenant_id AND g.user_id = m.user_id
@@ -231,6 +233,7 @@ resolved AS (
   FROM candidates c
   JOIN public.workforce_members m
     ON m.tenant_id = $1::uuid AND m.user_id = c.user_id AND m.status = 'active'
+   AND COALESCE((m.metadata->>'dev_account')::boolean, false) = false
   LEFT JOIN public.workforce_member_titles wt
     ON wt.tenant_id = m.tenant_id AND wt.workforce_member_id = m.workforce_member_id
   LEFT JOIN public.person_access pa

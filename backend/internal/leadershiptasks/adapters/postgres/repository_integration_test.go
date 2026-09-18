@@ -633,6 +633,81 @@ VALUES ($1::uuid, $2::uuid, 'park_head', 'tenant', $1::uuid, 'active', now() - i
 	}
 }
 
+// A LOCAL DEVELOPMENT login (a workforce row seed-dev-grant stamped `dev_account: true`) is not a
+// person anyone assigns work to or @mentions: it is left out of the assignee list, refused by the
+// raise-time tick check, and left out of the mention candidates -- even when it is ticked and
+// granted exactly like a real leader, and even when it is a party to the task. A real leader
+// with the same tick, grant and an EMPTY metadata stays listed: the marker is the seeder's own,
+// never a display-name pattern.
+func TestDevAccountsAreHiddenFromPeoplePickers(t *testing.T) {
+	pgtest.SkipIfNoDocker(t)
+	ctx := context.Background()
+	pool := pgtest.StartPostgres(t, ctx)
+	seedLeadershipFixture(t, ctx, pool)
+	repo := NewRepository(pool, 10*time.Second)
+
+	seed := func(userID, name, metadata string) {
+		t.Helper()
+		if _, err := pool.Exec(ctx, `
+INSERT INTO workforce_members (tenant_id, user_id, display_code, display_name, status, metadata)
+VALUES ($1::uuid, $2::uuid, 'auth:' || $2, $3, 'active', $4::jsonb)`, ltTenant, userID, name, metadata); err != nil {
+			t.Fatalf("seed %s: %v", name, err)
+		}
+		if _, err := pool.Exec(ctx, `
+INSERT INTO person_module_access (tenant_id, workforce_member_id, surface, module_key, capabilities)
+SELECT $1::uuid, workforce_member_id, 'mobile', 'leadership_tasks', ARRAY['view','oversee']::text[]
+FROM workforce_members WHERE tenant_id = $1::uuid AND user_id = $2::uuid`, ltTenant, userID); err != nil {
+			t.Fatalf("tick %s: %v", name, err)
+		}
+		if _, err := pool.Exec(ctx, `
+INSERT INTO user_scope_grants (tenant_id, user_id, role, scope_type, scope_id, status, valid_from)
+VALUES ($1::uuid, $2::uuid, 'ceo_internal', 'tenant', $1::uuid, 'active', now() - interval '1 day')`, ltTenant, userID); err != nil {
+			t.Fatalf("grant %s: %v", name, err)
+		}
+	}
+	const devUser = "90000000-0000-4000-8000-000000000101"
+	const realUser = "90000000-0000-4000-8000-000000000102"
+	seed(devUser, "dev-ceo_internal", `{"source":"seed-dev-grant","dev_account":true}`)
+	seed(realUser, "Devika", `{}`)
+
+	assignees, err := repo.ListAssignees(ctx, ltTenant)
+	if err != nil {
+		t.Fatalf("list assignees: %v", err)
+	}
+	var sawDev, sawReal bool
+	for _, a := range assignees {
+		sawDev = sawDev || a.UserID == devUser
+		sawReal = sawReal || a.UserID == realUser
+	}
+	if sawDev || !sawReal {
+		t.Fatalf("assignees: dev listed=%v real listed=%v, want false/true (%+v)", sawDev, sawReal, assignees)
+	}
+	// The raise-time check agrees with the list: a stale client naming the dev login is refused.
+	if _, err := repo.Raise(ctx, raiseParams(devUser, "For the dev login", "dev-raise-1")); !errors.Is(err, domain.ErrAssigneeNotAssignable) {
+		t.Fatalf("raise for the dev login: err = %v, want ErrAssigneeNotAssignable", err)
+	}
+	if _, err := repo.Raise(ctx, raiseParams(realUser, "For Devika", "dev-raise-2")); err != nil {
+		t.Fatalf("raise for a real leader: %v", err)
+	}
+	// Even as the RAISER of a task, the dev login is not a mention candidate on it.
+	task, err := repo.Raise(ctx, ports.RaiseParams{TenantID: ltTenant, ActorID: devUser, AssigneeUserID: ltCXO, Title: "Raised by the dev login", IdempotencyKey: "dev-raise-3"})
+	if err != nil {
+		t.Fatalf("raise by the dev login: %v", err)
+	}
+	users, err := repo.ListMentionableUsers(ctx, ltTenant, task.TaskID)
+	if err != nil {
+		t.Fatalf("mentionable: %v", err)
+	}
+	sawDev, sawReal = false, false
+	for _, u := range users {
+		sawDev = sawDev || u.UserID == devUser
+		sawReal = sawReal || u.UserID == realUser
+	}
+	if sawDev || !sawReal {
+		t.Fatalf("mentionable: dev listed=%v real listed=%v, want false/true (%+v)", sawDev, sawReal, users)
+	}
+}
+
 // The UNFILTERED team read is the one the web desk opens with (CXO, scope_mode=company): no
 // status filter, no cursor. It used to bind the user id to a predicate that never read it and
 // fail with "expected 1 arguments, got 2" -- the whole /tasks page fell over. The filtered

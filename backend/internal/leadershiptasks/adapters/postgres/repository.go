@@ -1425,6 +1425,9 @@ LEFT JOIN public.designation_catalog dc
   ON dc.designation_code = pa.designation_code
 WHERE a.tenant_id = $1 AND a.surface = $2 AND a.module_key = $3 AND $4 = ANY(a.capabilities)
   AND m.user_id IS NOT NULL
+  -- A local development login (seed-dev-grant stamps its own rows dev_account=true) is not a
+  -- person anyone assigns work to; the marker is the seeder's, never a name pattern.
+  AND COALESCE((m.metadata->>'dev_account')::boolean, false) = false
   AND EXISTS (
     SELECT 1 FROM public.user_scope_grants g
     WHERE g.tenant_id = m.tenant_id AND g.user_id = m.user_id
@@ -1440,6 +1443,7 @@ SELECT EXISTS (
     ON m.tenant_id = a.tenant_id AND m.workforce_member_id = a.workforce_member_id AND m.status = 'active'
   WHERE a.tenant_id = $1 AND m.user_id = $2::uuid
     AND a.surface = $3 AND a.module_key = $4 AND $5 = ANY(a.capabilities)
+    AND COALESCE((m.metadata->>'dev_account')::boolean, false) = false
     AND EXISTS (
       SELECT 1 FROM public.user_scope_grants g
       WHERE g.tenant_id = m.tenant_id AND g.user_id = m.user_id
