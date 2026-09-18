@@ -16,7 +16,7 @@ table{border-collapse:collapse}td,th{border:1px solid #ddd;padding:4px 8px}
 <script>
 mermaid.initialize({startOnLoad:false});
 const root=new URLSearchParams(location.search).get('root')||'litho.docs';
-const manifestVersion='b5ff70d92';
+const manifestVersion=String(Date.now());
 const pathUrl=(root,f)=>root.split('/').map(encodeURIComponent).join('/')+'/'+f.split('/').map(encodeURIComponent).join('/');
 fetch(`files.json?v=${manifestVersion}`,{cache:'no-store'}).then(r=>r.json()).then(all=>{
   const files=all[root]||[];const nav=document.getElementById('nav');
