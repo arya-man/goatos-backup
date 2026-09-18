@@ -2,6 +2,7 @@
 
 import { MessageSquareText } from "lucide-react";
 import { useOptimistic, useRef, useState, useTransition } from "react";
+import { publishTaskRowVersion } from "./task-row-version";
 
 import { copy, type AdminUiPageContract } from "@/lib/admin-ui-contract";
 import type { LeadershipTaskActivity } from "@/lib/api/server";
@@ -152,6 +153,7 @@ export function TaskActivityComposer({
       }));
       if (result.ok) {
         setRecord({ activity: result.activity, notes: result.notes });
+        if (typeof result.rowVersion === "number") publishTaskRowVersion(task.id, result.rowVersion);
         return;
       }
       // The text comes back into the field, with the ids it carried, and the sentence under it.

@@ -7,6 +7,7 @@ import { copy, type AdminUiPageContract } from "@/lib/admin-ui-contract";
 
 import { statusTone } from "./task-presentation";
 import type { TaskRow } from "./task-row";
+import { useTaskRowVersion } from "./task-row-version";
 
 /**
  * THE status control of the task drawer: one dropdown, the Work Board's menu.
@@ -44,6 +45,7 @@ export function TaskStatusMenu({
   action: (formData: FormData) => void | Promise<void>;
   returnTo: string;
 }) {
+  const rowVersion = useTaskRowVersion(task.id, task.rowVersion);
   const [open, setOpen] = useState(false);
   const close = useCallback(() => setOpen(false), []);
   const ref = useOutsideClose(open, close);
@@ -75,7 +77,7 @@ export function TaskStatusMenu({
         <input ref={keyRef} type="hidden" name="idempotency_key" />
         <input type="hidden" name="return_to" value={returnTo} />
         <input type="hidden" name="task_id" value={task.id} />
-        <input type="hidden" name="row_version" value={task.rowVersion} />
+        <input type="hidden" name="row_version" value={rowVersion} />
         {/* Uncontrolled on purpose: the chosen key is written into the input right before
             requestSubmit(), and a controlled `value` would be reset by the re-render that closes
             the menu, posting the CURRENT status back as the target. */}

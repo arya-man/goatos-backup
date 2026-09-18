@@ -269,6 +269,8 @@ export async function setLeadershipTaskCommentAction(
 export type CommentPostResult =
   | {
       ok: true;
+      /** The task's `row_version` AFTER the write -- the fence every later status/edit must send. */
+      rowVersion: number;
       /** The task's activity and notes AFTER the write, newest first, as the backend composed them. */
       activity: LeadershipTaskActivity[];
       notes: Array<{
@@ -327,6 +329,8 @@ export async function postLeadershipTaskCommentAction(
     ok: true,
     activity: task.activity ?? [],
     notes: task.notes ?? [],
+    // The note bumped the row's version; the status/edit fences must send THIS one next.
+    rowVersion: task.row_version,
   };
 }
 

@@ -8,6 +8,7 @@ import { rfc3339ToFarmDeadlineLocal } from "./deadline";
 import { TaskDeadlineFields } from "./task-write-forms";
 import { useDialogShell } from "./use-dialog-shell";
 import type { TaskRow } from "./task-row";
+import { useTaskRowVersion } from "./task-row-version";
 
 /**
  * The EDIT modal — the piece the web desk never had.
@@ -40,6 +41,7 @@ export function EditTaskModal({
   action: (formData: FormData) => void | Promise<void>;
   returnTo: string;
 }) {
+  const rowVersion = useTaskRowVersion(task.id, task.rowVersion);
   const [open, setOpen] = useState(false);
   const [title, setTitle] = useState(task.title);
   const [body, setBody] = useState(task.body);
@@ -141,7 +143,7 @@ export function EditTaskModal({
               <input type="hidden" name="return_to" value={returnTo} />
               <input type="hidden" name="task_id" value={task.id} />
               {/* The version of the row that is ON SCREEN. */}
-              <input type="hidden" name="row_version" value={task.rowVersion} />
+              <input type="hidden" name="row_version" value={rowVersion} />
               <label className="fld">
                 <span>{copy(pageContract, "edit.title_field")}</span>
                 <input

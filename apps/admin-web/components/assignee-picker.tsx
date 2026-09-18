@@ -103,6 +103,7 @@ export function AssigneePicker({
   name,
   invalid = false,
   describedBy,
+  stackSize = 6,
 }: {
   mode?: "multi" | "single";
   labels: AssigneePickerLabels;
@@ -116,6 +117,12 @@ export function AssigneePicker({
   /** `single` only: the host's own required check failed; the trigger says so. */
   invalid?: boolean;
   describedBy?: string;
+  /**
+   * `multi` only: how many avatars the closed trigger shows before the `+N` (the Work Board's
+   * stack is 6). The Tasks toolbar shows 4 at 28px so its two stacks stay legible beside a
+   * five-chip segment at 1440 (Gate-1 #6); the picker list is the full roster either way.
+   */
+  stackSize?: number;
 }) {
   const [open, setOpen] = useState(false);
   const [query, setQuery] = useState("");
@@ -142,8 +149,8 @@ export function AssigneePicker({
     );
   }, [mode, owners, query]);
   const current = owners.find((o) => o.id === selected);
-  const visible = current ? [current] : owners.slice(0, 6);
-  const overflow = current ? 0 : Math.max(0, owners.length - 6);
+  const visible = current ? [current] : owners.slice(0, stackSize);
+  const overflow = current ? 0 : Math.max(0, owners.length - stackSize);
   const toggle = () => setOpen((v) => !v);
   const highlight =
     marker.query === query ? Math.min(marker.index, Math.max(shown.length - 1, 0)) : 0;
