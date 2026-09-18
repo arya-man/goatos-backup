@@ -1,0 +1,109 @@
+-- +goose Up
+-- +goose NO TRANSACTION
+--
+-- In-app notification centre feed (NOTIF-CENTRE-01).
+--
+-- Serves the per-recipient keyset read in
+-- backend/internal/notificationcentre/adapters/postgres/repository.go
+-- (sqlListNotifications' `mine` CTE, and sqlUnreadCount / sqlMarkRead over the
+-- same set):
+--
+--   WHERE tenant_id = $1
+--     AND context->>'member_id' = <caller's resolved ACTIVE workforce_member_id>
+--   ORDER BY requested_at DESC, notification_request_id DESC
+--
+-- NOT PARTIAL, and that is the whole point of this migration. Four indexes of
+-- exactly this column order already exist -- notification_requests_{weighing,
+-- vaccination,feed,counts}_alerts_idx (000083, 000132, 000133, 000134) -- but
+-- every one of them is PARTIAL on (context->>'message_key') LIKE '<module>.%'
+-- because each was built for ONE module's alert list. The notification centre
+-- is the bell in the app shell: it is the person's whole feed across ALL
+-- message keys, so it matches none of those predicates and got no index at all.
+-- Measured on the seeded test db (54,300 rows, 5,000 notifications / 7,500
+-- delivery rows for the hot member, 339 distinct member_ids, 2026-09-18):
+--
+--   before  page 1        Seq Scan on notification_requests, 7,500 rows kept,
+--                         46,800 Rows Removed by Filter, 3,142 buffers,
+--                         scan node 28.7ms, statement 75.9ms
+--   before  deep page     same Seq Scan, statement 64.2ms
+--   before  unread count  Seq Scan, 49,299 Rows Removed by Filter, 37.9ms
+--   after   page 1        Index Scan using this index, scan node 5.1ms,
+--                         statement 53.1ms
+--   after   deep page     Index Scan, statement 42.4ms
+--   after   unread count  Index Scan, 13.9ms
+--
+-- The cost that actually changes is the one that grows: before, every bell
+-- render read the WHOLE table, so it grew with every tenant's every module's
+-- notification history. After, it reads only the caller's own rows. The scan
+-- node's own time drops 5.6x and the unread count 2.7x on a table this small;
+-- the ratio widens with every row another module writes.
+--
+-- WHY THE EXPRESSION INDEX ON (context->>'member_id') IS THE RIGHT SHAPE, and
+-- not just the shape the siblings happen to have. Two alternatives were built
+-- and measured, not reasoned about:
+--
+--   (a) This shape. 5,600 kB. The read becomes an Index Scan; the DISTINCT ON
+--       quicksort of the member's 7,500 rows remains (42.3ms -> 19.1ms at that
+--       node, because it now sorts rows delivered by an index rather than by a
+--       full scan).
+--   (b) The same index with the delivery-dedupe key spliced in as a third
+--       column -- (tenant_id, (context->>'member_id'),
+--       (COALESCE(NULLIF(context->>'event_key',''),
+--       notification_request_id::text)), requested_at DESC,
+--       notification_request_id DESC). 7,624 kB. It DOES erase the DISTINCT ON
+--       sort node entirely (the Unique reads straight off the index) and is
+--       faster today: page 1 41.8ms, unread count 7.3ms.
+--
+-- (b) was REJECTED despite winning on the stopwatch, for three reasons:
+--   1. It hard-codes dedupeKeyExpr -- a Go const in repository.go -- into SQL
+--      in a second, unlinked place. The day that const changes, the index
+--      silently stops matching and the sort comes back with nothing failing.
+--   2. It does not fix the actual scale problem (below); it only makes the
+--      broken shape cheaper, so it would have to be dropped again after the
+--      query is restructured, and a CONCURRENTLY build/drop on this hot table
+--      is not free.
+--   3. Putting the dedupe key AHEAD of requested_at destroys the keyset order
+--      this index exists to provide, so it cannot serve a restructured query
+--      that pages off (requested_at DESC, notification_request_id DESC).
+-- If the feed query is ever restructured, revisit (b) on its measurements then.
+--
+-- WHAT THIS INDEX DOES NOT FIX, stated plainly so no reviewer reads the numbers
+-- above as "the feed is now O(page)". sqlListNotifications' `mine` CTE has no
+-- LIMIT and the keyset predicate sits OUTSIDE it, so the planner still
+-- materialises the member's ENTIRE deduped history before the page is cut:
+-- 7,500 rows scanned -> 5,000 deduped -> top-N heapsort -> 51 returned, on the
+-- first page and on every deep page alike (the deep page additionally discards
+-- 2,001 already-materialised rows as Rows Removed by Filter). That is a QUERY
+-- shape, not a missing index, and no index can fix it -- the anti-join rewrite
+-- proposed in repository.go's own note was measured here too and still reads
+-- all 7,500 rows twice (Hash Anti Join, 24.8ms). This index makes those rows
+-- cheap to fetch and bounds the read to one person instead of the whole table;
+-- capping it at one page needs the query restructured.
+--
+-- ISOLATION: this index is on notification_requests alone. It references no
+-- goats, goat_identifiers, herd_animals, obligation, protocol or vaccination
+-- object, and creates no path by which the feed read could acquire one. Rows
+-- are produced per work-state transition per recipient device (bounded by
+-- headcount x transitions), never per animal.
+--
+-- LOCK SAFETY: CONCURRENTLY + NO TRANSACTION, so the build takes no
+-- ACCESS EXCLUSIVE lock on notification_requests. That table is on the hot
+-- notification dispatch path (the queue/lease indexes are read and updated
+-- continuously by the dispatcher), so a blocking CREATE INDEX here would stall
+-- delivery for every module, not just the notification centre.
+CREATE INDEX CONCURRENTLY IF NOT EXISTS notification_requests_member_feed_idx
+ON public.notification_requests (
+  tenant_id,
+  (context->>'member_id'),
+  requested_at DESC,
+  notification_request_id DESC
+);
+
+-- The four PARTIAL per-module indexes are deliberately NOT dropped here. Each
+-- module's alert list still filters on its own message_key prefix, and its
+-- narrower index is both smaller and better for that read; this one is the
+-- unfiltered whole-feed sibling, not a replacement.
+
+-- +goose Down
+-- +goose NO TRANSACTION
+DROP INDEX CONCURRENTLY IF EXISTS public.notification_requests_member_feed_idx;

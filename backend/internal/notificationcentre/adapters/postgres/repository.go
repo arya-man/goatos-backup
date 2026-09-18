@@ -154,10 +154,34 @@ const unreadPredicate = `nr.read_at IS NULL AND nr.status <> 'read'`
 // scope=tenant_id AND the caller's own member id on EVERY branch -- the page read, the
 // unread aggregate and both halves of the mark-as-read write.
 //
-// scale-guard:ignore: workforce-scale read -- ONE person's own notifications, keyset-paged at
-// most 50 rows. notification_requests rows are produced per work-state transition per
-// recipient device (bounded by headcount x transitions), never per animal, so this read does
-// not grow with the herd.
+// scale-guard:ignore: workforce-scale read -- ONE person's own notifications. rows are
+// produced per work-state transition per recipient device (bounded by headcount x
+// transitions), never per animal, so this read does not grow with the herd.
+//
+// BUT IT IS NOT "keyset-paged at most 50 rows", and this note used to claim it was.
+// Measured on 5000 rows for one member (EXPLAIN ANALYZE, seeded test db, 2026-09-18): the
+// `mine` CTE has no LIMIT, so the planner seq-scans all 5000 of that member's rows, quicksorts
+// all 5000 for DISTINCT ON and emits all 2501 deduped rows BEFORE the keyset predicate and the
+// LIMIT, which sit outside the CTE. First page 31ms, deep page 25ms, both touching the whole
+// per-member history; the deep page additionally throws away 1002 already-materialised rows
+// (Rows Removed by Filter). None of the notification_requests_{weighing,vaccination,feed,
+// counts}_alerts_idx indexes could serve this read either: every one of them is PARTIAL on
+// (context->>'message_key') LIKE '<prefix>.%', so the unfiltered feed matched none of them and
+// the read was a Seq Scan of the WHOLE table, every module's rows for every tenant.
+//
+// MIGRATION 000348 FIXED THE SCAN, NOT THE SHAPE. notification_requests_member_feed_idx is the
+// NON-PARTIAL sibling of those four -- (tenant_id, (context->>'member_id'), requested_at DESC,
+// notification_request_id DESC) with no message_key predicate -- so the read is now an Index
+// Scan bounded by ONE person's rows instead of the table. Re-measured on 54,300 rows / 7,500
+// delivery rows for the hot member: page 1 75.9ms -> 53.5ms, deep page 64.2ms -> 41.6ms,
+// unread count 37.9ms -> 13.6ms, and the scan node itself 28.7ms -> 5.2ms. What is NOT fixed is
+// the CTE: it still materialises the member's entire deduped history (7,500 scanned -> 5,000
+// deduped -> top-N heapsort -> 51 returned) on every page, because the LIMIT and keyset sit
+// outside it. Cost is still linear in one person's lifetime notification count, just with a
+// much smaller constant. The anti-join rewrite proposal (newest-per-dedupe-key as a NOT EXISTS)
+// was measured against 000348's index too and does NOT push the LIMIT down either -- it reads
+// the member's 7,500 rows twice as a Hash Anti Join, 24.8ms -- so it needs rework before it is
+// worth doing.
 const sqlListNotifications = sqlTargetMemberCTE + `,
 mine AS (
   SELECT DISTINCT ON (` + dedupeKeyExpr + `)
