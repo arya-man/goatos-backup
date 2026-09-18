@@ -161,7 +161,14 @@ export function isTaskUuid(value: string | undefined): boolean {
 /** A uuid filter, or undefined. A malformed one is DROPPED rather than sent: the backend answers
  *  400 `invalid_filter`, and a stale bookmark should degrade to the unfiltered list, not an error. */
 export function taskUuidFilter(value: string | undefined): string | undefined {
-  return isTaskUuid(value) ? value!.trim() : undefined;
+  // One uuid, or a comma-separated list of them (the people filters are checkboxes). Any entry
+  // that is not a uuid drops the whole value: the backend would 400 it as `invalid_filter`.
+  const ids = (value ?? "")
+    .split(",")
+    .map((part) => part.trim())
+    .filter(Boolean);
+  if (ids.length === 0 || ids.length > 20 || !ids.every((id) => isTaskUuid(id))) return undefined;
+  return ids.join(",");
 }
 
 export function normalizeTaskQuery(value: string | undefined): string | undefined {

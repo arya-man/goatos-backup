@@ -92,31 +92,23 @@ const render = (rows, activeFilter = "all") =>
     }),
   );
 
-test("an empty Cancelled column is a rail that keeps its header and drops its body", () => {
+test("Cancelled is a column like the other three: no rail, header pill reads 0, body rendered", () => {
+  // CEO, 2026-09-18: the slim rail read as a squeezed mistake beside three full columns. Jira
+  // gives every status the same column; so does this board now.
   const html = render([task({ status: "open" })]);
-  const rail = html.match(/<section class="ltb-col ltb-col-cancelled is-rail[^"]*"[^>]*data-ltb-rail="true"[^>]*aria-label="Cancelled"[^>]*>([\s\S]*?)<\/section>/);
-  assert.ok(rail, `no rail in: ${html.slice(0, 400)}`);
-  assert.match(rail[1], /class="ltb-colname">Cancelled</);
-  // The pill reads "0" in the same pill as every other header, never a button-looking "—"
-  // (Gate-1 #14): no whole-list total is published for Cancelled, so it counts this page's
-  // cards and its tooltip says so.
-  assert.match(rail[1], /class="ltb-colcount"[^>]*>0</);
-  assert.doesNotMatch(rail[1], /class="ltb-colcount"[^>]*>—</);
-  assert.match(rail[1], /title="[^"]*counts the cards on this page/);
-  // The body and the "0 on this page" line are STILL rendered (the drop target's markup does not
-  // change) and hidden by the rail's CSS; what must not appear is a second header treatment.
-  assert.equal((rail[1].match(/ltb-colhd/g) || []).length, 1);
-  // An empty To do column is never a rail: an empty To do is news, not noise.
-  const openOnly = render([task({ status: "done" })]);
-  assert.doesNotMatch(openOnly, /ltb-col-open is-rail/);
-  assert.match(openOnly, /ltb-col-cancelled is-rail/);
+  assert.doesNotMatch(html, /is-rail/);
+  assert.doesNotMatch(html, /data-ltb-rail="true"/);
+  const col = html.match(/<section class="ltb-col ltb-col-cancelled[^"]*"[^>]*>([\s\S]*?)<\/section>/);
+  assert.ok(col, `no cancelled column in: ${html.slice(0, 400)}`);
+  assert.match(col[1], /class="ltb-colname">Cancelled</);
+  // The pill reads "0" like every other header, never a button-looking "—" (Gate-1 #14).
+  assert.match(col[1], /class="ltb-colcount"[^>]*>0</);
+  assert.doesNotMatch(col[1], /class="ltb-colcount"[^>]*>—</);
+  assert.equal((col[1].match(/ltb-colhd/g) || []).length, 1);
+  assert.match(col[1], /ltb-colbd/);
 });
 
-test("the Cancelled column widens the moment it holds a card, and never rails while it is the focused filter", () => {
+test("a Cancelled column holding a card renders that card in place", () => {
   const withCard = render([task({ status: "cancelled", statusLabel: "Cancelled" })]);
-  assert.doesNotMatch(withCard, /is-rail/);
-  assert.doesNotMatch(withCard, /data-ltb-rail/);
   assert.match(withCard, /ltb-col ltb-col-cancelled[^"]*"[\s\S]*?ltb-card/);
-  const focused = render([], "cancelled");
-  assert.doesNotMatch(focused, /is-rail/);
 });

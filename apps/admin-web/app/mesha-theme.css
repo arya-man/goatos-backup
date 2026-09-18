@@ -6237,3 +6237,23 @@ aside.drawer.ltd-drawer{width:min(720px,94vw);overflow-y:auto;overscroll-behavio
 .lt-page .ltb-card-foot{padding-top:7px;gap:8px}
 .lt-page .ltb-card-av{margin-left:auto;flex:none;width:24px;height:24px;font-size:10px}
 .lt-page .ltb-card-att{margin-left:0}
+
+/* ---- PEOPLE FILTERS ARE A PLAIN DROPDOWN OF CHECKBOXES (CEO, 2026-09-18 13:50) ---------------
+   "Assignee · All" opens a list: All, then every person, each with a REAL tick box. No avatar
+   stack, no +N chip. The native checkbox is kept for a11y/no-JS and drawn by `.lt-people-box`. */
+.lt-page .lt-people{position:relative}
+.lt-page .lt-people>button .lt-people-stated{color:var(--ink);font-weight:650;max-width:140px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.lt-page .lt-people-pop{left:0;right:auto;z-index:60;min-width:250px;max-height:min(60vh,420px);overflow:auto;padding:6px;gap:0;background:var(--panel);backdrop-filter:none;opacity:1}
+.lt-page .lt-people-row{display:flex;align-items:center;gap:10px;padding:8px 9px;border-radius:7px;cursor:pointer;font-size:13px;font-weight:600;color:var(--ink);min-height:36px}
+.lt-page .lt-people-row:hover{background:var(--bg)}
+.lt-page .lt-people-row input{position:absolute;width:1px;height:1px;opacity:0;pointer-events:none}
+.lt-page .lt-people-row:has(input:focus-visible){outline:2px solid var(--brand);outline-offset:-2px}
+.lt-page .lt-people-box{flex:none;width:18px;height:18px;border:1.5px solid var(--line);border-radius:4px;background:var(--panel);display:grid;place-items:center;color:var(--navon)}
+.lt-page .lt-people-box .ic{width:13px;height:13px;stroke-width:3}
+.lt-page .lt-people-row.is-on .lt-people-box{background:var(--brand);border-color:var(--brand)}
+.lt-page .lt-people-name{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.lt-page .lt-people-title{color:var(--muted);font-weight:500}
+@media (max-width:760px){
+  .lt-page .lt-fsheet-host .lt-people-pop{position:static;width:100%;margin-top:6px;box-shadow:none;border-color:var(--line2)}
+  .lt-page .lt-people-row{min-height:44px}
+}

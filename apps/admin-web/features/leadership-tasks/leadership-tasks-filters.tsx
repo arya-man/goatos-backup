@@ -5,7 +5,7 @@ import { CalendarRange, ChevronDown, ListFilter, Search, SlidersHorizontal, X } 
 import { useCallback, useEffect, useMemo, useRef, useState, useTransition } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 
-import { AssigneePicker } from "@/components/assignee-picker";
+import { TaskPeopleDropdown } from "./task-people-dropdown";
 import { ThemedDatePicker } from "@/components/themed-date-picker";
 import { copy, type AdminUiPageContract } from "@/lib/admin-ui-contract";
 import { worklistFilterShownValue } from "@/lib/worklist-filter-value";
@@ -64,6 +64,11 @@ export type TaskStatusChip = {
  * apply on change (half a span is a 400 on this endpoint) and it is the only thing that still
  * needs a button.
  */
+/** `a,b,c` -> ids; the toolbar's people filters are checkboxes and the URL carries every tick. */
+function splitIDs(raw: string): string[] {
+  return raw.split(",").map((x) => x.trim()).filter(Boolean);
+}
+
 export function LeadershipTasksFilters({
   pageContract,
   basePath,
@@ -291,10 +296,7 @@ export function LeadershipTasksFilters({
   const raiserLabel = copy(pageContract, "filter.raiser");
   const deadlineLabel = copy(pageContract, "filter.deadline", copy(pageContract, "label.deadline", "Deadline"));
   const raisedLabel = copy(pageContract, "filter.raised", "Raised");
-  const peopleSearchLabel = copy(pageContract, "filter.people_search", "Type a name");
-  const onThisPageLabel = copy(pageContract, "board.on_this_page", "on this page");
   const datesLabel = copy(pageContract, "filter.dates", "Dates");
-  const peopleNoMatchesLabel = copy(pageContract, "filter.people_no_matches", "Nobody by that name.");
 
   /**
    * A span as the disclosure's own label: the reader should not have to open it to learn whether
@@ -306,9 +308,11 @@ export function LeadershipTasksFilters({
 
   const shownAssignee = fieldValue(TASK_PARAM.assignee, assignee);
   const shownRaiser = fieldValue(TASK_PARAM.raiser, raiser);
+  // One name, or "Dinakar, Manju" for a multi-tick; an unknown id falls back to the id itself.
   const labelFor = (options: TaskPersonOption[], value: string) =>
-    options.find((option) => option.value === value)?.label ?? value;
-
+    splitIDs(value)
+      .map((id) => options.find((option) => option.value === id)?.label ?? id)
+      .join(", ");
   /**
    * WHAT IS NARROWING THE LIST, as chips that each remove exactly themselves. Status lives in the
    * segmented control and sort is not a narrowing, so neither is repeated here; everything that
@@ -480,34 +484,32 @@ export function LeadershipTasksFilters({
             rules onto it verbatim; `stackSize={4}` is the 28px stack that stays legible beside
             a five-chip segment at 1440 (Gate-1 #6). */}
         {assigneePinned ? null : (
-          <div className="lt-fslot wb" data-slot="assignee" data-key={assigneeLabel} title={assigneeLabel}>
-            <AssigneePicker
-              mode="multi"
-              stackSize={4}
-              labels={{ label: assigneeLabel, search: peopleSearchLabel, none: peopleNoMatchesLabel, selectAll: allOption, all: allOption, rows: onThisPageLabel }}
-              owners={assigneeOptions.map((option) => ({ id: option.value, name: option.label, title: option.title }))}
-              cardsByOwner={assigneeCounts}
-              selected={fieldValue(TASK_PARAM.assignee, assignee) || undefined}
-              onSelect={(next) => {
+          <div className="lt-fslot" data-slot="assignee" data-key={assigneeLabel} title={assigneeLabel}>
+            <TaskPeopleDropdown
+              slot="assignee"
+              label={assigneeLabel}
+              allLabel={allOption}
+              options={assigneeOptions.map((option) => ({ id: option.value, name: option.label, title: option.title }))}
+              selected={splitIDs(fieldValue(TASK_PARAM.assignee, assignee))}
+              onChange={(next) => {
                 closeSheet();
-                go(paramsWith({ [TASK_PARAM.assignee]: next ?? "" }));
+                go(paramsWith({ [TASK_PARAM.assignee]: next.join(",") }));
               }}
             />
           </div>
         )}
 
         {raiserPinned ? null : (
-          <div className="lt-fslot wb" data-slot="raiser" data-key={raiserLabel} title={raiserLabel}>
-            <AssigneePicker
-              mode="multi"
-              stackSize={4}
-              labels={{ label: raiserLabel, search: peopleSearchLabel, none: peopleNoMatchesLabel, selectAll: allOption, all: allOption, rows: onThisPageLabel }}
-              owners={raiserOptions.map((option) => ({ id: option.value, name: option.label, title: option.title }))}
-              cardsByOwner={raiserCounts}
-              selected={fieldValue(TASK_PARAM.raiser, raiser) || undefined}
-              onSelect={(next) => {
+          <div className="lt-fslot" data-slot="raiser" data-key={raiserLabel} title={raiserLabel}>
+            <TaskPeopleDropdown
+              slot="raiser"
+              label={raiserLabel}
+              allLabel={allOption}
+              options={raiserOptions.map((option) => ({ id: option.value, name: option.label, title: option.title }))}
+              selected={splitIDs(fieldValue(TASK_PARAM.raiser, raiser))}
+              onChange={(next) => {
                 closeSheet();
-                go(paramsWith({ [TASK_PARAM.raiser]: next ?? "" }));
+                go(paramsWith({ [TASK_PARAM.raiser]: next.join(",") }));
               }}
             />
           </div>

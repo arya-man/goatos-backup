@@ -260,11 +260,14 @@ func filterPredicates(args *[]any, alias string, p ports.ListParams, withAssigne
 		}
 		b.WriteString(" AND (" + arms + ")")
 	}
+	// A person filter is one uuid or a comma-separated list (the toolbar's checkboxes); the
+	// app layer validated every entry, so splitting here is safe. `= ANY(uuid[])` keeps the
+	// single-person plan on the same index.
 	if withAssignee && p.AssigneeUserID != "" {
-		b.WriteString(fmt.Sprintf(" AND %sassignee_user_id = $%d::uuid", alias, bindArg(args, p.AssigneeUserID)))
+		b.WriteString(fmt.Sprintf(" AND %sassignee_user_id = ANY($%d::uuid[])", alias, bindArg(args, strings.Split(p.AssigneeUserID, ","))))
 	}
 	if withRaiser && p.RaisedBy != "" {
-		b.WriteString(fmt.Sprintf(" AND %sraised_by = $%d::uuid", alias, bindArg(args, p.RaisedBy)))
+		b.WriteString(fmt.Sprintf(" AND %sraised_by = ANY($%d::uuid[])", alias, bindArg(args, strings.Split(p.RaisedBy, ","))))
 	}
 	// Both ends of a range are required together upstream, so a half-range never reaches here.
 	// A deadline range therefore also excludes every task that has no deadline at all.

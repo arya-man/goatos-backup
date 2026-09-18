@@ -173,15 +173,29 @@ func (s *Service) listParams(req ListRequest) (ports.ListParams, error) {
 }
 
 // optionalUUID accepts an absent person filter and refuses a malformed one.
+// optionalUUID accepts one uuid or a comma-separated LIST of them (the people filters are
+// checkboxes: "Dinakar and Manju" is one filter). Each entry is validated; the list is
+// returned normalised as `a,b,c` and the repository binds it as a uuid[].
 func optionalUUID(raw string) (string, error) {
 	trimmed := strings.TrimSpace(raw)
 	if trimmed == "" {
 		return "", nil
 	}
-	if !uuidutil.IsUUIDString(trimmed) {
+	var kept []string
+	for _, part := range strings.Split(trimmed, ",") {
+		part = strings.TrimSpace(part)
+		if part == "" {
+			continue
+		}
+		if !uuidutil.IsUUIDString(part) {
+			return "", BadRequest("invalid_filter", "That filter is not valid. Pick the person from the list.")
+		}
+		kept = append(kept, part)
+	}
+	if len(kept) > 20 {
 		return "", BadRequest("invalid_filter", "That filter is not valid. Pick the person from the list.")
 	}
-	return trimmed, nil
+	return strings.Join(kept, ","), nil
 }
 
 // instantRange reads an INCLUSIVE date range. BOTH ends are required together
