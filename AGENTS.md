@@ -935,6 +935,15 @@ authorize a merge to `main`. Targeted local checks are review/preflight evidence
 only. If neither exact-SHA proof exists, do not merge; run `make land-main`
 locally or wait for/dispatch GitHub CI and verify the exact SHA is green first.
 
+This is enforced server-side, not only by local hooks. `make land-main` posts a
+`goatos/land-main-receipt` commit status on the exact certified SHA after
+`ci-local` is green, and the GitHub `main` ruleset requires that status on
+every update of `main`, direct pushes included, with no bypass actors. So
+`gh pr merge`, the GitHub merge button, the GitHub MCP `merge_pull_request`
+tool, or `git push origin main` from a machine without the pre-push guard all
+fail at GitHub. Nothing runs on GitHub; `ci-local` on the developer machine is
+still the only CI. Do not post that status by hand and do not add bypass actors.
+
 ## MANDATORY: 4-Layer Lookup on Every Code Question
 
 Work through layers in order. Stop at the layer that answers the question. Do NOT jump to files/grep first.

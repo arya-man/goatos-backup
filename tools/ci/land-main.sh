@@ -75,6 +75,34 @@ local_ci_evidence_script() {
   fi
 }
 
+# Server-side receipt stamp. GitHub cannot run ci-local, but a `main` ruleset can
+# require the commit status below on every update of main (direct pushes included).
+# land-main publishes the certified SHA on a temporary ref so the commit exists on
+# GitHub, posts the status, then pushes main. Any path that skips ci-local —
+# `gh pr merge`, the UI merge button, a fresh clone without the pre-push hook —
+# produces a commit without this status, and GitHub rejects it. Nothing runs on
+# GitHub; ci-local on the developer machine remains the only CI.
+receipt_context="${GOATOS_LAND_RECEIPT_CONTEXT:-goatos/land-main-receipt}"
+stamp_receipt() { # sha
+  local sha="$1" tmp_ref receipt mode jobs desc
+  tmp_ref="refs/heads/land/$(short_sha "$sha")"
+  command -v gh >/dev/null 2>&1 || die "gh is required to stamp the local-CI receipt on GitHub"
+  receipt="$(git rev-parse --git-path goatos-ci-local-receipt.json)"
+  mode="$(node -e 'const r=require(process.argv[1]);process.stdout.write(String(r.mode||""))' "$receipt" 2>/dev/null || true)"
+  jobs="$(node -e 'const r=require(process.argv[1]);process.stdout.write((r.jobs||[]).join(","))' "$receipt" 2>/dev/null || true)"
+  desc="ci-local green (${mode:-?}: ${jobs:-?}) on $(short_sha "$sha") via make land-main"
+  git mesha-push "$sha:$tmp_ref" >/dev/null 2>&1 || die "could not publish candidate ref ${tmp_ref} for the receipt stamp"
+  if ! gh api -X POST "repos/vgoats/goatos/statuses/$sha" \
+      -f state=success -f context="$receipt_context" -f description="${desc:0:140}" >/dev/null; then
+    git mesha-push ":$tmp_ref" >/dev/null 2>&1 || true
+    die "could not post ${receipt_context} status on $(short_sha "$sha")"
+  fi
+  echo "land-main: stamped ${receipt_context} on $(short_sha "$sha")"
+}
+cleanup_stamp_ref() { # sha
+  git mesha-push ":refs/heads/land/$(short_sha "$1")" >/dev/null 2>&1 || true
+}
+
 test_mode="${GOATOS_LAND_TEST_MODE:-0}"
 if [ "${GOATOS_BYPASS_LOCAL_CI:-0}" = "1" ]; then
   die "GOATOS_BYPASS_LOCAL_CI is not supported; main requires exact-SHA local CI evidence"
@@ -182,8 +210,10 @@ while [ "$attempt" -le "$max_attempts" ]; do
             echo "land-main: test mode verified patch-identical rebase receipt reuse at $(short_sha "$candidate_sha"); push skipped"
             exit 0
           fi
+          stamp_receipt "$candidate_sha"
           echo "land-main: pushing certified $(short_sha "$candidate_sha") to main"
           if git mesha-push HEAD:main; then
+            cleanup_stamp_ref "$candidate_sha"
             landed="$(fetch_main)"
             if [ "$landed" = "$candidate_sha" ] || git merge-base --is-ancestor "$candidate_sha" "$landed"; then
               echo "land-main: LANDED $(short_sha "$candidate_sha"); origin/main is $(short_sha "$landed")"
@@ -217,8 +247,10 @@ while [ "$attempt" -le "$max_attempts" ]; do
     exit 0
   fi
 
+  stamp_receipt "$candidate_sha"
   echo "land-main: pushing certified $(short_sha "$candidate_sha") to main"
   if git mesha-push HEAD:main; then
+    cleanup_stamp_ref "$candidate_sha"
     landed="$(fetch_main)"
     if [ "$landed" = "$candidate_sha" ] || git merge-base --is-ancestor "$candidate_sha" "$landed"; then
       echo "land-main: LANDED $(short_sha "$candidate_sha"); origin/main is $(short_sha "$landed")"

@@ -185,6 +185,9 @@ Developer/Codex/Claude commits in a clean candidate worktree
     ↓
     fetch origin/main -> rebase -> make ci-local -> fetch origin/main again
     ↓
+    stamp: push SHA to refs/heads/land/<sha>, POST commit status
+           goatos/land-main-receipt = success on the exact SHA (via gh api)
+    ↓
     git mesha-push HEAD:main (issued inside the landing script)
     ↓
     Pre-push hook runs check-local-ci-evidence.mjs --pre-push
@@ -204,6 +207,22 @@ Developer/Codex/Claude commits in a clean candidate worktree
 Codex and Claude hook configs block direct agent-issued main pushes before Git
 is invoked. This forces agents through `make land-main`; the pre-push checks
 remain necessary for human terminals and defense in depth.
+
+### Server-side enforcement (GitHub ruleset)
+
+Local hooks only exist on machines that ran the installer. A fresh clone, a
+scratch worktree, the GitHub merge button, `gh pr merge`, or the GitHub MCP
+`merge_pull_request` tool have no hook, so the `main` ruleset on
+`vgoats/goatos` (`main-land-receipt`) requires the `goatos/land-main-receipt`
+commit status on every update of `main`, direct pushes included, and blocks
+force-push and deletion. It has no bypass actors, including admins.
+
+`make land-main` is the only thing that posts that status, and only after
+`ci-local` is green on that exact SHA. Nothing runs on GitHub; there is no
+GitHub Actions dependency. A commit that reaches GitHub any other way carries
+no status and is rejected. Do not post the status by hand, do not add bypass
+actors, and do not disable the ruleset to "unblock" a landing; run
+`make land-main`.
 
 ### Recording the Receipt
 
