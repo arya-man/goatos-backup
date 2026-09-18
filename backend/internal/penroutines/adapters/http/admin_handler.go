@@ -101,6 +101,16 @@ func (h *AdminHandler) Catalog(w http.ResponseWriter, r *http.Request) {
 			[2]string{domain.QuestionNumber, "Number"},
 			[2]string{domain.QuestionText, "Text"},
 		),
+		QuestionProofKinds: options(
+			[2]string{"none", "No proof"},
+			[2]string{domain.QuestionProofPhoto, "Photo"},
+			[2]string{domain.QuestionProofVideo, "Video"},
+			[2]string{domain.QuestionProofPhotoOrVideo, "Photo or video"},
+		),
+		QuestionProofCounts: options(
+			[2]string{domain.QuestionProofSingle, "One"},
+			[2]string{domain.QuestionProofMultiple, "Up to " + strconv.Itoa(domain.MaxProofPerKind)},
+		),
 		CadenceKinds: options(
 			[2]string{domain.CadenceDaily, "Every day"},
 			[2]string{domain.CadenceWeekly, "Chosen weekdays"},

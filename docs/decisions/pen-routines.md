@@ -57,6 +57,54 @@ heads, check that."*
    routine now carries `start_date` (defaults to today, IST): nothing raises before it, and an
    every-N-days routine raises on start_date, start_date + N, start_date + 2N, ...
 
+## 2026-09-18 revision: PROOF PER QUESTION (maintainer instruction, chat)
+
+Maintainer instruction (chat, 2026-09-18), after seeing that the drawer's Photos/Videos
+min/max sat under the question list as a task-wide count: *"add it per question -- for that
+question to complete it, do they need to add a proof or not -- there's an option that they
+should upload photo or video, multiple or single."*
+
+**Each question may carry its own capture rule.** `evidence.questions[].proof` is
+`{kind: photo | video | photo_or_video, count: single | multiple}` or absent. Absent means the
+value alone answers the question, which is every question authored before this revision, so
+no stored routine changes meaning and no migration is needed (the evidence document is JSONB;
+`ParseEvidence` still refuses unknown keys, and `proof` is now a known one).
+
+- **Owed when answered, always when required.** A required question with a proof rule cannot
+  be submitted without its capture; an optional one owes it only once the assignee has given
+  it a value. An optional question left blank asks for nothing -- the rule follows the answer,
+  not the form.
+- **Single is exactly one; multiple is up to five** (`MaxProofPerKind`, the same cap the
+  task-wide rule has always used). A second capture on a single-count question is refused
+  (`proof_count`); a capture naming a question that asked for the other medium, an unknown
+  question, or a question with no proof rule is refused (`invalid_proof`); a required or
+  answered question with no capture is refused (`question_proof_missing`). The phone mirrors
+  every one of those in its Submit gate so no submit the server would refuse is ever armed.
+- **Question captures do not count toward the task-wide rule.** A capture carries
+  `question_id` on `proof_refs[]`; blank means task-wide and is counted against the routine's
+  Photo/Video min/max exactly as before. The two pools never mix, because a photo of the
+  water trough is not a photo of the pen.
+- **The verifier reads each clip beside the claim it proves.** A question capture is
+  labelled `<question title> · Photo 1` in the verification item's media; task-wide captures
+  keep `Photo 1` / `Video 1`. Counts run per question and per medium.
+- **On the phone the capture sits under its question**, never in the task-wide Photos/Videos
+  lists. A photo-or-video question offers both cameras on an empty slot and shows whichever
+  was taken; a re-take that switches medium keeps only the newer capture, and only the
+  captures the form shows ride the submit. Slot keys are
+  `routine-q-<question id>-<photo|video>-<n>` (question ids are letters, digits and
+  underscores, so the key parses back).
+- **On the web** the question editor gains "Proof for this question" (No proof / Photo /
+  Video / Photo or video) and, when set, "How many" (One / Up to 5). Both vocabularies are
+  served by the catalog (`question_proof_kinds`, `question_proof_counts`) and rendered
+  verbatim; `none` is the catalog's key for no proof and never travels.
+- The routine list's evidence line adds "N questions with proof" so a reader can tell a
+  routine that asks per question from one that asks per task.
+
+Pinned by `domain.TestQuestionProofRulesAreEnforcedPerQuestion` (mutation-tested: dropping
+the owed-capture check turns it red), the admin-web decoder test in
+`pen-routines.test.mjs`, and the Android
+`PenRoutineDetailViewModelTest` "a question's own proof gates the submit" case.
+
 ## 2026-09-17 answers to the open questions (maintainer, chat)
 
 1. **Verifier review stays an OPTION per routine.** `review_kind = none` closes the check the

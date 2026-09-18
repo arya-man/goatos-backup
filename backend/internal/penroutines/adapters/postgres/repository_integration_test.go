@@ -162,6 +162,17 @@ func evidenceOneQuestion(presence string, photos int) domain.Evidence {
 	})
 }
 
+// evidenceOneQuestionWithProof: the one question wants its own single photo; nothing task-wide.
+func evidenceOneQuestionWithProof() domain.Evidence {
+	return domain.NormalizeEvidence(domain.Evidence{
+		Questions: []domain.Question{{
+			ID: "cleaned", Kind: domain.QuestionYesNo, Title: "Was the pen cleaned?", Required: true,
+			Proof: &domain.QuestionProof{Kind: domain.QuestionProofPhoto, Count: domain.QuestionProofSingle},
+		}},
+		Presence: domain.PresenceOff,
+	})
+}
+
 func rawAnswers(t *testing.T, m map[string]any) map[string]json.RawMessage {
 	t.Helper()
 	out := map[string]json.RawMessage{}
@@ -288,10 +299,15 @@ func TestPenRoutineLifecycleOneToManyParkScopePaginationStatusMatrixPostgresPath
 	afterWork, err := repo.CreateRoutine(ctx, write("create-after"), domain.Definition{
 		ParkID: prParkCBE, Name: "After deworming", ScopeKind: domain.ScopeAllPens, OccupiedOnly: true,
 		CadenceKind: domain.CadenceAfterWork, AfterWorkKinds: []string{domain.WorkDeworming, domain.WorkHoofTrimming}, DueOffsetDays: 1, NotifyTime: "07:00",
-		ReviewKind: domain.ReviewNone, Evidence: evidenceOneQuestion(domain.PresenceOff, 0), AssigneeRoles: []string{domain.RoleParkHead}, StartDate: started,
+		// The 2026-09-18 per-question proof: the question itself wants one photo; no task-wide
+		// capture is asked for, so the two pools can be told apart on the round trip below.
+		ReviewKind: domain.ReviewNone, Evidence: evidenceOneQuestionWithProof(), AssigneeRoles: []string{domain.RoleParkHead}, StartDate: started,
 	})
 	if err != nil {
 		t.Fatalf("create after_work: %v", err)
+	}
+	if got := afterWork.Evidence.Questions[0].Proof; got == nil || got.Kind != domain.QuestionProofPhoto || got.Count != domain.QuestionProofSingle {
+		t.Fatalf("question proof did not round-trip through the evidence document: %+v", afterWork.Evidence.Questions[0])
 	}
 	orphan, err := repo.CreateRoutine(ctx, write("create-orphan"), domain.Definition{
 		ParkID: prParkCPT, Name: "CPT check", ScopeKind: domain.ScopeSelectedPens, Pens: []domain.PenRef{{ShedID: prShedCPT}},
@@ -467,9 +483,22 @@ func TestPenRoutineLifecycleOneToManyParkScopePaginationStatusMatrixPostgresPath
 	}
 
 	// --- review none: the after_work task completes on submit, no presence asked ---
-	done, err := repo.Submit(ctx, ports.SubmitParams{TenantID: prTenant, Actor: head, TaskID: castro2After.TaskID, Answers: answers, RowVersion: castro2After.RowVersion, IdempotencyKey: "submit-after"})
+	// Its question owes a photo of its own: a submit without it, or with the photo left
+	// task-wide, is refused; a photo naming the question completes it and the question id
+	// survives the proof_refs round trip.
+	if _, err := repo.Submit(ctx, ports.SubmitParams{TenantID: prTenant, Actor: head, TaskID: castro2After.TaskID, Answers: answers, RowVersion: castro2After.RowVersion, IdempotencyKey: "submit-after-noproof"}); !errors.Is(err, domain.ErrQuestionProofMissing) {
+		t.Fatalf("question proof missing err = %v", err)
+	}
+	if _, err := repo.Submit(ctx, ports.SubmitParams{TenantID: prTenant, Actor: head, TaskID: castro2After.TaskID, Answers: answers, Proofs: proofs, RowVersion: castro2After.RowVersion, IdempotencyKey: "submit-after-taskwide"}); !errors.Is(err, domain.ErrProofCount) {
+		t.Fatalf("task-wide photo on a routine asking none err = %v", err)
+	}
+	questionProof := []domain.ProofItem{{Ref: prPhoto, Kind: domain.ProofKindPhoto, QuestionID: "cleaned"}}
+	done, err := repo.Submit(ctx, ports.SubmitParams{TenantID: prTenant, Actor: head, TaskID: castro2After.TaskID, Answers: answers, Proofs: questionProof, RowVersion: castro2After.RowVersion, IdempotencyKey: "submit-after"})
 	if err != nil || done.Status != domain.StatusCompleted || done.WorkState != domain.WorkStateCompleted || done.LeftAt != nil {
 		t.Fatalf("review none submit = %+v / %v", done, err)
+	}
+	if len(done.Proofs) != 1 || done.Proofs[0].QuestionID != "cleaned" {
+		t.Fatalf("question id lost on the proof round trip: %+v", done.Proofs)
 	}
 
 	// --- version pinning: an edit writes version 2; the open task keeps version 1's form ---

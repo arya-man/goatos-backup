@@ -3,6 +3,8 @@ package domain
 import (
 	"encoding/json"
 	"errors"
+	"fmt"
+	"strings"
 	"testing"
 	"time"
 
@@ -188,13 +190,13 @@ func TestSubmitRulesRunInOrder(t *testing.T) {
 	me := Actor{UserID: "u1"}
 	task := Task{Evidence: sampleEvidence(), ReviewKind: ReviewVerifier, WorkState: WorkStateScheduled, Status: StatusOpen, AssigneeIDs: []string{"u1"}, RowVersion: 3}
 	photo := []ProofItem{{Ref: "p1", Kind: ProofKindPhoto}}
-	if err := CheckSubmit(task, Actor{UserID: "u2"}, photo, 3); !errors.Is(err, ErrNotAssignee) {
+	if err := CheckSubmit(task, Actor{UserID: "u2"}, photo, nil, 3); !errors.Is(err, ErrNotAssignee) {
 		t.Fatalf("stranger: %v", err)
 	}
-	if err := CheckSubmit(task, me, nil, 3); !errors.Is(err, ErrProofCount) {
+	if err := CheckSubmit(task, me, nil, nil, 3); !errors.Is(err, ErrProofCount) {
 		t.Fatalf("no photo: %v", err)
 	}
-	if err := CheckSubmit(task, me, photo, 3); !errors.Is(err, ErrPresenceMissing) {
+	if err := CheckSubmit(task, me, photo, nil, 3); !errors.Is(err, ErrPresenceMissing) {
 		t.Fatalf("presence required: %v", err)
 	}
 	if err := CheckPresence(task, me, PresenceLeave, 3); !errors.Is(err, ErrPresenceState) {
@@ -213,17 +215,17 @@ func TestSubmitRulesRunInOrder(t *testing.T) {
 	if err := CheckPresence(task, me, PresenceEnter, 3); !errors.Is(err, ErrPresenceState) {
 		t.Fatalf("double enter: %v", err)
 	}
-	if err := CheckSubmit(task, me, photo, 3); err != nil {
+	if err := CheckSubmit(task, me, photo, nil, 3); err != nil {
 		t.Fatalf("submit after enter: %v", err)
 	}
-	if err := CheckSubmit(task, me, append(photo, ProofItem{Ref: "v", Kind: ProofKindVideo}, ProofItem{Ref: "v2", Kind: ProofKindVideo}), 3); !errors.Is(err, ErrProofCount) {
+	if err := CheckSubmit(task, me, append(photo, ProofItem{Ref: "v", Kind: ProofKindVideo}, ProofItem{Ref: "v2", Kind: ProofKindVideo}), nil, 3); !errors.Is(err, ErrProofCount) {
 		t.Fatalf("two videos over max: %v", err)
 	}
-	if err := CheckSubmit(task, me, []ProofItem{{Ref: "x", Kind: "audio"}}, 3); !errors.Is(err, ErrInvalidProof) {
+	if err := CheckSubmit(task, me, []ProofItem{{Ref: "x", Kind: "audio"}}, nil, 3); !errors.Is(err, ErrInvalidProof) {
 		t.Fatalf("unknown kind: %v", err)
 	}
 	task.Status = StatusPendingVerification
-	if err := CheckSubmit(task, me, photo, 3); !errors.Is(err, ErrInReview) {
+	if err := CheckSubmit(task, me, photo, nil, 3); !errors.Is(err, ErrInReview) {
 		t.Fatalf("in review: %v", err)
 	}
 	ws, st := SubmitOutcome(ReviewNone)
@@ -339,5 +341,94 @@ func TestRolesAndEveryNDaysAndParkScope(t *testing.T) {
 	}
 	if step.EvidenceLine != "5 questions · 1 to 3 photos · up to 1 video · check in" {
 		t.Fatalf("park evidence line %q", step.EvidenceLine)
+	}
+}
+
+// TestQuestionProofRulesAreEnforcedPerQuestion pins the 2026-09-18 per-question proof: a
+// capture naming a question must land on a question that asked for that medium, within its
+// single/multiple count; a required question with a proof rule owes a capture; an optional
+// one owes it only once answered; and question captures never count toward the task-wide
+// photo/video rule.
+func TestQuestionProofRulesAreEnforcedPerQuestion(t *testing.T) {
+	e := NormalizeEvidence(Evidence{
+		Questions: []Question{
+			{ID: "clean", Kind: QuestionYesNo, Title: "Pen cleaned?", Required: true, Proof: &QuestionProof{Kind: QuestionProofPhoto, Count: QuestionProofSingle}},
+			{ID: "water", Kind: QuestionText, Title: "Water trough note", Proof: &QuestionProof{Kind: QuestionProofVideo, Count: QuestionProofMultiple}},
+			{ID: "plain", Kind: QuestionYesNo, Title: "Gate shut?", Required: true},
+		},
+		Photo: ProofRule{Min: 1, Max: 1},
+	})
+	if err := ValidateEvidence(e); err != nil {
+		t.Fatalf("valid evidence: %v", err)
+	}
+	if e.QuestionsWithProof() != 2 || !strings.Contains(EvidenceLine(e), "2 questions with proof") {
+		t.Fatalf("evidence line: %q", EvidenceLine(e))
+	}
+	taskWide := ProofItem{Ref: "t1", Kind: ProofKindPhoto}
+	cleanPhoto := ProofItem{Ref: "c1", Kind: ProofKindPhoto, QuestionID: "clean"}
+	answered := map[string]bool{"clean": true, "plain": true}
+
+	// The required question's photo is owed even with the task-wide photo present.
+	if err := CheckProofs(e, []ProofItem{taskWide}, answered); !errors.Is(err, ErrQuestionProofMissing) {
+		t.Fatalf("required question without proof: %v", err)
+	}
+	// A question capture does not satisfy the task-wide rule.
+	if err := CheckProofs(e, []ProofItem{cleanPhoto}, answered); !errors.Is(err, ErrProofCount) {
+		t.Fatalf("question photo counted task-wide: %v", err)
+	}
+	if err := CheckProofs(e, []ProofItem{taskWide, cleanPhoto}, answered); err != nil {
+		t.Fatalf("both present: %v", err)
+	}
+	// Single means one: a second capture on the same question is refused.
+	if err := CheckProofs(e, []ProofItem{taskWide, cleanPhoto, {Ref: "c2", Kind: ProofKindPhoto, QuestionID: "clean"}}, answered); !errors.Is(err, ErrProofCount) {
+		t.Fatalf("second single capture: %v", err)
+	}
+	// Wrong medium, unknown question, question with no proof rule: all invalid.
+	for _, bad := range []ProofItem{
+		{Ref: "v", Kind: ProofKindVideo, QuestionID: "clean"},
+		{Ref: "p", Kind: ProofKindPhoto, QuestionID: "nope"},
+		{Ref: "p", Kind: ProofKindPhoto, QuestionID: "plain"},
+	} {
+		if err := CheckProofs(e, []ProofItem{taskWide, cleanPhoto, bad}, answered); !errors.Is(err, ErrInvalidProof) {
+			t.Fatalf("%+v: %v", bad, err)
+		}
+	}
+	// The optional video question owes nothing while blank, and up to MaxProofPerKind once answered.
+	answered["water"] = true
+	if err := CheckProofs(e, []ProofItem{taskWide, cleanPhoto}, answered); !errors.Is(err, ErrQuestionProofMissing) {
+		t.Fatalf("answered optional without proof: %v", err)
+	}
+	videos := []ProofItem{taskWide, cleanPhoto}
+	for i := 0; i < MaxProofPerKind; i++ {
+		videos = append(videos, ProofItem{Ref: fmt.Sprintf("w%d", i), Kind: ProofKindVideo, QuestionID: "water"})
+	}
+	if err := CheckProofs(e, videos, answered); err != nil {
+		t.Fatalf("multiple at cap: %v", err)
+	}
+	if err := CheckProofs(e, append(videos, ProofItem{Ref: "over", Kind: ProofKindVideo, QuestionID: "water"}), answered); !errors.Is(err, ErrProofCount) {
+		t.Fatalf("multiple over cap: %v", err)
+	}
+	if got := QuestionProofRefs(videos)["water"]; len(got) != MaxProofPerKind {
+		t.Fatalf("grouped refs: %d", len(got))
+	}
+
+	// Authoring: unknown proof kind/count refused; a blank kind normalizes to no proof.
+	bad := e
+	bad.Questions = append([]Question{}, e.Questions...)
+	bad.Questions[0].Proof = &QuestionProof{Kind: "audio", Count: QuestionProofSingle}
+	if err := ValidateEvidence(bad); !errors.Is(err, ErrInvalidEvidence) {
+		t.Fatalf("unknown proof kind: %v", err)
+	}
+	bad.Questions[0].Proof = &QuestionProof{Kind: QuestionProofPhoto, Count: "lots"}
+	if err := ValidateEvidence(bad); !errors.Is(err, ErrInvalidEvidence) {
+		t.Fatalf("unknown proof count: %v", err)
+	}
+	blank := NormalizeEvidence(Evidence{Questions: []Question{{ID: "q", Kind: QuestionYesNo, Title: "x", Proof: &QuestionProof{}}}})
+	if blank.Questions[0].Proof != nil {
+		t.Fatal("blank proof block should normalize to nil")
+	}
+	// An old stored document without the key still parses.
+	if _, err := ParseEvidence([]byte(`{"questions":[{"id":"q","kind":"yes_no","title":"x","required":true}],"photo":{"min":0,"max":0},"video":{"min":0,"max":0},"presence":"off"}`)); err != nil {
+		t.Fatalf("legacy evidence: %v", err)
 	}
 }

@@ -179,12 +179,16 @@ type catalogPayload struct {
 	Roles         []catalogRolePayload `json:"roles"`
 	WorkKinds     []optionPayload      `json:"work_kinds"`
 	QuestionKinds []optionPayload      `json:"question_kinds"`
-	CadenceKinds  []optionPayload      `json:"cadence_kinds"`
-	ReviewKinds   []optionPayload      `json:"review_kinds"`
-	PresenceKinds []optionPayload      `json:"presence_kinds"`
-	ScopeKinds    []optionPayload      `json:"scope_kinds"`
-	Defaults      catalogDefaults      `json:"defaults"`
-	TraceID       string               `json:"trace_id"`
+	// Per-question proof vocabulary (maintainer instruction 2026-09-18): what capture a
+	// question needs to count as answered, and whether one or several.
+	QuestionProofKinds  []optionPayload `json:"question_proof_kinds"`
+	QuestionProofCounts []optionPayload `json:"question_proof_counts"`
+	CadenceKinds        []optionPayload `json:"cadence_kinds"`
+	ReviewKinds         []optionPayload `json:"review_kinds"`
+	PresenceKinds       []optionPayload `json:"presence_kinds"`
+	ScopeKinds          []optionPayload `json:"scope_kinds"`
+	Defaults            catalogDefaults `json:"defaults"`
+	TraceID             string          `json:"trace_id"`
 }
 
 type penWrite struct {

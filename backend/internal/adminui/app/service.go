@@ -2052,6 +2052,8 @@ func pageSpecificCopy(id string) map[string]string {
 			"field.interval_days":             "Every how many days",
 			"field.start_date":                "Starting from",
 			"field.questions":                 "Questions",
+			"field.question_proof":            "Proof for this question",
+			"field.question_proof_count":      "How many",
 			"field.photo":                     "Photos",
 			"field.video":                     "Videos",
 			"field.presence":                  "Pen check-in",

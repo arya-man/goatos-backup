@@ -89,6 +89,8 @@ func HTTPError(err error) *Error {
 		return Conflict("presence_state", "That check-in does not match where you are. Reload and try again.")
 	case errors.Is(err, domain.ErrProofCount):
 		return Unprocessable("proof_count", "This routine asks for a different number of photos or videos.")
+	case errors.Is(err, domain.ErrQuestionProofMissing):
+		return Unprocessable("question_proof_missing", "A question still needs its photo or video.")
 	case errors.Is(err, domain.ErrInvalidProof):
 		return Unprocessable("invalid_proof", "A capture could not be verified. Take it again with the in-app camera.")
 	case errors.Is(err, domain.ErrAnswerInvalid):

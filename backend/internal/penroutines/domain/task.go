@@ -42,6 +42,9 @@ const (
 type ProofItem struct {
 	Ref  string `json:"ref"`
 	Kind string `json:"kind"`
+	// QuestionID names the question this capture answers; blank for a task-wide capture
+	// counted against the routine's Photo/Video rules.
+	QuestionID string `json:"question_id,omitempty"`
 }
 
 // PresenceLocation is what the phone captured when the punch was made. Every field is
@@ -229,36 +232,68 @@ func CheckPresence(t Task, a Actor, eventType string, rowVersion int) error {
 	return nil
 }
 
-// CheckProofs validates the captures against the pinned rule: counts inside min/max and every
-// item a known kind with a ref.
-func CheckProofs(e Evidence, proofs []ProofItem) error {
+// CheckProofs validates the captures against the pinned rule: task-wide counts inside the
+// routine's min/max, every item a known kind with a ref, and every capture naming a question
+// landing on a question that asked for that medium, within its count. answered says which
+// questions carry a value, so an optional question left blank owes no capture.
+func CheckProofs(e Evidence, proofs []ProofItem, answered map[string]bool) error {
 	photos, videos := 0, 0
+	perQuestion := map[string]int{}
 	for _, p := range proofs {
 		if strings.TrimSpace(p.Ref) == "" {
 			return ErrInvalidProof
+		}
+		if p.Kind != ProofKindPhoto && p.Kind != ProofKindVideo {
+			return ErrInvalidProof
+		}
+		if p.QuestionID != "" {
+			q, ok := e.QuestionByID(p.QuestionID)
+			if !ok || q.Proof == nil || !q.Proof.Accepts(p.Kind) {
+				return ErrInvalidProof
+			}
+			perQuestion[p.QuestionID]++
+			if perQuestion[p.QuestionID] > q.Proof.MaxCaptures() {
+				return ErrProofCount
+			}
+			continue
 		}
 		switch p.Kind {
 		case ProofKindPhoto:
 			photos++
 		case ProofKindVideo:
 			videos++
-		default:
-			return ErrInvalidProof
 		}
 	}
 	if photos < e.Photo.Min || photos > e.Photo.Max || videos < e.Video.Min || videos > e.Video.Max {
 		return ErrProofCount
 	}
+	for _, q := range e.Questions {
+		if q.NeedsProof(answered[q.ID]) && perQuestion[q.ID] == 0 {
+			return ErrQuestionProofMissing
+		}
+	}
 	return nil
+}
+
+// QuestionProofRefs groups the captures by the question they answer, in capture order.
+func QuestionProofRefs(proofs []ProofItem) map[string][]ProofItem {
+	out := map[string][]ProofItem{}
+	for _, p := range proofs {
+		if p.QuestionID == "" {
+			continue
+		}
+		out[p.QuestionID] = append(out[p.QuestionID], p)
+	}
+	return out
 }
 
 // CheckSubmit is the rule the write re-runs under the row lock. Answers are validated
 // separately by CheckAnswers (the caller passes the result in through the repository).
-func CheckSubmit(t Task, a Actor, proofs []ProofItem, rowVersion int) error {
+func CheckSubmit(t Task, a Actor, proofs []ProofItem, answered map[string]bool, rowVersion int) error {
 	if err := checkOpenFor(t, a, rowVersion); err != nil {
 		return err
 	}
-	if err := CheckProofs(t.Evidence, proofs); err != nil {
+	if err := CheckProofs(t.Evidence, proofs, answered); err != nil {
 		return err
 	}
 	if t.Evidence.PresenceRequired() && !(t.EnteredAt != nil && t.EnteredBy == a.UserID) {
