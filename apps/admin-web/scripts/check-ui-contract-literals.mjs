@@ -543,7 +543,7 @@ function contractSourceIndex() {
     const routeId = match[1];
     const body = match[0];
     addRouteMatches(tablesByRoute, routeId, body, /\btableP?\(\s*"([^"]+)"/g);
-    for (const helperName of ["loadwiseTable", "buyerAnalyticsTable", "animalPurchaseLoadTable", "animalPurchaseAnimalTable", "feedPurchaseTable", "weightsGainThresholdTable", "vaccinationShedTable"]) {
+    for (const helperName of ["loadwiseTable", "buyerAnalyticsTable", "animalPurchaseLoadTable", "animalPurchaseAnimalTable", "feedPurchaseTable", "weightsGainThresholdTable", "vaccinationShedTable", "feedWeightBandTable", "feedWeightBandUnmatchedTable", "feedWeightBandExitsTable"]) {
       if (body.includes(`${helperName}(`)) addAll(setForRoute(tablesByRoute, routeId), tableIdsFromGoBody(functionBody(backendService, helperName)));
     }
   }

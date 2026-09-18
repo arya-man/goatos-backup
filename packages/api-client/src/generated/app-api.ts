@@ -811,6 +811,34 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/growth-director/feed-by-weight-band": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Latest feed direction per pen beside the pen's latest weight evidence, by 5 kg band.
+         * @description Requires WeighingMonitor, park-scoped exactly like /growth-director/weights. Served by the Growth Director read-only reporting module because it joins the feed-direction sheet to weighing tables; it gates no weighing behaviour.
+         *
+         *     FEED: the latest feed_day over locked/amended issues, one issue per park and workflow (latest by locked/amended/issued time), rows with quantity_kg > 0, session duplicates summed per feed item, rolled up per (park, pen, shed tag, ration group, experiment arm, breed, workflow).
+         *
+         *     WEIGHT per park + pen, at the ADG Analytics General tab's OWN grain so the two reconcile: the latest live whole-pen weigh in the period wins for a pen weighed on two dates in it, ONE row banded on the pen average with its latest head count (`weight_source=pen_average`); otherwise every animal with a prior weigh and a weigh inside the period (same-animal keyed, verification not rejected), banded on its latest weigh and attributed to the pen of that weigh, ONE row per band (`weight_source=per_animal`). A fed pen with no such weigh in the period is excluded and counted in `reconciliation.excluded_rollups`.
+         *
+         *     EXITED animals (any `goats.exited_at`: sold, died, or any other exit such as an inactive or transferred record) are outside a band row's on-farm head count and average; every row also carries the `*_all` variant that counts them in, plus `exited_animals` split into `exited_sold` / `exited_died` / `exited_other` (bucketed from `goats.lifecycle_status` / `goats.exit_reason`: sold -> sold; dead / died -> died; everything else -> other), so the screen's Animals toggle is a client-side flip. `exited` lists EVERY animal that exited inside the period under the park / sex / origin filters (the Herd Analytics exits population, not only the weighed ones) with its bucket and, when it has one, its last weigh; the reconciliation carries the three bucket totals and the weighed / not-weighed split.
+         *
+         *     `from`/`to` are inclusive Asia/Kolkata business dates bounding the weight evidence only, defaulting like /growth-director/weights. `sex`, `origin` and `weighing_category` are resolved by the weighing module's own scope resolvers, so the rows narrow exactly as the Weights pages do. Gender on a row comes from the herd register: the sexes of the animals in that pen and band, or of the goats placed in a whole-weighed pen.
+         */
+        get: operations["adminGetGrowthDirectorFeedByWeightBand"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/app/weighing/leadership/sheds": {
         parameters: {
             query?: never;
@@ -14764,6 +14792,156 @@ export interface components {
             parks: components["schemas"]["WeighingPark"][];
             trace_id?: string;
         };
+        GrowthDirectorFeedWeightBandReconciliation: {
+            /** @description The NEWEST sheet day among the selected parks (YYYY-MM-DD); empty when no locked/amended sheet exists. Each park reads its OWN latest locked/amended issue per workflow (see feed_sheets), never one global day. */
+            feed_day: string;
+            /** @description The sheet actually read per park and workflow (each park's latest locked/amended issue), ordered park name then workflow; an all-parks read lists both parks even when one park's newest sheet is older. */
+            feed_sheets: {
+                /** Format: uuid */
+                park_id: string;
+                park_name: string;
+                /** @enum {string} */
+                workflow: "normal" | "experiment";
+                /** Format: date */
+                feed_day: string;
+            }[];
+            /** @description Sheet rows with quantity_kg > 0 on the latest issue per park and workflow. */
+            positive_rows: number;
+            /** @description Those rows with session duplicates summed per feed item. */
+            collapsed_items: number;
+            /** @description Items rolled up per (park, pen, shed tag, ration group, arm, breed, workflow), after the sex filter. */
+            rollups: number;
+            /** @description Rollups whose pen has weight evidence with on-farm animals in the period. */
+            matched_rollups: number;
+            /** @description The same counting a rollup whose only weighed animals have since left as matched. */
+            matched_rollups_all: number;
+            /** @description rollups minus matched_rollups. */
+            excluded_rollups: number;
+            /** @description rollups minus matched_rollups_all. */
+            excluded_rollups_all: number;
+            /** @description Rows served, both variants included; one per matched pen-average rollup, one per band for a per-animal pen. */
+            output_rows: number;
+            /** @description The weighing side's own per-animal total before any feed match, at the General tab's grain (exited animals included, as that tab counts them). */
+            individual_animals_weighed: number;
+            /** @description The weighing side's own whole-pen total before any feed match, at the General tab's grain. */
+            lump_sum_animals_weighed: number;
+            /** @description Animals that exited the register inside the period under the park / sex / origin filters, whatever the reason -- the same population Herd Analytics' exits count (the length of `exited`). */
+            exited_animals: number;
+            /** @description The sold bucket of exited_animals (lifecycle_status / exit_reason sold). */
+            exited_sold: number;
+            /** @description The died bucket of exited_animals (lifecycle_status / exit_reason dead or died). */
+            exited_died: number;
+            /** @description Every other exit (inactive, transferred, lost, culled, blank). exited_sold + exited_died + exited_other = exited_animals. */
+            exited_other: number;
+            /** @description Exited animals with a weigh inside the period (the only ones that can sit on a band row). */
+            exited_weighed: number;
+            /** @description Exited animals with no weigh inside the period. exited_weighed + exited_not_weighed = exited_animals. */
+            exited_not_weighed: number;
+        };
+        /** @description One feed rollup on the latest sheet whose pen has no qualifying weighing in the period; on the sheet, counted, never banded. */
+        GrowthDirectorFeedWeightBandUnmatched: {
+            /** Format: uuid */
+            park_id: string;
+            park_name: string;
+            pen: string;
+            shed_tag: string;
+            group: string;
+            ration_group: string;
+            experiment_arm?: string;
+            breed: string;
+            /** @enum {string} */
+            feed_type: "normal" | "experiment";
+            feed_given: string;
+            pen_kg_per_day: number;
+        };
+        GrowthDirectorFeedWeightBandExit: {
+            /** Format: uuid */
+            park_id: string;
+            park_name: string;
+            tag: string;
+            /** @description Pen of the animal's last weigh in the period, or its current placement when not weighed in it; empty when neither is known. */
+            pen: string;
+            /** @description True when the animal has a weigh inside the period; the last-weigh fields are present exactly then. */
+            weighed_in_period: boolean;
+            /** @description The register's sex as display copy (Male / Female); empty when unknown. */
+            gender: string;
+            /** @description The register's exit_reason as stored (may be blank). */
+            reason: string;
+            /** @description The register's lifecycle_status as stored. */
+            lifecycle_status: string;
+            /**
+             * @description The exit bucket folded from reason and lifecycle_status; the pill the panel shows beside the stored text.
+             * @enum {string}
+             */
+            bucket: "sold" | "died" | "other";
+            /** Format: date */
+            exited_at: string;
+            /** Format: date */
+            last_weighed_at?: string;
+            /** @enum {string} */
+            last_band?: "under_15" | "15_20" | "20_25" | "25_30" | "30_35" | "35_plus";
+            last_weight_kg?: number;
+            /**
+             * @description What the animal's last pen is fed on the latest sheet; absent when that pen has no feed row today.
+             * @enum {string}
+             */
+            feed_type?: "normal" | "experiment";
+            feed_given?: string;
+        };
+        GrowthDirectorFeedWeightBandRow: {
+            /** Format: uuid */
+            park_id: string;
+            park_name: string;
+            /** @enum {string} */
+            weight_source: "pen_average" | "per_animal";
+            /**
+             * @description Stable band key; the farm words live in the page contract.
+             * @enum {string}
+             */
+            band: "under_15" | "15_20" | "20_25" | "25_30" | "30_35" | "35_plus";
+            /** @description Operator-facing pen label ("Godel 1 - Part 3", "Castro 1"). */
+            pen: string;
+            /** @description The feed sheet's stage tag as stored ("F2-Male", "K3 + K1"). */
+            shed_tag: string;
+            /** @description Display group derived from the shed tag, suffixed with the tag when two rollups in one pen would otherwise read identically. */
+            group: string;
+            /** @description From the herd register: Male, Female, "Mixed 12F·10M", or empty when no animal resolves. */
+            gender: string;
+            /** @description Display breed; " x " rendered as " cross ". */
+            breed: string;
+            /** @enum {string} */
+            feed_type: "normal" | "experiment";
+            ration_group: string;
+            experiment_arm?: string;
+            /** @description Items joined with " + ", each as "<item> <g>g/head", brand prefixes stripped. */
+            feed_given: string;
+            pen_kg_per_day: number;
+            /** @description ON-FARM head count behind average_weight_kg; the lump-sum count for a pen-average row, the on-farm scanned animals in the band for a per-animal row (0 on a band that exists only because of animals that have since left). */
+            weight_animals: number;
+            average_weight_kg: number;
+            /** @description The same head count including animals that have since exited. */
+            weight_animals_all: number;
+            average_weight_kg_all: number;
+            /** @description Gender over every weighed animal including those that have since exited. */
+            gender_all: string;
+            /** @description Weighed animals of this band that have since exited the register (any goats.exited_at); outside weight_animals, inside weight_animals_all. Always 0 on a pen-average row. */
+            exited_animals: number;
+            /** @description The sold bucket of exited_animals. */
+            exited_sold: number;
+            /** @description The died bucket of exited_animals. */
+            exited_died: number;
+            /** @description Every other exit (inactive, transferred, lost, culled, blank). exited_sold + exited_died + exited_other = exited_animals. */
+            exited_other: number;
+        };
+        GrowthDirectorFeedWeightBandResponse: {
+            reconciliation: components["schemas"]["GrowthDirectorFeedWeightBandReconciliation"];
+            /** @description Ordered park, then pen-average rows before per-animal rows, then pen, band, shed tag. */
+            rows: components["schemas"]["GrowthDirectorFeedWeightBandRow"][];
+            /** @description Feed rollups with no qualifying weighing in the period, ordered park, pen, shed tag. */
+            unmatched: components["schemas"]["GrowthDirectorFeedWeightBandUnmatched"][];
+            /** @description Animals sold or dead inside the period, newest exit first. */
+            exited: components["schemas"]["GrowthDirectorFeedWeightBandExit"][];
+        };
         /** @description The Growth Director section of the Weights screen: six widgets over weighing, herd-register and feed-direction data. Every widget carries its own denominators — there is no expected-animal roster, so every count is an actual-scan/identity count, never "of expected". */
         GrowthDirectorWeightsResponse: {
             period: components["schemas"]["GrowthDirectorPeriod"];
@@ -20654,6 +20832,38 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["GrowthDirectorWeightsResponse"];
+                };
+            };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFoundOrNotAllowed"];
+            500: components["responses"]["ServerError"];
+        };
+    };
+    adminGetGrowthDirectorFeedByWeightBand: {
+        parameters: {
+            query?: {
+                park_id?: string;
+                from?: string;
+                to?: string;
+                sex?: "all" | "male" | "female";
+                origin?: "all" | "farm_born" | "purchased";
+                weighing_category?: "all" | "individual_animal" | "per_shed_partition";
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Feed rollups matched to weight bands, with the stage-by-stage reconciliation. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["GrowthDirectorFeedWeightBandResponse"];
                 };
             };
             400: components["responses"]["BadRequest"];

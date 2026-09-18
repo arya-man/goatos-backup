@@ -78,6 +78,8 @@ test("visual smoke visits every live sidebar navigation leaf", () => {
     ["weighing-analytics-birth", "/weighing/analytics?scope_mode=company&tab=birth"],
     ["weighing-analytics-shed", "/weighing/analytics?scope_mode=company&tab=shed"],
     ["weighing-analytics-weight", "/weighing/analytics?scope_mode=company&tab=weight"],
+    ["weighing-analytics-weight-not-shown", "/weighing/analytics?scope_mode=company&tab=weight&fb_view=unmatched"],
+    ["weighing-analytics-weight-band-filter", "/weighing/analytics?scope_mode=company&tab=weight&fb_band=25_30&fb_animals=all"],
     ["weighing-analytics-time", "/weighing/analytics?scope_mode=company&tab=time"],
     ["weighing-analytics-load", "/weighing/analytics?scope_mode=company&tab=load"],
     ["weighing-sops", "/weighing/sops?scope_mode=company"],

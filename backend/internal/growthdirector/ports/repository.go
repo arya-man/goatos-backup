@@ -37,4 +37,102 @@ type Repository interface {
 	//   - verification_status='rework' excluded from growth math, included in trust
 	//   - feed quantity_kg NULL = blocked and is never COALESCEd to 0
 	GetGrowthDirectorWeights(ctx context.Context, tenantID string, parkIDs []string, periodStart, periodEnd time.Time, sex, origin, weighingCategory, sections string) (domain.GrowthDirectorWeights, error)
+
+	// GetFeedWeightBandSource reads the LATEST locked/amended feed direction per
+	// park and workflow, rolled up per pen and cohort, each rollup carrying the
+	// pen's weight evidence at the General tab's own grain (0 rows for an unweighed
+	// pen, 1 for a pen-average pen, 1 per band for a per-animal pen), plus the
+	// animals sold or dead inside the window. The window bounds the weighing side
+	// only. Same scoping rule as above: parkIDs are already authorized.
+	GetFeedWeightBandSource(ctx context.Context, tenantID string, parkIDs []string, periodStart, periodEnd time.Time, sex, origin, weighingCategory string) (FeedWeightBandSource, error)
+}
+
+// FeedWeightBandSource is the repository's raw answer for the feed-by-weight-band
+// read: sheet-stage counts plus every rollup with its evidence rows. The service
+// derives display values, applies the sex filter and builds the reconciliation.
+type FeedWeightBandSource struct {
+	// FeedDay is the newest sheet day among the selected parks; each rollup carries its own
+	// park + workflow sheet day (FeedRollup.FeedDay), which may be older.
+	FeedDay        string
+	PositiveRows   int
+	CollapsedItems int
+	// IndividualAnimalsWeighed and LumpSumAnimalsWeighed are the weighing side's own
+	// totals BEFORE any feed match, at the General tab's grain (weighed-twice animals
+	// including any that have since exited; lump pens weighed on two dates, latest head
+	// count), so the table can be reconciled to that tab's Individual / Lump sum figures.
+	IndividualAnimalsWeighed int
+	LumpSumAnimalsWeighed    int
+	Rollups                  []FeedRollup
+	// Exited are the animals sold or dead inside the window, newest exit first.
+	Exited []FeedExitedAnimal
+}
+
+// FeedExitedAnimal is one animal that left the farm inside the window, with its last weigh in
+// the window when it has one (LastWeighedAt nil otherwise).
+type FeedExitedAnimal struct {
+	GoatID          string
+	ParkID          string
+	Tag             string
+	Pen             string
+	ExitReason      string
+	LifecycleStatus string
+	// Sex is the register's sex ("male" / "female"), empty when unknown.
+	Sex           string
+	ExitedAt      time.Time
+	LastWeighedAt *time.Time
+	LastWeightKg  float64
+}
+
+// FeedRollup is one (park, pen, shed tag, ration group, arm, breed, workflow)
+// rollup off the latest sheet. Items are the collapsed feed items in label
+// order; Evidence is empty when the pen has no weigh on record.
+type FeedRollup struct {
+	// FeedDay is the sheet day (YYYY-MM-DD) of the latest locked/amended issue for this
+	// rollup's park and workflow.
+	FeedDay string
+	ParkID        string
+	ParkName      string
+	Pen           string
+	ShedTag       string
+	RationGroup   string
+	ExperimentArm string
+	Breed         string
+	Workflow      string
+	KgPerDay      float64
+	Items         []FeedRollupItem
+	Evidence      []FeedWeightEvidence
+}
+
+type FeedRollupItem struct {
+	Label        string
+	GramsPerHead float64
+}
+
+// FeedWeightEvidence is one weight fact for a pen: the pen average (one row) or
+// one per-animal band (one row per band). FemaleCount / MaleCount are the sexes
+// of the animals behind it, read from the herd register: the scanned tags in
+// the band for a per-animal row, the goats placed in the pen for a pen-average
+// row. Both zero when no animal resolves.
+type FeedWeightEvidence struct {
+	Source          string
+	Band            string
+	Animals         int
+	AverageWeightKg float64
+	FemaleCount     int
+	MaleCount       int
+	// AnimalsAll / AverageWeightKgAll / *CountAll are the same figures counting every weighed
+	// animal including those since sold or dead; equal to the on-farm figures on a pen-average
+	// row.
+	AnimalsAll         int
+	AverageWeightKgAll float64
+	FemaleCountAll     int
+	MaleCountAll       int
+	// ExitedAnimals is how many of the weighed animals behind a per-animal band have since
+	// exited (goats.exited_at set, whatever the reason). Outside Animals and AverageWeightKg,
+	// inside AnimalsAll. Always 0 on a pen-average row.
+	ExitedAnimals int
+	// ExitedSold and ExitedDied are the sold and died buckets of ExitedAnimals
+	// (domain.FeedExitBucket); the remainder is "other" (inactive, transferred, lost...).
+	ExitedSold int
+	ExitedDied int
 }

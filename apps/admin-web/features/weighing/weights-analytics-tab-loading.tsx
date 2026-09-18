@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 
 export function WeightsAnalyticsTabLoading({
   currentTab,
@@ -10,6 +10,8 @@ export function WeightsAnalyticsTabLoading({
   tabLabels: Record<string, string>;
 }) {
   const [pendingTab, setPendingTab] = useState<string | null>(null);
+  const tabKeyList = Object.keys(tabLabels).join("|");
+  const tabKeys = useMemo(() => tabKeyList.split("|"), [tabKeyList]);
   const activePendingTab = pendingTab === currentTab ? null : pendingTab;
 
   useEffect(() => {
@@ -21,13 +23,17 @@ export function WeightsAnalyticsTabLoading({
   useEffect(() => {
     const onNavigate = (event: Event) => {
       const next = event as CustomEvent<{ value?: string }>;
-      if (next.detail?.value && next.detail.value !== currentTab) {
-        setPendingTab(next.detail.value);
+      // Only the TAB strip drives this skeleton. Other SegmentedLinks on the page (the Feed by
+      // weight band card's view and Animals segments) fire the same event with values that are
+      // not tabs; treating those as a pending tab switch hid the live tab forever.
+      const value = next.detail?.value;
+      if (value && value !== currentTab && tabKeys.includes(value)) {
+        setPendingTab(value);
       }
     };
     window.addEventListener("metricseg:navigate", onNavigate);
     return () => window.removeEventListener("metricseg:navigate", onNavigate);
-  }, [currentTab]);
+  }, [currentTab, tabKeys]);
 
   if (!activePendingTab) return null;
 

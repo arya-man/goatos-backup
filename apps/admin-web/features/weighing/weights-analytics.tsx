@@ -6,22 +6,24 @@ import { LoadComparisonTab } from "./load-comparison-tab";
 import { WeightBars } from "./weight-bars";
 import { WeightsExportControl, type WeightsExportShed } from "./weights-export";
 import { SegmentedLinks } from "@/components/segmented-links";
-import { Tag } from "@/components/ui-primitives";
 import { WorklistFilters, type WorklistFilterField } from "@/components/worklist-filters";
 import { WorklistPager } from "@/components/worklist-pager";
 import { copy, optionGroup, table, type AdminUiPageContract } from "@/lib/admin-ui-contract";
 import { PensTable, type PensTableRow } from "./pens-table";
+import { FeedWeightBandCard } from "./feed-weight-band-card";
 import { PenWeekGainTable, type PenWeekGainPoint } from "./pen-week-gain-table";
 import { LoadWeekGainTable, type LoadWeekGainPoint } from "./load-week-gain-table";
 import { fmtDate, todayIso } from "@/lib/format";
 import {
   firstAuthRequiredError,
+  getFeedWeightBand,
   getShedWeights,
   getWeighingGrowth,
   getWeightDemographics,
   type ShedWeightsResponse,
   type ShedWeightsRow,
   type ShedWeightsSummary,
+  type FeedWeightBandResponse,
   type WeighingGrowthResponse,
   type WeightDemographicsResponse,
 } from "@/lib/api/server";
@@ -46,6 +48,22 @@ const TAB_PARAM = "tab";
 // The pens table's own average-weight filter: an operator and a typed value, applied together.
 const WEIGHT_OP_PARAM = "w_op";
 const WEIGHT_VALUE_PARAM = "w_kg";
+// The Weight-wise tab's feed table carries four filters of its own, scoped to that table: the
+// sheet's feed type, which weight evidence backs the row, the pen and the group. They narrow the
+// rows the server already served -- one day's sheet is small -- and travel in the URL like every
+// other filter on this page.
+const FEED_BAND_VIEW_PARAM = "fb_view";
+const FEED_BAND_TYPE_PARAM = "fb_type";
+const FEED_BAND_SOURCE_PARAM = "fb_src";
+const FEED_BAND_BAND_PARAM = "fb_band";
+const FEED_BAND_PEN_PARAM = "fb_pen";
+const FEED_BAND_GROUP_PARAM = "fb_group";
+// Animals is a SERVER filter, unlike the six above: it changes what the backend counts, so it
+// travels to the read rather than narrowing served rows.
+const FEED_BAND_ANIMALS_PARAM = "fb_animals";
+const FEED_BAND_SEARCH_PARAM = "fb_q";
+const FEED_BAND_LIMIT_PARAM = "fb_limit";
+const FEED_BAND_OFFSET_PARAM = "fb_offset";
 const PAGE_SIZE_OPTIONS = [10, 25, 50] as const;
 
 /** The six operators of the `weight_kg_compare` option group, evaluated on a pen's average. */
@@ -209,6 +227,11 @@ export async function WeighingWeightsAnalyticsPage({
   // slice it, and "latest weighing" means the newest weigh on record, not the newest inside
   // the selected period. One request either way, never two overlapping shed reads.
   const wantsLoads = tab === "load";
+  // The Weight-wise tab's feed table reads the Growth Director's feed-by-weight-band endpoint
+  // beside the demographics read, under every page filter: the backend resolves sex, origin and
+  // weighing mode through the weighing module's own scope resolvers, so the table narrows exactly
+  // as the General tab does.
+  const wantsFeedBand = tab === "weight";
   const shedParams = wantsLoads
     ? { park_id: parkFilter || undefined, from: LOAD_TAB_ALL_TIME_FROM, to: today }
     : { ...scope, ...readWindow };
@@ -223,15 +246,24 @@ export async function WeighingWeightsAnalyticsPage({
   // priced endpoint would refuse is never asked to call it.
   const valueChart = pageContract.controls.find((item) => item.id === "load_value_chart");
   const wantsValue = wantsLoads && (valueChart?.enabled ?? false);
-  const [weights, growth, demographics, loadwise, loadValues] = await Promise.all([
+  const [weights, growth, demographics, loadwise, loadValues, feedBand] = await Promise.all([
     getShedWeights(shedParams),
     wantsGrowth ? getWeighingGrowth({ ...scope, ...readWindow, sections: growthSections }) : null,
     wantsDemographics ? getWeightDemographics({ ...scope, ...readWindow, sections: demographicsSections }) : null,
     wantsLoads ? getLoadwiseWeights({ park_id: parkFilter || undefined }) : null,
     wantsValue ? getLoadwiseSales({ park_id: parkFilter || undefined }) : null,
+    wantsFeedBand
+      ? getFeedWeightBand({
+          park_id: parkFilter || undefined,
+          sex: sexFilter || undefined,
+          origin: originFilter || undefined,
+          weighing_category: weighingCategoryFilter || undefined,
+          ...readWindow,
+        })
+      : null,
   ]);
 
-  if (firstAuthRequiredError(weights, growth, demographics, loadwise, loadValues)) redirect(INTERNAL_LOGIN_PATH);
+  if (firstAuthRequiredError(weights, growth, demographics, loadwise, loadValues, feedBand)) redirect(INTERNAL_LOGIN_PATH);
 
   if (!weights.ok) {
     return <WeightsAnalyticsLoadError pageContract={pageContract} />;
@@ -433,7 +465,15 @@ export async function WeighingWeightsAnalyticsPage({
 
         {tab === "shed" ? <ShedTab pageContract={pageContract} demo={demo} /> : null}
 
-        {tab === "weight" ? <WeightTab pageContract={pageContract} demo={demo} /> : null}
+        {tab === "weight" ? (
+          <WeightTab
+            pageContract={pageContract}
+            demo={demo}
+            feedBand={feedBand?.ok ? feedBand.data : null}
+            params={params}
+            periodLabel={`${fmtDate(periodStart)} – ${fmtDate(periodEnd)}`}
+          />
+        ) : null}
 
         {tab === "time" ? (
           <TimeTab pageContract={pageContract} growth={growth?.ok ? growth.data : null} demo={demo} />
@@ -946,7 +986,19 @@ function ShedTab({
  * bracket where nothing was weighed twice shows no gain rather than 0 g/day, which would read as a
  * bracket that stopped growing.
  */
-function WeightTab({ pageContract, demo }: { pageContract: AdminUiPageContract; demo: WeightDemographicsResponse | null }) {
+function WeightTab({
+  pageContract,
+  demo,
+  feedBand,
+  params,
+  periodLabel,
+}: {
+  pageContract: AdminUiPageContract;
+  demo: WeightDemographicsResponse | null;
+  feedBand: FeedWeightBandResponse | null;
+  params: RouteSearchParams;
+  periodLabel: string;
+}) {
   const bands = demo?.by_weight_band ?? [];
   // The backend orders these ascending and owns the band keys; the farm words come from the page
   // contract, so a bracket the contract cannot name is never drawn with its raw key.
@@ -983,6 +1035,7 @@ function WeightTab({ pageContract, demo }: { pageContract: AdminUiPageContract; 
     });
 
   return (
+    <>
     <section className="card wchart" aria-label={copy(pageContract, "section.weight.aria")}>
       <h2 className="h">
         <Scale className="ic" size={15} aria-hidden /> {copy(pageContract, "section.weight.title")}
@@ -1000,6 +1053,47 @@ function WeightTab({ pageContract, demo }: { pageContract: AdminUiPageContract; 
         chartLabel={copy(pageContract, "section.weight.aria")}
       />
     </section>
+    <FeedWeightBandSection pageContract={pageContract} feedBand={feedBand} params={params} periodLabel={periodLabel} />
+    </>
+  );
+}
+
+/**
+ * FEED BY WEIGHT BAND -- directly under the bracket chart. The payload is fetched once per page
+ * read (Park / Period / Weighing / Sex / Origin); every control on the card is client-side over
+ * it in FeedWeightBandCard. This wrapper only parses the card's initial state from the URL.
+ */
+function FeedWeightBandSection({
+  pageContract,
+  feedBand,
+  params,
+  periodLabel,
+}: {
+  pageContract: AdminUiPageContract;
+  feedBand: FeedWeightBandResponse | null;
+  params: RouteSearchParams;
+  /** The selected period as the page shows it (DD/MM/YYYY – DD/MM/YYYY), for the panel header. */
+  periodLabel: string;
+}) {
+  return (
+    <FeedWeightBandCard
+      pageContract={pageContract}
+      feedBand={feedBand}
+      periodLabel={periodLabel}
+      initial={{
+        view: one(params, FEED_BAND_VIEW_PARAM) ?? "",
+        type: one(params, FEED_BAND_TYPE_PARAM) ?? "",
+        source: one(params, FEED_BAND_SOURCE_PARAM) ?? "",
+        band: one(params, FEED_BAND_BAND_PARAM) ?? "",
+        pen: one(params, FEED_BAND_PEN_PARAM) ?? "",
+        group: one(params, FEED_BAND_GROUP_PARAM) ?? "",
+        animals: one(params, FEED_BAND_ANIMALS_PARAM) ?? "",
+        search: one(params, FEED_BAND_SEARCH_PARAM) ?? "",
+        limit: Number(one(params, FEED_BAND_LIMIT_PARAM) ?? 25),
+        offset: boundedOffset(one(params, FEED_BAND_OFFSET_PARAM)),
+        exitScope: one(params, "fb_exit"),
+      }}
+    />
   );
 }
 
