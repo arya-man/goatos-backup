@@ -112,6 +112,9 @@ func (p projection) list(ctx context.Context, q querier, tenantID string, lp por
 			filters[k] = v
 		}
 	}
+	for k, v := range lp.FilterJSON {
+		filters[k] = v
+	}
 	filterJSON, err := json.Marshal(filters)
 	if err != nil {
 		return ports.Page{}, err

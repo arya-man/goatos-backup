@@ -64,8 +64,11 @@ type ListParams struct {
 	Status  string // active (default) | archived | all
 	Query   string
 	Filters map[string]string
-	Cursor  string
-	Limit   int
+	// FilterJSON is a store-composed containment filter merged with Filters (an items
+	// category filter becomes {"category_ids": [id]} so the whole subtree matches).
+	FilterJSON map[string]any
+	Cursor     string
+	Limit      int
 }
 
 // Page is one keyset page of rows.

@@ -152,6 +152,10 @@ func ValidateWrite(reg Register, raw map[string]any, existing *Row, kind string)
 	}
 	for _, c := range reg.Columns {
 		v, sent := raw[c.Key]
+		if c.Derived {
+			// Composed on read; a client echoing it back is not an error and writes nothing.
+			continue
+		}
 		if len(c.Kinds) > 0 && sent && kind != "" && !containsString(c.Kinds, kind) {
 			if !isBlank(v) {
 				errs = append(errs, FieldError{Field: c.Key, Code: "not_for_kind", Message: c.Label + " does not apply to this kind of item."})

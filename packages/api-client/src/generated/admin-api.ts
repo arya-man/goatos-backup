@@ -5219,6 +5219,8 @@ export interface components {
             min?: number;
             integer?: boolean;
             list_hidden?: boolean;
+            /** @description Composed by the store on read; never in the form. */
+            derived?: boolean;
         };
         ConfigurationRegister: {
             key: string;
@@ -5233,6 +5235,13 @@ export interface components {
             edit_href?: string;
             /** @description The name of that screen. */
             edit_label?: string;
+            /** @description Kept out of the rail; still served and written. */
+            hidden?: boolean;
+            /**
+             * @description catalogue = the Lists panel + items table layout.
+             * @enum {string}
+             */
+            layout?: "catalogue";
             filters?: string[];
         };
         ConfigurationGroup: {

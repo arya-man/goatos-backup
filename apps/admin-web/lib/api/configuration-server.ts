@@ -57,6 +57,11 @@ export async function listConfigurationRows(
   return request(() => client.request<ConfigurationListResponse>(registerPath(register), { cache: "no-store", query: compactQuery(query) }));
 }
 
+/** The catalogue layout's Lists panel: every category, active and archived, with its counts. */
+export async function listCatalogueLists(): Promise<ApiResult<ConfigurationListResponse>> {
+  return listConfigurationRows("categories", { status: "all", limit: 200 });
+}
+
 /** Every active row of a register as ref choices for a drawer select. */
 export async function listConfigurationOptions(register: string): Promise<ApiResult<ConfigurationOptionsResponse>> {
   const config = await getServerConfig(true);

@@ -16,6 +16,7 @@ import type {
 } from "@/lib/api/configuration-server";
 import type { ApiResult } from "@/lib/api/server";
 import { all, boundedInt, one, type RouteSearchParams } from "@/lib/search-params";
+import { CatalogueLists, type CatalogueList } from "./catalogue-lists";
 import { RegisterFilter } from "./register-filter";
 import { RowDrawerForm } from "./row-drawer";
 
@@ -105,7 +106,12 @@ export type ItemsPageData = {
   rows: ApiResult<ConfigurationListResponse> | null;
   /** Ref options per register the selected register's columns point at. */
   options: Record<string, ConfigurationRefOption[]>;
+  /** The catalogue layout's lists (every category, active and archived, with counts); null otherwise. */
+  lists: ConfigurationRow[] | null;
 };
+
+/** The catalogue layout's drawer ids for a list: `cat:new` / `cat:<id>`, beside the items' own ids. */
+const LIST_EDIT_PREFIX = "cat:";
 
 /** The parameters the page reads for its data, resolved once so page.tsx and the feature agree. */
 export function itemsPageParams(sp: RouteSearchParams, pageContract: AdminUiPageContract) {
@@ -193,15 +199,85 @@ export function ItemsPage({ searchParams, pageContract, data }: { searchParams?:
   }
   if (register) {
     for (const row of rows) {
+      // A feed row is folded in from Feed Config and edited there.
+      const rowReadOnly = row.fields.read_only === true;
       drawerItems.push({
         id: row.id,
         eyebrow: register.label,
-        title: writable && canEdit ? `${c("drawer.edit_title")} ${register.one.toLowerCase()}` : row.display,
+        title: writable && canEdit && !rowReadOnly ? `${c("drawer.edit_title")} ${register.one.toLowerCase()}` : row.display,
         icon: <Settings className="ic" aria-hidden="true" />,
-        body: <RowDrawerForm pageContract={pageContract} register={register} row={row} options={data.options} canEdit={writable && canEdit} canSetStatus={writable && canSetStatus} canDelete={writable && canDelete} listHref={listHref} />,
+        body: (
+          <RowDrawerForm
+            pageContract={pageContract}
+            register={register}
+            row={row}
+            options={data.options}
+            canEdit={writable && canEdit && !rowReadOnly}
+            canSetStatus={writable && canSetStatus && !rowReadOnly}
+            canDelete={writable && canDelete && !rowReadOnly}
+            listHref={listHref}
+            editElsewhere={rowReadOnly ? { href: "/feed/config", label: c("action.edit_elsewhere") + " Feed Config" } : undefined}
+          />
+        ),
       });
     }
   }
+  // The catalogue layout also edits its LISTS (the categories register) from the same page.
+  const listsRegister = registers.find((item) => item.key === "categories");
+  const isCatalogue = register?.layout === "catalogue" && !!listsRegister;
+  if (isCatalogue && listsRegister) {
+    if (canCreate) {
+      drawerItems.push({
+        id: LIST_EDIT_PREFIX + "new",
+        eyebrow: listsRegister.label,
+        title: `${c("drawer.create_title")} ${listsRegister.one.toLowerCase()}`,
+        icon: <Settings className="ic" aria-hidden="true" />,
+        body: <RowDrawerForm pageContract={pageContract} register={listsRegister} options={data.options} canEdit={canCreate} canSetStatus={false} canDelete={false} listHref={listHref} />,
+      });
+    }
+    for (const list of data.lists ?? []) {
+      drawerItems.push({
+        id: LIST_EDIT_PREFIX + list.id,
+        eyebrow: listsRegister.label,
+        title: canEdit ? `${c("drawer.edit_title")} ${listsRegister.one.toLowerCase()}` : list.display,
+        icon: <Settings className="ic" aria-hidden="true" />,
+        body: <RowDrawerForm pageContract={pageContract} register={listsRegister} row={list} options={data.options} canEdit={canEdit} canSetStatus={canSetStatus} canDelete={canDelete} listHref={listHref} />,
+      });
+    }
+  }
+  // The lists, in tree order, each counting its whole subtree (the prototype's "Vaccines 7").
+  const catalogueLists: CatalogueList[] = [];
+  if (isCatalogue) {
+    const all = data.lists ?? [];
+    const childrenOf = new Map<string, ConfigurationRow[]>();
+    for (const list of all) {
+      const parent = String(list.fields.parent_id ?? "");
+      childrenOf.set(parent, [...(childrenOf.get(parent) ?? []), list]);
+    }
+    const subtreeCount = (id: string): number => (all.find((l) => l.id === id)?.counts?.items ?? 0) + (childrenOf.get(id) ?? []).reduce((sum, child) => sum + subtreeCount(child.id), 0);
+    // A list sits under CATALOGUES when its ROOT is built in (Medicines > Antibiotics stays with
+    // Medicines), under YOUR LISTS when the farm made the root.
+    const walk = (parent: string, depth: number, rootBuiltin: boolean | null) => {
+      for (const list of childrenOf.get(parent) ?? []) {
+        const builtin = rootBuiltin ?? list.is_builtin;
+        catalogueLists.push({
+          id: list.id,
+          name: String(list.fields.name ?? list.display),
+          depth,
+          builtin,
+          locked: list.is_builtin,
+          archived: list.status === "archived",
+          count: subtreeCount(list.id),
+          href: href(sp, { [FILTER_PREFIX + "category_id"]: list.id, [PARAM_EDIT]: undefined }),
+          editHref: href(sp, { [PARAM_EDIT]: LIST_EDIT_PREFIX + list.id }, true),
+        });
+        walk(list.id, depth + 1, builtin);
+      }
+    };
+    walk("", 0, null);
+  }
+  const departmentColumn = register?.columns.find((column) => column.key === "department");
+  const departmentLabel = (value: unknown) => departmentColumn?.options?.find((option) => option.value === String(value ?? ""))?.label ?? "";
 
   const groups = catalog?.groups ?? [];
 
@@ -223,10 +299,10 @@ export function ItemsPage({ searchParams, pageContract, data }: { searchParams?:
         </div>
       ) : null}
 
-      <div className="cfg-layout">
+      <div className={isCatalogue ? "cfg-layout cfg-layout-3" : "cfg-layout"}>
         <aside className="card cfg-rail" aria-label={c("rail.title")}>
           {groups.map((group) => {
-            const members = registers.filter((item) => item.group === group.key);
+            const members = registers.filter((item) => item.group === group.key && !item.hidden);
             if (!members.length) return null;
             return (
               <div key={group.key} className="cfg-rail-group">
@@ -244,6 +320,29 @@ export function ItemsPage({ searchParams, pageContract, data }: { searchParams?:
             );
           })}
         </aside>
+
+        {isCatalogue ? (
+          <CatalogueLists
+            copy={{
+              "lists.title": c("lists.title"),
+              "lists.all": c("lists.all"),
+              "lists.catalogues": c("lists.catalogues"),
+              "lists.yours": c("lists.yours"),
+              "lists.new": c("lists.new"),
+              "lists.search": c("lists.search"),
+              "column.status": c("column.status"),
+              "status.active": c("status.active"),
+              "status.archived": c("status.archived"),
+              "action.edit_row.label": c("action.edit_row.label"),
+            }}
+            lists={catalogueLists}
+            allHref={href(sp, { [FILTER_PREFIX + "category_id"]: undefined, [PARAM_EDIT]: undefined })}
+            allCount={catalog?.counts[register?.key ?? ""] ?? 0}
+            current={params.filters.category_id ?? ""}
+            canEdit={canEdit}
+            newHref={href(sp, { [PARAM_EDIT]: LIST_EDIT_PREFIX + "new" }, true)}
+          />
+        ) : null}
 
         <section className="card cfg-main" aria-label={register?.label ?? c("crumb")}>
           <div className="hd" style={{ flexWrap: "wrap" }}>
@@ -278,15 +377,17 @@ export function ItemsPage({ searchParams, pageContract, data }: { searchParams?:
               <Search className="ic" aria-hidden="true" />
               <input name={PARAM_Q} defaultValue={params.q ?? ""} placeholder={`${c("search.placeholder")} ${(register?.label ?? "").toLowerCase()}`} aria-label={c("search.placeholder")} />
             </form>
-            {filterColumns.map((column) => {
-              const opts = (data.options[column.ref ?? ""] ?? []).filter((option) => {
+            {filterColumns.filter((column) => !(isCatalogue && column.key === "category_id")).map((column) => {
+              const enumOptions: ConfigurationRefOption[] | null = column.type === "enum" ? (column.options ?? []).map((option) => ({ id: option.value, label: option.label })) : null;
+              const opts = (enumOptions ?? data.options[column.ref ?? ""] ?? []).filter((option) => {
                 // A pen filter narrows to the chosen park when both filters are offered.
                 if (column.key === "pen_id" && params.filters.park_id) return option.parent_id === params.filters.park_id;
                 return true;
               });
               const hrefFor: Record<string, string> = { "": href(sp, { [FILTER_PREFIX + column.key]: undefined, ...(column.key === "park_id" ? { [FILTER_PREFIX + "pen_id"]: undefined } : {}) }) };
               for (const option of opts) hrefFor[option.id] = href(sp, { [FILTER_PREFIX + column.key]: option.id, ...(column.key === "park_id" ? { [FILTER_PREFIX + "pen_id"]: undefined } : {}) });
-              return <RegisterFilter key={column.key} label={column.label} current={params.filters[column.key] ?? ""} options={opts.map((option) => ({ value: option.id, label: option.label }))} hrefFor={hrefFor} />;
+              const label = column.key === "department" ? c("filter.department.all") : column.label;
+              return <RegisterFilter key={column.key} label={label} current={params.filters[column.key] ?? ""} options={opts.map((option) => ({ value: option.id, label: option.label }))} hrefFor={hrefFor} />;
             })}
             <div className="sp" style={{ flex: 1 }} />
             <div className="subtabs" aria-label={c("column.status")}>
@@ -313,11 +414,12 @@ export function ItemsPage({ searchParams, pageContract, data }: { searchParams?:
                 <table className="tbl">
                   <thead>
                     <tr>
-                      <th>{c("column.display")}</th>
-                      {listColumns.map((column) => (
+                      <th>{isCatalogue ? c("column.item") : c("column.display")}</th>
+                      {isCatalogue ? <th>{c("column.tracking")}</th> : null}
+                      {(isCatalogue ? [] : listColumns).map((column) => (
                         <th key={column.key}>{column.label}</th>
                       ))}
-                      {hasCounts ? <th>{c("column.counts")}</th> : null}
+                      {hasCounts && !isCatalogue ? <th>{c("column.counts")}</th> : null}
                       <th>{c("column.status")}</th>
                     </tr>
                   </thead>
@@ -333,13 +435,19 @@ export function ItemsPage({ searchParams, pageContract, data }: { searchParams?:
                               {c("tag.builtin")}
                             </span>
                           ) : null}
+                          {isCatalogue ? (
+                            <div className="muted small">
+                              {[String(row.fields.unit ?? ""), row.labels.category_id ?? "", departmentLabel(row.fields.department)].filter(Boolean).join(" · ")}
+                            </div>
+                          ) : null}
                         </td>
-                        {listColumns.map((column) => (
+                        {isCatalogue ? <td>{row.fields.tracking ? <Tag tone="mut">{String(row.fields.tracking)}</Tag> : null}</td> : null}
+                        {(isCatalogue ? [] : listColumns).map((column) => (
                           <td key={column.key} className={column.type === "number" ? "num" : undefined}>
                             {column.type === "code" || column.key === "code" ? <span className="mono muted">{fieldText(row, column, placeholder, c("value.yes"), c("value.no"))}</span> : fieldText(row, column, placeholder, c("value.yes"), c("value.no"))}
                           </td>
                         ))}
-                        {hasCounts ? (
+                        {hasCounts && !isCatalogue ? (
                           <td className="muted small">
                             {row.counts
                               ? Object.entries(row.counts)

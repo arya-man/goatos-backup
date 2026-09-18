@@ -13048,6 +13048,7 @@ components:
         min: { type: number }
         integer: { type: boolean }
         list_hidden: { type: boolean }
+        derived: { type: boolean, description: Composed by the store on read; never in the form. }
     ConfigurationRegister:
       type: object
       required: [key, label, one, group, columns]
@@ -13064,6 +13065,8 @@ components:
         read_only: { type: boolean }
         edit_href: { type: string, description: Where a read-only register is actually edited. }
         edit_label: { type: string, description: The name of that screen. }
+        hidden: { type: boolean, description: Kept out of the rail; still served and written. }
+        layout: { type: string, enum: [catalogue], description: "catalogue = the Lists panel + items table layout." }
         filters:
           type: array
           items: { type: string }

@@ -57,6 +57,9 @@ type Column struct {
 	Integer bool `json:"integer,omitempty"`
 	// ListHidden keeps the column in the form but out of the table.
 	ListHidden bool `json:"list_hidden,omitempty"`
+	// Derived columns are composed by the store on read (a department, a tracking chip); they
+	// are never in the form and a write naming one is dropped.
+	Derived bool `json:"derived,omitempty"`
 }
 
 // Register is one editable list.
@@ -76,6 +79,12 @@ type Register struct {
 	EditLabel string `json:"edit_label,omitempty"`
 	// Filters names the columns the list offers as filter selects.
 	Filters []string `json:"filters,omitempty"`
+	// Hidden keeps a register out of the rail: it is still served and written (categories are
+	// managed from the Lists panel of Items & categories; feed items are folded into items).
+	Hidden bool `json:"hidden,omitempty"`
+	// Layout names the page layout for the register: "" (table) or "catalogue" (lists panel +
+	// items table, the prototype's Items & categories screen).
+	Layout string `json:"layout,omitempty"`
 }
 
 // Register keys.
@@ -110,6 +119,28 @@ var ItemKinds = []Option{
 var BuiltinCodes = map[string]map[string]bool{
 	RegSpecies: {"goat": true, "sheep": true},
 	RegSexes:   {"female": true, "male": true},
+}
+
+// Departments is the owner department of an item kind, composed by the store on read and
+// offered as the items filter (the prototype's "Departments: all").
+var Departments = []Option{
+	{Value: "preventive_care", Label: "Preventive Care"},
+	{Value: "health", Label: "Health"},
+	{Value: "feed", Label: "Feed"},
+	{Value: "general", Label: "General"},
+}
+
+// DepartmentForKind maps an item kind onto the department that owns it.
+func DepartmentForKind(kind string) string {
+	switch kind {
+	case "vaccine":
+		return "preventive_care"
+	case "medicine", "dewormer", "supplement":
+		return "health"
+	case "feed":
+		return "feed"
+	}
+	return "general"
 }
 
 func zero() *float64 { v := 0.0; return &v }
@@ -194,21 +225,23 @@ var Registers = []Register{
 		},
 	},
 	{
-		Key: RegCategories, Label: "Item categories", One: "Category", Group: GroupCatalogue,
-		Hint: "Group items any way the farm thinks: Medicines > Antibiotics, Feed > Concentrates. A category behaves like its top-level kind.",
+		Key: RegCategories, Label: "Lists", One: "List", Group: GroupCatalogue, Hidden: true,
+		Hint: "Group items any way the farm thinks: Medicines > Antibiotics, Feed > Concentrates. A list behaves like its top-level kind.",
 		Columns: []Column{
 			{Key: "name", Label: "Name", Type: TypeText, Required: true},
-			{Key: "parent_id", Label: "Under", Type: TypeRef, Ref: RegCategories, Hint: "Leave empty for a top-level category."},
-			{Key: "kind", Label: "Kind", Type: TypeEnum, Options: ItemKinds, Hint: "Top-level only: what the items in it are, for stock and rules."},
+			{Key: "parent_id", Label: "Under", Type: TypeRef, Ref: RegCategories, Hint: "Leave empty for a top-level list."},
+			{Key: "kind", Label: "Kind", Type: TypeEnum, Options: ItemKinds, Hint: "Top-level lists only: what the items in it are, for stock and rules."},
 			{Key: "sort_order", Label: "Order", Type: TypeNumber, Min: zero(), Integer: true},
 		},
 	},
 	{
-		Key: RegItems, Label: "Items", One: "Item", Group: GroupCatalogue,
-		Hint:    "Medicines, vaccines, dewormers and supplies. Feed items live in Feed Config.",
-		Filters: []string{"category_id"},
+		Key: RegItems, Label: "Items & categories", One: "Item", Group: GroupCatalogue, Layout: "catalogue",
+		Hint:    "Medicines, vaccines, dewormers, feed and supplies, grouped into the lists on the left.",
+		Filters: []string{"category_id", "department"},
 		Columns: []Column{
-			{Key: "name", Label: "Name", Type: TypeText, Required: true},
+			{Key: "name", Label: "Item", Type: TypeText, Required: true},
+			{Key: "department", Label: "Departments", Type: TypeEnum, Derived: true, ListHidden: true, Options: Departments},
+			{Key: "tracking", Label: "Tracking", Type: TypeText, Derived: true, ListHidden: true},
 			{Key: "category_id", Label: "Category", Type: TypeRef, Ref: RegCategories, Required: true},
 			{Key: "code", Label: "Code", Type: TypeText, Hint: "Left blank, one is made from the name."},
 			{Key: "unit", Label: "Unit", Type: TypeText, Required: true, Hint: "ml, dose, tablet, kg, piece."},
@@ -223,7 +256,7 @@ var Registers = []Register{
 		},
 	},
 	{
-		Key: RegFeedItems, Label: "Feed items", One: "Feed item", Group: GroupCatalogue, ReadOnly: true, EditHref: "/feed/config", EditLabel: "Feed Config",
+		Key: RegFeedItems, Label: "Feed items", One: "Feed item", Group: GroupCatalogue, ReadOnly: true, Hidden: true, EditHref: "/feed/config", EditLabel: "Feed Config",
 		Hint: "What the farm feeds. Edited in Feed Config, where the ration grid depends on it.",
 		Columns: []Column{
 			{Key: "name", Label: "Name", Type: TypeText, Required: true},

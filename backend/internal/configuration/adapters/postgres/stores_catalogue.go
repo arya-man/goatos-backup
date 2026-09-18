@@ -44,7 +44,8 @@ SELECT t.category_id::text AS id,
        jsonb_build_object('name', t.name, 'parent_id', t.parent_category_id::text, 'kind', t.kind, 'sort_order', t.sort_order, 'depth', t.depth) AS fields,
        jsonb_strip_nulls(jsonb_build_object('parent_id', p.name)) AS labels,
        jsonb_build_object(
-         'items', (SELECT count(*) FROM inventory_items i WHERE i.tenant_id = t.tenant_id AND i.category_id = t.category_id AND i.status = 'active'),
+         'items', (SELECT count(*) FROM inventory_items i WHERE i.tenant_id = t.tenant_id AND i.category_id = t.category_id AND i.status = 'active')
+                  + (SELECT count(*) FROM feed_item_catalog f WHERE f.tenant_id = t.tenant_id AND f.status = 'active' AND t.parent_category_id IS NULL AND t.item_kind = 'feed' AND t.is_builtin),
          'subcategories', (SELECT count(*) FROM item_categories x WHERE x.tenant_id = t.tenant_id AND x.parent_category_id = t.category_id AND x.status = 'active')
        ) AS counts,
        t.sort_key
@@ -261,6 +262,14 @@ var itemContextKeys = []string{"route", "strength", "withdrawal_days", "disease"
 
 var itemProjection = projection{sql: itemProjectionSQL()}
 
+// sqlDepartmentForKind mirrors domain.DepartmentForKind in SQL, so the filter and the row agree.
+func sqlDepartmentForKind(col string) string {
+	return "CASE " + col + " WHEN 'vaccine' THEN 'preventive_care' WHEN 'medicine' THEN 'health' WHEN 'dewormer' THEN 'health' WHEN 'supplement' THEN 'health' WHEN 'feed' THEN 'feed' ELSE 'general' END"
+}
+
+// isFeedRow reports a feed_item_catalog row folded into the items read; it is edited on Feed Config.
+func isFeedRow(id string) bool { return strings.HasPrefix(id, "feed:") }
+
 func itemProjectionSQL() string {
 	quoted := make([]string, 0, len(itemContextKeys))
 	for _, k := range itemContextKeys {
@@ -269,13 +278,16 @@ func itemProjectionSQL() string {
 	return strings.Replace(itemProjectionTemplate, "__CONTEXT_KEYS__", strings.Join(quoted, ", "), 1)
 }
 
-const itemProjectionTemplate = `
+var itemProjectionTemplate = `
 SELECT i.item_id::text AS id,
        i.name AS display,
-       CASE WHEN i.status = 'active' THEN 'active' ELSE 'archived' END AS status,
+       replace(replace(i.status, 'inactive', 'archived'), 'retired', 'archived') AS status,
        i.row_version,
        false AS is_builtin,
-       jsonb_build_object('name', i.name, 'category_id', i.category_id::text, 'code', i.item_code, 'unit', i.base_unit, 'kind', i.category)
+       jsonb_build_object('name', i.name, 'category_id', i.category_id::text, 'code', i.item_code, 'unit', i.base_unit, 'kind', i.category,
+                          'category_ids', COALESCE(cp.ids, '[]'::jsonb),
+                          'department', ` + sqlDepartmentForKind("i.category") + `,
+                          'tracking', CASE WHEN i.category = 'vaccine' THEN 'Vaccination plan' ELSE '' END)
          || COALESCE((SELECT jsonb_object_agg(e.key, e.value) FROM jsonb_each(i.context) e WHERE e.key IN (__CONTEXT_KEYS__)), '{}'::jsonb)
          || COALESCE(jsonb_strip_nulls(jsonb_build_object('disease', v.disease, 'manufacturer', v.manufacturer, 'doses_per_vial', v.doses_per_vial, 'withdrawal_days', v.withdrawal_days)), '{}'::jsonb) AS fields,
        jsonb_strip_nulls(jsonb_build_object('category_id', cp.path)) AS labels,
@@ -285,22 +297,52 @@ FROM inventory_items i
 LEFT JOIN vaccines v ON v.tenant_id = i.tenant_id AND v.item_id = i.item_id
 LEFT JOIN LATERAL (
   WITH RECURSIVE up AS (
-    SELECT c.category_id, c.parent_category_id, c.name::text AS path, 1 AS depth FROM item_categories c WHERE c.tenant_id = i.tenant_id AND c.category_id = i.category_id
+    SELECT c.category_id, c.parent_category_id, c.name::text AS path, jsonb_build_array(c.category_id::text) AS ids, 1 AS depth
+    FROM item_categories c WHERE c.tenant_id = i.tenant_id AND c.category_id = i.category_id
     UNION ALL
-    SELECT c.category_id, c.parent_category_id, c.name || ' › ' || up.path, up.depth + 1 FROM item_categories c JOIN up ON c.category_id = up.parent_category_id WHERE c.tenant_id = i.tenant_id AND up.depth < 8
+    SELECT c.category_id, c.parent_category_id, c.name || ' › ' || up.path, up.ids || to_jsonb(c.category_id::text), up.depth + 1
+    FROM item_categories c JOIN up ON c.category_id = up.parent_category_id WHERE c.tenant_id = i.tenant_id AND up.depth < 8
   )
-  SELECT path FROM up WHERE parent_category_id IS NULL LIMIT 1
+  SELECT path, ids FROM up WHERE parent_category_id IS NULL LIMIT 1
 ) cp ON true
-WHERE i.tenant_id = $1`
+WHERE i.tenant_id = $1
+UNION ALL
+SELECT 'feed:' || f.feed_item_id::text AS id,
+       f.feed_item_label AS display,
+       replace(f.status, 'retired', 'archived') AS status,
+       0 AS row_version,
+       false AS is_builtin,
+       jsonb_build_object('name', f.feed_item_label, 'category_id', fc.category_id::text, 'code', NULL, 'unit', 'kg', 'kind', 'feed',
+                          'category_ids', COALESCE(jsonb_build_array(fc.category_id::text), '[]'::jsonb),
+                          'department', 'feed', 'tracking', 'Feed Config', 'read_only', true,
+                          'energy_kcal_per_kg', f.energy_kcal_per_kg, 'dry_matter_factor', f.dry_matter_factor, 'wastage_factor', f.wastage_factor) AS fields,
+       jsonb_strip_nulls(jsonb_build_object('category_id', fc.name)) AS labels,
+       NULL::jsonb AS counts,
+       lower(f.feed_item_label) AS sort_key
+FROM feed_item_catalog f
+LEFT JOIN item_categories fc ON fc.tenant_id = f.tenant_id AND fc.parent_category_id IS NULL AND fc.item_kind = 'feed' AND fc.is_builtin
+WHERE f.tenant_id = $1`
 
 func (itemStore) count(ctx context.Context, q querier, t string) (int, error) {
 	return itemProjection.count(ctx, q, t)
 }
 func (itemStore) list(ctx context.Context, q querier, t string, p ports.ListParams) (ports.Page, error) {
+	// A category filter selects the whole SUBTREE: every row carries its category and its
+	// ancestors in category_ids, and jsonb containment on an array is "contains this element".
+	if cat, ok := p.Filters["category_id"]; ok {
+		filters := map[string]string{}
+		for k, v := range p.Filters {
+			if k != "category_id" {
+				filters[k] = v
+			}
+		}
+		p.Filters = filters
+		p.FilterJSON = map[string]any{"category_ids": []string{cat}}
+	}
 	return itemProjection.list(ctx, q, t, p)
 }
 func (itemStore) get(ctx context.Context, q querier, t, id string) (domain.Row, error) {
-	if !isUUID(id) {
+	if !isUUID(id) && !isFeedRow(id) {
 		return domain.Row{}, ports.ErrNotFound
 	}
 	return itemProjection.get(ctx, q, t, id)
@@ -309,6 +351,9 @@ func (itemStore) options(ctx context.Context, q querier, t string) ([]ports.RefO
 	return itemProjection.options(ctx, q, t)
 }
 func (itemStore) usage(ctx context.Context, q querier, t, id string) (domain.Usage, error) {
+	if isFeedRow(id) {
+		return domain.Usage{Blocked: true, Uses: []domain.UsageCount{{Noun: "Feed Config", Count: 1}}}, nil
+	}
 	if !isUUID(id) {
 		return domain.Usage{}, ports.ErrNotFound
 	}
@@ -376,6 +421,9 @@ func upsertVaccine(ctx context.Context, tx pgx.Tx, t, itemID string, f map[strin
 }
 
 func (itemStore) update(ctx context.Context, tx pgx.Tx, t, id string, f map[string]any, rv int) (string, error) {
+	if isFeedRow(id) {
+		return "", domain.ErrReadOnlyRegister
+	}
 	if !isUUID(id) {
 		return "", ports.ErrNotFound
 	}
@@ -441,6 +489,9 @@ func (itemStore) update(ctx context.Context, tx pgx.Tx, t, id string, f map[stri
 }
 
 func (itemStore) setStatus(ctx context.Context, tx pgx.Tx, t, id, status string, rv int) error {
+	if isFeedRow(id) {
+		return domain.ErrReadOnlyRegister
+	}
 	if !isUUID(id) {
 		return ports.ErrNotFound
 	}
@@ -456,6 +507,9 @@ func (itemStore) setStatus(ctx context.Context, tx pgx.Tx, t, id, status string,
 }
 
 func (itemStore) del(ctx context.Context, tx pgx.Tx, t, id string, rv int) error {
+	if isFeedRow(id) {
+		return domain.ErrReadOnlyRegister
+	}
 	if !isUUID(id) {
 		return ports.ErrNotFound
 	}

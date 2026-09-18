@@ -1,5 +1,5 @@
 import { ItemsPage, itemsPageParams, refRegistersOf, type ItemsPageData } from "@/features/configuration";
-import { listConfigurationOptions, listConfigurationRegisters, listConfigurationRows } from "@/lib/api/configuration-server";
+import { listCatalogueLists, listConfigurationOptions, listConfigurationRegisters, listConfigurationRows } from "@/lib/api/configuration-server";
 import { requireAdminWebPageContract } from "@/lib/api/server";
 import type { RouteSearchParams } from "@/lib/search-params";
 
@@ -15,8 +15,11 @@ export default async function Page({ searchParams }: { searchParams: Promise<Rou
   const registers = await listConfigurationRegisters();
   const register = registers.ok ? registers.data.registers.find((item) => item.key === scope.register) : undefined;
   const refs = refRegistersOf(register);
-  const [rows, ...optionReads] = await Promise.all([
+  const catalogue = register?.layout === "catalogue";
+  const [rows, listsRead, ...optionReads] = await Promise.all([
     register ? listConfigurationRows(register.key, { status: scope.status, q: scope.q, cursor: scope.cursor, limit: scope.limit, filters: scope.filters }) : Promise.resolve(null),
+    // The catalogue layout's Lists panel: a different register (the categories), one bounded read.
+    catalogue ? listCatalogueLists() : Promise.resolve(null),
     ...refs.map((ref) => listConfigurationOptions(ref)),
   ]);
   const options: ItemsPageData["options"] = {};
@@ -24,6 +27,6 @@ export default async function Page({ searchParams }: { searchParams: Promise<Rou
     const read = optionReads[index];
     options[ref] = read && read.ok ? read.data.options : [];
   });
-  const data: ItemsPageData = { registers, rows, options };
+  const data: ItemsPageData = { registers, rows, options, lists: listsRead && listsRead.ok ? listsRead.data.rows : null };
   return <ItemsPage searchParams={params} pageContract={pageContract} data={data} />;
 }

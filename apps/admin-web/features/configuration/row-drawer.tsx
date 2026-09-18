@@ -84,6 +84,7 @@ export function RowDrawerForm({
   canSetStatus,
   canDelete,
   listHref,
+  editElsewhere,
 }: {
   pageContract: AdminUiPageContract;
   register: ConfigurationRegister;
@@ -93,6 +94,8 @@ export function RowDrawerForm({
   canSetStatus: boolean;
   canDelete: boolean;
   listHref: string;
+  /** A row owned by another screen (a feed item): read-only here, with the link to where it is edited. */
+  editElsewhere?: { href: string; label: string };
 }) {
   const isEdit = !!row;
   const [draft, setDraft] = useState<Draft>(() => draftFrom(register, row));
@@ -139,7 +142,7 @@ export function RowDrawerForm({
   };
   const inputId = (column: ConfigurationColumn) => `cfg-${register.key}-${column.key}`;
 
-  const visibleColumns = register.columns.filter((column) => !column.kinds || !column.kinds.length || !kind || column.kinds.includes(kind));
+  const visibleColumns = register.columns.filter((column) => !column.derived && (!column.kinds || !column.kinds.length || !kind || column.kinds.includes(kind)));
 
   return (
     <>
@@ -150,6 +153,13 @@ export function RowDrawerForm({
         <input type="hidden" name="fields_json" value={fieldsJson} />
 
         {row?.is_builtin ? <div className="note">{c("drawer.builtin_hint")}</div> : null}
+        {editElsewhere ? (
+          <div className="note">
+            <a href={editElsewhere.href} className="btn sm">
+              {editElsewhere.label}
+            </a>
+          </div>
+        ) : null}
         {row && row.status === "archived" ? (
           <div>
             <Tag tone="mut">{c("status.archived")}</Tag>
