@@ -429,7 +429,9 @@ run_common() {
   step "role-scoped-ui-contract-guard" make role-scoped-ui-contract-guard
   step "assistant-route-closure-guard" make assistant-route-closure-guard
   step "telemetry-guard"           make telemetry-guard
-  step "agent: ai-doctor"          make ai-doctor
+  # Token-saving/index tooling should stay visible, but stale local AI indexes
+  # must not block product/runtime deploy receipts.
+  optional_step "agent: ai-doctor" make ai-doctor
   step "agent: stg-promotion"      make stg-promotion-guard
   step "agent: boundaries self-test" bash tools/agent-hooks/check-boundaries.sh --self-test
   step "agent: boundaries"        bash tools/agent-hooks/check-boundaries.sh

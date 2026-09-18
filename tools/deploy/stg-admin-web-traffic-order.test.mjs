@@ -3,6 +3,7 @@ import { readFileSync } from "node:fs";
 import test from "node:test";
 
 const script = readFileSync(new URL("./stg-clouddeploy-task.sh", import.meta.url), "utf8");
+const localCiScript = readFileSync(new URL("../ci/run-local-ci.sh", import.meta.url), "utf8");
 const releaseScript = readFileSync(new URL("./stg-clouddeploy-release.sh", import.meta.url), "utf8");
 const bootstrap = readFileSync(new URL("../../backend/internal/bootstrap/api.go", import.meta.url), "utf8");
 const analyticsRoutingScript = readFileSync(
@@ -295,5 +296,18 @@ test("analytics events routing script isolates only the event path", () => {
     runnerDockerfile,
     /COPY tools\/deploy\/stg-analytics-events-routing\.sh \/usr\/local\/bin\/goatos-stg-analytics-events-routing/,
     "Cloud Deploy runner image must contain the routing script used by the deploy task",
+  );
+});
+
+test("ai-doctor remains visible but non-blocking for runtime deploy receipts", () => {
+  assert.match(
+    localCiScript,
+    /^\s*optional_step "agent: ai-doctor"\s+make ai-doctor/m,
+    "ai-doctor should report stale token/index tooling without blocking product deploy CI",
+  );
+  assert.doesNotMatch(
+    localCiScript,
+    /^\s*step "agent: ai-doctor"\s+make ai-doctor/m,
+    "ai-doctor must not be a blocking local-CI step",
   );
 });
