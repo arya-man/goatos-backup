@@ -20,7 +20,13 @@ export type BootstrapFetchResult<T> = {
 
 const DEFAULT_TTL_MS = 60_000;
 const MAX_TTL_MS = 10 * 60_000;
-const DEFAULT_MAX_ENTRIES = 128;
+const DEFAULT_MAX_ENTRIES = 32;
+// An entry nobody has read for this long has outlived every TTL the backend can advertise, so its
+// ETag can never be revalidated again: its bearer token has rotated (Firebase rotates hourly) and
+// no request will ever look it up. Dropping it eagerly is what keeps the heap flat — the contract
+// is ~1 MB of JSON per entry, and holding dead entries up to the entry cap put STG admin-web past
+// Node's heap limit roughly daily (2026-09-14 .. 09-18).
+const IDLE_EVICT_MS = 2 * MAX_TTL_MS;
 
 // Process-local, authority-isolated cache for the backend-owned admin UI contract. The key includes
 // the complete credential digest: responses from different users/roles/tokens can never share data.
@@ -70,7 +76,16 @@ export class AdminBootstrapCache<T extends { cache_policy: BootstrapCachePolicy 
     return result.data;
   }
 
+  /** Number of contracts currently held; exposed so tests can pin the heap bound. */
+  get size(): number {
+    return this.entries.size;
+  }
+
   private evictIfNeeded() {
+    const idleBefore = this.now() - IDLE_EVICT_MS;
+    for (const [key, entry] of this.entries) {
+      if (entry.lastUsedAt < idleBefore) this.entries.delete(key);
+    }
     const maxEntries = Math.max(1, this.maxEntries);
     while (this.entries.size > maxEntries) {
       let victim: string | undefined;
