@@ -2,8 +2,8 @@
 
 Read-only source comparison on 15 September 2026. Claude files were not changed. This report compares inspected behavior, not just visual claims. Existing screenshot references favor the production Mesha shell; no new Claude browser interaction was performed during this review.
 
-Claude source root: `/private/tmp/claude-501/-Users-raviteja-mesha/bf7f34c9-1666-49ea-b85c-9ae7ba336611/scratchpad/mock`.
-Our source root: `/Users/raviteja/mesha/tmp/config-sop-studio`.
+Claude source root: inspected Claude mock workspace snapshot.
+Our source root: the local prototype workspace.
 
 ## Adopt from Claude
 

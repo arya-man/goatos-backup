@@ -19,6 +19,6 @@ inspect=function(){
 };
 validateDialog=function(){
  const errors=validateWorkflow(sop());
- modal(errors.length?'Fix these steps':'Ready to test',errors.length?`<p>Select an issue to jump to its step on the canvas.</p>${errors.map((error,index)=>{const matches=sop().nodes.filter(n=>error.startsWith(n.label+':'));return `<div class="notice error">${esc(error)} ${matches.map(n=>`<button data-validation-node="${esc(n.id)}">Show step →</button>`).join('')}</div>`;}).join('')}`:`<div class="notice">All paths are connected and required resources are available.</div><button class="primary" onclick="closeModal();startSim()">Test as operator</button>`);
+ modal(errors.length?'Fix these steps':'Ready to test',errors.length?`<p>Select an issue to jump to its step on the canvas.</p>${errors.map((error,index)=>{const matches=sop().nodes.filter(n=>error.startsWith(n.label+':'));return `<div class="notice error">${esc(error)} ${matches.map(n=>`<button data-validation-node="${esc(n.id)}">Show step →</button>`).join('')}</div>`;}).join('')}`:`<div class="notice">All paths are connected and required resources are available.</div>`);
  for(const button of document.querySelectorAll('[data-validation-node]'))button.onclick=()=>{selected=button.dataset.validationNode;closeModal();renderEditor();const node=document.querySelector('[data-node="'+selected+'"]');node?.scrollIntoView({block:'center',inline:'center'});};
 };

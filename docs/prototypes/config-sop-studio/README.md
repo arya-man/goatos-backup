@@ -1,52 +1,60 @@
-# Mesha configuration & SOP studio
+# CODEX prototype — Mesha configuration and SOP studio
 
-Local interactive design prototype using the existing admin theme tokens from `apps/admin-web/app/mesha-theme.css`.
+A browser-local design extending the existing admin UI. Open **Configuration → Items and settings** or **Work instructions**. Work instructions opens each department’s SOPs; **Stages and approvals** combines smaller SOPs with prerequisites, parallel work, approval and waiting periods.
 
-Open http://127.0.0.1:4318 while the local server is running. To restart:
+## Start this prototype
+
+This is the **Codex** prototype. It is separate from the Claude prototype in `docs/prototypes/config-sop-studio-v2/`; see `docs/prototypes/README.md` for both. Use port **4322** for Codex so it can run beside the Claude prototype on 4391.
+
+Requirements: Python3 to serve the files; Node.js to run the judge scripts. No npm installation, build, `.env`, backend or database is needed.
+
+From the repository root:
 
 ```sh
-cd /Users/raviteja/mesha/tmp/config-sop-studio
-python3 -m http.server 4318 --bind 127.0.0.1
+sh docs/prototypes/config-sop-studio/start.sh
 ```
 
-## Supported interactions
+Keep that terminal running. Open these URLs in Chrome:
 
-- Sales eligibility comparison, minimum, allowance and target rate; review/publish updates linked Weighing values.
-- Per-module proposed business rules. Common resource checkbox sharing changes SOP catalogue/action availability.
-- Reusable questions and actions, local draft/publication, per-definition sharing.
-- Multiple SOPs per module; draft graph nodes can be added, dragged, edited, deleted and connected through destination selectors.
-- Numeric, text, boolean, choice, multiple choice, date, photo/video and catalogue questions.
-- Conditions with numeric comparisons, equality and contains; explicit match and otherwise paths.
-- Graph validation for missing/dangling destinations, cycles, unreachable steps, unavailable resources and unanswered condition sources.
-- Operator simulation follows actual answers and actions. Invalid or missing answers block progression.
-- Published snapshots are versioned independently of the editable draft. Director/operator views expose published workflows.
+- [Items, categories and Herd Register](http://127.0.0.1:4322/#/configuration/items)
+- [Pricing, weight allowances and operational settings](http://127.0.0.1:4322/#/configuration/business-rules)
+- [Work instructions and departmental SOPs](http://127.0.0.1:4322/#/configuration/work-instructions)
 
-## Boundaries
+Click a record row/card to open it. Animal identities opens Herd Register with individual form entry and Excel/CSV upload; templates use the selected animal type. In Business rules, click the default card or add a breed/sex-specific group rule. Choose CEO/CXO in the top-right profile control to edit; Director/Operator are read-only previews.
 
-All state is stored under `mesha-studio-v1` in browser localStorage. There are no production API calls, media uploads, inventory mutations, external notifications or deployments. Role switching demonstrates UI behaviour; it is not authentication. Catalogue entries and non-Sales settings are illustrative. The supplied 103°F threshold demonstrates branching and is not medical advice. Medicine selection requires a vet-approved protocol, not an invented dose.
+Stop with **Ctrl+C** in the serving terminal. If4322 is occupied, first open the existing URL and check its content; do not kill an unknown server. To run a separate instance:
 
-See DESIGN.md and PROGRESS.md for design rationale, acceptance evidence and remaining scope.
+```sh
+sh docs/prototypes/config-sop-studio/start.sh 4323
+```
 
-## Refinement: Items and treatment courses
+Use4323 in the URLs for that instance. Changing the port changes the browser storage origin, so it starts with separate local drafts. Existing Chrome tabs need a reload after source changes; use Cmd+Shift+R if an old asset remains cached. A404 generally means the wrong folder is being served; the launcher resolves its own folder automatically. Do not open index.html using file://.
 
-- **Items Config:** Vertical → Category → Subcategory → Item; create/edit, descriptions, purpose, units, active/archive, per-item module sharing, exact linked workflow steps.
-- **Compiled workflow definitions:** validated JSON export and browser execution, stable item IDs, versioned item/catalogue/config snapshots. This is a proposed integration format, not a deployed Android/backend compiler.
-- **Health → Treatment courses:** live-source Fever example from Adults SOP and Kids SOP (16 steps each), editable day/session groups, ordered actions/medication rows, schedule/flow views, local publish and read-only snapshots. Course item references participate in archive-impact review.
-- Health source item names and raw fields are taken from the explicitly supplied sheet, read 2026-09-15. No missing dosage numerator units are inferred; source-unspecified units are retained. Broader clinical course scheduling, nested SOP execution, and the other source diseases are not implemented by this bounded example.
+## Validation and saved drafts
 
-Verification: `node judge-functional-tests.cjs` (39), `node judge-v2-functional.cjs` (29), `node judge-health-functional.cjs` (21). Browser and visual evidence is recorded in BROWSER-QA.md and judge receipts.
+From the repository root:
 
-## Combined v3
-Start with Health → Diagnosis for Aryaman source scenarios and nested rule drafts. Common workspace → Data sources manages reusable dropdown collections (vaccines, medicines, feed, vendors, pens). Each module's Business rules separates its own settings from references to other owners. General SOPs retain interactive branching and pinned local publications.
-Comparison: COMPARISON-DECISIONS.md. Final evidence: judge-v3-functional.md (125 assertions +260 source cases) and judge-ux-v3.md (scoped desktop/mobile visual pass).
-Health runs recorded source scenarios; edited rules do not evaluate new observations. All writes stay local to this browser.
+```sh
+sh docs/prototypes/config-sop-studio/run-checks.sh
+git diff --check
+```
 
-## Direct canvas editor
-Open any module SOP: drag output/input circles to connect (or click each), use the + on a path to insert a connected step, drag nodes to arrange, and pan empty canvas. Toolbar offers Undo/Redo and Fit. Validation issues jump to affected nodes. Counts includes a separate browser-local Daily count canvas review example; prior drafts are preserved.
-Desktop proof: judge-canvas-functional.md (143 combined assertions) and judge-canvas-ux.md (actual authoring and operator branch checks). Mobile authoring usability is not certified in this revision.
+`run-checks.sh` discovers all `judge-*.cjs` files. Browser validation is separate: inspect the actual routes in Chrome at desktop/mobile widths, including forms, clickable rows and import previews. Review receipts in this folder are historical.
 
-## Review this PR
+Drafts are saved in this browser's localStorage key `mesha-studio-v1`, scoped to host and port. Reloading keeps them; another browser or port has independent drafts. For a clean review, use an incognito window or another port. Back up any wanted drafts before clearing this site's browser storage; there is no server backup. Do not clear all browser data.
 
-From this directory, run `python3 -m http.server 4318 --bind 127.0.0.1` and open `http://127.0.0.1:4318/#Procurement/Editor`. Run all focused Node checks with `sh run-checks.sh`. No npm install is needed. Browser drafts belong to the URL origin and are not committed.
+## Design coverage
 
-`judge-v3-oracle.py` is an optional comparison against a separate upstream checkout; set `HEALTH_SOP_SOURCE` to its path. The runtime uses the included snapshots. Historical review notes record the state at each review, not blanket current certification. See PROGRESS.md for the latest receipt.
+- Arbitrary items, category/subcategory organisation, typed settings and sharing across departments, with actual SOP question/action consumers and change-impact checks.
+- Browser-local entity registers under **Configuration → Items and settings → Farm and animal registers** only for cross-feature farm and animal records that existing feature screens need to reference: parks, pens, pen partitions, animal species, breeds, lifecycle stages, shed/stage tags, animal groups and animals. Existing Feed, Sales, Procurement, Vaccination and Health CRUD stays in those modules and is linked from the prototype instead of duplicated.
+- Existing question/decision/action editor and operator preview; saved child SOPs and their immutable versions; stage prerequisites, approvals, waits and repeated evidence checks.
+- Optional Procurement example: seller inspection from the current published form (7 load / 40 animal questions), selection and boarding/arrival subsets, tagging, referenced vaccination plan, holding, travel, parallel shed preparation and warm-up. Animal review uses synthetic data and preserves decision history.
+- Business rules for default pricing, animal type/breed/sex overrides, minimum weight and allowed shortfall in grams, with shared Sales/Weighing checks. Existing source valuation and reporting values migrate into the editor; these prototype proposals do not change actual sale records or production enforcement.
+- Existing Health assessment/course examples and department-owned settings remain available. Clinical values are not invented by the generic builder.
+- Existing production navigation and visual conventions, with plain-language Configuration destinations. Old Workflow links and Run insights URLs now open Work instructions; the rejected standalone event-engine UI is not loaded.
+
+## Evidence and limits
+
+Open `research/index.html` for the anonymous source notes, complete written requirements, feature matrix, frontend/backend/Android inventories and real GCP staging readbacks. `REFINEMENT-PROGRESS.md` records current tests and judge status. Earlier review receipts are historical and do not certify the latest design.
+
+All changes stay in browser localStorage (`mesha-studio-v1`). No database writes, API integration, real operator dispatch, media upload, authentication or deployment is provided. Role switching demonstrates the proposed UI boundary only. Imported inspection and clinical documents retain source meaning; production handoffs and resolver precedence require implementation work identified in the matrix. An inspected table or code path is not claimed to be runtime-certified.

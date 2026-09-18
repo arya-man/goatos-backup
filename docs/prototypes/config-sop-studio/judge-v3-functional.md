@@ -4,7 +4,7 @@ Status: PASS for local mock code and executed functional scope. Browser interact
 
 ## Verified authoritative source
 
-Spec repo `/Users/raviteja/mesha/health-sop` HEAD `1db838d7e01642b0b62f478be100270dbe3c2279`. Read AGENTS, ENGINEERING, ALGORITHM, ACCEPTANCE, classes, registers and catalog. Executed `./check.sh`: 260 stories passed (adult180, milk46, weaning21, fattening13),0 failed. This is reference-oracle evidence, not mock runtime parity.
+Spec repo the supplied health-sop reference repository HEAD `1db838d7e01642b0b62f478be100270dbe3c2279`. Read AGENTS, ENGINEERING, ALGORITHM, ACCEPTANCE, classes, registers and catalog. Executed `./check.sh`: 260 stories passed (adult180, milk46, weaning21, fattening13),0 failed. This is reference-oracle evidence, not mock runtime parity.
 
 ## Acceptance criteria
 

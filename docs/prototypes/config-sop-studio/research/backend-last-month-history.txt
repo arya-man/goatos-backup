@@ -1,0 +1,1011 @@
+aa0577765 2026-09-16T19:05:42+05:30 fix(observability): renumber analytics migrations after main
+203a4f27c 2026-09-16T18:50:48+05:30 fix(observability): align migrations and worker dashboard counters
+a07ac7496 2026-09-16T18:50:47+05:30 fix(observability): populate Grafana from measured telemetry
+baeef419c 2026-09-16T18:50:35+05:30 fix(alerts): satisfy admin-web copy guard
+1a914d176 2026-09-16T18:50:35+05:30 fix(alerts): bound event previews and verify live stock checks
+7fcc97eec 2026-09-16T18:50:35+05:30 fix(alerts): distinguish incomplete checks and scope event row keys
+ddcbb7943 2026-09-16T18:50:35+05:30 chore(alerts): renumber migrations 000318-000320 to 000320-000322 after rebase
+1dca982ef 2026-09-16T18:50:34+05:30 perf(alerts): run the rule reads concurrently under a bounded pool
+59bc0debf 2026-09-16T18:50:34+05:30 fix(alerts): review round 1 -- nonce-keyed writes, ASCII keys, today-only stock, coverage
+0ed8b1a44 2026-09-16T18:50:34+05:30 chore(alerts): keep the shifting pen-name lookup off the location-picker pattern
+ca9340c76 2026-09-16T18:50:34+05:30 feat(alerts): feed-follows-count rule and farm-composed event alerts
+7b20653e4 2026-09-16T18:50:33+05:30 chore(alerts): hoist repository SQL to package-level consts for the scale guard
+44c521531 2026-09-16T18:50:33+05:30 test(alerts): complete the projection-review markers and add the cardinality/pagination/status adversaries
+9678b2d3d 2026-09-16T18:50:33+05:30 fix(alerts): person-tick gate, version-keyed writes, drawer survives save
+0fc5bfc96 2026-09-16T18:50:33+05:30 fix(permissions): gofmt the alerts permission block
+78e8f7eb6 2026-09-16T18:50:33+05:30 feat(alerts): Alerts page below the Work Board with HRMS-gated rule config
+43455b185 2026-09-16T18:27:28+05:30 fix(birth): preserve recording identity and dependent deadlines
+252de20ff 2026-09-16T18:27:27+05:30 fix(birth): fence verdicts by recording and preserve proof kinds
+e34e2e882 2026-09-16T18:27:27+05:30 fix(birth): keep the pen out of the per-step subject label
+0a76f587a 2026-09-16T18:27:27+05:30 fix(counts): shifting destinations never emits null management_stages
+c601ab16e 2026-09-16T18:27:27+05:30 test(colostrum): pin an in_review feed as done across every lens axis
+0b68d87e6 2026-09-16T18:27:27+05:30 feat(birth): review each recorded birth clip on its own, not the whole track
+c5d0bfc95 2026-09-16T18:13:43+05:30 test(counts): cover shifting destination projection guards
+e42b2f2b6 2026-09-16T17:46:59+05:30 fix(counts): speed shifting destination catalog
+fec94827c 2026-09-16T16:28:27+05:30 fix(weighing): remove obsolete SOP calendar controls
+c5305ee8e 2026-09-16T16:28:27+05:30 docs(weighing): record database configuration and all-tab proof
+2b606afa5 2026-09-16T16:28:27+05:30 fix(weighing): read calendar configuration directly from database
+80477f0dc 2026-09-16T16:28:26+05:30 feat(weighing): configure calendar start and rolling weeks through SOP
+83213b435 2026-09-16T15:44:40+05:30 test(feed): cover park ordering across aggregate boundaries
+bf1eb95b4 2026-09-16T15:33:34+05:30 Merge PR 277 buyer analytics with PR 278 park ordering
+10192c628 2026-09-16T15:27:49+05:30 fix(weighing): rank park codes before display order
+b57713920 2026-09-16T13:15:24+05:30 fix(weighing): preserve park order within member groups
+15e925c53 2026-09-16T13:08:47+05:30 feat(analytics): show parks as two clusters, CBE then CPT, on every All-parks read
+0dd2097e3 2026-09-16T12:48:47+05:30 fix(sales): preserve buyer analytics rollout compatibility
+aeed4a36c 2026-09-16T11:04:41+05:30 fix(adminui): keep the retired buyer register copy keys served for older frontends
+6caa68a50 2026-09-16T10:01:54+05:30 feat(sales): buyer analytics sorts by latest sale on a TanStack table, drops the register flag
+f1a2a4a3b 2026-09-16T06:37:54+05:30 perf(vaccination): reuse combined read plans with stable decoding
+caa3fba0f 2026-09-16T05:55:48+05:30 test(weighing): bound the removal race after database setup
+53548234b 2026-09-16T05:51:32+05:30 refactor(weighing): name the removal deletion lock query
+e25ebf86f 2026-09-16T05:46:22+05:30 test: repair combined PR validation fixtures
+f126c16e3 2026-09-16T05:38:41+05:30 fix(weighing): validate optional answers and preserve missing numbers
+3a94b2db2 2026-09-16T05:30:17+05:30 fix: integrate PR273 performance and PR274 SOP with review guards
+bd8bc9e94 2026-09-16T05:18:30+05:30 fix(weighing): preserve legacy replay and export report windows
+9f570d4cc 2026-09-16T05:07:01+05:30 fix: benchmark real Weights defaults and restore cache freshness
+e9e0a4c7c 2026-09-16T04:53:24+05:30 Reduce uncached vaccination and weighing query work; enforce cold latency proof
+dad1d38a0 2026-09-16T04:52:39+05:30 fix(weighing): close replay, removal, and authored capture review gaps
+fcf14020b 2026-09-16T03:45:31+05:30 fix(weighing): bound cutoff reads and honor conditional ancestry
+8be3122f4 2026-09-16T03:19:07+05:30 perf: overlap bounded board source reads and certify clean evidence
+2b8595b56 2026-09-16T03:15:35+05:30 fix(weighing): guard SOP windows, capture drafts, and pinned cutoffs
+2a1e0ded6 2026-09-16T02:58:49+05:30 perf: schedule board lanes in one bounded read wave
+6864e7e2d 2026-09-16T02:53:09+05:30 fix: validate populated board targets and readable milk labels
+583a4f9a2 2026-09-16T02:52:24+05:30 perf: bound canonical vaccination query planning cost
+909e1f66e 2026-09-16T02:45:20+05:30 perf: share fresh canonical reads within each bundled board request
+4abf8ff47 2026-09-16T02:36:04+05:30 fix: read current Feed card state on each Work Board request
+12ecc7af5 2026-09-16T02:33:47+05:30 fix: keep Work Board counts fresh and bind browser proof to builds
+b12714710 2026-09-16T02:33:47+05:30 fix: bound vaccination joins and require populated runtime proof
+e11568892 2026-09-16T02:33:47+05:30 test: align process integrity fixture with park-scoped workforce
+14617ab6b 2026-09-16T02:33:46+05:30 fix: preserve complete Work Board reads and prove uncached latency
+fbdf352ff 2026-09-16T02:33:46+05:30 fix: bring PR264 hot APIs under latency budget
+205354e53 2026-09-16T02:13:56+05:30 chore(weighing-sop): hoist the weights-pages SQL, exempt the seed fallback, extend the call-shape pins
+a5aa11c27 2026-09-16T01:56:24+05:30 chore: gofmt sop_test
+1eb883120 2026-09-16T01:56:13+05:30 fix(weighing-sop): PR #274 review round 3 -- bounded, cached version reads on the card list; answers reach the verifier
+4ddfc9bf0 2026-09-16T01:47:04+05:30 feat(weighing-sop): the Weights pages' window is authored on the SOP (fixed date or rolling days, earliest calendar day)
+11e16783d 2026-09-16T00:35:45+05:30 fix(weighing-sop): PR #274 review round 2 -- edits keep the task's removal, replay before the rules, observers for authored slots
+fd31061bd 2026-09-15T23:24:53+05:30 fix(weighing): keep the create idempotency shape the operational-location guard pins
+2efb64397 2026-09-15T23:06:41+05:30 fix(weighing-sop): PR #274 review -- replay identity, captured kinds on every read, answer-aware submit key
+f15b8d107 2026-09-15T19:21:02+05:30 chore(weighing-sop): renumber migrations to 000315-000317 after rebase (main took 000314)
+1ab67a91f 2026-09-15T19:19:49+05:30 feat(verification): each proof names itself -- media_meta {label, kind} per proof, from the producer
+bb5958b5c 2026-09-15T19:19:49+05:30 fix(weighing-sop): a key the document does not know is refused at save, by path
+8613d51f3 2026-09-15T19:19:48+05:30 fix(weighing): the service judges capability from the person-resolved permission set
+b3aefdc55 2026-09-15T19:19:23+05:30 docs(weighing-sop): authored captures, the authored evening, per-pin card window, planning access
+b7bd4e2fa 2026-09-15T19:19:22+05:30 test(weighing-sop): the Postgres card list holds a card until its pinned version's evening
+3b1a12a09 2026-09-15T19:19:22+05:30 fix(weighing-sop): the option-remove button says Remove choice, not Remove question
+c2ad2d160 2026-09-15T19:19:22+05:30 fix(weighing-sop): the removal card list opens at each card's PINNED evening, not the latest publish's
+0a257e640 2026-09-15T19:19:22+05:30 fix(weighing-sop): a capture slot without the required flag is compulsory (pre-flag documents)
+feb608513 2026-09-15T19:19:21+05:30 feat(weighing-sop): the removal evening cutoff is authored on the SOP (blank = farm-wide evening)
+551b2b596 2026-09-15T19:19:21+05:30 feat(admin-web): authored capture slots on the Weighing SOP editor (video / photo / either, compulsory, add, remove, reorder)
+8eec65cd5 2026-09-15T19:19:21+05:30 feat(weighing): the removal card's captures are authored slots — video, photo or either, compulsory or optional, any number
+9b8050f6a 2026-09-15T19:19:20+05:30 fix(weighing-sop): planner catalog emits sop; checkbox rows in the rules editor keep their words beside the box
+f6b3418ba 2026-09-15T19:19:20+05:30 chore: gofmt sop_rules_test
+c1668f798 2026-09-15T19:19:20+05:30 test(weighing): Postgres proof of the SOP pin, stored removal answers and the rules source
+664a307ef 2026-09-15T19:19:20+05:30 feat(android): the phone runs the weighing SOP — removal mode on the plan wizard, SOP copy and questions on the removal card, lump-sum video window
+acbb15186 2026-09-15T19:19:19+05:30 feat(admin-web): Weighing SOP rules editor on /weighing/sops
+39e63287c 2026-09-15T19:19:19+05:30 feat(weighing): the weighing.session SOP drives planning, feed & water removal and lump-sum proof
+425e15036 2026-09-15T17:23:45+05:30 fix(procurement): show what was entered for a load when it is selected on Animal purchases
+f910ea40c 2026-09-15T16:34:35+05:30 fix(admin-web): lazy load animal purchase previews
+5f7fd3ca2 2026-09-15T15:37:49+05:30 Merge remote-tracking branch 'origin/feat/feed-by-pen-charts-and-week-gain-grids' into HEAD
+fe0245c1d 2026-09-15T15:37:48+05:30 Merge remote-tracking branch 'origin/feat/sales-buyer-analytics' into HEAD
+1662c93dc 2026-09-15T15:09:06+05:30 fix(analytics): guard weekly gain grids
+89228fa40 2026-09-15T15:01:59+05:30 fix(adminui): key buyer phone control on person permissions
+0cb2bb623 2026-09-15T14:55:38+05:30 fix(adminui): align buyer phone control with person access
+ad88028df 2026-09-15T14:47:18+05:30 fix: show herd pen partitions and 24h motion delta
+a3317be32 2026-09-15T13:32:18+05:30 feat(analytics): Feed by pen bar charts and weekly growth grids by pen and load
+b551fe2a1 2026-09-15T12:07:51+05:30 feat(sales): Buyer analytics page under Sales
+40ec5518b 2026-09-15T11:56:42+05:30 fix(sops): Publish closes the editor and the library shows which version went live
+dc06ec738 2026-09-15T11:14:55+05:30 feat(sales): remove the pipeline and evidence surfaces from Sales Config and Sold
+285c8b078 2026-09-15T04:08:19+05:30 fix: narrow weighing analytics and guard grafana
+6fbc825f2 2026-09-15T00:37:09+05:30 fix(feed-analytics): show only the feeds the farm buys on spend share and consumption
+0602dc580 2026-09-14T23:46:32+05:30 gofmt workboard handler
+f5be6ca6d 2026-09-14T23:46:32+05:30 fix integrated PR landing guards
+e0d137a48 2026-09-14T23:46:31+05:30 fix(adminui): publish empty option arrays
+d6a1e2fc6 2026-09-14T23:46:31+05:30 fix(review): close integration readiness gaps
+b7c734a0f 2026-09-14T23:46:30+05:30 fix review durability and proof media guard gaps
+4d9196fba 2026-09-14T23:46:30+05:30 fix workflow proof recovery and stale media comments
+d36af70ba 2026-09-14T23:46:30+05:30 fix clubbed branch judge findings
+08dd1bf77 2026-09-14T23:46:30+05:30 feat(market): one configurable time at which the day's calls open and the reminder goes
+64917d5e9 2026-09-14T23:46:29+05:30 chore(market): split the per-person access ticks into migration 000305
+ddc7055ab 2026-09-14T23:46:29+05:30 chore(market): declare 000304 out of the vaccination/HRMS seed contract
+5a29a22bc 2026-09-14T23:46:29+05:30 refactor(market): hoist every repository SQL statement to a named package-level const
+34e408261 2026-09-14T23:46:28+05:30 feat(market): Market analytics page, Sales Config survey section, OpenAPI contract
+798fba6e7 2026-09-14T23:46:07+05:30 feat(market): market survey backend — cities and questions as config, daily price entry, analytics read, morning reminder
+91f8e74b1 2026-09-14T23:46:07+05:30 feat(sales): rename Sold to Summary and Purchase and Born to Load wise, hide the Farm born toggle
+fcc4b8a49 2026-09-14T23:46:06+05:30 fix analytics events route bootstrap secrets
+540fd364d 2026-09-14T23:46:04+05:30 fix(stg): harden latency judge findings
+4dda9be2a 2026-09-14T23:46:03+05:30 fix(work-board): reach sub-500ms OCI page read
+15448acd4 2026-09-14T23:46:03+05:30 fix(work-board): harden latency and event lane guards
+6a3106315 2026-09-14T23:46:02+05:30 Split analytics event ingest lane on staging
+254534ae3 2026-09-14T23:46:02+05:30 fix(work-board): bundle admin board reads
+7372f5fe9 2026-09-14T23:46:00+05:30 feat(procurement): the CEO sees the load's authored answers; contract carries load_form and load answers
+f2a9a17ef 2026-09-14T23:46:00+05:30 fix(procurement): authored media slots are storable; 500 causes are logged; drawer hides the generic field list
+606578151 2026-09-14T23:46:00+05:30 feat(procurement): the load form is SOP-authored too; editor builds on the published version; capture kind enforced server-side
+8a6e7edcc 2026-09-14T23:45:59+05:30 chore(migration): seed-migration-guard markers on both 000304 inserts
+00f6f709b 2026-09-14T23:45:59+05:30 chore(migration): seed-migration-guard marker expiry on 000304
+e637634c9 2026-09-14T23:45:59+05:30 feat(procurement): Procurement SOP — the animal purchase inspection is authored on the web
+1d81ca03d 2026-09-14T23:45:59+05:30 chore(sop-driven): rebase on main — migrations renumbered 000304-000306, inlineRemotePhoto
+369562026 2026-09-14T23:45:58+05:30 fix(migration): 000299 adds the seeded steps to the published SOP version IN PLACE
+8416d04da 2026-09-14T23:45:58+05:30 feat(sop-driven): third series basis 'next sessions'; the session-times rule stays the default
+0d4812590 2026-09-14T23:45:58+05:30 feat(sop-driven): colostrum rounds can run FROM THE BIRTH TIME, authored on the web
+d57de1732 2026-09-14T23:45:58+05:30 chore(adminui): gofmt
+8e82d3f4b 2026-09-14T23:45:58+05:30 feat(sops): show every colostrum round on the web, and the button says Change SOP
+9d339c019 2026-09-14T23:45:57+05:30 test(eventwiring): the shared workflow list now carries three rework subscribers
+b88ed8bc3 2026-09-14T23:45:57+05:30 chore(sop-driven): make guardrails green
+0e380de7a 2026-09-14T23:45:57+05:30 fix(sop-driven): guards green — preview-action analytics on the inline proof gallery, shared workflow consumers on both durable buses, coverage rows
+3e4f1baba 2026-09-14T23:45:57+05:30 fix(sop-driven): rework reason on the reopened step, backend-owned kind label, pen picker for record_pen, inline proof bytes locally, proof kinds on the reconcile card
+be3203ba0 2026-09-14T23:45:56+05:30 feat(admin-web): author the operator steps of a Herd Operations SOP on /counts/sops
+a6f183f75 2026-09-14T23:45:56+05:30 feat(counts): reconcile closes through its SOP questionnaire, not one hardcoded video
+4d5bf212c 2026-09-14T23:45:56+05:30 fix(tasks): never-authored tenant opens from the seeded SOP document
+2886e8a3c 2026-09-14T23:45:56+05:30 feat(tasks): open herd-operations workflows from the published SOP, not Go templates
+f08fa0593 2026-09-14T23:45:56+05:30 fix(work-board): feed cards roll up all-or-any, not leftmost lane
+1b9f08d8d 2026-09-14T23:45:56+05:30 fix(workboard): key feed pen cards by partition key
+7be3c4114 2026-09-14T23:45:56+05:30 fix(workboard): feed cards list PENS (shed + partition), not just the shed base
+ec7ea5c2e 2026-09-14T22:48:55+05:30 fix(pen-visits): the tab, the routes and the visitor config share one permission
+7c1e547a8 2026-09-14T22:48:55+05:30 feat(pen-visits): the visit is a task of its own on the Tasks module -- "For me" tab, board under Tasks
+6a1d9fe5b 2026-09-14T19:42:23+05:30 feat(leadership-tasks): the task number counts DOWN to the deadline and turns red near it
+e4b9a33ed 2026-09-14T18:51:38+05:30 feat(leadership-tasks): every task carries a deadline and shows its day counter
+b976a6b56 2026-09-14T17:30:55+05:30 fix(proof): satisfy landing guards for photo preview
+c69f2f548 2026-09-14T17:05:18+05:30 fix(verification): remove retired photo open fallback
+7ff5f2d8c 2026-09-14T17:05:18+05:30 fix(adminui): Feed Config button says 'Add feed item', not 'Add feed type'
+eba69fc54 2026-09-14T17:05:18+05:30 fix(notifications): leadership pending push says 'verification pending', not 'video pending'
+5db826662 2026-09-14T07:31:45+05:30 fix(animal-purchases): tap-gate proof card media
+29a9dc626 2026-09-14T07:11:17+05:30 feat(animal-purchases): load + recorded-on filters, ten a page, fewer round trips
+93cb678e6 2026-09-14T07:11:17+05:30 feat(admin-web): breed under goat id; the verdict section is the procurement director's
+821908a3b 2026-09-14T07:11:17+05:30 feat(animal-purchases): captures visible on every card, click opens big; the preview gate is gone
+1f406afcd 2026-09-14T07:11:17+05:30 feat(animalpurchase): teeth is a typed 0-8 count; serve the animal record copy
+475c74acc 2026-09-14T07:11:17+05:30 feat(admin-web): the CEO review shows the SOP inspection -- media per slot, answers under their questions, the field verdict
+85d94cae4 2026-09-14T07:11:17+05:30 feat(animal-purchases): the per-animal record is the farm's Procurement SOP inspection
+3911f3c42 2026-09-14T07:11:17+05:30 fix(animal-purchases): ledger web access backfill rollback
+57ab7847f 2026-09-14T07:11:17+05:30 fix(animal-purchases): gate proof video signing behind preview
+084d4e1ae 2026-09-14T07:11:17+05:30 fix(animal-purchases): refuse an idempotency key shorter than the envelope allows
+8ecc54091 2026-09-14T07:11:17+05:30 fix(animal-purchases): the CEO never records, a malformed video ref is a 422, and an offline save stays visible with tap-to-retry
+a5e462f1a 2026-09-14T07:11:17+05:30 feat(admin-web): Animal purchases review page for the CEO/CXO, plus the aggregate proof
+750f29487 2026-09-14T07:11:17+05:30 feat(procurement): Animal purchases -- the buying desk films candidate animals, the CEO accepts or rejects
+64418ee9c 2026-09-13T09:54:28+05:30 test(pccare): pin pen visit visitor worklist scope
+1f0b71be9 2026-09-13T06:06:04+05:30 fix(herd-signals): clarify watchlist alerts UX
+82d4bf4d9 2026-09-13T05:04:23+05:30 fix(herd-signals): add smart BLE landing guard evidence
+aa9f68417 2026-09-13T04:54:34+05:30 fix(herd-signals): align smart tag contracts and cohort scoring
+c8bda12cd 2026-09-13T04:54:34+05:30 fix(herd-signals): harden watchlist risk filtering
+dbc94d66f 2026-09-13T04:54:34+05:30 fix(herd-signals): paginate risk-filtered live rows
+381c2f82b 2026-09-13T04:54:34+05:30 feat(herd-signals): map smart BLE tags
+426c11444 2026-09-13T03:57:17+05:30 fix(workboard): declare subtask owner scope
+f8f49b726 2026-09-13T02:34:13+05:30 fix(workboard): show unstarted feed activity cards
+6bc939f8c 2026-09-13T02:34:13+05:30 fix(workboard): preserve feed drawer scope
+e4b6df926 2026-09-13T02:34:13+05:30 fix(workboard): make feed cards unique per park
+47c1cbd55 2026-09-13T02:34:13+05:30 chore(workboard): regenerate the client and satisfy the aggregate-projection guard
+d57464196 2026-09-13T02:34:13+05:30 fix(workboard): one slow module never blanks the board
+7a9f15217 2026-09-13T02:34:12+05:30 feat(workboard): feed shows one card per park per activity with pens inside
+6e0c8dc6a 2026-09-13T02:34:12+05:30 fix(work-board): each column pages its own lane, so a column reading 117 never shows three cards
+3a358d986 2026-09-13T01:48:02+05:30 fix(notifications): route pen visit rework pushes to visit detail
+18203c877 2026-09-12T21:59:01+05:30 fix(migrations): renumber pen visit completion gate
+99c427bf3 2026-09-12T21:37:47+05:30 merge: club PR 247 and PR 248
+0f9d81b91 2026-09-12T18:29:56+05:30 fix(notifications): align pen visits with task-level copy
+0add69933 2026-09-12T17:20:04+05:30 fix(sales): document sales line coverage
+26edc3b2f 2026-09-12T16:59:42+05:30 feat(notifications): approve says 'completed' where the verdict is the last step
+bfb432ee1 2026-09-12T16:55:14+05:30 test(pc-care): pin the visit-owed pens aggregate behind the round card's chip
+39638dd8a 2026-09-12T16:49:27+05:30 chore(pen-visits): renumber the migration to 000296 after the rebase onto main, and record the assistant coverage exclusion
+0b2380b9b 2026-09-12T16:46:36+05:30 feat(pc-care): a verified round whose pens still owe their visit reads the visit, not Done
+1728a053d 2026-09-12T16:45:54+05:30 fix(vaccination): compose the pen-visit step for the viewer, not the operator scope
+e55094c3e 2026-09-12T16:45:54+05:30 chore(pen-visits): guardrail closure — cascade wiring names the two pen-visit appliers, hoisted SQL, locale copy, honest sop_submission token
+2a7e97779 2026-09-12T16:45:54+05:30 feat(android): the pen visit is a step on the PC Care task and the vaccination shed card
+734f3d2cc 2026-09-12T16:45:54+05:30 feat(people): who visits a park's pens is ticked on /people, one or more people per park
+edacbb08d 2026-09-12T16:45:54+05:30 feat(vaccination): the shed card and drilldown carry the pen's next-day visit step
+afc6a5876 2026-09-12T16:45:53+05:30 feat(pen-visits): retire the For-me tab; badges and routes follow the parent modules
+5dee55755 2026-09-12T16:45:53+05:30 test(pccare): pin the pen-visit closure both ways, the sweep hold and the visitor's worklist
+1ba67a718 2026-09-12T16:45:53+05:30 feat(work-board): the pen visit rows as the work continuing, and the PC Care card follows it
+7844ccfcb 2026-09-12T16:45:53+05:30 feat(pen-visits): the visit is the care work's last step, verified, per-park visitors
+beb9e240e 2026-09-12T16:42:35+05:30 fix(sales): keep manure counts out of live sale target
+4cc97e663 2026-09-12T16:36:51+05:30 fix(sales): renumber deal-lines migration after rebase
+837711f55 2026-09-12T16:36:06+05:30 test(sales): pin line-grain aggregates across cardinality, page, farm and status
+f53c8c714 2026-09-12T16:36:06+05:30 feat(sales): one sale carries many product lines on web and phone
+5afc6e5d5 2026-09-12T15:24:19+05:30 feat(notifications): verification pushes are task-level and lead with the item's own subject
+3c5c78ae1 2026-09-12T13:43:19+05:30 fix(herd-signals): harden live sort cursors
+477413486 2026-09-12T13:39:46+05:30 fix: resolve combined PR integration drift
+af9732a49 2026-09-12T13:39:46+05:30 chore(migrations): renumber the Work Board access rows to 000294 after the rebase onto main
+b63dfd565 2026-09-12T13:39:46+05:30 chore(counts): gofmt the handler test
+266116141 2026-09-12T13:39:46+05:30 fix(workboard): a vaccination row carries the owner's user id, resolved from the member in one read
+fadebfc87 2026-09-12T13:39:46+05:30 fix(workboard): a milk session ahead of its due time is scheduled, not due
+e8912ae95 2026-09-12T13:39:46+05:30 fix(eventwiring): the milk feeding verdict applier joins the one shared applier list
+d9a7c6090 2026-09-12T13:39:46+05:30 fix(workboard): the operator's board shows the park's unclaimed pool work, not only rows they own
+52b77c42a 2026-09-12T13:39:46+05:30 fix(counts): an approver decides in every park they hold; a birth is scoped by its park; a refusal is 403
+abe2728f5 2026-09-12T13:39:46+05:30 fix(workboard): a rejected row is amber with attention and a pending unit on every source
+04c57dbad 2026-09-12T13:39:46+05:30 fix(workboard): a rejected proof that was re-shot leaves the board
+ab367f203 2026-09-12T13:39:46+05:30 fix(workboard): an approved pen move follows its shifting event; a canceled move leaves the board
+7a7eac34b 2026-09-12T13:39:46+05:30 fix(workboard): a weighing card follows the bucket for submit and cancel, and shows a bounced scan
+301983f40 2026-09-12T13:39:46+05:30 fix(workboard): a garbage cursor id is 400, a changed idempotent flag is 409, never 500
+2d01a2f1d 2026-09-12T13:39:46+05:30 fix(workboard): no module permission means no module, never every module
+4b6b268fb 2026-09-12T13:39:46+05:30 fix(work-board): a lane with work on other pages no longer says "Nothing here" under its count
+96a4566d6 2026-09-12T13:39:46+05:30 fix(work-board): a deep link to work that is not on this page says so
+bd36d2865 2026-09-12T13:39:46+05:30 fix(workboard): health subtitle is the session only; park is optional for a park-scoped caller
+c19c69704 2026-09-12T13:39:46+05:30 fix(leadership-tasks): Tasks opens on 'For me'; scopes read 'For me' and 'Raised by me'
+85f033528 2026-09-12T13:39:46+05:30 feat(work-board): the issue view lists the card's subtasks, worst first, ten a page
+54031d57b 2026-09-12T13:39:46+05:30 feat(work-board): every source emits the row's admin-web href
+334ae02e0 2026-09-12T13:39:46+05:30 feat(vaccination): board subtasks are the animals of the pen for that drive
+01b995ce1 2026-09-12T13:39:46+05:30 feat(pccare): board subtasks are the task's scanned animals
+f4da6fc4a 2026-09-12T13:39:46+05:30 feat(health): board subtasks are the session's treatment steps
+5f2c8dbd5 2026-09-12T13:39:46+05:30 feat(counts): board subtasks for approval requests and milk feeding sessions
+0a98c826f 2026-09-12T13:39:46+05:30 feat(verification): board subtasks are the item's proofs
+547a27d3d 2026-09-12T13:39:46+05:30 feat(feed): board subtasks are the transport task's attempts
+3d58945a6 2026-09-12T13:39:46+05:30 feat(weighing): board subtasks are the bucket's scanned animals, or the whole pen
+48119ae6b 2026-09-12T13:39:46+05:30 feat(work-board): the subtask read behind the issue view
+d5a048aac 2026-09-12T13:39:46+05:30 fix(work-board): Clear all empties the board, the Module menu keeps the caller's whole vocabulary, the pager counts pages
+8d7dddee9 2026-09-12T13:39:46+05:30 fix(adminui): the procurement director's fixed console includes the Work Board
+cd3972443 2026-09-12T13:39:46+05:30 fix(work-board): port the approved board mock exactly -- full-width board, mock cards, issue-view dialog
+0c86d0b34 2026-09-12T13:39:46+05:30 chore(workboard): keep the approvals projection-review marker guard-parseable
+321745c27 2026-09-12T13:39:46+05:30 fix(workboard): vaccination cards title the vaccine, never the protocol family name
+6cde1a2fd 2026-09-12T13:39:46+05:30 fix(workboard): an empty visible set is an empty modules list on the wire, not a sentinel
+d223a2b78 2026-09-12T13:39:46+05:30 fix(workboard): withdrawn proofs leave the board; verification titles read once and name the pen
+f404683af 2026-09-12T13:39:46+05:30 fix(workboard): a feed transport row is owned by whoever filmed it
+01d0ae5c6 2026-09-12T13:39:46+05:30 fix(workboard): a weighing bucket closed after submit is Done, not In review
+30a901174 2026-09-12T13:39:46+05:30 fix(workboard): a death request sits on its animal's own park board
+db2b3de68 2026-09-12T13:39:46+05:30 fix(workboard): a flag resolves its row on the caller's own board, never from the request
+7d28a153d 2026-09-12T13:39:45+05:30 chore(work-board): guard closure — projection-review markers, coverage row, seed companion
+92529c143 2026-09-12T13:39:45+05:30 feat(work-board): flag a row to the park head as a Leadership Task
+9a184013c 2026-09-12T13:39:45+05:30 fix(work-board): a shared PC care task names the scoped caller as its owner
+37a10eb8d 2026-09-12T13:39:45+05:30 fix(work-board): card header carries the clock, honest tile hint, shorter pool copy
+91608a3c3 2026-09-12T13:39:45+05:30 feat(work-board): the remaining sources, the phone offer, and the field grants
+709cd2eb2 2026-09-12T13:39:45+05:30 feat(work-board): one cross-module board row, the read, and the admin-web board
+a38ebaba6 2026-09-12T13:39:45+05:30 feat(shifting): add the normal shift type -- plain move, tag never changes
+420f0e466 2026-09-12T13:39:45+05:30 fix(workforce): keep the scale-guard marker out of the People list SQL
+bb121cb95 2026-09-12T13:35:34+05:30 fix(herd-signals): make live table sort server-side
+ad341f8f3 2026-09-12T13:06:11+05:30 fix(herd-signals): explain live activity states
+bf5473b8b 2026-09-11T23:24:14+05:30 test(vaccination): cover rework command board plan gates
+14df7fec3 2026-09-11T23:11:21+05:30 fix(vaccination): align rework drawer buckets
+512b14fe0 2026-09-11T23:11:21+05:30 fix(vaccination): scope shed vaccine drawer by state
+e8dc7131a 2026-09-11T23:11:21+05:30 fix(vaccination): carry rework reason through command board drawers
+0f56a8931 2026-09-11T23:11:21+05:30 fix(vaccination): count archived proof rework on command board
+d3cf14067 2026-09-11T23:11:21+05:30 fix(vaccination): keep rework command-board counts scoped
+f53cd4af2 2026-09-11T23:11:21+05:30 fix(vaccination): list rework animals in command board drawer
+653aaca43 2026-09-11T23:11:21+05:30 fix(vaccination): separate proof rework from overdue
+a3af3e191 2026-09-11T22:20:02+05:30 fix(leadership-tasks): satisfy landing guards
+2ac8c7ff2 2026-09-11T21:58:55+05:30 fix(workforce): audit and fence title updates
+05992b6a9 2026-09-11T21:34:27+05:30 feat(leadership-tasks): the assignee picker lists titles from HRMS, and reveals the person beneath
+160a879f0 2026-09-11T20:39:42+05:30 fix(herd-signals): prune live motion packet reads
+4ec7082e5 2026-09-11T20:26:17+05:30 fix(herd-signals): count sparse live motion deltas
+65ab7eb6e 2026-09-11T20:12:58+05:30 fix(leadership-tasks): assignee picker is leaders only; Tasks back on the web sidebar
+b8d7b3db9 2026-09-11T18:54:09+05:30 copy(notifications): the Tasks push labels no longer assume a CXO assignee
+81d3f7163 2026-09-11T18:48:48+05:30 fix(leadership-tasks): web desk raises from a modal, and the team read no longer 500s
+be76cdc25 2026-09-11T18:06:00+05:30 fix(leadership-tasks): assignees are leadership only, and Tasks returns to the web sidebar
+8b2c0870e 2026-09-11T11:16:35+05:30 fix(sales): show the sex split as male and female only
+7f23cfedf 2026-09-11T11:04:35+05:30 feat(sales): show the fattening and kid buckets by sex on Farm value
+7011a1c06 2026-09-11T08:58:35+05:30 feat(sales): divide the Sales board into Sold and Farm value
+a1f1bc255 2026-09-11T03:58:36+05:30 fix(admin-web): close combined responsive review gaps
+b24aee2db 2026-09-11T03:51:34+05:30 feat(counts): add breakdown summary cards
+1242b49e4 2026-09-10T20:21:59+05:30 feat(mobile): filter bar over Weighing tasks and Preventive Care rounds
+c5cc9fc01 2026-09-10T19:06:25+05:30 docs(feed): finish stock farm family contract sync
+e9bb18a93 2026-09-10T17:57:49+05:30 feat(feed): read the per-farm concentrate table as one feed per farm
+304f189a4 2026-09-10T16:49:49+05:30 fix: harden proof media egress guards
+f90996847 2026-09-10T16:19:31+05:30 fix: guard proof media egress
+2c91dac23 2026-09-10T16:18:10+05:30 Fix verify thumbnails and filter feedback
+f5d5af075 2026-09-10T15:55:30+05:30 fix(review): close date and stage label gaps
+eb5564b8d 2026-09-10T15:01:35+05:30 feat(counts): the fattening stages read as Fattening, not F2
+e8f26be46 2026-09-10T15:01:23+05:30 feat(dates): every visible date renders DD/MM/YYYY on web, app and backend copy
+c7ffe2f93 2026-09-10T15:00:48+05:30 fix(dates): close the leaks a live end-to-end run found, and widen the guard
+d54c31379 2026-09-10T13:49:17+05:30 Fix verify subcategory filters
+5855cbd97 2026-09-10T13:32:10+05:30 feat(sales): Farm value and Sold are two blocks, not one row
+87df666d4 2026-09-10T13:32:10+05:30 feat(counts): Breakdown carries Female · Male on every row
+4ae36916f 2026-09-10T13:32:10+05:30 feat(counts): Breakdown answers stage and sex in one chart
+57fc030f0 2026-09-10T13:15:20+05:30 Fix verify media playback and queue sorting
+33856d26c 2026-09-10T11:36:12+05:30 feat(sales): value ICU animals through their cohort instead of dropping them
+96a008810 2026-09-10T11:36:12+05:30 chore(leave): renumber the leave migrations to 000288-000290 after rebase
+05db79e04 2026-09-10T11:36:12+05:30 feat(leave): Leave is its own bottom-bar destination; clockings show the last 31 days
+493753dce 2026-09-10T11:36:12+05:30 chore(leave): gofmt, wrap date-parse errors, cover the leave surfaces in the assistant matrix
+1c8768fbe 2026-09-10T11:36:12+05:30 docs(leave): record the hr role in the active-roles runbook; mark the reviewed role-catalog rows
+639cd5761 2026-09-10T11:36:12+05:30 wip(leave): admin-web /leave page, tenant-scoped park heads, form drain wait
+e56296e13 2026-09-10T11:36:12+05:30 wip(leave): leave requests backend + contracts + android (checkpoint)
+68fd82c67 2026-09-10T10:57:25+05:30 fix: restore verifier proof media metadata
+a248f9333 2026-09-10T08:29:43+05:30 fix: harden proof media egress guards
+83c9a2db0 2026-09-10T08:29:43+05:30 fix: guard proof media egress
+172a18c0a 2026-09-10T08:22:32+05:30 fix(sales): project valuation breakdown fields
+0a4e68c0e 2026-09-10T05:38:20+05:30 Explain non-valued farm animals
+472e45a8d 2026-09-10T04:18:48+05:30 fix(sales): test assembled farm valuation scope
+bdbc795b4 2026-09-10T04:11:28+05:30 Add farm valuation projection guard tests
+f6d4e196c 2026-09-10T04:11:28+05:30 Use current herd stage for farm valuation
+26e58d8e1 2026-09-10T04:11:28+05:30 Guard farm valuation SQL regressions
+1004456ab 2026-09-10T04:11:28+05:30 Tighten farm valuation review fixes
+255f3ffad 2026-09-10T04:11:28+05:30 Add farm value cards to sales overview
+b88b20e5e 2026-09-09T22:49:55+05:30 feat(feed): warn the packing verifier once when a reading is 500 g off the plan
+a89cc77cc 2026-09-09T15:10:53+05:30 merge: land PR223 and PR224
+ab876efbf 2026-09-09T13:08:55+05:30 fix(adminui): keep parked pages withholdable
+503b1ac30 2026-09-09T12:39:53+05:30 fix(weights): scope ADG date filters and fill overflow bin
+ee1f2d3bd 2026-09-09T12:25:07+05:30 fix(admin-web): keep parked control tower deep link reachable
+e8a32dad3 2026-09-09T07:43:35+05:30 feat(adminui): park command lenses, Calendar, Tasks and DLQ Center; land on ADG Analytics
+2da934ddb 2026-09-08T21:07:26+05:30 fix(landing): finish guard compliance
+33f3b315a 2026-09-08T21:07:26+05:30 fix(landing): satisfy combined pr gates
+3d21f6760 2026-09-08T21:07:26+05:30 fix(landing): reconcile pr220 pr222 contracts
+a9a83ebce 2026-09-08T21:07:26+05:30 feat(adminui): Health is its own sidebar module group
+80ee8426a 2026-09-08T21:07:26+05:30 feat(adminui): move command lenses into the Others sidebar group
+5a5ac3545 2026-09-08T21:07:07+05:30 fix(leadership-tasks): render notes on Android
+c59257646 2026-09-08T21:07:07+05:30 fix(leadership-tasks): keep raiser notes out of assignee comment
+267679dec 2026-09-08T21:07:07+05:30 feat(leadership-tasks): add two-way task notes
+0be5ee6cc 2026-09-08T21:07:07+05:30 fix(leadership-tasks): keep all assignees reachable
+55ba1193f 2026-09-08T21:07:07+05:30 fix(leadership-tasks): validate write idempotency keys
+5c504076c 2026-09-08T21:07:07+05:30 fix(leadership-tasks): keep web monitor scope
+c674d9254 2026-09-08T21:07:07+05:30 fix(leadership-tasks): complete web attachment flow
+ddd175a4f 2026-09-08T21:07:07+05:30 fix(leadership-tasks): support web evidence refs
+75d30c3ef 2026-09-08T21:07:06+05:30 fix(leadership-tasks): complete web tasks loop
+cdaa30723 2026-09-08T21:06:40+05:30 fix(leadership-tasks): publish admin tasks contract
+8ee6d22fa 2026-09-08T21:06:40+05:30 fix(leadership-tasks): wire live web tasks
+e5479319e 2026-09-08T21:06:40+05:30 fix(leadership-tasks): tighten monitor and admin contracts
+5e5562779 2026-09-08T21:06:18+05:30 fix(leadership-tasks): keep directors raising
+cbe433d37 2026-09-08T21:06:18+05:30 fix(leadership-tasks): align team progress review access
+7c64f22a6 2026-09-08T21:06:18+05:30 fix(leadership-tasks): enforce scope access
+b404149e2 2026-09-08T21:06:18+05:30 feat(leadership-tasks): add monitoring scopes
+544d4defb 2026-09-08T21:06:18+05:30 fix(leadership-tasks): ledger two-way access rollback
+174058415 2026-09-08T21:06:18+05:30 fix(leadership-tasks): make two-way access seed rollback-safe
+a3840f1fb 2026-09-08T21:06:18+05:30 feat(leadership-tasks): enable two-way assignment
+a5b3887f0 2026-09-08T17:48:36+05:30 fix(notifications): renumber audience migrations after rebase
+eec23b02c 2026-09-08T17:37:00+05:30 fix(notifications): gate task callbacks by raiser designation
+fa1cbd7c1 2026-09-08T17:37:00+05:30 fix(notifications): scope weighing audiences to park
+ec082ab66 2026-09-08T17:37:00+05:30 fix(notifications): fence resets and scope feed audiences
+58ba66ca4 2026-09-08T17:37:00+05:30 feat(notifications): who hears each leadership push is config, per designation
+e7d920b3d 2026-09-08T16:49:49+05:30 fix(sqlc): refresh generated obligation models
+f5e186213 2026-09-08T15:42:56+05:30 fix(vendors): label average weight validation errors
+42171d6d0 2026-09-08T15:38:48+05:30 fix(sqlc): carry sale allocation weight check
+ba84e5ca1 2026-09-08T15:38:48+05:30 fix(vendors): make phone vendor edits replay-safe
+b741179b2 2026-09-08T15:38:48+05:30 feat(sales): weight at tagging, and sold animals by weight band on the Sales page
+e1cf46ff7 2026-09-08T15:38:48+05:30 feat(vendors): optional average animal weight on the vendor register, web and phone
+888171d21 2026-09-08T15:38:48+05:30 fix(verify): include measurements in verdict idempotency
+845e4dced 2026-09-08T15:38:47+05:30 fix(verify): note on approve, and fullscreen resumes where the clip was
+356692f72 2026-09-08T15:38:47+05:30 fix(adminui): Procurement Director sees Sales > Vendors when it is ticked on /people
+99150693b 2026-09-08T01:30:02+05:30 fix: satisfy final clubbed PR gates
+6566536db 2026-09-08T01:15:26+05:30 fix: reconcile clubbed pen visit review findings
+8c15c5ea3 2026-09-08T01:05:31+05:30 fix(migrations): sequence clubbed pen visit migrations
+2cf9b26fa 2026-09-08T01:04:12+05:30 Merge remote-tracking branch 'origin/feat/pen-visit-tasks' into land/club-open-prs-20260908
+336461d50 2026-09-08T01:03:47+05:30 Merge remote-tracking branch 'origin/feat/feed-water-removal-cutoff-config' into land/club-open-prs-20260908
+34a7fd332 2026-09-08T01:03:44+05:30 Merge remote-tracking branch 'origin/perf/process-integrity-read-cache-key' into land/club-open-prs-20260908
+12f773673 2026-09-08T00:45:29+05:30 fix(process-integrity): bucket adherence due-after cache key
+2908178e2 2026-09-08T00:18:11+05:30 fix(pen-visits): reject malformed page cursors
+d89b0c219 2026-09-08T00:01:41+05:30 fix(pccare): scope feed removal cutoff to relevant lists
+b6ad69a3d 2026-09-07T23:47:43+05:30 fix(pen-visits): retry due push after materialize replay
+3c2494407 2026-09-07T23:47:43+05:30 fix(pen-visits): renumber migrations past main's 000274/000275 and carry its enum and validator state
+79946a740 2026-09-07T23:47:43+05:30 feat(pen-visits): Android For me tab, per-tab badges, and once-per-process outbox replay
+c8b39db7a 2026-09-07T23:47:43+05:30 fix(pen-visits): emit envelopes the relay accepts, and pin them to the schema
+b50ef91f3 2026-09-07T23:47:43+05:30 fix(pen-visits): split the migration for the seed and lock guards, cover the surface, wrap the date error
+56bc88694 2026-09-07T23:47:43+05:30 feat(pen-visits): the day-after pen visit on the Tasks module's "For me" tab
+8278ae7fe 2026-09-07T23:27:24+05:30 feat(fasting): read the feed & water removal cutoff from config, not code
+7865d68fc 2026-09-07T19:58:23+05:30 feat(feed): expenditure chart toggles between overall and per-animal ₹
+bda36f57e 2026-09-07T13:21:03+05:30 fix(feed): build sale allocation reminder index concurrently
+4faeb4831 2026-09-07T13:15:47+05:30 feat(feed): notify the Feed Director when a sale removes animals from pens
+177be6fdf 2026-09-07T11:56:30+05:30 feat(feed): Consumption tab shows feed cost per animal yesterday
+4c17af759 2026-09-07T11:55:13+05:30 fix(weighing): merge same-animal shed leaderboard counts
+364d5c3fb 2026-09-07T11:55:13+05:30 fix(weighing): keep temp tags out of same-animal RFID map
+45d1cdf8a 2026-09-07T11:55:13+05:30 fix(weighing): two RFIDs on one animal are one animal for every growth number
+55b4e7061 2026-09-07T10:49:29+05:30 feat(shifting): name both pens on the verifier's shifting item
+135e26b19 2026-09-07T09:07:49+05:30 Fix proof media caps and telemetry
+2b95ba349 2026-09-07T08:19:03+05:30 Enrich proof analytics and removal payloads
+2fce87b67 2026-09-07T08:19:02+05:30 Fix proof policy caps and removal rework
+2f7423bac 2026-09-07T08:19:02+05:30 Fix client proof caps for removal videos
+f4f2d1851 2026-09-07T00:00:49+05:30 fix(feed): align low-stock alerts with stock card catalog filter
+f08b649ae 2026-09-06T23:48:49+05:30 feat(feed): pin CBE Concentrate at 55 kg/day
+cdcde6eb7 2026-09-06T23:35:50+05:30 feat(feed): read the split concentrates as one stock family
+e8135244e 2026-09-06T22:43:16+05:30 fix(pccare): label removal cards with pens
+0853c17e8 2026-09-06T22:29:08+05:30 fix(pccare): label removal cards with pens
+33de86a1b 2026-09-06T20:04:31+05:30 test(feed): guard Mesha concentrate stock key scope
+88820a139 2026-09-06T19:43:10+05:30 feat(feed): add Mesha Adult Concentrate to the per-farm table, hide its zero-days rows
+117415ada 2026-09-06T14:10:56+05:30 feat(feed): stock cards follow the active feed vocabulary, not the burn rate
+c0805f518 2026-09-06T01:28:53+05:30 perf(process-integrity): bucket the read-cache key so the cache can hit
+6c16b2584 2026-09-06T00:55:42+05:30 fix(health): reject invalid analytics park scope
+3efc21e5d 2026-09-06T00:10:39+05:30 fix: remove duplicate fasting migrations after main merge
+cf5c421f0 2026-09-05T23:46:25+05:30 fix: resolve latest main migration conflicts
+26b025ff5 2026-09-05T23:44:15+05:30 fix: refresh PR after main migration update
+4a8ae63c6 2026-09-05T23:44:15+05:30 fix: refresh sales PR against main
+c1ae3079a 2026-09-05T23:44:15+05:30 fix: include lead phone in create idempotency
+bc1a4c574 2026-09-05T23:44:15+05:30 fix(feed): the phone still said "Reached" — the shared label function was missed
+f3a3bf327 2026-09-05T23:44:15+05:30 fix(sales): lead search escaped its LIKE metacharacters twice, so it escaped nothing
+7773b11ea 2026-09-05T23:44:15+05:30 feat(feed): a load is IN TRANSIT then DELIVERED, never "on the road" or "reached"
+1dcf24f99 2026-09-05T23:44:15+05:30 fix(sales): the call list itself was the one bucket you could not filter to
+ff4be5f48 2026-09-05T23:44:14+05:30 feat(sales): a lead you can find, see and call
+43ae38653 2026-09-05T23:42:19+05:30 fix(procurement): correct the NOT EXISTS rationale, which named a hazard that cannot fire
+d153b4545 2026-09-05T23:42:19+05:30 feat(sales): the vendor register gets two sides, and Sales gets its own phone module
+cc818d87f 2026-09-05T23:39:03+05:30 Merge pull request #196 from vgoats/feat/health-death-cause
+8f8d4b595 2026-09-05T22:49:53+05:30 fix(mobile): the Tasks module carries no bottom bar
+d9481824f 2026-09-05T22:39:52+05:30 chore(notification): gofmt enum guard
+4ad4a49f4 2026-09-05T22:31:24+05:30 fix(notification): allow withdrawn verification notifications
+9f6341ce2 2026-09-05T22:29:40+05:30 fix(notification): preserve leadership task notification types
+67b5f395a 2026-09-05T22:27:26+05:30 fix(migrations): move feed proof notification type migration
+d19325717 2026-09-05T22:26:55+05:30 feat(feed): post the 17:30 feed-proof-times table to Slack, per park
+e7e73af01 2026-09-05T22:23:01+05:30 fix(ci): repair landing gate drift
+8cd2a871c 2026-09-05T22:21:27+05:30 fix(health): preserve death cause through approval
+4851ef344 2026-09-05T22:21:27+05:30 fix(health): align death cause attribution contracts
+2a5694411 2026-09-05T22:21:27+05:30 fix(health): correct death cause analytics copy
+1ccd29be4 2026-09-05T22:21:27+05:30 feat(health): an animal that dies mid-treatment is recorded from where the treatment is
+5f1a2bd43 2026-09-05T22:21:27+05:30 refactor(health): the cause of death is a Health fact, not a column on the animal
+1e6c1d765 2026-09-05T22:21:27+05:30 feat(admin-web): mark an inferred cause apart from a recorded one
+f03078679 2026-09-05T22:21:27+05:30 test(health): the cause-of-death edge cases, at both boundaries
+6b83514b1 2026-09-05T22:21:27+05:30 fix(health): a co-morbid death was charged to every disease it had open
+ef67dbba7 2026-09-05T22:21:27+05:30 feat(health): the death-cause routes, and the relapse the first tests missed
+1409f8b4d 2026-09-05T22:21:27+05:30 feat(health): record a coded CAUSE OF DEATH
+edaa56fac 2026-09-05T22:21:27+05:30 test(health): the three grain proofs, plus what local CI caught
+a3fef7bd2 2026-09-05T22:21:27+05:30 fix(admin-web): four defects the rendered Health Analytics screen showed
+4bf08f155 2026-09-05T22:21:27+05:30 feat(health): Health Analytics leadership read
+3d58a7676 2026-09-05T21:55:27+05:30 fix(ci): repair PR 193 main landing fallout
+5aabf79c7 2026-09-05T20:44:28+05:30 Merge pull request #193 from vgoats/perf/admin-route-latency-no-projections
+6b8086169 2026-09-05T20:23:50+05:30 fix(perf): close remaining stale cache gaps
+92de46d07 2026-09-05T20:18:18+05:30 fix(pccare): aggregate round card pen labels from display alias
+86822bcee 2026-09-05T20:00:56+05:30 fix(perf): keep feed caches and auth reads correct
+e2d2d4871 2026-09-05T19:23:37+05:30 fix(vaccination): preserve exact execution cache keys
+e7a288e88 2026-09-05T19:23:37+05:30 fix(vaccination): preserve exact shed summary snapshots
+b297c2db1 2026-09-05T19:23:37+05:30 fix(perf): preserve route cache correctness
+9df41b958 2026-09-05T19:23:37+05:30 fix(perf): speed up admin analytics routes
+fda799b67 2026-09-05T19:12:23+05:30 fix(perf): cache analytics route reads
+d55392cc9 2026-09-05T18:15:49+05:30 fix(pccare): satisfy landing guards for rounds
+d36f0a60c 2026-09-05T12:38:28+05:30 fix(pccare): the round card carries its verbs again
+5a0b92090 2026-09-05T12:05:35+05:30 docs(pccare): record why partial removal capture is by design
+d6517049f 2026-09-05T11:27:03+05:30 feat(pccare): Anti Protozoan — deworming's twin, without the feed removal
+cf44836b6 2026-09-05T10:54:38+05:30 feat(pccare): the planner's list is ROUND-grained, and loses the calendar
+c7faf906c 2026-09-05T10:54:38+05:30 fix(pccare): a removal card's pens read like every other task read
+28c63eb72 2026-09-05T10:54:34+05:30 feat(pccare): two verbs — close and reopen — on par with weighing
+25c218572 2026-09-05T10:54:30+05:30 feat(pccare): plan a ROUND of pens, with removal proved pen by pen
+1b3fbf2dd 2026-09-05T05:52:59+05:30 test: guard vaccination submit sync invariants
+e76d3a1da 2026-09-05T05:31:08+05:30 fix: keep vaccination submit review partition-bound
+951465fb2 2026-09-05T05:05:45+05:30 fix: accept linked vaccination operator submits
+f135e4c1c 2026-09-05T05:05:45+05:30 fix: backend-own vaccination implicit submit
+3eeb302d1 2026-09-05T05:05:45+05:30 fix: preserve vaccination shed partition submit
+5a0671754 2026-09-05T02:05:45+05:30 fix(weights): keep empty parks in gain cards
+7ac3f3604 2026-09-05T00:20:57+05:30 fix(weights): floor the sale-ready count at 3 August, not the 1st
+f955b66b8 2026-09-05T00:20:44+05:30 feat(weights): name the pens behind each load on the comparison chart
+f35f68d25 2026-09-05T00:20:29+05:30 feat(weights): bring back the per-park daily gain cards, without the extra reads
+b32b2ebe8 2026-09-04T22:18:43+05:30 fix(android): unblock vaccination finalize after synced proofs
+c47150597 2026-09-04T21:30:49+05:30 feat(feed): spend-share pie shows bhusa and Mesha concentrates across the full card width
+fd5a9a3c6 2026-09-04T21:30:49+05:30 feat(feed): add a feed spend-share pie to the Consumption tab
+1d8898c0c 2026-09-04T21:30:49+05:30 feat(feed): rename the Feed Analytics Overview tab to Consumption
+39ec65231 2026-09-04T20:46:16+05:30 fix(counts): reject blank legacy partition labels
+2496c9503 2026-09-04T20:39:27+05:30 fix(counts): tighten pen filter validation
+648f95bf1 2026-09-04T20:39:27+05:30 fix(counts): reject malformed pen shed ids
+7cadf93fb 2026-09-04T20:39:27+05:30 feat(counts): Counts Breakdown opens per pen with an in-place exact split
+7cb6ba981 2026-09-04T19:47:09+05:30 ci: scope weighing and pc care screenshots
+7ee17e51d 2026-09-04T19:47:09+05:30 fix: harden fasting and pc care proof gates
+4c870e45e 2026-09-04T19:47:09+05:30 feat: feed & water removal (fasting) precondition — rebased onto main @30f27979b successor (91826a50c)
+9679aac3f 2026-09-04T18:49:16+05:30 Clarify combo vaccination proof copy
+4e2afd291 2026-09-04T17:34:10+05:30 fix(leadership-tasks): scope attachment downloads
+8993f85da 2026-09-04T17:34:09+05:30 feat(leadership-tasks): seed leadership users as assignable by email
+34cb5a2dc 2026-09-04T17:34:09+05:30 feat(leadership-tasks): assignability is a per-person tick, not the CXO role
+fc6b48593 2026-09-04T17:34:09+05:30 chore(leadership-tasks): rebase onto main -- Room v57, migration 000252, breeding and procurement directors
+8763cbc75 2026-09-04T17:34:09+05:30 feat(leadership-tasks): status dropdown, CXO comment, assignee picker dropdown, coloured chips, title cap
+c0a3ff75b 2026-09-04T17:34:09+05:30 feat(leadership-tasks): Android Tasks module for directors and CXOs
+d25546316 2026-09-04T17:34:09+05:30 feat(leadership-tasks): admit the module's two push types to notification_requests_type_check
+44e78b096 2026-09-04T17:34:09+05:30 feat(leadership-tasks): write the module's per-person access rows for migrated directors and CXOs
+4330589ac 2026-09-04T17:34:09+05:30 feat(leadership-tasks): backend module, permissions, events, push and bootstrap badge
+46ca2733b 2026-09-04T17:21:18+05:30 fix(vaccination): bound live tracker working set
+d6d7235b9 2026-09-04T17:18:40+05:30 Fix tenant-only grant scope preflight
+beff510d1 2026-09-04T17:06:19+05:30 Clarify live scan rate window
+999ecd989 2026-09-04T17:04:14+05:30 Fix grant preflight for tenant-only roles
+97abedd4e 2026-09-04T17:03:12+05:30 fix(perf): skip heavy summaries on route-critical reads
+a70dd0f08 2026-09-04T16:54:01+05:30 Merge pull request #180 from vgoats/feat/one-park-scope-source
+7c44f80f1 2026-09-04T16:53:24+05:30 fix(workforce): harden park scope derivation
+9e0486996 2026-09-04T16:46:20+05:30 Restore live activity rail title
+ec49b66e1 2026-09-04T16:45:09+05:30 feat(parkscope): refuse narrowing tenant-only roles and widening park-only people
+5e54f80d7 2026-09-04T16:45:09+05:30 feat(workforce): one authored source for a person's park scope
+5e7a25e01 2026-09-04T16:39:36+05:30 Show animal scan throughput in live tracker
+91826a50c 2026-09-04T15:29:03+05:30 fix(vendors): satisfy local CI before landing
+7b12504f2 2026-09-04T15:29:03+05:30 chore(migrations): place the reviewed seed-guard marker on 000249's statements
+362ae5a8c 2026-09-04T15:29:03+05:30 fix(migrations): 000250 rollback removes only the mobile Vendors ticks it inserted
+15c740bf9 2026-09-04T15:29:03+05:30 chore(procurement): renumber migrations past main's 000246 after rebase
+4acaed9fa 2026-09-04T15:29:03+05:30 feat(procurement): Procurement phone module with Sales tab, capacity optional, sales options endpoint
+bc36eca1f 2026-09-04T15:29:03+05:30 feat(android): Vendors module — vendor register and feed purchases on the phone
+12860a59c 2026-09-04T15:29:03+05:30 feat(procurement): vendor capacity, voice note, and the Vendors phone module contract
+f1a4b7aa7 2026-09-04T15:29:03+05:30 fix(procurement): feed purchase drawer uses the app's own date control
+af51c94eb 2026-09-04T15:29:03+05:30 feat(procurement): feed purchases reach the farm before they are stock
+e7028d85b 2026-09-04T14:55:52+05:30 fix(workforce): align pc trimming bootstrap with person ticks
+e572a81a8 2026-09-04T14:55:52+05:30 fix(workforce): legacy operator and grant pre-flights accept breeding_director
+7d61984e2 2026-09-04T14:55:52+05:30 fix(pccare): per-person ticks decide the planner service check; Add Person accepts the Breeding Director hint
+68b8f7ce2 2026-09-04T14:55:52+05:30 feat(pccare): Breeding Director plans hoof and hair trimming
+7a59bbf53 2026-09-04T08:45:33+05:30 fix(admin): wire performance telemetry and harden visual smoke
+0b86f1e68 2026-09-04T04:21:42+05:30 fix(admin-web): make sales loads mobile filters readable
+a0c897454 2026-09-04T04:07:53+05:30 Fix CEO access page defaults
+f1da2c27a 2026-09-04T00:48:27+05:30 Align Hemant provisioned permissions
+bd20b26a8 2026-09-04T00:46:29+05:30 Harden Hemant route denials
+f5d77f5a4 2026-09-04T00:37:45+05:30 Gofmt procurement director permissions
+7ba3efc0a 2026-09-04T00:36:47+05:30 Honor Hemant stock-only and tolerance navigation
+998630d26 2026-09-04T00:16:54+05:30 Refine sale-ready tolerance UX and contract
+116e38f5d 2026-09-04T00:05:11+05:30 Anchor sale-ready weight window
+7974abbeb 2026-09-03T23:39:26+05:30 Add sales-ready weight tolerance
+5110329c6 2026-09-03T23:14:41+05:30 Restrict Procurement Director admin surfaces
+09b220cbf 2026-09-03T17:54:48+05:30 test(feed-analytics): prove per-item expenditure projection grain
+8925fb185 2026-09-03T17:00:01+05:30 feat(feed-analytics): money-first Feed Items charts with ₹ and kg per day
+d53fd500f 2026-09-03T16:17:11+05:30 test: name counts aggregate adversarial coverage
+9f955baab 2026-09-03T16:06:55+05:30 Merge pull request #174 from vgoats/feat/weights-loadwise-sales-batch
+9cbea5c8b 2026-09-03T16:05:18+05:30 Merge pull request #173 from vgoats/feat/milk-prep-verifier-entered-quantities
+15b37bb6d 2026-09-03T15:49:18+05:30 fix(weights): say "no weighed load yet" on Comparison when loads exist but none is weighed
+3efb38871 2026-09-03T15:42:36+05:30 fix(counts): an all-empty subdivided shed keeps a bare-name parent facet row
+c10747818 2026-09-03T15:19:31+05:30 fix(counts): honor a shed-less partition scope at query level, keep scalar filter params compiling
+254f6e013 2026-09-03T15:17:21+05:30 fix(procurement,weights): keep sales money behind SalesRead; pin the recorded-farm claim
+9f794a508 2026-09-03T15:17:00+05:30 fix(vaccination): keep due-today cohorts out of red pending
+1bc10520b 2026-09-03T15:00:56+05:30 feat(weights,sales): Comparison value chart, weighs-now bar, on-chart figures, Weighing label
+ffe9507c1 2026-09-03T14:26:13+05:30 fix(adminui): keep the Weight group label matching its pinned test
+5d7d98339 2026-09-03T14:23:40+05:30 fix(merge): pen wording on Load-wise notes, adopt landed herd analytics floor design
+4add2011f 2026-09-03T14:20:33+05:30 Merge origin/main: adopt landed pc-care stock gate, pen wording and calendar floors
+f8188d213 2026-09-03T14:14:19+05:30 feat(adminui): backend-owned contract, nav and shared component batch
+8e5a18468 2026-09-03T14:13:58+05:30 feat(weights): ADG Analytics naming, Load-wise comparison tab, parked Weights leaf
+64e2d0b92 2026-09-03T14:13:31+05:30 feat(counts,feed): breakdown filters, herd analytics window, feed daily charts
+c19e6e372 2026-09-03T14:11:27+05:30 feat(sales): payment edits, sale-allocation access, and load park filter
+c96bfe954 2026-09-03T14:11:06+05:30 feat(pccare): vaccine stock director gate and proof capture polish
+0352dfd82 2026-09-03T13:21:25+05:30 feat(counts): multi-select breakdown filters behind an Apply button
+e324e8df5 2026-09-03T10:54:34+05:30 feat(verify): show the operator's entered milk and citric acid to the verifier
+ee3246d69 2026-09-03T05:00:12+05:30 fix(pen-reconciliation): drain enqueue recovery debt
+e5b9a96ac 2026-09-03T04:51:46+05:30 Fix vaccination command board overdue parity
+cc7973624 2026-09-03T04:39:23+05:30 fix(pen-reconciliation): make verification enqueue recoverable
+05d51f38f 2026-09-03T03:53:10+05:30 fix(pen-reconciliation): satisfy local CI guardrails
+6b4ded3e9 2026-09-03T03:53:10+05:30 feat(counts): pen reconciliation — weighing submits raise wrong-pen return cards
+d747176a3 2026-09-02T22:25:28+05:30 feat(pc-care): stock UI polish + PC Director oversight nav
+8beee075e 2026-09-02T20:02:57+05:30 fix(analytics): floor Herd Analytics and Weights calendars at 1 Aug 2026
+a22d17d5a 2026-09-02T19:34:51+05:30 fix(pc-care): reset stock cutover lock timeout
+40c878f8b 2026-09-02T19:21:43+05:30 fix(pc-care): harden stock verdict landing issues
+8183cd69a 2026-09-02T18:56:03+05:30 feat(pc-care): operators record vaccine stock, the PC Director approves
+aac5fc1eb 2026-09-02T16:06:07+05:30 fix(sales): the load page is Purchase and Born
+b5ed0c295 2026-09-02T16:00:10+05:30 fix(sales): edit payments and sync sale sex counts
+ae13ff3ca 2026-09-02T15:52:33+05:30 fix(feed): keep milk-only days on analytics charts
+f7cb69998 2026-09-02T15:52:33+05:30 fix(feed): today's issued sheet on the daily charts, and the milk in them
+07537b3a5 2026-09-02T15:52:33+05:30 fix(sales): the picker shows both of an animal's tags, not just one
+5f0820f3c 2026-09-02T14:40:10+05:30 fix(feed): UHT milk left the store twice, once per verifier approve
+c7b90b284 2026-09-02T13:38:35+05:30 fix(admin-web): a copy sweep renamed a ROUTE, and four sentences read wrong
+fbaec3459 2026-09-02T13:30:29+05:30 fix(admin-web): the row-count noun still said shed, and the guard could not see it
+deaa6755a 2026-09-02T13:30:29+05:30 docs(pen): lock the pen vocabulary and pin it with tests
+a503f3d87 2026-09-02T13:30:29+05:30 feat(admin-web): say pen, not shed, everywhere the dashboard is read
+590047a92 2026-09-02T09:38:03+05:30 feat(weights): name the sheds behind each elevated/ground bar
+7978e8812 2026-09-02T05:46:51+05:30 fix(ui): enforce caption case titles
+634a3f75e 2026-09-02T05:16:27+05:30 fix(weights): harden weighing mode edges
+ada5c4927 2026-09-02T05:01:30+05:30 fix(weights): keep shed type profile metadata
+ead13a733 2026-09-02T04:51:51+05:30 fix(growth-director): honor weighing mode filter
+111678c9e 2026-09-02T04:20:53+05:30 feat(weights): a Weights analytics screen, cut five ways (#162)
+0401fa358 2026-09-02T00:47:15+05:30 fix(weights): scope origin filters in load summaries
+726662390 2026-09-02T00:14:22+05:30 fix(sales): the empty fattening chart no longer claims the sheds are empty
+fe6f2cf0b 2026-09-02T00:13:59+05:30 feat(sales): an unsold load says how long its animals have been here
+5b3d6753c 2026-09-02T00:13:38+05:30 feat(weights): filter by farm born or purchased, and count pens on the sale board
+dc13ef318 2026-09-01T21:41:47+05:30 Fix Coimbatore adult ETTT anchor display
+feeaa7454 2026-09-01T20:23:05+05:30 feat(weights): breed, gender and count are columns on the shed gain table
+0a89331f8 2026-09-01T19:34:46+05:30 chore(sqlc): refresh shed partition alias models
+f55b2ce3d 2026-09-01T19:34:46+05:30 chore(sqlc): refresh schema for shed partition aliases
+9b778c202 2026-09-01T19:34:46+05:30 fix(weighing): name the pen an alias location stands for, and stop inferring it
+e55a39605 2026-09-01T19:34:46+05:30 fix: rename purchase and born sales page
+fab4a84c1 2026-09-01T19:24:24+05:30 fix: scope vaccination card vaccine groups
+6a3eb9cf9 2026-09-01T18:34:52+05:30 fix: use quiesced stg deploy for feed migration
+dde3cc1f6 2026-09-01T18:11:55+05:30 fix(feed): the workbook seeder's experiment reconcile referenced a parameter it never passed
+868cc2239 2026-09-01T18:11:55+05:30 feat(feed): experiment pens are authored per animal, scaled by the live herd
+c4485e4b5 2026-09-01T16:27:59+05:30 fix: complete rfid vaccination qa flow
+bd3eb34ac 2026-09-01T16:27:59+05:30 fix: show all vaccination card vaccine chips
+bc110435f 2026-09-01T16:16:26+05:30 fix: unblock stg migration audit
+7cca0e6ea 2026-09-01T16:06:10+05:30 fix(vaccination): remove stale dose cancellation cache
+9fe71b380 2026-09-01T15:47:51+05:30 fix(vaccination): prevent stale sweeper rows
+c8f152026 2026-09-01T15:33:06+05:30 Fix review blockers for vaccination anchors and stg release
+b3a217564 2026-09-01T15:10:05+05:30 fix(weighing): count selected-window weights in KPI
+106c805fa 2026-09-01T14:36:04+05:30 fix: restore dev RFID namespacing
+21a359e85 2026-09-01T14:22:11+05:30 fix: harden RFID weighing capture and in-progress reads
+277bbb025 2026-09-01T13:51:47+05:30 fix(ci): satisfy sales integration guards
+6a4a463c1 2026-09-01T13:45:44+05:30 fix(admin-ui): gate sales allocation separately
+ab388bfe2 2026-09-01T13:42:15+05:30 fix(procurement): honor load cost lines in read model
+27f403769 2026-09-01T13:40:37+05:30 fix(procurement): scan all overdue load alert candidates
+0248ca28a 2026-09-01T13:38:44+05:30 feat(sales): Sales Config owns every write; loads report landed cost and growth
+d13a6f3ba 2026-09-01T13:38:41+05:30 feat(weighing): read the shed gain card as a table, 20 rows a page
+cbf7cab75 2026-09-01T12:16:35+05:30 fix(vaccination): harden anchor and drive assignment guards
+9a915419b 2026-09-01T10:56:58+05:30 fix(vaccination): hide canceled drive assignment shells
+c5ef8fd47 2026-09-01T10:02:16+05:30 fix(vaccination): keep matrix first doses schedulable
+77fa0ad46 2026-09-01T09:27:11+05:30 fix(vaccination): batch ppr fmd hs together
+6c6d7a98c 2026-09-01T08:24:43+05:30 fix(vaccination): keep first-dose anchors schedulable
+a88e3c777 2026-09-01T07:46:02+05:30 fix(vaccination): preserve applied BT migration checksum
+a9d54f5c9 2026-09-01T06:54:20+05:30 fix(vaccination): honor anchor events during generation
+ff0376389 2026-09-01T03:55:22+05:30 fix(vaccination): honor selected park operators
+e6236ebad 2026-09-01T03:33:48+05:30 fix(vaccination): satisfy local CI guards on the command-board change
+2ed3c9c44 2026-09-01T03:33:48+05:30 fix(vaccination): address the final independent review round
+5a472dc8a 2026-09-01T03:33:48+05:30 perf(vaccination): aggregate before decorating in the cohort matrix
+f658710c1 2026-09-01T03:33:48+05:30 fix(vaccination): address both independent review rounds
+62b7e5248 2026-09-01T03:33:48+05:30 feat(vaccination): wire the lazy shed-dose section through contract and admin-web
+5ce2b518e 2026-09-01T03:33:48+05:30 perf(vaccination): intern the shed x dose grid and move it off first paint
+e84d756d3 2026-09-01T03:33:48+05:30 perf(vaccination): fix exception-count disk spill; widen board fan-out
+fc9678491 2026-09-01T03:33:48+05:30 perf(vaccination): move the cohort matrix off first paint; second-round review fixes
+ed6694524 2026-09-01T03:33:48+05:30 perf(vaccination): split command-board drilldowns in admin-web; wire routes
+cd7d7d839 2026-09-01T03:33:48+05:30 fix(vaccination): address independent SQL and guardrail review findings
+b3ce8d2d7 2026-09-01T03:33:48+05:30 perf(vaccination): make /vaccination/command summary-first and plan-gated
+d3944496f 2026-09-01T03:16:06+05:30 fix(vaccination): carry over medical-equivalent work
+8df9414cd 2026-09-01T03:01:07+05:30 fix(vaccination): retire stale disqualified rows
+94e2efaaf 2026-09-01T02:33:29+05:30 fix(vaccination): keep campaign doses on schedule path
+2ed3ebbc9 2026-08-31T23:14:01+05:30 Fix duplicate vaccination bottom nav item
+2907262ab 2026-08-31T22:28:36+05:30 Loadwise: satisfy local landing guards
+b4b12e92b 2026-08-31T21:59:02+05:30 Loadwise: the membership dedupe needs a TOTAL order
+2bfdb5f60 2026-08-31T21:37:11+05:30 Loadwise: an unknown park is a disagreement, not an abstention
+b9543bda3 2026-08-31T21:16:52+05:30 Renumber the load-cost migration 000229 -> 000232
+84a722611 2026-08-31T21:15:02+05:30 Sales: Purchase & barn becomes its own page
+4d5f1c725 2026-08-31T21:15:02+05:30 Sales load-wise: stop a missing copy key taking the whole page down
+c68da2cab 2026-08-31T21:15:02+05:30 Sales load-wise: Profit / loss replaces the remaining-value column
+546d655e0 2026-08-31T21:15:01+05:30 Sales load-wise: charts fill the card, and Other exits leaves the table
+c180a000d 2026-08-31T21:15:01+05:30 Sales load-wise: the declared load size is the denominator
+68021a0f5 2026-08-31T21:15:01+05:30 Sales load-wise: carry the load number and its pre-GoatOS history
+5acfeba34 2026-08-31T21:15:00+05:30 Sales: load-wise reconciliation with Purchased / From-the-barn tabs
+5633e961c 2026-08-31T20:28:51+05:30 fix(vaccination): reject Z1+Z3 ET+TT dose binding
+72c8195e6 2026-08-31T20:23:52+05:30 chore(ci): satisfy PR 146 aggregate gates
+d73389972 2026-08-31T20:16:59+05:30 Feed Analytics: per-pen Feed-by-shed table, expenditure floor; Weights: counts in gain-chart labels
+f5eb6a70e 2026-08-31T20:02:23+05:30 chore(ci): refresh PR 145 local gates
+ed7298761 2026-08-31T19:52:38+05:30 fix(health): 'treat none of these' decides the run as declined, never confirmed
+61a6324dc 2026-08-31T19:52:38+05:30 fix(health): kid diagnoses are confirmable, and the phone can actually fill the kid form
+46c1002ad 2026-08-31T19:52:38+05:30 fix(health): store the follow-up context on the diagnosis run
+994d74d76 2026-08-31T19:52:38+05:30 fix(health): idempotent replays return the full first response, never a thinner one
+88e5bb0bc 2026-08-31T19:52:38+05:30 chore(health): split health_cases ALTERs out of 000229 into 000231
+cc7bfba5c 2026-08-31T19:52:38+05:30 chore(health): guard closure for the PR — wiring, annotations, coverage rows
+6af40f847 2026-08-31T19:52:38+05:30 chore(health): renumber closure migration to 000230; regenerate api client
+c2fed1453 2026-08-31T19:52:38+05:30 fix(health): health domain events failed envelope validation and never published
+c09bfa3c3 2026-08-31T19:52:38+05:30 feat(health): show the animal's RFID, not the internal G-number, on health surfaces
+b41682b15 2026-08-31T19:52:38+05:30 feat(health): mandatory treatment proof video, case closure, verification (ported onto diagnosis engine)
+879900218 2026-08-31T19:52:38+05:30 fix(health): worklist tolerates the diagnosis engine's ongoing courses (NULL duration_days)
+d0c99e8d8 2026-08-31T19:52:38+05:30 feat(health): diagnosis engine v1 — deterministic observation-to-treatment pipeline
+7de03329b 2026-08-31T12:53:41+05:30 fix(vaccination): cover vaccine-level anchor suppression
+6a6fe9324 2026-08-31T12:48:02+05:30 fix(vaccination): prevent past obligation generation
+ebc3f1ea5 2026-08-31T11:58:02+05:30 Prepare PR 141 and 142 landing
+bdc50109b 2026-08-31T11:41:38+05:30 Fix lump-sum weighing census for partition aliases
+f5e57a3ff 2026-08-31T11:41:38+05:30 Sales: record an EXPECTED sale (advance today, animals leave later)
+f39b01fc6 2026-08-31T11:41:38+05:30 Feed purchase edit + sales deal part-payments
+228d97e7c 2026-08-31T05:00:52+05:30 fix(vaccination): retire replaced plan anchors
+a8e58fe2f 2026-08-31T04:56:48+05:30 fix(vaccination): scope anchor publish idempotency
+bba6bea8e 2026-08-31T04:50:49+05:30 fix(vaccination): schedule config anchors as real work
+98c108cf4 2026-08-31T04:38:51+05:30 fix(vaccination): apply anchors atomically on publish
+3e9f1f1c1 2026-08-31T04:28:07+05:30 fix(vaccination): persist draft anchor config
+cb18ded94 2026-08-31T03:32:04+05:30 fix(vaccination): make rule anchors clickable end to end
+995ececeb 2026-08-31T03:20:40+05:30 feat(vaccination): make anchors rule-level settings
+83c16af47 2026-08-31T03:20:40+05:30 fix(vaccination): harden anchor preview flow
+bd9982a9d 2026-08-31T03:20:40+05:30 feat(vaccination): add safe anchor creation flow
+c629a8b12 2026-08-31T03:20:40+05:30 fix(vaccination): resolve anchors across protocol versions
+61ef2f963 2026-08-31T03:20:40+05:30 feat(vaccination): add explicit anchor events
+5845dc90b 2026-08-30T19:26:24+05:30 fix(vaccination): honor manual anchors in drive planning
+706fa1d99 2026-08-30T16:32:25+05:30 fix(vaccination): set blue tongue booster at 19 weeks
+f7e03ef75 2026-08-30T11:04:24+05:30 fix(vaccination): allow future manual anchors
+92f11850e 2026-08-30T00:21:19+05:30 permissions: allow sales animal mapping
+4cd5ed356 2026-08-29T21:09:18+05:30 feed: wire milk UHT stock consumption
+98edf3ded 2026-08-29T19:29:26+05:30 fix(vaccination): use 21 day blue tongue booster gap
+efa207d99 2026-08-29T18:44:37+05:30 Feed purchases: instalment payments, status edit, Remaining column
+d0c7f81a9 2026-08-29T17:28:48+05:30 fix(vaccination): suppress manual campaign from existing anchors
+30cbd133e 2026-08-29T16:48:58+05:30 fix(vaccination): query manual anchors by protocol version
+1c6b2e7fd 2026-08-29T16:44:54+05:30 fix(vaccination): honor missed manual anchors
+00928a8e1 2026-08-29T16:28:51+05:30 fix(vaccination): suppress base rules after manual anchors
+4e4523a2e 2026-08-29T14:57:58+05:30 fix(vaccination): block cross-park operator assignment
+d6e0981ce 2026-08-29T13:39:12+05:30 Fix stale clock pending and presence states
+69234e4ad 2026-08-29T13:07:56+05:30 Shifting: destination catalog resolves resident stages per PEN, not per shed
+e71d08cd9 2026-08-29T12:54:02+05:30 Mobile golden: reopened packing cards carry the old-vs-new sentence
+738fe12b6 2026-08-29T12:54:02+05:30 E2E: afternoon-correction story proves snapshot, old-vs-new reason, reopen event + packer push; fix blank-trace envelope drop
+a62732b30 2026-08-29T12:54:02+05:30 Feed packing reopen: validate reopened envelope against production schema
+ab500a26e 2026-08-29T12:54:02+05:30 Feed packing correction visibility: snapshot round-trip proof, reopen push consumer, registry + docs
+a2b60d438 2026-08-29T12:54:02+05:30 Feed packing: packed-against snapshot, specific reopen reason, reopen event (WIP)
+05d816e62 2026-08-29T12:08:09+05:30 People/HRMS: Clock In / Out tab sits beside All People (maintainer ask)
+a54734390 2026-08-29T11:34:05+05:30 Clock In/Out: reminder banner reads "please clock in" (maintainer ask)
+5f2545ce4 2026-08-29T11:34:05+05:30 Clock In/Out: show WHERE on the card, red Clock Out, Team hidden on mobile
+28b34e5f9 2026-08-29T11:34:05+05:30 Clock In/Out: location is MANDATORY for every punch (maintainer 2026-08-29)
+35011dd17 2026-08-29T00:23:54+05:30 Feed spend tile copy matches the rolling 7-day window
+e40cff4d6 2026-08-29T00:23:54+05:30 Feed stock: per-load FIFO consumption start; 7-day spend window
+9c3da5e46 2026-08-28T23:53:02+05:30 Clock In/Out: PR-131 review fixes — captured-claim honesty + presence filter validation
+7d0e5b133 2026-08-28T23:11:48+05:30 Clock In/Out: five fixes from the full UI-driven E2E pass
+4923b5b21 2026-08-28T23:11:48+05:30 Clock In/Out: drawer row on top, Team pinned CEO/CXO-only
+d1a43e9e7 2026-08-28T23:11:48+05:30 Clock In/Out: emulator QA fixes — baseline clock bar floor, person-day copy keys, verbatim team rows
+fed9bd8c2 2026-08-28T23:11:48+05:30 Clock In/Out: CXO role-hint label in all four locales
+173f02471 2026-08-28T23:11:47+05:30 Clock In/Out: Android module — punches, mock-app block, banner, Team board
+0ba2ccd4c 2026-08-28T23:11:47+05:30 Clock In/Out: guard registrations (module-alerts pending entry, scale/foundation markers)
+8ec4f6d4b 2026-08-28T23:11:47+05:30 Clock In/Out: tests, coverage-matrix exclusion, gofmt
+159dabcb4 2026-08-28T23:11:46+05:30 Clock In/Out: admin-web People tab + drawer, clock chip, page contract
+6953f41f6 2026-08-28T23:11:46+05:30 Clock In/Out: backend core — punches, presence, admin reads, module + permission wiring
+90a83aa8d 2026-08-28T02:17:45+05:30 Weighing mobile: retire Videos/Weights/Growth pages — bar is work surfaces + Alerts
+6cadb21ba 2026-08-28T01:25:02+05:30 fix: allow repeat weighing publish on later date
+2784243b4 2026-08-27T23:15:04+05:30 Fix combined access scope and milk prep read-only gates
+5a8a06621 2026-08-27T23:14:54+05:30 Fix person scope and milk prep date gates
+36e6c51fb 2026-08-27T23:03:02+05:30 Milk: verifier phone tab via catalog-derived duties + milk date bar
+7e4d161a6 2026-08-27T23:03:02+05:30 People/HRMS: the ticks narrow the offer, they do not replace it
+c6fa3a1b1 2026-08-27T23:03:02+05:30 People/HRMS: follow Sales to its own vertical after the rebase
+135b40b0f 2026-08-27T23:03:02+05:30 People/HRMS: leadership follows the ticks too, and the level is proved per person
+3cd5d0e33 2026-08-27T23:03:02+05:30 People/HRMS: the phone bar follows the person's ticks
+ab29fe6ae 2026-08-27T23:03:01+05:30 People/HRMS: a screen is offered only when it can be opened
+b07fcefea 2026-08-27T23:03:01+05:30 People/HRMS: page-grain access retires the admin-web role lens
+6822137fe 2026-08-27T23:03:01+05:30 People/HRMS: fix two save-path defects found by running the save
+15ba5800c 2026-08-27T23:03:01+05:30 People/HRMS: fix the capabilities CHECK Postgres refuses
+7314b801e 2026-08-27T23:03:01+05:30 People/HRMS: per-person access decides authorization (web)
+aefa202ea 2026-08-27T23:03:01+05:30 People/HRMS: the per-person access editor
+6a0aca83b 2026-08-27T23:03:01+05:30 People/HRMS: access API — service, repository, routes, contract
+6ee3337dc 2026-08-27T23:03:01+05:30 People/HRMS: storage + one-time backfill for per-person access
+1a5456e8e 2026-08-27T23:03:01+05:30 People/HRMS: tighten capability levels to exact role parity
+75e788602 2026-08-27T23:03:01+05:30 People/HRMS: per-person module capability catalog + role backfill
+f3243057d 2026-08-27T19:58:06+05:30 fix(pccare): use SQL comment for scale guard
+ccb3434a9 2026-08-27T19:51:21+05:30 fix(pccare): certify inventory vaccine projection
+d1e610016 2026-08-27T19:51:21+05:30 fix(migrations): sequence pc care vaccine migration after vendor types
+0ccfe291d 2026-08-27T19:51:21+05:30 Vaccine stock task is per vaccine, never per shed
+9be29fbc4 2026-08-27T19:51:21+05:30 Vendors: add buyer-side record types
+390b0dd2b 2026-08-27T19:02:20+05:30 test external mcp against staging APIs
+58f1810f0 2026-08-27T17:13:18+05:30 Feed stock: UHT depletes from Milk Preparation on submit
+eb3c7fdb5 2026-08-27T16:27:31+05:30 Fix sales vendor picker access
+958f83a1a 2026-08-27T16:23:04+05:30 Sales: standalone module at /sales, every sale mapped to a vendor
+ff5cb5a7c 2026-08-27T11:06:38+05:30 Randomization: the CEO sets how much proof a verifier watches
+195143d79 2026-08-27T04:58:36+05:30 Harden proof preview and sync recovery
+dbe4b578b 2026-08-27T02:04:02+05:30 Harden stock proof sync and camera events
+f885f2139 2026-08-26T22:13:03+05:30 Document toxin guardrail coverage
+1d6ea9cde 2026-08-26T22:13:03+05:30 Map toxin cursor errors to bad requests
+9a9cc5814 2026-08-26T22:13:03+05:30 Weights: the all-history sex scan is opt-in, not a tax on every read
+63fdd2f2e 2026-08-26T22:13:03+05:30 Weights: sale readiness stays latest-EVER under the sex filter
+b22324763 2026-08-26T22:13:03+05:30 Weights: the sex filter reaches every block of the growth read
+53f470bc2 2026-08-26T22:13:03+05:30 Pin why the proof-download route needs no toxin permission
+0b1cbd566 2026-08-26T22:13:03+05:30 Toxin: renumber the migration to 000211 after rebase
+7e7f6ec8a 2026-08-26T22:13:03+05:30 Toxin: unfreeze the wait, show the strip photo, name the person
+0f994696a 2026-08-26T22:13:03+05:30 Toxin: slice the task list by All / Pending / Completed
+bc3de133b 2026-08-26T22:13:03+05:30 Toxin: CEO/CXO watches and judges, never runs a test
+c0ead801d 2026-08-26T22:13:02+05:30 Toxin module: aflatoxin strip test per feed load
+84b76cba6 2026-08-26T21:55:21+05:30 Feed analytics: echo completion day for narrowed reads
+e42b59928 2026-08-26T21:39:15+05:30 Feed: show who fed, who did not, and what they filmed
+b428c8f76 2026-08-26T11:40:22+05:30 Weights: the landing window ends on the last day anything was weighed
+99008fb21 2026-08-26T11:19:53+05:30 Weights: one daily-gain number, and whole-shed pens are in it
+0441503ae 2026-08-26T10:12:37+05:30 Weights: restore the whole-shed arm the gain card is built from
+b2d61bd54 2026-08-26T09:08:17+05:30 Weights: claim alias-partition lump sheds, so male + female = every kid
+f61be8a9e 2026-08-26T09:08:17+05:30 Weights: Sex filter governs the whole page, not one card
+8fa47e6cb 2026-08-26T09:08:17+05:30 Weights: split breed daily gain by sex, filtered from the bar
+460034609 2026-08-26T03:21:03+05:30 Normalize procurement purpose wildcard
+577e650a8 2026-08-26T02:21:29+05:30 Prefilter vaccination procurement purpose
+111cbb687 2026-08-26T01:16:02+05:30 Fix additive vaccination publish semantics
+90784f420 2026-08-26T00:58:42+05:30 Fix vaccination additive publish carryover
+a096c1d90 2026-08-26T00:58:42+05:30 chore: put the scale-guard reasons where the guard reads them
+2ab1ca756 2026-08-26T00:58:42+05:30 fix(vaccination): a blocked date must not cost the row its address, and cleanup goes through the real cancel
+31ffd78f5 2026-08-26T00:58:42+05:30 chore(vaccination): renumber onto main's migration tail, and mark the remaining aggregates
+f091c49ba 2026-08-26T00:58:42+05:30 fix(vaccination): label every insert path, and make a blocked date visible
+76233af03 2026-08-26T00:58:42+05:30 fix(vaccination): in-flight work takes the new address, and unlabelled duplicates stop the guess
+7a49d4bc1 2026-08-26T00:58:42+05:30 test(vaccination): exercise the backfill along the dimensions that change its answer
+f1c1ca727 2026-08-26T00:58:42+05:30 fix(vaccination): the window follows the due date, and the backfill refuses to guess
+27634cf7a 2026-08-26T00:58:42+05:30 feat(vaccination): obligations follow a rule's identity, not the version that minted it
+c84c82a44 2026-08-26T00:58:42+05:30 fix(vaccination): label the rules that already exist, and guard every unique index
+0cc075094 2026-08-26T00:58:42+05:30 refactor(vaccination): rule lineage moves to its own table, off the seeded one
+16fb0a97e 2026-08-26T00:58:42+05:30 docs(vaccination): declare the carry-over surfaces to the guards that ask
+472beaa71 2026-08-26T00:58:42+05:30 fix(vaccination): a carried-over obligation keeps its address, not just its row
+d003b6ba3 2026-08-26T00:58:42+05:30 fix(vaccination): a new vaccine can no longer collide with an existing matrix row id
+9daa459ff 2026-08-26T00:58:42+05:30 fix(vaccination): make the rule identity key unambiguous, not merely storable
+5b78ceafe 2026-08-26T00:58:42+05:30 fix: RuleIdentityKey separator must be valid UTF-8 for PostgreSQL text fields
+43fbca077 2026-08-26T00:58:42+05:30 test(vaccination): pin the additive-publish invariants, and give reviewers a lens
+c54f07da4 2026-08-26T00:58:42+05:30 feat(vaccination): carry unchanged rules across a publish instead of re-minting them
+0727ac9ea 2026-08-25T21:24:10+05:30 Remove nav badges and instrument admin route performance
+f48f8aa9b 2026-08-25T20:48:18+05:30 Fix feed proof upload stall telemetry
+1795131d1 2026-08-25T17:58:36+05:30 fix(verification): include object refs in video log
+b2ac3e168 2026-08-25T16:05:01+05:30 fix(verification): tolerate object media refs
+692073742 2026-08-25T13:56:11+05:30 Scope lump-sum gain spans to active per-shed buckets
+b492445e9 2026-08-25T13:54:41+05:30 Fix lump-sum gain band zero counts
+a4cd654fa 2026-08-25T12:20:11+05:30 Weights: lump-sum sheds join the breed-wise daily gain chart
+1c1cd0c0a 2026-08-25T10:53:30+05:30 Remove the feed verification-latency chart
+a137793cc 2026-08-25T10:53:30+05:30 Packed-vs-given reaches the newest finished packing day
+3c771ffc7 2026-08-25T09:11:12+05:30 Weighing: lump-sum head count is a herd-register snapshot at submit
+b4624a300 2026-08-25T06:00:37+05:30 Fix Weights landing ADG window
+ee3f7e0c4 2026-08-25T00:45:04+05:30 Fix weighing gain band review issues
+9db8b38cd 2026-08-24T23:16:36+05:30 Weights: trim the fair-fight caption to what it claims
+09d3cd2bb 2026-08-24T23:10:12+05:30 Weights: drop the unmapped-sheds note under the load chart
+2c131c313 2026-08-24T23:08:22+05:30 Weights: gain-band shares add up to exactly 100.0%, and drop "True"
+f4de4ea8f 2026-08-24T23:00:30+05:30 Weights: drop "real" from the shed daily gain caption
+d47548d8a 2026-08-24T22:46:39+05:30 Weights: prove the slowest gain band on the adversarial axes too
+978ab31c4 2026-08-24T22:42:33+05:30 Weights: daily gain by breed becomes four disjoint bands
+e364c7fd4 2026-08-24T20:56:08+05:30 fix(weighing): align default weights window
+40751af0c 2026-08-24T20:40:43+05:30 Weights: land on 15 days, and keep kilograms out of the daily-gain chart
+bd5181d39 2026-08-24T20:36:10+05:30 Feed: flag a packed bag that misses the sheet by more than 200 g
+4922979a8 2026-08-24T19:35:49+05:30 fix(weighing): align weights window defaults
+2fdd915cd 2026-08-24T19:15:26+05:30 Weights: breed-wise daily gain marks, and a 7-day default window
+fe4714a4a 2026-08-24T18:44:49+05:30 fix(procurement): harden feed purchase entry
+644f0c731 2026-08-24T18:38:29+05:30 feat(procurement): record feed purchases in the app
+bc0fdfc3e 2026-08-24T17:51:23+05:30 Align packing variance docs and tests
+b05843742 2026-08-24T17:21:00+05:30 Packing table: drop the tolerance flag and the age-group column
+a92063c1e 2026-08-24T15:53:00+05:30 fix(vaccination): surface missed rows in control tower
+7c2a9ed39 2026-08-24T15:07:57+05:30 review: drop the generated E2E reports, and say "actual shed" in the failure text
+f6b495eb4 2026-08-24T15:07:57+05:30 docs(agents): stop AGENTS.md reading as "Castro is the shed"
+7e8ba2582 2026-08-24T15:07:57+05:30 test(calendar,counts,verification): pen names follow the spec oploc implements
+df6cfbd7b 2026-08-24T13:15:48+05:30 Weights CSV export names the park beside the shed
+26cc0d700 2026-08-24T13:06:48+05:30 fix(feed): harden low-stock alerts and variance filters
+483e19fc2 2026-08-24T12:54:01+05:30 Daily low-stock alert, and farm dates in visible notification copy
+fa0565e14 2026-08-24T12:54:00+05:30 Bag-by-bag packing table: every bag, packing-day axis, paged
+ad1d2db7e 2026-08-24T07:50:48+05:30 test(weighing): the CSV export lane is a prerequisite, not a defect
+a245d3288 2026-08-24T07:48:28+05:30 test(migrations,fixtures): assert the grain that shipped, and skip an absent side-channel DB
+5ebc20a7e 2026-08-24T07:40:20+05:30 test(feedconfig,permissions): catalogue the feed items, and read the window at the right date
+8eff20773 2026-08-24T07:33:42+05:30 test(workforce): the leave window has to open after the roster it is covered by
+183b5cf48 2026-08-24T07:30:57+05:30 test(proof,sop): seeds the schema and the command contract accept
+f4d63af22 2026-08-24T07:25:09+05:30 fix(counts-source-import): validate the shifting taxonomy the database actually enforces
+457145f00 2026-08-24T04:02:41+05:30 test(obligation): the HWM race now overflows instead of partial-committing
+388f0ec21 2026-08-24T03:57:54+05:30 test(obligation): assert the capacity policy the planner actually implements
+cdd1767af 2026-08-24T03:53:12+05:30 test(obligation): give the park-merge fixture vaccines that may share a drive
+374629e96 2026-08-24T03:49:50+05:30 test(obligation): cascade fixtures must plan in the future and approve the leave
+c0f6f4070 2026-08-24T03:44:15+05:30 fix(obligation): a lost race for a drive date must overflow, not drop the work
+8f344cffe 2026-08-24T03:37:58+05:30 test(obligation): stop the operator fixtures rotting against the wall clock
+97a26612b 2026-08-24T03:24:04+05:30 test(obligation): move the lane-merge fixture onto an approved same-day pair
+bba952e86 2026-08-24T03:24:04+05:30 test(herd-signals): make the tag fixtures produce the signals the queries read
+b1699ef0e 2026-08-24T03:24:04+05:30 test(herd-signals): build real fixtures for the insights cards
+0c51a1dd7 2026-08-24T03:24:04+05:30 fix(herd-signals,obligation): correct integration seeds and the gateway upsert
+81bb247c9 2026-08-24T03:24:04+05:30 fix(obligation): drop unused bind params and seed operators over the simple protocol
+1e3c50138 2026-08-24T03:24:04+05:30 fix(tests): point vaccination clinical-spacing and herd-signals integration tests at the real schema
+82f67cac7 2026-08-24T03:07:10+05:30 Fix vaccination command board interactions
+0a8a0abec 2026-08-24T02:00:13+05:30 Fix vaccination missed sweeper reliability
+82a9e6e87 2026-08-23T23:18:20+05:30 Packing mismatches carry the cohort, and the trend moves under them
+26a2b52b7 2026-08-23T23:18:20+05:30 Feed given vs target: one shed-grain table, park-sliced, with its trend
+286e10706 2026-08-23T23:18:20+05:30 Feed analytics DTOs are checked against their OpenAPI schemas
+fbc2dca5e 2026-08-23T23:18:20+05:30 Feed 7-day table: drop the cost-to-buy column
+7d74b1aa0 2026-08-23T23:18:20+05:30 Feed stock: next-7-days requirement and cost per feed per farm
+bb6a85345 2026-08-23T23:18:20+05:30 fix(feed): clamp stock days left at zero
+b673e6cac 2026-08-23T23:18:20+05:30 feat(feed-vaccination): add consumption and pending shed views
+3732b2d89 2026-08-23T23:18:20+05:30 feat(feed): show weekly stock need and latest load cost
+7a0ad3b77 2026-08-23T21:21:13+05:30 chore: renumber the vaccination migrations to 000204/000205 after rebase
+51750c51e 2026-08-23T21:19:40+05:30 fix: the documented repair command, and the held animal's existing repeat dose
+e91ac5bbb 2026-08-23T21:19:40+05:30 fix(obligation): a held animal's repeat dose failed its generation pass
+1b45e812c 2026-08-23T21:19:40+05:30 chore: renumber the vaccination migrations to 000190/000191 after rebase
+f572dc76b 2026-08-23T21:19:39+05:30 fix(ci): a generator bug fix should not demand the whole fixture pipeline
+11678fe56 2026-08-23T21:19:39+05:30 refactor: duplicate-draft cleanup moves out of the migration into the repair job
+153567fcf 2026-08-23T21:19:39+05:30 fix(obligation): a taken due date failed 172 animals per generation pass
+705456700 2026-08-23T21:19:39+05:30 fix: four review findings — publish date, park-scoped supersede, and two harnesses
+28ccb328d 2026-08-23T21:19:39+05:30 fix(ci): close the five local-CI guards this branch newly trips
+45a98e41e 2026-08-23T21:19:39+05:30 chore: rebase onto main, renumber the vaccination migrations to 000187/000188
+28879328f 2026-08-23T21:19:38+05:30 fix(protocol): save sent the backend a JSON string, and replace skipped validation
+25648a584 2026-08-23T21:19:38+05:30 fix(protocol): the one-draft migration could fail on the very data it exists to fix
+350ee600a 2026-08-23T21:19:38+05:30 fix(vaccination): a suppressed insert must still move the row it suppressed against
+7c6302e11 2026-08-23T21:19:38+05:30 fix(protocol): saving a plan replaces its draft in one transaction
+76e6f6b2c 2026-08-23T21:19:37+05:30 fix: judge findings across frontend, backend and the E2E verdict
+deade181e 2026-08-23T21:19:37+05:30 fix(obligation): schema snapshot still documented the too-strong anchor index
+420480bc7 2026-08-23T21:19:37+05:30 docs(obligation): the type doc described the vocabulary that was the bug
+528bb86e6 2026-08-23T21:19:37+05:30 fix(obligation): rescheduling into an existing cycle is success, not a 500
+e9528eb54 2026-08-23T21:19:36+05:30 fix(vaccination): name the cause by the vaccine given, not the one about to be scheduled
+86f10576a 2026-08-23T21:19:36+05:30 fix(vaccination): one vocabulary for a cause, and three more ways duplicates returned
+225f6aaf9 2026-08-23T21:19:36+05:30 fix(vaccination): sub-second administration times would have split one cause in two
+73c133c5f 2026-08-23T21:19:36+05:30 test(obligation): repair package joins the shared pgtest container lifecycle
+52df9f6e5 2026-08-23T21:19:36+05:30 test(obligation): repair job moves into a testable package, and stops defaulting to mutate
+e219b697f 2026-08-23T21:19:36+05:30 fix(vaccination): the tenant-wide scan now supersedes work from a replaced plan
+8f95269ed 2026-08-23T21:19:36+05:30 test(obligation): mutation-checked integration tests for repeat-cycle identity
+562bbf8e8 2026-08-23T21:19:35+05:30 fix(vaccination): anchor the generation repeat path too, and absorb index rejection
+a89d6747c 2026-08-23T21:19:35+05:30 feat(vaccination): completion mints a successor anchored to the dose that caused it
+63089222e 2026-08-23T21:19:35+05:30 feat(obligation): persist repeat-cycle metadata, and dedupe repeats by cause
+beef5401e 2026-08-23T21:19:35+05:30 feat(obligation): RepeatCycleSource on NewObligation
+06abeb022 2026-08-23T21:19:35+05:30 feat(obligation): repeat-cycle identity columns and the two open-successor indexes
+12a60b639 2026-08-23T21:19:35+05:30 feat(protocol): enforce one draft per plan in the database
+ddffd98e3 2026-08-23T21:19:34+05:30 fix(mobile): one lane for a vaccination session's scans and its Submit
+387988c18 2026-08-23T21:19:34+05:30 fix: my `.vp` namespace was already taken; plus the review's remaining P2s
+fe2fe11ca 2026-08-23T21:19:34+05:30 chore(sqlc): drop 6,700 lines of unrelated generated-schema churn
+43d9626e6 2026-08-23T21:19:33+05:30 fix: corrections from four review judges, including a false claim in the ADR
+c30d21957 2026-08-23T21:19:33+05:30 fix: discard 500'd on any authored draft; off/on lost a vaccine's course
+15968cf06 2026-08-23T21:19:33+05:30 feat(admin-web): delete the generic Config screen
+14c3bb45a 2026-08-23T21:19:32+05:30 feat(admin-web): remove the Vaccination SOP page
+45c17dc6c 2026-08-23T21:19:32+05:30 test(protocol): cover the discard endpoint, and repair the fakes it broke
+efee29564 2026-08-23T21:19:32+05:30 feat(protocol): discard a draft vaccination plan, and fix version numbering
+1764a9112 2026-08-23T21:19:31+05:30 feat(admin-web): style the Vaccination plan list screen to the mock
+109f877f0 2026-08-23T14:33:26+05:30 fix(herd-signals): fetch the whole anchored window, not a raw event-relative span
+1b9e9d67a 2026-08-23T14:07:30+05:30 fix(herd-signals): correlations must survive events that are not on a bucket boundary
+fd249fe1f 2026-08-23T13:52:57+05:30 fix(herd-signals): clip each event's correlation to its own two hours
+689d0b3a6 2026-08-23T13:27:37+05:30 test(herd-signals): adversarial coverage for the gateway window aggregate
+f81763f55 2026-08-23T13:07:59+05:30 fix(herd-signals): actually record which gateway heard each activity window
+d380fe760 2026-08-23T12:59:35+05:30 fix(herd-signals): drop the provenance columns nothing maintained
+f9c2e7535 2026-08-23T12:55:05+05:30 Fix three herd-signals contract/provenance defects
+941ce297d 2026-08-23T12:51:28+05:30 fix(herd-signals): add partition key predicates to battery history queries
+5bba4d8f0 2026-08-23T12:36:55+05:30 fix(herd-signals): a missing bucket is an outage, and the correlation must see it
+f2145e143 2026-08-23T09:15:52+05:30 fix(herd-signals): the new adversarial tests must compile
+40aae5933 2026-08-23T09:08:51+05:30 Fix CI failures: herd-signals partition & guards
+952bb2ba5 2026-08-23T08:40:28+05:30 fix(herd-signals): a zero-packet bucket is a hole, and the correlation must see it
+13e7d4594 2026-08-23T08:35:04+05:30 test(herd-signals): thread the actor through mapping test call sites
+e376b5bb7 2026-08-23T08:33:57+05:30 fix(herd-signals): read mapping provenance from the binding, not the animal's ear tag
+296b96140 2026-08-23T08:08:07+05:30 fix(herd-signals): partition herd_signal_packets on received_date, not received_at
+3493dd6d8 2026-08-23T07:54:43+05:30 test(herd-signals): add activity correlation verification test
+ce78a8e00 2026-08-23T07:52:44+05:30 Fix: use 300s buckets for 15-minute gateway window stats query
+82e249d6a 2026-08-23T07:51:02+05:30 Complete herd-signals em dash replacement: fix identifiers, populate provenance, compute aggregates
+d2f3dc47a 2026-08-23T07:45:06+05:30 Add mapping provenance and animal identifiers to herd-signals UI
+5f99e73e3 2026-08-23T07:43:12+05:30 fix(herd-signals): let the generated client express the Alerts partition (HS-001)
+83638fc77 2026-08-23T07:09:19+05:30 fix(herd-signals): observability logging, branding wording, gateway partition identity
+52410d6b7 2026-08-23T07:09:19+05:30 fix: add scale-guard annotations and projection-review markers for herd-signals aggregates
+2b3ce40bf 2026-08-23T07:09:19+05:30 docs,backend: add herd_signals coverage-matrix exclusion and india-date-guard exemption
+45e16a6f6 2026-08-23T07:09:18+05:30 fix(herd-signals): per-condition alert rows and correct insights taxonomy
+a7a4950a3 2026-08-23T07:09:16+05:30 fix(herd-signals): show RFID tags in live rows
+e69ec4237 2026-08-23T07:09:15+05:30 fix(herd-signals): use 3600s tier for motion_delta_1h computation
+5680a3084 2026-08-23T07:09:13+05:30 feat: Add UDP ingest path for HoneyComm gateway, extract shared decoder
+d222d5ef7 2026-08-23T07:09:12+05:30 chore(herd-signals): renumber migrations 000191-000198 after main took 000190
+314e28a65 2026-08-23T07:09:12+05:30 fix(herd-signals): server-side pattern="not_normal" filter for Alerts
+9384d08f4 2026-08-23T07:09:12+05:30 fix(herd-signals): port mock Insights card set, copy and badges verbatim
+788c1c935 2026-08-23T07:09:12+05:30 fix(herd-signals): release only the identifier rows this module created
+d84f3a73c 2026-08-23T07:09:11+05:30 fix(herd-signals): unmap must release the WHOLE binding, not the value the caller named
+fc3ba4ae4 2026-08-23T07:09:10+05:30 test(herd-signals): Postgres-backed proofs of MAP / REPLACE / UNMAP and the monitoring boundary
+3d21ee34c 2026-08-23T07:09:10+05:30 fix(herd-signals): restore the claim-boundary sentence to the page subtitle
+ee84cd275 2026-08-23T07:09:09+05:30 refactor(herd-signals): mapping verbs are MAP / REPLACE / UNMAP
+6a078b3cd 2026-08-23T07:09:08+05:30 test(herd-signals): seed the activity fixtures within the real schema constraints
+02ea9f49b 2026-08-23T07:09:08+05:30 feat(herd-signals): tag-mapping writes, monitoring boundary, pkt_sn and heartbeats
+ed7b99c09 2026-08-23T07:09:07+05:30 test(herd-signals): Postgres proofs for the export filter and the overlay boundary
+a878ab6d2 2026-08-23T07:09:06+05:30 feat(herd-signals): live-view CSV export and farm-activity overlay reads
+f8f05022f 2026-08-23T07:09:06+05:30 feat(herd-signals): animal monitoring starts at mapping, not before
+04b45fef9 2026-08-23T07:09:05+05:30 chore(herd-signals): reword comment so the language guard passes
+6b1fdad55 2026-08-23T07:09:05+05:30 feat(herd-signals): MQTT bridge, server-stamped received_at, device_seen_at dedup
+c8b46b083 2026-08-23T07:09:05+05:30 fix(herd-signals): server-stamp received_at, cap ingest body size and packet count
+58fd38764 2026-08-23T07:09:04+05:30 feat(herd-signals): battery voltage trend model, replacing the removed life estimate
+663375831 2026-08-23T07:09:04+05:30 ui(herd-signals): drop the tag-temperature disclaimer paragraph
+8145fdd84 2026-08-23T07:09:04+05:30 fix(herd-signals): per-packet gateway_seen_at, stop collapsing a batch to one timestamp
+53158c33a 2026-08-23T07:09:04+05:30 feat(herd-signals): flag gap_delta across reception gaps (offline behaviour)
+1ef9ab313 2026-08-23T07:09:03+05:30 feat(herd-signals): wire nav group, page contract and backend-owned copy
+b62e09176 2026-08-23T07:09:03+05:30 fix(herd-signals): read-time stale/missing, identifier normalization, ingest correctness
+4bb50c8ad 2026-08-23T07:09:02+05:30 fix(herd-signals): align backend wire shapes to the admin-web contract, add baseline_delta
+455b8524f 2026-08-23T07:09:02+05:30 fix: Correct migration corruption - reapply from worktree with proper version numbers
+67ab46b9a 2026-08-23T07:09:02+05:30 fix: Complete OCI seed correction - all 5 defects addressed
+8ad77e844 2026-08-23T07:09:02+05:30 fix: Correct OCI seed for Herd Signals - apply migrations properly, fix packet deduplication, use backend service
+4ff0c1edf 2026-08-22T19:38:06+05:30 Fix feed transport migration markers
+147db682d 2026-08-22T19:29:10+05:30 Fix feed transport shared visibility
+ee3350c72 2026-08-22T18:01:51+05:30 Fix command board partition catalog labels
+f6457dd3f 2026-08-22T17:44:53+05:30 Fix vaccination command board shed labels
+bc4e20f87 2026-08-22T17:14:50+05:30 Fix people onboarding auth edge cases
+aef806bdc 2026-08-22T15:13:25+05:30 Fix people onboarding auth edge cases
+b25f709fa 2026-08-22T14:59:04+05:30 People/HRMS: activate/deactivate with confirm + per-operator proof stats
+71606af93 2026-08-22T14:59:03+05:30 People/HRMS: split legacy display_name into first/last, align Apply button
+2fb6c4f43 2026-08-22T14:59:03+05:30 People/HRMS: backfill emails + person names for directory rows
+53963e603 2026-08-22T14:59:03+05:30 People/HRMS: opt-in Postgres integration tests for create-person tx + keyset paging
+581e71317 2026-08-22T14:59:02+05:30 gofmt people_service
+912e4b628 2026-08-22T14:59:02+05:30 People/HRMS: emulator base-URL override, runbook primary path, local E2E fixes
+3361c2c14 2026-08-22T14:59:02+05:30 People/HRMS rewrite: /people directory UI, tabs, Add Person drawer, guards
+f6dcad2ef 2026-08-22T14:59:02+05:30 People/HRMS rewrite: backend directory + in-app onboarding (WIP)
+4d4a2ba86 2026-08-22T14:31:08+05:30 fix(pc-care): first-page task list no longer 22P02s on the empty keyset cursor
+fb2ebca5b 2026-08-22T11:42:47+05:30 Packing entry boxes list only items directed for the bag
+b245d7d82 2026-08-22T11:42:43+05:30 Fix PR89 landing guards
+61c508a55 2026-08-22T11:14:49+05:30 Milk and Weighing join the SOP split with library documents
+791b7d764 2026-08-22T11:14:49+05:30 UHT Milk is a feed with stock, days-left and app-fed consumption
+125dd1320 2026-08-22T01:11:10+05:30 fix(pc-care): harden verification enqueue and pagination
+019953d0c 2026-08-22T00:47:42+05:30 Merge branch 'codex-pr-88' into codex/integrate-pr87-pr88
+7da3f0960 2026-08-22T00:40:54+05:30 fix(pc-care): renumber migrations to 000183/000184 past main's 000182
+a54d6fcf9 2026-08-22T00:38:06+05:30 feat(pc-care): monitor cards open a read-only task view; verifier nav says Preventive Care
+5ae56e8c8 2026-08-22T00:38:06+05:30 feat(pc-care): drawer module is named Preventive Care and sits above Approvals
+aae065915 2026-08-22T00:38:05+05:30 feat(pc-care): per-animal capture drill with three labeled video cards
+c871eef36 2026-08-22T00:38:04+05:30 fix(pc-care): restore the trimming three-video triple; fix rejected video uploads
+72053a9c5 2026-08-22T00:38:04+05:30 fix(pc-care): pen roster reads the real RFID identifier type (animal_identifier_1)
+f590ab7c0 2026-08-22T00:38:04+05:30 feat(pc-care): per-category capture modes — scan-and-record vs pen-roster tap
+c901a6c9b 2026-08-22T00:38:03+05:30 fix(pc-care): weighing-style day list in the wizard; suppress legacy partition-alias pens
+bd1122772 2026-08-22T00:38:03+05:30 feat(pc-care): four category tabs ARE the bar; weighing-style monitor list and plan wizard
+f3e83e5ad 2026-08-22T00:38:02+05:30 fix(pc-care): renumber migrations to 000180/000181 past main's 000179
+970f412da 2026-08-22T00:38:02+05:30 fix(pc-care): register verification verdict applier on both durable buses
+0631be473 2026-08-22T00:38:02+05:30 feat(pc-care): operational_location_display on location-bearing responses
+e93626af6 2026-08-22T00:38:02+05:30 feat(pc-care): envelope schema enum, pgtest lifecycle, Android network layer
+eefb6a479 2026-08-22T00:38:02+05:30 feat(pc-care): backend module — planner-assigned care tasks with per-animal video proof
+05970c06f 2026-08-21T23:33:40+05:30 Packing mismatch table: own filters, calendar, completion-side labels
+8325b3844 2026-08-21T23:33:40+05:30 Packing variance pops only beyond a 0.2 kg tolerance
+e88c1ec9a 2026-08-21T22:50:02+05:30 Fix feed packing verification migration safety
+90467fb31 2026-08-21T22:22:28+05:30 Feed packing verification is blind per-item entry
+598599e0a 2026-08-21T21:16:16+05:30 Fix feed stock farm query join
+8ffd90453 2026-08-21T19:46:37+05:30 Fix analytics empty park scope filters
+43ffd459e 2026-08-21T19:20:13+05:30 Add procurement_director role with Procurement + Feed admin-web workspace
+672315854 2026-08-21T19:09:51+05:30 Show feed stock days left
+ac143adcd 2026-08-21T17:57:09+05:30 Fix feed stock shortage variance
+88d243ed9 2026-08-21T17:20:13+05:30 Add feed stock verification analytics
+92039427a 2026-08-21T15:51:12+05:30 fix: harden shifting type rollout
+c345c19a6 2026-08-21T14:25:01+05:30 feat(shifting): bulk movements — scan a group, confirm it, then move it
+f6434e6de 2026-08-21T14:25:01+05:30 test(shifting): prove the typed rewrite end to end on the production path
+e8742fa4d 2026-08-21T14:25:01+05:30 feat(shifting): the shift type decides the tag — typed raise rulebook
+ce23712f0 2026-08-21T13:33:48+05:30 feat(admin-web): dd-mm-yyyy date display rule with guard, and range coverage note
+691389bce 2026-08-21T12:03:57+05:30 fix(feed): price stock expenditure at farm grain
+7d5a4f18b 2026-08-21T11:44:51+05:30 fix(feed): stock burn rate tracks the 3 most recent locked days, not 7
+096171dca 2026-08-21T11:44:51+05:30 feat(feed): trim last-load cell to quantities and pad the stock/wastage card headings
+ebcba6d78 2026-08-21T11:44:51+05:30 fix(feed): stock cards are per farm, never a combined tenant balance
+6e1e41041 2026-08-21T11:44:51+05:30 feat(feed): Stock tab gains per-farm Mesha concentrate purchase/consumption table
+469d9754f 2026-08-21T10:55:23+05:30 fix(audit): show captured logs across feature tabs
+d5d9305f8 2026-08-21T10:33:06+05:30 fix: satisfy backend landing guards
+c46fd16c2 2026-08-21T10:20:34+05:30 fix: close sale allocation and proof telemetry gaps
+68e2fe83b 2026-08-21T10:20:34+05:30 feat(weighing): Weights page download drawer exporting the Weight-check sheet CSV
+f5def6824 2026-08-20T23:50:40+05:30 feat(sales): tag real animals to a sale, and show where each load sits
+45b2dd3b1 2026-08-20T21:13:13+05:30 fix(verify): fence measured verdict approvals
+8b1ff72e5 2026-08-20T21:03:49+05:30 Merge remote-tracking branch 'origin/pr/77' into codex/pr76-pr77-land
+6ceb92618 2026-08-20T21:03:49+05:30 Merge remote-tracking branch 'origin/pr/76' into codex/pr76-pr77-land
+65394d34b 2026-08-20T20:57:55+05:30 feat(sales,login): month-chart rupee figures, buyer board pager, SSO completion state
+d17f9125a 2026-08-20T19:23:50+05:30 fix(verify): the approve carries the number, so save-then-approve cannot break
+a6f7fd92d 2026-08-20T19:20:55+05:30 Merge PRs 74 and 75 for main landing
+e00ca618d 2026-08-20T18:46:12+05:30 feat(counts): add Herd Analytics and withhold the Herd Register leaf
+8e21ba60f 2026-08-20T15:35:35+05:30 feat(counts): place a newborn in its park's K0 pen
+60086cb20 2026-08-20T00:40:11+05:30 fix(feed): require wastage measurement before approval
+090844e8b 2026-08-19T23:50:07+05:30 feat(feed): experiment analytics by feed item + per-pen wastage day table
+bc02c7d61 2026-08-19T23:50:05+05:30 fix(feed): admit park-scoped operators on the wastage routes
+1d97b2977 2026-08-19T22:54:25+05:30 feat(feed): wastage verifier surface on admin-web, service proofs, docs and coverage
+d505dc8b7 2026-08-19T22:54:24+05:30 test(feed): wastage — update drift-guard expectations and test doubles
+1659b4ca8 2026-08-19T22:54:24+05:30 feat(feed): Feed Wastage backend — experiment pen-day gate, verifier-recorded measurement
+3ce210906 2026-08-19T14:10:53+05:30 Fix weighing growth metrics and mobile layout
+05b8f5097 2026-08-19T13:33:14+05:30 fix(admin): combine verifier and SOP split fixes
+ea1a47d74 2026-08-19T13:03:42+05:30 Extend verifier proof download URLs
+505fb56d4 2026-08-18T15:57:25+05:30 fix(integration): satisfy merge gate guardrails
+9c3e83ec0 2026-08-18T15:47:54+05:30 fix(integration): compose PR migrations and SOP proof policies
+214872c32 2026-08-18T15:45:40+05:30 Merge remote-tracking branch 'origin/pr/66' into codex/integrate-pr62-pr66
+6df6933a6 2026-08-18T15:45:33+05:30 Merge remote-tracking branch 'origin/pr/64' into codex/integrate-pr62-pr66
+7c76afee2 2026-08-18T14:07:18+05:30 feat(sops): SOP Library covers counts and feed workflows
+21cf583f2 2026-08-18T11:27:33+05:30 feat(feed-analytics): spend totals for week / month / 3 months / year
+b03074376 2026-08-18T11:27:32+05:30 feat(feed): purchase ledger, stock positions and daily expenditure
+de9b7c944 2026-08-18T11:27:31+05:30 feat(feed-analytics): execution KPI row and trial-arms table per the approved mock
+437804a05 2026-08-18T11:27:31+05:30 fix(feed-analytics): themed segmented tabs, Other-feeds series label
+57ba657be 2026-08-18T11:27:31+05:30 feat(adminui): Feed Analytics page contract, nav leaf and backend-owned copy
+2632108da 2026-08-18T11:27:31+05:30 chore(feed): structured projection-review markers and adversarial test names for the analytics rollups
+8e110c387 2026-08-18T11:27:31+05:30 feat(feed): execution and experiment analytics reads for the Feed Analytics page
+434269d3b 2026-08-18T11:27:31+05:30 test(feed): grain proofs for the directed analytics rollup on the real schema
+e66aaa14d 2026-08-18T11:27:31+05:30 feat(feed): directed analytics rollup read behind /feed-analytics/directed
+bad59bf29 2026-08-18T11:24:25+05:30 Merge remote-tracking branch 'origin/main' into feat/procurement-sales-page
+717495f4c 2026-08-18T11:03:29+05:30 feat(sales): record leads, farmer groups, market quotes, tag lists and weight checks in the app
+7be3a816e 2026-08-18T09:18:22+05:30 fix(weights): park filter keeps full vocabulary
+6db391ec3 2026-08-18T03:57:22+05:30 Fix weighing selected-window shed gain
+2a9040142 2026-08-17T20:08:34+05:30 feat(sales): sales ledger module and the Sales page under Procurement
+ce01471f1 2026-08-17T17:08:50+05:30 fix(verify): create weight correction indexes concurrently
+26816c03f 2026-08-17T17:08:50+05:30 feat(verify): give the verifier a capture-date filter, open on her real backlog, and arm the skip guard before the scrubber
+97e378cd7 2026-08-17T17:08:50+05:30 feat(verify): let the verifier correct a weighing weight, and play long clips at 2x
+45c1f5fe0 2026-08-17T11:22:05+05:30 fix(feed): preserve frozen row identity
+10e81019a 2026-08-16T23:59:19+05:30 feat(shifting): let the raiser choose current tag or destination tag
+e2fd6c80b 2026-08-16T22:03:06+05:30 Merge PR #45: proof-flow integration

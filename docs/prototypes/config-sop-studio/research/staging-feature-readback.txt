@@ -1,0 +1,65 @@
+ current_database | current_setting |              now
+------------------+-----------------+-------------------------------
+ goatos           | on              | 2026-09-16 14:25:38.322909+00
+(1 row)
+
+               feature               | count
+-------------------------------------+-------
+ animal_purchase_candidates          |    62
+ animal_purchase_loads               |     2
+ procurement_loads                   |     8
+ procurement_load_goats              |   348
+ source_holding_stays                |     0
+ transit_handoffs                    |     0
+ arrival_intake_reviews              |     0
+ procurement_hf_vaccination_evidence |     0
+ procurement_pc_handoffs             |     0
+ health_cases                        |     0
+ health_protocol_steps               |  1012
+(11 rows)
+
+ decision | count
+----------+-------
+ pending  |     2
+ accepted |    60
+(2 rows)
+
+   selection_state    |    current_state     | count
+----------------------+----------------------+-------
+ accepted_herd_intake | accepted_herd_intake |   348
+(1 row)
+
+  status   | versions | diseases
+-----------+----------+----------
+ published |       54 |       27
+(1 row)
+
+        code        | version |  status
+--------------------+---------+-----------
+ vaccination.matrix |       1 | retired
+ vaccination.matrix |       2 | retired
+ vaccination.matrix |       3 | retired
+ vaccination.matrix |       4 | retired
+ vaccination.matrix |       5 | retired
+ vaccination.matrix |       6 | retired
+ vaccination.matrix |       7 | retired
+ vaccination.matrix |       8 | retired
+ vaccination.matrix |       9 | published
+ vaccination.matrix |      10 | draft
+(10 rows)
+
+            code             |            name            | version |  status
+-----------------------------+----------------------------+---------+-----------
+ counts.birth                | Birth Recording            |       1 | published
+ counts.death                | Death Recording            |       1 | published
+ counts.reconcile            | Pen Reconcile              |       1 | published
+ feed.direction              | Feed Distribution          |       1 | published
+ feed.packing                | Feed Packing               |       1 | published
+ feed.transport              | Feed Transport             |       1 | published
+ milk.feeding                | Milk Feeding               |       1 | published
+ milk.preparation            | Milk Preparation           |       1 | published
+ procurement.animal_purchase | Animal Purchase Inspection |       7 | published
+ shifting                    | Shifting                   |       2 | published
+ vaccination.drive           | Vaccination Session        |       1 | published
+ weighing.session            | Weighing Session           |       1 | published
+(12 rows)

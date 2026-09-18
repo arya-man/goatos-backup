@@ -1,0 +1,382 @@
+/* Flowchart canvas editor (owned by js/flow.js) */
+.canvas:has(> .fx-root){overflow:hidden;padding:0;background:none}
+.fx-root{position:relative;width:100%;height:100%;min-height:520px;overflow:hidden;outline:none;touch-action:none;user-select:none;-webkit-user-select:none;cursor:grab;border-radius:inherit;
+  background-color:var(--bg);background-image:radial-gradient(circle,color-mix(in srgb,var(--line) 95%,transparent) 1.1px,transparent 1.3px)}
+.fx-root.panning,.fx-root.space{cursor:grabbing}
+.fx-root.space .fx-node,.fx-root.space .fx-group-head{cursor:grabbing}
+.fx-world{position:absolute;left:0;top:0;width:0;height:0;transform-origin:0 0}
+.fx-edges,.fx-preview{position:absolute;left:0;top:0;overflow:visible;pointer-events:none}
+.fx-edges{z-index:1}.fx-preview{z-index:6}
+.fx-wire{fill:none;stroke:color-mix(in srgb,var(--muted) 75%,transparent);stroke-width:1.8}
+.fx-wire.sel{stroke:var(--brand);stroke-width:2.6}
+.fx-wire-hit{fill:none;stroke:transparent;stroke-width:14;pointer-events:stroke;cursor:pointer}
+.fx-wire-hit:hover{stroke:color-mix(in srgb,var(--brand) 18%,transparent)}
+.fx-ah{fill:color-mix(in srgb,var(--muted) 85%,transparent)}.fx-ah.sel{fill:var(--brand)}
+.fx-elabel rect{fill:var(--panel-2);stroke:var(--line)}.fx-elabel text{fill:var(--ink);font-size:12px;font-weight:700;text-anchor:middle}
+.fx-preview path{fill:none;stroke:var(--brand);stroke-width:2.2;stroke-dasharray:7 5}
+
+.fx-groups{position:absolute;left:0;top:0;z-index:auto}
+/* v2: group title sits above wires (opaque, own layer) */
+.fx-group-head{z-index:2}
+.fx-group{position:absolute;border-radius:18px;border:1px dashed color-mix(in srgb,var(--brand) 38%,var(--line));background:color-mix(in srgb,var(--brand) 5%,transparent);pointer-events:none}
+.fx-group.lane{border-color:color-mix(in srgb,var(--info) 40%,var(--line));background:color-mix(in srgb,var(--info) 6%,transparent)}
+.fx-group-head{position:absolute;left:10px;top:9px;max-width:calc(100% - 20px);display:flex;align-items:flex-start;gap:6px;pointer-events:auto;cursor:move;padding:3px 9px 3px 7px;border-radius:12px;line-height:1.25;background:var(--panel);border:1px solid var(--line);font-size:12px;color:var(--brand)}
+.fx-group.lane .fx-group-head{color:var(--info)}
+.fx-group-head b{color:var(--ink);font-weight:750;white-space:normal;overflow-wrap:anywhere}.fx-group-head .ic{flex:none;margin-top:2px}
+
+.fx-nodes{position:absolute;left:0;top:0;z-index:2}
+.fx-node{position:absolute;left:0;top:0;width:264px;box-sizing:border-box;padding:10px 14px 13px;background:var(--panel);border:1px solid var(--line);border-top:3px solid var(--k,var(--muted));border-radius:12px;
+  box-shadow:0 1px 2px rgba(0,0,0,.22),0 6px 18px rgba(0,0,0,.18);cursor:grab;display:flex;flex-direction:column;gap:6px;will-change:transform}
+.fx-node:hover{border-color:color-mix(in srgb,var(--k) 55%,var(--line));border-top-color:var(--k)}
+.fx-node.sel{box-shadow:0 0 0 2px var(--brand),0 10px 26px rgba(0,0,0,.3);z-index:4}
+.fx-node.lift{cursor:grabbing;z-index:5;box-shadow:0 0 0 2px var(--brand),0 18px 38px rgba(0,0,0,.4)}
+.fx-node.drop{box-shadow:0 0 0 3px var(--brand),0 0 0 9px var(--brand-soft)}
+.fx-node.pill{border-radius:28px;border-top-width:1px;border-left:4px solid var(--k);padding:9px 16px 12px}
+.fx-node.rej{--k:var(--danger)}
+.fx-node.run-done{border-color:var(--brand)}.fx-node.run-blocked{border-color:var(--danger)}.fx-node.run-cur{box-shadow:0 0 0 2px var(--info)}
+.fx-eyebrow{display:flex;align-items:center;gap:6px;font-size:12px;font-weight:800;letter-spacing:.5px;text-transform:uppercase;color:var(--k)}
+.fx-eyebrow .ic{width:13px;height:13px;flex:none}
+.fx-eyebrow .tag{margin-left:auto;flex:none;letter-spacing:0;text-transform:none}
+.fx-title{font-size:14px;font-weight:650;line-height:1.3;color:var(--ink);overflow-wrap:anywhere}
+.fx-sum{font-size:12.5px;color:var(--muted);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.fx-link{color:var(--brand);font-weight:650;text-decoration:none;pointer-events:auto;cursor:pointer}
+.fx-link:hover{text-decoration:underline}
+.fx-node.linked{border-style:solid;border-left:3px solid var(--brand);border-top-color:var(--brand)}
+.fx-pluses{position:absolute;left:0;top:0;z-index:3}
+.fx-plus{position:absolute;width:22px;height:22px;margin:-11px 0 0 -11px;padding:0;border-radius:50%;border:2px solid var(--brand);background:var(--panel);color:var(--brand);font:800 16px/1 system-ui,sans-serif;display:grid;place-items:center;cursor:pointer;box-shadow:0 1px 4px rgba(0,0,0,.25);transition:transform .12s,background .12s,color .12s}
+.fx-plus:hover,.fx-plus:focus-visible{background:var(--brand);color:var(--panel);transform:scale(1.3);outline:none}
+
+.fx-port{position:absolute;padding:0;margin:0;border-radius:50%;z-index:3}
+.fx-port.in{top:-6px;left:50%;width:10px;height:10px;transform:translateX(-50%);background:var(--panel);border:2px solid var(--line);pointer-events:none}
+.fx-port.out{bottom:-9px;width:16px;height:16px;transform:translateX(-50%);background:var(--panel);border:2px solid var(--k,var(--brand));cursor:crosshair;opacity:.75;transition:transform .12s,opacity .12s}
+.fx-port.out::after{content:"";position:absolute;inset:-8px;border-radius:50%}
+.fx-node:hover .fx-port.out,.fx-node.sel .fx-port.out{opacity:1}
+.fx-port.out:hover{transform:translateX(-50%) scale(1.25);background:var(--brand);border-color:var(--brand)}
+.fx-port.out span{position:absolute;top:16px;left:50%;transform:translateX(-50%);font-size:12px;font-weight:750;white-space:nowrap;color:var(--ink);background:var(--panel-2);border:1px solid var(--line);border-radius:9px;padding:0 7px;line-height:17px;pointer-events:none}
+.fx-root.connecting{cursor:crosshair}.fx-root.connecting .fx-node{cursor:copy}
+
+.fx-palette{position:absolute;left:12px;top:12px;bottom:12px;width:150px;z-index:10;display:flex;flex-direction:column;gap:4px;padding:10px 8px;overflow:auto;background:color-mix(in srgb,var(--panel) 94%,transparent);border:1px solid var(--line);border-radius:14px;box-shadow:var(--shadow);cursor:default;backdrop-filter:blur(6px)}
+.fx-palette-h{font-size:12px;font-weight:800;letter-spacing:.6px;text-transform:uppercase;color:var(--muted);padding:2px 6px 6px}
+.fx-pal{display:flex;align-items:center;gap:10px;text-align:left;padding:7px 8px;border-radius:10px;border:1px solid transparent;background:transparent;color:var(--ink);cursor:grab;font:inherit}
+.fx-pal:hover{background:var(--panel-2);border-color:var(--line)}
+.fx-pal:active{cursor:grabbing}
+.fx-pal-ic{flex:none;display:grid;place-items:center;width:30px;height:30px;border-radius:9px;color:var(--k);background:color-mix(in srgb,var(--k) 15%,transparent)}
+.fx-pal-ic .ic{width:16px;height:16px}
+.fx-pal b{font-size:13px;font-weight:700}
+.fx-ghost{position:fixed;left:0;top:0;z-index:9999;pointer-events:none;display:flex;align-items:center;gap:7px;padding:8px 12px;border-radius:10px;background:var(--panel);border:1px solid var(--k);border-top:3px solid var(--k);color:var(--ink);font-size:13px;box-shadow:var(--pop)}
+.fx-ghost .ic{color:var(--k)}
+
+.fx-tools{position:absolute;right:12px;top:12px;z-index:10;display:flex;align-items:center;gap:2px;padding:4px;background:color-mix(in srgb,var(--panel) 94%,transparent);border:1px solid var(--line);border-radius:12px;box-shadow:var(--shadow);cursor:default}
+.fx-tb{display:inline-flex;align-items:center;justify-content:center;min-width:32px;height:32px;padding:0 8px;border:0;border-radius:8px;background:transparent;color:var(--ink);font:inherit;font-size:13px;font-weight:650;cursor:pointer}
+.fx-tb:hover{background:var(--panel-2)}.fx-tb.on{color:var(--brand)}
+.fx-tb .ic{width:16px;height:16px}
+.fx-zoom{min-width:44px;text-align:center;font-size:12px;font-variant-numeric:tabular-nums;color:var(--muted)}
+.fx-mini{position:absolute;right:12px;bottom:12px;z-index:10;width:180px;height:120px;background:color-mix(in srgb,var(--panel) 94%,transparent);border:1px solid var(--line);border-radius:10px;box-shadow:var(--shadow);overflow:hidden;cursor:pointer}
+.fx-mini.hidden{display:none}
+.fx-mini svg{width:100%;height:100%;display:block}
+.fx-mini rect{fill:var(--k,var(--muted));opacity:.75}
+.fx-mini rect.vp{fill:var(--brand-soft);stroke:var(--brand);stroke-width:1.2;opacity:1}
+.fx-help{position:absolute;right:12px;top:58px;z-index:11;display:grid;gap:6px;padding:10px 12px;font-size:12.5px;color:var(--ink);background:var(--panel);border:1px solid var(--line);border-radius:12px;box-shadow:var(--pop,var(--shadow));cursor:default}
+.fx-help[hidden]{display:none}
+.fx-help div{display:flex;gap:10px;align-items:center;justify-content:space-between}
+.fx-help kbd{font:600 12px/1 inherit;font-family:inherit;padding:3px 6px;border-radius:6px;border:1px solid var(--line);background:var(--panel-2);color:var(--muted)}
+
+@media(max-width:760px){
+  .fx-palette{top:auto;bottom:10px;left:10px;right:10px;width:auto;height:auto;flex-direction:row;overflow-x:auto;padding:6px}
+  .fx-palette-h,.fx-mini,.fx-tb[data-fx="mini"]{display:none}
+  .fx-pal{flex:none;padding:5px 8px}
+  .fx-pal-ic{width:26px;height:26px}
+}
+
+/* canvas card fills the viewport on phones */
+@media(max-width:760px){.canvas:has(> .fx-root){height:68vh;min-height:440px}.fx-root{min-height:440px}.fx-tools{right:8px;top:8px}}
+
+/* SOP step list (sops.js listView) */
+.lstep .lbody{min-width:0;flex:1}
+@media(max-width:600px){
+  .lstep{align-items:flex-start;gap:10px}
+  .lstep .row.nw{flex-wrap:wrap;row-gap:2px}
+  .lstep .lttl{white-space:normal;overflow:visible;text-overflow:clip;overflow-wrap:anywhere}
+  .lstep .ins-t{display:none}
+  .lstep .btn.sm{padding:0;width:32px;height:32px;justify-content:center;flex:none}
+}
+
+/* versions drawer */
+.vtbl td:last-child,.vtbl th:last-child{text-align:right;white-space:nowrap}
+.vtbl td{vertical-align:top}
+
+/* master SOP stage cards + try panel (master.js) */
+.node.k-stage .nb .tag{white-space:normal;max-width:100%;height:auto;line-height:1.3;text-align:left;overflow-wrap:anywhere}
+.node.k-stage .nl,.node.k-stage .small{overflow-wrap:anywhere}
+.trycoh{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:8px;padding:12px 16px;border-bottom:1px solid var(--line2,var(--line))}
+.trycoh label{display:flex;flex-direction:column;gap:4px;font-size:12px;font-weight:650;color:var(--muted)}
+.trycoh input{width:100%;box-sizing:border-box;text-align:right}
+.trylist{padding:4px 16px 12px}
+.trylist td{white-space:normal;vertical-align:top}
+.trylist td:last-child{padding-right:0!important}
+.trylist .row{flex-wrap:wrap;gap:6px}
+
+.fx-clip{position:absolute;inset:0;overflow:hidden}
+.fx-tools{flex-wrap:nowrap;max-width:calc(100% - 186px);overflow-x:auto;overflow-y:hidden;scrollbar-width:none;overscroll-behavior-x:contain}
+.fx-tools::-webkit-scrollbar,.fx-palette::-webkit-scrollbar{display:none}
+.fx-tools>*{flex:none}
+/* edge fade when a strip scrolls sideways */
+.fx-tools.fade-r,.fx-palette.fade-r{-webkit-mask-image:linear-gradient(90deg,#000 calc(100% - 36px),transparent);mask-image:linear-gradient(90deg,#000 calc(100% - 36px),transparent)}
+.fx-tools.fade-l,.fx-palette.fade-l{-webkit-mask-image:linear-gradient(90deg,transparent,#000 36px);mask-image:linear-gradient(90deg,transparent,#000 36px)}
+.fx-tools.fade-l.fade-r,.fx-palette.fade-l.fade-r{-webkit-mask-image:linear-gradient(90deg,transparent,#000 36px,#000 calc(100% - 36px),transparent);mask-image:linear-gradient(90deg,transparent,#000 36px,#000 calc(100% - 36px),transparent)}
+/* steps never sit (or take clicks) under the floating toolbar */
+.fx-clip{clip-path:inset(var(--fx-top,56px) 0 0 0)}
+/* keep canvas text >=12px on screen when zoomed out (--fxk = zoom) */
+.fx-eyebrow,.fx-sum,.fx-group-head,.fx-port.out span{font-size:max(12px,calc(12.5px / var(--fxk,1)))}
+.fx-title{font-size:max(14px,calc(12.5px / var(--fxk,1)))}
+.fx-elabel text{font-size:max(12px,calc(12px / var(--fxk,1)))}
+/* tablet: inspector stacks under the canvas */
+@media(max-width:1179px){.editor:has(.fx-root){grid-template-columns:minmax(0,1fr)}}
+.fx-tb:disabled{opacity:.35;cursor:default;background:transparent}
+.fx-flip{display:inline-flex;transform:scaleX(-1)}
+.fx-sep{width:1px;height:20px;background:var(--line);margin:0 4px}
+.fx-jump{height:32px;max-width:132px;border:1px solid var(--line);border-radius:8px;background:var(--panel);color:var(--ink);font:inherit;font-size:13px;padding:0 8px;cursor:pointer}
+.fx-val{gap:6px}.fx-val b{min-width:18px;height:18px;border-radius:9px;background:var(--danger);color:#fff;font-size:12px;display:inline-grid;place-items:center;padding:0 5px}
+.fx-val.bad{color:var(--danger)}.fx-val.ok .ic{color:var(--brand)}
+.fx-issues{position:absolute;right:12px;top:58px;z-index:12;width:min(340px,calc(100% - 24px));max-height:60%;overflow:auto;display:flex;flex-direction:column;gap:4px;padding:8px;background:var(--panel);border:1px solid var(--line);border-radius:12px;box-shadow:var(--pop,var(--shadow));cursor:default}
+.fx-issues[hidden]{display:none}
+.fx-issues-h{font-size:12px;font-weight:800;text-transform:uppercase;letter-spacing:.5px;color:var(--muted);padding:4px 6px}
+.fx-issues button{display:flex;gap:8px;align-items:flex-start;text-align:left;padding:8px;border:0;border-radius:8px;background:transparent;color:var(--ink);font:inherit;font-size:13px;cursor:pointer}
+.fx-issues button:hover{background:var(--panel-2)}.fx-issues button .ic{color:var(--danger);flex:none;margin-top:2px}
+.fx-issues-ok{display:flex;gap:8px;align-items:center;padding:8px;font-weight:650;color:var(--brand)}
+@media(max-width:760px){
+  .fx-clip{bottom:62px;border-bottom:1px solid var(--line)}
+  .fx-tools{left:8px;max-width:none;justify-content:flex-start}
+  .fx-clip{clip-path:inset(var(--fx-top,56px) 0 0 0)}
+  .fx-tb[data-fx="tidy"]{display:none}
+  .fx-jump{max-width:120px}
+}
+
+.pubver{display:flex;align-items:center;gap:8px;font-weight:650}
+
+/* master stage dependency tags: filled, one tone per type */
+.node.k-stage .nb .tag{border:0}
+.node.k-stage .nb .tag.t-mut{background:color-mix(in srgb,var(--muted) 16%,transparent);color:var(--ink)}
+.trycoh input.inl{width:100%}
+.trylist .tryname{font-weight:700;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:100%}
+.trylist td.trymain{width:100%;min-width:0;max-width:0}
+.trylist .trysub{display:flex;align-items:center;gap:6px;flex-wrap:wrap;margin-top:6px}
+.trylist .trysub .sp{flex:1}
+.drawer .screen table.vtbl td.vpub{white-space:nowrap!important;overflow:visible;text-overflow:clip;width:1%}
+.drawer .screen table.vtbl{table-layout:auto}
+
+/* ---- round 3 ---- */
+/* settings a step reads: live value, and what running work keeps after a change */
+.fx-set{align-self:flex-start;max-width:100%;font-size:max(12px,calc(12px / var(--fxk,1)));line-height:1.3;padding:2px 8px;border-radius:8px;color:var(--muted);background:color-mix(in srgb,var(--muted) 12%,transparent);overflow-wrap:anywhere}
+.fx-set.moved{color:var(--ink);background:color-mix(in srgb,var(--warn,#d9a300) 22%,transparent);box-shadow:inset 0 0 0 1px color-mix(in srgb,var(--warn,#d9a300) 55%,transparent)}
+.fx-set b{font-weight:750}
+
+/* toolbar "More": only when Tidy / minimap / shortcuts do not fit */
+.fx-tb.fx-more{display:none}
+.fx-root.tb-compact .fx-tb.fx-more{display:inline-flex}
+.fx-root.tb-compact .fx-tools [data-fx="tidy"],.fx-root.tb-compact .fx-tools [data-fx="mini"],.fx-root.tb-compact .fx-tools [data-fx="help"]{display:none}
+
+/* connector "+": on hover/focus for mouse users, always for touch */
+.fx-plus{width:32px;height:32px;margin:-16px 0 0 -16px;border:0;background:transparent;box-shadow:none}
+.fx-plus::before{content:"+";position:absolute;inset:5px;border-radius:50%;border:2px solid var(--brand);background:var(--panel);color:var(--brand);display:grid;place-items:center;box-shadow:0 1px 4px rgba(0,0,0,.25);transition:background .12s,color .12s}
+.fx-plus{font-size:0}.fx-plus::before{font:800 16px/1 system-ui,sans-serif}
+.fx-plus:hover,.fx-plus:focus-visible{background:transparent;transform:scale(1.15)}
+.fx-plus:hover::before,.fx-plus:focus-visible::before{background:var(--brand);color:var(--panel)}
+.fx-plus:focus-visible{outline:none}.fx-plus:focus-visible::before{outline:2px solid var(--brand);outline-offset:2px}
+@media (hover:hover) and (pointer:fine){
+  .fx-plus{opacity:0;transition:opacity .12s,transform .12s}
+  .fx-plus.show,.fx-plus:hover,.fx-plus:focus-visible{opacity:1}
+}
+@media (pointer:coarse){.fx-plus{opacity:1}}
+
+/* output port: 32px target, 16px dot */
+.fx-port.out{width:32px;height:32px;bottom:-16px;border:0;background:transparent;opacity:1}
+.fx-port.out::before{content:"";position:absolute;left:8px;top:8px;width:16px;height:16px;box-sizing:border-box;border-radius:50%;background:var(--panel);border:2px solid var(--k,var(--brand));opacity:.75;transition:opacity .12s}
+.fx-port.out::after{inset:0}
+.fx-node:hover .fx-port.out::before,.fx-node.sel .fx-port.out::before{opacity:1}
+.fx-port.out:hover{transform:translateX(-50%);background:transparent}
+.fx-port.out:hover::before{background:var(--brand);border-color:var(--brand);opacity:1}
+.fx-port.out span{top:26px}
+.fx-tb,.fx-jump{min-height:32px}
+
+/* palette: collapsible to icons; icons-only by default below 1180px */
+.fx-palette-h{display:flex;align-items:center;gap:4px}
+.fx-palette-h span{flex:1}
+.fx-palt{display:none;width:32px;height:32px;padding:0;border:0;border-radius:8px;background:transparent;color:var(--muted);cursor:pointer;place-items:center}
+.fx-palt:hover{background:var(--panel-2);color:var(--ink)}
+.fx-root.pal-open .fx-palt .ic{transform:scaleX(-1)}
+@media(min-width:761px) and (max-width:1179px){
+  .fx-palt{display:grid}
+  .fx-root:not(.pal-open) .fx-palette{width:54px;padding:6px;gap:2px;bottom:auto;max-height:calc(100% - 24px)}
+  .fx-root:not(.pal-open) .fx-palette-h{padding:0 0 4px;justify-content:center}
+  .fx-root:not(.pal-open) .fx-palette-h span,.fx-root:not(.pal-open) .fx-pal b{display:none}
+  .fx-root:not(.pal-open) .fx-pal{padding:3px;justify-content:center;min-height:36px}
+  .fx-root.pal-open .fx-palette{bottom:auto;max-height:calc(100% - 24px)}
+}
+
+/* tablet (861-1179px): canvas and a narrower step inspector side by side, so selecting a step shows its fields at once */
+@media(min-width:861px) and (max-width:1179px){
+  .editor:has(.fx-root){grid-template-columns:minmax(0,1fr) 300px;gap:12px}
+  .editor:has(.fx-root) .insp{position:sticky;top:0}
+  .editor:has(.fx-root) .insp .bd{max-height:calc(100dvh - 290px);overflow:auto}
+  .editor:has(.fx-root) .insp .fgrid{grid-template-columns:1fr}
+}
+/* narrow (<=860px): the step inspector is a bottom sheet over the canvas; the page header stays visible */
+@media(max-width:860px){
+  .editor:has(.fx-root) .insp.has-node{position:fixed;left:0;right:0;bottom:0;top:auto;width:auto;max-height:50dvh;z-index:70;display:flex;flex-direction:column;overflow:hidden;margin:0;border-radius:16px 16px 0 0;box-shadow:0 -12px 40px rgba(0,0,0,.45)}
+  .editor:has(.fx-root) .insp.has-node .bd{max-height:none;flex:1;overflow:auto}
+}
+/* phones: fade where the tool strip / palette scroll sideways */
+@media(max-width:600px){
+  .fx-tools:not(.fade-l):not(.fade-r),.fx-palette:not(.fade-l):not(.fade-r){-webkit-mask-image:none;mask-image:none}
+  .fx-tools.fade-r,.fx-palette.fade-r{-webkit-mask-image:linear-gradient(90deg,#000 calc(100% - 44px),transparent);mask-image:linear-gradient(90deg,#000 calc(100% - 44px),transparent)}
+  .fx-root.tb-compact .fx-tools [data-fx="tidy"],.fx-root.tb-compact .fx-tools [data-fx="help"]{display:none}
+}
+.mst-sets{display:flex;flex-direction:column;gap:4px;margin-top:6px}.mst-sets:empty{display:none}
+.apchain{margin:4px 0 12px;padding:10px 12px;border:1px solid var(--line);border-radius:10px;background:var(--panel-2)}
+.apchain ol{margin:6px 0 10px;padding-left:20px;display:grid;gap:3px;font-size:13px}
+.fx-root.tb-tight .fx-tools [data-fx="in"],.fx-root.tb-tight .fx-tools [data-fx="out"]{display:none}
+.fx-root.tb-tight .fx-val{font-size:0;gap:4px}.fx-root.tb-tight .fx-val b{font-size:12px}
+.fx-root.tb-tight .fx-jump{max-width:128px}
+.fx-root.tb-tight .fx-tools .fx-sep:nth-of-type(2){display:none}
+
+/* ===== shared canvas engine (draw.io-grade editing) ===== */
+/* toolbar is a solid bar above the canvas; nothing renders under it */
+.fx-tools{left:0;right:0;top:0;max-width:none;border-radius:0;border:0;border-bottom:1px solid var(--line);box-shadow:none;padding:6px 10px;background:var(--panel);z-index:12}
+.fx-tools .sp{flex:1 1 auto;min-width:8px}
+.fx-clip{clip-path:inset(var(--fx-top,46px) 0 0 0)}
+.fx-palette{top:calc(var(--fx-top,46px) + 12px)}
+.fx-help,.fx-issues{top:calc(var(--fx-top,46px) + 8px)}
+.fx-root.tool-select{cursor:default}
+.fx-root.tool-select.panning{cursor:grabbing}
+@media(max-width:760px){.fx-tools{left:0;right:0}}
+
+/* side anchors: 4 per node on hover, 12px dot, 28px hit */
+.fx-anc{position:absolute;width:12px;height:12px;margin:-6px 0 0 -6px;border-radius:50%;box-sizing:border-box;background:var(--panel);border:2px solid var(--brand);opacity:0;z-index:4;cursor:crosshair;transition:opacity .1s,transform .1s}
+.fx-anc::after{content:"";position:absolute;inset:-8px;border-radius:50%}
+.fx-anc[data-anc="t"]{left:50%;top:0}.fx-anc[data-anc="b"]{left:50%;top:100%}
+.fx-anc[data-anc="l"]{left:0;top:50%}.fx-anc[data-anc="r"]{left:100%;top:50%}
+.fx-node:hover .fx-anc,.fx-node.sel .fx-anc,.fx-root.connecting .fx-node.drop .fx-anc{opacity:1}
+.fx-anc:hover,.fx-anc.hot{background:var(--brand);transform:scale(1.35);opacity:1}
+.fx-root.dragging .fx-anc,.fx-root.dragging .fx-pluses{display:none}
+.fx-port{display:none}
+.fx-node.drop{box-shadow:0 0 0 3px var(--brand),0 0 0 10px color-mix(in srgb,var(--brand) 22%,transparent)}
+.fx-root.connecting,.fx-root.connecting .fx-node{cursor:crosshair}
+
+/* edges: 12px hit, handles at both ends on hover/select, labels as pills above wires */
+.fx-edges{overflow:visible}
+.fx-wire-hit{stroke-width:12}
+.fx-eg:hover .fx-wire{stroke:color-mix(in srgb,var(--brand) 70%,var(--muted))}
+.fx-eg.sel .fx-wire{stroke:var(--brand);stroke-width:2.6}
+.fx-eg.ghost{opacity:.25}
+.fx-wire.dep-started{stroke-dasharray:6 5;stroke:var(--info)}
+.fx-wire.dep-approved{stroke:var(--purple,#a78bfa)}
+.fx-elabel{pointer-events:all;cursor:pointer}
+.fx-elabel rect{fill:var(--panel-2);stroke:var(--line);stroke-width:1}
+.fx-elabel text{fill:var(--ink);font-size:max(12px,calc(12px / var(--fxk,1)));font-weight:700;text-anchor:middle}
+.fx-elabel:hover rect,.fx-elabel.sel rect{stroke:var(--brand)}
+.fx-elabel.dep-started text{fill:var(--info)}.fx-elabel.dep-approved text{fill:var(--purple,#a78bfa)}
+.fx-ehs{opacity:0;pointer-events:none}
+.fx-ehs.on{opacity:1;pointer-events:all}
+.fx-root:not(.dragging):not(.connecting) .fx-ehs.hov{opacity:1;pointer-events:all}
+.fx-eh{fill:var(--panel);stroke:var(--brand);stroke-width:2.5;cursor:move;pointer-events:all}
+.fx-eh:hover{fill:var(--brand)}
+.fx-ehs.on .fx-eh{stroke-width:3}
+.fx-preview path{stroke-width:2.4}
+
+/* marquee + inline label editor */
+.fx-marq{position:absolute;z-index:9;border:1px solid var(--brand);background:color-mix(in srgb,var(--brand) 12%,transparent);border-radius:3px;pointer-events:none}
+.fx-marq[hidden]{display:none}
+.fx-lbl-in{position:absolute;z-index:20;width:120px;height:30px;padding:0 10px;border-radius:15px;border:2px solid var(--brand);background:var(--panel);color:var(--ink);font:inherit;font-size:13px;font-weight:700;text-align:center;outline:none}
+
+/* master stage cards on the shared canvas */
+.fx-node.k-stage{--k:var(--brand)}
+.fx-node.k-stage.par{--k:var(--info)}
+.fx-node.k-stage .fx-tags{display:flex;flex-wrap:wrap;gap:4px}
+.fx-node.k-stage .fx-tags .tag{white-space:normal;height:auto;line-height:1.3;border:0}
+.fx-legend{display:flex;gap:14px;align-items:center;font-size:12.5px;color:var(--muted)}
+.fx-legend i{display:inline-block;width:22px;height:0;border-top:2px solid var(--muted);vertical-align:middle;margin-right:6px}
+.fx-legend i.a{border-color:var(--purple,#a78bfa)}.fx-legend i.s{border-top-style:dashed;border-color:var(--info)}
+.fx-handles{position:absolute;left:0;top:0;overflow:visible;pointer-events:none;z-index:5}
+.fx-ehit{fill:transparent;stroke:none;pointer-events:all;cursor:move}.fx-ehit:hover+.fx-ehit,.fx-ehit:hover~.fx-eh{fill:var(--brand)}
+/* hit areas stay a constant screen size at any zoom */
+.fx-wire-hit{stroke-width:max(12px,calc(12px / var(--fxk,1)))}
+.fx-ehit{r:max(12px,calc(12px / var(--fxk,1)))}
+.fx-eh{r:max(6px,calc(6px / var(--fxk,1)))}
+.fx-anc{width:max(12px,calc(12px / var(--fxk,1)));height:max(12px,calc(12px / var(--fxk,1)));margin:calc(max(12px,calc(12px / var(--fxk,1))) / -2) 0 0 calc(max(12px,calc(12px / var(--fxk,1))) / -2)}
+/* zoomed out: text stays readable but cards never outgrow their slot (no overlaps) */
+.fx-eyebrow,.fx-sum{font-size:calc(12.5px * max(1, min(1.3, 1 / var(--fxk,1))))}
+.fx-title{font-size:calc(14px * max(1, min(1.3, 1 / var(--fxk,1))));display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden}
+.fx-elabel text{font-size:calc(12px * max(1, min(1.4, 1 / var(--fxk,1))))}
+.fx-root.zoomed-out .fx-set,.fx-root.zoomed-out .mst-sets,.fx-root.zoomed-out .fx-tags{display:none}
+.canvasbar+.canvas:has(> .fx-root){height:calc(100dvh - 268px)}
+
+/* r6 visual fixes */
+@media(max-width:760px){.fx-palette{top:auto}}
+.fx-sets{display:flex;flex-wrap:wrap;gap:4px;align-items:flex-start;min-width:0}
+.fx-sets .fx-set{min-width:0}
+.fx-set-more{flex:none;font-weight:750;cursor:help}
+.fx-plus::before{content:"+"}
+.fx-vs{display:none}
+.fx-root.tb-tight .fx-val{font-size:12px}
+.fx-root.tb-tight .fx-val .fx-vl{display:none}
+.fx-root.tb-tight .fx-val .fx-vs{display:inline}
+textarea.mst-title{resize:vertical;min-height:52px;font:inherit;line-height:1.35}
+.mst-h1{overflow-wrap:break-word;text-wrap:balance}
+@media(max-width:600px){.canvasbar .fx-legend{display:none}.canvasbar:not(:has(> :not(.fx-legend))){display:none}}
+@media(max-width:420px){
+  .fx-root.tb-tight .fx-tools .fx-zoom,.fx-root.tb-tight .fx-tools .fx-sep,.fx-root.tb-tight .fx-tools [data-fx="redo"]{display:none}
+  .fx-root.tb-tight .fx-jump{max-width:84px}
+  .fx-root.tb-tight .fx-tools .sp{min-width:0}
+  .fx-root.tb-tight .fx-tb{min-width:30px;padding:0 6px}
+}
+/* 390px polish: jump select shows its short label in full; count chips get a gap */
+@media(max-width:420px){
+  .fx-root.tb-tight .fx-jump,.fx-jump{max-width:none;width:84px;flex:none;padding:0 2px 0 8px}
+}
+.chip>span.muted{margin-left:6px}
+/* overview zoom: the 12px text floor would blow labels up past their boxes, so show shapes only */
+.fx-root.zoomed-far .fx-eyebrow,.fx-root.zoomed-far .fx-sum,.fx-root.zoomed-far .fx-title,.fx-root.zoomed-far .fx-group-head,.fx-root.zoomed-far .fx-elabel{visibility:hidden}
+/* r7: node hit area wins over unselected edge handles; handles scale with zoom and hide below 60% unless selected */
+.fx-ehs:not(.on) .fx-ehit,.fx-ehs:not(.on) .fx-eh{pointer-events:none}
+.fx-root:not(.zoomed-mid):not(.dragging):not(.connecting) .fx-ehs.hov .fx-ehit{pointer-events:all}
+.fx-root.zoomed-mid .fx-ehs:not(.on){display:none}
+.fx-ehs:not(.on) .fx-ehit{r:12px}.fx-ehs:not(.on) .fx-eh{r:6px}
+/* r7: zoomed-out text caps at 1.15x; group title sits above its box; labels become dots below 50% */
+.fx-eyebrow,.fx-sum,.fx-group-head,.fx-port.out span{font-size:calc(12.5px * max(1, min(1.15, 1 / var(--fxk,1))))}
+.fx-elabel text{font-size:calc(12px * max(1, min(1.15, 1 / var(--fxk,1))))}
+/* v2: below 50% short text pills (SOP branches) / type icons (master deps), constant 12px on screen; full label on hover */
+.fx-elo{display:none}
+.fx-root.zoomed-lo .fx-elabel>rect,.fx-root.zoomed-lo .fx-elabel>text,.fx-elabel.short>rect,.fx-elabel.short>text{display:none}
+.fx-root.zoomed-lo .fx-elo{display:inline}
+.fx-elo-s{transform:scale(calc(1 / var(--fxk,1)))}
+.fx-elo rect,.fx-elo circle{fill:var(--panel-2);stroke:var(--line);stroke-width:1}
+.fx-elo text{fill:var(--ink);font-size:12px;font-weight:700;text-anchor:middle}
+.fx-elo .ic{fill:none;stroke:currentColor;stroke-width:2.2;stroke-linecap:round;stroke-linejoin:round;color:var(--ink)}
+.fx-elabel.dep-started .fx-elo .ic{color:var(--info)}.fx-elabel.dep-approved .fx-elo .ic{color:var(--purple,#a78bfa)}
+.fx-elo-tip{display:none;pointer-events:none}.fx-elo-tip rect{stroke:var(--brand)}
+.fx-elabel:hover .fx-elo-tip,.fx-elabel.sel .fx-elo-tip{display:inline}
+.fx-elabel:hover .fx-elo rect,.fx-elabel:hover .fx-elo circle,.fx-elabel.sel .fx-elo circle,.fx-elabel.sel .fx-elo>g>rect{stroke:var(--brand)}
+.fx-elabel:hover{isolation:isolate}
+.fx-root.zoomed-out .fx-group-head{top:4px;line-height:1.1;max-width:none;white-space:nowrap;align-items:center;font-size:min(calc(12px / var(--fxk,1)),35px);padding:1px calc(6px / var(--fxk,1));border-radius:calc(8px / var(--fxk,1))}
+.fx-root.zoomed-out .fx-group-head .ic{margin-top:0;width:min(calc(12px / var(--fxk,1)),35px);height:min(calc(12px / var(--fxk,1)),35px)}
+.fx-root.zoomed-out .fx-group-head b{white-space:nowrap;overflow:visible}
+
+/* phone fit: a card cut by the bottom palette fold stays hidden until the view moves */
+.fx-node.fx-fold{display:none}
+
+/* read-only (Contractor / Store keeper): inspect only */
+.fx-root.ro .fx-anc,.fx-root.ro .fx-ehs,.fx-root.ro .fx-handles,.fx-root.ro .fx-plus{display:none!important}
+.fx-root.ro .fx-node{cursor:pointer}
+.fx-ro{font-size:12px;font-weight:700;color:var(--muted);padding:0 8px;white-space:nowrap}
+.insp.ro input:disabled,.insp.ro select:disabled,.insp.ro textarea:disabled{opacity:.75;cursor:default}
+/* r16 phones: ADD STEP palette shows whole chips only (5 per view, snap-scrolled), never a chip cut at the edge */
+@media(max-width:600px){
+  .fx-palette{gap:4px;scroll-snap-type:x mandatory;scroll-padding:0 6px}
+  .fx-palette .fx-palette-h{display:none}
+  .fx-palette .fx-pal{flex:0 0 calc((100% - 16px) / 5);min-width:0;flex-direction:column;gap:3px;padding:5px 2px;scroll-snap-align:start;justify-content:center}
+  .fx-palette .fx-pal b{font-size:12px;font-weight:700;max-width:100%;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+  .fx-palette.fade-r{-webkit-mask-image:linear-gradient(90deg,#000 calc(100% - 14px),transparent);mask-image:linear-gradient(90deg,#000 calc(100% - 14px),transparent)}
+  .fx-palette.fade-l{-webkit-mask-image:linear-gradient(90deg,transparent,#000 14px);mask-image:linear-gradient(90deg,transparent,#000 14px)}
+  .fx-palette.fade-l.fade-r{-webkit-mask-image:linear-gradient(90deg,transparent,#000 14px,#000 calc(100% - 14px),transparent);mask-image:linear-gradient(90deg,transparent,#000 14px,#000 calc(100% - 14px),transparent)}
+}

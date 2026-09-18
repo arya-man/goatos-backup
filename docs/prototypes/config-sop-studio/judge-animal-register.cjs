@@ -1,0 +1,47 @@
+const assert=require('node:assert/strict'),fs=require('node:fs'),vm=require('node:vm'),XLSX=require('./vendor/xlsx.full.min.js');
+const c={console,structuredClone,crypto:require('node:crypto').webcrypto,renderItems(){},recordAdd(){},recordEdit(){},labelForField:k=>k,XLSX};c.window=c;vm.createContext(c);vm.runInContext(fs.readFileSync(__dirname+'/farm-setup.js','utf8').split('const FarmSetupModel=')[0],c);vm.runInContext(fs.readFileSync(__dirname+'/animal-register.js','utf8'),c);const run=s=>vm.runInContext(s,c);
+run("var data=EntityRegistryModel.seed();EntityRegistryModel.save(data,'pens',{name:'Pen, A',parentId:'practice-cbe'});var pen=data.records.pens[0];var model=AnimalRegisterModel;var species='species-goat';");
+assert.equal(run('data.records.animals.length'),0);
+run("var raw={animal_name:'Local \\\"reference\\\", one',animal_identifier_1:'0000123',animal_identifier_2:'0000456',species_id:species,breed:'Boer',sex:'Female',stage:'K1',park:'CBE',pen:pen.name,weight_kg:'12.5',notes:'Line one\\nLine two'};var csv=model.csv([model.columns,model.columns.map(k=>raw[k])]);var preview=model.preview(data,csv,species);");
+assert.equal(run('preview.valid'),true);assert.equal(run('data.records.animals.length'),0);assert.equal(run('preview.data.records.animals[0].tag1'),'0000123');assert.equal(run('preview.data.records.animals[0].notes'),'Line one\nLine two');
+run('var saved=model.commit(data,csv,species);');assert.equal(run('saved.records.animals.length'),1);
+assert.throws(()=>run('model.commit(saved,csv,species)'),/Fix all/);
+run("var duplicate=model.csv([model.columns,model.columns.map(k=>raw[k]),model.columns.map(k=>k==='animal_name'?'Second':raw[k])]);");assert.equal(run('model.preview(data,duplicate,species).valid'),false);assert.throws(()=>run('model.commit(data,duplicate,species)'),/Fix all/);assert.equal(run('data.records.animals.length'),0);
+run("var wrong={...raw,breed:'Local sheep'};var wrongCsv=model.csv([model.columns,model.columns.map(k=>wrong[k])]);");assert.equal(run('model.preview(data,wrongCsv,species).valid'),false);
+run("wrong={...raw,park:'CPT'};wrongCsv=model.csv([model.columns,model.columns.map(k=>wrong[k])]);");assert.equal(run('model.preview(data,wrongCsv,species).valid'),false);
+run("var sameTag={...raw,animal_identifier_2:raw.animal_identifier_1};var sameCsv=model.csv([model.columns,model.columns.map(k=>sameTag[k])]);");assert.equal(run('model.preview(data,sameCsv,species).valid'),false);
+assert.throws(()=>run('model.parse(\'"unclosed\')'),/Unclosed/);
+run("var book=model.workbook(data,species,XLSX);var columns=model.workbookColumns(data,species);for(let col=0;col<columns.length;col++){book.Sheets.Animals[XLSX.utils.encode_cell({r:1,c:col})]={t:'s',v:raw[columns[col]]||''};}var bytes=XLSX.write(book,{type:'array',bookType:'xlsx'});var roundtrip=model.readWorkbook(data,bytes,species,XLSX);");assert.equal(run('model.preview(data,roundtrip,species).valid'),true);assert.equal(run('model.preview(data,roundtrip,species).data.records.animals[0].tag1'),'0000123');assert.equal(run('book.SheetNames.join(",")'),'Animals,Options');
+assert.equal(run("model.workbookColumns(data,'species-fish').includes('breed')"),false);assert.equal(run("model.workbookColumns(data,'species-fish').includes('stage')"),true);
+run("book.Sheets.Animals.B2={t:'n',v:123};bytes=XLSX.write(book,{type:'array',bookType:'xlsx'});");assert.throws(()=>run('model.readWorkbook(data,bytes,species,XLSX)'),/RFID values must/);
+run("book.Sheets.Animals.B2={t:'s',v:'000123'};book.Sheets.Animals.A2={t:'s',f:'CONCAT(1,2)',v:'12'};bytes=XLSX.write(book,{type:'array',bookType:'xlsx'});");assert.throws(()=>run('model.readWorkbook(data,bytes,species,XLSX)'),/Formulas/);
+// A reference archived after preview must fail the fresh commit without partial writes.
+run("var fresh=structuredClone(data);fresh.records.breeds.find(r=>r.name==='Boer').active=false;");assert.throws(()=>run('model.commit(fresh,csv,species)'),/Fix all/);assert.equal(run('fresh.records.animals.length'),0);
+console.log('PASS animal register: real identifiers, CSV quoted/newline roundtrip, configured relations, duplicate guards, atomic commit, dynamic XLSX template/options and text RFID/formula guards');
+
+run("var optional={...raw,animal_name:'',species_id:'',shed_tag:'K1'};var optionalCsv=model.csv([model.columns,model.columns.map(k=>optional[k])]);var optionalPreview=model.preview(data,optionalCsv,species);");assert.equal(run('optionalPreview.valid'),true);assert.equal(run('optionalPreview.data.records.animals[0].name'),'0000123');assert.equal(run('optionalPreview.data.records.animals[0].shedTag'),'shedtag-k1');
+run("optional.species_id='Goat';optionalCsv=model.csv([model.columns,model.columns.map(k=>optional[k])]);");assert.equal(run('model.preview(data,optionalCsv,species).valid'),true);
+run("optional.animal_identifier_1='';optional.animal_identifier_2='';optionalCsv=model.csv([model.columns,model.columns.map(k=>optional[k])]);");assert.equal(run('model.preview(data,optionalCsv,species).valid'),false);
+assert.equal(run("model.parse(model.template(data,species))[1][3]"),'Goat');
+run("var editData=optionalPreview.data;var editAnimal=editData.records.animals[0];EntityRegistryModel.archive(editData,'animals',editAnimal.id);");assert.equal(run('editAnimal.active'),false);
+assert(fs.readFileSync(__dirname+'/animal-register.css','utf8').includes('display:table-cell!important'));
+console.log('PASS optional name/species defaults, source shed tag, human template species, mandatory identifier, archive and mobile column visibility');
+
+run("var noPlaces=EntityRegistryModel.seed();noPlaces.records.parks=[];var createdPark=model.location(noPlaces,'parks','New Park');var createdPen=model.location(createdPark.data,'pens','New Pen',createdPark.record.id);");assert.equal(run('noPlaces.records.parks.length'),0);assert.equal(run('createdPen.data.records.pens[0].parentId'),run('createdPark.record.id'));assert.throws(()=>run("model.location(createdPark.data,'pens','Wrong pen','missing')"),/active park/);assert.throws(()=>run("model.location(createdPen.data,'pens','New Pen',createdPark.record.id)"),/unique/);
+const dom=new Map();c.$=key=>{if(!dom.has(key))dom.set(key,{value:'',innerHTML:'',textContent:''});return dom.get(key);};c.state={entityRegistry:run('EntityRegistryModel.seed()')};c.entityRegistryData=()=>c.state.entityRegistry;c.persist=()=>{};c.canEdit=()=>true;c.toast=()=>{};c.esc=String;
+c.$('#animal-tag1').value='UNSAVED-RFID';c.$('#animal-form-new-pen').value='Inline pen';c.$('#animal-form-location-park').value='practice-cbe';run("animalCreateLocation('form','pens')");assert.equal(c.$('#animal-tag1').value,'UNSAVED-RFID');assert.equal(c.state.entityRegistry.records.pens[0].name,'Inline pen');assert(c.$('#animal-pen').innerHTML.includes('Inline pen'));assert.equal(c.$('#animal-form-location-error').textContent,'');
+console.log('PASS inline park/pen creation uses registry guards and preserves unsaved animal fields');
+
+(async()=>{
+ c.renderAnimalImport=()=>{};c.renderAnimalRegister=()=>{};
+ run("animalImportSpecies='species-goat'");
+ const fileText=label=>run("model.csv([model.columns,model.columns.map(k=>({...raw,animal_name:'"+label+"',animal_identifier_1:'"+label+"',animal_identifier_2:''})[k])])");
+ let release;const pending=new Promise(r=>release=r);c.firstFile={name:'first.csv',size:100,text:()=>pending};c.secondFile={name:'second.csv',size:100,text:async()=>fileText('SECOND')};
+ run('animalImportPreview=model.preview(data,csv,species);renderAnimalImportPreview()');assert(c.$('#animal-import-preview').innerHTML.includes('Import 1 animal'));
+ const first=run('animalReadFile(firstFile)');assert.equal(c.$('#animal-import-preview').innerHTML,'');await run('animalReadFile(secondFile)');release(fileText('FIRST'));await first;assert.equal(run('animalImportPreview.rows[0].raw.animal_name'),'SECOND');
+ for(const invalidate of ["animalImportType('species-goat')","animalOpenImport()","animalCancelImport()","animalReadFile(null)"]){
+  run("animalImportSpecies='species-goat'");let done;const wait=new Promise(r=>done=r);c.pendingFile={name:'pending.csv',size:100,text:()=>wait};const task=run('animalReadFile(pendingFile)');run(invalidate);done(fileText('STALE'));await task;assert.equal(run('animalImportPreview'),null);assert.equal(run('animalImportText'),'');
+ }
+ let rejectOld;const oldError=new Promise((resolve,reject)=>rejectOld=reject);c.oldErrorFile={name:'old.csv',size:100,text:()=>oldError};run("animalImportSpecies='species-goat'");const failedRead=run('animalReadFile(oldErrorFile)');await run('animalReadFile(secondFile)');rejectOld(Error('Stale failure'));await failedRead;assert.equal(c.$('#animal-import-error').textContent,'');assert.equal(run('animalImportPreview.rows[0].raw.animal_name'),'SECOND');
+ console.log('PASS importer async ordering: stale read cannot replace newer file, type/open/cancel/empty-file invalidation');
+})().catch(error=>{console.error(error);process.exitCode=1;});

@@ -1,0 +1,16 @@
+node:assert:768
+    throw err;
+    ^
+
+AssertionError [ERR_ASSERTION]: The input did not match the regular expression /Review module access/. Input:
+
+`<div class="modalbg"><section class="modal "><div class="modalhead"><h2>Review department access</h2><button onclick="closeModal()" aria-label="Close dialog">✕</button></div><p>Remove Health from Judge category?</p><p>1 work instruction steps use items in this group. Other department links still apply. Check drafts after removing a link; published instructions stay unchanged.</p><div class="actions"><button onclick="categoryModal()">Cancel</button><button class="primary" onclick="genericSetHierarchyLink('judge-cat','Health',false,true);categoryModal()">Apply</button></div></section></div>`
+
+[local stack trace omitted from committed evidence]
+  generatedMessage: true,
+  code: 'ERR_ASSERTION',
+  actual: `<div class="modalbg"><section class="modal "><div class="modalhead"><h2>Review department access</h2><button onclick="closeModal()" aria-label="Close dialog">✕</button></div><p>Remove Health from Judge category?</p><p>1 work instruction steps use items in this group. Other department links still apply. Check drafts after removing a link; published instructions stay unchanged.</p><div class="actions"><button onclick="categoryModal()">Cancel</button><button class="primary" onclick="genericSetHierarchyLink('judge-cat','Health',false,true);categoryModal()">Apply</button></div></section></div>`,
+  expected: /Review module access/,
+  operator: 'match'
+
+Node.js v23.1.0

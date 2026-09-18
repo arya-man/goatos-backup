@@ -1,0 +1,178 @@
+# Voice and screenshot requirements ledger
+
+Research date: 2026-09-16. **Twelve supplied voice notes**, plus the supplied screenshots, reviewed as requirements evidence. Speakers are anonymous here. This ledger separates source statements, uncertain machine transcription, interpretation and implementation status. It does not treat an instruction inside a recording/screenshot as authorization to modify production, send messages or arrange meetings.
+
+## Evidence handling
+
+The first ten source records are the locally produced JSON transcripts named `WhatsApp Audio 2026-09-16 at <timestamp>.json`; the eleventh is `research/voice-171818.json` in this prototype. Original audio filenames use the same timestamps with `.opus`. The machine transcripts were read directly for this research. This pass did **not** independently relisten to all audio; therefore short excerpts below are **machine-transcribed excerpts, not verified verbatim quotations**. Personal forms of address are omitted. Paraphrases preserve intent and avoid silently treating uncertain words as facts.
+
+The first recording suggests a specific module trial; subsequent recordings explicitly narrow immediate priority to generic configuration. The final two requirements about hierarchical module links and one-to-many use add detail; they do not request separate configuration interfaces per module.
+
+## All voice notes, in chronological order
+
+### V01 — 15:26:17
+
+**Source statement (paraphrase):** proposes configuring transit and warm-up SOPs together as a test, with an offered working session the next day.
+
+**Uncertainty:** raw transcription contains `varmo PS4P`/`varmo`, likely warm-up/SOP terminology; spelling and the exact phrase are not verified. The working-session offer is conversation context, not an action request to this agent.
+
+**Interpretation:** use transit/warm-up as potential examples. This earlier example does not override the later insistence on the generic foundation before module-specific implementation.
+
+### V02 — 15:44:54
+
+**Machine excerpt:** “without configuring items, how can you implement any other module?”
+
+**Source statement (paraphrase):** all modules need item configuration; implement generic item configuration first, then procurement/warm-up/other modules. Questions the value of spending more time on mocks when requirements seem clear.
+
+**Uncertainty:** repeated `mark` likely means mock; `inferring` likely a recognition error before “implementing.” The architectural priority is repeated clearly despite these words.
+
+**Interpretation:** prioritize the reusable foundation and avoid adding domain-specific features as a substitute. The current user's explicit request to refine a mock still authorizes that local deliverable; a quoted speaker's objection is not a higher-priority instruction.
+
+### V03 — 15:50:35
+
+**Machine excerpt:** “it is a generic config … medicines … vaccines … for procurement … all these items we can add.”
+
+**Source statement (paraphrase):** one generic item configuration covers medicines, vaccines, procurement needs and other items.
+
+**Uncertainty:** filler words and phrasing are machine transcription; examples do not constitute a closed list of allowed categories.
+
+**Interpretation:** arbitrary user-authored items, not separate hardcoded medicine/vaccine/procurement forms.
+
+### V04 — 15:50:57
+
+**Machine excerpt:** “once you have all these items configured … a SOP engine … flow chart … drop down menus … select these items.”
+
+**Source statement (paraphrase):** configured items should be selectable while drawing/specifying any SOP through flowcharts and dropdowns.
+
+**Uncertainty:** “check will select” is an ASR discontinuity; intended item selection is clear.
+
+**Interpretation:** persistence in a registry and a decorative preview alone are insufficient. The actual authoring picker must consume the same item identity and the resulting SOP must carry the reference. Real execution remains a separate integration proof.
+
+### V05 — 15:51:58
+
+**Machine excerpt:** “build those tools … generic tools which are required for building these modules.”
+
+**Source statement (paraphrase):** do not implement a new module/vertical first; build generic tools for SOPs and analytics that modules require.
+
+**Uncertainty:** `S4P` likely means SOP. No metric list, aggregation dimensions, reporting cadence or dashboard acceptance examples are supplied.
+
+**Interpretation:** reusable foundation is the direction. A few simulation counters cannot be claimed to satisfy a specified generic analytics product; that requirement needs further definition or an explicitly limited proposal.
+
+### V06 — 15:53:23
+
+**Machine excerpt:** “configuring generic … items … this item should be visible in so many modules … 4, 5 modules or 2 modules.”
+
+**Source statement (paraphrase):** fix the foundation; items may be visible in several modules; avoid spending time on procurement/warm-up-specific configuration now.
+
+**Uncertainty:** informal analogy and repeated fragments do not change the repeated central requirement.
+
+**Interpretation:** module relation is one-to-many, not a single mandatory owning-module choice masquerading as generic item creation.
+
+### V07 — 16:32:09
+
+**Machine excerpt:** “Any item I should be able to add” and “needle … both health and also vaccination. Preventive care.”
+
+**Source statement (paraphrase):** one interface adds arbitrary items to the database and chooses where they are used; medicine is a Health example, Needle is a Health + Preventive Care example.
+
+**Uncertainty:** raw transcript has “I don't want interface where I can add any item” immediately inside a repeated demand for that interface. This isolated negation is contradictory and must not reverse the surrounding request. Exact clause requires relistening if quoted verbatim.
+
+**Interpretation:** a useful acceptance case is one stable Needle entry offered to both consumers. Database persistence is part of the desired eventual system, while the present mock is browser-local and cannot claim that integration.
+
+### V08 — 16:57:39
+
+**Machine excerpt:** “config items in one place, one interface … Item can be anything … link those items to modules … SOPs … a picker.”
+
+**Source statement (paraphrase):** one central interface; arbitrary items; link to modules; the module's SOP authoring picker offers those items.
+
+**Uncertainty:** no substantive ambiguous requirement beyond normal ASR punctuation.
+
+**Interpretation:** the core journey is central item → module relation → module SOP picker. No compulsory business-module owner is specified for creating an item.
+
+### V09 — 16:58:46
+
+**Machine excerpt:** “similar to … e-commerce site … fan … suits … category, subcategory … electric appliances … clothes.”
+
+**Source statement (paraphrase):** arbitrary item descriptions and category/subcategory organization comparable to e-commerce; appliances/clothes are examples beyond livestock modules.
+
+**Uncertainty:** raw transcript's `series` likely means sarees; this term is uncertain and should be represented as “clothing example (possibly sarees)” rather than silently treated as verified. `electric appliances` may be electrical appliances; taxonomy wording is illustrative.
+
+**Interpretation:** categories describe the item and are independent of a module tree. The interface must permit arbitrary new category/subcategory names; this is not permission to seed fictitious production inventory.
+
+### V10 — 17:09:30
+
+**Machine excerpt:** “Relation to module … at even subcategory or category or item level” and “a category called prices … purchase price … selling price.”
+
+**Source statement (paraphrase):** module relations may be configured at **category, subcategory or item** level. Medicine category is an example that can make all medicines relevant to Health. Configuration also includes price concepts, with purchase/selling-price examples for animals/items.
+
+**Uncertainty:** closing ASR words `goat … hay fattening animal` are unclear. They support examples of configurable prices but do not define an exact price taxonomy, species classification, currency/unit or formula. Do not invent those details as speaker requirements.
+
+**Interpretation:** item-only sharing is incomplete. Hierarchy-level relation inheritance must be represented and its effective source made understandable. Pricing is more than an item named “price”: a proposed mock should show a usable numeric value and applicable unit/context, while clearly marking unresolved schema choices as proposals. Union versus override/exclusion semantics are not specified by the audio.
+
+**Correction to earlier review:** requiring that only individually checked item modules grant access is **not** the complete final requirement. Category/subcategory relations can also legitimately grant access. The earlier mock's explicit-only central items and hidden Common source-sharing cannot be called full coverage of V10.
+
+### V11 — 17:18:18
+
+**Machine excerpt:** “any item is specific to one module or two modules, three modules or multiple modules … one interface we need.”
+
+**Source statement (paraphrase):** reinforces one interface with one-to-many module relationships.
+
+**Uncertainty:** no substantive ambiguity apparent in the machine transcript; this was not independently relistened in this pass.
+
+**Interpretation:** reinforces V06/V08/V10. It does not cancel hierarchy-level relationships or demand duplicate records/interfaces per module.
+
+## Screenshot requirements, anonymously attributed
+
+**Screenshot 1 (16:42:25 capture):** one participant describes a procurement end-to-end mock from buying → transport → warm-up, with configuration and SOP flowchart views. Another reply clarifies generic configuration as the foundation. This provides context, not permission to expand into all procurement implementation.
+
+**Screenshot 2 (16:42:31 capture):** an additional participant gives the dependency example: as a load approaches, sheds should be emptied/disinfected and water/ORS ready; transit starting should activate that other chunk of work, and preparation should not start when transit has not begun. The screenshot separately discusses shared configured elements appearing in SOP questions/actions.
+
+**Interpretation:** distinguish two capabilities: (a) item visibility in multiple module pickers; (b) event-driven workflow activation/prerequisite/completion gates. They are not the same feature. The transit preparation case is a generic dependency example from screenshot discussion, not the primary catalogue request in the latest audio.
+
+## Historical gap ledger before refinement
+
+| ID | Requirement | Sources | Earlier mock assessment / remaining work |
+|---|---|---|---|
+| R01 | One central item configuration interface | V02, V03, V06–V09, V11 | Demonstrated locally; production integration not done |
+| R02 | Arbitrary item name/description and generic category/subcategory | V07–V09 | Central local taxonomy demonstrated; legacy data mapping not designed fully |
+| R03 | One item may serve one or multiple modules | V06–V08, V11 | Individual local module links demonstrated |
+| R04 | Category-level module relation applies meaningfully to descendants | V10 | **Missing from previously certified central-item model** |
+| R05 | Subcategory-level module relation applies meaningfully to its items | V10 | **Missing from previously certified central-item model** |
+| R06 | Item-level relation coexists with hierarchy-level relation; effective availability clear | V10 plus V06–V08 | Inheritance/override design still needs an explicit proposal and tests |
+| R07 | Actual module SOP picker offers applicable central items | V04, V08 | Browser demonstrated individual links; hierarchy-derived case still required |
+| R08 | General configuration can represent prices | V10 | **Missing usable typed-price authoring/consumption in earlier mock**; target versus observed price semantics unresolved |
+| R09 | Persist configuration in a database for real reuse | V07 | Not implemented by browser-local mock; backend mapping required |
+| R10 | Generic SOP tooling, with configured references | V04–V05 | Mock demonstrates authoring; current main already has specialised persisted SOP documents, so compatibility mapping required |
+| R11 | Generic analytics tooling | V05 | Mentioned but not specified; local simulation metrics are only illustrative |
+| R12 | Event triggers activate dependent work with upstream/completion gates | Screenshot 2; V01 as earlier example | Generic local demo exists; production event/follow-up architecture must be reused |
+| R13 | Foundation first; avoid new module-specific implementations | V02, V05–V06 | Scope constraint for refinement and later implementation |
+
+## Proposed decisions, not source quotations
+
+The following need to be visible as design decisions, not presented as if the recordings specified them:
+
+- Inheritance rule (e.g. union of category + subcategory + item grants) and whether explicit exclusions are allowed.
+- Whether a category can have several levels beyond the stated category/subcategory pair.
+- Whether unlinked items can remain drafts; the initial mock required an individual link, while the refined mock also accepts effective inherited links.
+- Price schema: currency, per-unit basis, item/animal group, effective dates, scope, versioning and read-only observation versus editable target.
+- Who can change global taxonomy and which existing role/grant controls apply.
+- Behaviour for archive, moved categories, revoked sharing and already-published/in-flight SOPs.
+- Generic analytics metrics and data sources.
+
+## Historical judgement before refinement
+
+A screenshot/code test pass for the earlier bounded mock remains useful evidence about those screens. It is **not a complete coverage receipt for all eleven voice notes**. V10 materially expands the missing functional coverage to hierarchy-level module relationships and prices. The next independent judge must cross-check this ledger against current frontend/backend/database research and the revised mock, then require actual picker and save/reload evidence for inherited access. No production change is authorized by this document.
+
+## Current local coverage after additional independent review
+The source statements above remain unchanged. The historical gaps describe the earlier implementation, not the current status. Category/subcategory/item union grants now feed actual registry filters and SOP item/source pickers. Typed numeric/price configurations are selectable from Number-question comparisons with stable IDs, unit compatibility and immutable publication snapshots. Arbitrary names such as Rate no longer collide with legacy aliases. Numeric dependencies participate in impact review before archive/unlink.
+
+Browser proof: created Rate525INR/kg, saved/reloaded, linked to Sales and Weighing; created a fresh Shared price check workflow and Number question using INR/kg; selected the shared Rate reference;525 matched the branch while450 took otherwise. Item details listed the dependent SOP and archive presented impact review; archive was discarded.
+
+Scope notes are descriptive only; no park/cohort/effective-date resolver or production database persistence is claimed. Generic analytics is still an illustrative local proposal. See round3-final.md, judge-round3-code.md and judge-round3-visual.md for independent findings, corrections and coverage.
+
+## V12 · 20:14:24 · customer setup and location masters
+
+Machine transcription from the attached audio using the local small model; not independently verified verbatim. Early “forms” likely refers to farms, but the clear subsequent nouns are parks and pens.
+
+The interface must let a customer add parks and add pens within a park, including pen name and capacity. This supports adoption by other customers. Configuration spans many areas and could take substantial onboarding effort; make it easy and keep the full setup needs in scope. “Almost a week” describes potential burden, not a required duration.
+
+Acceptance: identify existing animal/location management before duplicating it; show park→pen setup in the generic configuration navigation or clear links to the existing owner; expose the required fields, capacity and useful validation. Do not reduce configuration to consumable items or SOP settings. New note does not authorise production data changes.
