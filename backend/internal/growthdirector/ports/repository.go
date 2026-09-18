@@ -44,7 +44,7 @@ type Repository interface {
 	// pen, 1 for a pen-average pen, 1 per band for a per-animal pen), plus the
 	// animals sold or dead inside the window. The window bounds the weighing side
 	// only. Same scoping rule as above: parkIDs are already authorized.
-	GetFeedWeightBandSource(ctx context.Context, tenantID string, parkIDs []string, periodStart, periodEnd time.Time, sex, origin, weighingCategory string, includeExited bool) (FeedWeightBandSource, error)
+	GetFeedWeightBandSource(ctx context.Context, tenantID string, parkIDs []string, periodStart, periodEnd time.Time, sex, origin, weighingCategory string) (FeedWeightBandSource, error)
 }
 
 // FeedWeightBandSource is the repository's raw answer for the feed-by-weight-band
@@ -115,9 +115,16 @@ type FeedWeightEvidence struct {
 	AverageWeightKg float64
 	FemaleCount     int
 	MaleCount       int
+	// AnimalsAll / AverageWeightKgAll / *CountAll are the same figures counting every weighed
+	// animal including those since sold or dead; equal to the on-farm figures on a pen-average
+	// row.
+	AnimalsAll         int
+	AverageWeightKgAll float64
+	FemaleCountAll     int
+	MaleCountAll       int
 	// ExitedAnimals is how many of the weighed animals behind a per-animal band have since
-	// exited (sold / dead). They are outside Animals and AverageWeightKg unless the caller
-	// asked to include them. Always 0 on a pen-average row.
+	// exited (sold / dead). Outside Animals and AverageWeightKg, inside AnimalsAll. Always 0 on
+	// a pen-average row.
 	ExitedAnimals int
 	// ExitedSold is the part of ExitedAnimals that was sold (lifecycle sold / exit reason
 	// sold); the rest died or otherwise left.

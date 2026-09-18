@@ -65,13 +65,20 @@ type FeedWeightBandRow struct {
 	FeedGiven string `json:"feed_given"`
 	// PenKgPerDay is the pen's authored kg/day across items and sessions.
 	PenKgPerDay float64 `json:"pen_kg_per_day"`
-	// WeightAnimals is the head count behind AverageWeightKg: the lump-sum count for a
-	// pen-average row, the scanned animals in the band for a per-animal row.
+	// WeightAnimals is the ON-FARM head count behind AverageWeightKg: the lump-sum count for a
+	// pen-average row, the on-farm scanned animals in the band for a per-animal row. Zero on a
+	// band row that exists only because of animals that have since left.
 	WeightAnimals   int     `json:"weight_animals"`
 	AverageWeightKg float64 `json:"average_weight_kg"`
-	// ExitedAnimals is how many weighed animals of this band have since been sold or died.
-	// Outside WeightAnimals unless the read asked to include them; always 0 on a pen-average
-	// row, whose head count is a frozen census.
+	// WeightAnimalsAll / AverageWeightKgAll / GenderAll are the same figures counting every
+	// weighed animal including those since sold or dead, so the screen's Animals toggle needs
+	// no second read. Equal to the on-farm figures on a pen-average row.
+	WeightAnimalsAll   int     `json:"weight_animals_all"`
+	AverageWeightKgAll float64 `json:"average_weight_kg_all"`
+	GenderAll          string  `json:"gender_all"`
+	// ExitedAnimals is how many weighed animals of this band have since been sold or died:
+	// outside WeightAnimals, inside WeightAnimalsAll; always 0 on a pen-average row, whose head
+	// count is a frozen census.
 	ExitedAnimals int `json:"exited_animals"`
 	// ExitedSold and ExitedDied split ExitedAnimals: sold, or dead / otherwise left.
 	ExitedSold int `json:"exited_sold"`
@@ -135,13 +142,18 @@ type FeedWeightBandReconciliation struct {
 	// Rollups is the items rolled up per (park, pen, shed tag, ration group, arm, breed,
 	// workflow). The feed side: never narrowed by the period or the sex filter.
 	Rollups int `json:"rollups"`
-	// MatchedRollups is the rollups with at least one weight row in the period that
-	// passes the sex filter.
-	MatchedRollups int `json:"matched_rollups"`
-	// ExcludedRollups is Rollups - MatchedRollups: fed pens with no such weighing.
-	ExcludedRollups int `json:"excluded_rollups"`
-	// OutputRows is the rows served: one per matched rollup for a pen-average pen, one per
-	// band for a per-animal pen.
+	// MatchedRollups is the rollups with at least one weight row in the period whose on-farm
+	// head count is above zero; MatchedRollupsAll counts a rollup whose only weighed animals
+	// have since left as matched too (the screen's "include sold & dead" reading).
+	MatchedRollups    int `json:"matched_rollups"`
+	MatchedRollupsAll int `json:"matched_rollups_all"`
+	// ExcludedRollups is Rollups - MatchedRollups (and the *All twin): fed pens with no such
+	// weighing.
+	ExcludedRollups    int `json:"excluded_rollups"`
+	ExcludedRollupsAll int `json:"excluded_rollups_all"`
+	// OutputRows is the rows served, every variant included: one per matched rollup for a
+	// pen-average pen, one per band for a per-animal pen (a band with only exited animals is a
+	// row with weight_animals = 0).
 	OutputRows int `json:"output_rows"`
 	// IndividualAnimalsWeighed and LumpSumAnimalsWeighed are the weighing side's own totals
 	// BEFORE any feed match, at the General tab's grain -- the figures that tab's Individual /
@@ -151,8 +163,6 @@ type FeedWeightBandReconciliation struct {
 	LumpSumAnimalsWeighed    int `json:"lump_sum_animals_weighed"`
 	// ExitedAnimals is how many animals were sold or died inside the period (the list below).
 	ExitedAnimals int `json:"exited_animals"`
-	// IncludeExited echoes whether sold / dead animals were counted in the band rows.
-	IncludeExited bool `json:"include_exited"`
 }
 
 type FeedWeightBand struct {

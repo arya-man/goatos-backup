@@ -23,14 +23,14 @@ func feedSourceFixture() ports.FeedWeightBandSource {
 		Rollups: []ports.FeedRollup{
 			// A pen-average pen: one evidence row; the register says every resident is male.
 			{ParkID: gdParkA, ParkName: "Coimbatore", Pen: "Castro 1", ShedTag: "F2-Male", RationGroup: "Fattening", Breed: "Beetal x Sojat", Workflow: "normal", KgPerDay: 12.5, Items: items,
-				Evidence: []ports.FeedWeightEvidence{{Source: domain.FeedBandSourcePenAverage, Band: "25_30", Animals: 40, AverageWeightKg: 27.2, MaleCount: 38}}},
+				Evidence: []ports.FeedWeightEvidence{{Source: domain.FeedBandSourcePenAverage, Band: "25_30", Animals: 40, AverageWeightKg: 27.2, MaleCount: 38, AnimalsAll: 40, AverageWeightKgAll: 27.2, MaleCountAll: 38}}},
 			// A per-animal pen with two kid rollups that would read identically: two bands
 			// each, the 15-20 band mixed with two sold animals beside it, the under-15 band
 			// all female.
 			{ParkID: gdParkA, ParkName: "Coimbatore", Pen: "Godel 1 - Part 2", ShedTag: "K3", RationGroup: "Kid", Breed: "Sojat", Workflow: "normal", KgPerDay: 3, Items: items[1:],
-				Evidence: []ports.FeedWeightEvidence{{Source: domain.FeedBandSourcePerAnimal, Band: "15_20", Animals: 3, AverageWeightKg: 17, FemaleCount: 2, MaleCount: 1, ExitedAnimals: 2, ExitedSold: 1}, {Source: domain.FeedBandSourcePerAnimal, Band: "under_15", Animals: 2, AverageWeightKg: 12, FemaleCount: 2}}},
+				Evidence: []ports.FeedWeightEvidence{{Source: domain.FeedBandSourcePerAnimal, Band: "15_20", Animals: 3, AverageWeightKg: 17, FemaleCount: 2, MaleCount: 1, AnimalsAll: 5, AverageWeightKgAll: 17.4, FemaleCountAll: 3, MaleCountAll: 2, ExitedAnimals: 2, ExitedSold: 1}, {Source: domain.FeedBandSourcePerAnimal, Band: "under_15", Animals: 2, AverageWeightKg: 12, FemaleCount: 2, AnimalsAll: 2, AverageWeightKgAll: 12, FemaleCountAll: 2}}},
 			{ParkID: gdParkA, ParkName: "Coimbatore", Pen: "Godel 1 - Part 2", ShedTag: "ICU-Kid", RationGroup: "Kid", Breed: "Sojat", Workflow: "normal", KgPerDay: 1, Items: items[1:],
-				Evidence: []ports.FeedWeightEvidence{{Source: domain.FeedBandSourcePerAnimal, Band: "15_20", Animals: 3, AverageWeightKg: 17, FemaleCount: 2, MaleCount: 1, ExitedAnimals: 2, ExitedSold: 1}, {Source: domain.FeedBandSourcePerAnimal, Band: "under_15", Animals: 2, AverageWeightKg: 12, FemaleCount: 2}}},
+				Evidence: []ports.FeedWeightEvidence{{Source: domain.FeedBandSourcePerAnimal, Band: "15_20", Animals: 3, AverageWeightKg: 17, FemaleCount: 2, MaleCount: 1, AnimalsAll: 5, AverageWeightKgAll: 17.4, FemaleCountAll: 3, MaleCountAll: 2, ExitedAnimals: 2, ExitedSold: 1}, {Source: domain.FeedBandSourcePerAnimal, Band: "under_15", Animals: 2, AverageWeightKg: 12, FemaleCount: 2, AnimalsAll: 2, AverageWeightKgAll: 12, FemaleCountAll: 2}}},
 			// A fed pen nobody has weighed in the period: excluded, counted.
 			{ParkID: gdParkA, ParkName: "Coimbatore", Pen: "Sumathi 1 - Part 4", ShedTag: "F2-Female", RationGroup: "Fattening", Breed: "Sojat", Workflow: "experiment", ExperimentArm: "Arm A", KgPerDay: 9, Items: items},
 		},
@@ -42,7 +42,7 @@ func feedSourceFixture() ports.FeedWeightBandSource {
 }
 
 func TestBuildFeedWeightBandReconcilesAndOrders(t *testing.T) {
-	got := BuildFeedWeightBand(feedSourceFixture(), false)
+	got := BuildFeedWeightBand(feedSourceFixture())
 	rec := got.Reconciliation
 	if rec.FeedDay != "2026-09-10" || rec.PositiveRows != 10 || rec.CollapsedItems != 6 {
 		t.Fatalf("sheet stages not carried: %+v", rec)
@@ -51,7 +51,7 @@ func TestBuildFeedWeightBandReconcilesAndOrders(t *testing.T) {
 		t.Fatalf("reconciliation wrong: %+v", rec)
 	}
 	// The General-tab figures and the exit count ride on the reconciliation verbatim.
-	if rec.IndividualAnimalsWeighed != 9 || rec.LumpSumAnimalsWeighed != 40 || rec.ExitedAnimals != 2 || rec.IncludeExited {
+	if rec.IndividualAnimalsWeighed != 9 || rec.LumpSumAnimalsWeighed != 40 || rec.ExitedAnimals != 2 {
 		t.Fatalf("weighing-side totals wrong: %+v", rec)
 	}
 	if len(got.Rows) != 5 {
@@ -117,10 +117,29 @@ func TestBuildFeedWeightBandReconcilesAndOrders(t *testing.T) {
 	}
 }
 
-func TestBuildFeedWeightBandEchoesIncludeExited(t *testing.T) {
-	got := BuildFeedWeightBand(feedSourceFixture(), true)
-	if !got.Reconciliation.IncludeExited {
-		t.Fatalf("include_exited must be echoed: %+v", got.Reconciliation)
+func TestBuildFeedWeightBandCarriesBothHeadCountVariants(t *testing.T) {
+	src := feedSourceFixture()
+	// A band whose only weighed animals have left: on-farm 0, all 2 -- the row is served, the
+	// rollup counts as matched only under "all".
+	src.Rollups = append(src.Rollups, ports.FeedRollup{ParkID: gdParkA, ParkName: "Coimbatore", Pen: "Yashoda 9", ShedTag: "F2-Male", RationGroup: "Fattening", Breed: "Sojat", Workflow: "normal", KgPerDay: 4,
+		Items:    []ports.FeedRollupItem{{Label: "Mesha Bhusa", GramsPerHead: 300}},
+		Evidence: []ports.FeedWeightEvidence{{Source: domain.FeedBandSourcePerAnimal, Band: "25_30", Animals: 0, AverageWeightKg: 0, AnimalsAll: 2, AverageWeightKgAll: 27, MaleCountAll: 2, ExitedAnimals: 2, ExitedSold: 2}}})
+	got := BuildFeedWeightBand(src)
+	rec := got.Reconciliation
+	if rec.Rollups != 5 || rec.MatchedRollups != 3 || rec.ExcludedRollups != 2 || rec.MatchedRollupsAll != 4 || rec.ExcludedRollupsAll != 1 || rec.OutputRows != 6 {
+		t.Fatalf("two-variant reconciliation wrong: %+v", rec)
+	}
+	if len(got.Unmatched) != 1 || got.Unmatched[0].Pen != "Sumathi 1 - Part 4" {
+		t.Fatalf("only the never-weighed pen is Not shown on the wire: %+v", got.Unmatched)
+	}
+	var gone *domain.FeedWeightBandRow
+	for i := range got.Rows {
+		if got.Rows[i].Pen == "Yashoda 9" {
+			gone = &got.Rows[i]
+		}
+	}
+	if gone == nil || gone.WeightAnimals != 0 || gone.WeightAnimalsAll != 2 || gone.AverageWeightKgAll != 27 || gone.GenderAll != "Male" || gone.Gender != "" || gone.ExitedSold != 2 {
+		t.Fatalf("exited-only band row must carry the all-variant: %+v", gone)
 	}
 }
 
@@ -159,22 +178,22 @@ func TestGetFeedWeightBandGateWindowAndFilters(t *testing.T) {
 	repo := &fakeRepo{parks: []domain.Park{{ParkID: gdParkA, Name: "A"}, {ParkID: gdParkB, Name: "B"}}, feedSource: feedSourceFixture()}
 	svc := NewService(repo)
 	tenantWide := gdContext(permissions.ActiveGrant{Role: permissions.RoleGrowthDirector, ScopeType: "tenant", ScopeID: gdTenant})
-	if _, err := svc.GetFeedWeightBand(context.Background(), domain.Actor{TenantID: gdTenant, Roles: []string{permissions.RoleOperator}}, "", "", "", "", "", "", false); err != ports.ErrForbidden {
+	if _, err := svc.GetFeedWeightBand(context.Background(), domain.Actor{TenantID: gdTenant, Roles: []string{permissions.RoleOperator}}, "", "", "", "", "", ""); err != ports.ErrForbidden {
 		t.Fatalf("non-monitor must be forbidden, got %v", err)
 	}
-	if _, err := svc.GetFeedWeightBand(tenantWide, gdActor(), "", "2026-13-01", "", "", "", "", false); err != ports.ErrInvalidArgument {
+	if _, err := svc.GetFeedWeightBand(tenantWide, gdActor(), "", "2026-13-01", "", "", "", ""); err != ports.ErrInvalidArgument {
 		t.Fatalf("bad date must be rejected, got %v", err)
 	}
-	if _, err := svc.GetFeedWeightBand(tenantWide, gdActor(), "", "", "", "unknown", "", "", false); err != ports.ErrInvalidArgument {
+	if _, err := svc.GetFeedWeightBand(tenantWide, gdActor(), "", "", "", "unknown", "", ""); err != ports.ErrInvalidArgument {
 		t.Fatalf("bad sex must be rejected, got %v", err)
 	}
-	if _, err := svc.GetFeedWeightBand(tenantWide, gdActor(), "", "", "", "", "imported", "", false); err != ports.ErrInvalidArgument {
+	if _, err := svc.GetFeedWeightBand(tenantWide, gdActor(), "", "", "", "", "imported", ""); err != ports.ErrInvalidArgument {
 		t.Fatalf("bad origin must be rejected, got %v", err)
 	}
-	if _, err := svc.GetFeedWeightBand(tenantWide, gdActor(), "", "", "", "", "", "by_hand", false); err != ports.ErrInvalidArgument {
+	if _, err := svc.GetFeedWeightBand(tenantWide, gdActor(), "", "", "", "", "", "by_hand"); err != ports.ErrInvalidArgument {
 		t.Fatalf("bad weighing category must be rejected, got %v", err)
 	}
-	got, err := svc.GetFeedWeightBand(tenantWide, gdActor(), "", "2026-09-01", "2026-09-10", "male", "purchased", "all", true)
+	got, err := svc.GetFeedWeightBand(tenantWide, gdActor(), "", "2026-09-01", "2026-09-10", "male", "purchased", "all")
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -188,7 +207,7 @@ func TestGetFeedWeightBandGateWindowAndFilters(t *testing.T) {
 	if repo.gotSex != "male" || repo.gotOrigin != "purchased" || repo.gotMode != "" {
 		t.Fatalf("filters must reach the repository normalised, got sex=%q origin=%q mode=%q", repo.gotSex, repo.gotOrigin, repo.gotMode)
 	}
-	if got.Reconciliation.OutputRows != 5 || !got.Reconciliation.IncludeExited {
+	if got.Reconciliation.OutputRows != 5 {
 		t.Fatalf("service must build rows from the source: %+v", got.Reconciliation)
 	}
 }

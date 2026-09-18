@@ -33,7 +33,7 @@ func (r *fakeRepo) ListParks(context.Context, string) ([]domain.Park, error) {
 	return r.parks, nil
 }
 
-func (r *fakeRepo) GetFeedWeightBandSource(_ context.Context, _ string, parkIDs []string, start, end time.Time, sex, origin, weighingCategory string, _ bool) (ports.FeedWeightBandSource, error) {
+func (r *fakeRepo) GetFeedWeightBandSource(_ context.Context, _ string, parkIDs []string, start, end time.Time, sex, origin, weighingCategory string) (ports.FeedWeightBandSource, error) {
 	r.gotParkIDs = append([]string(nil), parkIDs...)
 	r.gotStart, r.gotEnd = start, end
 	r.gotSex, r.gotOrigin, r.gotMode = sex, origin, weighingCategory

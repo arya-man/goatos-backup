@@ -2046,9 +2046,11 @@ paths:
         and counted in `reconciliation.excluded_rollups`.
 
 
-        Sold / dead animals (goats.exited_at set) are outside a band's head count and
-        average unless `animals=all`; each band row carries `exited_animals`, and every
-        animal that exited inside the period is listed in `exited` with its last weigh.
+        Sold / dead animals (goats.exited_at set) are outside a band row's on-farm head count
+        and average; every row also carries the `*_all` variant that counts them in, plus
+        `exited_animals` / `exited_sold` / `exited_died`, so the screen's Animals toggle is a
+        client-side flip. Every animal that exited inside the period is listed in `exited`
+        with its last weigh.
 
 
         `from`/`to` are inclusive Asia/Kolkata business dates bounding the weight evidence
@@ -2073,11 +2075,6 @@ paths:
           in: query
           required: false
           schema: {type: string, enum: [all, individual_animal, per_shed_partition]}
-        - name: animals
-          in: query
-          required: false
-          description: "`all` counts sold / dead animals in the band rows; omitted or `on_farm` leaves them out."
-          schema: {type: string, enum: [on_farm, all]}
       responses:
         "200":
           description: Feed rollups matched to weight bands, with the stage-by-stage reconciliation.
@@ -33721,7 +33718,7 @@ components:
     GrowthDirectorFeedWeightBandReconciliation:
       type: object
       additionalProperties: false
-      required: [feed_day, positive_rows, collapsed_items, rollups, matched_rollups, excluded_rollups, output_rows, individual_animals_weighed, lump_sum_animals_weighed, exited_animals, include_exited]
+      required: [feed_day, positive_rows, collapsed_items, rollups, matched_rollups, matched_rollups_all, excluded_rollups, excluded_rollups_all, output_rows, individual_animals_weighed, lump_sum_animals_weighed, exited_animals]
       properties:
         feed_day:
           type: string
@@ -33737,13 +33734,19 @@ components:
           description: Items rolled up per (park, pen, shed tag, ration group, arm, breed, workflow), after the sex filter.
         matched_rollups:
           type: integer
-          description: Rollups whose pen has weight evidence.
+          description: Rollups whose pen has weight evidence with on-farm animals in the period.
+        matched_rollups_all:
+          type: integer
+          description: The same counting a rollup whose only weighed animals have since left as matched.
         excluded_rollups:
           type: integer
-          description: Rollups whose pen has no weigh on record; rollups minus matched_rollups.
+          description: rollups minus matched_rollups.
+        excluded_rollups_all:
+          type: integer
+          description: rollups minus matched_rollups_all.
         output_rows:
           type: integer
-          description: Rows served; one per matched pen-average rollup, one per band for a per-animal pen.
+          description: Rows served, both variants included; one per matched pen-average rollup, one per band for a per-animal pen.
         individual_animals_weighed:
           type: integer
           description: The weighing side's own per-animal total before any feed match, at the General tab's grain (exited animals included, as that tab counts them).
@@ -33753,9 +33756,6 @@ components:
         exited_animals:
           type: integer
           description: Animals sold or dead inside the period (the length of `exited`).
-        include_exited:
-          type: boolean
-          description: Whether sold / dead animals were counted in the band rows.
     GrowthDirectorFeedWeightBandUnmatched:
       type: object
       additionalProperties: false
@@ -33805,7 +33805,7 @@ components:
     GrowthDirectorFeedWeightBandRow:
       type: object
       additionalProperties: false
-      required: [park_id, park_name, weight_source, band, pen, shed_tag, group, gender, breed, feed_type, ration_group, feed_given, pen_kg_per_day, weight_animals, average_weight_kg, exited_animals, exited_sold, exited_died]
+      required: [park_id, park_name, weight_source, band, pen, shed_tag, group, gender, gender_all, breed, feed_type, ration_group, feed_given, pen_kg_per_day, weight_animals, average_weight_kg, weight_animals_all, average_weight_kg_all, exited_animals, exited_sold, exited_died]
       properties:
         park_id: {type: string, format: uuid}
         park_name: {type: string}
@@ -33842,8 +33842,15 @@ components:
         pen_kg_per_day: {type: number}
         weight_animals:
           type: integer
-          description: Head count behind average_weight_kg; the lump-sum count for a pen-average row, the scanned animals in the band for a per-animal row.
+          description: ON-FARM head count behind average_weight_kg; the lump-sum count for a pen-average row, the on-farm scanned animals in the band for a per-animal row (0 on a band that exists only because of animals that have since left).
         average_weight_kg: {type: number}
+        weight_animals_all:
+          type: integer
+          description: The same head count including animals since sold or dead.
+        average_weight_kg_all: {type: number}
+        gender_all:
+          type: string
+          description: Gender over every weighed animal including those since sold or dead.
         exited_animals:
           type: integer
           description: Weighed animals of this band that have since been sold or died; outside weight_animals unless the read asked to include them. Always 0 on a pen-average row.

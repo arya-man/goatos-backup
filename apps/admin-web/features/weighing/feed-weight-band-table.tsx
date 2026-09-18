@@ -102,9 +102,9 @@ export function FeedWeightBandTable({
     pen: { cell: (row) => <b>{row.pen}</b> },
     group: { cell: (row) => row.group },
     gender: { cell: (row) => (row.gender ? row.gender : <span className="muted">{labels.noGender}</span>) },
-    breed: { cell: (row) => row.breed, meta: { cellClassName: "wt-feedband-wrap" } },
+    breed: { cell: (row) => <span title={row.breed}>{row.breed}</span>, meta: { cellClassName: "wt-feedband-wrap" } },
     feed_type: { cell: (row) => <FeedTypeTag feedType={row.feedType} label={row.feedTypeLabel} /> },
-    feed_given: { cell: (row) => <span className="wt-feedband-feed">{row.feedGiven}</span> },
+    feed_given: { cell: (row) => <span className="wt-feedband-feed" title={row.feedGiven}>{row.feedGiven}</span> },
     pen_kg_per_day: {
       cell: (row) => kg(row.penKgPerDay),
       meta: { cellClassName: "num" },
@@ -182,9 +182,9 @@ export function FeedWeightBandUnmatchedTable({
     pen: { cell: (row) => <b>{row.pen}</b> },
     shed_tag: { cell: (row) => row.shedTag },
     ration: { cell: (row) => row.ration },
-    breed: { cell: (row) => row.breed, meta: { cellClassName: "wt-feedband-wrap" } },
+    breed: { cell: (row) => <span title={row.breed}>{row.breed}</span>, meta: { cellClassName: "wt-feedband-wrap" } },
     feed_type: { cell: (row) => <FeedTypeTag feedType={row.feedType} label={row.feedTypeLabel} /> },
-    feed_given: { cell: (row) => <span className="wt-feedband-feed">{row.feedGiven}</span> },
+    feed_given: { cell: (row) => <span className="wt-feedband-feed" title={row.feedGiven}>{row.feedGiven}</span> },
     pen_kg_per_day: { cell: (row) => kg(row.penKgPerDay), meta: { cellClassName: "num" } },
   });
   return (

@@ -16,7 +16,7 @@ import (
 
 type Service interface {
 	GetGrowthDirectorWeights(ctx context.Context, actor domain.Actor, parkID, fromBusinessDate, toBusinessDate, sex, origin, weighingCategory, sections string) (domain.GrowthDirectorWeights, error)
-	GetFeedWeightBand(ctx context.Context, actor domain.Actor, parkID, fromBusinessDate, toBusinessDate, sex, origin, weighingCategory string, includeExited bool) (domain.FeedWeightBand, error)
+	GetFeedWeightBand(ctx context.Context, actor domain.Actor, parkID, fromBusinessDate, toBusinessDate, sex, origin, weighingCategory string) (domain.FeedWeightBand, error)
 }
 
 type Handler struct {
@@ -43,8 +43,8 @@ func Register(mux *http.ServeMux, h *Handler) {
 
 // GetFeedWeightBand serves the Feed by weight band table. `park_id` is optional;
 // `from`/`to` are inclusive business dates bounding the weight evidence; `sex`,
-// `origin` and `weighing_category` are the Weights page's filters; `animals=all`
-// counts sold / dead animals in the band rows (default: on-farm only).
+// `origin` and `weighing_category` are the Weights page's filters. Both head-count
+// variants (on farm / including sold & dead) ride on every row.
 func (h *Handler) GetFeedWeightBand(w http.ResponseWriter, r *http.Request) {
 	q := r.URL.Query()
 	result, err := h.service.GetFeedWeightBand(
@@ -56,7 +56,6 @@ func (h *Handler) GetFeedWeightBand(w http.ResponseWriter, r *http.Request) {
 		q.Get("sex"),
 		q.Get("origin"),
 		q.Get("weighing_category"),
-		q.Get("animals") == "all",
 	)
 	h.respond(w, r, result, err)
 }

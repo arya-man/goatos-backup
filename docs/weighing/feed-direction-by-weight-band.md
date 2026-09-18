@@ -84,8 +84,11 @@ tab's Individual / Lump sum figures for the same filters:
   Bands: under 15, 15–20, 20–25, 25–30, 30–35, 35+ (lower-inclusive).
 - **Whole pen (lump sum)**: live (`withdrawn_at IS NULL`) accepted shed weighs inside the period,
   under the scope's bucket list; a pen **counts only when weighed on two dates in the period**,
-  banded on its latest average with its latest head count. Lump-sum evidence wins over per-animal
-  evidence for the same pen.
+  banded on its latest average with its latest head count. The two dates and the latest weigh are
+  taken on the **folded pen key across every bucket spelling** of that pen (`Godel 2`+`Part 1` and
+  `Godel 2 - Part 1` are one pen) — the one place this read is wider than `shed_weights.go`, which
+  pairs per campaign-shed bucket; on OCI/STG data the lump total still equals the General tab
+  (332). Lump-sum evidence wins over per-animal evidence for the same pen.
 - **Period**: the page's Period filter (`wt_from`/`wt_to`) bounds the weight evidence only; the feed
   side is always the latest sheet. "Latest" is taken inside the window, so a tag or pen last
   weighed outside it contributes nothing and the pen may become Not shown.

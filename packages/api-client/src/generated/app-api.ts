@@ -826,7 +826,7 @@ export interface paths {
          *
          *     WEIGHT per park + pen, at the ADG Analytics General tab's OWN grain so the two reconcile: the latest live whole-pen weigh in the period wins for a pen weighed on two dates in it, ONE row banded on the pen average with its latest head count (`weight_source=pen_average`); otherwise every animal with a prior weigh and a weigh inside the period (same-animal keyed, verification not rejected), banded on its latest weigh and attributed to the pen of that weigh, ONE row per band (`weight_source=per_animal`). A fed pen with no such weigh in the period is excluded and counted in `reconciliation.excluded_rollups`.
          *
-         *     Sold / dead animals (goats.exited_at set) are outside a band's head count and average unless `animals=all`; each band row carries `exited_animals`, and every animal that exited inside the period is listed in `exited` with its last weigh.
+         *     Sold / dead animals (goats.exited_at set) are outside a band row's on-farm head count and average; every row also carries the `*_all` variant that counts them in, plus `exited_animals` / `exited_sold` / `exited_died`, so the screen's Animals toggle is a client-side flip. Every animal that exited inside the period is listed in `exited` with its last weigh.
          *
          *     `from`/`to` are inclusive Asia/Kolkata business dates bounding the weight evidence only, defaulting like /growth-director/weights. `sex`, `origin` and `weighing_category` are resolved by the weighing module's own scope resolvers, so the rows narrow exactly as the Weights pages do. Gender on a row comes from the herd register: the sexes of the animals in that pen and band, or of the goats placed in a whole-weighed pen.
          */
@@ -14446,11 +14446,15 @@ export interface components {
             collapsed_items: number;
             /** @description Items rolled up per (park, pen, shed tag, ration group, arm, breed, workflow), after the sex filter. */
             rollups: number;
-            /** @description Rollups whose pen has weight evidence. */
+            /** @description Rollups whose pen has weight evidence with on-farm animals in the period. */
             matched_rollups: number;
-            /** @description Rollups whose pen has no weigh on record; rollups minus matched_rollups. */
+            /** @description The same counting a rollup whose only weighed animals have since left as matched. */
+            matched_rollups_all: number;
+            /** @description rollups minus matched_rollups. */
             excluded_rollups: number;
-            /** @description Rows served; one per matched pen-average rollup, one per band for a per-animal pen. */
+            /** @description rollups minus matched_rollups_all. */
+            excluded_rollups_all: number;
+            /** @description Rows served, both variants included; one per matched pen-average rollup, one per band for a per-animal pen. */
             output_rows: number;
             /** @description The weighing side's own per-animal total before any feed match, at the General tab's grain (exited animals included, as that tab counts them). */
             individual_animals_weighed: number;
@@ -14458,8 +14462,6 @@ export interface components {
             lump_sum_animals_weighed: number;
             /** @description Animals sold or dead inside the period (the length of `exited`). */
             exited_animals: number;
-            /** @description Whether sold / dead animals were counted in the band rows. */
-            include_exited: boolean;
         };
         /** @description One feed rollup on the latest sheet whose pen has no qualifying weighing in the period; on the sheet, counted, never banded. */
         GrowthDirectorFeedWeightBandUnmatched: {
@@ -14530,9 +14532,14 @@ export interface components {
             /** @description Items joined with " + ", each as "<item> <g>g/head", brand prefixes stripped. */
             feed_given: string;
             pen_kg_per_day: number;
-            /** @description Head count behind average_weight_kg; the lump-sum count for a pen-average row, the scanned animals in the band for a per-animal row. */
+            /** @description ON-FARM head count behind average_weight_kg; the lump-sum count for a pen-average row, the on-farm scanned animals in the band for a per-animal row (0 on a band that exists only because of animals that have since left). */
             weight_animals: number;
             average_weight_kg: number;
+            /** @description The same head count including animals since sold or dead. */
+            weight_animals_all: number;
+            average_weight_kg_all: number;
+            /** @description Gender over every weighed animal including those since sold or dead. */
+            gender_all: string;
             /** @description Weighed animals of this band that have since been sold or died; outside weight_animals unless the read asked to include them. Always 0 on a pen-average row. */
             exited_animals: number;
             /** @description The sold part of exited_animals. */
@@ -20457,8 +20464,6 @@ export interface operations {
                 sex?: "all" | "male" | "female";
                 origin?: "all" | "farm_born" | "purchased";
                 weighing_category?: "all" | "individual_animal" | "per_shed_partition";
-                /** @description `all` counts sold / dead animals in the band rows; omitted or `on_farm` leaves them out. */
-                animals?: "on_farm" | "all";
             };
             header?: never;
             path?: never;

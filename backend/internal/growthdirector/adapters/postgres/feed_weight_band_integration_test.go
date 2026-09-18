@@ -130,7 +130,7 @@ VALUES
 
 	from, to := gdWindow()
 	repo := NewRepository(pool, 30*time.Second)
-	got, err := repo.GetFeedWeightBandSource(ctx, gdTenant, []string{gdPark}, from, to, "", "", "", false)
+	got, err := repo.GetFeedWeightBandSource(ctx, gdTenant, []string{gdPark}, from, to, "", "", "")
 	if err != nil {
 		t.Fatalf("GetFeedWeightBandSource: %v", err)
 	}
@@ -191,15 +191,10 @@ VALUES
 	if len(got.Exited) != 1 || got.Exited[0].Tag != "TAG-B" || got.Exited[0].Pen != "Gandhi 1 - Part 1" || got.Exited[0].LifecycleStatus != "sold" || got.Exited[0].LastWeighedAt == nil || got.Exited[0].LastWeightKg != 16.0 {
 		t.Fatalf("exit list: want TAG-B sold, last weighed 16.0 in Gandhi 1 - Part 1, got %+v", got.Exited)
 	}
-	// Asked to include exited animals, TAG-B counts again: 15_20 = 2 at 17.0 with 1F.
-	incl, err := repo.GetFeedWeightBandSource(ctx, gdTenant, []string{gdPark}, from, to, "", "", "", true)
-	if err != nil {
-		t.Fatalf("GetFeedWeightBandSource (include exited): %v", err)
-	}
-	for _, e := range incl.Rollups[byPen["Gandhi 1 - Part 1"]].Evidence {
-		if e.Band == "15_20" && (e.Animals != 2 || e.AverageWeightKg != 17.0 || e.FemaleCount != 1 || e.ExitedAnimals != 1) {
-			t.Fatalf("include exited: want 15_20 = 2 at 17.0 with 1F (+1 exited), got %+v", e)
-		}
+	// The same row carries the include-exited variant: TAG-B counted again, 15_20 = 2 at
+	// 17.0 with 1F.
+	if e := bands["15_20"]; e.AnimalsAll != 2 || e.AverageWeightKgAll != 17.0 || e.FemaleCountAll != 1 || e.ExitedAnimals != 1 {
+		t.Fatalf("all-variant: want 15_20 = 2 at 17.0 with 1F (+1 exited), got %+v", e)
 	}
 	lump := got.Rollups[byPen["Lump 1"]]
 	if len(lump.Evidence) != 1 || lump.Evidence[0].Source != "pen_average" || lump.Evidence[0].Band != "20_25" || lump.Evidence[0].Animals != 25 {
@@ -218,7 +213,7 @@ VALUES
 	// SEX FILTER through the weighing module's own resolver: "male" keeps TAG-A's 20_25 row
 	// and drops the 15_20 band (TAG-C resolves to no animal, so it is claimed by neither
 	// side); the lump pen's residents are all female, so it drops too.
-	male, err := repo.GetFeedWeightBandSource(ctx, gdTenant, []string{gdPark}, from, to, "male", "", "", false)
+	male, err := repo.GetFeedWeightBandSource(ctx, gdTenant, []string{gdPark}, from, to, "male", "", "")
 	if err != nil {
 		t.Fatalf("GetFeedWeightBandSource (male): %v", err)
 	}
@@ -235,7 +230,7 @@ VALUES
 
 	// PARK SCOPE: the other park's sheet answers only when that park is in scope, and then
 	// its Gandhi 1 - Part 1 is a DIFFERENT pen from park A's (keyed on park_id).
-	both, err := repo.GetFeedWeightBandSource(ctx, gdTenant, []string{gdPark, otherPark}, from, to, "", "", "", false)
+	both, err := repo.GetFeedWeightBandSource(ctx, gdTenant, []string{gdPark, otherPark}, from, to, "", "", "")
 	if err != nil {
 		t.Fatalf("GetFeedWeightBandSource (both parks): %v", err)
 	}
@@ -244,7 +239,7 @@ VALUES
 	}
 	// The window bounds the WEIGHINGS only: a window ending before every weigh leaves the
 	// feed rollups in place with no evidence, never drops the sheet.
-	windowed, err := repo.GetFeedWeightBandSource(ctx, gdTenant, []string{gdPark}, day(1, 0), day(2, 0), "", "", "", false)
+	windowed, err := repo.GetFeedWeightBandSource(ctx, gdTenant, []string{gdPark}, day(1, 0), day(2, 0), "", "", "")
 	if err != nil {
 		t.Fatalf("GetFeedWeightBandSource (window): %v", err)
 	}

@@ -4938,6 +4938,7 @@ func pageSpecificCopy(id string) map[string]string {
 			"drawer.feed_band.close":       "Close",
 			"drawer.feed_band.period":      "Period",
 			"drawer.feed_band.animals":     "animals",
+			"drawer.feed_band.animal":      "animal",
 			"drawer.feed_band.search":      "Search tag, pen, reason or feed",
 			"drawer.feed_band.search_aria": "Search the sold / dead list",
 			"empty.feed_band.unmatched":    "Every fed pen has a weighing in this period.",

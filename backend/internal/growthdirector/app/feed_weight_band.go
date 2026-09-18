@@ -24,7 +24,7 @@ import (
 // this table and the General tab narrow the identical animals. `includeExited`
 // counts sold / dead animals in the band rows; by default they are noted beside
 // the row and listed below it instead.
-func (s *Service) GetFeedWeightBand(ctx context.Context, actor domain.Actor, parkID, fromBusinessDate, toBusinessDate, sex, origin, weighingCategory string, includeExited bool) (domain.FeedWeightBand, error) {
+func (s *Service) GetFeedWeightBand(ctx context.Context, actor domain.Actor, parkID, fromBusinessDate, toBusinessDate, sex, origin, weighingCategory string) (domain.FeedWeightBand, error) {
 	if !permissions.RolesAuthorize(actor.Roles, []string{permissions.WeighingMonitor}, false) {
 		return domain.FeedWeightBand{}, ports.ErrForbidden
 	}
@@ -65,11 +65,11 @@ func (s *Service) GetFeedWeightBand(ctx context.Context, actor domain.Actor, par
 	if scopeErr != nil {
 		return domain.FeedWeightBand{}, scopeErr
 	}
-	source, err := s.repo.GetFeedWeightBandSource(ctx, actor.TenantID, parkIDs, periodStart, periodEndExclusive, sex, origin, weighingCategory, includeExited)
+	source, err := s.repo.GetFeedWeightBandSource(ctx, actor.TenantID, parkIDs, periodStart, periodEndExclusive, sex, origin, weighingCategory)
 	if err != nil {
 		return domain.FeedWeightBand{}, err
 	}
-	return BuildFeedWeightBand(source, includeExited), nil
+	return BuildFeedWeightBand(source), nil
 }
 
 // BuildFeedWeightBand turns the repository's raw rollups into display rows and
@@ -82,7 +82,7 @@ func (s *Service) GetFeedWeightBand(ctx context.Context, actor domain.Actor, par
 // rollup count itself is the feed side and is never narrowed by the period or
 // the filters, so Rollups - Matched is always the fed pens with no qualifying
 // weighing in the period (including pens whose weighed animals have all exited).
-func BuildFeedWeightBand(source ports.FeedWeightBandSource, includeExited bool) domain.FeedWeightBand {
+func BuildFeedWeightBand(source ports.FeedWeightBandSource) domain.FeedWeightBand {
 	out := domain.FeedWeightBand{
 		Reconciliation: domain.FeedWeightBandReconciliation{
 			FeedDay:                  source.FeedDay,
@@ -91,7 +91,6 @@ func BuildFeedWeightBand(source ports.FeedWeightBandSource, includeExited bool) 
 			IndividualAnimalsWeighed: source.IndividualAnimalsWeighed,
 			LumpSumAnimalsWeighed:    source.LumpSumAnimalsWeighed,
 			ExitedAnimals:            len(source.Exited),
-			IncludeExited:            includeExited,
 		},
 		Rows:      []domain.FeedWeightBandRow{},
 		Unmatched: []domain.FeedWeightBandUnmatched{},
@@ -149,36 +148,52 @@ func BuildFeedWeightBand(source ports.FeedWeightBandSource, includeExited bool) 
 		if len(rollup.Items) == 0 {
 			feedGiven = nil
 		}
-		matched := false
+		matched, matchedAll := false, false
 		for _, evidence := range rollup.Evidence {
 			gender := domain.GenderDisplay(evidence.FemaleCount, evidence.MaleCount)
-			matched = true
+			if evidence.Animals > 0 {
+				matched = true
+			}
+			if evidence.AnimalsAll > 0 {
+				matchedAll = true
+			}
 			out.Rows = append(out.Rows, domain.FeedWeightBandRow{
-				ParkID:          rollup.ParkID,
-				ParkName:        rollup.ParkName,
-				WeightSource:    evidence.Source,
-				Band:            evidence.Band,
-				Pen:             rollup.Pen,
-				ShedTag:         rollup.ShedTag,
-				Group:           group,
-				Gender:          gender,
-				Breed:           domain.BreedDisplay(rollup.Breed),
-				FeedType:        rollup.Workflow,
-				RationGroup:     rollup.RationGroup,
-				ExperimentArm:   rollup.ExperimentArm,
-				FeedGiven:       strings.Join(feedGiven, " + "),
-				PenKgPerDay:     rollup.KgPerDay,
-				WeightAnimals:   evidence.Animals,
-				AverageWeightKg: evidence.AverageWeightKg,
-				ExitedAnimals:   evidence.ExitedAnimals,
-				ExitedSold:      evidence.ExitedSold,
-				ExitedDied:      evidence.ExitedAnimals - evidence.ExitedSold,
+				ParkID:             rollup.ParkID,
+				ParkName:           rollup.ParkName,
+				WeightSource:       evidence.Source,
+				Band:               evidence.Band,
+				Pen:                rollup.Pen,
+				ShedTag:            rollup.ShedTag,
+				Group:              group,
+				Gender:             gender,
+				Breed:              domain.BreedDisplay(rollup.Breed),
+				FeedType:           rollup.Workflow,
+				RationGroup:        rollup.RationGroup,
+				ExperimentArm:      rollup.ExperimentArm,
+				FeedGiven:          strings.Join(feedGiven, " + "),
+				PenKgPerDay:        rollup.KgPerDay,
+				WeightAnimals:      evidence.Animals,
+				AverageWeightKg:    evidence.AverageWeightKg,
+				WeightAnimalsAll:   evidence.AnimalsAll,
+				AverageWeightKgAll: evidence.AverageWeightKgAll,
+				GenderAll:          domain.GenderDisplay(evidence.FemaleCountAll, evidence.MaleCountAll),
+				ExitedAnimals:      evidence.ExitedAnimals,
+				ExitedSold:         evidence.ExitedSold,
+				ExitedDied:         evidence.ExitedAnimals - evidence.ExitedSold,
 			})
 		}
 		if matched {
 			out.Reconciliation.MatchedRollups++
 		} else {
 			out.Reconciliation.ExcludedRollups++
+		}
+		if matchedAll {
+			out.Reconciliation.MatchedRollupsAll++
+		} else {
+			out.Reconciliation.ExcludedRollupsAll++
+			// The Not shown list is the rollups with NO weighed animal at all; a rollup whose
+			// only weighed animals have since left keeps its band rows (n = 0) and the screen
+			// files it under Not shown itself when reading on-farm.
 			out.Unmatched = append(out.Unmatched, domain.FeedWeightBandUnmatched{
 				ParkID:        rollup.ParkID,
 				ParkName:      rollup.ParkName,

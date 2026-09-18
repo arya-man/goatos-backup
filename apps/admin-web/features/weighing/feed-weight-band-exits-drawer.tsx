@@ -52,6 +52,7 @@ export type FeedWeightBandExitsDrawerLabels = {
   noGender: string;
   empty: string;
   animals: string;
+  animal: string;
 };
 
 const kg = (value: number) => value.toLocaleString("en-IN", { minimumFractionDigits: 1, maximumFractionDigits: 1 });
@@ -123,7 +124,8 @@ export function FeedWeightBandExitsDrawer({
           <div>
             <div className="mt">{labels.eyebrow}</div>
             <h2>
-              {displayedItem.title} · {displayedItem.items.length.toLocaleString("en-IN")} {labels.animals}
+              {displayedItem.title} · {displayedItem.items.length.toLocaleString("en-IN")}{" "}
+              {displayedItem.items.length === 1 ? labels.animal : labels.animals}
             </h2>
             <div className="sb">
               {labels.period} {periodLabel}

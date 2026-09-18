@@ -66,15 +66,21 @@ const goatPartitionSQL = `CASE WHEN p.partition_label ~ '^[0-9]+$' AND ps.shed_i
 //     attributed to the pen of that weigh;
 //   - whole pen: the LIVE (withdrawn_at IS NULL) accepted shed weighs inside the window, narrowed
 //     by the scope's bucket list ($7/$8); a pen COUNTS only when it was weighed on two dates in
-//     the window, and it is banded on its latest average with its latest head count.
+//     the window, and it is banded on its latest average with its latest head count. The two
+//     dates and the latest weigh are taken on the FOLDED pen key across every bucket spelling of
+//     that pen, which is the one place this read is deliberately wider than shed_weights.go
+//     (that read pairs per campaign-shed bucket); the lump total can therefore exceed the
+//     General tab's by the pens whose two dates sit in differently-spelled buckets.
 //
 // SOLD AND DEAD ANIMALS (maintainer rule 2026-09-18): an animal whose goat has exited
 // (goats.exited_at set -- sold, dead) is not eating today's feed, so by default it does NOT count
-// toward a band's head count or average, but it is never hidden: every band row carries how many
-// of its weighed animals have since exited ($13 = false), and the caller may ask for them to be
-// counted ($13 = true). A pen whose weighed animals have ALL exited has no band row left and is
-// therefore excluded. The General-tab reconciliation figure (animal_latest count) still counts
-// them, exactly as the General tab does. Lump-sum pens carry a frozen census and are untouched.
+// toward a band's head count or average, but it is never hidden. Every per-animal band row carries
+// BOTH variants -- on-farm animals (n / avg / sexes) and every weighed animal including exited
+// (n_all / avg_all / sexes) -- plus the exited and sold counts, so the screen's Animals toggle is a
+// client-side flip. A band row whose animals have all exited comes back with n = 0 and n_all > 0;
+// the screen shows it only under "include". The General-tab reconciliation figure (animal_latest
+// count) counts exited animals, exactly as the General tab does. Lump-sum pens carry a frozen
+// census and are untouched (both variants equal).
 //
 // GENDER comes from the ANIMALS, never from the feed sheet's shed tag: a per-animal row counts the
 // sexes of the animals in that pen and band, resolved through the ACTIVE goat_identifiers row
@@ -213,17 +219,20 @@ lump_points AS (
     ))
 ),
 pen_avg AS (
+  -- Paired and picked on the FOLDED pen key, not the campaign-shed bucket: one pen can sit in
+  -- two buckets spelled differently ("Godel 2" + "Part 1" one week, "Godel 2 - Part 1" the
+  -- next), and pairing per bucket discarded the newer weigh and served last week's average
+  -- (judge finding, 2026-09-18). The pen's two dates may come from either bucket; the latest
+  -- live weigh across them is the one banded.
   SELECT DISTINCT ON (l.park_id, l.pen_label)
          l.park_id, l.pen_label, l.average_weight_kg AS avg_kg, l.animal_count AS n
   FROM (
-    SELECT DISTINCT ON (park_id, location_id, partition_label)
-           park_id, location_id, partition_label, pen_label, animal_count, average_weight_kg, accepted_at, d,
-           min(d) OVER (PARTITION BY park_id, location_id, partition_label) AS first_d
+    SELECT park_id, pen_label, animal_count, average_weight_kg, accepted_at, shed_observation_id, d,
+           min(d) OVER (PARTITION BY park_id, pen_label) AS first_d
     FROM lump_points p
-    ORDER BY park_id, location_id, partition_label, accepted_at DESC, shed_observation_id DESC
   ) l
   WHERE l.d > l.first_d
-  ORDER BY l.park_id, l.pen_label, l.accepted_at DESC
+  ORDER BY l.park_id, l.pen_label, l.accepted_at DESC, l.shed_observation_id DESC
 ),
 part_sheds AS MATERIALIZED (
   SELECT DISTINCT q.shed_id
@@ -247,6 +256,7 @@ evidence AS MATERIALIZED (
          CASE WHEN pa.avg_kg < 15 THEN 'under_15' WHEN pa.avg_kg < 20 THEN '15_20' WHEN pa.avg_kg < 25 THEN '20_25'
               WHEN pa.avg_kg < 30 THEN '25_30' WHEN pa.avg_kg < 35 THEN '30_35' ELSE '35_plus' END AS band,
          pa.n, pa.avg_kg, COALESCE(ps.female_count, 0) AS female_count, COALESCE(ps.male_count, 0) AS male_count,
+         pa.n AS n_all, pa.avg_kg AS avg_kg_all, COALESCE(ps.female_count, 0) AS female_all, COALESCE(ps.male_count, 0) AS male_all,
          0 AS exited_n, 0 AS sold_n
   FROM pen_avg pa
   LEFT JOIN pen_sex ps ON ps.park_id = pa.park_id AND ps.pen_label = pa.pen_label
@@ -254,16 +264,22 @@ evidence AS MATERIALIZED (
   SELECT la.park_id, la.pen_label, 'per_animal',
          CASE WHEN la.weight_kg < 15 THEN 'under_15' WHEN la.weight_kg < 20 THEN '15_20' WHEN la.weight_kg < 25 THEN '20_25'
               WHEN la.weight_kg < 30 THEN '25_30' WHEN la.weight_kg < 35 THEN '30_35' ELSE '35_plus' END AS band,
-         COUNT(*) FILTER (WHERE $13::bool OR NOT la.exited)::int AS n,
-         AVG(la.weight_kg) FILTER (WHERE $13::bool OR NOT la.exited) AS avg_kg,
-         COUNT(*) FILTER (WHERE la.sex = 'female' AND ($13::bool OR NOT la.exited))::int AS female_count,
-         COUNT(*) FILTER (WHERE la.sex = 'male' AND ($13::bool OR NOT la.exited))::int AS male_count,
+         -- BOTH head-count variants in one row (maintainer request 2026-09-18): on-farm animals
+         -- only, and every weighed animal including those since sold or dead, so the screen's
+         -- Animals toggle flips without another read.
+         COUNT(*) FILTER (WHERE NOT la.exited)::int AS n,
+         AVG(la.weight_kg) FILTER (WHERE NOT la.exited) AS avg_kg,
+         COUNT(*) FILTER (WHERE la.sex = 'female' AND NOT la.exited)::int AS female_count,
+         COUNT(*) FILTER (WHERE la.sex = 'male' AND NOT la.exited)::int AS male_count,
+         COUNT(*)::int AS n_all,
+         AVG(la.weight_kg) AS avg_kg_all,
+         COUNT(*) FILTER (WHERE la.sex = 'female')::int AS female_all,
+         COUNT(*) FILTER (WHERE la.sex = 'male')::int AS male_all,
          COUNT(*) FILTER (WHERE la.exited)::int AS exited_n,
          COUNT(*) FILTER (WHERE la.sold)::int AS sold_n
   FROM animal_sex la
   WHERE NOT EXISTS (SELECT 1 FROM pen_avg pa WHERE pa.park_id = la.park_id AND pa.pen_label = la.pen_label)
   GROUP BY 1, 2, 3, 4
-  HAVING COUNT(*) FILTER (WHERE $13::bool OR NOT la.exited) > 0
 )
 SELECT
   (SELECT max(feed_day) FROM latest_issue),
@@ -271,10 +287,11 @@ SELECT
   (SELECT count(*) FROM collapsed)::int,
   (SELECT count(*) FROM animal_latest)::int,
   (SELECT COALESCE(sum(n), 0) FROM pen_avg)::int,
-  r.park_id::text, COALESCE(pk.name, r.park_label, ''), r.pen_label, r.shed_tag, r.ration_group, r.experiment_arm, r.breed, r.workflow,
+  r.park_id::text, COALESCE(NULLIF(r.park_label, ''), pk.name, ''), r.pen_label, r.shed_tag, r.ration_group, r.experiment_arm, r.breed, r.workflow,
   r.kg_per_day::float8, r.items::text,
   COALESCE(e.source, ''), COALESCE(e.band, ''), COALESCE(e.n, 0), COALESCE(e.avg_kg, 0)::float8,
-  COALESCE(e.female_count, 0), COALESCE(e.male_count, 0), COALESCE(e.exited_n, 0), COALESCE(e.sold_n, 0)
+  COALESCE(e.female_count, 0), COALESCE(e.male_count, 0), COALESCE(e.exited_n, 0), COALESCE(e.sold_n, 0),
+  COALESCE(e.n_all, 0), COALESCE(e.avg_kg_all, 0)::float8, COALESCE(e.female_all, 0), COALESCE(e.male_all, 0)
 FROM rollup r
 LEFT JOIN locations pk ON pk.tenant_id = $1::uuid AND pk.location_id = r.park_id
 LEFT JOIN evidence e ON e.park_id = r.park_id AND e.pen_label = r.pen_label
@@ -352,7 +369,7 @@ ORDER BY x.exited_at DESC, x.goat_id`)
 // module's ONE resolver each, exactly as the Growth Director widgets resolve them, so this table
 // and the Weights pages can never disagree about which animals are male or which two tags are
 // one animal.
-func (r *Repository) GetFeedWeightBandSource(ctx context.Context, tenantID string, parkIDs []string, periodStart, periodEnd time.Time, sex, origin, weighingCategory string, includeExited bool) (ports.FeedWeightBandSource, error) {
+func (r *Repository) GetFeedWeightBandSource(ctx context.Context, tenantID string, parkIDs []string, periodStart, periodEnd time.Time, sex, origin, weighingCategory string) (ports.FeedWeightBandSource, error) {
 	out := ports.FeedWeightBandSource{Rollups: []ports.FeedRollup{}}
 	if len(parkIDs) == 0 {
 		return out, nil
@@ -399,7 +416,7 @@ func (r *Repository) GetFeedWeightBandSource(ctx context.Context, tenantID strin
 	rows, err := r.pool.Query(ctx, feedWeightBandSQL,
 		tenantID, parkIDs, periodStart, periodEnd,
 		filtered, scope.Tags, scope.LocationIDs, scope.PartitionLabels,
-		idMap.Tags, idMap.CanonicalTags, feedWeightBandLookbackDays, weighingCategory, includeExited)
+		idMap.Tags, idMap.CanonicalTags, feedWeightBandLookbackDays, weighingCategory)
 	if err != nil {
 		return out, fmt.Errorf("growthdirector: feed weight band: %w", err)
 	}
@@ -419,9 +436,12 @@ func (r *Repository) GetFeedWeightBandSource(ctx context.Context, tenantID strin
 			source, band            string
 			animals, female, male   int
 			exited, sold            int
+			animalsAll              int
+			avgKgAll                float64
+			femaleAll, maleAll      int
 		)
 		if err := rows.Scan(&feedDay, &positive, &collapsed, &individual, &lump, &parkID, &parkName, &pen, &tag, &ration, &arm, &breed, &workflow,
-			&kgPerDay, &itemsJSON, &source, &band, &animals, &avgKg, &female, &male, &exited, &sold); err != nil {
+			&kgPerDay, &itemsJSON, &source, &band, &animals, &avgKg, &female, &male, &exited, &sold, &animalsAll, &avgKgAll, &femaleAll, &maleAll); err != nil {
 			return out, fmt.Errorf("growthdirector: feed weight band scan: %w", err)
 		}
 		if feedDay != nil {
@@ -455,6 +475,7 @@ func (r *Repository) GetFeedWeightBandSource(ctx context.Context, tenantID strin
 			out.Rollups[i].Evidence = append(out.Rollups[i].Evidence, ports.FeedWeightEvidence{
 				Source: source, Band: band, Animals: animals, AverageWeightKg: avgKg, FemaleCount: female, MaleCount: male,
 				ExitedAnimals: exited, ExitedSold: sold,
+				AnimalsAll: animalsAll, AverageWeightKgAll: avgKgAll, FemaleCountAll: femaleAll, MaleCountAll: maleAll,
 			})
 		}
 	}
