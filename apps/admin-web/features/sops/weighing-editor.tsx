@@ -40,6 +40,7 @@ import {
   type WeighingRows,
 } from "./weighing-model";
 import { publishedHref } from "./published-href";
+import { WeighingFlow, type WeighingInsert, type WeighingRef } from "./weighing-flow";
 import { publishWeighingVersion, saveWeighingVersion, type WeighingSaveResult } from "./sop-actions";
 
 type Props = {
@@ -50,9 +51,11 @@ type Props = {
   sopCode: string;
   versionLabel: string;
   initial: WeighingRows;
+  /** The view the page opened on (`?view=flow`), read on the server so SSR and client agree. */
+  initialView?: "list" | "flow";
 };
 
-export function WeighingEditor({ pageContract: pc, basePath, sopId, sopName, sopCode, versionLabel, initial }: Props) {
+export function WeighingEditor({ pageContract: pc, basePath, sopId, sopName, sopCode, versionLabel, initial, initialView = "list" }: Props) {
   const router = useRouter();
   // The editor is handed rows parsed before the page contract was in hand; the contract's seeded
   // slot document (`wsop.capture.defaults`) fills the sections the document left implicit.
@@ -70,9 +73,72 @@ export function WeighingEditor({ pageContract: pc, basePath, sopId, sopName, sop
   );
   const [result, setResult] = useState<WeighingSaveResult | null>(null);
   const [pending, startTransition] = useTransition();
+  // LIST (default) / FLOW (the chart of the session: plan, removal card, Per animal | Whole pen).
+  const [view, setView] = useState<"list" | "flow">(initialView);
+  const [selectedRef, setSelectedRef] = useState<WeighingRef | null>(null);
+  function switchView(next: "list" | "flow") {
+    setView(next);
+    if (typeof window !== "undefined") {
+      const url = new URL(window.location.href);
+      if (next === "flow") url.searchParams.set("view", "flow");
+      else url.searchParams.delete("view");
+      window.history.replaceState(window.history.state, "", url.toString());
+    }
+  }
+  // Insert at an index (the chart's + on a line); the List view's add buttons append.
+  function insertAt(insert: WeighingInsert) {
+    const row = insert.list.endsWith("Questions") ? blankQuestion() : insert.list === "lumpSumProofs" ? blankCountedSlot() : blankProofSlot();
+    setRows((r) => {
+      const list = [...(r[insert.list] as { id: string }[])];
+      list.splice(Math.min(Math.max(insert.index, 0), list.length), 0, row);
+      return { ...r, [insert.list]: list };
+    });
+    setSelectedRef({ list: insert.list, id: row.id });
+  }
+  // The chart's properties panel renders the same card the List view shows for that row.
+  function cardFor(ref: WeighingRef) {
+    if (ref.list.endsWith("Questions")) {
+      const list = ref.list as QuestionList;
+      const qs = rows[list];
+      const qi = qs.findIndex((q) => q.id === ref.id);
+      if (qi < 0) return null;
+      const q = qs[qi];
+      return (
+        <div className="qlist">
+          <QuestionCard
+            key={q.id}
+            pc={pc}
+            index={qi}
+            count={qs.length}
+            q={q}
+            kinds={kinds}
+            earlier={qs.slice(0, qi)}
+            takenKeys={new Set(qs.map((x) => x.key))}
+            savedKeys={savedKeys}
+            onChange={(patch) => updateQuestion(list, q.id, patch)}
+            onOptionRenamed={(from, to) => renameOptionRefs(list, q.key, from, to)}
+            onMove={(dir) => moveQuestion(list, q.id, dir)}
+            onRemove={() => {
+              removeQuestion(list, q.id);
+              setSelectedRef(null);
+            }}
+          />
+        </div>
+      );
+    }
+    if (ref.list === "lumpSumProofs") {
+      const i = rows.lumpSumProofs.findIndex((p) => p.id === ref.id);
+      return i < 0 ? null : <div className="qlist">{countedCard(rows.lumpSumProofs[i], i)}</div>;
+    }
+    const list = ref.list as SlotList;
+    const i = rows[list].findIndex((p) => p.id === ref.id);
+    const labels = list === "removalProofs" ? { title: "wsop.removal.proof.title", hint: "wsop.removal.proof.hint", remove: "wsop.removal.proof.remove" } : { title: "wsop.capture.proof.title", hint: "wsop.capture.proof.hint", remove: "wsop.capture.proof.remove" };
+    return i < 0 ? null : <div className="qlist">{slotCard(list, rows[list][i], i, labels)}</div>;
+  }
   const kinds = optionGroup(pc, "wsop_question_kinds");
   const removalModes = optionGroup(pc, "wsop_removal_modes");
   const proofKinds = optionGroup(pc, "wsop_proof_kinds");
+  const proofKindLabels = useMemo(() => Object.fromEntries(proofKinds.map((k) => [k.key, k.label])), [proofKinds]);
   const problems = useMemo(() => weighingProblems(rows), [rows]);
   const lumpWindow = useMemo(() => legacyVideoWindow(rows.lumpSumProofs), [rows.lumpSumProofs]);
 
@@ -322,6 +388,14 @@ export function WeighingEditor({ pageContract: pc, basePath, sopId, sopName, sop
           </div>
         </div>
         <div className="sp" style={{ flex: 1 }} />
+        <div className="subtabs studio-view-toggle" role="tablist" aria-label={copy(pc, "studio.view.label")}>
+          <button type="button" role="tab" className={view === "list" ? "on" : ""} aria-selected={view === "list"} onClick={() => switchView("list")} data-testid="studio-view-list">
+            {copy(pc, "studio.view.list")}
+          </button>
+          <button type="button" role="tab" className={view === "flow" ? "on" : ""} aria-selected={view === "flow"} onClick={() => switchView("flow")} data-testid="studio-view-flow">
+            {copy(pc, "studio.view.flow")}
+          </button>
+        </div>
         <Link className="btn" href={basePath}>
           <ChevronLeft className="ic" /> {copy(pc, "builder.back")}
         </Link>
@@ -340,6 +414,11 @@ export function WeighingEditor({ pageContract: pc, basePath, sopId, sopName, sop
         </div>
       ) : null}
 
+      {view === "flow" ? (
+        <WeighingFlow pc={pc} rows={rows} proofKindLabels={proofKindLabels} selected={selectedRef} onSelect={setSelectedRef} onInsert={insertAt} renderCard={cardFor} />
+      ) : null}
+      {view === "flow" ? null : (
+      <>
       {/* 1. Planning */}
       <section className="card inspection-page">
         <div className="inspection-page-head" style={{ cursor: "default" }}>
@@ -513,6 +592,8 @@ export function WeighingEditor({ pageContract: pc, basePath, sopId, sopName, sop
         </div>
       </section>
 
+      </>
+      )}
       <div className="cfgmf inspection-footer">
         <div>
           {problems.length ? (
