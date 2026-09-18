@@ -94,13 +94,12 @@ export function NotificationPanel({
         </div>
       ) : null}
 
-      {/* The scroll box. `dvh`, never `vh`: inside the WhatsApp in-app webview the browser chrome
-          retracts, so `vh` measures a viewport that is not on screen and the last row ends up
-          under the on-screen keyboard. */}
-      <ul
-        style={{ maxHeight: "55dvh", overflowY: "auto", listStyle: "none", margin: 0, padding: 0 }}
-        aria-busy={busy}
-      >
+      {/* The scroll box, as `.nc-list` in the theme sheet. It needs BOTH caps -- `vh` first, then
+          `dvh` -- and React emits only one declaration per style key, so an inline `55dvh` left an
+          engine without `dvh` support with no cap at all and an unbounded list. `dvh` still wins
+          where it is supported, which is what the WhatsApp in-app webview needs: its chrome
+          retracts, so a `vh` box is measured against a viewport the reader does not have. */}
+      <ul className="nc-list" aria-busy={busy}>
         {rows.map((item) => {
           const href = notificationHref(item);
           const read = isNotificationRead(item);

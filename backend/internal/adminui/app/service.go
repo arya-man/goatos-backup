@@ -400,6 +400,25 @@ func chromeCopy() map[string]string {
 		"state.fresh":               "fresh",
 		"state.freshness_pending":   "freshness pending",
 		"state.days_old_suffix":     "d old",
+		// Browser (Chrome) web push permission control, rendered inside the top-bar bell's panel
+		// on EVERY admin route (components/push-permission-prompt.tsx via components/mesha-shell.tsx).
+		// It lives in the bootstrap chrome copy map rather than a page contract for exactly that
+		// reason: the control is shell chrome, not one screen's copy, so there is no single
+		// AdminWebPageContract that owns it. Each key is also config-overridable through the
+		// generic "chrome.copy.<key>" global entry the config compiler already accepts.
+		"push.checking":          "Notifications",
+		"push.checking_label":    "Checking notification support",
+		"push.enable":            "Enable notifications",
+		"push.enable_hint":       "Get notified in this browser",
+		"push.enabling":          "Turning on",
+		"push.enabled":           "Notifications on",
+		"push.disable_hint":      "Turn off notifications in this browser",
+		"push.disabling":         "Turning off",
+		"push.this_browser_only": "This browser only. Each browser and profile is enabled separately.",
+		"push.dismissed":         "No choice was made. Click again when you are ready.",
+		// Permission is 'denied': requestPermission() resolves without showing anything, so the
+		// only true thing to say is where the person can undo it themselves.
+		"push.blocked": "Notifications are blocked for this site. Turn them back on in your browser's site settings (the icon beside the address bar), then reload this page.",
 	}
 }
 

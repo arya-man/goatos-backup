@@ -1,21 +1,22 @@
 import "server-only";
 
+import type { AppApiComponents } from "@goatos/api-client";
 import { getServerConfig } from "@/lib/api/server";
 
 /**
  * Server-only API adapter for the browser web push registration endpoints.
  *
- * WHY A RAW FETCH AND NOT THE GENERATED CLIENT: the three registration endpoints are not in
- * contracts/openapi/app-api.yaml yet (the contract is owned elsewhere while this lands; the
- * required spec is written out separately for it to be merged into). `@goatos/api-client` is
- * generated FROM that contract, so it has no method for a path the contract does not declare.
+ * WHY A RAW FETCH AND NOT THE GENERATED CLIENT: the three registration endpoints are now
+ * DECLARED in contracts/openapi/app-api.yaml, so the row/response SHAPES below come from the
+ * generated types rather than being hand-written. `@goatos/api-client` is an
+ * openapi-typescript TYPE package -- it generates no request methods -- so the transport stays
+ * a raw fetch through this adapter, and it is the contract's types that make it type-checked
+ * against the backend.
  *
  * WHY IT LIVES HERE AND NOT IN THE SERVER ACTION: the API-access boundary rule is that a Server
  * Action goes through the authenticated server-only adapter layer rather than calling the network
  * itself. This IS that layer -- same `getServerConfig` that configures the generated client, same
- * bearer/tenant/traceparent headers, one place that resolves the session token. When the contract
- * lands, the three functions below move onto the generated client and `lib/web-push-actions.ts`
- * does not change.
+ * bearer/tenant/traceparent headers, one place that resolves the session token.
  *
  * The push token never reaches a URL or a log: it rides in the POST body only. It is a
  * bearer-style push credential -- whoever holds it can notify that browser.
@@ -29,19 +30,11 @@ import { getServerConfig } from "@/lib/api/server";
  */
 export type WebPushResult<T> = { ok: true; data: T } | { ok: false; error: string; code?: string };
 
-export type BrowserPushRegistration = {
-  browser_registration_id: string;
-  workforce_member_id: string;
-  provider: string;
-  browser_install_id: string;
-  browser_label: string;
-  status: "active" | "stale" | "unsubscribed";
-  created_at: string;
-  last_seen_at: string;
-  stale_at?: string;
-  stale_reason?: string;
-  row_version: number;
-};
+/**
+ * One browser profile's registration, taken from the contract rather than re-declared here --
+ * a hand-written twin of a schema the backend owns is a shape that can drift silently.
+ */
+export type BrowserPushRegistration = AppApiComponents["schemas"]["BrowserPushRegistration"];
 
 const REGISTRATIONS_PATH = "/admin/notifications/browser-registrations";
 

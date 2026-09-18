@@ -7,11 +7,13 @@ import {
   normalizeTaskQuery,
   normalizeTaskScope,
   normalizeTaskSort,
+  normalizeTaskView,
   taskUuidFilter,
   type TaskDateRange,
   type TaskFilter,
   type TaskScope,
   type TaskSort,
+  type TaskView,
 } from "./task-url";
 
 /**
@@ -41,6 +43,7 @@ export const TASK_PARAM = {
   raisedFrom: "t_raised_from",
   raisedTo: "t_raised_to",
   sort: "t_sort",
+  view: "t_view",
   limit: "t_limit",
   cursor: "t_cursor",
   page: "t_page",
@@ -81,9 +84,22 @@ export type TasksParams = {
   deadline: TaskDateRange;
   raised: TaskDateRange;
   sort: TaskSort;
+  /**
+   * Board or table. NOT in `TASK_FILTER_PARAMS`: it changes nothing about the request, so
+   * switching views must keep the reader on the same page of the same list.
+   */
+  view: TaskView;
   limit: number;
   cursor?: string;
   page: number;
+  /**
+   * The repeated `t_cursor_stack` values, verbatim.
+   *
+   * Carried on the parsed state so a component that only receives `TasksParams` can rebuild the
+   * WHOLE URL without being handed the raw search params — otherwise every link it mints
+   * silently drops the reader's back-paging depth.
+   */
+  cursorStack: string[];
   selectedTaskID?: string;
   feedbackStatus?: string;
   feedbackCode?: string;
@@ -119,10 +135,12 @@ export function parseTasksParams(
       one(params, TASK_PARAM.raisedTo),
     ),
     sort: normalizeTaskSort(one(params, TASK_PARAM.sort)),
+    view: normalizeTaskView(one(params, TASK_PARAM.view)),
     // A page size the contract does not offer is not honoured: the backend caps at 50 and the
     // pager can only highlight a size it renders.
     limit: pageSizeOptions.includes(requestedLimit) ? requestedLimit : defaultLimit(pageSizeOptions),
     cursor: one(params, TASK_PARAM.cursor) || undefined,
+    cursorStack: all(params, TASK_PARAM.cursorStack),
     page: boundedInt(one(params, TASK_PARAM.page), 1, 1, 1_000_000),
     selectedTaskID: selectedTask,
     feedbackStatus: one(params, TASK_PARAM.feedbackStatus),
@@ -197,4 +215,38 @@ export function tasksClearedHref(pathname: string, sp: RouteSearchParams | undef
 /** The repeated cursor-stack values, exposed for the pager's own bookkeeping. */
 export function taskCursorStack(sp: RouteSearchParams | undefined): string[] {
   return all(sp ?? {}, TASK_PARAM.cursorStack);
+}
+
+/**
+ * The parsed state rendered BACK into search params.
+ *
+ * The seam for a component that is handed `TasksParams` and nothing else (the detail panel) but
+ * still has to mint links that keep the whole URL — including the repeated cursor stack, which is
+ * why `cursorStack` is parsed at all. Round-tripping the parsed state rather than the raw params
+ * also means a value the parser rejected (a malformed uuid, an unknown sort) is not carried
+ * forward into a link, which is the behaviour every other link on this page already has.
+ */
+export function tasksSearchParams(params: TasksParams): RouteSearchParams {
+  const sp: Record<string, string | string[]> = {
+    [TASK_PARAM.scope]: params.scope,
+    [TASK_PARAM.filter]: params.filter,
+    [TASK_PARAM.sort]: params.sort,
+    [TASK_PARAM.view]: params.view,
+    [TASK_PARAM.limit]: String(params.limit),
+    [TASK_PARAM.page]: String(params.page),
+  };
+  const put = (key: string, value: string | undefined) => {
+    if (value) sp[key] = value;
+  };
+  put(TASK_PARAM.q, params.rawQ);
+  put(TASK_PARAM.assignee, params.assigneeUserID);
+  put(TASK_PARAM.raiser, params.raisedBy);
+  put(TASK_PARAM.deadlineFrom, params.deadline.from);
+  put(TASK_PARAM.deadlineTo, params.deadline.to);
+  put(TASK_PARAM.raisedFrom, params.raised.from);
+  put(TASK_PARAM.raisedTo, params.raised.to);
+  put(TASK_PARAM.cursor, params.cursor);
+  put(TASK_PARAM.task, params.selectedTaskID);
+  if (params.cursorStack.length) sp[TASK_PARAM.cursorStack] = params.cursorStack;
+  return sp;
 }

@@ -8,7 +8,10 @@ import { readFileSync } from "node:fs";
 const read = (path) => readFileSync(new URL(path, import.meta.url), "utf8");
 const commentForm = read("./task-write-forms.tsx");
 const actions = read("./actions.ts");
-const page = read("./leadership-tasks-page.tsx");
+// The composer lives in the selected-task RAIL, which moved out of the page into its own
+// component when the status board landed (2026-09-18). The candidate list still has to be handed
+// in from outside, which is what this file asserts -- only the file that hands it in changed.
+const detailPanel = read("./task-detail-panel.tsx");
 const editModal = read("./edit-task-modal.tsx");
 
 // ---- The composer's hidden ids field and the action's read must name the same key.
@@ -39,9 +42,9 @@ assert.doesNotMatch(commentForm, /features\/notifications\/[a-z]/, "no deep feat
 
 // ---- The candidate list is passed IN (the component fetches nothing of its own).
 assert.match(
-  page,
+  detailPanel,
   /mentionCandidates=\{assignees\}/,
-  "the page must hand the composer its candidate list",
+  "the detail panel must hand the composer its candidate list",
 );
 
 // ---- The EDIT modal deliberately does NOT collect mention ids.

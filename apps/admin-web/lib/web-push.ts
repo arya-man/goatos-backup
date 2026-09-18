@@ -8,6 +8,8 @@ import {
   detectWebPushSupport,
   getBrowserInstallId,
   resetBrowserInstallId,
+  withTimeout,
+  WEB_PUSH_TOKEN_TIMEOUT_MS,
   type WebPushState,
 } from "@/lib/web-push-state";
 import {
@@ -47,17 +49,86 @@ export {
   leadershipTaskDeepLink,
   readNotificationPermission,
   resolveWebPushState,
+  WEB_PUSH_TOKEN_TIMEOUT_MS,
 } from "@/lib/web-push-state";
 export type { WebPushState } from "@/lib/web-push-state";
 
 const FIREBASE_APP_NAME = "goatos-admin-web";
 const SERVICE_WORKER_PATH = "/firebase-messaging-sw.js";
+/**
+ * How long to wait for our own worker to activate before giving up on waiting and letting the SDK
+ * try anyway. Matches the SDK's own `DEFAULT_REGISTRATION_TIMEOUT`, so the two halves agree about
+ * how long activation is allowed to take, and sits inside the outer mint budget.
+ */
+const SERVICE_WORKER_ACTIVATION_TIMEOUT_MS = 10_000;
 
-/** Register (or reuse) the push service worker. */
+/** Sentinel for a mint that ran out of time. Never a token, so it cannot be mistaken for one. */
+const MINT_TIMED_OUT = Symbol("web-push-mint-timed-out");
+
+/**
+ * Register (or reuse) the push service worker, AND WAIT FOR IT TO BE ACTIVE.
+ *
+ * THE WAIT IS THE BUG FIX, and it is here rather than in the SDK because of how the SDK is built.
+ * `navigator.serviceWorker.register()` resolves as soon as the REGISTRATION OBJECT exists -- on a
+ * cold profile its worker is still `installing` and `registration.active` is null. The Firebase SDK
+ * knows this: `waitForRegistrationActive()` carries a comment saying MDN's claim that a registration
+ * is ready after `register()` "doesn't seem to be the case in practice, causing the SDK to throw
+ * errors when calling swRegistration.pushManager.subscribe() too soon after register()".
+ *
+ * But it only runs that wait on the path where the SDK registers the worker ITSELF
+ * (`registerDefaultSw`). `updateSwReg()` -- the path taken when a caller PASSES
+ * `serviceWorkerRegistration`, which we do, deliberately, so two registrations are not racing for
+ * one subscription -- simply assigns the registration and returns. So the explicit-registration
+ * path silently opts OUT of the one safeguard the SDK has, and `getToken()` goes straight to
+ * `pushManager.subscribe()` on a worker that is not running yet.
+ *
+ * That is exactly what was observed: a cold `getToken()` never resolved and never rejected, while
+ * the one run that called `pushManager.subscribe()` first -- which forces activation -- got a token
+ * in under a second. Passing the registration is still right; the missing half was awaiting it.
+ *
+ * `navigator.serviceWorker.ready` is NOT the check. It resolves for the registration that controls
+ * THIS PAGE, which on a first visit is a worker that does not exist yet, and on a page loaded before
+ * this worker shipped is the OLD one -- so it can resolve while the registration we are about to
+ * hand to the SDK is still installing, or hang forever when nothing controls the page. Waiting on
+ * OUR OWN registration's own worker is the thing that has to be true.
+ */
 async function ensureServiceWorker(): Promise<ServiceWorkerRegistration> {
   const existing = await navigator.serviceWorker.getRegistration(SERVICE_WORKER_PATH);
-  if (existing) return existing;
-  return navigator.serviceWorker.register(SERVICE_WORKER_PATH, { scope: "/" });
+  const registration = existing ?? (await navigator.serviceWorker.register(SERVICE_WORKER_PATH, { scope: "/" }));
+  await waitForActiveWorker(registration);
+  return registration;
+}
+
+/**
+ * Resolve once this registration has a RUNNING worker.
+ *
+ * Deliberately RESOLVES rather than rejects when it cannot tell (no active and no incoming worker,
+ * or the state change never arrives): the SDK still applies its own 10s activation wait on top, and
+ * the outer timeout still bounds the whole mint. Throwing our own error here would replace a real,
+ * describable SDK failure with a vaguer one of ours. What must not happen is waiting FOREVER, and
+ * the timer guarantees that.
+ */
+function waitForActiveWorker(registration: ServiceWorkerRegistration): Promise<void> {
+  if (registration.active) return Promise.resolve();
+  const pending = registration.installing ?? registration.waiting;
+  if (!pending) return Promise.resolve();
+  const incoming: ServiceWorker = pending;
+  return new Promise<void>((resolve) => {
+    const timer = setTimeout(finish, SERVICE_WORKER_ACTIVATION_TIMEOUT_MS);
+    function finish() {
+      clearTimeout(timer);
+      incoming.removeEventListener("statechange", onStateChange);
+      resolve();
+    }
+    function onStateChange() {
+      // 'redundant' is a dead end (the worker was replaced or failed), so stop waiting on it and
+      // let the SDK and the outer timeout speak; only 'activated' means it is running.
+      if (incoming.state === "activated" || incoming.state === "redundant") finish();
+    }
+    incoming.addEventListener("statechange", onStateChange);
+    // The worker may have activated between the checks above and this listener being attached.
+    if (registration.active) finish();
+  });
 }
 
 /** Reuse the auth app rather than initialising a second Firebase app for messaging. */
@@ -75,13 +146,20 @@ async function messagingApp() {
  * `/firebase-messaging-sw.js` itself, with its own scope and options, which would mean two
  * registrations racing for one subscription.
  */
-async function mintToken(vapidKey: string): Promise<string> {
+async function mintToken(vapidKey: string): Promise<string | typeof MINT_TIMED_OUT> {
   const app = await messagingApp();
   const registration = await ensureServiceWorker();
-  const token = await getToken(getMessaging(app), {
-    vapidKey,
-    serviceWorkerRegistration: registration,
-  });
+  // BOUNDED, AS A BELT. `ensureServiceWorker` above removes the known cause of the hang, but
+  // `getToken()` still reaches Chrome's GCM registration, which can enter a silent multi-minute
+  // backoff for environmental reasons no code here can see or fix. An unbounded await on it means
+  // one bad day turns the CEO's click into a spinner with no error and no way to retry. A deadline
+  // converts "unknown" into "visible and retryable", which is the only outcome we can promise.
+  const token = await withTimeout<string | typeof MINT_TIMED_OUT>(
+    getToken(getMessaging(app), { vapidKey, serviceWorkerRegistration: registration }),
+    WEB_PUSH_TOKEN_TIMEOUT_MS,
+    () => MINT_TIMED_OUT,
+  );
+  if (token === MINT_TIMED_OUT) return MINT_TIMED_OUT;
   if (!token) throw new Error("This browser did not return a notification token.");
   return token;
 }
@@ -103,6 +181,9 @@ async function mintToken(vapidKey: string): Promise<string> {
  */
 async function mintAndRegister(vapidKey: string, browserInstallId: string): Promise<WebPushState> {
   const token = await mintToken(vapidKey);
+  // Ran out of time. Nothing was sent to the backend, so there is nothing to undo and nothing to
+  // report as broken -- the honest state is the retryable one, and the next click starts clean.
+  if (token === MINT_TIMED_OUT) return { status: "timed_out" };
   const browserLabel = describeBrowser(navigator.userAgent);
   const result = await registerBrowserPush({ browserInstallId, token, browserLabel });
   if (result.ok) return { status: "enabled", browserInstallId };

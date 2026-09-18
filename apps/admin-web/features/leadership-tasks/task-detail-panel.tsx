@@ -1,0 +1,336 @@
+import Link from "@/components/no-prefetch-link";
+import { ClipboardList, MessageSquareText, Paperclip } from "lucide-react";
+
+import { copy, type AdminUiPageContract } from "@/lib/admin-ui-contract";
+import type { LeadershipTaskAssignee } from "@/lib/api/server";
+
+import {
+  changeLeadershipTaskStatusAction,
+  editLeadershipTaskAction,
+  setLeadershipTaskCommentAction,
+} from "./actions";
+import { DeadlineClock } from "./deadline-clock";
+import { EditTaskModal } from "./edit-task-modal";
+import { initials, statusTone } from "./leadership-tasks-table";
+import { TASK_PARAM, tasksHref, tasksSearchParams, type TasksParams } from "./params";
+import type { TaskRow } from "./task-row";
+import { TASKS_PATHNAME } from "./task-url";
+import { TaskCommentForm, TaskStatusActions } from "./task-write-forms";
+
+/**
+ * The task detail panel, shaped like a modern Jira ISSUE VIEW and carrying only this product's
+ * own data.
+ *
+ * WHAT IS BORROWED FROM JIRA AND WHAT IS NOT
+ * Borrowed: the two-column issue view — breadcrumb + issue key, a large plain-text title, a
+ * prominent status control at the top, then quiet labelled sections (Description, Attachments,
+ * Activity with the composer last) down the left, and a boxed, collapsible Details panel of
+ * label/value rows down the right. Spacing, typography and information order are the whole
+ * borrowing.
+ *
+ * NOT borrowed: the feature set. There are no sprints, no epics, no story points, no backlog, no
+ * linked work items, no parent issue and no labels in this product, so none are rendered. There
+ * is also NO priority field — the deadline clock (`deadline-clock.tsx`, tone and wording both
+ * composed backend-side) is this product's only urgency signal, and it stands where Jira would
+ * put priority.
+ *
+ * Every write is reused verbatim from `task-write-forms.tsx` and `edit-task-modal.tsx`, which
+ * already mint their idempotency keys in the browser and carry the row_version fence. Nothing
+ * here re-implements a write, and nothing here decides a status vocabulary, a countdown or a
+ * colour: those are the backend's.
+ *
+ * COLOUR is the theme's: `var(--brand|ok|warn|danger|info|purple)` and the panel/ink/muted/line
+ * tokens, composed with `color-mix()`. Jira contributes layout, never palette.
+ */
+export function TaskDetailPanel({
+  detail,
+  pageContract,
+  scopeKey,
+  params,
+  assignees = [],
+  canRaise = false,
+}: {
+  /** The selected row, or nothing at all when the reader has not picked one yet. */
+  detail?: TaskRow | null;
+  pageContract: AdminUiPageContract;
+  scopeKey: string;
+  params: TasksParams;
+  assignees?: readonly LeadershipTaskAssignee[];
+  canRaise?: boolean;
+}) {
+  // The whole URL, rebuilt from the PARSED state: this component is handed `TasksParams` and no
+  // raw search params, and `tasksSearchParams` is the seam that keeps the repeated cursor stack
+  // (i.e. the reader's back-paging depth) alive in every link minted below.
+  const sp = tasksSearchParams(params);
+
+  if (!detail) {
+    return (
+      <aside className="ltd-panel ltd-panel-empty" aria-label={copy(pageContract, "section.selected.title")}>
+        <div className="ltd-blank">
+          <span className="ltd-blank-badge" aria-hidden="true">
+            <ClipboardList className="ic" />
+          </span>
+          <b>{copy(pageContract, "empty.selected")}</b>
+          <p>{copy(pageContract, "empty.selected_detail")}</p>
+          {canRaise ? (
+            <p className="ltd-blank-hint">
+              {copy(
+                pageContract,
+                "empty.selected_raise",
+                "Or raise a new task from the button above the list.",
+              )}
+            </p>
+          ) : null}
+        </div>
+      </aside>
+    );
+  }
+
+  // The write forms come back to THIS scope and THIS task on the live path only: `safeTaskReturnTo`
+  // in `actions.ts` rejects anything that is not `/tasks` exactly, so a preview host round-trips
+  // to the real desk rather than to itself.
+  const returnTo = tasksHref(
+    TASKS_PATHNAME,
+    sp,
+    { [TASK_PARAM.scope]: scopeKey, [TASK_PARAM.task]: detail.id },
+    { resetPaging: false },
+  );
+  const closeHref = tasksHref(TASKS_PATHNAME, sp, { [TASK_PARAM.task]: null }, { resetPaging: false });
+
+  const deadlineWord = copy(pageContract, "label.deadline");
+  const dash = copy(pageContract, "label.placeholder");
+  const attachmentRows = detail.attachmentRows;
+
+  return (
+    <aside className="ltd-panel" aria-label={copy(pageContract, "section.selected.title")}>
+      {/* Jira's issue header: the breadcrumb + issue key line, with the per-issue actions kept to
+          the two this product actually has — edit (raiser only, open/in_progress only, offered
+          only when the ROW says so) and close. */}
+      <div className="ltd-top">
+        <nav className="ltd-crumb" aria-label={copy(pageContract, "crumb")}>
+          <span>{copy(pageContract, "crumb")}</span>
+          <span className="ltd-crumb-sep" aria-hidden="true">
+            /
+          </span>
+          <span>{pageContract.title}</span>
+          <span className="ltd-crumb-sep" aria-hidden="true">
+            /
+          </span>
+          <b className="ltd-key">{detail.number}</b>
+        </nav>
+        <div className="ltd-top-actions">
+          {detail.canEdit ? (
+            <EditTaskModal
+              task={detail}
+              pageContract={pageContract}
+              action={editLeadershipTaskAction}
+              returnTo={returnTo}
+            />
+          ) : null}
+          <Link href={closeHref} scroll={false} className="btn sm ltd-close">
+            {copy(pageContract, "action.close")}
+          </Link>
+        </div>
+      </div>
+
+      <div className="ltd-head">
+        <h2 className="ltd-title">{detail.title}</h2>
+        {/* THE status control: the current status reads as Jira's dropdown-looking button, and the
+            transitions beside it are the backend's own `status_options` rendered verbatim by the
+            shared write form. No status name is invented here. */}
+        <div className="ltd-statusrow">
+          <span className="ltd-statuslab">{copy(pageContract, "label.status", "Status")}</span>
+          <span className={`ltd-status ltd-status-${statusTone(detail.status)}`}>
+            {detail.statusLabel}
+            <span className="ltd-status-caret" aria-hidden="true" />
+          </span>
+          <TaskStatusActions
+            task={detail}
+            pageContract={pageContract}
+            action={changeLeadershipTaskStatusAction}
+            returnTo={returnTo}
+          />
+        </div>
+      </div>
+
+      <div className="ltd-body">
+        <div className="ltd-main">
+
+          <Section title={copy(pageContract, "label.brief")}>
+            {detail.body ? (
+              <p className="ltd-prose">{detail.body}</p>
+            ) : (
+              <p className="ltd-quiet">
+                {copy(pageContract, "empty.description", "No brief was written for this task.")}
+              </p>
+            )}
+          </Section>
+
+          {/* The assignee's own latest note is part of the record, not of the activity feed: the
+              backend keeps it as the task's `comment`. It sits with the brief because that is what
+              it is — the other side of the same statement of work. */}
+          {detail.comment ? (
+            <Section title={copy(pageContract, "label.assignee_note")}>
+              <p className="ltd-prose">{detail.comment}</p>
+            </Section>
+          ) : null}
+
+          <Section
+            title={copy(pageContract, "edit.attachments")}
+            count={detail.attachments || undefined}
+          >
+            {attachmentRows.length ? (
+              <div className="ltd-atts">
+                {attachmentRows.map((attachment) => (
+                  <a
+                    key={attachment.attachment_id}
+                    className="ltd-att"
+                    href={`/api/leadership-tasks/attachments/${encodeURIComponent(detail.id)}/${encodeURIComponent(attachment.proof_id)}`}
+                    target="_blank"
+                    rel="noreferrer"
+                  >
+                    <Paperclip className="ic" aria-hidden="true" />
+                    <span className="ltd-att-name">{attachment.file_name || attachment.kind}</span>
+                  </a>
+                ))}
+              </div>
+            ) : detail.attachments > 0 ? (
+              // A count with no rows is what a narrowed list response carries; the evidence
+              // summary is the honest thing to show rather than a fabricated file name.
+              <p className="ltd-quiet">{detail.evidence}</p>
+            ) : (
+              <p className="ltd-quiet">
+                {copy(pageContract, "empty.attachments", "No attachments on this task.")}
+              </p>
+            )}
+          </Section>
+
+          <Section title={copy(pageContract, "section.activity", "Activity")}>
+            {detail.notes.length ? (
+              <ol className="ltd-activity">
+                {detail.notes.map((note) => (
+                  <li key={note.note_id} className="ltd-act">
+                    <span className="ltd-av ltd-av-sm" aria-hidden="true">
+                      {initials(note.author_name || copy(pageContract, "feed.update"))}
+                    </span>
+                    <div className="ltd-act-tx">
+                      <b>{note.author_name || copy(pageContract, "feed.update")}</b>
+                      <p>{note.body}</p>
+                    </div>
+                  </li>
+                ))}
+              </ol>
+            ) : (
+              <p className="ltd-quiet">
+                {copy(pageContract, "empty.activity", "No updates on this task yet.")}
+              </p>
+            )}
+            {/* The composer last, as Jira has it. `@`-mentions, the idempotency key and the
+                mention-id contract all come with the shared form. */}
+            {detail.canComment ? (
+              <div className="ltd-composer">
+                <span className="ltd-av ltd-av-sm ltd-av-me" aria-hidden="true">
+                  <MessageSquareText className="ic" />
+                </span>
+                <TaskCommentForm
+                  task={detail}
+                  pageContract={pageContract}
+                  action={setLeadershipTaskCommentAction}
+                  returnTo={returnTo}
+                  mentionCandidates={assignees}
+                />
+              </div>
+            ) : null}
+          </Section>
+        </div>
+
+        {/* Jira's boxed Details panel: a collapsible header (native <details>, so it works with no
+            JavaScript) over label/value rows. NAMES beside the avatars, never a bare circle. */}
+        <details className="ltd-details" open>
+          <summary className="ltd-details-hd">
+            <span>{copy(pageContract, "section.details", "Details")}</span>
+            <span className="ltd-details-caret" aria-hidden="true" />
+          </summary>
+          <div className="ltd-details-bd">
+            <Row label={copy(pageContract, "column.assignee")}>
+              <Person name={detail.assignee} sub={detail.assigneeRole} dash={dash} />
+            </Row>
+            <Row label={copy(pageContract, "column.raised_by")}>
+              <Person name={detail.raisedBy} dash={dash} />
+            </Row>
+            <Row label={deadlineWord}>
+              {detail.deadlineTone ? (
+                <DeadlineClock task={detail} compact deadlineWord={deadlineWord} />
+              ) : (
+                <span className="ltd-quiet">{dash}</span>
+              )}
+            </Row>
+            <Row label={copy(pageContract, "label.raised_on", "Raised on")}>
+              <span className="ltd-val">{detail.age || dash}</span>
+            </Row>
+            <Row label={copy(pageContract, "column.evidence")}>
+              <span className="ltd-val">{detail.evidence || dash}</span>
+            </Row>
+          </div>
+        </details>
+      </div>
+    </aside>
+  );
+}
+
+function Section({
+  title,
+  count,
+  children,
+}: {
+  title: string;
+  count?: number;
+  children: React.ReactNode;
+}) {
+  return (
+    <section className="ltd-sec">
+      <h3 className="ltd-sec-hd">
+        {title}
+        {count ? <span className="ltd-sec-count">{count}</span> : null}
+      </h3>
+      {children}
+    </section>
+  );
+}
+
+function Row({ label, children }: { label: string; children: React.ReactNode }) {
+  return (
+    <div className="ltd-row">
+      <div className="ltd-row-k">{label}</div>
+      <div className="ltd-row-v">{children}</div>
+    </div>
+  );
+}
+
+function Person({ name, sub, dash }: { name: string; sub?: string; dash: string }) {
+  if (!name) return <span className="ltd-quiet">{dash}</span>;
+  return (
+    <span className="ltd-person">
+      <span className={`ltd-av ltd-av-t${avatarTone(name)}`} aria-hidden="true">
+        {initials(name)}
+      </span>
+      <span className="ltd-person-tx">
+        <b>{name}</b>
+        {sub ? <span>{sub}</span> : null}
+      </span>
+    </span>
+  );
+}
+
+/**
+ * Which of the theme's six accents an avatar wears. Deterministic off the name so one person is
+ * the same colour everywhere on the screen, and drawn ONLY from the palette tokens — the avatar
+ * colours are `var(--brand|info|purple|warn|ok|danger)` mixed into the panel, never a new hue.
+ */
+function avatarTone(name: string): number {
+  let hash = 0;
+  for (let index = 0; index < name.length; index += 1) {
+    hash = (hash * 31 + name.charCodeAt(index)) % 100_000;
+  }
+  return hash % 6;
+}

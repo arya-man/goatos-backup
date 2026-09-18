@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "@/components/no-prefetch-link";
-import { ListFilter, Search, SlidersHorizontal, X } from "lucide-react";
+import { CalendarRange, ChevronDown, ListFilter, Search, SlidersHorizontal, X } from "lucide-react";
 import { useCallback, useEffect, useMemo, useRef, useState, useTransition } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 
@@ -45,6 +45,18 @@ export type TaskStatusChip = {
  *
  * On a phone the SAME DOM becomes a bottom sheet (`.lt-fgroup` → fixed, hidden until `.open`):
  * one control set, two layouts, so there is no second copy of the bar to drift.
+ *
+ * LAYOUT (rejected once as five stacked rows in a tall empty box, and rebuilt). The bar is ONE
+ * dense row that wraps, the way a real issue tracker's is:
+ *   search · status segment · assignee · raiser · sort · Deadline ▾ · Raised ▾ · active chips
+ * Three things get it there. `.lt-fgroup` is `display:contents` above the sheet breakpoint, so its
+ * children join the BAR's flex row instead of forming a second wrapping box inside it — that
+ * nested box is what produced the rows and the dead vertical space. The status chips are one
+ * segmented group rather than free-floating pills. And the four raw `dd/mm/yyyy` inputs, which
+ * most sessions never touch, live behind two compact disclosures that show their span as a chip
+ * once it is set; Apply moved INSIDE them, because a span is the only thing here that cannot
+ * apply on change (half a span is a 400 on this endpoint) and it is the only thing that still
+ * needs a button.
  */
 export function LeadershipTasksFilters({
   pageContract,
@@ -92,7 +104,10 @@ export function LeadershipTasksFilters({
   const routerSearchParams = useSearchParams();
   const [isPending, startTransition] = useTransition();
   const [sheetOpen, setSheetOpen] = useState(false);
+  /** Which date disclosure is open, if any. Only one at a time: they are alternatives, not a pair. */
+  const [openRange, setOpenRange] = useState<"deadline" | "raised" | null>(null);
   const sheetRef = useRef<HTMLDivElement>(null);
+  const rangesRef = useRef<HTMLDivElement>(null);
   const moreRef = useRef<HTMLButtonElement>(null);
   const current = routerSearchParams?.toString() ?? "";
 
@@ -222,8 +237,89 @@ export function LeadershipTasksFilters({
     (first ?? node)?.focus();
   }, [sheetOpen]);
 
+  useEffect(() => {
+    if (!openRange) return;
+    function onDown(event: MouseEvent) {
+      const element = event.target as HTMLElement | null;
+      if (element && rangesRef.current?.contains(element)) return;
+      setOpenRange(null);
+    }
+    function onKey(event: KeyboardEvent) {
+      if (event.key === "Escape") setOpenRange(null);
+    }
+    document.addEventListener("mousedown", onDown);
+    document.addEventListener("keydown", onKey);
+    return () => {
+      document.removeEventListener("mousedown", onDown);
+      document.removeEventListener("keydown", onKey);
+    };
+  }, [openRange]);
+
   const searchLabel = copy(pageContract, "filter.search_label");
   const rangeNote = copy(pageContract, "filter.range_note");
+  const allOption = copy(pageContract, "filter.all_option");
+  const applyLabel = copy(pageContract, "action.apply");
+  const clearLabel = copy(pageContract, "action.clear");
+  const removeLabel = copy(pageContract, "filter.remove_label", clearLabel);
+  const assigneeLabel = copy(pageContract, "filter.assignee");
+  const raiserLabel = copy(pageContract, "filter.raiser");
+  const deadlineLabel = copy(pageContract, "filter.deadline", copy(pageContract, "label.deadline", "Deadline"));
+  const raisedLabel = copy(pageContract, "filter.raised", "Raised");
+
+  /**
+   * A span as the disclosure's own label: the reader should not have to open it to learn whether
+   * it is narrowing the list. An EN DASH is glue between two ISO dates, not copy.
+   */
+  const spanLabel = (from: string, to: string) => (from && to ? `${from} – ${to}` : from || to);
+  const deadlineSpan = spanLabel(deadlineFrom, deadlineTo);
+  const raisedSpan = spanLabel(raisedFrom, raisedTo);
+
+  const shownAssignee = fieldValue(TASK_PARAM.assignee, assignee);
+  const shownRaiser = fieldValue(TASK_PARAM.raiser, raiser);
+  const labelFor = (options: TaskPersonOption[], value: string) =>
+    options.find((option) => option.value === value)?.label ?? value;
+
+  /**
+   * WHAT IS NARROWING THE LIST, as chips that each remove exactly themselves. Status lives in the
+   * segmented control and sort is not a narrowing, so neither is repeated here; everything that
+   * hides rows is. The idiom is `components/worklist-filters.tsx`'s -- the applied value stated
+   * beside its own control, with a single affordance that takes it back off.
+   */
+  // DATA, not closures: an object literal built during render may not capture a ref read
+  // (react-hooks "Cannot access refs during render"), so each chip carries the parameter
+  // OVERRIDES that take it back off and the JSX handler below is what applies them.
+  const activeChips: { key: string; label: string; overrides: Record<string, string> }[] = [];
+  if (text.trim()) {
+    activeChips.push({ key: TASK_PARAM.q, label: text.trim(), overrides: { [TASK_PARAM.q]: "" } });
+  }
+  if (shownAssignee && !assigneePinned) {
+    activeChips.push({
+      key: TASK_PARAM.assignee,
+      label: `${assigneeLabel}: ${labelFor(assigneeOptions, shownAssignee)}`,
+      overrides: { [TASK_PARAM.assignee]: "" },
+    });
+  }
+  if (shownRaiser && !raiserPinned) {
+    activeChips.push({
+      key: TASK_PARAM.raiser,
+      label: `${raiserLabel}: ${labelFor(raiserOptions, shownRaiser)}`,
+      overrides: { [TASK_PARAM.raiser]: "" },
+    });
+  }
+  if (deadlineSpan) {
+    activeChips.push({
+      key: TASK_PARAM.deadlineFrom,
+      label: `${deadlineLabel}: ${deadlineSpan}`,
+      overrides: { [TASK_PARAM.deadlineFrom]: "", [TASK_PARAM.deadlineTo]: "" },
+    });
+  }
+  if (raisedSpan) {
+    activeChips.push({
+      key: TASK_PARAM.raisedFrom,
+      label: `${raisedLabel}: ${raisedSpan}`,
+      overrides: { [TASK_PARAM.raisedFrom]: "", [TASK_PARAM.raisedTo]: "" },
+    });
+  }
 
   return (
     <div
@@ -295,17 +391,19 @@ export function LeadershipTasksFilters({
           </button>
         </div>
 
-        <div className="lt-chips">
+        {/* ONE segmented group, not a row of floating pills: these are alternatives (exactly one is
+            current), and a segment is how the rest of this app says so -- see `.metricseg`. */}
+        <div className="lt-chips lt-seg" role="group" aria-label={copy(pageContract, "filter.status_aria", copy(pageContract, "column.status", "Status"))}>
           {statusChips.map((chip) => (
             <Link
               key={chip.key}
               href={hrefWith({ [TASK_PARAM.filter]: chip.key })}
               replace
               scroll={false}
-              className={`achip${chipSelected(chip.key) ? "" : " clr"}`}
+              className={chipSelected(chip.key) ? "on" : ""}
               aria-current={chipSelected(chip.key) ? "true" : undefined}
               // A real link with a real href, so open-in-new-tab and sharing still work; the
-              // handler only takes over the PLAIN click, to light the chip up before the server
+              // handler only takes over the PLAIN click, to light the segment up before the server
               // answers. Modified clicks are left to the browser.
               onClick={(event) => {
                 if (
@@ -328,14 +426,14 @@ export function LeadershipTasksFilters({
         </div>
 
         <label className="lt-fsel">
-          <span>{copy(pageContract, "filter.assignee")}</span>
+          <span>{assigneeLabel}</span>
           <select
             value={fieldValue(TASK_PARAM.assignee, assignee)}
             disabled={assigneePinned}
             title={assigneePinned ? copy(pageContract, "filter.assignee_pinned") : undefined}
             onChange={(event) => go(paramsWith({ [TASK_PARAM.assignee]: event.target.value }))}
           >
-            <option value="">{copy(pageContract, "filter.all_option")}</option>
+            <option value="">{allOption}</option>
             {assigneeOptions.map((option) => (
               <option key={option.value} value={option.value}>
                 {option.label}
@@ -345,14 +443,14 @@ export function LeadershipTasksFilters({
         </label>
 
         <label className="lt-fsel">
-          <span>{copy(pageContract, "filter.raiser")}</span>
+          <span>{raiserLabel}</span>
           <select
             value={fieldValue(TASK_PARAM.raiser, raiser)}
             disabled={raiserPinned}
             title={raiserPinned ? copy(pageContract, "filter.raiser_pinned") : undefined}
             onChange={(event) => go(paramsWith({ [TASK_PARAM.raiser]: event.target.value }))}
           >
-            <option value="">{copy(pageContract, "filter.all_option")}</option>
+            <option value="">{allOption}</option>
             {raiserOptions.map((option) => (
               <option key={option.value} value={option.value}>
                 {option.label}
@@ -372,63 +470,144 @@ export function LeadershipTasksFilters({
           </select>
         </label>
 
-        {/* Both ends of both spans, committed on ONE press. A span reaches the URL whole or not at
-            all, because half a span is a 400 on this endpoint. */}
-        <div className="lt-franges">
-          <label className="lt-fsel">
-            <span>{copy(pageContract, "filter.deadline_from")}</span>
-            <input
-              type="date"
-              value={dates.deadlineFrom}
-              onChange={(event) => setDates((prev) => ({ ...prev, deadlineFrom: event.target.value }))}
-            />
-          </label>
-          <label className="lt-fsel">
-            <span>{copy(pageContract, "filter.deadline_to")}</span>
-            <input
-              type="date"
-              value={dates.deadlineTo}
-              onChange={(event) => setDates((prev) => ({ ...prev, deadlineTo: event.target.value }))}
-            />
-          </label>
-          <label className="lt-fsel">
-            <span>{copy(pageContract, "filter.raised_from")}</span>
-            <input
-              type="date"
-              value={dates.raisedFrom}
-              onChange={(event) => setDates((prev) => ({ ...prev, raisedFrom: event.target.value }))}
-            />
-          </label>
-          <label className="lt-fsel">
-            <span>{copy(pageContract, "filter.raised_to")}</span>
-            <input
-              type="date"
-              value={dates.raisedTo}
-              onChange={(event) => setDates((prev) => ({ ...prev, raisedTo: event.target.value }))}
-            />
-          </label>
-          <button
-            type="button"
-            className="btn sm p"
-            onClick={() => {
-              closeSheet();
-              go(
-                paramsWith({
-                  [TASK_PARAM.deadlineFrom]: dates.deadlineFrom,
-                  [TASK_PARAM.deadlineTo]: dates.deadlineTo,
-                  [TASK_PARAM.raisedFrom]: dates.raisedFrom,
-                  [TASK_PARAM.raisedTo]: dates.raisedTo,
+        {/* THE DATE SPANS, behind two compact disclosures. They used to be four raw `dd/mm/yyyy`
+            inputs stretched across a row of their own with a lone Apply button under them, which
+            is most of what made this bar five rows tall -- and almost no session touches them.
+            Each disclosure commits its OWN span, whole, on one press: half a span is a 400
+            (`invalid_date_range`) on this endpoint, so these are the one set of controls here that
+            cannot apply on change. Every other control does, which is why there is no Apply on
+            the bar any more. */}
+        <div className="lt-franges" ref={rangesRef}>
+          {(
+            [
+              {
+                id: "deadline" as const,
+                label: deadlineLabel,
+                span: deadlineSpan,
+                fromLabel: copy(pageContract, "filter.deadline_from"),
+                toLabel: copy(pageContract, "filter.deadline_to"),
+                from: dates.deadlineFrom,
+                to: dates.deadlineTo,
+                setFrom: (value: string) => setDates((prev) => ({ ...prev, deadlineFrom: value })),
+                setTo: (value: string) => setDates((prev) => ({ ...prev, deadlineTo: value })),
+                commit: (from: string, to: string) => ({
+                  [TASK_PARAM.deadlineFrom]: from,
+                  [TASK_PARAM.deadlineTo]: to,
                 }),
-              );
-            }}
-          >
-            {copy(pageContract, "action.apply")}
-          </button>
+              },
+              {
+                id: "raised" as const,
+                label: raisedLabel,
+                span: raisedSpan,
+                fromLabel: copy(pageContract, "filter.raised_from"),
+                toLabel: copy(pageContract, "filter.raised_to"),
+                from: dates.raisedFrom,
+                to: dates.raisedTo,
+                setFrom: (value: string) => setDates((prev) => ({ ...prev, raisedFrom: value })),
+                setTo: (value: string) => setDates((prev) => ({ ...prev, raisedTo: value })),
+                commit: (from: string, to: string) => ({
+                  [TASK_PARAM.raisedFrom]: from,
+                  [TASK_PARAM.raisedTo]: to,
+                }),
+              },
+            ] as const
+          ).map((range) => (
+            <div className="lt-fdrop" key={range.id}>
+              <button
+                type="button"
+                className={range.span ? "set" : ""}
+                aria-expanded={openRange === range.id}
+                aria-haspopup="true"
+                onClick={() => setOpenRange((current) => (current === range.id ? null : range.id))}
+              >
+                <CalendarRange className="ic" style={{ width: 14 }} aria-hidden="true" />
+                {/* The applied span IS the label once there is one, so the bar states what it is
+                    hiding without being opened. */}
+                <span>{range.span || range.label}</span>
+                <ChevronDown className="ic" style={{ width: 13 }} aria-hidden="true" />
+              </button>
+              {openRange === range.id ? (
+                <div className="lt-fdrop-pop" role="group" aria-label={range.label}>
+                  <label className="lt-fsel">
+                    <span>{range.fromLabel}</span>
+                    <input
+                      type="date"
+                      value={range.from}
+                      onChange={(event) => range.setFrom(event.target.value)}
+                    />
+                  </label>
+                  <label className="lt-fsel">
+                    <span>{range.toLabel}</span>
+                    <input
+                      type="date"
+                      value={range.to}
+                      onChange={(event) => range.setTo(event.target.value)}
+                    />
+                  </label>
+                  <div className="lt-fdrop-act">
+                    {range.span ? (
+                      <button
+                        type="button"
+                        className="btn sm"
+                        onClick={() => {
+                          range.setFrom("");
+                          range.setTo("");
+                          setOpenRange(null);
+                          closeSheet();
+                          go(paramsWith(range.commit("", "")));
+                        }}
+                      >
+                        {clearLabel}
+                      </button>
+                    ) : null}
+                    <button
+                      type="button"
+                      className="btn sm p"
+                      onClick={() => {
+                        setOpenRange(null);
+                        closeSheet();
+                        go(paramsWith(range.commit(range.from, range.to)));
+                      }}
+                    >
+                      {applyLabel}
+                    </button>
+                  </div>
+                </div>
+              ) : null}
+            </div>
+          ))}
         </div>
+
+        {/* WHAT IS NARROWING THE LIST, each chip removing exactly itself. */}
+        {activeChips.length > 0 ? (
+          <div className="lt-factive" role="group" aria-label={copy(pageContract, "filter.active_aria", copy(pageContract, "action.filters", "Filters"))}>
+            {activeChips.map((chip) => (
+              <span className="achip" key={chip.key}>
+                {chip.label}
+                <button
+                  type="button"
+                  onClick={() => {
+                    // The search box is the one chip with local state behind it, so its pending
+                    // debounce is dropped here rather than being left to fire the old value back.
+                    if (chip.key === TASK_PARAM.q) {
+                      setText("");
+                      if (debounceRef.current !== null) window.clearTimeout(debounceRef.current);
+                    }
+                    go(paramsWith(chip.overrides));
+                  }}
+                  aria-label={removeLabel}
+                  title={removeLabel}
+                >
+                  <X className="ic" style={{ width: 12 }} aria-hidden="true" />
+                </button>
+              </span>
+            ))}
+          </div>
+        ) : null}
 
         {hasFilters ? (
           <Link href={clearedHref} replace scroll={false} className="achip clr lt-fclear">
-            {copy(pageContract, "action.clear")}
+            {clearLabel}
           </Link>
         ) : null}
 

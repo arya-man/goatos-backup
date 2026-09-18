@@ -43,6 +43,11 @@ import {
 } from "./notification-model";
 import { NotificationPanel } from "./notification-panel";
 
+/** The panel's ideal width -- the same 300px the shared `.parkmenu` uses on a wide bar. */
+const NOTIFICATION_PANEL_WIDTH = 300;
+/** The smallest gap the panel keeps from either viewport edge. */
+const NOTIFICATION_PANEL_GUTTER = 8;
+
 export function NotificationBell({
   openLabel,
   contractCopy,
@@ -62,7 +67,21 @@ export function NotificationBell({
   const [busy, setBusy] = useState(false);
   const [errorCode, setErrorCode] = useState<string | undefined>(undefined);
   const rootRef = useRef<HTMLDivElement>(null);
+  const buttonRef = useRef<HTMLButtonElement>(null);
   const liveRef = useRef(true);
+  // WHERE THE PANEL SITS. The shared `.parkmenu` idiom is `position:absolute;top:46px;right:0`,
+  // which lays a 300px panel out LEFTWARDS from a 40px button. That works for the park and account
+  // menus because they sit at the END of the top bar; the bell does not. Measured in Chromium
+  // against the real stylesheet, with the top bar wrapped to two rows at <=560px the panel's left
+  // edge landed at -191px (320px viewport, 97 of 288px visible) and -250px (360px viewport, 50 of
+  // 300px visible) -- and `html,body{overflow-x:hidden;max-width:100vw}` at <=860px means the rest
+  // could NEVER be scrolled to. A long park name reproduced it at 700px too, so it is a
+  // wrap-POSITION problem, not a 320px problem: nothing in CSS knows where the bell wrapped to.
+  // So the panel is placed from the button's measured rect and CLAMPED to the viewport: still
+  // right-aligned to the bell when there is room, flipped rightwards when there is not, never
+  // closer than an 8px gutter to either edge. Vertical fit is unchanged (the list keeps its
+  // 55vh/55dvh cap).
+  const [panelBox, setPanelBox] = useState<{ top: number; left: number; width: number } | null>(null);
 
   useEffect(() => {
     liveRef.current = true;
@@ -130,6 +149,32 @@ export function NotificationBell({
     };
   }, [open]);
 
+  const placePanel = useCallback(() => {
+    const anchor = buttonRef.current?.getBoundingClientRect();
+    if (!anchor) return;
+    const viewport = document.documentElement.clientWidth;
+    const width = Math.min(NOTIFICATION_PANEL_WIDTH, viewport - NOTIFICATION_PANEL_GUTTER * 2);
+    // Preferred: right edge flush with the bell, exactly as `.parkmenu` does on a wide bar.
+    const preferred = anchor.right - width;
+    const rightmost = viewport - NOTIFICATION_PANEL_GUTTER - width;
+    const left = Math.max(NOTIFICATION_PANEL_GUTTER, Math.min(preferred, rightmost));
+    setPanelBox({ top: Math.round(anchor.bottom + 6), left: Math.round(left), width: Math.round(width) });
+  }, []);
+
+  // Re-place on resize and on any scroll (the top bar is not sticky on every route, so a scroll can
+  // move the bell). Placement itself happens in the click handler and in these listeners -- never
+  // synchronously in an effect body (react-hooks/set-state-in-effect).
+  useEffect(() => {
+    if (!open) return;
+    const reposition = () => placePanel();
+    window.addEventListener("resize", reposition);
+    window.addEventListener("scroll", reposition, true);
+    return () => {
+      window.removeEventListener("resize", reposition);
+      window.removeEventListener("scroll", reposition, true);
+    };
+  }, [open, placePanel]);
+
   const markRead = useCallback(async (ids: string[]) => {
     if (ids.length === 0) return;
     // Optimistic: the row goes quiet now, the write answers later. `applyLocallyRead` is the only
@@ -165,6 +210,7 @@ export function NotificationBell({
       style={{ position: "relative", flex: "none" }}
     >
       <button
+        ref={buttonRef}
         type="button"
         className="iconbtn"
         title={centreCopy.open}
@@ -174,7 +220,12 @@ export function NotificationBell({
         onClick={() => {
           setOpen((current) => {
             const next = !current;
-            if (next) void refresh();
+            if (next) {
+              // Measured HERE, from an event handler, so the first paint of the panel is already
+              // clamped -- there is no frame in which it renders off-screen.
+              placePanel();
+              void refresh();
+            }
             return next;
           });
         }}
@@ -191,7 +242,28 @@ export function NotificationBell({
           </span>
         ) : null}
       </button>
-      <div className={`parkmenu ${open ? "on" : ""}`} role="dialog" aria-label={centreCopy.title} aria-modal={false}>
+      <div
+        className={`parkmenu ${open ? "on" : ""}`}
+        role="dialog"
+        aria-label={centreCopy.title}
+        aria-modal={false}
+        // `fixed`, not the sheet's `absolute`: the bell's own box is what put the panel off-screen,
+        // so the panel is taken out of it. Inline because the coordinates are measured, and these
+        // four properties are exactly the ones `.parkmenu` (and its <=760px override) would
+        // otherwise win with.
+        style={
+          open && panelBox
+            ? {
+                position: "fixed",
+                top: panelBox.top,
+                left: panelBox.left,
+                right: "auto",
+                width: panelBox.width,
+                maxWidth: panelBox.width,
+              }
+            : undefined
+        }
+      >
         {open ? (
           <NotificationPanel
             feed={shownFeed}

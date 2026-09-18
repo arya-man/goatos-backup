@@ -19,6 +19,39 @@ export type TaskScope = (typeof TASK_SCOPES)[number];
 export const TASK_FILTERS = ["all", "open", "in_progress", "done"] as const;
 export type TaskFilter = (typeof TASK_FILTERS)[number];
 
+/**
+ * The two ways this desk renders the SAME list read: the status board and the table.
+ *
+ * `board` is the default because the board is what a reader compares against Jira, and because
+ * the table is one click away and keeps every link it had. The view is a pure presentation
+ * choice — it changes no request parameter, so switching it never re-queries and never
+ * invalidates a cursor.
+ */
+export const TASK_VIEWS = ["board", "list"] as const;
+export type TaskView = (typeof TASK_VIEWS)[number];
+export const DEFAULT_TASK_VIEW: TaskView = "board";
+
+export function normalizeTaskView(value: string | undefined): TaskView {
+  return (TASK_VIEWS as readonly string[]).includes(value ?? "") ? (value as TaskView) : DEFAULT_TASK_VIEW;
+}
+
+/**
+ * The board's columns, in the order a reader reads them: what has not started, what is moving,
+ * what landed, what was dropped.
+ *
+ * `cancelled` is deliberately last AND deliberately outside `TASK_FILTERS`: the list endpoint
+ * offers no `cancelled` filter and the response carries no whole-list count for it, so that
+ * column can show rows but can never state a true total. The board says so rather than adding
+ * up what happens to be on the page.
+ */
+export const TASK_BOARD_COLUMNS = ["open", "in_progress", "done", "cancelled"] as const;
+export type TaskBoardColumn = (typeof TASK_BOARD_COLUMNS)[number];
+
+/** True when the whole-list count for this column is a number the backend actually publishes. */
+export function boardColumnHasTotal(column: TaskBoardColumn): boolean {
+  return (TASK_FILTERS as readonly string[]).includes(column);
+}
+
 /** `q` is trimmed and capped at 120 characters; over that is a 400 `invalid_query`. */
 export const TASK_QUERY_MAX = 120;
 

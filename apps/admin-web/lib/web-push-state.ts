@@ -23,6 +23,16 @@ const INSTALL_ID_STORAGE_KEY = "mesha.web-push.browser-install-id";
  *                'default'. Retryable: this is NOT a refusal, and must not be reported as one.
  *  prompt        permission is 'default', or granted-but-not-registered. Actionable.
  *  enabled       permission granted and a token is registered with the backend.
+ *  timed_out     the browser accepted the permission but the token mint never came back. RETRYABLE
+ *                and deliberately its OWN state, because the three neighbours all say something
+ *                false about it: it is NOT `blocked` (the person granted permission -- sending them
+ *                into site settings to undo a refusal they never made is the same defect as
+ *                reporting a dismissal as a refusal), it is NOT `unconfigured` (that is OUR missing
+ *                VAPID key, which no amount of clicking fixes), and it is NOT `dismissed` (the
+ *                prompt was answered). Nothing is known to be wrong, so the only honest thing to
+ *                say is "that did not come back, try again" -- and the control must OFFER that
+ *                retry. An infinite spinner is the one outcome that is worse than the feature not
+ *                existing: it reports nothing and offers nothing.
  *  error         something failed (offline, token mint refused, backend rejected).
  */
 export type WebPushState =
@@ -32,6 +42,7 @@ export type WebPushState =
   | { status: "dismissed" }
   | { status: "prompt" }
   | { status: "enabled"; browserInstallId: string }
+  | { status: "timed_out" }
   | { status: "error"; reason: string };
 
 /**
@@ -187,4 +198,55 @@ export function leadershipTaskDeepLink(taskId: string): string {
   const trimmed = (taskId || "").trim();
   if (!trimmed) return "/tasks?scope=team_progress";
   return `/tasks?scope=team_progress&task=${encodeURIComponent(trimmed)}`;
+}
+
+/**
+ * How long to wait for the FCM token mint before calling it a timeout.
+ *
+ * TWENTY SECONDS, chosen against the SDK's OWN clock rather than picked for feel. The Firebase
+ * messaging SDK bounds its internal wait for the service worker to become active at 10s
+ * (`DEFAULT_REGISTRATION_TIMEOUT`) and then rejects with a real error. This budget must sit
+ * comfortably ABOVE that, so a failure the SDK can describe surfaces as ITSELF -- with its own
+ * message, on the `error` state -- instead of being flattened into a generic timeout by a stopwatch
+ * that fired first. The remaining headroom covers the two network round trips that follow it (the
+ * installations FID, then the token registration) on a farm office connection.
+ *
+ * It is a CEILING on an unbounded wait, not a latency target: the healthy path returns in well
+ * under a second, so a person who sees this waited through something genuinely pathological.
+ */
+export const WEB_PUSH_TOKEN_TIMEOUT_MS = 20_000;
+
+/**
+ * Race a promise against a deadline.
+ *
+ * Kept here, in the pure half, for the same reason the state machine is: this is the thing the
+ * defect was ABOUT, so it has to be exercisable by `node --test` without the Firebase SDK in the
+ * room -- a test that stubs a never-resolving `getToken()` is the only honest proof that the
+ * timeout fires at all.
+ *
+ * `onTimeout` decides what expiry MEANS; this function never invents a state of its own. The timer
+ * is always cleared, including when the work settles first, so a resolved mint cannot leave a live
+ * timer behind holding the event loop open.
+ *
+ * NOTE THAT THE WORK IS NOT CANCELLED, because a promise cannot be. A `getToken()` that was merely
+ * slow may still resolve after the deadline and mint a perfectly good token; the caller has already
+ * moved on, and the next attempt finds that token cached. That is a harmless duplicate, whereas
+ * leaving the UI pending forever is the bug being fixed.
+ */
+export async function withTimeout<T>(
+  work: Promise<T>,
+  timeoutMs: number,
+  onTimeout: () => T,
+): Promise<T> {
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  try {
+    return await Promise.race([
+      work,
+      new Promise<T>((resolve) => {
+        timer = setTimeout(() => resolve(onTimeout()), timeoutMs);
+      }),
+    ]);
+  } finally {
+    if (timer !== undefined) clearTimeout(timer);
+  }
 }

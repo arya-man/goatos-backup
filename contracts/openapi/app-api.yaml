@@ -10004,6 +10004,175 @@ paths:
           $ref: "#/components/responses/WriteConflict"
         "500":
           $ref: "#/components/responses/ServerError"
+  /admin/notifications/browser-registrations:
+    get:
+      tags:
+        - Notifications
+      operationId: listBrowserPushRegistrations
+      summary: List the caller's OWN browser push registrations.
+      description: >-
+        Returns this person's browser (web push) registrations in this tenant, whatever their
+        status, newest activity first.
+
+
+        SCOPE. Scoped to the CALLER: the tenant and the workforce member are both resolved from
+        the session, and there is deliberately no parameter on this route that names another
+        person, so it can never read somebody else's registrations. Bounded to 50 rows -- a
+        person's browser count is small, and a larger result would be a bug rather than a page.
+
+
+        Gated on `admin_web.bootstrap`, not an admin/people grant: this acts only on the caller's
+        own browsers, so the authority it needs is "may open the dashboard". The
+        designation-matrix routes next door carry `operators.manage` because those edit a
+        tenant-wide audience; gating this the same way would refuse the CEO her own
+        notifications unless she also administers people.
+      responses:
+        "200":
+          description: The caller's own registrations.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/BrowserPushRegistrationList"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "500":
+          $ref: "#/components/responses/ServerError"
+    post:
+      tags:
+        - Notifications
+      operationId: registerBrowserPushRegistration
+      summary: Store or refresh THIS browser's push address.
+      description: >-
+        Upsert, keyed on (tenant, browser_install_id). A refresh REVIVES a row that was
+        previously stale or unsubscribed rather than inserting a second one -- a browser that
+        comes back is the same browser -- so `created` is true only for a genuinely new
+        registration.
+
+
+        A REFRESH IS THE COMMON CASE, NOT THE EDGE CASE. Chrome rotates an FCM web token on its
+        own schedule and admin-web re-reads it on every dashboard load, so most calls here are a
+        same-token `last_seen_at` touch or a new-token replacement of a row that already exists.
+
+
+        `token` is an FCM WEB REGISTRATION TOKEN from the Firebase JS SDK's `getToken()` -- one
+        opaque string, the same shape the Android device registry stores and the same shape the
+        backend's FCM HTTP v1 send path already addresses. It is deliberately NOT a raw Web Push
+        subscription (`{endpoint, keys.p256dh, keys.auth}`): FCM performs the VAPID signing and
+        aes128gcm encryption, so the backend needs no second send path. It is a bearer-style push
+        credential -- whoever holds it can notify that browser -- and must never appear in a URL,
+        a query string or a log line.
+
+
+        THE BODY NAMES NO PERSON. Tenant and member come from the authenticated session; a
+        browser must not be able to register a push address against somebody else's name.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/BrowserPushRegisterRequest"
+      responses:
+        "200":
+          description: The stored registration, plus whether it was newly created.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/BrowserPushRegisterResponse"
+        "400":
+          description: >-
+            Invalid request. `browser_push_invalid_request` for a missing or oversized
+            browser_install_id or token, or a token containing control characters (refused, never
+            silently stripped, because that is what log injection looks like).
+            `invalid_request_body` for malformed JSON or an unknown field.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          description: >-
+            `browser_push_member_not_found` -- the caller is authenticated but is not an ACTIVE
+            workforce member of this tenant, so there is no person to attach a delivery address
+            to. This is the real authorization gap; a browser profile held by a COLLEAGUE is the
+            409 below, not this.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+        "409":
+          description: >-
+            `browser_push_install_conflict` -- that browser profile already carries ANOTHER
+            member's live registration and the caller could not prove possession of it, so
+            NOTHING was written and the row stays attributed to its owner.
+
+
+            IT IS NOT AN AUTHORIZATION FAILURE AND MUST NOT BE REPORTED AS ONE.
+            `browser_install_id` is per-browser-profile and survives sign-out, so the ordinary
+            cause is two colleagues sharing one office desktop after the Chrome token rotated --
+            nobody did anything wrong. It is LOAD-BEARING on the client:
+            `apps/admin-web/lib/web-push.ts` keys on this CODE (never on the message), mints a
+            fresh browser install id and retries exactly ONCE -- a freshly minted id cannot
+            collide, so a second conflict is a real fault and is surfaced rather than looped. The
+            message deliberately names no other member.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+        "500":
+          $ref: "#/components/responses/ServerError"
+  /admin/notifications/browser-registrations/unregister:
+    post:
+      tags:
+        - Notifications
+      operationId: unregisterBrowserPushRegistration
+      summary: Turn browser notifications off for THIS browser.
+      description: >-
+        Marks the caller's registration for that browser `unsubscribed`.
+
+
+        IDEMPOTENT BY DESIGN: `removed` is false when there was nothing active to switch off, and
+        that is a 200 rather than an error -- the client calls this on a permission revocation it
+        may already have reported, and on every load where `Notification.permission` reads
+        `denied`.
+
+
+        `unsubscribed` is deliberately a DIFFERENT status from `stale`: stale is a fact about the
+        address (the provider says it is gone, written by the send path's permanent-failure
+        branch), unsubscribed is a choice about the human, and "why did my alerts stop?" has a
+        different answer for each.
+
+
+        Scoped to the caller's own member id as well as the browser install id. The install id is
+        client-supplied, so without the member predicate one person could switch off another
+        person's browser by replaying an id.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/BrowserPushUnregisterRequest"
+      responses:
+        "200":
+          description: Whether an active registration was actually switched off.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/BrowserPushUnregisterResponse"
+        "400":
+          description: >-
+            `browser_push_invalid_request` -- browser_install_id is required, and is refused when
+            oversized. `invalid_request_body` for malformed JSON or an unknown field.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "500":
+          $ref: "#/components/responses/ServerError"
   /procurement/feed-purchases/{purchase_id}/payments:
     post:
       tags:
@@ -20868,6 +21037,134 @@ components:
           description: >-
             How many of the caller's OWN notifications moved from unread to read. Ids that were
             already read, or that belong to somebody else, contribute 0.
+    BrowserPushRegisterRequest:
+      type: object
+      additionalProperties: false
+      required: [browser_install_id, token]
+      properties:
+        browser_install_id:
+          type: string
+          minLength: 1
+          maxLength: 200
+          description: >-
+            Opaque client-generated id persisted in that browser profile's localStorage. It is
+            the upsert key: it makes a re-register from the same Chrome profile refresh ONE row
+            instead of leaving a second live registration behind, and it is what lets the backend
+            target one browser rather than all of a person's browsers. It identifies no person.
+          example: "web-2f1c9a4e-63b0-4d4a-9b8f-0a1c2d3e4f50"
+        token:
+          type: string
+          minLength: 1
+          maxLength: 4096
+          description: >-
+            FCM web registration token from the Firebase JS SDK. A bearer-style push credential:
+            never log it, never put it in a URL or a query string. Control characters are
+            REFUSED, not stripped.
+        browser_label:
+          type: string
+          maxLength: 120
+          description: >-
+            Short human label ("Google Chrome") so a person with three registrations can tell
+            them apart. Display only, never a routing or matching input; an over-long value is
+            TRUNCATED rather than refused, because a cosmetic label must not cost someone their
+            notifications.
+        user_agent:
+          type: string
+          maxLength: 512
+          description: >-
+            Optional. The server prefers the request's own User-Agent header and only falls back
+            to this, because the header is the honest source and the body's copy would be a
+            second, forgeable one. Diagnostics only, never a predicate; an over-long value is
+            truncated.
+    BrowserPushUnregisterRequest:
+      type: object
+      additionalProperties: false
+      required: [browser_install_id]
+      properties:
+        browser_install_id:
+          type: string
+          minLength: 1
+          maxLength: 200
+          description: The browser profile to switch off. Always paired server-side with the caller's own member id.
+    BrowserPushRegistration:
+      type: object
+      additionalProperties: false
+      required:
+        - browser_registration_id
+        - workforce_member_id
+        - provider
+        - browser_install_id
+        - browser_label
+        - status
+        - created_at
+        - last_seen_at
+        - row_version
+      properties:
+        browser_registration_id: { type: string, format: uuid }
+        workforce_member_id: { type: string, format: uuid }
+        provider:
+          type: string
+          enum: [web_fcm]
+          description: >-
+            Stored rather than assumed, so a future second transport is an added value here and
+            not a reinterpretation of every existing row.
+        browser_install_id: { type: string }
+        browser_label: { type: string }
+        status:
+          type: string
+          enum: [active, stale, unsubscribed]
+          description: >-
+            active -- believed reachable. stale -- the PROVIDER confirmed the address is gone
+            (subscription expired, profile cleared, site permission revoked); written by the send
+            path's permanent-failure branch, never by a person. unsubscribed -- the person
+            switched it off themselves.
+        created_at: { type: string, format: date-time }
+        last_seen_at: { type: string, format: date-time }
+        stale_at:
+          type: string
+          format: date-time
+          nullable: true
+          description: Set exactly when status is not `active`; null while active.
+        stale_reason:
+          type: string
+          description: Empty while active. Free text for observability; never a client predicate.
+        row_version: { type: integer, minimum: 1 }
+      # The FCM token is NEVER returned. It is a bearer push credential, and echoing it back
+      # would put it in a response body and a browser cache for no purpose -- the client already
+      # holds its own token from the Firebase SDK.
+    BrowserPushRegistrationList:
+      type: object
+      additionalProperties: false
+      required: [registrations]
+      properties:
+        registrations:
+          type: array
+          maxItems: 50
+          items:
+            $ref: "#/components/schemas/BrowserPushRegistration"
+    BrowserPushRegisterResponse:
+      type: object
+      additionalProperties: false
+      required: [registration, created]
+      properties:
+        registration:
+          $ref: "#/components/schemas/BrowserPushRegistration"
+        created:
+          type: boolean
+          description: >-
+            True only for a genuinely new registration. False for a refresh or a revive, which
+            lets the client tell "you are newly subscribed" from "your existing subscription was
+            refreshed" without a second read.
+    BrowserPushUnregisterResponse:
+      type: object
+      additionalProperties: false
+      required: [removed]
+      properties:
+        removed:
+          type: boolean
+          description: >-
+            False when nothing active matched. Not an error -- unregister is idempotent, because
+            the client calls it on revocations it may already have reported.
     LeadershipTaskPage:
       type: object
       required: [title, rows, scopes, filters, unseen_count, can_raise, trace_id]

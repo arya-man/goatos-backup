@@ -11,6 +11,8 @@ import {
   mintInstallId,
   resetBrowserInstallId,
   resolveWebPushState,
+  WEB_PUSH_TOKEN_TIMEOUT_MS,
+  withTimeout,
 } from "./web-push-state.ts";
 
 const repoAdminWeb = join(dirname(fileURLToPath(import.meta.url)), "..");
@@ -315,4 +317,135 @@ test("the register path retries a browser-profile conflict exactly once, on the 
   // Exactly two register calls on the conflict path -- the original and one retry. A loop here
   // would hammer the endpoint and hide a genuine fault behind an id churn.
   assert.equal((code.match(/(?<!un)registerBrowserPush\(/g) ?? []).length, 2);
+});
+
+/**
+ * THE BOUNDED TOKEN MINT.
+ *
+ * The defect: `getToken()` called cold never resolved and never rejected -- so the CEO accepted
+ * Chrome's permission prompt and then watched a spinner forever, with no error and no way to retry.
+ * These stub a never-resolving `getToken()` rather than fighting Chrome's GCM backoff, which is
+ * both the reliable proof and the only one that can run in CI.
+ *
+ * The bar these hold to is the same one the dismissal tests above hold to: DO NOT TELL THE PERSON
+ * SOMETHING FALSE. A dismissal must not be reported as a refusal, and a timeout must not be either
+ * -- they granted permission, so `blocked` would send them into site settings to undo a decision
+ * they never made, and `unconfigured` would blame a missing VAPID key that clicking cannot fix.
+ */
+
+/** The production shape of the mint, with `getToken` injected so a test can stall it. */
+async function mintWithTimeout(getToken, timeoutMs = WEB_PUSH_TOKEN_TIMEOUT_MS) {
+  const TIMED_OUT = Symbol("timed-out");
+  const token = await withTimeout(getToken(), timeoutMs, () => TIMED_OUT);
+  if (token === TIMED_OUT) return { status: "timed_out" };
+  if (!token) throw new Error("This browser did not return a notification token.");
+  return { status: "enabled", browserInstallId: "web-abc" };
+}
+
+test("a getToken that never settles produces the RETRYABLE timeout state, not an endless pending", () => {
+  // The exact reproduction, with the hang made deterministic: a promise nobody ever settles.
+  return (async () => {
+    const neverSettles = () => new Promise(() => {});
+    const state = await mintWithTimeout(neverSettles, 10);
+    assert.deepEqual(state, { status: "timed_out" });
+  })();
+});
+
+test("a timeout is NOT reported as blocked and NOT as unconfigured", async () => {
+  const state = await mintWithTimeout(() => new Promise(() => {}), 10);
+  // blocked means the person REFUSED -- it sends them to browser site settings. They granted.
+  assert.notEqual(state.status, "blocked");
+  // unconfigured means OUR missing VAPID key -- it offers no control at all. We had the key.
+  assert.notEqual(state.status, "unconfigured");
+  // dismissed means the prompt was closed unanswered. It was answered.
+  assert.notEqual(state.status, "dismissed");
+  assert.equal(state.status, "timed_out");
+});
+
+test("a retry after a timeout can still succeed, so the timeout is a dead end for nobody", async () => {
+  // First click stalls; the second returns a token. The timeout must leave NO state behind that
+  // poisons the retry -- otherwise the person is stuck exactly as they were with the spinner.
+  let attempt = 0;
+  const flakyGetToken = () => {
+    attempt += 1;
+    if (attempt === 1) return new Promise(() => {});
+    return Promise.resolve("fcm-token-142-chars");
+  };
+
+  const first = await mintWithTimeout(flakyGetToken, 10);
+  assert.equal(first.status, "timed_out");
+
+  const second = await mintWithTimeout(flakyGetToken, 10);
+  assert.equal(second.status, "enabled");
+  assert.equal(attempt, 2);
+});
+
+test("the timeout does NOT fire when the token arrives promptly", async () => {
+  // The healthy path returns in well under a second. A deadline that fired anyway would break the
+  // feature in the name of fixing it.
+  const started = Date.now();
+  const state = await mintWithTimeout(() => Promise.resolve("fcm-token-142-chars"), 5_000);
+  assert.equal(state.status, "enabled");
+  assert.ok(Date.now() - started < 1_000, "a resolved mint must not wait out the deadline");
+});
+
+test("withTimeout returns the work's own value and rejects with the work's own error", async () => {
+  assert.equal(await withTimeout(Promise.resolve("token"), 5_000, () => "timeout"), "token");
+  // A real, describable failure must surface AS ITSELF. Swallowing it into a generic timeout would
+  // hide the one case where we can actually tell the person what went wrong.
+  await assert.rejects(
+    withTimeout(Promise.reject(new Error("messaging/token-subscribe-failed")), 5_000, () => "timeout"),
+    /token-subscribe-failed/,
+  );
+});
+
+test("withTimeout clears its timer, so a settled mint leaves no pending work behind", async () => {
+  // Proof by behaviour rather than by inspection: node --test hangs at exit on a live timer, so a
+  // long deadline that was not cleared would stall this file for its full duration.
+  await withTimeout(Promise.resolve("token"), 60_000, () => "timeout");
+  await assert.rejects(withTimeout(Promise.reject(new Error("boom")), 60_000, () => "timeout"), /boom/);
+});
+
+test("the token budget sits ABOVE the SDK's own 10s activation wait", () => {
+  // The SDK bounds its wait for the worker to activate at DEFAULT_REGISTRATION_TIMEOUT = 10_000 and
+  // then rejects with a real message. Ours must be comfortably larger, or our stopwatch fires first
+  // and flattens a failure the SDK could describe into a generic timeout.
+  assert.ok(
+    WEB_PUSH_TOKEN_TIMEOUT_MS > 10_000,
+    "the mint budget must exceed the SDK's 10s activation wait so SDK errors surface as themselves",
+  );
+  // And it must stay within human patience -- this is a ceiling on a hang, not a latency target.
+  assert.ok(WEB_PUSH_TOKEN_TIMEOUT_MS <= 30_000);
+});
+
+/**
+ * The ROOT CAUSE, asserted on the source.
+ *
+ * The SDK's `updateSwReg()` calls `waitForRegistrationActive()` ONLY when it registers the worker
+ * itself. Passing `serviceWorkerRegistration` -- which mintToken does on purpose, so two
+ * registrations are not racing for one subscription -- takes the branch that just assigns it, so
+ * the explicit-registration path opts OUT of the SDK's only activation safeguard and
+ * `pushManager.subscribe()` runs against a worker that is not started yet. Awaiting activation
+ * ourselves is what makes the cold path reliable; the timeout above is the belt, not the fix.
+ */
+test("the mint waits for its OWN registration's worker to activate before calling getToken", () => {
+  const source = readFileSync(join(repoAdminWeb, "lib/web-push.ts"), "utf8");
+  const code = source.replace(/\/\*[\s\S]*?\*\//g, "").replace(/^[ \t]*\/\/.*$/gm, "");
+
+  // The registration is still passed explicitly -- the fix must not be "let the SDK register it".
+  assert.ok(code.includes("serviceWorkerRegistration: registration"));
+  // ...and it is awaited to 'activated' rather than used straight out of register().
+  assert.ok(code.includes("waitForActiveWorker("), "ensureServiceWorker must await worker activation");
+  assert.match(code, /state === "activated"/);
+  // navigator.serviceWorker.ready answers for the worker CONTROLLING THE PAGE, which on a first
+  // visit does not exist and on an older page is the previous worker -- so it can resolve while the
+  // registration we hand the SDK is still installing, or never resolve at all.
+  assert.ok(
+    !/serviceWorker\.ready/.test(code),
+    "must wait on our own registration's worker, not on navigator.serviceWorker.ready",
+  );
+  // The getToken await is bounded. An unbounded one is the defect itself.
+  // Allows the type argument the sentinel forces (`withTimeout<string | typeof MINT_TIMED_OUT>`).
+  assert.match(code, /withTimeout\s*(?:<[^>]*>)?\s*\(/, "the getToken await must be bounded");
+  assert.ok(code.includes("WEB_PUSH_TOKEN_TIMEOUT_MS"));
 });

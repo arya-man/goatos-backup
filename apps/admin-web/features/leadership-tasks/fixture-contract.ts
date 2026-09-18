@@ -85,6 +85,23 @@ export const leadershipTasksFixtureContract: AdminUiPageContract = {
     "sort.deadline_asc": "Deadline soonest",
     "sort.deadline_desc": "Deadline latest",
     "scope.aria": "Task scopes",
+    // ---- Status board (`t_view=board`). These keys are NOT in the backend's
+    // `pageSpecificCopy("leadership-tasks")` map yet; every read of them uses the 3-arg
+    // `copy(contract, key, fallback)` form with the SAME wording, so the live screen renders
+    // correctly before the backend ships them and switches to the contract the moment it does.
+    // The exact list the backend owner must add is in the handoff for this change.
+    "board.view.aria": "Task view",
+    "board.view.board": "Board",
+    "board.view.list": "List",
+    "board.aria": "Tasks by status",
+    "board.column.cancelled": "Cancelled",
+    "board.column_empty": "Nothing in this status on this page.",
+    "board.on_this_page": "on this page",
+    "board.focus_status": "Show only this",
+    "board.total_unavailable": "The whole-list total for this status is not published.",
+    "board.partial_note": "Each column shows the tasks on this page of the list. The number beside a status is its true total across the whole list; open one status to page through all of it.",
+    "board.people_aria": "Filter by person",
+    "board.people_all": "Everyone",
     "column.assignee": "Assignee",
     "column.raised_by": "Raised by",
     "column.evidence": "Evidence",
@@ -93,6 +110,18 @@ export const leadershipTasksFixtureContract: AdminUiPageContract = {
     "label.brief": "Brief",
     "label.assignee_note": "Assignee note",
     "section.selected.title": "Selected task",
+    // Jira-shaped detail panel (features/leadership-tasks/task-detail-panel.tsx). Each of these
+    // is read through the 3-arg `copy(contract, key, fallback)` form, so the live screen renders
+    // the fallback until the backend's `pageSpecificCopy("leadership-tasks")` map gains the key
+    // rather than blanking the shell on a throw.
+    "section.details": "Details",
+    "section.activity": "Activity",
+    "label.status": "Status",
+    "label.raised_on": "Raised on",
+    "empty.description": "No brief was written for this task.",
+    "empty.attachments": "No attachments on this task.",
+    "empty.activity": "No updates on this task yet.",
+    "empty.selected_raise": "Or raise a new task from the button above the list.",
     "action.open_task": "Open task",
     "action.edit": "Edit",
     "state.preview": "Preview data",

@@ -244,22 +244,16 @@ export function MentionTextarea({
 
       {popupOpen ? (
         // The popup. Absolute inside this wrapper (never fixed), full wrapper width so it cannot
-        // overflow a 390px viewport or be clipped by a narrow parent, and capped in `dvh` so the
-        // WhatsApp webview's retracting chrome cannot hide the last row.
-        <div
-          className="card"
-          style={{
-            position: "absolute",
-            left: 0,
-            right: 0,
-            top: "100%",
-            zIndex: 60,
-            marginTop: 4,
-            maxHeight: "40dvh",
-            overflowY: "auto",
-            overscrollBehavior: "contain",
-          }}
-        >
+        // overflow a 390px viewport.
+        //
+        // `.mention-pop` carries the geometry (and the `vh`-then-`dvh` cap: React emits a single
+        // `max-height` declaration, so an inline `40dvh` gave an engine without `dvh` NO cap and an
+        // unbounded list). `data-mention-popup` is the hook the detail card's
+        // `:has([data-mention-popup])` rule keys off to lift its own `overflow:hidden` -- and the
+        // generic `.card .bd` overflow -- for exactly as long as this popup exists. Absolute
+        // positioning alone did NOT save it: measured in Chromium, one of eight rows was reachable
+        // at every width until those two ancestors stopped clipping.
+        <div className="card mention-pop" data-mention-popup>
           <ul id={listId} role="listbox" aria-label={composerCopy.peopleLabel} style={{ listStyle: "none", margin: 0, padding: 4 }}>
             {matches.map((candidate, index) => (
               <li

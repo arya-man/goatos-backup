@@ -1,13 +1,4 @@
-import Link from "@/components/no-prefetch-link";
-import {
-  ClipboardList,
-  Clock3,
-  MessageSquareText,
-  Mic2,
-  Paperclip,
-  UserRoundCheck,
-  Video,
-} from "lucide-react";
+import { ClipboardList } from "lucide-react";
 
 import { SegmentedLinks, type SegmentedOption } from "@/components/segmented-links";
 import { Tag } from "@/components/ui-primitives";
@@ -25,26 +16,18 @@ import {
 } from "@/lib/search-params";
 import type { LeadershipTaskAssignee, LeadershipTaskPage } from "@/lib/api/server";
 
-import {
-  changeLeadershipTaskStatusAction,
-  editLeadershipTaskAction,
-  raiseLeadershipTaskAction,
-  setLeadershipTaskCommentAction,
-} from "./actions";
-import { DeadlineClock } from "./deadline-clock";
-import { EditTaskModal } from "./edit-task-modal";
+import { raiseLeadershipTaskAction } from "./actions";
+import { LeadershipTasksBoard } from "./leadership-tasks-board";
 import { LeadershipTasksFilters, type TaskStatusChip } from "./leadership-tasks-filters";
-import { LeadershipTasksTable, statusTone } from "./leadership-tasks-table";
+import { LeadershipTasksTable } from "./leadership-tasks-table";
 import { NewTaskModal } from "./new-task-modal";
 import { hasTaskFilters, parseTasksParams, TASK_PARAM, tasksClearedHref, tasksHref } from "./params";
 import { personOptions, rowsFromPage, type TaskRow } from "./task-row";
+import { TaskDetailPanel } from "./task-detail-panel";
 import { TaskFeedbackBanner } from "./task-feedback-banner";
-import { TaskCommentForm, TaskStatusActions } from "./task-write-forms";
-import { TASKS_PATHNAME, TASKS_PREVIEW_PATHNAME } from "./task-url";
+import { TASK_VIEWS, TASKS_PATHNAME, TASKS_PREVIEW_PATHNAME } from "./task-url";
 
 const TABLE_ID = "leadership-task-progress";
-
-type FeedTone = "f-info" | "f-pur" | "f-warn" | "f-ok";
 
 /**
  * The Tasks desk: one backend-filtered, keyset-paged worklist with a Jira-shaped toolbar.
@@ -103,15 +86,6 @@ export function LeadershipTasksPage({
     scopes[0];
   const scopeKey = selectedScope?.key ?? params.scope;
 
-  // The write forms come back HERE, to this scope and this task, and never to the fixture host:
-  // `safeTaskReturnTo` in the action rejects anything that is not `/tasks` exactly.
-  const returnTo = tasksHref(
-    TASKS_PATHNAME,
-    sp,
-    { [TASK_PARAM.scope]: scopeKey, [TASK_PARAM.task]: selected?.id ?? null },
-    { resetPaging: false },
-  );
-
   const scopeOptions: SegmentedOption[] = scopes.map((scope) => ({
     value: scope.key,
     label: `${scope.label} (${scope.count})`,
@@ -123,6 +97,19 @@ export function LeadershipTasksPage({
       { [TASK_PARAM.scope]: scope.key, [TASK_PARAM.task]: null },
       { resetPaging: true },
     ),
+  }));
+
+  /**
+   * Board / List, Jira's own pair.
+   *
+   * A view change is presentation ONLY: it keeps the scope, every filter, the sort, the page size,
+   * the cursor stack and the selected task, because both views render the SAME list read. That is
+   * also why `view` is not in `TASK_FILTER_PARAMS` — switching it must not restart paging.
+   */
+  const viewOptions: SegmentedOption[] = TASK_VIEWS.map((view) => ({
+    value: view,
+    label: copy(pageContract, `board.view.${view}`, view === "board" ? "Board" : "List"),
+    href: tasksHref(basePath, sp, { [TASK_PARAM.view]: view }, { resetPaging: false }),
   }));
 
   const statusChips: TaskStatusChip[] = (page?.filters ?? []).map((filter) => ({
@@ -159,7 +146,7 @@ export function LeadershipTasksPage({
     tasksHref(basePath, sp, { [TASK_PARAM.limit]: String(limit) }, { resetPaging: true });
 
   const assigneeChoices = personOptions(assignees);
-  const deadlineWord = copy(pageContract, "label.deadline");
+  const isBoard = params.view === "board";
 
   return (
     <div className="screen on lt-page">
@@ -203,6 +190,13 @@ export function LeadershipTasksPage({
         ) : (
           <div className="lt-unavailable">{copy(pageContract, "state.unavailable_tasks")}</div>
         )}
+        <div className="ltb-viewswitch">
+          <SegmentedLinks
+            options={viewOptions}
+            current={params.view}
+            ariaLabel={copy(pageContract, "board.view.aria", "Task view")}
+          />
+        </div>
       </div>
 
       <LeadershipTasksFilters
@@ -236,7 +230,33 @@ export function LeadershipTasksPage({
             <div className="sp" style={{ flex: 1 }} />
             <Tag tone="info">{selectedScope ? `${selectedScope.count}` : "—"}</Tag>
           </div>
-          {hasTasks ? (
+          {hasTasks && isBoard ? (
+            <div className="bd ltb-bd">
+              <LeadershipTasksBoard
+                pageContract={pageContract}
+                rows={tasks}
+                filters={page?.filters ?? []}
+                basePath={basePath}
+                sp={sp}
+                scopeKey={scopeKey}
+                activeFilter={params.filter}
+                selectedTaskID={selected?.id}
+                assignees={assignees}
+                assigneeUserID={params.assigneeUserID}
+              />
+              <WorklistPager
+                pageContract={pageContract}
+                offset={displayOffset}
+                limit={params.limit}
+                rowCount={tasks.length}
+                hasMore={Boolean(nextHref)}
+                noun={copy(pageContract, "table.tasks.noun")}
+                pageSizeOptions={pageSizeOptions}
+                hrefForOffset={hrefForOffset}
+                hrefForLimit={hrefForLimit}
+              />
+            </div>
+          ) : hasTasks ? (
             <div className="bd lt-tablewrap">
               <LeadershipTasksTable
                 pageContract={pageContract}
@@ -272,216 +292,25 @@ export function LeadershipTasksPage({
           )}
         </section>
 
-        {selected ? (
-          <aside className="card lt-card lt-detail-card">
-            <div className="hd">
-              <UserRoundCheck className="ic" style={{ color: "var(--brand)" }} aria-hidden="true" />
-              <h3>{copy(pageContract, "section.selected.title")}</h3>
-              <div className="sp" style={{ flex: 1 }} />
-              <Tag tone={statusTone(selected.status)}>{selected.statusLabel}</Tag>
-            </div>
-            <div className="bd">
-              <div className="lt-detail-top">
-                <div className="crumb">
-                  <b>{selected.number}</b> / {selected.age}
-                </div>
-                <div className="sp" style={{ flex: 1 }} />
-                {/* Offered only when the ROW says the caller may edit it: raiser-only, and only
-                    while the task is open or in_progress. */}
-                {selected.canEdit ? (
-                  <EditTaskModal
-                    task={selected}
-                    pageContract={pageContract}
-                    action={editLeadershipTaskAction}
-                    returnTo={returnTo}
-                  />
-                ) : null}
-                <Link
-                  href={tasksHref(basePath, sp, { [TASK_PARAM.task]: null })}
-                  scroll={false}
-                  className="btn sm"
-                >
-                  {copy(pageContract, "action.close")}
-                </Link>
-              </div>
-              <h3 className="lt-detail-title">{selected.title}</h3>
-              {selected.deadlineTone ? (
-                <DeadlineClock task={selected} deadlineWord={deadlineWord} />
-              ) : null}
-              <div className="metagrid lt-detail-meta">
-                <Meta
-                  label={copy(pageContract, "column.assignee")}
-                  value={`${selected.assignee} — ${selected.assigneeRole}`}
-                />
-                <Meta label={copy(pageContract, "column.raised_by")} value={selected.raisedBy} />
-                <Meta label={copy(pageContract, "column.evidence")} value={selected.evidence} />
-                <Meta
-                  label={copy(pageContract, "edit.attachments")}
-                  value={String(selected.attachments)}
-                />
-              </div>
-              {selected.body ? (
-                <div className="note-box lt-note-box">
-                  <b>{copy(pageContract, "label.brief")}</b>
-                  <p>{selected.body}</p>
-                </div>
-              ) : null}
-              {selected.comment ? (
-                <div className="note-box lt-note-box">
-                  <b>{copy(pageContract, "label.assignee_note")}</b>
-                  <p>{selected.comment}</p>
-                </div>
-              ) : null}
-              <TaskStatusActions
-                task={selected}
-                pageContract={pageContract}
-                action={changeLeadershipTaskStatusAction}
-                returnTo={returnTo}
-              />
-              {selected.canComment ? (
-                <TaskCommentForm
-                  task={selected}
-                  pageContract={pageContract}
-                  action={setLeadershipTaskCommentAction}
-                  returnTo={returnTo}
-                  mentionCandidates={assignees}
-                />
-              ) : null}
-              {selected.attachmentRows.length ? (
-                <div className="lt-attachments" style={{ marginBottom: 12 }}>
-                  {selected.attachmentRows.map((attachment) => (
-                    <a
-                      key={attachment.attachment_id}
-                      className="chip"
-                      href={`/api/leadership-tasks/attachments/${encodeURIComponent(selected.id)}/${encodeURIComponent(attachment.proof_id)}`}
-                      target="_blank"
-                      rel="noreferrer"
-                    >
-                      <Paperclip className="ic" aria-hidden="true" />
-                      {attachment.file_name || attachment.kind}
-                    </a>
-                  ))}
-                </div>
-              ) : null}
-              <div className="lt-feed lt-detail-feed">
-                {selected.notes.length
-                  ? selected.notes.map((note) => (
-                      <FeedRow
-                        key={note.note_id}
-                        icon={MessageSquareText}
-                        tone="f-pur"
-                        title={note.author_name || copy(pageContract, "feed.update")}
-                        detail={note.body}
-                      />
-                    ))
-                  : liveFeedRows(selected, pageContract).map((row) => (
-                      <FeedRow
-                        key={row.title}
-                        icon={row.icon}
-                        tone={row.tone}
-                        title={row.title}
-                        detail={row.detail}
-                      />
-                    ))}
-              </div>
-            </div>
-          </aside>
-        ) : hasTasks ? (
-          <aside className="card lt-card lt-detail-card">
-            <div className="hd">
-              <UserRoundCheck className="ic" style={{ color: "var(--brand)" }} aria-hidden="true" />
-              <h3>{copy(pageContract, "section.selected.title")}</h3>
-            </div>
-            <div className="bd lt-empty-state">
-              <ClipboardList className="ic" aria-hidden="true" />
-              <div>
-                <b>{copy(pageContract, "empty.selected")}</b>
-                <p>{copy(pageContract, "empty.selected_detail")}</p>
-              </div>
-            </div>
-          </aside>
+        {/* The detail rail is one call site on purpose: `task-detail-panel.tsx` owns the whole
+            panel, including the no-selection state, so the panel can be redesigned without the
+            page changing. `detail` is the selected `TaskRow` or `null`. */}
+        {hasSidePanel ? (
+          <TaskDetailPanel
+            detail={selected ?? null}
+            pageContract={pageContract}
+            scopeKey={scopeKey}
+            params={params}
+            assignees={assignees}
+            canRaise={Boolean(page?.can_raise)}
+          />
         ) : null}
       </div>
     </div>
   );
 }
 
-function liveFeedRows(
-  task: TaskRow,
-  pageContract: AdminUiPageContract,
-): Array<{ icon: typeof Clock3; tone: FeedTone; title: string; detail: string }> {
-  const rows: Array<{ icon: typeof Clock3; tone: FeedTone; title: string; detail: string }> = [
-    {
-      icon: Clock3,
-      tone: "f-info",
-      title: task.statusLabel,
-      detail: `${task.number} · ${task.assignee}`,
-    },
-  ];
-  if (task.attachmentKinds.includes("audio")) {
-    rows.push({
-      icon: Mic2,
-      tone: "f-pur",
-      title: copy(pageContract, "feed.audio"),
-      detail: task.evidence,
-    });
-  }
-  if (task.attachmentKinds.includes("video")) {
-    rows.push({
-      icon: Video,
-      tone: "f-warn",
-      title: copy(pageContract, "feed.video"),
-      detail: task.evidence,
-    });
-  }
-  if (task.attachments > 0 && rows.length === 1) {
-    rows.push({
-      icon: Paperclip,
-      tone: "f-pur",
-      title: copy(pageContract, "feed.files"),
-      detail: String(task.attachments),
-    });
-  }
-  return rows;
-}
 
-function FeedRow({
-  icon: Icon,
-  tone,
-  title,
-  detail,
-}: {
-  icon: typeof Clock3;
-  tone: FeedTone;
-  title: string;
-  detail: string;
-}) {
-  return (
-    <div className="lt-frow" style={{ paddingInline: 0 }}>
-      <span className={`lt-fdot ${tone}`} aria-hidden="true" />
-      <div className="lt-ftx">
-        <b>
-          <Icon
-            className="ic"
-            style={{ width: 14, verticalAlign: -2, marginRight: 5 }}
-            aria-hidden="true"
-          />
-          {title}
-        </b>
-        <div className="lt-fmeta">{detail}</div>
-      </div>
-    </div>
-  );
-}
-
-function Meta({ label, value }: { label: string; value: string }) {
-  return (
-    <div>
-      <div className="k">{label}</div>
-      <div className="v">{value}</div>
-    </div>
-  );
-}
 
 // ---------------------------------------------------------------- fixture rows for /tasks-preview
 const fixtureTasks: TaskRow[] = [

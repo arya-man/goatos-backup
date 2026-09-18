@@ -25,21 +25,27 @@ import {
  * subscription on profile clear or a long idle stretch and tells the server nothing. A person who
  * turned notifications on last month must not silently stop receiving them.
  *
- * MOUNTING: this is a self-contained control that needs no props and owns all its own state, so
- * it can sit wherever the shell's notification affordance lives — today that is the top-bar bell
- * in components/mesha-shell.tsx, which is rendered permanently disabled with a backend-supplied
- * `contract.top_bar.notifications.disabled_reason`. That bell is being rebuilt as an in-app
- * notification centre by a separate change, so this component deliberately does NOT edit it.
- * Drop `<PushPermissionPrompt />` into that surface (inside the bell's panel, or beside it) once
- * it exists. On its own it renders as a labelled button and is usable as-is.
+ * MOUNTING: this is a self-contained control that owns all its own state, so it sits wherever the
+ * shell's notification affordance lives. Today that is the top-bar bell's panel: it is passed as
+ * `NotificationBell`'s `permissionSlot` in components/mesha-shell.tsx, so the permission ask lands
+ * where a person already goes to read their notifications instead of becoming a second control in
+ * the chrome. That means it renders on EVERY admin route — see the copy note below for why nothing
+ * in here may throw. On its own it renders as a labelled button and is usable as-is.
  */
 
 /**
- * Visible copy, resolved from the backend bootstrap contract with a local fallback per key --
- * the same shape as lib/admin-ui-contract.ts's COPY_FALLBACKS and the notification centre's
- * NOTIFICATION_COPY_FALLBACKS, for the same reason: every visible string in admin-web is
- * backend-owned, and none of these keys exists in the contract yet. The moment they do, the
- * contract wins and this map can be deleted key by key.
+ * Visible copy. The real owner of these strings is the backend bootstrap contract: every key
+ * below is now served in `AdminWebBootstrapResponse.copy` (backend/internal/adminui/app/service.go
+ * `chromeCopy()`, alongside the existing top-bar/chrome keys) and is config-overridable through
+ * the generic `chrome.copy.<key>` global entry. The shell passes that map in as `contractCopy`.
+ *
+ * The map below is a per-key fallback, NOT the source of truth -- the same shape as
+ * lib/admin-ui-contract.ts's COPY_FALLBACKS and the notification centre's
+ * NOTIFICATION_COPY_FALLBACKS. It exists because this control renders inside the top bar on
+ * EVERY admin route: a frontend deployed one release ahead of the backend (or any older backend
+ * that does not serve a key yet) must render the control, not a blank string and not a throw.
+ * `shellCopy()` in mesha-shell.tsx throws on a missing key, which is right for a key that has
+ * always existed and wrong here. Delete a fallback key only once no served backend can omit it.
  */
 const PUSH_COPY_FALLBACKS: Record<string, string> = {
   "push.checking": "Notifications",
@@ -55,6 +61,12 @@ const PUSH_COPY_FALLBACKS: Record<string, string> = {
     "No choice was made. Click again when you are ready.",
   "push.blocked":
     "Notifications are blocked for this site. Turn them back on in your browser's site settings (the icon beside the address bar), then reload this page.",
+  // The retryable timeout. It must NOT read like a refusal or like a misconfiguration: permission
+  // was granted and nothing is known to be wrong, so it says what happened and invites the retry
+  // that the Enable button beside it offers.
+  "push.timed_out":
+    "That took too long and did not finish. Nothing is switched on yet — click again to retry.",
+  "push.retry": "Try again",
 };
 
 function pushCopy(contractCopy: Record<string, string> | undefined, key: string): string {
@@ -174,7 +186,10 @@ export function PushPermissionPrompt({
         </button>
       ) : null}
 
-      {state.status === "prompt" || state.status === "dismissed" || state.status === "error" ? (
+      {state.status === "prompt" ||
+      state.status === "dismissed" ||
+      state.status === "timed_out" ||
+      state.status === "error" ? (
         <button
           type="button"
           className="btn sm"
@@ -187,7 +202,15 @@ export function PushPermissionPrompt({
           ) : (
             <Bell className="h-4 w-4" aria-hidden="true" />
           )}
-          <span>{copy(busy === "enabling" ? "push.enabling" : "push.enable")}</span>
+          <span>
+            {copy(
+              busy === "enabling"
+                ? "push.enabling"
+                : state.status === "timed_out"
+                  ? "push.retry"
+                  : "push.enable",
+            )}
+          </span>
         </button>
       ) : null}
 
@@ -208,6 +231,7 @@ export function PushPermissionPrompt({
         </div>
       ) : null}
 
+      {state.status === "timed_out" ? <p className="mt-1 text-sm">{copy("push.timed_out")}</p> : null}
       {state.status === "error" ? <p className="mt-1 text-sm">{state.reason}</p> : null}
       {message ? <p className="mt-1 text-sm">{message}</p> : null}
       {state.status === "enabled" && !pending ? (

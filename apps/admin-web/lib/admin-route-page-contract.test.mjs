@@ -68,6 +68,14 @@ test("production Tasks page uses live backend data, with fixtures confined to pr
     join(root, "features/leadership-tasks/new-task-modal.tsx"),
     "utf8",
   );
+  // The selected-task rail moved OUT of the page into its own component when the status board
+  // landed (2026-09-18): the page has ONE call site for it and the panel owns the whole detail,
+  // including the no-selection state. The assertions that describe the rail therefore read the
+  // panel; the ones that describe the page's own shell still read the page.
+  const detailPanel = readFileSync(
+    join(root, "features/leadership-tasks/task-detail-panel.tsx"),
+    "utf8",
+  );
   assert.match(
     component,
     /page \? rowsFromPage\(page\) : preview \? fixtureTasks : \[\]/,
@@ -86,10 +94,28 @@ test("production Tasks page uses live backend data, with fixtures confined to pr
     /preview \?/,
     "preview-only activity must stay behind the preview flag",
   );
+  // The page renders the rail through ONE call site and passes the selected row (or null) down.
   assert.match(
     component,
-    /liveFeedRows\(selected, pageContract\)/,
+    /<TaskDetailPanel\b/,
+    "the page must render the selected task through the detail panel component",
+  );
+  assert.match(
+    component,
+    /detail=\{selected \?\? null\}/,
+    "the panel owns the no-selection state; the page passes the row or null",
+  );
+  // Production activity is the task's OWN notes, rendered verbatim -- never invented on the
+  // client and never a fixture.
+  assert.match(
+    detailPanel,
+    /detail\.notes\.map\(/,
     "production activity must be derived from live task fields",
+  );
+  assert.doesNotMatch(
+    detailPanel,
+    /fixtureTasks/,
+    "the detail panel must never render fixture rows",
   );
   // Row selection moved into the contract-driven table component with the column set.
   const tasksTable = readFileSync(
@@ -122,7 +148,7 @@ test("production Tasks page uses live backend data, with fixtures confined to pr
     "web create must provide a real file/audio upload control",
   );
   assert.match(
-    component,
+    detailPanel,
     /\/api\/leadership-tasks\/attachments\//,
     "web monitor must open task-scoped attachments through the admin proxy",
   );
@@ -133,8 +159,8 @@ test("production Tasks page uses live backend data, with fixtures confined to pr
     join(root, "features/leadership-tasks/edit-task-modal.tsx"),
     "utf8",
   );
-  assert.match(component, /action=\{editLeadershipTaskAction\}/, "the detail panel must offer Edit");
-  assert.match(component, /selected\.canEdit \?/, "Edit must be offered only when the row allows it");
+  assert.match(detailPanel, /action=\{editLeadershipTaskAction\}/, "the detail panel must offer Edit");
+  assert.match(detailPanel, /detail\.canEdit \?/, "Edit must be offered only when the row allows it");
   assert.match(editModal, /name="row_version"/, "the edit form must carry the row version fence");
   // Nothing rendered the outcome of a write before this change.
   assert.match(component, /<TaskFeedbackBanner/, "writes must report their outcome on the page");
