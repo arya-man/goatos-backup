@@ -5010,7 +5010,7 @@ select:disabled { opacity: .45; }
    Wide content scrolls inside its own container so the modal body never scrolls
    sideways. */
 .pa-gridwrap { overflow-x: auto; }
-.pa-grid { width: 100%; min-width: 620px; border-collapse: collapse; }
+.pa-grid { width: 100%; min-width: 38.75rem; border-collapse: collapse; }
 .pa-grid thead th { text-align: left; font-size: 10.5px; text-transform: uppercase; letter-spacing: .5px; color: var(--muted); font-weight: 700; padding: 0 0 9px; border-bottom: 1px solid var(--line); }
 .pa-grid thead th.pa-surface { width: 232px; }
 .pa-grid tbody td { padding: 11px 0; border-bottom: 1px solid var(--line); vertical-align: top; }

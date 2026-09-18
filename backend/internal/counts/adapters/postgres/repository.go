@@ -7,6 +7,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"slices"
 	"sort"
 	"strings"
 	"time"
@@ -3630,7 +3631,16 @@ func rollupSeries(order []string, totals map[string]int64) []domain.CountsBreakd
 	for _, k := range order {
 		out = append(out, domain.CountsBreakdownSeriesPoint{Key: k, Label: k, Count: totals[k]})
 	}
-	sort.SliceStable(out, func(i, j int) bool { return out[i].Count > out[j].Count })
+	slices.SortStableFunc(out, func(a, b domain.CountsBreakdownSeriesPoint) int {
+		switch {
+		case a.Count > b.Count:
+			return -1
+		case a.Count < b.Count:
+			return 1
+		default:
+			return 0
+		}
+	})
 	return out
 }
 
@@ -3778,11 +3788,19 @@ func rollupBreakdownDimension(rows []domain.CountsBreakdownRow, key func(domain.
 	for _, k := range order {
 		out = append(out, domain.CountsBreakdownSeriesPoint{Key: k, Label: k, Count: totals[k]})
 	}
-	sort.SliceStable(out, func(i, j int) bool {
-		if out[i].Count != out[j].Count {
-			return out[i].Count > out[j].Count
+	slices.SortStableFunc(out, func(a, b domain.CountsBreakdownSeriesPoint) int {
+		switch {
+		case a.Count > b.Count:
+			return -1
+		case a.Count < b.Count:
+			return 1
+		case a.Key < b.Key:
+			return -1
+		case a.Key > b.Key:
+			return 1
+		default:
+			return 0
 		}
-		return out[i].Key < out[j].Key
 	})
 	return out
 }
