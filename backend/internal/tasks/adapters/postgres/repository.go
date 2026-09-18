@@ -111,7 +111,12 @@ func (r *Repository) OpenWorkflow(ctx context.Context, cmd ports.OpenWorkflowCom
 	ctx, cancel := r.withTimeout(ctx)
 	defer cancel()
 
-	if strings.TrimSpace(cmd.TenantID) == "" || strings.TrimSpace(cmd.SubjectGoatID) == "" || cmd.EventAt.IsZero() {
+	_, general := domain.GeneralSOPCode(cmd.TemplateKey)
+	// A GENERAL SOP run has no animal (maintainer decision 2026-09-18): it is keyed on its
+	// subject_ref_id alone. Every other template names its goat.
+	if strings.TrimSpace(cmd.TenantID) == "" || cmd.EventAt.IsZero() ||
+		(!general && strings.TrimSpace(cmd.SubjectGoatID) == "") ||
+		(general && (cmd.SubjectRefID == nil || strings.TrimSpace(*cmd.SubjectRefID) == "")) {
 		return false, domain.ErrMissingRequiredField
 	}
 	// The kid track carries the Record shed fallback step ONLY when this kid is not already in a
@@ -186,7 +191,7 @@ INSERT INTO workflow_instances (
   actions_total, actions_done, next_action_key, next_action_title, next_due_at, sop_version_id, subject_ref_id,
   capture_evidence
 ) VALUES (
-  $1::uuid, $2, $3, $4::uuid, nullif($5::text,'')::uuid,
+  $1::uuid, $2, $3, nullif($4::text,'')::uuid, nullif($5::text,'')::uuid,
   nullif($6::text,'')::uuid, $7::timestamptz, $8::date, nullif($9::text,'')::uuid, nullif($10::text,'')::uuid, 'open',
   $11, 0, $12, $13, $14::timestamptz, nullif($15::text,'')::uuid, nullif($16::text,'')::uuid,
   $17::jsonb
@@ -355,11 +360,11 @@ LIMIT 1`, tenantID, strings.ToUpper(damRef)).Scan(&goatID)
 
 // cardSelectColumns is shared by the list page and the detail header so both render the same card.
 const cardSelectColumns = `
-  wi.workflow_id::text, wi.module, wi.template_key, wi.subject_goat_id::text,
+  wi.workflow_id::text, wi.module, wi.template_key, COALESCE(wi.subject_goat_id::text, ''),
   wi.event_at, wi.event_date::text, wi.state,
   wi.actions_total, wi.actions_done,
   wi.next_action_key, wi.next_action_title, wi.next_due_at, wi.awaiting_verification,
-  g.display_id, g.row_version, g.sex, COALESCE(g.breed, ''),
+  COALESCE(g.display_id, ''), COALESCE(g.row_version, 0), COALESCE(g.sex, ''), COALESCE(g.breed, ''),
   COALESCE(tag.identifier_value, ''),
   COALESCE(park.name, ''), COALESCE(shed.name, ''),
   COALESCE(CASE WHEN gsp.shed_id = wi.shed_id AND lower(btrim(gsp.partition_label)) <> 'whole'
@@ -367,7 +372,7 @@ const cardSelectColumns = `
 
 const cardJoins = `
 FROM workflow_instances wi
-JOIN goats g
+LEFT JOIN goats g
   ON g.tenant_id = wi.tenant_id AND g.goat_id = wi.subject_goat_id
 LEFT JOIN LATERAL (
   SELECT gi.identifier_value
@@ -864,7 +869,7 @@ WHERE tenant_id = $1::uuid AND workflow_id = $2::uuid`,
 }
 
 const instanceSelectColumns = `
-SELECT workflow_id::text, tenant_id::text, template_key, module, subject_goat_id::text,
+SELECT workflow_id::text, tenant_id::text, template_key, module, COALESCE(subject_goat_id::text, ''),
        dam_goat_id::text, event_at, event_date::text, park_id::text, shed_id::text, state,
        actions_total, actions_done, next_action_key, next_action_title, next_due_at,
        awaiting_verification, row_version, COALESCE(capture_evidence, '{}'::jsonb), birth_event_id::text
@@ -1080,9 +1085,9 @@ func (r *Repository) deathAlreadyApplied(ctx context.Context, tenantID, workflow
 	defer cancel()
 	var lifecycle string
 	err := r.pool.QueryRow(ctx, `
-SELECT g.lifecycle_status
+SELECT COALESCE(g.lifecycle_status, '')
 FROM workflow_instances wi
-JOIN goats g ON g.tenant_id = wi.tenant_id AND g.goat_id = wi.subject_goat_id
+LEFT JOIN goats g ON g.tenant_id = wi.tenant_id AND g.goat_id = wi.subject_goat_id
 WHERE wi.tenant_id = $1::uuid AND wi.workflow_id = $2::uuid`, tenantID, workflowID).Scan(&lifecycle)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return false, domain.ErrNotFound

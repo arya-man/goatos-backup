@@ -1,5 +1,7 @@
 package domain
 
+import "strings"
+
 type FieldError struct {
 	Field   string `json:"field"`
 	Code    string `json:"code"`
@@ -27,12 +29,16 @@ type ValidationReport struct {
 }
 
 type SOPDefinition struct {
-	SOPID           string  `json:"sop_id"`
-	TenantID        string  `json:"tenant_id"`
-	Code            string  `json:"code"`
-	Name            string  `json:"name"`
-	Description     string  `json:"description"`
-	Status          string  `json:"status"`
+	SOPID       string `json:"sop_id"`
+	TenantID    string `json:"tenant_id"`
+	Code        string `json:"code"`
+	Name        string `json:"name"`
+	Description string `json:"description"`
+	Status      string `json:"status"`
+	// Kind is "module" (owned and run by a module) or "general" (farm-wide, started by hand);
+	// ModuleKey names the owning module of a module-level SOP (counts, weighing, feed, ...).
+	Kind            string  `json:"kind"`
+	ModuleKey       string  `json:"module_key"`
 	ActiveVersionID *string `json:"active_sop_version_id"`
 	VersionCount    int     `json:"version_count"`
 	RowVersion      int     `json:"row_version"`
@@ -88,6 +94,35 @@ type CreateSOPRequest struct {
 	Code        string `json:"code"`
 	Name        string `json:"name"`
 	Description string `json:"description"`
+	// Kind defaults to "module"; ModuleKey is derived from the code prefix when blank.
+	Kind      string `json:"kind,omitempty"`
+	ModuleKey string `json:"module_key,omitempty"`
+}
+
+// SOP kinds.
+const (
+	SOPKindModule  = "module"
+	SOPKindGeneral = "general"
+)
+
+// ModuleKeyForCode derives the owning module from a SOP code's prefix (the same slicing the
+// per-module pages use); "" when the prefix names no module.
+func ModuleKeyForCode(code string) string {
+	switch {
+	case strings.HasPrefix(code, "counts.") || code == "shifting":
+		return "counts"
+	case strings.HasPrefix(code, "feed."):
+		return "feed"
+	case strings.HasPrefix(code, "milk."):
+		return "milk"
+	case code == "weighing" || strings.HasPrefix(code, "weighing."):
+		return "weighing"
+	case strings.HasPrefix(code, "procurement."):
+		return "procurement"
+	case strings.HasPrefix(code, "vaccination.") || strings.HasPrefix(code, "vacc"):
+		return "vaccination"
+	}
+	return ""
 }
 
 type CreateSOPVersionRequest struct {

@@ -30,6 +30,15 @@ type OpenWorkflowCommand struct {
 	CaptureEvidence authored.Evidence
 }
 
+// GeneralSOP is one startable general work instruction.
+type GeneralSOP struct {
+	Code        string `json:"code"`
+	Name        string `json:"name"`
+	Description string `json:"description"`
+	// StepCount is the number of steps the published main track carries.
+	StepCount int `json:"step_count"`
+}
+
 // GoatWorkflowFacts is the canonical goat-row slice the consumers read (one indexed PK lookup).
 type GoatWorkflowFacts struct {
 	GoatID          string
@@ -135,6 +144,10 @@ type Repository interface {
 	// closes the verification gate after a verifier rejects the evidence
 	// (domain.ReopenDeathProofSteps). Idempotent.
 	BounceDeathVideosForRework(ctx context.Context, cmd DeathVerdictCommand) error
+
+	// ListGeneralSOPs reads the tenant's PUBLISHED general SOPs (kind = general) -- the work
+	// instructions an operator may start by hand.
+	ListGeneralSOPs(ctx context.Context, tenantID string) ([]GeneralSOP, error)
 
 	// WorkflowIDBySubjectRef returns the workflow keyed on (template_key, subject_ref_id), or
 	// domain.ErrNotFound.

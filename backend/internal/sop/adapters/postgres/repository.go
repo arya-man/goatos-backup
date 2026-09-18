@@ -51,8 +51,9 @@ WHERE sd.tenant_id = $1::uuid
   AND ($3 = '' OR sd.code LIKE $3 || '%')
   AND ($4 = '' OR sd.code ILIKE '%' || $4 || '%' OR sd.name ILIKE '%' || $4 || '%' OR sd.description ILIKE '%' || $4 || '%')
   AND ($5::timestamptz IS NULL OR (sd.updated_at, sd.sop_id) < ($5::timestamptz, $6::uuid))
+  AND ($8 = '' OR sd.kind = $8)
 ORDER BY sd.updated_at DESC, sd.sop_id DESC
-LIMIT $7`), params.TenantID, params.Status, params.CodePrefix, params.Search, cursorUpdatedAt, cursorSOPID, params.Limit)
+LIMIT $7`), params.TenantID, params.Status, params.CodePrefix, params.Search, cursorUpdatedAt, cursorSOPID, params.Limit, params.Kind)
 	if err != nil {
 		return nil, err
 	}
@@ -69,9 +70,9 @@ func (r *Repository) CreateSOP(ctx context.Context, cmd ports.CreateSOPCommand) 
 	defer rollback(ctx, tx)
 	var sopID string
 	err = tx.QueryRow(ctx, `
-INSERT INTO sop_definitions (tenant_id, code, name, description, status, created_by)
-VALUES ($1::uuid, $2, $3, $4, 'draft', $5::uuid)
-RETURNING sop_id::text`, cmd.TenantID, cmd.Body.Code, cmd.Body.Name, cmd.Body.Description, cmd.ActorID).Scan(&sopID)
+INSERT INTO sop_definitions (tenant_id, code, name, description, status, created_by, kind, module_key)
+VALUES ($1::uuid, $2, $3, $4, 'draft', $5::uuid, $6, $7)
+RETURNING sop_id::text`, cmd.TenantID, cmd.Body.Code, cmd.Body.Name, cmd.Body.Description, cmd.ActorID, cmd.Body.Kind, cmd.Body.ModuleKey).Scan(&sopID)
 	if err != nil {
 		return domain.SOPDefinition{}, mapWriteErr(err)
 	}
@@ -2557,6 +2558,8 @@ SELECT
   sd.name,
   sd.description,
   sd.status,
+  sd.kind,
+  sd.module_key,
   (
     SELECT active.sop_version_id::text
     FROM sop_versions active
@@ -2643,7 +2646,7 @@ func scanSOPs(rows pgx.Rows) ([]domain.SOPDefinition, error) {
 		var item domain.SOPDefinition
 		var active pgtype.Text
 		var createdAt, updatedAt time.Time
-		if err := rows.Scan(&item.SOPID, &item.TenantID, &item.Code, &item.Name, &item.Description, &item.Status, &active, &item.VersionCount, &item.RowVersion, &createdAt, &updatedAt); err != nil {
+		if err := rows.Scan(&item.SOPID, &item.TenantID, &item.Code, &item.Name, &item.Description, &item.Status, &item.Kind, &item.ModuleKey, &active, &item.VersionCount, &item.RowVersion, &createdAt, &updatedAt); err != nil {
 			return nil, err
 		}
 		item.ActiveVersionID = textPtr(active)

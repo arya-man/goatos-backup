@@ -85,6 +85,7 @@ func (h *Handler) ListSOPs(w nethttp.ResponseWriter, r *nethttp.Request) {
 	result, err := h.service.ListSOPs(r.Context(), ports.ListSOPsParams{
 		TenantID:   tenantID(r),
 		Status:     q.Get("status"),
+		Kind:       strings.TrimSpace(q.Get("kind")),
 		CodePrefix: codePrefix,
 		Search:     search,
 		Cursor:     cursor,

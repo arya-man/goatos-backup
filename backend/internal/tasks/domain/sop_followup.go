@@ -731,6 +731,11 @@ func ordinal2(n int) string { return ordinal(n) }
 // tasks module opens workflows by template key (its natural keys and indexes are built on it), so
 // this is the one place the two vocabularies meet.
 func TemplateKeyToSOP(templateKey string) (sopCode string, trackKey string, ok bool) {
+	// A GENERAL SOP (maintainer decision 2026-09-18) is keyed "general:<sop code>" and always
+	// runs its "main" track; each start is its own workflow (subject_ref_id), never an animal.
+	if code, isGeneral := GeneralSOPCode(templateKey); isGeneral {
+		return code, GeneralTrackKey, true
+	}
 	switch templateKey {
 	case TemplateKeyBirthKid, TemplateKeyBirthMother:
 		return SOPCodeBirth, templateKey, true
@@ -742,6 +747,25 @@ func TemplateKeyToSOP(templateKey string) (sopCode string, trackKey string, ok b
 		return SOPCodeShifting, templateKey, true
 	}
 	return "", "", false
+}
+
+// General SOP template keys.
+const (
+	GeneralTemplatePrefix = "general:"
+	GeneralTrackKey       = "main"
+	ModuleGeneral         = "general"
+)
+
+// GeneralTemplateKey is the workflow template key of a general SOP code.
+func GeneralTemplateKey(sopCode string) string { return GeneralTemplatePrefix + sopCode }
+
+// GeneralSOPCode reads a general template key back to its SOP code.
+func GeneralSOPCode(templateKey string) (string, bool) {
+	if !strings.HasPrefix(templateKey, GeneralTemplatePrefix) {
+		return "", false
+	}
+	code := strings.TrimPrefix(templateKey, GeneralTemplatePrefix)
+	return code, code != ""
 }
 
 // SOP codes the herd-operations follow-ups are authored under (sop_definitions.code).

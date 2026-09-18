@@ -25,7 +25,13 @@ var FollowUpDocuments = map[string]string{
 	"counts.death":     "counts_death.json",
 	"shifting":         "counts_shifting.json",
 	"counts.reconcile": "counts_reconcile.json",
+	// The first GENERAL SOP (maintainer decision 2026-09-18): farm-wide, started by hand, with an
+	// answer-driven branch -- the shape phase 2 of the SOP studio adds.
+	SOPCodeGateVisitorCheck: "general_gate_visitor_check.json",
 }
+
+// SOPCodeGateVisitorCheck is the seeded general SOP's code.
+const SOPCodeGateVisitorCheck = "general.gate_visitor_check"
 
 // TaskType is one Task Type Registry row.
 type TaskType struct {

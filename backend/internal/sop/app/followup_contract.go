@@ -3,6 +3,7 @@ package app
 import (
 	"context"
 	"fmt"
+	"strings"
 
 	"github.com/vgoats/goatos/backend/internal/sop/domain"
 	tasksdomain "github.com/vgoats/goatos/backend/internal/tasks/domain"
@@ -42,10 +43,23 @@ var requiredFollowUpTracks = map[string][]string{
 	tasksdomain.SOPCodeReconcile: {tasksdomain.TemplateKeyReconcile},
 }
 
-// FollowUpRequired reports whether a SOP code's versions must carry a follow_up section.
+// FollowUpRequired reports whether a SOP code's versions must carry a follow_up section. A
+// GENERAL SOP (code general.*) always does: its "main" track IS the work the operator starts.
 func FollowUpRequired(sopCode string) bool {
+	if strings.HasPrefix(sopCode, "general.") {
+		return true
+	}
 	_, ok := requiredFollowUpTracks[sopCode]
 	return ok
+}
+
+// requiredTracksFor is the track list a code must keep: the herd-operations map, or "main" for
+// a general SOP.
+func requiredTracksFor(sopCode string) []string {
+	if strings.HasPrefix(sopCode, "general.") {
+		return []string{tasksdomain.GeneralTrackKey}
+	}
+	return requiredFollowUpTracks[sopCode]
 }
 
 func (s *Service) validateFollowUpContract(ctx context.Context, report *domain.ValidationReport, tenantID, sopCode string, formDSL map[string]any) {
@@ -72,7 +86,7 @@ func (s *Service) validateFollowUpContract(ctx context.Context, report *domain.V
 	for _, problem := range tasksdomain.ValidateFollowUp(followUp, registry) {
 		addError(report, "form_dsl.follow_up", "invalid", problem)
 	}
-	for _, track := range requiredFollowUpTracks[sopCode] {
+	for _, track := range requiredTracksFor(sopCode) {
 		if _, ok := followUp.Track(track); !ok {
 			addError(report, "form_dsl.follow_up.tracks", "missing_track", fmt.Sprintf("%s must keep a %q track: the engine opens that workflow from it", sopCode, track))
 		}

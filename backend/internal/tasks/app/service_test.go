@@ -355,6 +355,10 @@ func (f *fakeRepo) BounceBirthVideoForRework(_ context.Context, cmd ports.DeathV
 
 var _ ports.Repository = (*fakeRepo)(nil)
 
+func (f *fakeRepo) ListGeneralSOPs(context.Context, string) ([]ports.GeneralSOP, error) {
+	return nil, nil
+}
+
 func (f *fakeRepo) WorkflowIDBySubjectRef(context.Context, string, string, string) (string, error) {
 	return "", domain.ErrNotFound
 }

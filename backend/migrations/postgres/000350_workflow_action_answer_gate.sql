@@ -10,6 +10,13 @@
 -- of every count -- in the same transaction as the answer. Rows stamped before this migration
 -- carry NULL and behave exactly as before.
 ALTER TABLE public.workflow_actions ADD COLUMN IF NOT EXISTS answer_gate jsonb;
+ALTER TABLE public.workflow_actions DROP CONSTRAINT IF EXISTS workflow_actions_status_check;
+ALTER TABLE public.workflow_actions ADD CONSTRAINT workflow_actions_status_check
+  CHECK (status IN ('pending', 'in_review', 'completed', 'rework', 'canceled', 'skipped'));
 
 -- +goose Down
+UPDATE public.workflow_actions SET status = 'canceled' WHERE status = 'skipped';
+ALTER TABLE public.workflow_actions DROP CONSTRAINT IF EXISTS workflow_actions_status_check;
+ALTER TABLE public.workflow_actions ADD CONSTRAINT workflow_actions_status_check
+  CHECK (status IN ('pending', 'in_review', 'completed', 'rework', 'canceled'));
 ALTER TABLE public.workflow_actions DROP COLUMN IF EXISTS answer_gate;

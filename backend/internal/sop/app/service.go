@@ -182,6 +182,27 @@ func (s *Service) CreateSOP(ctx context.Context, cmd ports.CreateSOPCommand, tra
 	cmd.Body.Code = normalizeCode(cmd.Body.Code)
 	cmd.Body.Name = strings.TrimSpace(cmd.Body.Name)
 	cmd.Body.Description = strings.TrimSpace(cmd.Body.Description)
+	// The kind is first-class (maintainer decision 2026-09-18): a general SOP is farm-wide and
+	// its code says so; a module-level SOP names its module, from the code prefix when unsaid.
+	switch cmd.Body.Kind = strings.TrimSpace(cmd.Body.Kind); cmd.Body.Kind {
+	case "":
+		cmd.Body.Kind = domain.SOPKindModule
+		if strings.HasPrefix(cmd.Body.Code, "general.") {
+			cmd.Body.Kind = domain.SOPKindGeneral
+		}
+	case domain.SOPKindModule, domain.SOPKindGeneral:
+	default:
+		return nil, BadRequest("invalid_sop", "kind must be module or general")
+	}
+	cmd.Body.ModuleKey = strings.TrimSpace(cmd.Body.ModuleKey)
+	if cmd.Body.Kind == domain.SOPKindGeneral {
+		cmd.Body.ModuleKey = ""
+		if !strings.HasPrefix(cmd.Body.Code, "general.") {
+			cmd.Body.Code = "general." + cmd.Body.Code
+		}
+	} else if cmd.Body.ModuleKey == "" {
+		cmd.Body.ModuleKey = domain.ModuleKeyForCode(cmd.Body.Code)
+	}
 	if cmd.Body.Code == "" || cmd.Body.Name == "" {
 		return nil, BadRequest("invalid_sop", "code and name are required")
 	}

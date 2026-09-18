@@ -179,7 +179,7 @@ func (s *Service) ListWorkflows(ctx context.Context, in ListWorkflowsInput) (dom
 	if strings.TrimSpace(in.TenantID) == "" {
 		return domain.WorkflowListPage{}, domain.ErrMissingRequiredField
 	}
-	if in.Module != domain.ModuleBirth && in.Module != domain.ModuleDeath {
+	if in.Module != domain.ModuleBirth && in.Module != domain.ModuleDeath && in.Module != domain.ModuleGeneral {
 		return domain.WorkflowListPage{}, domain.ErrMissingRequiredField
 	}
 	now := s.now()

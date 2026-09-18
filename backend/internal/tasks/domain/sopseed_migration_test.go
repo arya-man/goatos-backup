@@ -6,6 +6,7 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/vgoats/goatos/backend/internal/tasks/domain/sopseed"
 )
@@ -21,7 +22,10 @@ func TestMigrationEmbedsTheSeededDocuments(t *testing.T) {
 	}
 	sql := string(raw)
 	files := []string{"categories.json", "task_types.json"}
-	for _, f := range sopseed.FollowUpDocuments {
+	for code, f := range sopseed.FollowUpDocuments {
+		if code == sopseed.SOPCodeGateVisitorCheck {
+			continue // seeded by 000351; pinned by TestMigrationEmbedsTheGeneralSeed
+		}
 		files = append(files, f)
 	}
 	for _, name := range files {
@@ -61,5 +65,40 @@ func TestTaskTypeRegistryCoversEveryHookAndAnswerKind(t *testing.T) {
 		if hooks[h] != 1 {
 			t.Fatalf("engine hook %q must be offered by exactly one task type, found %d", h, hooks[h])
 		}
+	}
+}
+
+// TestMigrationEmbedsTheGeneralSeed pins the first general SOP (migration 000351) to its
+// sopseed document byte for byte, the same way 000308 is pinned to the herd-operations seeds.
+func TestMigrationEmbedsTheGeneralSeed(t *testing.T) {
+	path := filepath.Join("..", "..", "..", "migrations", "postgres", "000351_sop_kind_and_general_sops.sql")
+	raw, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	doc, err := sopseed.Raw("general_gate_visitor_check.json")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(raw), "$seed$"+strings.TrimSpace(string(doc))+"$seed$") {
+		t.Fatalf("migration 000351 does not embed general_gate_visitor_check.json verbatim")
+	}
+	// The seeded general document validates and compiles against the seeded registry, and its
+	// branch is on the right question.
+	dsl := loadSeeded(t, sopseed.SOPCodeGateVisitorCheck)
+	reg, _ := SeededTaskTypes()
+	if problems := ValidateFollowUp(dsl, reg); len(problems) > 0 {
+		t.Fatalf("seeded general SOP: %v", problems)
+	}
+	track, ok := dsl.Track(GeneralTrackKey)
+	if !ok {
+		t.Fatalf("general SOP must carry the %q track", GeneralTrackKey)
+	}
+	tmpl, err := CompileTrack(track, reg, CompileOptions{EventAt: time.Date(2026, 9, 18, 9, 0, 0, 0, time.UTC)})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if tmpl.Module != ModuleGeneral || tmpl.Actions[2].AnswerGate == nil || tmpl.Actions[2].AnswerGate.Step != "from_other_farm" {
+		t.Fatalf("compiled = module %s gate %+v", tmpl.Module, tmpl.Actions[2].AnswerGate)
 	}
 }

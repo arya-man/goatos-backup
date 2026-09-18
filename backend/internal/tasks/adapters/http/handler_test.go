@@ -12,6 +12,7 @@ import (
 	"github.com/vgoats/goatos/backend/internal/platform/httpmiddleware"
 	tasksapp "github.com/vgoats/goatos/backend/internal/tasks/app"
 	"github.com/vgoats/goatos/backend/internal/tasks/domain"
+	"github.com/vgoats/goatos/backend/internal/tasks/ports"
 )
 
 // stubService records calls and returns canned results/errors.
@@ -124,6 +125,14 @@ func (s *stubService) AnswerAction(_ context.Context, in tasksapp.AnswerActionIn
 		return domain.ActionWriteResult{}, s.answerErr
 	}
 	return domain.ActionWriteResult{}, nil
+}
+
+func (s *stubService) ListGeneralSOPs(context.Context, string) ([]ports.GeneralSOP, error) {
+	return []ports.GeneralSOP{}, nil
+}
+
+func (s *stubService) StartGeneralWorkflow(context.Context, tasksapp.StartGeneralWorkflowInput) (string, error) {
+	return "", nil
 }
 
 func (s *stubService) CompleteAction(_ context.Context, _ tasksapp.CompleteActionInput) (domain.ActionWriteResult, error) {

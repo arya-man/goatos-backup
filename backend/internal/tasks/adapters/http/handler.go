@@ -20,11 +20,14 @@ import (
 	"github.com/vgoats/goatos/backend/internal/platform/httpresponse"
 	tasksapp "github.com/vgoats/goatos/backend/internal/tasks/app"
 	"github.com/vgoats/goatos/backend/internal/tasks/domain"
+	"github.com/vgoats/goatos/backend/internal/tasks/ports"
 )
 
 const (
 	appWorkflowsRoute              = "/app/workflows"
 	appWorkflowDetailRoute         = "/app/workflows/{workflow_id}"
+	appWorkflowStartRoute          = "/app/workflows/start"
+	appGeneralSOPsRoute            = "/app/sops/general"
 	appWorkflowActionAnswerRoute   = "/app/workflows/{workflow_id}/actions/{action_id}/answer"
 	appWorkflowActionCompleteRoute = "/app/workflows/{workflow_id}/actions/{action_id}/complete"
 
@@ -42,6 +45,8 @@ type WorkflowService interface {
 	GetColostrumDay(ctx context.Context, tenantID, workflowID, date string) (tasksapp.ColostrumDetail, error)
 	AnswerAction(ctx context.Context, in tasksapp.AnswerActionInput) (domain.ActionWriteResult, error)
 	CompleteAction(ctx context.Context, in tasksapp.CompleteActionInput) (domain.ActionWriteResult, error)
+	ListGeneralSOPs(ctx context.Context, tenantID string) ([]ports.GeneralSOP, error)
+	StartGeneralWorkflow(ctx context.Context, in tasksapp.StartGeneralWorkflowInput) (string, error)
 }
 
 // Handler serves the four workflow routes.
@@ -63,6 +68,84 @@ func Register(mux *http.ServeMux, h *Handler) {
 	mux.HandleFunc("GET "+appWorkflowDetailRoute, h.GetWorkflow)
 	mux.HandleFunc("POST "+appWorkflowActionAnswerRoute, h.AnswerAction)
 	mux.HandleFunc("POST "+appWorkflowActionCompleteRoute, h.CompleteAction)
+	// General SOPs (maintainer decision 2026-09-18): the startable work instructions and the
+	// start itself. Patterns are byte-identical to permissions/routes.go.
+	mux.HandleFunc("GET "+appGeneralSOPsRoute, h.ListGeneralSOPs)
+	mux.HandleFunc("POST "+appWorkflowStartRoute, h.StartGeneralWorkflow)
+}
+
+type generalSOPsResponse struct {
+	SOPs []ports.GeneralSOP `json:"sops"`
+}
+
+type startWorkflowRequest struct {
+	SOPCode string `json:"sop_code"`
+	ParkID  string `json:"park_id,omitempty"`
+}
+
+type startWorkflowResponse struct {
+	WorkflowID string `json:"workflow_id"`
+}
+
+// ListGeneralSOPs serves GET /app/sops/general.
+func (h *Handler) ListGeneralSOPs(w http.ResponseWriter, r *http.Request) {
+	tenantID := httpmiddleware.TenantIDFromContext(r.Context())
+	if tenantID == "" {
+		h.writeError(w, r, http.StatusUnauthorized, "missing_tenant", "missing tenant context", nil)
+		return
+	}
+	sops, err := h.svc.ListGeneralSOPs(r.Context(), tenantID)
+	if err != nil {
+		h.writeDomainError(w, r, err)
+		return
+	}
+	httpresponse.WriteJSON(w, http.StatusOK, generalSOPsResponse{SOPs: sops})
+}
+
+// StartGeneralWorkflow serves POST /app/workflows/start (Idempotency-Key mandatory: the key IS the
+// run, so a retried tap opens one workflow, not two).
+func (h *Handler) StartGeneralWorkflow(w http.ResponseWriter, r *http.Request) {
+	tenantID := httpmiddleware.TenantIDFromContext(r.Context())
+	if tenantID == "" {
+		h.writeError(w, r, http.StatusUnauthorized, "missing_tenant", "missing tenant context", nil)
+		return
+	}
+	clientKey := strings.TrimSpace(r.Header.Get("Idempotency-Key"))
+	if len(clientKey) < 8 || len(clientKey) > 200 {
+		h.writeError(w, r, http.StatusBadRequest, "missing_idempotency_key", "Idempotency-Key header (8-200 characters) is required", nil)
+		return
+	}
+	body, ok := h.readBody(w, r)
+	if !ok {
+		return
+	}
+	var req startWorkflowRequest
+	if err := decodeStrictJSON(body, &req); err != nil {
+		h.writeError(w, r, http.StatusBadRequest, "invalid_json", "request body must match StartWorkflowRequest", err)
+		return
+	}
+	workflowID, err := h.svc.StartGeneralWorkflow(r.Context(), tasksapp.StartGeneralWorkflowInput{
+		TenantID: tenantID,
+		SOPCode:  req.SOPCode,
+		ParkID:   req.ParkID,
+		ActorID:  httpmiddleware.ActorIDFromContext(r.Context()),
+		RunID:    runIDFromKey(tenantID, clientKey),
+	})
+	if err != nil {
+		h.writeDomainError(w, r, err)
+		return
+	}
+	httpresponse.WriteJSON(w, http.StatusCreated, startWorkflowResponse{WorkflowID: workflowID})
+}
+
+// runIDFromKey derives the run's subject_ref_id (a uuid) from the client's idempotency key, so
+// the same key always names the same run.
+func runIDFromKey(tenantID, clientKey string) string {
+	sum := sha256.Sum256([]byte(tenantID + "\x1f" + clientKey))
+	sum[6] = (sum[6] & 0x0f) | 0x40
+	sum[8] = (sum[8] & 0x3f) | 0x80
+	h := hex.EncodeToString(sum[:16])
+	return h[:8] + "-" + h[8:12] + "-" + h[12:16] + "-" + h[16:20] + "-" + h[20:]
 }
 
 // ---------------------------------------------------------------------------
@@ -169,8 +252,8 @@ func (h *Handler) ListWorkflows(w http.ResponseWriter, r *http.Request) {
 	// It selects the same card DTO built from a different grain: the kids with colostrum feeds due
 	// on ONE date, counted over that date's feeds (docs/decisions/colostrum-milk-module.md).
 	module := strings.ToLower(strings.TrimSpace(query.Get("module")))
-	if module != domain.ModuleBirth && module != domain.ModuleDeath && module != domain.ModuleColostrum {
-		h.writeError(w, r, http.StatusBadRequest, "invalid_module", "module must be birth, death, or colostrum", nil)
+	if module != domain.ModuleBirth && module != domain.ModuleDeath && module != domain.ModuleColostrum && module != domain.ModuleGeneral {
+		h.writeError(w, r, http.StatusBadRequest, "invalid_module", "module must be birth, death, colostrum, or general", nil)
 		return
 	}
 	date := strings.TrimSpace(query.Get("date"))

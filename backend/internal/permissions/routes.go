@@ -1124,6 +1124,10 @@ var protectedRoutes = []Route{
 	{OperationID: "getAppWorkflow", Method: "GET", Pattern: "/app/workflows/{workflow_id}", Permissions: []string{CountsWrite}},
 	{OperationID: "answerAppWorkflowAction", Method: "POST", Pattern: "/app/workflows/{workflow_id}/actions/{action_id}/answer", Permissions: []string{CountsWrite}},
 	{OperationID: "completeAppWorkflowAction", Method: "POST", Pattern: "/app/workflows/{workflow_id}/actions/{action_id}/complete", Permissions: []string{CountsWrite}},
+	// General SOPs (maintainer decision 2026-09-18): farm-wide work instructions any task
+	// executor may start; the run itself is driven through the workflow routes above.
+	{OperationID: "listAppGeneralSops", Method: "GET", Pattern: "/app/sops/general", AnyPermissions: []string{TaskExecute, CountsWrite}},
+	{OperationID: "startAppWorkflow", Method: "POST", Pattern: "/app/workflows/start", AnyPermissions: []string{TaskExecute, CountsWrite}},
 
 	{OperationID: "listAppCountsShiftingPendingExecution", Method: "GET", Pattern: "/app/counts/shifting-events/pending-execution", Permissions: []string{CountsWrite}},
 	{OperationID: "completeAppCountsShiftingEvent", Method: "POST", Pattern: "/app/counts/shifting-events/{shifting_event_id}/complete", Permissions: []string{CountsWrite}},

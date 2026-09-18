@@ -10,6 +10,7 @@ import (
 
 	"github.com/vgoats/goatos/backend/internal/tasks/domain"
 	"github.com/vgoats/goatos/backend/internal/tasks/domain/sopseed"
+	"github.com/vgoats/goatos/backend/internal/tasks/ports"
 )
 
 // publishedFollowUpSQL: one indexed lookup (sop_versions_one_published_per_sop_idx + sop_definitions
@@ -141,4 +142,38 @@ func mustProofJSON(items []domain.ProofItem) string {
 		return "[]"
 	}
 	return string(raw)
+}
+
+// generalSOPsSQL: the tenant's published general SOPs with the size of their main track. One
+// indexed read over sop_definitions (tenant, kind) joined 1:1 to the one published version.
+const generalSOPsSQL = `
+SELECT sd.code, sd.name, sd.description,
+       COALESCE((
+         SELECT jsonb_array_length(t->'steps')
+         FROM jsonb_array_elements(sv.form_dsl->'follow_up'->'tracks') t
+         WHERE t->>'key' = $2
+         LIMIT 1), 0)
+FROM sop_definitions sd
+JOIN sop_versions sv ON sv.tenant_id = sd.tenant_id AND sv.sop_id = sd.sop_id AND sv.status = 'published'
+WHERE sd.tenant_id = $1::uuid AND sd.kind = 'general' AND sd.status = 'active'
+ORDER BY sd.name, sd.code`
+
+// ListGeneralSOPs implements ports.Repository.
+func (r *Repository) ListGeneralSOPs(ctx context.Context, tenantID string) ([]ports.GeneralSOP, error) {
+	ctx, cancel := r.withTimeout(ctx)
+	defer cancel()
+	rows, err := r.pool.Query(ctx, generalSOPsSQL, tenantID, domain.GeneralTrackKey)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	out := []ports.GeneralSOP{}
+	for rows.Next() {
+		var item ports.GeneralSOP
+		if err := rows.Scan(&item.Code, &item.Name, &item.Description, &item.StepCount); err != nil {
+			return nil, err
+		}
+		out = append(out, item)
+	}
+	return out, rows.Err()
 }

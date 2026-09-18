@@ -17,8 +17,10 @@ var (
 )
 
 type ListSOPsParams struct {
-	TenantID   string
-	Status     string
+	TenantID string
+	Status   string
+	// Kind narrows to "module" or "general"; "" = every SOP.
+	Kind       string
 	CodePrefix string
 	Search     string
 	Cursor     *domain.SOPCursor

@@ -1,0 +1,15 @@
+{
+  "schema_version": "goatos.sop-followup.v1",
+  "tracks": [
+    {
+      "key": "main", "module": "general", "label": "Gate visitor check", "subject": "visit",
+      "steps": [
+        {"key": "visitor_name", "task_type": "record_text", "title": "Who is visiting?", "detail": "Record the visitor's name and where they have come from.", "proof": {}, "schedule": {"kind": "immediately"}},
+        {"key": "from_other_farm", "task_type": "record_yes_no", "title": "Has the visitor been on another livestock farm this week?", "detail": "Ask before the visitor enters. Answer Yes if they have been near other goats, sheep or cattle in the last seven days.", "proof": {}, "schedule": {"kind": "immediately"}},
+        {"key": "disinfect_footwear", "task_type": "video_record", "title": "Disinfect the visitor's footwear", "detail": "Walk the visitor through the footbath and record one video of both boots being dipped.", "proof": {"video": 1}, "schedule": {"kind": "immediately"}, "when_answer": {"step": "from_other_farm", "op": "eq", "value": ["yes"]}},
+        {"key": "issue_overshoes", "task_type": "do_and_confirm", "title": "Issue farm overshoes", "detail": "Hand the visitor a pair of farm overshoes and confirm they are wearing them.", "proof": {"photo": 1}, "schedule": {"kind": "immediately"}, "when_answer": {"step": "from_other_farm", "op": "eq", "value": ["yes"]}},
+        {"key": "log_visit", "task_type": "do_and_confirm", "title": "Log the visit at the gate", "detail": "Enter the visitor in the gate register with the time in and the pens they will see.", "proof": {}, "schedule": {"kind": "immediately"}}
+      ]
+    }
+  ]
+}
