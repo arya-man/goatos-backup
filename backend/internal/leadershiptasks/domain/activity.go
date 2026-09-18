@@ -43,6 +43,11 @@ func IsKnownEventKind(k string) bool {
 }
 
 // Event is one activity row as stored, plus the actor's display name resolved at read time.
+// ActivityWindow is how many feed rows a detail read carries and an activity page returns:
+// a drawer shows the newest few and offers "older"; it never downloads a task's whole
+// history to render its top.
+const ActivityWindow = 20
+
 type Event struct {
 	EventID     string
 	Kind        string

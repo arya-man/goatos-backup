@@ -123,18 +123,19 @@ func TestLeadershipTaskActivityFeedIsWrittenInTheMutationTransaction(t *testing.
 		t.Fatalf("cancel event = %+v", e)
 	}
 
-	// 6. The paged read carries the same feed, in the same order, for every row it lists.
+	// 6. The paged read carries NO feed (2026-09-18): the board and the list render none of it,
+	// it was 40% of the list payload, and the drawer fetches the detail row when a card opens.
 	page, err := repo.ListTasks(ctx, ports.ListParams{TenantID: ltTenant, UserID: ltCXO, Scope: domain.ScopeAssignedToMe, Statuses: []string{domain.StatusCancelled}, Limit: 10})
 	if err != nil || len(page.Rows) != 1 {
 		t.Fatalf("list: %v rows %d", err, len(page.Rows))
 	}
-	if !equal(kinds(page.Rows[0]), kinds(cancelled)) {
-		t.Fatalf("paged feed %v != detail feed %v", kinds(page.Rows[0]), kinds(cancelled))
+	if len(page.Rows[0].Activity) != 0 {
+		t.Fatalf("paged row carries a feed %v; the list payload must not", kinds(page.Rows[0]))
 	}
-	// Newest first is the stored order, not a client sort.
-	for i := 1; i < len(page.Rows[0].Activity); i++ {
-		if page.Rows[0].Activity[i].OccurredAt.After(page.Rows[0].Activity[i-1].OccurredAt) {
-			t.Fatalf("feed not newest first: %+v", page.Rows[0].Activity)
+	// Newest first is the stored order of the DETAIL read, not a client sort.
+	for i := 1; i < len(cancelled.Activity); i++ {
+		if cancelled.Activity[i].OccurredAt.After(cancelled.Activity[i-1].OccurredAt) {
+			t.Fatalf("feed not newest first: %+v", cancelled.Activity)
 		}
 	}
 }

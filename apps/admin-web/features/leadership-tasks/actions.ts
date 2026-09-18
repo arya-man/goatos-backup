@@ -6,10 +6,12 @@ import {
   changeLeadershipTaskStatus,
   editLeadershipTask,
   getLeadershipTask,
+  getLeadershipTaskActivity,
   raiseLeadershipTask,
   setLeadershipTaskComment,
   uploadLeadershipTaskAttachment,
   type LeadershipTaskActivity,
+  type LeadershipTaskActivityPage,
   type LeadershipTaskDetail,
 } from "@/lib/api/server";
 import { farmDeadlineLocalFromForm, farmDeadlineToRFC3339 } from "./deadline";
@@ -536,4 +538,18 @@ export async function loadLeadershipTaskAction(
   const result = await getLeadershipTask(taskID);
   if (!result.ok) return { ok: false, code: result.error.code ?? result.error.kind };
   return { ok: true, task: result.data.task };
+}
+
+/**
+ * The drawer's "older" control: one more window of the feed, strictly before the cursor the
+ * previous window ended on. Same visibility as the detail read; never the whole history.
+ */
+export async function loadLeadershipTaskActivityAction(
+  taskID: string,
+  before: string,
+): Promise<{ ok: true; page: LeadershipTaskActivityPage } | { ok: false; code: string }> {
+  if (!taskID || taskID.length > 64 || !before || before.length > 200) return { ok: false, code: "invalid_cursor" };
+  const result = await getLeadershipTaskActivity(taskID, before);
+  if (!result.ok) return { ok: false, code: result.error.code ?? result.error.kind };
+  return { ok: true, page: result.data };
 }

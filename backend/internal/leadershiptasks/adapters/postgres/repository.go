@@ -9,10 +9,12 @@ import (
 	"encoding/base64"
 	"errors"
 	"fmt"
+	"github.com/google/uuid"
 	"strings"
 	"time"
 
 	"github.com/jackc/pgx/v5"
+	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/jackc/pgx/v5/pgxpool"
 
 	"github.com/vgoats/goatos/backend/internal/leadershiptasks/domain"
@@ -770,6 +772,122 @@ type batchQuerier interface {
 	SendBatch(ctx context.Context, b *pgx.Batch) pgx.BatchResults
 }
 
+// execer is the one method a write helper needs: a tx runs the statement now, a batchExec
+// queues it for one pipelined round trip.
+type execer interface {
+	Exec(ctx context.Context, sql string, args ...any) (pgconn.CommandTag, error)
+}
+
+// batchExec queues every Exec onto a pgx.Batch. A write transaction on the farm's link
+// (~40 ms per round trip) used to make 11-13 sequential trips -- update, event, audit, outbox,
+// idempotency, each its own wait. Queued, they are one. The batch's own errors surface when
+// it is sent (drainBatch), so a helper's nil return here means "queued", not "written".
+type batchExec struct{ b *pgx.Batch }
+
+func (q batchExec) Exec(_ context.Context, sql string, args ...any) (pgconn.CommandTag, error) {
+	q.b.Queue(sql, args...)
+	return pgconn.CommandTag{}, nil
+}
+
+// drainBatch sends a write-only batch and surfaces the first statement that failed, named.
+func drainBatch(ctx context.Context, q batchQuerier, b *pgx.Batch, what string) error {
+	results := q.SendBatch(ctx, b)
+	for i := 0; i < b.Len(); i++ {
+		if _, err := results.Exec(); err != nil { // scale-guard:ignore: reads the results of ONE pipelined batch (one per queued statement); this loop is what removed the N+1
+
+			_ = results.Close()
+			return fmt.Errorf("leadership task: %s (statement %d of %d): %w", what, i+1, b.Len(), err)
+		}
+	}
+	return results.Close()
+}
+
+// lockedRowWithReservation is the write transaction's FIRST round trip: claim the idempotency
+// key, read the row FOR UPDATE and its participants, in one pipelined batch. On a replay the
+// claim returns no row and the caller reads the stored result from the pool instead; the lock
+// taken alongside is released with the rollback.
+func (r *Repository) lockedRowWithReservation(ctx context.Context, tx pgx.Tx, tenantID, taskID, scope, key, fingerprint string) (idemReservation, domain.Task, error) {
+	scoped := idemScopedKey(tenantID, scope, key)
+	b := &pgx.Batch{}
+	b.Queue(sqlIdempotency1, scoped, tenantID, scope, fingerprint)
+	b.Queue(fmt.Sprintf(`SELECT %s %s WHERE t.tenant_id = $1 AND t.task_id = $2 FOR UPDATE OF t`, taskColumns, taskFrom), tenantID, taskID)
+	b.Queue(sqlListParticipants, tenantID, []string{taskID})
+	results := tx.SendBatch(ctx, b)
+	defer results.Close()
+
+	var claimed string
+	claimErr := results.QueryRow().Scan(&claimed)
+	if claimErr != nil && !errors.Is(claimErr, pgx.ErrNoRows) {
+		return idemReservation{}, domain.Task{}, claimErr
+	}
+	t, err := scanTask(results.QueryRow())
+	if errors.Is(err, pgx.ErrNoRows) {
+		return idemReservation{}, domain.Task{}, ports.ErrTaskNotFound
+	}
+	if err != nil {
+		return idemReservation{}, domain.Task{}, fmt.Errorf("leadership task: get: %w", err)
+	}
+	partRows, err := results.Query()
+	if err != nil {
+		return idemReservation{}, domain.Task{}, fmt.Errorf("leadership task: list participants: %w", err)
+	}
+	for partRows.Next() {
+		var tID, userID string
+		if err := partRows.Scan(&tID, &userID); err != nil {
+			partRows.Close()
+			return idemReservation{}, domain.Task{}, fmt.Errorf("leadership task: participants scan: %w", err)
+		}
+		t.ParticipantUserIDs = append(t.ParticipantUserIDs, userID)
+	}
+	partRows.Close()
+	if err := results.Close(); err != nil {
+		return idemReservation{}, domain.Task{}, err
+	}
+	if errors.Is(claimErr, pgx.ErrNoRows) {
+		// Someone holds the key already: same request replayed, or a different one under the
+		// same key. The second query of reserveIdempotency decides which; one more trip only
+		// on this rare path.
+		var existingHash, status, resultType, resultID string
+		if err := tx.QueryRow(ctx, sqlIdempotency2, scoped).Scan(&existingHash, &status, &resultType, &resultID); err != nil {
+			return idemReservation{}, domain.Task{}, err
+		}
+		if existingHash != fingerprint {
+			return idemReservation{}, domain.Task{}, ports.ErrIdempotencyConflict
+		}
+		return idemReservation{proceed: false, resultType: resultType, resultID: resultID}, t, nil
+	}
+	return idemReservation{proceed: true}, t, nil
+}
+
+// fullRow is the detail read as ONE round trip: the task row and its enrichment queries in a
+// single batch (getRow needs two, because enrichWith waits for the scanned id; here the id is
+// already known).
+func (r *Repository) fullRow(ctx context.Context, q batchQuerier, tenantID, taskID string) (domain.Task, error) {
+	ids := []string{taskID}
+	b := &pgx.Batch{}
+	b.Queue(fmt.Sprintf(`SELECT %s %s WHERE t.tenant_id = $1 AND t.task_id = $2`, taskColumns, taskFrom), tenantID, taskID)
+	b.Queue(sqlRepository5, tenantID, ids)
+	b.Queue(sqlListNotes, tenantID, ids)
+	b.Queue(sqlListMentions, tenantID, ids)
+	b.Queue(sqlListParticipants, tenantID, ids)
+	b.Queue(sqlListEventsWindow, tenantID, ids, domain.ActivityWindow+1)
+	results := q.SendBatch(ctx, b)
+	defer results.Close()
+	t, err := scanTask(results.QueryRow())
+	if errors.Is(err, pgx.ErrNoRows) {
+		return domain.Task{}, ports.ErrTaskNotFound
+	}
+	if err != nil {
+		return domain.Task{}, fmt.Errorf("leadership task: get: %w", err)
+	}
+	tasks := []domain.Task{t}
+	index := map[string]int{taskID: 0}
+	if err := scanBatchInto(results, tasks, index); err != nil {
+		return domain.Task{}, err
+	}
+	return tasks[0], results.Close()
+}
+
 // getRow is the full detail read: the task row, then its attachments, notes, mentions,
 // participants and activity in ONE pipelined batch (one round trip, not five). Over the
 // ~40ms tunnel this page runs on, the five sequential reads it replaced were the bulk of a
@@ -812,19 +930,26 @@ func (r *Repository) enrichWith(ctx context.Context, q batchQuerier, tenantID st
 		return nil
 	}
 	ids, index := taskIndexOf(tasks)
+	batch := &pgx.Batch{}
+	batch.Queue(sqlRepository5, tenantID, ids)                               // attachments
+	batch.Queue(sqlListNotes, tenantID, ids)                                 // notes
+	batch.Queue(sqlListMentions, tenantID, ids)                              // mentions of those notes
+	batch.Queue(sqlListParticipants, tenantID, ids)                          // mention-granted readers
+	batch.Queue(sqlListEventsWindow, tenantID, ids, domain.ActivityWindow+1) // activity, newest window (+1 to learn has-more)
+	results := q.SendBatch(ctx, batch)
+	defer results.Close()
+	if err := scanBatchInto(results, tasks, index); err != nil {
+		return err
+	}
+	return results.Close()
+}
+
+// scanBatchInto reads the five enrichment result sets, in the order enrichWith/fullRow queue
+// them: attachments, notes, mentions, participants, events.
+func scanBatchInto(results pgx.BatchResults, tasks []domain.Task, index map[string]int) error {
 	for i := range tasks {
 		tasks[i].ParticipantUserIDs = nil
 	}
-
-	batch := &pgx.Batch{}
-	batch.Queue(sqlRepository5, tenantID, ids)      // attachments
-	batch.Queue(sqlListNotes, tenantID, ids)        // notes
-	batch.Queue(sqlListMentions, tenantID, ids)     // mentions of those notes
-	batch.Queue(sqlListParticipants, tenantID, ids) // mention-granted readers
-	batch.Queue(sqlListEvents, tenantID, ids)       // activity, newest first
-	results := q.SendBatch(ctx, batch)
-	defer results.Close()
-
 	attachments, err := results.Query()
 	if err != nil {
 		return fmt.Errorf("leadership task: list attachments: %w", err)
@@ -884,8 +1009,8 @@ func (r *Repository) enrichWith(ctx context.Context, q batchQuerier, tenantID st
 		return err
 	}
 	eventRows.Close()
-
-	return results.Close()
+	trimActivityWindow(tasks)
+	return nil
 }
 
 // Raise records a new task, mints its number, stores its attachments, audits it and
@@ -1102,20 +1227,17 @@ func (r *Repository) ChangeStatus(ctx context.Context, p ports.StatusParams) (do
 	}
 	defer func() { _ = tx.Rollback(ctx) }()
 
+	// FIVE round trips, not eleven (2026-09-18): begin; claim the key + locked read; every
+	// write in one batch; the full row back; commit. On the farm's link each trip is ~40 ms,
+	// and the CEO's click waited on all of them.
 	fingerprint := requestFingerprint(p.TaskID, p.Actor.UserID, p.Status, fmt.Sprintf("%d", p.RowVersion))
-	reservation, err := reserveIdempotency(ctx, tx, p.TenantID, idemScopeStatus, p.IdempotencyKey, fingerprint)
+	reservation, before, err := r.lockedRowWithReservation(ctx, tx, p.TenantID, p.TaskID, idemScopeStatus, p.IdempotencyKey, fingerprint)
 	if err != nil {
 		return domain.Task{}, err
 	}
 	if !reservation.proceed {
-		if err := tx.Commit(ctx); err != nil {
-			return domain.Task{}, err
-		}
-		return r.getRow(ctx, r.pool, p.TenantID, p.TaskID, false)
-	}
-	before, err := r.getRow(ctx, tx, p.TenantID, p.TaskID, true)
-	if err != nil {
-		return domain.Task{}, err
+		_ = tx.Rollback(ctx)
+		return r.fullRow(ctx, r.pool, p.TenantID, p.TaskID)
 	}
 	if err := domain.CheckTransition(before, p.Actor, p.Status); err != nil {
 		return domain.Task{}, err
@@ -1124,23 +1246,36 @@ func (r *Repository) ChangeStatus(ctx context.Context, p ports.StatusParams) (do
 		return domain.Task{}, ports.ErrVersionConflict
 	}
 	now := r.now().UTC()
-	if _, err := tx.Exec(ctx, sqlRepository10, p.TenantID, p.TaskID, p.Status, now); err != nil {
-		return domain.Task{}, fmt.Errorf("leadership task: update status: %w", err)
+	// The row as the UPDATE below leaves it, for the audit and the announcement; the read
+	// after the batch is what the caller gets.
+	after := before
+	after.Status = p.Status
+	after.UpdatedAt = now
+	after.RowVersion = before.RowVersion + 1
+	switch p.Status {
+	case domain.StatusDone:
+		at := now
+		after.DoneAt = &at
+	case domain.StatusCancelled:
+		at := now
+		after.CancelledAt = &at
+		after.DoneAt = nil
+	default:
+		after.DoneAt = nil
 	}
-	// A cancel is its own kind on the feed ("Hemant cancelled the task"); every other move is
-	// a status change carrying both ends, so the panel can draw the two chips and the arrow.
 	statusKind := domain.EventStatusChanged
 	if p.Status == domain.StatusCancelled {
 		statusKind = domain.EventCancelled
 	}
-	if err := recordEvent(ctx, tx, p.TenantID, p.TaskID, now, p.Actor.UserID, statusKind, before.Status, p.Status, ""); err != nil {
+	writes := &pgx.Batch{}
+	w := batchExec{b: writes}
+	if _, err := w.Exec(ctx, sqlRepository10, p.TenantID, p.TaskID, p.Status, now); err != nil {
 		return domain.Task{}, err
 	}
-	after, err := r.getRow(ctx, tx, p.TenantID, p.TaskID, false)
-	if err != nil {
+	if err := recordEvent(ctx, w, p.TenantID, p.TaskID, now, p.Actor.UserID, statusKind, before.Status, p.Status, ""); err != nil {
 		return domain.Task{}, err
 	}
-	if err := audit.NewTxRecorder(tx).Record(ctx, audit.Event{
+	if err := audit.NewBatchRecorder(writes).Record(ctx, audit.Event{
 		TenantID:     p.TenantID,
 		ActorID:      p.Actor.UserID,
 		ActorType:    "human",
@@ -1161,16 +1296,23 @@ func (r *Repository) ChangeStatus(ctx context.Context, p ports.StatusParams) (do
 	}); err != nil {
 		return domain.Task{}, fmt.Errorf("leadership task: audit status: %w", err)
 	}
-	if err := emitEvent(ctx, tx, EventTaskStatusChanged, after, before.Status, p.Actor.UserID, p.IdempotencyKey, now); err != nil {
+	if err := emitEvent(ctx, w, EventTaskStatusChanged, after, before.Status, p.Actor.UserID, p.IdempotencyKey, now); err != nil {
 		return domain.Task{}, err
 	}
-	if err := completeIdempotency(ctx, tx, p.TenantID, idemScopeStatus, p.IdempotencyKey, resourceType, p.TaskID); err != nil {
+	if err := completeIdempotency(ctx, w, p.TenantID, idemScopeStatus, p.IdempotencyKey, resourceType, p.TaskID); err != nil {
 		return domain.Task{}, fmt.Errorf("leadership task: complete status idempotency: %w", err)
+	}
+	if err := drainBatch(ctx, tx, writes, "status write"); err != nil {
+		return domain.Task{}, err
+	}
+	final, err := r.fullRow(ctx, tx, p.TenantID, p.TaskID)
+	if err != nil {
+		return domain.Task{}, err
 	}
 	if err := tx.Commit(ctx); err != nil {
 		return domain.Task{}, fmt.Errorf("leadership task: commit status: %w", err)
 	}
-	return after, nil
+	return final, nil
 }
 
 // SetComment records the assignee's note under the row lock. No version fence: a note is
@@ -1187,19 +1329,13 @@ func (r *Repository) SetComment(ctx context.Context, p ports.CommentParams) (dom
 	// The mention list is part of the request's identity: the same key with a different set of
 	// people named is a DIFFERENT note, and replaying it as the first one would drop mentions.
 	fingerprint := requestFingerprint(p.TaskID, p.Actor.UserID, p.Comment, strings.Join(p.MentionUserIDs, ","))
-	reservation, err := reserveIdempotency(ctx, tx, p.TenantID, idemScopeComment, p.IdempotencyKey, fingerprint)
+	reservation, before, err := r.lockedRowWithReservation(ctx, tx, p.TenantID, p.TaskID, idemScopeComment, p.IdempotencyKey, fingerprint)
 	if err != nil {
 		return domain.Task{}, err
 	}
 	if !reservation.proceed {
-		if err := tx.Commit(ctx); err != nil {
-			return domain.Task{}, err
-		}
-		return r.getRow(ctx, r.pool, p.TenantID, p.TaskID, false)
-	}
-	before, err := r.getRow(ctx, tx, p.TenantID, p.TaskID, true)
-	if err != nil {
-		return domain.Task{}, err
+		_ = tx.Rollback(ctx)
+		return r.fullRow(ctx, r.pool, p.TenantID, p.TaskID)
 	}
 	if !before.CanComment(p.Actor) {
 		if before.Status == domain.StatusCancelled {
@@ -1207,38 +1343,40 @@ func (r *Repository) SetComment(ctx context.Context, p ports.CommentParams) (dom
 		}
 		return domain.Task{}, domain.ErrNotAssignee
 	}
-	now := r.now().UTC()
-	if before.IsAssignee(p.Actor) {
-		if _, err := tx.Exec(ctx, sqlSetComment, p.TenantID, p.TaskID, p.Comment, now); err != nil {
-			return domain.Task{}, fmt.Errorf("leadership task: update comment: %w", err)
-		}
-	} else if _, err := tx.Exec(ctx, sqlTouchTask, p.TenantID, p.TaskID, now); err != nil {
-		return domain.Task{}, fmt.Errorf("leadership task: touch comment: %w", err)
-	}
 	// The mention targets are re-validated HERE, under the row lock taken above, against the
 	// same list the `@` autocomplete reads. An id from a stale or hostile client can therefore
-	// never reach someone who cannot already see this task.
+	// never reach someone who cannot already see this task. One extra trip, only when someone
+	// was named.
 	mentions, err := r.resolveMentionTargets(ctx, tx, p.TenantID, p.TaskID, p.MentionUserIDs)
 	if err != nil {
 		return domain.Task{}, err
 	}
+	now := r.now().UTC()
+	after := before
+	after.UpdatedAt = now
+	after.RowVersion = before.RowVersion + 1
+	writes := &pgx.Batch{}
+	w := batchExec{b: writes}
+	if before.IsAssignee(p.Actor) {
+		after.AssigneeComment = p.Comment
+		_, _ = w.Exec(ctx, sqlSetComment, p.TenantID, p.TaskID, p.Comment, now)
+	} else {
+		_, _ = w.Exec(ctx, sqlTouchTask, p.TenantID, p.TaskID, now)
+	}
 	noteID := ""
 	if p.Comment != "" {
-		if err := tx.QueryRow(ctx, sqlInsertNote, p.TenantID, p.TaskID, p.Actor.UserID, p.Comment, now).Scan(&noteID); err != nil {
-			return domain.Task{}, fmt.Errorf("leadership task: insert note: %w", err)
-		}
-		if err := insertMentions(ctx, tx, p.TenantID, p.TaskID, noteID, p.Actor.UserID, mentions, now); err != nil {
+		// Minted in-process so the mention and event rows can name it in the same batch;
+		// the column's default would have cost a RETURNING round trip before either.
+		noteID = uuid.NewString()
+		_, _ = w.Exec(ctx, sqlInsertNoteWithID, p.TenantID, p.TaskID, noteID, p.Actor.UserID, p.Comment, now)
+		if err := insertMentions(ctx, w, p.TenantID, p.TaskID, noteID, p.Actor.UserID, mentions, now); err != nil {
 			return domain.Task{}, err
 		}
-		if err := recordEvent(ctx, tx, p.TenantID, p.TaskID, now, p.Actor.UserID, domain.EventCommented, "", "", noteID); err != nil {
+		if err := recordEvent(ctx, w, p.TenantID, p.TaskID, now, p.Actor.UserID, domain.EventCommented, "", "", noteID); err != nil {
 			return domain.Task{}, err
 		}
 	}
-	after, err := r.getRow(ctx, tx, p.TenantID, p.TaskID, false)
-	if err != nil {
-		return domain.Task{}, err
-	}
-	if err := audit.NewTxRecorder(tx).Record(ctx, audit.Event{
+	if err := audit.NewBatchRecorder(writes).Record(ctx, audit.Event{
 		TenantID:     p.TenantID,
 		ActorID:      p.Actor.UserID,
 		ActorType:    "human",
@@ -1261,7 +1399,7 @@ func (r *Repository) SetComment(ctx context.Context, p ports.CommentParams) (dom
 	// Only an actual NOTE is news. A comment call that wrote no note (an older phone clearing
 	// the assignee field) has nothing to tell anyone and emits nothing.
 	if noteID != "" {
-		if err := emitEventWith(ctx, tx, EventTaskCommented, after, "", p.Actor.UserID, p.IdempotencyKey, now, eventExtras{
+		if err := emitEventWith(ctx, w, EventTaskCommented, after, "", p.Actor.UserID, p.IdempotencyKey, now, eventExtras{
 			NoteID:           noteID,
 			NoteExcerpt:      noteExcerpt(p.Comment),
 			MentionedUserIDs: mentions,
@@ -1269,13 +1407,20 @@ func (r *Repository) SetComment(ctx context.Context, p ports.CommentParams) (dom
 			return domain.Task{}, err
 		}
 	}
-	if err := completeIdempotency(ctx, tx, p.TenantID, idemScopeComment, p.IdempotencyKey, resourceType, p.TaskID); err != nil {
+	if err := completeIdempotency(ctx, w, p.TenantID, idemScopeComment, p.IdempotencyKey, resourceType, p.TaskID); err != nil {
 		return domain.Task{}, fmt.Errorf("leadership task: complete comment idempotency: %w", err)
+	}
+	if err := drainBatch(ctx, tx, writes, "comment write"); err != nil {
+		return domain.Task{}, err
+	}
+	final, err := r.fullRow(ctx, tx, p.TenantID, p.TaskID)
+	if err != nil {
+		return domain.Task{}, err
 	}
 	if err := tx.Commit(ctx); err != nil {
 		return domain.Task{}, fmt.Errorf("leadership task: commit comment: %w", err)
 	}
-	return after, nil
+	return final, nil
 }
 
 // MarkSeen stamps seen_at once for the assignee. A replay updates nothing (the WHERE
@@ -1501,6 +1646,10 @@ const sqlTouchTask = `
 UPDATE public.leadership_tasks
 SET updated_at = $3::timestamptz, row_version = row_version + 1
 WHERE tenant_id = $1 AND task_id = $2`
+
+const sqlInsertNoteWithID = `
+INSERT INTO public.leadership_task_notes (tenant_id, task_id, note_id, author_user_id, body, created_at)
+VALUES ($1::uuid, $2::uuid, $3::uuid, $4::uuid, $5, $6)`
 
 const sqlInsertNote = `
 INSERT INTO public.leadership_task_notes (tenant_id, task_id, author_user_id, body, created_at)

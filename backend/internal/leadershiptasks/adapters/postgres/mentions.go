@@ -77,7 +77,7 @@ func (r *Repository) resolveMentionTargets(ctx context.Context, tx pgx.Tx, tenan
 // insertMentions stores the resolved mentions of one note and, in the SAME statement pair,
 // records each mentioned person as a participant of the task -- which is what lets them open
 // the task the push deep-links to. Both writes are set-based (one statement, not one per id).
-func insertMentions(ctx context.Context, tx pgx.Tx, tenantID, taskID, noteID, authorID string, userIDs []string, now time.Time) error {
+func insertMentions(ctx context.Context, tx execer, tenantID, taskID, noteID, authorID string, userIDs []string, now time.Time) error {
 	if len(userIDs) == 0 {
 		return nil
 	}

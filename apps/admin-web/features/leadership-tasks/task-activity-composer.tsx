@@ -13,6 +13,7 @@ import {
 } from "@/features/notifications";
 
 import type { CommentPostResult } from "./actions";
+import { loadLeadershipTaskActivityAction } from "./actions";
 import { PENDING_ACTIVITY_PREFIX, TaskActivityFeed } from "./task-activity-feed";
 import { refusalSentence } from "./task-feedback-copy";
 import type { TaskRow } from "./task-row";
@@ -83,6 +84,38 @@ export function TaskActivityComposer({
   }));
   const [isPending, startTransition] = useTransition();
   const [error, setError] = useState<string | null>(null);
+  // Older windows of the feed, fetched one at a time behind the newest window the row carries.
+  // A posted comment replaces the newest window (`record`) and leaves these as they are.
+  const [older, setOlder] = useState<{
+    activity: LeadershipTaskActivity[];
+    notes: TaskRow["notes"];
+    hasMore: boolean;
+    nextBefore: string;
+  }>({ activity: [], notes: [], hasMore: task.activityHasMore, nextBefore: task.activityNextBefore });
+  const [olderPending, startOlder] = useTransition();
+  const [olderError, setOlderError] = useState<string | null>(null);
+  const loadOlder = () => {
+    const before = older.nextBefore;
+    if (!before || olderPending) return;
+    setOlderError(null);
+    startOlder(async () => {
+      const result = await loadLeadershipTaskActivityAction(task.id, before).catch(() => ({ ok: false as const, code: "network" }));
+      if (!result.ok) {
+        setOlderError(copy(pageContract, "activity.older_failed", "Older activity could not be loaded. Try again."));
+        return;
+      }
+      const page = result.page;
+      setOlder((current) => {
+        const seen = new Set(current.activity.map((entry) => entry.id));
+        return {
+          activity: [...current.activity, ...page.activity.filter((entry) => !seen.has(entry.id))],
+          notes: [...current.notes, ...page.notes],
+          hasMore: page.has_more,
+          nextBefore: page.next_before,
+        };
+      });
+    });
+  };
   // The composer is remounted (its `key`) to clear it after a send, or to hand back the text a
   // refused send was carrying. `retained` is that text and its picked ids.
   const [composerKey, setComposerKey] = useState(0);
@@ -230,12 +263,46 @@ export function TaskActivityComposer({
     </div>
   ) : null;
 
+  const olderControl = older.hasMore ? (
+    <div className="ltd-older">
+      <button type="button" className="btn ghost sm" onClick={loadOlder} disabled={olderPending} aria-busy={olderPending || undefined}>
+        {olderPending
+          ? copy(pageContract, "activity.older_loading", "Loading older…")
+          : copy(pageContract, "activity.older", "Show older activity")}
+      </button>
+      {olderError ? <p className="ltd-status-refusal" role="alert">{olderError}</p> : null}
+    </div>
+  ) : null;
+
+  // The newest window (replaced whole by each post) and the older pages, merged by id and kept
+  // newest first: a post shifts the window by one row, and that row must not vanish just
+  // because it now sits past the boundary.
+  const activity = older.activity.length ? mergeNewestFirst(pending.activity, older.activity) : pending.activity;
+  const notes = older.notes.length ? mergeNotes(pending.notes, older.notes) : pending.notes;
+
   return (
     <TaskActivityFeed
-      activity={pending.activity}
-      notes={pending.notes}
+      activity={activity}
+      notes={notes}
       pageContract={pageContract}
       composer={composer}
+      older={olderControl}
     />
   );
+}
+
+function mergeNewestFirst(a: LeadershipTaskActivity[], b: LeadershipTaskActivity[]): LeadershipTaskActivity[] {
+  const seen = new Set<string>();
+  const out: LeadershipTaskActivity[] = [];
+  for (const entry of [...a, ...b]) {
+    if (seen.has(entry.id)) continue;
+    seen.add(entry.id);
+    out.push(entry);
+  }
+  return out.sort((x, y) => (x.occurred_at < y.occurred_at ? 1 : x.occurred_at > y.occurred_at ? -1 : x.id < y.id ? 1 : -1));
+}
+
+function mergeNotes(a: TaskRow["notes"], b: TaskRow["notes"]): TaskRow["notes"] {
+  const seen = new Set<string>();
+  return [...a, ...b].filter((note) => (seen.has(note.note_id) ? false : (seen.add(note.note_id), true)));
 }

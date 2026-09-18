@@ -113,6 +113,11 @@ type Task struct {
 	// created it, who moved its status, who edited its title, brief or deadline, who commented.
 	// The panel's History / Comments / All tabs are all views over this one list.
 	Activity []Event
+	// ActivityHasMore says the feed above is the NEWEST window (ActivityWindow rows) and older
+	// rows exist; ActivityNextBefore is the opaque cursor that fetches the next older window
+	// through the activity page read. A task with a short feed carries neither.
+	ActivityHasMore    bool
+	ActivityNextBefore string
 }
 
 // Attachment is one stored attachment of a task. ProofID points at the proof store row that

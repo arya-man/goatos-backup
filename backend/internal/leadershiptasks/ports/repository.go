@@ -213,6 +213,9 @@ type Repository interface {
 	ListMentionableUsers(ctx context.Context, tenantID, taskID string) ([]domain.MentionableUser, error)
 	ListTasks(ctx context.Context, p ListParams) (Page, error)
 	GetTask(ctx context.Context, tenantID, taskID string) (domain.Task, error)
+	// ActivityPage is one older window of a task's feed: the rows strictly before the cursor
+	// (ActivityNextBefore of the previous window), newest first, with the notes those rows name.
+	ActivityPage(ctx context.Context, tenantID, taskID, before string) (ActivityPage, error)
 	Raise(ctx context.Context, p RaiseParams) (domain.Task, error)
 	Edit(ctx context.Context, p EditParams) (domain.Task, error)
 	ChangeStatus(ctx context.Context, p StatusParams) (domain.Task, error)
@@ -233,4 +236,13 @@ type AttachmentResolver interface {
 // has already proved the caller may see the task that carries it.
 type AttachmentDownloader interface {
 	DownloadArtifact(ctx context.Context, tenantID, proofID string) (proofdomain.Artifact, string, error)
+}
+
+// ActivityPage is one window of a task's history, newest first, plus the notes the window's
+// comment rows name (so a comment renders its text without a second read).
+type ActivityPage struct {
+	Activity   []domain.Event
+	Notes      []domain.Note
+	HasMore    bool
+	NextBefore string
 }

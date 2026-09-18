@@ -6059,7 +6059,8 @@ input[type=date],input[type=datetime-local],input[type=time],input[type=month],i
 .ltd-act-val{font-weight:650;color:var(--ink);overflow-wrap:anywhere}
 .ltd-actchip{display:inline-flex;align-items:center;min-height:22px;padding:0 8px;border-radius:6px;font-size:11.5px;font-weight:780;letter-spacing:.1px;border:1px solid var(--line);background:var(--panel-2);color:var(--ink);white-space:nowrap}
 .ltd-act-when{display:block;font-size:11.5px;color:var(--muted);font-variant-numeric:tabular-nums}
-.ltd-composer{display:flex;gap:10px;min-width:0;padding-top:2px}
+.ltd-composer{display:flex;gap:10px;min-width:0;padding:2px 0 14px;margin-bottom:12px;border-bottom:1px solid var(--line)}
+.ltd-older{display:flex;flex-direction:column;gap:6px;padding-top:10px}
 .ltd-composer .lt-comment-form{flex:1;min-width:0;margin:0}
 .ltd-composer .lt-comment-form .btn{min-height:40px;justify-self:start}
 

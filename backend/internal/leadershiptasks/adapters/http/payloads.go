@@ -140,8 +140,19 @@ type taskPayload struct {
 	AttachmentCount int                   `json:"attachment_count"`
 	Attachments     []attachmentPayload   `json:"attachments"`
 	Notes           []notePayload         `json:"notes"`
-	// Activity is the Jira-style history feed, newest first (activityPayload).
-	Activity []activityPayload `json:"activity"`
+	// Activity is the Jira-style history feed, newest first (activityPayload) -- the newest
+	// window only; ActivityHasMore / ActivityNextBefore page the rest.
+	Activity           []activityPayload `json:"activity"`
+	ActivityHasMore    bool              `json:"activity_has_more"`
+	ActivityNextBefore string            `json:"activity_next_before"`
+}
+
+type activityPagePayload struct {
+	Activity   []activityPayload `json:"activity"`
+	Notes      []notePayload     `json:"notes"`
+	HasMore    bool              `json:"has_more"`
+	NextBefore string            `json:"next_before"`
+	TraceID    string            `json:"trace_id"`
 }
 
 type taskDetailPayload struct {
@@ -248,39 +259,8 @@ func toTaskPayload(t domain.Task, actor domain.Actor, now time.Time) taskPayload
 	for _, o := range options {
 		optionPayloads = append(optionPayloads, statusOptionPayload{Key: o.Key, Label: o.Label})
 	}
-	notes := make([]notePayload, 0, len(t.Notes))
-	for _, n := range t.Notes {
-		mentions := make([]mentionPayload, 0, len(n.Mentions))
-		for _, m := range n.Mentions {
-			mentions = append(mentions, mentionPayload{MentionID: m.MentionID, UserID: m.UserID, Name: m.Name})
-		}
-		notes = append(notes, notePayload{
-			NoteID:     n.NoteID,
-			AuthorID:   n.AuthorID,
-			AuthorName: n.AuthorName,
-			Body:       n.Body,
-			CreatedAt:  n.CreatedAt.UTC().Format(time.RFC3339),
-			Mentions:   mentions,
-		})
-	}
-	activity := make([]activityPayload, 0, len(t.Activity))
-	for _, e := range t.Activity {
-		activity = append(activity, activityPayload{
-			ID:            e.EventID,
-			Kind:          e.Kind,
-			OccurredAt:    e.OccurredAt.UTC().Format(time.RFC3339),
-			OccurredLabel: domain.EventOccurredLabel(e.OccurredAt),
-			ActorUserID:   e.ActorUserID,
-			ActorName:     e.ActorName,
-			ActorInitials: initialsOf(e.ActorName),
-			FromLabel:     domain.EventValueLabel(e.Kind, e.FromValue),
-			ToLabel:       domain.EventValueLabel(e.Kind, e.ToValue),
-			FromValue:     e.FromValue,
-			ToValue:       e.ToValue,
-			NoteID:        e.NoteID,
-			Summary:       domain.EventSummary(e),
-		})
-	}
+	notes := notePayloads(t.Notes)
+	activity := activityPayloads(t.Activity)
 	return taskPayload{
 		TaskID:             t.TaskID,
 		TaskNo:             t.TaskNo,
@@ -319,6 +299,8 @@ func toTaskPayload(t domain.Task, actor domain.Actor, now time.Time) taskPayload
 		Attachments:        attachments,
 		Notes:              notes,
 		Activity:           activity,
+		ActivityHasMore:    t.ActivityHasMore,
+		ActivityNextBefore: t.ActivityNextBefore,
 	}
 }
 
@@ -418,4 +400,45 @@ func rfc3339Ptr(t *time.Time) *string {
 	}
 	s := t.UTC().Format(time.RFC3339)
 	return &s
+}
+
+func notePayloads(in []domain.Note) []notePayload {
+	notes := make([]notePayload, 0, len(in))
+	for _, n := range in {
+		mentions := make([]mentionPayload, 0, len(n.Mentions))
+		for _, m := range n.Mentions {
+			mentions = append(mentions, mentionPayload{MentionID: m.MentionID, UserID: m.UserID, Name: m.Name})
+		}
+		notes = append(notes, notePayload{
+			NoteID:     n.NoteID,
+			AuthorID:   n.AuthorID,
+			AuthorName: n.AuthorName,
+			Body:       n.Body,
+			CreatedAt:  n.CreatedAt.UTC().Format(time.RFC3339),
+			Mentions:   mentions,
+		})
+	}
+	return notes
+}
+
+func activityPayloads(in []domain.Event) []activityPayload {
+	activity := make([]activityPayload, 0, len(in))
+	for _, e := range in {
+		activity = append(activity, activityPayload{
+			ID:            e.EventID,
+			Kind:          e.Kind,
+			OccurredAt:    e.OccurredAt.UTC().Format(time.RFC3339),
+			OccurredLabel: domain.EventOccurredLabel(e.OccurredAt),
+			ActorUserID:   e.ActorUserID,
+			ActorName:     e.ActorName,
+			ActorInitials: initialsOf(e.ActorName),
+			FromLabel:     domain.EventValueLabel(e.Kind, e.FromValue),
+			ToLabel:       domain.EventValueLabel(e.Kind, e.ToValue),
+			FromValue:     e.FromValue,
+			ToValue:       e.ToValue,
+			NoteID:        e.NoteID,
+			Summary:       domain.EventSummary(e),
+		})
+	}
+	return activity
 }

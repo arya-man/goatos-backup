@@ -54,13 +54,17 @@ export function TaskActivityFeed({
   notes,
   pageContract,
   composer,
+  older,
   initialView = "all",
 }: {
   activity: readonly LeadershipTaskActivity[];
   notes: TaskRow["notes"];
   pageContract: AdminUiPageContract;
-  /** The comment composer, rendered last, as Jira has it. */
+  /** The comment composer, rendered FIRST -- above the feed, under the tabs -- so a reader never
+   *  scrolls past every comment to write one (maintainer, 2026-09-18). */
   composer?: React.ReactNode;
+  /** The "older" control, rendered after the list when older rows exist. */
+  older?: React.ReactNode;
   initialView?: ActivityView;
 }) {
   const [view, setView] = useState<ActivityView>(initialView);
@@ -105,6 +109,8 @@ export function TaskActivityFeed({
         ))}
       </div>
 
+      {composer}
+
       {rows.length ? (
         <ol className="ltd-activity" role="tabpanel">
           {rows.map((entry) => {
@@ -142,7 +148,7 @@ export function TaskActivityFeed({
         </p>
       )}
 
-      {composer}
+      {older}
     </div>
   );
 }

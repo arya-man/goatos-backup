@@ -2,12 +2,16 @@ package postgres
 
 import (
 	"context"
+	"encoding/base64"
 	"fmt"
+	"strings"
 	"time"
 
 	"github.com/jackc/pgx/v5"
 
 	"github.com/vgoats/goatos/backend/internal/leadershiptasks/domain"
+	"github.com/vgoats/goatos/backend/internal/leadershiptasks/ports"
+	"github.com/vgoats/goatos/backend/internal/platform/uuidutil"
 )
 
 // The activity feed (migration 000349). One row per FACT that changed, written INSIDE the
@@ -38,7 +42,7 @@ WHERE e.tenant_id = $1 AND e.task_id = ANY($2::uuid[])
 ORDER BY e.task_id, e.occurred_at DESC, e.event_id DESC`
 
 // recordEvent writes one activity row inside tx.
-func recordEvent(ctx context.Context, tx pgx.Tx, tenantID, taskID string, at time.Time, actorID, kind, from, to, noteID string) error {
+func recordEvent(ctx context.Context, tx execer, tenantID, taskID string, at time.Time, actorID, kind, from, to, noteID string) error {
 	if _, err := tx.Exec(ctx, sqlInsertEvent, tenantID, taskID, at, actorID, kind, from, to, noteID); err != nil {
 		return fmt.Errorf("leadership task: record %s event: %w", kind, err)
 	}
@@ -87,12 +91,16 @@ func (r *Repository) eventsTo(ctx context.Context, q querier, tenantID string, t
 		return nil
 	}
 	ids, index := taskIndexOf(tasks)
-	rows, err := q.Query(ctx, sqlListEvents, tenantID, ids)
+	rows, err := q.Query(ctx, sqlListEventsWindow, tenantID, ids, domain.ActivityWindow+1)
 	if err != nil {
 		return fmt.Errorf("leadership task: list events: %w", err)
 	}
 	defer rows.Close()
-	return scanEventsInto(rows, tasks, index)
+	if err := scanEventsInto(rows, tasks, index); err != nil {
+		return err
+	}
+	trimActivityWindow(tasks)
+	return nil
 }
 
 // scanEventsInto hangs one event result set on its tasks, split out so the pipelined page
@@ -113,4 +121,142 @@ func scanEventsInto(rows pgx.Rows, tasks []domain.Task, index map[string]int) er
 		}
 	}
 	return rows.Err()
+}
+
+// ---- the bounded window ------------------------------------------------------------------
+//
+// A detail read carries the NEWEST domain.ActivityWindow rows of the feed (sqlListEventsWindow,
+// one LATERAL per task so a page of tasks is still one statement), and says whether older rows
+// exist. The older windows come one at a time through ActivityPage, keyed by an opaque cursor
+// (occurred_at, event_id) so the page is a keyset read on the feed's own index -- never an
+// OFFSET, never the whole history for a task with hundreds of comments.
+
+// projection-review: membership=leadership_task_events keyed on (tenant_id, task_id) per listed
+// task; group_key=none, one row per stored event; join_cardinality=workforce_members 1:1 on
+// (tenant_id, user_id, status='active'); pagination=keyset on (occurred_at DESC, event_id DESC)
+// with LIMIT $3 per task -- the window is per task, not across the page, so a chatty task
+// cannot starve a quiet one; scope=tenant_id = $1 first.
+const sqlListEventsWindow = `
+SELECT e.task_id::text, e.event_id::text, e.kind, e.occurred_at, e.actor_user_id::text,
+       COALESCE(w.display_name, ''), e.from_value, e.to_value, COALESCE(e.note_id::text, '')
+FROM unnest($2::uuid[]) AS ids(task_id)
+CROSS JOIN LATERAL (
+  SELECT * FROM public.leadership_task_events x
+  WHERE x.tenant_id = $1 AND x.task_id = ids.task_id
+  ORDER BY x.occurred_at DESC, x.event_id DESC
+  LIMIT $3
+) e
+LEFT JOIN public.workforce_members w
+       ON w.tenant_id = e.tenant_id AND w.user_id = e.actor_user_id AND w.status = 'active'
+ORDER BY e.task_id, e.occurred_at DESC, e.event_id DESC`
+
+// projection-review: membership=leadership_task_events for ONE task strictly before the cursor
+// pair; group_key=none; join_cardinality=workforce_members 1:1 as above; pagination=keyset on
+// (occurred_at, event_id) < ($3, $4), LIMIT $5; scope=tenant_id = $1 AND task_id = $2.
+const sqlListEventsBefore = `
+SELECT e.task_id::text, e.event_id::text, e.kind, e.occurred_at, e.actor_user_id::text,
+       COALESCE(w.display_name, ''), e.from_value, e.to_value, COALESCE(e.note_id::text, '')
+FROM public.leadership_task_events e
+LEFT JOIN public.workforce_members w
+       ON w.tenant_id = e.tenant_id AND w.user_id = e.actor_user_id AND w.status = 'active'
+WHERE e.tenant_id = $1 AND e.task_id = $2::uuid
+  AND (e.occurred_at, e.event_id) < ($3::timestamptz, $4::uuid)
+ORDER BY e.occurred_at DESC, e.event_id DESC
+LIMIT $5`
+
+// The notes the page's comment rows name -- the same window predicate, so the two queries in
+// the batch agree on which rows they describe.
+const sqlListNotesBefore = `
+SELECT n.task_id::text, n.note_id::text, n.author_user_id::text, COALESCE(w.display_name, ''), n.body, n.created_at
+FROM public.leadership_task_notes n
+LEFT JOIN public.workforce_members w
+       ON w.tenant_id = n.tenant_id AND w.user_id = n.author_user_id AND w.status = 'active'
+WHERE n.tenant_id = $1 AND n.note_id IN (
+  SELECT e.note_id FROM public.leadership_task_events e
+  WHERE e.tenant_id = $1 AND e.task_id = $2::uuid AND e.note_id IS NOT NULL
+    AND (e.occurred_at, e.event_id) < ($3::timestamptz, $4::uuid)
+  ORDER BY e.occurred_at DESC, e.event_id DESC
+  LIMIT $5
+)
+ORDER BY n.created_at DESC, n.note_id`
+
+const activityCursorSep = "\x1f"
+
+func encodeActivityCursor(e domain.Event) string {
+	return base64.RawURLEncoding.EncodeToString([]byte(e.OccurredAt.UTC().Format(time.RFC3339Nano) + activityCursorSep + e.EventID))
+}
+
+func decodeActivityCursor(cursor string) (time.Time, string, error) {
+	raw, err := base64.RawURLEncoding.DecodeString(strings.TrimSpace(cursor))
+	if err != nil {
+		return time.Time{}, "", ports.ErrInvalidArgument
+	}
+	parts := strings.SplitN(string(raw), activityCursorSep, 2)
+	if len(parts) != 2 || !uuidutil.IsUUIDString(parts[1]) {
+		return time.Time{}, "", ports.ErrInvalidArgument
+	}
+	at, err := time.Parse(time.RFC3339Nano, parts[0])
+	if err != nil {
+		return time.Time{}, "", ports.ErrInvalidArgument
+	}
+	return at, parts[1], nil
+}
+
+// trimActivityWindow keeps the newest ActivityWindow rows of each task's feed (the window
+// query fetched one more to learn whether older rows exist) and stamps the cursor.
+func trimActivityWindow(tasks []domain.Task) {
+	for i := range tasks {
+		if len(tasks[i].Activity) > domain.ActivityWindow {
+			tasks[i].Activity = tasks[i].Activity[:domain.ActivityWindow]
+			tasks[i].ActivityHasMore = true
+			tasks[i].ActivityNextBefore = encodeActivityCursor(tasks[i].Activity[domain.ActivityWindow-1])
+		}
+	}
+}
+
+// ActivityPage reads one older window of a task's feed; see the port.
+func (r *Repository) ActivityPage(ctx context.Context, tenantID, taskID, before string) (ports.ActivityPage, error) {
+	ctx, cancel := context.WithTimeout(ctx, r.timeout)
+	defer cancel()
+	at, eventID, err := decodeActivityCursor(before)
+	if err != nil {
+		return ports.ActivityPage{}, err
+	}
+	limit := domain.ActivityWindow + 1
+	b := &pgx.Batch{}
+	b.Queue(sqlListEventsBefore, tenantID, taskID, at, eventID, limit)
+	b.Queue(sqlListNotesBefore, tenantID, taskID, at, eventID, limit)
+	results := r.pool.SendBatch(ctx, b)
+	defer results.Close()
+
+	tasks := []domain.Task{{TaskID: taskID}}
+	index := map[string]int{taskID: 0}
+	eventRows, err := results.Query()
+	if err != nil {
+		return ports.ActivityPage{}, fmt.Errorf("leadership task: activity page: %w", err)
+	}
+	if err := scanEventsInto(eventRows, tasks, index); err != nil {
+		eventRows.Close()
+		return ports.ActivityPage{}, err
+	}
+	eventRows.Close()
+	noteRows, err := results.Query()
+	if err != nil {
+		return ports.ActivityPage{}, fmt.Errorf("leadership task: activity page notes: %w", err)
+	}
+	if err := scanNotesInto(noteRows, tasks, index); err != nil {
+		noteRows.Close()
+		return ports.ActivityPage{}, err
+	}
+	noteRows.Close()
+	if err := results.Close(); err != nil {
+		return ports.ActivityPage{}, err
+	}
+	trimActivityWindow(tasks)
+	return ports.ActivityPage{
+		Activity:   tasks[0].Activity,
+		Notes:      tasks[0].Notes,
+		HasMore:    tasks[0].ActivityHasMore,
+		NextBefore: tasks[0].ActivityNextBefore,
+	}, nil
 }

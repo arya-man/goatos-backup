@@ -249,14 +249,15 @@ func TestLeadershipTaskLifecyclePostgresPaths(t *testing.T) {
 		t.Fatalf("reopening a cancelled task: %v", err)
 	}
 
-	// 10. Every write announced itself: one raised event, five status events (start, done,
-	// reopen, cancel) -- the refused transitions emitted nothing.
+	// 10. Every write announced itself: one raised event, six status events (start, done, the
+	// monitor's reopen and done, the assignee's reopen, cancel) -- the refused transitions
+	// emitted nothing.
 	var raised, statusChanged int
 	if err := pool.QueryRow(ctx, `SELECT count(*) FILTER (WHERE event_type = 'leadership_task.raised'), count(*) FILTER (WHERE event_type = 'leadership_task.status_changed') FROM outbox_messages WHERE tenant_id = $1 AND aggregate_id = $2`, ltTenant, task.TaskID).Scan(&raised, &statusChanged); err != nil {
 		t.Fatalf("outbox count: %v", err)
 	}
-	if raised != 1 || statusChanged != 4 {
-		t.Fatalf("outbox rows: raised=%d status_changed=%d, want 1/4", raised, statusChanged)
+	if raised != 1 || statusChanged != 6 {
+		t.Fatalf("outbox rows: raised=%d status_changed=%d, want 1/6", raised, statusChanged)
 	}
 	var audited int
 	if err := pool.QueryRow(ctx, `SELECT count(*) FROM audit_log WHERE tenant_id = $1 AND resource_type = 'leadership_task' AND resource_id = $2`, ltTenant, task.TaskID).Scan(&audited); err != nil {
@@ -1190,19 +1191,23 @@ func TestLeadershipTaskListFiltersSortsAndCursorStayHonest(t *testing.T) {
 	// and the chip's count is that same set, whole-list, under the same filters -- never a sum
 	// of status buckets. A done task past its deadline is finished, not late; a task due
 	// exactly at the clock is not late yet.
-	lateOpen, err := repo.Raise(ctx, raiseWithDeadline(ltCXO, "Late open audit", "overdue-open", at(-2*time.Hour)))
+	// These are raised on a clock a day back: a deadline earlier than the raise instant is
+	// refused by the table (leadership_tasks_deadline_after_raise), and "late" here means the
+	// deadline has since passed, not that it was set in the past.
+	earlier := repo.WithClock(func() time.Time { return base.Add(-24 * time.Hour) })
+	lateOpen, err := earlier.Raise(ctx, raiseWithDeadline(ltCXO, "Late open audit", "overdue-open", at(-2*time.Hour)))
 	if err != nil {
 		t.Fatalf("raise late open: %v", err)
 	}
-	lateDone, err := repo.Raise(ctx, raiseWithDeadline(ltCXO, "Late but done audit", "overdue-done", at(-3*time.Hour)))
+	lateDone, err := earlier.Raise(ctx, raiseWithDeadline(ltCXO, "Late but done audit", "overdue-done", at(-3*time.Hour)))
 	if err != nil {
 		t.Fatalf("raise late done: %v", err)
 	}
 	cxoActor := domain.Actor{UserID: ltCXO, CanAct: true}
-	if _, err := repo.ChangeStatus(ctx, ports.StatusParams{TenantID: ltTenant, Actor: cxoActor, TaskID: lateDone.TaskID, Status: domain.StatusDone, RowVersion: lateDone.RowVersion, IdempotencyKey: "overdue-done-st"}); err != nil {
+	if _, err := earlier.ChangeStatus(ctx, ports.StatusParams{TenantID: ltTenant, Actor: cxoActor, TaskID: lateDone.TaskID, Status: domain.StatusDone, RowVersion: lateDone.RowVersion, IdempotencyKey: "overdue-done-st"}); err != nil {
 		t.Fatalf("finish late task: %v", err)
 	}
-	if _, err := repo.Raise(ctx, raiseWithDeadline(ltCXO, "Due exactly now audit", "overdue-edge", &base)); err != nil {
+	if _, err := earlier.Raise(ctx, raiseWithDeadline(ltCXO, "Due exactly now audit", "overdue-edge", &base)); err != nil {
 		t.Fatalf("raise edge: %v", err)
 	}
 	lens := list(t, ports.ListParams{Statuses: domain.StatusesForFilter(domain.FilterOverdue), OverdueBefore: &base, OverdueAt: base})

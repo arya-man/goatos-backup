@@ -7,8 +7,6 @@ import (
 	"github.com/google/uuid"
 	"time"
 
-	"github.com/jackc/pgx/v5"
-
 	"github.com/vgoats/goatos/backend/internal/leadershiptasks/domain"
 	"github.com/vgoats/goatos/backend/internal/platform/biztime"
 )
@@ -69,12 +67,12 @@ type eventExtras struct {
 }
 
 // emitEvent writes one task event into outbox_messages inside tx.
-func emitEvent(ctx context.Context, tx pgx.Tx, eventType string, t domain.Task, previousStatus, actorID, idempotencyKey string, now time.Time) error {
+func emitEvent(ctx context.Context, tx execer, eventType string, t domain.Task, previousStatus, actorID, idempotencyKey string, now time.Time) error {
 	return emitEventWith(ctx, tx, eventType, t, previousStatus, actorID, idempotencyKey, now, eventExtras{})
 }
 
 // emitEventWith is emitEvent plus the note/mention fields leadership_task.commented carries.
-func emitEventWith(ctx context.Context, tx pgx.Tx, eventType string, t domain.Task, previousStatus, actorID, idempotencyKey string, now time.Time, extra eventExtras) error {
+func emitEventWith(ctx context.Context, tx execer, eventType string, t domain.Task, previousStatus, actorID, idempotencyKey string, now time.Time, extra eventExtras) error {
 	// Minted in-process: a `SELECT gen_random_uuid()` was one more round trip inside a write
 	// transaction that already makes a dozen, and on a slow link it was the trip that tipped
 	// the whole transaction past the query timeout (Judge B).

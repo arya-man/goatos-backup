@@ -40,6 +40,9 @@ func (f *fakeRepo) ListTasks(context.Context, ports.ListParams) (ports.Page, err
 func (f *fakeRepo) GetTask(context.Context, string, string) (domain.Task, error) {
 	return f.task, f.getErr
 }
+func (f *fakeRepo) ActivityPage(context.Context, string, string, string) (ports.ActivityPage, error) {
+	return ports.ActivityPage{}, nil
+}
 func (f *fakeRepo) Raise(_ context.Context, p ports.RaiseParams) (domain.Task, error) {
 	f.raised = append(f.raised, p)
 	return domain.Task{TaskID: taskID, Attachments: p.Attachments}, nil

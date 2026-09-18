@@ -3721,6 +3721,26 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/app/leadership-tasks/{task_id}/activity": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * One older window of a task's history feed.
+         * @description The detail read carries the newest 20 feed rows; this returns the next 20 strictly before `before` (the previous window's `next_before` / the task's `activity_next_before`), with the notes those rows name. Keyset on the feed's own index -- never an offset, never the whole history. Same visibility as the detail: a task the caller cannot read answers 404.
+         */
+        get: operations["getLeadershipTaskActivity"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/app/leadership-tasks/{task_id}/edit": {
         parameters: {
             query?: never;
@@ -9184,11 +9204,24 @@ export interface components {
             attachments: components["schemas"]["LeadershipTaskAttachment"][];
             /** @description Chronological two-way task notes; either task party may append while active. */
             notes: components["schemas"]["LeadershipTaskNote"][];
-            /** @description The task's history feed, newest first; never empty (the raise itself is the first row). */
+            /** @description The NEWEST window of the task's history feed (20 rows), newest first; never empty (the raise itself is the first row). A longer feed sets activity_has_more and the client pages older rows through GET /app/leadership-tasks/{task_id}/activity?before=. */
             activity: components["schemas"]["LeadershipTaskActivity"][];
+            /** @description Older feed rows exist beyond the window carried in activity. */
+            activity_has_more?: boolean;
+            /** @description Opaque cursor for the next older window; empty when activity_has_more is false. */
+            activity_next_before?: string;
         };
         LeadershipTaskDetail: {
             task: components["schemas"]["LeadershipTask"];
+            trace_id: string;
+        };
+        /** @description One older window of a task's history feed, newest first, with the notes its comment rows name. */
+        LeadershipTaskActivityPage: {
+            activity: components["schemas"]["LeadershipTaskActivity"][];
+            notes: components["schemas"]["LeadershipTaskNote"][];
+            has_more: boolean;
+            /** @description Cursor for the next older window; empty at the end. */
+            next_before: string;
             trace_id: string;
         };
         LeadershipTaskFilter: {
@@ -25907,6 +25940,35 @@ export interface operations {
                     "application/json": components["schemas"]["LeadershipTaskDetail"];
                 };
             };
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFoundOrNotAllowed"];
+            500: components["responses"]["ServerError"];
+        };
+    };
+    getLeadershipTaskActivity: {
+        parameters: {
+            query: {
+                before: string;
+            };
+            header?: never;
+            path: {
+                task_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The older window. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["LeadershipTaskActivityPage"];
+                };
+            };
+            400: components["responses"]["BadRequest"];
             401: components["responses"]["Unauthorized"];
             403: components["responses"]["Forbidden"];
             404: components["responses"]["NotFoundOrNotAllowed"];

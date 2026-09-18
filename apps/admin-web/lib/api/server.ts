@@ -115,6 +115,8 @@ export type LeadershipTaskAssignees =
   AppApiComponents["schemas"]["LeadershipTaskAssignees"];
 export type LeadershipTaskDetail =
   AppApiComponents["schemas"]["LeadershipTaskDetail"];
+export type LeadershipTaskActivityPage =
+  AppApiComponents["schemas"]["LeadershipTaskActivityPage"];
 export type LeadershipTaskAttachment =
   AppApiComponents["schemas"]["LeadershipTaskAttachment"];
 export type LeadershipTaskActivity =
@@ -3584,6 +3586,21 @@ export async function getLeadershipTask(
     string;
   return request(() =>
     client.request<LeadershipTaskDetail>(path, { cache: "no-store" }),
+  );
+}
+
+/** One older window of a task's feed, strictly before `before` (see the OpenAPI note). */
+export async function getLeadershipTaskActivity(
+  taskId: string,
+  before: string,
+): Promise<ApiResult<LeadershipTaskActivityPage>> {
+  const config = await getServerConfig();
+  if (!config.ok) return config;
+  const client = createAppApiClient(apiClientOptions(config.data));
+  const path = `/app/leadership-tasks/${encodeURIComponent(taskId)}/activity?before=${encodeURIComponent(before)}` as keyof AppApiPaths &
+    string;
+  return request(() =>
+    client.request<LeadershipTaskActivityPage>(path, { cache: "no-store" }),
   );
 }
 

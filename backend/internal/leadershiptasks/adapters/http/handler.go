@@ -29,6 +29,7 @@ type Service interface {
 	ListMentionableUsers(ctx context.Context, tenantID string, actor domain.Actor, taskID string) ([]domain.MentionableUser, error)
 	ListTasks(ctx context.Context, req app.ListRequest) (ports.Page, error)
 	GetTask(ctx context.Context, tenantID string, actor domain.Actor, taskID string) (domain.Task, error)
+	ActivityPage(ctx context.Context, tenantID string, actor domain.Actor, taskID, before string) (ports.ActivityPage, error)
 	Raise(ctx context.Context, p ports.RaiseParams) (domain.Task, error)
 	Edit(ctx context.Context, p ports.EditParams) (domain.Task, error)
 	ChangeStatus(ctx context.Context, p ports.StatusParams) (domain.Task, error)
@@ -62,6 +63,7 @@ func Register(mux *http.ServeMux, h *Handler) {
 	mux.HandleFunc("GET /app/leadership-tasks", h.ListTasks)
 	mux.HandleFunc("GET /app/leadership-tasks/assignees", h.ListAssignees)
 	mux.HandleFunc("GET /app/leadership-tasks/{task_id}", h.GetTask)
+	mux.HandleFunc("GET /app/leadership-tasks/{task_id}/activity", h.GetTaskActivity)
 	mux.HandleFunc("GET /app/leadership-tasks/{task_id}/mentionable-users", h.ListMentionableUsers)
 	mux.HandleFunc("POST /app/leadership-tasks", h.Raise)
 	mux.HandleFunc("POST /app/leadership-tasks/{task_id}/edit", h.Edit)
@@ -180,6 +182,28 @@ func (h *Handler) GetTask(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	httpresponse.WriteJSON(w, http.StatusOK, taskDetailPayload{Task: toTaskPayload(task, actor, h.service.Now()), TraceID: traceID(r)})
+}
+
+// GetTaskActivity serves GET /app/leadership-tasks/{task_id}/activity?before= -- one older
+// window of the feed, for the drawer's "older" control.
+func (h *Handler) GetTaskActivity(w http.ResponseWriter, r *http.Request) {
+	actor := actorFrom(r)
+	page, err := h.service.ActivityPage(r.Context(), tenantID(r), actor, r.PathValue("task_id"), r.URL.Query().Get("before"))
+	if errors.Is(err, ports.ErrInvalidArgument) {
+		h.writeErr(w, r, app.BadRequest("invalid_cursor", "That activity cursor is not valid."))
+		return
+	}
+	if err != nil {
+		h.writeCause(w, r, err)
+		return
+	}
+	httpresponse.WriteJSON(w, http.StatusOK, activityPagePayload{
+		Activity:   activityPayloads(page.Activity),
+		Notes:      notePayloads(page.Notes),
+		HasMore:    page.HasMore,
+		NextBefore: page.NextBefore,
+		TraceID:    traceID(r),
+	})
 }
 
 // Raise serves POST /app/leadership-tasks.

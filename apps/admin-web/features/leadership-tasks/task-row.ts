@@ -52,6 +52,9 @@ export type TaskRow = {
    * All tabs are views over this one list (`task-activity-feed.tsx`); nothing is derived here.
    */
   activity: LeadershipTaskActivity[];
+  /** The feed above is the newest window; older rows exist and `activityNextBefore` pages them. */
+  activityHasMore: boolean;
+  activityNextBefore: string;
   /**
    * The deadline countdown, backend-composed and rendered verbatim (maintainer decision
    * 2026-09-14): days left to the deadline (0 = due today, negative = overdue), its tone
@@ -102,6 +105,8 @@ export function rowFromTask(task: LeadershipTaskPage["rows"][number]): TaskRow {
       attachmentRows: task.attachments ?? [],
       notes: task.notes ?? [],
       activity: task.activity ?? [],
+      activityHasMore: Boolean(task.activity_has_more),
+      activityNextBefore: task.activity_next_before ?? "",
       daysLeft: task.days_left ?? null,
       daysLeftLabel: task.days_left_label ?? "",
       deadlineTone: (task.deadline_tone ?? "") as TaskRow["deadlineTone"],

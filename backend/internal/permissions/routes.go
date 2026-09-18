@@ -440,6 +440,7 @@ var protectedRoutes = []Route{
 	{OperationID: "listLeadershipTasks", Method: "GET", Pattern: "/app/leadership-tasks", Permissions: []string{LeadershipTasksRead}},
 	{OperationID: "listLeadershipTaskAssignees", Method: "GET", Pattern: "/app/leadership-tasks/assignees", Permissions: []string{LeadershipTasksRaise}},
 	{OperationID: "getLeadershipTask", Method: "GET", Pattern: "/app/leadership-tasks/{task_id}", Permissions: []string{LeadershipTasksRead}},
+	{OperationID: "getLeadershipTaskActivity", Method: "GET", Pattern: "/app/leadership-tasks/{task_id}/activity", Permissions: []string{LeadershipTasksRead}},
 	// The `@` autocomplete of ONE task. LeadershipTasksRead like the detail it belongs to, and
 	// the service additionally refuses a task the caller cannot read, so the list cannot be
 	// used to enumerate the leadership roster from a task nobody showed them.

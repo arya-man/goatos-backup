@@ -2134,6 +2134,10 @@ func pageSpecificCopy(id string) map[string]string {
 			"detail.read_only": "Only the person who raised this task can edit it.",
 			// A finished task is not editable by anyone (CanEdit requires open-for-work); saying
 			// "only the raiser" to the CEO looking at a Done task was wrong (2026-09-18).
+			// The feed carries its newest 20 rows; these page the rest, one window at a time.
+			"activity.older":          "Show older activity",
+			"activity.older_loading":  "Loading older…",
+			"activity.older_failed":   "Older activity could not be loaded. Try again.",
 			"detail.read_only_closed": "A finished task can't be edited. Reopen it to change the details.",
 			// The drawer's ONE status control: the pill opens a menu of the task's status_options
 			// (Cancel task last, in the danger tone). The confirm is asked before a cancel only,

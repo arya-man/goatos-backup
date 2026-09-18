@@ -477,6 +477,8 @@ const fixtureTasks: TaskRow[] = [
     attachmentKinds: ["video", "audio"],
     attachmentRows: [],
     notes: [],
+    activityHasMore: false,
+    activityNextBefore: "",
     activity: [
       {
         id: "a1111111-1111-4111-8111-111111111111",
@@ -539,6 +541,8 @@ const fixtureTasks: TaskRow[] = [
     attachmentKinds: ["file"],
     attachmentRows: [],
     notes: [],
+    activityHasMore: false,
+    activityNextBefore: "",
     activity: [
       {
         id: "a4444444-4444-4444-8444-444444444441",

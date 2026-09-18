@@ -265,6 +265,19 @@ func (s *Service) GetTask(ctx context.Context, tenantID string, actor domain.Act
 	return task, nil
 }
 
+// ActivityPage is one older window of a task's feed. The visibility rule is the detail's
+// (CanRead), checked on the task row first, so the cursor cannot page a feed the caller was
+// never shown.
+func (s *Service) ActivityPage(ctx context.Context, tenantID string, actor domain.Actor, taskID, before string) (ports.ActivityPage, error) {
+	if _, err := s.GetTask(ctx, tenantID, actor, taskID); err != nil {
+		return ports.ActivityPage{}, err
+	}
+	if strings.TrimSpace(before) == "" {
+		return ports.ActivityPage{}, ports.ErrInvalidArgument
+	}
+	return s.repo.ActivityPage(ctx, tenantID, taskID, before)
+}
+
 // Raise validates and records a new task. The attachments are resolved against the proof
 // store BEFORE the write so a task never points at bytes that are not there.
 func (s *Service) Raise(ctx context.Context, p ports.RaiseParams) (domain.Task, error) {

@@ -9683,6 +9683,43 @@ paths:
           $ref: "#/components/responses/NotFoundOrNotAllowed"
         "500":
           $ref: "#/components/responses/ServerError"
+  /app/leadership-tasks/{task_id}/activity:
+    get:
+      tags:
+        - Leadership Tasks
+      operationId: getLeadershipTaskActivity
+      summary: One older window of a task's history feed.
+      description: >-
+        The detail read carries the newest 20 feed rows; this returns the next 20 strictly before
+        `before` (the previous window's `next_before` / the task's `activity_next_before`), with the
+        notes those rows name. Keyset on the feed's own index -- never an offset, never the whole
+        history. Same visibility as the detail: a task the caller cannot read answers 404.
+      parameters:
+        - name: task_id
+          in: path
+          required: true
+          schema: { type: string }
+        - name: before
+          in: query
+          required: true
+          schema: { type: string }
+      responses:
+        "200":
+          description: The older window.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/LeadershipTaskActivityPage"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFoundOrNotAllowed"
+        "500":
+          $ref: "#/components/responses/ServerError"
   /app/leadership-tasks/{task_id}/edit:
     post:
       tags:
@@ -20965,15 +21002,40 @@ components:
             $ref: "#/components/schemas/LeadershipTaskNote"
         activity:
           type: array
-          description: The task's history feed, newest first; never empty (the raise itself is the first row).
+          description: >-
+            The NEWEST window of the task's history feed (20 rows), newest first; never empty (the
+            raise itself is the first row). A longer feed sets activity_has_more and the client
+            pages older rows through GET /app/leadership-tasks/{task_id}/activity?before=.
           items:
             $ref: "#/components/schemas/LeadershipTaskActivity"
+        activity_has_more:
+          type: boolean
+          description: Older feed rows exist beyond the window carried in activity.
+        activity_next_before:
+          type: string
+          description: Opaque cursor for the next older window; empty when activity_has_more is false.
     LeadershipTaskDetail:
       type: object
       required: [task, trace_id]
       properties:
         task:
           $ref: "#/components/schemas/LeadershipTask"
+        trace_id: { type: string }
+    LeadershipTaskActivityPage:
+      type: object
+      description: One older window of a task's history feed, newest first, with the notes its comment rows name.
+      required: [activity, notes, has_more, next_before, trace_id]
+      properties:
+        activity:
+          type: array
+          items:
+            $ref: "#/components/schemas/LeadershipTaskActivity"
+        notes:
+          type: array
+          items:
+            $ref: "#/components/schemas/LeadershipTaskNote"
+        has_more: { type: boolean }
+        next_before: { type: string, description: Cursor for the next older window; empty at the end. }
         trace_id: { type: string }
     LeadershipTaskFilter:
       type: object

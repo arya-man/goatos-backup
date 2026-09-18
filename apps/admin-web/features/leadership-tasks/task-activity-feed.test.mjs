@@ -113,7 +113,14 @@ test("Comments reads each comment's text from its note and shows the empty copy 
   assert.match(empty, new RegExp(contract.copy["activity.empty_comments"]));
 });
 
-test("the composer is rendered last, after the rows", () => {
-  const html = render({ composer: React.createElement("div", { id: "composer" }, "compose") });
-  assert.ok(html.lastIndexOf('id="composer"') > html.lastIndexOf("data-ltd-kind="));
+test("the composer is rendered FIRST, under the tabs and above the rows; the older control last", () => {
+  // Maintainer, 2026-09-18: "comment box should always be top -- you expect me to scroll all
+  // comments to enter a new comment?"
+  const html = render({
+    composer: React.createElement("div", { id: "composer" }, "compose"),
+    older: React.createElement("div", { id: "older" }, "older"),
+  });
+  assert.ok(html.indexOf('id="composer"') > html.indexOf('class="ltd-feed-tabs"'));
+  assert.ok(html.indexOf('id="composer"') < html.indexOf("data-ltd-kind="));
+  assert.ok(html.lastIndexOf('id="older"') > html.lastIndexOf("data-ltd-kind="));
 });
