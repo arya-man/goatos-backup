@@ -7,7 +7,8 @@ import {
   normalizeTaskQuery,
   normalizeTaskScope,
   normalizeTaskSort,
-  normalizeTaskView,
+  resolveTaskView,
+  TASK_VIEW_ALIAS,
   taskUuidFilter,
   unprefixedTaskParamAliases,
   type TaskDateRange,
@@ -155,7 +156,8 @@ export function parseTasksParams(
       one(params, TASK_PARAM.raisedTo),
     ),
     sort: normalizeTaskSort(one(params, TASK_PARAM.sort)),
-    view: normalizeTaskView(one(params, TASK_PARAM.view)),
+    // `t_view` wins; a bare `view` is honoured as a read-only alias (B5, see `resolveTaskView`).
+    view: resolveTaskView(one(params, TASK_PARAM.view), one(params, TASK_VIEW_ALIAS)),
     // A page size the contract does not offer is not honoured: the backend caps at 50 and the
     // pager can only highlight a size it renders.
     limit: pageSizeOptions.includes(requestedLimit) ? requestedLimit : defaultLimit(pageSizeOptions),

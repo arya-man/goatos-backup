@@ -32,7 +32,7 @@ import {
 import { personOptions, rowsFromPage, type TaskRow } from "./task-row";
 import { TaskDetailPanel } from "./task-detail-panel";
 import { TaskFeedbackBanner } from "./task-feedback-banner";
-import { TASK_VIEWS, TASKS_PATHNAME, TASKS_PREVIEW_PATHNAME } from "./task-url";
+import { TASK_VIEW_ALIAS, TASK_VIEWS, TASKS_PATHNAME, TASKS_PREVIEW_PATHNAME } from "./task-url";
 
 const TABLE_ID = "leadership-task-progress";
 
@@ -115,10 +115,9 @@ export function LeadershipTasksPage({
   const viewOptions: SegmentedOption[] = TASK_VIEWS.map((view) => ({
     value: view,
     label: copy(pageContract, `board.view.${view}`, view === "board" ? "Board" : "List"),
-    // The unprefixed `view` alias is DROPPED by the toggle: leaving a parameter in the URL that
-    // this page has just told the reader it ignores is how the same confusion comes back one
-    // click later.
-    href: tasksHref(basePath, sp, { [TASK_PARAM.view]: view, view: null }, { resetPaging: false }),
+    // The unprefixed `view` alias is DROPPED by the toggle: it is honoured on read, but a URL
+    // carrying both `view=list` and `t_view=board` is one where the reader cannot tell which won.
+    href: tasksHref(basePath, sp, { [TASK_PARAM.view]: view, [TASK_VIEW_ALIAS]: null }, { resetPaging: false }),
   }));
 
   const statusChips: TaskStatusChip[] = (page?.filters ?? []).map((filter) => ({
@@ -202,10 +201,11 @@ export function LeadershipTasksPage({
       ) : null}
 
       {/* AN IGNORED PARAMETER, SAID OUT LOUD.
-          `?view=list` is not this page's parameter — `view` belongs to three other screens, so
-          honouring it here would re-create the cross-screen collision the `t_` prefix exists to
-          prevent. Silently defaulting is what handed the maintainer a board they thought was a
-          list, so the page names what it did not read and offers the corrected link. */}
+          Silently defaulting on a parameter that LOOKS like one of ours is what handed the
+          maintainer a board they thought was a list (`?view=list`, B5). `view` is now read as an
+          alias of `t_view` (`resolveTaskView`); the remaining unprefixed names (`q`, `sort`,
+          `limit`, `page`, ...) are other screens' generic parameters and stay unread, so the page
+          names what it did not read and offers the corrected link. */}
       {params.ignoredAliases.length ? (
         <div className="lt-aliasnote" role="status">
           <span>

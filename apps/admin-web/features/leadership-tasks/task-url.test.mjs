@@ -11,6 +11,7 @@ import {
   normalizeTaskSort,
   boardColumnsForFilter,
   safeTaskReturnTo,
+  resolveTaskView,
   unprefixedTaskParamAliases,
   TASK_QUERY_MAX,
   taskUuidFilter,
@@ -122,12 +123,25 @@ test("a board under a status filter draws only that status's column", () => {
   }
 });
 
-test("an unprefixed parameter this page does not read is reported, not honoured", () => {
+test("`view` is read as an alias of `t_view`, and `t_view` wins when both are present", () => {
   // B5: `?view=list` looked like it selected a view and was silently ignored.
-  assert.deepEqual(unprefixedTaskParamAliases(["view"]), [{ alias: "view", param: "t_view" }]);
+  assert.equal(resolveTaskView(undefined, "list"), "list");
+  assert.equal(resolveTaskView(undefined, "board"), "board");
+  assert.equal(resolveTaskView("board", "list"), "board");
+  assert.equal(resolveTaskView("list", "board"), "list");
+  // An empty `t_view=` does not shadow the alias.
+  assert.equal(resolveTaskView("", "list"), "list");
+  // Another screen's `view` value pasted onto /tasks selects nothing: the default view.
+  assert.equal(resolveTaskView(undefined, "schedule"), "board");
+  assert.equal(resolveTaskView(undefined, undefined), "board");
+  // Because it is honoured, it is NOT reported as ignored.
+  assert.deepEqual(unprefixedTaskParamAliases(["view"]), []);
+});
+
+test("an unprefixed parameter this page does not read is reported, not honoured", () => {
   assert.deepEqual(unprefixedTaskParamAliases(["scope", "filter", "task"]), []);
   // An alias BESIDE its real parameter is not a trap: the prefixed one wins unambiguously.
-  assert.deepEqual(unprefixedTaskParamAliases(["view", "t_view"]), []);
+  assert.deepEqual(unprefixedTaskParamAliases(["sort", "t_sort"]), []);
   // Several at once, each named with the parameter it meant.
   assert.deepEqual(unprefixedTaskParamAliases(["q", "sort"]), [
     { alias: "q", param: "t_q" },

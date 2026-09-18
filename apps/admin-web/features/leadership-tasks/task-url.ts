@@ -71,17 +71,34 @@ export function boardColumnsForFilter(filter: TaskFilter): readonly TaskBoardCol
 }
 
 /**
- * The UNPREFIXED names a reader plausibly types for a `t_`-prefixed parameter this page owns.
+ * `view` is accepted as an ALIAS of `t_view` on read — and only on read.
  *
- * `?view=list` is silently ignored here, which is how a hand-written link can look like it
- * selects a view and not select one. The alias is deliberately NOT accepted: `view` is already
- * owned by three other screens (`/vaccination?view=schedule`, the calendar's month picker,
- * procurement's sales loads), and honouring it here would re-introduce exactly the cross-screen
- * collision the `t_` prefix exists to prevent (see `params.ts`). So the page IGNORES it LOUDLY —
- * it names the parameter it did not read, names the one it does, and offers the corrected link.
+ * B5: `?view=list` was silently ignored, so a hand-written link looked like it selected a view
+ * and did not. `view` cannot be this page's parameter NAME (three other screens own it, which is
+ * what the `t_` prefix is for), but honouring it as a read-only alias costs nothing: the value is
+ * still passed through `normalizeTaskView`, so `/vaccination?view=schedule` pasted onto `/tasks`
+ * falls back to the default view rather than doing anything. `t_view` wins when both are present,
+ * every link this page writes uses `t_view`, and the Board/List toggle DROPS a stray `view` so the
+ * alias never survives past the first navigation.
+ */
+export const TASK_VIEW_ALIAS = "view";
+
+export function resolveTaskView(prefixed: string | undefined, alias: string | undefined): TaskView {
+  if (prefixed !== undefined && prefixed !== "") return normalizeTaskView(prefixed);
+  return normalizeTaskView(alias);
+}
+
+/**
+ * The UNPREFIXED names a reader plausibly types for a `t_`-prefixed parameter this page owns,
+ * and which the page does NOT read. It IGNORES them LOUDLY: it names the parameter it did not
+ * read, names the one it does, and offers the corrected link.
+ *
+ * `view` is not in this table because it IS read, as an alias (`resolveTaskView`). The rest stay
+ * ignored rather than aliased because `q`, `sort`, `limit` and `page` are the generic names the
+ * shell and several other worklists write, and honouring them here would filter this list with
+ * another screen's state.
  */
 export const UNPREFIXED_TASK_PARAM_ALIASES: Readonly<Record<string, string>> = {
-  view: "t_view",
   q: "t_q",
   sort: "t_sort",
   assignee: "t_assignee",
