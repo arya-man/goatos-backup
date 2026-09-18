@@ -52,12 +52,23 @@ test("api post-migration restore preserves staging latency scale settings", () =
   const restore = indexOfOrThrowAfter('run gcloud run services update "$API_SERVICE"', migrate);
   const apiTraffic = indexOfOrThrowAfter('run gcloud run services update-traffic "$API_SERVICE"', restore);
   const restoreBlock = script.slice(restore, apiTraffic);
+  const captureCreated = indexOfOrThrowAfter("api_revision=\"$(gcloud run services describe \"$API_SERVICE\"", restore);
+  const waitCreated = indexOfOrThrowAfter('wait_revision_ready "$api_revision" "api post-migration pre-traffic"', captureCreated);
 
   assert.match(restoreBlock, /--min=1\s+\\/, "api restore must keep one warm instance");
   assert.match(restoreBlock, /--max=2\s+\\/, "api restore must restore the intended cost-capped max scale");
   assert.match(restoreBlock, /--min-instances=1\s+\\/, "api restore must preserve min instance annotation");
   assert.match(restoreBlock, /--max-instances=2\s+\\/, "api restore must preserve max instance annotation");
   assert.match(restoreBlock, /--concurrency=10\s+\\/, "api restore must cap per-instance request concurrency to the default DB pool");
+  assert.match(restoreBlock, /--no-traffic\s+\\/, "api restore must create the new revision without sending live traffic to it");
+  assert.ok(captureCreated > restore, "deploy must capture the new api revision after creation");
+  assert.ok(waitCreated > captureCreated, "deploy must wait for the captured api revision before traffic");
+  assert.ok(apiTraffic > waitCreated, "api traffic must move only after the captured revision is ready");
+  assert.match(
+    script.slice(apiTraffic, indexOfOrThrowAfter('wait_service_ready "$API_SERVICE" "post-migration restore"', apiTraffic)),
+    /--to-revisions=\$\{api_revision\}=100/,
+    "api traffic must pin the verified revision, not blindly route to latest",
+  );
 });
 
 test("api terraform and deploy restore keep the same latency shape", () => {
@@ -77,6 +88,30 @@ test("api terraform and deploy restore keep the same latency shape", () => {
   assert.match(restoreBlock, /--min=1\s+\\/, "deploy restore must match terraform min scale");
   assert.match(restoreBlock, /--max=2\s+\\/, "deploy restore must match terraform max scale");
   assert.match(restoreBlock, /--concurrency=10\s+\\/, "deploy restore must match terraform concurrency");
+  assert.match(restoreBlock, /--ingress=internal-and-cloud-load-balancing\s+\\/, "api must remain reachable through the public HTTPS load balancer");
+});
+
+test("pre-migration fallback cannot take public dashboard or API traffic", () => {
+  const fallback = indexOfOrThrow('if [[ "$GOATOS_STG_ZERO_DOWNTIME_DEPLOY" == "true" ]]');
+  const migrate = indexOfOrThrow('run gcloud run jobs execute "$MIGRATE_JOB"');
+  const preMigrationBlock = script.slice(fallback, migrate);
+
+  assert.doesNotMatch(
+    preMigrationBlock,
+    /--ingress=internal\s+\\/,
+    "pre-migration updates must not block the HTTPS load balancer",
+  );
+  assert.match(
+    preMigrationBlock,
+    /--ingress=internal-and-cloud-load-balancing\s+\\/,
+    "pre-migration updates must preserve load-balancer ingress",
+  );
+  assert.match(preMigrationBlock, /--no-traffic\s+\\/, "pre-migration candidate revisions must not receive live traffic");
+  assert.doesNotMatch(
+    preMigrationBlock,
+    /run gcloud run services update-traffic "\$API_SERVICE"/,
+    "API traffic must not move before migrations finish",
+  );
 });
 
 test("release wrapper verifies the same api latency shape and has safe deploy defaults", () => {

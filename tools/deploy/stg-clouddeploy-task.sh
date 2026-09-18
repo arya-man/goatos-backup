@@ -635,6 +635,7 @@ deploy() {
   local old_api_revisions=()
   local old_worker_revisions=()
   local revision
+  local api_revision
   local admin_web_revision
 
   # Fail before touching the database when Terraform has not created every
@@ -657,16 +658,18 @@ deploy() {
   if [[ "$GOATOS_STG_ZERO_DOWNTIME_DEPLOY" == "true" ]]; then
     echo "zero-downtime STG deploy: keeping public API/admin revisions serving during migration"
   else
-    # Emergency fallback for a known destructive migration. This deliberately causes
-    # public API/admin downtime and should not be the normal Slack deploy path.
+    # Emergency fallback for a known destructive migration. Keep current public
+    # API/admin traffic pinned; create candidate revisions without traffic so a
+    # failed migration cannot take dashboard.mesha.sg or mobile APIs down.
     run gcloud run services update "$ADMIN_WEB_SERVICE" \
       --project="$PROJECT_ID" \
       --region="$REGION" \
-      --ingress=internal \
+      --ingress=internal-and-cloud-load-balancing \
       --min=0 \
       --max=1 \
       --min-instances=0 \
       --max-instances=1 \
+      --no-traffic \
       --update-labels="commit_sha=${COMMIT_SHA},deployed_by=cloud-deploy,rollout_phase=pre_migration_quiesce" \
       --quiet
     wait_service_ready "$ADMIN_WEB_SERVICE" "pre-migration quiesce"
@@ -680,13 +683,9 @@ deploy() {
       --project="$PROJECT_ID" \
       --region="$REGION" \
       --image="$BACKEND_IMAGE" \
-      --ingress=internal \
+      --ingress=internal-and-cloud-load-balancing \
+      --no-traffic \
       --update-labels="commit_sha=${COMMIT_SHA},deployed_by=cloud-deploy,rollout_phase=pre_migration_quiesce" \
-      --quiet
-    run gcloud run services update-traffic "$API_SERVICE" \
-      --project="$PROJECT_ID" \
-      --region="$REGION" \
-      --to-latest \
       --quiet
     wait_service_ready "$API_SERVICE" "pre-migration quiesce"
   fi
@@ -755,18 +754,25 @@ deploy() {
     --project="$PROJECT_ID" \
     --region="$REGION" \
     --image="$BACKEND_IMAGE" \
-    --ingress=all \
+    --ingress=internal-and-cloud-load-balancing \
     --min=1 \
     --max=2 \
     --min-instances=1 \
     --max-instances=2 \
     --concurrency=10 \
+    --no-traffic \
     --update-labels="commit_sha=${COMMIT_SHA},deployed_by=cloud-deploy" \
     --quiet
+  api_revision="$(gcloud run services describe "$API_SERVICE" \
+    --project="$PROJECT_ID" \
+    --region="$REGION" \
+    --format='value(status.latestCreatedRevisionName)')"
+  [[ -n "$api_revision" ]] || die "$API_SERVICE did not create an API revision before traffic switch"
+  wait_revision_ready "$api_revision" "api post-migration pre-traffic"
   run gcloud run services update-traffic "$API_SERVICE" \
     --project="$PROJECT_ID" \
     --region="$REGION" \
-    --to-latest \
+    "--to-revisions=${api_revision}=100" \
     --quiet
   wait_service_ready "$API_SERVICE" "post-migration restore"
 
@@ -873,7 +879,7 @@ deploy() {
     --image="$ADMIN_WEB_IMAGE" \
     --command="node" \
     --args="apps/admin-web/server.js" \
-    --ingress=all \
+    --ingress=internal-and-cloud-load-balancing \
     --min=1 \
     --max=2 \
     --min-instances=1 \
@@ -892,7 +898,7 @@ deploy() {
   run gcloud run services update-traffic "$ADMIN_WEB_SERVICE" \
     --project="$PROJECT_ID" \
     --region="$REGION" \
-    --to-latest \
+    "--to-revisions=${admin_web_revision}=100" \
     --quiet
 
   [[ "$(service_image "$API_SERVICE")" == "$BACKEND_IMAGE" ]] || die "$API_SERVICE image did not settle on $BACKEND_IMAGE"
