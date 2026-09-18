@@ -4,7 +4,7 @@
  * A textarea that opens a people picker when you type `@`.
  *
  * Standalone and reusable: it takes its candidate list as a prop (no fetching of its own), and it
- * emits BOTH halves of the answer — the display text the person wrote, and the explicit
+ * emits BOTH halves of the answer -- the display text the person wrote, and the explicit
  * `user_id`s they picked. The ids are the contract with the backend: display names collide on a
  * real roster, and the Android app ships on its own release train and would render an inline
  * token format as raw characters, so nothing downstream re-derives a person from the prose.
@@ -13,36 +13,49 @@
  * drop into an existing `<form action={serverAction}>` without the parent becoming controlled.
  * Without JavaScript the textarea still submits its text; only the picker needs JS.
  *
- * MOBILE (390px, WhatsApp in-app webview). The popup is absolutely positioned INSIDE this
- * component's own relative wrapper — never `position: fixed`, which drifts when the webview's
- * retractable chrome moves — is capped in `dvh` (never `vh`, for the same reason), never exceeds
- * the wrapper's width, and every row clears 44px. It is rendered after the textarea in the DOM,
- * so the on-screen keyboard pushes the field up and the list stays attached to it.
+ * WHAT IS EAGER AND WHAT IS NOT, and why the line is drawn here. This file -- the field, the
+ * hint, the chips' host and the hidden mentions input -- is in the shared client chunk of every
+ * route, because the no-JS submit depends on the textarea being in the SERVER-RENDERED HTML. The
+ * @-picker (`./mention-picker`, which pulls in `./mention-model`) is pure enhancement and is
+ * fetched on first use: it was 4.6 KB gzip that every one of the 63 routes carried to render a
+ * popup almost none of them can open. Deferring the WHOLE component instead would have taken the
+ * textarea out of the HTML and broken the no-JS submit, which is why the split is here and not a
+ * `lazy()` around the export.
  *
- * STYLING: existing shared classes only (`.fld`, `.card`, `.pm-item`, `.pm-hint`, `.achip`,
- * `.pn`, `.pr`, `.muted`). `app/mesha-theme.css` is owned by another agent this round, so the few
- * popover rules no shared class carries are inline and commented.
+ * Two properties this split has to keep, both proven in a browser rather than argued:
+ *
+ *  - The textarea is the SAME DOM node before and after the picker chunk lands. It is rendered
+ *    unconditionally, outside the Suspense boundary, so nothing about the load remounts it, moves
+ *    focus, or drops a keystroke typed while the chunk is in flight.
+ *  - The `@` that starts the load is not swallowed. The trigger IS the load trigger, and the
+ *    picker derives whether it is open from the field's current (text, caret) when it mounts --
+ *    not from the keystroke that fetched it -- so a reader who types `@ra` before the chunk
+ *    arrives gets the popup for `ra` the moment it does.
+ *
+ * MOBILE (390px, WhatsApp in-app webview): see the picker module; the popup lives inside this
+ * component's own relative wrapper so it cannot overflow the viewport.
+ *
+ * STYLING: existing shared classes only (`.fld`, `.pm-hint`).
  */
 
-import { useCallback, useId, useMemo, useRef, useState } from "react";
-import { X } from "lucide-react";
+import { lazy, Suspense, useCallback, useId, useMemo, useRef, useState } from "react";
 import type { MentionComposerCopy } from "./notification-copy";
 import {
-  activeMentionQuery,
-  applyMentionSelection,
-  filterMentionCandidates,
-  MENTION_KEYS,
-  MENTION_RESULT_LIMIT,
+  MENTION_TRIGGER,
   mentionValue,
-  moveMentionHighlight,
   pruneMentionSelections,
   selectedMentionUserIds,
   type MentionCandidate,
   type MentionSelection,
   type MentionValue,
-} from "./mention-model";
+} from "./mention-value.ts";
+import type { MentionPopupState } from "./mention-picker";
 
-export type { MentionCandidate, MentionValue } from "./mention-model";
+export type { MentionCandidate, MentionValue } from "./mention-value.ts";
+
+// The picker's chunk. Requested the first time the text holds a `@`, and never on a route where
+// nobody types one.
+const MentionPicker = lazy(() => import("./mention-picker"));
 
 export function MentionTextarea({
   name,
@@ -81,15 +94,16 @@ export function MentionTextarea({
   const fieldId = textareaId ?? `${generatedId}-mention-field`;
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const [text, setText] = useState(defaultValue);
+  const [caret, setCaret] = useState(defaultValue.length);
   const [selections, setSelections] = useState<MentionSelection[]>([]);
-  const [query, setQuery] = useState<string | null>(null);
-  const [highlight, setHighlight] = useState(0);
-
-  const matches = useMemo(
-    () => (query === null ? [] : filterMentionCandidates(candidates, query, MENTION_RESULT_LIMIT)),
-    [candidates, query],
-  );
-  const popupOpen = query !== null;
+  // Whether the picker's chunk has been asked for. One way only: once a `@` has been typed the
+  // popup may be needed again at any keystroke, and a second fetch would be a second stall.
+  const [pickerWanted, setPickerWanted] = useState(false);
+  // Blur and Escape close the popup without unloading it. The picker reads this rather than
+  // keeping its own open flag, so the field stays the one owner of whether a popup is wanted.
+  const [suppressed, setSuppressed] = useState(false);
+  const [popup, setPopup] = useState<MentionPopupState>({ open: false });
+  const keyHandlerRef = useRef<((event: React.KeyboardEvent<HTMLTextAreaElement>) => boolean) | null>(null);
 
   const emit = useCallback(
     (nextText: string, nextSelections: MentionSelection[]) => {
@@ -99,86 +113,68 @@ export function MentionTextarea({
   );
 
   const syncFromField = useCallback(
-    (nextText: string, caret: number) => {
+    (nextText: string, nextCaret: number) => {
       // A deleted token must stop notifying that person, and nothing else in the composer is
       // watching for it, so every keystroke re-prunes.
       const pruned = pruneMentionSelections(nextText, selections);
-      const active = activeMentionQuery(nextText, caret);
       setText(nextText);
+      setCaret(nextCaret);
       setSelections(pruned);
-      setQuery(active ? active.query : null);
-      setHighlight(0);
+      setSuppressed(false);
+      // The trigger starts the load. Typing `@` is the only thing that can open the popup, so it
+      // is also the only thing that has to pay for it.
+      if (nextText.includes(MENTION_TRIGGER)) setPickerWanted(true);
       emit(nextText, pruned);
     },
     [emit, selections],
   );
 
-  const choose = useCallback(
-    (candidate: MentionCandidate) => {
-      const field = textareaRef.current;
-      const caret = field?.selectionStart ?? text.length;
-      const applied = applyMentionSelection(text, caret, candidate);
-      const nextSelections = pruneMentionSelections(applied.text, [...selections, applied.selection]);
-      setText(applied.text);
+  const applyPick = useCallback(
+    (nextText: string, nextCaret: number, nextSelections: MentionSelection[]) => {
+      setText(nextText);
+      setCaret(nextCaret);
       setSelections(nextSelections);
-      setQuery(null);
-      setHighlight(0);
-      emit(applied.text, nextSelections);
+      // A finished token is not a query. Closing here keeps a one-word name from re-opening the
+      // popup on the name it just inserted.
+      setSuppressed(true);
+      emit(nextText, nextSelections);
       // The caret has to land after the inserted name, or the next character lands inside it.
       requestAnimationFrame(() => {
         const element = textareaRef.current;
         if (!element) return;
         element.focus();
-        element.setSelectionRange(applied.caret, applied.caret);
+        element.setSelectionRange(nextCaret, nextCaret);
       });
     },
-    [emit, selections, text],
+    [emit],
   );
 
-  const removeSelection = useCallback(
-    (selection: MentionSelection) => {
-      // Removing the chip removes the TOKEN too: a name left in the sentence that notifies nobody
-      // is the one outcome the reader cannot see or explain.
-      const nextText = text.replace(selection.token, "").replace(/ {2,}/g, " ");
-      const nextSelections = pruneMentionSelections(nextText, selections).filter(
-        (entry) => entry.user_id !== selection.user_id || entry.token !== selection.token,
-      );
+  const applyRemoval = useCallback(
+    (nextText: string, nextSelections: MentionSelection[]) => {
       setText(nextText);
+      setCaret(Math.min(caret, nextText.length));
       setSelections(nextSelections);
       emit(nextText, nextSelections);
     },
-    [emit, selections, text],
+    [caret, emit],
   );
 
-  const mentionedIds = selectedMentionUserIds(text, selections);
-  const mentionedChips = pruneMentionSelections(text, selections);
+  // Stable identities: the picker registers its key handler and reports its ARIA state from
+  // effects, so a new function on every render of this component would re-run them every time.
+  const registerKeyHandler = useCallback(
+    (handler: ((event: React.KeyboardEvent<HTMLTextAreaElement>) => boolean) | null) => {
+      keyHandlerRef.current = handler;
+    },
+    [],
+  );
+  const onPopupStateChange = useCallback((state: MentionPopupState) => {
+    setPopup((current) =>
+      current.open === state.open && current.activeDescendant === state.activeDescendant ? current : state,
+    );
+  }, []);
+  const dismiss = useCallback(() => setSuppressed(true), []);
 
-  function onKeyDown(event: React.KeyboardEvent<HTMLTextAreaElement>) {
-    if (!popupOpen) return;
-    if (event.key === MENTION_KEYS.escape) {
-      event.preventDefault();
-      setQuery(null);
-      return;
-    }
-    if (matches.length === 0) return;
-    if (event.key === MENTION_KEYS.down) {
-      event.preventDefault();
-      setHighlight((current) => moveMentionHighlight(current, matches.length, 1));
-      return;
-    }
-    if (event.key === MENTION_KEYS.up) {
-      event.preventDefault();
-      setHighlight((current) => moveMentionHighlight(current, matches.length, -1));
-      return;
-    }
-    if (event.key === MENTION_KEYS.enter || event.key === MENTION_KEYS.tab) {
-      // Enter picks the highlighted person INSTEAD of breaking the line, but only while the popup
-      // is open — otherwise a multi-line note becomes impossible to type.
-      event.preventDefault();
-      const candidate = matches[Math.min(highlight, matches.length - 1)];
-      if (candidate) choose(candidate);
-    }
-  }
+  const mentionedIds = useMemo(() => selectedMentionUserIds(text, selections), [selections, text]);
 
   return (
     <div className="fld" style={{ position: "relative" }}>
@@ -192,99 +188,58 @@ export function MentionTextarea({
         placeholder={placeholder}
         value={text}
         role="combobox"
-        aria-expanded={popupOpen}
+        aria-expanded={popup.open}
         aria-controls={listId}
         aria-autocomplete="list"
-        aria-activedescendant={popupOpen && matches.length > 0 ? `${listId}-${Math.min(highlight, matches.length - 1)}` : undefined}
-        onChange={(event) => syncFromField(event.target.value, event.target.selectionStart ?? event.target.value.length)}
-        onKeyDown={onKeyDown}
+        aria-activedescendant={popup.activeDescendant}
+        onChange={(event) =>
+          syncFromField(event.target.value, event.target.selectionStart ?? event.target.value.length)
+        }
+        onKeyDown={(event) => {
+          // The picker gets first refusal on navigation keys while its popup is open; everything
+          // else, and every key at all before the chunk lands, behaves like a plain textarea.
+          keyHandlerRef.current?.(event);
+        }}
         onClick={(event) => {
           const field = event.currentTarget;
-          const active = activeMentionQuery(field.value, field.selectionStart ?? field.value.length);
-          setQuery(active ? active.query : null);
+          setCaret(field.selectionStart ?? field.value.length);
+          setSuppressed(false);
+          if (field.value.includes(MENTION_TRIGGER)) setPickerWanted(true);
         }}
         onBlur={() => {
           // Closed on blur, but AFTER the click on a row has had its chance: the rows use
           // onMouseDown so the pick lands before focus leaves.
-          setQuery(null);
+          setSuppressed(true);
         }}
       />
       <span className="pm-hint" style={{ display: "block", padding: "2px 0 0", border: 0, margin: 0 }}>
         {composerCopy.hint}
       </span>
 
-      {/* The picked people, as chips — the "renders distinctly" half. A textarea cannot style a
-          run of its own text, so the mention is shown as a chip beside the field rather than
-          faked with an overlay that drifts out of alignment on a phone. */}
-      {mentionedChips.length > 0 ? (
-        <div style={{ display: "flex", flexWrap: "wrap", gap: 6, marginTop: 6 }}>
-          <span className="muted" style={{ fontSize: 11 }}>
-            {composerCopy.mentionedLabel}
-          </span>
-          {mentionedChips.map((selection) => (
-            <span className="achip" key={`${selection.user_id}:${selection.token}`}>
-              {selection.token}
-              <button
-                type="button"
-                className="btn sm ghost"
-                style={{ minWidth: 40, minHeight: 40, padding: 0, border: 0, background: "transparent" }}
-                onClick={() => removeSelection(selection)}
-                title={composerCopy.removeMention}
-                aria-label={composerCopy.removeMention}
-              >
-                <X className="ic" aria-hidden="true" />
-              </button>
-            </span>
-          ))}
-        </div>
-      ) : null}
-
-      {/* The ids that actually travel. Comma-separated so a Server Action can read one field. */}
+      {/* The ids that actually travel. Comma-separated so a Server Action can read one field.
+          Server-rendered with the textarea, so the pair is always posted together. */}
       <input type="hidden" name={mentionsName} value={mentionedIds.join(",")} />
 
-      {popupOpen ? (
-        // The popup. Absolute inside this wrapper (never fixed), full wrapper width so it cannot
-        // overflow a 390px viewport.
-        //
-        // `.mention-pop` carries the geometry (and the `vh`-then-`dvh` cap: React emits a single
-        // `max-height` declaration, so an inline `40dvh` gave an engine without `dvh` NO cap and an
-        // unbounded list). `data-mention-popup` is the hook the detail card's
-        // `:has([data-mention-popup])` rule keys off to lift its own `overflow:hidden` -- and the
-        // generic `.card .bd` overflow -- for exactly as long as this popup exists. Absolute
-        // positioning alone did NOT save it: measured in Chromium, one of eight rows was reachable
-        // at every width until those two ancestors stopped clipping.
-        <div className="card mention-pop" data-mention-popup>
-          <ul id={listId} role="listbox" aria-label={composerCopy.peopleLabel} style={{ listStyle: "none", margin: 0, padding: 4 }}>
-            {matches.map((candidate, index) => (
-              <li
-                key={candidate.user_id}
-                id={`${listId}-${index}`}
-                role="option"
-                aria-selected={index === Math.min(highlight, matches.length - 1)}
-                className={`pm-item ${index === Math.min(highlight, matches.length - 1) ? "on" : ""}`}
-                // 44px: a real tap target at phone width.
-                style={{ minHeight: 44, cursor: "pointer" }}
-                onMouseDown={(event) => {
-                  event.preventDefault();
-                  choose(candidate);
-                }}
-                onMouseEnter={() => setHighlight(index)}
-              >
-                <span style={{ minWidth: 0 }}>
-                  <span className="pn" style={{ display: "block" }}>
-                    {candidate.name}
-                  </span>
-                  {candidate.title ? (
-                    <span className="muted" style={{ display: "block", fontSize: 11 }}>
-                      {candidate.title}
-                    </span>
-                  ) : null}
-                </span>
-              </li>
-            ))}
-          </ul>
-          {matches.length === 0 ? <div className="pm-hint">{composerCopy.noMatches}</div> : null}
-        </div>
+      {/* The chips and the popup, once someone has typed a `@`. The fallback is deliberately
+          nothing: the field above is already on screen and must not flicker, move or remount
+          while this arrives. */}
+      {pickerWanted ? (
+        <Suspense fallback={null}>
+          <MentionPicker
+            text={text}
+            caret={caret}
+            suppressed={suppressed}
+            candidates={candidates}
+            composerCopy={composerCopy}
+            listId={listId}
+            selections={selections}
+            onApply={applyPick}
+            onRemove={applyRemoval}
+            onDismiss={dismiss}
+            registerKeyHandler={registerKeyHandler}
+            onPopupStateChange={onPopupStateChange}
+          />
+        </Suspense>
       ) : null}
     </div>
   );

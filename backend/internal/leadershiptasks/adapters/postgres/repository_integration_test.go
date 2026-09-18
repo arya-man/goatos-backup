@@ -1748,3 +1748,66 @@ func TestLeadershipTaskAggregateStatusMatrixOneToManyFanOutAndPageBoundaryStayHo
 		t.Fatalf("done-only buckets = %v, want the whole matrix %v", doneOnly.StatusCounts, want)
 	}
 }
+
+// TestListAssigneesReadsTheMobileTickForEveryCallingSurface pins the fact a 2026-09-18
+// investigation got wrong. Three staging directors (Chandrakant, Dinakar, Hemant) carry the
+// Tasks module at oversee on their MOBILE row and at view+configure only on their WEB row,
+// and that was reported as a data gap shrinking the web assignee/mention picker.
+//
+// It is not a gap. The picker's population has ONE authored surface -- the person's mobile
+// tick (migration 000292: "every person whose own mobile row on /people carries the Tasks
+// module at OVERSEE") -- and ListAssignees, sqlAssigneeIsTicked and sqlListMentionableUsers
+// all pass permissions.SurfaceMobile regardless of which client called. admin-web and Android
+// share the one endpoint, so a mobile-only oversee tick is ALREADY in the web picker and
+// backfilling web rows would widen nobody's authority while inventing a second source of
+// truth for a population that has one.
+//
+// So this asserts both halves: a mobile-only tick IS assignable, and a web-only tick is NOT.
+// The second half is what makes the intended migration visibly wrong -- writing web oversee
+// rows cannot add anyone to this list.
+func TestListAssigneesReadsTheMobileTickForEveryCallingSurface(t *testing.T) {
+	pgtest.SkipIfNoDocker(t)
+	ctx := context.Background()
+	pool := pgtest.StartPostgres(t, ctx)
+	seedLeadershipFixture(t, ctx, pool)
+	repo := NewRepository(pool, 10*time.Second)
+
+	// ltDirector already holds an active park_head grant and NO tick. Give him the shape the
+	// three staging directors have on WEB -- view+configure, no oversee -- plus a web oversee
+	// row, which is the exact row the proposed migration would have written.
+	if _, err := pool.Exec(ctx, `
+INSERT INTO person_module_access (tenant_id, workforce_member_id, surface, module_key, capabilities)
+SELECT $1::uuid, workforce_member_id, 'web', 'leadership_tasks', ARRAY['view','oversee','configure']::text[]
+FROM workforce_members WHERE tenant_id = $1::uuid AND user_id = $2::uuid`, ltTenant, ltDirector); err != nil {
+		t.Fatalf("seed web-only tick: %v", err)
+	}
+
+	assignees, err := repo.ListAssignees(ctx, ltTenant)
+	if err != nil {
+		t.Fatalf("list assignees: %v", err)
+	}
+	got := make(map[string]bool, len(assignees))
+	for _, a := range assignees {
+		got[a.UserID] = true
+	}
+
+	// ltCXO is ticked at oversee on MOBILE ONLY and holds ceo_internal: the staging directors'
+	// shape. He must be in the picker every client sees.
+	if !got[ltCXO] {
+		t.Errorf("mobile-only oversee tick is missing from the picker: a web caller would not see a person whose authored tick is on mobile, which is the whole population")
+	}
+	// A web oversee tick with no mobile oversee tick admits nobody.
+	if got[ltDirector] {
+		t.Errorf("a WEB oversee tick made someone assignable: the picker must read the mobile tick alone, else per-person access has two sources of truth for this population")
+	}
+
+	// And the write path agrees with the list, so the picker cannot offer someone the raise refuses.
+	var ticked bool
+	if err := pool.QueryRow(ctx, sqlAssigneeIsTicked,
+		ltTenant, ltDirector, "mobile", leadershipTasksModuleKey, "oversee", assignableLeadershipRoles).Scan(&ticked); err != nil {
+		t.Fatalf("assignee is ticked: %v", err)
+	}
+	if ticked {
+		t.Errorf("raise-time check accepted a web-only oversee tick; it must read the same mobile tick the picker does")
+	}
+}

@@ -1,34 +1,36 @@
 /**
- * The @-mention composer's logic, as pure functions with NO imports.
+ * The @-PICKER's logic, as pure functions with NO imports but one: parsing the query at the
+ * caret, ranking candidates, inserting a chosen person, and moving the highlight.
  *
- * Import-free so `mention-model.test.mjs` runs it under `node --test` without the `@/` alias, and
- * because these are the rules that decide WHO gets notified. The composer emits explicit
- * `user_id`s alongside the text; nothing downstream re-derives a person from the prose, because
- * display names collide (two Rameshes is not a hypothetical on a farm roster) and a regex over
- * "@Ramesh" would notify the wrong one or both.
+ * Everything here is reached only from `mention-picker.tsx`, which is fetched on first use, so
+ * none of it sits in the shared client chunk of every route. Its sibling `mention-value.ts`
+ * holds the other half -- which accepted mentions are still written in the text -- because the
+ * EAGER, server-rendered textarea and its hidden mentions input need that to keep submitting
+ * without JavaScript. Both halves are re-exported from here, so a reader (and the test) can go
+ * on treating this file as the composer's rulebook.
+ *
+ * Import-free apart from that sibling so `mention-model.test.mjs` runs it under `node --test`
+ * without the `@/` alias, and because these are the rules that decide WHO gets notified. The
+ * composer emits explicit `user_id`s alongside the text; nothing downstream re-derives a person
+ * from the prose, because display names collide (two Rameshes is not a hypothetical on a farm
+ * roster) and a regex over "@Ramesh" would notify the wrong one or both.
  */
 
-export type MentionCandidate = {
-  user_id: string;
-  /** The person's name, as the roster endpoint gave it. Never composed here. */
-  name: string;
-  /** Their business title, shown as the second line of the row. */
-  title?: string;
-};
+import {
+  MENTION_TRIGGER,
+  type MentionCandidate,
+  type MentionSelection,
+} from "./mention-value.ts";
 
-/** One accepted mention: the id that travels to the backend, plus the exact text it wrote. */
-export type MentionSelection = {
-  user_id: string;
-  /** The literal token inserted into the textarea, e.g. "@Ravi Teja", WITHOUT the trailing space. */
-  token: string;
-};
-
-export type MentionValue = {
-  /** What the person typed and sees. Sent as the comment/task body. */
-  text: string;
-  /** The explicit ids the backend notifies. Derived from `selections`, never from the text. */
-  mentionUserIds: string[];
-};
+export {
+  MENTION_TRIGGER,
+  mentionValue,
+  pruneMentionSelections,
+  selectedMentionUserIds,
+  type MentionCandidate,
+  type MentionSelection,
+  type MentionValue,
+} from "./mention-value.ts";
 
 /**
  * Key names used by the popup. They live here rather than inline in the .tsx because
@@ -42,9 +44,6 @@ export const MENTION_KEYS = {
   tab: "Tab",
   escape: "Escape",
 } as const;
-
-/** The trigger character. */
-export const MENTION_TRIGGER = "@";
 
 /** How many rows the popup offers at once. A phone shows about five without scrolling. */
 export const MENTION_RESULT_LIMIT = 6;
@@ -157,46 +156,9 @@ export function applyMentionSelection(
   };
 }
 
-/**
- * The ids that travel with the text.
- *
- * A selection survives only while its token is still in the text: deleting "@Ravi Teja" must stop
- * notifying Ravi, and nothing else in the composer watches for that. Duplicates collapse, so
- * mentioning one person twice is one notification.
- */
-export function selectedMentionUserIds(text: string, selections: readonly MentionSelection[]): string[] {
-  const out: string[] = [];
-  for (const selection of selections) {
-    const id = (selection.user_id ?? "").trim();
-    if (!id || out.includes(id)) continue;
-    if (!selection.token || !text.includes(selection.token)) continue;
-    out.push(id);
-  }
-  return out;
-}
-
-/** Drops selections whose token is gone, so the list cannot grow without bound while editing. */
-export function pruneMentionSelections(
-  text: string,
-  selections: readonly MentionSelection[],
-): MentionSelection[] {
-  const kept: MentionSelection[] = [];
-  for (const selection of selections) {
-    if (!selection.token || !text.includes(selection.token)) continue;
-    if (kept.some((entry) => entry.user_id === selection.user_id && entry.token === selection.token)) continue;
-    kept.push(selection);
-  }
-  return kept;
-}
-
 /** Arrow-key movement through the popup, wrapping at both ends. An empty list stays at 0. */
 export function moveMentionHighlight(index: number, length: number, delta: number): number {
   if (length <= 0) return 0;
   const next = (index + delta) % length;
   return next < 0 ? next + length : next;
-}
-
-/** Both halves of the composer's output in one object, for a caller that submits a form. */
-export function mentionValue(text: string, selections: readonly MentionSelection[]): MentionValue {
-  return { text, mentionUserIds: selectedMentionUserIds(text, selections) };
 }

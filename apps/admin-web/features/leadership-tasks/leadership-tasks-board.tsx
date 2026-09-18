@@ -4,13 +4,15 @@ import { copy, type AdminUiPageContract } from "@/lib/admin-ui-contract";
 import type { RouteSearchParams } from "@/lib/search-params";
 import type { LeadershipTaskAssignee, LeadershipTaskPage } from "@/lib/api/server";
 
+import { changeLeadershipTaskStatusAction } from "./actions";
 import { TASK_PARAM, tasksHref } from "./params";
-import { TaskBoardCard } from "./task-board-card";
+import { TaskBoardColumns, type BoardColumnMeta } from "./task-board-dnd";
 import { initials } from "./task-presentation";
 import type { TaskRow } from "./task-row";
 import {
   boardColumnHasTotal,
   TASK_BOARD_COLUMNS,
+  TASKS_PATHNAME,
   type TaskBoardColumn,
   type TaskFilter,
 } from "./task-url";
@@ -38,10 +40,13 @@ const AVATAR_GROUP_MAX = 6;
  *     placeholder with a title saying the total is not published. It is never summed from the
  *     rows on the page, because that number would be a lie about the list.
  *
- * Drag and drop is deliberately NOT here. A status change goes through a server action fenced on
- * `row_version` with an idempotency key; a card dragged into a column that then 409s would move
- * back under the reader's hand with no explanation, which is worse than a board that does not
- * drag. Status changes stay in the detail panel this pass.
+ * DRAG AND DROP now lives in `task-board-dnd.tsx`, which owns the whole column track because a
+ * drop moves a card between columns and that is client state. This component stays the SERVER
+ * half: it reads the response, decides each column's wording, its honest totals and its
+ * "show only this" link, mints the card deep links (the URL vocabulary lives server-side), and
+ * hands all of it plus the status action down. It decides nothing about the drag — legality is
+ * the row's own `status_options`, and the reasons a drop can be refused are documented on the
+ * client component.
  */
 export function LeadershipTasksBoard({
   pageContract,
@@ -74,7 +79,7 @@ export function LeadershipTasksBoard({
   );
   const placeholder = copy(pageContract, "label.placeholder");
 
-  const columns = TASK_BOARD_COLUMNS.map((column) => {
+  const columns: BoardColumnMeta[] = TASK_BOARD_COLUMNS.map((column) => {
     const filter = totals.get(column);
     const cards = rows.filter((task) => task.status === column);
     const hasTotal = boardColumnHasTotal(column) && typeof filter?.count === "number";
@@ -82,7 +87,6 @@ export function LeadershipTasksBoard({
       key: column,
       label: filter?.label ?? columnFallbackLabel(pageContract, column),
       total: hasTotal ? filter!.count : null,
-      cards,
       emptyMessage:
         filter?.empty_message ||
         copy(pageContract, "board.column_empty", "Nothing in this status on this page."),
@@ -100,6 +104,31 @@ export function LeadershipTasksBoard({
     };
   });
 
+  /**
+   * The card deep links, minted HERE because the URL vocabulary (`tasksHref`, `TASK_PARAM`) is
+   * server-side. The drag layer is handed a finished map rather than the parameter grammar.
+   */
+  const cardHrefs: Record<string, string> = {};
+  for (const task of rows) {
+    cardHrefs[task.id] = tasksHref(basePath, sp, {
+      [TASK_PARAM.scope]: scopeKey,
+      [TASK_PARAM.task]: task.id,
+    });
+  }
+
+  /**
+   * Where a drop's redirect lands: THIS board, same scope, same page of the list, and NOT
+   * selecting the dragged task — a drag is not a selection. `safeTaskReturnTo` in `actions.ts`
+   * refuses anything that is not `/tasks` exactly, so the preview host round-trips to the real
+   * desk rather than to its own fixture rows.
+   */
+  const returnTo = tasksHref(
+    TASKS_PATHNAME,
+    sp,
+    { [TASK_PARAM.scope]: scopeKey },
+    { resetPaging: false },
+  );
+
   return (
     <div className="ltb">
       <PeopleFilter
@@ -110,67 +139,17 @@ export function LeadershipTasksBoard({
         sp={sp}
       />
 
-      <div
-        className="ltb-scroll"
-        role="group"
-        aria-label={copy(pageContract, "board.aria", "Tasks by status")}
-      >
-        <div className="ltb-cols">
-          {columns.map((column) => (
-            <section
-              key={column.key}
-              className={`ltb-col ltb-col-${column.key}${activeFilter === column.key ? " is-focused" : ""}`}
-            >
-              <header className="ltb-colhd">
-                <span className="ltb-colname">{column.label}</span>
-                <span
-                  className="ltb-colcount"
-                  title={
-                    column.total === null
-                      ? copy(
-                          pageContract,
-                          "board.total_unavailable",
-                          "The whole-list total for this status is not published.",
-                        )
-                      : undefined
-                  }
-                >
-                  {column.total === null ? placeholder : column.total}
-                </span>
-              </header>
-              <div className="ltb-colmeta">
-                <span>
-                  {column.cards.length}{" "}
-                  {copy(pageContract, "board.on_this_page", "on this page")}
-                </span>
-                {column.focusHref ? (
-                  <Link href={column.focusHref} scroll={false} className="ltb-colmore">
-                    {copy(pageContract, "board.focus_status", "Show only this")}
-                  </Link>
-                ) : null}
-              </div>
-              <div className="ltb-colbd">
-                {column.cards.length ? (
-                  column.cards.map((task) => (
-                    <TaskBoardCard
-                      key={task.id}
-                      task={task}
-                      pageContract={pageContract}
-                      href={tasksHref(basePath, sp, {
-                        [TASK_PARAM.scope]: scopeKey,
-                        [TASK_PARAM.task]: task.id,
-                      })}
-                      selected={task.id === selectedTaskID}
-                    />
-                  ))
-                ) : (
-                  <p className="ltb-colempty">{column.emptyMessage}</p>
-                )}
-              </div>
-            </section>
-          ))}
-        </div>
-      </div>
+      <TaskBoardColumns
+        pageContract={pageContract}
+        columns={columns}
+        rows={rows}
+        cardHrefs={cardHrefs}
+        selectedTaskID={selectedTaskID}
+        activeFilter={activeFilter}
+        placeholder={placeholder}
+        action={changeLeadershipTaskStatusAction}
+        returnTo={returnTo}
+      />
 
       <p className="ltb-note">
         {copy(

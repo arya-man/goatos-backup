@@ -5,6 +5,8 @@ import { useState } from "react";
 
 import { copy, type AdminUiPageContract } from "@/lib/admin-ui-contract";
 
+import { statusChangeFeedbackFallback } from "./task-presentation";
+
 /**
  * What every write on this page says when it lands.
  *
@@ -30,7 +32,12 @@ export function TaskFeedbackBanner({
   const [dismissed, setDismissed] = useState(false);
   if (dismissed) return null;
   const success = status === "success";
-  const specific = code ? copy(pageContract, `feedback.${code}`, "") : "";
+  // The fallback is no longer blank for the codes a status change can really return: three
+  // different refusals reading as one generic failure is what made a bounced drag
+  // unexplainable. The contract still overrides it whenever its owner authors `feedback.<code>`.
+  const specific = code
+    ? copy(pageContract, `feedback.${code}`, statusChangeFeedbackFallback(code))
+    : "";
   const message =
     specific ||
     copy(pageContract, success ? "action.success_message" : "action.failed_message");

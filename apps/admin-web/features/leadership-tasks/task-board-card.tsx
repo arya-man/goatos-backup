@@ -1,5 +1,6 @@
 import Link from "@/components/no-prefetch-link";
 import { Paperclip } from "lucide-react";
+import type { DragEvent } from "react";
 
 import { copy, type AdminUiPageContract } from "@/lib/admin-ui-contract";
 
@@ -24,26 +25,49 @@ import type { TaskRow } from "./task-row";
  *      name, not by a coloured circle, so the name is text and the circle is decoration beside
  *      it. Both truncate with an ellipsis rather than wrapping the card to twice its height;
  *   4. the issue key and the attachment count, when there is one.
+ *
+ * DRAGGING IS NOT DECIDED HERE. The card renders whatever `task-board-dnd.tsx` hands it, and
+ * `draggable` is REQUIRED rather than optional on purpose: an `<a>` is draggable by default, so a
+ * caller that forgot to say either way would ship the browser's native URL drag. The card owns no
+ * drag state and no transition rule; it is told.
  */
 export function TaskBoardCard({
   task,
   pageContract,
   href,
   selected,
+  draggable,
+  dragging = false,
+  pending = false,
+  onDragStart,
+  onDragEnd,
 }: {
   task: TaskRow;
   pageContract: AdminUiPageContract;
   href: string;
   selected: boolean;
+  /** False also switches OFF the browser's own anchor drag. See the note above. */
+  draggable: boolean;
+  /** This card is the one under the reader's hand. */
+  dragging?: boolean;
+  /** This card's status change is in flight; its column here is provisional. */
+  pending?: boolean;
+  onDragStart?: (event: DragEvent<HTMLAnchorElement>) => void;
+  onDragEnd?: (event: DragEvent<HTMLAnchorElement>) => void;
 }) {
   const deadlineWord = copy(pageContract, "label.deadline");
   return (
     <Link
       href={href}
       scroll={false}
-      className={`ltb-card${selected ? " is-selected" : ""}`}
+      className={`ltb-card${selected ? " is-selected" : ""}${dragging ? " is-dragging" : ""}${
+        pending ? " is-moving" : ""
+      }`}
       aria-current={selected ? "true" : undefined}
       aria-label={`${copy(pageContract, "action.open_task")} ${task.number}: ${task.title}`}
+      draggable={draggable}
+      onDragStart={draggable ? onDragStart : undefined}
+      onDragEnd={draggable ? onDragEnd : undefined}
     >
       {/* The clamp sits on an INNER span on purpose: a direct grid item has its `display`
           blockified, which silently discards `-webkit-box` and takes the three-line clamp with
