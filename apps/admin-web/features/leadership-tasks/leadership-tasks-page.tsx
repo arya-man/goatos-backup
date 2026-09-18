@@ -21,7 +21,14 @@ import { LeadershipTasksBoard } from "./leadership-tasks-board";
 import { LeadershipTasksFilters, type TaskStatusChip } from "./leadership-tasks-filters";
 import { LeadershipTasksTable } from "./leadership-tasks-table";
 import { NewTaskModal } from "./new-task-modal";
-import { hasTaskFilters, parseTasksParams, TASK_PARAM, tasksClearedHref, tasksHref } from "./params";
+import {
+  hasTaskFilters,
+  parseTasksParams,
+  TASK_PARAM,
+  tasksAliasFixedHref,
+  tasksClearedHref,
+  tasksHref,
+} from "./params";
 import { personOptions, rowsFromPage, type TaskRow } from "./task-row";
 import { TaskDetailPanel } from "./task-detail-panel";
 import { TaskFeedbackBanner } from "./task-feedback-banner";
@@ -108,7 +115,10 @@ export function LeadershipTasksPage({
   const viewOptions: SegmentedOption[] = TASK_VIEWS.map((view) => ({
     value: view,
     label: copy(pageContract, `board.view.${view}`, view === "board" ? "Board" : "List"),
-    href: tasksHref(basePath, sp, { [TASK_PARAM.view]: view }, { resetPaging: false }),
+    // The unprefixed `view` alias is DROPPED by the toggle: leaving a parameter in the URL that
+    // this page has just told the reader it ignores is how the same confusion comes back one
+    // click later.
+    href: tasksHref(basePath, sp, { [TASK_PARAM.view]: view, view: null }, { resetPaging: false }),
   }));
 
   const statusChips: TaskStatusChip[] = (page?.filters ?? []).map((filter) => ({
@@ -191,6 +201,29 @@ export function LeadershipTasksPage({
         />
       ) : null}
 
+      {/* AN IGNORED PARAMETER, SAID OUT LOUD.
+          `?view=list` is not this page's parameter — `view` belongs to three other screens, so
+          honouring it here would re-create the cross-screen collision the `t_` prefix exists to
+          prevent. Silently defaulting is what handed the maintainer a board they thought was a
+          list, so the page names what it did not read and offers the corrected link. */}
+      {params.ignoredAliases.length ? (
+        <div className="lt-aliasnote" role="status">
+          <span>
+            {copy(
+              pageContract,
+              "state.ignored_params",
+              "This link sets a filter this page does not read. Tasks names its own filters with a t_ prefix.",
+            )}
+          </span>
+          <code>
+            {params.ignoredAliases.map((hint) => `${hint.alias} → ${hint.param}`).join(", ")}
+          </code>
+          <a className="achip" href={tasksAliasFixedHref(basePath, sp, params.ignoredAliases)}>
+            {copy(pageContract, "action.fix_link", "Use the link this page reads")}
+          </a>
+        </div>
+      ) : null}
+
       <div className="lt-scopebar">
         {scopeOptions.length ? (
           <SegmentedLinks
@@ -252,8 +285,6 @@ export function LeadershipTasksPage({
                 scopeKey={scopeKey}
                 activeFilter={params.filter}
                 selectedTaskID={selected?.id}
-                assignees={assignees}
-                assigneeUserID={params.assigneeUserID}
               />
               <WorklistPager
                 pageContract={pageContract}

@@ -271,7 +271,7 @@ export function TaskBoardColumns({
                   </span>
                   {column.focusHref ? (
                     <Link href={column.focusHref} scroll={false} className="ltb-colmore">
-                      {copy(pageContract, "board.focus_status", "Show only this")}
+                      {copy(pageContract, "board.focus_status", "See every task in this status")}
                     </Link>
                   ) : null}
                 </div>

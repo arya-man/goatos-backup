@@ -100,9 +100,13 @@ export function rowsFromPage(page: LeadershipTaskPage): TaskRow[] {
 /** The people pickers are fed by /app/leadership-tasks/assignees, not by the list response. */
 export function personOptions(
   assignees: LeadershipTaskAssignee[],
-): Array<{ value: string; label: string }> {
+): Array<{ value: string; label: string; title?: string }> {
   return assignees.map((assignee) => ({
     value: assignee.user_id,
     label: assignee.name || assignee.title,
+    // The ROLE, carried beside the name because names collide on this roster ("Manju" and
+    // "Manju Flokx", two CEO/CXOs) and a picker that shows only the name cannot be used to pick
+    // the right one. It is also what the search ranks on after the name.
+    title: assignee.name ? assignee.title : "",
   }));
 }
