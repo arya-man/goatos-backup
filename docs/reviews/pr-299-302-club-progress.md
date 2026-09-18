@@ -22,12 +22,21 @@
   - ran `make ai-setup`, after which `ai-doctor` passed.
 - Focused reruns of the three failed gates passed.
 - Second full `make land-main` receipt ran to completion but failed before push on two bookkeeping gates: `org-boundary-guard` because this progress document named the blocked token, and `agent: ai-doctor` because a later commit made the local Repowise index stale. Product/build/test lanes stayed green.
+- Third full `make land-main` receipt passed and pushed `8cf66ffb4e16d26ca68dba4c2a578690aaedef57` to `main`.
+- GitHub closed PR 299, PR 300, PR 301, and PR 302 as merged.
+- Initial STG deploy for `8cf66ffb4e16` failed in Cloud Deploy after routing services to the new revision: migration `000336_shifting_verification_round` first hit a DB lock timeout.
+- STG traffic was rolled back to the previous known-good revisions while the migration issue is being fixed:
+  - `goatos-api-stg-00482-hkv` at 100 percent;
+  - `goatos-admin-web-stg-00463-zq8` at 100 percent;
+  - `goatos-kernel-worker-stg-00447-5hk` at 100 percent.
+- Cleared one stale `idle in transaction` STG DB session. A direct migration retry then passed `000336` but failed at `000342_feed_sop_cards` because STG already has the three feed SOP proof constraints while the migration version is not recorded.
+- Patched `000342_feed_sop_cards` to drop each new SOP proof constraint before re-adding it, making the migration replay-safe for this partially applied STG state.
 
 ## Pending
 
-- Resolve conflicts, regenerate generated clients if needed, and commit the integrated candidate.
-- Run the required local landing receipt after final rebase.
-- Push certified `main`, confirm local/remote SHA, close PRs, and run STG deployment.
+- Commit the STG migration replay-safety hotfix.
+- Run the required local landing receipt for the hotfix.
+- Push certified `main`, run STG migration/deployment without shifting traffic until proof is green, then shift traffic to the new revisions.
 
 ## Exact Tests / E2E Performed
 
@@ -38,11 +47,15 @@
 - After fixes, `node tools/agent-hooks/check-org-boundary.mjs && node tools/agent-hooks/check-admin-web-phone-viewport.mjs && bash tools/agent-hooks/ai-doctor.sh` passed.
 - `go test ./internal/counts/adapters/postgres -run 'TestCountsBreakdownLoadsReadCurrentTagAndSexPerLoadAndMatchTheSalesPurchasedRule|TestCountsBreakdown' -count=1` passed.
 - Second `make land-main` repeated the screenshot-capable local CI path. Heavy lanes passed again, including required PostgreSQL query plans, command-board query plans, admin-web lint/typecheck/unit/build, Android compile/unit/lint, Android screenshots, and Android benchmark compile.
+- Third `make land-main` passed with `ci-local: GREEN @ 8cf66ffb4e16d26ca68dba4c2a578690aaedef57` and pushed `origin/main` to the same SHA.
+- `go test ./internal/feeddirection/domain -run TestMigrationEmbedsTheSeededFeedSOP -count=1` passed after the `000342` hotfix.
 
 ## Known Failures
 
 - Initial Android command `./gradlew :app:testDebugUnitTest --tests 'sg.mesha.goatos.viewmodel.PenRoutineDetailViewModelTest'` failed because the task name is ambiguous across `dev`, `prod`, and `stg` flavors.
 - Retried `:app:testStgDebugUnitTest` without SDK environment failed because the fresh worktree has no `local.properties`; rerun with `ANDROID_HOME` and `ANDROID_SDK_ROOT` passed.
+- Initial STG Cloud Deploy rollout `r-8cf66ffb4e16-092507-to-goatos-stg-0001` failed in migration execution `goatos-stg-migrate-8ns56` with `SQLSTATE 55P03` lock timeout on `000336_shifting_verification_round`.
+- Direct migration retry `goatos-stg-migrate-7nngj` then failed on `000342_feed_sop_cards` because `feed_distribution_completions_sop_proofs_check` already existed. STG inspection showed all three feed SOP proof constraints exist while `goatos_schema_migrations` has no `dev00033x` or `dev00034x` migration records.
 
 ## Before / After Metrics
 
@@ -50,12 +63,13 @@
 
 ## Judge Status
 
-- Focused guards green. Two full landing receipts have completed but were red on named bookkeeping guard issues; third full landing receipt pending after doc wording cleanup and Repowise refresh.
+- Third full landing receipt green for `8cf66ffb4e16`. Hotfix landing receipt pending after `000342` replay-safety patch.
 
 ## Current SHA
 
-- Club branch is at `d35d4474d` before committing this progress update.
+- Club branch/main landed at `8cf66ffb4e16d26ca68dba4c2a578690aaedef57`; hotfix worktree has uncommitted `000342` replay-safety changes.
 
 ## Deployment State
 
-- No merge, push, main landing, or STG deploy has happened yet.
+- Main is landed at `8cf66ffb4e16d26ca68dba4c2a578690aaedef57`; PRs 299-302 are merged and closed.
+- STG deploy is not complete. Services were temporarily moved to `8cf66ffb4e16`, migration failed, and traffic has been restored to the previous good STG revisions while the hotfix is prepared.

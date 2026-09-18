@@ -87,17 +87,20 @@ WHERE sop_proofs = '{}'::jsonb AND wastage_proof_ref IS NOT NULL AND wastage_pro
 -- pre-existing reader still finds a ref.
 ALTER TABLE public.feed_distribution_completions
   DROP CONSTRAINT IF EXISTS feed_distribution_completions_proof_check,
-  DROP CONSTRAINT IF EXISTS feed_distribution_completions_weight_proof_check;
+  DROP CONSTRAINT IF EXISTS feed_distribution_completions_weight_proof_check,
+  DROP CONSTRAINT IF EXISTS feed_distribution_completions_sop_proofs_check;
 ALTER TABLE public.feed_distribution_completions
   ADD CONSTRAINT feed_distribution_completions_sop_proofs_check
   CHECK (status NOT IN ('pending_verification', 'completed') OR (jsonb_typeof(sop_proofs) = 'object' AND sop_proofs <> '{}'::jsonb)) NOT VALID;
 ALTER TABLE public.feed_packing_completions
-  DROP CONSTRAINT IF EXISTS feed_packing_completions_proof_check;
+  DROP CONSTRAINT IF EXISTS feed_packing_completions_proof_check,
+  DROP CONSTRAINT IF EXISTS feed_packing_completions_sop_proofs_check;
 ALTER TABLE public.feed_packing_completions
   ADD CONSTRAINT feed_packing_completions_sop_proofs_check
   CHECK (status NOT IN ('pending_verification', 'completed') OR (jsonb_typeof(sop_proofs) = 'object' AND sop_proofs <> '{}'::jsonb)) NOT VALID;
 ALTER TABLE public.feed_wastage_completions
-  DROP CONSTRAINT IF EXISTS feed_wastage_completions_proof_check;
+  DROP CONSTRAINT IF EXISTS feed_wastage_completions_proof_check,
+  DROP CONSTRAINT IF EXISTS feed_wastage_completions_sop_proofs_check;
 ALTER TABLE public.feed_wastage_completions
   ADD CONSTRAINT feed_wastage_completions_sop_proofs_check
   CHECK (status NOT IN ('pending_verification', 'completed') OR (jsonb_typeof(sop_proofs) = 'object' AND sop_proofs <> '{}'::jsonb)) NOT VALID;
