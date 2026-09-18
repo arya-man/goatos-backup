@@ -3804,6 +3804,15 @@ select:disabled { opacity: .45; }
   .lt-page .pager .btn,.lt-page .pager .btn.sm,
   .lt-page .pgsize a,.lt-page .pgsize button{min-width:40px;min-height:40px}
   .lt-page .pgsize a,.lt-page .pgsize button{display:inline-flex;align-items:center;justify-content:center}
+  /* The pager is a two-column GRID at phone width: the note on its own row, the Rows sizes on
+     the next, and Previous / Next side by side on the last -- `flex-wrap` was dropping "Next"
+     alone under "Previous". Both movers are 44px, the preferred thumb height. */
+  .lt-page .pager2{display:grid;grid-template-columns:1fr 1fr;gap:8px;align-items:center;justify-content:stretch}
+  .lt-page .pager2>span:first-child,.lt-page .pager2>label{grid-column:1 / -1;flex-wrap:wrap}
+  .lt-page .pager2>.btn,.lt-page .pager2>.btn.sm,.lt-page .pager2>span.btn.sm{min-height:44px;justify-content:center;width:100%}
+  /* The row link is the whole tap target of a list row (`::after` covers the row): 44px tall, not
+     the 39px its two text lines came to. `align-content:center` keeps the text centred in it. */
+  .lt-page .lt-tasklink{min-height:44px;align-content:center}
   /* The modal's close button is the only way out of the sheet on a phone: 40px on BOTH axes. */
   .lt-modal .lt-modal-hd .btn{min-width:40px;min-height:40px}
 }
