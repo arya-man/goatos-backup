@@ -3559,6 +3559,32 @@ select:disabled { opacity: .45; }
 /* ---- WHAT IS NARROWING THE LIST, removable one at a time -- the idiom
    `components/worklist-filters.tsx` states in its own multiselect note. The `X` inherits the
    chip's colour; `.achip` already styles a dimmed affordance inside itself. */
+/* ---- THE PERSON FILTER (/tasks). One searchable control, used for both `t_assignee` and
+   `t_raiser`; it replaced two native `<select>`s and the board's dead-`+5` avatar group.
+   Brand tokens only. The popup hangs off `.lt-pf`'s own relative box -- never `position:fixed`,
+   which drifts when the WhatsApp webview's chrome moves -- and is capped in `vh` and THEN `dvh`
+   so an engine without `dvh` still gets a cap. */
+.lt-page .lt-pf{position:relative;display:inline-flex;align-items:center;gap:7px;min-width:0}
+.lt-page .lt-pf-label{color:var(--muted);font-size:12.5px;white-space:nowrap}
+.lt-page .lt-pf-trigger{display:inline-flex;align-items:center;gap:6px;min-width:0;min-height:34px;padding:5px 9px;background:var(--bg);border:1px solid var(--line);border-radius:8px;font:inherit;font-size:12.5px;font-weight:650;color:var(--ink);cursor:pointer}
+.lt-page .lt-pf-trigger:hover:not(:disabled){border-color:color-mix(in srgb,var(--brand) 45%,var(--line))}
+.lt-page .lt-pf-trigger:focus-visible{outline:2px solid var(--brand);outline-offset:1px}
+.lt-page .lt-pf-trigger:disabled{cursor:not-allowed;opacity:.55}
+.lt-page .lt-pf-trigger.set{border-color:color-mix(in srgb,var(--brand) 55%,var(--line));background:var(--brand-soft);color:var(--brand-d)}
+.lt-page .lt-pf-trigger .lt-avx{width:20px;height:20px;font-size:9px}
+.lt-page .lt-pf-value{max-width:128px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.lt-page .lt-pf-pop{position:absolute;left:0;top:calc(100% + 6px);z-index:60;width:268px;max-width:calc(100vw - 32px);padding:6px;background:var(--panel);border:1px solid var(--line);border-radius:11px;box-shadow:var(--shadow)}
+.lt-page .lt-pf-pop>ul{max-height:44vh;max-height:44dvh;overflow-y:auto;overscroll-behavior:contain}
+.lt-page .lt-pf-search{display:flex;align-items:center;gap:6px;min-height:40px;margin:2px;padding:0 9px;background:var(--bg);border:1px solid var(--line);border-radius:8px;color:var(--muted)}
+.lt-page .lt-pf-search input{flex:1;min-width:0;border:0;background:transparent;outline:0;font:inherit;font-size:13px;color:var(--ink)}
+.lt-page .lt-pf-item{display:flex;align-items:center;gap:9px}
+.lt-page .lt-pf-item .lt-avx{width:24px;height:24px;font-size:10px}
+
+/* ---- AN IGNORED URL PARAMETER, said out loud (`?view=list` is not `t_view`). */
+.lt-page .lt-aliasnote{display:flex;align-items:center;flex-wrap:wrap;gap:9px;margin:0 0 11px;padding:9px 12px;border:1px solid var(--line2);border-left:2px solid color-mix(in srgb,var(--warn) 55%,var(--line));border-radius:9px;background:color-mix(in srgb,var(--panel-2) 55%,transparent);color:var(--muted);font-size:12px;line-height:1.55}
+.lt-page .lt-aliasnote code{padding:1px 6px;border:1px solid var(--line);border-radius:5px;background:var(--bg);color:var(--ink);font-size:11.5px}
+.lt-page .lt-aliasnote .achip{margin-left:auto;text-decoration:none}
+
 .lt-page .lt-factive{display:inline-flex;flex-wrap:wrap;align-items:center;gap:6px;min-width:0;flex:1 1 auto}
 .lt-page .lt-factive .achip{max-width:100%;min-width:0}
 .lt-page .lt-factive .achip>button{display:inline-flex;align-items:center;justify-content:center;border:0;padding:0;background:transparent;color:inherit;font:inherit;line-height:1;opacity:.6;cursor:pointer;border-radius:4px}
@@ -3606,6 +3632,11 @@ select:disabled { opacity: .45; }
   .lt-page .lt-fsheet-host .lt-fdrop{width:100%}
   .lt-page .lt-fsheet-host .lt-fdrop>button{width:100%;justify-content:space-between;min-height:42px}
   .lt-page .lt-fsheet-host .lt-fdrop-pop{position:static;min-width:0;width:100%;box-shadow:none;border-color:var(--line2)}
+  .lt-page .lt-fsheet-host .lt-pf{display:grid;grid-template-columns:1fr;gap:5px;width:100%}
+  .lt-page .lt-fsheet-host .lt-pf-trigger{width:100%;min-height:44px;justify-content:space-between}
+  .lt-page .lt-fsheet-host .lt-pf-pop{position:static;width:100%;max-width:100%;box-shadow:none;border-color:var(--line2)}
+  .lt-page .lt-fsheet-host .lt-pf-pop>ul{max-height:30vh;max-height:30dvh}
+  .lt-page .lt-fsheet-host .lt-pf-search{min-height:44px}
   .lt-page .lt-fsheet-host .lt-fdrop-act .btn{flex:1}
   .lt-page .lt-fsheet-host .lt-factive{width:100%}
   .lt-page .lt-fsheet-host .lt-factive .achip{min-height:40px;padding:4px 12px;font-size:12.5px}
@@ -5559,16 +5590,13 @@ input[type=date],input[type=datetime-local],input[type=time],input[type=month],i
 .lt-page .ltb-viewswitch .metricseg a{min-height:40px;display:inline-flex;align-items:center}
 
 /* ---- the overlapping avatar group: "filter by person", as plain links. */
-.lt-page .ltb-people{display:flex;align-items:center;flex-wrap:wrap;gap:4px 0;margin:0 0 12px}
-.lt-page .ltb-person{display:inline-grid;place-items:center;min-width:40px;min-height:40px;margin-left:-9px;border-radius:999px;text-decoration:none;color:inherit}
-.lt-page .ltb-person:first-of-type,.lt-page .ltb-person-all{margin-left:0}
-.lt-page .ltb-person .lt-avx{width:30px;height:30px;font-size:11px;border-color:transparent;box-shadow:0 0 0 2px var(--panel)}
-.lt-page .ltb-person:hover .lt-avx{box-shadow:0 0 0 2px color-mix(in srgb,var(--brand) 55%,var(--panel))}
-.lt-page .ltb-person.on .lt-avx{box-shadow:0 0 0 2px var(--brand)}
-.lt-page .ltb-person:focus-visible{outline:2px solid var(--brand);outline-offset:2px}
-.lt-page .ltb-person-rest .lt-avx{background:var(--panel-2);color:var(--muted)}
-.lt-page .ltb-person-all{margin-right:10px;padding:0 13px;border:1px solid var(--line);border-radius:999px;background:var(--bg);color:var(--muted);font-size:12px;font-weight:700;white-space:nowrap}
-.lt-page .ltb-person-all.on{border-color:color-mix(in srgb,var(--brand) 55%,var(--line));background:var(--brand-soft);color:var(--brand-d)}
+/* The board's overlapping avatar group is GONE: it wrote the same `t_assignee` the toolbar's
+   control writes, and its `+5` overflow was a dead `<span aria-hidden>`. The one person filter is
+   `.lt-pf` on the toolbar. What is left here is the board's "narrowed to one status" note. */
+.lt-page .ltb-focusnote{display:flex;align-items:center;flex-wrap:wrap;gap:8px;margin:0 2px 11px;padding:8px 11px;border:1px solid var(--line2);border-left:2px solid color-mix(in srgb,var(--brand) 55%,var(--line));border-radius:9px;background:color-mix(in srgb,var(--brand-soft) 45%,transparent);color:var(--muted);font-size:11.5px;line-height:1.55}
+.lt-page .ltb-focusback{margin-left:auto;color:var(--brand-d);font-weight:750;text-decoration:none;white-space:nowrap}
+.lt-page .ltb-focusback:hover{text-decoration:underline}
+.lt-page .ltb-focusback:focus-visible{outline:2px solid var(--brand);outline-offset:2px;border-radius:5px}
 
 /* ---- the column track. Wider than the screen is FINE here and only here: this box owns the
         sideways scroll, the page never does. */
@@ -5651,7 +5679,7 @@ input[type=date],input[type=datetime-local],input[type=time],input[type=month],i
   .lt-page .ltb-card-titletx{-webkit-line-clamp:2}
   .lt-page .ltb-colmore{display:inline-flex;align-items:center;min-height:40px;padding:0 4px}
   .lt-page .ltb-colmeta{min-height:40px}
-  .lt-page .ltb-person-all{min-height:40px;display:inline-grid;place-items:center}
+  .lt-page .ltb-focusback{display:inline-flex;align-items:center;min-height:40px}
   .lt-page .lt-scopebar{flex-wrap:wrap}
   .lt-page .lt-scopebar .ltb-viewswitch{width:100%}
 }

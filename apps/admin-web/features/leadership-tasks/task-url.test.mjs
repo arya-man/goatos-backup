@@ -9,7 +9,9 @@ import {
   normalizeTaskQuery,
   normalizeTaskScope,
   normalizeTaskSort,
+  boardColumnsForFilter,
   safeTaskReturnTo,
+  unprefixedTaskParamAliases,
   TASK_QUERY_MAX,
   taskUuidFilter,
 } from "./task-url.ts";
@@ -102,4 +104,47 @@ test("the page keeps OFFSET pagination and the top-bar scope keys out of the fea
     const source = stripComments(readFileSync(new URL(file, import.meta.url), "utf8"));
     assert.doesNotMatch(source, /offset/i, file);
   }
+});
+
+test("a board under a status filter draws only that status's column", () => {
+  // B4: with four columns under a `filter=done` read, Open and Doing rendered "0 on this page"
+  // beneath header pills of 179 and 118. No combination of parameters may produce that again.
+  assert.deepEqual([...boardColumnsForFilter("all")], ["open", "in_progress", "done", "cancelled"]);
+  assert.deepEqual([...boardColumnsForFilter("done")], ["done"]);
+  assert.deepEqual([...boardColumnsForFilter("open")], ["open"]);
+  assert.deepEqual([...boardColumnsForFilter("in_progress")], ["in_progress"]);
+  // Every filter the endpoint offers collapses to exactly one column, and that column is a
+  // column the board knows how to draw.
+  for (const filter of ["open", "in_progress", "done"]) {
+    const columns = boardColumnsForFilter(filter);
+    assert.equal(columns.length, 1);
+    assert.equal(columns[0], filter);
+  }
+});
+
+test("an unprefixed parameter this page does not read is reported, not honoured", () => {
+  // B5: `?view=list` looked like it selected a view and was silently ignored.
+  assert.deepEqual(unprefixedTaskParamAliases(["view"]), [{ alias: "view", param: "t_view" }]);
+  assert.deepEqual(unprefixedTaskParamAliases(["scope", "filter", "task"]), []);
+  // An alias BESIDE its real parameter is not a trap: the prefixed one wins unambiguously.
+  assert.deepEqual(unprefixedTaskParamAliases(["view", "t_view"]), []);
+  // Several at once, each named with the parameter it meant.
+  assert.deepEqual(unprefixedTaskParamAliases(["q", "sort"]), [
+    { alias: "q", param: "t_q" },
+    { alias: "sort", param: "t_sort" },
+  ]);
+});
+
+test("the board carries no person filter of its own", () => {
+  // B1/B2: the avatar group and its dead `+5` overflow are gone, and the one searchable person
+  // filter reuses the @-mention picker's ranking rather than being a second implementation.
+  const board = readFileSync(new URL("./leadership-tasks-board.tsx", import.meta.url), "utf8");
+  assert.doesNotMatch(board, /ltb-person/);
+  assert.doesNotMatch(board, /aria-hidden="true">\+/);
+  const picker = readFileSync(new URL("./task-people-filter.tsx", import.meta.url), "utf8");
+  assert.match(picker, /filterMentionCandidates/);
+  assert.match(picker, /moveMentionHighlight/);
+  // Not `@base-ui/react`, which is a dead dependency in this workspace. The prose above names
+  // it, so the test looks for an IMPORT of it rather than a mention of it.
+  assert.doesNotMatch(picker, /from\s+["']@base-ui/);
 });

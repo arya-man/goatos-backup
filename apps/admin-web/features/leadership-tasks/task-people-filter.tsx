@@ -193,8 +193,16 @@ export function TaskPeopleFilter({
 
   // The field takes focus on open, because the point of this control is that it can be TYPED
   // into. Opening it and landing on a scrollable list would be the old `<select>` again.
+  //
+  // It is also scrolled INTO VIEW. Inside the phone filter sheet the popup renders static, so
+  // adding eight rows below the trigger grows the sheet's own scroller and pushed the focused
+  // field off the top of it -- a control that had taken the keyboard and could not be seen.
+  // `block: "nearest"` so a desktop viewport, where nothing moved, does not jump.
   useEffect(() => {
-    if (open) inputRef.current?.focus();
+    if (!open) return;
+    const field = inputRef.current;
+    field?.focus();
+    field?.scrollIntoView({ block: "nearest" });
   }, [open]);
 
   return (
