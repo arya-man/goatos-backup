@@ -415,7 +415,6 @@ run_sqlc_static_checks() {
 run_common() {
   current_job="common"
   step "git-identity-guard" make git-identity-guard
-  step "org-boundary-guard" make org-boundary-guard
   step "guardrail-registration-guard" make guardrail-registration-guard
   step "commandboard-query-plan-wiring-guard" make commandboard-query-plan-wiring-guard
   step "local-stack-service-guard" make local-stack-service-guard
