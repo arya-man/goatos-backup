@@ -220,7 +220,8 @@ func OpenSheet(format string, src io.Reader) (SheetReader, error) {
 	case domain.FormatXLSX:
 		f, err := excelize.OpenReader(src)
 		if err != nil {
-			return nil, BadRequest("invalid_file", "That file could not be read as an Excel workbook.")
+			// The cause travels in the transport error's detail; the person sees the farm sentence.
+			return nil, &Error{Code: "invalid_file", HTTPStatus: 400, Message: "That file could not be read as an Excel workbook.", Fields: []domain.FieldError{{Field: "file", Code: "invalid", Message: err.Error()}}}
 		}
 		sheets := f.GetSheetList()
 		if len(sheets) == 0 {
@@ -230,7 +231,7 @@ func OpenSheet(format string, src io.Reader) (SheetReader, error) {
 		rows, err := f.Rows(sheets[0])
 		if err != nil {
 			_ = f.Close()
-			return nil, BadRequest("invalid_file", "That workbook could not be read.")
+			return nil, &Error{Code: "invalid_file", HTTPStatus: 400, Message: "That workbook could not be read.", Fields: []domain.FieldError{{Field: "file", Code: "invalid", Message: err.Error()}}}
 		}
 		return &xlsxReader{f: f, rows: rows}, nil
 	}
