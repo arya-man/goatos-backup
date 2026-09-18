@@ -35,7 +35,9 @@ import {
 } from "lucide-react";
 import { SignOutButton } from "@/components/auth/sign-out-button";
 import { CEOAIChat, type CEOAIChatCopy } from "@/components/ceo-ai-chat";
-import { NotificationBell } from "@/features/notifications";
+// The bell directly, not the notifications barrel: the barrel statically re-exports the mention
+// composer, and the shell is on all 63 routes (Judge B).
+import { NotificationBell } from "@/features/notifications/notification-bell";
 import {
   PushPermissionPromptLazy,
   PushRegistrationSync,

@@ -19,7 +19,7 @@ import type { LeadershipTaskAssignee, LeadershipTaskPage } from "@/lib/api/serve
 import { raiseLeadershipTaskAction } from "./actions";
 import { LeadershipTasksBoard } from "./leadership-tasks-board";
 import { LeadershipTasksFilters, type TaskStatusChip } from "./leadership-tasks-filters";
-import { LeadershipTasksTable } from "./leadership-tasks-table";
+import { LeadershipTasksTableLazy as LeadershipTasksTable } from "./leadership-tasks-table-lazy";
 import { NewTaskModal } from "./new-task-modal";
 import {
   hasTaskFilters,
@@ -31,7 +31,7 @@ import {
   tasksHref,
   tasksSearchParams,
 } from "./params";
-import { personOptions, rowsFromPage, type TaskRow } from "./task-row";
+import { personOptions, rowFromTask, rowsFromPage, type TaskRow } from "./task-row";
 import { TaskDetailDrawer } from "./task-detail-drawer";
 import { TaskDetailPanel } from "./task-detail-panel";
 import { TaskFeedbackBanner } from "./task-feedback-banner";
@@ -59,6 +59,7 @@ export function LeadershipTasksPage({
   searchParams,
   preview = false,
   selectedTaskID: selectedTaskIDProp,
+  selectedTask,
   assignees = [],
 }: {
   page?: LeadershipTaskPage | null;
@@ -67,6 +68,10 @@ export function LeadershipTasksPage({
   preview?: boolean;
   /** Only the fixture host passes this; the live page reads it off the URL. */
   selectedTaskID?: string;
+  /** The selected task from the DETAIL read (full notes + activity), fetched by the route in
+   *  parallel with the list when `task=` is in the URL. The list rows carry no activity, so
+   *  the drawer is fed from here; a task not on the current page still opens. */
+  selectedTask?: LeadershipTaskPage["rows"][number] | null;
   assignees?: LeadershipTaskAssignee[];
 }) {
   const sp = searchParams ?? {};
@@ -78,7 +83,11 @@ export function LeadershipTasksPage({
   const tasks = page ? rowsFromPage(page) : preview ? fixtureTasks : [];
   const scopes = page?.scopes?.length ? page.scopes : preview ? fixtureScopes : [];
   const selectedTaskID = selectedTaskIDProp ?? params.selectedTaskID;
-  const selected = selectedTaskID ? tasks.find((task) => task.id === selectedTaskID) : undefined;
+  const selected = selectedTaskID
+    ? selectedTask && selectedTask.task_id === selectedTaskID
+      ? rowFromTask(selectedTask)
+      : tasks.find((task) => task.id === selectedTaskID)
+    : undefined;
   const hasTasks = tasks.length > 0;
 
   /**

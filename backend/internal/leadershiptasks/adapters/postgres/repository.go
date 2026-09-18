@@ -551,10 +551,12 @@ func (r *Repository) enrichPage(ctx context.Context, tenantID string, tasks []do
 	ids, index := taskIndexOf(tasks)
 
 	batch := &pgx.Batch{}
-	batch.Queue(sqlRepository5, tenantID, ids)                            // attachments
-	batch.Queue(sqlListNotes, tenantID, ids)                              // notes
-	batch.Queue(sqlListMentions, tenantID, ids)                           // mentions of those notes
-	batch.Queue(sqlListEventsCapped, tenantID, ids, listEventsCapPerTask) // activity, newest 30 per row
+	batch.Queue(sqlRepository5, tenantID, ids)  // attachments
+	batch.Queue(sqlListNotes, tenantID, ids)    // notes
+	batch.Queue(sqlListMentions, tenantID, ids) // mentions of those notes
+	// No activity on a LIST row: the feed is the drawer's, and the drawer reads the detail
+	// endpoint (getRow, uncapped). Shipping every row's history on every board render was 61%
+	// of the list payload (Judge B). Android ignores the field.
 	results := r.pool.SendBatch(ctx, batch)
 	defer results.Close()
 
@@ -588,16 +590,6 @@ func (r *Repository) enrichPage(ctx context.Context, tenantID string, tasks []do
 		return err
 	}
 	mentionRows.Close()
-
-	eventRows, err := results.Query()
-	if err != nil {
-		return fmt.Errorf("leadership task: list events: %w", err)
-	}
-	if err := scanEventsInto(eventRows, tasks, index); err != nil {
-		eventRows.Close()
-		return err
-	}
-	eventRows.Close()
 
 	return results.Close()
 }

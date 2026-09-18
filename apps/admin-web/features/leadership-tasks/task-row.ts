@@ -68,7 +68,12 @@ export type TaskRow = {
 };
 
 export function rowsFromPage(page: LeadershipTaskPage): TaskRow[] {
-  return page.rows.map((task) => {
+  return page.rows.map(rowFromTask);
+}
+
+/** One task from the wire (a list row or the detail read) as the screen's row. */
+export function rowFromTask(task: LeadershipTaskPage["rows"][number]): TaskRow {
+  {
     const attachmentKinds =
       task.attachments?.map((attachment) => attachment.kind).filter(Boolean) ?? [];
     const evidence = attachmentKinds.join(", ");
@@ -104,7 +109,7 @@ export function rowsFromPage(page: LeadershipTaskPage): TaskRow[] {
       deadlineStateLabel: task.deadline_state_label ?? "",
       deadlineAt: task.deadline_at ?? "",
     };
-  });
+  }
 }
 
 /** The people pickers are fed by /app/leadership-tasks/assignees, not by the list response. */

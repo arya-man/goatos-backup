@@ -2,6 +2,7 @@ import { LeadershipTasksPage, parseTasksParams } from "@/features/leadership-tas
 import { tablePageSizes } from "@/lib/admin-ui-contract";
 import {
   listLeadershipTaskAssignees,
+  getLeadershipTask,
   listLeadershipTasks,
   requireAdminWebPageContract,
 } from "@/lib/api/server";
@@ -26,7 +27,7 @@ export default async function Page({
   const sp = (await searchParams) ?? {};
   const pageContract = await requireAdminWebPageContract("leadership-tasks");
   const params = parseTasksParams(sp, tablePageSizes(pageContract, "leadership-task-progress"));
-  const [page, assignees] = await Promise.all([
+  const [page, assignees, detail] = await Promise.all([
     listLeadershipTasks({
       scope: params.scope,
       filter: params.filter,
@@ -46,6 +47,9 @@ export default async function Page({
       sort: params.sort,
     }),
     listLeadershipTaskAssignees(),
+    // The drawer's full record (notes + activity) rides its own read, in parallel, so the list
+    // payload stays a list. Absent `task=` this is a resolved null, not a request.
+    params.selectedTaskID ? getLeadershipTask(params.selectedTaskID) : Promise.resolve(null),
   ]);
   return (
     <LeadershipTasksPage
@@ -53,6 +57,7 @@ export default async function Page({
       pageContract={pageContract}
       searchParams={sp}
       assignees={assignees.ok ? assignees.data.assignees : []}
+      selectedTask={detail && detail.ok ? detail.data.task : null}
     />
   );
 }
