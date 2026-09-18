@@ -13,10 +13,14 @@ Date: 2026-09-18
 - Cherry-picked PR 296 and PR 298 in order with no conflicts.
 - Added this progress receipt and committed it as `48754b76e`.
 - Focused backend, API client, admin-web, and Android vendor checks passed.
+- First `make land-main` attempt ran the selected `common,backend,query-plans,admin-web,android` local CI scope at `c2a53eba2`; every reported step passed except `agent: ai-doctor`.
+- Repaired the isolated worktree's local AI indexes with `make ai-setup`; the setup command finished by running `make ai-doctor`, which passed with `.repowise index current enough (c2a53eba2..., mode=fast)`.
 
 ## Pending
 
-- Run final `make land-main` after the focused-check receipt update is committed and the candidate is clean/rebased on current `origin/main`.
+- Commit this repair receipt update.
+- Rebase onto current `origin/main` (`1da3a688b` observed after the first landing attempt).
+- Rerun final `make land-main` from the clean, rebased candidate.
 - Confirm `origin/main` readback after the landing gate pushes.
 
 ## Tests / E2E Performed
@@ -26,12 +30,15 @@ Date: 2026-09-18
 - First admin-web attempt `cd apps/admin-web && npm run typecheck && node --test features/feed/feed-analytics.test.mjs` failed because this fresh worktree did not yet have `tsc` installed.
 - After `cd apps/admin-web && npm install`, `npm run typecheck && node --test features/feed/feed-analytics.test.mjs` passed. The test file reported 17/17 passing. `npm install` produced only local lockfile platform churn under this Node/npm version, and that generated churn was discarded.
 - `cd apps/goatos-android && ANDROID_HOME=/Users/raviteja/Library/Android/sdk ./gradlew :app:testDevDebugUnitTest --tests 'sg.mesha.goatos.viewmodel.QueuedWriteFollowTest' --tests 'sg.mesha.goatos.viewmodel.VendorsPresentationTest'` passed.
+- First `make land-main` attempt failed before push on exactly one local CI step: `agent: ai-doctor`. The same receipt reported PASS for backend `go test ./...` with Postgres disabled, required PostgreSQL query plans, command-board query plans, admin-web deps/lint/typecheck/unit/build, Android `:app` compile+unit+lint, and Android benchmark compile.
+- `make ai-setup` passed after rebuilding `.code-review-graph` and `.repowise`; it emitted non-fatal `repowise` health persistence warnings about SQLite variable limits, then `make ai-doctor` passed.
 
 ## Known Failures
 
 - None observed in this candidate yet.
 - PR 298 notes that `backend/internal/feeddirection/adapters/postgres/pen_tag_analytics_integration_test.go` needs an OCI throwaway database; do not treat that test as a local fake-db receipt.
 - Admin-web `npm install` warned that local Node is v23.1.0 while the package requests Node 24.x; the focused typecheck and test still passed in this environment.
+- `make ai-setup` generated local tool artifacts and transient tracked `.claude/settings.json` hook noise; the tracked hook noise was discarded before this receipt update.
 
 ## Before / After Metrics
 
@@ -47,6 +54,7 @@ Date: 2026-09-18
 - Base before clubbing: `origin/main` = `6e7d3f66aff8bc53d1b64b5ffd12624351280f68`.
 - Club candidate before this progress note: `aed3d104a`.
 - Candidate with initial progress receipt: `48754b76e`.
+- Candidate with focused-check receipt and first failed landing attempt: `c2a53eba2d1453d8db37626986492d33bbc47e5b`.
 
 ## Deployment State
 
