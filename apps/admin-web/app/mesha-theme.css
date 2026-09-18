@@ -6414,6 +6414,7 @@ aside.drawer.ltd-drawer{width:min(720px,94vw);overflow-y:auto;overscroll-behavio
 @media (max-width: 600px){
   .ltd-drawer .ltd-status,.ltd-drawer .btn,.ltd-drawer .btn.sm,.ltd-drawer .ltd-composer .lt-comment-form .btn,.ltd-drawer .ltd-feed-tab,.ltd-drawer .ltd-older button{min-height:44px}
 }
+/* END TASK BOARD DRAG AND DROP */
 /* Configuration -> Items and settings (2026-09-18): the prototype's two-column register page --
    a rail of registers with counts on the left, the selected register's table on the right. Phone
    width stacks the rail above the table. */

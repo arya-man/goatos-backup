@@ -116,7 +116,7 @@ assert.doesNotMatch(card, /aria-grabbed/, "the card must not carry a deprecated 
 assert.match(dnd, /aria-live="polite"/);
 
 // ---- Brand palette only for the drag affordance: no hex in the new CSS block.
-const dragCss = css.slice(css.indexOf("TASK BOARD DRAG AND DROP"));
+const dragCss = css.slice(css.indexOf("TASK BOARD DRAG AND DROP"), css.indexOf("END TASK BOARD DRAG AND DROP"));
 assert.doesNotMatch(dragCss, /#[0-9a-fA-F]{3,8}\b/, "the drag affordance must use brand tokens, never a hex colour");
 assert.match(dragCss, /var\(--brand\)/);
 
