@@ -386,7 +386,7 @@ var allowedHistoricalChecksums = map[string]checksumPair{
 		applied: "sha256:b1aea1f11dd92936a361e87994fc6ebdc0d59f2c1868e66bc957bc498588bbfd",
 	},
 	"000345_castro1_ettt_history_z1z3_identity_repair": {
-		current: "sha256:555e5f3b03a9c61672c4a1af1960c30f0cd022d624c065634c08a322387d688b",
+		current: "sha256:d9c0fb1b1b89f3c95505c2cd3b799d15be13f7e8725ba635a8f98b7b442c3bc1",
 		applied: "sha256:2804e4464e8ffbf6ffe8fc505d85a7a6ef43c11a90a1e3de275fa048116a50e7",
 	},
 }

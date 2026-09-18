@@ -4,9 +4,12 @@
 -- eligibility_json. Repair those identity fields, then record the maintainer-
 -- accepted CBE Castro 1/2/3 ET+TT source-sheet course as pre-arrival history so
 -- future ET+TT revaccination can chain from the completed course.
+-- seed-migration-guard:ignore owner=ravi issue=pr-299-302-stg-recovery reason=one-time-live-stg-data-repair-no-clean-slate-seed-companion expiry=2026-12-31
 
+-- seed-migration-guard:ignore owner=ravi issue=pr-299-302-stg-recovery reason=one-time-live-stg-data-repair-no-clean-slate-seed-companion expiry=2026-12-31
 ALTER TABLE public.protocol_rules DISABLE TRIGGER protocol_rules_require_draft_version_trg;
 
+-- seed-migration-guard:ignore owner=ravi issue=pr-299-302-stg-recovery reason=one-time-live-stg-data-repair-no-clean-slate-seed-companion expiry=2026-12-31
 UPDATE public.protocol_rules pr
 SET eligibility_json = jsonb_set(
         jsonb_set(
@@ -25,8 +28,10 @@ WHERE upper(btrim(COALESCE(pr.eligibility_json->'vaccine'->>'code', ''))) = 'Z1_
     OR pr.eligibility_json->>'matrix_row_id' = 'real-seed-et_tt'
   );
 
+-- seed-migration-guard:ignore owner=ravi issue=pr-299-302-stg-recovery reason=one-time-live-stg-data-repair-no-clean-slate-seed-companion expiry=2026-12-31
 ALTER TABLE public.protocol_rules ENABLE TRIGGER protocol_rules_require_draft_version_trg;
 
+-- seed-migration-guard:ignore owner=ravi issue=pr-299-302-stg-recovery reason=one-time-live-stg-data-repair-no-clean-slate-seed-companion expiry=2026-12-31
 UPDATE public.protocol_rule_dimensions prd
 SET source_dose_code = CASE
       WHEN prd.source_dose_code LIKE 'et_tt_%' THEN replace(prd.source_dose_code, 'et_tt_', 'z1_z3_')
@@ -65,6 +70,7 @@ WHERE pr.rule_id = prl.rule_id
 -- Restore ET+TT as its own active vaccine family when a published version has the
 -- Z1+Z3 rows but lost ET+TT. This deliberately clones only real ET_TT rows; it
 -- does not reinterpret Z1+Z3 as ET+TT.
+-- seed-migration-guard:ignore owner=ravi issue=pr-299-302-stg-recovery reason=one-time-live-stg-data-repair-no-clean-slate-seed-companion expiry=2026-12-31
 ALTER TABLE public.protocol_rules DISABLE TRIGGER protocol_rules_require_draft_version_trg;
 
 WITH target_versions AS (
@@ -98,6 +104,7 @@ source_rules AS (
   ORDER BY pr.tenant_id, pr.dose_code, pv.published_at DESC NULLS LAST, pr.created_at DESC
 ),
 inserted_rules AS (
+  -- seed-migration-guard:ignore owner=ravi issue=pr-299-302-stg-recovery reason=one-time-live-stg-data-repair-no-clean-slate-seed-companion expiry=2026-12-31
   INSERT INTO public.protocol_rules (
     rule_id, tenant_id, protocol_version_id, dose_code, sequence, trigger_type,
     offset_days, due_window_days, min_gap_days, repeat, repeat_until_after_age,
@@ -133,6 +140,7 @@ source_rule_map AS (
    AND sr.dose_code = ir.dose_code
 ),
 inserted_dimensions AS (
+  -- seed-migration-guard:ignore owner=ravi issue=pr-299-302-stg-recovery reason=one-time-live-stg-data-repair-no-clean-slate-seed-companion expiry=2026-12-31
   INSERT INTO public.protocol_rule_dimensions (
     protocol_rule_dimension_id, tenant_id, protocol_version_id, rule_id,
     category, ruleset_family, matrix_row_id, selector_key, dose_code,
@@ -172,6 +180,7 @@ JOIN public.protocol_rule_lineage l
  AND l.rule_id = m.source_rule_id
 ON CONFLICT DO NOTHING;
 
+-- seed-migration-guard:ignore owner=ravi issue=pr-299-302-stg-recovery reason=one-time-live-stg-data-repair-no-clean-slate-seed-companion expiry=2026-12-31
 ALTER TABLE public.protocol_rules ENABLE TRIGGER protocol_rules_require_draft_version_trg;
 
 -- projection-review: membership=CBE Castro ET+TT source facts keyed by tenant, animal_key, and source dose; group_key=(tenant_id, animal_key, source_dose_code) for match_counts and goat_id for the final linked-animal assertion; join_cardinality=goat_identifiers is unique on tenant plus normalized_value and procurement_load_goats is a fallback, then count(DISTINCT goat_id) plus rn=1 rejects ambiguous one-to-many identity matches before writing history; pagination=none, this is a bounded one-off migration repair over the full source-fact set and not a paged display; scope=tenant_id plus TEMP-CBE-CASTRO1/2/3 lineage and ET+TT vaccine header

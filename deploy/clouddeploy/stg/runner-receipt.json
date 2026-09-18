@@ -1,6 +1,6 @@
 {
   "schemaVersion": 1,
-  "image": "asia-south1-docker.pkg.dev/goatos-stg/goatos/clouddeploy-stg-runner@sha256:f9a56dc35acfd5290f8b41224c62abf23b2bf183d88a50bd229876139534b12c",
+  "image": "asia-south1-docker.pkg.dev/goatos-stg/goatos/clouddeploy-stg-runner@sha256:9192eb0725deb0ee2801ae31d85799cb05a9a08560d5cfb7276e36be6ac606d7",
   "files": {
     "deploy/clouddeploy/stg/runner.Dockerfile": "e638e40b0064e725c23c7355ef86e62428042777fbfbeb35642b3bd58b27757f",
     "infra/grafana/dashboards/00-feature-health.json": "a3a80e7cbd3e9e46fd7516002ba70123669675c789f78b4f334519098bb9472f",
@@ -16,7 +16,7 @@
     "infra/observability/firebase-initial-export.json": "a9560c7987da69420abc953ab30fdf7e0d75cdea74afc313c1db2d933b79d4e7",
     "tools/deploy/smoke-stg-grafana-dashboards.mjs": "c0baaf82bb098f197b1ed9ed5bf53af16a8dba28c3738b5c29f31b935e296de1",
     "tools/deploy/stg-analytics-events-routing.sh": "6fe6e271b66cd08c576fd26353643ab1c4a14bf1fd4e23542ae71ccf6764fa54",
-    "tools/deploy/stg-clouddeploy-task.sh": "26e532c19cbe77a25801bf8b12ab9823066c620b9025eb7404ad278541d322c1",
+    "tools/deploy/stg-clouddeploy-task.sh": "295bf93fa5da5781bd688a527a573919016b67d90e537fff0096aec6fa35d9c9",
     "tools/deploy/stg-grafana-sso.py": "9c8daedb6aba40e7ad923444b7452a5428167c1bd73e4ee668db90340845ce55",
     "tools/deploy/stg-observability.py": "4de4120a11dff7a4487d5ddd7ea38ebc8232214a20156dcfb0f845dd819857f6"
   }
