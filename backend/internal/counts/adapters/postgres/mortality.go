@@ -186,7 +186,7 @@ dead AS MATERIALIZED (
     LIMIT 1
   ) m ON true
   LEFT JOIN LATERAL (
-    SELECT string_agg(DISTINCT c.disease_name, ' · ') AS disease_label
+    SELECT string_agg(DISTINCT c.disease_name, ' · ' ORDER BY c.disease_name) AS disease_label
     FROM health_cases c
     WHERE c.tenant_id = $1::uuid AND c.goat_id = g.goat_id
       AND c.status IN ('closed_dead', 'held_death_review')
@@ -350,7 +350,7 @@ LEFT JOIN LATERAL (
 ) m ON true
 LEFT JOIN procurement_loads pl ON pl.tenant_id = $1::uuid AND pl.load_id = m.load_id
 LEFT JOIN LATERAL (
-  SELECT string_agg(DISTINCT c.disease_name, ' · ') AS disease_label
+  SELECT string_agg(DISTINCT c.disease_name, ' · ' ORDER BY c.disease_name) AS disease_label
   FROM health_cases c
   WHERE c.tenant_id = $1::uuid AND c.goat_id = d.goat_id
     AND c.status IN ('closed_dead', 'held_death_review')

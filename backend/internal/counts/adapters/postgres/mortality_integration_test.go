@@ -213,10 +213,11 @@ func TestMortalityCauseBasesPartitionDeaths(t *testing.T) {
 	recorded := mortalityGoatID(200)
 	both := mortalityGoatID(201)
 	inferred := mortalityGoatID(202)
+	coMorbid := mortalityGoatID(206)
 	none := mortalityGoatID(203)
 	priorCase := mortalityGoatID(204)
 	afterCase := mortalityGoatID(205)
-	for _, id := range []string{recorded, both, inferred, none, priorCase, afterCase} {
+	for _, id := range []string{recorded, both, inferred, coMorbid, none, priorCase, afterCase} {
 		insertMortalityGoat(t, ctx, pool, id, "Beetal", "female", "F2-Female", "adult", "2025-01-01", "procured", "died", died)
 	}
 	for _, id := range []string{recorded, both} {
@@ -235,12 +236,22 @@ RETURNING health_protocol_version_id::text`, countsTenant).Scan(&versionID); err
 	}
 	for i, id := range []string{both, inferred} {
 		if _, err := pool.Exec(ctx, `
-INSERT INTO health_cases (tenant_id, goat_id, health_protocol_version_id, disease_key, disease_name,
-                          age_band, start_date, duration_days, status, park_id, shed_id,
+	INSERT INTO health_cases (tenant_id, goat_id, health_protocol_version_id, disease_key, disease_name,
+	                          age_band, start_date, duration_days, status, park_id, shed_id,
                           idempotency_key, request_fingerprint)
 VALUES ($1::uuid, $2::uuid, $3::uuid, 'supportive', 'Pneumonia', 'adult', '2026-07-10', 5, 'closed_dead',
         $4::uuid, $5::uuid, $6, $6)`, countsTenant, id, versionID, countsPark, countsShedA, fmt.Sprintf("mortality-case-%d", i)); err != nil {
 			t.Fatalf("seed inferred case: %v", err)
+		}
+	}
+	for i, disease := range []string{"Pneumonia", "Mastitis"} {
+		if _, err := pool.Exec(ctx, `
+	INSERT INTO health_cases (tenant_id, goat_id, health_protocol_version_id, disease_key, disease_name,
+	                          age_band, start_date, duration_days, status, park_id, shed_id,
+	                          idempotency_key, request_fingerprint)
+	VALUES ($1::uuid, $2::uuid, $3::uuid, 'supportive', $4, 'adult', '2026-07-10', 5, 'closed_dead',
+	        $5::uuid, $6::uuid, $7, $7)`, countsTenant, coMorbid, versionID, disease, countsPark, countsShedA, fmt.Sprintf("mortality-comorbid-case-%d", i)); err != nil {
+			t.Fatalf("seed co-morbid inferred case: %v", err)
 		}
 	}
 	for i, seed := range []struct {
@@ -266,13 +277,14 @@ VALUES ($1::uuid, $2::uuid, $3::uuid, 'supportive', 'Pneumonia', 'adult', $4::da
 	if err != nil {
 		t.Fatalf("mortality: %v", err)
 	}
-	if mort.Totals.Deaths != 6 {
-		t.Fatalf("deaths=%d want 6", mort.Totals.Deaths)
+	if mort.Totals.Deaths != 7 {
+		t.Fatalf("deaths=%d want 7", mort.Totals.Deaths)
 	}
-	if mort.Totals.CauseRecorded != 2 || mort.Totals.CauseInferred != 1 || mort.Totals.CauseNone != 3 {
-		t.Fatalf("bases recorded=%d inferred=%d none=%d, want 2/1/3", mort.Totals.CauseRecorded, mort.Totals.CauseInferred, mort.Totals.CauseNone)
+	if mort.Totals.CauseRecorded != 2 || mort.Totals.CauseInferred != 2 || mort.Totals.CauseNone != 3 {
+		t.Fatalf("bases recorded=%d inferred=%d none=%d, want 2/2/3", mort.Totals.CauseRecorded, mort.Totals.CauseInferred, mort.Totals.CauseNone)
 	}
 	var sum int64
+	seenCoMorbid := false
 	for _, b := range mort.Cause {
 		sum += b.Deaths
 		switch b.Basis {
@@ -281,7 +293,11 @@ VALUES ($1::uuid, $2::uuid, $3::uuid, 'supportive', 'Pneumonia', 'adult', $4::da
 				t.Fatalf("recorded bucket must carry the raw key and an empty label for Health to name: %+v", b)
 			}
 		case domain.MortalityCauseInferred:
-			if b.Label != "Pneumonia" {
+			switch b.Label {
+			case "Pneumonia":
+			case "Mastitis · Pneumonia":
+				seenCoMorbid = true
+			default:
 				t.Fatalf("inferred bucket must carry the case's own disease name: %+v", b)
 			}
 		case domain.MortalityCauseNone:
@@ -294,6 +310,9 @@ VALUES ($1::uuid, $2::uuid, $3::uuid, 'supportive', 'Pneumonia', 'adult', $4::da
 	}
 	if sum != mort.Totals.Deaths {
 		t.Fatalf("cause buckets sum %d != deaths %d", sum, mort.Totals.Deaths)
+	}
+	if !seenCoMorbid {
+		t.Fatalf("co-morbid inferred cause did not use the stable sorted label: %+v", mort.Cause)
 	}
 	// The breed x cause cross tab is the same partition one level down.
 	var cross int64
