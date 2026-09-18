@@ -15,13 +15,18 @@ test("the Work Board imports the shared picker and keeps its filter behaviour", 
   assert.match(board, /<AssigneePicker mode="multi"/);
   // The owner still writes the URL through the board's own param writer.
   assert.match(board, /onSelect=\{\(id\) => write\(\(p\) => setParam\(p, pageContract, PARAM_OWNER, id\)\)\}/);
-  // The multi mode is the board's markup, unchanged: avatar stack, +N chip, ticked-when-all rows,
-  // per-owner counts, and the select-all foot.
+  // The multi mode is the board's markup: avatar stack, +N chip, ticked-when-all rows, per-owner
+  // counts, and "Select all" as the FIRST checkbox row (ticked while nobody is picked) -- there
+  // is no foot action any more.
   assert.match(picker, /className=\{`av\$\{o\.id === selected \? " on" : ""\}`\}/);
   assert.match(picker, /\+\{overflow\}/);
   assert.match(picker, /const on = selected \? o\.id === selected : true;/);
   assert.match(picker, /\{cardsByOwner\[o\.id\] \?\? 0\} \{labels\.rows\}/);
-  assert.match(picker, /className="opt foot"/);
+  assert.doesNotMatch(picker, /className="opt foot"/);
+  assert.match(picker, /className=\{`opt all\$\{!selected \? " on" : ""\}`\}/);
+  assert.match(picker, /\{labels\.selectAll\}/);
+  // Every tick is the lucide Check on the brand box, never a glyph that can inherit the fill colour.
+  assert.doesNotMatch(picker, /"✓"/);
 });
 
 test("single mode is a form field: hidden id, Name — Title rows, Enter picks, one Escape layer", () => {

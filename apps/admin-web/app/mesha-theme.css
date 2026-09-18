@@ -2430,7 +2430,10 @@
     .lk.small{display:inline-flex;align-items:center;min-height:40px}
     /* Buttons stay >=40px tap targets on touch widths (the mock's compact desktop padding is too short). */
     .main button,.btn,.btn.sm{min-height:40px}
-    .main input[type="checkbox"],.main input[type="radio"]{min-width:40px;min-height:40px}
+    .main input[type="radio"]{min-width:40px;min-height:40px}
+    /* Checkboxes keep the 18px drawn box (the global rule below) but grow a 40px hit area on
+       touch widths through a pseudo-element, so the tap target holds without a giant box. */
+    .main input[type="checkbox"]:not(.lt-people-row input)::before{content:"";position:absolute;inset:-11px}
     .btn.icon{width:40px;height:40px;min-width:40px;min-height:40px}
     .pager,.pager2{gap:8px}
     .pager a,.pager button,.pager .btn,.pager .pbtn,
