@@ -441,6 +441,11 @@ export function LeadershipTasksFilters({
             carried a THIRD spelling of `t_assignee` as an avatar group whose `+5` overflow was a
             dead `<span aria-hidden>`. `task-people-filter.tsx` is now the only person filter on
             this desk; see that file for why the three converged into one. */}
+        {/* `.lt-fslot` is the bar's PERSON-PICKER slot: a `display:contents` container the
+            toolbar owns, so whichever picker component sits in it (this one, or the shared
+            Work Board assignee picker it is due to be replaced by) inherits the bar's row and
+            the sheet's column without the picker knowing either. */}
+        <div className="lt-fslot" data-slot="assignee">
         <TaskPeopleFilter
           param={TASK_PARAM.assignee}
           value={fieldValue(TASK_PARAM.assignee, assignee)}
@@ -459,7 +464,9 @@ export function LeadershipTasksFilters({
             go(paramsWith({ [TASK_PARAM.assignee]: next }));
           }}
         />
+        </div>
 
+        <div className="lt-fslot" data-slot="raiser">
         <TaskPeopleFilter
           param={TASK_PARAM.raiser}
           value={fieldValue(TASK_PARAM.raiser, raiser)}
@@ -478,6 +485,7 @@ export function LeadershipTasksFilters({
             go(paramsWith({ [TASK_PARAM.raiser]: next }));
           }}
         />
+        </div>
 
         {/* "Sort · Newest first": the label is INSIDE the control, as it is for the two people
             pickers and the two date disclosures. The bar had three label treatments in one row

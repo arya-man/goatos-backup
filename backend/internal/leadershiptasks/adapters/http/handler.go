@@ -235,6 +235,7 @@ func (h *Handler) Edit(w http.ResponseWriter, r *http.Request) {
 	task, err := h.service.Edit(r.Context(), ports.EditParams{
 		TenantID:       tenantID(r),
 		ActorID:        actor.UserID,
+		Actor:          actor,
 		TaskID:         r.PathValue("task_id"),
 		Title:          body.Title,
 		Body:           body.Body,

@@ -130,8 +130,8 @@ test("production Tasks page uses live backend data, with fixtures confined to pr
   );
   assert.match(
     tasksTable,
-    /task=\$\{encodeURIComponent\(task\.id\)\}/,
-    "web task rows must be selectable so any task's notes and attachments can be inspected",
+    /tasksHref\(basePath, sp, \{ \[TASK_PARAM\.scope\]: scopeKey, \[TASK_PARAM\.task\]: task\.id \}\)/,
+    "web task rows must be selectable (task= added to the current URL, so the view and filters survive the click)",
   );
   assert.match(
     tasksTable,

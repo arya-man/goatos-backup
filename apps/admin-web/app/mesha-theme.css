@@ -3542,6 +3542,8 @@ select:disabled { opacity: .45; }
 .lt-page .lt-fsheet-host .lt-fsel,
 .lt-page .lt-fsheet-host .lt-fdrop>button,
 .lt-page .lt-fsheet-host .btn.lt-fmore{box-sizing:border-box;height:var(--lt-ctl);min-height:var(--lt-ctl);border-radius:8px;border:1px solid var(--line);background:var(--bg);padding-top:0;padding-bottom:0;font-size:12.5px}
+/* The person-picker slots: containers the bar owns so a different picker can drop in. */
+.lt-page .lt-fsheet-host .lt-fslot{display:contents}
 .lt-page .lt-fsheet-host .lt-fkey{color:var(--muted);font-weight:650;white-space:nowrap}
 .lt-page .lt-fsheet-host .lt-fkey::after{content:"\00b7";margin-left:6px;color:var(--faint)}
 .lt-page .lt-fsheet-host .lt-fsel select,
