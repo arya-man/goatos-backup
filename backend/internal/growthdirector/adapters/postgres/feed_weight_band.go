@@ -304,43 +304,54 @@ LEFT JOIN locations pk ON pk.tenant_id = $1::uuid AND pk.location_id = r.park_id
 LEFT JOIN evidence e ON e.park_id = r.park_id AND e.pen_label = r.pen_label
 ORDER BY r.park_id, r.pen_label, r.shed_tag, r.workflow, r.ration_group, r.experiment_arm, r.breed, e.source, e.band`)
 
-// feedWeightBandExitedSQL lists the animals that were sold or died inside the period, with
-// their last weigh in the period (if any) -- the "Exited in period" panel (sold / died / other).
-// Bounded by the goats that exited in the window in the parks (STG: 128 over six weeks). Under
-// a sex/origin filter only animals whose tag is in the scope list are listed, the same list that
-// narrows the band rows; an exited animal never weighed in the period has no tag to test and is
-// left out of a filtered list rather than guessed at.
+// feedWeightBandExitedSQL lists EVERY animal that exited the register inside the period under
+// the page's park / sex / origin filters -- the same population Herd Analytics' exits count
+// (goats.exited_at inside the window, one row per goat), so the card's "exited in period" chip
+// reconciles to that screen (Codex P1 on PR #304: the first cut narrowed a filtered list to
+// animals with weighing evidence and the chip read as a herd figure). Sex is goats.sex, origin is
+// procurement_load_goats membership (purchased) or its absence (farm born) -- per ANIMAL, the
+// origin_scope.go rule -- applied here directly because this module is the sanctioned read-only
+// herd join; the band rows keep taking their scope from the weighing resolvers. Each animal
+// carries its last weigh in the period when it has one (weighed_in_period); one without is
+// listed with its current placement as the pen and no band, and can never sit on a band row.
 //
 // SET-BASED, not a per-goat LATERAL: the first cut looped a campaign-shed scan per exited goat
 // (121k loops, 24 s on the OCI clone). The tag -> weigh join now rides
 // weighing_observations_demo_tag_window_idx once for the whole tag set.
 //
-// projection-review: membership=goats with exited_at inside the window in the parks;
-// group_key=goat_id; join_cardinality=identifiers 0..2 per goat, their weighs collapsed by
-// DISTINCT ON (goat_id) to the latest, the primary tag by DISTINCT ON (goat_id), so one row per
-// goat; pagination=NONE, bounded by exits in the window; scope=tenant + park ANY + exited_at
-// window, weigh window and the scope tag list on the weigh join.
+// projection-review: membership=goats with exited_at inside the window in the parks, narrowed
+// by goats.sex and procurement_load_goats membership when asked; group_key=goat_id;
+// join_cardinality=identifiers 0..2 per goat, their weighs collapsed by DISTINCT ON (goat_id) to
+// the latest, the primary tag by DISTINCT ON (goat_id), placement 1:{0,1} on the goat primary
+// key, so one row per goat; pagination=NONE, bounded by exits in the window; scope=tenant + park
+// ANY + exited_at window (+ sex / origin), weigh window on the weigh join.
 var feedWeightBandExitedSQL = strings.NewReplacer(
 	"__SHED_PEN__", penLabelSQL("cs.display_name", "cs.partition_label"),
+	"__GOAT_PEN__", penLabelSQL("l.name", goatPartitionSQL),
 ).Replace(`
 WITH exited AS (
-  SELECT g.goat_id, g.park_id, g.sex, COALESCE(g.exit_reason, '') AS exit_reason, g.exited_at, COALESCE(g.lifecycle_status, '') AS lifecycle_status
+  SELECT g.goat_id, g.park_id, g.sex, COALESCE(g.exit_reason, '') AS exit_reason, g.exited_at,
+         COALESCE(g.lifecycle_status, '') AS lifecycle_status, g.current_location_id
   FROM goats g
   WHERE g.tenant_id = $1::uuid AND g.park_id = ANY($2::uuid[])
+    AND g.merged_into_goat_id IS NULL
     AND g.exited_at >= $3::timestamptz AND g.exited_at < $4::timestamptz
+    AND ($5::text = '' OR g.sex = $5::text)
+    AND ($6::text = ''
+         OR ($6::text = 'purchased') = EXISTS (SELECT 1 FROM procurement_load_goats plg WHERE plg.tenant_id = g.tenant_id AND plg.goat_id = g.goat_id))
 ),
 -- NOT MATERIALIZED: referenced twice, so Postgres would otherwise fence it off and plan the
 -- weigh join against a one-row estimate, walking the whole window's observations per tag
 -- instead of probing weighing_observations_demo_tag_window_idx by tag.
 tags AS NOT MATERIALIZED (
-  SELECT gi.goat_id, lower(btrim(gi.identifier_value)) AS tag, gi.identifier_type
+  SELECT gi.goat_id, lower(btrim(gi.identifier_value)) AS tag, btrim(gi.identifier_value) AS shown, gi.identifier_type
   FROM goat_identifiers gi
   WHERE gi.tenant_id = $1::uuid AND gi.identifier_type IN ('animal_identifier_1', 'animal_identifier_2')
     AND btrim(gi.identifier_value) <> ''
     AND gi.goat_id IN (SELECT goat_id FROM exited)
 ),
 primary_tag AS (
-  SELECT DISTINCT ON (goat_id) goat_id, tag FROM tags ORDER BY goat_id, identifier_type
+  SELECT DISTINCT ON (goat_id) goat_id, shown AS tag FROM tags ORDER BY goat_id, identifier_type
 ),
 scoped AS (
   SELECT cs.campaign_shed_id, __SHED_PEN__ AS pen_label
@@ -356,18 +367,29 @@ weighs AS (
   JOIN scoped s ON s.campaign_shed_id = o.campaign_shed_id
   WHERE o.accepted_at >= $3::timestamptz AND o.accepted_at < $4::timestamptz
     AND o.verification_status <> 'rejected'
-    AND (NOT $5::bool OR lower(btrim(o.scanned_identifier)) = ANY($6::text[]))
   ORDER BY t.goat_id, o.accepted_at DESC, o.observation_id DESC
+),
+part_sheds AS MATERIALIZED (
+  SELECT DISTINCT q.shed_id
+  FROM shed_partitions q
+  WHERE q.tenant_id = $1::uuid AND q.partition_label ~ '^Part [0-9]+$'
+),
+placement AS (
+  SELECT x.goat_id, __GOAT_PEN__ AS pen_label
+  FROM exited x
+  JOIN locations l ON l.tenant_id = $1::uuid AND l.location_id = x.current_location_id
+  LEFT JOIN goat_shed_partitions p ON p.tenant_id = $1::uuid AND p.goat_id = x.goat_id
+  LEFT JOIN part_sheds ps ON ps.shed_id = p.shed_id
 )
 SELECT x.goat_id::text, x.park_id::text,
        COALESCE(w.scanned_identifier, pt.tag, ''),
-       COALESCE(w.pen_label, ''),
+       COALESCE(w.pen_label, pl.pen_label, ''),
        x.exit_reason, x.lifecycle_status, x.exited_at, COALESCE(x.sex, ''),
        w.accepted_at, COALESCE(w.weight_kg, 0)::float8, (w.weight_kg IS NOT NULL)
 FROM exited x
 LEFT JOIN weighs w ON w.goat_id = x.goat_id
 LEFT JOIN primary_tag pt ON pt.goat_id = x.goat_id
-WHERE NOT $5::bool OR w.goat_id IS NOT NULL
+LEFT JOIN placement pl ON pl.goat_id = x.goat_id
 ORDER BY x.exited_at DESC, x.goat_id`)
 
 // GetFeedWeightBandSource reads the latest locked feed direction per park and workflow, rolls it
@@ -423,15 +445,26 @@ func (r *Repository) GetFeedWeightBandSource(ctx context.Context, tenantID strin
 }
 
 // readFeedWeightBandSource is the uncached read behind GetFeedWeightBandSource. The two scope
-// resolvers and the identity map are independent of each other and run concurrently; the sheet
-// query and the exits query need the scope and run concurrently with each other after it.
-// Fan-out is bounded by construction to three concurrent pool queries per request (the three
-// resolvers, then the sheet + exits pair), the same bound weighing's growth read takes with
+// resolvers and the identity map are independent of each other and run concurrently, and the
+// exits query (register filters only) runs beside them from the start; the sheet query follows
+// the scope. Fan-out is bounded by construction to four concurrent pool queries per request, the same bound weighing's growth read takes with
 // weighingGrowthReadParallelism; nothing here spawns per row.
 func (r *Repository) readFeedWeightBandSource(ctx context.Context, tenantID string, parkIDs []string, periodStart, periodEnd time.Time, sex, origin, weighingCategory string) (ports.FeedWeightBandSource, error) {
 	out := ports.FeedWeightBandSource{Rollups: []ports.FeedRollup{}}
 	ctx, cancel := r.timeout(ctx)
 	defer cancel()
+
+	// The exits list takes the page's filters straight from the register (no weighing scope), so
+	// it starts first and runs beside the resolvers and the sheet query.
+	type exitsResult struct {
+		rows []ports.FeedExitedAnimal
+		err  error
+	}
+	exitsCh := make(chan exitsResult, 1)
+	go func() {
+		rows, err := r.readFeedWeightBandExits(ctx, tenantID, parkIDs, periodStart, periodEnd, sex, origin, weighingCategory)
+		exitsCh <- exitsResult{rows: rows, err: err}
+	}()
 
 	sexApplied := strings.TrimSpace(sex) != ""
 	originApplied := strings.TrimSpace(origin) != ""
@@ -494,17 +527,6 @@ func (r *Repository) readFeedWeightBandSource(ctx context.Context, tenantID stri
 	}
 	scope = weighingpg.IntersectScopes(scope, sexApplied, originScope, originApplied)
 	filtered := sexApplied || originApplied
-
-	// The exits list only needs the scope, so it runs beside the sheet query.
-	type exitsResult struct {
-		rows []ports.FeedExitedAnimal
-		err  error
-	}
-	exitsCh := make(chan exitsResult, 1)
-	go func() {
-		rows, err := r.readFeedWeightBandExits(ctx, tenantID, parkIDs, periodStart, periodEnd, filtered, scope.Tags, weighingCategory)
-		exitsCh <- exitsResult{rows: rows, err: err}
-	}()
 
 	rows, err := r.pool.Query(ctx, feedWeightBandSQL,
 		tenantID, parkIDs, periodStart, periodEnd,
@@ -585,8 +607,8 @@ func (r *Repository) readFeedWeightBandSource(ctx context.Context, tenantID stri
 	return out, nil
 }
 
-func (r *Repository) readFeedWeightBandExits(ctx context.Context, tenantID string, parkIDs []string, periodStart, periodEnd time.Time, filtered bool, scopeTags []string, weighingCategory string) ([]ports.FeedExitedAnimal, error) {
-	exitedRows, err := r.pool.Query(ctx, feedWeightBandExitedSQL, tenantID, parkIDs, periodStart, periodEnd, filtered, scopeTags, weighingCategory)
+func (r *Repository) readFeedWeightBandExits(ctx context.Context, tenantID string, parkIDs []string, periodStart, periodEnd time.Time, sex, origin, weighingCategory string) ([]ports.FeedExitedAnimal, error) {
+	exitedRows, err := r.pool.Query(ctx, feedWeightBandExitedSQL, tenantID, parkIDs, periodStart, periodEnd, strings.TrimSpace(sex), strings.TrimSpace(origin), weighingCategory)
 	if err != nil {
 		return nil, fmt.Errorf("growthdirector: feed weight band exits: %w", err)
 	}

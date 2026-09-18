@@ -113,9 +113,18 @@ the register (an `inactive` record, a transfer, a loss, a cull, a blank reason).
 | `died` | either is `dead` or `died` (and not sold) |
 | `other` | everything else with an `exited_at` |
 
-`sold` and `died` are the same two buckets Herd Analytics reports as **Sold** and **Deaths** (104
-and 3 on the OCI clone for 03/08–15/09); `other` is the 13 the register holds as `inactive` with
-no reason. An exited animal is **shown but excluded from Wt n and Avg kg by default** (it is not
+**The exit population is Herd Analytics' exits**: every goat with `exited_at` inside the period
+(`merged_into_goat_id IS NULL`), under the page's park, **sex (`goats.sex`) and origin
+(`procurement_load_goats` membership = purchased, absence = farm born, per animal)** filters —
+never narrowed to animals with weighing evidence. On the OCI clone for 03/08–15/09 that is
+**65 under Sex = Male (56 sold · 3 died · 6 other)** and **120 all sex (104 · 3 · 13)**, the same
+figures Herd Analytics' Sold / Deaths report as its first two buckets; `other` is the register's
+`inactive` records with no reason. Each exit carries `weighed_in_period`: **55 of the 65 male /
+99 of the 120 all-sex exits have a weigh inside the period** and only those can appear on a band
+row; the rest are listed with their current placement as the pen and no band or kg
+(`reconciliation.exited_weighed + exited_not_weighed = exited_animals`). The band rows' own
+`+N sold / died / other` notes and the Include-exited head counts are band evidence and count
+weighed animals only. An exited animal is **shown but excluded from Wt n and Avg kg by default** (it is not
 eating today's feed). Every per-animal band row carries **both head-count variants in one
 payload** — `weight_animals` / `average_weight_kg` / `gender` (on farm) and the `*_all` twins
 (every weighed animal) — plus `exited_animals = exited_sold + exited_died + exited_other`, so the
@@ -149,13 +158,14 @@ Band rows are given as `On farm / Include exited`; Individual and Lump sum are t
 
 | Filters (OCI dev DB, as of 2026-09-18) | Sheet rows | Items | Rollups | Matched | Not shown | Band rows | Individual (card / General tab) | Lump sum (card / General tab) | Exited in period |
 |---|---|---|---|---|---|---|---|---|---|
-| All parks, Sex = Male (page default) | 578 | 289 | 140 | 20 / 22 | 120 / 118 | 48 / 59 | 183 / 183 | 332 / 332 | 55 = 54 sold + 1 died + 0 other |
-| All parks, Sex = All | 578 | 289 | 140 | 33 / 36 | 107 / 104 | 94 / 111 | 413 / 413 | 332 / 332 | 120 = 104 sold + 3 died + 13 other |
-| Park = CBE, Sex = All | 374 | 187 | 89 | 15 / 18 | 74 / 71 | 41 / 53 | 218 / 218 | 193 / 193 | 91 = 88 sold + 2 died + 1 other |
-| Park = CBE, Sex = Male | 374 | 187 | 89 | 8 / 10 | 81 / 79 | 20 / 26 | 94 / 94 | 193 / 193 | 39 = 38 sold + 1 died + 0 other |
+| All parks, Sex = Male (page default) | 578 | 289 | 140 | 20 / 22 | 120 / 118 | 48 / 59 | 183 / 183 | 332 / 332 | 65 = 56 sold + 3 died + 6 other (55 weighed) |
+| All parks, Sex = All | 578 | 289 | 140 | 33 / 36 | 107 / 104 | 94 / 111 | 413 / 413 | 332 / 332 | 120 = 104 sold + 3 died + 13 other (99 weighed) |
+| Park = CBE, Sex = All | 374 | 187 | 89 | 15 / 18 | 74 / 71 | 41 / 53 | 218 / 218 | 193 / 193 | 91 = 88 sold + 2 died + 1 other (83 weighed) |
+| Park = CBE, Sex = Male | 374 | 187 | 89 | 8 / 10 | 81 / 79 | 20 / 26 | 94 / 94 | 193 / 193 | 43 = 40 sold + 2 died + 1 other (39 weighed) |
 
-The exit list is narrowed by the sex scope like every other row (a male read lists male exits),
-which is why the male default shows 55 of the period's 120 exits.
+The exit list is the register's exits under the page's filters (a male read lists the 65 male
+exits, weighed or not), reconciling to Herd Analytics; 55 of those 65 (99 of the all-sex 120)
+carry a weigh in the period.
 
 Worked example, CBE Yashoda 3 · 15–20 kg, Sex = Male: On farm `Wt n 9, +2 sold, Avg 17.1`;
 Include exited `Wt n 11 incl. 2 sold, Avg 17.3`. Seven of the 48 rows on the male default change
@@ -169,9 +179,9 @@ rework and verified alike — but a whole-pen weigh contributes only when the pe
 **two dates** in the period (`summary_lump`'s pairing), and a single date is not a pair. The
 pen's scanned animals do pair, so the per-animal rows stand. The rule is not changed here.
 
-Tiles on the card dedupe by pen × band × source ("Animals weighed") and by pen × band ("Exited
-since weighing", with its sold / died / other breakdown); a pen with four feed rows counts its
-animals once.
+The "Animals weighed" tile dedupes by pen × band × source (a pen with four feed rows counts its
+animals once); the "Exited in period" tile is the reconciliation figure with its weighed /
+not-weighed split.
 
 ### Serving shape and measured latency
 
@@ -215,7 +225,8 @@ with the General tab and is not changed here. Browser Animals toggle, click → 
 ## UI
 
 - One card under the Weight-wise chart: feed-day chip, clickable "N fed pens not shown" chip
-  (→ Not shown view) and "N exited in period · N sold · N died · N other" chip (→ panel), a
+  (→ Not shown view) and "N exited in period · N sold · N died · N other — N weighed, N no
+  weighing in period" chip (→ panel), a
   `Matched | Not shown` segmented view, `On farm | Include exited` (Matched only), table-level filters (Feed type,
   Weight source*, Band*, Pen, Group*; * Matched only) with the bar's own Clear, a text search,
   at most eight stat tiles, the table, and the shared pager (10/25/50, default 25; lump-sum rows first within
@@ -223,7 +234,9 @@ with the General tab and is not changed here. Browser Animals toggle, click → 
   Weighing / Sex / Origin keep applying on top.
 - The exited panel is the app's local drawer (`useLocalOverlaySelection`, `#fb_exit=` hash):
   opened from the chip, the tile or a row note, grouped by pen, searchable, header with count and
-  period, Reason column = bucket pill beside the stored register text; Esc / scrim / X / Back close it with filters intact and no route re-run.
+  period, Reason column = bucket pill beside the stored register text, weighed animals grouped by
+  pen and the not-weighed ones last under "No weighing in period" with placement as pen and — for
+  band / kg; Esc / scrim / X / Back close it with filters intact and no route re-run.
 
 ## Out of scope / known limitations
 

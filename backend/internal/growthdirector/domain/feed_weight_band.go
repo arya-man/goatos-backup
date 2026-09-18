@@ -133,8 +133,12 @@ type FeedWeightBandExit struct {
 	ParkID   string `json:"park_id"`
 	ParkName string `json:"park_name"`
 	Tag      string `json:"tag"`
-	// Pen is the pen of the animal's last weigh in the period; empty when never weighed in it.
+	// Pen is the pen of the animal's last weigh in the period, or, for an animal not weighed in
+	// it, the register's current placement; empty when neither is known.
 	Pen string `json:"pen"`
+	// WeighedInPeriod says whether the animal has a weigh inside the period (and so may sit on a
+	// band row); the last-weigh fields are present exactly when it is true.
+	WeighedInPeriod bool `json:"weighed_in_period"`
 	// Gender is the register's sex as display copy ("Male" / "Female"), empty when unknown.
 	Gender string `json:"gender"`
 	// Reason is the register's exit reason as stored, with the lifecycle status beside it for
@@ -189,12 +193,17 @@ type FeedWeightBandReconciliation struct {
 	// that tab does.
 	IndividualAnimalsWeighed int `json:"individual_animals_weighed"`
 	LumpSumAnimalsWeighed    int `json:"lump_sum_animals_weighed"`
-	// ExitedAnimals is how many animals exited the register inside the period (the panel's
-	// list); ExitedSold + ExitedDied + ExitedOther = ExitedAnimals (FeedExitBucket).
-	ExitedAnimals int `json:"exited_animals"`
-	ExitedSold    int `json:"exited_sold"`
-	ExitedDied    int `json:"exited_died"`
-	ExitedOther   int `json:"exited_other"`
+	// ExitedAnimals is how many animals exited the register inside the period under the page's
+	// park / sex / origin filters -- the same population Herd Analytics' exits count (the
+	// panel's list); ExitedSold + ExitedDied + ExitedOther = ExitedAnimals (FeedExitBucket), and
+	// ExitedWeighed + ExitedNotWeighed = ExitedAnimals (weighed inside the period or not; only
+	// the weighed ones can sit on a band row).
+	ExitedAnimals    int `json:"exited_animals"`
+	ExitedSold       int `json:"exited_sold"`
+	ExitedDied       int `json:"exited_died"`
+	ExitedOther      int `json:"exited_other"`
+	ExitedWeighed    int `json:"exited_weighed"`
+	ExitedNotWeighed int `json:"exited_not_weighed"`
 }
 
 type FeedWeightBand struct {

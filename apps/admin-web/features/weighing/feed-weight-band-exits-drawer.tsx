@@ -22,6 +22,8 @@ export type FeedWeightBandExitItem = {
   bucket: string;
   /** The bucket as display copy. */
   bucketLabel: string;
+  /** True when the animal has a weigh inside the period (the last-weigh fields are set). */
+  weighed: boolean;
   /** ISO business dates; formatted here. */
   exitedAt: string;
   lastWeighedAt: string;
@@ -57,6 +59,8 @@ export type FeedWeightBandExitsDrawerLabels = {
   empty: string;
   animals: string;
   animal: string;
+  /** Heading of the last group: the animals with no weigh in the period. */
+  notWeighed: string;
 };
 
 const kg = (value: number) => value.toLocaleString("en-IN", { minimumFractionDigits: 1, maximumFractionDigits: 1 });
@@ -102,15 +106,18 @@ export function FeedWeightBandExitsDrawer({
       q === "" ||
       [item.tag, item.pen, item.gender, item.reason, item.bucketLabel, item.feedGiven, item.park, item.lastBandLabel].join(" ").toLowerCase().includes(q),
   );
-  // Grouped by pen in served order (newest exit first inside a pen); a pen never weighed in the
-  // period groups under the "never weighed" label.
-  const groups: { pen: string; park: string; items: FeedWeightBandExitItem[] }[] = [];
-  for (const item of items) {
+  // Weighed animals grouped by pen in served order (newest exit first inside a pen); the
+  // animals with no weigh in the period come last, in one group, with their placement as pen.
+  const groups: { pen: string; park: string; weighed: boolean; items: FeedWeightBandExitItem[] }[] = [];
+  for (const item of items.filter((x) => x.weighed)) {
     const last = groups[groups.length - 1];
     if (last && last.pen === item.pen && last.park === item.park) last.items.push(item);
-    else groups.push({ pen: item.pen, park: item.park, items: [item] });
+    else groups.push({ pen: item.pen, park: item.park, weighed: true, items: [item] });
   }
+  const notWeighed = items.filter((x) => !x.weighed);
+  if (notWeighed.length > 0) groups.push({ pen: "", park: "", weighed: false, items: notWeighed });
   const columns = contract.columns.filter((column) => column.visible && column.key !== "park" && column.key !== "pen");
+  const columnsWithPen = contract.columns.filter((column) => column.visible && column.key !== "park");
   const blank = <span className="muted">—</span>;
 
   return (
@@ -158,16 +165,16 @@ export function FeedWeightBandExitsDrawer({
             </div>
           ) : (
             groups.map((group) => (
-              <div key={`${group.park}|${group.pen}`} className="wt-feedband-exitgroup">
+              <div key={group.weighed ? `${group.park}|${group.pen}` : "not-weighed"} className="wt-feedband-exitgroup">
                 <h3 className="h">
-                  {group.pen ? group.pen : <span className="muted">{labels.never}</span>}
-                  <span className="muted small"> · {group.park} · {group.items.length.toLocaleString("en-IN")}</span>
+                  {group.weighed ? group.pen : <span className="muted">{labels.notWeighed}</span>}
+                  <span className="muted small"> · {group.weighed ? `${group.park} · ` : ""}{group.items.length.toLocaleString("en-IN")}</span>
                 </h3>
-                <div className="tablewrap" tabIndex={0} role="group" aria-label={group.pen || labels.never}>
+                <div className="tablewrap" tabIndex={0} role="group" aria-label={group.weighed ? group.pen : labels.notWeighed}>
                   <table className="tbl wt-feedband">
                     <thead>
                       <tr>
-                        {columns.map((column) => (
+                        {(group.weighed ? columns : columnsWithPen).map((column) => (
                           <th key={column.key} scope="col" className={column.key === "last_kg" ? "num" : undefined}>
                             {column.label}
                           </th>
@@ -177,10 +184,12 @@ export function FeedWeightBandExitsDrawer({
                     <tbody>
                       {group.items.map((item) => (
                         <tr key={item.key}>
-                          {columns.map((column) => (
+                          {(group.weighed ? columns : columnsWithPen).map((column) => (
                             <td key={column.key} className={column.key === "last_kg" ? "num" : undefined}>
                               {column.key === "tag" ? (
                                 <b>{item.tag}</b>
+                              ) : column.key === "pen" ? (
+                                item.pen ? <span title={item.pen}>{item.pen}</span> : blank
                               ) : column.key === "gender" ? (
                                 item.gender || <span className="muted">{labels.noGender}</span>
                               ) : column.key === "reason" ? (

@@ -4923,7 +4923,7 @@ func pageSpecificCopy(id string) map[string]string {
 			"info.feed_band.kg_day":   "Pen kg/day is the whole rollup's feed for the day; a per-animal pen repeats it on every bracket row, so do not add those rows up.",
 			"info.feed_band.excluded": "Excluded counts feed rollups whose pen has no qualifying weighing in the period, including pens whose weighed animals have all since exited.",
 			"info.feed_band.badges":   "Lump sum marks a pen weighed whole, on its average; Per animal marks a pen whose animals were scanned one by one.",
-			"info.feed_band.exited":   "Exited animals — sold, died, or otherwise removed from the register — are left out of Wt n and Avg kg unless Animals is set to include them; a bracket row notes how many of its weighed animals have since left, by reason.",
+			"info.feed_band.exited":   "Exited in period uses the same rule as Herd Analytics exits: every animal that left the register inside the period, under the park, sex and origin filters. Only the weighed ones can appear on a band row; the +N sold / died / other notes and the Include exited head counts are band evidence and count weighed animals only.",
 			// The card's three views (maintainer decision 2026-09-18, the STG artifact's shape): one
 			// shell, one pager, one search; the view decides the rows and which filters apply.
 			"view.feed_band.aria":      "Feed by weight band view",
@@ -4957,10 +4957,13 @@ func pageSpecificCopy(id string) map[string]string {
 			"stat.feed_band.lump":                       "Lump sum",
 			"stat.feed_band.per_animal":                 "Per animal",
 			"stat.feed_band.animals":                    "Animals weighed",
-			"stat.feed_band.exited":                     "Exited since weighing",
+			"stat.feed_band.exited":                     "Exited in period",
 			"stat.feed_band.sold":                       "Sold",
 			"stat.feed_band.died":                       "Died",
 			"stat.feed_band.other":                      "Other",
+			"stat.feed_band.weighed":                    "weighed",
+			"stat.feed_band.not_weighed":                "no weighing in period",
+			"drawer.feed_band.not_weighed":              "No weighing in period",
 			"column.feed_band.park":                     "Park",
 			"column.feed_band_unmatched.park":           "Park",
 			"column.feed_band_unmatched.pen":            "Pen",

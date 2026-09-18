@@ -129,6 +129,8 @@ func BuildFeedWeightBand(source ports.FeedWeightBandSource) domain.FeedWeightBan
 			ExitedAt:        x.ExitedAt.In(loc).Format("2006-01-02"),
 		}
 		if x.LastWeighedAt != nil {
+			exit.WeighedInPeriod = true
+			out.Reconciliation.ExitedWeighed++
 			kg := x.LastWeightKg
 			exit.LastWeighedAt = x.LastWeighedAt.In(loc).Format("2006-01-02")
 			exit.LastBand = domain.FeedBandForKg(kg)
@@ -139,6 +141,9 @@ func BuildFeedWeightBand(source ports.FeedWeightBandSource) domain.FeedWeightBan
 				exit.FeedType = rollup.Workflow
 				exit.FeedGiven = feedGivenOf(rollup)
 			}
+		}
+		if !exit.WeighedInPeriod {
+			out.Reconciliation.ExitedNotWeighed++
 		}
 		switch exit.Bucket {
 		case domain.FeedExitSold:

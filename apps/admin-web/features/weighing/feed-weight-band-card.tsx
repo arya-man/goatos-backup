@@ -200,28 +200,12 @@ export function FeedWeightBandCard({
   // renders identically on the server, where there is no window.
   const exitHref = (scope: string) => `#fb_exit=${encodeURIComponent(scope)}`;
   if (view === "matched") {
-    const perPenBand = new Map<string, { animals: number; exited: number; sold: number; died: number; other: number }>();
+    const perPenBand = new Map<string, number>();
     for (const row of matched) {
-      perPenBand.set(`${row.park_id}|${row.pen}|${row.band}|${row.weight_source}`, {
-        animals: includeExited ? row.weight_animals_all : row.weight_animals,
-        exited: row.exited_animals,
-        sold: row.exited_sold,
-        died: row.exited_died,
-        other: row.exited_other,
-      });
+      perPenBand.set(`${row.park_id}|${row.pen}|${row.band}|${row.weight_source}`, includeExited ? row.weight_animals_all : row.weight_animals);
     }
     let animals = 0;
-    let exited = 0;
-    let sold = 0;
-    let died = 0;
-    let other = 0;
-    for (const entry of perPenBand.values()) {
-      animals += entry.animals;
-      exited += entry.exited;
-      sold += entry.sold;
-      died += entry.died;
-      other += entry.other;
-    }
+    for (const entry of perPenBand.values()) animals += entry;
     tiles.push({ label: copy(pageContract, "stat.feed_band.rows"), value: n(matched.length) });
     for (const park of parkNames) tiles.push({ label: park, value: n(matched.filter((row) => row.park_name === park).length) });
     tiles.push(
@@ -229,7 +213,14 @@ export function FeedWeightBandCard({
       { label: copy(pageContract, "stat.feed_band.lump"), value: n(matched.filter((row) => row.weight_source === "pen_average").length) },
       { label: copy(pageContract, "stat.feed_band.per_animal"), value: n(matched.filter((row) => row.weight_source === "per_animal").length) },
       { label: copy(pageContract, "stat.feed_band.animals"), value: n(animals) },
-      { label: copy(pageContract, "stat.feed_band.exited"), value: n(exited), sub: exited > 0 ? exitBreakdown(sold, died, other) : undefined, href: exited > 0 ? exitHref("all") : undefined },
+      // The period's exits, the Herd Analytics figure (recon), with the weighed / not-weighed
+      // split; the band rows' own exit notes are the weighed subset of this.
+      {
+        label: copy(pageContract, "stat.feed_band.exited"),
+        value: n(recon?.exited_animals ?? 0),
+        sub: recon && recon.exited_animals > 0 ? `${n(recon.exited_weighed)} ${copy(pageContract, "stat.feed_band.weighed")} · ${n(recon.exited_not_weighed)} ${copy(pageContract, "stat.feed_band.not_weighed")}` : undefined,
+        href: recon && recon.exited_animals > 0 ? exitHref("all") : undefined,
+      },
     );
   } else {
     tiles.push({ label: copy(pageContract, "stat.feed_band.rows"), value: n(unmatched.length) });
@@ -249,6 +240,7 @@ export function FeedWeightBandCard({
     reason: row.reason || row.lifecycle_status,
     bucket: row.bucket,
     bucketLabel: bucketLabel(row.bucket),
+    weighed: row.weighed_in_period,
     exitedAt: row.exited_at,
     lastWeighedAt: row.last_weighed_at ?? "",
     lastBand: row.last_band ?? "",
@@ -333,6 +325,7 @@ export function FeedWeightBandCard({
               <LocalOverlayLink href={exitHref("all")} className="wt-feedband-chip" scroll={false}>
                 {n(recon.exited_animals)} {copy(pageContract, "recon.feed_band.exited")}
                 {recon.exited_animals > 0 ? ` · ${exitBreakdown(recon.exited_sold, recon.exited_died, recon.exited_other)}` : ""}
+                {recon.exited_animals > 0 ? ` — ${n(recon.exited_weighed)} ${copy(pageContract, "stat.feed_band.weighed")}, ${n(recon.exited_not_weighed)} ${copy(pageContract, "stat.feed_band.not_weighed")}` : ""}
               </LocalOverlayLink>
             </>
           ) : null}
@@ -519,6 +512,7 @@ export function FeedWeightBandCard({
           empty: copy(pageContract, "empty.feed_band.exits"),
           animals: copy(pageContract, "drawer.feed_band.animals"),
           animal: copy(pageContract, "drawer.feed_band.animal"),
+          notWeighed: copy(pageContract, "drawer.feed_band.not_weighed"),
         }}
       />
     </section>

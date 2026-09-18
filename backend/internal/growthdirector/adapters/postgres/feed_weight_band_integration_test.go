@@ -106,6 +106,12 @@ VALUES ($1::uuid, $2::uuid, $3::uuid, 'CBE', $4::uuid, $5, $6, $7, $8, $9, $10, 
 	seedGoatWithTag(t, ctx, pool, "77777777-0000-4000-8000-000000000603", "0603", "TAG-G", "Sojat", "female")
 	execGD(t, ctx, pool, `UPDATE goats SET exited_at = $3::timestamptz, exit_reason = NULL, lifecycle_status = 'inactive' WHERE tenant_id = $1::uuid AND goat_id = $2::uuid`,
 		gdTenant, "77777777-0000-4000-8000-000000000603", day(21, 9))
+	// HERD ANALYTICS POPULATION (Codex P1 on PR #304): the exit list is every goat that exited
+	// in the period, weighed or not. TAG-H (male, never weighed) died: it is listed with its
+	// placement as the pen and no weigh, counts under "not weighed", and sits on no band row.
+	seedGoatWithTag(t, ctx, pool, "77777777-0000-4000-8000-000000000604", "0604", "TAG-H", "Sojat", "male")
+	execGD(t, ctx, pool, `UPDATE goats SET exited_at = $3::timestamptz, exit_reason = 'died', lifecycle_status = 'dead' WHERE tenant_id = $1::uuid AND goat_id = $2::uuid`,
+		gdTenant, "77777777-0000-4000-8000-000000000604", day(22, 9))
 	// Lump 1's residents: 25 animals is the frozen census; the register holds three
 	// females placed there (fewer than the census, which is the honest state after
 	// moves) and nothing else, so the pen reads Female. The location is the undivided
@@ -204,10 +210,13 @@ VALUES
 	}
 	// Both exits are listed with their last weigh in the window, newest exit first; the
 	// inactive one carries its stored (blank) reason and lifecycle so the screen can bucket it.
-	if len(got.Exited) != 2 || got.Exited[0].Tag != "TAG-G" || got.Exited[0].LifecycleStatus != "inactive" || got.Exited[0].ExitReason != "" || got.Exited[0].LastWeightKg != 23.0 {
-		t.Fatalf("exit list: want TAG-G (inactive, other) first, got %+v", got.Exited)
+	if len(got.Exited) != 3 || got.Exited[0].Tag != "TAG-H" || got.Exited[0].LastWeighedAt != nil || got.Exited[0].Pen != "Gandhi 1 - Part 1" || got.Exited[0].LifecycleStatus != "dead" {
+		t.Fatalf("exit list: want never-weighed TAG-H (died) first with its placement as pen and no weigh, got %+v", got.Exited)
 	}
-	if x := got.Exited[1]; x.Tag != "TAG-B" || x.Pen != "Gandhi 1 - Part 1" || x.LifecycleStatus != "sold" || x.LastWeighedAt == nil || x.LastWeightKg != 16.0 {
+	if x := got.Exited[1]; x.Tag != "TAG-G" || x.LifecycleStatus != "inactive" || x.ExitReason != "" || x.LastWeightKg != 23.0 {
+		t.Fatalf("exit list: want TAG-G (inactive, other) second, got %+v", x)
+	}
+	if x := got.Exited[2]; x.Tag != "TAG-B" || x.Pen != "Gandhi 1 - Part 1" || x.LifecycleStatus != "sold" || x.LastWeighedAt == nil || x.LastWeightKg != 16.0 {
 		t.Fatalf("exit list: want TAG-B sold, last weighed 16.0 in Gandhi 1 - Part 1, got %+v", x)
 	}
 	// The same row carries the include-exited variant: TAG-B counted again, 15_20 = 2 at
@@ -245,6 +254,11 @@ VALUES
 				t.Fatalf("male: only TAG-A's 20_25 row may survive (TAG-C/E/F resolve to no animal), got %s %+v", r.Pen, e)
 			}
 		}
+	}
+	// The exit list under Sex = Male is the register's male exits (TAG-H only; TAG-B and TAG-G
+	// are female), whether or not weighed -- the Herd Analytics rule, not the weighing scope.
+	if len(male.Exited) != 1 || male.Exited[0].Tag != "TAG-H" {
+		t.Fatalf("male exits: want TAG-H alone, got %+v", male.Exited)
 	}
 
 	// PARK SCOPE: the other park's sheet answers only when that park is in scope, and then

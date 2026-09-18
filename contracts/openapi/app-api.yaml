@@ -2052,8 +2052,10 @@ paths:
         `exited_animals` split into `exited_sold` / `exited_died` / `exited_other` (bucketed
         from `goats.lifecycle_status` / `goats.exit_reason`: sold -> sold; dead / died ->
         died; everything else -> other), so the screen's Animals toggle is a client-side flip.
-        Every animal that exited inside the period is listed in `exited` with its last weigh
-        and its bucket; the reconciliation carries the same three bucket totals.
+        `exited` lists EVERY animal that exited inside the period under the park / sex / origin
+        filters (the Herd Analytics exits population, not only the weighed ones) with its bucket
+        and, when it has one, its last weigh; the reconciliation carries the three bucket totals
+        and the weighed / not-weighed split.
 
 
         `from`/`to` are inclusive Asia/Kolkata business dates bounding the weight evidence
@@ -33721,7 +33723,7 @@ components:
     GrowthDirectorFeedWeightBandReconciliation:
       type: object
       additionalProperties: false
-      required: [feed_day, positive_rows, collapsed_items, rollups, matched_rollups, matched_rollups_all, excluded_rollups, excluded_rollups_all, output_rows, individual_animals_weighed, lump_sum_animals_weighed, exited_animals, exited_sold, exited_died, exited_other]
+      required: [feed_day, positive_rows, collapsed_items, rollups, matched_rollups, matched_rollups_all, excluded_rollups, excluded_rollups_all, output_rows, individual_animals_weighed, lump_sum_animals_weighed, exited_animals, exited_sold, exited_died, exited_other, exited_weighed, exited_not_weighed]
       properties:
         feed_day:
           type: string
@@ -33758,7 +33760,7 @@ components:
           description: The weighing side's own whole-pen total before any feed match, at the General tab's grain.
         exited_animals:
           type: integer
-          description: Animals that exited the register inside the period, whatever the reason (the length of `exited`).
+          description: Animals that exited the register inside the period under the park / sex / origin filters, whatever the reason -- the same population Herd Analytics' exits count (the length of `exited`).
         exited_sold:
           type: integer
           description: The sold bucket of exited_animals (lifecycle_status / exit_reason sold).
@@ -33768,6 +33770,12 @@ components:
         exited_other:
           type: integer
           description: Every other exit (inactive, transferred, lost, culled, blank). exited_sold + exited_died + exited_other = exited_animals.
+        exited_weighed:
+          type: integer
+          description: Exited animals with a weigh inside the period (the only ones that can sit on a band row).
+        exited_not_weighed:
+          type: integer
+          description: Exited animals with no weigh inside the period. exited_weighed + exited_not_weighed = exited_animals.
     GrowthDirectorFeedWeightBandUnmatched:
       type: object
       additionalProperties: false
@@ -33790,14 +33798,17 @@ components:
     GrowthDirectorFeedWeightBandExit:
       type: object
       additionalProperties: false
-      required: [park_id, park_name, tag, pen, gender, reason, lifecycle_status, bucket, exited_at]
+      required: [park_id, park_name, tag, pen, gender, reason, lifecycle_status, bucket, weighed_in_period, exited_at]
       properties:
         park_id: {type: string, format: uuid}
         park_name: {type: string}
         tag: {type: string}
         pen:
           type: string
-          description: Pen of the animal's last weigh in the period; empty when never weighed in it.
+          description: Pen of the animal's last weigh in the period, or its current placement when not weighed in it; empty when neither is known.
+        weighed_in_period:
+          type: boolean
+          description: True when the animal has a weigh inside the period; the last-weigh fields are present exactly then.
         gender:
           type: string
           description: The register's sex as display copy (Male / Female); empty when unknown.

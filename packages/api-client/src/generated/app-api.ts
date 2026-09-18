@@ -826,7 +826,7 @@ export interface paths {
          *
          *     WEIGHT per park + pen, at the ADG Analytics General tab's OWN grain so the two reconcile: the latest live whole-pen weigh in the period wins for a pen weighed on two dates in it, ONE row banded on the pen average with its latest head count (`weight_source=pen_average`); otherwise every animal with a prior weigh and a weigh inside the period (same-animal keyed, verification not rejected), banded on its latest weigh and attributed to the pen of that weigh, ONE row per band (`weight_source=per_animal`). A fed pen with no such weigh in the period is excluded and counted in `reconciliation.excluded_rollups`.
          *
-         *     EXITED animals (any `goats.exited_at`: sold, died, or any other exit such as an inactive or transferred record) are outside a band row's on-farm head count and average; every row also carries the `*_all` variant that counts them in, plus `exited_animals` split into `exited_sold` / `exited_died` / `exited_other` (bucketed from `goats.lifecycle_status` / `goats.exit_reason`: sold -> sold; dead / died -> died; everything else -> other), so the screen's Animals toggle is a client-side flip. Every animal that exited inside the period is listed in `exited` with its last weigh and its bucket; the reconciliation carries the same three bucket totals.
+         *     EXITED animals (any `goats.exited_at`: sold, died, or any other exit such as an inactive or transferred record) are outside a band row's on-farm head count and average; every row also carries the `*_all` variant that counts them in, plus `exited_animals` split into `exited_sold` / `exited_died` / `exited_other` (bucketed from `goats.lifecycle_status` / `goats.exit_reason`: sold -> sold; dead / died -> died; everything else -> other), so the screen's Animals toggle is a client-side flip. `exited` lists EVERY animal that exited inside the period under the park / sex / origin filters (the Herd Analytics exits population, not only the weighed ones) with its bucket and, when it has one, its last weigh; the reconciliation carries the three bucket totals and the weighed / not-weighed split.
          *
          *     `from`/`to` are inclusive Asia/Kolkata business dates bounding the weight evidence only, defaulting like /growth-director/weights. `sex`, `origin` and `weighing_category` are resolved by the weighing module's own scope resolvers, so the rows narrow exactly as the Weights pages do. Gender on a row comes from the herd register: the sexes of the animals in that pen and band, or of the goats placed in a whole-weighed pen.
          */
@@ -14460,7 +14460,7 @@ export interface components {
             individual_animals_weighed: number;
             /** @description The weighing side's own whole-pen total before any feed match, at the General tab's grain. */
             lump_sum_animals_weighed: number;
-            /** @description Animals that exited the register inside the period, whatever the reason (the length of `exited`). */
+            /** @description Animals that exited the register inside the period under the park / sex / origin filters, whatever the reason -- the same population Herd Analytics' exits count (the length of `exited`). */
             exited_animals: number;
             /** @description The sold bucket of exited_animals (lifecycle_status / exit_reason sold). */
             exited_sold: number;
@@ -14468,6 +14468,10 @@ export interface components {
             exited_died: number;
             /** @description Every other exit (inactive, transferred, lost, culled, blank). exited_sold + exited_died + exited_other = exited_animals. */
             exited_other: number;
+            /** @description Exited animals with a weigh inside the period (the only ones that can sit on a band row). */
+            exited_weighed: number;
+            /** @description Exited animals with no weigh inside the period. exited_weighed + exited_not_weighed = exited_animals. */
+            exited_not_weighed: number;
         };
         /** @description One feed rollup on the latest sheet whose pen has no qualifying weighing in the period; on the sheet, counted, never banded. */
         GrowthDirectorFeedWeightBandUnmatched: {
@@ -14490,8 +14494,10 @@ export interface components {
             park_id: string;
             park_name: string;
             tag: string;
-            /** @description Pen of the animal's last weigh in the period; empty when never weighed in it. */
+            /** @description Pen of the animal's last weigh in the period, or its current placement when not weighed in it; empty when neither is known. */
             pen: string;
+            /** @description True when the animal has a weigh inside the period; the last-weigh fields are present exactly then. */
+            weighed_in_period: boolean;
             /** @description The register's sex as display copy (Male / Female); empty when unknown. */
             gender: string;
             /** @description The register's exit_reason as stored (may be blank). */

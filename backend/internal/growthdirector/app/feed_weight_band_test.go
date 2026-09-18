@@ -107,6 +107,10 @@ func TestBuildFeedWeightBandReconcilesAndOrders(t *testing.T) {
 	if rec.ExitedSold != 1 || rec.ExitedDied != 1 || rec.ExitedOther != 1 || rec.ExitedSold+rec.ExitedDied+rec.ExitedOther != rec.ExitedAnimals {
 		t.Fatalf("reconciliation exit buckets: want 1/1/1 of 3, got %+v", rec)
 	}
+	// Weighed / not weighed split: only TAG-SOLD carries a weigh in the period.
+	if rec.ExitedWeighed != 1 || rec.ExitedNotWeighed != 2 || rec.ExitedWeighed+rec.ExitedNotWeighed != rec.ExitedAnimals {
+		t.Fatalf("reconciliation weighed split: want 1 weighed + 2 not weighed = 3, got %+v", rec)
+	}
 	// The unweighed pen is listed under Not shown with its feed, and nowhere else.
 	if len(got.Unmatched) != 1 || got.Unmatched[0].Pen != "Sumathi 1 - Part 4" || got.Unmatched[0].FeedType != "experiment" || got.Unmatched[0].Group != "Fattening" || got.Unmatched[0].FeedGiven != "Bhusa 400g/head + Kids Concentrate 250g/head" {
 		t.Fatalf("not-shown list wrong: %+v", got.Unmatched)
@@ -116,6 +120,9 @@ func TestBuildFeedWeightBandReconcilesAndOrders(t *testing.T) {
 		t.Fatalf("want 3 exits, got %+v", got.Exited)
 	}
 	sold, dead, other := got.Exited[0], got.Exited[1], got.Exited[2]
+	if !sold.WeighedInPeriod || dead.WeighedInPeriod || other.WeighedInPeriod {
+		t.Fatalf("weighed_in_period must follow the last weigh: %+v", got.Exited)
+	}
 	if sold.Bucket != domain.FeedExitSold || dead.Bucket != domain.FeedExitDied || other.Bucket != domain.FeedExitOther || other.LifecycleStatus != "inactive" {
 		t.Fatalf("exit buckets: want sold/died/other with the stored text kept, got %+v", got.Exited)
 	}
