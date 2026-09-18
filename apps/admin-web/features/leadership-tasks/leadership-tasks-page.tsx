@@ -158,22 +158,18 @@ export function LeadershipTasksPage({
   const assigneeChoices = personOptions(assignees);
   const isBoard = params.view === "board";
   /**
-   * The detail rail takes a column of the page ONLY when it has a task to show, or when the table
-   * is on screen.
+   * The detail panel exists ONLY when there is a task to show, and then it is a DRAWER over the
+   * board or the table (`task-detail-drawer.tsx`), never a rail beside them.
    *
-   * The board needs the width: four columns beside a 360px rail left two of them off-screen at
-   * 1440, so a reader comparing this with Jira saw half a board next to an empty placeholder
-   * card. The table has always reserved the rail (its rows are narrow and the reader expects the
-   * panel to be there), so that behaviour is unchanged.
+   * There is no "Select a task" placeholder rail any more, in either view. The table kept one
+   * (Gate-1 #1): with nothing selected the empty rail took 54% of `.lt-grid` at 1440, the table
+   * was squeezed into a 475px scroll box with no scrollbar, and four of its six columns (Raised
+   * by, Status, Evidence, Days left) were simply off-screen. The drawer IS the detail now, so an
+   * empty rail was dead space bought with the columns the list exists to show. Both views take
+   * the full width (`lt-grid-solo`). `TaskDetailPanel` stays the single call site; the drawer
+   * merely wraps it. Same href as the panel's own Close link.
    */
-  const hasSidePanel = Boolean(selected) || (!isBoard && hasTasks);
-  /**
-   * A SELECTED task is not a rail at all: it opens as a drawer over the board or the table
-   * (`task-detail-drawer.tsx`), so the list underneath keeps its full width -- beside a 54% rail
-   * the board lost its Done and Cancelled columns the moment a card was clicked. The rail below
-   * is left for the table's no-selection placeholder only. `TaskDetailPanel` stays the single
-   * call site; the drawer merely wraps it. Same href as the panel's own Close link.
-   */
+  const hasSidePanel = Boolean(selected);
   const closeHref = tasksHref(
     TASKS_PATHNAME,
     tasksSearchParams(params),
@@ -209,6 +205,7 @@ export function LeadershipTasksPage({
             assignees={assignees}
             action={raiseLeadershipTaskAction}
             returnTo={`${TASKS_PATHNAME}?scope=assigned_by_me`}
+            pageContract={pageContract}
           />
         ) : preview ? (
           <Tag tone="ok">{copy(pageContract, "state.can_raise")}</Tag>
@@ -302,7 +299,7 @@ export function LeadershipTasksPage({
       />
       </div>
 
-      <div className={`lt-grid${hasSidePanel && !selected ? "" : " lt-grid-solo"}`}>
+      <div className="lt-grid lt-grid-solo">
         <section className="card lt-card" style={{ minWidth: 0 }}>
           <div className="hd">
             <ClipboardList className="ic" style={{ color: "var(--brand)" }} aria-hidden="true" />
@@ -371,11 +368,8 @@ export function LeadershipTasksPage({
           )}
         </section>
 
-        {/* The detail rail is one call site on purpose: `task-detail-panel.tsx` owns the whole
-            panel, including the no-selection state, so the panel can be redesigned without the
-            page changing. `detail` is the selected `TaskRow` or `null`. With a selection the same
-            element renders in the drawer below instead, outside this grid. */}
-        {!selected ? detailPanel : null}
+        {/* No rail in the grid: the selected task's panel renders in the drawer below, outside
+            this grid, and with no selection there is nothing to render (see `hasSidePanel`). */}
       </div>
 
       {selected ? (
