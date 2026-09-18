@@ -1162,3 +1162,18 @@ func (f *fakeRepo) BirthWorkflowIDForEvent(_ context.Context, tenantID, birthEve
 	}
 	return "", domain.ErrNotFound
 }
+
+// The death bundle names the animal: two deaths in one pen on one day must be told apart in the
+// verifier's queue (edge-case audit 2026-09-18).
+func TestDeathBundleSubjectNamesTheAnimal(t *testing.T) {
+	svc, repo, enq, workflowID := newServiceWithDeathWorkflow(t)
+	w := repo.workflows[workflowID]
+	facts := repo.goats[w.SubjectGoatID]
+	facts.DisplayID = "G-000777"
+	repo.goats[w.SubjectGoatID] = facts
+	completeBothDeathVideos(t, svc, repo, workflowID)
+	releaseApprovedDeath(t, svc, repo, workflowID)
+	if len(enq.calls) != 1 || !strings.Contains(enq.calls[0].SubjectLabel, "G-000777") {
+		t.Fatalf("death subject label must name the animal, got %+v", enq.calls)
+	}
+}

@@ -286,8 +286,17 @@ func (s *Service) deathEvidenceRequest(ctx context.Context, tenantID string, w d
 	bundle := domain.DeathEvidenceBundle(w.CaptureEvidence, actions)
 	shedID := derefOr(w.ShedID)
 	shedName, partitionLabel, _ := s.repo.FetchShedDetails(ctx, tenantID, shedID)
-	if pen := s.animalPen(ctx, tenantID, w); pen != "" {
-		partitionLabel = pen
+	// The animal's display id names WHICH death when two are recorded in the same pen on the same
+	// day (edge-case audit 2026-09-18: "Death evidence · 18/09/2026 · Gandhi 1" twice over is
+	// undecidable for the verifier). A lookup failure degrades to the date and pen alone.
+	subject := "Death evidence"
+	if facts, err := s.repo.GoatWorkflowFacts(ctx, tenantID, w.SubjectGoatID); err == nil {
+		if id := strings.TrimSpace(facts.DisplayID); id != "" {
+			subject += " · " + id
+		}
+		if pen := penInShed(facts, shedID); pen != "" {
+			partitionLabel = pen
+		}
 	}
 	if capturedAt.IsZero() {
 		capturedAt = s.now().UTC()
@@ -302,7 +311,7 @@ func (s *Service) deathEvidenceRequest(ctx context.Context, tenantID string, w d
 		ProofRefs:      bundle.Refs,
 		MediaMeta:      bundle.Meta,
 		ContextRows:    bundle.Rows,
-		SubjectLabel:   appendLocation("Death evidence · "+biztime.FarmDateFromBusinessDate(w.EventDate), shedName, partitionLabel),
+		SubjectLabel:   appendLocation(subject+" · "+biztime.FarmDateFromBusinessDate(w.EventDate), shedName, partitionLabel),
 		CapturedAt:     capturedAt,
 		IdempotencyKey: domain.DeathEvidenceKey(w.WorkflowID, w.RowVersion, bundle.Refs),
 	}
