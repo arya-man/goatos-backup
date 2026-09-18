@@ -80,7 +80,10 @@ export default function MentionPicker({
   registerKeyHandler,
   onPopupStateChange,
 }: MentionPickerProps) {
-  const [highlight, setHighlight] = useState(0);
+  // The highlight is stored WITH the query it belongs to, rather than reset from an effect when
+  // the query changes: a new query must start at the top of its own list, or the highlight lands
+  // on a different person than the one under the reader's eye.
+  const [marker, setMarker] = useState<{ query: string | null; index: number }>({ query: null, index: 0 });
 
   const active = useMemo(() => (suppressed ? null : activeMentionQuery(text, caret)), [caret, suppressed, text]);
   const query = active ? active.query : null;
@@ -89,13 +92,16 @@ export default function MentionPicker({
     () => (query === null ? [] : filterMentionCandidates(candidates, query, MENTION_RESULT_LIMIT)),
     [candidates, query],
   );
+  const highlight = marker.query === query ? marker.index : 0;
   const highlighted = matches.length > 0 ? Math.min(highlight, matches.length - 1) : 0;
-
-  // A new query starts at the top of its own list; otherwise the highlight from the previous
-  // query lands on a different person than the one under the reader's eye.
-  useEffect(() => {
-    setHighlight(0);
-  }, [query]);
+  const moveHighlight = useCallback(
+    (delta: number, length: number) =>
+      setMarker((current) => ({
+        query,
+        index: moveMentionHighlight(current.query === query ? current.index : 0, length, delta),
+      })),
+    [query],
+  );
 
   const choose = useCallback(
     (candidate: MentionCandidate) => {
@@ -119,26 +125,26 @@ export default function MentionPicker({
       if (matches.length === 0) return false;
       if (event.key === MENTION_KEYS.down) {
         event.preventDefault();
-        setHighlight((current) => moveMentionHighlight(current, matches.length, 1));
+        moveHighlight(1, matches.length);
         return true;
       }
       if (event.key === MENTION_KEYS.up) {
         event.preventDefault();
-        setHighlight((current) => moveMentionHighlight(current, matches.length, -1));
+        moveHighlight(-1, matches.length);
         return true;
       }
       if (event.key === MENTION_KEYS.enter || event.key === MENTION_KEYS.tab) {
         // Enter picks the highlighted person INSTEAD of breaking the line, but only while the
         // popup is open -- otherwise a multi-line note becomes impossible to type.
         event.preventDefault();
-        const candidate = matches[Math.min(highlight, matches.length - 1)];
+        const candidate = matches[highlighted];
         if (candidate) choose(candidate);
         return true;
       }
       return false;
     });
     return () => registerKeyHandler(null);
-  }, [choose, highlight, matches, onDismiss, popupOpen, registerKeyHandler]);
+  }, [choose, highlighted, matches, moveHighlight, onDismiss, popupOpen, registerKeyHandler]);
 
   useEffect(() => {
     onPopupStateChange({
@@ -216,7 +222,7 @@ export default function MentionPicker({
                   event.preventDefault();
                   choose(candidate);
                 }}
-                onMouseEnter={() => setHighlight(index)}
+                onMouseEnter={() => setMarker({ query, index })}
               >
                 <span style={{ minWidth: 0 }}>
                   <span className="pn" style={{ display: "block" }}>

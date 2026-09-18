@@ -160,6 +160,9 @@ export function TaskBoardColumns({
     // The fence comes off the ROW being rendered, not off a number captured at page load.
     formData.set("row_version", String(task.rowVersion));
     formData.set("status", to);
+    // The status this board was SHOWING for the card, so a refusal can say whether the task moved
+    // under the reader or was changed some other way. Not an input to the write; see `actions.ts`.
+    formData.set("from_status", task.status);
     try {
       faro.api?.pushEvent(BOARD_DRAG_EVENT, {
         from: task.status,
@@ -224,7 +227,17 @@ export function TaskBoardColumns({
                 onDrop={(event) => {
                   event.preventDefault();
                   setOverColumn(null);
-                  const taskID = event.dataTransfer.getData(DRAG_MIME);
+                  /**
+                   * The card being dragged is identified from this component's OWN state first,
+                   * and from the drag payload only as a fallback. Both are written by the same
+                   * `dragstart`, so they agree — state is primary because it is the SAME value the
+                   * column's droppability was computed from, so the drop and the highlight the
+                   * reader was shown can never be about two different cards. The payload is still
+                   * set, and still read as a fallback, because it is what makes a drop OUTSIDE the
+                   * board carry a private type instead of the card's URL.
+                   */
+                  const taskID =
+                    draggingTaskID || event.dataTransfer.getData(DRAG_MIME);
                   const task = rows.find((row) => row.id === taskID);
                   setDraggingTaskID(null);
                   // Re-checked against the row's own options: the dragover guard is a cursor, and

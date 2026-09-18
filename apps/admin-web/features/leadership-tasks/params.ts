@@ -50,6 +50,16 @@ export const TASK_PARAM = {
   cursorStack: "t_cursor_stack",
   feedbackStatus: "task_status",
   feedbackCode: "task_code",
+  /**
+   * The two FACTS a refusal carries beside its code, so the banner can say something a reader can
+   * act on instead of "action could not be completed": the task's current backend `status_chip`,
+   * and the name of the person whose move it is. Both are written by
+   * `changeLeadershipTaskStatusAction` from a re-read of the task and rendered VERBATIM — the
+   * banner substitutes them into a contract-owned sentence and composes no wording of its own.
+   * They share the `task_` prefix of the two feedback params and are cleared with them.
+   */
+  feedbackStatusNow: "task_now",
+  feedbackWho: "task_who",
 } as const;
 
 /** Every parameter the filter bar owns. Changing any of them RESTARTS paging. */
@@ -103,6 +113,8 @@ export type TasksParams = {
   selectedTaskID?: string;
   feedbackStatus?: string;
   feedbackCode?: string;
+  feedbackStatusNow?: string;
+  feedbackWho?: string;
 };
 
 /**
@@ -145,6 +157,8 @@ export function parseTasksParams(
     selectedTaskID: selectedTask,
     feedbackStatus: one(params, TASK_PARAM.feedbackStatus),
     feedbackCode: one(params, TASK_PARAM.feedbackCode),
+    feedbackStatusNow: one(params, TASK_PARAM.feedbackStatusNow),
+    feedbackWho: one(params, TASK_PARAM.feedbackWho),
   };
 }
 
@@ -201,6 +215,8 @@ export function tasksHref(
   // back press cannot resurrect "task updated" over a page that did nothing.
   next.delete(TASK_PARAM.feedbackStatus);
   next.delete(TASK_PARAM.feedbackCode);
+  next.delete(TASK_PARAM.feedbackStatusNow);
+  next.delete(TASK_PARAM.feedbackWho);
   const qs = next.toString();
   return qs ? `${pathname}?${qs}` : pathname;
 }

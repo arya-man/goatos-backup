@@ -72,6 +72,10 @@ function StatusForm({
       <input type="hidden" name="task_id" value={task.id} />
       <input type="hidden" name="row_version" value={task.rowVersion} />
       <input type="hidden" name="status" value={option.key} />
+      {/* The status this panel was SHOWING, so a refused change can say whether the task moved
+          under the reader. Not an input to the write — the fence and the backend's own transition
+          check decide that. The board's drop posts the same field. */}
+      <input type="hidden" name="from_status" value={task.status} />
       <button
         type="submit"
         className="btn"

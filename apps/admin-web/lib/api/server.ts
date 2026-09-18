@@ -3561,6 +3561,28 @@ export async function listLeadershipTasks(
   );
 }
 
+/**
+ * ONE task, read fresh.
+ *
+ * The board's write path needs this to say something TRUE after a refusal: the 409
+ * `version_conflict` envelope carries only its code and a generic sentence, so the only way to
+ * tell the reader what the task IS now (and who owns the move they were refused) is to re-read
+ * it. Called from the status Server Action on a refusal only — never on the happy path, and never
+ * per row.
+ */
+export async function getLeadershipTask(
+  taskId: string,
+): Promise<ApiResult<LeadershipTaskDetail>> {
+  const config = await getServerConfig();
+  if (!config.ok) return config;
+  const client = createAppApiClient(apiClientOptions(config.data));
+  const path = `/app/leadership-tasks/${encodeURIComponent(taskId)}` as keyof AppApiPaths &
+    string;
+  return request(() =>
+    client.request<LeadershipTaskDetail>(path, { cache: "no-store" }),
+  );
+}
+
 export async function listLeadershipTaskAssignees(): Promise<
   ApiResult<LeadershipTaskAssignees>
 > {
@@ -5720,11 +5742,20 @@ function envelopeFieldErrors(body: unknown): ApiUiError["fieldErrors"] {
 
 function parseEnvelope(body: unknown): ErrorEnvelope | null {
   if (!body || typeof body !== "object") return null;
-  const maybe = body as Partial<ErrorEnvelope>;
-  if (typeof maybe.code !== "string" || typeof maybe.message !== "string") {
-    return null;
+  const maybe = body as Partial<ErrorEnvelope> & { error?: unknown };
+  if (typeof maybe.message !== "string") return null;
+  if (typeof maybe.code === "string") return maybe as ErrorEnvelope;
+  // The SECOND envelope shape this backend actually serves: `{"error": "<code>", "message": ...}`.
+  // The leadership-tasks write endpoints use it for every refusal, so requiring `code` dropped
+  // the code on the floor and EVERY refusal reached the screen as the generic `api_error` kind.
+  // Measured on the live API: a stale `row_version` returns 409 `{"error":"version_conflict"}`
+  // and the Tasks banner read "Action could not be completed" — the one sentence that cannot tell
+  // a reader someone else moved the task. `kind` mapping below is unchanged; this only recovers
+  // the code, so a caller that was comparing against one starts seeing it instead of `undefined`.
+  if (typeof maybe.error === "string" && maybe.error.trim() !== "") {
+    return { ...(maybe as object), code: maybe.error } as ErrorEnvelope;
   }
-  return maybe as ErrorEnvelope;
+  return null;
 }
 
 export function compactQuery(

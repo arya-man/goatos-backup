@@ -186,6 +186,8 @@ export function LeadershipTasksPage({
           pageContract={pageContract}
           status={params.feedbackStatus}
           code={params.feedbackCode}
+          statusNow={params.feedbackStatusNow}
+          who={params.feedbackWho}
         />
       ) : null}
 

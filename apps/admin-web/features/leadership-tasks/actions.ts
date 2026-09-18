@@ -5,6 +5,7 @@ import { redirect } from "next/navigation";
 import {
   changeLeadershipTaskStatus,
   editLeadershipTask,
+  getLeadershipTask,
   raiseLeadershipTask,
   setLeadershipTaskComment,
   uploadLeadershipTaskAttachment,
@@ -102,6 +103,20 @@ export async function raiseLeadershipTaskAction(
   redirect(withFeedback(url, "success", "task_raised"));
 }
 
+/**
+ * The refusal codes whose sentence is worth a second request, because each one is a statement
+ * ABOUT the task: what it is now, or whose move it is. A validation refusal minted locally
+ * (`invalid_status_change`, `invalid_idempotency_key`) is about the REQUEST and reads fine on its
+ * own, so it costs no read.
+ */
+const STATUS_REFUSALS_WORTH_A_REREAD = [
+  "version_conflict",
+  "task_closed",
+  "not_assignee",
+  "not_raiser",
+  "invalid_status_transition",
+];
+
 export async function changeLeadershipTaskStatusAction(
   formData: FormData,
 ): Promise<void> {
@@ -113,6 +128,14 @@ export async function changeLeadershipTaskStatusAction(
     10,
   );
   const idempotencyKey = String(formData.get("idempotency_key") ?? "").trim();
+  /**
+   * The status the caller's own screen was SHOWING for this task. Optional, and never trusted as
+   * an input to the write — the backend's `row_version` fence and `CheckTransition` decide that.
+   * It exists so a refusal can tell whether the task actually MOVED under the reader (name the
+   * new status) or merely changed in some other way (do not). An older caller that does not send
+   * it simply gets the refusal sentence without the status clause.
+   */
+  const fromStatus = String(formData.get("from_status") ?? "").trim();
 
   if (!taskID || !status || !Number.isFinite(rowVersion)) {
     redirect(withFeedback(url, "error", "invalid_status_change"));
@@ -128,9 +151,68 @@ export async function changeLeadershipTaskStatusAction(
   );
   revalidatePath(PATHNAME);
   if (!result.ok) {
-    redirect(
-      withFeedback(url, "error", result.error.code ?? result.error.kind),
-    );
+    const code = result.error.code ?? result.error.kind;
+    /**
+     * A REFUSED status change gets the facts that make the sentence mean something.
+     *
+     * "Action could not be completed" is the wording this page had for all three refusals, and it
+     * is the one thing the reader cannot act on: a CXO looking at a board of 424 tasks learns
+     * nothing from it. The refusal envelope carries only its code — no status, no person — so the
+     * task is RE-READ here and two backend-owned values ride the redirect beside the code:
+     *
+     *   task_now  the task's CURRENT `status_chip`, the backend's own chip wording, verbatim.
+     *             This is what a `version_conflict` is really about: the board is out of date and
+     *             this is the truth it is out of date against.
+     *   task_who  the person whose move this is, by name, for a refusal that is ABOUT a person:
+     *             the assignee for a ladder move, the raiser for a cancel. Both names come off
+     *             the task; nothing is guessed. When a name does not resolve the parameter is
+     *             ABSENT and the banner renders the sentence without its name clause, which is
+     *             this repo's rule for an unresolvable identifier — never a placeholder, and
+     *             never a raw id.
+     *
+     * WHO MADE THE CHANGE is deliberately not claimed. Neither the 409 envelope nor
+     * `GET /app/leadership-tasks/{task_id}` reports the actor of the last status change, and
+     * inferring one from the transition would be inventing a name. The banner therefore names the
+     * NEW STATUS on a conflict and names the OWNER of the move on a permission refusal. Adding
+     * `status_changed_by_name` to the task read is the backend follow-up that would let the
+     * sentence name the person who actually moved it.
+     *
+     * The re-read is one extra request on the FAILURE path only.
+     */
+    if (STATUS_REFUSALS_WORTH_A_REREAD.includes(code)) {
+      const fresh = await getLeadershipTask(taskID);
+      if (fresh.ok) {
+        const task = fresh.data.task;
+        /**
+         * The status is sent ONLY when it is the fact that explains the refusal — that is, when
+         * the task has genuinely MOVED since the board was drawn. `from_status` is the status the
+         * reader's own board was showing, so this comparison is exact.
+         *
+         * Without it the sentence is absurd in the commonest case: a `row_version` also moves when
+         * somebody EDITS the task, and the banner then read "This task is already Open" over a
+         * board that says Open — measured on the live desk while proving this path. When the
+         * status did not change there is no status worth naming, so the parameter is absent and
+         * the banner falls to the sentence that does not mention one. Each fact is asserted only
+         * where it is the relevant fact.
+         */
+        if (task.status_chip && task.status !== fromStatus) {
+          url.searchParams.set(TASK_PARAM.feedbackStatusNow, task.status_chip);
+        }
+        /**
+         * The NAME rides only on a refusal that is about a person. `not_assignee` is about the
+         * assignee and `not_raiser` about the raiser — the two the backend's own rulebook names
+         * (`domain.CheckTransition`). Sending a name on a version conflict would put a person in
+         * the reader's mind who may have had nothing to do with it.
+         */
+        if (code === "not_assignee" && task.assignee_name) {
+          url.searchParams.set(TASK_PARAM.feedbackWho, task.assignee_name);
+        }
+        if (code === "not_raiser" && task.raised_by_name) {
+          url.searchParams.set(TASK_PARAM.feedbackWho, task.raised_by_name);
+        }
+      }
+    }
+    redirect(withFeedback(url, "error", code));
   }
   redirect(withFeedback(url, "success", "task_updated"));
 }
