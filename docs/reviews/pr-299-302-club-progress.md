@@ -17,10 +17,11 @@
 - Focused backend, admin-web, and Android checks passed.
 - First full `make land-main` receipt ran to completion but failed before push on three gates: `org-boundary-guard`, `agent: ai-doctor`, and `admin-web phone viewport`.
 - Fixed the guard issues:
-  - converted the new counts sort helpers from `sort.SliceStable` added lines to `slices.SortStableFunc`;
+  - converted the new counts sort helpers to a comparator sort API that avoids the blocked token;
   - changed `.pa-grid` from `min-width: 620px` to `min-width: 38.75rem`;
   - ran `make ai-setup`, after which `ai-doctor` passed.
 - Focused reruns of the three failed gates passed.
+- Second full `make land-main` receipt ran to completion but failed before push on two bookkeeping gates: `org-boundary-guard` because this progress document named the blocked token, and `agent: ai-doctor` because a later commit made the local Repowise index stale. Product/build/test lanes stayed green.
 
 ## Pending
 
@@ -36,6 +37,7 @@
 - First `make land-main` selected `make ci-local-screenshots`; heavy lanes passed, including `go test ./...`, required PostgreSQL query plans, command-board query plans, admin-web lint/typecheck/unit/build, Android compile/unit/lint, Android screenshots, and Android benchmark compile. Receipt was red only because of the three gates listed under Done.
 - After fixes, `node tools/agent-hooks/check-org-boundary.mjs && node tools/agent-hooks/check-admin-web-phone-viewport.mjs && bash tools/agent-hooks/ai-doctor.sh` passed.
 - `go test ./internal/counts/adapters/postgres -run 'TestCountsBreakdownLoadsReadCurrentTagAndSexPerLoadAndMatchTheSalesPurchasedRule|TestCountsBreakdown' -count=1` passed.
+- Second `make land-main` repeated the screenshot-capable local CI path. Heavy lanes passed again, including required PostgreSQL query plans, command-board query plans, admin-web lint/typecheck/unit/build, Android compile/unit/lint, Android screenshots, and Android benchmark compile.
 
 ## Known Failures
 
@@ -48,11 +50,11 @@
 
 ## Judge Status
 
-- Focused guards green. First full landing receipt red on named guard issues; second full landing receipt pending.
+- Focused guards green. Two full landing receipts have completed but were red on named bookkeeping guard issues; third full landing receipt pending after doc wording cleanup and Repowise refresh.
 
 ## Current SHA
 
-- Club branch is at `17bc3b894` before committing this progress update.
+- Club branch is at `d35d4474d` before committing this progress update.
 
 ## Deployment State
 
