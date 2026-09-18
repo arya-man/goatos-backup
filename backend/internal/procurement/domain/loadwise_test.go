@@ -540,37 +540,55 @@ func TestUnsoldLoadReportsTheDaysItsAnimalsHaveBeenOnFarm(t *testing.T) {
 	}
 }
 
-// The two clocks are MUTUALLY EXCLUSIVE (maintainer decision 2026-09-01): a load that has sold
-// answers with its finished span alone. Both the sold-out case and the PART-SOLD straggler case
-// are asserted here, because the second is the one that reopened the decision -- load 101 sold 66
-// animals at 204 days and still holds 3 that arrived 314 days ago, and putting that 314 on the
-// same axis tells three animals' story at the scale of the whole chart.
-func TestALoadThatHasSoldReportsOnlyItsFinishedSpan(t *testing.T) {
+// The running clock stays on for a PART-SOLD load (maintainer decision 2026-09-18, superseding the
+// 2026-09-01 mutually-exclusive rule). Load 126 is the case that reopened it: it had sold some
+// animals, its arrival-to-sale span was never imported, and the old rule left it with NO bar at
+// all over animals still eating on the farm. A sold-OUT load still reports its finished span only.
+func TestPartSoldLoadReportsBothClocksAndSoldOutOnlyTheFinishedSpan(t *testing.T) {
 	out := FinalizeLoadwise([]LoadwiseLoad{
 		{
 			LoadID: "load-113", DeclaredCount: 91, Purchased: 91, Sold: 91, Remaining: 0,
 			PurchaseDate: "2025-11-13", ArrivedOn: "2025-11-14", FatteningDays: lwInt(183),
 		},
 		{
-			// Part sold: 3 animals left, and they have been here far longer than the 66 that went.
+			// Part sold with a finished span: both bars.
 			LoadID: "load-101", DeclaredCount: 69, Purchased: 69, Sold: 66, Remaining: 3,
 			PurchaseDate: "2025-10-21", ArrivedOn: "2025-10-22", FatteningDays: lwInt(204),
 		},
-	}, 2, nil, testAsOf)
+		{
+			// Part sold with NO imported span: the running clock is the only bar it has.
+			LoadID: "load-126", DeclaredCount: 50, Purchased: 50, Sold: 20, Remaining: 30,
+			PurchaseDate: "2026-06-01", ArrivedOn: "2026-06-04",
+		},
+	}, 3, nil, testAsOf)
 
+	byID := map[string]LoadwiseLoad{}
 	for _, row := range out.Loads {
-		if row.DaysOnFarmSoFar != nil {
-			t.Fatalf("%s has sold and still reported %d days on farm", row.LoadID, *row.DaysOnFarmSoFar)
-		}
-		if row.FatteningDays == nil {
-			t.Fatalf("%s lost its finished span", row.LoadID)
-		}
+		byID[row.LoadID] = row
+	}
+	if got := byID["load-113"].DaysOnFarmSoFar; got != nil {
+		t.Fatalf("a sold-out load reported %d days on farm", *got)
+	}
+	if byID["load-113"].FatteningDays == nil || *byID["load-113"].FatteningDays != 183 {
+		t.Fatal("the sold-out load lost its finished span")
+	}
+	if byID["load-101"].FatteningDays == nil || *byID["load-101"].FatteningDays != 204 {
+		t.Fatal("the part-sold load lost its finished span")
+	}
+	if got := byID["load-101"].DaysOnFarmSoFar; got == nil {
+		t.Fatal("a part-sold load holding 3 animals reported no days on farm")
+	}
+	if got := byID["load-126"].DaysOnFarmSoFar; got == nil || *got != 89 {
+		t.Fatalf("load 126 days on farm = %v, want 89 (arrival 4 Jun to 1 Sep)", got)
+	}
+	if byID["load-126"].FatteningDays != nil {
+		t.Fatal("load 126 grew a finished span nobody imported")
 	}
 }
 
-// The pre-GoatOS sales count as sales. A load whose only sales predate the system would otherwise
-// read as never sold and grow a running bar beside loads that genuinely have not sold one animal.
-func TestPreSystemSalesAlsoStopTheRunningClock(t *testing.T) {
+// Pre-GoatOS sales do not stop the running clock either: the 8 animals still here have been here
+// as long as they have, whoever sold the other 32.
+func TestPreSystemSalesLeaveTheRunningClockOnForTheRemainder(t *testing.T) {
 	value := 240000.0
 	out := FinalizeLoadwise([]LoadwiseLoad{{
 		LoadID: "load-legacy", DeclaredCount: 40, Purchased: 8, Sold: 0, Remaining: 8,
@@ -578,8 +596,8 @@ func TestPreSystemSalesAlsoStopTheRunningClock(t *testing.T) {
 		PriorSold: LoadwisePriorOutcome{Count: 32, Value: &value, FirstOn: "2026-05-01", LastOn: "2026-06-01"},
 	}}, 1, nil, testAsOf)
 
-	if got := out.Loads[0].DaysOnFarmSoFar; got != nil {
-		t.Fatalf("a load with 32 pre-system sales reported %d days on farm", *got)
+	if got := out.Loads[0].DaysOnFarmSoFar; got == nil {
+		t.Fatal("a load with 8 animals still on farm reported no days on farm")
 	}
 }
 

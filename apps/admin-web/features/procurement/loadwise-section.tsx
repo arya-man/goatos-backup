@@ -111,10 +111,9 @@ export function LoadwiseSection({
     { key: "landed_price_per_kg", label: copy(pageContract, "chart.series.landing_price_per_kg"), tone: "info" },
     { key: "sale_price_per_kg", label: copy(pageContract, "chart.series.sale_price_per_kg"), tone: "ok" },
   ];
-  // Two clocks with the SAME start (arrival) and MUTUALLY EXCLUSIVE by decision: the finished
-  // span for a load that has sold, the days-so-far for one that has not. A load never shows both
-  // -- a part-sold load's stragglers can be hundreds of days older than the animals that went,
-  // and that bar would set the axis for every other load on the chart.
+  // Two clocks with the SAME start (arrival): the finished span for the animals that sold, and
+  // the days-so-far for the animals still here. A part-sold load shows both (maintainer decision
+  // 2026-09-18), with its bar label stating the split so the stragglers' bar is read as theirs.
   const fatteningSeries: GroupedSeries[] = [
     { key: "fattening_days", label: copy(pageContract, "chart.series.fattening_days"), tone: "teal" },
     { key: "days_on_farm_so_far", label: copy(pageContract, "chart.series.days_on_farm_so_far"), tone: "info" },
@@ -344,10 +343,10 @@ export function LoadwiseSection({
             }))}
           />
 
-          {/* Chart 5 — the fattening clock from arrival, in whichever of its two states the load
-              is in: the finished arrival-to-sale span (animal-weighted) once it has sold, and
-              until then the days its animals have been here so far. Neither is the load's AGE —
-              that clock starts at purchase and is not on this axis. */}
+          {/* Chart 5 — the fattening clock from arrival: the finished arrival-to-sale span
+              (animal-weighted) for the animals that sold, and the days-so-far for the animals still
+              on the farm. Neither is the load's AGE — that clock starts at purchase and is not on
+              this axis. */}
           <div className="mt">{copy(pageContract, "chart.loadwise_fattening.title")}</div>
           <GroupedColumns
             series={fatteningSeries}
@@ -362,9 +361,9 @@ export function LoadwiseSection({
                 load.fattening_days == null
                   ? copy(pageContract, "value.not_sold_yet")
                   : `${num(load.fattening_days)} ${copy(pageContract, "value.days")}`,
-                // Absent means the load has sold, or holds nothing — either way its answer is
-                // the finished span above. The tooltip still states what is left in the shed, a
-                // fact rather than a claim about days, so the row is never simply blank.
+                // Absent means the load holds nothing, or its arrival date is unknown. The
+                // tooltip still states what is left in the shed, a fact rather than a claim about
+                // days, so the row is never simply blank.
                 load.days_on_farm_so_far == null
                   ? `${num(load.remaining)} ${copy(pageContract, "value.still_on_farm")}`
                   : `${num(load.days_on_farm_so_far)} ${copy(pageContract, "value.days")} · ${num(
@@ -375,11 +374,17 @@ export function LoadwiseSection({
                 load.fattening_days == null ? null : numCompactWhole(load.fattening_days),
                 load.days_on_farm_so_far == null ? null : numCompactWhole(load.days_on_farm_so_far),
               ],
-              // The clock starts on ARRIVAL, not purchase — stated on the bar so nobody reads it
-              // against the purchase date in the row above.
-              subLabel: load.arrived_on
-                ? `${copy(pageContract, "value.arrived_on")} ${shortDate(load.arrived_on)}`
-                : load.vendor_name,
+              // A part-sold load carries both bars, so its label states the split ("66 sold ·
+              // 3 still on farm") — the finished span is the sold animals' story and the running
+              // bar the stragglers', and the label is what keeps them from reading as one.
+              // Otherwise the clock starts on ARRIVAL, not purchase — stated on the bar so nobody
+              // reads it against the purchase date in the row above.
+              subLabel:
+                load.sold > 0 && load.remaining > 0
+                  ? `${num(load.sold)} ${copy(pageContract, "value.sold_count")} · ${num(load.remaining)} ${copy(pageContract, "value.still_on_farm")}`
+                  : load.arrived_on
+                    ? `${copy(pageContract, "value.arrived_on")} ${shortDate(load.arrived_on)}`
+                    : load.vendor_name,
             }))}
           />
 

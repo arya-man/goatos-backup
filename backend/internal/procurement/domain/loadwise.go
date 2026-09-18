@@ -101,14 +101,15 @@ type LoadwiseLoad struct {
 	// FatteningDays is arrival to sale, animal-weighted across the load's sales.
 	FatteningDays *int
 	// DaysOnFarmSoFar is the SAME clock as FatteningDays -- it starts on ARRIVAL -- but it has not
-	// stopped: it is the days the animals of a load that has SOLD NOTHING have been on the farm,
-	// at the current business date.
+	// stopped: it is the days the animals a load STILL HOLDS have been on the farm, at the current
+	// business date.
 	//
-	// The two are MUTUALLY EXCLUSIVE by decision (maintainer, 2026-09-01): a load answers with its
-	// finished span or its running one, never both. A load that has begun selling already states
-	// how long its animals took, and its stragglers would answer a different question in the same
-	// bar -- load 101 sold 66 animals at 204 days and holds 3 that have been here 314, and that
-	// 314 is three animals' story told at the scale of the whole chart.
+	// It runs for every load with animals remaining, sold or not (maintainer decision 2026-09-18,
+	// SUPERSEDING the 2026-09-01 mutually-exclusive rule). Under the old rule a part-sold load
+	// answered with its finished span alone -- and a part-sold load whose span was never imported
+	// (load 126) answered with NOTHING, a blank bar over animals still eating here. The stragglers'
+	// bar now stands beside the finished span, and the bar's own label says how the load splits
+	// ("66 sold, 3 still on farm") so the two are never read as one story.
 	//
 	// It is deliberately NOT DaysSincePurchase. That clock starts when the money left the business
 	// and answers "how long has this capital been tied up"; this one starts when the animals
@@ -250,15 +251,14 @@ func elapsedBusinessDays(from, asOf string) *int {
 	return &days
 }
 
-// DaysOnFarmSoFar is the running fattening clock for a load that has NOT SOLD: whole days from
-// ARRIVAL to asOf, both Asia/Kolkata business dates.
+// DaysOnFarmSoFar is the running fattening clock for the animals a load STILL HOLDS: whole days
+// from ARRIVAL to asOf, both Asia/Kolkata business dates.
 //
-// Absent once ANY animal has sold, not merely once the load empties -- a load that has sold states
-// its finished FatteningDays, and that is the whole of its answer. Absent too when the load holds
-// nothing, when the arrival date is unknown, and when arrival lies in the future: a negative span
-// is a fact about a bad date, not about the load.
-func DaysOnFarmSoFar(arrivedOn, asOf string, remaining, sold int) *int {
-	if sold > 0 || remaining <= 0 {
+// Present whenever any animal remains, whether or not the load has begun selling (maintainer
+// decision 2026-09-18). Absent when the load holds nothing, when the arrival date is unknown, and
+// when arrival lies in the future: a negative span is a fact about a bad date, not about the load.
+func DaysOnFarmSoFar(arrivedOn, asOf string, remaining int) *int {
+	if remaining <= 0 {
 		return nil
 	}
 	return elapsedBusinessDays(arrivedOn, asOf)
@@ -301,9 +301,7 @@ func FinalizeLoadwise(loads []LoadwiseLoad, totalLoads int, overallAvg *float64,
 		// range over one key set, or the ratio describes no real set of sales.
 		row.SalePricePerKg = landedPricePerKg(row.SoldWeighedValue, row.SoldWeightKg)
 		row.DaysSincePurchase = DaysSincePurchase(row.PurchaseDate, asOf)
-		// After Sold has absorbed the pre-GoatOS sales above, so a load whose only sales predate
-		// GoatOS still counts as having sold and keeps the running clock off the chart.
-		row.DaysOnFarmSoFar = DaysOnFarmSoFar(row.ArrivedOn, asOf, row.Remaining, row.Sold)
+		row.DaysOnFarmSoFar = DaysOnFarmSoFar(row.ArrivedOn, asOf, row.Remaining)
 		row.ProfitLoss = profitLoss(row.PurchaseValue, row.SoldValue, row.RemainingValue)
 
 		out.Summary.Purchased += row.Purchased

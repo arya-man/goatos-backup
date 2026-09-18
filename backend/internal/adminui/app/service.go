@@ -4108,14 +4108,16 @@ func pageSpecificCopy(id string) map[string]string {
 			// deny stock that is really there.
 			"chart.loadwise_fattening.empty": "No load has a fattening span to show yet.",
 			"chart.series.fattening_days":    "Days from arrival to sale",
-			// The SAME clock still running, for a load that has not sold. Those loads had a blank
-			// bar here, which read as "nothing to say" about animals that have been eating on this
-			// farm for months; this states the elapsed span instead (maintainer decision
+			// The SAME clock still running, for the animals a load still holds. Unsold loads had a
+			// blank bar here, which read as "nothing to say" about animals that have been eating on
+			// this farm for months; this states the elapsed span instead (maintainer decision
 			// 2026-09-01). It is arrival-to-today, NOT the purchase-date age clock, so both series
-			// on this axis start on the day the animals landed -- and they are mutually exclusive,
-			// so a load shows one bar or the other, never both.
+			// on this axis start on the day the animals landed. A part-sold load shows BOTH bars
+			// (maintainer decision 2026-09-18; load 126 had sold some animals, its span was never
+			// imported, and it stood with no bar at all), and its bar label states the split.
 			"chart.series.days_on_farm_so_far": "Days on farm so far",
 			"value.still_on_farm":              "still on farm",
+			"value.sold_count":                 "sold",
 			// The load's AGE has no chart and no column -- the maintainer removed both -- but the
 			// 90-day clock still runs: it is what raises the daily CXO alert, from
 			// procurement/domain.LoadAgeAlertDays. Average sale weight likewise stays a CHART
