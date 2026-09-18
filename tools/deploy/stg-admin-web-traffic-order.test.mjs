@@ -1,8 +1,13 @@
 import assert from "node:assert/strict";
-import { readFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import path from "node:path";
+import { spawnSync } from "node:child_process";
 import test from "node:test";
+import { fileURLToPath } from "node:url";
 
 const script = readFileSync(new URL("./stg-clouddeploy-task.sh", import.meta.url), "utf8");
+const taskScript = fileURLToPath(new URL("./stg-clouddeploy-task.sh", import.meta.url));
 const localCiScript = readFileSync(new URL("../ci/run-local-ci.sh", import.meta.url), "utf8");
 const releaseScript = readFileSync(new URL("./stg-clouddeploy-release.sh", import.meta.url), "utf8");
 const bootstrap = readFileSync(new URL("../../backend/internal/bootstrap/api.go", import.meta.url), "utf8");
@@ -70,6 +75,250 @@ test("api post-migration restore preserves staging latency scale settings", () =
     /--to-revisions=\$\{api_revision\}=100/,
     "api traffic must pin the verified revision, not blindly route to latest",
   );
+});
+
+test("api pre-migration quiesce waits on the hidden created revision", () => {
+  const fallback = indexOfOrThrow("Emergency fallback for a known destructive migration");
+  const quiesce = indexOfOrThrowAfter('run gcloud run services update "$API_SERVICE"', fallback);
+  const workerDrain = indexOfOrThrowAfter('run gcloud run services update "$KERNEL_WORKER_SERVICE"', quiesce);
+  const quiesceBlock = script.slice(quiesce, workerDrain);
+  const captureCreated = indexOfOrThrowAfter("api_revision=\"$(gcloud run services describe \"$API_SERVICE\"", quiesce);
+  const waitCreated = indexOfOrThrowAfter('wait_revision_ready "$api_revision" "pre-migration quiesce"', captureCreated);
+
+  assert.match(quiesceBlock, /--no-traffic\s+\\/, "pre-migration API quiesce must keep live traffic on the old revision");
+  assert.ok(captureCreated > quiesce, "deploy must capture the hidden pre-migration API revision");
+  assert.ok(waitCreated > captureCreated, "hidden 0% traffic revision must be checked directly");
+  assert.doesNotMatch(
+    quiesceBlock,
+    /wait_service_ready "\$API_SERVICE" "pre-migration quiesce"/,
+    "service latestReady can remain on the old live revision for 0% traffic candidates",
+  );
+});
+
+function runWithFakeGcloud(extra = {}) {
+  const dir = mkdtempSync(path.join(tmpdir(), "stg-hidden-api-"));
+  const mock = `#!/usr/bin/env python3
+import json
+import os
+import pathlib
+import sys
+
+root = pathlib.Path(os.environ["FIXTURE"])
+name = pathlib.Path(sys.argv[0]).name
+args = sys.argv[1:]
+cmd = " ".join(args)
+
+with open(root / "calls", "a") as f:
+    f.write(name + " " + cmd + "\\n")
+
+def touched(flag):
+    return (root / flag).exists()
+
+def touch(flag):
+    (root / flag).touch()
+
+def service_name():
+    for idx, arg in enumerate(args):
+        if arg in {"describe", "update", "update-traffic", "deploy"} and idx + 1 < len(args):
+            return args[idx + 1]
+    return ""
+
+def image_for(service):
+    if service == "goatos-admin-web-stg":
+        return os.environ["ADMIN_WEB_IMAGE"] if touched("goatos-admin-web-stg_updated") else "admin-old"
+    return os.environ["BACKEND_IMAGE"] if touched(service + "_updated") else "backend-old"
+
+def service_doc(service):
+    latest_created = service + "-old"
+    latest_ready = service + "-old"
+    traffic_revision = service + "-old"
+    image = image_for(service)
+    if service == "goatos-api-stg" and touched("api_pre_created"):
+        latest_created = "api-new"
+        latest_ready = "api-old"
+        traffic_revision = "api-old"
+        image = os.environ["BACKEND_IMAGE"]
+    if service == "goatos-api-stg" and touched("goatos-api-stg_updated"):
+        latest_created = "api-final"
+        latest_ready = "api-final"
+        traffic_revision = "api-final" if touched("api_traffic") else "api-old"
+        image = os.environ["BACKEND_IMAGE"]
+    if service == "goatos-admin-web-stg" and touched("goatos-admin-web-stg_updated"):
+        latest_created = "admin-new"
+        latest_ready = "admin-new"
+        traffic_revision = "admin-new" if touched("admin_traffic") else "admin-old"
+        image = os.environ["ADMIN_WEB_IMAGE"]
+    return {
+        "status": {
+            "url": "https://" + service + ".run.app",
+            "latestCreatedRevisionName": latest_created,
+            "latestReadyRevisionName": latest_ready,
+            "traffic": [{"revisionName": traffic_revision, "percent": 100}],
+            "conditions": [{"type": "Ready", "status": "True"}],
+        },
+        "spec": {"template": {"spec": {"containers": [{"image": image}]}}},
+    }
+
+if name == "sleep":
+    sys.exit(0)
+
+if name == "curl":
+    if "dashboard.mesha.sg" in cmd:
+        print("200", end="")
+    else:
+        print("204", end="")
+    sys.exit(0)
+
+if args[:4] == ["artifacts", "docker", "images", "describe"]:
+    sys.exit(0)
+
+if args[:3] == ["iam", "service-accounts", "describe"]:
+    sys.exit(0)
+
+if args[:2] == ["secrets", "get-iam-policy"]:
+    print(json.dumps({"bindings": [
+        {"role": "roles/secretmanager.secretAccessor", "members": ["serviceAccount:goatos-events-stg@goatos-stg.iam.gserviceaccount.com"]},
+    ]}))
+    sys.exit(0)
+
+if args[:3] == ["run", "jobs", "describe"]:
+    if args[3] == "goatos-stg-migrate":
+        if "--format=json" in args:
+            print(json.dumps({"spec": {"template": {"spec": {"template": {"spec": {"containers": [{"image": os.environ["CLOUD_DEPLOY_customTarget_migrationImage"]}]}}}}}}))
+        sys.exit(0)
+    if args[3] == "goatos-stg-analytics-rollup":
+        env = [
+            {"name": "GOATOS_ANALYTICS_SOURCE_APP_ID", "value": os.environ.get("GOATOS_ANALYTICS_SOURCE_APP_ID", "sg.mesha.goatos")},
+            {"name": "GOATOS_CRASHLYTICS_BQ_TABLE", "value": os.environ.get("GOATOS_CRASHLYTICS_BQ_TABLE", "goatos-stg.firebase_crashlytics.sg_mesha_goatos_ANDROID")},
+            {"name": "GOATOS_CRASHLYTICS_SESSIONS_TABLE", "value": os.environ.get("GOATOS_CRASHLYTICS_SESSIONS_TABLE", "goatos-stg.firebase_sessions.sg_mesha_goatos_ANDROID")},
+            {"name": "GOATOS_PERFORMANCE_BQ_TABLE", "value": os.environ.get("GOATOS_PERFORMANCE_BQ_TABLE", "goatos-stg.firebase_performance.sg_mesha_goatos_ANDROID")},
+        ]
+        print(json.dumps({"spec": {"template": {"spec": {"template": {"spec": {"containers": [{"image": os.environ["BACKEND_IMAGE"], "env": env}]}}}}}}))
+        sys.exit(0)
+    sys.exit(1)
+
+if args[:3] == ["run", "jobs", "get-iam-policy"]:
+    print(json.dumps({"bindings": [
+        {"role": "roles/run.jobsExecutorWithOverrides", "members": ["serviceAccount:worker@goatos-stg.iam.gserviceaccount.com"]},
+        {"role": "roles/run.viewer", "members": ["serviceAccount:worker@goatos-stg.iam.gserviceaccount.com"]},
+    ]}))
+    sys.exit(0)
+
+if args[:3] == ["run", "jobs", "list"]:
+    sys.exit(0)
+
+if args[:3] == ["run", "jobs", "update"] or args[:3] == ["run", "jobs", "execute"]:
+    if "goatos-stg-migrate" in args:
+        touch("migration")
+    sys.exit(0)
+
+if args[:3] == ["run", "services", "update"]:
+    service = service_name()
+    if service == "goatos-api-stg" and "--no-traffic" in args and not touched("migration"):
+        touch("api_pre_created")
+    else:
+        touch(service + "_updated")
+    sys.exit(0)
+
+if args[:2] == ["run", "deploy"]:
+    touch(service_name() + "_updated")
+    sys.exit(0)
+
+if args[:3] == ["run", "services", "update-traffic"]:
+    service = service_name()
+    if service == "goatos-api-stg":
+        touch("api_traffic")
+    if service == "goatos-admin-web-stg":
+        touch("admin_traffic")
+    sys.exit(0)
+
+if args[:3] == ["run", "revisions", "describe"]:
+    revision = args[3]
+    hidden_ready = (root / "hidden_ready").read_text().strip()
+    ready = "False" if hidden_ready == "false" and revision == "api-new" else "True"
+    print(json.dumps({"status": {"conditions": [{"type": "Ready", "status": ready}]}}))
+    sys.exit(0)
+
+if args[:3] == ["run", "revisions", "delete"]:
+    sys.exit(0)
+
+if args[:3] == ["run", "services", "describe"]:
+    service = args[3]
+    if "value(status.latestCreatedRevisionName)" in cmd:
+        print(service_doc(service)["status"]["latestCreatedRevisionName"])
+    elif "value(status.latestReadyRevisionName)" in cmd:
+        print(service_doc(service)["status"]["latestReadyRevisionName"])
+    elif "value(status.url)" in cmd:
+        print(service_doc(service)["status"]["url"])
+    elif "value(spec.template.spec.serviceAccountName)" in cmd:
+        print("worker@goatos-stg.iam.gserviceaccount.com")
+    else:
+        print(json.dumps(service_doc(service)))
+    sys.exit(0)
+
+if args[:2] == ["storage", "cp"]:
+    sys.exit(0)
+
+sys.exit("unexpected " + name + " " + cmd)
+`;
+  for (const name of ["gcloud", "curl", "sleep"]) {
+    writeFileSync(path.join(dir, name), mock, { mode: 0o755 });
+  }
+  const routingDir = path.join(dir, "tools", "deploy");
+  mkdirSync(routingDir, { recursive: true });
+  writeFileSync(path.join(routingDir, "stg-analytics-events-routing.sh"), "#!/usr/bin/env bash\nexit 0\n", { mode: 0o755 });
+  writeFileSync(path.join(dir, "hidden_ready"), extra.HIDDEN_REVISION_READY === "false" ? "false" : "true");
+  try {
+    const env = {
+      ...process.env,
+      PATH: `${dir}:${process.env.PATH}`,
+      FIXTURE: dir,
+      CLOUD_DEPLOY_customTarget_commitSha: "abcdef123456",
+      CLOUD_DEPLOY_customTarget_backendImage: "asia-south1-docker.pkg.dev/goatos-stg/goatos/backend:abcdef123456",
+      CLOUD_DEPLOY_customTarget_migrationImage: "asia-south1-docker.pkg.dev/goatos-stg/goatos/migrations:abcdef123456",
+      CLOUD_DEPLOY_customTarget_adminWebImage: "asia-south1-docker.pkg.dev/goatos-stg/goatos/admin-web:abcdef123456",
+      CLOUD_DEPLOY_customTarget_zeroDowntimeDeploy: "false",
+      BACKEND_IMAGE: "asia-south1-docker.pkg.dev/goatos-stg/goatos/backend:abcdef123456",
+      ADMIN_WEB_IMAGE: "asia-south1-docker.pkg.dev/goatos-stg/goatos/admin-web:abcdef123456",
+      CLOUD_DEPLOY_OUTPUT_GCS_PATH: "gs://fixture",
+      ...extra,
+    };
+    const result = spawnSync("bash", [taskScript, "deploy"], { cwd: dir, encoding: "utf8", env });
+    return { ...result, calls: readFileSync(path.join(dir, "calls"), "utf8") };
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+}
+
+test("pre-migration hidden API revision can be ready while service latestReady stays old", () => {
+  const result = runWithFakeGcloud({ HIDDEN_REVISION_READY: "true" });
+
+  assert.equal(result.status, 0, result.stderr);
+  assert.match(result.calls, /run revisions describe api-new/);
+  assert.match(result.calls, /run jobs execute goatos-stg-migrate/);
+  assert.ok(
+    result.calls.indexOf("run revisions describe api-new") < result.calls.indexOf("run jobs execute goatos-stg-migrate"),
+    "migration must wait for the hidden API revision readiness check",
+  );
+  assert.ok(
+    result.calls.indexOf("run jobs execute goatos-stg-migrate") < result.calls.indexOf("run services update-traffic goatos-api-stg"),
+    "API traffic must not move until after migrations",
+  );
+  assert.ok(
+    result.calls.indexOf("run jobs execute goatos-stg-migrate") < result.calls.indexOf("run services update goatos-admin-web-stg"),
+    "admin-web must not be touched until after migrations",
+  );
+});
+
+test("unready hidden API revision fails before migration and public traffic changes", () => {
+  const result = runWithFakeGcloud({ HIDDEN_REVISION_READY: "false" });
+
+  assert.notEqual(result.status, 0);
+  assert.match(result.stderr, /revision api-new did not reach pre-migration quiesce readiness/);
+  assert.match(result.calls, /run revisions describe api-new/);
+  assert.doesNotMatch(result.calls, /run jobs execute goatos-stg-migrate/);
+  assert.doesNotMatch(result.calls, /run services update-traffic goatos-api-stg/);
+  assert.doesNotMatch(result.calls, /run services update goatos-admin-web-stg/);
 });
 
 test("api terraform and deploy restore keep the same latency shape", () => {

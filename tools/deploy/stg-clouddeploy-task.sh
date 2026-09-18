@@ -675,7 +675,12 @@ deploy() {
       --no-traffic \
       --update-labels="commit_sha=${COMMIT_SHA},deployed_by=cloud-deploy,rollout_phase=pre_migration_quiesce" \
       --quiet
-    wait_service_ready "$API_SERVICE" "pre-migration quiesce"
+    api_revision="$(gcloud run services describe "$API_SERVICE" \
+      --project="$PROJECT_ID" \
+      --region="$REGION" \
+      --format='value(status.latestCreatedRevisionName)')"
+    [[ -n "$api_revision" ]] || die "$API_SERVICE did not create a pre-migration API revision"
+    wait_revision_ready "$api_revision" "pre-migration quiesce"
   fi
 
   # The worker is background processing, not the public web/Android request path.

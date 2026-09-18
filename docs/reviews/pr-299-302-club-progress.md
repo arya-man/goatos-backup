@@ -41,11 +41,17 @@
   - `000345_castro1_ettt_history_z1z3_identity_repair`: old applied checksum accepted only for the 205-goat / 410-history current file.
 - Rebuilt and pinned the Cloud Deploy STG runner image so the hardened deploy script and checked-in runner receipt match.
 - Repaired the migration guard/test follow-through for the 205-goat / 410-history STG data count.
+- Fourth STG deploy attempt for `f90bca1434c5` failed closed before any public API/admin traffic shift: the pre-migration `--no-traffic` API revision was created at 0 percent traffic, but the deploy script waited on service `latestReadyRevisionName`, which stayed on the old live revision. Live checks during the failed attempt stayed green (`/livez` 204, `/readyz` 204, dashboard login 200), with API traffic still 100 percent on `goatos-api-stg-00484-4zk` and admin-web traffic still 100 percent on `goatos-admin-web-stg-00463-zq8`.
+- Patched the pre-migration deploy path to capture the hidden API revision and wait on that revision directly, matching the post-migration/admin-web safe traffic pattern.
+- Added executable fake-`gcloud` deploy behavior tests for the failed hidden-revision case:
+  - ready hidden API revision with service `latestReadyRevisionName` still old continues past pre-migration quiesce;
+  - unready hidden API revision fails before migration and before API/admin public traffic changes.
+- Rebuilt the Cloud Deploy STG runner without starting a STG rollout. Cloud Build `b33ea563-fa78-43e0-8be7-4493155f5d2d` produced runner digest `sha256:523c716d288b77d928d9ed4ba43efd1495d9c6b8cf1d1295beba9bc265f51d8c`, and the local Cloud Deploy runner pin/receipt now match it.
 
 ## Pending
 
-- Run the required local landing receipt for the hotfix.
-- Push certified `main`, run STG migration/deployment without shifting traffic until proof is green, then shift traffic to the new revisions.
+- Run the required local landing receipt for the latest deploy-script hotfix.
+- Push certified `main`, rebuild/apply the Cloud Deploy runner with the corrected hidden-revision readiness check, then rerun STG deployment without shifting traffic until proof is green.
 
 ## Exact Tests / E2E Performed
 
@@ -70,6 +76,16 @@
 - `go test ./migrations/postgres -run TestCastroETTTHistoryProjectionOneToManyPageBoundaryStatusMatrix -count=1` passed after updating the expected STG counts.
 - Fast `GOATOS_FAST_LOCAL_CI=1 tools/ci/run-local-ci.sh common` passed at `fc1522a7f9c4` with `ai-doctor` warning-only.
 - Fast `GOATOS_FAST_LOCAL_CI=1 tools/ci/run-local-ci.sh backend` passed at `fc1522a7f9c4`.
+- Full `make land-main` passed and pushed `2fd6ab5553bc2ad518f22094316728f65a76fbfa` to `origin/main`.
+- Runner image Cloud Build `5e2e75ce-98bb-4558-9d55-56937cc04bd2` succeeded and produced pinned runner digest `sha256:f87a6dbaeb604d3944be58e49cc0dd156c861fe555625512d1cd4afce1c3aeec`.
+- Full `make land-main` passed and pushed `f90bca1434c5720fc2ff86e3a1a3980c8fc5c377` to `origin/main`.
+- `node --test tools/deploy/stg-admin-web-traffic-order.test.mjs` passed after the hidden pre-migration API readiness fix.
+- `node --test tools/deploy/stg-admin-web-traffic-order.test.mjs` passed after adding the executable fake-`gcloud` hidden-revision pass/fail behavior tests.
+- `bash -n tools/deploy/stg-clouddeploy-task.sh && git diff --check` passed after the behavior-test additions.
+- Read-only live health after the behavior tests stayed green: API `/readyz` 204, API `/livez` 204, dashboard login 200; API traffic remained 100 percent on `goatos-api-stg-00484-4zk`, admin-web traffic remained 100 percent on `goatos-admin-web-stg-00463-zq8`.
+- Runner Cloud Build `b33ea563-fa78-43e0-8be7-4493155f5d2d` succeeded.
+- `python3 tools/deploy/stg-runner-receipt.py && node tools/ci/check-grafana-durability.mjs && node --test tools/deploy/stg-admin-web-traffic-order.test.mjs` passed after updating the runner digest/receipt.
+- Read-only live health after the runner rebuild stayed green: API `/readyz` 204, API `/livez` 204, dashboard login 200.
 
 ## Known Failures
 
@@ -78,6 +94,8 @@
 - Initial STG Cloud Deploy rollout `r-8cf66ffb4e16-092507-to-goatos-stg-0001` failed in migration execution `goatos-stg-migrate-8ns56` with `SQLSTATE 55P03` lock timeout on `000336_shifting_verification_round`.
 - Direct migration retry `goatos-stg-migrate-7nngj` then failed on `000342_feed_sop_cards` because `feed_distribution_completions_sop_proofs_check` already existed. STG inspection showed all three feed SOP proof constraints exist while `goatos_schema_migrations` has no `dev00033x` or `dev00034x` migration records.
 - After `000342` was corrected manually on STG, migration retry advanced to `000344` and then failed on `000345` because the migration expected 204 linked goats / 408 history rows while live STG has 205 linked goats / 410 rows.
+- STG deploy for `2fd6ab5553bc` failed because the live Cloud Deploy custom target still referenced the older runner image digest; that old runner touched admin-web before migration completion and left admin-web ingress at `internal`. Ingress was restored and dashboard recovered.
+- STG deploy for `f90bca1434c5` failed closed because the new runner waited for service-level `latestReadyRevisionName` on a hidden 0 percent API revision. The old live API/admin revisions kept 100 percent traffic, and live checks stayed green.
 
 ## Before / After Metrics
 
@@ -85,14 +103,14 @@
 
 ## Judge Status
 
-- Third full landing receipt green for `8cf66ffb4e16`. Fast common/backend hotfix lanes are green at `fc1522a7f9c4`; full hotfix landing receipt is pending.
+- Full landing receipt green at `f90bca1434c5`. Focused and executable fake-`gcloud` hidden-revision deploy guards are green after the latest fix; full landing receipt for that latest fix is pending.
 
 ## Current SHA
 
-- Club branch/main landed at `8cf66ffb4e16d26ca68dba4c2a578690aaedef57`; hotfix branch is at `fc1522a7f9c4d0cdea19338d71fc819a45264a66`.
+- `origin/main` is at `f90bca1434c5720fc2ff86e3a1a3980c8fc5c377`; latest local hotfix is pending landing.
 
 ## Deployment State
 
-- Main is landed at `8cf66ffb4e16d26ca68dba4c2a578690aaedef57`; PRs 299-302 are merged and closed.
-- STG deploy is not complete. Services were temporarily moved to `8cf66ffb4e16`, migration failed, and traffic has been restored to the previous good STG revisions while the hotfix is prepared.
-- Live STG emergency recovery completed after ingress/readiness repair: dashboard is serving, API is on `8cf66ffb4e16`, and DB migration version matches API binary at `000345#1`.
+- Main is landed at `f90bca1434c5720fc2ff86e3a1a3980c8fc5c377`; PRs 299-302 are merged and closed.
+- STG deploy is not complete. The latest failed attempt did not shift public traffic; live API/dashboard remained on the old working revisions.
+- Live STG is currently serving: API `/livez` and `/readyz` return 204, dashboard login returns 200, API traffic is 100 percent on `goatos-api-stg-00484-4zk`, and admin-web traffic is 100 percent on `goatos-admin-web-stg-00463-zq8`.
