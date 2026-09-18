@@ -3746,19 +3746,10 @@ select:disabled { opacity: .45; }
   /* ---- The new anatomy inside the SHEET. A popover cannot hang off a fixed sheet without being
      clipped by it, so each date disclosure opens IN PLACE here; the segment and the active chips
      go full width. Tap targets stay >=40px, which is this page's floor. */
-  /* Inside the SHEET the segment is a TWO-column grid of equal cells, not `auto-fit`: five chips
-     at 390 gave 3 + 2 cells of 114px with "In progress 119" jammed on the right border and one
-     stray divider. Two columns of 1fr, the last odd chip (Overdue) spanning the row, and the
-     dividers drawn by position: a left border on the right-hand cell, a top border on every row
-     after the first. `gap:0` here beats the `.lt-fgroup.open .lt-chips{gap:7px}` rule above,
-     which is for the ACTIVE-filter pills and not for a bordered segment. */
-  .lt-page .lt-fsheet-host .lt-chips.lt-seg,
-  .lt-page .lt-fsheet-host .lt-fgroup.open .lt-chips.lt-seg{display:grid;grid-template-columns:1fr 1fr;grid-auto-rows:1fr;gap:0;width:100%}
+  .lt-page .lt-fsheet-host .lt-chips.lt-seg{display:grid;grid-template-columns:repeat(auto-fit,minmax(104px,1fr));width:100%}
   .lt-page .lt-fsheet-host .lt-chips.lt-seg{height:auto}
-  .lt-page .lt-fsheet-host .lt-seg a{min-height:40px;min-height:var(--lt-ctl);justify-content:center;padding:4px 10px;font-size:12.5px;border-left:0;min-width:0}
-  .lt-page .lt-fsheet-host .lt-seg a:nth-child(even){border-left:1px solid var(--line)}
-  .lt-page .lt-fsheet-host .lt-seg a:nth-child(n+3){border-top:1px solid var(--line)}
-  .lt-page .lt-fsheet-host .lt-seg a:last-child:nth-child(odd){grid-column:1 / -1;border-left:0}
+  .lt-page .lt-fsheet-host .lt-seg a{min-height:40px;min-height:var(--lt-ctl);justify-content:center;padding:4px 10px;font-size:12.5px}
+  .lt-page .lt-fsheet-host .lt-seg a:nth-child(odd){border-left:0}
   .lt-page .lt-fsheet-host .lt-franges{display:grid;grid-template-columns:1fr;gap:8px;width:100%}
   .lt-page .lt-fsheet-host .lt-fdrop{width:100%;display:grid;grid-template-columns:1fr;gap:8px}
   .lt-page .lt-fsheet-host .lt-fdrop>button{width:100%;justify-content:space-between}
@@ -3804,15 +3795,6 @@ select:disabled { opacity: .45; }
   .lt-page .pager .btn,.lt-page .pager .btn.sm,
   .lt-page .pgsize a,.lt-page .pgsize button{min-width:40px;min-height:40px}
   .lt-page .pgsize a,.lt-page .pgsize button{display:inline-flex;align-items:center;justify-content:center}
-  /* The pager is a two-column GRID at phone width: the note on its own row, the Rows sizes on
-     the next, and Previous / Next side by side on the last -- `flex-wrap` was dropping "Next"
-     alone under "Previous". Both movers are 44px, the preferred thumb height. */
-  .lt-page .pager2{display:grid;grid-template-columns:1fr 1fr;gap:8px;align-items:center;justify-content:stretch}
-  .lt-page .pager2>span:first-child,.lt-page .pager2>label{grid-column:1 / -1;flex-wrap:wrap}
-  .lt-page .pager2>.btn,.lt-page .pager2>.btn.sm,.lt-page .pager2>span.btn.sm{min-height:44px;justify-content:center;width:100%}
-  /* The row link is the whole tap target of a list row (`::after` covers the row): 44px tall, not
-     the 39px its two text lines came to. `align-content:center` keeps the text centred in it. */
-  .lt-page .lt-tasklink{min-height:44px;align-content:center}
   /* The modal's close button is the only way out of the sheet on a phone: 40px on BOTH axes. */
   .lt-modal .lt-modal-hd .btn{min-width:40px;min-height:40px}
 }
@@ -5865,6 +5847,7 @@ input[type=date],input[type=datetime-local],input[type=time],input[type=month],i
 .lt-page .ltb-card-name{display:block;min-width:0;font-size:12.5px;font-weight:750;color:var(--ink);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 .lt-page .ltb-card-raiser{display:block;min-width:0;font-size:10.5px;font-weight:600;color:var(--muted);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 
+  .lt-page .ltb-scroll{padding-bottom:0;margin:0}
 .lt-page .ltb-card-foot{display:flex;align-items:center;gap:8px;padding-top:8px;border-top:1px solid var(--line2);color:var(--muted);font-size:11px;font-weight:650}
 .lt-page .ltb-card-key{flex:none;padding:1px 6px;border-radius:5px;background:var(--brand-soft);color:var(--brand-d);font-family:ui-monospace,Menlo,monospace;font-size:10.5px;font-weight:800;letter-spacing:.2px}
 .lt-page .ltb-card-age{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
@@ -5875,22 +5858,15 @@ input[type=date],input[type=datetime-local],input[type=time],input[type=month],i
 .lt-page .ltb-note{margin:10px 2px 0;padding:9px 11px;border:1px solid var(--line2);border-left:2px solid color-mix(in srgb,var(--info) 55%,var(--line));border-radius:9px;background:color-mix(in srgb,var(--panel-2) 55%,transparent);color:var(--muted);font-size:11.5px;line-height:1.55}
 
 @media(max-width:760px){
-  /* Columns stay SIDE BY SIDE and the reader swipes between them, exactly as the Work Board does
-     at this width (the reference the CEO already knows): a horizontal snap row, one column per
-     swipe, ~85vw wide so the edge of the next column shows and says "there is more". Stacking
-     them (the earlier shape) put To do, In progress and Done end to end in a 4500px page and the
-     reader scrolled through every card of one status to reach the next.
-     `scroll-snap-type:x mandatory` on the track, `snap-align:start` on each column. The column
-     BODY still has no nested scroller here: a scroll region inside the page scroll is a trap in
-     the WhatsApp in-app webview, so the page scrolls vertically once and the track only sideways.
-     The header block of each column (`.ltb-colhd` / `.ltb-colmeta`) is not touched. */
-  .lt-page .ltb-scroll{scroll-snap-type:x mandatory;-webkit-overflow-scrolling:touch;padding:2px 0 6px;margin:0 -2px;scrollbar-width:none}
-  .lt-page .ltb-scroll::-webkit-scrollbar{display:none}
-  .lt-page .ltb-cols{gap:10px;padding:0 2px}
-  .lt-page .ltb-col{flex:0 0 min(85vw,100% - 28px);width:min(85vw,100% - 28px);min-width:0;max-width:none;scroll-snap-align:start}
-  /* The empty Cancelled rail stays the slim upright rail it is on desktop (56px, title written up
-     the rail), snapping into view as the last stop of the swipe. */
-  .lt-page .ltb-col.is-rail{flex:0 0 56px;width:56px;min-width:56px;max-width:56px}
+  /* Columns STACK: no sideways track to fight the webview's own vertical scroll, and no nested
+     scroller, so the page scrolls once and every card is reachable with a thumb. */
+  .lt-page .ltb-cols{flex-direction:column;gap:11px;padding:0}
+  .lt-page .ltb-col{flex:1 1 auto;width:auto;min-width:0;max-width:100%}
+  /* Stacked columns: the empty Cancelled rail is one slim ROW (title + count), not a strip. */
+  .lt-page .ltb-col.is-rail{width:auto;min-width:0;min-height:0;padding:10px 12px;align-items:stretch}
+  .lt-page .ltb-col.is-rail .ltb-colhd{flex-direction:row;align-items:center;gap:9px;padding:0 3px}
+  .lt-page .ltb-col.is-rail .ltb-colname{writing-mode:horizontal-tb;transform:none}
+  .lt-page .ltb-col.is-rail .ltb-colcount{margin-left:auto}
   .lt-page .ltb-colbd{max-height:none;overflow-y:visible}
   /* Tap targets: the card, the person chips and "show only this" are all >=40px. */
   .lt-page .ltb-card{min-height:56px;padding:11px 12px}
@@ -6116,14 +6092,6 @@ input[type=date],input[type=datetime-local],input[type=time],input[type=month],i
    default is 498px, which would collapse it to one column. On a phone the drawer is the screen. */
 aside.drawer.ltd-drawer{width:min(720px,94vw);overflow-y:auto;overscroll-behavior:contain;outline:none;background:var(--panel)}
 .ltd-drawer>.ltd-panel{flex:none;border:0;border-radius:0;background:transparent}
-/* The header (breadcrumb + Edit + Close) is PINNED to the top of the drawer while the body
-   scrolls: the content runs to ~1150px on a phone, and Close scrolled away with it, so a reader
-   who had read the brief or opened Comments had no way out on screen. The drawer is the scroll
-   container, so `sticky` needs the panel's own `overflow:hidden` lifted here (it is what clips
-   the panel's corners in the grid, and the drawer has no corners). Opaque `--panel` under it:
-   the header's translucent tint let cards show through as they passed underneath. */
-.ltd-drawer>.ltd-panel{overflow:visible}
-.ltd-drawer .ltd-top{position:sticky;top:0;z-index:5;background:var(--panel);box-shadow:0 1px 0 var(--line)}
 /* The mention popup in the composer already lifts the panel's own clip; inside the drawer the
    scroller is the drawer, so the popup simply extends the scrollable content. */
 @media(max-width:760px){

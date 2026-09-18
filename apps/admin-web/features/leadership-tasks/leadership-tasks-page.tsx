@@ -205,7 +205,6 @@ export function LeadershipTasksPage({
             assignees={assignees}
             action={raiseLeadershipTaskAction}
             returnTo={`${TASKS_PATHNAME}?scope=assigned_by_me`}
-            pageContract={pageContract}
           />
         ) : preview ? (
           <Tag tone="ok">{copy(pageContract, "state.can_raise")}</Tag>
