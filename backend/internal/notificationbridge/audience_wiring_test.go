@@ -177,3 +177,44 @@ func TestUpwardPushesAskTheResolverNotAPositionCode(t *testing.T) {
 		}
 	}
 }
+
+// TestEveryNotifierInAnAsyncProcessReachesBrowsers pins the other seam a consumer is built on:
+// its RECIPIENT resolver. `WithBrowserRecipients` is the ONLY place a person's subscribed
+// browsers join their phones, and the API process wiring it alone (bootstrap/api.go) left every
+// push that actually originates asynchronously -- a task comment, a mention, a status change,
+// delivered by outbox-relay / domain-event-consumer -- phone-only (review of PR 295,
+// 2026-09-18). Every `notificationbridge.New*(` construction in a production composition site
+// must take a resolver that came out of WithBrowserRecipients, never the raw roster service.
+func TestEveryNotifierInAnAsyncProcessReachesBrowsers(t *testing.T) {
+	// A constructor call with its whole (possibly nested) argument list.
+	ctorRe := regexp.MustCompile(`notificationbridge\.New(\w+)\(((?:[^()]|\([^()]*\))*)\)`)
+	decoratedRe := regexp.MustCompile(`(?:notificationbridge\.WithBrowserRecipients|notifyRecipients)\([^()]*\)`)
+	bareRoster := regexp.MustCompile(`(^|[\s(,])rosterService\s*[,)]`)
+	sites := 0
+	for _, path := range productionWiringFiles(t) {
+		raw, err := os.ReadFile(path)
+		if err != nil {
+			t.Fatal(err)
+		}
+		src := string(raw)
+		// The API and the durable buses call the decorator; the kernel stages call the package's
+		// notifyRecipients helper, which is the same decorator behind a nil-pool guard.
+		wired := strings.Contains(src, "notificationbridge.WithBrowserRecipients(") || strings.Contains(src, "notifyRecipients(")
+		for _, m := range ctorRe.FindAllStringSubmatch(src, -1) {
+			name, args := m[1], m[2]
+			if name == "StoredAudience" || (!strings.Contains(name, "Consumer") && !strings.Contains(name, "Notifier")) {
+				continue
+			}
+			sites++
+			// A roster INSIDE the decorator call is the wiring, not a bypass.
+			stripped := decoratedRe.ReplaceAllString(args, "decorated")
+			// A notifier that takes no roster at all (Slack-only) has nothing to decorate.
+			if bareRoster.MatchString(stripped) || (!wired && strings.Contains(args, "rosterService")) {
+				t.Errorf("%s: notificationbridge.New%s is built on the bare roster service; a consumer's recipients must come from WithBrowserRecipients (or kernelstages.notifyRecipients) in this process, or its pushes never reach Chrome:\n  New%s(%s)", path, name, name, args)
+			}
+		}
+	}
+	if sites < 15 {
+		t.Fatalf("found only %d consumer construction sites; the scan is broken, not the wiring", sites)
+	}
+}

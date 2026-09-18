@@ -11,6 +11,9 @@
 package kernelstages
 
 import (
+	"github.com/vgoats/goatos/backend/internal/browserpush"
+	browserpushpg "github.com/vgoats/goatos/backend/internal/browserpush/adapters/postgres"
+	"github.com/vgoats/goatos/backend/internal/notificationbridge"
 	"log/slog"
 	"os"
 	"strconv"
@@ -87,4 +90,15 @@ func envTruthy(key string) bool {
 	default:
 		return false
 	}
+}
+
+// notifyRecipients is the recipient resolver every stage notifier is built on: the roster's
+// phones PLUS each person's subscribed browsers (notificationbridge.WithBrowserRecipients).
+// Kernel stages originate pushes the API never sees, so wiring browsers into the API alone
+// left them phone-only (review of PR 295, 2026-09-18). Fail-open like the decorator itself.
+func notifyRecipients(deps Deps, roster notificationbridge.RecipientResolver, logger *slog.Logger) notificationbridge.RecipientResolver {
+	if deps.Pool == nil {
+		return roster
+	}
+	return notificationbridge.WithBrowserRecipients(roster, browserpush.NewService(browserpushpg.NewRepository(deps.Pool, deps.PgCfg.QueryTimeout)), logger)
 }

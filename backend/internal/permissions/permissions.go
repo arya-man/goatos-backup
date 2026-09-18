@@ -463,6 +463,13 @@ const (
 	//                           raiser could never finish an attachment upload.
 	//   LeadershipTasksAct   -- may this person be ASSIGNED one and change its status.
 	//                           CEO/CXO, park heads, and per-person assignees.
+	//   LeadershipTasksMonitor -- the LEADERSHIP DESK: the tenant-wide Team progress scope,
+	//                           and edit / move / cancel / comment on ANY open task
+	//                           (maintainer decision 2026-09-18, "leadership edits anything").
+	//                           EXPLICIT, never inferred: until PR 295's review it was derived
+	//                           as Raise AND Act AND NOT PenVisitsExecute, which silently made
+	//                           anyone ticked Configure + Oversee a tenant-wide editor. It is
+	//                           the CEO/CXO role's, and the Tasks module's Configure tick.
 	//
 	// Assignment is still narrowed by person_module_access for the picker/write check; these
 	// route permissions only decide whether a signed-in principal may open the surface.
@@ -497,11 +504,12 @@ const (
 	//
 	// The same permission gates the page-contract control AND GET/PUT /alerts/config, per the
 	// capability-gated lock: a pixel-only gate is the 2026-08-12 incident's inverse.
-	AlertsRead           = "alerts.read"
-	AlertsConfigure      = "alerts.configure"
-	LeadershipTasksRead  = "leadership_tasks.read"
-	LeadershipTasksRaise = "leadership_tasks.raise"
-	LeadershipTasksAct   = "leadership_tasks.act"
+	AlertsRead             = "alerts.read"
+	AlertsConfigure        = "alerts.configure"
+	LeadershipTasksRead    = "leadership_tasks.read"
+	LeadershipTasksRaise   = "leadership_tasks.raise"
+	LeadershipTasksAct     = "leadership_tasks.act"
+	LeadershipTasksMonitor = "leadership_tasks.monitor"
 	// PenVisitsExecute opens the Tasks module's "For me" tab and the pen-visit routes
 	// (maintainer decisions 2026-09-07 and 2026-09-14): the visit the kernel raises the day
 	// after vaccination or PC Care work in a pen, recorded by one of the park's configured
@@ -1373,9 +1381,10 @@ var rolePermissions = map[string]map[string]struct{}{
 		WorkBoardRead: {},
 	},
 	RoleCEOInternal: {
-		// Leadership Tasks: CEO/CXO can assign work downward and can still act on tasks
-		// addressed to the leadership desk.
-		LeadershipTasksRead: {}, LeadershipTasksRaise: {}, LeadershipTasksAct: {},
+		// Leadership Tasks: CEO/CXO can assign work downward, can still act on tasks
+		// addressed to the leadership desk, and MONITORS the whole tenant (Team progress,
+		// edit / move / cancel / comment on any open task).
+		LeadershipTasksRead: {}, LeadershipTasksRaise: {}, LeadershipTasksAct: {}, LeadershipTasksMonitor: {},
 		// Pen routines (2026-09-16, revised 2026-09-17): the CXO desk writes the rule, reads
 		// what it raised, and -- since routines are assigned by role and CXO is one of those
 		// roles -- works the tasks assigned to it.

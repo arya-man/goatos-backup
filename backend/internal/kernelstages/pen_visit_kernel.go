@@ -64,7 +64,7 @@ func NewPenVisitKernelStage(deps Deps, tenantID string, logger *slog.Logger) *Pe
 	rosterService := workforceapp.NewRosterService(workforceRepo, workforceRepo)
 	return &PenVisitKernelStage{
 		store:     penvisitspg.NewRepository(deps.Pool, deps.PgCfg.QueryTimeout),
-		notifier:  notificationbridge.NewPenVisitDueNotifier(rosterService, calendarService, logger),
+		notifier:  notificationbridge.NewPenVisitDueNotifier(notifyRecipients(deps, rosterService, logger), calendarService, logger),
 		tenantID:  strings.TrimSpace(tenantID),
 		lookback:  lookback,
 		chunkSize: chunk,

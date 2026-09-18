@@ -59,15 +59,25 @@ any of the three (was one full route render each).
 
 ### Needs the maintainer
 
-1. **Leadership write authority is inferred, not granted** (Judge C, P1). `CanMonitor` is
-   derived in the http adapter as `CanRaise && CanAct && !PenVisitsExecute`, and the domain now
-   lets a monitor edit / move / cancel / comment on any task in the tenant. A person ticked
-   Configure + Oversee on Tasks becomes a tenant-wide editor by that heuristic. Recommended: an
-   explicit `leadership_tasks.monitor` permission driving `Actor.CanMonitor`. Tenant scoping
-   itself is correct.
+1. ~~Leadership write authority is inferred, not granted~~ -- RESOLVED (review of PR 295, evening).
+   `leadership_tasks.monitor` is an explicit permission on its own module tick,
+   `leadership_tasks_monitor` (the `verification_policy` shape): the CEO/CXO role holds it,
+   migration 000350 hands the tick to the people already on that grant, and a director ticked
+   View + Do + Oversee + Configure on Tasks keeps their own tasks only. The heuristic
+   (Raise AND Act AND NOT PenVisitsExecute) is gone from the http adapter and pinned by
+   `TestActorFromMonitorIsAnExplicitTickNeverInferred`.
 2. **Column tints and avatar colours** (Judge A, D8): the amber/blue/green column rules and the
    per-person avatar colours are inherited from the Work Board. If "palette stays green" means
    these too, say so; they were left as the Work Board has them.
+
+### Browser push reaches the async processes (review of PR 295, evening)
+
+`WithBrowserRecipients` was wired in the API process only; the pushes that actually originate
+asynchronously -- a comment, a mention, a status change, delivered by `outbox-relay`,
+`domain-event-consumer` and the kernel stages -- were phone-only. Every production composition
+site now builds its consumers on the decorated resolver (`kernelstages.notifyRecipients` for the
+stages), pinned by `TestEveryNotifierInAnAsyncProcessReachesBrowsers`, which fails on any
+`notificationbridge.New*` built on the bare roster.
 
 ### Engineering follow-ups (not blocking)
 

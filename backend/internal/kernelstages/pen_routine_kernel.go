@@ -67,7 +67,7 @@ func NewPenRoutineKernelStage(deps Deps, tenantID string, logger *slog.Logger) *
 	rosterService := workforceapp.NewRosterService(workforceRepo, workforceRepo)
 	return &PenRoutineKernelStage{
 		store:     penroutinespg.NewRepository(deps.Pool, deps.PgCfg.QueryTimeout),
-		notifier:  notificationbridge.NewPenRoutineDueNotifier(rosterService, calendarService, logger),
+		notifier:  notificationbridge.NewPenRoutineDueNotifier(notifyRecipients(deps, rosterService, logger), calendarService, logger),
 		tenantID:  strings.TrimSpace(tenantID),
 		lookback:  lookback,
 		chunkSize: chunk,

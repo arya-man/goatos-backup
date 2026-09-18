@@ -503,26 +503,24 @@ func traceID(r *http.Request) string {
 
 // actorFrom resolves who is asking and the two authorities the payload must answer for:
 // raise (the "+" and edit/cancel controls), act (the status buttons), and monitor
-// (the CEO/COO Team progress scope). Derived from the SAME grants the route table
-// authorized against, never from a role string the client sends.
+// (the CEO/COO Team progress scope -- the EXPLICIT leadership_tasks.monitor permission, never
+// inferred from the other two). Derived from the SAME grants the route table authorized
+// against, never from a role string the client sends.
 func actorFrom(r *http.Request) domain.Actor {
 	actor := domain.Actor{UserID: strings.TrimSpace(httpmiddleware.ActorIDFromContext(r.Context()))}
 	if held, ok := httpmiddleware.PersonPermissionsFromContext(r.Context()); ok {
-		canExecutePenVisits := false
 		for _, perm := range held {
 			switch perm {
 			case permissions.LeadershipTasksRaise:
 				actor.CanRaise = true
 			case permissions.LeadershipTasksAct:
 				actor.CanAct = true
-			case permissions.PenVisitsExecute:
-				canExecutePenVisits = true
+			case permissions.LeadershipTasksMonitor:
+				actor.CanMonitor = true
 			}
 		}
-		actor.CanMonitor = actor.CanRaise && actor.CanAct && !canExecutePenVisits
 		return actor
 	}
-	canExecutePenVisits := false
 	for _, grant := range httpmiddleware.AuthGrantsFromContext(r.Context()) {
 		if permissions.RoleHasPermission(grant.Role, permissions.LeadershipTasksRaise) {
 			actor.CanRaise = true
@@ -533,10 +531,9 @@ func actorFrom(r *http.Request) domain.Actor {
 		if permissions.RoleHasPermission(grant.Role, permissions.LeadershipTasksAct) {
 			actor.CanAct = true
 		}
-		if permissions.RoleHasPermission(grant.Role, permissions.PenVisitsExecute) {
-			canExecutePenVisits = true
+		if permissions.RoleHasPermission(grant.Role, permissions.LeadershipTasksMonitor) {
+			actor.CanMonitor = true
 		}
 	}
-	actor.CanMonitor = actor.CanRaise && actor.CanAct && !canExecutePenVisits
 	return actor
 }
