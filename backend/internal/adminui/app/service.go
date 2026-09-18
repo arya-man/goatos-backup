@@ -173,6 +173,11 @@ func navigation() domain.NavigationContract {
 					navLeaf("sales-sold", "Summary", "/sales/sold", nil),
 					navLeaf("sales-farm-value", "Farm value", "/sales/farm-value", nil),
 					navLeaf("sales-loads", "Load wise", "/sales/loads", nil),
+					// Farm born (maintainer request 2026-09-18): the other half of the herd -- the
+					// animals the farm did NOT buy on a load -- on farm today, sold in a window,
+					// by breed / sex / stage / pen, and the money. Sits beside Load wise because
+					// the two pages partition the herd.
+					navLeaf("sales-farm-born", "Farm born", "/sales/farm-born", nil),
 					// Market analytics (maintainer decision 2026-09-14): what goat and sheep fetch in
 					// the markets phoned each morning, read back over time. Cities and questions are
 					// authored on Sales Config; prices are recorded on the phone.
@@ -291,6 +296,7 @@ func routeLabels() []domain.RouteLabelRule {
 		{Pattern: "/sales/market-analytics", Label: "Market analytics", Match: "exact"},
 		{Pattern: "/sales/buyer-analytics", Label: "Buyer analytics", Match: "exact"},
 		{Pattern: "/sales/loads", Label: "Load wise", Match: "exact"},
+		{Pattern: "/sales/farm-born", Label: "Farm born", Match: "exact"},
 		{Pattern: "/sales/farm-value", Label: "Farm value", Match: "exact"},
 		{Pattern: "/sales/config", Label: "Sales Config", Match: "exact"},
 		{Pattern: "/counts/sops", Label: "Herd Operations SOP", Match: "exact"},
@@ -541,6 +547,15 @@ func pages() []domain.PageContract {
 			[]domain.TableContract{
 				withoutRowClick(loadwiseTable()),
 			}),
+		// FARM BORN (maintainer request 2026-09-18): the animals the farm did NOT buy on a load,
+		// the counterpart of Load wise. What is on the farm today, what sold in the chosen
+		// period, which breed / sex / stage / pen the sold ones came from, and what they brought
+		// in; a filter bar on top (period, park, pen, species, breed, sex, stage, origin). Served
+		// by the procurement farm-born read (the load-wise shape; docs/decisions/sales-farm-born.md).
+		// READ-ONLY by contract, the /sales/sold shape: no write control, so nothing here opens a
+		// form. The sold ledger is the one table; its row is an animal and opens nothing.
+		page("sales-farm-born", "/sales/farm-born", "/sales/farm-born", "Farm born", "The animals the farm did not buy on a load — how many are on the farm, how many sold in the period, of which breed, sex, stage and pen, and what they earned.", "module-surface",
+			[]domain.TableContract{withoutRowClick(farmBornSoldTable())}),
 		// MARKET ANALYTICS (maintainer decision 2026-09-14): the morning market-price calls read
 		// back -- the latest price per city and question, and each one over time. READ-ONLY by
 		// contract, the /sales/sold shape: it declares no write control, so nothing here can
@@ -1056,6 +1071,23 @@ func buyerAnalyticsTable() domain.TableContract {
 		}
 	}
 	return sortable(t, "buyer_name", "purchases", "animals", "revenue", "repeat", "first_sale_date", "last_sale_date", "outstanding")
+}
+
+// farmBornSoldTable is the sold-animal ledger on /sales/farm-born: one row per animal sold in the
+// period. Labels come from the page's OWN copy map, the buyerAnalyticsTable shape, so the header
+// and any detail cell read one source. Every column sorts (the served page only, the backend's
+// newest-sale-first order is the default).
+func farmBornSoldTable() domain.TableContract {
+	t := tableP("sales-farm-born-sold", "Sold animals", "/procurement/farm-born-sales",
+		[]string{"tag", "breed", "sex", "stage", "pen", "sale_date", "buyer_name", "sale_value"},
+		"", []int{25, 50, 100})
+	copy := pageCopy("sales-farm-born")
+	for i := range t.Columns {
+		if label := strings.TrimSpace(copy["column."+t.Columns[i].Key]); label != "" {
+			t.Columns[i].Label = label
+		}
+	}
+	return sortable(t, "tag", "breed", "sex", "stage", "pen", "sale_date", "buyer_name", "sale_value")
 }
 
 // feedPurchaseTable builds the feed purchase ledger's table contract.
@@ -4008,6 +4040,83 @@ func pageSpecificCopy(id string) map[string]string {
 			"error.load":                          "Could not load the feed purchase ledger. Refresh to try again.",
 			"error.options":                       "Could not load the purchase form options. Refresh to try again.",
 			"disabled.write":                      "Your current role can view feed purchases but not record them.",
+		}
+	case "sales-farm-born":
+		// Backend-owned copy for the Farm born page (maintainer request 2026-09-18). The client
+		// renders these verbatim: every heading, filter label, column, KPI and empty state. Farm
+		// language only; PEN, never shed, on screen.
+		return map[string]string{
+			"crumb": "Sales",
+
+			// The filter bar. Period is the SOLD window (maintainer decision 2026-09-18: the
+			// on-farm count is today's whatever the period); the rest narrow the whole page.
+			"filter.period.label":            "Sold between",
+			"filter.period.field":            "Period",
+			"filter.period.today":            "Today",
+			"filter.period.single":           "Single day",
+			"filter.period.range":            "Date range",
+			"filter.period.aria":             "Choose which sale dates the page reports on",
+			"filter.period.previous_month":   "Previous month",
+			"filter.period.next_month":       "Next month",
+			"filter.period.range_start_hint": "Pick the first day of the period.",
+			"filter.period.range_end_hint":   "Now pick the last day of the period.",
+			"filter.period.range_separator":  "to",
+			"filter.park.label":              "Park",
+			"filter.pen.label":               "Pen",
+			"filter.species.label":           "Species",
+			"filter.breed.label":             "Breed",
+			"filter.sex.label":               "Sex",
+			"filter.stage.label":             "Stage",
+			"filter.origin.label":            "Origin",
+			"filter.origin.note":             "Farm born is every animal recorded as born here. The other two readings cover animals that came without a purchase load: bought before loads were recorded, or with no origin on the register.",
+			"filter.all_option":              "All",
+			"filter.bar_aria":                "Filter farm born animals",
+			"filter.apply":                   "Apply filters",
+			"filter.clear_all":               "Clear filters",
+
+			// Headline tiles -- whole-filter figures, never the page's.
+			"section.headline.aria": "Farm born headline figures",
+			"kpi.on_farm":           "On the farm now",
+			"kpi.on_farm.detail":    "alive today, whatever the period",
+			"kpi.sold":              "Sold in the period",
+			"kpi.sold.detail":       "animals with a sale date in the period",
+			"kpi.revenue":           "Earned",
+			"kpi.revenue.detail":    "from sales with a recorded deal",
+			"kpi.revenue.unpriced":  "{count} sold without a deal value",
+			"kpi.avg_price":         "Average per animal",
+			"kpi.avg_price.detail":  "earned over priced sales",
+
+			// The four breakdowns: on farm now beside sold in the period, per dimension.
+			"section.breakdowns.title":    "What sold, and what is still here",
+			"section.breakdowns.subtitle": "Each table splits the same animals one way. On farm is today's count; Sold and Earned are the period's.",
+			"section.by_breed.title":      "By breed",
+			"section.by_sex.title":        "By sex",
+			"section.by_stage.title":      "By stage",
+			"section.by_pen.title":        "By pen",
+			"column.on_farm":              "On farm",
+			"column.sold":                 "Sold",
+			"column.revenue":              "Earned",
+			"column.share_pct":            "Share of sold",
+			"empty.breakdown":             "No animals match these filters.",
+
+			// The sold ledger.
+			"section.sold.title":    "Sold animals",
+			"section.sold.subtitle": "One row per animal sold in the period, newest sale first. The value is the animal's share of its deal.",
+			"section.sold.aria":     "Animals sold in the period",
+			"column.tag":            "Tag",
+			"column.breed":          "Breed",
+			"column.sex":            "Sex",
+			"column.stage":          "Stage",
+			"column.pen":            "Pen",
+			"column.sale_date":      "Sold on",
+			"column.buyer_name":     "Buyer",
+			"column.sale_value":     "Value",
+			"empty.sold":            "No animals sold in this period with these filters.",
+			"value.no_deal":         "No deal recorded",
+			"value.not_recorded":    "Not recorded",
+			"pager.noun":            "animals",
+
+			"error.load": "Could not load the farm born figures. Refresh to try again.",
 		}
 	case "sales-buyer-analytics":
 		// Backend-owned copy for the Buyer analytics page (maintainer request 2026-09-15). The
@@ -7837,6 +7946,35 @@ func pageOptionGroups(id string) []domain.OptionGroup {
 				Options: []domain.Option{
 					option("purchased", "In transit", "", "warn"),
 					option("reached", "Delivered", "", "ok"),
+				},
+			},
+		})
+	case "sales-farm-born":
+		// The Origin readings over the not-on-a-load population (maintainer request 2026-09-18).
+		// Farm born first, and the default. Sex and species are fixed register vocabularies; the
+		// other filters' choices (parks, pens, breeds, stages) are LIVE herd facts and ride on
+		// the data read itself, never here.
+		return withGenericOptionGroups([]domain.OptionGroup{
+			{
+				ID: "farm_born_origins",
+				Options: []domain.Option{
+					option("farm_born", "Farm born", "Recorded as born on the farm", ""),
+					option("bought_no_load", "Bought, no load record", "Recorded as bought, but on no purchase load", ""),
+					option("not_recorded", "Origin not recorded", "No origin on the register", ""),
+				},
+			},
+			{
+				ID: "farm_born_sexes",
+				Options: []domain.Option{
+					option("male", "Male", "", ""),
+					option("female", "Female", "", ""),
+				},
+			},
+			{
+				ID: "farm_born_species",
+				Options: []domain.Option{
+					option("goat", "Goat", "", ""),
+					option("sheep", "Sheep", "", ""),
 				},
 			},
 		})

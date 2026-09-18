@@ -13,7 +13,7 @@ import {
   request,
   type ApiResult,
 } from "@/lib/api/server";
-import type { LoadCostWrite, LoadwiseSales, LoadwiseWeights, BuyerAnalytics,
+import type { LoadCostWrite, LoadwiseSales, LoadwiseWeights, BuyerAnalytics, FarmBornSales,
   AnimalPurchaseAnimal,
   AnimalPurchaseCounts,
   AnimalPurchaseDecisionRequest,
@@ -282,6 +282,47 @@ export async function getBuyerAnalytics(
     client.request<BuyerAnalytics>("/procurement/buyer-analytics", {
       cache: "no-store",
       query: compactQuery({ farm: params.farm, limit: params.limit, offset: params.offset }),
+    }),
+  );
+}
+
+// Farm born: the not-on-a-load half of the herd -- on farm today, sold in the window, the four
+// breakdowns, one page of the sold ledger and the filter vocabulary, in ONE bounded request per
+// render. The window binds the sold side only; every other parameter narrows the whole page.
+export async function getFarmBornSales(
+  params: {
+    from?: string;
+    to?: string;
+    origin?: string;
+    park_id?: string;
+    pen?: string;
+    species?: string;
+    breed?: string;
+    sex?: string;
+    stage?: string;
+    limit?: number;
+    offset?: number;
+  } = {},
+): Promise<ApiResult<FarmBornSales>> {
+  const config = await getServerConfig(true);
+  if (!config.ok) return config;
+  const client = createAppApiClient(apiClientOptions(config.data));
+  return request(() =>
+    client.request<FarmBornSales>("/procurement/farm-born-sales", {
+      cache: "no-store",
+      query: compactQuery({
+        from: params.from,
+        to: params.to,
+        origin: params.origin,
+        park_id: params.park_id,
+        pen: params.pen,
+        species: params.species,
+        breed: params.breed,
+        sex: params.sex,
+        stage: params.stage,
+        limit: params.limit,
+        offset: params.offset,
+      }),
     }),
   );
 }

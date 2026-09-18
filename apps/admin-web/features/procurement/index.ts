@@ -4,6 +4,7 @@ export { ProcurementLoadDetailPage } from "./load-detail";
 export { ProcurementPager } from "./pager";
 export { SalesConfigPage } from "./sales-config";
 export { SalesFarmValuePage } from "./sales-farm-value";
+export { SalesFarmBornPage } from "./sales-farm-born";
 export { SalesLoadsPage } from "./sales-loads";
 export { MarketAnalyticsPage } from "./market-analytics";
 export { SalesBuyerAnalyticsPage } from "./sales-buyer-analytics";

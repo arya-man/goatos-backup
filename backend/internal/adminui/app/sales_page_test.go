@@ -142,21 +142,25 @@ func TestSalesPageContractAndNavigation(t *testing.T) {
 	// with the read leaves, before Vendors.
 	// Seven leaves since 2026-09-15: Buyer analytics (who the farm sells to, read back per
 	// buyer) sits with the read leaves, after Market analytics and before Vendors.
-	if len(salesGroup.Leaves) != 7 ||
+	// Eight leaves since 2026-09-18: Farm born (the not-on-a-load half of the herd) sits
+	// directly after Load wise, because the two pages partition the herd.
+	if len(salesGroup.Leaves) != 8 ||
 		salesGroup.Leaves[0].Href != "/sales/sold" ||
 		salesGroup.Leaves[0].Label != "Summary" ||
 		salesGroup.Leaves[1].Href != "/sales/farm-value" ||
 		salesGroup.Leaves[1].Label != "Farm value" ||
 		salesGroup.Leaves[2].Href != "/sales/loads" ||
 		salesGroup.Leaves[2].Label != "Load wise" ||
-		salesGroup.Leaves[3].Href != "/sales/market-analytics" ||
-		salesGroup.Leaves[3].Label != "Market analytics" ||
-		salesGroup.Leaves[4].Href != "/sales/buyer-analytics" ||
-		salesGroup.Leaves[4].Label != "Buyer analytics" ||
-		salesGroup.Leaves[5].Href != "/sales/vendors" ||
-		salesGroup.Leaves[5].Label != "Vendors" ||
-		salesGroup.Leaves[6].Href != "/sales/config" ||
-		salesGroup.Leaves[6].Label != "Sales Config" {
+		salesGroup.Leaves[3].Href != "/sales/farm-born" ||
+		salesGroup.Leaves[3].Label != "Farm born" ||
+		salesGroup.Leaves[4].Href != "/sales/market-analytics" ||
+		salesGroup.Leaves[4].Label != "Market analytics" ||
+		salesGroup.Leaves[5].Href != "/sales/buyer-analytics" ||
+		salesGroup.Leaves[5].Label != "Buyer analytics" ||
+		salesGroup.Leaves[6].Href != "/sales/vendors" ||
+		salesGroup.Leaves[6].Label != "Vendors" ||
+		salesGroup.Leaves[7].Href != "/sales/config" ||
+		salesGroup.Leaves[7].Label != "Sales Config" {
 		t.Fatalf("sales group leaves = %+v", salesGroup.Leaves)
 	}
 
@@ -553,7 +557,7 @@ func TestSalesReadPagesCarryNoWriteControl(t *testing.T) {
 		"record_load_cost",
 		"market_config_write",
 	}
-	for _, pageID := range []string{"sales-sold", "sales-farm-value", "sales-loads", "sales-market-analytics", "sales-buyer-analytics"} {
+	for _, pageID := range []string{"sales-sold", "sales-farm-value", "sales-loads", "sales-farm-born", "sales-market-analytics", "sales-buyer-analytics"} {
 		page := pageByRouteID(t, resp.Pages, pageID)
 		for _, control := range page.Controls {
 			for _, banned := range writes {

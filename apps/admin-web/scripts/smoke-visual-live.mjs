@@ -156,6 +156,7 @@ function buildRoutes({ goatId, procurementLoadId, workflowRowId, calendarEventId
     { name: "sales-loads-farm-born", path: "/sales/loads?scope_mode=company&view=farm_born" },
     { name: "sales-market-analytics", path: "/sales/market-analytics?scope_mode=company" },
     { name: "sales-buyer-analytics", path: "/sales/buyer-analytics?scope_mode=company" },
+    { name: "sales-farm-born", path: "/sales/farm-born?scope_mode=company" },
     { name: "sales-config", path: "/sales/config?scope_mode=company" },
     { name: "sales-vendors", path: "/sales/vendors?scope_mode=company" },
     { name: "feed-config", path: "/feed/config?scope_mode=company" },

@@ -2178,6 +2178,10 @@ func permissionsForNav(id string) []string {
 		// Sales money per buyer, so the sales permission; the phone column on it is a separate
 		// capability-gated read control (compileBuyerAnalyticsControls) that follows VendorRead.
 		return []string{permissions.SalesRead}
+	case "sales-farm-born":
+		// The not-on-a-load half of the herd and its sales money, so the sales permission -- the
+		// same key its data route (GET /procurement/farm-born-sales) requires.
+		return []string{permissions.SalesRead}
 	case "sales-market-analytics":
 		// The market survey's own read (maintainer decision 2026-09-14), which its data route
 		// (GET /market/analytics) requires. It rides the Sales module's View level, so every
