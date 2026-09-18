@@ -50,12 +50,30 @@ assert.doesNotMatch(
   "no .lt-page rule may introduce a second phone breakpoint beside 760px",
 );
 
-// ---- The status chips are the page's PRIMARY filter affordance and are <a class="achip">, which
-// the app-wide phone touch block (`.main button,.btn,.btn.sm`) never matched: ~23px tap targets.
+// ---- The status chips are the page's PRIMARY filter affordance and are anchors, which the
+// app-wide phone touch block (`.main button,.btn,.btn.sm`) never matched: ~23px tap targets.
+//
+// These are asserted SEPARATELY and by their real selectors on purpose. The chips were
+// `<a class="achip">` when this rule was written and became `.lt-chips.lt-seg > a` in the toolbar
+// rebuild, at which point a single combined pattern naming only `.achip` still PASSED -- satisfied
+// entirely by the Clear chip -- while guarding nothing for the control it was named after. A
+// half-vacuous assertion is worse than a missing one: it reads as coverage. If the markup moves
+// again, each of these must be re-pointed at whatever the control actually renders as.
 assert.match(
   css,
-  /\.lt-page \.lt-fsheet-host \.lt-chips \.achip,\s*\.lt-page \.lt-fsheet-host \.achip\.lt-fclear\{[^}]*min-height:40px/,
-  "status chips and the Clear chip need a >=40px tap target at phone width",
+  /\.lt-page \.lt-fsheet-host \.lt-seg a\{[^}]*min-height:40px/,
+  "the status chips (.lt-seg a) need a >=40px tap target at phone width",
+);
+assert.match(
+  css,
+  /\.lt-page \.lt-fsheet-host \.achip\.lt-fclear\{[^}]*min-height:40px/,
+  "the Clear chip needs a >=40px tap target at phone width",
+);
+// The active-filter chips and their remove buttons are the third affordance in this family.
+assert.match(
+  css,
+  /\.lt-page \.lt-fsheet-host \.lt-factive \.achip\{[^}]*min-height:40px/,
+  "active-filter chips need a >=40px tap target at phone width",
 );
 
 // ---- `vh` is the WRONG unit in an in-app webview: WhatsApp's chrome retracts, so a vh box is
