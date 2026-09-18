@@ -3351,7 +3351,17 @@ select:disabled { opacity: .45; }
 /* The sold / dead panel: the record drawer, a touch wider for its eleven-column list. */
 aside.drawer.wt-feedband-drawer{width:94vw;max-width:960px}
 .wt-feedband-drawer .wt-feedband-exitgroup h3.h{font-size:13.5px;margin:6px 0 4px}
-.wt-feedband-drawer .tablewrap{overflow-x:auto}
+/* The drawer body is a flex column whose children keep their intrinsic width (.dc>*{flex-shrink:0});
+   the list wrapper must be allowed to shrink so the table scrolls INSIDE it instead of clipping at
+   the drawer edge. */
+.wt-feedband-drawer .dc>.wt-feedband-exitgroup{min-width:0;max-width:100%}
+.wt-feedband-drawer .tablewrap{overflow-x:auto;max-width:100%;min-width:0}
+.wt-feedband-drawer .wt-feedband-feed{min-width:90px;max-width:14ch}
+.wt-feedband-drawer table.tbl td,.wt-feedband-drawer table.tbl th{font-size:12px}
+.wt-feedband-drawer table.tbl th{white-space:normal;line-height:1.2}
+.wt-feedband-drawer .wt-bandbar{width:36px;flex-basis:36px}
+.wt-feedband-drawer table.tbl th,.wt-feedband-drawer table.tbl td{padding-left:7px;padding-right:7px}
+.wt-feedband-drawer table.tbl td:last-child{white-space:normal;min-width:110px;max-width:16ch}
 @media(max-width:600px){
   .wt-feedband-stats{grid-template-columns:repeat(2,minmax(0,1fr))}
   .wt-feedband-segments{padding:0 12px 4px}
