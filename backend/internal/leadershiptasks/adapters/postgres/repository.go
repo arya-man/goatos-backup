@@ -164,48 +164,56 @@ func (r *Repository) ListTasks(ctx context.Context, p ports.ListParams) (ports.P
 		limit = 20
 	}
 	query := fmt.Sprintf(`SELECT %s %s WHERE %s ORDER BY %s LIMIT %d`, taskColumns, taskFrom, where, orderByForSort(sortKey), limit+1)
-	rows, err := r.pool.Query(ctx, query, args...)
+	// The chip counts are SEPARATE from the row query, so they must be built from the SAME
+	// filters as the rows or the chips advertise rows the list hides (ports/repository.go:49-51).
+	// They are all answered in ONE statement (see sqlListAggregates); the bind list starts fresh
+	// from the tenant and every predicate is numbered by bindArg, so the filters cannot collide
+	// with the party placeholder here either.
+	//
+	// The page rows and the aggregates do not depend on each other, so they travel in ONE
+	// pipelined batch: on the ~40ms-per-round-trip tunnel this page runs on, the two sequential
+	// reads they replaced were a third of the list's p90.
+	countArgs := []any{p.TenantID}
+	aggSQL := sqlListAggregates(&countArgs, p)
+	batch := &pgx.Batch{}
+	batch.Queue(query, args...)
+	batch.Queue(aggSQL, countArgs...)
+	results := r.pool.SendBatch(ctx, batch)
+
+	rows, err := results.Query()
 	if err != nil {
+		results.Close()
 		return ports.Page{}, fmt.Errorf("leadership task: list: %w", err)
 	}
-	defer rows.Close()
 	tasks := make([]domain.Task, 0, limit)
 	for rows.Next() {
 		t, err := scanTask(rows)
 		if err != nil {
+			rows.Close()
+			results.Close()
 			return ports.Page{}, fmt.Errorf("leadership task: list scan: %w", err)
 		}
 		tasks = append(tasks, t)
 	}
 	if err := rows.Err(); err != nil {
+		rows.Close()
+		results.Close()
 		return ports.Page{}, fmt.Errorf("leadership task: list rows: %w", err)
 	}
-	page := ports.Page{StatusCounts: map[string]int{}, ScopeCounts: map[string]int{}, ScopeTotals: map[string]int{}}
-	if len(tasks) > limit {
-		last := tasks[limit-1]
-		page.NextCursor = encodeSortCursor(sortKey, last)
-		tasks = tasks[:limit]
-	}
-	if err := r.enrichPage(ctx, p.TenantID, tasks); err != nil {
-		return ports.Page{}, err
-	}
-	page.Rows = tasks
+	rows.Close()
 
-	// The chip counts are SEPARATE from the row query, so they must be built from the SAME
-	// filters as the rows or the chips advertise rows the list hides (ports/repository.go:49-51).
-	// They are all three answered in ONE round trip (see sqlListAggregates for the measurement
-	// that motivates that); the bind list starts fresh from the tenant and every predicate is
-	// numbered by bindArg, so the filters cannot collide with the party placeholder here either.
-	countArgs := []any{p.TenantID}
-	aggRows, err := r.pool.Query(ctx, sqlListAggregates(&countArgs, p), countArgs...)
+	page := ports.Page{StatusCounts: map[string]int{}, ScopeCounts: map[string]int{}, ScopeTotals: map[string]int{}}
+	aggRows, err := results.Query()
 	if err != nil {
+		results.Close()
 		return ports.Page{}, fmt.Errorf("leadership task: list aggregates: %w", err)
 	}
-	defer aggRows.Close()
 	for aggRows.Next() {
 		var kind, key string
 		var n int
 		if err := aggRows.Scan(&kind, &key, &n); err != nil {
+			aggRows.Close()
+			results.Close()
 			return ports.Page{}, fmt.Errorf("leadership task: list aggregates scan: %w", err)
 		}
 		switch kind {
@@ -222,8 +230,24 @@ func (r *Repository) ListTasks(ctx context.Context, p ports.ListParams) (ports.P
 		}
 	}
 	if err := aggRows.Err(); err != nil {
+		aggRows.Close()
+		results.Close()
 		return ports.Page{}, err
 	}
+	aggRows.Close()
+	if err := results.Close(); err != nil {
+		return ports.Page{}, fmt.Errorf("leadership task: list batch: %w", err)
+	}
+
+	if len(tasks) > limit {
+		last := tasks[limit-1]
+		page.NextCursor = encodeSortCursor(sortKey, last)
+		tasks = tasks[:limit]
+	}
+	if err := r.enrichPage(ctx, p.TenantID, tasks); err != nil {
+		return ports.Page{}, err
+	}
+	page.Rows = tasks
 	return page, nil
 }
 
@@ -748,7 +772,22 @@ func (r *Repository) GetTask(ctx context.Context, tenantID, taskID string) (doma
 	return r.getRow(ctx, r.pool, tenantID, taskID, false)
 }
 
-func (r *Repository) getRow(ctx context.Context, q querier, tenantID, taskID string, forUpdate bool) (domain.Task, error) {
+// batchQuerier is what a pgx.Tx and a *pgxpool.Pool have in common for the pipelined read.
+type batchQuerier interface {
+	querier
+	SendBatch(ctx context.Context, b *pgx.Batch) pgx.BatchResults
+}
+
+// getRow is the full detail read: the task row, then its attachments, notes, mentions,
+// participants and activity in ONE pipelined batch (one round trip, not five). Over the
+// ~40ms tunnel this page runs on, the five sequential reads it replaced were the bulk of a
+// 1.3s comment.
+//
+// forUpdate is the LOCKED read the write transactions take before they change the row: it
+// returns the row and its participants only (the two things CanEdit/CanComment/CanRead need),
+// because the notes, attachments and activity that the response carries are re-read AFTER
+// the write anyway.
+func (r *Repository) getRow(ctx context.Context, q batchQuerier, tenantID, taskID string, forUpdate bool) (domain.Task, error) {
 	lock := ""
 	if forUpdate {
 		lock = " FOR UPDATE OF t"
@@ -762,24 +801,99 @@ func (r *Repository) getRow(ctx context.Context, q querier, tenantID, taskID str
 		return domain.Task{}, fmt.Errorf("leadership task: get: %w", err)
 	}
 	tasks := []domain.Task{t}
-	if err := r.attachTo(ctx, q, tenantID, tasks); err != nil {
-		return domain.Task{}, err
+	if forUpdate {
+		if err := r.participantsTo(ctx, q, tenantID, tasks); err != nil {
+			return domain.Task{}, err
+		}
+		return tasks[0], nil
 	}
-	if err := r.notesTo(ctx, q, tenantID, tasks); err != nil {
-		return domain.Task{}, err
-	}
-	if err := r.mentionsTo(ctx, q, tenantID, tasks); err != nil {
-		return domain.Task{}, err
-	}
-	// The participants decide domain.Task.CanRead, so a detail read WITHOUT them would 404
-	// for a person a note legitimately pulled onto the task.
-	if err := r.participantsTo(ctx, q, tenantID, tasks); err != nil {
-		return domain.Task{}, err
-	}
-	if err := r.eventsTo(ctx, q, tenantID, tasks); err != nil {
+	if err := r.enrichWith(ctx, q, tenantID, tasks); err != nil {
 		return domain.Task{}, err
 	}
 	return tasks[0], nil
+}
+
+// enrichWith fills attachments, notes, mentions, participants and activity for a bounded
+// task set in ONE pipelined batch against q (a tx or the pool).
+func (r *Repository) enrichWith(ctx context.Context, q batchQuerier, tenantID string, tasks []domain.Task) error {
+	if len(tasks) == 0 {
+		return nil
+	}
+	ids, index := taskIndexOf(tasks)
+	for i := range tasks {
+		tasks[i].ParticipantUserIDs = nil
+	}
+
+	batch := &pgx.Batch{}
+	batch.Queue(sqlRepository5, tenantID, ids)      // attachments
+	batch.Queue(sqlListNotes, tenantID, ids)        // notes
+	batch.Queue(sqlListMentions, tenantID, ids)     // mentions of those notes
+	batch.Queue(sqlListParticipants, tenantID, ids) // mention-granted readers
+	batch.Queue(sqlListEvents, tenantID, ids)       // activity, newest first
+	results := q.SendBatch(ctx, batch)
+	defer results.Close()
+
+	attachments, err := results.Query()
+	if err != nil {
+		return fmt.Errorf("leadership task: list attachments: %w", err)
+	}
+	if err := scanAttachmentsInto(attachments, tasks, index); err != nil {
+		attachments.Close()
+		return err
+	}
+	attachments.Close()
+
+	noteRows, err := results.Query()
+	if err != nil {
+		return fmt.Errorf("leadership task: list notes: %w", err)
+	}
+	if err := scanNotesInto(noteRows, tasks, index); err != nil {
+		noteRows.Close()
+		return err
+	}
+	noteRows.Close()
+
+	mentionRows, err := results.Query()
+	if err != nil {
+		return fmt.Errorf("leadership task: list mentions: %w", err)
+	}
+	if err := scanMentionsInto(mentionRows, noteIndexOf(tasks)); err != nil {
+		mentionRows.Close()
+		return err
+	}
+	mentionRows.Close()
+
+	partRows, err := results.Query()
+	if err != nil {
+		return fmt.Errorf("leadership task: list participants: %w", err)
+	}
+	for partRows.Next() {
+		var tID, userID string
+		if err := partRows.Scan(&tID, &userID); err != nil {
+			partRows.Close()
+			return fmt.Errorf("leadership task: participants scan: %w", err)
+		}
+		if i, ok := index[tID]; ok {
+			tasks[i].ParticipantUserIDs = append(tasks[i].ParticipantUserIDs, userID)
+		}
+	}
+	if err := partRows.Err(); err != nil {
+		partRows.Close()
+		return err
+	}
+	partRows.Close()
+
+	eventRows, err := results.Query()
+	if err != nil {
+		return fmt.Errorf("leadership task: list events: %w", err)
+	}
+	if err := scanEventsInto(eventRows, tasks, index); err != nil {
+		eventRows.Close()
+		return err
+	}
+	eventRows.Close()
+
+	return results.Close()
 }
 
 // Raise records a new task, mints its number, stores its attachments, audits it and
