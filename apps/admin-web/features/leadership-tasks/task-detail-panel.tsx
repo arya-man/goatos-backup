@@ -1,5 +1,5 @@
 import Link from "@/components/no-prefetch-link";
-import { ClipboardList, MessageSquareText, Paperclip } from "lucide-react";
+import { ClipboardList, Paperclip } from "lucide-react";
 
 import { copy, type AdminUiPageContract } from "@/lib/admin-ui-contract";
 import type { LeadershipTaskAssignee } from "@/lib/api/server";
@@ -7,7 +7,7 @@ import type { LeadershipTaskAssignee } from "@/lib/api/server";
 import {
   changeLeadershipTaskStatusAction,
   editLeadershipTaskAction,
-  setLeadershipTaskCommentAction,
+  postLeadershipTaskCommentAction,
 } from "./actions";
 import { DeadlineClock } from "./deadline-clock";
 import { EditTaskModal } from "./edit-task-modal";
@@ -17,8 +17,7 @@ import { initials, statusTone } from "./task-presentation";
 import { TASK_PARAM, tasksHref, tasksSearchParams, type TasksParams } from "./params";
 import type { TaskRow } from "./task-row";
 import { TASKS_PATHNAME } from "./task-url";
-import { TaskActivityFeed } from "./task-activity-feed";
-import { TaskCommentForm } from "./task-write-forms";
+import { TaskActivityComposer } from "./task-activity-composer";
 import { TaskStatusMenu } from "./task-status-menu";
 
 /**
@@ -228,28 +227,20 @@ export function TaskDetailPanel({
               commented. `task-activity-feed.tsx` owns the tabs and the rows; this panel only
               hands it the data and the composer. */}
           <Section title={copy(pageContract, "section.activity", "Activity")}>
-            <TaskActivityFeed
-              activity={detail.activity}
-              notes={detail.notes}
+            {/* The feed and its composer are ONE client island (`task-activity-composer.tsx`):
+                a sent comment is appended in place through `useOptimistic` + a returning Server
+                Action, the way the board's drag-and-drop applies a move -- no redirect, no route
+                render, no page banner. The candidate list, the mention-id contract and the
+                no-JS submit are unchanged. The idempotency key minted here is for the NO-JS
+                submit only; the island mints a fresh one per press. */}
+            <TaskActivityComposer
+              key={detail.id}
+              task={detail}
               pageContract={pageContract}
-              composer={
-                /* The composer last, as Jira has it. `@`-mentions, the idempotency key and the
-                   mention-id contract all come with the shared form. */
-                detail.canComment ? (
-                  <div className="ltd-composer">
-                    <span className="ltd-av ltd-av-sm ltd-av-me" aria-hidden="true">
-                      <MessageSquareText className="ic" />
-                    </span>
-                    <TaskCommentForm
-                      task={detail}
-                      pageContract={pageContract}
-                      action={setLeadershipTaskCommentAction}
-                      returnTo={returnTo}
-                      mentionCandidates={assignees}
-                    />
-                  </div>
-                ) : null
-              }
+              action={postLeadershipTaskCommentAction}
+              returnTo={returnTo}
+              mentionCandidates={assignees}
+              initialIdempotencyKey={`admin-web-leadership-task-note:${detail.id}:${crypto.randomUUID()}`}
             />
           </Section>
         </div>
