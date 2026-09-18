@@ -6,6 +6,7 @@ import { useCallback, useEffect, useMemo, useRef, useState, useTransition } from
 import { useRouter, useSearchParams } from "next/navigation";
 
 import { AssigneePicker } from "@/components/assignee-picker";
+import { ThemedDatePicker } from "@/components/themed-date-picker";
 import { copy, type AdminUiPageContract } from "@/lib/admin-ui-contract";
 import { worklistFilterShownValue } from "@/lib/worklist-filter-value";
 import { TASK_PAGING_PARAMS, TASK_PARAM } from "./params";
@@ -470,7 +471,7 @@ export function LeadershipTasksFilters({
           {assigneePinned ? null : (
             <AssigneePicker
               mode="multi"
-              labels={{ label: assigneeLabel, search: peopleSearchLabel, none: peopleNoMatchesLabel, selectAll: allOption, rows: onThisPageLabel }}
+              labels={{ label: assigneeLabel, search: peopleSearchLabel, none: peopleNoMatchesLabel, selectAll: allOption, all: allOption, rows: onThisPageLabel }}
               owners={assigneeOptions.map((option) => ({ id: option.value, name: option.label, title: option.title }))}
               cardsByOwner={assigneeCounts}
               selected={fieldValue(TASK_PARAM.assignee, assignee) || undefined}
@@ -486,7 +487,7 @@ export function LeadershipTasksFilters({
           {raiserPinned ? null : (
             <AssigneePicker
               mode="multi"
-              labels={{ label: raiserLabel, search: peopleSearchLabel, none: peopleNoMatchesLabel, selectAll: allOption, rows: onThisPageLabel }}
+              labels={{ label: raiserLabel, search: peopleSearchLabel, none: peopleNoMatchesLabel, selectAll: allOption, all: allOption, rows: onThisPageLabel }}
               owners={raiserOptions.map((option) => ({ id: option.value, name: option.label, title: option.title }))}
               cardsByOwner={raiserCounts}
               selected={fieldValue(TASK_PARAM.raiser, raiser) || undefined}
@@ -516,9 +517,12 @@ export function LeadershipTasksFilters({
         {/* THE DATE SPANS, behind ONE compact disclosure -- the Work Board's toolbar has one date
             control, and this bar now has one too. It STATES what is applied ("Dates · any", or
             "Dates · Deadline 01/09/2026 – 30/09/2026 · Raised …") without being opened; inside,
-            the two spans sit as two labelled groups, each committing its OWN span whole on one
-            press (half a span is a 400 `invalid_date_range` on this endpoint, so these are the one
-            set of controls here that cannot apply on change -- every other control does). */}
+            the two spans sit as two labelled groups and ONE Apply commits both whole on one press
+            (half a span is a 400 `invalid_date_range` on this endpoint, so these are the one set
+            of controls here that cannot apply on change -- every other control does). ONE Clear
+            drops both. The four fields are the console's own calendar (`ThemedDatePicker`, the
+            same control the New task / Edit deadline uses), not the browser's `dd/mm/yyyy` box:
+            the page had two date idioms, and the reader met the native one first (gate-1 #13). */}
         <div className="lt-franges" ref={rangesRef}>
           {(() => {
             const ranges = [
@@ -532,10 +536,6 @@ export function LeadershipTasksFilters({
                 to: dates.deadlineTo,
                 setFrom: (value: string) => setDates((prev) => ({ ...prev, deadlineFrom: value })),
                 setTo: (value: string) => setDates((prev) => ({ ...prev, deadlineTo: value })),
-                commit: (from: string, to: string) => ({
-                  [TASK_PARAM.deadlineFrom]: from,
-                  [TASK_PARAM.deadlineTo]: to,
-                }),
               },
               {
                 id: "raised" as const,
@@ -547,16 +547,22 @@ export function LeadershipTasksFilters({
                 to: dates.raisedTo,
                 setFrom: (value: string) => setDates((prev) => ({ ...prev, raisedFrom: value })),
                 setTo: (value: string) => setDates((prev) => ({ ...prev, raisedTo: value })),
-                commit: (from: string, to: string) => ({
-                  [TASK_PARAM.raisedFrom]: from,
-                  [TASK_PARAM.raisedTo]: to,
-                }),
               },
             ] as const;
             const applied = ranges.filter((range) => range.span);
             const stated = applied.length
               ? applied.map((range) => `${range.label} ${range.span}`).join(" · ")
               : anyLabel;
+            // The URL params are exactly the four the bar always wrote; one press writes all four.
+            const commitAll = (next: typeof dates) => ({
+              [TASK_PARAM.deadlineFrom]: next.deadlineFrom,
+              [TASK_PARAM.deadlineTo]: next.deadlineTo,
+              [TASK_PARAM.raisedFrom]: next.raisedFrom,
+              [TASK_PARAM.raisedTo]: next.raisedTo,
+            });
+            const anyPending = Boolean(dates.deadlineFrom || dates.deadlineTo || dates.raisedFrom || dates.raisedTo);
+            const previousMonthLabel = copy(pageContract, "date.previous_month", "Previous month");
+            const nextMonthLabel = copy(pageContract, "date.next_month", "Next month");
             return (
               <div className="lt-fdrop">
                 <button
@@ -572,56 +578,86 @@ export function LeadershipTasksFilters({
                   <ChevronDown className="ic" style={{ width: 13 }} aria-hidden="true" />
                 </button>
                 {openRange === "dates" ? (
-                  <div className="lt-fdrop-pop lt-fdrop-dates" role="group" aria-label={datesLabel}>
+                  <div
+                    className="lt-fdrop-pop lt-fdrop-dates"
+                    role="group"
+                    aria-label={datesLabel}
+                    // Escape unwinds ONE layer, as in the New task modal: an open calendar
+                    // swallows the press (the picker closes itself on document keydown); only
+                    // when no calendar is open does the press reach the disclosure and close it.
+                    onKeyDownCapture={(event) => {
+                      if (event.key !== "Escape") return;
+                      const openCalendar = rangesRef.current?.querySelector("details[open]");
+                      if (!openCalendar) return;
+                      event.preventDefault();
+                      event.nativeEvent.stopImmediatePropagation();
+                      (openCalendar as HTMLDetailsElement).open = false;
+                      (openCalendar.querySelector("summary") as HTMLElement | null)?.focus();
+                    }}
+                  >
                     {ranges.map((range) => (
                       <div className="lt-fdrop-range" role="group" aria-label={range.label} key={range.id}>
                         <span className="lt-fdrop-rangekey">{range.label}</span>
-                        <label className="lt-fsel">
-                          <span>{range.fromLabel}</span>
-                          <input
-                            type="date"
-                            value={range.from}
-                            onChange={(event) => range.setFrom(event.target.value)}
-                          />
-                        </label>
-                        <label className="lt-fsel">
-                          <span>{range.toLabel}</span>
-                          <input
-                            type="date"
-                            value={range.to}
-                            onChange={(event) => range.setTo(event.target.value)}
-                          />
-                        </label>
-                        <div className="lt-fdrop-act">
-                          {range.span ? (
-                            <button
-                              type="button"
-                              className="btn sm"
-                              onClick={() => {
-                                range.setFrom("");
-                                range.setTo("");
-                                setOpenRange(null);
-                                closeSheet();
-                                go(paramsWith(range.commit("", "")));
-                              }}
-                            >
-                              {clearLabel}
-                            </button>
-                          ) : null}
-                          <button
-                            type="button"
-                            className="btn sm p"
-                            onClick={() => {
-                              setOpenRange(null);
-                              closeSheet();
-                              go(paramsWith(range.commit(range.from, range.to)));
-                            }}
-                          >
-                            {applyLabel}
-                          </button>
+                        <div className="lt-fdrop-span">
+                          <div className="lt-fdrop-date lt-fdrop-from">
+                            <span className="lt-fdrop-datekey">{range.fromLabel}</span>
+                            <ThemedDatePicker
+                              name={`${range.id}_from`}
+                              label={range.fromLabel}
+                              cleared={anyLabel}
+                              value={range.from}
+                              onChange={range.setFrom}
+                              max={range.to || undefined}
+                              previousMonthLabel={previousMonthLabel}
+                              nextMonthLabel={nextMonthLabel}
+                              invalidDateText=""
+                            />
+                          </div>
+                          <div className="lt-fdrop-date lt-fdrop-to">
+                            <span className="lt-fdrop-datekey">{range.toLabel}</span>
+                            <ThemedDatePicker
+                              name={`${range.id}_to`}
+                              label={range.toLabel}
+                              cleared={anyLabel}
+                              value={range.to}
+                              onChange={range.setTo}
+                              min={range.from || undefined}
+                              previousMonthLabel={previousMonthLabel}
+                              nextMonthLabel={nextMonthLabel}
+                              invalidDateText=""
+                            />
+                          </div>
                         </div>
                       </div>
                     ))}
+                    <div className="lt-fdrop-act">
+                      {applied.length || anyPending ? (
+                        <button
+                          type="button"
+                          className="btn sm"
+                          onClick={() => {
+                            const cleared = { deadlineFrom: "", deadlineTo: "", raisedFrom: "", raisedTo: "" };
+                            setDates(cleared);
+                            setOpenRange(null);
+                            closeSheet();
+                            go(paramsWith(commitAll(cleared)));
+                          }}
+                        >
+                          {clearLabel}
+                        </button>
+                      ) : null}
+                      <button
+                        type="button"
+                        className="btn sm p"
+                        onClick={() => {
+                          setOpenRange(null);
+                          closeSheet();
+                          go(paramsWith(commitAll(dates)));
+                        }}
+                      >
+                        {applyLabel}
+                      </button>
+                    </div>
                   </div>
                 ) : null}
               </div>

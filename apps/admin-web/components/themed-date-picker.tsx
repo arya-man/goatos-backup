@@ -63,6 +63,9 @@ export function ThemedDatePicker({
   invalidDateText,
   required,
   defaultValue,
+  value,
+  onChange,
+  cleared,
 }: {
   name: string;
   label: string;
@@ -77,6 +80,14 @@ export function ThemedDatePicker({
   required?: boolean;
   /** Initial selection (YYYY-MM-DD) for a form editing an already-recorded date. */
   defaultValue?: string;
+  /**
+   * CONTROLLED use (the Tasks desk's Dates filter, which is not a form): the host owns the
+   * selection and hears every pick through `onChange`. Omit both for the form (uncontrolled) use.
+   */
+  value?: string;
+  onChange?: (key: string) => void;
+  /** Controlled use: what the button reads while nothing is picked, if not the `label`. */
+  cleared?: string;
 }) {
   const minDate = useMemo(() => parseDateKey(min), [min]);
   // parseDateKey falls back to TODAY for an absent value, so the bounds are read off the raw props
@@ -84,7 +95,8 @@ export function ThemedDatePicker({
   // day, which is the entire range a sale date needs.
   const minKey = min ? dateKey(minDate) : "";
   const maxKey = max ?? "";
-  const [selected, setSelected] = useState<string>(defaultValue ?? "");
+  const [internal, setInternal] = useState<string>(defaultValue ?? "");
+  const selected = value ?? internal;
   const [error, setError] = useState<string>("");
   // Open on the month of the value being edited, else on the earliest allowed month (today when
   // unbounded), so a correction form does not make the operator page back to the original day.
@@ -133,7 +145,8 @@ export function ThemedDatePicker({
   }, [invalidDateText, maxKey, minKey, required, selected]);
 
   function selectDate(key: string): void {
-    setSelected(key);
+    setInternal(key);
+    onChange?.(key);
     setError("");
     if (detailsRef.current) detailsRef.current.open = false;
   }
@@ -143,7 +156,7 @@ export function ThemedDatePicker({
       <summary className="move-date-button">
         {/* DD-MM-YYYY like every other visible date in the app; the ISO key stays on the hidden
             input, which is what the form actually submits. */}
-        <span>{selected ? fmtDate(selected) : label}</span>
+        <span>{selected ? fmtDate(selected) : cleared ?? label}</span>
         <CalendarDays className="ic" aria-hidden="true" />
       </summary>
       <input type="hidden" name={name} value={selected} />

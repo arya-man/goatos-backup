@@ -36,6 +36,12 @@ export type AssigneePickerLabels = {
   none: string;
   /** `multi` only: the foot action that clears the one picked owner. */
   selectAll?: string;
+  /**
+   * `multi` only: what the trigger READS while nobody is picked ("All"). With no pick the
+   * filter is everyone, and every row is ticked to say so; the trigger's accessible name and
+   * tooltip carry this word so a reader does not have to open the menu to learn it.
+   */
+  all?: string;
   /** `multi` only: the unit after each person's count, e.g. "rows". */
   rows?: string;
   /** `single` only: the trigger's text before anyone is chosen. */
@@ -246,20 +252,29 @@ export function AssigneePicker({
     );
   }
 
+  // NO PICK MEANS EVERYONE, and the menu says so by ticking EVERY row (gate-1 #10, 2026-09-18).
+  // This is the Work Board's shipped semantics for the same control (`features/work-board`,
+  // "ticked-when-all rows"), and the two toolbars are deliberately one control language, so the
+  // ticks stay. What changed: the TRIGGER now reads "All" -- every avatar in the stack, the `+N`
+  // chip and the stack itself carry "<Label>: All" as their accessible name and tooltip while
+  // nobody is picked, and "<Label>: <Name>" once someone is. A first-time reader who sees ten
+  // ticks and looks for a way to untick is told, on the control itself, that all is the state.
+  // A host that passes no `all` word (the Work Board today) keeps its bare label.
+  const stateLabel = current ? `${labels.label}: ${current.name}` : labels.all ? `${labels.label}: ${labels.all}` : labels.label;
   return (
-    <div ref={ref} className="avs" aria-label={labels.label}>
+    <div ref={ref} className="avs" aria-label={stateLabel} title={stateLabel} data-picked={current ? "one" : "all"}>
       {visible.map((o) => (
-        <button type="button" key={o.id} className={`av${o.id === selected ? " on" : ""}`} title={o.name} aria-expanded={open} onClick={toggle}>
+        <button type="button" key={o.id} className={`av${o.id === selected ? " on" : ""}`} title={current ? o.name : stateLabel} aria-label={current ? stateLabel : `${stateLabel} (${o.name})`} aria-expanded={open} onClick={toggle}>
           {initials(o.name)}
         </button>
       ))}
       {overflow > 0 ? (
-        <button type="button" className={`more${open ? " on" : ""}`} aria-expanded={open} aria-label={labels.label} onClick={toggle}>
+        <button type="button" className={`more${open ? " on" : ""}`} aria-expanded={open} aria-label={stateLabel} title={stateLabel} onClick={toggle}>
           +{overflow}
         </button>
       ) : null}
       {owners.length === 0 || current ? (
-        <button type="button" className={`more${owners.length === 0 ? " assignee-empty" : ""}${open ? " on" : ""}`} aria-expanded={open} aria-label={labels.label} onClick={toggle} style={owners.length === 0 ? { width: "auto", minWidth: 104, padding: "0 14px", borderRadius: 999, lineHeight: "1" } : undefined}>
+        <button type="button" className={`more${owners.length === 0 ? " assignee-empty" : ""}${open ? " on" : ""}`} aria-expanded={open} aria-label={stateLabel} title={stateLabel} onClick={toggle} style={owners.length === 0 ? { width: "auto", minWidth: 104, padding: "0 14px", borderRadius: 999, lineHeight: "1" } : undefined}>
           {owners.length === 0 ? labels.label : "▾"}
         </button>
       ) : null}

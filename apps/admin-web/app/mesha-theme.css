@@ -3639,11 +3639,22 @@ select:disabled { opacity: .45; }
   .lt-page .lt-fsheet-host .lt-fslot.wb .avs>.av:first-child{margin-left:0}
   .lt-page .lt-fsheet-host .lt-fslot.wb .avs .more{width:24px;height:24px;margin-left:-10px;font-size:10px}
 }
-/* The ONE dates disclosure: both spans inside, each its own labelled group with its own Apply. */
-.lt-page .lt-fdrop-pop.lt-fdrop-dates{min-width:280px;gap:12px}
+/* The ONE dates disclosure: both spans inside, each its own labelled group, ONE Apply and ONE
+   Clear for the four fields. Each field is the console's themed calendar (`.move-date-*`): a
+   caption above it that never wraps (one line, ellipsis), the button beneath reading the picked
+   day as DD-MM-YYYY or "any". At desktop the two fields of a span sit side by side and the
+   calendar overlays (the `to` calendar hangs off its right edge so it stays inside the popover's
+   right-aligned box); in the phone sheet they stack and the calendar opens in flow. */
+.lt-page .lt-fdrop-pop.lt-fdrop-dates{min-width:352px;gap:12px}
 .lt-page .lt-fdrop-range{display:grid;gap:8px}
 .lt-page .lt-fdrop-range+.lt-fdrop-range{padding-top:12px;border-top:1px solid var(--line2)}
 .lt-page .lt-fdrop-rangekey{font-size:10.5px;font-weight:800;letter-spacing:.5px;text-transform:uppercase;color:var(--faint)}
+.lt-page .lt-fdrop-span{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:8px}
+.lt-page .lt-fdrop-date{display:grid;gap:4px;min-width:0}
+.lt-page .lt-fdrop-datekey{font-size:11px;font-weight:650;color:var(--muted);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.lt-page .lt-fdrop-date .move-date-button{height:36px;font-size:12.5px}
+.lt-page .lt-fdrop-date .move-date-button>span{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.lt-page .lt-fdrop-to .move-date-popover{left:auto;right:0}
 
 /* ---- A DATE SPAN, collapsed. Four raw `dd/mm/yyyy` inputs across a row, plus a lone Apply
    beneath them, dominated a bar whose reader almost never touches a date. Each span is now one
@@ -3783,6 +3794,10 @@ select:disabled { opacity: .45; }
   .lt-page .lt-fsheet-host .lt-fslot.wb .avmenu .opt{min-height:44px}
   .lt-page .lt-fsheet-host .lt-fslot.wb .avmenu .avq{min-height:44px}
   .lt-page .lt-fsheet-host .lt-fdrop-act .btn{flex:1}
+  /* The dates disclosure in the sheet: one field per row, 44px buttons, the calendar in flow. */
+  .lt-page .lt-fsheet-host .lt-fdrop-span{grid-template-columns:1fr}
+  .lt-page .lt-fsheet-host .lt-fdrop-date .move-date-button{height:44px}
+  .lt-page .lt-fsheet-host .lt-fdrop-date .move-date-popover{position:static;width:100%;margin-top:8px;box-shadow:none;border-color:var(--line2)}
   .lt-page .lt-fsheet-host .lt-factive{width:100%}
   .lt-page .lt-fsheet-host .lt-factive .achip{min-height:40px;padding:4px 12px;font-size:12.5px}
   .lt-page .lt-fsheet-host .lt-factive .achip>button{min-width:40px;min-height:40px}
