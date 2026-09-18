@@ -637,7 +637,7 @@ WHERE wi.tenant_id = $1::uuid AND wi.workflow_id = $2::uuid`, tenantID, workflow
 		&nextKey, &nextTitle, &nextDue, &card.AwaitingVerification,
 		&card.Subject.DisplayID, &card.Subject.RowVersion, &card.Subject.Sex, &card.Subject.Breed,
 		&card.Subject.Tag,
-		&card.ParkLabel, &card.ShedLabel, &partitionLabel,
+		&card.ParkLabel, &card.ShedLabel, &partitionLabel, &card.SOPName,
 		&damDisplay,
 		&damRFID,
 		&litterSize,

@@ -76,6 +76,7 @@ WITH day AS (
 //	state                 -> the DAY's state; the kid's own workflow state is not this card's subject
 //	awaiting_verification -> always false: verification is enqueued at whole-workflow grain, so one
 //	                         day's feeds can never sit in that bucket (domain.ColostrumFilterAllowed)
+//	sop_name              -> '' : a colostrum card is always a birth kid, never a general SOP run
 const colostrumCardColumns = `
   wi.workflow_id::text, '` + domain.ModuleColostrum + `'::text, wi.template_key, wi.subject_goat_id::text,
   wi.event_at, wi.event_date::text,
@@ -86,7 +87,8 @@ const colostrumCardColumns = `
   COALESCE(tag.identifier_value, ''),
   COALESCE(park.name, ''), COALESCE(shed.name, ''),
   COALESCE(CASE WHEN gsp.shed_id = wi.shed_id AND lower(btrim(gsp.partition_label)) <> 'whole'
-                THEN btrim(gsp.partition_label) END, '')`
+                THEN btrim(gsp.partition_label) END, ''),
+  ''::text`
 
 // colostrumOverdueLookbackDays bounds the previous-day attention bell.
 //
