@@ -247,7 +247,8 @@ func (s keyedStore) setStatus(ctx context.Context, tx pgx.Tx, t, id, status stri
 
 func (s keyedStore) del(ctx context.Context, tx pgx.Tx, t, id string, rv int) error {
 	where, whereArgs := s.where(id)
-	tag, err := tx.Exec(ctx, fmt.Sprintf(`DELETE FROM %s WHERE %s`, s.table, where), append([]any{t}, whereArgs...)...)
+	n := len(whereArgs) + 2
+	tag, err := tx.Exec(ctx, fmt.Sprintf(`DELETE FROM %s WHERE %s AND ($%d = 0 OR row_version = $%d)`, s.table, where, n, n), append(append([]any{t}, whereArgs...), rv)...)
 	if err != nil {
 		var pgErr *pgconn.PgError
 		if errors.As(err, &pgErr) && pgErr.Code == "23503" {
@@ -255,10 +256,7 @@ func (s keyedStore) del(ctx context.Context, tx pgx.Tx, t, id string, rv int) er
 		}
 		return err
 	}
-	if tag.RowsAffected() == 0 {
-		return ports.ErrNotFound
-	}
-	return nil
+	return fenced(ctx, tx, tag.RowsAffected(), fmt.Sprintf(`SELECT 1 FROM %s WHERE %s`, s.table, where), append([]any{t}, whereArgs...)...)
 }
 
 func sortArg(m map[string]any) any {

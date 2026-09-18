@@ -298,6 +298,22 @@ func TestConfigurationRegistersLifecyclePostgresPaths(t *testing.T) {
 		t.Fatalf("delete empty category: %v", err)
 	}
 
+	// --- reference-list entries are keyed stores too: delete must honor the row_version fence ---
+	entry, err := repo.Create(ctx, write("exit-extra"), domain.RefPrefix+"exit_reasons", map[string]any{"name": "Research Transfer", "code": "research_transfer"})
+	if err != nil || entry.ID != "research_transfer" || entry.RowVersion != 1 {
+		t.Fatalf("create reference-list entry: %v %+v", err, entry)
+	}
+	edited, err := repo.Update(ctx, write("exit-extra-up"), domain.RefPrefix+"exit_reasons", entry.ID, map[string]any{"description": "Moved for a trial"}, entry.RowVersion)
+	if err != nil || edited.RowVersion != 2 {
+		t.Fatalf("update reference-list entry: %v %+v", err, edited)
+	}
+	if err := repo.Delete(ctx, write("exit-extra-stale-del"), domain.RefPrefix+"exit_reasons", entry.ID, entry.RowVersion); !errors.Is(err, ports.ErrVersionConflict) {
+		t.Fatalf("stale reference-list delete must conflict: %v", err)
+	}
+	if err := repo.Delete(ctx, write("exit-extra-del"), domain.RefPrefix+"exit_reasons", entry.ID, edited.RowVersion); err != nil {
+		t.Fatalf("delete reference-list entry: %v", err)
+	}
+
 	// --- keyset paging over species (2 rows, page of 1) ---
 	page1 := list(domain.RegSpecies, ports.ListParams{Limit: 1})
 	if len(page1.Rows) != 1 || page1.NextCursor == "" || page1.Total != 2 {
