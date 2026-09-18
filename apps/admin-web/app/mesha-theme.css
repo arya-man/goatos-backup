@@ -5382,7 +5382,8 @@ input[type=date],input[type=datetime-local],input[type=time],input[type=month],i
 .cfg-sheet-file { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
 .cfg-sheet-file input[type="file"] { max-width: 100%; font-size: 13px; }
 .cfg-sheet-job { display: flex; flex-direction: column; gap: 8px; padding: 10px 12px; border: 1px solid var(--line); border-radius: 8px; background: var(--panel-2, transparent); }
-.cfg-sheet-job-head { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+.cfg-sheet-job-head { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 8px; min-width: 0; }
+.cfg-sheet-file-name { min-width: 0; max-width: 100%; overflow-wrap: anywhere; }
 .cfg-sheet-progress { height: 6px; border-radius: 3px; background: var(--line); overflow: hidden; }
 .cfg-sheet-progress span { display: block; height: 100%; background: var(--accent, #7ac142); transition: width 0.4s ease; }
 .cfg-sheet-counts { display: grid; grid-template-columns: repeat(auto-fit, minmax(90px, 1fr)); gap: 6px; margin: 0; }
@@ -5390,6 +5391,7 @@ input[type=date],input[type=datetime-local],input[type=time],input[type=month],i
 .cfg-sheet-counts dt { font-size: 11px; color: var(--muted); }
 .cfg-sheet-counts dd { margin: 0; font-size: 18px; font-weight: 600; }
 .cfg-sheet-problems ul, .cfg-sheet-recent ul { margin: 0; padding-left: 16px; font-size: 13px; display: flex; flex-direction: column; gap: 4px; }
-.cfg-sheet-recent li { display: flex; justify-content: space-between; gap: 8px; list-style: none; margin-left: -16px; }
+.cfg-sheet-recent li { display: flex; flex-wrap: wrap; justify-content: space-between; gap: 8px; min-width: 0; list-style: none; margin-left: -16px; }
+.cfg-sheet-recent-meta { flex: 0 0 auto; }
 .ic.spin { animation: cfg-spin 1s linear infinite; }
 @keyframes cfg-spin { to { transform: rotate(360deg); } }

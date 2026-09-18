@@ -14,11 +14,20 @@ func TestSheetColumnsCarryIdFirstAndStatusLast(t *testing.T) {
 	if animals[0].Key == SheetColumnID {
 		t.Fatalf("a create-only register offers no id column")
 	}
-	if !mustRegister(t, RegAnimals).Importable || mustRegister(t, RegFeedItems).Importable || !mustRegister(t, RegPens).Importable {
-		t.Fatalf("importable: animals yes, feed items no, pens yes")
+	if !mustRegister(t, RegAnimals).Importable || mustRegister(t, RegFeedItems).Importable || mustRegister(t, RegRoles).Importable || !mustRegister(t, RegPens).Importable {
+		t.Fatalf("importable: animals yes, feed items no, roles no, pens yes")
 	}
 	if !ReferenceRegister(ReferenceList{Key: "x", Name: "X"}).Importable {
 		t.Fatalf("a reference list takes a sheet")
+	}
+}
+
+func TestProductWideRegistersStayReadOnly(t *testing.T) {
+	for _, key := range []string{RegRoles, RegBreeds, RegStatusDefinitions} {
+		reg := mustRegister(t, key)
+		if !reg.ReadOnly || reg.Importable {
+			t.Fatalf("%s read_only/importable = %v/%v, want read-only and not importable", key, reg.ReadOnly, reg.Importable)
+		}
 	}
 }
 

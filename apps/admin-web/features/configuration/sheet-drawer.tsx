@@ -233,7 +233,7 @@ export function SheetDrawer({
           {job ? (
             <div className="cfg-sheet-job" data-testid="sheet-job" data-status={job.status}>
               <div className="cfg-sheet-job-head">
-                <b>{job.file_name}</b>
+                <b className="cfg-sheet-file-name">{job.file_name}</b>
                 <span className={`tag ${job.status === "applied" ? "ok" : job.status === "failed" ? "bad" : ""}`}>{statusLabel(job.status)}</span>
               </div>
               {inFlight(job) ? (
@@ -315,8 +315,8 @@ export function SheetDrawer({
               <ul>
                 {recent.slice(0, 5).map((item) => (
                   <li key={item.id}>
-                    <span>{item.file_name}</span>
-                    <span className="muted small">
+                    <span className="cfg-sheet-file-name">{item.file_name}</span>
+                    <span className="muted small cfg-sheet-recent-meta">
                       {item.total_rows} · {statusLabel(item.status)}
                     </span>
                   </li>

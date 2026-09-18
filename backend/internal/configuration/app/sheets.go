@@ -30,8 +30,29 @@ type SheetWriter interface {
 
 type csvSheet struct{ w *csv.Writer }
 
-func (s csvSheet) Row(cells []string) error { return s.w.Write(cells) }
-func (s csvSheet) Close() error             { s.w.Flush(); return s.w.Error() }
+func (s csvSheet) Row(cells []string) error {
+	out := make([]string, len(cells))
+	for i, cell := range cells {
+		out[i] = csvSafeCell(cell)
+	}
+	return s.w.Write(out)
+}
+func (s csvSheet) Close() error { s.w.Flush(); return s.w.Error() }
+
+func csvSafeCell(cell string) string {
+	if cell == "" {
+		return ""
+	}
+	trimmed := strings.TrimLeft(cell, " \t\r\n")
+	if trimmed == "" {
+		return cell
+	}
+	switch trimmed[0] {
+	case '=', '+', '-', '@':
+		return "'" + cell
+	}
+	return cell
+}
 
 type xlsxSheet struct {
 	f   *excelize.File

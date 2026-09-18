@@ -294,23 +294,21 @@ func (i *Importer) validate(ctx context.Context, tenantID string, job domain.Imp
 		if err != nil {
 			return err
 		}
-		patch := ports.ImportJobPatch{}
-		for _, u := range updates {
-			if u.State == domain.ImportRowValid {
-				patch.AddValid++
-			} else {
-				patch.AddInvalid++
-			}
-		}
-		moved, err := i.jobs.UpdateImportRows(ctx, tenantID, job.ID, domain.ImportRowStaged, updates)
+		validUpdates, invalidUpdates := splitValidationUpdates(updates)
+		validMoved, err := i.jobs.UpdateImportRows(ctx, tenantID, job.ID, domain.ImportRowStaged, validUpdates)
 		if err != nil {
 			return err
 		}
+		invalidMoved, err := i.jobs.UpdateImportRows(ctx, tenantID, job.ID, domain.ImportRowStaged, invalidUpdates)
+		if err != nil {
+			return err
+		}
+		moved := validMoved + invalidMoved
 		if moved == 0 {
 			return nil
 		}
 		after = rows[len(rows)-1].RowNo
-		patch.ProgressRowNo = &after
+		patch := ports.ImportJobPatch{AddValid: validMoved, AddInvalid: invalidMoved, ProgressRowNo: &after}
 		patch.FromStatus = &validating
 		if _, err := i.jobs.PatchImportJob(ctx, tenantID, job.ID, patch); err != nil {
 			return phaseEnded(err)
@@ -324,6 +322,19 @@ func (i *Importer) validate(ctx context.Context, tenantID string, job domain.Imp
 	zero := 0
 	_, err := i.jobs.PatchImportJob(ctx, tenantID, job.ID, ports.ImportJobPatch{FromStatus: &validating, Status: &status, ProgressRowNo: &zero, Release: true})
 	return phaseEnded(err)
+}
+
+func splitValidationUpdates(updates []ports.ImportRowUpdate) ([]ports.ImportRowUpdate, []ports.ImportRowUpdate) {
+	valid := make([]ports.ImportRowUpdate, 0, len(updates))
+	invalid := make([]ports.ImportRowUpdate, 0, len(updates))
+	for _, u := range updates {
+		if u.State == domain.ImportRowValid {
+			valid = append(valid, u)
+			continue
+		}
+		invalid = append(invalid, u)
+	}
+	return valid, invalid
 }
 
 func perRow(v rowValidator) func(ctx context.Context, rows []domain.ImportRow) ([]ports.ImportRowUpdate, error) {

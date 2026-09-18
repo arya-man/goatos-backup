@@ -25,10 +25,18 @@ export default async function Page({ searchParams }: { searchParams: Promise<Rou
     ...refs.map((ref) => listConfigurationOptions(ref)),
   ]);
   const options: ItemsPageData["options"] = {};
+  const loadErrors: ItemsPageData["loadErrors"] = [];
+  if (listsRead && !listsRead.ok) loadErrors.push(listsRead.error);
+  if (openListRead && !openListRead.ok) loadErrors.push(openListRead.error);
   refs.forEach((ref, index) => {
     const read = optionReads[index];
-    options[ref] = read && read.ok ? read.data.options : [];
+    if (read && read.ok) {
+      options[ref] = read.data.options;
+      return;
+    }
+    if (read && !read.ok) loadErrors.push(read.error);
+    options[ref] = [];
   });
-  const data: ItemsPageData = { registers, rows, options, lists: listsRead && listsRead.ok ? listsRead.data.rows : null, openList: openListRead && openListRead.ok ? openListRead.data.row : null };
+  const data: ItemsPageData = { registers, rows, options, lists: listsRead && listsRead.ok ? listsRead.data.rows : null, openList: openListRead && openListRead.ok ? openListRead.data.row : null, loadErrors };
   return <ItemsPage searchParams={params} pageContract={pageContract} data={data} />;
 }

@@ -170,3 +170,21 @@ func TestXLSXWriterFallsBackForFarmAuthoredSheetNames(t *testing.T) {
 		t.Fatalf("sheet name = %q, want Sheet1 fallback", got)
 	}
 }
+
+func TestCSVWriterEscapesFormulaCells(t *testing.T) {
+	var buf bytes.Buffer
+	w, err := NewSheetWriter(domain.FormatCSV, "Rows", &buf)
+	if err != nil {
+		t.Fatalf("writer: %v", err)
+	}
+	if err := w.Row([]string{"=cmd", "+sum", "-1", "@ref", " plain", " \t "}); err != nil {
+		t.Fatalf("row: %v", err)
+	}
+	if err := w.Close(); err != nil {
+		t.Fatalf("close: %v", err)
+	}
+	want := "'=cmd,'+sum,'-1,'@ref,\" plain\",\" \t \"\n"
+	if got := buf.String(); got != want {
+		t.Fatalf("csv = %q, want %q", got, want)
+	}
+}

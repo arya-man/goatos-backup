@@ -228,10 +228,13 @@ var Registers = []Register{
 	{
 		// Roles (maintainer instruction 2026-09-18): the designations a person is given on
 		// /people -- CEO / CXO, CTO, a director, a park head -- with the HR grade each sits at.
-		// Backed by designation_catalog, the same catalog /people offers, so a role added here is
-		// offered there at once. What a role may DO is still the per-person ticks on /people.
+		// The backing designation_catalog is product-wide, so Configuration can list it but not
+		// author it until roles have a tenant-scoped table or a deliberate global-admin surface.
 		Key: RegRoles, Label: "Roles", One: "Role", Group: GroupPeople,
-		Hint: "The roles people are given on People / HRMS, and the grade each sits at. What a role may do is set per person there.",
+		Hint:      "The roles people are given on People / HRMS. Role authoring stays with People / HRMS until roles are tenant-scoped.",
+		ReadOnly:  true,
+		EditHref:  "/people",
+		EditLabel: "People / HRMS",
 		Columns: []Column{
 			{Key: "name", Label: "Name", Type: TypeText, Required: true},
 			{Key: "code", Label: "Code", Type: TypeCode, Required: true, Immutable: true, Hint: "Lowercase key such as cto; cannot change once saved."},
@@ -367,10 +370,13 @@ var Registers = []Register{
 	{
 		// Reference lists (maintainer instruction 2026-09-18). Status definitions are the axes
 		// of an animal's state (lifecycle, reproductive, health, growth cohort, management), a
-		// product-wide catalog whose codes Go names: rename only.
+		// product-wide catalog whose codes Go names, so they are read-only on this tenant screen.
 		Key: RegStatusDefinitions, Label: "Status definitions", One: "Status", Group: GroupReference,
-		Hint:    "The states an animal can be in, by axis. Codes are built into the product; names can change.",
-		Filters: []string{"axis"},
+		Hint:      "The states an animal can be in, by axis. Codes are built into the product and edited only through a product-wide release.",
+		ReadOnly:  true,
+		EditHref:  "/configuration/items",
+		EditLabel: "Product release",
+		Filters:   []string{"axis"},
 		Columns: []Column{
 			{Key: "name", Label: "Name", Type: TypeText, Required: true},
 			{Key: "axis", Label: "Axis", Type: TypeEnum, Required: true, Options: []Option{{Value: "lifecycle", Label: "Lifecycle"}, {Value: "reproductive", Label: "Reproductive"}, {Value: "growth_cohort", Label: "Growth cohort"}, {Value: "management", Label: "Management"}, {Value: "health", Label: "Health"}}},

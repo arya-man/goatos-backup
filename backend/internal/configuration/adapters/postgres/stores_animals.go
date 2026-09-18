@@ -118,7 +118,7 @@ var stageProjection = projection{sql: `
 SELECT l.animal_stage_id::text AS id,
        l.name AS display,
        CASE WHEN l.status = 'active' THEN 'active' ELSE 'archived' END AS status,
-       0 AS row_version,
+       l.row_version,
        false AS is_builtin,
        jsonb_build_object('name', l.name, 'code', l.stage_code, 'min_age_days', l.min_age_days, 'max_age_days', l.max_age_days, 'sort_order', l.sort_order) AS fields,
        '{}'::jsonb AS labels,
@@ -174,14 +174,11 @@ func (stageStore) update(ctx context.Context, tx pgx.Tx, t, id string, f map[str
 	if set == "" {
 		return "", nil
 	}
-	tag, err := tx.Exec(ctx, fmt.Sprintf(`UPDATE animal_stage_lookup SET %s, updated_at = now() WHERE tenant_id = $1 AND animal_stage_id = $2::uuid`, set), append([]any{t, id}, args...)...)
+	tag, err := tx.Exec(ctx, fmt.Sprintf(`UPDATE animal_stage_lookup SET %s, updated_at = now(), row_version = row_version + 1 WHERE tenant_id = $1 AND animal_stage_id = $2::uuid AND ($3 = 0 OR row_version = $3)`, set), append([]any{t, id, rv}, args...)...)
 	if err != nil {
 		return "", err
 	}
-	if tag.RowsAffected() == 0 {
-		return "", ports.ErrNotFound
-	}
-	return "", nil
+	return "", fenced(ctx, tx, tag.RowsAffected(), `SELECT 1 FROM animal_stage_lookup WHERE tenant_id = $1 AND animal_stage_id = $2::uuid`, t, id)
 }
 
 func (stageStore) setStatus(ctx context.Context, tx pgx.Tx, t, id, status string, rv int) error {
@@ -189,25 +186,19 @@ func (stageStore) setStatus(ctx context.Context, tx pgx.Tx, t, id, status string
 	if status == domain.StatusActive {
 		dbStatus = "active"
 	}
-	tag, err := tx.Exec(ctx, `UPDATE animal_stage_lookup SET status = $3, updated_at = now() WHERE tenant_id = $1 AND animal_stage_id = $2::uuid`, t, id, dbStatus)
+	tag, err := tx.Exec(ctx, `UPDATE animal_stage_lookup SET status = $4, updated_at = now(), row_version = row_version + 1 WHERE tenant_id = $1 AND animal_stage_id = $2::uuid AND ($3 = 0 OR row_version = $3)`, t, id, rv, dbStatus)
 	if err != nil {
 		return err
 	}
-	if tag.RowsAffected() == 0 {
-		return ports.ErrNotFound
-	}
-	return nil
+	return fenced(ctx, tx, tag.RowsAffected(), `SELECT 1 FROM animal_stage_lookup WHERE tenant_id = $1 AND animal_stage_id = $2::uuid`, t, id)
 }
 
 func (stageStore) del(ctx context.Context, tx pgx.Tx, t, id string, rv int) error {
-	tag, err := tx.Exec(ctx, `DELETE FROM animal_stage_lookup WHERE tenant_id = $1 AND animal_stage_id = $2::uuid`, t, id)
+	tag, err := tx.Exec(ctx, `DELETE FROM animal_stage_lookup WHERE tenant_id = $1 AND animal_stage_id = $2::uuid AND ($3 = 0 OR row_version = $3)`, t, id, rv)
 	if err != nil {
 		return mapWriteError(err)
 	}
-	if tag.RowsAffected() == 0 {
-		return ports.ErrNotFound
-	}
-	return nil
+	return fenced(ctx, tx, tag.RowsAffected(), `SELECT 1 FROM animal_stage_lookup WHERE tenant_id = $1 AND animal_stage_id = $2::uuid`, t, id)
 }
 
 // SQL hoisted to package level so the scale guard and query-plan tests can reach it.

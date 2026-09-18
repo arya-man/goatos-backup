@@ -14,7 +14,7 @@ import type {
   ConfigurationRegistersResponse,
   ConfigurationRow,
 } from "@/lib/api/configuration-server";
-import type { ApiResult } from "@/lib/api/server";
+import type { ApiResult, ApiUiError } from "@/lib/api/server";
 import { all, boundedInt, one, type RouteSearchParams } from "@/lib/search-params";
 import { CatalogueLists, type CatalogueList } from "./catalogue-lists";
 import { RegisterFilter } from "./register-filter";
@@ -111,6 +111,8 @@ export type ItemsPageData = {
   lists: ConfigurationRow[] | null;
   /** The reference_lists row of the open dynamic register (its name, description); null otherwise. */
   openList: ConfigurationRow | null;
+  /** Non-primary reads needed to render filters/drawers; any failure must stay visible. */
+  loadErrors: ApiUiError[];
 };
 
 /** The catalogue layout's drawer ids for a list: `cat:new` / `cat:<id>`, beside the items' own ids. */
@@ -367,6 +369,11 @@ export function ItemsPage({ searchParams, pageContract, data }: { searchParams?:
           <b>{data.registers.error.code ?? data.registers.error.kind}</b>&nbsp;{data.registers.error.message}
         </div>
       ) : null}
+      {data.loadErrors.map((error, index) => (
+        <div className="alert" key={`${error.code ?? error.kind}-${index}`}>
+          <b>{error.code ?? error.kind}</b>&nbsp;{error.message}
+        </div>
+      ))}
 
       <div className={isCatalogue ? "cfg-layout cfg-layout-3" : "cfg-layout"}>
         <aside className="card cfg-rail" aria-label={c("rail.title")}>
