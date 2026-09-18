@@ -70,7 +70,7 @@ func (s codeLookupStore) insert(ctx context.Context, tx pgx.Tx, t string, f map[
 	return code, nil
 }
 
-func (s codeLookupStore) update(ctx context.Context, tx pgx.Tx, t, id string, f map[string]any, rv int) error {
+func (s codeLookupStore) update(ctx context.Context, tx pgx.Tx, t, id string, f map[string]any, rv int) (string, error) {
 	set, args := setClause(f, []colBind{{"name", "name", textOrEmpty("name")}, {"sort_order", "sort_order", func(m map[string]any) any {
 		if v, ok := domain.FieldInt(m, "sort_order"); ok {
 			return v
@@ -78,13 +78,13 @@ func (s codeLookupStore) update(ctx context.Context, tx pgx.Tx, t, id string, f 
 		return int64(100)
 	}}}, 4)
 	if set == "" {
-		return nil
+		return "", nil
 	}
 	tag, err := tx.Exec(ctx, fmt.Sprintf(`UPDATE %s SET %s, updated_at = now(), row_version = row_version + 1 WHERE tenant_id = $1 AND %s = $2 AND ($3 = 0 OR row_version = $3)`, s.table, set, s.codeCol), append([]any{t, id, rv}, args...)...)
 	if err != nil {
-		return err
+		return "", err
 	}
-	return fenced(ctx, tx, tag.RowsAffected(), fmt.Sprintf(`SELECT 1 FROM %s WHERE tenant_id = $1 AND %s = $2`, s.table, s.codeCol), t, id)
+	return "", fenced(ctx, tx, tag.RowsAffected(), fmt.Sprintf(`SELECT 1 FROM %s WHERE tenant_id = $1 AND %s = $2`, s.table, s.codeCol), t, id)
 }
 
 func (s codeLookupStore) setStatus(ctx context.Context, tx pgx.Tx, t, id, status string, rv int) error {
@@ -156,7 +156,7 @@ RETURNING animal_stage_id::text`, t, domain.FieldString(f, "code"), domain.Field
 	return id, err
 }
 
-func (stageStore) update(ctx context.Context, tx pgx.Tx, t, id string, f map[string]any, rv int) error {
+func (stageStore) update(ctx context.Context, tx pgx.Tx, t, id string, f map[string]any, rv int) (string, error) {
 	set, args := setClause(f, []colBind{
 		{"name", "name", textOrEmpty("name")},
 		{"min_age_days", "min_age_days", intArg("min_age_days")},
@@ -169,16 +169,16 @@ func (stageStore) update(ctx context.Context, tx pgx.Tx, t, id string, f map[str
 		}},
 	}, 3)
 	if set == "" {
-		return nil
+		return "", nil
 	}
 	tag, err := tx.Exec(ctx, fmt.Sprintf(`UPDATE animal_stage_lookup SET %s, updated_at = now() WHERE tenant_id = $1 AND animal_stage_id = $2::uuid`, set), append([]any{t, id}, args...)...)
 	if err != nil {
-		return err
+		return "", err
 	}
 	if tag.RowsAffected() == 0 {
-		return ports.ErrNotFound
+		return "", ports.ErrNotFound
 	}
-	return nil
+	return "", nil
 }
 
 func (stageStore) setStatus(ctx context.Context, tx pgx.Tx, t, id, status string, rv int) error {

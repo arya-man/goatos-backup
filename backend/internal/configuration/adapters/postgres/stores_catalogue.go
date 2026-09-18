@@ -136,15 +136,15 @@ RETURNING category_id::text`, t, parent, name, kind, sort).Scan(&id)
 	return id, nil
 }
 
-func (categoryStore) update(ctx context.Context, tx pgx.Tx, t, id string, f map[string]any, rv int) error {
+func (categoryStore) update(ctx context.Context, tx pgx.Tx, t, id string, f map[string]any, rv int) (string, error) {
 	if !isUUID(id) {
-		return ports.ErrNotFound
+		return "", ports.ErrNotFound
 	}
 	if sent(f, "parent_id") {
 		parent := nullText(f, "parent_id")
 		if parent != nil {
 			if *parent == id {
-				return &domain.ValidationError{Fields: []domain.FieldError{{Field: "parent_id", Code: "invalid", Message: "A category cannot sit under itself."}}}
+				return "", &domain.ValidationError{Fields: []domain.FieldError{{Field: "parent_id", Code: "invalid", Message: "A category cannot sit under itself."}}}
 			}
 			// The new parent must not be a descendant, or the tree loops.
 			var loops bool
@@ -155,36 +155,36 @@ WITH RECURSIVE down AS (
   SELECT c.category_id, down.depth + 1 FROM item_categories c JOIN down ON c.parent_category_id = down.category_id WHERE c.tenant_id = $1 AND down.depth < 8
 )
 SELECT EXISTS (SELECT 1 FROM down WHERE category_id = $3::uuid)`, t, id, *parent).Scan(&loops); err != nil {
-				return err
+				return "", err
 			}
 			if loops {
-				return &domain.ValidationError{Fields: []domain.FieldError{{Field: "parent_id", Code: "invalid", Message: "That category is already under this one."}}}
+				return "", &domain.ValidationError{Fields: []domain.FieldError{{Field: "parent_id", Code: "invalid", Message: "That category is already under this one."}}}
 			}
 			parentKind, err := categoryKind(ctx, tx, t, *parent)
 			if err != nil {
 				if errors.Is(err, ports.ErrNotFound) {
-					return &ports.RefError{Field: "parent_id", Label: "Category"}
+					return "", &ports.RefError{Field: "parent_id", Label: "Category"}
 				}
-				return err
+				return "", err
 			}
 			ownKind, err := categoryKind(ctx, tx, t, id)
 			if err != nil {
-				return err
+				return "", err
 			}
 			if ownKind != parentKind {
-				return &domain.ValidationError{Fields: []domain.FieldError{{Field: "parent_id", Code: "invalid", Message: "A category can only move under one of the same kind (" + parentKind + " vs " + ownKind + ")."}}}
+				return "", &domain.ValidationError{Fields: []domain.FieldError{{Field: "parent_id", Code: "invalid", Message: "A category can only move under one of the same kind (" + parentKind + " vs " + ownKind + ")."}}}
 			}
 			if _, err := tx.Exec(ctx, `UPDATE item_categories SET parent_category_id = $3::uuid, item_kind = NULL WHERE tenant_id = $1 AND category_id = $2::uuid`, t, id, *parent); err != nil {
-				return err
+				return "", err
 			}
 		} else {
 			// Becoming a root: it keeps the kind it had.
 			ownKind, err := categoryKind(ctx, tx, t, id)
 			if err != nil {
-				return err
+				return "", err
 			}
 			if _, err := tx.Exec(ctx, `UPDATE item_categories SET parent_category_id = NULL, item_kind = $3 WHERE tenant_id = $1 AND category_id = $2::uuid`, t, id, ownKind); err != nil {
-				return err
+				return "", err
 			}
 		}
 	}
@@ -192,14 +192,14 @@ SELECT EXISTS (SELECT 1 FROM down WHERE category_id = $3::uuid)`, t, id, *parent
 		var isRoot bool
 		if err := tx.QueryRow(ctx, `SELECT parent_category_id IS NULL FROM item_categories WHERE tenant_id = $1 AND category_id = $2::uuid`, t, id).Scan(&isRoot); err != nil {
 			if errors.Is(err, pgx.ErrNoRows) {
-				return ports.ErrNotFound
+				return "", ports.ErrNotFound
 			}
-			return err
+			return "", err
 		}
 		if isRoot {
 			k := domain.FieldString(f, "kind")
 			if k == "" {
-				return &domain.ValidationError{Fields: []domain.FieldError{{Field: "kind", Code: "required", Message: "Kind is required for a top-level category."}}}
+				return "", &domain.ValidationError{Fields: []domain.FieldError{{Field: "kind", Code: "required", Message: "Kind is required for a top-level category."}}}
 			}
 			var items int
 			if err := tx.QueryRow(ctx, `
@@ -209,13 +209,13 @@ WITH RECURSIVE down AS (
   SELECT c.category_id FROM item_categories c JOIN down ON c.parent_category_id = down.category_id WHERE c.tenant_id = $1
 )
 SELECT count(*) FROM inventory_items i WHERE i.tenant_id = $1 AND i.category_id IN (SELECT category_id FROM down) AND i.category <> $3`, t, id, k).Scan(&items); err != nil {
-				return err
+				return "", err
 			}
 			if items > 0 {
-				return &ports.InUseError{Usage: domain.Usage{Blocked: true, Uses: []domain.UsageCount{{Noun: "items of the current kind; move them first", Count: items}}}}
+				return "", &ports.InUseError{Usage: domain.Usage{Blocked: true, Uses: []domain.UsageCount{{Noun: "items of the current kind; move them first", Count: items}}}}
 			}
 			if _, err := tx.Exec(ctx, `UPDATE item_categories SET item_kind = $3 WHERE tenant_id = $1 AND category_id = $2::uuid`, t, id, k); err != nil {
-				return err
+				return "", err
 			}
 		}
 	}
@@ -240,11 +240,11 @@ SELECT count(*) FROM inventory_items i WHERE i.tenant_id = $1 AND i.category_id 
 	if err != nil {
 		var pgErr *pgconn.PgError
 		if errors.As(err, &pgErr) && pgErr.Code == "23505" {
-			return &ports.DuplicateError{Field: "name", Message: "A category with that name already exists at this level."}
+			return "", &ports.DuplicateError{Field: "name", Message: "A category with that name already exists at this level."}
 		}
-		return err
+		return "", err
 	}
-	return fenced(ctx, tx, tag.RowsAffected(), `SELECT 1 FROM item_categories WHERE tenant_id = $1 AND category_id = $2::uuid`, t, id)
+	return "", fenced(ctx, tx, tag.RowsAffected(), `SELECT 1 FROM item_categories WHERE tenant_id = $1 AND category_id = $2::uuid`, t, id)
 }
 
 func (categoryStore) setStatus(ctx context.Context, tx pgx.Tx, t, id, status string, rv int) error {
@@ -403,18 +403,18 @@ ON CONFLICT (tenant_id, item_id) DO UPDATE SET
 	return err
 }
 
-func (itemStore) update(ctx context.Context, tx pgx.Tx, t, id string, f map[string]any, rv int) error {
+func (itemStore) update(ctx context.Context, tx pgx.Tx, t, id string, f map[string]any, rv int) (string, error) {
 	if !isUUID(id) {
-		return ports.ErrNotFound
+		return "", ports.ErrNotFound
 	}
 	var existingCtx map[string]any
 	var ctxRaw []byte
 	var currentKind string
 	if err := tx.QueryRow(ctx, `SELECT context, category FROM inventory_items WHERE tenant_id = $1 AND item_id = $2::uuid`, t, id).Scan(&ctxRaw, &currentKind); err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
-			return ports.ErrNotFound
+			return "", ports.ErrNotFound
 		}
-		return err
+		return "", err
 	}
 	_ = json.Unmarshal(ctxRaw, &existingCtx)
 	kind := currentKind
@@ -422,24 +422,24 @@ func (itemStore) update(ctx context.Context, tx pgx.Tx, t, id string, f map[stri
 		k, err := categoryKind(ctx, tx, t, domain.FieldString(f, "category_id"))
 		if err != nil {
 			if errors.Is(err, ports.ErrNotFound) {
-				return &ports.RefError{Field: "category_id", Label: "Category"}
+				return "", &ports.RefError{Field: "category_id", Label: "Category"}
 			}
-			return err
+			return "", err
 		}
 		if k != currentKind {
 			var lots int
 			if err := tx.QueryRow(ctx, `SELECT count(*) FROM inventory_stock WHERE tenant_id = $1 AND item_id = $2::uuid`, t, id).Scan(&lots); err != nil {
-				return err
+				return "", err
 			}
 			if lots > 0 {
-				return &ports.InUseError{Usage: domain.Usage{Blocked: true, Uses: []domain.UsageCount{{Noun: "stock lots; an item with stock cannot change kind", Count: lots}}}}
+				return "", &ports.InUseError{Usage: domain.Usage{Blocked: true, Uses: []domain.UsageCount{{Noun: "stock lots; an item with stock cannot change kind", Count: lots}}}}
 			}
 		}
 		kind = k
 	}
 	contextJSON, err := itemContext(f, existingCtx)
 	if err != nil {
-		return err
+		return "", err
 	}
 	set, args := setClause(f, []colBind{
 		{"name", "name", textOrEmpty("name")},
@@ -455,17 +455,17 @@ func (itemStore) update(ctx context.Context, tx pgx.Tx, t, id string, f map[stri
 	if err != nil {
 		var pgErr *pgconn.PgError
 		if errors.As(err, &pgErr) && pgErr.Code == "23505" {
-			return &ports.DuplicateError{Field: "code", Message: "An item with that code already exists."}
+			return "", &ports.DuplicateError{Field: "code", Message: "An item with that code already exists."}
 		}
-		return err
+		return "", err
 	}
 	if err := fenced(ctx, tx, tag.RowsAffected(), `SELECT 1 FROM inventory_items WHERE tenant_id = $1 AND item_id = $2::uuid`, t, id); err != nil {
-		return err
+		return "", err
 	}
 	if kind == "vaccine" {
-		return upsertVaccine(ctx, tx, t, id, f)
+		return "", upsertVaccine(ctx, tx, t, id, f)
 	}
-	return nil
+	return "", nil
 }
 
 func (itemStore) setStatus(ctx context.Context, tx pgx.Tx, t, id, status string, rv int) error {
@@ -541,8 +541,8 @@ func (feedItemStore) usage(context.Context, querier, string, string) (domain.Usa
 func (feedItemStore) insert(context.Context, pgx.Tx, string, map[string]any) (string, error) {
 	return "", domain.ErrReadOnlyRegister
 }
-func (feedItemStore) update(context.Context, pgx.Tx, string, string, map[string]any, int) error {
-	return domain.ErrReadOnlyRegister
+func (feedItemStore) update(context.Context, pgx.Tx, string, string, map[string]any, int) (string, error) {
+	return "", domain.ErrReadOnlyRegister
 }
 func (feedItemStore) setStatus(context.Context, pgx.Tx, string, string, string, int) error {
 	return domain.ErrReadOnlyRegister

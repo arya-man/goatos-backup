@@ -75,22 +75,22 @@ VALUES ($1::uuid, $2, $3, COALESCE($4, ''))`, id, t, nullText(f, "kind"), nullTe
 	return id, nil
 }
 
-func (farmStore) update(ctx context.Context, tx pgx.Tx, t, id string, f map[string]any, rv int) error {
+func (farmStore) update(ctx context.Context, tx pgx.Tx, t, id string, f map[string]any, rv int) (string, error) {
 	if err := updateLocation(ctx, tx, t, id, f, rv, "farm"); err != nil {
-		return err
+		return "", err
 	}
 	set, args := setClause(f, []colBind{{"kind", "farm_kind", textArg("kind")}, {"notes", "notes", textOrEmpty("notes")}}, 3)
 	if set == "" {
-		return nil
+		return "", nil
 	}
 	_, err := tx.Exec(ctx, `
 INSERT INTO farm_profiles (location_id, tenant_id) VALUES ($1::uuid, $2)
 ON CONFLICT (location_id) DO NOTHING`, id, t)
 	if err != nil {
-		return err
+		return "", err
 	}
 	_, err = tx.Exec(ctx, fmt.Sprintf(`UPDATE farm_profiles SET %s, updated_at = now(), row_version = row_version + 1 WHERE location_id = $1::uuid AND tenant_id = $2`, set), append([]any{id, t}, args...)...)
-	return err
+	return "", err
 }
 
 func (farmStore) setStatus(ctx context.Context, tx pgx.Tx, t, id, status string, rv int) error {
@@ -172,32 +172,32 @@ VALUES ($1::uuid, $2, $3, $4, COALESCE($5, ''))`, id, t, code, nullInt(f, "capac
 	return id, nil
 }
 
-func (parkStore) update(ctx context.Context, tx pgx.Tx, t, id string, f map[string]any, rv int) error {
+func (parkStore) update(ctx context.Context, tx pgx.Tx, t, id string, f map[string]any, rv int) (string, error) {
 	if sent(f, "code") {
 		f["code"] = strings.ToUpper(domain.FieldString(f, "code"))
 	}
 	if farmID := nullText(f, "farm_id"); farmID != nil {
 		if err := requireLocation(ctx, tx, t, *farmID, "farm", "farm_id", "Farm"); err != nil {
-			return err
+			return "", err
 		}
 	}
 	if err := updateLocation(ctx, tx, t, id, f, rv, "park"); err != nil {
-		return err
+		return "", err
 	}
 	if sent(f, "farm_id") {
 		if _, err := tx.Exec(ctx, `UPDATE locations SET parent_location_id = $3::uuid WHERE tenant_id = $1 AND location_id = $2::uuid`, t, id, nullText(f, "farm_id")); err != nil {
-			return err
+			return "", err
 		}
 	}
 	set, args := setClause(f, []colBind{{"code", "park_code", textArg("code")}, {"capacity", "capacity", intArg("capacity")}, {"notes", "notes", textOrEmpty("notes")}}, 3)
 	if set == "" {
-		return nil
+		return "", nil
 	}
 	if _, err := tx.Exec(ctx, `INSERT INTO park_profiles (location_id, tenant_id) VALUES ($1::uuid, $2) ON CONFLICT (location_id) DO NOTHING`, id, t); err != nil {
-		return err
+		return "", err
 	}
 	_, err := tx.Exec(ctx, fmt.Sprintf(`UPDATE park_profiles SET %s, updated_at = now(), row_version = row_version + 1 WHERE location_id = $1::uuid AND tenant_id = $2`, set), append([]any{id, t}, args...)...)
-	return err
+	return "", err
 }
 
 func (parkStore) setStatus(ctx context.Context, tx pgx.Tx, t, id, status string, rv int) error {
@@ -289,25 +289,25 @@ VALUES ($1::uuid, $2, $3::uuid, $4, $5, $6, COALESCE($7, ''))`,
 	return id, nil
 }
 
-func (penStore) update(ctx context.Context, tx pgx.Tx, t, id string, f map[string]any, rv int) error {
+func (penStore) update(ctx context.Context, tx pgx.Tx, t, id string, f map[string]any, rv int) (string, error) {
 	if stageID := nullText(f, "stage_id"); stageID != nil {
 		if err := requireStage(ctx, tx, t, *stageID); err != nil {
-			return err
+			return "", err
 		}
 	}
 	if sent(f, "park_id") {
 		// A pen may be re-parented only while it holds no animals: the herd never moves parks.
 		var animals int
 		if err := tx.QueryRow(ctx, `SELECT count(*) FROM goats WHERE tenant_id = $1 AND shed_id = $2::uuid AND lifecycle_status = 'alive'`, t, id).Scan(&animals); err != nil {
-			return err
+			return "", err
 		}
 		if animals > 0 {
 			var current string
 			if err := tx.QueryRow(ctx, `SELECT parent_location_id::text FROM locations WHERE tenant_id = $1 AND location_id = $2::uuid`, t, id).Scan(&current); err != nil {
-				return err
+				return "", err
 			}
 			if current != domain.FieldString(f, "park_id") {
-				return &ports.InUseError{Usage: domain.Usage{Blocked: true, Uses: []domain.UsageCount{{Noun: "animals in this pen; animals never move between parks", Count: animals}}}}
+				return "", &ports.InUseError{Usage: domain.Usage{Blocked: true, Uses: []domain.UsageCount{{Noun: "animals in this pen; animals never move between parks", Count: animals}}}}
 			}
 		}
 	}
@@ -316,9 +316,9 @@ func (penStore) update(ctx context.Context, tx pgx.Tx, t, id string, f map[strin
 		var parkID, name string
 		if err := tx.QueryRow(ctx, `SELECT parent_location_id::text, name FROM locations WHERE tenant_id = $1 AND location_id = $2::uuid AND location_type = 'shed'`, t, id).Scan(&parkID, &name); err != nil {
 			if errors.Is(err, pgx.ErrNoRows) {
-				return ports.ErrNotFound
+				return "", ports.ErrNotFound
 			}
-			return err
+			return "", err
 		}
 		if sent(f, "park_id") {
 			parkID = domain.FieldString(f, "park_id")
@@ -328,17 +328,17 @@ func (penStore) update(ctx context.Context, tx pgx.Tx, t, id string, f map[strin
 		}
 		parkCode, err := locationCode(ctx, tx, t, parkID, "park", "park_id", "Park")
 		if err != nil {
-			return err
+			return "", err
 		}
 		f["code"] = penCode(parkCode, name)
 		if sent(f, "park_id") {
 			if _, err := tx.Exec(ctx, `UPDATE locations SET parent_location_id = $3::uuid WHERE tenant_id = $1 AND location_id = $2::uuid`, t, id, parkID); err != nil {
-				return err
+				return "", err
 			}
 		}
 	}
 	if err := updateLocation(ctx, tx, t, id, f, rv, "pen"); err != nil {
-		return err
+		return "", err
 	}
 	set, args := setClause(f, []colBind{
 		{"stage_id", "animal_stage_id", func(m map[string]any) any { return nullText(m, "stage_id") }},
@@ -348,13 +348,13 @@ func (penStore) update(ctx context.Context, tx pgx.Tx, t, id string, f map[strin
 		{"notes", "notes", textOrEmpty("notes")},
 	}, 3)
 	if set == "" {
-		return nil
+		return "", nil
 	}
 	if _, err := tx.Exec(ctx, `INSERT INTO shed_profiles (location_id, tenant_id) VALUES ($1::uuid, $2) ON CONFLICT (location_id) DO NOTHING`, id, t); err != nil {
-		return err
+		return "", err
 	}
 	_, err := tx.Exec(ctx, fmt.Sprintf(`UPDATE shed_profiles SET %s, updated_at = now(), row_version = row_version + 1 WHERE location_id = $1::uuid AND tenant_id = $2`, set), append([]any{id, t}, args...)...)
-	return err
+	return "", err
 }
 
 func (penStore) setStatus(ctx context.Context, tx pgx.Tx, t, id, status string, rv int) error {
@@ -459,13 +459,13 @@ VALUES ($1, $2::uuid, $3, $4, 'active', $5, 'manual')`, t, penID, label, normali
 	return penID + ":" + normalized, nil
 }
 
-func (partitionStore) update(ctx context.Context, tx pgx.Tx, t, id string, f map[string]any, rv int) error {
+func (partitionStore) update(ctx context.Context, tx pgx.Tx, t, id string, f map[string]any, rv int) (string, error) {
 	shedID, normalized, ok := splitPartitionID(id)
 	if !ok {
-		return ports.ErrNotFound
+		return "", ports.ErrNotFound
 	}
 	if sent(f, "pen_id") && domain.FieldString(f, "pen_id") != shedID {
-		return &ports.DuplicateError{Field: "pen_id", Message: "A partition cannot move to another pen; add it there instead."}
+		return "", &ports.DuplicateError{Field: "pen_id", Message: "A partition cannot move to another pen; add it there instead."}
 	}
 	if sent(f, "label") {
 		label := domain.FieldString(f, "label")
@@ -476,37 +476,38 @@ func (partitionStore) update(ctx context.Context, tx pgx.Tx, t, id string, f map
 SELECT count(*) FROM goat_shed_partitions gp JOIN goats g ON g.tenant_id = gp.tenant_id AND g.goat_id = gp.goat_id
 WHERE gp.tenant_id = $1 AND gp.shed_id = $2::uuid AND g.lifecycle_status = 'alive'
   AND regexp_replace(lower(btrim(gp.partition_label)), '^part[[:space:]]+', '') = $3`, t, shedID, normalized).Scan(&animals); err != nil {
-				return err
+				return "", err
 			}
 			if animals > 0 {
-				return &ports.InUseError{Usage: domain.Usage{Blocked: true, Uses: []domain.UsageCount{{Noun: "animals filed under this label", Count: animals}}}}
+				return "", &ports.InUseError{Usage: domain.Usage{Blocked: true, Uses: []domain.UsageCount{{Noun: "animals filed under this label", Count: animals}}}}
 			}
 			newNorm := oploc.NormalizePartition(label)
 			if newNorm == oploc.WholeSentinel {
-				return &ports.DuplicateError{Field: "label", Message: "Give the partition a label such as Part 3 or 2."}
+				return "", &ports.DuplicateError{Field: "label", Message: "Give the partition a label such as Part 3 or 2."}
 			}
 			tag, err := tx.Exec(ctx, `UPDATE shed_partitions SET partition_label = $4, normalized_label = $5, updated_at = now() WHERE tenant_id = $1 AND shed_id = $2::uuid AND normalized_label = $3`, t, shedID, normalized, label, newNorm)
 			if err != nil {
 				var pgErr *pgconn.PgError
 				if errors.As(err, &pgErr) && pgErr.Code == "23505" {
-					return &ports.DuplicateError{Field: "label", Message: "This pen already has that partition."}
+					return "", &ports.DuplicateError{Field: "label", Message: "This pen already has that partition."}
 				}
-				return err
+				return "", err
 			}
 			if tag.RowsAffected() == 0 {
-				return ports.ErrNotFound
+				return "", ports.ErrNotFound
 			}
 			normalized = newNorm
 		} else if _, err := tx.Exec(ctx, `UPDATE shed_partitions SET partition_label = $4, updated_at = now() WHERE tenant_id = $1 AND shed_id = $2::uuid AND normalized_label = $3`, t, shedID, normalized, label); err != nil {
-			return err
+			return "", err
 		}
 	}
 	if sent(f, "sort_order") {
 		if _, err := tx.Exec(ctx, `UPDATE shed_partitions SET display_order = $4, updated_at = now() WHERE tenant_id = $1 AND shed_id = $2::uuid AND normalized_label = $3`, t, shedID, normalized, nullInt(f, "sort_order")); err != nil {
-			return err
+			return "", err
 		}
 	}
-	return nil
+	// A rename past the matching key moves the row's id with it.
+	return shedID + ":" + normalized, nil
 }
 
 func (partitionStore) setStatus(ctx context.Context, tx pgx.Tx, t, id, status string, rv int) error {

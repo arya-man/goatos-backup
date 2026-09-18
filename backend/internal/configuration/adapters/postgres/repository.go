@@ -47,8 +47,10 @@ type store interface {
 	options(ctx context.Context, q querier, tenantID string) ([]ports.RefOption, error)
 	usage(ctx context.Context, q querier, tenantID, id string) (domain.Usage, error)
 	insert(ctx context.Context, tx pgx.Tx, tenantID string, fields map[string]any) (string, error)
-	// update applies the changed fields; rowVersion is the fence the screen read (0 = none).
-	update(ctx context.Context, tx pgx.Tx, tenantID, id string, fields map[string]any, rowVersion int) error
+	// update applies the changed fields; rowVersion is the fence the screen read (0 = none). It
+	// returns the row's id afterwards, which a composite id (a partition's shed:label) may have
+	// changed; "" means unchanged.
+	update(ctx context.Context, tx pgx.Tx, tenantID, id string, fields map[string]any, rowVersion int) (string, error)
 	setStatus(ctx context.Context, tx pgx.Tx, tenantID, id, status string, rowVersion int) error
 	del(ctx context.Context, tx pgx.Tx, tenantID, id string, rowVersion int) error
 }
@@ -196,8 +198,12 @@ func (r *Repository) Update(ctx context.Context, w ports.WriteParams, register, 
 		if err != nil {
 			return "", err
 		}
-		if err := s.update(ctx, tx, w.TenantID, id, fields, rowVersion); err != nil {
+		newID, err := s.update(ctx, tx, w.TenantID, id, fields, rowVersion)
+		if err != nil {
 			return "", mapWriteError(err)
+		}
+		if newID != "" {
+			id = newID
 		}
 		after, err := s.get(ctx, tx, w.TenantID, id)
 		if err != nil {
