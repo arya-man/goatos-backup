@@ -25991,8 +25991,8 @@ export interface operations {
                 cursor_done?: string;
                 /** @description Include a Work Board-authorized owner vocabulary for the toolbar picker while an owner filter is active. Present only for overseer reads; own-rows-only callers do not receive it because the picker is hidden. */
                 include_owner_vocabulary?: "1" | "true" | "yes";
-                };
-                header?: never;
+            };
+            header?: never;
             path?: never;
             cookie?: never;
         };
