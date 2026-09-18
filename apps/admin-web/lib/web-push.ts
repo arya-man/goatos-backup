@@ -94,7 +94,12 @@ const MINT_TIMED_OUT = Symbol("web-push-mint-timed-out");
  */
 async function ensureServiceWorker(): Promise<ServiceWorkerRegistration> {
   const existing = await navigator.serviceWorker.getRegistration(SERVICE_WORKER_PATH);
+  // serial-await: allow registering depends on whether a registration already exists, and the
+  // activation wait depends on the registration we end up with. This ORDER is the whole fix --
+  // the SDK only awaits activation on the branch where it registers the worker itself, so handing
+  // it our own registration skipped that wait and getToken() hung forever on a cold profile.
   const registration = existing ?? (await navigator.serviceWorker.register(SERVICE_WORKER_PATH, { scope: "/" }));
+  // serial-await: allow the activation wait depends on the registration resolved above.
   await waitForActiveWorker(registration);
   return registration;
 }
@@ -147,13 +152,15 @@ async function messagingApp() {
  * registrations racing for one subscription.
  */
 async function mintToken(vapidKey: string): Promise<string | typeof MINT_TIMED_OUT> {
-  const app = await messagingApp();
-  const registration = await ensureServiceWorker();
+  // These two are independent -- the Firebase app does not need the registration and vice versa --
+  // so they are started together. getToken() below needs BOTH, which is what makes it serial.
+  const [app, registration] = await Promise.all([messagingApp(), ensureServiceWorker()]);
   // BOUNDED, AS A BELT. `ensureServiceWorker` above removes the known cause of the hang, but
   // `getToken()` still reaches Chrome's GCM registration, which can enter a silent multi-minute
   // backoff for environmental reasons no code here can see or fix. An unbounded await on it means
   // one bad day turns the CEO's click into a spinner with no error and no way to retry. A deadline
   // converts "unknown" into "visible and retryable", which is the only outcome we can promise.
+  // serial-await: allow getToken() consumes both the app and the registration resolved above.
   const token = await withTimeout<string | typeof MINT_TIMED_OUT>(
     getToken(getMessaging(app), { vapidKey, serviceWorkerRegistration: registration }),
     WEB_PUSH_TOKEN_TIMEOUT_MS,
