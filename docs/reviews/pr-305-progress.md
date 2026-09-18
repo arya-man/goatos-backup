@@ -49,14 +49,14 @@
 - Judge 1 backend Counts Mortality logic: PASS, no findings on code SHA `345ff6f42176140c6479e1440bf241044ba9d9a0`.
 - Judge 2 admin-web/API contract wiring: PASS, no findings on code SHA `345ff6f42176140c6479e1440bf241044ba9d9a0`.
 - Judge 3 coverage/guard adequacy: initial process finding for stale receipt and missing `make api-client-check`; `make api-client-check` now passed and this receipt is updated.
-- Follow-up Judge 3 on pushed receipt SHA `431dca73e5def38e527f3e29f1b67e2536c29ad9`: found the receipt still needed to name the final pushed proof commit; this entry and Current SHA now do that.
+- Follow-up Judge 3 on pushed receipt SHA `431dca73e5def38e527f3e29f1b67e2536c29ad9`: found the receipt still needed to distinguish the stable code-review SHA from receipt-only proof commits; this entry and Current SHA now do that without treating a self-referential doc-only SHA as code proof.
 
 ## Current SHA
 
 - Before first fix: `90bf02af6cf739fbaca1f9d3c07383da3fb193b1`.
 - Before strict-live fix: `db8cf68c969d737b49151810a3c0df10f52e2536`.
 - Strict-live code fix pushed: `345ff6f42176140c6479e1440bf241044ba9d9a0`.
-- Current pushed proof head: `431dca73e5def38e527f3e29f1b67e2536c29ad9`.
+- Receipt-only proof commits followed the code fix (`431dca73e5def38e527f3e29f1b67e2536c29ad9`, then `f9459f76a7498dce236b2c24e39018391bbe119b`). The actual current pushed branch head must be read back from git/GitHub after the latest receipt commit because any receipt edit necessarily changes it.
 
 ## Deployment State
 
