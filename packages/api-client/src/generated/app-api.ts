@@ -8456,6 +8456,8 @@ export interface components {
             summary: components["schemas"]["WorkBoardSummary"];
             /** @description Present when the request has a module filter and the UI needs the unfiltered module vocabulary. */
             vocabulary_summary?: components["schemas"]["WorkBoardSummary"];
+            /** @description Work Board-authorized owner choices for switching away from an active owner filter. */
+            owner_vocabulary?: components["schemas"]["WorkBoardOwner"][];
             lanes: components["schemas"]["WorkBoardLanePages"];
             /** Format: date */
             business_date: string;
@@ -25989,8 +25991,10 @@ export interface operations {
                 cursor_in_review?: string;
                 /** @description Keyset cursor for the Done lane. */
                 cursor_done?: string;
-            };
-            header?: never;
+                /** @description Include a Work Board-authorized owner vocabulary for the toolbar picker while an owner filter is active. Present only for overseer reads; own-rows-only callers do not receive it because the picker is hidden. */
+                include_owner_vocabulary?: "1" | "true" | "yes";
+                };
+                header?: never;
             path?: never;
             cookie?: never;
         };

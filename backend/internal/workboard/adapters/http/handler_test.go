@@ -24,6 +24,7 @@ const (
 	parkCBE  = "00000000-0000-4000-8000-000000003001"
 	parkCPT  = "00000000-0000-4000-8000-000000003002"
 	actorOp  = "00000000-0000-4000-8000-000000000301"
+	actorAlt = "00000000-0000-4000-8000-000000000302"
 	actorCEO = "00000000-0000-4000-8000-000000000999"
 )
 
@@ -88,8 +89,16 @@ func (f *fakeService) List(_ context.Context, q domain.Query) (domain.Page, erro
 	if len(q.WorkStates) > 0 {
 		state = q.WorkStates[0]
 	}
-	row := domain.Row{Module: domain.ModuleFeed, SourceType: "feed_task", SourceID: string(state), ParkID: q.ParkID, BusinessDate: q.BusinessDate, WorkState: state, Title: "Feed work"}.Finalize()
-	return domain.Page{Rows: []domain.Row{row}, Degraded: f.listDegraded}, nil
+	owner := domain.Owner{UserID: actorOp, Name: "Operator One"}
+	if q.OwnerUserID != "" {
+		owner = domain.Owner{UserID: q.OwnerUserID, Name: "Selected Operator"}
+	}
+	row := domain.Row{Module: domain.ModuleFeed, SourceType: "feed_task", SourceID: string(state), ParkID: q.ParkID, BusinessDate: q.BusinessDate, WorkState: state, Owner: owner, OwnerState: domain.OwnerStateAssigned, Title: "Feed work"}.Finalize()
+	rows := []domain.Row{row}
+	if q.OwnerUserID == "" && q.Limit == 100 {
+		rows = append(rows, domain.Row{Module: domain.ModuleFeed, SourceType: "feed_task", SourceID: string(state) + "-alt", ParkID: q.ParkID, BusinessDate: q.BusinessDate, WorkState: state, Owner: domain.Owner{UserID: actorAlt, Name: "Operator Two"}, OwnerState: domain.OwnerStateAssigned, Title: "Feed work 2"}.Finalize())
+	}
+	return domain.Page{Rows: rows, Degraded: f.listDegraded}, nil
 }
 func (f *fakeService) Summary(_ context.Context, q domain.Query) (domain.Summary, error) {
 	f.mu.Lock()
@@ -461,6 +470,22 @@ func TestPageSummaryOnlyReadKeepsScopedVocabulary(t *testing.T) {
 	modules := summary["modules"].([]any)
 	if len(modules) != 1 || modules[0] != string(domain.ModuleFeed) {
 		t.Fatalf("feed director vocabulary must stay permission scoped, got %#v", modules)
+	}
+}
+
+func TestPageOwnerVocabularyUsesWorkBoardScopeNotSelectedOwnerRows(t *testing.T) {
+	svc := &fakeService{counts: map[domain.WorkState]int{domain.WorkStateDue: 1}}
+	h := NewHandler(svc, nil)
+	rec, body := get(t, h, "/work-board/page?park="+parkCBE+"&owner="+actorOp+"&include_owner_vocabulary=1", actorCEO, tenantGrant(permissions.RoleCEOInternal))
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status %d %v", rec.Code, body)
+	}
+	vocab := body["owner_vocabulary"].([]any)
+	if len(vocab) != 2 {
+		t.Fatalf("owner vocabulary must come from the unselected Work Board scope, got %#v", vocab)
+	}
+	if len(svc.lists) != 2 {
+		t.Fatalf("expected one lane read plus one Work Board-authorized owner vocabulary read, got %d list reads", len(svc.lists))
 	}
 }
 

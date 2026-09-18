@@ -48,6 +48,17 @@ function csv(sp: RouteSearchParams, key: string): string[] {
     .filter(Boolean);
 }
 
+function ownerOptionsFromVocabulary(vocabulary: Array<{ user_id?: string; name?: string }>): ReturnType<typeof ownersOnPage> | null {
+  if (vocabulary.length === 0) return null;
+  const seen = new Map<string, { id: string; name: string }>();
+  for (const owner of vocabulary) {
+    const id = owner.user_id?.trim();
+    if (!id || seen.has(id)) continue;
+    seen.set(id, { id, name: owner.name?.trim() || id.slice(0, 8) });
+  }
+  return [...seen.values()].sort((a, b) => a.name.localeCompare(b.name));
+}
+
 // A board read is bounded to ONE park per request (each source binds one park). "All parks" is
 // therefore composed here: with no park chosen the board reads EVERY park the caller may see and
 // merges each column, so the CEO opens on both parks (maintainer request 2026-09-12). The lane
@@ -193,6 +204,7 @@ export async function WorkBoardPage({ searchParams, pageContract }: { searchPara
   if (firstAuthRequiredError(...allResults)) redirect(INTERNAL_LOGIN_PATH);
 
   const rows: WorkBoardRow[] = laneParkReads.flatMap((read) => (read.result.ok ? read.result.data.rows : []));
+  const ownerOptions = ownerOptionsFromVocabulary(pageResults.flatMap((result) => (result.ok ? result.data.owner_vocabulary ?? [] : []))) || ownersOnPage(rows);
   const summary = mergeSummaries(summaryResults.flatMap((result) => (result.ok ? [result.data] : [])));
   const okVocabulary = vocabularyResults.flatMap((result) => (result.ok ? [result.data] : []));
   const okSummary = summaryResults.flatMap((result) => (result.ok ? [result.data] : []));
@@ -286,7 +298,7 @@ export async function WorkBoardPage({ searchParams, pageContract }: { searchPara
           moduleOptions={visibleModules}
           selectedModules={selectedModules}
           noneSelected={noneSelected}
-          owners={ownersOnPage(rows)}
+          owners={ownerOptions}
           selectedOwner={owner}
           ownRowsOnly={ownRowsOnly}
           parks={parks}

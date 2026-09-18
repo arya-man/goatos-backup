@@ -9083,6 +9083,14 @@ paths:
           required: false
           schema: { type: string }
           description: Keyset cursor for the Done lane.
+        - name: include_owner_vocabulary
+          in: query
+          required: false
+          schema: { type: string, enum: ["1", "true", "yes"] }
+          description: >-
+            Include a Work Board-authorized owner vocabulary for the toolbar picker while an owner
+            filter is active. Present only for overseer reads; own-rows-only callers do not receive
+            it because the picker is hidden.
       responses:
         "200":
           description: Summary and lane pages for one park.
@@ -20200,6 +20208,11 @@ components:
         vocabulary_summary:
           $ref: "#/components/schemas/WorkBoardSummary"
           description: Present when the request has a module filter and the UI needs the unfiltered module vocabulary.
+        owner_vocabulary:
+          type: array
+          description: Work Board-authorized owner choices for switching away from an active owner filter.
+          items:
+            $ref: "#/components/schemas/WorkBoardOwner"
         lanes:
           $ref: "#/components/schemas/WorkBoardLanePages"
         business_date: { type: string, format: date }

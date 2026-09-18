@@ -6435,6 +6435,10 @@ aside.drawer.ltd-drawer{width:min(720px,94vw);overflow-y:auto;overscroll-behavio
 @media (max-width:760px){
   .lt-page .lt-fsheet-host .lt-people-pop{position:static;width:100%;margin-top:6px;box-shadow:none;border-color:var(--line2)}
   .lt-page .lt-people-row{min-height:44px}
+  .wb .lt-people{--lt-ctl:40px;display:grid;grid-template-columns:1fr;width:min(280px,calc(100vw - 32px))}
+  .wb .lt-people>button{width:100%;justify-content:space-between}
+  .wb .lt-people-pop{position:static;min-width:0;width:100%;margin-top:6px;box-shadow:none;border-color:var(--line2)}
+  .wb .lt-people-row{min-height:44px}
 }
 /* Phone Filters button: a count badge while any filter is applied (Judge A, D2). */
 .lt-page .lt-fmore-badge{display:inline-grid;place-items:center;min-width:18px;height:18px;padding:0 5px;margin-left:6px;border-radius:999px;background:var(--brand);color:var(--on-brand);font-size:11px;font-weight:750;line-height:1}
