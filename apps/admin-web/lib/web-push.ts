@@ -9,8 +9,10 @@ import {
   getBrowserInstallId,
   resetBrowserInstallId,
   withTimeout,
+  vapidGetTokenOptions,
   WEB_PUSH_TOKEN_TIMEOUT_MS,
   type WebPushState,
+  type WebPushVapidKey,
 } from "@/lib/web-push-state";
 import {
   getWebPushVapidKey,
@@ -50,8 +52,12 @@ export {
   readNotificationPermission,
   resolveWebPushState,
   WEB_PUSH_TOKEN_TIMEOUT_MS,
+  resolveVapidKeyConfig,
+  isWellFormedVapidPublicKey,
+  vapidGetTokenOptions,
+  VAPID_KEY_UNUSABLE_MESSAGE,
 } from "@/lib/web-push-state";
-export type { WebPushState } from "@/lib/web-push-state";
+export type { WebPushState, WebPushVapidKey } from "@/lib/web-push-state";
 
 const FIREBASE_APP_NAME = "goatos-admin-web";
 const SERVICE_WORKER_PATH = "/firebase-messaging-sw.js";
@@ -150,8 +156,14 @@ async function messagingApp() {
  * The service worker registration is passed EXPLICITLY. Without it the SDK registers
  * `/firebase-messaging-sw.js` itself, with its own scope and options, which would mean two
  * registrations racing for one subscription.
+ *
+ * THE VAPID KEY MAY BE GENUINELY ABSENT from the options, and that is a supported configuration,
+ * not a degraded one: `vapidGetTokenOptions` spreads in a `vapidKey` property only for a project
+ * key, so the SDK-default case passes an options object that HAS NO `vapidKey` KEY AT ALL -- not
+ * `""`, not an explicit `undefined`. The SDK then takes its own `DEFAULT_VAPID_KEY`, whose private
+ * half FCM holds, and the token delivers. See resolveVapidKeyConfig for the three-state rule.
  */
-async function mintToken(vapidKey: string): Promise<string | typeof MINT_TIMED_OUT> {
+async function mintToken(vapidKey: WebPushVapidKey): Promise<string | typeof MINT_TIMED_OUT> {
   // These two are independent -- the Firebase app does not need the registration and vice versa --
   // so they are started together. getToken() below needs BOTH, which is what makes it serial.
   const [app, registration] = await Promise.all([messagingApp(), ensureServiceWorker()]);
@@ -162,7 +174,7 @@ async function mintToken(vapidKey: string): Promise<string | typeof MINT_TIMED_O
   // converts "unknown" into "visible and retryable", which is the only outcome we can promise.
   // serial-await: allow getToken() consumes both the app and the registration resolved above.
   const token = await withTimeout<string | typeof MINT_TIMED_OUT>(
-    getToken(getMessaging(app), { vapidKey, serviceWorkerRegistration: registration }),
+    getToken(getMessaging(app), { ...vapidGetTokenOptions(vapidKey), serviceWorkerRegistration: registration }),
     WEB_PUSH_TOKEN_TIMEOUT_MS,
     () => MINT_TIMED_OUT,
   );
@@ -186,7 +198,7 @@ async function mintToken(vapidKey: string): Promise<string | typeof MINT_TIMED_O
  * Retried ONCE and never in a loop: a freshly minted id cannot collide, so a second conflict would
  * mean something else is wrong and retrying would only hide it.
  */
-async function mintAndRegister(vapidKey: string, browserInstallId: string): Promise<WebPushState> {
+async function mintAndRegister(vapidKey: WebPushVapidKey, browserInstallId: string): Promise<WebPushState> {
   const token = await mintToken(vapidKey);
   // Ran out of time. Nothing was sent to the backend, so there is nothing to undo and nothing to
   // report as broken -- the honest state is the retryable one, and the next click starts clean.
@@ -219,6 +231,9 @@ export async function enableWebPush(): Promise<WebPushState> {
     return { status: "unsupported", reason: "This browser cannot receive background notifications." };
   }
 
+  // Only a SET-BUT-UNUSABLE key fails here. An unset variable resolves to the SDK's own default
+  // key and proceeds, so a CEO on an environment where nobody has visited the Firebase console
+  // still gets a working Enable button rather than "not configured for this environment".
   const vapid = await getWebPushVapidKey();
   if (!vapid.ok) return { status: "unconfigured", reason: vapid.error };
 

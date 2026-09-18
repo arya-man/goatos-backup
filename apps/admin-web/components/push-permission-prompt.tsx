@@ -83,6 +83,10 @@ export function PushPermissionPrompt({
         supportReason: support.reason,
         // Configuration is a server fact and is not known yet; assume configured so a supported
         // browser reads "prompt" rather than flashing "not configured" and then correcting itself.
+        // The optimism is now nearly always RIGHT rather than merely kind: an absent VAPID key
+        // means "use the Firebase SDK's own default key" and is configured enough to deliver, so
+        // the only way the refresh below corrects this to `unconfigured` is a key that IS set and
+        // is unusable -- rare, and a deployment mistake rather than a normal state.
         configured: true,
         permission,
         hasRegistration: false,

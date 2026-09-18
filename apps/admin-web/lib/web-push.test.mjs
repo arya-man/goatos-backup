@@ -7,10 +7,14 @@ import test from "node:test";
 import {
   describeBrowser,
   getBrowserInstallId,
+  isWellFormedVapidPublicKey,
   leadershipTaskDeepLink,
   mintInstallId,
   resetBrowserInstallId,
+  resolveVapidKeyConfig,
   resolveWebPushState,
+  vapidGetTokenOptions,
+  VAPID_KEY_UNUSABLE_MESSAGE,
   WEB_PUSH_TOKEN_TIMEOUT_MS,
   withTimeout,
 } from "./web-push-state.ts";
@@ -58,16 +62,21 @@ test("an unsupported browser never falls through to an actionable prompt, even w
   assert.equal(state.status, "unsupported");
 });
 
-test("a missing VAPID key is OUR gap and is reported as unconfigured, not as blocked", () => {
+test("an UNUSABLE VAPID key is OUR gap and is reported as unconfigured, not as blocked", () => {
+  // `configured: false` no longer means "nobody pasted a key" -- see resolveVapidKeyConfig. It
+  // means the key that IS set cannot be used, which is the one configuration gap a person
+  // cannot act on, so `unconfigured` (which offers no control) is still the honest answer.
   const state = resolveWebPushState({
     supported: true,
     supportReason: "",
     configured: false,
+    configReason: VAPID_KEY_UNUSABLE_MESSAGE,
     permission: "default",
     hasRegistration: false,
     browserInstallId: "",
   });
   assert.equal(state.status, "unconfigured");
+  assert.equal(state.reason, VAPID_KEY_UNUSABLE_MESSAGE);
 });
 
 test("denied permission is blocked", () => {
@@ -448,4 +457,114 @@ test("the mint waits for its OWN registration's worker to activate before callin
   // Allows the type argument the sentinel forces (`withTimeout<string | typeof MINT_TIMED_OUT>`).
   assert.match(code, /withTimeout\s*(?:<[^>]*>)?\s*\(/, "the getToken await must be bounded");
   assert.ok(code.includes("WEB_PUSH_TOKEN_TIMEOUT_MS"));
+});
+
+
+/**
+ * THE THREE-STATE VAPID RULE.
+ *
+ * Held to the same bar as the timeout tests above: DO NOT TELL THE PERSON SOMETHING FALSE. Two
+ * different falsehoods are possible here and they point in opposite directions, which is why an
+ * absent key and a malformed one must NOT resolve the same way.
+ *
+ *   ABSENT  -> saying "not configured for this environment" is false. The Firebase JS SDK carries
+ *              its own default VAPID key pair and `getToken()` uses it when none is supplied; FCM
+ *              holds the matching private key. Proven end to end in real Chrome on this branch: a
+ *              real 142-char token minted with the variable UNSET, registered through the real
+ *              backend endpoint, and a real push rendered by the real service worker. Telling a
+ *              CEO the feature does not exist here withholds a channel that works.
+ *
+ *   MALFORMED -> silently using the default instead would be the OTHER falsehood, and the worse
+ *              one: somebody set a key deliberately, and a token minted against a key FCM accepts
+ *              but can never deliver to reports "enabled" and delivers nothing. Push that lies
+ *              about being on is worse than push that is honestly off.
+ */
+
+// A real uncompressed P-256 point: 0x04 || X(32) || Y(32), base64url, 87 chars. Generated with
+// crypto.generateKeyPairSync("ec", { namedCurve: "prime256v1" }) -- the exact shape the Firebase
+// console's "Web Push certificate" field hands you.
+const REAL_SHAPED_VAPID_KEY =
+  "BCOy_XY8z8PxXc-E6gvmOx2Mcv2Cm4UPkm_os9ddFPCrgE4WjgZ9AXRb0qtwVHGYzXA5z89mH64NhMe4P47rOL0";
+
+test("an ABSENT key means USE THE SDK DEFAULT, and the control is offered rather than unconfigured", () => {
+  for (const absent of [undefined, null, "", "   ", "\n\t "]) {
+    const resolved = resolveVapidKeyConfig(absent);
+    assert.equal(resolved.ok, true, `absent key ${JSON.stringify(absent)} must not fail`);
+    assert.deepEqual(resolved.key, { source: "sdk-default" });
+  }
+  // The consequence that matters: a supported browser that has never been asked reads as
+  // ACTIONABLE. It must not read `unconfigured`, which renders a sentence and no button.
+  const state = resolveWebPushState({
+    supported: true,
+    supportReason: "",
+    configured: true,
+    permission: "default",
+    hasRegistration: false,
+    browserInstallId: "",
+  });
+  assert.equal(state.status, "prompt");
+});
+
+test("the SDK-default case genuinely OMITS vapidKey -- the property is absent, not empty", () => {
+  const options = vapidGetTokenOptions({ source: "sdk-default" });
+  // The load-bearing assertion. `{ vapidKey: "" }` and `{ vapidKey: undefined }` both happen to
+  // reach the SDK default today (`updateVapidKey` branches on `!!vapidKey`), so this is not about
+  // correctness of delivery -- it is about not encoding "we supplied an empty key on purpose".
+  assert.equal("vapidKey" in options, false, "vapidKey must not be a key of the options object");
+  assert.deepEqual(Object.keys(options), []);
+  // And spread into the real call shape it still contributes nothing.
+  const call = { ...options, serviceWorkerRegistration: "sw" };
+  assert.deepEqual(Object.keys(call).sort(), ["serviceWorkerRegistration"]);
+});
+
+test("a PRESENT key is used VERBATIM and reaches getToken as vapidKey", () => {
+  const resolved = resolveVapidKeyConfig(`  ${REAL_SHAPED_VAPID_KEY}  `);
+  assert.equal(resolved.ok, true);
+  // Trimmed (surrounding whitespace in an env var is an operator typo, not part of the key) but
+  // otherwise untouched -- a key is an exact byte string and must never be normalised.
+  assert.deepEqual(resolved.key, { source: "project", key: REAL_SHAPED_VAPID_KEY });
+  assert.deepEqual(vapidGetTokenOptions(resolved.key), { vapidKey: REAL_SHAPED_VAPID_KEY });
+});
+
+test("a MALFORMED key FAILS LOUDLY and never falls back to the SDK default", () => {
+  const malformed = {
+    "too short": "BCOy_XY8",
+    "too long": `${REAL_SHAPED_VAPID_KEY}AA`,
+    "standard base64 padding, not base64url": `${REAL_SHAPED_VAPID_KEY.slice(0, 85)}+/=`,
+    "right length, wrong point prefix": `A${REAL_SHAPED_VAPID_KEY.slice(1)}`,
+    "a placeholder somebody left in Terraform": "CHANGEME",
+    "the whole console line pasted in": `vapidKey=${REAL_SHAPED_VAPID_KEY}`,
+  };
+  for (const [why, key] of Object.entries(malformed)) {
+    const resolved = resolveVapidKeyConfig(key);
+    assert.equal(resolved.ok, false, `${why} must be refused`);
+    assert.equal(resolved.reason, VAPID_KEY_UNUSABLE_MESSAGE);
+    // The trap being closed: a falsy `key` would have been read as "absent" one layer up and
+    // quietly taken the default, minting a token FCM accepts and can never deliver to.
+    assert.equal("key" in resolved, false, `${why} must not yield a usable key`);
+  }
+});
+
+test("the shape check accepts the SDK's OWN default key, so the rule cannot be self-contradictory", () => {
+  // DEFAULT_VAPID_KEY from @firebase/messaging. If our validator rejected the very key the SDK
+  // falls back to, the two halves of this feature would disagree about what a VAPID key looks
+  // like -- and a project key copied from the same console would be refused for the same reason.
+  const sdkDefault = "BDOU99-h67HcA6JeFXHbSNMu7e2yNNu3RzoMj8TM4W88jITfq7ZmPvIM1Iv-4_l2LxQcYwhqby2xGpWwzjfAnG4";
+  assert.equal(isWellFormedVapidPublicKey(sdkDefault), true);
+  assert.equal(isWellFormedVapidPublicKey(REAL_SHAPED_VAPID_KEY), true);
+});
+
+test("the server adapter reads the env var through the ONE pure rule, and never re-implements it", () => {
+  // web-push.test.mjs cannot import a "server-only" module, so this reads the source: the point
+  // is that there is exactly one place the three states are decided, so the client's state
+  // machine and the server's read cannot drift about which of them happened.
+  const source = readFileSync(join(repoAdminWeb, "lib/api/browser-push-server.ts"), "utf8");
+  const code = source.replace(/\/\*[\s\S]*?\*\//g, "").replace(/^[ \t]*\/\/.*$/gm, "");
+  assert.match(code, /resolveVapidKeyConfig\(process\.env\.GOATOS_FIREBASE_WEB_PUSH_VAPID_KEY\)/);
+  // The retired behaviour: an absent key returning ok:false with "not configured". If this
+  // reappears the feature is gated on the Firebase-console step again.
+  assert.ok(
+    !/Browser notifications are not configured for this environment yet/.test(code),
+    "an absent key must no longer report the feature as unconfigured",
+  );
 });

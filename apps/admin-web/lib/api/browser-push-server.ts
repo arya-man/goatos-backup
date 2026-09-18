@@ -2,6 +2,7 @@ import "server-only";
 
 import type { AppApiComponents } from "@goatos/api-client";
 import { getServerConfig } from "@/lib/api/server";
+import { resolveVapidKeyConfig, type WebPushVapidKey } from "@/lib/web-push-state";
 
 /**
  * Server-only API adapter for the browser web push registration endpoints.
@@ -36,6 +37,8 @@ export type WebPushResult<T> = { ok: true; data: T } | { ok: false; error: strin
  */
 export type BrowserPushRegistration = AppApiComponents["schemas"]["BrowserPushRegistration"];
 
+export type { WebPushVapidKey };
+
 const REGISTRATIONS_PATH = "/admin/notifications/browser-registrations";
 
 /**
@@ -48,15 +51,27 @@ const REGISTRATIONS_PATH = "/admin/notifications/browser-registrations";
  * runtime: one image is deployed to more than one environment, and a key baked in at build time
  * would be the wrong project's key in the other one.
  *
- * Absent key => push is simply unavailable and the UI says so. It must NEVER fall back to a
- * hardcoded default: a wrong VAPID key produces a token FCM accepts and can never deliver to.
+ * ABSENT KEY IS NOT A DISABLED FEATURE, and this comment used to claim the opposite. The Firebase
+ * JS SDK ships its own built-in default VAPID key pair and `getToken()` uses it whenever `vapidKey`
+ * is not supplied; FCM holds the matching private key, so the token is fully deliverable with NO
+ * project key configured -- proven end to end in real Chrome on this branch (a real token minted
+ * with the variable unset, registered through the real endpoint, and a real push rendered by the
+ * real service worker). Requiring the Firebase-console step gated a working channel on a key that
+ * is not needed to deliver.
+ *
+ * What the old warning WAS right about is a key that is set and unusable: that produces a
+ * subscription FCM accepts and can never deliver to, so it still fails loudly and is never
+ * silently replaced by the default. The three-state rule lives in one pure, tested place --
+ * `resolveVapidKeyConfig` in lib/web-push-state.ts -- so the server and the client cannot drift
+ * about which of the three happened. This function is only the env read.
+ *
+ * Setting the variable remains fully supported and stays wired in infra/envs/{stg}: a project key
+ * is how push gets provenance and independent rotation. It is no longer REQUIRED.
  */
-export function readWebPushVapidKey(): WebPushResult<string> {
-  const key = process.env.GOATOS_FIREBASE_WEB_PUSH_VAPID_KEY?.trim();
-  if (!key) {
-    return { ok: false, error: "Browser notifications are not configured for this environment yet." };
-  }
-  return { ok: true, data: key };
+export function readWebPushVapidKey(): WebPushResult<WebPushVapidKey> {
+  const resolved = resolveVapidKeyConfig(process.env.GOATOS_FIREBASE_WEB_PUSH_VAPID_KEY);
+  if (!resolved.ok) return { ok: false, error: resolved.reason, code: "browser_push_vapid_key_unusable" };
+  return { ok: true, data: resolved.key };
 }
 
 /** Store or refresh this browser's push address. */

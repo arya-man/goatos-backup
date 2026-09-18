@@ -215,8 +215,13 @@ Limits inherent to browser push, not defects:
   the existing per-member indexes are partial and scoped to specific message-key
   prefixes. This query runs on every screen change in the shell, so it needs an
   index before the bell reaches staging.
-- Web push delivery needs a VAPID key configured
-  (`GOATOS_FIREBASE_WEB_PUSH_VAPID_KEY`) before it can be proven.
+- ~~Web push delivery needs a VAPID key configured
+  (`GOATOS_FIREBASE_WEB_PUSH_VAPID_KEY`) before it can be proven.~~ RESOLVED: it does not.
+  The Firebase JS SDK ships its own default VAPID key pair and `getToken()` uses it when none is
+  supplied, so push was proven end to end in real Chrome with the variable UNSET (a real 142-char
+  token, the real backend endpoint, a real push rendered by the real service worker). An absent
+  key now means "use the SDK default" and the control is offered; a malformed key still fails
+  loudly. The variable stays supported and wired in `infra/envs/stg/` for provenance/rotation.
 - Real staging has the leadership directors oversee-ticked on **mobile only**, so
   the web assignee/mention picker will show fewer people than own tasks until
   those web ticks are set. That is a data decision, not a code one.

@@ -16,7 +16,11 @@ const INSTALL_ID_STORAGE_KEY = "mesha.web-push.browser-install-id";
  *  unsupported   this browser has no Push API / Service Worker / Notification, or the origin is
  *                not secure (an http:// staging host has no web push at all). The control must
  *                say so, not sit there doing nothing on click.
- *  unconfigured  the environment has no VAPID key. Our gap, not the person's.
+ *  unconfigured  the environment's VAPID key is SET BUT UNUSABLE (see resolveVapidKeyConfig).
+ *                Our gap, not the person's, and no amount of clicking fixes it. An ABSENT key is
+ *                deliberately NOT this state: the Firebase JS SDK carries its own default VAPID
+ *                key pair and mints a fully deliverable token without one, so "nobody has pasted
+ *                a key from the Firebase console" must not read as "the feature does not exist".
  *  blocked       permission is 'denied'. THE PROMPT CANNOT BE SHOWN AGAIN from script — only the
  *                person can undo it, in the browser's own site settings. Say where.
  *  dismissed     the prompt was shown and closed without a choice, so permission is still
@@ -27,8 +31,8 @@ const INSTALL_ID_STORAGE_KEY = "mesha.web-push.browser-install-id";
  *                and deliberately its OWN state, because the three neighbours all say something
  *                false about it: it is NOT `blocked` (the person granted permission -- sending them
  *                into site settings to undo a refusal they never made is the same defect as
- *                reporting a dismissal as a refusal), it is NOT `unconfigured` (that is OUR missing
- *                VAPID key, which no amount of clicking fixes), and it is NOT `dismissed` (the
+ *                reporting a dismissal as a refusal), it is NOT `unconfigured` (that is OUR
+ *                unusable VAPID key, which no amount of clicking fixes), and it is NOT `dismissed` (the
  *                prompt was answered). Nothing is known to be wrong, so the only honest thing to
  *                say is "that did not come back, try again" -- and the control must OFFER that
  *                retry. An infinite spinner is the one outcome that is worse than the feature not
@@ -87,6 +91,8 @@ export function resolveWebPushState(input: {
   hasRegistration: boolean;
   browserInstallId: string;
   promptWasDismissed?: boolean;
+  /** Why the environment's key is unusable, when `configured` is false. */
+  configReason?: string;
 }): WebPushState {
   if (!input.supported) {
     return {
@@ -94,8 +100,11 @@ export function resolveWebPushState(input: {
       reason: input.supportReason || "Notifications are not available in this browser.",
     };
   }
+  // `configured` is NOT "someone pasted a VAPID key": an absent key resolves to the SDK's own
+  // default key and is configured enough to deliver. It is false only when the environment set a
+  // key that cannot be used, which is the one configuration gap a person cannot act on.
   if (!input.configured) {
-    return { status: "unconfigured", reason: "Browser notifications are not configured for this environment yet." };
+    return { status: "unconfigured", reason: input.configReason || VAPID_KEY_UNUSABLE_MESSAGE };
   }
   if (input.permission === "denied") return { status: "blocked" };
   if (input.permission === "granted") {
@@ -249,4 +258,97 @@ export async function withTimeout<T>(
   } finally {
     if (timer !== undefined) clearTimeout(timer);
   }
+}
+
+/**
+ * How the Firebase JS SDK is to be asked for a token: with THIS project's VAPID key, or with the
+ * SDK's own built-in default key pair.
+ */
+export type WebPushVapidKey = { source: "project"; key: string } | { source: "sdk-default" };
+
+/**
+ * The sentence shown when the environment's key is set but unusable. One place, because the
+ * server adapter and the client state machine must not disagree about what happened.
+ */
+export const VAPID_KEY_UNUSABLE_MESSAGE =
+  "This environment's browser-notification key is not a usable VAPID key, so notifications are off until it is corrected or removed.";
+
+/**
+ * A VAPID application server key is a P-256 public key as an UNCOMPRESSED EC point: the 0x04
+ * prefix byte plus the 32-byte X and 32-byte Y coordinates = 65 bytes, base64url-encoded to 87
+ * characters with no padding. Both `pushManager.subscribe()` and the FCM registration call reject
+ * anything else, so the shape is checkable here rather than discovered as an opaque SDK throw
+ * inside a click handler.
+ */
+const VAPID_KEY_BASE64URL_LENGTH = 87;
+const VAPID_KEY_BYTE_LENGTH = 65;
+const VAPID_KEY_UNCOMPRESSED_POINT_PREFIX = 0x04;
+
+/**
+ * THE THREE-STATE RULE FOR `GOATOS_FIREBASE_WEB_PUSH_VAPID_KEY`, and the whole point of this
+ * function is that the three states are genuinely different things:
+ *
+ *  ABSENT / EMPTY  -> `{ source: "sdk-default" }`. PROCEED. The Firebase JS SDK ships a built-in
+ *      default VAPID key pair (`DEFAULT_VAPID_KEY` in @firebase/messaging) and `getToken()` uses
+ *      it whenever `vapidKey` is falsy, FCM holds the matching private key, and the resulting
+ *      token is fully deliverable -- proven end to end in Chrome on this branch: a real 142-char
+ *      token minted with NO key configured, registered through the real backend endpoint, and a
+ *      real push displayed by the real service worker with the right deep link. So an absent key
+ *      is not a broken feature, and the control is OFFERED.
+ *
+ *  PRESENT         -> `{ source: "project", key }`, used VERBATIM. This is what a project key is
+ *      for: provenance and independent rotation, which the SDK default cannot give.
+ *
+ *  PRESENT BUT MALFORMED -> a FAILURE, loudly, and deliberately NOT a silent fall back to the
+ *      default. This is the one case the old code's warning was actually about: a key that is the
+ *      wrong shape (or the wrong project's) yields a subscription FCM will accept and can never
+ *      deliver to, and a silent fallback would turn a typo in Terraform into a channel that
+ *      reports "enabled" and delivers nothing. Somebody set a key on purpose; if it is unusable,
+ *      say so instead of quietly ignoring them.
+ */
+export function resolveVapidKeyConfig(
+  raw: string | undefined | null,
+): { ok: true; key: WebPushVapidKey } | { ok: false; reason: string } {
+  const trimmed = typeof raw === "string" ? raw.trim() : "";
+  if (trimmed === "") return { ok: true, key: { source: "sdk-default" } };
+  if (!isWellFormedVapidPublicKey(trimmed)) return { ok: false, reason: VAPID_KEY_UNUSABLE_MESSAGE };
+  return { ok: true, key: { source: "project", key: trimmed } };
+}
+
+/** Shape check only. A well-formed key for the WRONG project is undetectable here, and is why a
+ * malformed one must fail rather than be papered over. */
+export function isWellFormedVapidPublicKey(candidate: string): boolean {
+  if (candidate.length !== VAPID_KEY_BASE64URL_LENGTH) return false;
+  if (!/^[A-Za-z0-9_-]+$/.test(candidate)) return false;
+  const bytes = decodeBase64Url(candidate);
+  if (!bytes || bytes.length !== VAPID_KEY_BYTE_LENGTH) return false;
+  return bytes[0] === VAPID_KEY_UNCOMPRESSED_POINT_PREFIX;
+}
+
+function decodeBase64Url(value: string): Uint8Array | undefined {
+  const padded = value.replace(/-/g, "+").replace(/_/g, "/") + "=".repeat((4 - (value.length % 4)) % 4);
+  try {
+    // atob exists in the browser and in Node >= 16, which covers both the client and `node --test`.
+    const binary = atob(padded);
+    const bytes = new Uint8Array(binary.length);
+    for (let index = 0; index < binary.length; index += 1) bytes[index] = binary.charCodeAt(index);
+    return bytes;
+  } catch {
+    return undefined;
+  }
+}
+
+/**
+ * The `getToken()` options that carry the key -- and for the SDK default, THE PROPERTY IS ABSENT,
+ * not `""` and not an explicit `undefined`.
+ *
+ * Verified against the SDK's actual code, not assumed: `updateVapidKey(messaging, options?.vapidKey)`
+ * in @firebase/messaging does `if (!!vapidKey) { messaging.vapidKey = vapidKey } else if
+ * (!messaging.vapidKey) { messaging.vapidKey = DEFAULT_VAPID_KEY }`. So a falsy value takes the
+ * default -- `""` would in fact work. Omitting the property anyway is the honest encoding of
+ * "we are not supplying a key", it is what the SDK's own typings describe, and it cannot be
+ * re-read later as "we supplied an empty key on purpose".
+ */
+export function vapidGetTokenOptions(key: WebPushVapidKey): { vapidKey?: string } {
+  return key.source === "project" ? { vapidKey: key.key } : {};
 }
