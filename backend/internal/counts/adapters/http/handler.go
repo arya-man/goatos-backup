@@ -26,6 +26,7 @@ type HerdRegisterService interface {
 	GetSummary(ctx context.Context, req domain.HerdRegisterSummaryQuery) (domain.HerdRegisterSummary, error)
 	GetBreakdown(ctx context.Context, req domain.CountsBreakdownQuery) (domain.CountsBreakdown, error)
 	GetHerdAnalytics(ctx context.Context, req domain.HerdAnalyticsQuery) (domain.HerdAnalytics, error)
+	GetMortality(ctx context.Context, req domain.MortalityQuery) (domain.Mortality, error)
 	GetMilkPreparation(ctx context.Context, req domain.MilkPreparationQuery) (domain.MilkPreparationPage, error)
 	SubmitMilkPreparation(ctx context.Context, req domain.MilkPreparationSubmission) (domain.MilkPreparationSubmissionResult, error)
 	ListMilkFeedingTasks(ctx context.Context, req domain.MilkFeedingQuery) (domain.MilkFeedingPage, error)
@@ -48,6 +49,7 @@ func Register(mux *http.ServeMux, h *Handler) {
 	mux.HandleFunc("GET /herd-register/summary", h.GetSummary)
 	mux.HandleFunc("GET /counts/breakdown", h.GetBreakdown)
 	mux.HandleFunc("GET /counts/herd-analytics", h.GetHerdAnalytics)
+	mux.HandleFunc("GET /counts/mortality", h.GetMortality)
 	mux.HandleFunc("GET /counts/milk-preparation", h.GetMilkPreparation)
 	mux.HandleFunc("GET /app/counts/milk-preparation", h.GetMilkPreparation)
 	mux.HandleFunc("POST /app/counts/milk-preparation/submit", h.SubmitMilkPreparation)
@@ -502,6 +504,37 @@ func (h *Handler) GetHerdAnalytics(w http.ResponseWriter, r *http.Request) {
 	}
 
 	httpresponse.WriteJSON(w, http.StatusOK, analytics)
+}
+
+// GetMortality serves the Counts -> Mortality read: deaths in the window sliced by every
+// attribute the animal's row froze at death, beside each section's live head count for the rate
+// series. The window is validated by the SAME resolver Herd Analytics uses, so the two
+// Counts leadership screens agree on what a default window is and reject the same shapes.
+func (h *Handler) GetMortality(w http.ResponseWriter, r *http.Request) {
+	tenantID := httpmiddleware.TenantIDFromContext(r.Context())
+	if tenantID == "" {
+		httpresponse.WriteError(w, r, h.log, http.StatusUnauthorized, "missing tenant context", nil)
+		return
+	}
+
+	fromDate, toDate, err := domain.ResolveHerdAnalyticsWindow(r.URL.Query().Get("from"), r.URL.Query().Get("to"), time.Now())
+	if err != nil {
+		httpresponse.WriteError(w, r, h.log, http.StatusBadRequest, err.Error(), nil)
+		return
+	}
+
+	mortality, err := h.service.GetMortality(r.Context(), domain.MortalityQuery{
+		TenantID: tenantID,
+		ParkID:   nullableString(strings.TrimSpace(r.URL.Query().Get("park_id"))),
+		FromDate: fromDate,
+		ToDate:   toDate,
+	})
+	if err != nil {
+		httpresponse.WriteError(w, r, h.log, http.StatusInternalServerError, "counts mortality", err)
+		return
+	}
+
+	httpresponse.WriteJSON(w, http.StatusOK, mortality)
 }
 
 const (

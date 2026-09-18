@@ -35,6 +35,10 @@ func (f *milkPreparationHandlerService) GetHerdAnalytics(context.Context, domain
 	return domain.HerdAnalytics{}, nil
 }
 
+func (f *milkPreparationHandlerService) GetMortality(context.Context, domain.MortalityQuery) (domain.Mortality, error) {
+	return domain.Mortality{}, nil
+}
+
 func (f *milkPreparationHandlerService) GetMilkPreparation(_ context.Context, query domain.MilkPreparationQuery) (domain.MilkPreparationPage, error) {
 	f.query = query
 	return f.page, nil

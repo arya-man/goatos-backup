@@ -5121,6 +5121,26 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/counts/mortality": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Deaths in a window from every angle the farm asks -- stage, age, breed, load, cause, season, pen -- beside the live head count.
+         * @description The Counts mortality read. A death is the animal's own exit row (`exit_reason = 'died'`, dated the IST day of `exited_at`), the SAME predicate `/counts/herd-analytics` counts deaths with, so the two screens cannot disagree. Every attribute is read off the animal's row as it stood when it died (the exit touches only lifecycle columns). RATE series (`kid_adult`, `stage`, `breed`, `sex`, `species`, `park`, `pen`, `load`) carry `animals` -- the live head count of that bucket today, the same number `/counts/breakdown` reports -- and `rate_pct` = deaths / animals; COUNT series (`age_at_death`, `season`, `cause`, `days_since_arrival`, `days_since_vaccination`) are facts about the death alone and carry no rate. Cause has three disjoint bases: `recorded` (named on the death form), `inferred` (a case open when the animal died, for deaths before the form carried a cause), `none`. `totals` are whole-window rollups and must never be re-derived from the series. `deaths` is a bounded most-recent list capped at `recent_limit`; nothing above it moves with the cap. Window rules are those of `/counts/herd-analytics`.
+         */
+        get: operations["getCountsMortality"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/counts/milk-preparation": {
         parameters: {
             query?: never;
@@ -16762,6 +16782,123 @@ export interface components {
             /** @description Two points, kid and adult, partitioning live_animals exactly. */
             age_band: components["schemas"]["HerdAnalyticsSeriesPoint"][];
             park: components["schemas"]["HerdAnalyticsSeriesPoint"][];
+            /** Format: date-time */
+            generated_at: string;
+        };
+        /** @description One slice of the deaths. On a RATE series animals is the bucket's live head count today and rate_pct is deaths / animals (absent when animals is zero); on a COUNT series both are zero/absent and a client must not draw a rate. basis is set on the cause series only. */
+        MortalityBucket: {
+            key: string;
+            label: string;
+            /** Format: int64 */
+            deaths: number;
+            /** Format: int64 */
+            animals: number;
+            /** Format: double */
+            rate_pct?: number;
+            /** @enum {string} */
+            basis?: "recorded" | "inferred" | "none";
+        };
+        MortalityMonth: {
+            /** @description IST calendar month key, "2026-08". */
+            month: string;
+            label: string;
+            /** Format: int64 */
+            deaths: number;
+            /** Format: int64 */
+            kids: number;
+            /** Format: int64 */
+            adults: number;
+        };
+        /** @description One cell of a two-dimension cross tab; only cells with a death are returned. */
+        MortalityCrossCell: {
+            row_key: string;
+            row_label: string;
+            col_key: string;
+            col_label: string;
+            /** Format: int64 */
+            deaths: number;
+        };
+        /** @description One animal in the bounded recent list; every label is backend-resolved. */
+        MortalityDeath: {
+            /** Format: uuid */
+            goat_id: string;
+            display_id: string;
+            tag: string;
+            /** Format: date */
+            died_on: string;
+            breed: string;
+            sex: string;
+            stage: string;
+            /** Format: int64 */
+            age_days?: number;
+            age_band_key: string;
+            age_band_label: string;
+            park: string;
+            /** @description Operational location display, "Castro 1" or "Godel 1 - Part 3". */
+            pen: string;
+            load_ref: string;
+            cause_key: string;
+            cause_label: string;
+            /** @enum {string} */
+            cause_basis: "recorded" | "inferred" | "none";
+            season: string;
+        };
+        MortalityTotals: {
+            /** Format: int64 */
+            deaths: number;
+            /** Format: int64 */
+            animals: number;
+            /** Format: double */
+            rate_pct?: number;
+            /** Format: int64 */
+            kid_deaths: number;
+            /** Format: int64 */
+            kid_animals: number;
+            /** Format: double */
+            kid_rate_pct?: number;
+            /** Format: int64 */
+            adult_deaths: number;
+            /** Format: int64 */
+            adult_animals: number;
+            /** Format: double */
+            adult_rate_pct?: number;
+            /** Format: int64 */
+            first_week_deaths: number;
+            /** Format: int64 */
+            cause_recorded: number;
+            /** Format: int64 */
+            cause_inferred: number;
+            /** Format: int64 */
+            cause_none: number;
+        };
+        MortalityResponse: {
+            /** Format: date */
+            window_from: string;
+            /** Format: date */
+            window_to: string;
+            totals: components["schemas"]["MortalityTotals"];
+            months: components["schemas"]["MortalityMonth"][];
+            kid_adult: components["schemas"]["MortalityBucket"][];
+            /** @description Management stage (the pen tag) as the animal carried it when it died, read RAW. */
+            stage: components["schemas"]["MortalityBucket"][];
+            breed: components["schemas"]["MortalityBucket"][];
+            sex: components["schemas"]["MortalityBucket"][];
+            species: components["schemas"]["MortalityBucket"][];
+            park: components["schemas"]["MortalityBucket"][];
+            /** @description Only pens that saw a death; label is the backend-composed operational location. */
+            pen: components["schemas"]["MortalityBucket"][];
+            /** @description Purchase loads that saw a death, plus the synthetic farm_born and no_load buckets. */
+            load: components["schemas"]["MortalityBucket"][];
+            age_at_death: components["schemas"]["MortalityBucket"][];
+            season: components["schemas"]["MortalityBucket"][];
+            cause: components["schemas"]["MortalityBucket"][];
+            days_since_arrival: components["schemas"]["MortalityBucket"][];
+            days_since_vaccination: components["schemas"]["MortalityBucket"][];
+            season_by_stage: components["schemas"]["MortalityCrossCell"][];
+            load_by_cause: components["schemas"]["MortalityCrossCell"][];
+            breed_by_cause: components["schemas"]["MortalityCrossCell"][];
+            deaths: components["schemas"]["MortalityDeath"][];
+            recent_limit: number;
             /** Format: date-time */
             generated_at: string;
         };
@@ -28708,6 +28845,34 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["HerdAnalyticsResponse"];
+                };
+            };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            500: components["responses"]["ServerError"];
+        };
+    };
+    getCountsMortality: {
+        parameters: {
+            query?: {
+                park_id?: string;
+                from?: string;
+                to?: string;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Whole-window totals, every series, the cross tabs and the bounded recent list. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["MortalityResponse"];
                 };
             };
             400: components["responses"]["BadRequest"];

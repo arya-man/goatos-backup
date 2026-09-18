@@ -1658,6 +1658,56 @@
   .main .herd-analytics-charts{display:flex;flex-direction:column;gap:22px;margin-top:22px}
   .main .counts-breakdown-charts .chartcard,
   .main .herd-analytics-charts .chartcard{width:100%}
+  /* Mortality: rate and cross-tab cards two to a row on a wide screen, one below ~1100px, so a
+     ten-row breed table does not stretch across the whole page with a bar on the far right. The
+     cross tabs get the full width because their column count is data-driven. */
+  .main .mortality-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:18px;margin-top:22px;align-items:start}
+  .main .mortality-grid-wide{grid-template-columns:minmax(0,1fr)}
+  .main .mortality-grid .chartcard{width:100%;min-width:0}
+  @media(max-width:1100px){.main .mortality-grid{grid-template-columns:minmax(0,1fr)}}
+  /* Rate table: label · deaths · animals · rate · proportional bar. The bar column takes what
+     is left so the numbers stay aligned as a column and the bar reads against its neighbours. */
+  .main table.mortality-rate-table{width:100%;border-collapse:collapse;font-size:12.5px;margin-top:6px}
+  .main table.mortality-rate-table th,
+  .main table.mortality-rate-table td{padding:5px 8px;border-bottom:1px solid var(--line);text-align:left;vertical-align:middle;white-space:nowrap}
+  .main table.mortality-rate-table thead th{color:var(--muted);font-weight:600;font-size:11px;text-transform:uppercase;letter-spacing:.02em}
+  /* Row labels are farm words (breed, pen, disease), not column headings: normal case, no
+     tracking, and they wrap at word boundaries with enough room that "Pneumonia" is one word. */
+  .main table.mortality-rate-table tbody th{font-weight:500;text-transform:none;letter-spacing:0;font-size:12.5px;white-space:normal;min-width:120px;max-width:240px}
+  /* Numeric columns shrink to their content (width:1% + nowrap) so the label column takes what
+     is left and wraps; without this the auto layout hands the label column the whole card and
+     pushes the numbers past its edge on a phone. */
+  .main table.mortality-rate-table .num{text-align:right;font-variant-numeric:tabular-nums;width:1%}
+  .main table.mortality-rate-table .bar{width:34%;min-width:80px}
+  .main .mortality-rate-bar{display:block;height:10px;border-radius:3px;background:var(--danger);min-width:0}
+  /* On a phone-width card the bar has no room beside four columns; the numbers carry the row
+     and the bar goes, rather than the table pushing past the card's edge. */
+  /* The global mobile rule pins every `.main table` to a 540px scroller; these tables shed
+     their bar column instead and fit the card, so the floor must come off (same shape as the
+     Herd Signals `.resp` opt-out below). The cross tabs KEEP the floor: their column count is
+     data-driven and they sit in their own horizontal scroller on purpose. */
+  @media(max-width:860px){
+    .main table.mortality-rate-table{min-width:0}
+  }
+  @media(max-width:600px){
+    .main table.mortality-rate-table .bar{display:none}
+    .main table.mortality-rate-table th,
+    .main table.mortality-rate-table td{padding:5px 6px}
+    .main table.mortality-rate-table tbody th{min-width:0;max-width:none}
+    .main table.mortality-rate-table td:has(.tag){width:1%}
+  }
+  /* Cross tab: a heat table. Zero cells print a dot rather than a 0 so the eye lands on the
+     filled cells; margins are bolded because they are what a reader checks against the KPIs. */
+  .main table.mortality-cross-table{border-collapse:collapse;font-size:12.5px;margin-top:6px;min-width:100%}
+  .main table.mortality-cross-table th,
+  .main table.mortality-cross-table td{padding:5px 10px;border-bottom:1px solid var(--line);text-align:left;white-space:nowrap}
+  .main table.mortality-cross-table thead th{color:var(--muted);font-weight:600;font-size:11px;text-transform:uppercase;letter-spacing:.02em;white-space:normal;max-width:140px;vertical-align:bottom}
+  .main table.mortality-cross-table tbody th{font-weight:500;text-transform:none;letter-spacing:0;font-size:12.5px;white-space:normal;max-width:200px}
+  .main table.mortality-cross-table .num{text-align:right;font-variant-numeric:tabular-nums}
+  .main table.mortality-cross-table .zero{color:var(--muted)}
+  .main table.mortality-cross-table .total{font-weight:600}
+  .main table.mortality-cross-table tfoot th,
+  .main table.mortality-cross-table tfoot td{border-top:2px solid var(--line);border-bottom:0}
   /* SvgBars ships the same chart at two viewBox scales because an SVG scales its viewBox
      uniformly: one fixed box cannot stay readable at both widths (a 1100-wide box in a 330px
      card renders 20px rows at ~6px). Show whichever scale matches the container. */

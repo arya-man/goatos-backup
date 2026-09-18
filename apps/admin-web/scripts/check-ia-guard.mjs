@@ -205,6 +205,10 @@ const SUPPORTED_COUNTS_HREFS = new Set([
   "/counts/herd",
   "/counts/analytics",
   "/counts/breakdown",
+  // Mortality (maintainer request 2026-09-18): deaths sliced by stage, age, breed, load, cause,
+  // season, pen and sex, with rates against the live head count. Recorded in
+  // context/frontend/current-admin-web-scope.md.
+  "/counts/mortality",
   "/counts/milk-preparation",
   // Herd Operations SOP page — part of the SOP split (maintainer decision 2026-08-18, see
   // MODULE_SURFACE_ROUTE_EXCEPTIONS above).

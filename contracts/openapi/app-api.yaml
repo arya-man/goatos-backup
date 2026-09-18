@@ -13314,6 +13314,66 @@ paths:
           $ref: "#/components/responses/Forbidden"
         "500":
           $ref: "#/components/responses/ServerError"
+  /counts/mortality:
+    get:
+      tags:
+        - Counts
+      operationId: getCountsMortality
+      summary: Deaths in a window from every angle the farm asks -- stage, age, breed, load, cause, season, pen -- beside the live head count.
+      description: >-
+        The Counts mortality read. A death is the animal's own exit row (`exit_reason = 'died'`,
+        dated the IST day of `exited_at`), the SAME predicate `/counts/herd-analytics` counts
+        deaths with, so the two screens cannot disagree. Every attribute is read off the animal's
+        row as it stood when it died (the exit touches only lifecycle columns). RATE series
+        (`kid_adult`, `stage`, `breed`, `sex`, `species`, `park`, `pen`, `load`) carry
+        `animals` -- the live head count of that bucket today, the same number
+        `/counts/breakdown` reports -- and `rate_pct` = deaths / animals; COUNT
+        series (`age_at_death`, `season`, `cause`, `days_since_arrival`,
+        `days_since_vaccination`) are facts about the death alone and carry no rate. Cause has
+        three disjoint bases: `recorded` (named on the death form), `inferred` (a case open when
+        the animal died, for deaths before the form carried a cause), `none`. `totals` are
+        whole-window rollups and must never be re-derived from the series. `deaths` is a
+        bounded most-recent list capped at `recent_limit`; nothing above it moves with the cap.
+        Window rules are those of `/counts/herd-analytics`.
+      parameters:
+        - name: park_id
+          in: query
+          required: false
+          schema:
+            type: string
+            format: uuid
+            description: Filter by park location ID (top-bar scope).
+        - name: from
+          in: query
+          required: false
+          schema:
+            type: string
+            format: date
+            description: Inclusive first IST business day. Must be given together with `to`.
+        - name: to
+          in: query
+          required: false
+          schema:
+            type: string
+            format: date
+            description: >-
+              Inclusive last IST business day. Omitting BOTH bounds selects the default window;
+              anything else invalid is rejected with 400, never rewritten.
+      responses:
+        "200":
+          description: Whole-window totals, every series, the cross tabs and the bounded recent list.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/MortalityResponse"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "500":
+          $ref: "#/components/responses/ServerError"
   /counts/milk-preparation:
     get:
       tags:
@@ -39059,6 +39119,312 @@ components:
           type: array
           items:
             $ref: "#/components/schemas/HerdAnalyticsSeriesPoint"
+        generated_at:
+          type: string
+          format: date-time
+    MortalityBucket:
+      description: >-
+        One slice of the deaths. On a RATE series animals is the bucket's live head count today
+        and rate_pct is deaths / animals (absent when animals is zero); on a COUNT series both
+        are zero/absent and a client must not draw a rate. basis is set on the cause series only.
+      type: object
+      additionalProperties: false
+      required:
+        - key
+        - label
+        - deaths
+        - animals
+      properties:
+        key:
+          type: string
+        label:
+          type: string
+        deaths:
+          type: integer
+          format: int64
+        animals:
+          type: integer
+          format: int64
+        rate_pct:
+          type: number
+          format: double
+        basis:
+          type: string
+          enum: [recorded, inferred, none]
+    MortalityMonth:
+      type: object
+      additionalProperties: false
+      required:
+        - month
+        - label
+        - deaths
+        - kids
+        - adults
+      properties:
+        month:
+          type: string
+          description: IST calendar month key, "2026-08".
+        label:
+          type: string
+        deaths:
+          type: integer
+          format: int64
+        kids:
+          type: integer
+          format: int64
+        adults:
+          type: integer
+          format: int64
+    MortalityCrossCell:
+      description: One cell of a two-dimension cross tab; only cells with a death are returned.
+      type: object
+      additionalProperties: false
+      required:
+        - row_key
+        - row_label
+        - col_key
+        - col_label
+        - deaths
+      properties:
+        row_key:
+          type: string
+        row_label:
+          type: string
+        col_key:
+          type: string
+        col_label:
+          type: string
+        deaths:
+          type: integer
+          format: int64
+    MortalityDeath:
+      description: One animal in the bounded recent list; every label is backend-resolved.
+      type: object
+      additionalProperties: false
+      required:
+        - goat_id
+        - display_id
+        - tag
+        - died_on
+        - breed
+        - sex
+        - stage
+        - age_band_key
+        - age_band_label
+        - park
+        - pen
+        - load_ref
+        - cause_key
+        - cause_label
+        - cause_basis
+        - season
+      properties:
+        goat_id:
+          type: string
+          format: uuid
+        display_id:
+          type: string
+        tag:
+          type: string
+        died_on:
+          type: string
+          format: date
+        breed:
+          type: string
+        sex:
+          type: string
+        stage:
+          type: string
+        age_days:
+          type: integer
+          format: int64
+        age_band_key:
+          type: string
+        age_band_label:
+          type: string
+        park:
+          type: string
+        pen:
+          type: string
+          description: Operational location display, "Castro 1" or "Godel 1 - Part 3".
+        load_ref:
+          type: string
+        cause_key:
+          type: string
+        cause_label:
+          type: string
+        cause_basis:
+          type: string
+          enum: [recorded, inferred, none]
+        season:
+          type: string
+    MortalityTotals:
+      type: object
+      additionalProperties: false
+      required:
+        - deaths
+        - animals
+        - kid_deaths
+        - kid_animals
+        - adult_deaths
+        - adult_animals
+        - first_week_deaths
+        - cause_recorded
+        - cause_inferred
+        - cause_none
+      properties:
+        deaths:
+          type: integer
+          format: int64
+        animals:
+          type: integer
+          format: int64
+        rate_pct:
+          type: number
+          format: double
+        kid_deaths:
+          type: integer
+          format: int64
+        kid_animals:
+          type: integer
+          format: int64
+        kid_rate_pct:
+          type: number
+          format: double
+        adult_deaths:
+          type: integer
+          format: int64
+        adult_animals:
+          type: integer
+          format: int64
+        adult_rate_pct:
+          type: number
+          format: double
+        first_week_deaths:
+          type: integer
+          format: int64
+        cause_recorded:
+          type: integer
+          format: int64
+        cause_inferred:
+          type: integer
+          format: int64
+        cause_none:
+          type: integer
+          format: int64
+    MortalityResponse:
+      type: object
+      additionalProperties: false
+      required:
+        - window_from
+        - window_to
+        - totals
+        - months
+        - kid_adult
+        - stage
+        - breed
+        - sex
+        - species
+        - park
+        - pen
+        - load
+        - age_at_death
+        - season
+        - cause
+        - days_since_arrival
+        - days_since_vaccination
+        - season_by_stage
+        - load_by_cause
+        - breed_by_cause
+        - deaths
+        - recent_limit
+        - generated_at
+      properties:
+        window_from:
+          type: string
+          format: date
+        window_to:
+          type: string
+          format: date
+        totals:
+          $ref: "#/components/schemas/MortalityTotals"
+        months:
+          type: array
+          items:
+            $ref: "#/components/schemas/MortalityMonth"
+        kid_adult:
+          type: array
+          items:
+            $ref: "#/components/schemas/MortalityBucket"
+        stage:
+          type: array
+          description: Management stage (the pen tag) as the animal carried it when it died, read RAW.
+          items:
+            $ref: "#/components/schemas/MortalityBucket"
+        breed:
+          type: array
+          items:
+            $ref: "#/components/schemas/MortalityBucket"
+        sex:
+          type: array
+          items:
+            $ref: "#/components/schemas/MortalityBucket"
+        species:
+          type: array
+          items:
+            $ref: "#/components/schemas/MortalityBucket"
+        park:
+          type: array
+          items:
+            $ref: "#/components/schemas/MortalityBucket"
+        pen:
+          type: array
+          description: Only pens that saw a death; label is the backend-composed operational location.
+          items:
+            $ref: "#/components/schemas/MortalityBucket"
+        load:
+          type: array
+          description: Purchase loads that saw a death, plus the synthetic farm_born and no_load buckets.
+          items:
+            $ref: "#/components/schemas/MortalityBucket"
+        age_at_death:
+          type: array
+          items:
+            $ref: "#/components/schemas/MortalityBucket"
+        season:
+          type: array
+          items:
+            $ref: "#/components/schemas/MortalityBucket"
+        cause:
+          type: array
+          items:
+            $ref: "#/components/schemas/MortalityBucket"
+        days_since_arrival:
+          type: array
+          items:
+            $ref: "#/components/schemas/MortalityBucket"
+        days_since_vaccination:
+          type: array
+          items:
+            $ref: "#/components/schemas/MortalityBucket"
+        season_by_stage:
+          type: array
+          items:
+            $ref: "#/components/schemas/MortalityCrossCell"
+        load_by_cause:
+          type: array
+          items:
+            $ref: "#/components/schemas/MortalityCrossCell"
+        breed_by_cause:
+          type: array
+          items:
+            $ref: "#/components/schemas/MortalityCrossCell"
+        deaths:
+          type: array
+          items:
+            $ref: "#/components/schemas/MortalityDeath"
+        recent_limit:
+          type: integer
         generated_at:
           type: string
           format: date-time

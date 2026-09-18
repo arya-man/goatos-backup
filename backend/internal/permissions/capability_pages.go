@@ -131,6 +131,7 @@ var modulePages = []ModulePage{
 
 	{Key: "counts-herd-analytics", Module: "counts", Label: "Herd Analytics", Href: "/counts/analytics", Permissions: []string{CountsRead}},
 	{Key: "counts-breakdown", Module: "counts", Label: "Counts Breakdown", Href: "/counts/breakdown", Permissions: []string{CountsRead}},
+	{Key: "counts-mortality", Module: "counts", Label: "Mortality", Href: "/counts/mortality", Permissions: []string{CountsRead}},
 	{Key: "counts-sops", Module: "counts", Label: "Herd Operations SOP", Href: "/counts/sops", Permissions: []string{SOPRead}},
 	{Key: "milk-preparation", Module: "milk", Label: "Milk Preparation", Href: "/counts/milk-preparation", Permissions: []string{CountsRead}},
 	{Key: "milk-sops", Module: "milk", Label: "Milk SOP", Href: "/milk/sops", Permissions: []string{SOPRead}},

@@ -143,6 +143,11 @@ func navigation() domain.NavigationContract {
 				Leaves: []domain.NavigationItem{
 					navLeaf("counts-herd-analytics", "Herd Analytics", "/counts/analytics", nil),
 					navLeaf("counts-breakdown", "Counts Breakdown", "/counts/breakdown", nil),
+					// Mortality (maintainer request 2026-09-18): deaths from every angle the farm
+					// asks -- stage, kid/adult, age at death, breed, load, cause, season, pen,
+					// sex, days since arrival / last vaccination, and the cross tabs between
+					// them. Same window calendar and denominator discipline as Herd Analytics.
+					navLeaf("counts-mortality", "Mortality", "/counts/mortality", nil),
 					navLeaf("counts-sops", "Herd Operations SOP", "/counts/sops", nil),
 					// Herd Register is parked from the sidebar for now; keep the restore line so
 					// scope guards can tell it is withheld deliberately, not lost.
@@ -307,6 +312,7 @@ func routeLabels() []domain.RouteLabelRule {
 		{Pattern: "/counts/sops", Label: "Herd Operations SOP", Match: "exact"},
 		{Pattern: "/counts/herd", Label: "Herd Register", Match: "exact"},
 		{Pattern: "/counts/breakdown", Label: "Counts Breakdown", Match: "exact"},
+		{Pattern: "/counts/mortality", Label: "Mortality", Match: "exact"},
 		{Pattern: "/counts/milk-preparation", Label: "Milk Preparation", Match: "exact"},
 		// Most-specific-first: /feed/direction and /feed/packing are exact leaves; /feed/config is
 		// the Feed-owned authority screen (see the navigation() scope note).
@@ -668,6 +674,16 @@ func pages() []domain.PageContract {
 		// changed it. Every figure is backend-owned: the page derives no count of its own,
 		// and the flow table's columns come from this table contract.
 		page("herd-analytics", "/counts/analytics", "/counts/analytics", "Herd Analytics", "Herd composition by breed, pen tag, sex and age, beside month-by-month births, deaths and sales over a chosen window. Composition is the live herd right now; flow is counted off the canonical row that recorded each event.", "module-surface", nil),
+		// Counts -> Mortality. Deaths in a window sliced by everything the animal's own row
+		// froze at death, beside the live head count of each section for the rate series. No table
+		// contract: every mark is drawn from the one /counts/mortality payload and the
+		// recent-deaths list carries its columns in the copy map below.
+		page("counts-mortality", "/counts/mortality", "/counts/mortality", "Mortality", "Deaths over a chosen window from every angle: overall rate, kids and adults, stage, age at death, breed, purchase load, cause, season, pen, sex, and the cross tabs between them. Every rate divides the deaths by the animals in that section today.", "module-surface",
+			[]domain.TableContract{
+				// The bounded most-recent list under the charts. Its columns are this contract's;
+				// the figures above it count the whole window and do not move with its cap.
+				table("recent-deaths", "Recent deaths", "/counts/mortality", []string{"died_on", "tag", "breed", "sex", "stage", "age_at_death", "farm", "shed", "load", "cause"}, "goat_id"),
+			}),
 		page("counts-breakdown", "/counts/breakdown", "/counts/breakdown", "Counts Breakdown", "Live head count per pen, with breed, gender and stage on the same line; open a pen for the exact stage × breed × gender split.", "module-surface",
 			[]domain.TableContract{
 				// The page opens at PEN grain (maintainer decision 2026-09-04): one line per pen
@@ -5610,6 +5626,131 @@ func pageSpecificCopy(id string) map[string]string {
 			"error.body":        "The herd read failed. The Counts screens themselves are unaffected; try again shortly.",
 		}
 	// -------------------------------------------------------------------------------
+	// COUNTS -> MORTALITY. One question -- which animals died and what did they have in
+	// common -- asked from every angle the farm can ask it. Two kinds of series, and the
+	// copy has to keep them apart:
+	//
+	//   RATE series (kids/adults, stage, breed, sex, farm, pen, load) divide the window's deaths
+	//   by the animals in that same section TODAY -- the Counts Breakdown head count (maintainer
+	//   decision 2026-09-18). A section with 3 deaths against 40 and one with 3 against 400
+	//   read very differently.
+	//
+	//   COUNT series (age at death, season, cause, days since arrival, days since the last
+	//   vaccination) are facts about the death alone and carry no rate; inventing a
+	//   denominator for them would be an invented number.
+	//
+	// "No cause recorded" is a complete answer, not missing data: the operator answered
+	// "normal death", or the death predates the cause field (2026-09-05). The banner and
+	// the cause card both say so.
+	// -------------------------------------------------------------------------------
+	case "counts-mortality":
+		return map[string]string{
+			"crumb":        "Counts",
+			"banner.basis": "Deaths are counted on the day the animal was recorded dead. Every rate divides the deaths in the window by the animals in that section today. Breed, sex, stage, pen and load are read as they stood when the animal died.",
+
+			"filter.date":                  "Window",
+			"filter.date.today":            "Today",
+			"filter.date.single":           "Single day",
+			"filter.date.range":            "Date range",
+			"filter.date.aria":             "Choose the dates of deaths to show",
+			"filter.date.previous_month":   "Previous month",
+			"filter.date.next_month":       "Next month",
+			"filter.date.range_start_hint": "Pick the first day of the range.",
+			"filter.date.range_end_hint":   "Now pick the last day of the range.",
+			"filter.date.range_separator":  "to",
+			"filter.scope_readonly":        "Park scope is set in the top bar.",
+
+			"section.kpi.aria":     "Mortality headline figures",
+			"kpi.deaths.label":     "Deaths",
+			"kpi.deaths.sub":       "Animals recorded dead in the window",
+			"kpi.rate.label":       "Mortality rate",
+			"kpi.rate.sub":         "Deaths in the window against the animals in the herd today",
+			"kpi.kids.label":       "Kid deaths",
+			"kpi.kids.sub":         "Kids (K-stage or kid age band) recorded dead, with their rate",
+			"kpi.adults.label":     "Adult deaths",
+			"kpi.adults.sub":       "Adults recorded dead, with their rate",
+			"kpi.first_week.label": "Died within 7 days of birth",
+			"kpi.first_week.sub":   "The highest-risk window on any goat farm",
+			"kpi.cause.label":      "Cause established",
+			"kpi.cause.sub":        "Deaths with a disease named on the death form or an open case at the time",
+			"kpi.animals":          "animals",
+			"kpi.no_rate":          "No live animals in this section",
+
+			"chart.months.title":    "Deaths by month",
+			"chart.months.hint":     "One point per India calendar month, kids and adults kept apart because their causes differ. A window that starts or ends mid-month leaves that month covering only the days inside it.",
+			"chart.stage.title":     "By stage",
+			"chart.stage.hint":      "Deaths and mortality rate by the tag the animal carried when it died — pregnant, non-pregnant, fattening, bucks and each kid stage",
+			"chart.kid_adult.title": "Kids and adults",
+			"chart.kid_adult.hint":  "Deaths and rate for each age band; every animal falls in exactly one",
+			"chart.age.title":       "Age at death",
+			"chart.age.hint":        "Days between date of birth and death. The first week is the neonatal window; 1–3 months is pre-weaning.",
+			"chart.breed.title":     "By breed",
+			"chart.breed.hint":      "Deaths and mortality rate by breed, so a breed-specific weakness shows against its own head count",
+			"chart.species.title":   "Goats and sheep",
+			"chart.species.hint":    "Deaths and rate by species",
+			"chart.sex.title":       "Male and female",
+			"chart.sex.hint":        "Deaths and rate by sex",
+			"chart.park.title":      "By farm",
+			"chart.park.hint":       "Deaths and rate at each farm",
+			"chart.pen.title":       "By pen",
+			"chart.pen.hint":        "Pens that saw a death, with the rate against the animals in that pen today — a single bad pen points at ventilation, drainage or crowding rather than a farm-wide problem",
+			"chart.load.title":      "By purchase load",
+			"chart.load.hint":       "Deaths and rate per load the animals came in on, beside farm-born animals — a bad batch shows here before it shows anywhere else",
+			"chart.cause.title":     "By cause",
+			"chart.cause.hint":      "The disease named on the death form. Older deaths are attributed from a case that was open when the animal died; a death with neither is counted as no cause recorded and never given a disease.",
+			"chart.season.title":    "By season",
+			"chart.season.hint":     "Summer heat, monsoon parasite load, the retreating monsoon and winter cold each drive a different pattern",
+			"chart.arrival.title":   "Days on the farm before death",
+			"chart.arrival.hint":    "Purchased animals only, from the day they arrived. A death within the first weeks points at transport stress or disease brought in with the load.",
+			"chart.vaccine.title":   "Days since last vaccination",
+			"chart.vaccine.hint":    "From the animal's most recent recorded or accepted vaccination to its death. Never vaccinated means no vaccination on record before the death.",
+			"chart.empty":           "No deaths recorded in this scope and window.",
+			"chart.legend_aria":     "Chart series legend",
+			"chart.value_aria":      "deaths",
+			"chart.rate_aria":       "mortality rate",
+
+			"section.rates.aria":       "Mortality rate tables",
+			"section.counts.aria":      "Death profile charts",
+			"section.cross.aria":       "Cross tabs",
+			"cross.season_stage.title": "Season × stage",
+			"cross.season_stage.hint":  "Deaths in each season by the stage the animal carried — where kid deaths pile up in one season",
+			"cross.load_cause.title":   "Load × cause",
+			"cross.load_cause.hint":    "Which loads brought which diseases in",
+			"cross.breed_cause.title":  "Breed × cause",
+			"cross.breed_cause.hint":   "Which breeds are prone to which diseases",
+			"cross.total":              "Total",
+
+			"series.deaths": "Deaths",
+			"series.kids":   "Kids",
+			"series.adults": "Adults",
+			"series.rate":   "Rate",
+
+			"label.deaths_noun":        "deaths",
+			"label.share":              "Share",
+			"label.unassigned_breed":   "No breed recorded",
+			"label.unassigned_stage":   "No tag",
+			"label.unassigned_sex":     "Not recorded",
+			"label.unassigned_park":    "No farm",
+			"label.unassigned_pen":     "No pen recorded",
+			"label.unassigned_species": "Not recorded",
+			"basis.recorded":           "Named on death form",
+			"basis.inferred":           "From open case",
+			"basis.none":               "No cause recorded",
+
+			"table.recent.title":  "Recent deaths",
+			"table.recent.hint":   "The most recent animals recorded dead in this window; every figure above counts the whole window, not this list.",
+			"table.recent.capped": "Showing the most recent %d.",
+			"label.days_suffix":   "days",
+			"label.no_tag":        "No tag",
+			"label.no_load":       "—",
+
+			"state.unavailable": "Mortality unavailable",
+			"empty.title":       "No deaths recorded",
+			"empty.body":        "No animal was recorded dead in this scope and window. Figures appear as soon as a death is recorded and approved.",
+			"error.title":       "Mortality is unavailable",
+			"error.body":        "The mortality read failed. The Counts screens themselves are unaffected; try again shortly.",
+		}
+	// -------------------------------------------------------------------------------
 	// HEALTH -> HEALTH ANALYTICS. Three questions, and the copy has to be honest that
 	// the third one has a hole in it.
 	//
@@ -8708,7 +8849,7 @@ func pageOptionGroups(id string) []domain.OptionGroup {
 		return withGenericOptionGroups(herdRegisterOptionGroups())
 	case "counts-breakdown":
 		return withGenericOptionGroups(countsBreakdownOptionGroups())
-	case "herd-analytics":
+	case "herd-analytics", "counts-mortality":
 		return withGenericOptionGroups(nil)
 	// No option vocabulary of its own: the only control on the page is the shared
 	// window calendar, and park scope belongs to the top bar.

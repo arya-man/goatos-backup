@@ -22,6 +22,7 @@ var protectedRoutes = []Route{
 	{OperationID: "getHerdRegisterSummary", Method: "GET", Pattern: "/herd-register/summary", Permissions: []string{CountsRead}},
 	{OperationID: "getCountsBreakdown", Method: "GET", Pattern: "/counts/breakdown", Permissions: []string{CountsRead}},
 	{OperationID: "getHerdAnalytics", Method: "GET", Pattern: "/counts/herd-analytics", Permissions: []string{CountsRead}},
+	{OperationID: "getCountsMortality", Method: "GET", Pattern: "/counts/mortality", Permissions: []string{CountsRead}},
 	{OperationID: "getMilkPreparation", Method: "GET", Pattern: "/counts/milk-preparation", Permissions: []string{CountsRead}},
 	{OperationID: "getAppCountsMilkPreparation", Method: "GET", Pattern: "/app/counts/milk-preparation", Permissions: []string{CountsWrite}},
 	{OperationID: "resolveIdentifier", Method: "GET", Pattern: "/identifiers/{type}/{value}/resolve", Permissions: []string{GoatRead}},
