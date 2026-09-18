@@ -56,7 +56,7 @@ pop AS MATERIALIZED (
     (g.exit_reason = 'died' OR (g.exit_reason IS NULL AND g.lifecycle_status = 'dead'))
       AND COALESCE((g.exited_at AT TIME ZONE 'Asia/Kolkata')::date,
                    (g.updated_at AT TIME ZONE 'Asia/Kolkata')::date) BETWEEN b.from_date AND b.to_date AS died,
-    g.lifecycle_status NOT IN ('dead', 'sold', 'culled', 'transferred', 'lost', 'merged', 'inactive') AS live,
+    g.lifecycle_status = 'alive' AS live,
     COALESCE(btrim(g.breed), '')            AS breed,
     COALESCE(btrim(g.management_stage), '') AS stage,
     COALESCE(g.sex, '')                     AS sex,
@@ -76,7 +76,7 @@ pop AS MATERIALIZED (
     AND g.merged_into_goat_id IS NULL
     AND ($4 = '' OR g.park_id = NULLIF($4, '')::uuid)
     AND (
-      g.lifecycle_status NOT IN ('dead', 'sold', 'culled', 'transferred', 'lost', 'merged', 'inactive')
+      g.lifecycle_status = 'alive'
       OR
       ((g.exit_reason = 'died' OR (g.exit_reason IS NULL AND g.lifecycle_status = 'dead'))
          AND COALESCE((g.exited_at AT TIME ZONE 'Asia/Kolkata')::date,

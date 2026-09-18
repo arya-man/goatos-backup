@@ -12812,7 +12812,7 @@ paths:
       tags:
         - Counts
       operationId: getCountsMortality
-      summary: Deaths in a window from every angle the farm asks -- stage, age, breed, load, cause, season, pen -- beside the population at risk.
+      summary: Deaths in a window from every angle the farm asks -- stage, age, breed, load, cause, season, pen -- beside the live head count.
       description: >-
         The Counts mortality read. A death is the animal's own exit row (`exit_reason = 'died'`,
         dated the IST day of `exited_at`), the SAME predicate `/counts/herd-analytics` counts

@@ -352,7 +352,9 @@ func TestMortalityStatusMatrixOnlyDiedCountsAsADeath(t *testing.T) {
 	for i, m := range matrix {
 		insertExitedGoat(t, ctx, pool, mortalityGoatID(300+i), fmt.Sprintf("G-93%04d", i), m.lifecycle, m.reason, died)
 	}
-	// Two animals still on the farm, one of them in ICU: clinical states are in the head count too.
+	// Two animals still on the farm, one of them in ICU. The denominator is the same default
+	// live census Counts Breakdown reports, so the clinical state is reachable elsewhere but not
+	// counted here.
 	insertMortalityGoat(t, ctx, pool, mortalityGoatID(320), "Beetal", "female", "F2-Female", "adult", "2025-01-01", "procured", "", "")
 	insertMortalityGoat(t, ctx, pool, mortalityGoatID(321), "Beetal", "female", "ICU", "adult", "2025-01-01", "procured", "", "")
 	if _, err := pool.Exec(ctx, `UPDATE goats SET lifecycle_status = 'icu' WHERE goat_id = $1::uuid`, mortalityGoatID(321)); err != nil {
@@ -366,8 +368,8 @@ func TestMortalityStatusMatrixOnlyDiedCountsAsADeath(t *testing.T) {
 	if mort.Totals.Deaths != 2 {
 		t.Fatalf("deaths=%d want 2 (died by reason, dead by fallback)", mort.Totals.Deaths)
 	}
-	if mort.Totals.Animals != 2 {
-		t.Fatalf("animals=%d want 2 (only the live animals, ICU included; no exit of any kind)", mort.Totals.Animals)
+	if mort.Totals.Animals != 1 {
+		t.Fatalf("animals=%d want 1 (strict Counts Breakdown live head count; ICU excluded)", mort.Totals.Animals)
 	}
 	if len(mort.Deaths) != 2 {
 		t.Fatalf("recent list %d rows, want the 2 deaths only", len(mort.Deaths))

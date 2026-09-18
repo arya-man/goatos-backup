@@ -206,7 +206,7 @@ const SUPPORTED_COUNTS_HREFS = new Set([
   "/counts/analytics",
   "/counts/breakdown",
   // Mortality (maintainer request 2026-09-18): deaths sliced by stage, age, breed, load, cause,
-  // season, pen and sex, with rates against the at-risk herd. Recorded in
+  // season, pen and sex, with rates against the live head count. Recorded in
   // context/frontend/current-admin-web-scope.md.
   "/counts/mortality",
   "/counts/milk-preparation",

@@ -10,15 +10,26 @@
 - Identified denominator bug: animals present during a historical window but exited after the window were excluded from `at_risk`.
 - Updated `mortalityPopulationSQL` to use interval overlap: entry on or before window end and no exit before window start.
 - Added regression test for an animal sold after the selected window still contributing to `at_risk`.
+- Review pass 2026-09-18 found the later live-head-count change had drifted from Counts Breakdown:
+  Mortality counted clinical lifecycle statuses such as `icu` as animals, while Counts Breakdown
+  and Herd Analytics default to `lifecycle_status = 'alive'`.
+- Updated `mortalityPopulationSQL` so Mortality `animals` uses the same strict live population as
+  Counts Breakdown, and corrected the status-matrix regression to exclude `icu` from the denominator.
+- Removed stale "population at risk" wording from the Mortality route/API/admin-web comments.
 
 ## Pending
 
 - Push branch to PR.
+- Spin judge agents after push and resolve any confirmed findings.
 
 ## Tests / E2E Performed
 
 - `go test ./internal/counts/... ./internal/adminui/... ./internal/permissions/...` from `backend`: PASS.
 - `npm run typecheck -- --pretty false` from `apps/admin-web`: PASS.
+- `go test ./internal/counts/domain ./internal/counts/app ./internal/counts/adapters/http` from `backend`: PASS.
+- `go test ./internal/counts/adapters/postgres -run 'TestMortality|TestCountsBreakdownDefault' -count=1` from `backend`: PASS.
+- `git diff --check origin/main...HEAD && git diff --check`: PASS.
+- `npm run test -- smoke-visual-route-coverage.test.mjs --runInBand` from `apps/admin-web`: PASS (819 node tests, including visual route coverage guard).
 
 ## Known Failures
 
@@ -28,6 +39,9 @@
 
 - Before: static review found historical denominator undercount.
 - After: regression `TestMortalityAtRiskIncludesAnimalsExitedAfterTheWindow` proves a goat sold after the selected window remains in `at_risk`.
+- Later review: static + existing Counts Breakdown tests showed the live-head-count rule must be
+  strict `lifecycle_status = 'alive'`, excluding clinical statuses such as `icu`; Mortality
+  Postgres regression now pins that behavior.
 
 ## Judge Status
 
@@ -35,7 +49,8 @@
 
 ## Current SHA
 
-- Before fix: `90bf02af6cf739fbaca1f9d3c07383da3fb193b1`.
+- Before first fix: `90bf02af6cf739fbaca1f9d3c07383da3fb193b1`.
+- Before strict-live fix: `db8cf68c969d737b49151810a3c0df10f52e2536`.
 
 ## Deployment State
 

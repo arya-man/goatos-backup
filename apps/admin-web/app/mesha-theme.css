@@ -1665,7 +1665,7 @@
   .main .mortality-grid-wide{grid-template-columns:minmax(0,1fr)}
   .main .mortality-grid .chartcard{width:100%;min-width:0}
   @media(max-width:1100px){.main .mortality-grid{grid-template-columns:minmax(0,1fr)}}
-  /* Rate table: label · deaths · at risk · rate · proportional bar. The bar column takes what
+  /* Rate table: label · deaths · animals · rate · proportional bar. The bar column takes what
      is left so the numbers stay aligned as a column and the bar reads against its neighbours. */
   .main table.mortality-rate-table{width:100%;border-collapse:collapse;font-size:12.5px;margin-top:6px}
   .main table.mortality-rate-table th,

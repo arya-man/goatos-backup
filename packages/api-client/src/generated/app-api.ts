@@ -4949,7 +4949,7 @@ export interface paths {
             cookie?: never;
         };
         /**
-         * Deaths in a window from every angle the farm asks -- stage, age, breed, load, cause, season, pen -- beside the population at risk.
+         * Deaths in a window from every angle the farm asks -- stage, age, breed, load, cause, season, pen -- beside the live head count.
          * @description The Counts mortality read. A death is the animal's own exit row (`exit_reason = 'died'`, dated the IST day of `exited_at`), the SAME predicate `/counts/herd-analytics` counts deaths with, so the two screens cannot disagree. Every attribute is read off the animal's row as it stood when it died (the exit touches only lifecycle columns). RATE series (`kid_adult`, `stage`, `breed`, `sex`, `species`, `park`, `pen`, `load`) carry `animals` -- the live head count of that bucket today, the same number `/counts/breakdown` reports -- and `rate_pct` = deaths / animals; COUNT series (`age_at_death`, `season`, `cause`, `days_since_arrival`, `days_since_vaccination`) are facts about the death alone and carry no rate. Cause has three disjoint bases: `recorded` (named on the death form), `inferred` (a case open when the animal died, for deaths before the form carried a cause), `none`. `totals` are whole-window rollups and must never be re-derived from the series. `deaths` is a bounded most-recent list capped at `recent_limit`; nothing above it moves with the cap. Window rules are those of `/counts/herd-analytics`.
          */
         get: operations["getCountsMortality"];
