@@ -413,8 +413,69 @@ class GoatDatabaseMigrationTest {
     }
 
     @Test
-    fun `migration 65 to 67 adds weighing capture columns and herd capture tables while preserving rows`() {
+    fun `an installed v64 database walks 64 to 65 to 66 and validates against the current schema`() {
+        helper.createDatabase(DB_NAME, 64).apply {
+            execSQL(
+                "INSERT INTO `death_cause_catalog` (`scopeKey`, `dtoJson`, `updatedAt`) VALUES ('death-causes', '{}', 9)",
+            )
+            close()
+        }
+        val db = helper.runMigrationsAndValidate(DB_NAME, 66, true, MIGRATION_64_65, MIGRATION_65_66)
+        try {
+            listOf("weighing_observation", "weighing_shed_observation").forEach { table ->
+                val cols = buildList {
+                    db.query("PRAGMA table_info(`$table`)").use { c -> while (c.moveToNext()) add(c.getString(1)) }
+                }
+                assertEquals("$table carries the v65 slot columns", true, "slotProofsJson" in cols && "answersJson" in cols)
+            }
+            listOf("counts_capture_card_cache", "workflow_step_draft_answer").forEach { table ->
+                db.query("SELECT name FROM sqlite_master WHERE type = 'table' AND name = '$table'").use { cursor ->
+                    assertEquals("table $table must exist after v66", true, cursor.moveToFirst())
+                }
+            }
+            db.query("SELECT COUNT(*) FROM `death_cause_catalog` WHERE scopeKey = 'death-causes'").use { cursor ->
+                cursor.moveToFirst()
+                assertEquals("existing rows survive both additive migrations", 1, cursor.getInt(0))
+            }
+        } finally {
+            db.close()
+        }
+    }
+
+    @Test
+    fun `migration 65 to 66 creates the capture card cache and death answer draft tables while preserving existing rows`() {
         helper.createDatabase(DB_NAME, 65).apply {
+            execSQL(
+                "INSERT INTO `death_cause_catalog` (`scopeKey`, `dtoJson`, `updatedAt`) VALUES ('death-causes', '{}', 7)",
+            )
+            close()
+        }
+        val db = helper.runMigrationsAndValidate(DB_NAME, 66, true, MIGRATION_65_66)
+        try {
+            listOf("counts_capture_card_cache", "workflow_step_draft_answer").forEach { table ->
+                db.query("SELECT name FROM sqlite_master WHERE type = 'table' AND name = '$table'").use { cursor ->
+                    assertEquals("table $table must exist after v66", true, cursor.moveToFirst())
+                }
+            }
+            db.execSQL("INSERT INTO `workflow_step_draft_answer` (`workflowId`, `actionId`, `answerValue`, `updatedAt`) VALUES ('wf-1', 'a-1', 'bloat', 1)")
+            db.execSQL("INSERT OR REPLACE INTO `workflow_step_draft_answer` (`workflowId`, `actionId`, `answerValue`, `updatedAt`) VALUES ('wf-1', 'a-1', 'fever', 2)")
+            db.query("SELECT COUNT(*), MAX(answerValue) FROM `workflow_step_draft_answer` WHERE workflowId = 'wf-1'").use { cursor ->
+                cursor.moveToFirst()
+                assertEquals("one draft answer per (workflow, step)", 1, cursor.getInt(0))
+                assertEquals("fever", cursor.getString(1))
+            }
+            db.query("SELECT COUNT(*) FROM `death_cause_catalog` WHERE scopeKey = 'death-causes'").use { cursor ->
+                cursor.moveToFirst()
+                assertEquals("existing rows survive the additive migration", 1, cursor.getInt(0))
+            }
+        } finally {
+            db.close()
+        }
+    }
+
+    @Test
+    fun `migration 64 to 65 adds the weighing capture slot columns while preserving captures`() {
+        helper.createDatabase(DB_NAME, 64).apply {
             execSQL(
                 "INSERT INTO `weighing_observation` (`observationId`, `scopeKey`, `tenantId`, `campaignId`, `workGroupId`, " +
                     "`campaignShedId`, `expectedLocationId`, `expectedLocationLabel`, `actualLocationId`, `actualLocationLabel`, " +
@@ -429,12 +490,9 @@ class GoatDatabaseMigrationTest {
                     "`syncStatus`, `idempotencyKey`, `capturedAtMs`, `lastError`) " +
                     "VALUES ('shed-1', 'scope-1', 't', 'c', 'w', 's', 'loc', 'Pen 1', '{}', 'cap-2', 'srv-2', 'READY_TO_SUBMIT', 'k-2', 11, NULL)",
             )
-            execSQL(
-                "INSERT INTO `death_cause_catalog` (`scopeKey`, `dtoJson`, `updatedAt`) VALUES ('death-causes', '{}', 7)",
-            )
             close()
         }
-        val db = helper.runMigrationsAndValidate(DB_NAME, 67, true, MIGRATION_65_66, MIGRATION_66_67)
+        val db = helper.runMigrationsAndValidate(DB_NAME, 65, true, MIGRATION_64_65)
         try {
             // Existing captures survive and read as the seeded shape ('{}'): the primary proof
             // columns are untouched, the new columns default rather than NULL.
@@ -455,22 +513,6 @@ class GoatDatabaseMigrationTest {
             db.query("SELECT `slotProofsJson` FROM `weighing_observation` WHERE observationId = 'obs-1'").use { cursor ->
                 assertEquals(true, cursor.moveToFirst())
                 assertEquals("{\"scale_photo\":\"srv-9\"}", cursor.getString(0))
-            }
-            listOf("counts_capture_card_cache", "workflow_step_draft_answer").forEach { table ->
-                db.query("SELECT name FROM sqlite_master WHERE type = 'table' AND name = '$table'").use { cursor ->
-                    assertEquals("table $table must exist after v67", true, cursor.moveToFirst())
-                }
-            }
-            db.execSQL("INSERT INTO `workflow_step_draft_answer` (`workflowId`, `actionId`, `answerValue`, `updatedAt`) VALUES ('wf-1', 'a-1', 'bloat', 1)")
-            db.execSQL("INSERT OR REPLACE INTO `workflow_step_draft_answer` (`workflowId`, `actionId`, `answerValue`, `updatedAt`) VALUES ('wf-1', 'a-1', 'fever', 2)")
-            db.query("SELECT COUNT(*), MAX(answerValue) FROM `workflow_step_draft_answer` WHERE workflowId = 'wf-1'").use { cursor ->
-                cursor.moveToFirst()
-                assertEquals("one draft answer per (workflow, step)", 1, cursor.getInt(0))
-                assertEquals("fever", cursor.getString(1))
-            }
-            db.query("SELECT COUNT(*) FROM `death_cause_catalog` WHERE scopeKey = 'death-causes'").use { cursor ->
-                cursor.moveToFirst()
-                assertEquals("existing rows survive the additive migration", 1, cursor.getInt(0))
             }
         } finally {
             db.close()
@@ -509,39 +551,6 @@ class GoatDatabaseMigrationTest {
                 assertEquals(0, cursor.getInt(0))
             }
             db.query("SELECT COUNT(*) FROM `work_board_meta_cache` WHERE cacheKey = 'board-keep'").use { cursor ->
-                cursor.moveToFirst()
-                assertEquals("existing rows survive the additive migration", 1, cursor.getInt(0))
-            }
-        } finally {
-            db.close()
-        }
-    }
-
-    @Test
-    fun `migration 64 to 65 creates the pen routine tables while preserving existing rows`() {
-        helper.createDatabase(DB_NAME, 64).apply {
-            execSQL(
-                "INSERT INTO `animal_purchase_blob_cache` (`cacheKey`, `dtoJson`, `updatedAt`) " +
-                    "VALUES ('options-keep', '{}', 13)",
-            )
-            close()
-        }
-        val db = helper.runMigrationsAndValidate(DB_NAME, 65, true, MIGRATION_64_65)
-        try {
-            listOf("pen_routine_items", "pen_routine_remote_keys", "pen_routine_detail_cache").forEach { table ->
-                db.query("SELECT name FROM sqlite_master WHERE type = 'table' AND name = '$table'").use { cursor ->
-                    assertEquals("table $table must exist after v65", true, cursor.moveToFirst())
-                }
-            }
-            db.execSQL(
-                "INSERT INTO `pen_routine_items` (`queryKey`, `grainKey`, `sortIndex`, `dtoJson`, `updatedAt`) " +
-                    "VALUES ('todo', 'task-1', 0, '{}', 1)",
-            )
-            db.query("SELECT `sortIndex` FROM `pen_routine_items` WHERE queryKey = 'todo' AND grainKey = 'task-1'").use { cursor ->
-                assertEquals(true, cursor.moveToFirst())
-                assertEquals(0, cursor.getInt(0))
-            }
-            db.query("SELECT COUNT(*) FROM `animal_purchase_blob_cache` WHERE cacheKey = 'options-keep'").use { cursor ->
                 cursor.moveToFirst()
                 assertEquals("existing rows survive the additive migration", 1, cursor.getInt(0))
             }
@@ -721,7 +730,6 @@ class GoatDatabaseMigrationTest {
         MIGRATION_63_64.migrate(db)
         MIGRATION_64_65.migrate(db)
         MIGRATION_65_66.migrate(db)
-        MIGRATION_66_67.migrate(db)
         return db
     }
 
@@ -740,7 +748,7 @@ class GoatDatabaseMigrationTest {
 
     private companion object {
         const val DB_NAME = "goat-migration-test.db"
-        const val CURRENT_VERSION = 67
+        const val CURRENT_VERSION = 66
     }
 }
 

@@ -160,9 +160,6 @@ object AnalyticsEvents {
     /** A shifting raise card capture was recorded (the raise form's optional/compulsory extras). */
     const val COUNTS_SHIFTING_RAISE_CAPTURED = "counts_shifting_raise_captured"
 
-    /** An approver opened one capture a raise carried (the shared approval capture). */
-    const val COUNTS_APPROVAL_CAPTURE_OPENED = "counts_approval_capture_opened"
-
     /** The operator opened the Herd Operations "Reconcile" tab (wrong-pen cards from weighing). */
     const val COUNTS_PEN_RECONCILIATION_VIEWED = "counts_pen_reconciliation_viewed"
     /** A reconcile card's SOP questionnaire workflow was opened from the list (2026-09-13). */

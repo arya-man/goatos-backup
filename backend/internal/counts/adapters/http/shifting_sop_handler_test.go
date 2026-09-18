@@ -296,7 +296,7 @@ func TestLegacyProofRequiredPrecheckOnlyForLegacyShape(t *testing.T) {
 	}
 }
 
-func TestApprovalListCarriesShiftingRaiseCaptureRowsAndMedia(t *testing.T) {
+func TestShiftingApprovalListCarriesRaiseCaptureRowsAndMedia(t *testing.T) {
 	repo := newFakeShiftingRepo()
 	capture := domain.CountsApprovalCapture{VersionLabel: "SOP v2",
 		Rows:  []domain.CountsApprovalCaptureRow{{Label: "Why move", Value: "Overcrowded", Group: "At raise"}},

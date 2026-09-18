@@ -9,6 +9,7 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.test.StandardTestDispatcher
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.test.advanceUntilIdle
 import kotlinx.coroutines.test.resetMain
 import kotlinx.coroutines.test.runTest
@@ -71,9 +72,11 @@ class ApprovalViewModelTerminalFailureTest {
     }
 
     // ---- ApprovalCapturedRowsTest (SHIFTING SOP, 2026-09-16) ---------------------------------
+    // A shifting raise capture rides the SAME renderer as a birth/death report capture: tapping it
+    // resolves one signed URL into the screen state, and a second tap never re-fetches.
 
     @Test
-    fun `a tapped raise capture resolves its signed url and opens it`() = runTest(dispatcher) {
+    fun `a tapped raise capture resolves its signed url once into the shared capture renderer`() = runTest(dispatcher) {
         val repository = RecordingApprovalRepository()
         val viewModel = ApprovalViewModel(
             approvalRepository = repository,
@@ -84,8 +87,10 @@ class ApprovalViewModelTerminalFailureTest {
         )
         viewModel.onEvent(ApprovalEvent.OpenCaptureMedia("proof-r1"))
         advanceUntilIdle()
+        viewModel.onEvent(ApprovalEvent.OpenCaptureMedia("proof-r1"))
+        advanceUntilIdle()
         assertEquals(listOf("proof-r1"), repository.resolved)
-        assertEquals(mapOf("proof-r1" to "https://signed/proof-r1"), viewModel.state.value.openedMediaUrls)
+        assertEquals("https://signed/proof-r1", viewModel.state.value.openedMediaUrls["proof-r1"])
     }
 
     private companion object {
@@ -104,7 +109,7 @@ private class RecordingApprovalRepository : CountsApprovalRepository {
     }
 
     val resolved = mutableListOf<String>()
-    override suspend fun proofDownloadUrl(proofId: String): String {
+    override suspend fun proofDownloadUrl(proofId: String): String? {
         resolved += proofId
         return "https://signed/$proofId"
     }

@@ -158,47 +158,25 @@ func (h *AppWriteHandler) GetCaptureCard(w http.ResponseWriter, r *http.Request)
 
 // --- approver's row ---------------------------------------------------------------------------
 
-// appApprovalCapture is CountsApprovalCapture on the wire, EXACTLY the shared contract
-// (docs: SOP parity program decisions): {version_label, rows, media, missing_note}. Shifting's raise
-// form populates the same shape. The verifier's verdict on the report proof rides on the list
-// item itself (capture_review_status / capture_review_reason), not inside this shared schema.
-type appApprovalCapture struct {
-	VersionLabel string                    `json:"version_label,omitempty"`
-	Rows         []appApprovalCaptureRow   `json:"rows"`
-	Media        []appApprovalCaptureMedia `json:"media"`
-	MissingNote  string                    `json:"missing_note,omitempty"`
-}
-
-type appApprovalCaptureRow struct {
-	Label string `json:"label"`
-	Value string `json:"value"`
-	Group string `json:"group,omitempty"`
-}
-
-type appApprovalCaptureMedia struct {
-	ProofID string `json:"proof_id"`
-	Label   string `json:"label"`
-	Kind    string `json:"kind"`
-}
-
-// approvalCaptureDTO maps the stored snapshot; nil when the row carries none so the field is
+// approvalCaptureDTO maps the stored snapshot onto the ONE shared CountsApprovalCapture shape
+// (domain.CountsApprovalCapture, which shifting's raise snapshot also rides); nil when the row carries none so the field is
 // omitted rather than rendered empty.
-func approvalCaptureDTO(item domain.ApprovalRequestSummary) *appApprovalCapture {
+func approvalCaptureDTO(item domain.ApprovalRequestSummary) *domain.CountsApprovalCapture {
 	e := item.Capture
 	if e.IsEmpty() {
 		return nil
 	}
-	out := &appApprovalCapture{
+	out := &domain.CountsApprovalCapture{
 		VersionLabel: e.VersionLabel,
-		Rows:         make([]appApprovalCaptureRow, 0, len(e.Rows)),
-		Media:        make([]appApprovalCaptureMedia, 0, len(e.Media)),
+		Rows:         make([]domain.CountsApprovalCaptureRow, 0, len(e.Rows)),
+		Media:        make([]domain.CountsApprovalCaptureMedia, 0, len(e.Media)),
 		MissingNote:  e.MissingNote,
 	}
 	for _, r := range e.Rows {
-		out.Rows = append(out.Rows, appApprovalCaptureRow{Label: r.Label, Value: r.Value, Group: r.Group})
+		out.Rows = append(out.Rows, domain.CountsApprovalCaptureRow{Label: r.Label, Value: r.Value, Group: r.Group})
 	}
 	for _, m := range e.Media {
-		out.Media = append(out.Media, appApprovalCaptureMedia{ProofID: m.Ref, Label: m.Label, Kind: m.Kind})
+		out.Media = append(out.Media, domain.CountsApprovalCaptureMedia{ProofID: m.Ref, Label: m.Label, Kind: m.Kind})
 	}
 	return out
 }

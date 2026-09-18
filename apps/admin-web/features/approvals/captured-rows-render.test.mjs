@@ -11,7 +11,7 @@ const server = readFileSync(new URL("../../lib/api/server.ts", import.meta.url),
 
 test("the drawer renders item.capture rows, media and the missing note verbatim", () => {
   assert.match(drawer, /<CaptureSection item=\{item\} \/>/);
-  assert.match(drawer, /const capture = item\.capture;/);
+  assert.equal((drawer.match(/function CaptureSection\(/g) ?? []).length, 1, "one capture renderer for birth, death and shifting");
   assert.match(drawer, /capture\.rows/);
   assert.match(drawer, /capture\.media\.map/);
   assert.match(drawer, /capture\.missing_note/);
@@ -19,13 +19,13 @@ test("the drawer renders item.capture rows, media and the missing note verbatim"
 });
 
 test("a capture opens through the server-side proof URL bridge, never a hydrated URL", () => {
-  assert.match(drawer, /resolveApprovalProofMediaUrl\(proofId\)/);
+  assert.match(drawer, /resolveApprovalCaptureMediaUrl\(proofId\)/);
   assert.doesNotMatch(drawer, /download_url|signed_url/);
 });
 
 test("the shared CountsApprovalCapture shape is typed on the approval item", () => {
   assert.match(server, /capture\?: AdminWebApprovalCapture;/);
-  assert.match(server, /rows: Array<\{ label: string; value: string; group\?: string \}>;/);
-  assert.match(server, /media: Array<\{ proof_id: string; label: string; kind: string \}>;/);
+  assert.match(server, /rows: \{ label: string; value: string; group\?: string \}\[\];/);
+  assert.match(server, /media: \{ proof_id: string; label: string; kind: string \}\[\];/);
   assert.match(server, /missing_note\?: string;/);
 });

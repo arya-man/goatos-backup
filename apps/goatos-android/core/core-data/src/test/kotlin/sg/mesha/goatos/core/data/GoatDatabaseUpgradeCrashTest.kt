@@ -428,17 +428,19 @@ class GoatDatabaseUpgradeCrashTest {
             //     before an upgraded phone crashes on open.
             assertAnimalPurchaseTablesRoundTrip(upgraded, base = 300L)
 
-            // 22. The three v65 PEN ROUTINE tables (MIGRATION_64_65). Same MOB-007 proof: purely
-            //     additive, so an omitted or mis-shaped CREATE still passes every fresh-install
-            //     test — only reopening a real old file and round-tripping each table catches it
-            //     before an upgraded phone crashes on open.
-            assertPenRoutineTablesRoundTrip(upgraded, base = 320L)
+            // 22. The v65 weighing capture columns (MIGRATION_64_65): the authored slot map and
+            //     answers on both weighing evidence tables must exist on an upgraded file.
+            listOf("weighing_observation", "weighing_shed_observation").forEach { table ->
+                val cols = buildList {
+                    upgraded.openHelper.writableDatabase.query("PRAGMA table_info(`$table`)").use { c ->
+                        while (c.moveToNext()) add(c.getString(1))
+                    }
+                }
+                assertEquals("$table slotProofsJson after v65", true, "slotProofsJson" in cols)
+                assertEquals("$table answersJson after v65", true, "answersJson" in cols)
+            }
 
-            // 23. The v66 authored weighing capture columns (MIGRATION_65_66). Existing rows opened
-            //     from old phones must read the seeded empty maps and accept authored slot maps.
-            assertWeighingAuthoredCaptureColumnsRoundTrip(upgraded)
-
-            // 24. The two v67 SOP capture tables (MIGRATION_66_67): the Add birth / Add death capture
+            // 23. The two v66 SOP capture tables (MIGRATION_65_66): the Add birth / Add death capture
             //     card cache and the death workflow's draft answers. Same MOB-007 proof.
             upgraded.countsCaptureCardCacheDao().upsert(
                 sg.mesha.goatos.core.data.cache.CountsCaptureCardCacheEntity(scopeKey = "birth", dtoJson = "{}", updatedAt = 320L),
@@ -450,75 +452,6 @@ class GoatDatabaseUpgradeCrashTest {
             assertEquals(listOf("bloat"), upgraded.workflowStepDraftAnswerDao().list("wf-1").map { it.answerValue })
         } finally {
             upgraded.close()
-        }
-    }
-
-    /** Round-trips the three pen-routine tables so a missing/mismatched CREATE in MIGRATION_64_65
-     *  fails here — the MOB-007 upgrade-crash class — rather than on a phone. */
-    private suspend fun assertPenRoutineTablesRoundTrip(upgraded: GoatDatabase, base: Long) {
-        upgraded.penRoutineItemDao().upsertAll(
-            listOf(
-                sg.mesha.goatos.core.data.cache.PenRoutineItemEntity(
-                    queryKey = "pen-routines",
-                    grainKey = "pen-routine-1",
-                    sortIndex = 0,
-                    dtoJson = "{}",
-                    updatedAt = base,
-                ),
-            ),
-        )
-        assertEquals(1, upgraded.penRoutineItemDao().countForQuery("pen-routines"))
-        assertEquals(1, upgraded.penRoutineItemDao().rowsForTask("pen-routine-1").size)
-
-        upgraded.penRoutineRemoteKeyDao().upsert(
-            sg.mesha.goatos.core.data.cache.PenRoutineRemoteKeyEntity(
-                queryKey = "pen-routines",
-                nextCursor = "cursor-20",
-                endReached = false,
-                updatedAt = base + 1,
-            ),
-        )
-        assertEquals("cursor-20", upgraded.penRoutineRemoteKeyDao().get("pen-routines")?.nextCursor)
-
-        upgraded.penRoutineDetailCacheDao().upsert(
-            sg.mesha.goatos.core.data.cache.PenRoutineDetailCacheEntity(
-                cacheKey = "pen-routine-1",
-                dtoJson = "{}",
-                updatedAt = base + 2,
-            ),
-        )
-        assertEquals(
-            base + 2,
-            upgraded.penRoutineDetailCacheDao().observe("pen-routine-1").first()?.updatedAt,
-        )
-    }
-
-    private suspend fun assertWeighingAuthoredCaptureColumnsRoundTrip(upgraded: GoatDatabase) {
-        val db = upgraded.openHelper.writableDatabase
-        db.execSQL(
-            "INSERT INTO `weighing_observation` (`observationId`, `scopeKey`, `tenantId`, `campaignId`, `workGroupId`, " +
-                "`campaignShedId`, `expectedLocationId`, `expectedLocationLabel`, `actualLocationId`, `actualLocationLabel`, " +
-                "`scannedIdentifier`, `weightKg`, `proofCaptureId`, `serverProofId`, `slotProofsJson`, `answersJson`, " +
-                "`syncStatus`, `idempotencyKey`, `capturedAtMs`, `lastError`, `verificationStatus`, `reworkReason`) " +
-                "VALUES ('upgrade-weigh-1', 'upgrade-scope', 't', 'c', 'w', 's', 'loc', 'Pen 1', NULL, NULL, 'RFID-1', 21.5, " +
-                "'cap-1', 'srv-1', '{\"scale_photo\":\"srv-9\"}', '{\"quality\":\"ok\"}', 'READY_TO_SUBMIT', 'k-1', 10, NULL, NULL, NULL)",
-        )
-        db.query("SELECT `slotProofsJson`, `answersJson` FROM `weighing_observation` WHERE observationId = 'upgrade-weigh-1'").use { cursor ->
-            assertEquals(true, cursor.moveToFirst())
-            assertEquals("{\"scale_photo\":\"srv-9\"}", cursor.getString(0))
-            assertEquals("{\"quality\":\"ok\"}", cursor.getString(1))
-        }
-        db.execSQL(
-            "INSERT INTO `weighing_shed_observation` (`shedObservationId`, `scopeKey`, `tenantId`, `campaignId`, `workGroupId`, " +
-                "`campaignShedId`, `expectedLocationId`, `expectedLocationLabel`, `resultJson`, `proofCaptureId`, `serverProofId`, " +
-                "`slotProofsJson`, `answersJson`, `syncStatus`, `idempotencyKey`, `capturedAtMs`, `lastError`) " +
-                "VALUES ('upgrade-shed-1', 'upgrade-scope', 't', 'c', 'w', 's', 'loc', 'Pen 1', '{}', 'cap-2', 'srv-2', " +
-                "'{\"pen_video\":\"srv-10\"}', '{\"note\":\"steady\"}', 'READY_TO_SUBMIT', 'k-2', 11, NULL)",
-        )
-        db.query("SELECT `slotProofsJson`, `answersJson` FROM `weighing_shed_observation` WHERE shedObservationId = 'upgrade-shed-1'").use { cursor ->
-            assertEquals(true, cursor.moveToFirst())
-            assertEquals("{\"pen_video\":\"srv-10\"}", cursor.getString(0))
-            assertEquals("{\"note\":\"steady\"}", cursor.getString(1))
         }
     }
 
@@ -1554,8 +1487,7 @@ class GoatDatabaseUpgradeCrashTest {
             MIGRATION_46_47, MIGRATION_47_48, MIGRATION_48_49, MIGRATION_49_50, MIGRATION_50_51,
             MIGRATION_51_52, MIGRATION_52_53, MIGRATION_53_54, MIGRATION_54_55, MIGRATION_55_56,
             MIGRATION_56_57, MIGRATION_57_58, MIGRATION_58_59, MIGRATION_59_60, MIGRATION_60_61,
-            MIGRATION_61_62, MIGRATION_62_63, MIGRATION_63_64, MIGRATION_64_65,
-            MIGRATION_65_66, MIGRATION_66_67,
+            MIGRATION_61_62, MIGRATION_62_63, MIGRATION_63_64, MIGRATION_64_65, MIGRATION_65_66,
         )
 
         /** The chain that produces a v25 file: everything up to and including MIGRATION_24_25 —

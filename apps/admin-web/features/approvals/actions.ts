@@ -76,9 +76,11 @@ export async function rejectApprovalAction(formData: FormData): Promise<void> {
   redirect(withFeedback(url, "success", "rejected"));
 }
 
-// Explicit media open bridge for the approver: the drawer carries only proof ids (the raise's SOP
-// captures); one browser-usable signed URL is resolved only after the park head clicks the capture.
-export async function resolveApprovalProofMediaUrl(proofRef: string): Promise<string | null> {
+// Explicit media open for the approver (birth / death report captures and shifting raise captures
+// alike): the drawer carries only proof IDs from the list response;
+// one browser-usable signed URL is resolved only after the approver clicks a proof (the same
+// click-to-open bridge the verify drawer uses; nothing is proxied through the page).
+export async function resolveApprovalCaptureMediaUrl(proofRef: string): Promise<string | null> {
   const trimmed = proofRef.trim();
   if (!trimmed) return null;
   return getProofDownloadUrl(trimmed);

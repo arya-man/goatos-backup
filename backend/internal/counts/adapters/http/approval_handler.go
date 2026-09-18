@@ -128,18 +128,18 @@ type appApprovalListItem struct {
 	// its own field instead of parsing it back out of the composed line. See
 	// domain.ApprovalNameLookup.AnimalLocations for how it is resolved.
 	SubjectAnimalLocation *string `json:"subject_animal_location,omitempty"`
-	// Capture is the SOP capture card's snapshot (CountsApprovalCapture): the report's own
-	// proofs under their titles, its answers in farm words, the older-app note, and the verifier's
-	// verdict on it. Shifting rows may carry the same shape inside their raise summary.
+	// Capture is the report or raise's SOP capture form as the approver sees it (shared
+	// CountsApprovalCapture shape, program decision 2026-09-16): birth/death carry their capture
+	// card's snapshot, shifting its raise snapshot. Absent when the form asked nothing.
+	Capture *domain.CountsApprovalCapture `json:"capture,omitempty"`
 	// CaptureReviewStatus / CaptureReviewReason are the verifier's verdict on the report's own
 	// proof (pending / approved / rework + the verifier's words). Absent when nothing to review.
-	CaptureReviewStatus *string             `json:"capture_review_status,omitempty"`
-	CaptureReviewReason *string             `json:"capture_review_reason,omitempty"`
-	Capture             *appApprovalCapture `json:"capture,omitempty"`
-	Summary             json.RawMessage     `json:"summary"`
-	DecidedByUserID     *string             `json:"decided_by_user_id,omitempty"`
-	DecidedAt           *time.Time          `json:"decided_at,omitempty"`
-	DecisionReason      *string             `json:"decision_reason,omitempty"`
+	CaptureReviewStatus *string         `json:"capture_review_status,omitempty"`
+	CaptureReviewReason *string         `json:"capture_review_reason,omitempty"`
+	Summary             json.RawMessage `json:"summary"`
+	DecidedByUserID     *string         `json:"decided_by_user_id,omitempty"`
+	DecidedAt           *time.Time      `json:"decided_at,omitempty"`
+	DecisionReason      *string         `json:"decision_reason,omitempty"`
 }
 
 // ListApprovals returns one keyset page of requests the caller may decide.
@@ -224,7 +224,6 @@ func (h *AppWriteHandler) ListApprovals(w http.ResponseWriter, r *http.Request) 
 // shiftingCaptureFromSummary lifts the raise snapshot a shifting request carries in its stored
 // payload (`capture`, written once at raise) onto the list item. Nothing is recomposed: the park
 // head sees exactly what the raise judged. Other request types are left to their own producers.
-
 // shiftingCaptureEmpty reports a raise capture that recorded nothing: no answers, no captures, no
 // older-app note. Such a snapshot is never shown (a version label alone is not something the
 // approver can act on), and one stored before this rule is dropped on read.
@@ -232,7 +231,7 @@ func shiftingCaptureEmpty(c *domain.CountsApprovalCapture) bool {
 	return c == nil || (len(c.Rows) == 0 && len(c.Media) == 0 && strings.TrimSpace(c.MissingNote) == "")
 }
 
-func shiftingCaptureFromSummary(requestType string, summary json.RawMessage) *appApprovalCapture {
+func shiftingCaptureFromSummary(requestType string, summary json.RawMessage) *domain.CountsApprovalCapture {
 	if requestType != domain.ApprovalRequestTypeShifting || len(summary) == 0 {
 		return nil
 	}
@@ -242,19 +241,13 @@ func shiftingCaptureFromSummary(requestType string, summary json.RawMessage) *ap
 	if err := json.Unmarshal(summary, &payload); err != nil || shiftingCaptureEmpty(payload.Capture) {
 		return nil
 	}
-	out := &appApprovalCapture{
-		VersionLabel: payload.Capture.VersionLabel,
-		Rows:         make([]appApprovalCaptureRow, 0, len(payload.Capture.Rows)),
-		Media:        make([]appApprovalCaptureMedia, 0, len(payload.Capture.Media)),
-		MissingNote:  payload.Capture.MissingNote,
+	if payload.Capture.Rows == nil {
+		payload.Capture.Rows = []domain.CountsApprovalCaptureRow{}
 	}
-	for _, row := range payload.Capture.Rows {
-		out.Rows = append(out.Rows, appApprovalCaptureRow{Label: row.Label, Value: row.Value, Group: row.Group})
+	if payload.Capture.Media == nil {
+		payload.Capture.Media = []domain.CountsApprovalCaptureMedia{}
 	}
-	for _, media := range payload.Capture.Media {
-		out.Media = append(out.Media, appApprovalCaptureMedia{ProofID: media.ProofID, Label: media.Label, Kind: media.Kind})
-	}
-	return out
+	return payload.Capture
 }
 
 // approvalNames resolves every id one page of the queue needs, in a bounded number of batched

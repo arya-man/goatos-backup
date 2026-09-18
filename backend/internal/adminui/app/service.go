@@ -9088,9 +9088,9 @@ func pageOptionGroups(id string) []domain.OptionGroup {
 	case "milk-sops":
 		return withGenericOptionGroups(sopOptionGroupsFor(id))
 	case "counts-sops":
-		// SHIFTING SOP (2026-09-16): the shifting cards editor reuses the weighing card's question
-		// shifting cards and herd-operations capture cards reuse the same question and
-		// capture-kind vocabularies -- one meaning of "photo / video / either" on every card.
+		// SHIFTING SOP + HERD OPERATIONS CAPTURE CARD (2026-09-16): the shifting cards editor and the
+		// birth/death capture editor both reuse the weighing card's question and capture-kind
+		// vocabularies -- one meaning of "photo / video / either" on every card.
 		return withGenericOptionGroups(append(sopOptionGroupsFor(id), shiftingSOPOptionGroups()...))
 	case "feed-sops":
 		// FEED SOP (2026-09-16): the feed cards editor reuses the weighing card's question and

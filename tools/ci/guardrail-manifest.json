@@ -986,7 +986,7 @@
       "owningDoc": "docs/decisions/shifting-sop.md",
       "requiredInCI": true,
       "ciStep": "shifting-sop-guard",
-      "notes": "Maintainer decision 2026-09-16: the raise extras, completion card and high-priority card of a shifting movement come from the PUBLISHED shifting SOP version, pinned per movement at raise. The seed is embedded verbatim in migration 000324, backend/internal/counts names no sop_* table (shiftingsop is the only reader), ErrShiftingProofSlotInvalid is minted only by the judge, and the phone's ShiftingExecute/Raise screens hold no seeded slot title as a literal."
+      "notes": "Maintainer decision 2026-09-16: the raise extras, completion card and high-priority card of a shifting movement come from the PUBLISHED shifting SOP version, pinned per movement at raise. The seed is embedded verbatim in migration 000328, backend/internal/counts names no sop_* table (shiftingsop is the only reader), ErrShiftingProofSlotInvalid is minted only by the judge, and the phone's ShiftingExecute/Raise screens hold no seeded slot title as a literal."
     },
     {
       "id": "offline-first-reads",

@@ -1,8 +1,8 @@
 {
   "formatVersion": 1,
   "database": {
-    "version": 65,
-    "identityHash": "59b402116cae87562ad354a6da4af695",
+    "version": 66,
+    "identityHash": "23b29c3baecb84fe923e992bb5ae16b6",
     "entities": [
       {
         "tableName": "bootstrap_cache",
@@ -5354,6 +5354,73 @@
         }
       },
       {
+        "tableName": "counts_capture_card_cache",
+        "createSql": "CREATE TABLE IF NOT EXISTS `${TABLE_NAME}` (`scopeKey` TEXT NOT NULL, `dtoJson` TEXT NOT NULL, `updatedAt` INTEGER NOT NULL, PRIMARY KEY(`scopeKey`))",
+        "fields": [
+          {
+            "fieldPath": "scopeKey",
+            "columnName": "scopeKey",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "dtoJson",
+            "columnName": "dtoJson",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "updatedAt",
+            "columnName": "updatedAt",
+            "affinity": "INTEGER",
+            "notNull": true
+          }
+        ],
+        "primaryKey": {
+          "autoGenerate": false,
+          "columnNames": [
+            "scopeKey"
+          ]
+        }
+      },
+      {
+        "tableName": "workflow_step_draft_answer",
+        "createSql": "CREATE TABLE IF NOT EXISTS `${TABLE_NAME}` (`workflowId` TEXT NOT NULL, `actionId` TEXT NOT NULL, `answerValue` TEXT NOT NULL, `updatedAt` INTEGER NOT NULL, PRIMARY KEY(`workflowId`, `actionId`))",
+        "fields": [
+          {
+            "fieldPath": "workflowId",
+            "columnName": "workflowId",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "actionId",
+            "columnName": "actionId",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "answerValue",
+            "columnName": "answerValue",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "updatedAt",
+            "columnName": "updatedAt",
+            "affinity": "INTEGER",
+            "notNull": true
+          }
+        ],
+        "primaryKey": {
+          "autoGenerate": false,
+          "columnNames": [
+            "workflowId",
+            "actionId"
+          ]
+        }
+      },
+      {
         "tableName": "pen_visit_items",
         "createSql": "CREATE TABLE IF NOT EXISTS `${TABLE_NAME}` (`queryKey` TEXT NOT NULL, `grainKey` TEXT NOT NULL, `sortIndex` INTEGER NOT NULL, `dtoJson` TEXT NOT NULL, `updatedAt` INTEGER NOT NULL, PRIMARY KEY(`queryKey`, `grainKey`))",
         "fields": [
@@ -5845,7 +5912,7 @@
     ],
     "setupQueries": [
       "CREATE TABLE IF NOT EXISTS room_master_table (id INTEGER PRIMARY KEY,identity_hash TEXT)",
-      "INSERT OR REPLACE INTO room_master_table (id,identity_hash) VALUES(42, '59b402116cae87562ad354a6da4af695')"
+      "INSERT OR REPLACE INTO room_master_table (id,identity_hash) VALUES(42, '23b29c3baecb84fe923e992bb5ae16b6')"
     ]
   }
 }

@@ -131,12 +131,6 @@ import sg.mesha.goatos.core.data.cache.LeadershipTaskItemDao
 import sg.mesha.goatos.core.data.cache.LeadershipTaskItemEntity
 import sg.mesha.goatos.core.data.cache.LeadershipTaskRemoteKeyDao
 import sg.mesha.goatos.core.data.cache.LeadershipTaskRemoteKeyEntity
-import sg.mesha.goatos.core.data.cache.PenRoutineDetailCacheDao
-import sg.mesha.goatos.core.data.cache.PenRoutineDetailCacheEntity
-import sg.mesha.goatos.core.data.cache.PenRoutineItemDao
-import sg.mesha.goatos.core.data.cache.PenRoutineItemEntity
-import sg.mesha.goatos.core.data.cache.PenRoutineRemoteKeyDao
-import sg.mesha.goatos.core.data.cache.PenRoutineRemoteKeyEntity
 import sg.mesha.goatos.core.data.cache.PenVisitDetailCacheDao
 import sg.mesha.goatos.core.data.cache.PenVisitDetailCacheEntity
 import sg.mesha.goatos.core.data.cache.PenVisitItemDao
@@ -389,9 +383,6 @@ import sg.mesha.goatos.core.data.weighing.WeighingShedObservationEntity
         PenVisitItemEntity::class,
         PenVisitRemoteKeyEntity::class,
         PenVisitDetailCacheEntity::class,
-        PenRoutineItemEntity::class,
-        PenRoutineRemoteKeyEntity::class,
-        PenRoutineDetailCacheEntity::class,
         WorkBoardMetaCacheEntity::class,
         WorkBoardItemEntity::class,
         WorkBoardRemoteKeyEntity::class,
@@ -443,15 +434,12 @@ import sg.mesha.goatos.core.data.weighing.WeighingShedObservationEntity
     // decision 2026-09-13, docs/decisions/animal-purchases.md): the paged load rows + their keyset
     // cursor, the paged per-load animal rows + their per-load cursor (the Toxin trio shape, twice),
     // and one JSON blob cache for the form options, each load's header and the caller's write flag.
-    // v65 (see [MIGRATION_64_65]) adds the three Pen routines read-model tables (maintainer
-    // instruction 2026-09-16, docs/decisions/pen-routines.md): the paged Routines rows + their
-    // per-filter remote keys and the task-detail JSON blob cache — the pen-visit trio shape.
-    // v66 (see [MIGRATION_65_66]) adds the authored capture slot map + answers columns to the two
+    // v65 (see [MIGRATION_64_65]) adds the authored capture slot map + answers columns to the two
     // weighing evidence tables (THE WEIGH CAPTURES ARE AUTHORED, maintainer decision 2026-09-16).
-    // v67 (see [MIGRATION_66_67]) adds the SOP capture tables (maintainer decisions 2026-09-16):
+    // v66 (see [MIGRATION_65_66]) adds the SOP capture tables (maintainer decisions 2026-09-16):
     // `counts_capture_card_cache` (the Add birth / Add death capture card, one row per form kind)
     // and `workflow_step_draft_answer` (a death workflow's draft answers held until the one Submit).
-    version = 67,
+    version = 66,
     // exportSchema=true writes schemas/<db-fqcn>/<version>.json (see build.gradle.kts
     // room.schemaLocation). The committed schema JSON is the golden schema
     // MigrationTestHelper validates each migration against, and it makes every schema
@@ -669,9 +657,6 @@ abstract class GoatDatabase : RoomDatabase() {
     abstract fun penVisitItemDao(): PenVisitItemDao
     abstract fun penVisitRemoteKeyDao(): PenVisitRemoteKeyDao
     abstract fun penVisitDetailCacheDao(): PenVisitDetailCacheDao
-    abstract fun penRoutineItemDao(): PenRoutineItemDao
-    abstract fun penRoutineRemoteKeyDao(): PenRoutineRemoteKeyDao
-    abstract fun penRoutineDetailCacheDao(): PenRoutineDetailCacheDao
     abstract fun workBoardMetaCacheDao(): WorkBoardMetaCacheDao
     abstract fun workBoardItemDao(): WorkBoardItemDao
     abstract fun workBoardRemoteKeyDao(): WorkBoardRemoteKeyDao

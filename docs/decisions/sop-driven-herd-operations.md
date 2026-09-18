@@ -177,6 +177,7 @@ Pinned by `TestSeededDeathDocumentBehavesAsToday`, `TestSeededReconcileQuestionn
 Shifting completion is SOP-driven since 2026-09-16 -- as a CARD-WITH-SLOTS on the existing
 completion transaction, NOT on the tasks engine (`shifting-sop.md`: raise extras, completion card,
 high-priority card, pinned per movement at raise; the feed-config fingerprint stays on the row lock).
-Still open: a capture card on the Raise shifting form; the `/config` editor for the Category and
-Task Type registries; cross-category `triggers` (Problem → Action → Commodity); migrating
-vaccination / feed / weighing onto the same engine.
+Birth / death capture forms take SOP-authored captures and questions (capture-form parity, above).
+Still open: the `/config` editor for the Category and Task Type registries; cross-category
+`triggers` (Problem → Action → Commodity); migrating vaccination / feed / weighing onto the same
+engine.

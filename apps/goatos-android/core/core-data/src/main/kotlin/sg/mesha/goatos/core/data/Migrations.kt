@@ -1819,54 +1819,12 @@ val MIGRATION_63_64: Migration = object : Migration(63, 64) {
 }
 
 /**
- * v64 -> v65: the three Pen routines read-model tables (maintainer instruction 2026-09-16,
- * docs/decisions/pen-routines.md) — the paged Routines rows (`pen_routine_items`) with their
- * per-filter cursor (`pen_routine_remote_keys`), the exact pen-visit trio shape of
- * [MIGRATION_61_62], and the task-detail JSON blob cache (`pen_routine_detail_cache`).
- *
- * CREATE, not ALTER: an @Entity added to the @Database with no migration to create its table works
- * on a fresh install and crashes every upgrade on open. Purely additive -- no existing table
- * changes, so an installed phone carrying an unsynced write outbox upgrades in place with no data
- * loss. Each CREATE spells its table name out as a literal so `make room-migration-guard` can
- * statically match every new v65 @Entity table against a CREATE here
- * (docs/decisions/room-migration-safety.md).
- */
-val MIGRATION_64_65: Migration = object : Migration(64, 65) {
-    override fun migrate(db: SupportSQLiteDatabase) {
-        db.execSQL(
-            "CREATE TABLE IF NOT EXISTS `pen_routine_items` " +
-                "(`queryKey` TEXT NOT NULL, `grainKey` TEXT NOT NULL, `sortIndex` INTEGER NOT NULL, " +
-                "`dtoJson` TEXT NOT NULL, `updatedAt` INTEGER NOT NULL, " +
-                "PRIMARY KEY(`queryKey`, `grainKey`))",
-        )
-        db.execSQL(
-            "CREATE INDEX IF NOT EXISTS `index_pen_routine_items_queryKey_sortIndex` " +
-                "ON `pen_routine_items` (`queryKey`, `sortIndex`)",
-        )
-        db.execSQL(
-            "CREATE INDEX IF NOT EXISTS `index_pen_routine_items_grainKey` " +
-                "ON `pen_routine_items` (`grainKey`)",
-        )
-        db.execSQL(
-            "CREATE TABLE IF NOT EXISTS `pen_routine_remote_keys` " +
-                "(`queryKey` TEXT NOT NULL, `nextCursor` TEXT NOT NULL, `endReached` INTEGER NOT NULL, " +
-                "`updatedAt` INTEGER NOT NULL, PRIMARY KEY(`queryKey`))",
-        )
-        db.execSQL(
-            "CREATE TABLE IF NOT EXISTS `pen_routine_detail_cache` " +
-                "(`cacheKey` TEXT NOT NULL, `dtoJson` TEXT NOT NULL, `updatedAt` INTEGER NOT NULL, " +
-                "PRIMARY KEY(`cacheKey`))",
-        )
-    }
-}
-
-/**
- * v65 -> v66 (THE WEIGH CAPTURES ARE AUTHORED, maintainer decision 2026-09-16): the per-animal and
+ * v65 (THE WEIGH CAPTURES ARE AUTHORED, maintainer decision 2026-09-16): the per-animal and
  * whole-pen weighing rows keep the authored slot map and answers beside the legacy primary proof
  * columns. Purely additive: four NOT NULL DEFAULT '{}' columns, no data moves, so an installed
- * v65 database opens with every capture intact and every row reading as the seeded shape.
+ * v64 database opens with every capture intact and every row reading as the seeded shape.
  */
-val MIGRATION_65_66: Migration = object : Migration(65, 66) {
+val MIGRATION_64_65: Migration = object : Migration(64, 65) {
     override fun migrate(db: SupportSQLiteDatabase) {
         db.execSQL("ALTER TABLE `weighing_observation` ADD COLUMN `slotProofsJson` TEXT NOT NULL DEFAULT '{}'")
         db.execSQL("ALTER TABLE `weighing_observation` ADD COLUMN `answersJson` TEXT NOT NULL DEFAULT '{}'")
@@ -1876,14 +1834,14 @@ val MIGRATION_65_66: Migration = object : Migration(65, 66) {
 }
 
 /**
- * v66 -> v67: the SOP capture tables (maintainer decisions 4, 1 and 7, 2026-09-16).
+ * v65 -> v66: the SOP capture tables (maintainer decisions 4, 1 and 7, 2026-09-16).
  *
  * `counts_capture_card_cache` holds the Add birth / Add death form's published capture card (one
  * JSON row per form kind), and `workflow_step_draft_answer` a death workflow's draft answers held
  * until the one Submit. CREATE, not ALTER, and purely additive: an @Entity with no migration works
  * on a fresh install and crashes every upgrade on open (MOB-007).
  */
-val MIGRATION_66_67: Migration = object : Migration(66, 67) {
+val MIGRATION_65_66: Migration = object : Migration(65, 66) {
     override fun migrate(db: SupportSQLiteDatabase) {
         db.execSQL(
             "CREATE TABLE IF NOT EXISTS `counts_capture_card_cache` (" +

@@ -34427,47 +34427,6 @@ components:
         question unanswered or an answer the card did not offer is 422 shifting_answer_invalid naming
         the question (`question`).
       additionalProperties: true
-    CountsApprovalCapture:
-      type: object
-      description: >-
-        What the approver sees of a raise's SOP capture form before deciding (program decision
-        2026-09-16, one shape for birth, death and shifting): the pinned version label, every answer
-        in farm words (grouped), every capture under its slot title with its kind, and a note naming
-        what an older app did not send. Backend-composed at raise and never recomposed; clients
-        render it verbatim.
-      additionalProperties: false
-      required: [version_label, rows, media]
-      properties:
-        version_label:
-          type: string
-        rows:
-          type: array
-          items:
-            type: object
-            additionalProperties: false
-            required: [label, value]
-            properties:
-              label:
-                type: string
-              value:
-                type: string
-              group:
-                type: string
-        media:
-          type: array
-          items:
-            type: object
-            additionalProperties: false
-            required: [proof_id, label, kind]
-            properties:
-              proof_id:
-                type: string
-              label:
-                type: string
-              kind:
-                type: string
-        missing_note:
-          type: string
     WeighingRemovalProofSlot:
       type: object
       description: >-
@@ -43358,6 +43317,60 @@ components:
           type: string
           format: date-time
         decision_reason:
+          type: string
+    CountsApprovalCapture:
+      description: >-
+        The capture form's SNAPSHOT for the approver (and the verifier): every proof the form's SOP
+        capture card asked for under its authored title with the kind the proof register recorded,
+        every answer in farm words, and - for a report from an app older than the card - the note
+        naming what the card asked for and never received ("Not captured (older app)"). Taken ONCE
+        at raise; a later publish never relabels it. BACKEND-OWNED COPY: clients render rows and
+        labels verbatim. Absent when the form asked nothing. Shared by birth, death and shifting.
+      type: object
+      additionalProperties: false
+      required:
+        - rows
+        - media
+      properties:
+        version_label:
+          description: The SOP version the capture was judged by.
+          type: string
+        rows:
+          type: array
+          items:
+            type: object
+            additionalProperties: false
+            required:
+              - label
+              - value
+            properties:
+              label:
+                type: string
+              value:
+                type: string
+              group:
+                description: The section the row belongs to (e.g. "At report"), for grouping.
+                type: string
+        media:
+          type: array
+          items:
+            type: object
+            additionalProperties: false
+            required:
+              - proof_id
+              - label
+              - kind
+            properties:
+              proof_id:
+                description: The proof artifact id; open it through the proofs read route.
+                type: string
+              label:
+                type: string
+              kind:
+                description: video or photo as the proof register recorded it; blank when unknown.
+                type: string
+        missing_note:
+          description: What the card asked for that the submitting app never sent.
           type: string
     CountsSopCaptureSubmission:
       description: >-

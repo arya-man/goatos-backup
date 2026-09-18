@@ -107,7 +107,7 @@ class ShiftingViewModel @Inject constructor(
         val scope = CoroutineScope(viewModelScope.coroutineContext + SupervisorJob(viewModelScope.coroutineContext[Job]))
         raiseScope = scope
         val group = raiseGroup()
-        val controller = FeedSopSlotController(
+        val controller = SopSlotController(
             scope = scope,
             savedStateHandle = savedStateHandle,
             syncRepository = syncRepository,
@@ -142,7 +142,7 @@ class ShiftingViewModel @Inject constructor(
             },
             locked = { _state.value.result.isCommitted },
             onChanged = { syncRaiseCard() },
-            shedIdProvider = { _state.value.destinationShedId },
+            subjectIdProvider = { _state.value.destinationShedId },
             allowEmptyProofs = true,
         )
         scope.launch { controller.state.collect { syncRaiseCard() } }
@@ -586,7 +586,7 @@ class ShiftingViewModel @Inject constructor(
         val key = idempotencyKey.current()
         analytics.track(AnalyticsEvents.COUNTS_SHIFTING_SUBMIT_ATTEMPTED, current.submitAnalyticsProps())
         viewModelScope.launch {
-            val raiseRefs = raiseSlots.submitRefsAllowingEmpty().orEmpty()
+            val raiseRefs = raiseSlots.formSlotRefs().orEmpty()
             val result = syncRepository.enqueueCountsShifting(
                 // Destination shed partitions ordering: two movements INTO the same shed drain
                 // strictly oldest-first so their effects never land out of order.

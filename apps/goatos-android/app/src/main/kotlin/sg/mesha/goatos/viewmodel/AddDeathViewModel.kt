@@ -22,6 +22,7 @@ import sg.mesha.goatos.core.common.AppResult
 import sg.mesha.goatos.capture.PhotoCaptureSource
 import sg.mesha.goatos.capture.ProofCapturePrompt
 import sg.mesha.goatos.capture.ProofCaptureSource
+import sg.mesha.goatos.core.data.CaptureDraftRepository
 import sg.mesha.goatos.core.data.CountsCaptureCardRepository
 import sg.mesha.goatos.core.data.CountsRepository
 import sg.mesha.goatos.core.data.capture.ProofCaptureRepository
@@ -59,6 +60,7 @@ class AddDeathViewModel @Inject constructor(
     private val crashReporter: CrashReporter,
     private val savedStateHandle: SavedStateHandle,
     captureCards: CountsCaptureCardRepository,
+    captureDrafts: CaptureDraftRepository,
     proofCaptureSource: ProofCaptureSource,
     photoCaptureSource: PhotoCaptureSource,
     proofCaptureRepository: ProofCaptureRepository,
@@ -86,6 +88,7 @@ class AddDeathViewModel @Inject constructor(
         photoCaptureSource = photoCaptureSource,
         proofCaptureRepository = proofCaptureRepository,
         captureCards = captureCards,
+        captureDrafts = captureDrafts,
         analytics = analytics,
         crashReporter = crashReporter,
         // A death report's proofs are filed under the animal that died.

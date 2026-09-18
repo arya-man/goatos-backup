@@ -14800,21 +14800,6 @@ export interface components {
         ShiftingSOPAnswers: {
             [key: string]: unknown;
         };
-        /** @description What the approver sees of a raise's SOP capture form before deciding (program decision 2026-09-16, one shape for birth, death and shifting): the pinned version label, every answer in farm words (grouped), every capture under its slot title with its kind, and a note naming what an older app did not send. Backend-composed at raise and never recomposed; clients render it verbatim. */
-        CountsApprovalCapture: {
-            version_label: string;
-            rows: {
-                label: string;
-                value: string;
-                group?: string;
-            }[];
-            media: {
-                proof_id: string;
-                label: string;
-                kind: string;
-            }[];
-            missing_note?: string;
-        };
         /** @description One capture the removal card asks for. The slot LIST is authored on the weighing SOP (second 2026-09-15 decision): a slot may be added, removed, re-worded, be a live-camera video, a photo or either, and be compulsory or optional. The seed's two slots are feed_video and water_video. */
         WeighingRemovalProofSlot: {
             key: string;
@@ -18765,6 +18750,26 @@ export interface components {
             /** Format: date-time */
             decided_at?: string;
             decision_reason?: string;
+        };
+        /** @description The capture form's SNAPSHOT for the approver (and the verifier): every proof the form's SOP capture card asked for under its authored title with the kind the proof register recorded, every answer in farm words, and - for a report from an app older than the card - the note naming what the card asked for and never received ("Not captured (older app)"). Taken ONCE at raise; a later publish never relabels it. BACKEND-OWNED COPY: clients render rows and labels verbatim. Absent when the form asked nothing. Shared by birth, death and shifting. */
+        CountsApprovalCapture: {
+            /** @description The SOP version the capture was judged by. */
+            version_label?: string;
+            rows: {
+                label: string;
+                value: string;
+                /** @description The section the row belongs to (e.g. "At report"), for grouping. */
+                group?: string;
+            }[];
+            media: {
+                /** @description The proof artifact id; open it through the proofs read route. */
+                proof_id: string;
+                label: string;
+                /** @description video or photo as the proof register recorded it; blank when unknown. */
+                kind: string;
+            }[];
+            /** @description What the card asked for that the submitting app never sent. */
+            missing_note?: string;
         };
         /** @description The Add birth / Add death form's SOP capture card extras. Sent by an app that renders the card; ABSENT from an older app, which is accepted and noted rather than refused. When present it is judged strictly against the echoed version: 422 capture_proof_slot_invalid or capture_answer_invalid naming the slot / question (field_errors[0].field), 409 capture_sop_version_unknown for a version that is neither published nor retired. It is part of the idempotency fingerprint only when sent. */
         CountsSopCaptureSubmission: {

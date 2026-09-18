@@ -14,7 +14,7 @@ import type { AdminWebApprovalItem } from "@/lib/api/server";
 import { fmtDateTime } from "@/lib/format";
 import type { RouteSearchParams } from "@/lib/search-params";
 import { APPROVALS_COPY as COPY } from "./copy";
-import { approveApprovalAction, rejectApprovalAction, resolveApprovalProofMediaUrl } from "./actions";
+import { approveApprovalAction, rejectApprovalAction, resolveApprovalCaptureMediaUrl } from "./actions";
 import { ApprovalsActionTelemetry } from "./approvals-telemetry";
 
 const PATHNAME = "/approvals";
@@ -365,7 +365,8 @@ function hrefWithRow(params: RouteSearchParams, requestId: string): string {
   return `${PATHNAME}?${next.toString()}`;
 }
 
-// CaptureSection renders the report's SOP capture card snapshot verbatim: answers grouped by their
+// CaptureSection renders the request's SOP capture snapshot verbatim (ONE renderer for the birth /
+// death capture card and the shifting raise card, shared CountsApprovalCapture): answers grouped by their
 // section, every proof under its authored title with click-to-open, the older-app note and the
 // verifier's verdict on the report proof. Nothing is composed here.
 function CaptureSection({ item }: { item: AdminWebApprovalItem }) {
@@ -427,7 +428,7 @@ function CaptureMediaRow({ proofId, label, kind }: { proofId: string; label: str
     setState("opening");
     // A tab is opened synchronously in the click so the browser does not treat it as a popup.
     const tab = window.open("about:blank", "_blank");
-    const url = await resolveApprovalProofMediaUrl(proofId).catch(() => null);
+    const url = await resolveApprovalCaptureMediaUrl(proofId).catch(() => null);
     if (!url) {
       tab?.close();
       setState("failed");

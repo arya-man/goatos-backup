@@ -64,7 +64,8 @@ interface CountsApprovalRepository {
     suspend fun forgetDecided(approvalRequestId: String)
 
     /**
-     * A short-lived signed URL for one proof the report captured, resolved only when the approver
+     * A short-lived signed URL for one proof the report or raise captured (birth / death capture
+     * card, shifting raise card: one shared renderer), resolved only when the approver
      * taps it. Null when the proof cannot be opened. Never cached: the URL expires.
      */
     suspend fun proofDownloadUrl(proofId: String): String? = null

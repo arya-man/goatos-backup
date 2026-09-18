@@ -12,6 +12,7 @@ import sg.mesha.goatos.capture.ProofCaptureSource
 import sg.mesha.goatos.core.analytics.AnalyticsEvents
 import sg.mesha.goatos.core.analytics.AnalyticsPort
 import sg.mesha.goatos.core.analytics.CrashReporter
+import sg.mesha.goatos.core.data.CaptureDraftRepository
 import sg.mesha.goatos.core.data.CountsCaptureCardRepository
 import sg.mesha.goatos.core.data.capture.ProofCaptureRepository
 import sg.mesha.goatos.core.data.capture.ProofFlow
@@ -46,6 +47,7 @@ internal class HerdCaptureForm(
     private val photoCaptureSource: PhotoCaptureSource,
     private val proofCaptureRepository: ProofCaptureRepository,
     private val captureCards: CountsCaptureCardRepository,
+    private val captureDrafts: CaptureDraftRepository,
     private val analytics: AnalyticsPort,
     private val crashReporter: CrashReporter,
     private val proofSubject: ProofSubject,
@@ -186,6 +188,8 @@ internal class HerdCaptureForm(
             crashReporter = crashReporter,
             stageKey = stageKey,
             groupKey = groupKey,
+            durableDrafts = captureDrafts,
+            durableFlowKey = "counts_$kind",
             shedId = "",
             evidenceIdentity = ProofIdentity(flow = ProofFlow.GENERIC_SUBMIT, taskId = groupKey),
             proofPolicy = { source ->

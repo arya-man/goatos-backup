@@ -141,3 +141,4 @@ internal data class PenCaptureCaps(val perSlot: Int, val perPen: Int)
 
 internal fun WeighingSopRules.penCaptureCaps(slotMax: Int): PenCaptureCaps =
     PenCaptureCaps(perSlot = slotMax, perPen = maxOf(lumpSumProofs.sumOf { it.max }, slotMax))
+

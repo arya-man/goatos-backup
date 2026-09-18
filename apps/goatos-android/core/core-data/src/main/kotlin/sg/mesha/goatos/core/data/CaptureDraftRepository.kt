@@ -13,6 +13,8 @@ import sg.mesha.goatos.core.data.cache.CaptureEvidenceDraftEntity.Companion.SUBM
 
 /** The capture flows that keep durable drafts. One key per work-item family. */
 object CaptureFlow {
+    const val COUNTS_BIRTH = "counts_birth"
+    const val COUNTS_DEATH = "counts_death"
     const val SHIFTING = "shifting"
     /**
      * SHIFTING SOP (2026-09-16): one-shot reset markers of a movement (rework cutoff, Feed Config

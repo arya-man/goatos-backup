@@ -97,33 +97,29 @@ internal class SopSlotController(
     private val durableDrafts: sg.mesha.goatos.core.data.CaptureDraftRepository? = null,
     private val durableFlowKey: String = "",
     private val legacySteps: Map<String, String> = emptyMap(),
+    /** What the proof register files a capture under: the pen (feed) or the animal (a death). */
+    private val proofSubject: ProofSubject = ProofSubject.SHED,
+    private val proofScopeType: String = "shed",
+    /** The subject id at capture time when it is chosen on the form (null = [shedId]). */
+    private val subjectIdProvider: (() -> String)? = null,
     /**
      * SHIFTING SOP (2026-09-16): the durable-draft entity when it differs from [groupKey] -- two
      * controllers sharing one proof group (a movement's completion card and its high-priority card)
      * keep their answers apart, since a draft holds ONE answers row per entity.
      */
     private val durableEntityId: String? = null,
-    /** The capture subject resolved at capture time (a raise form's destination is chosen late). */
-    private val shedIdProvider: (() -> String)? = null,
     /** A card may carry only questions (the shifting raise card); feed cards always carry a slot. */
     private val allowEmptyProofs: Boolean = false,
-    /** What the proof register files a capture under: the pen (feed) or the animal (a death). */
-    private val proofSubject: ProofSubject = ProofSubject.SHED,
-    private val proofScopeType: String = "shed",
-    /** The subject id at capture time when it is chosen on the form (null = [shedId]). */
-    private val subjectIdProvider: (() -> String)? = null,
 ) {
     private val draftEntity: String get() = durableEntityId ?: groupKey
-    private val job = SupervisorJob(scope.coroutineContext[Job])
-    private val controllerScope = CoroutineScope(scope.coroutineContext + job)
-
-    private fun subjectId(): String =
-        subjectIdProvider?.invoke()?.trim().orEmpty()
-            .ifBlank { shedIdProvider?.invoke()?.trim().orEmpty() }
-            .ifBlank { shedId }
 
     /** Captures this phone recorded BEFORE this instant are history (rejected / already submitted). */
     private var ignoreRowsBeforeMs: Long = Long.MIN_VALUE
+
+    private val job = SupervisorJob(scope.coroutineContext[Job])
+    private val controllerScope = CoroutineScope(scope.coroutineContext + job)
+
+    private fun subjectId(): String = subjectIdProvider?.invoke()?.trim().orEmpty().ifBlank { shedId }
 
     /** Stops every observer this controller started (a form starting a fresh draft replaces it). */
     fun close() {
@@ -192,7 +188,7 @@ internal class SopSlotController(
      * (seeded < Room-cached sheet card < live read) never overwrite a stronger one.
      */
     fun applyCard(card: FeedSopCardDto, rank: Int, source: String) =
-        applyCard(card.version, card.instruction, card.proofs, card.questions, rank, source, allowEmptyProofs)
+        applyCard(card.version, card.instruction, card.proofs, card.questions, rank, source)
 
     /**
      * The card in its parts. [allowNoProofs] admits a card with questions only (a herd capture
@@ -207,7 +203,7 @@ internal class SopSlotController(
         source: String,
         allowNoProofs: Boolean = false,
     ) {
-        if (rank < cardRank || (proofs.isEmpty() && !allowNoProofs)) return
+        if (rank < cardRank || (proofs.isEmpty() && !allowNoProofs && !allowEmptyProofs)) return
         val changed = rank != cardRank || version != cardVersion || proofs.map { it.key } != _state.value.slots.map { it.slotKey } ||
             questions.map { it.id } != _state.value.questions.map { it.id }
         cardRank = rank
@@ -278,8 +274,7 @@ internal class SopSlotController(
      */
     fun captureSlot(slotKey: String, requestedKind: String?) {
         val slot = _state.value.slot(slotKey) ?: return
-        val subjectId = subjectId()
-        if (!slot.captureEnabled || locked() || subjectId.isBlank()) return
+        if (!slot.captureEnabled || locked() || subjectId().isBlank()) return
         val medium = mediumFor(slot, requestedKind)
         val replacing = slot.captured
         val d = draft(slotKey)
@@ -325,12 +320,12 @@ internal class SopSlotController(
                 val result = proofCaptureRepository.captureReplacingLatest(
                     slot = EvidenceSlot(identity = evidenceIdentity, fieldKey = slotKey),
                     subject = proofSubject,
-                    subjectId = subjectId,
+                    subjectId = subjectId(),
                     localUri = captured.localUri,
                     mimeType = captured.mimeType,
                     caption = caption(slot.title),
                     scopeType = proofScopeType,
-                    scopeId = subjectId,
+                    scopeId = subjectId(),
                     capturedStartMs = captured.startMs,
                     capturedEndMs = captured.endMs,
                     capturedByPrincipalId = null,
@@ -412,12 +407,6 @@ internal class SopSlotController(
         }
         return out
     }
-
-    /**
-     * [submitRefs] for a card that may legitimately submit NOTHING (a questions-only or all-optional
-     * card): an empty map when no compulsory slot is missing, null only when one is.
-     */
-    fun submitRefsAllowingEmpty(): Map<String, FeedSlotProofSourcePayload>? = formSlotRefs()
 
     /**
      * Empties every slot (SHIFTING SOP rework, a changed Feed Config, or a raise that was just
