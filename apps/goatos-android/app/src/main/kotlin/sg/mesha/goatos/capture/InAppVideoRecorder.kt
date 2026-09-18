@@ -672,6 +672,10 @@ internal fun recorderCopyResources(prompt: ProofCapturePrompt): RecorderCopyReso
         R.string.proof_camera_birth_title,
         R.string.proof_camera_birth_instruction,
     )
+    ProofCapturePrompt.WORK_INSTRUCTION -> RecorderCopyResources(
+        R.string.proof_camera_work_instruction_title,
+        R.string.proof_camera_work_instruction_instruction,
+    )
     ProofCapturePrompt.DEATH -> RecorderCopyResources(
         R.string.proof_camera_death_title,
         R.string.proof_camera_death_instruction,

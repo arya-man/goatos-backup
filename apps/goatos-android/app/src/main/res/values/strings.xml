@@ -4,6 +4,8 @@
     <string name="proof_camera_instruction">Keep the subject and work clearly visible</string>
     <string name="proof_camera_birth_title">Record birth video</string>
     <string name="proof_camera_birth_instruction">Keep the animal and birth-care work clearly visible</string>
+    <string name="proof_camera_work_instruction_title">Record the step</string>
+    <string name="proof_camera_work_instruction_instruction">Keep the work you are proving clearly in frame</string>
     <string name="proof_camera_death_title">Record death video</string>
     <string name="proof_camera_death_instruction">Keep the animal and ear tag clearly visible</string>
     <string name="proof_camera_post_mortem_title">Record post-mortem video</string>

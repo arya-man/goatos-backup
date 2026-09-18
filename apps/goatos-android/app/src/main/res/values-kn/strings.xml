@@ -4,6 +4,8 @@
     <string name="proof_camera_instruction">ವಿಷಯ ಮತ್ತು ಕೆಲಸ ಸ್ಪಷ್ಟವಾಗಿ ಕಾಣುವಂತೆ ಇರಿಸಿ</string>
     <string name="proof_camera_birth_title">ಜನನದ ವಿಡಿಯೋ ದಾಖಲಿಸಿ</string>
     <string name="proof_camera_birth_instruction">ಪ್ರಾಣಿ ಮತ್ತು ಹೆರಿಗೆ ನಂತರದ ಆರೈಕೆ ಸ್ಪಷ್ಟವಾಗಿ ಕಾಣುವಂತೆ ಇರಿಸಿ</string>
+    <string name="proof_camera_work_instruction_title">ಹಂತವನ್ನು ದಾಖಲಿಸಿ</string>
+    <string name="proof_camera_work_instruction_instruction">ನೀವು ಸಾಬೀತು ಮಾಡುತ್ತಿರುವ ಕೆಲಸವನ್ನು ಫ್ರೇಮ್‌ನಲ್ಲಿ ಸ್ಪಷ್ಟವಾಗಿ ಇರಿಸಿ</string>
     <string name="proof_camera_death_title">ಸಾವಿನ ವಿಡಿಯೋ ದಾಖಲಿಸಿ</string>
     <string name="proof_camera_death_instruction">ಪ್ರಾಣಿ ಮತ್ತು ಕಿವಿಯ ಟ್ಯಾಗ್ ಸ್ಪಷ್ಟವಾಗಿ ಕಾಣುವಂತೆ ಇರಿಸಿ</string>
     <string name="proof_camera_post_mortem_title">ಮರಣೋತ್ತರ ಪರೀಕ್ಷೆಯ ವಿಡಿಯೋ ದಾಖಲಿಸಿ</string>

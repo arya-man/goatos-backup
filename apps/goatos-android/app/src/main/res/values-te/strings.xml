@@ -4,6 +4,8 @@
     <string name="proof_camera_instruction">విషయం మరియు పని స్పష్టంగా కనిపించేలా ఉంచండి</string>
     <string name="proof_camera_birth_title">ప్రసవ వీడియోను రికార్డ్ చేయండి</string>
     <string name="proof_camera_birth_instruction">జంతువు మరియు ప్రసవానంతర సంరక్షణ స్పష్టంగా కనిపించేలా ఉంచండి</string>
+    <string name="proof_camera_work_instruction_title">దశను రికార్డ్ చేయండి</string>
+    <string name="proof_camera_work_instruction_instruction">మీరు నిరూపిస్తున్న పనిని ఫ్రేమ్‌లో స్పష్టంగా ఉంచండి</string>
     <string name="proof_camera_death_title">మరణ వీడియోను రికార్డ్ చేయండి</string>
     <string name="proof_camera_death_instruction">జంతువు మరియు చెవి ట్యాగ్ స్పష్టంగా కనిపించేలా ఉంచండి</string>
     <string name="proof_camera_post_mortem_title">పోస్ట్‌మార్టం వీడియోను రికార్డ్ చేయండి</string>

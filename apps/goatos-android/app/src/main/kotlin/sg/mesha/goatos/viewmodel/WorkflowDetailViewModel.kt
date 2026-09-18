@@ -540,21 +540,23 @@ class WorkflowDetailViewModel @Inject constructor(
             return
         }
         val goatId = current.subjectGoatId
+        val target = workflowProofTarget(goatId, workflowId)
+        val prompt = workflowCapturePrompt(false, action, isGeneral = current.isGeneral)
         _state.update { it.copy(isCapturingVideo = true, message = null, proofSaved = null) }
         viewModelScope.launch {
             val captured: Pair<String, Triple<String, Long, Long>>? = try {
                 if (kind == PROOF_KIND_PHOTO) {
                     photoCaptureSource.capturePhoto(
-                        PhotoCaptureContext(title = action.title, instruction = action.detail, prompt = ProofCapturePrompt.BIRTH),
+                        PhotoCaptureContext(title = action.title, instruction = action.detail, prompt = prompt),
                     )?.let { it.localUri to Triple(it.mimeType, it.capturedAtMs, it.capturedAtMs) }
                 } else {
                     proofCaptureSource.captureVideo(
                         ProofCaptureContext(
                             title = workflowProofCaption(current, action),
-                            primaryTag = current.subjectLocationDisplay.ifBlank { current.displayId },
+                            primaryTag = current.subjectLocationDisplay.ifBlank { current.displayId.ifBlank { current.templateLine } },
                             secondaryTag = current.displayId.takeIf { it.isNotBlank() },
                             workLabel = action.title,
-                            prompt = ProofCapturePrompt.BIRTH,
+                            prompt = prompt,
                             headerTitle = action.title,
                         ),
                     )?.let { it.localUri to Triple(it.mimeType, it.startedAtMs, it.endedAtMs) }
@@ -571,18 +573,18 @@ class WorkflowDetailViewModel @Inject constructor(
             val (mimeType, startedAtMs, endedAtMs) = meta
             val ordinal = pendingProofs.value[actionId].orEmpty().size + 1
             val slot = EvidenceSlot(
-                identity = workflowEvidenceSlot(actionId, goatId).identity,
+                identity = workflowEvidenceSlot(actionId, target.subjectId).identity,
                 fieldKey = workflowProofFieldKey(actionId) + "_" + kind + "_" + ordinal,
             )
             val proofResult = proofCaptureRepository.captureReplacingLatest(
                 slot = slot,
-                subject = ProofSubject.GOAT,
-                subjectId = goatId,
+                subject = target.subject,
+                subjectId = target.subjectId,
                 localUri = localUri,
                 mimeType = mimeType,
                 caption = workflowProofCaption(current, action),
-                scopeType = "goat",
-                scopeId = goatId,
+                scopeType = target.scopeType,
+                scopeId = target.subjectId,
                 capturedStartMs = startedAtMs,
                 capturedEndMs = endedAtMs,
                 capturedByPrincipalId = null,
@@ -685,14 +687,15 @@ class WorkflowDetailViewModel @Inject constructor(
         if (current.isCapturingVideo) return
         val action = current.actions.firstOrNull { it.actionId == actionId }
         val goatId = current.subjectGoatId
-        val prompt = workflowCapturePrompt(current.isDeath, action)
+        val target = workflowProofTarget(goatId, workflowId)
+        val prompt = workflowCapturePrompt(current.isDeath, action, isGeneral = current.isGeneral)
         _state.update { it.copy(isCapturingVideo = true, message = null, proofSaved = null) }
         viewModelScope.launch {
             val captured = try {
                 proofCaptureSource.captureVideo(
                     ProofCaptureContext(
                         title = workflowProofCaption(current, action),
-                        primaryTag = current.subjectLocationDisplay.ifBlank { current.displayId },
+                        primaryTag = current.subjectLocationDisplay.ifBlank { current.displayId.ifBlank { current.templateLine } },
                         secondaryTag = current.displayId.takeIf { it.isNotBlank() },
                         workLabel = action?.title.orEmpty(),
                         prompt = prompt,
@@ -738,16 +741,16 @@ class WorkflowDetailViewModel @Inject constructor(
                 }
                 return@launch
             }
-            val slot = workflowEvidenceSlot(actionId, goatId)
+            val slot = workflowEvidenceSlot(actionId, target.subjectId)
             val proofResult = proofCaptureRepository.captureReplacingLatest(
                 slot = slot,
-                subject = ProofSubject.GOAT,
-                subjectId = goatId,
+                subject = target.subject,
+                subjectId = target.subjectId,
                 localUri = captured.localUri,
                 mimeType = captured.mimeType,
                 caption = workflowProofCaption(current, action),
-                scopeType = "goat",
-                scopeId = goatId,
+                scopeType = target.scopeType,
+                scopeId = target.subjectId,
                 capturedStartMs = captured.startedAtMs,
                 capturedEndMs = captured.endedAtMs,
                 capturedByPrincipalId = null,
@@ -913,15 +916,16 @@ class WorkflowDetailViewModel @Inject constructor(
                             fieldKey = workflowProofFieldKey(step.actionId) + "_" + kind + "_" + draft.fieldKey.substringAfterLast('|'),
                         )
                     }
+                    val draftTarget = workflowProofTarget(draft.subjectGoatId, workflowId)
                     val proof = proofCaptureRepository.captureReplacingLatest(
                         slot = slot,
-                        subject = ProofSubject.GOAT,
-                        subjectId = draft.subjectGoatId,
+                        subject = draftTarget.subject,
+                        subjectId = draftTarget.subjectId,
                         localUri = draft.localUri,
                         mimeType = draft.mimeType,
                         caption = workflowProofCaption(current, ui),
-                        scopeType = "goat",
-                        scopeId = draft.subjectGoatId,
+                        scopeType = draftTarget.scopeType,
+                        scopeId = draftTarget.subjectId,
                         capturedStartMs = draft.startedAtMs,
                         capturedEndMs = draft.endedAtMs,
                         capturedByPrincipalId = null,
@@ -1417,7 +1421,21 @@ internal fun deathStepSatisfied(
  * The recorder's briefing for a step: a death step films the animal, except the seeded
  * post-mortem step whose copy asks for the post-mortem work to be visible.
  */
-internal fun workflowCapturePrompt(isDeath: Boolean, action: WorkflowActionUi?): ProofCapturePrompt = when {
+/**
+ * What a run's proof is recorded AGAINST. A birth/death run proves work on an ANIMAL; a general
+ * work instruction has no animal, so its proofs are scoped to the RUN (`task` scope with the
+ * workflow id -- a backend scope/subject type the proof register already accepts). Before this
+ * every capture hard-coded the goat and the capture repository refused a blank goat, so no
+ * video/photo step of a general run could ever be recorded on the phone (PR 308 review, P1).
+ */
+internal data class WorkflowProofTarget(val subject: ProofSubject, val subjectId: String, val scopeType: String)
+
+internal fun workflowProofTarget(goatId: String, workflowId: String): WorkflowProofTarget =
+    if (goatId.isBlank()) WorkflowProofTarget(ProofSubject.TASK, workflowId, "task")
+    else WorkflowProofTarget(ProofSubject.GOAT, goatId, "goat")
+
+internal fun workflowCapturePrompt(isDeath: Boolean, action: WorkflowActionUi?, isGeneral: Boolean = false): ProofCapturePrompt = when {
+    isGeneral -> ProofCapturePrompt.WORK_INSTRUCTION
     !isDeath -> ProofCapturePrompt.BIRTH
     action?.actionKey == WORKFLOW_ACTION_KEY_POST_MORTEM -> ProofCapturePrompt.POST_MORTEM
     else -> ProofCapturePrompt.DEATH

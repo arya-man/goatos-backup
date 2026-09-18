@@ -40,6 +40,8 @@ enum class ProofCapturePrompt {
     FEED_TRANSPORT,
     MILK_PREPARATION,
     MILK_FEEDING,
+    /** A general work instruction (SOP studio, 2026-09-18): no animal, the work itself is in frame. */
+    WORK_INSTRUCTION,
 }
 
 /**

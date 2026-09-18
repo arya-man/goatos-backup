@@ -4,6 +4,8 @@
     <string name="proof_camera_instruction">विषय और काम साफ़ दिखाई देना चाहिए</string>
     <string name="proof_camera_birth_title">जन्म का वीडियो रिकॉर्ड करें</string>
     <string name="proof_camera_birth_instruction">पशु और जन्म के बाद की देखभाल साफ़ दिखाई देनी चाहिए</string>
+    <string name="proof_camera_work_instruction_title">चरण रिकॉर्ड करें</string>
+    <string name="proof_camera_work_instruction_instruction">जिस काम का प्रमाण दे रहे हैं उसे फ़्रेम में साफ़ रखें</string>
     <string name="proof_camera_death_title">मृत्यु का वीडियो रिकॉर्ड करें</string>
     <string name="proof_camera_death_instruction">पशु और कान का टैग साफ़ दिखाई देना चाहिए</string>
     <string name="proof_camera_post_mortem_title">पोस्टमार्टम वीडियो रिकॉर्ड करें</string>

@@ -298,3 +298,26 @@ class WorkflowBranchNoteTest {
         assertEquals("", workflowBlockedNote(blocked = false, blockedReason = "", module = "general"))
     }
 }
+
+class WorkflowProofTargetTest {
+    // A general work instruction has no animal: its proofs are scoped to the RUN. Before this the
+    // capture hard-coded the goat and the repository refused a blank one, so no video/photo step
+    // of a general run could be recorded on the phone (PR 308 review, P1).
+    @Test
+    fun `a run without an animal records proof against the run itself`() {
+        val general = workflowProofTarget(goatId = "", workflowId = "wf-1")
+        assertEquals(sg.mesha.goatos.core.data.capture.ProofSubject.TASK, general.subject)
+        assertEquals("wf-1", general.subjectId)
+        assertEquals("task", general.scopeType)
+        val birth = workflowProofTarget(goatId = "goat-9", workflowId = "wf-1")
+        assertEquals(sg.mesha.goatos.core.data.capture.ProofSubject.GOAT, birth.subject)
+        assertEquals("goat-9", birth.subjectId)
+        assertEquals("goat", birth.scopeType)
+    }
+
+    @Test
+    fun `a general run uses the work-instruction camera copy, never the birth one`() {
+        assertEquals(sg.mesha.goatos.capture.ProofCapturePrompt.WORK_INSTRUCTION, workflowCapturePrompt(isDeath = false, action = null, isGeneral = true))
+        assertEquals(sg.mesha.goatos.capture.ProofCapturePrompt.BIRTH, workflowCapturePrompt(isDeath = false, action = null))
+    }
+}
