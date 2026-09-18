@@ -23,6 +23,8 @@ export type ConfigurationUsageResponse = AdminApiComponents["schemas"]["Configur
 export type ConfigurationRowWrite = AdminApiComponents["schemas"]["ConfigurationRowWrite"];
 export type ConfigurationStatusWrite = AdminApiComponents["schemas"]["ConfigurationStatusWrite"];
 export type ConfigurationFieldError = AdminApiComponents["schemas"]["ConfigurationFieldError"];
+export type ConfigurationImportJob = AdminApiComponents["schemas"]["ConfigurationImportJob"];
+export type ConfigurationImportRow = AdminApiComponents["schemas"]["ConfigurationImportRow"];
 
 function idempotentHeaders(idempotencyKey: string) {
   return { "Idempotency-Key": idempotencyKey };

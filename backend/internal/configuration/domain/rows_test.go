@@ -51,7 +51,7 @@ func TestEveryRegisterHasAConsistentDefinition(t *testing.T) {
 		}
 		hasName := false
 		for _, c := range reg.Columns {
-			if c.Key == "name" || c.Key == "label" {
+			if c.Key == "name" || c.Key == "label" || (reg.DisplayColumn != "" && c.Key == reg.DisplayColumn) {
 				hasName = true
 			}
 			if c.Type == TypeRef {

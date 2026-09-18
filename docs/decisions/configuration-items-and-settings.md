@@ -134,6 +134,61 @@ options endpoint every register serves (`GET /admin/configuration/{register}/opt
 source for such selects, on the web and on the phone alike; a medicine used by a published
 protocol counts as usage and cannot be deleted. Not built yet.
 
+## Bulk download and upload at herd scale (maintainer instruction 2026-09-18)
+
+"Give a bulk upload and bulk download option also, and think of it at a scale ... one lakh
+animals." Every register can be DOWNLOADED as a sheet (CSV or Excel) and every importable one
+UPLOADED from the same shape, so the round trip is download, fix in a spreadsheet, upload. The
+Animals register joins the rail for exactly this: read-only on screen (an animal is edited on
+the Herd Register), downloadable as the whole herd, and uploadable through identity's own bulk
+pipeline so every herd rule stays where it lives.
+
+**The sheet shape is the register's own columns**, keyed by column KEY in the header (labels
+such as "Gender" are matched too), with `id` first and `status` last on a download. A blank id
+creates; a kept id UPDATES that row; a sheet of updates may name only the columns it changes. A
+ref column carries the target's LABEL on download and accepts label, code or id on upload — a
+label two rows share is refused with the ids named, never guessed. Derived columns and `status`
+are ignored on upload (archiving stays on screen, where the usage check runs).
+
+**A file is never applied in the request that carried it.** Three phases, each bounded and
+resumable (migration `000349_configuration_import_jobs`):
+
+1. STAGE — the upload streams line by line into `configuration_import_rows` in 1,000-row
+   COPY chunks; the request holds one chunk, never the sheet. Up to 200,000 rows / 64 MB.
+2. VALIDATE — a processor claims the job (`claimed_at` lease, 5 minutes) and walks the staged
+   rows in 500-row chunks after a `row_no` cursor: refs resolved once per job, the same
+   `ValidateWrite` the drawer runs, in-sheet duplicates. Each row is marked valid/invalid with
+   its messages; the job becomes `previewed`. The screen shows counts, the first problems, and a
+   downloadable "rows to fix" sheet in the upload's own columns.
+3. APPLY — on an explicit click, the valid rows are written through the ORDINARY service
+   (Create or Update) under an idempotency key of `(job, row_no)`. A worker that dies mid-chunk
+   resumes after the last row it finished; a row it had written but not marked replays by key.
+
+Where it runs: the API kicks a bounded goroutine per upload and per apply so a small sheet
+previews in seconds; the kernel worker's `ConfigurationImportStage` (operational lane) sweeps
+jobs whose claim lapsed and finishes them. Both claim first, so a job is never worked twice at
+once, and a phase end is fenced on the job still being in that phase — a cancel that lands
+mid-chunk wins, and rows it marked skipped are not re-marked by the chunk in flight (both
+mutation-tested).
+
+**Animals** are the one register the importer does not write: each 500-row chunk is handed to
+identity's `PreviewAdminGoatBulkImport` (validate) and preview + `CommitAdminGoatBulkImport`
+(apply) with park and pen resolved here by code or name. Identity's per-row rules (identifier
+ownership, partition grain, stage vocabulary, birth needs a dam) come back as the row's
+messages. Create-only: an animal already on the register is reported, never changed.
+
+Measured on the throwaway stack (OCI over an SSH tunnel, ~150 ms per round trip): a pens sheet
+of 4 rows previews in under 2 s; 1,681 animals export in ~0.5 s; animals validate at ~500 rows
+per 2 minutes because identity validates each row with its own queries, which over that tunnel
+is round-trip bound. On a co-located database (~1 ms) the same arithmetic puts a 100,000-row
+animals sheet at a few minutes of worker time, which is what the job shape is for; it was NOT
+proven at that size here.
+
+Known edge, accepted: if a worker dies after identity committed an animals chunk but before
+the rows were marked, the re-run's preview reports those tags as already owned and marks them
+failed although they were created — the sheet's "rows to fix" then names animals that exist.
+The register writes have no such gap (the idempotency key replays the original result).
+
 ## Pinned by
 
 - `configuration/domain/rows_test.go` — definition consistency, validation rules, code shape,
@@ -144,6 +199,15 @@ protocol counts as usage and cannot be deleted. Not built yet.
 - `adminui/app/configuration_page_test.go` — controls gated on write, nav gated on read.
 - `permissions/configuration_permissions_test.go` — CEO-only on the role, module ticks, route
   table.
+- `configuration/domain/bulk_test.go` — sheet columns, header matching (keys, labels, update
+  sheets), blank cells, cell rendering, ref resolution and ambiguity.
+- `configuration/adapters/postgres/import_integration_test.go` — stage / preview / apply on
+  real Postgres, update-by-id round trip, update-only sheets, XLSX template read-back, the
+  cancel fences (mutation-tested) and the recovery sweep.
+- Browser proof 2026-09-18 (sheets): an 18-step Playwright click-through — download CSV /
+  XLSX / template, upload with problems, rows-to-fix download, apply, table refresh, update by
+  id, the animals register download + upload through the herd pipeline, Escape close, phone
+  width — 18/18 green with rendered screenshots.
 - Browser proof 2026-09-18 on a throwaway stack (API :8101 → `goatos_cfgqa` clone of OCI at
   000347, admin-web :3398): a 26-step Playwright click-through over pens, partitions, species,
   categories, items and feed items, 26/26 green, with rendered screenshots.

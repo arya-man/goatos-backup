@@ -40,6 +40,10 @@ type Service interface {
 type Handler struct {
 	service Service
 	log     *slog.Logger
+	// The sheet routes (nil until WithBulk).
+	bulk     Bulk
+	importer *app.Importer
+	jobs     ports.ImportRepository
 }
 
 // NewHandler constructs the transport.
@@ -135,6 +139,7 @@ func (h *Handler) Registers(w http.ResponseWriter, r *http.Request) {
 			{Key: domain.GroupCatalogue, Label: "Catalogue"},
 			{Key: domain.GroupPeople, Label: "People"},
 			{Key: domain.GroupReference, Label: "Reference lists"},
+			{Key: domain.GroupAnimals, Label: "Animals"},
 		},
 		TraceID: traceID(r),
 	})

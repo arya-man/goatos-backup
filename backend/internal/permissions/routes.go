@@ -466,6 +466,18 @@ var protectedRoutes = []Route{
 	{OperationID: "deleteConfigurationRow", Method: "DELETE", Pattern: "/admin/configuration/{register}/{row_id}", Permissions: []string{ConfigurationWrite}},
 	{OperationID: "getConfigurationRowUsage", Method: "GET", Pattern: "/admin/configuration/{register}/{row_id}/usage", Permissions: []string{ConfigurationRead}},
 	{OperationID: "setConfigurationRowStatus", Method: "POST", Pattern: "/admin/configuration/{register}/{row_id}/status", Permissions: []string{ConfigurationWrite}},
+	// Bulk sheets (maintainer instruction 2026-09-18): downloads on read, uploads and apply on
+	// write. Job routes live under /admin/configuration-imports so they cannot collide with a
+	// register key.
+	{OperationID: "exportConfigurationRegister", Method: "GET", Pattern: "/admin/configuration/{register}/export", Permissions: []string{ConfigurationRead}},
+	{OperationID: "downloadConfigurationTemplate", Method: "GET", Pattern: "/admin/configuration/{register}/template", Permissions: []string{ConfigurationRead}},
+	{OperationID: "uploadConfigurationSheet", Method: "POST", Pattern: "/admin/configuration/{register}/imports", Permissions: []string{ConfigurationWrite}},
+	{OperationID: "listConfigurationImports", Method: "GET", Pattern: "/admin/configuration/{register}/imports", Permissions: []string{ConfigurationRead}},
+	{OperationID: "getConfigurationImport", Method: "GET", Pattern: "/admin/configuration-imports/{job_id}", Permissions: []string{ConfigurationRead}},
+	{OperationID: "listConfigurationImportRows", Method: "GET", Pattern: "/admin/configuration-imports/{job_id}/rows", Permissions: []string{ConfigurationRead}},
+	{OperationID: "downloadConfigurationImportErrors", Method: "GET", Pattern: "/admin/configuration-imports/{job_id}/errors", Permissions: []string{ConfigurationRead}},
+	{OperationID: "applyConfigurationImport", Method: "POST", Pattern: "/admin/configuration-imports/{job_id}/apply", Permissions: []string{ConfigurationWrite}},
+	{OperationID: "cancelConfigurationImport", Method: "POST", Pattern: "/admin/configuration-imports/{job_id}/cancel", Permissions: []string{ConfigurationWrite}},
 
 	// SALES (/sales on admin-web). Gated on the dedicated SalesRead/SalesWrite rather
 	// than ProcurementRead: sales is the SELLING side -- revenue, buyer names, realized prices --

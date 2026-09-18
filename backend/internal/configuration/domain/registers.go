@@ -29,6 +29,7 @@ const (
 	GroupCatalogue   = "catalogue"
 	GroupPeople      = "people"
 	GroupReference   = "reference_lists"
+	GroupAnimals     = "animals"
 )
 
 // Option is one choice of an enum column.
@@ -89,6 +90,16 @@ type Register struct {
 	Layout string `json:"layout,omitempty"`
 	// ListKey is set on a dynamic reference-list register: the reference_lists row it renders.
 	ListKey string `json:"list_key,omitempty"`
+	// Importable registers accept a bulk sheet (Configuration -> Import). Every writable
+	// register is; a read-only one is not, except Animals, whose sheet is handed to the herd
+	// register's own bulk pipeline. Set by init from ReadOnly; only Animals names it itself.
+	Importable bool `json:"importable"`
+	// DisplayColumn names the column a row's display is taken from when it is not name/label
+	// (an animal's primary tag).
+	DisplayColumn string `json:"display_column,omitempty"`
+	// ImportCreateOnly registers take new rows from a sheet but never updates (Animals: the herd
+	// pipeline creates; an animal is corrected on its own screens).
+	ImportCreateOnly bool `json:"import_create_only,omitempty"`
 }
 
 // Register keys.
@@ -104,6 +115,10 @@ const (
 	RegItems      = "items"
 	RegFeedItems  = "feed_items"
 	RegRoles      = "roles"
+	// RegAnimals is the herd itself, read-only here (edited on the Herd Register) and served so
+	// the farm can download it as a sheet and upload new animals in bulk through the herd
+	// register's own pipeline.
+	RegAnimals = "animals"
 	// The static reference registers.
 	RegStatusDefinitions = "status_definitions"
 	RegSOPCategories     = "sop_categories"
@@ -141,8 +156,9 @@ func ReferenceListKey(register string) string {
 func ReferenceRegister(list ReferenceList) Register {
 	return Register{
 		Key: RefPrefix + list.Key, Label: list.Name, One: "Entry", Group: GroupReference, ListKey: list.Key,
-		Hint:    list.Description,
-		Columns: referenceEntryColumns,
+		Hint:       list.Description,
+		Importable: true,
+		Columns:    referenceEntryColumns,
 	}
 }
 
@@ -385,6 +401,33 @@ var Registers = []Register{
 		},
 	},
 	{
+		// Animals (maintainer instruction 2026-09-18, "one lakh animals"): the herd, listed so it
+		// can be exported as a sheet and imported in bulk. Rows are written by the herd register's
+		// bulk pipeline (identity), never by a configuration store; the screen links there.
+		Key: RegAnimals, Label: "Animals", One: "Animal", Group: GroupAnimals, ReadOnly: true, Importable: true, ImportCreateOnly: true, DisplayColumn: "animal_identifier_1",
+		EditHref: "/counts/herd", EditLabel: "Herd Register",
+		Hint:    "Every animal on the register. Download the sheet, or upload new animals in bulk; one animal is edited on the Herd Register.",
+		Filters: []string{"park", "species", "sex"},
+		Columns: []Column{
+			{Key: "animal_identifier_1", Label: "RFID / tag 1", Type: TypeText, Required: true, Hint: "The animal's primary tag."},
+			{Key: "animal_identifier_2", Label: "Tag 2", Type: TypeText, ListHidden: true},
+			{Key: "species", Label: "Species", Type: TypeText, Required: true, Hint: "A species code from Animal types, such as goat."},
+			{Key: "breed", Label: "Breed", Type: TypeText},
+			{Key: "sex", Label: "Gender", Type: TypeText, Required: true, Hint: "female or male."},
+			{Key: "park", Label: "Park", Type: TypeText, Required: true, Hint: "The park code, such as CBE."},
+			{Key: "pen_name", Label: "Pen", Type: TypeText, Required: true, Hint: "The pen's name in that park."},
+			{Key: "partition_label", Label: "Partition", Type: TypeText, Hint: "Required when the pen is partitioned: Part 3, or 3."},
+			{Key: "management_stage", Label: "Stage", Type: TypeText, Hint: "A lifecycle stage code, such as K2."},
+			{Key: "dob", Label: "Date of birth", Type: TypeText, Hint: "YYYY-MM-DD."},
+			{Key: "entry_date", Label: "Entry date", Type: TypeText, Hint: "YYYY-MM-DD; today when left blank."},
+			{Key: "origin", Label: "Origin", Type: TypeText, Required: true, Hint: "birth, procured or imported."},
+			{Key: "reproductive_status", Label: "Reproductive", Type: TypeText, ListHidden: true},
+			{Key: "weight_kg", Label: "Weight (kg)", Type: TypeNumber, ListHidden: true, Min: zero()},
+			{Key: "display_id", Label: "Display id", Type: TypeText, Derived: true},
+			{Key: "lifecycle_status", Label: "Status", Type: TypeText, Derived: true},
+		},
+	},
+	{
 		Key: RegReferenceLists, Label: "Reference lists", One: "List", Group: GroupReference, Hidden: true,
 		Hint: "A list of your own: name it, then add its entries.",
 		Columns: []Column{
@@ -411,6 +454,13 @@ var registerIndex = func() map[string]Register {
 			}
 		}
 		out[r.Key] = r
+	}
+	// Every writable register takes a sheet; a read-only one only when it says so (Animals).
+	for i := range Registers {
+		if !Registers[i].ReadOnly {
+			Registers[i].Importable = true
+		}
+		out[Registers[i].Key] = Registers[i]
 	}
 	for _, r := range Registers {
 		for _, c := range r.Columns {

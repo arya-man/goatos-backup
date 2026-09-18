@@ -2014,6 +2014,161 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/admin/configuration/{register}/export": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Download a register as a sheet.
+         * @description Streams the whole register (default every status) as CSV or XLSX, one keyset page at a time. Columns are the register's column keys with `id` first and `status` last; a ref column carries the target's label. Needs configuration.read.
+         */
+        get: operations["exportConfigurationRegister"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/admin/configuration/{register}/template": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Download the upload template for a register.
+         * @description The header row the upload expects, in CSV or XLSX. Needs configuration.read.
+         */
+        get: operations["downloadConfigurationTemplate"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/admin/configuration/{register}/imports": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Recent uploads of a register. */
+        get: operations["listConfigurationImports"];
+        put?: never;
+        /**
+         * Upload a sheet for preview.
+         * @description Stages the file's rows into an import job and starts validation; the job is returned at once and polled. Nothing is written to the register until the job is applied. A sheet carries up to 200,000 rows; the file up to 64 MB. Needs configuration.write.
+         */
+        post: operations["uploadConfigurationSheet"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/admin/configuration-imports/{job_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** One import job, for polling. */
+        get: operations["getConfigurationImport"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/admin/configuration-imports/{job_id}/rows": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** A page of an import job's rows. */
+        get: operations["listConfigurationImportRows"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/admin/configuration-imports/{job_id}/errors": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Download the rows to fix.
+         * @description The invalid and failed rows with their messages, in the upload's own columns.
+         */
+        get: operations["downloadConfigurationImportErrors"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/admin/configuration-imports/{job_id}/apply": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Apply a previewed import.
+         * @description Writes every valid row through the ordinary register write (create, or update when the row carries an id), each under its own idempotency key, in the background. Invalid rows are left out. A job already applying or applied answers 200 with its state. Needs configuration.write.
+         */
+        post: operations["applyConfigurationImport"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/admin/configuration-imports/{job_id}/cancel": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Cancel an unfinished import.
+         * @description Rows already applied stay applied; the rest are marked skipped. Needs configuration.write.
+         */
+        post: operations["cancelConfigurationImport"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
 }
 export type webhooks = Record<string, never>;
 export interface components {
@@ -5244,6 +5399,12 @@ export interface components {
             layout?: "catalogue";
             /** @description Set on a dynamic reference-list register (`ref:<key>`) */
             list_key?: string;
+            /** @description Takes a bulk sheet upload. Every writable register does; Animals does through the herd pipeline. */
+            importable?: boolean;
+            /** @description A sheet adds rows only; the id column is not offered. */
+            import_create_only?: boolean;
+            /** @description The column a row's display is taken from when it is not name/label. */
+            display_column?: string;
             filters?: string[];
         };
         ConfigurationGroup: {
@@ -5284,6 +5445,57 @@ export interface components {
             next_cursor: string;
             /** @description The whole-filter count */
             total: number;
+            trace_id: string;
+        };
+        ConfigurationImportJob: {
+            /** Format: uuid */
+            id: string;
+            register: string;
+            file_name: string;
+            /** @enum {string} */
+            format: "csv" | "xlsx";
+            /** @enum {string} */
+            status: "validating" | "previewed" | "applying" | "applied" | "failed" | "cancelled";
+            total_rows: number;
+            valid_rows: number;
+            invalid_rows: number;
+            applied_rows: number;
+            failed_rows: number;
+            /** @description The last row the current phase finished; with total_rows */
+            progress_row_no: number;
+            error?: string;
+            created_by?: string;
+            /** Format: date-time */
+            created_at: string;
+            /** Format: date-time */
+            updated_at: string;
+            /** Format: date-time */
+            finished_at?: string;
+        };
+        ConfigurationImportJobResponse: {
+            job: components["schemas"]["ConfigurationImportJob"];
+            trace_id: string;
+        };
+        ConfigurationImportJobsResponse: {
+            jobs: components["schemas"]["ConfigurationImportJob"][];
+            trace_id: string;
+        };
+        ConfigurationImportRow: {
+            /** @description The line in the uploaded sheet (the header is 1). */
+            row_no: number;
+            fields: {
+                [key: string]: unknown;
+            };
+            /** @enum {string} */
+            state: "staged" | "valid" | "invalid" | "applied" | "failed" | "skipped";
+            errors: components["schemas"]["ConfigurationFieldError"][];
+            /** @description The row the apply wrote or touched. */
+            result_id?: string;
+        };
+        ConfigurationImportRowsResponse: {
+            rows: components["schemas"]["ConfigurationImportRow"][];
+            /** @description The `after` cursor for the next page; absent on the last. */
+            next_after_row_no?: number;
             trace_id: string;
         };
         ConfigurationRowResponse: {
@@ -5473,6 +5685,9 @@ export interface components {
         ConfigurationRegister: string;
         /** @description The row id. A uuid for most registers; `shed_id:normalized_label` for a partition. */
         ConfigurationRowID: string;
+        /** @description csv (default) or xlsx. */
+        ConfigurationSheetFormat: "csv" | "xlsx";
+        ConfigurationImportJobID: string;
         IdempotencyKey: string;
         OperationsAuditLimit: number;
         OperationsAuditCursor: string;
@@ -9491,6 +9706,329 @@ export interface operations {
             409: components["responses"]["WriteConflict"];
             /** @description Built-in row or read-only register. */
             422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ConfigurationErrorEnvelope"];
+                };
+            };
+            500: components["responses"]["ServerError"];
+        };
+    };
+    exportConfigurationRegister: {
+        parameters: {
+            query?: {
+                /** @description csv (default) or xlsx. */
+                format?: components["parameters"]["ConfigurationSheetFormat"];
+                status?: "all" | "active" | "archived";
+            };
+            header?: never;
+            path: {
+                /** @description A static register key, or `ref:<list_key>` for one of the farm's own reference lists. */
+                register: components["parameters"]["ConfigurationRegister"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The sheet. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "text/csv": string;
+                    "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet": string;
+                };
+            };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+            500: components["responses"]["ServerError"];
+        };
+    };
+    downloadConfigurationTemplate: {
+        parameters: {
+            query?: {
+                /** @description csv (default) or xlsx. */
+                format?: components["parameters"]["ConfigurationSheetFormat"];
+            };
+            header?: never;
+            path: {
+                /** @description A static register key, or `ref:<list_key>` for one of the farm's own reference lists. */
+                register: components["parameters"]["ConfigurationRegister"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The template. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "text/csv": string;
+                    "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet": string;
+                };
+            };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+            /** @description The register does not take uploads. */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ConfigurationErrorEnvelope"];
+                };
+            };
+            500: components["responses"]["ServerError"];
+        };
+    };
+    listConfigurationImports: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description A static register key, or `ref:<list_key>` for one of the farm's own reference lists. */
+                register: components["parameters"]["ConfigurationRegister"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The register's last 20 jobs, newest first. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ConfigurationImportJobsResponse"];
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            500: components["responses"]["ServerError"];
+        };
+    };
+    uploadConfigurationSheet: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description A static register key, or `ref:<list_key>` for one of the farm's own reference lists. */
+                register: components["parameters"]["ConfigurationRegister"];
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "multipart/form-data": {
+                    /**
+                     * Format: binary
+                     * @description A .csv or .xlsx file whose first row is the header.
+                     */
+                    file: string;
+                };
+            };
+        };
+        responses: {
+            /** @description The staged job (status validating). */
+            202: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ConfigurationImportJobResponse"];
+                };
+            };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+            /** @description The file is over 64 MB. */
+            413: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ConfigurationErrorEnvelope"];
+                };
+            };
+            /** @description Missing required columns, too many rows, or a register that does not take uploads. */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ConfigurationErrorEnvelope"];
+                };
+            };
+            500: components["responses"]["ServerError"];
+        };
+    };
+    getConfigurationImport: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                job_id: components["parameters"]["ConfigurationImportJobID"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The job. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ConfigurationImportJobResponse"];
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+            500: components["responses"]["ServerError"];
+        };
+    };
+    listConfigurationImportRows: {
+        parameters: {
+            query?: {
+                state?: "staged" | "valid" | "invalid" | "applied" | "failed" | "skipped";
+                /** @description The row_no cursor from the previous page. */
+                after?: number;
+                limit?: number;
+            };
+            header?: never;
+            path: {
+                job_id: components["parameters"]["ConfigurationImportJobID"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The page. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ConfigurationImportRowsResponse"];
+                };
+            };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+            500: components["responses"]["ServerError"];
+        };
+    };
+    downloadConfigurationImportErrors: {
+        parameters: {
+            query?: {
+                /** @description csv (default) or xlsx. */
+                format?: components["parameters"]["ConfigurationSheetFormat"];
+            };
+            header?: never;
+            path: {
+                job_id: components["parameters"]["ConfigurationImportJobID"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The sheet. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "text/csv": string;
+                    "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet": string;
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+            500: components["responses"]["ServerError"];
+        };
+    };
+    applyConfigurationImport: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                job_id: components["parameters"]["ConfigurationImportJobID"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Already applying or applied. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ConfigurationImportJobResponse"];
+                };
+            };
+            /** @description The job (status applying). */
+            202: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ConfigurationImportJobResponse"];
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+            /** @description The job is not previewed. */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ConfigurationErrorEnvelope"];
+                };
+            };
+            500: components["responses"]["ServerError"];
+        };
+    };
+    cancelConfigurationImport: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                job_id: components["parameters"]["ConfigurationImportJobID"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The cancelled job. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ConfigurationImportJobResponse"];
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+            /** @description The job has already finished. */
+            409: {
                 headers: {
                     [name: string]: unknown;
                 };

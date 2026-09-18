@@ -4,6 +4,7 @@ package ports
 import (
 	"context"
 	"errors"
+	"time"
 
 	"github.com/vgoats/goatos/backend/internal/configuration/domain"
 )
@@ -102,4 +103,63 @@ type Repository interface {
 	Update(ctx context.Context, w WriteParams, register, id string, fields map[string]any, rowVersion int) (domain.Row, error)
 	SetStatus(ctx context.Context, w WriteParams, register, id, status string, rowVersion int) (domain.Row, error)
 	Delete(ctx context.Context, w WriteParams, register, id string, rowVersion int) error
+}
+
+// ImportRowUpdate is what validation or apply decided about one staged row.
+type ImportRowUpdate struct {
+	RowNo    int
+	State    string
+	Errors   []domain.FieldError
+	ResultID string
+	// Fields, when non-nil, replaces the staged fields (validation writes the resolved values
+	// back -- a ref label becomes its id -- so apply never resolves twice).
+	Fields map[string]any
+}
+
+// ImportJobPatch is the bounded set of job columns a phase step may move.
+type ImportJobPatch struct {
+	// FromStatus, when set, fences the patch on the job still being in that status (a phase
+	// end must not overwrite a cancel that landed mid-chunk); a miss is ErrVersionConflict.
+	FromStatus    *string
+	Status        *string
+	ProgressRowNo *int
+	Error         *string
+	// Counters are ADDED, never set, so two chunks cannot lose each other's rows.
+	AddValid, AddInvalid, AddApplied, AddFailed int
+	Finished                                    bool
+	// Release drops the worker's claim (the phase is over or the job is parked).
+	Release bool
+}
+
+// ImportRowsParams pages a job's rows for the preview (state-filtered, keyset on row_no).
+type ImportRowsParams struct {
+	State      string // "" = every row
+	AfterRowNo int
+	Limit      int
+}
+
+// ImportRepository is the durable side of a bulk upload: the job row and its staged lines.
+type ImportRepository interface {
+	CreateImportJob(ctx context.Context, job domain.ImportJob, tenantID string) error
+	// StageImportRows appends one chunk of lines; row_no is the sheet line, unique per job.
+	StageImportRows(ctx context.Context, tenantID, jobID string, rows []domain.ImportRow) error
+	GetImportJob(ctx context.Context, tenantID, jobID string) (domain.ImportJob, error)
+	ListImportJobs(ctx context.Context, tenantID, register string, limit int) ([]domain.ImportJob, error)
+	// ClaimImportJob takes the job for one worker for the lease; ok is false when another
+	// worker holds a live claim or the job is not in a workable status.
+	ClaimImportJob(ctx context.Context, tenantID, jobID, worker string, lease time.Duration) (domain.ImportJob, bool, error)
+	// DueImportJobIDs is every job in a workable status whose claim is absent or expired, for
+	// the recovery sweep.
+	DueImportJobIDs(ctx context.Context, tenantID string, lease time.Duration, limit int) ([]string, error)
+	// ImportRowsAfter is the next chunk of a phase: rows in the given states after row_no.
+	ImportRowsAfter(ctx context.Context, tenantID, jobID string, states []string, afterRowNo, limit int) ([]domain.ImportRow, error)
+	ImportRows(ctx context.Context, tenantID, jobID string, p ImportRowsParams) ([]domain.ImportRow, error)
+	// UpdateImportRows writes a chunk's outcomes; only rows still in fromState move (a cancel
+	// that marked them skipped meanwhile wins).
+	UpdateImportRows(ctx context.Context, tenantID, jobID, fromState string, updates []ImportRowUpdate) error
+	PatchImportJob(ctx context.Context, tenantID, jobID string, patch ImportJobPatch) (domain.ImportJob, error)
+	// RequestImportApply moves a previewed job to applying, fenced on the status; ok false when
+	// it is not previewed.
+	RequestImportApply(ctx context.Context, tenantID, jobID, actorID string) (domain.ImportJob, bool, error)
+	CancelImportJob(ctx context.Context, tenantID, jobID string) (domain.ImportJob, bool, error)
 }

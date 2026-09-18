@@ -1406,13 +1406,30 @@ func compileConfigurationControls(controls []domain.Control, input BootstrapInpu
 		DisabledReason: reason,
 		Action:         "POST /admin/configuration/{register}/{row_id}/status",
 	})
-	return upsertControl(controls, domain.Control{
+	controls = upsertControl(controls, domain.Control{
 		ID:             "delete_row",
 		Label:          controlCopy(copy, "action.delete_row.label", "Delete"),
 		Kind:           "action",
 		Enabled:        allowed,
 		DisabledReason: reason,
 		Action:         "DELETE /admin/configuration/{register}/{row_id}",
+	})
+	// Bulk sheets (2026-09-18): a download rides the read the page already has; an upload is a
+	// write like any other and disables with the same reason.
+	controls = upsertControl(controls, domain.Control{
+		ID:      "export_sheet",
+		Label:   controlCopy(copy, "sheet.download", "Download"),
+		Kind:    "action",
+		Enabled: true,
+		Action:  "GET /admin/configuration/{register}/export",
+	})
+	return upsertControl(controls, domain.Control{
+		ID:             "import_sheet",
+		Label:          controlCopy(copy, "sheet.upload", "Upload"),
+		Kind:           "action",
+		Enabled:        allowed,
+		DisabledReason: reason,
+		Action:         "POST /admin/configuration/{register}/imports",
 	})
 }
 

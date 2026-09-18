@@ -909,7 +909,14 @@ func NewAPI(ctx context.Context, cfg Config, log *slog.Logger) (*API, error) {
 	penRoutinesAdminHandler := penroutineshttp.NewAdminHandler(penroutinesapp.NewAuthoringService(penRoutinesRepo), log)
 	// Configuration -> Items and settings (2026-09-18): the reference registers, read on
 	// configuration.read and written on configuration.write (route table).
-	configurationHandler := configurationhttp.NewHandler(configurationapp.NewService(configurationpg.NewRepository(pool, cfg.Postgres.QueryTimeout)), log)
+	configurationRepo := configurationpg.NewRepository(pool, cfg.Postgres.QueryTimeout)
+	configurationService := configurationapp.NewService(configurationRepo)
+	// Bulk sheets (2026-09-18): uploads are staged and validated/applied by an in-process
+	// importer kicked per job; the kernel worker's ConfigurationImportStage finishes any job whose
+	// claim lapsed. Animals sheets ride identity's own bulk pipeline.
+	configurationImporter := configurationapp.NewImporter(configurationService, configurationRepo, identityService, "", log)
+	configurationHandler := configurationhttp.NewHandler(configurationService, log).
+		WithBulk(configurationService, configurationImporter, configurationRepo)
 	workforceService.WithModuleBadges(penroutinesapp.NewModuleBadges(penvisitsapp.NewModuleBadges(leadershipTasksService, penVisitsService), penRoutinesService))
 	// The sales module: its own bounded ledger (sales_*) with a thin service -- a commercial
 	// record with no state machine to orchestrate.
@@ -1418,6 +1425,7 @@ func NewAPI(ctx context.Context, cfg Config, log *slog.Logger) (*API, error) {
 	penroutineshttp.Register(protectedMux, penRoutinesHandler)
 	penroutineshttp.RegisterAdmin(protectedMux, penRoutinesAdminHandler)
 	configurationhttp.Register(protectedMux, configurationHandler)
+	configurationhttp.RegisterBulk(protectedMux, configurationHandler)
 	saleshttp.Register(protectedMux, salesHandler)
 	vaccinationhttp.Register(protectedMux, vaccinationHandler)
 	vaccexechttp.Register(protectedMux, vaccExecHandler)

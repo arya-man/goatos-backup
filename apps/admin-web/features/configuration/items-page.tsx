@@ -1,4 +1,4 @@
-import { Plus, Search, Settings } from "lucide-react";
+import { FileSpreadsheet, Plus, Search, Settings } from "lucide-react";
 
 import Link from "@/components/no-prefetch-link";
 import { LocalOverlayDrawer, type LocalOverlayDrawerItem } from "@/components/local-overlay-drawer";
@@ -19,6 +19,7 @@ import { all, boundedInt, one, type RouteSearchParams } from "@/lib/search-param
 import { CatalogueLists, type CatalogueList } from "./catalogue-lists";
 import { RegisterFilter } from "./register-filter";
 import { RowDrawerForm } from "./row-drawer";
+import { SheetDrawer } from "./sheet-drawer";
 
 /**
  * /configuration/items (maintainer instruction 2026-09-18, from the Claude prototype merged in
@@ -114,6 +115,8 @@ export type ItemsPageData = {
 
 /** The catalogue layout's drawer ids for a list: `cat:new` / `cat:<id>`, beside the items' own ids. */
 const LIST_EDIT_PREFIX = "cat:";
+/** The sheet drawer id (download / upload of the open register). */
+const SHEET_EDIT_ID = "sheet";
 /** The reference-lists drawer ids: `reflist:new` (Add list) / `reflist:<key>` (the open list itself). */
 const REFLIST_EDIT_PREFIX = "reflist:";
 const REFERENCE_GROUP = "reference_lists";
@@ -162,6 +165,8 @@ export function ItemsPage({ searchParams, pageContract, data }: { searchParams?:
   const canSetStatus = controlEnabled(pageContract, "set_row_status", false);
   const canDelete = controlEnabled(pageContract, "delete_row", false);
   const canWrite = canCreate || canEdit || canSetStatus || canDelete;
+  const canExport = controlEnabled(pageContract, "export_sheet", false);
+  const canImport = controlEnabled(pageContract, "import_sheet", false);
 
   const params = itemsPageParams(sp, pageContract);
   const catalog = data.registers.ok ? data.registers.data : null;
@@ -177,7 +182,7 @@ export function ItemsPage({ searchParams, pageContract, data }: { searchParams?:
 
   // Table columns: the display name first, then every column not hidden from the list and not the
   // one the display already shows, then what the row holds, then status.
-  const nameKey = register?.columns.find((column) => column.key === "name" || column.key === "label")?.key;
+  const nameKey = register?.display_column ?? register?.columns.find((column) => column.key === "name" || column.key === "label")?.key;
   // A kind-scoped item column (route, disease, ...) earns its place in the table only when a row
   // on this page carries a value: seven vaccines beside four empty medicine columns say nothing.
   const listColumns = (register?.columns ?? []).filter((column) => {
@@ -309,6 +314,16 @@ export function ItemsPage({ searchParams, pageContract, data }: { searchParams?:
       });
     }
   }
+  // The bulk sheet drawer: download (on read) and upload (on write) of the open register.
+  if (register && canExport && !register.hidden) {
+    drawerItems.push({
+      id: SHEET_EDIT_ID,
+      eyebrow: register.label,
+      title: c("sheet.title"),
+      icon: <FileSpreadsheet className="ic" aria-hidden="true" />,
+      body: <SheetDrawer pageContract={pageContract} register={register} canWrite={canImport} />,
+    });
+  }
   // Reference lists: the "Add list" drawer, and the open list's own drawer (rename / archive /
   // delete the list, not its entries).
   const referenceListsRegister = registers.find((item) => item.key === "reference_lists");
@@ -415,6 +430,12 @@ export function ItemsPage({ searchParams, pageContract, data }: { searchParams?:
             {register?.list_key && canEdit && data.openList ? (
               <LocalOverlayLink href={href(sp, { [PARAM_EDIT]: REFLIST_EDIT_PREFIX + register.list_key }, true)} scroll={false} className="btn sm ghost">
                 {c("reference.edit_list")}
+              </LocalOverlayLink>
+            ) : null}
+            {register && canExport && !register.hidden ? (
+              <LocalOverlayLink href={editHref(SHEET_EDIT_ID)} scroll={false} className="btn sm ghost" data-testid="sheet-open">
+                <FileSpreadsheet className="ic" style={{ width: 14 }} aria-hidden="true" />
+                {c("sheet.title")}
               </LocalOverlayLink>
             ) : null}
             {register?.read_only && register.edit_href ? (

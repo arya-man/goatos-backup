@@ -81,6 +81,7 @@ func NewRepository(pool *pgxpool.Pool, timeout time.Duration) *Repository {
 		domain.RegItems:             itemStore{},
 		domain.RegFeedItems:         feedItemStore{},
 		domain.RegRoles:             roleStore{},
+		domain.RegAnimals:           animalStore{},
 		domain.RegStatusDefinitions: statusDefinitionStore{},
 		domain.RegSOPCategories:     sopCategoryStore,
 		domain.RegTaskTypes:         taskTypeStore,

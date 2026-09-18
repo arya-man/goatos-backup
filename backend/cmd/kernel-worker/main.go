@@ -220,6 +220,9 @@ func run(ctx context.Context, args []string) error {
 			// notify time has passed, roll unfinished checks forward as delayed. Same lane and
 			// the same once-per-day mechanism as the pen visits above.
 			kernelstages.NewPenRoutineKernelStage(deps, tenantID, logger),
+			// Bulk sheet uploads (2026-09-18): finish any Configuration import whose in-process
+			// run lapsed, resuming its validate/apply phase after the last row it finished.
+			kernelstages.NewConfigurationImportStage(deps, tenantID, logger),
 			kernelstages.NewPcCareInventoryVaccineStage(deps, tenantID),
 			kernelstages.NewInventoryBatchReconcilerStage(deps, tenantID),
 			kernelstages.NewSopSubmissionFanoutRetryStage(deps, tenantID),
