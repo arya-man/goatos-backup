@@ -249,6 +249,15 @@ WHERE t.tenant_id=$1::uuid AND t.task_id=$2::uuid`, tenantID, taskID).Scan(
 	return x, nil
 }
 
+// transportRejectedProofReuseSQL: does any capture of this submit already sit on a REJECTED attempt
+// of the same task (the bare proof_ref column or any value of the card's sop_proofs map)?
+const transportRejectedProofReuseSQL = `SELECT EXISTS (
+  SELECT 1 FROM feed_transport_attempts a
+  WHERE a.tenant_id=$1::uuid AND a.task_id=$2::uuid AND a.status='rejected'
+    AND (a.proof_ref = ANY($3::text[])
+      OR EXISTS (SELECT 1 FROM jsonb_each_text(coalesce(a.sop_proofs,'{}'::jsonb)) slot WHERE slot.value = ANY($3::text[])))
+)`
+
 func (r *Repository) SubmitTransportAttempt(ctx context.Context, p ports.SubmitTransportParams) (ports.SubmitTransportResult, error) {
 	ctx, cancel := context.WithTimeout(ctx, r.timeout)
 	defer cancel()
@@ -319,12 +328,7 @@ WHERE t.tenant_id=$1::uuid AND t.task_id=$2::uuid FOR UPDATE`, p.TenantID, p.Tas
 		}
 	}
 	var reused bool
-	if err = tx.QueryRow(ctx, `SELECT EXISTS (
-  SELECT 1 FROM feed_transport_attempts a
-  WHERE a.tenant_id=$1::uuid AND a.task_id=$2::uuid AND a.status='rejected'
-    AND (a.proof_ref = ANY($3::text[])
-      OR EXISTS (SELECT 1 FROM jsonb_each_text(coalesce(a.sop_proofs,'{}'::jsonb)) slot WHERE slot.value = ANY($3::text[])))
-)`, p.TenantID, p.TaskID, refs).Scan(&reused); err != nil {
+	if err = tx.QueryRow(ctx, transportRejectedProofReuseSQL, p.TenantID, p.TaskID, refs).Scan(&reused); err != nil {
 		return res, fmt.Errorf("feeddirection: check rejected transport proof reuse: %w", err)
 	}
 	if reused {
