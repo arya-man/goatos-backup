@@ -20775,6 +20775,41 @@ components:
             overlays them on the body as chips.
           items:
             $ref: "#/components/schemas/LeadershipTaskMention"
+    LeadershipTaskActivity:
+      type: object
+      description: >-
+        One row of the task's Jira-style history feed (migration 000349), NEWEST FIRST in
+        `LeadershipTask.activity`. Every word is composed server-side: the actor's name and
+        avatar initials, the two ends of the change as the screen shows them and the one-line
+        sentence. `kind` is the closed vocabulary the console keys its History / Comments tabs
+        and chip rendering on. A `commented` row names its note in `note_id` and the note in
+        `notes[]` carries the text, so a comment is never stored twice.
+      required: [id, kind, occurred_at, occurred_label, actor_user_id, actor_name, actor_initials, from_label, to_label, from_value, to_value, note_id, summary]
+      properties:
+        id: { type: string, format: uuid }
+        kind:
+          type: string
+          enum: [created, status_changed, assignee_changed, deadline_changed, title_changed, brief_changed, commented, cancelled]
+        occurred_at: { type: string, format: date-time }
+        occurred_label: { type: string, description: 'Farm-clock "DD/MM/YYYY HH:MM" of the change.' }
+        actor_user_id: { type: string, format: uuid }
+        actor_name: { type: string, description: Blank when the actor no longer has an active roster row. }
+        actor_initials: { type: string, description: Up to two letters for the avatar; blank with no name. }
+        from_label:
+          type: string
+          description: >-
+            The value BEFORE the change, as words: a status chip ("Open"), a deadline
+            ("17/09/2026 17:00"), a title. Blank for created / commented / cancelled and for a
+            deadline that was not set before.
+        to_label: { type: string, description: The value AFTER the change, same rendering as from_label. }
+        from_value:
+          type: string
+          description: >-
+            The stored KEY behind from_label (a status key such as `in_progress`, an RFC3339
+            deadline, a title). A client picks a status chip's tone from it; it never parses the label.
+        to_value: { type: string, description: The stored key behind to_label. }
+        note_id: { type: string, description: The note a `commented` row refers to; blank otherwise. }
+        summary: { type: string, description: '"Hemant created the task", "Ravi Teja changed the status Open → Doing".' }
     LeadershipTaskMention:
       type: object
       description: One stored, resolved mention on a note.
@@ -20848,6 +20883,7 @@ components:
         - attachment_count
         - attachments
         - notes
+        - activity
         - deadline_label
         - days_left_label
         - deadline_tone
@@ -20920,6 +20956,11 @@ components:
           description: Chronological two-way task notes; either task party may append while active.
           items:
             $ref: "#/components/schemas/LeadershipTaskNote"
+        activity:
+          type: array
+          description: The task's history feed, newest first; never empty (the raise itself is the first row).
+          items:
+            $ref: "#/components/schemas/LeadershipTaskActivity"
     LeadershipTaskDetail:
       type: object
       required: [task, trace_id]

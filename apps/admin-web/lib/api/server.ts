@@ -115,6 +115,8 @@ export type LeadershipTaskDetail =
   AppApiComponents["schemas"]["LeadershipTaskDetail"];
 export type LeadershipTaskAttachment =
   AppApiComponents["schemas"]["LeadershipTaskAttachment"];
+export type LeadershipTaskActivity =
+  AppApiComponents["schemas"]["LeadershipTaskActivity"];
 export type LeadershipTaskDownload = { download_url: string; trace_id: string };
 
 // Process-integrity read model — the canonical truth feeding Action Center, Protocol Adherence,

@@ -470,6 +470,7 @@ func (r *Repository) enrichPage(ctx context.Context, tenantID string, tasks []do
 	batch.Queue(sqlRepository5, tenantID, ids)  // attachments
 	batch.Queue(sqlListNotes, tenantID, ids)    // notes
 	batch.Queue(sqlListMentions, tenantID, ids) // mentions of those notes
+	batch.Queue(sqlListEvents, tenantID, ids)   // activity (migration 000349), newest first
 	results := r.pool.SendBatch(ctx, batch)
 	defer results.Close()
 
@@ -503,6 +504,16 @@ func (r *Repository) enrichPage(ctx context.Context, tenantID string, tasks []do
 		return err
 	}
 	mentionRows.Close()
+
+	eventRows, err := results.Query()
+	if err != nil {
+		return fmt.Errorf("leadership task: list events: %w", err)
+	}
+	if err := scanEventsInto(eventRows, tasks, index); err != nil {
+		eventRows.Close()
+		return err
+	}
+	eventRows.Close()
 
 	return results.Close()
 }
@@ -705,6 +716,9 @@ func (r *Repository) getRow(ctx context.Context, q querier, tenantID, taskID str
 	if err := r.participantsTo(ctx, q, tenantID, tasks); err != nil {
 		return domain.Task{}, err
 	}
+	if err := r.eventsTo(ctx, q, tenantID, tasks); err != nil {
+		return domain.Task{}, err
+	}
 	return tasks[0], nil
 }
 
@@ -758,6 +772,10 @@ func (r *Repository) Raise(ctx context.Context, p ports.RaiseParams) (domain.Tas
 		return domain.Task{}, fmt.Errorf("leadership task: insert: %w", err)
 	}
 	if err := insertAttachments(ctx, tx, p.TenantID, taskID, p.Attachments); err != nil {
+		return domain.Task{}, err
+	}
+	// The feed's first row, written by the raise itself (migration 000349).
+	if err := recordEvent(ctx, tx, p.TenantID, taskID, now, p.ActorID, domain.EventCreated, "", "", ""); err != nil {
 		return domain.Task{}, err
 	}
 	task, err := r.getRow(ctx, tx, p.TenantID, taskID, false)
@@ -856,6 +874,13 @@ func (r *Repository) Edit(ctx context.Context, p ports.EditParams) (domain.Task,
 	if err := insertAttachments(ctx, tx, p.TenantID, p.TaskID, p.Attachments); err != nil {
 		return domain.Task{}, err
 	}
+	// One feed row per field that actually moved (title / brief / deadline), compared
+	// against the row read under the lock above, so an unchanged re-save writes nothing.
+	edited := before
+	edited.Title, edited.Body, edited.DeadlineAt = p.Title, p.Body, deadline
+	if err := recordEditEvents(ctx, tx, p.TenantID, p.TaskID, now, p.ActorID, before, edited); err != nil {
+		return domain.Task{}, err
+	}
 	after, err := r.getRow(ctx, tx, p.TenantID, p.TaskID, false)
 	if err != nil {
 		return domain.Task{}, err
@@ -930,6 +955,15 @@ func (r *Repository) ChangeStatus(ctx context.Context, p ports.StatusParams) (do
 	now := r.now().UTC()
 	if _, err := tx.Exec(ctx, sqlRepository10, p.TenantID, p.TaskID, p.Status, now); err != nil {
 		return domain.Task{}, fmt.Errorf("leadership task: update status: %w", err)
+	}
+	// A cancel is its own kind on the feed ("Hemant cancelled the task"); every other move is
+	// a status change carrying both ends, so the panel can draw the two chips and the arrow.
+	statusKind := domain.EventStatusChanged
+	if p.Status == domain.StatusCancelled {
+		statusKind = domain.EventCancelled
+	}
+	if err := recordEvent(ctx, tx, p.TenantID, p.TaskID, now, p.Actor.UserID, statusKind, before.Status, p.Status, ""); err != nil {
+		return domain.Task{}, err
 	}
 	after, err := r.getRow(ctx, tx, p.TenantID, p.TaskID, false)
 	if err != nil {
@@ -1023,6 +1057,9 @@ func (r *Repository) SetComment(ctx context.Context, p ports.CommentParams) (dom
 			return domain.Task{}, fmt.Errorf("leadership task: insert note: %w", err)
 		}
 		if err := insertMentions(ctx, tx, p.TenantID, p.TaskID, noteID, p.Actor.UserID, mentions, now); err != nil {
+			return domain.Task{}, err
+		}
+		if err := recordEvent(ctx, tx, p.TenantID, p.TaskID, now, p.Actor.UserID, domain.EventCommented, "", "", noteID); err != nil {
 			return domain.Task{}, err
 		}
 	}

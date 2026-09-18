@@ -2213,6 +2213,28 @@ func pageSpecificCopy(id string) map[string]string {
 			"feedback.invalid_mention":      "A name that is not on this farm's leadership roster cannot be named on a task. Pick the person from the list that appears when you type @.",
 			"feedback.too_many_mentions":    "One update can name at most 20 people.",
 			"feedback.mention_without_note": "Write the update before naming anyone in it.",
+			// ── THE ACTIVITY FEED (CEO instruction 2026-09-18, the Jira issue panel) ─────
+			// Three views over ONE backend list (`LeadershipTask.activity`, migration
+			// 000349): History is every change of fact, Comments is the notes, All is both,
+			// newest first. The verb keys are the sentence AFTER the actor's name -- the
+			// console renders "<name> <verb> <from> → <to>" from the row's own labels, and
+			// the phone shows the backend's `summary` verbatim; both must read the same.
+			"activity.tabs_aria":        "Activity views",
+			"activity.tab_all":          "All",
+			"activity.tab_history":      "History",
+			"activity.tab_comments":     "Comments",
+			"activity.created":          "created the task",
+			"activity.status_changed":   "changed the status",
+			"activity.assignee_changed": "changed the assignee",
+			"activity.deadline_changed": "changed the deadline",
+			"activity.title_changed":    "changed the title",
+			"activity.brief_changed":    "edited the brief",
+			"activity.commented":        "commented",
+			"activity.cancelled":        "cancelled the task",
+			"activity.updated":          "updated the task",
+			"activity.empty":            "Nothing has happened on this task yet.",
+			"activity.empty_history":    "No changes recorded on this task yet.",
+			"activity.empty_comments":   "No comments on this task yet.",
 		}
 	case "pen-routines":
 		return map[string]string{
