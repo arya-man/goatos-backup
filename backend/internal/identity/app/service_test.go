@@ -624,12 +624,15 @@ func TestCreateAdminGoatRejectsMissingOrUnknownSex(t *testing.T) {
 		{
 			name:    "missing sex",
 			rawBody: fmt.Sprintf(`{"animal_identifier_1":"A1-MISSING-SEX","animal_identifier_2":"A2-MISSING-SEX","species":"goat","park_id":%q,"shed_id":%q,"dob":"2026-05-20","origin_type":"procured","entry_date":"2026-06-01","evidence_refs":[{"evidence_type":"source_record","evidence_id":"synthetic-row-1"}]}`, testPark, testShed),
-			wantMsg: "sex is required and must be female or male",
+			wantMsg: "sex is required",
 		},
 		{
-			name:    "invalid sex value",
-			rawBody: fmt.Sprintf(`{"animal_identifier_1":"A1-BAD-SEX","animal_identifier_2":"A2-BAD-SEX","species":"goat","park_id":%q,"shed_id":%q,"sex":"invalid","dob":"2026-05-20","origin_type":"procured","entry_date":"2026-06-01","evidence_refs":[{"evidence_type":"source_record","evidence_id":"synthetic-row-1"}]}`, testPark, testShed),
-			wantMsg: "sex must be female or male",
+			// Since migration 000346 sex is a code in the tenant's sex_lookup (Configuration ->
+			// Items and settings): the service checks the SHAPE before any repo call, membership
+			// is the repository's check against the lookup (admin_goat_create_integration_test).
+			name:    "malformed sex value",
+			rawBody: fmt.Sprintf(`{"animal_identifier_1":"A1-BAD-SEX","animal_identifier_2":"A2-BAD-SEX","species":"goat","park_id":%q,"shed_id":%q,"sex":"Not A Sex","dob":"2026-05-20","origin_type":"procured","entry_date":"2026-06-01","evidence_refs":[{"evidence_type":"source_record","evidence_id":"synthetic-row-1"}]}`, testPark, testShed),
+			wantMsg: "sex must be one of the farm's configured sexes",
 		},
 	}
 	for _, tt := range tests {

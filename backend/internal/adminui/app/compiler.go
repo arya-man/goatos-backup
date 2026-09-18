@@ -971,6 +971,8 @@ func compilePages(pages []domain.PageContract, families ReferenceFamilies, input
 			out[i].Controls = compileAnimalPurchaseControls(out[i].Controls, input, out[i].Copy)
 		case "pen-routines":
 			out[i].Controls = compilePenRoutineControls(out[i].Controls, input, out[i].Copy)
+		case "configuration-items":
+			out[i].Controls = compileConfigurationControls(out[i].Controls, input, out[i].Copy)
 		case "people":
 			out[i].Controls = compilePeopleControls(out[i].Controls, input, out[i].Copy)
 		case "counts-breakdown":
@@ -1365,6 +1367,52 @@ func penRoutineControls(controls []domain.Control, allowed bool, copy map[string
 		Enabled:        allowed,
 		DisabledReason: reason,
 		Action:         "POST /admin/pen-routines/{routine_id}/status",
+	})
+}
+
+// compileConfigurationControls gates the FOUR writes on /configuration/items (maintainer
+// instruction 2026-09-18): adding a row, editing it, archiving / restoring it and deleting it.
+// All four ride ConfigurationWrite -- ceo_internal on the role, the Configure tick per person --
+// and a reader sees each control disabled with the reason rather than finding the page missing.
+// Both halves of the capability lock: these controls, and the route table (POST / PUT / DELETE
+// /admin/configuration/*).
+func compileConfigurationControls(controls []domain.Control, input BootstrapInput, copy map[string]string) []domain.Control {
+	allowed := len(input.Grants) == 0 || grantsAuthorize(input.Grants, input.TenantID, []string{permissions.ConfigurationWrite})
+	reason := ""
+	if !allowed {
+		reason = controlCopy(copy, "configure.disabled_no_access", "Changing these lists is limited to the CEO and CXO.")
+	}
+	controls = upsertControl(controls, domain.Control{
+		ID:             "create_row",
+		Label:          controlCopy(copy, "action.create_row.label", "Add"),
+		Kind:           "primary_action",
+		Enabled:        allowed,
+		DisabledReason: reason,
+		Action:         "POST /admin/configuration/{register}",
+	})
+	controls = upsertControl(controls, domain.Control{
+		ID:             "edit_row",
+		Label:          controlCopy(copy, "action.edit_row.label", "Edit"),
+		Kind:           "action",
+		Enabled:        allowed,
+		DisabledReason: reason,
+		Action:         "PUT /admin/configuration/{register}/{row_id}",
+	})
+	controls = upsertControl(controls, domain.Control{
+		ID:             "set_row_status",
+		Label:          controlCopy(copy, "action.set_row_status.label", "Archive / restore"),
+		Kind:           "action",
+		Enabled:        allowed,
+		DisabledReason: reason,
+		Action:         "POST /admin/configuration/{register}/{row_id}/status",
+	})
+	return upsertControl(controls, domain.Control{
+		ID:             "delete_row",
+		Label:          controlCopy(copy, "action.delete_row.label", "Delete"),
+		Kind:           "action",
+		Enabled:        allowed,
+		DisabledReason: reason,
+		Action:         "DELETE /admin/configuration/{register}/{row_id}",
 	})
 }
 
@@ -2267,6 +2315,9 @@ func permissionsForNav(id string) []string {
 		// The READ permission: a director reaches the page and sees the routines read-only.
 		// Whether the authoring controls are offered is PenRoutinesConfigure on the contract.
 		return []string{permissions.PenRoutinesRead}
+	case "configuration-items":
+		// The READ permission: whether the writes are offered is ConfigurationWrite on the contract.
+		return []string{permissions.ConfigurationRead}
 	case "health-config":
 		// The READ permission, not the write one: a principal allowed to inspect the standing
 		// dosages should reach the screen and see it read-only. Whether the save/publish controls

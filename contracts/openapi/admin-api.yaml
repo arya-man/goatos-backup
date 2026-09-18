@@ -4013,6 +4013,322 @@ paths:
                 $ref: "#/components/schemas/ErrorEnvelope"
         "500":
           $ref: "#/components/responses/ServerError"
+  /admin/configuration/registers:
+    get:
+      tags:
+        - Configuration
+      operationId: listConfigurationRegisters
+      summary: The register catalog and the active-row count of each.
+      description: >-
+        Configuration -> Items and settings (maintainer instruction 2026-09-18): every editable
+        reference list -- farm places, animal types, catalogues -- as a DEFINITION the page
+        renders from (columns, types, refs, hints) plus the rail counts. Needs configuration.read.
+      responses:
+        "200":
+          description: The registers, grouped, with counts.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ConfigurationRegistersResponse"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "500":
+          $ref: "#/components/responses/ServerError"
+  /admin/configuration/{register}:
+    get:
+      tags:
+        - Configuration
+      operationId: listConfigurationRows
+      summary: One keyset page of a register.
+      description: >-
+        Rows of one register, active by default, searched by display name, filtered by a ref or
+        enum column through `f.<column>` query keys, keyset-paged on the register's own order.
+        `total` is the whole-filter count. Needs configuration.read.
+      parameters:
+        - $ref: "#/components/parameters/ConfigurationRegister"
+        - name: status
+          in: query
+          required: false
+          schema: { type: string, enum: [active, archived, all] }
+        - name: q
+          in: query
+          required: false
+          schema: { type: string }
+        - name: cursor
+          in: query
+          required: false
+          schema: { type: string }
+        - name: limit
+          in: query
+          required: false
+          schema: { type: integer, minimum: 1, maximum: 200 }
+      responses:
+        "200":
+          description: The page.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ConfigurationListResponse"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "500":
+          $ref: "#/components/responses/ServerError"
+    post:
+      tags:
+        - Configuration
+      operationId: createConfigurationRow
+      summary: Add a row to a register.
+      description: >-
+        The fields are validated against the register definition and refused field by field
+        (invalid_fields carries `field_errors`); a ref must name an active row of its target;
+        a duplicate name or code is a 409. Needs configuration.write. Idempotent on the
+        Idempotency-Key header.
+      parameters:
+        - $ref: "#/components/parameters/ConfigurationRegister"
+        - $ref: "#/components/parameters/IdempotencyKey"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/ConfigurationRowWrite"
+      responses:
+        "201":
+          description: The created row.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ConfigurationRowResponse"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "409":
+          $ref: "#/components/responses/WriteConflict"
+        "422":
+          description: A field is not valid (invalid_fields, unknown_reference, read_only_register).
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ConfigurationErrorEnvelope"
+        "500":
+          $ref: "#/components/responses/ServerError"
+  /admin/configuration/{register}/options:
+    get:
+      tags:
+        - Configuration
+      operationId: listConfigurationOptions
+      summary: Every active row of a register as a ref choice.
+      description: >-
+        What a ref column's select offers, with the parent id (a pen's park) so the drawer can
+        narrow, and the kind for a category. Needs configuration.read.
+      parameters:
+        - $ref: "#/components/parameters/ConfigurationRegister"
+      responses:
+        "200":
+          description: The options.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ConfigurationOptionsResponse"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "500":
+          $ref: "#/components/responses/ServerError"
+  /admin/configuration/{register}/{row_id}:
+    get:
+      tags:
+        - Configuration
+      operationId: getConfigurationRow
+      summary: One row.
+      parameters:
+        - $ref: "#/components/parameters/ConfigurationRegister"
+        - $ref: "#/components/parameters/ConfigurationRowID"
+      responses:
+        "200":
+          description: The row.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ConfigurationRowResponse"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "500":
+          $ref: "#/components/responses/ServerError"
+    put:
+      tags:
+        - Configuration
+      operationId: updateConfigurationRow
+      summary: Change the sent fields of a row.
+      description: >-
+        Only the fields sent are touched; an immutable column (a code) is refused when it
+        changes. Fenced on row_version. Needs configuration.write. Idempotent on the
+        Idempotency-Key header.
+      parameters:
+        - $ref: "#/components/parameters/ConfigurationRegister"
+        - $ref: "#/components/parameters/ConfigurationRowID"
+        - $ref: "#/components/parameters/IdempotencyKey"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/ConfigurationRowWrite"
+      responses:
+        "200":
+          description: The row after the change.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ConfigurationRowResponse"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "409":
+          $ref: "#/components/responses/WriteConflict"
+        "422":
+          description: A field is not valid (invalid_fields, unknown_reference, builtin_row).
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ConfigurationErrorEnvelope"
+        "500":
+          $ref: "#/components/responses/ServerError"
+    delete:
+      tags:
+        - Configuration
+      operationId: deleteConfigurationRow
+      summary: Delete a row nothing uses.
+      description: >-
+        Refused with the usage (in_use, 409) while animals, pens, items or other rows still
+        name it -- archive is the ordinary way out. A built-in row is never deleted. Needs
+        configuration.write. Idempotent on the Idempotency-Key header.
+      parameters:
+        - $ref: "#/components/parameters/ConfigurationRegister"
+        - $ref: "#/components/parameters/ConfigurationRowID"
+        - $ref: "#/components/parameters/IdempotencyKey"
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/ConfigurationDeleteWrite"
+      responses:
+        "204":
+          description: Deleted.
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "409":
+          $ref: "#/components/responses/WriteConflict"
+        "422":
+          description: The row is built in (builtin_row) or the register is read-only here.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ConfigurationErrorEnvelope"
+        "500":
+          $ref: "#/components/responses/ServerError"
+  /admin/configuration/{register}/{row_id}/usage:
+    get:
+      tags:
+        - Configuration
+      operationId: getConfigurationRowUsage
+      summary: What still names this row.
+      parameters:
+        - $ref: "#/components/parameters/ConfigurationRegister"
+        - $ref: "#/components/parameters/ConfigurationRowID"
+      responses:
+        "200":
+          description: The dependent counts and a farm sentence.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ConfigurationUsageResponse"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "500":
+          $ref: "#/components/responses/ServerError"
+  /admin/configuration/{register}/{row_id}/status:
+    post:
+      tags:
+        - Configuration
+      operationId: setConfigurationRowStatus
+      summary: Archive or restore a row.
+      description: >-
+        Archived rows stay on everything that already names them and stop being offered for
+        new ones. An archive is refused (in_use) while other rows still name this one; a
+        built-in row is never archived. Fenced on row_version. Needs configuration.write.
+        Idempotent on the Idempotency-Key header.
+      parameters:
+        - $ref: "#/components/parameters/ConfigurationRegister"
+        - $ref: "#/components/parameters/ConfigurationRowID"
+        - $ref: "#/components/parameters/IdempotencyKey"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/ConfigurationStatusWrite"
+      responses:
+        "200":
+          description: The row with its new status.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ConfigurationRowResponse"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "409":
+          $ref: "#/components/responses/WriteConflict"
+        "422":
+          description: Built-in row or read-only register.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ConfigurationErrorEnvelope"
+        "500":
+          $ref: "#/components/responses/ServerError"
 components:
   securitySchemes:
     bearerAuth:
@@ -4154,6 +4470,17 @@ components:
         type: string
         minLength: 1
         maxLength: 500
+    ConfigurationRegister:
+      name: register
+      in: path
+      required: true
+      schema: { type: string, enum: [farms, parks, pens, partitions, species, sexes, stages, categories, items, feed_items] }
+    ConfigurationRowID:
+      name: row_id
+      in: path
+      required: true
+      description: The row id. A uuid for most registers; `shed_id:normalized_label` for a partition.
+      schema: { type: string }
     IdempotencyKey:
       name: Idempotency-Key
       in: header
@@ -12692,4 +13019,189 @@ components:
         next_cursor: { type: string, nullable: true }
         summary:
           $ref: "#/components/schemas/PenRoutineTaskSummary"
+        trace_id: { type: string }
+    ConfigurationOption:
+      type: object
+      required: [value, label]
+      properties:
+        value: { type: string }
+        label: { type: string }
+    ConfigurationColumn:
+      type: object
+      required: [key, label, type]
+      properties:
+        key: { type: string }
+        label: { type: string }
+        type: { type: string, enum: [text, code, number, bool, enum, ref, notes] }
+        required: { type: boolean }
+        ref: { type: string, description: The register whose rows a ref column points at. }
+        options:
+          type: array
+          items:
+            $ref: "#/components/schemas/ConfigurationOption"
+        kinds:
+          type: array
+          items: { type: string }
+          description: Item kinds the column applies to; absent means every row.
+        immutable: { type: boolean }
+        hint: { type: string }
+        min: { type: number }
+        integer: { type: boolean }
+        list_hidden: { type: boolean }
+    ConfigurationRegister:
+      type: object
+      required: [key, label, one, group, columns]
+      properties:
+        key: { type: string }
+        label: { type: string }
+        one: { type: string, description: Singular noun for "Add <one>". }
+        group: { type: string }
+        columns:
+          type: array
+          items:
+            $ref: "#/components/schemas/ConfigurationColumn"
+        hint: { type: string }
+        read_only: { type: boolean }
+        edit_href: { type: string, description: Where a read-only register is actually edited. }
+        filters:
+          type: array
+          items: { type: string }
+    ConfigurationGroup:
+      type: object
+      required: [key, label]
+      properties:
+        key: { type: string }
+        label: { type: string }
+    ConfigurationRegistersResponse:
+      type: object
+      required: [registers, counts, groups, trace_id]
+      properties:
+        registers:
+          type: array
+          items:
+            $ref: "#/components/schemas/ConfigurationRegister"
+        counts:
+          type: object
+          additionalProperties: { type: integer }
+        groups:
+          type: array
+          items:
+            $ref: "#/components/schemas/ConfigurationGroup"
+        trace_id: { type: string }
+    ConfigurationRow:
+      type: object
+      required: [id, register, display, status, row_version, is_builtin, fields, labels]
+      properties:
+        id: { type: string }
+        register: { type: string }
+        display: { type: string }
+        status: { type: string, enum: [active, archived] }
+        row_version: { type: integer }
+        is_builtin: { type: boolean }
+        fields:
+          type: object
+          additionalProperties: true
+        labels:
+          type: object
+          additionalProperties: { type: string }
+          description: Display name of each ref column's target, keyed by column.
+        counts:
+          type: object
+          additionalProperties: { type: integer }
+          description: What the row holds (a park's pens, a category's items), keyed by noun.
+    ConfigurationListResponse:
+      type: object
+      required: [register, rows, next_cursor, total, trace_id]
+      properties:
+        register:
+          $ref: "#/components/schemas/ConfigurationRegister"
+        rows:
+          type: array
+          items:
+            $ref: "#/components/schemas/ConfigurationRow"
+        next_cursor: { type: string }
+        total: { type: integer, description: The whole-filter count, never the page's. }
+        trace_id: { type: string }
+    ConfigurationRowResponse:
+      type: object
+      required: [row, trace_id]
+      properties:
+        row:
+          $ref: "#/components/schemas/ConfigurationRow"
+        trace_id: { type: string }
+    ConfigurationRefOption:
+      type: object
+      required: [id, label]
+      properties:
+        id: { type: string }
+        label: { type: string }
+        parent_id: { type: string }
+        kind: { type: string }
+    ConfigurationOptionsResponse:
+      type: object
+      required: [options, trace_id]
+      properties:
+        options:
+          type: array
+          items:
+            $ref: "#/components/schemas/ConfigurationRefOption"
+        trace_id: { type: string }
+    ConfigurationUsageCount:
+      type: object
+      required: [noun, count]
+      properties:
+        noun: { type: string }
+        count: { type: integer }
+    ConfigurationUsage:
+      type: object
+      required: [blocked, uses]
+      properties:
+        blocked: { type: boolean }
+        uses:
+          type: array
+          items:
+            $ref: "#/components/schemas/ConfigurationUsageCount"
+    ConfigurationUsageResponse:
+      type: object
+      required: [usage, sentence, trace_id]
+      properties:
+        usage:
+          $ref: "#/components/schemas/ConfigurationUsage"
+        sentence: { type: string }
+        trace_id: { type: string }
+    ConfigurationRowWrite:
+      type: object
+      required: [fields]
+      properties:
+        fields:
+          type: object
+          additionalProperties: true
+        row_version: { type: integer }
+    ConfigurationStatusWrite:
+      type: object
+      required: [status]
+      properties:
+        status: { type: string, enum: [active, archived] }
+        row_version: { type: integer }
+    ConfigurationDeleteWrite:
+      type: object
+      properties:
+        row_version: { type: integer }
+    ConfigurationFieldError:
+      type: object
+      required: [field, code, message]
+      properties:
+        field: { type: string }
+        code: { type: string }
+        message: { type: string }
+    ConfigurationErrorEnvelope:
+      type: object
+      required: [error, message]
+      properties:
+        error: { type: string }
+        message: { type: string }
+        field_errors:
+          type: array
+          items:
+            $ref: "#/components/schemas/ConfigurationFieldError"
         trace_id: { type: string }

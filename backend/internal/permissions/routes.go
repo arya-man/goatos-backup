@@ -453,6 +453,20 @@ var protectedRoutes = []Route{
 	{OperationID: "updatePenRoutine", Method: "PUT", Pattern: "/admin/pen-routines/{routine_id}", Permissions: []string{PenRoutinesConfigure}},
 	{OperationID: "setPenRoutineStatus", Method: "POST", Pattern: "/admin/pen-routines/{routine_id}/status", Permissions: []string{PenRoutinesConfigure}},
 
+	// CONFIGURATION -> ITEMS AND SETTINGS (maintainer instruction 2026-09-18): the farm's
+	// reference registers (farms / parks / pens / partitions, species / sexes / stages, item
+	// categories / items, feed items read-only). Reads on ConfigurationRead; every write on
+	// ConfigurationWrite. The route patterns are byte-identical to configuration/adapters/http.
+	{OperationID: "listConfigurationRegisters", Method: "GET", Pattern: "/admin/configuration/registers", Permissions: []string{ConfigurationRead}},
+	{OperationID: "listConfigurationRows", Method: "GET", Pattern: "/admin/configuration/{register}", Permissions: []string{ConfigurationRead}},
+	{OperationID: "createConfigurationRow", Method: "POST", Pattern: "/admin/configuration/{register}", Permissions: []string{ConfigurationWrite}},
+	{OperationID: "listConfigurationOptions", Method: "GET", Pattern: "/admin/configuration/{register}/options", Permissions: []string{ConfigurationRead}},
+	{OperationID: "getConfigurationRow", Method: "GET", Pattern: "/admin/configuration/{register}/{row_id}", Permissions: []string{ConfigurationRead}},
+	{OperationID: "updateConfigurationRow", Method: "PUT", Pattern: "/admin/configuration/{register}/{row_id}", Permissions: []string{ConfigurationWrite}},
+	{OperationID: "deleteConfigurationRow", Method: "DELETE", Pattern: "/admin/configuration/{register}/{row_id}", Permissions: []string{ConfigurationWrite}},
+	{OperationID: "getConfigurationRowUsage", Method: "GET", Pattern: "/admin/configuration/{register}/{row_id}/usage", Permissions: []string{ConfigurationRead}},
+	{OperationID: "setConfigurationRowStatus", Method: "POST", Pattern: "/admin/configuration/{register}/{row_id}/status", Permissions: []string{ConfigurationWrite}},
+
 	// SALES (/sales on admin-web). Gated on the dedicated SalesRead/SalesWrite rather
 	// than ProcurementRead: sales is the SELLING side -- revenue, buyer names, realized prices --
 	// see SalesRead's doc comment.

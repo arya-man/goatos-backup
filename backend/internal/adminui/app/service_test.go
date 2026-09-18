@@ -72,6 +72,7 @@ func TestBootstrapPublishesAdminWebContract(t *testing.T) {
 		{"procurement", "Procurement"},
 		{"health", "Health"},
 		{"others", "Others"},
+		{"configuration", "Configuration"},
 	}
 	if len(resp.Navigation.Groups) != len(wantGroups) {
 		t.Fatalf("navigation groups = %#v, want %#v", resp.Navigation.Groups, wantGroups)

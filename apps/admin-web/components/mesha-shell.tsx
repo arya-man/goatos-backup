@@ -26,6 +26,7 @@ import {
   Milk,
   Moon,
   Scale,
+  Settings,
   Stethoscope,
   Sun,
   TowerControl,
@@ -84,6 +85,9 @@ const iconByToken: Record<string, ElementType> = {
   // in the backend nav contract but never registered here, so the vertical rendered the Control
   // Tower icon.
   scale: Scale,
+  // Configuration's declared icon in the backend nav contract (2026-09-18). Registered for the
+  // same reason as every token above: an unregistered one falls back to the Control Tower icon.
+  settings: Settings,
   // Work Board's declared icon in the backend nav contract (2026-09-10). Registered here for
   // the same reason as `milk`, `scale` and `wheat`: an unregistered token silently falls back
   // to the Control Tower icon.

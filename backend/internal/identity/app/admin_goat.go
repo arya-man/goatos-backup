@@ -11,6 +11,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"regexp"
 	"strconv"
 	"strings"
 	"time"
@@ -438,15 +439,18 @@ func (s *Service) normalizeAdminGoatCreate(_ context.Context, tenantID, actorID,
 	if normalized.FarmID != nil && !uuidPattern.MatchString(*normalized.FarmID) {
 		errorsOut = append(errorsOut, domain.FieldError{Field: "farm_id", Code: "invalid", Message: "farm_id must be a UUID"})
 	}
+	// Sex and species are the farm's own vocabularies since migration 000346 (Configuration ->
+	// Items and settings): the shape is checked here, membership by the repository against the
+	// tenant's lookup, so a newly configured species is accepted without a code change.
 	if normalized.Sex == "" {
-		errorsOut = append(errorsOut, domain.FieldError{Field: "sex", Code: "required", Message: "sex is required and must be female or male"})
-	} else if !allowedSex[normalized.Sex] {
-		errorsOut = append(errorsOut, domain.FieldError{Field: "sex", Code: "invalid", Message: "sex must be female or male"})
+		errorsOut = append(errorsOut, domain.FieldError{Field: "sex", Code: "required", Message: "sex is required"})
+	} else if !lookupCodePattern.MatchString(normalized.Sex) {
+		errorsOut = append(errorsOut, domain.FieldError{Field: "sex", Code: "invalid", Message: "sex must be one of the farm's configured sexes"})
 	}
 	if normalized.Species == "" {
-		errorsOut = append(errorsOut, domain.FieldError{Field: "species", Code: "required", Message: "species is required and must be goat or sheep"})
-	} else if !allowedSpecies[normalized.Species] {
-		errorsOut = append(errorsOut, domain.FieldError{Field: "species", Code: "invalid", Message: "species must be goat or sheep"})
+		errorsOut = append(errorsOut, domain.FieldError{Field: "species", Code: "required", Message: "species is required"})
+	} else if !lookupCodePattern.MatchString(normalized.Species) {
+		errorsOut = append(errorsOut, domain.FieldError{Field: "species", Code: "invalid", Message: "species must be one of the farm's configured species"})
 	}
 	if !allowedOriginType[normalized.OriginType] {
 		errorsOut = append(errorsOut, domain.FieldError{Field: "origin_type", Code: "invalid", Message: "origin_type must be birth, procured, or imported"})
@@ -572,6 +576,7 @@ func validateAdminGoatCreate(ctx context.Context, repo adminGoatRepository, norm
 		ManagementStage:       normalized.ManagementStage,
 		BirthDamRef:           birthDamRef(normalized),
 		Species:               normalized.Species,
+		Sex:                   normalized.Sex,
 	})
 	if err != nil {
 		return nil, nil, err
@@ -1162,15 +1167,9 @@ func rowIdempotencyKey(clientKey string, rowNumber int) string {
 	return fmt.Sprintf("%s:row:%d", clientKey, rowNumber)
 }
 
-var allowedSex = map[string]bool{
-	"female": true,
-	"male":   true,
-}
-
-var allowedSpecies = map[string]bool{
-	"goat":  true,
-	"sheep": true,
-}
+// lookupCodePattern is the shape of a species / sex code (species_lookup / sex_lookup, migration
+// 000346); which codes exist is the tenant's lookup, checked by the repository.
+var lookupCodePattern = regexp.MustCompile(`^[a-z][a-z0-9_]{0,39}$`)
 
 var allowedOriginType = map[string]bool{
 	"birth":    true,

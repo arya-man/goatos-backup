@@ -283,6 +283,8 @@ var flatRoleAssignments = map[string][]ModuleAssignment{
 		// since a routine can be assigned to the CXO role, works it on the phone.
 		one(assign("pen_routines", SurfaceWeb, LevelView, LevelConfigure)),
 		one(assign("pen_routines", SurfaceMobile, LevelView, LevelDo)),
+		// Configuration (2026-09-18): the CEO floor edits every register.
+		one(assign("configuration", SurfaceWeb, LevelView, LevelConfigure)),
 		bothSurfaces("leave_approvals", LevelView, LevelOversee, LevelConfigure),
 		bothSurfaces("vaccination", LevelView, LevelOversee, LevelConfigure),
 		bothSurfaces("weighing", LevelView, LevelConfigure),

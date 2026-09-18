@@ -339,6 +339,9 @@ type ValidateAdminGoatCreateCommand struct {
 	// canonical mother UUID when a pending approval is applied.
 	BirthDamRef *string
 	Species     string
+	// Sex rides here for the same reason Species does: since migration 000346 both are codes in
+	// a per-tenant lookup (Configuration -> Items and settings), and the store checks them there.
+	Sex string
 }
 
 type AdminGoatCreateValidation struct {

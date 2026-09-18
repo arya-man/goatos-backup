@@ -252,6 +252,16 @@ func navigation() domain.NavigationContract {
 					navLeafDomain("leave", "Leave", "/leave", "admin.people", nil),
 				},
 			},
+			{
+				// Configuration (maintainer instruction 2026-09-18, from the prototype in #297):
+				// the farm's reference lists -- places, animal types, catalogues -- edited on
+				// screen. Its own group at the foot of the sidebar, the way the prototype places
+				// it; Work instructions joins it in a later phase. Gated on configuration.read.
+				ID: "configuration", Label: "Configuration", Icon: "settings", DefaultOpen: false,
+				Leaves: []domain.NavigationItem{
+					navLeafDomain("configuration-items", "Items and settings", "/configuration/items", "configuration", nil),
+				},
+			},
 		},
 		Footer: "Mesha · goat operating system",
 	}
@@ -271,6 +281,7 @@ func routeLabels() []domain.RouteLabelRule {
 		{Pattern: "/work-board", Label: "Work Board", Match: "exact"},
 		{Pattern: "/alerts", Label: "Alerts", Match: "exact"},
 		{Pattern: "/routines", Label: "Routines", Match: "exact"},
+		{Pattern: "/configuration/items", Label: "Items and settings", Match: "exact"},
 		{Pattern: "/verify", Label: "Verify", Match: "exact"},
 		{Pattern: "/vaccination/execution/sheds/{shed_id}", Label: "Vaccination execution", Match: "pattern"},
 		// Most-specific-first: the live tracker's exact rule must precede /vaccination's, or the
@@ -457,6 +468,16 @@ func pages() []domain.PageContract {
 			[]domain.TableContract{
 				tableP("pen-routines", "Routines", "/admin/pen-routines", []string{"name", "park", "cadence", "evidence", "people", "status", "open_today"}, "routine_id", []int{25, 50, 100}),
 				tableP("pen-routine-tasks", "Today", "/admin/pen-routines/tasks", []string{"routine", "pen", "assignee", "state_chip", "due"}, "task_id", []int{25, 50, 100}),
+			}),
+		// Configuration -> Items and settings (maintainer instruction 2026-09-18). ONE page, every
+		// register: the rail lists the registers from /admin/configuration/registers and the
+		// table shows the selected one from /admin/configuration/{register}. Column labels and
+		// input types come from the register definition the backend serves, never from the page.
+		// Every write is capability-gated on configuration.write on BOTH halves: the four
+		// controls below and the route table.
+		page("configuration-items", "/configuration/items", "/configuration/items", "Items and settings", "Farm places, animal types and catalogues: the lists every other screen picks from.", "module-surface",
+			[]domain.TableContract{
+				tableP("configuration-rows", "Register", "/admin/configuration/{register}", []string{"display", "fields", "status"}, "id", []int{25, 50, 100}),
 			}),
 		page("verification-review", "/verify", "/verify", "Verify", "Open a video, check it against the facts, and accept or reject it.", "authority-screen",
 			// "vertical_module" was DROPPED (maintainer decision 2026-08-07). It rendered the
@@ -2088,6 +2109,42 @@ func pageSpecificCopy(id string) map[string]string {
 			"field.option_value":      "Value",
 			"field.option_label":      "Label",
 			"filter.park.all":         "All parks",
+		}
+	case "configuration-items":
+		return map[string]string{
+			"crumb":                        "Items and settings",
+			"rail.title":                   "Registers",
+			"search.placeholder":           "Search",
+			"status.active":                "Active",
+			"status.archived":              "Archived",
+			"status.all":                   "All",
+			"action.create_row.label":      "Add",
+			"action.edit_row.label":        "Edit",
+			"action.set_row_status.label":  "Archive / restore",
+			"action.delete_row.label":      "Delete",
+			"action.archive":               "Archive",
+			"action.restore":               "Restore",
+			"action.delete":                "Delete",
+			"action.save":                  "Save",
+			"action.cancel":                "Cancel",
+			"action.edit_elsewhere":        "Edit in",
+			"action.success_message":       "Saved.",
+			"action.deleted_message":       "Deleted.",
+			"action.failed_message":        "That could not be saved.",
+			"action.error_form":            "Check the highlighted fields.",
+			"drawer.create_title":          "New",
+			"drawer.edit_title":            "Edit",
+			"drawer.usage_title":           "Where it is used",
+			"drawer.builtin_hint":          "Built into the product: it can be renamed but not removed.",
+			"drawer.delete_confirm":        "Delete this record? This cannot be undone.",
+			"drawer.archive_hint":          "Archived records stay on everything that already uses them and stop being offered for new ones.",
+			"empty.rows":                   "Nothing here yet.",
+			"empty.search":                 "No matches.",
+			"pager.noun":                   "records",
+			"column.display":               "Name",
+			"column.status":                "Status",
+			"column.counts":                "Holds",
+			"configure.disabled_no_access": "Changing these lists is limited to the CEO and CXO.",
 		}
 	case "work-board":
 		return map[string]string{

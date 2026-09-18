@@ -637,6 +637,20 @@ var moduleCapabilities = []ModuleCapability{
 		},
 	},
 	{
+		// Configuration -> Items and settings (maintainer instruction 2026-09-18): the farm's
+		// reference lists as editable registers. View reads the page; Configure writes every
+		// register. Web only: the phone renders these lists, it never authors them. ceo_internal
+		// holds both on the role; anyone else is ticked per person on /people.
+		Key:      "configuration",
+		Label:    "Configuration",
+		Blurb:    "Farm places, animal types and catalogues: the lists every other screen picks from.",
+		Surfaces: []string{SurfaceWeb},
+		Levels: map[string][]string{
+			LevelView:      {ConfigurationRead},
+			LevelConfigure: {ConfigurationRead, ConfigurationWrite},
+		},
+	},
+	{
 		// Clock In / Out attendance (maintainer decisions 2026-08-27/28,
 		// docs/features/clock-in-out/plan.md). PUNCHING is not here: everyone
 		// clocks in by decision D2, so the punch routes ride AppBootstrap and

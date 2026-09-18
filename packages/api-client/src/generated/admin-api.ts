@@ -1888,6 +1888,132 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/admin/configuration/registers": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * The register catalog and the active-row count of each.
+         * @description Configuration -> Items and settings (maintainer instruction 2026-09-18): every editable reference list -- farm places, animal types, catalogues -- as a DEFINITION the page renders from (columns, types, refs, hints) plus the rail counts. Needs configuration.read.
+         */
+        get: operations["listConfigurationRegisters"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/admin/configuration/{register}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * One keyset page of a register.
+         * @description Rows of one register, active by default, searched by display name, filtered by a ref or enum column through `f.<column>` query keys, keyset-paged on the register's own order. `total` is the whole-filter count. Needs configuration.read.
+         */
+        get: operations["listConfigurationRows"];
+        put?: never;
+        /**
+         * Add a row to a register.
+         * @description The fields are validated against the register definition and refused field by field (invalid_fields carries `field_errors`); a ref must name an active row of its target; a duplicate name or code is a 409. Needs configuration.write. Idempotent on the Idempotency-Key header.
+         */
+        post: operations["createConfigurationRow"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/admin/configuration/{register}/options": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Every active row of a register as a ref choice.
+         * @description What a ref column's select offers, with the parent id (a pen's park) so the drawer can narrow, and the kind for a category. Needs configuration.read.
+         */
+        get: operations["listConfigurationOptions"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/admin/configuration/{register}/{row_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** One row. */
+        get: operations["getConfigurationRow"];
+        /**
+         * Change the sent fields of a row.
+         * @description Only the fields sent are touched; an immutable column (a code) is refused when it changes. Fenced on row_version. Needs configuration.write. Idempotent on the Idempotency-Key header.
+         */
+        put: operations["updateConfigurationRow"];
+        post?: never;
+        /**
+         * Delete a row nothing uses.
+         * @description Refused with the usage (in_use, 409) while animals, pens, items or other rows still name it -- archive is the ordinary way out. A built-in row is never deleted. Needs configuration.write. Idempotent on the Idempotency-Key header.
+         */
+        delete: operations["deleteConfigurationRow"];
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/admin/configuration/{register}/{row_id}/usage": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** What still names this row. */
+        get: operations["getConfigurationRowUsage"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/admin/configuration/{register}/{row_id}/status": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Archive or restore a row.
+         * @description Archived rows stay on everything that already names them and stop being offered for new ones. An archive is refused (in_use) while other rows still name this one; a built-in row is never archived. Fenced on row_version. Needs configuration.write. Idempotent on the Idempotency-Key header.
+         */
+        post: operations["setConfigurationRowStatus"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
 }
 export type webhooks = Record<string, never>;
 export interface components {
@@ -5073,6 +5199,132 @@ export interface components {
             summary: components["schemas"]["PenRoutineTaskSummary"];
             trace_id: string;
         };
+        ConfigurationOption: {
+            value: string;
+            label: string;
+        };
+        ConfigurationColumn: {
+            key: string;
+            label: string;
+            /** @enum {string} */
+            type: "text" | "code" | "number" | "bool" | "enum" | "ref" | "notes";
+            required?: boolean;
+            /** @description The register whose rows a ref column points at. */
+            ref?: string;
+            options?: components["schemas"]["ConfigurationOption"][];
+            /** @description Item kinds the column applies to; absent means every row. */
+            kinds?: string[];
+            immutable?: boolean;
+            hint?: string;
+            min?: number;
+            integer?: boolean;
+            list_hidden?: boolean;
+        };
+        ConfigurationRegister: {
+            key: string;
+            label: string;
+            /** @description Singular noun for "Add <one>". */
+            one: string;
+            group: string;
+            columns: components["schemas"]["ConfigurationColumn"][];
+            hint?: string;
+            read_only?: boolean;
+            /** @description Where a read-only register is actually edited. */
+            edit_href?: string;
+            filters?: string[];
+        };
+        ConfigurationGroup: {
+            key: string;
+            label: string;
+        };
+        ConfigurationRegistersResponse: {
+            registers: components["schemas"]["ConfigurationRegister"][];
+            counts: {
+                [key: string]: number;
+            };
+            groups: components["schemas"]["ConfigurationGroup"][];
+            trace_id: string;
+        };
+        ConfigurationRow: {
+            id: string;
+            register: string;
+            display: string;
+            /** @enum {string} */
+            status: "active" | "archived";
+            row_version: number;
+            is_builtin: boolean;
+            fields: {
+                [key: string]: unknown;
+            };
+            /** @description Display name of each ref column's target, keyed by column. */
+            labels: {
+                [key: string]: string;
+            };
+            /** @description What the row holds (a park's pens, a category's items), keyed by noun. */
+            counts?: {
+                [key: string]: number;
+            };
+        };
+        ConfigurationListResponse: {
+            register: components["schemas"]["ConfigurationRegister"];
+            rows: components["schemas"]["ConfigurationRow"][];
+            next_cursor: string;
+            /** @description The whole-filter count */
+            total: number;
+            trace_id: string;
+        };
+        ConfigurationRowResponse: {
+            row: components["schemas"]["ConfigurationRow"];
+            trace_id: string;
+        };
+        ConfigurationRefOption: {
+            id: string;
+            label: string;
+            parent_id?: string;
+            kind?: string;
+        };
+        ConfigurationOptionsResponse: {
+            options: components["schemas"]["ConfigurationRefOption"][];
+            trace_id: string;
+        };
+        ConfigurationUsageCount: {
+            noun: string;
+            count: number;
+        };
+        ConfigurationUsage: {
+            blocked: boolean;
+            uses: components["schemas"]["ConfigurationUsageCount"][];
+        };
+        ConfigurationUsageResponse: {
+            usage: components["schemas"]["ConfigurationUsage"];
+            sentence: string;
+            trace_id: string;
+        };
+        ConfigurationRowWrite: {
+            fields: {
+                [key: string]: unknown;
+            };
+            row_version?: number;
+        };
+        ConfigurationStatusWrite: {
+            /** @enum {string} */
+            status: "active" | "archived";
+            row_version?: number;
+        };
+        ConfigurationDeleteWrite: {
+            row_version?: number;
+        };
+        ConfigurationFieldError: {
+            field: string;
+            code: string;
+            message: string;
+        };
+        ConfigurationErrorEnvelope: {
+            error: string;
+            message: string;
+            field_errors?: components["schemas"]["ConfigurationFieldError"][];
+            trace_id?: string;
+        };
     };
     responses: {
         /** @description Validation error. */
@@ -5204,6 +5456,9 @@ export interface components {
         IdentifierId: string;
         Limit: number;
         Cursor: string;
+        ConfigurationRegister: "farms" | "parks" | "pens" | "partitions" | "species" | "sexes" | "stages" | "categories" | "items" | "feed_items";
+        /** @description The row id. A uuid for most registers; `shed_id:normalized_label` for a partition. */
+        ConfigurationRowID: string;
         IdempotencyKey: string;
         OperationsAuditLimit: number;
         OperationsAuditCursor: string;
@@ -8906,6 +9161,319 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["ErrorEnvelope"];
+                };
+            };
+            500: components["responses"]["ServerError"];
+        };
+    };
+    listConfigurationRegisters: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The registers, grouped, with counts. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ConfigurationRegistersResponse"];
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            500: components["responses"]["ServerError"];
+        };
+    };
+    listConfigurationRows: {
+        parameters: {
+            query?: {
+                status?: "active" | "archived" | "all";
+                q?: string;
+                cursor?: string;
+                limit?: number;
+            };
+            header?: never;
+            path: {
+                register: components["parameters"]["ConfigurationRegister"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The page. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ConfigurationListResponse"];
+                };
+            };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+            500: components["responses"]["ServerError"];
+        };
+    };
+    createConfigurationRow: {
+        parameters: {
+            query?: never;
+            header: {
+                "Idempotency-Key": components["parameters"]["IdempotencyKey"];
+            };
+            path: {
+                register: components["parameters"]["ConfigurationRegister"];
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ConfigurationRowWrite"];
+            };
+        };
+        responses: {
+            /** @description The created row. */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ConfigurationRowResponse"];
+                };
+            };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+            409: components["responses"]["WriteConflict"];
+            /** @description A field is not valid (invalid_fields, unknown_reference, read_only_register). */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ConfigurationErrorEnvelope"];
+                };
+            };
+            500: components["responses"]["ServerError"];
+        };
+    };
+    listConfigurationOptions: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                register: components["parameters"]["ConfigurationRegister"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The options. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ConfigurationOptionsResponse"];
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+            500: components["responses"]["ServerError"];
+        };
+    };
+    getConfigurationRow: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                register: components["parameters"]["ConfigurationRegister"];
+                /** @description The row id. A uuid for most registers; `shed_id:normalized_label` for a partition. */
+                row_id: components["parameters"]["ConfigurationRowID"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The row. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ConfigurationRowResponse"];
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+            500: components["responses"]["ServerError"];
+        };
+    };
+    updateConfigurationRow: {
+        parameters: {
+            query?: never;
+            header: {
+                "Idempotency-Key": components["parameters"]["IdempotencyKey"];
+            };
+            path: {
+                register: components["parameters"]["ConfigurationRegister"];
+                /** @description The row id. A uuid for most registers; `shed_id:normalized_label` for a partition. */
+                row_id: components["parameters"]["ConfigurationRowID"];
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ConfigurationRowWrite"];
+            };
+        };
+        responses: {
+            /** @description The row after the change. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ConfigurationRowResponse"];
+                };
+            };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+            409: components["responses"]["WriteConflict"];
+            /** @description A field is not valid (invalid_fields, unknown_reference, builtin_row). */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ConfigurationErrorEnvelope"];
+                };
+            };
+            500: components["responses"]["ServerError"];
+        };
+    };
+    deleteConfigurationRow: {
+        parameters: {
+            query?: never;
+            header: {
+                "Idempotency-Key": components["parameters"]["IdempotencyKey"];
+            };
+            path: {
+                register: components["parameters"]["ConfigurationRegister"];
+                /** @description The row id. A uuid for most registers; `shed_id:normalized_label` for a partition. */
+                row_id: components["parameters"]["ConfigurationRowID"];
+            };
+            cookie?: never;
+        };
+        requestBody?: {
+            content: {
+                "application/json": components["schemas"]["ConfigurationDeleteWrite"];
+            };
+        };
+        responses: {
+            /** @description Deleted. */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+            409: components["responses"]["WriteConflict"];
+            /** @description The row is built in (builtin_row) or the register is read-only here. */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ConfigurationErrorEnvelope"];
+                };
+            };
+            500: components["responses"]["ServerError"];
+        };
+    };
+    getConfigurationRowUsage: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                register: components["parameters"]["ConfigurationRegister"];
+                /** @description The row id. A uuid for most registers; `shed_id:normalized_label` for a partition. */
+                row_id: components["parameters"]["ConfigurationRowID"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The dependent counts and a farm sentence. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ConfigurationUsageResponse"];
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+            500: components["responses"]["ServerError"];
+        };
+    };
+    setConfigurationRowStatus: {
+        parameters: {
+            query?: never;
+            header: {
+                "Idempotency-Key": components["parameters"]["IdempotencyKey"];
+            };
+            path: {
+                register: components["parameters"]["ConfigurationRegister"];
+                /** @description The row id. A uuid for most registers; `shed_id:normalized_label` for a partition. */
+                row_id: components["parameters"]["ConfigurationRowID"];
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ConfigurationStatusWrite"];
+            };
+        };
+        responses: {
+            /** @description The row with its new status. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ConfigurationRowResponse"];
+                };
+            };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+            409: components["responses"]["WriteConflict"];
+            /** @description Built-in row or read-only register. */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ConfigurationErrorEnvelope"];
                 };
             };
             500: components["responses"]["ServerError"];
