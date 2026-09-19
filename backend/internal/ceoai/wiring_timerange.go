@@ -10,11 +10,10 @@ package ceoai
 
 import (
 	"fmt"
-	"regexp"
-	"strconv"
 	"strings"
 	"time"
 
+	"github.com/vgoats/goatos/backend/internal/ceoai/app"
 	"github.com/vgoats/goatos/backend/internal/ceoai/cubeclient"
 	"github.com/vgoats/goatos/backend/internal/platform/biztime"
 )
@@ -26,8 +25,6 @@ const (
 	maxTrendWeeks  = 26
 	maxTrendMonths = 24
 )
-
-var lastNPattern = regexp.MustCompile(`^(?:last|past)\s+(\d{1,3})\s+(day|days|week|weeks|month|months)$`)
 
 // timeDimensionFor builds the Cube timeDimension for a metric binding from a
 // raw time_range string and the current instant. ok=false means "no groundable
@@ -56,60 +53,21 @@ func timeDimensionFor(b metricBinding, timeRange string, now time.Time) (cubecli
 }
 
 // resolveWindow maps a normalized phrase to an inclusive [from,to] business-day
-// pair plus an optional granularity (day|week|month) for trend requests.
+// pair plus an optional granularity (day|week|month) for trend requests. Trend
+// phrases are Cube-specific and resolved here; every other period phrase is
+// resolved by the shared app.ResolveWindow so the Cube, API and SQL tiers
+// agree on one business calendar (plan v3 D1.2).
 func resolveWindow(tr string, today time.Time) (from, to time.Time, gran string, ok bool) {
 	// Trend granularity hints: "... trend by month", "monthly trend", or a bare
 	// grain word imply a bucketed series over a trailing window.
 	if g := trendGranularity(tr); g != "" {
 		return trailingTrendWindow(today, g)
 	}
-
-	switch tr {
-	case "today":
-		return today, today, "", true
-	case "yesterday":
-		y := today.AddDate(0, 0, -1)
-		return y, y, "", true
-	case "this week", "current week":
-		start := startOfWeek(today)
-		return start, start.AddDate(0, 0, 6), "", true
-	case "last week", "previous week":
-		start := startOfWeek(today).AddDate(0, 0, -7)
-		return start, start.AddDate(0, 0, 6), "", true
-	case "this month", "current month", "mtd", "month to date":
-		start := startOfMonth(today)
-		return start, endOfMonth(today), "", true
-	case "last month", "previous month":
-		prev := startOfMonth(today).AddDate(0, 0, -1)
-		return startOfMonth(prev), endOfMonth(prev), "", true
-	case "this year", "current year", "ytd", "year to date":
-		return startOfYear(today), today, "", true
-	case "last year", "previous year":
-		prevY := startOfYear(today).AddDate(-1, 0, 0)
-		return prevY, endOfYear(prevY), "", true
+	w, ok := app.ResolveWindow(tr, today, today.Location())
+	if !ok {
+		return time.Time{}, time.Time{}, "", false
 	}
-
-	// "last N days|weeks|months".
-	if m := lastNPattern.FindStringSubmatch(tr); m != nil {
-		n, err := strconv.Atoi(m[1])
-		if err != nil || n <= 0 {
-			return time.Time{}, time.Time{}, "", false
-		}
-		switch {
-		case strings.HasPrefix(m[2], "day"):
-			return today.AddDate(0, 0, -(n - 1)), today, "", true
-		case strings.HasPrefix(m[2], "week"):
-			return today.AddDate(0, 0, -(7*n - 1)), today, "", true
-		case strings.HasPrefix(m[2], "month"):
-			return today.AddDate(0, -n, 0).AddDate(0, 0, 1), today, "", true
-		}
-	}
-
-	// Explicit ISO fixed range or single date.
-	if f, t, ok := parseISORange(tr); ok {
-		return f, t, "", true
-	}
-	return time.Time{}, time.Time{}, "", false
+	return w.From, w.To, "", true
 }
 
 // trendGranularity extracts a granularity when the phrase is a trend/series
@@ -144,35 +102,6 @@ func trailingTrendWindow(today time.Time, gran string) (from, to time.Time, g st
 	return time.Time{}, time.Time{}, "", false
 }
 
-var isoRangePattern = regexp.MustCompile(`^(\d{4}-\d{2}-\d{2})\s*(?:\.\.|,|\s+to\s+|\s+-\s+)\s*(\d{4}-\d{2}-\d{2})$`)
-var isoSingle = regexp.MustCompile(`^\d{4}-\d{2}-\d{2}$`)
-
-// parseISORange parses "YYYY-MM-DD..YYYY-MM-DD" (or ",", " to ", " - " separators)
-// and a single "YYYY-MM-DD" (one-day window). Dates are read in the business
-// calendar. from is clamped to <= to.
-func parseISORange(tr string) (from, to time.Time, ok bool) {
-	loc := biztime.DefaultLocation()
-	if m := isoRangePattern.FindStringSubmatch(tr); m != nil {
-		f, err1 := time.ParseInLocation("2006-01-02", m[1], loc)
-		t, err2 := time.ParseInLocation("2006-01-02", m[2], loc)
-		if err1 != nil || err2 != nil {
-			return time.Time{}, time.Time{}, false
-		}
-		if f.After(t) {
-			f, t = t, f
-		}
-		return f, t, true
-	}
-	if isoSingle.MatchString(tr) {
-		d, err := time.ParseInLocation("2006-01-02", tr, loc)
-		if err != nil {
-			return time.Time{}, time.Time{}, false
-		}
-		return d, d, true
-	}
-	return time.Time{}, time.Time{}, false
-}
-
 // --- business-calendar boundary helpers (all inputs are day-start in IST) ---
 
 // startOfWeek returns the Monday of t's week (Goat OS weeks are Monday-start).
@@ -192,15 +121,6 @@ func startOfMonth(t time.Time) time.Time {
 
 func endOfMonth(t time.Time) time.Time {
 	return startOfMonth(t).AddDate(0, 1, 0).AddDate(0, 0, -1)
-}
-
-func startOfYear(t time.Time) time.Time {
-	y, _, _ := t.Date()
-	return time.Date(y, time.January, 1, 0, 0, 0, 0, t.Location())
-}
-
-func endOfYear(t time.Time) time.Time {
-	return startOfYear(t).AddDate(1, 0, 0).AddDate(0, 0, -1)
 }
 
 func fmtDate(t time.Time) string {

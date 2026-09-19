@@ -26,6 +26,7 @@ import (
 	"golang.org/x/oauth2"
 	"golang.org/x/oauth2/google"
 
+	"github.com/vgoats/goatos/backend/internal/ceoai/app"
 	"github.com/vgoats/goatos/backend/internal/ceoai/domain"
 	"github.com/vgoats/goatos/backend/internal/ceoai/ports"
 )
@@ -89,12 +90,42 @@ func (*Planner) PlannedByModel() bool { return true }
 // Plan asks Gemini to classify + decompose the question and return a strict
 // JSON plan. The app layer validates and enforces Cube-first afterward.
 func (p *Planner) Plan(ctx context.Context, q domain.Question, mem []domain.ResolvedEntities, catalog []ports.ToolSpec) (domain.Plan, error) {
+	plan, _, err := p.PlanWithUsage(ctx, q, mem, catalog)
+	return plan, err
+}
+
+// Usage is the token accounting Vertex reports for one generateContent call
+// (usageMetadata.promptTokenCount / candidatesTokenCount). Zero values mean
+// the response carried no usageMetadata; callers fall back to a len/4
+// estimate in that case (plan v3 D1.1).
+type Usage = app.TokenUsage
+
+// PlanWithUsage is Plan plus the real token usage of the planner call. The
+// orchestrator type-asserts for this so the budget records what Vertex billed
+// instead of a character estimate.
+func (p *Planner) PlanWithUsage(ctx context.Context, q domain.Question, mem []domain.ResolvedEntities, catalog []ports.ToolSpec) (domain.Plan, Usage, error) {
 	prompt := buildPlanPrompt(q, mem, catalog)
-	raw, err := p.generate(ctx, systemPlannerInstruction, prompt)
+	raw, usage, err := p.generate(ctx, systemPlannerInstruction, prompt)
 	if err != nil {
-		return domain.Plan{}, err
+		return domain.Plan{}, usage, err
 	}
-	return parsePlan(raw)
+	plan, err := parsePlan(raw)
+	return plan, usage, err
+}
+
+// RepairSQL is the one-shot repair call (plan v3 D1.3): given the rejected
+// draft, the guard/Postgres reason and the schema card of the referenced
+// view, ask the model for exactly one corrected draft. The caller re-validates
+// the result; this never executes anything. windowText, when non-empty, is
+// the literal period binding the guard will require.
+func (p *Planner) RepairSQL(ctx context.Context, q domain.Question, failedSQL, reason, cardText, windowText string) (string, Usage, error) {
+	prompt := buildRepairPrompt(q.Actor.TenantID, failedSQL, reason, cardText, windowText)
+	raw, usage, err := p.generate(ctx, systemRepairInstruction, prompt)
+	if err != nil {
+		return "", usage, err
+	}
+	sql, err := parseRepair(raw)
+	return sql, usage, err
 }
 
 // Critique implements ports.Reviewer: judges whether the drafted answer is
@@ -117,7 +148,7 @@ func (p *Planner) Critique(ctx context.Context, answer string, facts []domain.Fa
 		"Facts (the ONLY allowed evidence):\n%s\nDrafted answer:\n%q\n\nReturn strict JSON {\"grounded\":bool,\"reason\":string}. Check that every NUMBER and DATA CLAIM (figure, count, rate, percent, named entity, scope) in the answer traces to a fact. Ignore narrative prose, restatements, draft-metric disclaimers, source labels, and framing words. grounded=false ONLY if a number or data claim is missing from or contradicts the facts.",
 		sb.String(), answer,
 	)
-	raw, err := p.generate(ctx, systemReviewerInstruction, prompt)
+	raw, _, err := p.generate(ctx, systemReviewerInstruction, prompt)
 	if err != nil {
 		return true, "", err // reviewer failure must not block; app is authoritative
 	}
@@ -161,44 +192,66 @@ type genContentResponse struct {
 	Candidates []struct {
 		Content content `json:"content"`
 	} `json:"candidates"`
+	// UsageMetadata is Vertex's billed token accounting for the call.
+	UsageMetadata *usageMetadata `json:"usageMetadata,omitempty"`
 }
 
-func (p *Planner) generate(ctx context.Context, system, user string) (string, error) {
+type usageMetadata struct {
+	PromptTokenCount     int `json:"promptTokenCount"`
+	CandidatesTokenCount int `json:"candidatesTokenCount"`
+	TotalTokenCount      int `json:"totalTokenCount"`
+}
+
+// maxOutputTokens bounds one planner/reviewer/repair response. Raised from
+// 1024 to 2048 (plan v3 D1.1): a multi-sub-question plan that quotes a full
+// SQL draft per sub-question was being truncated mid-JSON at 1024.
+const maxOutputTokens = 2048
+
+// parseUsage maps the response's usageMetadata to Usage (zero when absent).
+func parseUsage(u *usageMetadata) Usage {
+	if u == nil {
+		return Usage{}
+	}
+	return Usage{PromptTokens: u.PromptTokenCount, OutputTokens: u.CandidatesTokenCount}
+}
+
+func (p *Planner) generate(ctx context.Context, system, user string) (string, Usage, error) {
 	reqBody := genContentRequest{
 		SystemInstruction: &content{Parts: []part{{Text: system}}},
 		Contents:          []content{{Role: "user", Parts: []part{{Text: user}}}},
-		GenerationConfig:  genConfig{Temperature: 0.1, MaxOutputTokens: 1024, ResponseMIMEType: "application/json"},
+		GenerationConfig:  genConfig{Temperature: 0.1, MaxOutputTokens: maxOutputTokens, ResponseMIMEType: "application/json"},
 		SafetySettings:    defaultSafetySettings(),
 	}
 	buf, _ := json.Marshal(reqBody)
 	httpReq, err := http.NewRequestWithContext(ctx, http.MethodPost, p.endpoint(p.cfg), bytes.NewReader(buf))
 	if err != nil {
-		return "", err
+		return "", Usage{}, err
 	}
 	tok, err := p.tokens.Token()
 	if err != nil {
-		return "", fmt.Errorf("vertex: token: %w", err)
+		return "", Usage{}, fmt.Errorf("vertex: token: %w", err)
 	}
 	httpReq.Header.Set("Authorization", "Bearer "+tok.AccessToken)
 	httpReq.Header.Set("Content-Type", "application/json")
 
 	resp, err := p.http.Do(httpReq)
 	if err != nil {
-		return "", err
+		return "", Usage{}, err
 	}
 	defer resp.Body.Close()
 	body, _ := io.ReadAll(io.LimitReader(resp.Body, 1<<20))
 	if resp.StatusCode != http.StatusOK {
-		return "", fmt.Errorf("vertex: status %d: %s", resp.StatusCode, string(body))
+		return "", Usage{}, fmt.Errorf("vertex: status %d: %s", resp.StatusCode, string(body))
 	}
 	var gr genContentResponse
 	if err := json.Unmarshal(body, &gr); err != nil {
-		return "", err
+		return "", Usage{}, err
 	}
+	usage := parseUsage(gr.UsageMetadata)
 	if len(gr.Candidates) == 0 || len(gr.Candidates[0].Content.Parts) == 0 {
-		return "", fmt.Errorf("vertex: empty candidate")
+		return "", usage, fmt.Errorf("vertex: empty candidate")
 	}
-	return gr.Candidates[0].Content.Parts[0].Text, nil
+	return gr.Candidates[0].Content.Parts[0].Text, usage, nil
 }
 
 // defaultSafetySettings sets conservative harm thresholds for a leadership tool.

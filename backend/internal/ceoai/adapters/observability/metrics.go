@@ -17,6 +17,8 @@
 //	assistant_latency_ms{tool}              histogram (ms)
 //	assistant_tool_rows_returned{tool}      histogram (rows)
 //	assistant_sql_rejected_total{reason}    counter
+//	ceoai_sql_reject_total{reason}          counter (plan v3 D1.3: validator reason enum)
+//	ceoai_sql_pg_error_total{code}          counter (plan v3 D1.3: Postgres SQLSTATE)
 //	assistant_vertex_failover_total         counter
 //	assistant_toolbox_errors_total          counter
 //	assistant_rate_limit_trips_total        counter
@@ -61,6 +63,8 @@ type Metrics struct {
 	latencyMS        metric.Float64Histogram
 	toolRows         metric.Int64Histogram
 	sqlRejected      metric.Int64Counter
+	sqlReject        metric.Int64Counter
+	sqlPGError       metric.Int64Counter
 	vertexFailover   metric.Int64Counter
 	toolboxErrors    metric.Int64Counter
 	rateLimitTrips   metric.Int64Counter
@@ -83,6 +87,8 @@ func NewMetrics() *Metrics {
 		latencyMS:        mustHistogram(m, "assistant_latency_ms", "ms", "End-to-end assistant answer latency in milliseconds by tool."),
 		toolRows:         mustIntHistogram(m, "assistant_tool_rows_returned", "1", "Rows returned by the read tool grounding an answer, by tool."),
 		sqlRejected:      mustCounter(m, "assistant_sql_rejected_total", "1", "SQL-fallback statements rejected by the read-only guard, by reason."),
+		sqlReject:        mustCounter(m, "ceoai_sql_reject_total", "1", "Model-drafted SQL rejected by sqlguard (validate/window/tenant), by bounded reason class; each rejection feeds the one-shot repair loop."),
+		sqlPGError:       mustCounter(m, "ceoai_sql_pg_error_total", "1", "Model-drafted SQL that validated but failed in Postgres, by SQLSTATE code."),
 		vertexFailover:   mustCounter(m, "assistant_vertex_failover_total", "1", "Falls back from the Vertex planner to the deterministic keyword planner."),
 		toolboxErrors:    mustCounter(m, "assistant_toolbox_errors_total", "1", "Errors calling the MCP Toolbox tool tier."),
 		rateLimitTrips:   mustCounter(m, "assistant_rate_limit_trips_total", "1", "Requests rejected by the per-tenant/user rate limiter."),
@@ -120,6 +126,26 @@ func (m *Metrics) SQLRejected(ctx context.Context, reason string) {
 		return
 	}
 	add(ctx, m.sqlRejected, 1, attribute.String("reason", norm(reason)))
+}
+
+// SQLReject counts one sqlguard rejection of a model-drafted statement, by a
+// bounded reason class (e.g. "banned_keyword", "window", "tenant_binding").
+// The caller maps the free-form validator text to the class; the raw reason
+// goes to the admin trace step, never a metric label.
+func (m *Metrics) SQLReject(ctx context.Context, reason string) {
+	if m == nil {
+		return
+	}
+	add(ctx, m.sqlReject, 1, attribute.String("reason", norm(reason)))
+}
+
+// SQLPGError counts one Postgres failure of a validated model-drafted
+// statement, by SQLSTATE code (e.g. "42703" undefined column). Unknown = "".
+func (m *Metrics) SQLPGError(ctx context.Context, code string) {
+	if m == nil {
+		return
+	}
+	add(ctx, m.sqlPGError, 1, attribute.String("code", norm(code)))
 }
 
 // VertexFailover counts one planner failover to the keyword planner.

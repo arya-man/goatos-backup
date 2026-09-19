@@ -1,0 +1,378 @@
+package app
+
+// sqlrepair.go holds the plan v3 D1.2/D1.3 pieces the orchestrator threads
+// around the SQL fallback tier:
+//
+//   - TokenUsage: the real Vertex token accounting (usageMetadata) the budget
+//     records instead of len/4 (D1.1);
+//   - the optional planner capabilities the orchestrator type-asserts for
+//     (usagePlanner, sqlRepairer) so ports.AIProvider stays unchanged;
+//   - prepareSQLWindows: a period question routed to a current-state view is
+//     answered "as of now" explicitly (from/to stripped, window_as_of set);
+//   - repairSQLResults: on a sqlguard reject or Postgres error of a
+//     model-drafted sql_fallback, re-prompt the model ONCE with the reason and
+//     the referenced view's schema card, re-run through the same guard; a
+//     second failure leaves the existing honest-partial path untouched;
+//   - windowResult: the one synthetic "Window: …" fact the composer prints so
+//     the answer states the period it was computed over (D4 citation rule).
+
+import (
+	"context"
+	"errors"
+	"strings"
+	"time"
+
+	"github.com/jackc/pgx/v5/pgconn"
+
+	"github.com/vgoats/goatos/backend/internal/ceoai/domain"
+	"github.com/vgoats/goatos/backend/internal/ceoai/ports"
+	"github.com/vgoats/goatos/backend/internal/ceoai/reporting"
+	"github.com/vgoats/goatos/backend/internal/ceoai/sqlguard"
+	"github.com/vgoats/goatos/backend/internal/platform/biztime"
+)
+
+// TokenUsage is one model call's billed token accounting as the provider
+// reports it (Vertex usageMetadata). Zero means "not reported": the budget
+// then falls back to the len/4 estimate.
+type TokenUsage struct {
+	PromptTokens int
+	OutputTokens int
+}
+
+func (u TokenUsage) add(o TokenUsage) TokenUsage {
+	return TokenUsage{PromptTokens: u.PromptTokens + o.PromptTokens, OutputTokens: u.OutputTokens + o.OutputTokens}
+}
+
+func (u TokenUsage) reported() bool { return u.PromptTokens > 0 || u.OutputTokens > 0 }
+
+// usagePlanner is the optional capability a provider implements to report
+// real token usage with its plan (adapters/vertex does).
+type usagePlanner interface {
+	PlanWithUsage(ctx context.Context, q domain.Question, mem []domain.ResolvedEntities, catalog []ports.ToolSpec) (domain.Plan, TokenUsage, error)
+}
+
+// sqlRepairer is the optional capability a provider implements to repair one
+// rejected SQL draft (adapters/vertex does). The deterministic fallback
+// planner does not, so a keyword-planned request never enters the loop.
+type sqlRepairer interface {
+	RepairSQL(ctx context.Context, q domain.Question, failedSQL, reason, cardText, windowText string) (string, TokenUsage, error)
+}
+
+// sqlTelemetry is the optional telemetry capability for the D1.3 counters
+// (adapters/observability.Metrics implements it); ports.Telemetry is unchanged.
+type sqlTelemetry interface {
+	SQLReject(ctx context.Context, reason string)
+	SQLPGError(ctx context.Context, code string)
+}
+
+// Param keys the window threading writes. from/to are ISO business dates
+// (inclusive); window_label is the phrase; compare_from/compare_to carry a
+// two-window comparison; window_as_of is set (to the as-of date) when a
+// period was asked but the routed SQL view is current-state.
+const (
+	paramFrom        = "from"
+	paramTo          = "to"
+	paramWindowLabel = "window_label"
+	paramCompareFrom = "compare_from"
+	paramCompareTo   = "compare_to"
+	paramWindowAsOf  = "window_as_of"
+)
+
+// isModelSQL reports whether a sub-question is a model-drafted SQL fallback
+// (the only shape the window guard and the repair loop apply to). Trusted
+// server-authored SQL and the deterministic regex pre-planner's SQL
+// (natural_sql.go, marked by the natural_sql param) are never repaired or
+// window-checked here: they are backend code, bind their own dates, and still
+// pass through sqlguard.Validate in the executor.
+func isModelSQL(sub domain.SubQuestion) bool {
+	if sub.Route != domain.RouteSQL || sub.TrustedSQL {
+		return false
+	}
+	if v, ok := sub.Params["natural_sql"].(string); ok && v != "" {
+		return false
+	}
+	return true
+}
+
+// isModelSQLParams is isModelSQL for the registry, which sees only the params
+// of a non-trusted RouteSQL sub-question.
+func isModelSQLParams(params map[string]any) bool {
+	v, ok := params["natural_sql"].(string)
+	return !(ok && v != "")
+}
+
+// prepareSQLWindows applies the current-state rule before execution: for a
+// model-drafted SQL sub-question whose referenced view has no date column,
+// the from/to params are removed (so sqlguard.ValidateWindow does not fire)
+// and window_as_of records that the answer is as of the business date. The
+// composer then prints "Window: as of <date>" instead of a period the view
+// cannot honour. Returns true when at least one sub-question was converted.
+func prepareSQLWindows(subs []domain.SubQuestion, w Window, asOf time.Time) bool {
+	if w.IsZero() {
+		return false
+	}
+	converted := false
+	for i := range subs {
+		if !isModelSQL(subs[i]) {
+			continue
+		}
+		sql, _ := subs[i].Params["sql"].(string)
+		card, ok := reporting.CardForSQL(sql)
+		if !ok || card.DateColumn != "" {
+			continue
+		}
+		delete(subs[i].Params, paramFrom)
+		delete(subs[i].Params, paramTo)
+		delete(subs[i].Params, paramCompareFrom)
+		delete(subs[i].Params, paramCompareTo)
+		subs[i].Params[paramWindowAsOf] = asOf.In(biztime.DefaultLocation()).Format("2006-01-02")
+		converted = true
+	}
+	return converted
+}
+
+// sqlWindowFromParams rebuilds the guard window from a sub-question's
+// from/to params. ok=false when no window was threaded.
+func sqlWindowFromParams(params map[string]any) (sqlguard.Window, bool) {
+	from, _ := params[paramFrom].(string)
+	to, _ := params[paramTo].(string)
+	if from == "" || to == "" {
+		return sqlguard.Window{}, false
+	}
+	return sqlguard.WindowFromDates(from, to, biztime.DefaultLocation())
+}
+
+// validateModelSQL is the guard sequence the registry runs on a model-drafted
+// statement before the executor: sqlguard.Validate, then (when a window was
+// threaded) sqlguard.ValidateWindow against the referenced view's card. The
+// executor re-runs Validate itself — never trust a caller — this pass exists
+// so the window contract is enforced and the reject reason is attributable.
+func validateModelSQL(sql string, params map[string]any) error {
+	if err := sqlguard.Validate(sql); err != nil {
+		return err
+	}
+	if !isModelSQLParams(params) {
+		return nil
+	}
+	w, ok := sqlWindowFromParams(params)
+	if !ok {
+		return nil
+	}
+	var card sqlguard.SchemaCardLike
+	if c, found := reporting.CardForSQL(sql); found {
+		card = c
+	}
+	return sqlguard.ValidateWindow(sql, card, w)
+}
+
+// rejectClass maps a guard/executor error to the bounded reason label the
+// ceoai_sql_reject_total metric is tagged with. Free-form validator text stays
+// in the trace step; only the class becomes a label.
+func rejectClass(err error) string {
+	if err == nil {
+		return ""
+	}
+	if errors.Is(err, sqlguard.ErrWindowOnCurrentStateView) {
+		return "window_current_state"
+	}
+	if errors.Is(err, sqlguard.ErrTenantBinding) {
+		return "tenant_binding"
+	}
+	ve, ok := sqlguard.AsValidationError(err)
+	if !ok {
+		return ""
+	}
+	r := strings.ToLower(ve.Reason)
+	switch {
+	case strings.Contains(r, "window"):
+		return "window"
+	case strings.Contains(r, "banned keyword"):
+		return "banned_keyword"
+	case strings.Contains(r, "banned function"), strings.Contains(r, "banned identifier"):
+		return "banned_function"
+	case strings.Contains(r, "join"):
+		return "join"
+	case strings.Contains(r, "subquer"), strings.Contains(r, "single flat select"):
+		return "subquery"
+	case strings.Contains(r, "limit"):
+		return "limit"
+	case strings.Contains(r, "tenant"), strings.Contains(r, "where"):
+		return "tenant_scope"
+	case strings.Contains(r, "schema"), strings.Contains(r, "source"):
+		return "schema"
+	case strings.Contains(r, "comment"), strings.Contains(r, "separator"), strings.Contains(r, "quoted"), strings.Contains(r, "literal"):
+		return "syntax"
+	default:
+		return "other"
+	}
+}
+
+// pgErrorCode extracts the SQLSTATE of a Postgres failure, or "" when the
+// error is not a Postgres error.
+func pgErrorCode(err error) string {
+	var pgErr *pgconn.PgError
+	if errors.As(err, &pgErr) {
+		return pgErr.Code
+	}
+	return ""
+}
+
+// sqlFailureKind classifies a failed sql_fallback result: "reject" for a
+// guard rejection, "pg" for a Postgres error, "" for anything else (nil,
+// wiring, context) which the repair loop leaves alone.
+func sqlFailureKind(err error) string {
+	if err == nil {
+		return ""
+	}
+	if rejectClass(err) != "" {
+		return "reject"
+	}
+	if pgErrorCode(err) != "" {
+		return "pg"
+	}
+	return ""
+}
+
+// repairSQLResults is the D1.3 one-shot repair loop. For every model-drafted
+// sql_fallback result that failed with a guard rejection or a Postgres error,
+// it records the failure (metric + trace step with the validator reason),
+// asks the provider for ONE corrected draft with the reason and the referenced
+// view's schema card, runs the corrected draft through the same registry path
+// (Validate -> ValidateWindow -> executor), and replaces the result on
+// success. A second failure is recorded and left for the existing
+// honest-partial path. It returns the token usage of the repair calls.
+func (a *Assistant) repairSQLResults(ctx context.Context, q domain.Question, subs []domain.SubQuestion, results []domain.ToolResult, traces *[]domain.StepTrace) TokenUsage {
+	var usage TokenUsage
+	repairer, canRepair := a.provider.(sqlRepairer)
+	for i := range results {
+		if i >= len(subs) || !isModelSQL(subs[i]) {
+			continue
+		}
+		err := results[i].Err
+		kind := sqlFailureKind(err)
+		if kind == "" {
+			continue
+		}
+		a.recordSQLFailure(ctx, err)
+		if !canRepair {
+			continue
+		}
+		failedSQL, _ := subs[i].Params["sql"].(string)
+		cardText := ""
+		if card, ok := reporting.CardForSQL(failedSQL); ok {
+			cardText = card.RenderCompact()
+		}
+		windowText := ""
+		if w, ok := sqlWindowFromParams(subs[i].Params); ok {
+			col := "<date_col>"
+			if card, ok := reporting.CardForSQL(failedSQL); ok && card.DateColumn != "" {
+				col = card.DateColumn
+			}
+			windowText = col + " >= '" + w.FromLiteral() + "' AND " + col + " < '" + w.ToExclusiveLiteral() + "'"
+		}
+		start := a.now()
+		fixed, u, rerr := repairer.RepairSQL(ctx, q, failedSQL, err.Error(), cardText, windowText)
+		usage = usage.add(u)
+		if rerr != nil {
+			a.log.WarnContext(ctx, "ceoai sql repair call failed", "error", rerr)
+			*traces = append(*traces, domain.StepTrace{
+				SubQuestionID: subs[i].ID, Route: domain.RouteSQL, ToolName: "sql_repair",
+				StartedAt: start, DurationMS: a.now().Sub(start).Milliseconds(),
+				Err: "repair call: " + rerr.Error(),
+			})
+			continue
+		}
+		retry := subs[i]
+		retry.Params = make(map[string]any, len(subs[i].Params)+1)
+		for k, v := range subs[i].Params {
+			retry.Params[k] = v
+		}
+		retry.Params["sql"] = fixed
+		retry.Params["_repaired_from"] = kind
+		res, execErr := a.registry.Execute(ctx, q.Actor, retry)
+		if execErr == nil && res.Err != nil {
+			execErr = res.Err
+		}
+		trace := domain.StepTrace{
+			SubQuestionID: subs[i].ID, Route: domain.RouteSQL, ToolName: "sql_repair",
+			StartedAt: start, DurationMS: a.now().Sub(start).Milliseconds(),
+			RowCount: len(res.Facts), Err: errString(execErr),
+		}
+		*traces = append(*traces, trace)
+		if execErr != nil {
+			// Second failure: record it and fall through to the honest partial.
+			a.recordSQLFailure(ctx, execErr)
+			continue
+		}
+		res.SubQuestionID = subs[i].ID
+		if res.Route == "" {
+			res.Route = domain.RouteSQL
+		}
+		if res.ToolName == "" {
+			res.ToolName = subs[i].ToolName
+		}
+		results[i] = res
+		subs[i].Params["sql"] = fixed
+	}
+	return usage
+}
+
+// recordSQLFailure emits the D1.3 counters for one failed model-drafted read.
+func (a *Assistant) recordSQLFailure(ctx context.Context, err error) {
+	st, ok := a.telemetry.(sqlTelemetry)
+	if !ok || err == nil {
+		return
+	}
+	if cls := rejectClass(err); cls != "" {
+		st.SQLReject(ctx, cls)
+		return
+	}
+	if code := pgErrorCode(err); code != "" {
+		st.SQLPGError(ctx, code)
+	}
+}
+
+// windowResult builds the one synthetic result the composer renders as
+// "Window: …" so the answer states its period exactly once (D4). It is
+// emitted only when a model-drafted SQL read grounded the answer: a resolved
+// window renders the period; a current-state conversion renders "as of
+// <date>". The single fact is stamped with the actor's tenant so the tenant
+// gate accepts it, and reuses the SQL read's Surface so it adds no citation.
+// nil when nothing applies.
+func windowResult(actor domain.Actor, subs []domain.SubQuestion, results []domain.ToolResult, w Window) *domain.ToolResult {
+	asOf := ""
+	windowed := false
+	surface := ""
+	for i, r := range results {
+		if i >= len(subs) || !isModelSQL(subs[i]) || r.Err != nil {
+			continue
+		}
+		if surface == "" {
+			surface = r.Surface
+		}
+		if v, ok := subs[i].Params[paramWindowAsOf].(string); ok && v != "" {
+			asOf = v
+			continue
+		}
+		if _, ok := sqlWindowFromParams(subs[i].Params); ok {
+			windowed = true
+		}
+	}
+	var value string
+	switch {
+	case windowed && !w.IsZero():
+		value = w.Describe()
+	case asOf != "":
+		value = "as of " + biztime.FarmDateFromBusinessDate(asOf)
+	default:
+		return nil
+	}
+	// Same Surface as the SQL read it annotates: the composer de-duplicates
+	// citations by Surface, and sourceLabel would otherwise add a bare "sql".
+	return &domain.ToolResult{
+		Route:    domain.RouteSQL,
+		ToolName: "window",
+		Surface:  surface,
+		Facts:    []domain.Fact{{TenantID: actor.TenantID, Label: "Window", Value: value}},
+	}
+}

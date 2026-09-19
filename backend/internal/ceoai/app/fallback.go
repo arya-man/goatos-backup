@@ -30,6 +30,36 @@ func injectAsOf(subs []domain.SubQuestion, asOf time.Time) {
 	}
 }
 
+// injectWindow threads the server-resolved period (plan v3 D1.2) into every
+// sub-question's Params as ISO business dates, the same way injectAsOf
+// threads the as-of instant: from/to (inclusive), window_label, and
+// compare_from/compare_to for a two-window comparison. A sub that already
+// carries from/to (a diagnostic decomposition pinning its own period) is
+// left alone. A zero window injects nothing, so a question with no period
+// never acquires one.
+func injectWindow(subs []domain.SubQuestion, w Window) {
+	if w.IsZero() {
+		return
+	}
+	for i := range subs {
+		if subs[i].Params == nil {
+			subs[i].Params = map[string]any{}
+		}
+		if _, ok := subs[i].Params[paramFrom]; ok {
+			continue
+		}
+		subs[i].Params[paramFrom] = w.FromDate()
+		subs[i].Params[paramTo] = w.ToDate()
+		if w.Label != "" {
+			subs[i].Params[paramWindowLabel] = w.Label
+		}
+		if w.Compare != nil && !w.Compare.IsZero() {
+			subs[i].Params[paramCompareFrom] = w.Compare.FromDate()
+			subs[i].Params[paramCompareTo] = w.Compare.ToDate()
+		}
+	}
+}
+
 // fallbackTierOrder is the committed Cube -> API -> Toolbox -> SQL hierarchy
 // (see registry.go). A retry walks this order, skipping the tier that already
 // ran and any tier the alias does not define.

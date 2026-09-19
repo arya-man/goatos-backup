@@ -130,6 +130,13 @@ func (r *Registry) Execute(ctx context.Context, actor domain.Actor, sub domain.S
 			}
 			return res, err
 		}
+		// Model-drafted SQL: sqlguard.Validate, then the window contract
+		// (sqlguard.ValidateWindow, plan v3 D1.2) BEFORE the executor, so a
+		// period the leader asked for is either bound exactly or rejected —
+		// never silently answered all-time. The executor re-validates.
+		if err := validateModelSQL(sql, sub.Params); err != nil {
+			return domain.ToolResult{}, fmt.Errorf("sqlguard fallback: %w", err)
+		}
 		res, err := r.sqlFB.Execute(ctx, actor, sql, args)
 		if err == nil {
 			res = annotateNaturalSQLResult(res, sub)
@@ -187,7 +194,10 @@ func cubeParams(params map[string]any) (dims []string, timeRange string, filters
 		switch k {
 		// as_of is the orchestrator-injected business-date stamp (P1-4); it is
 		// not a Cube dimension member and must never become a Cube filter.
-		case "dimensions", "group_by", "time_range", "sql", "args", "tenant_id", "as_of":
+		// from/to/window_* are the orchestrator-injected period (plan v3 D1.2);
+		// Cube periods travel as time_range, never as equality filters.
+		case "dimensions", "group_by", "time_range", "sql", "args", "tenant_id", "as_of",
+			paramFrom, paramTo, paramWindowLabel, paramCompareFrom, paramCompareTo, paramWindowAsOf:
 			continue
 		}
 		if s, ok := v.(string); ok && s != "" {
