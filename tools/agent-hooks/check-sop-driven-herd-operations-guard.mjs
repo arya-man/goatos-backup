@@ -14,7 +14,7 @@
 //                                   TemplateDeath (the compiler path is the only way to open).
 //   2. seed-drifted-from-migration -- every embedded document in tasks/domain/sopseed/*.json is
 //                                   present verbatim in a $seed$-bearing migration (000308 for herd
-//                                   operations, 000354 for the general SOP; the Go test pins the
+//                                   operations, 000361 for the general SOP; the Go test pins the
 //                                   same thing; this catches it before a compile).
 //   3. hardcoded-step-copy-on-phone -- the Android workflow drill-in must not hardcode an
 //                                   operator step title (e.g. "Is the kid clean?", "1st Colostrum",
@@ -81,7 +81,7 @@ export function check(root) {
   // 2. seed vs migration
   const seedDir = join(root, "backend/internal/tasks/domain/sopseed");
   // A seed document is pinned to whichever migration embeds it between $seed$ quotes: 000308
-  // carries the herd-operations set, 000354 the first general SOP (SOP studio phase 2). Every
+  // carries the herd-operations set, 000361 the first general SOP (SOP studio phase 2). Every
   // migration that embeds a $seed$ document is read, so a later SOP shipped by its own
   // migration is pinned the same way rather than silently unchecked.
   const migrationDir = join(root, "backend/migrations/postgres");

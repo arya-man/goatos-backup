@@ -11,7 +11,7 @@ import (
 	"github.com/vgoats/goatos/backend/internal/tasks/ports"
 )
 
-// TestGeneralSOPRunBranchesOnTheAnswer drives the seeded GENERAL SOP (migration 000354, the
+// TestGeneralSOPRunBranchesOnTheAnswer drives the seeded GENERAL SOP (migration 000361, the
 // gate visitor check) through the real repository on real Postgres: a run opens with no animal,
 // the branch steps wait on the question, a YES keeps them and a NO skips them so the run
 // completes on the shorter path -- and the skipped rows never reach the counts or the card.
