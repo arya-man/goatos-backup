@@ -33,6 +33,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.res.stringResource
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import sg.mesha.goatos.core.designsystem.component.MeshaScreenHeader
 import sg.mesha.goatos.core.designsystem.icon.MeshaIcons
@@ -420,13 +421,19 @@ private fun WorkflowContextCard(state: WorkflowDetailUiState) {
                                 .clip(RoundedCornerShape(10.dp))
                                 .background(MeshaColors.Surf2)
                                 .padding(horizontal = 10.dp, vertical = 7.dp),
-                            horizontalArrangement = Arrangement.SpaceBetween,
+                            // A gap between label and value, and the value takes the slack: a
+                            // long value ("19/09/2026 · 20:03") used to press flush against its
+                            // label on the sale run's Event cell.
+                            horizontalArrangement = Arrangement.spacedBy(8.dp),
+                            verticalAlignment = Alignment.Top,
                         ) {
                             Text(text = label, color = MeshaColors.Faint, style = MeshaType.caption)
                             Text(
                                 text = value,
                                 color = MeshaColors.Ink,
                                 style = MeshaType.pill,
+                                modifier = Modifier.weight(1f),
+                                textAlign = TextAlign.End,
                             )
                         }
                     }
