@@ -2839,6 +2839,13 @@
 .market-call-time{display:flex;gap:12px;align-items:center;flex-wrap:wrap;padding:12px 14px;border:1px solid var(--line);border-radius:10px;background:var(--panel2,transparent)}
 .market-call-time .market-config-hint{margin-bottom:0}
 .market-config-columns{gap:24px;align-items:start}
+
+  /* Farm valuation section on Sales Config (2026-09-19): editable figures in the table, the two
+     scalar figures as stacked label / input / hint blocks. */
+  .valuation-form .tbl input{width:100%;max-width:220px;background:var(--panel-2,var(--panel));border:1px solid var(--line);border-radius:8px;padding:6px 10px;color:var(--ink);font:inherit}
+  .valuation-form .tbl input:disabled{opacity:.7}
+  .valuation-form label.market-config-column{display:flex;flex-direction:column;gap:6px}
+  .valuation-form label.market-config-column input{max-width:220px;background:var(--panel-2,var(--panel));border:1px solid var(--line);border-radius:8px;padding:6px 10px;color:var(--ink);font:inherit}
 .market-config-column{min-width:0}
 .market-config-list{list-style:none;padding:0;margin:0;border-top:1px solid var(--line)}
 .market-config-list > li{padding:10px 0;border-bottom:1px solid var(--line)}
