@@ -5741,6 +5741,26 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/app/workflows/subject": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Get the workflow keyed on a non-animal subject (a sale, a reconcile card).
+         * @description SALES SOP (docs/decisions/sales-sop.md): a recorded sale opens ONE workflow keyed on the deal (template_key=sales_deal, subject_ref_id=the sales_deals id). A screen that already knows the subject reads its steps here without paging the module list. Same response as the detail route. 404 workflow_not_found until the sales.deal.recorded event has opened it. Gated on any sales permission, counts.write or task.execute; the handler narrows per module (a caller admitted on a sales permission alone cannot read a birth card).
+         */
+        get: operations["getAppWorkflowBySubject"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/app/workflows/start": {
         parameters: {
             query?: never;
@@ -18303,17 +18323,21 @@ export interface components {
             /** Format: uuid */
             workflow_id: string;
             /** @enum {string} */
-            module: "birth" | "death" | "reconcile" | "shifting" | "general";
+            module: "birth" | "death" | "reconcile" | "shifting" | "general" | "sales";
             /**
              * @description The run's template. Module workflows use a fixed key (birth_kid, birth_mother, death,
-             *     reconcile, shifting). A GENERAL run -- a farm-wide SOP started by hand from Work
+             *     reconcile, shifting, sales_deal). A GENERAL run -- a farm-wide SOP started by hand from Work
              *     instructions -- is keyed by its SOP code as `general:<sop code>`, e.g.
              *     `general:general.gate_visitor_check`, so every authored general SOP is its own template
              *     without a contract change per SOP.
              */
             template_key: string;
-            /** @description Backend-owned kind label for the card ("Birth", "Death", "Pen return", "Pen move", or the general SOP's name). Render verbatim. */
+            /** @description Backend-owned kind label for the card ("Birth", "Death", "Pen return", "Pen move", "Sale", or the general SOP's name). Render verbatim. */
             template_label?: string;
+            /** @description The NON-animal subject a workflow is keyed on -- the sale's deal id, the reconcile card, a general run id. Absent on goat-keyed workflows. The phone deep-links the sale's tag-animals step to the tagging screen on it. */
+            subject_ref_id?: string;
+            /** @description Backend-composed line for a non-animal subject ("Kumar Traders · 12 animals · CBE" on a sale); absent elsewhere. Render verbatim. */
+            subject_label?: string;
             subject: components["schemas"]["WorkflowSubject"];
             /** Format: date-time */
             event_at: string;
@@ -18395,7 +18419,7 @@ export interface components {
              * @description Backend-owned reason; absent when blocked is false.
              * @enum {string}
              */
-            blocked_reason?: "previous_action" | "not_yet_due" | "signoff" | "awaiting_answer";
+            blocked_reason?: "previous_action" | "not_yet_due" | "signoff" | "awaiting_answer" | "for_other_role";
             answer_value: string | null;
             proof_ref: string | null;
             completed_by_label: string;
@@ -18420,6 +18444,10 @@ export interface components {
             rework_reason?: string;
             /** @description Backend-composed sentence for a step on an answer-driven branch ("Only if 'Is the animal ready?' is No"); absent on an unconditional step. Render verbatim. Such a step reads blocked_reason=awaiting_answer until its question is answered; a step on the branch NOT taken is never served (it is skipped, off every count). */
             branch_note?: string;
+            /** @description WHO DOES THE STEP (SALES SOP, docs/decisions/sales-sop.md): the designation code the SOP names ("park_head"); absent when anyone may do it. A caller who does not hold it reads blocked=true, blocked_reason=for_other_role and the write path refuses them (403 step_for_other_role); ceo_internal is never narrowed. */
+            owner_role?: string;
+            /** @description The designation catalog's label for owner_role ("Park Head"). Render verbatim. */
+            owner_label?: string;
         };
         WorkflowProofItem: {
             /** @description Server-minted proof id from /app/proofs/*. */
@@ -30204,7 +30232,7 @@ export interface operations {
     listAppWorkflows: {
         parameters: {
             query: {
-                module: "birth" | "death" | "colostrum" | "general";
+                module: "birth" | "death" | "colostrum" | "general" | "sales";
                 /** @description Business date (Asia/Kolkata) to list; defaults to today IST. */
                 date?: string;
                 /** @description Card bucket filter; defaults to all (excludes canceled). */
@@ -30255,6 +30283,35 @@ export interface operations {
             };
             401: components["responses"]["Unauthorized"];
             403: components["responses"]["Forbidden"];
+            500: components["responses"]["ServerError"];
+        };
+    };
+    getAppWorkflowBySubject: {
+        parameters: {
+            query: {
+                /** @description A subject-keyed template (sales_deal, reconcile, or general:<sop code>). */
+                template_key: string;
+                subject_ref_id: string;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The workflow's card header, facts and operator action rows. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["WorkflowDetailResponse"];
+                };
+            };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFoundOrNotAllowed"];
             500: components["responses"]["ServerError"];
         };
     };
