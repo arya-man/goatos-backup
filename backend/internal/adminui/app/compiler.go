@@ -1490,13 +1490,30 @@ func compileConfigurationControls(controls []domain.Control, input BootstrapInpu
 		Enabled: true,
 		Action:  "GET /admin/configuration/{register}/export",
 	})
-	return upsertControl(controls, domain.Control{
+	controls = upsertControl(controls, domain.Control{
 		ID:             "import_sheet",
 		Label:          controlCopy(copy, "sheet.upload", "Upload"),
 		Kind:           "action",
 		Enabled:        allowed,
 		DisabledReason: reason,
 		Action:         "POST /admin/configuration/{register}/imports",
+	})
+	// The onboarding workbook (2026-09-19): the template and the whole-setup export ride the
+	// read; the upload is a write like any other.
+	controls = upsertControl(controls, domain.Control{
+		ID:      "export_workbook",
+		Label:   controlCopy(copy, "workbook.template", "Download template"),
+		Kind:    "action",
+		Enabled: true,
+		Action:  "GET /admin/configuration/workbook/template",
+	})
+	return upsertControl(controls, domain.Control{
+		ID:             "import_workbook",
+		Label:          controlCopy(copy, "workbook.upload_action", "Upload and check"),
+		Kind:           "action",
+		Enabled:        allowed,
+		DisabledReason: reason,
+		Action:         "POST /admin/configuration/workbook/imports",
 	})
 }
 

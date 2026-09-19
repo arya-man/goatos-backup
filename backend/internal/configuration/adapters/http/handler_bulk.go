@@ -20,7 +20,7 @@ import (
 // file streams into the job's rows and the response is the job, which the screen polls while a
 // processor validates it; Apply is a second, explicit call.
 
-// maxUploadBytes bounds one sheet upload (a 200k-row CSV is well under it).
+// maxUploadBytes bounds one upload (a 500k-row CSV, or a workbook of that many rows, is under it).
 const maxUploadBytes = 64 << 20
 
 // Bulk is the slice of the app the bulk routes need beside Service.
@@ -28,6 +28,10 @@ type Bulk interface {
 	Export(ctx context.Context, tenantID, register, status, format string, out io.Writer) error
 	Template(ctx context.Context, tenantID, register, format string, out io.Writer) error
 	ErrorSheet(ctx context.Context, jobs ports.ImportRepository, tenantID, jobID, format string, out io.Writer) error
+	// The onboarding workbook (2026-09-19): one Excel file, one tab per list.
+	WorkbookTemplate(ctx context.Context, tenantID string, out io.Writer) error
+	WorkbookExport(ctx context.Context, tenantID, status string, out io.Writer) error
+	BundleErrorSheet(ctx context.Context, jobs ports.ImportRepository, tenantID, bundleID, format string, out io.Writer) error
 }
 
 // WithBulk mounts the sheet routes on a handler that has an importer.
@@ -36,9 +40,18 @@ func (h *Handler) WithBulk(bulk Bulk, importer *app.Importer, jobs ports.ImportR
 	return h
 }
 
-// RegisterBulk mounts the sheet routes. Literal segments (`imports`, `export`, `template`) are
-// registered beside the {row_id} pattern; Go's mux prefers the literal.
+// RegisterBulk mounts the sheet routes. Literal segments (`imports`, `export`, `template`,
+// `workbook`) are registered beside the {register} / {row_id} patterns; Go's mux prefers the
+// literal, and no register is keyed `workbook` (pinned by a test).
 func RegisterBulk(mux *http.ServeMux, h *Handler) {
+	mux.HandleFunc("GET /admin/configuration/workbook/template", h.WorkbookTemplate)
+	mux.HandleFunc("GET /admin/configuration/workbook/export", h.WorkbookExport)
+	mux.HandleFunc("POST /admin/configuration/workbook/imports", h.UploadWorkbook)
+	mux.HandleFunc("GET /admin/configuration/workbook/imports", h.ListWorkbookImports)
+	mux.HandleFunc("GET /admin/configuration-import-bundles/{bundle_id}", h.GetBundle)
+	mux.HandleFunc("GET /admin/configuration-import-bundles/{bundle_id}/errors", h.BundleErrors)
+	mux.HandleFunc("POST /admin/configuration-import-bundles/{bundle_id}/apply", h.ApplyBundle)
+	mux.HandleFunc("POST /admin/configuration-import-bundles/{bundle_id}/cancel", h.CancelBundle)
 	mux.HandleFunc("GET /admin/configuration/{register}/export", h.Export)
 	mux.HandleFunc("GET /admin/configuration/{register}/template", h.Template)
 	mux.HandleFunc("POST /admin/configuration/{register}/imports", h.Upload)
@@ -58,6 +71,16 @@ type importJobPayload struct {
 type importJobsPayload struct {
 	Jobs    []domain.ImportJob `json:"jobs"`
 	TraceID string             `json:"trace_id"`
+}
+
+type importBundlePayload struct {
+	Bundle  domain.ImportBundle `json:"bundle"`
+	TraceID string              `json:"trace_id"`
+}
+
+type importBundlesPayload struct {
+	Bundles []domain.ImportBundle `json:"bundles"`
+	TraceID string                `json:"trace_id"`
 }
 
 type importRowsPayload struct {
@@ -135,6 +158,18 @@ func (h *Handler) Upload(w http.ResponseWriter, r *http.Request) {
 	if !h.bulkReady(w, r) {
 		return
 	}
+	h.withUploadedFile(w, r, func(name string, part io.Reader) {
+		job, err := h.importer.Stage(r.Context(), writeParams(r, ""), r.PathValue("register"), name, part)
+		if err != nil {
+			h.writeUploadErr(w, r, err)
+			return
+		}
+		httpresponse.WriteJSON(w, http.StatusAccepted, importJobPayload{Job: job, TraceID: traceID(r)})
+	})
+}
+
+// withUploadedFile streams the `file` part of a multipart upload to fn, bounded by maxUploadBytes.
+func (h *Handler) withUploadedFile(w http.ResponseWriter, r *http.Request, fn func(name string, part io.Reader)) {
 	r.Body = http.MaxBytesReader(w, r.Body, maxUploadBytes)
 	mr, err := r.MultipartReader()
 	if err != nil {
@@ -154,19 +189,170 @@ func (h *Handler) Upload(w http.ResponseWriter, r *http.Request) {
 		if part.FormName() != "file" {
 			continue
 		}
-		job, err := h.importer.Stage(r.Context(), writeParams(r, ""), r.PathValue("register"), part.FileName(), part)
+		fn(part.FileName(), part)
+		return
+	}
+}
+
+func (h *Handler) writeUploadErr(w http.ResponseWriter, r *http.Request, err error) {
+	var maxErr *http.MaxBytesError
+	if errors.As(err, &maxErr) {
+		writeErr(w, r, h.log, &app.Error{Code: "sheet_too_large", Message: "That file is larger than 64 MB. Split it and upload the parts.", HTTPStatus: http.StatusRequestEntityTooLarge})
+		return
+	}
+	writeErr(w, r, h.log, app.HTTPError(err))
+}
+
+// --- the onboarding workbook ---
+
+// WorkbookTemplate serves GET /admin/configuration/workbook/template: one Excel file with a tab
+// per list, each carrying the upload header. Excel only; a CSV has no tabs.
+func (h *Handler) WorkbookTemplate(w http.ResponseWriter, r *http.Request) {
+	if !h.bulkReady(w, r) {
+		return
+	}
+	if err := requireWorkbookFormat(r); err != nil {
+		writeErr(w, r, h.log, err)
+		return
+	}
+	attachment(w, domain.FormatXLSX, "goatos-setup-template")
+	if err := h.bulk.WorkbookTemplate(r.Context(), tenantID(r), w); err != nil {
+		h.log.Error("configuration workbook template", "error", err)
+	}
+}
+
+// WorkbookExport serves GET /admin/configuration/workbook/export?status=: every list as a tab.
+func (h *Handler) WorkbookExport(w http.ResponseWriter, r *http.Request) {
+	if !h.bulkReady(w, r) {
+		return
+	}
+	if err := requireWorkbookFormat(r); err != nil {
+		writeErr(w, r, h.log, err)
+		return
+	}
+	attachment(w, domain.FormatXLSX, "goatos-setup")
+	if err := h.bulk.WorkbookExport(r.Context(), tenantID(r), strings.TrimSpace(r.URL.Query().Get("status")), w); err != nil {
+		h.log.Error("configuration workbook export", "error", err)
+	}
+}
+
+func requireWorkbookFormat(r *http.Request) *app.Error {
+	format, err := app.NormalizeFormat(r.URL.Query().Get("format"))
+	if err != nil {
+		return app.HTTPError(err)
+	}
+	if format != domain.FormatXLSX && strings.TrimSpace(r.URL.Query().Get("format")) != "" {
+		return app.BadRequest("invalid_format", "The workbook is an Excel file; choose xlsx.")
+	}
+	return nil
+}
+
+// UploadWorkbook serves POST /admin/configuration/workbook/imports: multipart with one `file`
+// part, an .xlsx with one tab per list.
+func (h *Handler) UploadWorkbook(w http.ResponseWriter, r *http.Request) {
+	if !h.bulkReady(w, r) {
+		return
+	}
+	h.withUploadedFile(w, r, func(name string, part io.Reader) {
+		bundle, err := h.importer.StageWorkbook(r.Context(), writeParams(r, ""), name, part)
 		if err != nil {
-			var maxErr *http.MaxBytesError
-			if errors.As(err, &maxErr) {
-				writeErr(w, r, h.log, &app.Error{Code: "sheet_too_large", Message: "That file is larger than 64 MB. Split it and upload the parts.", HTTPStatus: http.StatusRequestEntityTooLarge})
-				return
-			}
+			h.writeUploadErr(w, r, err)
+			return
+		}
+		httpresponse.WriteJSON(w, http.StatusAccepted, importBundlePayload{Bundle: bundle, TraceID: traceID(r)})
+	})
+}
+
+// ListWorkbookImports serves GET /admin/configuration/workbook/imports: recent workbooks.
+func (h *Handler) ListWorkbookImports(w http.ResponseWriter, r *http.Request) {
+	if !h.bulkReady(w, r) {
+		return
+	}
+	bundles, err := h.jobs.ListImportBundles(r.Context(), tenantID(r), 10)
+	if err != nil {
+		writeErr(w, r, h.log, app.HTTPError(err))
+		return
+	}
+	httpresponse.WriteJSON(w, http.StatusOK, importBundlesPayload{Bundles: bundles, TraceID: traceID(r)})
+}
+
+// GetBundle serves GET /admin/configuration-import-bundles/{bundle_id}: the workbook the screen polls.
+func (h *Handler) GetBundle(w http.ResponseWriter, r *http.Request) {
+	if !h.bulkReady(w, r) {
+		return
+	}
+	bundle, err := h.jobs.GetImportBundle(r.Context(), tenantID(r), r.PathValue("bundle_id"))
+	if err != nil {
+		writeErr(w, r, h.log, app.HTTPError(err))
+		return
+	}
+	httpresponse.WriteJSON(w, http.StatusOK, importBundlePayload{Bundle: bundle, TraceID: traceID(r)})
+}
+
+// BundleErrors serves GET /admin/configuration-import-bundles/{bundle_id}/errors?format=: every
+// tab's rows to fix (a workbook with one tab per sheet that had problems, or one CSV).
+func (h *Handler) BundleErrors(w http.ResponseWriter, r *http.Request) {
+	if !h.bulkReady(w, r) {
+		return
+	}
+	format, err := app.NormalizeFormat(r.URL.Query().Get("format"))
+	if err != nil {
+		writeErr(w, r, h.log, app.HTTPError(err))
+		return
+	}
+	bundle, err := h.jobs.GetImportBundle(r.Context(), tenantID(r), r.PathValue("bundle_id"))
+	if err != nil {
+		writeErr(w, r, h.log, app.HTTPError(err))
+		return
+	}
+	attachment(w, format, "goatos-setup-rows-to-fix")
+	if err := h.bulk.BundleErrorSheet(r.Context(), h.jobs, tenantID(r), bundle.ID, format, w); err != nil {
+		h.log.Error("configuration bundle error sheet", "bundle_id", bundle.ID, "error", err)
+	}
+}
+
+// ApplyBundle serves POST /admin/configuration-import-bundles/{bundle_id}/apply.
+func (h *Handler) ApplyBundle(w http.ResponseWriter, r *http.Request) {
+	if !h.bulkReady(w, r) {
+		return
+	}
+	bundle, ok, err := h.jobs.RequestImportBundleApply(r.Context(), tenantID(r), r.PathValue("bundle_id"), writeParams(r, "").ActorID)
+	if err != nil {
+		writeErr(w, r, h.log, app.HTTPError(err))
+		return
+	}
+	if !ok {
+		current, err := h.jobs.GetImportBundle(r.Context(), tenantID(r), r.PathValue("bundle_id"))
+		if err != nil {
 			writeErr(w, r, h.log, app.HTTPError(err))
 			return
 		}
-		httpresponse.WriteJSON(w, http.StatusAccepted, importJobPayload{Job: job, TraceID: traceID(r)})
+		if current.Status == domain.ImportApplying || current.Status == domain.ImportApplied {
+			httpresponse.WriteJSON(w, http.StatusOK, importBundlePayload{Bundle: current, TraceID: traceID(r)})
+			return
+		}
+		writeErr(w, r, h.log, &app.Error{Code: "not_previewed", Message: "This workbook is not ready to apply.", HTTPStatus: http.StatusConflict})
 		return
 	}
+	h.importer.KickBundle(tenantID(r), bundle.ID)
+	httpresponse.WriteJSON(w, http.StatusAccepted, importBundlePayload{Bundle: bundle, TraceID: traceID(r)})
+}
+
+// CancelBundle serves POST /admin/configuration-import-bundles/{bundle_id}/cancel.
+func (h *Handler) CancelBundle(w http.ResponseWriter, r *http.Request) {
+	if !h.bulkReady(w, r) {
+		return
+	}
+	bundle, ok, err := h.jobs.CancelImportBundle(r.Context(), tenantID(r), r.PathValue("bundle_id"))
+	if err != nil {
+		writeErr(w, r, h.log, app.HTTPError(err))
+		return
+	}
+	if !ok {
+		writeErr(w, r, h.log, &app.Error{Code: "not_cancellable", Message: "This workbook has already finished.", HTTPStatus: http.StatusConflict})
+		return
+	}
+	httpresponse.WriteJSON(w, http.StatusOK, importBundlePayload{Bundle: bundle, TraceID: traceID(r)})
 }
 
 // ListImports serves GET /admin/configuration/{register}/imports: recent uploads of the register.

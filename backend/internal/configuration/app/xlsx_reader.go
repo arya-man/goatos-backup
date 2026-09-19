@@ -21,7 +21,7 @@ import (
 // stream writer (2.11.0, clear).
 //
 // What it reads, which is what a spreadsheet saved from Excel, Numbers or LibreOffice carries:
-// the FIRST worksheet in workbook order; shared strings (rich-text runs joined); inline strings;
+// every worksheet in workbook order (a single-sheet upload reads the first); shared strings (rich-text runs joined); inline strings;
 // booleans; numbers, rendered as written; and dates -- a numeric cell under a date number format
 // becomes YYYY-MM-DD, so a date-of-birth typed in Excel arrives as the register expects. Rows
 // stream one at a time; only the shared-string table is held (a few MB for a large sheet).
@@ -31,7 +31,6 @@ type xlsxWorkbook struct {
 	dec       *xml.Decoder
 	shared    []string
 	dateStyle []bool
-	closer    io.Closer
 }
 
 const xlsxMaxSharedStrings = 2_000_000
@@ -45,32 +44,68 @@ const (
 
 var cellRefRe = regexp.MustCompile(`^([A-Z]+)`)
 
-// openXLSX opens the workbook held in data and positions on the first worksheet.
-func openXLSX(data []byte) (*xlsxWorkbook, error) {
+// xlsxFile is an opened workbook: its worksheets in workbook order, with the shared-string
+// table and the date styles loaded ONCE and shared by every sheet opened from it.
+type xlsxFile struct {
+	files     map[string]*zip.File
+	sheets    []xlsxSheetRef
+	shared    []string
+	dateStyle []bool
+}
+
+// xlsxSheetRef is one worksheet: its tab name and the zip part that holds it.
+type xlsxSheetRef struct {
+	Name string
+	path string
+}
+
+// openXLSXFile opens the workbook held in data and lists its worksheets.
+func openXLSXFile(data []byte) (*xlsxFile, error) {
 	zr, err := zip.NewReader(bytes.NewReader(data), int64(len(data)))
 	if err != nil {
 		return nil, errors.New("not a workbook")
 	}
-	files := map[string]*zip.File{}
+	wb := &xlsxFile{files: map[string]*zip.File{}}
 	for _, f := range zr.File {
-		files[f.Name] = f
+		wb.files[f.Name] = f
 	}
-	sheetPath, err := xlsxFirstSheetPath(files)
+	sheets, err := xlsxSheetPaths(wb.files)
 	if err != nil {
 		return nil, err
 	}
-	wb := &xlsxWorkbook{}
-	if f, ok := files["xl/sharedStrings.xml"]; ok {
-		if err := wb.loadSharedStrings(f); err != nil {
+	wb.sheets = sheets
+	if f, ok := wb.files["xl/sharedStrings.xml"]; ok {
+		shared, err := loadSharedStrings(f)
+		if err != nil {
 			return nil, err
 		}
+		wb.shared = shared
 	}
-	if f, ok := files["xl/styles.xml"]; ok {
-		if err := wb.loadStyles(f); err != nil {
+	if f, ok := wb.files["xl/styles.xml"]; ok {
+		styles, err := loadStyles(f)
+		if err != nil {
 			return nil, err
 		}
+		wb.dateStyle = styles
 	}
-	f, ok := files[sheetPath]
+	return wb, nil
+}
+
+// Sheets is the worksheet names in workbook order.
+func (wb *xlsxFile) Sheets() []string {
+	out := make([]string, len(wb.sheets))
+	for i, s := range wb.sheets {
+		out[i] = s.Name
+	}
+	return out
+}
+
+// Open positions a row stream on worksheet i.
+func (wb *xlsxFile) Open(i int) (*xlsxWorkbook, error) {
+	if i < 0 || i >= len(wb.sheets) {
+		return nil, errors.New("worksheet missing")
+	}
+	f, ok := wb.files[wb.sheets[i].path]
 	if !ok {
 		return nil, errors.New("worksheet missing")
 	}
@@ -81,9 +116,19 @@ func openXLSX(data []byte) (*xlsxWorkbook, error) {
 	if err != nil {
 		return nil, err
 	}
-	wb.sheetXML = rc
-	wb.dec = xml.NewDecoder(rc)
-	return wb, nil
+	return &xlsxWorkbook{sheetXML: rc, dec: xml.NewDecoder(rc), shared: wb.shared, dateStyle: wb.dateStyle}, nil
+}
+
+// openXLSX opens the workbook held in data and positions on the first worksheet.
+func openXLSX(data []byte) (*xlsxWorkbook, error) {
+	wb, err := openXLSXFile(data)
+	if err != nil {
+		return nil, err
+	}
+	if len(wb.sheets) == 0 {
+		return nil, errors.New("workbook has no sheet")
+	}
+	return wb.Open(0)
 }
 
 // endOfPart reads a part's end as done and anything else as the malformed workbook it is.
@@ -136,13 +181,15 @@ func (r *countingReader) err() error {
 	return nil
 }
 
-// xlsxFirstSheetPath resolves workbook.xml's first <sheet> through the workbook rels.
-func xlsxFirstSheetPath(files map[string]*zip.File) (string, error) {
+// xlsxSheetPaths resolves workbook.xml's <sheet> list, in workbook order, through the
+// workbook rels to each worksheet's part.
+func xlsxSheetPaths(files map[string]*zip.File) ([]xlsxSheetRef, error) {
 	wbFile, ok := files["xl/workbook.xml"]
 	if !ok {
-		return "", errors.New("workbook.xml missing")
+		return nil, errors.New("workbook.xml missing")
 	}
-	firstRel := ""
+	type sheetEntry struct{ name, rel string }
+	var entries []sheetEntry
 	err := readZipXML(wbFile, xlsxMaxWorkbookPartBytes, func(dec *xml.Decoder) error {
 		for {
 			tok, err := dec.Token()
@@ -150,22 +197,26 @@ func xlsxFirstSheetPath(files map[string]*zip.File) (string, error) {
 				return endOfPart(err)
 			}
 			if se, ok := tok.(xml.StartElement); ok && se.Name.Local == "sheet" {
+				e := sheetEntry{}
 				for _, a := range se.Attr {
-					if a.Name.Local == "id" {
-						firstRel = a.Value
+					switch a.Name.Local {
+					case "id":
+						e.rel = a.Value
+					case "name":
+						e.name = a.Value
 					}
 				}
-				return nil
+				entries = append(entries, e)
 			}
 		}
 	})
 	if err != nil {
-		return "", err
+		return nil, err
 	}
-	if firstRel == "" {
-		return "", errors.New("workbook has no sheet")
+	if len(entries) == 0 {
+		return nil, errors.New("workbook has no sheet")
 	}
-	target := ""
+	targets := map[string]string{}
 	if relFile, ok := files["xl/_rels/workbook.xml.rels"]; ok {
 		if err := readZipXML(relFile, xlsxMaxWorkbookPartBytes, func(dec *xml.Decoder) error {
 			for {
@@ -183,27 +234,32 @@ func xlsxFirstSheetPath(files map[string]*zip.File) (string, error) {
 							t = a.Value
 						}
 					}
-					if id == firstRel {
-						target = t
-						return nil
-					}
+					targets[id] = t
 				}
 			}
 		}); err != nil {
-			return "", err
+			return nil, err
 		}
 	}
-	if target == "" {
-		target = "worksheets/sheet1.xml"
+	out := make([]xlsxSheetRef, 0, len(entries))
+	for i, e := range entries {
+		target := targets[e.rel]
+		if target == "" {
+			target = "worksheets/sheet" + strconv.Itoa(i+1) + ".xml"
+		}
+		if strings.HasPrefix(target, "/") {
+			target = strings.TrimPrefix(target, "/")
+		} else {
+			target = path.Join("xl", target)
+		}
+		out = append(out, xlsxSheetRef{Name: e.name, path: target})
 	}
-	if strings.HasPrefix(target, "/") {
-		return strings.TrimPrefix(target, "/"), nil
-	}
-	return path.Join("xl", target), nil
+	return out, nil
 }
 
-func (wb *xlsxWorkbook) loadSharedStrings(f *zip.File) error {
-	return readZipXML(f, xlsxMaxSharedStringsBytes, func(dec *xml.Decoder) error {
+func loadSharedStrings(f *zip.File) ([]string, error) {
+	var shared []string
+	err := readZipXML(f, xlsxMaxSharedStringsBytes, func(dec *xml.Decoder) error {
 		var (
 			cur        strings.Builder
 			inSI       bool
@@ -240,19 +296,21 @@ func (wb *xlsxWorkbook) loadSharedStrings(f *zip.File) error {
 					if count >= xlsxMaxSharedStrings {
 						return errors.New("too many strings")
 					}
-					wb.shared = append(wb.shared, cur.String())
+					shared = append(shared, cur.String())
 					count++
 					inSI = false
 				}
 			}
 		}
 	})
+	return shared, err
 }
 
 // loadStyles marks which cell styles (cellXfs, by index) carry a date number format.
-func (wb *xlsxWorkbook) loadStyles(f *zip.File) error {
+func loadStyles(f *zip.File) ([]bool, error) {
 	custom := map[string]bool{}
-	return readZipXML(f, xlsxMaxStylesPartBytes, func(dec *xml.Decoder) error {
+	var dateStyle []bool
+	err := readZipXML(f, xlsxMaxStylesPartBytes, func(dec *xml.Decoder) error {
 		inCellXfs := false
 		for {
 			tok, err := dec.Token()
@@ -285,7 +343,7 @@ func (wb *xlsxWorkbook) loadStyles(f *zip.File) error {
 							isDate = xlsxBuiltinDate(a.Value) || custom[a.Value]
 						}
 					}
-					wb.dateStyle = append(wb.dateStyle, isDate)
+					dateStyle = append(dateStyle, isDate)
 				}
 			case xml.EndElement:
 				if t.Name.Local == "cellXfs" {
@@ -294,6 +352,7 @@ func (wb *xlsxWorkbook) loadStyles(f *zip.File) error {
 			}
 		}
 	})
+	return dateStyle, err
 }
 
 func xlsxBuiltinDate(id string) bool {

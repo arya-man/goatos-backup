@@ -1,4 +1,4 @@
-import { FileSpreadsheet, Plus, Search, Settings } from "lucide-react";
+import { BookOpen, FileSpreadsheet, Plus, Search, Settings } from "lucide-react";
 
 import Link from "@/components/no-prefetch-link";
 import { LocalOverlayDrawer, type LocalOverlayDrawerItem } from "@/components/local-overlay-drawer";
@@ -20,6 +20,7 @@ import { CatalogueLists, type CatalogueList } from "./catalogue-lists";
 import { RegisterFilter } from "./register-filter";
 import { RowDrawerForm } from "./row-drawer";
 import { SheetDrawer } from "./sheet-drawer";
+import { WorkbookDrawer } from "./workbook-drawer";
 
 /**
  * /configuration/items (maintainer instruction 2026-09-18, from the Claude prototype merged in
@@ -119,6 +120,8 @@ export type ItemsPageData = {
 const LIST_EDIT_PREFIX = "cat:";
 /** The sheet drawer id (download / upload of the open register). */
 const SHEET_EDIT_ID = "sheet";
+/** The onboarding workbook drawer id (one Excel, one tab per list). */
+const WORKBOOK_EDIT_ID = "workbook";
 /** The reference-lists drawer ids: `reflist:new` (Add list) / `reflist:<key>` (the open list itself). */
 const REFLIST_EDIT_PREFIX = "reflist:";
 const REFERENCE_GROUP = "reference_lists";
@@ -169,6 +172,8 @@ export function ItemsPage({ searchParams, pageContract, data }: { searchParams?:
   const canWrite = canCreate || canEdit || canSetStatus || canDelete;
   const canExport = controlEnabled(pageContract, "export_sheet", false);
   const canImport = controlEnabled(pageContract, "import_sheet", false);
+  const canExportWorkbook = controlEnabled(pageContract, "export_workbook", false);
+  const canImportWorkbook = controlEnabled(pageContract, "import_workbook", false);
 
   const params = itemsPageParams(sp, pageContract);
   const catalog = data.registers.ok ? data.registers.data : null;
@@ -326,6 +331,18 @@ export function ItemsPage({ searchParams, pageContract, data }: { searchParams?:
       body: <SheetDrawer pageContract={pageContract} register={register} canWrite={canImport} />,
     });
   }
+  // The onboarding workbook drawer: the whole setup as one Excel file, a tab per list.
+  if (canExportWorkbook) {
+    const registerLabels: Record<string, string> = {};
+    for (const item of registers) registerLabels[item.key] = item.label;
+    drawerItems.push({
+      id: WORKBOOK_EDIT_ID,
+      eyebrow: c("crumb"),
+      title: c("workbook.title"),
+      icon: <BookOpen className="ic" aria-hidden="true" />,
+      body: <WorkbookDrawer pageContract={pageContract} canWrite={canImportWorkbook} registerLabels={registerLabels} />,
+    });
+  }
   // Reference lists: the "Add list" drawer, and the open list's own drawer (rename / archive /
   // delete the list, not its entries).
   const referenceListsRegister = registers.find((item) => item.key === "reference_lists");
@@ -443,6 +460,12 @@ export function ItemsPage({ searchParams, pageContract, data }: { searchParams?:
               <LocalOverlayLink href={editHref(SHEET_EDIT_ID)} scroll={false} className="btn sm ghost" data-testid="sheet-open">
                 <FileSpreadsheet className="ic" style={{ width: 14 }} aria-hidden="true" />
                 {c("sheet.title")}
+              </LocalOverlayLink>
+            ) : null}
+            {canExportWorkbook ? (
+              <LocalOverlayLink href={editHref(WORKBOOK_EDIT_ID)} scroll={false} className="btn sm ghost" data-testid="workbook-open">
+                <BookOpen className="ic" style={{ width: 14 }} aria-hidden="true" />
+                {c("workbook.open")}
               </LocalOverlayLink>
             ) : null}
             {register?.read_only && register.edit_href ? (

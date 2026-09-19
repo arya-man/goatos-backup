@@ -151,10 +151,12 @@ label two rows share is refused with the ids named, never guessed. Derived colum
 are ignored on upload (archiving stays on screen, where the usage check runs).
 
 **A file is never applied in the request that carried it.** Three phases, each bounded and
-resumable (migration `000349_configuration_import_jobs`):
+resumable (migration `000349_configuration_import_jobs`). **The onboarding WORKBOOK — one
+Excel file with a tab per list, uploaded once and worked in dependency order — is built on these
+same jobs and is described in [configuration-onboarding-workbook.md](configuration-onboarding-workbook.md).**
 
 1. STAGE — the upload streams line by line into `configuration_import_rows` in 1,000-row
-   COPY chunks; the request holds one chunk, never the sheet. Up to 200,000 rows / 64 MB.
+   COPY chunks; the request holds one chunk, never the sheet. Up to 500,000 rows / 64 MB.
 2. VALIDATE — a processor claims the job (`claimed_at` lease, 5 minutes) and walks the staged
    rows in 500-row chunks after a `row_no` cursor: refs resolved once per job, the same
    `ValidateWrite` the drawer runs, in-sheet duplicates. Each row is marked valid/invalid with

@@ -2066,7 +2066,7 @@ export interface paths {
         put?: never;
         /**
          * Upload a sheet for preview.
-         * @description Stages the file's rows into an import job and starts validation; the job is returned at once and polled. Nothing is written to the register until the job is applied. A sheet carries up to 200,000 rows; the file up to 64 MB. Needs configuration.write.
+         * @description Stages the file's rows into an import job and starts validation; the job is returned at once and polled. Nothing is written to the register until the job is applied. A sheet carries up to 500,000 rows; the file up to 64 MB. Needs configuration.write.
          */
         post: operations["uploadConfigurationSheet"];
         delete?: never;
@@ -2163,6 +2163,144 @@ export interface paths {
          * @description Rows already applied stay applied; the rest are marked skipped. Needs configuration.write.
          */
         post: operations["cancelConfigurationImport"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/admin/configuration/workbook/template": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Download the onboarding workbook template.
+         * @description One Excel file with a tab per list that takes uploads -- Species, Gender, Lifecycle stages, Parks, Pens, Partitions, Lists, Items & categories, the reference lists, Animals -- each tab carrying exactly the header its upload expects. Fill the tabs you need and upload the file as one workbook. Excel only; a CSV has no tabs. Needs configuration.read.
+         */
+        get: operations["downloadConfigurationWorkbookTemplate"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/admin/configuration/workbook/export": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Download every list as one workbook.
+         * @description The same tabs as the template, each carrying all of that list's rows in the upload's shape (id and row_version first), so the whole setup round-trips as one file. Needs configuration.read.
+         */
+        get: operations["exportConfigurationWorkbook"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/admin/configuration/workbook/imports": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Recent workbook uploads. */
+        get: operations["listConfigurationWorkbookImports"];
+        put?: never;
+        /**
+         * Upload an onboarding workbook for preview.
+         * @description Each worksheet whose name matches a list becomes a tab job; tabs are checked and, on Apply, written in dependency order (animal types, then parks before pens before partitions, lists before items, everything before animals), so a row may name a row another tab of the same file creates. Every tab is checked before anything is written; Apply is one call for the whole file. Worksheets that match no list are reported and ignored; tabs with a header and no rows are skipped. Each tab carries up to 500,000 rows; the file up to 64 MB. Needs configuration.write.
+         */
+        post: operations["uploadConfigurationWorkbook"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/admin/configuration-import-bundles/{bundle_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** One workbook upload with its tabs. */
+        get: operations["getConfigurationImportBundle"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/admin/configuration-import-bundles/{bundle_id}/errors": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Download every tab's rows to fix.
+         * @description As Excel, one tab per sheet that had problems, each in that upload tab's own columns with row and problem first; as CSV, one file with a leading sheet column.
+         */
+        get: operations["downloadConfigurationImportBundleErrors"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/admin/configuration-import-bundles/{bundle_id}/apply": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Apply every previewed tab of a workbook, in order.
+         * @description Writes each tab's ready rows through the ordinary register write, tab after tab. A row that names a row of an earlier tab which was not added is not written either, and says so. A tab that stops for a reason other than a row stops the workbook before the next tab starts. Needs configuration.write.
+         */
+        post: operations["applyConfigurationImportBundle"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/admin/configuration-import-bundles/{bundle_id}/cancel": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Cancel an unfinished workbook.
+         * @description Tabs and rows already applied stay applied; every unfinished tab is cancelled and its unwritten rows skipped. Needs configuration.write.
+         */
+        post: operations["cancelConfigurationImportBundle"];
         delete?: never;
         options?: never;
         head?: never;
@@ -5482,8 +5620,11 @@ export interface components {
             file_name: string;
             /** @enum {string} */
             format: "csv" | "xlsx";
-            /** @enum {string} */
-            status: "validating" | "previewed" | "applying" | "applied" | "failed" | "cancelled";
+            /**
+             * @description queued is a workbook tab waiting for the tabs before it.
+             * @enum {string}
+             */
+            status: "queued" | "validating" | "previewed" | "applying" | "applied" | "failed" | "cancelled";
             total_rows: number;
             valid_rows: number;
             invalid_rows: number;
@@ -5499,6 +5640,42 @@ export interface components {
             updated_at: string;
             /** Format: date-time */
             finished_at?: string;
+            /**
+             * Format: uuid
+             * @description The workbook this tab belongs to; absent for a single-sheet upload.
+             */
+            bundle_id?: string;
+            /** @description The tab's place in the workbook's working order. */
+            bundle_order?: number;
+            /** @description The worksheet the tab came from. */
+            sheet_name?: string;
+        };
+        ConfigurationImportBundle: {
+            /** Format: uuid */
+            id: string;
+            file_name: string;
+            /** @enum {string} */
+            status: "validating" | "previewed" | "applying" | "applied" | "failed" | "cancelled";
+            /** @description Worksheet names that matched no list; reported, never imported. */
+            unknown_sheets: string[];
+            error?: string;
+            created_by?: string;
+            /** Format: date-time */
+            created_at: string;
+            /** Format: date-time */
+            updated_at: string;
+            /** Format: date-time */
+            finished_at?: string;
+            /** @description The tab jobs, in the order they are worked. */
+            jobs: components["schemas"]["ConfigurationImportJob"][];
+        };
+        ConfigurationImportBundleResponse: {
+            bundle: components["schemas"]["ConfigurationImportBundle"];
+            trace_id: string;
+        };
+        ConfigurationImportBundlesResponse: {
+            bundles: components["schemas"]["ConfigurationImportBundle"][];
+            trace_id: string;
         };
         ConfigurationImportJobResponse: {
             job: components["schemas"]["ConfigurationImportJob"];
@@ -5715,6 +5892,8 @@ export interface components {
         ConfigurationRowID: string;
         /** @description csv (default) or xlsx. */
         ConfigurationSheetFormat: "csv" | "xlsx";
+        /** @description The workbook upload id. */
+        ConfigurationImportBundleID: string;
         ConfigurationImportJobID: string;
         IdempotencyKey: string;
         OperationsAuditLimit: number;
@@ -10056,6 +10235,275 @@ export interface operations {
             403: components["responses"]["Forbidden"];
             404: components["responses"]["NotFound"];
             /** @description The job has already finished. */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ConfigurationErrorEnvelope"];
+                };
+            };
+            500: components["responses"]["ServerError"];
+        };
+    };
+    downloadConfigurationWorkbookTemplate: {
+        parameters: {
+            query?: {
+                /** @description xlsx (the only format; a CSV has no tabs). */
+                format?: "xlsx";
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The workbook, as an attachment. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet": string;
+                };
+            };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            500: components["responses"]["ServerError"];
+        };
+    };
+    exportConfigurationWorkbook: {
+        parameters: {
+            query?: {
+                format?: "xlsx";
+                /** @description all (default), active or archived. */
+                status?: "all" | "active" | "archived";
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The workbook, as an attachment. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet": string;
+                };
+            };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            500: components["responses"]["ServerError"];
+        };
+    };
+    listConfigurationWorkbookImports: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The last 10 workbooks, newest first, each with its tab jobs. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ConfigurationImportBundlesResponse"];
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            500: components["responses"]["ServerError"];
+        };
+    };
+    uploadConfigurationWorkbook: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "multipart/form-data": {
+                    /**
+                     * Format: binary
+                     * @description An .xlsx workbook; each tab's first row is its header.
+                     */
+                    file: string;
+                };
+            };
+        };
+        responses: {
+            /** @description The staged workbook (status validating) with its tab jobs. */
+            202: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ConfigurationImportBundleResponse"];
+                };
+            };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            /** @description The file is over 64 MB. */
+            413: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ConfigurationErrorEnvelope"];
+                };
+            };
+            /** @description A tab is missing required columns, two tabs name the same list, or a tab has too many rows. The message names the tab. */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ConfigurationErrorEnvelope"];
+                };
+            };
+            500: components["responses"]["ServerError"];
+        };
+    };
+    getConfigurationImportBundle: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description The workbook upload id. */
+                bundle_id: components["parameters"]["ConfigurationImportBundleID"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The workbook and its tab jobs, in the order they are worked. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ConfigurationImportBundleResponse"];
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+            500: components["responses"]["ServerError"];
+        };
+    };
+    downloadConfigurationImportBundleErrors: {
+        parameters: {
+            query?: {
+                /** @description csv (default) or xlsx. */
+                format?: components["parameters"]["ConfigurationSheetFormat"];
+            };
+            header?: never;
+            path: {
+                /** @description The workbook upload id. */
+                bundle_id: components["parameters"]["ConfigurationImportBundleID"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The rows to fix, as an attachment. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "text/csv": string;
+                    "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet": string;
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+            500: components["responses"]["ServerError"];
+        };
+    };
+    applyConfigurationImportBundle: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description The workbook upload id. */
+                bundle_id: components["parameters"]["ConfigurationImportBundleID"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The workbook was already applying or applied (a repeated click). */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ConfigurationImportBundleResponse"];
+                };
+            };
+            /** @description The workbook, now applying. */
+            202: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ConfigurationImportBundleResponse"];
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+            /** @description The workbook is not previewed. */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ConfigurationErrorEnvelope"];
+                };
+            };
+            500: components["responses"]["ServerError"];
+        };
+    };
+    cancelConfigurationImportBundle: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description The workbook upload id. */
+                bundle_id: components["parameters"]["ConfigurationImportBundleID"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The cancelled workbook. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ConfigurationImportBundleResponse"];
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+            /** @description The workbook has already finished. */
             409: {
                 headers: {
                     [name: string]: unknown;

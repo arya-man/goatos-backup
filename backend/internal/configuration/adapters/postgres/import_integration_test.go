@@ -3,6 +3,7 @@ package postgres
 import (
 	"bytes"
 	"context"
+	"strconv"
 	"strings"
 	"testing"
 	"time"
@@ -109,7 +110,7 @@ func TestConfigurationBulkSheetsPostgresPaths(t *testing.T) {
 		t.Fatalf("export: %v", err)
 	}
 	lines := strings.Split(strings.TrimSpace(buf.String()), "\n")
-	if !strings.HasPrefix(lines[0], "id,park_id,name,capacity") {
+	if !strings.HasPrefix(lines[0], "id,row_version,park_id,name,capacity") {
 		t.Fatalf("export header = %q", lines[0])
 	}
 	edited := make([]string, 0, len(lines))
@@ -142,8 +143,9 @@ func TestConfigurationBulkSheetsPostgresPaths(t *testing.T) {
 		t.Fatalf("capacity after update = %d, want 77", cap)
 	}
 
-	// 3. An update-only sheet (id + one column) is accepted without the required columns.
-	job3 := stage(domain.RegPens, "cap.csv", "id,capacity\n"+page.Rows[0].ID+",88\n")
+	// 3. An update-only sheet (id + row_version + one column) is accepted without the required
+	//    columns.
+	job3 := stage(domain.RegPens, "cap.csv", "id,row_version,capacity\n"+page.Rows[0].ID+","+strconv.Itoa(page.Rows[0].RowVersion)+",88\n")
 	job3 = waitFor(job3.ID, domain.ImportPreviewed, domain.ImportFailed)
 	if job3.ValidRows != 1 {
 		t.Fatalf("update-only preview = %+v", job3)
@@ -162,7 +164,7 @@ func TestConfigurationBulkSheetsPostgresPaths(t *testing.T) {
 		t.Fatalf("open xlsx: %v", err)
 	}
 	header, err := reader.Next()
-	if err != nil || strings.Join(header, ",") != "id,park_id,name,capacity,stage_id,sex,has_icu,notes" {
+	if err != nil || strings.Join(header, ",") != "id,row_version,park_id,name,capacity,stage_id,sex,has_icu,notes" {
 		t.Fatalf("xlsx header = %v %v", header, err)
 	}
 

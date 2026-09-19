@@ -6577,6 +6577,11 @@ aside.drawer.ltd-drawer{width:min(720px,94vw);overflow-y:auto;overscroll-behavio
 .cfg-sheet-problems ul, .cfg-sheet-recent ul { margin: 0; padding-left: 16px; font-size: 13px; display: flex; flex-direction: column; gap: 4px; }
 .cfg-sheet-recent li { display: flex; flex-wrap: wrap; justify-content: space-between; gap: 8px; min-width: 0; list-style: none; margin-left: -16px; }
 .cfg-sheet-recent-meta { flex: 0 0 auto; }
+.cfg-workbook-scroll { overflow-x: auto; max-width: 100%; }
+.cfg-workbook-tabs { width: 100%; font-size: 13px; }
+.cfg-workbook-tabs td, .cfg-workbook-tabs th { padding: 4px 6px; vertical-align: top; white-space: nowrap; }
+.cfg-workbook-tabs .num { text-align: right; }
+.cfg-workbook-tabs .cfg-sheet-progress { margin-top: 4px; min-width: 80px; }
 .ic.spin { animation: cfg-spin 1s linear infinite; }
 @keyframes cfg-spin { to { transform: rotate(360deg); } }
 

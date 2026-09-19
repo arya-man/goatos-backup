@@ -25,6 +25,7 @@ export type ConfigurationStatusWrite = AdminApiComponents["schemas"]["Configurat
 export type ConfigurationFieldError = AdminApiComponents["schemas"]["ConfigurationFieldError"];
 export type ConfigurationImportJob = AdminApiComponents["schemas"]["ConfigurationImportJob"];
 export type ConfigurationImportRow = AdminApiComponents["schemas"]["ConfigurationImportRow"];
+export type ConfigurationImportBundle = AdminApiComponents["schemas"]["ConfigurationImportBundle"];
 
 function idempotentHeaders(idempotencyKey: string) {
   return { "Idempotency-Key": idempotencyKey };

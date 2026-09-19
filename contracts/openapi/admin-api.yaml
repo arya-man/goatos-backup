@@ -4407,7 +4407,7 @@ paths:
       description: >-
         Stages the file's rows into an import job and starts validation; the job is returned at
         once and polled. Nothing is written to the register until the job is applied. A sheet
-        carries up to 200,000 rows; the file up to 64 MB. Needs configuration.write.
+        carries up to 500,000 rows; the file up to 64 MB. Needs configuration.write.
       parameters:
         - $ref: "#/components/parameters/ConfigurationRegister"
       requestBody:
@@ -4625,6 +4625,261 @@ paths:
                 $ref: "#/components/schemas/ConfigurationErrorEnvelope"
         "500":
           $ref: "#/components/responses/ServerError"
+  /admin/configuration/workbook/template:
+    get:
+      tags:
+        - Configuration
+      operationId: downloadConfigurationWorkbookTemplate
+      summary: Download the onboarding workbook template.
+      description: >-
+        One Excel file with a tab per list that takes uploads -- Species, Gender, Lifecycle stages,
+        Parks, Pens, Partitions, Lists, Items & categories, the reference lists, Animals --
+        each tab carrying exactly the header its upload expects. Fill the tabs you need and upload
+        the file as one workbook. Excel only; a CSV has no tabs. Needs configuration.read.
+      parameters:
+        - name: format
+          in: query
+          required: false
+          description: xlsx (the only format; a CSV has no tabs).
+          schema: { type: string, enum: [xlsx] }
+      responses:
+        "200":
+          description: The workbook, as an attachment.
+          content:
+            application/vnd.openxmlformats-officedocument.spreadsheetml.sheet:
+              schema: { type: string, format: binary }
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "500":
+          $ref: "#/components/responses/ServerError"
+  /admin/configuration/workbook/export:
+    get:
+      tags:
+        - Configuration
+      operationId: exportConfigurationWorkbook
+      summary: Download every list as one workbook.
+      description: >-
+        The same tabs as the template, each carrying all of that list's rows in the upload's shape
+        (id and row_version first), so the whole setup round-trips as one file. Needs
+        configuration.read.
+      parameters:
+        - name: format
+          in: query
+          required: false
+          schema: { type: string, enum: [xlsx] }
+        - name: status
+          in: query
+          required: false
+          description: all (default), active or archived.
+          schema: { type: string, enum: [all, active, archived] }
+      responses:
+        "200":
+          description: The workbook, as an attachment.
+          content:
+            application/vnd.openxmlformats-officedocument.spreadsheetml.sheet:
+              schema: { type: string, format: binary }
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "500":
+          $ref: "#/components/responses/ServerError"
+  /admin/configuration/workbook/imports:
+    post:
+      tags:
+        - Configuration
+      operationId: uploadConfigurationWorkbook
+      summary: Upload an onboarding workbook for preview.
+      description: >-
+        Each worksheet whose name matches a list becomes a tab job; tabs are checked and, on Apply,
+        written in dependency order (animal types, then parks before pens before partitions, lists
+        before items, everything before animals), so a row may name a row another tab of the same
+        file creates.
+        Every tab is checked before anything is written; Apply is one call for the whole file.
+        Worksheets that match no list are reported and ignored; tabs with a header and no rows
+        are skipped. Each tab carries up to 500,000 rows; the file up to 64 MB. Needs
+        configuration.write.
+      requestBody:
+        required: true
+        content:
+          multipart/form-data:
+            schema:
+              type: object
+              required: [file]
+              properties:
+                file: { type: string, format: binary, description: An .xlsx workbook; each tab's first row is its header. }
+      responses:
+        "202":
+          description: The staged workbook (status validating) with its tab jobs.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ConfigurationImportBundleResponse"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "413":
+          description: The file is over 64 MB.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ConfigurationErrorEnvelope"
+        "422":
+          description: A tab is missing required columns, two tabs name the same list, or a tab has too many rows. The message names the tab.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ConfigurationErrorEnvelope"
+        "500":
+          $ref: "#/components/responses/ServerError"
+    get:
+      tags:
+        - Configuration
+      operationId: listConfigurationWorkbookImports
+      summary: Recent workbook uploads.
+      responses:
+        "200":
+          description: The last 10 workbooks, newest first, each with its tab jobs.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ConfigurationImportBundlesResponse"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "500":
+          $ref: "#/components/responses/ServerError"
+  /admin/configuration-import-bundles/{bundle_id}:
+    get:
+      tags:
+        - Configuration
+      operationId: getConfigurationImportBundle
+      summary: One workbook upload with its tabs.
+      parameters:
+        - $ref: "#/components/parameters/ConfigurationImportBundleID"
+      responses:
+        "200":
+          description: The workbook and its tab jobs, in the order they are worked.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ConfigurationImportBundleResponse"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "500":
+          $ref: "#/components/responses/ServerError"
+  /admin/configuration-import-bundles/{bundle_id}/errors:
+    get:
+      tags:
+        - Configuration
+      operationId: downloadConfigurationImportBundleErrors
+      summary: Download every tab's rows to fix.
+      description: >-
+        As Excel, one tab per sheet that had problems, each in that upload tab's own columns with
+        row and problem first; as CSV, one file with a leading sheet column.
+      parameters:
+        - $ref: "#/components/parameters/ConfigurationImportBundleID"
+        - $ref: "#/components/parameters/ConfigurationSheetFormat"
+      responses:
+        "200":
+          description: The rows to fix, as an attachment.
+          content:
+            text/csv:
+              schema: { type: string }
+            application/vnd.openxmlformats-officedocument.spreadsheetml.sheet:
+              schema: { type: string, format: binary }
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "500":
+          $ref: "#/components/responses/ServerError"
+  /admin/configuration-import-bundles/{bundle_id}/apply:
+    post:
+      tags:
+        - Configuration
+      operationId: applyConfigurationImportBundle
+      summary: Apply every previewed tab of a workbook, in order.
+      description: >-
+        Writes each tab's ready rows through the ordinary register write, tab after tab. A row
+        that names a row of an earlier tab which was not added is not written either, and says
+        so. A tab that stops for a reason other than a row stops the workbook before the next
+        tab starts. Needs configuration.write.
+      parameters:
+        - $ref: "#/components/parameters/ConfigurationImportBundleID"
+      responses:
+        "202":
+          description: The workbook, now applying.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ConfigurationImportBundleResponse"
+        "200":
+          description: The workbook was already applying or applied (a repeated click).
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ConfigurationImportBundleResponse"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "409":
+          description: The workbook is not previewed.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ConfigurationErrorEnvelope"
+        "500":
+          $ref: "#/components/responses/ServerError"
+  /admin/configuration-import-bundles/{bundle_id}/cancel:
+    post:
+      tags:
+        - Configuration
+      operationId: cancelConfigurationImportBundle
+      summary: Cancel an unfinished workbook.
+      description: Tabs and rows already applied stay applied; every unfinished tab is cancelled and its unwritten rows skipped. Needs configuration.write.
+      parameters:
+        - $ref: "#/components/parameters/ConfigurationImportBundleID"
+      responses:
+        "200":
+          description: The cancelled workbook.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ConfigurationImportBundleResponse"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "409":
+          description: The workbook has already finished.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ConfigurationErrorEnvelope"
+        "500":
+          $ref: "#/components/responses/ServerError"
 components:
   securitySchemes:
     bearerAuth:
@@ -4784,6 +5039,12 @@ components:
       required: false
       description: csv (default) or xlsx.
       schema: { type: string, enum: [csv, xlsx] }
+    ConfigurationImportBundleID:
+      name: bundle_id
+      in: path
+      required: true
+      description: The workbook upload id.
+      schema: { type: string, format: uuid }
     ConfigurationImportJobID:
       name: job_id
       in: path
@@ -13484,7 +13745,7 @@ components:
         register: { type: string }
         file_name: { type: string }
         format: { type: string, enum: [csv, xlsx] }
-        status: { type: string, enum: [validating, previewed, applying, applied, failed, cancelled] }
+        status: { type: string, enum: [queued, validating, previewed, applying, applied, failed, cancelled], description: queued is a workbook tab waiting for the tabs before it. }
         total_rows: { type: integer }
         valid_rows: { type: integer }
         invalid_rows: { type: integer }
@@ -13496,6 +13757,46 @@ components:
         created_at: { type: string, format: date-time }
         updated_at: { type: string, format: date-time }
         finished_at: { type: string, format: date-time }
+        bundle_id: { type: string, format: uuid, description: The workbook this tab belongs to; absent for a single-sheet upload. }
+        bundle_order: { type: integer, description: The tab's place in the workbook's working order. }
+        sheet_name: { type: string, description: The worksheet the tab came from. }
+    ConfigurationImportBundle:
+      type: object
+      required: [id, file_name, status, unknown_sheets, created_at, updated_at, jobs]
+      properties:
+        id: { type: string, format: uuid }
+        file_name: { type: string }
+        status: { type: string, enum: [validating, previewed, applying, applied, failed, cancelled] }
+        unknown_sheets:
+          type: array
+          description: Worksheet names that matched no list; reported, never imported.
+          items: { type: string }
+        error: { type: string }
+        created_by: { type: string }
+        created_at: { type: string, format: date-time }
+        updated_at: { type: string, format: date-time }
+        finished_at: { type: string, format: date-time }
+        jobs:
+          type: array
+          description: The tab jobs, in the order they are worked.
+          items:
+            $ref: "#/components/schemas/ConfigurationImportJob"
+    ConfigurationImportBundleResponse:
+      type: object
+      required: [bundle, trace_id]
+      properties:
+        bundle:
+          $ref: "#/components/schemas/ConfigurationImportBundle"
+        trace_id: { type: string }
+    ConfigurationImportBundlesResponse:
+      type: object
+      required: [bundles, trace_id]
+      properties:
+        bundles:
+          type: array
+          items:
+            $ref: "#/components/schemas/ConfigurationImportBundle"
+        trace_id: { type: string }
     ConfigurationImportJobResponse:
       type: object
       required: [job, trace_id]

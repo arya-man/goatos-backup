@@ -138,8 +138,50 @@ type ImportRowsParams struct {
 	Limit      int
 }
 
+// ImportBundlePatch is the bounded set of bundle columns the orchestrator may move.
+type ImportBundlePatch struct {
+	// FromStatus fences the patch on the bundle still being in that status; a miss is
+	// ErrVersionConflict.
+	FromStatus *string
+	Status     *string
+	Error      *string
+	Finished   bool
+}
+
+// ImportRowResult is what apply-time reference resolution needs of a sibling tab's row.
+type ImportRowResult struct {
+	RowNo    int
+	State    string
+	ResultID string
+}
+
 // ImportRepository is the durable side of a bulk upload: the job row and its staged lines.
 type ImportRepository interface {
+	// --- workbooks (bundles) ---
+	// CreateImportBundle inserts the bundle row (its jobs are created one by one).
+	CreateImportBundle(ctx context.Context, bundle domain.ImportBundle, tenantID string) error
+	// GetImportBundle reads a bundle with its jobs in bundle order.
+	GetImportBundle(ctx context.Context, tenantID, bundleID string) (domain.ImportBundle, error)
+	// ListImportBundles is the tenant's recent workbooks, newest first, each with its jobs.
+	ListImportBundles(ctx context.Context, tenantID string, limit int) ([]domain.ImportBundle, error)
+	// DueImportBundleIDs is every bundle still validating or applying, for the recovery sweep.
+	DueImportBundleIDs(ctx context.Context, tenantID string, limit int) ([]string, error)
+	PatchImportBundle(ctx context.Context, tenantID, bundleID string, patch ImportBundlePatch) (domain.ImportBundle, error)
+	// RequestImportBundleApply moves a previewed bundle to applying, fenced on the status.
+	RequestImportBundleApply(ctx context.Context, tenantID, bundleID, actorID string) (domain.ImportBundle, bool, error)
+	// CancelImportBundle parks the bundle and every tab that has not finished.
+	CancelImportBundle(ctx context.Context, tenantID, bundleID string) (domain.ImportBundle, bool, error)
+	// PromoteImportJob moves a job from one status to another, fenced on the first (a queued
+	// tab to validating when its turn comes); ok false when it is not in that status.
+	PromoteImportJob(ctx context.Context, tenantID, jobID, from, to string) (domain.ImportJob, bool, error)
+	// --- rows ---
+	// ClaimImportRows moves the named valid rows to applying and returns the row numbers that
+	// actually moved (a cancel that marked some skipped meanwhile keeps them).
+	ClaimImportRows(ctx context.Context, tenantID, jobID string, rowNos []int) ([]int, error)
+	// ImportRowResults reads the state and result id of the named rows (a sibling tab's rows a
+	// reference token names).
+	ImportRowResults(ctx context.Context, tenantID, jobID string, rowNos []int) (map[int]ImportRowResult, error)
+
 	CreateImportJob(ctx context.Context, job domain.ImportJob, tenantID string) error
 	// StageImportRows appends one chunk of lines; row_no is the sheet line, unique per job.
 	StageImportRows(ctx context.Context, tenantID, jobID string, rows []domain.ImportRow) error

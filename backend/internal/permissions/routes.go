@@ -514,6 +514,16 @@ var protectedRoutes = []Route{
 	{OperationID: "downloadConfigurationImportErrors", Method: "GET", Pattern: "/admin/configuration-imports/{job_id}/errors", Permissions: []string{ConfigurationRead}},
 	{OperationID: "applyConfigurationImport", Method: "POST", Pattern: "/admin/configuration-imports/{job_id}/apply", Permissions: []string{ConfigurationWrite}},
 	{OperationID: "cancelConfigurationImport", Method: "POST", Pattern: "/admin/configuration-imports/{job_id}/cancel", Permissions: []string{ConfigurationWrite}},
+	// The onboarding workbook (2026-09-19): one Excel file with a tab per list, uploaded as a
+	// bundle of per-tab jobs. `workbook` is a literal beside {register}; no register uses the key.
+	{OperationID: "downloadConfigurationWorkbookTemplate", Method: "GET", Pattern: "/admin/configuration/workbook/template", Permissions: []string{ConfigurationRead}},
+	{OperationID: "exportConfigurationWorkbook", Method: "GET", Pattern: "/admin/configuration/workbook/export", Permissions: []string{ConfigurationRead}},
+	{OperationID: "uploadConfigurationWorkbook", Method: "POST", Pattern: "/admin/configuration/workbook/imports", Permissions: []string{ConfigurationWrite}},
+	{OperationID: "listConfigurationWorkbookImports", Method: "GET", Pattern: "/admin/configuration/workbook/imports", Permissions: []string{ConfigurationRead}},
+	{OperationID: "getConfigurationImportBundle", Method: "GET", Pattern: "/admin/configuration-import-bundles/{bundle_id}", Permissions: []string{ConfigurationRead}},
+	{OperationID: "downloadConfigurationImportBundleErrors", Method: "GET", Pattern: "/admin/configuration-import-bundles/{bundle_id}/errors", Permissions: []string{ConfigurationRead}},
+	{OperationID: "applyConfigurationImportBundle", Method: "POST", Pattern: "/admin/configuration-import-bundles/{bundle_id}/apply", Permissions: []string{ConfigurationWrite}},
+	{OperationID: "cancelConfigurationImportBundle", Method: "POST", Pattern: "/admin/configuration-import-bundles/{bundle_id}/cancel", Permissions: []string{ConfigurationWrite}},
 
 	// SALES (/sales on admin-web). Gated on the dedicated SalesRead/SalesWrite rather
 	// than ProcurementRead: sales is the SELLING side -- revenue, buyer names, realized prices --

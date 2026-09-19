@@ -16,11 +16,23 @@ export const dynamic = "force-dynamic";
 //   GET  <register>/imports                   POST <register>/imports   (multipart, `file`)
 //   GET  jobs/<id>  jobs/<id>/rows  jobs/<id>/errors?format=
 //   POST jobs/<id>/apply  jobs/<id>/cancel
+//   The onboarding workbook (one Excel, one tab per list) rides the same shapes with the
+//   literal register `workbook`, and its bundle routes under bundles/<id>:
+//   GET  workbook/template  workbook/export  workbook/imports   POST workbook/imports
+//   GET  bundles/<id>  bundles/<id>/errors?format=   POST bundles/<id>/apply  bundles/<id>/cancel
 
 const REGISTER_RE = /^(?:[a-z][a-z0-9_]{0,39}|ref:[a-z][a-z0-9_]{0,39})$/;
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
 function backendPath(method: string, path: string[]): string | null {
+  if (path[0] === "bundles") {
+    const [, bundleId, action] = path;
+    if (!bundleId || !UUID_RE.test(bundleId) || path.length > 3) return null;
+    const base = `/admin/configuration-import-bundles/${bundleId}`;
+    if (method === "GET" && (action === undefined || action === "errors")) return action ? `${base}/${action}` : base;
+    if (method === "POST" && (action === "apply" || action === "cancel")) return `${base}/${action}`;
+    return null;
+  }
   if (path[0] === "jobs") {
     const [, jobId, action] = path;
     if (!jobId || !UUID_RE.test(jobId) || path.length > 3) return null;

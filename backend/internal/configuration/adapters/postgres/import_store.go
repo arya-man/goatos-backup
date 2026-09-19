@@ -20,13 +20,14 @@ import (
 // row, never a job-sized array.
 
 const importJobColumns = `job_id::text, register_key, file_name, file_format, status, total_rows, valid_rows, invalid_rows,
-       applied_rows, failed_rows, progress_row_no, error, created_by, created_at, updated_at, finished_at`
+       applied_rows, failed_rows, progress_row_no, error, created_by, created_at, updated_at, finished_at,
+       COALESCE(bundle_id::text, ''), bundle_order, sheet_name`
 
 // Every statement is a package-level const so a query-plan test and the scale guard can reach it.
 const (
 	sqlImportJobInsert = `
-INSERT INTO configuration_import_jobs (job_id, tenant_id, register_key, file_name, file_format, status, total_rows, created_by)
-VALUES ($1::uuid, $2::uuid, $3, $4, $5, $6, $7, $8)`
+INSERT INTO configuration_import_jobs (job_id, tenant_id, register_key, file_name, file_format, status, total_rows, created_by, bundle_id, bundle_order, sheet_name)
+VALUES ($1::uuid, $2::uuid, $3, $4, $5, $6, $7, $8, NULLIF($9, '')::uuid, $10, $11)`
 	sqlImportJobClaim = `
 UPDATE configuration_import_jobs
 SET claimed_at = now(), claimed_by = $3, updated_at = now()
@@ -73,9 +74,369 @@ RETURNING ` + importJobColumns
 	sqlImportCancel = `
 UPDATE configuration_import_jobs
 SET status = 'cancelled', finished_at = now(), claimed_at = NULL, claimed_by = '', updated_at = now()
-WHERE tenant_id = $1::uuid AND job_id = $2::uuid AND status IN ('validating', 'previewed', 'applying')
+WHERE tenant_id = $1::uuid AND job_id = $2::uuid AND status IN ('queued', 'validating', 'previewed', 'applying')
+RETURNING ` + importJobColumns
+	sqlImportRowsClaim = `
+UPDATE configuration_import_rows
+SET state = 'applying'
+WHERE tenant_id = $1::uuid AND job_id = $2::uuid AND state = 'valid' AND row_no = ANY($3::int[])
+RETURNING row_no`
+	sqlImportRowResults = `
+SELECT row_no, state, result_id FROM configuration_import_rows
+WHERE tenant_id = $1::uuid AND job_id = $2::uuid AND row_no = ANY($3::int[])`
+	sqlImportJobPromote = `
+UPDATE configuration_import_jobs
+SET status = $4, progress_row_no = 0, claimed_at = NULL, claimed_by = '', updated_at = now(),
+    apply_requested_at = CASE WHEN $4 = 'applying' THEN now() ELSE apply_requested_at END
+WHERE tenant_id = $1::uuid AND job_id = $2::uuid AND status = $3
 RETURNING ` + importJobColumns
 )
+
+// --- workbooks (bundles, migration 000359) ---
+
+const importBundleColumns = `bundle_id::text, file_name, status, unknown_sheets, error, created_by, created_at, updated_at, finished_at`
+
+const (
+	sqlImportBundleInsert = `
+INSERT INTO configuration_import_bundles (bundle_id, tenant_id, file_name, status, unknown_sheets, created_by)
+VALUES ($1::uuid, $2::uuid, $3, $4, $5::jsonb, $6)`
+	sqlImportBundleGet = `
+SELECT ` + importBundleColumns + ` FROM configuration_import_bundles WHERE tenant_id = $1::uuid AND bundle_id = $2::uuid`
+	sqlImportBundleRecent = `
+SELECT ` + importBundleColumns + ` FROM configuration_import_bundles WHERE tenant_id = $1::uuid ORDER BY created_at DESC, bundle_id LIMIT $2`
+	sqlImportBundleJobs = `
+SELECT ` + importJobColumns + ` FROM configuration_import_jobs
+WHERE tenant_id = $1::uuid AND bundle_id = ANY($2::uuid[])
+ORDER BY bundle_id, bundle_order, job_id`
+	sqlImportBundlesDue = `
+SELECT bundle_id::text FROM configuration_import_bundles
+WHERE tenant_id = $1::uuid AND status IN ('validating', 'applying')
+ORDER BY created_at LIMIT $2`
+	sqlImportBundleApplyRequest = `
+UPDATE configuration_import_bundles
+SET status = 'applying', apply_requested_at = now(), updated_at = now()
+WHERE tenant_id = $1::uuid AND bundle_id = $2::uuid AND status = 'previewed'
+RETURNING ` + importBundleColumns
+	sqlImportBundleCancel = `
+UPDATE configuration_import_bundles
+SET status = 'cancelled', finished_at = now(), updated_at = now()
+WHERE tenant_id = $1::uuid AND bundle_id = $2::uuid AND status IN ('validating', 'previewed', 'applying')
+RETURNING ` + importBundleColumns
+	// Every unfinished tab of a cancelled bundle is parked the way a single job is; rows not yet
+	// claimed for apply are skipped, a row already applying is finished by the sweep.
+	sqlImportBundleCancelJobs = `
+UPDATE configuration_import_jobs
+SET status = 'cancelled', finished_at = now(), claimed_at = NULL, claimed_by = '', updated_at = now()
+WHERE tenant_id = $1::uuid AND bundle_id = $2::uuid AND status IN ('queued', 'validating', 'previewed', 'applying')`
+	sqlImportBundleSkipRows = `
+UPDATE configuration_import_rows r
+SET state = 'skipped'
+FROM configuration_import_jobs j
+WHERE j.tenant_id = $1::uuid AND j.bundle_id = $2::uuid AND j.status = 'cancelled'
+  AND r.tenant_id = j.tenant_id AND r.job_id = j.job_id AND r.state IN ('staged', 'valid')`
+)
+
+func scanImportBundle(row pgx.Row) (domain.ImportBundle, error) {
+	var (
+		b        domain.ImportBundle
+		unknown  []byte
+		created  time.Time
+		updated  time.Time
+		finished *time.Time
+	)
+	if err := row.Scan(&b.ID, &b.FileName, &b.Status, &unknown, &b.Error, &b.CreatedBy, &created, &updated, &finished); err != nil {
+		return domain.ImportBundle{}, err
+	}
+	b.UnknownSheets = []string{}
+	if len(unknown) > 0 {
+		if err := json.Unmarshal(unknown, &b.UnknownSheets); err != nil {
+			return domain.ImportBundle{}, fmt.Errorf("configuration: decode bundle sheets: %w", err)
+		}
+	}
+	b.Jobs = []domain.ImportJob{}
+	b.CreatedAt = created.UTC().Format(time.RFC3339)
+	b.UpdatedAt = updated.UTC().Format(time.RFC3339)
+	if finished != nil {
+		b.FinishedAt = finished.UTC().Format(time.RFC3339)
+	}
+	return b, nil
+}
+
+// CreateImportBundle inserts the bundle row.
+func (r *Repository) CreateImportBundle(ctx context.Context, bundle domain.ImportBundle, tenantID string) error {
+	ctx, cancel := context.WithTimeout(ctx, r.timeout)
+	defer cancel()
+	unknown := bundle.UnknownSheets
+	if unknown == nil {
+		unknown = []string{}
+	}
+	raw, err := json.Marshal(unknown)
+	if err != nil {
+		return err
+	}
+	_, err = r.pool.Exec(ctx, sqlImportBundleInsert, bundle.ID, tenantID, bundle.FileName, bundle.Status, string(raw), bundle.CreatedBy)
+	return err
+}
+
+// attachBundleJobs loads the jobs of the given bundles in ONE query and files them in order.
+func (r *Repository) attachBundleJobs(ctx context.Context, tenantID string, bundles []domain.ImportBundle) error {
+	if len(bundles) == 0 {
+		return nil
+	}
+	ids := make([]string, 0, len(bundles))
+	index := make(map[string]int, len(bundles))
+	for i, b := range bundles {
+		ids = append(ids, b.ID)
+		index[b.ID] = i
+	}
+	rows, err := r.pool.Query(ctx, sqlImportBundleJobs, tenantID, ids)
+	if err != nil {
+		return err
+	}
+	defer rows.Close()
+	for rows.Next() {
+		job, err := scanImportJob(rows)
+		if err != nil {
+			return err
+		}
+		if i, ok := index[job.BundleID]; ok {
+			bundles[i].Jobs = append(bundles[i].Jobs, job)
+		}
+	}
+	return rows.Err()
+}
+
+// GetImportBundle reads a bundle with its jobs in bundle order.
+func (r *Repository) GetImportBundle(ctx context.Context, tenantID, bundleID string) (domain.ImportBundle, error) {
+	ctx, cancel := context.WithTimeout(ctx, r.timeout)
+	defer cancel()
+	if !isUUID(bundleID) {
+		return domain.ImportBundle{}, ports.ErrNotFound
+	}
+	bundle, err := scanImportBundle(r.pool.QueryRow(ctx, sqlImportBundleGet, tenantID, bundleID))
+	if errors.Is(err, pgx.ErrNoRows) {
+		return domain.ImportBundle{}, ports.ErrNotFound
+	}
+	if err != nil {
+		return domain.ImportBundle{}, err
+	}
+	bundles := []domain.ImportBundle{bundle}
+	if err := r.attachBundleJobs(ctx, tenantID, bundles); err != nil {
+		return domain.ImportBundle{}, err
+	}
+	return bundles[0], nil
+}
+
+// ListImportBundles is the tenant's recent workbooks, newest first.
+func (r *Repository) ListImportBundles(ctx context.Context, tenantID string, limit int) ([]domain.ImportBundle, error) {
+	ctx, cancel := context.WithTimeout(ctx, r.timeout)
+	defer cancel()
+	if limit < 1 || limit > 100 {
+		limit = 20
+	}
+	rows, err := r.pool.Query(ctx, sqlImportBundleRecent, tenantID, limit)
+	if err != nil {
+		return nil, err
+	}
+	out := []domain.ImportBundle{}
+	for rows.Next() {
+		b, err := scanImportBundle(rows)
+		if err != nil {
+			rows.Close()
+			return nil, err
+		}
+		out = append(out, b)
+	}
+	rows.Close()
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	if err := r.attachBundleJobs(ctx, tenantID, out); err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+// DueImportBundleIDs is every bundle still in flight, oldest first, for the recovery sweep.
+func (r *Repository) DueImportBundleIDs(ctx context.Context, tenantID string, limit int) ([]string, error) {
+	ctx, cancel := context.WithTimeout(ctx, r.timeout)
+	defer cancel()
+	rows, err := r.pool.Query(ctx, sqlImportBundlesDue, tenantID, limit)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	out := []string{}
+	for rows.Next() {
+		var id string
+		if err := rows.Scan(&id); err != nil {
+			return nil, err
+		}
+		out = append(out, id)
+	}
+	return out, rows.Err()
+}
+
+// PatchImportBundle moves the bundle's status / error, fenced on FromStatus when set.
+func (r *Repository) PatchImportBundle(ctx context.Context, tenantID, bundleID string, p ports.ImportBundlePatch) (domain.ImportBundle, error) {
+	ctx, cancel := context.WithTimeout(ctx, r.timeout)
+	defer cancel()
+	set := []string{"updated_at = now()"}
+	args := []any{tenantID, bundleID}
+	if p.Status != nil {
+		args = append(args, *p.Status)
+		set = append(set, fmt.Sprintf("status = $%d", len(args)))
+	}
+	if p.Error != nil {
+		args = append(args, *p.Error)
+		set = append(set, fmt.Sprintf("error = $%d", len(args)))
+	}
+	if p.Finished {
+		set = append(set, "finished_at = now()")
+	}
+	where := ` WHERE tenant_id = $1::uuid AND bundle_id = $2::uuid`
+	if p.FromStatus != nil {
+		args = append(args, *p.FromStatus)
+		where += fmt.Sprintf(" AND status = $%d", len(args))
+	}
+	bundle, err := scanImportBundle(r.pool.QueryRow(ctx, `UPDATE configuration_import_bundles SET `+strings.Join(set, ", ")+where+` RETURNING `+importBundleColumns, args...))
+	if errors.Is(err, pgx.ErrNoRows) {
+		if p.FromStatus != nil {
+			return domain.ImportBundle{}, ports.ErrVersionConflict
+		}
+		return domain.ImportBundle{}, ports.ErrNotFound
+	}
+	if err != nil {
+		return domain.ImportBundle{}, err
+	}
+	bundles := []domain.ImportBundle{bundle}
+	if err := r.attachBundleJobs(ctx, tenantID, bundles); err != nil {
+		return domain.ImportBundle{}, err
+	}
+	return bundles[0], nil
+}
+
+// RequestImportBundleApply flips previewed -> applying, fenced on the status.
+func (r *Repository) RequestImportBundleApply(ctx context.Context, tenantID, bundleID, actorID string) (domain.ImportBundle, bool, error) {
+	ctx, cancel := context.WithTimeout(ctx, r.timeout)
+	defer cancel()
+	bundle, err := scanImportBundle(r.pool.QueryRow(ctx, sqlImportBundleApplyRequest, tenantID, bundleID))
+	if errors.Is(err, pgx.ErrNoRows) {
+		return domain.ImportBundle{}, false, nil
+	}
+	if err != nil {
+		return domain.ImportBundle{}, false, err
+	}
+	bundles := []domain.ImportBundle{bundle}
+	if err := r.attachBundleJobs(ctx, tenantID, bundles); err != nil {
+		return domain.ImportBundle{}, false, err
+	}
+	return bundles[0], true, nil
+}
+
+// CancelImportBundle parks the bundle and every tab that has not finished. Tabs already applied
+// stay applied -- the writes were real.
+func (r *Repository) CancelImportBundle(ctx context.Context, tenantID, bundleID string) (domain.ImportBundle, bool, error) {
+	ctx, cancel := context.WithTimeout(ctx, r.timeout)
+	defer cancel()
+	tx, err := r.pool.Begin(ctx)
+	if err != nil {
+		return domain.ImportBundle{}, false, err
+	}
+	defer tx.Rollback(ctx) //nolint:errcheck // rollback after commit is a no-op
+	bundle, err := scanImportBundle(tx.QueryRow(ctx, sqlImportBundleCancel, tenantID, bundleID))
+	if errors.Is(err, pgx.ErrNoRows) {
+		return domain.ImportBundle{}, false, nil
+	}
+	if err != nil {
+		return domain.ImportBundle{}, false, err
+	}
+	if _, err := tx.Exec(ctx, sqlImportBundleCancelJobs, tenantID, bundleID); err != nil {
+		return domain.ImportBundle{}, false, err
+	}
+	if _, err := tx.Exec(ctx, sqlImportBundleSkipRows, tenantID, bundleID); err != nil {
+		return domain.ImportBundle{}, false, err
+	}
+	if err := tx.Commit(ctx); err != nil {
+		return domain.ImportBundle{}, false, err
+	}
+	bundles := []domain.ImportBundle{bundle}
+	if err := r.attachBundleJobs(ctx, tenantID, bundles); err != nil {
+		return domain.ImportBundle{}, false, err
+	}
+	return bundles[0], true, nil
+}
+
+// PromoteImportJob moves a job from one status to the next, fenced on the first, and resets the
+// phase cursor and claim so the next processor starts the new phase from the top.
+func (r *Repository) PromoteImportJob(ctx context.Context, tenantID, jobID, from, to string) (domain.ImportJob, bool, error) {
+	ctx, cancel := context.WithTimeout(ctx, r.timeout)
+	defer cancel()
+	job, err := scanImportJob(r.pool.QueryRow(ctx, sqlImportJobPromote, tenantID, jobID, from, to))
+	if errors.Is(err, pgx.ErrNoRows) {
+		return domain.ImportJob{}, false, nil
+	}
+	return job, err == nil, err
+}
+
+// ClaimImportRows moves the named valid rows to applying in ONE statement and returns the rows
+// that moved.
+func (r *Repository) ClaimImportRows(ctx context.Context, tenantID, jobID string, rowNos []int) ([]int, error) {
+	if len(rowNos) == 0 {
+		return nil, nil
+	}
+	ctx, cancel := context.WithTimeout(ctx, r.timeout)
+	defer cancel()
+	nos := make([]int32, len(rowNos))
+	for i, n := range rowNos {
+		nos[i] = int32(n)
+	}
+	rows, err := r.pool.Query(ctx, sqlImportRowsClaim, tenantID, jobID, nos)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	out := make([]int, 0, len(rowNos))
+	for rows.Next() {
+		var n int32
+		if err := rows.Scan(&n); err != nil {
+			return nil, err
+		}
+		out = append(out, int(n))
+	}
+	return out, rows.Err()
+}
+
+// ImportRowResults reads the state and result id of the named rows of a job.
+func (r *Repository) ImportRowResults(ctx context.Context, tenantID, jobID string, rowNos []int) (map[int]ports.ImportRowResult, error) {
+	out := make(map[int]ports.ImportRowResult, len(rowNos))
+	if len(rowNos) == 0 {
+		return out, nil
+	}
+	ctx, cancel := context.WithTimeout(ctx, r.timeout)
+	defer cancel()
+	nos := make([]int32, len(rowNos))
+	for i, n := range rowNos {
+		nos[i] = int32(n)
+	}
+	rows, err := r.pool.Query(ctx, sqlImportRowResults, tenantID, jobID, nos)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	for rows.Next() {
+		var (
+			n   int32
+			res ports.ImportRowResult
+		)
+		if err := rows.Scan(&n, &res.State, &res.ResultID); err != nil {
+			return nil, err
+		}
+		res.RowNo = int(n)
+		out[res.RowNo] = res
+	}
+	return out, rows.Err()
+}
 
 func scanImportJob(row pgx.Row) (domain.ImportJob, error) {
 	var (
@@ -85,7 +446,8 @@ func scanImportJob(row pgx.Row) (domain.ImportJob, error) {
 		finished *time.Time
 	)
 	if err := row.Scan(&j.ID, &j.Register, &j.FileName, &j.Format, &j.Status, &j.TotalRows, &j.ValidRows, &j.InvalidRows,
-		&j.AppliedRows, &j.FailedRows, &j.ProgressRowNo, &j.Error, &j.CreatedBy, &created, &updated, &finished); err != nil {
+		&j.AppliedRows, &j.FailedRows, &j.ProgressRowNo, &j.Error, &j.CreatedBy, &created, &updated, &finished,
+		&j.BundleID, &j.BundleOrder, &j.SheetName); err != nil {
 		return domain.ImportJob{}, err
 	}
 	j.CreatedAt = created.UTC().Format(time.RFC3339)
@@ -101,7 +463,7 @@ func (r *Repository) CreateImportJob(ctx context.Context, job domain.ImportJob, 
 	ctx, cancel := context.WithTimeout(ctx, r.timeout)
 	defer cancel()
 	_, err := r.pool.Exec(ctx, sqlImportJobInsert,
-		job.ID, tenantID, job.Register, job.FileName, job.Format, job.Status, job.TotalRows, job.CreatedBy)
+		job.ID, tenantID, job.Register, job.FileName, job.Format, job.Status, job.TotalRows, job.CreatedBy, job.BundleID, job.BundleOrder, job.SheetName)
 	return err
 }
 
