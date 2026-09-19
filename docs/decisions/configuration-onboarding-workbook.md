@@ -43,7 +43,7 @@ pens-before-stages on the first cut.
 
 ## How it works
 
-Migration `000359_configuration_import_bundles`: a `configuration_import_bundles` row per
+Migration `000366_configuration_import_bundles`: a `configuration_import_bundles` row per
 uploaded workbook; each matched tab is an ordinary `configuration_import_jobs` row carrying
 `bundle_id`, `bundle_order` and `sheet_name`, plus a new job status **`queued`** — a tab waiting
 for the tabs before it. The recovery sweep deliberately never claims a queued tab; only the

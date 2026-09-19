@@ -92,7 +92,7 @@ WHERE tenant_id = $1::uuid AND job_id = $2::uuid AND status = $3
 RETURNING ` + importJobColumns
 )
 
-// --- workbooks (bundles, migration 000359) ---
+// --- workbooks (bundles, migration 000366) ---
 
 const importBundleColumns = `bundle_id::text, file_name, status, unknown_sheets, error, created_by, created_at, updated_at, finished_at`
 
