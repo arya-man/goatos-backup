@@ -17,6 +17,8 @@ import { parseShifting } from "./shifting-model";
 import { CaptureCardEditor } from "./capture-editor";
 import { parseCaptureCard } from "./capture-model";
 
+type renderSopExtraNodeFactory<T = any> = (pageContract: T, sp: any) => Promise<any>;
+
 // Shared server renderer for the per-module SOP pages (SOP split, maintainer decision 2026-08-18):
 // /vaccination/sops, /counts/sops, and /feed/sops each mount this with their own page-contract key,
 // slice, and base path. The retired top-level /sops authority screen is NOT a valid mount point.
@@ -32,11 +34,11 @@ export async function renderSopModulePage(
   slice: SopScopeDomain,
   basePath: string,
   searchParams: Promise<RouteSearchParams>,
-  headerTrailing?: (pageContract: Awaited<ReturnType<typeof requireAdminWebPageContract>>, sp: RouteSearchParams) => Promise<React.ReactNode>,
+  extraNodeFactory?: renderSopExtraNodeFactory,
 ) {
   const pageContractPromise = requireAdminWebPageContract(contractKey);
   const sp = await searchParams;
-  const trailing = headerTrailing ? await headerTrailing(await pageContractPromise, sp) : null;
+  const extraNode = extraNodeFactory ? await extraNodeFactory(await pageContractPromise, sp) : null;
   if (sp.compose === "1" || sp.new === "1") {
     const editId = typeof sp.edit === "string" && sp.edit ? sp.edit : undefined;
     if (editId) {
@@ -173,9 +175,9 @@ export async function renderSopModulePage(
 
   if (!listed.ok) {
     if (isAuthRequiredError(listed.error)) {
-      return <SopLibrary sops={[]} authRequired pageContract={pageContract} basePath={basePath} headerTrailing={trailing} />;
+      return <SopLibrary sops={[]} authRequired pageContract={pageContract} basePath={basePath} extraNode={extraNode} />;
     }
-    return <SopLibrary sops={[]} error={{ code: listed.error.code, message: listed.error.message }} pageContract={pageContract} basePath={basePath} headerTrailing={trailing} />;
+    return <SopLibrary sops={[]} error={{ code: listed.error.code, message: listed.error.message }} pageContract={pageContract} basePath={basePath} extraNode={extraNode} />;
   }
 
   // Module scoping: each page lists only its own module's SOP codes. A SOP outside every module
@@ -191,5 +193,5 @@ export async function renderSopModulePage(
   // `?published=<sop_id>&v=<n>` is where an editor lands after Publish: the library says which
   // version just went live and lights up that card, so the change is visibly reflected instead
   // of a small note above an unchanged editor (maintainer report 2026-09-15).
-  return <SopLibrary sops={sops} pageContract={pageContract} basePath={basePath} published={publishedFromSearch(sp)} headerTrailing={trailing} />;
+  return <SopLibrary sops={sops} pageContract={pageContract} basePath={basePath} published={publishedFromSearch(sp)} extraNode={extraNode} />;
 }

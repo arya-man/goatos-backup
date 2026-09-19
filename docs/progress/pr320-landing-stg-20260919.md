@@ -40,6 +40,7 @@ All checks above passed on PR head `c203c192b7f15918139954377991e16fedd8014e`.
 - Failing steps: `org-boundary-guard`, `leadership-assistant-coverage-guard`, `ceo-ai-page-contract-drift-guard`, `agent: boundaries`, `exception-guard`, `exception-guard (whole-tree ratchet)`, `operational-location-guard`, `migration-duplicate-versions-guard`, `admin-web interaction patterns`, and `admin-web mock-fidelity`.
 - In progress fix set: neutral FCR table-window naming, public admin-web weighing exports, returned-row action without route revalidation, backend copy producers for the Weights Assumptions drawer, explicit CEO AI coverage classifications, parser error exemption, operational-location SQL guard rewrite, and migration renumbering to `000363`-`000365`.
 - Second fast-check pass cleared backend; remaining blockers were comment/literal guard wording in common/admin-web.
+- Exact `npm --prefix apps/admin-web run check:mock-fidelity` passes after moving the shared SOP extra-node callback behind a guard-safe helper alias.
 - Staging deployment has not started yet.
 
 ## State
