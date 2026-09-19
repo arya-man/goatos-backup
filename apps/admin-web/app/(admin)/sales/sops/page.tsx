@@ -1,4 +1,5 @@
 import { renderSopModulePage } from "@/features/sops";
+import { MarketSurveyOnSop } from "@/features/procurement/market-survey-on-sop";
 import type { RouteSearchParams } from "@/lib/search-params";
 
 export const dynamic = "force-dynamic";
@@ -10,5 +11,7 @@ export const dynamic = "force-dynamic";
 // the tasks engine as one workflow per sale (maintainer instruction 2026-09-19,
 // docs/decisions/sales-sop.md). Same library + operator-steps editor shape as /counts/sops.
 export default async function Page({ searchParams }: { searchParams: Promise<RouteSearchParams> }) {
-  return renderSopModulePage("sales-sops", "sales", "/sales/sops", searchParams);
+  // The market survey (cities, questions, who reports) is the sale desk's other standing
+  // instruction and is authored under the library here as well as on Sales Config.
+  return renderSopModulePage("sales-sops", "sales", "/sales/sops", searchParams, async () => <MarketSurveyOnSop />);
 }

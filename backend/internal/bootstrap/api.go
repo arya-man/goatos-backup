@@ -862,7 +862,10 @@ func NewAPI(ctx context.Context, cfg Config, log *slog.Logger) (*API, error) {
 		toxinapp.NewService(toxinpg.NewRepository(pool, cfg.Postgres.QueryTimeout), toxinproof.NewValidator(proofRepo)), log)
 	// Market survey (maintainer decision 2026-09-14): the morning market-price calls. Config
 	// and analytics under Sales on admin-web; the day's cards and the entry write on the phone.
-	marketHandler := markethttp.NewHandler(marketapp.NewService(marketpg.NewRepository(pool, cfg.Postgres.QueryTimeout)), log)
+	marketHandler := markethttp.NewHandler(marketapp.NewService(marketpg.NewRepository(pool, cfg.Postgres.QueryTimeout)), log).
+		// Reporters on the Sales SOP page (2026-09-19): who makes the calls, toggled through the
+		// one person-access write path.
+		WithReporterSource(workforceapp.NewMarketReporterSource(accessService, accessRepo))
 	// Leadership Tasks (maintainer decision 2026-09-04): a director's ask of the CXO desk.
 	// The service also feeds the drawer badge (unseen assigned tasks) into /app/bootstrap.
 	leadershipTasksService := leadershiptasksapp.NewService(

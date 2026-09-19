@@ -19,8 +19,9 @@ import (
 
 // Handler serves the market routes.
 type Handler struct {
-	service *app.Service
-	log     *slog.Logger
+	service   *app.Service
+	log       *slog.Logger
+	reporters ReporterSource
 }
 
 // NewHandler constructs the transport.
@@ -39,6 +40,8 @@ func Register(mux *http.ServeMux, h *Handler) {
 	mux.HandleFunc("POST /market/questions", h.CreateQuestion)
 	mux.HandleFunc("PUT /market/questions/{question_id}", h.UpdateQuestion)
 	mux.HandleFunc("PUT /market/config/call-time", h.SetCallTime)
+	mux.HandleFunc("GET /market/reporters", h.ListReporters)
+	mux.HandleFunc("PUT /market/reporters/{person_id}", h.SetReporter)
 	mux.HandleFunc("GET /market/analytics", h.GetAnalytics)
 	mux.HandleFunc("GET /app/market/survey", h.GetSurveyDay)
 	mux.HandleFunc("POST /app/market/survey/{city_id}", h.RecordSurveyCity)

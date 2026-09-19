@@ -124,3 +124,19 @@ on `goat.sale_allocated`).
   tag tap, operator refused on the park head's step, engine completion + replay + no-workflow
   no-op, CEO floor, desk-only money question, YES skips the balance step, module=sales list and
   subject read. Mutation-tested: dropping the owner gate on the complete path turns it red.
+
+## Addendum 2026-09-19: the market survey is authored on the Sales SOP page too
+
+"Is market analytics configurable in the Sales SOP -- what questions, whom they go to,
+everything on that page?" The cities phoned, the questions asked (with their unit) and the call
+time were already config on Sales Config (2026-09-14). They now ALSO sit under the Sales SOP
+library, the same card (one component, one set of words from the Sales Config contract), and a
+new **Reported by** card names WHO makes the morning calls -- the people holding the
+`market_survey` phone module -- with a one-tap give / take back. Reporters are read by
+`GET /market/reporters` and toggled by `PUT /market/reporters/{person_id}` (gated on
+`sales.market.config.write`: deciding who reports is deciding the survey); the toggle is a
+read-modify-write through the person-access service `/people` uses, so validation, audit and the
+row_version fence are the same one path. A person with no park set yet is refused with "set this
+person's park on People first" rather than saved half-formed. Proven in Chrome on the throwaway
+stack: add Hosur, add "Live price, kids (per 500 g)" in ₹/500 g then change its unit, give the
+survey to Chandrakant (his row gains `market_survey {do}` + an audit row) and take it back.

@@ -22,10 +22,12 @@ import {
   setMarketCallTime,
   updateMarketCity,
   updateMarketQuestion,
+  setMarketReporter,
 } from "@/lib/api/market-server";
 import type { ApiResult } from "@/lib/api/server";
 
 const SALES_CONFIG_PATH = "/sales/config";
+const SALES_SOP_PATH = "/sales/sops";
 
 /**
  * The outcome of one market-config write, returned to the form that posted it. `code` is a
@@ -58,6 +60,8 @@ function outcome(
   if (!result.ok) return { status: "error", code: failureCode(result), ticket };
   // Re-read the section's server data inside this same response: the list updates in place.
   revalidatePath(SALES_CONFIG_PATH);
+  // The same section is mounted on the Sales SOP page (2026-09-19); both re-read in place.
+  revalidatePath(SALES_SOP_PATH);
   return { status: "success", code: successCode, ticket };
 }
 
@@ -131,4 +135,16 @@ export async function setMarketCallTimeAction(previous: MarketActionState, formD
     return fieldsMissing(previous);
   }
   return outcome(previous, await setMarketCallTime(callTime), "market_call_time_saved");
+}
+
+/** Reporter toggle (Sales SOP page): give or take the market survey phone module for one person. */
+export async function setMarketReporterAction(previous: MarketActionState, formData: FormData): Promise<MarketActionState> {
+  let personId: string;
+  try {
+    personId = requiredString(formData, "person_id");
+  } catch {
+    return fieldsMissing(previous);
+  }
+  const enabled = optionalString(formData, "enabled") === "true";
+  return outcome(previous, await setMarketReporter(personId, enabled), "market_reporter_saved");
 }

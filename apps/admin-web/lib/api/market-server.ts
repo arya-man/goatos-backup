@@ -118,3 +118,26 @@ export async function getMarketSurveyDay(): Promise<ApiResult<MarketSurveyDay>> 
   const client = createAppApiClient(apiClientOptions(config.data));
   return request(() => client.request<MarketSurveyDay>("/app/market/survey", { cache: "no-store" }));
 }
+
+/** One person as the reporters list shows them (GET /market/reporters). */
+export type MarketReporter = { person_id: string; display_name: string; title: string; park_label: string; reporter: boolean };
+
+export async function getMarketReporters(): Promise<ApiResult<{ people: MarketReporter[] }>> {
+  const config = await getServerConfig(true);
+  if (!config.ok) return config;
+  const client = createAppApiClient(apiClientOptions(config.data));
+  return request(() => client.request<{ people: MarketReporter[] }>("/market/reporters" as keyof AppApiPaths & string, { cache: "no-store" }));
+}
+
+export async function setMarketReporter(personId: string, enabled: boolean): Promise<ApiResult<{ people: MarketReporter[] }>> {
+  const config = await getServerConfig(true);
+  if (!config.ok) return config;
+  const client = createAppApiClient(apiClientOptions(config.data));
+  return request(() =>
+    client.request<{ people: MarketReporter[] }>(`/market/reporters/${encodeURIComponent(personId)}` as keyof AppApiPaths & string, {
+      method: "PUT",
+      cache: "no-store",
+      body: { enabled },
+    }),
+  );
+}

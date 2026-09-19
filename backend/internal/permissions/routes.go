@@ -378,6 +378,11 @@ var protectedRoutes = []Route{
 	{OperationID: "updateMarketCity", Method: "PUT", Pattern: "/market/cities/{city_id}", Permissions: []string{MarketConfigWrite}},
 	{OperationID: "createMarketQuestion", Method: "POST", Pattern: "/market/questions", Permissions: []string{MarketConfigWrite}},
 	{OperationID: "updateMarketQuestion", Method: "PUT", Pattern: "/market/questions/{question_id}", Permissions: []string{MarketConfigWrite}},
+	// Reporters (maintainer instruction 2026-09-19): who makes the morning calls, read and toggled
+	// from the Sales SOP page. Deciding who reports rides the same authority as deciding what is
+	// asked; the toggle writes through the person-access service.
+	{OperationID: "listMarketReporters", Method: "GET", Pattern: "/market/reporters", Permissions: []string{MarketRead}},
+	{OperationID: "setMarketReporter", Method: "PUT", Pattern: "/market/reporters/{person_id}", Permissions: []string{MarketConfigWrite}},
 	{OperationID: "setMarketCallTime", Method: "PUT", Pattern: "/market/config/call-time", Permissions: []string{MarketConfigWrite}},
 	{OperationID: "getMarketAnalytics", Method: "GET", Pattern: "/market/analytics", Permissions: []string{MarketRead}},
 	{OperationID: "getMarketSurveyDay", Method: "GET", Pattern: "/app/market/survey", Permissions: []string{MarketRead}},
