@@ -24,9 +24,10 @@ import { dealStatusTone, humanDate, inr, num } from "./sales-format";
 import { SalesRecordDrawer } from "./sales-record-drawer";
 import { SaleAllocationDrawer } from "./sale-allocation-drawer";
 import { LoadCostDrawer } from "./load-cost-drawer";
-import { getMarketConfig } from "@/lib/api/market-server";
+import { getMarketConfig, getMarketReporters } from "@/lib/api/market-server";
 import { getValuationAssumptions } from "@/lib/api/sales-valuation-server";
 import { MarketConfigSection } from "./market-config-section";
+import { MarketReportersSection } from "./market-reporters-section";
 import { ValuationSection } from "./valuation-section";
 
 const PAGE_PATH = "/sales/config";
@@ -96,6 +97,7 @@ export async function SalesConfigPage({
   // read of the whole authored config.
   // serial-await: allow one bounded market-config read after prior sales/config reads to avoid request fanout.
   const marketConfigResult = await getMarketConfig();
+  const marketReportersResult = await getMarketReporters();
   const valuationResult = await getValuationAssumptions();
 
   if (firstAuthRequiredError(dealsResult, loadwiseResult)) redirect(INTERNAL_LOGIN_PATH);
@@ -344,6 +346,8 @@ export async function SalesConfigPage({
         configResult={marketConfigResult}
         canConfigure={canConfigureMarket}
       />
+      {/* Who makes the calls (maintainer instruction 2026-09-19): beside the survey it reports. */}
+      <MarketReportersSection pageContract={pageContract} result={marketReportersResult} canConfigure={canConfigureMarket} />
 
       {/* 5 — Farm valuation (maintainer instruction 2026-09-19): the decided figures behind Farm
           value and Load wise. Same gating shape as the market survey. */}

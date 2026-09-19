@@ -27,7 +27,6 @@ import {
 import type { ApiResult } from "@/lib/api/server";
 
 const SALES_CONFIG_PATH = "/sales/config";
-const SALES_SOP_PATH = "/sales/sops";
 
 /**
  * The outcome of one market-config write, returned to the form that posted it. `code` is a
@@ -60,8 +59,6 @@ function outcome(
   if (!result.ok) return { status: "error", code: failureCode(result), ticket };
   // Re-read the section's server data inside this same response: the list updates in place.
   revalidatePath(SALES_CONFIG_PATH);
-  // The same section is mounted on the Sales SOP page (2026-09-19); both re-read in place.
-  revalidatePath(SALES_SOP_PATH);
   return { status: "success", code: successCode, ticket };
 }
 

@@ -125,18 +125,13 @@ on `goat.sale_allocated`).
   no-op, CEO floor, desk-only money question, YES skips the balance step, module=sales list and
   subject read. Mutation-tested: dropping the owner gate on the complete path turns it red.
 
-## Addendum 2026-09-19: the market survey is authored on the Sales SOP page too
+## Addendum 2026-09-19: the market survey stays on Sales Config; "Reported by" joins it there
 
-"Is market analytics configurable in the Sales SOP -- what questions, whom they go to,
-everything on that page?" The cities phoned, the questions asked (with their unit) and the call
-time were already config on Sales Config (2026-09-14). They now ALSO sit under the Sales SOP
-library, the same card (one component, one set of words from the Sales Config contract), and a
-new **Reported by** card names WHO makes the morning calls -- the people holding the
-`market_survey` phone module -- with a one-tap give / take back. Reporters are read by
-`GET /market/reporters` and toggled by `PUT /market/reporters/{person_id}` (gated on
-`sales.market.config.write`: deciding who reports is deciding the survey); the toggle is a
-read-modify-write through the person-access service `/people` uses, so validation, audit and the
-row_version fence are the same one path. A person with no park set yet is refused with "set this
-person's park on People first" rather than saved half-formed. Proven in Chrome on the throwaway
-stack: add Hosur, add "Live price, kids (per 500 g)" in ₹/500 g then change its unit, give the
-survey to Chandrakant (his row gains `market_survey {do}` + an audit row) and take it back.
+Asked and answered the same day: the market survey (cities, questions with units, call time) is
+Sales Config's, not the Sales SOP page's -- "keep it there only". What was added is the
+**Reported by** card beside it: WHO makes the morning calls (the people holding the
+`market_survey` phone module), given or taken back in place. `GET /market/reporters`,
+`PUT /market/reporters/{person_id}` on `sales.market.config.write`; the toggle is a
+read-modify-write through the person-access service `/people` uses (one write path, audited,
+row_version-fenced); a person with no park yet is refused with "set this person's park on People
+first". The Sales SOP page is the sale's steps and nothing else.
