@@ -32,7 +32,6 @@ export async function renderSopModulePage(
   slice: SopScopeDomain,
   basePath: string,
   searchParams: Promise<RouteSearchParams>,
-  /** Optional header controls, built by the module page from the resolved page contract. */
   headerTrailing?: (pageContract: Awaited<ReturnType<typeof requireAdminWebPageContract>>, sp: RouteSearchParams) => Promise<React.ReactNode>,
 ) {
   const pageContractPromise = requireAdminWebPageContract(contractKey);

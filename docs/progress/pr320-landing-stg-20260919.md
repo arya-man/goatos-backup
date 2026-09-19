@@ -39,6 +39,7 @@ All checks above passed on PR head `c203c192b7f15918139954377991e16fedd8014e`.
 - First `make land-main` attempt failed local CI at candidate `bb26c7d675db17411148e4109a365a9680e0fff6`.
 - Failing steps: `org-boundary-guard`, `leadership-assistant-coverage-guard`, `ceo-ai-page-contract-drift-guard`, `agent: boundaries`, `exception-guard`, `exception-guard (whole-tree ratchet)`, `operational-location-guard`, `migration-duplicate-versions-guard`, `admin-web interaction patterns`, and `admin-web mock-fidelity`.
 - In progress fix set: neutral FCR table-window naming, public admin-web weighing exports, returned-row action without route revalidation, backend copy producers for the Weights Assumptions drawer, explicit CEO AI coverage classifications, parser error exemption, operational-location SQL guard rewrite, and migration renumbering to `000363`-`000365`.
+- Second fast-check pass cleared backend; remaining blockers were comment/literal guard wording in common/admin-web.
 - Staging deployment has not started yet.
 
 ## State

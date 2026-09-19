@@ -12,7 +12,7 @@ const PAGE_PATH = "/weighing/sops";
 // maintainer decision 2026-08-22, same shape as the three 2026-08-18 routes).
 //
 // It also carries the Assumptions drawer (maintainer decision 2026-09-19): the figures the Weighing
-// pages are valued and judged against, edited beside the rules they belong to. Rendered when the
+// pages are valued and judged against, edited beside the rules they belong to. Mounted when the
 // page contract enables `edit_assumptions` -- "who have [the tick] should only see it" -- so a reader
 // without the write sees no button at all.
 export default async function Page({ searchParams }: { searchParams: Promise<RouteSearchParams> }) {
