@@ -165,6 +165,8 @@ type ActionTemplate struct {
 	Requires     []string
 	// AnswerGate is the answer-driven branch condition (nil = always on the path).
 	AnswerGate *AnswerCondition
+	// Owner is the designation code that does the step; blank = anyone (sop_followup.go).
+	Owner string
 }
 
 // IsDependencyTimed reports a step whose due time is set by another step's completion.

@@ -19,6 +19,7 @@ type Service struct {
 	submission   SubmissionHook
 	reviewFanout TaskReviewFanout
 	taskTypes    TaskTypeSource
+	designations DesignationSource
 	now          func() time.Time
 	// contracts are per-module document validators run at version create time on top of the
 	// generic form_dsl checks (PROCUREMENT SOP, 2026-09-14: the animal-purchase `inspection`

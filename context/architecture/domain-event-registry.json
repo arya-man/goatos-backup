@@ -60,6 +60,7 @@
     "weighing.work_item.delayed",
     "procurement.feed_purchase.reached",
     "goat.sale_allocated",
+    "sales.deal.recorded",
     "procurement.animal_purchase.decided"
   ],
   "events": [
@@ -1782,12 +1783,41 @@
           "module": "notification",
           "file": "backend/internal/notificationbridge/sale_feed_reduce_notify.go",
           "notes": "Feed Director notice (feed_sale_reduce): names the park, every pen with how many animals left it, the sale date, and the feed day the reduction lands on -- resolved from the park's normal-workflow correction clock via feeddirection/domain.SaleFeedReductionDay (before the cutoff -> D+1, after -> D+2, no clock -> D+1). Feed Director ALONE (ResolvePositionRecipients tenant/feed_director); CEO and park heads deliberately not addressed. The feed-day REMINDER (feed_sale_reduce_reminder) is not an event consumer: kernelstages.SaleFeedReduceReminderStage reads goat_sale_allocations over a 4-day trailing window on the shared operational cadence and is keyed per confirm, gated to 07:00 IST on the feed day."
+        },
+        {
+          "module": "tasks",
+          "file": "backend/internal/tasks/app/sales_workflow.go",
+          "notes": "SALES SOP (2026-09-19): SaleAllocatedWorkflowHandler completes the sale workflow's sale_tag_animals step (the one engine-completed step of the sales.deal SOP; a by-hand completion is refused 409 sale_tagging_pending). Idempotent on the step: a redelivery or a second half-confirm finds it completed and changes nothing; a sale with no workflow yet (its recorded event still in flight) is a no-op and the opener stamps the step later. Registered in eventwiring.RegisterWorkflowConsumers, so the API in-process bus, kernelstages, domain-event-consumer and outbox-relay all run it."
         }
       ],
       "owningDoc": "docs/decisions/sale-feed-reduce-notification.md",
       "e2eProof": [
         "backend/internal/identity/adapters/postgres/sale_allocation_integration_test.go",
-        "backend/internal/notificationbridge/sale_feed_reduce_notify_test.go"
+        "backend/internal/notificationbridge/sale_feed_reduce_notify_test.go",
+        "backend/internal/tasks/adapters/postgres/sales_workflow_integration_test.go"
+      ],
+      "surfaces": [
+        "backend",
+        "frontend",
+        "mobile"
+      ]
+    },
+    {
+      "eventType": "sales.deal.recorded",
+      "producer": "SALES SOP (maintainer instruction 2026-09-19, docs/decisions/sales-sop.md): sales.Repository.CreateDeal emits ONE event per recorded sale, INSIDE the transaction that inserts sales_deals (+ sales_deal_lines) and the audit row, after the idempotency reservation -- an exact replay of the record returns before this insert and a refused or rolled-back record emits nothing. Payload: sales_deal_id, sale_date, farm, park_id (the farm code resolved to its park location in the same transaction; blank when the tenant has no park row for it), buyer_name, animal_count, product_type, status. Aggregate/subject is the sales_deal the outbox validator already knows (000275). Idempotency key = 'sales.deal.recorded:' + the record's own Idempotency-Key.",
+      "producerFiles": [
+        "backend/internal/sales/adapters/postgres/deal_outbox.go"
+      ],
+      "consumers": [
+        {
+          "module": "tasks",
+          "file": "backend/internal/tasks/app/sales_workflow.go",
+          "notes": "SaleRecordedWorkflowHandler opens the sale's workflow: OpenSubjectWorkflow(template sales_deal, subject_ref_id = deal, park from the payload), compiled from the tenant's PUBLISHED sales.deal SOP's sales_deal track (seeded document when never authored), pinned to that version, every step stamped with the designation that does it (workflow_actions.owner_role). Idempotent on (tenant, template_key, subject_ref_id): a redelivery finds the workflow and opens nothing. Registered in eventwiring.RegisterWorkflowConsumers (every bus process). The phone reads it back by subject (GET /app/workflows/subject?template_key=sales_deal&subject_ref_id=<deal>) and lists sale work under module=sales."
+        }
+      ],
+      "owningDoc": "docs/decisions/sales-sop.md",
+      "e2eProof": [
+        "backend/internal/tasks/adapters/postgres/sales_workflow_integration_test.go"
       ],
       "surfaces": [
         "backend",

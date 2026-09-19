@@ -1,0 +1,15 @@
+{
+  "schema_version": "goatos.sop-followup.v1",
+  "tracks": [
+    {
+      "key": "sales_deal", "module": "sales", "label": "Sale", "subject": "sale",
+      "steps": [
+        {"key": "tag_animals", "task_type": "sale_tag_animals", "title": "Tag the animals sold", "detail": "Scan or type the tag of every animal on this sale, enter its weight, and confirm. This step completes on its own once the tagging is confirmed.", "proof": {}, "schedule": {"kind": "immediately"}, "owner": "park_head"},
+        {"key": "loading_video", "task_type": "video_record", "title": "Record the animals being loaded", "detail": "One live video of the tagged animals walking onto the buyer's vehicle, ear tags visible.", "proof": {"video": 1}, "schedule": {"kind": "immediately"}, "owner": "park_head"},
+        {"key": "dispatch_note", "task_type": "photo_record", "title": "Photo of the gate pass", "detail": "One photo of the signed gate pass or dispatch note handed to the buyer's driver.", "proof": {"photo": 1}, "schedule": {"kind": "immediately"}, "owner": "park_head"},
+        {"key": "full_payment", "task_type": "record_yes_no", "title": "Has the buyer paid in full?", "detail": "Answer Yes when the receipts on the sale cover its value. Answer No if a balance is still due.", "proof": {}, "schedule": {"kind": "immediately"}, "owner": "procurement_director"},
+        {"key": "collect_balance", "task_type": "do_and_confirm", "title": "Collect the balance and record the receipt", "detail": "Follow up with the buyer for the amount still due and record each receipt on the sale as it comes in.", "proof": {}, "schedule": {"kind": "immediately"}, "owner": "procurement_director", "when_answer": {"step": "full_payment", "op": "eq", "value": ["no"]}}
+      ]
+    }
+  ]
+}

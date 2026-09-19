@@ -41,6 +41,9 @@ var requiredFollowUpTracks = map[string][]string{
 	tasksdomain.SOPCodeBirth:     {tasksdomain.TemplateKeyBirthKid, tasksdomain.TemplateKeyBirthMother},
 	tasksdomain.SOPCodeDeath:     {tasksdomain.TemplateKeyDeath},
 	tasksdomain.SOPCodeReconcile: {tasksdomain.TemplateKeyReconcile},
+	// SALES SOP (2026-09-19): recording a sale opens the sales_deal track; a version without it
+	// would stop every sale from opening its steps.
+	tasksdomain.SOPCodeSalesDeal: {tasksdomain.TemplateKeySalesDeal},
 }
 
 // FollowUpRequired reports whether a SOP code's versions must carry a follow_up section. A
@@ -91,6 +94,7 @@ func (s *Service) validateFollowUpContract(ctx context.Context, report *domain.V
 			addError(report, "form_dsl.follow_up.tracks", "missing_track", fmt.Sprintf("%s must keep a %q track: the engine opens that workflow from it", sopCode, track))
 		}
 	}
+	s.validateStepOwners(ctx, report, followUp)
 	for _, req := range requiredEngineHookSteps[sopCode] {
 		track, ok := followUp.Track(req.track)
 		if !ok {
@@ -124,6 +128,13 @@ type requiredEngineHookStep struct {
 // the reconcile return (the completion hook runs on the last step, whatever it is) -- so the SOP
 // may drop them.
 var requiredEngineHookSteps = map[string][]requiredEngineHookStep{
+	// The sale's tag step is what ties the tagged animals to the sale: without it a sale's
+	// workflow could read complete with nothing tagged, and the tagging screen would have no
+	// step to deep-link from.
+	tasksdomain.SOPCodeSalesDeal: {
+		{track: tasksdomain.TemplateKeySalesDeal, hook: tasksdomain.EngineHookSaleTagAnimals, stepKey: "tag_animals", title: "Tag the animals sold",
+			why: "it ties the tagged animals to the sale; the engine completes it from the tagging confirm"},
+	},
 	tasksdomain.SOPCodeBirth: {
 		{track: tasksdomain.TemplateKeyBirthKid, hook: tasksdomain.EngineHookTagKid, stepKey: tasksdomain.ActionKeyTagTheKid, title: "Tag the kid",
 			why: "it keeps the birth open until the kid carries a permanent RFID"},
@@ -145,4 +156,49 @@ func (s *Service) taskTypeRegistry(ctx context.Context, tenantID string) (tasksd
 	// A tenant whose registry has not been seeded validates against the seeded registry, which is
 	// what migration 000308 inserts; the compiler at open reads the live rows.
 	return tasksdomain.SeededTaskTypes()
+}
+
+// DesignationSource reads the designation catalog a step owner must name.
+type DesignationSource interface {
+	ListActiveDesignationCodes(ctx context.Context) ([]string, error)
+}
+
+// WithDesignationSource wires the catalog reader (the postgres repository implements it).
+func (s *Service) WithDesignationSource(src DesignationSource) *Service {
+	s.designations = src
+	return s
+}
+
+// validateStepOwners: a step's `owner` (who does it -- SALES SOP, 2026-09-19) must be an ACTIVE
+// designation from the farm's catalog, never free text: a misspelt owner would lock the step for
+// everyone. Blank is anyone. Without a wired source the check is skipped (unit-test fixtures);
+// the API always wires one.
+func (s *Service) validateStepOwners(ctx context.Context, report *domain.ValidationReport, followUp tasksdomain.FollowUpDSL) {
+	if s.designations == nil {
+		return
+	}
+	var allowed map[string]struct{}
+	for ti, track := range followUp.Tracks {
+		for si, step := range track.Steps {
+			owner := strings.TrimSpace(step.Owner)
+			if owner == "" {
+				continue
+			}
+			if allowed == nil {
+				codes, err := s.designations.ListActiveDesignationCodes(ctx)
+				if err != nil {
+					addError(report, "form_dsl.follow_up", "registry_unavailable", "the designation catalog could not be read: "+err.Error())
+					return
+				}
+				allowed = make(map[string]struct{}, len(codes))
+				for _, c := range codes {
+					allowed[c] = struct{}{}
+				}
+			}
+			if _, ok := allowed[owner]; !ok {
+				addError(report, fmt.Sprintf("form_dsl.follow_up.tracks.%d.steps.%d.owner", ti, si), "unknown_designation",
+					fmt.Sprintf("%q is not an active designation; pick one from the catalog", owner))
+			}
+		}
+	}
 }

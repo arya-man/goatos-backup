@@ -596,6 +596,7 @@ func NewAPI(ctx context.Context, cfg Config, log *slog.Logger) (*API, error) {
 	sopRepo := soppg.NewRepository(pool, cfg.Postgres.QueryTimeout)
 	sopService := sopapp.NewService(sopRepo).WithProofValidator(proofService).
 		WithTaskTypeSource(sopRepo).
+		WithDesignationSource(sopRepo).
 		// The animal-purchase inspection document is validated by the module that compiles it.
 		WithFormDSLContract(animalpurchaseapp.InspectionSOPContract).
 		// WEIGHING SOP (maintainer decision 2026-09-15): the weighing.session version's

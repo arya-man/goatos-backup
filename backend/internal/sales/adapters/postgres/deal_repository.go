@@ -695,6 +695,12 @@ func (r *Repository) CreateDeal(ctx context.Context, tenantID string, write doma
 		return domain.Deal{}, fmt.Errorf("sales: audit deal record: %w", err)
 	}
 
+	// The sale's WORK opens from this event (SALES SOP, 2026-09-19): same transaction as the row,
+	// so a recorded sale always has its steps and a rolled-back one never does.
+	if err := emitSaleRecorded(ctx, tx, tenantID, actorID, idempotencyKey, dealID, write); err != nil {
+		return domain.Deal{}, err
+	}
+
 	if err := completeIdempotency(ctx, tx, tenantID, idemScopeDealCreate, idempotencyKey, "sales_deal", dealID); err != nil {
 		return domain.Deal{}, fmt.Errorf("sales: complete deal idempotency: %w", err)
 	}

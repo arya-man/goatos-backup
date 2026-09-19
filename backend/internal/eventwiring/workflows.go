@@ -67,6 +67,10 @@ func RegisterWorkflowConsumers(bus eventbus.Bus, svc *tasksapp.Service, log *slo
 	// SOP questionnaires on a non-goat subject (reconcile card today, shifting event next): a
 	// verifier rework reopens the workflow's proof steps (docs/decisions/sop-driven-herd-operations.md).
 	tasksapp.NewSubjectWorkflowVerdictHandler(svc).Register(bus)
+	// SALES SOP (2026-09-19): a recorded sale opens its workflow; the tagging confirm completes
+	// the sale_tag_animals step (docs/decisions/sales-sop.md).
+	tasksapp.NewSaleRecordedWorkflowHandler(svc).Register(bus)
+	tasksapp.NewSaleAllocatedWorkflowHandler(svc).Register(bus)
 }
 
 // CaptureReviewStore is the counts repository slice the birth_capture verdict consumer drives.

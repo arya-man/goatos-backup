@@ -50,6 +50,10 @@ func (s *stubService) GetWorkflow(_ context.Context, _, _ string) (domain.Workfl
 	return s.detail, nil
 }
 
+func (s *stubService) GetWorkflowBySubject(ctx context.Context, tenantID, _, _ string) (domain.WorkflowDetail, error) {
+	return s.GetWorkflow(ctx, tenantID, "")
+}
+
 func (s *stubService) GetColostrumDay(_ context.Context, _, _, date string) (tasksapp.ColostrumDetail, error) {
 	s.lastDetailDate = date
 	if s.detailErr != nil {

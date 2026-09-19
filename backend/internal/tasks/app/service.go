@@ -211,6 +211,20 @@ func (s *Service) GetWorkflow(ctx context.Context, tenantID, workflowID string) 
 	return s.repo.GetWorkflow(ctx, tenantID, workflowID, s.now())
 }
 
+// GetWorkflowBySubject serves the detail of the workflow keyed on (template_key, subject_ref_id)
+// -- the sale's workflow from its deal id, a reconcile card's from the card. ErrNotFound when
+// none has been opened (the recorded event may still be in flight).
+func (s *Service) GetWorkflowBySubject(ctx context.Context, tenantID, templateKey, subjectRefID string) (domain.WorkflowDetail, error) {
+	if strings.TrimSpace(tenantID) == "" || strings.TrimSpace(templateKey) == "" || strings.TrimSpace(subjectRefID) == "" {
+		return domain.WorkflowDetail{}, domain.ErrMissingRequiredField
+	}
+	id, err := s.repo.WorkflowIDBySubjectRef(ctx, tenantID, templateKey, subjectRefID)
+	if err != nil {
+		return domain.WorkflowDetail{}, err
+	}
+	return s.repo.GetWorkflow(ctx, tenantID, id, s.now())
+}
+
 // ---------------------------------------------------------------------------
 // Writes
 // ---------------------------------------------------------------------------
@@ -226,6 +240,9 @@ type AnswerActionInput struct {
 	AnsweredBy         string
 	IdempotencyKey     string
 	RequestFingerprint string
+	// ActorRoles are the caller's designations (grant roles); a step another designation owns
+	// refuses them (domain.StepOwnedBy). Nil = engine/CLI caller, never refused.
+	ActorRoles []string
 }
 
 // AnswerAction runs the answer write under the mandatory idempotency contract. An answer that
@@ -249,6 +266,7 @@ func (s *Service) AnswerAction(ctx context.Context, in AnswerActionInput) (domai
 		AnsweredAt:         s.now().UTC(),
 		IdempotencyKey:     in.IdempotencyKey,
 		RequestFingerprint: in.RequestFingerprint,
+		ActorRoles:         in.ActorRoles,
 	})
 	if err != nil {
 		return domain.ActionWriteResult{}, err
@@ -275,6 +293,8 @@ type CompleteActionInput struct {
 	CompletedBy        string
 	IdempotencyKey     string
 	RequestFingerprint string
+	// ActorRoles: see AnswerActionInput.ActorRoles.
+	ActorRoles []string
 }
 
 // deathEvidenceRequest is the ONE builder of a death verifier item, used by the completion path
@@ -363,6 +383,7 @@ func (s *Service) CompleteAction(ctx context.Context, in CompleteActionInput) (d
 		CompletedAt:        s.now().UTC(),
 		IdempotencyKey:     in.IdempotencyKey,
 		RequestFingerprint: in.RequestFingerprint,
+		ActorRoles:         in.ActorRoles,
 	})
 	if err != nil {
 		return domain.ActionWriteResult{}, err
@@ -598,6 +619,18 @@ func (s *Service) CompleteTagAction(ctx context.Context, tenantID, goatID string
 		at = s.now().UTC()
 	}
 	return s.repo.CompleteTagActionForGoat(ctx, tenantID, goatID, at)
+}
+
+// CompleteSaleTagStep completes the sale workflow's tag-animals step when the allocation confirm
+// lands (goat.sale_allocated). No-op for a sale with no workflow or a step already done.
+func (s *Service) CompleteSaleTagStep(ctx context.Context, tenantID, dealID string, at time.Time) error {
+	if strings.TrimSpace(tenantID) == "" || strings.TrimSpace(dealID) == "" {
+		return domain.ErrMissingRequiredField
+	}
+	if at.IsZero() {
+		at = s.now().UTC()
+	}
+	return s.repo.CompleteSaleTagStep(ctx, tenantID, dealID, at)
 }
 
 // ApplyDeathSignoffApproved / BounceDeathVideosForRework apply a verifier's verdict.
