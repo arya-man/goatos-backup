@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { NODE_H, branchesOf, layoutTrack, nextBranchCondition, otherwiseCondition } from "./flow-layout.ts";
+import { NODE_H, OWNER_H, branchesOf, layoutTrack, nextBranchCondition, otherwiseCondition } from "./flow-layout.ts";
 
 const step = (key, extra = {}) => ({ id: key, key, taskType: "do_and_confirm", title: key, options: [], whenStep: "", whenOp: "eq", whenValues: [], ...extra });
 const kinds = { ready: "yes_no", weight: "number", kind: "select" };
@@ -66,4 +66,13 @@ test("a question without a branch is branchable and taller; with a branch it is 
   assert.equal(qb.branchable, false);
   assert.equal(qb.h, NODE_H);
   assert.ok(branched.nodes.some((n) => n.kind === "decision"));
+});
+
+// SALES SOP (2026-09-19): a step that names who does it stands one row taller so its "Done by"
+// chip never clips the title; an unowned step keeps the plain height.
+test("an owned step stands one row taller than an unowned one", () => {
+  const l = layoutTrack([step("a", { owner: "park_head" }), step("b")], answerKind, phrase, "Otherwise");
+  const h = Object.fromEntries(l.nodes.map((n) => [n.id, n.h]));
+  assert.equal(h["a"], NODE_H + OWNER_H);
+  assert.equal(h["b"], NODE_H);
 });

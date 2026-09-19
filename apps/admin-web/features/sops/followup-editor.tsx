@@ -261,7 +261,7 @@ export function FollowUpEditor({
                     }}
                     takenKeys={new Set(track.steps.filter((s) => s.id !== step.id).map((s) => s.key))}
                     savedKeys={savedKeys}
-                    legacyCondition={track.module !== "general"}
+                    legacyCondition={hasEngineCondition(track.module)}
                   />
                 )}
               />
@@ -287,7 +287,7 @@ export function FollowUpEditor({
                     onRemove={() => removeStep(track.key, step.id)}
                     takenKeys={new Set(track.steps.filter((s) => s.id !== step.id).map((s) => s.key))}
                     savedKeys={savedKeys}
-                    legacyCondition={track.module !== "general"}
+                    legacyCondition={hasEngineCondition(track.module)}
                   />
                 ))}
                 <button type="button" className="btn sm ghost" onClick={() => addStep(track.key)}>
@@ -321,6 +321,13 @@ export function FollowUpEditor({
       </footer>
     </div>
   );
+}
+
+// The one engine condition ("only when the kid pen could not be resolved") belongs to the herd
+// operations; a general work instruction or the sale has no such context, so the select is
+// not offered there (an "Include this step: Always" beside a sale step is noise).
+function hasEngineCondition(module: string): boolean {
+  return module !== "general" && module !== "sales";
 }
 
 function StepCard({

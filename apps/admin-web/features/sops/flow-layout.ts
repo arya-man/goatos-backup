@@ -46,6 +46,9 @@ export const NODE_H = 84;
 export const DECISION_H = 56;
 /** A question node that still offers "Add branch" on itself. */
 export const QUESTION_BRANCHABLE_H = NODE_H + 30;
+// A step that names who does it wears a "Done by" chip under its detail line (SALES SOP,
+// 2026-09-19), one row taller so the chip never clips the title.
+export const OWNER_H = 22;
 const GAP_Y = 54;
 const COL_X = 270;
 
@@ -150,7 +153,7 @@ export function layoutTrack(
       // from the chart), so it stands one row taller; once a decision exists that control lives on
       // the decision node and the question is an ordinary node again.
       const branchable = isQuestion && branches.length === 0;
-      const h = branchable ? QUESTION_BRANCHABLE_H : NODE_H;
+      const h = (branchable ? QUESTION_BRANCHABLE_H : NODE_H) + (s.owner?.trim() ? OWNER_H : 0);
       const node: FlowNode = { id: s.id, kind: isQuestion ? "question" : "step", x: x - NODE_W / 2, y: cursorY, w: NODE_W, h, step: s, index: idx, branchable };
       place(node);
       tails.forEach((t, k) => edge(t, s.id, { index: idx, when: inherited }, labels[k] ?? ""));
