@@ -21,6 +21,8 @@ import (
 // SalesService is the behaviour this transport depends on.
 type SalesService interface {
 	GetOverview(ctx context.Context, tenantID, farm string) (domain.Overview, error)
+	GetValuationAssumptions(ctx context.Context, tenantID string) (domain.ValuationAssumptions, error)
+	PutValuationAssumptions(ctx context.Context, tenantID string, write domain.ValuationAssumptions, actorID string) (domain.ValuationAssumptions, error)
 	ListDeals(ctx context.Context, tenantID string, q app.DealListQuery) (ports.DealPage, error)
 	CreateDeal(ctx context.Context, tenantID string, write domain.DealWrite, actorID, idempotencyKey string) (domain.Deal, error)
 	RecordDealPayment(ctx context.Context, tenantID, dealID string, write domain.DealPaymentWrite, actorID, idempotencyKey string) (domain.Deal, error)
@@ -61,6 +63,8 @@ func NewSalesHandler(service SalesService, log ...*slog.Logger) *SalesHandler {
 func Register(mux *http.ServeMux, h *SalesHandler) {
 	mux.HandleFunc("GET /sales/overview", h.GetOverview)
 	mux.HandleFunc("GET /sales/options", h.GetOptions)
+	mux.HandleFunc("GET /sales/valuation-assumptions", h.GetValuationAssumptions)
+	mux.HandleFunc("PUT /sales/valuation-assumptions", h.PutValuationAssumptions)
 	mux.HandleFunc("GET /sales/deals", h.ListDeals)
 	mux.HandleFunc("POST /sales/deals", h.CreateDeal)
 	mux.HandleFunc("POST /sales/deals/{deal_id}/payments", h.RecordDealPayment)

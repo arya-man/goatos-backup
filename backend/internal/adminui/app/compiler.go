@@ -1112,7 +1112,7 @@ func compileSalesWeightCards(controls []domain.Control, input BootstrapInput, co
 	}
 	return upsertControl(controls, domain.Control{
 		ID:             "weights_over_35_card",
-		Label:          controlCopy(copy, "kpi.over35", "Over 35 kg"),
+		Label:          controlCopy(copy, "kpi.over35", "Over {kg} kg"),
 		Kind:           "summary_card",
 		Enabled:        allowed,
 		DisabledReason: reason,
@@ -1357,13 +1357,32 @@ func compileSalesConfigControls(controls []domain.Control, input BootstrapInput,
 	if !marketAllowed {
 		marketReason = controlCopy(copy, "disabled.market_config", "Your current role can view the market survey but not change what is asked.")
 	}
-	return upsertControl(controls, domain.Control{
+	controls = upsertControl(controls, domain.Control{
 		ID:             "market_config_write",
 		Label:          controlCopy(copy, "action.market_config.label", "Change what is asked"),
 		Kind:           "secondary_action",
 		Enabled:        marketAllowed,
 		DisabledReason: marketReason,
 		Action:         "POST /market/cities",
+	})
+
+	// FARM VALUATION ASSUMPTIONS (maintainer instruction 2026-09-19): the figures Farm value and
+	// Load wise price the herd at -- per-bucket weight and rupees per kg, the sale-ready line, the
+	// unsold-stock price. Its OWN permission on the Sales module's Configure level, same shape as
+	// the market survey: a reader sees the section with its figures and the save disabled with
+	// the reason.
+	valuationAllowed := len(input.Grants) == 0 || grantsAuthorize(input.Grants, input.TenantID, []string{permissions.SalesValuationWrite})
+	valuationReason := ""
+	if !valuationAllowed {
+		valuationReason = controlCopy(copy, "disabled.valuation", "Your current role can see how the herd is valued but not change the figures.")
+	}
+	return upsertControl(controls, domain.Control{
+		ID:             "edit_valuation",
+		Label:          controlCopy(copy, "action.valuation.label", "Save valuation"),
+		Kind:           "secondary_action",
+		Enabled:        valuationAllowed,
+		DisabledReason: valuationReason,
+		Action:         "PUT /sales/valuation-assumptions",
 	})
 }
 

@@ -121,6 +121,15 @@ func (f *fakeRepo) CreateSoldTags(_ context.Context, _ string, write domain.Sold
 	return len(write.Rows), nil
 }
 
+func (f *fakeRepo) GetValuationAssumptions(_ context.Context, _ string) (domain.ValuationAssumptions, error) {
+	return domain.DefaultValuationAssumptions(), nil
+}
+
+func (f *fakeRepo) PutValuationAssumptions(_ context.Context, _ string, write domain.ValuationAssumptions, _ string) (domain.ValuationAssumptions, error) {
+	write.RowVersion++
+	return write, nil
+}
+
 func (f *fakeRepo) CreateWeightCheck(_ context.Context, _ string, _ domain.WeightCheckWrite, _ string, key string) error {
 	f.createCalls++
 	f.createdKey = key

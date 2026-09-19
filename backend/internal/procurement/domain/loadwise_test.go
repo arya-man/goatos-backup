@@ -633,3 +633,30 @@ func TestOverdueLoadsJudgeAgainstTheThresholdTheyAreGiven(t *testing.T) {
 		t.Fatalf("zero threshold must mean the default (%d), got %+v", LoadAgeAlertDays, got)
 	}
 }
+
+// An ASSUMED unsold-stock price (Sales Config, 2026-09-19) replaces both the load's own average
+// and the overall average for every load's remaining stock; absent, the load-then-overall rule
+// stands untouched.
+func TestFinalizeLoadwiseAssumedUnsoldPriceReplacesEveryBasis(t *testing.T) {
+	sold := 12000.0
+	overall := 9000.0
+	assumed := 15000.0
+	row := func() LoadwiseLoad {
+		return LoadwiseLoad{Purchased: 10, Sold: 2, Remaining: 8, SoldValue: sold * 2, SoldPriced: 2}
+	}
+	plain := FinalizeLoadwise([]LoadwiseLoad{row()}, 1, &overall, testAsOf)
+	if plain.Loads[0].PriceBasis != LoadwisePriceBasisLoad || *plain.Loads[0].AvgSoldPrice != sold || plain.UnsoldPriceBasis != LoadwisePriceBasisOverall {
+		t.Fatalf("without an assumption the load's own average stands: %+v basis %s", plain.Loads[0].PriceBasis, plain.UnsoldPriceBasis)
+	}
+	with := FinalizeLoadwise([]LoadwiseLoad{row()}, 1, &overall, testAsOf, &assumed)
+	if with.Loads[0].PriceBasis != LoadwisePriceBasisAssumed || *with.Loads[0].AvgSoldPrice != assumed || with.UnsoldPriceBasis != LoadwisePriceBasisAssumed {
+		t.Fatalf("with an assumption every load is priced at it: %+v", with.Loads[0])
+	}
+	if *with.Loads[0].RemainingValue != 8*assumed || *with.OverallAvgSoldPrice != assumed {
+		t.Fatalf("remaining value = %v, overall = %v", *with.Loads[0].RemainingValue, *with.OverallAvgSoldPrice)
+	}
+	var nilAssumed *float64
+	if FinalizeLoadwise([]LoadwiseLoad{row()}, 1, &overall, testAsOf, nilAssumed).UnsoldPriceBasis != LoadwisePriceBasisOverall {
+		t.Fatal("a nil assumption keeps the overall basis")
+	}
+}

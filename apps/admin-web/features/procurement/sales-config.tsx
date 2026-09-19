@@ -25,7 +25,9 @@ import { SalesRecordDrawer } from "./sales-record-drawer";
 import { SaleAllocationDrawer } from "./sale-allocation-drawer";
 import { LoadCostDrawer } from "./load-cost-drawer";
 import { getMarketConfig } from "@/lib/api/market-server";
+import { getValuationAssumptions } from "@/lib/api/sales-valuation-server";
 import { MarketConfigSection } from "./market-config-section";
+import { ValuationSection } from "./valuation-section";
 
 const PAGE_PATH = "/sales/config";
 const DEFAULT_LIMIT = 25;
@@ -94,6 +96,7 @@ export async function SalesConfigPage({
   // read of the whole authored config.
   // serial-await: allow one bounded market-config read after prior sales/config reads to avoid request fanout.
   const marketConfigResult = await getMarketConfig();
+  const valuationResult = await getValuationAssumptions();
 
   if (firstAuthRequiredError(dealsResult, loadwiseResult)) redirect(INTERNAL_LOGIN_PATH);
 
@@ -116,6 +119,8 @@ export async function SalesConfigPage({
   const canAllocateAnimals = controlEnabled(pageContract, "allocate_sale_animals", false);
   const canRecordCost = controlEnabled(pageContract, "record_load_cost", false);
   const canConfigureMarket = controlEnabled(pageContract, "market_config_write", false);
+  const valuationControl = pageContract.controls.find((c) => c.id === "edit_valuation");
+  const canEditValuation = valuationControl?.enabled ?? false;
   const none = copy(pageContract, "value.none");
   const dealColumns = tableLabels(pageContract, "sales-deals");
   const listHref = hrefWithQuery(sp, { deal_id: null, cost_load: null, tag_sale: null });
@@ -338,6 +343,15 @@ export async function SalesConfigPage({
         pageContract={pageContract}
         configResult={marketConfigResult}
         canConfigure={canConfigureMarket}
+      />
+
+      {/* 5 — Farm valuation (maintainer instruction 2026-09-19): the decided figures behind Farm
+          value and Load wise. Same gating shape as the market survey. */}
+      <ValuationSection
+        pageContract={pageContract}
+        result={valuationResult}
+        canEdit={canEditValuation}
+        disabledReason={valuationControl?.disabled_reason ?? ""}
       />
 
       {/* Always mounted: LocalOverlayLink changes the URL without an RSC request, so an overlay

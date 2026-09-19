@@ -4237,6 +4237,30 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/sales/valuation-assumptions": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * The figures the live herd is valued at (Farm value, Load wise).
+         * @description FARM VALUATION ASSUMPTIONS (maintainer instruction 2026-09-19, docs/decisions/ sales-valuation-assumptions.md): per valuation bucket the weight used (or measured) and rupees per kg, the sale-ready weight line, and the price every unsold animal is carried at on Load wise. Decided figures, not measured ones: one row per tenant, edited on Sales Config, re-read per request by every consumer. Gated on sales.read.
+         */
+        get: operations["getSalesValuationAssumptions"];
+        /**
+         * Replace the valuation figures.
+         * @description Whole-set replace under a row_version fence (409 valuation_version_conflict on a stale one). Figures outside their business band are REFUSED with 400 valuation_invalid naming the field, never clamped. Exactly the seven buckets, once each. One audit row per write. Gated on sales.valuation.write (the Sales module's Configure level).
+         */
+        put: operations["putSalesValuationAssumptions"];
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/sales/overview": {
         parameters: {
             query?: never;
@@ -8118,6 +8142,8 @@ export interface components {
             total_loads: number;
             /** @description The tenant-wide average sold price used as the remaining-stock fallback basis. */
             overall_avg_sold_price?: number | null;
+            /** @description What every load's remaining stock was valued at: `assumed` (the price set on Sales Config's Farm valuation) or `overall` (the overall average sold price). */
+            unsold_price_basis?: string;
             summary: components["schemas"]["LoadwiseSummary"];
         };
         BuyerAnalyticsRow: {
@@ -10011,6 +10037,29 @@ export interface components {
             landing_cost_per_kg?: number | null;
             /** @description Parsed out of the market text at import time, never at read time. */
             market_price_per_kg?: number | null;
+        };
+        SalesValuationAssumptions: {
+            buckets: components["schemas"]["SalesValuationBucket"][];
+            /** @description The "Over N kg" sale-ready line on Farm value. */
+            sale_ready_kg: number;
+            /** @description Null keeps Load wise on the overall average sold price; a figure prices every unsold animal at it. */
+            unsold_stock_price_rupees: number | null;
+            row_version: number;
+            updated_at?: string;
+            updated_by_name?: string;
+            /** @description The bands a write is refused outside of. */
+            limits?: {
+                [key: string]: number;
+            };
+        };
+        SalesValuationBucket: {
+            /** @description fattening | adult_female | adult_male_buck | K0 | K1 | K2 | K3 (fixed classification). */
+            bucket: string;
+            label: string;
+            /** @description Null = price at the measured weight. */
+            fixed_weight_kg: number | null;
+            price_per_kg: number;
+            display_order: number;
         };
         /** @description The whole sales page contract, all blocks whole-filter aggregates. */
         SalesOverview: {
@@ -27616,6 +27665,58 @@ export interface operations {
             401: components["responses"]["Unauthorized"];
             403: components["responses"]["Forbidden"];
             404: components["responses"]["NotFoundOrNotAllowed"];
+            500: components["responses"]["ServerError"];
+        };
+    };
+    getSalesValuationAssumptions: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The tenant's assumptions (seeded defaults when never edited). */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SalesValuationAssumptions"];
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            500: components["responses"]["ServerError"];
+        };
+    };
+    putSalesValuationAssumptions: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["SalesValuationAssumptions"];
+            };
+        };
+        responses: {
+            /** @description The saved row. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SalesValuationAssumptions"];
+                };
+            };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            409: components["responses"]["WriteConflict"];
             500: components["responses"]["ServerError"];
         };
     };

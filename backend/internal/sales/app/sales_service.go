@@ -316,3 +316,17 @@ func (s *SalesService) CreateWeightCheck(ctx context.Context, tenantID string, w
 	}
 	return s.repo.CreateWeightCheck(ctx, tenantID, normalized, actorID, key)
 }
+
+// GetValuationAssumptions serves the farm valuation assumptions (maintainer instruction 2026-09-19).
+func (s *SalesService) GetValuationAssumptions(ctx context.Context, tenantID string) (domain.ValuationAssumptions, error) {
+	return s.repo.GetValuationAssumptions(ctx, tenantID)
+}
+
+// PutValuationAssumptions validates and replaces them. Figures outside their business band are
+// REFUSED (400), never clamped; a stale row_version is a 409.
+func (s *SalesService) PutValuationAssumptions(ctx context.Context, tenantID string, write domain.ValuationAssumptions, actorID string) (domain.ValuationAssumptions, error) {
+	if err := domain.ValidateValuationAssumptions(write); err != nil {
+		return domain.ValuationAssumptions{}, err
+	}
+	return s.repo.PutValuationAssumptions(ctx, tenantID, write, actorID)
+}

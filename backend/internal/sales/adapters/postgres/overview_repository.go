@@ -614,8 +614,17 @@ const farmValuationSQL = `
 		FROM classified
 		WHERE bucket = 'fattening'
 	),
-	rates(bucket, label, fixed_weight_kg, price_per_kg, display_order) AS (
-		VALUES
+	-- FARM VALUATION ASSUMPTIONS ARE DATA (maintainer instruction 2026-09-19, migration 000363):
+	-- the bucket rates are the tenant's authored row, re-read per request; a tenant without a row
+	-- (created after the migration) values on the seeded defaults, the same figures the VALUES
+	-- table here used to carry.
+	rates AS (
+		SELECT b.bucket, b.label, b.fixed_weight_kg::float8, b.price_per_kg::float8, b.display_order
+		FROM public.sales_valuation_assumptions a
+		CROSS JOIN LATERAL jsonb_to_recordset(a.buckets) AS b(bucket text, label text, fixed_weight_kg float8, price_per_kg float8, display_order int)
+		WHERE a.tenant_id = $1::uuid
+		UNION ALL
+		SELECT * FROM (VALUES
 			('fattening', 'Fattening animals', NULL::float8, 450::float8, 1),
 			('adult_female', 'Adult females', 40::float8, 600::float8, 2),
 			('adult_male_buck', 'Adult males / bucks', 60::float8, 500::float8, 3),
@@ -623,6 +632,8 @@ const farmValuationSQL = `
 			('K1', 'K1', 3::float8, 500::float8, 5),
 			('K2', 'K2', 8::float8, 500::float8, 6),
 			('K3', 'K3', 15::float8, 500::float8, 7)
+		) d(bucket, label, fixed_weight_kg, price_per_kg, display_order)
+		WHERE NOT EXISTS (SELECT 1 FROM public.sales_valuation_assumptions a WHERE a.tenant_id = $1::uuid)
 	),
 	-- projection-review: membership=classified, one row per current live goat (goats filtered to
 	-- non-terminal and non-merged, weight joined 1:1 after idmap is reduced to one row per goat);

@@ -71,7 +71,7 @@ export type FollowUpRows = { tracks: FollowUpTrackRows[] };
 // Steps whose KEY the engine matches a behaviour on (tag promotion, pen fallback, colostrum lens,
 // numeric kg, death evidence, pen return, the dependency-timed ORS round). The editor keeps their
 // key and type fixed; title, instruction, proof and schedule stay editable.
-export const ENGINE_BOUND_TASK_TYPES = new Set(["weigh", "tag", "record_pen", "feed_colostrum", "death_evidence", "return_to_pen"]);
+export const ENGINE_BOUND_TASK_TYPES = new Set(["weigh", "tag", "record_pen", "feed_colostrum", "death_evidence", "return_to_pen", "sale_tag_animals"]);
 
 function str(v: unknown, fallback = ""): string {
   return typeof v === "string" ? v : fallback;

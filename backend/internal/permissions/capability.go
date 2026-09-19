@@ -410,7 +410,7 @@ var moduleCapabilities = []ModuleCapability{
 			// Configure is what is ASKED of the market -- the cities phoned and the questions
 			// asked in each. Held by the CEO/CXO and the Procurement Director, not by every
 			// sales writer: recording a sale and deciding the survey are different authorities.
-			LevelConfigure: {SalesRead, MarketRead, MarketConfigWrite},
+			LevelConfigure: {SalesRead, MarketRead, MarketConfigWrite, SalesValuationWrite},
 		},
 	},
 	{

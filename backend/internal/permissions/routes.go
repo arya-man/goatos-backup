@@ -537,6 +537,10 @@ var protectedRoutes = []Route{
 	{OperationID: "updateSalesFpoLead", Method: "POST", Pattern: "/sales/fpo-leads/{lead_id}", Permissions: []string{SalesWrite}},
 	{OperationID: "setSalesFpoLeadStatus", Method: "POST", Pattern: "/sales/fpo-leads/{lead_id}/status", Permissions: []string{SalesWrite}},
 	{OperationID: "createSalesMarketBenchmark", Method: "POST", Pattern: "/sales/market-benchmarks", Permissions: []string{SalesWrite}},
+	// FARM VALUATION ASSUMPTIONS (maintainer instruction 2026-09-19): every Sales reader is owed
+	// the figures the valuation is priced at; only the Configure level changes them.
+	{OperationID: "getSalesValuationAssumptions", Method: "GET", Pattern: "/sales/valuation-assumptions", Permissions: []string{SalesRead}},
+	{OperationID: "putSalesValuationAssumptions", Method: "PUT", Pattern: "/sales/valuation-assumptions", Permissions: []string{SalesValuationWrite}},
 	{OperationID: "createSalesSoldTags", Method: "POST", Pattern: "/sales/sold-tags", Permissions: []string{SalesWrite}},
 	{OperationID: "createSalesWeightCheck", Method: "POST", Pattern: "/sales/weight-checks", Permissions: []string{SalesWrite}},
 	// Procurement command-lens data is served by the TOP-LEVEL command screens via ?domain=procurement,

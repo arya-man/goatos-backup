@@ -10890,6 +10890,64 @@ paths:
           $ref: "#/components/responses/NotFoundOrNotAllowed"
         "500":
           $ref: "#/components/responses/ServerError"
+  /sales/valuation-assumptions:
+    get:
+      tags:
+        - Sales
+      operationId: getSalesValuationAssumptions
+      summary: The figures the live herd is valued at (Farm value, Load wise).
+      description: >-
+        FARM VALUATION ASSUMPTIONS (maintainer instruction 2026-09-19, docs/decisions/
+        sales-valuation-assumptions.md): per valuation bucket the weight used (or measured) and
+        rupees per kg, the sale-ready weight line, and the price every unsold animal is carried at
+        on Load wise. Decided figures, not measured ones: one row per tenant, edited on Sales
+        Config, re-read per request by every consumer. Gated on sales.read.
+      responses:
+        "200":
+          description: The tenant's assumptions (seeded defaults when never edited).
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/SalesValuationAssumptions"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "500":
+          $ref: "#/components/responses/ServerError"
+    put:
+      tags:
+        - Sales
+      operationId: putSalesValuationAssumptions
+      summary: Replace the valuation figures.
+      description: >-
+        Whole-set replace under a row_version fence (409 valuation_version_conflict on a stale
+        one). Figures outside their business band are REFUSED with 400 valuation_invalid naming
+        the field, never clamped. Exactly the seven buckets, once each. One audit row per write.
+        Gated on sales.valuation.write (the Sales module's Configure level).
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/SalesValuationAssumptions"
+      responses:
+        "200":
+          description: The saved row.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/SalesValuationAssumptions"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "409":
+          $ref: "#/components/responses/WriteConflict"
+        "500":
+          $ref: "#/components/responses/ServerError"
   /sales/overview:
     get:
       tags:
@@ -19784,6 +19842,11 @@ components:
           type: number
           nullable: true
           description: The tenant-wide average sold price used as the remaining-stock fallback basis.
+        unsold_price_basis:
+          description: >-
+            What every load's remaining stock was valued at: `assumed` (the price set on Sales
+            Config's Farm valuation) or `overall` (the overall average sold price).
+          type: string
         summary:
           $ref: "#/components/schemas/LoadwiseSummary"
     BuyerAnalyticsRow:
@@ -22442,6 +22505,48 @@ components:
           type: number
           nullable: true
           description: Parsed out of the market text at import time, never at read time.
+    SalesValuationAssumptions:
+      type: object
+      required: [buckets, sale_ready_kg, unsold_stock_price_rupees, row_version]
+      properties:
+        buckets:
+          type: array
+          items:
+            $ref: "#/components/schemas/SalesValuationBucket"
+        sale_ready_kg:
+          description: The "Over N kg" sale-ready line on Farm value.
+          type: number
+        unsold_stock_price_rupees:
+          description: Null keeps Load wise on the overall average sold price; a figure prices every unsold animal at it.
+          type: number
+          nullable: true
+        row_version:
+          type: integer
+        updated_at:
+          type: string
+        updated_by_name:
+          type: string
+        limits:
+          type: object
+          description: The bands a write is refused outside of.
+          additionalProperties: { type: number }
+    SalesValuationBucket:
+      type: object
+      required: [bucket, label, fixed_weight_kg, price_per_kg, display_order]
+      properties:
+        bucket:
+          description: fattening | adult_female | adult_male_buck | K0 | K1 | K2 | K3 (fixed classification).
+          type: string
+        label:
+          type: string
+        fixed_weight_kg:
+          description: Null = price at the measured weight.
+          type: number
+          nullable: true
+        price_per_kg:
+          type: number
+        display_order:
+          type: integer
     SalesOverview:
       type: object
       description: The whole sales page contract, all blocks whole-filter aggregates.
