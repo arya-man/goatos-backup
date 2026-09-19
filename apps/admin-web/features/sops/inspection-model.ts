@@ -30,6 +30,9 @@ export type InspectionQuestionRow = {
   unit: string;
   onlyIfQuestion: string;
   onlyIfValue: string;
+  // VENDOR FORM (2026-09-19): a pick-one whose choices come from the vendor catalog at compile
+  // time (record types, states, ...) names that catalog; its options are not authored here.
+  catalog: string;
 };
 
 export type InspectionPageRow = { id: string; key: string; title: string; hint: string; questions: InspectionQuestionRow[] };
@@ -43,6 +46,19 @@ export const LOCKED_QUESTION_KEYS = new Set(["species", "goat_id", "sex", "weigh
 export const LOCKED_OPTION_KEYS = new Set(["species", "sex", "field_verdict", "farm"]);
 export const LOCKED_LOAD_KEYS = new Set(["load_ref", "vendor", "farm", "expected_count", "notes"]);
 export const REQUIRED_LOAD_KEYS = new Set(["load_ref", "vendor", "farm"]);
+
+// VENDOR FORM (maintainer instruction 2026-09-19, docs/decisions/sales-sop.md -> "The vendor form"):
+// `form_dsl.vendor_form` of the sales.vendor SOP, the same pages-of-questions shape without a load
+// form or media. Typed questions are the register's own columns (locked id and kind; catalog-backed
+// choices); four identity questions must stay compulsory. Mirrors procurement/domain/vendor_form.go.
+export const VENDOR_FORM_SCHEMA_VERSION = "goatos.sop-vendor-form.v1";
+export const VENDOR_LOCKED_KEYS = new Set([
+  "business_name", "record_type", "contact_person_name", "phone_number", "state", "city", "status",
+  "capacity_quantity", "capacity_unit", "supply_frequency", "feed", "breed", "price_per_goat",
+  "eta_after_order_days", "average_animal_weight_kg", "comments", "details", "bank_name", "account_no",
+  "ifsc_code", "upi_id", "pan_number", "filtered_stock",
+]);
+export const VENDOR_REQUIRED_KEYS = new Set(["business_name", "record_type", "state", "status"]);
 
 function str(v: unknown, fallback = ""): string {
   return typeof v === "string" ? v : fallback;
@@ -65,7 +81,7 @@ export function blankQuestion(kind: QuestionKind = "choice"): InspectionQuestion
     id: newRowId(), key: "", kind, title: "", hint: "", required: true,
     options: kind === "choice" ? [{ value: "yes", label: "Yes" }, { value: "no", label: "No" }] : [],
     allowOther: false, slot: "", maxFiles: kind === "media" ? 1 : 0, accepts: "both",
-    min: "", max: "", unit: "", onlyIfQuestion: "", onlyIfValue: "",
+    min: "", max: "", unit: "", onlyIfQuestion: "", onlyIfValue: "", catalog: "",
   };
 }
 
@@ -115,41 +131,97 @@ function parseQuestion(rq: unknown): InspectionQuestionRow[] {
       unit: str(q["unit"]),
       onlyIfQuestion: onlyIf ? str(onlyIf["question_id"]) : "",
       onlyIfValue: onlyIf ? str(onlyIf["value"]) : "",
+      catalog: str(q["catalog"]),
     },
   ];
+}
+
+function parsePages(section: Record<string, unknown>): InspectionPageRow[] {
+  const pages = Array.isArray(section["pages"]) ? section["pages"] : [];
+  return pages.flatMap((raw) => {
+    const p = obj(raw);
+    if (!p) return [];
+    const qs = Array.isArray(p["questions"]) ? p["questions"] : [];
+    return [{ id: newRowId("ip"), key: str(p["key"]), title: str(p["title"]), hint: str(p["hint"]), questions: qs.flatMap(parseQuestion) }];
+  });
+}
+
+// parseVendorForm reads form_dsl.vendor_form into the same editor rows (no load form).
+export function parseVendorForm(formDsl: unknown): InspectionRows | null {
+  const dsl = obj(formDsl);
+  const vf = dsl ? obj(dsl["vendor_form"]) : null;
+  if (!vf) return null;
+  return { loadForm: [], pages: parsePages(vf) };
+}
+
+export function emitVendorForm(rows: InspectionRows): Record<string, unknown> {
+  return {
+    schema_version: VENDOR_FORM_SCHEMA_VERSION,
+    pages: rows.pages.map((p) => {
+      const out: Record<string, unknown> = { key: p.key };
+      if (p.title.trim()) out.title = p.title;
+      if (p.hint.trim()) out.hint = p.hint;
+      out.questions = p.questions.map(emitQuestion);
+      return out;
+    }),
+  };
+}
+
+// vendorFormProblems: the page rules shared with the inspection, minus load form and media, plus
+// the register's locked ids and compulsory identity questions.
+export function vendorFormProblems(rows: InspectionRows): string[] {
+  const problems: string[] = [];
+  const seen = new Map<string, InspectionQuestionRow>();
+  const pageKeys = new Set<string>();
+  if (rows.pages.length === 0) problems.push("Add at least one page");
+  rows.pages.forEach((p, pi) => {
+    const pageAt = p.title.trim() || `Page ${pi + 1}`;
+    if (!p.key.trim()) problems.push(`${pageAt}: needs a key`);
+    if (pageKeys.has(p.key)) problems.push(`${pageAt}: key "${p.key}" is used twice`);
+    pageKeys.add(p.key);
+    if (p.questions.length === 0) problems.push(`${pageAt}: needs at least one question`);
+    p.questions.forEach((q, qi) => {
+      const at = `${pageAt} · question ${qi + 1}`;
+      if (!q.key.trim()) problems.push(`${at}: needs a key`);
+      if (seen.has(q.key)) problems.push(`${at}: key "${q.key}" is used twice`);
+      if (!q.title.trim()) problems.push(`${at}: needs the question text`);
+      if (q.kind === "media" || q.kind === "vendor") problems.push(`${at}: a vendor form takes a choice, text or number`);
+      if ((q.kind === "choice" || q.kind === "multi") && !q.catalog && q.options.filter((o) => o.value.trim() && o.label.trim()).length === 0) problems.push(`${at}: a pick-one / pick-many question needs at least one choice`);
+      if (q.allowOther && !q.options.some((o) => o.value.trim() === "other")) problems.push(`${at}: the free-text "other" needs a choice whose value is "other"`);
+      if (q.kind === "number" && q.min.trim() && q.max.trim() && Number(q.min) > Number(q.max)) problems.push(`${at}: min must not exceed max`);
+      if (VENDOR_REQUIRED_KEYS.has(q.key) && !q.required) problems.push(`${at}: "${q.key}" must stay compulsory`);
+      if (q.onlyIfQuestion) {
+        const dep = seen.get(q.onlyIfQuestion);
+        if (!dep) problems.push(`${at}: "ask only when" must name an earlier question`);
+        else if (dep.kind !== "choice") problems.push(`${at}: "ask only when" must name a pick-one question`);
+        else if (!dep.catalog && !dep.options.some((o) => o.value === q.onlyIfValue)) problems.push(`${at}: "ask only when" needs one of that question's choices`);
+      }
+      seen.set(q.key, q);
+    });
+  });
+  for (const k of VENDOR_REQUIRED_KEYS) {
+    if (!seen.has(k)) problems.push(`A vendor cannot exist without "${k}" — it must stay on the form`);
+  }
+  return problems;
 }
 
 export function parseInspection(formDsl: unknown): InspectionRows | null {
   const dsl = obj(formDsl);
   const ins = dsl ? obj(dsl["inspection"]) : null;
   if (!ins) return null;
-  const pages = Array.isArray(ins["pages"]) ? ins["pages"] : [];
   const lf = obj(ins["load_form"]);
   const loadQs = lf && Array.isArray(lf["questions"]) ? lf["questions"] : [];
-  return {
-    loadForm: loadQs.flatMap(parseQuestion),
-    pages: pages.flatMap((raw) => {
-      const p = obj(raw);
-      if (!p) return [];
-      const qs = Array.isArray(p["questions"]) ? p["questions"] : [];
-      return [
-        {
-          id: newRowId("ip"),
-          key: str(p["key"]),
-          title: str(p["title"]),
-          hint: str(p["hint"]),
-          questions: qs.flatMap(parseQuestion),
-        },
-      ];
-    }),
-  };
+  return { loadForm: loadQs.flatMap(parseQuestion), pages: parsePages(ins) };
 }
 
 function emitQuestion(q: InspectionQuestionRow): Record<string, unknown> {
   const out: Record<string, unknown> = { id: q.key, kind: q.kind, title: q.title };
   if (q.hint.trim()) out.hint = q.hint;
   out.required = q.required;
-  if (q.kind === "choice" || q.kind === "multi") {
+  if (q.catalog) {
+    // A catalog-backed question carries no authored options: the backend fills them at compile.
+    out.catalog = q.catalog;
+  } else if (q.kind === "choice" || q.kind === "multi") {
     out.options = q.options.map((o) => ({ value: o.value.trim(), label: o.label.trim() })).filter((o) => o.value && o.label);
     if (q.allowOther) out.allow_other = true;
   }

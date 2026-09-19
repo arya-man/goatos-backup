@@ -7986,6 +7986,39 @@ paths:
           $ref: "#/components/responses/Forbidden"
         "500":
           $ref: "#/components/responses/ServerError"
+  /procurement/vendor-form:
+    get:
+      tags:
+        - Procurement
+      operationId: getProcurementVendorForm
+      summary: The authored vendor form the Add / Edit vendor screens render.
+      description: >-
+        VENDOR FORM IS AUTHORED (maintainer instruction 2026-09-19): `form_dsl.vendor_form` of the
+        published `sales.vendor` SOP -- pages of questions, compiled with the live vendor catalog so
+        a catalog-backed question carries its choices. A question with `typed: true` is one of the
+        register's own columns; the client sends its answer under the same id and reads it back from
+        the typed vendor field. Every other answer is stored on the vendor as `answers`. A write
+        carries every answer plus the `version` it rendered; a version no longer served is refused
+        `vendor_form_changed` (reopen the form).
+      parameters:
+        - name: side
+          in: query
+          required: false
+          description: "Narrows the record types offered to one half of the register, as vendor-catalog does."
+          schema: { type: string, enum: [procurement, sales] }
+      responses:
+        "200":
+          description: The published form.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ProcurementVendorForm"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "500":
+          $ref: "#/components/responses/ServerError"
   /procurement/feed-purchases:
     get:
       tags:
@@ -19146,6 +19179,23 @@ components:
           description: >-
             BACKEND-composed "35 kg" from average_animal_weight_kg. Empty when not recorded.
             Rendered verbatim.
+        answers:
+          type: object
+          additionalProperties: { type: string }
+          description: >-
+            VENDOR FORM (2026-09-19): answers to the questions the published form added beyond the
+            register's columns, keyed by question id. Empty for a vendor written before the form.
+        questionnaire_version:
+          type: integer
+          nullable: true
+          description: "The sales.vendor form version the answers were given on; null before the form existed."
+        answer_rows:
+          type: array
+          description: >-
+            On the single-vendor reads only: the same extra answers labelled by that version's
+            question titles, in form order, for a detail screen. Rendered verbatim.
+          items:
+            $ref: "#/components/schemas/ProcurementVendorAnswerRow"
         created_at: { type: string, format: date-time }
         updated_at: { type: string, format: date-time }
         row_version:
@@ -19217,10 +19267,79 @@ components:
           description: >-
             Optional. Average live weight per animal in kg as a decimal string, more than zero, up
             to two places. Null or empty clears it (stores NULL, never 0).
+        answers:
+          type: object
+          additionalProperties: { type: string }
+          description: >-
+            A form-driven client sends EVERY answer keyed by question id -- typed questions included
+            (they are mapped onto the typed fields server-side, so the typed fields may be left
+            blank) -- checked against the form version in `questionnaire_version`. Pick-many values
+            are joined with `|`; an "other" free text rides `<question_id>_other`. Omitted means a
+            typed-only client: stored extra answers are then preserved on update.
+        questionnaire_version:
+          type: integer
+          description: "Required with `answers`: the form version the screen rendered."
         row_version:
           type: integer
           format: int64
           description: Required on update, ignored on create.
+    ProcurementVendorAnswerRow:
+      type: object
+      required: [question_id, label, value]
+      properties:
+        question_id: { type: string }
+        label: { type: string }
+        value: { type: string }
+    ProcurementVendorForm:
+      type: object
+      required: [version, pages]
+      properties:
+        version: { type: integer }
+        pages:
+          type: array
+          items:
+            $ref: "#/components/schemas/ProcurementVendorFormPage"
+    ProcurementVendorFormPage:
+      type: object
+      required: [key, title, questions]
+      properties:
+        key: { type: string }
+        title: { type: string }
+        hint: { type: string }
+        questions:
+          type: array
+          items:
+            $ref: "#/components/schemas/ProcurementVendorQuestion"
+    ProcurementVendorQuestion:
+      type: object
+      required: [id, kind, title, required, typed]
+      properties:
+        id: { type: string }
+        kind: { type: string, enum: [choice, multi, text, number] }
+        title: { type: string }
+        hint: { type: string }
+        required: { type: boolean }
+        typed:
+          type: boolean
+          description: "The register stores this answer in its own column (read it back from the typed vendor field)."
+        options:
+          type: array
+          items:
+            type: object
+            required: [value, label]
+            properties:
+              value: { type: string }
+              label: { type: string }
+        allow_other: { type: boolean }
+        min: { type: number }
+        max: { type: number }
+        unit: { type: string }
+        only_if:
+          type: object
+          required: [question_id, value]
+          properties:
+            question_id: { type: string }
+            value: { type: string }
     ProcurementVendorCatalogEntry:
       type: object
       required: [value, label, is_active]

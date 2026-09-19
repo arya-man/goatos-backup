@@ -17,11 +17,15 @@ import {
   LOCKED_OPTION_KEYS,
   LOCKED_QUESTION_KEYS,
   REQUIRED_LOAD_KEYS,
+  VENDOR_LOCKED_KEYS,
+  VENDOR_REQUIRED_KEYS,
   blankPage,
   blankQuestion,
   emitInspection,
+  emitVendorForm,
   inspectionProblems,
   slugKey,
+  vendorFormProblems,
   type CaptureKind,
   type InspectionPageRow,
   type InspectionQuestionRow,
@@ -32,6 +36,13 @@ import { publishInspectionVersion, saveInspectionVersion, type InspectionSaveRes
 import { publishedHref } from "./published-href";
 import { followQuestionKey, keyForTitle } from "./weighing-model";
 
+// The editor runs two documents of the same pages-of-questions shape:
+//   inspection   the animal purchase inspection (load form + per-animal pages, media allowed);
+//   vendor_form  the VENDOR FORM (2026-09-19): what Add / Edit vendor asks -- no load form, no
+//                media, the register's columns as locked typed questions whose catalog-backed
+//                choices are filled by the backend.
+export type InspectionProfile = "inspection" | "vendor_form";
+
 type Props = {
   pageContract: AdminUiPageContract;
   basePath: string;
@@ -40,10 +51,15 @@ type Props = {
   sopCode: string;
   versionLabel: string;
   initial: InspectionRows;
+  profile?: InspectionProfile;
 };
 
-export function InspectionEditor({ pageContract: pc, basePath, sopId, sopName, sopCode, versionLabel, initial }: Props) {
+export function InspectionEditor({ pageContract: pc, basePath, sopId, sopName, sopCode, versionLabel, initial, profile = "inspection" }: Props) {
   const router = useRouter();
+  const isVendorForm = profile === "vendor_form";
+  const pageLockedKeys = isVendorForm ? VENDOR_LOCKED_KEYS : LOCKED_QUESTION_KEYS;
+  const pageRequiredKeys = isVendorForm ? VENDOR_REQUIRED_KEYS : new Set<string>();
+  const copyPrefix = isVendorForm ? "vendor_form" : "inspection";
   const [rows, setRows] = useState<InspectionRows>(initial);
   const [openPage, setOpenPage] = useState<string>(initial.pages[0]?.id ?? "");
   // Keys the loaded version already carries never move (locked register questions, stored answers);
@@ -53,10 +69,11 @@ export function InspectionEditor({ pageContract: pc, basePath, sopId, sopName, s
   );
   const [result, setResult] = useState<InspectionSaveResult | null>(null);
   const [pending, startTransition] = useTransition();
-  const kinds = optionGroup(pc, "inspection_question_kinds");
-  const loadKinds = kinds.filter((k) => k.key !== "media");
+  const allKinds = optionGroup(pc, "inspection_question_kinds");
+  const kinds = isVendorForm ? allKinds.filter((k) => k.key !== "media") : allKinds;
+  const loadKinds = allKinds.filter((k) => k.key !== "media");
   const captures = optionGroup(pc, "inspection_capture_kinds");
-  const problems = useMemo(() => inspectionProblems(rows), [rows]);
+  const problems = useMemo(() => (isVendorForm ? vendorFormProblems(rows) : inspectionProblems(rows)), [rows, isVendorForm]);
   const questionCount = rows.pages.reduce((n, p) => n + p.questions.length, 0);
   const takenKeys = useMemo(() => new Set(rows.pages.flatMap((p) => p.questions.map((q) => q.key))), [rows]);
 
@@ -154,9 +171,9 @@ export function InspectionEditor({ pageContract: pc, basePath, sopId, sopName, s
   }
 
   function submit(publish: boolean) {
-    const doc = emitInspection(rows);
+    const doc = isVendorForm ? emitVendorForm(rows) : emitInspection(rows);
     startTransition(async () => {
-      const res = publish ? await publishInspectionVersion(sopId, doc) : await saveInspectionVersion(sopId, doc);
+      const res = publish ? await publishInspectionVersion(sopId, doc, undefined, profile) : await saveInspectionVersion(sopId, doc, undefined, profile);
       setResult(res);
       if (res.ok && publish) {
         // Publish CLOSES the editor: the library reopens with a banner naming the version and
@@ -174,10 +191,10 @@ export function InspectionEditor({ pageContract: pc, basePath, sopId, sopName, s
           <div className="crumb">
             {copy(pc, "crumb")} · {pc.title} · <b>{sopName}</b>
           </div>
-          <h1>{copy(pc, "inspection.title")}</h1>
-          <div className="sub">{copy(pc, "inspection.subtitle")}</div>
+          <h1>{copy(pc, `${copyPrefix}.title`)}</h1>
+          <div className="sub">{copy(pc, `${copyPrefix}.subtitle`)}</div>
           <div className="muted small" style={{ marginTop: 4 }}>
-            <code>{sopCode}</code> · {versionLabel} · {copy(pc, "inspection.notice.capture_kept")}
+            <code>{sopCode}</code> · {versionLabel} · {copy(pc, `${copyPrefix}.notice.capture_kept`)}
           </div>
         </div>
         <div className="sp" style={{ flex: 1 }} />
@@ -199,6 +216,7 @@ export function InspectionEditor({ pageContract: pc, basePath, sopId, sopName, s
         </div>
       ) : null}
 
+      {isVendorForm ? null : (
       <section className="card inspection-page inspection-loadform">
         <div className="inspection-page-head" style={{ cursor: "default" }}>
           <span className="qnum">L</span>
@@ -236,6 +254,7 @@ export function InspectionEditor({ pageContract: pc, basePath, sopId, sopName, s
           </div>
         </div>
       </section>
+      )}
 
       <div className="qlist">
         {rows.pages.map((page, pi) => {
@@ -309,8 +328,8 @@ export function InspectionEditor({ pageContract: pc, basePath, sopId, sopName, s
                         earlier={rows.pages.flatMap((p) => p.questions).slice(0, rows.pages.flatMap((p) => p.questions).findIndex((x) => x.id === q.id))}
                         takenKeys={takenKeys}
                         savedKeys={savedKeys}
-                        lockedKeys={LOCKED_QUESTION_KEYS}
-                        requiredKeys={new Set()}
+                        lockedKeys={pageLockedKeys}
+                        requiredKeys={pageRequiredKeys}
                         onChange={(patch) => updateQuestion(page.id, q.id, patch)}
                         onOptionRenamed={(from, to) => renameOptionRefs(q.key, from, to)}
                         onMove={(dir) => moveQuestion(page.id, q.id, dir)}
@@ -380,7 +399,9 @@ function QuestionCard({
   onRemove: () => void;
 }) {
   const locked = lockedKeys.has(q.key);
-  const optionsLocked = LOCKED_OPTION_KEYS.has(q.key);
+  // Catalog-backed choices (vendor form) are filled by the backend from the vendor catalog and
+  // are not authored here; the card says where they come from instead of listing them.
+  const optionsLocked = LOCKED_OPTION_KEYS.has(q.key) || Boolean(q.catalog);
   const requiredLocked = requiredKeys.has(q.key);
   const isVendor = q.kind === "vendor";
   const dep = earlier.find((e) => e.key === q.onlyIfQuestion);
@@ -451,7 +472,14 @@ function QuestionCard({
           </label>
         ) : null}
 
-        {q.kind === "choice" || q.kind === "multi" ? (
+        {q.catalog ? (
+          <div className="qcfg">
+            <span className="muted small">
+              <Lock className="ic" style={{ width: 12 }} /> {copy(pc, "vendor_form.notice.catalog_choices")} <code>{q.catalog}</code>
+            </span>
+          </div>
+        ) : null}
+        {(q.kind === "choice" || q.kind === "multi") && !q.catalog ? (
           <div className="qcfg">
             <div className="qcfg-head">
               <span className="qcfg-title">{copy(pc, "inspection.question.options")}</span>
@@ -543,7 +571,7 @@ function QuestionCard({
             {copy(pc, "inspection.question.only_if")}
             <select value={q.onlyIfQuestion} onChange={(e) => onChange({ onlyIfQuestion: e.target.value, onlyIfValue: "" })}>
               <option value="">{copy(pc, "inspection.question.always")}</option>
-              {earlier.filter((e) => e.kind === "choice").map((e) => (
+              {earlier.filter((e) => e.kind === "choice" && !e.catalog).map((e) => (
                 <option key={e.key} value={e.key}>
                   {e.title || e.key}
                 </option>

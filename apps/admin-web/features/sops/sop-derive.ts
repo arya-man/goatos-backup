@@ -288,6 +288,9 @@ export type SopCardView = {
   // `inspection` document (pages of questions the phone runs); null otherwise.
   inspectionFormDsl: unknown;
   inspectionQuestionCount: number;
+  // VENDOR FORM (2026-09-19): the version's form_dsl when it carries a `vendor_form` document
+  // (the pages of questions Add / Edit vendor asks); null otherwise.
+  vendorFormDsl: unknown;
   // WEIGHING SOP (maintainer decision 2026-09-15): the form_dsl when it carries a `weighing`
   // rules section (what a weighing task is planned on and runs under); null otherwise.
   weighingFormDsl: unknown;
@@ -321,10 +324,11 @@ export function toSopView(def: SopDefLike, version: SopVersionLike | null): SopC
     versionStatus: version ? version.status : null,
     hasVersion: Boolean(version),
     inspectionFormDsl: version && hasInspection(version.form_dsl) ? version.form_dsl : null,
+    vendorFormDsl: version && hasSection(version.form_dsl, "vendor_form") ? version.form_dsl : null,
     weighingFormDsl: version && hasWeighingRules(version.form_dsl) ? version.form_dsl : null,
     feedFormDsl: version && hasFeedCards(version.form_dsl) ? version.form_dsl : null,
     shiftingFormDsl: version && hasShiftingCards(version.form_dsl) ? version.form_dsl : null,
-    inspectionQuestionCount: version ? deriveInspectionQuestionCount(version.form_dsl) : 0,
+    inspectionQuestionCount: version ? deriveInspectionQuestionCount(version.form_dsl) + deriveInspectionQuestionCount(version.form_dsl, "vendor_form") : 0,
     fields: version
       ? deriveFields(version.form_dsl).map((f) => ({ label: f.label, type: f.type, required: f.required, options: f.options, helpText: f.helpText }))
       : [],
@@ -362,15 +366,19 @@ function hasWeighingRules(formDsl: unknown): boolean {
 }
 
 function hasInspection(formDsl: unknown): boolean {
+  return hasSection(formDsl, "inspection");
+}
+
+function hasSection(formDsl: unknown, section: string): boolean {
   const dsl = asObject(formDsl);
-  return Boolean(dsl && asObject(dsl["inspection"]));
+  return Boolean(dsl && asObject(dsl[section]));
 }
 
 // deriveInspectionQuestionCount counts the authored questions across every page of
-// form_dsl.inspection (Procurement SOP); 0 when absent.
-export function deriveInspectionQuestionCount(formDsl: unknown): number {
+// form_dsl.inspection (Procurement SOP) -- or of the section named (`vendor_form`); 0 when absent.
+export function deriveInspectionQuestionCount(formDsl: unknown, section = "inspection"): number {
   const dsl = asObject(formDsl);
-  const ins = dsl ? asObject(dsl["inspection"]) : null;
+  const ins = dsl ? asObject(dsl[section]) : null;
   if (!ins || !Array.isArray(ins["pages"])) return 0;
   return (ins["pages"] as unknown[]).reduce<number>((n, raw) => {
     const p = asObject(raw);

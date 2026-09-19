@@ -59,7 +59,7 @@ SELECT sd.tenant_id, sd.sop_id, 1, 'Vendor form v1', 'published',
   ]
 }$seed$::jsonb
        ),
-       '{"subject_scope": "task", "types": [], "required": false, "minimum_count": 0, "verify_before_apply": false, "approval_before_apply": false}'::jsonb,
+       '{"subject_scope": "task", "types": ["photo", "video"], "required": false, "minimum_count": 0, "verify_before_apply": false, "approval_before_apply": false}'::jsonb,
        '{"min_app_version": "0.2.0", "supported_field_types": ["boolean", "select", "multiselect", "number", "text"], "supported_proof_actions": [], "supported_rule_operators": ["equals", "not_equals", "empty", "not_empty", "in"]}'::jsonb,
        '{"valid": true, "errors": [], "warnings": [{"code": "seeded", "field": "form_dsl", "message": "Seeded vendor form (migration 000364)."}]}'::jsonb,
        now()

@@ -2998,6 +2998,26 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/procurement/vendor-form": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * The authored vendor form the Add / Edit vendor screens render.
+         * @description VENDOR FORM IS AUTHORED (maintainer instruction 2026-09-19): `form_dsl.vendor_form` of the published `sales.vendor` SOP -- pages of questions, compiled with the live vendor catalog so a catalog-backed question carries its choices. A question with `typed: true` is one of the register's own columns; the client sends its answer under the same id and reads it back from the typed vendor field. Every other answer is stored on the vendor as `answers`. A write carries every answer plus the `version` it rendered; a version no longer served is refused `vendor_form_changed` (reopen the form).
+         */
+        get: operations["getProcurementVendorForm"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/procurement/feed-purchases": {
         parameters: {
             query?: never;
@@ -7715,6 +7735,14 @@ export interface components {
             average_animal_weight_kg?: string | null;
             /** @description BACKEND-composed "35 kg" from average_animal_weight_kg. Empty when not recorded. Rendered verbatim. */
             average_animal_weight_display?: string;
+            /** @description VENDOR FORM (2026-09-19): answers to the questions the published form added beyond the register's columns, keyed by question id. Empty for a vendor written before the form. */
+            answers?: {
+                [key: string]: string;
+            };
+            /** @description The sales.vendor form version the answers were given on; null before the form existed. */
+            questionnaire_version?: number | null;
+            /** @description On the single-vendor reads only: the same extra answers labelled by that version's question titles, in form order, for a detail screen. Rendered verbatim. */
+            answer_rows?: components["schemas"]["ProcurementVendorAnswerRow"][];
             /** Format: date-time */
             created_at: string;
             /** Format: date-time */
@@ -7767,11 +7795,54 @@ export interface components {
             voice_note_proof_ref?: string;
             /** @description Optional. Average live weight per animal in kg as a decimal string, more than zero, up to two places. Null or empty clears it (stores NULL, never 0). */
             average_animal_weight_kg?: string | null;
+            /** @description A form-driven client sends EVERY answer keyed by question id -- typed questions included (they are mapped onto the typed fields server-side, so the typed fields may be left blank) -- checked against the form version in `questionnaire_version`. Pick-many values are joined with `|`; an "other" free text rides `<question_id>_other`. Omitted means a typed-only client: stored extra answers are then preserved on update. */
+            answers?: {
+                [key: string]: string;
+            };
+            /** @description Required with `answers`: the form version the screen rendered. */
+            questionnaire_version?: number;
             /**
              * Format: int64
              * @description Required on update, ignored on create.
              */
             row_version?: number;
+        };
+        ProcurementVendorAnswerRow: {
+            question_id: string;
+            label: string;
+            value: string;
+        };
+        ProcurementVendorForm: {
+            version: number;
+            pages: components["schemas"]["ProcurementVendorFormPage"][];
+        };
+        ProcurementVendorFormPage: {
+            key: string;
+            title: string;
+            hint?: string;
+            questions: components["schemas"]["ProcurementVendorQuestion"][];
+        };
+        ProcurementVendorQuestion: {
+            id: string;
+            /** @enum {string} */
+            kind: "choice" | "multi" | "text" | "number";
+            title: string;
+            hint?: string;
+            required: boolean;
+            /** @description The register stores this answer in its own column (read it back from the typed vendor field). */
+            typed: boolean;
+            options?: {
+                value: string;
+                label: string;
+            }[];
+            allow_other?: boolean;
+            min?: number;
+            max?: number;
+            unit?: string;
+            only_if?: {
+                question_id: string;
+                value: string;
+            };
         };
         ProcurementVendorCatalogEntry: {
             value: string;
@@ -25614,6 +25685,32 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["ProcurementVendorCatalog"];
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            500: components["responses"]["ServerError"];
+        };
+    };
+    getProcurementVendorForm: {
+        parameters: {
+            query?: {
+                /** @description Narrows the record types offered to one half of the register, as vendor-catalog does. */
+                side?: "procurement" | "sales";
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The published form. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ProcurementVendorForm"];
                 };
             };
             401: components["responses"]["Unauthorized"];

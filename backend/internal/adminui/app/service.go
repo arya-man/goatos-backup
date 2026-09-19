@@ -8487,6 +8487,10 @@ func pageSpecificCopy(id string) map[string]string {
 			m["empty.body"] = "Publish the Sale SOP to drive the steps the phone runs after a sale is recorded."
 			m["followup.subtitle"] = "What happens after a sale is recorded, in order: tagging the animals, loading them, the money. Each step names who does it, its type, the proof it needs, and when it is due. Publishing applies to sales recorded from then on; a sale already recorded keeps the steps it started with."
 			m["followup.notice.capture_kept"] = "Opened by the engine the moment a sale is recorded; the Record sale form itself is unchanged."
+			m["filter.domain.current"] = "This page shows the Sales SOPs: what happens after a sale is recorded and who does each step, and what the vendor form asks"
+			for k, v := range inspectionEditorCopy() {
+				m[k] = v
+			}
 		case "configuration-work-instructions":
 			m["crumb"] = "Configuration"
 			m["filter.domain.current"] = "This page shows general work instructions: SOPs tied to no module, started by hand"
@@ -9420,8 +9424,12 @@ func pageOptionGroups(id string) []domain.OptionGroup {
 		return withGenericOptionGroups(append(sopOptionGroupsFor(id), weighingSOPOptionGroups()...))
 	case "weighing-sops":
 		return withGenericOptionGroups(append(sopOptionGroupsFor(id), weighingSOPOptionGroups()...))
-	case "configuration-work-instructions", "sales-sops":
+	case "configuration-work-instructions":
 		return withGenericOptionGroups(sopOptionGroupsFor(id))
+	case "sales-sops":
+		// VENDOR FORM (2026-09-19): the sales.vendor SOP is edited through the inspection pages
+		// editor, which picks question kinds from the same closed vocabulary.
+		return withGenericOptionGroups(append(sopOptionGroupsFor(id), inspectionOptionGroups()...))
 	case "procurement-sops":
 		return withGenericOptionGroups(append(sopOptionGroupsFor(id), inspectionOptionGroups()...))
 	case "action-center":
@@ -11269,65 +11277,73 @@ func displayRules() []domain.DisplayRule {
 // decision 2026-09-14): the animal-purchase inspection authored as pages of questions.
 func inspectionEditorCopy() map[string]string {
 	return map[string]string{
-		"action.edit_inspection":            "Change SOP",
-		"action.opening_editor":             "Opening…",
-		"label.inspection_questions":        "questions",
-		"label.inspection_pages":            "pages",
-		"inspection.title":                  "Animal purchase inspection",
-		"inspection.subtitle":               "What the inspector answers for each animal, page by page. Each question names its kind, whether it is compulsory, and the photo or video it needs. Publishing applies to animals recorded from then on; a form already open on a phone submits on the version it rendered.",
-		"inspection.drawer.title":           "What the inspector answers, page by page",
-		"inspection.drawer.subtitle":        "from the published SOP",
-		"inspection.page":                   "Page",
-		"inspection.page.title":             "Page heading",
-		"inspection.page.hint":              "Page note",
-		"inspection.page.add":               "Add page",
-		"inspection.page.remove":            "Remove page",
-		"inspection.page.first_untitled":    "The first page has no heading; every later page needs one.",
-		"inspection.question.kind":          "Question kind",
-		"inspection.question.title":         "Question the inspector sees",
-		"inspection.question.hint":          "Instruction",
-		"inspection.question.required":      "Compulsory",
-		"inspection.question.options":       "Choices",
-		"inspection.question.add_option":    "Add choice",
-		"inspection.question.allow_other":   "The \"other\" choice asks for free text (where / what)",
-		"inspection.question.accepts":       "Capture",
-		"inspection.question.max_files":     "Up to (files)",
-		"inspection.question.unit":          "Unit",
-		"inspection.question.min":           "Min",
-		"inspection.question.max":           "Max",
-		"inspection.question.only_if":       "Ask only when",
-		"inspection.question.only_if_value": "is",
-		"inspection.question.always":        "Always asked",
-		"inspection.question.add":           "Add question",
-		"inspection.question.remove":        "Remove question",
-		"inspection.question.move_up":       "Move up",
-		"inspection.question.move_down":     "Move down",
-		"inspection.question.move_page":     "Move to page",
-		"inspection.question.key":           "Question key",
-		"inspection.notice.locked":          "The register reads this answer; its kind and choices are fixed, everything else is yours to edit.",
-		"inspection.notice.capture_kept":    "Vendor, farm and load number stay compulsory on the load form; everything else on both forms is yours to change.",
-		"inspection.action.publish":         "Publish SOP",
-		"inspection.action.save_draft":      "Save as draft",
-		"inspection.empty":                  "No questions yet.",
-		"inspection.result.saved_draft":     "Inspection saved as a draft version.",
-		"inspection.result.published":       "Published. Animals recorded from now on use this inspection.",
-		"inspection.kind.choice":            "Pick one",
-		"inspection.kind.multi":             "Pick many",
-		"inspection.kind.text":              "Free text",
-		"inspection.kind.number":            "Number",
-		"inspection.kind.media":             "Photo / video",
-		"inspection.kind.vendor":            "Vendor (from the register)",
-		"option.yes":                        "Yes",
-		"option.no":                         "No",
-		"inspection.loadform.title":         "Load form",
-		"inspection.loadform.subtitle":      "asked once when a purchase load is opened; vendor, farm and load number stay compulsory; photos and videos are per animal",
-		"inspection.accepts.photo":          "Photo only",
-		"inspection.accepts.video":          "Video only",
-		"inspection.accepts.both":           "Photo or video",
-		"inspection.summary.required":       "compulsory",
-		"inspection.summary.optional":       "optional",
-		"inspection.summary.only_if":        "only when {question} is {value}",
-		"inspection.summary.files":          "up to {n}",
+		"action.edit_inspection": "Change SOP",
+		// VENDOR FORM (2026-09-19): the sales.vendor SOP, edited through the same pages editor.
+		"action.edit_vendor_form":            "Change form",
+		"vendor_form.title":                  "Vendor form",
+		"vendor_form.subtitle":               "What is asked when a vendor or buyer is added or edited, page by page. Each question names its kind and whether it is compulsory. Publishing applies to vendors added or edited from then on, on the web and on the phone.",
+		"vendor_form.drawer.title":           "What the form asks, page by page",
+		"vendor_form.drawer.subtitle":        "from the published SOP",
+		"vendor_form.notice.capture_kept":    "Name, type, state and status stay compulsory; the locked questions are the register's own columns. Everything else -- wording, order, pages, extra questions -- is yours to change.",
+		"vendor_form.notice.catalog_choices": "Choices come from the vendor catalog:",
+		"action.opening_editor":              "Opening…",
+		"label.inspection_questions":         "questions",
+		"label.inspection_pages":             "pages",
+		"inspection.title":                   "Animal purchase inspection",
+		"inspection.subtitle":                "What the inspector answers for each animal, page by page. Each question names its kind, whether it is compulsory, and the photo or video it needs. Publishing applies to animals recorded from then on; a form already open on a phone submits on the version it rendered.",
+		"inspection.drawer.title":            "What the inspector answers, page by page",
+		"inspection.drawer.subtitle":         "from the published SOP",
+		"inspection.page":                    "Page",
+		"inspection.page.title":              "Page heading",
+		"inspection.page.hint":               "Page note",
+		"inspection.page.add":                "Add page",
+		"inspection.page.remove":             "Remove page",
+		"inspection.page.first_untitled":     "The first page has no heading; every later page needs one.",
+		"inspection.question.kind":           "Question kind",
+		"inspection.question.title":          "Question the inspector sees",
+		"inspection.question.hint":           "Instruction",
+		"inspection.question.required":       "Compulsory",
+		"inspection.question.options":        "Choices",
+		"inspection.question.add_option":     "Add choice",
+		"inspection.question.allow_other":    "The \"other\" choice asks for free text (where / what)",
+		"inspection.question.accepts":        "Capture",
+		"inspection.question.max_files":      "Up to (files)",
+		"inspection.question.unit":           "Unit",
+		"inspection.question.min":            "Min",
+		"inspection.question.max":            "Max",
+		"inspection.question.only_if":        "Ask only when",
+		"inspection.question.only_if_value":  "is",
+		"inspection.question.always":         "Always asked",
+		"inspection.question.add":            "Add question",
+		"inspection.question.remove":         "Remove question",
+		"inspection.question.move_up":        "Move up",
+		"inspection.question.move_down":      "Move down",
+		"inspection.question.move_page":      "Move to page",
+		"inspection.question.key":            "Question key",
+		"inspection.notice.locked":           "The register reads this answer; its kind and choices are fixed, everything else is yours to edit.",
+		"inspection.notice.capture_kept":     "Vendor, farm and load number stay compulsory on the load form; everything else on both forms is yours to change.",
+		"inspection.action.publish":          "Publish SOP",
+		"inspection.action.save_draft":       "Save as draft",
+		"inspection.empty":                   "No questions yet.",
+		"inspection.result.saved_draft":      "Inspection saved as a draft version.",
+		"inspection.result.published":        "Published. Animals recorded from now on use this inspection.",
+		"inspection.kind.choice":             "Pick one",
+		"inspection.kind.multi":              "Pick many",
+		"inspection.kind.text":               "Free text",
+		"inspection.kind.number":             "Number",
+		"inspection.kind.media":              "Photo / video",
+		"inspection.kind.vendor":             "Vendor (from the register)",
+		"option.yes":                         "Yes",
+		"option.no":                          "No",
+		"inspection.loadform.title":          "Load form",
+		"inspection.loadform.subtitle":       "asked once when a purchase load is opened; vendor, farm and load number stay compulsory; photos and videos are per animal",
+		"inspection.accepts.photo":           "Photo only",
+		"inspection.accepts.video":           "Video only",
+		"inspection.accepts.both":            "Photo or video",
+		"inspection.summary.required":        "compulsory",
+		"inspection.summary.optional":        "optional",
+		"inspection.summary.only_if":         "only when {question} is {value}",
+		"inspection.summary.files":           "up to {n}",
 	}
 }
 
