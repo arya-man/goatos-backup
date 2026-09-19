@@ -4091,7 +4091,10 @@ func pageSpecificCopy(id string) map[string]string {
 			// without a contact person, phone or city stay editable, so the two hints differ on
 			// purpose -- see domain.VendorWrite.ValidateForCreate.
 			"required.hint.create": "Business name, record type, contact person, phone number, state, city and status are required.",
-			"disabled.write":       "Your current role can view vendors but not change them.",
+			// VENDOR FORM IS AUTHORED (2026-09-19): the drawer follows the published Vendor form SOP.
+			"required.hint.form": "Fields marked * are required. This form follows the published Vendor form SOP.",
+			"hint.other":         "Say what the other is",
+			"disabled.write":     "Your current role can view vendors but not change them.",
 		}
 		if id == "sales-vendors" {
 			// The five differences, and each is a sentence that would be WRONG on the other page:

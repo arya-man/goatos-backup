@@ -2233,6 +2233,8 @@ export type ProcurementVendorWrite =
   AppApiComponents["schemas"]["ProcurementVendorWrite"];
 export type ProcurementVendorCatalog =
   AppApiComponents["schemas"]["ProcurementVendorCatalog"];
+export type ProcurementVendorForm = AppApiComponents["schemas"]["ProcurementVendorForm"];
+export type ProcurementVendorQuestion = AppApiComponents["schemas"]["ProcurementVendorQuestion"];
 
 /**
  * One keyset page of the vendor register.
@@ -2322,6 +2324,24 @@ export async function listProcurementVendorCatalog(
   const client = createAppApiClient(apiClientOptions(config.data));
   return request(() =>
     client.request<ProcurementVendorCatalog>("/procurement/vendor-catalog", {
+      cache: "no-store",
+      query: compactQuery(params),
+    }),
+  );
+}
+
+/**
+ * VENDOR FORM IS AUTHORED (2026-09-19): the published sales.vendor form the Add / Edit vendor
+ * drawer renders -- pages of questions, catalog choices filled, record types narrowed by `side`.
+ */
+export async function getProcurementVendorForm(
+  params: { side?: string } = {},
+): Promise<ApiResult<ProcurementVendorForm>> {
+  const config = await getServerConfig();
+  if (!config.ok) return config;
+  const client = createAppApiClient(apiClientOptions(config.data));
+  return request(() =>
+    client.request<ProcurementVendorForm>("/procurement/vendor-form", {
       cache: "no-store",
       query: compactQuery(params),
     }),

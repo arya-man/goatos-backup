@@ -5,6 +5,7 @@ import { Building2 } from "lucide-react";
 import { INTERNAL_LOGIN_PATH } from "@/lib/auth/session-cookie";
 import {
   firstAuthRequiredError,
+  getProcurementVendorForm,
   listProcurementVendorCatalog,
   listProcurementVendors,
   type ProcurementVendor,
@@ -100,9 +101,12 @@ export async function VendorBoardPage({
 
   // Both reads in parallel: the catalog is needed to render the filter selects and the edit form,
   // and it does not depend on the page of vendors.
-  const [result, catalogResult] = await Promise.all([
+  // The published vendor form (VENDOR FORM IS AUTHORED, 2026-09-19) rides along: it is what the
+  // add / edit drawer renders, question by question.
+  const [result, catalogResult, formResult] = await Promise.all([
     listProcurementVendors({ search: search || undefined, limit, offset, side, ...activeFilters }),
     listProcurementVendorCatalog({ side }),
+    getProcurementVendorForm({ side }),
   ]);
 
   const authError = firstAuthRequiredError(result, catalogResult);
@@ -115,6 +119,7 @@ export async function VendorBoardPage({
   const pageCount = Math.max(1, Math.ceil(total / limit));
   const pageNumber = Math.min(pageCount, Math.floor(offset / limit) + 1);
   const catalog = catalogResult.ok ? catalogResult.data : null;
+  const vendorForm = formResult.ok ? formResult.data : null;
 
   const actionStatus = one(sp, "action_status");
   const actionKey = one(sp, "action_key");
@@ -281,6 +286,7 @@ export async function VendorBoardPage({
       <VendorLocalDrawer
         vendors={vendors}
         catalog={catalog}
+        form={vendorForm}
         pageContract={pageContract}
         listHref={hrefWithQuery(pathname, sp, { vendor: null })}
       />
