@@ -3,7 +3,7 @@
 Target: https://dashboard.mesha.sg (apps/admin-web, Next.js) · API https://api.goatos.mesha.sg · goatos-stg DB
 Runner: Ravi's always-on personal PC, cron/launchd at 02:00 Asia/Singapore
 Repo: vgoats/goatos · tooling dir `tools/sentinel/` (rename freely)
-Date: 2026-09-19 · v2.4 (everything nightly; full DB read from Ravi's PC, no data restrictions) after three independent reviews + two rounds of Ravi's review (credentials, healer sandbox, cold vs steady latency ordering, HAR expectations, leak scan, notify-secret provisioning; DB = full read from the PC per Ravi)
+Date: 2026-09-19 · v2.5 (explicit every-page/every-tab/both-webview coverage + 4-tier visual regression; full DB read from Ravi's PC) after three independent reviews + two rounds of Ravi's review (credentials, healer sandbox, cold vs steady latency ordering, HAR expectations, leak scan, notify-secret provisioning; DB = full read from the PC per Ravi)
 
 ---
 
@@ -67,8 +67,34 @@ budget/turn/wall-clock caps; quarantine after 3 nights.
 ## 2. Stage 1 — Probes
 
 ### 2.1 UI sweep (extend `smoke-visual-live.mjs`; do not rewrite)
-Add:
-- Routes from `/admin-web/bootstrap` nav ∪ `app/(admin)/**/page.tsx` (mismatch = finding); dynamic ids resolved from stg API (existing fixture lookups).
+
+**Coverage contract: every page, every tab, every state, on both desktop webview and mobile webview,
+every night.** Nothing is sampled.
+
+- **Routes** = `/admin-web/bootstrap` nav ∪ every `app/(admin)/**/page.tsx` (59 today; mismatch between
+  the two = finding); dynamic ids (`[goat_id]`, `[load_id]`, `[eventId]`, `[shedId]`, `[row_id]`)
+  resolved from stg API. Current list, all covered:
+  `/` (weighing analytics landing) · `/action-center` · `/actions` · `/alerts` · `/approvals` ·
+  `/calendar` · `/calendar/drive/[eventId]` · `/ceo-ai-admin` · `/counts/analytics` · `/counts/breakdown` ·
+  `/counts/herd` · `/counts/milk-preparation` · `/counts/sops` · `/feed/analytics` · `/feed/config` ·
+  `/feed/direction` · `/feed/packing` · `/feed/sops` · `/goats/[goat_id]` · `/health/analytics` ·
+  `/health/config` · `/herd-signals` · `/leave` · `/milk/sops` · `/operations/audit` · `/operations/dlq` ·
+  `/people` · `/procurement` · `/procurement/animal-purchases` · `/procurement/feed-purchases` ·
+  `/procurement/sops` · `/procurement/source-entry` · `/procurement/source-entry/loads/[load_id]` ·
+  `/procurement/vendors` · `/protocol-adherence` · `/routines` · `/sales` · `/sales/buyer-analytics` ·
+  `/sales/config` · `/sales/farm-born` · `/sales/farm-value` · `/sales/loads` · `/sales/market-analytics` ·
+  `/sales/sold` · `/sales/vendors` · `/tasks` · `/vaccination` · `/vaccination/execution/sheds/[shedId]` ·
+  `/vaccination/live-tracker` · `/vaccination/plan` · `/vaccination/plan/edit` · `/verification` ·
+  `/verify` · `/weighing/analytics` · `/weighing/sops` · `/weighing/weights` · `/work-board` ·
+  `/workflows` · `/workflows/[row_id]`. A new `page.tsx` is picked up the next night with no config.
+- **States**: on every route the sweep clicks every `[role=tab]`, every filter chip/select, every
+  drawer/row opener, every pager, every "+N more" / expand toggle, and every sidebar section; each
+  resulting state is a sub-route with its own screenshot and full assertion pass (~115 route-states today,
+  growing automatically as the discovery finds new controls).
+- **Viewports — both, always**: desktop webview 1440x1000 (Chromium) and mobile webview 390x844
+  (Chromium mobile emulation for all states + real WebKit/iOS Safari engine for the top-10 routes and
+  every drawer with media, because the user's bug reports come from iPhone Safari). Every assertion and
+  every visual comparison runs on both.
 - Token minting: Identity Toolkit `signInWithPassword` (apiKey from `/api/auth/firebase-config`) -> set `goatos_firebase_id_token` + `goatos_firebase_refresh_token`; re-mint every 45 min.
 - **4 personas**: admin/CEO, verifier, park_head (one park), director. Every sidebar leaf must open without 403/boundary; no `disabled` primary button on a page the persona is ticked for; Work Board / Verify rows within the persona's park set; lacking permission -> 403 JSON not 500. Reuse `tools/dev/audit-person-access.py`.
 - **Real WebKit** Playwright project (`devices['iPhone 14']`, engine webkit) for top-10 routes + Verify drawer + one video play. Chromium mobile keeps the full sweep.
@@ -86,7 +112,38 @@ Add:
     `/api/proof-media/*` -> 307 to a signed same-origin URL. Those are checked for shape and destination;
     any **undeclared** 4xx/5xx fails.
   - **theme**: axe colour-contrast >= 4.5 in dark (default; theme is not persisted so real usage is dark); light theme nightly as well (secondary priority in the report).
-- Screenshots: full page per route/state/viewport as **evidence only** (before/after in PR). **No pixel-diff gate** (real data changes every bar; 243 CSS touches/7 weeks -> permanent red). Optional later: data-masked layout snapshot (bboxes of cards/nav/tables, 2 px tolerance).
+- Screenshots: full page per route/state/viewport/persona, every night, kept 30 days; they feed the
+  visual regression in §2.1c and the before/after in every PR.
+
+### 2.1c Visual regression — graphs, numbers, UI elements must not break (both viewports)
+Ravi's requirement: any graph, value, number, button, table or layout that looked right yesterday and
+looks wrong today is a failure, on desktop and on mobile. Naive full-page pixel diff cannot do this on a
+live site (every bar height changes with real data), so it is done in four tiers, all nightly, all per
+route-state × viewport × persona, compared against the **last green night** as baseline:
+
+1. **Values by value, not by pixels.** Every number, date, label, legend entry, KPI, table cell and
+   chart value label is read from the DOM and compared to the API JSON it came from (Layer 1). A value
+   that changed because the data changed is fine; a value that is missing, `NaN`, clipped, wrong
+   unit, wrong format or does not match the JSON is a failure.
+2. **Layout by geometry.** A layout snapshot per state: bounding boxes of every card, chart, axis,
+   legend, KPI tile, button, nav item, table and its columns, with text redacted. Compared to baseline
+   with 2 px tolerance per element and structural checks (same element count, same order, nothing
+   overlapping, nothing outside the viewport, no element that shrank to 0 area). Catches: chart body
+   collapsed, legend present but bars gone, button pushed off-screen, column disappeared, drawer
+   clipped — without caring what the numbers are.
+3. **Chart pixels with data masked.** For every `svg[role=img]`, a per-chart pixel diff with value
+   labels and bar/line geometry masked out, so only the chart *frame* is compared: axes, gridlines,
+   legend swatches, empty-state placement, padding. Threshold 0.5 % per chart. Catches the "blank
+   space above bars" class from the 18 Sep screenshot.
+4. **Claude vision judge on anything tiers 1–3 flag, plus a sampled 10 % every night.** Claude Code
+   looks at baseline vs tonight side by side (same route, same viewport) and answers one question:
+   "is anything rendered wrong that a user would notice?" with a bounding box and reason. This is what
+   catches the things nobody wrote an assertion for. Judge verdicts are evidence, never auto-heal
+   input on their own; a judge-only finding becomes a report item with the two screenshots attached.
+
+Baseline handling: baseline = last night where that route-state × viewport × persona passed all four
+tiers. A merged PR that intentionally changes a page updates the baseline the night it lands (the PR's
+own before/after screenshots are the proof). No hand-maintained golden images.
 - Playwright config: retries=1, trace+video on failure.
 
 ### 2.1b Interaction probes (new — the biggest uncovered class)
@@ -273,8 +330,8 @@ if an entry is deleted (no `supersedes:` ceremony).
 11. `sentinel-coverage-guard` PR gate — later
 
 ## 11. Cadence — everything is nightly
-Stage 1a cold latency → UI sweep (all routes × laptop/phone × 4 personas, Chromium + WebKit top-10) →
-interaction probes → Layer 1 chart↔API → Layer 2 API↔DB → Layer 3 facts → Stage 1b steady latency →
+Stage 1a cold latency → UI sweep (all 59 routes, every tab/state, desktop + mobile webview, 4 personas,
+Chromium + WebKit) → visual regression (§2.1c, 4 tiers) → interaction probes → Layer 1 chart↔API → Layer 2 API↔DB → Layer 3 facts → Stage 1b steady latency →
 Lighthouse → auth/Firebase smoke → leak scan → Faro/Loki diff → ledger tripwires → coverage → triage →
 (heal) → PR → report + heartbeat. Target wall-clock < 2 h; hard cap 3 h.
 **On stg deploy** (add later): re-run 1a + UI sweep for changed routes immediately.
@@ -297,4 +354,4 @@ save a form, submit twice) — those go through the dashboard UI into a **sandbo
 the DB connection, and they are the one thing Ravi can still switch off by not creating that tenant.
 
 ## 12. Explicitly out of scope
-Android app parity (many `feat(android)` commits) — web only; say so in every report. i18n copy (no admin-web locales). Pixel-diff baselines. Claude drafting backend oracle SQL unsupervised.
+Android app parity (many `feat(android)` commits) — web only; say so in every report. i18n copy (no admin-web locales). Full-page naive pixel-diff (replaced by §2.1c tiers). Claude drafting backend oracle SQL unsupervised.
