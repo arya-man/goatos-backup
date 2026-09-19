@@ -365,6 +365,44 @@ func TestBothTicksReachBothModules(t *testing.T) {
 	}
 }
 
+func TestSalesReadCanOpenButCannotMutateSalesWorkflow(t *testing.T) {
+	svc := &stubService{detail: domain.WorkflowDetail{
+		Card: domain.WorkflowCard{WorkflowID: "wf-sale", Module: domain.ModuleSales, TemplateKey: domain.TemplateKeySalesDeal},
+	}}
+	mux := newTestMux(svc)
+	perms := []string{permissions.SalesRead}
+
+	rec := doRequestWithPermissions(mux, http.MethodGet, "/app/workflows/wf-sale", "", nil, true, perms)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("sales detail with sales.read: status=%d (%s)", rec.Code, rec.Body.String())
+	}
+
+	rec = doRequestWithPermissions(mux, http.MethodPost, "/app/workflows/wf-sale/actions/act-1/answer",
+		`{"answer_value":"yes"}`, map[string]string{"Idempotency-Key": "long-enough-key"}, true, perms)
+	if rec.Code != http.StatusForbidden || errCode(t, rec) != "permission_denied" {
+		t.Fatalf("sales answer with sales.read: status=%d code=%s", rec.Code, errCode(t, rec))
+	}
+	rec = doRequestWithPermissions(mux, http.MethodPost, "/app/workflows/wf-sale/actions/act-1/complete",
+		`{}`, map[string]string{"Idempotency-Key": "long-enough-key"}, true, perms)
+	if rec.Code != http.StatusForbidden || errCode(t, rec) != "permission_denied" {
+		t.Fatalf("sales complete with sales.read: status=%d code=%s", rec.Code, errCode(t, rec))
+	}
+	if svc.writeCalls != 0 {
+		t.Fatalf("sales.read reached mutation service: %d calls", svc.writeCalls)
+	}
+}
+
+func TestSalesWriteCanMutateSalesWorkflow(t *testing.T) {
+	svc := &stubService{detail: domain.WorkflowDetail{
+		Card: domain.WorkflowCard{WorkflowID: "wf-sale", Module: domain.ModuleSales, TemplateKey: domain.TemplateKeySalesDeal},
+	}}
+	rec := doRequestWithPermissions(newTestMux(svc), http.MethodPost, "/app/workflows/wf-sale/actions/act-1/answer",
+		`{"answer_value":"yes"}`, map[string]string{"Idempotency-Key": "long-enough-key"}, true, []string{permissions.SalesWrite})
+	if rec.Code != http.StatusOK || svc.writeCalls != 1 {
+		t.Fatalf("sales answer with sales.write: status=%d calls=%d (%s)", rec.Code, svc.writeCalls, rec.Body.String())
+	}
+}
+
 func TestListWorkflowsReturnsPreviousOverdueDates(t *testing.T) {
 	svc := &stubService{}
 	rec := doRequest(newTestMux(svc), http.MethodGet,

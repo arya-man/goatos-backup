@@ -796,20 +796,19 @@ func (h *Handler) authorizeWorkflowWrite(w http.ResponseWriter, r *http.Request,
 		h.writeDomainError(w, r, err)
 		return false
 	}
-	if !hasModulePermission(r.Context(), detail.Card.Module) {
+	if !hasModuleWritePermission(r.Context(), detail.Card.Module) {
 		h.writeError(w, r, http.StatusForbidden, "permission_denied", "permission denied", nil)
 		return false
 	}
 	return true
 }
 
-// hasModulePermission is THE per-module gate behind the shared workflow routes. A general
-// (work-instruction) run is opened, listed, answered and completed on WorkInstructionsExecute
-// alone; every herd-operations module (birth, death, shifting, reconcile, and the colostrum lens
-// over birth) on CountsWrite alone. Holding the other module's permission never carries across:
-// a counts-only tick must not reach a general run and a work-instructions-only tick must not
-// reach a birth (PR #308 review, 2026-09-19). Module is the workflow's stored module, or the
-// list route's module keyword.
+// hasModulePermission is THE per-module read gate behind the shared workflow routes. A general
+// (work-instruction) run is read on WorkInstructionsExecute alone; every herd-operations module
+// (birth, death, shifting, reconcile, and the colostrum lens over birth) on CountsWrite alone.
+// Holding the other module's permission never carries across: a counts-only tick must not reach a
+// general run and a work-instructions-only tick must not reach a birth (PR #308 review,
+// 2026-09-19). Module is the workflow's stored module, or the list route's module keyword.
 func hasModulePermission(ctx context.Context, module string) bool {
 	switch module {
 	case domain.ModuleGeneral:
@@ -819,6 +818,21 @@ func hasModulePermission(ctx context.Context, module string) bool {
 		// to -- the sales desk, the tagger, or a counts writer (park head / operator).
 		return hasWorkflowPermission(ctx, permissions.SalesRead) ||
 			hasWorkflowPermission(ctx, permissions.SalesWrite) ||
+			hasWorkflowPermission(ctx, permissions.SalesAllocateAnimals) ||
+			hasWorkflowPermission(ctx, permissions.CountsWrite)
+	}
+	return hasWorkflowPermission(ctx, permissions.CountsWrite)
+}
+
+// hasModuleWritePermission is the mutation side of hasModulePermission. It deliberately does not
+// accept sales.read: the sales workflow may be visible to desk/read-only users, but answering or
+// completing a step is operational work.
+func hasModuleWritePermission(ctx context.Context, module string) bool {
+	switch module {
+	case domain.ModuleGeneral:
+		return hasWorkflowPermission(ctx, permissions.WorkInstructionsExecute)
+	case domain.ModuleSales:
+		return hasWorkflowPermission(ctx, permissions.SalesWrite) ||
 			hasWorkflowPermission(ctx, permissions.SalesAllocateAnimals) ||
 			hasWorkflowPermission(ctx, permissions.CountsWrite)
 	}
