@@ -292,6 +292,75 @@ func TestWorkInstructionsPermissionCanReadAndWriteGeneralWorkflow(t *testing.T) 
 	}
 }
 
+// The mirror of the two tests above (PR #308 review, 2026-09-19): the route table ORs CountsWrite
+// with WorkInstructionsExecute, so a counts-only tick passes the route gate and the HANDLER must
+// narrow by module. It did not -- `module=general` skipped the CountsWrite check, a general detail
+// was open to anyone past the route, and every write returned true on CountsWrite alone -- so a
+// person with only the counts tick could list, open, answer and complete general work-instruction
+// runs without work_instructions.execute.
+func TestCountsPermissionCannotReadGeneralWorkflowList(t *testing.T) {
+	svc := &stubService{}
+	mux := newTestMux(svc)
+	perms := []string{permissions.CountsWrite}
+
+	rec := doRequestWithPermissions(mux, http.MethodGet, "/app/workflows?module=general", "", nil, true, perms)
+	if rec.Code != http.StatusForbidden || errCode(t, rec) != "permission_denied" {
+		t.Fatalf("general list with counts tick: status=%d code=%s", rec.Code, errCode(t, rec))
+	}
+	if svc.listCalls != 0 {
+		t.Fatalf("general list reached service with only counts permission: %d calls", svc.listCalls)
+	}
+
+	// The same tick still lists its own module, so the narrowing is by module and not a lockout.
+	rec = doRequestWithPermissions(mux, http.MethodGet, "/app/workflows?module=birth", "", nil, true, perms)
+	if rec.Code != http.StatusOK || svc.listCalls != 1 {
+		t.Fatalf("birth list with counts tick: status=%d calls=%d (%s)", rec.Code, svc.listCalls, rec.Body.String())
+	}
+}
+
+func TestCountsPermissionCannotReadOrWriteGeneralWorkflowDetail(t *testing.T) {
+	svc := &stubService{detail: domain.WorkflowDetail{
+		Card: domain.WorkflowCard{WorkflowID: "wf-general", Module: domain.ModuleGeneral, TemplateKey: domain.GeneralTemplateKey("general.gate_visitor_check")},
+	}}
+	mux := newTestMux(svc)
+	perms := []string{permissions.CountsWrite}
+
+	rec := doRequestWithPermissions(mux, http.MethodGet, "/app/workflows/wf-general", "", nil, true, perms)
+	if rec.Code != http.StatusForbidden || errCode(t, rec) != "permission_denied" {
+		t.Fatalf("general detail with counts tick: status=%d code=%s", rec.Code, errCode(t, rec))
+	}
+
+	rec = doRequestWithPermissions(mux, http.MethodPost, "/app/workflows/wf-general/actions/act-1/answer",
+		`{"answer_value":"yes"}`, map[string]string{"Idempotency-Key": "long-enough-key"}, true, perms)
+	if rec.Code != http.StatusForbidden || errCode(t, rec) != "permission_denied" {
+		t.Fatalf("general answer with counts tick: status=%d code=%s", rec.Code, errCode(t, rec))
+	}
+	rec = doRequestWithPermissions(mux, http.MethodPost, "/app/workflows/wf-general/actions/act-1/complete",
+		`{}`, map[string]string{"Idempotency-Key": "long-enough-key"}, true, perms)
+	if rec.Code != http.StatusForbidden || errCode(t, rec) != "permission_denied" {
+		t.Fatalf("general complete with counts tick: status=%d code=%s", rec.Code, errCode(t, rec))
+	}
+	if svc.writeCalls != 0 {
+		t.Fatalf("general write reached mutation service with only counts permission: %d calls", svc.writeCalls)
+	}
+}
+
+// Holding BOTH ticks (a director layered with operator, say) opens both modules -- the gate is
+// per module, never an either/or between the two permissions.
+func TestBothTicksReachBothModules(t *testing.T) {
+	svc := &stubService{detail: domain.WorkflowDetail{
+		Card: domain.WorkflowCard{WorkflowID: "wf-general", Module: domain.ModuleGeneral, TemplateKey: domain.GeneralTemplateKey("general.gate_visitor_check")},
+	}}
+	mux := newTestMux(svc)
+	perms := []string{permissions.CountsWrite, permissions.WorkInstructionsExecute}
+	for _, target := range []string{"/app/workflows?module=general", "/app/workflows?module=birth", "/app/workflows/wf-general"} {
+		rec := doRequestWithPermissions(mux, http.MethodGet, target, "", nil, true, perms)
+		if rec.Code != http.StatusOK {
+			t.Fatalf("%s with both ticks: status=%d (%s)", target, rec.Code, rec.Body.String())
+		}
+	}
+}
+
 func TestListWorkflowsReturnsPreviousOverdueDates(t *testing.T) {
 	svc := &stubService{}
 	rec := doRequest(newTestMux(svc), http.MethodGet,

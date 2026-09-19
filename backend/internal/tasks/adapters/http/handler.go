@@ -257,7 +257,7 @@ func (h *Handler) ListWorkflows(w http.ResponseWriter, r *http.Request) {
 		h.writeError(w, r, http.StatusBadRequest, "invalid_module", "module must be birth, death, colostrum, or general", nil)
 		return
 	}
-	if module != domain.ModuleGeneral && !hasWorkflowPermission(r.Context(), permissions.CountsWrite) {
+	if !hasModulePermission(r.Context(), module) {
 		h.writeError(w, r, http.StatusForbidden, "permission_denied", "permission denied", nil)
 		return
 	}
@@ -399,7 +399,7 @@ func (h *Handler) GetWorkflow(w http.ResponseWriter, r *http.Request) {
 		h.writeDomainError(w, r, err)
 		return
 	}
-	if detail.Card.Module != domain.ModuleGeneral && !hasWorkflowPermission(r.Context(), permissions.CountsWrite) {
+	if !hasModulePermission(r.Context(), detail.Card.Module) {
 		h.writeError(w, r, http.StatusForbidden, "permission_denied", "permission denied", nil)
 		return
 	}
@@ -695,20 +695,36 @@ func writeResponse(result domain.ActionWriteResult) workflowActionWriteResponse 
 	}
 }
 
+// authorizeWorkflowWrite re-authorizes a shared /app/workflows write by the workflow's OWN
+// module. The route table ORs CountsWrite with WorkInstructionsExecute because the two modules
+// share these routes, so the route gate alone proves only that the caller holds ONE of them;
+// which one must match the workflow. It always reads the workflow first: a caller must not learn
+// from the status code alone whether an id it cannot open exists.
 func (h *Handler) authorizeWorkflowWrite(w http.ResponseWriter, r *http.Request, tenantID, workflowID string) bool {
-	if hasWorkflowPermission(r.Context(), permissions.CountsWrite) {
-		return true
-	}
 	detail, err := h.svc.GetWorkflow(r.Context(), tenantID, workflowID)
 	if err != nil {
 		h.writeDomainError(w, r, err)
 		return false
 	}
-	if detail.Card.Module != domain.ModuleGeneral {
+	if !hasModulePermission(r.Context(), detail.Card.Module) {
 		h.writeError(w, r, http.StatusForbidden, "permission_denied", "permission denied", nil)
 		return false
 	}
 	return true
+}
+
+// hasModulePermission is THE per-module gate behind the shared workflow routes. A general
+// (work-instruction) run is opened, listed, answered and completed on WorkInstructionsExecute
+// alone; every herd-operations module (birth, death, shifting, reconcile, and the colostrum lens
+// over birth) on CountsWrite alone. Holding the other module's permission never carries across:
+// a counts-only tick must not reach a general run and a work-instructions-only tick must not
+// reach a birth (PR #308 review, 2026-09-19). Module is the workflow's stored module, or the
+// list route's module keyword.
+func hasModulePermission(ctx context.Context, module string) bool {
+	if module == domain.ModuleGeneral {
+		return hasWorkflowPermission(ctx, permissions.WorkInstructionsExecute)
+	}
+	return hasWorkflowPermission(ctx, permissions.CountsWrite)
 }
 
 func hasWorkflowPermission(ctx context.Context, permission string) bool {
