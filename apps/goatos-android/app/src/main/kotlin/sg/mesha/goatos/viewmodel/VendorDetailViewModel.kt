@@ -230,9 +230,16 @@ internal fun VendorDto.sections(): List<VendorsDetailSectionUi> {
         "Ready to filtered" to readyToFiltered,
     )
     val notes = rows("Details" to details, "Note" to comments)
+    // VENDOR FORM IS AUTHORED (2026-09-19): the questions the published form added beyond the
+    // register's columns, labelled by the backend from the version they were answered on. The
+    // single-vendor read carries them; a list-cached row (no rows yet) falls back to the raw ids.
+    val more = answerRows.map { VendorsDetailRowUi(it.label, it.value) }.ifEmpty {
+        answers.filterKeys { !it.endsWith("_other") }.filterValues { it.isNotBlank() }.map { (k, v) -> VendorsDetailRowUi(k, v) }
+    }
     return listOfNotNull(
         VendorsDetailSectionUi("Who they are", identity).takeIf { identity.isNotEmpty() },
         VendorsDetailSectionUi("What they supply", supply).takeIf { supply.isNotEmpty() },
         VendorsDetailSectionUi("Notes", notes).takeIf { notes.isNotEmpty() },
+        VendorsDetailSectionUi("More", more).takeIf { more.isNotEmpty() },
     )
 }

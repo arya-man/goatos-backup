@@ -30,6 +30,7 @@ import sg.mesha.goatos.core.network.AppApi
 import sg.mesha.goatos.core.network.dto.FeedPurchaseDto
 import sg.mesha.goatos.core.network.dto.FeedPurchaseOptionsDto
 import sg.mesha.goatos.core.network.dto.VendorCatalogDto
+import sg.mesha.goatos.core.network.dto.VendorFormDto
 import sg.mesha.goatos.core.network.dto.VendorDto
 
 /** One screen-page of vendors or purchases — bounds BOTH the network request and the Room window
@@ -78,6 +79,7 @@ internal fun vendorScopeKey(side: VendorRegisterSide, search: String, status: St
  * page the other page's categories — the exact mix the split was made to remove.
  */
 internal fun vendorCatalogCacheKey(side: VendorRegisterSide): String = "catalog:" + side.wireValue
+internal fun vendorFormCacheKey(side: VendorRegisterSide): String = "form:" + side.wireValue
 
 /** Blob-cache key prefix of one feed purchase's detail row (written by the ledger page and by a landed create). */
 private const val PURCHASE_KEY_PREFIX = "purchase:"
@@ -127,6 +129,14 @@ interface VendorsRepository {
      * the Sales page, which is the exact complaint the split exists to answer.
      */
     fun observeCatalog(side: VendorRegisterSide): Flow<VendorCatalogDto?>
+
+    /**
+     * The published vendor form (VENDOR FORM IS AUTHORED, 2026-09-19): what the Add / Edit wizard
+     * renders. Cached like the catalog so the form opens offline on the last version seen; a
+     * refresh on open picks up a publish made on the web the same minute.
+     */
+    fun observeVendorForm(side: VendorRegisterSide): Flow<VendorFormDto?>
+    suspend fun refreshVendorForm(side: VendorRegisterSide)
 
     suspend fun refreshCatalog(side: VendorRegisterSide)
 
@@ -222,6 +232,17 @@ class DefaultVendorsRepository(
             .onFailure {
                 if (it is CancellationException) throw it
                 android.util.Log.w(LOG_TAG, "vendor_catalog_refresh_failed side=${side.wireValue}", it)
+            }
+    }
+
+    override fun observeVendorForm(side: VendorRegisterSide): Flow<VendorFormDto?> = observeBlob(vendorFormCacheKey(side))
+
+    override suspend fun refreshVendorForm(side: VendorRegisterSide) {
+        // exception:exempt expected refresh failure; the cached form keeps the wizard usable offline.
+        runCatching { putBlob(vendorFormCacheKey(side), json.encodeToString(api.getProcurementVendorForm(side.wireValue))) }
+            .onFailure {
+                if (it is CancellationException) throw it
+                android.util.Log.w(LOG_TAG, "vendor_form_refresh_failed side=${side.wireValue}", it)
             }
     }
 

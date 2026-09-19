@@ -55,7 +55,9 @@ function readVendorForm(formData: FormData): ProcurementVendorWrite {
   if (answers) {
     for (const id of questionIds) {
       const values = formData.getAll(id).map((v) => v.toString().trim()).filter(Boolean);
-      if (values.length) answers[id] = values.join("|");
+      // Every asked question is sent, blank included: the write is a REPLACE, and a typed
+      // question cleared on screen must clear its column rather than keep the old value.
+      answers[id] = values.join("|");
       const other = formData.get(`${id}_other`)?.toString().trim();
       if (other) answers[`${id}_other`] = other;
     }

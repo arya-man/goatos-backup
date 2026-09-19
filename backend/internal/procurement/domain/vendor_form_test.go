@@ -190,6 +190,15 @@ func TestApplyVendorAnswersSplitsTypedFromExtras(t *testing.T) {
 	if len(extras) != 3 || extras["transport"] != "yes" || extras["vehicle_count"] != "3" || extras["languages"] != "kn|ta" {
 		t.Fatalf("extras = %v", extras)
 	}
+	// A typed answer PRESENT but blank clears the column (the write is a replace); an absent typed
+	// question leaves the column as carried.
+	carried := VendorWrite{City: "Old town", Comments: "keep me"}
+	price := "1"
+	carried.PricePerGoat = &price
+	w2, _ := ApplyVendorAnswers(carried, map[string]string{"city": "", "price_per_goat": ""})
+	if w2.City != "" || w2.PricePerGoat != nil || w2.Comments != "keep me" {
+		t.Fatalf("blank typed answers did not clear / absent did not carry: %+v", w2)
+	}
 	rows := VendorAnswerRows(form, extras)
 	if len(rows) != 3 {
 		t.Fatalf("rows = %+v", rows)

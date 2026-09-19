@@ -135,3 +135,55 @@ Sales Config's, not the Sales SOP page's -- "keep it there only". What was added
 read-modify-write through the person-access service `/people` uses (one write path, audited,
 row_version-fenced); a person with no park yet is refused with "set this person's park on People
 first". The Sales SOP page is the sale's steps and nothing else.
+
+## Addendum 2026-09-19: the vendor form is authored -- the `sales.vendor` SOP
+
+Maintainer instruction, same day: "in future I want to add any vendor, any data, any optional,
+anything -- rendered from SOP, reflecting on mobile on the spot". Confirmed missing: the Add / Edit
+vendor form was hard-coded three ways (`VendorWrite` in Go, the phone's `VendorField` wizard, the
+web drawer's field list). It is now DATA.
+
+**What the form is.** `form_dsl.vendor_form` of the published `sales.vendor` SOP: pages of
+questions (`choice` / `multi` / `text` / `number`, each with title, hint, compulsory flag, choices,
+min/max/unit, `only_if` on an earlier pick-one). Authored on `/sales/sops` through the same pages
+editor the procurement inspection uses (profile `vendor_form`: no load form, no media). Migration
+`000364` seeds v1 mirroring the phone's three steps -- pinned byte for byte by
+`TestMigrationEmbedsTheSeededVendorForm`.
+
+**Typed questions are the register's own columns.** `business_name`, `record_type`, `state`,
+`status`, `city`, `phone_number`, `price_per_goat`, ... keep a LOCKED id and kind
+(`domain.lockedVendorQuestions`); the catalog-backed ones (`record_type`, `state`, `status`,
+`capacity_unit`, `supply_frequency`, `feed`, `breed`) carry `catalog: <kind>` and get their
+choices from the vendor catalog at compile time -- record types narrowed by register side, exactly
+as `/procurement/vendor-catalog` does. Four identity questions (`business_name`, `record_type`,
+`state`, `status`) must stay present AND compulsory; publish refuses a document without them
+(`VendorFormSOPContract`, registered on sop/app). Everything else -- wording, hint, order, page,
+optional/compulsory, and any NEW question -- is the author's.
+
+**Where answers live.** `GET /procurement/vendor-form?side=` serves the compiled form with its
+`version`. A form-driven client sends EVERY asked answer keyed by question id (blank included --
+the write is a REPLACE) plus `questionnaire_version`; the service loads THAT version
+(`VendorFormSource.VendorFormVersion`, published or retired), checks the answers against it
+(`ValidateVendorAnswers`: compulsory, offered choices, "other" text, number range, unknown id,
+questions hidden by `only_if` not owed), maps the typed ones onto the columns
+(`ApplyVendorAnswers`) and stores the rest in `procurement_vendors.sop_answers` with the version.
+A version the library no longer serves is refused `409 vendor_form_changed` -- reopen the form. A
+typed-only client (an older APK, the importer) sends no answers, and the stored extras are
+PRESERVED on its replace, the way finance is preserved for a caller who cannot read it. The
+single-vendor reads carry `answer_rows` labelled by the form the vendor was answered on; an
+answer whose question was since removed lists under its id rather than vanishing.
+
+**Both screens render the form.** The web drawer (`vendor-form-fields.tsx`) draws one section per
+page and one control per question, conditions live, and carries typed columns the form does not
+ask as hidden inputs so the replace cannot blank them. The phone wizard is one step per page
+(`FormPageStep`), same rules, voice-note slot on the last page, refreshed on every open so a
+publish on the web is what the next Add vendor asks; the cached copy keeps it usable offline.
+Publish v2 in Chrome, open Add vendor on the web and the phone: both asked the new questions on
+the spot.
+
+Pinned by `procurement/domain.TestValidateVendorFormRefusesWhatTheRegisterCannotRun`,
+`TestValidateVendorAnswersRefusesEachBadShape`, `TestApplyVendorAnswersSplitsTypedFromExtras`,
+`procurement/app` `vendor_form_service_test.go` (typed/extras split, missing required extra names
+its field, stale version refused, typed-only update preserves, side narrowing) and the OCI Postgres
+round trip `TestVendorFormAnswersRoundTripAndSurviveATypedOnlyUpdate`; web
+`vendor-form-model.test.mjs`; Android `VendorFormAnswersTest`.

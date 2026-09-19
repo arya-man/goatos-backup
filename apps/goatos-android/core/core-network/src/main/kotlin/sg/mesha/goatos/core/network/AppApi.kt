@@ -104,6 +104,9 @@ import sg.mesha.goatos.core.network.dto.ToxinSubmitRequestDto
 import sg.mesha.goatos.core.network.dto.ToxinTaskDetailDto
 import sg.mesha.goatos.core.network.dto.ToxinTaskPageDto
 import sg.mesha.goatos.core.network.dto.VendorCatalogDto
+import sg.mesha.goatos.core.network.dto.VendorFormDto
+import sg.mesha.goatos.core.network.dto.VendorFormPageDto
+import sg.mesha.goatos.core.network.dto.VendorQuestionDto
 import sg.mesha.goatos.core.network.dto.VendorCatalogEntryDto
 import sg.mesha.goatos.core.network.dto.VendorDto
 import sg.mesha.goatos.core.network.dto.VendorPageDto
@@ -1583,6 +1586,12 @@ interface AppApi {
      * The narrowing is the server's; nothing here filters the list it hands back.
      */
     suspend fun getProcurementVendorCatalog(side: String? = null): VendorCatalogDto
+
+    /**
+     * GET /procurement/vendor-form — the published vendor form the Add / Edit wizard renders
+     * (VENDOR FORM IS AUTHORED, 2026-09-19). [side] narrows the record types as the catalog does.
+     */
+    suspend fun getProcurementVendorForm(side: String? = null): VendorFormDto
 
     /**
      * POST /procurement/vendors — records a vendor. No idempotency header on this route: the
@@ -3276,6 +3285,21 @@ class FakeAppApi(private val chrome: String = "expanded") : AppApi {
         statuses = listOf(VendorCatalogEntryDto("active", "Active"), VendorCatalogEntryDto("negotiating", "Negotiating")),
         capacityUnits = listOf(VendorCatalogEntryDto("kg", "kg"), VendorCatalogEntryDto("animals", "animals")),
         supplyFrequencies = listOf(VendorCatalogEntryDto("per_week", "Every week"), VendorCatalogEntryDto("one_time", "One time")),
+    )
+
+    override suspend fun getProcurementVendorForm(side: String?): VendorFormDto = VendorFormDto(
+        version = 1,
+        pages = listOf(
+            VendorFormPageDto(
+                key = "who", title = "Who they are",
+                questions = listOf(
+                    VendorQuestionDto(id = "business_name", kind = "text", title = "Business or person name", required = true, typed = true),
+                    VendorQuestionDto(id = "record_type", kind = "choice", title = "Type", required = true, typed = true, options = getProcurementVendorCatalog(side).recordTypes),
+                    VendorQuestionDto(id = "state", kind = "choice", title = "State", required = true, typed = true, options = listOf(VendorCatalogEntryDto("KA", "Karnataka"))),
+                    VendorQuestionDto(id = "status", kind = "choice", title = "Status", required = true, typed = true, options = listOf(VendorCatalogEntryDto("active", "Active"))),
+                ),
+            ),
+        ),
     )
 
     override suspend fun createProcurementVendor(request: VendorWriteDto): VendorDto =

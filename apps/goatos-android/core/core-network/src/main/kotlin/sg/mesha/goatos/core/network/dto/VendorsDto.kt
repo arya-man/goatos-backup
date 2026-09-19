@@ -56,9 +56,67 @@ data class VendorDto(
     @SerialName("average_animal_weight_kg") val averageAnimalWeightKg: String? = null,
     /** Backend-composed "35 kg", VERBATIM; empty when not recorded. */
     @SerialName("average_animal_weight_display") val averageAnimalWeightDisplay: String = "",
+    /**
+     * VENDOR FORM IS AUTHORED (2026-09-19): answers to the questions the published form added
+     * beyond the register's columns, keyed by question id; the form version they were given on
+     * (null before the form existed); and, on the single-vendor read, the same answers labelled
+     * by that version's question titles, rendered VERBATIM on the detail screen.
+     */
+    @SerialName("answers") val answers: Map<String, String> = emptyMap(),
+    @SerialName("questionnaire_version") val questionnaireVersion: Int? = null,
+    @SerialName("answer_rows") val answerRows: List<VendorAnswerRowDto> = emptyList(),
     @SerialName("created_at") val createdAt: String = "",
     @SerialName("updated_at") val updatedAt: String = "",
     @SerialName("row_version") val rowVersion: Long = 0,
+)
+
+@Serializable
+data class VendorAnswerRowDto(
+    @SerialName("question_id") val questionId: String,
+    @SerialName("label") val label: String,
+    @SerialName("value") val value: String,
+)
+
+/**
+ * The published vendor form (`GET /procurement/vendor-form`): what Add / Edit vendor asks, page by
+ * page, with catalog choices already filled. A question with [VendorQuestionDto.typed] true is one
+ * of the register's own columns; every question's answer travels under its id.
+ */
+@Serializable
+data class VendorFormDto(
+    @SerialName("version") val version: Int = 0,
+    @SerialName("pages") val pages: List<VendorFormPageDto> = emptyList(),
+)
+
+@Serializable
+data class VendorFormPageDto(
+    @SerialName("key") val key: String,
+    @SerialName("title") val title: String = "",
+    @SerialName("hint") val hint: String = "",
+    @SerialName("questions") val questions: List<VendorQuestionDto> = emptyList(),
+)
+
+@Serializable
+data class VendorQuestionDto(
+    @SerialName("id") val id: String,
+    /** `choice` | `multi` | `text` | `number`. */
+    @SerialName("kind") val kind: String,
+    @SerialName("title") val title: String,
+    @SerialName("hint") val hint: String = "",
+    @SerialName("required") val required: Boolean = false,
+    @SerialName("typed") val typed: Boolean = false,
+    @SerialName("options") val options: List<VendorCatalogEntryDto> = emptyList(),
+    @SerialName("allow_other") val allowOther: Boolean = false,
+    @SerialName("min") val min: Double? = null,
+    @SerialName("max") val max: Double? = null,
+    @SerialName("unit") val unit: String = "",
+    @SerialName("only_if") val onlyIf: VendorQuestionOnlyIfDto? = null,
+)
+
+@Serializable
+data class VendorQuestionOnlyIfDto(
+    @SerialName("question_id") val questionId: String,
+    @SerialName("value") val value: String,
 )
 
 @Serializable
@@ -125,6 +183,13 @@ data class VendorWriteDto(
     @SerialName("voice_note_proof_ref") val voiceNoteProofRef: String = "",
     /** Optional. Average live weight per animal in kg as a decimal string; null = not recorded. */
     @SerialName("average_animal_weight_kg") val averageAnimalWeightKg: String? = null,
+    /**
+     * VENDOR FORM (2026-09-19): every answer keyed by question id (typed ones included; the server
+     * maps them onto the columns) and the form version they were given on. Null answers mean a
+     * typed-only write, and the server then preserves the stored extra answers on an update.
+     */
+    @SerialName("answers") val answers: Map<String, String>? = null,
+    @SerialName("questionnaire_version") val questionnaireVersion: Int = 0,
     @SerialName("row_version") val rowVersion: Long = 0,
 )
 

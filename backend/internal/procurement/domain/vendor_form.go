@@ -388,27 +388,28 @@ func ValidateVendorAnswers(form VendorForm, answers map[string]string) error {
 }
 
 // ApplyVendorAnswers copies the typed answers onto the write's columns and returns the extra
-// (untyped) answers to store as sop_answers. A typed answer that is absent leaves the column as
-// the write already carries it (an older client sends typed fields, not answers).
+// (untyped) answers to store as sop_answers. The write is a REPLACE, so a typed answer that is
+// PRESENT but blank clears its column; a typed question the form did not ask (absent key) leaves
+// the column as the write already carries it (the client carries unasked columns forward).
 func ApplyVendorAnswers(w VendorWrite, answers map[string]string) (VendorWrite, map[string]string) {
 	extras := map[string]string{}
-	set := func(dst *string, v string) {
-		if strings.TrimSpace(v) != "" {
-			*dst = strings.TrimSpace(v)
-		}
-	}
+	set := func(dst *string, v string) { *dst = strings.TrimSpace(v) }
 	setPtrStr := func(dst **string, v string) {
-		if strings.TrimSpace(v) != "" {
-			s := strings.TrimSpace(v)
-			*dst = &s
+		if strings.TrimSpace(v) == "" {
+			*dst = nil
+			return
 		}
+		s := strings.TrimSpace(v)
+		*dst = &s
 	}
 	setPtrInt := func(dst **int, v string) {
-		if strings.TrimSpace(v) != "" {
-			if n, err := strconv.ParseFloat(strings.TrimSpace(v), 64); err == nil {
-				i := int(n)
-				*dst = &i
-			}
+		if strings.TrimSpace(v) == "" {
+			*dst = nil
+			return
+		}
+		if n, err := strconv.ParseFloat(strings.TrimSpace(v), 64); err == nil {
+			i := int(n)
+			*dst = &i
 		}
 	}
 	for id, v := range answers {

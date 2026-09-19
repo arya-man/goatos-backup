@@ -121,6 +121,35 @@ enum class VendorField {
     NOTE,
 }
 
+/**
+ * VENDOR FORM IS AUTHORED (maintainer instruction 2026-09-19): the wizard's pages and questions
+ * come from the published `sales.vendor` SOP, served per open. Titles, hints, choices and the
+ * compulsory flag are BACKEND words rendered verbatim; the phone knows only how to draw each kind.
+ */
+enum class VendorQuestionKind { CHOICE, MULTI, TEXT, NUMBER }
+
+@Immutable
+data class VendorQuestionUi(
+    val id: String,
+    val kind: VendorQuestionKind,
+    val title: String,
+    val hint: String,
+    val required: Boolean,
+    /** The register stores this answer in its own column. */
+    val typed: Boolean,
+    val options: List<VendorsOptionUi>,
+    val allowOther: Boolean,
+    val min: Double?,
+    val max: Double?,
+    val unit: String,
+    /** Asked only when the earlier pick-one [onlyIfQuestion] holds [onlyIfValue]; blank = always. */
+    val onlyIfQuestion: String,
+    val onlyIfValue: String,
+)
+
+@Immutable
+data class VendorFormPageUi(val key: String, val title: String, val hint: String, val questions: List<VendorQuestionUi>)
+
 /** What the wizard's voice-note slot is doing. */
 enum class VoiceNoteSlotState { EMPTY, WORKING, RECORDED, FAILED }
 
@@ -156,10 +185,23 @@ data class VendorCreateUiState(
     val message: String? = null,
     /** True when the wizard is editing an existing vendor rather than adding one. */
     val isEditing: Boolean = false,
+    /**
+     * The published form's pages (VENDOR FORM IS AUTHORED, 2026-09-19). When present the wizard
+     * is one step per page and the hard-coded steps above are not shown; empty only while no
+     * form has ever been cached on this phone.
+     */
+    val form: List<VendorFormPageUi> = emptyList(),
+    val formVersion: Int = 0,
+    /** Answers keyed by question id (pick-many joined with `|`, an "other" text under `<id>_other`). */
+    val answers: Map<String, String> = emptyMap(),
+    /** Per-question refusal shown under the box. */
+    val answerErrors: Map<String, String> = emptyMap(),
 )
 
 sealed interface VendorCreateEvent {
     data class FieldChanged(val field: VendorField, val value: String) : VendorCreateEvent
+    /** One answer on the published form changed. */
+    data class AnswerChanged(val questionId: String, val value: String) : VendorCreateEvent
     data object Next : VendorCreateEvent
     data object Previous : VendorCreateEvent
     data object Back : VendorCreateEvent

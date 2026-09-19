@@ -116,6 +116,7 @@ import sg.mesha.goatos.core.network.dto.ToxinSubmitRequestDto
 import sg.mesha.goatos.core.network.dto.ToxinTaskDetailDto
 import sg.mesha.goatos.core.network.dto.ToxinTaskPageDto
 import sg.mesha.goatos.core.network.dto.VendorCatalogDto
+import sg.mesha.goatos.core.network.dto.VendorFormDto
 import sg.mesha.goatos.core.network.dto.VendorDto
 import sg.mesha.goatos.core.network.dto.VendorPageDto
 import sg.mesha.goatos.core.network.dto.VendorWriteDto
@@ -1054,6 +1055,9 @@ interface AppApiService {
 
     @GET("procurement/vendor-catalog")
     suspend fun getProcurementVendorCatalog(@Query("side") side: String?): VendorCatalogDto
+
+    @GET("procurement/vendor-form")
+    suspend fun getProcurementVendorForm(@Query("side") side: String?): VendorFormDto
 
     @POST("procurement/vendors")
     suspend fun createProcurementVendor(@Body request: VendorWriteDto): VendorDto
@@ -2456,6 +2460,8 @@ class RetrofitAppApi(
     override suspend fun getProcurementVendor(vendorId: String): VendorDto = service.getProcurementVendor(vendorId)
 
     override suspend fun getProcurementVendorCatalog(side: String?): VendorCatalogDto = service.getProcurementVendorCatalog(side)
+
+    override suspend fun getProcurementVendorForm(side: String?): VendorFormDto = service.getProcurementVendorForm(side)
 
     override suspend fun createProcurementVendor(request: VendorWriteDto): VendorDto =
         service.createProcurementVendor(request)
