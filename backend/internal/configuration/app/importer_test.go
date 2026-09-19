@@ -36,6 +36,9 @@ func (r *applyCancelRepo) Get(_ context.Context, _, register, id string) (domain
 	}
 	return domain.Row{}, ports.ErrNotFound
 }
+func (r *applyCancelRepo) CategoryKind(context.Context, string, string) (string, error) {
+	return "", ports.ErrNotFound
+}
 func (r *applyCancelRepo) Options(context.Context, string, string) ([]ports.RefOption, error) {
 	return nil, nil
 }

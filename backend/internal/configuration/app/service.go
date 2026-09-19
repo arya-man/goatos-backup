@@ -223,14 +223,14 @@ func (s *Service) kindFor(ctx context.Context, tenantID string, reg domain.Regis
 	if categoryID == "" {
 		return "", nil
 	}
-	cat, err := s.repo.Get(ctx, tenantID, domain.RegCategories, categoryID)
+	kind, err := s.repo.CategoryKind(ctx, tenantID, categoryID)
 	if err != nil {
 		if errors.Is(err, ports.ErrNotFound) {
 			return "", &domain.ValidationError{Fields: []domain.FieldError{{Field: "category_id", Code: "unknown", Message: "Choose a category from the list."}}}
 		}
 		return "", err
 	}
-	return domain.FieldString(cat.Fields, "kind"), nil
+	return kind, nil
 }
 
 // Error is the transport-facing error shape: a stable code plus a farm-worded message.

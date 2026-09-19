@@ -151,6 +151,13 @@ func (r *Repository) List(ctx context.Context, tenantID, register string, p port
 }
 
 // Get is one row.
+// CategoryKind is the effective kind of a category, read through the cheap recursive walk.
+func (r *Repository) CategoryKind(ctx context.Context, tenantID, id string) (string, error) {
+	ctx, cancel := context.WithTimeout(ctx, r.timeout)
+	defer cancel()
+	return categoryKind(ctx, r.pool, tenantID, id)
+}
+
 func (r *Repository) Get(ctx context.Context, tenantID, register, id string) (domain.Row, error) {
 	s, err := r.storeFor(register)
 	if err != nil {

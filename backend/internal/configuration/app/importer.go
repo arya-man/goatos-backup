@@ -1018,15 +1018,15 @@ func (i *Importer) pendingKind(ctx context.Context, tenantID, ref string, bctx *
 	}
 	jobID, rowNo, isToken := domain.ParseBundleRowToken(ref)
 	if !isToken {
-		// A stored category: its root's kind, through the store.
-		cat, err := i.svc.Get(ctx, tenantID, domain.RegCategories, ref)
+		// A stored category: its root's kind, through the store's cheap walk.
+		kind, err := i.svc.repo.CategoryKind(ctx, tenantID, ref)
 		if err != nil {
 			if errors.Is(err, ports.ErrNotFound) {
 				return "", nil
 			}
 			return "", err
 		}
-		return domain.FieldString(cat.Fields, "kind"), nil
+		return kind, nil
 	}
 	if kind, ok := kinds.cache[ref]; ok {
 		return kind, nil

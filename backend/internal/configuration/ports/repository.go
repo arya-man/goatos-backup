@@ -97,6 +97,11 @@ type Repository interface {
 	Counts(ctx context.Context, tenantID string) (map[string]int, error)
 	List(ctx context.Context, tenantID, register string, p ListParams) (Page, error)
 	Get(ctx context.Context, tenantID, register, id string) (domain.Row, error)
+	// CategoryKind is the effective item kind of a category (its root's), or ErrNotFound. It is
+	// the cheap read an item write needs: Get(categories) composes the tree with its per-list
+	// item COUNTS, which is a full count of that list's items on every item written -- fine for
+	// one drawer save, quadratic for a lakh-row sheet.
+	CategoryKind(ctx context.Context, tenantID, id string) (string, error)
 	Options(ctx context.Context, tenantID, register string) ([]RefOption, error)
 	Usage(ctx context.Context, tenantID, register, id string) (domain.Usage, error)
 	Create(ctx context.Context, w WriteParams, register string, fields map[string]any) (domain.Row, error)
