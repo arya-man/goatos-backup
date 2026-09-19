@@ -783,6 +783,110 @@ func (h *Handler) GetStockAnalytics(w http.ResponseWriter, r *http.Request) {
 	httpresponse.WriteJSON(w, http.StatusOK, dto)
 }
 
+type stockLoadRowDTO struct {
+	FeedPurchaseID  string `json:"feed_purchase_id"`
+	FarmLabel       string `json:"farm_label"`
+	FeedItemLabel   string `json:"feed_item_label"`
+	FeedItemKey     string `json:"feed_item_key"`
+	BatchNo         int64  `json:"batch_no"`
+	Vendor          string `json:"vendor"`
+	PurchaseDate    string `json:"purchase_date"`
+	ReachedOn       string `json:"reached_on"`
+	ConsumptionFrom string `json:"consumption_from"`
+	FinishedOn      string `json:"finished_on"`
+	Status          string `json:"status"`
+	PurchasedKg     string `json:"purchased_kg"`
+	ConsumedKg      string `json:"consumed_kg"`
+	LeftKg          string `json:"left_kg"`
+	DaysSaid        *int64 `json:"days_said"`
+	DaysConsumed    int64  `json:"days_consumed"`
+	DaysLeft        *int64 `json:"days_left"`
+	GapDays         *int64 `json:"gap_days"`
+	AvgDailyKg      string `json:"avg_daily_kg"`
+}
+
+type stockLoadFeedItemDTO struct {
+	Key   string `json:"key"`
+	Label string `json:"label"`
+}
+
+type stockLoadsDTO struct {
+	Rows         []stockLoadRowDTO      `json:"rows"`
+	Total        int64                  `json:"total"`
+	NegativeGaps int64                  `json:"negative_gaps"`
+	Limit        int                    `json:"limit"`
+	Offset       int                    `json:"offset"`
+	FeedItems    []stockLoadFeedItemDTO `json:"feed_items"`
+	Farms        []string               `json:"farms"`
+}
+
+// GetStockLoads serves GET /feed-analytics/stock-loads: the purchased-vs-consumed table.
+func (h *Handler) GetStockLoads(w http.ResponseWriter, r *http.Request) {
+	in, ok := h.analyticsInputForPermission(w, r, permissions.FeedAnalyticsStockRead)
+	if !ok {
+		return
+	}
+	query := r.URL.Query()
+	readInt := func(name string) (int, bool) {
+		raw := strings.TrimSpace(query.Get(name))
+		if raw == "" {
+			return 0, true
+		}
+		value, err := strconv.Atoi(raw)
+		if err != nil {
+			httpresponse.WriteError(w, r, h.log, http.StatusBadRequest, name+" must be a whole number", nil)
+			return 0, false
+		}
+		return value, true
+	}
+	limit, ok := readInt("limit")
+	if !ok {
+		return
+	}
+	offset, ok := readInt("offset")
+	if !ok {
+		return
+	}
+	if _, _, err := domain.NormaliseStockLoadsPage(limit, offset); err != nil {
+		httpresponse.WriteError(w, r, h.log, http.StatusBadRequest, err.Error(), nil)
+		return
+	}
+	result, err := h.service.StockLoads(r.Context(), app.StockLoadsInput{
+		TenantID: in.TenantID, ParkID: in.ParkID, AuthorizedParkIDs: in.AuthorizedParkIDs,
+		Query: domain.StockLoadsQuery{
+			FarmLabel:   strings.ToUpper(strings.TrimSpace(query.Get("farm"))),
+			FeedItemKey: strings.TrimSpace(query.Get("feed_item_key")),
+			Limit:       limit,
+			Offset:      offset,
+		},
+	})
+	if err != nil {
+		h.writeServiceError(w, r, "feed analytics stock loads", err)
+		return
+	}
+	dto := stockLoadsDTO{
+		Rows: make([]stockLoadRowDTO, 0, len(result.Rows)), Total: result.Total,
+		NegativeGaps: result.NegativeGaps, Limit: result.Limit, Offset: result.Offset,
+		FeedItems: make([]stockLoadFeedItemDTO, 0, len(result.FeedItems)),
+		Farms:     append([]string{}, result.Farms...),
+	}
+	for _, item := range result.FeedItems {
+		dto.FeedItems = append(dto.FeedItems, stockLoadFeedItemDTO{Key: item.Key, Label: item.Label})
+	}
+	for _, row := range result.Rows {
+		dto.Rows = append(dto.Rows, stockLoadRowDTO{
+			FeedPurchaseID: row.FeedPurchaseID, FarmLabel: row.FarmLabel, FeedItemLabel: row.FeedItemLabel,
+			FeedItemKey: row.FeedItemKey, BatchNo: row.BatchNo, Vendor: row.Vendor,
+			PurchaseDate: row.PurchaseDate, ReachedOn: row.ReachedOn, ConsumptionFrom: row.ConsumptionFrom,
+			FinishedOn: row.FinishedOn, Status: string(row.Status),
+			PurchasedKg: row.PurchasedKg, ConsumedKg: row.ConsumedKg, LeftKg: row.LeftKg,
+			DaysSaid: row.DaysSaid, DaysConsumed: row.DaysConsumed, DaysLeft: row.DaysLeft, GapDays: row.GapDays,
+			AvgDailyKg: row.AvgDailyKg,
+		})
+	}
+	httpresponse.WriteJSON(w, http.StatusOK, dto)
+}
+
 type shedFeedItemDTO struct {
 	FeedItemLabel string `json:"feed_item_label"`
 	FeedItemKey   string `json:"feed_item_key"`

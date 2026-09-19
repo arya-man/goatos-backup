@@ -51,6 +51,10 @@ func TestFeedPurchaseValidateRejectsEachBadField(t *testing.T) {
 		{"whitespace vendor", func(w *FeedPurchaseWrite) { w.Vendor = "   " }, "vendor"},
 		{"unknown payment status", func(w *FeedPurchaseWrite) { w.PaymentStatus = "Partly paid" }, "payment_status"},
 		{"blank payment status", func(w *FeedPurchaseWrite) { w.PaymentStatus = "" }, "payment_status"},
+		// The buyer's coverage figure is optional, but 0 is a client coercing blank into a number,
+		// not "no days", and must be refused rather than stored as a belief nobody held.
+		{"zero days of stock", func(w *FeedPurchaseWrite) { n := 0; w.DaysOfStock = &n }, "days_of_stock"},
+		{"negative days of stock", func(w *FeedPurchaseWrite) { n := -3; w.DaysOfStock = &n }, "days_of_stock"},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			w := validWrite()

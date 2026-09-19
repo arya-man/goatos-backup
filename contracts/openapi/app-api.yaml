@@ -5803,6 +5803,72 @@ paths:
           description: Malformed date or park id.
         "403":
           description: Caller lacks feed direction read for the requested scope.
+  /feed-analytics/stock-loads:
+    get:
+      tags:
+        - Feed Direction
+      operationId: getFeedAnalyticsStockLoads
+      summary: Purchased vs consumed, one row per feed load, for the Feed Analytics page.
+      description: >-
+        Every load in the purchase ledger with its FIFO consumption position: loads of one feed at
+        one farm are drawn on in arrival order, so a load's consumed kg is whatever the family's
+        directed total (LOCKED sheets plus externally-tracked consumption, from the ledger start)
+        reaches past the kg of every earlier load, capped at the load's own kg -- except the NEWEST
+        load, which takes the whole remainder so an overrun reads as negative kg left rather than
+        being clamped away.
+
+
+        `days_said` is the buyer's OPTIONAL figure entered on the purchase form; `days_consumed`
+        counts the locked feed days that drew on the load; `days_left` is kg left over the feed's
+        recent (3 locked days) daily rate, 0 once finished and null when no recent rate exists.
+        `gap_days` = days_said - days_consumed - days_left, null whenever either side is unknown:
+        a check nobody could make is not a check that passed. Zero means the figure held;
+        negative means the load ran (or will run) out sooner than it was bought for.
+
+
+        `total` and `negative_gaps` are WHOLE-FILTER counts, never page-local.
+      parameters:
+        - name: park_id
+          in: query
+          required: false
+          schema:
+            type: string
+            format: uuid
+        - name: farm
+          in: query
+          required: false
+          description: Narrow to one farm label (CBE or CPT); omit for both.
+          schema:
+            type: string
+        - name: feed_item_key
+          in: query
+          required: false
+          description: Narrow to one feed item key; omit for every feed.
+          schema:
+            type: string
+        - name: limit
+          in: query
+          required: false
+          description: Page size, 1-100; omit for 25. A present but out-of-range value is rejected.
+          schema:
+            type: integer
+        - name: offset
+          in: query
+          required: false
+          description: Page offset, 0-10000.
+          schema:
+            type: integer
+      responses:
+        "200":
+          description: One page of loads with whole-filter counts.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/FeedAnalyticsStockLoadsResponse"
+        "400":
+          description: Malformed park id or an out-of-range page.
+        "403":
+          description: Caller lacks feed stock read for the requested scope.
   /feed-analytics/shed-feed:
     get:
       tags:
@@ -19617,6 +19683,13 @@ components:
             BACKEND-derived: what this load contributes to stock -- the received weight once entered,
             else the buying weight -- and null while the load is on the road. Clients render this and
             never decide for themselves what a load is worth in the store.
+        days_of_stock:
+          type: integer
+          nullable: true
+          description: >-
+            How many days of feeding the buyer said this load covers, entered optionally at
+            purchase time. Null when not stated (all sheet history). Reporting only: the Feed
+            Analytics purchased-vs-consumed read compares it per load against FIFO consumption.
         farm: { type: string, enum: [CBE, CPT] }
         feed_item:
           type: string
@@ -20245,6 +20318,13 @@ components:
         vendor: { type: string, maxLength: 160 }
         payment_released: { type: number, minimum: 0, nullable: true }
         payment_status: { type: string, enum: [Paid, Pending] }
+        days_of_stock:
+          type: integer
+          minimum: 1
+          nullable: true
+          description: >-
+            Optional: how many days of feeding the buyer expects this load to cover. Omit when not
+            known; 0 is rejected rather than read as "not stated".
         reached_on:
           type: string
           format: date
@@ -20339,6 +20419,11 @@ components:
           nullable: true
           description: Leave out to have the split parts summed, exactly as the record form does.
         vendor: { type: string, maxLength: 160 }
+        days_of_stock:
+          type: integer
+          minimum: 1
+          nullable: true
+          description: The buyer's stated coverage in days; null clears it.
     FeedPurchaseOptions:
       type: object
       description: The backend-owned vocabulary the record-purchase form renders.
@@ -23749,6 +23834,94 @@ components:
             $ref: "#/components/schemas/FeedAnalyticsExpenditureItemDay"
         spend:
           $ref: "#/components/schemas/FeedAnalyticsSpendSummary"
+    FeedAnalyticsStockLoadsResponse:
+      type: object
+      required: [rows, total, negative_gaps, limit, offset, feed_items, farms]
+      properties:
+        rows:
+          type: array
+          items:
+            $ref: "#/components/schemas/FeedAnalyticsStockLoadRow"
+        total:
+          type: integer
+          description: Loads matching the filter, whole-filter.
+        negative_gaps:
+          type: integer
+          description: Loads whose `gap_days` is below zero, whole-filter -- what the tab leads with.
+        limit: { type: integer }
+        offset: { type: integer }
+        feed_items:
+          type: array
+          description: Every feed the ledger holds a load for in the park scope, unnarrowed by the filter, for the feed-item select.
+          items:
+            type: object
+            required: [key, label]
+            properties:
+              key: { type: string }
+              label: { type: string }
+        farms:
+          type: array
+          description: Every farm the ledger holds a load for in the park scope, unnarrowed by the filter, for the farm select.
+          items: { type: string }
+    FeedAnalyticsStockLoadRow:
+      type: object
+      additionalProperties: false
+      required:
+        [feed_purchase_id, farm_label, feed_item_label, feed_item_key, batch_no, vendor,
+         purchase_date, reached_on, consumption_from, finished_on, status, purchased_kg,
+         consumed_kg, left_kg, days_said, days_consumed, days_left, gap_days, avg_daily_kg]
+      properties:
+        feed_purchase_id: { type: string, format: uuid }
+        farm_label: { type: string }
+        feed_item_label: { type: string }
+        feed_item_key: { type: string }
+        batch_no: { type: integer, format: int64 }
+        vendor: { type: string }
+        purchase_date: { type: string, format: date }
+        reached_on:
+          type: string
+          description: Arrival day the load counts as stock from; empty while in transit.
+        consumption_from:
+          type: string
+          description: First locked feed day that drew on this load; empty until then.
+        finished_on:
+          type: string
+          description: Feed day the load's last kilogram was directed; empty while any remains.
+        status:
+          type: string
+          enum: [in_transit, not_started, in_use, finished, overrun]
+          description: >-
+            `overrun` is the NEWEST load of its feed with more directed against it than it held --
+            the farm fed feed the ledger never bought, so a load is missing from the ledger.
+        purchased_kg:
+          type: string
+          description: What the load is worth in the store, net of consumption already recorded at import.
+        consumed_kg: { type: string }
+        left_kg:
+          type: string
+          description: Can be NEGATIVE on an overrun load; never clamped.
+        days_said:
+          type: integer
+          format: int64
+          nullable: true
+          description: The buyer's optional figure from the purchase form; null when not stated.
+        days_consumed:
+          type: integer
+          format: int64
+          description: Locked feed days that drew on this load.
+        days_left:
+          type: integer
+          format: int64
+          nullable: true
+          description: kg left over the feed's recent daily rate; 0 once finished, null with no recent rate.
+        gap_days:
+          type: integer
+          format: int64
+          nullable: true
+          description: days_said - days_consumed - days_left; null whenever either side is unknown.
+        avg_daily_kg:
+          type: string
+          description: The feed's recent daily rate the days-left figure divides by; empty when none.
     FeedAnalyticsStockForecastItem:
       type: object
       additionalProperties: false

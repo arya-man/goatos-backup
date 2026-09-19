@@ -3,6 +3,8 @@ package ports
 import (
 	"context"
 
+	"github.com/google/uuid"
+
 	"github.com/vgoats/goatos/backend/internal/feeddirection/domain"
 )
 
@@ -28,6 +30,9 @@ type DirectedAnalyticsReader interface {
 	// purchase ledger (depleting at sheet lock) and the daily expenditure
 	// series for the query window. Empty when the ledger is unpopulated.
 	StockAnalytics(ctx context.Context, tenantID string, q domain.DirectedAnalyticsQuery) (domain.StockAnalytics, error)
+	// StockLoads returns the purchased-vs-consumed table: every load in the purchase ledger
+	// with its FIFO consumption position, paged, plus whole-filter counts.
+	StockLoads(ctx context.Context, tenantID string, parkIDs []uuid.UUID, q domain.StockLoadsQuery) (domain.StockLoadsPage, error)
 	// ShedFeedAnalytics returns every pen (shed + optional partition) the frozen
 	// sheet directed feed to in the window, with per-feed-item kg totals and the
 	// pen's total. Same membership and predicates as DirectedAnalytics, so the

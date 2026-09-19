@@ -527,6 +527,43 @@ func TestFeedPurchaseEditPostgresPaths(t *testing.T) {
 		}
 	})
 
+	t.Run("days of stock is stored on record, moved by an edit and cleared by a blank edit", func(t *testing.T) {
+		twelve := 12
+		said := feedWrite()
+		said.DaysOfStock = &twelve
+		withDays, err := repo.CreateFeedPurchase(ctx, testTenant, said, "", "edit-load-days")
+		if err != nil {
+			t.Fatalf("create with days: %v", err)
+		}
+		if withDays.DaysOfStock == nil || *withDays.DaysOfStock != 12 {
+			t.Fatalf("days of stock = %v want 12 straight off the record form", withDays.DaysOfStock)
+		}
+		if created.DaysOfStock != nil {
+			t.Fatalf("a load recorded without a figure must read nil, got %d", *created.DaysOfStock)
+		}
+		fifteen := 15
+		moved, err := repo.UpdateFeedPurchase(ctx, testTenant, withDays.FeedPurchaseID, domain.FeedPurchaseEdit{
+			PurchaseDate: withDays.PurchaseDate, QuantityKg: withDays.QuantityKg, Vendor: withDays.Vendor,
+			FeedCost: withDays.FeedCost, TransportCost: withDays.TransportCost, DaysOfStock: &fifteen,
+		}, "")
+		if err != nil {
+			t.Fatalf("edit days: %v", err)
+		}
+		if moved.DaysOfStock == nil || *moved.DaysOfStock != 15 {
+			t.Fatalf("edited days = %v want 15", moved.DaysOfStock)
+		}
+		cleared, err := repo.UpdateFeedPurchase(ctx, testTenant, withDays.FeedPurchaseID, domain.FeedPurchaseEdit{
+			PurchaseDate: withDays.PurchaseDate, QuantityKg: withDays.QuantityKg, Vendor: withDays.Vendor,
+			FeedCost: withDays.FeedCost, TransportCost: withDays.TransportCost,
+		}, "")
+		if err != nil {
+			t.Fatalf("clear days: %v", err)
+		}
+		if cleared.DaysOfStock != nil {
+			t.Fatalf("a blank edit clears the figure, got %d", *cleared.DaysOfStock)
+		}
+	})
+
 	t.Run("an identity-free edit keeps farm, feed and batch untouched", func(t *testing.T) {
 		after, err := repo.getFeedPurchase(ctx, testTenant, created.FeedPurchaseID)
 		if err != nil {

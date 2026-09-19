@@ -226,6 +226,8 @@ data class FeedPurchaseDto(
     @SerialName("reached_weight_kg") val reachedWeightKg: Double? = null,
     /** BACKEND-derived kg counted as stock; null while on the road. */
     @SerialName("stock_kg") val stockKg: Double? = null,
+    /** The buyer's optional "this covers N days" figure; null when not stated. */
+    @SerialName("days_of_stock") val daysOfStock: Int? = null,
     @SerialName("entry_source") val entrySource: String = "",
     @SerialName("created_at") val createdAt: String = "",
     /** The instalments paid against this load, oldest first, as the server returned them. */
@@ -300,6 +302,8 @@ data class FeedPurchaseWriteDto(
     @SerialName("vendor") val vendor: String,
     @SerialName("payment_released") val paymentReleased: Double? = null,
     @SerialName("payment_status") val paymentStatus: String,
+    /** Optional: how many days of feeding the buyer expects the load to cover. Absent, never 0. */
+    @SerialName("days_of_stock") val daysOfStock: Int? = null,
     @SerialName("reached_on") val reachedOn: String? = null,
     @SerialName("reached_weight_kg") val reachedWeightKg: Double? = null,
     /**
@@ -348,6 +352,8 @@ data class FeedPurchaseEditDto(
     @SerialName("unloading_cost") val unloadingCost: Double? = null,
     @SerialName("total_cost") val totalCost: Double? = null,
     @SerialName("vendor") val vendor: String,
+    /** The buyer's stated coverage in days; null clears it. */
+    @SerialName("days_of_stock") val daysOfStock: Int? = null,
 )
 
 /** `PUT /procurement/feed-purchases/{id}/delivery`: the truck came in. */

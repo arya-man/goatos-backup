@@ -2156,6 +2156,30 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/feed-analytics/stock-loads": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Purchased vs consumed, one row per feed load, for the Feed Analytics page.
+         * @description Every load in the purchase ledger with its FIFO consumption position: loads of one feed at one farm are drawn on in arrival order, so a load's consumed kg is whatever the family's directed total (LOCKED sheets plus externally-tracked consumption, from the ledger start) reaches past the kg of every earlier load, capped at the load's own kg -- except the NEWEST load, which takes the whole remainder so an overrun reads as negative kg left rather than being clamped away.
+         *
+         *     `days_said` is the buyer's OPTIONAL figure entered on the purchase form; `days_consumed` counts the locked feed days that drew on the load; `days_left` is kg left over the feed's recent (3 locked days) daily rate, 0 once finished and null when no recent rate exists. `gap_days` = days_said - days_consumed - days_left, null whenever either side is unknown: a check nobody could make is not a check that passed. Zero means the figure held; negative means the load ran (or will run) out sooner than it was bought for.
+         *
+         *     `total` and `negative_gaps` are WHOLE-FILTER counts, never page-local.
+         */
+        get: operations["getFeedAnalyticsStockLoads"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/feed-analytics/shed-feed": {
         parameters: {
             query?: never;
@@ -8021,6 +8045,8 @@ export interface components {
             reached_weight_kg?: number | null;
             /** @description BACKEND-derived: what this load contributes to stock -- the received weight once entered, else the buying weight -- and null while the load is on the road. Clients render this and never decide for themselves what a load is worth in the store. */
             stock_kg?: number | null;
+            /** @description How many days of feeding the buyer said this load covers, entered optionally at purchase time. Null when not stated (all sheet history). Reporting only: the Feed Analytics purchased-vs-consumed read compares it per load against FIFO consumption. */
+            days_of_stock?: number | null;
             /** @enum {string} */
             farm: "CBE" | "CPT";
             /** @description The FEED CATALOG's label, not the typed one, so one feed reads with one spelling. */
@@ -8407,6 +8433,8 @@ export interface components {
             payment_released?: number | null;
             /** @enum {string} */
             payment_status: "Paid" | "Pending";
+            /** @description Optional: how many days of feeding the buyer expects this load to cover. Omit when not known; 0 is rejected rather than read as "not stated". */
+            days_of_stock?: number | null;
             /**
              * Format: date
              * @description Omit for the normal case -- the load is recorded when bought and is still on the road. Supply the arrival date only for a load that had already come in when it was recorded; it is then `reached` from that day. Not before `purchase_date`, not in the future.
@@ -8470,6 +8498,8 @@ export interface components {
             /** @description Leave out to have the split parts summed, exactly as the record form does. */
             total_cost?: number | null;
             vendor: string;
+            /** @description The buyer's stated coverage in days; null clears it. */
+            days_of_stock?: number | null;
         };
         /** @description The backend-owned vocabulary the record-purchase form renders. */
         FeedPurchaseOptions: {
@@ -10644,6 +10674,72 @@ export interface components {
             /** @description The same priced series at (feed day, feed item) grain, ordered by day then item key. */
             item_expenditure: components["schemas"]["FeedAnalyticsExpenditureItemDay"][];
             spend: components["schemas"]["FeedAnalyticsSpendSummary"];
+        };
+        FeedAnalyticsStockLoadsResponse: {
+            rows: components["schemas"]["FeedAnalyticsStockLoadRow"][];
+            /** @description Loads matching the filter, whole-filter. */
+            total: number;
+            /** @description Loads whose `gap_days` is below zero, whole-filter -- what the tab leads with. */
+            negative_gaps: number;
+            limit: number;
+            offset: number;
+            /** @description Every feed the ledger holds a load for in the park scope, unnarrowed by the filter, for the feed-item select. */
+            feed_items: {
+                key: string;
+                label: string;
+            }[];
+            /** @description Every farm the ledger holds a load for in the park scope, unnarrowed by the filter, for the farm select. */
+            farms: string[];
+        };
+        FeedAnalyticsStockLoadRow: {
+            /** Format: uuid */
+            feed_purchase_id: string;
+            farm_label: string;
+            feed_item_label: string;
+            feed_item_key: string;
+            /** Format: int64 */
+            batch_no: number;
+            vendor: string;
+            /** Format: date */
+            purchase_date: string;
+            /** @description Arrival day the load counts as stock from; empty while in transit. */
+            reached_on: string;
+            /** @description First locked feed day that drew on this load; empty until then. */
+            consumption_from: string;
+            /** @description Feed day the load's last kilogram was directed; empty while any remains. */
+            finished_on: string;
+            /**
+             * @description `overrun` is the NEWEST load of its feed with more directed against it than it held -- the farm fed feed the ledger never bought, so a load is missing from the ledger.
+             * @enum {string}
+             */
+            status: "in_transit" | "not_started" | "in_use" | "finished" | "overrun";
+            /** @description What the load is worth in the store, net of consumption already recorded at import. */
+            purchased_kg: string;
+            consumed_kg: string;
+            /** @description Can be NEGATIVE on an overrun load; never clamped. */
+            left_kg: string;
+            /**
+             * Format: int64
+             * @description The buyer's optional figure from the purchase form; null when not stated.
+             */
+            days_said: number | null;
+            /**
+             * Format: int64
+             * @description Locked feed days that drew on this load.
+             */
+            days_consumed: number;
+            /**
+             * Format: int64
+             * @description kg left over the feed's recent daily rate; 0 once finished, null with no recent rate.
+             */
+            days_left: number | null;
+            /**
+             * Format: int64
+             * @description days_said - days_consumed - days_left; null whenever either side is unknown.
+             */
+            gap_days: number | null;
+            /** @description The feed's recent daily rate the days-left figure divides by; empty when none. */
+            avg_daily_kg: string;
         };
         /** @description One farm's requirement for one feed over the next 7 days, at the CURRENT feeding rate. Quantities are kg and money is rupees, both as decimal strings; an empty string means the figure is unavailable for this row rather than zero -- `stock_kg` and the cost fields are empty when the purchase ledger carries no load for this farm and feed, and a never-purchased feed still reports its requirement. */
         FeedAnalyticsStockForecastItem: {
@@ -24030,6 +24126,50 @@ export interface operations {
                 content?: never;
             };
             /** @description Caller lacks feed direction read for the requested scope. */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    getFeedAnalyticsStockLoads: {
+        parameters: {
+            query?: {
+                park_id?: string;
+                /** @description Narrow to one farm label (CBE or CPT); omit for both. */
+                farm?: string;
+                /** @description Narrow to one feed item key; omit for every feed. */
+                feed_item_key?: string;
+                /** @description Page size, 1-100; omit for 25. A present but out-of-range value is rejected. */
+                limit?: number;
+                /** @description Page offset, 0-10000. */
+                offset?: number;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description One page of loads with whole-filter counts. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["FeedAnalyticsStockLoadsResponse"];
+                };
+            };
+            /** @description Malformed park id or an out-of-range page. */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Caller lacks feed stock read for the requested scope. */
             403: {
                 headers: {
                     [name: string]: unknown;

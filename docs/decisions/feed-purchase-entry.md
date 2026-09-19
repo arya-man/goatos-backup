@@ -137,3 +137,9 @@ Migration `000206_feed_purchases_app_entry.sql` adds `entry_source` (`sheet_impo
 `recorded_by`. Existing rows keep the `sheet_import` default — every row present before that
 migration arrived through the importer. The ledger shows the difference rather than presenting
 imported history as something a person typed on this screen.
+
+## Days of stock (2026-09-19)
+
+The record and edit forms carry an OPTIONAL **Days of stock** figure — how many days of feeding the
+buyer expects the load to cover. It is compared per load against FIFO consumption on the Feed
+Analytics **Purchased vs consumed** tab; see `docs/decisions/feed-purchased-vs-consumed.md`.

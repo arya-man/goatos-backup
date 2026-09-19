@@ -53,6 +53,9 @@ function readPurchaseForm(formData: FormData): FeedPurchaseWrite {
     unloading_cost: parseOptionalNumber("unloading_cost"),
     total_cost: parseOptionalNumber("total_cost"),
     vendor: requiredString(formData, "vendor"),
+    // Optional: the buyer's own "this covers N days". Blank is omitted, never 0 -- the backend
+    // rejects 0 rather than reading it as "not stated".
+    days_of_stock: parseOptionalNumber("days_of_stock"),
     payment_released: parseOptionalNumber("payment_released"),
     payment_status: requiredString(formData, "payment_status") as FeedPurchaseWrite["payment_status"],
     // A blank reached date is the normal case: the load is recorded when bought and is still on
@@ -140,6 +143,7 @@ export async function editFeedPurchaseAction(formData: FormData): Promise<void> 
     unloading_cost: parseOptionalNumber("unloading_cost"),
     total_cost: parseOptionalNumber("total_cost"),
     vendor: requiredString(formData, "vendor"),
+    days_of_stock: parseOptionalNumber("days_of_stock"),
   };
   const result = await editFeedPurchase(purchaseId, body);
   if (!result.ok) {

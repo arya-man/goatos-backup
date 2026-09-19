@@ -1736,6 +1736,35 @@ export async function getFeedAnalyticsStock(
   );
 }
 
+export type FeedAnalyticsStockLoadsResponse =
+  AppApiComponents["schemas"]["FeedAnalyticsStockLoadsResponse"];
+export type FeedAnalyticsStockLoadRow = AppApiComponents["schemas"]["FeedAnalyticsStockLoadRow"];
+
+export type FeedAnalyticsStockLoadsParams = {
+  park_id?: string;
+  /** Farm label (CBE / CPT); absent means both. */
+  farm?: string;
+  /** Feed item key; absent means every feed. */
+  feed_item_key?: string;
+  limit?: string;
+  offset?: string;
+};
+
+/** Purchased vs consumed, one row per feed load, paged with whole-filter counts. */
+export async function getFeedAnalyticsStockLoads(
+  params: FeedAnalyticsStockLoadsParams,
+): Promise<ApiResult<FeedAnalyticsStockLoadsResponse>> {
+  const config = await getServerConfig();
+  if (!config.ok) return config;
+  const client = createAppApiClient(apiClientOptions(config.data));
+  return request(() =>
+    client.request<FeedAnalyticsStockLoadsResponse>("/feed-analytics/stock-loads", {
+      cache: "no-store",
+      query: compactQuery(params),
+    }),
+  );
+}
+
 export async function getFeedAnalyticsShedFeed(
   params: FeedAnalyticsParams,
 ): Promise<ApiResult<FeedAnalyticsShedFeedResponse>> {

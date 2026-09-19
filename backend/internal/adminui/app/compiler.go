@@ -2008,11 +2008,14 @@ func compileFeedAnalyticsOptionGroups(groups []domain.OptionGroup, input Bootstr
 	ungated := len(input.Grants) == 0
 	mayReadFullFeed := !procurementDirectorStockOnly(input) &&
 		(ungated || grantsAuthorize(input.Grants, input.TenantID, []string{permissions.FeedDirectionRead}))
-	tabs := []domain.Option{option("items", "Stock", "", "")}
+	// Purchased vs consumed rides the STOCK gate: it is the purchase ledger read load by load,
+	// served by the same permission as the Stock tab, so whoever sees Stock sees it.
+	tabs := []domain.Option{option("items", "Stock", "", ""), option("loads", "Purchased vs consumed", "", "")}
 	if mayReadFullFeed {
 		tabs = []domain.Option{
 			option("overview", "Consumption", "", ""),
 			option("items", "Stock", "", ""),
+			option("loads", "Purchased vs consumed", "", ""),
 			option("peranimal", "Per Animal", "", ""),
 			option("experiment", "Experiment", "", ""),
 			option("execution", "Execution", "", ""),
