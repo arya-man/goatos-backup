@@ -260,7 +260,7 @@ type itemStore struct{}
 // itemContextKeys are the kind-specific facts stored in inventory_items.context.
 var itemContextKeys = []string{"route", "strength", "withdrawal_days", "disease", "manufacturer", "doses_per_vial", "vaccine_type", "notes"}
 
-var itemProjection = projection{sql: itemProjectionSQL()}
+var itemProjection = projection{sql: itemProjectionSQL(false), getSQL: itemProjectionSQL(true)}
 
 // sqlDepartmentForKind mirrors domain.DepartmentForKind in SQL, so the filter and the row agree.
 func sqlDepartmentForKind(col string) string {
@@ -270,12 +270,22 @@ func sqlDepartmentForKind(col string) string {
 // isFeedRow reports a feed_item_catalog row folded into the items read; it is edited on Feed Config.
 func isFeedRow(id string) bool { return strings.HasPrefix(id, "feed:") }
 
-func itemProjectionSQL() string {
+// itemProjectionSQL renders the item projection; forGet puts the get-by-id predicate inside
+// each branch (see projection.getSQL).
+func itemProjectionSQL(forGet bool) string {
 	quoted := make([]string, 0, len(itemContextKeys))
 	for _, k := range itemContextKeys {
 		quoted = append(quoted, "'"+k+"'")
 	}
-	return strings.Replace(itemProjectionTemplate, "__CONTEXT_KEYS__", strings.Join(quoted, ", "), 1)
+	sql := strings.Replace(itemProjectionTemplate, "__CONTEXT_KEYS__", strings.Join(quoted, ", "), 1)
+	itemFilter, feedFilter := "", ""
+	if forGet {
+		// A get by uuid reads the one item row through its key; a feed row's get skips the item
+		// branch and the item get skips the feed branch.
+		itemFilter, feedFilter = "AND i.item_id = $3::uuid", "AND $3::uuid IS NULL"
+	}
+	sql = strings.Replace(sql, "__ID_FILTER__", itemFilter, 1)
+	return strings.Replace(sql, "__FEED_ID_FILTER__", feedFilter, 1)
 }
 
 var itemProjectionTemplate = `
@@ -305,7 +315,7 @@ LEFT JOIN LATERAL (
   )
   SELECT path, ids FROM up WHERE parent_category_id IS NULL LIMIT 1
 ) cp ON true
-WHERE i.tenant_id = $1
+WHERE i.tenant_id = $1 __ID_FILTER__
 UNION ALL
 SELECT 'feed:' || f.feed_item_id::text AS id,
        f.feed_item_label AS display,
@@ -321,7 +331,7 @@ SELECT 'feed:' || f.feed_item_id::text AS id,
        lower(f.feed_item_label) AS sort_key
 FROM feed_item_catalog f
 LEFT JOIN item_categories fc ON fc.tenant_id = f.tenant_id AND fc.parent_category_id IS NULL AND fc.item_kind = 'feed' AND fc.is_builtin
-WHERE f.tenant_id = $1`
+WHERE f.tenant_id = $1 __FEED_ID_FILTER__`
 
 func (itemStore) count(ctx context.Context, q querier, t string) (int, error) {
 	return itemProjection.count(ctx, q, t)

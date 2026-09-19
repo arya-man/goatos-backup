@@ -25,6 +25,15 @@ import (
 // composed in Go and its SQL display column carries the shed name alone.
 type projection struct {
 	sql string
+	// getSQL, when set, is the projection with the get-by-id predicate INSIDE its branches and
+	// $3 bound to the id as a uuid (NULL for an id of another shape). A get otherwise wraps the
+	// projection in `WHERE r.id = $2`, and for a branch whose id is `uuid_col::text` the planner
+	// pushes that down as a COLUMN-SIDE CAST the index cannot serve -- a scan of the whole table
+	// per get, which the register write does after every row (found by the 2-lakh workbook run
+	// as a write rate falling with the table). `AND uuid_col = $3::uuid` on the branch keyed by
+	// that column and `AND $3::uuid IS NULL` on a branch keyed another way (a feed row) make a
+	// uuid get one indexed row while a non-uuid get still reaches its branch.
+	getSQL string
 	// parentField is the fields key whose value becomes RefOption.ParentID (a pen's park).
 	parentField string
 	// kindField is the fields key whose value becomes RefOption.Kind (a category's kind).
@@ -99,6 +108,14 @@ func scanRow(rows interface{ Scan(dest ...any) error }) (domain.Row, string, err
 	return row, sortKey, nil
 }
 
+// uuidOrNil is the uuid a get filters its branch by; nil for an id of another shape.
+func uuidOrNil(id string) *string {
+	if isUUID(id) {
+		return &id
+	}
+	return nil
+}
+
 func (p projection) count(ctx context.Context, q querier, tenantID string) (int, error) {
 	var n int
 	err := q.QueryRow(ctx, fmt.Sprintf(activeCountSQL, p.sql), tenantID).Scan(&n)
@@ -155,7 +172,15 @@ func (p projection) list(ctx context.Context, q querier, tenantID string, lp por
 }
 
 func (p projection) get(ctx context.Context, q querier, tenantID, id string) (domain.Row, error) {
-	row, _, err := scanRow(q.QueryRow(ctx, fmt.Sprintf(getWrapSQL, p.sql), tenantID, id))
+	var (
+		sql  = fmt.Sprintf(getWrapSQL, p.sql)
+		args = []any{tenantID, id}
+	)
+	if p.getSQL != "" {
+		sql = fmt.Sprintf(getWrapSQL, p.getSQL)
+		args = append(args, uuidOrNil(id))
+	}
+	row, _, err := scanRow(q.QueryRow(ctx, sql, args...))
 	if err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
 			return domain.Row{}, ports.ErrNotFound
