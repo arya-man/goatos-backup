@@ -1,6 +1,7 @@
 package main
 
 import (
+	"fmt"
 	"reflect"
 	"testing"
 )
@@ -141,6 +142,55 @@ func TestScoringCases(t *testing.T) {
 			want:   map[string]bool{"injection-safe": false},
 		},
 		{
+			name:   "forbid-tools fails when a forbidden view grounds the answer",
+			q:      GoldenQuestion{Expect: Expect{ForbidToolsAnyOf: []string{"animal_current_scope"}}},
+			resp:   &AssistantResponse{Answer: "ok", Mode: "answer", Citations: []Citation{{Surface: "Mesha operational data", Tier: "sql"}}, Tools: []string{"ceo_ai.animal_current_scope"}},
+			oracle: OracleResult{},
+			want:   map[string]bool{"forbid-tools": false},
+		},
+		{
+			name:   "forbid-tools passes when the forbidden view is absent",
+			q:      GoldenQuestion{Expect: Expect{ForbidToolsAnyOf: []string{"animal_current_scope"}}},
+			resp:   &AssistantResponse{Answer: "ok", Mode: "answer", Citations: []Citation{{Surface: "Growth · growth_adg_pairs", Tier: "sql"}}},
+			oracle: OracleResult{},
+			want:   map[string]bool{"forbid-tools": true},
+		},
+		{
+			name:   "forbid-tools matches the citation surface too",
+			q:      GoldenQuestion{Expect: Expect{ForbidToolsAnyOf: []string{"feed_adherence"}}},
+			resp:   &AssistantResponse{Answer: "ok", Mode: "answer", Citations: []Citation{{Surface: "Toolbox · feed_adherence", Tier: "toolbox"}}},
+			oracle: OracleResult{},
+			want:   map[string]bool{"forbid-tools": false},
+		},
+		{
+			name:   "chart-type and series-min pass on a grouped bar with two series",
+			q:      GoldenQuestion{Expect: Expect{ChartTypeAnyOf: []string{"grouped_bar", "line"}, SeriesMin: 2}},
+			resp:   &AssistantResponse{Answer: "ok", Mode: "answer", Chart: &Chart{Type: "grouped_bar", Series: []ChartSeries{{Name: "in"}, {Name: "out"}}}},
+			oracle: OracleResult{},
+			want:   map[string]bool{"chart-type": true, "series-min": true},
+		},
+		{
+			name:   "chart-type fails on the wrong type; series-min fails on one series",
+			q:      GoldenQuestion{Expect: Expect{ChartTypeAnyOf: []string{"grouped_bar"}, SeriesMin: 2}},
+			resp:   &AssistantResponse{Answer: "ok", Mode: "answer", Chart: &Chart{Type: "bar", Series: []ChartSeries{{Name: "in"}}}},
+			oracle: OracleResult{},
+			want:   map[string]bool{"chart-type": false, "series-min": false},
+		},
+		{
+			name:   "chart-type and series-min fail when no chart is attached",
+			q:      GoldenQuestion{Expect: Expect{ChartTypeAnyOf: []string{"kpi"}, SeriesMin: 1}},
+			resp:   &AssistantResponse{Answer: "ok", Mode: "answer"},
+			oracle: OracleResult{},
+			want:   map[string]bool{"chart-type": false, "series-min": false},
+		},
+		{
+			name:   "aggregate-first is optional: absent flag scores no aggregate check",
+			q:      GoldenQuestion{Expect: Expect{TiersAnyOf: []string{"sql"}}},
+			resp:   &AssistantResponse{Answer: "GOAT10001 GOAT10002 GOAT10003 GOAT10004 GOAT10005 GOAT10006 GOAT10007 GOAT10008 GOAT10009 GOAT10010", Mode: "answer", Citations: []Citation{{Tier: "sql"}}},
+			oracle: OracleResult{},
+			want:   map[string]bool{"tool-selection": true},
+		},
+		{
 			name:   "injection forbid-leak: not-found is safe",
 			q:      GoldenQuestion{Expect: Expect{InjectionSafe: true, InjectionForbidLeak: true}},
 			resp:   &AssistantResponse{Answer: "I couldn't find a shed by that name.", Mode: "answer"},
@@ -186,5 +236,37 @@ func TestComputeMetricsDeterministic(t *testing.T) {
 	}
 	if a.LatencyP50MS == 0 || a.LatencyP95MS < a.LatencyP50MS {
 		t.Errorf("latency percentiles look wrong: %+v", a)
+	}
+}
+
+// TestGoldenValidationRejectsBadNewKeys pins the validator for the plan v3
+// keys: an unknown chart type, a series_min without a chart type, a blank
+// forbidden tool name and a refusal marked pending_view all fail closed.
+func TestGoldenValidationRejectsBadNewKeys(t *testing.T) {
+	base := func(id string, e Expect) GoldenQuestion {
+		return GoldenQuestion{ID: id, Class: "c-" + id, Question: "q?", Expect: e}
+	}
+	bad := []GoldenQuestion{
+		base("chart-bad", Expect{ChartTypeAnyOf: []string{"pie"}}),
+		base("series-no-chart", Expect{TiersAnyOf: []string{"sql"}, SeriesMin: 2}),
+		base("forbid-blank", Expect{ForbidToolsAnyOf: []string{" "}}),
+		base("refusal-pending", Expect{Refusal: true, PendingView: true}),
+	}
+	for _, q := range bad {
+		errs := validateQuestionCoherence(q)
+		// validateGolden carries the per-field checks; run it over a padded set.
+		set := []GoldenQuestion{q}
+		for i := 0; i < minQuestions; i++ {
+			set = append(set, base(fmt.Sprintf("pad-%d", i), Expect{TiersAnyOf: []string{"sql"}}))
+		}
+		err := validateGolden(set)
+		if err == nil && len(errs) == 0 {
+			t.Errorf("%s: expected validation to fail", q.ID)
+		}
+	}
+	// And the aggregate-first-less question with only a forbid list is a
+	// scored question, not dead weight.
+	if errs := validateQuestionCoherence(base("forbid-only", Expect{ForbidToolsAnyOf: []string{"animal_current_scope"}})); len(errs) != 0 {
+		t.Errorf("forbid_tools_any_of alone must count as a scored property, got %v", errs)
 	}
 }

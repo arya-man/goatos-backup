@@ -14,6 +14,10 @@ import (
 // validTiers is the closed set of read-path tiers the routing hierarchy uses.
 var validTiers = map[string]bool{"cube": true, "api": true, "toolbox": true, "sql": true}
 
+// validChartTypes is the closed set of chart types the composer may emit (plan
+// v3 D4): bar, grouped_bar, stacked_bar, line, kpi, table. No pie, no heatmap.
+var validChartTypes = map[string]bool{"bar": true, "grouped_bar": true, "stacked_bar": true, "line": true, "kpi": true, "table": true}
+
 // idPattern keeps ids stable and file-name-safe so the report and any future
 // feedback join stay deterministic.
 var idPattern = regexp.MustCompile(`^[a-z0-9]+(?:-[a-z0-9]+)*$`)
@@ -99,6 +103,22 @@ func validateGolden(qs []GoldenQuestion) error {
 				errs = append(errs, fmt.Sprintf("%s: unknown tier %q (want cube|api|toolbox|sql)", where, t))
 			}
 		}
+		for _, c := range q.Expect.ChartTypeAnyOf {
+			if !validChartTypes[c] {
+				errs = append(errs, fmt.Sprintf("%s: unknown chart type %q (want bar|grouped_bar|stacked_bar|line|kpi|table)", where, c))
+			}
+		}
+		for _, f := range q.Expect.ForbidToolsAnyOf {
+			if strings.TrimSpace(f) == "" {
+				errs = append(errs, fmt.Sprintf("%s: forbid_tools_any_of contains an empty name", where))
+			}
+		}
+		if q.Expect.SeriesMin < 0 {
+			errs = append(errs, fmt.Sprintf("%s: series_min must be >= 0", where))
+		}
+		if q.Expect.SeriesMin > 0 && len(q.Expect.ChartTypeAnyOf) == 0 {
+			errs = append(errs, fmt.Sprintf("%s: series_min requires chart_type_any_of (a series count without a chart type asserts nothing)", where))
+		}
 		errs = append(errs, validateQuestionCoherence(q)...)
 	}
 	if len(classes) < minClasses {
@@ -140,8 +160,12 @@ func validateQuestionCoherence(q GoldenQuestion) []string {
 	// anything.
 	if !q.Expect.Refusal && !q.Expect.Grounded && !q.Expect.SpeciesSplit &&
 		!q.Expect.AggregateFirst && !q.Expect.InjectionSafe && len(q.Expect.TiersAnyOf) == 0 &&
-		len(q.Expect.ExternalMCPToolsAnyOf) == 0 {
+		len(q.Expect.ExternalMCPToolsAnyOf) == 0 && len(q.Expect.ForbidToolsAnyOf) == 0 &&
+		len(q.Expect.ChartTypeAnyOf) == 0 {
 		errs = append(errs, fmt.Sprintf("%s: asserts no scored property", q.ID))
+	}
+	if q.Expect.Refusal && q.Expect.PendingView {
+		errs = append(errs, fmt.Sprintf("%s: a refusal never waits on a view — drop pending_view", q.ID))
 	}
 	return errs
 }

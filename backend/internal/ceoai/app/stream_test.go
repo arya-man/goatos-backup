@@ -40,7 +40,7 @@ func TestAskStreamReassemblesAnswer(t *testing.T) {
 	reg := NewRegistry(nil, nil, nil)
 	reg.Register(&fakeExec{
 		spec:   ports.ToolSpec{Name: "herd_count", Route: domain.RouteAPI},
-		result: domain.ToolResult{Surface: "counts", Facts: []domain.Fact{{Label: "active goats", Value: "1234"}}},
+		result: domain.ToolResult{Surface: "counts", Facts: []domain.Fact{{TenantID: "t1", Label: "active goats", Value: "1234"}}},
 	})
 	a := NewAssistant(Config{}, Deps{Provider: prov, Registry: reg})
 
@@ -95,7 +95,7 @@ func TestAskStreamEmitsProgressBeforeAnswer(t *testing.T) {
 	reg := NewRegistry(nil, nil, nil)
 	reg.Register(&fakeExec{
 		spec:   ports.ToolSpec{Name: "herd_count", Route: domain.RouteAPI},
-		result: domain.ToolResult{Surface: "counts", Facts: []domain.Fact{{Label: "active goats", Value: "1234"}}},
+		result: domain.ToolResult{Surface: "counts", Facts: []domain.Fact{{TenantID: "t1", Label: "active goats", Value: "1234"}}},
 	})
 	a := NewAssistant(Config{}, Deps{Provider: prov, Registry: reg})
 

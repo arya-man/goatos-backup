@@ -41,6 +41,13 @@ against Vertex + Cube + DB.
 4. Answer-grounding validator: every number/label in the answer must trace to a
    citation-backed tool result, else it is stripped / downgraded to "cannot
    ground". Never fabricate zero-as-success.
+5. Tenant-typed facts (plan v3 D0/D4): `domain.Fact{TenantID, Label, Scope,
+   Value, Values, Unit}`. `TenantID` is stamped by the executor/reader from the
+   session actor, never parsed from a row; `app.validateFactTenants` rejects a
+   mixed, foreign or unstamped fact set before compose, chart and cache, and the
+   orchestrator turns that into a refusal. `Values` carries the SQL
+   `series_<name>` columns for grouped/stacked charts; `Unit` drives ₹/kg/g-day
+   formatting.
 
 ## Persistence
 
@@ -65,8 +72,13 @@ readonly pool.
 ## Eval & observability
 
 `tools/ceo-ai/eval` golden set (census, vaccination, feed/shifting/procurement,
-ops/workforce, adversarial) with SQL oracles + a grounding assertion, run against
-a seeded local DB and wired into `make ci-local`. Spans/counters (requests,
+ops/workforce, adversarial — 86 Qs / 74 classes) with SQL oracles, a grounding
+assertion, `forbid_tools_any_of` / `chart_type_any_of` / `series_min` checks and
+`pending_view` skips, run against a seeded local DB and wired into
+`make ci-local`. Coverage stays current through three guards
+(`leadership-assistant-coverage-guard` with typed exclusions,
+`ceo-ai-page-contract-drift-guard`, `assistant-route-closure-guard`) — see
+`docs/ceo-ai/coverage-matrix.md` → "Automatic coverage". Spans/counters (requests,
 tokens, cost, tier-hit, cache-hit, safety-block) via
 `backend/internal/platform/observability`.
 

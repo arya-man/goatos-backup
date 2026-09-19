@@ -271,13 +271,14 @@ func (s *cubeMetricService) Query(ctx context.Context, actor domain.Actor, req p
 		val := formatMetricValue(req.Metric, scalarString(row[member]))
 		scope := joinScope(filterScope, cubeRowScope(row, b.view, q.Dimensions))
 		tr.Facts = append(tr.Facts, domain.Fact{
-			Label: b.title,
-			Value: val,
-			Scope: scope,
+			TenantID: actor.TenantID, // from the session actor, never from the Cube row
+			Label:    b.title,
+			Value:    val,
+			Scope:    scope,
 		})
 	}
 	if len(tr.Facts) == 0 {
-		tr.Facts = append(tr.Facts, domain.Fact{Label: b.title, Value: "0", Scope: filterScope})
+		tr.Facts = append(tr.Facts, domain.Fact{TenantID: actor.TenantID, Label: b.title, Value: "0", Scope: filterScope})
 	}
 	return tr, nil
 }
@@ -403,18 +404,31 @@ func (a *sqlFallbackAdapter) Execute(ctx context.Context, actor domain.Actor, sq
 	if err != nil {
 		return domain.ToolResult{}, fmt.Errorf("sqlguard fallback: %w", err)
 	}
-	return rowsToToolResult(rows), nil
+	return rowsToToolResult(actor.TenantID, rows), nil
 }
 
-func (a *sqlFallbackAdapter) ExecuteTrusted(ctx context.Context, actor domain.Actor, sql string, _ []any) (domain.ToolResult, error) {
-	rows, err := a.exec.ExecuteTrustedReadOnlyForTenant(ctx, actor.TenantID, sql)
+// ExecuteTrusted runs server-authored SQL with the session tenant ALWAYS bound
+// as $1 by the executor; args (park scope etc.) bind as $2.. (D0 trusted-SQL API).
+func (a *sqlFallbackAdapter) ExecuteTrusted(ctx context.Context, actor domain.Actor, sql string, args []any) (domain.ToolResult, error) {
+	rows, err := a.exec.ExecuteTrustedReadOnlyForTenant(ctx, actor.TenantID, sql, args...)
 	if err != nil {
 		return domain.ToolResult{}, fmt.Errorf("trusted sql fallback: %w", err)
 	}
-	return rowsToToolResult(rows), nil
+	return rowsToToolResult(actor.TenantID, rows), nil
 }
 
-func rowsToToolResult(rows []sqlguard.Row) domain.ToolResult {
+// seriesColumnPrefix is the SQL fact contract's multi-metric column prefix:
+// `label, scope, value[, series_<name>…]` — every numeric `series_<name>`
+// column lands in Fact.Values[name] so a grouped/stacked chart can draw more
+// than one series per row (plan v3 D4). Non-numeric series columns are
+// ignored rather than guessed.
+const seriesColumnPrefix = "series_"
+
+// rowsToToolResult maps sqlguard rows to grounding facts. tenantID is the
+// SESSION tenant the executor already bound the query to; it is stamped onto
+// every fact here and is never read from a row column (a `tenant_id` column in
+// the result is just another scalar and is not trusted for scoping).
+func rowsToToolResult(tenantID string, rows []sqlguard.Row) domain.ToolResult {
 	tr := domain.ToolResult{
 		Route:    domain.RouteSQL,
 		ToolName: "sql_fallback",
@@ -426,19 +440,43 @@ func rowsToToolResult(rows []sqlguard.Row) domain.ToolResult {
 	for _, row := range rows {
 		if label, ok := row["label"]; ok {
 			if value, hasValue := row["value"]; hasValue {
-				fact := domain.Fact{Label: scalarString(label), Value: scalarString(value)}
+				fact := domain.Fact{TenantID: tenantID, Label: scalarString(label), Value: scalarString(value)}
 				if scope, hasScope := row["scope"]; hasScope {
 					fact.Scope = scalarString(scope)
 				}
+				if unit, hasUnit := row["unit"]; hasUnit {
+					fact.Unit = scalarString(unit)
+				}
+				fact.Values = seriesValues(row)
 				tr.Facts = append(tr.Facts, fact)
 				continue
 			}
 		}
 		for k, v := range row {
-			tr.Facts = append(tr.Facts, domain.Fact{Label: k, Value: scalarString(v)})
+			tr.Facts = append(tr.Facts, domain.Fact{TenantID: tenantID, Label: k, Value: scalarString(v)})
 		}
 	}
 	return tr
+}
+
+// seriesValues collects every numeric `series_<name>` column of a contract row
+// into a name -> float64 map (nil when the row has none).
+func seriesValues(row sqlguard.Row) map[string]float64 {
+	var values map[string]float64
+	for k, v := range row {
+		if !strings.HasPrefix(k, seriesColumnPrefix) || len(k) == len(seriesColumnPrefix) {
+			continue
+		}
+		f, err := strconv.ParseFloat(strings.TrimSpace(scalarString(v)), 64)
+		if err != nil {
+			continue
+		}
+		if values == nil {
+			values = map[string]float64{}
+		}
+		values[k[len(seriesColumnPrefix):]] = f
+	}
+	return values
 }
 
 // ---------------------------------------------------------------------------
@@ -659,7 +697,7 @@ func (a *toolboxAdapter) Call(ctx context.Context, actor domain.Actor, tool stri
 	}
 	for _, row := range rows {
 		for k, v := range row {
-			tr.Facts = append(tr.Facts, domain.Fact{Label: k, Value: scalarString(v)})
+			tr.Facts = append(tr.Facts, domain.Fact{TenantID: actor.TenantID, Label: k, Value: scalarString(v)})
 		}
 	}
 	return tr, nil

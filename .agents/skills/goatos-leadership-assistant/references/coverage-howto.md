@@ -146,10 +146,34 @@ Add to `tools/ceo-ai/eval/golden/<domain>.json`:
   "id": "<module>-summary",
   "class": "<module>_summary",
   "question": "…",
-  "expect": { "grounded": true, "aggregate_first": true, "tiers_any_of": ["cube","api"] },
+  "expect": { "grounded": true, "tiers_any_of": ["cube","api"], "chart_type_any_of": ["bar"] },
   "oracle": { "kind": "scalar_int", "sql": "SELECT … WHERE tenant_id = :'tenant_id'::uuid …" }
 }
 ```
+
+Expectation keys (see `docs/ceo-ai/eval.md`): `grounded`, `species_split`,
+`refusal`, `injection_safe`(+`injection_forbid_leak`), `tiers_any_of`,
+`forbid_tools_any_of` (the answer must NOT cite these views/tools),
+`chart_type_any_of` (`bar|grouped_bar|stacked_bar|line|kpi|table`), `series_min`,
+`aggregate_first` (optional — per-animal answers are allowed within the tenant),
+and `pending_view: true` when the view is still planned (shape-validated, live
+run skips it loudly; drop the flag in the PR that lands the view).
+
+## Schema card (every `ceo_ai.*` view)
+
+A new or changed view ships its schema card in the same change
+(`ceo-ai-schema-card-guard`): `tenant_id` column present, tenant-scoped columns
+marked, the page `route` for the drill link, and the SQL fact contract
+`label, scope, value[, unit][, series_<name>…]` for anything the composer will
+chart. No card, no view.
+
+## Page KPI / chart (admin-web page contract)
+
+A `kpi.*` / `chart.*` copy key added to a page in
+`backend/internal/adminui/app/service.go` trips
+`make ceo-ai-page-contract-drift-guard` until the page's data-source route has a
+row in `docs/ceo-ai/coverage-matrix.md` → "Automatic coverage": covered,
+`PLANNED:P<n> (<view>)`, or a typed exclusion. Pair it with a golden question.
 
 ## Always finish with the matrix
 

@@ -92,9 +92,9 @@ func TestSynthesizeOverloadLead(t *testing.T) {
 	over := []domain.ToolResult{{
 		Route: domain.RouteCube,
 		Facts: []domain.Fact{
-			{Label: operatorUtilizationLabel, Value: "130%", Scope: "Fixture Staff 012"},
-			{Label: operatorUtilizationLabel, Value: "155%", Scope: "Fixture Staff 013"},
-			{Label: operatorUtilizationLabel, Value: "40%", Scope: "Fixture Staff 016"},
+			{TenantID: "t1", Label: operatorUtilizationLabel, Value: "130%", Scope: "Fixture Staff 012"},
+			{TenantID: "t1", Label: operatorUtilizationLabel, Value: "155%", Scope: "Fixture Staff 013"},
+			{TenantID: "t1", Label: operatorUtilizationLabel, Value: "40%", Scope: "Fixture Staff 016"},
 		},
 	}}
 	lead := synthesizeOverloadLead(over)
@@ -115,13 +115,13 @@ func TestSynthesizeOverloadLead(t *testing.T) {
 	}
 
 	// All within capacity.
-	under := []domain.ToolResult{{Facts: []domain.Fact{{Label: operatorUtilizationLabel, Value: "40%", Scope: "Fixture Staff 016"}}}}
+	under := []domain.ToolResult{{Facts: []domain.Fact{{TenantID: "t1", Label: operatorUtilizationLabel, Value: "40%", Scope: "Fixture Staff 016"}}}}
 	if lead := synthesizeOverloadLead(under); !strings.Contains(lead, "within capacity") {
 		t.Fatalf("expected within-capacity lead, got %q", lead)
 	}
 
 	// No utilization facts => empty (normal lead handles it).
-	if lead := synthesizeOverloadLead([]domain.ToolResult{{Facts: []domain.Fact{{Label: "Active animals", Value: "972"}}}}); lead != "" {
+	if lead := synthesizeOverloadLead([]domain.ToolResult{{Facts: []domain.Fact{{TenantID: "t1", Label: "Active animals", Value: "972"}}}}); lead != "" {
 		t.Fatalf("expected empty lead when no utilization facts, got %q", lead)
 	}
 }

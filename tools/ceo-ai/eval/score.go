@@ -61,9 +61,43 @@ func scoreQuestion(q GoldenQuestion, resp *AssistantResponse, oracle OracleResul
 			fmt.Sprintf("want any of %v, got %v", q.Expect.TiersAnyOf, got))
 	}
 
+	if len(q.Expect.ForbidToolsAnyOf) > 0 {
+		hit, matched := forbiddenToolHit(resp, q.Expect.ForbidToolsAnyOf)
+		add("forbid-tools", !hit,
+			fmt.Sprintf("forbidden %v, matched %v", q.Expect.ForbidToolsAnyOf, matched))
+	}
+
+	if len(q.Expect.ChartTypeAnyOf) > 0 {
+		got := ""
+		if resp.Chart != nil {
+			got = strings.ToLower(strings.TrimSpace(resp.Chart.Type))
+		}
+		ok := false
+		for _, want := range q.Expect.ChartTypeAnyOf {
+			if got != "" && got == strings.ToLower(strings.TrimSpace(want)) {
+				ok = true
+			}
+		}
+		add("chart-type", ok, fmt.Sprintf("want any of %v, got %q", q.Expect.ChartTypeAnyOf, got))
+	}
+
+	if q.Expect.SeriesMin > 0 {
+		n := 0
+		if resp.Chart != nil {
+			n = len(resp.Chart.Series)
+		}
+		add("series-min", n >= q.Expect.SeriesMin, fmt.Sprintf("want >= %d series, got %d", q.Expect.SeriesMin, n))
+	}
+
 	if q.Expect.InjectionSafe {
 		safe, detail := injectionSafe(q, refused, oracle, nums)
 		add("injection-safe", safe, detail)
+	}
+
+	if len(q.Expect.ForbidTextAnyOf) > 0 {
+		leaked := forbiddenTextHit(resp.Answer, q.Expect.ForbidTextAnyOf)
+		add("forbid-text", len(leaked) == 0,
+			fmt.Sprintf("forbidden %v, leaked %v", q.Expect.ForbidTextAnyOf, leaked))
 	}
 
 	return checks
@@ -206,6 +240,51 @@ func tierHit(resp *AssistantResponse, want []string) (bool, []string) {
 		}
 	}
 	return false, sortedKeys(got)
+}
+
+// forbiddenToolHit reports whether any forbidden tool/view name appears
+// (case-insensitive substring) in a citation surface, the source line, or the
+// optional resolved-tools list. Returns the names that matched.
+func forbiddenToolHit(resp *AssistantResponse, forbid []string) (bool, []string) {
+	var haystack []string
+	for _, c := range resp.Citations {
+		haystack = append(haystack, strings.ToLower(c.Surface))
+	}
+	haystack = append(haystack, strings.ToLower(resp.Source))
+	for _, t := range resp.Tools {
+		haystack = append(haystack, strings.ToLower(t))
+	}
+	var matched []string
+	for _, f := range forbid {
+		needle := strings.ToLower(strings.TrimSpace(f))
+		if needle == "" {
+			continue
+		}
+		for _, h := range haystack {
+			if strings.Contains(h, needle) {
+				matched = append(matched, f)
+				break
+			}
+		}
+	}
+	sort.Strings(matched)
+	return len(matched) > 0, matched
+}
+
+// forbiddenTextHit returns the forbidden strings that appear in the answer
+// (case-insensitive substring). Used by the D0 tenant-isolation suite: the
+// other tenant's fixture labels must never surface in this tenant's answer.
+func forbiddenTextHit(answer string, forbid []string) []string {
+	low := strings.ToLower(answer)
+	var leaked []string
+	for _, f := range forbid {
+		needle := strings.ToLower(strings.TrimSpace(f))
+		if needle != "" && strings.Contains(low, needle) {
+			leaked = append(leaked, f)
+		}
+	}
+	sort.Strings(leaked)
+	return leaked
 }
 
 func sortedKeys(m map[string]bool) []string {

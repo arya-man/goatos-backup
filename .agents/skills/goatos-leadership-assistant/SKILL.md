@@ -101,8 +101,26 @@ Answer these in order and do the matching work:
    coverage matrix.
 4. **Is it genuinely NOT leadership-relevant** (operator-only picker, form
    metadata, infra probe, device fleet, PII-only)?
-   → Add a **documented exclusion** row in `docs/ceo-ai/coverage-matrix.md` with
-   the reason. This satisfies the guard.
+   → Add a **TYPED exclusion** row in `docs/ceo-ai/coverage-matrix.md`:
+   `EXCLUDED:config` | `EXCLUDED:write` | `EXCLUDED:pii` | `EXCLUDED:detail` |
+   `EXCLUDED:infra`, with the reason. A bare `EXCLUDED` fails the guard for
+   any row written after 2026-09-19 (the old ones are frozen in
+   `tools/agent-hooks/leadership-assistant-exclusion-baseline.txt`, which only
+   shrinks). A read a page SHOWS cannot be excluded at all — see step 6.
+5. **Is it a new `ceo_ai.*` view** (or a change to one)?
+   → A **schema card** is required (`ceo-ai-schema-card-guard`, plan v3 D1): the
+   view exposes `tenant_id`, every tenant-scoped column is marked
+   `tenant_scoped: true`, and the card names the page `route` the drill link
+   opens. Facts read from it follow the SQL contract
+   `label, scope, value[, unit][, series_<name>…]`.
+6. **Is it a new KPI tile / chart on an admin-web page** (a `kpi.*` / `chart.*`
+   copy key in `backend/internal/adminui/app/service.go`)?
+   → The **page-contract drift guard** (`make ceo-ai-page-contract-drift-guard`)
+   fails until the page's data-source route has a row in
+   `docs/ceo-ai/coverage-matrix.md` → "Automatic coverage" that is covered
+   (Cube/api/view/tool/sql), `PLANNED:P<n>` naming the view that lands it, or
+   a typed exclusion. Add the golden question in the same change (with
+   `pending_view: true` if the view is still planned).
 
 Then update `docs/ceo-ai/coverage-matrix.md` in every case so the backfill
 baseline stays complete.
@@ -145,10 +163,48 @@ files and copy-paste patterns.
 | Backend assistant service | `backend/internal/ceoai/**` |
 | admin-web renderer | `apps/admin-web/components/ceo-ai-chat.tsx`, `apps/admin-web/app/api/ceo-ai/**` |
 
+## Fact contract (tenant-typed grounding evidence)
+
+Every number the assistant renders traces to a `domain.Fact`:
+
+```go
+type Fact struct {
+	TenantID string             // stamped from the session Actor — NEVER from a row
+	Label    string
+	Value    string
+	Scope    string             // e.g. "Castro 1 / Gandhi 2"
+	Values   map[string]float64 // extra series: SQL `series_<name>` columns
+	Unit     string             // "kg", "₹", "g/day", "%"
+}
+```
+
+- API-tier executors stamp `TenantID` through `readtools.stampTenant(actor, …)`;
+  the Cube, Toolbox and SQL bridges in `ceoai/wiring.go` stamp it from the actor
+  too. A reader's own `TenantID` (or a `tenant_id` column in a row) is
+  overwritten, never trusted (`TestFactTenantSetFromActorNotResult`).
+- `app.validateFactTenants` runs before compose, before `buildChart`, and before
+  the cache write: a fact set with more than one `TenantID`, one that is not the
+  actor's, or an unstamped fact is `ErrForeignTenantFacts` and the orchestrator
+  answers with a refusal (`TestComposerRejectsMixedTenantFacts`,
+  `TestAskRefusesForeignTenantFacts`).
+- Every catalog reader receives the actor tenant (`TestReadersRequireTenant` in
+  `keywordplanner/catalog_consistency_test.go` — add a table row when you add
+  an executor, or the test names the gap).
+- SQL fact contract: `label, scope, value` plus optional `unit` and any number of
+  numeric `series_<name>` columns → `Fact.Values[name]`
+  (`TestSQLFactsSeriesColumns`). Non-numeric series columns are ignored, never
+  guessed.
+
 ## Guard / gate
 
 - `make leadership-assistant-coverage-guard` — diff-scoped: any trigger-path
   change without a `docs/ceo-ai/**` (or catalog/context) coverage update fails.
+  Also whole-file: a new bare `| EXCLUDED |` row fails (typed exclusions,
+  baseline ratchet above).
+- `make ceo-ai-page-contract-drift-guard` — every page-contract KPI/chart data
+  source must be classified in the matrix's "Automatic coverage" section
+  (covered / `PLANNED:P<n>` / typed exclusion). Prints the PLANNED tally on
+  every run so the P2/P3 debt stays visible.
 - Registered in `tools/ci/guardrail-manifest.json`, wired into `make guardrails`
   and `tools/ci/run-local-ci.sh`, and nudged on PostToolUse for both Claude
   (`.claude/settings.json`) and Codex (`.codex/hooks.json`).
@@ -162,7 +218,7 @@ files and copy-paste patterns.
 ```text
 references/coverage-howto.md   # step-by-step + copy-paste patterns per tier
 references/architecture.md     # agentic loop, ports, safety, persistence, streaming, eval, observability
-references/exclusions.md       # what is legitimately NOT leadership-relevant + how to document it
+references/exclusions.md       # what is legitimately NOT leadership-relevant + the typed exclusion categories
 ```
 
 ## Non-negotiables

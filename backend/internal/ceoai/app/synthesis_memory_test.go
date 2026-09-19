@@ -12,8 +12,8 @@ func TestSynthesizeLeadScopedBreakdown(t *testing.T) {
 	results := []domain.ToolResult{{
 		Surface: "Cube · active_animals",
 		Facts: []domain.Fact{
-			{Label: "Active animals", Value: "972", Scope: "goat"},
-			{Label: "Active animals", Value: "336", Scope: "sheep"},
+			{TenantID: "t1", Label: "Active animals", Value: "972", Scope: "goat"},
+			{TenantID: "t1", Label: "Active animals", Value: "336", Scope: "sheep"},
 		},
 	}}
 	lead := synthesizeLead(results)
@@ -26,8 +26,8 @@ func TestSynthesizeLeadMergesSameLabelAcrossResults(t *testing.T) {
 	// The "goats vs sheep" planner shape: two species-FILTERED sub-queries, each
 	// its own result with one scoped fact. The lead must name BOTH groups.
 	results := []domain.ToolResult{
-		{Surface: "Cube · active_animals", Facts: []domain.Fact{{Label: "Active animals", Value: "972", Scope: "goat"}}},
-		{Surface: "Cube · active_animals", Facts: []domain.Fact{{Label: "Active animals", Value: "336", Scope: "sheep"}}},
+		{Surface: "Cube · active_animals", Facts: []domain.Fact{{TenantID: "t1", Label: "Active animals", Value: "972", Scope: "goat"}}},
+		{Surface: "Cube · active_animals", Facts: []domain.Fact{{TenantID: "t1", Label: "Active animals", Value: "336", Scope: "sheep"}}},
 	}
 	lead := synthesizeLead(results)
 	if !strings.Contains(lead, "goat 972") || !strings.Contains(lead, "sheep 336") {
@@ -39,8 +39,8 @@ func TestSynthesizeLeadKeepsUnlikeMetricsSeparate(t *testing.T) {
 	// Active vs Total are different metrics; the lead must not fold 59 under
 	// "Active animals".
 	results := []domain.ToolResult{
-		{Facts: []domain.Fact{{Label: "Active animals", Value: "58"}}},
-		{Facts: []domain.Fact{{Label: "Total animals", Value: "59"}}},
+		{Facts: []domain.Fact{{TenantID: "t1", Label: "Active animals", Value: "58"}}},
+		{Facts: []domain.Fact{{TenantID: "t1", Label: "Total animals", Value: "59"}}},
 	}
 	lead := synthesizeLead(results)
 	if !strings.Contains(lead, "58") || strings.Contains(lead, "59") {
@@ -49,14 +49,14 @@ func TestSynthesizeLeadKeepsUnlikeMetricsSeparate(t *testing.T) {
 }
 
 func TestSynthesizeLeadSingleValue(t *testing.T) {
-	results := []domain.ToolResult{{Facts: []domain.Fact{{Label: "Active animals", Value: "58"}}}}
+	results := []domain.ToolResult{{Facts: []domain.Fact{{TenantID: "t1", Label: "Active animals", Value: "58"}}}}
 	if lead := synthesizeLead(results); !strings.Contains(lead, "58") {
 		t.Fatalf("single-value lead must restate the figure, got %q", lead)
 	}
 }
 
 func TestSynthesizeLeadNoNumericFacts(t *testing.T) {
-	results := []domain.ToolResult{{Facts: []domain.Fact{{Label: "note", Value: "n/a"}}}}
+	results := []domain.ToolResult{{Facts: []domain.Fact{{TenantID: "t1", Label: "note", Value: "n/a"}}}}
 	if lead := synthesizeLead(results); lead != "" {
 		t.Fatalf("no numeric facts => no lead, got %q", lead)
 	}
@@ -66,10 +66,10 @@ func TestComposerRendersSalesAsConversationNotFactDump(t *testing.T) {
 	body, _, _ := composer{}.compose([]domain.ToolResult{{
 		Surface: "Mesha read API · Sales overview",
 		Facts: []domain.Fact{
-			{Label: "Sold animals this month in 2026-09", Value: "114"},
-			{Label: "Sold sheep this month in 2026-09", Value: "0"},
-			{Label: "Sold goats this month in 2026-09", Value: "114"},
-			{Label: "Sales revenue this month in 2026-09", Value: "1221067"},
+			{TenantID: "t1", Label: "Sold animals this month in 2026-09", Value: "114"},
+			{TenantID: "t1", Label: "Sold sheep this month in 2026-09", Value: "0"},
+			{TenantID: "t1", Label: "Sold goats this month in 2026-09", Value: "114"},
+			{TenantID: "t1", Label: "Sales revenue this month in 2026-09", Value: "1221067"},
 		},
 	}})
 	for _, want := range []string{"For 2026-09", "114 animals were sold", "114 goats", "0 sheep", "1221067"} {
@@ -85,8 +85,8 @@ func TestComposerRendersSalesAsConversationNotFactDump(t *testing.T) {
 func TestComposerRendersSingleMetricBreakdownInOneSentence(t *testing.T) {
 	body, _, _ := composer{}.compose([]domain.ToolResult{{
 		Facts: []domain.Fact{
-			{Label: "Active animals", Value: "185", Scope: "goat"},
-			{Label: "Active animals", Value: "531", Scope: "sheep"},
+			{TenantID: "t1", Label: "Active animals", Value: "185", Scope: "goat"},
+			{TenantID: "t1", Label: "Active animals", Value: "531", Scope: "sheep"},
 		},
 	}})
 	if body != "Active animals: goat 185, sheep 531." {
@@ -97,8 +97,8 @@ func TestComposerRendersSingleMetricBreakdownInOneSentence(t *testing.T) {
 func TestComposerRendersOperationalCountsAsHumanSentences(t *testing.T) {
 	body, _, _ := composer{}.compose([]domain.ToolResult{{
 		Facts: []domain.Fact{
-			{Label: "Farm-born animals", Value: "172", Scope: "Coimbatore"},
-			{Label: "Farm-born animals", Value: "76", Scope: "Channapatna"},
+			{TenantID: "t1", Label: "Farm-born animals", Value: "172", Scope: "Coimbatore"},
+			{TenantID: "t1", Label: "Farm-born animals", Value: "76", Scope: "Channapatna"},
 		},
 	}})
 	if body != "Farm-born active animals: Coimbatore 172, Channapatna 76." {
@@ -106,7 +106,7 @@ func TestComposerRendersOperationalCountsAsHumanSentences(t *testing.T) {
 	}
 
 	body, _, _ = composer{}.compose([]domain.ToolResult{{
-		Facts: []domain.Fact{{Label: "Cause established deaths", Value: "0", Scope: "Coimbatore"}},
+		Facts: []domain.Fact{{TenantID: "t1", Label: "Cause established deaths", Value: "0", Scope: "Coimbatore"}},
 	}})
 	if body != "Deaths with an established cause: Coimbatore 0." {
 		t.Fatalf("unexpected mortality prose: %q", body)
@@ -117,12 +117,12 @@ func TestComposerRendersFeedWeightBandReconciliation(t *testing.T) {
 	body, _, _ := composer{}.compose([]domain.ToolResult{{
 		ToolName: "feed_weight_band_summary",
 		Facts: []domain.Fact{
-			{Label: "Matched animals", Value: "462", Scope: "on farm"},
-			{Label: "Matched animals including exited", Value: "506", Scope: "include exited"},
-			{Label: "Animals weighed in period", Value: "515", Scope: "general tab total"},
-			{Label: "Not shown feed rows", Value: "120", Scope: "on farm"},
-			{Label: "Exited in period", Value: "65", Scope: "55 weighed, 10 no weighing"},
-			{Label: "Feed sheet", Value: "2026-09-19"},
+			{TenantID: "t1", Label: "Matched animals", Value: "462", Scope: "on farm"},
+			{TenantID: "t1", Label: "Matched animals including exited", Value: "506", Scope: "include exited"},
+			{TenantID: "t1", Label: "Animals weighed in period", Value: "515", Scope: "general tab total"},
+			{TenantID: "t1", Label: "Not shown feed rows", Value: "120", Scope: "on farm"},
+			{TenantID: "t1", Label: "Exited in period", Value: "65", Scope: "55 weighed, 10 no weighing"},
+			{TenantID: "t1", Label: "Feed sheet", Value: "2026-09-19"},
 		},
 	}})
 	for _, want := range []string{"462 matched animals on farm", "506 when exited animals are included", "515 animals weighed in the General tab", "120 feed rows not shown"} {

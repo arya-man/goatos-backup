@@ -127,8 +127,12 @@ func naturalOperationalSQLPlan(q domain.Question, normalizedText string, mem []d
 	case feedQuestion.MatchString(normalizedText) && !feedByWeightBandQuestion.MatchString(normalizedText):
 		return sqlSubQuestion(q, "feed_live_sql", feedSQL(q.Actor.TenantID, scope, hasScope, q.AsOf), "feed", scope, hasScope), true
 	case sourceEntryHealthQuestion.MatchString(normalizedText):
-		sub := sqlSubQuestion(q, "health_issue_live_sql", healthIssueSQL(q.Actor.TenantID, scope, hasScope), "health_issue", scope, hasScope)
+		// Trusted (server-authored) SQL: the tenant is NEVER interpolated. The
+		// executor binds the session tenant as $1; park scope rides as $2.
+		sql, args := healthIssueSQL(scope, hasScope)
+		sub := sqlSubQuestion(q, "health_issue_live_sql", sql, "health_issue", scope, hasScope)
 		sub.TrustedSQL = true
+		sub.Params["args"] = args
 		return sub, true
 	case opsRiskQuestion.MatchString(normalizedText):
 		return sqlSubQuestion(q, "ops_risk_live_sql", opsRiskSQL(q.Actor.TenantID, scope, hasScope), "ops_risk", scope, hasScope), true
@@ -408,28 +412,40 @@ func feedSQL(tenantID string, scope knownParkScope, hasScope bool, asOf time.Tim
 	)
 }
 
-func healthIssueSQL(tenantID string, scope knownParkScope, hasScope bool) string {
-	where := "l.tenant_id = " + sqlStringLiteral(tenantID)
+// healthIssueSQL is the source-entry health read. It is TRUSTED SQL (server
+// authored, executed through ExecuteTrustedReadOnlyForTenant), so it follows the
+// D0 trusted-SQL contract: the tenant is ALWAYS `$1` bound by the executor from
+// the session — never a literal in the text — and every other filter is a
+// positional arg. It reads the governed ceo_ai.source_entry_health_status view
+// (migration 000359 appends park_location_id) rather than public.* directly,
+// because mesha_ceo_readonly no longer holds SELECT on public.* (D0 grant
+// revoke): the view runs with its owner's privileges, so the read-only role sees
+// exactly the governed projection and nothing else.
+//
+// projection-review: membership=ceo_ai.source_entry_health_status rows (one per
+// procurement load, health_blockers pre-aggregated inside the view from
+// procurement_source_health_checks grouped by (tenant_id, load_id));
+// group_key=load (the view is already load-grain, no GROUP BY here);
+// join_cardinality=1:1 view row per load, no fan-out at this layer;
+// pagination=bounded top 50 by health_blockers DESC; scope=tenant via $1 plus
+// optional park_location_id via $2.
+func healthIssueSQL(scope knownParkScope, hasScope bool) (string, []any) {
+	where := "tenant_id = $1 AND health_blockers > 0"
+	args := []any{}
 	if hasScope {
-		where += " AND air.park_location_id = " + sqlStringLiteral(scope.id)
+		where += " AND park_location_id = $2"
+		args = append(args, scope.id)
 	}
-	// projection-review: membership=procurement_source_health_checks rows joined to one procurement load; group_key=load plus purchase date plus source label; join_cardinality=health checks are the counted many side and arrival_intake_reviews is scoped by load; pagination=bounded top 50 after full grouped aggregate; scope=tenant plus explicit park location filter.
 	return fmt.Sprintf(
-		`SELECT COALESCE(pt.display_name, loc.name, 'Unknown source') AS label,
-		       CAST(COUNT(*) FILTER (WHERE h.health_state IN ('blocked','failed','sick','quarantine')) AS text) AS value,
-		       ('Load ' || left(l.load_id::text, 8) || COALESCE(' · ' || to_char(l.purchase_date, 'DD Mon'), '')) AS scope
-		FROM procurement_loads l
-		LEFT JOIN parties pt ON pt.party_id = l.source_party_id
-		LEFT JOIN locations loc ON loc.location_id = l.source_location_id
-		LEFT JOIN arrival_intake_reviews air ON air.tenant_id = l.tenant_id AND air.load_id = l.load_id
-		JOIN procurement_source_health_checks h ON h.tenant_id = l.tenant_id AND h.load_id = l.load_id
+		`SELECT COALESCE(source_label, 'Unknown source') AS label,
+		       CAST(health_blockers AS text) AS value,
+		       load_label AS scope
+		FROM ceo_ai.source_entry_health_status
 		WHERE %s
-		GROUP BY l.load_id, l.purchase_date, pt.display_name, loc.name
-		HAVING COUNT(*) FILTER (WHERE h.health_state IN ('blocked','failed','sick','quarantine')) > 0
-		ORDER BY COUNT(*) FILTER (WHERE h.health_state IN ('blocked','failed','sick','quarantine')) DESC
+		ORDER BY health_blockers DESC, load_label ASC
 		LIMIT 50`,
 		where,
-	)
+	), args
 }
 
 func opsRiskSQL(tenantID string, scope knownParkScope, hasScope bool) string {

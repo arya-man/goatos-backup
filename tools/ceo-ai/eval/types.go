@@ -24,7 +24,13 @@ type Expect struct {
 	// business number.
 	Refusal bool `json:"refusal,omitempty"`
 	// AggregateFirst: the answer must be an aggregate, not a raw per-animal dump.
+	// OPTIONAL flag (decision 2026-09-19): per-animal answers are allowed within
+	// the caller's tenant, so this is only enforced on questions that opt in.
 	AggregateFirst bool `json:"aggregate_first,omitempty"`
+	// PendingView: the view/reader this question needs is not built yet (plan v3
+	// P2/P3). The self-test still validates the question's shape, but the live
+	// run skips it loudly instead of scoring a known-missing read path.
+	PendingView bool `json:"pending_view,omitempty"`
 	// SpeciesSplit: the answer must report goat and sheep as distinct numbers.
 	SpeciesSplit bool `json:"species_split,omitempty"`
 	// IST: the answer resolves "today"/"this week" on the Asia/Kolkata business
@@ -55,6 +61,25 @@ type Expect struct {
 	// answer through a typed read tool. The normal assistant eval records this
 	// contract; tools/ceo-ai/eval/run-mcp-stg-e2e.mjs proves it over JSON-RPC.
 	ExternalMCPToolsAnyOf []string `json:"external_mcp_tools_any_of,omitempty"`
+	// ForbidToolsAnyOf: the answer must NOT be grounded on any of these
+	// tools/views (case-insensitive substring over every citation surface, the
+	// source line and the optional response `tools` list). Catches a question
+	// answered from the wrong read path (e.g. ADG by breed from
+	// animal_current_scope instead of growth_adg_pairs).
+	ForbidToolsAnyOf []string `json:"forbid_tools_any_of,omitempty"`
+	// ChartTypeAnyOf: the answer must carry a chart whose type is one of these
+	// (bar|grouped_bar|stacked_bar|line|kpi|table). Plan v3 D4 page-parity gate.
+	ChartTypeAnyOf []string `json:"chart_type_any_of,omitempty"`
+	// SeriesMin: the chart must carry at least this many series (0 = not
+	// asserted). Together with ChartTypeAnyOf this proves a grouped/stacked
+	// comparison really compares.
+	SeriesMin int `json:"series_min,omitempty"`
+	// ForbidTextAnyOf (D0 tenant-isolation suite): none of these strings may
+	// appear in the answer text (case-insensitive substring). Carries the OTHER
+	// tenant's distinguishable fixture labels (tenant name, breed, buyer, tag
+	// prefix), so any leak of tenant B's data into tenant A's answer is a hard
+	// fail regardless of numbers.
+	ForbidTextAnyOf []string `json:"forbid_text_any_of,omitempty"`
 }
 
 // Oracle is an INDEPENDENT ground-truth query over canonical public.* tables
@@ -80,6 +105,27 @@ type AssistantResponse struct {
 	RequestID      string     `json:"request_id"`
 	ConversationID string     `json:"conversation_id"`
 	Citations      []Citation `json:"citations"`
+	// Chart is the optional, additive structured visualization (domain.Chart).
+	Chart *Chart `json:"chart,omitempty"`
+	// Tools is optional: the resolved tool/view names that grounded the answer,
+	// when the assistant exposes them to the harness (admin trace). Absent on
+	// the plain user payload; forbid_tools_any_of then falls back to the
+	// citation surfaces and the source line.
+	Tools []string `json:"tools,omitempty"`
+}
+
+// Chart mirrors domain.Chart's wire shape closely enough to score type/series.
+type Chart struct {
+	Type   string        `json:"type"`
+	Title  string        `json:"title"`
+	X      []string      `json:"x"`
+	Series []ChartSeries `json:"series"`
+}
+
+// ChartSeries is one named series of a Chart.
+type ChartSeries struct {
+	Name string    `json:"name"`
+	Data []float64 `json:"data"`
 }
 
 // Citation is one provenance chip.

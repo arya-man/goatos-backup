@@ -93,5 +93,146 @@
       "tiers_any_of": ["api"],
       "external_mcp_tools_any_of": ["get_sales_deals", "GET /sales/deals"]
     }
+  },
+  {
+    "id": "sales-revenue-month-vs-last",
+    "class": "sales_revenue_month_vs_last",
+    "question": "How does this month's sales revenue compare to last month?",
+    "notes": "Plan v3 judge Q. Two period labels → Δ abs + % (D4 derived). Oracle: this month's closed-deal sales_value in whole rupees on public.sales_deals. Grouped bar or kpi with delta chip.",
+    "expect": {
+      "grounded": true,
+      "tiers_any_of": ["api", "sql"],
+      "chart_type_any_of": ["kpi", "grouped_bar", "bar"],
+      "pending_view": true
+    },
+    "oracle": {
+      "kind": "scalar_int",
+      "sql": "SELECT COALESCE(sum(sales_value), 0)::bigint FROM public.sales_deals WHERE tenant_id = :'tenant_id'::uuid AND status = 'Deal Closed' AND date_trunc('month', sale_date) = date_trunc('month', (now() AT TIME ZONE 'Asia/Kolkata')::date)"
+    }
+  },
+  {
+    "id": "sales-price-per-kg-by-breed",
+    "class": "sales_price_per_kg_by_breed",
+    "question": "What price per kg did we get by breed this year?",
+    "notes": "sales_value ÷ total_weight_kg per breed over closed deal lines (ceo_ai.sales_deal_lines_closed, P2). ₹/kg unit-aware; bar by breed. Oracle: number of breeds sold this year.",
+    "expect": {
+      "grounded": true,
+      "tiers_any_of": ["api", "sql"],
+      "chart_type_any_of": ["bar", "table"],
+      "pending_view": true
+    },
+    "oracle": {
+      "kind": "scalar_int",
+      "sql": "SELECT count(DISTINCT breed) FROM public.sales_deal_lines l JOIN public.sales_deals d ON d.tenant_id = l.tenant_id AND d.id = l.deal_id WHERE l.tenant_id = :'tenant_id'::uuid AND d.status = 'Deal Closed' AND d.sale_date >= date_trunc('year', (now() AT TIME ZONE 'Asia/Kolkata')::date)"
+    }
+  },
+  {
+    "id": "sales-outstanding",
+    "class": "sales_outstanding_receivables",
+    "question": "How much do buyers still owe us?",
+    "notes": "Closed deals' sales_value minus recorded payments (public.sales_deal_payments). Oracle: number of closed deals with a positive balance. Answer: ₹ total + per-buyer table, no advice.",
+    "expect": {
+      "grounded": true,
+      "tiers_any_of": ["api", "sql"],
+      "chart_type_any_of": ["kpi", "table"],
+      "pending_view": true
+    },
+    "oracle": {
+      "kind": "scalar_int",
+      "sql": "SELECT count(*) FROM public.sales_deals d WHERE d.tenant_id = :'tenant_id'::uuid AND d.status = 'Deal Closed' AND d.sales_value > COALESCE((SELECT sum(p.amount_rupees) FROM public.sales_deal_payments p WHERE p.tenant_id = d.tenant_id AND p.deal_id = d.id), 0)"
+    }
+  },
+  {
+    "id": "sales-farm-valuation",
+    "class": "sales_farm_valuation",
+    "question": "What is the farm worth today at current market prices?",
+    "notes": "The /sales/farm-value page: live herd × latest market ₹/kg (ceo_ai.farm_valuation, P2). KPI with the live-animal denominator; the 'Over 35 kg' card is sale-readiness. Oracle: live animals.",
+    "expect": {
+      "grounded": true,
+      "tiers_any_of": ["api", "sql"],
+      "chart_type_any_of": ["kpi"],
+      "pending_view": true
+    },
+    "oracle": {
+      "kind": "scalar_int",
+      "sql": "SELECT count(*) FROM public.goats WHERE tenant_id = :'tenant_id'::uuid AND lifecycle_status = 'alive'"
+    }
+  },
+  {
+    "id": "procurement-load-pnl",
+    "class": "procurement_load_pnl",
+    "question": "Which purchase loads made or lost money?",
+    "notes": "Plan v3 judge Q. Landed cost (all cost kinds, AGENTS.md LANDED-COST rule) vs sold value per load (ceo_ai.load_economics, P2). Oracle: loads with any cost line. Table of loads with P&L, no advice.",
+    "expect": {
+      "grounded": true,
+      "tiers_any_of": ["api", "sql"],
+      "chart_type_any_of": ["table", "bar"],
+      "pending_view": true
+    },
+    "oracle": {
+      "kind": "scalar_int",
+      "sql": "SELECT count(DISTINCT load_id) FROM public.procurement_load_cost_lines WHERE tenant_id = :'tenant_id'::uuid"
+    }
+  },
+  {
+    "id": "feed-directed-kg-week",
+    "class": "feed_directed_kg_week",
+    "question": "How many kg of feed did we direct this week?",
+    "notes": "Sum of quantity_kg on issued feed sheets for the IST week (feed_direction_issue_rows). This is DIRECTED feed, not adherence/proof — must NOT be answered from feed_adherence. Blocked cells are missing configuration, never 0 kg.",
+    "expect": {
+      "grounded": true,
+      "tiers_any_of": ["api", "toolbox", "sql"],
+      "forbid_tools_any_of": ["feed_adherence"],
+      "chart_type_any_of": ["kpi", "bar"],
+      "pending_view": true
+    },
+    "oracle": {
+      "kind": "scalar_int",
+      "sql": "SELECT COALESCE(sum(r.quantity_kg), 0)::bigint FROM public.feed_direction_issue_rows r JOIN public.feed_direction_issues i ON i.tenant_id = r.tenant_id AND i.feed_direction_issue_id = r.feed_direction_issue_id WHERE r.tenant_id = :'tenant_id'::uuid AND i.feed_day >= date_trunc('week', (now() AT TIME ZONE 'Asia/Kolkata')::date)::date"
+    }
+  },
+  {
+    "id": "feed-cost-per-kg-gained",
+    "class": "feed_cost_per_kg_gained",
+    "question": "What is our feed cost per kg of weight gained?",
+    "notes": "Plan v3 judge Q. Feed cost (purchases × directed kg) ÷ kg gained (ADG pairs) over the same window — a derived figure from two facts; the answer must say 'derived from N facts' (D4). ₹/kg unit. Never per-animal.",
+    "expect": {
+      "aggregate_first": true,
+      "tiers_any_of": ["api", "sql"],
+      "chart_type_any_of": ["kpi"],
+      "pending_view": true
+    }
+  },
+  {
+    "id": "feed-days-left",
+    "class": "feed_days_left",
+    "question": "How many days of feed stock are left per feed item?",
+    "notes": "The /feed/analytics stock cards (feed_stock reader, P3): balance ÷ calendar-day rate, with the transitional concentrate family fold (AGENTS.md). Table by feed item and farm. Oracle: feed items with a purchase on the ledger.",
+    "expect": {
+      "grounded": true,
+      "tiers_any_of": ["api", "sql"],
+      "chart_type_any_of": ["table", "bar"],
+      "pending_view": true
+    },
+    "oracle": {
+      "kind": "scalar_int",
+      "sql": "SELECT count(DISTINCT feed_item_key) FROM public.feed_purchases WHERE tenant_id = :'tenant_id'::uuid"
+    }
+  },
+  {
+    "id": "procurement-loads-over-90-days",
+    "class": "procurement_loads_over_90_days",
+    "question": "Which purchase loads have been on the farm for more than 90 days and still hold animals?",
+    "notes": "Judge-added: the CXO load-age alert (AGENTS.md LoadAgeAlertDays = 90, strictly greater, open loads only). Oracle: loads bought > 90 days ago with a live goat still attached.",
+    "expect": {
+      "grounded": true,
+      "tiers_any_of": ["api", "sql"],
+      "chart_type_any_of": ["table"],
+      "pending_view": true
+    },
+    "oracle": {
+      "kind": "scalar_int",
+      "sql": "SELECT count(*) FROM public.procurement_loads pl WHERE pl.tenant_id = :'tenant_id'::uuid AND pl.purchase_date < (now() AT TIME ZONE 'Asia/Kolkata')::date - 90 AND EXISTS (SELECT 1 FROM public.procurement_load_goats lg JOIN public.goats g ON g.tenant_id = lg.tenant_id AND g.goat_id = lg.goat_id WHERE lg.tenant_id = pl.tenant_id AND lg.load_id = pl.load_id AND g.lifecycle_status = 'alive')"
+    }
   }
 ]

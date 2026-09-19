@@ -483,6 +483,16 @@
       "ciStep": "ceo-ai-boundary-guard"
     },
     {
+      "id": "ceo-ai-schema-cards",
+      "script": "tools/agent-hooks/check-ceo-ai-schema-cards.mjs",
+      "makeTarget": "ceo-ai-schema-card-guard",
+      "realCheck": "node tools/agent-hooks/check-ceo-ai-schema-cards.mjs",
+      "selfTest": "node tools/agent-hooks/check-ceo-ai-schema-cards.mjs --self-test",
+      "owningDoc": "docs/ceo-ai/schema-cards.md",
+      "requiredInCI": true,
+      "ciStep": "ceo-ai-schema-card-guard"
+    },
+    {
       "id": "clinical-defer-states",
       "script": "tools/agent-hooks/check-clinical-defer-states.mjs",
       "makeTarget": "clinical-defer-guard",
@@ -793,7 +803,19 @@
       "selfTest": "node tools/agent-hooks/check-leadership-assistant-coverage.mjs --self-test",
       "owningDoc": "docs/ceo-ai/mcp-toolbox-plan.md",
       "requiredInCI": true,
-      "ciStep": "leadership-assistant-coverage-guard"
+      "ciStep": "leadership-assistant-coverage-guard",
+      "notes": "Diff-scoped coverage check PLUS a whole-file typed-exclusion ratchet (plan v3 D6): a coverage-matrix `| EXCLUDED |` cell must be EXCLUDED:config|write|pii|detail|infra unless its surface is frozen in tools/agent-hooks/leadership-assistant-exclusion-baseline.txt, which only shrinks. Self-test cases 12-16 are the adversarial exclusion fixtures."
+    },
+    {
+      "id": "ceo-ai-page-contract-drift",
+      "script": "tools/agent-hooks/check-ceo-ai-page-contract-drift.mjs",
+      "makeTarget": "ceo-ai-page-contract-drift-guard",
+      "realCheck": "node tools/agent-hooks/check-ceo-ai-page-contract-drift.mjs",
+      "selfTest": "node tools/agent-hooks/check-ceo-ai-page-contract-drift.mjs --self-test",
+      "owningDoc": "docs/ceo-ai/coverage-matrix.md",
+      "requiredInCI": true,
+      "ciStep": "ceo-ai-page-contract-drift-guard",
+      "notes": "Plan v3 D6 page-contract drift guard: parses backend/internal/adminui/app/service.go page contracts for kpi.*/chart.* copy keys and requires each such page's data-source route (table data_source, else the page href) to appear in docs/ceo-ai/coverage-matrix.md as covered (Cube/api/view/tool/sql), PLANNED:P<n>, or a typed EXCLUDED:<category> row; a bare EXCLUDED or a missing row fails. Self-test builds synthetic contract sources for the missing/covered/bare/typed/planned/helper/indirection cases and a parser-drift canary over the real file."
     },
     {
       "id": "leadership-verifier-surface-separation",

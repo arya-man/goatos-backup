@@ -1,6 +1,7 @@
 package app
 
 import (
+	"errors"
 	"fmt"
 	"sort"
 	"strconv"
@@ -14,7 +15,56 @@ import (
 // every emitted figure is drawn verbatim from a ToolResult Fact.
 type composer struct{}
 
+// ErrForeignTenantFacts is returned by validateFactTenants (and everything that
+// calls it: composeFor, buildChart, the cache gate) when a fact set carries a
+// TenantID other than the acting tenant, more than one TenantID, or no TenantID
+// at all. The orchestrator turns it into a refusal: a foreign or unstamped row
+// must never be composed, charted, or cached (plan v3 D0 "Chart / facts").
+var ErrForeignTenantFacts = errors.New("ceoai: fact set is not scoped to the acting tenant")
+
+// validateFactTenants is the typed tenant gate over grounding facts. Every Fact
+// must carry TenantID == actor.TenantID (set by the executor/reader from the
+// session, never from a result row). Errored results are skipped — they carry
+// no facts the composer will render. An empty fact set is fine.
+func validateFactTenants(actor domain.Actor, results []domain.ToolResult) error {
+	want := strings.TrimSpace(actor.TenantID)
+	if want == "" {
+		return fmt.Errorf("%w: actor has no tenant", ErrForeignTenantFacts)
+	}
+	seen := map[string]bool{}
+	for _, r := range results {
+		if r.Err != nil {
+			continue
+		}
+		for _, f := range r.Facts {
+			got := strings.TrimSpace(f.TenantID)
+			seen[got] = true
+			if got == "" {
+				return fmt.Errorf("%w: fact %q from %s has no TenantID (executor/reader must stamp it from the actor)", ErrForeignTenantFacts, f.Label, surfaceOrRoute(r))
+			}
+			if got != want {
+				return fmt.Errorf("%w: fact %q from %s belongs to another tenant", ErrForeignTenantFacts, f.Label, surfaceOrRoute(r))
+			}
+		}
+	}
+	if len(seen) > 1 {
+		return fmt.Errorf("%w: %d distinct tenant ids in one fact set", ErrForeignTenantFacts, len(seen))
+	}
+	return nil
+}
+
+// composeFor is the tenant-gated entry point the orchestrator uses: it rejects
+// a fact set that is not wholly the actor's before any figure is rendered.
+func (c composer) composeFor(actor domain.Actor, results []domain.ToolResult) (body string, citations []domain.Citation, groundValues []string, err error) {
+	if err := validateFactTenants(actor, results); err != nil {
+		return "", nil, nil, err
+	}
+	body, citations, groundValues = c.compose(results)
+	return body, citations, groundValues, nil
+}
+
 // compose builds the user-facing answer body and citations from tool results.
+// Callers on the live path go through composeFor so the tenant gate runs first.
 func (composer) compose(results []domain.ToolResult) (body string, citations []domain.Citation, groundValues []string) {
 	var sections []string
 	seenSurface := map[string]bool{}
@@ -463,15 +513,20 @@ const maxChartPoints = 12
 // chart ONLY when (a) the question asks to visualize OR the grounding result is
 // a dimensioned metric series, AND (b) at least two real numeric data points
 // exist. Every point is parsed verbatim from a Fact value — nothing is
-// fabricated. A plain single-value count question yields no chart.
-func buildChart(questionText string, results []domain.ToolResult) *domain.Chart {
+// fabricated. A plain single-value count question yields no chart. It is
+// tenant-gated like the composer: a fact set that is not wholly the actor's
+// returns ErrForeignTenantFacts and no chart.
+func buildChart(actor domain.Actor, questionText string, results []domain.ToolResult) (*domain.Chart, error) {
+	if err := validateFactTenants(actor, results); err != nil {
+		return nil, err
+	}
 	series, labels := dimensionedSeries(results)
 	if series == nil || len(labels) < 2 {
-		return nil
+		return nil, nil
 	}
 
 	if !plotRequested(questionText) && !isDimensioned(labels) {
-		return nil
+		return nil, nil
 	}
 
 	chartType := "bar"
@@ -491,7 +546,7 @@ func buildChart(questionText string, results []domain.ToolResult) *domain.Chart 
 		Series: []domain.ChartSeries{
 			{Name: series.name, Data: series.data},
 		},
-	}
+	}, nil
 }
 
 type numericSeries struct {

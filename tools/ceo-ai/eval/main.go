@@ -116,8 +116,18 @@ func runLive(qs []GoldenQuestion, cfg liveConfig) Report {
 
 	var results []Result
 	first := true
+	skippedPending := 0
 	for _, q := range qs {
 		if cfg.classFilter != "" && q.Class != cfg.classFilter {
+			continue
+		}
+		if q.Expect.PendingView {
+			// The read path this question needs is not built yet (plan v3 P2/P3).
+			// Skip LOUDLY — never a silent pass, never a fail that hides real
+			// regressions behind known-missing views. The self-test still
+			// validated the question's shape at load.
+			skippedPending++
+			fmt.Fprintf(os.Stderr, "ceo-ai-eval: SKIP %s (pending_view: read path not built yet)\n", q.ID)
 			continue
 		}
 		if !first {
@@ -131,6 +141,9 @@ func runLive(qs []GoldenQuestion, cfg liveConfig) Report {
 			ores = oracle.resolve(ctx, q)
 		}
 		results = append(results, resultFor(q, resp, ores, latency, reqErr))
+	}
+	if skippedPending > 0 {
+		fmt.Fprintf(os.Stderr, "ceo-ai-eval: %d question(s) skipped as pending_view — NOT passes\n", skippedPending)
 	}
 	return Report{
 		GeneratedAt:  time.Now().UTC().Format(time.RFC3339),

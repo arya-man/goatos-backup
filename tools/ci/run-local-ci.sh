@@ -425,6 +425,7 @@ run_common() {
   step "operational-read-model-contract-guard" make operational-read-model-contract-guard
   step "critical-animal-action-availability-guard" make critical-animal-action-availability-guard
   step "leadership-assistant-coverage-guard" make leadership-assistant-coverage-guard
+  step "ceo-ai-page-contract-drift-guard" make ceo-ai-page-contract-drift-guard
   step "leadership-verifier-surface-separation-guard" make leadership-verifier-surface-separation-guard
   step "role-scoped-ui-contract-guard" make role-scoped-ui-contract-guard
   step "assistant-route-closure-guard" make assistant-route-closure-guard
@@ -553,6 +554,7 @@ run_backend() {
   step "scale-guard self-test"    bash -c 'cd tools/scale-guard && go test ./...'
   step "clinical-defer-guard"     make clinical-defer-guard
   step "ceo-ai-boundary-guard"    make ceo-ai-boundary-guard
+  step "ceo-ai-schema-card-guard" make ceo-ai-schema-card-guard
   step "operational-location-guard" make operational-location-guard
   step "goat-shed-scope-guard"    make goat-shed-scope-guard
   step "operational-partition-identity-guard" make operational-partition-identity-guard

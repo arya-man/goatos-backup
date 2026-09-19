@@ -238,6 +238,9 @@ func (a *Assistant) ask(ctx context.Context, q domain.Question, opts askOptions)
 
 	var plan domain.Plan
 	planned := false
+	// Real token accounting (plan v3 D1.1): the planner's Vertex usageMetadata
+	// plus any repair call, recorded to the budget instead of len/4 when reported.
+	var usage TokenUsage
 	if a.registry != nil && a.registry.HasSQLFallback() {
 		if sub, ok := naturalSQLPlan(q, mem); ok {
 			plan.SubQuestions = []domain.SubQuestion{sub}
@@ -245,7 +248,7 @@ func (a *Assistant) ask(ctx context.Context, q domain.Question, opts askOptions)
 	}
 	if len(plan.SubQuestions) == 0 {
 		var err error
-		plan, planned, err = a.planWithFallback(ctx, q, mem, catalog)
+		plan, planned, usage, err = a.planWithFallback(ctx, q, mem, catalog)
 		if err != nil {
 			// A cancelled/expired context is the client disconnecting (or the wall
 			// clock firing), not a transient planner fault: propagate it so the
@@ -291,6 +294,14 @@ func (a *Assistant) ask(ctx context.Context, q domain.Question, opts askOptions)
 	// could not reach the reader that would actually honor it.
 	injectAsOf(plan.SubQuestions, q.AsOf)
 
+	// Thread the server-resolved period (plan v3 D1.2) the same way: from/to
+	// ISO business dates on every sub-question. A model-drafted SQL read on a
+	// current-state view (no date column) is converted to an explicit "as of
+	// now" read here, so the guard never rejects it and the composer says so.
+	window, _ := ResolveWindow(q.Text, q.AsOf, nil)
+	injectWindow(plan.SubQuestions, window)
+	prepareSQLWindows(plan.SubQuestions, window, q.AsOf)
+
 	mode := domain.ModePlanned
 	if !planned {
 		mode = domain.ModeFallback
@@ -310,6 +321,12 @@ func (a *Assistant) ask(ctx context.Context, q domain.Question, opts askOptions)
 		mode = domain.ModePartial
 	}
 
+	// One-shot SQL repair (plan v3 D1.3): a model-drafted sql_fallback that the
+	// guard rejected or Postgres refused is re-prompted ONCE with the reason and
+	// the view's schema card, then re-run through the same guard. A second
+	// failure stays failed and takes the existing honest-partial path below.
+	usage = usage.add(a.repairSQLResults(ctx, q, plan.SubQuestions, results, &traces))
+
 	// Runtime fallback (P1-3): before composing, retry any errored/empty
 	// result at the next tier in Cube -> API -> Toolbox -> SQL order. This is
 	// what turns an unwired/mismatched API tool (e.g. feed, counts) into a
@@ -324,11 +341,24 @@ func (a *Assistant) ask(ctx context.Context, q domain.Question, opts askOptions)
 		a.telemetry.RecordToolRows(ctx, resolvedTool, totalRows(results))
 	}
 
+	// State the period once (D4): a "Window: …" line for a windowed or
+	// as-of-now model-drafted SQL read, appended after every retry so it
+	// describes what actually ran. It is a self-grounded fact stamped with the
+	// actor's tenant and carries no new citation.
+	if wr := windowResult(q.Actor, plan.SubQuestions, results, window); wr != nil {
+		results = append(results, *wr)
+	}
+
 	// Optional partial-synthesis frame before the (grounded) compose + review.
 	opts.progress.emit("synthesizing", "")
 
 	var comp composer
-	body, citations, _ := comp.compose(results)
+	// Tenant gate (plan v3 D0 "Chart / facts"): a fact set that is not wholly
+	// the actor's never reaches compose, chart or cache — it becomes a refusal.
+	body, citations, _, composeErr := comp.composeFor(q.Actor, results)
+	if composeErr != nil {
+		return a.refusal(requestID, q.ConversationID, "I couldn't verify that every figure belongs to your organisation, so I won't show this answer."), nil
+	}
 	for i := range citations {
 		citations[i].PlannedByModel = planned
 	}
@@ -352,7 +382,10 @@ func (a *Assistant) ask(ctx context.Context, q domain.Question, opts askOptions)
 			a.telemetry.ReviewCorrection(ctx)
 		}
 		if a.retryFailedResults(ctx, q.Actor, plan.SubQuestions, results) {
-			body, citations, _ = comp.compose(results)
+			body, citations, _, composeErr = comp.composeFor(q.Actor, results)
+			if composeErr != nil {
+				return a.refusal(requestID, q.ConversationID, "I couldn't verify that every figure belongs to your organisation, so I won't show this answer."), nil
+			}
 			for i := range citations {
 				citations[i].PlannedByModel = planned
 			}
@@ -401,29 +434,58 @@ func (a *Assistant) ask(ctx context.Context, q domain.Question, opts askOptions)
 		_ = a.memory.Remember(ctx, q.Actor, convoID, resolveEntities(plan.SubQuestions))
 	}
 
+	// Chart is additive + optional: built from the SAME real facts that
+	// grounded the answer, only when the question is plot-worthy or the
+	// result is a dimensioned series. It never alters the answer fields. The
+	// tenant gate already passed above; buildChart re-checks and a failure
+	// here is a refusal, never a chart of someone else's rows.
+	chart, chartErr := buildChart(q.Actor, q.Text, results)
+	if chartErr != nil {
+		return a.refusal(requestID, q.ConversationID, "I couldn't verify that every figure belongs to your organisation, so I won't show this answer."), nil
+	}
 	answer := domain.Answer{
 		Answer: body, Source: source, Mode: mode, RequestID: requestID,
 		ConversationID: convoID, Citations: citations,
-		// Chart is additive + optional: built from the SAME real facts that
-		// grounded the answer, only when the question is plot-worthy or the
-		// result is a dimensioned series. It never alters the fields above.
-		Chart: buildChart(q.Text, results),
+		Chart: chart,
 	}
 
 	a.recordAudit(ctx, q, requestID, convoID, mode, results, traces, verdict, start)
 
 	if a.budget != nil {
-		a.budget.Record(ctx, q.Actor, len(q.Text)/4, len(body)/4)
+		// Prefer the provider's billed usage (Vertex usageMetadata, plus any
+		// repair call); fall back to the len/4 estimate when none was reported
+		// (keyword planner, natural-SQL short-circuit, older adapters).
+		in, out := len(q.Text)/4, len(body)/4
+		if usage.reported() {
+			in, out = usage.PromptTokens, usage.OutputTokens
+		}
+		a.budget.Record(ctx, q.Actor, in, out)
 	}
-	if a.cache != nil && mode == domain.ModePlanned && verdict.Grounded {
+	// Cache gate: the key is tenant-first (cacheKey) AND the cached facts must
+	// be wholly the actor's — a mixed/foreign fact set is never stored.
+	if a.cache != nil && mode == domain.ModePlanned && verdict.Grounded && validateFactTenants(q.Actor, results) == nil {
 		a.cache.Set(cacheKey, answer)
 	}
 	return answer, nil
 }
 
-func (a *Assistant) planWithFallback(ctx context.Context, q domain.Question, mem []domain.ResolvedEntities, catalog []ports.ToolSpec) (domain.Plan, bool, error) {
+// planWithFallback plans with the primary provider (Vertex), then the
+// deterministic keyword planner. It returns the provider's real token usage
+// when the provider reports it (usagePlanner); zero usage means "estimate".
+func (a *Assistant) planWithFallback(ctx context.Context, q domain.Question, mem []domain.ResolvedEntities, catalog []ports.ToolSpec) (domain.Plan, bool, TokenUsage, error) {
 	var plan domain.Plan
+	var usage TokenUsage
+	up, hasUsage := a.provider.(usagePlanner)
 	err := retryTransient(ctx, 2, 150*time.Millisecond, func() error {
+		if hasUsage {
+			p, u, e := up.PlanWithUsage(ctx, q, mem, catalog)
+			usage = usage.add(u) // a retried call is still billed
+			if e != nil {
+				return e
+			}
+			plan = p
+			return nil
+		}
 		p, e := a.provider.Plan(ctx, q, mem, catalog)
 		if e != nil {
 			return e
@@ -432,25 +494,25 @@ func (a *Assistant) planWithFallback(ctx context.Context, q domain.Question, mem
 		return nil
 	})
 	if err == nil {
-		return plan, a.provider.PlannedByModel(), nil
+		return plan, a.provider.PlannedByModel(), usage, nil
 	}
 	// Don't paper a client disconnect / deadline over with the deterministic
 	// fallback: surface the context error so the pipeline aborts cleanly.
 	if ctxErr := ctx.Err(); ctxErr != nil {
-		return domain.Plan{}, false, ctxErr
+		return domain.Plan{}, false, usage, ctxErr
 	}
 	a.log.WarnContext(ctx, "ceoai planner failed, using deterministic fallback", "error", err)
 	if a.telemetry != nil {
 		a.telemetry.VertexFailover(ctx)
 	}
 	if a.fallback == nil {
-		return domain.Plan{}, false, err
+		return domain.Plan{}, false, usage, err
 	}
 	p, e := a.fallback.Plan(ctx, q, mem, catalog)
 	if e != nil {
-		return domain.Plan{}, false, e
+		return domain.Plan{}, false, usage, e
 	}
-	return p, false, nil
+	return p, false, usage, nil
 }
 
 // enforceCubeFirst rewrites any sub-question whose resolved tool name matches a

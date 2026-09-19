@@ -30,7 +30,7 @@ func (e *liveExec) Spec() ports.ToolSpec { return e.spec }
 func (e *liveExec) Execute(context.Context, domain.Actor, domain.SubQuestion) (domain.ToolResult, error) {
 	return domain.ToolResult{
 		Route: domain.RouteAPI, ToolName: e.spec.Name, Surface: "Mesha · counts",
-		Facts: []domain.Fact{{Label: "active", Value: "1234"}},
+		Facts: []domain.Fact{{TenantID: "t1", Label: "active", Value: "1234"}},
 	}, nil
 }
 

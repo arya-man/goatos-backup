@@ -1,0 +1,252 @@
+# leadership-assistant-exclusion-baseline: bare `| EXCLUDED |` rows in docs/ceo-ai/coverage-matrix.md
+# frozen on 2026-09-19 (plan v3 D6). One surface cell per line. This file only SHRINKS:
+# type the row (EXCLUDED:config|write|pii|detail|infra) and delete its line here.
+# Adding a line to land a new bare exclusion is not accepted (see docs/observability/GUARDRAIL_RATCHET.md).
+table:person_module_access_leadership_tasks_two_way_rows, table:person_module_access_leadership_tasks_two_way_caps
+person_module_access_leadership_tasks_assignee_narrowing
+func:ReviewedPerStep, func:StepRecorded, func:HoldStepForReview, func:BirthStepReviewKey, func:ApplyStepVerdict, func:WriteResult, func:OperatorActionBlocked, func:ApplyBirthStepVerdict, func:EnqueueBirthStepVerification
+func:CanComment, func:CanMonitor, func:ScopeKeyOrDefault, func:ScopeLabel, func:ScopeEmptyMessage
+func:ValidateDeadline, func:ClockEnd, func:IsFinished, func:DaysLeft, func:DeadlineTone, func:DeadlineLabel, func:DaysLeftLabel, func:DeadlineStateLabel
+GET /alerts/config, PUT /alerts/config/{rule_key}, POST /alerts/config/events, PUT /alerts/config/events/{rule_id}, DELETE /alerts/config/events/{rule_id} (func:GetConfig, func:SetConfig, func:Validate, func:UpsertRuleConfig, func:CreateEventRule, func:UpdateEventRule, func:DeleteEventRule, func:EventRules, func:SetEventRule, func:EventKinds, func:EventKindByKey, func:DetectEvents, func:ListEventRules, func:UpsertEventRule, func:WithEvents, func:Events, table:alert_rule_config, table:alert_event_rules)
+func:FlagTitle, func:FlagBody, func:VisibleModules, func:IntersectModules, func:VisibilityPermissions, func:Modules, func:IsModule, func:WorkStates, func:IsWorkState, func:Lanes, func:LaneFor, func:StatesInLane, func:IsLane, func:Finalize, func:RowKey, func:ParseCursor, func:String, func:IsZero, func:Normalize, func:WantsModule, func:WantsState, func:NewSummary, func:Add
+func:ParseHealthAnalyticsDate, func:ResolveHealthAnalyticsWindow, func:HealthAnalyticsDefaultWindow, func:HealthAnalyticsPct, func:AgeBandSummary, func:WithClock
+GET /admin/leave/requests, GET /app/leave/approvals (table:workforce_leave_requests, table:workforce_leave_approval_config, func:NewLeaveHandler, func:RegisterLeave, func:Request, func:MyRequests, func:Withdraw, func:Queue, func:Approve, func:Reject, func:AdminList, func:Config, func:SetConfig, func:NewLeaveService, func:MyRequestRows, func:ComposeForMember, func:TodayForMember, func:Decide, func:CreateLeaveRequest, func:WithdrawLeaveRequest, func:DecideLeaveRequest, func:GetLeaveRequest, func:ListLeaveRequestsForMember, func:ListLeaveQueue, func:ListLeaveRequestsAdmin, func:LeaveTodayForMember, func:GetLeaveApprovalConfig, func:SetLeaveApprovalConfig, func:ResolveLeaveApproverMembers, func:WithLeave)
+func:NewClockAutoCloseStage, func:Name, func:Run, func:AutoCloseStaleClockEntries, func:NewLeaveRequestNotifyConsumer, func:WithAudience, func:Register, func:HandleEvent
+func:ShiftingActionsDueFrom, func:ShiftingActionsDue
+GET /app/counts/shifting/destinations
+func:CarryOverUnchangedVaccinationObligations, func:RuleIdentityKey, func:RuleContentFingerprint, func:VaccineCodeForRule
+func:ResolveShiftingDestinationPenStage (counts/domain)
+shifting_events.sop_version / raise_sop_proofs / raise_sop_answers / raise_capture_evidence / sop_proofs / sop_answers (migration 000340), func:JudgeRaise, func:CurrentRaiseCard (counts/app), backend/internal/shiftingsop
+func:IsClinicalStage (protocol/domain), func:PartitionAliasExclusionSQL (platform/oploc)
+GET /goats/search
+GET /goats/{goat_id}
+GET /goats/{goat_id}/passport
+GET /goats/{goat_id}/vaccination-passport
+GET /goats/{goat_id}/timeline
+GET /identifiers/{type}/{value}/resolve
+GET /app/vaccination/tasks/{task_id}/option-values (func:TaskOptionValues)
+func:NormalizePartitionLabel, func:ShedDisplayLabel, func:VaccineFamilyCode, func:IsLiveTrackerStatus, func:OperatorMatchesStatus, func:ShedMatchesStatus
+func:VaccineAntigenLabel
+GET /vaccination/sheds/{shed_id}/animals
+func:NewVaccineLabelResolver, func:ResolveVaccineLabels (notification bridge)
+func:ReplaceDraftVersion, func:DiscardVersion, func:DiscardProtocolVersion, func:DeleteDraftProtocolRules, func:DeleteDraftProtocolTriggers
+func:RepeatCycleRef, func:Valid (obligation/domain)
+func:OpenObligationForRepeatCycle, func:GetOpenObligationForRepeatCycle, func:GetObligationRepeatCycle
+func:GoatsWithVaccinationObligationsOutsideVersions
+func:Run, func:Modes, func:ValidMode (obligation/repair)
+func:AuthorizedParkIDsForCapability
+func:ClientInfoFromContext, func:ClientInfoMetadataFromContext, func:WithClientInfo, func:ClientInfoFromRequest
+func:SplitShedPartitionName (platform/oploc), func:PartitionMatchKey, func:ExperimentLocationKey, func:SplitGrainsByPartition, func:PartitionKey (feeddirection/domain)
+func:ExceedsPackingVarianceTolerance
+func:Wants, func:ParseExecutionSection (feed analytics HTTP execution parser)
+func:WantsDirected, func:ParseDirectedSection (feed analytics HTTP directed parser)
+func:StockFamilyMergeArrays, func:StockRateOverrideArrays
+func:WantsStock, func:ParseStockSection
+func:CollapseDirectionRowsByLocation (feeddirection/domain)
+func:ListPackingCompletionStatuses (feeddirection/adapters/postgres), func:ReopenPackingForFeedChange, func:FeedShiftingRaisedEffectiveBusinessDate (counts/domain)
+func:PartitionAliasExclusionSQL (platform/oploc, used by feed transport postgres reads)
+POST /feed-config/feed-items (func:CreateFeedItem, func:NormalizeEnergyKcalPerKg, func:NormalizeDryMatterFactor, func:NormalizeWastageFactor, func:ValidateDisplayOrder)
+POST /feed-config/feed-items/status (func:SetFeedItemStatus, func:ValidateFeedItemStatus)
+PUT /feed-config/session-templates/{template_id}/items/{feed_item_label} (func:SetSessionTemplateItem)
+func:ListUploadedProofs, GET /app/proofs/uploads
+func:ResolveMediaMetadata, func:ResolveMedia
+func:OversightAnalytics (domain struct)
+PUT /verification/sampling/{category} (func:SetVerificationSamplingPolicy, func:SetSamplingPolicy, table:verification_sampling_policies)
+func:ListSamplingPolicies, func:UpsertSamplingPolicy, func:ListSamplingDayStats, func:SettleUnsampledItems, func:SamplingBucket, func:InSample, func:SamplingWaivable, func:ProgressPercent, func:SettledByPolicy, func:DecidedByPerson, func:NewVerificationSamplingCloseoutStage, func:PCCare, func:All
+func:VideoLogShedSummary, func:VideoLogShedRows (verification postgres adapter)
+func:WatchStates (review-event watch aggregate)
+GET /app/weighing/campaigns
+weighing_fasting_tasks
+weighing_fasting_shed_proofs
+func:ListCampaignsForOperator, func:ListScopeRoster, func:ListScopeRosterForOperator
+func:PlannerCatalog, func:PlannerParkBuckets
+func:Error, func:Unwrap
+func:AnimalProofWasRejected
+func:New, func:EnqueueWeighingVerification, func:WithVerificationEnqueuer
+POST /weighing/campaigns, /weighing/campaigns/{campaign_id}/publish
+POST /app/weighing/campaigns/{campaign_id}/sheds/{campaign_shed_id}/reopen (func:ReopenScope)
+POST /app/weighing/campaigns/{campaign_id}/sheds/{campaign_shed_id}/abandon (func:AbandonScope)
+func:AbandonScope, func:pendingVerificationCount (weighing close gate)
+POST /app/weighing/campaigns/{campaign_id}/animal-observations, /shed-observations
+app_events
+GET /app/weighing/alerts (func:ListAlerts, weighing service + postgres adapter)
+GET /app/vaccination/alerts (func:ListAlerts, vaccinationexecution service + postgres adapter)
+GET /app/feed/alerts (func:ListAlerts, feeddirection service + postgres adapter)
+GET /app/counts/alerts (func:ListAlerts, counts service + postgres adapter)
+func:RegisterVerificationAppliers
+func:MarkVerdictApplied, func:AckWeighingVerificationApplied, func:VerdictState, func:WithApplyAcker
+func:RecordOutboxFailed
+func:Error, func:Unwrap (weighing ports.CaptureIncomplete)
+func:NewWeighingReworkDigestStage, func:SweepReworkDigests, func:Name, func:Run (weighing rework digest stage)
+func:DeleteUnattachedProof, func:DeleteUpload, func:StatObject, func:EnsureObjectAvailable, func:EnsureEvidenceAvailable
+func:NewWeighingLifecycleEventConsumer
+func:Register (weighing lifecycle event consumer)
+func:HandleEvent (weighing lifecycle event consumer)
+func:CloseScope (weighing verification verdict handler)
+func:CloseCampaign (weighing verification verdict handler)
+func:ApplyVerificationVerdict (weighing verification verdict handler)
+func:NewVerificationVerdictHandler (weighing verification verdict handler)
+GET /vaccination/workflows/{row_id}
+GET /app/vaccination/execution(+/sheds/…, roster, coverage, gaps, tasks/…)
+GET /calendar/vaccination/events/{event_id}(+/history,/targets)
+Feed proof times Slack report (func:FeedProofTimesByPark, func:Recorded, func:PenDisplay, func:Complete, func:MissingCount, func:FeedProofTimesTitle, func:SessionNumbers, func:Pens, func:MissingPenCount, func:FeedProofTimesSlackBody, func:NewFeedProofTimesStage, func:Name, func:Run, func:ChannelWebhookURLsFromJSON, func:NewFeedProofTimesNotifier, func:WithClock, func:NotifyFeedProofTimes, func:FeedProofTimesCutoffPassed)
+GET /feed-transport/tasks
+POST /feed-transport/tasks/{task_id}/submit
+GET /feed-config/ration-groups
+GET /feed-config/shed-tags
+GET /feed-config/feed-items
+GET /feed-config/session-templates
+GET /feed-config/schedule
+GET /feed-config/shed-factors
+GET /feed-config/experiment (func:ListExperimentConfig)
+GET /feed-config/pens (func:ListPens)
+POST /feed-config/experiment/batch (func:UpsertExperimentConfigBatch, func:NormalizeFeedItemKey)
+Feed serving/query indexes and permission active-grant lookup (migrations 000259-000266)
+func:NormalizeVendorSide, func:ListVendorCatalog
+market_survey_config
+workforce_member_titles
+func:SetTitle, func:SetPersonTitle
+GET /admin/roster/positions/{position_id}
+GET /admin/roster/leave/{absence_id}
+POST /admin/roster/leave/{absence_id}/resolve-coverage
+PUT /vaccination/capacity-config (func:PutCapacityConfig, func:UpdateCapacityConfig, func:UpsertCapacityConfig, func:WithCapacityConfigWriter)
+func:ApplyCapacityShotCapOverride
+func:RealignOpenObligationForGeneration
+func:ManualVaccineAnchorsForGoat
+obligation_instances_unlabelled_identity_lookup_idx, func:CancelOpenVaccinationObligationsForExitedGoats
+func:PlannedDriveSessionsForShed
+func:ParkIDsForVaccinationOperator, func:ListVaccinationOperatorsForPark
+GET /admin/roster/backup-config
+func:PackingPlannedQuantities
+func:PackingEntryVariance
+func:PackingEntryVarianceMessage
+func:Error
+GET /app/roster/timetable, /app/roster/my-coverage
+GET /admin/operators/{id}(+/devices,/grants)
+GET /admin/locations/{id}(+/children,/aliases)
+GET /admin/sops/{id}(+/versions/…)
+GET /admin/tasks/{id}
+sop_submissions.partition_label (migration 000147)
+GET /app/tasks(+/{id}, /shed-completion-summary), /app/sop-versions/{id}
+POST /verification/review-events
+func:SuppressInvalidRecipient
+DELETE /app/proofs/{proof_id} (func:DeleteUpload, func:DeleteUnattachedProof, func:Delete, func:FinalizeUpload, func:ResolveProofRefs)
+GET /workflows/{row_id}
+GET /protocols/versions/{id}, /protocols/animal-stages
+GET /app/config, /app/bootstrap, /app/me, /admin-web/bootstrap
+GET /app/proofs/{id}/download(+/signed)
+GET /healthz, /livez, /readyz, /version
+vaccination_completion_rejections
+func:ResolveProofDownloadURL, func:WithProofURLResolver (weighing and vaccination proof URL resolver)
+func:ResolveProofDownloadURL, func:AttachmentDownloadURL, func:ArtifactMetadata, func:DownloadArtifactForActor
+func:GetGrowthDirectorWeights, func:GetLeadershipGrowthADG, func:GetLeadershipGrowthADG(sections), func:ResolveSexScope, func:ResolveOriginScope, func:ResolveOriginScopeWithAllTime, func:IntersectScopes, func:Empty (weighing sex/origin/mode scope + sectioned Growth Director/ADG reads)
+func:ReopenObligation, func:ReopenTaskForRework (obligation/weighing rework)
+func:ListExhausted, func:RequeueExhausted (outbox/event queue)
+func:DeviceIDFromContext, func:WithDeviceID (device context)
+func:RetryableConflict, func:WithObligationCompleter, func:Error (error/helper types)
+func:Write (miscellaneous write helper)
+func:ListColostrumDay, func:GetColostrumDay, func:ColostrumDayCard, func:ColostrumDayWindow, func:ColostrumFilterAllowed, func:IsColostrumAction, func:Complete (colostrum day lens) + `GET /app/workflows?module=colostrum`
+feed_wastage_completions
+feed_transport_tasks
+feed_transport_attempts
+goat_births
+sop_task_scan_captures
+sop_task_scan_attempts
+verification_sampling_policies
+alert_rule_config, alert_event_rules
+vaccination_drive_assignment_members
+workforce_clock_events, workforce_clock_entries (migration 000221) + GET/POST /app/clock/* (func:NewClockService, func:Punch, func:Status, func:Presence, func:PersonDay, func:AdminEntries, func:EntryDetail, func:RecordClockPunch, func:ClockDayForMember, func:ListClockPresence, func:ClockPersonDayDetail, func:ClockEntryDetail, func:NewClockHandler, func:RegisterClock, func:ClockIn, func:ClockOut) + GET /admin/workforce/clock-entries
+health_protocol_versions, health_protocol_steps, health_config_write_log
+`func:CampaignShedLocation` (weighing postgres repository)
+`func:RelabelItemBySource`, `func:Category`, `func:HasCountField`, `func:WithWeightCorrector`, `func:CorrectObservationWeight`, `func:RelabelWeighingVerification`, `func:NewWeightCorrectionService`, `func:WithVerificationRelabeler`, `func:Error`, `func:Unwrap`, `func:CorrectionCode`, `func:ValidateWeightCorrection`, `func:RecomputeAverageWeightKg`, `func:CorrectedSubjectLabel`, `func:FormatWeightKg`
+`func:RegisterMeasurementApplier`, `func:ApplyMeasurement`, `func:HasRecordedMeasurement`, `func:NewMeasurementApplier`, `func:NewWastageMeasurementApplier`, `func:WastageMeasurementRecorded`
+func:AverageAnimalWeightDisplay (procurement/domain), column procurement_vendors.average_animal_weight_kg
+func:NewSalesService, func:NewSalesServiceWithClock, func:GetOverview, func:ListDeals, func:CreateDeal, func:SetDealStatus, func:RecordDealPayment, func:NewSalesHandler, func:NewRepository, func:Register, func:SalesHTTPError, func:BadRequest, func:NotFound, func:Conflict, func:Internal, func:Error
+func:BuildDealAggregates, func:BucketWeightGap, func:Animals, func:WeightKg, func:RollupLines, func:Month, func:PeriodFromCandidate, func:PaymentBalance, func:ClampDealPageSize, func:NormalizeFarmFilter, func:Normalize, func:TotalOrSplitSum, func:PerKgCost, func:Validate, func:IsFarm, func:IsProductType, func:IsLiveProduct, func:IsStatus
+path:/procurement/loads/{load_id}/cost (PUT)
+func:NewLoadwiseHandler, func:RegisterLoadwise, func:LoadwiseSales, func:LoadwiseWeights, func:SetLoadCost, func:NewLoadwiseService, func:LoadwiseHTTPError, func:FinalizeLoadwise, func:Validate
+`func:NewValidatorWithPool` (`backend/internal/feeddirection/adapters/proof/validator.go`)
+`func:IsNewbornPen`, `func:NewbornPenStage` (`protocol/domain`)
+`func:ResolveBirthPlacement`, `func:AllowsPen` (`counts/domain`)
+`func:ParseRecordedPenAnswer`, `func:FormatRecordedPenAnswer` (`tasks/domain`)
+`func:TemplateBirthKidAt`, `func:TemplateByKeyAt` (`tasks/domain`)
+`func:WithIdentityTxWriter` (`tasks/adapters/postgres`)
+pc_care_tasks
+pc_care_task_assignees
+pc_care_task_animals
+pc_care_task_proofs
+pc_care_task_inventory_requirements
+pc_care_rounds
+pc_care_removal_pen_proofs
+`GET/POST /app/pc-care/*` (planner catalog/sheds, tasks, worklist, captures, animals, proofs, submit)
+event `pc_care.task.completed`
+`func:NormaliseCompletionPage`, `func:NormalizeDistributionCompletionStatus`, `func:IsValidDistributionCompletionStatus`, `func:DescribeProofUploads`
+herd_signal_gateways
+herd_signal_packets
+herd_signal_packets_new
+herd_signal_packets_default
+herd_signal_tag_latest
+herd_signal_activity_windows
+herd_signal_tag_mappings
+herd_signal_motion_delta_1h
+func:IngestPackets, func:ListLive, func:GetTagActivity, func:ListGateways, func:GetInsights, func:ListActivityWindows, func:GetTimeline, func:BindTagMapping, func:ReplaceTagMapping, func:UnmapTagMapping, func:RecordGatewayHeartbeat, func:GetBaselineDeltas, func:GetMotionDeltas24h, func:GetBatteryHistory, func:GetGatewayTagStats, func:GetGatewayWindowStats, func:GetInsightsData, func:ExportCSV, func:NewService, func:WithThresholds, func:NewRepository, func:UpsertGateway, func:GetGatewaysByTenant, func:GetTagLatest, func:ListTagsLatest, func:GetGoatIdentifier, func:ResolveTagMapping, func:GetGoatsByIDs, func:ResolveTagsBatch, func:GetShedLocations, func:ListFarmActivity, func:ListTagsLatestPage, func:GetTagActivityScope, func:NewHandler, func:Register, func:Write, func:MotionDelta, func:IsGapDelta, func:MovementStateFromDelta, func:SignalStateFromRSSI, func:BatteryStateFromVoltage, func:BatteryTrendFromHistory, func:BatteryStateWithTrend, func:PatternStateFromHistory, func:Baseline75, func:SelectBucketTier, func:IsSupportedBucketSeconds, func:NormalizeTagIdentifier, func:DefaultThresholds, func:IsHoneyCombAdvertisement, func:DecodeHoneyCombPacket, func:RecordHerdSignalsPartitionMaintenanceRun
+func:ListLive risk scoring and smart BLE tag enrichment
+/herd-signals/* (all HTTP routes)
+protocol_rule_dimensions.procurement_purpose
+person_access
+person_module_access
+person_park_scope
+designation_catalog
+notification_alert_audiences
+GET /admin/notifications/designations
+PUT /admin/notifications/designations/{alert_key}
+designation_module_defaults
+func:ModuleCapabilities, func:LookupModuleCapability, func:ModuleSupportsSurface, func:LevelOffered, func:HasCapability, func:PermissionsForAssignments, func:PermissionsForAssignmentsWithBaseline, func:SeparationRisks, func:AssignmentsForRole, func:AssignmentsForRoles, func:AuthorizePermissionSet, func:SetPersonAccessSource
+func:ModulePages, func:PagesForModule, func:ModuleOwningRoute, func:Allows, func:PageAccessForAssignments, func:PageKeysForModule, func:NarrowForRetiredLenses, func:FillDefaultPages, func:WithPersonPageAccess
+func:NewAccessService, func:GetPersonAccess, func:NewAccessHandler, func:RegisterAccess, func:GetAccess, func:SaveAccess, func:DesignationDefaults, func:NewAccessRepository, func:LoadPersonAccess, func:SavePersonAccess, func:ListParks, func:ListDesignations, func:ResolvePermissions, func:ResolvePageAccess
+health_diagnosis_runs
+func:CloseCase, func:ApplyVerifiedTreatment, func:BounceTreatmentForRework, func:EnqueueTreatmentVerification, func:NewHealthVerificationHandler, func:HandleEvent, func:Register, func:WithVerificationEnqueuer, func:New, func:VerificationCategoryForAgeBand, func:ResolveShedLocations
+func:EncodeCommandBoardAnimalCursor, func:DecodeCommandBoardAnimalCursor, func:EncodeCommandBoardDueCursor, func:DecodeCommandBoardDueCursor, func:EncodeCommandBoardDriveCursor, func:DecodeCommandBoardDriveCursor, func:Normalized, func:Flatten, func:ExternalAdminDSN
+POST /app/pc-care/tasks/{task_id}/stock-verdict (func:PostStockVerdict, func:RecordStockVerdict, func:IsDirectorApprovedCategory)
+func:GetShedWeights
+func:EmptyAnimalIdentityMap, func:Empty, func:ResolveAnimalIdentityMap
+pen_reconciliation_cards
+GET /app/counts/pen-reconciliation/cards, POST /app/counts/pen-reconciliation/cards/{card_id}/complete
+func:RaisePenReconciliationCards, func:ListPenReconciliationCards, func:CompletePenReconciliationCard, func:MarkPenReconciliationVerificationEnqueued, func:ListPenReconciliationVerificationEnqueueDebt, func:RecoverVerificationEnqueues, func:NewPenReconciliationEnqueueRecoveryStage, func:ApplyVerifiedPenReconciliation, func:BouncePenReconciliationForRework, func:NewPenReconciliationService, func:NewPenReconciliationRaiser, func:NewPenReconciliationVerificationHandler, func:NewPenReconciliationVerificationEnqueuer, func:EnqueuePenReconciliationVerification, func:RegisterPenReconciliation, func:WithPenReconciliationWorkflow, func:ListPenReconciliationCards, func:CompletePenReconciliationCard, func:EncodePenReconciliationCursor, func:DecodePenReconciliationCursor, func:ValidPenReconciliationBucket
+sop_categories
+sop_task_types
+POST /app/counts/pen-reconciliation/cards/{card_id}/workflow
+func:ParseFollowUp, func:ValidateFollowUp, func:CompileTrack, func:TemplateKeyToSOP, func:Track, func:FollowUp, func:Raw, func:TaskTypes, func:Categories, func:SeededTaskTypes, func:FollowUpRequired, func:ListActiveTaskTypes, func:WithTaskTypeSource
+func:IsDependencyTimed, func:HasHook, func:ProofSatisfied, func:TemplateLabel, func:AllProofRefs
+func:OpenSubjectWorkflow, func:WithCompletionHook, func:ReopenForRework, func:WorkflowIDBySubjectRef, func:ReopenProofStepsForRework, func:NewSubjectWorkflowVerdictHandler, func:Register, func:HandleEvent
+func:EnsureWorkflow, func:OnWorkflowCompleted, func:WithWorkflowEngine, func:NewReconcileWorkflowEngine, func:EnsurePenReconciliationWorkflow, func:PenReconciliationCardForWorkflow, func:SetPenReconciliationWorkflow, func:PenReconciliationCardIDByWorkflow
+func:ParseInspection, func:ValidateInspection, func:CompileInspection, func:SeededInspectionJSON, func:SeededCatalog, func:LockedQuestionIDs, func:InspectionSOPContract
+func:PublishedCatalog, func:CatalogVersion, func:NewCatalogSource, func:WithCatalogSource, func:Catalog, func:CatalogFor, func:MediaSlots, func:ByID, func:AllMediaRefs
+func:WithFormDSLContract
+/procurement/sops
+func:ParseWeighingSOP, func:ValidateWeighingSOP, func:SeededWeighingSOPJSON, func:SeededRules, func:ModeAllowed, func:RemovalApplies, func:RemovalProof, func:ValidateRemovalAnswers, func:NormalizeRemovalAnswers, func:WeighDateAllowsPlainCreate, func:Error, func:WeighingSOPContract
+func:PublishedRules, func:RulesVersion, func:NewRulesSource, func:WithSOPRules, func:CampaignSOPVersion
+weighing_campaigns.sop_version, weighing_fasting_shed_proofs.sop_answers
+/weighing/sops (rules editor)
+func:SOPCodeForStage, func:Stage, func:SeededFeedSOPJSON, func:SeededRules, func:ParseFeedSOP, func:Rules, func:IsFeedSOPCode, func:ValidateFeedSOP, func:UnknownFeedSOPKeys, func:Proof, func:SlotKeys, func:ValidateProofRefs, func:ValidateAnswers, func:NormalizeAnswers, func:LegacyProofRefs, func:LegacyFieldsFromRefs, func:NewCardContract, func:UnmarshalJSON, func:Accepts, func:ValidateProofSlots, func:ValidateQuestions, func:Error, func:NormalizeProofRefs, func:AnswerRows
+func:PublishedRules, func:RulesVersion, func:NewRulesSource, func:WithSOPRules, func:FeedSOPContract, func:SOPProofSlotError, func:SOPAnswerError, func:DescribeFeedProofMedia
+table:weighing_calendar_config
+app_crash_daily
+app_network_daily
+func:RecordSweeperTasksCreated
+rollup_dispatch
+func:NewAnalyticsRollupStage
+path:/app/notifications, path:/app/notifications/read
+func:ListNotifications, func:MarkRead, func:List, func:ClampLimit
+func:NewRepository, func:NewService, func:NewHandler, func:Register
+func:HTTPError, func:Error, func:BadRequest, func:Conflict, func:Internal
+notification_requests.read_at, notification_requests.status = 'read'
+species_lookup
+sex_lookup
+item_categories
+func:NewHandler, func:Register, func:Registers, func:List, func:Get, func:Options, func:Usage, func:Create, func:Update, func:SetStatus, func:Delete, func:NewService, func:Counts, func:HTTPError, func:BadRequest, func:NewRepository, func:RegisterByKey, func:Column, func:IsBuiltinCode, func:ValidateWrite, func:NormalizeCode, func:FieldString, func:FieldInt, func:FieldBool, func:Sentence, func:Error, func:Unwrap
+reference_lists
+reference_list_entries
+configuration_import_jobs
+configuration_import_rows
+func:Export, func:Template, func:Upload, func:ListImports, func:GetImport, func:ImportRows, func:ImportErrors, func:ApplyImport, func:CancelImport, func:RegisterBulk, func:NewImporter, func:Stage, func:Process, func:ProcessDue, func:OpenSheet, func:NewSheetWriter, func:ErrorSheet

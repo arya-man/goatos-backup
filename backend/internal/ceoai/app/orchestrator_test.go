@@ -67,6 +67,7 @@ type fakeSQLFallback struct {
 	calls        int
 	trustedCalls int
 	lastSQL      string
+	lastArgs     []any
 	result       domain.ToolResult
 }
 
@@ -82,9 +83,10 @@ func (f *fakeSQLFallback) Execute(_ context.Context, _ domain.Actor, sql string,
 	return r, nil
 }
 
-func (f *fakeSQLFallback) ExecuteTrusted(_ context.Context, _ domain.Actor, sql string, _ []any) (domain.ToolResult, error) {
+func (f *fakeSQLFallback) ExecuteTrusted(_ context.Context, _ domain.Actor, sql string, args []any) (domain.ToolResult, error) {
 	f.trustedCalls++
 	f.lastSQL = sql
+	f.lastArgs = args
 	r := f.result
 	r.Route = domain.RouteSQL
 	r.ToolName = "sql_fallback"
@@ -139,7 +141,7 @@ func TestCubeFirstRoutingForKPI(t *testing.T) {
 	// Planner (mis)routes a KPI to SQL; enforcement must flip it to cube.
 	metrics := &fakeMetrics{
 		specs:  []ports.MetricSpec{{Name: "vaccination_overdue", Status: domain.MetricApproved}},
-		result: domain.ToolResult{Surface: "Cube · vaccination_overdue", Facts: []domain.Fact{{Label: "overdue", Value: "42"}}},
+		result: domain.ToolResult{Surface: "Cube · vaccination_overdue", Facts: []domain.Fact{{TenantID: "t1", Label: "overdue", Value: "42"}}},
 	}
 	reg := NewRegistry(metrics, nil, nil)
 	prov := &fakeProvider{byModel: true, plan: domain.Plan{SubQuestions: []domain.SubQuestion{
@@ -162,7 +164,7 @@ func TestOperationalQuestionRoutesToAPINotCube(t *testing.T) {
 	metrics := &fakeMetrics{specs: []ports.MetricSpec{{Name: "vaccination_overdue"}}}
 	exec := &fakeExec{
 		spec:   ports.ToolSpec{Name: "feed_direction_preview", Route: domain.RouteAPI},
-		result: domain.ToolResult{Surface: "Mesha read API", Facts: []domain.Fact{{Label: "kg", Value: "310"}}},
+		result: domain.ToolResult{Surface: "Mesha read API", Facts: []domain.Fact{{TenantID: "t1", Label: "kg", Value: "310"}}},
 	}
 	reg := NewRegistry(metrics, nil, nil)
 	reg.Register(exec)
@@ -186,7 +188,7 @@ func TestModelPlannedMissedVaccinationAPIReadBecomesAggregateMissedMetric(t *tes
 	exec := &fakeExec{
 		spec: ports.ToolSpec{Name: "vaccination_shed_summary", Route: domain.RouteAPI},
 		result: domain.ToolResult{Surface: "Mesha read API", Facts: []domain.Fact{
-			{Label: "Vaccinations missed", Value: "0", Scope: "all parks"},
+			{TenantID: "t1", Label: "Vaccinations missed", Value: "0", Scope: "all parks"},
 		}},
 	}
 	reg := NewRegistry(nil, nil, nil)
@@ -214,7 +216,7 @@ func TestAllParksVaccinationQuestionDropsInjectedPageScope(t *testing.T) {
 	exec := &fakeExec{
 		spec: ports.ToolSpec{Name: "vaccination_shed_summary", Route: domain.RouteAPI},
 		result: domain.ToolResult{Surface: "Mesha read API", Facts: []domain.Fact{
-			{Label: "Vaccinations missed", Value: "0", Scope: "all parks"},
+			{TenantID: "t1", Label: "Vaccinations missed", Value: "0", Scope: "all parks"},
 		}},
 	}
 	reg := NewRegistry(nil, nil, nil)
@@ -242,8 +244,8 @@ func TestModelPlannedVaccinationGraphAPIReadCarriesShedSeriesIntent(t *testing.T
 	exec := &fakeExec{
 		spec: ports.ToolSpec{Name: "vaccination_shed_summary", Route: domain.RouteAPI},
 		result: domain.ToolResult{Surface: "Mesha read API", Facts: []domain.Fact{
-			{Label: "Vaccinations overdue", Value: "0", Scope: "CBE / Gandhi"},
-			{Label: "Vaccinations overdue", Value: "0", Scope: "CBE / Godel 1"},
+			{TenantID: "t1", Label: "Vaccinations overdue", Value: "0", Scope: "CBE / Gandhi"},
+			{TenantID: "t1", Label: "Vaccinations overdue", Value: "0", Scope: "CBE / Godel 1"},
 		}},
 	}
 	reg := NewRegistry(nil, nil, nil)
@@ -270,11 +272,11 @@ func TestModelPlannedVaccinationGraphAPIReadCarriesShedSeriesIntent(t *testing.T
 func TestMultiToolDecompositionSynthesizesOneAnswer(t *testing.T) {
 	metrics := &fakeMetrics{
 		specs:  []ports.MetricSpec{{Name: "active_animals"}},
-		result: domain.ToolResult{Surface: "Cube · active_animals", Facts: []domain.Fact{{Label: "goats", Value: "2567"}}},
+		result: domain.ToolResult{Surface: "Cube · active_animals", Facts: []domain.Fact{{TenantID: "t1", Label: "goats", Value: "2567"}}},
 	}
 	exec := &fakeExec{
 		spec:   ports.ToolSpec{Name: "admin_roster_coverage", Route: domain.RouteAPI},
-		result: domain.ToolResult{Surface: "Mesha read API", Facts: []domain.Fact{{Label: "gaps", Value: "3"}}},
+		result: domain.ToolResult{Surface: "Mesha read API", Facts: []domain.Fact{{TenantID: "t1", Label: "gaps", Value: "3"}}},
 	}
 	reg := NewRegistry(metrics, nil, nil)
 	reg.Register(exec)
@@ -298,13 +300,13 @@ func TestMultiToolDecompositionSynthesizesOneAnswer(t *testing.T) {
 func TestNaturalActiveAnimalQuestionUsesLiveSQLFallbackForCPT(t *testing.T) {
 	sqlFB := &fakeSQLFallback{result: domain.ToolResult{
 		Facts: []domain.Fact{
-			{Label: "Active animals", Value: "185", Scope: "goat"},
-			{Label: "Active animals", Value: "531", Scope: "sheep"},
+			{TenantID: "t1", Label: "Active animals", Value: "185", Scope: "goat"},
+			{TenantID: "t1", Label: "Active animals", Value: "531", Scope: "sheep"},
 		},
 	}}
 	reg := NewRegistry(nil, nil, sqlFB)
 	api := &fakeExec{spec: ports.ToolSpec{Name: "counts_breakdown", Route: domain.RouteAPI},
-		result: domain.ToolResult{Surface: "Mesha read API", Facts: []domain.Fact{{Label: "wrong", Value: "1"}}}}
+		result: domain.ToolResult{Surface: "Mesha read API", Facts: []domain.Fact{{TenantID: "t1", Label: "wrong", Value: "1"}}}}
 	reg.Register(api)
 	prov := &fakeProvider{byModel: true, plan: domain.Plan{SubQuestions: []domain.SubQuestion{
 		{ID: "0", ToolName: "counts_breakdown", Route: domain.RouteAPI},
@@ -371,7 +373,7 @@ func TestNaturalActiveAnimalOneToManyPageBoundaryDateShiftParkScopeSQLGuard(t *t
 
 func TestNaturalFarmBornQuestionUsesOriginAndParkScope(t *testing.T) {
 	sqlFB := &fakeSQLFallback{result: domain.ToolResult{
-		Facts: []domain.Fact{{Label: "Farm-born animals", Value: "42", Scope: "goat"}},
+		Facts: []domain.Fact{{TenantID: "t1", Label: "Farm-born animals", Value: "42", Scope: "goat"}},
 	}}
 	reg := NewRegistry(nil, nil, sqlFB)
 	a := NewAssistant(Config{}, Deps{Provider: &fakeProvider{byModel: true}, Registry: reg})
@@ -401,8 +403,8 @@ func TestNaturalFarmBornQuestionUsesOriginAndParkScope(t *testing.T) {
 func TestNaturalOwnFarmsQuestionDefaultsToKnownParks(t *testing.T) {
 	sqlFB := &fakeSQLFallback{result: domain.ToolResult{
 		Facts: []domain.Fact{
-			{Label: "Farm-born animals", Value: "512", Scope: "Coimbatore"},
-			{Label: "Farm-born animals", Value: "345", Scope: "Channapatna"},
+			{TenantID: "t1", Label: "Farm-born animals", Value: "512", Scope: "Coimbatore"},
+			{TenantID: "t1", Label: "Farm-born animals", Value: "345", Scope: "Channapatna"},
 		},
 	}}
 	reg := NewRegistry(nil, nil, sqlFB)
@@ -426,8 +428,8 @@ func TestNaturalOwnFarmsQuestionDefaultsToKnownParks(t *testing.T) {
 func TestNaturalActiveAnimalQuestionToleratesTyposAndCBEAbbrev(t *testing.T) {
 	sqlFB := &fakeSQLFallback{result: domain.ToolResult{
 		Facts: []domain.Fact{
-			{Label: "Active animals", Value: "805", Scope: "sheep"},
-			{Label: "Active animals", Value: "0", Scope: "goat"},
+			{TenantID: "t1", Label: "Active animals", Value: "805", Scope: "sheep"},
+			{TenantID: "t1", Label: "Active animals", Value: "0", Scope: "goat"},
 		},
 	}}
 	reg := NewRegistry(nil, nil, sqlFB)
@@ -454,8 +456,8 @@ func TestNaturalActiveAnimalQuestionToleratesTyposAndCBEAbbrev(t *testing.T) {
 func TestNaturalActiveAnimalFollowupUsesRememberedParkForBreed(t *testing.T) {
 	sqlFB := &fakeSQLFallback{result: domain.ToolResult{
 		Facts: []domain.Fact{
-			{Label: "Active animals", Value: "531", Scope: "Anantapur Sheep"},
-			{Label: "Active animals", Value: "159", Scope: "Beetal"},
+			{TenantID: "t1", Label: "Active animals", Value: "531", Scope: "Anantapur Sheep"},
+			{TenantID: "t1", Label: "Active animals", Value: "159", Scope: "Beetal"},
 		},
 	}}
 	reg := NewRegistry(nil, nil, sqlFB)
@@ -487,8 +489,8 @@ func TestNaturalActiveAnimalFollowupUsesRememberedParkForBreed(t *testing.T) {
 func TestNaturalActiveAnimalGraphByPenUsesSQLAndReturnsChart(t *testing.T) {
 	sqlFB := &fakeSQLFallback{result: domain.ToolResult{
 		Facts: []domain.Fact{
-			{Label: "Active animals", Value: "136", Scope: "Godel 2"},
-			{Label: "Active animals", Value: "121", Scope: "Mandela 1"},
+			{TenantID: "t1", Label: "Active animals", Value: "136", Scope: "Godel 2"},
+			{TenantID: "t1", Label: "Active animals", Value: "121", Scope: "Mandela 1"},
 		},
 	}}
 	reg := NewRegistry(nil, nil, sqlFB)
@@ -518,8 +520,8 @@ func TestNaturalActiveAnimalGraphByPenUsesSQLAndReturnsChart(t *testing.T) {
 func TestNaturalWeighingQuestionToleratesAvgShorthand(t *testing.T) {
 	sqlFB := &fakeSQLFallback{result: domain.ToolResult{
 		Facts: []domain.Fact{
-			{Label: "Average weight kg", Value: "21.4", Scope: "Castro 1"},
-			{Label: "Average weight kg", Value: "22.1", Scope: "Godel 2"},
+			{TenantID: "t1", Label: "Average weight kg", Value: "21.4", Scope: "Castro 1"},
+			{TenantID: "t1", Label: "Average weight kg", Value: "22.1", Scope: "Godel 2"},
 		},
 	}}
 	reg := NewRegistry(nil, nil, sqlFB)
@@ -552,7 +554,7 @@ func TestNaturalWeighingCountQuestionsUseDashboardDenominatorTerms(t *testing.T)
 		{name: "all weighed", text: "how many animals weighed in weight wise", want: "SELECT 'Animals weighed' AS label"},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
-			sqlFB := &fakeSQLFallback{result: domain.ToolResult{Facts: []domain.Fact{{Label: "Animals weighed", Value: "1", Scope: "Coimbatore"}}}}
+			sqlFB := &fakeSQLFallback{result: domain.ToolResult{Facts: []domain.Fact{{TenantID: "t1", Label: "Animals weighed", Value: "1", Scope: "Coimbatore"}}}}
 			reg := NewRegistry(nil, nil, sqlFB)
 			a := NewAssistant(Config{}, Deps{Provider: &fakeProvider{}, Registry: reg})
 			_, err := a.Ask(context.Background(), domain.Question{Actor: leadershipActor(), Text: tc.text})
@@ -592,7 +594,7 @@ func TestNaturalMortalityQuestionsUseMortalityBase(t *testing.T) {
 		{name: "monthly", text: "show deaths by month", want: "date_trunc('month', event_date)"},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
-			sqlFB := &fakeSQLFallback{result: domain.ToolResult{Facts: []domain.Fact{{Label: "Deaths", Value: "1", Scope: "Coimbatore"}}}}
+			sqlFB := &fakeSQLFallback{result: domain.ToolResult{Facts: []domain.Fact{{TenantID: "t1", Label: "Deaths", Value: "1", Scope: "Coimbatore"}}}}
 			reg := NewRegistry(nil, nil, sqlFB)
 			a := NewAssistant(Config{}, Deps{Provider: &fakeProvider{}, Registry: reg})
 			_, err := a.Ask(context.Background(), domain.Question{Actor: leadershipActor(), Text: tc.text, AsOf: time.Date(2026, 9, 19, 9, 0, 0, 0, time.UTC)})
@@ -611,7 +613,7 @@ func TestNaturalMortalityQuestionsUseMortalityBase(t *testing.T) {
 
 func TestNaturalFeedQuestionUsesAsOfDate(t *testing.T) {
 	sqlFB := &fakeSQLFallback{result: domain.ToolResult{
-		Facts: []domain.Fact{{Label: "Feed variance kg", Value: "-42", Scope: "Godel 2"}},
+		Facts: []domain.Fact{{TenantID: "t1", Label: "Feed variance kg", Value: "-42", Scope: "Godel 2"}},
 	}}
 	reg := NewRegistry(nil, nil, sqlFB)
 	a := NewAssistant(Config{}, Deps{Provider: &fakeProvider{}, Registry: reg})
@@ -636,7 +638,7 @@ func TestNaturalFeedQuestionUsesAsOfDate(t *testing.T) {
 
 func TestNaturalSQLQuestionRemembersScopedParkForFollowup(t *testing.T) {
 	sqlFB := &fakeSQLFallback{result: domain.ToolResult{
-		Facts: []domain.Fact{{Label: "Feed variance kg", Value: "-42", Scope: "Godel 2"}},
+		Facts: []domain.Fact{{TenantID: "t1", Label: "Feed variance kg", Value: "-42", Scope: "Godel 2"}},
 	}}
 	reg := NewRegistry(nil, nil, sqlFB)
 	mem := &fakeMemory{}
@@ -653,7 +655,7 @@ func TestNaturalSQLQuestionRemembersScopedParkForFollowup(t *testing.T) {
 
 func TestNaturalHealthOneToManyPageBoundaryDateShiftParkScope(t *testing.T) {
 	sqlFB := &fakeSQLFallback{result: domain.ToolResult{
-		Facts: []domain.Fact{{Label: "Vendor A", Value: "2", Scope: "Load 12345678"}},
+		Facts: []domain.Fact{{TenantID: "t1", Label: "Vendor A", Value: "2", Scope: "Load 12345678"}},
 	}}
 	reg := NewRegistry(nil, nil, sqlFB)
 	a := NewAssistant(Config{}, Deps{Provider: &fakeProvider{}, Registry: reg})
@@ -665,10 +667,24 @@ func TestNaturalHealthOneToManyPageBoundaryDateShiftParkScope(t *testing.T) {
 	if sqlFB.trustedCalls != 1 || sqlFB.calls != 0 {
 		t.Fatalf("expected health natural SQL to use trusted server-authored fallback, regular=%d trusted=%d", sqlFB.calls, sqlFB.trustedCalls)
 	}
-	for _, want := range []string{"procurement_source_health_checks", "arrival_intake_reviews", "air.park_location_id = '00000000-0000-4000-8000-000000003002'"} {
+	// D0 trusted-SQL contract: the read goes through the governed ceo_ai view,
+	// the tenant is ALWAYS $1 (bound by the executor from the session, never a
+	// literal in the text) and the park scope rides as $2 in args.
+	for _, want := range []string{"ceo_ai.source_entry_health_status", "tenant_id = $1", "park_location_id = $2"} {
 		if !strings.Contains(sqlFB.lastSQL, want) {
 			t.Fatalf("health SQL missing %q: %s", want, sqlFB.lastSQL)
 		}
+	}
+	for _, forbidden := range []string{"tenant_id = '", "public.", "procurement_loads", "'t1'"} {
+		if strings.Contains(sqlFB.lastSQL, forbidden) {
+			t.Fatalf("trusted health SQL must not contain %q (tenant literal / raw public read): %s", forbidden, sqlFB.lastSQL)
+		}
+	}
+	if len(sqlFB.lastArgs) != 1 || sqlFB.lastArgs[0] != "00000000-0000-4000-8000-000000003002" {
+		t.Fatalf("expected the park location id as the single trusted arg ($2), got %v", sqlFB.lastArgs)
+	}
+	if err := sqlguard.ValidateTrusted(sqlFB.lastSQL); err != nil {
+		t.Fatalf("trusted health SQL must satisfy the executor's trusted contract: %v", err)
 	}
 	trimmedSQL := strings.TrimSpace(sqlFB.lastSQL)
 	if !strings.HasPrefix(strings.ToUpper(trimmedSQL), "SELECT") {
@@ -686,7 +702,7 @@ func TestNaturalHealthOneToManyPageBoundaryDateShiftParkScope(t *testing.T) {
 
 func TestModelCannotRequestTrustedSQLThroughParams(t *testing.T) {
 	sqlFB := &fakeSQLFallback{result: domain.ToolResult{
-		Facts: []domain.Fact{{Label: "n", Value: "1"}},
+		Facts: []domain.Fact{{TenantID: "t1", Label: "n", Value: "1"}},
 	}}
 	reg := NewRegistry(nil, nil, sqlFB)
 	prov := &fakeProvider{byModel: true, plan: domain.Plan{SubQuestions: []domain.SubQuestion{{
@@ -713,7 +729,7 @@ func TestGenericHealthQuestionDoesNotUseSourceEntrySQL(t *testing.T) {
 	sqlFB := &fakeSQLFallback{}
 	health := &fakeExec{
 		spec:   ports.ToolSpec{Name: "mesha_health_today", Route: domain.RouteAPI},
-		result: domain.ToolResult{Surface: "Mesha read API", Facts: []domain.Fact{{Label: "Health blockers", Value: "0"}}},
+		result: domain.ToolResult{Surface: "Mesha read API", Facts: []domain.Fact{{TenantID: "t1", Label: "Health blockers", Value: "0"}}},
 	}
 	reg := NewRegistry(nil, nil, sqlFB)
 	reg.Register(health)
@@ -738,7 +754,7 @@ func TestGenericHealthQuestionDoesNotUseSourceEntrySQL(t *testing.T) {
 
 func TestNaturalAdultGoatCountDoesNotRouteToHealth(t *testing.T) {
 	sqlFB := &fakeSQLFallback{result: domain.ToolResult{
-		Facts: []domain.Fact{{Label: "Active animals", Value: "185", Scope: "goat"}},
+		Facts: []domain.Fact{{TenantID: "t1", Label: "Active animals", Value: "185", Scope: "goat"}},
 	}}
 	reg := NewRegistry(nil, nil, sqlFB)
 	a := NewAssistant(Config{}, Deps{Provider: &fakeProvider{}, Registry: reg})
@@ -764,7 +780,7 @@ func TestNaturalSalesQuestionWinsOverAnimalCountWords(t *testing.T) {
 	sales := &fakeExec{
 		spec: ports.ToolSpec{Name: "sales_overview", Route: domain.RouteAPI},
 		result: domain.ToolResult{Surface: "Mesha read API · Sales overview", Facts: []domain.Fact{
-			{Label: "Sold animals this month in 2026-09", Value: "114"},
+			{TenantID: "t1", Label: "Sold animals this month in 2026-09", Value: "114"},
 		}},
 	}
 	reg := NewRegistry(nil, nil, &fakeSQLFallback{})
@@ -795,7 +811,7 @@ func TestCacheKeyIncludesConversation(t *testing.T) {
 
 func TestMaxStepsProducesPartial(t *testing.T) {
 	exec := &fakeExec{spec: ports.ToolSpec{Name: "counts_breakdown", Route: domain.RouteAPI},
-		result: domain.ToolResult{Surface: "Mesha read API", Facts: []domain.Fact{{Label: "n", Value: "10"}}}}
+		result: domain.ToolResult{Surface: "Mesha read API", Facts: []domain.Fact{{TenantID: "t1", Label: "n", Value: "10"}}}}
 	reg := NewRegistry(nil, nil, nil)
 	reg.Register(exec)
 	subs := []domain.SubQuestion{}
@@ -818,7 +834,7 @@ func TestMaxStepsProducesPartial(t *testing.T) {
 
 func TestPlannerFailureFallsBackToDeterministic(t *testing.T) {
 	exec := &fakeExec{spec: ports.ToolSpec{Name: "counts_breakdown", Route: domain.RouteAPI},
-		result: domain.ToolResult{Surface: "Mesha read API", Facts: []domain.Fact{{Label: "n", Value: "5"}}}}
+		result: domain.ToolResult{Surface: "Mesha read API", Facts: []domain.Fact{{TenantID: "t1", Label: "n", Value: "5"}}}}
 	reg := NewRegistry(nil, nil, nil)
 	reg.Register(exec)
 	primary := &fakeProvider{err: errors.New("vertex down")}
@@ -838,7 +854,7 @@ func TestPlannerFailureFallsBackToDeterministic(t *testing.T) {
 func TestRuntimeReviewCatchesHallucinatedNumber(t *testing.T) {
 	// Executor returns fact 42, but summary asserts an ungrounded 999.
 	exec := &fakeExec{spec: ports.ToolSpec{Name: "counts_breakdown", Route: domain.RouteAPI},
-		result: domain.ToolResult{Surface: "Mesha read API", Summary: "There are 999 animals.", Facts: []domain.Fact{{Label: "count", Value: "42"}}}}
+		result: domain.ToolResult{Surface: "Mesha read API", Summary: "There are 999 animals.", Facts: []domain.Fact{{TenantID: "t1", Label: "count", Value: "42"}}}}
 	reg := NewRegistry(nil, nil, nil)
 	reg.Register(exec)
 	prov := &fakeProvider{byModel: true, plan: domain.Plan{SubQuestions: []domain.SubQuestion{
@@ -886,7 +902,7 @@ func TestScopeEscalationRefused(t *testing.T) {
 
 func TestAuditRecordedWithRouteField(t *testing.T) {
 	metrics := &fakeMetrics{specs: []ports.MetricSpec{{Name: "active_animals"}},
-		result: domain.ToolResult{Surface: "Cube · active_animals", Facts: []domain.Fact{{Label: "n", Value: "2567"}}}}
+		result: domain.ToolResult{Surface: "Cube · active_animals", Facts: []domain.Fact{{TenantID: "t1", Label: "n", Value: "2567"}}}}
 	reg := NewRegistry(metrics, nil, nil)
 	audit := &fakeAudit{}
 	prov := &fakeProvider{byModel: true, plan: domain.Plan{SubQuestions: []domain.SubQuestion{
@@ -909,7 +925,7 @@ func TestAuditRecordedWithRouteField(t *testing.T) {
 
 func TestMemoryRememberedForFollowups(t *testing.T) {
 	exec := &fakeExec{spec: ports.ToolSpec{Name: "counts_breakdown", Route: domain.RouteAPI},
-		result: domain.ToolResult{Surface: "Mesha read API", Facts: []domain.Fact{{Label: "n", Value: "5"}}}}
+		result: domain.ToolResult{Surface: "Mesha read API", Facts: []domain.Fact{{TenantID: "t1", Label: "n", Value: "5"}}}}
 	reg := NewRegistry(nil, nil, nil)
 	reg.Register(exec)
 	mem := &fakeMemory{}
@@ -928,7 +944,7 @@ func TestMemoryRememberedForFollowups(t *testing.T) {
 
 func TestDraftMetricLabelled(t *testing.T) {
 	metrics := &fakeMetrics{specs: []ports.MetricSpec{{Name: "feed_cost", Status: domain.MetricDraft}},
-		result: domain.ToolResult{Surface: "Cube · feed_cost", MetricStatus: domain.MetricDraft, Facts: []domain.Fact{{Label: "cost", Value: "1200"}}}}
+		result: domain.ToolResult{Surface: "Cube · feed_cost", MetricStatus: domain.MetricDraft, Facts: []domain.Fact{{TenantID: "t1", Label: "cost", Value: "1200"}}}}
 	reg := NewRegistry(metrics, nil, nil)
 	prov := &fakeProvider{byModel: true, plan: domain.Plan{SubQuestions: []domain.SubQuestion{
 		{ID: "0", ToolName: "feed_cost", Route: domain.RouteCube},
@@ -945,7 +961,7 @@ func TestDraftMetricLabelled(t *testing.T) {
 
 func TestCacheHitReturnsStoredAnswer(t *testing.T) {
 	metrics := &fakeMetrics{specs: []ports.MetricSpec{{Name: "active_animals"}},
-		result: domain.ToolResult{Surface: "Cube · active_animals", Facts: []domain.Fact{{Label: "n", Value: "2567"}}}}
+		result: domain.ToolResult{Surface: "Cube · active_animals", Facts: []domain.Fact{{TenantID: "t1", Label: "n", Value: "2567"}}}}
 	reg := NewRegistry(metrics, nil, nil)
 	cache := &countingCache{m: map[string]domain.Answer{}}
 	prov := &fakeProvider{byModel: true, plan: domain.Plan{SubQuestions: []domain.SubQuestion{

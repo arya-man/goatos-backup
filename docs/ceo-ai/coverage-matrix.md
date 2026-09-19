@@ -1692,3 +1692,68 @@ per-module alert reads, which are already covered above.
 | configuration_import_jobs | EXCLUDED | Bulk-sheet upload bookkeeping (migration 000349): one row per uploaded CSV/XLSX on `/configuration/items` with its validate/apply status and counts. Operational plumbing for the screen; the rows it writes land on the registers already covered. |
 | configuration_import_rows | EXCLUDED | The staged lines of those uploads with per-row validation messages. Transient working data, never a business fact. |
 | func:Export, func:Template, func:Upload, func:ListImports, func:GetImport, func:ImportRows, func:ImportErrors, func:ApplyImport, func:CancelImport, func:RegisterBulk, func:NewImporter, func:Stage, func:Process, func:ProcessDue, func:OpenSheet, func:NewSheetWriter, func:ErrorSheet | EXCLUDED | The bulk download / upload routes and processor of Configuration -> Items and settings: file streams and a job the screen polls, not a leadership read. |
+
+## Automatic coverage (plan v3 D6, 2026-09-19)
+
+Coverage stops being a promise and becomes a build failure through three
+machine guards plus one runtime check. Each is registered in
+`tools/ci/guardrail-manifest.json`, runs from `make guardrails` /
+`tools/ci/run-local-ci.sh`, and nudges on PostToolUse for Claude and Codex.
+
+1. **`make ceo-ai-page-contract-drift-guard`**
+   (`tools/agent-hooks/check-ceo-ai-page-contract-drift.mjs`). Reads the
+   admin-web page contracts in `backend/internal/adminui/app/service.go`: every
+   page whose copy map declares a `kpi.*` or `chart.*` key is a screen a CEO
+   reads numbers from, so each of its data sources (a table's `data_source`
+   route, or the page href when it has no table) must appear in THIS file on a
+   line that classifies it — covered (`Cube` / `api` / `view` / `tool` / `sql`),
+   `PLANNED:P<n>` (the plan v3 phase that lands its view or reader; tallied on
+   every run so the debt is visible), or a **typed** exclusion. A new tile on a
+   page fails CI until one of those rows exists. Absent, or present only as a
+   bare `EXCLUDED`, fails: a read the page shows cannot be excluded without
+   saying why.
+2. **Typed exclusions** in `make leadership-assistant-coverage-guard`
+   (`tools/agent-hooks/check-leadership-assistant-coverage.mjs`). A NEW
+   `| EXCLUDED |` cell in this file must be one of
+   `EXCLUDED:config` (authoring / vocabulary / settings), `EXCLUDED:write`
+   (a mutation route or its helpers), `EXCLUDED:pii` (a person's private data),
+   `EXCLUDED:detail` (operator execution detail behind an already-covered
+   aggregate), `EXCLUDED:infra` (plumbing, telemetry, migration bookkeeping).
+   The ~245 bare rows written before this rule are frozen in
+   `tools/agent-hooks/leadership-assistant-exclusion-baseline.txt` (ratchet:
+   the baseline only shrinks; a bare row not in it fails; a baseline entry that
+   no longer exists is stale and must be removed).
+3. **`make assistant-route-closure-guard`** (unchanged) proves every planner
+   tool name resolves to a wired tier, and `TestReadersRequireTenant` proves
+   every catalog reader is called with the session tenant and stamps its facts
+   with it (`Fact.TenantID`).
+4. **Nightly coverage eval — P2, not built.** Intent: one golden question
+   generated per contract KPI (the rows below are the seed list), run on STG
+   against `tools/ceo-ai/eval` with `pending_view` questions skipped loudly,
+   failures posted to Slack the way the dashboard nightly does. Until it exists
+   the drift guard proves a ROW, not an ANSWER.
+
+Rows the drift guard requires today. Status is honest as of P1a: `PLANNED`
+means the page's number has no assistant read path yet and names the P2/P3
+artefact that gives it one; the phase that lands the view flips the row to
+`view:`/`api` and drops `pending_view` from the matching golden question.
+
+| Page (route) | KPI / chart data source | Decision | Reason / read path |
+| --- | --- | --- | --- |
+| Sales › Sold (`/sales/sold`) | `/sales/sold` | api (GET /sales/overview, GET /sales/deals → `sales_overview` reader) | Revenue, animals sold, ₹/kg, monthly series, buyer board — the `sales_overview` executor answers today (golden `sales-overview`, `sales-deals`). Line-grain ₹/kg by breed sharpens in P2 via `ceo_ai.sales_deal_lines_closed` (golden `sales-price-per-kg-by-breed`). |
+| Sales › Farm value (`/sales/farm-value`) | `/sales/farm-value` | PLANNED:P2 (`ceo_ai.farm_valuation`) | Live herd × latest market ₹/kg and the Over 35 kg sale-readiness card. No reader today; golden `sales-farm-valuation` is `pending_view`. |
+| Sales › Loads (`/sales/loads`) | `/sales/loads` | PLANNED:P2 (`ceo_ai.load_economics`) | Load-wise landed cost vs sold value, ₹/kg landing vs sale, fattening days, loads over 90 days. `GET /procurement/loadwise-sales` exists but is not mounted as an assistant reader; goldens `procurement-load-pnl`, `procurement-loads-over-90-days` are `pending_view`. |
+| Sales › Farm born (`/sales/farm-born`) | `/sales/farm-born` | sql (`ceo_ai.animal_current_scope` origin filter) + Cube `active_animals` | On-farm / sold farm-born counts are the census origin split the assistant already answers (goldens `census-farm-born-cbe`, `census-farm-born-own-farms`). |
+| Sales › Market analytics (`/sales/market-analytics`) | `/sales/market-analytics` | PLANNED:P3 (`ceo_ai.market_prices_daily`) | Market quotes by city/breed over time. Benchmarks ride `/sales/overview → market_benchmarks` today but the per-day series has no view. |
+| Sales › Buyer analytics (`/sales/buyer-analytics`) | `/sales/buyer-analytics` | PLANNED:P2 (`ceo_ai.sales_buyer_summary`) | Repeat buyers, revenue share, outstanding balance per buyer. `GET /procurement/buyer-analytics` is the page read; the assistant reader lands with the view (golden `sales-outstanding` is `pending_view`). Phone numbers on that read are PII and never reach the assistant (the P2 view carries no phone column). |
+| Sales › Config (`/sales/config`) | `/sales/config` | EXCLUDED:write (entry screen) — its KPI blocks are the `/sales/sold` blocks above | The record-sale / tag / payment / load-cost ENTRY page; every number it shows is read from the same overview and is covered on the Sold row. |
+| Herd › Analytics (`/counts/analytics`) | `/counts/analytics` | PLANNED:P2 (`ceo_ai.herd_movement_monthly`) — live/by-dimension tiles already Cube `active_animals` + api `counts_breakdown` | Live, births, deaths, purchases, sales per month and the net-change trend. Census tiles answer today; the monthly movement series is the P2 view (golden `herd-net-change-by-month` is `pending_view`). |
+| Herd › Mortality (`/counts/mortality`) | `/counts/mortality` | PLANNED:P2 (`ceo_ai.mortality_events_base`) — death counts already sql (`goats.exit_reason`) | Deaths by month, cause, pen; kid vs adult. Totals answer today (goldens `counts-mortality-kid-deaths`, `counts-mortality-cause-established`); top causes and worst pens need the event view (goldens `mortality-top-causes-quarter`, `mortality-worst-pens-30d`). |
+| Herd Signals (`/herd-signals`) | `/herd-signals` | EXCLUDED:infra | BLE gateway/tag telemetry health tiles (gateways online, tags seen). Device-fleet infrastructure, not a herd fact; the herd facts it will one day derive are a future covered view. |
+| Weighing › Weights (`/weighing/weights`) | `/weighing/weights` | PLANNED:P2 (`ceo_ai.weighing_latest_individual_weight`, `ceo_ai.growth_adg_pairs`, `weighing_growth` reader) | Kids weighed, total/average weight, over 30/35 kg, average by pen. `GET /weighing/leadership/growth` exists (external MCP `get_weighing_growth_adg`) but no catalog executor mounts it; goldens `weighing-adg-headline-month`, `weighing-heaviest-pens-table` are `pending_view`. |
+| Weighing › ADG analytics (`/weighing/analytics`) | `/weighing/analytics` | PLANNED:P2 (`ceo_ai.growth_adg_pairs`, `weighing_growth` reader) | Daily gain headline, by breed/sex/stage/load, gain bands. Same reader as Weights; golden `weighing-adg-by-breed` forbids answering from `animal_current_scope`. |
+| Milk preparation (`/counts/milk-preparation`) | `/counts/milk-preparation` | api (GET /app/counts/milk-feeding/tasks → `health_work_items`) | Pens due, kids on milk, litres today — the operator preparation instruction, read through the health/milk work-items reader (golden `health-work-items`, external MCP `get_milk_feeding_today`). |
+| Feed › Direction (`/feed/direction`) | `/feed/direction` | api (`feed_direction_today` reader) | Projected head, kg per session, blocked cells (missing configuration, never 0 kg). Goldens `feed-today`, `feed-blocked`. |
+| Feed › Packing (`/feed/packing`) | `/feed/packing` | api (`feed_direction_today` reader → packing lines) | Total kg to pack, bags per pen-session. Golden `feed-packing`. |
+| Feed › Analytics (`/feed/analytics`) | `/feed/analytics` | PLANNED:P3 (feed views ×4 + `feed_stock` reader) — the Growth Director band card already api `feed_weight_band_summary` | Packing/wastage/adherence, stock and days-left cards, cost per kg gained. Goldens `feed-directed-kg-week`, `feed-days-left`, `feed-cost-per-kg-gained` are `pending_view`; `feed-directed-kg-week` forbids `feed_adherence`. |
+| Feed › Config (`/feed/config`) | `/feed-config/feed-items`, `/feed-config/shed-factors`, `/feed-config/session-templates`, `/feed-config/schedule` | EXCLUDED:config | The ration grid, feed factors, session template and day clock are authored configuration; the page's "kpi" keys count catalogue rows, not herd facts. What the config produces is covered on the Direction row. |

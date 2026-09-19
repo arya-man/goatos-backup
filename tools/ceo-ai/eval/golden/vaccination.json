@@ -142,5 +142,51 @@
         "cube"
       ]
     }
+  },
+  {
+    "id": "vaccination-coverage-pct",
+    "class": "vaccination_coverage_pct",
+    "question": "What percentage of the herd is fully vaccinated?",
+    "notes": "Live animals with no open vaccination work ÷ live animals, as a percent. Oracle: live animals (denominator). The answer must carry a % figure; kpi chart. Human vaccine labels only if named.",
+    "expect": {
+      "grounded": true,
+      "aggregate_first": true,
+      "tiers_any_of": [
+        "cube",
+        "api",
+        "sql"
+      ],
+      "chart_type_any_of": [
+        "kpi"
+      ],
+      "pending_view": true
+    },
+    "oracle": {
+      "kind": "scalar_int",
+      "sql": "SELECT count(*) FROM public.goats WHERE tenant_id = :'tenant_id'::uuid AND lifecycle_status = 'alive'"
+    }
+  },
+  {
+    "id": "vaccination-doses-by-vaccine-month",
+    "class": "vaccination_doses_by_vaccine_month",
+    "question": "How many doses of each vaccine did we give this month?",
+    "notes": "Judge-added: accepted completions in the IST month grouped by vaccine (human labels: ET+TT, PPR · Booster…). Oracle: completions administered this month. Bar by vaccine.",
+    "expect": {
+      "grounded": true,
+      "tiers_any_of": [
+        "cube",
+        "toolbox",
+        "sql"
+      ],
+      "chart_type_any_of": [
+        "bar",
+        "table"
+      ],
+      "pending_view": true
+    },
+    "oracle": {
+      "kind": "scalar_int",
+      "sql": "SELECT count(*) FROM public.vaccination_completions WHERE tenant_id = :'tenant_id'::uuid AND status <> 'rejected' AND date_trunc('month', administered_at AT TIME ZONE 'Asia/Kolkata') = date_trunc('month', (now() AT TIME ZONE 'Asia/Kolkata'))"
+    }
   }
 ]

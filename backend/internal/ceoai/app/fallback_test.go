@@ -39,7 +39,7 @@ func TestAPITierFailureFallsThroughToCube(t *testing.T) {
 		specs: []ports.MetricSpec{{Name: "active_animals"}},
 		result: domain.ToolResult{
 			Surface: "Cube · active_animals",
-			Facts:   []domain.Fact{{Label: "Goats", Value: "972"}, {Label: "Sheep", Value: "336"}},
+			Facts:   []domain.Fact{{TenantID: "t1", Label: "Goats", Value: "972"}, {TenantID: "t1", Label: "Sheep", Value: "336"}},
 		},
 	}
 	reg := NewRegistry(metrics, nil, nil)
@@ -113,8 +113,8 @@ func TestCubeVaccinationFailureFallsThroughToAPIAndCharts(t *testing.T) {
 	exec := &fakeExec{
 		spec: ports.ToolSpec{Name: "vaccination_shed_summary", Route: domain.RouteAPI},
 		result: domain.ToolResult{Surface: "Mesha read API", Facts: []domain.Fact{
-			{Label: "Vaccinations overdue", Value: "12", Scope: "Castro / Gandhi"},
-			{Label: "Vaccinations overdue", Value: "7", Scope: "Castro / Godell 1"},
+			{TenantID: "t1", Label: "Vaccinations overdue", Value: "12", Scope: "Castro / Gandhi"},
+			{TenantID: "t1", Label: "Vaccinations overdue", Value: "7", Scope: "Castro / Godell 1"},
 		}},
 	}
 	reg := NewRegistry(metrics, nil, nil)
@@ -149,7 +149,7 @@ func TestAPITierFailureFallsThroughToToolbox(t *testing.T) {
 	exec := &fakeErroringExec{spec: ports.ToolSpec{Name: "feed_direction_today", Route: domain.RouteAPI}}
 	toolbox := &fakeToolbox{
 		name:   "mesha_feed_direction_summary",
-		result: domain.ToolResult{Surface: "Mesha toolbox · feed", Facts: []domain.Fact{{Label: "Castro 1 · Feed A", Value: "310"}}},
+		result: domain.ToolResult{Surface: "Mesha toolbox · feed", Facts: []domain.Fact{{TenantID: "t1", Label: "Castro 1 · Feed A", Value: "310"}}},
 	}
 	reg := NewRegistry(nil, toolbox, nil)
 	reg.Register(exec)
@@ -182,7 +182,7 @@ func TestIncompleteVerdictTriggersRetryBeforeDowngrade(t *testing.T) {
 	failing := &fakeErroringExec{spec: ports.ToolSpec{Name: "counts_breakdown", Route: domain.RouteAPI}}
 	metrics := &fakeMetrics{
 		specs:  []ports.MetricSpec{{Name: "active_animals"}},
-		result: domain.ToolResult{Surface: "Cube · active_animals", Facts: []domain.Fact{{Label: "Goats", Value: "972"}}},
+		result: domain.ToolResult{Surface: "Cube · active_animals", Facts: []domain.Fact{{TenantID: "t1", Label: "Goats", Value: "972"}}},
 	}
 	reg := NewRegistry(metrics, nil, nil)
 	reg.Register(failing)

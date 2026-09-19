@@ -14,9 +14,10 @@ type stubExec struct{}
 func (stubExec) Spec() ports.ToolSpec {
 	return ports.ToolSpec{Name: "counts_breakdown", Route: domain.RouteAPI}
 }
-func (stubExec) Execute(_ context.Context, _ domain.Actor, sub domain.SubQuestion) (domain.ToolResult, error) {
+func (stubExec) Execute(_ context.Context, actor domain.Actor, sub domain.SubQuestion) (domain.ToolResult, error) {
+	// Like every real executor, stamp the fact with the session tenant.
 	return domain.ToolResult{Surface: "Mesha read API", ToolName: sub.ToolName,
-		Facts: []domain.Fact{{Label: "animals", Value: "2567"}}}, nil
+		Facts: []domain.Fact{{TenantID: actor.TenantID, Label: "animals", Value: "2567"}}}, nil
 }
 
 // Build with no Vertex provider must yield a working fallback assistant.

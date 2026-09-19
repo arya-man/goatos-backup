@@ -17,6 +17,22 @@ import (
 // yesterday" actually scope/back-date the read (P1-4).
 type scopedReader func(ctx context.Context, tenantID string, params map[string]any) ([]domain.Fact, error)
 
+// stampTenant sets Fact.TenantID on every fact from the session actor. It is
+// the ONLY place the API-tier executors assign a tenant to a fact: whatever a
+// reader put there (or left empty) is overwritten, so a tenant id can never be
+// sourced from a result row. The composer/cache/chart gate
+// (app.validateFactTenants) then rejects any fact whose TenantID is not the
+// actor's — every executor's success path must go through this helper
+// (TestReadersRequireTenant / TestFactTenantSetFromActorNotResult).
+func stampTenant(actor domain.Actor, facts []domain.Fact) []domain.Fact {
+	out := make([]domain.Fact, len(facts))
+	for i, f := range facts {
+		f.TenantID = actor.TenantID
+		out[i] = f
+	}
+	return out
+}
+
 // countsBreakdownExecutor provides animal counts broken down by dimensions.
 // It calls the real counts service to return actual data from the database.
 type countsBreakdownExecutor struct {
@@ -69,7 +85,7 @@ func (e *countsBreakdownExecutor) Execute(ctx context.Context, actor domain.Acto
 	return domain.ToolResult{
 		Surface:  "Mesha read API",
 		ToolName: sub.ToolName,
-		Facts:    facts,
+		Facts:    stampTenant(actor, facts),
 	}, nil
 }
 
@@ -112,7 +128,7 @@ func (e *vaccinationShedSummaryExecutor) Execute(ctx context.Context, actor doma
 	return domain.ToolResult{
 		Surface:  "Mesha read API",
 		ToolName: sub.ToolName,
-		Facts:    facts,
+		Facts:    stampTenant(actor, facts),
 	}, nil
 }
 
@@ -155,7 +171,7 @@ func (e *vaccinationExecutionExecutor) Execute(ctx context.Context, actor domain
 	return domain.ToolResult{
 		Surface:  "Mesha read API",
 		ToolName: sub.ToolName,
-		Facts:    facts,
+		Facts:    stampTenant(actor, facts),
 	}, nil
 }
 
@@ -202,7 +218,7 @@ func (e *feedDirectionTodayExecutor) Execute(ctx context.Context, actor domain.A
 	return domain.ToolResult{
 		Surface:  "Mesha read API",
 		ToolName: sub.ToolName,
-		Facts:    facts,
+		Facts:    stampTenant(actor, facts),
 	}, nil
 }
 
@@ -246,7 +262,7 @@ func (e *feedWeightBandSummaryExecutor) Execute(ctx context.Context, actor domai
 	return domain.ToolResult{
 		Surface:  "Mesha read API · Feed by weight band",
 		ToolName: sub.ToolName,
-		Facts:    facts,
+		Facts:    stampTenant(actor, facts),
 	}, nil
 }
 
@@ -315,7 +331,7 @@ func (e *salesOverviewExecutor) Execute(ctx context.Context, actor domain.Actor,
 	return domain.ToolResult{
 		Surface:  "Mesha read API · Sales overview",
 		ToolName: sub.ToolName,
-		Facts:    facts,
+		Facts:    stampTenant(actor, facts),
 	}, nil
 }
 
@@ -350,7 +366,7 @@ func (e *procurementExecutor) Execute(ctx context.Context, actor domain.Actor, s
 	return domain.ToolResult{
 		Surface:  "Mesha read API",
 		ToolName: sub.ToolName,
-		Facts:    facts,
+		Facts:    stampTenant(actor, facts),
 	}, nil
 }
 
@@ -399,7 +415,7 @@ func (e *workforceExecutor) Execute(ctx context.Context, actor domain.Actor, sub
 	return domain.ToolResult{
 		Surface:  "Mesha read API",
 		ToolName: sub.ToolName,
-		Facts:    facts,
+		Facts:    stampTenant(actor, facts),
 	}, nil
 }
 
@@ -440,7 +456,7 @@ func (e *verificationExecutor) Execute(ctx context.Context, actor domain.Actor, 
 	return domain.ToolResult{
 		Surface:  "Mesha read API",
 		ToolName: sub.ToolName,
-		Facts:    facts,
+		Facts:    stampTenant(actor, facts),
 	}, nil
 }
 
@@ -489,7 +505,7 @@ func (e *actionCenterExecutor) Execute(ctx context.Context, actor domain.Actor, 
 	return domain.ToolResult{
 		Surface:  "Mesha read API",
 		ToolName: sub.ToolName,
-		Facts:    facts,
+		Facts:    stampTenant(actor, facts),
 	}, nil
 }
 
@@ -540,7 +556,7 @@ func (e *opsKernelHealthExecutor) Execute(ctx context.Context, actor domain.Acto
 	return domain.ToolResult{
 		Surface:  "Mesha read API",
 		ToolName: sub.ToolName,
-		Facts:    facts,
+		Facts:    stampTenant(actor, facts),
 	}, nil
 }
 
@@ -584,7 +600,7 @@ func (e *opsAuditSummaryExecutor) Execute(ctx context.Context, actor domain.Acto
 	return domain.ToolResult{
 		Surface:  "Mesha read API",
 		ToolName: sub.ToolName,
-		Facts:    facts,
+		Facts:    stampTenant(actor, facts),
 	}, nil
 }
 

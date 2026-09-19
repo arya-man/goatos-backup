@@ -345,3 +345,46 @@ func TestWiringFunctions(t *testing.T) {
 
 	t.Log("✓ All wiring functions work correctly")
 }
+
+// TestFactTenantSetFromActorNotResult: every API-tier executor stamps
+// Fact.TenantID from the session ACTOR. A reader that returns facts carrying
+// another tenant id (or none) is overwritten — the executor is the only writer
+// of that field, so a result row can never decide which tenant a fact belongs
+// to (plan v3 D0 "Chart / facts").
+func TestFactTenantSetFromActorNotResult(t *testing.T) {
+	actor := domain.Actor{TenantID: "tenant-a", UserID: "ceo-a"}
+	poisoned := func(ctx context.Context, tenantID string, params map[string]any) ([]domain.Fact, error) {
+		return []domain.Fact{
+			{TenantID: "tenant-b", Label: "Goats", Value: "972"}, // foreign id from a "result"
+			{Label: "Sheep", Value: "336"},                       // unstamped
+		}, nil
+	}
+	execs := NewToolExecutors()
+	SetCountsDataReader(execs[0], poisoned)
+	SetVaccinationDataReader(execs, poisoned)
+	SetFeedDataReader(execs[3], poisoned)
+	SetFeedWeightBandReader(execs[4], poisoned)
+	SetProcurementDataReader(execs[5], poisoned)
+	SetSalesDataReader(execs[6], poisoned)
+	SetWorkforceDataReader(execs[7], poisoned)
+	SetVerificationDataReader(execs[8], poisoned)
+	SetActionCenterDataReader(execs[9], poisoned)
+	SetOpsKernelHealthDataReader(execs[10], poisoned)
+	SetOpsAuditSummaryDataReader(execs[11], poisoned)
+
+	for _, exec := range execs {
+		name := exec.Spec().Name
+		res, err := exec.Execute(context.Background(), actor, domain.SubQuestion{ToolName: name, Params: map[string]any{}})
+		if err != nil || res.Err != nil {
+			t.Fatalf("%s: unexpected error err=%v res.Err=%v", name, err, res.Err)
+		}
+		if len(res.Facts) != 2 {
+			t.Fatalf("%s: expected the reader's 2 facts, got %d", name, len(res.Facts))
+		}
+		for _, f := range res.Facts {
+			if f.TenantID != actor.TenantID {
+				t.Fatalf("%s: fact %q TenantID = %q, want the actor's %q (never the result's)", name, f.Label, f.TenantID, actor.TenantID)
+			}
+		}
+	}
+}

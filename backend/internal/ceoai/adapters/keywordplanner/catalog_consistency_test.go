@@ -1,11 +1,15 @@
 package keywordplanner
 
 import (
+	"context"
 	"os"
 	"path/filepath"
 	"regexp"
 	"runtime"
 	"testing"
+
+	"github.com/vgoats/goatos/backend/internal/ceoai/adapters/readtools"
+	"github.com/vgoats/goatos/backend/internal/ceoai/domain"
 )
 
 // TestCatalogConsistency is a REAL route-closure gate: it parses the actual
@@ -244,5 +248,71 @@ func TestGateHasTeeth(t *testing.T) {
 	resolves := wired[bogus.tool] || aliases[bogus.tool] || cube[bogus.tool]
 	if resolves {
 		t.Fatalf("gate is TOOTHLESS: a bogus tool name resolved in the catalog")
+	}
+}
+
+// TestReadersRequireTenant (plan v3 D0 "API/Go readers"): every executor in the
+// runtime catalog (NewToolExecutors) must hand the SESSION actor's tenant to its
+// reader closure and stamp the returned facts with that same tenant. The table
+// below wires a recording reader into each executor through its exported
+// setter; an executor that reaches its reader with a blank or different tenant,
+// or one that NewToolExecutors returns but this table does not know (a new
+// reader added without a tenant proof), fails the build.
+func TestReadersRequireTenant(t *testing.T) {
+	type reader = func(context.Context, string, map[string]any) ([]domain.Fact, error)
+	execs := readtools.NewToolExecutors()
+
+	wire := map[string]func(reader){
+		"counts_breakdown":               func(r reader) { readtools.SetCountsDataReader(execs[0], r) },
+		"vaccination_shed_summary":       func(r reader) { readtools.SetVaccinationDataReader(execs, r) },
+		"vaccination_execution":          func(r reader) { readtools.SetVaccinationDataReader(execs, r) },
+		"feed_direction_today":           func(r reader) { readtools.SetFeedDataReader(execs[3], r) },
+		"feed_weight_band_summary":       func(r reader) { readtools.SetFeedWeightBandReader(execs[4], r) },
+		"procurement_source_entry_loads": func(r reader) { readtools.SetProcurementDataReader(execs[5], r) },
+		"sales_overview":                 func(r reader) { readtools.SetSalesDataReader(execs[6], r) },
+		"admin_roster_coverage":          func(r reader) { readtools.SetWorkforceDataReader(execs[7], r) },
+		"verification_queue":             func(r reader) { readtools.SetVerificationDataReader(execs[8], r) },
+		"action_center_obligations":      func(r reader) { readtools.SetActionCenterDataReader(execs[9], r) },
+		"operations_kernel_health":       func(r reader) { readtools.SetOpsKernelHealthDataReader(execs[10], r) },
+		"operations_audit_summary":       func(r reader) { readtools.SetOpsAuditSummaryDataReader(execs[11], r) },
+	}
+
+	actor := domain.Actor{TenantID: "tenant-under-test", UserID: "ceo"}
+	for _, exec := range execs {
+		name := exec.Spec().Name
+		set, ok := wire[name]
+		if !ok {
+			t.Errorf("executor %q is in NewToolExecutors but has no tenant proof row here — add its setter to the table", name)
+			continue
+		}
+		var got []string
+		set(func(_ context.Context, tenantID string, _ map[string]any) ([]domain.Fact, error) {
+			got = append(got, tenantID)
+			return []domain.Fact{{Label: "n", Value: "1"}}, nil
+		})
+		res, err := exec.Execute(context.Background(), actor, domain.SubQuestion{ToolName: name, Params: map[string]any{}})
+		if err != nil || res.Err != nil {
+			t.Errorf("%s: Execute failed err=%v res.Err=%v", name, err, res.Err)
+			continue
+		}
+		if len(got) != 1 || got[0] != actor.TenantID {
+			t.Errorf("%s: reader must receive the actor tenant exactly once, got %v", name, got)
+		}
+		for _, f := range res.Facts {
+			if f.TenantID != actor.TenantID {
+				t.Errorf("%s: fact %q stamped %q, want actor tenant %q", name, f.Label, f.TenantID, actor.TenantID)
+			}
+		}
+	}
+	// Every table row must correspond to a real executor, so a renamed tool
+	// cannot leave a stale proof row behind.
+	names := map[string]bool{}
+	for _, exec := range execs {
+		names[exec.Spec().Name] = true
+	}
+	for name := range wire {
+		if !names[name] {
+			t.Errorf("tenant proof row %q names no executor in NewToolExecutors", name)
+		}
 	}
 }

@@ -4,6 +4,15 @@ import { readFileSync } from "node:fs";
 import process from "node:process";
 
 const COVERAGE_MATRIX = "docs/ceo-ai/coverage-matrix.md";
+// Typed exclusions (plan v3 D6): a NEW `| EXCLUDED |` cell in the matrix must
+// say why — EXCLUDED:config|write|pii|detail|infra. The bare rows written before
+// this rule are frozen in the baseline file (surface cell, one per line); the
+// baseline only shrinks (ratchet, same pattern as exception-guard-ratchet): a
+// bare row not in it fails, and a baseline entry the matrix no longer carries is
+// stale and fails until removed.
+const EXCLUSION_BASELINE = "tools/agent-hooks/leadership-assistant-exclusion-baseline.txt";
+export const EXCLUSION_CATEGORIES = ["config", "write", "pii", "detail", "infra"];
+const TYPED_EXCLUSION_RE = new RegExp("^EXCLUDED:(" + EXCLUSION_CATEGORIES.join("|") + ")\\b");
 
 const COVERAGE_FILES = [
   "docs/ceo-ai/ceo-chatbot-purpose-and-build-plan.md",
@@ -166,6 +175,58 @@ function verifyMatrixCoverage(matrixContent, newSurfaces) {
   }
 
   return coveredSurfaces.size === newSurfaces.length;
+}
+
+// matrixExclusionRows returns every table row whose decision cell starts with
+// EXCLUDED, as { surface, decision }. Only the decision cell (second column) is
+// read, so prose that merely mentions the word is not a row.
+export function matrixExclusionRows(matrixContent) {
+  const rows = [];
+  for (const line of matrixContent.split("\n")) {
+    if (!line.trim().startsWith("|")) continue;
+    const cells = line.trim().replace(/^\|/, "").replace(/\|$/, "").split("|").map((c) => c.trim());
+    if (cells.length < 2) continue;
+    if (/^EXCLUDED\b/.test(cells[1])) rows.push({ surface: cells[0], decision: cells[1] });
+  }
+  return rows;
+}
+
+// evaluateTypedExclusions enforces the typed-exclusion rule against the
+// baseline. Returns a list of error strings (empty = pass).
+export function evaluateTypedExclusions(matrixContent, baselineContent) {
+  const baseline = new Set(
+    baselineContent
+      .split("\n")
+      .map((l) => l.trim())
+      .filter((l) => l && !l.startsWith("#")),
+  );
+  const errors = [];
+  const seenBare = new Set();
+  for (const { surface, decision } of matrixExclusionRows(matrixContent)) {
+    if (TYPED_EXCLUSION_RE.test(decision)) continue;
+    if (/^EXCLUDED:/.test(decision)) {
+      errors.push(
+        `coverage-matrix row "${surface}" uses an unknown exclusion type "${decision.split(/\s/)[0]}" — allowed: ${EXCLUSION_CATEGORIES.map((c) => "EXCLUDED:" + c).join(", ")}`,
+      );
+      continue;
+    }
+    if (/^EXCLUDED\s*$/.test(decision) || /^EXCLUDED\b/.test(decision)) {
+      seenBare.add(surface);
+      if (!baseline.has(surface)) {
+        errors.push(
+          `coverage-matrix row "${surface}" is a bare EXCLUDED — new exclusions must be typed: ${EXCLUSION_CATEGORIES.map((c) => "EXCLUDED:" + c).join(" | ")} (config = authoring/vocabulary/settings, write = mutation route or helper, pii = a person's private data, detail = operator execution detail behind a covered aggregate, infra = plumbing/telemetry/migration bookkeeping)`,
+        );
+      }
+    }
+  }
+  for (const surface of baseline) {
+    if (!seenBare.has(surface)) {
+      errors.push(
+        `exclusion baseline entry "${surface}" no longer exists as a bare EXCLUDED row — remove it from ${EXCLUSION_BASELINE} (the baseline only shrinks)`,
+      );
+    }
+  }
+  return errors;
 }
 
 export function evaluateChangedFiles(files, readFile = () => "", readDiff = () => "") {
@@ -398,13 +459,63 @@ function selfTest() {
     throw new Error(`self-test: context exported constructor was incorrectly detected as a new surface: ${contextConstructor.join("; ")}`);
   }
 
-  console.log("leadership-assistant-coverage guard self-test passed (all 11 adversarial cases verified)");
+  // TEST 12: typed exclusions — a NEW bare EXCLUDED row (not in baseline) → FAIL
+  const typedBad = evaluateTypedExclusions(
+    "| Surface | Decision | Reason |\n| --- | --- | --- |\n| old_thing | EXCLUDED | frozen |\n| new_thing | EXCLUDED | oops |\n",
+    "old_thing\n",
+  );
+  if (typedBad.length !== 1 || !/new_thing/.test(typedBad[0]) || !/EXCLUDED:config/.test(typedBad[0])) {
+    throw new Error(`self-test 12: new bare EXCLUDED row was not blocked with the category list: ${JSON.stringify(typedBad)}`);
+  }
+
+  // TEST 13: typed exclusion row + baselined bare row → PASS
+  const typedOk = evaluateTypedExclusions(
+    "| old_thing | EXCLUDED | frozen |\n| helper_fn | EXCLUDED:write | mutation helper |\n| tag_map | EXCLUDED:infra | plumbing |\n",
+    "old_thing\n",
+  );
+  if (typedOk.length !== 0) throw new Error(`self-test 13: typed exclusions were blocked: ${typedOk.join("; ")}`);
+
+  // TEST 14: unknown category → FAIL
+  const typedUnknown = evaluateTypedExclusions("| x | EXCLUDED:whatever | nope |\n", "");
+  if (typedUnknown.length !== 1 || !/unknown exclusion type/.test(typedUnknown[0])) {
+    throw new Error(`self-test 14: unknown exclusion category was accepted: ${JSON.stringify(typedUnknown)}`);
+  }
+
+  // TEST 15: stale baseline entry (row was typed or removed) → FAIL (ratchet only shrinks)
+  const typedStale = evaluateTypedExclusions("| old_thing | EXCLUDED:detail | now typed |\n", "old_thing\n");
+  if (typedStale.length !== 1 || !/no longer exists/.test(typedStale[0])) {
+    throw new Error(`self-test 15: stale baseline entry was not flagged: ${JSON.stringify(typedStale)}`);
+  }
+
+  // TEST 16: prose mentioning EXCLUDED outside a table row is not a row
+  const typedProse = evaluateTypedExclusions("**EXCLUDED — some paragraph** about a route.\n| a | api | fine |\n", "");
+  if (typedProse.length !== 0) throw new Error(`self-test 16: prose was parsed as an exclusion row: ${typedProse.join("; ")}`);
+
+  console.log("leadership-assistant-coverage guard self-test passed (all 16 adversarial cases verified)");
 }
 
 function main() {
   if (process.argv.includes("--self-test")) {
     selfTest();
     return;
+  }
+
+  // Whole-file typed-exclusion ratchet (not diff-scoped: a bare row is a bare
+  // row whoever wrote it, and the baseline is what keeps the old ones green).
+  const readOrEmpty = (rel) => {
+    try {
+      return readFileSync(rel, "utf8");
+    } catch {
+      return "";
+    }
+  };
+  const typedErrors = evaluateTypedExclusions(readOrEmpty(COVERAGE_MATRIX), readOrEmpty(EXCLUSION_BASELINE));
+  if (typedErrors.length > 0) {
+    console.error("leadership-assistant-coverage guard failed (typed exclusions):");
+    for (const error of typedErrors) console.error(`- ${error}`);
+    console.error("");
+    console.error(`Fix: type the exclusion (EXCLUDED:${EXCLUSION_CATEGORIES.join("|")}) in ${COVERAGE_MATRIX}; never add a surface to ${EXCLUSION_BASELINE} to land new code.`);
+    process.exit(1);
   }
 
   const { files, range } = changedFiles();

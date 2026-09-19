@@ -103,10 +103,25 @@ type ToolResult struct {
 }
 
 // Fact is one groundable datum (a labelled value with optional scope).
+//
+// TenantID is the tenant the fact was read FOR. It is stamped by the executor
+// or reader from the session Actor — never parsed from a SQL row, a Cube
+// response, or a tool payload. The composer, cache and chart builder reject
+// any fact set that carries more than one TenantID or a TenantID that is not
+// the acting tenant (see app.validateFactTenants), so a foreign row can never
+// reach an answer, a chart or the cache even if a lower layer is bypassed.
+//
+// Values carries the extra numeric series of a multi-metric row (the SQL
+// contract `label, scope, value[, series_<name>…]` maps each `series_<name>`
+// column to Values[name]); Unit is the display unit for Value ("kg", "₹",
+// "g/day", "%"). Both are optional and additive.
 type Fact struct {
-	Label string
-	Value string
-	Scope string // e.g. "Castro 1 / Gandhi 2"; optional
+	TenantID string
+	Label    string
+	Value    string
+	Scope    string // e.g. "Castro 1 / Gandhi 2"; optional
+	Values   map[string]float64
+	Unit     string
 }
 
 // Citation is per-answer provenance surfaced to the client (allowed field).

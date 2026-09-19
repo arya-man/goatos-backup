@@ -27,11 +27,29 @@ is genuinely not a leadership read surface, satisfy the guard by adding an
   not exclusions. Add at least a draft view + GenAI intent (or a scoped-refusal
   copy so the bot says "not covered yet" rather than inventing).
 
-## Exclusion row format (in coverage-matrix.md)
+## Exclusion row format (in coverage-matrix.md) — TYPED since 2026-09-19
 
 ```
-| <table/API/feature> | EXCLUDED | <one-line concrete reason> |
+| <table/API/feature> | EXCLUDED:<category> | <one-line concrete reason> |
 ```
+
+| Category | Use for |
+|---|---|
+| `EXCLUDED:config` | authoring screens, vocabularies, settings, ration grids, protocol editors |
+| `EXCLUDED:write` | mutation routes, their handlers/validators/idempotency helpers |
+| `EXCLUDED:pii` | a person's private data (phone, address, identifiers) |
+| `EXCLUDED:detail` | operator execution detail behind an aggregate the assistant already covers |
+| `EXCLUDED:infra` | probes, telemetry, device fleet, migration bookkeeping, event plumbing |
+
+A bare `| EXCLUDED |` fails `make leadership-assistant-coverage-guard` unless the
+surface cell is listed in `tools/agent-hooks/leadership-assistant-exclusion-baseline.txt`
+(the rows written before the rule). That file only shrinks: type an old row and
+delete its baseline line; never add a line to land a new bare exclusion.
+
+**A read the page shows cannot be excluded.** If an admin-web page contract
+declares a `kpi.*`/`chart.*` key for it, the page-contract drift guard requires a
+covered or `PLANNED:P<n>` row, not an exclusion (except a typed `config`/`write`
+row whose numbers are covered elsewhere and say so — e.g. `/sales/config`).
 
 The scaffold emits this for you:
 
