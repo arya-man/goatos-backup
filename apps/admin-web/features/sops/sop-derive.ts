@@ -22,7 +22,8 @@ export type DomainId =
   | "procurement"
   | "farmernet"
   | "inventory"
-  | "people";
+  | "people"
+  | "sales";
 
 const DOMAIN_LABEL: Record<DomainId | "general", string> = {
   counts: "Counts",
@@ -36,6 +37,7 @@ const DOMAIN_LABEL: Record<DomainId | "general", string> = {
   farmernet: "Farmer Network",
   inventory: "Inventory",
   people: "HR",
+  sales: "Sales",
   general: "General",
 };
 
@@ -66,6 +68,9 @@ export function classifyDomain(code: string, name: string): DomainId | "general"
   // Procurement SOP (maintainer decision 2026-09-14): procurement.* is the animal purchase
   // inspection's own prefix.
   if (c.startsWith("procurement.")) return "procurement";
+  // Sales SOP (maintainer instruction 2026-09-19): sales.* is the sale's own prefix; the
+  // keyword table would file it under Procurement ("sale").
+  if (c.startsWith("sales.")) return "sales";
   const hay = `${code} ${name}`.toLowerCase();
   for (const rule of DOMAIN_KEYWORDS) {
     if (rule.words.some((w) => hay.includes(w))) return rule.id;

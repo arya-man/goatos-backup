@@ -10,7 +10,7 @@ import { revalidatePath } from "next/cache";
 // Every module SOP route the sidebar serves is listed (review finding on PR 267): a route
 // missing here keeps serving the cached library after a publish, so the "Published vN"
 // banner and the lit card would point at a card still reading the old version.
-const SOP_PAGE_PATHS = ["/counts/sops", "/feed/sops", "/milk/sops", "/procurement/sops", "/weighing/sops"];
+const SOP_PAGE_PATHS = ["/counts/sops", "/feed/sops", "/milk/sops", "/procurement/sops", "/sales/sops", "/weighing/sops"];
 import {
   createSop,
   createSopVersion,
