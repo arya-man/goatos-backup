@@ -195,17 +195,19 @@ test("the Sex filter is a PAGE filter: every read carries it, and the page never
   // resolver reads as "no filter", so the unfiltered page runs the query it always ran.
   assert.match(source, /rawSex === "female" \? "female" : rawSex === "all" \? "" : "male"/);
   assert.match(source, /landingWindow\(\s*\n\s*params,\s*\n\s*today,\s*\n\s*parkFilter,\s*\n\s*sexFilter,\s*\n\s*originFilter,\s*\n\s*weighingCategoryFilter,\s*\n\s*windowSettings,\s*\n\s*\)/);
-  assert.match(source, /getShedWeights\(\{ \.\.\.scope, \.\.\.window \}\)/);
+  assert.match(source, /getShedWeights\(\{\s*\n\s*\.\.\.scope,\s*\n\s*\.\.\.window,/);
   for (const read of ["getShedWeights"]) {
     assert.match(
       source,
-      new RegExp(`${read}\\(\\{ \\.\\.\\.scope, \\.\\.\\.window \\}\\)`),
+      // The shed read also carries the two sale lines (assumptions, 2026-09-19), so its literal
+      // spans lines; the scope and window still lead it.
+      new RegExp(`${read}\\(\\{\\s*\\.\\.\\.scope,\\s*\\.\\.\\.window[,\\s]`),
       `${read} must carry the sex filter`,
     );
   }
   assert.match(
     source,
-    /getWeightDemographics\(\{\s*\.\.\.scope,\s*\.\.\.window,\s*sections: "composition,dimensions,gain_thresholds",?\s*\}\)/,
+    /getWeightDemographics\(\{\s*\.\.\.scope,\s*\.\.\.window,\s*sections: "composition,dimensions,gain_thresholds",\s*band_edges_kg: bandEdgesParam\(assumptionRows\),?\s*\}\)/,
     "getWeightDemographics must carry page filters and explicitly request only the page-rendered sections",
   );
   assert.match(source, /getWeighingGrowth\(\{ \.\.\.scope, \.\.\.window, sections: "headline,shed_leaderboard,losing_animals" \}\)/);

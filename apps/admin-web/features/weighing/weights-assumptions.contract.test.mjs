@@ -15,6 +15,7 @@ const drawerSource = readFileSync(join(here, "weights-assumptions.tsx"), "utf8")
 const pageSource = readFileSync(join(here, "weights-analytics.tsx"), "utf8");
 const sopPageSource = readFileSync(join(here, "..", "..", "app", "(admin)", "weighing", "sops", "page.tsx"), "utf8");
 const farmValueSource = readFileSync(join(here, "..", "procurement", "sales-farm-value.tsx"), "utf8");
+const weightsSource = readFileSync(join(here, "weights.tsx"), "utf8");
 const serviceSource = readFileSync(
   join(here, "..", "..", "..", "..", "backend", "internal", "adminui", "app", "service.go"),
   "utf8",
@@ -60,6 +61,13 @@ test("the Assumptions button lives on the Weighing SOP page, gated on edit_assum
 test("the sale-ready line reaches the weighing count as a parameter on every page that shows it", () => {
   assert.match(pageSource, /sale_threshold_kg: saleThresholdKg/, "ADG Analytics passes the assumption to shed-weights");
   assert.match(farmValueSource, /sale_threshold_kg: saleThresholdKg/, "Farm value passes the assumption to shed-weights");
+  // /weighing/weights is the same estate one screen over (PR #320 review finding): it must pass
+  // the same lines and edges, or the two Weights pages count "over N kg" at different lines.
+  assert.match(weightsSource, /sale_threshold_kg: saleThresholdKg/, "Weights passes the sale line to shed-weights");
+  assert.match(weightsSource, /sale_lower_kg: saleLowerKg/, "Weights passes the lower line to shed-weights");
+  assert.match(weightsSource, /band_edges_kg: bandEdgesParam\(assumptionRows\)/, "Weights passes the band edges to demographics");
+  assert.match(weightsSource, /fillKg\(copy\(pageContract, "kpi\.over35\.label"\), saleThresholdKg\)/);
+  assert.match(weightsSource, /fillKg\(copy\(pageContract, "kpi\.over30\.label"\), saleLowerKg \?\? DEFAULT_SALE_READY_LOWER_KG\)/);
   // The label is filled from the SAME value the count used; a literal 35 must not survive.
   assert.match(pageSource, /fillKg\(copy\(pageContract, "kpi\.over35\.label"\), saleThresholdKg\)/);
   assert.match(farmValueSource, /fillKg\(copy\(pageContract, "kpi\.over35"\), over35\.lineKg\)/);

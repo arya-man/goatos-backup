@@ -174,7 +174,7 @@ test("weights page sends the weighing mode through every backend read", () => {
   assert.match(source, /const weighingCategoryFilter = modeFilter !== "all" \? modeFilter : "";/);
   assert.match(source, /landingWindow\(\s*\n\s*params,\s*\n\s*today,\s*\n\s*parkFilter,\s*\n\s*sexFilter,\s*\n\s*originFilter,\s*\n\s*weighingCategoryFilter,\s*\n\s*windowSettings,\s*\n\s*\)/);
   assert.match(source, /weighing_category: weighingCategoryFilter \|\| undefined/);
-  assert.match(source, /getShedWeights\(\{ \.\.\.scope, \.\.\.window \}\)/);
+  assert.match(source, /getShedWeights\(\{\s*\n\s*\.\.\.scope,\s*\n\s*\.\.\.window,/);
   assert.match(source, /getWeighingGrowth\(\{ \.\.\.scope, \.\.\.window, sections: "headline,shed_leaderboard,losing_animals" \}\)/);
   assert.match(source, /sections: "composition,dimensions,gain_thresholds"/);
   assert.doesNotMatch(source, /sections: "composition,dimensions,origin,shed_type,weight_bands,weekly_gain,gain_thresholds"/);

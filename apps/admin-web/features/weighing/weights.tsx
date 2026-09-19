@@ -14,6 +14,7 @@ import { fmtDate, todayIso } from "@/lib/format";
 import { sharesOfWhole } from "@/lib/shares";
 import {
   firstAuthRequiredError,
+  getGrowthAssumptions,
   getGrowthDirector,
   getShedWeights,
   getWeighingGrowth,
@@ -31,6 +32,7 @@ import {
   weightsWindowSettings,
 } from "./landing-window";
 import { WINDOW_FROM_PARAM, WINDOW_TO_PARAM } from "./landing-window-constants";
+import { assumptionValue, bandEdgesParam, DEFAULT_SALE_READY_LOWER_KG, fillKg } from "./assumption-copy";
 
 const PAGE_PATH = "/weighing/weights";
 const PAGE_SIZE_OPTIONS = [10, 25, 50] as const;
@@ -296,13 +298,27 @@ export async function WeighingWeightsPage({
     origin: originFilter || undefined,
     weighing_category: weighingCategoryFilter || undefined,
   };
+  // The assumptions (maintainer decision 2026-09-19): the same sale lines and band edges ADG
+  // Analytics passes -- weighing is isolated and does not read the assumptions table, so this
+  // page names them too, or the two Weights pages would count "over N kg" at different lines.
+  const assumptions = await getGrowthAssumptions();
+  if (firstAuthRequiredError(assumptions)) redirect(INTERNAL_LOGIN_PATH);
+  const assumptionRows = assumptions.ok ? assumptions.data.values : null;
+  const saleThresholdKg = assumptionRows ? assumptionValue(assumptionRows, "sale_ready_threshold_kg") : null;
+  const saleLowerKg = assumptionRows ? assumptionValue(assumptionRows, "sale_ready_lower_kg") : null;
   const [weights, growth, demographics, growthDirector] = await Promise.all([
-    getShedWeights({ ...scope, ...window }),
+    getShedWeights({
+      ...scope,
+      ...window,
+      ...(saleThresholdKg != null ? { sale_threshold_kg: saleThresholdKg } : {}),
+      ...(saleLowerKg != null ? { sale_lower_kg: saleLowerKg } : {}),
+    }),
     getWeighingGrowth({ ...scope, ...window, sections: "headline,shed_leaderboard,losing_animals" }),
     getWeightDemographics({
       ...scope,
       ...window,
       sections: "composition,dimensions,gain_thresholds",
+      band_edges_kg: bandEdgesParam(assumptionRows),
     }),
     getGrowthDirector({ ...scope, ...window, sections: "road_to_sale,fair_fight" }),
   ]);
@@ -871,7 +887,7 @@ export async function WeighingWeightsPage({
           <div className="dl">{copy(pageContract, "kpi.average.sub")}</div>
         </div>
         <div className="kpi">
-          <div className="lab">{copy(pageContract, "kpi.over30.label")}</div>
+          <div className="lab">{fillKg(copy(pageContract, "kpi.over30.label"), saleLowerKg ?? DEFAULT_SALE_READY_LOWER_KG)}</div>
           <div className="val">{summary.at_or_above_30kg.toLocaleString("en-IN")}</div>
           {/* The threshold counts carry their OWN denominator: a whole-shed weigh contributes
               nothing to them, so showing them against animals_weighed would understate them. */}
@@ -881,7 +897,7 @@ export async function WeighingWeightsPage({
           </div>
         </div>
         <div className="kpi">
-          <div className="lab">{copy(pageContract, "kpi.over35.label")}</div>
+          <div className="lab">{fillKg(copy(pageContract, "kpi.over35.label"), saleThresholdKg)}</div>
           <div className="val">{summary.at_or_above_35kg.toLocaleString("en-IN")}</div>
           <div className="dl">
             {summary.threshold_basis_animals.toLocaleString("en-IN")}{" "}
