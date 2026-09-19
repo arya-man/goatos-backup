@@ -1,7 +1,7 @@
 # Farm valuation assumptions are data, edited on Sales Config (maintainer instruction 2026-09-19)
 
 Status: accepted. Owner: sales + procurement + weighing (one parameter) + adminui + admin-web.
-Migration `000363_sales_valuation_assumptions.sql`.
+Migration `000367_sales_valuation_assumptions.sql`.
 
 ## What was asked
 
@@ -27,7 +27,6 @@ farm's valuation moved on deploy, re-read per request:
 | figure | key |
 |---|---|
 | per bucket: label, weight used (blank = measured), ₹ per kg | `buckets` (jsonb; the seven bucket KEYS are the classification the SQL files animals into and are fixed) |
-| sale-ready line ("Over N kg") | `sale_ready_kg` |
 | price every unsold animal is carried at on Load wise | `unsold_stock_price_rupees` (blank = the overall average sold price, the old rule) |
 
 - **Edited on Sales Config**, a "Farm valuation" section beside the market survey: one form, one
@@ -41,7 +40,9 @@ farm's valuation moved on deploy, re-read per request:
 - **Consumers**: the overview's valuation CTE reads the row (falling back to the seeded defaults
   for a tenant with no row); Load wise reads `unsold_stock_price_rupees` and, when set, prices
   every load's remaining stock at it (basis `assumed`, replacing both the load's own and the
-  overall average); the Farm value page passes `sale_ready_kg` to the weighing shed-weights read
+  overall average); the sale-ready line itself is NOT here: it is the growth assumption `sale_ready_threshold_kg`, edited
+  from the Weighing SOP page's Assumptions drawer (docs/decisions/weighing-assumptions.md), and the Farm
+  value page hands that figure to the weighing shed-weights read as before;
   as the `sale_threshold_kg` **parameter** — weighing stays isolated, the figure arrives on the
   request, never from a table — and fills `{kg}` in the card copy from it.
 - The "Animals not yet sold are valued at ₹N each" line under Load wise is removed; the figure is
@@ -64,3 +65,10 @@ stack (2026-09-19): save 45 kg × ₹700 / 40 kg / ₹15,000 → Farm value ADUL
 (805 × 45 × 700), OVER 40 KG, margin "40+"; Load wise "incl. stock ₹52L" (347 × 15,000), the note
 gone; a price of 0 refused "buckets[5].price_per_kg: must be between 1 and 10000 rupees per kg";
 an operator's PUT 403.
+
+## Rebase note 2026-09-20
+
+Landed after the Weighing Assumptions drawer (`000363`-`000365`), which had already made the
+sale-ready line data (`growth_assumptions.sale_ready_threshold_kg`, read by Farm value and the
+Weights pages). The `sale_ready_kg` column this decision first carried was DROPPED before landing
+so the line has exactly one home; migration `000367` never created it on any shared environment.

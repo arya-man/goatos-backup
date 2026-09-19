@@ -850,7 +850,7 @@ Three rules bind future changes:
    `/people` still decides who reaches Sales at all -- the SOP decides who does each step inside
    a sale. Do not collapse the two.
 2. **The tag-animals step is engine-completed, never a tap.** `sale_tag_animals` (task type +
-   hook, seeded by 000362) is completed by `goat.sale_allocated` via
+   hook, seeded by 000366) is completed by `goat.sale_allocated` via
    `tasks/app.SaleAllocatedWorkflowHandler`; a by-hand completion is refused
    `409 sale_tagging_pending`, and a `sales.deal` version that drops the step cannot be published.
    The phone deep-links it to the tagging screen on the card's `subject_ref_id`.
@@ -3046,7 +3046,7 @@ Purpose:
   load-cost gate's sales-director row.
   **SOP split EXTENSION (maintainer instruction 2026-09-19): `/sales/sops` (Sales SOP)
   joins the same shape** — the `sop-library` contract over `/admin/sops` scoped to the
-  `sales.` prefix, with the `sales.deal` SOP seeded by migration `000362`. Unlike the
+  `sales.` prefix, with the `sales.deal` SOP seeded by migration `000366`. Unlike the
   library-only milk/weighing documents, this one is RUN: recording a sale opens one
   tasks-engine workflow from its `sales_deal` track (docs/decisions/sales-sop.md), every
   step carrying the DESIGNATION that does it (`owner` → `workflow_actions.owner_role`),

@@ -39,14 +39,13 @@ export async function saveValuationAction(previous: ValuationActionState, formDa
   }));
   const body = {
     buckets,
-    sale_ready_kg: num(formData.get("sale_ready_kg")) ?? Number.NaN,
     unsold_stock_price_rupees: num(formData.get("unsold_stock_price_rupees")),
     row_version: Number(formData.get("row_version") ?? 0),
   };
   // A field that is not a number is sent as-is so the backend names it; JSON has no NaN, so
   // refuse here with the same shape the backend would.
   const nan = buckets.find((b) => Number.isNaN(b.price_per_kg) || Number.isNaN(b.fixed_weight_kg ?? 0));
-  if (nan || Number.isNaN(body.sale_ready_kg) || Number.isNaN(body.unsold_stock_price_rupees ?? 0)) {
+  if (nan || Number.isNaN(body.unsold_stock_price_rupees ?? 0)) {
     return { status: "error", code: "failed", message: "Every figure must be a number.", ticket };
   }
   const result = await putValuationAssumptions(body);

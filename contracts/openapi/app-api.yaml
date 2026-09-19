@@ -22626,15 +22626,12 @@ components:
           description: Parsed out of the market text at import time, never at read time.
     SalesValuationAssumptions:
       type: object
-      required: [buckets, sale_ready_kg, unsold_stock_price_rupees, row_version]
+      required: [buckets, unsold_stock_price_rupees, row_version]
       properties:
         buckets:
           type: array
           items:
             $ref: "#/components/schemas/SalesValuationBucket"
-        sale_ready_kg:
-          description: The "Over N kg" sale-ready line on Farm value.
-          type: number
         unsold_stock_price_rupees:
           description: Null keeps Load wise on the overall average sold price; a figure prices every unsold animal at it.
           type: number

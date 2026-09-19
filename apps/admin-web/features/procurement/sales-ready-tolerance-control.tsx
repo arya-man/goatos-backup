@@ -8,8 +8,6 @@ type Props = {
   lineKg: number;
   valueG: number;
   maxG: number;
-  /** The saved sale-ready line (Sales Config) the margin is taken off; 35 kg until one is saved. */
-  lineKg?: number;
   preserveQuery: [string, string][];
   label: string;
   applyLabel: string;
@@ -42,7 +40,6 @@ export function SalesReadyToleranceControl({
   label,
   applyLabel,
   pagePath = "/sales",
-  lineKg = 35,
 }: Props) {
   const router = useRouter();
   const [draftG, setDraftG] = useState(valueG);

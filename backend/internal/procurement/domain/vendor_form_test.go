@@ -10,16 +10,16 @@ import (
 
 func fp(v float64) *float64 { return &v }
 
-// TestMigrationEmbedsTheSeededVendorForm pins migration 000364 to vendorformseed/vendor.json byte
+// TestMigrationEmbedsTheSeededVendorForm pins migration 000368 to vendorformseed/vendor.json byte
 // for byte, and proves the seeded document is one the register can run.
 func TestMigrationEmbedsTheSeededVendorForm(t *testing.T) {
-	raw, err := os.ReadFile(filepath.Join("..", "..", "..", "migrations", "postgres", "000364_vendor_form_sop.sql"))
+	raw, err := os.ReadFile(filepath.Join("..", "..", "..", "migrations", "postgres", "000368_vendor_form_sop.sql"))
 	if err != nil {
 		t.Fatal(err)
 	}
 	seed := strings.TrimSpace(string(SeededVendorFormJSON()))
 	if !strings.Contains(string(raw), "$seed$"+seed+"$seed$") {
-		t.Fatal("migration 000364 does not embed vendorformseed/vendor.json verbatim; regenerate the SQL")
+		t.Fatal("migration 000368 does not embed vendorformseed/vendor.json verbatim; regenerate the SQL")
 	}
 	dsl := SeededVendorFormDSL()
 	if problems := ValidateVendorForm(dsl); len(problems) > 0 {

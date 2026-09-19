@@ -106,12 +106,12 @@ func TestMigrationEmbedsTheGeneralSeed(t *testing.T) {
 	}
 }
 
-// TestMigrationEmbedsTheSalesSeed pins the sale SOP (migration 000362) and its task type to their
+// TestMigrationEmbedsTheSalesSeed pins the sale SOP (migration 000366) and its task type to their
 // sopseed files byte for byte, and proves the seeded document compiles: five steps, the tag step
 // hooked for the engine, every step owned by a designation, and the balance step on the "No" branch
 // of the payment question.
 func TestMigrationEmbedsTheSalesSeed(t *testing.T) {
-	path := filepath.Join("..", "..", "..", "migrations", "postgres", "000362_sales_sop.sql")
+	path := filepath.Join("..", "..", "..", "migrations", "postgres", "000366_sales_sop.sql")
 	raw, err := os.ReadFile(path)
 	if err != nil {
 		t.Fatal(err)
@@ -122,7 +122,7 @@ func TestMigrationEmbedsTheSalesSeed(t *testing.T) {
 			t.Fatal(err)
 		}
 		if !strings.Contains(string(raw), "$seed$"+strings.TrimSpace(string(doc))+"$seed$") {
-			t.Fatalf("migration 000362 does not embed %s verbatim", name)
+			t.Fatalf("migration 000366 does not embed %s verbatim", name)
 		}
 	}
 	dsl := loadSeeded(t, sopseed.SOPCodeSalesDeal)

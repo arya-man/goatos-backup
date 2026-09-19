@@ -24,7 +24,6 @@ type valuationBucketPayload struct {
 
 type valuationPayload struct {
 	Buckets                []valuationBucketPayload `json:"buckets"`
-	SaleReadyKg            float64                  `json:"sale_ready_kg"`
 	UnsoldStockPriceRupees *float64                 `json:"unsold_stock_price_rupees"`
 	RowVersion             int                      `json:"row_version"`
 	UpdatedAt              string                   `json:"updated_at,omitempty"`
@@ -38,20 +37,17 @@ type valuationLimitsPayload struct {
 	PriceMax       float64 `json:"price_per_kg_max"`
 	WeightMin      float64 `json:"fixed_weight_kg_min"`
 	WeightMax      float64 `json:"fixed_weight_kg_max"`
-	SaleReadyMin   float64 `json:"sale_ready_kg_min"`
-	SaleReadyMax   float64 `json:"sale_ready_kg_max"`
 	UnsoldPriceMin float64 `json:"unsold_stock_price_min"`
 	UnsoldPriceMax float64 `json:"unsold_stock_price_max"`
 }
 
 func toValuationPayload(v domain.ValuationAssumptions) valuationPayload {
 	out := valuationPayload{
-		SaleReadyKg: v.SaleReadyKg, UnsoldStockPriceRupees: v.UnsoldStockPriceRupees, RowVersion: v.RowVersion,
+		UnsoldStockPriceRupees: v.UnsoldStockPriceRupees, RowVersion: v.RowVersion,
 		UpdatedAt: v.UpdatedAt, UpdatedByName: v.UpdatedByName,
 		Limits: valuationLimitsPayload{
 			PriceMin: domain.ValuationPriceMinINR, PriceMax: domain.ValuationPriceMaxINR,
 			WeightMin: domain.ValuationWeightMinKg, WeightMax: domain.ValuationWeightMaxKg,
-			SaleReadyMin: domain.ValuationSaleReadyMinKg, SaleReadyMax: domain.ValuationSaleReadyMaxKg,
 			UnsoldPriceMin: domain.ValuationUnsoldMinINR, UnsoldPriceMax: domain.ValuationUnsoldMaxINR,
 		},
 		Buckets: make([]valuationBucketPayload, 0, len(v.Buckets)),
@@ -84,7 +80,7 @@ func (h *SalesHandler) PutValuationAssumptions(w http.ResponseWriter, r *http.Re
 		h.writeErr(w, r, app.BadRequest("invalid_json", "The request body is not valid JSON."))
 		return
 	}
-	write := domain.ValuationAssumptions{SaleReadyKg: in.SaleReadyKg, UnsoldStockPriceRupees: in.UnsoldStockPriceRupees, RowVersion: in.RowVersion}
+	write := domain.ValuationAssumptions{UnsoldStockPriceRupees: in.UnsoldStockPriceRupees, RowVersion: in.RowVersion}
 	for _, b := range in.Buckets {
 		write.Buckets = append(write.Buckets, domain.ValuationBucketRate{Bucket: b.Bucket, Label: b.Label, FixedWeightKg: b.FixedWeightKg, PricePerKg: b.PricePerKg, DisplayOrder: b.DisplayOrder})
 	}

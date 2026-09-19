@@ -18,18 +18,16 @@
 CREATE TABLE IF NOT EXISTS public.sales_valuation_assumptions (
   tenant_id                 uuid PRIMARY KEY REFERENCES public.tenants (tenant_id),
   buckets                   jsonb NOT NULL,
-  sale_ready_kg             numeric(6,2) NOT NULL DEFAULT 35,
   unsold_stock_price_rupees numeric(12,2),
   row_version               integer NOT NULL DEFAULT 1,
   updated_at                timestamptz NOT NULL DEFAULT now(),
   updated_by                uuid,
   CONSTRAINT sales_valuation_assumptions_buckets_check CHECK (jsonb_typeof(buckets) = 'array'),
-  CONSTRAINT sales_valuation_assumptions_sale_ready_check CHECK (sale_ready_kg > 0 AND sale_ready_kg <= 200),
   CONSTRAINT sales_valuation_assumptions_unsold_check CHECK (unsold_stock_price_rupees IS NULL OR unsold_stock_price_rupees > 0)
 );
 
 -- Seed = exactly the figures the SQL carried, so no farm's valuation moves on deploy.
-INSERT INTO public.sales_valuation_assumptions (tenant_id, buckets, sale_ready_kg, unsold_stock_price_rupees)
+INSERT INTO public.sales_valuation_assumptions (tenant_id, buckets, unsold_stock_price_rupees)
 SELECT t.tenant_id, $seed$[
   {"bucket": "fattening", "label": "Fattening animals", "fixed_weight_kg": null, "price_per_kg": 450, "display_order": 1},
   {"bucket": "adult_female", "label": "Adult females", "fixed_weight_kg": 40, "price_per_kg": 600, "display_order": 2},
@@ -38,7 +36,7 @@ SELECT t.tenant_id, $seed$[
   {"bucket": "K1", "label": "K1", "fixed_weight_kg": 3, "price_per_kg": 500, "display_order": 5},
   {"bucket": "K2", "label": "K2", "fixed_weight_kg": 8, "price_per_kg": 500, "display_order": 6},
   {"bucket": "K3", "label": "K3", "fixed_weight_kg": 15, "price_per_kg": 500, "display_order": 7}
-]$seed$::jsonb, 35, NULL
+]$seed$::jsonb, NULL
 FROM public.tenants t
 ON CONFLICT (tenant_id) DO NOTHING;
 

@@ -1,4 +1,3 @@
-import type { ReactNode } from "react";
 import { SopBuilder, SopLibrary, builderInitialFromVersion, isVersionFaithfullyEditable, sopScopeKey, toSopView } from "@/features/sops";
 import { FollowUpEditor } from "./followup-editor";
 import { parseFollowUp } from "./followup-model";

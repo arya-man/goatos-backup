@@ -18,7 +18,6 @@ export type ValuationBucket = {
 
 export type ValuationAssumptions = {
   buckets: ValuationBucket[];
-  sale_ready_kg: number;
   unsold_stock_price_rupees: number | null;
   row_version: number;
   updated_at?: string;
@@ -28,14 +27,12 @@ export type ValuationAssumptions = {
     price_per_kg_max: number;
     fixed_weight_kg_min: number;
     fixed_weight_kg_max: number;
-    sale_ready_kg_min: number;
-    sale_ready_kg_max: number;
     unsold_stock_price_min: number;
     unsold_stock_price_max: number;
   };
 };
 
-export type ValuationWrite = Pick<ValuationAssumptions, "buckets" | "sale_ready_kg" | "unsold_stock_price_rupees" | "row_version">;
+export type ValuationWrite = Pick<ValuationAssumptions, "buckets" | "unsold_stock_price_rupees" | "row_version">;
 
 const PATH = "/sales/valuation-assumptions" as keyof AppApiPaths & string;
 

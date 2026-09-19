@@ -19,7 +19,6 @@ func TestValidateValuationAssumptions(t *testing.T) {
 			w := 500.0
 			v.Buckets[3].FixedWeightKg = &w
 		},
-		"sale_ready_kg":             func(v *ValuationAssumptions) { v.SaleReadyKg = 1 },
 		"unsold_stock_price_rupees": func(v *ValuationAssumptions) { p := 5.0; v.UnsoldStockPriceRupees = &p },
 		"expected 7 buckets":        func(v *ValuationAssumptions) { v.Buckets = v.Buckets[1:] },
 		"listed twice":              func(v *ValuationAssumptions) { v.Buckets[6].Bucket = "K2" },

@@ -2,7 +2,7 @@
 
 Status: accepted; built on the SOP studio (`docs/decisions/sop-studio.md`) and the SOP-driven
 herd operations (`docs/decisions/sop-driven-herd-operations.md`). Owner: tasks + sop + sales +
-adminui + admin-web + Android. Migration `000362_sales_sop.sql`.
+adminui + admin-web + Android. Migration `000366_sales_sop.sql`.
 
 ## What was asked
 
@@ -49,7 +49,7 @@ Pinned byte-for-byte to `tasks/domain/sopseed/sales_deal.json` by `TestMigration
 "Who will have access" is a property of the step, not of the APK. A follow-up step may carry
 `owner: <designation_code>` from the farm's **designation catalog** (`designation_catalog`, the
 same job titles `/people` pre-fills from: `park_head`, `operator`, `procurement_director`, ...).
-The engine stamps it on the action row (`workflow_actions.owner_role`, 000362) and serves it with
+The engine stamps it on the action row (`workflow_actions.owner_role`, 000366) and serves it with
 the catalog's label (`owner_role` / `owner_label` on the step DTO).
 
 - A caller who does not hold that designation (its active grant roles) sees the step **read-only**:
@@ -72,7 +72,7 @@ card.
 
 ## Decision 3: the tag step is engine-completed, never a tap
 
-`sale_tag_animals` is a new Task Type Registry row (seeded for every tenant by 000362 from
+`sale_tag_animals` is a new Task Type Registry row (seeded for every tenant by 000366 from
 `sopseed/task_types_sales.json`; `task_types.json` is pinned to 000308 and is never edited) whose
 engine hook the sale SOP must keep (`engine_step_removed` at publish, the `tag_kid` shape). The
 phone deep-links the step to the existing sale-tagging screen (`/sale-tagging/sale/{deal}`, from
@@ -147,7 +147,7 @@ web drawer's field list). It is now DATA.
 questions (`choice` / `multi` / `text` / `number`, each with title, hint, compulsory flag, choices,
 min/max/unit, `only_if` on an earlier pick-one). Authored on `/sales/sops` through the same pages
 editor the procurement inspection uses (profile `vendor_form`: no load form, no media). Migration
-`000364` seeds v1 mirroring the phone's three steps -- pinned byte for byte by
+`000368` seeds v1 mirroring the phone's three steps -- pinned byte for byte by
 `TestMigrationEmbedsTheSeededVendorForm`.
 
 **Typed questions are the register's own columns.** `business_name`, `record_type`, `state`,

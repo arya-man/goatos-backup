@@ -105,11 +105,6 @@ export function ValuationSection({
           <p className="muted small market-config-hint">{copy(pageContract, "valuation.fixed_weight.hint")}</p>
           <div className="grid g2 market-config-columns">
             <label className="market-config-column">
-              <span className="market-config-h4">{copy(pageContract, "valuation.sale_ready_kg")}</span>
-              <input name="sale_ready_kg" type="number" step="0.5" min={v.limits.sale_ready_kg_min} max={v.limits.sale_ready_kg_max} defaultValue={v.sale_ready_kg} required disabled={!canEdit} />
-              <span className="muted small market-config-hint">{fill(copy(pageContract, "valuation.sale_ready_kg.hint"), v.sale_ready_kg)}</span>
-            </label>
-            <label className="market-config-column">
               <span className="market-config-h4">{copy(pageContract, "valuation.unsold_price")}</span>
               <input name="unsold_stock_price_rupees" type="number" step="1" min={v.limits.unsold_stock_price_min} max={v.limits.unsold_stock_price_max} defaultValue={v.unsold_stock_price_rupees ?? ""} disabled={!canEdit} />
               <span className="muted small market-config-hint">{copy(pageContract, "valuation.unsold_price.hint")}</span>

@@ -620,7 +620,7 @@ const farmValuationSQL = `
 		FROM classified
 		WHERE bucket = 'fattening'
 	),
-	-- FARM VALUATION ASSUMPTIONS ARE DATA (maintainer instruction 2026-09-19, migration 000363):
+	-- FARM VALUATION ASSUMPTIONS ARE DATA (maintainer instruction 2026-09-19, migration 000367):
 	-- the bucket rates are the tenant's authored row, re-read per request; a tenant without a row
 	-- (created after the migration) values on the seeded defaults, the same figures the VALUES
 	-- table here used to carry.

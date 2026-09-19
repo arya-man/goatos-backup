@@ -10111,8 +10111,6 @@ export interface components {
         };
         SalesValuationAssumptions: {
             buckets: components["schemas"]["SalesValuationBucket"][];
-            /** @description The "Over N kg" sale-ready line on Farm value. */
-            sale_ready_kg: number;
             /** @description Null keeps Load wise on the overall average sold price; a figure prices every unsold animal at it. */
             unsold_stock_price_rupees: number | null;
             row_version: number;

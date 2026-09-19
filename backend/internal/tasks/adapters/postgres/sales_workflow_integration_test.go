@@ -9,7 +9,7 @@ import (
 	"github.com/vgoats/goatos/backend/internal/tasks/ports"
 )
 
-// TestSaleWorkflowRunsTheSalesSOP drives the SALE workflow (migration 000362, docs/decisions/
+// TestSaleWorkflowRunsTheSalesSOP drives the SALE workflow (migration 000366, docs/decisions/
 // sales-sop.md) through the real repository on real Postgres, the production path the two
 // consumers take: the sales.deal.recorded opener keys a goat-less workflow on the deal, every
 // step is stamped with the designation the SOP names, a caller holding another designation is

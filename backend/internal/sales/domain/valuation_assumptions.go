@@ -28,8 +28,6 @@ type ValuationBucketRate struct {
 // ValuationAssumptions is the tenant's row.
 type ValuationAssumptions struct {
 	Buckets []ValuationBucketRate
-	// SaleReadyKg is the "Over N kg" sale-ready line on Farm value (was the 35 kg constant).
-	SaleReadyKg float64
 	// UnsoldStockPriceRupees nil keeps Load wise on the overall average sold price; a figure
 	// prices every unsold animal at it instead.
 	UnsoldStockPriceRupees *float64
@@ -46,14 +44,12 @@ var ValuationBucketKeys = []string{"fattening", "adult_female", "adult_male_buck
 // Business bands. Outside them the write is REFUSED, never clamped: a typo of 5000 rupees per kg
 // or a 0.1 kg adult is not a figure to silently fix.
 const (
-	ValuationPriceMinINR    = 1.0
-	ValuationPriceMaxINR    = 10000.0
-	ValuationWeightMinKg    = 0.5
-	ValuationWeightMaxKg    = 200.0
-	ValuationSaleReadyMinKg = 5.0
-	ValuationSaleReadyMaxKg = 200.0
-	ValuationUnsoldMinINR   = 100.0
-	ValuationUnsoldMaxINR   = 1000000.0
+	ValuationPriceMinINR  = 1.0
+	ValuationPriceMaxINR  = 10000.0
+	ValuationWeightMinKg  = 0.5
+	ValuationWeightMaxKg  = 200.0
+	ValuationUnsoldMinINR = 100.0
+	ValuationUnsoldMaxINR = 1000000.0
 )
 
 // ErrValuationInvalid is a write outside the bands or missing a bucket; the message names the field.
@@ -92,16 +88,13 @@ func ValidateValuationAssumptions(v ValuationAssumptions) error {
 			return bad("buckets[%d].fixed_weight_kg: must be between %v and %v kg, or blank to price at the measured weight", i, ValuationWeightMinKg, ValuationWeightMaxKg)
 		}
 	}
-	if v.SaleReadyKg < ValuationSaleReadyMinKg || v.SaleReadyKg > ValuationSaleReadyMaxKg || math.IsNaN(v.SaleReadyKg) {
-		return bad("sale_ready_kg: must be between %v and %v kg", ValuationSaleReadyMinKg, ValuationSaleReadyMaxKg)
-	}
 	if v.UnsoldStockPriceRupees != nil && (*v.UnsoldStockPriceRupees < ValuationUnsoldMinINR || *v.UnsoldStockPriceRupees > ValuationUnsoldMaxINR || math.IsNaN(*v.UnsoldStockPriceRupees)) {
 		return bad("unsold_stock_price_rupees: must be between %v and %v rupees, or blank to use the average sold price", ValuationUnsoldMinINR, ValuationUnsoldMaxINR)
 	}
 	return nil
 }
 
-// DefaultValuationAssumptions is the seeded row (migration 000363), what a tenant without a row
+// DefaultValuationAssumptions is the seeded row (migration 000367), what a tenant without a row
 // reads and what the overview SQL falls back to; the figures the hard-coded formula carried.
 func DefaultValuationAssumptions() ValuationAssumptions {
 	kg := func(v float64) *float64 { return &v }
@@ -115,6 +108,5 @@ func DefaultValuationAssumptions() ValuationAssumptions {
 			{Bucket: "K2", Label: "K2", FixedWeightKg: kg(8), PricePerKg: 500, DisplayOrder: 6},
 			{Bucket: "K3", Label: "K3", FixedWeightKg: kg(15), PricePerKg: 500, DisplayOrder: 7},
 		},
-		SaleReadyKg: 35,
 	}
 }
