@@ -101,6 +101,9 @@ var modulePages = []ModulePage{
 	// exactly as it was on the board.
 	{Key: "sales-sold", Module: "sales", Label: "Summary", Href: "/sales/sold", Permissions: []string{SalesRead}},
 	{Key: "sales-farm-value", Module: "sales", Label: "Farm value", Href: "/sales/farm-value", Permissions: []string{SalesRead}},
+	// SALES SOP (2026-09-19): the steps a recorded sale owes and who does each, authored on
+	// /sales/sops; opens on sop.read like every SOP page, ticked with the sales module.
+	{Key: "sales-sops", Module: "sales", Label: "Sales SOP", Href: "/sales/sops", Permissions: []string{SOPRead}},
 	// Purchase and Born: per-load reconciliation and profit (maintainer decision 2026-08-31). Its
 	// READ is the same commercial fact the board carries, so it ticks with the sales module; the
 	// load-cost write on it is gated separately on LoadCostWrite.

@@ -68,6 +68,9 @@ func (r *Repository) LoadContractFamilies(ctx context.Context, tenantID string) 
 	if out.SOPTaskTypes, out.SOPTaskTypeAnswerKinds, out.RevisionInputs["sop-task-types"], err = r.listSOPTaskTypes(ctx, tenantID); err != nil {
 		return out, err
 	}
+	if out.Designations, out.RevisionInputs["designations"], err = r.listDesignations(ctx); err != nil {
+		return out, err
+	}
 	if out.UIConfig, out.RevisionInputs["admin-ui-config-values"], err = r.listUIConfigEntries(ctx, tenantID); err != nil {
 		return out, err
 	}
@@ -393,6 +396,37 @@ func (r *Repository) listSOPTaskTypes(ctx context.Context, tenantID string) ([]a
 		return nil, nil, "", err
 	}
 	return types, kinds, rev.String(), nil
+}
+
+// listDesignationsSQL reads the designation catalog (a global, tens-of-rows table) for the
+// SOP step editor's "Done by" select (SALES SOP, 2026-09-19).
+const listDesignationsSQL = `
+SELECT designation_code, label
+FROM designation_catalog
+WHERE status = 'active'
+ORDER BY sort_order, designation_code
+LIMIT 100`
+
+func (r *Repository) listDesignations(ctx context.Context) ([]app.ReferenceOption, string, error) {
+	rows, err := r.pool.Query(ctx, listDesignationsSQL)
+	if err != nil {
+		return nil, "", fmt.Errorf("adminui: list designations: %w", err)
+	}
+	defer rows.Close()
+	var out []app.ReferenceOption
+	var rev strings.Builder
+	for rows.Next() {
+		var code, label string
+		if err := rows.Scan(&code, &label); err != nil {
+			return nil, "", err
+		}
+		out = append(out, app.ReferenceOption{Key: code, Label: label})
+		rev.WriteString(code + "|" + label + "\n")
+	}
+	if err := rows.Err(); err != nil {
+		return nil, "", err
+	}
+	return out, rev.String(), nil
 }
 
 // loadWeighingWeightsPages reads tenant DB configuration. SOP publication is not a

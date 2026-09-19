@@ -197,6 +197,10 @@ func navigation() domain.NavigationContract {
 					// to add him is what this leaf ends.
 					navLeaf("sales-vendors", "Vendors", "/sales/vendors", nil),
 					navLeaf("sales-config", "Sales Config", "/sales/config", nil),
+					// SALES SOP (maintainer instruction 2026-09-19): what happens after a sale is
+					// recorded -- tag, load, the money -- and WHO does each step, authored here in
+					// the same List | Flow shape as /counts/sops and run by the tasks engine.
+					navLeaf("sales-sops", "Sales SOP", "/sales/sops", nil),
 				},
 			},
 			{
@@ -1052,6 +1056,11 @@ func pages() []domain.PageContract {
 		// prefix `general.` and kind = general are set by the builder.
 		page("configuration-work-instructions", "/configuration/work-instructions", "/configuration/work-instructions", "Work instructions", "General SOPs: farm-wide work tied to no module, started by hand from the phone.", "module-surface",
 			[]domain.TableContract{table("sop-library", "Work instructions", "/admin/sops", []string{"sop", "domain", "trigger", "steps", "gates", "status"}, "sop_id")}),
+		// SALES SOP (maintainer instruction 2026-09-19, docs/decisions/sales-sop.md): the steps a
+		// recorded sale owes -- tag the animals, load them, the money -- and the designation that
+		// does each, authored here and run by the tasks engine as one workflow per sale.
+		page("sales-sops", "/sales/sops", "/sales/sops", "Sales SOP", "What happens after a sale is recorded -- tagging, loading, the money -- and who does each step.", "module-surface",
+			[]domain.TableContract{table("sop-library", "Sales SOPs", "/admin/sops", []string{"sop", "domain", "trigger", "steps", "gates", "status"}, "sop_id")}),
 		// PROCUREMENT SOP (maintainer decision 2026-09-14): the animal-purchase inspection --
 		// its pages, questions, proof and compulsory flags -- is authored here and served to the
 		// phone from the published version.
@@ -8123,7 +8132,7 @@ func pageSpecificCopy(id string) map[string]string {
 		}
 	// Vaccination is deliberately absent: its SOP page is gone, and its content lives on
 	// the vaccination plan console. milk and weighing arrived on main meanwhile and stay.
-	case "counts-sops", "feed-sops", "milk-sops", "weighing-sops", "procurement-sops", "configuration-work-instructions":
+	case "counts-sops", "feed-sops", "milk-sops", "weighing-sops", "procurement-sops", "configuration-work-instructions", "sales-sops":
 		m := map[string]string{
 			"filter.search_label":                     "Search SOPs",
 			"filter.search_placeholder":               "Search SOP name, trigger, step, or proof...",
@@ -8402,6 +8411,11 @@ func pageSpecificCopy(id string) map[string]string {
 			"followup.proof.videos":                 "{n} video(s)",
 			"followup.proof.photos":                 "{n} photo(s)",
 			"followup.step.only_when":               "only when the kid pen could not be resolved",
+			// WHO DOES A STEP (SALES SOP, 2026-09-19): every follow-up editor offers the
+			// designation a step is for; blank is anyone who can open the workflow.
+			"followup.step.owner":      "Done by",
+			"followup.step.owner_any":  "Anyone",
+			"followup.step.owner_hint": "Only this designation can do the step on the phone; everyone else sees it read-only.",
 		}
 		// Per-module copy: crumb names the owning vertical, and the builder's domain lock names
 		// the module the page is scoped to (SOP split, maintainer decision 2026-08-18).
@@ -8426,6 +8440,20 @@ func pageSpecificCopy(id string) map[string]string {
 				m[k] = v
 			}
 			addHerdOpsCaptureCardCopy(m)
+		case "sales-sops":
+			m["crumb"] = "Sales"
+			m["filter.domain.current"] = "This page shows the Sales SOP: what happens after a sale is recorded, and who does each step"
+			m["modal.builder.domain_aria"] = "Domain — locked to Sales"
+			m["modal.builder.domain_title"] = "Domain is locked to Sales on this page"
+			m["modal.builder.domain_label"] = "Sales"
+			m["modal.builder.default_name"] = "Sale"
+			m["modal.builder.placeholder.name"] = "Sale"
+			m["modal.builder.policy_label"] = "sales policy"
+			m["modal.builder.eyebrow"] = "SOP · SALES"
+			m["empty.title"] = "No sales SOP yet"
+			m["empty.body"] = "Publish the Sale SOP to drive the steps the phone runs after a sale is recorded."
+			m["followup.subtitle"] = "What happens after a sale is recorded, in order: tagging the animals, loading them, the money. Each step names who does it, its type, the proof it needs, and when it is due. Publishing applies to sales recorded from then on; a sale already recorded keeps the steps it started with."
+			m["followup.notice.capture_kept"] = "Opened by the engine the moment a sale is recorded; the Record sale form itself is unchanged."
 		case "configuration-work-instructions":
 			m["crumb"] = "Configuration"
 			m["filter.domain.current"] = "This page shows general work instructions: SOPs tied to no module, started by hand"
@@ -9359,7 +9387,7 @@ func pageOptionGroups(id string) []domain.OptionGroup {
 		return withGenericOptionGroups(append(sopOptionGroupsFor(id), weighingSOPOptionGroups()...))
 	case "weighing-sops":
 		return withGenericOptionGroups(append(sopOptionGroupsFor(id), weighingSOPOptionGroups()...))
-	case "configuration-work-instructions":
+	case "configuration-work-instructions", "sales-sops":
 		return withGenericOptionGroups(sopOptionGroupsFor(id))
 	case "procurement-sops":
 		return withGenericOptionGroups(append(sopOptionGroupsFor(id), inspectionOptionGroups()...))
@@ -9847,6 +9875,12 @@ var sopSeedStepsByModule = map[string][]domain.Option{
 		option("text", "Note what you found", "", ""),
 		option("photo_proof", "Photo of the finished work", "", ""),
 	},
+	// A new Sales SOP starts from what a sale owes, not an animal scan.
+	"sales-sops": {
+		option("yesno", "Has the buyer paid in full?", "", ""),
+		option("video_proof", "Record the animals being loaded", "", ""),
+		option("photo_proof", "Photo of the gate pass", "", ""),
+	},
 }
 
 func sopOptionGroups() []domain.OptionGroup {
@@ -9926,6 +9960,9 @@ func sopOptionGroups() []domain.OptionGroup {
 		// editor. sop_task_types / sop_task_type_answer_kinds are declared EMPTY here and
 		// filled from the tenant's Task Type Registry in compilePages (never constants).
 		{ID: "sop_task_types"},
+		// SALES SOP (2026-09-19): the step editor's "Done by" designations, filled from the
+		// designation catalog by the compiler (never a constant list here).
+		{ID: "sop_step_owners"},
 		{ID: "sop_task_type_answer_kinds"},
 		{
 			// When a step is due, relative to the event the workflow opened on. Keys are the

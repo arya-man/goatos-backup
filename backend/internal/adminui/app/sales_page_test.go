@@ -144,7 +144,9 @@ func TestSalesPageContractAndNavigation(t *testing.T) {
 	// buyer) sits with the read leaves, after Market analytics and before Vendors.
 	// Eight leaves since 2026-09-18: Farm born (the not-on-a-load half of the herd) sits
 	// directly after Load wise, because the two pages partition the herd.
-	if len(salesGroup.Leaves) != 8 ||
+	// Nine leaves since 2026-09-19: Sales SOP (what a recorded sale owes and who does each
+	// step) closes the group after Sales Config, the /counts/sops shape.
+	if len(salesGroup.Leaves) != 9 ||
 		salesGroup.Leaves[0].Href != "/sales/sold" ||
 		salesGroup.Leaves[0].Label != "Summary" ||
 		salesGroup.Leaves[1].Href != "/sales/farm-value" ||
@@ -160,7 +162,9 @@ func TestSalesPageContractAndNavigation(t *testing.T) {
 		salesGroup.Leaves[6].Href != "/sales/vendors" ||
 		salesGroup.Leaves[6].Label != "Vendors" ||
 		salesGroup.Leaves[7].Href != "/sales/config" ||
-		salesGroup.Leaves[7].Label != "Sales Config" {
+		salesGroup.Leaves[7].Label != "Sales Config" ||
+		salesGroup.Leaves[8].Href != "/sales/sops" ||
+		salesGroup.Leaves[8].Label != "Sales SOP" {
 		t.Fatalf("sales group leaves = %+v", salesGroup.Leaves)
 	}
 
