@@ -120,6 +120,7 @@ private fun LoadStep(state: FeedPurchaseCreateUiState, onEvent: (FeedPurchaseCre
         VendorsTextField(v[PurchaseField.BATCH_NO].orEmpty(), { onEvent(FeedPurchaseCreateEvent.FieldChanged(PurchaseField.BATCH_NO, it)) }, LABEL_BATCH, keyboard = KeyboardType.Number, error = e[PurchaseField.BATCH_NO], supporting = HINT_BATCH)
         VendorsTextField(v[PurchaseField.QUANTITY_KG].orEmpty(), { onEvent(FeedPurchaseCreateEvent.FieldChanged(PurchaseField.QUANTITY_KG, it)) }, LABEL_QUANTITY, required = true, keyboard = KeyboardType.Decimal, error = e[PurchaseField.QUANTITY_KG])
         VendorsDateField(LABEL_BOUGHT_ON, v[PurchaseField.PURCHASE_DATE].orEmpty(), { onEvent(FeedPurchaseCreateEvent.FieldChanged(PurchaseField.PURCHASE_DATE, it)) }, required = true, error = e[PurchaseField.PURCHASE_DATE], maxIso = state.today)
+        VendorsTextField(v[PurchaseField.DAYS_OF_STOCK].orEmpty(), { onEvent(FeedPurchaseCreateEvent.FieldChanged(PurchaseField.DAYS_OF_STOCK, it)) }, LABEL_DAYS_OF_STOCK, keyboard = KeyboardType.Number, error = e[PurchaseField.DAYS_OF_STOCK], supporting = HINT_DAYS_OF_STOCK)
     }
     Spacer(Modifier.height(10.dp))
     VendorsFormGroup(title = LABEL_DELIVERY) {
@@ -170,6 +171,8 @@ private const val LABEL_BATCH = "Load number"
 private const val LABEL_QUANTITY = "Quantity bought (kg)"
 private const val LABEL_BOUGHT_ON = "Bought on"
 private const val LABEL_DELIVERY = "Delivery"
+private const val LABEL_DAYS_OF_STOCK = "Days of stock"
+private const val HINT_DAYS_OF_STOCK = "Optional. How many days of feeding this load should cover."
 private const val LABEL_REACHED_ON = "Delivered on"
 private const val LABEL_REACHED_WEIGHT = "Weight received (kg)"
 private const val LABEL_COSTS = "Landed cost"

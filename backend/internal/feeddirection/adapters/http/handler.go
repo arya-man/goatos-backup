@@ -56,6 +56,7 @@ type Service interface {
 	ExecutionAnalytics(ctx context.Context, in app.DirectedAnalyticsInput) (domain.ExecutionAnalytics, error)
 	ExperimentAnalytics(ctx context.Context, in app.DirectedAnalyticsInput) (domain.ExperimentAnalytics, error)
 	StockAnalytics(ctx context.Context, in app.DirectedAnalyticsInput) (domain.StockAnalytics, error)
+	StockLoads(ctx context.Context, in app.StockLoadsInput) (domain.StockLoadsPage, error)
 	ShedFeedAnalytics(ctx context.Context, in app.DirectedAnalyticsInput) (domain.ShedFeedAnalytics, error)
 }
 
@@ -79,6 +80,7 @@ func Register(mux *http.ServeMux, h *Handler) {
 	mux.HandleFunc("GET /feed-analytics/execution", h.GetExecutionAnalytics)
 	mux.HandleFunc("GET /feed-analytics/experiment", h.GetExperimentAnalytics)
 	mux.HandleFunc("GET /feed-analytics/stock", h.GetStockAnalytics)
+	mux.HandleFunc("GET /feed-analytics/stock-loads", h.GetStockLoads)
 	mux.HandleFunc("GET /feed-analytics/shed-feed", h.GetShedFeedAnalytics)
 	mux.HandleFunc("GET /feed-packing/worklist", h.GetPackingWorklist)
 	// Which of a pen-session's proof slots are already recorded, by ANY operator. Read-only; it is

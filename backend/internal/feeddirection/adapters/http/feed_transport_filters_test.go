@@ -471,6 +471,12 @@ func (transportFilterService) StockAnalytics(
 	return domain.StockAnalytics{}, nil
 }
 
+func (transportFilterService) StockLoads(
+	context.Context, app.StockLoadsInput,
+) (domain.StockLoadsPage, error) {
+	return domain.StockLoadsPage{}, nil
+}
+
 func (transportFilterService) ShedFeedAnalytics(
 	context.Context, app.DirectedAnalyticsInput,
 ) (domain.ShedFeedAnalytics, error) {

@@ -152,6 +152,27 @@ func (s *Service) StockAnalytics(ctx context.Context, in DirectedAnalyticsInput)
 	})
 }
 
+// StockLoadsInput is the purchased-vs-consumed table's request: the analytics park scope plus the
+// table's own narrowing and page.
+type StockLoadsInput struct {
+	TenantID          string
+	ParkID            string
+	AuthorizedParkIDs []string
+	Query             domain.StockLoadsQuery
+}
+
+// StockLoads serves the purchased-vs-consumed table, one row per load in the purchase ledger.
+func (s *Service) StockLoads(ctx context.Context, in StockLoadsInput) (domain.StockLoadsPage, error) {
+	if s.analytics == nil {
+		return domain.StockLoadsPage{}, fmt.Errorf("feeddirection: analytics reader is not wired")
+	}
+	parkIDs, err := analyticsParkFilter(in.ParkID, in.AuthorizedParkIDs)
+	if err != nil {
+		return domain.StockLoadsPage{}, err
+	}
+	return s.analytics.StockLoads(ctx, in.TenantID, parkIDs, in.Query)
+}
+
 // describeDistributionProofs fills in WHO uploaded each of a pen-session's three proofs and WHEN,
 // for every row of the completion table at once.
 //

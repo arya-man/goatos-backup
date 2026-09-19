@@ -309,6 +309,11 @@ export function FeedPurchaseDrawer({
                 </datalist>
               </div>
               <div className="fld">
+                <label htmlFor="fp-days_of_stock">{field("days_of_stock")}</label>
+                <input id="fp-days_of_stock" name="days_of_stock" type="number" min={1} step="1" />
+                <div className="muted small">{copy(pageContract, "hint.days_of_stock")}</div>
+              </div>
+              <div className="fld">
                 <label htmlFor="fp-payment_released">{field("payment_released")}</label>
                 <input id="fp-payment_released" name="payment_released" type="number" min={0} step="0.01" />
               </div>
@@ -410,6 +415,18 @@ export function FeedPurchaseDrawer({
                 <label htmlFor="fpe-vendor">{field("vendor")}</label>
                 <input id="fpe-vendor" name="vendor" required maxLength={160} defaultValue={purchase.vendor} list="fp-vendor-options" />
               </div>
+              <div className="fld">
+                <label htmlFor="fpe-days_of_stock">{field("days_of_stock")}</label>
+                <input
+                  id="fpe-days_of_stock"
+                  name="days_of_stock"
+                  type="number"
+                  min={1}
+                  step="1"
+                  defaultValue={purchase.days_of_stock ?? ""}
+                />
+                <div className="muted small">{copy(pageContract, "hint.days_of_stock")}</div>
+              </div>
             </div>
             <div className="df">
               <button type="submit" className="btn p">
@@ -450,6 +467,12 @@ export function FeedPurchaseDrawer({
               {(purchase.answer_rows ?? []).map((answer) => (
                 <div key={answer.question_id}><div className="k">{answer.label}</div><div className="v">{answer.value}</div></div>
               ))}
+              {cell(
+                field("days_of_stock"),
+                purchase.days_of_stock == null
+                  ? null
+                  : copy(pageContract, "value.days_of_stock").replace("{days}", String(purchase.days_of_stock)),
+              )}
               {cell(
                 copy(pageContract, "column.entry_source"),
                 purchase.entry_source === "app"

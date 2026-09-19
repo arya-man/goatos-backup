@@ -169,6 +169,12 @@ type FeedPurchase struct {
 	PaymentReleased *float64
 	PaymentStatus   string
 
+	// DaysOfStock is how many days of feeding the buyer said this load covers -- optional, a
+	// belief entered at purchase time, never derived. Nil when not stated (all sheet history).
+	// Reporting only: the Feed Analytics purchased-vs-consumed read compares it per load against
+	// FIFO consumption; nothing on a write path reads it.
+	DaysOfStock *int
+
 	// DeliveryStatus is FeedDeliveryPurchased while the load is on the road and
 	// FeedDeliveryReached once it arrived. ReachedOn is the IST business date it arrived (nil while
 	// in transit); ReachedWeightKg is the weight actually received, nil until the desk enters it --
@@ -366,6 +372,10 @@ type FeedPurchaseEdit struct {
 	TotalCost     *float64
 
 	Vendor string
+
+	// DaysOfStock is the buyer's stated coverage, editable because it is a belief that can be
+	// corrected; nil clears it.
+	DaysOfStock *int
 }
 
 // Normalize trims the edit before validation, for the same reason FeedPurchaseWrite does.
@@ -382,7 +392,7 @@ func (e FeedPurchaseEdit) asWrite() FeedPurchaseWrite {
 		PurchaseDate: e.PurchaseDate, QuantityKg: e.QuantityKg,
 		FeedCost: e.FeedCost, TransportCost: e.TransportCost,
 		LoadingCost: e.LoadingCost, UnloadingCost: e.UnloadingCost, TotalCost: e.TotalCost,
-		Vendor: e.Vendor,
+		Vendor: e.Vendor, DaysOfStock: e.DaysOfStock,
 	}
 }
 
@@ -422,6 +432,17 @@ func (e FeedPurchaseEdit) Validate(today time.Time) error {
 	}
 	if e.Vendor == "" {
 		return ErrFeedPurchaseValidation{Field: "vendor", Reason: "is required"}
+	}
+	return validateDaysOfStock(e.DaysOfStock)
+}
+
+// validateDaysOfStock is the ONE rule for the buyer's stated coverage, shared by the record and
+// edit forms: absent is fine, present must be a whole day or more. Zero is rejected rather than
+// read as "not stated" -- a load bought for no days is not a thing, and a client that coerces a
+// blank box into 0 must hear about it instead of storing a belief nobody held.
+func validateDaysOfStock(days *int) error {
+	if days != nil && *days < 1 {
+		return ErrFeedPurchaseValidation{Field: "days_of_stock", Reason: "must be 1 or more"}
 	}
 	return nil
 }
@@ -463,6 +484,10 @@ type FeedPurchaseWrite struct {
 	Vendor          string
 	PaymentReleased *float64
 	PaymentStatus   string
+
+	// DaysOfStock is OPTIONAL: how many days of feeding the buyer expects this load to cover.
+	// A pointer because "not stated" is the normal case and must not become a 0.
+	DaysOfStock *int
 
 	// ReachedOn is OPTIONAL on the record form: blank records the load as still on the road (the
 	// normal case -- the desk records the purchase the day the money moves), a date records a load
@@ -568,6 +593,9 @@ func (w FeedPurchaseWrite) Validate(today time.Time) error {
 	}
 	if w.BatchNo != nil && *w.BatchNo < 1 {
 		return ErrFeedPurchaseValidation{Field: "batch_no", Reason: "must be 1 or more"}
+	}
+	if err := validateDaysOfStock(w.DaysOfStock); err != nil {
+		return err
 	}
 	for field, value := range map[string]*float64{
 		"feed_cost":        w.FeedCost,

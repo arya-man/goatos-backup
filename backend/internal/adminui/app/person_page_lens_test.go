@@ -120,7 +120,7 @@ func TestCeoKeepsEveryFeedAnalyticsTab(t *testing.T) {
 	})
 	page := pageByRouteID(t, resp.Pages, "feed-analytics")
 	tabs := optionGroupByID(t, page.OptionGroups, "feed_analytics_tabs")
-	want := []string{"overview", "items", "peranimal", "experiment", "execution"}
+	want := []string{"overview", "items", "loads", "peranimal", "experiment", "execution"}
 	if len(tabs.Options) != len(want) {
 		t.Fatalf("CEO feed tabs = %+v; want %v", tabs.Options, want)
 	}
@@ -153,8 +153,9 @@ func TestProcurementDirectorKeepsOnlyStockFeedAnalyticsTab(t *testing.T) {
 			})
 			page := pageByRouteID(t, resp.Pages, "feed-analytics")
 			tabs := optionGroupByID(t, page.OptionGroups, "feed_analytics_tabs")
-			if len(tabs.Options) != 1 || tabs.Options[0].Key != "items" {
-				t.Fatalf("Procurement Director feed tabs = %+v; want Stock only", tabs.Options)
+			// Stock and its load-by-load reading, nothing that needs the full feed read.
+			if len(tabs.Options) != 2 || tabs.Options[0].Key != "items" || tabs.Options[1].Key != "loads" {
+				t.Fatalf("Procurement Director feed tabs = %+v; want Stock and Purchased vs consumed only", tabs.Options)
 			}
 		})
 	}

@@ -13,6 +13,7 @@ import (
 
 	"github.com/vgoats/goatos/backend/internal/platform/audit"
 	"github.com/vgoats/goatos/backend/internal/platform/biztime"
+	"github.com/vgoats/goatos/backend/internal/platform/sqlbind"
 	"github.com/vgoats/goatos/backend/internal/procurement/domain"
 	"github.com/vgoats/goatos/backend/internal/procurement/ports"
 )
@@ -46,6 +47,7 @@ const feedPurchaseColumns = `
 	p.delivery_status,
 	CASE WHEN p.delivery_status = 'reached' THEN COALESCE(p.reached_on, p.purchase_date) END,
 	p.reached_weight_kg, p.reached_by,
+	p.days_of_stock,
 	p.entry_source, p.recorded_by, p.created_at, p.sop_answers, COALESCE(p.questionnaire_version, 0)`
 
 // scanFeedPurchase reads one row of feedPurchaseColumns, in that exact order.
@@ -62,6 +64,7 @@ func scanFeedPurchase(row pgx.Row) (domain.FeedPurchase, error) {
 		&p.FeedCost, &p.TransportCost, &p.LoadingCost, &p.UnloadingCost, &p.TotalCost, &p.PerKgCost,
 		&p.Vendor, &p.PaymentReleased, &p.PaymentStatus,
 		&p.DeliveryStatus, &reachedOn, &p.ReachedWeightKg, &p.ReachedBy,
+		&p.DaysOfStock,
 		&p.EntrySource, &p.RecordedBy, &createdAt, &p.SOPAnswers, &p.QuestionnaireVersion,
 	)
 	if err != nil {
@@ -120,7 +123,8 @@ func (r *Repository) ListFeedPurchases(ctx context.Context, tenantID, farm, deli
 	query := fmt.Sprintf(`SELECT %s FROM public.feed_purchases p WHERE %s ORDER BY p.purchase_date DESC, p.feed_purchase_id LIMIT %d OFFSET %d`, // scale-guard:ignore: bounded authored ledger pagination; see note above
 		feedPurchaseColumns, where, limit, offset)
 
-	rows, err := r.pool.Query(ctx, query, args...)
+	boundList := sqlbind.MustBind(query, args...)
+	rows, err := r.pool.Query(ctx, boundList.SQL(), boundList.Args()...)
 	if err != nil {
 		return ports.FeedPurchasePage{}, fmt.Errorf("list feed purchases: %w", err)
 	}
@@ -146,7 +150,8 @@ func (r *Repository) ListFeedPurchases(ctx context.Context, tenantID, farm, deli
 	totalsQuery := fmt.Sprintf(`
 SELECT count(*), COALESCE(sum(p.quantity_kg), 0), COALESCE(sum(p.total_cost), 0)
 FROM public.feed_purchases p WHERE %s`, where)
-	if err := r.pool.QueryRow(ctx, totalsQuery, args...).Scan(&page.Total, &page.QuantityKg, &page.SpendRupees); err != nil {
+	boundTotals := sqlbind.MustBind(totalsQuery, args...)
+	if err := r.pool.QueryRow(ctx, boundTotals.SQL(), boundTotals.Args()...).Scan(&page.Total, &page.QuantityKg, &page.SpendRupees); err != nil {
 		return ports.FeedPurchasePage{}, fmt.Errorf("count feed purchases: %w", err)
 	}
 	return page, nil
@@ -218,7 +223,8 @@ LIMIT 100`, tenantID)
 // create/payment replay paths and as every write's returned read.
 func (r *Repository) getFeedPurchase(ctx context.Context, tenantID, purchaseID string) (domain.FeedPurchase, error) {
 	query := fmt.Sprintf(`SELECT %s FROM public.feed_purchases p WHERE p.tenant_id = $1 AND p.feed_purchase_id = $2`, feedPurchaseColumns)
-	p, err := scanFeedPurchase(r.pool.QueryRow(ctx, query, tenantID, purchaseID))
+	bound := sqlbind.MustBind(query, tenantID, purchaseID)
+	p, err := scanFeedPurchase(r.pool.QueryRow(ctx, bound.SQL(), bound.Args()...))
 	if errors.Is(err, pgx.ErrNoRows) {
 		return domain.FeedPurchase{}, ports.ErrFeedPurchaseNotFound
 	}
@@ -260,7 +266,7 @@ func (r *Repository) CreateFeedPurchase(ctx context.Context, tenantID string, wr
 		fpMoney(write.FeedCost), fpMoney(write.TransportCost), fpMoney(write.LoadingCost),
 		fpMoney(write.UnloadingCost), fpMoney(write.TotalCost),
 		write.Vendor, fpMoney(write.PaymentReleased), write.PaymentStatus,
-		write.ReachedOn, fpMoney(write.ReachedWeightKg),
+		write.ReachedOn, fpMoney(write.ReachedWeightKg), fpInt(write.DaysOfStock),
 	}
 	// Keep the pre-form fingerprint for typed-only offline retries. Authored
 	// requests include their canonical stored extras and exact form version.
@@ -355,6 +361,7 @@ INSERT INTO public.feed_purchases (
   consumed_at_import_kg, depletes_from,
   vendor, payment_released, payment_status,
   delivery_status, reached_on, reached_weight_kg, reached_by,
+  days_of_stock,
   entry_source, recorded_by, source_ref,
   sop_answers, questionnaire_version
 ) VALUES (
@@ -366,6 +373,7 @@ INSERT INTO public.feed_purchases (
   0, $17::date,
   $13, $14, $15,
   $18, $19::date, $20, $21::uuid,
+  $24,
   'app', nullif($16, '')::uuid, 'app:procurement-feed-purchases',
   $22::jsonb, nullif($23, 0)
 )
@@ -375,7 +383,7 @@ RETURNING feed_purchase_id::text, feed_item_key`,
 		write.TotalOrSplitSum(), write.PerKgCost(),
 		write.Vendor, write.PaymentReleased, write.PaymentStatus, actorID,
 		depletesFrom, deliveryStatus, reachedOn, write.ReachedWeightKg, reachedBy,
-		sopAnswersJSON, write.QuestionnaireVersion,
+		sopAnswersJSON, write.QuestionnaireVersion, write.DaysOfStock,
 	).Scan(&purchaseID, &feedItemKey)
 	if err != nil {
 		var pgErr *pgconn.PgError
@@ -404,6 +412,7 @@ RETURNING feed_purchase_id::text, feed_item_key`,
 			"vendor":          write.Vendor,
 			"delivery_status": deliveryStatus,
 			"reached_on":      write.ReachedOn,
+			"days_of_stock":   write.DaysOfStock,
 			"idempotency_key": idempotencyKey,
 			"operation_id":    idempotencyKey,
 		},
@@ -689,9 +698,10 @@ func (r *Repository) UpdateFeedPurchase(ctx context.Context, tenantID, purchaseI
 	}
 	defer func() { _ = tx.Rollback(ctx) }()
 
-	current, err := scanFeedPurchase(tx.QueryRow(ctx, fmt.Sprintf(
+	boundLock := sqlbind.MustBind(fmt.Sprintf(
 		`SELECT %s FROM public.feed_purchases p WHERE p.tenant_id = $1 AND p.feed_purchase_id = $2 FOR UPDATE`,
-		feedPurchaseColumns), tenantID, purchaseID))
+		feedPurchaseColumns), tenantID, purchaseID)
+	current, err := scanFeedPurchase(tx.QueryRow(ctx, boundLock.SQL(), boundLock.Args()...))
 	if errors.Is(err, pgx.ErrNoRows) {
 		return domain.FeedPurchase{}, ports.ErrFeedPurchaseNotFound
 	}
@@ -711,19 +721,20 @@ func (r *Repository) UpdateFeedPurchase(ctx context.Context, tenantID, purchaseI
 		eqMoney(current.FeedCost, edit.FeedCost) && eqMoney(current.TransportCost, edit.TransportCost) &&
 		eqMoney(current.LoadingCost, edit.LoadingCost) && eqMoney(current.UnloadingCost, edit.UnloadingCost) &&
 		eqMoney(current.TotalCost, newTotal) &&
-		current.Vendor == edit.Vendor && current.PaymentStatus == newStatus
+		current.Vendor == edit.Vendor && current.PaymentStatus == newStatus &&
+		eqInt(current.DaysOfStock, edit.DaysOfStock)
 	if !unchanged {
 		if _, err := tx.Exec(ctx, `
 UPDATE public.feed_purchases
 SET purchase_date = $3::date, quantity_kg = $4,
     feed_cost = $5, transport_cost = $6, loading_cost = $7, unloading_cost = $8,
     total_cost = $9, per_kg_cost = $10,
-    vendor = $11, payment_status = $12,
+    vendor = $11, payment_status = $12, days_of_stock = $13,
     updated_at = now()
 WHERE tenant_id = $1 AND feed_purchase_id = $2`,
 			tenantID, purchaseID, edit.PurchaseDate, edit.QuantityKg,
 			edit.FeedCost, edit.TransportCost, edit.LoadingCost, edit.UnloadingCost,
-			newTotal, edit.PerKgCost(current.ReachedWeightKg), edit.Vendor, newStatus); err != nil {
+			newTotal, edit.PerKgCost(current.ReachedWeightKg), edit.Vendor, newStatus, edit.DaysOfStock); err != nil {
 			return domain.FeedPurchase{}, fmt.Errorf("procurement: update feed purchase: %w", err)
 		}
 		if err := audit.NewTxRecorder(tx).Record(ctx, audit.Event{
@@ -758,6 +769,14 @@ WHERE tenant_id = $1 AND feed_purchase_id = $2`,
 }
 
 // eqMoney compares two optional money values as stored (paisa precision).
+// eqInt compares two optional whole numbers, nil-aware, the same way eqMoney does.
+func eqInt(a, b *int) bool {
+	if a == nil || b == nil {
+		return a == nil && b == nil
+	}
+	return *a == *b
+}
+
 func eqMoney(a, b *float64) bool {
 	if a == nil || b == nil {
 		return a == nil && b == nil
@@ -799,9 +818,10 @@ func (r *Repository) RecordFeedPurchaseDelivery(ctx context.Context, tenantID, p
 	}
 	defer func() { _ = tx.Rollback(ctx) }()
 
-	current, err := scanFeedPurchase(tx.QueryRow(ctx, fmt.Sprintf(
+	boundLock := sqlbind.MustBind(fmt.Sprintf(
 		`SELECT %s FROM public.feed_purchases p WHERE p.tenant_id = $1 AND p.feed_purchase_id = $2 FOR UPDATE`,
-		feedPurchaseColumns), tenantID, purchaseID))
+		feedPurchaseColumns), tenantID, purchaseID)
+	current, err := scanFeedPurchase(tx.QueryRow(ctx, boundLock.SQL(), boundLock.Args()...))
 	if errors.Is(err, pgx.ErrNoRows) {
 		return domain.FeedPurchase{}, ports.ErrFeedPurchaseNotFound
 	}

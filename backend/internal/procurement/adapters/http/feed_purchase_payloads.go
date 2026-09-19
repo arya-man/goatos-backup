@@ -41,6 +41,9 @@ type feedPurchasePayload struct {
 	ReachedWeightKg *float64 `json:"reached_weight_kg"`
 	StockKg         *float64 `json:"stock_kg"`
 
+	// DaysOfStock is the buyer's stated coverage in days, null when not stated.
+	DaysOfStock *int `json:"days_of_stock"`
+
 	EntrySource string `json:"entry_source"`
 	CreatedAt   string `json:"created_at"`
 }
@@ -87,7 +90,8 @@ type feedPurchaseEditPayload struct {
 	UnloadingCost *float64 `json:"unloading_cost"`
 	TotalCost     *float64 `json:"total_cost"`
 
-	Vendor string `json:"vendor"`
+	Vendor      string `json:"vendor"`
+	DaysOfStock *int   `json:"days_of_stock"`
 }
 
 func (p feedPurchaseEditPayload) toDomain() domain.FeedPurchaseEdit {
@@ -95,7 +99,7 @@ func (p feedPurchaseEditPayload) toDomain() domain.FeedPurchaseEdit {
 		PurchaseDate: p.PurchaseDate, QuantityKg: p.QuantityKg,
 		FeedCost: p.FeedCost, TransportCost: p.TransportCost,
 		LoadingCost: p.LoadingCost, UnloadingCost: p.UnloadingCost, TotalCost: p.TotalCost,
-		Vendor: p.Vendor,
+		Vendor: p.Vendor, DaysOfStock: p.DaysOfStock,
 	}
 }
 
@@ -156,6 +160,9 @@ type feedPurchaseWritePayload struct {
 	PaymentReleased *float64 `json:"payment_released"`
 	PaymentStatus   string   `json:"payment_status"`
 
+	// Optional: how many days of feeding the buyer expects the load to cover.
+	DaysOfStock *int `json:"days_of_stock"`
+
 	// Optional: a load that already arrived when it is recorded. Absent means still on the road.
 	ReachedOn       *string  `json:"reached_on"`
 	ReachedWeightKg *float64 `json:"reached_weight_kg"`
@@ -179,7 +186,8 @@ func (p feedPurchaseWritePayload) toDomain() domain.FeedPurchaseWrite {
 		FeedCost: p.FeedCost, TransportCost: p.TransportCost,
 		LoadingCost: p.LoadingCost, UnloadingCost: p.UnloadingCost, TotalCost: p.TotalCost,
 		Vendor: p.Vendor, PaymentReleased: p.PaymentReleased, PaymentStatus: p.PaymentStatus,
-		ReachedOn: reachedOn, ReachedWeightKg: p.ReachedWeightKg,
+		DaysOfStock: p.DaysOfStock,
+		ReachedOn:   reachedOn, ReachedWeightKg: p.ReachedWeightKg,
 		SOPAnswers: p.Answers, QuestionnaireVersion: p.QuestionnaireVersion,
 	}
 }
@@ -212,6 +220,7 @@ func toFeedPurchasePayload(p domain.FeedPurchase) feedPurchasePayload {
 		PaymentBalance: p.PaymentBalance(), Payments: payments,
 		DeliveryStatus: p.DeliveryStatus, ReachedOn: p.ReachedOn, ReachedWeightKg: p.ReachedWeightKg,
 		StockKg:     p.StockKg(),
+		DaysOfStock: p.DaysOfStock,
 		EntrySource: p.EntrySource, CreatedAt: p.CreatedAt,
 	}
 }

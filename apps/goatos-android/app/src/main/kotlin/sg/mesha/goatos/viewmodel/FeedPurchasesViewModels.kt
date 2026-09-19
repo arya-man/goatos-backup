@@ -328,6 +328,7 @@ class FeedPurchaseDetailViewModel @Inject constructor(
                 put(PurchaseField.LOADING_COST, plainNumber(purchase?.loadingCost))
                 put(PurchaseField.UNLOADING_COST, plainNumber(purchase?.unloadingCost))
                 put(PurchaseField.TOTAL_COST, plainNumber(purchase?.totalCost))
+                put(PurchaseField.DAYS_OF_STOCK, purchase?.daysOfStock?.toString().orEmpty())
             }
             FeedPurchaseEditorKind.NONE -> emptyMap()
         }
@@ -380,6 +381,7 @@ class FeedPurchaseDetailViewModel @Inject constructor(
             if (purchaseDate.isBlank()) put(PurchaseField.PURCHASE_DATE, REQUIRED)
             if (quantity == null || quantity <= 0.0) put(PurchaseField.QUANTITY_KG, MORE_THAN_ZERO)
             if (vendor.isBlank()) put(PurchaseField.VENDOR, REQUIRED)
+            daysOfStockError(l.values[PurchaseField.DAYS_OF_STOCK])?.let { put(PurchaseField.DAYS_OF_STOCK, it) }
             // A cost the server would refuse is caught here, where the field is on screen.
             listOf(
                 PurchaseField.FEED_COST, PurchaseField.TRANSPORT_COST, PurchaseField.LOADING_COST,
@@ -412,6 +414,7 @@ class FeedPurchaseDetailViewModel @Inject constructor(
                     unloadingCost = optionalMoney(l, PurchaseField.UNLOADING_COST),
                     totalCost = optionalMoney(l, PurchaseField.TOTAL_COST),
                     vendor = vendor,
+                    daysOfStock = l.values[PurchaseField.DAYS_OF_STOCK].orEmpty().trim().ifBlank { null }?.toIntOrNull(),
                 ),
             ),
             MESSAGE_EDIT_SAVED,
@@ -573,6 +576,18 @@ class FeedPurchaseDetailViewModel @Inject constructor(
 }
 
 /** A number as a field takes it back: no thousands separators, no trailing ".0". */
+/**
+ * The ONE rule for the buyer's optional "days of stock": blank is fine (not stated), anything
+ * present must be a whole day or more -- the server refuses 0 rather than reading it as blank,
+ * so the phone says so where the field is on screen.
+ */
+internal fun daysOfStockError(raw: String?): String? {
+    val trimmed = raw.orEmpty().trim()
+    if (trimmed.isBlank()) return null
+    val days = trimmed.toIntOrNull() ?: return "Enter whole days"
+    return if (days < 1) "Must be 1 or more" else null
+}
+
 private fun plainNumber(value: Double?): String = when {
     value == null -> ""
     value % 1.0 == 0.0 -> value.toLong().toString()
@@ -588,6 +603,7 @@ internal fun FeedPurchaseDto.sections(): List<VendorsDetailSectionUi> {
         "Reached on" to reachedOn?.let(::farmDate),
         "Weight received" to reachedWeightKg?.let(::kilograms),
         "Counted as stock" to stockKg?.let(::kilograms),
+        "Days of stock" to daysOfStock?.let { "$it days" },
     )
     val money = rows(
         "Feed cost" to rupees(feedCost),
@@ -785,6 +801,7 @@ class FeedPurchaseCreateViewModel @Inject constructor(
                     if (received.toDoubleOrNull() == null || received.toDouble() <= 0.0) errors[PurchaseField.REACHED_WEIGHT_KG] = MORE_THAN_ZERO
                     else if (reached.isBlank()) errors[PurchaseField.REACHED_WEIGHT_KG] = NEEDS_REACHED_DATE
                 }
+                daysOfStockError(v[PurchaseField.DAYS_OF_STOCK])?.let { errors[PurchaseField.DAYS_OF_STOCK] = it }
             }
             else -> {
                 listOf(PurchaseField.FEED_COST, PurchaseField.TRANSPORT_COST, PurchaseField.LOADING_COST, PurchaseField.UNLOADING_COST, PurchaseField.TOTAL_COST, PurchaseField.PAYMENT_RELEASED).forEach(::money)
@@ -818,6 +835,8 @@ class FeedPurchaseCreateViewModel @Inject constructor(
             vendor = get(PurchaseField.VENDOR).orEmpty().trim(),
             paymentReleased = money(PurchaseField.PAYMENT_RELEASED),
             paymentStatus = get(PurchaseField.PAYMENT_STATUS).orEmpty(),
+            // Blank stays ABSENT: the server rejects 0 rather than reading it as "not stated".
+            daysOfStock = get(PurchaseField.DAYS_OF_STOCK).orEmpty().trim().ifBlank { null }?.toIntOrNull(),
             reachedOn = reachedOn,
             reachedWeightKg = if (reachedOn == null) null else money(PurchaseField.REACHED_WEIGHT_KG),
             // What the AUTHORED form asked: the TYPED questions under the ids the form knows them

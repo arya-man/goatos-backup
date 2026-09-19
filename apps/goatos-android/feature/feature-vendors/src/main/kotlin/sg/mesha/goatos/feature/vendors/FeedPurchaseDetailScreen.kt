@@ -235,6 +235,7 @@ private fun EditEditor(state: FeedPurchaseDetailUiState, onEvent: (FeedPurchaseD
         VendorsTextField(v(PurchaseField.LOADING_COST), c(PurchaseField.LOADING_COST), LABEL_LOADING, keyboard = KeyboardType.Decimal, error = e(PurchaseField.LOADING_COST))
         VendorsTextField(v(PurchaseField.UNLOADING_COST), c(PurchaseField.UNLOADING_COST), LABEL_UNLOADING, keyboard = KeyboardType.Decimal, error = e(PurchaseField.UNLOADING_COST))
         VendorsTextField(v(PurchaseField.TOTAL_COST), c(PurchaseField.TOTAL_COST), LABEL_TOTAL, keyboard = KeyboardType.Decimal, error = e(PurchaseField.TOTAL_COST), supporting = TOTAL_HINT)
+        VendorsTextField(v(PurchaseField.DAYS_OF_STOCK), c(PurchaseField.DAYS_OF_STOCK), LABEL_DAYS_OF_STOCK, keyboard = KeyboardType.Number, error = e(PurchaseField.DAYS_OF_STOCK), supporting = DAYS_OF_STOCK_HINT)
     }
 }
 
@@ -317,6 +318,8 @@ private const val LABEL_LOADING = "Loading (₹)"
 private const val LABEL_UNLOADING = "Unloading (₹)"
 private const val LABEL_TOTAL = "Landed cost (₹)"
 private const val TOTAL_HINT = "Leave blank to use the parts above"
+private const val LABEL_DAYS_OF_STOCK = "Days of stock"
+private const val DAYS_OF_STOCK_HINT = "Optional. How many days of feeding this load should cover; blank clears it."
 private const val LABEL_REACHED_ON = "Delivered on"
 private const val LABEL_REACHED_WEIGHT = "Weight received (kg)"
 private const val REACHED_WEIGHT_HINT = "Leave blank if nobody weighed it"
