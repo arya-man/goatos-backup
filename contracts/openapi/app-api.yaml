@@ -41998,16 +41998,18 @@ components:
             - death
             - reconcile
             - shifting
+            - general
         template_key:
+          description: |
+            The run's template. Module workflows use a fixed key (birth_kid, birth_mother, death,
+            reconcile, shifting). A GENERAL run -- a farm-wide SOP started by hand from Work
+            instructions -- is keyed by its SOP code as `general:<sop code>`, e.g.
+            `general:general.gate_visitor_check`, so every authored general SOP is its own template
+            without a contract change per SOP.
           type: string
-          enum:
-            - birth_kid
-            - birth_mother
-            - death
-            - reconcile
-            - shifting
+          pattern: '^(birth_kid|birth_mother|death|reconcile|shifting|general:.+)$'
         template_label:
-          description: Backend-owned kind label for the card ("Birth", "Death", "Pen return", "Pen move"). Render verbatim.
+          description: Backend-owned kind label for the card ("Birth", "Death", "Pen return", "Pen move", or the general SOP's name). Render verbatim.
           type: string
         subject:
           $ref: "#/components/schemas/WorkflowSubject"

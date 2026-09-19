@@ -18046,10 +18046,16 @@ export interface components {
             /** Format: uuid */
             workflow_id: string;
             /** @enum {string} */
-            module: "birth" | "death" | "reconcile" | "shifting";
-            /** @enum {string} */
-            template_key: "birth_kid" | "birth_mother" | "death" | "reconcile" | "shifting";
-            /** @description Backend-owned kind label for the card ("Birth", "Death", "Pen return", "Pen move"). Render verbatim. */
+            module: "birth" | "death" | "reconcile" | "shifting" | "general";
+            /**
+             * @description The run's template. Module workflows use a fixed key (birth_kid, birth_mother, death,
+             *     reconcile, shifting). A GENERAL run -- a farm-wide SOP started by hand from Work
+             *     instructions -- is keyed by its SOP code as `general:<sop code>`, e.g.
+             *     `general:general.gate_visitor_check`, so every authored general SOP is its own template
+             *     without a contract change per SOP.
+             */
+            template_key: string;
+            /** @description Backend-owned kind label for the card ("Birth", "Death", "Pen return", "Pen move", or the general SOP's name). Render verbatim. */
             template_label?: string;
             subject: components["schemas"]["WorkflowSubject"];
             /** Format: date-time */
