@@ -2,13 +2,13 @@
 
 // Server action for the FARM VALUATION section on /sales/config (maintainer instruction
 // 2026-09-19). One whole-set PUT: every bucket's weight and price, the sale-ready line and the
-// unsold-stock price, fenced on the row_version the form loaded. Lands in place (useActionState +
-// revalidatePath), the market-config shape; the backend's refusal message is returned verbatim
-// because it names the field and the band.
+// unsold-stock price, fenced on the row_version the form loaded. Lands in place (useActionState):
+// the SAVED ROW comes back on the state and the section applies it -- new row_version, stored
+// figures -- so the next save is fenced on what was just written without a route re-read. The
+// backend's refusal message is returned verbatim because it names the field and the band. The
+// Farm value / Load wise pages re-read the assumptions per request, so nothing to revalidate.
 
-import { revalidatePath } from "next/cache";
-
-import { putValuationAssumptions, type ValuationBucket } from "@/lib/api/sales-valuation-server";
+import { putValuationAssumptions, type ValuationAssumptions, type ValuationBucket } from "@/lib/api/sales-valuation-server";
 
 export type ValuationActionState = {
   status: "idle" | "success" | "error";
@@ -16,6 +16,8 @@ export type ValuationActionState = {
   code: string;
   message: string;
   ticket: number;
+  /** The row as stored, on success; the section renders from it. */
+  saved?: ValuationAssumptions;
 };
 
 function num(raw: FormDataEntryValue | null): number | null {
@@ -49,8 +51,5 @@ export async function saveValuationAction(previous: ValuationActionState, formDa
   }
   const result = await putValuationAssumptions(body);
   if (!result.ok) return { status: "error", code: "failed", message: result.error.message || "", ticket };
-  revalidatePath("/sales/config");
-  revalidatePath("/sales/farm-value");
-  revalidatePath("/sales/loads");
-  return { status: "success", code: "saved", message: "", ticket };
+  return { status: "success", code: "saved", message: "", ticket, saved: result.data };
 }

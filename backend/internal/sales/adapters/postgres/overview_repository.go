@@ -540,6 +540,12 @@ const soldWeightBandsSQL = `
 //
 // A stage this does not name stays 'unmapped' and stays visible in the not-valued breakdown; the
 // rule is deliberately literal, never an ILIKE over kid-like or clinical-looking text.
+//
+// A whole-herd valuation read served once per Farm value page load, indexed on (tenant_id) over
+// live goats (5k-50k envelope), with the assumption buckets joined from ONE
+// sales_valuation_assumptions row; the CTE count moved only because the rates now come from that
+// row instead of an inline VALUES list -- shape and row counts unchanged.
+// scale-guard:ignore: whole-herd valuation read, once per page load, indexed on tenant_id; the rates CTE reads one assumptions row
 const farmValuationSQL = `
 	WITH idmap AS (
 		SELECT tenant_id, goat_id, lower(btrim(identifier_value)) AS identifier

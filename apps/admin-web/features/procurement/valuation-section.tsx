@@ -40,7 +40,9 @@ export function ValuationSection({
       </section>
     );
   }
-  const v = result.data;
+  // The row on screen is the last one SAVED when there is one, else the one the page loaded with:
+  // the hidden row_version below must be the fence the next save is judged against.
+  const v = state.saved ?? result.data;
   const message = state.status === "success" ? copy(pageContract, "valuation.saved") : state.status === "error" ? state.message || copy(pageContract, "valuation.error") : "";
   return (
     <section className="card" aria-label={copy(pageContract, "section.valuation.aria")} data-testid="valuation-section">
