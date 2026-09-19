@@ -343,7 +343,9 @@ class DefaultWorkflowsRepository(
         val key = detailCacheKey(workflowId, "", "")
         val detailDao = database.workflowDetailCacheDao()
         val cached = detailDao.observe(key).firstOrNull()
-            ?.let { runCatching { json.decodeFromString<WorkflowDetailResponseDto>(it.dtoJson) }.getOrNull() }
+            ?.let { runCatching { json.decodeFromString<WorkflowDetailResponseDto>(it.dtoJson) }
+                .onFailure { android.util.Log.w("WorkflowsRepository", "refreshDetailBySubject: deserialize cached workflow detail failed for $key", it) }
+                .getOrNull() }
         val reconciled = detail.withActiveWorkflowActionsPreserved(
             cached = cached,
             activeActionIds = activeWorkflowActionIds(workflowId),
