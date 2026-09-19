@@ -1,9 +1,9 @@
 package app
 
 import (
-	"strings"
 	"errors"
 	"net/http"
+	"strings"
 
 	"github.com/vgoats/goatos/backend/internal/sales/domain"
 	"github.com/vgoats/goatos/backend/internal/sales/ports"
