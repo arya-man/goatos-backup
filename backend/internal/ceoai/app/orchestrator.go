@@ -680,13 +680,23 @@ func (a *Assistant) recordAudit(ctx context.Context, q domain.Question, requestI
 		tools = append(tools, r.ToolName)
 		rows += len(r.Facts)
 	}
-	_ = a.audit.Record(ctx, ports.AuditRecord{
+	err := a.audit.Record(ctx, ports.AuditRecord{
 		RequestID: requestID, TenantID: q.Actor.TenantID, ActorID: q.Actor.UserID,
 		ConversationID: convoID, QuestionHash: hashQuestion(q.Text), Mode: mode,
 		Routes: routes, ToolsCalled: tools, RowCount: rows,
 		LatencyMS: a.now().Sub(start).Milliseconds(), Steps: traces, Review: verdict,
 		ModelVersion: a.cfg.ModelVersion, PromptVersion: a.cfg.PromptVersion,
 	})
+	if err != nil {
+		// The answer is already composed; a failed audit write must not turn
+		// it into an error, but it must never be silent either (PR #318 R2-5):
+		// for a tenant-gate refusal this row is the only durable evidence of
+		// a D0 violation, so the failure is logged at error level with the
+		// request, mode and the verdict's reasons.
+		a.log.ErrorContext(ctx, "ceoai audit record failed",
+			"error", err, "request_id", requestID, "tenant_id", q.Actor.TenantID,
+			"mode", string(mode), "fail_reasons", strings.Join(verdict.FailReasons, "|"))
+	}
 }
 
 func (a *Assistant) cacheKey(q domain.Question) string {

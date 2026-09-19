@@ -292,6 +292,25 @@ func structurallyScoped(sql, session string) bool {
 			return false
 		}
 	}
+	// No read outside the scoped relation (PR #318 R2-1): a function call is
+	// a possible second read (table_to_xml, query_to_xml*, ts_stat, dblink,
+	// crosstab, ... take a table name or query text as an argument), so every
+	// `ident (` must be a bare builtin from the oracle's OWN list, never
+	// schema-qualified, and a double-quoted identifier is never accepted.
+	for i, t := range toks {
+		if t.kind == rawSym && t.text == `"` {
+			return false
+		}
+		if t.kind != rawSym || t.text != "(" || i == 0 || toks[i-1].kind != rawIdent {
+			continue
+		}
+		if i >= 2 && toks[i-2].kind == rawSym && toks[i-2].text == "." {
+			return false
+		}
+		if !oracleBuiltins[strings.ToLower(toks[i-1].text)] {
+			return false
+		}
+	}
 	depth := 0
 	whereIdx := -1
 	fromIdx := -1
@@ -389,6 +408,24 @@ func structurallyScoped(sql, session string) bool {
 	return false
 }
 
+// oracleBuiltins is the oracle's OWN copy of what may precede `(` — the
+// syntactic keywords plus the builtins a leadership aggregate needs. It is
+// deliberately not derived from AllowedFunctions() so the two lists can
+// disagree and the test notice.
+var oracleBuiltins = map[string]bool{
+	"and": true, "or": true, "not": true, "in": true, "any": true, "some": true, "all": true,
+	"where": true, "on": true, "having": true, "when": true, "then": true, "else": true,
+	"select": true, "distinct": true, "by": true, "as": true, "filter": true, "over": true,
+	"between": true, "like": true, "ilike": true, "group": true,
+	"count": true, "sum": true, "avg": true, "min": true, "max": true, "coalesce": true,
+	"nullif": true, "round": true, "abs": true, "floor": true, "ceil": true, "greatest": true,
+	"least": true, "percentile_cont": true, "percentile_disc": true, "bool_and": true, "bool_or": true,
+	"date_trunc": true, "date_part": true, "extract": true, "to_char": true, "to_date": true,
+	"now": true, "current_date": true, "make_date": true, "age": true, "interval": true,
+	"lower": true, "upper": true, "trim": true, "length": true, "substring": true, "left": true,
+	"right": true, "concat": true, "concat_ws": true, "replace": true, "initcap": true, "cast": true,
+}
+
 // TestStructurallyScopedOracle pins the independent oracle itself: it must
 // accept the honest shapes and reject every corpus shape, so the fuzz
 // invariant below is not vacuous.
@@ -411,6 +448,8 @@ func TestStructurallyScopedOracle(t *testing.T) {
 		`SELECT id FROM ceo_ai.x WHERE tenant_id = '<S>' AND LIMIT 10`:               true,
 		`SELECT id FROM ceo_ai.x WHERE AND tenant_id = '<S>' LIMIT 10`:               true,
 		`SELECT id FROM ceo_ai.x WHERE tenant_id = '<S>' FOR UPDATE LIMIT 10`:        true,
+		`SELECT id FROM ceo_ai.x WHERE tenant_id = '<S>' LIMIT 1e9`:                  true,
+		`SELECT id FROM ceo_ai.x WHERE tenant_id = '<S>' LIMIT 0x10`:                 true,
 	}
 	for _, shape := range TenantBypassCorpus {
 		if structurallyScoped(expandBypass(shape), sessionTenant) != policyOnly[shape] {

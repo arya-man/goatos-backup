@@ -64,6 +64,7 @@ func toTraceRecord(rec ports.AuditRecord) TraceRecord {
 		RowCount:         rec.RowCount,
 		LatencyMS:        int(rec.LatencyMS),
 		Status:           string(rec.Mode),
+		RejectionReason:  rejectionReason(rec.Review),
 		ReviewVerdict:    formatVerdict(rec.Review),
 		ModelVersion:     rec.ModelVersion,
 		PromptVersion:    rec.PromptVersion,
@@ -137,4 +138,26 @@ func formatVerdict(v domain.ReviewVerdict) string {
 		parts = append(parts, "reasons="+strings.Join(v.FailReasons, "|"))
 	}
 	return strings.Join(parts, " ")
+}
+
+// maxRejectionReasonBytes bounds the rejection_reason column value; the full
+// reason list is also carried in review_verdict, this column exists so a
+// refusal can be FILTERED on (tenant_gate:*, ungrounded, leaked token, critic).
+const maxRejectionReasonBytes = 512
+
+// rejectionReason maps the verdict's FailReasons onto the rejection_reason
+// column (PR #318 R2-4): before this the column was never written, so a
+// tenant-gate refusal was correct in review_verdict and invisible to anyone
+// filtering the audit table by rejection_reason. Empty when the verdict
+// carries no reason.
+func rejectionReason(v domain.ReviewVerdict) string {
+	reasons := dedupeNonEmpty(v.FailReasons)
+	if len(reasons) == 0 {
+		return ""
+	}
+	out := strings.Join(reasons, "|")
+	if len(out) > maxRejectionReasonBytes {
+		out = out[:maxRejectionReasonBytes]
+	}
+	return out
 }

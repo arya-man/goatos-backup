@@ -185,6 +185,49 @@ LIMIT 10`,
 	`SELECT id FROM ceo_ai.x WHERE tenant_id = '<S>' AND LIMIT 10`,
 	`SELECT id FROM ceo_ai.x WHERE AND tenant_id = '<S>' LIMIT 10`,
 	`SELECT id FROM ceo_ai.x WHERE tenant_id = '<S>' FOR UPDATE LIMIT 10`,
+	// projection-review: membership=none — adversarial SQL SHAPES the guard
+	// must REJECT, never a projection this package executes; group_key=n/a;
+	// join_cardinality=n/a — the JOIN / comma-join / crosstab / dblink shapes
+	// exist so the guard proves it refuses a second read; pagination=n/a —
+	// the LIMIT shapes assert the row cap; scope=every shape runs as tenant A
+	// against two seeded tenants in reporting.TestModelSQLNoForeignRowsEver.
+	// --- PR #318 round-2 judge shapes (R17-R20, R27): SQL executed INSIDE a
+	// function argument. The outer statement is a perfectly scoped single
+	// SELECT; the inner read (a table name or a query string inside a string
+	// literal the guard strips as data) dumps every tenant's rows. Closed by
+	// the function ALLOW-LIST (functions.go), each proven live before it.
+	`SELECT table_to_xml('ceo_ai.x', true, false, '')::text AS id FROM ceo_ai.x WHERE tenant_id = '<S>' LIMIT 1`,
+	`SELECT schema_to_xml('ceo_ai', true, false, '')::text AS id FROM ceo_ai.x WHERE tenant_id = '<S>' LIMIT 1`,
+	`SELECT query_to_xml_and_xmlschema('select id from ceo_ai.x', true, false, '')::text AS id FROM ceo_ai.x WHERE tenant_id = '<S>' LIMIT 1`,
+	`SELECT query_to_xml('select id from ceo_ai.x', true, false, '')::text AS id FROM ceo_ai.x WHERE tenant_id = '<S>' LIMIT 1`,
+	`SELECT (ts_stat('select to_tsvector(id) from ceo_ai.x')).word AS id FROM ceo_ai.x WHERE tenant_id = '<S>' LIMIT 10`,
+	`SELECT xpath('/a', table_to_xml('ceo_ai.x', true, false, ''))::text AS id FROM ceo_ai.x WHERE tenant_id = '<S>' LIMIT 1`,
+	// same family, not yet exercised live by the judge
+	`SELECT table_to_xmlschema('ceo_ai.x', true, false, '')::text AS id FROM ceo_ai.x WHERE tenant_id = '<S>' LIMIT 1`,
+	`SELECT table_to_xml_and_xmlschema('ceo_ai.x', true, false, '')::text AS id FROM ceo_ai.x WHERE tenant_id = '<S>' LIMIT 1`,
+	`SELECT schema_to_xmlschema('ceo_ai', true, false, '')::text AS id FROM ceo_ai.x WHERE tenant_id = '<S>' LIMIT 1`,
+	`SELECT database_to_xml(true, false, '')::text AS id FROM ceo_ai.x WHERE tenant_id = '<S>' LIMIT 1`,
+	`SELECT cursor_to_xml('c', 1, true, false, '')::text AS id FROM ceo_ai.x WHERE tenant_id = '<S>' LIMIT 1`,
+	`SELECT x.id FROM ceo_ai.x, xmltable('/r' PASSING table_to_xml('ceo_ai.x', true, false, '') COLUMNS id text) x WHERE x.tenant_id = '<S>' LIMIT 1`,
+	`SELECT ct.id FROM crosstab('select id, 1, id from ceo_ai.x') AS ct(id text, a text) WHERE tenant_id = '<S>' LIMIT 1`,
+	`SELECT c.id FROM connectby('ceo_ai.x', 'id', 'id', 'a', 0) AS c(id text, p text, l int) WHERE tenant_id = '<S>' LIMIT 1`,
+	`SELECT pg_get_viewdef('ceo_ai.x') AS id FROM ceo_ai.x WHERE tenant_id = '<S>' LIMIT 1`,
+	`SELECT format('%s', id) AS id FROM ceo_ai.x WHERE tenant_id = '<S>' LIMIT 1`,
+	`SELECT d.id FROM dblink('dbname=goatos', 'select id from ceo_ai.x') AS d(id text) WHERE tenant_id = '<S>' LIMIT 1`,
+	`SELECT dblink_exec('dbname=goatos', 'select 1') AS id FROM ceo_ai.x WHERE tenant_id = '<S>' LIMIT 1`,
+	`SELECT current_setting('is_superuser') AS id FROM ceo_ai.x WHERE tenant_id = '<S>' LIMIT 1`,
+	`SELECT set_config('x', 'y', false) AS id FROM ceo_ai.x WHERE tenant_id = '<S>' LIMIT 1`,
+	`SELECT pg_sleep(5) AS id FROM ceo_ai.x WHERE tenant_id = '<S>' LIMIT 1`,
+	`SELECT regexp_replace(id, 'a', 'b') AS id FROM ceo_ai.x WHERE tenant_id = '<S>' LIMIT 1`,
+	`SELECT lo_get(1) AS id FROM ceo_ai.x WHERE tenant_id = '<S>' LIMIT 1`,
+	// a schema-qualified or quoted function name is never an allowed builtin
+	`SELECT ceo_ai.lower(id) AS id FROM ceo_ai.x WHERE tenant_id = '<S>' LIMIT 1`,
+	`SELECT pg_catalog.table_to_xml('ceo_ai.x', true, false, '')::text AS id FROM ceo_ai.x WHERE tenant_id = '<S>' LIMIT 1`,
+	`SELECT "table_to_xml"('ceo_ai.x', true, false, '')::text AS id FROM ceo_ai.x WHERE tenant_id = '<S>' LIMIT 1`,
+	// LIMIT that is not a plain decimal integer (exponent literal reads as a
+	// billion in Postgres; the tokenizer used to see `1` + `e9`)
+	`SELECT id FROM ceo_ai.x WHERE tenant_id = '<S>' LIMIT 1e9`,
+	`SELECT id FROM ceo_ai.x WHERE tenant_id = '<S>' LIMIT 0x10`,
 }
 
 // ExpandBypassShape substitutes the session (<S>) and victim (<V>) tenant ids

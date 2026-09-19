@@ -1,8 +1,10 @@
 package app
 
 import (
+	"bytes"
 	"context"
 	"errors"
+	"log/slog"
 	"strings"
 	"testing"
 	"time"
@@ -920,6 +922,54 @@ func TestAuditRecordedWithRouteField(t *testing.T) {
 	}
 	if audit.rec.QuestionHash == "" || audit.rec.RequestID == "" {
 		t.Fatal("audit must carry request id + question hash")
+	}
+}
+
+// failingAudit is an audit sink whose write always fails (a down Postgres).
+type failingAudit struct{ err error }
+
+func (f *failingAudit) Record(_ context.Context, _ ports.AuditRecord) error { return f.err }
+
+// TestAuditSinkErrorIsLoggedNotSwallowed (PR #318 R2-5): a failed audit write
+// never fails the answer, but it is logged at error level with the request
+// id and the verdict's reasons — for a tenant-gate refusal that log line is
+// the only remaining evidence of a D0 violation.
+func TestAuditSinkErrorIsLoggedNotSwallowed(t *testing.T) {
+	metrics := &fakeMetrics{specs: []ports.MetricSpec{{Name: "active_animals"}},
+		result: domain.ToolResult{Surface: "Cube · active_animals", Facts: []domain.Fact{{TenantID: "t1", Label: "n", Value: "2567"}}}}
+	reg := NewRegistry(metrics, nil, nil)
+	prov := &fakeProvider{byModel: true, plan: domain.Plan{SubQuestions: []domain.SubQuestion{
+		{ID: "0", ToolName: "active_animals", Route: domain.RouteCube},
+	}}}
+	var logs bytes.Buffer
+	logger := slog.New(slog.NewTextHandler(&logs, &slog.HandlerOptions{Level: slog.LevelError}))
+	a := NewAssistant(Config{}, Deps{Provider: prov, Registry: reg, Metrics: metrics,
+		Audit: &failingAudit{err: errors.New("audit insert: connection refused")}, Logger: logger})
+	ans, err := a.Ask(context.Background(), domain.Question{Actor: leadershipActor(), Text: "total animals"})
+	if err != nil {
+		t.Fatalf("a failed audit write must not fail the answer: %v", err)
+	}
+	if ans.Mode != domain.ModePlanned {
+		t.Fatalf("answer must still be composed, got %s", ans.Mode)
+	}
+	out := logs.String()
+	if !strings.Contains(out, "ceoai audit record failed") || !strings.Contains(out, "connection refused") || !strings.Contains(out, "request_id="+ans.RequestID) {
+		t.Fatalf("audit sink error must be logged at error level with the request id, got %q", out)
+	}
+
+	// The tenant-gate refusal path goes through the same recordAudit and its
+	// reasons reach the log line.
+	logs.Reset()
+	foreign := &fakeMetrics{specs: []ports.MetricSpec{{Name: "active_animals"}},
+		result: domain.ToolResult{Surface: "Cube · active_animals", Facts: []domain.Fact{{TenantID: "t-other", Label: "n", Value: "1"}}}}
+	a = NewAssistant(Config{}, Deps{Provider: prov, Registry: NewRegistry(foreign, nil, nil), Metrics: foreign,
+		Audit: &failingAudit{err: errors.New("audit insert: connection refused")}, Logger: logger})
+	ans, err = a.Ask(context.Background(), domain.Question{Actor: leadershipActor(), Text: "total animals"})
+	if err != nil || ans.Mode != domain.ModeRefused {
+		t.Fatalf("foreign facts must be refused: err=%v mode=%s", err, ans.Mode)
+	}
+	if out := logs.String(); !strings.Contains(out, "ceoai audit record failed") || !strings.Contains(out, "fail_reasons=tenant_gate:compose:foreign") {
+		t.Fatalf("tenant-gate audit failure must be logged with its reason, got %q", out)
 	}
 }
 

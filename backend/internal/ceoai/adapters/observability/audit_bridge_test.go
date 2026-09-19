@@ -2,6 +2,7 @@ package observability
 
 import (
 	"context"
+	"strings"
 	"testing"
 
 	"github.com/vgoats/goatos/backend/internal/ceoai/domain"
@@ -70,5 +71,64 @@ func TestAuditTraceSinkNilStoreIsNoop(t *testing.T) {
 	}
 	if err := NewAuditTraceSink(nil).Record(context.Background(), ports.AuditRecord{RequestID: "x"}); err != nil {
 		t.Fatalf("nil store must be a no-op, got %v", err)
+	}
+}
+
+// TestAuditTraceSinkPopulatesRejectionReason (PR #318 R2-4): a verdict that
+// carries fail reasons lands in the rejection_reason column the audit table is
+// filtered on — the tenant-gate refusal shape the judge verified live, and an
+// ordinary review failure — while a clean verdict leaves it empty.
+func TestAuditTraceSinkPopulatesRejectionReason(t *testing.T) {
+	store := NewMemoryTraceStore(8)
+	sink := NewAuditTraceSink(store)
+	ctx := context.Background()
+
+	refused := ports.AuditRecord{
+		RequestID: "req-gate", TenantID: "tA", Mode: domain.ModeRefused,
+		Review: domain.ReviewVerdict{ScopeSafe: false, FailReasons: []string{"tenant_gate:compose:foreign"}},
+		Steps:  []domain.StepTrace{{SubQuestionID: "tenant_gate", ToolName: "tenant_gate:compose", Err: "fact 0 belongs to another tenant"}},
+	}
+	if err := sink.Record(ctx, refused); err != nil {
+		t.Fatal(err)
+	}
+	got, err := store.GetTrace(ctx, "tA", "req-gate")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got.RejectionReason != "tenant_gate:compose:foreign" {
+		t.Fatalf("rejection_reason = %q, want the tenant-gate reason", got.RejectionReason)
+	}
+	if got.Status != string(domain.ModeRefused) || got.ReviewVerdict == "" {
+		t.Fatalf("status/verdict must still be carried: %+v", got)
+	}
+
+	failed := ports.AuditRecord{
+		RequestID: "req-review", TenantID: "tA", Mode: domain.ModePartial,
+		Review: domain.ReviewVerdict{Grounded: false, FailReasons: []string{"ungrounded number: 42", "critic: vague", "ungrounded number: 42"}},
+	}
+	if err := sink.Record(ctx, failed); err != nil {
+		t.Fatal(err)
+	}
+	got, _ = store.GetTrace(ctx, "tA", "req-review")
+	if got.RejectionReason != "ungrounded number: 42|critic: vague" {
+		t.Fatalf("rejection_reason = %q, want the deduped joined reasons", got.RejectionReason)
+	}
+
+	clean := ports.AuditRecord{
+		RequestID: "req-ok", TenantID: "tA", Mode: domain.ModePlanned,
+		Review: domain.ReviewVerdict{Grounded: true, ScopeSafe: true, Complete: true},
+	}
+	if err := sink.Record(ctx, clean); err != nil {
+		t.Fatal(err)
+	}
+	got, _ = store.GetTrace(ctx, "tA", "req-ok")
+	if got.RejectionReason != "" {
+		t.Fatalf("a clean verdict must leave rejection_reason empty, got %q", got.RejectionReason)
+	}
+
+	// Bounded: an absurd reason list is truncated, never rejected.
+	long := strings.Repeat("x", 2*maxRejectionReasonBytes)
+	if r := rejectionReason(domain.ReviewVerdict{FailReasons: []string{long}}); len(r) != maxRejectionReasonBytes {
+		t.Fatalf("rejection reason must be bounded to %d bytes, got %d", maxRejectionReasonBytes, len(r))
 	}
 }

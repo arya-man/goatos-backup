@@ -9,6 +9,7 @@ import (
 	"github.com/vgoats/goatos/backend/internal/ceoai/domain"
 	"github.com/vgoats/goatos/backend/internal/ceoai/ports"
 	"github.com/vgoats/goatos/backend/internal/ceoai/reporting"
+	"github.com/vgoats/goatos/backend/internal/ceoai/sqlguard"
 )
 
 // systemPlannerInstruction is the versioned planner system prompt. It never
@@ -102,7 +103,8 @@ The SQL is only a DRAFT. The server will validate it with sqlguard and run it th
 - Known park mappings: CPT/Channapatna park_id '00000000-0000-4000-8000-000000003002'; CBE/Coimbatore park_id '00000000-0000-4000-8000-000000003001'.
 - Return SQL columns as label, value, scope when possible; e.g. SELECT 'Active animals by breed' AS label, CAST(count(*) AS text) AS value, breed AS scope ...
 - PERIODS: when the question names a period, pick a view WITH a date_col and bind the server-resolved window EXACTLY as <date_col> >= '<from>' AND <date_col> < '<to_exclusive>' (half-open, ISO dates). A view marked current-state has no period: answer as of now and say so.
-`, tenantID))
+- FUNCTIONS: only these may be called (any other function is rejected): %s. Cast with CAST(x AS text) or x::text; use date_part('year', col), never EXTRACT(... FROM ...); use BETWEEN only on non-date columns.
+`, tenantID, strings.Join(sqlguard.AllowedFunctions(), ", ")))
 	if window != "" {
 		sb.WriteString(window)
 	}

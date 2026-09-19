@@ -3,6 +3,7 @@ package app
 import (
 	"context"
 	"errors"
+	"fmt"
 	"strings"
 	"testing"
 	"time"
@@ -536,5 +537,92 @@ func TestRejectClassAndFailureKind(t *testing.T) {
 	wrapped := errors.Join(errors.New("sqlguard fallback"), sqlguard.ErrWindowOnCurrentStateView)
 	if rejectClass(wrapped) != "window_current_state" {
 		t.Fatal("wrapped sentinel must classify")
+	}
+}
+
+// TestWindowLineReflectsExecutedArms (PR #318 R2-2): the "Window:" line
+// describes the windows the executed arms actually bound, never the
+// resolved question. "Compare August with September" resolves August with a
+// September comparison; (a) a plan whose two arms are BOTH drafted for August
+// passes the either-window rule twice but answers no comparison, so the line
+// names August alone and says so; (b) a plan with ONE arm bound to August
+// likewise; (c) one arm per window still renders "A vs B" (regression guard
+// for the happy path); (d) a single arm bound to the COMPARISON window names
+// September alone.
+func TestWindowLineReflectsExecutedArms(t *testing.T) {
+	const question = "Compare August with September widgets"
+	// As of mid-October 2026 both months are the most recent past ones.
+	armsNow := time.Date(2026, 10, 15, 9, 0, 0, 0, biztime.DefaultLocation())
+	w, ok := ResolveWindow(question, armsNow, nil)
+	if !ok || w.Compare == nil {
+		t.Fatalf("expected a two-window comparison, got %+v ok=%v", w, ok)
+	}
+	const (
+		augSQL = "SELECT 'Deaths' AS label, CAST(sum(deaths) AS text) AS value FROM ceo_ai.mortality_base WHERE tenant_id = 't1' AND event_date >= '2026-08-01' AND event_date < '2026-09-01' LIMIT 100"
+		sepSQL = "SELECT 'Deaths' AS label, CAST(sum(deaths) AS text) AS value FROM ceo_ai.mortality_base WHERE tenant_id = 't1' AND event_date >= '2026-09-01' AND event_date < '2026-10-01' LIMIT 100"
+		aug    = "august (01/08/2026 to 31/08/2026)"
+		sep    = "september (01/09/2026 to 30/09/2026)"
+	)
+	ask := func(t *testing.T, sqls ...string) (domain.Answer, *repairProvider, *sequencedSQLFallback) {
+		t.Helper()
+		plan := domain.Plan{}
+		for i, sql := range sqls {
+			plan.SubQuestions = append(plan.SubQuestions, domain.SubQuestion{
+				ID: fmt.Sprint(i), Text: "deaths", IntentClass: "mortality", Route: domain.RouteSQL, ToolName: "sql_fallback",
+				Params: map[string]any{"sql": sql},
+			})
+		}
+		sqlFB := &sequencedSQLFallback{result: deathsFacts()}
+		prov := &repairProvider{fakeProvider: fakeProvider{plan: plan, byModel: true}, repairSQL: augSQL}
+		a := NewAssistant(Config{}, Deps{Provider: prov, Registry: NewRegistry(nil, nil, sqlFB), Telemetry: &fakeSQLTelemetry{}})
+		ans, err := a.Ask(context.Background(), domain.Question{Actor: leadershipActor(), Text: question, AsOf: armsNow})
+		if err != nil {
+			t.Fatal(err)
+		}
+		if strings.Count(ans.Answer, "Window:") != 1 {
+			t.Fatalf("the period must be stated exactly once: %q", ans.Answer)
+		}
+		return ans, prov, sqlFB
+	}
+
+	// (a) degenerate: both arms bound to August.
+	ans, prov, sqlFB := ask(t, augSQL, augSQL)
+	if prov.repairCalls != 0 || sqlFB.calls != 2 {
+		t.Fatalf("both August arms pass the either-window rule and run: repair=%d exec=%d", prov.repairCalls, sqlFB.calls)
+	}
+	if !strings.Contains(ans.Answer, "Window: "+aug+" (comparison with "+sep+" could not be answered)") || strings.Contains(ans.Answer, " vs ") {
+		t.Fatalf("two August arms must not be labelled as a comparison: %q", ans.Answer)
+	}
+
+	// (b) single arm bound to August.
+	ans, _, sqlFB = ask(t, augSQL)
+	if sqlFB.calls != 1 {
+		t.Fatalf("one arm runs: exec=%d", sqlFB.calls)
+	}
+	if !strings.Contains(ans.Answer, "Window: "+aug+" (comparison with "+sep+" could not be answered)") || strings.Contains(ans.Answer, " vs ") {
+		t.Fatalf("a single August arm must not be labelled as a comparison: %q", ans.Answer)
+	}
+
+	// (c) happy path: one arm per window renders both.
+	ans, _, sqlFB = ask(t, augSQL, sepSQL)
+	if sqlFB.calls != 2 || !strings.Contains(ans.Answer, "Window: "+aug+" vs "+sep) || strings.Contains(ans.Answer, "could not be answered") {
+		t.Fatalf("one arm per window must render both: exec=%d %q", sqlFB.calls, ans.Answer)
+	}
+
+	// (d) single arm bound to the comparison window names September alone.
+	ans, _, _ = ask(t, sepSQL)
+	if !strings.Contains(ans.Answer, "Window: "+sep+" (comparison with "+aug+" could not be answered)") || strings.Contains(ans.Answer, " vs ") {
+		t.Fatalf("a lone September arm must name September only: %q", ans.Answer)
+	}
+
+	// The pure helper agrees with the end-to-end lines.
+	if got := describeExecutedWindows(w, true, true); got != aug+" vs "+sep {
+		t.Fatalf("both bound: %q", got)
+	}
+	if got := describeExecutedWindows(w, false, false); !strings.HasPrefix(got, aug+" (comparison with") {
+		t.Fatalf("neither reported must not claim a comparison: %q", got)
+	}
+	if got := describeExecutedWindows(Window{From: w.From, To: w.To, Label: w.Label}, true, false); got != aug {
+		t.Fatalf("non-comparison window renders as before: %q", got)
 	}
 }

@@ -57,8 +57,11 @@ var ErrEmpty = &ValidationError{Reason: "empty statement"}
 // and whole-token (so a column literally named e.g. "created_at" is unaffected).
 var bannedKeywords = map[string]struct{}{
 	// DML writes
+	// (REPLACE is not a Postgres verb — `CREATE OR REPLACE` is already caught by
+	// CREATE — and replace() is an allow-listed string function, so it is not
+	// a banned token.)
 	"INSERT": {}, "UPDATE": {}, "DELETE": {}, "UPSERT": {}, "MERGE": {},
-	"REPLACE": {}, "RETURNING": {},
+	"RETURNING": {},
 	// data movement
 	"COPY": {}, "IMPORT": {}, "LOAD": {},
 	// DDL
@@ -94,19 +97,10 @@ var bannedKeywords = map[string]struct{}{
 	"TABLE": {}, "VALUES": {},
 }
 
-// bannedFunctions are function identifiers that are read-shaped in name but are
-// side-effecting, filesystem/network-touching, volatile, or DoS vectors.
-var bannedFunctions = map[string]struct{}{
-	"pg_sleep": {}, "pg_sleep_for": {}, "pg_sleep_until": {},
-	"pg_read_file": {}, "pg_read_binary_file": {}, "pg_ls_dir": {},
-	"pg_stat_file": {}, "lo_import": {}, "lo_export": {}, "lo_get": {},
-	"pg_reload_conf": {}, "pg_terminate_backend": {}, "pg_cancel_backend": {},
-	"dblink": {}, "dblink_exec": {}, "pg_read_server_files": {},
-	"query_to_xml": {}, "set_config": {}, "current_setting": {},
-	// string builders commonly abused to construct dynamic SQL / smuggle
-	"format": {}, "chr": {}, "convert_from": {}, "decode": {}, "encode": {},
-	"quote_literal": {}, "quote_ident": {}, "dollar_quote": {},
-}
+// Function calls are governed by an ALLOW-LIST (functions.go): any identifier
+// followed by `(` must be one of AllowedFunctions(), or the statement is
+// rejected. See the file header of functions.go for why a deny-list is the
+// wrong shape here.
 
 // Validate performs the full deny-by-default policy check. A nil return means
 // the statement is safe to hand to ExecuteReadOnly. Callers MUST treat any
@@ -212,7 +206,7 @@ func Validate(sql string) error {
 		return rejit("comma cross-join is not allowed; the fallback reads a single tenant-scoped %s.* relation", AllowedSchema)
 	}
 
-	// 6. Scan for banned keywords and banned function calls, and enforce that
+	// 6. Scan for banned keywords, enforce the function ALLOW-LIST, and enforce that
 	//    every schema-qualified reference and every FROM/JOIN source resolves to
 	//    ceo_ai.*.
 	if err := scanTokens(tokens); err != nil {
@@ -305,13 +299,10 @@ func scanTokens(tokens []token) error {
 			return rejit("banned keyword %q", up)
 		}
 		lower := strings.ToLower(t.text)
-		if _, banned := bannedFunctions[lower]; banned {
-			// Only treat as a function call when immediately followed by '('.
-			if next := nextSym(tokens, i); next == "(" {
-				return rejit("banned function %q()", lower)
-			}
-			// Even non-call use (e.g. as a bare identifier) of these is suspect.
-			return rejit("banned identifier %q", lower)
+		// Function allow-list (R2-1): every `ident (` must be an allowed
+		// builtin; a schema-qualified call is rejected outright.
+		if err := checkFunctionCalls(tokens, i); err != nil {
+			return err
 		}
 
 		// Schema-qualified reference: ident '.' ident. Reject disallowed schemas.
@@ -441,6 +432,16 @@ func enforceLimit(tokens []token) error {
 		if strings.Contains(arg.text, ".") {
 			return rejit("LIMIT must be an integer, got %q", arg.text)
 		}
+		// Every rune must be a decimal digit: the tokenizer stops a number at
+		// the first non-digit, so `LIMIT 1e9` arrives as `1` + identifier `e9`
+		// and `LIMIT 0x10` as `0` + `x10`. Both would pass the <=100 check while
+		// Postgres reads 1e9 as a billion; the following-token check below
+		// closes the exponent/hex/identifier suffix shapes.
+		for _, r := range arg.text {
+			if r < '0' || r > '9' {
+				return rejit("LIMIT must be a plain decimal integer, got %q", arg.text)
+			}
+		}
 		v, err := strconv.Atoi(arg.text)
 		if err != nil {
 			return rejit("LIMIT is not a valid integer: %q", arg.text)
@@ -459,9 +460,15 @@ func enforceLimit(tokens []token) error {
 			nxt := tokens[i+2]
 			if nxt.isSym {
 				switch nxt.text {
-				case "+", "-", "*", "/", "%", "^", "|", "&", "#", "~", "(":
+				case "+", "-", "*", "/", "%", "^", "|", "&", "#", "~", "(", ".", ":":
 					return rejit("LIMIT must be a single integer constant, not an expression")
 				}
+			} else if nxt.isNum {
+				return rejit("LIMIT must be a single integer constant, not an expression")
+			} else if !isLimitTerminator(nxt.text) {
+				// An identifier glued to the bound (`1e9` -> `1` `e9`, `10x`) or
+				// any word other than a clause that may follow LIMIT.
+				return rejit("LIMIT must be a single integer constant, got %q after the bound", arg.text+nxt.text)
 			}
 		}
 	}
@@ -469,6 +476,18 @@ func enforceLimit(tokens []token) error {
 		return rejit("query must include a LIMIT <= %d", MaxRowLimit)
 	}
 	return nil
+}
+
+// isLimitTerminator reports whether an identifier token may legitimately
+// follow the LIMIT bound. In a single flat SELECT nothing but OFFSET/FETCH/FOR
+// (all banned elsewhere) can follow LIMIT; listing them keeps the reject
+// reason attributable to the ban rather than to LIMIT.
+func isLimitTerminator(text string) bool {
+	switch strings.ToUpper(text) {
+	case "OFFSET", "FETCH", "FOR":
+		return true
+	}
+	return false
 }
 
 // --- token helpers ---
@@ -659,6 +678,12 @@ func splitTopLevelConjuncts(span []token) ([][]token, error) {
 	var out [][]token
 	depth := 0
 	cur := 0
+	// `x BETWEEN a AND b` is ONE predicate: the AND inside it is the range
+	// connective, not a conjunction. After a depth-0 BETWEEN the next depth-0
+	// AND is consumed by the BETWEEN rather than splitting the conjunct (a
+	// string-literal range `BETWEEN 'A' AND 'Z'` otherwise left an empty
+	// trailing conjunct once the literals were stripped, PR #318 R2-3).
+	inBetween := false
 	for i, t := range span {
 		if t.isSym {
 			switch t.text {
@@ -677,7 +702,16 @@ func splitTopLevelConjuncts(span []token) ([][]token, error) {
 		switch strings.ToUpper(t.text) {
 		case "OR":
 			return nil, rejit("top-level OR in the WHERE clause is not allowed; the tenant scope must stay a conjunctive AND filter")
+		case "BETWEEN":
+			inBetween = true
 		case "AND":
+			if inBetween {
+				// The upper bound may be a stripped literal (now a gap in the
+				// token stream), so nothing about it is checked here; a
+				// bound-less BETWEEN is a Postgres syntax error, not a scope.
+				inBetween = false
+				continue
+			}
 			if i == cur {
 				return nil, rejit("malformed WHERE clause (empty conjunct)")
 			}

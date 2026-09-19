@@ -380,10 +380,20 @@ func (a *Assistant) recordSQLFailure(ctx context.Context, err error) {
 // <date>". The single fact is stamped with the actor's tenant so the tenant
 // gate accepts it, and reuses the SQL read's Surface so it adds no citation.
 // nil when nothing applies.
+//
+// The line describes what actually RAN, not what the question resolved (PR
+// #318 R2-2): for a two-window comparison each successful model-SQL sub is
+// checked for which window its statement bound (boundWindow, the same check
+// validateModelSQL accepted it on). "A vs B" is printed only when at least
+// one arm bound A AND one arm bound B; when every executed arm bound the same
+// window (both arms drafted for August, or only one arm ran) the line names
+// that single window and says the comparison could not be answered, so a
+// reader never sees two identical numbers labelled month-on-month.
 func windowResult(actor domain.Actor, subs []domain.SubQuestion, results []domain.ToolResult, w Window) *domain.ToolResult {
 	asOf := ""
 	windowed := false
 	surface := ""
+	boundPrimary, boundCompare := false, false
 	for i, r := range results {
 		if i >= len(subs) || !isModelSQL(subs[i]) || r.Err != nil {
 			continue
@@ -397,12 +407,18 @@ func windowResult(actor domain.Actor, subs []domain.SubQuestion, results []domai
 		}
 		if _, ok := sqlWindowFromParams(subs[i].Params); ok {
 			windowed = true
+			switch boundWindow(subs[i].Params) {
+			case boundToPrimary:
+				boundPrimary = true
+			case boundToCompare:
+				boundCompare = true
+			}
 		}
 	}
 	var value string
 	switch {
 	case windowed && !w.IsZero():
-		value = w.Describe()
+		value = describeExecutedWindows(w, boundPrimary, boundCompare)
 	case asOf != "":
 		value = "as of " + biztime.FarmDateFromBusinessDate(asOf)
 	default:
@@ -415,5 +431,60 @@ func windowResult(actor domain.Actor, subs []domain.SubQuestion, results []domai
 		ToolName: "window",
 		Surface:  surface,
 		Facts:    []domain.Fact{{TenantID: actor.TenantID, Label: "Window", Value: value}},
+	}
+}
+
+// windowBinding names which of a comparison's two windows a model-SQL
+// statement bound.
+type windowBinding int
+
+const (
+	boundToNeither windowBinding = iota
+	boundToPrimary
+	boundToCompare
+)
+
+// boundWindow re-runs the window contract on the sub-question's (possibly
+// repaired) statement to report which window it bound: the primary from/to
+// or the comparison compare_from/compare_to. It mirrors validateModelSQL's
+// acceptance order, so a statement that executed always reports one of the
+// two when a window was threaded; boundToNeither only when the params carry
+// no window or the view is current-state.
+func boundWindow(params map[string]any) windowBinding {
+	sql, _ := params["sql"].(string)
+	w, ok := sqlWindowFromParams(params)
+	if !ok {
+		return boundToNeither
+	}
+	var card sqlguard.SchemaCardLike
+	if c, found := reporting.CardForSQL(sql); found {
+		card = c
+	}
+	if sqlguard.ValidateWindow(sql, card, w) == nil {
+		return boundToPrimary
+	}
+	if cw, has := sqlCompareWindowFromParams(params); has && sqlguard.ValidateWindow(sql, card, cw) == nil {
+		return boundToCompare
+	}
+	return boundToNeither
+}
+
+// describeExecutedWindows renders the Window line from the set of windows
+// the executed arms actually bound. A non-comparison window renders as
+// before. A comparison renders "A vs B" only when both arms ran; otherwise
+// the single executed window plus an honest note naming the other.
+func describeExecutedWindows(w Window, boundPrimary, boundCompare bool) string {
+	if w.Compare == nil || w.Compare.IsZero() {
+		return w.Describe()
+	}
+	switch {
+	case boundPrimary && boundCompare:
+		return w.Describe()
+	case boundCompare && !boundPrimary:
+		return describeOne(*w.Compare) + " (comparison with " + describeOne(w) + " could not be answered)"
+	default:
+		// Primary only, or (defensively) neither reported: never claim a
+		// comparison that did not run.
+		return describeOne(w) + " (comparison with " + describeOne(*w.Compare) + " could not be answered)"
 	}
 }
