@@ -297,11 +297,16 @@ RETURNING id::text, conversation_id::text, tenant_id::text, role, content,
 }
 
 // ListMessages returns a bounded keyset window of a thread's history, oldest-first.
-// The parent live+scope check happens via the join predicate so a deleted or
-// cross-actor thread yields an empty window rather than leaking rows.
+// The thread must be the caller's own live thread: a deleted, cross-actor or
+// cross-tenant conversation id is ErrNotFound (the HTTP resume route maps that
+// to 404 — D0 "Memory / resume"), never an empty 200 window. The join predicate
+// below re-checks the same scope so no row can leak even if the two reads race.
 func (s *PostgresConversationStore) ListMessages(ctx context.Context, q ListMessagesQuery) (MessagePage, error) {
 	if strings.TrimSpace(q.TenantID) == "" || strings.TrimSpace(q.ActorID) == "" || strings.TrimSpace(q.ConversationID) == "" {
 		return MessagePage{}, fmt.Errorf("%w: tenant, actor, conversation required", ErrInvalidArgument)
+	}
+	if _, err := s.Get(ctx, q.TenantID, q.ActorID, q.ConversationID); err != nil {
+		return MessagePage{}, err
 	}
 	pageSize := clampPageSize(q.PageSize)
 	ctx, cancel := s.withTimeout(ctx)

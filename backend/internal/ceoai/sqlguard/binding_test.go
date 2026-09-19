@@ -18,26 +18,6 @@ func TestValidateRejectsTopLevelOr(t *testing.T) {
 	}
 }
 
-func TestExtractTenantEquals(t *testing.T) {
-	cases := []struct {
-		name string
-		sql  string
-		want string
-		ok   bool
-	}{
-		{"bare", `SELECT count(*) FROM ceo_ai.x WHERE tenant_id = 'abc' LIMIT 10`, "abc", true},
-		{"alias-qualified", `SELECT a.x FROM ceo_ai.x a WHERE a.tenant_id = 'sess-1' AND a.park = 'p' LIMIT 5`, "sess-1", true},
-		{"literal-embedded decoy", `SELECT x FROM ceo_ai.x WHERE park = 'tenant_id = fake' AND tenant_id = 'real' LIMIT 5`, "real", true},
-		{"none", `SELECT x FROM ceo_ai.x WHERE park = 'p' LIMIT 5`, "", false},
-	}
-	for _, tc := range cases {
-		got, ok := ExtractTenantEquals(tc.sql)
-		if ok != tc.ok || got != tc.want {
-			t.Errorf("%s: got (%q,%v) want (%q,%v)", tc.name, got, ok, tc.want, tc.ok)
-		}
-	}
-}
-
 // TestExecuteReadOnlyForTenantBindsSession proves the executor rejects a draft
 // whose tenant literal is not the session tenant BEFORE touching the pool (nil
 // pool never reached), closing the value-not-compared-to-session vector.
@@ -55,14 +35,18 @@ func TestExecuteReadOnlyForTenantBindsSession(t *testing.T) {
 }
 
 func TestTrustedReadOnlyForTenantStillBindsSession(t *testing.T) {
-	e := &Executor{} // nil pool: only tenant-bind failures should return before pool use.
-	other := `SELECT l.load_id FROM procurement_loads l JOIN procurement_source_health_checks h ON h.tenant_id = l.tenant_id AND h.load_id = l.load_id WHERE l.tenant_id = '00000000-0000-0000-0000-000000000002' LIMIT 10`
-	if _, err := e.ExecuteTrustedReadOnlyForTenant(nil, "00000000-0000-0000-0000-000000000001", other); err != ErrTenantBinding {
-		t.Fatalf("expected ErrTenantBinding for trusted mismatched tenant literal, got %v", err)
+	e := &Executor{} // nil pool: only tenant-bind/validation failures should return before pool use.
+	// D0: a trusted statement that interpolates a tenant literal is rejected
+	// BEFORE the pool is touched, whichever tenant the literal names.
+	literal := `SELECT l.load_id FROM procurement_loads l WHERE l.tenant_id = '00000000-0000-0000-0000-000000000001' LIMIT 10`
+	if _, err := e.ExecuteTrustedReadOnlyForTenant(nil, "00000000-0000-0000-0000-000000000001", literal); err == nil {
+		t.Fatal("trusted SQL with an interpolated tenant literal must be rejected")
 	}
-
-	stacked := `SELECT l.load_id FROM procurement_loads l WHERE l.tenant_id = '00000000-0000-0000-0000-000000000001'; SELECT 1`
+	stacked := `SELECT l.load_id FROM procurement_loads l WHERE l.tenant_id = $1; SELECT 1`
 	if _, err := e.ExecuteTrustedReadOnlyForTenant(nil, "00000000-0000-0000-0000-000000000001", stacked); err == nil {
 		t.Fatal("trusted SQL must still reject statement stacking")
+	}
+	if _, err := e.ExecuteTrustedReadOnlyForTenant(nil, "", `SELECT 1 FROM ceo_ai.x WHERE tenant_id = $1`); err != ErrTenantBinding {
+		t.Fatalf("empty session tenant must be ErrTenantBinding, got %v", err)
 	}
 }

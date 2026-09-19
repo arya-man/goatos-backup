@@ -47,8 +47,12 @@ func NewInMemoryMemory(perConvo, maxConvos int) *InMemoryMemory {
 	}
 }
 
+// memKey scopes memory by (tenant, user, conversation) — D0 "Memory / resume":
+// a conversation id from another tenant, or from another user of the same
+// tenant, can never recall a scope that was resolved for someone else. The
+// tenant is the first component so no prefix can cross tenants.
 func memKey(actor domain.Actor, conversationID string) string {
-	return actor.TenantID + "|" + conversationID
+	return actor.TenantID + "|" + actor.UserID + "|" + conversationID
 }
 
 // Recall returns the resolved-entity snapshots for the conversation, oldest to

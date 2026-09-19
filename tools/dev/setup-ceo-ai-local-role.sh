@@ -115,13 +115,22 @@ configure_role() {
     run_admin_sql "ALTER ROLE ${role} SET statement_timeout = '${STATEMENT_TIMEOUT}';"
     run_admin_sql "ALTER ROLE ${role} SET idle_in_transaction_session_timeout = '${IDLE_TX_TIMEOUT}';"
     run_admin_sql "ALTER ROLE ${role} SET default_transaction_read_only = on;"
-    # Maintainer decision 2026-07-23: the internal CEO-only assistant must never
-    # hit a permission wall. Grant read-only SELECT on ALL of public (current +
-    # future tables) in addition to the ceo_ai reporting schema. Read-only is
-    # still enforced by default_transaction_read_only=on + SELECT-only grants.
-    run_admin_sql "GRANT USAGE ON SCHEMA public TO ${role};"
-    run_admin_sql "GRANT SELECT ON ALL TABLES IN SCHEMA public TO ${role};"
-    run_admin_sql "ALTER DEFAULT PRIVILEGES IN SCHEMA public GRANT SELECT ON TABLES TO ${role};"
+    if [[ "$role" == "$CEO_ROLE" ]]; then
+        # D0 (migration 000359): the assistant/SQL-fallback role reads ceo_ai.*
+        # ONLY. The views resolve with their owner's rights, so nothing the
+        # assistant answers needs public.*; holding it only widened the blast
+        # radius of a guard bypass. Revoke explicitly so a re-run never re-grants.
+        run_admin_sql "REVOKE SELECT ON ALL TABLES IN SCHEMA public FROM ${role};"
+        run_admin_sql "ALTER DEFAULT PRIVILEGES IN SCHEMA public REVOKE SELECT ON TABLES FROM ${role};"
+    else
+        # Maintainer decision 2026-07-23 (Cube role only): governed Cube metrics
+        # read raw public tables, so this role keeps read-only SELECT on ALL of
+        # public (current + future tables) in addition to ceo_ai. Read-only is
+        # still enforced by default_transaction_read_only=on + SELECT-only grants.
+        run_admin_sql "GRANT USAGE ON SCHEMA public TO ${role};"
+        run_admin_sql "GRANT SELECT ON ALL TABLES IN SCHEMA public TO ${role};"
+        run_admin_sql "ALTER DEFAULT PRIVILEGES IN SCHEMA public GRANT SELECT ON TABLES TO ${role};"
+    fi
     run_admin_sql "GRANT USAGE ON SCHEMA ceo_ai TO ${role};"
     run_admin_sql "GRANT SELECT ON ALL TABLES IN SCHEMA ceo_ai TO ${role};"
     run_admin_sql "ALTER DEFAULT PRIVILEGES IN SCHEMA ceo_ai GRANT SELECT ON TABLES TO ${role};"

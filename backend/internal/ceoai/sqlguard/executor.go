@@ -25,10 +25,11 @@ type Row = map[string]any
 // PoolConfig describes the dedicated read-only pool for the fallback executor.
 // It intentionally does NOT reuse the app's DATABASE_URL/app role: the fallback
 // must connect as mesha_ceo_readonly, which has read-only (SELECT-only) grants
-// and no write/DDL. As of migration 000031 this role holds SELECT on all of
-// public.* AND ceo_ai.* (internal CEO-only assistant; maintainer decision
-// 2026-07-23) — query scope is still constrained by this SQL guard (single
-// SELECT, tenant predicate, LIMIT, ceo_ai allowlist), not by table grants. See
+// and no write/DDL. As of migration 000359 (D0, plan-v3) this role holds SELECT
+// on ceo_ai.* ONLY — the 000031 public.* grant is revoked so the blast radius of
+// any guard bypass is the governed reporting views, never a raw operator table.
+// Query scope is still constrained by this SQL guard (single SELECT, tenant
+// predicate, LIMIT, ceo_ai allowlist) independently of the grants. See
 // mcp-toolbox-plan.md "Database Role".
 type PoolConfig struct {
 	// DatabaseURL is a full DSN for the mesha_ceo_readonly role. When empty it is
@@ -139,19 +140,17 @@ func (e *Executor) Close() {
 var ErrTenantBinding = errors.New("sqlguard: tenant predicate does not bind the session tenant")
 
 // ExecuteReadOnlyForTenant is the ONLY entry point the tier-4 SQL fallback port
-// should use. It binds tenant server-side: after Validate passes (single bounded
-// tenant-scoped SELECT over ceo_ai.*, no top-level OR), it extracts the draft's
-// `tenant_id = '<literal>'` value and requires it to equal sessionTenantID. The
-// tenant value therefore comes from the server session, never from the planner's
-// (user-influenced) output — a draft carrying any other tenant UUID is rejected
-// with ErrTenantBinding and never runs. Combined with the validator's rejection
-// of top-level OR, JOIN, and any nested subquery, this closes every cross-tenant
-// vector reachable through the guard: value-not-compared-to-session,
-// boolean-disjunction widening, a second relation carrying a different/absent
-// tenant literal (multi-relation JOIN), and an unscoped inner read
-// (scalar/IN/derived subquery). Because only ONE tenant-scoped relation and ONE
-// `tenant_id = '...'` literal can survive validation, binding that single literal
-// to the session tenant fully scopes the read.
+// should use for MODEL-DRAFTED SQL. It binds tenant server-side: after Validate
+// passes (single bounded tenant-scoped SELECT over ceo_ai.*, no top-level OR),
+// it extracts EVERY tenant-scoped predicate literal in the statement
+// (ExtractAllTenantPredicates) and requires each one to equal sessionTenantID
+// byte-for-byte. The tenant value therefore comes from the server session, never
+// from the planner's (user-influenced) output — a draft carrying any other tenant
+// UUID anywhere (a second `AND tenant_id = '<victim>'`, a `<>`/`IN`/`IS`/column
+// or param form, a bare `tenant_id` in the projection) is rejected with
+// ErrTenantBinding and never runs. Combined with the validator's rejection of
+// top-level OR, JOIN, comma-join, comments, `$` and any nested subquery, there is
+// no scope left in which a second predicate can hide (D0, plan-v3).
 func (e *Executor) ExecuteReadOnlyForTenant(ctx context.Context, sessionTenantID, sql string) ([]Row, error) {
 	if strings.TrimSpace(sessionTenantID) == "" {
 		return nil, ErrTenantBinding
@@ -159,37 +158,57 @@ func (e *Executor) ExecuteReadOnlyForTenant(ctx context.Context, sessionTenantID
 	if err := Validate(sql); err != nil {
 		return nil, err
 	}
-	got, ok := ExtractTenantEquals(sql)
-	if !ok {
+	literals, err := ExtractAllTenantPredicates(sql)
+	if err != nil {
 		return nil, ErrTenantBinding
 	}
-	if got != sessionTenantID {
-		return nil, ErrTenantBinding
+	for _, got := range literals {
+		if got != sessionTenantID {
+			return nil, ErrTenantBinding
+		}
 	}
 	return e.execValidated(ctx, sql)
 }
 
-// ExecuteTrustedReadOnlyForTenant runs server-authored read-only SQL that needs
-// relational joins the generic model-SQL guard intentionally forbids. It is NOT
+// ExecuteTrustedReadOnlyForTenant runs SERVER-AUTHORED read-only SQL. It is NOT
 // for model-drafted SQL: callers must only pass deterministic SQL assembled by
-// backend code. The same session tenant binding, read-only transaction, timeout,
-// and hard row cap still apply.
-func (e *Executor) ExecuteTrustedReadOnlyForTenant(ctx context.Context, sessionTenantID, sql string) ([]Row, error) {
-	if strings.TrimSpace(sessionTenantID) == "" {
+// backend code. The tenant is ALWAYS bound as $1 from the session — the SQL text
+// must not carry a tenant literal at all — and callers pass args for everything
+// else, which are bound as $2.. in order. The statement is rejected when any
+// tenant-scoped predicate binds a string literal, a parameter other than $1, or
+// anything but another tenant column (an equi-join), and when no `tenant_id = $1`
+// occurrence exists. Statement stacking and comments are rejected as well. The
+// same read-only transaction, statement timeout and hard row cap apply.
+func (e *Executor) ExecuteTrustedReadOnlyForTenant(ctx context.Context, tenantID, sql string, args ...any) ([]Row, error) {
+	if strings.TrimSpace(tenantID) == "" {
 		return nil, ErrTenantBinding
 	}
+	if err := ValidateTrusted(sql); err != nil {
+		return nil, err
+	}
+	bound := make([]any, 0, len(args)+1)
+	bound = append(bound, tenantID)
+	bound = append(bound, args...)
+	return e.execValidatedArgs(ctx, sql, bound)
+}
+
+// ValidateTrusted is the trusted-SQL policy check used by
+// ExecuteTrustedReadOnlyForTenant: a single SELECT, no stacking/comments, every
+// tenant-scoped predicate bound to $1 (or joined column-to-column), at least one
+// `tenant_id = $1`. Exported so trusted queries can be asserted at build time in
+// tests without a pool.
+func ValidateTrusted(sql string) error {
 	stmt := strings.TrimSpace(sql)
+	if stmt == "" {
+		return ErrEmpty
+	}
 	if !strings.HasPrefix(strings.ToUpper(stmt), "SELECT") {
-		return nil, rejit("trusted query must begin with SELECT")
+		return rejit("trusted query must begin with SELECT")
 	}
 	if strings.Contains(stmt, ";") || strings.Contains(stmt, "--") || strings.Contains(stmt, "/*") || strings.Contains(stmt, "*/") {
-		return nil, rejit("trusted query contains disallowed statement/comment syntax")
+		return rejit("trusted query contains disallowed statement/comment syntax")
 	}
-	got, ok := ExtractTenantEquals(sql)
-	if !ok || got != sessionTenantID {
-		return nil, ErrTenantBinding
-	}
-	return e.execValidated(ctx, sql)
+	return trustedTenantParamCheck(stmt, DefaultTenantScopedColumns)
 }
 
 // ExecuteReadOnly validates sql, then runs it inside a READ ONLY transaction with
@@ -206,6 +225,12 @@ func (e *Executor) ExecuteReadOnly(ctx context.Context, sql string) ([]Row, erro
 
 // execValidated assumes sql already passed Validate.
 func (e *Executor) execValidated(ctx context.Context, sql string) ([]Row, error) {
+	return e.execValidatedArgs(ctx, sql, nil)
+}
+
+// execValidatedArgs assumes sql already passed Validate/ValidateTrusted. args
+// are bound positionally ($1..); model SQL never carries any.
+func (e *Executor) execValidatedArgs(ctx context.Context, sql string, args []any) ([]Row, error) {
 	if e.pool == nil {
 		return nil, errors.New("sqlguard: executor has no pool")
 	}
@@ -246,7 +271,7 @@ func (e *Executor) execValidated(ctx context.Context, sql string) ([]Row, error)
 	// outer LIMIT is a hard ceiling that holds regardless.
 	wrapped := "SELECT * FROM (" + sql + ") AS ceo_ai_fallback LIMIT " + strconv.Itoa(MaxRowLimit)
 
-	rows, err := tx.Query(ctx, wrapped)
+	rows, err := tx.Query(ctx, wrapped, args...)
 	if err != nil {
 		return nil, fmt.Errorf("sqlguard: query: %w", err)
 	}

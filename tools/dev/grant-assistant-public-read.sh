@@ -2,8 +2,10 @@
 # ===========================================================================
 # grant-assistant-public-read.sh
 #
-# Idempotently (re)apply the read-only public + ceo_ai SELECT grants to the two
-# leadership-assistant DB roles (mesha_ceo_readonly, mesha_cube_readonly). This
+# Idempotently (re)apply the read-only SELECT grants to the two
+# leadership-assistant DB roles: ceo_ai.* ONLY for mesha_ceo_readonly (D0,
+# migration 000359 -- public.* is actively revoked here) and public + ceo_ai for
+# mesha_cube_readonly (Cube governed metrics read raw public tables). This
 # is the ONE command to run AFTER creating the Cloud SQL readonly roles in any
 # environment, because migration 000031 is guarded (IF EXISTS) and no-ops for a
 # role that did not yet exist at migrate time. Read-only only (SELECT + schema
@@ -50,6 +52,7 @@ DO $grants$
 DECLARE
     r text;
     sch text;
+    schemas text[];
     owner_role text;
 BEGIN
     FOREACH r IN ARRAY ARRAY['mesha_ceo_readonly','mesha_cube_readonly'] LOOP
@@ -58,7 +61,18 @@ BEGIN
             RAISE WARNING 'role % does not exist; create it first, then re-run this script', r;
             CONTINUE;
         END IF;
-        FOREACH sch IN ARRAY ARRAY['public','ceo_ai'] LOOP
+        -- D0 (migration 000359): mesha_ceo_readonly reads ceo_ai.* ONLY. Only
+        -- the Cube role keeps the public.* read that 000031 introduced. Re-running
+        -- this script must never re-grant public to the assistant role, so the
+        -- schema list is per role and the public read is actively revoked.
+        IF r = 'mesha_ceo_readonly' THEN
+            schemas := ARRAY['ceo_ai'];
+            EXECUTE format('REVOKE SELECT ON ALL TABLES IN SCHEMA public FROM %I', r);
+            EXECUTE format('ALTER DEFAULT PRIVILEGES IN SCHEMA public REVOKE SELECT ON TABLES FROM %I', r);
+        ELSE
+            schemas := ARRAY['public','ceo_ai'];
+        END IF;
+        FOREACH sch IN ARRAY schemas LOOP
             EXECUTE format('GRANT USAGE ON SCHEMA %I TO %I', sch, r);
             EXECUTE format('GRANT SELECT ON ALL TABLES IN SCHEMA %I TO %I', sch, r);
             -- Cover future tables of EVERY current owner in the schema, not just the
@@ -85,7 +99,7 @@ BEGIN
                 END;
             END LOOP;
         END LOOP;
-        RAISE NOTICE 'granted read-only public + ceo_ai SELECT to %', r;
+        RAISE NOTICE 'granted read-only SELECT on % to %', array_to_string(schemas, '+'), r;
     END LOOP;
 END;
 $grants$;

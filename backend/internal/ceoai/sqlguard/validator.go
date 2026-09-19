@@ -222,7 +222,7 @@ func Validate(sql string) error {
 	//    equality predicate, otherwise the read is unscoped over the
 	//    mesha_ceo_readonly role, which does not itself enforce tenant isolation.
 	//    Only the `=` form is accepted so the validator's grammar matches the
-	//    executor's server-side binding (ExtractTenantEquals).
+	//    executor's server-side binding (ExtractAllTenantPredicates).
 	if !hasKeyword(tokens, "WHERE") {
 		return rejit("query must include a WHERE clause with tenant scope")
 	}
@@ -483,7 +483,7 @@ func hasTenantScopeInWhere(tokens []token) bool {
 		// NOTE: only `tenant_id = '<literal>'` counts as tenant scope. An
 		// `tenant_id IN (...)` form is deliberately NOT accepted here: the sole
 		// production entry point (ExecuteReadOnlyForTenant) binds tenant via
-		// ExtractTenantEquals, which recognizes ONLY the `=` form and hard-rejects
+		// ExtractAllTenantPredicates, which recognizes ONLY the `=` form and hard-rejects
 		// everything else with ErrTenantBinding. Accepting IN at validation while
 		// the executor rejects it lets the validator declare a draft well-formed
 		// that then always fails to run — the two layers must agree on the
@@ -585,66 +585,6 @@ func hasTopLevelOrInWhere(tokens []token) bool {
 		}
 	}
 	return false
-}
-
-// ExtractTenantEquals returns the single-quoted literal value bound by the FIRST
-// `tenant_id = '...'` equality predicate in the raw statement (the column may be
-// alias-qualified, e.g. `a.tenant_id`). ok is false when no such equality exists.
-// The executor uses this to bind tenant server-side: it compares the returned
-// value byte-for-byte to the session actor's tenant and rejects any mismatch, so
-// a planner/injection that emits a different tenant UUID can never read another
-// tenant's rows even though the value textually satisfies the WHERE clause. This
-// scans the RAW sql (not the literal-stripped form) because it needs the literal.
-func ExtractTenantEquals(sql string) (string, bool) {
-	runes := []rune(sql)
-	n := len(runes)
-	i := 0
-	for i < n {
-		c := runes[i]
-		// Skip over string literals so a `tenant_id =` sitting inside a quoted
-		// value is never mistaken for the predicate.
-		if c == '\'' {
-			i++
-			for i < n {
-				if runes[i] == '\'' {
-					if i+1 < n && runes[i+1] == '\'' {
-						i += 2
-						continue
-					}
-					i++
-					break
-				}
-				i++
-			}
-			continue
-		}
-		if isIdentStart(c) {
-			j := i + 1
-			for j < n && isIdentPart(runes[j]) {
-				j++
-			}
-			word := string(runes[i:j])
-			if strings.EqualFold(word, "tenant_id") {
-				// Require a bare or alias-qualified `tenant_id` (the char before
-				// must not be an identifier part or '.', so `x.tenant_id` still
-				// matches on the `tenant_id` token itself).
-				k := skipSpace(runes, j)
-				if k < n && runes[k] == '=' {
-					k = skipSpace(runes, k+1)
-					if k < n && runes[k] == '\'' {
-						if val, end, ok := readLiteral(runes, k); ok {
-							_ = end
-							return val, true
-						}
-					}
-				}
-			}
-			i = j
-			continue
-		}
-		i++
-	}
-	return "", false
 }
 
 func skipSpace(runes []rune, i int) int {
