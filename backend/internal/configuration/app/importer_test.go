@@ -2,6 +2,7 @@ package app
 
 import (
 	"context"
+	"strings"
 	"sync"
 	"testing"
 	"time"
@@ -21,6 +22,7 @@ type applyCancelRepo struct {
 	chunk              int
 	cancelAfterClaimOf int
 	mu                 sync.Mutex // rows of a chunk are written concurrently
+	lastPatch          ports.ImportJobPatch
 }
 
 func (r *applyCancelRepo) ReferenceLists(context.Context, string) ([]domain.ReferenceList, error) {
@@ -168,6 +170,7 @@ func (r *applyCancelRepo) UpdateImportRows(_ context.Context, _, _, fromState st
 	return len(updates), nil
 }
 func (r *applyCancelRepo) PatchImportJob(_ context.Context, _, _ string, patch ports.ImportJobPatch) (domain.ImportJob, error) {
+	r.lastPatch = patch
 	return domain.ImportJob{Status: r.status}, nil
 }
 func (r *applyCancelRepo) RequestImportApply(context.Context, string, string, string) (domain.ImportJob, bool, error) {
@@ -235,5 +238,22 @@ func TestDuplicateTagIndexSpansTheWholeSheet(t *testing.T) {
 	rememberTags(rebuilt, first)
 	if errs := duplicateTagErrors(rebuilt, later); len(errs) != 1 {
 		t.Fatalf("rebuilt index missed the earlier row: %+v", errs)
+	}
+}
+
+// TestStageRefusesASheetOverTheRowCap pins the cap on one sheet (one workbook tab): the upload
+// is refused with sheet_too_large naming the cap, and the job it had opened is marked failed
+// rather than left validating.
+func TestStageRefusesASheetOverTheRowCap(t *testing.T) {
+	repo := &applyCancelRepo{}
+	importer := NewImporter(NewService(repo), repo, nil, "test-worker", nil)
+	importer.maxRows = 3
+	_, err := importer.Stage(context.Background(), ports.WriteParams{TenantID: "11111111-1111-1111-1111-111111111111"}, domain.RegParks, "parks.csv",
+		strings.NewReader("name,code\nA,a\nB,b\nC,c\nD,d\n"))
+	if err == nil || HTTPError(err).Code != "sheet_too_large" || !strings.Contains(HTTPError(err).Message, "3 rows") {
+		t.Fatalf("over-cap sheet: %v", err)
+	}
+	if repo.lastPatch.Status == nil || *repo.lastPatch.Status != domain.ImportFailed {
+		t.Fatalf("job not marked failed: %+v", repo.lastPatch)
 	}
 }
