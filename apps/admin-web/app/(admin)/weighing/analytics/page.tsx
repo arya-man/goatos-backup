@@ -18,32 +18,16 @@ function firstEnabledPublishedHref(contract: Awaited<ReturnType<typeof getAdminW
   return enabledPublished[0]?.href ?? null;
 }
 
-function ContractUnavailable({ contract }: { contract: Awaited<ReturnType<typeof getAdminWebBootstrap>> }) {
-  if (contract.ok) return null;
-  return (
-    <section className="card">
-      <h1>Admin-web contract unavailable</h1>
-      <p className="muted">
-        The backend-owned UI contract could not be loaded, so ADG Analytics is not rendering local fallback IA.
-        Resolve the API/session/tenant error and reload.
-      </p>
-      <div className="metagrid" style={{ marginTop: 14 }}>
-        <div>
-          <div className="k">Error</div>
-          <div className="v">{contract.error.code ?? contract.error.kind}</div>
-        </div>
-        <div>
-          <div className="k">Detail</div>
-          <div className="v">{contract.error.message}</div>
-        </div>
-      </div>
-    </section>
-  );
+function assertContractAvailable(
+  contract: Awaited<ReturnType<typeof getAdminWebBootstrap>>,
+): asserts contract is Extract<Awaited<ReturnType<typeof getAdminWebBootstrap>>, { ok: true }> {
+  if (contract.ok) return;
+  throw new Error(`Admin-web contract unavailable for weighing-analytics: ${contract.error.code ?? contract.error.kind}`);
 }
 
 export default async function Page({ searchParams }: { searchParams: Promise<RouteSearchParams> }) {
   const [params, contract] = await Promise.all([searchParams, getAdminWebBootstrap()]);
-  if (!contract.ok) return <ContractUnavailable contract={contract} />;
+  assertContractAvailable(contract);
   const pageContract = contract.data.pages.find((item) => item.route_id === "weighing-analytics");
   if (!pageContract) redirect(firstEnabledPublishedHref(contract) ?? "/");
   return (

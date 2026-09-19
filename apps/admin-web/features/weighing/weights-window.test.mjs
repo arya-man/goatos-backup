@@ -146,7 +146,7 @@ test("weights analytics tab links preserve the resolved weighing window", () => 
 
 test("weights analytics direct route renders without a client-router canonical redirect", () => {
   assert.match(analyticsRouteSource, /const \[params, contract\] = await Promise\.all\(\[searchParams, getAdminWebBootstrap\(\)\]\);/);
-  assert.match(analyticsRouteSource, /if \(!contract\.ok\) return <ContractUnavailable contract=\{contract\} \/>;/);
+  assert.match(analyticsRouteSource, /assertContractAvailable\(contract\);/);
   assert.match(analyticsRouteSource, /const pageContract = contract\.data\.pages\.find\(\(item\) => item\.route_id === "weighing-analytics"\);/);
   assert.match(analyticsRouteSource, /<WeighingWeightsAnalyticsPage[\s\S]*searchParams=\{params\}[\s\S]*pageContract=\{pageContract\}/);
   assert.doesNotMatch(analyticsRouteSource, /redirectToCanonicalWindow/);
