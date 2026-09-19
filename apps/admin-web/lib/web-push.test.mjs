@@ -21,6 +21,7 @@ import {
 
 const repoAdminWeb = join(dirname(fileURLToPath(import.meta.url)), "..");
 const serviceWorkerSource = readFileSync(join(repoAdminWeb, "public/firebase-messaging-sw.js"), "utf8");
+const webPushActionsSource = readFileSync(join(repoAdminWeb, "lib/web-push-actions.ts"), "utf8");
 
 /**
  * The worker's CODE, with comments stripped.
@@ -34,6 +35,11 @@ const serviceWorkerCode = serviceWorkerSource
   .replace(/\/\*[\s\S]*?\*\//g, "")
   .replace(/^[ \t]*\/\/.*$/gm, "")
   .replace(/([^:])\/\/.*$/gm, "$1");
+
+test("web push server actions do not export TypeScript-only names", () => {
+  assert.match(webPushActionsSource, /^"use server";/);
+  assert.doesNotMatch(webPushActionsSource, /\bexport\s+type\b/);
+});
 
 test("an unsupported browser is reported as unsupported, with a reason", () => {
   const state = resolveWebPushState({

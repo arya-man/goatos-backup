@@ -30,8 +30,7 @@ import {
  * anything. Convergence, not at-most-once delivery, is what makes that safe.
  */
 
-export type WebPushActionResult<T> = WebPushResult<T>;
-export type { BrowserPushRegistration, WebPushVapidKey };
+type WebPushActionResult<T> = WebPushResult<T>;
 
 // Mirrors the backend's own ceilings (backend/internal/browserpush/registration.go) so an
 // oversized value is refused here rather than spending a round trip to be refused there.
