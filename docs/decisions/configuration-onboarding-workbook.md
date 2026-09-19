@@ -116,7 +116,34 @@ database — the shape Cloud Run has beside Cloud SQL). Over the laptop's SSH tu
 round-trip bound (~15 ms each) and the same file takes hours; those numbers say nothing about
 the pipeline and are not recorded.
 
-_Filled in from `TestConfigurationWorkbookLoad` (see the table at the end of this file)._
+`TestConfigurationWorkbookLoad`: two parks, 200 pens (the same names in both parks), three
+lists, N items (one row in every 1,000 deliberately invalid) and an animals tab with a
+duplicate tag placed far apart, through stage → validate → rows-to-fix → apply, every count
+asserted against the tables afterwards. Peak heap is the test process's, sampled every 250 ms.
+
+| Rows in the file | Stage | Validate (all tabs) | Apply (all tabs) | Apply rate | Peak heap |
+| --- | --- | --- | --- | --- | --- |
+| 102,205 (1 lakh items + 2,000 animals) | 7 s | 5 s | 23 m 28 s | 72 rows/s | 75 MB |
+| 202,205 (2 lakh items + 2,000 animals) | 13 s | 54 s | 8 m 15 s | 408 rows/s | 79 MB |
+| 305,205 (3 lakh items + 5,000 animals) | 20 s | 54 s | 12 m 31 s | 406 rows/s | 133 MB |
+
+The 1-lakh row is the run BEFORE two fixes the runs themselves found, both in the write path
+the single-sheet upload had all along: the service resolved an item's category kind through
+the category projection, which COUNTS every item of every list on each read (one full count
+per item written); and a register get wrapped the whole projection in `WHERE r.id = $2`, which
+for `item_id::text` pushes down as a column-side cast the index cannot serve (one scan of the
+items table per item written, since the write reads the row back). Sequential apply before
+the chunked, six-wide apply ran at ~27 rows/s. With both fixed the rate is flat from 2 to
+3 lakh — the pipeline is linear in the rows.
+
+Memory is flat by construction: the 3-lakh file is 305,000 staged rows in the database and
+about 130 MB in the process (the in-sheet dedupe maps are the only thing that grows with the
+sheet). Disk is the real ceiling: an applied item row costs about 7 KB across the staged row,
+the item, its audit row, its idempotency record and its outbox message, so a 3-lakh file is
+~2 GB of database while it runs and the test drops it after.
+
+Over the SSH tunnel the same 5,000-row file did not finish in ten minutes (every write is
+~8 round trips at ~15 ms), which is why the numbers above are the only ones recorded.
 
 ## Positions recorded, not changed
 
