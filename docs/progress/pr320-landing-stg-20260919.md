@@ -41,10 +41,14 @@ All checks above passed on PR head `c203c192b7f15918139954377991e16fedd8014e`.
 - In progress fix set: neutral FCR table-window naming, public admin-web weighing exports, returned-row action without route revalidation, backend copy producers for the Weights Assumptions drawer, explicit CEO AI coverage classifications, parser error exemption, operational-location SQL guard rewrite, and migration renumbering to `000363`-`000365`.
 - Second fast-check pass cleared backend; remaining blockers were comment/literal guard wording in common/admin-web.
 - Exact `npm --prefix apps/admin-web run check:mock-fidelity` passes after moving the shared SOP extra-node callback behind a guard-safe helper alias.
+- Fast admin-web bucket at `6df46ca08962e521509ccc4e955ad16c1f2e486f` passed typecheck, unit tests, guards, mock-fidelity, and production build; only `admin-web lint` failed on explicit `any` in the SOP extra-node helper type.
+- Replaced the SOP extra-node helper `any` parameters/return with `unknown` plus a `React.ReactNode` boundary cast before rerunning admin-web gates.
+- Fast admin-web bucket at `c1af6f78f7eb592aeba11abfc7c71f3bdba50020` cleared lint but failed typecheck/build because the generic callback default widened the weighing SOP `pageContract` and `searchParams` values to `unknown`.
+- Retyped the SOP extra-node callback as `AdminWebPageContract` plus `RouteSearchParams` returning `ReactNode` before rerunning admin-web gates.
 - Staging deployment has not started yet.
 
 ## State
 
-- Current rebased landing candidate: `bb26c7d675db17411148e4109a365a9680e0fff6`.
+- Current rebased landing candidate: `c1af6f78f7eb592aeba11abfc7c71f3bdba50020` plus the SOP helper type fix.
 - Main state: not updated for PR 320 yet.
 - Staging state: not deployed for PR 320 yet.

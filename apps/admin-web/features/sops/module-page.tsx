@@ -1,8 +1,10 @@
 import { SopBuilder, SopLibrary, builderInitialFromVersion, isVersionFaithfullyEditable, sopScopeKey, toSopView } from "@/features/sops";
 import { FollowUpEditor } from "./followup-editor";
 import { parseFollowUp } from "./followup-model";
+import type { ReactNode } from "react";
 import type { SopCardView } from "@/features/sops";
 import { getSop, isAuthRequiredError, listSops, requireAdminWebPageContract } from "@/lib/api/server";
+import type { AdminWebPageContract } from "@/lib/api/server";
 import type { RouteSearchParams } from "@/lib/search-params";
 import type { SopScopeDomain } from "./sop-derive";
 import { InspectionEditor } from "./inspection-editor";
@@ -17,7 +19,7 @@ import { parseShifting } from "./shifting-model";
 import { CaptureCardEditor } from "./capture-editor";
 import { parseCaptureCard } from "./capture-model";
 
-type renderSopExtraNodeFactory<T = any> = (pageContract: T, sp: any) => Promise<any>;
+type renderSopExtraNodeFactory<t = AdminWebPageContract> = (pageContract: t, sp: RouteSearchParams) => Promise<ReactNode>;
 
 // Shared server renderer for the per-module SOP pages (SOP split, maintainer decision 2026-08-18):
 // /vaccination/sops, /counts/sops, and /feed/sops each mount this with their own page-contract key,
