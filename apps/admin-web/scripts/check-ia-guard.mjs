@@ -123,6 +123,11 @@ const MODULE_SURFACE_ROUTE_EXCEPTIONS = new Set([
   // inspection the phone runs is AUTHORED here (pages, questions, proof, compulsory flags), the
   // same module-surface shape as the five routes above. Still no /sops and no lens duplicate.
   "/procurement/sops",
+  // /sales/sops — approved by explicit maintainer instruction 2026-09-19 (recorded in AGENTS.md,
+  // docs/decisions/sales-sop.md and the backend contract): the steps a recorded sale owes and
+  // who does each are AUTHORED here and run by the tasks engine, the same module-surface shape
+  // as /counts/sops. Still no /sops and no lens duplicate.
+  "/sales/sops",
 ]);
 
 function isAllowedRoute(route) {

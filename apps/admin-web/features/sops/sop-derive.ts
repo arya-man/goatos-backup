@@ -79,11 +79,13 @@ export function classifyDomain(code: string, name: string): DomainId | "general"
 // (maintainer decision): their codes are module-prefixed by migration 000186, so the prefix is
 // authoritative — keyword guessing would file milk.* under "Breeding" ("milk") and weighing.*
 // under "Counts" ("weigh").
-export function sopScopeKey(code: string, name: string): "vaccination" | "counts" | "feed" | "milk" | "weighing" | "procurement" | "general" {
+export function sopScopeKey(code: string, name: string): SopScopeDomain {
   const c = (code || "").toLowerCase();
   // GENERAL SOPs (SOP studio phase 2, 2026-09-18): the `general.` prefix is the kind, authored on
   // Configuration -> Work instructions.
   if (c.startsWith("general.")) return "general";
+  // SALES SOP (2026-09-19): `sales.` codes are authored on Sales -> Sales SOP.
+  if (c.startsWith("sales.")) return "sales";
   if (c.startsWith("procurement.")) return "procurement";
   if (c.startsWith("milk.")) return "milk";
   if (c === "weighing" || c.startsWith("weighing.")) return "weighing";
@@ -97,8 +99,9 @@ export function sopScopeKey(code: string, name: string): "vaccination" | "counts
 // vaccination, plus the migration-seeded Counts (birth / death / shifting) and Feed (distribution /
 // packing / transport) library documents. isVaccinationSop still decides which cards carry the
 // "Vaccination" chip label and which map to the vaccination filter chip.
-export const SOP_SLICE_LABEL: Record<"vaccination" | "counts" | "feed" | "milk" | "weighing" | "procurement" | "general", string> = {
+export const SOP_SLICE_LABEL: Record<SopScopeDomain, string> = {
   general: "General",
+  sales: "Sales",
   vaccination: "Vaccination",
   counts: "Herd Operations",
   feed: "Feed",
@@ -534,7 +537,7 @@ export type SubjectScope = "batch" | "goat";
 
 // The New SOP builder is locked by its mounted module page. The domain is not a free choice inside
 // the builder; each route passes its own slice so new SOPs stay visible on the page that authored them.
-export type SopScopeDomain = "vaccination" | "counts" | "feed" | "milk" | "weighing" | "procurement" | "general";
+export type SopScopeDomain = "vaccination" | "counts" | "feed" | "milk" | "weighing" | "procurement" | "general" | "sales";
 
 export type SopBuilderInput = {
   name: string;

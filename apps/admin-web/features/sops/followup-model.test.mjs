@@ -114,3 +114,19 @@ test("next_sessions: a 15:00 example birth takes its ten rounds from the next se
   assert.equal(step.schedule.key_pattern, "colostrum_day_{day}_{hhmm}");
   assert.deepEqual(followUpProblems(rows, {}), []);
 });
+
+// SALES SOP (2026-09-19): the seeded sale document -- every step owned by a designation, one
+// branch -- round-trips byte-faithfully, and a step's owner survives parse -> emit while a blank
+// owner emits no key at all (the backend's unknown-key check would otherwise be handed "").
+test("the seeded sale document round-trips with its step owners", () => {
+  const doc = JSON.parse(readFileSync(new URL("sales_deal.json", seedDir), "utf8"));
+  const rows = parseFollowUp({ follow_up: doc });
+  assert.ok(rows);
+  assert.equal(rows.tracks[0].steps[0].owner, "park_head");
+  assert.equal(rows.tracks[0].steps[3].owner, "procurement_director");
+  assert.equal(canonical(emitFollowUp(rows)), canonical(doc));
+  rows.tracks[0].steps[1].owner = "";
+  const emitted = emitFollowUp(rows);
+  assert.equal("owner" in emitted.tracks[0].steps[1], false);
+  assert.equal(emitted.tracks[0].steps[0].owner, "park_head");
+});
