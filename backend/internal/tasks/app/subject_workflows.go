@@ -55,7 +55,8 @@ type OpenSubjectWorkflowInput struct {
 // OpenSubjectWorkflow returns the workflow id for the subject, opening it from the published SOP
 // on first call. Idempotent on (template_key, subject_ref_id).
 func (s *Service) OpenSubjectWorkflow(ctx context.Context, in OpenSubjectWorkflowInput) (string, error) {
-	_, general := domain.GeneralSOPCode(in.TemplateKey)
+	// A general run and the sale workflow carry no animal (domain.SubjectKeyedTemplate).
+	general := domain.SubjectKeyedTemplate(in.TemplateKey)
 	if strings.TrimSpace(in.TenantID) == "" || strings.TrimSpace(in.TemplateKey) == "" ||
 		strings.TrimSpace(in.SubjectRefID) == "" || (!general && strings.TrimSpace(in.SubjectGoatID) == "") {
 		return "", domain.ErrMissingRequiredField
