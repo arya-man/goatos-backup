@@ -9,6 +9,7 @@ import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
+import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
@@ -529,7 +530,10 @@ private fun WorkflowActionRow(
                         }
                     }
                 }
-                Row(horizontalArrangement = Arrangement.spacedBy(5.dp)) {
+                // A FlowRow, not a Row: with the owner tag (SALES SOP) beside the type tag, a
+                // third chip ("Answered no") was left the width the status chip spared and rendered
+                // one letter per line on the Realme. Chips now wrap to a second line instead.
+                FlowRow(horizontalArrangement = Arrangement.spacedBy(5.dp), verticalArrangement = Arrangement.spacedBy(5.dp)) {
                     WorkflowTag(action.typeLabel, MeshaColors.Surf3, MeshaColors.Muted)
                     // WHO does the step, in the SOP's words (SALES SOP): "Park Head".
                     if (action.ownerLabel.isNotBlank()) {

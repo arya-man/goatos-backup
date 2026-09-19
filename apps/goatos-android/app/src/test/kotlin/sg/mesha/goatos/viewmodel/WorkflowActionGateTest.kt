@@ -319,6 +319,8 @@ class WorkflowProofTargetTest {
     fun `a general run uses the work-instruction camera copy, never the birth one`() {
         assertEquals(sg.mesha.goatos.capture.ProofCapturePrompt.WORK_INSTRUCTION, workflowCapturePrompt(isDeath = false, action = null, isGeneral = true))
         assertEquals(sg.mesha.goatos.capture.ProofCapturePrompt.BIRTH, workflowCapturePrompt(isDeath = false, action = null))
+        // A sale run is neither birth nor death: it takes the neutral work-instruction camera copy.
+        assertEquals(sg.mesha.goatos.capture.ProofCapturePrompt.WORK_INSTRUCTION, workflowCapturePrompt(isDeath = false, action = null, isSale = true))
     }
 }
 

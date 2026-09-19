@@ -543,7 +543,7 @@ class WorkflowDetailViewModel @Inject constructor(
         }
         val goatId = current.subjectGoatId
         val target = workflowProofTarget(goatId, workflowId)
-        val prompt = workflowCapturePrompt(false, action, isGeneral = current.isGeneral)
+        val prompt = workflowCapturePrompt(false, action, isGeneral = current.isGeneral, isSale = current.isSale)
         _state.update { it.copy(isCapturingVideo = true, message = null, proofSaved = null) }
         viewModelScope.launch {
             val captured: Pair<String, Triple<String, Long, Long>>? = try {
@@ -690,7 +690,7 @@ class WorkflowDetailViewModel @Inject constructor(
         val action = current.actions.firstOrNull { it.actionId == actionId }
         val goatId = current.subjectGoatId
         val target = workflowProofTarget(goatId, workflowId)
-        val prompt = workflowCapturePrompt(current.isDeath, action, isGeneral = current.isGeneral)
+        val prompt = workflowCapturePrompt(current.isDeath, action, isGeneral = current.isGeneral, isSale = current.isSale)
         _state.update { it.copy(isCapturingVideo = true, message = null, proofSaved = null) }
         viewModelScope.launch {
             val captured = try {
@@ -1446,8 +1446,11 @@ internal fun workflowProofTarget(goatId: String, workflowId: String): WorkflowPr
     if (goatId.isBlank()) WorkflowProofTarget(ProofSubject.TASK, workflowId, "task")
     else WorkflowProofTarget(ProofSubject.GOAT, goatId, "goat")
 
-internal fun workflowCapturePrompt(isDeath: Boolean, action: WorkflowActionUi?, isGeneral: Boolean = false): ProofCapturePrompt = when {
-    isGeneral -> ProofCapturePrompt.WORK_INSTRUCTION
+// A SALE run takes the neutral "record the step" copy like a general work instruction: its
+// steps come from the sales.deal SOP and prove no animal. The birth wording was showing on the
+// loading video (found on the Realme, 2026-09-19).
+internal fun workflowCapturePrompt(isDeath: Boolean, action: WorkflowActionUi?, isGeneral: Boolean = false, isSale: Boolean = false): ProofCapturePrompt = when {
+    isGeneral || isSale -> ProofCapturePrompt.WORK_INSTRUCTION
     !isDeath -> ProofCapturePrompt.BIRTH
     action?.actionKey == WORKFLOW_ACTION_KEY_POST_MORTEM -> ProofCapturePrompt.POST_MORTEM
     else -> ProofCapturePrompt.DEATH
