@@ -144,15 +144,16 @@ test("weights analytics tab links preserve the resolved weighing window", () => 
   assert.match(analyticsSource, /\[TAB_PARAM\]: name === "general" \? null : name/);
 });
 
-test("weights analytics landing redirects to a dated window before rendering the heavy page", () => {
-  assert.match(analyticsRouteSource, /async function redirectToCanonicalWindow\(params: RouteSearchParams\)/);
-  assert.match(analyticsRouteSource, /if \(one\(params, WINDOW_FROM_PARAM\) \|\| one\(params, WINDOW_TO_PARAM\)\) return;/);
-  assert.match(analyticsRouteSource, /const window = await landingWindow\(/);
-  assert.match(analyticsRouteSource, /redirect\(hrefWithWindow\(params, window\.from, window\.to\)\);/);
-  assert.match(analyticsRouteSource, /const params = await searchParams;\s*\n\s*await redirectToCanonicalWindow\(params\);\s*\n\s*\/\/ serial-await: allow [^\n]+\n\s*const pageContract = await requireAdminWebPageContract/);
+test("weights analytics direct route renders without a client-router canonical redirect", () => {
+  assert.match(analyticsRouteSource, /const \[params, contract\] = await Promise\.all\(\[searchParams, getAdminWebBootstrap\(\)\]\);/);
+  assert.match(analyticsRouteSource, /if \(!contract\.ok\) return <ContractUnavailable contract=\{contract\} \/>;/);
+  assert.match(analyticsRouteSource, /const pageContract = contract\.data\.pages\.find\(\(item\) => item\.route_id === "weighing-analytics"\);/);
+  assert.match(analyticsRouteSource, /<WeighingWeightsAnalyticsPage[\s\S]*searchParams=\{params\}[\s\S]*pageContract=\{pageContract\}/);
+  assert.doesNotMatch(analyticsRouteSource, /redirectToCanonicalWindow/);
+  assert.doesNotMatch(analyticsRouteSource, /hrefWithWindow/);
+  assert.doesNotMatch(analyticsRouteSource, /redirect\(hrefWithWindow/);
+  assert.doesNotMatch(analyticsRouteSource, /requireAdminWebPageContract/);
   assert.doesNotMatch(analyticsRouteSource, /Promise\.all\(\[searchParams, requireAdminWebPageContract/);
-  assert.match(analyticsRouteSource, /next\.set\(WINDOW_FROM_PARAM, from\);/);
-  assert.match(analyticsRouteSource, /next\.set\(WINDOW_TO_PARAM, to\);/);
 });
 
 test("weights analytics fails selected tabs instead of rendering API failures as empty data", () => {
