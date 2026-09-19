@@ -288,7 +288,15 @@ const (
 	VaccinationOverseeExecution = "vaccination.oversee_execution"
 	WeighingPlan                = "weighing.plan"
 	WeighingMonitor             = "weighing.monitor"
-	WeighingExecute             = "weighing.execute"
+	// WeighingAssumptionsWrite gates EDITING the figures the Weighing area reads that someone
+	// decided rather than measured: the assumed live-weight sale price per species, the sale
+	// lines, the band edges, the growth targets and the window dates (maintainer decision
+	// 2026-09-19). Its own capability rather than a reuse of WeighingPlan or WeighingMonitor
+	// because the maintainer's ask was explicit: "in HRMS we need access for this ... who have
+	// [the tick] should only see it and change it". It rides the weighing module's Configure
+	// level, so /people grants it per person; READING the figures stays on WeighingMonitor.
+	WeighingAssumptionsWrite = "weighing.assumptions.write"
+	WeighingExecute          = "weighing.execute"
 	// WeighingOverseeOperators gates SEEING OTHER PEOPLE'S weighing shed tasks -- the extra
 	// "Operators" surface that lists work assigned to someone else, across parks, READ-ONLY.
 	//
@@ -1442,6 +1450,7 @@ var rolePermissions = map[string]map[string]struct{}{
 		VaccinationOverviewRead:     {},
 		VaccinationOverseeExecution: {},
 		WeighingPlan:                {},
+		WeighingAssumptionsWrite:    {},
 		WeighingMonitor:             {},
 		// NOT WeighingExecute: the CEO plans weighing work and oversees it, and must never reach a
 		// scan screen. Holding execute put a scannable surface in front of a planner who is assigned

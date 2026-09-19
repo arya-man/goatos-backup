@@ -1,5 +1,10 @@
 package domain
 
+import (
+	"strconv"
+	"strings"
+)
+
 // Weight demographics: average weight by BREED, SEX and MANAGEMENT STAGE.
 //
 // THIS READ IS THE ONE RECORDED EXCEPTION TO WEIGHING ISOLATION (maintainer
@@ -156,9 +161,12 @@ type ShedTypeMember struct {
 // Bands are lower-inclusive and upper-exclusive, so every animal lands in exactly one and Animals
 // sums to the weighed population.
 type WeightBandBucket struct {
-	// Band is a stable KEY, never display copy: under_15, 15_20, 20_25, 25_30, 30_35, 35_plus.
-	// The farm words live in the page contract.
-	Band string `json:"band"`
+	// Band is a stable KEY derived from the caller's band edges: under_15, 15_20, ..., 35_plus for
+	// the default edges (WeightBandKey). Label is the farm words for the same bracket ("15 – 20 kg"),
+	// composed by the backend from the same edges (WeightBandLabel) -- since the edges are the
+	// tenant's assumption (2026-09-19) a page contract cannot carry one label per key any more.
+	Band  string `json:"band"`
+	Label string `json:"label"`
 	// Animals is everything standing in this bracket -- scanned kids plus the head counts of the
 	// pens whose average lands here.
 	Animals int `json:"animals"`
@@ -314,4 +322,79 @@ type WeightDemographics struct {
 	// ShedComposition is keyed by location_id + partition_label so the admin-web
 	// weights table can add useful breed+sex chips without doing its own herd lookup.
 	ShedComposition []ShedComposition `json:"shed_composition"`
+}
+
+// DefaultWeightBandEdgesKg are the band edges the Weight-wise tab carried as a CASE block before
+// they became the tenant's weight_band_edges_kg assumption (maintainer decision 2026-09-19). The
+// caller (the Weights pages, from the assumptions read) passes the live edges as band_edges_kg;
+// this read never consults the assumptions table itself.
+var DefaultWeightBandEdgesKg = []float64{15, 20, 25, 30, 35}
+
+// ValidWeightBandEdgesKg reports whether caller-supplied edges are usable: 2..8 edges, strictly
+// rising, each inside 1..200 kg. Empty means the defaults and is valid.
+func ValidWeightBandEdgesKg(edges []float64) bool {
+	if len(edges) == 0 {
+		return true
+	}
+	if len(edges) < 2 || len(edges) > 8 {
+		return false
+	}
+	for i, e := range edges {
+		if e < 1 || e > 200 || (i > 0 && e <= edges[i-1]) {
+			return false
+		}
+	}
+	return true
+}
+
+// WeightBandKey is the stable wire key for band idx over edges: "under_15", "15_20", "35_plus".
+// A decimal edge writes its point as "p" ("17p5") so the key stays a single token.
+func WeightBandKey(edges []float64, idx int) string {
+	if len(edges) == 0 {
+		edges = DefaultWeightBandEdgesKg
+	}
+	switch {
+	case idx <= 0:
+		return "under_" + bandNum(edges[0])
+	case idx >= len(edges):
+		return bandNum(edges[len(edges)-1]) + "_plus"
+	default:
+		return bandNum(edges[idx-1]) + "_" + bandNum(edges[idx])
+	}
+}
+
+// WeightBandLabel is the farm wording for band idx: "Under 15 kg", "15 – 20 kg", "35 kg and over".
+func WeightBandLabel(edges []float64, idx int) string {
+	if len(edges) == 0 {
+		edges = DefaultWeightBandEdgesKg
+	}
+	switch {
+	case idx <= 0:
+		return "Under " + bandText(edges[0]) + " kg"
+	case idx >= len(edges):
+		return bandText(edges[len(edges)-1]) + " kg and over"
+	default:
+		return bandText(edges[idx-1]) + " – " + bandText(edges[idx]) + " kg"
+	}
+}
+
+func bandText(v float64) string {
+	if v == float64(int64(v)) {
+		return strconv.FormatInt(int64(v), 10)
+	}
+	return strconv.FormatFloat(v, 'f', -1, 64)
+}
+
+func bandNum(v float64) string { return strings.ReplaceAll(bandText(v), ".", "p") }
+
+// BandIndexFor places a weight in the edges the way SQL width_bucket does: 0 below the first
+// edge, len(edges) at or above the last. Lower-inclusive, upper-exclusive.
+func BandIndexFor(kg float64, edges []float64) int {
+	idx := 0
+	for _, e := range edges {
+		if kg >= e {
+			idx++
+		}
+	}
+	return idx
 }

@@ -360,7 +360,31 @@ func (r *Repository) OverdueLoadCandidates(ctx context.Context, tenantID, asOf s
 	if err != nil {
 		return nil, err
 	}
-	return domain.OverdueLoads(read.Loads), nil
+	threshold, err := r.loadAgeAlertDays(ctx, tenantID)
+	if err != nil {
+		return nil, err
+	}
+	return domain.OverdueLoads(read.Loads, threshold), nil
+}
+
+// loadAgeAlertDays reads the tenant's load-age alert line from growth_assumptions (maintainer
+// decision 2026-09-19). Not an aggregate: one row by primary key.
+// projection-review: membership=one growth_assumptions row per (tenant_id, key); group_key=none, a
+// primary-key point read; join_cardinality=none; pagination=none; scope=tenant.
+// decision 2026-09-19: the figure is edited from the ADG Analytics Assumptions drawer). A tenant
+// with no row gets the default the constant carried; a read error is an error, never a silent 90.
+func (r *Repository) loadAgeAlertDays(ctx context.Context, tenantID string) (int, error) {
+	ctx, cancel := context.WithTimeout(ctx, r.timeout)
+	defer cancel()
+	var value float64
+	err := r.pool.QueryRow(ctx, `SELECT value::float8 FROM growth_assumptions WHERE tenant_id = $1::uuid AND key = 'load_age_alert_days'`, tenantID).Scan(&value)
+	switch {
+	case errors.Is(err, pgx.ErrNoRows):
+		return domain.LoadAgeAlertDays, nil
+	case err != nil:
+		return 0, fmt.Errorf("procurement: load age alert days: %w", err)
+	}
+	return int(value), nil
 }
 
 func (r *Repository) loadwiseSales(ctx context.Context, tenantID, parkID string, maxLoads int, asOf string) (domain.LoadwiseSales, error) {

@@ -44,7 +44,6 @@ const PARAMS = {
   offset: "fb_offset",
 } as const;
 
-const BAND_KEYS = ["under_15", "15_20", "20_25", "25_30", "30_35", "35_plus"];
 const PAGE_SIZES = [10, 25, 50] as const;
 
 export type FeedWeightBandInitialState = {
@@ -125,7 +124,12 @@ export function FeedWeightBandCard({
   const sourceLabel = (key: string) =>
     key === "pen_average" ? copy(pageContract, "value.weighing.lump") : copy(pageContract, "value.weighing.individual");
   const typeLabel = (key: string) => copy(pageContract, `value.feed_band.type.${key}`, key);
-  const bandLabel = (key: string) => copy(pageContract, `band.weight.${key}`, key);
+  // The bands are the tenant's weight_band_edges_kg assumption (maintainer decision 2026-09-19):
+  // the response carries the vocabulary and the farm label for every bracket, so the filter and
+  // the labels never name a bracket the rows were not banded into. The page copy is only the
+  // fallback for a row served without a label.
+  const bandOptions = useMemo(() => feedBand?.bands ?? [], [feedBand]);
+  const bandLabel = (key: string) => bandOptions.find((band) => band.key === key)?.label ?? copy(pageContract, `band.weight.${key}`, key);
   const bucketLabel = (key: string) => copy(pageContract, `value.feed_band.${key}`, key);
   // "104 sold · 3 died · 13 other": the three exit buckets, zero buckets left out.
   const exitBreakdown = (sold: number, died: number, other: number) =>
@@ -245,7 +249,7 @@ export function FeedWeightBandCard({
     exitedAt: row.exited_at,
     lastWeighedAt: row.last_weighed_at ?? "",
     lastBand: row.last_band ?? "",
-    lastBandLabel: row.last_band ? bandLabel(row.last_band) : "",
+    lastBandLabel: row.last_band ? (row.last_band_label || bandLabel(row.last_band)) : "",
     lastWeightKg: row.last_weight_kg ?? null,
     feedType: row.feed_type ?? "",
     feedTypeLabel: row.feed_type ? typeLabel(row.feed_type) : "",
@@ -260,7 +264,7 @@ export function FeedWeightBandCard({
     if (exitScopes.some((scope) => scope.id === id)) continue;
     exitScopes.push({
       id,
-      title: `${row.pen} · ${bandLabel(row.band)}`,
+      title: `${row.pen} · ${row.band_label || bandLabel(row.band)}`,
       items: exitItems.filter((item) => item.park === row.park_name && item.pen === row.pen && item.lastBand === row.band),
     });
   }
@@ -369,7 +373,7 @@ export function FeedWeightBandCard({
         {view === "matched"
           ? selectField("source", copy(pageContract, "filter.feed_band.weight_source"), state.source, ["pen_average", "per_animal"].map((key) => ({ value: key, label: sourceLabel(key) })))
           : null}
-        {view === "matched" ? selectField("band", copy(pageContract, "filter.feed_band.band"), state.band, BAND_KEYS.map((key) => ({ value: key, label: bandLabel(key) }))) : null}
+        {view === "matched" ? selectField("band", copy(pageContract, "filter.feed_band.band"), state.band, bandOptions.map((band) => ({ value: band.key, label: band.label }))) : null}
         {selectField("pen", copy(pageContract, "filter.feed_band.pen"), state.pen, pens.map((pen) => ({ value: pen, label: pen })))}
         {view === "matched" ? selectField("group", copy(pageContract, "filter.feed_band.group"), state.group, groups.map((group) => ({ value: group, label: group }))) : null}
         {hasTableFilter ? (
@@ -429,7 +433,7 @@ export function FeedWeightBandCard({
               weightSourceLabel: sourceLabel(row.weight_source),
               weightSourceShort: copy(pageContract, `value.feed_band.source.short.${row.weight_source}`, sourceLabel(row.weight_source)),
               band: row.band,
-              bandLabel: bandLabel(row.band),
+              bandLabel: row.band_label || bandLabel(row.band),
               pen: row.pen,
               group: row.group,
               gender: includeExited ? row.gender_all : row.gender,

@@ -26,6 +26,35 @@ type BootstrapInput struct {
 	ActorID  string
 	Grants   []permissions.ActiveGrant
 	TraceID  string
+	// PersonPermissions is the per-person held set resolved for this bootstrap (nil when the
+	// person has no rows and the role path applies). Set inside compile() from the page access
+	// read, never by the handler, so it is always the same read the page narrowing used.
+	PersonPermissions map[string]struct{}
+}
+
+// inputAuthorizes is the control-level twin of the request middleware's decision: the CEO/CXO
+// floor first (a ceo_internal role is never narrowed by person rows), then the person's held
+// set when they have one, else the roles. A control gated on roles alone renders DISABLED for
+// the very person a /people tick was meant to admit, while the route behind it says yes -- the
+// inverse of the 2026-08-12 incident, and the same lock.
+func inputAuthorizes(input BootstrapInput, required []string) bool {
+	if len(input.Grants) == 0 {
+		return true
+	}
+	roles := tenantRoles(input.Grants, input.TenantID)
+	roleSaysYes := permissions.RolesAuthorize(roles, required, false)
+	if roleSaysYes && hasAnyRole(roles, permissions.RoleCEOInternal) {
+		return true
+	}
+	if input.PersonPermissions != nil {
+		for _, p := range required {
+			if _, ok := input.PersonPermissions[p]; !ok {
+				return false
+			}
+		}
+		return true
+	}
+	return roleSaysYes
 }
 
 type ReferenceRepository interface {
@@ -279,6 +308,13 @@ func (s *Service) compile(
 	pageAccessErr error,
 ) domain.BootstrapResponse {
 	families.UIConfig = applicableConfigEntries(families.UIConfig)
+	if personAccess.pageAccessAssigned && personAccess.permissionsResolved {
+		held := make(map[string]struct{}, len(personAccess.permissions))
+		for _, perm := range personAccess.permissions {
+			held[perm] = struct{}{}
+		}
+		input.PersonPermissions = held
+	}
 	resp := baseBootstrap()
 	resp = compileRequestContext(resp, input, families)
 	resp = applyConfigEntries(resp, families.UIConfig)
@@ -906,6 +942,12 @@ func compilePages(pages []domain.PageContract, families ReferenceFamilies, input
 			// items use. sop_task_type_answer_kinds is the metadata twin keyed on the same keys.
 			out[i].OptionGroups = replaceOptionGroup(out[i].OptionGroups, "sop_task_types", optionsFromReferences(families.SOPTaskTypes, ""))
 			out[i].OptionGroups = replaceOptionGroup(out[i].OptionGroups, "sop_task_type_answer_kinds", optionsFromReferences(families.SOPTaskTypeAnswerKinds, ""))
+			if out[i].RouteID == "weighing-sops" {
+				// The Assumptions drawer lives on the Weighing SOP page (maintainer instruction
+				// 2026-09-19, moved from ADG Analytics the same day): the SOP page is where the
+				// weighing rules are read, so the figures they are judged against sit beside them.
+				out[i].Controls = compileWeighingAssumptionsControl(out[i].Controls, input, out[i].Copy)
+			}
 			if out[i].RouteID == "counts-sops" {
 				// A NEW Herd Operations SOP seeds herd questions, not the vaccination drive's
 				// (the vaccination seed leaked onto this page until 2026-09-13).
@@ -1134,6 +1176,31 @@ func compileWeightsAnalyticsControls(controls []domain.Control, input BootstrapI
 		Kind:           "chart",
 		Enabled:        allowed,
 		DisabledReason: reason,
+	})
+}
+
+// compileWeighingAssumptionsControl declares the Assumptions button on the Weighing SOP page
+// (maintainer decision 2026-09-19; first placed on ADG Analytics, moved the same day): the one
+// place the assumed sale price, the sale lines, the band edges, the growth targets and the
+// window dates are EDITED. Gated on weighing.assumptions.write, which rides the weighing
+// module's Configure level so /people grants it per person -- and gated through inputAuthorizes
+// so a person's ticks light the control the same way they open the route. The maintainer's ask
+// was "who have [the tick] should only see it", so the page HIDES the button when the control
+// is disabled rather than greying it: every reader can see the figures in the tab's own
+// caption; the button is only for changing them.
+func compileWeighingAssumptionsControl(controls []domain.Control, input BootstrapInput, copy map[string]string) []domain.Control {
+	allowed := inputAuthorizes(input, []string{permissions.WeighingAssumptionsWrite})
+	reason := ""
+	if !allowed {
+		reason = controlCopy(copy, "disabled.assumptions", "Your access can read the Weighing figures but not change them.")
+	}
+	return upsertControl(controls, domain.Control{
+		ID:             "edit_assumptions",
+		Label:          controlCopy(copy, "action.assumptions", "Assumptions"),
+		Kind:           "drawer",
+		Enabled:        allowed,
+		DisabledReason: reason,
+		Action:         "PUT /growth-director/assumptions",
 	})
 }
 

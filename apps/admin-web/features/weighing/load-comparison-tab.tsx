@@ -3,7 +3,7 @@ import { Scale } from "lucide-react";
 import { GroupedBars, type BarGroup, type GroupedBar } from "./grouped-bars";
 import { copy, type AdminUiPageContract } from "@/lib/admin-ui-contract";
 import { fmtDate } from "@/lib/format";
-import type { ShedWeightsResponse } from "@/lib/api/server";
+import type { GrowthSalePrice, ShedWeightsResponse } from "@/lib/api/server";
 import type { LoadwiseLoad, LoadwiseWeightLoad } from "@/lib/api/procurement";
 
 /**
@@ -62,12 +62,15 @@ export function LoadComparisonTab({
   weights,
   valueLoads = null,
   valueChartReason = "",
+  salePrices,
 }: {
   pageContract: AdminUiPageContract;
   /** The UNPRICED purchase rows (loadwise-weights); null when that read failed. */
   loads: LoadwiseWeightLoad[] | null;
   /** The by-load weighing read (all-time window); null when that read failed. */
   weights: ShedWeightsResponse | null;
+  /** The assumed live-weight sale prices (growth_sale_price_assumptions); null when unread. */
+  salePrices: GrowthSalePrice[] | null;
   /**
    * The PRICED rows (loadwise-sales), fetched only when the contract enabled the value chart
    * for this principal; null otherwise. Matched to `loads` by load_id.
@@ -122,16 +125,33 @@ export function LoadComparisonTab({
   // maintainer's assumed live-weight rate per species (backend-owned figures, printed on the
   // chart); gain is the difference. A sold-out load has no stock and gets no value bars.
   const priced = new Map((valueLoads ?? []).map((load) => [load.load_id, load]));
-  const rateSheep = Number(copy(pageContract, "load.rate.sheep_per_kg"));
-  const rateGoat = Number(copy(pageContract, "load.rate.goat_per_kg"));
+  // The rates are DATA (growth_sale_price_assumptions, maintainer decision 2026-09-07; edited
+  // from the Weighing SOP Assumptions drawer since 2026-09-19), never page copy. A species with
+  // no configured price cannot be valued; the note beside the chart says which rates applied.
+  const priceFor = (species: string): number | null => {
+    const row = (salePrices ?? []).find((price) => price.species === species);
+    return row ? row.price_per_kg_inr : null;
+  };
+  const rateSheep = priceFor("sheep");
+  const rateGoat = priceFor("goat");
   const rupees = copy(pageContract, "unit.rupees");
+  const ratesNote =
+    rateSheep === null && rateGoat === null
+      ? copy(pageContract, "note.load.rates.missing")
+      : `${copy(pageContract, "note.load.rates.prefix")} ${(salePrices ?? [])
+          .map((price) => `${price.species} ${rupees}${price.price_per_kg_inr.toLocaleString("en-IN")}`)
+          .join(", ")}`;
   const valueGroups: BarGroup[] = rows.map((row) => {
     const bars: GroupedBar[] = [];
     const purchaseValue = priced.get(row.load.load_id)?.purchase_value ?? null;
     const stockAnimals = row.load.remaining_sheep + row.load.remaining_goats;
+    // A species with no configured price cannot be valued; the load's stock value is then absent
+    // rather than priced at zero.
+    const sheepPriced = row.load.remaining_sheep === 0 || rateSheep !== null;
+    const goatsPriced = row.load.remaining_goats === 0 || rateGoat !== null;
     const stockValue =
-      row.latestAvg !== null && stockAnimals > 0
-        ? row.latestAvg * (row.load.remaining_sheep * rateSheep + row.load.remaining_goats * rateGoat)
+      row.latestAvg !== null && stockAnimals > 0 && sheepPriced && goatsPriced
+        ? row.latestAvg * (row.load.remaining_sheep * (rateSheep ?? 0) + row.load.remaining_goats * (rateGoat ?? 0))
         : null;
     if (purchaseValue !== null) {
       bars.push({ key: `${row.load.load_id}-pv`, label: copy(pageContract, "legend.load.purchase_value"), value: Math.round(purchaseValue), seriesKey: "purchase_value" });
@@ -237,7 +257,7 @@ export function LoadComparisonTab({
           <Scale className="ic" size={15} aria-hidden /> {copy(pageContract, "section.load_value.title")}
         </h2>
         <p className="muted small">{copy(pageContract, "section.load_value.caption")}</p>
-        <p className="muted small">{copy(pageContract, "note.load.rates")}</p>
+        <p className="muted small">{ratesNote}</p>
         {valueChartReason !== "" ? (
           <p className="muted">{valueChartReason}</p>
         ) : valueLoads === null ? (

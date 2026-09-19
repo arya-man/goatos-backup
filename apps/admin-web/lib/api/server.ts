@@ -1139,6 +1139,13 @@ export async function getShedWeights(params: {
   origin?: string;
   weighing_category?: string;
   sale_threshold_tolerance_g?: string;
+  /**
+   * The sale-ready line in kg (the tenant's sale_ready_threshold_kg assumption). Omitted is the
+   * 35 kg default; weighing takes it from the caller because it does not read the assumptions.
+   */
+  sale_threshold_kg?: number;
+  /** The lower ("Over 30 kg") line in kg -- the tenant's sale_ready_lower_kg assumption. */
+  sale_lower_kg?: number;
 }): Promise<ApiResult<ShedWeightsResponse>> {
   const config = await getServerConfig();
   if (!config.ok) return config;
@@ -1224,6 +1231,8 @@ export async function getWeightDemographics(params: {
   weighing_category?: string;
   /** Comma-list of rendered sections; omitted keeps the legacy full payload. */
   sections?: string;
+  /** Comma-separated band edges in kg (the tenant's weight_band_edges_kg assumption); omitted is 15,20,25,30,35. */
+  band_edges_kg?: string;
 }): Promise<ApiResult<WeightDemographicsResponse>> {
   const config = await getServerConfig();
   if (!config.ok) return config;
@@ -1339,6 +1348,73 @@ export async function getGrowthDirector(params: {
       cache: "no-store",
       query: compactQuery(params),
     }),
+  );
+}
+
+export type GrowthFCRResponse = AppApiComponents["schemas"]["GrowthFCRResponse"];
+export type GrowthFCRPen = AppApiComponents["schemas"]["GrowthFCRPen"];
+export type GrowthFCRGroup = AppApiComponents["schemas"]["GrowthFCRGroup"];
+export type GrowthSalePrice = AppApiComponents["schemas"]["GrowthSalePrice"];
+export type GrowthSalePricesResponse = AppApiComponents["schemas"]["GrowthSalePricesResponse"];
+export type GrowthAssumptionsResponse = AppApiComponents["schemas"]["GrowthAssumptionsResponse"];
+export type GrowthAssumptionValue = AppApiComponents["schemas"]["GrowthAssumptionValue"];
+export type GrowthAssumptionsUpdate = AppApiComponents["schemas"]["GrowthAssumptionsUpdate"];
+
+export async function getWeighingFCR(params: {
+  park_id?: string;
+  from?: string;
+  to?: string;
+  /** `male` / `female`, applied at PEN grain: a pen counts only when every resident is that sex. */
+  sex?: string;
+  /** `farm_born` / `purchased`, applied at PEN grain for the same reason. */
+  origin?: string;
+  weighing_category?: string;
+}): Promise<ApiResult<GrowthFCRResponse>> {
+  const config = await getServerConfig();
+  if (!config.ok) return config;
+  const client = createAppApiClient(apiClientOptions(config.data));
+  return request(() =>
+    client.request<GrowthFCRResponse>("/growth-director/fcr", {
+      cache: "no-store",
+      query: compactQuery(params),
+    }),
+  );
+}
+
+// The assumed live-weight sale price per species, effective today. Maintainer-edited DATA
+// (growth_sale_price_assumptions), read by the FCR tab and the Comparison tab so the Weighing area
+// carries one price.
+export async function getGrowthSalePrices(): Promise<ApiResult<GrowthSalePricesResponse>> {
+  const config = await getServerConfig();
+  if (!config.ok) return config;
+  const client = createAppApiClient(apiClientOptions(config.data));
+  return request(() =>
+    client.request<GrowthSalePricesResponse>("/growth-director/sale-prices", { cache: "no-store" }),
+  );
+}
+
+/**
+ * The figures the Weighing area is valued against (maintainer decision 2026-09-19): the sale
+ * prices effective today plus the sale-ready line and the load-age alert. Read by every reader of
+ * the page -- the Assumptions drawer shows them, and the pages that count "over N kg" take N from
+ * here rather than from a constant.
+ */
+export async function getGrowthAssumptions(): Promise<ApiResult<GrowthAssumptionsResponse>> {
+  const config = await getServerConfig();
+  if (!config.ok) return config;
+  const client = createAppApiClient(apiClientOptions(config.data));
+  return request(() =>
+    client.request<GrowthAssumptionsResponse>("/growth-director/assumptions", { cache: "no-store" }),
+  );
+}
+
+/** Change the assumptions. Version-fenced per figure; a 409 means reload and decide again. */
+export async function putGrowthAssumptions(body: GrowthAssumptionsUpdate): Promise<ApiResult<GrowthAssumptionsResponse>> {
+  const config = await getServerConfig();
+  if (!config.ok) return config;
+  const client = createAppApiClient(apiClientOptions(config.data));
+  return request(() =>
+    client.request<GrowthAssumptionsResponse>("/growth-director/assumptions", { method: "PUT", cache: "no-store", body }),
   );
 }
 

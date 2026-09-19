@@ -31,7 +31,7 @@ func (f *overdueLoadReaderFake) OverdueLoadCandidates(_ context.Context, _ strin
 func newOverdueFixture() (*overdueLoadReaderFake, *missedRecipientsFake, *missedQueueFake, *LoadAgeNotifier) {
 	reader := &overdueLoadReaderFake{overdue: []procurementdomain.OverdueLoad{{
 		LoadID: "l-129", LoadRef: "129", VendorName: "Krishnamorrthy", Farm: "CPT",
-		PurchaseDate: "2026-06-01", DaysSincePurchase: 92, Remaining: 77,
+		PurchaseDate: "2026-06-01", DaysSincePurchase: 92, Remaining: 77, ThresholdDays: 90,
 	}}}
 	recipients := &missedRecipientsFake{byPosition: map[string][]workforcedomain.NotificationRecipient{
 		"tenant|" + missedTenant + "|ceo_internal": {{WorkforceMemberID: "m-ceo", DeviceID: "d-ceo", FCMToken: "fcm-ceo"}},

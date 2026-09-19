@@ -3338,6 +3338,9 @@ select:disabled { opacity: .45; }
 /* The bar list keeps its own right gutter for the scrollbar, so the card's own right
    padding would otherwise read as double. */
 .wchart .wbars{padding-right:2px}
+/* The grouped band lists (FCR by breed / sex / band / park / origin) never scroll, so there is no
+   scrollbar gutter to excuse the 2px: their right-hand figures sat flush against the card frame. */
+.wchart .wgrouped .wbars{padding-right:10px}
 /* Air between a chart's header block and its bars. The title row (`.h`) and the
    caption under it sat directly on the first bar, so the heading read as part of the
    series rather than above it. Applied to the bar list itself — not to the heading —

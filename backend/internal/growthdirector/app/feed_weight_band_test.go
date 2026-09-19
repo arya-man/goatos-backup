@@ -45,7 +45,7 @@ func feedSourceFixture() ports.FeedWeightBandSource {
 }
 
 func TestBuildFeedWeightBandReconcilesAndOrders(t *testing.T) {
-	got := BuildFeedWeightBand(feedSourceFixture())
+	got := BuildFeedWeightBand(feedSourceFixture(), nil)
 	rec := got.Reconciliation
 	if rec.FeedDay != "2026-09-10" || rec.PositiveRows != 10 || rec.CollapsedItems != 6 {
 		t.Fatalf("sheet stages not carried: %+v", rec)
@@ -149,7 +149,7 @@ func TestBuildFeedWeightBandCarriesBothHeadCountVariants(t *testing.T) {
 	src.Rollups = append(src.Rollups, ports.FeedRollup{ParkID: gdParkA, ParkName: "Coimbatore", Pen: "Yashoda 9", ShedTag: "F2-Male", RationGroup: "Fattening", Breed: "Sojat", Workflow: "normal", KgPerDay: 4,
 		Items:    []ports.FeedRollupItem{{Label: "Mesha Bhusa", GramsPerHead: 300}},
 		Evidence: []ports.FeedWeightEvidence{{Source: domain.FeedBandSourcePerAnimal, Band: "25_30", Animals: 0, AverageWeightKg: 0, AnimalsAll: 2, AverageWeightKgAll: 27, MaleCountAll: 2, ExitedAnimals: 2, ExitedSold: 2}}})
-	got := BuildFeedWeightBand(src)
+	got := BuildFeedWeightBand(src, nil)
 	rec := got.Reconciliation
 	if rec.Rollups != 5 || rec.MatchedRollups != 3 || rec.ExcludedRollups != 2 || rec.MatchedRollupsAll != 4 || rec.ExcludedRollupsAll != 1 || rec.OutputRows != 6 {
 		t.Fatalf("two-variant reconciliation wrong: %+v", rec)

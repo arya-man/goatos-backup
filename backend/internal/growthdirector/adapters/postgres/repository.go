@@ -123,7 +123,7 @@ WHERE park.tenant_id = $1::uuid
   AND park.status = 'active'
   AND park.retired_at IS NULL
   AND ($2::uuid[] IS NULL OR park.location_id = ANY($2::uuid[]))
-ORDER BY park.display_order, park.name, park.location_id
+ORDER BY park.display_order, COALESCE(NULLIF(park.location_code, ''), park.name), park.location_id
 LIMIT $3`, tenantID, authorized, domain.MaxParks+1)
 	if err != nil {
 		return nil, err

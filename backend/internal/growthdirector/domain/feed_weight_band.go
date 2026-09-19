@@ -5,6 +5,8 @@ import (
 	"regexp"
 	"sort"
 	"strings"
+
+	weighingdomain "github.com/vgoats/goatos/backend/internal/weighing/domain"
 )
 
 // Feed by weight band (maintainer request 2026-09-18): the LATEST locked feed
@@ -32,9 +34,43 @@ const (
 	FeedBandSourcePerAnimal  = "per_animal"
 )
 
-// FeedBandKeys are the six 5 kg bands in ascending order. Same thresholds the
-// Weight-wise chart bands on, and the same keys its page copy names.
-var FeedBandKeys = []string{"under_15", "15_20", "20_25", "25_30", "30_35", "35_plus"}
+// FeedBandKeys are the band keys for the DEFAULT edges, in ascending order. Since 2026-09-19 the
+// live bands follow the tenant's weight_band_edges_kg assumption (FeedBandKeysFor), the same
+// edges the Weight-wise chart bands on, so the two tables on that tab cannot disagree.
+var FeedBandKeys = FeedBandKeysFor(nil)
+
+// FeedBandOption is one band the response offers: its stable key and the backend-composed
+// farm label ("15 – 20 kg"), so the page filters and labels bands without a copy key per band.
+type FeedBandOption struct {
+	Key   string `json:"key"`
+	Label string `json:"label"`
+}
+
+// FeedBandKeysFor lists the band keys for a set of edges, ascending (under_15, 15_20, ..., 35_plus
+// for the defaults). The scheme is weighing's own (weighingdomain.WeightBandKey) so a band on the
+// feed table names the same bracket as the chart above it.
+func FeedBandKeysFor(edges []float64) []string {
+	if len(edges) == 0 {
+		edges = weighingdomain.DefaultWeightBandEdgesKg
+	}
+	out := make([]string, 0, len(edges)+1)
+	for i := 0; i <= len(edges); i++ {
+		out = append(out, weighingdomain.WeightBandKey(edges, i))
+	}
+	return out
+}
+
+// FeedBandOptionsFor lists the bands with their farm labels, ascending.
+func FeedBandOptionsFor(edges []float64) []FeedBandOption {
+	if len(edges) == 0 {
+		edges = weighingdomain.DefaultWeightBandEdgesKg
+	}
+	out := make([]FeedBandOption, 0, len(edges)+1)
+	for i := 0; i <= len(edges); i++ {
+		out = append(out, FeedBandOption{Key: weighingdomain.WeightBandKey(edges, i), Label: weighingdomain.WeightBandLabel(edges, i)})
+	}
+	return out
+}
 
 // FeedWeightBandRow is one feed rollup (park, pen, shed tag, ration group,
 // experiment arm, breed, workflow) matched to one piece of weight evidence.
@@ -43,8 +79,10 @@ type FeedWeightBandRow struct {
 	ParkName string `json:"park_name"`
 	// WeightSource is pen_average or per_animal.
 	WeightSource string `json:"weight_source"`
-	// Band is the stable band key: under_15, 15_20, 20_25, 25_30, 30_35, 35_plus.
-	Band string `json:"band"`
+	// Band is the stable band key (under_15, 15_20, ..., 35_plus for the default edges);
+	// BandLabel is the backend-composed farm words for it.
+	Band      string `json:"band"`
+	BandLabel string `json:"band_label"`
 	// Pen is the operator-facing pen label ("Godel 1 - Part 3", "Castro 1").
 	Pen string `json:"pen"`
 	// ShedTag is the feed sheet's stage tag as stored ("F2-Male", "K3 + K1").
@@ -152,8 +190,9 @@ type FeedWeightBandExit struct {
 	// LastWeighedAt is the business date of the last weigh in the period, or empty.
 	LastWeighedAt string `json:"last_weighed_at,omitempty"`
 	// LastBand and LastWeightKg describe that weigh; both absent when never weighed.
-	LastBand     string   `json:"last_band,omitempty"`
-	LastWeightKg *float64 `json:"last_weight_kg,omitempty"`
+	LastBand      string   `json:"last_band,omitempty"`
+	LastBandLabel string   `json:"last_band_label,omitempty"`
+	LastWeightKg  *float64 `json:"last_weight_kg,omitempty"`
 	// FeedType and FeedGiven are what the animal's last pen is fed on the latest sheet (its
 	// first rollup); both empty when that pen has no feed row today.
 	FeedType  string `json:"feed_type,omitempty"`
@@ -228,35 +267,32 @@ type FeedWeightBand struct {
 	Unmatched []FeedWeightBandUnmatched `json:"unmatched"`
 	// Exited are the animals sold or dead inside the period, newest exit first.
 	Exited []FeedWeightBandExit `json:"exited"`
+	// Bands is the band vocabulary the rows are keyed on, ascending, with farm labels -- the
+	// tenant's weight_band_edges_kg assumption, so the filter and the labels never name a
+	// bracket the rows were not banded into.
+	Bands []FeedBandOption `json:"bands"`
 }
 
-// FeedBandForKg bands a weight the same way the Weight-wise chart does:
+// FeedBandForKg bands a weight the same way the Weight-wise chart does over the same edges:
 // lower-inclusive, upper-exclusive, so every weight lands in exactly one band.
-func FeedBandForKg(kg float64) string {
-	switch {
-	case kg < 15:
-		return "under_15"
-	case kg < 20:
-		return "15_20"
-	case kg < 25:
-		return "20_25"
-	case kg < 30:
-		return "25_30"
-	case kg < 35:
-		return "30_35"
-	default:
-		return "35_plus"
+func FeedBandForKg(kg float64, edges []float64) string {
+	if len(edges) == 0 {
+		edges = weighingdomain.DefaultWeightBandEdgesKg
 	}
+	return weighingdomain.WeightBandKey(edges, weighingdomain.BandIndexFor(kg, edges))
 }
 
-// FeedBandIndex orders band keys ascending; an unknown key sorts last.
-func FeedBandIndex(band string) int {
-	for i, key := range FeedBandKeys {
+// FeedBandIndex orders band keys ascending over the given key list; an unknown key sorts last.
+func FeedBandIndex(band string, keys []string) int {
+	if len(keys) == 0 {
+		keys = FeedBandKeys
+	}
+	for i, key := range keys {
 		if key == band {
 			return i
 		}
 	}
-	return len(FeedBandKeys)
+	return len(keys)
 }
 
 // feedItemDisplayPrefixes are stripped from feed item labels for display: every
@@ -403,7 +439,7 @@ func SortFeedWeightBandUnmatched(rows []FeedWeightBandUnmatched) {
 
 // SortFeedWeightBandRows orders rows park, pen-average before per-animal, pen
 // (natural order), band ascending, then shed tag -- the order the table renders.
-func SortFeedWeightBandRows(rows []FeedWeightBandRow) {
+func SortFeedWeightBandRows(rows []FeedWeightBandRow, bandKeys []string) {
 	sort.SliceStable(rows, func(i, j int) bool {
 		a, b := rows[i], rows[j]
 		if a.ParkName != b.ParkName {
@@ -415,8 +451,8 @@ func SortFeedWeightBandRows(rows []FeedWeightBandRow) {
 		if a.Pen != b.Pen {
 			return naturalLess(a.Pen, b.Pen)
 		}
-		if FeedBandIndex(a.Band) != FeedBandIndex(b.Band) {
-			return FeedBandIndex(a.Band) < FeedBandIndex(b.Band)
+		if FeedBandIndex(a.Band, bandKeys) != FeedBandIndex(b.Band, bandKeys) {
+			return FeedBandIndex(a.Band, bandKeys) < FeedBandIndex(b.Band, bandKeys)
 		}
 		if a.ShedTag != b.ShedTag {
 			return a.ShedTag < b.ShedTag

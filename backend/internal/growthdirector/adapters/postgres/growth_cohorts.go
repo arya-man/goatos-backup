@@ -18,7 +18,7 @@ import (
 // shed_id); join_cardinality=goat_identifiers 0..1 (lifetime-unique), goats 1
 // (PK), canon 0..1 (PK), so a pair row cannot multiply; pagination=NONE,
 // bounded by the shed/cohort floors; scope=tenant + park ANY + week overlap.
-func (r *Repository) fairFight(ctx context.Context, tenantID string, parkIDs []string, startDate, endDate string, sexFiltered bool, scope weighingpg.SexScope, idMap weighingpg.AnimalIdentityMap, weighingCategory string) (domain.FairFight, error) {
+func (r *Repository) fairFight(ctx context.Context, tenantID string, parkIDs []string, startDate, endDate string, sexFiltered bool, scope weighingpg.SexScope, idMap weighingpg.AnimalIdentityMap, weighingCategory string, settings domain.GrowthSettings) (domain.FairFight, error) {
 	ctx, cancel := r.timeout(ctx)
 	defer cancel()
 	out := domain.FairFight{Cohorts: []domain.FairFightCohort{}}
@@ -33,8 +33,9 @@ adg AS (
   WHERE t_last::date > t_first::date   -- same-day pairs carry no growth signal
 ),
 plausible AS (
-  -- >0.30 kg/day loss is a bad scan or scale, not growth truth.
-  SELECT * FROM adg WHERE adg_g_day > -300
+  -- A loss steeper than the tenant's bad-scan cut-off ($12 g/day, growth_assumptions) is a bad
+  -- scan or scale, not growth truth.
+  SELECT * FROM adg WHERE adg_g_day > -$12::float8
 ),
 cohorted AS (
   SELECT a.*,
@@ -64,7 +65,7 @@ WHERE sheds_in_cohort >= 2             -- a fair fight needs two sheds fielding 
 ORDER BY breed, sex, median_adg_g_day DESC`
 	rows, err := r.pool.Query(ctx, q, tenantID, parkIDs, startDate, endDate, sexFiltered, scope.Tags,
 		scope.LocationIDs, scope.PartitionLabels, weighingCategory,
-		idMap.Tags, idMap.CanonicalTags)
+		idMap.Tags, idMap.CanonicalTags, settings.BadScanLossGPerDay)
 	if err != nil {
 		return out, err
 	}
@@ -98,13 +99,13 @@ ORDER BY breed, sex, median_adg_g_day DESC`
 // of starting body weight scored as flat), so one noisy scale never brands a
 // shed as shrinking. Week-over-week deltas come from a second query over
 // consecutive-round pairs and merge by group key.
-func (r *Repository) slowGrowth(ctx context.Context, tenantID string, parkIDs []string, startDate, endDate string, sexFiltered bool, scope weighingpg.SexScope, idMap weighingpg.AnimalIdentityMap, weighingCategory string) (domain.SlowGrowth, error) {
-	out := domain.SlowGrowth{TargetGPerDay: domain.SlowGrowthTargetGPerDay, Groups: []domain.SlowGrowthGroup{}}
-	groups, err := r.slowGrowthGroups(ctx, tenantID, parkIDs, startDate, endDate, sexFiltered, scope, idMap, weighingCategory)
+func (r *Repository) slowGrowth(ctx context.Context, tenantID string, parkIDs []string, startDate, endDate string, sexFiltered bool, scope weighingpg.SexScope, idMap weighingpg.AnimalIdentityMap, weighingCategory string, settings domain.GrowthSettings) (domain.SlowGrowth, error) {
+	out := domain.SlowGrowth{TargetGPerDay: settings.SlowGrowthTargetG, Groups: []domain.SlowGrowthGroup{}}
+	groups, err := r.slowGrowthGroups(ctx, tenantID, parkIDs, startDate, endDate, sexFiltered, scope, idMap, weighingCategory, settings)
 	if err != nil {
 		return out, err
 	}
-	deltas, err := r.weekOverWeekDeltas(ctx, tenantID, parkIDs, startDate, endDate, sexFiltered, scope, idMap, weighingCategory)
+	deltas, err := r.weekOverWeekDeltas(ctx, tenantID, parkIDs, startDate, endDate, sexFiltered, scope, idMap, weighingCategory, settings)
 	if err != nil {
 		return out, err
 	}
@@ -119,7 +120,7 @@ func (r *Repository) slowGrowth(ctx context.Context, tenantID string, parkIDs []
 	return out, nil
 }
 
-func (r *Repository) slowGrowthGroups(ctx context.Context, tenantID string, parkIDs []string, startDate, endDate string, sexFiltered bool, scope weighingpg.SexScope, idMap weighingpg.AnimalIdentityMap, weighingCategory string) ([]domain.SlowGrowthGroup, error) {
+func (r *Repository) slowGrowthGroups(ctx context.Context, tenantID string, parkIDs []string, startDate, endDate string, sexFiltered bool, scope weighingpg.SexScope, idMap weighingpg.AnimalIdentityMap, weighingCategory string, settings domain.GrowthSettings) ([]domain.SlowGrowthGroup, error) {
 	ctx, cancel := r.timeout(ctx)
 	defer cancel()
 	const q = `
@@ -133,7 +134,7 @@ adg AS (
          -- scale noise -> scored as flat (0 g/day) for status judgement.
          CASE WHEN abs(w_last - w_first) <= 0.03 * w_first THEN 0
               ELSE (w_last - w_first) * 1000.0 / (t_last::date - t_first::date) END AS adg_noise_adj_g_day,
-         (((w_last - w_first) * 1000.0 / (t_last::date - t_first::date)) <= -300) AS implausible
+         (((w_last - w_first) * 1000.0 / (t_last::date - t_first::date)) <= -$12::float8) AS implausible
   FROM pairs p
   WHERE t_last::date > t_first::date
 ),
@@ -155,7 +156,7 @@ HAVING count(*) FILTER (WHERE NOT implausible) >= 3
 ORDER BY median_noise_adj_g_day ASC NULLS LAST, shed_id, partition_label, breed, sex`
 	rows, err := r.pool.Query(ctx, q, tenantID, parkIDs, startDate, endDate, sexFiltered, scope.Tags,
 		scope.LocationIDs, scope.PartitionLabels, weighingCategory,
-		idMap.Tags, idMap.CanonicalTags)
+		idMap.Tags, idMap.CanonicalTags, settings.BadScanLossGPerDay)
 	if err != nil {
 		return nil, err
 	}
@@ -173,20 +174,20 @@ ORDER BY median_noise_adj_g_day ASC NULLS LAST, shed_id, partition_label, breed,
 		if median != nil {
 			g.MedianADGGPerDay = *median
 		}
-		g.Status = slowGrowthStatus(noiseAdj)
+		g.Status = slowGrowthStatus(noiseAdj, settings.SlowGrowthTargetG)
 		groups = append(groups, g)
 	}
 	return groups, rows.Err()
 }
 
-func slowGrowthStatus(noiseAdjustedMedian *float64) string {
+func slowGrowthStatus(noiseAdjustedMedian *float64, targetGPerDay float64) string {
 	if noiseAdjustedMedian == nil {
 		return domain.SlowGrowthStatusBelowTarget
 	}
 	switch {
 	case *noiseAdjustedMedian < 0:
 		return domain.SlowGrowthStatusLosing
-	case *noiseAdjustedMedian < domain.SlowGrowthTargetGPerDay:
+	case *noiseAdjustedMedian < targetGPerDay:
 		return domain.SlowGrowthStatusBelowTarget
 	default:
 		return domain.SlowGrowthStatusOnTrack
@@ -197,7 +198,7 @@ func slowGrowthStatus(noiseAdjustedMedian *float64) string {
 // week before it, over CONSECUTIVE-round pairs (each pair attributed to the
 // shed and week of its later round). A group needs pairs in two distinct weeks
 // before a trend exists; everything else is simply absent from the map.
-func (r *Repository) weekOverWeekDeltas(ctx context.Context, tenantID string, parkIDs []string, startDate, endDate string, sexFiltered bool, scope weighingpg.SexScope, idMap weighingpg.AnimalIdentityMap, weighingCategory string) (map[string]float64, error) {
+func (r *Repository) weekOverWeekDeltas(ctx context.Context, tenantID string, parkIDs []string, startDate, endDate string, sexFiltered bool, scope weighingpg.SexScope, idMap weighingpg.AnimalIdentityMap, weighingCategory string, settings domain.GrowthSettings) (map[string]float64, error) {
 	ctx, cancel := r.timeout(ctx)
 	defer cancel()
 	const q = `
@@ -217,7 +218,7 @@ consec_adg AS (
   FROM consec
   WHERE prev_w IS NOT NULL
     AND obs_date > prev_date
-    AND (weight_kg - prev_w) * 1000.0 / (obs_date - prev_date) > -300
+    AND (weight_kg - prev_w) * 1000.0 / (obs_date - prev_date) > -$12::float8
 ),
 cohorted AS (
   SELECT a.*,
@@ -251,7 +252,7 @@ JOIN solid_weeks prev
 WHERE cur.solid_rn = 1`
 	rows, err := r.pool.Query(ctx, q, tenantID, parkIDs, startDate, endDate, sexFiltered, scope.Tags,
 		scope.LocationIDs, scope.PartitionLabels, weighingCategory,
-		idMap.Tags, idMap.CanonicalTags)
+		idMap.Tags, idMap.CanonicalTags, settings.BadScanLossGPerDay)
 	if err != nil {
 		return nil, err
 	}

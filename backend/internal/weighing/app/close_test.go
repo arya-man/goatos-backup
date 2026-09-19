@@ -380,7 +380,7 @@ func (r *scenarioRepo) GetLeadershipGrowthADG(context.Context, string, []string,
 	return domain.GrowthADG{}, nil
 }
 
-func (r *scenarioRepo) GetShedWeights(context.Context, string, []string, string, time.Time, time.Time, string, string, string, float64) (domain.ShedWeights, error) {
+func (r *scenarioRepo) GetShedWeights(context.Context, string, []string, string, time.Time, time.Time, string, string, string, float64, float64, float64) (domain.ShedWeights, error) {
 	return domain.ShedWeights{}, nil
 }
 
@@ -389,7 +389,7 @@ func (r *scenarioRepo) GetWeighingDates(context.Context, string, []string, time.
 	return domain.WeighingDates{}, nil
 }
 
-func (r *scenarioRepo) GetWeightDemographics(context.Context, string, []string, time.Time, time.Time, string, string, string, string) (domain.WeightDemographics, error) {
+func (r *scenarioRepo) GetWeightDemographics(context.Context, string, []string, time.Time, time.Time, string, string, string, string, []float64) (domain.WeightDemographics, error) {
 	return domain.WeightDemographics{}, nil
 }
 
@@ -409,7 +409,7 @@ func (r *multiParkScenarioRepo) GetLeadershipGrowthADG(context.Context, string, 
 	return domain.GrowthADG{}, nil
 }
 
-func (r *multiParkScenarioRepo) GetShedWeights(context.Context, string, []string, string, time.Time, time.Time, string, string, string, float64) (domain.ShedWeights, error) {
+func (r *multiParkScenarioRepo) GetShedWeights(context.Context, string, []string, string, time.Time, time.Time, string, string, string, float64, float64, float64) (domain.ShedWeights, error) {
 	return domain.ShedWeights{}, nil
 }
 
@@ -418,7 +418,7 @@ func (r *multiParkScenarioRepo) GetWeighingDates(context.Context, string, []stri
 	return domain.WeighingDates{}, nil
 }
 
-func (r *multiParkScenarioRepo) GetWeightDemographics(context.Context, string, []string, time.Time, time.Time, string, string, string, string) (domain.WeightDemographics, error) {
+func (r *multiParkScenarioRepo) GetWeightDemographics(context.Context, string, []string, time.Time, time.Time, string, string, string, string, []float64) (domain.WeightDemographics, error) {
 	return domain.WeightDemographics{}, nil
 }
 

@@ -614,3 +614,22 @@ func TestRunningClockIsAbsentWithoutAnArrivalDate(t *testing.T) {
 }
 
 func lwInt(v int) *int { return &v }
+
+// The load-age line is the tenant's assumption, not the constant (maintainer decision
+// 2026-09-19): the same load is overdue at a 60-day line and not at the default 90, and the row
+// names the line it was judged against so the alert copy quotes the figure that applied.
+func TestOverdueLoadsJudgeAgainstTheThresholdTheyAreGiven(t *testing.T) {
+	days := 75
+	loads := []LoadwiseLoad{{LoadID: "l1", Remaining: 5, DaysSincePurchase: &days}}
+	if got := OverdueLoads(loads, 90); len(got) != 0 {
+		t.Fatalf("75 days is not over a 90-day line: %+v", got)
+	}
+	got := OverdueLoads(loads, 60)
+	if len(got) != 1 || got[0].ThresholdDays != 60 {
+		t.Fatalf("75 days is over a 60-day line and the row must carry 60: %+v", got)
+	}
+	// Unset falls back to the default the constant carried, never to "everything is overdue".
+	if got := OverdueLoads(loads, 0); len(got) != 0 {
+		t.Fatalf("zero threshold must mean the default (%d), got %+v", LoadAgeAlertDays, got)
+	}
+}

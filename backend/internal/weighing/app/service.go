@@ -2016,7 +2016,12 @@ func (s *Service) resolveMonitorParkScope(ctx context.Context, actor domain.Acto
 
 // GetWeightDemographics serves the breed / sex / stage breakdown on the Weights
 // screen. Same capability and scope rules as the other leadership reads.
-func (s *Service) GetWeightDemographics(ctx context.Context, actor domain.Actor, parkID, fromBusinessDate, toBusinessDate, sex, origin, weighingCategory, sections string) (domain.WeightDemographics, error) {
+func (s *Service) GetWeightDemographics(ctx context.Context, actor domain.Actor, parkID, fromBusinessDate, toBusinessDate, sex, origin, weighingCategory, sections string, bandEdgesKg []float64) (domain.WeightDemographics, error) {
+	// The band edges are the caller's (the tenant's weight_band_edges_kg assumption); empty means
+	// the defaults, and a malformed list is refused rather than repaired.
+	if !domain.ValidWeightBandEdgesKg(bandEdgesKg) {
+		return domain.WeightDemographics{}, ports.ErrInvalidArgument
+	}
 	if !actor.Holds(permissions.WeighingMonitor) {
 		return domain.WeightDemographics{}, ports.ErrForbidden
 	}
@@ -2031,7 +2036,7 @@ func (s *Service) GetWeightDemographics(ctx context.Context, actor domain.Actor,
 	if scopeErr != nil {
 		return domain.WeightDemographics{}, scopeErr
 	}
-	return s.repo.GetWeightDemographics(ctx, actor.TenantID, parkIDs, periodStart, periodEndExclusive, sex, origin, weighingCategory, sections)
+	return s.repo.GetWeightDemographics(ctx, actor.TenantID, parkIDs, periodStart, periodEndExclusive, sex, origin, weighingCategory, sections, bandEdgesKg)
 }
 
 // GetShedWeights serves the admin-web "Kids — Weights" screen: one row per shed
@@ -2039,9 +2044,14 @@ func (s *Service) GetWeightDemographics(ctx context.Context, actor domain.Actor,
 //
 // Same capability and scope rules as GetLeadershipGrowthADG — this is a leadership
 // read of the same estate, so it must not be reachable on a weaker check.
-func (s *Service) GetShedWeights(ctx context.Context, actor domain.Actor, parkID, fromBusinessDate, toBusinessDate, sex, origin, weighingCategory, saleThresholdToleranceGrams string) (domain.ShedWeights, error) {
+func (s *Service) GetShedWeights(ctx context.Context, actor domain.Actor, parkID, fromBusinessDate, toBusinessDate, sex, origin, weighingCategory, saleThresholdToleranceGrams string, saleLowerKg, saleUpperKg float64) (domain.ShedWeights, error) {
 	if !actor.Holds(permissions.WeighingMonitor) {
 		return domain.ShedWeights{}, ports.ErrForbidden
+	}
+	// The sale lines themselves are the caller's too (the tenant's assumptions, maintainer
+	// decision 2026-09-19); 0 is the default and anything outside the band is refused.
+	if !domain.ValidSaleThresholdUpperKg(saleUpperKg) || !domain.ValidSaleThresholdLowerKg(saleLowerKg) {
+		return domain.ShedWeights{}, ports.ErrInvalidArgument
 	}
 	saleReadyWindow := strings.TrimSpace(saleThresholdToleranceGrams) != ""
 	toleranceKg, err := parseSaleThresholdToleranceKg(saleThresholdToleranceGrams)
@@ -2078,7 +2088,7 @@ func (s *Service) GetShedWeights(ctx context.Context, actor domain.Actor, parkID
 			return domain.ShedWeights{}, ports.ErrInvalidArgument
 		}
 	}
-	return s.shedWeightsFor(ctx, actor, parkID, periodStart, periodEndExclusive, sex, origin, strings.TrimSpace(weighingCategory), toleranceKg)
+	return s.shedWeightsFor(ctx, actor, parkID, periodStart, periodEndExclusive, sex, origin, strings.TrimSpace(weighingCategory), toleranceKg, saleLowerKg, saleUpperKg)
 }
 
 // clampSaleReadyPeriodStart holds the sale-ready count off the days before the farm's weighing
@@ -2181,7 +2191,7 @@ func (s *Service) resolveWeighingWindow(fromBusinessDate, toBusinessDate string)
 	return periodStart, periodEndInclusive.AddDate(0, 0, 1), nil
 }
 
-func (s *Service) shedWeightsFor(ctx context.Context, actor domain.Actor, parkID string, periodStart, periodEndExclusive time.Time, sex, origin, weighingCategory string, saleThresholdToleranceKg float64) (domain.ShedWeights, error) {
+func (s *Service) shedWeightsFor(ctx context.Context, actor domain.Actor, parkID string, periodStart, periodEndExclusive time.Time, sex, origin, weighingCategory string, saleThresholdToleranceKg, saleLowerKg, saleUpperKg float64) (domain.ShedWeights, error) {
 	// The SELECTION is authorization-checked through the same helper (it rejects a park the actor
 	// may not see), and the SCOPE is resolved separately with no filter. The park dropdown is built
 	// from the scope, so choosing CPT no longer removes CBE from the list.
@@ -2202,7 +2212,7 @@ func (s *Service) shedWeightsFor(ctx context.Context, actor domain.Actor, parkID
 		}
 	}
 
-	out, err := s.repo.GetShedWeights(ctx, actor.TenantID, scopeParkIDs, parkID, periodStart, periodEndExclusive, sex, origin, weighingCategory, saleThresholdToleranceKg)
+	out, err := s.repo.GetShedWeights(ctx, actor.TenantID, scopeParkIDs, parkID, periodStart, periodEndExclusive, sex, origin, weighingCategory, saleThresholdToleranceKg, saleLowerKg, saleUpperKg)
 	if err != nil {
 		return domain.ShedWeights{}, err
 	}

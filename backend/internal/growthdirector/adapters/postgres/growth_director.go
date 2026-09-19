@@ -122,10 +122,16 @@ const breedSexJoin = `
 // by the caller: this method does no scoping of its own.
 func (r *Repository) GetGrowthDirectorWeights(ctx context.Context, tenantID string, parkIDs []string, periodStart, periodEnd time.Time, sex, origin, weighingCategory, sections string) (domain.GrowthDirectorWeights, error) {
 	loc := biztime.DefaultLocation()
+	// The figures this read is judged against (bands, slow-growth target, bad-scan cut-off) are
+	// the tenant's assumptions, read per request so a drawer change shows on the next load.
+	settings, err := r.GrowthSettings(ctx, tenantID)
+	if err != nil {
+		return domain.GrowthDirectorWeights{}, err
+	}
 	startDate := periodStart.In(loc).Format("2006-01-02")
 	endExclusiveDate := periodEnd.In(loc).Format("2006-01-02")
 	sectionSet := growthDirectorSectionSet(sections)
-	cacheKey := growthDirectorReadKey("weights:"+growthDirectorSectionKey(sectionSet), tenantID, strings.Join(append([]string{}, parkIDs...), ","), startDate, endExclusiveDate, sex, origin, weighingCategory)
+	cacheKey := growthDirectorReadKey("weights:"+growthDirectorSectionKey(sectionSet), tenantID, strings.Join(append([]string{}, parkIDs...), ","), startDate, endExclusiveDate, sex, origin, weighingCategory, settings.CacheKey())
 	if cached, ok := r.getCachedRead(cacheKey); ok {
 		if out, ok := cached.(domain.GrowthDirectorWeights); ok {
 			return out, nil
@@ -163,9 +169,9 @@ func (r *Repository) GetGrowthDirectorWeights(ctx context.Context, tenantID stri
 			Resolution: domain.PeriodResolutionCampaignWeek,
 		},
 		Parks:        []domain.Park{},
-		RoadToSale:   domain.RoadToSale{Bands: emptyBands()},
+		RoadToSale:   domain.RoadToSale{Bands: emptyBands(settings)},
 		FairFight:    domain.FairFight{Cohorts: []domain.FairFightCohort{}},
-		SlowGrowth:   domain.SlowGrowth{TargetGPerDay: domain.SlowGrowthTargetGPerDay, Groups: []domain.SlowGrowthGroup{}},
+		SlowGrowth:   domain.SlowGrowth{TargetGPerDay: settings.SlowGrowthTargetG, Groups: []domain.SlowGrowthGroup{}},
 		FeedVsGrowth: domain.FeedVsGrowth{Sheds: []domain.FeedVsGrowthShed{}, Estimate: true},
 		FeedProblems: domain.FeedProblems{Items: []domain.FeedProblemItem{}},
 	}
@@ -218,28 +224,28 @@ func (r *Repository) GetGrowthDirectorWeights(ctx context.Context, tenantID stri
 	out.Parks = parks
 
 	if sectionSet["road_to_sale"] {
-		out.RoadToSale, err = r.roadToSale(ctx, tenantID, parkIDs, startDate, endExclusiveDate, sexFiltered, scope, idMap, weighingCategory)
+		out.RoadToSale, err = r.roadToSale(ctx, tenantID, parkIDs, startDate, endExclusiveDate, sexFiltered, scope, idMap, weighingCategory, settings)
 	}
 	if err != nil {
 		flightErr = err
 		return out, err
 	}
 	if sectionSet["fair_fight"] {
-		out.FairFight, err = r.fairFight(ctx, tenantID, parkIDs, startDate, endExclusiveDate, sexFiltered, scope, idMap, weighingCategory)
+		out.FairFight, err = r.fairFight(ctx, tenantID, parkIDs, startDate, endExclusiveDate, sexFiltered, scope, idMap, weighingCategory, settings)
 	}
 	if err != nil {
 		flightErr = err
 		return out, err
 	}
 	if sectionSet["slow_growth"] {
-		out.SlowGrowth, err = r.slowGrowth(ctx, tenantID, parkIDs, startDate, endExclusiveDate, sexFiltered, scope, idMap, weighingCategory)
+		out.SlowGrowth, err = r.slowGrowth(ctx, tenantID, parkIDs, startDate, endExclusiveDate, sexFiltered, scope, idMap, weighingCategory, settings)
 	}
 	if err != nil {
 		flightErr = err
 		return out, err
 	}
 	if sectionSet["feed_vs_growth"] {
-		out.FeedVsGrowth, err = r.feedVsGrowth(ctx, tenantID, parkIDs, startDate, endExclusiveDate, sexFiltered, scope, idMap, weighingCategory)
+		out.FeedVsGrowth, err = r.feedVsGrowth(ctx, tenantID, parkIDs, startDate, endExclusiveDate, sexFiltered, scope, idMap, weighingCategory, settings)
 	}
 	if err != nil {
 		flightErr = err
@@ -297,9 +303,12 @@ func growthDirectorSectionKey(sections map[string]bool) string {
 	return strings.Join(active, ",")
 }
 
-func emptyBands() []domain.WeightBand {
-	bands := make([]domain.WeightBand, 0, len(domain.BandLabels))
-	for _, label := range domain.BandLabels {
+// emptyBands renders the band vocabulary for the tenant's edges (growth_assumptions
+// weight_band_edges_kg; the 15/20/25/30/35 the constant carried when unset).
+func emptyBands(settings domain.GrowthSettings) []domain.WeightBand {
+	labels := domain.BandLabelsFor(settings.BandEdgesKg)
+	bands := make([]domain.WeightBand, 0, len(labels))
+	for _, label := range labels {
 		bands = append(bands, domain.WeightBand{Band: label})
 	}
 	return bands
@@ -336,10 +345,10 @@ func emptyBands() []domain.WeightBand {
 //	  goat_identifiers   0..1 per tag, by the lifetime-unique index
 //
 //	Ratio key sets: none -- every output is a count of animals, not a ratio.
-func (r *Repository) roadToSale(ctx context.Context, tenantID string, parkIDs []string, startDate, endDate string, sexFiltered bool, scope weighingpg.SexScope, idMap weighingpg.AnimalIdentityMap, weighingCategory string) (domain.RoadToSale, error) {
+func (r *Repository) roadToSale(ctx context.Context, tenantID string, parkIDs []string, startDate, endDate string, sexFiltered bool, scope weighingpg.SexScope, idMap weighingpg.AnimalIdentityMap, weighingCategory string, settings domain.GrowthSettings) (domain.RoadToSale, error) {
 	ctx, cancel := r.timeout(ctx)
 	defer cancel()
-	out := domain.RoadToSale{Bands: emptyBands()}
+	out := domain.RoadToSale{Bands: emptyBands(settings)}
 	const q = `
 WITH ` + weighingObsCTE + `,
 ` + roundLatestCTE + `,
@@ -406,9 +415,9 @@ lump_prev   AS (SELECT * FROM lump_ranked WHERE rn = 2),
 -- kid, the pen's whole head count for a pen. The is_scanned flag keeps the tag-matching counts below
 -- answerable -- they are about tags, and a pen has none.
 scored AS (
-  SELECT width_bucket(l.weight_kg, ARRAY[15,20,25,30,35]::numeric[]) AS band_idx,
+  SELECT width_bucket(l.weight_kg, $12::numeric[]) AS band_idx,
          CASE WHEN p.weight_kg IS NULL THEN NULL
-              ELSE width_bucket(p.weight_kg, ARRAY[15,20,25,30,35]::numeric[]) END AS prev_band_idx,
+              ELSE width_bucket(p.weight_kg, $12::numeric[]) END AS prev_band_idx,
          1::int AS animals,
          (gi.goat_id IS NOT NULL) AS is_matched,
          TRUE AS is_scanned
@@ -417,9 +426,9 @@ scored AS (
   LEFT JOIN goat_identifiers gi
     ON gi.tenant_id = $1::uuid AND gi.normalized_value = upper(l.tag_key)
   UNION ALL
-  SELECT width_bucket(ll.average_weight_kg, ARRAY[15,20,25,30,35]::numeric[]),
+  SELECT width_bucket(ll.average_weight_kg, $12::numeric[]),
          CASE WHEN lp.average_weight_kg IS NULL THEN NULL
-              ELSE width_bucket(lp.average_weight_kg, ARRAY[15,20,25,30,35]::numeric[]) END,
+              ELSE width_bucket(lp.average_weight_kg, $12::numeric[]) END,
          ll.animal_count,
          FALSE,
          FALSE
@@ -445,7 +454,7 @@ GROUP BY band_idx
 ORDER BY band_idx`
 	rows, err := r.pool.Query(ctx, q, tenantID, parkIDs, startDate, endDate, sexFiltered, scope.Tags,
 		scope.LocationIDs, scope.PartitionLabels, weighingCategory,
-		idMap.Tags, idMap.CanonicalTags)
+		idMap.Tags, idMap.CanonicalTags, settings.BandEdgesKg)
 	if err != nil {
 		return out, err
 	}

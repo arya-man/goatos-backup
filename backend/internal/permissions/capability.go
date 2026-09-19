@@ -148,7 +148,11 @@ var moduleCapabilities = []ModuleCapability{
 			// RAISING the task. CEO-only today (maintainer decision 2026-08-01) and deliberately
 			// WITHOUT Execute: the CEO plans weighing and never carries it out. A cumulative
 			// ladder would have handed the CEO the scanner.
-			LevelConfigure: {WeighingMonitor, WeighingPlan},
+			// Configure also carries the Assumptions drawer on ADG Analytics (sale price, sale-ready
+			// line, load-age alert -- maintainer decision 2026-09-19): the same people who plan
+			// weighing decide the figures it is valued against, and a /people tick on Configure
+			// is the ONE act that grants it.
+			LevelConfigure: {WeighingMonitor, WeighingPlan, WeighingAssumptionsWrite},
 		},
 	},
 	{

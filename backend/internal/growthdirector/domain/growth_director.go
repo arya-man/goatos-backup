@@ -20,7 +20,9 @@ type Actor struct {
 // DefaultPeriodDays is the reporting window when the caller names no dates:
 // the last 15 inclusive Asia/Kolkata business days ending today, matching the
 // Weights screen this section renders under.
-const DefaultPeriodDays = 15
+// Since 2026-09-19 the live default is growth_assumptions default_period_days; this is the
+// fallback for a tenant with no row.
+const DefaultPeriodDays = DefaultPeriodDaysAssumption
 
 // MaxParks caps the unpaged park vocabulary, mirroring the weighing module's
 // planner cap. Parks are physical farms; blowing this cap is a broken
@@ -31,7 +33,9 @@ const MaxParks = 100
 // CONSTANT deliberately disclosed in the response (`slow_growth.target_g_per_day`)
 // rather than buried in SQL, so the screen can label it as a rule of thumb and a
 // future authored target can replace it without a contract change.
-const SlowGrowthTargetGPerDay = 200
+// Since 2026-09-19 the live target is growth_assumptions slow_growth_target_g_per_day; this is
+// the default a tenant with no row falls back to.
+const SlowGrowthTargetGPerDay = DefaultSlowGrowthTargetGDay
 
 // PeriodResolutionCampaignWeek discloses the window semantics: weighing data is
 // selected by CAMPAIGN-WEEK OVERLAP (campaigns are week-grain, so a requested
@@ -42,7 +46,9 @@ const PeriodResolutionCampaignWeek = "campaign_week"
 
 // Weight band labels, in ascending order. Thresholds are 15/20/25/30/35 kg;
 // the two top bands are the sale-ready ones.
-var BandLabels = []string{"<15", "15-20", "20-25", "25-30", "30-35", "35+"}
+// BandLabels are the labels for the DEFAULT edges. Live reads use BandLabelsFor(settings.BandEdgesKg);
+// this stays only for callers that have no settings in hand.
+var BandLabels = BandLabelsFor(DefaultWeightBandEdgesKg)
 
 // Slow-growth statuses.
 const (

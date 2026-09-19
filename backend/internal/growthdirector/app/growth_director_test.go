@@ -2,6 +2,7 @@ package app
 
 import (
 	"context"
+	"errors"
 	"testing"
 	"time"
 
@@ -17,23 +18,24 @@ import (
 // This is the module's service fake: a widened ports.Repository gets its stub
 // here, or every app test breaks on the interface.
 type fakeRepo struct {
-	gotParkIDs  []string
-	gotStart    time.Time
-	gotEnd      time.Time
-	gotSex      string
-	gotOrigin   string
-	gotMode     string
-	gotSections string
-	parks       []domain.Park
-	result      domain.GrowthDirectorWeights
-	feedSource  ports.FeedWeightBandSource
+	putAssumptions []domain.AssumptionsUpdate
+	gotParkIDs     []string
+	gotStart       time.Time
+	gotEnd         time.Time
+	gotSex         string
+	gotOrigin      string
+	gotMode        string
+	gotSections    string
+	parks          []domain.Park
+	result         domain.GrowthDirectorWeights
+	feedSource     ports.FeedWeightBandSource
 }
 
 func (r *fakeRepo) ListParks(context.Context, string) ([]domain.Park, error) {
 	return r.parks, nil
 }
 
-func (r *fakeRepo) GetFeedWeightBandSource(_ context.Context, _ string, parkIDs []string, start, end time.Time, sex, origin, weighingCategory string) (ports.FeedWeightBandSource, error) {
+func (r *fakeRepo) GetFeedWeightBandSource(_ context.Context, _ string, parkIDs []string, start, end time.Time, sex, origin, weighingCategory string, _ []float64) (ports.FeedWeightBandSource, error) {
 	r.gotParkIDs = append([]string(nil), parkIDs...)
 	r.gotStart, r.gotEnd = start, end
 	r.gotSex, r.gotOrigin, r.gotMode = sex, origin, weighingCategory
@@ -278,4 +280,59 @@ func TestGetGrowthDirectorWeightsNoAuthorizedParksIsNotFound(t *testing.T) {
 	if repo.gotParkIDs != nil {
 		t.Fatalf("repository must not be reached with an empty scope, got %v", repo.gotParkIDs)
 	}
+}
+func (f *fakeRepo) GetFCR(ctx context.Context, tenantID string, parkIDs []string, periodStart, periodEnd time.Time, sex, origin, weighingCategory string) (domain.FCRReport, error) {
+	return domain.FCRReport{}, nil
+}
+
+func (f *fakeRepo) GetSalePrices(ctx context.Context, tenantID string, asOf time.Time) (domain.SalePrices, error) {
+	return domain.SalePrices{Prices: []domain.SalePrice{}}, nil
+}
+
+func (f *fakeRepo) GetAssumptions(ctx context.Context, tenantID string, asOf time.Time) (domain.Assumptions, error) {
+	return domain.Assumptions{SalePrices: []domain.SalePrice{}, Values: []domain.AssumptionValue{}}, nil
+}
+
+func (f *fakeRepo) PutAssumptions(ctx context.Context, tenantID, setBy string, asOf time.Time, update domain.AssumptionsUpdate) (domain.Assumptions, error) {
+	f.putAssumptions = append(f.putAssumptions, update)
+	return domain.Assumptions{SalePrices: []domain.SalePrice{}, Values: []domain.AssumptionValue{}}, nil
+}
+
+// The service owns the business bands: a figure outside them never reaches the repository, and
+// the error is the transport's 400 (ports.ErrInvalidArgument) carrying the band in farm words.
+func TestPutAssumptionsRejectsOutOfBandFiguresBeforeTheRepository(t *testing.T) {
+	repo := &fakeRepo{}
+	svc := NewService(repo)
+	actor := domain.Actor{TenantID: "t", UserID: "u", Roles: []string{"ceo_internal"}}
+	bad := []domain.AssumptionsUpdate{
+		{SalePrices: []domain.SalePriceUpdate{{Species: "goat", PricePerKgINR: 5}}},
+		{SalePrices: []domain.SalePriceUpdate{{Species: "cow", PricePerKgINR: 425}}},
+		{Values: []domain.ValueUpdate{{Key: "sale_ready_threshold_kg", Value: 3, RowVersion: 1}}},
+		{Values: []domain.ValueUpdate{{Key: "load_age_alert_days", Value: 90.5, RowVersion: 1}}},
+		{Values: []domain.ValueUpdate{{Key: "load_age_alert_days", Value: 90, RowVersion: 0}}},
+		{Values: []domain.ValueUpdate{{Key: "no_such_key", Value: 1, RowVersion: 1}}},
+		{},
+	}
+	for i, update := range bad {
+		if _, err := svc.PutAssumptions(context.Background(), actor, update); !errors.Is(err, ports.ErrInvalidArgument) {
+			t.Fatalf("case %d: want ErrInvalidArgument, got %v", i, err)
+		}
+	}
+	if len(repo.putAssumptions) != 0 {
+		t.Fatalf("repository must not see a rejected update: %+v", repo.putAssumptions)
+	}
+	good := domain.AssumptionsUpdate{
+		SalePrices: []domain.SalePriceUpdate{{Species: "Goat", PricePerKgINR: 450}},
+		Values:     []domain.ValueUpdate{{Key: "sale_ready_threshold_kg", Value: 34.5, RowVersion: 1}, {Key: "load_age_alert_days", Value: 120, RowVersion: 2}},
+	}
+	if _, err := svc.PutAssumptions(context.Background(), actor, good); err != nil {
+		t.Fatalf("valid update: %v", err)
+	}
+	if len(repo.putAssumptions) != 1 {
+		t.Fatalf("valid update must reach the repository once, got %d", len(repo.putAssumptions))
+	}
+}
+
+func (f *fakeRepo) GrowthSettings(ctx context.Context, tenantID string) (domain.GrowthSettings, error) {
+	return domain.SettingsFrom(nil), nil
 }

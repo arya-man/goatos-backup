@@ -93,10 +93,10 @@ test("weights analytics time-wise uses the same selected/default period as every
   // The ONE deliberate exception is the Load-wise tab (maintainer request 2026-09-03): a purchase
   // load is bought whole, so that tab's shed read carries park-only scope over an all-time window
   // and its caption says so. Every other tab still reads the page's own scope and window.
-  assert.match(analyticsSource, /const shedParams = wantsLoads\s*\n\s*\? \{ park_id: parkFilter \|\| undefined, from: LOAD_TAB_ALL_TIME_FROM, to: today \}\s*\n\s*: \{ \.\.\.scope, \.\.\.readWindow \};/);
+  assert.match(analyticsSource, /const shedParams = \{\s*\n\s*\.\.\.\(wantsLoads \? \{ park_id: parkFilter \|\| undefined, from: LOAD_TAB_ALL_TIME_FROM, to: today \} : \{ \.\.\.scope, \.\.\.readWindow \}\),/);
   assert.match(analyticsSource, /getShedWeights\(shedParams\)/);
   assert.match(analyticsSource, /getWeighingGrowth\(\{ \.\.\.scope, \.\.\.readWindow, sections: growthSections \}\)/);
-  assert.match(analyticsSource, /getWeightDemographics\(\{ \.\.\.scope, \.\.\.readWindow, sections: demographicsSections \}\)/);
+  assert.match(analyticsSource, /getWeightDemographics\(\{ \.\.\.scope, \.\.\.readWindow, sections: demographicsSections, band_edges_kg: bandEdgesParam\(assumptionRows\) \}\)/);
   assert.doesNotMatch(contract, /last 12 weeks/);
   assert.doesNotMatch(contract, /those 12 weeks/);
   assert.doesNotMatch(contract, /not moved by the period filter/);
@@ -134,7 +134,7 @@ test("weights analytics sends the weighing mode through every tab read", () => {
   // whole load cannot honour; on every other tab shedParams IS { ...scope, ...readWindow }.
   assert.match(analyticsSource, /getShedWeights\(shedParams\)/);
   assert.match(analyticsSource, /getWeighingGrowth\(\{ \.\.\.scope, \.\.\.readWindow, sections: growthSections \}\)/);
-  assert.match(analyticsSource, /getWeightDemographics\(\{ \.\.\.scope, \.\.\.readWindow, sections: demographicsSections \}\)/);
+  assert.match(analyticsSource, /getWeightDemographics\(\{ \.\.\.scope, \.\.\.readWindow, sections: demographicsSections, band_edges_kg: bandEdgesParam\(assumptionRows\) \}\)/);
   assert.match(analyticsSource, /weighingCategory=\{modeFilter !== "all" \? modeFilter : undefined\}/);
 });
 
@@ -196,7 +196,7 @@ test("weights analytics tabs request only the demographics sections they render"
   assert.match(analyticsSource, /tab === "shed"[\s\S]*\? "shed_type"/);
   assert.match(analyticsSource, /tab === "weight"[\s\S]*\? "weight_bands"/);
   assert.match(analyticsSource, /tab === "time"[\s\S]*\? "weekly_gain"/);
-  assert.match(analyticsSource, /wantsDemographics \? getWeightDemographics\(\{ \.\.\.scope, \.\.\.readWindow, sections: demographicsSections \}\) : null/);
+  assert.match(analyticsSource, /wantsDemographics \? getWeightDemographics\(\{ \.\.\.scope, \.\.\.readWindow, sections: demographicsSections, band_edges_kg: bandEdgesParam\(assumptionRows\) \}\) : null/);
   assert.doesNotMatch(analyticsSource, /getWeightDemographics\(\{ \.\.\.scope, \.\.\.readWindow \}\)/);
 });
 

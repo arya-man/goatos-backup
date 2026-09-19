@@ -5,6 +5,7 @@ package app
 
 import (
 	"context"
+	"fmt"
 	"strings"
 	"time"
 
@@ -46,7 +47,11 @@ func (s *Service) GetGrowthDirectorWeights(ctx context.Context, actor domain.Act
 	if err := validateGrowthDirectorSections(sections); err != nil {
 		return domain.GrowthDirectorWeights{}, err
 	}
-	periodStart, periodEndExclusive, err := s.resolveWindow(fromBusinessDate, toBusinessDate)
+	settings, err := s.repo.GrowthSettings(ctx, actor.TenantID)
+	if err != nil {
+		return domain.GrowthDirectorWeights{}, err
+	}
+	periodStart, periodEndExclusive, err := s.resolveWindow(fromBusinessDate, toBusinessDate, settings.DefaultPeriodDays)
 	if err != nil {
 		return domain.GrowthDirectorWeights{}, err
 	}
@@ -128,10 +133,87 @@ func (s *Service) resolveMonitorParkScope(ctx context.Context, actor domain.Acto
 	return parkIDs, nil
 }
 
+// GetFCR serves the Weighing FCR tab. Same gate, scope and window rules as
+// GetGrowthDirectorWeights: this is a reporting read under the Weights screen.
+func (s *Service) GetFCR(ctx context.Context, actor domain.Actor, parkID, fromBusinessDate, toBusinessDate, sex, origin, weighingCategory string) (domain.FCRReport, error) {
+	if !permissions.RolesAuthorize(actor.Roles, []string{permissions.WeighingMonitor}, false) {
+		return domain.FCRReport{}, ports.ErrForbidden
+	}
+	parkID = strings.TrimSpace(parkID)
+	if parkID != "" && !uuidutil.IsUUIDString(parkID) {
+		return domain.FCRReport{}, ports.ErrInvalidArgument
+	}
+	weighingCategory = strings.TrimSpace(weighingCategory)
+	if weighingCategory == "all" {
+		weighingCategory = ""
+	}
+	if weighingCategory != "" && weighingCategory != "individual_animal" && weighingCategory != "per_shed_partition" {
+		return domain.FCRReport{}, ports.ErrInvalidArgument
+	}
+	// The cohort filters are validated here, not silently widened: an unknown value is a bad
+	// REQUEST, and passing it through would show a reader every pen under a heading that says
+	// otherwise.
+	sex = strings.ToLower(strings.TrimSpace(sex))
+	if sex != "" && sex != "male" && sex != "female" {
+		return domain.FCRReport{}, ports.ErrInvalidArgument
+	}
+	origin = strings.ToLower(strings.TrimSpace(origin))
+	if origin != "" && origin != domain.OriginFarmBorn && origin != domain.OriginPurchased {
+		return domain.FCRReport{}, ports.ErrInvalidArgument
+	}
+	settings, err := s.repo.GrowthSettings(ctx, actor.TenantID)
+	if err != nil {
+		return domain.FCRReport{}, err
+	}
+	periodStart, periodEndExclusive, err := s.resolveWindow(fromBusinessDate, toBusinessDate, settings.DefaultPeriodDays)
+	if err != nil {
+		return domain.FCRReport{}, err
+	}
+	parkIDs, scopeErr := s.resolveMonitorParkScope(ctx, actor, parkID)
+	if scopeErr != nil {
+		return domain.FCRReport{}, scopeErr
+	}
+	return s.repo.GetFCR(ctx, actor.TenantID, parkIDs, periodStart, periodEndExclusive, sex, origin, weighingCategory)
+}
+
+// GetSalePrices serves the assumed live-weight sale prices the Weighing tabs value gain and stock
+// at. Gated like every other Weights-screen read; the prices are the ones effective today.
+func (s *Service) GetSalePrices(ctx context.Context, actor domain.Actor) (domain.SalePrices, error) {
+	if !permissions.RolesAuthorize(actor.Roles, []string{permissions.WeighingMonitor}, false) {
+		return domain.SalePrices{}, ports.ErrForbidden
+	}
+	return s.repo.GetSalePrices(ctx, actor.TenantID, biztime.BusinessDayStart(time.Now().In(biztime.DefaultLocation())))
+}
+
+// GetAssumptions serves the Assumptions drawer's read: the prices effective today and every keyed
+// figure. Gated like every other Weights-screen read -- a reader is owed the figures the page
+// is valued at, whether or not they may change them.
+func (s *Service) GetAssumptions(ctx context.Context, actor domain.Actor) (domain.Assumptions, error) {
+	if !permissions.RolesAuthorize(actor.Roles, []string{permissions.WeighingMonitor}, false) {
+		return domain.Assumptions{}, ports.ErrForbidden
+	}
+	return s.repo.GetAssumptions(ctx, actor.TenantID, biztime.BusinessDayStart(time.Now().In(biztime.DefaultLocation())))
+}
+
+// PutAssumptions lands an edit from the drawer. WHO may call this is decided at the route
+// (weighing.assumptions.write, person-aware through /people ticks) and NOT re-derived from roles
+// here: a role check would refuse the very person a Configure tick was meant to admit. This
+// layer owns the business bands (ValidateAssumptionsUpdate) and the effective date, which is the
+// server's business day, never the client's.
+func (s *Service) PutAssumptions(ctx context.Context, actor domain.Actor, update domain.AssumptionsUpdate) (domain.Assumptions, error) {
+	if err := domain.ValidateAssumptionsUpdate(update); err != nil {
+		return domain.Assumptions{}, fmt.Errorf("%w: %s", ports.ErrInvalidArgument, err.Error())
+	}
+	return s.repo.PutAssumptions(ctx, actor.TenantID, actor.UserID, biztime.BusinessDayStart(time.Now().In(biztime.DefaultLocation())), update)
+}
+
 // resolveWindow turns optional inclusive business dates into the half-open
 // [start, end) window, business-day grain, Asia/Kolkata. The caller's LAST day
 // is inclusive, so the exclusive boundary is midnight the day AFTER it.
-func (s *Service) resolveWindow(fromBusinessDate, toBusinessDate string) (time.Time, time.Time, error) {
+func (s *Service) resolveWindow(fromBusinessDate, toBusinessDate string, defaultPeriodDays int) (time.Time, time.Time, error) {
+	if defaultPeriodDays < 1 {
+		defaultPeriodDays = domain.DefaultPeriodDays
+	}
 	from := strings.TrimSpace(fromBusinessDate)
 	to := strings.TrimSpace(toBusinessDate)
 	if from != "" && !isBusinessDate(from) {
@@ -153,7 +235,7 @@ func (s *Service) resolveWindow(fromBusinessDate, toBusinessDate string) (time.T
 		}
 	}
 	if from == "" {
-		periodStart = periodEndInclusive.AddDate(0, 0, -(domain.DefaultPeriodDays - 1))
+		periodStart = periodEndInclusive.AddDate(0, 0, -(defaultPeriodDays - 1))
 	} else {
 		periodStart, err = time.ParseInLocation("2006-01-02", from, loc)
 		if err != nil {

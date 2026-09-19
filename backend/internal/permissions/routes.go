@@ -703,6 +703,14 @@ var protectedRoutes = []Route{
 	// but the SAME gate as the Weights page reads it renders under.
 	{OperationID: "adminGetGrowthDirectorWeights", Method: "GET", Pattern: "/growth-director/weights", Permissions: []string{WeighingMonitor}},
 	{OperationID: "adminGetGrowthDirectorFeedByWeightBand", Method: "GET", Pattern: "/growth-director/feed-by-weight-band", Permissions: []string{WeighingMonitor}},
+	// The FCR tab on Kids -- ADG Analytics (maintainer request 2026-09-07) and the sale-price
+	// vocabulary both it and the Comparison tab value gain at. Same screen, same gate.
+	{OperationID: "adminGetGrowthDirectorFCR", Method: "GET", Pattern: "/growth-director/fcr", Permissions: []string{WeighingMonitor}},
+	{OperationID: "adminGetGrowthSalePrices", Method: "GET", Pattern: "/growth-director/sale-prices", Permissions: []string{WeighingMonitor}},
+	// The Assumptions drawer (maintainer decision 2026-09-19): every Weights reader may SEE the
+	// figures the page is valued at; only a Configure-level holder may CHANGE them.
+	{OperationID: "adminGetGrowthAssumptions", Method: "GET", Pattern: "/growth-director/assumptions", Permissions: []string{WeighingMonitor}},
+	{OperationID: "adminPutGrowthAssumptions", Method: "PUT", Pattern: "/growth-director/assumptions", Permissions: []string{WeighingAssumptionsWrite}},
 	// App-tier vaccination execution: gated on AppBootstrap = any authenticated
 	// app user (operators + leadership all hold it), NOT the admin-tier
 	// LocationsRead/ObligationRead/VaccinationRead/CalendarAction combo RoleOperator

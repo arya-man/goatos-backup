@@ -4,12 +4,14 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
 
 	"github.com/vgoats/goatos/backend/internal/growthdirector/ports"
 	weighingpg "github.com/vgoats/goatos/backend/internal/weighing/adapters/postgres"
+	weighingdomain "github.com/vgoats/goatos/backend/internal/weighing/domain"
 )
 
 // feedWeightBandLookbackDays is how far before the period a prior weigh is looked for, so an
@@ -262,8 +264,9 @@ pen_sex AS MATERIALIZED (
 ),
 evidence AS MATERIALIZED (
   SELECT pa.park_id, pa.pen_label, 'pen_average' AS source,
-         CASE WHEN pa.avg_kg < 15 THEN 'under_15' WHEN pa.avg_kg < 20 THEN '15_20' WHEN pa.avg_kg < 25 THEN '20_25'
-              WHEN pa.avg_kg < 30 THEN '25_30' WHEN pa.avg_kg < 35 THEN '30_35' ELSE '35_plus' END AS band,
+         -- Band index over the CALLER's edges ($13, the tenant's weight_band_edges_kg assumption);
+         -- the key and farm label are composed in Go from the same edges.
+         width_bucket(pa.avg_kg, $13::numeric[])::text AS band,
          pa.n, pa.avg_kg, COALESCE(ps.female_count, 0) AS female_count, COALESCE(ps.male_count, 0) AS male_count,
          pa.n AS n_all, pa.avg_kg AS avg_kg_all, COALESCE(ps.female_count, 0) AS female_all, COALESCE(ps.male_count, 0) AS male_all,
          0 AS exited_n, 0 AS sold_n, 0 AS died_n
@@ -271,8 +274,7 @@ evidence AS MATERIALIZED (
   LEFT JOIN pen_sex ps ON ps.park_id = pa.park_id AND ps.pen_label = pa.pen_label
   UNION ALL
   SELECT la.park_id, la.pen_label, 'per_animal',
-         CASE WHEN la.weight_kg < 15 THEN 'under_15' WHEN la.weight_kg < 20 THEN '15_20' WHEN la.weight_kg < 25 THEN '20_25'
-              WHEN la.weight_kg < 30 THEN '25_30' WHEN la.weight_kg < 35 THEN '30_35' ELSE '35_plus' END AS band,
+         width_bucket(la.weight_kg, $13::numeric[])::text AS band,
          -- BOTH head-count variants in one row (maintainer request 2026-09-18): on-farm animals
          -- only, and every weighed animal including those since sold or dead, so the screen's
          -- Animals toggle flips without another read.
@@ -401,7 +403,7 @@ ORDER BY x.exited_at DESC, x.goat_id`)
 // module's ONE resolver each, exactly as the Growth Director widgets resolve them, so this table
 // and the Weights pages can never disagree about which animals are male or which two tags are
 // one animal.
-func (r *Repository) GetFeedWeightBandSource(ctx context.Context, tenantID string, parkIDs []string, periodStart, periodEnd time.Time, sex, origin, weighingCategory string) (ports.FeedWeightBandSource, error) {
+func (r *Repository) GetFeedWeightBandSource(ctx context.Context, tenantID string, parkIDs []string, periodStart, periodEnd time.Time, sex, origin, weighingCategory string, bandEdgesKg []float64) (ports.FeedWeightBandSource, error) {
 	out := ports.FeedWeightBandSource{Rollups: []ports.FeedRollup{}}
 	if len(parkIDs) == 0 {
 		return out, nil
@@ -414,8 +416,12 @@ func (r *Repository) GetFeedWeightBandSource(ctx context.Context, tenantID strin
 	// five serial round trips (two scope resolvers, the identity map, the sheet query, the exits
 	// query) and the page re-runs it on every top-bar filter change; without this every open of
 	// the tab paid the whole chain again (latency judge, 2026-09-18).
+	edgeKey := make([]string, 0, len(bandEdgesKg))
+	for _, e := range bandEdgesKg {
+		edgeKey = append(edgeKey, strconv.FormatFloat(e, 'f', -1, 64))
+	}
 	cacheKey := growthDirectorReadKey("feed_weight_band", tenantID, strings.Join(append([]string{}, parkIDs...), ","),
-		periodStart.UTC().Format(time.RFC3339), periodEnd.UTC().Format(time.RFC3339), sex, origin, weighingCategory)
+		periodStart.UTC().Format(time.RFC3339), periodEnd.UTC().Format(time.RFC3339), sex, origin, weighingCategory, "bands="+strings.Join(edgeKey, ","))
 	if cached, ok := r.getCachedRead(cacheKey); ok {
 		if hit, ok := cached.(ports.FeedWeightBandSource); ok {
 			return hit, nil
@@ -443,7 +449,7 @@ func (r *Repository) GetFeedWeightBandSource(ctx context.Context, tenantID strin
 		}
 		r.finishReadFlight(cacheKey, flight, out, flightErr)
 	}()
-	out, flightErr = r.readFeedWeightBandSource(ctx, tenantID, parkIDs, periodStart, periodEnd, sex, origin, weighingCategory)
+	out, flightErr = r.readFeedWeightBandSource(ctx, tenantID, parkIDs, periodStart, periodEnd, sex, origin, weighingCategory, bandEdgesKg)
 	return out, flightErr
 }
 
@@ -452,7 +458,10 @@ func (r *Repository) GetFeedWeightBandSource(ctx context.Context, tenantID strin
 // exits query (register filters only) runs beside them from the start; the sheet query follows
 // the scope. Fan-out is bounded by construction to four concurrent pool queries per request, the same bound weighing's growth read takes with
 // weighingGrowthReadParallelism; nothing here spawns per row.
-func (r *Repository) readFeedWeightBandSource(ctx context.Context, tenantID string, parkIDs []string, periodStart, periodEnd time.Time, sex, origin, weighingCategory string) (ports.FeedWeightBandSource, error) {
+func (r *Repository) readFeedWeightBandSource(ctx context.Context, tenantID string, parkIDs []string, periodStart, periodEnd time.Time, sex, origin, weighingCategory string, bandEdgesKg []float64) (ports.FeedWeightBandSource, error) {
+	if len(bandEdgesKg) == 0 {
+		bandEdgesKg = weighingdomain.DefaultWeightBandEdgesKg
+	}
 	out := ports.FeedWeightBandSource{Rollups: []ports.FeedRollup{}}
 	ctx, cancel := r.timeout(ctx)
 	defer cancel()
@@ -534,7 +543,7 @@ func (r *Repository) readFeedWeightBandSource(ctx context.Context, tenantID stri
 	rows, err := r.pool.Query(ctx, feedWeightBandSQL,
 		tenantID, parkIDs, periodStart, periodEnd,
 		filtered, scope.Tags, scope.LocationIDs, scope.PartitionLabels,
-		idMap.Tags, idMap.CanonicalTags, feedWeightBandLookbackDays, weighingCategory)
+		idMap.Tags, idMap.CanonicalTags, feedWeightBandLookbackDays, weighingCategory, bandEdgesKg)
 	if err != nil {
 		return out, fmt.Errorf("growthdirector: feed weight band: %w", err)
 	}
@@ -592,7 +601,7 @@ func (r *Repository) readFeedWeightBandSource(ctx context.Context, tenantID stri
 		}
 		if source != "" {
 			out.Rollups[i].Evidence = append(out.Rollups[i].Evidence, ports.FeedWeightEvidence{
-				Source: source, Band: band, Animals: animals, AverageWeightKg: avgKg, FemaleCount: female, MaleCount: male,
+				Source: source, Band: feedBandKeyFromIndex(band, bandEdgesKg), Animals: animals, AverageWeightKg: avgKg, FemaleCount: female, MaleCount: male,
 				ExitedAnimals: exited, ExitedSold: sold, ExitedDied: died,
 				AnimalsAll: animalsAll, AverageWeightKgAll: avgKgAll, FemaleCountAll: femaleAll, MaleCountAll: maleAll,
 			})
@@ -640,4 +649,15 @@ func (r *Repository) readFeedWeightBandExits(ctx context.Context, tenantID strin
 		return nil, fmt.Errorf("growthdirector: feed weight band exits rows: %w", err)
 	}
 	return list, nil
+}
+
+// feedBandKeyFromIndex turns the width_bucket index SQL emitted into the stable band key over
+// the same edges; an unparseable index keeps its text so the row is visibly odd, never silently
+// filed into a neighbouring bracket.
+func feedBandKeyFromIndex(idxText string, edges []float64) string {
+	idx, err := strconv.Atoi(idxText)
+	if err != nil || idx < 0 || idx > len(edges) {
+		return idxText
+	}
+	return weighingdomain.WeightBandKey(edges, idx)
 }

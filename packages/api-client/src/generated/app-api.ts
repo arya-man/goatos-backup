@@ -839,6 +839,70 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/growth-director/fcr": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * The FCR tab on Kids — ADG Analytics.
+         * @description Requires WeighingMonitor, park-scoped like the other Weights-screen reads. Feed the sheet directed to each pen between its consecutive weighing rounds, against the gain those rounds measured, per pen and rolled up by breed, sex, weight band, park, origin and week. Served by the Growth Director reporting module, never by weighing. Pens are clustered by park in park CODE order and read A→Z inside a park (maintainer decision 2026-09-16); the arrays are the backend's order and a client must not re-sort them by label.
+         */
+        get: operations["adminGetGrowthDirectorFCR"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/growth-director/sale-prices": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * The assumed live-weight sale price per species effective today.
+         * @description Requires WeighingMonitor. Maintainer-edited data (growth_sale_price_assumptions), never a constant; the FCR and Load-wise tabs value gain and stock at these rows.
+         */
+        get: operations["adminGetGrowthSalePrices"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/growth-director/assumptions": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * The figures the Weighing area is valued against.
+         * @description Requires WeighingMonitor. The sale prices effective today plus every keyed figure in growth_assumptions (sale_ready_threshold_kg, load_age_alert_days). Maintainer decision 2026-09-19: edited from the ADG Analytics Assumptions drawer, read per request by every consumer, so a change shows on the next page load.
+         */
+        get: operations["adminGetGrowthAssumptions"];
+        /**
+         * Change the figures the Weighing area is valued against.
+         * @description Requires weighing.assumptions.write (the weighing module's Configure level, granted per person on /people). A sale price lands as the row effective TODAY; earlier periods keep the price they had. A keyed figure is updated in place under its row_version fence (409 on a stale version). Figures outside their business band are refused with 400 invalid_assumption, never clamped. Replaying the same body lands the same rows.
+         */
+        put: operations["adminPutGrowthAssumptions"];
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/app/weighing/leadership/sheds": {
         parameters: {
             query?: never;
@@ -15033,8 +15097,9 @@ export interface components {
             exited_at: string;
             /** Format: date */
             last_weighed_at?: string;
-            /** @enum {string} */
-            last_band?: "under_15" | "15_20" | "20_25" | "25_30" | "30_35" | "35_plus";
+            /** @description Stable band key over the tenant's edges (see GrowthDirectorFeedWeightBandRow.band). */
+            last_band?: string;
+            last_band_label?: string;
             last_weight_kg?: number;
             /**
              * @description What the animal's last pen is fed on the latest sheet; absent when that pen has no feed row today.
@@ -15049,11 +15114,10 @@ export interface components {
             park_name: string;
             /** @enum {string} */
             weight_source: "pen_average" | "per_animal";
-            /**
-             * @description Stable band key; the farm words live in the page contract.
-             * @enum {string}
-             */
-            band: "under_15" | "15_20" | "20_25" | "25_30" | "30_35" | "35_plus";
+            /** @description Stable band key over the tenant's weight_band_edges_kg assumption (under_15, 15_20, ..., 35_plus for the defaults); the same edges the Weight-wise chart bands on. */
+            band: string;
+            /** @description The backend-composed farm words for the bracket ("15 – 20 kg"), rendered verbatim. */
+            band_label: string;
             /** @description Operator-facing pen label ("Godel 1 - Part 3", "Castro 1"). */
             pen: string;
             /** @description The feed sheet's stage tag as stored ("F2-Male", "K3 + K1"). */
@@ -15089,6 +15153,11 @@ export interface components {
             exited_other: number;
         };
         GrowthDirectorFeedWeightBandResponse: {
+            /** @description The band vocabulary the rows are keyed on, ascending, with farm labels -- the tenant's weight_band_edges_kg assumption, so the page's band filter and labels never name a bracket the rows were not banded into. */
+            bands: {
+                key: string;
+                label: string;
+            }[];
             reconciliation: components["schemas"]["GrowthDirectorFeedWeightBandReconciliation"];
             /** @description Ordered park, then pen-average rows before per-animal rows, then pen, band, shed tag. */
             rows: components["schemas"]["GrowthDirectorFeedWeightBandRow"][];
@@ -15109,13 +15178,197 @@ export interface components {
             feed_problems: components["schemas"]["GrowthDirectorFeedProblems"];
             trust: components["schemas"]["GrowthDirectorTrust"];
         };
+        GrowthSalePrice: {
+            /** @enum {string} */
+            species: "goat" | "sheep";
+            /** Format: double */
+            price_per_kg_inr: number;
+            /** Format: date */
+            effective_from: string;
+            set_by: string;
+        };
+        GrowthSalePricesResponse: {
+            prices: components["schemas"]["GrowthSalePrice"][];
+        };
+        /** @enum {string} */
+        GrowthAssumptionKey: "sale_ready_threshold_kg" | "sale_ready_lower_kg" | "load_age_alert_days" | "slow_growth_target_g_per_day" | "bad_scan_loss_g_per_day" | "default_period_days" | "weight_band_edges_kg";
+        /** @description One keyed figure. The label is page copy (assumption.<key>.label), not wire data. `kind` says which of value / values / date carries the figure: a number, an ascending list (the band edges) or a business date. */
+        GrowthAssumptionValue: {
+            key: components["schemas"]["GrowthAssumptionKey"];
+            /** @enum {string} */
+            kind: "number" | "number_list" | "date";
+            /** Format: double */
+            value: number;
+            values: number[] | null;
+            date: string;
+            unit: string;
+            set_by: string;
+            /** Format: date-time */
+            updated_at: string;
+            row_version: number;
+        };
+        GrowthAssumptionsResponse: {
+            sale_prices: components["schemas"]["GrowthSalePrice"][];
+            values: components["schemas"]["GrowthAssumptionValue"][];
+        };
+        /** @description The whole set the caller wants to hold. A row absent from the request is left untouched. */
+        GrowthAssumptionsUpdate: {
+            sale_prices?: {
+                /** @enum {string} */
+                species: "goat" | "sheep";
+                /** Format: double */
+                price_per_kg_inr: number;
+            }[];
+            values?: {
+                key: components["schemas"]["GrowthAssumptionKey"];
+                /** Format: double */
+                value?: number;
+                values?: number[];
+                /** Format: date */
+                date?: string;
+                /** @description The version the figure was loaded with. */
+                row_version: number;
+            }[];
+        };
+        GrowthFCRPen: {
+            /** Format: uuid */
+            location_id: string;
+            partition_label: string;
+            operational_location_display: string;
+            /** Format: uuid */
+            park_id: string;
+            park_name: string;
+            weighing_modes: ("individual_animal" | "per_shed_partition")[];
+            breed: string;
+            sex: string;
+            species: string;
+            origin: string;
+            animals: number;
+            rounds: number;
+            first_weigh_date: string;
+            last_weigh_date: string;
+            /** Format: double */
+            start_weight_kg: number | null;
+            weight_band: string;
+            /** Format: double */
+            head_days: number | null;
+            /** Format: double */
+            adg_g_per_day: number | null;
+            /** Format: double */
+            gain_kg: number | null;
+            /** Format: double */
+            feed_kg: number | null;
+            /** Format: double */
+            fcr: number | null;
+            /** Format: double */
+            feed_cost_inr: number | null;
+            /** Format: double */
+            feed_cost_per_kg_gain_inr: number | null;
+            /** Format: double */
+            gain_value_inr: number | null;
+            /** Format: double */
+            margin_inr: number | null;
+            /** Format: double */
+            unpriced_feed_kg: number;
+            blocked_cells: number;
+            /** @enum {string} */
+            status: "ok" | "blocked" | "weighed_once" | "no_feed" | "no_gain";
+        };
+        GrowthFCRGroup: {
+            key: string;
+            label: string;
+            pens: number;
+            animals: number;
+            /** Format: double */
+            feed_kg: number;
+            /** Format: double */
+            gain_kg: number;
+            /** Format: double */
+            head_days: number;
+            /** Format: double */
+            fcr: number | null;
+            /** Format: double */
+            adg_g_per_day: number | null;
+            /** Format: double */
+            feed_cost_inr: number | null;
+            /** Format: double */
+            feed_cost_per_kg_gain_inr: number | null;
+            /** Format: double */
+            gain_value_inr: number | null;
+            /** Format: double */
+            margin_inr: number | null;
+        };
+        GrowthFCRWeek: {
+            /** Format: date */
+            week_start: string;
+            pens: number;
+            /** Format: double */
+            feed_kg: number;
+            /** Format: double */
+            gain_kg: number;
+            /** Format: double */
+            fcr: number | null;
+            /** Format: double */
+            feed_cost_per_kg_gain_inr: number | null;
+        };
+        GrowthFCRSummary: {
+            pens_in_scope: number;
+            pens_with_fcr: number;
+            pens_weighed_once: number;
+            pens_without_feed: number;
+            pens_without_gain: number;
+            pens_with_blocked_cells: number;
+            animals: number;
+            /** Format: double */
+            feed_kg: number;
+            /** Format: double */
+            gain_kg: number;
+            /** Format: double */
+            head_days: number;
+            /** Format: double */
+            fcr: number | null;
+            /** Format: double */
+            adg_g_per_day: number | null;
+            /** Format: double */
+            feed_cost_inr: number | null;
+            /** Format: double */
+            feed_cost_per_kg_inr: number | null;
+            /** Format: double */
+            feed_cost_per_kg_gain_inr: number | null;
+            /** Format: double */
+            gain_value_inr: number | null;
+            /** Format: double */
+            valued_gain_kg: number;
+            valued_pens: number;
+            /** Format: double */
+            margin_inr: number | null;
+            /** Format: double */
+            break_even_fcr: number | null;
+            /** Format: double */
+            unpriced_feed_kg: number;
+        };
+        GrowthFCRResponse: {
+            period: components["schemas"]["GrowthDirectorPeriod"];
+            parks: components["schemas"]["WeighingPark"][];
+            /** @description Currently always `directed_feed`. */
+            basis: string;
+            sale_prices: components["schemas"]["GrowthSalePrice"][];
+            summary: components["schemas"]["GrowthFCRSummary"];
+            pens: components["schemas"]["GrowthFCRPen"][];
+            by_breed: components["schemas"]["GrowthFCRGroup"][];
+            by_sex: components["schemas"]["GrowthFCRGroup"][];
+            by_weight_band: components["schemas"]["GrowthFCRGroup"][];
+            by_park: components["schemas"]["GrowthFCRGroup"][];
+            by_origin: components["schemas"]["GrowthFCRGroup"][];
+            weekly: components["schemas"]["GrowthFCRWeek"][];
+        };
         /** @description The resolved reporting window. Weighing data is selected by CAMPAIGN-WEEK OVERLAP (campaigns are week-grain, so the window pulls in every overlapping week in full); feed rows use the exact day range. `resolution` discloses this. */
         GrowthDirectorPeriod: {
             /** Format: date */
             start: string;
             /** Format: date */
             end: string;
-            /** @description Currently always `campaign_week`. */
+            /** @description `campaign_week` on the Growth Director read; `weighing_round` on the FCR read. */
             resolution: string;
         };
         /** @description Where every kid sits on the way to sale weight, counted from its latest weigh. Two arms, disjoint by construction because a bucket's weighing_category is fixed at creation: a SCANNED kid contributes itself at its own weight, and a WHOLE-SHED pen contributes all of its animals at the pen's average, which is the only weight the pen has (maintainer decision 2026-09-01). Unmatched identities stay in the bands — a scale reading is a scale reading — but are counted separately. Rework-status captures are excluded. */
@@ -16070,13 +16323,12 @@ export interface components {
             /** @description Backend-composed farm name -- 'Castro 2', 'Godel 2 - Part 1'. Render verbatim. */
             operational_location_display: string;
         };
-        /** @description One weight bracket: how many animals stand in it, and how fast it is growing. BOTH WAYS OF WEIGHING COUNT. A scanned animal is banded by its own latest weight and counts as one; a whole-shed pen is banded by the pen's own latest average weight and counts as ALL the animals it holds, kept whole in that one band rather than spread across neighbours. Bands are lower-inclusive and upper-exclusive, so animals sums to the weighed population. */
+        /** @description One weight bracket: how many animals stand in it, and how fast it is growing. BOTH WAYS OF WEIGHING COUNT. A scanned animal is banded by its own latest weight and counts as one; a whole-shed pen is banded by the pen's own latest average weight and counts as ALL the animals it holds, kept whole in that one band rather than spread across neighbours. Bands are lower-inclusive and upper-exclusive, so animals sums to the weighed population. The brackets follow the caller's `band_edges_kg` (the tenant's weight_band_edges_kg assumption, maintainer decision 2026-09-19); with the default edges the keys are under_15, 15_20, 20_25, 25_30, 30_35, 35_plus. */
         WeighingWeightBandBucket: {
-            /**
-             * @description Stable key, never display copy - the farm words live in the page contract.
-             * @enum {string}
-             */
-            band: "under_15" | "15_20" | "20_25" | "25_30" | "30_35" | "35_plus";
+            /** @description Stable key derived from the edges (under_15, 15_20, ..., 35_plus for the defaults), never display copy. */
+            band: string;
+            /** @description The backend-composed farm words for the bracket ("15 – 20 kg"), rendered verbatim. */
+            label: string;
             /** @description Scanned kids plus the head counts of the pens whose average lands in this bracket. */
             animals: number;
             /** @description The smaller set behind average_gain_g_per_day - weighed twice, plus the head counts of pens whose average moved. Always <= animals. */
@@ -21016,6 +21268,10 @@ export interface operations {
                 weighing_category?: "all" | "individual_animal" | "per_shed_partition";
                 /** @description Optional sale-ready tolerance in grams, from 0 to 1000. When present, only the 35 kg sale-ready summary threshold is lowered by this amount; the 30 kg threshold remains unchanged. */
                 sale_threshold_tolerance_g?: number;
+                /** @description The sale-ready line itself, in kg -- the tenant's sale_ready_threshold_kg assumption (maintainer decision 2026-09-19), supplied by the caller because weighing does not read the assumptions table. Omitted is the 35 kg default; outside 10..80 is REJECTED. */
+                sale_threshold_kg?: number;
+                /** @description The lower ("Over 30 kg") line, in kg -- the tenant's sale_ready_lower_kg assumption, same contract as sale_threshold_kg. Omitted is the 30 kg default; outside 5..80 is REJECTED. */
+                sale_lower_kg?: number;
             };
             header?: never;
             path?: never;
@@ -21058,6 +21314,10 @@ export interface operations {
                 weighing_category?: "all" | "individual_animal" | "per_shed_partition";
                 /** @description Optional sale-ready tolerance in grams, from 0 to 1000. When present, only the 35 kg sale-ready summary threshold is lowered by this amount; the 30 kg threshold remains unchanged. */
                 sale_threshold_tolerance_g?: number;
+                /** @description The sale-ready line itself, in kg -- the tenant's sale_ready_threshold_kg assumption (maintainer decision 2026-09-19), supplied by the caller because weighing does not read the assumptions table. Omitted is the 35 kg default; outside 10..80 is REJECTED. */
+                sale_threshold_kg?: number;
+                /** @description The lower ("Over 30 kg") line, in kg -- the tenant's sale_ready_lower_kg assumption, same contract as sale_threshold_kg. Omitted is the 30 kg default; outside 5..80 is REJECTED. */
+                sale_lower_kg?: number;
             };
             header?: never;
             path?: never;
@@ -21099,6 +21359,8 @@ export interface operations {
                 weighing_category?: "all" | "individual_animal" | "per_shed_partition";
                 /** @description Comma-separated aggregate sections to compute for rendered admin routes. Omitted keeps the legacy full response. */
                 sections?: string;
+                /** @description Comma-separated band edges in kg, lowest to highest (2..8 edges, 1..200 kg) -- the tenant's weight_band_edges_kg assumption, supplied by the caller because this read names no assumptions table. Omitted is 15,20,25,30,35; malformed or non-rising is REJECTED. */
+                band_edges_kg?: string;
             };
             header?: never;
             path?: never;
@@ -21193,6 +21455,112 @@ export interface operations {
             401: components["responses"]["Unauthorized"];
             403: components["responses"]["Forbidden"];
             404: components["responses"]["NotFoundOrNotAllowed"];
+            500: components["responses"]["ServerError"];
+        };
+    };
+    adminGetGrowthDirectorFCR: {
+        parameters: {
+            query?: {
+                park_id?: string;
+                from?: string;
+                to?: string;
+                sex?: string;
+                origin?: string;
+                weighing_category?: string;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The FCR report. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["GrowthFCRResponse"];
+                };
+            };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            500: components["responses"]["ServerError"];
+        };
+    };
+    adminGetGrowthSalePrices: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The prices. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["GrowthSalePricesResponse"];
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            500: components["responses"]["ServerError"];
+        };
+    };
+    adminGetGrowthAssumptions: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The assumptions. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["GrowthAssumptionsResponse"];
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            500: components["responses"]["ServerError"];
+        };
+    };
+    adminPutGrowthAssumptions: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["GrowthAssumptionsUpdate"];
+            };
+        };
+        responses: {
+            /** @description The assumptions after the change. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["GrowthAssumptionsResponse"];
+                };
+            };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            409: components["responses"]["WriteConflict"];
             500: components["responses"]["ServerError"];
         };
     };

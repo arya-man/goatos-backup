@@ -48,9 +48,9 @@ type Service interface {
 	ListAlerts(ctx context.Context, actor domain.Actor, cursor string, limit int) (domain.AlertPage, error)
 	GetWeightHistory(ctx context.Context, actor domain.Actor, parkID, campaignShedID string) (domain.WeightHistory, error)
 	GetLeadershipGrowthADG(ctx context.Context, actor domain.Actor, parkID, fromBusinessDate, toBusinessDate, sex, origin, weighingCategory, sections string) (domain.GrowthADG, error)
-	GetShedWeights(ctx context.Context, actor domain.Actor, parkID, fromBusinessDate, toBusinessDate, sex, origin, weighingCategory, saleThresholdToleranceGrams string) (domain.ShedWeights, error)
+	GetShedWeights(ctx context.Context, actor domain.Actor, parkID, fromBusinessDate, toBusinessDate, sex, origin, weighingCategory, saleThresholdToleranceGrams string, saleLowerKg, saleUpperKg float64) (domain.ShedWeights, error)
 	GetWeighingDates(ctx context.Context, actor domain.Actor, parkID, fromBusinessDate, toBusinessDate, sex, origin, weighingCategory string) (domain.WeighingDates, error)
-	GetWeightDemographics(ctx context.Context, actor domain.Actor, parkID, fromBusinessDate, toBusinessDate, sex, origin, weighingCategory, sections string) (domain.WeightDemographics, error)
+	GetWeightDemographics(ctx context.Context, actor domain.Actor, parkID, fromBusinessDate, toBusinessDate, sex, origin, weighingCategory, sections string, bandEdgesKg []float64) (domain.WeightDemographics, error)
 	ExportCampaignCSV(ctx context.Context, actor domain.Actor, campaignID string, writer io.Writer) error
 	ExportCSV(ctx context.Context, actor domain.Actor, fromBusinessDate, toBusinessDate, parkID string, shedLocationIDs []string, sex, origin, weighingCategory string, writer io.Writer) error
 	// Fasting (feed & water removal) precondition cards, maintainer decision
@@ -224,6 +224,19 @@ func (h *Handler) GetWeighingDates(w http.ResponseWriter, r *http.Request) {
 
 func (h *Handler) GetShedWeights(w http.ResponseWriter, r *http.Request) {
 	start := time.Now()
+	// `sale_lower_kg` / `sale_threshold_kg` (optional) are the two sale lines -- the tenant's
+	// assumptions, supplied by the caller because weighing does not read the assumptions table.
+	// Blank is the default; the service refuses a line outside the band.
+	saleLowerKg, ok := parseSaleThresholdKg(r.URL.Query().Get("sale_lower_kg"))
+	if !ok {
+		h.respond(w, r, domain.ShedWeights{}, ports.ErrInvalidArgument)
+		return
+	}
+	saleUpperKg, ok := parseSaleThresholdKg(r.URL.Query().Get("sale_threshold_kg"))
+	if !ok {
+		h.respond(w, r, domain.ShedWeights{}, ports.ErrInvalidArgument)
+		return
+	}
 	result, err := h.service.GetShedWeights(
 		r.Context(),
 		actor(r),
@@ -234,6 +247,8 @@ func (h *Handler) GetShedWeights(w http.ResponseWriter, r *http.Request) {
 		r.URL.Query().Get("origin"),
 		r.URL.Query().Get("weighing_category"),
 		r.URL.Query().Get("sale_threshold_tolerance_g"),
+		saleLowerKg,
+		saleUpperKg,
 	)
 	h.maybeWriteTiming(w, r, "shed_weights", start)
 	h.respond(w, r, result, err)
@@ -243,11 +258,19 @@ func (h *Handler) GetShedWeights(w http.ResponseWriter, r *http.Request) {
 // screen. This is the one weighing read that resolves a scanned tag to its animal.
 func (h *Handler) GetWeightDemographics(w http.ResponseWriter, r *http.Request) {
 	start := time.Now()
+	// `band_edges_kg` (optional, comma-separated kg): the tenant's weight_band_edges_kg assumption,
+	// supplied by the caller because this read names no assumptions table. Blank is the default.
+	edges, ok := parseBandEdgesKg(r.URL.Query().Get("band_edges_kg"))
+	if !ok {
+		h.respond(w, r, domain.WeightDemographics{}, ports.ErrInvalidArgument)
+		return
+	}
 	result, err := h.service.GetWeightDemographics(
 		r.Context(), actor(r),
 		r.URL.Query().Get("park_id"), r.URL.Query().Get("from"), r.URL.Query().Get("to"),
 		r.URL.Query().Get("sex"), r.URL.Query().Get("origin"), r.URL.Query().Get("weighing_category"),
 		r.URL.Query().Get("sections"),
+		edges,
 	)
 	h.maybeWriteTiming(w, r, "weight_demographics", start)
 	h.respond(w, r, result, err)
@@ -1211,4 +1234,36 @@ func weighingParkSelectionOptions(ctx context.Context) []string {
 func isCategoryFlipConflict(err error) bool {
 	flip := &ports.CategoryFlipConflict{}
 	return errors.As(err, &flip)
+}
+
+// parseSaleThresholdKg reads an optional sale-line query value in kg: blank is 0 (the default
+// line), a number is itself, anything else is malformed. Range is the service's decision.
+func parseSaleThresholdKg(raw string) (float64, bool) {
+	raw = strings.TrimSpace(raw)
+	if raw == "" {
+		return 0, true
+	}
+	value, err := strconv.ParseFloat(raw, 64)
+	if err != nil {
+		return 0, false
+	}
+	return value, true
+}
+
+// parseBandEdgesKg reads the optional comma-separated `band_edges_kg`: blank is nil (the default
+// edges), a list of numbers is itself, anything else is malformed. Order/band is the service's.
+func parseBandEdgesKg(raw string) ([]float64, bool) {
+	raw = strings.TrimSpace(raw)
+	if raw == "" {
+		return nil, true
+	}
+	var out []float64
+	for _, part := range strings.Split(raw, ",") {
+		v, err := strconv.ParseFloat(strings.TrimSpace(part), 64)
+		if err != nil {
+			return nil, false
+		}
+		out = append(out, v)
+	}
+	return out, true
 }

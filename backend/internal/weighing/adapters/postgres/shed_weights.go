@@ -69,8 +69,8 @@ import (
 // weighing_observations_campaign_scanned_identifier_idx rather than seq-scanning
 // once per bucket — the same fix measured in 000080 (3873ms -> 554ms at 400
 // buckets x 300 observations).
-func (r *Repository) GetShedWeights(ctx context.Context, tenantID string, scopeParkIDs []string, selectedParkID string, periodStart, periodEnd time.Time, sex, origin, weighingCategory string, saleThresholdToleranceKg float64) (out domain.ShedWeights, err error) {
-	cacheKey := weighingAnalyticsCacheKey("shed_weights:"+selectedParkID+":"+fmt.Sprintf("%.3f", saleThresholdToleranceKg), tenantID, scopeParkIDs, periodStart, periodEnd, sex, origin, weighingCategory)
+func (r *Repository) GetShedWeights(ctx context.Context, tenantID string, scopeParkIDs []string, selectedParkID string, periodStart, periodEnd time.Time, sex, origin, weighingCategory string, saleThresholdToleranceKg, saleLowerKg, saleUpperKg float64) (out domain.ShedWeights, err error) {
+	cacheKey := weighingAnalyticsCacheKey("shed_weights:"+selectedParkID+":"+fmt.Sprintf("%.3f|%.3f|%.3f", saleThresholdToleranceKg, saleLowerKg, saleUpperKg), tenantID, scopeParkIDs, periodStart, periodEnd, sex, origin, weighingCategory)
 	if cached, ok := r.getReadCache(cacheKey); ok {
 		return cached.(domain.ShedWeights), nil
 	}
@@ -97,8 +97,11 @@ func (r *Repository) GetShedWeights(ctx context.Context, tenantID string, scopeP
 	}()
 
 	weighingCategory = strings.TrimSpace(weighingCategory)
-	saleThresholdLowerKg := domain.SaleThresholdLowerKg
-	saleThresholdUpperKg := domain.SaleThresholdUpperKg - saleThresholdToleranceKg
+	// The two sale lines are the CALLER's (the tenant's sale_ready_lower_kg / sale_ready_threshold_kg
+	// assumptions, maintainer decision 2026-09-19; 0 = the constants) -- weighing is isolated and
+	// names no assumptions table. The tolerance still lowers the upper line exactly as before.
+	saleThresholdLowerKg, saleThresholdUpperKg := domain.SaleThresholdsKg(0, saleLowerKg, saleUpperKg)
+	saleThresholdUpperKg -= saleThresholdToleranceKg
 	if saleThresholdUpperKg < 0 {
 		saleThresholdUpperKg = 0
 	}

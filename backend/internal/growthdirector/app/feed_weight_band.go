@@ -58,7 +58,12 @@ func (s *Service) GetFeedWeightBand(ctx context.Context, actor domain.Actor, par
 	if weighingCategory != "" && weighingCategory != "individual_animal" && weighingCategory != "per_shed_partition" {
 		return domain.FeedWeightBand{}, ports.ErrInvalidArgument
 	}
-	periodStart, periodEndExclusive, err := s.resolveWindow(fromBusinessDate, toBusinessDate)
+	// Same default period as the Growth Director widgets (the tenant's default_period_days).
+	settings, err := s.repo.GrowthSettings(ctx, actor.TenantID)
+	if err != nil {
+		return domain.FeedWeightBand{}, err
+	}
+	periodStart, periodEndExclusive, err := s.resolveWindow(fromBusinessDate, toBusinessDate, settings.DefaultPeriodDays)
 	if err != nil {
 		return domain.FeedWeightBand{}, err
 	}
@@ -66,11 +71,11 @@ func (s *Service) GetFeedWeightBand(ctx context.Context, actor domain.Actor, par
 	if scopeErr != nil {
 		return domain.FeedWeightBand{}, scopeErr
 	}
-	source, err := s.repo.GetFeedWeightBandSource(ctx, actor.TenantID, parkIDs, periodStart, periodEndExclusive, sex, origin, weighingCategory)
+	source, err := s.repo.GetFeedWeightBandSource(ctx, actor.TenantID, parkIDs, periodStart, periodEndExclusive, sex, origin, weighingCategory, settings.BandEdgesKg)
 	if err != nil {
 		return domain.FeedWeightBand{}, err
 	}
-	return BuildFeedWeightBand(source), nil
+	return BuildFeedWeightBand(source, settings.BandEdgesKg), nil
 }
 
 // BuildFeedWeightBand turns the repository's raw rollups into display rows and
@@ -83,7 +88,17 @@ func (s *Service) GetFeedWeightBand(ctx context.Context, actor domain.Actor, par
 // rollup count itself is the feed side and is never narrowed by the period or
 // the filters, so Rollups - Matched is always the fed pens with no qualifying
 // weighing in the period (including pens whose weighed animals have all exited).
-func BuildFeedWeightBand(source ports.FeedWeightBandSource) domain.FeedWeightBand {
+func BuildFeedWeightBand(source ports.FeedWeightBandSource, bandEdgesKg []float64) domain.FeedWeightBand {
+	bandKeys := domain.FeedBandKeysFor(bandEdgesKg)
+	bandOptions := domain.FeedBandOptionsFor(bandEdgesKg)
+	labelFor := func(key string) string {
+		for _, opt := range bandOptions {
+			if opt.Key == key {
+				return opt.Label
+			}
+		}
+		return key
+	}
 	out := domain.FeedWeightBand{
 		Reconciliation: domain.FeedWeightBandReconciliation{
 			FeedDay:                  source.FeedDay,
@@ -134,7 +149,8 @@ func BuildFeedWeightBand(source ports.FeedWeightBandSource) domain.FeedWeightBan
 			out.Reconciliation.ExitedWeighed++
 			kg := x.LastWeightKg
 			exit.LastWeighedAt = x.LastWeighedAt.In(loc).Format("2006-01-02")
-			exit.LastBand = domain.FeedBandForKg(kg)
+			exit.LastBand = domain.FeedBandForKg(kg, bandEdgesKg)
+			exit.LastBandLabel = labelFor(exit.LastBand)
 			exit.LastWeightKg = &kg
 		}
 		if x.Pen != "" {
@@ -241,7 +257,11 @@ func BuildFeedWeightBand(source ports.FeedWeightBandSource) domain.FeedWeightBan
 		out.Reconciliation.FeedSheets = []domain.FeedSheetUsed{}
 	}
 	domain.DisambiguateGroups(out.Rows)
-	domain.SortFeedWeightBandRows(out.Rows)
+	for i := range out.Rows {
+		out.Rows[i].BandLabel = labelFor(out.Rows[i].Band)
+	}
+	out.Bands = bandOptions
+	domain.SortFeedWeightBandRows(out.Rows, bandKeys)
 	domain.SortFeedWeightBandUnmatched(out.Unmatched)
 	out.Reconciliation.OutputRows = len(out.Rows)
 	return out

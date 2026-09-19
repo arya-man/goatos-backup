@@ -264,7 +264,7 @@ func TestShedTableAndHeadlineAgreeOnADoubleTaggedAnimal(t *testing.T) {
 	seedGrowthObservation(t, ctx, pool, idScopePrimary, 20.0, first)
 	seedGrowthObservation(t, ctx, pool, idScopeSecondary, 22.1, first.AddDate(0, 0, 7))
 
-	sheds, err := repo.GetShedWeights(ctx, repoTenant, []string{repoPark}, repoPark, start, end, "", "", "", 0)
+	sheds, err := repo.GetShedWeights(ctx, repoTenant, []string{repoPark}, repoPark, start, end, "", "", "", 0, 0, 0)
 	if err != nil {
 		t.Fatalf("GetShedWeights: %v", err)
 	}

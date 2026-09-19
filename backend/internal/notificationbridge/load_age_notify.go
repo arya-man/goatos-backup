@@ -135,7 +135,7 @@ func (n *LoadAgeNotifier) NotifyOverdueLoads(ctx context.Context, tenantID strin
 			"purchase_date":       load.PurchaseDate,
 			"days_since_purchase": fmt.Sprintf("%d", load.DaysSincePurchase),
 			"remaining":           fmt.Sprintf("%d", load.Remaining),
-			"threshold_days":      fmt.Sprintf("%d", procurementdomain.LoadAgeAlertDays),
+			"threshold_days":      fmt.Sprintf("%d", load.ThresholdDays),
 			"business_date":       businessDate,
 			"priority":            priorityHigh,
 			"group_key":           "procurement_load_overdue:" + tenantID,
@@ -184,7 +184,7 @@ func (n *LoadAgeNotifier) body(load procurementdomain.OverdueLoad, name string) 
 	if date := strings.TrimSpace(load.PurchaseDate); date != "" {
 		fmt.Fprintf(&b, " on %s", biztime.FarmDateFromBusinessDate(date))
 	}
-	fmt.Fprintf(&b, ". Anything over %d days needs a decision.", procurementdomain.LoadAgeAlertDays)
+	fmt.Fprintf(&b, ". Anything over %d days needs a decision.", load.ThresholdDays)
 	return b.String()
 }
 

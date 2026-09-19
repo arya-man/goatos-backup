@@ -3,7 +3,8 @@ import { redirect } from "next/navigation";
 import { Tag } from "@/components/ui-primitives";
 import { copy, optionGroup, type AdminUiPageContract } from "@/lib/admin-ui-contract";
 import { INTERNAL_LOGIN_PATH } from "@/lib/auth/session-cookie";
-import { firstAuthRequiredError, getShedWeights } from "@/lib/api/server";
+import { firstAuthRequiredError, getGrowthAssumptions, getShedWeights } from "@/lib/api/server";
+import { assumptionValue, DEFAULT_SALE_READY_THRESHOLD_KG, fillKg } from "@/features/weighing/assumption-copy";
 import { istDayPlus, todayIso } from "@/lib/format";
 import { getSalesOverview } from "@/lib/api/procurement-server";
 import type { SalesOverview } from "@/lib/api/procurement";
@@ -27,6 +28,8 @@ type Over35Card = {
   to: string;
   toleranceG: number;
   thresholdKg: number;
+  /** The sale line before tolerance -- the tenant's assumption -- for the "Over N kg" label. */
+  lineKg: number;
   preserveQuery: [string, string][];
 };
 
@@ -106,7 +109,7 @@ function FarmValueSections({
                   Gated by the page contract: a role that may not read weights sees the backend's
                   reason, never a zero. */}
               <div className="kpi">
-                <div className="lab">{copy(pageContract, "kpi.over35")}</div>
+                <div className="lab">{fillKg(copy(pageContract, "kpi.over35"), over35.lineKg)}</div>
                 <div className="val">{over35.count == null ? none : num(over35.count)}</div>
                 <div className="dl">
                   {!over35.enabled
@@ -121,6 +124,7 @@ function FarmValueSections({
                 {over35.enabled ? (
                   <SalesReadyToleranceControl
                     key={over35.toleranceG}
+                    lineKg={over35.lineKg}
                     valueG={over35.toleranceG}
                     maxG={OVER35_MAX_TOLERANCE_G}
                     preserveQuery={over35.preserveQuery}
@@ -197,11 +201,21 @@ export async function SalesFarmValuePage({
   const over35To = todayIso();
   const over35From = istDayPlus(over35To, -OVER35_WINDOW_DAYS);
   const over35ToleranceG = boundedInt(one(sp, "sale_ready_tolerance_g"), 0, 0, OVER35_MAX_TOLERANCE_G);
-  const over35ThresholdKg = Math.max(0, 35 - over35ToleranceG / 1000);
+  // The sale-ready line itself is the tenant's assumption (maintainer decision 2026-09-19), read
+  // once and handed to the weighing count -- weighing does not read the assumptions table. A
+  // failed read counts against the default and labels the card with the same default.
+  const assumptions = over35Enabled ? await getGrowthAssumptions() : null;
+  if (assumptions && firstAuthRequiredError(assumptions)) redirect(INTERNAL_LOGIN_PATH);
+  const saleThresholdKg =
+    (assumptions?.ok ? assumptionValue(assumptions.data.values, "sale_ready_threshold_kg") : null) ?? DEFAULT_SALE_READY_THRESHOLD_KG;
+  const saleLowerKg = (assumptions?.ok ? assumptionValue(assumptions.data.values, "sale_ready_lower_kg") : null) ?? undefined;
+  const over35ThresholdKg = Math.max(0, saleThresholdKg - over35ToleranceG / 1000);
   const over35Params = {
     from: over35From,
     to: over35To,
     sale_threshold_tolerance_g: String(over35ToleranceG),
+    sale_threshold_kg: saleThresholdKg,
+    sale_lower_kg: saleLowerKg,
   };
   // The page's data in ONE parallel read: the overview (whose farm_valuation is this page's
   // block) and, when enabled, the weighing count. Unscoped first: the weighing response also
@@ -240,6 +254,7 @@ export async function SalesFarmValuePage({
     to: over35To,
     toleranceG: over35ToleranceG,
     thresholdKg: over35ThresholdKg,
+    lineKg: saleThresholdKg,
     preserveQuery: over35PreserveQuery,
   };
   const overview: SalesOverview | null = overviewResult.ok ? overviewResult.data : null;

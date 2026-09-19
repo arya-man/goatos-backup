@@ -256,12 +256,72 @@ type WeighingDates struct {
 
 // Sale-readiness thresholds, shared with GrowthSaleReadiness so the two reads
 // cannot drift into two different definitions of "sale ready".
+//
+// SaleThresholdUpperKg is the DEFAULT sale-ready line. Since 2026-09-19 the live line is a
+// tenant assumption (growth_assumptions key sale_ready_threshold_kg, edited from the ADG
+// Analytics Assumptions drawer) and the CALLER passes it to the shed-weights read as
+// sale_threshold_kg, exactly the way it already passes the margin. Weighing does not read the
+// assumptions table itself: it is isolated, and a sale line is the reader's question about the
+// weights, not a fact about them.
 const (
 	SaleThresholdLowerKg             = 30.0
 	SaleThresholdUpperKg             = 35.0
 	MaxSaleThresholdToleranceGrams   = 1000
 	DefaultSaleThresholdToleranceGms = 0
 )
+
+// SaleThresholdUpperMinKg / SaleThresholdUpperMaxKg bound a caller-supplied sale line. The same
+// band the assumptions write enforces, repeated here because this read must refuse a nonsense
+// line from any caller, not only from the drawer.
+const (
+	SaleThresholdUpperMinKg = 10.0
+	SaleThresholdUpperMaxKg = 80.0
+)
+
+// ValidSaleThresholdUpperKg reports whether a caller-supplied sale line is inside the band; 0
+// means "the default" and is always valid. Both lines share the band.
+func ValidSaleThresholdUpperKg(upperKg float64) bool {
+	return upperKg == 0 || (upperKg >= SaleThresholdUpperMinKg && upperKg <= SaleThresholdUpperMaxKg)
+}
+
+// ValidSaleThresholdLowerKg is the same band for the lower ("Over 30 kg") line, which since
+// 2026-09-19 is the tenant's sale_ready_lower_kg assumption.
+func ValidSaleThresholdLowerKg(lowerKg float64) bool {
+	return lowerKg == 0 || (lowerKg >= 5 && lowerKg <= SaleThresholdUpperMaxKg)
+}
+
+// MaxSaleThresholdMarginG bounds the sale-weight MARGIN a caller may ask for, in grams
+// (maintainer request 2026-09-03, the Sales board's Over 35 kg card). A scale reads to the
+// hundred grams and a kid at 34.8 kg is, for a buyer, a 35 kg kid, so the reader may pull the
+// line DOWN by up to half a kilo: at a 200 g margin the count is "at or above 34.8 kg". The
+// margin never raises a threshold and never changes which animals are weighed -- it only moves
+// the line the same latest weights are compared against, on both thresholds alike, so the 30 kg
+// and 35 kg counts keep reading the same population at the same tolerance.
+const MaxSaleThresholdMarginG = 500
+
+// SaleThresholdsKg is the ONE place the two sale lines are lowered by a margin: the repository
+// binds exactly these two numbers, so a margin can never reach one threshold and not the other.
+// upperKg is the caller's sale line (0 = the default SaleThresholdUpperKg); the lower line stays
+// the 30 kg constant. A margin of 0 and an upper of 0 return the constants untouched, which is
+// the unfiltered page's query.
+func SaleThresholdsKg(marginG int, lowerKg, upperKg float64) (lowerKgOut, upperKgOut float64) {
+	if lowerKg == 0 {
+		lowerKg = SaleThresholdLowerKg
+	}
+	if upperKg == 0 {
+		upperKg = SaleThresholdUpperKg
+	}
+	margin := float64(marginG) / 1000
+	return lowerKg - margin, upperKg - margin
+}
+
+// ValidSaleThresholdMarginG reports whether a requested margin is inside the accepted band. It
+// is validated, never clamped: a caller asking for 5 kg of tolerance is asking a different
+// question, and silently answering the 500 g one would show a number under a label it does not
+// match.
+func ValidSaleThresholdMarginG(marginG int) bool {
+	return marginG >= 0 && marginG <= MaxSaleThresholdMarginG
+}
 
 // ShedWeightsDefaultPeriodDays is the default window when the caller names
 // neither bound: the last 15 inclusive days, matching the screen's default filter.

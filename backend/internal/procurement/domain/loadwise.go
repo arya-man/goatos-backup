@@ -212,9 +212,14 @@ type LoadwiseSales struct {
 // FinalizeLoadwise derives every per-row value the SQL read leaves to the domain — purchase value,
 // average sold price with its basis, the remaining-stock estimate — and the summary. It mutates
 // the rows in place and returns the assembled read.
-// LoadAgeAlertDays is the age at which a load still holding animals becomes a daily CXO alert
-// (maintainer decision 2026-09-01). Counted from the PURCHASE date, not arrival: the money left
-// the business when the load was bought, so that is when the clock on it starts.
+// LoadAgeAlertDays is the DEFAULT age at which a load still holding animals becomes a daily CXO
+// alert (maintainer decision 2026-09-01). Counted from the PURCHASE date, not arrival: the money
+// left the business when the load was bought, so that is when the clock on it starts.
+//
+// Since 2026-09-19 the live figure is DATA: growth_assumptions key load_age_alert_days, edited
+// from the ADG Analytics Assumptions drawer and read per request by the candidate read. This
+// constant is only what a tenant with no row falls back to, and the figure the drawer shows for
+// such a tenant. Do not read it from a consumer; take the threshold the read resolved.
 const LoadAgeAlertDays = 90
 
 // DaysSincePurchase is the load's age in whole days at asOf, both read as Asia/Kolkata BUSINESS
@@ -552,10 +557,13 @@ type OverdueLoad struct {
 	DaysSincePurchase int
 	Remaining         int
 	PurchaseValue     *float64
+	// ThresholdDays is the alert line this load was judged against, carried on the row so the
+	// notification's copy names the figure that actually applied rather than a constant.
+	ThresholdDays int
 }
 
-// OverdueLoads selects the loads a daily alert must name: older than LoadAgeAlertDays AND still
-// holding animals.
+// OverdueLoads selects the loads a daily alert must name: older than thresholdDays (the tenant's
+// load_age_alert_days assumption, LoadAgeAlertDays when unset) AND still holding animals.
 //
 // BOTH conditions, and the second is the one that makes the alert worth reading. A load bought a
 // year ago that sold out is history — alerting on it every morning forever would train the reader
@@ -564,10 +572,13 @@ type OverdueLoad struct {
 //
 // Strictly greater than the threshold: "exceeds 90 days" is the maintainer's wording, so day 90
 // is not yet overdue and day 91 is.
-func OverdueLoads(loads []LoadwiseLoad) []OverdueLoad {
+func OverdueLoads(loads []LoadwiseLoad, thresholdDays int) []OverdueLoad {
+	if thresholdDays <= 0 {
+		thresholdDays = LoadAgeAlertDays
+	}
 	var out []OverdueLoad
 	for _, load := range loads {
-		if load.DaysSincePurchase == nil || *load.DaysSincePurchase <= LoadAgeAlertDays {
+		if load.DaysSincePurchase == nil || *load.DaysSincePurchase <= thresholdDays {
 			continue
 		}
 		if load.Remaining <= 0 {
@@ -580,6 +591,7 @@ func OverdueLoads(loads []LoadwiseLoad) []OverdueLoad {
 			Farm:              load.Farm,
 			PurchaseDate:      load.PurchaseDate,
 			DaysSincePurchase: *load.DaysSincePurchase,
+			ThresholdDays:     thresholdDays,
 			Remaining:         load.Remaining,
 			PurchaseValue:     load.PurchaseValue,
 		})

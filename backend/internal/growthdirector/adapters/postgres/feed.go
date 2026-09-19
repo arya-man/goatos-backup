@@ -70,7 +70,7 @@ feed_rows AS (
 // head_days still pre-collapses head_count with max() per (shed, pen, feed_day, shed_tag, breed)
 // BEFORE summing, because head_count repeats on every feed_item cell and every session of a day.
 // The kg_feed_per_kg_gain ratio now ranges over exactly one pen on BOTH numerator and denominator.
-func (r *Repository) feedVsGrowth(ctx context.Context, tenantID string, parkIDs []string, startDate, endDate string, sexFiltered bool, scope weighingpg.SexScope, idMap weighingpg.AnimalIdentityMap, weighingCategory string) (domain.FeedVsGrowth, error) {
+func (r *Repository) feedVsGrowth(ctx context.Context, tenantID string, parkIDs []string, startDate, endDate string, sexFiltered bool, scope weighingpg.SexScope, idMap weighingpg.AnimalIdentityMap, weighingCategory string, settings domain.GrowthSettings) (domain.FeedVsGrowth, error) {
 	ctx, cancel := r.timeout(ctx)
 	defer cancel()
 	out := domain.FeedVsGrowth{Sheds: []domain.FeedVsGrowthShed{}, Estimate: true}
@@ -106,7 +106,7 @@ adg AS (
          (w_last - w_first) * 1000.0 / (t_last::date - t_first::date) AS adg_g_day
   FROM pairs p
   WHERE t_last::date > t_first::date
-    AND (w_last - w_first) * 1000.0 / (t_last::date - t_first::date) > -300
+    AND (w_last - w_first) * 1000.0 / (t_last::date - t_first::date) > -$12::float8
 ),
 -- Re-grain each pair from its weighing bucket to the kid's PEN via the herd
 -- register (see the function comment). The pen, not the physical shed: feed is
@@ -153,7 +153,7 @@ LEFT JOIN shed_growth g USING (shed_id, partition_label)
 ORDER BY f.shed_label, f.partition_label, f.shed_id`
 	rows, err := r.pool.Query(ctx, q, tenantID, parkIDs, startDate, endDate, sexFiltered, scope.Tags,
 		scope.LocationIDs, scope.PartitionLabels, weighingCategory,
-		idMap.Tags, idMap.CanonicalTags)
+		idMap.Tags, idMap.CanonicalTags, settings.BadScanLossGPerDay)
 	if err != nil {
 		return out, err
 	}

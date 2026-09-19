@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"sort"
+	"strconv"
 	"strings"
 	"time"
 
@@ -232,18 +233,11 @@ func weightDemographicsPruneInactiveSectionSelects(query string, sections map[st
          FROM resolved r
          LEFT JOIN animal_gain ag ON ag.tag = r.tag
          CROSS JOIN LATERAL (
-           SELECT CASE WHEN r.weight_kg < 15 THEN 'under_15'
-                       WHEN r.weight_kg < 20 THEN '15_20'
-                       WHEN r.weight_kg < 25 THEN '20_25'
-                       WHEN r.weight_kg < 30 THEN '25_30'
-                       WHEN r.weight_kg < 35 THEN '30_35'
-                       ELSE '35_plus' END AS band,
-                  CASE WHEN r.weight_kg < 15 THEN 1
-                       WHEN r.weight_kg < 20 THEN 2
-                       WHEN r.weight_kg < 25 THEN 3
-                       WHEN r.weight_kg < 30 THEN 4
-                       WHEN r.weight_kg < 35 THEN 5
-                       ELSE 6 END AS sort
+           -- projection-review: membership=one row per width_bucket index over the caller's edges;
+           -- group_key=band index; join_cardinality=1:0..1 per tag (animal_gain) and per pen
+           -- (lump_span), unchanged by the edges; pagination=none; scope=tenant + authorized parks.
+           SELECT width_bucket(r.weight_kg, $31::numeric[])::text AS band,
+                  width_bucket(r.weight_kg, $31::numeric[]) + 1 AS sort
          ) b
          GROUP BY b.band, b.sort
          UNION ALL
@@ -255,18 +249,8 @@ func weightDemographicsPruneInactiveSectionSelects(query string, sections map[st
          LEFT JOIN lump_span ls
            ON ls.location_id = lu.location_id AND ls.partition_label = lu.partition_label
          CROSS JOIN LATERAL (
-           SELECT CASE WHEN lu.average_weight_kg < 15 THEN 'under_15'
-                       WHEN lu.average_weight_kg < 20 THEN '15_20'
-                       WHEN lu.average_weight_kg < 25 THEN '20_25'
-                       WHEN lu.average_weight_kg < 30 THEN '25_30'
-                       WHEN lu.average_weight_kg < 35 THEN '30_35'
-                       ELSE '35_plus' END AS band,
-                  CASE WHEN lu.average_weight_kg < 15 THEN 1
-                       WHEN lu.average_weight_kg < 20 THEN 2
-                       WHEN lu.average_weight_kg < 25 THEN 3
-                       WHEN lu.average_weight_kg < 30 THEN 4
-                       WHEN lu.average_weight_kg < 35 THEN 5
-                       ELSE 6 END AS sort
+           SELECT width_bucket(lu.average_weight_kg, $31::numeric[])::text AS band,
+                  width_bucket(lu.average_weight_kg, $31::numeric[]) + 1 AS sort
          ) b
          GROUP BY b.band, b.sort
        ) parts GROUP BY band, sort
@@ -352,10 +336,22 @@ func weightDemographicsPruneInactiveSectionSelects(query string, sections map[st
 // than by_stage: a whole-shed weigh has no tags, so it reaches the stage rows via
 // its shed's cohort but never the breed or sex rows. The resolved / unresolved /
 // lump-sum counts are returned so that gap is legible rather than looking broken.
-func (r *Repository) GetWeightDemographics(ctx context.Context, tenantID string, parkIDs []string, periodStart, periodEnd time.Time, sex, origin, weighingCategory, sections string) (out domain.WeightDemographics, err error) {
+func (r *Repository) GetWeightDemographics(ctx context.Context, tenantID string, parkIDs []string, periodStart, periodEnd time.Time, sex, origin, weighingCategory, sections string, bandEdgesKg []float64) (out domain.WeightDemographics, err error) {
+	// The band edges are the CALLER's (the tenant's weight_band_edges_kg assumption, maintainer
+	// decision 2026-09-19); this read names no assumptions table. width_bucket gives 0 below the
+	// first edge .. len(edges) at or above the last; key and farm label come from the same edges.
+	if len(bandEdgesKg) == 0 {
+		bandEdgesKg = domain.DefaultWeightBandEdgesKg
+	}
 	sectionSet := weightDemographicsSectionSet(sections)
 	sectionKey := weightDemographicsSectionKey(sectionSet)
-	cacheKey := weighingAnalyticsCacheKey("weight_demographics:"+sectionKey, tenantID, parkIDs, periodStart, periodEnd, sex, origin, weighingCategory)
+	// The band edges are part of the answer, so they are part of the key: two readers on different
+	// edges must not share a cached partition.
+	edgeKey := make([]string, 0, len(bandEdgesKg))
+	for _, e := range bandEdgesKg {
+		edgeKey = append(edgeKey, strconv.FormatFloat(e, 'f', -1, 64))
+	}
+	cacheKey := weighingAnalyticsCacheKey("weight_demographics:"+sectionKey+":bands="+strings.Join(edgeKey, ","), tenantID, parkIDs, periodStart, periodEnd, sex, origin, weighingCategory)
 	if cached, ok := r.getReadCache(cacheKey); ok {
 		return cached.(domain.WeightDemographics), nil
 	}
@@ -449,7 +445,7 @@ func (r *Repository) GetWeightDemographics(ctx context.Context, tenantID string,
 	}
 	shortcutSafe := !sectionSet["weekly_gain"] && !sectionSet["composition"] && !sectionSet["gain_thresholds"] && !sectionSet["shed_type"]
 	if weighingCategory == domain.CategoryPerShedPartition && sexFilter == "" && !originFiltered && shortcutSafe {
-		out, err = r.getShedPartitionWeightDemographics(ctx, tenantID, parkIDs, periodStart, periodEnd, sectionSet, farmBornScope, purchasedScope)
+		out, err = r.getShedPartitionWeightDemographics(ctx, tenantID, parkIDs, periodStart, periodEnd, sectionSet, farmBornScope, purchasedScope, bandEdgesKg)
 		if err != nil {
 			return domain.WeightDemographics{}, err
 		}
@@ -1171,18 +1167,11 @@ SELECT
          FROM resolved r
          LEFT JOIN animal_gain ag ON ag.tag = r.tag
          CROSS JOIN LATERAL (
-           SELECT CASE WHEN r.weight_kg < 15 THEN 'under_15'
-                       WHEN r.weight_kg < 20 THEN '15_20'
-                       WHEN r.weight_kg < 25 THEN '20_25'
-                       WHEN r.weight_kg < 30 THEN '25_30'
-                       WHEN r.weight_kg < 35 THEN '30_35'
-                       ELSE '35_plus' END AS band,
-                  CASE WHEN r.weight_kg < 15 THEN 1
-                       WHEN r.weight_kg < 20 THEN 2
-                       WHEN r.weight_kg < 25 THEN 3
-                       WHEN r.weight_kg < 30 THEN 4
-                       WHEN r.weight_kg < 35 THEN 5
-                       ELSE 6 END AS sort
+           -- projection-review: membership=one row per width_bucket index over the caller's edges;
+           -- group_key=band index; join_cardinality=1:0..1 per tag (animal_gain) and per pen
+           -- (lump_span), unchanged by the edges; pagination=none; scope=tenant + authorized parks.
+           SELECT width_bucket(r.weight_kg, $31::numeric[])::text AS band,
+                  width_bucket(r.weight_kg, $31::numeric[]) + 1 AS sort
          ) b
          GROUP BY b.band, b.sort
          UNION ALL
@@ -1194,18 +1183,8 @@ SELECT
          LEFT JOIN lump_span ls
            ON ls.location_id = lu.location_id AND ls.partition_label = lu.partition_label
          CROSS JOIN LATERAL (
-           SELECT CASE WHEN lu.average_weight_kg < 15 THEN 'under_15'
-                       WHEN lu.average_weight_kg < 20 THEN '15_20'
-                       WHEN lu.average_weight_kg < 25 THEN '20_25'
-                       WHEN lu.average_weight_kg < 30 THEN '25_30'
-                       WHEN lu.average_weight_kg < 35 THEN '30_35'
-                       ELSE '35_plus' END AS band,
-                  CASE WHEN lu.average_weight_kg < 15 THEN 1
-                       WHEN lu.average_weight_kg < 20 THEN 2
-                       WHEN lu.average_weight_kg < 25 THEN 3
-                       WHEN lu.average_weight_kg < 30 THEN 4
-                       WHEN lu.average_weight_kg < 35 THEN 5
-                       ELSE 6 END AS sort
+           SELECT width_bucket(lu.average_weight_kg, $31::numeric[])::text AS band,
+                  width_bucket(lu.average_weight_kg, $31::numeric[]) + 1 AS sort
          ) b
          GROUP BY b.band, b.sort
        ) parts GROUP BY band, sort
@@ -1388,7 +1367,8 @@ SELECT
 		sectionSet["composition"], sectionSet["dimensions"], sectionSet["origin"],
 		sectionSet["shed_type"], sectionSet["weight_bands"], sectionSet["weekly_gain"],
 		sectionSet["gain_thresholds"],
-		needLatest, needLump, needGain, needLumpSpan, needWeeklyGain).Scan(
+		needLatest, needLump, needGain, needLumpSpan, needWeeklyGain,
+		bandEdgesKg).Scan(
 		&resolvedCount, &unresolvedCount, &lumpTotal, &lumpUnattributed,
 		&breedJSON, &sexJSON, &stageJSON,
 		&gainBreedJSON, &gainSexJSON, &gainStageJSON,
@@ -1436,7 +1416,7 @@ SELECT
 	if out.ShedTypeMembers, err = decodeShedTypeMembers(shedTypeMembersJSON); err != nil {
 		return domain.WeightDemographics{}, err
 	}
-	if out.ByWeightBand, err = decodeWeightBandBuckets(weightBandJSON); err != nil {
+	if out.ByWeightBand, err = decodeWeightBandBuckets(weightBandJSON, bandEdgesKg); err != nil {
 		return domain.WeightDemographics{}, err
 	}
 	if out.GainByBreedWeek, err = decodeWeightGainBreedWeekBuckets(gainBreedWeekJSON); err != nil {
@@ -1696,18 +1676,11 @@ SELECT
       FROM latest l
       LEFT JOIN span sp ON sp.location_id = l.location_id AND sp.partition_label = l.partition_label
       CROSS JOIN LATERAL (
-        SELECT CASE WHEN l.average_weight_kg < 15 THEN 'under_15'
-                    WHEN l.average_weight_kg < 20 THEN '15_20'
-                    WHEN l.average_weight_kg < 25 THEN '20_25'
-                    WHEN l.average_weight_kg < 30 THEN '25_30'
-                    WHEN l.average_weight_kg < 35 THEN '30_35'
-                    ELSE '35_plus' END AS band,
-               CASE WHEN l.average_weight_kg < 15 THEN 1
-                    WHEN l.average_weight_kg < 20 THEN 2
-                    WHEN l.average_weight_kg < 25 THEN 3
-                    WHEN l.average_weight_kg < 30 THEN 4
-                    WHEN l.average_weight_kg < 35 THEN 5
-                    ELSE 6 END AS sort
+        -- projection-review: membership=one row per width_bucket index over the caller's edges;
+        -- group_key=band index; join_cardinality=1:0..1 per tag (animal_gain) and per pen
+        -- (lump_span), unchanged by the edges; pagination=none; scope=tenant + authorized parks.
+        SELECT width_bucket(l.average_weight_kg, $16::numeric[])::text AS band,
+               width_bucket(l.average_weight_kg, $16::numeric[]) + 1 AS sort
       ) b
       GROUP BY b.band, b.sort
     ) rows) ELSE '[]'::jsonb END,
@@ -1720,7 +1693,7 @@ SELECT
       WHERE sc.breeds = 1 GROUP BY sc.breed, pw.week_start
     ) rows) ELSE '[]'::jsonb END`
 
-func (r *Repository) getShedPartitionWeightDemographics(ctx context.Context, tenantID string, parkIDs []string, periodStart, periodEnd time.Time, sections map[string]bool, farmBornScope, purchasedScope ReportScope) (domain.WeightDemographics, error) {
+func (r *Repository) getShedPartitionWeightDemographics(ctx context.Context, tenantID string, parkIDs []string, periodStart, periodEnd time.Time, sections map[string]bool, farmBornScope, purchasedScope ReportScope, bandEdgesKg []float64) (domain.WeightDemographics, error) {
 	out := domain.WeightDemographics{
 		GainThresholdsByBreed: []domain.WeightGainThresholdBucket{},
 		ByBreed:               []domain.WeightDemographicBucket{},
@@ -1746,6 +1719,7 @@ func (r *Repository) getShedPartitionWeightDemographics(ctx context.Context, ten
 		sections["origin"], sections["shed_type"], sections["weight_bands"], sections["weekly_gain"], sections["composition"],
 		farmBornScope.LocationIDs, farmBornScope.PartitionLabels,
 		purchasedScope.LocationIDs, purchasedScope.PartitionLabels,
+		bandEdgesKg,
 	).Scan(&breedJSON, &sexJSON, &stageJSON, &gainBreedJSON, &gainSexJSON, &gainStageJSON, &originJSON, &shedTypeJSON, &weightBandJSON, &weekJSON)
 	if err != nil {
 		return domain.WeightDemographics{}, err
@@ -1775,7 +1749,7 @@ func (r *Repository) getShedPartitionWeightDemographics(ctx context.Context, ten
 	if out.GainByBreedShedType, decodeErr = decodeWeightGainShedTypeBuckets(shedTypeJSON); decodeErr != nil {
 		return domain.WeightDemographics{}, decodeErr
 	}
-	if out.ByWeightBand, decodeErr = decodeWeightBandBuckets(weightBandJSON); decodeErr != nil {
+	if out.ByWeightBand, decodeErr = decodeWeightBandBuckets(weightBandJSON, bandEdgesKg); decodeErr != nil {
 		return domain.WeightDemographics{}, decodeErr
 	}
 	if out.GainByBreedWeek, decodeErr = decodeWeightGainBreedWeekBuckets(weekJSON); decodeErr != nil {
@@ -2154,29 +2128,40 @@ func lowerASCII(c byte) byte {
 //
 // The gain arrives NULL for a bracket nothing was weighed twice in, and stays nil: 0 g/day would
 // read as a bracket that stopped growing.
-func decodeWeightBandBuckets(raw []byte) ([]domain.WeightBandBucket, error) {
+// projection-review: membership=one row per width_bucket index over the caller's edges, from the
+// SQL that already grouped each arm (scanned tag, lump pen) at its own grain before the UNION ALL;
+// group_key=band index; join_cardinality=1:0..1 per tag and per pen, unchanged by the edges;
+// pagination=none, a whole-scope partition; scope=tenant + authorized parks.
+func decodeWeightBandBuckets(raw []byte, edges []float64) ([]domain.WeightBandBucket, error) {
 	out := []domain.WeightBandBucket{}
 	if len(raw) == 0 {
 		return out, nil
+	}
+	if len(edges) == 0 {
+		edges = domain.DefaultWeightBandEdgesKg
 	}
 	var rows [][]json.RawMessage
 	if err := json.Unmarshal(raw, &rows); err != nil {
 		return nil, err
 	}
-	known := map[string]bool{"under_15": true, "15_20": true, "20_25": true, "25_30": true, "30_35": true, "35_plus": true}
 	for _, row := range rows {
 		if len(row) != 4 {
 			continue
 		}
-		var band string
+		// SQL emits the width_bucket index as text; the key and label come from the same edges.
+		var idxText string
 		var animals, gainAnimals int
-		if json.Unmarshal(row[0], &band) != nil || !known[band] {
+		if json.Unmarshal(row[0], &idxText) != nil {
+			continue
+		}
+		idx, err := strconv.Atoi(idxText)
+		if err != nil || idx < 0 || idx > len(edges) {
 			continue
 		}
 		if json.Unmarshal(row[1], &animals) != nil || json.Unmarshal(row[2], &gainAnimals) != nil {
 			continue
 		}
-		bucket := domain.WeightBandBucket{Band: band, Animals: animals, GainAnimals: gainAnimals}
+		bucket := domain.WeightBandBucket{Band: domain.WeightBandKey(edges, idx), Label: domain.WeightBandLabel(edges, idx), Animals: animals, GainAnimals: gainAnimals}
 		var gain *float64
 		if json.Unmarshal(row[3], &gain) == nil && gain != nil {
 			bucket.AverageGainGPerDay = gain

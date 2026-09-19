@@ -32,9 +32,12 @@ export async function renderSopModulePage(
   slice: SopScopeDomain,
   basePath: string,
   searchParams: Promise<RouteSearchParams>,
+  /** Optional header controls, built by the module page from the resolved page contract. */
+  headerTrailing?: (pageContract: Awaited<ReturnType<typeof requireAdminWebPageContract>>, sp: RouteSearchParams) => Promise<React.ReactNode>,
 ) {
   const pageContractPromise = requireAdminWebPageContract(contractKey);
   const sp = await searchParams;
+  const trailing = headerTrailing ? await headerTrailing(await pageContractPromise, sp) : null;
   if (sp.compose === "1" || sp.new === "1") {
     const editId = typeof sp.edit === "string" && sp.edit ? sp.edit : undefined;
     if (editId) {
@@ -171,9 +174,9 @@ export async function renderSopModulePage(
 
   if (!listed.ok) {
     if (isAuthRequiredError(listed.error)) {
-      return <SopLibrary sops={[]} authRequired pageContract={pageContract} basePath={basePath} />;
+      return <SopLibrary sops={[]} authRequired pageContract={pageContract} basePath={basePath} headerTrailing={trailing} />;
     }
-    return <SopLibrary sops={[]} error={{ code: listed.error.code, message: listed.error.message }} pageContract={pageContract} basePath={basePath} />;
+    return <SopLibrary sops={[]} error={{ code: listed.error.code, message: listed.error.message }} pageContract={pageContract} basePath={basePath} headerTrailing={trailing} />;
   }
 
   // Module scoping: each page lists only its own module's SOP codes. A SOP outside every module
@@ -189,5 +192,5 @@ export async function renderSopModulePage(
   // `?published=<sop_id>&v=<n>` is where an editor lands after Publish: the library says which
   // version just went live and lights up that card, so the change is visibly reflected instead
   // of a small note above an unchanged editor (maintainer report 2026-09-15).
-  return <SopLibrary sops={sops} pageContract={pageContract} basePath={basePath} published={publishedFromSearch(sp)} />;
+  return <SopLibrary sops={sops} pageContract={pageContract} basePath={basePath} published={publishedFromSearch(sp)} headerTrailing={trailing} />;
 }

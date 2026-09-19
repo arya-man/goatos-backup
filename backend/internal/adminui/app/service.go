@@ -773,7 +773,7 @@ func pages() []domain.PageContract {
 		// Weights analytics -- six tabs over the SAME reads the Weights page uses, so the two
 		// screens can never disagree about a number. It declares ONE table (the shed-wise tab's
 		// figures); every other tab is a chart, and a chart is not a TableContract.
-		page("weighing-analytics", "/weighing/analytics", "/weighing/analytics", "Kids — ADG Analytics", "Growth cut seven ways: overall, by breed, by farm-born vs purchased, by pen type, by weight band, by week and by purchased load.", "module-surface",
+		page("weighing-analytics", "/weighing/analytics", "/weighing/analytics", "Kids — ADG Analytics", "Growth cut eight ways: overall, by breed, by farm-born vs purchased, by pen type, by weight band, by week, by purchased load, and feed conversion.", "module-surface",
 			// The shed table on the General tab, which is the Weights page's own table read from
 			// the same endpoint -- so the two screens cannot disagree about a shed's figures.
 			//
@@ -794,6 +794,13 @@ func pages() []domain.PageContract {
 			// already served; the window is still the backend's.
 			[]domain.TableContract{
 				sortable(tableP("shed-weights", "Pens", "/weighing/shed-weights", []string{"park", "shed", "weighing", "animals_weighed", "average_weight", "daily_gain", "total_weight", "last_weighed"}, "location_id", []int{10, 25, 50}), "average_weight", "daily_gain"),
+				// The FCR tab's pen table (maintainer request 2026-09-07): one row per pen weighed
+				// in the period -- feed the sheet directed between its weighing rounds against the
+				// kilograms it gained, the ratio between the two, and what that gain is worth at the
+				// maintainer's assumed sale price. Served by /growth-director/fcr, the read-only
+				// reporting module that may read weighing, herd and feed tables together. No row
+				// click: the pen's detail is the row.
+				withoutRowClick(tableP("fcr-pens", "Pens", "/growth-director/fcr", []string{"pen", "cohort", "animals", "weighed", "daily_gain", "head_days", "gain_kg", "feed_kg", "fcr", "feed_cost", "gain_value", "margin", "feed_cost_per_kg_gain", "feed_sheet"}, "", []int{10, 25, 50})),
 				// The Load-wise tab's table (maintainer request 2026-09-03) -- one row per
 				// purchased load: the average weight the load arrived at against the latest
 				// weighing of the animals that came off it, and how many times over the arrival
@@ -1394,8 +1401,8 @@ func weighingWeightsCopy() map[string]string {
 		"kpi.total.sub":             "of the kids actually weighed",
 		"kpi.average.label":         "Average weight",
 		"kpi.average.sub":           "per kid, across every pen",
-		"kpi.over30.label":          "Over 30 kg",
-		"kpi.over35.label":          "Over 35 kg",
+		"kpi.over30.label":          "Over {kg} kg",
+		"kpi.over35.label":          "Over {kg} kg",
 		"kpi.threshold.basis":       "weighed · a whole pen counts at its average",
 		"kpi.sheds.label":           "Pens weighed",
 		"chart.average.title":       "Average weight by pen",
@@ -4791,7 +4798,10 @@ func pageSpecificCopy(id string) map[string]string {
 			// Over 35 kg (maintainer request 2026-09-03): the sale-weight count from the Weights
 			// pages. Same basis as the Weights cards: every kid weighed in the sale-ready window
 			// at its latest weight, a whole pen counted at its average.
-			"kpi.over35":             "Over 35 kg",
+			// {kg} is the tenant's sale-ready line (growth_assumptions, edited from the Weighing SOP
+			// Assumptions drawer -- maintainer decision 2026-09-19); the page fills it from the
+			// figure the count was actually taken against.
+			"kpi.over35":             "Over {kg} kg",
 			"kpi.over35.sub":         "sale-ready window · a whole pen counts at its average",
 			"kpi.over35.none":        "nothing weighed in the sale-ready window",
 			"kpi.over35.tolerance":   "Error margin",
@@ -5590,6 +5600,10 @@ func pageSpecificCopy(id string) map[string]string {
 			// shown as zero.
 			// ---------------------------------------------------------------------------
 			"tab.load": "Comparison",
+			// The FCR tab's strip label. Its content copy is authored with the tab itself; the
+			// strip reads every tab's label on every route, so this one key is what lets the
+			// other seven tabs render at all.
+			"tab.fcr": "FCR",
 
 			"section.load.title":   "Purchased weight against the latest weighing",
 			"section.load.caption": "Average weight per animal in each purchased load — as bought, and at its latest weighing. The figure above each pair is how many times the arrival weight the load now stands at, followed by the pens the load's weighed animals sit in and the head count at each pen's latest weigh.",
@@ -5613,13 +5627,114 @@ func pageSpecificCopy(id string) map[string]string {
 			"legend.load.purchase_value": "Purchased value (₹)",
 			"legend.load.stock_value":    "Current stock value (₹)",
 			"legend.load.gain":           "Gain / difference (₹)",
-			"note.load.rates":            "Assumed live-weight rates: sheep ₹430 per kg, goat ₹450 per kg.",
-			"load.rate.sheep_per_kg":     "430",
-			"load.rate.goat_per_kg":      "450",
-			"load.value.sold_out":        "sold out",
-			"load.value.no_cost":         "cost not recorded",
-			"disabled.load_value":        "Your current role can view weights but not purchase and sales money.",
-			"unit.rupees":                "",
+			// The assumed sale price now comes from growth_sale_price_assumptions (maintainer decision
+			// 2026-09-07), read by the Comparison tab and the FCR tab alike, so the hard-coded
+			// 430/450 copy is gone. The note is composed from the served prices.
+			"note.load.rates.prefix":  "Assumed live-weight rates:",
+			"note.load.rates.missing": "No assumed live-weight sale price is configured, so stock cannot be valued.",
+			"load.value.sold_out":     "sold out",
+			"load.value.no_cost":      "cost not recorded",
+			"disabled.load_value":     "Your current role can view weights but not purchase and sales money.",
+			"unit.rupees":             "₹",
+
+			// ---------------------------------------------------------------------------
+			// FCR (maintainer request 2026-09-07). Feed conversion ratio: kilograms of feed
+			// directed to a pen per kilogram the pen gained, over the same days. Lower is
+			// better. Every figure is backend-owned; absence copy is load-bearing because a pen
+			// weighed once, a pen with no feed rows and a pen that did not gain each have no
+			// honest number and must not read as zero.
+			// ---------------------------------------------------------------------------
+
+			"kpi.fcr.farm.label":       "Farm FCR",
+			"kpi.fcr.farm.unit":        "kg feed per kg gain",
+			"kpi.fcr.cost_gain.label":  "Feed cost per kg gain",
+			"kpi.fcr.feed_cost.label":  "Feed spent",
+			"kpi.fcr.feed_cost.sub":    "on the pens with an FCR, at purchase prices",
+			"kpi.fcr.gain_value.label": "Weight gained, at sale price",
+			"kpi.fcr.gain_value.sub":   "kg gained × assumed ₹ per kg",
+			"kpi.fcr.margin.label":     "Money made over feed",
+			"kpi.fcr.margin.sub":       "gain value − feed spent",
+			"kpi.fcr.margin.loss":      "the pens ate more value than they gained",
+			"unit.fcr.rupees":          "₹",
+			"kpi.fcr.break_even.label": "Break-even FCR",
+			"kpi.fcr.break_even.sub":   "sale price ÷ feed cost per kg",
+			"kpi.fcr.no_value":         "—",
+
+			"fcr.price.prefix":  "Valued at",
+			"fcr.price.per_kg":  "per kg live weight",
+			"fcr.price.set":     "set",
+			"fcr.price.by":      "by",
+			"fcr.price.missing": "No assumed sale price is configured for this species, so its gain is not valued.",
+			"fcr.price.shared":  "The Comparison tab values stock at the same prices.",
+
+			"section.fcr.pens.title":     "FCR by pen",
+			"section.fcr.pens.caption":   "Kilograms of feed directed to the pen between its first and latest weighing in the period, per kilogram the pen gained. Grouped by park, pens A to Z; the dashed line is break-even at today's prices.",
+			"section.fcr.pens.aria":      "Feed conversion ratio by pen",
+			"section.fcr.money.title":    "Money by pen",
+			"section.fcr.money.caption":  "What each pen's gain is worth at the assumed sale price, what its feed cost at purchase prices, and the money made between the two. A bar below the line is a pen that ate more value than it put on.",
+			"section.fcr.money.aria":     "Gain value, feed cost and money made by pen",
+			"legend.fcr.gain_value":      "Gain value (₹)",
+			"legend.fcr.feed_cost":       "Feed cost (₹)",
+			"legend.fcr.margin":          "Money made (₹)",
+			"section.fcr.breed.title":    "FCR by breed",
+			"section.fcr.breed.caption":  "Sum of feed over sum of gain across the pens that hold one breed. A pen holding several breeds is one Mixed bar, never split.",
+			"section.fcr.breed.aria":     "Feed conversion ratio by breed",
+			"section.fcr.sex.title":      "FCR by sex",
+			"section.fcr.sex.caption":    "A pen counts under a sex only when every resident is that sex.",
+			"section.fcr.sex.aria":       "Feed conversion ratio by sex",
+			"section.fcr.weekly.title":   "FCR week by week",
+			"section.fcr.weekly.caption": "Each weighing round closes a segment for its pen: feed directed since the previous round over the gain across it. Weeks are grouped by the round that closed them.",
+			"section.fcr.weekly.aria":    "Feed conversion ratio by week",
+			"section.fcr.band.title":     "FCR by weight band",
+			"section.fcr.band.caption":   "Band from the pen's average weight at its first weighing in the period.",
+			"section.fcr.band.aria":      "Feed conversion ratio by weight band",
+			"section.fcr.park.title":     "FCR by park",
+			"section.fcr.park.aria":      "Feed conversion ratio by park",
+			"section.fcr.origin.title":   "Farm born against purchased",
+			"section.fcr.origin.caption": "Purchased means every live resident of the pen came off a load; a pen holding both is claimed by neither.",
+			"section.fcr.origin.aria":    "Feed conversion ratio by origin",
+
+			"series.fcr":           "FCR",
+			"unit.fcr":             "kg/kg",
+			"value.fcr.pens":       "pens",
+			"value.fcr.kids":       "kids",
+			"label.fcr.mixed":      "Mixed",
+			"label.fcr.unknown":    "Not recorded",
+			"label.fcr.farm_born":  "Farm born",
+			"label.fcr.purchased":  "Purchased",
+			"label.fcr.break_even": "Break-even",
+			"label.fcr.whole_pen":  "whole pen",
+			"label.fcr.scanned":    "scanned",
+
+			"table.fcr.title":                 "Pens",
+			"table.fcr.aria":                  "FCR by pen",
+			"table.fcr.caption":               "One row per pen. Feed is what the sheet directed between the two weighing dates; gain is the pen's daily gain × the head-days actually fed. Blocked feed cells understate feed and are flagged.",
+			"table.fcr.pen":                   "Pen",
+			"table.fcr.cohort":                "Cohort",
+			"table.fcr.animals":               "Kids",
+			"table.fcr.weighed":               "Weighed",
+			"table.fcr.daily_gain":            "ADG g/day",
+			"table.fcr.head_days":             "Head-days",
+			"table.fcr.gain_kg":               "Gain kg",
+			"table.fcr.feed_kg":               "Feed kg",
+			"table.fcr.fcr":                   "FCR",
+			"table.fcr.feed_cost":             "Feed ₹",
+			"table.fcr.gain_value":            "Gain value ₹",
+			"table.fcr.margin":                "Money made ₹",
+			"table.fcr.feed_cost_per_kg_gain": "₹ feed / kg gain",
+			"table.fcr.feed_sheet":            "Feed sheet",
+			"table.fcr.status.ok":             "complete",
+			"table.fcr.status.blocked":        "blocked cells",
+			"table.fcr.status.weighed_once":   "weighed once",
+			"table.fcr.status.no_feed":        "no feed rows",
+			"table.fcr.status.no_gain":        "no gain",
+			"table.fcr.unpriced":              "kg unpriced",
+
+			"note.fcr.basis":    "Feed is the quantity the feed sheet directed, not a measured intake. Park-level feed that no sheet assigns to a pen is left out.",
+			"note.fcr.filters":  "Under a sex or origin filter a pen counts only when every resident matches: feed is given to the whole pen and cannot be split.",
+			"note.fcr.excluded": "Pens weighed once, pens with no feed sheet rows and pens that did not gain are listed in the table without a ratio and stay out of every chart.",
+			"empty.fcr.body":    "No pen has two weighings and feed sheet rows in this period yet. FCR appears once a pen has been weighed twice with feed directed in between.",
+			"error.fcr.body":    "The feed conversion figures could not be loaded. Try again.",
 
 			// The growth multiple. Composed as value + suffix ("1.8" + "x"); the dash is
 			// what renders when either side of the division is missing.
@@ -8351,6 +8466,41 @@ func pageSpecificCopy(id string) map[string]string {
 			m["modal.builder.eyebrow"] = "SOP · WEIGHING"
 			m["empty.title"] = "No weighing SOPs yet"
 			m["empty.body"] = "Publish the scan-and-submit weighing session SOP."
+			// The Assumptions drawer (maintainer decision 2026-09-19): every figure the Weighing
+			// pages are valued and judged against, edited here by whoever holds the Configure
+			// tick. Labels are keyed on the assumption key (assumption.<key>.label / .hint).
+			m["action.assumptions"] = "Assumptions"
+			m["disabled.assumptions"] = "Your access can read the Weighing figures but not change them."
+			m["drawer.assumptions.title"] = "Assumptions"
+			m["drawer.assumptions.caption"] = "Figures the Weighing pages are valued and judged against. A change applies the next time a page loads, whatever period the page is showing."
+			m["drawer.assumptions.prices.title"] = "Live-weight sale price"
+			m["drawer.assumptions.prices.hint"] = "₹ per kg live weight, used to value weight gained (FCR tab) and stock on hand (Load-wise tab)."
+			m["drawer.assumptions.values.title"] = "Sale lines & alerts"
+			m["assumption.goat.label"] = "Goat"
+			m["assumption.sheep.label"] = "Sheep"
+			m["assumption.sale_ready_threshold_kg.label"] = "Sale-ready weight"
+			m["assumption.sale_ready_threshold_kg.hint"] = "The 'Over N kg' line on Farm value and the Weights cards."
+			m["assumption.load_age_alert_days.label"] = "Load age alert"
+			m["assumption.load_age_alert_days.hint"] = "Days after purchase at which a load still holding animals is flagged to the CXO every morning."
+			m["drawer.assumptions.rupees"] = "₹"
+			m["drawer.assumptions.set_by"] = "set by"
+			m["drawer.assumptions.save"] = "Save"
+			m["drawer.assumptions.cancel"] = "Cancel"
+			m["drawer.assumptions.saved"] = "Saved. The pages now use these figures."
+			m["drawer.assumptions.error"] = "Could not save these figures."
+			m["drawer.assumptions.conflict"] = "Someone else changed these figures. Reload and try again."
+			m["assumption.sale_ready_lower_kg.label"] = "Lower sale line"
+			m["assumption.sale_ready_lower_kg.hint"] = "The 'Over N kg' lower count on the Weights cards."
+			m["assumption.slow_growth_target_g_per_day.label"] = "Slow-growth target"
+			m["assumption.slow_growth_target_g_per_day.hint"] = "A pen whose daily gain sits below this is listed as slow growth."
+			m["assumption.bad_scan_loss_g_per_day.label"] = "Bad-scan cut-off"
+			m["assumption.bad_scan_loss_g_per_day.hint"] = "A kid that appears to lose more than this per day between two weighings is treated as a bad scan and left out of growth."
+			m["assumption.default_period_days.label"] = "Default period"
+			m["assumption.default_period_days.hint"] = "How many days the growth widgets cover when no dates are chosen."
+			m["assumption.weight_band_edges_kg.label"] = "Weight bands"
+			m["assumption.weight_band_edges_kg.hint"] = "The band edges, lowest to highest, for the band board, the Weight-wise tab and FCR by weight band. Comma-separated."
+			m["drawer.assumptions.growth.title"] = "Growth"
+			m["drawer.assumptions.window.title"] = "Growth widgets"
 		}
 		return m
 	case "goat-passport":

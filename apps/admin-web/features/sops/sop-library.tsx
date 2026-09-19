@@ -73,13 +73,15 @@ export interface SopLibraryProps {
   basePath: string;
   /** Set when an editor just published: the banner names the version and that card is lit. */
   published?: { sopId: string; version: number | null } | null;
+  /** Extra header controls a module page mounts beside "New SOP" (Weighing: the Assumptions drawer). */
+  headerTrailing?: React.ReactNode;
 }
 
 // SOP Library client console. Ported from the mock SOP Library screen (header, search, domain chips,
 // card grid, detail modal). "New SOP" / "Edit" navigate to the dedicated full-page builder
 // (<basePath>?compose=1 [&edit=<sop_id>]). Cards render ONLY real `/admin/sops` data; facets are derived from
 // real code/description/form_dsl/proof_policy. No mock inventory, no fake source rows.
-export function SopLibrary({ sops, error, authRequired, pageContract, basePath, published }: SopLibraryProps) {
+export function SopLibrary({ sops, error, authRequired, pageContract, basePath, published, headerTrailing }: SopLibraryProps) {
   const router = useRouter();
   const builderHref = `${basePath}?compose=1`;
   // The just-published banner is dismissed locally (no navigation) and is only shown while the
@@ -129,6 +131,7 @@ export function SopLibrary({ sops, error, authRequired, pageContract, basePath, 
 	          <div className="sub">{pageContract.subtitle}</div>
         </div>
         <div className="sp" style={{ flex: 1 }} />
+        {headerTrailing}
         <button
           type="button"
           className="btn p"

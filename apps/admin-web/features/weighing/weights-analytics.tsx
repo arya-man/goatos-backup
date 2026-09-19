@@ -9,6 +9,8 @@ import { SegmentedLinks } from "@/components/segmented-links";
 import { WorklistFilters, type WorklistFilterField } from "@/components/worklist-filters";
 import { WorklistPager } from "@/components/worklist-pager";
 import { copy, optionGroup, table, type AdminUiPageContract } from "@/lib/admin-ui-contract";
+import { FCRTab } from "./fcr-tab";
+import { assumptionValue, bandEdgesParam, DEFAULT_SALE_READY_LOWER_KG, fillKg } from "./assumption-copy";
 import { PensTable, type PensTableRow } from "./pens-table";
 import { FeedWeightBandCard } from "./feed-weight-band-card";
 import { PenWeekGainTable, type PenWeekGainPoint } from "./pen-week-gain-table";
@@ -16,6 +18,9 @@ import { LoadWeekGainTable, type LoadWeekGainPoint } from "./load-week-gain-tabl
 import { fmtDate, todayIso } from "@/lib/format";
 import {
   firstAuthRequiredError,
+  getGrowthAssumptions,
+  getGrowthSalePrices,
+  getWeighingFCR,
   getFeedWeightBand,
   getShedWeights,
   getWeighingGrowth,
@@ -87,7 +92,7 @@ function compareKg(actual: number, op: string, wanted: number): boolean {
 }
 const DEFAULT_LIMIT = 25;
 
-const TABS = ["general", "breed", "birth", "shed", "weight", "time", "load"] as const;
+const TABS = ["general", "breed", "birth", "shed", "weight", "time", "load", "fcr"] as const;
 
 /**
  * The Load-wise tab's weighing window floor — before any Mesha weighing capture, so "latest
@@ -180,6 +185,14 @@ export async function WeighingWeightsAnalyticsPage({
   // block, served on this page's contract copy (backend-owned; the constants are the fallback).
   const windowSettings = weightsWindowSettings(pageContract.copy, today);
   const weighingCategoryFilter = modeFilter !== "all" ? modeFilter : "";
+  // The assumptions (maintainer decision 2026-09-19): the shed-weights read takes both sale lines
+  // and the demographics read its band edges from them -- weighing is isolated and does not read
+  // the assumptions table itself, so the caller names them, exactly as it names the tolerance.
+  const assumptions = await getGrowthAssumptions();
+  if (firstAuthRequiredError(assumptions)) redirect(INTERNAL_LOGIN_PATH);
+  const assumptionRows = assumptions.ok ? assumptions.data.values : null;
+  const saleThresholdKg = assumptionRows ? assumptionValue(assumptionRows, "sale_ready_threshold_kg") : null;
+  const saleLowerKg = assumptionRows ? assumptionValue(assumptionRows, "sale_ready_lower_kg") : null;
   const window = await landingWindow(
     params,
     today,
@@ -232,9 +245,11 @@ export async function WeighingWeightsAnalyticsPage({
   // weighing mode through the weighing module's own scope resolvers, so the table narrows exactly
   // as the General tab does.
   const wantsFeedBand = tab === "weight";
-  const shedParams = wantsLoads
-    ? { park_id: parkFilter || undefined, from: LOAD_TAB_ALL_TIME_FROM, to: today }
-    : { ...scope, ...readWindow };
+  const shedParams = {
+    ...(wantsLoads ? { park_id: parkFilter || undefined, from: LOAD_TAB_ALL_TIME_FROM, to: today } : { ...scope, ...readWindow }),
+    ...(saleThresholdKg != null ? { sale_threshold_kg: saleThresholdKg } : {}),
+    ...(saleLowerKg != null ? { sale_lower_kg: saleLowerKg } : {}),
+  };
 
   // ONE demographics read serves all three tabs that need it, Birth-wise included: the backend
   // carries `gain_by_breed_origin` on this same response. Asking the read twice under the two
@@ -246,10 +261,14 @@ export async function WeighingWeightsAnalyticsPage({
   // priced endpoint would refuse is never asked to call it.
   const valueChart = pageContract.controls.find((item) => item.id === "load_value_chart");
   const wantsValue = wantsLoads && (valueChart?.enabled ?? false);
-  const [weights, growth, demographics, loadwise, loadValues, feedBand] = await Promise.all([
+  // The FCR tab (maintainer request 2026-09-07) is ONE read carrying every figure it shows; the
+  // Comparison tab reads the same sale-price vocabulary that read values gain at, so the two tabs
+  // price the herd at one number.
+  const wantsFCR = tab === "fcr";
+  const [weights, growth, demographics, loadwise, loadValues, feedBand, fcr, salePrices] = await Promise.all([
     getShedWeights(shedParams),
     wantsGrowth ? getWeighingGrowth({ ...scope, ...readWindow, sections: growthSections }) : null,
-    wantsDemographics ? getWeightDemographics({ ...scope, ...readWindow, sections: demographicsSections }) : null,
+    wantsDemographics ? getWeightDemographics({ ...scope, ...readWindow, sections: demographicsSections, band_edges_kg: bandEdgesParam(assumptionRows) }) : null,
     wantsLoads ? getLoadwiseWeights({ park_id: parkFilter || undefined }) : null,
     wantsValue ? getLoadwiseSales({ park_id: parkFilter || undefined }) : null,
     wantsFeedBand
@@ -261,9 +280,11 @@ export async function WeighingWeightsAnalyticsPage({
           ...readWindow,
         })
       : null,
+    wantsFCR ? getWeighingFCR({ ...scope, ...readWindow }) : null,
+    wantsLoads ? getGrowthSalePrices() : null,
   ]);
 
-  if (firstAuthRequiredError(weights, growth, demographics, loadwise, loadValues, feedBand)) redirect(INTERNAL_LOGIN_PATH);
+  if (firstAuthRequiredError(weights, growth, demographics, loadwise, loadValues, feedBand, fcr, salePrices)) redirect(INTERNAL_LOGIN_PATH);
 
   if (!weights.ok) {
     return <WeightsAnalyticsLoadError pageContract={pageContract} />;
@@ -456,6 +477,8 @@ export async function WeighingWeightsAnalyticsPage({
             limit={limit}
             offset={offset}
             params={params}
+            saleThresholdKg={saleThresholdKg}
+            saleLowerKg={saleLowerKg}
           />
         ) : null}
 
@@ -488,6 +511,23 @@ export async function WeighingWeightsAnalyticsPage({
             weights={weights.data}
             valueLoads={loadValues?.ok ? (loadValues.data.loads ?? []) : null}
             valueChartReason={valueChart?.enabled ? "" : (valueChart?.disabled_reason ?? "")}
+            salePrices={salePrices?.ok ? salePrices.data.prices : null}
+          />
+        ) : null}
+
+        {/* FCR degrades whole: every figure on the tab comes from the one read, so a failed read
+            shows the tab's own error rather than half a strip. */}
+        {tab === "fcr" ? (
+          <FCRTab
+            pageContract={pageContract}
+            fcr={fcr?.ok ? fcr.data : null}
+            pager={{
+              offset,
+              limit,
+              pageSizeOptions: PAGE_SIZE_OPTIONS,
+              hrefForOffset: (next) => hrefWith(params, { offset: String(next) }),
+              hrefForLimit: (next) => hrefWith(params, { limit: String(next), offset: null }),
+            }}
           />
         ) : null}
       </div>
@@ -524,6 +564,8 @@ function GeneralTab({
   limit,
   offset,
   params,
+  saleThresholdKg,
+  saleLowerKg,
 }: {
   pageContract: AdminUiPageContract;
   summary: ShedWeightsSummary;
@@ -536,6 +578,9 @@ function GeneralTab({
   limit: number;
   offset: number;
   params: RouteSearchParams;
+  /** The sale lines the over-N counts were taken against; null when the assumptions read failed. */
+  saleThresholdKg: number | null;
+  saleLowerKg: number | null;
 }) {
   const weighedRows = rows.filter((row) => row.animals_weighed > 0);
   const modeRows =
@@ -621,14 +666,14 @@ function GeneralTab({
             <div className="dl">{copy(pageContract, "kpi.average.sub")}</div>
           </div>
           <div className="kpi">
-            <div className="lab">{copy(pageContract, "kpi.over30.label")}</div>
+            <div className="lab">{fillKg(copy(pageContract, "kpi.over30.label"), saleLowerKg ?? DEFAULT_SALE_READY_LOWER_KG)}</div>
             <div className="val">{summary.at_or_above_30kg.toLocaleString("en-IN")}</div>
             <div className="dl">
               {summary.threshold_basis_animals.toLocaleString("en-IN")} {copy(pageContract, "kpi.threshold.basis")}
             </div>
           </div>
           <div className="kpi">
-            <div className="lab">{copy(pageContract, "kpi.over35.label")}</div>
+            <div className="lab">{fillKg(copy(pageContract, "kpi.over35.label"), saleThresholdKg)}</div>
             <div className="val">{summary.at_or_above_35kg.toLocaleString("en-IN")}</div>
             <div className="dl">
               {summary.threshold_basis_animals.toLocaleString("en-IN")} {copy(pageContract, "kpi.threshold.basis")}
@@ -1025,7 +1070,9 @@ function WeightTab({
       }
       return {
         key: band.band,
-        heading: copy(pageContract, `band.weight.${band.band}`),
+        // The farm words come from the backend with the bracket: the edges are the tenant's
+        // assumption, so a page contract cannot carry one label per key any more.
+        heading: band.label,
         // A bracket with animals but no second weigh says so, rather than leaving the reader to
         // wonder whether the gain bar failed to render.
         subheading:

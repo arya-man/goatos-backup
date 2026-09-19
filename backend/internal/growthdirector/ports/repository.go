@@ -38,13 +38,44 @@ type Repository interface {
 	//   - feed quantity_kg NULL = blocked and is never COALESCEd to 0
 	GetGrowthDirectorWeights(ctx context.Context, tenantID string, parkIDs []string, periodStart, periodEnd time.Time, sex, origin, weighingCategory, sections string) (domain.GrowthDirectorWeights, error)
 
+	// GetFCR builds the Weighing FCR tab for one half-open window: feed directed to each pen
+	// between its consecutive weighing rounds against the gain those rounds measured, rolled up
+	// by breed, sex, weight band, park, origin and week. parkIDs must be non-empty and already
+	// authorization-checked. sex/origin are applied at PEN grain (agree-or-neither), because feed
+	// is directed to a whole pen and cannot be split between two cohorts.
+	GetFCR(ctx context.Context, tenantID string, parkIDs []string, periodStart, periodEnd time.Time, sex, origin, weighingCategory string) (domain.FCRReport, error)
+
+	// GetSalePrices returns the newest assumed live-weight sale price per species effective on or
+	// before asOf (a business date). Maintainer-edited data, never a constant.
+	GetSalePrices(ctx context.Context, tenantID string, asOf time.Time) (domain.SalePrices, error)
+
+	// GetAssumptions returns the sale prices effective on asOf plus every keyed figure in
+	// growth_assumptions (maintainer decision 2026-09-19). A tenant with no row for a key gets no
+	// entry; consumers fall back to the figure the old constant carried.
+	GetAssumptions(ctx context.Context, tenantID string, asOf time.Time) (domain.Assumptions, error)
+
+	// GrowthSettings resolves the figures the reads are judged against (band edges, slow-growth
+	// target, bad-scan cut-off, default period, sale lines), defaulted when the tenant has no row.
+	GrowthSettings(ctx context.Context, tenantID string) (domain.GrowthSettings, error)
+
+	// PutAssumptions applies a validated update in ONE transaction: a sale price is appended as
+	// the row effective on asOf (a same-day re-set overwrites that day's row, earlier days keep
+	// theirs), and a keyed figure is updated in place under its row_version fence.
+	// ErrAssumptionConflict when a fence does not match. Idempotent: replaying the same update
+	// re-lands the same rows.
+	PutAssumptions(ctx context.Context, tenantID, setBy string, asOf time.Time, update domain.AssumptionsUpdate) (domain.Assumptions, error)
+
+	// PutAssumptions applies a validated update in ONE transaction: a sale price is appended as
+	// the row effective on asOf (a same-day re-set overwrites that day's row, earlier days keep
+	// theirs), and a keyed figure is updated in place under its row_version fence.
+
 	// GetFeedWeightBandSource reads the LATEST locked/amended feed direction per
 	// park and workflow, rolled up per pen and cohort, each rollup carrying the
 	// pen's weight evidence at the General tab's own grain (0 rows for an unweighed
 	// pen, 1 for a pen-average pen, 1 per band for a per-animal pen), plus the
 	// animals sold or dead inside the window. The window bounds the weighing side
 	// only. Same scoping rule as above: parkIDs are already authorized.
-	GetFeedWeightBandSource(ctx context.Context, tenantID string, parkIDs []string, periodStart, periodEnd time.Time, sex, origin, weighingCategory string) (FeedWeightBandSource, error)
+	GetFeedWeightBandSource(ctx context.Context, tenantID string, parkIDs []string, periodStart, periodEnd time.Time, sex, origin, weighingCategory string, bandEdgesKg []float64) (FeedWeightBandSource, error)
 }
 
 // FeedWeightBandSource is the repository's raw answer for the feed-by-weight-band
@@ -136,3 +167,7 @@ type FeedWeightEvidence struct {
 	ExitedSold int
 	ExitedDied int
 }
+
+// ErrAssumptionConflict is returned when a keyed figure was changed by someone else since the
+// caller loaded it; the caller reloads and decides again.
+var ErrAssumptionConflict = errors.New("growthdirector: assumption row_version conflict")

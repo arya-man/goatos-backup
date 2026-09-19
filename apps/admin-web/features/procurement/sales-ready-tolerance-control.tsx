@@ -4,6 +4,8 @@ import { useMemo, useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 
 type Props = {
+  /** The sale-ready line in kg (the tenant's assumption); the tolerance is taken off this. */
+  lineKg: number;
   valueG: number;
   maxG: number;
   preserveQuery: [string, string][];
@@ -17,18 +19,21 @@ type Props = {
   pagePath?: string;
 };
 
-function thresholdFromTolerance(valueG: number): number {
-  return Math.max(0, 35 - valueG / 1000);
+// `lineKg` is the sale-ready line itself -- the tenant's sale_ready_threshold_kg assumption
+// (maintainer decision 2026-09-19) -- so the label never names a line the count was not taken at.
+function thresholdFromTolerance(lineKg: number, valueG: number): number {
+  return Math.max(0, lineKg - valueG / 1000);
 }
 
-function thresholdLabel(valueG: number): string {
-  return `${thresholdFromTolerance(valueG).toLocaleString("en-IN", {
+function thresholdLabel(lineKg: number, valueG: number): string {
+  return `${thresholdFromTolerance(lineKg, valueG).toLocaleString("en-IN", {
     maximumFractionDigits: 1,
     minimumFractionDigits: 0,
   })}+`;
 }
 
 export function SalesReadyToleranceControl({
+  lineKg,
   valueG,
   maxG,
   preserveQuery,
@@ -57,7 +62,7 @@ export function SalesReadyToleranceControl({
     <div className="sales-ready-tolerance" aria-label={label}>
       <div className="sales-ready-tolerance-head">
         <label htmlFor="sale-ready-tolerance">{label}</label>
-        <strong>{thresholdLabel(draftG)}</strong>
+        <strong>{thresholdLabel(lineKg, draftG)}</strong>
       </div>
       <div className="sales-ready-tolerance-row">
         <input

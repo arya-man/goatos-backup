@@ -146,7 +146,7 @@ VALUES
 
 	from, to := gdWindow()
 	repo := NewRepository(pool, 30*time.Second)
-	got, err := repo.GetFeedWeightBandSource(ctx, gdTenant, []string{gdPark}, from, to, "", "", "")
+	got, err := repo.GetFeedWeightBandSource(ctx, gdTenant, []string{gdPark}, from, to, "", "", "", nil)
 	if err != nil {
 		t.Fatalf("GetFeedWeightBandSource: %v", err)
 	}
@@ -243,7 +243,7 @@ VALUES
 	// SEX FILTER through the weighing module's own resolver: "male" keeps TAG-A's 20_25 row
 	// and drops the 15_20 band (TAG-C resolves to no animal, so it is claimed by neither
 	// side); the lump pen's residents are all female, so it drops too.
-	male, err := repo.GetFeedWeightBandSource(ctx, gdTenant, []string{gdPark}, from, to, "male", "", "")
+	male, err := repo.GetFeedWeightBandSource(ctx, gdTenant, []string{gdPark}, from, to, "male", "", "", nil)
 	if err != nil {
 		t.Fatalf("GetFeedWeightBandSource (male): %v", err)
 	}
@@ -265,7 +265,7 @@ VALUES
 
 	// PARK SCOPE: the other park's sheet answers only when that park is in scope, and then
 	// its Gandhi 1 - Part 1 is a DIFFERENT pen from park A's (keyed on park_id).
-	both, err := repo.GetFeedWeightBandSource(ctx, gdTenant, []string{gdPark, otherPark}, from, to, "", "", "")
+	both, err := repo.GetFeedWeightBandSource(ctx, gdTenant, []string{gdPark, otherPark}, from, to, "", "", "", nil)
 	if err != nil {
 		t.Fatalf("GetFeedWeightBandSource (both parks): %v", err)
 	}
@@ -292,7 +292,7 @@ VALUES
 	}
 	// The window bounds the WEIGHINGS only: a window ending before every weigh leaves the
 	// feed rollups in place with no evidence, never drops the sheet.
-	windowed, err := repo.GetFeedWeightBandSource(ctx, gdTenant, []string{gdPark}, day(1, 0), day(2, 0), "", "", "")
+	windowed, err := repo.GetFeedWeightBandSource(ctx, gdTenant, []string{gdPark}, day(1, 0), day(2, 0), "", "", "", nil)
 	if err != nil {
 		t.Fatalf("GetFeedWeightBandSource (window): %v", err)
 	}
