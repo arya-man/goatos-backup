@@ -231,13 +231,33 @@ func TestAskRefusesForeignTenantFacts(t *testing.T) {
 		{ID: "0", ToolName: "vaccination_overdue", Route: domain.RouteCube},
 	}}}
 	cache := &countingCache{m: map[string]domain.Answer{}}
-	a := NewAssistant(Config{}, Deps{Provider: prov, Registry: reg, Metrics: metrics, Cache: cache})
+	audit := &fakeAudit{}
+	tel := &fakeSQLTelemetry{}
+	a := NewAssistant(Config{}, Deps{Provider: prov, Registry: reg, Metrics: metrics, Cache: cache, Audit: audit, Telemetry: tel})
 	ans, err := a.Ask(context.Background(), domain.Question{Actor: leadershipActor(), Text: "plot overdue by shed"})
 	if err != nil {
 		t.Fatal(err)
 	}
 	if ans.Mode != domain.ModeRefused {
 		t.Fatalf("mixed-tenant facts must refuse, got mode=%q answer=%q", ans.Mode, ans.Answer)
+	}
+	// D0 "each attempt audited": the gate rejection is observable — an audit
+	// row in ModeRefused whose trace carries the tenant_gate step, and one
+	// ceoai_tenant_gate_reject_total{reason} increment.
+	if audit.rec == nil || audit.rec.Mode != domain.ModeRefused {
+		t.Fatalf("tenant gate rejection must be audited as refused, got %+v", audit.rec)
+	}
+	gateStep := false
+	for _, st := range audit.rec.Steps {
+		if st.SubQuestionID == "tenant_gate" && strings.Contains(st.Err, "another tenant") {
+			gateStep = true
+		}
+	}
+	if !gateStep || audit.rec.Review.ScopeSafe || len(audit.rec.Review.FailReasons) == 0 {
+		t.Fatalf("audit must carry the tenant_gate step and a scope-unsafe verdict, got steps=%+v review=%+v", audit.rec.Steps, audit.rec.Review)
+	}
+	if len(tel.tenantGates) != 1 || tel.tenantGates[0] != "foreign" {
+		t.Fatalf("expected one tenant-gate counter increment with reason=foreign, got %v", tel.tenantGates)
 	}
 	if strings.Contains(ans.Answer, "42") || strings.Contains(ans.Answer, "77") {
 		t.Fatalf("refusal must not leak a figure: %q", ans.Answer)

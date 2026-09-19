@@ -57,7 +57,9 @@ timestamptz bigint integer numeric double boolean jsonb`.
    `sql_fallback`, the orchestrator re-prompts Vertex once (`RepairSQL`) with the error
    text and `card.RenderCompact()` of the referenced view, re-runs the corrected draft
    through the same guard, and on a second failure takes the honest-partial path.
-   Counters: `ceoai_sql_reject_total{reason}` and `ceoai_sql_pg_error_total{code}`; the
+   Counters: `ceoai_sql_reject_total{reason}`, `ceoai_sql_pg_error_total{code}` and
+   `ceoai_tenant_gate_reject_total{reason}` (a fact set the D0 tenant gate refused at
+   compose/chart time — also logged and audited as a `tenant_gate` trace step); the
    validator reason lands in the admin trace step.
 
 ## How to add a card (new `CREATE OR REPLACE VIEW ceo_ai.<name>`)

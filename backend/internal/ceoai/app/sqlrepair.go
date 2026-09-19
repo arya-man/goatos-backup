@@ -19,6 +19,7 @@ package app
 import (
 	"context"
 	"errors"
+	"fmt"
 	"strings"
 	"time"
 
@@ -134,8 +135,19 @@ func prepareSQLWindows(subs []domain.SubQuestion, w Window, asOf time.Time) bool
 // sqlWindowFromParams rebuilds the guard window from a sub-question's
 // from/to params. ok=false when no window was threaded.
 func sqlWindowFromParams(params map[string]any) (sqlguard.Window, bool) {
-	from, _ := params[paramFrom].(string)
-	to, _ := params[paramTo].(string)
+	return windowFromParamKeys(params, paramFrom, paramTo)
+}
+
+// sqlCompareWindowFromParams rebuilds the comparison window from a
+// sub-question's compare_from/compare_to params. ok=false when the question
+// was not a two-window comparison.
+func sqlCompareWindowFromParams(params map[string]any) (sqlguard.Window, bool) {
+	return windowFromParamKeys(params, paramCompareFrom, paramCompareTo)
+}
+
+func windowFromParamKeys(params map[string]any, fromKey, toKey string) (sqlguard.Window, bool) {
+	from, _ := params[fromKey].(string)
+	to, _ := params[toKey].(string)
 	if from == "" || to == "" {
 		return sqlguard.Window{}, false
 	}
@@ -145,8 +157,13 @@ func sqlWindowFromParams(params map[string]any) (sqlguard.Window, bool) {
 // validateModelSQL is the guard sequence the registry runs on a model-drafted
 // statement before the executor: sqlguard.Validate, then (when a window was
 // threaded) sqlguard.ValidateWindow against the referenced view's card. The
-// executor re-runs Validate itself — never trust a caller — this pass exists
-// so the window contract is enforced and the reject reason is attributable.
+// window comes ONLY from the server-injected from/to params (injectWindow
+// overwrites or strips whatever the plan carried). For a two-window
+// comparison the statement may bind EITHER the primary window or the
+// comparison window (compare_from/compare_to): the planner drafts one
+// sub-question per window and each arm must be answerable. The executor
+// re-runs Validate itself — never trust a caller — this pass exists so the
+// window contract is enforced and the reject reason is attributable.
 func validateModelSQL(sql string, params map[string]any) error {
 	if err := sqlguard.Validate(sql); err != nil {
 		return err
@@ -162,7 +179,28 @@ func validateModelSQL(sql string, params map[string]any) error {
 	if c, found := reporting.CardForSQL(sql); found {
 		card = c
 	}
-	return sqlguard.ValidateWindow(sql, card, w)
+	primaryErr := sqlguard.ValidateWindow(sql, card, w)
+	if primaryErr == nil {
+		return nil
+	}
+	cw, hasCompare := sqlCompareWindowFromParams(params)
+	if !hasCompare || errors.Is(primaryErr, sqlguard.ErrWindowOnCurrentStateView) {
+		return primaryErr
+	}
+	if compareErr := sqlguard.ValidateWindow(sql, card, cw); compareErr == nil {
+		return nil
+	}
+	return fmt.Errorf("%w (or, for the comparison arm, %s >= '%s' AND %s < '%s')",
+		primaryErr, dateColumnOf(card), cw.FromLiteral(), dateColumnOf(card), cw.ToExclusiveLiteral())
+}
+
+// dateColumnOf is the card's date column for messages ("<date_col>" when the
+// card is unknown).
+func dateColumnOf(card sqlguard.SchemaCardLike) string {
+	if card == nil || strings.TrimSpace(card.CardDateColumn()) == "" {
+		return "<date_col>"
+	}
+	return card.CardDateColumn()
 }
 
 // rejectClass maps a guard/executor error to the bounded reason label the
@@ -269,6 +307,9 @@ func (a *Assistant) repairSQLResults(ctx context.Context, q domain.Question, sub
 				col = card.DateColumn
 			}
 			windowText = col + " >= '" + w.FromLiteral() + "' AND " + col + " < '" + w.ToExclusiveLiteral() + "'"
+			if cw, ok := sqlCompareWindowFromParams(subs[i].Params); ok {
+				windowText += " (primary window) or " + col + " >= '" + cw.FromLiteral() + "' AND " + col + " < '" + cw.ToExclusiveLiteral() + "' (comparison window)"
+			}
 		}
 		start := a.now()
 		fixed, u, rerr := repairer.RepairSQL(ctx, q, failedSQL, err.Error(), cardText, windowText)

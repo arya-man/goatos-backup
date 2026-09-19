@@ -81,8 +81,13 @@ func (b *fakeBudget) Record(_ context.Context, _ domain.Actor, in, out int) {
 
 type fakeSQLTelemetry struct {
 	nopTelemetry
-	rejects []string
-	pgCodes []string
+	rejects     []string
+	pgCodes     []string
+	tenantGates []string
+}
+
+func (t *fakeSQLTelemetry) TenantGateReject(_ context.Context, reason string) {
+	t.tenantGates = append(t.tenantGates, reason)
 }
 
 func (t *fakeSQLTelemetry) SQLReject(_ context.Context, reason string) {
@@ -313,8 +318,9 @@ func TestInjectWindowAndPrepareSQLWindows(t *testing.T) {
 			t.Fatalf("sub %s params: %+v", s.ID, s.Params)
 		}
 	}
-	if subs[2].Params[paramFrom] != "2026-01-01" {
-		t.Fatal("a sub that pinned its own from/to must be left alone")
+	// M2: a plan-seeded from/to is OVERWRITTEN by the server-resolved window.
+	if subs[2].Params[paramFrom] != "2025-08-01" || subs[2].Params[paramTo] != "2025-08-31" {
+		t.Fatalf("a plan-seeded from/to must be overwritten by the resolved window: %+v", subs[2].Params)
 	}
 	// Cube params: window keys are reserved, never equality filters.
 	_, _, filters := cubeParams(subs[0].Params)
@@ -330,7 +336,7 @@ func TestInjectWindowAndPrepareSQLWindows(t *testing.T) {
 	if _, has := subs[1].Params[paramFrom]; has || subs[1].Params[paramWindowAsOf] != "2026-07-22" {
 		t.Fatalf("current-state sub not converted: %+v", subs[1].Params)
 	}
-	if subs[2].Params[paramFrom] != "2026-01-01" || subs[2].Params[paramWindowAsOf] != nil {
+	if subs[2].Params[paramFrom] != "2025-08-01" || subs[2].Params[paramWindowAsOf] != nil {
 		t.Fatalf("dated sub must keep its window: %+v", subs[2].Params)
 	}
 	// Zero window: nothing injected.
@@ -338,6 +344,174 @@ func TestInjectWindowAndPrepareSQLWindows(t *testing.T) {
 	injectWindow(fresh, Window{})
 	if _, has := fresh[0].Params[paramFrom]; has {
 		t.Fatal("zero window must inject nothing")
+	}
+}
+
+// TestModelSuppliedWindowIgnored (PR #318 M2): the window the guard enforces
+// is the SERVER-resolved one, never a from/to the model-influenced plan
+// seeded. With a resolved window the model's from/to are overwritten and a
+// draft bound to the model's own period is rejected; with NO resolved window
+// the model's from/to are stripped, so an unrequested period is never
+// validated (or reported) as if the leader had asked for it.
+func TestModelSuppliedWindowIgnored(t *testing.T) {
+	const modelWindowSQL = "SELECT 'Deaths' AS label, CAST(sum(deaths) AS text) AS value FROM ceo_ai.mortality_base WHERE tenant_id = 't1' AND event_date >= '2020-01-01' AND event_date < '2021-01-01' LIMIT 100"
+	modelParams := func() map[string]any {
+		return map[string]any{"sql": modelWindowSQL, paramFrom: "2020-01-01", paramTo: "2020-12-31", paramCompareFrom: "2019-01-01", paramCompareTo: "2019-12-31"}
+	}
+
+	// Before injection the model-seeded params would validate their own SQL:
+	// that is exactly the hole.
+	if err := validateModelSQL(modelWindowSQL, modelParams()); err != nil {
+		t.Fatalf("precondition: model params validate model SQL: %v", err)
+	}
+
+	// 1. Resolved window ("last month" as of 2026-07-22 = June 2026): the
+	//    model's from/to/compare_* are overwritten and the 2020 draft is rejected.
+	w, ok := ResolveWindow("deaths last month", repairNow, nil)
+	if !ok {
+		t.Fatal("expected a resolved window")
+	}
+	subs := []domain.SubQuestion{{ID: "0", Route: domain.RouteSQL, ToolName: "sql_fallback", Params: modelParams()}}
+	injectWindow(subs, w)
+	if subs[0].Params[paramFrom] != "2026-06-01" || subs[0].Params[paramTo] != "2026-06-30" {
+		t.Fatalf("server window must overwrite model from/to: %+v", subs[0].Params)
+	}
+	if _, has := subs[0].Params[paramCompareFrom]; has {
+		t.Fatalf("model-seeded compare window must not survive a non-comparison question: %+v", subs[0].Params)
+	}
+	err := validateModelSQL(modelWindowSQL, subs[0].Params)
+	if err == nil || !strings.Contains(err.Error(), "2026-06-01") {
+		t.Fatalf("draft bound to the model's own period must be rejected against the server window, got %v", err)
+	}
+	if err := validateModelSQL(juneSQL, subs[0].Params); err != nil {
+		t.Fatalf("draft bound to the server window must pass: %v", err)
+	}
+
+	// 2. No resolved window: the model's from/to are stripped, the draft is
+	//    not window-checked, and no "Window:" line can be produced from them.
+	subs = []domain.SubQuestion{{ID: "0", Route: domain.RouteSQL, ToolName: "sql_fallback", Params: modelParams()}}
+	injectWindow(subs, Window{})
+	for _, k := range []string{paramFrom, paramTo, paramWindowLabel, paramCompareFrom, paramCompareTo} {
+		if _, has := subs[0].Params[k]; has {
+			t.Fatalf("model-supplied %s must be stripped when no window resolved: %+v", k, subs[0].Params)
+		}
+	}
+	if _, ok := sqlWindowFromParams(subs[0].Params); ok {
+		t.Fatal("no window must be derivable from stripped params")
+	}
+	if wr := windowResult(leadershipActor(), subs, []domain.ToolResult{{Route: domain.RouteSQL}}, Window{}); wr != nil {
+		t.Fatalf("no Window line without a server-resolved window, got %+v", wr)
+	}
+
+	// 3. End to end through Ask: the model plan seeds 2020 params for a
+	//    "last month" question; the guard rejects the 2020 draft against the
+	//    server window, the repair is asked for June, and the answer states
+	//    the server window — never 2020.
+	sqlFB := &sequencedSQLFallback{result: deathsFacts()}
+	plan := domain.Plan{SubQuestions: []domain.SubQuestion{{
+		ID: "0", Text: "deaths", IntentClass: "mortality", Route: domain.RouteSQL, ToolName: "sql_fallback",
+		Params: modelParams(),
+	}}}
+	prov := &repairProvider{fakeProvider: fakeProvider{plan: plan, byModel: true}, repairSQL: juneSQL}
+	tel := &fakeSQLTelemetry{}
+	a := NewAssistant(Config{}, Deps{Provider: prov, Registry: NewRegistry(nil, nil, sqlFB), Telemetry: tel})
+	ans, err := a.Ask(context.Background(), domain.Question{Actor: leadershipActor(), Text: "how many widgets last month", AsOf: repairNow})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if prov.repairCalls != 1 || !strings.Contains(prov.lastWindow, "2026-06-01") {
+		t.Fatalf("expected one repair asking for the server window: calls=%d window=%q", prov.repairCalls, prov.lastWindow)
+	}
+	if sqlFB.calls != 1 || sqlFB.sqls[0] != juneSQL {
+		t.Fatalf("only the June draft may run: calls=%d sqls=%v", sqlFB.calls, sqlFB.sqls)
+	}
+	if !strings.Contains(ans.Answer, "Window: last month (01/06/2026 to 30/06/2026)") || strings.Contains(ans.Answer, "2020") {
+		t.Fatalf("answer must state the server window only: %q", ans.Answer)
+	}
+	if len(tel.rejects) != 1 || tel.rejects[0] != "window" {
+		t.Fatalf("expected one window reject: %v", tel.rejects)
+	}
+}
+
+// TestCompareWindowsThreadedAndValidated (PR #318 M1): for "this quarter vs
+// last" the planner drafts one sub-question per window. Both sub-questions
+// carry from/to AND compare_from/compare_to; a draft bound to the PRIMARY
+// window passes, a draft bound to the COMPARISON window passes too, a draft
+// bound to neither is rejected with a message naming both; the repair prompt
+// offers both windows; and the composed answer renders both windows.
+func TestCompareWindowsThreadedAndValidated(t *testing.T) {
+	w, ok := ResolveWindow("deaths this quarter vs last quarter", repairNow, nil)
+	if !ok || w.Compare == nil {
+		t.Fatalf("expected a two-window comparison, got %+v ok=%v", w, ok)
+	}
+	// as of 2026-07-22: this quarter = Q3 2026, last quarter = Q2 2026.
+	const (
+		q3SQL = "SELECT 'Deaths' AS label, CAST(sum(deaths) AS text) AS value FROM ceo_ai.mortality_base WHERE tenant_id = 't1' AND event_date >= '2026-07-01' AND event_date < '2026-10-01' LIMIT 100"
+		q2SQL = "SELECT 'Deaths' AS label, CAST(sum(deaths) AS text) AS value FROM ceo_ai.mortality_base WHERE tenant_id = 't1' AND event_date >= '2026-04-01' AND event_date < '2026-07-01' LIMIT 100"
+	)
+	subs := []domain.SubQuestion{
+		{ID: "0", Route: domain.RouteSQL, ToolName: "sql_fallback", Params: map[string]any{"sql": q3SQL}},
+		{ID: "1", Route: domain.RouteSQL, ToolName: "sql_fallback", Params: map[string]any{"sql": q2SQL}},
+	}
+	injectWindow(subs, w)
+	for _, s := range subs {
+		if s.Params[paramFrom] != "2026-07-01" || s.Params[paramTo] != "2026-09-30" || s.Params[paramCompareFrom] != "2026-04-01" || s.Params[paramCompareTo] != "2026-06-30" {
+			t.Fatalf("sub %s must carry both windows: %+v", s.ID, s.Params)
+		}
+	}
+	if err := validateModelSQL(q3SQL, subs[0].Params); err != nil {
+		t.Fatalf("primary-window draft must pass: %v", err)
+	}
+	if err := validateModelSQL(q2SQL, subs[1].Params); err != nil {
+		t.Fatalf("comparison-window draft must pass: %v", err)
+	}
+	if err := validateModelSQL(juneSQL, subs[1].Params); err == nil || !strings.Contains(err.Error(), "2026-07-01") || !strings.Contains(err.Error(), "comparison arm") || !strings.Contains(err.Error(), "2026-04-01") {
+		t.Fatalf("draft bound to neither window must be rejected naming both, got %v", err)
+	}
+	// Without a comparison window the comparison draft is still rejected.
+	single := map[string]any{"sql": q2SQL, paramFrom: "2026-07-01", paramTo: "2026-09-30"}
+	if err := validateModelSQL(q2SQL, single); err == nil {
+		t.Fatal("a non-comparison question must not accept a different window")
+	}
+
+	// End to end: the model plans both arms; the comparison arm was previously
+	// rejected and burned the repair. Now both run, no repair, and the answer
+	// states both windows once.
+	sqlFB := &sequencedSQLFallback{result: deathsFacts()}
+	plan := domain.Plan{SubQuestions: []domain.SubQuestion{
+		{ID: "0", Text: "deaths this quarter", IntentClass: "mortality", Route: domain.RouteSQL, ToolName: "sql_fallback", Params: map[string]any{"sql": q3SQL}},
+		{ID: "1", Text: "deaths last quarter", IntentClass: "mortality", Route: domain.RouteSQL, ToolName: "sql_fallback", Params: map[string]any{"sql": q2SQL}},
+	}}
+	prov := &repairProvider{fakeProvider: fakeProvider{plan: plan, byModel: true}, repairSQL: q2SQL}
+	tel := &fakeSQLTelemetry{}
+	a := NewAssistant(Config{}, Deps{Provider: prov, Registry: NewRegistry(nil, nil, sqlFB), Telemetry: tel})
+	ans, err := a.Ask(context.Background(), domain.Question{Actor: leadershipActor(), Text: "how many widgets this quarter vs last quarter", AsOf: repairNow})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if prov.repairCalls != 0 || len(tel.rejects) != 0 || sqlFB.calls != 2 {
+		t.Fatalf("both arms must run without repair: repair=%d rejects=%v exec=%d", prov.repairCalls, tel.rejects, sqlFB.calls)
+	}
+	if ans.Mode != domain.ModePlanned {
+		t.Fatalf("expected a planned answer, got %s: %q", ans.Mode, ans.Answer)
+	}
+	if !strings.Contains(ans.Answer, "01/07/2026 to 30/09/2026") || !strings.Contains(ans.Answer, " vs ") || !strings.Contains(ans.Answer, "01/04/2026 to 30/06/2026") {
+		t.Fatalf("answer must render both windows: %q", ans.Answer)
+	}
+	if strings.Count(ans.Answer, "Window:") != 1 {
+		t.Fatalf("the period must be stated exactly once: %q", ans.Answer)
+	}
+
+	// The repair prompt for a rejected comparison arm offers both windows.
+	sqlFB = &sequencedSQLFallback{result: deathsFacts()}
+	plan.SubQuestions[1].Params = map[string]any{"sql": juneSQL}
+	prov = &repairProvider{fakeProvider: fakeProvider{plan: plan, byModel: true}, repairSQL: q2SQL}
+	a = NewAssistant(Config{}, Deps{Provider: prov, Registry: NewRegistry(nil, nil, sqlFB), Telemetry: &fakeSQLTelemetry{}})
+	if _, err := a.Ask(context.Background(), domain.Question{Actor: leadershipActor(), Text: "how many widgets this quarter vs last quarter", AsOf: repairNow}); err != nil {
+		t.Fatal(err)
+	}
+	if prov.repairCalls != 1 || !strings.Contains(prov.lastWindow, "2026-07-01") || !strings.Contains(prov.lastWindow, "2026-04-01") || !strings.Contains(prov.lastWindow, "comparison window") {
+		t.Fatalf("repair must offer both windows: calls=%d window=%q", prov.repairCalls, prov.lastWindow)
 	}
 }
 

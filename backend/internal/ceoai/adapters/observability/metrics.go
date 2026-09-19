@@ -19,6 +19,7 @@
 //	assistant_sql_rejected_total{reason}    counter
 //	ceoai_sql_reject_total{reason}          counter (plan v3 D1.3: validator reason enum)
 //	ceoai_sql_pg_error_total{code}          counter (plan v3 D1.3: Postgres SQLSTATE)
+//	ceoai_tenant_gate_reject_total{reason}  counter (plan v3 D0: fact set refused by the tenant gate)
 //	assistant_vertex_failover_total         counter
 //	assistant_toolbox_errors_total          counter
 //	assistant_rate_limit_trips_total        counter
@@ -65,6 +66,7 @@ type Metrics struct {
 	sqlRejected      metric.Int64Counter
 	sqlReject        metric.Int64Counter
 	sqlPGError       metric.Int64Counter
+	tenantGateReject metric.Int64Counter
 	vertexFailover   metric.Int64Counter
 	toolboxErrors    metric.Int64Counter
 	rateLimitTrips   metric.Int64Counter
@@ -89,6 +91,7 @@ func NewMetrics() *Metrics {
 		sqlRejected:      mustCounter(m, "assistant_sql_rejected_total", "1", "SQL-fallback statements rejected by the read-only guard, by reason."),
 		sqlReject:        mustCounter(m, "ceoai_sql_reject_total", "1", "Model-drafted SQL rejected by sqlguard (validate/window/tenant), by bounded reason class; each rejection feeds the one-shot repair loop."),
 		sqlPGError:       mustCounter(m, "ceoai_sql_pg_error_total", "1", "Model-drafted SQL that validated but failed in Postgres, by SQLSTATE code."),
+		tenantGateReject: mustCounter(m, "ceoai_tenant_gate_reject_total", "1", "Fact sets the D0 tenant gate refused before compose/chart/cache, by bounded reason (unstamped|foreign|mixed|no_actor_tenant); each one is also audited and logged."),
 		vertexFailover:   mustCounter(m, "assistant_vertex_failover_total", "1", "Falls back from the Vertex planner to the deterministic keyword planner."),
 		toolboxErrors:    mustCounter(m, "assistant_toolbox_errors_total", "1", "Errors calling the MCP Toolbox tool tier."),
 		rateLimitTrips:   mustCounter(m, "assistant_rate_limit_trips_total", "1", "Requests rejected by the per-tenant/user rate limiter."),
@@ -146,6 +149,18 @@ func (m *Metrics) SQLPGError(ctx context.Context, code string) {
 		return
 	}
 	add(ctx, m.sqlPGError, 1, attribute.String("code", norm(code)))
+}
+
+// TenantGateReject counts one fact set the D0 tenant gate refused (compose,
+// compose retry or chart), by bounded reason class. A non-zero series is an
+// invariant violation upstream (an executor that did not stamp TenantID from
+// the actor, or a read that returned another tenant's rows), never a normal
+// refusal; the audit row and the error log carry the request-level detail.
+func (m *Metrics) TenantGateReject(ctx context.Context, reason string) {
+	if m == nil {
+		return
+	}
+	add(ctx, m.tenantGateReject, 1, attribute.String("reason", norm(reason)))
 }
 
 // VertexFailover counts one planner failover to the keyword planner.

@@ -83,6 +83,15 @@ var bannedKeywords = map[string]struct{}{
 	// CTEs are rejected wholesale (WITH-writes + recursion surface); the query
 	// must be a single flat SELECT.
 	"WITH": {},
+	// Set operators append a SECOND query arm that the tenant predicate of the
+	// first arm never scopes (`... WHERE tenant_id = '<session>' UNION ALL
+	// TABLE ceo_ai.v`). The fallback is ONE flat SELECT; every set operator is
+	// banned as a whole token, so no arm can exist to be unscoped.
+	"UNION": {}, "INTERSECT": {}, "EXCEPT": {},
+	// `TABLE <relation>` and `VALUES (...)` are statement forms that read (or
+	// fabricate) a relation without any SELECT/WHERE tokens, so the
+	// single-SELECT and tenant-predicate rules would never see them. Banned.
+	"TABLE": {}, "VALUES": {},
 }
 
 // bannedFunctions are function identifiers that are read-shaped in name but are
@@ -156,6 +165,13 @@ func Validate(sql string) error {
 		return ErrEmpty
 	}
 
+	// 4a. Parentheses must balance and never close below depth 0: every
+	//     depth-based rule below (single top-level FROM/WHERE, AND-conjunct
+	//     split, OR detection) assumes a well-nested statement.
+	if err := checkParensBalanced(tokens); err != nil {
+		return err
+	}
+
 	// 5. Must be a single SELECT statement. First meaningful token is SELECT;
 	//    WITH/other leading verbs are rejected (WITH is in bannedKeywords too).
 	if !strings.EqualFold(tokens[0].text, "SELECT") {
@@ -174,29 +190,24 @@ func Validate(sql string) error {
 		return rejit("statement must be a single flat SELECT; nested subqueries are not allowed")
 	}
 
-	// 5b. No JOINs. A multi-relation JOIN needs a tenant predicate on EVERY
-	//     relation, but the executor binds only the FIRST `tenant_id = '...'`
-	//     literal, so a second relation that is unscoped (`JOIN v2 ON true`) or
-	//     that carries a DIFFERENT tenant literal (`b.tenant_id = '<victim>'`)
-	//     joins in another tenant's rows while the outer literal still equals the
-	//     session tenant. The ceo_ai.* views are denormalized leadership rollups
-	//     built so leadership questions never need a cross-view JOIN; a single
-	//     tenant-scoped relation is the only safe shape for a token guard (not a
-	//     full parser) to enforce. Reject JOIN outright.
+	// 5b. Exactly ONE relation. A multi-relation read needs a tenant predicate
+	//     on EVERY relation, but the guard binds exactly one, so a second
+	//     relation — explicit JOIN, comma cross-join (`FROM a, b`), a second
+	//     FROM anywhere (a set-operator arm, an EXTRACT(x FROM y) that a token
+	//     guard cannot tell from a relation) — is rejected outright. The ceo_ai.*
+	//     views are denormalized leadership rollups built so leadership
+	//     questions never need a cross-view JOIN; a single tenant-scoped
+	//     relation is the only safe shape for a token guard (not a full parser)
+	//     to enforce.
+	if n := countKeyword(tokens, "FROM"); n != 1 {
+		return rejit("statement must read exactly one %s.* relation (found %d FROM)", AllowedSchema, n)
+	}
+	if !atDepthZero(tokens, "FROM") {
+		return rejit("FROM must be at the top level of the statement, not inside parentheses")
+	}
 	if hasKeyword(tokens, "JOIN") {
 		return rejit("JOIN is not allowed; the fallback reads a single tenant-scoped %s.* relation", AllowedSchema)
 	}
-
-	// 5c. No implicit comma cross-join. A multi-relation FROM list
-	//     (`FROM ceo_ai.a, ceo_ai.b`) has NO JOIN token, so rule 5b never fires,
-	//     yet it cartesian-joins a SECOND relation exactly like an explicit JOIN:
-	//     the executor binds only the FIRST `tenant_id = '...'` literal, so the
-	//     second relation is unscoped (or carries a divergent victim tenant
-	//     literal) and leaks cross-tenant rows. A single-table FROM clause never
-	//     contains a top-level comma — projection-list commas sit BEFORE FROM and
-	//     FROM sources are bare `ceo_ai.<view>` relations (no function/VALUES args,
-	//     enforced by checkTableSource) — so any paren-depth-0 comma between FROM
-	//     and the first clause terminator is a cross-join separator. Reject it.
 	if hasTopLevelCommaInFromClause(tokens) {
 		return rejit("comma cross-join is not allowed; the fallback reads a single tenant-scoped %s.* relation", AllowedSchema)
 	}
@@ -213,34 +224,17 @@ func Validate(sql string) error {
 		return err
 	}
 
-	// 8. Mandatory tenant scoping predicate. Scope comes from the server session;
-	//    the planner must have bound tenant_id into the WHERE clause. A fallback
-	//    without an explicit tenant_id filter is rejected so a bug in the planner
-	//    can never produce a cross-tenant read. It is NOT enough for the token
-	//    tenant_id to appear anywhere (e.g. in the SELECT projection list): it
-	//    must appear inside the WHERE clause as an actual `tenant_id = '<literal>'`
-	//    equality predicate, otherwise the read is unscoped over the
-	//    mesha_ceo_readonly role, which does not itself enforce tenant isolation.
-	//    Only the `=` form is accepted so the validator's grammar matches the
-	//    executor's server-side binding (ExtractAllTenantPredicates).
-	if !hasKeyword(tokens, "WHERE") {
-		return rejit("query must include a WHERE clause with tenant scope")
-	}
-	if !hasTenantScopeInWhere(tokens) {
-		return rejit("query must include a tenant_id filter predicate in its WHERE clause")
-	}
-
-	// 9. Reject any top-level (paren-depth 0) OR in the WHERE clause. A boolean
-	//    disjunction around the tenant predicate — e.g.
-	//    `WHERE tenant_id = '<session>' OR park_label = 'x'` — passes the tenant
-	//    predicate check yet returns rows for EVERY tenant, because the OR widens
-	//    the scan past the tenant filter. Leadership fallback filters are
-	//    conjunctive and tenant-scoped; a disjunction that must span both branches
-	//    has to be parenthesized (depth > 0), which cannot dissolve the top-level
-	//    AND tenant scope. This is defense in depth alongside the executor's
-	//    server-bound tenant equality (ExecuteReadOnlyForTenant).
-	if hasTopLevelOrInWhere(tokens) {
-		return rejit("top-level OR in the WHERE clause is not allowed; parenthesize disjunctions so the tenant scope stays conjunctive")
+	// 8. Mandatory STRUCTURAL tenant scope (plan v3 D0). It is not enough for a
+	//    `tenant_id = '<literal>'` predicate to appear somewhere in the WHERE
+	//    clause with the right literal: `NOT tenant_id = 'A'`, `tenant_id = 'A'
+	//    IS FALSE`, `(tenant_id = 'A') = false`, `CASE WHEN tenant_id = 'A'
+	//    THEN false ELSE true END` and `(tenant_id = 'A' OR x)` all carry the
+	//    honest literal and all return OTHER tenants' rows. The only shape that
+	//    actually confines the scan is a positive, paren-depth-0 AND conjunct
+	//    of the (single) WHERE clause, so that is the only shape accepted; see
+	//    checkTenantConjunct for the exact grammar.
+	if err := checkTenantConjunct(tokens); err != nil {
+		return err
 	}
 
 	return nil
@@ -368,10 +362,62 @@ func checkTableSource(tokens []token, kwIdx int) error {
 	if !strings.EqualFold(src.text, AllowedSchema) {
 		return rejit("%q source %q must be schema-qualified as %s.<view>", tokens[kwIdx].text, src.text, AllowedSchema)
 	}
-	if j+2 >= len(tokens) || !tokens[j+1].isSym || tokens[j+1].text != "." || tokens[j+2].isSym {
+	if j+2 >= len(tokens) || !tokens[j+1].isSym || tokens[j+1].text != "." || tokens[j+2].isSym || tokens[j+2].isNum {
 		return rejit("%q source must be %s.<view>", tokens[kwIdx].text, AllowedSchema)
 	}
+	// The view name must be a plain identifier, never a clause keyword: a
+	// `FROM ceo_ai.WHERE tenant_id = ...` draft would otherwise consume the
+	// WHERE keyword as the relation name and leave the predicate clause-less.
+	if _, kw := reservedClauseWords[strings.ToUpper(tokens[j+2].text)]; kw {
+		return rejit("%q source %s.%s is not a view name", tokens[kwIdx].text, AllowedSchema, tokens[j+2].text)
+	}
+	// What follows the relation must be a clause boundary or a plain alias
+	// (`AS a` / `a`) followed by a clause boundary, so the WHERE clause the
+	// tenant check inspects is really the statement's WHERE clause.
+	k := j + 3
+	if k < len(tokens) && !tokens[k].isSym && !tokens[k].isNum && strings.EqualFold(tokens[k].text, "AS") {
+		k++
+		if k >= len(tokens) || tokens[k].isSym || tokens[k].isNum {
+			return rejit("%q source alias is malformed", tokens[kwIdx].text)
+		}
+		if _, kw := reservedClauseWords[strings.ToUpper(tokens[k].text)]; kw {
+			return rejit("%q source alias %q is a keyword", tokens[kwIdx].text, tokens[k].text)
+		}
+		k++
+	} else if k < len(tokens) && !tokens[k].isSym && !tokens[k].isNum && !isClauseBoundary(tokens[k].text) {
+		if _, kw := reservedClauseWords[strings.ToUpper(tokens[k].text)]; kw {
+			return rejit("%q source is followed by %q, not a clause", tokens[kwIdx].text, tokens[k].text)
+		}
+		k++ // bare alias
+	}
+	if k < len(tokens) && (tokens[k].isSym || tokens[k].isNum || !isClauseBoundary(tokens[k].text)) {
+		return rejit("%q source must be followed by WHERE/GROUP/ORDER/HAVING/LIMIT, got %q", tokens[kwIdx].text, tokens[k].text)
+	}
 	return nil
+}
+
+// isClauseBoundary reports whether an identifier token opens a clause that
+// may follow the FROM relation (or its alias).
+func isClauseBoundary(text string) bool {
+	switch strings.ToUpper(text) {
+	case "WHERE", "GROUP", "ORDER", "HAVING", "LIMIT", "WINDOW", "FETCH", "OFFSET", "FOR":
+		return true
+	}
+	return false
+}
+
+// reservedClauseWords are SQL keywords that can never be a ceo_ai view name
+// (a fuzz-found `FROM ceo_ai.WHERE ...` swallowed the WHERE clause).
+var reservedClauseWords = map[string]struct{}{
+	"SELECT": {}, "FROM": {}, "WHERE": {}, "GROUP": {}, "ORDER": {}, "HAVING": {},
+	"LIMIT": {}, "AND": {}, "OR": {}, "NOT": {}, "AS": {}, "ON": {}, "IN": {},
+	"IS": {}, "NULL": {}, "TRUE": {}, "FALSE": {}, "CASE": {}, "WHEN": {},
+	"THEN": {}, "ELSE": {}, "END": {}, "DISTINCT": {}, "ALL": {}, "ANY": {},
+	"SOME": {}, "BETWEEN": {}, "LIKE": {}, "ILIKE": {}, "JOIN": {}, "LEFT": {},
+	"RIGHT": {}, "INNER": {}, "OUTER": {}, "CROSS": {}, "FULL": {}, "NATURAL": {},
+	"USING": {}, "WINDOW": {}, "FETCH": {}, "OFFSET": {}, "FOR": {}, "ASC": {},
+	"DESC": {}, "NULLS": {}, "EXISTS": {}, "ARRAY": {}, "CAST": {}, "FILTER": {},
+	"OVER": {}, "PARTITION": {}, "BY": {}, "ONLY": {}, "LATERAL": {},
 }
 
 // enforceLimit requires exactly a bounded LIMIT <constant> with constant <= max.
@@ -438,6 +484,52 @@ func hasToken(tokens []token, ident string) bool {
 
 func hasKeyword(tokens []token, kw string) bool { return hasToken(tokens, kw) }
 
+// checkParensBalanced rejects a statement whose parentheses do not nest.
+func checkParensBalanced(tokens []token) error {
+	depth := 0
+	for _, t := range tokens {
+		if !t.isSym {
+			continue
+		}
+		switch t.text {
+		case "(":
+			depth++
+		case ")":
+			depth--
+			if depth < 0 {
+				return rejit("unbalanced parentheses")
+			}
+		}
+	}
+	if depth != 0 {
+		return rejit("unbalanced parentheses")
+	}
+	return nil
+}
+
+// atDepthZero reports whether the (first) identifier token matching kw sits at
+// parenthesis depth 0.
+func atDepthZero(tokens []token, kw string) bool {
+	depth := 0
+	for _, t := range tokens {
+		if t.isSym {
+			switch t.text {
+			case "(":
+				depth++
+			case ")":
+				if depth > 0 {
+					depth--
+				}
+			}
+			continue
+		}
+		if !t.isNum && strings.EqualFold(t.text, kw) {
+			return depth == 0
+		}
+	}
+	return false
+}
+
 // countKeyword counts identifier tokens matching kw (case-insensitive).
 func countKeyword(tokens []token, kw string) int {
 	n := 0
@@ -447,50 +539,6 @@ func countKeyword(tokens []token, kw string) int {
 		}
 	}
 	return n
-}
-
-// hasTenantScopeInWhere reports whether a real tenant_id filter predicate exists
-// inside the WHERE clause. It requires a `tenant_id` identifier that appears
-// AFTER the WHERE keyword and is immediately followed by an equality (`=`)
-// operator. A bare `tenant_id` in the SELECT projection list (or
-// anywhere before WHERE) does NOT satisfy tenant scoping and must be rejected, or
-// an unscoped read like `SELECT tenant_id, id FROM ceo_ai.v WHERE park = 'p1'`
-// would leak every tenant's rows.
-func hasTenantScopeInWhere(tokens []token) bool {
-	whereIdx := -1
-	for i, t := range tokens {
-		if !t.isSym && !t.isNum && strings.EqualFold(t.text, "WHERE") {
-			whereIdx = i
-			break
-		}
-	}
-	if whereIdx < 0 {
-		return false
-	}
-	for i := whereIdx + 1; i < len(tokens); i++ {
-		t := tokens[i]
-		if t.isSym || t.isNum || !strings.EqualFold(t.text, "tenant_id") {
-			continue
-		}
-		j := i + 1
-		if j >= len(tokens) {
-			continue
-		}
-		nxt := tokens[j]
-		if nxt.isSym && nxt.text == "=" {
-			return true
-		}
-		// NOTE: only `tenant_id = '<literal>'` counts as tenant scope. An
-		// `tenant_id IN (...)` form is deliberately NOT accepted here: the sole
-		// production entry point (ExecuteReadOnlyForTenant) binds tenant via
-		// ExtractAllTenantPredicates, which recognizes ONLY the `=` form and hard-rejects
-		// everything else with ErrTenantBinding. Accepting IN at validation while
-		// the executor rejects it lets the validator declare a draft well-formed
-		// that then always fails to run — the two layers must agree on the
-		// accepted tenant-predicate grammar. (Nested `tenant_id IN (SELECT ...)`
-		// is already rejected by the single-SELECT rule.)
-	}
-	return false
 }
 
 // hasTopLevelCommaInFromClause reports whether a paren-depth-0 comma appears in
@@ -543,22 +591,41 @@ func hasTopLevelCommaInFromClause(tokens []token) bool {
 	return false
 }
 
-// hasTopLevelOrInWhere reports whether an `OR` keyword appears at parenthesis
-// depth 0 after the WHERE keyword (and before GROUP/ORDER/LIMIT/HAVING, which
-// end the predicate). String literals are already stripped, so an `OR` inside a
-// quoted value (e.g. `management_stage = ' OR 1=1'`) never reaches here.
-func hasTopLevelOrInWhere(tokens []token) bool {
+// whereClauseSpan locates the single paren-depth-0 WHERE keyword and returns
+// the half-open token range of its predicate: everything after WHERE up to the
+// first depth-0 clause terminator (GROUP/ORDER/HAVING/LIMIT/WINDOW/OFFSET/
+// FETCH/FOR) or the end of the statement. A `FILTER (WHERE ...)` aggregate
+// clause sits at depth > 0 and is neither the WHERE nor part of its span.
+// ok=false when the statement has no depth-0 WHERE; a second depth-0 WHERE
+// cannot occur in a single flat SELECT and is reported as an error.
+func whereClauseSpan(tokens []token) (start, end int, ok bool, err error) {
+	depth := 0
 	whereIdx := -1
 	for i, t := range tokens {
-		if !t.isSym && !t.isNum && strings.EqualFold(t.text, "WHERE") {
-			whereIdx = i
-			break
+		if t.isSym {
+			switch t.text {
+			case "(":
+				depth++
+			case ")":
+				if depth > 0 {
+					depth--
+				}
+			}
+			continue
 		}
+		if t.isNum || depth != 0 || !strings.EqualFold(t.text, "WHERE") {
+			continue
+		}
+		if whereIdx >= 0 {
+			return 0, 0, false, rejit("statement must have exactly one top-level WHERE clause")
+		}
+		whereIdx = i
 	}
 	if whereIdx < 0 {
-		return false
+		return 0, 0, false, nil
 	}
-	depth := 0
+	depth = 0
+	end = len(tokens)
 	for i := whereIdx + 1; i < len(tokens); i++ {
 		t := tokens[i]
 		if t.isSym {
@@ -572,19 +639,162 @@ func hasTopLevelOrInWhere(tokens []token) bool {
 			}
 			continue
 		}
-		if t.isNum {
+		if t.isNum || depth != 0 {
 			continue
 		}
-		if depth == 0 {
-			switch strings.ToUpper(t.text) {
-			case "GROUP", "ORDER", "LIMIT", "HAVING", "WINDOW", "OFFSET", "FETCH":
-				return false // predicate ended without a top-level OR
-			case "OR":
-				return true
+		switch strings.ToUpper(t.text) {
+		case "GROUP", "ORDER", "HAVING", "LIMIT", "WINDOW", "OFFSET", "FETCH", "FOR":
+			return whereIdx + 1, i, true, nil
+		}
+	}
+	return whereIdx + 1, end, true, nil
+}
+
+// splitTopLevelConjuncts splits a predicate token span into its paren-depth-0
+// AND conjuncts. It returns an error for a depth-0 OR anywhere in the span (a
+// disjunction can widen the scan past any tenant conjunct, whether or not the
+// tenant predicate is inside the parenthesised group) and for an empty
+// conjunct (a dangling AND).
+func splitTopLevelConjuncts(span []token) ([][]token, error) {
+	var out [][]token
+	depth := 0
+	cur := 0
+	for i, t := range span {
+		if t.isSym {
+			switch t.text {
+			case "(":
+				depth++
+			case ")":
+				if depth > 0 {
+					depth--
+				}
+			}
+			continue
+		}
+		if t.isNum || depth != 0 {
+			continue
+		}
+		switch strings.ToUpper(t.text) {
+		case "OR":
+			return nil, rejit("top-level OR in the WHERE clause is not allowed; the tenant scope must stay a conjunctive AND filter")
+		case "AND":
+			if i == cur {
+				return nil, rejit("malformed WHERE clause (empty conjunct)")
+			}
+			out = append(out, span[cur:i])
+			cur = i + 1
+		}
+	}
+	if cur >= len(span) {
+		return nil, rejit("malformed WHERE clause (empty conjunct)")
+	}
+	out = append(out, span[cur:])
+	return out, nil
+}
+
+// unwrapOnce strips ONE pair of enclosing parentheses when the conjunct is
+// wholly wrapped, i.e. its first token is '(' and the matching ')' is its
+// last token. `( a ) = false` is NOT wholly wrapped and is returned as-is.
+func unwrapOnce(c []token) []token {
+	if len(c) < 2 || !c[0].isSym || c[0].text != "(" {
+		return c
+	}
+	depth := 0
+	for i, t := range c {
+		if !t.isSym {
+			continue
+		}
+		switch t.text {
+		case "(":
+			depth++
+		case ")":
+			depth--
+			if depth == 0 {
+				if i == len(c)-1 {
+					return c[1 : len(c)-1]
+				}
+				return c
 			}
 		}
 	}
-	return false
+	return c
+}
+
+// isTenantConjunct reports whether a (literal-stripped) conjunct is EXACTLY the
+// positive tenant equality the executor binds:
+//
+//	[alias .] tenant_id = <literal>            (the literal was stripped)
+//	[alias .] tenant_id = <literal> :: ident   (a harmless RHS cast)
+//
+// Anything longer (a trailing operator, IS, CASE, NOT, a column RHS) or
+// shorter is not the tenant conjunct. The literal itself is checked against the
+// session tenant by ExtractAllTenantPredicates on the raw statement.
+func isTenantConjunct(c []token) bool {
+	i := 0
+	if len(c) >= 3 && !c[0].isSym && !c[0].isNum && c[1].isSym && c[1].text == "." {
+		i = 2
+	}
+	rest := c[i:]
+	if len(rest) < 2 || rest[0].isSym || rest[0].isNum || !strings.EqualFold(rest[0].text, "tenant_id") {
+		return false
+	}
+	if !rest[1].isSym || rest[1].text != "=" {
+		return false
+	}
+	switch len(rest) {
+	case 2:
+		return true
+	case 5:
+		return rest[2].isSym && rest[2].text == ":" && rest[3].isSym && rest[3].text == ":" && !rest[4].isSym && !rest[4].isNum
+	default:
+		return false
+	}
+}
+
+// checkTenantConjunct enforces the structural tenant-scope grammar: the
+// statement has exactly one depth-0 WHERE; its predicate has no depth-0 OR;
+// exactly ONE of its depth-0 AND conjuncts (optionally parenthesised once) is
+// the positive `tenant_id = '<literal>'` equality; and the tenant_id token
+// appears NOWHERE else in the statement (not in another conjunct, not under
+// NOT/CASE/IS, not in the projection, GROUP BY, HAVING or ORDER BY), so no
+// second predicate, inversion or disjunction can widen the scan.
+func checkTenantConjunct(tokens []token) error {
+	if n := countKeyword(tokens, "tenant_id"); n != 1 {
+		if n == 0 {
+			if _, _, ok, err := whereClauseSpan(tokens); err != nil {
+				return err
+			} else if !ok {
+				return rejit("query must include a WHERE clause with tenant scope")
+			}
+			return rejit("query must include a tenant_id filter predicate in its WHERE clause")
+		}
+		return rejit("tenant_id may appear exactly once, as the WHERE clause's tenant predicate (found %d)", n)
+	}
+	start, end, ok, err := whereClauseSpan(tokens)
+	if err != nil {
+		return err
+	}
+	if !ok {
+		return rejit("query must include a WHERE clause with tenant scope")
+	}
+	conjuncts, err := splitTopLevelConjuncts(tokens[start:end])
+	if err != nil {
+		return err
+	}
+	found := 0
+	for _, c := range conjuncts {
+		if isTenantConjunct(unwrapOnce(c)) {
+			found++
+			continue
+		}
+		if countKeyword(c, "tenant_id") > 0 {
+			return rejit("tenant_id predicate must be a positive top-level AND conjunct of the form tenant_id = '<literal>' (not under NOT, IS, CASE, OR or a larger expression)")
+		}
+	}
+	if found != 1 {
+		return rejit("query must include a tenant_id filter predicate in its WHERE clause")
+	}
+	return nil
 }
 
 func skipSpace(runes []rune, i int) int {
@@ -662,6 +872,13 @@ func stripStringLiterals(s string) (string, error) {
 					break
 				}
 				i++
+			}
+			// Two literals separated only by whitespace: Postgres concatenates
+			// them across a newline ('abc'\n'def' == 'abcdef') and errors
+			// otherwise, so the literal the guard read is not the literal that
+			// would run. Reject.
+			if k := skipSpace(runes, i); k < n && runes[k] == '\'' {
+				return "", rejit("adjacent string literals are not allowed")
 			}
 			b.WriteByte(' ')
 			continue

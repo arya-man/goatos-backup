@@ -11,8 +11,12 @@
 // docs/ceo-ai/coverage-matrix.md on a line that classifies it:
 //
 //   covered   Cube | api | view | tool | sql | ceo_ai.<view>
-//   planned   PLANNED:P2 | PLANNED:P3   (plan v3 phase that lands the read path;
-//             reported as a tally so the debt stays visible, never silent)
+//   planned   PLANNED:P2[kpi.a,chart.b] | PLANNED:P3[...]   (plan v3 phase that
+//             lands the read path, PLUS the tiles it defers — every kpi.<tile> /
+//             chart.<tile> the page declares must be listed, so a NEW tile on a
+//             page already in PLANNED debt still fails CI until it is either
+//             answerable or explicitly deferred; reported as a tally so the
+//             debt stays visible, never silent)
 //   excluded  EXCLUDED:config | write | pii | detail | infra   (typed only)
 //
 // A surface that is absent, or present only as a bare `EXCLUDED`, fails: a read
@@ -37,6 +41,34 @@ export const COVERAGE_MATRIX = "docs/ceo-ai/coverage-matrix.md";
 
 const COVERAGE_TOKEN_RE = /\b(Cube|api|view|tool|toolbox|sql|ceo_ai\.[a-z0-9_]+)\b/i;
 const PLANNED_RE = /\bPLANNED:P[0-9][a-z]?\b/;
+// A PLANNED row must enumerate the tiles it defers: PLANNED:P2[kpi.a,chart.b].
+const PLANNED_TILES_RE = /\bPLANNED:P[0-9][a-z]?\[([^\]]*)\]/g;
+
+// tileOf reduces a copy key to its tile: kpi.farm_value.detail -> kpi.farm_value,
+// chart.monthly_revenue.title -> chart.monthly_revenue. A tile is the unit a
+// CEO sees (one number / one chart); its label/sub/hint/aria copy keys are
+// the same tile.
+export function tileOf(key) {
+  return key.split(".").slice(0, 2).join(".");
+}
+
+// plannedTiles returns the union of tiles every PLANNED row for the surface
+// enumerates, or null when a PLANNED row for the surface carries no tile list.
+export function plannedTiles(matrix, surface) {
+  const lines = matrix.split("\n").filter((l) => l.includes(surface) && PLANNED_RE.test(l));
+  const tiles = new Set();
+  for (const line of lines) {
+    const lists = [...line.matchAll(PLANNED_TILES_RE)];
+    if (lists.length === 0) return null;
+    for (const m of lists) {
+      for (const t of m[1].split(",")) {
+        const tile = t.trim();
+        if (tile) tiles.add(tile);
+      }
+    }
+  }
+  return tiles;
+}
 const TYPED_EXCLUSION_RE = /\bEXCLUDED:(config|write|pii|detail|infra)\b/;
 const BARE_EXCLUDED_RE = /\|\s*EXCLUDED\s*(\||$)/;
 
@@ -140,6 +172,23 @@ export function evaluate(serviceSrc, matrix) {
       const status = classifySurface(matrix, surface);
       if (status === "planned") {
         planned.push(`${id} ${surface}`);
+        // Per-tile, not per-page: every tile the page declares must be in the
+        // PLANNED row's list, or a new tile on a page already in PLANNED debt
+        // would be invisible to this guard.
+        const listed = plannedTiles(matrix, surface);
+        const tiles = [...new Set(keys.map(tileOf))];
+        if (listed === null) {
+          errors.push(
+            `page "${id}" data source ${surface} is PLANNED in ${COVERAGE_MATRIX} but the row does not enumerate the tiles it defers — write it as PLANNED:P<n>[${tiles.join(",")}] so a new tile on this page still fails CI`,
+          );
+        } else {
+          const missing = tiles.filter((t) => !listed.has(t));
+          if (missing.length > 0) {
+            errors.push(
+              `page "${id}" declares tile(s) ${missing.join(", ")} that its PLANNED row for ${surface} in ${COVERAGE_MATRIX} does not list — either the assistant answers the tile (cover it) or add it to the PLANNED:P<n>[...] list with the view that lands it`,
+            );
+          }
+        }
       } else if (status === "missing") {
         errors.push(
           `page "${id}" declares ${keys.length} kpi/chart key(s) (e.g. ${keys[0]}) but its data source ${surface} is not in ${COVERAGE_MATRIX} — add a row under "Automatic coverage" classifying it (Cube/api/view/tool/sql, PLANNED:P<n>, or EXCLUDED:<config|write|pii|detail|infra>)`,
@@ -192,9 +241,21 @@ ${copyCases}
   r = evaluate(svc(kpiPage, pageNoTable), "| /weighing/weights | EXCLUDED:detail | operator detail |");
   if (r.errors.length !== 0) throw new Error("self-test 4: typed exclusion was blocked: " + r.errors.join("; "));
 
-  // 5. PLANNED row -> PASS but tallied
-  r = evaluate(svc(kpiPage, pageNoTable), "| /weighing/weights | PLANNED:P2 (ceo_ai.growth_adg_pairs) | plan v3 |");
+  // 5. PLANNED row enumerating every tile -> PASS but tallied
+  r = evaluate(svc(kpiPage, pageNoTable), "| /weighing/weights | PLANNED:P2[kpi.total,chart.average] (ceo_ai.growth_adg_pairs) | plan v3 |");
   if (r.errors.length !== 0 || r.planned.length !== 1) throw new Error("self-test 5: planned row mis-handled: " + JSON.stringify(r));
+
+  // 5b. PLANNED row without a tile list -> FAIL (page-level PLANNED is a loophole)
+  r = evaluate(svc(kpiPage, pageNoTable), "| /weighing/weights | PLANNED:P2 (ceo_ai.growth_adg_pairs) | plan v3 |");
+  if (r.errors.length !== 1 || !/does not enumerate/.test(r.errors[0])) throw new Error("self-test 5b: bare PLANNED row was accepted: " + JSON.stringify(r));
+
+  // 5c. A NEW tile on a page already in PLANNED debt -> FAIL naming the tile
+  r = evaluate(svc(kpiPage, pageNoTable), "| /weighing/weights | PLANNED:P2[kpi.total] (ceo_ai.growth_adg_pairs) | plan v3 |");
+  if (r.errors.length !== 1 || !/chart\.average/.test(r.errors[0])) throw new Error("self-test 5c: unlisted tile on a PLANNED page was not blocked: " + JSON.stringify(r));
+
+  // 5d. Tiles may be listed across several PLANNED rows for the same surface
+  r = evaluate(svc(kpiPage, pageNoTable), "| /weighing/weights | PLANNED:P2[kpi.total] | a |\n| /weighing/weights | PLANNED:P3[chart.average] | b |");
+  if (r.errors.length !== 0) throw new Error("self-test 5d: tiles split across PLANNED rows were rejected: " + JSON.stringify(r));
 
   // 6. A page with no kpi/chart keys needs no row -> PASS
   r = evaluate(svc(plainPage, auditPage), "");
@@ -237,7 +298,7 @@ ${copyCases}
     }
   }
 
-  console.log("ceo-ai-page-contract-drift guard self-test passed (11 cases)");
+  console.log("ceo-ai-page-contract-drift guard self-test passed (14 cases)");
 }
 
 function main() {
@@ -256,7 +317,7 @@ function main() {
     console.error("ceo-ai-page-contract-drift guard failed:");
     for (const e of errors) console.error(`- ${e}`);
     console.error("");
-    console.error(`Fix: add the page's data-source route to ${COVERAGE_MATRIX} under "Automatic coverage" as covered (Cube/api/view/tool/sql), PLANNED:P<n> with the view that lands it, or a TYPED exclusion (EXCLUDED:config|write|pii|detail|infra). See .agents/skills/goatos-leadership-assistant/SKILL.md.`);
+    console.error(`Fix: add the page's data-source route to ${COVERAGE_MATRIX} under "Automatic coverage" as covered (Cube/api/view/tool/sql), PLANNED:P<n>[kpi.<tile>,chart.<tile>,...] listing every deferred tile with the view that lands it, or a TYPED exclusion (EXCLUDED:config|write|pii|detail|infra). See .agents/skills/goatos-leadership-assistant/SKILL.md.`);
     process.exit(1);
   }
   console.log(`ceo-ai-page-contract-drift guard passed (${checked} page surface(s) checked)`);

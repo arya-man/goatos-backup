@@ -75,13 +75,22 @@ func ExtractAllTenantPredicatesWith(sql string, scoped map[string]bool) ([]strin
 		}
 		// `tenant_id = 'x' = ...` or `tenant_id = 'x' || ...` would extend the
 		// expression past the literal; reject an operator immediately after.
+		// A `::uuid` cast after the literal is harmless and allowed, but the
+		// token after the literal (or after the cast) must never be another
+		// string literal: `'x'::t ''` / `'x' 'y'` change what Postgres binds.
 		if i+3 < len(toks) {
 			nxt := toks[i+3]
+			if nxt.kind == rawString {
+				return nil, rejit("tenant predicate %q literal must not be followed by another literal", t.text)
+			}
 			if nxt.kind == rawSym {
 				switch nxt.text {
-				// A `::uuid` cast after the literal is harmless and allowed.
 				case "=", "<", ">", "!", "|", "&", "+", "-", "*", "/", "%", "^", "~", "#", "(":
 					return nil, rejit("tenant predicate %q literal must not be part of a larger expression", t.text)
+				case ":":
+					if i+6 < len(toks) && toks[i+4].kind == rawSym && toks[i+4].text == ":" && toks[i+5].kind == rawIdent && toks[i+6].kind == rawString {
+						return nil, rejit("tenant predicate %q literal must not be followed by another literal", t.text)
+					}
 				}
 			}
 		}

@@ -13,8 +13,10 @@ package reporting
 import (
 	"context"
 	"errors"
+	"fmt"
 	"os"
 	"path/filepath"
+	"regexp"
 	"strconv"
 	"strings"
 	"testing"
@@ -443,3 +445,188 @@ func migrationUpSQL(t *testing.T, name string) string {
 
 // keep pgtest referenced for the skip contract even if helpers above move.
 var _ = pgtest.Enabled
+
+// TestModelSQLNoForeignRowsEver is the BEHAVIOURAL twin of the static bypass
+// corpus (sqlguard.TenantBypassCorpus): two seeded tenants on the real
+// ceo_ai.source_entry_health_status view, every corpus shape plus the six
+// shapes the PR #318 judge proved leaking live, all run through
+// ExecuteReadOnlyForTenant as tenant A. The invariant is the one that
+// matters — a shape either errors or returns ZERO tenant-B rows; a tenant-B
+// row with err == nil is a cross-tenant leak and fails the test. The harness
+// first proves it can see a leak (the raw judge shape run WITHOUT the guard
+// does return B), so a green run is never vacuous.
+func TestModelSQLNoForeignRowsEver(t *testing.T) {
+	ctx := context.Background()
+	pool, tenantA := newDB(t, ctx)
+	var tenantB string
+	if err := pool.QueryRow(ctx,
+		`INSERT INTO tenants (tenant_id, name, status) VALUES (gen_random_uuid(), 'Northwind Goat Co', 'active') RETURNING tenant_id::text`,
+	).Scan(&tenantB); err != nil {
+		t.Fatalf("insert tenant B: %v", err)
+	}
+	parkA := park(t, ctx, pool, tenantA, "Coimbatore")
+	parkB := park(t, ctx, pool, tenantB, "Northwind Park")
+	// A has ONE load with ONE blocker; B has one load with THREE. Any integer
+	// >= 2 in a tenant-A answer (a count over both tenants, or B's blockers)
+	// is therefore a leak, as is any Northwind label or B's tenant id.
+	seedHealthIssueLoad(t, ctx, pool, tenantA, parkA, "Kumar Traders", 1)
+	seedHealthIssueLoad(t, ctx, pool, tenantB, parkB, "Northwind Meats", 3)
+
+	const view = "ceo_ai.source_entry_health_status"
+	// Corpus shapes are written against an abstract ceo_ai.x; bind them to the
+	// real view and its columns so a leak surfaces as rows, not as an
+	// undefined-column error.
+	bind := func(shape string) string {
+		sql := sqlguard.ExpandBypassShape(shape, tenantA, tenantB)
+		for _, r := range []struct{ re, to string }{
+			{`ceo_ai\.[xy]\b`, view},
+			{`\bpark_id\b`, "park_location_id"},
+			{`\bshed_id\b`, "park_location_id"},
+			{`\bpark = 'p'\b`, "health_blockers > 0"},
+			{`\bpark\b`, "source_label"},
+			{`\bid\b`, "source_label"},
+			{`\bstage\b`, "evidence_status"},
+		} {
+			sql = regexp.MustCompile(r.re).ReplaceAllString(sql, r.to)
+		}
+		return sql
+	}
+	judgeShapes := []string{
+		`SELECT source_label FROM ` + view + ` WHERE (tenant_id = '` + tenantA + `' OR health_blockers > 0) LIMIT 10`,
+		`SELECT source_label FROM ` + view + ` WHERE NOT tenant_id = '` + tenantA + `' LIMIT 10`,
+		`SELECT source_label FROM ` + view + ` WHERE tenant_id = '` + tenantA + `' IS FALSE LIMIT 10`,
+		`SELECT source_label FROM ` + view + ` WHERE (tenant_id = '` + tenantA + `') = false LIMIT 10`,
+		`SELECT source_label FROM ` + view + ` WHERE CASE WHEN tenant_id = '` + tenantA + `' THEN false ELSE true END LIMIT 10`,
+		`SELECT source_label FROM ` + view + ` WHERE tenant_id = '` + tenantA + `' UNION ALL TABLE ` + view + ` LIMIT 10`,
+	}
+
+	leaks := func(rows []sqlguard.Row) string {
+		for _, r := range rows {
+			for col, v := range r {
+				s := ""
+				switch x := v.(type) {
+				case [16]byte:
+					s = fmt.Sprintf("%x-%x-%x-%x-%x", x[0:4], x[4:6], x[6:8], x[8:10], x[10:16])
+				case int64:
+					if x >= 2 {
+						return fmt.Sprintf("%s=%d (>= 2 means rows beyond tenant A's single load)", col, x)
+					}
+					continue
+				default:
+					s = fmt.Sprint(v)
+				}
+				if strings.Contains(s, "Northwind") || strings.Contains(s, tenantB) {
+					return col + "=" + s
+				}
+			}
+		}
+		return ""
+	}
+
+	// 1. The harness can see a leak: the raw judge shape, run with NO guard as
+	//    the migration owner, returns tenant B.
+	raw, err := pool.Query(ctx, judgeShapes[1])
+	if err != nil {
+		t.Fatalf("raw control query: %v", err)
+	}
+	var rawRows []sqlguard.Row
+	fields := raw.FieldDescriptions()
+	for raw.Next() {
+		vals, verr := raw.Values()
+		if verr != nil {
+			t.Fatalf("raw scan: %v", verr)
+		}
+		row := sqlguard.Row{}
+		for i, fd := range fields {
+			row[string(fd.Name)] = vals[i]
+		}
+		rawRows = append(rawRows, row)
+	}
+	raw.Close()
+	if leaks(rawRows) == "" {
+		t.Fatalf("control: the unguarded judge shape must return tenant B's row, got %v", rawRows)
+	}
+
+	// 2. The honest shape works and returns only A.
+	exec := sqlguard.NewExecutorWithPool(pool, 5*time.Second)
+	rows, err := exec.ExecuteReadOnlyForTenant(ctx, tenantA,
+		`SELECT source_label, health_blockers FROM `+view+` WHERE tenant_id = '`+tenantA+`' LIMIT 10`)
+	if err != nil || len(rows) != 1 || rows[0]["source_label"] != "Kumar Traders" {
+		t.Fatalf("honest read as A: rows=%v err=%v", rows, err)
+	}
+	if l := leaks(rows); l != "" {
+		t.Fatalf("honest read leaked: %s", l)
+	}
+
+	// 3. Every corpus shape + the judge's six: error, or zero B rows. Never B
+	//    rows with err == nil.
+	shapes := make([]string, 0, len(sqlguard.TenantBypassCorpus)+len(judgeShapes))
+	for _, shape := range sqlguard.TenantBypassCorpus {
+		shapes = append(shapes, bind(shape))
+	}
+	shapes = append(shapes, judgeShapes...)
+	rejectedByGuard, ranClean := 0, 0
+	for _, sql := range shapes {
+		rows, err := exec.ExecuteReadOnlyForTenant(ctx, tenantA, sql)
+		if err != nil {
+			rejectedByGuard++
+			continue
+		}
+		ranClean++
+		if l := leaks(rows); l != "" {
+			t.Errorf("LEAK as tenant A (err=nil): %s\n  sql: %s", l, sql)
+		}
+	}
+	t.Logf("%d shapes: %d rejected (guard or Postgres), %d executed with zero foreign rows", len(shapes), rejectedByGuard, ranClean)
+	if rejectedByGuard < len(shapes)-2 {
+		t.Fatalf("expected essentially every bypass shape to be rejected, got %d/%d", rejectedByGuard, len(shapes))
+	}
+}
+
+// TestModelSQLParkScopeCannotWidenTenant: a park (location) scope on a
+// model-drafted read is a same-tenant filter that rides UNDER the tenant
+// conjunct. As tenant A, filtering on tenant B's park_location_id returns
+// nothing (the tenant conjunct wins), filtering on A's own park returns only
+// A, and a draft that tries to make the park predicate the scope
+// (`park_location_id = '<B park>' OR tenant_id = 'A'`, or the park predicate
+// alone) is rejected by the structural guard before it runs.
+func TestModelSQLParkScopeCannotWidenTenant(t *testing.T) {
+	ctx := context.Background()
+	pool, tenantA := newDB(t, ctx)
+	var tenantB string
+	if err := pool.QueryRow(ctx,
+		`INSERT INTO tenants (tenant_id, name, status) VALUES (gen_random_uuid(), 'Northwind Goat Co', 'active') RETURNING tenant_id::text`,
+	).Scan(&tenantB); err != nil {
+		t.Fatalf("insert tenant B: %v", err)
+	}
+	parkA := park(t, ctx, pool, tenantA, "Coimbatore")
+	parkB := park(t, ctx, pool, tenantB, "Northwind Park")
+	seedHealthIssueLoad(t, ctx, pool, tenantA, parkA, "Kumar Traders", 1)
+	seedHealthIssueLoad(t, ctx, pool, tenantB, parkB, "Northwind Meats", 3)
+
+	const view = "ceo_ai.source_entry_health_status"
+	exec := sqlguard.NewExecutorWithPool(pool, 5*time.Second)
+	read := func(where string) ([]sqlguard.Row, error) {
+		return exec.ExecuteReadOnlyForTenant(ctx, tenantA,
+			`SELECT source_label, CAST(health_blockers AS text) AS value FROM `+view+` WHERE `+where+` LIMIT 50`)
+	}
+	rows, err := read(`tenant_id = '` + tenantA + `' AND park_location_id = '` + parkA + `'`)
+	if err != nil || len(rows) != 1 || rows[0]["source_label"] != "Kumar Traders" {
+		t.Fatalf("own park scope: rows=%v err=%v", rows, err)
+	}
+	rows, err = read(`tenant_id = '` + tenantA + `' AND park_location_id = '` + parkB + `'`)
+	if err != nil || len(rows) != 0 {
+		t.Fatalf("tenant B's park under tenant A's conjunct must return nothing: rows=%v err=%v", rows, err)
+	}
+	for _, where := range []string{
+		`park_location_id = '` + parkB + `' OR tenant_id = '` + tenantA + `'`,
+		`(park_location_id = '` + parkB + `' OR tenant_id = '` + tenantA + `')`,
+		`park_location_id = '` + parkB + `'`,
+		`tenant_id = '` + tenantA + `' OR park_location_id = '` + parkB + `'`,
+	} {
+		rows, err := read(where)
+		if err == nil {
+			t.Fatalf("park predicate must not widen the tenant scope, yet %q ran with rows=%v", where, rows)
+		}
+	}
+}

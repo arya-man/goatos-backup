@@ -42,6 +42,7 @@ type Token struct {
 func Tokens(sql string) []Token {
 	stripped, err := stripStringLiterals(sql)
 	if err != nil {
+		// exception:exempt pure read; the same strip error is what Validate already returned to the caller as its *ValidationError
 		return nil
 	}
 	raw := tokenize(stripped)

@@ -42,7 +42,9 @@ func TestExtractAllTenantPredicates_Divergent(t *testing.T) {
 	if len(got) != 2 || got[1] != victimTenant {
 		t.Fatalf("want [session victim], got %v", got)
 	}
-	if _, err := nilExec().ExecuteReadOnlyForTenant(nil, sessionTenant, sql); !errors.Is(err, ErrTenantBinding) {
+	// The executor rejects it before the pool: structurally (Validate: tenant_id
+	// appears twice) ahead of the literal comparison.
+	if _, err := nilExec().ExecuteReadOnlyForTenant(nil, sessionTenant, sql); err == nil || strings.Contains(err.Error(), "no pool") {
 		t.Fatalf("executor must reject a divergent second tenant literal, got %v", err)
 	}
 }
@@ -215,164 +217,229 @@ func TestTrustedSQLRequiresTenantParam(t *testing.T) {
 
 // --- fuzz: tenant-bypass corpus ---
 
-// bypassCorpus is the seed corpus of tenant-bypass SHAPES. Every entry, with
-// <S> = the session tenant and <V> = a victim tenant, must be rejected by the
-// model-SQL executor path (Validate + ExtractAllTenantPredicates + literal
-// comparison). Comments are already banned by Validate; the corpus still
-// includes them so a regression there is caught here too.
-var bypassCorpus = []string{
-	// second predicate naming the victim
-	`SELECT id FROM ceo_ai.x WHERE tenant_id = '<S>' AND tenant_id = '<V>' LIMIT 10`,
-	`SELECT id FROM ceo_ai.x WHERE tenant_id = '<V>' AND tenant_id = '<S>' LIMIT 10`,
-	`SELECT id FROM ceo_ai.x WHERE tenant_id = '<S>' AND (tenant_id = '<V>') LIMIT 10`,
-	`SELECT id FROM ceo_ai.x WHERE tenant_id = '<S>' AND park = 'p' AND tenant_id = '<V>' LIMIT 10`,
-	`SELECT id FROM ceo_ai.x a WHERE a.tenant_id = '<S>' AND a.tenant_id = '<V>' LIMIT 10`,
-	`SELECT id FROM ceo_ai.x WHERE tenant_id = '<S>' AND tenant_id='<V>' LIMIT 10`,
-	// the plain foreign literal
-	`SELECT id FROM ceo_ai.x WHERE tenant_id = '<V>' LIMIT 10`,
-	`SELECT id FROM ceo_ai.x WHERE tenant_id='<V>' LIMIT 10`,
-	`SELECT id FROM ceo_ai.x WHERE TENANT_ID = '<V>' LIMIT 10`,
-	`SELECT id FROM ceo_ai.x WHERE Tenant_Id = '<V>' LIMIT 10`,
-	`SELECT id FROM ceo_ai.x a WHERE a.tenant_id = '<V>' LIMIT 10`,
-	"SELECT id FROM ceo_ai.x WHERE tenant_id\t=\t'<V>' LIMIT 10",
-	"SELECT id FROM ceo_ai.x WHERE tenant_id\n=\n'<V>' LIMIT 10",
-	"SELECT id FROM ceo_ai.x WHERE tenant_id\r\n= '<V>' LIMIT 10",
-	"SELECT id FROM ceo_ai.x WHERE tenant_id \v= '<V>' LIMIT 10",
-	"SELECT id FROM ceo_ai.x WHERE tenant_id \f= '<V>' LIMIT 10",
-	`SELECT id FROM ceo_ai.x WHERE tenant_id = '<V>'::uuid LIMIT 10`,
-	// non-equality / widening operators
-	`SELECT id FROM ceo_ai.x WHERE tenant_id <> '<V>' LIMIT 10`,
-	`SELECT id FROM ceo_ai.x WHERE tenant_id != '<V>' LIMIT 10`,
-	`SELECT id FROM ceo_ai.x WHERE tenant_id = '<S>' AND tenant_id <> '<V>' LIMIT 10`,
-	`SELECT id FROM ceo_ai.x WHERE tenant_id > '' LIMIT 10`,
-	`SELECT id FROM ceo_ai.x WHERE tenant_id >= '<S>' LIMIT 10`,
-	`SELECT id FROM ceo_ai.x WHERE tenant_id LIKE '%' LIMIT 10`,
-	`SELECT id FROM ceo_ai.x WHERE tenant_id ILIKE '<S>' LIMIT 10`,
-	`SELECT id FROM ceo_ai.x WHERE tenant_id ~ '.*' LIMIT 10`,
-	`SELECT id FROM ceo_ai.x WHERE tenant_id BETWEEN '<S>' AND '<V>' LIMIT 10`,
-	// IN / ANY / lists
-	`SELECT id FROM ceo_ai.x WHERE tenant_id IN ('<S>') LIMIT 10`,
-	`SELECT id FROM ceo_ai.x WHERE tenant_id IN ('<S>', '<V>') LIMIT 10`,
-	`SELECT id FROM ceo_ai.x WHERE tenant_id = '<S>' AND tenant_id IN ('<V>') LIMIT 10`,
-	`SELECT id FROM ceo_ai.x WHERE tenant_id = ANY ('{<S>,<V>}') LIMIT 10`,
-	`SELECT id FROM ceo_ai.x WHERE tenant_id = ANY (ARRAY['<S>','<V>']) LIMIT 10`,
-	`SELECT id FROM ceo_ai.x WHERE tenant_id = SOME ('{<V>}') LIMIT 10`,
-	// OR / IS / NOT
-	`SELECT id FROM ceo_ai.x WHERE tenant_id = '<S>' OR tenant_id = '<V>' LIMIT 10`,
-	`SELECT id FROM ceo_ai.x WHERE tenant_id = '<S>' OR park = 'p' LIMIT 10`,
-	`SELECT id FROM ceo_ai.x WHERE (tenant_id = '<S>' OR tenant_id = '<V>') LIMIT 10`,
-	`SELECT id FROM ceo_ai.x WHERE tenant_id IS NOT NULL LIMIT 10`,
-	`SELECT id FROM ceo_ai.x WHERE tenant_id IS NULL OR tenant_id = '<S>' LIMIT 10`,
-	`SELECT id FROM ceo_ai.x WHERE NOT tenant_id = '<V>' LIMIT 10`,
-	`SELECT id FROM ceo_ai.x WHERE tenant_id = '<S>' AND NOT tenant_id <> '<V>' LIMIT 10`,
-	// column refs / self-equality / expressions
-	`SELECT id FROM ceo_ai.x WHERE tenant_id = tenant_id LIMIT 10`,
-	`SELECT id FROM ceo_ai.x WHERE tenant_id = park_id LIMIT 10`,
-	`SELECT id FROM ceo_ai.x a WHERE a.tenant_id = a.tenant_id LIMIT 10`,
-	`SELECT id FROM ceo_ai.x WHERE tenant_id = '<S>' AND tenant_id = tenant_id LIMIT 10`,
-	`SELECT id FROM ceo_ai.x WHERE tenant_id = '<S>' || '' LIMIT 10`,
-	`SELECT id FROM ceo_ai.x WHERE tenant_id = '<S>' = true LIMIT 10`,
-	`SELECT id FROM ceo_ai.x WHERE tenant_id = lower('<S>') LIMIT 10`,
-	`SELECT id FROM ceo_ai.x WHERE tenant_id = ('<S>') LIMIT 10`,
-	`SELECT id FROM ceo_ai.x WHERE (tenant_id) = '<S>' LIMIT 10`,
-	`SELECT id FROM ceo_ai.x WHERE tenant_id::text = '<S>' LIMIT 10`,
-	`SELECT id FROM ceo_ai.x WHERE '<S>' = tenant_id LIMIT 10`,
-	`SELECT id FROM ceo_ai.x WHERE '<V>' = tenant_id AND tenant_id = '<S>' LIMIT 10`,
-	`SELECT id FROM ceo_ai.x WHERE coalesce(tenant_id, '<S>') = '<S>' LIMIT 10`,
-	// params / placeholders
-	`SELECT id FROM ceo_ai.x WHERE tenant_id = $1 LIMIT 10`,
-	`SELECT id FROM ceo_ai.x WHERE tenant_id = :tid LIMIT 10`,
-	`SELECT id FROM ceo_ai.x WHERE tenant_id = ? LIMIT 10`,
-	`SELECT id FROM ceo_ai.x WHERE tenant_id = '<S>' AND tenant_id = $2 LIMIT 10`,
-	// tenant_id outside a predicate
-	`SELECT tenant_id FROM ceo_ai.x WHERE tenant_id = '<S>' LIMIT 10`,
-	`SELECT id FROM ceo_ai.x WHERE tenant_id = '<S>' GROUP BY tenant_id LIMIT 10`,
-	`SELECT id FROM ceo_ai.x WHERE tenant_id = '<S>' ORDER BY tenant_id LIMIT 10`,
-	`SELECT id FROM ceo_ai.x WHERE park = 'p' LIMIT 10`,
-	`SELECT tenant_id, id FROM ceo_ai.x WHERE park = 'p' LIMIT 10`,
-	// unicode lookalikes / non-ASCII outside literals
-	"SELECT id FROM ceo_ai.x WHERE tenant_іd = '<S>' LIMIT 10", // Cyrillic і
-	"SELECT id FROM ceo_ai.x WHERE тenant_id = '<S>' LIMIT 10", // Cyrillic т
-	"SELECT id FROM ceo_ai.x WHERE tenant_id ＝ '<S>' LIMIT 10", // fullwidth =
-	"SELECT id FROM ceo_ai.x WHERE tenant_id = ‘<S>’ LIMIT 10", // curly quotes
-	"SELECT id FROM ceo_ai.x WHERE tenant_id = '<S>' LIMIT 10", // NBSP
-	"SELECT id FROM ceo_ai.x WHERE tenant_id = '<S>'​ AND tenant_id = '<V>' LIMIT 10",
-	// comments / stacking / quoting tricks (banned upstream by Validate)
-	`SELECT id FROM ceo_ai.x WHERE tenant_id = '<S>' -- AND tenant_id = '<V>'
-LIMIT 10`,
-	`SELECT id FROM ceo_ai.x WHERE tenant_id = '<S>' /* */ AND tenant_id = '<V>' LIMIT 10`,
-	`SELECT id FROM ceo_ai.x WHERE tenant_id = '<S>'; SELECT id FROM ceo_ai.x WHERE tenant_id = '<V>' LIMIT 10`,
-	`SELECT id FROM ceo_ai.x WHERE "tenant_id" = '<V>' LIMIT 10`,
-	`SELECT id FROM ceo_ai.x WHERE tenant_id = E'<V>' LIMIT 10`,
-	`SELECT id FROM ceo_ai.x WHERE tenant_id = $$<V>$$ LIMIT 10`,
-	`SELECT id FROM ceo_ai.x WHERE tenant_id = '<V>' AND tenant_id = '<S>' LIMIT 10 OFFSET 0`,
-	// multi-relation vectors (JOIN / comma / subquery)
-	`SELECT a.id FROM ceo_ai.x a JOIN ceo_ai.y b ON b.tenant_id = '<V>' WHERE a.tenant_id = '<S>' LIMIT 10`,
-	`SELECT a.id FROM ceo_ai.x a, ceo_ai.y b WHERE a.tenant_id = '<S>' LIMIT 10`,
-	`SELECT id FROM ceo_ai.x WHERE tenant_id = '<S>' AND id IN (SELECT id FROM ceo_ai.y WHERE tenant_id = '<V>') LIMIT 10`,
-	`SELECT (SELECT count(*) FROM ceo_ai.y WHERE tenant_id = '<V>') FROM ceo_ai.x WHERE tenant_id = '<S>' LIMIT 10`,
-	`SELECT id FROM ceo_ai.x WHERE tenant_id = '<S>' UNION SELECT id FROM ceo_ai.x WHERE tenant_id = '<V>' LIMIT 10`,
-	`WITH v AS (SELECT id FROM ceo_ai.x WHERE tenant_id = '<V>') SELECT id FROM v WHERE tenant_id = '<S>' LIMIT 10`,
-	`SELECT id FROM public.goats WHERE tenant_id = '<S>' LIMIT 10`,
-	`SELECT id FROM goats WHERE tenant_id = '<S>' LIMIT 10`,
-	// no LIMIT / oversize LIMIT with a victim literal
-	`SELECT id FROM ceo_ai.x WHERE tenant_id = '<V>'`,
-	`SELECT id FROM ceo_ai.x WHERE tenant_id = '<V>' LIMIT 1000`,
-	// empty / whitespace tenant literal
-	`SELECT id FROM ceo_ai.x WHERE tenant_id = '' LIMIT 10`,
-	`SELECT id FROM ceo_ai.x WHERE tenant_id = ' <S>' LIMIT 10`,
-	`SELECT id FROM ceo_ai.x WHERE tenant_id = '<S> ' LIMIT 10`,
-	`SELECT id FROM ceo_ai.x WHERE tenant_id = '<S>''' LIMIT 10`,
+func expandBypass(shape string) string {
+	return ExpandBypassShape(shape, sessionTenant, victimTenant)
 }
 
-func expandBypass(shape string) string {
-	return strings.NewReplacer("<S>", sessionTenant, "<V>", victimTenant).Replace(shape)
+// reachedPool reports whether the nil-pool executor ACCEPTED the statement
+// (every guard passed and execution was attempted).
+func reachedPool(err error) bool {
+	return err != nil && strings.Contains(err.Error(), "no pool")
 }
 
 // TestTenantBypassCorpusAllRejected is the deterministic pass over the seed
-// corpus: every shape must be rejected before any pool access.
+// corpus: every shape must be rejected BEFORE any pool access (a nil error or
+// the nil-pool error would both mean the guard let it through).
 func TestTenantBypassCorpusAllRejected(t *testing.T) {
-	if len(bypassCorpus) < 50 {
-		t.Fatalf("bypass corpus must hold >= 50 shapes, has %d", len(bypassCorpus))
+	if len(TenantBypassCorpus) < 120 {
+		t.Fatalf("bypass corpus must hold >= 120 shapes, has %d", len(TenantBypassCorpus))
 	}
-	for _, shape := range bypassCorpus {
+	seen := map[string]bool{}
+	for _, shape := range TenantBypassCorpus {
+		if seen[shape] {
+			t.Errorf("duplicate corpus shape: %q", shape)
+		}
+		seen[shape] = true
 		sql := expandBypass(shape)
-		if _, err := nilExec().ExecuteReadOnlyForTenant(nil, sessionTenant, sql); err == nil {
-			t.Errorf("bypass shape NOT rejected: %q", sql)
+		if _, err := nilExec().ExecuteReadOnlyForTenant(nil, sessionTenant, sql); err == nil || reachedPool(err) {
+			t.Errorf("bypass shape NOT rejected: %q (err=%v)", sql, err)
 		}
 	}
-	// And the one honest shape still runs (reaches the nil pool -> pool error, not a reject).
-	ok := `SELECT count(*) FROM ceo_ai.x WHERE tenant_id = '` + sessionTenant + `' LIMIT 10`
-	if _, err := nilExec().ExecuteReadOnlyForTenant(nil, sessionTenant, ok); err == nil || !strings.Contains(err.Error(), "no pool") {
-		t.Fatalf("honest statement must pass the guard and reach the pool, got %v", err)
+	// And the honest shapes still run (reach the nil pool -> pool error, not a reject).
+	for _, ok := range []string{
+		`SELECT count(*) FROM ceo_ai.x WHERE tenant_id = '` + sessionTenant + `' LIMIT 10`,
+		`SELECT park, count(*) FROM ceo_ai.x WHERE park = 'p' AND tenant_id = '` + sessionTenant + `' AND (stage = 'a' OR stage = 'b') GROUP BY park ORDER BY 2 DESC LIMIT 10`,
+		`SELECT count(*) FROM ceo_ai.x a WHERE (a.tenant_id = '` + sessionTenant + `') AND a.event_date >= '2026-08-01' AND a.event_date < '2026-09-01' LIMIT 10`,
+		`SELECT count(*) FROM ceo_ai.x WHERE tenant_id = '` + sessionTenant + `'::uuid LIMIT 10`,
+		`SELECT count(*) FILTER (WHERE stage = 'x') FROM ceo_ai.x WHERE tenant_id = '` + sessionTenant + `' LIMIT 10`,
+	} {
+		if _, err := nilExec().ExecuteReadOnlyForTenant(nil, sessionTenant, ok); !reachedPool(err) {
+			t.Fatalf("honest statement must pass the guard and reach the pool, got %v: %s", err, ok)
+		}
 	}
 }
 
-// FuzzTenantPredicateBypass mutates the corpus shapes and asserts the invariant
-// that matters: whenever the executor would proceed (no reject), EVERY extracted
-// tenant literal equals the session tenant and the victim tenant appears in NO
-// tenant predicate. The fuzzer can never produce a run where the victim literal
-// is bound to a tenant column and the statement is still accepted.
+// structurallyScoped is an INDEPENDENT oracle for the safety property (it
+// shares no code with checkTenantConjunct): on the raw statement, using the
+// literal-aware lexer, it requires
+//
+//   - exactly one SELECT, exactly one FROM, and no JOIN / UNION / INTERSECT /
+//     EXCEPT / TABLE / VALUES / WITH token anywhere;
+//   - exactly one tenant_id token in the whole statement;
+//   - that token sits after a depth-0 WHERE, at paren depth 0 or inside ONE
+//     wholly-enclosing pair, is immediately followed by `=` and a string
+//     literal equal to session, and the literal is followed by AND, a clause
+//     keyword, or end of statement (optionally after `::ident`);
+//   - the token is preceded by WHERE / AND (or by `(` that is itself preceded
+//     by WHERE / AND), so the conjunct is not the operand of anything;
+//   - no OR token at depth 0 of the WHERE predicate (NOT / IS / CASE around
+//     the tenant conjunct are excluded by the preceded-by / followed-by
+//     rules; elsewhere they cannot widen an AND-ed tenant conjunct), and the
+//     FROM source is `ceo_ai.<ident>` with no depth-0 comma after it.
+func structurallyScoped(sql, session string) bool {
+	toks := lexRaw(sql)
+	counts := map[string]int{}
+	for _, t := range toks {
+		if t.kind == rawIdent {
+			counts[strings.ToUpper(t.text)]++
+		}
+	}
+	if counts["SELECT"] != 1 || counts["FROM"] != 1 || counts["TENANT_ID"] != 1 {
+		return false
+	}
+	for _, kw := range []string{"JOIN", "UNION", "INTERSECT", "EXCEPT", "TABLE", "VALUES", "WITH"} {
+		if counts[kw] != 0 {
+			return false
+		}
+	}
+	depth := 0
+	whereIdx := -1
+	fromIdx := -1
+	for i, t := range toks {
+		if t.kind == rawSym && t.text == "(" {
+			depth++
+		} else if t.kind == rawSym && t.text == ")" {
+			depth--
+		} else if t.kind == rawSym && t.text == "," && depth == 0 && fromIdx >= 0 && whereIdx < 0 {
+			return false // comma cross-join
+		} else if t.kind == rawIdent && depth == 0 && strings.EqualFold(t.text, "FROM") {
+			fromIdx = i
+			if i+3 > len(toks) || toks[i+1].kind != rawIdent || !strings.EqualFold(toks[i+1].text, "ceo_ai") || toks[i+2].kind != rawSym || toks[i+2].text != "." || toks[i+3].kind != rawIdent {
+				return false
+			}
+		} else if t.kind == rawIdent && depth == 0 && strings.EqualFold(t.text, "WHERE") {
+			whereIdx = i
+			break
+		}
+	}
+	if whereIdx < 0 || fromIdx < 0 {
+		return false
+	}
+	depth = 0
+	tenantIdx := -1
+	for i := whereIdx + 1; i < len(toks); i++ {
+		t := toks[i]
+		if t.kind == rawSym && t.text == "(" {
+			depth++
+			continue
+		}
+		if t.kind == rawSym && t.text == ")" {
+			depth--
+			continue
+		}
+		if t.kind != rawIdent {
+			continue
+		}
+		up := strings.ToUpper(t.text)
+		if depth == 0 && (up == "GROUP" || up == "ORDER" || up == "HAVING" || up == "LIMIT" || up == "WINDOW" || up == "FETCH" || up == "OFFSET" || up == "FOR") {
+			break
+		}
+		switch up {
+		case "OR":
+			if depth == 0 {
+				return false
+			}
+		case "TENANT_ID":
+			if depth > 1 {
+				return false
+			}
+			tenantIdx = i
+		}
+	}
+	if tenantIdx < 0 || tenantIdx+2 >= len(toks) {
+		return false
+	}
+	// What precedes the column: optional `alias .`, optional one `(`, then
+	// WHERE or AND — the conjunct is an operand of nothing else.
+	p := tenantIdx - 1
+	if p >= 1 && toks[p].kind == rawSym && toks[p].text == "." && toks[p-1].kind == rawIdent {
+		p -= 2
+	}
+	if p >= 0 && toks[p].kind == rawSym && toks[p].text == "(" {
+		p--
+	}
+	if p < 0 || toks[p].kind != rawIdent || (!strings.EqualFold(toks[p].text, "WHERE") && !strings.EqualFold(toks[p].text, "AND")) {
+		return false
+	}
+	if toks[tenantIdx+1].kind != rawSym || toks[tenantIdx+1].text != "=" {
+		return false
+	}
+	if toks[tenantIdx+2].kind != rawString || toks[tenantIdx+2].text != session {
+		return false
+	}
+	// What follows the literal: optional `::ident`, optional one `)`, then AND /
+	// clause keyword / end.
+	j := tenantIdx + 3
+	if j+2 < len(toks) && toks[j].kind == rawSym && toks[j].text == ":" && toks[j+1].kind == rawSym && toks[j+1].text == ":" && toks[j+2].kind == rawIdent {
+		j += 3
+	}
+	if j < len(toks) && toks[j].kind == rawSym && toks[j].text == ")" {
+		j++
+	}
+	if j >= len(toks) {
+		return true
+	}
+	if toks[j].kind != rawIdent {
+		return false
+	}
+	switch strings.ToUpper(toks[j].text) {
+	case "AND", "GROUP", "ORDER", "HAVING", "LIMIT", "WINDOW", "FETCH", "OFFSET", "FOR":
+		return true
+	}
+	return false
+}
+
+// TestStructurallyScopedOracle pins the independent oracle itself: it must
+// accept the honest shapes and reject every corpus shape, so the fuzz
+// invariant below is not vacuous.
+func TestStructurallyScopedOracle(t *testing.T) {
+	for _, ok := range []string{
+		`SELECT count(*) FROM ceo_ai.x WHERE tenant_id = '<S>' LIMIT 10`,
+		`SELECT park, count(*) FROM ceo_ai.x WHERE park = 'p' AND (tenant_id = '<S>') AND (stage = 'a' OR stage = 'b') GROUP BY park LIMIT 10`,
+		`SELECT count(*) FROM ceo_ai.x WHERE tenant_id = '<S>'::uuid AND x = 1 LIMIT 10`,
+	} {
+		if !structurallyScoped(expandBypass(ok), sessionTenant) {
+			t.Errorf("oracle must accept honest shape: %s", ok)
+		}
+	}
+	// Shapes Validate rejects for a POLICY reason (OFFSET, FOR UPDATE, a
+	// dangling AND) rather than a scoping one: the oracle judges scope only, so
+	// these are the only corpus shapes it may accept.
+	policyOnly := map[string]bool{
+		"SELECT id FROM ceo_ai.x WHERE tenant_id = '<S>' AND\u3000NOT true LIMIT 10": true, // non-ASCII
+		`SELECT id FROM ceo_ai.x WHERE tenant_id = '<S>' OFFSET 0 LIMIT 10`:          true,
+		`SELECT id FROM ceo_ai.x WHERE tenant_id = '<S>' AND LIMIT 10`:               true,
+		`SELECT id FROM ceo_ai.x WHERE AND tenant_id = '<S>' LIMIT 10`:               true,
+		`SELECT id FROM ceo_ai.x WHERE tenant_id = '<S>' FOR UPDATE LIMIT 10`:        true,
+	}
+	for _, shape := range TenantBypassCorpus {
+		if structurallyScoped(expandBypass(shape), sessionTenant) != policyOnly[shape] {
+			t.Errorf("oracle verdict for corpus shape must be %v: %s", policyOnly[shape], shape)
+		}
+	}
+}
+
+// FuzzTenantPredicateBypass mutates the corpus shapes and asserts the
+// invariant that matters: whenever the executor would proceed (every guard
+// passed and the nil pool was reached), the statement is STRUCTURALLY scoped
+// to the session tenant per the independent oracle above — a positive
+// depth-0 AND tenant conjunct, one relation, no set-op arm, no inversion,
+// no disjunction, literal == session. "The literals equal the session" alone
+// is NOT the property (PR #318 judge): it is what every leaking shape
+// satisfied.
 func FuzzTenantPredicateBypass(f *testing.F) {
-	for _, shape := range bypassCorpus {
+	for _, shape := range TenantBypassCorpus {
 		f.Add(expandBypass(shape))
 	}
 	f.Add(`SELECT count(*) FROM ceo_ai.x WHERE tenant_id = '` + sessionTenant + `' LIMIT 10`)
 	f.Add(`SELECT count(*) FROM ceo_ai.x a WHERE a.tenant_id = '` + sessionTenant + `' AND a.park_id = '` + entityUUID + `' LIMIT 10`)
 	f.Fuzz(func(t *testing.T, sql string) {
 		_, err := nilExec().ExecuteReadOnlyForTenant(nil, sessionTenant, sql)
-		if err == nil || !strings.Contains(err.Error(), "no pool") {
+		if !reachedPool(err) {
 			return // rejected before the pool: the safe outcome, whatever the input
 		}
-		// Accepted by the guard: the invariants below must hold.
-		literals, xerr := ExtractAllTenantPredicates(sql)
-		if xerr != nil || len(literals) == 0 {
-			t.Fatalf("accepted statement has no extractable tenant predicate: %q", sql)
-		}
-		for _, lit := range literals {
-			if lit != sessionTenant {
-				t.Fatalf("accepted statement binds a non-session tenant literal %q: %q", lit, sql)
-			}
+		if !structurallyScoped(sql, sessionTenant) {
+			t.Fatalf("guard ACCEPTED a statement that is not structurally tenant-scoped: %q", sql)
 		}
 		if verr := Validate(sql); verr != nil {
 			t.Fatalf("accepted statement fails Validate: %v: %q", verr, sql)

@@ -14,6 +14,15 @@ import (
 // systemPlannerInstruction is the versioned planner system prompt. It never
 // asks the model to write SQL when a governed metric exists, and forbids the
 // model from changing tenant/role scope.
+// MaxPlannerPromptBytes bounds the rendered planner prompt (system instruction
+// + user prompt with the full schema-card block and the golden catalog). The
+// golden snapshot pins the prompt's CONTENT; this is the size gate that stops
+// the 28-view card block (16 kB today) from growing silently as views are
+// added — the 29th..Nth card must either fit or force a deliberate compaction
+// (shorter card rendering, dropped columns) rather than an unbounded prompt.
+// Prompt tokens are billed per request and the card block is the bulk of it.
+const MaxPlannerPromptBytes = 20 * 1024
+
 const systemPlannerInstruction = `You are the planner for Mesha's read-only leadership operations assistant.
 Your ONLY job: classify the user's question, decompose it into sub-questions, and for each pick ONE tool from the provided catalog plus its parameters.
 RULES:

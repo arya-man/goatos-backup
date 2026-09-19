@@ -1,0 +1,2 @@
+go test fuzz v1
+string("SELECT FROM Ceo_Ai.WHERE tenAnt_id='11111111-1111-1111-1111-111111111111' ''LIMIT 1")

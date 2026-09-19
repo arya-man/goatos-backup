@@ -96,6 +96,24 @@ func TestPlanPromptGolden(t *testing.T) {
 	}
 }
 
+// TestPlanPromptByteBound: the golden pins the prompt's content; this pins its
+// SIZE. Adding views to the card block must stay under MaxPlannerPromptBytes
+// or compact the rendering — never grow the per-request prompt unbounded.
+func TestPlanPromptByteBound(t *testing.T) {
+	rendered := systemPlannerInstruction + "\n" + buildPlanPrompt(goldenQuestion(), nil, goldenCatalog())
+	if n := len(rendered); n > MaxPlannerPromptBytes {
+		t.Fatalf("rendered planner prompt is %d bytes, over the %d-byte bound: compact the schema-card block (reporting.Card.RenderCompact) or raise the bound deliberately", n, MaxPlannerPromptBytes)
+	} else {
+		t.Logf("planner prompt: %d bytes of %d (%d cards)", n, MaxPlannerPromptBytes, len(reporting.Cards()))
+	}
+	// The card block alone is the growth surface: it must stay the minority of
+	// the headroom, i.e. the bound is not already consumed by fixed rules.
+	block := sqlFallbackBlock("t", "")
+	if len(block) > MaxPlannerPromptBytes*3/4 {
+		t.Fatalf("schema-card block is %d bytes, more than 3/4 of the prompt bound", len(block))
+	}
+}
+
 func TestPlanPromptCarriesEveryCardAndWindow(t *testing.T) {
 	p := buildPlanPrompt(goldenQuestion(), nil, goldenCatalog())
 	for _, c := range reporting.Cards() {

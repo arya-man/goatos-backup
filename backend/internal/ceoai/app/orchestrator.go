@@ -357,7 +357,7 @@ func (a *Assistant) ask(ctx context.Context, q domain.Question, opts askOptions)
 	// the actor's never reaches compose, chart or cache — it becomes a refusal.
 	body, citations, _, composeErr := comp.composeFor(q.Actor, results)
 	if composeErr != nil {
-		return a.refusal(requestID, q.ConversationID, "I couldn't verify that every figure belongs to your organisation, so I won't show this answer."), nil
+		return a.tenantGateRefusal(ctx, q, requestID, start, "compose", composeErr, results, traces), nil
 	}
 	for i := range citations {
 		citations[i].PlannedByModel = planned
@@ -384,7 +384,7 @@ func (a *Assistant) ask(ctx context.Context, q domain.Question, opts askOptions)
 		if a.retryFailedResults(ctx, q.Actor, plan.SubQuestions, results) {
 			body, citations, _, composeErr = comp.composeFor(q.Actor, results)
 			if composeErr != nil {
-				return a.refusal(requestID, q.ConversationID, "I couldn't verify that every figure belongs to your organisation, so I won't show this answer."), nil
+				return a.tenantGateRefusal(ctx, q, requestID, start, "compose_retry", composeErr, results, traces), nil
 			}
 			for i := range citations {
 				citations[i].PlannedByModel = planned
@@ -441,7 +441,7 @@ func (a *Assistant) ask(ctx context.Context, q domain.Question, opts askOptions)
 	// here is a refusal, never a chart of someone else's rows.
 	chart, chartErr := buildChart(q.Actor, q.Text, results)
 	if chartErr != nil {
-		return a.refusal(requestID, q.ConversationID, "I couldn't verify that every figure belongs to your organisation, so I won't show this answer."), nil
+		return a.tenantGateRefusal(ctx, q, requestID, start, "chart", chartErr, results, traces), nil
 	}
 	answer := domain.Answer{
 		Answer: body, Source: source, Mode: mode, RequestID: requestID,
@@ -701,6 +701,57 @@ func (a *Assistant) cacheKey(q domain.Question) string {
 
 func (a *Assistant) plainAnswer(requestID, convoID string, mode domain.Mode, body string) domain.Answer {
 	return domain.Answer{Answer: body, Source: "Mesha assistant", Mode: mode, RequestID: requestID, ConversationID: convoID}
+}
+
+// tenantGateTelemetry is the optional telemetry capability for the D0 tenant
+// gate counter (adapters/observability.Metrics implements it).
+type tenantGateTelemetry interface {
+	TenantGateReject(ctx context.Context, reason string)
+}
+
+// tenantGateReason maps a validateFactTenants error to the bounded reason
+// label of ceoai_tenant_gate_reject_total. Never a tenant id or a label.
+func tenantGateReason(err error) string {
+	msg := ""
+	if err != nil {
+		msg = err.Error()
+	}
+	switch {
+	case strings.Contains(msg, "actor has no tenant"):
+		return "no_actor_tenant"
+	case strings.Contains(msg, "has no TenantID"):
+		return "unstamped"
+	case strings.Contains(msg, "another tenant"):
+		return "foreign"
+	case strings.Contains(msg, "distinct tenant ids"):
+		return "mixed"
+	default:
+		return "other"
+	}
+}
+
+// tenantGateRefusal is the ONLY way a D0 tenant-gate failure (a fact set
+// that is unstamped, foreign or mixed at compose, compose-retry or chart
+// time) becomes an answer. It is an invariant violation upstream, so before
+// the generic refusal it is (1) logged at error level with the stage and the
+// gate's reason, (2) counted on ceoai_tenant_gate_reject_total{reason}, and
+// (3) audited as a ModeRefused request whose step trace carries a synthetic
+// "tenant_gate" step with the error — so a cross-tenant fact set the gate
+// caught is never indistinguishable from an ordinary refusal.
+func (a *Assistant) tenantGateRefusal(ctx context.Context, q domain.Question, requestID string, start time.Time, stage string, gateErr error, results []domain.ToolResult, traces []domain.StepTrace) domain.Answer {
+	reason := tenantGateReason(gateErr)
+	a.log.ErrorContext(ctx, "ceoai tenant gate rejected fact set",
+		"stage", stage, "reason", reason, "request_id", requestID, "tenant_id", q.Actor.TenantID, "error", gateErr)
+	if tg, ok := a.telemetry.(tenantGateTelemetry); ok {
+		tg.TenantGateReject(ctx, reason)
+	}
+	audited := append(append([]domain.StepTrace(nil), traces...), domain.StepTrace{
+		SubQuestionID: "tenant_gate", ToolName: "tenant_gate:" + stage, StartedAt: a.now(),
+		Err: gateErr.Error(),
+	})
+	a.recordAudit(ctx, q, requestID, q.ConversationID, domain.ModeRefused, results, audited,
+		domain.ReviewVerdict{ScopeSafe: false, FailReasons: []string{"tenant_gate:" + stage + ":" + reason}}, start)
+	return a.refusal(requestID, q.ConversationID, "I couldn't verify that every figure belongs to your organisation, so I won't show this answer.")
 }
 
 func (a *Assistant) refusal(requestID, convoID, body string) domain.Answer {

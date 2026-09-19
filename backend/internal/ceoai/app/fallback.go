@@ -31,21 +31,27 @@ func injectAsOf(subs []domain.SubQuestion, asOf time.Time) {
 }
 
 // injectWindow threads the server-resolved period (plan v3 D1.2) into every
-// sub-question's Params as ISO business dates, the same way injectAsOf
-// threads the as-of instant: from/to (inclusive), window_label, and
-// compare_from/compare_to for a two-window comparison. A sub that already
-// carries from/to (a diagnostic decomposition pinning its own period) is
-// left alone. A zero window injects nothing, so a question with no period
-// never acquires one.
+// sub-question's Params as ISO business dates: from/to (inclusive),
+// window_label, and compare_from/compare_to for a two-window comparison.
+//
+// The window is SERVER truth and is never read back from the plan: whatever
+// from/to/compare_* a model-drafted plan seeded is OVERWRITTEN when a window
+// resolved from the question text, and STRIPPED when none did (PR #318 M2).
+// A model can therefore neither shift the period the guard enforces
+// (validateModelSQL binds exactly these params) nor smuggle a period into a
+// question that asked for none. The comparison window rides on every
+// sub-question too: the planner is asked to draft one sub-question per
+// window, and validateModelSQL accepts a model-SQL sub that binds EITHER the
+// primary or the comparison window (M1), so the comparison arm is answerable.
 func injectWindow(subs []domain.SubQuestion, w Window) {
-	if w.IsZero() {
-		return
-	}
 	for i := range subs {
 		if subs[i].Params == nil {
 			subs[i].Params = map[string]any{}
 		}
-		if _, ok := subs[i].Params[paramFrom]; ok {
+		for _, k := range []string{paramFrom, paramTo, paramWindowLabel, paramCompareFrom, paramCompareTo} {
+			delete(subs[i].Params, k)
+		}
+		if w.IsZero() {
 			continue
 		}
 		subs[i].Params[paramFrom] = w.FromDate()

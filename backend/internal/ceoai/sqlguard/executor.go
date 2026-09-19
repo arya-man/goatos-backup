@@ -140,17 +140,20 @@ func (e *Executor) Close() {
 var ErrTenantBinding = errors.New("sqlguard: tenant predicate does not bind the session tenant")
 
 // ExecuteReadOnlyForTenant is the ONLY entry point the tier-4 SQL fallback port
-// should use for MODEL-DRAFTED SQL. It binds tenant server-side: after Validate
-// passes (single bounded tenant-scoped SELECT over ceo_ai.*, no top-level OR),
-// it extracts EVERY tenant-scoped predicate literal in the statement
-// (ExtractAllTenantPredicates) and requires each one to equal sessionTenantID
-// byte-for-byte. The tenant value therefore comes from the server session, never
-// from the planner's (user-influenced) output — a draft carrying any other tenant
-// UUID anywhere (a second `AND tenant_id = '<victim>'`, a `<>`/`IN`/`IS`/column
-// or param form, a bare `tenant_id` in the projection) is rejected with
-// ErrTenantBinding and never runs. Combined with the validator's rejection of
-// top-level OR, JOIN, comma-join, comments, `$` and any nested subquery, there is
-// no scope left in which a second predicate can hide (D0, plan-v3).
+// should use for MODEL-DRAFTED SQL. It binds tenant server-side in two layers:
+//
+//  1. Validate enforces the STRUCTURE (checkTenantConjunct): one relation, no
+//     set operator / TABLE / VALUES arm, one depth-0 WHERE with no depth-0 OR,
+//     and exactly one `tenant_id = '<literal>'` that is a positive depth-0 AND
+//     conjunct — never under NOT / IS / CASE / a parenthesised disjunction —
+//     with the tenant_id token nowhere else in the statement.
+//  2. ExtractAllTenantPredicates reads the LITERAL that conjunct binds on the
+//     raw statement and it must equal sessionTenantID byte-for-byte.
+//
+// The tenant value therefore comes from the server session, never from the
+// planner's (user-influenced) output, and the predicate that carries it is the
+// only tenant predicate and confines the whole scan: there is no arm, branch,
+// inversion or second relation in which it could be widened (D0, plan-v3).
 func (e *Executor) ExecuteReadOnlyForTenant(ctx context.Context, sessionTenantID, sql string) ([]Row, error) {
 	if strings.TrimSpace(sessionTenantID) == "" {
 		return nil, ErrTenantBinding
@@ -160,7 +163,10 @@ func (e *Executor) ExecuteReadOnlyForTenant(ctx context.Context, sessionTenantID
 	}
 	literals, err := ExtractAllTenantPredicates(sql)
 	if err != nil {
-		return nil, ErrTenantBinding
+		// Keep the extractor's shape reason in the chain (it names the token
+		// shape, never a literal value) so the trace step says WHY the binding
+		// failed; errors.Is(err, ErrTenantBinding) still holds for callers.
+		return nil, fmt.Errorf("%w: %w", ErrTenantBinding, err)
 	}
 	for _, got := range literals {
 		if got != sessionTenantID {
