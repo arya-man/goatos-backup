@@ -11,6 +11,7 @@ import (
 	"github.com/vgoats/goatos/backend/internal/platform/uuidutil"
 	"github.com/vgoats/goatos/backend/internal/sop/domain"
 	"github.com/vgoats/goatos/backend/internal/sop/ports"
+	tasksdomain "github.com/vgoats/goatos/backend/internal/tasks/domain"
 )
 
 type Service struct {
@@ -1056,6 +1057,10 @@ func evaluationRequiresProof(evaluation domain.DryRunResponse) bool {
 // generalDocumentShape reports a document whose follow_up carries the general `main` track: the
 // shape a general SOP is authored and seeded in. Only the shape is read here; the track's own
 // contract is validated by validateFollowUpContract.
+// generalDocumentShape reports a document whose whole substance is a follow-up track and which
+// therefore has no capture form to demand a field from: a GENERAL work instruction (the `main`
+// track, module `general`) or the SALE SOP (the `sales_deal` track, module `sales`, whose
+// capture is the Record sale form the sales module owns -- docs/decisions/sales-sop.md).
 func generalDocumentShape(formDSL map[string]any) bool {
 	followUp, ok := formDSL["follow_up"].(map[string]any)
 	if !ok {
@@ -1067,7 +1072,13 @@ func generalDocumentShape(formDSL map[string]any) bool {
 	}
 	for _, raw := range tracks {
 		track, ok := raw.(map[string]any)
-		if ok && stringValue(track, "key") == "main" && stringValue(track, "module") == "general" {
+		if !ok {
+			continue
+		}
+		if stringValue(track, "key") == "main" && stringValue(track, "module") == "general" {
+			return true
+		}
+		if stringValue(track, "key") == tasksdomain.TemplateKeySalesDeal && stringValue(track, "module") == tasksdomain.ModuleSales {
 			return true
 		}
 	}

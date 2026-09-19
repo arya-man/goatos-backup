@@ -228,3 +228,25 @@ func TestSalesSOPContract(t *testing.T) {
 		t.Fatalf("no catalog wired: owner must not be checked, got %+v", r.Errors)
 	}
 }
+
+// The seeded SALE document ships `fields: []` too (its capture is the Record sale form the sales
+// module owns), so it must save and publish from the web exactly as the general one does -- the
+// 308-review P1 shape, found again on the throwaway stack on 2026-09-19.
+func TestSeededSaleSOPWithNoFieldsStillSavesAndPublishes(t *testing.T) {
+	repo := newFakeRepo()
+	repo.sop.Code = tasksdomain.SOPCodeSalesDeal
+	service := NewService(repo)
+	dsl := seededFollowUpDSL(t, tasksdomain.SOPCodeSalesDeal)
+	dsl["schema_version"] = "goatos.sop-form.v1"
+	dsl["sop_code"] = tasksdomain.SOPCodeSalesDeal
+	dsl["title"] = "Sale"
+	dsl["fields"] = []any{}
+	policy := map[string]any{"subject_scope": "task", "types": []any{"video", "photo"}, "required": false, "minimum_count": float64(0), "verify_before_apply": false, "approval_before_apply": false}
+	created, err := service.CreateVersion(context.Background(), ports.CreateVersionCommand{TenantID: testTenantID, ActorID: testActorID, SOPID: testSOPID, Body: domain.CreateSOPVersionRequest{VersionLabel: "edited on the web", FormDSL: dsl, ProofPolicy: policy}}, "trace")
+	if err != nil {
+		t.Fatalf("the seeded sale document must save: %#v", err)
+	}
+	if _, err := service.PublishVersion(context.Background(), ports.VersionCommand{TenantID: testTenantID, ActorID: testActorID, SOPID: testSOPID, SOPVersionID: created.Version.SOPVersionID, RowVersion: 1}, "trace"); err != nil {
+		t.Fatalf("the seeded sale document must publish: %#v", err)
+	}
+}
