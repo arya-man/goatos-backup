@@ -8,6 +8,7 @@ import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.flowOf
+import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.test.StandardTestDispatcher
 import kotlinx.coroutines.test.advanceUntilIdle
 import kotlinx.coroutines.test.resetMain
@@ -51,6 +52,7 @@ import sg.mesha.goatos.core.network.dto.DeathCauseCatalogDto
 import sg.mesha.goatos.core.network.dto.DeathCauseOptionDto
 import sg.mesha.goatos.core.data.DeathCauseVocabulary
 import sg.mesha.goatos.feature.counts.AddBirthEvent
+import sg.mesha.goatos.feature.counts.CountsWriteStatus
 import sg.mesha.goatos.feature.counts.AddBirthField
 import sg.mesha.goatos.feature.counts.AddDeathEvent
 import sg.mesha.goatos.feature.counts.AddDeathUiState
@@ -252,6 +254,39 @@ class AddBirthDeathViewModelValidationTest {
 
         vm.onEvent(AddBirthEvent.NavigationHandled)
         assertFalse("The navigation signal is one-shot", vm.state.value.returnToBirthList)
+    }
+
+    @Test
+    fun `a rejected birth resubmitted unchanged still surfaces the second rejection`() = runTest(dispatcher) {
+        // Realme, 2026-09-19: the operator tapped Record birth twice on a draft the server
+        // rejects (mother RFID was a male). The second tap reopened the SAME outbox row, and the
+        // form stayed on "Saved on this phone" -- locked, with the operator believing the birth
+        // was recorded. The form must follow the row through every status, including the
+        // second terminal rejection.
+        val vm = newBirthViewModel()
+        advanceUntilIdle()
+        vm.onEvent(AddBirthEvent.SelectPark(PARK_ID))
+        vm.onEvent(AddBirthEvent.SelectShed(SHED_ID))
+        completeBirthMetadata(vm)
+        vm.onEvent(AddBirthEvent.Submit)
+        advanceUntilIdle()
+        syncRepository.emitBirthRejected("mother RFID does not resolve to a canonical female animal")
+        advanceUntilIdle()
+        assertEquals(CountsWriteStatus.FAILED, vm.state.value.result.status)
+        assertTrue("A rejected draft is correctable", vm.state.value.canSubmit)
+
+        // Resubmit unchanged: same key, same row reopened -> queued -> rejected again.
+        vm.onEvent(AddBirthEvent.Submit)
+        advanceUntilIdle()
+        syncRepository.emitBirthQueued()
+        advanceUntilIdle()
+        assertEquals(CountsWriteStatus.QUEUED, vm.state.value.result.status)
+        syncRepository.emitBirthRejected("mother RFID does not resolve to a canonical female animal")
+        advanceUntilIdle()
+
+        assertEquals(CountsWriteStatus.FAILED, vm.state.value.result.status)
+        assertEquals("mother RFID does not resolve to a canonical female animal", vm.state.value.result.message)
+        assertTrue("The form must unlock again after the second rejection", vm.state.value.canSubmit)
     }
 
     @Test
@@ -671,7 +706,9 @@ internal class RecordingAddSyncRepository : SyncRepository {
     override suspend fun enqueueReworkTask(taskId: String, reason: String, rowVersion: Int): AppResult<String> = error("unused")
     override suspend fun enqueueVerificationVerdict(itemId: String, decision: String, reason: String?, rowVersion: Int, measurement: VerificationVerdictMeasurementDto?): AppResult<String> = error("unused")
     override suspend fun retry(itemId: String): AppResult<Unit> = error("unused")
-    override fun observeItem(itemId: String): Flow<SyncQueueItem?> = flowOf(null)
+    // The by-id row flow the add forms follow (they no longer read the derived status snapshot).
+    override fun observeItem(itemId: String): Flow<SyncQueueItem?> =
+        status.map { snapshot -> snapshot.items.firstOrNull { it.id == itemId } }
     override suspend fun deleteOutboxItem(itemId: String): AppResult<Unit> = AppResult.Ok(Unit)
     override suspend fun triggerDrain() = Unit
     override suspend fun enqueueCountsBirth(groupKey: String, idempotencyKey: String, request: CountsBirthEventRequestDto, capture: sg.mesha.goatos.core.data.sync.CountsCapturePayload?): AppResult<String> {
@@ -697,6 +734,60 @@ internal class RecordingAddSyncRepository : SyncRepository {
             deadLetterCount = if (item.conflict) 1 else 0,
             lastSyncAt = 1L,
             items = listOf(item),
+        )
+    }
+
+    /** The queued birth back in flight after a reopen. */
+    fun emitBirthQueued() {
+        status.value = SyncStatus(
+            online = true,
+            pendingCount = 1,
+            inFlightCount = 0,
+            failedCount = 0,
+            deadLetterCount = 0,
+            lastSyncAt = null,
+            items = listOf(
+                SyncQueueItem(
+                    id = "outbox-birth-1",
+                    idempotencyKey = "test-idempotency-key",
+                    opType = "COUNTS_BIRTH",
+                    groupKey = "birth-1",
+                    status = SyncItemStatus.QUEUED,
+                    attemptCount = 1,
+                    maxAttempts = 5,
+                    conflict = false,
+                    createdAt = 1L,
+                    updatedAt = 3L,
+                    lastError = null,
+                ),
+            ),
+        )
+    }
+
+    /** A terminal server rejection (conflict) for the queued birth, as the outbox records it. */
+    fun emitBirthRejected(message: String) {
+        status.value = SyncStatus(
+            online = true,
+            pendingCount = 0,
+            inFlightCount = 0,
+            failedCount = 0,
+            deadLetterCount = 1,
+            lastSyncAt = null,
+            items = listOf(
+                SyncQueueItem(
+                    id = "outbox-birth-1",
+                    idempotencyKey = "test-idempotency-key",
+                    opType = "COUNTS_BIRTH",
+                    groupKey = "birth-1",
+                    status = SyncItemStatus.FAILED,
+                    attemptCount = 1,
+                    maxAttempts = 5,
+                    conflict = true,
+                    createdAt = 1L,
+                    updatedAt = 2L,
+                    lastError = message,
+                ),
+            ),
         )
     }
 

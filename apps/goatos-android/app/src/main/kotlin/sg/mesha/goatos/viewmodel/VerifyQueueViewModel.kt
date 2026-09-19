@@ -698,15 +698,18 @@ class VerifyQueueViewModel @Inject constructor(
         // Backend-owned display labels: never render raw UUIDs. Use labels when available; the
         // category-humanized name is the last-resort fallback so a non-vaccination row never
         // mislabels as "Vaccination proof".
-        // Deduplicate shed name if shedLabel is already part of subjectLabel (e.g., "Godel 1 · 5 goats" + "Godel 1"
-        // would render as "Godel 1 · 5 goats · Godel 1"; only use subjectLabel if shedLabel is already its prefix).
+        // Deduplicate the pen when the backend subject label ALREADY names it -- anywhere, not
+        // only as a prefix. Weighing labels lead with the pen ("Godel 1 · 5 goats"), but the
+        // death bundle, the removal card and a pen move END with it ("Death evidence · G-003071 ·
+        // 19/09/2026 · Mandela 1 - Part 3"), and a prefix-only check rendered those as
+        // "... · Mandela 1 - Part 3 · Mandela 1 - Part 3" (Realme, 2026-09-19).
         // Prefer the backend-COMPOSED location. operationalLocationDisplay carries partition labels
         // so a verifier can tell "Godel 1 - Part 3" from "Godel 1 - Part 1".
         val displayShedLabel = (operationalLocationDisplay?.takeIf { it.isNotBlank() }
             ?: shedLabel)?.takeIf { it.isNotBlank() }
         val title = listOfNotNull(
             subjectLabel,
-            displayShedLabel?.takeUnless { shed -> subjectLabel?.startsWith(shed) == true }
+            displayShedLabel?.takeUnless { shed -> subjectLabelNamesPen(subjectLabel, shed) }
         ).joinToString(" · ").ifBlank { humanizeCategory(category) }
         val subtitle = listOfNotNull(parkLabel, operatorName, capturedAt.takeIf { it.isNotBlank() }?.let { formatCapturedAtIST(it) })
             .joinToString(" · ")
@@ -801,6 +804,16 @@ private fun locationOptions(
         .distinctBy { (id, _) -> id }
         .forEach { (id, label) -> options += VerifyLocationFilterOption(value = id, label = label.ifBlank { id }) }
     return options
+}
+
+/**
+ * True when the backend subject label already carries this pen as one of its " · " segments
+ * (or as its prefix), so the row must not append it a second time.
+ */
+internal fun subjectLabelNamesPen(subjectLabel: String?, pen: String): Boolean {
+    if (subjectLabel.isNullOrBlank() || pen.isBlank()) return false
+    if (subjectLabel.split(" · ").any { it.trim() == pen }) return true
+    return subjectLabel.startsWith(pen)
 }
 
 internal fun humanizeCategory(category: String): String =

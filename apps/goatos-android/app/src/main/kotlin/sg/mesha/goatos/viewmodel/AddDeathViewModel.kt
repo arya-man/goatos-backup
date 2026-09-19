@@ -6,13 +6,10 @@ import androidx.lifecycle.viewModelScope
 import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.flow.MutableStateFlow
-import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.filterNotNull
-import kotlinx.coroutines.flow.map
-import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 import sg.mesha.goatos.core.analytics.AnalyticsEvents
@@ -285,13 +282,15 @@ class AddDeathViewModel @Inject constructor(
     private fun observeOutboxItem(itemId: String) {
         statusJob?.cancel()
         statusJob = viewModelScope.launch {
-            syncRepository.observeStatus()
-                .map { status -> status.items.firstOrNull { it.id == itemId } }
+            // Follow the ROW itself, not the derived status snapshot. The snapshot's
+            // recent-terminal side is a one-shot fetch taken when the active window changes, so
+            // a resubmitted draft that reopens and is rejected again inside one invalidation
+            // cycle could leave the banner on "Saved on this phone" after a terminal rejection
+            // (seen on the Realme, 2026-09-19). The by-id flow observes every status.
+            syncRepository.observeItem(itemId)
                 .filterNotNull()
                 .distinctUntilChanged()
-                .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), null)
                 .collect { item ->
-                    item ?: return@collect
                     val writeResult = item.toWriteResult(QUEUED_MESSAGE, SYNCED_MESSAGE)
                     if (writeResult.status == CountsWriteStatus.SYNCED) {
                         resetForNextEntry(confirmation = writeResult.message)

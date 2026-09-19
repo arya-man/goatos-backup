@@ -819,7 +819,7 @@ func (h *Handler) writeDomainError(w http.ResponseWriter, r *http.Request, err e
 			"complete the previous action before starting this one", err)
 	case errors.Is(err, domain.ErrActionNotYetDue):
 		h.writeError(w, r, http.StatusConflict, "action_not_yet_due",
-			"this action unlocks 50 minutes after the first ORS round was recorded", err)
+			"this step is not open yet; it unlocks at its scheduled time", err)
 	case errors.Is(err, domain.ErrActionNotAnswerable):
 		h.writeError(w, r, http.StatusBadRequest, "action_not_answerable",
 			"this action is not a question; use the complete endpoint", err)

@@ -18,12 +18,12 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Snackbar
 import androidx.compose.material3.Text
-import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.unit.dp
+import sg.mesha.goatos.core.designsystem.component.MeshaScreenHeader
 import sg.mesha.goatos.core.ui.RefreshOnResume
 import sg.mesha.goatos.core.ui.SyncIconButton
 
@@ -71,8 +71,11 @@ fun WorkInstructionsScreen(
     RefreshOnResume { onEvent(WorkInstructionsEvent.Refresh) }
     Scaffold(
         topBar = {
-            TopAppBar(
-                title = { Text(state.title.ifBlank { WORK_INSTRUCTIONS_FALLBACK_TITLE }) },
+            // The shared header, not a raw TopAppBar: it reads the shell's LocalDrawerOpener and
+            // draws the module-drawer button on this L0 root. A raw bar shipped with no way out of
+            // the module (found on the Realme, 2026-09-19 -- edge-swipe does not open it either).
+            MeshaScreenHeader(
+                title = state.title.ifBlank { WORK_INSTRUCTIONS_FALLBACK_TITLE },
                 actions = { SyncIconButton(isSyncing = state.isRefreshing, onSync = { onEvent(WorkInstructionsEvent.Refresh) }) },
             )
         },
