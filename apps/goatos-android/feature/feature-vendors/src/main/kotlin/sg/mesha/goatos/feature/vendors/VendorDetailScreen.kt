@@ -13,6 +13,7 @@ import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.imePadding
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
@@ -48,7 +49,7 @@ fun VendorDetailScreen(
 ) {
     RefreshOnResume { onEvent(VendorDetailEvent.Refresh) }
     LifecycleEventEffect(Lifecycle.Event.ON_STOP) { onEvent(VendorDetailEvent.AppStopped) }
-    Column(modifier = modifier.fillMaxSize().background(MeshaColors.PageBg)) {
+    Column(modifier = modifier.fillMaxSize().background(MeshaColors.PageBg).imePadding()) {
         MeshaScreenHeader(
             title = state.title,
             subtitle = state.subtitle.ifBlank { null },

@@ -12,6 +12,7 @@ import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.imePadding
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
@@ -57,7 +58,11 @@ fun SaleCreateScreen(
             onEvent(SaleCreateEvent.Back)
         }
     }
-    Column(modifier = modifier.fillMaxSize().background(MeshaColors.PageBg)) {
+    // One IME inset for the whole screen (the Shifting form's precedent): without it the keyboard
+    // sat over the bottom of the list AND the wizard bar, so the Comments field on step 3 -- the
+    // last item -- was typed into unseen. With it the list shrinks above the keyboard and the
+    // focused field is brought into view.
+    Column(modifier = modifier.fillMaxSize().background(MeshaColors.PageBg).imePadding()) {
         MeshaScreenHeader(title = TITLE, subtitle = STEP_TITLES.getOrNull(state.step), onBack = { onEvent(SaleCreateEvent.Back) })
         VendorsStepper(stepCount = state.stepCount, currentIndex = state.step, caption = "Step ${state.step + 1} of ${state.stepCount}")
         LazyColumn(

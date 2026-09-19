@@ -8,6 +8,7 @@ import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.imePadding
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
@@ -40,7 +41,7 @@ fun MarketCityEntryScreen(
             onEvent(MarketCityEntryEvent.Back)
         }
     }
-    Column(modifier = modifier.fillMaxSize().background(MeshaColors.PageBg)) {
+    Column(modifier = modifier.fillMaxSize().background(MeshaColors.PageBg).imePadding()) {
         MeshaScreenHeader(title = state.cityName.ifBlank { TITLE }, subtitle = state.dateLine.ifBlank { null }, onBack = { onEvent(MarketCityEntryEvent.Back) })
         LazyColumn(
             modifier = Modifier.weight(1f),
