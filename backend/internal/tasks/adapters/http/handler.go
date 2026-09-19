@@ -9,6 +9,7 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"errors"
+	"github.com/vgoats/goatos/backend/internal/platform/biztime"
 	"io"
 	"log/slog"
 	"net/http"
@@ -452,7 +453,7 @@ func (h *Handler) GetWorkflowBySubject(w http.ResponseWriter, r *http.Request) {
 		h.writeError(w, r, http.StatusForbidden, "permission_denied", "permission denied", nil)
 		return
 	}
-	h.writeDetail(w, detail, time.Now().UTC(), actorRoles(r.Context()))
+	h.writeDetail(w, detail, time.Now().In(biztime.DefaultLocation()), actorRoles(r.Context()))
 }
 
 func (h *Handler) writeDetail(w http.ResponseWriter, detail domain.WorkflowDetail, now time.Time, roles []string) {
