@@ -227,6 +227,7 @@ func ValidateAssumptionsUpdate(update AssumptionsUpdate) error {
 		}
 	}
 	seenKeys := map[string]bool{}
+	var saleLower, saleThreshold *float64
 	for _, v := range update.Values {
 		key, ok := LookupAssumptionKey(v.Key)
 		if !ok {
@@ -263,7 +264,18 @@ func ValidateAssumptionsUpdate(update AssumptionsUpdate) error {
 			if key.Whole && v.Value != math.Trunc(v.Value) {
 				return fmt.Errorf("%s must be a whole number of %s", key.Key, key.Unit)
 			}
+			switch key.Key {
+			case AssumptionSaleReadyLowerKg:
+				val := v.Value
+				saleLower = &val
+			case AssumptionSaleReadyThresholdKg:
+				val := v.Value
+				saleThreshold = &val
+			}
 		}
+	}
+	if saleLower != nil && saleThreshold != nil && *saleLower >= *saleThreshold {
+		return fmt.Errorf("%s must be below %s", AssumptionSaleReadyLowerKg, AssumptionSaleReadyThresholdKg)
 	}
 	return nil
 }

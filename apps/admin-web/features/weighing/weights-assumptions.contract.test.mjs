@@ -83,6 +83,7 @@ test("a failed assumptions read is a page failure, never a silent fallback to th
     assert.doesNotMatch(src, /assumptions\.ok \? assumptions\.data\.values : null/, `${name} must not fall back to null rows`);
   }
   assert.match(farmValueSource, /over35Enabled && !assumptionsFailed \? getShedWeights/, "Farm value must not count at the default line after a failed read");
+  assert.match(farmValueSource, /enabled: over35Enabled && !assumptionsFailed/, "Farm value must disable the tuning control when the assumptions read failed");
 });
 
 test("a sale price save carries the price the drawer loaded (the fence)", () => {

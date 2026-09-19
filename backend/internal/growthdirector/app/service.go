@@ -204,6 +204,23 @@ func (s *Service) PutAssumptions(ctx context.Context, actor domain.Actor, update
 	if err := domain.ValidateAssumptionsUpdate(update); err != nil {
 		return domain.Assumptions{}, fmt.Errorf("%w: %s", ports.ErrInvalidArgument, err.Error())
 	}
+	current, err := s.repo.GrowthSettings(ctx, actor.TenantID)
+	if err != nil {
+		return domain.Assumptions{}, err
+	}
+	lower, threshold := current.SaleReadyLowerKg, current.SaleReadyThresholdKg
+	for _, v := range update.Values {
+		key, _ := domain.LookupAssumptionKey(v.Key)
+		switch key.Key {
+		case domain.AssumptionSaleReadyLowerKg:
+			lower = v.Value
+		case domain.AssumptionSaleReadyThresholdKg:
+			threshold = v.Value
+		}
+	}
+	if lower >= threshold {
+		return domain.Assumptions{}, fmt.Errorf("%w: sale_ready_lower_kg must be below sale_ready_threshold_kg", ports.ErrInvalidArgument)
+	}
 	return s.repo.PutAssumptions(ctx, actor.TenantID, actor.UserID, biztime.BusinessDayStart(time.Now().In(biztime.DefaultLocation())), update)
 }
 

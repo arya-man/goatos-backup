@@ -249,8 +249,10 @@ export async function SalesFarmValuePage({
     return first ? ([[key, first]] as [string, string][]) : [];
   });
   const over35: Over35Card = {
-    enabled: over35Enabled,
-    disabledReason: over35Control?.disabled_reason ?? "",
+    enabled: over35Enabled && !assumptionsFailed,
+    disabledReason: assumptionsFailed
+      ? copy(pageContract, "error.load")
+      : (over35Control?.disabled_reason ?? ""),
     count: over35Count,
     from: over35From,
     to: over35To,

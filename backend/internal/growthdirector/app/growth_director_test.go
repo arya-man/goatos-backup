@@ -29,6 +29,7 @@ type fakeRepo struct {
 	parks          []domain.Park
 	result         domain.GrowthDirectorWeights
 	feedSource     ports.FeedWeightBandSource
+	settings       domain.GrowthSettings
 }
 
 func (r *fakeRepo) ListParks(context.Context, string) ([]domain.Park, error) {
@@ -333,6 +334,45 @@ func TestPutAssumptionsRejectsOutOfBandFiguresBeforeTheRepository(t *testing.T) 
 	}
 }
 
+func TestPutAssumptionsRejectsInvertedSaleReadyLines(t *testing.T) {
+	actor := domain.Actor{TenantID: "t", UserID: "u", Roles: []string{"ceo_internal"}}
+
+	t.Run("both lines in one save", func(t *testing.T) {
+		repo := &fakeRepo{}
+		svc := NewService(repo)
+		update := domain.AssumptionsUpdate{Values: []domain.ValueUpdate{
+			{Key: "sale_ready_lower_kg", Value: 40, RowVersion: 1},
+			{Key: "sale_ready_threshold_kg", Value: 35, RowVersion: 1},
+		}}
+		if _, err := svc.PutAssumptions(context.Background(), actor, update); !errors.Is(err, ports.ErrInvalidArgument) {
+			t.Fatalf("want ErrInvalidArgument, got %v", err)
+		}
+		if len(repo.putAssumptions) != 0 {
+			t.Fatalf("repository must not see inverted sale lines: %+v", repo.putAssumptions)
+		}
+	})
+
+	t.Run("partial edit against current other line", func(t *testing.T) {
+		repo := &fakeRepo{settings: domain.SettingsFrom([]domain.AssumptionValue{
+			{Key: domain.AssumptionSaleReadyLowerKg, Value: 30},
+			{Key: domain.AssumptionSaleReadyThresholdKg, Value: 35},
+		})}
+		svc := NewService(repo)
+		update := domain.AssumptionsUpdate{Values: []domain.ValueUpdate{
+			{Key: "sale_ready_lower_kg", Value: 36, RowVersion: 1},
+		}}
+		if _, err := svc.PutAssumptions(context.Background(), actor, update); !errors.Is(err, ports.ErrInvalidArgument) {
+			t.Fatalf("want ErrInvalidArgument, got %v", err)
+		}
+		if len(repo.putAssumptions) != 0 {
+			t.Fatalf("repository must not see inverted sale lines: %+v", repo.putAssumptions)
+		}
+	})
+}
+
 func (f *fakeRepo) GrowthSettings(ctx context.Context, tenantID string) (domain.GrowthSettings, error) {
+	if f.settings.SaleReadyThresholdKg != 0 || f.settings.SaleReadyLowerKg != 0 || len(f.settings.BandEdgesKg) > 0 {
+		return f.settings, nil
+	}
 	return domain.SettingsFrom(nil), nil
 }
