@@ -18,8 +18,8 @@ func actorFor(tenant, user string) domain.Actor {
 	return domain.Actor{TenantID: tenant, UserID: user, Role: permissions.RoleCEOInternal}
 }
 
-// TestCacheKeyTenantFirst pins the key layout tenant | conversation | IST day |
-// normalized text: the tenant is the FIRST component, so no prefix scan,
+// TestCacheKeyTenantFirst pins the key layout tenant | user | conversation |
+// IST day | normalized text: the tenant is the FIRST component, so no prefix scan,
 // namespace collision or byte-identical question can ever cross tenants, and a
 // different tenant with the same conversation id, day and text hashes apart.
 func TestCacheKeyTenantFirst(t *testing.T) {
@@ -35,9 +35,15 @@ func TestCacheKeyTenantFirst(t *testing.T) {
 	if keyA == keyB {
 		t.Fatalf("same question in two tenants must not share a cache key: %q", keyA)
 	}
-	parts := strings.SplitN(keyA, "|", 4)
-	if len(parts) != 4 || parts[0] != "tenant-A" || parts[1] != "conv-1" || parts[2] != "2026-09-19" || parts[3] != "how many goats?" {
-		t.Fatalf("key layout must be tenant|conversation|IST day|normalized text, got %q", keyA)
+	parts := strings.SplitN(keyA, "|", 5)
+	if len(parts) != 5 || parts[0] != "tenant-A" || parts[1] != "u1" || parts[2] != "conv-1" || parts[3] != "2026-09-19" || parts[4] != "how many goats?" {
+		t.Fatalf("key layout must be tenant|user|conversation|IST day|normalized text, got %q", keyA)
+	}
+	// Same tenant, same conversation id, different user: the conversation id is
+	// client-supplied and only proven to be the caller's later, so the key must
+	// already differ here.
+	if a.cacheKey(domain.Question{Actor: actorFor("tenant-A", "u2"), ConversationID: "conv-1", Text: "How many  goats?", AsOf: asOf}) == keyA {
+		t.Fatal("same-tenant different user must not share a cache key")
 	}
 	// Whitespace/case normalisation never touches the tenant component.
 	if a.cacheKey(domain.Question{Actor: actorFor("TENANT-A", "u1"), ConversationID: "conv-1", Text: "how many goats?", AsOf: asOf}) == keyA {
@@ -163,3 +169,37 @@ func (p *recallSpyProvider) Plan(_ context.Context, _ domain.Question, mem []dom
 	return domain.Plan{}, nil
 }
 func (p *recallSpyProvider) PlannedByModel() bool { return false }
+
+// TestCacheSameTenantCrossUserMiss: user A warms a conversation-scoped
+// follow-up; user B in the SAME tenant replays A's conversation id, text and
+// day and must MISS (planner runs again) — never A's cached body.
+func TestCacheSameTenantCrossUserMiss(t *testing.T) {
+	metrics := &fakeMetrics{specs: []ports.MetricSpec{{Name: "active_animals"}},
+		result: domain.ToolResult{Surface: "Cube · active_animals", Facts: []domain.Fact{{TenantID: "tenant-A", Label: "Active animals", Value: "2567"}}}}
+	reg := NewRegistry(metrics, nil, nil)
+	cache := &countingCache{m: map[string]domain.Answer{}}
+	prov := &fakeProvider{byModel: true, plan: domain.Plan{SubQuestions: []domain.SubQuestion{
+		{ID: "0", ToolName: "active_animals", Route: domain.RouteCube},
+	}}}
+	a := NewAssistant(Config{}, Deps{Provider: prov, Registry: reg, Metrics: metrics, Cache: cache})
+	asOf := time.Now()
+
+	ansA, err := a.Ask(context.Background(), domain.Question{Actor: actorFor("tenant-A", "ceo-A"), ConversationID: "conv-A", Text: "and yesterday?", AsOf: asOf})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if prov.calls != 1 {
+		t.Fatalf("first ask must plan once, got %d", prov.calls)
+	}
+	metrics.result = domain.ToolResult{Surface: "Cube · active_animals", Facts: []domain.Fact{{TenantID: "tenant-A", Label: "Active animals", Value: "99"}}}
+	ansB, err := a.Ask(context.Background(), domain.Question{Actor: actorFor("tenant-A", "ceo-B"), ConversationID: "conv-A", Text: "and yesterday?", AsOf: asOf})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if prov.calls != 2 {
+		t.Fatalf("same-tenant different user must MISS the cache (planner calls=%d)", prov.calls)
+	}
+	if ansB.Answer == ansA.Answer || strings.Contains(ansB.Answer, "2567") {
+		t.Fatalf("user B received user A's cached answer: %q", ansB.Answer)
+	}
+}

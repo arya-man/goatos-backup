@@ -699,6 +699,11 @@ func (a *Assistant) recordAudit(ctx context.Context, q domain.Question, requestI
 	}
 }
 
+// cacheKey is tenant|user|conversation|day|text. The user component is
+// load-bearing: the conversation id is client-supplied and is only proven to
+// belong to the caller later (EnsureConversation), so without the user in the
+// key a same-tenant colleague could replay another user's conversation id and
+// receive their cached follow-up answer before ownership is checked.
 func (a *Assistant) cacheKey(q domain.Question) string {
 	day := q.AsOf.In(biztime.DefaultLocation()).Format("2006-01-02")
 	norm := strings.ToLower(strings.Join(strings.Fields(q.Text), " "))
@@ -706,7 +711,11 @@ func (a *Assistant) cacheKey(q domain.Question) string {
 	if conversation == "" {
 		conversation = "no-conversation"
 	}
-	return q.Actor.TenantID + "|" + conversation + "|" + day + "|" + norm
+	user := strings.TrimSpace(q.Actor.UserID)
+	if user == "" {
+		user = "no-user"
+	}
+	return q.Actor.TenantID + "|" + user + "|" + conversation + "|" + day + "|" + norm
 }
 
 func (a *Assistant) plainAnswer(requestID, convoID string, mode domain.Mode, body string) domain.Answer {
