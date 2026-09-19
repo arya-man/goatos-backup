@@ -173,7 +173,7 @@ const (
 	SalePriceMaxINR = 5000
 )
 
-// SalePriceSpecies is the vocabulary the price table accepts (CHECK constraint in 000249).
+// SalePriceSpecies is the vocabulary the price table accepts (CHECK constraint in 000363).
 var SalePriceSpecies = []string{"goat", "sheep"}
 
 // AssumptionsUpdate is the whole set a PUT carries. Every field is the value the caller wants

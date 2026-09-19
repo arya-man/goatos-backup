@@ -6,7 +6,7 @@ import (
 )
 
 // ON FIRST DEPLOYMENT NOTHING CHANGES (maintainer instruction 2026-09-19): the rows migrations
-// 000252/000253 seed are exactly the figures the constants carried, so a tenant that never opens
+// 000364/000365 seed are exactly the figures the constants carried, so a tenant that never opens
 // the drawer gets the reads it had. Pinned two ways: the settings resolved from NO rows equal the
 // settings resolved from the SEEDED rows, and the seeded figures are the old constants.
 func TestSeededAssumptionsEqualTheOldConstants(t *testing.T) {

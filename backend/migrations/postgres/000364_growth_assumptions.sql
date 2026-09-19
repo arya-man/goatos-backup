@@ -4,7 +4,7 @@
 --
 -- CONFIGURABLE WEIGHING ASSUMPTIONS (maintainer decision 2026-09-19).
 --
--- 000249 made the assumed live-weight sale price DATA instead of a constant, but it could still
+-- 000363 made the assumed live-weight sale price DATA instead of a constant, but it could still
 -- only be changed with SQL. The maintainer's instruction on 2026-09-19: the price "should be
 -- configurable ... I need to change it in future", from a button on the Weighing screens, and
 -- the same button should carry the OTHER figures that were still hard-coded in the product:

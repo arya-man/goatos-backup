@@ -2,7 +2,7 @@
 -- seed-fixture-guard:ignore: additive tenant-scoped reporting assumptions for the Weighing area;
 -- no vaccination/HRMS seed contract change and no app-visible projection table.
 --
--- MORE WEIGHING ASSUMPTIONS (maintainer decision 2026-09-19, same day as 000252). After the first
+-- MORE WEIGHING ASSUMPTIONS (maintainer decision 2026-09-19, same day as 000364). After the first
 -- three figures moved into the drawer the maintainer asked for the rest of what ADG Analytics still
 -- carried as constants. Two are not scalars -- the weight-band edges are a LIST and the window
 -- dates are DATES -- so the row gains two typed columns; exactly one of the three holds a value.

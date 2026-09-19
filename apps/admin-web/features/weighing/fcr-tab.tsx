@@ -4,7 +4,6 @@ import { WorklistPager } from "@/components/worklist-pager";
 import { FCRPensTable } from "./fcr-pens-table";
 import { GroupedBars, type BarGroup, type GroupedBar } from "./grouped-bars";
 import { WeightBars } from "./weight-bars";
-import { Tag } from "@/components/ui-primitives";
 import { copy, table, type AdminUiPageContract } from "@/lib/admin-ui-contract";
 import { fmtDate } from "@/lib/format";
 import type { GrowthFCRGroup, GrowthFCRResponse, GrowthFCRPen } from "@/lib/api/server";
@@ -141,7 +140,7 @@ export function FCRTab({
   const rupee = copy(pageContract, "unit.fcr.rupees");
   const s = fcr.summary;
   const money = (value: number | null | undefined) => (value == null ? none : `${rupee}${num(value, 0)}`);
-  const penSlice = fcr.pens.slice(pager.offset, pager.offset + pager.limit);
+  const visiblePens = fcr.pens.slice(pager.offset, pager.offset + pager.limit);
 
   // Pens with a ratio as horizontal bars on one FCR scale, in the contract's own order: park
   // clusters (CBE, then CPT) and pens A→Z inside each, the backend's order for every All-parks surface.
@@ -319,14 +318,14 @@ export function FCRTab({
         {/* Paged on the page's shared offset/limit, exactly like the shed table on the Pen-wise tab:
             the rows are one read, the window is a query param, and the pager is the shared one. */}
         <div className="tablewrap" tabIndex={0} role="group" aria-label={copy(pageContract, "table.fcr.aria")}>
-          <FCRPensTable contract={fcrTable} rows={penSlice} labels={tableLabels} />
+          <FCRPensTable contract={fcrTable} rows={visiblePens} labels={tableLabels} />
         </div>
         <WorklistPager
           pageContract={pageContract}
           offset={pager.offset}
           limit={pager.limit}
-          rowCount={penSlice.length}
-          hasMore={pager.offset + penSlice.length < fcr.pens.length}
+          rowCount={visiblePens.length}
+          hasMore={pager.offset + visiblePens.length < fcr.pens.length}
           noun={copy(pageContract, "pager.noun")}
           pageSizeOptions={pager.pageSizeOptions}
           hrefForOffset={pager.hrefForOffset}

@@ -4,7 +4,7 @@ import { Tag } from "@/components/ui-primitives";
 import { copy, optionGroup, type AdminUiPageContract } from "@/lib/admin-ui-contract";
 import { INTERNAL_LOGIN_PATH } from "@/lib/auth/session-cookie";
 import { firstAuthRequiredError, getGrowthAssumptions, getShedWeights } from "@/lib/api/server";
-import { assumptionValue, DEFAULT_SALE_READY_THRESHOLD_KG, fillKg } from "@/features/weighing/assumption-copy";
+import { assumptionValue, DEFAULT_SALE_READY_THRESHOLD_KG, fillKg } from "@/features/weighing";
 import { istDayPlus, todayIso } from "@/lib/format";
 import { getSalesOverview } from "@/lib/api/procurement-server";
 import type { SalesOverview } from "@/lib/api/procurement";

@@ -1,7 +1,7 @@
 # Weighing assumptions are data, edited from one drawer
 
 **Maintainer decisions, 2026-09-19.** Supersedes the "maintainer edits the rows directly" half of
-the 2026-09-07 sale-price decision (migration `000249`); keeps its effective-dated table.
+the 2026-09-07 sale-price decision (migration `000363`); keeps its effective-dated table.
 
 ## What was decided
 
@@ -23,7 +23,7 @@ the 2026-09-07 sale-price decision (migration `000249`); keeps its effective-dat
    deliberately NOT here: main already governs them from the Weighing SOP's `weights_pages` block
    (maintainer request 2026-09-16, fixed date or rolling days), and one figure must have one home.
 
-   Second batch, migration `000361`: the row gained typed `value_list` / `value_date` columns with
+   Second batch, migration `000365`: the row gained typed `value_list` / `value_date` columns with
    a CHECK that exactly one of the three holds the figure. `growthdirector/domain.GrowthSettings`
    is what the Growth Director and FCR reads take; `SettingsFrom` defaults every key. The band
    labels (`<15`, `15-20`, …, `35+`) are DERIVED from the edges by `BandLabelsFor`, once.
@@ -82,4 +82,4 @@ turns the ticked-person row red), `TestSaleThresholdsKgTakeTheCallersSaleLine`,
 `TestOverdueLoadsJudgeAgainstTheThresholdTheyAreGiven`, and
 `features/weighing/weights-assumptions.contract.test.mjs`.
 
-Schema: `000252_growth_assumptions.sql`. Permission: `permissions.WeighingAssumptionsWrite`.
+Schema: `000364_growth_assumptions.sql`. Permission: `permissions.WeighingAssumptionsWrite`.

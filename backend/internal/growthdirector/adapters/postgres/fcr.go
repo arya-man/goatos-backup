@@ -76,14 +76,16 @@ scoped AS (
 pen_map AS (
   SELECT DISTINCT ON (s.location_id, s.bucket_partition)
          s.location_id, s.bucket_partition,
-         CASE WHEN s.bucket_partition <> '' THEN s.location_id ELSE COALESCE(parent.parent_id, s.location_id) END AS pen_shed_id,
-         CASE WHEN s.bucket_partition <> '' THEN s.bucket_partition
-              WHEN parent.parent_id IS NULL THEN ''
-              ELSE regexp_replace(btrim(substr(s.loc_name, length(parent.parent_name) + 1)), '^[-\s]+', '')
-         END AS pen_partition_label
+         COALESCE(labeled.pen_shed_id, parent.parent_id, s.location_id) AS pen_shed_id,
+         COALESCE(labeled.pen_partition_label, parent.pen_partition_label, '') AS pen_partition_label
   FROM scoped s
   LEFT JOIN LATERAL (
-    SELECT shed.location_id AS parent_id, shed.name AS parent_name
+    SELECT s.location_id AS pen_shed_id, s.bucket_partition AS pen_partition_label
+    WHERE s.bucket_partition <> ''
+  ) labeled ON true
+  LEFT JOIN LATERAL (
+    SELECT shed.location_id AS parent_id,
+           regexp_replace(btrim(substr(s.loc_name, length(shed.name) + 1)), '^[-\s]+', '') AS pen_partition_label
     FROM locations shed
     WHERE shed.tenant_id = $1::uuid
       AND shed.parent_location_id = s.parent_location_id
@@ -94,7 +96,7 @@ pen_map AS (
       AND ((s.loc_name LIKE shed.name || ' %') OR (s.loc_name LIKE shed.name || ' - %'))
     ORDER BY length(shed.name) DESC
     LIMIT 1
-  ) parent ON s.bucket_partition = ''
+  ) parent ON labeled.pen_shed_id IS NULL
   ORDER BY s.location_id, s.bucket_partition
 ),
 bucket_pen AS (

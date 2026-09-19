@@ -61,7 +61,7 @@ function draftFrom(assumptions: GrowthAssumptionsResponse): Draft {
 /**
  * The Assumptions drawer on ADG Analytics (maintainer decision 2026-09-19): the ONE place the
  * assumed live-weight sale price, the sale-ready weight line and the load-age alert are changed.
- * Rendered only when the page contract enables `edit_assumptions` -- the maintainer's ask was
+ * Rendered when the page contract enables `edit_assumptions` -- the maintainer's ask was
  * "who have [the tick] should only see it", so a reader without the write sees no button at all;
  * the figures themselves stay visible in the FCR tab's own caption.
  *

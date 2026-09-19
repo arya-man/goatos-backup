@@ -17,10 +17,10 @@ import (
 
 // The Assumptions drawer (maintainer decision 2026-09-19). Two tables, two shapes:
 //
-//   growth_sale_price_assumptions  APPEND-ONLY, effective-dated (000249): a past window is valued
+//   growth_sale_price_assumptions  APPEND-ONLY, effective-dated (000363): a past window is valued
 //                                  at the price that applied then, so a change lands as the row
 //                                  effective TODAY and yesterday's window keeps yesterday's price.
-//   growth_assumptions             IN PLACE under a row_version fence (000252): the sale-ready
+//   growth_assumptions             IN PLACE under a row_version fence (000364): the sale-ready
 //                                  line and the load-age alert price no past window, so history
 //                                  lives in audit_log rather than in the table.
 //

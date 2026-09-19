@@ -1261,6 +1261,7 @@ func parseBandEdgesKg(raw string) ([]float64, bool) {
 	for _, part := range strings.Split(raw, ",") {
 		v, err := strconv.ParseFloat(strings.TrimSpace(part), 64)
 		if err != nil {
+			// exception:exempt malformed query input is reported by the boolean return value.
 			return nil, false
 		}
 		out = append(out, v)

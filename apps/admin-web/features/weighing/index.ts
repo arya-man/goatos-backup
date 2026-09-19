@@ -10,3 +10,11 @@ export { WeighingWeightsPage } from "./weights";
 export { WeighingWeightsAnalyticsPage } from "./weights-analytics";
 export { landingWindow } from "./landing-window";
 export { weightsWindowSettings, WINDOW_FROM_PARAM, WINDOW_TO_PARAM } from "./landing-window-constants";
+export {
+  assumptionValue,
+  bandEdgesParam,
+  DEFAULT_SALE_READY_LOWER_KG,
+  DEFAULT_SALE_READY_THRESHOLD_KG,
+  fillKg,
+} from "./assumption-copy";
+export { WeightsAssumptionsControl } from "./weights-assumptions";

@@ -69,7 +69,7 @@ free.
 
 ## The sale price is data
 
-`growth_sale_price_assumptions` (migration 000249): one row per (tenant, species, effective_from),
+`growth_sale_price_assumptions` (migration 000363): one row per (tenant, species, effective_from),
 append-only, seeded at ₹425 for goat and sheep on 2026-09-07. The read takes the newest row
 effective on or before the reported period's last day and prints it, with who set it and when,
 beside the figures it prices. Gain value = gain kg × the pen's species price; a mixed-species pen is
