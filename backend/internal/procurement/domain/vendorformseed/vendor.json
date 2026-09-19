@@ -1,0 +1,27 @@
+{
+  "schema_version": "goatos.sop-vendor-form.v1",
+  "pages": [
+    {"key": "who", "title": "Who they are", "questions": [
+      {"id": "business_name", "kind": "text", "title": "Business or person name", "required": true},
+      {"id": "record_type", "kind": "choice", "title": "Type", "required": true, "catalog": "record_type"},
+      {"id": "contact_person_name", "kind": "text", "title": "Contact person", "required": true},
+      {"id": "phone_number", "kind": "text", "title": "Phone", "required": true},
+      {"id": "state", "kind": "choice", "title": "State", "required": true, "catalog": "state"},
+      {"id": "city", "kind": "text", "title": "City", "required": true},
+      {"id": "status", "kind": "choice", "title": "Status", "required": true, "catalog": "status"}
+    ]},
+    {"key": "supply", "title": "What they supply or buy", "questions": [
+      {"id": "capacity_quantity", "kind": "number", "title": "Capacity", "hint": "How much they can supply or take per period.", "required": false, "min": 0},
+      {"id": "capacity_unit", "kind": "choice", "title": "Capacity unit", "required": false, "catalog": "capacity_unit"},
+      {"id": "supply_frequency", "kind": "choice", "title": "Supply frequency", "required": false, "catalog": "supply_frequency"},
+      {"id": "feed", "kind": "choice", "title": "Feed", "required": false, "catalog": "feed"},
+      {"id": "breed", "kind": "choice", "title": "Breed", "required": false, "catalog": "breed"},
+      {"id": "price_per_goat", "kind": "number", "title": "Price per goat", "required": false, "min": 0, "unit": "₹"},
+      {"id": "eta_after_order_days", "kind": "number", "title": "Days to deliver after an order", "required": false, "min": 0, "unit": "days"},
+      {"id": "average_animal_weight_kg", "kind": "number", "title": "Average live weight per animal", "required": false, "min": 0, "unit": "kg"}
+    ]},
+    {"key": "notes", "title": "Notes", "questions": [
+      {"id": "comments", "kind": "text", "title": "Note", "required": false}
+    ]}
+  ]
+}

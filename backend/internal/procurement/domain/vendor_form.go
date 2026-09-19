@@ -1,0 +1,524 @@
+package domain
+
+import (
+	_ "embed"
+	"encoding/json"
+	"errors"
+	"fmt"
+	"regexp"
+	"strconv"
+	"strings"
+)
+
+// VENDOR FORM IS AUTHORED (maintainer instruction 2026-09-19: "in future I want to add any vendor
+// data, any optional, anything -- rendered from SOP, reflecting on mobile on the spot"). What the
+// Add vendor / Edit vendor forms ask -- which questions, on which page, in which order, which are
+// compulsory, plus any question the farm adds tomorrow -- is `form_dsl.vendor_form` of the
+// published `sales.vendor` SOP, authored on /sales/sops, served to the phone and the web drawer
+// per request. The procurement-SOP load form is the precedent (docs/decisions/procurement-sop.md).
+//
+// TYPED questions are the vendor register's own columns (`business_name`, `record_type`, ...):
+// their id and kind are LOCKED (the register reads them) and, for the catalog-backed ones, their
+// choices come from the vendor catalog at compile time; title, hint, page, position and -- except
+// for the identity fields -- the compulsory flag are the author's. Every other question is stored
+// in `procurement_vendors.sop_answers` with the version it was answered on.
+
+const (
+	SOPCodeVendor           = "sales.vendor"
+	VendorFormSchemaVersion = "goatos.sop-vendor-form.v1"
+
+	VendorQuestionChoice = "choice"
+	VendorQuestionMulti  = "multi"
+	VendorQuestionText   = "text"
+	VendorQuestionNumber = "number"
+
+	maxVendorFormPages     = 12
+	maxVendorFormQuestions = 80
+)
+
+// VendorFormDSL is form_dsl.vendor_form.
+type VendorFormDSL struct {
+	SchemaVersion string           `json:"schema_version"`
+	Pages         []VendorFormPage `json:"pages"`
+}
+
+// VendorFormPage is one phone page / web section.
+type VendorFormPage struct {
+	Key       string           `json:"key"`
+	Title     string           `json:"title,omitempty"`
+	Hint      string           `json:"hint,omitempty"`
+	Questions []VendorQuestion `json:"questions"`
+}
+
+// VendorQuestion is one authored question. Catalog names the vendor catalog kind whose active
+// entries are the choices (typed choice questions); Options are authored choices otherwise.
+type VendorQuestion struct {
+	ID         string                `json:"id"`
+	Kind       string                `json:"kind"`
+	Title      string                `json:"title"`
+	Hint       string                `json:"hint,omitempty"`
+	Required   bool                  `json:"required"`
+	Catalog    string                `json:"catalog,omitempty"`
+	Options    []VendorQuestionOpt   `json:"options,omitempty"`
+	AllowOther bool                  `json:"allow_other,omitempty"`
+	Min        *float64              `json:"min,omitempty"`
+	Max        *float64              `json:"max,omitempty"`
+	Unit       string                `json:"unit,omitempty"`
+	OnlyIf     *VendorQuestionOnlyIf `json:"only_if,omitempty"`
+}
+
+// VendorQuestionOpt is one choice.
+type VendorQuestionOpt struct {
+	Value string `json:"value"`
+	Label string `json:"label"`
+}
+
+// VendorQuestionOnlyIf asks the question only after an earlier pick-one answer.
+type VendorQuestionOnlyIf struct {
+	QuestionID string `json:"question_id"`
+	Value      string `json:"value"`
+}
+
+// VendorForm is the compiled, versioned form: what a phone rendered and what a write is checked
+// against. Catalog-backed questions carry their live choices; a titled page keeps its title.
+type VendorForm struct {
+	Version int
+	Pages   []VendorFormPage
+}
+
+// lockedVendorQuestions are the typed columns: id -> fixed kind (+ catalog for the choice ones).
+var lockedVendorQuestions = map[string]VendorQuestion{
+	"business_name":            {Kind: VendorQuestionText},
+	"record_type":              {Kind: VendorQuestionChoice, Catalog: CatalogKindRecordType},
+	"contact_person_name":      {Kind: VendorQuestionText},
+	"phone_number":             {Kind: VendorQuestionText},
+	"state":                    {Kind: VendorQuestionChoice, Catalog: CatalogKindState},
+	"city":                     {Kind: VendorQuestionText},
+	"status":                   {Kind: VendorQuestionChoice, Catalog: CatalogKindStatus},
+	"capacity_quantity":        {Kind: VendorQuestionNumber},
+	"capacity_unit":            {Kind: VendorQuestionChoice, Catalog: CatalogKindCapacityUnit},
+	"supply_frequency":         {Kind: VendorQuestionChoice, Catalog: CatalogKindSupplyFrequency},
+	"feed":                     {Kind: VendorQuestionChoice, Catalog: CatalogKindFeed},
+	"breed":                    {Kind: VendorQuestionChoice, Catalog: CatalogKindBreed},
+	"price_per_goat":           {Kind: VendorQuestionNumber},
+	"eta_after_order_days":     {Kind: VendorQuestionNumber},
+	"average_animal_weight_kg": {Kind: VendorQuestionNumber},
+	"comments":                 {Kind: VendorQuestionText},
+	"details":                  {Kind: VendorQuestionText},
+	"bank_name":                {Kind: VendorQuestionText},
+	"account_no":               {Kind: VendorQuestionText},
+	"ifsc_code":                {Kind: VendorQuestionText},
+	"upi_id":                   {Kind: VendorQuestionText},
+	"pan_number":               {Kind: VendorQuestionText},
+	"filtered_stock":           {Kind: VendorQuestionNumber},
+}
+
+// requiredVendorQuestionIDs must be present AND compulsory: a vendor cannot exist without them.
+var requiredVendorQuestionIDs = []string{"business_name", "record_type", "state", "status"}
+
+// IsTypedVendorQuestion reports a question the register stores in its own column.
+func IsTypedVendorQuestion(id string) bool { _, ok := lockedVendorQuestions[id]; return ok }
+
+//go:embed vendorformseed/vendor.json
+var seededVendorFormJSON []byte
+
+// SeededVendorFormJSON is the day-one document, embedded verbatim in the migration that publishes
+// it as sales.vendor v1 (pinned by TestMigrationEmbedsTheSeededVendorForm).
+func SeededVendorFormJSON() []byte { return append([]byte(nil), seededVendorFormJSON...) }
+
+// SeededVendorFormDSL parses the embedded document.
+func SeededVendorFormDSL() VendorFormDSL {
+	dsl, err := ParseVendorForm(map[string]any{"vendor_form": json.RawMessage(seededVendorFormJSON)})
+	if err != nil {
+		panic("procurement: seeded vendor form does not parse: " + err.Error())
+	}
+	return dsl
+}
+
+// ErrVendorFormMissing / ErrVendorFormInvalid name a document the register cannot run.
+var (
+	ErrVendorFormMissing = errors.New("procurement: SOP version has no vendor_form section")
+	ErrVendorFormInvalid = errors.New("procurement: vendor_form is invalid")
+)
+
+// ParseVendorForm extracts and type-checks form_dsl.vendor_form.
+func ParseVendorForm(formDSL map[string]any) (VendorFormDSL, error) {
+	raw, ok := formDSL["vendor_form"]
+	if !ok || raw == nil {
+		return VendorFormDSL{}, ErrVendorFormMissing
+	}
+	encoded, err := json.Marshal(raw)
+	if err != nil {
+		return VendorFormDSL{}, fmt.Errorf("%w: %v", ErrVendorFormInvalid, err)
+	}
+	var out VendorFormDSL
+	dec := json.NewDecoder(strings.NewReader(string(encoded)))
+	dec.DisallowUnknownFields()
+	if err := dec.Decode(&out); err != nil {
+		return VendorFormDSL{}, fmt.Errorf("%w: %v", ErrVendorFormInvalid, err)
+	}
+	if out.SchemaVersion != VendorFormSchemaVersion {
+		return VendorFormDSL{}, fmt.Errorf("%w: schema_version %q", ErrVendorFormInvalid, out.SchemaVersion)
+	}
+	return out, nil
+}
+
+var vendorQuestionIDPattern = regexp.MustCompile(`^[a-z][a-z0-9_]{0,63}$`)
+
+// ValidateVendorForm names every problem by path. Publishing runs it; a document with any problem
+// never becomes the published version.
+func ValidateVendorForm(dsl VendorFormDSL) []string {
+	var problems []string
+	add := func(format string, args ...any) { problems = append(problems, fmt.Sprintf(format, args...)) }
+	if len(dsl.Pages) == 0 {
+		add("vendor_form.pages: at least one page is required")
+	}
+	if len(dsl.Pages) > maxVendorFormPages {
+		add("vendor_form.pages: at most %d pages", maxVendorFormPages)
+	}
+	seen := map[string]VendorQuestion{}
+	seenPages := map[string]bool{}
+	total := 0
+	for pi, p := range dsl.Pages {
+		pp := fmt.Sprintf("vendor_form.pages.%d", pi)
+		if !vendorQuestionIDPattern.MatchString(p.Key) {
+			add("%s.key: %q must be a-z, 0-9 and _ (start with a letter)", pp, p.Key)
+		}
+		if seenPages[p.Key] {
+			add("%s.key: %q is used twice", pp, p.Key)
+		}
+		seenPages[p.Key] = true
+		if len(p.Questions) == 0 {
+			add("%s.questions: a page needs at least one question", pp)
+		}
+		for qi, q := range p.Questions {
+			total++
+			qp := fmt.Sprintf("%s.questions.%d", pp, qi)
+			if !vendorQuestionIDPattern.MatchString(q.ID) {
+				add("%s.id: %q must be a-z, 0-9 and _ (start with a letter)", qp, q.ID)
+			}
+			if _, dup := seen[q.ID]; dup {
+				add("%s.id: %q is used twice", qp, q.ID)
+			}
+			if strings.TrimSpace(q.Title) == "" {
+				add("%s.title: required", qp)
+			}
+			switch q.Kind {
+			case VendorQuestionChoice, VendorQuestionMulti:
+				if q.Catalog == "" && len(q.Options) == 0 {
+					add("%s.options: a pick-one / pick-many question needs at least one choice", qp)
+				}
+				seenOpt := map[string]bool{}
+				for oi, o := range q.Options {
+					if strings.TrimSpace(o.Value) == "" || strings.TrimSpace(o.Label) == "" {
+						add("%s.options.%d: value and label are required", qp, oi)
+					}
+					if seenOpt[o.Value] {
+						add("%s.options.%d: value %q is used twice", qp, oi, o.Value)
+					}
+					seenOpt[o.Value] = true
+				}
+				if q.AllowOther && !seenOpt["other"] {
+					add("%s.allow_other: needs an option with value \"other\"", qp)
+				}
+			case VendorQuestionNumber:
+				if q.Min != nil && q.Max != nil && *q.Min > *q.Max {
+					add("%s.min: must not exceed max", qp)
+				}
+			case VendorQuestionText:
+			default:
+				add("%s.kind: %q is not a vendor-form question kind (choice, multi, text, number)", qp, q.Kind)
+			}
+			if q.Catalog != "" {
+				known := false
+				for _, k := range VendorCatalogKinds {
+					if k == q.Catalog {
+						known = true
+					}
+				}
+				if !known {
+					add("%s.catalog: %q is not a vendor catalog", qp, q.Catalog)
+				}
+			}
+			if q.OnlyIf != nil {
+				dep, ok := seen[q.OnlyIf.QuestionID]
+				switch {
+				case !ok:
+					add("%s.only_if.question_id: %q must be an EARLIER question", qp, q.OnlyIf.QuestionID)
+				case dep.Kind != VendorQuestionChoice:
+					add("%s.only_if.question_id: %q must be a pick-one question", qp, q.OnlyIf.QuestionID)
+				case dep.Catalog == "" && !hasVendorOption(dep.Options, q.OnlyIf.Value):
+					add("%s.only_if.value: %q is not a choice of %q", qp, q.OnlyIf.Value, q.OnlyIf.QuestionID)
+				}
+			}
+			if lk, locked := lockedVendorQuestions[q.ID]; locked {
+				if q.Kind != lk.Kind {
+					add("%s.kind: %q is fixed to %q (the register reads it)", qp, q.ID, lk.Kind)
+				}
+				if lk.Catalog != "" && q.Catalog != lk.Catalog {
+					add("%s.catalog: %q takes its choices from the %q catalog", qp, q.ID, lk.Catalog)
+				}
+			}
+			seen[q.ID] = q
+		}
+	}
+	if total > maxVendorFormQuestions {
+		add("vendor_form: at most %d questions", maxVendorFormQuestions)
+	}
+	for _, id := range requiredVendorQuestionIDs {
+		q, ok := seen[id]
+		if !ok {
+			add("vendor_form: question %q must be present (a vendor cannot exist without it)", id)
+			continue
+		}
+		if !q.Required {
+			add("vendor_form: %q must stay compulsory (a vendor cannot exist without it)", id)
+		}
+	}
+	return problems
+}
+
+func hasVendorOption(opts []VendorQuestionOpt, value string) bool {
+	for _, o := range opts {
+		if o.Value == value {
+			return true
+		}
+	}
+	return false
+}
+
+// CompileVendorForm fills each catalog-backed question's choices from the live catalog (active
+// entries, in catalog order) and returns the form the phone renders. Version is the SOP version.
+func CompileVendorForm(dsl VendorFormDSL, version int, catalog []VendorCatalogEntry) VendorForm {
+	byKind := map[string][]VendorQuestionOpt{}
+	for _, e := range catalog {
+		if !e.IsActive {
+			continue
+		}
+		byKind[e.Kind] = append(byKind[e.Kind], VendorQuestionOpt{Value: e.Value, Label: e.Label})
+	}
+	out := VendorForm{Version: version, Pages: make([]VendorFormPage, 0, len(dsl.Pages))}
+	for _, p := range dsl.Pages {
+		page := VendorFormPage{Key: p.Key, Title: p.Title, Hint: p.Hint, Questions: make([]VendorQuestion, 0, len(p.Questions))}
+		for _, q := range p.Questions {
+			if q.Catalog != "" {
+				q.Options = append([]VendorQuestionOpt(nil), byKind[q.Catalog]...)
+			}
+			page.Questions = append(page.Questions, q)
+		}
+		out.Pages = append(out.Pages, page)
+	}
+	return out
+}
+
+// Questions flattens the form in page order.
+func (f VendorForm) Questions() []VendorQuestion {
+	var out []VendorQuestion
+	for _, p := range f.Pages {
+		out = append(out, p.Questions...)
+	}
+	return out
+}
+
+// ErrVendorAnswer is one refused answer, named by question so the form can show it in place.
+type ErrVendorAnswer struct {
+	QuestionID string
+	Reason     string
+}
+
+func (e ErrVendorAnswer) Error() string {
+	return "procurement: vendor answer " + e.QuestionID + ": " + e.Reason
+}
+
+// ValidateVendorAnswers checks a submission against the form it was rendered from: compulsory
+// questions answered (a question hidden by only_if is not owed), choices among the offered
+// ones (or "other" text when allowed), numbers numeric and inside min/max, and no answer to a
+// question the form does not carry. Typed answers are checked here too; the register's own
+// length/format rules still run on the mapped columns.
+func ValidateVendorAnswers(form VendorForm, answers map[string]string) error {
+	known := map[string]VendorQuestion{}
+	for _, q := range form.Questions() {
+		known[q.ID] = q
+	}
+	for id := range answers {
+		base := strings.TrimSuffix(id, "_other")
+		if _, ok := known[base]; !ok {
+			return ErrVendorAnswer{QuestionID: id, Reason: "is not a question on this form"}
+		}
+	}
+	for _, q := range form.Questions() {
+		if q.OnlyIf != nil && strings.TrimSpace(answers[q.OnlyIf.QuestionID]) != q.OnlyIf.Value {
+			continue
+		}
+		value := strings.TrimSpace(answers[q.ID])
+		if value == "" {
+			if q.Required {
+				return ErrVendorAnswer{QuestionID: q.ID, Reason: "required"}
+			}
+			continue
+		}
+		switch q.Kind {
+		case VendorQuestionChoice:
+			if !hasVendorOption(q.Options, value) {
+				return ErrVendorAnswer{QuestionID: q.ID, Reason: "must be one of the offered choices"}
+			}
+			if value == "other" && q.AllowOther && strings.TrimSpace(answers[q.ID+"_other"]) == "" {
+				return ErrVendorAnswer{QuestionID: q.ID, Reason: "say what the other is"}
+			}
+		case VendorQuestionMulti:
+			for _, v := range strings.Split(value, "|") {
+				if !hasVendorOption(q.Options, strings.TrimSpace(v)) {
+					return ErrVendorAnswer{QuestionID: q.ID, Reason: "must be among the offered choices"}
+				}
+			}
+		case VendorQuestionNumber:
+			n, err := strconv.ParseFloat(value, 64)
+			if err != nil {
+				return ErrVendorAnswer{QuestionID: q.ID, Reason: "must be a number"}
+			}
+			if q.Min != nil && n < *q.Min {
+				return ErrVendorAnswer{QuestionID: q.ID, Reason: fmt.Sprintf("must be at least %v", *q.Min)}
+			}
+			if q.Max != nil && n > *q.Max {
+				return ErrVendorAnswer{QuestionID: q.ID, Reason: fmt.Sprintf("must be at most %v", *q.Max)}
+			}
+		}
+	}
+	return nil
+}
+
+// ApplyVendorAnswers copies the typed answers onto the write's columns and returns the extra
+// (untyped) answers to store as sop_answers. A typed answer that is absent leaves the column as
+// the write already carries it (an older client sends typed fields, not answers).
+func ApplyVendorAnswers(w VendorWrite, answers map[string]string) (VendorWrite, map[string]string) {
+	extras := map[string]string{}
+	set := func(dst *string, v string) {
+		if strings.TrimSpace(v) != "" {
+			*dst = strings.TrimSpace(v)
+		}
+	}
+	setPtrStr := func(dst **string, v string) {
+		if strings.TrimSpace(v) != "" {
+			s := strings.TrimSpace(v)
+			*dst = &s
+		}
+	}
+	setPtrInt := func(dst **int, v string) {
+		if strings.TrimSpace(v) != "" {
+			if n, err := strconv.ParseFloat(strings.TrimSpace(v), 64); err == nil {
+				i := int(n)
+				*dst = &i
+			}
+		}
+	}
+	for id, v := range answers {
+		switch id {
+		case "business_name":
+			set(&w.BusinessName, v)
+		case "record_type":
+			set(&w.RecordType, v)
+		case "contact_person_name":
+			set(&w.ContactPersonName, v)
+		case "phone_number":
+			set(&w.PhoneNumber, v)
+		case "state":
+			set(&w.State, v)
+		case "city":
+			set(&w.City, v)
+		case "status":
+			set(&w.Status, v)
+		case "capacity_quantity":
+			setPtrStr(&w.CapacityQuantity, v)
+		case "capacity_unit":
+			set(&w.CapacityUnit, v)
+		case "supply_frequency":
+			set(&w.SupplyFrequency, v)
+		case "feed":
+			set(&w.Feed, v)
+		case "breed":
+			set(&w.Breed, v)
+		case "price_per_goat":
+			setPtrStr(&w.PricePerGoat, v)
+		case "eta_after_order_days":
+			setPtrInt(&w.ETAAfterOrderDays, v)
+		case "average_animal_weight_kg":
+			setPtrStr(&w.AverageAnimalWeightKg, v)
+		case "comments":
+			set(&w.Comments, v)
+		case "details":
+			set(&w.Details, v)
+		case "bank_name":
+			set(&w.BankName, v)
+		case "account_no":
+			set(&w.AccountNo, v)
+		case "ifsc_code":
+			set(&w.IFSCCode, v)
+		case "upi_id":
+			set(&w.UPIID, v)
+		case "pan_number":
+			set(&w.PANNumber, v)
+		case "filtered_stock":
+			setPtrInt(&w.FilteredStock, v)
+		default:
+			if strings.TrimSpace(v) != "" {
+				extras[id] = strings.TrimSpace(v)
+			}
+		}
+	}
+	return w, extras
+}
+
+// VendorAnswerRow is one extra answer as a detail screen lists it, labelled by the version's form.
+type VendorAnswerRow struct {
+	QuestionID string
+	Label      string
+	Value      string
+}
+
+// VendorAnswerRows labels stored extras by the form they were answered on; an answer whose
+// question the form no longer carries is listed under its id rather than dropped.
+func VendorAnswerRows(form VendorForm, answers map[string]string) []VendorAnswerRow {
+	labels := map[string]VendorQuestion{}
+	for _, q := range form.Questions() {
+		labels[q.ID] = q
+	}
+	out := []VendorAnswerRow{}
+	for _, q := range form.Questions() {
+		if IsTypedVendorQuestion(q.ID) {
+			continue
+		}
+		v, ok := answers[q.ID]
+		if !ok || strings.TrimSpace(v) == "" {
+			continue
+		}
+		display := v
+		if q.Kind == VendorQuestionChoice || q.Kind == VendorQuestionMulti {
+			parts := []string{}
+			for _, raw := range strings.Split(v, "|") {
+				raw = strings.TrimSpace(raw)
+				label := raw
+				for _, o := range q.Options {
+					if o.Value == raw {
+						label = o.Label
+					}
+				}
+				if raw == "other" && strings.TrimSpace(answers[q.ID+"_other"]) != "" {
+					label = strings.TrimSpace(answers[q.ID+"_other"])
+				}
+				parts = append(parts, label)
+			}
+			display = strings.Join(parts, ", ")
+		}
+		if q.Unit != "" && q.Kind == VendorQuestionNumber {
+			display = display + " " + q.Unit
+		}
+		out = append(out, VendorAnswerRow{QuestionID: q.ID, Label: q.Title, Value: display})
+	}
+	for id, v := range answers {
+		if _, known := labels[strings.TrimSuffix(id, "_other")]; known || strings.TrimSpace(v) == "" || strings.HasSuffix(id, "_other") {
+			continue
+		}
+		out = append(out, VendorAnswerRow{QuestionID: id, Label: id, Value: v})
+	}
+	return out
+}

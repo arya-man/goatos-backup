@@ -22,6 +22,10 @@ var (
 	// and silently received all of it would put buyers on the buying desk's screen -- exactly the
 	// mix the split exists to end -- and nothing on the screen would say so.
 	ErrVendorSideUnknown = errors.New("procurement: vendor register side unknown")
+	// ErrVendorFormUnavailable reports a form-driven write with no form source wired.
+	ErrVendorFormUnavailable = errors.New("procurement: vendor form unavailable")
+	// ErrVendorFormVersionRequired reports answers sent without the version they were answered on.
+	ErrVendorFormVersionRequired = errors.New("procurement: vendor form version required")
 )
 
 // VendorHTTPError maps a vendor-path error onto the transport error shape.
@@ -71,10 +75,29 @@ func VendorHTTPError(err error) *Error {
 	case errors.Is(err, ErrVendorOffsetOutOfRange):
 		return BadRequest("page_out_of_range", "That page is beyond the vendor list. Use the filters to narrow it down.")
 
+	case errors.Is(err, ErrVendorFormUnavailable):
+		return Internal("The vendor form is not available right now. Try again.")
+
+	case errors.Is(err, ErrVendorFormVersionRequired):
+		return BadRequest("vendor_form_version_required", "Reopen the vendor form and save again.")
+
+	case errors.Is(err, ports.ErrVendorFormVersionUnknown):
+		return Conflict("vendor_form_changed", "The vendor form was changed while you were filling it. Reopen it and save again.")
+
 	case errors.Is(err, ErrVendorSideUnknown):
 		return BadRequest("vendor_side_unknown", "That vendor list is not one we keep. Open Vendors from Procurement or from Sales.")
 
 	default:
+		// A refused form answer names its question so the form can show it in place.
+		var a domain.ErrVendorAnswer
+		if errors.As(err, &a) {
+			return &Error{
+				Code:       "vendor_answer_invalid",
+				Message:    "Check " + vendorFieldLabel(a.QuestionID) + ": " + a.Reason + ".",
+				HTTPStatus: http.StatusBadRequest,
+				Field:      a.QuestionID,
+			}
+		}
 		// Field-level validation carries its own operator-readable reason.
 		var v domain.ErrVendorValidation
 		if errors.As(err, &v) {

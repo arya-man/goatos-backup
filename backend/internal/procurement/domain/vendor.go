@@ -62,6 +62,13 @@ type Vendor struct {
 	// like PricePerGoat; nil means "not recorded" -- existing rows stay nil, never 0.
 	AverageAnimalWeightKg *string
 
+	// SOPAnswers (maintainer instruction 2026-09-19, VENDOR FORM IS AUTHORED) are the answers to
+	// the questions the published `sales.vendor` SOP added beyond the register's own columns,
+	// keyed by question id; QuestionnaireVersion is the SOP version they were answered on, nil for
+	// a row written before the form existed. See vendor_form.go.
+	SOPAnswers           map[string]string
+	QuestionnaireVersion *int
+
 	SourceRow *int
 
 	CreatedAt  string
@@ -242,6 +249,13 @@ type VendorWrite struct {
 	// AverageAnimalWeightKg is a decimal string (up to two places, more than zero); nil means not
 	// recorded. Optional on create and update alike.
 	AverageAnimalWeightKg *string
+
+	// SOPAnswers is the extra (untyped) answers a form-driven client recorded, already checked
+	// against the form by the service; QuestionnaireVersion is that form's version. A nil map means
+	// the client sent typed fields only (an older phone or the importer): on update the stored
+	// answers are PRESERVED, because a form the client never rendered is not one it can clear.
+	SOPAnswers           map[string]string
+	QuestionnaireVersion int
 }
 
 // ErrVendorValidation reports a rejected write with a field-specific, operator-readable reason.

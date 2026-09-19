@@ -324,6 +324,8 @@ var protectedRoutes = []Route{
 	{OperationID: "updateProcurementVendor", Method: "PUT", Pattern: "/procurement/vendors/{vendor_id}", Permissions: []string{VendorWrite}},
 	{OperationID: "updateProcurementVendorStatus", Method: "POST", Pattern: "/procurement/vendors/{vendor_id}/status", Permissions: []string{VendorWrite}},
 	{OperationID: "listProcurementVendorCatalog", Method: "GET", Pattern: "/procurement/vendor-catalog", Permissions: []string{VendorRead}},
+	// The authored vendor form (sales.vendor SOP, 2026-09-19): what Add / Edit vendor asks.
+	{OperationID: "getProcurementVendorForm", Method: "GET", Pattern: "/procurement/vendor-form", Permissions: []string{VendorRead}},
 	// The ACTIVE register as a bounded picklist, for any screen that must name a counterparty --
 	// today Sales, which maps every deal to a vendor. It deliberately returns only id/name/type
 	// labels and truncation metadata, so SalesRead may use this picker without inheriting the full

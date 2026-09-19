@@ -64,6 +64,14 @@ type vendorPayload struct {
 	AverageAnimalWeightKg      *string `json:"average_animal_weight_kg"`
 	AverageAnimalWeightDisplay string  `json:"average_animal_weight_display"`
 
+	// VENDOR FORM IS AUTHORED (2026-09-19): answers keyed by question id for the questions the
+	// published `sales.vendor` form added beyond the register's columns, the form version they
+	// were answered on (null before the form existed), and -- on the single-vendor reads -- the
+	// same answers labelled by that form's question titles, in form order, for a detail screen.
+	Answers              map[string]string        `json:"answers"`
+	QuestionnaireVersion *int                     `json:"questionnaire_version"`
+	AnswerRows           []vendorAnswerRowPayload `json:"answer_rows,omitempty"`
+
 	CreatedAt string `json:"created_at"`
 	UpdatedAt string `json:"updated_at"`
 	// row_version must be echoed back on update. It is the optimistic fence that stops two editors
@@ -135,8 +143,82 @@ type vendorWritePayload struct {
 	VoiceNoteProofRef string  `json:"voice_note_proof_ref"`
 	// Average animal weight in kg as a decimal string; null or "" = not recorded. Optional.
 	AverageAnimalWeightKg *string `json:"average_animal_weight_kg"`
+	// answers + questionnaire_version: a form-driven client sends EVERY answer (typed questions
+	// included) keyed by question id, and the version of the form it rendered. Absent answers
+	// mean a typed-only client; stored extra answers are then preserved on update.
+	Answers              map[string]string `json:"answers"`
+	QuestionnaireVersion int               `json:"questionnaire_version"`
 	// row_version is required on update and ignored on create.
 	RowVersion int64 `json:"row_version"`
+}
+
+type vendorAnswerRowPayload struct {
+	QuestionID string `json:"question_id"`
+	Label      string `json:"label"`
+	Value      string `json:"value"`
+}
+
+// vendorFormPayload is the published vendor form: pages of questions, catalog choices filled.
+type vendorFormPayload struct {
+	Version int                     `json:"version"`
+	Pages   []vendorFormPagePayload `json:"pages"`
+}
+
+type vendorFormPagePayload struct {
+	Key       string                  `json:"key"`
+	Title     string                  `json:"title"`
+	Hint      string                  `json:"hint,omitempty"`
+	Questions []vendorQuestionPayload `json:"questions"`
+}
+
+type vendorQuestionPayload struct {
+	ID       string `json:"id"`
+	Kind     string `json:"kind"`
+	Title    string `json:"title"`
+	Hint     string `json:"hint,omitempty"`
+	Required bool   `json:"required"`
+	// typed is true for a question the register stores in its own column: the client sends its
+	// answer under the same id and reads it back from the typed vendor field.
+	Typed      bool                         `json:"typed"`
+	Options    []vendorQuestionOptPayload   `json:"options,omitempty"`
+	AllowOther bool                         `json:"allow_other,omitempty"`
+	Min        *float64                     `json:"min,omitempty"`
+	Max        *float64                     `json:"max,omitempty"`
+	Unit       string                       `json:"unit,omitempty"`
+	OnlyIf     *vendorQuestionOnlyIfPayload `json:"only_if,omitempty"`
+}
+
+type vendorQuestionOptPayload struct {
+	Value string `json:"value"`
+	Label string `json:"label"`
+}
+
+type vendorQuestionOnlyIfPayload struct {
+	QuestionID string `json:"question_id"`
+	Value      string `json:"value"`
+}
+
+func toVendorFormPayload(f domain.VendorForm) vendorFormPayload {
+	out := vendorFormPayload{Version: f.Version, Pages: make([]vendorFormPagePayload, 0, len(f.Pages))}
+	for _, p := range f.Pages {
+		page := vendorFormPagePayload{Key: p.Key, Title: p.Title, Hint: p.Hint, Questions: make([]vendorQuestionPayload, 0, len(p.Questions))}
+		for _, q := range p.Questions {
+			qp := vendorQuestionPayload{
+				ID: q.ID, Kind: q.Kind, Title: q.Title, Hint: q.Hint, Required: q.Required,
+				Typed: domain.IsTypedVendorQuestion(q.ID), AllowOther: q.AllowOther,
+				Min: q.Min, Max: q.Max, Unit: q.Unit, Options: []vendorQuestionOptPayload{},
+			}
+			for _, o := range q.Options {
+				qp.Options = append(qp.Options, vendorQuestionOptPayload{Value: o.Value, Label: o.Label})
+			}
+			if q.OnlyIf != nil {
+				qp.OnlyIf = &vendorQuestionOnlyIfPayload{QuestionID: q.OnlyIf.QuestionID, Value: q.OnlyIf.Value}
+			}
+			page.Questions = append(page.Questions, qp)
+		}
+		out.Pages = append(out.Pages, page)
+	}
+	return out
 }
 
 // vendorStatusPayload is the status-only change body.
@@ -159,6 +241,8 @@ func (p vendorWritePayload) toDomain() domain.VendorWrite {
 		CapacityQuantity: p.CapacityQuantity, CapacityUnit: p.CapacityUnit,
 		SupplyFrequency: p.SupplyFrequency, VoiceNoteProofRef: p.VoiceNoteProofRef,
 		AverageAnimalWeightKg: p.AverageAnimalWeightKg,
+		SOPAnswers:            p.Answers,
+		QuestionnaireVersion:  p.QuestionnaireVersion,
 	}
 }
 
@@ -174,34 +258,36 @@ func (c catalogLabels) label(kind, value string) string {
 
 func toVendorPayload(v domain.Vendor, labels catalogLabels) vendorPayload {
 	return vendorPayload{
-		VendorID:          v.VendorID,
-		RecordType:        v.RecordType,
-		BusinessName:      v.BusinessName,
-		DisplayName:       vendorDisplayName(v),
-		ContactPersonName: v.ContactPersonName,
-		PhoneNumber:       v.PhoneNumber,
-		Breed:             v.Breed,
-		Feed:              v.Feed,
-		Status:            v.Status,
-		StatusLabel:       vendorStatusLabel(v.Status),
-		FilteredStock:     v.FilteredStock,
-		PricePerGoat:      v.PricePerGoat,
-		ReadyToFiltered:   v.ReadyToFiltered,
-		ETAAfterOrderDays: v.ETAAfterOrderDays,
-		Details:           v.Details,
-		State:             v.State,
-		City:              v.City,
-		Location:          vendorLocationDisplay(v),
-		BankName:          v.BankName,
-		AccountNo:         v.AccountNo,
-		IFSCCode:          v.IFSCCode,
-		UPIID:             v.UPIID,
-		PANNumber:         v.PANNumber,
-		FinanceRedacted:   v.FinanceRedacted,
-		Comments:          v.Comments,
-		CapacityQuantity:  v.CapacityQuantity,
-		CapacityUnit:      v.CapacityUnit,
-		SupplyFrequency:   v.SupplyFrequency,
+		VendorID:             v.VendorID,
+		RecordType:           v.RecordType,
+		BusinessName:         v.BusinessName,
+		Answers:              vendorAnswersOrEmpty(v.SOPAnswers),
+		QuestionnaireVersion: v.QuestionnaireVersion,
+		DisplayName:          vendorDisplayName(v),
+		ContactPersonName:    v.ContactPersonName,
+		PhoneNumber:          v.PhoneNumber,
+		Breed:                v.Breed,
+		Feed:                 v.Feed,
+		Status:               v.Status,
+		StatusLabel:          vendorStatusLabel(v.Status),
+		FilteredStock:        v.FilteredStock,
+		PricePerGoat:         v.PricePerGoat,
+		ReadyToFiltered:      v.ReadyToFiltered,
+		ETAAfterOrderDays:    v.ETAAfterOrderDays,
+		Details:              v.Details,
+		State:                v.State,
+		City:                 v.City,
+		Location:             vendorLocationDisplay(v),
+		BankName:             v.BankName,
+		AccountNo:            v.AccountNo,
+		IFSCCode:             v.IFSCCode,
+		UPIID:                v.UPIID,
+		PANNumber:            v.PANNumber,
+		FinanceRedacted:      v.FinanceRedacted,
+		Comments:             v.Comments,
+		CapacityQuantity:     v.CapacityQuantity,
+		CapacityUnit:         v.CapacityUnit,
+		SupplyFrequency:      v.SupplyFrequency,
 		CapacityDisplay: v.CapacityDisplay(
 			labels.label(domain.CatalogKindCapacityUnit, derefString(v.CapacityUnit)),
 			labels.label(domain.CatalogKindSupplyFrequency, derefString(v.SupplyFrequency)),
@@ -293,4 +379,11 @@ type vendorOptionsPayload struct {
 	// Truncated says the ACTIVE register is larger than one bounded read, so a picker can tell the
 	// person to search the Vendors page rather than imply a missing buyer does not exist.
 	Truncated bool `json:"truncated"`
+}
+
+func vendorAnswersOrEmpty(m map[string]string) map[string]string {
+	if m == nil {
+		return map[string]string{}
+	}
+	return m
 }

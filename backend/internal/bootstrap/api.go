@@ -599,6 +599,9 @@ func NewAPI(ctx context.Context, cfg Config, log *slog.Logger) (*API, error) {
 		WithDesignationSource(sopRepo).
 		// The animal-purchase inspection document is validated by the module that compiles it.
 		WithFormDSLContract(animalpurchaseapp.InspectionSOPContract).
+		// VENDOR FORM (2026-09-19): the sales.vendor version's `vendor_form` -- the questions
+		// the Add / Edit vendor screens ask -- is validated by the register that runs it.
+		WithFormDSLContract(procurementapp.VendorFormSOPContract).
 		// WEIGHING SOP (maintainer decision 2026-09-15): the weighing.session version's
 		// `weighing` section is validated here so a document the planner could not run
 		// is never saved.
@@ -829,7 +832,10 @@ func NewAPI(ctx context.Context, cfg Config, log *slog.Logger) (*API, error) {
 		procurementapp.NewVendorService(procurementpg.NewRepository(pool, cfg.Postgres.QueryTimeout)).
 			// A vendor's voice note is a proof (audio, in-app microphone) and is checked against
 			// the proof store before it is stored on the vendor (maintainer decision 2026-09-03).
-			WithVoiceNoteValidator(procurementproof.NewValidator(proofRepo)), log)
+			WithVoiceNoteValidator(procurementproof.NewValidator(proofRepo)).
+			// The Add / Edit vendor form is the published sales.vendor SOP (2026-09-19); answers
+			// are checked against the version the screen rendered.
+			WithVendorFormSource(procurementpg.NewVendorFormSource(pool)), log)
 	// The feed PURCHASE ledger (maintainer decision 2026-08-24, retiring the read-only half of
 	// migration 000174's lock). Procurement owns the write; feeddirection keeps the stock read.
 	procurementFeedPurchaseHandler := procurementhttp.NewFeedPurchaseHandler(

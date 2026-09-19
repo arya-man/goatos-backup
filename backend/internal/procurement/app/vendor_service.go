@@ -16,6 +16,7 @@ import (
 type VendorService struct {
 	repo       ports.VendorRepository
 	voiceNotes ports.VoiceNoteValidator
+	form       ports.VendorFormSource
 }
 
 func NewVendorService(repo ports.VendorRepository) *VendorService {
@@ -28,6 +29,77 @@ func NewVendorService(repo ports.VendorRepository) *VendorService {
 func (s *VendorService) WithVoiceNoteValidator(v ports.VoiceNoteValidator) *VendorService {
 	s.voiceNotes = v
 	return s
+}
+
+// WithVendorFormSource attaches the authored vendor form (VENDOR FORM IS AUTHORED, 2026-09-19).
+// Without one a write carrying answers is REFUSED: answers nobody checked against a form are not
+// answers to anything.
+func (s *VendorService) WithVendorFormSource(f ports.VendorFormSource) *VendorService {
+	s.form = f
+	return s
+}
+
+// VendorForm is the published form a screen renders now. side narrows the record types offered
+// to the register half the screen is on, exactly as ListVendorCatalog does; "" offers all.
+func (s *VendorService) VendorForm(ctx context.Context, tenantID, side string) (domain.VendorForm, error) {
+	if s.form == nil {
+		return domain.VendorForm{}, ErrVendorFormUnavailable
+	}
+	catalog, err := s.ListVendorCatalog(ctx, tenantID, side)
+	if err != nil {
+		return domain.VendorForm{}, err
+	}
+	return s.form.PublishedVendorForm(ctx, tenantID, catalog)
+}
+
+// formVersion reads one form version with the WHOLE catalog, unnarrowed: a write is checked
+// against every catalog value the register accepts, and a detail row must label a value from
+// either side.
+func (s *VendorService) formVersion(ctx context.Context, tenantID string, version int) (domain.VendorForm, error) {
+	catalog, err := s.repo.ListVendorCatalog(ctx, tenantID, false)
+	if err != nil {
+		return domain.VendorForm{}, err
+	}
+	return s.form.VendorFormVersion(ctx, tenantID, version, catalog)
+}
+
+// VendorAnswerRows labels a vendor's extra answers by the form version they were answered on. A
+// vendor written before the form existed has none; a form the library no longer carries lists the
+// answers under their ids rather than dropping them.
+func (s *VendorService) VendorAnswerRows(ctx context.Context, tenantID string, v domain.Vendor) []domain.VendorAnswerRow {
+	if s.form == nil || v.QuestionnaireVersion == nil || len(v.SOPAnswers) == 0 {
+		return domain.VendorAnswerRows(domain.VendorForm{}, v.SOPAnswers)
+	}
+	form, err := s.formVersion(ctx, tenantID, *v.QuestionnaireVersion)
+	if err != nil {
+		return domain.VendorAnswerRows(domain.VendorForm{}, v.SOPAnswers)
+	}
+	return domain.VendorAnswerRows(form, v.SOPAnswers)
+}
+
+// applyForm checks a form-driven write's answers against the form version the client rendered
+// and maps the typed answers onto the register's columns. A write with no answers (an older
+// client, the importer) passes through untouched.
+func (s *VendorService) applyForm(ctx context.Context, tenantID string, write domain.VendorWrite) (domain.VendorWrite, error) {
+	if write.SOPAnswers == nil {
+		return write, nil
+	}
+	if s.form == nil {
+		return write, ErrVendorFormUnavailable
+	}
+	if write.QuestionnaireVersion <= 0 {
+		return write, ErrVendorFormVersionRequired
+	}
+	form, err := s.formVersion(ctx, tenantID, write.QuestionnaireVersion)
+	if err != nil {
+		return write, err
+	}
+	if err := domain.ValidateVendorAnswers(form, write.SOPAnswers); err != nil {
+		return write, err
+	}
+	applied, extras := domain.ApplyVendorAnswers(write, write.SOPAnswers)
+	applied.SOPAnswers = extras
+	return applied, nil
 }
 
 // validateVoiceNote checks an optional voice-note ref. Blank means "no note" and passes.
@@ -76,6 +148,10 @@ func (s *VendorService) GetVendor(ctx context.Context, tenantID, vendorID string
 // business name of "   " must fail the required check, not pass it because it was non-empty before
 // trimming.
 func (s *VendorService) CreateVendor(ctx context.Context, tenantID string, write domain.VendorWrite, actorID string, includeFinance bool) (domain.Vendor, error) {
+	write, err := s.applyForm(ctx, tenantID, write)
+	if err != nil {
+		return domain.Vendor{}, err
+	}
 	normalized := write.Normalize()
 	// Create is held to the stricter bar: contact person, phone and city too, matching the Slack
 	// intake questionnaire. Update is not -- see ValidateForCreate for why.
@@ -108,6 +184,10 @@ func (s *VendorService) UpdateVendor(ctx context.Context, tenantID, vendorID str
 	}
 	if idempotencyKey == "" {
 		return domain.Vendor{}, ErrVendorIdempotencyRequired
+	}
+	write, err := s.applyForm(ctx, tenantID, write)
+	if err != nil {
+		return domain.Vendor{}, err
 	}
 	normalized := write.Normalize()
 	if err := normalized.Validate(); err != nil {

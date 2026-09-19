@@ -1054,14 +1054,17 @@ func evaluationRequiresProof(evaluation domain.DryRunResponse) bool {
 	return false
 }
 
-// generalDocumentShape reports a document whose follow_up carries the general `main` track: the
-// shape a general SOP is authored and seeded in. Only the shape is read here; the track's own
-// contract is validated by validateFollowUpContract.
-// generalDocumentShape reports a document whose whole substance is a follow-up track and which
-// therefore has no capture form to demand a field from: a GENERAL work instruction (the `main`
-// track, module `general`) or the SALE SOP (the `sales_deal` track, module `sales`, whose
-// capture is the Record sale form the sales module owns -- docs/decisions/sales-sop.md).
+// generalDocumentShape reports a document whose whole substance is a follow-up track or a
+// module-owned form and which therefore has no capture form to demand a field from: a GENERAL
+// work instruction (the `main` track, module `general`), the SALE SOP (the `sales_deal` track,
+// module `sales`, whose capture is the Record sale form the sales module owns), or the VENDOR
+// FORM (a `vendor_form` section, validated by procurement's own contract) --
+// docs/decisions/sales-sop.md. Only the shape is read here; each section's own contract is
+// validated separately.
 func generalDocumentShape(formDSL map[string]any) bool {
+	if _, ok := formDSL["vendor_form"].(map[string]any); ok {
+		return true
+	}
 	followUp, ok := formDSL["follow_up"].(map[string]any)
 	if !ok {
 		return false

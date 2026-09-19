@@ -2,6 +2,7 @@ package postgres
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"strings"
@@ -37,6 +38,7 @@ const vendorColumns = `
 	v.comments, v.party_id, v.source_row,
 	v.capacity_quantity::text, v.capacity_unit, v.supply_frequency, v.voice_note_proof_ref::text,
 	v.average_animal_weight_kg::text,
+	v.sop_answers, v.questionnaire_version,
 	v.created_at, v.updated_at, v.row_version`
 
 // scanVendor reads one row of vendorColumns, in that exact order.
@@ -55,6 +57,8 @@ func scanVendor(row pgx.Row) (domain.Vendor, error) {
 		etaDays    *int32
 		sourceRow  *int32
 		rowVersion int64
+		answers    []byte
+		qVersion   *int32
 	)
 	err := row.Scan(
 		&v.VendorID, &v.TenantID, &v.RecordType, &v.BusinessName, &v.ContactPersonName, &v.PhoneNumber,
@@ -64,10 +68,21 @@ func scanVendor(row pgx.Row) (domain.Vendor, error) {
 		&v.Comments, &partyID, &sourceRow,
 		&v.CapacityQuantity, &v.CapacityUnit, &v.SupplyFrequency, &v.VoiceNoteProofRef,
 		&v.AverageAnimalWeightKg,
+		&answers, &qVersion,
 		&createdAt, &updatedAt, &rowVersion,
 	)
 	if err != nil {
 		return domain.Vendor{}, err
+	}
+	v.SOPAnswers = map[string]string{}
+	if len(answers) > 0 {
+		if err := json.Unmarshal(answers, &v.SOPAnswers); err != nil {
+			return domain.Vendor{}, fmt.Errorf("procurement: vendor %s sop_answers: %w", v.VendorID, err)
+		}
+	}
+	if qVersion != nil {
+		n := int(*qVersion)
+		v.QuestionnaireVersion = &n
 	}
 	v.PartyID = partyID
 	v.PricePerGoat = priceStr
@@ -261,7 +276,7 @@ func (r *Repository) CreateVendor(ctx context.Context, tenantID string, write do
 			bank_name, account_no, ifsc_code, upi_id, pan_number,
 			comments, created_by, updated_by,
 			capacity_quantity, capacity_unit, supply_frequency, voice_note_proof_ref,
-			average_animal_weight_kg
+			average_animal_weight_kg, sop_answers, questionnaire_version
 		) VALUES (
 			$1, $2, $3, %s, %s,
 			%s, %s, $6, $7, $8, %s,
@@ -269,7 +284,7 @@ func (r *Repository) CreateVendor(ctx context.Context, tenantID string, write do
 			%s, %s, %s, %s, %s,
 			%s, $18, $18,
 			$23::numeric, %s, %s, nullif($26, '')::uuid,
-			$27::numeric
+			$27::numeric, $28::jsonb, nullif($29, 0)
 		)
 		RETURNING %s`,
 		nullIf("$4"), nullIf("$5"),
@@ -288,7 +303,7 @@ func (r *Repository) CreateVendor(ctx context.Context, tenantID string, write do
 		nullableActor(actorID),
 		w.Breed, w.Feed, w.Details, w.Comments,
 		w.CapacityQuantity, w.CapacityUnit, w.SupplyFrequency, w.VoiceNoteProofRef,
-		w.AverageAnimalWeightKg,
+		w.AverageAnimalWeightKg, vendorAnswersJSON(w.SOPAnswers), w.QuestionnaireVersion,
 	))
 	if err != nil {
 		if isNaturalKeyViolation(err) {
@@ -355,6 +370,8 @@ func (r *Repository) UpdateVendor(ctx context.Context, tenantID, vendorID string
 			supply_frequency = %s,
 			voice_note_proof_ref = nullif($29, '')::uuid,
 			average_animal_weight_kg = $30::numeric,
+			sop_answers = CASE WHEN $31 THEN v.sop_answers ELSE $32::jsonb END,
+			questionnaire_version = CASE WHEN $31 THEN v.questionnaire_version ELSE nullif($33, 0) END,
 			updated_by = $23,
 			updated_at = now(),
 			row_version = v.row_version + 1
@@ -376,6 +393,9 @@ func (r *Repository) UpdateVendor(ctx context.Context, tenantID, vendorID string
 		w.Comments, nullableActor(actorID), rowVersion, preserveFinance,
 		w.CapacityQuantity, w.CapacityUnit, w.SupplyFrequency, w.VoiceNoteProofRef,
 		w.AverageAnimalWeightKg,
+		// A typed-only client (nil answers) never rendered the form, so it cannot clear answers
+		// it never saw: the stored answers and their version are kept, like finance above.
+		w.SOPAnswers == nil, vendorAnswersJSON(w.SOPAnswers), w.QuestionnaireVersion,
 	))
 	if errors.Is(err, pgx.ErrNoRows) {
 		// Zero rows means the tenant+id+version triple did not match. Re-read without the version to
@@ -414,7 +434,21 @@ func vendorUpdateFingerprint(vendorID string, w domain.VendorWrite, rowVersion i
 		w.BankName, w.AccountNo, w.IFSCCode, w.UPIID, w.PANNumber, w.Comments,
 		fpString(w.CapacityQuantity), w.CapacityUnit, w.SupplyFrequency, w.VoiceNoteProofRef,
 		fpString(w.AverageAnimalWeightKg),
+		string(vendorAnswersJSON(w.SOPAnswers)), fmt.Sprintf("%d", w.QuestionnaireVersion),
 	)
+}
+
+// vendorAnswersJSON encodes the extra answers with sorted keys (encoding/json sorts map keys),
+// so the same answers always fingerprint the same. nil encodes as an empty object.
+func vendorAnswersJSON(answers map[string]string) []byte {
+	if answers == nil {
+		answers = map[string]string{}
+	}
+	out, err := json.Marshal(answers)
+	if err != nil {
+		return []byte("{}")
+	}
+	return out
 }
 
 func fpString(v *string) string {
