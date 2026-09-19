@@ -190,7 +190,13 @@ export async function WeighingWeightsAnalyticsPage({
   // the assumptions table itself, so the caller names them, exactly as it names the tolerance.
   const assumptions = await getGrowthAssumptions();
   if (firstAuthRequiredError(assumptions)) redirect(INTERNAL_LOGIN_PATH);
-  const assumptionRows = assumptions.ok ? assumptions.data.values : null;
+  // Any other failure is the page's failure (PR #320 review): rendering "Over 35 kg" from the
+  // constants while the tenant's line may be something else would show a wrong count as if it
+  // were valid. The figures the page is valued against are part of the page.
+  if (!assumptions.ok) {
+    return <WeightsAnalyticsLoadError pageContract={pageContract} />;
+  }
+  const assumptionRows = assumptions.data.values;
   const saleThresholdKg = assumptionRows ? assumptionValue(assumptionRows, "sale_ready_threshold_kg") : null;
   const saleLowerKg = assumptionRows ? assumptionValue(assumptionRows, "sale_ready_lower_kg") : null;
   const window = await landingWindow(

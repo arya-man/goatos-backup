@@ -212,7 +212,7 @@ test("weights reads use the longer live-latency backend timeout", () => {
   assert.match(serverSource, /const DEFAULT_BACKEND_GET_TIMEOUT_MS = 8000;/);
   assert.match(serverSource, /const WEIGHING_BACKEND_GET_TIMEOUT_MS = 15000;/);
   assert.match(serverSource, /pathname\.startsWith\("\/weighing\/"\)/);
-  assert.match(serverSource, /pathname === "\/growth-director\/weights"/);
+  assert.match(serverSource, /pathname\.startsWith\("\/growth-director\/"\)/);
   assert.match(serverSource, /setTimeout\(\(\) => controller\.abort\(\), backendGetTimeoutMs\(url\.pathname\)\)/);
 });
 

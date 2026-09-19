@@ -203,9 +203,11 @@ export async function SalesFarmValuePage({
   const over35ToleranceG = boundedInt(one(sp, "sale_ready_tolerance_g"), 0, 0, OVER35_MAX_TOLERANCE_G);
   // The sale-ready line itself is the tenant's assumption (maintainer decision 2026-09-19), read
   // once and handed to the weighing count -- weighing does not read the assumptions table. A
-  // failed read counts against the default and labels the card with the same default.
+  // failed read (other than auth) is the CARD's failure: the count is not taken at the constants'
+  // line and shown as valid; the card carries the error and no number (PR #320 review).
   const assumptions = over35Enabled ? await getGrowthAssumptions() : null;
   if (assumptions && firstAuthRequiredError(assumptions)) redirect(INTERNAL_LOGIN_PATH);
+  const assumptionsFailed = assumptions != null && !assumptions.ok;
   const saleThresholdKg =
     (assumptions?.ok ? assumptionValue(assumptions.data.values, "sale_ready_threshold_kg") : null) ?? DEFAULT_SALE_READY_THRESHOLD_KG;
   const saleLowerKg = (assumptions?.ok ? assumptionValue(assumptions.data.values, "sale_ready_lower_kg") : null) ?? undefined;
@@ -222,7 +224,7 @@ export async function SalesFarmValuePage({
   // carries the park vocabulary this page's farm code is matched against.
   const [overviewResult, weightsResult] = await Promise.all([
     getSalesOverview({ farm }),
-    over35Enabled ? getShedWeights(over35Params) : Promise.resolve(null),
+    over35Enabled && !assumptionsFailed ? getShedWeights(over35Params) : Promise.resolve(null),
   ]);
   if (firstAuthRequiredError(overviewResult)) redirect(INTERNAL_LOGIN_PATH);
 
@@ -267,6 +269,12 @@ export async function SalesFarmValuePage({
         <div className="alert" style={{ marginBottom: 14 }}>
           <b>{overviewResult.error.code ?? overviewResult.error.kind}</b>&nbsp;
           {overviewResult.error.message || copy(pageContract, "error.load")}
+        </div>
+      ) : null}
+      {assumptions && !assumptions.ok ? (
+        <div className="alert" style={{ marginBottom: 14 }}>
+          <b>{assumptions.error.code ?? assumptions.error.kind}</b>&nbsp;
+          {assumptions.error.message || copy(pageContract, "error.load")}
         </div>
       ) : null}
 

@@ -731,10 +731,10 @@ const DEFAULT_BACKEND_GET_TIMEOUT_MS = 8000;
 const WEIGHING_BACKEND_GET_TIMEOUT_MS = 15000;
 
 function backendGetTimeoutMs(pathname: string): number {
-  if (
-    pathname.startsWith("/weighing/") ||
-    pathname === "/growth-director/weights"
-  ) {
+  // Every Growth Director read is a weighing-grade reporting read (the FCR tab joins weighing
+  // rounds, identity, feed rows, segment feed, prices and rollups; feed-by-weight-band is the same
+  // shape), so the whole module shares weighing's budget rather than the generic one.
+  if (pathname.startsWith("/weighing/") || pathname.startsWith("/growth-director/")) {
     return WEIGHING_BACKEND_GET_TIMEOUT_MS;
   }
   return DEFAULT_BACKEND_GET_TIMEOUT_MS;

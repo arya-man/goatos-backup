@@ -303,7 +303,17 @@ export async function WeighingWeightsPage({
   // page names them too, or the two Weights pages would count "over N kg" at different lines.
   const assumptions = await getGrowthAssumptions();
   if (firstAuthRequiredError(assumptions)) redirect(INTERNAL_LOGIN_PATH);
-  const assumptionRows = assumptions.ok ? assumptions.data.values : null;
+  // Any other failure is the page's failure (PR #320 review): a count at the constants' lines
+  // while the tenant's may differ is a wrong number shown as valid, not a graceful fallback.
+  if (!assumptions.ok) {
+    return (
+      <section className="card">
+        <h2 className="h">{copy(pageContract, "error.load.title")}</h2>
+        <p className="muted small">{copy(pageContract, "error.load.body")}</p>
+      </section>
+    );
+  }
+  const assumptionRows = assumptions.data.values;
   const saleThresholdKg = assumptionRows ? assumptionValue(assumptionRows, "sale_ready_threshold_kg") : null;
   const saleLowerKg = assumptionRows ? assumptionValue(assumptionRows, "sale_ready_lower_kg") : null;
   const [weights, growth, demographics, growthDirector] = await Promise.all([

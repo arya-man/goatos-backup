@@ -75,6 +75,16 @@ test("the sale-ready line reaches the weighing count as a parameter on every pag
   assert.match(serviceSource, /"kpi\.over35":\s+"Over \{kg\} kg"/, "the label carries the {kg} placeholder");
 });
 
+test("a failed assumptions read is a page failure, never a silent fallback to the constants", () => {
+  // PR #320 review: only the AUTH failure redirects; any other failure must not render counts at
+  // the constants' lines as if valid.
+  for (const [name, src] of [["ADG Analytics", pageSource], ["Weights", weightsSource]]) {
+    assert.match(src, /if \(!assumptions\.ok\) \{/, `${name} must fail the page on a non-auth assumptions error`);
+    assert.doesNotMatch(src, /assumptions\.ok \? assumptions\.data\.values : null/, `${name} must not fall back to null rows`);
+  }
+  assert.match(farmValueSource, /over35Enabled && !assumptionsFailed \? getShedWeights/, "Farm value must not count at the default line after a failed read");
+});
+
 test("a sale price save carries the price the drawer loaded (the fence)", () => {
   assert.match(drawerSource, /loaded_price_per_kg_inr: loaded/, "the loaded price must travel with the new one");
   assert.match(drawerSource, /current\.sale_prices\.find\(\(row\) => row\.species === species\)\?\.price_per_kg_inr \?\? null/);
