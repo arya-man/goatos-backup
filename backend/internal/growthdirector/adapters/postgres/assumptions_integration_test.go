@@ -15,10 +15,10 @@ import (
 // append-only and effective-dated, so it has no row_version, and without a fence two editors who
 // both opened ₹425 would each land their figure with the second silently overwriting the first.
 //
-//   1. editor A loads 425 and saves 440 -> lands;
-//   2. editor B, who also loaded 425, saves 450 -> ErrAssumptionConflict, and 440 still stands;
-//   3. editor A replays the exact same save (loaded 425, new 440) -> a no-op, not a conflict;
-//   4. editor B reloads (440) and saves 450 -> lands.
+//  1. editor A loads 425 and saves 440 -> lands;
+//  2. editor B, who also loaded 425, saves 450 -> ErrAssumptionConflict, and 440 still stands;
+//  3. editor A replays the exact same save (loaded 425, new 440) -> a no-op, not a conflict;
+//  4. editor B reloads (440) and saves 450 -> lands.
 func TestPutAssumptionsFencesSalePriceOnTheLoadedPrice(t *testing.T) {
 	t.Parallel()
 	ctx := context.Background()
@@ -78,5 +78,44 @@ func TestPutAssumptionsFencesSalePriceOnTheLoadedPrice(t *testing.T) {
 	})
 	if !errors.Is(err, ports.ErrAssumptionConflict) {
 		t.Fatalf("a save that loaded no price must conflict once one exists, got %v", err)
+	}
+}
+
+func TestPutAssumptionsRejectsSaleReadyLineInversionInsideTheTransaction(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+	pool := pgtest.StartPostgres(t, ctx)
+	seedFCRFixture(t, ctx, pool)
+	repo := NewRepository(pool, 30*time.Second)
+	today := time.Now()
+
+	assumptions, err := repo.GetAssumptions(ctx, gdTenant, today)
+	if err != nil {
+		t.Fatalf("GetAssumptions: %v", err)
+	}
+	var lowerVersion int
+	for _, row := range assumptions.Values {
+		if row.Key == domain.AssumptionSaleReadyLowerKg {
+			lowerVersion = row.RowVersion
+		}
+	}
+	if lowerVersion == 0 {
+		t.Fatal("missing sale_ready_lower_kg row")
+	}
+
+	_, err = repo.PutAssumptions(ctx, gdTenant, gdOperator, today, domain.AssumptionsUpdate{
+		Values: []domain.ValueUpdate{{Key: domain.AssumptionSaleReadyLowerKg, Value: 36, RowVersion: lowerVersion}},
+	})
+	if !errors.Is(err, ports.ErrInvalidArgument) {
+		t.Fatalf("inverted sale lines must be refused in the repository transaction, got %v", err)
+	}
+	after, err := repo.GetAssumptions(ctx, gdTenant, today)
+	if err != nil {
+		t.Fatalf("GetAssumptions after rejected write: %v", err)
+	}
+	for _, row := range after.Values {
+		if row.Key == domain.AssumptionSaleReadyLowerKg && row.Value != domain.DefaultSaleReadyLowerKg {
+			t.Fatalf("rejected write changed lower line to %v", row.Value)
+		}
 	}
 }

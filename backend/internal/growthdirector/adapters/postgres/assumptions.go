@@ -49,7 +49,8 @@ VALUES ($1::uuid, $2, $3, $4, $5::date, $6, $7, now(), 1)`
 	updateAssumptionSQL = `
 UPDATE growth_assumptions SET value = $3, value_list = $4, value_date = $5::date, set_by = $6, updated_at = now(), row_version = row_version + 1
 WHERE tenant_id = $1::uuid AND key = $2 AND row_version = $7`
-	setterNameSQL = `SELECT display_name FROM workforce_members WHERE tenant_id = $1::uuid AND user_id = $2::uuid AND status = 'active' ORDER BY updated_at DESC LIMIT 1`
+	lockSaleReadyLinesSQL = `SELECT pg_advisory_xact_lock(hashtext($1::text || ':growth_sale_ready_lines')::bigint)`
+	setterNameSQL         = `SELECT display_name FROM workforce_members WHERE tenant_id = $1::uuid AND user_id = $2::uuid AND status = 'active' ORDER BY updated_at DESC LIMIT 1`
 )
 
 const assumptionValuesSQL = `
@@ -187,6 +188,30 @@ func (r *Repository) PutAssumptions(ctx context.Context, tenantID, setBy string,
 		}
 	}
 
+	if touchesSaleReadyLine(update) {
+		if _, err := tx.Exec(ctx, lockSaleReadyLinesSQL, tenantID); err != nil {
+			return domain.Assumptions{}, err
+		}
+		values, err := readAssumptionValues(ctx, tx, tenantID)
+		if err != nil {
+			return domain.Assumptions{}, err
+		}
+		settings := domain.SettingsFrom(values)
+		lower, threshold := settings.SaleReadyLowerKg, settings.SaleReadyThresholdKg
+		for _, v := range update.Values {
+			key, _ := domain.LookupAssumptionKey(v.Key)
+			switch key.Key {
+			case domain.AssumptionSaleReadyLowerKg:
+				lower = v.Value
+			case domain.AssumptionSaleReadyThresholdKg:
+				threshold = v.Value
+			}
+		}
+		if lower >= threshold {
+			return domain.Assumptions{}, fmt.Errorf("%w: sale_ready_lower_kg must be below sale_ready_threshold_kg", ports.ErrInvalidArgument)
+		}
+	}
+
 	for _, v := range update.Values { // scale-guard:ignore: bounded by domain.AssumptionKeys, validated distinct; one row per key, never per data row
 		key, _ := domain.LookupAssumptionKey(v.Key)
 		// The three typed columns; exactly one is non-nil, by Kind (CHECK growth_assumptions_one_value).
@@ -272,6 +297,16 @@ func (r *Repository) PutAssumptions(ctx context.Context, tenantID, setBy string,
 		return domain.Assumptions{}, err
 	}
 	return r.GetAssumptions(ctx, tenantID, asOf)
+}
+
+func touchesSaleReadyLine(update domain.AssumptionsUpdate) bool {
+	for _, v := range update.Values {
+		key, _ := domain.LookupAssumptionKey(v.Key)
+		if key.Key == domain.AssumptionSaleReadyLowerKg || key.Key == domain.AssumptionSaleReadyThresholdKg {
+			return true
+		}
+	}
+	return false
 }
 
 func sameAssumption(bv *float64, bl []float64, bd *string, nv *float64, nl []float64, nd *string) bool {
