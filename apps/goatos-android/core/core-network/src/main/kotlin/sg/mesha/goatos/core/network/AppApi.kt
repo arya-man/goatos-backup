@@ -2077,6 +2077,13 @@ interface AppApi {
     ): WorkflowDetailResponseDto
 
     /**
+     * GET /app/workflows/subject — the workflow keyed on a NON-animal subject (SALES SOP,
+     * docs/decisions/sales-sop.md): the sale's steps from its deal id. 404 until the recorded
+     * event has opened it.
+     */
+    suspend fun getWorkflowBySubject(templateKey: String, subjectRefId: String): WorkflowDetailResponseDto
+
+    /**
      * GET /app/sops/general — the general work instructions the caller may start by hand
      * (docs/decisions/sop-studio.md). Gated on work_instructions.execute.
      */
@@ -2966,6 +2973,9 @@ class FakeAppApi(private val chrome: String = "expanded") : AppApi {
         lens: String?,
         date: String?,
     ): WorkflowDetailResponseDto = WorkflowDetailResponseDto(workflowId = workflowId)
+
+    override suspend fun getWorkflowBySubject(templateKey: String, subjectRefId: String): WorkflowDetailResponseDto =
+        WorkflowDetailResponseDto()
 
     override suspend fun listGeneralSops(): GeneralSopsResponseDto = GeneralSopsResponseDto()
 

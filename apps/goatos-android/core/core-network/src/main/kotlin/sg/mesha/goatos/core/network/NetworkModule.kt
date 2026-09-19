@@ -1521,6 +1521,12 @@ interface AppApiService {
         @Query("date") date: String? = null,
     ): WorkflowDetailResponseDto
 
+    @GET("app/workflows/subject")
+    suspend fun getWorkflowBySubject(
+        @Query("template_key") templateKey: String,
+        @Query("subject_ref_id") subjectRefId: String,
+    ): WorkflowDetailResponseDto
+
     @GET("app/sops/general")
     suspend fun listGeneralSops(): GeneralSopsResponseDto
 
@@ -2764,6 +2770,9 @@ class RetrofitAppApi(
 
     override suspend fun getWorkflow(workflowId: String, lens: String?, date: String?): WorkflowDetailResponseDto =
         service.getWorkflow(workflowId, lens, date)
+
+    override suspend fun getWorkflowBySubject(templateKey: String, subjectRefId: String): WorkflowDetailResponseDto =
+        service.getWorkflowBySubject(templateKey, subjectRefId)
 
     override suspend fun listGeneralSops(): GeneralSopsResponseDto = service.listGeneralSops()
 

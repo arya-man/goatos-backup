@@ -94,6 +94,10 @@ data class WorkflowActionUi(
     val canRecordVideo: Boolean,
     /** True also exposes the promote flow; video completion remains a separate required control. */
     val opensPromote: Boolean,
+    /** `sale_tag_animals` — open the sale-tagging screen for this sale; the engine completes the step. */
+    val opensSaleTagging: Boolean = false,
+    /** The designation the SOP names for this step ("Park Head"), VERBATIM; blank when anyone. */
+    val ownerLabel: String = "",
     /** Footer line with backend-owned completion attribution; blank hides it. */
     val footer: String,
     val answerValue: String?,
@@ -138,6 +142,10 @@ data class WorkflowDetailUiState(
     val isDeath: Boolean = false,
     /** A general work instruction has no animal: the header wears the document glyph, not the goat. */
     val isGeneral: Boolean = false,
+    /** A sale's workflow (SALES SOP): the header wears the sale glyph and names the buyer. */
+    val isSale: Boolean = false,
+    /** The sale this workflow is keyed on (its `subject_ref_id`), threaded to the tagging route. */
+    val saleDealId: String = "",
     val displayId: String = "",
     val roleLabel: String = "",
     /** "Birth · WF-0521"-style template line, VM-built from backend fields. */
@@ -219,6 +227,9 @@ sealed interface WorkflowDetailEvent {
 
     /** The host consumed [WorkflowDetailUiState.returnToList]; clear it so it fires once. */
     data object NavigationHandled : WorkflowDetailEvent
+
+    /** `sale_tag_animals` — open the Sales-owned tagging screen for the sale this workflow is about. */
+    data class OpenSaleTagging(val dealId: String) : WorkflowDetailEvent
 
     /** `tag_the_kid` — open the Birth-owned permanent RFID assignment for this canonical kid. */
     data class OpenPromote(
@@ -377,6 +388,7 @@ private fun WorkflowContextCard(state: WorkflowDetailUiState) {
                 Icon(
                     imageVector = when {
                         state.isDeath -> MeshaIcons.Warn
+                        state.isSale -> MeshaIcons.Sale
                         state.isGeneral -> MeshaIcons.Document
                         else -> MeshaIcons.Goat
                     },
@@ -459,8 +471,10 @@ private fun WorkflowActionRow(
             .fillMaxWidth()
             .clip(RoundedCornerShape(14.dp))
             .background(MeshaColors.Surf)
-            .clickable(enabled = hasDetail || action.opensPromote) {
-                if (action.opensPromote && state.subjectGoatId.isNotBlank() && state.subjectGoatRowVersion > 0) {
+            .clickable(enabled = hasDetail || action.opensPromote || action.opensSaleTagging) {
+                if (action.opensSaleTagging && state.saleDealId.isNotBlank()) {
+                    onEvent(WorkflowDetailEvent.OpenSaleTagging(state.saleDealId))
+                } else if (action.opensPromote && state.subjectGoatId.isNotBlank() && state.subjectGoatRowVersion > 0) {
                     onEvent(
                         WorkflowDetailEvent.OpenPromote(
                             goatId = state.subjectGoatId,
@@ -517,6 +531,10 @@ private fun WorkflowActionRow(
                 }
                 Row(horizontalArrangement = Arrangement.spacedBy(5.dp)) {
                     WorkflowTag(action.typeLabel, MeshaColors.Surf3, MeshaColors.Muted)
+                    // WHO does the step, in the SOP's words (SALES SOP): "Park Head".
+                    if (action.ownerLabel.isNotBlank()) {
+                        WorkflowTag(action.ownerLabel, MeshaColors.BrandTint, MeshaColors.BrandD)
+                    }
                     action.answerValue?.takeIf { it.isNotBlank() }?.let { answer ->
                         val displayedAnswer = answer + action.numericAnswerUnit?.let { " $it" }.orEmpty()
                         WorkflowTag(

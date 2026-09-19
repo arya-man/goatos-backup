@@ -61,6 +61,12 @@ object AnalyticsEventsVendors {
     // Editing a recorded sale, and the pipeline/evidence panels (maintainer instruction 2026-09-04).
     const val VENDORS_SALE_PAYMENT_OPENED = "vendors_sale_payment_opened"
     const val VENDORS_SALE_EDITED = "vendors_sale_edited"
+
+    /** The sale's SOP steps opened from the sale detail (SALES SOP, 2026-09-19). */
+    const val VENDORS_SALE_STEPS_OPENED = "vendors_sale_steps_opened"
+
+    /** The sale's tag-animals step opened the tagging screen from the workflow. */
+    const val VENDORS_SALE_TAGGING_OPENED_FROM_STEPS = "vendors_sale_tagging_opened_from_steps"
     const val VENDORS_PIPELINE_OPENED = "vendors_pipeline_opened"
     const val VENDORS_PIPELINE_QUEUED = "vendors_pipeline_queued"
     const val VENDORS_PURCHASE_EDIT_OPENED = "vendors_purchase_edit_opened"

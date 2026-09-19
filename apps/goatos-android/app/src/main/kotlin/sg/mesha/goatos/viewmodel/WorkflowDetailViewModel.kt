@@ -22,6 +22,7 @@ import sg.mesha.goatos.capture.ProofCaptureSource
 import sg.mesha.goatos.capture.ProofCapturePrompt
 import sg.mesha.goatos.capture.ProofCaptureContext
 import sg.mesha.goatos.core.analytics.AnalyticsEvents
+import sg.mesha.goatos.core.analytics.AnalyticsEventsVendors
 import sg.mesha.goatos.core.analytics.AnalyticsPort
 import sg.mesha.goatos.core.analytics.CrashReporter
 import sg.mesha.goatos.core.analytics.ProofPreviewActionTrace
@@ -211,6 +212,7 @@ class WorkflowDetailViewModel @Inject constructor(
             WorkflowDetailEvent.SubmitDeath -> submitDeath()
             WorkflowDetailEvent.NavigationHandled -> _state.update { it.copy(returnToList = false) }
             is WorkflowDetailEvent.OpenPromote -> analytics.track(AnalyticsEvents.COUNTS_RFID_PROMOTE_OPENED)
+            is WorkflowDetailEvent.OpenSaleTagging -> analytics.track(AnalyticsEventsVendors.VENDORS_SALE_TAGGING_OPENED_FROM_STEPS)
             WorkflowDetailEvent.Back -> Unit // navigation — handled by the nav host.
         }
     }
@@ -1053,12 +1055,15 @@ class WorkflowDetailViewModel @Inject constructor(
             notFound = false,
             isDeath = module == MODULE_DEATH,
             isGeneral = module == MODULE_GENERAL,
+            isSale = module == MODULE_SALES,
+            saleDealId = if (module == MODULE_SALES) subjectRefId else "",
             // Death (like the birth-mother header) headlines the physical RFID the operator can
             // actually read on the animal; the passport id is only a fallback when no tag exists.
-            displayId = if (templateKey == TEMPLATE_KEY_BIRTH_MOTHER || module == MODULE_DEATH) {
-                subject.tag.ifBlank { subject.displayId }
-            } else {
-                subject.displayId.ifBlank { subject.tag }
+            displayId = when {
+                // A sale has no animal to headline: the backend's subject line names the buyer.
+                module == MODULE_SALES -> subjectLabel
+                templateKey == TEMPLATE_KEY_BIRTH_MOTHER || module == MODULE_DEATH -> subject.tag.ifBlank { subject.displayId }
+                else -> subject.displayId.ifBlank { subject.tag }
             },
             roleLabel = subject.roleLabel,
             templateLine = listOf(
@@ -1179,6 +1184,9 @@ class WorkflowDetailViewModel @Inject constructor(
         val isQuestion = actionType == TYPE_QUESTION || actionType == TYPE_QUESTION_SELECT
         val opensPromote = actionKey == ACTION_KEY_TAG_THE_KID &&
             workflowTagNeedsPermanentIdentifier(answerValue)
+        // The sale's tag step opens the tagging screen and is completed by the ENGINE from the
+        // tagging confirm -- never by a tap here (docs/decisions/sales-sop.md).
+        val opensSaleTagging = taskType == ENGINE_HOOK_SALE_TAG_ANIMALS || actionKey == "tag_animals" && taskType.isBlank()
         val answerKind = answerType.ifBlank {
             when {
                 actionType == TYPE_QUESTION_SELECT -> "select"
@@ -1239,10 +1247,10 @@ class WorkflowDetailViewModel @Inject constructor(
             statusLabel = statusLabel,
             statusTone = statusTone,
             section = section,
-            canAnswer = actionable && isQuestion && !opensPromote,
-            canComplete = actionable && actionType == TYPE_ACTION && minVideos == 0 && proofMinPhotos == 0 && !opensPromote,
-            canRecordVideo = actionable && minVideos > 0 && captured.count { it.kind == PROOF_KIND_VIDEO } < minVideos,
-            canTakePhoto = actionable && proofMinPhotos > 0 && captured.count { it.kind == PROOF_KIND_PHOTO } < proofMinPhotos && !opensPromote,
+            canAnswer = actionable && isQuestion && !opensPromote && !opensSaleTagging,
+            canComplete = actionable && actionType == TYPE_ACTION && minVideos == 0 && proofMinPhotos == 0 && !opensPromote && !opensSaleTagging,
+            canRecordVideo = actionable && minVideos > 0 && captured.count { it.kind == PROOF_KIND_VIDEO } < minVideos && !opensSaleTagging,
+            canTakePhoto = actionable && proofMinPhotos > 0 && captured.count { it.kind == PROOF_KIND_PHOTO } < proofMinPhotos && !opensPromote && !opensSaleTagging,
             answerKind = if (isRecordPen) "select" else answerKind,
             proofMinVideos = minVideos,
             proofMinPhotos = proofMinPhotos,
@@ -1250,12 +1258,14 @@ class WorkflowDetailViewModel @Inject constructor(
             proofPhotosCaptured = captured.count { it.kind == PROOF_KIND_PHOTO },
             uploadedProofs = if (status == STATUS_COMPLETED || status == STATUS_IN_REVIEW || status == STATUS_REWORK) uploaded else emptyList(),
             opensPromote = opensPromote && actionable,
+            opensSaleTagging = opensSaleTagging && actionable,
+            ownerLabel = ownerLabel,
             // A blocked row must say WHY. On the Colostrum lens the prerequisite is not even on
             // screen (1st Colostrum waits on four birth steps that live in Birth), so a bare
             // "Blocked" chip is a dead end for the person holding the phone.
             // A step sent back carries the verifier's reason so the operator knows what to re-shoot.
             footer = if (status == STATUS_REWORK && reworkReason.isNotBlank()) reworkReason
-            else completedByLabel.orEmpty().ifBlank { workflowBlockedNote(blocked, blockedReason, moduleForCopy, branchNote) },
+            else completedByLabel.orEmpty().ifBlank { workflowBlockedNote(blocked, blockedReason, moduleForCopy, branchNote, ownerLabel) },
             answerValue = answerValue,
         )
     }
@@ -1288,6 +1298,8 @@ class WorkflowDetailViewModel @Inject constructor(
         private val DATE_TIME_FORMAT: DateTimeFormatter = DateTimeFormatter.ofPattern("dd/MM/yyyy · HH:mm")
         private const val MODULE_DEATH = "death"
         private const val MODULE_GENERAL = "general"
+        private const val MODULE_SALES = "sales"
+        private const val ENGINE_HOOK_SALE_TAG_ANIMALS = "sale_tag_animals"
         private const val TEMPLATE_KEY_BIRTH_MOTHER = "birth_mother"
         private const val TYPE_QUESTION = "question"
         private const val TYPE_QUESTION_SELECT = "question_select"
@@ -1541,12 +1553,16 @@ internal fun workflowAccessLabel(blockedReason: String?, due: Instant?, now: Ins
  * this line the operator sees "Blocked" with nothing to act on, taps anyway, and gets a rejection
  * (docs/decisions/colostrum-milk-module.md).
  */
-internal fun workflowBlockedNote(blocked: Boolean, blockedReason: String?, module: String = WORKFLOW_MODULE_BIRTH, branchNote: String = ""): String {
+internal fun workflowBlockedNote(blocked: Boolean, blockedReason: String?, module: String = WORKFLOW_MODULE_BIRTH, branchNote: String = "", ownerLabel: String = ""): String {
     // A step on an answer-driven branch says which answer it waits for, in the backend's words,
     // whether or not it is blocked yet (SOP studio phase 2, 2026-09-18).
     if (branchNote.isNotBlank() && (!blocked || blockedReason == WORKFLOW_BLOCKED_AWAITING_ANSWER)) return branchNote
     if (!blocked) return ""
     return when (blockedReason) {
+        // Another designation's step (SALES SOP): shown so the sale's whole trail is visible,
+        // never tappable by this person. Names the designation in the backend's own label.
+        WORKFLOW_BLOCKED_FOR_OTHER_ROLE ->
+            if (ownerLabel.isNotBlank()) "For the $ownerLabel." else "Done by another designation."
         // Only a kid's Birth track has "birth steps"; a Death or Reconcile card said the same
         // sentence about work that has nothing to do with a birth (Realme E2E 2026-09-17).
         WORKFLOW_BLOCKED_PREVIOUS_ACTION ->
@@ -1611,6 +1627,7 @@ const val WORKFLOW_BLOCKED_PREVIOUS_ACTION = "previous_action"
 private const val WORKFLOW_MODULE_BIRTH = "birth"
 private const val WORKFLOW_ACTION_KEY_FIRST_COLOSTRUM = "first_colostrum"
 private const val WORKFLOW_ACTION_KEY_TAG_THE_KID = "tag_the_kid"
+internal const val WORKFLOW_BLOCKED_FOR_OTHER_ROLE = "for_other_role"
 private const val KEY_PENDING_PROOFS = "workflow_detail.pending_proofs"
 private const val KEY_PENDING_ANSWERS = "workflow_detail.pending_answers"
 private val workflowJson = Json { ignoreUnknownKeys = true }

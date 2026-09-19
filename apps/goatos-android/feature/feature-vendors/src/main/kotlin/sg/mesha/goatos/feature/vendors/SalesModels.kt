@@ -88,6 +88,15 @@ data class SaleDetailUiState(
     val canTagAnimals: Boolean = false,
     /** Backend reason when tagging is not offered; blank when it is. */
     val tagDisabledReason: String = "",
+    // --- the sale's SOP steps (SALES SOP, 2026-09-19) ---
+    /** The sale's workflow id once the backend has opened it; blank until then. */
+    val stepsWorkflowId: String = "",
+    /** "2 of 5 done" -- the backend card's counters, VERBATIM. Blank until read. */
+    val stepsProgressLine: String = "",
+    /** "Next: Record the animals being loaded" -- the card's next step title; blank when done. */
+    val stepsNextLine: String = "",
+    /** Whether the workflow read failed (offline); the card then says the steps are on the server. */
+    val stepsUnavailable: Boolean = false,
     // --- editing the sale ---
     /** Receipts already on the deal, newest last, as the server returned them. */
     val payments: List<SalePaymentUi> = emptyList(),
@@ -112,6 +121,8 @@ sealed interface SaleDetailEvent {
     data object Refresh : SaleDetailEvent
     data object Back : SaleDetailEvent
     data object TagAnimals : SaleDetailEvent
+    /** Open the sale's SOP steps (the shared workflow screen). */
+    data class OpenSteps(val workflowId: String) : SaleDetailEvent
     data object DismissMessage : SaleDetailEvent
 
     // Editing the sale (maintainer instruction 2026-09-04).

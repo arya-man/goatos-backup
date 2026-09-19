@@ -743,6 +743,12 @@ object Routes {
     fun saleDetailRoute(dealId: String): String = "/sales/sale/${Uri.encode(dealId)}"
     fun saleTagAnimalsRoute(dealId: String): String = "/sales/sale/${Uri.encode(dealId)}/tag"
 
+    // The sale's SOP steps (SALES SOP, maintainer instruction 2026-09-19): one workflow per sale,
+    // opened by the backend when the sale is recorded, on the shared workflow screen. A hosted L2
+    // drill under the sale, never a prefix reuse of a root.
+    const val SALE_STEPS = "/sales/sale/{$SALE_ID_ARG}/steps/{$WORKFLOW_ID_ARG}"
+    fun saleStepsRoute(dealId: String, workflowId: String): String = "/sales/sale/${Uri.encode(dealId)}/steps/${Uri.encode(workflowId)}"
+
     // The SELLING half of the one vendor register (maintainer decision 2026-09-05): the agents,
     // butchers, farmers, slaughter houses and companies the farm sells to. It reuses the register
     // screens the Procurement tab uses; only the SIDE the route asks for differs, so a person who
@@ -2798,11 +2804,17 @@ fun AppNavHost(
             // A general SOP run (2026-09-18) is the same screen: its steps, answers, captures and
             // branch notes are what the backend serves for any workflow.
             Routes.WORK_INSTRUCTION_RUN,
+            // A sale's steps (SALES SOP, 2026-09-19): the same screen; its tag-animals step opens
+            // the Sales-owned tagging drill and is completed by the backend from the confirm.
+            Routes.SALE_STEPS,
         ).forEach { route ->
             composable(
                 route = route,
                 arguments = buildList {
                     add(navArgument(Routes.WORKFLOW_ID_ARG) { type = NavType.StringType })
+                    if (route == Routes.SALE_STEPS) {
+                        add(navArgument(Routes.SALE_ID_ARG) { type = NavType.StringType })
+                    }
                     // The colostrum drill alone is date-scoped; the VM reads both from
                     // SavedStateHandle and passes them to the backend lens.
                     if (route == Routes.COUNTS_COLOSTRUM_WORKFLOW) {
@@ -2821,6 +2833,10 @@ fun AppNavHost(
                 val onEvent: (WorkflowDetailEvent) -> Unit = { event ->
                     when (event) {
                         WorkflowDetailEvent.Back -> navController.popBackStack()
+                        is WorkflowDetailEvent.OpenSaleTagging -> {
+                            vm.onEvent(event)
+                            navController.navigate(Routes.saleTagAnimalsRoute(event.dealId)) { launchSingleTop = true }
+                        }
                         is WorkflowDetailEvent.OpenPromote -> {
                             vm.onEvent(event)
                             navController.navigate(
@@ -4093,6 +4109,11 @@ fun AppNavHost(
                             vm.onEvent(event)
                             val dealId = entry.arguments?.getString(Routes.SALE_ID_ARG).orEmpty()
                             navController.navigate(Routes.saleTagAnimalsRoute(dealId)) { launchSingleTop = true }
+                        }
+                        is SaleDetailEvent.OpenSteps -> {
+                            vm.onEvent(event)
+                            val dealId = entry.arguments?.getString(Routes.SALE_ID_ARG).orEmpty()
+                            navController.navigate(Routes.saleStepsRoute(dealId, event.workflowId)) { launchSingleTop = true }
                         }
                         else -> vm.onEvent(event)
                     }

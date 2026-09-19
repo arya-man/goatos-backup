@@ -62,6 +62,13 @@ data class WorkflowCardDto(
     @SerialName("next_action") val nextAction: WorkflowNextActionDto? = null,
     @SerialName("awaiting_verification") val awaitingVerification: Boolean = false,
     @SerialName("state") val state: String = "",
+    /**
+     * The NON-animal subject a workflow is keyed on (SALES SOP, 2026-09-19): the sale's deal id.
+     * Blank on goat-keyed workflows. The sale's tag-animals step deep-links the tagging screen on it.
+     */
+    @SerialName("subject_ref_id") val subjectRefId: String = "",
+    /** Backend-composed line for a non-animal subject ("Kumar Traders · 12 animals · CBE"), VERBATIM. */
+    @SerialName("subject_label") val subjectLabel: String = "",
 )
 
 /** The requested day's chip counts — backend-computed over the SAME scope the list reads. */
@@ -138,6 +145,13 @@ data class WorkflowActionDto(
      * its question is answered; a step on the branch not taken is never served.
      */
     @SerialName("branch_note") val branchNote: String = "",
+    /**
+     * WHO DOES THE STEP (SALES SOP, 2026-09-19): the designation code the SOP names ("park_head")
+     * and the catalog's label ("Park Head"), both VERBATIM; blank when anyone may do it. A caller
+     * who does not hold it reads blocked_reason `for_other_role`.
+     */
+    @SerialName("owner_role") val ownerRole: String = "",
+    @SerialName("owner_label") val ownerLabel: String = "",
 )
 
 /** One captured proof on a step: the server proof id and whether it is a video or a photo. */
@@ -164,6 +178,9 @@ data class WorkflowDetailResponseDto(
     @SerialName("next_action") val nextAction: WorkflowNextActionDto? = null,
     @SerialName("awaiting_verification") val awaitingVerification: Boolean = false,
     @SerialName("state") val state: String = "",
+    /** See [WorkflowCardDto.subjectRefId] / [WorkflowCardDto.subjectLabel]. */
+    @SerialName("subject_ref_id") val subjectRefId: String = "",
+    @SerialName("subject_label") val subjectLabel: String = "",
     @SerialName("facts") val facts: List<WorkflowFactDto> = emptyList(),
     @SerialName("actions") val actions: List<WorkflowActionDto> = emptyList(),
 )

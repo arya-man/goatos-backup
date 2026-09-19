@@ -321,3 +321,15 @@ class WorkflowProofTargetTest {
         assertEquals(sg.mesha.goatos.capture.ProofCapturePrompt.BIRTH, workflowCapturePrompt(isDeath = false, action = null))
     }
 }
+
+// SALES SOP (2026-09-19): a step another designation owns names that designation in the
+// backend's own label, and a plain blocked step without a label still says something.
+class WorkflowSaleStepNoteTest {
+    @Test
+    fun `a step for another designation names it`() {
+        assertEquals("For the Park Head.", workflowBlockedNote(true, WORKFLOW_BLOCKED_FOR_OTHER_ROLE, "sales", "", "Park Head"))
+        assertEquals("Done by another designation.", workflowBlockedNote(true, WORKFLOW_BLOCKED_FOR_OTHER_ROLE, "sales", "", ""))
+        // Not blocked: the owner is a chip, not a footer note.
+        assertEquals("", workflowBlockedNote(false, "", "sales", "", "Park Head"))
+    }
+}
