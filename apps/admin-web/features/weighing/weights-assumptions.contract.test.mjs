@@ -75,6 +75,11 @@ test("the sale-ready line reaches the weighing count as a parameter on every pag
   assert.match(serviceSource, /"kpi\.over35":\s+"Over \{kg\} kg"/, "the label carries the {kg} placeholder");
 });
 
+test("a sale price save carries the price the drawer loaded (the fence)", () => {
+  assert.match(drawerSource, /loaded_price_per_kg_inr: loaded/, "the loaded price must travel with the new one");
+  assert.match(drawerSource, /current\.sale_prices\.find\(\(row\) => row\.species === species\)\?\.price_per_kg_inr \?\? null/);
+});
+
 test("the drawer has no literal visible copy", () => {
   const jsxText = [...drawerSource.matchAll(/>\s*([A-Za-z][A-Za-z ,.'-]{3,})\s*</g)].map((m) => m[1].trim());
   assert.deepEqual(jsxText, [], "visible text must come from copy()");

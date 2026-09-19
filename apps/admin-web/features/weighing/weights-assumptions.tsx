@@ -120,7 +120,10 @@ export function WeightsAssumptionsControl({
     const salePrices = SPECIES.flatMap((species) => {
       const raw = (draft.prices[species] ?? "").trim();
       if (raw === "") return [];
-      return [{ species, price_per_kg_inr: Number(raw) }];
+      // The fence: the price this drawer LOADED travels with the new one, so a save on a price
+      // someone else moved meanwhile is refused rather than silently overwriting theirs.
+      const loaded = current.sale_prices.find((row) => row.species === species)?.price_per_kg_inr ?? null;
+      return [{ species, price_per_kg_inr: Number(raw), loaded_price_per_kg_inr: loaded }];
     });
     type ValueUpdate = NonNullable<GrowthAssumptionsUpdate["values"]>[number];
     const values = current.values.flatMap((row): ValueUpdate[] => {

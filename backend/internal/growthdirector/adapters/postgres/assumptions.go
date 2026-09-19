@@ -31,10 +31,12 @@ import (
 // species or per key -- the loops below are bounded by the assumption catalog (two species, two
 // keys), never by data rows.
 const (
+	// FOR UPDATE: the compare-and-set below must see the row a concurrent save is about to move.
 	currentSalePriceSQL = `
 SELECT price_per_kg_inr::float8 FROM growth_sale_price_assumptions
 WHERE tenant_id = $1::uuid AND species = $2 AND effective_from <= $3::date
-ORDER BY effective_from DESC, created_at DESC LIMIT 1`
+ORDER BY effective_from DESC, created_at DESC LIMIT 1
+FOR UPDATE`
 	upsertSalePriceSQL = `
 INSERT INTO growth_sale_price_assumptions (tenant_id, species, price_per_kg_inr, effective_from, set_by, note)
 VALUES ($1::uuid, $2, $3, $4::date, $5, 'Set from the ADG Analytics Assumptions drawer.')
@@ -156,7 +158,17 @@ func (r *Repository) PutAssumptions(ctx context.Context, tenantID, setBy string,
 			return domain.Assumptions{}, err
 		}
 		if before != nil && *before == p.PricePerKgINR {
-			continue // unchanged: nothing to append, nothing to audit -- the replay is a no-op
+			continue // unchanged (or an exact replay): nothing to append, nothing to audit
+		}
+		// THE FENCE (PR #320 review): the drawer says which price it loaded, and the save lands
+		// only if that is still the price in force. Two editors who both opened ₹425 and both
+		// typed a new figure: the first lands, the second is told to reload. The price table is
+		// append-only and effective-dated, so the loaded FIGURE is the version.
+		switch {
+		case before == nil && p.LoadedPricePerKgINR != nil:
+			return domain.Assumptions{}, fmt.Errorf("%w: sale price %s", ports.ErrAssumptionConflict, species)
+		case before != nil && (p.LoadedPricePerKgINR == nil || *p.LoadedPricePerKgINR != *before):
+			return domain.Assumptions{}, fmt.Errorf("%w: sale price %s", ports.ErrAssumptionConflict, species)
 		}
 		if _, err := tx.Exec(ctx, upsertSalePriceSQL, tenantID, species, p.PricePerKgINR, effective, setByName); err != nil { // scale-guard:ignore: bounded by domain.SalePriceSpecies (2)
 			return domain.Assumptions{}, err

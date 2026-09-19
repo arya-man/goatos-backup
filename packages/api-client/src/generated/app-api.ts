@@ -15218,6 +15218,11 @@ export interface components {
                 species: "goat" | "sheep";
                 /** Format: double */
                 price_per_kg_inr: number;
+                /**
+                 * Format: double
+                 * @description The price the drawer showed when it was opened -- the fence. The price table is append-only and effective-dated, so the loaded figure is its version: a save lands only while that is still the price in force, else 409 row_version_conflict. Null means the drawer loaded no price for the species, which is stale once one exists.
+                 */
+                loaded_price_per_kg_inr?: number | null;
             }[];
             values?: {
                 key: components["schemas"]["GrowthAssumptionKey"];

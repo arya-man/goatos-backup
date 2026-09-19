@@ -53,8 +53,12 @@ the 2026-09-07 sale-price decision (migration `000249`); keeps its effective-dat
 
 - `GET/PUT /growth-director/assumptions` (growthdirector module). The write is a whole-set PUT:
   a sale price lands as the row effective today (a same-day re-set overwrites today's row, earlier
-  days keep theirs); a keyed figure is updated in place under a `row_version` fence (409 on a
-  stale version). Figures outside their business band (`domain.AssumptionKeys`,
+  days keep theirs) and is FENCED ON THE PRICE THE DRAWER LOADED (`loaded_price_per_kg_inr`) --
+  the price table is append-only and effective-dated, so it has no row_version and the loaded
+  figure is the version; a keyed figure is updated in place under a `row_version` fence. Either
+  stale is a 409 (PR #320 review: without the price fence two editors who both opened ₹425 landed
+  in turn, the second silently overwriting the first). Pinned by
+  `TestPutAssumptionsFencesSalePriceOnTheLoadedPrice` (pgtest, mutation-tested). Figures outside their business band (`domain.AssumptionKeys`,
   `SalePriceMinINR..MaxINR`) are **refused with 400**, never clamped or defaulted. Replaying the
   same body lands the same rows. One `audit_log` row per changed figure, in the same transaction.
 - `set_by` carries the person's roster **display name**, never a user id, because the drawer

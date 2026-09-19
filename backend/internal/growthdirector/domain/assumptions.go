@@ -187,6 +187,11 @@ type AssumptionsUpdate struct {
 type SalePriceUpdate struct {
 	Species       string  `json:"species"`
 	PricePerKgINR float64 `json:"price_per_kg_inr"`
+	// LoadedPricePerKgINR is the price the drawer SHOWED when it was opened -- the fence. The
+	// price table is append-only and effective-dated, so it has no row_version; the
+	// compare-and-set is on the figure the editor decided against. Nil means the drawer loaded
+	// no price for the species (a tenant with no row yet), and is a conflict once one exists.
+	LoadedPricePerKgINR *float64 `json:"loaded_price_per_kg_inr"`
 }
 
 type ValueUpdate struct {
@@ -216,6 +221,9 @@ func ValidateAssumptionsUpdate(update AssumptionsUpdate) error {
 		seenSpecies[species] = true
 		if math.IsNaN(p.PricePerKgINR) || p.PricePerKgINR < SalePriceMinINR || p.PricePerKgINR > SalePriceMaxINR {
 			return fmt.Errorf("sale price for %s must be between ₹%d and ₹%d per kg", species, SalePriceMinINR, SalePriceMaxINR)
+		}
+		if p.LoadedPricePerKgINR != nil && math.IsNaN(*p.LoadedPricePerKgINR) {
+			return fmt.Errorf("sale price for %s needs the price it was loaded with", species)
 		}
 	}
 	seenKeys := map[string]bool{}
