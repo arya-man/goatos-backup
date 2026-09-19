@@ -12,7 +12,6 @@ import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
-import androidx.compose.foundation.layout.imePadding
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.clickable
@@ -57,7 +56,7 @@ fun SalesPipelineHubScreen(
     modifier: Modifier = Modifier,
 ) {
     RefreshOnResume { onEvent(SalesPipelineHubEvent.Refresh) }
-    Column(modifier = modifier.fillMaxSize().background(MeshaColors.PageBg).imePadding()) {
+    Column(modifier = modifier.fillMaxSize().background(MeshaColors.PageBg)) {
         MeshaScreenHeader(
             title = HUB_TITLE,
             subtitle = HUB_SUBTITLE,
@@ -340,7 +339,7 @@ fun SalesEvidenceScreen(
         }
     }
     val locked = state.writeStatus == VendorsWriteStatus.QUEUED || state.writeStatus == VendorsWriteStatus.SYNCED
-    Column(modifier = modifier.fillMaxSize().background(MeshaColors.PageBg).imePadding()) {
+    Column(modifier = modifier.fillMaxSize().background(MeshaColors.PageBg)) {
         MeshaScreenHeader(title = state.title, subtitle = state.subtitle.ifBlank { null }, onBack = { onEvent(SalesEvidenceEvent.Back) })
         LazyColumn(
             modifier = Modifier.weight(1f),

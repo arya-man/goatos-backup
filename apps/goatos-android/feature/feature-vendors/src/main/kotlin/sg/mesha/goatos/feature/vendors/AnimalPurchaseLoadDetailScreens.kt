@@ -15,7 +15,6 @@ import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
-import androidx.compose.foundation.layout.imePadding
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.lazy.LazyColumn
@@ -268,7 +267,7 @@ fun AnimalPurchaseAnimalCreateScreen(
     }
     val anyCaptureWorking = state.questions.any { it.captureWorking }
     val actionsEnabled = !locked && !state.submitInFlight && !anyCaptureWorking && state.questions.isNotEmpty()
-    Column(modifier = modifier.fillMaxSize().background(MeshaColors.PageBg).imePadding()) {
+    Column(modifier = modifier.fillMaxSize().background(MeshaColors.PageBg)) {
         MeshaScreenHeader(
             title = copy[COPY_ANIMAL_FORM_TITLE].orEmpty(),
             subtitle = copy[COPY_REQUIRED_HINT]?.takeIf { it.isNotBlank() },

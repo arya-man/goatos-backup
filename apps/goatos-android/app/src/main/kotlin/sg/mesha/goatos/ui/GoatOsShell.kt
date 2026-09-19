@@ -11,6 +11,7 @@ import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.consumeWindowInsets
 import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.imePadding
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
@@ -640,6 +641,15 @@ fun GoatOsShellChrome(
                         // padding. Mark them consumed so child routes that are also safe when
                         // rendered standalone do not apply the status/navigation bars again.
                         .consumeWindowInsets(padding)
+                        // ONE keyboard inset for every hosted route. Scaffold's default insets
+                        // are the system bars only, and the app is edge-to-edge, so without this
+                        // the keyboard was drawn OVER the lower half of every form: the last field
+                        // of Record sale (Comments) was typed into unseen, and every screen whose
+                        // field sits low on the page had the same gap unless it remembered its
+                        // own imePadding (four did; twenty-odd did not). Padding here consumes the
+                        // inset, so a child that still applies imePadding itself pads by zero --
+                        // there is no double inset, and no screen can forget the keyboard again.
+                        .imePadding()
                         .fillMaxSize(),
                 ) {
                     content()
