@@ -3,7 +3,7 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 
 const smokeSource = readFileSync(new URL("./smoke-visual-live.mjs", import.meta.url), "utf8");
-const smokeRouteBlock = smokeSource.match(/function buildRoutes\(\{ goatId, procurementLoadId, workflowRowId, calendarEventId, vaccinationShedPath \}\) \{[\s\S]*?const pagerMinimums = new Map/)?.[0] ?? "";
+const smokeRouteBlock = smokeSource.match(/function buildRoutes\(\{ toxinSopId, goatId, procurementLoadId, workflowRowId, calendarEventId, vaccinationShedPath \}\) \{[\s\S]*?const pagerMinimums = new Map/)?.[0] ?? "";
 const routeEntries = Array.from(
   smokeRouteBlock.matchAll(/name:\s*"([^"]+)"[\s\S]{0,500}?path:\s*([`"])([^`"]+)/g),
   ([, name, quote, path]) => [name, quote === "`" ? path.replace(/\$\{[^}]+\}/g, "${dynamic}") : path],
@@ -37,6 +37,8 @@ test("visual smoke visits every live sidebar navigation leaf", () => {
     ["procurement-feed-purchases", "/procurement/feed-purchases?scope_mode=company"],
     ["procurement-animal-purchases", "/procurement/animal-purchases?scope_mode=company"],
     ["procurement-sops", "/procurement/sops?scope_mode=company"],
+    ["procurement-toxin-list", "/procurement/sops?scope_mode=company&compose=1&edit=${dynamic}&view=list"],
+    ["procurement-toxin-flow", "/procurement/sops?scope_mode=company&compose=1&edit=${dynamic}&view=flow"],
     ["approvals", "/approvals?scope_mode=company"],
     ["approvals-approved", "/approvals?scope_mode=company&status=approved"],
     ["approvals-rejected", "/approvals?scope_mode=company&status=rejected"],

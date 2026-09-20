@@ -574,20 +574,20 @@ WHERE tenant_id=$1::uuid AND health_protocol_version_id=$2::uuid AND status='dra
 			}
 
 			return domain.AuthoringResult{
-				Outcome:           domain.OutcomePublished,
-				DiseaseKey:        diseaseKey,
-				AgeBand:           ageBand,
-				ProtocolVersionID: cmd.ProtocolVersionID,
-				Version:           version,
-				RetiredVersionID:  retired,
-			}, ledgerEntry{
-				WriteKind:        domain.WriteKindDraftPublish,
-				Outcome:          domain.OutcomePublished,
-				DiseaseKey:       diseaseKey,
-				AgeBand:          ageBand,
-				ResultVersionID:  cmd.ProtocolVersionID,
-				RetiredVersionID: retired,
-			}, nil
+					Outcome:           domain.OutcomePublished,
+					DiseaseKey:        diseaseKey,
+					AgeBand:           ageBand,
+					ProtocolVersionID: cmd.ProtocolVersionID,
+					Version:           version,
+					RetiredVersionID:  retired,
+				}, ledgerEntry{
+					WriteKind:        domain.WriteKindDraftPublish,
+					Outcome:          domain.OutcomePublished,
+					DiseaseKey:       diseaseKey,
+					AgeBand:          ageBand,
+					ResultVersionID:  cmd.ProtocolVersionID,
+					RetiredVersionID: retired,
+				}, nil
 		})
 }
 
@@ -629,15 +629,15 @@ WHERE tenant_id=$1::uuid AND health_protocol_version_id=$2::uuid AND status='dra
 				return domain.AuthoringResult{}, ledgerEntry{}, err
 			}
 			return domain.AuthoringResult{
-				Outcome:    domain.OutcomeDiscarded,
-				DiseaseKey: diseaseKey,
-				AgeBand:    ageBand,
-			}, ledgerEntry{
-				WriteKind:  domain.WriteKindDraftDiscard,
-				Outcome:    domain.OutcomeDiscarded,
-				DiseaseKey: diseaseKey,
-				AgeBand:    ageBand,
-			}, nil
+					Outcome:    domain.OutcomeDiscarded,
+					DiseaseKey: diseaseKey,
+					AgeBand:    ageBand,
+				}, ledgerEntry{
+					WriteKind:  domain.WriteKindDraftDiscard,
+					Outcome:    domain.OutcomeDiscarded,
+					DiseaseKey: diseaseKey,
+					AgeBand:    ageBand,
+				}, nil
 		})
 }
 

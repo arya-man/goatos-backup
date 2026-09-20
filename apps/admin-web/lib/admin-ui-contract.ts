@@ -6,6 +6,12 @@ export type AdminUiOption = AdminWebPageContract["option_groups"][number]["optio
 export type AdminUiControl = AdminWebPageContract["controls"][number];
 
 const COPY_FALLBACKS: Record<string, Record<string, string>> = {
+  // SOP editors may deploy before these fixed copy keys reach the API.
+  ...Object.fromEntries(["counts-sops", "feed-sops", "milk-sops", "weighing-sops", "procurement-sops", "configuration-work-instructions", "sales-sops"].map((route) => [route, {
+    "inspection.problem.feed_noun": "A feed load",
+    "inspection.problem.vendor_noun": "A vendor",
+    "tsop.unit.wait": "Wait",
+  }])),
   // Alerts can deploy before the backend publishes the more precise empty-state copy.
   "alerts": {
     "state.empty.incomplete": "No alerts to show from the available checks. Some checks were not completed; this is not an all-clear.",
