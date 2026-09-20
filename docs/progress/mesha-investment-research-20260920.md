@@ -28,3 +28,15 @@ Date: 20 September 2026. Scope: preserve the initial financial-infrastructure pr
 - Pending: commit, required docs-only CI/landing gate, and remote-main readback.
 - Known failures: none. Judge: wording reviewed directly against the user's naming request.
 - Before/after: neutral investment-platform title changed to Mesha Goat Exchange; no runtime or financial-model changes. E2E/latency tests are not applicable. Deployment: none.
+
+
+## 21 September 2026 full discussion consolidation
+
+- Scope: add follow-up sections 13–19 covering multiple entities, rupee settlement, FarmChain public-code/TestNet evidence, Pera/Algorand, authorisation/validators, PostgreSQL versus blockchain, and vetted third-party organisations.
+- Done: refreshed clean isolated checkout to origin/main `e3a8e04a3`; preserved original research and added dated corrections and source links. Historical pending entries above are snapshots; original documentation and naming follow-up previously landed through `e565e0d291b89ec4ae31d9003f028cca5ed9638b`.
+- Current SHA: base above; final candidate and landed SHA recorded in the local git-directory companion after certification to avoid a self-referential commit hash.
+- Proof: `git diff --check` and documentation scope/evidence self-tests required before commit; `make land-main` required on the final candidate/current main before push. Exact outcomes recorded in companion.
+- Judge status: primary agent checked content against conversation and distinguishes observed test issuance, advertised features, inference and unverified claims; no external judge requested for this update.
+- Before/after: original 12-section research expanded with later discussion and corrected deployment/control distinctions. Runtime performance metrics and browser/API/Android E2E not applicable to documentation-only edits.
+- Known failures: none in this update. Pending: focused checks, commit, certified landing and remote SHA readback.
+- Deployment state: none requested; none performed.
