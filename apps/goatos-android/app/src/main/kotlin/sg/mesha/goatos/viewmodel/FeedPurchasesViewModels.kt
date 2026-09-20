@@ -83,6 +83,13 @@ internal val TYPED_PURCHASE_QUESTIONS: List<Pair<String, PurchaseField>> = listO
     "reached_weight_kg" to PurchaseField.REACHED_WEIGHT_KG,
 )
 
+private fun Map<PurchaseField, String>.feedPurchaseTypedAnswers(): Map<String, String> = buildMap {
+    for ((question, field) in TYPED_PURCHASE_QUESTIONS) {
+        val given = this@feedPurchaseTypedAnswers[field].orEmpty().trim()
+        if (given.isNotEmpty()) put(question, given)
+    }
+}
+
 /** The Feed Purchases tab (module vendors): the ledger, Room-first, narrowed by delivery state. */
 @HiltViewModel
 class FeedPurchasesListViewModel @Inject constructor(
@@ -638,9 +645,10 @@ class FeedPurchaseCreateViewModel @Inject constructor(
     val state: StateFlow<FeedPurchaseCreateUiState> = combine(local, repository.observeFeedPurchaseOptions(), repository.observeFeedPurchaseForm()) { l, options, form ->
         val o = options ?: FeedPurchaseOptionsDto()
         val extraPages = form.extraPages()
+        val visibleAnswers = l.values.feedPurchaseTypedAnswers() + l.answers
         FeedPurchaseCreateUiState(
             extraPages = extraPages,
-            answers = l.answers,
+            answers = visibleAnswers,
             answerErrors = l.answerErrors,
             questionnaireVersion = form?.version ?: 0,
             step = l.step,
@@ -701,7 +709,8 @@ class FeedPurchaseCreateViewModel @Inject constructor(
         // The authored questions are checked by the SAME rules the vendor wizard applies, and the
         // server re-checks them: this is only so the refusal appears beside the box.
         val pages = state.value.extraPages
-        val answerErrors = pages.fold(emptyMap<String, String>()) { acc, page -> acc + validateVendorFormPage(page, current.answers) }
+        val visibleAnswers = current.values.feedPurchaseTypedAnswers() + current.answers
+        val answerErrors = pages.fold(emptyMap<String, String>()) { acc, page -> acc + validateVendorFormPage(page, visibleAnswers) }
         if (answerErrors.isNotEmpty()) {
             local.update { it.copy(step = STEP_COUNT - 1, answerErrors = answerErrors) }
             return
@@ -781,6 +790,7 @@ class FeedPurchaseCreateViewModel @Inject constructor(
     ): FeedPurchaseWriteDto {
         fun money(f: PurchaseField): Double? = get(f).orEmpty().trim().ifBlank { null }?.toDoubleOrNull()
         val reachedOn = get(PurchaseField.REACHED_ON).orEmpty().ifBlank { null }
+        val conditionAnswers = feedPurchaseTypedAnswers() + answers
         return FeedPurchaseWriteDto(
             purchaseDate = get(PurchaseField.PURCHASE_DATE).orEmpty(),
             farm = get(PurchaseField.FARM).orEmpty(),
@@ -811,7 +821,7 @@ class FeedPurchaseCreateViewModel @Inject constructor(
                     }
                 }
                 for (q in pages.flatMap { page -> page.questions }) {
-                    if (!q.isAsked(answers)) continue
+                    if (!q.isAsked(conditionAnswers)) continue
                     val given = answers[q.id].orEmpty().trim()
                     if (given.isNotEmpty()) put(q.id, given)
                 }

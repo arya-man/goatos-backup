@@ -176,7 +176,9 @@ func (h *FeedPurchaseRecordedWorkflowHandler) Register(bus eventbus.Bus) {
 	bus.Subscribe(EventFeedPurchaseRecorded, h)
 }
 
-// HandleEvent opens (or replays) the load's workflow.
+// HandleEvent opens (or replays) the load's workflow. If the purchase was recorded after it had
+// already reached the farm, reconcile the arrival hook here too; the outbox orders same-transaction
+// events by timestamp and UUID, so the separate reached event may run first and find no workflow.
 func (h *FeedPurchaseRecordedWorkflowHandler) HandleEvent(ctx context.Context, e eventbus.Event) error {
 	p, ok := decodeFeedPurchase(e)
 	if !ok {
@@ -193,13 +195,14 @@ func (h *FeedPurchaseRecordedWorkflowHandler) HandleEvent(ctx context.Context, e
 		EventAt:      eventAt,
 		ParkID:       strings.TrimSpace(p.ParkID),
 	})
-	return err
+	if err != nil || strings.TrimSpace(p.ReachedOn) == "" {
+		return err
+	}
+	return h.svc.CompleteFeedPurchaseReachedStep(ctx, e.TenantID, p.FeedPurchaseID, eventAt.UTC())
 }
 
 // FeedPurchaseReachedWorkflowHandler completes the arrival step when the ledger marks the load
-// delivered. The ledger's write is the truth; the step follows it, never the other way round --
-// which is also why a load recorded as already-arrived completes its own step the moment the
-// opener has stamped it (both events ride the same insert transaction and are delivered in order).
+// delivered. The ledger's write is the truth; the step follows it, never the other way round.
 type FeedPurchaseReachedWorkflowHandler struct{ svc *Service }
 
 // NewFeedPurchaseReachedWorkflowHandler constructs the completer.
