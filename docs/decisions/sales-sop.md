@@ -2,7 +2,7 @@
 
 Status: accepted; built on the SOP studio (`docs/decisions/sop-studio.md`) and the SOP-driven
 herd operations (`docs/decisions/sop-driven-herd-operations.md`). Owner: tasks + sop + sales +
-adminui + admin-web + Android. Migration `000366_sales_sop.sql`.
+adminui + admin-web + Android. Migration `000369_sales_sop.sql`.
 
 ## What was asked
 

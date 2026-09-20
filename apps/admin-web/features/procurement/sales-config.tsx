@@ -97,7 +97,9 @@ export async function SalesConfigPage({
   // read of the whole authored config.
   // serial-await: allow one bounded market-config read after prior sales/config reads to avoid request fanout.
   const marketConfigResult = await getMarketConfig();
+  // serial-await: allow one bounded market-reporter read stays serialized with sales/config bootstrap to avoid request fanout.
   const marketReportersResult = await getMarketReporters();
+  // serial-await: allow one bounded valuation read stays serialized with sales/config bootstrap to avoid request fanout.
   const valuationResult = await getValuationAssumptions();
 
   if (firstAuthRequiredError(dealsResult, loadwiseResult)) redirect(INTERNAL_LOGIN_PATH);

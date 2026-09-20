@@ -111,7 +111,7 @@ func TestMigrationEmbedsTheGeneralSeed(t *testing.T) {
 // hooked for the engine, every step owned by a designation, and the balance step on the "No" branch
 // of the payment question.
 func TestMigrationEmbedsTheSalesSeed(t *testing.T) {
-	path := filepath.Join("..", "..", "..", "migrations", "postgres", "000366_sales_sop.sql")
+	path := filepath.Join("..", "..", "..", "migrations", "postgres", "000369_sales_sop.sql")
 	raw, err := os.ReadFile(path)
 	if err != nil {
 		t.Fatal(err)
