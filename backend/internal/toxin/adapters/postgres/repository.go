@@ -638,6 +638,16 @@ WHERE tenant_id = $1 AND task_id = $2`,
 	}); err != nil {
 		return ports.TaskRow{}, fmt.Errorf("toxin: audit verdict: %w", err)
 	}
+	// An ACCEPTED round is the load's screening finished, and the feed purchase's own workflow
+	// waits on it. A reject/Invalid cancels this round and mints a retest above, so the load is
+	// still owed a test and nothing is announced.
+	if decision.NextStatus == domain.StatusAccepted {
+		accepted := task
+		accepted.Status = decision.NextStatus
+		if err := emitToxinAccepted(ctx, tx, p.TenantID, p.ActorID, p.IdempotencyKey, accepted); err != nil {
+			return ports.TaskRow{}, err
+		}
+	}
 	if err := completeIdempotency(ctx, tx, p.TenantID, idemScopeToxinVerdict, p.IdempotencyKey, "toxin_test_task", p.TaskID); err != nil {
 		return ports.TaskRow{}, fmt.Errorf("toxin: complete verdict idempotency: %w", err)
 	}

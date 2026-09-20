@@ -389,6 +389,20 @@ RETURNING feed_purchase_id::text, feed_item_key`,
 		return domain.FeedPurchase{}, fmt.Errorf("procurement: audit feed purchase record: %w", err)
 	}
 
+	// The purchase opens the load's own workflow: the weighbridge slip, the arrival, the
+	// aflatoxin test and the money are work the desk owes from the moment the load is bought.
+	parkID, err := r.feedPurchaseParkID(ctx, tx, tenantID, purchaseID)
+	if err != nil {
+		return domain.FeedPurchase{}, err
+	}
+	if err := emitFeedPurchaseRecorded(ctx, tx, tenantID, actorID, idempotencyKey, feedPurchaseRecordedFacts{
+		PurchaseID: purchaseID, ParkID: parkID, FarmLabel: write.FarmLabel, FeedItemKey: feedItemKey,
+		FeedItemLabel: catalogLabel, Vendor: write.Vendor, BatchNo: batchNo,
+		PurchaseDate: write.PurchaseDate, QuantityKg: write.QuantityKg, Delivered: write.IsReached(),
+	}); err != nil {
+		return domain.FeedPurchase{}, err
+	}
+
 	// A load recorded as ALREADY reached becomes stock and owes its aflatoxin test right now;
 	// the event rides THIS transaction's outbox so a committed arrival always reaches the toxin
 	// consumer. A load still on the road emits nothing until the delivery write flips it.
@@ -848,3 +862,19 @@ func (r *Repository) RecordFeedPurchaseDelivery(ctx context.Context, tenantID, p
 }
 
 var _ ports.FeedPurchaseRepository = (*Repository)(nil)
+
+// feedPurchaseParkID reads the park the insert resolved from the farm label. Blank when the
+// tenant has no park row for that farm -- the workflow then opens without a park rather than
+// refusing to open, the same way a sale does.
+func (r *Repository) feedPurchaseParkID(ctx context.Context, tx pgx.Tx, tenantID, purchaseID string) (string, error) {
+	var parkID *string
+	if err := tx.QueryRow(ctx, `
+SELECT park_id::text FROM public.feed_purchases
+WHERE tenant_id = $1::uuid AND feed_purchase_id = $2::uuid`, tenantID, purchaseID).Scan(&parkID); err != nil {
+		return "", fmt.Errorf("procurement: feed purchase park: %w", err)
+	}
+	if parkID == nil {
+		return "", nil
+	}
+	return *parkID, nil
+}

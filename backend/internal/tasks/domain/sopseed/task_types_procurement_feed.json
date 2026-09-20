@@ -1,0 +1,20 @@
+[
+  {
+    "key": "feed_purchase_reached",
+    "name": "Mark the load as reached",
+    "category_scope": ["action", "commodity"],
+    "answer_kind": "none",
+    "engine_hook": "feed_purchase_reached",
+    "description": "The feed load arriving at the farm. Completed by the engine when the load is marked delivered on the feed purchase ledger — never by a tap, so a load cannot read \"arrived\" while the ledger still has it on the road.",
+    "parameter_schema": {"type": "object", "properties": {}}
+  },
+  {
+    "key": "toxin_test_accepted",
+    "name": "Aflatoxin test signed off",
+    "category_scope": ["action", "commodity"],
+    "answer_kind": "none",
+    "engine_hook": "toxin_test_accepted",
+    "description": "The load's aflatoxin strip test, run and reviewed in the Toxin module. Completed by the engine when a round is ACCEPTED; a rejected or void round mints a retest and leaves this open, because the load is still owed a test.",
+    "parameter_schema": {"type": "object", "properties": {}}
+  }
+]

@@ -645,6 +645,28 @@ func (s *Service) CompleteAnimalPurchaseDecisionStep(ctx context.Context, tenant
 	return s.repo.CompleteAnimalPurchaseDecisionStep(ctx, tenantID, loadID, at)
 }
 
+// CompleteFeedPurchaseReachedStep completes the feed-purchase workflow's arrival step.
+func (s *Service) CompleteFeedPurchaseReachedStep(ctx context.Context, tenantID, purchaseID string, at time.Time) error {
+	if strings.TrimSpace(tenantID) == "" || strings.TrimSpace(purchaseID) == "" {
+		return domain.ErrMissingRequiredField
+	}
+	if at.IsZero() {
+		at = s.now().UTC()
+	}
+	return s.repo.CompleteFeedPurchaseReachedStep(ctx, tenantID, purchaseID, at)
+}
+
+// CompleteToxinTestStep completes the feed-purchase workflow's aflatoxin step.
+func (s *Service) CompleteToxinTestStep(ctx context.Context, tenantID, purchaseID string, at time.Time) error {
+	if strings.TrimSpace(tenantID) == "" || strings.TrimSpace(purchaseID) == "" {
+		return domain.ErrMissingRequiredField
+	}
+	if at.IsZero() {
+		at = s.now().UTC()
+	}
+	return s.repo.CompleteToxinTestStep(ctx, tenantID, purchaseID, at)
+}
+
 // ApplyDeathSignoffApproved / BounceDeathVideosForRework apply a verifier's verdict.
 func (s *Service) ApplyDeathSignoffApproved(ctx context.Context, cmd ports.DeathVerdictCommand) error {
 	return s.ackUnroutableVerdict("approved", cmd, s.repo.ApplyDeathSignoffApproved(ctx, cmd))

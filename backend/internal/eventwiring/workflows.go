@@ -54,6 +54,8 @@ func NewWorkflowConsumerService(pool *pgxpool.Pool, timeout time.Duration, log *
 //	verification.verdict.approved/.rework  -> apply birth/death evidence verdicts
 //	sales.deal.recorded / goat.sale_allocated              -> the sale's workflow
 //	procurement.animal_purchase.load_recorded / .decided   -> the purchase load's intake workflow
+//	procurement.feed_purchase.recorded / .reached          -> the feed load's purchase workflow
+//	procurement.toxin_test.accepted                        -> that workflow's aflatoxin step
 //
 // The verdict handlers filter strictly on source.module=counts and distinct birth/death ref types,
 // so they cannot cross-fire with the shifting applier that also uses module=counts.
@@ -78,6 +80,12 @@ func RegisterWorkflowConsumers(bus eventbus.Bus, svc *tasksapp.Service, log *slo
 	// (docs/decisions/procurement-sop-driven.md).
 	tasksapp.NewAnimalPurchaseLoadRecordedWorkflowHandler(svc).Register(bus)
 	tasksapp.NewAnimalPurchaseDecidedWorkflowHandler(svc).Register(bus)
+	// The FEED purchase's own workflow (same decision): buying a load opens it, the ledger's
+	// delivery write completes the arrival step, and an ACCEPTED aflatoxin round completes the
+	// toxin step -- the mapping between the toxin module and the purchase.
+	tasksapp.NewFeedPurchaseRecordedWorkflowHandler(svc).Register(bus)
+	tasksapp.NewFeedPurchaseReachedWorkflowHandler(svc).Register(bus)
+	tasksapp.NewToxinTestAcceptedWorkflowHandler(svc).Register(bus)
 }
 
 // CaptureReviewStore is the counts repository slice the birth_capture verdict consumer drives.

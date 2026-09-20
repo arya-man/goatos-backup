@@ -30,6 +30,8 @@ type fakeRepo struct {
 	// saleTagCompletions records the deals whose tag step the engine was asked to complete.
 	saleTagCompletions          []string
 	purchaseDecisionCompletions []string
+	feedReachedCompletions      []string
+	toxinStepCompletions        []string
 }
 
 func newFakeRepo() *fakeRepo {
@@ -230,6 +232,16 @@ func (f *fakeRepo) CompleteSaleTagStep(_ context.Context, tenantID, dealID strin
 
 func (f *fakeRepo) CompleteAnimalPurchaseDecisionStep(_ context.Context, tenantID, loadID string, completedAt time.Time) error {
 	f.purchaseDecisionCompletions = append(f.purchaseDecisionCompletions, loadID)
+	return nil
+}
+
+func (f *fakeRepo) CompleteFeedPurchaseReachedStep(_ context.Context, tenantID, purchaseID string, completedAt time.Time) error {
+	f.feedReachedCompletions = append(f.feedReachedCompletions, purchaseID)
+	return nil
+}
+
+func (f *fakeRepo) CompleteToxinTestStep(_ context.Context, tenantID, purchaseID string, completedAt time.Time) error {
+	f.toxinStepCompletions = append(f.toxinStepCompletions, purchaseID)
 	return nil
 }
 
