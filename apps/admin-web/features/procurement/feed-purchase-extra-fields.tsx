@@ -12,7 +12,7 @@
 // pages and order it declares. Each answer travels as `sop.<question id>`; the server action
 // collects those alongside the typed values and sends them with the form version, so the backend
 // checks the submission against exactly the form this drawer rendered.
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 
 import { copy, type AdminUiPageContract } from "@/lib/admin-ui-contract";
 import type { ProcurementVendorForm, ProcurementVendorQuestion } from "@/lib/api/server";
@@ -24,18 +24,57 @@ function authoredQuestions(form: ProcurementVendorForm): Array<{ page: string; q
     .filter((p) => p.questions.length > 0);
 }
 
+const typedFeedPurchaseQuestions: Array<[questionId: string, fieldName: string]> = [
+  ["purchase_date", "purchase_date"],
+  ["farm_label", "farm"],
+  ["feed_item_label", "feed_item"],
+  ["quantity_kg", "quantity_kg"],
+  ["vendor", "vendor"],
+  ["feed_cost", "feed_cost"],
+  ["transport_cost", "transport_cost"],
+  ["loading_cost", "loading_cost"],
+  ["unloading_cost", "unloading_cost"],
+  ["total_cost", "total_cost"],
+  ["payment_released", "payment_released"],
+  ["payment_status", "payment_status"],
+  ["reached_on", "reached_on"],
+  ["reached_weight_kg", "reached_weight_kg"],
+];
+
+function currentTypedAnswers(root: HTMLElement | null): Record<string, string> {
+  const form = root?.closest("form");
+  if (!form) return {};
+  const data = new FormData(form);
+  return Object.fromEntries(typedFeedPurchaseQuestions.map(([questionId, fieldName]) => [questionId, String(data.get(fieldName) ?? "").trim()]));
+}
+
 export function FeedPurchaseExtraFields({ form, pageContract }: { form: ProcurementVendorForm | null; pageContract: AdminUiPageContract }) {
-  // Only pick-one answers are tracked live, for "ask only when" visibility; everything else is an
-  // uncontrolled input the server action reads off the form.
+  const rootRef = useRef<HTMLDivElement | null>(null);
+  // Pick-one extras and typed ledger fields are tracked live for "ask only when" visibility;
+  // everything else is still an uncontrolled input the server action reads off the form.
   const [picked, setPicked] = useState<Record<string, string>>({});
+  const [typed, setTyped] = useState<Record<string, string>>({});
+  useEffect(() => {
+    const root = rootRef.current;
+    const parentForm = root?.closest("form");
+    const refresh = () => setTyped(currentTypedAnswers(root));
+    refresh();
+    parentForm?.addEventListener("input", refresh);
+    parentForm?.addEventListener("change", refresh);
+    return () => {
+      parentForm?.removeEventListener("input", refresh);
+      parentForm?.removeEventListener("change", refresh);
+    };
+  }, [form]);
   if (!form) return null;
   const pages = authoredQuestions(form);
   if (pages.length === 0) return null;
 
-  const visible = (q: ProcurementVendorQuestion) => !q.only_if || (picked[q.only_if.question_id] ?? "") === q.only_if.value;
+  const answers = { ...typed, ...picked };
+  const visible = (q: ProcurementVendorQuestion) => !q.only_if || (answers[q.only_if.question_id] ?? "") === q.only_if.value;
 
   return (
-    <>
+    <div ref={rootRef} style={{ display: "contents" }}>
       {pages.map((page, pi) => (
         <div key={`${page.page}-${pi}`} style={{ display: "contents" }}>
           {page.page ? <div className="dgrp">{page.page}</div> : null}
@@ -94,6 +133,6 @@ export function FeedPurchaseExtraFields({ form, pageContract }: { form: Procurem
         </div>
       ))}
       <div className="note">{copy(pageContract, "hint.authored_questions")}</div>
-    </>
+    </div>
   );
 }

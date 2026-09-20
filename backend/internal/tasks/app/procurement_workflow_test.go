@@ -137,3 +137,36 @@ func TestFeedPurchaseWorkflowOpensAndItsTwoEngineStepsFollowTheirOwners(t *testi
 		t.Fatalf("a load-less event completed something: %v", repo.toxinStepCompletions)
 	}
 }
+
+func TestFeedPurchaseRecordedReconcilesAlreadyReachedLoad(t *testing.T) {
+	repo := &openRecorder{fakeRepo: newFakeRepo(), byRef: map[string]string{}}
+	svc := NewService(repo, nil)
+	svc.now = func() time.Time { return time.Date(2026, 9, 20, 9, 0, 0, 0, time.UTC) }
+
+	// A same-transaction reached event can be claimed before the recorded event because the outbox
+	// tie-breaker is a random UUID. When that happens the reached handler sees no workflow and acks
+	// the event, so the recorded handler must heal the arrival step once it opens the workflow.
+	reached, _ := json.Marshal(map[string]any{"feed_purchase_id": "load-10", "reached_on": "2026-09-24"})
+	if err := NewFeedPurchaseReachedWorkflowHandler(svc).HandleEvent(context.Background(), eventbus.Event{
+		Type: EventFeedPurchaseReached, TenantID: "tenant", Payload: reached,
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if len(repo.feedReachedCompletions) != 1 {
+		t.Fatalf("first reached event completions = %v", repo.feedReachedCompletions)
+	}
+
+	repo.feedReachedCompletions = nil
+	recorded, _ := json.Marshal(map[string]any{"feed_purchase_id": "load-10", "park_id": "park-2", "reached_on": "2026-09-24"})
+	if err := NewFeedPurchaseRecordedWorkflowHandler(svc).HandleEvent(context.Background(), eventbus.Event{
+		Type: EventFeedPurchaseRecorded, TenantID: "tenant", Payload: recorded,
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if len(repo.opened) != 1 {
+		t.Fatalf("opened = %+v", repo.opened)
+	}
+	if len(repo.feedReachedCompletions) != 1 || repo.feedReachedCompletions[0] != "load-10" {
+		t.Fatalf("reconciled arrival completions = %v", repo.feedReachedCompletions)
+	}
+}
