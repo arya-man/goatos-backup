@@ -83,7 +83,6 @@ func scanTree(root string) ([]finding, error) {
 
 func scanFile(path string, fs *token.FileSet, f *ast.File) []finding {
 	imports := collectImports(f)
-	constants := collectConstants(f)
 	bound := collectBoundQueries(f, imports)
 	named := collectStrictNamedArgs(f, imports)
 	var out []finding
@@ -117,7 +116,7 @@ func scanFile(path string, fs *token.FileSet, f *ast.File) []finding {
 		if isBoundUse(call, sqlIndex, name, bound, imports) {
 			return true
 		}
-		sql, ok := constantString(call.Args[sqlIndex], constants, map[string]bool{})
+		sql, ok := constantString(call.Args[sqlIndex], map[*ast.Object]bool{})
 		strictNamed, namedKeys, strictErr := strictNamedArgs(call.Args[sqlIndex+1:], name, imports, named)
 		if strictErr != "" {
 			kind := "invalid-strict-named-args"
@@ -180,55 +179,47 @@ func collectImports(f *ast.File) map[string]string {
 	return imports
 }
 
-func collectConstants(f *ast.File) map[string]ast.Expr {
-	m := map[string]ast.Expr{}
+func collectBoundQueries(f *ast.File, imports map[string]string) map[*ast.Object]token.Pos {
+	assignments := map[*ast.Object]int{}
+	valid := map[*ast.Object]token.Pos{}
+	escaped := map[*ast.Object]bool{}
 	ast.Inspect(f, func(n ast.Node) bool {
-		gd, ok := n.(*ast.GenDecl)
-		if !ok || gd.Tok != token.CONST {
-			return true
+		if u, ok := n.(*ast.UnaryExpr); ok && u.Op == token.AND {
+			if id, ok := unparen(u.X).(*ast.Ident); ok {
+				escaped[id.Obj] = true
+			}
 		}
-		for _, s := range gd.Specs {
-			vs := s.(*ast.ValueSpec)
-			for i, n := range vs.Names {
-				if i < len(vs.Values) {
-					m[n.Name] = vs.Values[i]
+		if r, ok := n.(*ast.RangeStmt); ok {
+			for _, lhs := range []ast.Expr{r.Key, r.Value} {
+				if id, ok := unparen(lhs).(*ast.Ident); ok && id.Obj != nil {
+					assignments[id.Obj]++
 				}
 			}
 		}
-		return false
-	})
-	return m
-}
-
-func collectBoundQueries(f *ast.File, imports map[string]string) map[*ast.Object]bool {
-	assignments := map[*ast.Object]int{}
-	valid := map[*ast.Object]bool{}
-	ast.Inspect(f, func(n ast.Node) bool {
 		as, ok := n.(*ast.AssignStmt)
 		if !ok {
 			return true
 		}
-		for i, rhs := range as.Rhs {
-			if i >= len(as.Lhs) {
+		for i, lhs := range as.Lhs {
+			id, ok := unparen(lhs).(*ast.Ident)
+			if !ok || id.Obj == nil {
 				continue
 			}
-			if id, ok := as.Lhs[i].(*ast.Ident); ok {
-				if id.Obj == nil {
-					continue
-				}
-				assignments[id.Obj]++
-				valid[id.Obj] = isSQLBindConstructor(rhs, imports)
+			assignments[id.Obj]++
+			// Only construction at declaration proves that all subsequent uses are initialized.
+			if id.Obj.Decl == as && i < len(as.Rhs) && isSQLBindConstructor(as.Rhs[i], imports) {
+				valid[id.Obj] = as.End()
 			}
 		}
 		return true
 	})
-	out := map[*ast.Object]bool{}
-	for obj, count := range assignments {
-		out[obj] = count == 1 && valid[obj]
+	for obj, pos := range collectCheckedBindQueries(f, imports) {
+		valid[obj] = pos
 	}
-	for obj := range collectCheckedBindQueries(f, imports) {
-		if assignments[obj] == 1 {
-			out[obj] = true
+	out := map[*ast.Object]token.Pos{}
+	for obj, pos := range valid {
+		if assignments[obj] == 1 && !escaped[obj] {
+			out[obj] = pos
 		}
 	}
 	return out
@@ -242,8 +233,8 @@ func collectBoundQueries(f *ast.File, imports map[string]string) map[*ast.Object
 // The check must be the immediately following statement and its body must end
 // in return. This intentionally rejects ignored, delayed, overwritten, or
 // merely logged errors without needing a general control-flow engine.
-func collectCheckedBindQueries(f *ast.File, imports map[string]string) map[*ast.Object]bool {
-	out := map[*ast.Object]bool{}
+func collectCheckedBindQueries(f *ast.File, imports map[string]string) map[*ast.Object]token.Pos {
+	out := map[*ast.Object]token.Pos{}
 	ast.Inspect(f, func(n ast.Node) bool {
 		block, ok := n.(*ast.BlockStmt)
 		if !ok {
@@ -259,14 +250,14 @@ func collectCheckedBindQueries(f *ast.File, imports map[string]string) map[*ast.
 			if !okQ || !okErr || q.Name == "_" || errID.Name == "_" || q.Obj == nil || errID.Obj == nil {
 				continue
 			}
-			if !isSQLBindCall(as.Rhs[0], imports, "Bind") {
+			if q.Obj.Decl != as || !isSQLBindCall(as.Rhs[0], imports, "Bind") {
 				continue
 			}
 			guard, ok := block.List[i+1].(*ast.IfStmt)
 			if !ok || guard.Init != nil || !isErrNotNil(guard.Cond, errID.Obj) || !endsInReturn(guard.Body) {
 				continue
 			}
-			out[q.Obj] = true
+			out[q.Obj] = guard.End()
 		}
 		return true
 	})
@@ -292,6 +283,20 @@ func endsInReturn(block *ast.BlockStmt) bool {
 	if block == nil || len(block.List) == 0 {
 		return false
 	}
+	// A goto or other branch can bypass the terminal return.
+	branches := false
+	ast.Inspect(block, func(n ast.Node) bool {
+		if _, ok := n.(*ast.FuncLit); ok {
+			return false
+		}
+		if _, ok := n.(*ast.BranchStmt); ok {
+			branches = true
+		}
+		return true
+	})
+	if branches {
+		return false
+	}
 	_, ok := block.List[len(block.List)-1].(*ast.ReturnStmt)
 	return ok
 }
@@ -311,7 +316,7 @@ func isSQLBindCall(e ast.Expr, imports map[string]string, method string) bool {
 func isSQLBindConstructor(e ast.Expr, imports map[string]string) bool {
 	return isSQLBindCall(e, imports, "MustBind")
 }
-func isBoundUse(call *ast.CallExpr, sqlIndex int, method string, bound map[*ast.Object]bool, imports map[string]string) bool {
+func isBoundUse(call *ast.CallExpr, sqlIndex int, method string, bound map[*ast.Object]token.Pos, imports map[string]string) bool {
 	sqlCall, ok := call.Args[sqlIndex].(*ast.CallExpr)
 	if !ok || len(sqlCall.Args) != 0 {
 		return false
@@ -321,7 +326,7 @@ func isBoundUse(call *ast.CallExpr, sqlIndex int, method string, bound map[*ast.
 		return false
 	}
 	id, ok := s.X.(*ast.Ident)
-	if !ok || id.Obj == nil || !bound[id.Obj] {
+	if !ok || id.Obj == nil || bound[id.Obj] == token.NoPos || call.Pos() < bound[id.Obj] {
 		return false
 	}
 	if len(call.Args) <= sqlIndex+1 {
@@ -353,7 +358,7 @@ func exprIdent(e ast.Expr) string {
 	return ""
 }
 
-func constantString(e ast.Expr, constants map[string]ast.Expr, visiting map[string]bool) (string, bool) {
+func constantString(e ast.Expr, visiting map[*ast.Object]bool) (string, bool) {
 	switch x := e.(type) {
 	case *ast.BasicLit:
 		if x.Kind != token.STRING {
@@ -365,19 +370,19 @@ func constantString(e ast.Expr, constants map[string]ast.Expr, visiting map[stri
 		if x.Op != token.ADD {
 			return "", false
 		}
-		a, ok := constantString(x.X, constants, visiting)
+		a, ok := constantString(x.X, visiting)
 		if !ok {
 			return "", false
 		}
-		b, ok := constantString(x.Y, constants, visiting)
+		b, ok := constantString(x.Y, visiting)
 		return a + b, ok
 	case *ast.ParenExpr:
-		return constantString(x.X, constants, visiting)
+		return constantString(x.X, visiting)
 	case *ast.Ident:
-		if visiting[x.Name] {
-			return "", false
-		}
-		if x.Obj != nil && x.Obj.Kind != ast.Con {
+		// File-local parser objects preserve lexical scope. Unresolved identifiers
+		// (including constants declared in another file) must fail closed: a
+		// name-only lookup can substitute an unrelated local constant.
+		if x.Obj == nil || x.Obj.Kind != ast.Con || visiting[x.Obj] {
 			return "", false
 		}
 		var v ast.Expr
@@ -393,14 +398,11 @@ func constantString(e ast.Expr, constants map[string]ast.Expr, visiting map[stri
 			}
 		}
 		if !ok {
-			v, ok = constants[x.Name]
-		}
-		if !ok {
 			return "", false
 		}
-		visiting[x.Name] = true
-		s, ok := constantString(v, constants, visiting)
-		delete(visiting, x.Name)
+		visiting[x.Obj] = true
+		s, ok := constantString(v, visiting)
+		delete(visiting, x.Obj)
 		return s, ok
 	}
 	return "", false
@@ -447,7 +449,7 @@ func collectStrictNamedArgs(f *ast.File, imports map[string]string) map[*ast.Obj
 			return true
 		}
 		for _, lhs := range as.Lhs {
-			if id, ok := lhs.(*ast.Ident); ok && id.Obj != nil {
+			if id, ok := unparen(lhs).(*ast.Ident); ok && id.Obj != nil {
 				if _, tracked := infos[id.Obj]; tracked {
 					counts[id.Obj]++
 				}
@@ -463,7 +465,7 @@ func collectStrictNamedArgs(f *ast.File, imports map[string]string) map[*ast.Obj
 	for obj := range infos {
 		if as, ok := obj.Decl.(*ast.AssignStmt); ok {
 			for _, lhs := range as.Lhs {
-				if id, ok := lhs.(*ast.Ident); ok {
+				if id, ok := unparen(lhs).(*ast.Ident); ok {
 					safeUses[id] = true
 				}
 			}
@@ -606,8 +608,17 @@ func staticArgumentCount(args []ast.Expr, variadic bool, method string, imports 
 	if variadic {
 		return 0, false
 	}
-	for len(args) > 0 && isPGXOption(args[0], method, imports) {
-		args = args[1:]
+	for len(args) > 0 {
+		if isPGXOption(args[0], method, imports) {
+			args = args[1:]
+			continue
+		}
+		// Aliased controls and rewriters are not ordinary data. Without type/flow
+		// analysis their exact effect is unproven, so require a validated builder.
+		if method != "Queue" && knownPGXControl(args[0], imports, map[*ast.Object]bool{}) {
+			return 0, false
+		}
+		break
 	}
 	return len(args), true
 }
@@ -647,4 +658,63 @@ func importedPackagePath(id *ast.Ident, imports map[string]string) string {
 		return ""
 	}
 	return imports[id.Name]
+}
+
+func unparen(e ast.Expr) ast.Expr {
+	for {
+		p, ok := e.(*ast.ParenExpr)
+		if !ok {
+			return e
+		}
+		e = p.X
+	}
+}
+
+// knownPGXControl follows declaration identities, never name-only aliases.
+// A positive result rejects uncertain argument shapes; it does not grant trust.
+func knownPGXControl(e ast.Expr, imports map[string]string, visiting map[*ast.Object]bool) bool {
+	switch x := unparen(e).(type) {
+	case *ast.SelectorExpr:
+		id, ok := x.X.(*ast.Ident)
+		if !ok || importedPackagePath(id, imports) != "github.com/jackc/pgx/v5" {
+			return false
+		}
+		return strings.HasPrefix(x.Sel.Name, "QueryExecMode") || x.Sel.Name == "QueryResultFormats" || x.Sel.Name == "QueryResultFormatsByOID" || x.Sel.Name == "QueryRewriter" || x.Sel.Name == "NamedArgs" || x.Sel.Name == "StrictNamedArgs"
+	case *ast.CompositeLit:
+		return knownPGXControl(x.Type, imports, visiting)
+	case *ast.CallExpr:
+		return knownPGXControl(x.Fun, imports, visiting)
+	case *ast.StarExpr:
+		return knownPGXControl(x.X, imports, visiting)
+	case *ast.UnaryExpr:
+		return x.Op == token.AND && knownPGXControl(x.X, imports, visiting)
+	case *ast.Ident:
+		if x.Obj == nil || visiting[x.Obj] {
+			return false
+		}
+		visiting[x.Obj] = true
+		defer delete(visiting, x.Obj)
+		switch d := x.Obj.Decl.(type) {
+		case *ast.ValueSpec:
+			if d.Type != nil && knownPGXControl(d.Type, imports, visiting) {
+				return true
+			}
+			for i, n := range d.Names {
+				if n.Obj == x.Obj && i < len(d.Values) {
+					return knownPGXControl(d.Values[i], imports, visiting)
+				}
+			}
+		case *ast.AssignStmt:
+			for i, lhs := range d.Lhs {
+				if id, ok := unparen(lhs).(*ast.Ident); ok && id.Obj == x.Obj && i < len(d.Rhs) {
+					return knownPGXControl(d.Rhs[i], imports, visiting)
+				}
+			}
+		case *ast.Field:
+			return knownPGXControl(d.Type, imports, visiting)
+		case *ast.TypeSpec:
+			return knownPGXControl(d.Type, imports, visiting)
+		}
+	}
+	return false
 }

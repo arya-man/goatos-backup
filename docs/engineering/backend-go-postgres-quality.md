@@ -227,3 +227,12 @@ the whole-tree failure green.
   [transaction isolation](https://www.postgresql.org/docs/16/transaction-iso.html),
   [explicit locking](https://www.postgresql.org/docs/16/explicit-locking.html),
   and [`SELECT ... SKIP LOCKED`](https://www.postgresql.org/docs/16/sql-select.html).
+
+### Bind validation boundaries
+
+`sqlbind.Bind` accepts data only: pgx execution modes, result-format controls,
+and `QueryRewriter` values are rejected, since pgx consumes them before binding.
+The static guard resolves constants by lexical identity; unresolved cross-file
+constants remain unverified rather than borrowing a same-named local value.
+Bound queries must be constructed at declaration, stay unmodified without pointer
+escapes, and reach the database only after a checked `Bind` succeeds.

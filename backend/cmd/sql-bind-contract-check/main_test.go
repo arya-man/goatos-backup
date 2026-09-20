@@ -21,6 +21,12 @@ func findings(t *testing.T, src string) []finding {
 
 func TestStaticCallMatrix(t *testing.T) {
 	tests := []struct{ name, body, want string }{
+		{"execution mode alias", `mode := pgx.QueryExecModeExec; p.QueryRow(ctx,"select $1",mode)`, "unverified-dynamic-args"},
+		{"execution mode conversion", `p.QueryRow(ctx,"select $1",pgx.QueryExecMode(1))`, "unverified-dynamic-args"},
+		{"execution mode declared type", `var mode pgx.QueryExecMode; p.QueryRow(ctx,"select $1",mode)`, "unverified-dynamic-args"},
+		{"format alias", `formats := pgx.QueryResultFormats{0}; p.Query(ctx,"select $1",formats)`, "unverified-dynamic-args"},
+		{"named rewriter", `rewrite := pgx.NamedArgs{"id":1}; p.Query(ctx,"select $1",rewrite)`, "unverified-dynamic-args"},
+		{"rewriter declared type", `var rewrite pgx.QueryRewriter; p.Query(ctx,"select $1",rewrite)`, "unverified-dynamic-args"},
 		{"valid", `p.Query(ctx,"select $1,$2",a,b)`, ""},
 		{"constant concat", `const q = "select " + "$1"; p.Exec(ctx, q, a)`, ""},
 		{"missing arg", `p.QueryRow(ctx,"select $1,$2",a)`, "positional-bind-mismatch"},
@@ -67,6 +73,14 @@ func f(){ q := sqlbind.MustBind(buildSQL(), args...); p.Query(ctx,q.SQL(),q.Args
 
 func TestBoundQueryHostileShapes(t *testing.T) {
 	tests := []struct{ name, body, want string }{
+		{"late initialization untrusted", `var q sqlbind.BoundQuery; p.Query(ctx,q.SQL(),q.Args()...); q = sqlbind.MustBind(buildSQL(), args...)`, "unverified-dynamic-bind"},
+		{"tuple reassignment untrusted", `q := sqlbind.MustBind(buildSQL(), args...); _, q = other(); p.Query(ctx,q.SQL(),q.Args()...)`, "unverified-dynamic-bind"},
+		{"pointer escape untrusted", `q := sqlbind.MustBind(buildSQL(), args...); mutate(&q); p.Query(ctx,q.SQL(),q.Args()...)`, "unverified-dynamic-bind"},
+		{"use inside error guard untrusted", `q, err := sqlbind.Bind(buildSQL(), args...); if err != nil { p.Query(ctx,q.SQL(),q.Args()...); return }`, "unverified-dynamic-bind"},
+		{"parenthesized pointer escape", `q := sqlbind.MustBind(buildSQL(), args...); mutate(&(q)); p.Query(ctx,q.SQL(),q.Args()...)`, "unverified-dynamic-bind"},
+		{"range overwrites bound query", `q := sqlbind.MustBind(buildSQL(), args...); for _, q = range queries { p.Query(ctx,q.SQL(),q.Args()...) }`, "unverified-dynamic-bind"},
+		{"goto bypasses guard", `q, err := sqlbind.Bind(buildSQL(), args...); if err != nil { goto proceed; return }; proceed: p.Query(ctx,q.SQL(),q.Args()...)`, "unverified-dynamic-bind"},
+		{"parenthesized assignment", `q := sqlbind.MustBind(buildSQL(), args...); (q) = other; p.Query(ctx,q.SQL(),q.Args()...)`, "unverified-dynamic-bind"},
 		{"ordinary Bind untrusted", `q, _ := sqlbind.Bind(buildSQL(), args...); p.Query(ctx,q.SQL(),q.Args()...)`, "unverified-dynamic-bind"},
 		{"checked Bind trusted", `q, err := sqlbind.Bind(buildSQL(), args...); if err != nil { return }; p.Query(ctx,q.SQL(),q.Args()...)`, ""},
 		{"checked Bind reversed trusted", `q, err := sqlbind.Bind(buildSQL(), args...); if nil != err { return }; p.Query(ctx,q.SQL(),q.Args()...)`, ""},
@@ -211,5 +225,57 @@ func TestScanTreeExcludesTestsAndGenerated(t *testing.T) {
 	}
 	if len(got) != 1 || !strings.HasSuffix(got[0].File, "ok.go") {
 		t.Fatalf("%+v", got)
+	}
+}
+
+// A file-local scanner cannot resolve package constants declared in other files.
+// In particular, it must never substitute a constant from an unrelated function.
+func TestCrossFileConstantFailsClosed(t *testing.T) {
+	root := t.TempDir()
+	files := map[string]string{
+		"constants.go": `package p
+const query = "select $1,$2"`,
+		"queries.go": `package p
+import "github.com/jackc/pgx/v5"
+func unrelated() { const query = "select $1"; _ = query }
+func run() { p.Exec(ctx, query, 1) }`,
+	}
+	for name, src := range files {
+		if err := os.WriteFile(filepath.Join(root, name), []byte(src), 0600); err != nil {
+			t.Fatal(err)
+		}
+	}
+	got, err := scanTree(root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(got) != 1 || got[0].Kind != "unverified-dynamic-bind" {
+		t.Fatalf("cross-file constant must remain unverified, got %+v", got)
+	}
+}
+
+func TestConstantResolutionPreservesScope(t *testing.T) {
+	tests := []struct{ name, src, want string }{
+		{"package constant", `const q = "select $1,$2"
+func unrelated() { const q = "select $1"; _ = q }
+func run() { p.Exec(ctx,q,1) }`, "positional-bind-mismatch"},
+		{"same name distinct objects", `const q = "select $1"
+func run() { const outer = q; { const q = outer; p.Exec(ctx,q,1) } }`, ""},
+		{"implicit initializer fails closed", `func unrelated() { const q = "select $1"; _ = q }
+func run() { const (base = "select $1,$2"; q); p.Exec(ctx,q,1) }`, "unverified-dynamic-bind"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := findings(t, "package p\nimport \"github.com/jackc/pgx/v5\"\n"+tt.src)
+			if tt.want == "" {
+				if len(got) != 0 {
+					t.Fatalf("%+v", got)
+				}
+				return
+			}
+			if len(got) != 1 || got[0].Kind != tt.want {
+				t.Fatalf("got %+v want %s", got, tt.want)
+			}
+		})
 	}
 }
