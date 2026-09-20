@@ -51,6 +51,7 @@ import sg.mesha.goatos.feature.vendors.FeedPurchasePaymentUi
 import sg.mesha.goatos.feature.vendors.FeedPurchasesListEvent
 import sg.mesha.goatos.feature.vendors.FeedPurchasesListUiState
 import sg.mesha.goatos.feature.vendors.PurchaseField
+import sg.mesha.goatos.feature.vendors.VendorFormPageUi
 import sg.mesha.goatos.feature.vendors.VendorsDetailRowUi
 import sg.mesha.goatos.feature.vendors.VendorsDetailSectionUi
 import sg.mesha.goatos.feature.vendors.VendorsFilterUi
@@ -592,6 +593,8 @@ class FeedPurchaseCreateViewModel @Inject constructor(
         val closeAfterSave: Boolean = false,
         val submitInFlight: Boolean = false,
         val message: String? = null,
+        val answers: Map<String, String> = emptyMap(),
+        val answerErrors: Map<String, String> = emptyMap(),
     )
 
     private val local = MutableStateFlow(Local())
@@ -602,11 +605,20 @@ class FeedPurchaseCreateViewModel @Inject constructor(
     init {
         analytics.track(AnalyticsEventsVendors.VENDORS_ADD_OPENED)
         viewModelScope.launch { repository.refreshFeedPurchaseOptions() }
+        // The wizard opens on the CACHED form and refreshes behind it, so a question published on
+        // the web is here the next time the screen is opened -- no reinstall, and offline it still
+        // asks whatever it last saw.
+        viewModelScope.launch { repository.refreshFeedPurchaseForm() }
     }
 
-    val state: StateFlow<FeedPurchaseCreateUiState> = combine(local, repository.observeFeedPurchaseOptions()) { l, options ->
+    val state: StateFlow<FeedPurchaseCreateUiState> = combine(local, repository.observeFeedPurchaseOptions(), repository.observeFeedPurchaseForm()) { l, options, form ->
         val o = options ?: FeedPurchaseOptionsDto()
+        val extraPages = form.extraPages()
         FeedPurchaseCreateUiState(
+            extraPages = extraPages,
+            answers = l.answers,
+            answerErrors = l.answerErrors,
+            questionnaireVersion = form?.version ?: 0,
             step = l.step,
             stepCount = STEP_COUNT,
             values = if (l.values[PurchaseField.FARM].isNullOrBlank() && o.farms.size == 1) l.values + (PurchaseField.FARM to o.farms.first()) else l.values,
@@ -632,6 +644,7 @@ class FeedPurchaseCreateViewModel @Inject constructor(
         if (locked && event !is FeedPurchaseCreateEvent.Back && event !is FeedPurchaseCreateEvent.RecordAnother && event !is FeedPurchaseCreateEvent.DismissMessage) return
         when (event) {
             is FeedPurchaseCreateEvent.FieldChanged -> local.update { it.copy(values = it.values + (event.field to event.value), fieldErrors = it.fieldErrors - event.field) }
+            is FeedPurchaseCreateEvent.AnswerChanged -> local.update { it.copy(answers = it.answers + (event.questionId to event.value), answerErrors = it.answerErrors - event.questionId) }
             FeedPurchaseCreateEvent.Next -> next()
             FeedPurchaseCreateEvent.Previous -> local.update { it.copy(step = (it.step - 1).coerceAtLeast(0)) }
             FeedPurchaseCreateEvent.Submit -> submit()
@@ -661,9 +674,18 @@ class FeedPurchaseCreateViewModel @Inject constructor(
             local.update { it.copy(step = firstStep, fieldErrors = errors) }
             return
         }
+        // The authored questions are checked by the SAME rules the vendor wizard applies, and the
+        // server re-checks them: this is only so the refusal appears beside the box.
+        val pages = state.value.extraPages
+        val answerErrors = pages.fold(emptyMap<String, String>()) { acc, page -> acc + validateVendorFormPage(page, current.answers) }
+        if (answerErrors.isNotEmpty()) {
+            local.update { it.copy(step = STEP_COUNT - 1, answerErrors = answerErrors) }
+            return
+        }
+        val version = state.value.questionnaireVersion
         viewModelScope.launch {
             local.update { it.copy(submitInFlight = true, message = null) }
-            when (val result = syncRepository.enqueueFeedPurchaseCreate(clientId, current.values.toWrite())) {
+            when (val result = syncRepository.enqueueFeedPurchaseCreate(clientId, current.values.toWrite(current.answers, pages, version))) {
                 is AppResult.Ok -> {
                     analytics.track(AnalyticsEventsVendors.VENDORS_PURCHASE_QUEUED)
                     local.update { it.copy(submitInFlight = false, writeStatus = VendorsWriteStatus.QUEUED, writeMessage = MESSAGE_SAVING) }
@@ -728,7 +750,11 @@ class FeedPurchaseCreateViewModel @Inject constructor(
         return errors
     }
 
-    private fun Map<PurchaseField, String>.toWrite(): FeedPurchaseWriteDto {
+    private fun Map<PurchaseField, String>.toWrite(
+        answers: Map<String, String> = emptyMap(),
+        pages: List<VendorFormPageUi> = emptyList(),
+        questionnaireVersion: Int = 0,
+    ): FeedPurchaseWriteDto {
         fun money(f: PurchaseField): Double? = get(f).orEmpty().trim().ifBlank { null }?.toDoubleOrNull()
         val reachedOn = get(PurchaseField.REACHED_ON).orEmpty().ifBlank { null }
         return FeedPurchaseWriteDto(
@@ -746,6 +772,17 @@ class FeedPurchaseCreateViewModel @Inject constructor(
             paymentStatus = get(PurchaseField.PAYMENT_STATUS).orEmpty(),
             reachedOn = reachedOn,
             reachedWeightKg = if (reachedOn == null) null else money(PurchaseField.REACHED_WEIGHT_KG),
+            // Only the questions the published form actually ASKED, and only the ones it added:
+            // sending a stale answer to a question a later version removed, or one whose "ask only
+            // when" no longer holds, would file an answer nobody was asked for.
+            answers = buildMap<String, String> {
+                for (q in pages.flatMap { page -> page.questions }) {
+                    if (!q.isAsked(answers)) continue
+                    val given = answers[q.id].orEmpty().trim()
+                    if (given.isNotEmpty()) put(q.id, given)
+                }
+            }.takeIf { it.isNotEmpty() },
+            questionnaireVersion = questionnaireVersion,
         )
     }
 

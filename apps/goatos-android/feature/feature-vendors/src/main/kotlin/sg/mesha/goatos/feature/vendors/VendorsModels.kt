@@ -360,10 +360,22 @@ data class FeedPurchaseCreateUiState(
     val closeAfterSave: Boolean = false,
     val submitInFlight: Boolean = false,
     val message: String? = null,
+    /**
+     * PROCUREMENT IS SOP-DRIVEN END TO END (2026-09-20): the pages of the published feed purchase
+     * form, with the LEDGER'S OWN typed columns removed -- those are the fields the wizard already
+     * draws by hand, and asking them twice would let an operator answer each differently. What is
+     * left is the buying desk's own questions, rendered through the same renderer the vendor
+     * wizard uses, and they reach the server as `answers` against [questionnaireVersion].
+     */
+    val extraPages: List<VendorFormPageUi> = emptyList(),
+    val answers: Map<String, String> = emptyMap(),
+    val answerErrors: Map<String, String> = emptyMap(),
+    val questionnaireVersion: Int = 0,
 )
 
 sealed interface FeedPurchaseCreateEvent {
     data class FieldChanged(val field: PurchaseField, val value: String) : FeedPurchaseCreateEvent
+    data class AnswerChanged(val questionId: String, val value: String) : FeedPurchaseCreateEvent
     data object Next : FeedPurchaseCreateEvent
     data object Previous : FeedPurchaseCreateEvent
     data object Back : FeedPurchaseCreateEvent

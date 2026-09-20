@@ -297,6 +297,13 @@ data class FeedPurchaseWriteDto(
     @SerialName("payment_status") val paymentStatus: String,
     @SerialName("reached_on") val reachedOn: String? = null,
     @SerialName("reached_weight_kg") val reachedWeightKg: Double? = null,
+    /**
+     * PROCUREMENT IS SOP-DRIVEN END TO END (2026-09-20): answers to the questions the published
+     * feed purchase form adds beyond the ledger's own columns, and the form version they were
+     * given on. Null means a typed-only write, exactly as on the vendor register.
+     */
+    @SerialName("answers") val answers: Map<String, String>? = null,
+    @SerialName("questionnaire_version") val questionnaireVersion: Int = 0,
 )
 
 // ---------------------------------------------------------------------------------------------

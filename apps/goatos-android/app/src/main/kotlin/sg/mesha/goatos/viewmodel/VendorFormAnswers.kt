@@ -1,6 +1,7 @@
 package sg.mesha.goatos.viewmodel
 
 import sg.mesha.goatos.core.network.dto.VendorDto
+import sg.mesha.goatos.core.network.dto.VendorFormDto
 import sg.mesha.goatos.core.network.dto.VendorFormPageDto
 import sg.mesha.goatos.core.network.dto.VendorQuestionDto
 import sg.mesha.goatos.core.network.dto.VendorWriteDto
@@ -156,6 +157,21 @@ internal fun VendorDto.toVendorAnswers(): Map<String, String> = buildMap {
     put("filtered_stock", filteredStock?.toString().orEmpty())
     putAll(answers)
 }
+
+/**
+ * The pages of a published ENTRY form with the register's own TYPED columns removed, and any page
+ * left with no questions dropped (PROCUREMENT IS SOP-DRIVEN END TO END, 2026-09-20).
+ *
+ * The feed purchase wizard draws the ledger's own columns -- date, farm, feed, quantity, vendor,
+ * the costs -- by hand, so rendering the typed questions again would ask for the same fact twice
+ * and let an operator answer each differently. What is left is the buying desk's own questions.
+ * A null form (never fetched, or fetched before the document existed) is simply no extra pages,
+ * so the wizard is exactly what it was before this existed.
+ */
+internal fun VendorFormDto?.extraPages(): List<VendorFormPageUi> =
+    this?.pages.orEmpty()
+        .map { page -> page.toUi().let { it.copy(questions = it.questions.filterNot { q -> q.typed }) } }
+        .filter { it.questions.isNotEmpty() }
 
 internal fun VendorFormPageDto.toUi(): VendorFormPageUi =
     VendorFormPageUi(key = key, title = title, hint = hint, questions = questions.map { it.toUi() })

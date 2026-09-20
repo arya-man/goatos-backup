@@ -1607,6 +1607,13 @@ interface AppApi {
      */
     suspend fun updateProcurementVendor(vendorId: String, idempotencyKey: String, request: VendorWriteDto): VendorDto
 
+    /**
+     * GET /procurement/feed-purchase-form — the published entry form the Record purchase wizard
+     * renders (PROCUREMENT IS SOP-DRIVEN END TO END, 2026-09-20). Same shape as the vendor form:
+     * the typed questions are the ledger's own columns, the rest are the buying desk's own.
+     */
+    suspend fun getFeedPurchaseForm(): VendorFormDto
+
     /** GET /procurement/feed-purchases — one bounded page of the ledger, newest first. */
     suspend fun getFeedPurchases(
         farm: String? = null,
@@ -3297,6 +3304,22 @@ class FakeAppApi(private val chrome: String = "expanded") : AppApi {
                     VendorQuestionDto(id = "record_type", kind = "choice", title = "Type", required = true, typed = true, options = getProcurementVendorCatalog(side).recordTypes),
                     VendorQuestionDto(id = "state", kind = "choice", title = "State", required = true, typed = true, options = listOf(VendorCatalogEntryDto("KA", "Karnataka"))),
                     VendorQuestionDto(id = "status", kind = "choice", title = "Status", required = true, typed = true, options = listOf(VendorCatalogEntryDto("active", "Active"))),
+                ),
+            ),
+        ),
+    )
+
+    override suspend fun getFeedPurchaseForm(): VendorFormDto = VendorFormDto(
+        version = 1,
+        pages = listOf(
+            VendorFormPageDto(
+                key = "load", title = "The load",
+                questions = listOf(
+                    VendorQuestionDto(id = "purchase_date", kind = "text", title = "Bought on", required = true, typed = true),
+                    VendorQuestionDto(id = "farm_label", kind = "choice", title = "Farm", required = true, typed = true, options = listOf(VendorCatalogEntryDto("CBE", "CBE"))),
+                    VendorQuestionDto(id = "feed_item_label", kind = "choice", title = "Feed", required = true, typed = true, options = listOf(VendorCatalogEntryDto("Dry Masoor Bhusa", "Dry Masoor Bhusa"))),
+                    VendorQuestionDto(id = "quantity_kg", kind = "number", title = "Quantity bought", required = true, typed = true, unit = "kg"),
+                    VendorQuestionDto(id = "vendor", kind = "text", title = "Vendor", required = true, typed = true),
                 ),
             ),
         ),

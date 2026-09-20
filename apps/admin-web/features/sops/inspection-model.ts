@@ -212,7 +212,16 @@ export function emitVendorForm(rows: InspectionRows): Record<string, unknown> {
 
 // vendorFormProblems: the page rules shared with the inspection, minus load form and media, plus
 // the register's locked ids and compulsory identity questions.
-export function vendorFormProblems(rows: InspectionRows): string[] {
+//
+// THE REQUIRED SET IS THE PROFILE'S, NOT THE VENDOR REGISTER'S. Both entry forms render through
+// this one function, and while it named VENDOR_REQUIRED_KEYS outright the feed purchase form
+// could not be published from the editor at all: it demanded `business_name`, `record_type`,
+// `state` and `status` -- the supply register's columns -- of a form that records a feed load.
+export function vendorFormProblems(
+  rows: InspectionRows,
+  requiredKeys: Set<string> = VENDOR_REQUIRED_KEYS,
+  missingNoun = "A vendor",
+): string[] {
   const problems: string[] = [];
   const seen = new Map<string, InspectionQuestionRow>();
   const pageKeys = new Set<string>();
@@ -232,7 +241,7 @@ export function vendorFormProblems(rows: InspectionRows): string[] {
       if ((q.kind === "choice" || q.kind === "multi") && !q.catalog && q.options.filter((o) => o.value.trim() && o.label.trim()).length === 0) problems.push(`${at}: a pick-one / pick-many question needs at least one choice`);
       if (q.allowOther && !q.options.some((o) => o.value.trim() === "other")) problems.push(`${at}: the free-text "other" needs a choice whose value is "other"`);
       if (q.kind === "number" && q.min.trim() && q.max.trim() && Number(q.min) > Number(q.max)) problems.push(`${at}: min must not exceed max`);
-      if (VENDOR_REQUIRED_KEYS.has(q.key) && !q.required) problems.push(`${at}: "${q.key}" must stay compulsory`);
+      if (requiredKeys.has(q.key) && !q.required) problems.push(`${at}: "${q.key}" must stay compulsory`);
       if (q.onlyIfQuestion) {
         const dep = seen.get(q.onlyIfQuestion);
         if (!dep) problems.push(`${at}: "ask only when" must name an earlier question`);
@@ -242,8 +251,8 @@ export function vendorFormProblems(rows: InspectionRows): string[] {
       seen.set(q.key, q);
     });
   });
-  for (const k of VENDOR_REQUIRED_KEYS) {
-    if (!seen.has(k)) problems.push(`A vendor cannot exist without "${k}" — it must stay on the form`);
+  for (const k of requiredKeys) {
+    if (!seen.has(k)) problems.push(`${missingNoun} cannot exist without "${k}" — it must stay on the form`);
   }
   return problems;
 }

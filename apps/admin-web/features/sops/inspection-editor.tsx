@@ -79,7 +79,11 @@ export function InspectionEditor({ pageContract: pc, basePath, sopId, sopName, s
   const kinds = isVendorForm ? allKinds.filter((k) => k.key !== "media") : allKinds;
   const loadKinds = allKinds.filter((k) => k.key !== "media");
   const captures = optionGroup(pc, "inspection_capture_kinds");
-  const problems = useMemo(() => (isVendorForm ? vendorFormProblems(rows) : inspectionProblems(rows)), [rows, isVendorForm]);
+  const missingNoun = profile === "feed_purchase_form" ? "A feed load" : "A vendor";
+  const problems = useMemo(
+    () => (isVendorForm ? vendorFormProblems(rows, pageRequiredKeys, missingNoun) : inspectionProblems(rows)),
+    [rows, isVendorForm, pageRequiredKeys, missingNoun],
+  );
   const questionCount = rows.pages.reduce((n, p) => n + p.questions.length, 0);
   const takenKeys = useMemo(() => new Set(rows.pages.flatMap((p) => p.questions.map((q) => q.key))), [rows]);
 
