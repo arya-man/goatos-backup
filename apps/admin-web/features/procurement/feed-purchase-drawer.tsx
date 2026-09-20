@@ -447,6 +447,9 @@ export function FeedPurchaseDrawer({
               {cell(field("total_cost"), purchase.total_cost == null ? null : inr(purchase.total_cost))}
               {cell(field("per_kg_cost"), purchase.per_kg_cost == null ? null : inr(purchase.per_kg_cost, 2))}
               {cell(field("vendor"), purchase.vendor)}
+              {(purchase.answer_rows ?? []).map((answer) => (
+                <div key={answer.question_id}><div className="k">{answer.label}</div><div className="v">{answer.value}</div></div>
+              ))}
               {cell(
                 copy(pageContract, "column.entry_source"),
                 purchase.entry_source === "app"

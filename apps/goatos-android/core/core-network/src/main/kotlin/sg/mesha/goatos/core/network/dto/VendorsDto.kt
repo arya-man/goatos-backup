@@ -84,6 +84,7 @@ data class VendorAnswerRowDto(
  */
 @Serializable
 data class VendorFormDto(
+    @SerialName("sop_code") val sopCode: String = "sales.vendor",
     @SerialName("version") val version: Int = 0,
     @SerialName("pages") val pages: List<VendorFormPageDto> = emptyList(),
 )
@@ -156,6 +157,7 @@ data class VendorCatalogDto(
  */
 @Serializable
 data class VendorWriteDto(
+    @SerialName("questionnaire_sop_code") val questionnaireSopCode: String = "sales.vendor",
     @SerialName("record_type") val recordType: String,
     @SerialName("business_name") val businessName: String,
     @SerialName("contact_person_name") val contactPersonName: String = "",
@@ -196,6 +198,9 @@ data class VendorWriteDto(
 /** One purchased feed load (the ledger row). Delivery state per the 2026-09-03 decision. */
 @Serializable
 data class FeedPurchaseDto(
+    @SerialName("answers") val answers: Map<String, String> = emptyMap(),
+    @SerialName("questionnaire_version") val questionnaireVersion: Int = 0,
+    @SerialName("answer_rows") val answerRows: List<VendorAnswerRowDto> = emptyList(),
     @SerialName("feed_purchase_id") val feedPurchaseId: String,
     /** Business DATE (YYYY-MM-DD), never an instant. */
     @SerialName("purchase_date") val purchaseDate: String = "",

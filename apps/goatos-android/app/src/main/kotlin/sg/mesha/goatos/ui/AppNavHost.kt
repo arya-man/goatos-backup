@@ -744,15 +744,16 @@ object Routes {
     const val SALE_ID_ARG = "deal_id"
     // Market survey (maintainer decision 2026-09-14; MOVED out of Procurement on 2026-09-20):
     // a SALES L0 root, whose href matches the backend-composed nav item VERBATIM
-    // (bootstrap_copy.go: {key:"market", href:"/sales/market"}), and the `market_survey_due`
+    // (bootstrap_copy.go: {key:"market", href:"/vendors/market"}, owned by Sales), and the `market_survey_due`
     // push's target. It is MOVED, not duplicated -- the same clean move the ledger above made
     // off `/vendors/sales`, so there is no second route for one screen. One hosted drill: a
     // city's entry form, under the literal `/city/` segment so the L0 can never be read as a
     // city id.
-    const val SALES_MARKET = "/sales/market"
+    // Keep the installed-APK wire route: the backend owns this tab under Sales.
+    const val SALES_MARKET = "/vendors/market"
     const val MARKET_CITY_ID_ARG = "city_id"
-    const val MARKET_CITY_ENTRY = "/sales/market/city/{$MARKET_CITY_ID_ARG}"
-    fun marketCityEntryRoute(cityId: String): String = "/sales/market/city/${Uri.encode(cityId)}"
+    const val MARKET_CITY_ENTRY = "/vendors/market/city/{$MARKET_CITY_ID_ARG}"
+    fun marketCityEntryRoute(cityId: String): String = "/vendors/market/city/${Uri.encode(cityId)}"
 
     const val SALE_DETAIL = "/sales/sale/{$SALE_ID_ARG}"
     const val SALE_TAG_ANIMALS = "/sales/sale/{$SALE_ID_ARG}/tag"
@@ -5295,6 +5296,8 @@ private val pushTargetDestinations: Set<String> = supportedRootDestinations + se
  */
 internal fun pushTargetRoute(target: String?): String? {
     if (target.isNullOrBlank()) return null
+    // Accept links from the brief renamed route while retaining one stable hosted screen.
+    if (target.substringBefore('?').trimEnd('/') == "/sales/market") return Routes.SALES_MARKET
     if (target.substringBefore('?').trimEnd('/') in pushTargetDestinations) return target
     // A `leadership_task_raised` / `leadership_task_done` push names ONE task
     // (`/leadership-tasks/{task_id}`): open that task, not the module landing.

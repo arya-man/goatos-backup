@@ -68,6 +68,7 @@ type Vendor struct {
 	// a row written before the form existed. See vendor_form.go.
 	SOPAnswers           map[string]string
 	QuestionnaireVersion *int
+	QuestionnaireSOPCode string
 
 	SourceRow *int
 
@@ -256,6 +257,7 @@ type VendorWrite struct {
 	// answers are PRESERVED, because a form the client never rendered is not one it can clear.
 	SOPAnswers           map[string]string
 	QuestionnaireVersion int
+	QuestionnaireSOPCode string
 }
 
 // ErrVendorValidation reports a rejected write with a field-specific, operator-readable reason.

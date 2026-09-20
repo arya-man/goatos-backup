@@ -463,8 +463,8 @@ var moduleNavRegistry = map[string]moduleDefinition{ //nav-composition:ignore: t
 			// duplicated, the same way the Sales ledger itself moved out of Procurement on
 			// 2026-09-05. Nobody loses it: the tab is gated on the ENTRY permission held per
 			// person through market_reporter, and every holder of that already carries this
-			// module (asserted by TestMarketTabIsASalesTabAndReachesEveryReporter).
-			{key: "market", labelKey: "nav.market", href: "/sales/market", shared_key: "", priority: 3, requiredPermission: permissions.MarketEntry}, //nav-composition:ignore: registry entry
+			// module. The legacy href is a stable installed-APK contract; tab ownership is Sales.
+			{key: "market", labelKey: "nav.market", href: "/vendors/market", shared_key: "", priority: 3, requiredPermission: permissions.MarketEntry}, //nav-composition:ignore: registry entry
 		},
 	},
 	// "work_board" is the phone's My Work (maintainer decision 2026-09-10, the Work Board
@@ -1102,11 +1102,9 @@ func permissionOfferedModuleKeys(grants []domain.GrantSummary) []string {
 	if grantsHavePermission(grants, permissions.VendorRead) {
 		keys = append(keys, "vendors")
 	}
-	// Sales (maintainer decision 2026-09-05) is offered on SalesRead the same per-person way. The
-	// two sets are identical today -- ceo_internal, procurement_director, procurement_manager hold
-	// both -- so this changes WHO sees nothing; it changes WHAT they see, which is a Sales module
-	// beside Procurement instead of a Sales tab inside it.
-	if grantsHavePermission(grants, permissions.SalesRead) {
+	// Market reporters need the Sales module even when they cannot read the sales ledger.
+	// Its contributions independently enforce their permissions.
+	if grantsHavePermission(grants, permissions.SalesRead) || grantsHavePermission(grants, permissions.MarketEntry) {
 		keys = append(keys, "sales")
 	}
 	// Leadership Tasks (maintainer decision 2026-09-04): every director role and ceo_internal

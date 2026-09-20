@@ -7,6 +7,7 @@
 // question also travels as an answer under its id, with the form version, so the backend checks
 // the submission against exactly the form this drawer rendered.
 import { useState } from "react";
+import { visibleQuestionIds } from "./authored-form-visibility";
 
 import { copy, type AdminUiPageContract } from "@/lib/admin-ui-contract";
 import type { ProcurementVendor, ProcurementVendorForm, ProcurementVendorQuestion } from "@/lib/api/server";
@@ -62,13 +63,15 @@ export function VendorFormFields({ form, vendor, pageContract }: { form: Procure
   });
   const initial = currentAnswers(vendor);
   const asked = new Set(questionsOf(form).map((q) => q.id));
-  const visible = (q: ProcurementVendorQuestion) => !q.only_if || picked[q.only_if.question_id] === q.only_if.value;
+  const visibleIds = visibleQuestionIds(questionsOf(form), picked);
+  const visible = (q: ProcurementVendorQuestion) => visibleIds.has(q.id);
 
   return (
     <>
       <div className="note">{copy(pageContract, "required.hint.form")}</div>
       <input type="hidden" name="questionnaire_version" value={form.version} />
-      <input type="hidden" name="form_question_ids" value={questionsOf(form).map((q) => q.id).join(",")} />
+      <input type="hidden" name="questionnaire_sop_code" value={form.sop_code ?? "sales.vendor"} />
+      <input type="hidden" name="form_question_ids" value={[...visibleIds].join(",")} />
       {vendor
         ? TYPED_CARRY.filter(([id]) => !asked.has(id)).map(([id, read]) => <input key={id} type="hidden" name={id} value={read(vendor)} />)
         : null}
@@ -100,7 +103,7 @@ export function VendorFormFields({ form, vendor, pageContract }: { form: Procure
                       id={id}
                       name={q.id}
                       required={q.required}
-                      defaultValue={value}
+                      value={picked[q.id] ?? ""}
                       onChange={(e) => setPicked((s) => ({ ...s, [q.id]: e.target.value }))}
                     >
                       <option value="" disabled={q.required}>

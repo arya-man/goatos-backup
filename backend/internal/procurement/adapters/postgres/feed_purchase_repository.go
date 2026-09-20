@@ -46,7 +46,7 @@ const feedPurchaseColumns = `
 	p.delivery_status,
 	CASE WHEN p.delivery_status = 'reached' THEN COALESCE(p.reached_on, p.purchase_date) END,
 	p.reached_weight_kg, p.reached_by,
-	p.entry_source, p.recorded_by, p.created_at`
+	p.entry_source, p.recorded_by, p.created_at, p.sop_answers, COALESCE(p.questionnaire_version, 0)`
 
 // scanFeedPurchase reads one row of feedPurchaseColumns, in that exact order.
 func scanFeedPurchase(row pgx.Row) (domain.FeedPurchase, error) {
@@ -62,7 +62,7 @@ func scanFeedPurchase(row pgx.Row) (domain.FeedPurchase, error) {
 		&p.FeedCost, &p.TransportCost, &p.LoadingCost, &p.UnloadingCost, &p.TotalCost, &p.PerKgCost,
 		&p.Vendor, &p.PaymentReleased, &p.PaymentStatus,
 		&p.DeliveryStatus, &reachedOn, &p.ReachedWeightKg, &p.ReachedBy,
-		&p.EntrySource, &p.RecordedBy, &createdAt,
+		&p.EntrySource, &p.RecordedBy, &createdAt, &p.SOPAnswers, &p.QuestionnaireVersion,
 	)
 	if err != nil {
 		return domain.FeedPurchase{}, err
@@ -254,14 +254,24 @@ func (r *Repository) CreateFeedPurchase(ctx context.Context, tenantID string, wr
 	// the same key but ANY different field is a different request and must be refused, not
 	// recorded. The batch number is included as "" when absent, so "next load" and "batch 7"
 	// fingerprint differently.
-	fingerprint := requestFingerprint(
+	fingerprintParts := []string{
 		write.PurchaseDate, write.FarmLabel, write.FeedItemLabel,
 		fpInt(write.BatchNo), fpMoney(&write.QuantityKg),
 		fpMoney(write.FeedCost), fpMoney(write.TransportCost), fpMoney(write.LoadingCost),
 		fpMoney(write.UnloadingCost), fpMoney(write.TotalCost),
 		write.Vendor, fpMoney(write.PaymentReleased), write.PaymentStatus,
 		write.ReachedOn, fpMoney(write.ReachedWeightKg),
-	)
+	}
+	// Keep the pre-form fingerprint for typed-only offline retries. Authored
+	// requests include their canonical stored extras and exact form version.
+	if len(write.SOPAnswers) > 0 || write.QuestionnaireVersion > 0 {
+		answers, err := json.Marshal(nonNilAnswers(write.SOPAnswers))
+		if err != nil {
+			return domain.FeedPurchase{}, err
+		}
+		fingerprintParts = append(fingerprintParts, string(answers), fmt.Sprintf("%d", write.QuestionnaireVersion))
+	}
+	fingerprint := requestFingerprint(fingerprintParts...)
 	reservation, err := reserveIdempotency(ctx, tx, tenantID, idemScopeFeedPurchaseCreate, idempotencyKey, fingerprint)
 	if err != nil {
 		return domain.FeedPurchase{}, err

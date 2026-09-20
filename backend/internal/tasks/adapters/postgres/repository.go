@@ -917,6 +917,28 @@ func (r *Repository) workflowMutation(
 	if err != nil {
 		return domain.WorkflowInstance{}, nil, false, err
 	}
+	hookChanges, err := r.reconcileSubjectHookActions(ctx, tx, &w, actions)
+	if err != nil {
+		return domain.WorkflowInstance{}, nil, false, err
+	}
+	if len(hookChanges) > 0 {
+		// A branch callback and receipt reconciliation can touch the same action;
+		// persist only its final state and row version.
+		for _, hookAction := range hookChanges {
+			found := false
+			for i := range changed {
+				if changed[i].ActionID == hookAction.ActionID {
+					changed[i] = hookAction
+					found = true
+					break
+				}
+			}
+			if !found {
+				changed = append(changed, hookAction)
+			}
+		}
+		replay = false
+	}
 	if replay {
 		// Exact idempotent replay: return current state, mutate nothing.
 		if err := tx.Commit(ctx); err != nil {
@@ -1337,13 +1359,34 @@ func (r *Repository) CompleteSaleTagStep(ctx context.Context, tenantID, dealID s
 	return r.completeHookStep(ctx, tenantID, domain.TemplateKeySalesDeal, dealID, domain.EngineHookSaleTagAnimals, completedAt)
 }
 
-// CompleteAnimalPurchaseDecisionStep completes the intake workflow's `animal_purchase_decision`
-// step when the load's LAST waiting animal has been decided (PROCUREMENT IS SOP-DRIVEN END TO
-// END, 2026-09-20). Same shape as the sale's tag step and for the same reason: the office decides
-// animals one at a time on its own screen, and the step records that the work is finished rather
-// than asking anyone to say so twice.
-func (r *Repository) CompleteAnimalPurchaseDecisionStep(ctx context.Context, tenantID, loadID string, completedAt time.Time) error {
-	return r.completeHookStep(ctx, tenantID, domain.TemplateKeyAnimalPurchaseIntake, loadID, domain.EngineHookAnimalPurchaseDecision, completedAt)
+// ReconcileAnimalPurchaseDecisionStep saves a monotonic source-state receipt and
+// updates the shared workflow engine's action and card rollup. This projection
+// owns no workflow state and writes no animal-purchase source tables.
+func (r *Repository) ReconcileAnimalPurchaseDecisionStep(ctx context.Context, tenantID, loadID string, pending, decided int, completedAt time.Time) error {
+	// Save before looking up the workflow: a decision may arrive before its opener.
+	// Candidate creation and decisions serialize on the producer's load row. Both
+	// counters are monotonic (a candidate can only be decided once).
+	_, err := r.pool.Exec(ctx, `INSERT INTO workflow_animal_purchase_decisions
+(tenant_id, load_id, pending, decided, revision, occurred_at)
+VALUES ($1::uuid, $2::uuid, $3, $4, ($3::integer)::bigint + 2*($4::integer)::bigint, $5)
+ON CONFLICT (tenant_id, load_id) DO UPDATE SET pending=EXCLUDED.pending,
+ decided=EXCLUDED.decided, revision=EXCLUDED.revision, occurred_at=EXCLUDED.occurred_at
+WHERE workflow_animal_purchase_decisions.revision < EXCLUDED.revision`, tenantID, loadID, pending, decided, completedAt)
+	if err != nil {
+		return err
+	}
+	workflowID, err := r.WorkflowIDBySubjectRef(ctx, tenantID, domain.TemplateKeyAnimalPurchaseIntake, loadID)
+	if errors.Is(err, domain.ErrNotFound) {
+		return nil
+	}
+	if err != nil {
+		return err
+	}
+	_, _, _, err = r.workflowMutation(ctx, tenantID, workflowID,
+		func(pgx.Tx, *domain.WorkflowInstance, []domain.WorkflowAction) ([]domain.WorkflowAction, bool, error) {
+			return nil, true, nil
+		})
+	return err
 }
 
 // CompleteFeedPurchaseReachedStep completes the feed-purchase workflow's arrival step when the
@@ -1359,10 +1402,28 @@ func (r *Repository) CompleteToxinTestStep(ctx context.Context, tenantID, purcha
 	return r.completeHookStep(ctx, tenantID, domain.TemplateKeyFeedPurchaseIntake, purchaseID, domain.EngineHookToxinTestAccepted, completedAt)
 }
 
-// completeHookStep completes the one step of a subject-keyed workflow carrying `hook`. A subject
-// with no workflow yet, a step already finished, and a redelivered event are all no-ops: the
-// completion is idempotent on the step, keyed by hook + subject + instant.
+// completeHookStep retains a business fact and asks the shared workflow mutation
+// to reconcile every matching action. Facts preceding the workflow are replayed
+// by its opener; branch changes reconcile in their own mutation transaction.
 func (r *Repository) completeHookStep(ctx context.Context, tenantID, templateKey, subjectRefID, hook string, completedAt time.Time) error {
+	// A zero timestamp requests reconciliation of a previously observed fact.
+	// Persist nonzero facts before workflow lookup so an out-of-order opener heals
+	// them. Replays keep the first completion instant and remain idempotent.
+	if !completedAt.IsZero() {
+		if _, err := r.pool.Exec(ctx, `INSERT INTO workflow_subject_hook_receipts
+(tenant_id, template_key, subject_ref_id, hook, completed_at)
+VALUES ($1::uuid,$2,$3::uuid,$4,$5)
+ON CONFLICT (tenant_id,template_key,subject_ref_id,hook) DO NOTHING`, tenantID, templateKey, subjectRefID, hook, completedAt); err != nil {
+			return err
+		}
+	}
+	if err := r.pool.QueryRow(ctx, `SELECT completed_at FROM workflow_subject_hook_receipts
+WHERE tenant_id=$1::uuid AND template_key=$2 AND subject_ref_id=$3::uuid AND hook=$4`, tenantID, templateKey, subjectRefID, hook).Scan(&completedAt); err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return nil
+		}
+		return err
+	}
 	workflowID, err := r.WorkflowIDBySubjectRef(ctx, tenantID, templateKey, subjectRefID)
 	if errors.Is(err, domain.ErrNotFound) {
 		return nil
@@ -1371,33 +1432,7 @@ func (r *Repository) completeHookStep(ctx context.Context, tenantID, templateKey
 		return err
 	}
 	_, _, _, err = r.workflowMutation(ctx, tenantID, workflowID,
-		func(tx pgx.Tx, w *domain.WorkflowInstance, actions []domain.WorkflowAction) ([]domain.WorkflowAction, bool, error) {
-			for i := range actions {
-				if !actions[i].HasHook(hook) {
-					continue
-				}
-				if actions[i].Status != domain.ActionStatusPending && actions[i].Status != domain.ActionStatusRework {
-					return nil, true, nil
-				}
-				key := hook + ":" + subjectRefID + ":" + completedAt.UTC().Format(time.RFC3339Nano)
-				updated, isReplay, err := domain.ApplyComplete(actions[i], domain.CompleteActionCommand{
-					TenantID:           tenantID,
-					WorkflowID:         workflowID,
-					ActionID:           actions[i].ActionID,
-					CompletedBy:        "",
-					CompletedAt:        completedAt,
-					IdempotencyKey:     key,
-					RequestFingerprint: key,
-				})
-				if err != nil {
-					return nil, false, err
-				}
-				actions[i] = updated
-				if isReplay {
-					return nil, true, nil
-				}
-				return []domain.WorkflowAction{updated}, false, nil
-			}
+		func(pgx.Tx, *domain.WorkflowInstance, []domain.WorkflowAction) ([]domain.WorkflowAction, bool, error) {
 			return nil, true, nil
 		})
 	return err

@@ -18,11 +18,11 @@ import (
 // (subject_ref_id = animal_purchase_loads.load_id, no animal), pinned to the version in force,
 // with each step carrying the designation that does it.
 //
-// Two consumers, both registered in eventwiring.RegisterWorkflowConsumers so every bus process
+// Consumers, both registered in eventwiring.RegisterWorkflowConsumers so every bus process
 // behaves alike:
 //
 //	procurement.animal_purchase.load_recorded -> open the load's workflow (idempotent on the load)
-//	procurement.animal_purchase.decided       -> complete its decision step, once nothing is waiting
+//	procurement.animal_purchase.decided / candidate_recorded -> reconcile its decision step
 const (
 	EventAnimalPurchaseLoadRecorded = "procurement.animal_purchase.load_recorded"
 	EventAnimalPurchaseDecided      = "procurement.animal_purchase.decided"
@@ -76,12 +76,15 @@ func (h *AnimalPurchaseLoadRecordedWorkflowHandler) HandleEvent(ctx context.Cont
 		EventAt:      eventAt,
 		ParkID:       strings.TrimSpace(p.ParkID),
 	})
-	return err
+	if err != nil {
+		return err
+	}
+	return h.svc.ReconcileAnimalPurchaseDecisionStep(ctx, e.TenantID, loadID, 0, 0, eventAt.UTC())
 }
 
-// animalPurchaseDecidedPayload is the subset of the decision payload the completer reads. The
-// PENDING COUNT is the producer's own, computed inside the decision transaction -- the consumer
-// never re-counts the load, so the step cannot disagree with the row that moved.
+// animalPurchaseDecidedPayload carries a serialized source snapshot. Candidate adds
+// and once-only decisions monotonically increase pending + 2*(accepted+rejected).
+// Tasks retains the newest snapshot even when events precede the workflow opener.
 type animalPurchaseDecidedPayload struct {
 	LoadID     string `json:"load_id"`
 	Pending    int    `json:"load_pending"`
@@ -90,8 +93,7 @@ type animalPurchaseDecidedPayload struct {
 	OccurredAt string `json:"occurred_at"`
 }
 
-// AnimalPurchaseDecidedWorkflowHandler completes the intake workflow's decision step once no
-// animal in the load is still waiting.
+// AnimalPurchaseDecidedWorkflowHandler reconciles the intake decision step.
 type AnimalPurchaseDecidedWorkflowHandler struct{ svc *Service }
 
 // NewAnimalPurchaseDecidedWorkflowHandler constructs the completer.
@@ -104,12 +106,11 @@ var _ eventbus.Handler = (*AnimalPurchaseDecidedWorkflowHandler)(nil)
 // Register subscribes the decision event.
 func (h *AnimalPurchaseDecidedWorkflowHandler) Register(bus eventbus.Bus) {
 	bus.Subscribe(EventAnimalPurchaseDecided, h)
+	bus.Subscribe("procurement.animal_purchase.candidate_recorded", h)
 }
 
-// HandleEvent completes the decision step when the decision just taken was the LAST one owed. A
-// load still holding a waiting animal leaves the step open -- that is the whole point of the
-// engine owning it, rather than a tap that could claim a load was decided over an unanswered
-// animal.
+// HandleEvent reconciles decision completion from both candidate and decision events.
+// A later offline candidate reopens the step; reordered old events cannot close it.
 func (h *AnimalPurchaseDecidedWorkflowHandler) HandleEvent(ctx context.Context, e eventbus.Event) error {
 	var p animalPurchaseDecidedPayload
 	if len(e.Payload) > 0 {
@@ -121,12 +122,7 @@ func (h *AnimalPurchaseDecidedWorkflowHandler) HandleEvent(ctx context.Context, 
 	if loadID == "" || strings.TrimSpace(e.TenantID) == "" {
 		return nil
 	}
-	if p.Pending > 0 {
-		return nil
-	}
-	// A load whose counts are all zero has no animal at all: nothing was decided, so nothing is
-	// finished. Completing the step there would report a decision on an empty load.
-	if p.Accepted+p.Rejected == 0 {
+	if p.Pending < 0 || p.Accepted < 0 || p.Rejected < 0 {
 		return nil
 	}
 	at := e.OccurredAt
@@ -138,7 +134,7 @@ func (h *AnimalPurchaseDecidedWorkflowHandler) HandleEvent(ctx context.Context, 
 	if at.IsZero() {
 		at = time.Now()
 	}
-	return h.svc.CompleteAnimalPurchaseDecisionStep(ctx, e.TenantID, loadID, at.UTC())
+	return h.svc.ReconcileAnimalPurchaseDecisionStep(ctx, e.TenantID, loadID, p.Pending, p.Accepted+p.Rejected, at.UTC())
 }
 
 // The FEED purchase's own workflow (same decision, same shape as the animal load's). Three
@@ -196,10 +192,15 @@ func (h *FeedPurchaseRecordedWorkflowHandler) HandleEvent(ctx context.Context, e
 		EventAt:      eventAt,
 		ParkID:       strings.TrimSpace(p.ParkID),
 	})
-	if err != nil || (!p.AlreadyReached && strings.TrimSpace(p.ReachedOn) == "") {
+	if err != nil {
 		return err
 	}
-	return h.svc.CompleteFeedPurchaseReachedStep(ctx, e.TenantID, p.FeedPurchaseID, eventAt.UTC())
+	if p.AlreadyReached || strings.TrimSpace(p.ReachedOn) != "" {
+		if err := h.svc.CompleteFeedPurchaseReachedStep(ctx, e.TenantID, p.FeedPurchaseID, eventAt.UTC()); err != nil {
+			return err
+		}
+	}
+	return h.svc.ReconcileFeedPurchaseSteps(ctx, e.TenantID, p.FeedPurchaseID)
 }
 
 // FeedPurchaseReachedWorkflowHandler completes the arrival step when the ledger marks the load

@@ -18,6 +18,29 @@ import sg.mesha.goatos.core.network.dto.VendorQuestionOnlyIfDto
  * carried from the stored row on edit; the cheapest refusals shown before the write.
  */
 class VendorFormAnswersTest {
+    @Test
+    fun `hidden cross page branches cannot reactivate from stale answers`() {
+        val yesNo = listOf(VendorCatalogEntryDto("yes", "Yes"), VendorCatalogEntryDto("no", "No"))
+        val pages = listOf(
+            VendorFormPageDto(key = "parent", title = "Parent", questions = listOf(
+                VendorQuestionDto(id = "a", kind = "choice", title = "A", typed = true, options = yesNo),
+            )),
+            VendorFormPageDto(key = "child", title = "Child", questions = listOf(
+                VendorQuestionDto(id = "b", kind = "choice", title = "B", options = yesNo, onlyIf = VendorQuestionOnlyIfDto("a", "yes")),
+            )),
+            VendorFormPageDto(key = "grandchild", title = "Grandchild", questions = listOf(
+                VendorQuestionDto(id = "c", kind = "text", title = "C", required = true, onlyIf = VendorQuestionOnlyIfDto("b", "yes")),
+            )),
+        ).map { it.toUi() }
+        val stale = mapOf("a" to "no", "b" to "yes", "c" to "old detail")
+        val visible = visibleVendorAnswers(pages, stale)
+        assertEquals(mapOf("a" to "no"), visible)
+        assertTrue(pages.all { validateVendorFormPage(it, visible).isEmpty() })
+        assertEquals(mapOf("a" to "no"), vendorAnswersToWrite(stale, pages, 2).answers)
+        val reopened = visibleVendorAnswers(pages, stale + ("a" to "yes"))
+        assertEquals("old detail", reopened["c"])
+    }
+
 
     private val form = listOf(
         VendorFormPageDto(

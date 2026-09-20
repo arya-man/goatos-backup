@@ -192,6 +192,7 @@ data class VendorCreateUiState(
      */
     val form: List<VendorFormPageUi> = emptyList(),
     val formVersion: Int = 0,
+    val formSopCode: String = "sales.vendor",
     /** Answers keyed by question id (pick-many joined with `|`, an "other" text under `<id>_other`). */
     val answers: Map<String, String> = emptyMap(),
     /** Per-question refusal shown under the box. */

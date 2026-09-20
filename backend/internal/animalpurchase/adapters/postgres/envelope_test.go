@@ -58,3 +58,19 @@ func TestDecidedEnvelopeSatisfiesTheSharedSchema(t *testing.T) {
 		t.Fatalf("envelope = %s", tx.envelope)
 	}
 }
+
+func TestCandidateRecordedEnvelopeSatisfiesTheSharedSchema(t *testing.T) {
+	validator, err := outboxapp.NewEnvelopeValidator("../../../../../contracts/jsonschema/domain-event-envelope.schema.json")
+	if err != nil {
+		t.Fatal(err)
+	}
+	tx := &captureTx{}
+	c := domain.Candidate{CandidateID: "7a89f1c5-80f9-4e8b-8006-c9245c421299", LoadID: "4f2009e7-a56e-4092-9a0c-60c62188e676", Decision: "pending"}
+	load := domain.Load{LoadID: c.LoadID, Counts: domain.DecisionCounts{Total: 2, Pending: 1, Accepted: 1}}
+	if err := emitDecisionState(context.Background(), tx, "00000000-0000-4000-8000-000000000001", "d1408eef-58e5-52e2-9a0f-6e38237627d1", "candidate-2", c, load, "procurement.animal_purchase.candidate_recorded"); err != nil {
+		t.Fatal(err)
+	}
+	if err := validator.Validate(tx.envelope); err != nil {
+		t.Fatalf("candidate event rejected by production relay: %v", err)
+	}
+}

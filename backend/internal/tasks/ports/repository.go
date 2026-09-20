@@ -131,10 +131,10 @@ type Repository interface {
 	// CompleteSaleTagStep completes the sale workflow's sale_tag_animals step for the deal when
 	// its allocation confirm lands. No-op when there is no such open step.
 	CompleteSaleTagStep(ctx context.Context, tenantID, dealID string, completedAt time.Time) error
-	// CompleteAnimalPurchaseDecisionStep completes the animal-purchase intake workflow's
-	// `animal_purchase_decision` step for the load when its last waiting animal is decided. A load
-	// with no workflow, a step already done, and a redelivery are all no-ops.
-	CompleteAnimalPurchaseDecisionStep(ctx context.Context, tenantID, loadID string, completedAt time.Time) error
+	// ReconcileAnimalPurchaseDecisionStep follows the newest load counts, reopening
+	// a completed decision when later candidates sync. Zero counts reconcile a
+	// newly opened workflow with an earlier event receipt without overwriting it.
+	ReconcileAnimalPurchaseDecisionStep(ctx context.Context, tenantID, loadID string, pending, decided int, completedAt time.Time) error
 	// CompleteFeedPurchaseReachedStep completes the feed-purchase workflow's arrival step when the
 	// ledger marks the load delivered.
 	CompleteFeedPurchaseReachedStep(ctx context.Context, tenantID, purchaseID string, completedAt time.Time) error

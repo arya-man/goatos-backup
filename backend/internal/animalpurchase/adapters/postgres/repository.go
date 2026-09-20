@@ -582,6 +582,13 @@ func (r *Repository) AddCandidate(ctx context.Context, p ports.AddCandidateParam
 	if err != nil {
 		return domain.Candidate{}, err
 	}
+	load, err := r.getLoad(ctx, tx, p.TenantID, p.LoadID)
+	if err != nil {
+		return domain.Candidate{}, err
+	}
+	if err := emitDecisionState(ctx, tx, p.TenantID, p.ActorID, p.IdempotencyKey, c, load, "procurement.animal_purchase.candidate_recorded"); err != nil {
+		return domain.Candidate{}, err
+	}
 	if err := tx.Commit(ctx); err != nil {
 		return domain.Candidate{}, fmt.Errorf("animal purchase: commit candidate: %w", err)
 	}
@@ -933,6 +940,10 @@ func emitLoadRecorded(ctx context.Context, tx outboxWriter, tenantID, actorID, i
 }
 
 func emitDecided(ctx context.Context, tx outboxWriter, tenantID, actorID, idempotencyKey string, c domain.Candidate, load domain.Load) error {
+	return emitDecisionState(ctx, tx, tenantID, actorID, idempotencyKey, c, load, DecidedEventType)
+}
+
+func emitDecisionState(ctx context.Context, tx outboxWriter, tenantID, actorID, idempotencyKey string, c domain.Candidate, load domain.Load, eventType string) error {
 	eventID := uuid.NewString()
 	now := time.Now().UTC()
 	payload := DecidedPayload{
@@ -948,7 +959,7 @@ func emitDecided(ctx context.Context, tx outboxWriter, tenantID, actorID, idempo
 	}
 	envelope, err := json.Marshal(map[string]any{
 		"event_id":       eventID,
-		"event_type":     DecidedEventType,
+		"event_type":     eventType,
 		"schema_version": decidedSchemaVersion,
 		"schema_ref":     decidedSchemaRef,
 		"occurred_at":    now.Format("2006-01-02T15:04:05.000000Z"),
@@ -987,7 +998,7 @@ func emitDecided(ctx context.Context, tx outboxWriter, tenantID, actorID, idempo
 	if err != nil {
 		return err
 	}
-	if _, err := tx.Exec(ctx, sqlInsertOutbox, tenantID, eventID, DecidedEventType, decidedSchemaVersion, aggregateType, c.CandidateID,
+	if _, err := tx.Exec(ctx, sqlInsertOutbox, tenantID, eventID, eventType, decidedSchemaVersion, aggregateType, c.CandidateID,
 		decidedTopic, envelope, headers, idempotencyKey); err != nil {
 		return fmt.Errorf("animal purchase: outbox decided: %w", err)
 	}

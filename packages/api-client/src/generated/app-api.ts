@@ -7759,6 +7759,8 @@ export interface components {
             answers?: {
                 [key: string]: string;
             };
+            /** @description The rendered form SOP code; omitted on legacy clients means sales.vendor. */
+            questionnaire_sop_code?: string;
             /** @description The sales.vendor form version the answers were given on; null before the form existed. */
             questionnaire_version?: number | null;
             /** @description On the single-vendor reads only: the same extra answers labelled by that version's question titles, in form order, for a detail screen. Rendered verbatim. */
@@ -7819,6 +7821,8 @@ export interface components {
             answers?: {
                 [key: string]: string;
             };
+            /** @description The rendered form SOP code; omitted on legacy clients means sales.vendor. */
+            questionnaire_sop_code?: string;
             /** @description Required with `answers`: the form version the screen rendered. */
             questionnaire_version?: number;
             /**
@@ -7833,6 +7837,7 @@ export interface components {
             value: string;
         };
         ProcurementVendorForm: {
+            sop_code?: string;
             version: number;
             pages: components["schemas"]["ProcurementVendorFormPage"][];
         };
@@ -8028,6 +8033,13 @@ export interface components {
         };
         /** @description One purchased feed load -- one Purchase row of the legacy Feed DB sheet, or one load recorded on /procurement/feed-purchases. */
         FeedPurchase: {
+            /** @description Authored extra answers stored with the purchase. */
+            answers?: {
+                [key: string]: string;
+            };
+            questionnaire_version?: number;
+            /** @description Extra answers labelled using the original questionnaire version. */
+            answer_rows?: components["schemas"]["ProcurementVendorAnswerRow"][];
             /** Format: uuid */
             feed_purchase_id: string;
             /**

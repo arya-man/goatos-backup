@@ -82,7 +82,7 @@ VALUES ($1::uuid, $2::uuid, $3::uuid, 'Ravi', 'Ravi', 'active', 'park_head')`, a
 	// ---- animals ----
 	add := func(key, sex string) domain.Candidate {
 		t.Helper()
-		c, err := repo.AddCandidate(ctx, ports.AddCandidateParams{TenantID: apTenant, LoadID: load.LoadID, ActorID: apUser, IdempotencyKey: key,
+		c, err := repo.AddCandidate(ctx, ports.AddCandidateParams{TenantID: apTenant, LoadID: load.LoadID, ActorID: apUser, QuestionnaireVersion: domain.QuestionnaireVersion, IdempotencyKey: key,
 			Write: inspection(sex, "Sirohi", 22.5, "10000000-0000-4000-8000-00000000000"+key[len(key)-1:])})
 		if err != nil {
 			t.Fatalf("AddCandidate %s: %v", key, err)
@@ -91,6 +91,12 @@ VALUES ($1::uuid, $2::uuid, $3::uuid, 'Ravi', 'Ravi', 'active', 'park_head')`, a
 	}
 	a1 := add("animal-1", "female")
 	a2 := add("animal-2", "male")
+	// Each successful add announces the new load snapshot in the same transaction.
+	var candidateEvents int
+	if err := pool.QueryRow(ctx, `SELECT count(*) FROM outbox_messages WHERE tenant_id=$1::uuid AND event_type='procurement.animal_purchase.candidate_recorded' AND (payload->'payload'->>'load_id')=$2`, apTenant, load.LoadID).Scan(&candidateEvents); err != nil || candidateEvents != 2 {
+		t.Fatalf("candidate events=%d err=%v", candidateEvents, err)
+	}
+
 	if a1.SeqNo != 1 || a2.SeqNo != 2 || a1.LoadRef != "132" || a1.Decision != domain.DecisionPending {
 		t.Fatalf("sequence numbers: %+v / %+v", a1, a2)
 	}
@@ -103,7 +109,7 @@ VALUES ($1::uuid, $2::uuid, $3::uuid, 'Ravi', 'Ravi', 'active', 'park_head')`, a
 	if n := a1.Answers.Number("teeth"); n == nil || *n != 4 || len(a1.Media[domain.SlotAnimal]) != 1 || len(a1.Media[domain.SlotTeeth]) != 1 || len(a1.Media[domain.SlotUdder]) != 1 {
 		t.Fatalf("answers/media round trip: answers=%v media=%v", a1.Answers, a1.Media)
 	}
-	if again, err := repo.AddCandidate(ctx, ports.AddCandidateParams{TenantID: apTenant, LoadID: load.LoadID, ActorID: apUser, IdempotencyKey: "animal-1",
+	if again, err := repo.AddCandidate(ctx, ports.AddCandidateParams{TenantID: apTenant, LoadID: load.LoadID, ActorID: apUser, QuestionnaireVersion: domain.QuestionnaireVersion, IdempotencyKey: "animal-1",
 		Write: inspection("female", "Sirohi", 22.5, "10000000-0000-4000-8000-000000000001")}); err != nil || again.CandidateID != a1.CandidateID {
 		t.Fatalf("exact replay must return the original animal: %v / %+v", err, again)
 	}
@@ -310,7 +316,7 @@ VALUES ($1::uuid, $2::uuid, $3::uuid, 'Ravi', 'Ravi', 'active', 'park_head') ON 
 		t.Fatalf("seed load: %v", err)
 	}
 	for i := 1; i <= n; i++ {
-		if _, err := repo.AddCandidate(ctx, ports.AddCandidateParams{TenantID: apTenant, LoadID: load.LoadID, ActorID: apUser, IdempotencyKey: fmt.Sprintf("seed-animal-%d", i),
+		if _, err := repo.AddCandidate(ctx, ports.AddCandidateParams{TenantID: apTenant, LoadID: load.LoadID, ActorID: apUser, QuestionnaireVersion: domain.QuestionnaireVersion, IdempotencyKey: fmt.Sprintf("seed-animal-%d", i),
 			Write: inspection("female", fmt.Sprintf("B%d", i), 20, fmt.Sprintf("10000000-0000-4000-8000-0000000000%02d", i))}); err != nil {
 			t.Fatalf("seed animal %d: %v", i, err)
 		}
@@ -343,7 +349,7 @@ func inspection(sex, breed string, weight float64, animalRefs ...string) domain.
 	// Every capture belongs to exactly one animal (unique on proof_ref), so the teeth and udder
 	// refs are derived per animal from its own animal ref, never shared across the seed.
 	base := animalRefs[0]
-	w := domain.CandidateWrite{Answers: a, Media: domain.MediaRefs{
+	w := domain.CandidateWrite{Catalog: domain.SeededCatalog(), Answers: a, Media: domain.MediaRefs{
 		domain.SlotTeeth: {"teeth-" + base}, domain.SlotAnimal: animalRefs, domain.SlotUdder: {"udder-" + base},
 	}}
 	// The service normalizes (deriving the typed columns) before the repository is reached;

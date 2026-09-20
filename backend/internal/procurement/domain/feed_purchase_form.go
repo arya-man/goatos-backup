@@ -198,3 +198,45 @@ func FeedPurchaseFormCatalog(farms []string, feedItems []string, paymentStatuses
 
 // feedPurchaseFormLabel is used by problem text only.
 var _ = fmt.Sprintf
+
+// FeedPurchaseAnswerRows renders stored extras against their original form.
+func FeedPurchaseAnswerRows(form VendorForm, answers map[string]string) []VendorAnswerRow {
+	labels := map[string]VendorQuestion{}
+	for _, q := range form.Questions() {
+		labels[q.ID] = q
+	}
+	out := []VendorAnswerRow{}
+	for _, q := range form.Questions() {
+		if IsTypedFeedPurchaseQuestion(q.ID) {
+			continue
+		}
+		v, ok := answers[q.ID]
+		if !ok || strings.TrimSpace(v) == "" {
+			continue
+		}
+		display := v
+		if q.Kind == VendorQuestionChoice || q.Kind == VendorQuestionMulti {
+			parts := []string{}
+			for _, raw := range strings.Split(v, "|") {
+				raw = strings.TrimSpace(raw)
+				label := raw
+				for _, o := range q.Options {
+					if o.Value == raw {
+						label = o.Label
+					}
+				}
+				if raw == "other" && strings.TrimSpace(answers[q.ID+"_other"]) != "" {
+					label = strings.TrimSpace(answers[q.ID+"_other"])
+				}
+				parts = append(parts, label)
+			}
+			display = strings.Join(parts, ", ")
+		}
+		if q.Unit != "" && q.Kind == VendorQuestionNumber {
+			display = display + " " + q.Unit
+		}
+		out = append(out, VendorAnswerRow{QuestionID: q.ID, Label: q.Title, Value: display})
+	}
+	out = append(out, unresolvedAnswerRows(labels, answers)...)
+	return out
+}

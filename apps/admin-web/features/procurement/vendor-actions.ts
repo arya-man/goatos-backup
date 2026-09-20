@@ -73,7 +73,7 @@ function readVendorForm(formData: FormData): ProcurementVendorWrite {
     // client's literal union, it is not a trust boundary.
     status: (optionalString(formData, "status") ?? "") as ProcurementVendorWrite["status"],
     state: optionalString(formData, "state") ?? "",
-    ...(answers ? { answers, questionnaire_version: questionnaireVersion } : {}),
+    ...(answers ? { answers, questionnaire_version: questionnaireVersion, questionnaire_sop_code: formData.get("questionnaire_sop_code")?.toString() ?? "sales.vendor" } : {}),
     contact_person_name: optionalString(formData, "contact_person_name") ?? "",
     phone_number: optionalString(formData, "phone_number") ?? "",
     breed: optionalString(formData, "breed") ?? "",

@@ -230,18 +230,24 @@ func (f *fakeRepo) CompleteSaleTagStep(_ context.Context, tenantID, dealID strin
 	return nil
 }
 
-func (f *fakeRepo) CompleteAnimalPurchaseDecisionStep(_ context.Context, tenantID, loadID string, completedAt time.Time) error {
-	f.purchaseDecisionCompletions = append(f.purchaseDecisionCompletions, loadID)
+func (f *fakeRepo) ReconcileAnimalPurchaseDecisionStep(_ context.Context, tenantID, loadID string, pending, decided int, completedAt time.Time) error {
+	if pending == 0 && decided > 0 {
+		f.purchaseDecisionCompletions = append(f.purchaseDecisionCompletions, loadID)
+	}
 	return nil
 }
 
 func (f *fakeRepo) CompleteFeedPurchaseReachedStep(_ context.Context, tenantID, purchaseID string, completedAt time.Time) error {
-	f.feedReachedCompletions = append(f.feedReachedCompletions, purchaseID)
+	if !completedAt.IsZero() {
+		f.feedReachedCompletions = append(f.feedReachedCompletions, purchaseID)
+	}
 	return nil
 }
 
 func (f *fakeRepo) CompleteToxinTestStep(_ context.Context, tenantID, purchaseID string, completedAt time.Time) error {
-	f.toxinStepCompletions = append(f.toxinStepCompletions, purchaseID)
+	if !completedAt.IsZero() {
+		f.toxinStepCompletions = append(f.toxinStepCompletions, purchaseID)
+	}
 	return nil
 }
 

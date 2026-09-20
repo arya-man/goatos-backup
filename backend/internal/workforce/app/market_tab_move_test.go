@@ -1,6 +1,8 @@
 package app
 
 import (
+	"github.com/vgoats/goatos/backend/internal/platform/localization"
+	"github.com/vgoats/goatos/backend/internal/workforce/domain"
 	"testing"
 
 	"github.com/vgoats/goatos/backend/internal/permissions"
@@ -38,8 +40,8 @@ func TestMarketTabIsASalesTabAndReachesEveryReporter(t *testing.T) {
 	if market == nil {
 		t.Fatal("the Sales module carries no market tab")
 	}
-	if market.href != "/sales/market" {
-		t.Errorf("market href = %q, want /sales/market -- the Android L0 route matches this string verbatim", market.href)
+	if market.href != "/vendors/market" {
+		t.Errorf("market href = %q, want /vendors/market -- the Android L0 route matches this string verbatim", market.href)
 	}
 	if market.requiredPermission != permissions.MarketEntry {
 		t.Errorf("market requires %q, want %q", market.requiredPermission, permissions.MarketEntry)
@@ -70,5 +72,26 @@ func TestMarketTabIsASalesTabAndReachesEveryReporter(t *testing.T) {
 	if !permissions.RoleHasPermission(permissions.RoleMarketReporter, permissions.MarketEntry) {
 		t.Fatalf("%s does not hold %s -- the tab is unreachable by the people who do the work",
 			permissions.RoleMarketReporter, permissions.MarketEntry)
+	}
+}
+
+func TestMarketReporterCompositionKeepsCompatibleSalesTab(t *testing.T) {
+	grants := []domain.GrantSummary{grantWithRole(permissions.RoleMarketReporter)}
+	for _, granted := range [][]string{nil, {"sales"}} {
+		modules := modulesFor(grants, granted, localization.DefaultTag)
+		count := 0
+		for _, module := range modules {
+			for _, item := range module.NavItems {
+				if item.Key == "market" {
+					count++
+					if module.Key != "sales" || item.Href != "/vendors/market" {
+						t.Fatalf("Market must be Sales-owned with installed-APK-compatible route: %+v / %+v", module, item)
+					}
+				}
+			}
+		}
+		if count != 1 {
+			t.Fatalf("MarketEntry holder needs exactly one Sales Market tab, got %d in %+v", count, modules)
+		}
 	}
 }

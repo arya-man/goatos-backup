@@ -165,3 +165,36 @@ func TestAnOlderClientWithNoAnswersStillRecords(t *testing.T) {
 		t.Fatalf("a typed-only write must not invent a form version: %+v", repo.created)
 	}
 }
+
+type feedReadbackRepo struct {
+	fakeFeedPurchaseRepo
+	purchases []domain.FeedPurchase
+}
+
+func (r *feedReadbackRepo) ListFeedPurchases(context.Context, string, string, string, int, int) (ports.FeedPurchasePage, error) {
+	return ports.FeedPurchasePage{Purchases: r.purchases}, nil
+}
+func TestFeedPurchaseReadbackUsesOriginalVersionOncePerPage(t *testing.T) {
+	repo := &feedReadbackRepo{purchases: []domain.FeedPurchase{
+		{QuestionnaireVersion: 2, SOPAnswers: map[string]string{"lorry_number": "TN42"}},
+		{QuestionnaireVersion: 2, SOPAnswers: map[string]string{"lorry_number": "TN43"}},
+		{QuestionnaireVersion: 99, SOPAnswers: map[string]string{"retired_question": "kept"}},
+	}}
+	src := &feedFormSource{}
+	page, err := NewFeedPurchaseService(repo).WithFormSource(src).ListFeedPurchases(context.Background(), "tenant", FeedPurchaseListQuery{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(src.asked) != 2 || src.asked[0] != 2 || src.asked[1] != 99 {
+		t.Fatalf("historical lookup must be bounded by distinct versions: %v", src.asked)
+	}
+	for i, expected := range []string{"TN42", "TN43", "kept"} {
+		rows := page.Purchases[i].AnswerRows
+		if len(rows) != 1 || rows[0].Value != expected {
+			t.Fatalf("purchase %d lost answers: %+v", i, rows)
+		}
+	}
+	if page.Purchases[0].AnswerRows[0].Label != "Lorry number" {
+		t.Fatalf("missing historical label: %+v", page.Purchases[0].AnswerRows)
+	}
+}

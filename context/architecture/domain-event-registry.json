@@ -64,7 +64,8 @@
     "goat.sale_allocated",
     "sales.deal.recorded",
     "procurement.animal_purchase.decided",
-    "procurement.animal_purchase.load_recorded"
+    "procurement.animal_purchase.load_recorded",
+    "procurement.animal_purchase.candidate_recorded"
   ],
   "events": [
     {
@@ -323,7 +324,7 @@
     },
     {
       "eventType": "weighing.shed.verified_closed",
-      "producer": "weighing NORMAL completion — emitted by the verification verdict applier's own transaction when the last SUBMITTED item in a bucket is verified. No human performs it: closure_kind='verified', no reason, no closing actor. DISTINCT from weighing.shed.closed, which is a leader ending work early and always carries a reason.",
+      "producer": "weighing NORMAL completion \u2014 emitted by the verification verdict applier's own transaction when the last SUBMITTED item in a bucket is verified. No human performs it: closure_kind='verified', no reason, no closing actor. DISTINCT from weighing.shed.closed, which is a leader ending work early and always carries a reason.",
       "producerFiles": [
         "backend/internal/weighing/adapters/postgres/verified_closure.go",
         "backend/internal/weighing/adapters/postgres/verification_verdict.go"
@@ -348,7 +349,7 @@
     },
     {
       "eventType": "weighing.campaign.verified_closed",
-      "producer": "weighing NORMAL completion CASCADE — same verdict transaction, emitted when the bucket that just settled was the task's last non-terminal one. closure_kind='verified', no reason, no closing actor.",
+      "producer": "weighing NORMAL completion CASCADE \u2014 same verdict transaction, emitted when the bucket that just settled was the task's last non-terminal one. closure_kind='verified', no reason, no closing actor.",
       "producerFiles": [
         "backend/internal/weighing/adapters/postgres/verified_closure.go",
         "backend/internal/weighing/adapters/postgres/verification_verdict.go"
@@ -2035,7 +2036,7 @@
         {
           "module": "tasks",
           "file": "backend/internal/tasks/app/procurement_workflow.go",
-          "notes": "AnimalPurchaseDecidedWorkflowHandler completes the intake workflow's animal_purchase_decision step -- but ONLY when the decision just taken was the last one owed (payload load_pending = 0 and at least one animal decided). The count is the PRODUCER's, taken inside the decision transaction, so the step can never disagree with the row that moved, and a load holding a waiting animal keeps the step open. Idempotent on the step; a load with no workflow yet is a no-op. Registered in eventwiring.RegisterWorkflowConsumers."
+          "notes": "Reconciles the shared decision step from a durable monotonic source count receipt, including decisions delivered before workflow opening. Later candidate events reopen the step and stale decision events cannot close it."
         }
       ],
       "owningDoc": "docs/decisions/animal-purchases.md",
@@ -2066,6 +2067,30 @@
       "e2eProof": [
         "backend/internal/tasks/app/procurement_workflow_test.go",
         "backend/internal/tasks/domain/procurement_seed_test.go"
+      ],
+      "surfaces": [
+        "backend",
+        "frontend",
+        "mobile"
+      ]
+    },
+    {
+      "eventType": "procurement.animal_purchase.candidate_recorded",
+      "producer": "Animal purchase candidate insert transaction emits the serialized load decision counts after recording each candidate, including later offline sync.",
+      "producerFiles": [
+        "backend/internal/animalpurchase/adapters/postgres/repository.go"
+      ],
+      "consumers": [
+        {
+          "module": "tasks",
+          "file": "backend/internal/tasks/app/procurement_workflow.go",
+          "notes": "Retains the newest source count receipt by monotonic revision pending + 2*decided, reopening the shared workflow decision step for later candidates. Reconciles on workflow open and ignores stale events."
+        }
+      ],
+      "owningDoc": "docs/decisions/procurement-sop-driven.md",
+      "e2eProof": [
+        "backend/internal/animalpurchase/adapters/postgres/envelope_test.go",
+        "backend/internal/tasks/adapters/postgres/purchase_decision_sync_integration_test.go"
       ],
       "surfaces": [
         "backend",

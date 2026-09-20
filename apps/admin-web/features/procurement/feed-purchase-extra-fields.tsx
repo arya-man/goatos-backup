@@ -13,12 +13,13 @@
 // collects those alongside the typed values and sends them with the form version, so the backend
 // checks the submission against exactly the form this drawer rendered.
 import { useEffect, useRef, useState } from "react";
+import { visibleQuestionIds } from "./authored-form-visibility";
 
 import { copy, type AdminUiPageContract } from "@/lib/admin-ui-contract";
 import type { ProcurementVendorForm, ProcurementVendorQuestion } from "@/lib/api/server";
 
 type ProcurementVendorFormPage = ProcurementVendorForm["pages"][number];
-type ProcurementVendorQuestionOption = ProcurementVendorQuestion["options"][number];
+type ProcurementVendorQuestionOption = NonNullable<ProcurementVendorQuestion["options"]>[number];
 
 /** authoredQuestions is every question the ledger does NOT store in a column of its own. */
 function authoredQuestions(form: ProcurementVendorForm): Array<{ page: string; questions: ProcurementVendorQuestion[] }> {
@@ -74,15 +75,8 @@ export function FeedPurchaseExtraFields({ form, pageContract }: { form: Procurem
   const pages = authoredQuestions(form);
   if (pages.length === 0) return null;
 
-  const visibleAnswers = { ...typed };
-  const visiblePages = pages.map((page) => {
-    const questions = page.questions.filter((q) => {
-      const show = !q.only_if || (visibleAnswers[q.only_if.question_id] ?? "") === q.only_if.value;
-      if (show && q.kind === "choice") visibleAnswers[q.id] = picked[q.id] ?? "";
-      return show;
-    });
-    return { ...page, questions };
-  });
+  const visibleIds = visibleQuestionIds(form.pages.flatMap((page) => page.questions), { ...typed, ...picked });
+  const visiblePages = pages.map((page) => ({ ...page, questions: page.questions.filter((q) => visibleIds.has(q.id)) }));
 
   return (
     <div ref={rootRef} style={{ display: "contents" }}>

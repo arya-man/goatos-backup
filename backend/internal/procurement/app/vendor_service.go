@@ -52,23 +52,28 @@ func (s *VendorService) VendorForm(ctx context.Context, tenantID, side string) (
 	// The SIDE decides the document (2026-09-20 split): the supply register renders
 	// `procurement.vendor`, the sales one `sales.vendor`. A screen that names no side gets the
 	// sales document, which is what the whole register rendered before the split.
-	return s.form.PublishedVendorForm(ctx, tenantID, domain.VendorFormSOPCode(side), catalog)
+	form, err := s.form.PublishedVendorForm(ctx, tenantID, domain.VendorFormSOPCode(side), catalog)
+	form.SOPCode = domain.VendorFormSOPCode(side)
+	return form, err
 }
 
-// formVersion reads one form version with the WHOLE catalog, unnarrowed: a write is checked
+// formVersion resolves persisted/rendered provenance, never the mutable record type.
+// Omitted provenance identifies the pre-split sales document, including cached supplier forms.
+// It reads the WHOLE catalog, unnarrowed: a write is checked
 // against every catalog value the register accepts, and a detail row must label a value from
 // either side.
-func (s *VendorService) formVersion(ctx context.Context, tenantID, recordType string, version int) (domain.VendorForm, error) {
+func (s *VendorService) formVersion(ctx context.Context, tenantID, sopCode string, version int) (domain.VendorForm, error) {
 	catalog, err := s.repo.ListVendorCatalog(ctx, tenantID, false)
 	if err != nil {
 		return domain.VendorForm{}, err
 	}
-	// WHICH document this row was answered on is derived from the register's own data -- the side
-	// its record type belongs to -- never from anything the client sends. A record type the
-	// catalog does not carry resolves to the sales document, the pre-split behaviour; the write's
-	// record-type check is what refuses an unknown type.
-	side := domain.VendorSideForRecordType(catalog, recordType)
-	return s.form.VendorFormVersion(ctx, tenantID, domain.VendorFormSOPCode(side), version, catalog)
+	if sopCode == "" {
+		sopCode = domain.SOPCodeVendor
+	}
+	if sopCode != domain.SOPCodeVendor && sopCode != domain.SOPCodeProcurementVendor {
+		return domain.VendorForm{}, domain.ErrVendorValidation{Field: "questionnaire_sop_code", Reason: "unknown vendor form"}
+	}
+	return s.form.VendorFormVersion(ctx, tenantID, sopCode, version, catalog)
 }
 
 // VendorAnswerRows labels a vendor's extra answers by the form version they were answered on. A
@@ -78,7 +83,7 @@ func (s *VendorService) VendorAnswerRows(ctx context.Context, tenantID string, v
 	if s.form == nil || v.QuestionnaireVersion == nil || len(v.SOPAnswers) == 0 {
 		return domain.VendorAnswerRows(domain.VendorForm{}, v.SOPAnswers)
 	}
-	form, err := s.formVersion(ctx, tenantID, v.RecordType, *v.QuestionnaireVersion)
+	form, err := s.formVersion(ctx, tenantID, v.QuestionnaireSOPCode, *v.QuestionnaireVersion)
 	if err != nil {
 		return domain.VendorAnswerRows(domain.VendorForm{}, v.SOPAnswers)
 	}
@@ -98,15 +103,18 @@ func (s *VendorService) applyForm(ctx context.Context, tenantID string, write do
 	if write.QuestionnaireVersion <= 0 {
 		return write, ErrVendorFormVersionRequired
 	}
-	form, err := s.formVersion(ctx, tenantID, write.RecordType, write.QuestionnaireVersion)
+	form, err := s.formVersion(ctx, tenantID, write.QuestionnaireSOPCode, write.QuestionnaireVersion)
 	if err != nil {
 		return write, err
 	}
 	if err := domain.ValidateVendorAnswers(form, write.SOPAnswers); err != nil {
 		return write, err
 	}
-	applied, extras := domain.ApplyVendorAnswers(write, write.SOPAnswers)
+	applied, extras := domain.ApplyVendorAnswers(write, domain.VisibleVendorAnswers(form, write.SOPAnswers))
 	applied.SOPAnswers = extras
+	if applied.QuestionnaireSOPCode == "" {
+		applied.QuestionnaireSOPCode = domain.SOPCodeVendor
+	}
 	return applied, nil
 }
 

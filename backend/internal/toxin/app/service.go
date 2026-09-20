@@ -42,31 +42,38 @@ func (s *Service) WithProcedureSource(src ports.ProcedureSource) *Service {
 
 // procedureFor resolves the procedure a ROUND runs: its own stamped version, never the latest.
 // Rounds on the same page usually share a version, so the caller passes a per-request cache.
-func (s *Service) procedureFor(ctx context.Context, tenantID string, version int, cache map[int]domain.Procedure) domain.Procedure {
+func (s *Service) procedureFor(ctx context.Context, tenantID string, version int, cache map[int]domain.Procedure) (domain.Procedure, error) {
 	if version <= 0 {
 		version = 1
 	}
 	if proc, ok := cache[version]; ok {
-		return proc
+		return proc, nil
 	}
 	proc := domain.SeededProcedure()
 	if s.procedures != nil {
-		if resolved, err := s.procedures.ProcedureVersion(ctx, tenantID, version); err == nil {
-			proc = resolved
+		resolved, err := s.procedures.ProcedureVersion(ctx, tenantID, version)
+		if err != nil {
+			return domain.Procedure{}, err
 		}
+		proc = resolved
 	}
 	if cache != nil {
 		cache[version] = proc
 	}
-	return proc
+	return proc, nil
 }
 
 // attachProcedures fills each row's procedure, reading each distinct version ONCE per request.
-func (s *Service) attachProcedures(ctx context.Context, tenantID string, rows []ports.TaskRow) {
+func (s *Service) attachProcedures(ctx context.Context, tenantID string, rows []ports.TaskRow) error {
 	cache := map[int]domain.Procedure{}
 	for i := range rows {
-		rows[i].Procedure = s.procedureFor(ctx, tenantID, rows[i].Task.SOPVersion, cache)
+		proc, err := s.procedureFor(ctx, tenantID, rows[i].Task.SOPVersion, cache)
+		if err != nil {
+			return err
+		}
+		rows[i].Procedure = proc
 	}
+	return nil
 }
 
 // WithClock pins the clock for tests.
@@ -107,7 +114,9 @@ func (s *Service) ListTasks(ctx context.Context, tenantID string, statuses []str
 	if err != nil {
 		return page, err
 	}
-	s.attachProcedures(ctx, tenantID, page.Rows)
+	if err := s.attachProcedures(ctx, tenantID, page.Rows); err != nil {
+		return ports.TaskPage{}, err
+	}
 	return page, nil
 }
 
@@ -118,7 +127,9 @@ func (s *Service) GetTask(ctx context.Context, tenantID, taskID string) (ports.T
 		return row, err
 	}
 	rows := []ports.TaskRow{row}
-	s.attachProcedures(ctx, tenantID, rows)
+	if err := s.attachProcedures(ctx, tenantID, rows); err != nil {
+		return ports.TaskRow{}, err
+	}
 	return rows[0], nil
 }
 
@@ -142,7 +153,10 @@ func (s *Service) CompleteStep(ctx context.Context, p ports.CompleteStepParams) 
 	if err != nil {
 		return ports.TaskRow{}, err
 	}
-	proc := s.procedureFor(ctx, p.TenantID, row.Task.SOPVersion, nil)
+	proc, err := s.procedureFor(ctx, p.TenantID, row.Task.SOPVersion, nil)
+	if err != nil {
+		return ports.TaskRow{}, err
+	}
 	spec, ok := proc.StepSpecFor(p.StepNo)
 	if !ok {
 		return ports.TaskRow{}, domain.ErrUnknownStep
@@ -185,7 +199,10 @@ func (s *Service) SubmitReading(ctx context.Context, p ports.SubmitParams) (port
 	if err != nil {
 		return ports.TaskRow{}, err
 	}
-	p.Procedure = s.procedureFor(ctx, p.TenantID, row.Task.SOPVersion, nil)
+	p.Procedure, err = s.procedureFor(ctx, p.TenantID, row.Task.SOPVersion, nil)
+	if err != nil {
+		return ports.TaskRow{}, err
+	}
 	p.Now = s.now()
 	out, err := s.repo.SubmitReading(ctx, p)
 	if err != nil {
@@ -208,11 +225,18 @@ func (s *Service) RecordVerdict(ctx context.Context, p ports.VerdictParams) (por
 	}
 	p.TaskID = strings.TrimSpace(p.TaskID)
 	p.Reason = strings.TrimSpace(p.Reason)
+	row, err := s.repo.GetTask(ctx, p.TenantID, p.TaskID)
+	if err != nil {
+		return ports.TaskRow{}, err
+	}
+	proc, err := s.procedureFor(ctx, p.TenantID, row.Task.SOPVersion, nil)
+	if err != nil {
+		return ports.TaskRow{}, err
+	}
 	out, err := s.repo.RecordVerdict(ctx, p)
 	if err != nil {
 		return out, err
 	}
-	rows := []ports.TaskRow{out}
-	s.attachProcedures(ctx, p.TenantID, rows)
-	return rows[0], nil
+	out.Procedure = proc
+	return out, nil
 }

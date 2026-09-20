@@ -19216,6 +19216,9 @@ components:
           description: >-
             VENDOR FORM (2026-09-19): answers to the questions the published form added beyond the
             register's columns, keyed by question id. Empty for a vendor written before the form.
+        questionnaire_sop_code:
+          type: string
+          description: "The rendered form SOP code; omitted on legacy clients means sales.vendor."
         questionnaire_version:
           type: integer
           nullable: true
@@ -19307,6 +19310,9 @@ components:
             blank) -- checked against the form version in `questionnaire_version`. Pick-many values
             are joined with `|`; an "other" free text rides `<question_id>_other`. Omitted means a
             typed-only client: stored extra answers are then preserved on update.
+        questionnaire_sop_code:
+          type: string
+          description: "The rendered form SOP code; omitted on legacy clients means sales.vendor."
         questionnaire_version:
           type: integer
           description: "Required with `answers`: the form version the screen rendered."
@@ -19325,6 +19331,7 @@ components:
       type: object
       required: [version, pages]
       properties:
+        sop_code: { type: string }
         version: { type: integer }
         pages:
           type: array
@@ -19628,6 +19635,16 @@ components:
         - entry_source
         - created_at
       properties:
+        answers:
+          type: object
+          additionalProperties: { type: string }
+          description: Authored extra answers stored with the purchase.
+        questionnaire_version: { type: integer }
+        answer_rows:
+          type: array
+          description: Extra answers labelled using the original questionnaire version.
+          items:
+            $ref: "#/components/schemas/ProcurementVendorAnswerRow"
         feed_purchase_id: { type: string, format: uuid }
         purchase_date:
           type: string

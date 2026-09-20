@@ -218,3 +218,13 @@ func TestApplyVendorAnswersSplitsTypedFromExtras(t *testing.T) {
 		t.Fatalf("orphan row = %+v", rows)
 	}
 }
+
+func TestConditionalAnswersDoNotRequireHiddenGrandchildren(t *testing.T) {
+	form := VendorForm{Pages: []VendorFormPage{
+		{Questions: []VendorQuestion{{ID: "a", Kind: VendorQuestionChoice, Options: []VendorQuestionOpt{{Value: "yes"}, {Value: "no"}}}}},
+		{Questions: []VendorQuestion{{ID: "b", Kind: VendorQuestionChoice, OnlyIf: &VendorQuestionOnlyIf{QuestionID: "a", Value: "yes"}, Options: []VendorQuestionOpt{{Value: "yes"}, {Value: "no"}}}, {ID: "c", Kind: VendorQuestionText, Required: true, OnlyIf: &VendorQuestionOnlyIf{QuestionID: "b", Value: "yes"}}}},
+	}}
+	if err := ValidateVendorAnswers(form, map[string]string{"a": "no", "b": "yes"}); err != nil {
+		t.Fatalf("hidden grandchild must not be required: %v", err)
+	}
+}
