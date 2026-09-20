@@ -204,6 +204,20 @@ coverage is itself a review finding. Screenshots are not proof until opened and
 visually validated as the intended route/state rather than login, loading, an
 error, or a stale page.
 
+Dashboard-wide production smoke coverage is a standing review lens, not a
+weighing-only rule. Any route/page/tab/filter/drawer/detail overlay, admin
+contract, SQL-bind, generated-client, request fanout, or visible error-state
+change must also satisfy `make dashboard-automation-guard`. That guard derives
+admin routes from `apps/admin-web/app/(admin)/**/page.tsx` and checks the
+production smoke inventory plus the known bad strings:
+`backend_down`, `Admin-web contract unavailable`,
+`The board could not be loaded`, and `Weights could not be loaded`. Do not
+approve a review that fixes one route by hardcoding today's count or route list
+while leaving the guard unable to detect future additions/removals; additions
+must be covered by the smoke inventory or explicitly excluded with a reason.
+Agent/visual review can add advisory findings, but it cannot override a failed
+deterministic guard or stand in for route coverage.
+
 ### Additional targeted guard/smoke scripts
 
 Run when the touched surface matches (all confirmed real in

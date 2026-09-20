@@ -428,6 +428,7 @@ run_common() {
   step "ceo-ai-page-contract-drift-guard" make ceo-ai-page-contract-drift-guard
   step "leadership-verifier-surface-separation-guard" make leadership-verifier-surface-separation-guard
   step "role-scoped-ui-contract-guard" make role-scoped-ui-contract-guard
+  step "dashboard-automation-guard" make dashboard-automation-guard
   step "assistant-route-closure-guard" make assistant-route-closure-guard
   step "telemetry-guard"           make telemetry-guard
   # Token-saving/index tooling should stay visible, but stale local AI indexes

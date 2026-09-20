@@ -1,12 +1,14 @@
 {
   "$schema": "./config.schema.notes",
-  "version": 1,
-  "receiptRoot": ".codex-goatos-render/dashboard-automation",
-  "productionDashboardUrl": "https://dashboard.mesha.sg",
-  "viewports": [
-    { "name": "desktop", "width": 1440, "height": 1000 },
-    { "name": "mobile-webview", "width": 390, "height": 844 }
-  ],
+  "productionUrl": "https://dashboard.mesha.sg",
+  "desktopViewport": {
+    "width": 1440,
+    "height": 1000
+  },
+  "mobileViewport": {
+    "width": 390,
+    "height": 844
+  },
   "requiredFailureStrings": [
     "backend_down",
     "Admin-web contract unavailable",
@@ -14,34 +16,33 @@
     "Weights could not be loaded"
   ],
   "ociAlwaysFree": {
-    "minimumHeadroomGb": 20,
-    "maximumRunArtifactsMb": 2048,
-    "allowedVolumeAllocationGb": 100,
-    "forbiddenActions": [
-      "create-volume",
-      "resize-volume",
-      "create-backup",
-      "create-public-load-balancer",
-      "enable-paid-service"
+    "required": true,
+    "expectedBootVolumeGb": 100,
+    "minimumFreeFilesystemGb": 20,
+    "forbiddenOperations": [
+      "createVolume",
+      "createBootVolumeBackup",
+      "resizeVolume",
+      "publicLoadBalancer",
+      "paidPerformanceTier"
     ]
   },
   "agentReview": {
     "enabledByDefault": false,
-    "providerEnv": "ANTHROPIC_API_KEY",
-    "perRunUsdCap": 1,
-    "monthlyUsdCap": 25,
+    "perRunBudgetUsd": 1,
+    "monthlyBudgetUsd": 25,
     "passingSamplePercent": 10,
-    "warnAtBudgetPercent": 80,
-    "stopAtBudgetPercent": 100
+    "budgetWarningPercent": 80,
+    "budgetHardStopPercent": 100
   },
-  "deterministicSmoke": {
-    "adminWebScript": "apps/admin-web/scripts/smoke-visual-live.mjs",
-    "routeCoverageTest": "apps/admin-web/scripts/smoke-visual-route-coverage.test.mjs",
-    "requiredEnv": [
-      "GOATOS_API_BASE_URL",
-      "GOATOS_ADMIN_WEB_BASE_URL",
-      "GOATOS_BEARER_TOKEN",
-      "GOATOS_TENANT_ID"
-    ]
-  }
+  "explicitRouteExclusions": [
+    {
+      "pattern": "/login",
+      "reason": "Authentication boundary, not an authenticated admin dashboard surface."
+    },
+    {
+      "pattern": "/api/**",
+      "reason": "Backend/API route, covered by API and integration tests rather than browser route inventory."
+    }
+  ]
 }
