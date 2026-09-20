@@ -722,16 +722,6 @@ object Routes {
     fun animalPurchaseAnimalDetailRoute(loadId: String, candidateId: String): String =
         "/vendors/animal-purchases/loads/${Uri.encode(loadId)}/animals/animal/${Uri.encode(candidateId)}"
 
-    // Market survey (maintainer decision 2026-09-14): the Procurement module's FOURTH L0 root,
-    // whose href matches the backend-composed nav item VERBATIM (bootstrap_copy.go:
-    // {key:"market", href:"/vendors/market"}), and the `market_survey_due` push's target. One
-    // hosted drill: a city's entry form, under the literal `/city/` segment so the L0 can never
-    // be read as a city id.
-    const val VENDORS_MARKET = "/vendors/market"
-    const val MARKET_CITY_ID_ARG = "city_id"
-    const val MARKET_CITY_ENTRY = "/vendors/market/city/{$MARKET_CITY_ID_ARG}"
-    fun marketCityEntryRoute(cityId: String): String = "/vendors/market/city/${Uri.encode(cityId)}"
-
     /** The load id a `/vendors/animal-purchases/loads/<id>` push href names (the
      *  `animal_purchase_decided` push's target), or null for anything else. */
     fun animalPurchaseLoadIdFromHref(href: String): String? {
@@ -752,6 +742,18 @@ object Routes {
     const val SALES = "/sales"
     const val SALE_NEW = "/sales/new"
     const val SALE_ID_ARG = "deal_id"
+    // Market survey (maintainer decision 2026-09-14; MOVED out of Procurement on 2026-09-20):
+    // a SALES L0 root, whose href matches the backend-composed nav item VERBATIM
+    // (bootstrap_copy.go: {key:"market", href:"/sales/market"}), and the `market_survey_due`
+    // push's target. It is MOVED, not duplicated -- the same clean move the ledger above made
+    // off `/vendors/sales`, so there is no second route for one screen. One hosted drill: a
+    // city's entry form, under the literal `/city/` segment so the L0 can never be read as a
+    // city id.
+    const val SALES_MARKET = "/sales/market"
+    const val MARKET_CITY_ID_ARG = "city_id"
+    const val MARKET_CITY_ENTRY = "/sales/market/city/{$MARKET_CITY_ID_ARG}"
+    fun marketCityEntryRoute(cityId: String): String = "/sales/market/city/${Uri.encode(cityId)}"
+
     const val SALE_DETAIL = "/sales/sale/{$SALE_ID_ARG}"
     const val SALE_TAG_ANIMALS = "/sales/sale/{$SALE_ID_ARG}/tag"
     fun saleDetailRoute(dealId: String): String = "/sales/sale/${Uri.encode(dealId)}"
@@ -3816,10 +3818,10 @@ fun AppNavHost(
             )
         }
         // --- Market survey (maintainer decision 2026-09-14) ---------------------------------
-        // The Procurement module's FOURTH L0 (today's city cards) plus one hosted drill (a
-        // city's entry form). Module visibility is backend-composed (offered on the
-        // sales.market.entry permission), so nothing here gates on a role string.
-        composable(Routes.VENDORS_MARKET) {
+        // A SALES L0 (today's city cards) plus one hosted drill (a city's entry form). It moved
+        // here out of Procurement on 2026-09-20. Module visibility is backend-composed (offered
+        // on the sales.market.entry permission), so nothing here gates on a role string.
+        composable(Routes.SALES_MARKET) {
             val vm: MarketSurveyViewModel = hiltViewModel()
             LaunchedEffect(vm) { vm.bind(MARKET_TAB_TITLE) }
             val state by vm.state.collectAsStateWithLifecycle()
@@ -5257,9 +5259,9 @@ private val supportedRootDestinations = setOf(
     // the composable alone would leave a notification or deep link naming it treated as unhosted
     // and bounced to home.
     Routes.VENDORS_ANIMAL_PURCHASES,
-    // Market survey (maintainer decision 2026-09-14): the Procurement module's fourth bar item,
-    // and the `market_survey_due` push's target.
-    Routes.VENDORS_MARKET,
+    // Market survey (maintainer decision 2026-09-14, moved into Sales on 2026-09-20): the Sales
+    // module's third bar item, and the `market_survey_due` push's target.
+    Routes.SALES_MARKET,
 )
 
 /**
