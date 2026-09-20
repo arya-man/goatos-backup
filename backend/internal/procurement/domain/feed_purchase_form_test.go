@@ -39,11 +39,11 @@ func TestFeedPurchaseFormRefusesWhatTheLedgerCannotRun(t *testing.T) {
 		mutate func(*VendorFormDSL)
 		want   string
 	}{
-		"typed kind changed":    {func(d *VendorFormDSL) { d.Pages[0].Questions[3].Kind = VendorQuestionText }, `"quantity_kg" is fixed to "number"`},
-		"typed catalog changed": {func(d *VendorFormDSL) { d.Pages[0].Questions[2].Catalog = CatalogKindFarm }, `takes its choices from the "feed_item" catalog`},
+		"typed kind changed":     {func(d *VendorFormDSL) { d.Pages[0].Questions[3].Kind = VendorQuestionText }, `"quantity_kg" is fixed to "number"`},
+		"typed catalog changed":  {func(d *VendorFormDSL) { d.Pages[0].Questions[2].Catalog = CatalogKindFarm }, `takes its choices from the "feed_item" catalog`},
 		"identity made optional": {func(d *VendorFormDSL) { d.Pages[0].Questions[0].Required = false }, "must stay compulsory"},
-		"identity dropped":      {func(d *VendorFormDSL) { d.Pages[0].Questions = d.Pages[0].Questions[1:] }, `question "purchase_date" must be present`},
-		"foreign catalog":       {func(d *VendorFormDSL) { d.Pages[0].Questions[1].Catalog = CatalogKindBreed }, "not a catalog this form can read"},
+		"identity dropped":       {func(d *VendorFormDSL) { d.Pages[0].Questions = d.Pages[0].Questions[1:] }, `question "purchase_date" must be present`},
+		"foreign catalog":        {func(d *VendorFormDSL) { d.Pages[0].Questions[1].Catalog = CatalogKindBreed }, "not a catalog this form can read"},
 	}
 	for name, tc := range cases {
 		t.Run(name, func(t *testing.T) {

@@ -126,6 +126,8 @@
         "vaccination.roster.changed",
         "vaccination.leave.changed",
         "procurement.feed_purchase.reached",
+        "procurement.feed_purchase.recorded",
+        "procurement.toxin_test.accepted",
         "workforce.leave.requested",
         "workforce.leave.approved",
         "workforce.leave.rejected",
@@ -140,7 +142,8 @@
         "pen_routine.created",
         "pen_routine.submitted",
         "pen_routine.verified",
-        "procurement.animal_purchase.decided"
+        "procurement.animal_purchase.decided",
+        "procurement.animal_purchase.load_recorded"
       ]
     },
     "schema_version": {
