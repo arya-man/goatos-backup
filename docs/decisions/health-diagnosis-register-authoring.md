@@ -105,11 +105,73 @@ content-hashed no-op detection, write-log ledger). Publish REFUSES:
 - a question option emitting a token NO rule reads (a question that does nothing) -- a
   WARNING rather than a refusal only where the token is declared in `vocabulary`, which is
   how a vet stages a symptom before the rule that uses it;
-- a `treats` naming no published protocol in both age bands;
+- a `treats` naming a disease that is not in the catalog AT ALL. That is a typo, and it
+  leaves a diagnosis that fires and then cannot open a course;
 - a duplicate rule id, question id, or option value;
-- a number question whose bands overlap or leave a gap inside its min/max;
+- a number question with a band an EARLIER band already covers entirely. Bands are
+  first-match-wins, so authoring them least-severe first ("103.5 and up is a fever",
+  then "106 and up is a high fever") leaves the high fever permanently unreachable --
+  a silent under-read of the sickest animals. Overlap itself is legitimate and is how
+  the seeded registers are written, and a GAP is legitimate too: it is how a normal
+  temperature emits nothing at all;
 - an unknown key anywhere. `Load()` already rejects unknown fields and must keep doing so: a
   key nothing reads is an accept-and-discard that reads to the next author as honoured.
+
+### A disease whose course nobody has written yet is a WARNING, not a refusal
+
+This is the correction the build forced, and it matters. Nine of the shipped register's
+thirty diagnoses point at treatment cards nobody has authored -- `SOPRefToDiseaseKey`'s
+own comment says so. Refusing a publish on that basis would make the farm's EXISTING
+rulebook unpublishable on day one, which is not a safety gate but a lockout.
+
+So the two cases are separated by what they mean rather than by how they look:
+
+```text
+treats names no disease in the catalog     FATAL     a typo; the course can never exist
+treats names a disease with no live card   WARNING   the card has not been written yet
+```
+
+The warning rides the publish response and is printed by the seed command, because a
+publish that ALLOWED something and then said nothing about it is how the nine became
+invisible in the first place.
+
+### A check that was tried and removed
+
+"The form never names a disease" is a real rule, and refusing a question whose title
+matches a rule id looked like the way to enforce it. It is not: this register
+deliberately carries SYMPTOM-LABEL rules -- `RED_URINE`, `WOUNDS`, `LUMPS`, `TICKS`,
+`FEVER` -- whose job is to surface a finding no diagnosis accounted for. Their ids ARE
+sign names, so the check refused four of the farm's own questions for being named after
+the signs they record. A guard that refuses the correct register is worse than no guard.
+It stays a review rule.
+
+## Two defects the authoring surfaced, both of them rules that could never fire
+
+Neither was known before the two-direction check was written, and both had been sitting
+in committed files:
+
+1. **SKIN** lists hair loss on the body, the NECK and the LEGS as three separate probable
+   clauses. The form carried ONE boolean, emitting only `skin_coat:hairloss_body`, so two
+   of those clauses were unreachable and hair loss on a goat's neck could not be recorded
+   at all.
+2. **NEURO** matches pathognomonically on `neuro:seizure` in every kid register, which
+   also declares it in vocabulary -- and the form offered no way to tick it. A fitting kid
+   could only ever be recorded as something else.
+
+Both are repaired in the seeded form. An observation already taken is unaffected: the old
+boolean maps to exactly the answer it used to mean.
+
+## What is NOT yet authored, and why the job is not finished
+
+The mapping layer is data. The DOWNSTREAM CLINICAL PIPELINE is not: emergency detection,
+housing, the kid compiler, drug rules and the clinical flags read the typed `Findings`
+struct directly (`f.Diarrhea.Set`, `f.notEating()`, `f.Nasal`, `f.LockedJaw`). Those
+specific fields therefore remain load-bearing, and a vet who DELETES one of those
+questions changes what the rules see while that code keeps reading a zero value.
+
+Adding a question is safe today. Renaming or removing one of the fields that pipeline
+reads is not. Closing that gap means porting those paths to read the evidence set instead
+of the struct -- a real piece of work on clinical code, and the next slice.
 
 ## What stays in code, deliberately
 
