@@ -38,3 +38,17 @@ Judge: self-review of diff, runtime outputs and screenshots complete. No delegat
 Local test stack remains available: admin-web `http://127.0.0.1:3315`, API `http://127.0.0.1:18095`, fresh database `goatos_pr325_fix` on local Postgres 15499. No shared stack, OCI or STG data was mutated.
 
 Delivery: code commit `53c892fa0b3839b0792ec2088d2e5d4a41db46ff` pushed to PR #325 and confirmed by GitHub head readback. This documentation-only closeout records that result. No implementation work remains for the reported findings. Full CI remains limited by the missing Docker executable as stated above. Deployment state: not deployed.
+
+## Second-pass review fixes
+
+After the PR #325 review pass, commit `5134c0648` fixed the three review findings: the feed-purchase recorded event now reconciles `already_reached`, Android filters submitted typed answers by the served form, and web feed-purchase extras render and submit the `other` explanation sidecar.
+
+The requested final agent passes found three follow-up gaps. Android did not expose or submit the locked typed `batch_no` question when a future authored form asks for it. Web live visibility did not include `batch_no`, and cross-page `only_if` checks reset their visible answer map per page. The follow-up fix adds the optional Android Load number field, sends `batch_no` through the DTO and answer map, maps authored typed-field validation errors back to the fixed Android fields, includes `batch_no` in web's live typed answers, and carries prior visible answers across web extra-field pages. Admin-web callback type annotations were also added around the form page/question iteration so the patch is locally explicit.
+
+Current verification for the second-pass diff:
+- `go test ./internal/procurement/... ./internal/tasks/...`: PASS.
+- `node --test --experimental-strip-types apps/admin-web/features/procurement/feed-purchase-form-answers.test.mjs`: PASS, 4 tests.
+- `ANDROID_HOME=/Users/raviteja/Library/Android/sdk ./gradlew -q :app:compileDevDebugKotlin` from `apps/goatos-android`: PASS.
+- `git diff --check`: PASS.
+
+`npm --prefix apps/admin-web run typecheck` was attempted in the fresh isolated worktree, but the worktree had no `node_modules`. A temporary symlink to the primary checkout dependencies proved unsuitable because it used stale generated API-client types from another checkout, producing unrelated generated-client errors. It is not counted as a valid failure for this branch. No main merge or staging deployment has been run.

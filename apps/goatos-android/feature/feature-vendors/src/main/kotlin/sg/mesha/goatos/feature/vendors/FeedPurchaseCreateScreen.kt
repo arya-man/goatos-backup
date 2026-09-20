@@ -117,6 +117,7 @@ private fun LoadStep(state: FeedPurchaseCreateUiState, onEvent: (FeedPurchaseCre
         // The typed box carries only a NEW name: a vendor picked above is shown there, not echoed here.
         val typed = v[PurchaseField.VENDOR].orEmpty().takeUnless { it in state.vendorSuggestions }.orEmpty()
         VendorsTextField(typed, { onEvent(FeedPurchaseCreateEvent.FieldChanged(PurchaseField.VENDOR, it)) }, LABEL_VENDOR_TYPED, supporting = HINT_VENDOR_TYPED)
+        VendorsTextField(v[PurchaseField.BATCH_NO].orEmpty(), { onEvent(FeedPurchaseCreateEvent.FieldChanged(PurchaseField.BATCH_NO, it)) }, LABEL_BATCH, keyboard = KeyboardType.Number, error = e[PurchaseField.BATCH_NO], supporting = HINT_BATCH)
         VendorsTextField(v[PurchaseField.QUANTITY_KG].orEmpty(), { onEvent(FeedPurchaseCreateEvent.FieldChanged(PurchaseField.QUANTITY_KG, it)) }, LABEL_QUANTITY, required = true, keyboard = KeyboardType.Decimal, error = e[PurchaseField.QUANTITY_KG])
         VendorsDateField(LABEL_BOUGHT_ON, v[PurchaseField.PURCHASE_DATE].orEmpty(), { onEvent(FeedPurchaseCreateEvent.FieldChanged(PurchaseField.PURCHASE_DATE, it)) }, required = true, error = e[PurchaseField.PURCHASE_DATE], maxIso = state.today)
     }
@@ -165,6 +166,7 @@ private const val LABEL_FARM = "Farm"
 private const val LABEL_FEED = "Feed"
 private const val LABEL_VENDOR = "Vendor"
 private const val LABEL_VENDOR_TYPED = "Or type a new vendor"
+private const val LABEL_BATCH = "Load number"
 private const val LABEL_QUANTITY = "Quantity bought (kg)"
 private const val LABEL_BOUGHT_ON = "Bought on"
 private const val LABEL_DELIVERY = "Delivery"
@@ -182,6 +184,7 @@ private const val LABEL_PAYMENT_RELEASED = "Amount released so far (₹)"
 private const val HINT_PICK = "Tap to choose"
 private const val HINT_PICK_VENDOR = "Vendors bought from before"
 private const val HINT_VENDOR_TYPED = "Only if the vendor is not in the list above."
+private const val HINT_BATCH = "Leave blank to use the next load number."
 private const val HINT_DELIVERY = "Leave the delivered date blank if the load is still in transit. It is counted as stock only once it is delivered."
 private const val HINT_REACHED_WEIGHT = "Leave blank if not weighed yet — the bought quantity counts until then."
 private const val HINT_TOTAL = "Leave blank to add up the parts above."

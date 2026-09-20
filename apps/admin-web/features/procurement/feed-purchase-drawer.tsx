@@ -25,6 +25,9 @@ import {
   setFeedPurchasePaymentStatusAction,
 } from "./feed-purchase-actions";
 
+type ProcurementVendorFormPage = ProcurementVendorForm["pages"][number];
+type ProcurementVendorFormQuestion = ProcurementVendorForm["pages"][number]["questions"][number];
+
 /** Reads the selected purchase from the address bar. "" means closed; "new" is the entry form. */
 function readPurchaseParam(): string {
   return new URL(window.location.href).searchParams.get("purchase_id") ?? "";
@@ -223,7 +226,7 @@ export function FeedPurchaseDrawer({
               <div className="note">{copy(pageContract, "required.hint")}</div>
               {purchaseForm ? <>
                 <input type="hidden" name="questionnaire_version" value={purchaseForm.version} />
-                {purchaseForm.pages.flatMap((page) => page.questions).map((question) => (
+                {purchaseForm.pages.flatMap((page: ProcurementVendorFormPage) => page.questions).map((question: ProcurementVendorFormQuestion) => (
                   <input key={question.id} type="hidden" name="questionnaire_question" value={question.id} />
                 ))}
               </> : null}
