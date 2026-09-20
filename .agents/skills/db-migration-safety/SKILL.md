@@ -1,13 +1,15 @@
 ---
 name: db-migration-safety
 description: >-
-  Use when writing OR reviewing a Postgres migration, a hot-path query, a
-  read-model/projection, or any mutating write path (backend/migrations/postgres,
-  backend/internal/**/adapters/postgres, sqlc). Covers lock-safe migrations,
-  query-plan proof (no Seq Scan on big tables), write-path idempotency, and atomic
-  transition+read-model sync. Thin entrypoint: detailed rules live in the canonical
-  chapters linked below. Machine gates: make validate-migrations · validate-sqlc-plans ·
-  validate-hot-index-migrations · idempotency-writes-guard · atomic-readmodel-sync-guard.
+  Use when writing OR reviewing a Postgres migration, any handwritten or dynamic
+  pgx query, a hot-path query, a read-model/projection, or any mutating write path
+  (backend/migrations/postgres, backend/internal/**/adapters/postgres, sqlc).
+  Covers SQL bind contracts, lock-safe migrations, query-plan proof (no Seq Scan
+  on big tables), write-path idempotency, and atomic transition+read-model sync.
+  Thin entrypoint: detailed rules live in the canonical chapters linked below.
+  Machine gates: make postgres-bind-contract-guard · validate-migrations ·
+  validate-sqlc-plans · validate-hot-index-migrations · idempotency-writes-guard ·
+  atomic-readmodel-sync-guard.
 ---
 
 # DB / migration safety — lens entrypoint
@@ -20,6 +22,8 @@ chapters below for the live detail; do not review from the summary.
 
 ## When this lens applies
 - Any file under `backend/migrations/postgres/**`.
+- Any handwritten pgx query, especially optional clauses, conditional pruning,
+  variadic argument construction, or `Batch.Queue` calls.
 - A hot-path query or `adapters/postgres` change on a large table
   (`goat`/`event`/`obligation`/`counter`/`import`/projection).
 - Any mutating write path (API, worker, importer, webhook, outbox, server action).
@@ -35,6 +39,8 @@ chapters below for the live detail; do not review from the summary.
 - **Location-bearing schema (MANDATORY for location tables):** [`docs/decisions/operational-location-convention.md`](../../../docs/decisions/operational-location-convention.md) — when adding a new table that records location (shed, partition, region, etc.), this ADR specifies the required schema columns, composition rules, and worked examples of bugs to avoid.
 
 ## Machine gates
+- `make postgres-bind-contract-guard` — proves final SQL placeholder shape and
+  supplied arguments agree without hardcoding today's maximum placeholder.
 - `make validate-migrations` — applies 000001→HEAD on a throwaway Postgres.
 - `make validate-hot-index-migrations` — hot-table lock-safety (concurrent index,
   NOT VALID + concurrent VALIDATE, NO TRANSACTION, catalog-only DROP).
@@ -45,6 +51,10 @@ chapters below for the live detail; do not review from the summary.
   `make india-date-guard`. All registered in `tools/ci/guardrail-manifest.json`.
 
 ## At a glance (detail in the links above)
+- **Bind-safe:** prefer sqlc, then `pgx.StrictNamedArgs`; dynamic SQL must use the
+  shared bound-query validator and execute every unresolved production shape in
+  PostgreSQL. Do not approve a literal max-placeholder assertion as the primary
+  contract.
 - **Lock-safe:** bounded `lock_timeout`; `CREATE INDEX CONCURRENTLY` in its own
   `-- +goose NO TRANSACTION` migration; hot-table CHECK/FK via `NOT VALID` + a
   separate concurrent VALIDATE.

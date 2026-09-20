@@ -21,6 +21,10 @@ Do:
 - Use net/http or chi for HTTP adapters, pgx + sqlc-style typed SQL for
   Postgres adapters, goose-style plain SQL migrations, and explicit constructor
   wiring.
+- Treat final SQL and final bind arguments as one contract. Prefer sqlc or
+  `pgx.StrictNamedArgs`; dynamically assembled/pruned SQL must use the shared
+  bound-query validator. Never use a hardcoded maximum placeholder as the
+  primary guard; run `make postgres-bind-contract-guard`.
 
 Do not:
 

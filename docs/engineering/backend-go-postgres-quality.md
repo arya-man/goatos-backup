@@ -93,6 +93,28 @@ never make a required CI result depend on an unpinned `@latest` install.
   closed, code-owned allowlist; never interpolate request, token, RFID, sort, or
   filter input into SQL text.
 
+### SQL bind contract
+
+- Prefer sqlc for stable queries. For handwritten pgx SQL, prefer
+  `pgx.StrictNamedArgs`; use the shared bound-query validator when the final SQL
+  is assembled, pruned, or selected dynamically. The final SQL and final
+  argument collection are one contract and must be validated together at the
+  execution boundary.
+- A valid positional contract uses a contiguous `$1..$N` set and supplies
+  exactly `N` bind values. Repeated placeholders are valid; gaps, missing
+  values, and values unused by the final SQL are errors. The validator must
+  understand PostgreSQL lexical forms so placeholder-like text in comments,
+  quoted strings, identifiers, and dollar-quoted bodies does not count.
+- Never make the current maximum placeholder (for example `31`) the primary
+  invariant. Derive the expected count from the final SQL and compare it with
+  the actual argument collection. Adding, removing, reordering, or conditionally
+  pruning a parameter must update and prove both sides in the same change.
+- Dynamic calls that static analysis cannot resolve require an executable
+  PostgreSQL test covering every production query shape. A guard suppression is
+  acceptable only when it is narrow, documented at the call site, and points to
+  that executable proof. Baselines for existing debt are shrink-only: new or
+  modified unsafe calls may not be added to them.
+
 ## PostgreSQL query and concurrency rules
 
 - Tenant and applicable park/shed scope are mandatory predicates, not filters
@@ -156,6 +178,9 @@ go mod verify
 go vet ./...
 GOATOS_RUN_POSTGRES_TESTS=0 go test ./...
 govulncheck ./...
+
+# Always-on static bind-contract proof (also part of ordinary backend CI).
+make postgres-bind-contract-guard
 
 # Required concurrency packages on each backend change; full ./... on a
 # scheduled/explicit security job until CI capacity proves it is cheap enough.

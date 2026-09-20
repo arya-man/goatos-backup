@@ -533,6 +533,7 @@ run_docs_only() {
 run_backend() {
   current_job="backend"
   step "backend-foundations-guard" make backend-foundations-guard
+  step "postgres-bind-contract-guard" make postgres-bind-contract-guard
   step "backend-proof-media-egress-guard" make backend-proof-media-egress-guard
   step "test-execution-integrity-guard" make test-execution-integrity-guard
   step "operator-cap-fail-closed-guard" make operator-cap-fail-closed-guard

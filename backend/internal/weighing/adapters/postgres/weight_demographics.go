@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/vgoats/goatos/backend/internal/platform/oploc"
+	"github.com/vgoats/goatos/backend/internal/platform/sqlbind"
 	"github.com/vgoats/goatos/backend/internal/weighing/domain"
 	"github.com/vgoats/goatos/backend/internal/weighing/ports"
 )
@@ -1358,7 +1359,7 @@ SELECT
 		compositionJSON                                             []byte
 	)
 	query := weightDemographicsPruneInactiveSectionSelects(q, sectionSet)
-	if err := r.pool.QueryRow(ctx, query, tenantID, parkIDs, periodStart, periodEnd, sexFilter,
+	bound, bindErr := sqlbind.Bind(query, tenantID, parkIDs, periodStart, periodEnd, sexFilter,
 		originFiltered, originScope.Tags, originScope.LocationIDs, originScope.PartitionLabels,
 		farmBornScope.Tags, purchasedScope.Tags,
 		farmBornScope.LocationIDs, farmBornScope.PartitionLabels,
@@ -1369,7 +1370,11 @@ SELECT
 		sectionSet["shed_type"], sectionSet["weight_bands"], sectionSet["weekly_gain"],
 		sectionSet["gain_thresholds"],
 		needLatest, needLump, needGain, needLumpSpan, needWeeklyGain,
-		bandEdgesKg).Scan(
+		bandEdgesKg)
+	if bindErr != nil {
+		return domain.WeightDemographics{}, fmt.Errorf("weighing: bind weight demographics query: %w", bindErr)
+	}
+	if err := r.pool.QueryRow(ctx, bound.SQL, bound.Args...).Scan(
 		&resolvedCount, &unresolvedCount, &lumpTotal, &lumpUnattributed,
 		&breedJSON, &sexJSON, &stageJSON,
 		&gainBreedJSON, &gainSexJSON, &gainStageJSON,
