@@ -29,6 +29,7 @@ test("visual smoke visits every live sidebar navigation leaf", () => {
     ["alerts", "/alerts?scope_mode=company"],
     ["alerts-populated", "/alerts?scope_mode=company&date=2026-09-10&park=00000000-0000-4000-8000-000000003001"],
     ["workflows", "/workflows?scope_mode=company"],
+    ["procurement", "/procurement?scope_mode=company"],
     ["procurement-source-entry", "/procurement/source-entry?scope_mode=company"],
     ["procurement-source-entry-health-pending", "/procurement/source-entry?scope_mode=company&status=health_pending"],
     ["procurement-source-entry-arrival-review", "/procurement/source-entry?scope_mode=company&status=arrival_review"],
@@ -66,6 +67,7 @@ test("visual smoke visits every live sidebar navigation leaf", () => {
     ["sales-buyer-analytics", "/sales/buyer-analytics?scope_mode=company"],
     ["sales-farm-born", "/sales/farm-born?scope_mode=company"],
     ["sales-config", "/sales/config?scope_mode=company"],
+    ["sales-sops", "/sales/sops?scope_mode=company"],
     ["sales-vendors", "/sales/vendors?scope_mode=company"],
     ["sales-sops", "/sales/sops?scope_mode=company"],
     ["feed-config", "/feed/config?scope_mode=company"],
@@ -112,6 +114,8 @@ test("visual smoke visits every live sidebar navigation leaf", () => {
     ["health-analytics-treatment", "/health/analytics?scope_mode=company&tab=treatment"],
     ["health-analytics-engine", "/health/analytics?scope_mode=company&tab=engine"],
     ["health-config", "/health/config?scope_mode=company"],
+    ["configuration-items", "/configuration/items?scope_mode=company"],
+    ["configuration-work-instructions", "/configuration/work-instructions?scope_mode=company"],
     ["operations-audit", "/operations/audit?scope_mode=company"],
     ["operations-audit-awaiting", "/operations/audit?scope_mode=company&status=verification_pending"],
     ["operations-audit-rejected", "/operations/audit?scope_mode=company&result=rejected"],
@@ -129,6 +133,7 @@ test("visual smoke visits every live sidebar navigation leaf", () => {
     ["leave-approved", "/leave?scope_mode=company&status=approved"],
     ["leave-rejected", "/leave?scope_mode=company&status=rejected"],
     ["leave-withdrawn", "/leave?scope_mode=company&status=withdrawn"],
+    ["routines", "/routines?scope_mode=company"],
     ["tasks", "/tasks?scope_mode=company"],
   ]);
 

@@ -15,6 +15,7 @@ export PATH := $(HOME)/.local/bin:$(PATH)
 .PHONY: release-tag release-tag-contract-guard restore-stg-android-release-env stg-zero-downtime-migration-audit
 .PHONY: e2e-image-build e2e-parity e2e-smoke e2e-business-chain scale-cert
 .PHONY: org-boundary-guard
+.PHONY: dashboard-automation-guard dashboard-automation-self-test dashboard-automation-production-smoke dashboard-automation-post-main-certification
 setup-crg: ai-setup
 
 ai-setup:
@@ -97,6 +98,23 @@ update-docs-graph:
 stg-zero-downtime-migration-audit:
 	node tools/deploy/audit-stg-zero-downtime-migrations.mjs --enforce
 
+dashboard-automation-guard:
+	node tools/ci/check-dashboard-automation.mjs --self-test
+	node tools/ci/check-dashboard-automation.mjs
+
+dashboard-automation-self-test:
+	node tools/dashboard-automation/run.mjs --self-test
+	node tools/dashboard-automation/agent-review.mjs --self-test
+	node tools/ci/check-dashboard-automation.mjs --self-test
+	bash -n tools/dashboard-automation/run-oci.sh
+	bash -n tools/dashboard-automation/install-oci-user-timer.sh
+
+dashboard-automation-production-smoke:
+	node tools/dashboard-automation/run.mjs --mode production-smoke
+
+dashboard-automation-post-main-certification:
+	node tools/dashboard-automation/run.mjs --mode post-main-certification
+
 ai-telemetry:
 	python3 tools/ai/analyze-transcripts.py
 
@@ -131,6 +149,7 @@ guardrails:
 	$(MAKE) stg-operator-scope-guard
 	$(MAKE) cascade-event-wiring-guard
 	$(MAKE) frontend-foundations-guard
+	$(MAKE) dashboard-automation-guard
 	$(MAKE) domain-event-architecture-guard
 	$(MAKE) operational-read-model-contract-guard
 	$(MAKE) critical-animal-action-availability-guard
