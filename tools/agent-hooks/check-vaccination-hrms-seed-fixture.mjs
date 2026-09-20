@@ -550,6 +550,19 @@ function runSelfTest() {
   if (couplingProblems(["backend/migrations/postgres/000991_backfill.sql"], dmlOnCanonicalTable).length !== REQUIRED_COMPANIONS.length) {
     throw new Error("contract coupling self-test let a canonical-table DML backfill skip its companions");
   }
+  // A module-owned provenance column plus a copy between supplier SOP documents
+  // changes neither vaccination/HRMS source data nor its schema. The existing
+  // documented module-DDL marker applies; it must not excuse a seed-table ALTER.
+  const vendorProvenanceFile = "backend/migrations/postgres/000990_vendor_provenance.sql";
+  const vendorProvenance = "+-- seed-fixture-guard:ignore: vendor provenance and supplier SOP copy only\n" +
+    "+ALTER TABLE public.procurement_vendors ADD COLUMN questionnaire_sop_code text;\n" +
+    "+UPDATE public.sop_versions SET form_dsl = '{}'::jsonb WHERE sop_id IN (SELECT sop_id FROM public.sop_definitions WHERE code = 'procurement.vendor');\n";
+  if (couplingProblems([vendorProvenanceFile], new Map([[vendorProvenanceFile, vendorProvenance]])).length !== 0) {
+    throw new Error("contract coupling wrongly flags marked module-owned vendor provenance");
+  }
+  if (couplingProblems([vendorProvenanceFile], new Map([[vendorProvenanceFile, vendorProvenance + "+ALTER TABLE public.goats ADD COLUMN species text;\n"]])).length !== REQUIRED_COMPANIONS.length) {
+    throw new Error("vendor provenance marker laundered canonical seed-table DDL");
+  }
   const makefile = fs.readFileSync(path.join(repo, "Makefile"), "utf8");
   if (seedOrderingProblems(makefile).length) throw new Error(`baseline seed ordering invalid: ${seedOrderingProblems(makefile).join("; ")}`);
   const bypass = makefile.replace(

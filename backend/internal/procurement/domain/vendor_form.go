@@ -347,6 +347,13 @@ func ValidateEntryForm(profile EntryFormProfile, dsl VendorFormDSL) []string {
 			seen[q.ID] = q
 		}
 	}
+	for id, question := range seen {
+		if question.AllowOther {
+			if _, collision := seen[id+"_other"]; collision {
+				add("%s: question %q collides with the Other explanation of %q", profile.Section, id+"_other", id)
+			}
+		}
+	}
 	if total > maxVendorFormQuestions {
 		add("%s: at most %d questions", profile.Section, maxVendorFormQuestions)
 	}
@@ -449,8 +456,12 @@ func ValidateVendorAnswers(form VendorForm, answers map[string]string) error {
 		known[q.ID] = q
 	}
 	for id := range answers {
+		if _, exact := known[id]; exact {
+			continue
+		}
 		base := strings.TrimSuffix(id, "_other")
-		if _, ok := known[base]; !ok {
+		parent, knownParent := known[base]
+		if base == id || !knownParent || !parent.AllowOther {
 			return ErrVendorAnswer{QuestionID: id, Reason: "is not a question on this form"}
 		}
 	}
@@ -615,7 +626,7 @@ func VendorAnswerRows(form VendorForm, answers map[string]string) []VendorAnswer
 						label = o.Label
 					}
 				}
-				if raw == "other" && strings.TrimSpace(answers[q.ID+"_other"]) != "" {
+				if q.AllowOther && raw == "other" && strings.TrimSpace(answers[q.ID+"_other"]) != "" {
 					label = strings.TrimSpace(answers[q.ID+"_other"])
 				}
 				parts = append(parts, label)
@@ -647,7 +658,7 @@ func unresolvedAnswerRows(known map[string]VendorQuestion, answers map[string]st
 		}
 		if strings.HasSuffix(id, "_other") {
 			base := strings.TrimSuffix(id, "_other")
-			if _, ok := known[base]; ok {
+			if parent, ok := known[base]; ok && parent.AllowOther {
 				continue
 			}
 			if strings.TrimSpace(answers[base]) == "other" {

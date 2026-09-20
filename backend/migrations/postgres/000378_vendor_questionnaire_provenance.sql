@@ -1,4 +1,5 @@
 -- +goose Up
+-- seed-fixture-guard:ignore: vendor-owned questionnaire provenance and supplier SOP history copy; no vaccination, HRMS, goat seed schema or source fixture contract changes.
 -- All pre-split vendor forms used sales.vendor, including supplier records.
 ALTER TABLE public.procurement_vendors ADD COLUMN questionnaire_sop_code text NOT NULL DEFAULT 'sales.vendor'
 CHECK (questionnaire_sop_code IN ('sales.vendor', 'procurement.vendor', ''));

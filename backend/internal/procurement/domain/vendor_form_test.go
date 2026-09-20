@@ -242,3 +242,38 @@ func TestBlankCatalogConditionIsRejectedAndNeverActivated(t *testing.T) {
 		}
 	}
 }
+
+func TestQuestionEndingOtherIsARealQuestionWithItsOwnSidecar(t *testing.T) {
+	form := VendorForm{Pages: []VendorFormPage{{Questions: []VendorQuestion{{ID: "review_other", Kind: VendorQuestionChoice, Title: "Review", AllowOther: true, Options: []VendorQuestionOpt{{Value: "other", Label: "Other"}}}}}}}
+	dsl := SeededVendorFormDSL()
+	dsl.Pages = append(dsl.Pages, VendorFormPage{Key: "suffix", Title: "Suffix", Questions: form.Pages[0].Questions})
+	if problems := ValidateVendorForm(dsl); len(problems) > 0 {
+		t.Fatalf("unambiguous suffix id must publish: %v", problems)
+	}
+	answers := map[string]string{"review_other": "other", "review_other_other": "Specific detail"}
+	if err := ValidateVendorAnswers(form, answers); err != nil {
+		t.Fatal(err)
+	}
+	feedRows := FeedPurchaseAnswerRows(form, answers)
+	if len(feedRows) != 1 || feedRows[0].Value != "Specific detail" {
+		t.Fatalf("feed suffix readback: %+v", feedRows)
+	}
+	rows := VendorAnswerRows(form, answers)
+	if len(rows) != 1 || rows[0].Value != "Specific detail" {
+		t.Fatalf("suffix question readback: %+v", rows)
+	}
+}
+
+func TestQuestionCannotCollideWithAnotherQuestionsOtherSidecar(t *testing.T) {
+	for _, reverse := range []bool{false, true} {
+		dsl := SeededVendorFormDSL()
+		questions := []VendorQuestion{{ID: "review", Kind: VendorQuestionChoice, Title: "Review", AllowOther: true, Options: []VendorQuestionOpt{{Value: "other", Label: "Other"}}}, {ID: "review_other", Kind: VendorQuestionText, Title: "Separate question"}}
+		if reverse {
+			questions[0], questions[1] = questions[1], questions[0]
+		}
+		dsl.Pages = append(dsl.Pages, VendorFormPage{Key: "collision", Title: "Collision", Questions: questions})
+		if len(ValidateVendorForm(dsl)) == 0 {
+			t.Fatal("ambiguous sidecar collision must be rejected")
+		}
+	}
+}

@@ -225,7 +225,7 @@ func FeedPurchaseAnswerRows(form VendorForm, answers map[string]string) []Vendor
 						label = o.Label
 					}
 				}
-				if raw == "other" && strings.TrimSpace(answers[q.ID+"_other"]) != "" {
+				if q.AllowOther && raw == "other" && strings.TrimSpace(answers[q.ID+"_other"]) != "" {
 					label = strings.TrimSpace(answers[q.ID+"_other"])
 				}
 				parts = append(parts, label)
