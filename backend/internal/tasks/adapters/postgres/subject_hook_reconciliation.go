@@ -137,3 +137,18 @@ func resetSubjectHook(a *domain.WorkflowAction, status string) {
 	a.RequestFingerprint = nil
 	a.RowVersion++
 }
+
+const (
+	upsertAnimalPurchaseDecisionReceiptSQL = `INSERT INTO workflow_animal_purchase_decisions
+(tenant_id, load_id, pending, decided, revision, occurred_at)
+VALUES ($1::uuid, $2::uuid, $3, $4, ($3::integer)::bigint + 2*($4::integer)::bigint, $5)
+ON CONFLICT (tenant_id, load_id) DO UPDATE SET pending=EXCLUDED.pending,
+ decided=EXCLUDED.decided, revision=EXCLUDED.revision, occurred_at=EXCLUDED.occurred_at
+WHERE workflow_animal_purchase_decisions.revision < EXCLUDED.revision`
+	insertSubjectHookReceiptSQL = `INSERT INTO workflow_subject_hook_receipts
+(tenant_id, template_key, subject_ref_id, hook, completed_at)
+VALUES ($1::uuid,$2,$3::uuid,$4,$5)
+ON CONFLICT (tenant_id,template_key,subject_ref_id,hook) DO NOTHING`
+	selectSubjectHookReceiptSQL = `SELECT completed_at FROM workflow_subject_hook_receipts
+WHERE tenant_id=$1::uuid AND template_key=$2 AND subject_ref_id=$3::uuid AND hook=$4`
+)

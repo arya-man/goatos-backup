@@ -228,3 +228,17 @@ func TestConditionalAnswersDoNotRequireHiddenGrandchildren(t *testing.T) {
 		t.Fatalf("hidden grandchild must not be required: %v", err)
 	}
 }
+
+func TestBlankCatalogConditionIsRejectedAndNeverActivated(t *testing.T) {
+	dsl := SeededVendorFormDSL()
+	dsl.Pages = append(dsl.Pages, VendorFormPage{Key: "blank_gate", Title: "Blank gate", Questions: []VendorQuestion{{ID: "blank_child", Kind: VendorQuestionText, Title: "Child", OnlyIf: &VendorQuestionOnlyIf{QuestionID: "record_type", Value: ""}}}})
+	if problems := ValidateEntryForm(VendorFormProfile(), dsl); len(problems) == 0 {
+		t.Fatal("blank catalog condition must be rejected at publication")
+	}
+	form := CompileVendorForm(dsl, 1, nil)
+	for _, answers := range []map[string]string{{"blank_child": "stale"}, {"record_type": "", "blank_child": "stale"}} {
+		if got := VisibleVendorAnswers(form, answers); got["blank_child"] != "" {
+			t.Fatalf("blank condition activated: %v", got)
+		}
+	}
+}

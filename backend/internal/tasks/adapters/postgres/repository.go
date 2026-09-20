@@ -1366,12 +1366,7 @@ func (r *Repository) ReconcileAnimalPurchaseDecisionStep(ctx context.Context, te
 	// Save before looking up the workflow: a decision may arrive before its opener.
 	// Candidate creation and decisions serialize on the producer's load row. Both
 	// counters are monotonic (a candidate can only be decided once).
-	_, err := r.pool.Exec(ctx, `INSERT INTO workflow_animal_purchase_decisions
-(tenant_id, load_id, pending, decided, revision, occurred_at)
-VALUES ($1::uuid, $2::uuid, $3, $4, ($3::integer)::bigint + 2*($4::integer)::bigint, $5)
-ON CONFLICT (tenant_id, load_id) DO UPDATE SET pending=EXCLUDED.pending,
- decided=EXCLUDED.decided, revision=EXCLUDED.revision, occurred_at=EXCLUDED.occurred_at
-WHERE workflow_animal_purchase_decisions.revision < EXCLUDED.revision`, tenantID, loadID, pending, decided, completedAt)
+	_, err := r.pool.Exec(ctx, upsertAnimalPurchaseDecisionReceiptSQL, tenantID, loadID, pending, decided, completedAt)
 	if err != nil {
 		return err
 	}
@@ -1410,15 +1405,11 @@ func (r *Repository) completeHookStep(ctx context.Context, tenantID, templateKey
 	// Persist nonzero facts before workflow lookup so an out-of-order opener heals
 	// them. Replays keep the first completion instant and remain idempotent.
 	if !completedAt.IsZero() {
-		if _, err := r.pool.Exec(ctx, `INSERT INTO workflow_subject_hook_receipts
-(tenant_id, template_key, subject_ref_id, hook, completed_at)
-VALUES ($1::uuid,$2,$3::uuid,$4,$5)
-ON CONFLICT (tenant_id,template_key,subject_ref_id,hook) DO NOTHING`, tenantID, templateKey, subjectRefID, hook, completedAt); err != nil {
+		if _, err := r.pool.Exec(ctx, insertSubjectHookReceiptSQL, tenantID, templateKey, subjectRefID, hook, completedAt); err != nil {
 			return err
 		}
 	}
-	if err := r.pool.QueryRow(ctx, `SELECT completed_at FROM workflow_subject_hook_receipts
-WHERE tenant_id=$1::uuid AND template_key=$2 AND subject_ref_id=$3::uuid AND hook=$4`, tenantID, templateKey, subjectRefID, hook).Scan(&completedAt); err != nil {
+	if err := r.pool.QueryRow(ctx, selectSubjectHookReceiptSQL, tenantID, templateKey, subjectRefID, hook).Scan(&completedAt); err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
 			return nil
 		}

@@ -152,7 +152,7 @@ internal fun AuthoredFormPage(
     VendorsFormGroup(title = page.title.ifBlank { fallbackTitle }) {
         if (page.hint.isNotBlank()) Text(text = page.hint, color = MeshaColors.Muted, style = MeshaType.caption)
         for (q in page.questions) {
-            val asked = q.onlyIfQuestion.isBlank() || a[q.onlyIfQuestion].orEmpty().trim() == q.onlyIfValue
+            val asked = q.onlyIfQuestion.isBlank() || (q.onlyIfValue.isNotBlank() && a.containsKey(q.onlyIfQuestion) && a[q.onlyIfQuestion].orEmpty().trim() == q.onlyIfValue)
             if (!asked) continue
             val value = a[q.id].orEmpty()
             val change: (String) -> Unit = { onAnswer(q.id, it) }

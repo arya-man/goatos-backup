@@ -8,7 +8,7 @@ export function visibleQuestionIds(questions: readonly ConditionalQuestion[], an
   const visible = new Set<string>();
   for (const question of questions) {
     const condition = question.only_if;
-    if (condition && (!visible.has(condition.question_id) || (answers[condition.question_id] ?? "").trim() !== condition.value)) continue;
+    if (condition && (!condition.value.trim() || !visible.has(condition.question_id) || (answers[condition.question_id] ?? "").trim() !== condition.value)) continue;
     visible.add(question.id);
   }
   return visible;
