@@ -64,3 +64,28 @@ class FeedPurchaseFormAnswersTest {
         assertEquals(3, form.version)
     }
 }
+
+/**
+ * The server checks a COMPULSORY TYPED question against the `answers` map, not against the column
+ * beside it, so a write carrying only the buying desk's extras is refused naming the first typed
+ * question it cannot find -- "Check Purchase date: required", seen on the Realme on 2026-09-20.
+ * These are the five the feed ledger cannot exist without; the phone must send all of them.
+ */
+class FeedPurchaseTypedAnswersTest {
+
+    @Test
+    fun `the phone sends every compulsory typed question under the id the form knows it by`() {
+        val sent = TYPED_PURCHASE_QUESTIONS.map { it.first }.toSet()
+        for (required in listOf("purchase_date", "farm_label", "feed_item_label", "quantity_kg", "vendor")) {
+            assertTrue("the write must carry $required", sent.contains(required))
+        }
+    }
+
+    @Test
+    fun `each typed question maps to exactly one field, and no field twice`() {
+        val questions = TYPED_PURCHASE_QUESTIONS.map { it.first }
+        val fields = TYPED_PURCHASE_QUESTIONS.map { it.second }
+        assertEquals(questions.size, questions.toSet().size)
+        assertEquals(fields.size, fields.toSet().size)
+    }
+}

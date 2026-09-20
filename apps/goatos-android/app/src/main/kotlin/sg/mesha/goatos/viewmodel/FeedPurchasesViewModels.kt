@@ -59,6 +59,30 @@ import sg.mesha.goatos.feature.vendors.VendorsOptionUi
 import sg.mesha.goatos.feature.vendors.VendorsWriteStatus
 import sg.mesha.goatos.ui.Routes
 
+/**
+ * The ledger's own columns under the ids the PUBLISHED FORM knows them by. The server
+ * checks a compulsory typed question against the `answers` map rather than the column
+ * beside it, so a write carrying only the extras is refused naming the first typed
+ * question it cannot find ("Check Purchase date: required"). The web drawer sends the
+ * same pairs; keep the two lists together.
+ */
+internal val TYPED_PURCHASE_QUESTIONS: List<Pair<String, PurchaseField>> = listOf(
+    "purchase_date" to PurchaseField.PURCHASE_DATE,
+    "farm_label" to PurchaseField.FARM,
+    "feed_item_label" to PurchaseField.FEED_ITEM,
+    "quantity_kg" to PurchaseField.QUANTITY_KG,
+    "vendor" to PurchaseField.VENDOR,
+    "feed_cost" to PurchaseField.FEED_COST,
+    "transport_cost" to PurchaseField.TRANSPORT_COST,
+    "loading_cost" to PurchaseField.LOADING_COST,
+    "unloading_cost" to PurchaseField.UNLOADING_COST,
+    "total_cost" to PurchaseField.TOTAL_COST,
+    "payment_released" to PurchaseField.PAYMENT_RELEASED,
+    "payment_status" to PurchaseField.PAYMENT_STATUS,
+    "reached_on" to PurchaseField.REACHED_ON,
+    "reached_weight_kg" to PurchaseField.REACHED_WEIGHT_KG,
+)
+
 /** The Feed Purchases tab (module vendors): the ledger, Room-first, narrowed by delivery state. */
 @HiltViewModel
 class FeedPurchasesListViewModel @Inject constructor(
@@ -772,10 +796,20 @@ class FeedPurchaseCreateViewModel @Inject constructor(
             paymentStatus = get(PurchaseField.PAYMENT_STATUS).orEmpty(),
             reachedOn = reachedOn,
             reachedWeightKg = if (reachedOn == null) null else money(PurchaseField.REACHED_WEIGHT_KG),
-            // Only the questions the published form actually ASKED, and only the ones it added:
-            // sending a stale answer to a question a later version removed, or one whose "ask only
-            // when" no longer holds, would file an answer nobody was asked for.
+            // What the AUTHORED form asked: the TYPED questions under the ids the form knows them
+            // by -- the server checks a compulsory typed question against `answers`, not against
+            // the column beside it, exactly as the web drawer sends them -- plus every extra the
+            // document added. Only questions the form actually ASKED: a stale answer to one a
+            // later version removed, or one whose "ask only when" no longer holds, would file an
+            // answer nobody was asked for. Absent entirely when the form was never fetched, and
+            // the write then goes through on its typed columns alone, as it did before the form.
             answers = buildMap<String, String> {
+                if (pages.isNotEmpty() || questionnaireVersion > 0) {
+                    for ((question, field) in TYPED_PURCHASE_QUESTIONS) {
+                        val given = this@toWrite[field].orEmpty().trim()
+                        if (given.isNotEmpty()) put(question, given)
+                    }
+                }
                 for (q in pages.flatMap { page -> page.questions }) {
                     if (!q.isAsked(answers)) continue
                     val given = answers[q.id].orEmpty().trim()
@@ -787,6 +821,7 @@ class FeedPurchaseCreateViewModel @Inject constructor(
     }
 
     private companion object {
+
         const val KEY_CLIENT_ID = "feed_purchase_create_client_id"
         const val STEP_COUNT = 2
         const val REQUIRED = "Required"
