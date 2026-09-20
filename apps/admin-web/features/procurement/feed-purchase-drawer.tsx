@@ -11,6 +11,8 @@ import {
 import { Tag } from "@/components/ui-primitives";
 import { controlEnabled, copy, optionGroup, type AdminUiPageContract } from "@/lib/admin-ui-contract";
 import type { FeedPurchase, FeedPurchaseOptions } from "@/lib/api/procurement";
+import type { ProcurementVendorForm } from "@/lib/api/server";
+import { FeedPurchaseExtraFields } from "./feed-purchase-extra-fields";
 import { ThemedDatePicker } from "@/components/themed-date-picker";
 import { fmtDate, todayIso } from "@/lib/format";
 import { deliveryStatusChip, paymentStatusChip } from "./feed-purchase-format";
@@ -55,6 +57,7 @@ function subscribeToOverlayUrl(onChange: () => void): () => void {
 export function FeedPurchaseDrawer({
   purchases,
   options,
+  purchaseForm = null,
   recordIdempotencyKey,
   paymentIdempotencyKey,
   pageContract,
@@ -74,6 +77,15 @@ export function FeedPurchaseDrawer({
   listHref: string;
   /** Backend-declared record_feed_purchase capability; without it the form never renders. */
   canRecord: boolean;
+  /**
+   * THE FEED PURCHASE FORM IS AUTHORED (2026-09-20): the published document. The ledger's own
+   * columns keep the purpose-built inputs below (a date picker, a stepped number, the catalog
+   * selects); everything the farm authored BEYOND them renders from this, and the version rides
+   * the submit so the backend checks the answers against exactly the form shown here. Null when
+   * the read failed -- the drawer then works on its typed fields alone, as it did before the form
+   * existed.
+   */
+  purchaseForm?: ProcurementVendorForm | null;
 }) {
   const closeButtonRef = useRef<HTMLButtonElement>(null);
 
@@ -209,6 +221,7 @@ export function FeedPurchaseDrawer({
               <input type="hidden" name="idempotency_key" value={recordIdempotencyKey} />
 
               <div className="note">{copy(pageContract, "required.hint")}</div>
+              {purchaseForm ? <input type="hidden" name="questionnaire_version" value={purchaseForm.version} /> : null}
 
               <div className="fld">
                 <label htmlFor="fp-purchase_date">{field("purchase_date")}</label>
@@ -318,6 +331,10 @@ export function FeedPurchaseDrawer({
                 <input id="fp-reached_weight_kg" name="reached_weight_kg" type="number" min={0.001} step="0.001" />
                 <div className="muted small">{copy(pageContract, "hint.reached_weight")}</div>
               </div>
+
+              {/* Whatever the farm authored beyond the ledger's own columns, from the published
+                  form (2026-09-20). Nothing renders when the document adds nothing. */}
+              <FeedPurchaseExtraFields form={purchaseForm} pageContract={pageContract} />
             </div>
             <div className="df">
               <button type="submit" className="btn p">

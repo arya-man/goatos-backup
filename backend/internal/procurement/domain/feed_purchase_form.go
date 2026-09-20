@@ -119,6 +119,9 @@ func ApplyFeedPurchaseAnswers(write FeedPurchaseWrite, answers map[string]string
 	num := func(raw string) *float64 {
 		v, err := strconv.ParseFloat(strings.TrimSpace(raw), 64)
 		if err != nil {
+			// exception:exempt a non-numeric answer is REFUSED earlier by ValidateVendorAnswers
+			// against the form the client rendered; reaching here means the caller skipped that
+			// check, and the honest answer is "no value", not a column filled from nonsense.
 			return nil
 		}
 		return &v

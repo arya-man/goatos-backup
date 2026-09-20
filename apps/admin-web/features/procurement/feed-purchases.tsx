@@ -6,7 +6,7 @@ import { redirect } from "next/navigation";
 import { Wheat } from "lucide-react";
 import { INTERNAL_LOGIN_PATH } from "@/lib/auth/session-cookie";
 import { firstAuthRequiredError } from "@/lib/api/server";
-import { getFeedPurchaseOptions, listFeedPurchases } from "@/lib/api/procurement-server";
+import { getFeedPurchaseForm, getFeedPurchaseOptions, listFeedPurchases } from "@/lib/api/procurement-server";
 import type { FeedPurchase, FeedPurchaseOptions } from "@/lib/api/procurement";
 import { boundedInt, one, type RouteSearchParams } from "@/lib/search-params";
 import { Tag } from "@/components/ui-primitives";
@@ -87,9 +87,14 @@ export async function FeedPurchasesPage({
   // Both reads in parallel: the options feed the entry drawer's selects and do not depend on the
   // page of rows. LocalOverlayLink opens the drawer without an RSC request, so its data must ride
   // with the page rather than be fetched on open.
-  const [result, optionsResult] = await Promise.all([
+  const [result, optionsResult, formResult] = await Promise.all([
     listFeedPurchases({ farm, delivery, limit, offset }),
     getFeedPurchaseOptions(),
+    // THE FEED PURCHASE FORM IS AUTHORED (2026-09-20): whatever the farm added beyond the ledger's
+    // own columns. Read beside the options and for the same reason -- the drawer opens without an
+    // RSC request, so its data rides with the page. A failed read leaves the drawer on its typed
+    // fields rather than blocking the ledger.
+    getFeedPurchaseForm(),
   ]);
 
   if (firstAuthRequiredError(result, optionsResult)) redirect(INTERNAL_LOGIN_PATH);
@@ -104,6 +109,7 @@ export async function FeedPurchasesPage({
   const pageNumber = Math.min(pageCount, Math.floor(offset / limit) + 1);
   const optionsReady = optionsResult.ok;
   const options: FeedPurchaseOptions | null = optionsReady ? optionsResult.data : null;
+  const purchaseForm = formResult.ok ? formResult.data : null;
 
   const actionStatus = one(sp, "action_status");
   const actionKey = one(sp, "action_key");
@@ -348,6 +354,7 @@ export async function FeedPurchasesPage({
       <FeedPurchaseDrawer
         purchases={purchases}
         options={options}
+        purchaseForm={purchaseForm}
         recordIdempotencyKey={randomUUID()}
         paymentIdempotencyKey={randomUUID()}
         pageContract={pageContract}

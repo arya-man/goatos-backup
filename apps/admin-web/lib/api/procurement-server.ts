@@ -12,6 +12,7 @@ import {
   getServerConfig,
   request,
   type ApiResult,
+  type ProcurementVendorForm,
 } from "@/lib/api/server";
 import type { LoadCostWrite, LoadwiseSales, LoadwiseWeights, BuyerAnalytics, FarmBornSales,
   AnimalPurchaseAnimal,
@@ -439,6 +440,19 @@ export async function getFeedPurchaseOptions(): Promise<ApiResult<FeedPurchaseOp
   return request(() =>
     client.request<FeedPurchaseOptions>("/procurement/feed-purchase-options", { cache: "no-store" }),
   );
+}
+
+/**
+ * THE FEED PURCHASE FORM IS AUTHORED (2026-09-20): the published form the Record purchase drawer
+ * renders -- its pages, its questions, and the choices filled from the ledger's own live
+ * vocabularies. The drawer keeps its purpose-built inputs for the ledger's own columns and renders
+ * whatever the farm authored beyond them from this.
+ */
+export async function getFeedPurchaseForm(): Promise<ApiResult<ProcurementVendorForm>> {
+  const config = await getServerConfig();
+  if (!config.ok) return config;
+  const client = createAppApiClient(apiClientOptions(config.data));
+  return request(() => client.request<ProcurementVendorForm>("/procurement/feed-purchase-form", { cache: "no-store" }));
 }
 
 export async function createFeedPurchase(

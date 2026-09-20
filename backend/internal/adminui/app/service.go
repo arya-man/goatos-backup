@@ -4578,13 +4578,16 @@ func pageSpecificCopy(id string) map[string]string {
 			// reaches. Stock counts it from the day it reached, at the weight received once that
 			// is entered -- which can wait, because the weighbridge figure is often known after
 			// the feed is already in use.
-			"section.delivery.title":        "Delivery",
-			"field.delivery_status":         "Delivery",
-			"field.reached_on":              "Delivered on",
-			"field.reached_weight_kg":       "Weight received (kg)",
-			"field.stock_kg":                "Counted as stock (kg)",
-			"hint.record_reached":           "Leave the delivered date blank if the load is still in transit. Fill it in only for a load that has already come in.",
-			"hint.reached_weight":           "Leave blank if the load has not been weighed on arrival yet — the buying weight counts until you enter it.",
+			"section.delivery.title":  "Delivery",
+			"field.delivery_status":   "Delivery",
+			"field.reached_on":        "Delivered on",
+			"field.reached_weight_kg": "Weight received (kg)",
+			"field.stock_kg":          "Counted as stock (kg)",
+			"hint.record_reached":     "Leave the delivered date blank if the load is still in transit. Fill it in only for a load that has already come in.",
+			"hint.reached_weight":     "Leave blank if the load has not been weighed on arrival yet — the buying weight counts until you enter it.",
+			// THE FEED PURCHASE FORM IS AUTHORED (2026-09-20): the questions below the ledger's own
+			// boxes come from the published form, editable on Procurement SOP.
+			"hint.authored_questions":       "The questions above the buttons are your own — add, re-word or remove them on Procurement › Procurement SOP.",
 			"hint.mark_reached":             "Marking the load delivered counts it as stock from that day and raises its toxin test. The received weight can be entered now or later.",
 			"delivery.in_transit_note":      "This load is still in transit. It is not counted as stock and its toxin test has not started.",
 			"action.mark_reached.label":     "Mark delivered",

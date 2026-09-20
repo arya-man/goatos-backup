@@ -3018,6 +3018,26 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/procurement/feed-purchase-form": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * The authored form the Record feed purchase screens render.
+         * @description THE FEED PURCHASE FORM IS AUTHORED (maintainer decision 2026-09-20, procurement SOP-driven end to end): `form_dsl.feed_purchase_form` of the published `procurement.feed_purchase_form` SOP -- pages of questions, compiled with the ledger's own live vocabularies so a catalog-backed question carries its choices (the farms it buys for, the ACTIVE feed catalog, the two payment states). A question with `typed: true` is one of the ledger's own columns; the client sends its answer under the same id and reads it back from the typed purchase field. Every other answer is stored on the purchase as `answers`. A write carries every answer plus the `questionnaire_version` it rendered and is checked against exactly that version; one the library never published is refused `feed_purchase_form_changed` (reopen the form). A client that sends no answers at all -- an older app -- is accepted on its typed fields, unchanged.
+         */
+        get: operations["getFeedPurchaseForm"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/procurement/feed-purchases": {
         parameters: {
             query?: never;
@@ -8422,6 +8442,12 @@ export interface components {
             reached_on?: string | null;
             /** @description Weight received; meaningful only with `reached_on`. Omit to defer it. */
             reached_weight_kg?: number | null;
+            /** @description THE FEED PURCHASE FORM IS AUTHORED (2026-09-20): every answer the published form asked for, keyed by question id -- the typed questions under the ledger's own ids and any question the farm added beyond them. Sent together with `questionnaire_version`; the write is checked against exactly that version. OMIT both (an older client) and the write is accepted on its typed fields alone, unchanged. */
+            answers?: {
+                [key: string]: string;
+            };
+            /** @description The feed purchase form version the client rendered. Required whenever `answers` is sent. */
+            questionnaire_version?: number;
         };
         /** @description Mark-reached / update-arrival body. On a load still on the road this is the ARRIVAL: the load becomes stock from `reached_on` and its toxin test is raised. On a load already reached it corrects the arrival day or enters the received weight that was deferred. `reached_on` may not be before the load's purchase date nor in the future (IST business day). */
         FeedPurchaseDeliveryWrite: {
@@ -25696,6 +25722,29 @@ export interface operations {
                 /** @description Narrows the record types offered to one half of the register, as vendor-catalog does. */
                 side?: "procurement" | "sales";
             };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The published form. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ProcurementVendorForm"];
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            500: components["responses"]["ServerError"];
+        };
+    };
+    getFeedPurchaseForm: {
+        parameters: {
+            query?: never;
             header?: never;
             path?: never;
             cookie?: never;
