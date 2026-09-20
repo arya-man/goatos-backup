@@ -52,6 +52,9 @@ export const REQUIRED_LOAD_KEYS = new Set(["load_ref", "vendor", "farm"]);
 // form or media. Typed questions are the register's own columns (locked id and kind; catalog-backed
 // choices); four identity questions must stay compulsory. Mirrors procurement/domain/vendor_form.go.
 export const VENDOR_FORM_SCHEMA_VERSION = "goatos.sop-vendor-form.v1";
+// THE FEED PURCHASE FORM IS AUTHORED (2026-09-20): the same pages-of-questions shape as the
+// vendor form, in its own section, so it is edited through the same editor.
+export const FEED_PURCHASE_FORM_SCHEMA_VERSION = "goatos.sop-feed-purchase-form.v1";
 export const VENDOR_LOCKED_KEYS = new Set([
   "business_name", "record_type", "contact_person_name", "phone_number", "state", "city", "status",
   "capacity_quantity", "capacity_unit", "supply_frequency", "feed", "breed", "price_per_goat",
@@ -59,6 +62,18 @@ export const VENDOR_LOCKED_KEYS = new Set([
   "ifsc_code", "upi_id", "pan_number", "filtered_stock",
 ]);
 export const VENDOR_REQUIRED_KEYS = new Set(["business_name", "record_type", "state", "status"]);
+
+// The feed purchase LEDGER's own columns (procurement/domain.lockedFeedPurchaseQuestions) and the
+// five every downstream read is keyed on or divided by. Kept beside the vendor set rather than
+// shared with it: the two documents share an engine, not a column set.
+export const FEED_PURCHASE_LOCKED_KEYS = new Set([
+  "purchase_date", "farm_label", "feed_item_label", "quantity_kg", "vendor", "batch_no",
+  "feed_cost", "transport_cost", "loading_cost", "unloading_cost", "total_cost",
+  "payment_released", "payment_status", "reached_on", "reached_weight_kg",
+]);
+export const FEED_PURCHASE_REQUIRED_KEYS = new Set([
+  "purchase_date", "farm_label", "feed_item_label", "quantity_kg", "vendor",
+]);
 
 function str(v: unknown, fallback = ""): string {
   return typeof v === "string" ? v : fallback;
@@ -152,6 +167,18 @@ export function parseVendorForm(formDsl: unknown): InspectionRows | null {
   const vf = dsl ? obj(dsl["vendor_form"]) : null;
   if (!vf) return null;
   return { loadForm: [], pages: parsePages(vf) };
+}
+
+// parseFeedPurchaseForm reads form_dsl.feed_purchase_form into the same editor rows.
+export function parseFeedPurchaseForm(formDsl: unknown): InspectionRows | null {
+  const dsl = obj(formDsl);
+  const ff = dsl ? obj(dsl["feed_purchase_form"]) : null;
+  if (!ff) return null;
+  return { loadForm: [], pages: parsePages(ff) };
+}
+
+export function emitFeedPurchaseForm(rows: InspectionRows): Record<string, unknown> {
+  return { ...emitVendorForm(rows), schema_version: FEED_PURCHASE_FORM_SCHEMA_VERSION };
 }
 
 export function emitVendorForm(rows: InspectionRows): Record<string, unknown> {

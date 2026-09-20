@@ -198,14 +198,31 @@ type vendorQuestionOnlyIfPayload struct {
 	Value      string `json:"value"`
 }
 
+// toVendorFormPayload composes the VENDOR register's form. `typed` marks the register's own
+// columns, so it is resolved with the VENDOR profile's locked ids.
 func toVendorFormPayload(f domain.VendorForm) vendorFormPayload {
+	return toEntryFormPayload(f, domain.IsTypedVendorQuestion)
+}
+
+// toFeedPurchaseFormPayload composes the feed purchase LEDGER's form. It must not reuse the
+// vendor predicate: the two documents share an engine but not a column set, and marking a
+// ledger column `typed: false` tells a client it is an extra -- which is how the web drawer
+// decides what to render beside its own inputs, so every typed column would render TWICE.
+// Found by serving the form in the 2026-09-20 E2E.
+func toFeedPurchaseFormPayload(f domain.VendorForm) vendorFormPayload {
+	return toEntryFormPayload(f, domain.IsTypedFeedPurchaseQuestion)
+}
+
+// toEntryFormPayload is the shared composer; `typed` names which ids the owning module stores in
+// a column of its own.
+func toEntryFormPayload(f domain.VendorForm, typed func(string) bool) vendorFormPayload {
 	out := vendorFormPayload{Version: f.Version, Pages: make([]vendorFormPagePayload, 0, len(f.Pages))}
 	for _, p := range f.Pages {
 		page := vendorFormPagePayload{Key: p.Key, Title: p.Title, Hint: p.Hint, Questions: make([]vendorQuestionPayload, 0, len(p.Questions))}
 		for _, q := range p.Questions {
 			qp := vendorQuestionPayload{
 				ID: q.ID, Kind: q.Kind, Title: q.Title, Hint: q.Hint, Required: q.Required,
-				Typed: domain.IsTypedVendorQuestion(q.ID), AllowOther: q.AllowOther,
+				Typed: typed(q.ID), AllowOther: q.AllowOther,
 				Min: q.Min, Max: q.Max, Unit: q.Unit, Options: []vendorQuestionOptPayload{},
 			}
 			for _, o := range q.Options {

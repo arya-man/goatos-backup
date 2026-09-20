@@ -950,6 +950,12 @@ func (h *Handler) writeDomainError(w http.ResponseWriter, r *http.Request, err e
 	case errors.Is(err, domain.ErrStepForOtherRole):
 		h.writeError(w, r, http.StatusForbidden, "step_for_other_role",
 			"this step is done by another designation", err)
+	case errors.Is(err, domain.ErrFeedArrivalPending):
+		h.writeError(w, r, http.StatusConflict, "feed_arrival_pending", err.Error(), nil)
+	case errors.Is(err, domain.ErrToxinTestPending):
+		h.writeError(w, r, http.StatusConflict, "toxin_test_pending", err.Error(), nil)
+	case errors.Is(err, domain.ErrPurchaseDecisionPending):
+		h.writeError(w, r, http.StatusConflict, "purchase_decision_pending", err.Error(), nil)
 	case errors.Is(err, domain.ErrSaleTaggingPending):
 		h.writeError(w, r, http.StatusConflict, "sale_tagging_pending",
 			"tag the animals on the sale-tagging screen; this step completes when the tagging is confirmed", err)

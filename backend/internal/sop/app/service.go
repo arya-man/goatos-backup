@@ -1054,16 +1054,30 @@ func evaluationRequiresProof(evaluation domain.DryRunResponse) bool {
 	return false
 }
 
+// moduleOwnedSections are the document sections whose CONTENT is the whole substance of their
+// version: the module that owns each one validates and runs it, and the version carries no capture
+// form of its own. A document with one of these and `fields: []` is complete, not empty.
+//
+// Every entry here was added because its document could not otherwise be PUBLISHED AT ALL -- the
+// generic "at least one field is required" check fires first and nothing downstream ever runs.
+// The vendor form hit it in September; the aflatoxin procedure and the feed purchase form hit it
+// on 2026-09-20, found by publishing each document through the real service rather than calling
+// its own contract in a unit test. Adding a section here is what makes a new module-owned document
+// editable from the web at all.
+var moduleOwnedSections = []string{"vendor_form", "feed_purchase_form", "toxin"}
+
 // generalDocumentShape reports a document whose whole substance is a follow-up track or a
 // module-owned form and which therefore has no capture form to demand a field from: a GENERAL
 // work instruction (the `main` track, module `general`), the SALE SOP (the `sales_deal` track,
-// module `sales`, whose capture is the Record sale form the sales module owns), or the VENDOR
-// FORM (a `vendor_form` section, validated by procurement's own contract) --
-// docs/decisions/sales-sop.md. Only the shape is read here; each section's own contract is
-// validated separately.
+// module `sales`, whose capture is the Record sale form the sales module owns), the PURCHASE
+// intake tracks (module `procurement`), or one of the module-owned form sections above --
+// docs/decisions/sales-sop.md, docs/decisions/procurement-sop-driven.md. Only the shape is read
+// here; each section's own contract is validated separately.
 func generalDocumentShape(formDSL map[string]any) bool {
-	if _, ok := formDSL["vendor_form"].(map[string]any); ok {
-		return true
+	for _, section := range moduleOwnedSections {
+		if _, ok := formDSL[section].(map[string]any); ok {
+			return true
+		}
 	}
 	followUp, ok := formDSL["follow_up"].(map[string]any)
 	if !ok {
@@ -1084,10 +1098,12 @@ func generalDocumentShape(formDSL map[string]any) bool {
 		if stringValue(track, "key") == tasksdomain.TemplateKeySalesDeal && stringValue(track, "module") == tasksdomain.ModuleSales {
 			return true
 		}
-		// PROCUREMENT SOP (2026-09-20): the purchase-load intake document is steps only -- it
-		// carries no capture form, so `fields: []` is correct rather than a document with nothing
-		// in it.
-		if stringValue(track, "key") == tasksdomain.TemplateKeyAnimalPurchaseIntake && stringValue(track, "module") == tasksdomain.ModuleProcurement {
+		// PROCUREMENT SOP (2026-09-20): both purchase intake documents are steps only -- they
+		// carry no capture form, so `fields: []` is correct rather than a document with nothing
+		// in it. The feed one was missing here and could not be published at all.
+		if stringValue(track, "module") == tasksdomain.ModuleProcurement &&
+			(stringValue(track, "key") == tasksdomain.TemplateKeyAnimalPurchaseIntake ||
+				stringValue(track, "key") == tasksdomain.TemplateKeyFeedPurchaseIntake) {
 			return true
 		}
 	}
@@ -1899,7 +1915,8 @@ func validateProofPolicy(report *domain.ValidationReport, policy, formDSL map[st
 		// A SOP whose operator steps (follow_up) carry the proof satisfies the policy through
 		// those steps: the capture form of a herd-operations SOP records the event, the
 		// steps record the evidence (docs/decisions/sop-driven-herd-operations.md).
-		if !hasProofFieldForTypes(fields, types) && !hasGoatRowProofCapture(formDSL, subjectScope, types) && !followUpCarriesProof(formDSL, types) {
+		if !hasProofFieldForTypes(fields, types) && !hasGoatRowProofCapture(formDSL, subjectScope, types) &&
+			!followUpCarriesProof(formDSL, types) && !toxinCarriesProof(formDSL, types) {
 			addError(report, "proof_policy", "missing_proof_field", "proof policy requires a matching photo_proof or video_proof field")
 		}
 	}
@@ -2681,6 +2698,47 @@ func conflictMessage(err error) string {
 
 // followUpCarriesProof reports whether any follow_up step declares a proof of one of the policy's
 // types (video -> proof.video > 0, photo -> proof.photo > 0).
+// toxinCarriesProof reports an aflatoxin PROCEDURE whose own steps are the evidence (THE TOXIN
+// PROCEDURE IS AUTHORED, 2026-09-20): every working step is filmed and the reading is
+// photographed, so a document with a video or photo_reading step satisfies a policy that requires
+// proof -- the same allowance follow-up steps already have.
+//
+// Without this the procedure could not be published at all: its proof policy says proof is
+// required (it IS -- at every working step), the capture form is empty because there is no capture
+// form, and the check that looks only at `fields` refused the document before any toxin rule ran.
+// Found by publishing through the real service in the 2026-09-20 E2E; no unit test saw it, because
+// each called the toxin contract directly.
+func toxinCarriesProof(formDSL map[string]any, types []string) bool {
+	toxin, ok := formDSL["toxin"].(map[string]any)
+	if !ok {
+		return false
+	}
+	steps, _ := toxin["steps"].([]any)
+	wantVideo, wantPhoto := false, false
+	for _, t := range types {
+		switch t {
+		case "video":
+			wantVideo = true
+		case "photo":
+			wantPhoto = true
+		}
+	}
+	for _, rawStep := range steps {
+		step, _ := rawStep.(map[string]any)
+		switch stringValue(step, "kind") {
+		case "video":
+			if wantVideo {
+				return true
+			}
+		case "photo_reading":
+			if wantPhoto {
+				return true
+			}
+		}
+	}
+	return false
+}
+
 func followUpCarriesProof(formDSL map[string]any, types []string) bool {
 	followUp, ok := formDSL["follow_up"].(map[string]any)
 	if !ok {

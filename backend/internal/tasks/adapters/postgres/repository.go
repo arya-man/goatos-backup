@@ -1053,10 +1053,15 @@ func (r *Repository) CompleteAction(ctx context.Context, cmd domain.CompleteActi
 			if !domain.StepOwnedBy(actions[idx].OwnerRole, cmd.ActorRoles) {
 				return nil, false, domain.ErrStepForOtherRole
 			}
-			// The sale's tag-animals step is ENGINE-completed from the allocation confirm
-			// (CompleteSaleTagStep); a tap can never mark animals tagged that were not.
-			if actions[idx].HasHook(domain.EngineHookSaleTagAnimals) && cmd.ActorRoles != nil {
-				return nil, false, domain.ErrSaleTaggingPending
+			// An ENGINE-completed step is never a tap: the sale's tagging completes from the
+			// allocation confirm, the feed load's arrival from the ledger's delivery write, the
+			// aflatoxin step from an accepted round, and the purchase decision when no animal is
+			// still waiting. A nil ActorRoles is the ENGINE itself (and the CLI), which is how
+			// those completions reach this same path.
+			if cmd.ActorRoles != nil {
+				if refusal := domain.EngineCompletedStepRefusal(actions[idx]); refusal != nil {
+					return nil, false, refusal
+				}
 			}
 			if domain.OperatorActionBlocked(w.TemplateKey, actions[idx], actions) {
 				return nil, false, domain.ErrActionOutOfSequence

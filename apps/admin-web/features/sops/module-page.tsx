@@ -9,7 +9,7 @@ import type { RouteSearchParams } from "@/lib/search-params";
 import type { SopScopeDomain } from "./sop-derive";
 import { InspectionEditor } from "./inspection-editor";
 import { publishedFromSearch } from "./published-href";
-import { parseInspection, parseVendorForm } from "./inspection-model";
+import { parseFeedPurchaseForm, parseInspection, parseVendorForm } from "./inspection-model";
 import { WeighingEditor } from "./weighing-editor";
 import { ToxinEditor } from "./toxin-editor";
 import { parseToxin } from "./toxin-model";
@@ -145,6 +145,26 @@ export async function renderSopModulePage(
               versionLabel={`${version.version_label} · ${version.status}`}
               initial={vendorForm}
               profile="vendor_form"
+            />
+          );
+        }
+        // THE FEED PURCHASE FORM IS AUTHORED (2026-09-20): a SOP carrying a `feed_purchase_form`
+        // document is edited through the SAME pages editor -- it is the vendor form's shape in its
+        // own section. Without this branch the document fell through to the generic form builder,
+        // which cannot round-trip it: the farm had no way to author it at all.
+        const feedPurchaseForm = parseFeedPurchaseForm(version.form_dsl);
+        if (feedPurchaseForm) {
+          const pageContract = await pageContractPromise;
+          return (
+            <InspectionEditor
+              pageContract={pageContract}
+              basePath={basePath}
+              sopId={editId}
+              sopName={detail.data.sop.name}
+              sopCode={detail.data.sop.code}
+              versionLabel={`${version.version_label} · ${version.status}`}
+              initial={feedPurchaseForm}
+              profile="feed_purchase_form"
             />
           );
         }

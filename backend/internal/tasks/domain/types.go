@@ -38,6 +38,14 @@ var (
 	// ErrSaleTaggingPending refuses a by-hand completion of the sale's tag-animals step: the
 	// engine completes it from the allocation confirm, never a tap (HTTP 409).
 	ErrSaleTaggingPending = errors.New("tasks: tag the animals on the sale-tagging screen; this step completes when the tagging is confirmed")
+	// The PURCHASE workflows' engine steps refuse a tap for the same reason (PROCUREMENT IS
+	// SOP-DRIVEN END TO END, 2026-09-20): each records a fact whose owner is ELSEWHERE, and a tap
+	// would let the step and that owner disagree -- a load reading "arrived" while the ledger has
+	// it on the road, "screened" with no accepted aflatoxin round, or "decided" over an animal
+	// still waiting. Each message says where the work actually happens (HTTP 409).
+	ErrFeedArrivalPending      = errors.New("tasks: mark the load delivered on the feed purchase; this step completes when the ledger records the arrival")
+	ErrToxinTestPending        = errors.New("tasks: this step completes when the load's aflatoxin test is signed off")
+	ErrPurchaseDecisionPending = errors.New("tasks: this step completes when every animal in the load has been accepted or rejected")
 	// ErrActionNotAnswerable is answer on a non-question action (HTTP 400).
 	ErrActionNotAnswerable = errors.New("tasks: action is not a question and cannot be answered")
 	// ErrActionNotCompletable is complete on a question/approval action (HTTP 400).

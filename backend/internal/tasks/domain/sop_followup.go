@@ -82,6 +82,27 @@ const (
 	EngineHookToxinTestAccepted = "toxin_test_accepted"
 )
 
+// EngineCompletedStepRefusal names the error a BY-HAND completion of an engine step must be
+// refused with, or nil when the step may be tapped. Every hook here completes from an event
+// elsewhere, so a tap is not "early" -- it is a claim about a fact this workflow does not own.
+//
+// This is a map rather than a branch per hook because the list grows: the sale's tagging was the
+// first, the three purchase hooks followed, and a fourth added without a refusal would silently
+// be tappable (which is how the 2026-09-20 E2E found all three).
+func EngineCompletedStepRefusal(a WorkflowAction) error {
+	switch {
+	case a.HasHook(EngineHookSaleTagAnimals):
+		return ErrSaleTaggingPending
+	case a.HasHook(EngineHookFeedPurchaseReached):
+		return ErrFeedArrivalPending
+	case a.HasHook(EngineHookToxinTestAccepted):
+		return ErrToxinTestPending
+	case a.HasHook(EngineHookAnimalPurchaseDecision):
+		return ErrPurchaseDecisionPending
+	}
+	return nil
+}
+
 // Step condition tokens (a step included only when the opening context says so).
 const (
 	StepWhenAlways           = ""

@@ -17,11 +17,14 @@ import {
   LOCKED_OPTION_KEYS,
   LOCKED_QUESTION_KEYS,
   REQUIRED_LOAD_KEYS,
+  FEED_PURCHASE_LOCKED_KEYS,
+  FEED_PURCHASE_REQUIRED_KEYS,
   VENDOR_LOCKED_KEYS,
   VENDOR_REQUIRED_KEYS,
   blankPage,
   blankQuestion,
   emitInspection,
+  emitFeedPurchaseForm,
   emitVendorForm,
   inspectionProblems,
   slugKey,
@@ -41,7 +44,7 @@ import { followQuestionKey, keyForTitle } from "./weighing-model";
 //   vendor_form  the VENDOR FORM (2026-09-19): what Add / Edit vendor asks -- no load form, no
 //                media, the register's columns as locked typed questions whose catalog-backed
 //                choices are filled by the backend.
-export type InspectionProfile = "inspection" | "vendor_form";
+export type InspectionProfile = "inspection" | "vendor_form" | "feed_purchase_form";
 
 type Props = {
   pageContract: AdminUiPageContract;
@@ -56,10 +59,14 @@ type Props = {
 
 export function InspectionEditor({ pageContract: pc, basePath, sopId, sopName, sopCode, versionLabel, initial, profile = "inspection" }: Props) {
   const router = useRouter();
-  const isVendorForm = profile === "vendor_form";
-  const pageLockedKeys = isVendorForm ? VENDOR_LOCKED_KEYS : LOCKED_QUESTION_KEYS;
-  const pageRequiredKeys = isVendorForm ? VENDOR_REQUIRED_KEYS : new Set<string>();
-  const copyPrefix = isVendorForm ? "vendor_form" : "inspection";
+  // Both FORM profiles render the same way -- pages of questions, no load form, no media. Only
+  // the section they save into differs.
+  const isVendorForm = profile === "vendor_form" || profile === "feed_purchase_form";
+  const pageLockedKeys = profile === "feed_purchase_form" ? FEED_PURCHASE_LOCKED_KEYS : isVendorForm ? VENDOR_LOCKED_KEYS : LOCKED_QUESTION_KEYS;
+  const pageRequiredKeys = profile === "feed_purchase_form" ? FEED_PURCHASE_REQUIRED_KEYS : isVendorForm ? VENDOR_REQUIRED_KEYS : new Set<string>();
+  // Each profile reads its OWN copy block, so the aflatoxin page cannot title itself "Vendor
+  // form" and a feed purchase form cannot inherit the register's locked-question notice.
+  const copyPrefix = profile === "feed_purchase_form" ? "feed_form" : isVendorForm ? "vendor_form" : "inspection";
   const [rows, setRows] = useState<InspectionRows>(initial);
   const [openPage, setOpenPage] = useState<string>(initial.pages[0]?.id ?? "");
   // Keys the loaded version already carries never move (locked register questions, stored answers);
@@ -171,7 +178,8 @@ export function InspectionEditor({ pageContract: pc, basePath, sopId, sopName, s
   }
 
   function submit(publish: boolean) {
-    const doc = isVendorForm ? emitVendorForm(rows) : emitInspection(rows);
+    const doc =
+      profile === "feed_purchase_form" ? emitFeedPurchaseForm(rows) : isVendorForm ? emitVendorForm(rows) : emitInspection(rows);
     startTransition(async () => {
       const res = publish ? await publishInspectionVersion(sopId, doc, undefined, profile) : await saveInspectionVersion(sopId, doc, undefined, profile);
       setResult(res);

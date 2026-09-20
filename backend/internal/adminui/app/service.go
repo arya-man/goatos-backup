@@ -11322,6 +11322,12 @@ func inspectionEditorCopy() map[string]string {
 		"action.edit_inspection": "Change SOP",
 		// VENDOR FORM (2026-09-19): the sales.vendor SOP, edited through the same pages editor.
 		"action.edit_vendor_form":            "Change form",
+		"feed_form.title":                    "Feed purchase form",
+		"feed_form.subtitle":                 "What is asked when a feed load is recorded, page by page. Each question names its kind and whether it is compulsory. Publishing applies to loads recorded from then on, on the web and on the phone.",
+		"feed_form.drawer.title":             "What the form asks, page by page",
+		"feed_form.drawer.subtitle":          "from the published SOP",
+		"feed_form.notice.capture_kept":      "Date, farm, feed, quantity and vendor stay compulsory; the locked questions are the ledger's own columns, read by the stock cards, the landed rate and the aflatoxin test. Everything else -- wording, order, pages, extra questions -- is yours to change.",
+		"feed_form.notice.catalog_choices":   "Choices come from the ledger's own lists:",
 		"vendor_form.title":                  "Vendor form",
 		"vendor_form.subtitle":               "What is asked when a vendor or buyer is added or edited, page by page. Each question names its kind and whether it is compulsory. Publishing applies to vendors added or edited from then on, on the web and on the phone.",
 		"vendor_form.drawer.title":           "What the form asks, page by page",
