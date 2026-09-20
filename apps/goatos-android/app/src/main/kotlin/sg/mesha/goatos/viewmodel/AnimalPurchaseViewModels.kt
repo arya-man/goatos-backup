@@ -2,7 +2,6 @@ package sg.mesha.goatos.viewmodel
 
 import android.content.Context
 import androidx.lifecycle.SavedStateHandle
-import sg.mesha.goatos.BuildConfig
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import androidx.paging.PagingData
@@ -10,6 +9,7 @@ import androidx.paging.cachedIn
 import androidx.paging.map
 import dagger.hilt.android.lifecycle.HiltViewModel
 import dagger.hilt.android.qualifiers.ApplicationContext
+import javax.inject.Inject
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.NonCancellable
@@ -34,6 +34,7 @@ import kotlinx.serialization.json.JsonPrimitive
 import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.contentOrNull
 import kotlinx.serialization.json.put
+import sg.mesha.goatos.BuildConfig
 import sg.mesha.goatos.R
 import sg.mesha.goatos.capture.PhotoCaptureContext
 import sg.mesha.goatos.capture.PhotoCaptureSource
@@ -48,41 +49,34 @@ import sg.mesha.goatos.core.common.AppResult
 import sg.mesha.goatos.core.data.AnimalPurchaseAnswers
 import sg.mesha.goatos.core.data.AnimalPurchaseRepository
 import sg.mesha.goatos.core.data.BootstrapRepository
+import sg.mesha.goatos.core.data.QueuedAnimalPurchaseAnimal
 import sg.mesha.goatos.core.data.SalesRepository
+import sg.mesha.goatos.core.data.WorkflowsRepository
 import sg.mesha.goatos.core.data.capture.ProofCaptureRepository
 import sg.mesha.goatos.core.data.capture.ProofCaptureRow
 import sg.mesha.goatos.core.data.capture.ProofFlow
-import sg.mesha.goatos.core.data.QueuedAnimalPurchaseAnimal
 import sg.mesha.goatos.core.data.capture.ProofIdentity
-import sg.mesha.goatos.feature.vendors.AnimalPurchaseQueuedAnimalUi
 import sg.mesha.goatos.core.data.capture.ProofSubject
 import sg.mesha.goatos.core.data.forms.ProofPolicy
 import sg.mesha.goatos.core.data.sync.SyncRepository
 import sg.mesha.goatos.core.data.sync.animalPurchaseDraftGroupKey
 import sg.mesha.goatos.core.network.dto.AnimalPurchaseAnimalCreateRequestDto
 import sg.mesha.goatos.core.network.dto.AnimalPurchaseAnimalDto
-import sg.mesha.goatos.core.network.dto.AnimalPurchaseMediaItemDto
-import sg.mesha.goatos.core.network.dto.AnimalPurchaseQuestionDto
 import sg.mesha.goatos.core.network.dto.AnimalPurchaseLoadCreateRequestDto
 import sg.mesha.goatos.core.network.dto.AnimalPurchaseLoadDto
+import sg.mesha.goatos.core.network.dto.AnimalPurchaseMediaItemDto
 import sg.mesha.goatos.core.network.dto.AnimalPurchaseOptionDto
 import sg.mesha.goatos.core.network.dto.AnimalPurchaseOptionsDto
+import sg.mesha.goatos.core.network.dto.AnimalPurchaseQuestionDto
+import sg.mesha.goatos.core.network.dto.WorkflowDetailResponseDto
 import sg.mesha.goatos.feature.vendors.AnimalPurchaseAnimalCardUi
+import sg.mesha.goatos.feature.vendors.AnimalPurchaseAnimalCreateEvent
+import sg.mesha.goatos.feature.vendors.AnimalPurchaseAnimalCreateUiState
 import sg.mesha.goatos.feature.vendors.AnimalPurchaseAnimalDetailEvent
 import sg.mesha.goatos.feature.vendors.AnimalPurchaseAnimalDetailUiState
 import sg.mesha.goatos.feature.vendors.AnimalPurchaseAnswerRowUi
 import sg.mesha.goatos.feature.vendors.AnimalPurchaseAnswerSectionUi
-import sg.mesha.goatos.feature.vendors.AnimalPurchaseMediaItemUi
-import sg.mesha.goatos.feature.vendors.AnimalPurchaseMediaSlotUi
-import sg.mesha.goatos.feature.vendors.COPY_ANIMAL_DETAIL_ANSWERS
-import sg.mesha.goatos.feature.vendors.COPY_ANIMAL_DETAIL_ATTENTION
-import sg.mesha.goatos.feature.vendors.COPY_ANIMAL_DETAIL_EMPTY
-import sg.mesha.goatos.feature.vendors.COPY_ANIMAL_DETAIL_MEDIA
-import sg.mesha.goatos.feature.vendors.AnimalPurchaseAnimalCreateEvent
-import sg.mesha.goatos.feature.vendors.AnimalPurchaseAnimalCreateUiState
 import sg.mesha.goatos.feature.vendors.AnimalPurchaseCaptureUi
-import sg.mesha.goatos.feature.vendors.AnimalPurchaseQuestionKind
-import sg.mesha.goatos.feature.vendors.AnimalPurchaseQuestionUi
 import sg.mesha.goatos.feature.vendors.AnimalPurchaseCountChipUi
 import sg.mesha.goatos.feature.vendors.AnimalPurchaseLoadCardUi
 import sg.mesha.goatos.feature.vendors.AnimalPurchaseLoadCreateEvent
@@ -92,24 +86,32 @@ import sg.mesha.goatos.feature.vendors.AnimalPurchaseLoadDetailUiState
 import sg.mesha.goatos.feature.vendors.AnimalPurchaseLoadField
 import sg.mesha.goatos.feature.vendors.AnimalPurchaseLoadsEvent
 import sg.mesha.goatos.feature.vendors.AnimalPurchaseLoadsUiState
+import sg.mesha.goatos.feature.vendors.AnimalPurchaseMediaItemUi
+import sg.mesha.goatos.feature.vendors.AnimalPurchaseMediaSlotUi
+import sg.mesha.goatos.feature.vendors.AnimalPurchaseQuestionKind
+import sg.mesha.goatos.feature.vendors.AnimalPurchaseQuestionUi
+import sg.mesha.goatos.feature.vendors.AnimalPurchaseQueuedAnimalUi
 import sg.mesha.goatos.feature.vendors.COPY_ANIMAL_DECIDED_BY
+import sg.mesha.goatos.feature.vendors.COPY_ANIMAL_DETAIL_ANSWERS
+import sg.mesha.goatos.feature.vendors.COPY_ANIMAL_DETAIL_ATTENTION
+import sg.mesha.goatos.feature.vendors.COPY_ANIMAL_DETAIL_EMPTY
+import sg.mesha.goatos.feature.vendors.COPY_ANIMAL_DETAIL_MEDIA
 import sg.mesha.goatos.feature.vendors.COPY_ANIMAL_FORM_HINT
 import sg.mesha.goatos.feature.vendors.COPY_ANIMAL_FORM_TITLE
 import sg.mesha.goatos.feature.vendors.COPY_ANIMAL_OTHER_HINT
 import sg.mesha.goatos.feature.vendors.COPY_ANIMAL_SEND_FAILED
-import sg.mesha.goatos.feature.vendors.COPY_REQUIRED_HINT
-import sg.mesha.goatos.feature.vendors.OTHER_OPTION_VALUE
-import sg.mesha.goatos.feature.vendors.OTHER_SUFFIX
 import sg.mesha.goatos.feature.vendors.COPY_LOADS_ADD
 import sg.mesha.goatos.feature.vendors.COPY_LOADS_EMPTY
 import sg.mesha.goatos.feature.vendors.COPY_LOAD_ANIMALS_ADD
 import sg.mesha.goatos.feature.vendors.COPY_LOAD_ANIMALS_EMPTY
 import sg.mesha.goatos.feature.vendors.COPY_LOAD_ANIMALS_TITLE
+import sg.mesha.goatos.feature.vendors.COPY_REQUIRED_HINT
+import sg.mesha.goatos.feature.vendors.OTHER_OPTION_VALUE
+import sg.mesha.goatos.feature.vendors.OTHER_SUFFIX
 import sg.mesha.goatos.feature.vendors.VendorsOptionUi
 import sg.mesha.goatos.feature.vendors.VendorsTone
 import sg.mesha.goatos.feature.vendors.VendorsWriteStatus
 import sg.mesha.goatos.feature.vendors.animalPurchaseDecisionTone
-import javax.inject.Inject
 
 /**
  * The Animal purchases tab's state holders (maintainer decision 2026-09-13,
@@ -453,6 +455,7 @@ class AnimalPurchaseLoadCreateViewModel @Inject constructor(
 @HiltViewModel
 class AnimalPurchaseLoadDetailViewModel @Inject constructor(
     private val repository: AnimalPurchaseRepository,
+    private val workflows: WorkflowsRepository,
     private val syncRepository: SyncRepository,
     private val analytics: AnalyticsPort,
     private val crashReporter: CrashReporter,
@@ -484,17 +487,55 @@ class AnimalPurchaseLoadDetailViewModel @Inject constructor(
         }
     }
 
+    /**
+     * The load's SOP steps (PROCUREMENT IS SOP-DRIVEN END TO END, 2026-09-20): resolved by SUBJECT
+     * -- the workflow the backend opened when the load was opened -- then observed from the Room
+     * detail cache under its workflow id, like every other workflow. Blank id = not opened yet (the
+     * recorded event still in flight); a failed read leaves whatever is cached on screen.
+     */
+    private data class Steps(val workflowId: String = "", val unavailable: Boolean = false)
+
+    private val steps = MutableStateFlow(Steps())
+
+    @OptIn(ExperimentalCoroutinesApi::class)
+    private val stepsDetail: Flow<Pair<Steps, WorkflowDetailResponseDto?>> =
+        steps.flatMapLatest { s ->
+            if (s.workflowId.isBlank()) flowOf(s to null) else workflows.observeDetail(s.workflowId).map { s to it }
+        }
+
     init {
         viewModelScope.launch { repository.refreshOptions() }
+        readSteps()
     }
+
+    private fun readSteps() {
+        viewModelScope.launch {
+            workflows.refreshDetailBySubject(LOAD_WORKFLOW_TEMPLATE_KEY, loadId)
+                .onSuccess { id -> steps.update { it.copy(workflowId = id.ifBlank { it.workflowId }, unavailable = false) } }
+                .onFailure { t ->
+                    crashReporter.recordException(t, "animal purchase load steps read failed")
+                    steps.update { it.copy(unavailable = it.workflowId.isBlank()) }
+                }
+        }
+    }
+
+    /**
+     * The queued animals and the load's steps, folded into ONE flow: `combine` types at most five
+     * sources, and dropping to its untyped vararg form for a sixth would trade every parameter's
+     * type for a position in an array.
+     */
+    private val queuedAndSteps: Flow<Pair<List<Pair<QueuedAnimalPurchaseAnimal, Boolean>>, Pair<Steps, WorkflowDetailResponseDto?>>> =
+        combine(queuedWithProofState, stepsDetail) { queued, steps -> queued to steps }
 
     val state: StateFlow<AnimalPurchaseLoadDetailUiState> = combine(
         _isRefreshing,
         repository.observeLoad(loadId),
         repository.observeCanRecord(),
         repository.observeOptions(),
-        queuedWithProofState,
-    ) { refreshing, load, canRecord, options, queued ->
+        queuedAndSteps,
+    ) { refreshing, load, canRecord, options, queuedAndStepsPair ->
+        val (queued, stepsPair) = queuedAndStepsPair
+        val (stepsState, stepsCard) = stepsPair
         val copy = options?.copy.orEmpty()
         AnimalPurchaseLoadDetailUiState(
             queuedAnimals = queued.map { (animal, proofFailed) -> animal.toQueuedUi(options, proofFailed) },
@@ -507,6 +548,11 @@ class AnimalPurchaseLoadDetailViewModel @Inject constructor(
             animalsTitle = copy[COPY_LOAD_ANIMALS_TITLE].orEmpty(),
             emptyMessage = copy[COPY_LOAD_ANIMALS_EMPTY],
             decidedByLabel = copy[COPY_ANIMAL_DECIDED_BY].orEmpty(),
+            stepsWorkflowId = stepsState.workflowId,
+            // The backend card's counters and next step, verbatim; the phone never recounts.
+            stepsProgressLine = stepsCard?.let { "${it.actionsDone} of ${it.actionsTotal} done" }.orEmpty(),
+            stepsNextLine = stepsCard?.nextAction?.title?.takeIf { it.isNotBlank() }?.let { "Next: $it" }.orEmpty(),
+            stepsUnavailable = stepsState.unavailable,
         )
     }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), AnimalPurchaseLoadDetailUiState())
 
@@ -519,6 +565,10 @@ class AnimalPurchaseLoadDetailViewModel @Inject constructor(
             // The pager's own refresh (driven by the host) re-reads the header and first page in
             // ONE request; this side only keeps the options current and marks the sync indicator.
             AnimalPurchaseLoadDetailEvent.Refresh -> refresh()
+            is AnimalPurchaseLoadDetailEvent.OpenSteps -> analytics.track(
+                AnalyticsEventsAnimalPurchase.LOAD_STEPS_OPENED,
+                mapOf(AnalyticsEventsAnimalPurchase.Params.LOAD_ID to loadId),
+            )
             AnimalPurchaseLoadDetailEvent.AddAnimal -> analytics.track(
                 AnalyticsEventsAnimalPurchase.ANIMAL_ADD_OPENED,
                 mapOf(AnalyticsEventsAnimalPurchase.Params.LOAD_ID to loadId),
@@ -557,10 +607,15 @@ class AnimalPurchaseLoadDetailViewModel @Inject constructor(
                 _isRefreshing.value = false
             }
         }
+        // The steps read is its own request and must not hold the header's refresh open.
+        readSteps()
     }
 
     private companion object {
         const val ARG_LOAD_ID = "load_id"
+
+        /** tasks/domain.TemplateKeyAnimalPurchaseIntake -- the load workflow's template key. */
+        const val LOAD_WORKFLOW_TEMPLATE_KEY = "animal_purchase_intake"
     }
 }
 

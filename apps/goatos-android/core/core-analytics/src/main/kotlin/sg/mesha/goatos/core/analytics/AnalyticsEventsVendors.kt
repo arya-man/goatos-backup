@@ -65,6 +65,9 @@ object AnalyticsEventsVendors {
     /** The sale's SOP steps opened from the sale detail (SALES SOP, 2026-09-19). */
     const val VENDORS_SALE_STEPS_OPENED = "vendors_sale_steps_opened"
 
+    /** A feed load's SOP steps opened from its detail (PROCUREMENT SOP-DRIVEN, 2026-09-20). */
+    const val VENDORS_PURCHASE_STEPS_OPENED = "vendors_purchase_steps_opened"
+
     /** The sale's tag-animals step opened the tagging screen from the workflow. */
     const val VENDORS_SALE_TAGGING_OPENED_FROM_STEPS = "vendors_sale_tagging_opened_from_steps"
     const val VENDORS_PIPELINE_OPENED = "vendors_pipeline_opened"

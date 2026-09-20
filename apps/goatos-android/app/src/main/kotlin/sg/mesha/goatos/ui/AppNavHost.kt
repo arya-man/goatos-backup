@@ -703,6 +703,20 @@ object Routes {
     const val ANIMAL_PURCHASE_CANDIDATE_ID_ARG = "candidate_id"
     const val ANIMAL_PURCHASE_ANIMAL_DETAIL = "/vendors/animal-purchases/loads/{$ANIMAL_PURCHASE_LOAD_ID_ARG}/animals/animal/{$ANIMAL_PURCHASE_CANDIDATE_ID_ARG}"
 
+    // PROCUREMENT IS SOP-DRIVEN END TO END (maintainer decision 2026-09-20): the purchase load's
+    // own steps -- recording the animals, the office's decision, the arrival -- opened by the
+    // backend when the load is opened and run on the shared workflow screen, exactly as a sale's
+    // are. A hosted drill under the load, never a prefix reuse of a root.
+    const val ANIMAL_PURCHASE_LOAD_STEPS = "/vendors/animal-purchases/loads/{$ANIMAL_PURCHASE_LOAD_ID_ARG}/steps/{$WORKFLOW_ID_ARG}"
+    fun animalPurchaseLoadStepsRoute(loadId: String, workflowId: String): String =
+        "/vendors/animal-purchases/loads/${Uri.encode(loadId)}/steps/${Uri.encode(workflowId)}"
+
+    // The feed load's own steps (same decision): the weighbridge slip, the arrival, the aflatoxin
+    // sign-off and the money.
+    const val FEED_PURCHASE_STEPS = "/vendors/feed-purchases/purchase/{$FEED_PURCHASE_ID_ARG}/steps/{$WORKFLOW_ID_ARG}"
+    fun feedPurchaseStepsRoute(purchaseId: String, workflowId: String): String =
+        "/vendors/feed-purchases/purchase/${Uri.encode(purchaseId)}/steps/${Uri.encode(workflowId)}"
+
     fun animalPurchaseLoadRoute(loadId: String): String = "/vendors/animal-purchases/loads/${Uri.encode(loadId)}"
     fun animalPurchaseAnimalNewRoute(loadId: String): String = "/vendors/animal-purchases/loads/${Uri.encode(loadId)}/animals/new"
     fun animalPurchaseAnimalDetailRoute(loadId: String, candidateId: String): String =
@@ -2807,6 +2821,12 @@ fun AppNavHost(
             // A sale's steps (SALES SOP, 2026-09-19): the same screen; its tag-animals step opens
             // the Sales-owned tagging drill and is completed by the backend from the confirm.
             Routes.SALE_STEPS,
+            // A purchase load's steps and a feed load's steps (PROCUREMENT IS SOP-DRIVEN END TO
+            // END, 2026-09-20): the same screen again. Their engine-completed steps -- the
+            // office's decision, the ledger's arrival, the aflatoxin sign-off -- render as ordinary
+            // steps that complete themselves; nothing here knows that.
+            Routes.ANIMAL_PURCHASE_LOAD_STEPS,
+            Routes.FEED_PURCHASE_STEPS,
         ).forEach { route ->
             composable(
                 route = route,
@@ -2814,6 +2834,12 @@ fun AppNavHost(
                     add(navArgument(Routes.WORKFLOW_ID_ARG) { type = NavType.StringType })
                     if (route == Routes.SALE_STEPS) {
                         add(navArgument(Routes.SALE_ID_ARG) { type = NavType.StringType })
+                    }
+                    if (route == Routes.ANIMAL_PURCHASE_LOAD_STEPS) {
+                        add(navArgument(Routes.ANIMAL_PURCHASE_LOAD_ID_ARG) { type = NavType.StringType })
+                    }
+                    if (route == Routes.FEED_PURCHASE_STEPS) {
+                        add(navArgument(Routes.FEED_PURCHASE_ID_ARG) { type = NavType.StringType })
                     }
                     // The colostrum drill alone is date-scoped; the VM reads both from
                     // SavedStateHandle and passes them to the backend lens.
@@ -3769,14 +3795,21 @@ fun AppNavHost(
         composable(
             route = Routes.FEED_PURCHASE_DETAIL,
             arguments = listOf(navArgument(Routes.FEED_PURCHASE_ID_ARG) { type = NavType.StringType }),
-        ) {
+        ) { entry ->
             val vm: FeedPurchaseDetailViewModel = hiltViewModel()
             val state by vm.state.collectAsStateWithLifecycle()
+            val purchaseId = entry.arguments?.getString(Routes.FEED_PURCHASE_ID_ARG).orEmpty()
             FeedPurchaseDetailScreen(
                 state = state,
                 onEvent = { event ->
                     when (event) {
                         FeedPurchaseDetailEvent.Back -> navController.popBackStack()
+                        // The load's SOP steps on the shared workflow screen (PROCUREMENT
+                        // SOP-DRIVEN, 2026-09-20): a hosted drill under the load.
+                        is FeedPurchaseDetailEvent.OpenSteps -> {
+                            vm.onEvent(event)
+                            navController.navigate(Routes.feedPurchaseStepsRoute(purchaseId, event.workflowId)) { launchSingleTop = true }
+                        }
                         else -> vm.onEvent(event)
                     }
                 },
@@ -3907,6 +3940,12 @@ fun AppNavHost(
                         is AnimalPurchaseLoadDetailEvent.OpenAnimal -> {
                             vm.onEvent(event)
                             navController.navigate(Routes.animalPurchaseAnimalDetailRoute(loadId, event.candidateId)) { launchSingleTop = true }
+                        }
+                        // The load's SOP steps on the shared workflow screen (PROCUREMENT SOP-DRIVEN,
+                        // 2026-09-20): a hosted drill under the load, same as a sale's.
+                        is AnimalPurchaseLoadDetailEvent.OpenSteps -> {
+                            vm.onEvent(event)
+                            navController.navigate(Routes.animalPurchaseLoadStepsRoute(loadId, event.workflowId)) { launchSingleTop = true }
                         }
                     }
                 },

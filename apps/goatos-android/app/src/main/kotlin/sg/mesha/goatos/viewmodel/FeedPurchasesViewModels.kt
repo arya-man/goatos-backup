@@ -7,13 +7,18 @@ import androidx.paging.PagingData
 import androidx.paging.cachedIn
 import androidx.paging.map
 import dagger.hilt.android.lifecycle.HiltViewModel
+import java.time.LocalDate
+import java.util.UUID
+import javax.inject.Inject
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.combine
+import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.flatMapLatest
+import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.flow.update
@@ -24,23 +29,25 @@ import sg.mesha.goatos.core.analytics.AnalyticsPort
 import sg.mesha.goatos.core.analytics.CrashReporter
 import sg.mesha.goatos.core.common.AppResult
 import sg.mesha.goatos.core.data.VendorsRepository
+import sg.mesha.goatos.core.data.WorkflowsRepository
 import sg.mesha.goatos.core.data.sync.FeedPurchaseEditKind
 import sg.mesha.goatos.core.data.sync.FeedPurchaseEditPayload
 import sg.mesha.goatos.core.data.sync.SyncRepository
 import sg.mesha.goatos.core.network.dto.FeedPurchaseDeliveryWriteDto
 import sg.mesha.goatos.core.network.dto.FeedPurchaseDto
 import sg.mesha.goatos.core.network.dto.FeedPurchaseEditDto
+import sg.mesha.goatos.core.network.dto.FeedPurchaseOptionsDto
 import sg.mesha.goatos.core.network.dto.FeedPurchasePaymentWriteDto
 import sg.mesha.goatos.core.network.dto.FeedPurchaseStatusWriteDto
-import sg.mesha.goatos.core.network.dto.FeedPurchaseOptionsDto
 import sg.mesha.goatos.core.network.dto.FeedPurchaseWriteDto
+import sg.mesha.goatos.core.network.dto.WorkflowDetailResponseDto
 import sg.mesha.goatos.feature.vendors.FeedPurchaseCardUi
 import sg.mesha.goatos.feature.vendors.FeedPurchaseCreateEvent
 import sg.mesha.goatos.feature.vendors.FeedPurchaseCreateUiState
 import sg.mesha.goatos.feature.vendors.FeedPurchaseDetailEvent
+import sg.mesha.goatos.feature.vendors.FeedPurchaseDetailUiState
 import sg.mesha.goatos.feature.vendors.FeedPurchaseEditorKind
 import sg.mesha.goatos.feature.vendors.FeedPurchasePaymentUi
-import sg.mesha.goatos.feature.vendors.FeedPurchaseDetailUiState
 import sg.mesha.goatos.feature.vendors.FeedPurchasesListEvent
 import sg.mesha.goatos.feature.vendors.FeedPurchasesListUiState
 import sg.mesha.goatos.feature.vendors.PurchaseField
@@ -50,9 +57,6 @@ import sg.mesha.goatos.feature.vendors.VendorsFilterUi
 import sg.mesha.goatos.feature.vendors.VendorsOptionUi
 import sg.mesha.goatos.feature.vendors.VendorsWriteStatus
 import sg.mesha.goatos.ui.Routes
-import java.time.LocalDate
-import java.util.UUID
-import javax.inject.Inject
 
 /** The Feed Purchases tab (module vendors): the ledger, Room-first, narrowed by delivery state. */
 @HiltViewModel
@@ -168,6 +172,7 @@ private fun FeedPurchaseDto.deliveryLabel(): String = when (deliveryStatus) {
 class FeedPurchaseDetailViewModel @Inject constructor(
     savedStateHandle: SavedStateHandle,
     private val repository: VendorsRepository,
+    private val workflows: WorkflowsRepository,
     private val syncRepository: SyncRepository,
     private val analytics: AnalyticsPort,
     private val crashReporter: CrashReporter,
@@ -183,6 +188,11 @@ class FeedPurchaseDetailViewModel @Inject constructor(
         val inFlight: Boolean = false,
         val message: String = "",
         val failed: Boolean = false,
+        // The load's SOP workflow (PROCUREMENT IS SOP-DRIVEN END TO END, 2026-09-20): resolved by
+        // subject on refresh, then observed from the Room detail cache under its workflow id like
+        // every other workflow.
+        val stepsWorkflowId: String = "",
+        val stepsUnavailable: Boolean = false,
     )
 
     private val local = MutableStateFlow(Local())
@@ -199,8 +209,12 @@ class FeedPurchaseDetailViewModel @Inject constructor(
         refresh()
     }
 
+    @OptIn(ExperimentalCoroutinesApi::class)
+    private val stepsDetail: Flow<WorkflowDetailResponseDto?> = local.map { it.stepsWorkflowId }.distinctUntilChanged()
+        .flatMapLatest { id -> if (id.isBlank()) flowOf(null) else workflows.observeDetail(id) }
+
     val state: StateFlow<FeedPurchaseDetailUiState> =
-        combine(repository.observeFeedPurchase(purchaseId), repository.observeFeedPurchaseOptions(), local) { purchase, options, l ->
+        combine(repository.observeFeedPurchase(purchaseId), repository.observeFeedPurchaseOptions(), local, stepsDetail) { purchase, options, l, steps ->
             if (purchase == null) {
                 FeedPurchaseDetailUiState(isRefreshing = l.refreshing, isLoading = !l.loaded)
             } else {
@@ -241,6 +255,11 @@ class FeedPurchaseDetailViewModel @Inject constructor(
                     editInFlight = l.inFlight,
                     editMessage = l.message,
                     editFailed = l.failed,
+                    stepsWorkflowId = l.stepsWorkflowId,
+                    // The backend card's counters and next step, verbatim; the phone never recounts.
+                    stepsProgressLine = steps?.let { "${it.actionsDone} of ${it.actionsTotal} done" }.orEmpty(),
+                    stepsNextLine = steps?.nextAction?.title?.takeIf { it.isNotBlank() }?.let { "Next: $it" }.orEmpty(),
+                    stepsUnavailable = l.stepsUnavailable,
                     isRefreshing = l.refreshing,
                     isLoading = false,
                 )
@@ -251,6 +270,7 @@ class FeedPurchaseDetailViewModel @Inject constructor(
         when (event) {
             FeedPurchaseDetailEvent.Refresh -> refresh()
             FeedPurchaseDetailEvent.Back -> Unit
+            is FeedPurchaseDetailEvent.OpenSteps -> analytics.track(AnalyticsEventsVendors.VENDORS_PURCHASE_STEPS_OPENED)
             is FeedPurchaseDetailEvent.OpenEditor -> openEditor(event.kind)
             is FeedPurchaseDetailEvent.FieldChanged -> local.update {
                 it.copy(values = it.values + (event.field to event.value), errors = it.errors - event.field)
@@ -485,6 +505,14 @@ class FeedPurchaseDetailViewModel @Inject constructor(
                 // The ledger row is cached from the list page; there is no per-purchase read on the
                 // backend, so refreshing here means refreshing the list page it came from.
                 repository.invalidateFeedPurchases("", "")
+                // The load's SOP steps, keyed on the purchase. Blank = not opened yet (the recorded
+                // event still in flight); failure = offline, the cached detail stays visible.
+                workflows.refreshDetailBySubject(FEED_PURCHASE_WORKFLOW_TEMPLATE_KEY, purchaseId)
+                    .onSuccess { id -> local.update { it.copy(stepsWorkflowId = id.ifBlank { it.stepsWorkflowId }, stepsUnavailable = false) } }
+                    .onFailure { t ->
+                        crashReporter.recordException(t, "feed purchase steps read failed")
+                        local.update { it.copy(stepsUnavailable = it.stepsWorkflowId.isBlank()) }
+                    }
             } finally {
                 local.update { it.copy(refreshing = false, loaded = true) }
             }
@@ -492,6 +520,8 @@ class FeedPurchaseDetailViewModel @Inject constructor(
     }
 
     private companion object {
+        /** tasks/domain.TemplateKeyFeedPurchaseIntake -- the feed load workflow's template key. */
+        const val FEED_PURCHASE_WORKFLOW_TEMPLATE_KEY = "feed_purchase_intake"
         const val ON_THE_ROAD_NOTE = "This load is still in transit. It is not counted as stock until it is marked delivered."
         const val COST_UNKNOWN = "Landed cost not recorded yet"
         const val FULLY_PAID = "Fully paid"

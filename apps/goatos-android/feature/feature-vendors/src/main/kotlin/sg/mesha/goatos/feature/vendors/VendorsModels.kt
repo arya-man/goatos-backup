@@ -289,6 +289,15 @@ data class FeedPurchaseDetailUiState(
     /** Backend-owned line about the last change; blank when there is nothing to say. */
     val editMessage: String = "",
     val editFailed: Boolean = false,
+    // --- the load's SOP steps (PROCUREMENT IS SOP-DRIVEN END TO END, 2026-09-20) ---
+    /** The load's workflow id once the backend has opened it; blank until then. */
+    val stepsWorkflowId: String = "",
+    /** "1 of 6 done" -- the backend card's counters, VERBATIM. Blank until read. */
+    val stepsProgressLine: String = "",
+    /** "Next: Photo of the feed in the store" -- the card's next step; blank when done. */
+    val stepsNextLine: String = "",
+    /** Whether the workflow read failed (offline); the card then says the steps are on the server. */
+    val stepsUnavailable: Boolean = false,
     val isRefreshing: Boolean = false,
     val isLoading: Boolean = true,
 )
@@ -310,6 +319,9 @@ enum class FeedPurchaseEditorKind { NONE, PAYMENT, EDIT, DELIVERY }
 sealed interface FeedPurchaseDetailEvent {
     data object Refresh : FeedPurchaseDetailEvent
     data object Back : FeedPurchaseDetailEvent
+
+    /** Open the load's SOP steps (the shared workflow screen). */
+    data class OpenSteps(val workflowId: String) : FeedPurchaseDetailEvent
 
     /** Open one of the editors; [FeedPurchaseEditorKind.NONE] closes whichever is open. */
     data class OpenEditor(val kind: FeedPurchaseEditorKind) : FeedPurchaseDetailEvent
