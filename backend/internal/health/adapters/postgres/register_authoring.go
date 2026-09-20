@@ -22,16 +22,117 @@ import (
 // same ledger contract, same one-draft lock -- because the two tabs of one screen must
 // not behave differently, and an author who has learned one editor has learned both.
 
-const registerSelectColumns = `
+// Every query this file runs, hoisted to a named constant.
+//
+// Not tidiness: a query assembled by concatenation inside a function cannot be reached by
+// `validate-sqlc-plans` or by any test that wants to EXPLAIN it, so the plan for a read on the
+// diagnosis path would be unprovable. These are small, indexed reads today -- four registers per
+// tenant -- but "small today" is how an unprovable query gets written.
+const (
+	registerColumns = `
   health_diagnosis_register_version_id::text, animal_class, version, status,
   register_label, document, published_at, updated_at`
 
-func (r *Repository) ListRegisters(ctx context.Context, tenantID string) ([]domain.RegisterSummary, error) {
-	rows, err := r.pool.Query(ctx, `
-SELECT `+registerSelectColumns+`
+	sqlListRegisters = `
+SELECT ` + registerColumns + `
 FROM health_diagnosis_register_versions
 WHERE tenant_id=$1::uuid AND status IN ('published','draft')
-ORDER BY animal_class, status DESC, version DESC`, tenantID)
+ORDER BY animal_class, status DESC, version DESC`
+
+	sqlRegisterByID = `
+SELECT ` + registerColumns + `
+FROM health_diagnosis_register_versions
+WHERE tenant_id=$1::uuid AND health_diagnosis_register_version_id=$2::uuid`
+
+	// The SERVING read, once per observation. Deliberately the narrowest query here; it is
+	// covered by health_diagnosis_register_one_published_uq.
+	sqlPublishedRegister = `
+SELECT ` + registerColumns + `
+FROM health_diagnosis_register_versions
+WHERE tenant_id=$1::uuid AND animal_class=$2 AND status='published'`
+
+	sqlDraftIDForClass = `
+SELECT health_diagnosis_register_version_id::text
+FROM health_diagnosis_register_versions
+WHERE tenant_id=$1::uuid AND animal_class=$2 AND status='draft'`
+
+	sqlPublishedDocumentForClass = `
+SELECT register_label, document FROM health_diagnosis_register_versions
+WHERE tenant_id=$1::uuid AND animal_class=$2 AND status='published'`
+
+	sqlPublishedIDForClass = `
+SELECT health_diagnosis_register_version_id::text FROM health_diagnosis_register_versions
+WHERE tenant_id=$1::uuid AND animal_class=$2 AND status='published'`
+
+	sqlNextRegisterVersion = `
+SELECT COALESCE(MAX(version), 0) + 1 FROM health_diagnosis_register_versions
+WHERE tenant_id=$1::uuid AND animal_class=$2`
+
+	sqlInsertRegisterDraft = `
+INSERT INTO health_diagnosis_register_versions
+  (tenant_id, animal_class, version, status, register_label, document, content_hash, created_by, updated_by)
+VALUES ($1::uuid, $2, $3, 'draft', $4, $5::jsonb, $6, $7::uuid, $7::uuid)
+RETURNING health_diagnosis_register_version_id::text`
+
+	sqlInsertSeededRegister = `
+INSERT INTO health_diagnosis_register_versions
+  (tenant_id, animal_class, version, status, register_label, document, content_hash,
+   created_by, updated_by, published_by, published_at)
+VALUES ($1::uuid, $2, $3, 'published', $4, $5::jsonb, $6, $7::uuid, $7::uuid, $7::uuid, now())
+RETURNING health_diagnosis_register_version_id::text`
+
+	sqlDraftForSave = `
+SELECT health_diagnosis_register_version_id::text, content_hash, version
+FROM health_diagnosis_register_versions
+WHERE tenant_id=$1::uuid AND animal_class=$2 AND status='draft'`
+
+	sqlUpdateRegisterDraft = `
+UPDATE health_diagnosis_register_versions
+SET document=$3::jsonb, content_hash=$4, register_label=$5, updated_by=$6::uuid, updated_at=now()
+WHERE tenant_id=$1::uuid AND health_diagnosis_register_version_id=$2::uuid AND status='draft'`
+
+	sqlRetirePublishedRegister = `
+UPDATE health_diagnosis_register_versions
+SET status='retired', updated_at=now()
+WHERE tenant_id=$1::uuid AND animal_class=$2 AND status='published'
+RETURNING health_diagnosis_register_version_id::text`
+
+	sqlPublishRegister = `
+UPDATE health_diagnosis_register_versions
+SET status='published', published_by=$3::uuid, published_at=now(), updated_at=now()
+WHERE tenant_id=$1::uuid AND health_diagnosis_register_version_id=$2::uuid`
+
+	sqlDeleteRegisterDraft = `
+DELETE FROM health_diagnosis_register_versions
+WHERE tenant_id=$1::uuid AND health_diagnosis_register_version_id=$2::uuid AND status='draft'`
+
+	sqlLockRegisterVersion = `
+SELECT animal_class, status, version FROM health_diagnosis_register_versions
+WHERE tenant_id=$1::uuid AND health_diagnosis_register_version_id=$2::uuid FOR UPDATE`
+
+	sqlTreatsCoverage = `
+SELECT disease_key,
+       count(*) FILTER (WHERE status='published' AND age_band='adult') AS adult_published,
+       count(*) FILTER (WHERE status='published' AND age_band='kid')   AS kid_published
+FROM health_protocol_versions
+WHERE tenant_id=$1::uuid AND disease_key = ANY($2::text[])
+GROUP BY disease_key`
+
+	sqlReadRegisterLedger = `
+SELECT request_fingerprint, outcome, animal_class, result_version_id::text, retired_version_id::text
+FROM health_register_write_log WHERE tenant_id=$1::uuid AND idempotency_key=$2`
+
+	sqlWriteRegisterLedger = `
+INSERT INTO health_register_write_log
+  (tenant_id, write_kind, idempotency_key, request_fingerprint, outcome, animal_class,
+   result_version_id, retired_version_id, actor_ref)
+VALUES ($1::uuid, $2, $3, $4, $5, $6, NULLIF($7,'')::uuid, NULLIF($8,'')::uuid, $9)`
+
+	sqlLockRegisterIdentity = `SELECT pg_advisory_xact_lock(hashtextextended($1, 0), hashtextextended($2, 0))`
+)
+
+func (r *Repository) ListRegisters(ctx context.Context, tenantID string) ([]domain.RegisterSummary, error) {
+	rows, err := r.pool.Query(ctx, sqlListRegisters, tenantID)
 	if err != nil {
 		return nil, fmt.Errorf("health: list diagnosis registers: %w", err)
 	}
@@ -49,10 +150,7 @@ ORDER BY animal_class, status DESC, version DESC`, tenantID)
 }
 
 func (r *Repository) GetRegister(ctx context.Context, tenantID, registerVersionID string) (domain.RegisterDetail, error) {
-	row := r.pool.QueryRow(ctx, `
-SELECT `+registerSelectColumns+`
-FROM health_diagnosis_register_versions
-WHERE tenant_id=$1::uuid AND health_diagnosis_register_version_id=$2::uuid`, tenantID, registerVersionID)
+	row := r.pool.QueryRow(ctx, sqlRegisterByID, tenantID, registerVersionID)
 	detail, err := scanRegister(row)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return domain.RegisterDetail{}, ports.ErrRegisterNotFound
@@ -67,10 +165,7 @@ WHERE tenant_id=$1::uuid AND health_diagnosis_register_version_id=$2::uuid`, ten
 // PublishedRegister is the SERVING read. It is deliberately the narrowest query in this
 // file: it runs on the diagnosis path, once per observation, and must not widen.
 func (r *Repository) PublishedRegister(ctx context.Context, tenantID, animalClass string) (domain.RegisterDetail, error) {
-	row := r.pool.QueryRow(ctx, `
-SELECT `+registerSelectColumns+`
-FROM health_diagnosis_register_versions
-WHERE tenant_id=$1::uuid AND animal_class=$2 AND status='published'`, tenantID, animalClass)
+	row := r.pool.QueryRow(ctx, sqlPublishedRegister, tenantID, animalClass)
 	detail, err := scanRegister(row)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return domain.RegisterDetail{}, ports.ErrRegisterNotFound
@@ -125,10 +220,7 @@ func (r *Repository) GetRegisterDraftForEdit(ctx context.Context, cmd domain.Reg
 	}
 
 	var draftID string
-	err = tx.QueryRow(ctx, `
-SELECT health_diagnosis_register_version_id::text
-FROM health_diagnosis_register_versions
-WHERE tenant_id=$1::uuid AND animal_class=$2 AND status='draft'`, cmd.TenantID, animalClass).Scan(&draftID)
+	err = tx.QueryRow(ctx, sqlDraftIDForClass, cmd.TenantID, animalClass).Scan(&draftID)
 
 	switch {
 	case err == nil:
@@ -167,9 +259,7 @@ func openRegisterDraft(ctx context.Context, tx pgx.Tx, cmd domain.RegisterVersio
 		doc   []byte
 		next  int
 	)
-	err := tx.QueryRow(ctx, `
-SELECT register_label, document FROM health_diagnosis_register_versions
-WHERE tenant_id=$1::uuid AND animal_class=$2 AND status='published'`, cmd.TenantID, animalClass).Scan(&label, &doc)
+	err := tx.QueryRow(ctx, sqlPublishedDocumentForClass, cmd.TenantID, animalClass).Scan(&label, &doc)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return "", ports.ErrRegisterNotFound
 	}
@@ -177,9 +267,7 @@ WHERE tenant_id=$1::uuid AND animal_class=$2 AND status='published'`, cmd.Tenant
 		return "", fmt.Errorf("health: read published register: %w", err)
 	}
 
-	if err := tx.QueryRow(ctx, `
-SELECT COALESCE(MAX(version), 0) + 1 FROM health_diagnosis_register_versions
-WHERE tenant_id=$1::uuid AND animal_class=$2`, cmd.TenantID, animalClass).Scan(&next); err != nil {
+	if err := tx.QueryRow(ctx, sqlNextRegisterVersion, cmd.TenantID, animalClass).Scan(&next); err != nil {
 		return "", fmt.Errorf("health: next register version: %w", err)
 	}
 
@@ -189,11 +277,7 @@ WHERE tenant_id=$1::uuid AND animal_class=$2`, cmd.TenantID, animalClass).Scan(&
 	}
 
 	var id string
-	err = tx.QueryRow(ctx, `
-INSERT INTO health_diagnosis_register_versions
-  (tenant_id, animal_class, version, status, register_label, document, content_hash, created_by, updated_by)
-VALUES ($1::uuid, $2, $3, 'draft', $4, $5::jsonb, $6, $7::uuid, $7::uuid)
-RETURNING health_diagnosis_register_version_id::text`,
+	err = tx.QueryRow(ctx, sqlInsertRegisterDraft,
 		cmd.TenantID, animalClass, next, label, doc, hash, nullUUID(cmd.ActorID)).Scan(&id)
 	if err != nil {
 		var pgErr *pgconn.PgError
@@ -216,10 +300,7 @@ func (r *Repository) SaveRegisterDraft(ctx context.Context, cmd domain.SaveRegis
 			}
 			var draftID, storedHash string
 			var version int
-			err := tx.QueryRow(ctx, `
-SELECT health_diagnosis_register_version_id::text, content_hash, version
-FROM health_diagnosis_register_versions
-WHERE tenant_id=$1::uuid AND animal_class=$2 AND status='draft'`,
+			err := tx.QueryRow(ctx, sqlDraftForSave,
 				cmd.TenantID, cmd.AnimalClass).Scan(&draftID, &storedHash, &version)
 			if errors.Is(err, pgx.ErrNoRows) {
 				return zero, registerLedgerEntry{}, ports.ErrRegisterNotADraft
@@ -251,10 +332,7 @@ WHERE tenant_id=$1::uuid AND animal_class=$2 AND status='draft'`,
 			if err != nil {
 				return zero, registerLedgerEntry{}, err
 			}
-			if _, err := tx.Exec(ctx, `
-UPDATE health_diagnosis_register_versions
-SET document=$3::jsonb, content_hash=$4, register_label=$5, updated_by=$6::uuid, updated_at=now()
-WHERE tenant_id=$1::uuid AND health_diagnosis_register_version_id=$2::uuid AND status='draft'`,
+			if _, err := tx.Exec(ctx, sqlUpdateRegisterDraft,
 				cmd.TenantID, draftID, body, hash, cmd.Document.RegisterVersion, nullUUID(cmd.ActorID)); err != nil {
 				return zero, registerLedgerEntry{}, fmt.Errorf("health: save register draft: %w", err)
 			}
@@ -323,19 +401,12 @@ func (r *Repository) PublishRegisterDraft(ctx context.Context, cmd domain.Regist
 			}
 
 			var retired string
-			err = tx.QueryRow(ctx, `
-UPDATE health_diagnosis_register_versions
-SET status='retired', updated_at=now()
-WHERE tenant_id=$1::uuid AND animal_class=$2 AND status='published'
-RETURNING health_diagnosis_register_version_id::text`, cmd.TenantID, animalClass).Scan(&retired)
+			err = tx.QueryRow(ctx, sqlRetirePublishedRegister, cmd.TenantID, animalClass).Scan(&retired)
 			if err != nil && !errors.Is(err, pgx.ErrNoRows) {
 				return zero, registerLedgerEntry{}, fmt.Errorf("health: retire register: %w", err)
 			}
 
-			if _, err := tx.Exec(ctx, `
-UPDATE health_diagnosis_register_versions
-SET status='published', published_by=$3::uuid, published_at=now(), updated_at=now()
-WHERE tenant_id=$1::uuid AND health_diagnosis_register_version_id=$2::uuid`,
+			if _, err := tx.Exec(ctx, sqlPublishRegister,
 				cmd.TenantID, cmd.RegisterVersionID, nullUUID(cmd.ActorID)); err != nil {
 				return zero, registerLedgerEntry{}, fmt.Errorf("health: publish register: %w", err)
 			}
@@ -365,9 +436,7 @@ func (r *Repository) DiscardRegisterDraft(ctx context.Context, cmd domain.Regist
 			if status != "draft" {
 				return zero, registerLedgerEntry{}, ports.ErrRegisterNotADraft
 			}
-			if _, err := tx.Exec(ctx, `
-DELETE FROM health_diagnosis_register_versions
-WHERE tenant_id=$1::uuid AND health_diagnosis_register_version_id=$2::uuid AND status='draft'`,
+			if _, err := tx.Exec(ctx, sqlDeleteRegisterDraft,
 				cmd.TenantID, cmd.RegisterVersionID); err != nil {
 				return zero, registerLedgerEntry{}, fmt.Errorf("health: discard register draft: %w", err)
 			}
@@ -411,13 +480,7 @@ func checkTreatsAgainstCatalog(ctx context.Context, tx pgx.Tx, tenantID string, 
 		keys = append(keys, k)
 	}
 
-	rows, err := tx.Query(ctx, `
-SELECT disease_key,
-       count(*) FILTER (WHERE status='published' AND age_band='adult') AS adult_published,
-       count(*) FILTER (WHERE status='published' AND age_band='kid')   AS kid_published
-FROM health_protocol_versions
-WHERE tenant_id=$1::uuid AND disease_key = ANY($2::text[])
-GROUP BY disease_key`, tenantID, keys)
+	rows, err := tx.Query(ctx, sqlTreatsCoverage, tenantID, keys)
 	if err != nil {
 		return nil, fmt.Errorf("health: read protocol catalog: %w", err)
 	}
@@ -492,10 +555,7 @@ func registerFieldErrors(ps diagnosis.Problems) []domain.FieldError {
 }
 
 func loadRegisterInTx(ctx context.Context, tx pgx.Tx, tenantID, versionID string) (domain.RegisterDetail, error) {
-	row := tx.QueryRow(ctx, `
-SELECT `+registerSelectColumns+`
-FROM health_diagnosis_register_versions
-WHERE tenant_id=$1::uuid AND health_diagnosis_register_version_id=$2::uuid`, tenantID, versionID)
+	row := tx.QueryRow(ctx, sqlRegisterByID, tenantID, versionID)
 	detail, err := scanRegister(row)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return domain.RegisterDetail{}, ports.ErrRegisterNotFound
@@ -506,18 +566,14 @@ WHERE tenant_id=$1::uuid AND health_diagnosis_register_version_id=$2::uuid`, ten
 // lockRegisterIdentity serialises every write against one class so the
 // read-then-write sequences in this file cannot interleave.
 func lockRegisterIdentity(ctx context.Context, tx pgx.Tx, tenantID, animalClass string) (bool, error) {
-	if _, err := tx.Exec(ctx,
-		`SELECT pg_advisory_xact_lock(hashtextextended($1, 0), hashtextextended($2, 0))`,
-		tenantID, "health_register:"+animalClass); err != nil {
+	if _, err := tx.Exec(ctx, sqlLockRegisterIdentity, tenantID, "health_register:"+animalClass); err != nil {
 		return false, fmt.Errorf("health: lock register identity: %w", err)
 	}
 	return true, nil
 }
 
 func lockRegisterVersionRow(ctx context.Context, tx pgx.Tx, tenantID, versionID string) (animalClass, status string, version int, err error) {
-	err = tx.QueryRow(ctx, `
-SELECT animal_class, status, version FROM health_diagnosis_register_versions
-WHERE tenant_id=$1::uuid AND health_diagnosis_register_version_id=$2::uuid FOR UPDATE`,
+	err = tx.QueryRow(ctx, sqlLockRegisterVersion,
 		tenantID, versionID).Scan(&animalClass, &status, &version)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return "", "", 0, ports.ErrRegisterNotFound
@@ -613,9 +669,7 @@ func runRegisterTx(
 func readRegisterLedger(ctx context.Context, tx pgx.Tx, tenantID, key, fingerprint string) (domain.RegisterAuthoringResult, bool, error) {
 	var storedFingerprint, outcome, animalClass string
 	var resultID, retiredID *string
-	err := tx.QueryRow(ctx, `
-SELECT request_fingerprint, outcome, animal_class, result_version_id::text, retired_version_id::text
-FROM health_register_write_log WHERE tenant_id=$1::uuid AND idempotency_key=$2`,
+	err := tx.QueryRow(ctx, sqlReadRegisterLedger,
 		tenantID, key).Scan(&storedFingerprint, &outcome, &animalClass, &resultID, &retiredID)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return domain.RegisterAuthoringResult{}, false, nil
@@ -654,11 +708,7 @@ func readCommittedRegisterLedger(ctx context.Context, r *Repository, tenantID, k
 }
 
 func writeRegisterLedger(ctx context.Context, tx pgx.Tx, tenantID, actorID, key, fingerprint string, e registerLedgerEntry) error {
-	_, err := tx.Exec(ctx, `
-INSERT INTO health_register_write_log
-  (tenant_id, write_kind, idempotency_key, request_fingerprint, outcome, animal_class,
-   result_version_id, retired_version_id, actor_ref)
-VALUES ($1::uuid, $2, $3, $4, $5, $6, NULLIF($7,'')::uuid, NULLIF($8,'')::uuid, $9)`,
+	_, err := tx.Exec(ctx, sqlWriteRegisterLedger,
 		tenantID, e.WriteKind, key, fingerprint, e.Outcome, e.AnimalClass,
 		e.ResultVersionID, e.RetiredVersionID, actorID)
 	return err
@@ -714,9 +764,7 @@ func (r *Repository) seedOneRegister(
 	}
 
 	var existingID string
-	err = tx.QueryRow(ctx, `
-SELECT health_diagnosis_register_version_id::text FROM health_diagnosis_register_versions
-WHERE tenant_id=$1::uuid AND animal_class=$2 AND status='published'`, tenantID, class).Scan(&existingID)
+	err = tx.QueryRow(ctx, sqlPublishedIDForClass, tenantID, class).Scan(&existingID)
 	if err == nil {
 		if err := tx.Commit(ctx); err != nil {
 			return zero, err
@@ -740,19 +788,12 @@ WHERE tenant_id=$1::uuid AND animal_class=$2 AND status='published'`, tenantID, 
 	}
 
 	var next int
-	if err := tx.QueryRow(ctx, `
-SELECT COALESCE(MAX(version), 0) + 1 FROM health_diagnosis_register_versions
-WHERE tenant_id=$1::uuid AND animal_class=$2`, tenantID, class).Scan(&next); err != nil {
+	if err := tx.QueryRow(ctx, sqlNextRegisterVersion, tenantID, class).Scan(&next); err != nil {
 		return zero, fmt.Errorf("health: next register version: %w", err)
 	}
 
 	var id string
-	if err := tx.QueryRow(ctx, `
-INSERT INTO health_diagnosis_register_versions
-  (tenant_id, animal_class, version, status, register_label, document, content_hash,
-   created_by, updated_by, published_by, published_at)
-VALUES ($1::uuid, $2, $3, 'published', $4, $5::jsonb, $6, $7::uuid, $7::uuid, $7::uuid, now())
-RETURNING health_diagnosis_register_version_id::text`,
+	if err := tx.QueryRow(ctx, sqlInsertSeededRegister,
 		tenantID, class, next, doc.RegisterVersion, body, hash, nullUUID(actorID)).Scan(&id); err != nil {
 		return zero, fmt.Errorf("health: seed register: %w", err)
 	}
