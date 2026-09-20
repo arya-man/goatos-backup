@@ -10,7 +10,7 @@ Prevent missing, extra, gapped, or conditionally-pruned PostgreSQL parameters fr
 - Add a reusable SQL placeholder analyzer and repository guard with adversarial self-tests.
 - Cover `Query`, `QueryRow`, `Exec`, and `Batch.Queue`, including pgx execution-mode options, repeated placeholders, comments/quoted text, variadic arguments, and dynamic query builders.
 - Replace the tactical Weighing hardcoded-count assertion with a derived contract.
-- Wire the guard into ordinary backend CI, guardrails, push/landing receipts, and guard registration.
+- Wire the guard into ordinary backend CI and guardrails; push/landing hooks must require a fresh passing local-CI receipt that includes the guard.
 - Add or update a focused repository skill so future agents select safe patterns and required proof.
 - Obtain independent audit and judge reviews, address findings, push a branch, and keep the pull request updated.
 
@@ -24,15 +24,13 @@ Prevent missing, extra, gapped, or conditionally-pruned PostgreSQL parameters fr
 - Historical audit confirmed a fourth incident: Leadership Tasks bound tenant plus user to a tenant-wide `$1` query, causing `expected 1 arguments, got 2` on the unfiltered shape.
 - Added PostgreSQL-aware `sqlbind` lexical validation and a `BoundQuery` contract that derives placeholder continuity and argument arity from final SQL and actual arguments.
 - Added a Go AST scanner for literal/constant `Query`, `QueryRow`, `Exec`, and `Batch.Queue` calls, with explicit handling for pgx control arguments, `StrictNamedArgs`, and validated `BoundQuery` use.
-- Added an always-on repository guard with adversarial self-test, per-file shrink-only legacy baseline, changed-line enforcement, and unconditional backend-CI/guardrails/landing wiring.
-- Added coding-time PostToolUse enforcement for Codex and Claude repository edits.
+- Added an always-on repository guard with adversarial self-test, per-file shrink-only legacy baseline, changed-file enforcement, and unconditional backend-CI/guardrails/landing wiring.
+- Kept enforcement in the explicit guard and local CI; the existing push/landing hooks require a fresh passing local-CI receipt. An editor-wide PostToolUse hook was removed after judge review because running the Go scanner after every edit added avoidable latency.
 - Replaced the Weighing hardcoded-`31` primary assertion with runtime validation of the final pruned SQL and actual production argument slice. The legacy unverified count shrank from 359 to 358.
 - Updated backend engineering guidance, root/backend agent rules, existing build/review/database skills, and the pull-request proof checklist.
 
 ## Pending
 
-- Run focused tests and real-Postgres proof.
-- Run independent judge passes and refine.
 - Run full local CI, push branch, create PR, and verify PR/head state.
 
 ## Tests and evidence
@@ -46,11 +44,12 @@ Prevent missing, extra, gapped, or conditionally-pruned PostgreSQL parameters fr
 
 - PostgreSQL integration tests are opt-in in normal local CI, so static bind-contract enforcement must be always-on.
 - The current tree contains thousands of pgx call expressions; enforcement must distinguish resolvable calls from dynamic builders and avoid silently grandfathering newly changed unsafe code.
-- The scanner intentionally baselines 358 currently unprovable dynamic sites. It blocks provable mismatches globally, debt growth per file/category, and edited unsafe call lines; deeper builder provenance remains a phased migration rather than a false zero-debt claim.
+- The scanner intentionally baselines 358 currently unprovable dynamic sites. It blocks provable mismatches globally, debt growth per file/category, and any changed backend Go file that still contains an unsafe unresolved call; deeper builder provenance remains a phased migration rather than a false zero-debt claim.
 
 ## Judge status
 
-- Three specialist audits completed and incorporated. Three independent final judges are reviewing runtime/lexer correctness, guard/CI bypass resistance, and scope/skill completeness.
+- Three specialist audits completed and incorporated. Independent judges found and drove fixes for changed-line enforcement, pgx option handling, named-map key validation, mutable wrappers, import spoofing and shadowing, cross-scope identifier collisions, unchecked `Bind` errors, extra bound-call arguments, non-pgx selector false positives, and a stale Weighing source guard.
+- Final judge verdicts: runtime/lexer APPROVE; guard/CI bypass resistance APPROVE; scope/skills completeness APPROVE.
 
 ## Source and deployment state
 

@@ -210,7 +210,10 @@ func TestWeightDemographicsSectionedReadsGateProducerCTEs(t *testing.T) {
 	for _, required := range []string{
 		`cacheKey := weighingAnalyticsCacheKey("weight_demographics:"+sectionKey`,
 		`query := weightDemographicsPruneInactiveSectionSelects(q, sectionSet)`,
-		`QueryRow(ctx, query`,
+		`bound, bindErr := sqlbind.Bind(query,`,
+		`if bindErr != nil {`,
+		`return domain.WeightDemographics{}, fmt.Errorf("weighing: bind weight demographics query: %w", bindErr)`,
+		`QueryRow(ctx, bound.SQL(), bound.Args()...)`,
 		`needLatest := sectionSet["composition"] || sectionSet["dimensions"] || sectionSet["shed_type"] || sectionSet["weight_bands"] || sectionSet["weekly_gain"]`,
 		`needLump := sectionSet["composition"] || sectionSet["dimensions"] || sectionSet["weight_bands"]`,
 		`needGain := sectionSet["dimensions"] || sectionSet["origin"] || sectionSet["shed_type"] || sectionSet["weight_bands"] || sectionSet["gain_thresholds"]`,

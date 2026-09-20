@@ -3,6 +3,7 @@
 package sqlbind
 
 import (
+	"context"
 	"fmt"
 	"sort"
 	"strconv"
@@ -14,9 +15,15 @@ import (
 // BoundQuery keeps dynamically generated SQL and its validated arguments
 // together so callers cannot accidentally prune one without the other.
 type BoundQuery struct {
-	SQL  string
-	Args []any
+	sql  string
+	args []any
 }
+
+// SQL returns the validated SQL text.
+func (q BoundQuery) SQL() string { return q.sql }
+
+// Args returns a copy so the validated argument collection cannot be mutated.
+func (q BoundQuery) Args() []any { return append([]any(nil), q.args...) }
 
 // Bind validates sql and args and returns an immutable copy of the argument
 // slice on success.
@@ -24,7 +31,7 @@ func Bind(sql string, args ...any) (BoundQuery, error) {
 	if err := ValidatePositional(sql, args); err != nil {
 		return BoundQuery{}, err
 	}
-	return BoundQuery{SQL: sql, Args: append([]any(nil), args...)}, nil
+	return BoundQuery{sql: sql, args: append([]any(nil), args...)}, nil
 }
 
 // MustBind is Bind for construction paths where an invalid query is a
@@ -38,13 +45,9 @@ func MustBind(sql string, args ...any) BoundQuery {
 }
 
 // ValidatePositional requires the placeholders visible to PostgreSQL to be
-// exactly $1..$N and N to match the number of pgx data arguments. Leading pgx
-// execution options are excluded from N just as pgx excludes them before bind.
+// exactly $1..$N and N to match args. Callers pass data arguments only; pgx
+// execution options belong at the eventual Query/Exec call, outside BoundQuery.
 func ValidatePositional(sql string, args []any) error {
-	dataArgs, named := dataArguments(args)
-	if named {
-		return nil // StrictNamedArgs validates its own bidirectional contract.
-	}
 	ordinals, err := PlaceholderOrdinals(sql)
 	if err != nil {
 		return fmt.Errorf("sqlbind: scan placeholders: %w", err)
@@ -57,8 +60,14 @@ func ValidatePositional(sql string, args []any) error {
 			max = n
 		}
 	}
+	if max != len(args) {
+		if max < len(args) {
+			return fmt.Errorf("sqlbind: %d data arguments but highest placeholder is $%d (unused argument count %d)", len(args), max, len(args)-max)
+		}
+		return fmt.Errorf("sqlbind: highest placeholder is $%d but only %d data arguments were supplied (missing argument count at least %d)", max, len(args), max-len(args))
+	}
 	missing := make([]int, 0)
-	for n := 1; n <= max; n++ {
+	for n := 1; n <= len(args); n++ {
 		if _, ok := seen[n]; !ok {
 			missing = append(missing, n)
 		}
@@ -66,11 +75,18 @@ func ValidatePositional(sql string, args []any) error {
 	if len(missing) != 0 {
 		return fmt.Errorf("sqlbind: placeholder sequence has gaps: missing %s", formatOrdinals(missing))
 	}
-	if max != len(dataArgs) {
-		if max < len(dataArgs) {
-			return fmt.Errorf("sqlbind: %d data arguments but highest placeholder is $%d (unused argument positions %s)", len(dataArgs), max, formatRange(max+1, len(dataArgs)))
-		}
-		return fmt.Errorf("sqlbind: highest placeholder is $%d but only %d data arguments were supplied (missing argument positions %s)", max, len(dataArgs), formatRange(len(dataArgs)+1, max))
+	return nil
+}
+
+// ValidateNamed applies pgx's strict, bidirectional named-argument contract.
+// Every @name in SQL must have a key and every supplied key must be used.
+func ValidateNamed(sql string, keys []string) error {
+	args := make(pgx.StrictNamedArgs, len(keys))
+	for _, key := range keys {
+		args[key] = nil
+	}
+	if _, _, err := args.RewriteQuery(context.Background(), nil, sql, nil); err != nil {
+		return fmt.Errorf("sqlbind: strict named arguments: %w", err)
 	}
 	return nil
 }
@@ -84,9 +100,17 @@ func PlaceholderOrdinals(sql string) ([]int, error) {
 		switch sql[i] {
 		case '\'':
 			escape := i > 0 && (sql[i-1] == 'E' || sql[i-1] == 'e') && (i < 2 || !isTagPart(sql[i-2]))
-			i = skipSingleQuoted(sql, i+1, escape)
+			var err error
+			i, err = skipSingleQuoted(sql, i+1, escape)
+			if err != nil {
+				return nil, err
+			}
 		case '"':
-			i = skipDoubleQuoted(sql, i+1)
+			var err error
+			i, err = skipDoubleQuoted(sql, i+1)
+			if err != nil {
+				return nil, err
+			}
 		case '-':
 			if i+1 < len(sql) && sql[i+1] == '-' {
 				i = skipLineComment(sql, i+2)
@@ -134,21 +158,7 @@ func PlaceholderOrdinals(sql string) ([]int, error) {
 	return out, nil
 }
 
-func dataArguments(args []any) ([]any, bool) {
-	for len(args) > 0 {
-		switch args[0].(type) {
-		case pgx.QueryExecMode, pgx.QueryResultFormats, pgx.QueryResultFormatsByOID:
-			args = args[1:]
-		case pgx.StrictNamedArgs:
-			return nil, true
-		default:
-			return args, false
-		}
-	}
-	return args, false
-}
-
-func skipSingleQuoted(s string, i int, escape bool) int {
+func skipSingleQuoted(s string, i int, escape bool) (int, error) {
 	for i < len(s) {
 		if escape && s[i] == '\\' && i+1 < len(s) {
 			i += 2
@@ -159,24 +169,24 @@ func skipSingleQuoted(s string, i int, escape bool) int {
 				i += 2
 				continue
 			}
-			return i + 1
+			return i + 1, nil
 		}
 		i++
 	}
-	return i
+	return i, fmt.Errorf("unterminated single-quoted string")
 }
-func skipDoubleQuoted(s string, i int) int {
+func skipDoubleQuoted(s string, i int) (int, error) {
 	for i < len(s) {
 		if s[i] == '"' {
 			if i+1 < len(s) && s[i+1] == '"' {
 				i += 2
 				continue
 			}
-			return i + 1
+			return i + 1, nil
 		}
 		i++
 	}
-	return i
+	return i, fmt.Errorf("unterminated quoted identifier")
 }
 func skipLineComment(s string, i int) int {
 	for i < len(s) && s[i] != '\n' {
@@ -226,14 +236,4 @@ func formatOrdinals(ns []int) string {
 		parts[i] = "$" + strconv.Itoa(n)
 	}
 	return strings.Join(parts, ",")
-}
-func formatRange(from, to int) string {
-	if from > to {
-		return "none"
-	}
-	ns := make([]int, 0, to-from+1)
-	for n := from; n <= to; n++ {
-		ns = append(ns, n)
-	}
-	return formatOrdinals(ns)
 }

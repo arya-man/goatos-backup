@@ -102,10 +102,6 @@
           },
           {
             "type": "command",
-            "command": "node tools/agent-hooks/check-postgres-bind-contract.mjs"
-          },
-          {
-            "type": "command",
             "command": "bash tools/agent-hooks/check-weighing-isolation-on-edit.sh"
           },
           {
