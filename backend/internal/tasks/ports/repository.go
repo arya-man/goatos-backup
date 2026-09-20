@@ -131,6 +131,10 @@ type Repository interface {
 	// CompleteSaleTagStep completes the sale workflow's sale_tag_animals step for the deal when
 	// its allocation confirm lands. No-op when there is no such open step.
 	CompleteSaleTagStep(ctx context.Context, tenantID, dealID string, completedAt time.Time) error
+	// CompleteAnimalPurchaseDecisionStep completes the animal-purchase intake workflow's
+	// `animal_purchase_decision` step for the load when its last waiting animal is decided. A load
+	// with no workflow, a step already done, and a redelivery are all no-ops.
+	CompleteAnimalPurchaseDecisionStep(ctx context.Context, tenantID, loadID string, completedAt time.Time) error
 
 	// DeathEvidenceForVerification loads an admin-approved death workflow (every step) by subject
 	// goat. Returns domain.ErrNotFound when no in-review death workflow exists.

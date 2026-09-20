@@ -1273,7 +1273,23 @@ LIMIT 1`, tenantID, goatID, domain.TemplateKeyBirthKid).Scan(&id)
 // step and the NEXT confirm, or a replay of this one, completes it. Runs the same card-maintaining
 // transaction every operator write uses, so the card and the phone list move together.
 func (r *Repository) CompleteSaleTagStep(ctx context.Context, tenantID, dealID string, completedAt time.Time) error {
-	workflowID, err := r.WorkflowIDBySubjectRef(ctx, tenantID, domain.TemplateKeySalesDeal, dealID)
+	return r.completeHookStep(ctx, tenantID, domain.TemplateKeySalesDeal, dealID, domain.EngineHookSaleTagAnimals, completedAt)
+}
+
+// CompleteAnimalPurchaseDecisionStep completes the intake workflow's `animal_purchase_decision`
+// step when the load's LAST waiting animal has been decided (PROCUREMENT IS SOP-DRIVEN END TO
+// END, 2026-09-20). Same shape as the sale's tag step and for the same reason: the office decides
+// animals one at a time on its own screen, and the step records that the work is finished rather
+// than asking anyone to say so twice.
+func (r *Repository) CompleteAnimalPurchaseDecisionStep(ctx context.Context, tenantID, loadID string, completedAt time.Time) error {
+	return r.completeHookStep(ctx, tenantID, domain.TemplateKeyAnimalPurchaseIntake, loadID, domain.EngineHookAnimalPurchaseDecision, completedAt)
+}
+
+// completeHookStep completes the one step of a subject-keyed workflow carrying `hook`. A subject
+// with no workflow yet, a step already finished, and a redelivered event are all no-ops: the
+// completion is idempotent on the step, keyed by hook + subject + instant.
+func (r *Repository) completeHookStep(ctx context.Context, tenantID, templateKey, subjectRefID, hook string, completedAt time.Time) error {
+	workflowID, err := r.WorkflowIDBySubjectRef(ctx, tenantID, templateKey, subjectRefID)
 	if errors.Is(err, domain.ErrNotFound) {
 		return nil
 	}
@@ -1283,13 +1299,13 @@ func (r *Repository) CompleteSaleTagStep(ctx context.Context, tenantID, dealID s
 	_, _, _, err = r.workflowMutation(ctx, tenantID, workflowID,
 		func(tx pgx.Tx, w *domain.WorkflowInstance, actions []domain.WorkflowAction) ([]domain.WorkflowAction, bool, error) {
 			for i := range actions {
-				if !actions[i].HasHook(domain.EngineHookSaleTagAnimals) {
+				if !actions[i].HasHook(hook) {
 					continue
 				}
 				if actions[i].Status != domain.ActionStatusPending && actions[i].Status != domain.ActionStatusRework {
 					return nil, true, nil
 				}
-				key := "sale_tag_animals:" + dealID + ":" + completedAt.UTC().Format(time.RFC3339Nano)
+				key := hook + ":" + subjectRefID + ":" + completedAt.UTC().Format(time.RFC3339Nano)
 				updated, isReplay, err := domain.ApplyComplete(actions[i], domain.CompleteActionCommand{
 					TenantID:           tenantID,
 					WorkflowID:         workflowID,

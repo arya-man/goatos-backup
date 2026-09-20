@@ -1,0 +1,17 @@
+{
+  "schema_version": "goatos.sop-followup.v1",
+  "tracks": [
+    {
+      "key": "animal_purchase_intake", "module": "procurement", "label": "Animal purchase", "subject": "load",
+      "steps": [
+        {"key": "record_animals", "task_type": "do_and_confirm", "title": "Record the animals in this load", "detail": "Open the load and record every animal being bought, answering the inspection the SOP asks for and taking each capture it names. Confirm here once the last animal is recorded.", "proof": {}, "schedule": {"kind": "immediately"}, "owner": "procurement_director"},
+        {"key": "loading_photo", "task_type": "photo_record", "title": "Photo of the animals loaded", "detail": "One photo of the animals on the vehicle before it leaves the seller.", "proof": {"photo": 1}, "schedule": {"kind": "immediately"}, "owner": "procurement_director"},
+        {"key": "decision", "task_type": "animal_purchase_decision", "title": "Decision on every animal", "detail": "The office accepts or rejects each recorded animal. This step completes on its own once no animal in the load is still waiting.", "proof": {}, "schedule": {"kind": "immediately"}, "owner": "ceo_internal"},
+        {"key": "arrival_video", "task_type": "video_record", "title": "Record the animals arriving", "detail": "One live video of the animals coming off the vehicle at the farm.", "proof": {"video": 1}, "schedule": {"kind": "immediately"}, "owner": "park_head"},
+        {"key": "place_in_pen", "task_type": "do_and_confirm", "title": "Unload and place the animals in their pen", "detail": "Walk the animals into the pen they will stay in and confirm once they are all in.", "proof": {}, "schedule": {"kind": "immediately"}, "owner": "park_head"},
+        {"key": "arrival_condition", "task_type": "record_yes_no", "title": "Was any animal hurt or sick on arrival?", "detail": "Answer Yes if any animal came off the vehicle injured, lame or unwell.", "proof": {}, "schedule": {"kind": "immediately"}, "owner": "park_head"},
+        {"key": "tell_health_team", "task_type": "do_and_confirm", "title": "Tell the health team which animals arrived unwell", "detail": "Name the animals and what you saw, so the health desk can look at them today.", "proof": {}, "schedule": {"kind": "immediately"}, "owner": "park_head", "when_answer": {"step": "arrival_condition", "op": "eq", "value": ["yes"]}}
+      ]
+    }
+  ]
+}

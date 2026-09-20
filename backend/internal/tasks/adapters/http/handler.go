@@ -271,7 +271,7 @@ func (h *Handler) ListWorkflows(w http.ResponseWriter, r *http.Request) {
 	// It selects the same card DTO built from a different grain: the kids with colostrum feeds due
 	// on ONE date, counted over that date's feeds (docs/decisions/colostrum-milk-module.md).
 	module := strings.ToLower(strings.TrimSpace(query.Get("module")))
-	if module != domain.ModuleBirth && module != domain.ModuleDeath && module != domain.ModuleColostrum && module != domain.ModuleGeneral && module != domain.ModuleSales {
+	if module != domain.ModuleBirth && module != domain.ModuleDeath && module != domain.ModuleColostrum && module != domain.ModuleGeneral && module != domain.ModuleSales && module != domain.ModuleProcurement {
 		h.writeError(w, r, http.StatusBadRequest, "invalid_module", "module must be birth, death, colostrum, general, or sales", nil)
 		return
 	}
@@ -820,6 +820,14 @@ func hasModulePermission(ctx context.Context, module string) bool {
 			hasWorkflowPermission(ctx, permissions.SalesWrite) ||
 			hasWorkflowPermission(ctx, permissions.SalesAllocateAnimals) ||
 			hasWorkflowPermission(ctx, permissions.CountsWrite)
+	case domain.ModuleProcurement:
+		// PROCUREMENT SOP (2026-09-20): a purchase load's intake workflow is read by anyone the
+		// load itself is visible to -- the buying desk, the office that decides, or the park head
+		// / operator who receives the animals.
+		return hasWorkflowPermission(ctx, permissions.AnimalPurchaseRead) ||
+			hasWorkflowPermission(ctx, permissions.AnimalPurchaseWrite) ||
+			hasWorkflowPermission(ctx, permissions.AnimalPurchaseDecide) ||
+			hasWorkflowPermission(ctx, permissions.CountsWrite)
 	}
 	return hasWorkflowPermission(ctx, permissions.CountsWrite)
 }
@@ -834,6 +842,12 @@ func hasModuleWritePermission(ctx context.Context, module string) bool {
 	case domain.ModuleSales:
 		return hasWorkflowPermission(ctx, permissions.SalesWrite) ||
 			hasWorkflowPermission(ctx, permissions.SalesAllocateAnimals) ||
+			hasWorkflowPermission(ctx, permissions.CountsWrite)
+	case domain.ModuleProcurement:
+		// Read-only procurement access does not answer a step; recording the animals, the
+		// decision and the arrival are all operational work.
+		return hasWorkflowPermission(ctx, permissions.AnimalPurchaseWrite) ||
+			hasWorkflowPermission(ctx, permissions.AnimalPurchaseDecide) ||
 			hasWorkflowPermission(ctx, permissions.CountsWrite)
 	}
 	return hasWorkflowPermission(ctx, permissions.CountsWrite)

@@ -1084,6 +1084,12 @@ func generalDocumentShape(formDSL map[string]any) bool {
 		if stringValue(track, "key") == tasksdomain.TemplateKeySalesDeal && stringValue(track, "module") == tasksdomain.ModuleSales {
 			return true
 		}
+		// PROCUREMENT SOP (2026-09-20): the purchase-load intake document is steps only -- it
+		// carries no capture form, so `fields: []` is correct rather than a document with nothing
+		// in it.
+		if stringValue(track, "key") == tasksdomain.TemplateKeyAnimalPurchaseIntake && stringValue(track, "module") == tasksdomain.ModuleProcurement {
+			return true
+		}
 	}
 	return false
 }

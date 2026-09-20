@@ -70,6 +70,10 @@ const (
 	// ENGINE completes it when the allocation confirm lands (goat.sale_allocated); it is never
 	// marked done by hand, so a sale cannot read "animals tagged" with no animal on it.
 	EngineHookSaleTagAnimals = "sale_tag_animals"
+	// EngineHookAnimalPurchaseDecision (PROCUREMENT SOP, 2026-09-20): the office's accept/reject
+	// on a purchase load's animals. Completed by the ENGINE when the load has no animal still
+	// waiting, never by a tap -- a load must not read "decided" over an unanswered animal.
+	EngineHookAnimalPurchaseDecision = "animal_purchase_decision"
 )
 
 // Step condition tokens (a step included only when the opening context says so).
@@ -759,6 +763,8 @@ func TemplateKeyToSOP(templateKey string) (sopCode string, trackKey string, ok b
 	switch templateKey {
 	case TemplateKeySalesDeal:
 		return SOPCodeSalesDeal, TemplateKeySalesDeal, true
+	case TemplateKeyAnimalPurchaseIntake:
+		return SOPCodeAnimalPurchaseIntake, TemplateKeyAnimalPurchaseIntake, true
 	case TemplateKeyBirthKid, TemplateKeyBirthMother:
 		return SOPCodeBirth, templateKey, true
 	case TemplateKeyDeath:
@@ -782,13 +788,25 @@ const (
 	ModuleSales          = "sales"
 )
 
+// PROCUREMENT IS SOP-DRIVEN END TO END (maintainer decision 2026-09-20). Opening an animal
+// purchase load opens ONE workflow from the published `procurement.animal_purchase_intake` SOP,
+// keyed on the load (subject_ref_id = animal_purchase_loads.load_id, no animal): record the
+// animals, the office's decision, the arrival at the farm, and whatever the farm adds. The
+// inspection and load FORMS remain `procurement.animal_purchase`; steps and forms are separate
+// documents, as they are for the sale and the vendor register.
+const (
+	SOPCodeAnimalPurchaseIntake     = "procurement.animal_purchase_intake"
+	TemplateKeyAnimalPurchaseIntake = "animal_purchase_intake"
+	ModuleProcurement               = "procurement"
+)
+
 // SubjectKeyedTemplate reports a template whose workflow is keyed on subject_ref_id and carries
 // no animal: every general SOP run and the sale workflow.
 func SubjectKeyedTemplate(templateKey string) bool {
 	if _, general := GeneralSOPCode(templateKey); general {
 		return true
 	}
-	return templateKey == TemplateKeySalesDeal
+	return templateKey == TemplateKeySalesDeal || templateKey == TemplateKeyAnimalPurchaseIntake
 }
 
 // General SOP template keys.

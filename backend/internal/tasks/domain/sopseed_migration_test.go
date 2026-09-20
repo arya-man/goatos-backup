@@ -27,7 +27,9 @@ func TestMigrationEmbedsTheSeededDocuments(t *testing.T) {
 		case sopseed.SOPCodeGateVisitorCheck:
 			continue // seeded by 000361; pinned by TestMigrationEmbedsTheGeneralSeed
 		case sopseed.SOPCodeSalesDeal:
-			continue // seeded by 000366; pinned by TestMigrationEmbedsTheSalesSeed
+			continue // seeded by 000369; pinned by TestMigrationEmbedsTheSalesSeed
+		case sopseed.SOPCodeAnimalPurchaseIntake:
+			continue // seeded by 000371; pinned by TestMigrationEmbedsTheProcurementSeed
 		}
 		files = append(files, f)
 	}
