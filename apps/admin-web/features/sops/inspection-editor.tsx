@@ -33,8 +33,7 @@ import {
   type InspectionPageRow,
   type InspectionQuestionRow,
   type InspectionRows,
-  type QuestionKind,
-} from "./inspection-model";
+  type QuestionKind, slugValue } from "./inspection-model";
 import { publishInspectionVersion, saveInspectionVersion, type InspectionSaveResult } from "./sop-actions";
 import { publishedHref } from "./published-href";
 import { followQuestionKey, keyForTitle } from "./weighing-model";
@@ -237,6 +236,7 @@ export function InspectionEditor({ pageContract: pc, basePath, sopId, sopName, s
               <QuestionCard
                 key={q.id}
                 pc={pc}
+                copyPrefix={copyPrefix}
                 page={null}
                 pages={[]}
                 index={qi}
@@ -273,7 +273,7 @@ export function InspectionEditor({ pageContract: pc, basePath, sopId, sopName, s
                 <span className="qnum">{pi + 1}</span>
                 <strong>{page.title.trim() || `${copy(pc, "inspection.page")} ${pi + 1}`}</strong>
                 <span className="muted small">
-                  {page.questions.length} {copy(pc, "label.inspection_questions")}
+                  {page.questions.length} {copy(pc, page.questions.length === 1 ? "label.inspection_question" : "label.inspection_questions")}
                 </span>
                 {open ? <ChevronUp className="ic" /> : <ChevronDown className="ic" />}
               </button>
@@ -326,6 +326,7 @@ export function InspectionEditor({ pageContract: pc, basePath, sopId, sopName, s
                       <QuestionCard
                         key={q.id}
                         pc={pc}
+                        copyPrefix={copyPrefix}
                         page={page}
                         pages={rows.pages}
                         index={qi}
@@ -361,7 +362,7 @@ export function InspectionEditor({ pageContract: pc, basePath, sopId, sopName, s
 
       <div className="cfgmf inspection-footer">
         <div>
-          <strong>{rows.pages.length}</strong> {copy(pc, "label.inspection_pages")} · <strong>{questionCount}</strong> {copy(pc, "label.inspection_questions")}
+          <strong>{rows.pages.length}</strong> {copy(pc, rows.pages.length === 1 ? "label.inspection_page" : "label.inspection_pages")} · <strong>{questionCount}</strong> {copy(pc, questionCount === 1 ? "label.inspection_question" : "label.inspection_questions")}
           {problems.length ? (
             <ul className="small muted" style={{ margin: "4px 0 0 16px" }}>
               {problems.slice(0, 5).map((p, i) => (
@@ -383,9 +384,11 @@ export function InspectionEditor({ pageContract: pc, basePath, sopId, sopName, s
 }
 
 function QuestionCard({
-  pc, page, pages, index, count, q, kinds, captures, earlier, takenKeys, savedKeys, lockedKeys, requiredKeys, onChange, onOptionRenamed, onMove, onMovePage, onRemove,
+  pc, copyPrefix, page, pages, index, count, q, kinds, captures, earlier, takenKeys, savedKeys, lockedKeys, requiredKeys, onChange, onOptionRenamed, onMove, onMovePage, onRemove,
 }: {
   pc: AdminUiPageContract;
+  /** Which profile's copy this card reads: an entry form is not an inspection. */
+  copyPrefix: string;
   page: InspectionPageRow | null;
   pages: InspectionPageRow[];
   index: number;
@@ -459,7 +462,7 @@ function QuestionCard({
       </div>
       <div className="qbody">
         <label className="numfield">
-          <span className="numlbl">{copy(pc, "inspection.question.title")}</span>
+          <span className="numlbl">{copy(pc, `${copyPrefix}.question.title`)}</span>
           <input
             className="qtext"
             value={q.title}
@@ -509,7 +512,7 @@ function QuestionCard({
                     // Yes/No default becomes truck/tractor, never "yes" wearing a Truck label. The
                     // "other" value is kept: it is what attaches the free text.
                     const others = new Set(q.options.filter((_, j) => j !== i).map((y) => y.value));
-                    const value = o.value === "other" ? "other" : slugKey(label, others, "choice");
+                    const value = o.value === "other" ? "other" : slugValue(label, others, "choice");
                     const options = q.options.map((x, j) => (j === i ? { label, value } : x));
                     onChange({ options });
                     if (o.value && o.value !== value) onOptionRenamed(o.value, value);

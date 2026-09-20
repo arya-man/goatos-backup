@@ -179,7 +179,17 @@ func (s *Service) ListWorkflows(ctx context.Context, in ListWorkflowsInput) (dom
 	if strings.TrimSpace(in.TenantID) == "" {
 		return domain.WorkflowListPage{}, domain.ErrMissingRequiredField
 	}
-	if in.Module != domain.ModuleBirth && in.Module != domain.ModuleDeath && in.Module != domain.ModuleGeneral {
+	// The module vocabulary here must match the HANDLER's (hasModulePermission): the route admits
+	// a module, and this refusing it means an empty list with `missing_required_field` and nothing
+	// to tell the reader what is wrong.
+	//
+	// PRE-EXISTING on origin/main and found by the 2026-09-20 E2E: `sales` was added to the route
+	// with the Sales SOP but never here, so the sale list the decision doc documents
+	// (GET /app/workflows?module=sales) has always answered empty. The procurement modules would
+	// have shipped with the identical hole.
+	switch in.Module {
+	case domain.ModuleBirth, domain.ModuleDeath, domain.ModuleGeneral, domain.ModuleSales, domain.ModuleProcurement:
+	default:
 		return domain.WorkflowListPage{}, domain.ErrMissingRequiredField
 	}
 	now := s.now()

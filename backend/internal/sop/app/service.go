@@ -1066,6 +1066,30 @@ func evaluationRequiresProof(evaluation domain.DryRunResponse) bool {
 // editable from the web at all.
 var moduleOwnedSections = []string{"vendor_form", "feed_purchase_form", "toxin"}
 
+// fieldlessSOPCodes are the documents that never carry a capture form of their own: their whole
+// substance is a workflow track or a module-owned section. Naming the CODE (not only the section)
+// means a document that has lost its section still gets its own contract's message rather than the
+// generic field error.
+var fieldlessSOPCodes = map[string]bool{
+	tasksdomain.SOPCodeSalesDeal:            true,
+	tasksdomain.SOPCodeAnimalPurchaseIntake: true,
+	tasksdomain.SOPCodeFeedPurchaseIntake:   true,
+	procurementSOPCodeVendor:                true,
+	procurementSOPCodeFeedPurchaseForm:      true,
+	toxinSOPCode:                            true,
+	salesSOPCodeVendor:                      true,
+}
+
+// The codes are spelled here rather than imported so sop/app keeps no dependency on the
+// procurement or toxin packages; each is asserted against its owning constant by
+// TestFieldlessSOPCodesMatchTheirOwners.
+const (
+	procurementSOPCodeVendor           = "procurement.vendor"
+	procurementSOPCodeFeedPurchaseForm = "procurement.feed_purchase_form"
+	toxinSOPCode                       = "procurement.toxin_test"
+	salesSOPCodeVendor                 = "sales.vendor"
+)
+
 // generalDocumentShape reports a document whose whole substance is a follow-up track or a
 // module-owned form and which therefore has no capture form to demand a field from: a GENERAL
 // work instruction (the `main` track, module `general`), the SALE SOP (the `sales_deal` track,
@@ -1074,6 +1098,14 @@ var moduleOwnedSections = []string{"vendor_form", "feed_purchase_form", "toxin"}
 // docs/decisions/sales-sop.md, docs/decisions/procurement-sop-driven.md. Only the shape is read
 // here; each section's own contract is validated separately.
 func generalDocumentShape(formDSL map[string]any) bool {
+	// A document that DECLARES one of the fieldless SOP codes has no capture form whatever its
+	// sections currently hold. Reading the code as well as the sections is what lets the author's
+	// own mistake be reported: deleting the track out of a purchase document used to answer "at
+	// least one field is required", sending them to add a field they never had, instead of the
+	// follow-up contract's "must keep a %q track".
+	if fieldlessSOPCodes[stringValue(formDSL, "sop_code")] {
+		return true
+	}
 	for _, section := range moduleOwnedSections {
 		if _, ok := formDSL[section].(map[string]any); ok {
 			return true

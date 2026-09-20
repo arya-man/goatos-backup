@@ -196,10 +196,29 @@ export function deriveFields(formDsl: unknown): DslField[] {
   return out;
 }
 
+// A document whose content lives in a module-owned section (a supplier or feed-purchase entry
+// form, the aflatoxin procedure, the operator steps) carries an EMPTY `fields` array, so counting
+// it renders a bare "0 steps" chip beside the count that actually says what the document holds.
+// Report the toxin procedure's own steps where there are some, and otherwise say nothing at all.
+const MODULE_OWNED_SECTIONS = ["inspection", "vendor_form", "feed_purchase_form", "toxin", "follow_up"];
+
 export function deriveStepCount(formDsl: unknown): number | null {
   const dsl = asObject(formDsl);
   if (!dsl || !Array.isArray(dsl["fields"])) return null;
-  return (dsl["fields"] as unknown[]).length;
+  const fields = (dsl["fields"] as unknown[]).length;
+  if (fields > 0) return fields;
+  const toxin = deriveToxinStepCount(formDsl);
+  if (toxin > 0) return toxin;
+  return MODULE_OWNED_SECTIONS.some((k) => asObject(dsl[k]) !== null) ? null : fields;
+}
+
+// deriveToxinStepCount counts the authored steps of form_dsl.toxin (the aflatoxin procedure); 0
+// when the section is absent.
+export function deriveToxinStepCount(formDsl: unknown): number {
+  const dsl = asObject(formDsl);
+  const toxin = dsl ? asObject(dsl["toxin"]) : null;
+  if (!toxin || !Array.isArray(toxin["steps"])) return 0;
+  return (toxin["steps"] as unknown[]).length;
 }
 
 // Gate summary derived from the REAL proof_policy + form-level flags — the mock's "gate summary text".
@@ -332,7 +351,7 @@ export function toSopView(def: SopDefLike, version: SopVersionLike | null): SopC
     feedFormDsl: version && hasFeedCards(version.form_dsl) ? version.form_dsl : null,
     shiftingFormDsl: version && hasShiftingCards(version.form_dsl) ? version.form_dsl : null,
     toxinFormDsl: version && hasSection(version.form_dsl, "toxin") ? version.form_dsl : null,
-    inspectionQuestionCount: version ? deriveInspectionQuestionCount(version.form_dsl) + deriveInspectionQuestionCount(version.form_dsl, "vendor_form") : 0,
+    inspectionQuestionCount: version ? deriveInspectionQuestionCount(version.form_dsl) + deriveInspectionQuestionCount(version.form_dsl, "vendor_form") + deriveInspectionQuestionCount(version.form_dsl, "feed_purchase_form") : 0,
     fields: version
       ? deriveFields(version.form_dsl).map((f) => ({ label: f.label, type: f.type, required: f.required, options: f.options, helpText: f.helpText }))
       : [],

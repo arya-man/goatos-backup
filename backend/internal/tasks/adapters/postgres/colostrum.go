@@ -79,6 +79,7 @@ WITH day AS (
 //	                         day's feeds can never sit in that bucket (domain.ColostrumFilterAllowed)
 //	sop_name              -> '' : a colostrum card is always a birth kid, never a general SOP run
 //	subject_ref_id, sale  -> '' / 0: never a sale workflow, so the sale subject columns are blank.
+//	purchase columns      -> '' / 0: never a purchase workflow either (2026-09-20).
 //
 // Pinned by TestColostrumCardColumnsMatchTheCardScanner: the 2026-09-19 sale columns were added
 // to cardSelectColumns and scanCard but not here, and every colostrum read failed with
@@ -95,7 +96,8 @@ const colostrumCardColumns = `
   COALESCE(CASE WHEN gsp.shed_id = wi.shed_id AND lower(btrim(gsp.partition_label)) <> 'whole'
                 THEN btrim(gsp.partition_label) END, ''),
   ''::text,
-  ''::text, ''::text, 0::integer, ''::text`
+  ''::text, ''::text, 0::integer, ''::text,
+  ''::text, ''::text, ''::text, ''::text, ''::text, ''::text, 0::integer`
 
 // colostrumOverdueLookbackDays bounds the previous-day attention bell.
 //

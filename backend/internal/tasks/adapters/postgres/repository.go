@@ -371,7 +371,9 @@ const cardSelectColumns = `
                 THEN btrim(gsp.partition_label) END, ''),
   COALESCE(gsd.name, ''),
   COALESCE(wi.subject_ref_id::text, ''),
-  COALESCE(sdl.buyer_name, ''), COALESCE(sdl.animal_count, 0), COALESCE(sdl.farm, '')`
+  COALESCE(sdl.buyer_name, ''), COALESCE(sdl.animal_count, 0), COALESCE(sdl.farm, ''),
+  COALESCE(apl.load_ref, ''), COALESCE(apl.vendor_name, ''), COALESCE(apl.farm_label, ''),
+  COALESCE(fpl.feed_item_label, ''), COALESCE(fpl.vendor, ''), COALESCE(fpl.farm_label, ''), COALESCE(fpl.batch_no, 0)`
 
 const cardJoins = `
 FROM workflow_instances wi
@@ -396,7 +398,15 @@ LEFT JOIN sop_definitions gsd
   ON gsd.tenant_id = wi.tenant_id
  AND (wi.template_key = 'general:' || gsd.code OR (wi.template_key = 'sales_deal' AND gsd.code = 'sales.deal'))
 LEFT JOIN sales_deals sdl
-  ON wi.template_key = 'sales_deal' AND sdl.tenant_id = wi.tenant_id AND sdl.id = wi.subject_ref_id`
+  ON wi.template_key = 'sales_deal' AND sdl.tenant_id = wi.tenant_id AND sdl.id = wi.subject_ref_id
+-- PROCUREMENT IS SOP-DRIVEN END TO END (2026-09-20): the purchase cards' subject line. Both are
+-- 1:0..1 display enrichments on the subject's own primary key, exactly like the sale's join above;
+-- nothing in the engine reads a purchase to decide anything. Without them the phone shows three
+-- identical "Animal purchase" cards with nothing to tell the loads apart.
+LEFT JOIN animal_purchase_loads apl
+  ON wi.template_key = 'animal_purchase_intake' AND apl.tenant_id = wi.tenant_id AND apl.load_id = wi.subject_ref_id
+LEFT JOIN feed_purchases fpl
+  ON wi.template_key = 'feed_purchase_intake' AND fpl.tenant_id = wi.tenant_id AND fpl.feed_purchase_id = wi.subject_ref_id`
 
 // ListWorkflows serves one keyset page of cards plus the requested day's chip counts.
 //
@@ -562,14 +572,17 @@ type cardScanner interface {
 
 func scanCard(row cardScanner, now time.Time) (domain.WorkflowCard, error) {
 	var (
-		partitionLabel string
-		card           domain.WorkflowCard
-		nextKey        *string
-		nextTitle      *string
-		nextDue        *time.Time
-		saleBuyer      string
-		saleAnimals    int
-		saleFarm       string
+		partitionLabel                 string
+		card                           domain.WorkflowCard
+		nextKey                        *string
+		nextTitle                      *string
+		nextDue                        *time.Time
+		saleBuyer                      string
+		loadRef, loadVendor, loadFarm  string
+		feedItem, feedVendor, feedFarm string
+		feedBatch                      int
+		saleAnimals                    int
+		saleFarm                       string
 	)
 	if err := row.Scan(
 		&card.WorkflowID, &card.Module, &card.TemplateKey, &card.Subject.GoatID,
@@ -580,10 +593,14 @@ func scanCard(row cardScanner, now time.Time) (domain.WorkflowCard, error) {
 		&card.Subject.Tag,
 		&card.ParkLabel, &card.ShedLabel, &partitionLabel, &card.SOPName,
 		&card.SubjectRefID, &saleBuyer, &saleAnimals, &saleFarm,
+		&loadRef, &loadVendor, &loadFarm, &feedItem, &feedVendor, &feedFarm, &feedBatch,
 	); err != nil {
 		return domain.WorkflowCard{}, err
 	}
 	card.SubjectLabel = saleSubjectLabel(card.TemplateKey, saleBuyer, saleAnimals, saleFarm)
+	if card.SubjectLabel == "" {
+		card.SubjectLabel = purchaseSubjectLabel(card.TemplateKey, loadRef, loadVendor, loadFarm, feedItem, feedVendor, feedFarm, feedBatch)
+	}
 	card.ShedLabel = cardPenLabel(card.ShedLabel, partitionLabel)
 	card.Subject.RoleLabel = domain.RoleLabelForTemplate(card.TemplateKey)
 	card.NextDueAt = nextDue
@@ -634,14 +651,17 @@ LEFT JOIN goat_births gb
  AND wi.template_key = 'birth_kid'
 WHERE wi.tenant_id = $1::uuid AND wi.workflow_id = $2::uuid`, tenantID, workflowID)
 	var (
-		partitionLabel string
-		card           domain.WorkflowCard
-		nextKey        *string
-		nextTitle      *string
-		nextDue        *time.Time
-		saleBuyer      string
-		saleAnimals    int
-		saleFarm       string
+		partitionLabel                 string
+		card                           domain.WorkflowCard
+		nextKey                        *string
+		nextTitle                      *string
+		nextDue                        *time.Time
+		saleBuyer                      string
+		loadRef, loadVendor, loadFarm  string
+		feedItem, feedVendor, feedFarm string
+		feedBatch                      int
+		saleAnimals                    int
+		saleFarm                       string
 	)
 	err := row.Scan(
 		&card.WorkflowID, &card.Module, &card.TemplateKey, &card.Subject.GoatID,
@@ -652,6 +672,7 @@ WHERE wi.tenant_id = $1::uuid AND wi.workflow_id = $2::uuid`, tenantID, workflow
 		&card.Subject.Tag,
 		&card.ParkLabel, &card.ShedLabel, &partitionLabel, &card.SOPName,
 		&card.SubjectRefID, &saleBuyer, &saleAnimals, &saleFarm,
+		&loadRef, &loadVendor, &loadFarm, &feedItem, &feedVendor, &feedFarm, &feedBatch,
 		&damDisplay,
 		&damRFID,
 		&litterSize,
@@ -663,6 +684,9 @@ WHERE wi.tenant_id = $1::uuid AND wi.workflow_id = $2::uuid`, tenantID, workflow
 		return domain.WorkflowDetail{}, err
 	}
 	card.SubjectLabel = saleSubjectLabel(card.TemplateKey, saleBuyer, saleAnimals, saleFarm)
+	if card.SubjectLabel == "" {
+		card.SubjectLabel = purchaseSubjectLabel(card.TemplateKey, loadRef, loadVendor, loadFarm, feedItem, feedVendor, feedFarm, feedBatch)
+	}
 	card.ShedLabel = cardPenLabel(card.ShedLabel, partitionLabel)
 	card.Subject.RoleLabel = domain.RoleLabelForTemplate(card.TemplateKey)
 	card.NextDueAt = nextDue
@@ -737,6 +761,38 @@ func saleSubjectLabel(templateKey, buyer string, animals int, farm string) strin
 		parts = append(parts, farm)
 	}
 	return strings.Join(parts, " · ")
+}
+
+// purchaseSubjectLabel composes a purchase workflow's subject line: "E2E-PROC-2 · Sanchit · CBE"
+// for an animal load, "Dry Masoor Bhusa · Load 355 · CBE" for a feed load. Blank on every other
+// template. Same standing as saleSubjectLabel: a display enrichment, never an engine read.
+func purchaseSubjectLabel(templateKey, loadRef, loadVendor, loadFarm, feedItem, feedVendor, feedFarm string, batchNo int) string {
+	var parts []string
+	switch templateKey {
+	case domain.TemplateKeyAnimalPurchaseIntake:
+		parts = nonEmpty(loadRef, loadVendor, loadFarm)
+	case domain.TemplateKeyFeedPurchaseIntake:
+		batch := ""
+		if batchNo > 0 {
+			batch = fmt.Sprintf("Load %d", batchNo)
+		}
+		parts = nonEmpty(feedItem, batch, feedVendor, feedFarm)
+	default:
+		return ""
+	}
+	return strings.Join(parts, " · ")
+}
+
+// nonEmpty keeps the parts that have something to say, so a blank field never renders as a
+// dangling separator.
+func nonEmpty(values ...string) []string {
+	out := make([]string, 0, len(values))
+	for _, v := range values {
+		if strings.TrimSpace(v) != "" {
+			out = append(out, v)
+		}
+	}
+	return out
 }
 
 type queryer interface {
