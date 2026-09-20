@@ -300,6 +300,9 @@ export type SopCardView = {
   // SHIFTING SOP (maintainer decision 2026-09-16): the form_dsl when it carries a `shifting`
   // cards section (raise extras, completion card, high-priority card); null otherwise.
   shiftingFormDsl: unknown;
+  // THE TOXIN PROCEDURE IS AUTHORED (2026-09-20): the form_dsl when it carries a `toxin`
+  // procedure (the steps of the aflatoxin strip test); null otherwise.
+  toxinFormDsl: unknown;
 };
 
 // toSopView maps the real API rows to the card facets. Everything is derived — no invented inventory.
@@ -328,6 +331,7 @@ export function toSopView(def: SopDefLike, version: SopVersionLike | null): SopC
     weighingFormDsl: version && hasWeighingRules(version.form_dsl) ? version.form_dsl : null,
     feedFormDsl: version && hasFeedCards(version.form_dsl) ? version.form_dsl : null,
     shiftingFormDsl: version && hasShiftingCards(version.form_dsl) ? version.form_dsl : null,
+    toxinFormDsl: version && hasSection(version.form_dsl, "toxin") ? version.form_dsl : null,
     inspectionQuestionCount: version ? deriveInspectionQuestionCount(version.form_dsl) + deriveInspectionQuestionCount(version.form_dsl, "vendor_form") : 0,
     fields: version
       ? deriveFields(version.form_dsl).map((f) => ({ label: f.label, type: f.type, required: f.required, options: f.options, helpText: f.helpText }))

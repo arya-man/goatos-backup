@@ -1064,7 +1064,10 @@ func pages() []domain.PageContract {
 		// PROCUREMENT SOP (maintainer decision 2026-09-14): the animal-purchase inspection --
 		// its pages, questions, proof and compulsory flags -- is authored here and served to the
 		// phone from the published version.
-		page("procurement-sops", "/procurement/sops", "/procurement/sops", "Procurement SOP", "The animal purchase inspection the phone runs: pages, questions, proof and what is compulsory.", "module-surface",
+		// PROCUREMENT IS SOP-DRIVEN END TO END (maintainer decision 2026-09-20): the page now
+		// carries every procurement document -- the inspection and load forms, the supplier form,
+		// the animal-purchase and feed-purchase workflows, and the aflatoxin procedure.
+		page("procurement-sops", "/procurement/sops", "/procurement/sops", "Procurement SOP", "Everything the buying desk runs: the purchase steps, the inspection and supplier forms, and the aflatoxin procedure.", "module-surface",
 			[]domain.TableContract{table("sop-library", "Procurement SOPs", "/admin/sops", []string{"sop", "domain", "trigger", "steps", "gates", "status"}, "sop_id")}),
 		page("goat-passport", "/goats/{goat_id}", "/goats/{goat_id}", "Goat Passport", "Contextual goat identity, timeline, and vaccination passport detail.", "record-drilldown",
 			[]domain.TableContract{
@@ -8550,7 +8553,7 @@ func pageSpecificCopy(id string) map[string]string {
 			}
 		case "procurement-sops":
 			m["crumb"] = "Procurement"
-			m["filter.domain.current"] = "This page shows Procurement SOPs (animal purchase inspection)"
+			m["filter.domain.current"] = "This page shows Procurement SOPs (purchases, forms and the aflatoxin test)"
 			m["modal.builder.domain_aria"] = "Domain — locked to Procurement"
 			m["modal.builder.domain_title"] = "Domain is locked to Procurement on this page"
 			m["modal.builder.domain_label"] = "Procurement"
@@ -8560,6 +8563,9 @@ func pageSpecificCopy(id string) map[string]string {
 			m["modal.builder.eyebrow"] = "SOP · PROCUREMENT"
 			m["empty.title"] = "No procurement SOPs yet"
 			for k, v := range inspectionEditorCopy() {
+				m[k] = v
+			}
+			for k, v := range toxinEditorCopy() {
 				m[k] = v
 			}
 		case "milk-sops":
@@ -9459,7 +9465,12 @@ func pageOptionGroups(id string) []domain.OptionGroup {
 		// editor, which picks question kinds from the same closed vocabulary.
 		return withGenericOptionGroups(append(sopOptionGroupsFor(id), inspectionOptionGroups()...))
 	case "procurement-sops":
-		return withGenericOptionGroups(append(sopOptionGroupsFor(id), inspectionOptionGroups()...))
+		// PROCUREMENT IS SOP-DRIVEN END TO END (2026-09-20): the page edits pages-of-questions
+		// documents (inspection, load form, supplier form), the two purchase WORKFLOWS through the
+		// shared operator-steps editor, and the aflatoxin PROCEDURE through its own.
+		groups := append(sopOptionGroupsFor(id), inspectionOptionGroups()...)
+		groups = append(groups, toxinOptionGroups()...)
+		return withGenericOptionGroups(groups)
 	case "action-center":
 		return withGenericOptionGroups([]domain.OptionGroup{
 			{
@@ -11659,6 +11670,77 @@ func weighingSOPOptionGroups() []domain.OptionGroup {
 }
 
 // inspectionOptionGroups are the editor's closed vocabularies.
+// toxinOptionGroups is the aflatoxin editor's closed step vocabulary (THE TOXIN PROCEDURE IS
+// AUTHORED, 2026-09-20). Exactly the three kinds the engine runs: there is no fourth, because a
+// kind the engine does not know is a step no tester could complete.
+func toxinOptionGroups() []domain.OptionGroup {
+	return []domain.OptionGroup{
+		{
+			ID: "tsop_step_kinds",
+			Options: []domain.Option{
+				option("video", "Filmed step", "The tester records one in-app-camera video as the step is done.", ""),
+				option("wait", "Waiting", "Nothing to do but wait. The next step unlocks on the server's clock.", ""),
+				option("photo_reading", "Read the strip", "The final step: a photo of the strip and the reading. Every procedure has exactly one.", ""),
+			},
+		},
+	}
+}
+
+// toxinEditorCopy is the aflatoxin procedure editor's copy, rendered verbatim by the web editor.
+// Every sentence here is the product's, not the developer's: the screen explains what a step is
+// and what the farm may change, and names the parts that stay the engine's.
+func toxinEditorCopy() map[string]string {
+	return map[string]string{
+		"tsop.action.edit":                "Change procedure",
+		"tsop.summary.kind.video":         "Filmed",
+		"tsop.summary.kind.wait":          "Waiting",
+		"tsop.summary.kind.photo_reading": "Read the strip",
+		"tsop.title":                      "Aflatoxin test",
+		"tsop.subtitle":                   "The steps of the strip test on a purchased feed load: what the tester does, what is filmed, and how long each wait lasts.",
+		"tsop.notice.pinned":              "A test already running keeps the steps it started with; publishing changes the next one.",
+		"tsop.steps":                      "Steps",
+		"tsop.steps.unit":                 "steps",
+		"tsop.steps.waiting":              "waiting",
+		"tsop.step.title":                 "Title the tester sees",
+		"tsop.step.instruction":           "What to do",
+		"tsop.step.kind":                  "Step type",
+		"tsop.step.wait_minutes":          "How long to wait (minutes)",
+		"tsop.step.add":                   "Add a step",
+		"tsop.step.remove":                "Remove this step",
+		"tsop.step.untitled":              "Untitled step",
+		"tsop.gate.title":                 "Unlocks after",
+		"tsop.gate.subtitle":              "Hold this step until time has passed since an earlier one. Enforced on the server's clock, never the phone's.",
+		"tsop.gate.after":                 "after",
+		"tsop.gate.none":                  "Straight after the step before it",
+		"tsop.gate.minutes":               "Minutes to wait",
+		"tsop.unit.hour":                  "hour",
+		"tsop.unit.hours":                 "hours",
+		"tsop.unit.minute":                "minute",
+		"tsop.unit.minutes":               "minutes",
+		"tsop.flow.start":                 "A feed load reaches the farm",
+		"tsop.flow.start_hint":            "Every purchased load owes one test.",
+		"tsop.flow.wait":                  "Waiting",
+		"tsop.flow.after":                 "after",
+		"tsop.flow.locked":                "Fixed",
+		"tsop.flow.review":                "Reviewed by the CEO",
+		"tsop.flow.review_hint":           "The reading goes for review. A void strip or a rejection starts a fresh test on the same load.",
+		"tsop.flow.finish_hint":           "The load's test is signed off.",
+		"tsop.flow.hint":                  "Click a step to edit it, or + on a line to add one there.",
+		"tsop.locked":                     "The review, the retest a void strip starts, and the enforcement of every wait on the server's clock are fixed. This page changes what the test IS, not what happens to its result.",
+		"tsop.footer.ready":               "Ready to save or publish.",
+		"tsop.problem.no_steps":           "A procedure needs at least one step.",
+		"tsop.problem.one_reading":        "The procedure needs exactly one \"Read the strip\" step.",
+		"tsop.problem.reading_last":       "\"Read the strip\" must be the last step — it is what ends the test.",
+		"tsop.problem.too_short":          "A procedure needs at least one step before the reading.",
+		"tsop.problem.title":              "This step needs a title.",
+		"tsop.problem.instruction":        "This step needs an instruction — the tester is told what to do, never left to guess.",
+		"tsop.problem.wait_minutes":       "A waiting step needs a duration.",
+		"tsop.problem.gate_backwards":     "A step can only wait on an EARLIER step.",
+		"tsop.problem.gate_working":       "A step can only wait on one that records a completion, never on another wait.",
+		"tsop.problem.gate_minutes":       "Say how many minutes to wait.",
+	}
+}
+
 func inspectionOptionGroups() []domain.OptionGroup {
 	return []domain.OptionGroup{
 		{
