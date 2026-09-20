@@ -4246,7 +4246,11 @@ aside.drawer.wt-feedband-drawer{width:94vw;max-width:960px}
 .mcol{flex:1 1 0;display:flex;flex-direction:column;align-items:center;min-width:58px}
 .mcarea{display:flex;align-items:flex-end;justify-content:center;height:138px;width:100%;border-bottom:1px solid var(--line)}
 .mcstack{display:flex;flex-direction:column;align-items:center;justify-content:flex-end;gap:4px;width:100%;height:100%;box-sizing:border-box;padding-top:17px}
-.mcv{font-size:11px;font-weight:800;color:var(--ink);white-space:nowrap;line-height:1;font-variant-numeric:tabular-nums;text-shadow:0 1px 2px var(--bg)}
+/* flex:0 0 auto -- the same crush the grouped chart's .gcval carries below, one chart over. The
+   tallest column's bar fills the stack's content box, so its figure overflows into the reserved
+   padding-top; as an ordinary flex item it was squeezed to nothing there, and on phones .mcv also
+   clips its own overflow, so the BIGGEST month was the one month whose number could not be read. */
+.mcv{flex:0 0 auto;font-size:11px;font-weight:800;color:var(--ink);white-space:nowrap;line-height:1;font-variant-numeric:tabular-nums;text-shadow:0 1px 2px var(--bg)}
 .mcbar{display:block;flex:0 0 auto;width:min(62%,30px);background:var(--brand);border-radius:4px 4px 0 0}
 .mclab{display:flex;flex-direction:column;align-items:center;gap:1px;font-size:11px;color:var(--muted);margin-top:5px;white-space:nowrap;line-height:1.05}
 .mcsub{font-size:10.5px;font-weight:600;color:var(--ink);opacity:.72;margin-top:2px;white-space:nowrap;line-height:1.2;font-variant-numeric:tabular-nums}
@@ -4297,6 +4301,16 @@ aside.drawer.wt-feedband-drawer{width:94vw;max-width:960px}
 .gclab{font-size:11px;color:var(--muted);margin-top:5px;white-space:nowrap;line-height:1.2}
 .gcsub{font-size:10.5px;font-weight:600;color:var(--ink);opacity:.72;margin-top:2px;max-width:100%;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;line-height:1.2}
 @media(max-width:1080px){.gclab{font-size:9px}.gcsub{font-size:9px}.gcarea{height:90px}}
+/* A grouped column carries one bar PER SERIES, so four series need ~110px before their figures
+   start printing over the next column's bars. The 64px floor above is narrower than that, so on a
+   phone the numbers collided. Sized here on the COMPONENT rather than on one page, because Counts
+   Breakdown draws the same chart and had no such rule; `.gcols` already scrolls sideways. */
+@media(max-width:680px){
+  .gcol{flex:0 0 92px;min-width:92px}
+  .gcarea{height:116px;gap:6px}
+  .gcval{font-size:9.5px;max-width:72px;overflow:hidden;text-overflow:ellipsis}
+  .gclab,.gcsub{max-width:86px;overflow:hidden;text-overflow:ellipsis}
+}
 .sales-loads-page .gcols{scrollbar-width:thin}
 @media(max-width:680px){
   .sales-loads-head{display:block;padding-bottom:0}

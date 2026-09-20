@@ -16,7 +16,10 @@ export type MonthColumnDatum = {
   /** Full tooltip label, e.g. "Apr 2025". */
   label: string;
   value: number;
-  /** Compact value label drawn above the column (e.g. "₹19.4L"); blank hides it. */
+  /**
+   * Compact value label drawn above the column (e.g. "₹19.4L"); blank hides it. A measured zero
+   * still prints -- pass the formatted zero ("0 kg"), not "", or the column reads as missing data.
+   */
   display: string;
   /**
    * Optional second compact figure for the same month in a DIFFERENT unit (e.g. the rupees behind
@@ -64,10 +67,16 @@ export function MonthColumns({
         return (
           <div className="mcol" key={datum.key} title={tooltip}>
             <span className="mcarea">
-              {datum.value > 0 ? (
+              {/* A measured zero still carries its figure. A column with a month under it and
+                  nothing above it reads as a number that failed to load; "0 kg" says the farm
+                  sold none that month, which is the fact. Only the BAR is gated on the value --
+                  zero has no height to draw -- so the figure sits on the baseline instead. */}
+              {datum.display ? (
                 <span className="mcstack">
                   <span className="mcv">{datum.display}</span>
-                  <span className="mcbar" style={{ height: `${Math.max(pct, 2).toFixed(1)}%` }} />
+                  {datum.value > 0 ? (
+                    <span className="mcbar" style={{ height: `${Math.max(pct, 2).toFixed(1)}%` }} />
+                  ) : null}
                 </span>
               ) : null}
             </span>
