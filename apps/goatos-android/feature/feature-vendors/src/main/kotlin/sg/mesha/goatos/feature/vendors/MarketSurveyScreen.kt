@@ -34,7 +34,8 @@ import sg.mesha.goatos.core.ui.SyncIconButton
 import sg.mesha.goatos.core.ui.SyncStatusIndicator
 
 /**
- * The Procurement module's Market tab (`/vendors/market`, maintainer decision 2026-09-14): one
+ * The Sales module's Market tab (`/sales/market`, maintainer decision 2026-09-14; it moved
+ * out of Procurement on 2026-09-20): one
  * card per city on the morning call list. The whole day is one small list (a handful of cities
  * by construction -- the backend caps the list at 50), so it renders from the cached day blob
  * with no paging; a tap opens the city's entry form.

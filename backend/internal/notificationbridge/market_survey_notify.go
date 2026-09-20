@@ -134,7 +134,7 @@ func (n *MarketSurveyNotifier) NotifyDue(ctx context.Context, tenantID string) e
 			"type":           "market_survey_due",
 			"message_key":    "market.survey_due",
 			"screen":         "market_survey",
-			"href":           "/vendors/market",
+			"href":           "/sales/market",
 			"business_date":  businessDate,
 			"pending_cities": fmt.Sprintf("%d", len(pending)),
 			"total_cities":   fmt.Sprintf("%d", len(view.Cards)),

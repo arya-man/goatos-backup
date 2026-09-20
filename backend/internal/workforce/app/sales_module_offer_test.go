@@ -118,6 +118,10 @@ func TestSalesModuleAndItsVendorsTabAnswerToDifferentPermissions(t *testing.T) {
 	want := map[string]string{
 		"sales":         permissions.SalesRead,
 		"sales_vendors": permissions.VendorRead,
+		// Market MOVED here out of Procurement on 2026-09-20 and is the third answer to a
+		// different permission again: a sales reader who does not make the morning calls gets
+		// the module and its two register tabs, and never an entry form the server would refuse.
+		"market": permissions.MarketEntry,
 	}
 	if len(def.contributions) != len(want) {
 		t.Fatalf("sales contributions = %+v", def.contributions)

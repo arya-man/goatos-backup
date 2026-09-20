@@ -405,8 +405,10 @@ var moduleNavRegistry = map[string]moduleDefinition{ //nav-composition:ignore: t
 	},
 	// Procurement (module_key vendors, maintainer decisions 2026-09-03, 2026-09-04 and 2026-09-05):
 	// the procurement desk's phone module -- the vendor register and the feed purchase ledger, view
-	// and add. TWO tabs since 2026-09-05, when the sales ledger moved to its own "sales" module
-	// below; each is gated on the SAME read permission its backing routes require.
+	// and add. THREE tabs: the sales ledger moved to its own "sales" module below on 2026-09-05
+	// and the Market survey followed it on 2026-09-20, leaving the buying desk's own work here --
+	// suppliers, feed loads and animal loads. Each is gated on the SAME read permission its
+	// backing routes require.
 	//
 	// Its Vendors tab is now the BUYING half of the register only. It keeps that tab (the buying
 	// desk still adds suppliers) while Sales keeps the selling half -- one table, two sides. Offered on VendorRead the per-person way
@@ -426,11 +428,6 @@ var moduleNavRegistry = map[string]moduleDefinition{ //nav-composition:ignore: t
 			// permission the animal_purchases mobile module carries (migration 000302 ticks it for
 			// everyone already holding this module).
 			{key: "animal_purchases", labelKey: "nav.animal_purchases", href: "/vendors/animal-purchases", shared_key: "", priority: 3, requiredPermission: permissions.AnimalPurchaseRead}, //nav-composition:ignore: registry entry
-			// Market (maintainer decision 2026-09-14): the fourth tab -- one card per configured
-			// city each morning, the reporter records what goat and sheep fetch there. Gated on
-			// the ENTRY permission, held per person through market_reporter: a Sales reader who
-			// does not make the calls is never shown an entry form the server would refuse.
-			{key: "market", labelKey: "nav.market", href: "/vendors/market", shared_key: "", priority: 4, requiredPermission: permissions.MarketEntry}, //nav-composition:ignore: registry entry
 		},
 	},
 	// Sales (maintainer decision 2026-09-05): selling gets its own phone module, the same way it
@@ -458,6 +455,16 @@ var moduleNavRegistry = map[string]moduleDefinition{ //nav-composition:ignore: t
 		contributions: []moduleNavContribution{
 			{key: "sales", labelKey: "nav.sales", href: "/sales", shared_key: "", priority: 1, requiredPermission: permissions.SalesRead},                    //nav-composition:ignore: registry entry
 			{key: "sales_vendors", labelKey: "nav.vendors", href: "/sales/vendors", shared_key: "", priority: 2, requiredPermission: permissions.VendorRead}, //nav-composition:ignore: registry entry
+			// Market (maintainer decision 2026-09-14, MOVED here out of Procurement on 2026-09-20):
+			// one card per configured city each morning, the reporter records what goat and sheep
+			// fetch there. It shipped as a Procurement tab by mistake -- the survey asks what the
+			// farm's animals FETCH, its analytics page has always been Sales > Market analytics,
+			// and every permission it carries is a `sales.market.*` one. It is MOVED, never
+			// duplicated, the same way the Sales ledger itself moved out of Procurement on
+			// 2026-09-05. Nobody loses it: the tab is gated on the ENTRY permission held per
+			// person through market_reporter, and every holder of that already carries this
+			// module (asserted by TestMarketTabIsASalesTabAndReachesEveryReporter).
+			{key: "market", labelKey: "nav.market", href: "/sales/market", shared_key: "", priority: 3, requiredPermission: permissions.MarketEntry}, //nav-composition:ignore: registry entry
 		},
 	},
 	// "work_board" is the phone's My Work (maintainer decision 2026-09-10, the Work Board
