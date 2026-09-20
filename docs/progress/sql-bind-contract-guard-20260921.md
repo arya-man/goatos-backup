@@ -126,3 +126,12 @@ Prevent missing, extra, gapped, or conditionally-pruned PostgreSQL parameters fr
 - Pending: independent performance review, local CI, PR branch push and remote readback. No PostgreSQL integration or browser E2E run for this scanner-only fix.
 - Known failures: seven regression-first failures were expected and fixed. No implementation test failures remain.
 - Deployment state: no main merge, main push, or deploy.
+
+## Main landing request — 2026-09-21
+
+- Scope: Ravi requested PR 326 be merged to `main`. This is a main-promotion step only; no staging deploy is included in the request.
+- Starting PR head for the landing attempt: `6e5263de6a01898bca6b1c2eaf2da324b6ada53e`.
+- Review status before promotion: local read-only review found no blocking findings. `make postgres-bind-contract-guard`, focused scanner/sqlbind/Weighing Go tests, and `git diff --check origin/main...HEAD` passed on `6e5263de6a01898bca6b1c2eaf2da324b6ada53e`.
+- Required gate: run `make land-main` from this clean isolated worktree after this progress update is committed. The gate must rebase onto current `origin/main`, run selected local CI, stamp `goatos/land-main-receipt`, push the certified SHA to `main`, and verify `origin/main`.
+- Pending: exact `make land-main` receipt, main push/readback, and PR resolution after the certified SHA is on `origin/main`.
+- Deployment state: no staging or mobile deployment requested or started.
