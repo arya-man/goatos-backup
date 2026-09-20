@@ -1154,16 +1154,17 @@ var protectedRoutes = []Route{
 	// is the operator who runs the kid's follow-up checklist and shoots the death evidence videos.
 	// SALES SOP (2026-09-19): the sale workflow rides the same routes, ORed with the sales
 	// permissions -- the sales desk (sales.read/write) and the park head who tags the animals
-	// (sales.allocate_animals) each own steps of it. The handler narrows per module: a caller
-	// admitted on a sales permission alone cannot read a birth card (canReadWorkflowModule).
-	{OperationID: "listAppWorkflows", Method: "GET", Pattern: "/app/workflows", AnyPermissions: []string{CountsWrite, WorkInstructionsExecute, SalesRead, SalesWrite, SalesAllocateAnimals}},
-	{OperationID: "getAppWorkflowBySubject", Method: "GET", Pattern: "/app/workflows/subject", AnyPermissions: []string{CountsWrite, WorkInstructionsExecute, SalesRead, SalesWrite, SalesAllocateAnimals}},
+	// (sales.allocate_animals) each own steps of it. PROCUREMENT SOP (2026-09-20) does the same
+	// for animal/feed purchase permissions. The handler narrows per module: a caller admitted on
+	// a sales or purchase permission alone cannot read a birth card (canReadWorkflowModule).
+	{OperationID: "listAppWorkflows", Method: "GET", Pattern: "/app/workflows", AnyPermissions: []string{CountsWrite, WorkInstructionsExecute, SalesRead, SalesWrite, SalesAllocateAnimals, AnimalPurchaseRead, AnimalPurchaseWrite, AnimalPurchaseDecide, FeedPurchaseRead, FeedPurchaseWrite}},
+	{OperationID: "getAppWorkflowBySubject", Method: "GET", Pattern: "/app/workflows/subject", AnyPermissions: []string{CountsWrite, WorkInstructionsExecute, SalesRead, SalesWrite, SalesAllocateAnimals, AnimalPurchaseRead, AnimalPurchaseWrite, AnimalPurchaseDecide, FeedPurchaseRead, FeedPurchaseWrite}},
 	// The three per-run routes are ORed with WorkInstructionsExecute (2026-09-18): a general SOP
 	// run is driven through the same routes as a birth/death card, and a park head or director
 	// starting one at the gate holds work_instructions.execute, not necessarily counts.write.
-	{OperationID: "getAppWorkflow", Method: "GET", Pattern: "/app/workflows/{workflow_id}", AnyPermissions: []string{CountsWrite, WorkInstructionsExecute, SalesRead, SalesWrite, SalesAllocateAnimals}},
-	{OperationID: "answerAppWorkflowAction", Method: "POST", Pattern: "/app/workflows/{workflow_id}/actions/{action_id}/answer", AnyPermissions: []string{CountsWrite, WorkInstructionsExecute, SalesRead, SalesWrite, SalesAllocateAnimals}},
-	{OperationID: "completeAppWorkflowAction", Method: "POST", Pattern: "/app/workflows/{workflow_id}/actions/{action_id}/complete", AnyPermissions: []string{CountsWrite, WorkInstructionsExecute, SalesRead, SalesWrite, SalesAllocateAnimals}},
+	{OperationID: "getAppWorkflow", Method: "GET", Pattern: "/app/workflows/{workflow_id}", AnyPermissions: []string{CountsWrite, WorkInstructionsExecute, SalesRead, SalesWrite, SalesAllocateAnimals, AnimalPurchaseRead, AnimalPurchaseWrite, AnimalPurchaseDecide, FeedPurchaseRead, FeedPurchaseWrite}},
+	{OperationID: "answerAppWorkflowAction", Method: "POST", Pattern: "/app/workflows/{workflow_id}/actions/{action_id}/answer", AnyPermissions: []string{CountsWrite, WorkInstructionsExecute, SalesRead, SalesWrite, SalesAllocateAnimals, AnimalPurchaseRead, AnimalPurchaseWrite, AnimalPurchaseDecide, FeedPurchaseRead, FeedPurchaseWrite}},
+	{OperationID: "completeAppWorkflowAction", Method: "POST", Pattern: "/app/workflows/{workflow_id}/actions/{action_id}/complete", AnyPermissions: []string{CountsWrite, WorkInstructionsExecute, SalesRead, SalesWrite, SalesAllocateAnimals, AnimalPurchaseRead, AnimalPurchaseWrite, AnimalPurchaseDecide, FeedPurchaseRead, FeedPurchaseWrite}},
 	// General SOPs (maintainer decision 2026-09-18): farm-wide work instructions, listed and
 	// started on the phone's Work instructions module; the run itself rides the routes above.
 	{OperationID: "listAppGeneralSops", Method: "GET", Pattern: "/app/sops/general", Permissions: []string{WorkInstructionsExecute}},

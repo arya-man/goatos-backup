@@ -821,12 +821,15 @@ func hasModulePermission(ctx context.Context, module string) bool {
 			hasWorkflowPermission(ctx, permissions.SalesAllocateAnimals) ||
 			hasWorkflowPermission(ctx, permissions.CountsWrite)
 	case domain.ModuleProcurement:
-		// PROCUREMENT SOP (2026-09-20): a purchase load's intake workflow is read by anyone the
-		// load itself is visible to -- the buying desk, the office that decides, or the park head
-		// / operator who receives the animals.
+		// PROCUREMENT SOP (2026-09-20): a purchase workflow is read by anyone the purchase itself
+		// is visible to. Animal intake includes the buying desk, the office that decides, and the
+		// park head / operator who receives animals; feed loads are limited to the feed-purchase
+		// ledger permissions because those cards carry supplier prices and payment state.
 		return hasWorkflowPermission(ctx, permissions.AnimalPurchaseRead) ||
 			hasWorkflowPermission(ctx, permissions.AnimalPurchaseWrite) ||
 			hasWorkflowPermission(ctx, permissions.AnimalPurchaseDecide) ||
+			hasWorkflowPermission(ctx, permissions.FeedPurchaseRead) ||
+			hasWorkflowPermission(ctx, permissions.FeedPurchaseWrite) ||
 			hasWorkflowPermission(ctx, permissions.CountsWrite)
 	}
 	return hasWorkflowPermission(ctx, permissions.CountsWrite)
@@ -844,10 +847,11 @@ func hasModuleWritePermission(ctx context.Context, module string) bool {
 			hasWorkflowPermission(ctx, permissions.SalesAllocateAnimals) ||
 			hasWorkflowPermission(ctx, permissions.CountsWrite)
 	case domain.ModuleProcurement:
-		// Read-only procurement access does not answer a step; recording the animals, the
+		// Read-only procurement access does not answer a step; recording the animals, feed, the
 		// decision and the arrival are all operational work.
 		return hasWorkflowPermission(ctx, permissions.AnimalPurchaseWrite) ||
 			hasWorkflowPermission(ctx, permissions.AnimalPurchaseDecide) ||
+			hasWorkflowPermission(ctx, permissions.FeedPurchaseWrite) ||
 			hasWorkflowPermission(ctx, permissions.CountsWrite)
 	}
 	return hasWorkflowPermission(ctx, permissions.CountsWrite)
