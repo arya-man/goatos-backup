@@ -73,3 +73,13 @@ Prevent missing, extra, gapped, or conditionally-pruned PostgreSQL parameters fr
 - Judge status: local regression verification completed; no independent judge requested for this follow-up.
 - Pending: push this fix commit to the existing PR branch and verify remote head.
 - Deployment state: no main merge, main push, or staging deployment authorized or performed.
+
+## Maintainer-requested review loop (2026-09-21)
+
+- Scope: fix PR 326 findings, push only the PR branch, and repeat independent agent review until no actionable findings remain. Starting head: `d20bda473dfb8eda5aa6f15a89927c3100fe3355`. No main promotion or deploy.
+- Done: resolve constants by lexical object identity and fail closed for cross-file unresolved constants; reject pgx controls and query rewriters in bound data; reject mutable/address-escaped bound values and uses before a checked Bind succeeds. Fix CR-terminated comments and Unicode dollar-quote lexing.
+- Before/after: cross-file constant collision and pgx-control fixtures passed unsafely before; now rejected. Added regressions for tuple reassignment, pointer escape, and use inside the error branch. No API latency improvement claimed.
+- Tests: focused scanner/sqlbind tests and repository bind guard PASS (358 unchanged baseline findings). Real PostgreSQL 16 Weighing section matrix PASS: dimensions, origin, shed_type, weight_bands, weekly_gain, none skipped. Raw pgx option reproduction fails with SQLSTATE 08P01; fixed Bind rejects it first. Unicode dollar-tag and CR-comment queries execute successfully against PostgreSQL.
+- Judge status: first independent Node guard/baseline/CI review reports no actionable findings. Counter-review found local option aliases, parenthesized pointer/assignment escapes, range overwrites, branching error guards, and E-string continuation; all fixed with regression coverage. Runtime re-review reports no further actionable findings; scanner re-review also reports no actionable findings after re-running all four confirmed bypass fixtures.
+- Pending: fresh full local CI, PR push and exact remote readback. Optional ai-doctor cannot use absent graph/Repowise indexes in this isolated checkout; source inspection used instead.
+- Known limitations: no live browser E2E or real-route latency certification; no frontend, SQL template, DB fanout, tenant/grant, or sync behavior changed.

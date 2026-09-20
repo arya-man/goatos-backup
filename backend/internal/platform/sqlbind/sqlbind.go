@@ -48,6 +48,12 @@ func MustBind(sql string, args ...any) BoundQuery {
 // exactly $1..$N and N to match args. Callers pass data arguments only; pgx
 // execution options belong at the eventual Query/Exec call, outside BoundQuery.
 func ValidatePositional(sql string, args []any) error {
+	for i, arg := range args {
+		switch arg.(type) {
+		case pgx.QueryExecMode, pgx.QueryResultFormats, pgx.QueryResultFormatsByOID, pgx.QueryRewriter:
+			return fmt.Errorf("sqlbind: argument %d is a pgx execution option or query rewriter (%T), not a data argument", i+1, arg)
+		}
+	}
 	ordinals, err := PlaceholderOrdinals(sql)
 	if err != nil {
 		return fmt.Errorf("sqlbind: scan placeholders: %w", err)
@@ -179,12 +185,41 @@ func skipSingleQuoted(s string, i int, escape bool) (int, error) {
 				i += 2
 				continue
 			}
+			if next, ok := continuedStringStart(s, i+1); ok {
+				i = next
+				continue
+			}
 			return i + 1, nil
 		}
 		i++
 	}
 	return i, fmt.Errorf("unterminated single-quoted string")
 }
+
+// PostgreSQL joins string literals separated by whitespace containing a
+// newline, preserving the first literal's escape mode. Line comments count
+// as whitespace here, but block comments do not participate in continuation.
+func continuedStringStart(s string, i int) (int, bool) {
+	newline := false
+	for i < len(s) {
+		switch s[i] {
+		case ' ', '\t', '\f':
+			i++
+		case '\n', '\r':
+			newline = true
+			i++
+		case '-':
+			if i+1 >= len(s) || s[i+1] != '-' {
+				return 0, false
+			}
+			i = skipLineComment(s, i+2)
+		default:
+			return i + 1, newline && s[i] == '\''
+		}
+	}
+	return 0, false
+}
+
 func skipDoubleQuoted(s string, i int) (int, error) {
 	for i < len(s) {
 		if s[i] == '"' {
@@ -199,7 +234,7 @@ func skipDoubleQuoted(s string, i int) (int, error) {
 	return i, fmt.Errorf("unterminated quoted identifier")
 }
 func skipLineComment(s string, i int) int {
-	for i < len(s) && s[i] != '\n' {
+	for i < len(s) && s[i] != '\n' && s[i] != '\r' {
 		i++
 	}
 	return i
@@ -237,8 +272,10 @@ func dollarQuoteDelimiter(s string, i int) (int, bool) {
 	}
 	return 0, false
 }
-func isTagStart(b byte) bool { return b == '_' || b >= 'A' && b <= 'Z' || b >= 'a' && b <= 'z' }
-func isTagPart(b byte) bool  { return isTagStart(b) || b >= '0' && b <= '9' }
+func isTagStart(b byte) bool {
+	return b == '_' || b >= 'A' && b <= 'Z' || b >= 'a' && b <= 'z' || b >= 0x80
+}
+func isTagPart(b byte) bool { return isTagStart(b) || b >= '0' && b <= '9' }
 func formatOrdinals(ns []int) string {
 	sort.Ints(ns)
 	parts := make([]string, len(ns))
