@@ -1007,9 +1007,18 @@ func pages() []domain.PageContract {
 				table("health-medicines", "Medicines given", "/health/analytics", []string{"medicine", "route", "doses", "animals"}, "medicine"),
 				table("health-engine-rules", "Rules the engine proposed", "/health/analytics", []string{"rule", "proposed", "opened", "not_taken_up"}, "rule"),
 			}),
-		page("health-config", "/health/config", "/health/config", "Health Config — Treatment Protocols", "Health-owned authority screen for the authored disease treatment courses: medicines, dosages, routes, and how many days each course runs.", "module-surface",
+		page("health-config", "/health/config", "/health/config", "Health Config", "Health-owned authority screen for the farm's whole clinical rulebook: which illness an animal is judged to have, and what it is then given.", "module-surface",
 			[]domain.TableContract{
 				tableP("protocol-catalog", "Treatment protocols", "/health-config/protocols", []string{"display_name", "age_band", "duration_days", "step_count", "medication_count", "critical_action_count", "published_version", "draft_state"}, "protocol_version_id", []int{10, 25, 50}),
+				// The DIAGNOSIS REGISTER, the other half of the same rulebook: the questions
+				// the observation form asks, the tokens each answer emits, and the rules
+				// those tokens fire. One row per animal class, because a milk kid is never
+				// diagnosed against the adult table.
+				table("register-catalog", "Diagnosis registers", "/health-config/registers", []string{"animal_class", "register_label", "status", "question_count", "rule_count", "published"}, "register_version_id"),
+				// The document, in two tables because an author works on one half at a time:
+				// what the form ASKS, and what the rules MAKE of the answers.
+				table("register-questions", "Questions", "/health-config/registers", []string{"title", "kind", "section", "answers", "emits", "only_if"}, "question_id"),
+				table("register-rules", "Rules", "/health-config/registers", []string{"rule_id", "treats", "severity_base", "pathognomonic", "probable", "possible"}, "rule_id"),
 				// The document. medicine/dosage/route are empty on action and critical-action
 				// steps by design -- those steps carry an instruction instead -- so the columns are
 				// deliberately sparse rather than being split into three tables an author would
@@ -7245,6 +7254,46 @@ func pageSpecificCopy(id string) map[string]string {
 			// author leaves it. Telling them it self-healed when it has not is worse than silence.
 			"error.stale_version": "That version is no longer there \u2014 it was published or discarded. Everything below is up to date.",
 			"action.back_to_list": "Back to the list",
+
+			// ---- the diagnosis register ---------------------------------------------------
+			// The other half of the rulebook. The copy's job is to keep two things
+			// un-missable: a version carries the FORM and the RULES together, and the two
+			// halves are checked against each other rather than saved side by side.
+			"tab.protocols":                     "Treatment",
+			"tab.registers":                     "Diagnosis",
+			"section.registers.title":           "Diagnosis registers",
+			"section.registers.aria":            "Authored diagnosis registers",
+			"section.registers.caption":         "One register per animal class \u2014 the questions asked about a sick animal, and the illnesses the answers point to",
+			"section.registers.note":            "A register holds the observation form AND the rules together, in one published version. A question whose answer no rule reads does nothing; a rule that reads a finding no question asks can never be diagnosed. Publishing checks both directions, so the two halves can only go live together.",
+			"section.questions.title":           "Questions",
+			"section.questions.caption":         "What the manager is asked about the animal in front of them",
+			"section.questions.note":            "Every question is compulsory. A blank cannot tell \u201cnobody looked\u201d from \u201cnormal\u201d, and the unaccounted-for findings on a proposal depend on that difference. A question that does not apply to the animal \u2014 an udder on a male \u2014 is not asked at all rather than left empty.",
+			"section.rules.title":               "Rules",
+			"section.rules.caption":             "Which illness a set of findings points to, and what it opens",
+			"section.rules.note":                "Rules are judged in parallel, never as a tree: an animal can have two illnesses at once, and a sign being absent does not rule one out. Treats names the treatment course the diagnosis opens; a rule with none is a field action, treated in place.",
+			"table.registers.aria":              "Diagnosis register rows",
+			"table.registers.noun":              "register",
+			"table.questions.aria":              "Question rows",
+			"table.questions.noun":              "question",
+			"table.rules.aria":                  "Rule rows",
+			"table.rules.noun":                  "rule",
+			"empty.registers":                   "No diagnosis register is published yet.",
+			"empty.questions":                   "This register asks nothing yet.",
+			"empty.rules":                       "This register names no illness yet.",
+			"action.edit_register":              "Edit",
+			"action.publish_register":           "Publish",
+			"action.discard_register_draft":     "Discard draft",
+			"label.animal_class":                "Animals",
+			"label.register_live":               "Live",
+			"label.register_draft":              "Draft",
+			"label.answers":                     "Answers",
+			"label.findings":                    "Findings",
+			"label.treats":                      "Opens",
+			"label.field_action":                "Treated in place",
+			"label.only_if":                     "Asked when",
+			"label.warnings":                    "Worth knowing",
+			"note.register_warnings":            "These do not stop a publish. Each one is a question no rule reads yet, or an illness whose treatment course nobody has written.",
+			"register_config.disabled_no_write": "Your current role can read the diagnosis registers but cannot change them.",
 		}
 	case "feed-config":
 		return map[string]string{
