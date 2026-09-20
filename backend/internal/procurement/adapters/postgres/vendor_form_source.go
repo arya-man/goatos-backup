@@ -13,9 +13,11 @@ import (
 	"github.com/vgoats/goatos/backend/internal/procurement/ports"
 )
 
-// VendorFormSource reads the vendor form from the SOP library (VENDOR FORM IS AUTHORED,
-// maintainer instruction 2026-09-19): `form_dsl.vendor_form` of the `sales.vendor` sop_versions
-// row, compiled with the live vendor catalog so a catalog-backed question carries its choices.
+// VendorFormSource reads a vendor form from the SOP library (VENDOR FORM IS AUTHORED,
+// maintainer instruction 2026-09-19): `form_dsl.vendor_form` of the sop_versions row for the SOP
+// CODE the caller names (`sales.vendor` for the buyer register, `procurement.vendor` for the
+// supply one), compiled with the live vendor catalog so a catalog-backed question carries its
+// choices.
 // The same document is served to the phone, the web drawer and the write check. A version that
 // fails to parse fails CLOSED with the field named -- and cannot be published in the first place,
 // because sop/app validates it through the same functions.
@@ -46,8 +48,8 @@ LIMIT 1`
 
 // PublishedVendorForm is the form a screen opening now renders. No authored version (a tenant
 // created before the migration ran, or a test fixture) means the seeded document, version 1.
-func (s *VendorFormSource) PublishedVendorForm(ctx context.Context, tenantID string, catalog []domain.VendorCatalogEntry) (domain.VendorForm, error) {
-	dsl, version, found, err := s.read(ctx, sqlPublishedVendorForm, tenantID, domain.SOPCodeVendor)
+func (s *VendorFormSource) PublishedVendorForm(ctx context.Context, tenantID, sopCode string, catalog []domain.VendorCatalogEntry) (domain.VendorForm, error) {
+	dsl, version, found, err := s.read(ctx, sqlPublishedVendorForm, tenantID, sopCode)
 	if err != nil {
 		return domain.VendorForm{}, err
 	}
@@ -58,8 +60,8 @@ func (s *VendorFormSource) PublishedVendorForm(ctx context.Context, tenantID str
 }
 
 // VendorFormVersion is the exact form a vendor was answered on.
-func (s *VendorFormSource) VendorFormVersion(ctx context.Context, tenantID string, version int, catalog []domain.VendorCatalogEntry) (domain.VendorForm, error) {
-	dsl, got, found, err := s.read(ctx, sqlVendorFormVersion, tenantID, domain.SOPCodeVendor, version)
+func (s *VendorFormSource) VendorFormVersion(ctx context.Context, tenantID, sopCode string, version int, catalog []domain.VendorCatalogEntry) (domain.VendorForm, error) {
+	dsl, got, found, err := s.read(ctx, sqlVendorFormVersion, tenantID, sopCode, version)
 	if err != nil {
 		return domain.VendorForm{}, err
 	}

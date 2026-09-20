@@ -62,14 +62,14 @@ func TestVendorFormAnswersRoundTripAndSurviveATypedOnlyUpdate(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	form, err := src.PublishedVendorForm(ctx, testTenant, catalog)
+	form, err := src.PublishedVendorForm(ctx, testTenant, domain.SOPCodeVendor, catalog)
 	if err != nil {
 		t.Fatalf("published form: %v", err)
 	}
 	if form.Version != 1 || len(form.Pages) != 3 {
 		t.Fatalf("published form = v%d with %d pages, want the seeded v1 with 3 pages", form.Version, len(form.Pages))
 	}
-	if _, err := src.VendorFormVersion(ctx, testTenant, 9, catalog); err == nil {
+	if _, err := src.VendorFormVersion(ctx, testTenant, domain.SOPCodeVendor, 9, catalog); err == nil {
 		t.Fatal("unknown form version served")
 	}
 }

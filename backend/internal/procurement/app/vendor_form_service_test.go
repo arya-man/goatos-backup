@@ -47,11 +47,11 @@ func v2DSL() domain.VendorFormDSL {
 	return dsl
 }
 
-func (formSource) PublishedVendorForm(_ context.Context, _ string, catalog []domain.VendorCatalogEntry) (domain.VendorForm, error) {
+func (formSource) PublishedVendorForm(_ context.Context, _ string, _ string, catalog []domain.VendorCatalogEntry) (domain.VendorForm, error) {
 	return domain.CompileVendorForm(v2DSL(), 2, catalog), nil
 }
 
-func (formSource) VendorFormVersion(_ context.Context, _ string, version int, catalog []domain.VendorCatalogEntry) (domain.VendorForm, error) {
+func (formSource) VendorFormVersion(_ context.Context, _ string, _ string, version int, catalog []domain.VendorCatalogEntry) (domain.VendorForm, error) {
 	if version != 2 {
 		return domain.VendorForm{}, ports.ErrVendorFormVersionUnknown
 	}

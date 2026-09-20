@@ -2331,8 +2331,11 @@ export async function listProcurementVendorCatalog(
 }
 
 /**
- * VENDOR FORM IS AUTHORED (2026-09-19): the published sales.vendor form the Add / Edit vendor
- * drawer renders -- pages of questions, catalog choices filled, record types narrowed by `side`.
+ * VENDOR FORM IS AUTHORED (2026-09-19): the published vendor form the Add / Edit vendor drawer
+ * renders -- pages of questions, catalog choices filled, record types narrowed by `side`. The
+ * SIDE also chooses the DOCUMENT since the 2026-09-20 split: the supply register renders
+ * `procurement.vendor`, the sales register `sales.vendor`. The backend resolves that; the caller
+ * only ever names the side it is on.
  */
 export async function getProcurementVendorForm(
   params: { side?: string } = {},
