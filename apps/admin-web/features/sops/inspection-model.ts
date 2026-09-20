@@ -116,6 +116,22 @@ export function slugKey(title: string, taken: Set<string>, fallback = "question"
   return key;
 }
 
+// slugValue derives a CHOICE's stored value from its label. It is deliberately NOT slugKey: a
+// question key is an identifier and may not start with a digit, but an option value is an ANSWER
+// the register stores and reads back. Stripping the leading digits turned "30 days" into `days`,
+// and a second "60 days" beside it into `days_2` -- two payment terms whose stored answers say
+// nothing about which is which, and whose meaning depends on the order they were typed in.
+export function slugValue(label: string, taken: Set<string>, fallback = "choice"): string {
+  const base = label.toLowerCase().replace(/[^a-z0-9]+/g, "_").replace(/^_+|_+$/g, "").slice(0, 40) || fallback;
+  let value = base;
+  let n = 2;
+  while (taken.has(value)) {
+    value = `${base}_${n}`;
+    n += 1;
+  }
+  return value;
+}
+
 function acceptsOf(v: unknown): CaptureKind {
   const list = Array.isArray(v) ? v.filter((x): x is string => typeof x === "string") : [];
   if (list.length === 1 && list[0] === "photo") return "photo";

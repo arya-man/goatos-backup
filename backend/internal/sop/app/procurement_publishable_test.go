@@ -80,3 +80,40 @@ func TestADocumentWithNothingInItIsStillRefused(t *testing.T) {
 		t.Fatal("a document with no fields and no module-owned section must still be refused")
 	}
 }
+
+// TestFieldlessSOPCodesMatchTheirOwners keeps the code strings above honest. They are spelled out
+// so sop/app depends on neither the procurement nor the toxin package, and a rename in the owning
+// module would otherwise leave a document silently unpublishable again.
+func TestFieldlessSOPCodesMatchTheirOwners(t *testing.T) {
+	for code, label := range map[string]string{
+		procurementSOPCodeVendor:           "procurement.vendor",
+		procurementSOPCodeFeedPurchaseForm: "procurement.feed_purchase_form",
+		toxinSOPCode:                       "procurement.toxin_test",
+		salesSOPCodeVendor:                 "sales.vendor",
+	} {
+		if code != label {
+			t.Fatalf("fieldless code %q drifted from %q", code, label)
+		}
+		if !fieldlessSOPCodes[code] {
+			t.Fatalf("%q is spelled but not listed as fieldless", code)
+		}
+	}
+}
+
+// TestDeletingTheTrackReportsTheTrack is the message half of the same defect: an author who
+// deletes a purchase document's track must be told THAT, not sent to add a capture field the
+// document never had.
+func TestDeletingTheTrackReportsTheTrack(t *testing.T) {
+	report := ValidateFormDSL(map[string]any{
+		"schema_version": "goatos.sop-form.v1",
+		"sop_code":       "procurement.feed_purchase_intake",
+		"title":          "Feed purchase",
+		"fields":         []any{},
+		"follow_up":      map[string]any{"schema_version": "goatos.sop-followup.v1", "tracks": []any{}},
+	}, map[string]any{"subject_scope": "task", "types": []any{"photo"}, "required": false, "minimum_count": float64(0)})
+	for _, e := range report.Errors {
+		if e.Code == "required" && e.Field == "form_dsl.fields" {
+			t.Fatal("a purchase document with no track must not be refused for missing capture fields")
+		}
+	}
+}

@@ -33,7 +33,9 @@ func TestColostrumCardColumnsMatchTheCardScanner(t *testing.T) {
 	if a != b {
 		t.Fatalf("cardSelectColumns has %d columns, colostrumCardColumns has %d; scanCard reads both position for position", a, b)
 	}
-	const scanned = 26 // the destinations in scanCard
+	// The destinations in scanCard. It moves ONLY when a column is added to BOTH lists and read --
+	// the 2026-09-20 purchase subject columns took it from 26 to 33.
+	const scanned = 33
 	if a != scanned {
 		t.Fatalf("cardSelectColumns has %d columns, scanCard reads %d", a, scanned)
 	}
