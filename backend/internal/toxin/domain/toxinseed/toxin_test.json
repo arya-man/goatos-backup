@@ -1,0 +1,54 @@
+{
+  "schema_version": "goatos.sop-toxin.v1",
+  "steps": [
+    {
+      "no": 1,
+      "kind": "video",
+      "title": "Take the sample",
+      "instruction": "Take the feed sample out of this load on camera."
+    },
+    {
+      "no": 2,
+      "kind": "video",
+      "title": "Grind and weigh",
+      "instruction": "Grind the sample and weigh out 5 g on camera."
+    },
+    {
+      "no": 3,
+      "kind": "video",
+      "title": "Mix and shake",
+      "instruction": "Add the extraction solution and shake for 3 minutes on camera."
+    },
+    {
+      "no": 4,
+      "kind": "wait",
+      "title": "Let it sit",
+      "instruction": "Leave the mixture to settle for 1 hour. The next step unlocks when the hour has passed.",
+      "wait_minutes": 60
+    },
+    {
+      "no": 5,
+      "kind": "video",
+      "title": "Dilute and fill the well",
+      "instruction": "Draw the clear liquid, dilute it as the kit table directs, and fill the microwell on camera.",
+      "gate_after_step": 3,
+      "gate_minutes": 60
+    },
+    {
+      "no": 6,
+      "kind": "video",
+      "title": "Place the strip",
+      "instruction": "After 3 minutes in the well, place the test strip and let it develop for 8 minutes — on camera.",
+      "gate_after_step": 5,
+      "gate_minutes": 3
+    },
+    {
+      "no": 7,
+      "kind": "photo_reading",
+      "title": "Read the strip",
+      "instruction": "Remove the pad, read the strip within 1 minute, photograph it immediately and record the reading.",
+      "gate_after_step": 6,
+      "gate_minutes": 8
+    }
+  ]
+}

@@ -149,7 +149,44 @@ rather than inferring it from the acceptance.
 
 The toxin module keeps everything else: its round state machine, its server-clock wait gates, its
 retest minting and its CEO/CXO-only verdict (maintainer choice 2026-09-20, "steps authored, toxin
-engine keeps state"). Its STEPS become authored in the next slice of this programme.
+engine keeps state").
+
+## Decision 5: the toxin PROCEDURE is authored, and the engine still owns the round
+
+How many steps the aflatoxin test has, what each one tells the tester to do, whether it is filmed
+or photographed, how long the extract sits and which step each wait gates were SEVEN GO CONSTANTS
+in `toxin/domain/task.go`. A kit change, a farm that centrifuges, or one word of a wrong
+instruction meant a backend release. They are now `form_dsl.toxin` of the published
+`procurement.toxin_test` SOP (`procedure.go`), authored on the same page as the rest.
+
+**What is NOT authored, deliberately:** the round's state machine, the retest minting, the
+CEO/CXO-only verdict, the reading vocabulary (Negative / Positive / Invalid) and the SERVER-CLOCK
+enforcement of every gate. The document says what the procedure IS; the engine still decides what
+happens when a strip comes back void, and no published version can change that. That separation is
+what made it safe to open a medically-gated flow at all, and it is the maintainer's recorded choice
+between the two ways of doing this.
+
+**A round runs the procedure it was OPENED on.** `toxin_test_tasks.sop_version` is stamped at
+creation (resolved IN SQL inside the writing transaction, so a version published a moment later
+cannot be stamped) and never changes: publishing a shorter test this morning must not invalidate a
+round opened yesterday, and a round that ran the old seven steps stays readable as the test it
+actually was. A RETEST is new work and is minted on whatever is published then, so a corrected
+instruction reaches the next attempt. Under the row lock the repository insists the procedure the
+service resolved is still the round's (`ErrProcedureChanged`), so a publish between the read and
+the lock is refused rather than quietly applied.
+
+**Day one is the seven steps, exactly.** `TestSeededProcedureCompilesToTheLegacySteps` pins the
+seeded document to `Steps()` step for step and gate for gate; `Steps()` stays in `task.go` as that
+oracle and nothing in the write path calls it any more. A tenant that authors nothing runs it, and
+so does a round whose version the library no longer carries -- an unreadable document falls back
+rather than leaving a test nobody can finish.
+
+**The validator is the medical safety.** `ValidateToxin` refuses at PUBLISH: steps not numbered
+1..N in order (the phone, the completions table and every gate key on the number), a document
+without exactly one reading step, a reading step that is not last (it is what ends the round), a
+gate pointing forward or at a waiting row (it could never open), a waiting row with no duration,
+and a step with no instruction. Each refusal is a way to strand a round mid-test, and each is
+found by a publish rather than by a tester standing over a strip.
 
 ## Not here (yet)
 

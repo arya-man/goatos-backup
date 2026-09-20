@@ -50,6 +50,17 @@ type querier interface {
 	QueryRow(ctx context.Context, sql string, args ...any) pgx.Row
 }
 
+// publishedToxinProcedureVersion resolves, IN SQL and inside the writing transaction, the
+// procedure version a new round runs: the tenant's published `procurement.toxin_test` version, or
+// 1 (the seeded document) when nothing has been authored. It is a subquery rather than a Go read
+// so a round can never be stamped with a version published a moment after it opened. $1 is the
+// tenant on both inserts that use it.
+const publishedToxinProcedureVersion = `COALESCE((
+  SELECT v.version FROM public.sop_versions v
+  JOIN public.sop_definitions d ON d.tenant_id = v.tenant_id AND d.sop_id = v.sop_id
+  WHERE v.tenant_id = $1::uuid AND d.code = 'procurement.toxin_test' AND v.status = 'published'
+  ORDER BY v.version DESC LIMIT 1), 1)`
+
 // taskColumns is the single projection every task read uses. Column order here and in
 // scanTask must move together.
 const taskColumns = `
@@ -61,7 +72,7 @@ const taskColumns = `
 	COALESCE(t.submitted_by::text, ''), t.submitted_at,
 	COALESCE(t.reviewed_by::text, ''), t.reviewed_at,
 	t.review_reason, t.cancel_reason, COALESCE(t.superseded_by_task_id::text, ''),
-	t.row_version, t.created_at`
+	t.row_version, t.created_at, t.sop_version`
 
 // scanTask reads one row of taskColumns, in that exact order.
 func scanTask(row pgx.Row) (domain.Task, error) {
@@ -80,7 +91,7 @@ func scanTask(row pgx.Row) (domain.Task, error) {
 		&t.SubmittedBy, &submittedAt,
 		&t.ReviewedBy, &reviewedAt,
 		&t.ReviewReason, &t.CancelReason, &t.SupersededByTaskID,
-		&t.RowVersion, &createdAt,
+		&t.RowVersion, &createdAt, &t.SOPVersion,
 	)
 	if err != nil {
 		return domain.Task{}, err
@@ -114,10 +125,12 @@ func (r *Repository) CreateTaskFromPurchase(ctx context.Context, p ports.CreateT
 	err = tx.QueryRow(ctx, `
 INSERT INTO public.toxin_test_tasks (
   tenant_id, feed_purchase_id, round_no, origin,
-  farm_label, feed_item_key, feed_item_label, vendor, batch_no, purchase_date, quantity_kg
+  farm_label, feed_item_key, feed_item_label, vendor, batch_no, purchase_date, quantity_kg,
+  sop_version
 ) VALUES (
   $1::uuid, $2::uuid, 1, 'purchase',
-  $3, $4, $5, $6, $7, $8::date, $9
+  $3, $4, $5, $6, $7, $8::date, $9,
+  `+publishedToxinProcedureVersion+`
 )
 ON CONFLICT (tenant_id, feed_purchase_id, round_no) DO NOTHING
 RETURNING task_id::text`,
@@ -382,7 +395,17 @@ func (r *Repository) CompleteStep(ctx context.Context, p ports.CompleteStepParam
 	}
 	completions := byTask[p.TaskID]
 
-	if opensAt, err := domain.CheckStepCompletable(task.Status, p.StepNo, completions, p.Now); err != nil {
+	// The step is judged against THIS ROUND's procedure. The service resolved it from the row it
+	// read a moment ago; under the lock we insist it is still the round's, so a version published
+	// in between is REFUSED rather than quietly applied to a test already in progress.
+	proc := p.Procedure
+	if proc.Version == 0 {
+		proc = domain.SeededProcedure()
+	}
+	if proc.Version != task.SOPVersion {
+		return ports.TaskRow{}, ports.ErrProcedureChanged
+	}
+	if opensAt, err := proc.CheckStepCompletable(task.Status, p.StepNo, completions, p.Now); err != nil {
 		if errors.Is(err, domain.ErrWaitNotElapsed) {
 			return ports.TaskRow{}, domain.WaitNotElapsed{OpensAt: opensAt}
 		}
@@ -439,10 +462,12 @@ func mintRetestInTx(ctx context.Context, tx pgx.Tx, old domain.Task, origin stri
 	if err := tx.QueryRow(ctx, `
 INSERT INTO public.toxin_test_tasks (
   tenant_id, feed_purchase_id, round_no, retest_of_task_id, origin,
-  farm_label, feed_item_key, feed_item_label, vendor, batch_no, purchase_date, quantity_kg
+  farm_label, feed_item_key, feed_item_label, vendor, batch_no, purchase_date, quantity_kg,
+  sop_version
 ) VALUES (
   $1::uuid, $2::uuid, $3, $4::uuid, $5,
-  $6, $7, $8, $9, $10, $11::date, $12
+  $6, $7, $8, $9, $10, $11::date, $12,
+  `+publishedToxinProcedureVersion+`
 )
 RETURNING task_id::text`,
 		old.TenantID, old.FeedPurchaseID, old.RoundNo+1, old.TaskID, origin,
@@ -491,7 +516,14 @@ func (r *Repository) SubmitReading(ctx context.Context, p ports.SubmitParams) (p
 	if err != nil {
 		return ports.TaskRow{}, err
 	}
-	if opensAt, err := domain.CheckStepCompletable(task.Status, domain.FinalStepNo, byTask[p.TaskID], p.Now); err != nil {
+	proc := p.Procedure
+	if proc.Version == 0 {
+		proc = domain.SeededProcedure()
+	}
+	if proc.Version != task.SOPVersion {
+		return ports.TaskRow{}, ports.ErrProcedureChanged
+	}
+	if opensAt, err := proc.CheckStepCompletable(task.Status, proc.FinalStepNo(), byTask[p.TaskID], p.Now); err != nil {
 		if errors.Is(err, domain.ErrWaitNotElapsed) {
 			return ports.TaskRow{}, domain.WaitNotElapsed{OpensAt: opensAt}
 		}
@@ -505,7 +537,7 @@ func (r *Repository) SubmitReading(ctx context.Context, p ports.SubmitParams) (p
 	if _, err := tx.Exec(ctx, `
 INSERT INTO public.toxin_test_step_completions (tenant_id, task_id, step_no, proof_ref, completed_by)
 VALUES ($1::uuid, $2::uuid, $3, $4, nullif($5, '')::uuid)`,
-		p.TenantID, p.TaskID, domain.FinalStepNo, p.StripPhotoRef, p.ActorID); err != nil {
+		p.TenantID, p.TaskID, proc.FinalStepNo(), p.StripPhotoRef, p.ActorID); err != nil {
 		if isProofReuse(err) {
 			return ports.TaskRow{}, domain.ErrProofAlreadyUsed
 		}

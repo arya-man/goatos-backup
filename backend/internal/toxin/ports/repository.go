@@ -49,11 +49,16 @@ type ListTasksParams struct {
 	Cursor   string
 }
 
-// TaskRow is one list row: the task plus its step completions (bounded — at most 6 per
-// task), so the chip and the step progress render without a per-row query.
+// TaskRow is one list row: the task, its step completions (bounded -- at most one per working
+// step), and the PROCEDURE the round runs, so the chip and the step list render without a
+// per-row query and without any surface assuming a fixed seven steps.
 type TaskRow struct {
 	Task        domain.Task
 	Completions []domain.StepCompletion
+	// Procedure is the authored procedure of this round's own sop_version, attached by the app
+	// service. A row read straight off the repository carries the zero value; transports are
+	// served by the service and always have it.
+	Procedure domain.Procedure
 }
 
 // TaskPage is one keyset page plus the whole-filter status counts the screens badge from.
@@ -74,6 +79,10 @@ type CompleteStepParams struct {
 	IdempotencyKey string
 	// Now is the server clock the wait gates are checked against.
 	Now time.Time
+	// Procedure is the round's own authored procedure, resolved by the app service before the
+	// call. The repository re-checks it against the locked row's sop_version, so a procedure
+	// published between the service's read and the lock is REFUSED rather than silently applied.
+	Procedure domain.Procedure
 }
 
 // SubmitParams records step 7: the strip photo plus the reading.
@@ -85,6 +94,8 @@ type SubmitParams struct {
 	ActorID        string
 	IdempotencyKey string
 	Now            time.Time
+	// Procedure is the round's own authored procedure (see CompleteStepParams).
+	Procedure domain.Procedure
 }
 
 // VerdictParams records the CEO/CXO accept/reject on a submitted round.
@@ -114,6 +125,24 @@ type Repository interface {
 	// RecordVerdict applies the CEO/CXO decision. A reject cancels the round and mints
 	// its retest in the SAME transaction.
 	RecordVerdict(ctx context.Context, p VerdictParams) (TaskRow, error)
+}
+
+// ErrProcedureChanged reports a round whose procedure version moved between the service's read
+// and the row lock -- a step is then judged against a document that is no longer the round's, so
+// the write is refused and the caller reopens the task.
+var ErrProcedureChanged = errors.New("toxin: the procedure changed while the step was being recorded")
+
+// ErrProcedureVersionUnknown names a procedure version no published or retired
+// `procurement.toxin_test` SOP carries.
+var ErrProcedureVersionUnknown = errors.New("toxin: procedure version unknown")
+
+// ProcedureSource reads an authored toxin procedure from the SOP library. A version the library
+// no longer carries is an error, except version 1, which is always the seeded document.
+type ProcedureSource interface {
+	// PublishedProcedure is what a round opening now would run.
+	PublishedProcedure(ctx context.Context, tenantID string) (domain.Procedure, error)
+	// ProcedureVersion is the exact procedure a round was opened on.
+	ProcedureVersion(ctx context.Context, tenantID string, version int) (domain.Procedure, error)
 }
 
 // ProofValidator asserts a submitted capture is real evidence: a completed upload in the
