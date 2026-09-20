@@ -772,6 +772,12 @@ func knownPGXControl(e ast.Expr, imports map[string]string, visited map[*ast.Obj
 					return knownPGXControl(d.Rhs[i], imports, visited, rewritersOnly, controls)
 				}
 			}
+		case *ast.RangeStmt:
+			for _, lhs := range []ast.Expr{d.Key, d.Value} {
+				if id, ok := unparen(lhs).(*ast.Ident); ok && id.Obj == obj {
+					return knownPGXControl(d.X, imports, visited, rewritersOnly, controls)
+				}
+			}
 		case *ast.Field:
 			return knownPGXControl(d.Type, imports, visited, rewritersOnly, controls)
 		case *ast.FuncDecl:
@@ -852,6 +858,12 @@ func collectControlFacts(files []*ast.File) controlFacts {
 			case *ast.Field:
 				for _, id := range d.Names {
 					add(id, d.Type)
+				}
+			case *ast.RangeStmt:
+				for _, lhs := range []ast.Expr{d.Key, d.Value} {
+					if id := assignmentRoot(lhs); id != nil {
+						add(id, d.X)
+					}
 				}
 			}
 			return true

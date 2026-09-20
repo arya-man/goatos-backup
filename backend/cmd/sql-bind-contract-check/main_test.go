@@ -307,6 +307,9 @@ func TestControlProvenance(t *testing.T) {
 		`mode := any(1); mode = pgx.QueryResultFormats{0}; p.Query(ctx, "select $1::int", mode)`,
 		`var mode any = 1; alias := pgx.QueryExecModeExec; mode = alias; p.Exec(ctx, "select $1::int", mode)`,
 		`var r any = 1; r = rewrite{}; b.Queue("select $1::int", r)`,
+		`for _, mode := range []pgx.QueryExecMode{pgx.QueryExecModeExec} { p.Exec(ctx, "select $1::int", mode) }`,
+		`var mode any; for _, mode = range []pgx.QueryExecMode{pgx.QueryExecModeExec} { p.Exec(ctx, "select $1::int", mode) }`,
+		`for _, r := range []rewrite{{}} { b.Queue("select $1::int", r) }`,
 	} {
 		t.Run(body, func(t *testing.T) {
 			src := `package p
@@ -319,6 +322,16 @@ func run() {` + body + `}`
 				t.Fatalf("got %+v", got)
 			}
 		})
+	}
+}
+
+func TestRangeDataProvenanceAccepted(t *testing.T) {
+	src := `package p
+func run() {
+ for _, id := range []int{1} { p.Exec(ctx, "select $1::int", id) }
+}`
+	if got := findings(t, src); len(got) != 0 {
+		t.Fatalf("%+v", got)
 	}
 }
 
