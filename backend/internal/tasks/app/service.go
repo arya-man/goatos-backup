@@ -633,6 +633,18 @@ func (s *Service) CompleteSaleTagStep(ctx context.Context, tenantID, dealID stri
 	return s.repo.CompleteSaleTagStep(ctx, tenantID, dealID, at)
 }
 
+// CompleteAnimalPurchaseDecisionStep completes the intake workflow's decision step for a load
+// whose animals have all been decided (PROCUREMENT IS SOP-DRIVEN END TO END, 2026-09-20).
+func (s *Service) CompleteAnimalPurchaseDecisionStep(ctx context.Context, tenantID, loadID string, at time.Time) error {
+	if strings.TrimSpace(tenantID) == "" || strings.TrimSpace(loadID) == "" {
+		return domain.ErrMissingRequiredField
+	}
+	if at.IsZero() {
+		at = s.now().UTC()
+	}
+	return s.repo.CompleteAnimalPurchaseDecisionStep(ctx, tenantID, loadID, at)
+}
+
 // ApplyDeathSignoffApproved / BounceDeathVideosForRework apply a verifier's verdict.
 func (s *Service) ApplyDeathSignoffApproved(ctx context.Context, cmd ports.DeathVerdictCommand) error {
 	return s.ackUnroutableVerdict("approved", cmd, s.repo.ApplyDeathSignoffApproved(ctx, cmd))

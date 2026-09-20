@@ -32,15 +32,24 @@ var FollowUpDocuments = map[string]string{
 	// after a sale is recorded -- tagging, loading, the money -- with the designation that does
 	// each step. Seeded by the sales-SOP migration; pinned by TestMigrationEmbedsTheSalesSeed.
 	SOPCodeSalesDeal: "sales_deal.json",
+	// THE ANIMAL PURCHASE INTAKE (maintainer decision 2026-09-20: procurement end to end): what
+	// happens once a purchase load is opened -- recording the animals, the office's decision,
+	// the arrival at the farm -- with the designation that does each step.
+	SOPCodeAnimalPurchaseIntake: "procurement_animal_purchase_intake.json",
 }
 
 // SOPCodeSalesDeal is the seeded sale SOP's code.
 const SOPCodeSalesDeal = "sales.deal"
 
+// SOPCodeAnimalPurchaseIntake is the seeded animal-purchase intake SOP's code. The inspection and
+// load FORMS stay on `procurement.animal_purchase`; the STEPS are their own document, the same
+// way the sale's steps and the vendor form are two SOPs rather than one.
+const SOPCodeAnimalPurchaseIntake = "procurement.animal_purchase_intake"
+
 // TaskTypeFiles are the Task Type Registry seed files in the order their migrations shipped:
 // task_types.json (000308) and task_types_sales.json (the sales-SOP migration). A registry row
 // is never edited in an already-applied migration, so a later hook gets its own file.
-var TaskTypeFiles = []string{"task_types.json", "task_types_sales.json"}
+var TaskTypeFiles = []string{"task_types.json", "task_types_sales.json", "task_types_procurement.json"}
 
 // SOPCodeGateVisitorCheck is the seeded general SOP's code.
 const SOPCodeGateVisitorCheck = "general.gate_visitor_check"

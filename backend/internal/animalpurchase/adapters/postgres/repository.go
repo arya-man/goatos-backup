@@ -394,6 +394,12 @@ func (r *Repository) CreateLoad(ctx context.Context, p ports.CreateLoadParams) (
 	if err != nil {
 		return domain.Load{}, err
 	}
+	// PROCUREMENT IS SOP-DRIVEN END TO END (2026-09-20): the load's intake workflow is opened by
+	// the tasks engine from this event, INSIDE the same transaction as the row -- a load that
+	// exists always has its steps, and a load that rolled back never announced itself.
+	if err := emitLoadRecorded(ctx, tx, p.TenantID, p.ActorID, p.IdempotencyKey, load); err != nil {
+		return domain.Load{}, err
+	}
 	if err := tx.Commit(ctx); err != nil {
 		return domain.Load{}, fmt.Errorf("animal purchase: commit load: %w", err)
 	}
@@ -814,6 +820,29 @@ const (
 	aggregateType        = "animal_purchase_candidate"
 )
 
+// LoadRecordedEventType announces a purchase load the moment it is opened. Its ONE consumer today
+// is the tasks engine, which opens the load's intake workflow from the published
+// `procurement.animal_purchase_intake` SOP (PROCUREMENT IS SOP-DRIVEN END TO END, 2026-09-20).
+const (
+	LoadRecordedEventType = "procurement.animal_purchase.load_recorded"
+	loadAggregateType     = "animal_purchase_load"
+)
+
+// LoadRecordedPayload is the event body the workflow opener reads. The park is carried because
+// the workflow is a PARK's work: the load was already resolved to one when the row was inserted,
+// and re-deriving it in the consumer would be a second answer to a question already answered.
+type LoadRecordedPayload struct {
+	LoadID        string `json:"load_id"`
+	LoadRef       string `json:"load_ref"`
+	ParkID        string `json:"park_id"`
+	FarmLabel     string `json:"farm_label"`
+	VendorID      string `json:"vendor_id"`
+	VendorName    string `json:"vendor_name"`
+	ExpectedCount int    `json:"expected_count"`
+	RecordedBy    string `json:"recorded_by"`
+	OccurredAt    string `json:"occurred_at"`
+}
+
 // DecidedPayload is the event body the notification bridge reads.
 type DecidedPayload struct {
 	CandidateID   string `json:"candidate_id"`
@@ -840,6 +869,67 @@ type DecidedPayload struct {
 type outboxWriter interface {
 	QueryRow(context.Context, string, ...any) pgx.Row
 	Exec(context.Context, string, ...any) (pgconn.CommandTag, error)
+}
+
+// emitLoadRecorded writes the load-recorded envelope inside the insert transaction.
+func emitLoadRecorded(ctx context.Context, tx outboxWriter, tenantID, actorID, idempotencyKey string, load domain.Load) error {
+	eventID := uuid.NewString()
+	now := time.Now().UTC()
+	payload := LoadRecordedPayload{
+		LoadID: load.LoadID, LoadRef: load.LoadRef, ParkID: load.ParkID, FarmLabel: load.FarmLabel,
+		VendorID: load.VendorID, VendorName: load.VendorName, ExpectedCount: load.ExpectedCount,
+		RecordedBy: load.RecordedBy, OccurredAt: now.Format(time.RFC3339Nano),
+	}
+	var actor any
+	if strings.TrimSpace(actorID) != "" {
+		actor = actorID
+	}
+	envelope, err := json.Marshal(map[string]any{
+		"event_id":       eventID,
+		"event_type":     LoadRecordedEventType,
+		"schema_version": decidedSchemaVersion,
+		"schema_ref":     decidedSchemaRef,
+		"occurred_at":    now.Format("2006-01-02T15:04:05.000000Z"),
+		"recorded_at":    now.Format("2006-01-02T15:04:05.000000Z"),
+		"aggregate_type": loadAggregateType,
+		"aggregate_id":   load.LoadID,
+		"producer": map[string]any{
+			"module":  "animal_purchases",
+			"service": "goatos-api",
+			"version": nil,
+		},
+		"idempotency_key": idempotencyKey,
+		"actor": map[string]any{
+			"actor_type": "human",
+			"actor_id":   actor,
+			"actor_ref":  nil,
+		},
+		"subject_type":     loadAggregateType,
+		"subject_id":       load.LoadID,
+		"visibility_scope": map[string]any{"tenant_id": tenantID},
+		"evidence_refs": []map[string]string{{
+			"evidence_type": "source_record",
+			"evidence_id":   "animal_purchase_load:" + load.LoadID,
+		}},
+		"payload":  payload,
+		"trace_id": "animal-purchase-load:" + load.LoadID,
+	})
+	if err != nil {
+		return err
+	}
+	headers, err := json.Marshal(map[string]any{
+		"actor_id":      actorID,
+		"farm":          load.FarmLabel,
+		"business_date": biztime.BusinessDate(now),
+	})
+	if err != nil {
+		return err
+	}
+	if _, err := tx.Exec(ctx, sqlInsertOutbox, tenantID, eventID, LoadRecordedEventType, decidedSchemaVersion, loadAggregateType, load.LoadID,
+		decidedTopic, envelope, headers, idempotencyKey); err != nil {
+		return fmt.Errorf("animal purchase: outbox load recorded: %w", err)
+	}
+	return nil
 }
 
 func emitDecided(ctx context.Context, tx outboxWriter, tenantID, actorID, idempotencyKey string, c domain.Candidate, load domain.Load) error {

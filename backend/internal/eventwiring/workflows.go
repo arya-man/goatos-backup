@@ -52,6 +52,8 @@ func NewWorkflowConsumerService(pool *pgxpool.Pool, timeout time.Duration, log *
 //	goat.exited (exit_reason=died)        -> release approved death evidence to Verify
 //	RFID promotion stays identity-owned; Tag the kid completes only with its task video
 //	verification.verdict.approved/.rework  -> apply birth/death evidence verdicts
+//	sales.deal.recorded / goat.sale_allocated              -> the sale's workflow
+//	procurement.animal_purchase.load_recorded / .decided   -> the purchase load's intake workflow
 //
 // The verdict handlers filter strictly on source.module=counts and distinct birth/death ref types,
 // so they cannot cross-fire with the shifting applier that also uses module=counts.
@@ -71,6 +73,11 @@ func RegisterWorkflowConsumers(bus eventbus.Bus, svc *tasksapp.Service, log *slo
 	// the sale_tag_animals step (docs/decisions/sales-sop.md).
 	tasksapp.NewSaleRecordedWorkflowHandler(svc).Register(bus)
 	tasksapp.NewSaleAllocatedWorkflowHandler(svc).Register(bus)
+	// PROCUREMENT SOP (2026-09-20): opening a purchase load opens its intake workflow; the
+	// office's last decision on the load completes the decision step
+	// (docs/decisions/procurement-sop-driven.md).
+	tasksapp.NewAnimalPurchaseLoadRecordedWorkflowHandler(svc).Register(bus)
+	tasksapp.NewAnimalPurchaseDecidedWorkflowHandler(svc).Register(bus)
 }
 
 // CaptureReviewStore is the counts repository slice the birth_capture verdict consumer drives.

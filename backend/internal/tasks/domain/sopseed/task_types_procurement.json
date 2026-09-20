@@ -1,0 +1,11 @@
+[
+  {
+    "key": "animal_purchase_decision",
+    "name": "Decision on every animal",
+    "category_scope": ["action", "commodity"],
+    "answer_kind": "none",
+    "engine_hook": "animal_purchase_decision",
+    "description": "The office's accept / reject on the animals recorded in a purchase load. Completed by the engine when no animal in the load is still waiting for a decision — never by a tap, so a load cannot read \"decided\" while an animal sits unanswered.",
+    "parameter_schema": {"type": "object", "properties": {}}
+  }
+]

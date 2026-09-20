@@ -61,7 +61,8 @@
     "procurement.feed_purchase.reached",
     "goat.sale_allocated",
     "sales.deal.recorded",
-    "procurement.animal_purchase.decided"
+    "procurement.animal_purchase.decided",
+    "procurement.animal_purchase.load_recorded"
   ],
   "events": [
     {
@@ -1973,12 +1974,41 @@
           "module": "notificationbridge",
           "file": "backend/internal/notificationbridge/animal_purchase_notify_consumer.go",
           "notes": "One FCM push to the person who recorded the animal (recorded_by user id -> device registry) naming the load, the animal, the decision, who decided and any note; idempotent on procurement.animal_purchase.decided:<candidate_id>:<event_id>. The phone also re-reads the load on open/resume, so the push is the nudge and the read is the truth."
+        },
+        {
+          "module": "tasks",
+          "file": "backend/internal/tasks/app/procurement_workflow.go",
+          "notes": "AnimalPurchaseDecidedWorkflowHandler completes the intake workflow's animal_purchase_decision step -- but ONLY when the decision just taken was the last one owed (payload load_pending = 0 and at least one animal decided). The count is the PRODUCER's, taken inside the decision transaction, so the step can never disagree with the row that moved, and a load holding a waiting animal keeps the step open. Idempotent on the step; a load with no workflow yet is a no-op. Registered in eventwiring.RegisterWorkflowConsumers."
         }
       ],
       "owningDoc": "docs/decisions/animal-purchases.md",
       "e2eProof": [
         "backend/internal/notificationbridge/animal_purchase_notify_consumer_test.go",
         "backend/internal/animalpurchase/adapters/postgres/repository_integration_test.go"
+      ],
+      "surfaces": [
+        "backend",
+        "frontend",
+        "mobile"
+      ]
+    },
+    {
+      "eventType": "procurement.animal_purchase.load_recorded",
+      "producer": "PROCUREMENT IS SOP-DRIVEN END TO END (maintainer decision 2026-09-20, docs/decisions/procurement-sop-driven.md): animalpurchase.Repository.CreateLoad emits ONE event per opened purchase load, INSIDE the transaction that inserts animal_purchase_loads and its audit row, after the idempotency reservation -- an exact replay returns before this insert and a rolled-back load emits nothing. Payload: load_id, load_ref, park_id (resolved to the park location by the insert itself, so the consumer never re-derives it), farm_label, vendor_id, vendor_name, expected_count, recorded_by. Aggregate/subject is the animal_purchase_load the outbox validator learns in 000372. Idempotency key = the load's own Idempotency-Key.",
+      "producerFiles": [
+        "backend/internal/animalpurchase/adapters/postgres/repository.go"
+      ],
+      "consumers": [
+        {
+          "module": "tasks",
+          "file": "backend/internal/tasks/app/procurement_workflow.go",
+          "notes": "AnimalPurchaseLoadRecordedWorkflowHandler opens the load's intake workflow: OpenSubjectWorkflow(template animal_purchase_intake, subject_ref_id = load, park from the payload, NO animal), compiled from the tenant's PUBLISHED procurement.animal_purchase_intake SOP track (the seeded document when never authored), pinned to that version, every step stamped with the designation that does it (workflow_actions.owner_role). Idempotent on (tenant, template_key, subject_ref_id): a redelivery finds the workflow and opens nothing. Registered in eventwiring.RegisterWorkflowConsumers (every bus process). Read back by subject (GET /app/workflows/subject?template_key=animal_purchase_intake&subject_ref_id=<load>) and listed under module=procurement."
+        }
+      ],
+      "owningDoc": "docs/decisions/procurement-sop-driven.md",
+      "e2eProof": [
+        "backend/internal/tasks/app/procurement_workflow_test.go",
+        "backend/internal/tasks/domain/procurement_seed_test.go"
       ],
       "surfaces": [
         "backend",

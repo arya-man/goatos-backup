@@ -189,7 +189,8 @@
         "pen_visit_task",
         "pen_routine_task",
         "leave_request",
-        "animal_purchase_candidate"
+        "animal_purchase_candidate",
+        "animal_purchase_load"
       ]
     },
     "aggregate_id": {
@@ -227,7 +228,8 @@
         "pen_visit_task",
         "pen_routine_task",
         "leave_request",
-        "animal_purchase_candidate"
+        "animal_purchase_candidate",
+        "animal_purchase_load"
       ]
     },
     "subject_id": {
