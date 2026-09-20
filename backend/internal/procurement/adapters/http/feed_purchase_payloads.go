@@ -156,6 +156,13 @@ type feedPurchaseWritePayload struct {
 	// Optional: a load that already arrived when it is recorded. Absent means still on the road.
 	ReachedOn       *string  `json:"reached_on"`
 	ReachedWeightKg *float64 `json:"reached_weight_kg"`
+
+	// THE FEED PURCHASE FORM IS AUTHORED (2026-09-20): a form-driven client sends EVERY answer it
+	// asked for -- typed and authored alike -- plus the form version it rendered, and the write is
+	// checked against exactly that version. A client that sends neither (an older APK) is accepted
+	// on its typed fields alone, unchanged.
+	Answers              map[string]string `json:"answers"`
+	QuestionnaireVersion int               `json:"questionnaire_version"`
 }
 
 func (p feedPurchaseWritePayload) toDomain() domain.FeedPurchaseWrite {
@@ -170,6 +177,7 @@ func (p feedPurchaseWritePayload) toDomain() domain.FeedPurchaseWrite {
 		LoadingCost: p.LoadingCost, UnloadingCost: p.UnloadingCost, TotalCost: p.TotalCost,
 		Vendor: p.Vendor, PaymentReleased: p.PaymentReleased, PaymentStatus: p.PaymentStatus,
 		ReachedOn: reachedOn, ReachedWeightKg: p.ReachedWeightKg,
+		SOPAnswers: p.Answers, QuestionnaireVersion: p.QuestionnaireVersion,
 	}
 }
 

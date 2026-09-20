@@ -188,8 +188,37 @@ gate pointing forward or at a waiting row (it could never open), a waiting row w
 and a step with no instruction. Each refusal is a way to strand a round mid-test, and each is
 found by a publish rather than by a tester standing over a strip.
 
+## Decision 6: the feed purchase FORM is authored too -- one engine, two profiles
+
+What the Record feed purchase screens ask was hard-coded three ways (the Go write, the web drawer,
+the phone), exactly as the vendor form was before September. It is now
+`form_dsl.feed_purchase_form` of the published `procurement.feed_purchase_form` SOP.
+
+**It reuses the vendor form's ENGINE rather than copying it.** Parsing, validation, compilation,
+answer checking and the locked-id rule are one implementation, told by an `EntryFormProfile` which
+section it lives in, which ids the module reads into typed columns, which ids must stay present
+and compulsory, and which catalogs its choices may come from. A second copy of those rules would be
+a second place for them to drift, and this file already carries five documents.
+
+**The typed questions are the ledger's own columns** -- `purchase_date`, `farm_label`,
+`feed_item_label`, `quantity_kg`, `vendor`, the four-way cost split, the payment pair, the arrival
+pair. Their id and kind are LOCKED because the stock cards, the landed-rate arithmetic and the
+aflatoxin task all read them; five of them must stay compulsory because every downstream read is
+keyed on or divided by one. Their wording, hint, order and page are the author's, and any question
+the farm adds lands in `feed_purchases.sop_answers` with the version it was answered on.
+
+**The choices come from the ledger's own vocabularies**, resolved per request: the farms it buys
+for, the ACTIVE feed catalog, and the two payment states the sheet has always carried. A feed
+retired this morning stops being offered this afternoon, and a document can never carry a list
+someone typed into it.
+
+**Additive for older clients.** A write with no answers -- an APK from before the form existed --
+is accepted on its typed fields exactly as it was. A write WITH answers must name the version it
+rendered: it is judged against that exact version, and one the library never published is refused
+rather than judged against a form nobody filled in.
+
 ## Not here (yet)
 
-The feed-purchase entry FORM (which questions the record drawer and the phone ask), the toxin
-test's authored steps, and the source-entry load / landed-cost questions are the rest of this
-programme and land in this document as they ship.
+The source-entry load / landed-cost questions, the web drawer and phone rendering of the feed
+purchase form's authored extras, and the phone's entry points into the two purchase workflows are
+the rest of this programme.

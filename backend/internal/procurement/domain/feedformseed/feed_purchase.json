@@ -1,0 +1,27 @@
+{
+  "schema_version": "goatos.sop-feed-purchase-form.v1",
+  "pages": [
+    {"key": "load", "title": "The load", "questions": [
+      {"id": "purchase_date", "kind": "text", "title": "Purchase date", "hint": "The day the money was committed, not the day it arrives.", "required": true},
+      {"id": "farm_label", "kind": "choice", "title": "Farm", "required": true, "catalog": "farm"},
+      {"id": "feed_item_label", "kind": "choice", "title": "Feed", "required": true, "catalog": "feed_item"},
+      {"id": "quantity_kg", "kind": "number", "title": "Quantity bought", "required": true, "min": 0, "unit": "kg"},
+      {"id": "vendor", "kind": "text", "title": "Vendor", "required": true}
+    ]},
+    {"key": "cost", "title": "What it cost", "questions": [
+      {"id": "feed_cost", "kind": "number", "title": "Feed", "required": false, "min": 0, "unit": "₹"},
+      {"id": "transport_cost", "kind": "number", "title": "Transport", "required": false, "min": 0, "unit": "₹"},
+      {"id": "loading_cost", "kind": "number", "title": "Loading", "required": false, "min": 0, "unit": "₹"},
+      {"id": "unloading_cost", "kind": "number", "title": "Unloading", "required": false, "min": 0, "unit": "₹"},
+      {"id": "total_cost", "kind": "number", "title": "Total", "hint": "Leave blank to add the parts up.", "required": false, "min": 0, "unit": "₹"}
+    ]},
+    {"key": "money", "title": "The money", "questions": [
+      {"id": "payment_released", "kind": "number", "title": "Paid so far", "required": false, "min": 0, "unit": "₹"},
+      {"id": "payment_status", "kind": "choice", "title": "Payment", "required": false, "catalog": "payment_status"}
+    ]},
+    {"key": "arrival", "title": "If it has already arrived", "questions": [
+      {"id": "reached_on", "kind": "text", "title": "Reached on", "hint": "Leave blank while the truck is still on the road.", "required": false},
+      {"id": "reached_weight_kg", "kind": "number", "title": "Weight received", "required": false, "min": 0, "unit": "kg"}
+    ]}
+  ]
+}

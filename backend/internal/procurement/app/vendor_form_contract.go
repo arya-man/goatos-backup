@@ -28,3 +28,24 @@ func VendorFormSOPContract(sopCode string, formDSL map[string]any, report *sopdo
 		report.Errors = append(report.Errors, sopdomain.ValidationIssue{Field: "form_dsl." + problem, Code: "invalid", Message: problem})
 	}
 }
+
+// FeedPurchaseFormSOPContract validates the `feed_purchase_form` section of a
+// procurement.feed_purchase_form version at save time (THE FEED PURCHASE FORM IS AUTHORED,
+// 2026-09-20). Same engine as the vendor form's, told which ids the ledger reads into its own
+// columns and which catalogs its choices may come from.
+func FeedPurchaseFormSOPContract(sopCode string, formDSL map[string]any, report *sopdomain.ValidationReport) {
+	if sopCode != domain.SOPCodeFeedPurchaseForm {
+		return
+	}
+	profile := domain.FeedPurchaseFormProfile()
+	dsl, err := domain.ParseEntryForm(profile, formDSL)
+	if err != nil {
+		report.Valid = false
+		report.Errors = append(report.Errors, sopdomain.ValidationIssue{Field: "form_dsl." + profile.Section, Code: "invalid", Message: err.Error()})
+		return
+	}
+	for _, problem := range domain.ValidateEntryForm(profile, dsl) {
+		report.Valid = false
+		report.Errors = append(report.Errors, sopdomain.ValidationIssue{Field: "form_dsl." + problem, Code: "invalid", Message: problem})
+	}
+}

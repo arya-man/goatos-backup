@@ -62,6 +62,17 @@ type FeedPurchaseOptions struct {
 	Vendors []string
 }
 
+// FeedPurchaseFormSource reads the authored entry form (form_dsl.feed_purchase_form of the
+// `procurement.feed_purchase_form` SOP) -- the document the Record purchase screens render and a
+// write is checked against.
+type FeedPurchaseFormSource interface {
+	// PublishedFeedPurchaseForm is the form a screen opening now renders, its catalog-backed
+	// questions filled from the ledger's own vocabularies.
+	PublishedFeedPurchaseForm(ctx context.Context, tenantID string, catalog []domain.VendorCatalogEntry) (domain.VendorForm, error)
+	// FeedPurchaseFormVersion is the exact form a load was recorded on.
+	FeedPurchaseFormVersion(ctx context.Context, tenantID string, version int, catalog []domain.VendorCatalogEntry) (domain.VendorForm, error)
+}
+
 // FeedPurchaseRepository is the feed-purchase ledger's persistence boundary.
 type FeedPurchaseRepository interface {
 	// ListFeedPurchases returns one page (newest purchase date first) plus whole-filter totals.

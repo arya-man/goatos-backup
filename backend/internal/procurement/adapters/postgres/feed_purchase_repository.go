@@ -2,6 +2,7 @@ package postgres
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"strings"
@@ -328,6 +329,14 @@ WHERE tenant_id = $1 AND farm_label = $2 AND feed_item_key = feed_config_norm($3
 		}
 	}
 
+	// THE FEED PURCHASE FORM IS AUTHORED (2026-09-20): whatever the published form asked beyond
+	// the ledger's own columns is stored with the version it was answered on, so a load recorded
+	// on v2 is still readable as the form it was actually filled in on.
+	sopAnswersJSON, err := json.Marshal(nonNilAnswers(write.SOPAnswers))
+	if err != nil {
+		return domain.FeedPurchase{}, fmt.Errorf("procurement: encode feed purchase answers: %w", err)
+	}
+
 	var purchaseID, feedItemKey string
 	err = tx.QueryRow(ctx, `
 INSERT INTO public.feed_purchases (
@@ -336,7 +345,8 @@ INSERT INTO public.feed_purchases (
   consumed_at_import_kg, depletes_from,
   vendor, payment_released, payment_status,
   delivery_status, reached_on, reached_weight_kg, reached_by,
-  entry_source, recorded_by, source_ref
+  entry_source, recorded_by, source_ref,
+  sop_answers, questionnaire_version
 ) VALUES (
   $1::uuid,
   (SELECT l.location_id FROM public.locations l
@@ -346,7 +356,8 @@ INSERT INTO public.feed_purchases (
   0, $17::date,
   $13, $14, $15,
   $18, $19::date, $20, $21::uuid,
-  'app', nullif($16, '')::uuid, 'app:procurement-feed-purchases'
+  'app', nullif($16, '')::uuid, 'app:procurement-feed-purchases',
+  $22::jsonb, nullif($23, 0)
 )
 RETURNING feed_purchase_id::text, feed_item_key`,
 		tenantID, write.FarmLabel, catalogLabel, batchNo, write.PurchaseDate, write.QuantityKg,
@@ -354,6 +365,7 @@ RETURNING feed_purchase_id::text, feed_item_key`,
 		write.TotalOrSplitSum(), write.PerKgCost(),
 		write.Vendor, write.PaymentReleased, write.PaymentStatus, actorID,
 		depletesFrom, deliveryStatus, reachedOn, write.ReachedWeightKg, reachedBy,
+		sopAnswersJSON, write.QuestionnaireVersion,
 	).Scan(&purchaseID, &feedItemKey)
 	if err != nil {
 		var pgErr *pgconn.PgError
@@ -877,4 +889,13 @@ WHERE tenant_id = $1::uuid AND feed_purchase_id = $2::uuid`, tenantID, purchaseI
 		return "", nil
 	}
 	return *parkID, nil
+}
+
+// nonNilAnswers keeps a nil map out of the column: the ledger stores {} for a load with no extra
+// answers, never SQL NULL, so every reader gets an object rather than two shapes to handle.
+func nonNilAnswers(in map[string]string) map[string]string {
+	if in == nil {
+		return map[string]string{}
+	}
+	return in
 }
