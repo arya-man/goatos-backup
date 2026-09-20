@@ -1,3 +1,28 @@
+# PR325 review/fix cycle — current receipt
+
+## Current state
+- Target: `feat/procurement-sop-driven`, PR325 only. No main merge or staging deploy.
+- Final production-code SHA: `ddefb30ef` (following `653b9304e` and `a4bd5fa62`). This receipt/decision update is documentation-only; the containing commit identifies the review tip.
+- All accepted findings fixed. Final pushed-head independent confirmation follows the branch push; readback is retained locally in `.codex-goatos-render/pr325-cycle/push-receipt.json`.
+- Relevant Go, real PostgreSQL, Android compile/unit, web typecheck/mock-fidelity/form tests, media egress, and laptop/mobile browser gates PASS.
+- `make guardrails` passed all preceding targets and stopped at the final `local-gcp-kernel-parity-guard`: Docker CLI is absent (`check-local-gcp-kernel-parity.sh:58: docker: command not found`). No guard bypass; full `make ci-local` not run. This is not a main/stg promotion receipt.
+
+## Final real-surface evidence
+On source SHA `ddefb30ef`, `responsive:guard` PASS for feed purchases (actual 29+ row fixture and pagination), toxin SOP List and Flow, laptop and mobile; adjacent Sales tolerance layout PASS at six widths. Forbidden failure strings include `backend_down`, `Admin-web contract unavailable`, `The board could not be loaded`, and `Weights could not be loaded`.
+
+Real browser entry selected a parent/child/grandchild branch, entered a child answer, hid the parent, then saved a valid `_other` question with an explanation. Both viewport saves succeeded. Independent API readback confirmed absent hidden descendants and retained explanation; subsequent detail routes displayed Review carrier / Independent carrier laptop or mobile. Screenshots were opened and visually validated. Historical retired-question readback was independently proven before this last domain-only ID repair and after source SHA a4bd5fa62; all corresponding regression tests pass on ddefb30ef.
+
+Evidence: `.codex-goatos-render/pr325-cycle/{responsive-r4.log,conditional-e2e.json,conditional-readback.json,conditional-detail-e2e.json,guardrails-r4.log}`; screenshot manifest `.codex-goatos-render/admin-web-screenshots/2026-09-20T21-36-31-266Z/`. All fixtures are isolated local PostgreSQL, not STG/OCI. No performance improvement or release-scale certification claimed.
+
+## Final tests
+- `go test ./internal/procurement/... ./internal/tasks/... ./internal/animalpurchase/... ./internal/toxin/... ./internal/sop/... ./internal/workforce/app ./internal/notificationbridge ./internal/adminui/app` PASS; procurement/SOP rerun after final ID fix PASS.
+- Actual PostgreSQL suite repeat with GOATOS_RUN_POSTGRES_TESTS=1: vendor history/legacy replay, feed historical readback/idempotency, early source events, incremental animal decisions, branches/reanswers, repeated hooks and opener races PASS (procurement10.243s; tasks14.302s).
+- Android `:app:compileDevDebugKotlin :app:testDevDebugUnitTest` focused FeedPurchaseFormAnswersTest, VendorFormAnswersTest, PushTargetResolverTest PASS. No new physical-device E2E claimed in this cycle.
+- Web typecheck, full mock-fidelity, seven shared visibility/feed tests and prior focused24 tests PASS. Whole Android media-egress guard555 files PASS; full guardrail execution also passes all mobile/exception/telemetry ratchets.
+- Repowise risk scanned this repair range (wide diff requires scrutiny; not an approval). CRG/Graphify unavailable here; reviews used source, SQL, current contracts and preceding-month history.
+
+## Review history (chronological)
+
 # PR 325 iterative review and repair — 2026-09-21
 
 ## Scope
