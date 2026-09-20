@@ -382,7 +382,10 @@ export async function saveToxinVersion(sopId: string, toxin: Record<string, unkn
     proof_policy: base.proof_policy as CreateSOPVersionRequest["proof_policy"],
   });
   if (!version.ok) return { ok: false, message: version.error.message ?? "create SOP version failed", code: version.error.code };
-  for (const path of SOP_PAGE_PATHS) revalidatePath(path);
+  // No revalidatePath here: this action RETURNS its result and the editor renders from it, and
+  // every SOP module page is `force-dynamic`, so there is no cached page for a revalidate to
+  // clear. Doing both is the pattern the interaction guard bans -- the client would apply the
+  // returned row and then be re-rendered underneath it.
   const report = version.data.version.validation_report;
   return {
     ok: true,
@@ -400,7 +403,9 @@ export async function publishToxinVersion(sopId: string, toxin: Record<string, u
   if (saved.report && !saved.report.valid) return { ...saved, ok: false, message: saved.report.errors?.[0]?.message ?? "The procedure has validation issues; fix it and publish again." };
   const res = await publishSopVersion(sopId, saved.versionId, saved.rowVersion);
   if (!res.ok) return { ok: false, message: res.error.message ?? "publish failed", code: res.error.code };
-  for (const path of SOP_PAGE_PATHS) revalidatePath(path);
+  // Same as the save: the editor navigates to the published version and calls router.refresh(),
+  // which re-renders the (force-dynamic) pages. Returning the row AND revalidating is the banned
+  // pair.
   return { ...saved, ok: true, message: `Published v${saved.versionNumber ?? ""}. Tests started from now on run this procedure.` };
 }
 

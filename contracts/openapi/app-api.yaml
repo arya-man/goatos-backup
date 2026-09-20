@@ -8019,6 +8019,37 @@ paths:
           $ref: "#/components/responses/Forbidden"
         "500":
           $ref: "#/components/responses/ServerError"
+  /procurement/feed-purchase-form:
+    get:
+      tags:
+        - Procurement
+      operationId: getFeedPurchaseForm
+      summary: The authored form the Record feed purchase screens render.
+      description: >-
+        THE FEED PURCHASE FORM IS AUTHORED (maintainer decision 2026-09-20, procurement SOP-driven
+        end to end): `form_dsl.feed_purchase_form` of the published `procurement.feed_purchase_form`
+        SOP -- pages of questions, compiled with the ledger's own live vocabularies so a
+        catalog-backed question carries its choices (the farms it buys for, the ACTIVE feed catalog,
+        the two payment states). A question with `typed: true` is one of the ledger's own columns;
+        the client sends its answer under the same id and reads it back from the typed purchase
+        field. Every other answer is stored on the purchase as `answers`. A write carries every
+        answer plus the `questionnaire_version` it rendered and is checked against exactly that
+        version; one the library never published is refused `feed_purchase_form_changed` (reopen the
+        form). A client that sends no answers at all -- an older app -- is accepted on its typed
+        fields, unchanged.
+      responses:
+        "200":
+          description: The published form.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ProcurementVendorForm"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "500":
+          $ref: "#/components/responses/ServerError"
   /procurement/feed-purchases:
     get:
       tags:
@@ -20268,6 +20299,19 @@ components:
           exclusiveMinimum: 0
           nullable: true
           description: Weight received; meaningful only with `reached_on`. Omit to defer it.
+        answers:
+          type: object
+          additionalProperties: { type: string }
+          description: >-
+            THE FEED PURCHASE FORM IS AUTHORED (2026-09-20): every answer the published form asked
+            for, keyed by question id -- the typed questions under the ledger's own ids and any
+            question the farm added beyond them. Sent together with `questionnaire_version`; the
+            write is checked against exactly that version. OMIT both (an older client) and the
+            write is accepted on its typed fields alone, unchanged.
+        questionnaire_version:
+          type: integer
+          minimum: 1
+          description: The feed purchase form version the client rendered. Required whenever `answers` is sent.
     FeedPurchaseDeliveryWrite:
       type: object
       description: >-
