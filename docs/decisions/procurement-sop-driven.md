@@ -30,15 +30,15 @@ document (`procurement.vendor`) rather than sharing the sales desk's.
 
 ## Decision 1: the supply register has its own form -- `procurement.vendor`
 
-One register, two documents. Both halves of `procurement_vendors` rendered `sales.vendor`, so a
-question the buying desk needed of a feed supplier stood in front of the sales desk asking a
-butcher. The SIDE decides the document, and the side comes from the register's OWN data
-(`procurement_vendor_catalog.register_side` for the row's record type), never from anything a
-client sends. A caller that names no side keeps the pre-split document, so a legacy row still
-reads the form it was written against. Both documents are validated by the same contract -- they
-write one table, so a supply form that drops an identity question breaks the same row a sales one
-would. Migration `000370` seeds the supply document from the SAME seed file the sales form ships,
-so nothing moves until somebody edits it.
+One register, two documents. New forms select `procurement.vendor` for the supply desk and
+`sales.vendor` for the sales desk. Each answered row stores BOTH `questionnaire_sop_code` and
+`questionnaire_version`; historical reads use that provenance even if the record type later
+changes. Older clients omit the code and continue using `sales.vendor`, including queued replay
+fingerprints. Typed-only edits preserve the prior questionnaire provenance.
+
+Both documents share the entry-form validator because they write the same register. Migration
+`000370` seeds the supply document; `000378` adds row provenance and copies the current authored
+sales form into the untouched supplier v1 during upgrade, preserving the pre-split form.
 
 ## Decision 2: opening a purchase load opens ONE workflow
 
@@ -177,9 +177,10 @@ the lock is refused rather than quietly applied.
 
 **Day one is the seven steps, exactly.** `TestSeededProcedureCompilesToTheLegacySteps` pins the
 seeded document to `Steps()` step for step and gate for gate; `Steps()` stays in `task.go` as that
-oracle and nothing in the write path calls it any more. A tenant that authors nothing runs it, and
-so does a round whose version the library no longer carries -- an unreadable document falls back
-rather than leaving a test nobody can finish.
+oracle and nothing in the write path calls it any more. A tenant that authors nothing runs it.
+A legacy v1 round may use the seed when v1 is explicitly absent. A configured procedure source
+failure or missing later version propagates an error; it never substitutes different steps for
+a round already in progress.
 
 **The validator is the medical safety.** `ValidateToxin` refuses at PUBLISH: steps not numbered
 1..N in order (the phone, the completions table and every gate key on the number), a document
@@ -269,3 +270,13 @@ mutation transaction. Repeated hook task types receive distinct action keys;
 unanswered branches stay pending, false branches are skipped, and a re-answer
 that takes a branch applies its existing receipt immediately. Tests cover repeated
 hooks, branch re-answers, and concurrent workflow opening versus business events.
+
+### Authored entry-form invariants
+
+Vendor and feed forms use the same ordered visibility projection across web, Android and backend.
+A hidden parent hides all descendants; stale hidden answers do not validate or persist. Blank
+conditional values are rejected at publication and never activate in cached forms. Question IDs
+ending in `_other` remain valid IDs. Only a declared allow_other question owns its explanation
+sidecar, and publication rejects a question that collides with that sidecar. Stored answers carry
+the historical version and read back using its labels, including retired questions and Other
+explanations; missing historical metadata preserves the raw answer rather than dropping it.
