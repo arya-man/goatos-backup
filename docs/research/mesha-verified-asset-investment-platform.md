@@ -1,6 +1,8 @@
-# Mesha verified-asset investment platform: problem, investigation, and proposed model
+# Mesha Goat Exchange: problem, investigation, and proposed model
 
 Research date: 20 September 2026. Status: research and design proposal, not an approved offering, legal opinion, investment recommendation, implemented product, or forecast. This document preserves the founder's original problem and subsequent clarifications, both supplied Claude evaluations, the audio brief, and the investigation's corrections. It does not authorise fundraising or trading.
+
+**Project name: Mesha Goat Exchange.** The name covers the full vision: investment ownership and asset accounting first, Mesha-supported buying and selling initially, and participation by other buyers and multiple verified asset pools over time. Its scope includes land, infrastructure, livestock and future permitted assets. “Exchange” names the intended platform; the applicable legal permissions and trading arrangements remain subject to the staged model described below.
 
 ## 1. The original problem
 

@@ -18,3 +18,13 @@ Date: 20 September 2026. Scope: preserve the initial financial-infrastructure pr
 - Judge status: parent researcher completed substantive QA and approved documentation for landing after verified redemption caveats, now incorporated; documentation agent cross-checked supplied sources. No software behaviour certification implied.
 - Known failures: initial PDF text utility was unavailable; recovered using installed Python PDF extraction. No unresolved content-extraction blocker.
 - Deployment state: no staging or production deploy requested or performed.
+
+## 21 September 2026 naming follow-up
+
+- Scope: user requested the exchange term; research title and opening now explicitly name **Mesha Goat Exchange**, preserving mixed-asset scope and staged trading model.
+- Done: wording updated in the isolated checkout after refreshing origin/main.
+- Current base SHA: `b00336e340fa293bb5bddc1ec0fe6b36b1f472c7`.
+- Proof: `git diff --check` passes; exact final-SHA `make land-main` receipt is required before promotion and recorded in the local companion log.
+- Pending: commit, required docs-only CI/landing gate, and remote-main readback.
+- Known failures: none. Judge: wording reviewed directly against the user's naming request.
+- Before/after: neutral investment-platform title changed to Mesha Goat Exchange; no runtime or financial-model changes. E2E/latency tests are not applicable. Deployment: none.
