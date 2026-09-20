@@ -31,6 +31,7 @@ import { InspectionSummary } from "./inspection-summary";
 import { WeighingSummary } from "./weighing-summary";
 import { FeedSummary } from "./feed-summary";
 import { ShiftingSummary } from "./shifting-summary";
+import { ToxinSummary } from "./toxin-summary";
 import { CaptureCardSummary } from "./capture-summary";
 import { isCaptureCardCode } from "./capture-model";
 import { copy, tablePageSizes, type AdminUiPageContract } from "@/lib/admin-ui-contract";
@@ -425,6 +426,7 @@ function SopDetailModal({ view, pageContract, onClose, onEdit, onEditCapture, ed
           {view.weighingFormDsl ? <WeighingSummary pageContract={pageContract} formDsl={view.weighingFormDsl} /> : null}
           {view.feedFormDsl ? <FeedSummary pageContract={pageContract} sopCode={view.code} formDsl={view.feedFormDsl} /> : null}
           {view.shiftingFormDsl ? <ShiftingSummary pageContract={pageContract} formDsl={view.shiftingFormDsl} /> : null}
+          {view.toxinFormDsl ? <ToxinSummary pageContract={pageContract} formDsl={view.toxinFormDsl} /> : null}
           {isCaptureCardCode(view.code) && view.hasVersion ? <CaptureCardSummary pageContract={pageContract} sopCode={view.code} formDsl={view.followUpFormDsl} /> : null}
         </div>
 

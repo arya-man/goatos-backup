@@ -11,6 +11,8 @@ import { InspectionEditor } from "./inspection-editor";
 import { publishedFromSearch } from "./published-href";
 import { parseInspection, parseVendorForm } from "./inspection-model";
 import { WeighingEditor } from "./weighing-editor";
+import { ToxinEditor } from "./toxin-editor";
+import { parseToxin } from "./toxin-model";
 import { parseWeighing } from "./weighing-model";
 import { FeedEditor } from "./feed-editor";
 import { parseFeed } from "./feed-model";
@@ -88,6 +90,26 @@ export async function renderSopModulePage(
               sopCode={detail.data.sop.code}
               versionLabel={`${version.version_label} · ${version.status}`}
               initial={shifting}
+            />
+          );
+        }
+        // THE TOXIN PROCEDURE IS AUTHORED (2026-09-20): a SOP carrying a `toxin` document -- the
+        // steps of the aflatoxin test -- is edited through its own List | Flow editor. Checked
+        // before the follow-up branch because the procedure is not a workflow track and must not
+        // fall through to one.
+        const toxin = parseToxin(version.form_dsl);
+        if (toxin) {
+          const pageContract = await pageContractPromise;
+          return (
+            <ToxinEditor
+              pageContract={pageContract}
+              basePath={basePath}
+              sopId={editId}
+              sopName={detail.data.sop.name}
+              sopCode={detail.data.sop.code}
+              versionLabel={`${version.version_label} · ${version.status}`}
+              initial={toxin}
+              initialView={sp.view === "flow" ? "flow" : "list"}
             />
           );
         }

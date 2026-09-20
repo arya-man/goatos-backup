@@ -361,6 +361,49 @@ export async function publishFeedVersion(sopId: string, feed: Record<string, unk
   return { ...saved, ok: true, message: `Published v${saved.versionNumber ?? ""}. Sheets issued from now on run on this card.` };
 }
 
+// THE TOXIN PROCEDURE IS AUTHORED (maintainer decision 2026-09-20): the aflatoxin editor saves a
+// new version = the published version's form_dsl and proof policy, with only the `toxin` document
+// replaced. The backend validates it with the SAME rules the engine runs on, so a procedure that
+// renumbers its steps or loses its reading step is refused here rather than found by a tester.
+// Publishing changes the next ROUND opened; a round already running keeps the procedure it
+// started on.
+export type ToxinSaveResult = InspectionSaveResult;
+
+export async function saveToxinVersion(sopId: string, toxin: Record<string, unknown>, label?: string): Promise<ToxinSaveResult> {
+  if (!sopId) return { ok: false, message: "SOP id is required" };
+  const detail = await getSop(sopId);
+  if (!detail.ok) return { ok: false, message: detail.error.message ?? "SOP could not be read", code: detail.error.code };
+  const base = detail.data.published_version ?? detail.data.latest_version;
+  if (!base) return { ok: false, message: "This SOP has no version to build on." };
+  const formDsl = { ...(base.form_dsl as Record<string, unknown>), toxin };
+  const version = await createSopVersion(sopId, {
+    version_label: (label ?? "").trim() || `${detail.data.sop.name} · procedure`,
+    form_dsl: formDsl,
+    proof_policy: base.proof_policy as CreateSOPVersionRequest["proof_policy"],
+  });
+  if (!version.ok) return { ok: false, message: version.error.message ?? "create SOP version failed", code: version.error.code };
+  for (const path of SOP_PAGE_PATHS) revalidatePath(path);
+  const report = version.data.version.validation_report;
+  return {
+    ok: true,
+    message: report?.valid ? "Procedure saved as a draft version." : "Saved — backend flagged validation issues (see report).",
+    versionId: version.data.version.sop_version_id,
+    rowVersion: version.data.version.row_version,
+    versionNumber: version.data.version.version,
+    report,
+  };
+}
+
+export async function publishToxinVersion(sopId: string, toxin: Record<string, unknown>, label?: string): Promise<ToxinSaveResult> {
+  const saved = await saveToxinVersion(sopId, toxin, label);
+  if (!saved.ok || !saved.versionId || saved.rowVersion === undefined) return saved;
+  if (saved.report && !saved.report.valid) return { ...saved, ok: false, message: saved.report.errors?.[0]?.message ?? "The procedure has validation issues; fix it and publish again." };
+  const res = await publishSopVersion(sopId, saved.versionId, saved.rowVersion);
+  if (!res.ok) return { ok: false, message: res.error.message ?? "publish failed", code: res.error.code };
+  for (const path of SOP_PAGE_PATHS) revalidatePath(path);
+  return { ...saved, ok: true, message: `Published v${saved.versionNumber ?? ""}. Tests started from now on run this procedure.` };
+}
+
 // SHIFTING SOP (maintainer decision 2026-09-16): the shifting cards editor saves a new version = the
 // published version's form_dsl (capture form, dormant follow_up track, proof policy: unchanged) +
 // the emitted `shifting` document. The backend validates the document (a card the phone could not
