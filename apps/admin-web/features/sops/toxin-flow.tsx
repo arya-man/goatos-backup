@@ -5,13 +5,15 @@ import { useMemo, type ReactNode } from "react";
 
 import { copy, type AdminUiPageContract } from "@/lib/admin-ui-contract";
 import { FlowCanvas, type CanvasEdge, type CanvasLayout, type CanvasNode } from "./flow-canvas";
-import { NODE_H, NODE_W } from "./flow-layout";
+import { NODE_W } from "./flow-layout";
 import type { ToxinRows, ToxinStepRow } from "./toxin-model";
 
 export type ToxinInsert = { index: number };
 
 type Data = { stepId?: string };
 
+// Room for a two-line title, two-line instruction and the kind label.
+const NODE_H = 104;
 const GAP_Y = 54;
 
 /**
@@ -74,7 +76,7 @@ export function ToxinFlow({
       return (
         <>
           <span className="studio-node-kind">{copy(pc, "studio.flow.start")}</span>
-          <b>{copy(pc, "tsop.flow.start")}</b>
+          <b title={copy(pc, "tsop.flow.start")}>{copy(pc, "tsop.flow.start")}</b>
           <span className="muted small">{copy(pc, "tsop.flow.start_hint")}</span>
         </>
       );
@@ -120,7 +122,7 @@ export function ToxinFlow({
   };
 
   return (
-    <div className="studio-flow" data-testid="flow-view">
+    <div className="studio-flow toxin-flow" data-testid="flow-view">
       <FlowCanvas
         pc={pc}
         layout={layout}
@@ -152,7 +154,7 @@ export function waitWords(minutes: number, pc: AdminUiPageContract): string {
 
 /** ToxinStepSummaryLine is the one-line description a list row and the library card share. */
 export function toxinStepSummaryLine(step: ToxinStepRow, kindLabels: Record<string, string>, pc: AdminUiPageContract): string {
-  if (step.kind === "wait") return `${kindLabels.wait ?? "Wait"} · ${waitWords(step.waitMinutes, pc)}`;
+  if (step.kind === "wait") return `${kindLabels.wait ?? copy(pc, "tsop.unit.wait")} · ${waitWords(step.waitMinutes, pc)}`;
   const gate = step.gateAfterStep > 0 && step.gateMinutes > 0 ? ` · ${copy(pc, "tsop.flow.after")} ${waitWords(step.gateMinutes, pc)}` : "";
   return `${kindLabels[step.kind] ?? step.kind}${gate}`;
 }

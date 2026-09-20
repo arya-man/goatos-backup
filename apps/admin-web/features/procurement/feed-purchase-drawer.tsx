@@ -221,7 +221,12 @@ export function FeedPurchaseDrawer({
               <input type="hidden" name="idempotency_key" value={recordIdempotencyKey} />
 
               <div className="note">{copy(pageContract, "required.hint")}</div>
-              {purchaseForm ? <input type="hidden" name="questionnaire_version" value={purchaseForm.version} /> : null}
+              {purchaseForm ? <>
+                <input type="hidden" name="questionnaire_version" value={purchaseForm.version} />
+                {purchaseForm.pages.flatMap((page) => page.questions).map((question) => (
+                  <input key={question.id} type="hidden" name="questionnaire_question" value={question.id} />
+                ))}
+              </> : null}
 
               <div className="fld">
                 <label htmlFor="fp-purchase_date">{field("purchase_date")}</label>

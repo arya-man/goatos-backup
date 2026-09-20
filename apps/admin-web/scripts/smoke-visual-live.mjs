@@ -51,6 +51,7 @@ const smokeWideWindowFrom = new Date(Date.now() - 43 * 24 * 60 * 60 * 1000).toIS
 // Derived, never hand-maintained: a list that must be kept in step with another list
 // eventually is not. The placeholder ids only shape two paths, never the names.
 const KNOWN_ROUTE_NAMES = buildRoutes({
+  toxinSopId: "placeholder",
   goatId: "placeholder",
   procurementLoadId: "placeholder",
   workflowRowId: "placeholder",
@@ -86,6 +87,9 @@ const calendarEventId = runsRoute("calendar-drive-detail") ? await resolveSmokeC
 const vaccinationShedPath = runsRoute("vaccination-shed-execution-detail")
   ? await resolveSmokeVaccinationShedPath(apiBaseUrl, bearerToken, tenantId)
   : null;
+const toxinSopId = runsRoute("procurement-toxin-list") || runsRoute("procurement-toxin-flow")
+  ? await resolveSmokeToxinSopID(apiBaseUrl, bearerToken, tenantId)
+  : null;
 mkdirSync(screenshotDir, { recursive: true });
 if (baselineDir) mkdirSync(diffDir, { recursive: true });
 
@@ -95,7 +99,7 @@ if (baselineDir) mkdirSync(diffDir, { recursive: true });
 // the allow-list used to be a second hand-maintained copy and it drifted: counts-sops and
 // counts-sops-builder were in this table, so a full sweep visited them, while a focused run
 // naming either was rejected as an unknown route.
-function buildRoutes({ goatId, procurementLoadId, workflowRowId, calendarEventId, vaccinationShedPath }) {
+function buildRoutes({ toxinSopId, goatId, procurementLoadId, workflowRowId, calendarEventId, vaccinationShedPath }) {
   const routes = [
     { name: "control-tower", path: "/?scope_mode=company&lens=control-tower" },
     { name: "action-center", path: "/action-center?scope_mode=company" },
@@ -150,6 +154,8 @@ function buildRoutes({ goatId, procurementLoadId, workflowRowId, calendarEventId
     { name: "procurement-feed-purchases", path: "/procurement/feed-purchases?scope_mode=company" },
     { name: "procurement-animal-purchases", path: "/procurement/animal-purchases?scope_mode=company" },
     { name: "procurement-sops", path: "/procurement/sops?scope_mode=company" },
+    { name: "procurement-toxin-list", path: `/procurement/sops?scope_mode=company&compose=1&edit=${encodeURIComponent(toxinSopId)}&view=list` },
+    { name: "procurement-toxin-flow", path: `/procurement/sops?scope_mode=company&compose=1&edit=${encodeURIComponent(toxinSopId)}&view=flow` },
     { name: "sales-sold", path: "/sales/sold?scope_mode=company" },
     { name: "sales-farm-value", path: "/sales/farm-value?scope_mode=company" },
     { name: "sales-loads", path: "/sales/loads?scope_mode=company" },
@@ -240,7 +246,7 @@ function buildRoutes({ goatId, procurementLoadId, workflowRowId, calendarEventId
   });
 }
 
-const routes = buildRoutes({ goatId, procurementLoadId, workflowRowId, calendarEventId, vaccinationShedPath });
+const routes = buildRoutes({ toxinSopId, goatId, procurementLoadId, workflowRowId, calendarEventId, vaccinationShedPath });
 
 // Names were already validated up front against KNOWN_ROUTE_NAMES; resolve the selection to concrete
 // routes. A requested route the run couldn't build (e.g. procurement-load-detail with no seeded load)
@@ -573,7 +579,39 @@ function assertHealthyHTML(routeName, html, visibleText, token) {
   }
 }
 
+async function resolveSmokeToxinSopID(baseUrl, token, tenant) {
+  const response = await fetch(`${baseUrl}/admin/sops?code_prefix=procurement.toxin_test&limit=10`, {
+    headers: { Authorization: `Bearer ${token}`, [TENANT_CONTEXT_HEADER]: tenant },
+  });
+  if (!response.ok) throw new Error(`Toxin SOP fixture lookup failed: ${response.status()}`);
+  const body = await response.json();
+  const sop = body.items?.find((item) => item.code === "procurement.toxin_test");
+  if (!sop?.sop_id) throw new Error("Responsive toxin coverage requires the published procurement.toxin_test SOP");
+  return sop.sop_id;
+}
+
 async function assertRouteLoadedSignal(page, routeName, visibleText) {
+  if (routeName === "procurement-toxin-list") {
+    await page.getByTestId("toxin-step-1").waitFor({ state: "visible", timeout: 10000 });
+    await page.getByTestId("toxin-add-step").waitFor({ state: "visible", timeout: 10000 });
+    return { toxin_editor: "list", steps: await page.locator('[data-testid^="toxin-step-"]').count() };
+  }
+  if (routeName === "procurement-toxin-flow") {
+    await page.getByTestId("flow-view").waitFor({ state: "visible", timeout: 10000 });
+    await page.getByTestId("flow-node-toxin-step-1").click();
+    await page.getByTestId("flow-props").getByTestId("toxin-step-1").waitFor({ state: "visible", timeout: 10000 });
+    const clippedTitles = await page.locator(".toxin-flow .studio-node b").evaluateAll((elements) => elements.filter((element) => {
+      const range = document.createRange();
+      range.selectNodeContents(element);
+      const text = range.getBoundingClientRect();
+      const box = element.getBoundingClientRect();
+      const card = element.closest(".studio-node").getBoundingClientRect();
+      return text.top < box.top - 1 || text.bottom > box.bottom + 1 || element.scrollWidth > element.clientWidth + 1
+        || box.top < card.top || box.bottom > card.bottom;
+    }).map((element) => element.textContent));
+    if (clippedTitles.length) throw new Error(`Toxin node titles are clipped: ${clippedTitles.join(", ")}`);
+    return { toxin_editor: "flow", node_titles_unclipped: true };
+  }
   const normalized = visibleText.replace(/\s+/g, " ").trim();
   if (routeName === "procurement-animal-purchases") {
     const heading = await page.locator("h1").innerText();
@@ -784,6 +822,26 @@ async function assertLayoutHealthy(page, routeName, viewportLabel) {
       }
       return found;
     }
+    // Scroll-canvas children keep their full layout boxes outside the clipped canvas.
+    // Compare only painted areas, otherwise off-canvas nodes falsely overlap the
+    // properties panel below them on mobile. Actual visible overlaps still fail.
+    function clippedInteractiveRect(element) {
+      const bounds = element.getBoundingClientRect();
+      const rect = { left: bounds.left, right: bounds.right, top: bounds.top, bottom: bounds.bottom };
+      for (let parent = element.parentElement; parent; parent = parent.parentElement) {
+        const style = getComputedStyle(parent);
+        const box = parent.getBoundingClientRect();
+        if (/^(auto|scroll|hidden|clip)$/.test(style.overflowX)) {
+          rect.left = Math.max(rect.left, box.left + parent.clientLeft);
+          rect.right = Math.min(rect.right, box.left + parent.clientLeft + parent.clientWidth);
+        }
+        if (/^(auto|scroll|hidden|clip)$/.test(style.overflowY)) {
+          rect.top = Math.max(rect.top, box.top + parent.clientTop);
+          rect.bottom = Math.min(rect.bottom, box.top + parent.clientTop + parent.clientHeight);
+        }
+      }
+      return rect;
+    }
     function intentionalAvatarOverlap(first, second, xOverlap, yOverlap) {
       if (first.parentElement !== second.parentElement || !reachableStackAvatar(first) || !reachableStackAvatar(second)) return false;
       const a = first.getBoundingClientRect(), b = second.getBoundingClientRect();
@@ -795,8 +853,8 @@ async function assertLayoutHealthy(page, routeName, viewportLabel) {
         const first = interactives[i];
         const second = interactives[j];
         if (first.contains(second) || second.contains(first)) continue;
-        const a = first.getBoundingClientRect();
-        const b = second.getBoundingClientRect();
+        const a = clippedInteractiveRect(first);
+        const b = clippedInteractiveRect(second);
         const xOverlap = Math.max(0, Math.min(a.right, b.right) - Math.max(a.left, b.left));
         const yOverlap = Math.max(0, Math.min(a.bottom, b.bottom) - Math.max(a.top, b.top));
         if (xOverlap > 4 && yOverlap > 4 && !intentionalAvatarOverlap(first, second, xOverlap, yOverlap)) {
