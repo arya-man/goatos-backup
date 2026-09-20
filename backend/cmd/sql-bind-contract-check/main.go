@@ -615,7 +615,7 @@ func staticArgumentCount(args []ast.Expr, variadic bool, method string, imports 
 		}
 		// Aliased controls and rewriters are not ordinary data. Without type/flow
 		// analysis their exact effect is unproven, so require a validated builder.
-		if method != "Queue" && knownPGXControl(args[0], imports, map[*ast.Object]bool{}) {
+		if knownPGXControl(args[0], imports, map[*ast.Object]bool{}, method == "Queue") {
 			return 0, false
 		}
 		break
@@ -672,22 +672,22 @@ func unparen(e ast.Expr) ast.Expr {
 
 // knownPGXControl follows declaration identities, never name-only aliases.
 // A positive result rejects uncertain argument shapes; it does not grant trust.
-func knownPGXControl(e ast.Expr, imports map[string]string, visiting map[*ast.Object]bool) bool {
+func knownPGXControl(e ast.Expr, imports map[string]string, visiting map[*ast.Object]bool, rewritersOnly bool) bool {
 	switch x := unparen(e).(type) {
 	case *ast.SelectorExpr:
 		id, ok := x.X.(*ast.Ident)
 		if !ok || importedPackagePath(id, imports) != "github.com/jackc/pgx/v5" {
 			return false
 		}
-		return strings.HasPrefix(x.Sel.Name, "QueryExecMode") || x.Sel.Name == "QueryResultFormats" || x.Sel.Name == "QueryResultFormatsByOID" || x.Sel.Name == "QueryRewriter" || x.Sel.Name == "NamedArgs" || x.Sel.Name == "StrictNamedArgs"
+		return x.Sel.Name == "QueryRewriter" || x.Sel.Name == "NamedArgs" || x.Sel.Name == "StrictNamedArgs" || (!rewritersOnly && (strings.HasPrefix(x.Sel.Name, "QueryExecMode") || x.Sel.Name == "QueryResultFormats" || x.Sel.Name == "QueryResultFormatsByOID"))
 	case *ast.CompositeLit:
-		return knownPGXControl(x.Type, imports, visiting)
+		return knownPGXControl(x.Type, imports, visiting, rewritersOnly)
 	case *ast.CallExpr:
-		return knownPGXControl(x.Fun, imports, visiting)
+		return knownPGXControl(x.Fun, imports, visiting, rewritersOnly)
 	case *ast.StarExpr:
-		return knownPGXControl(x.X, imports, visiting)
+		return knownPGXControl(x.X, imports, visiting, rewritersOnly)
 	case *ast.UnaryExpr:
-		return x.Op == token.AND && knownPGXControl(x.X, imports, visiting)
+		return x.Op == token.AND && knownPGXControl(x.X, imports, visiting, rewritersOnly)
 	case *ast.Ident:
 		if x.Obj == nil || visiting[x.Obj] {
 			return false
@@ -696,24 +696,24 @@ func knownPGXControl(e ast.Expr, imports map[string]string, visiting map[*ast.Ob
 		defer delete(visiting, x.Obj)
 		switch d := x.Obj.Decl.(type) {
 		case *ast.ValueSpec:
-			if d.Type != nil && knownPGXControl(d.Type, imports, visiting) {
+			if d.Type != nil && knownPGXControl(d.Type, imports, visiting, rewritersOnly) {
 				return true
 			}
 			for i, n := range d.Names {
 				if n.Obj == x.Obj && i < len(d.Values) {
-					return knownPGXControl(d.Values[i], imports, visiting)
+					return knownPGXControl(d.Values[i], imports, visiting, rewritersOnly)
 				}
 			}
 		case *ast.AssignStmt:
 			for i, lhs := range d.Lhs {
 				if id, ok := unparen(lhs).(*ast.Ident); ok && id.Obj == x.Obj && i < len(d.Rhs) {
-					return knownPGXControl(d.Rhs[i], imports, visiting)
+					return knownPGXControl(d.Rhs[i], imports, visiting, rewritersOnly)
 				}
 			}
 		case *ast.Field:
-			return knownPGXControl(d.Type, imports, visiting)
+			return knownPGXControl(d.Type, imports, visiting, rewritersOnly)
 		case *ast.TypeSpec:
-			return knownPGXControl(d.Type, imports, visiting)
+			return knownPGXControl(d.Type, imports, visiting, rewritersOnly)
 		}
 	}
 	return false
