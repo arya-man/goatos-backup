@@ -516,6 +516,7 @@ func strictNamedLiteralKeys(e ast.Expr, imports map[string]string) ([]string, bo
 		}
 		key, err := strconv.Unquote(lit.Value)
 		if err != nil {
+			// exception:exempt malformed source literals are classified as unverified scanner evidence
 			return nil, false
 		}
 		keys = append(keys, key)

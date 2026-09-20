@@ -39,6 +39,7 @@ Prevent missing, extra, gapped, or conditionally-pruned PostgreSQL parameters fr
 - `make guardrail-registration-guard`: PASS; new guard registered and reachable.
 - Focused Go tests for `sqlbind`, AST scanner, and Weighing pruning: PASS.
 - Throwaway PostgreSQL 16 execution: PASS for `dimensions`, `origin`, `shed_type`, `weight_bands`, and `weekly_gain`; every test executed rather than skipped.
+- First full `make ci-local` at `3a4e3fa113b37220c0ca3b94ea339e56fe2a7bed`: RED only on missing leadership-assistant classification for the new infrastructure helpers and an exception-guard classification for malformed AST string literals. All product suites, the new bind guard, full Go tests, query plans, admin-web build/tests, and Android compile/unit/lint passed. Both metadata findings were fixed; a final full rerun is pending.
 
 ## Known failures and constraints
 
