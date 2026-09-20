@@ -1,6 +1,7 @@
 package main
 
 import (
+	"fmt"
 	"go/parser"
 	"go/token"
 	"os"
@@ -282,5 +283,77 @@ func run() { const (base = "select $1,$2"; q); p.Exec(ctx,q,1) }`, "unverified-d
 				t.Fatalf("got %+v want %s", got, tt.want)
 			}
 		})
+	}
+}
+
+func TestControlProvenance(t *testing.T) {
+	for _, body := range []string{
+		`p.Exec(ctx, "select $1::int", rewrite{})`,
+		`p.Query(ctx, "select $1::int", &rewrite{})`,
+		`b.Queue("select $1::int", rewrite{})`,
+		`r := rewrite{}; p.QueryRow(ctx, "select $1::int", r)`,
+		`var mode any = 1; mode = pgx.QueryExecModeExec; p.Exec(ctx, "select $1::int", mode)`,
+		`mode := any(1); mode = pgx.QueryResultFormats{0}; p.Query(ctx, "select $1::int", mode)`,
+		`var mode any = 1; alias := pgx.QueryExecModeExec; mode = alias; p.Exec(ctx, "select $1::int", mode)`,
+		`var r any = 1; r = rewrite{}; b.Queue("select $1::int", r)`,
+	} {
+		t.Run(body, func(t *testing.T) {
+			src := `package p
+import ("context"; "github.com/jackc/pgx/v5")
+type rewrite struct{}
+func (rewrite) RewriteQuery(_ context.Context, _ *pgx.Conn, sql string, _ []any) (string, []any, error) { return sql, nil, nil }
+func run() {` + body + `}`
+			got := findings(t, src)
+			if len(got) != 1 || got[0].Kind != "unverified-dynamic-args" {
+				t.Fatalf("got %+v", got)
+			}
+		})
+	}
+}
+
+func TestControlProvenanceAcrossFiles(t *testing.T) {
+	root := t.TempDir()
+	for name, source := range map[string]string{
+		"types.go": `package p
+import ("context"; driver "github.com/jackc/pgx/v5")
+type rewrite struct{}
+func (*rewrite) RewriteQuery(_ context.Context, _ *driver.Conn, sql string, _ []any) (string, []any, error) { return sql, nil, nil }
+func newRewrite() *rewrite { return &rewrite{} }
+var mode any = driver.QueryExecModeExec`,
+		"queries.go": `package p
+func run() {
+ p.Exec(ctx, "select $1", &rewrite{})
+ p.QueryRow(ctx, "select $1", newRewrite())
+ p.Exec(ctx, "select $1", mode)
+}
+func unrelated() { type rewrite int; p.Exec(ctx, "select $1", rewrite(1)) }`,
+	} {
+		if err := os.WriteFile(filepath.Join(root, name), []byte(source), 0600); err != nil {
+			t.Fatal(err)
+		}
+	}
+	got, err := scanTree(root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(got) != 3 {
+		t.Fatalf("got %+v", got)
+	}
+	for _, f := range got {
+		if f.Kind != "unverified-dynamic-args" {
+			t.Fatalf("got %+v", got)
+		}
+	}
+}
+
+func TestLongDataAliasChain(t *testing.T) {
+	var source strings.Builder
+	source.WriteString("package p\nfunc run(){a0 := 1;\n")
+	for i := 1; i <= 40; i++ {
+		fmt.Fprintf(&source, "a%d := a%d;\n", i, i-1)
+	}
+	source.WriteString(`p.Exec(ctx,"select $1",a40)}`)
+	if got := findings(t, source.String()); len(got) != 0 {
+		t.Fatalf("got %+v", got)
 	}
 }

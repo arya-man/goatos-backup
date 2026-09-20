@@ -90,3 +90,28 @@ Prevent missing, extra, gapped, or conditionally-pruned PostgreSQL parameters fr
 - Post-push runtime reviewer: no actionable findings. Scanner reviewer reproduced a remaining batch QueryRewriter bypass; pgx rejected the supposedly valid batch. Fixed: Queue rejects known rewriters while preserving execution options as data. Scanner tests and repository guard pass (358 unchanged baseline findings).
 - Full CI on that superseded implementation was deliberately interrupted before completion; it is not a green receipt. The batch-fix commit restarts full CI and independent review; final receipt is kept in the worktree Git directory and the PR description records the exact tested SHA.
 - Deployment state remains unchanged: no merge, main push, or deployment.
+
+## PR 326 argument provenance follow-up
+
+- Scope: fix scanner approval of custom pgx query rewriters and reassigned execution controls; push only the existing PR branch.
+- Starting SHA: `dc53ee3c869fcea3f1244211e2fe81e06fdb3c55`.
+- Before: compilable custom-rewriter and reassigned-`any` fixtures both return scanner exit 0, then PostgreSQL 16 rejects execution with SQLSTATE 42P02.
+- Done: review reproductions confirmed; existing focused tests, bind/registration guards, and all five real PostgreSQL Weighing section variants passed.
+- Pending: regression tests, scanner fix, local CI, PR branch push and readback.
+- Known failure: the scanner treats unrecognized leading arguments as ordinary data even when pgx consumes them as controls.
+- Performance judge: unchanged runtime SQL, argument order, cache, DB calls, frontend and sync. Existing runtime validation measured 53-81 microseconds per uncached section/all-sections read; this follow-up changes build-time scanning only.
+- Browser E2E: not run; no frontend or runtime query changes planned.
+- Deployment state: no main push, merge, or deployment.
+
+### Follow-up implementation proof
+
+- Regression-first: all eight new argument-provenance cases failed on the starting head with zero scanner findings.
+- Fix: collect package-local custom rewriter receiver types, follow all assignments and declaration types, resolve sibling-file provenance with source-specific imports, and cache facts once per package. Ordinary same-named local types retain lexical identity.
+- Focused scanner/sqlbind/Weighing tests: PASS. Cross-file receiver, factory, aliased-import, package variable, and same-name local-type regressions: PASS.
+- Original two compilable PostgreSQL reproductions now fail the scanner with `unverified-dynamic-args`; prior runtime failures were SQLSTATE 42P02.
+- Runtime changes: none in this follow-up; API latency, allocations, SQL text and DB calls remain as reviewed.
+- Pending: final guard, independent performance review, exact-head local CI, and PR push/readback.
+- Independent performance review caught exponential duplicate traversal on long ordinary alias chains (24 links: 5.16s versus 0.092s before). Fixed by visiting each object once for the entire per-argument reachability walk; the new 40-link regression passes within the focused 30-second suite timeout.
+- Optional AI tooling doctor: source portability checks passed; fresh-worktree CRG/Repowise indexes are absent. Repository CI treats these indexes as optional and does not use them as product proof.
+- Independent performance re-review: PASS. Fixed 24-link chain 6.6-7.1ms; 40/100 links 8.9/10ms. Full-tree scanner 0.609-0.666s versus baseline 0.537-0.597s, with identical 358 legacy findings. No remaining performance finding.
+- Final bind guard and registration guard: PASS, unchanged baseline and 139 registered guards. Final full local CI and remote publication are recorded in the local follow-up log and PR description after this commit.

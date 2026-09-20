@@ -63,14 +63,31 @@ func scanTree(root string) ([]finding, error) {
 	if err != nil {
 		return nil, err
 	}
-	var out []finding
+	type sourceFile struct {
+		path string
+		fs   *token.FileSet
+		file *ast.File
+	}
+	var sources []sourceFile
+	packages := map[string][]*ast.File{}
 	for _, path := range files {
 		fs := token.NewFileSet()
 		f, err := parser.ParseFile(fs, path, nil, parser.ParseComments)
 		if err != nil {
 			return nil, err
 		}
-		out = append(out, scanFile(path, fs, f)...)
+		sources = append(sources, sourceFile{path, fs, f})
+		key := filepath.Dir(path) + "/" + f.Name.Name
+		packages[key] = append(packages[key], f)
+	}
+	packageControls := map[string]controlFacts{}
+	for key, files := range packages {
+		packageControls[key] = collectControlFacts(files)
+	}
+	var out []finding
+	for _, source := range sources {
+		key := filepath.Dir(source.path) + "/" + source.file.Name.Name
+		out = append(out, scanFileWithControls(source.path, source.fs, source.file, packageControls[key])...)
 	}
 	sort.Slice(out, func(i, j int) bool {
 		if out[i].File != out[j].File {
@@ -82,6 +99,10 @@ func scanTree(root string) ([]finding, error) {
 }
 
 func scanFile(path string, fs *token.FileSet, f *ast.File) []finding {
+	return scanFileWithControls(path, fs, f, collectControlFacts([]*ast.File{f}))
+}
+
+func scanFileWithControls(path string, fs *token.FileSet, f *ast.File, controls controlFacts) []finding {
 	imports := collectImports(f)
 	bound := collectBoundQueries(f, imports)
 	named := collectStrictNamedArgs(f, imports)
@@ -146,7 +167,7 @@ func scanFile(path string, fs *token.FileSet, f *ast.File) []finding {
 			add("unverified-dynamic-bind", "dynamic SQL must use sqlbind.BoundQuery or pgx.StrictNamedArgs")
 			return true
 		}
-		dataCount, provable := staticArgumentCount(call.Args[sqlIndex+1:], call.Ellipsis.IsValid(), name, imports)
+		dataCount, provable := staticArgumentCount(call.Args[sqlIndex+1:], call.Ellipsis.IsValid(), name, imports, controls)
 		if !provable {
 			add("unverified-dynamic-args", "variadic or computed arguments must use sqlbind.BoundQuery")
 			return true
@@ -604,7 +625,7 @@ func selectorName(e ast.Expr) string {
 	}
 	return ""
 }
-func staticArgumentCount(args []ast.Expr, variadic bool, method string, imports map[string]string) (int, bool) {
+func staticArgumentCount(args []ast.Expr, variadic bool, method string, imports map[string]string, controls controlFacts) (int, bool) {
 	if variadic {
 		return 0, false
 	}
@@ -615,7 +636,7 @@ func staticArgumentCount(args []ast.Expr, variadic bool, method string, imports 
 		}
 		// Aliased controls and rewriters are not ordinary data. Without type/flow
 		// analysis their exact effect is unproven, so require a validated builder.
-		if knownPGXControl(args[0], imports, map[*ast.Object]bool{}, method == "Queue") {
+		if knownPGXControl(args[0], imports, map[*ast.Object]bool{}, method == "Queue", controls) {
 			return 0, false
 		}
 		break
@@ -672,7 +693,7 @@ func unparen(e ast.Expr) ast.Expr {
 
 // knownPGXControl follows declaration identities, never name-only aliases.
 // A positive result rejects uncertain argument shapes; it does not grant trust.
-func knownPGXControl(e ast.Expr, imports map[string]string, visiting map[*ast.Object]bool, rewritersOnly bool) bool {
+func knownPGXControl(e ast.Expr, imports map[string]string, visited map[*ast.Object]bool, rewritersOnly bool, controls controlFacts) bool {
 	switch x := unparen(e).(type) {
 	case *ast.SelectorExpr:
 		id, ok := x.X.(*ast.Ident)
@@ -681,40 +702,139 @@ func knownPGXControl(e ast.Expr, imports map[string]string, visiting map[*ast.Ob
 		}
 		return x.Sel.Name == "QueryRewriter" || x.Sel.Name == "NamedArgs" || x.Sel.Name == "StrictNamedArgs" || (!rewritersOnly && (strings.HasPrefix(x.Sel.Name, "QueryExecMode") || x.Sel.Name == "QueryResultFormats" || x.Sel.Name == "QueryResultFormatsByOID"))
 	case *ast.CompositeLit:
-		return knownPGXControl(x.Type, imports, visiting, rewritersOnly)
+		return knownPGXControl(x.Type, imports, visited, rewritersOnly, controls)
 	case *ast.CallExpr:
-		return knownPGXControl(x.Fun, imports, visiting, rewritersOnly)
+		// Conversions can hide a control inside any/interface values.
+		for _, arg := range x.Args {
+			if knownPGXControl(arg, imports, visited, rewritersOnly, controls) {
+				return true
+			}
+		}
+		return knownPGXControl(x.Fun, imports, visited, rewritersOnly, controls)
 	case *ast.StarExpr:
-		return knownPGXControl(x.X, imports, visiting, rewritersOnly)
+		return knownPGXControl(x.X, imports, visited, rewritersOnly, controls)
 	case *ast.UnaryExpr:
-		return x.Op == token.AND && knownPGXControl(x.X, imports, visiting, rewritersOnly)
+		return x.Op == token.AND && knownPGXControl(x.X, imports, visited, rewritersOnly, controls)
 	case *ast.Ident:
-		if x.Obj == nil || visiting[x.Obj] {
+		obj := x.Obj
+		if obj == nil {
+			obj = controls.packageObjects[x.Name]
+		}
+		if obj == nil || visited[obj] {
 			return false
 		}
-		visiting[x.Obj] = true
-		defer delete(visiting, x.Obj)
-		switch d := x.Obj.Decl.(type) {
+		if controls.rewriters[obj] {
+			return true
+		}
+		visited[obj] = true
+		// This is reachability, not path-specific evaluation: keep an object
+		// visited for the whole argument traversal. Re-expanding a negative
+		// alias through both its assignment and declaration is exponential.
+		for _, origin := range controls.assignments[obj] {
+			if knownPGXControl(origin.expr, origin.imports, visited, rewritersOnly, controls) {
+				return true
+			}
+		}
+		switch d := obj.Decl.(type) {
 		case *ast.ValueSpec:
-			if d.Type != nil && knownPGXControl(d.Type, imports, visiting, rewritersOnly) {
+			if d.Type != nil && knownPGXControl(d.Type, imports, visited, rewritersOnly, controls) {
 				return true
 			}
 			for i, n := range d.Names {
-				if n.Obj == x.Obj && i < len(d.Values) {
-					return knownPGXControl(d.Values[i], imports, visiting, rewritersOnly)
+				if n.Obj == obj && i < len(d.Values) {
+					return knownPGXControl(d.Values[i], imports, visited, rewritersOnly, controls)
 				}
 			}
 		case *ast.AssignStmt:
 			for i, lhs := range d.Lhs {
-				if id, ok := unparen(lhs).(*ast.Ident); ok && id.Obj == x.Obj && i < len(d.Rhs) {
-					return knownPGXControl(d.Rhs[i], imports, visiting, rewritersOnly)
+				if id, ok := unparen(lhs).(*ast.Ident); ok && id.Obj == obj && i < len(d.Rhs) {
+					return knownPGXControl(d.Rhs[i], imports, visited, rewritersOnly, controls)
 				}
 			}
 		case *ast.Field:
-			return knownPGXControl(d.Type, imports, visiting, rewritersOnly)
+			return knownPGXControl(d.Type, imports, visited, rewritersOnly, controls)
+		case *ast.FuncDecl:
+			if d.Type.Results != nil {
+				for _, result := range d.Type.Results.List {
+					if knownPGXControl(result.Type, imports, visited, rewritersOnly, controls) {
+						return true
+					}
+				}
+			}
 		case *ast.TypeSpec:
-			return knownPGXControl(d.Type, imports, visiting, rewritersOnly)
+			return knownPGXControl(d.Type, imports, visited, rewritersOnly, controls)
 		}
 	}
 	return false
+}
+
+// Control provenance is rejection evidence only. Follow every assignment (not
+// only the declaration) and package-local RewriteQuery receiver types. A custom
+// rewriter declared in a sibling file must not be certified as positional data.
+// File-specific imports keep cross-file aliases tied to their actual package.
+type controlOrigin struct {
+	expr    ast.Expr
+	imports map[string]string
+}
+type controlFacts struct {
+	assignments    map[*ast.Object][]controlOrigin
+	rewriters      map[*ast.Object]bool
+	packageObjects map[string]*ast.Object
+}
+
+func collectControlFacts(files []*ast.File) controlFacts {
+	facts := controlFacts{
+		assignments:    map[*ast.Object][]controlOrigin{},
+		rewriters:      map[*ast.Object]bool{},
+		packageObjects: map[string]*ast.Object{},
+	}
+	for _, f := range files {
+		for name, obj := range f.Scope.Objects {
+			facts.packageObjects[name] = obj
+		}
+	}
+	for _, f := range files {
+		imports := collectImports(f)
+		ast.Inspect(f, func(n ast.Node) bool {
+			if method, ok := n.(*ast.FuncDecl); ok && method.Recv != nil && method.Name.Name == "RewriteQuery" {
+				for _, receiver := range method.Recv.List {
+					typ := unparen(receiver.Type)
+					if pointer, ok := typ.(*ast.StarExpr); ok {
+						typ = unparen(pointer.X)
+					}
+					if id, ok := typ.(*ast.Ident); ok {
+						facts.rewriters[facts.packageObjects[id.Name]] = true
+					}
+				}
+			}
+			add := func(id *ast.Ident, expr ast.Expr) {
+				if id.Obj != nil {
+					facts.assignments[id.Obj] = append(facts.assignments[id.Obj], controlOrigin{expr, imports})
+				}
+			}
+			switch d := n.(type) {
+			case *ast.AssignStmt:
+				for i, lhs := range d.Lhs {
+					if id, ok := unparen(lhs).(*ast.Ident); ok && i < len(d.Rhs) {
+						add(id, d.Rhs[i])
+					}
+				}
+			case *ast.ValueSpec:
+				for i, id := range d.Names {
+					if d.Type != nil {
+						add(id, d.Type)
+					}
+					if i < len(d.Values) {
+						add(id, d.Values[i])
+					}
+				}
+			case *ast.Field:
+				for _, id := range d.Names {
+					add(id, d.Type)
+				}
+			}
+			return true
+		})
+	}
+	return facts
 }
