@@ -217,6 +217,7 @@ publish_force_update_floor() {
       -H "Authorization: Bearer ${token}" \
       -H "Accept: application/json" \
       -H "X-Firebase-ETag: true" \
+      -H "X-Goog-User-Project: ${PROJECT_ID}" \
       "https://firebaseremoteconfig.googleapis.com/v1/projects/${PROJECT_ID}/remoteConfig"
   )"
   if [[ ! "$status" =~ ^2 ]]; then
@@ -252,6 +253,7 @@ publish_force_update_floor() {
       -H "Authorization: Bearer ${token}" \
       -H "Content-Type: application/json; UTF-8" \
       -H "If-Match: ${if_match}" \
+      -H "X-Goog-User-Project: ${PROJECT_ID}" \
       --data-binary @"$body_file" \
       "https://firebaseremoteconfig.googleapis.com/v1/projects/${PROJECT_ID}/remoteConfig"
   )"
@@ -314,6 +316,7 @@ send_force_update_recheck_push() {
     curl -sS -X POST -o "$response_file" -w '%{http_code}' \
       -H "Authorization: Bearer ${token}" \
       -H "Content-Type: application/json; UTF-8" \
+      -H "X-Goog-User-Project: ${PROJECT_ID}" \
       --data-binary @"$body_file" \
       "https://fcm.googleapis.com/v1/projects/${PROJECT_ID}/messages:send"
   )"
@@ -343,6 +346,7 @@ require_force_update_push_access() {
     curl -sS -X POST -o "$response_file" -w '%{http_code}' \
       -H "Authorization: Bearer ${token}" \
       -H "Content-Type: application/json; UTF-8" \
+      -H "X-Goog-User-Project: ${PROJECT_ID}" \
       --data-binary @"$body_file" \
       "https://fcm.googleapis.com/v1/projects/${PROJECT_ID}/messages:send"
   )"
@@ -368,6 +372,7 @@ require_force_update_config_access() {
       -H "Authorization: Bearer ${token}" \
       -H "Accept: application/json" \
       -H "X-Firebase-ETag: true" \
+      -H "X-Goog-User-Project: ${PROJECT_ID}" \
       "https://firebaseremoteconfig.googleapis.com/v1/projects/${PROJECT_ID}/remoteConfig"
   )"
   if [[ ! "$status" =~ ^2 ]]; then
@@ -389,6 +394,7 @@ require_force_update_config_access() {
       -H "Authorization: Bearer ${token}" \
       -H "Content-Type: application/json; UTF-8" \
       -H "If-Match: ${if_match}" \
+      -H "X-Goog-User-Project: ${PROJECT_ID}" \
       --data-binary @"$template_file" \
       "https://firebaseremoteconfig.googleapis.com/v1/projects/${PROJECT_ID}/remoteConfig?validate_only=true"
   )"

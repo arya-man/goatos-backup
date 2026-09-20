@@ -16,6 +16,8 @@
 - Added focused updater validation tests.
 - Focused Android unit gate passed in clean worktree:
   - `ANDROID_HOME=/Users/raviteja/Library/Android/sdk ANDROID_SDK_ROOT=/Users/raviteja/Library/Android/sdk ./gradlew :app:testDevDebugUnitTest --tests 'sg.mesha.goatos.update.SideloadUpdateInstallerTest' --tests 'sg.mesha.goatos.update.RemoteConfigUpdateGateTest'`
+- First mobile distribution attempt refused to start before build/upload: Remote Config preflight returned HTTP 403 because Firebase REST calls lacked `X-Goog-User-Project`.
+- Verified Remote Config read succeeds with `X-Goog-User-Project: goatos-stg`; patched the mobile distribution script to send that header for Remote Config and FCM REST calls.
 
 ## Pending
 
