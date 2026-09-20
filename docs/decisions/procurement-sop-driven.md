@@ -217,8 +217,29 @@ is accepted on its typed fields exactly as it was. A write WITH answers must nam
 rendered: it is judged against that exact version, and one the library never published is refused
 rather than judged against a form nobody filled in.
 
+## Decision 7: the LANDED-COST ledger is NOT authored, and that is the answer, not an omission
+
+The fifth flow in the 2026-09-20 scope was "source-entry load / landed-cost forms". Building it
+showed there is nothing honest to author there, and the maintainer agreed to skip it the same day.
+
+A load's costs are a REPEATABLE LEDGER, not a questionnaire: `procurement_load_cost_lines` holds
+MANY lines, each a (kind, amount, note) event, and a load routinely carries several lines of the
+same kind -- two transport charges on the same trip, a labour cost at each end. A pages-of-
+questions document has one answer per question, so forcing this shape onto it would REMOVE the
+repetition the ledger exists for. The seven cost KINDS are a closed vocabulary with a schema CHECK
+behind them and three roll-up columns reading them; authoring the vocabulary would either change
+nothing (labels only) or break the landed-cost arithmetic.
+
+The load's own entry questions ARE authored already: `form_dsl.inspection.load_form` of
+`procurement.animal_purchase`, since 2026-09-14. That is where "what do we ask when a load is
+opened" lives.
+
+Recorded here so the next reader does not spend the afternoon looking for the missing sixth
+document: it was considered, costed and deliberately not built.
+
 ## Not here (yet)
 
-The source-entry load / landed-cost questions, the web drawer and phone rendering of the feed
-purchase form's authored extras, and the phone's entry points into the two purchase workflows are
-the rest of this programme.
+The phone's entry points into the two purchase workflows -- a Steps card on the purchase load and
+the feed load, in the shape the sale detail already has. Everything else the phone shows for
+procurement is already served from these documents and needed no app change: the inspection, the
+load form, the supplier form and the toxin procedure are all rendered from backend payloads.
