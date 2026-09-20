@@ -12,6 +12,11 @@ func TestValidatePositionalMatrix(t *testing.T) {
 		want      string
 	}{
 		{"valid repeated out of order", `select $2,$1,$2`, []any{1, 2}, ""},
+		{"dollar identifier", `select 1 as value$1`, nil, ""},
+		{"dollar identifier extra arg", `select 1 as value$1`, []any{1}, "unused argument"},
+		{"dollar quote shaped identifier", `select 1 as value$tag$`, nil, ""},
+		{"unicode identifier", `select 1 as 名$1`, nil, ""},
+		{"identifier and parameter", `select $1 as value$2`, []any{1}, ""},
 		{"valid empty", `select now()`, nil, ""},
 		{"missing arg", `select $1,$2`, []any{1}, "missing argument"},
 		{"extra arg", `select $1`, []any{1, 2}, "unused argument"},

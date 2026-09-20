@@ -152,7 +152,17 @@ func PlaceholderOrdinals(sql string) ([]int, error) {
 			out = append(out, n)
 			i = j
 		default:
-			i++
+			// PostgreSQL permits dollar signs (and non-ASCII bytes) in
+			// unquoted identifiers. Consume the whole token before looking
+			// for parameters or dollar-quoted strings.
+			if isTagStart(sql[i]) || sql[i] >= 0x80 {
+				i++
+				for i < len(sql) && (isTagPart(sql[i]) || sql[i] == '$' || sql[i] >= 0x80) {
+					i++
+				}
+			} else {
+				i++
+			}
 		}
 	}
 	return out, nil
