@@ -76,8 +76,8 @@ const (
 // already produced those findings — and it is why the register carries almost
 // no suppression pairs.
 type Clause struct {
-	Findings []string `yaml:"findings"`
-	Residual bool     `yaml:"residual"`
+	Findings []string `yaml:"findings" json:"findings"`
+	Residual bool     `yaml:"residual" json:"residual"`
 }
 
 // UnmarshalYAML accepts both clause spellings the register uses: the mapping
@@ -96,8 +96,8 @@ func (c *Clause) UnmarshalYAML(value *yaml.Node) error {
 		return nil
 	case yaml.MappingNode:
 		var raw struct {
-			Findings []string `yaml:"findings"`
-			Residual bool     `yaml:"residual"`
+			Findings []string `yaml:"findings" json:"findings"`
+			Residual bool     `yaml:"residual" json:"residual"`
 		}
 		if err := value.Decode(&raw); err != nil {
 			return fmt.Errorf("clause mapping: %w", err)
@@ -114,69 +114,85 @@ func (c *Clause) UnmarshalYAML(value *yaml.Node) error {
 // max() rather than assignment is deliberate: a modifier is a statement that
 // this presentation is at least this bad.
 type SeverityModifier struct {
-	Finding  string `yaml:"finding"`
-	Severity int    `yaml:"severity"`
+	Finding  string `yaml:"finding" json:"finding"`
+	Severity int    `yaml:"severity" json:"severity"`
 }
 
 // Rule is one row of the register.
 type Rule struct {
-	ID   string `yaml:"id"`
-	Kind Kind   `yaml:"kind"`
+	ID   string `yaml:"id" json:"id"`
+	Kind Kind   `yaml:"kind" json:"kind"`
 
-	AppliesSpecies []string `yaml:"applies_species"`
-	AppliesSex     []string `yaml:"applies_sex"`
-	AppliesStatus  []string `yaml:"applies_status"`
+	AppliesSpecies []string `yaml:"applies_species" json:"applies_species"`
+	AppliesSex     []string `yaml:"applies_sex" json:"applies_sex"`
+	AppliesStatus  []string `yaml:"applies_status" json:"applies_status"`
 
 	// GateRequired and GateExcluded are hard filters evaluated before any
 	// clause. A gate also supplies the specificity that lets an otherwise
 	// non-specific clause be anchored.
-	GateRequired []string `yaml:"gate_required"`
-	GateExcluded []string `yaml:"gate_excluded"`
+	GateRequired []string `yaml:"gate_required" json:"gate_required"`
+	GateExcluded []string `yaml:"gate_excluded" json:"gate_excluded"`
 
 	// HumanSelectedOnly rules never fire automatically. Heat Stress is the only
 	// one: `pant` raises a Director-confirm flag, it does not open a course.
-	HumanSelectedOnly bool `yaml:"human_selected_only"`
+	HumanSelectedOnly bool `yaml:"human_selected_only" json:"human_selected_only"`
 
-	Pathognomonic []Clause `yaml:"pathognomonic"`
-	Probable      []Clause `yaml:"probable"`
-	Possible      []Clause `yaml:"possible"`
+	Pathognomonic []Clause `yaml:"pathognomonic" json:"pathognomonic"`
+	Probable      []Clause `yaml:"probable" json:"probable"`
+	Possible      []Clause `yaml:"possible" json:"possible"`
 
-	SeverityBase      int                `yaml:"severity_base"`
-	SeverityModifiers []SeverityModifier `yaml:"severity_modifiers"`
+	SeverityBase      int                `yaml:"severity_base" json:"severity_base"`
+	SeverityModifiers []SeverityModifier `yaml:"severity_modifiers" json:"severity_modifiers"`
 
 	// AcuteActionable separates "bad" from "bad in the next ten minutes". PPR is
 	// severity 4 with no acute intervention; bloat is severity 4 and entirely
 	// about the next ten minutes. Conflating them designs in alarm fatigue.
-	AcuteActionable bool   `yaml:"acute_actionable"`
-	TreatmentRisk   string `yaml:"treatment_risk"`
+	AcuteActionable bool   `yaml:"acute_actionable" json:"acute_actionable"`
+	TreatmentRisk   string `yaml:"treatment_risk" json:"treatment_risk"`
 
-	ExitType    string `yaml:"exit_type"`
-	SOPRef      string `yaml:"sop_ref"`
-	Containment string `yaml:"containment"`
+	ExitType    string `yaml:"exit_type" json:"exit_type"`
+	SOPRef      string `yaml:"sop_ref" json:"sop_ref"`
+	Containment string `yaml:"containment" json:"containment"`
 
 	// ExplainsFindings marks findings this diagnosis accounts for even though no
 	// clause matched on them, so a residual rule does not re-open them.
-	ExplainsFindings []string `yaml:"explains_findings"`
+	ExplainsFindings []string `yaml:"explains_findings" json:"explains_findings"`
 
 	// Suppresses is specific-suppresses-specific only. A suppressed rule stays
 	// on the record as covered, never deleted: if the animal is not improving,
 	// the covered diagnosis is the first thing re-opened.
-	Suppresses []string `yaml:"suppresses"`
+	Suppresses []string `yaml:"suppresses" json:"suppresses"`
 
-	RecheckIDPossible string   `yaml:"recheck_id_possible"`
-	AdjunctWhen       []string `yaml:"adjunct_when"`
+	RecheckIDPossible string   `yaml:"recheck_id_possible" json:"recheck_id_possible,omitempty"`
+	AdjunctWhen       []string `yaml:"adjunct_when" json:"adjunct_when,omitempty"`
+
+	// Treats names the PUBLISHED treatment protocol this diagnosis opens, by its
+	// disease key, in both age bands.
+	//
+	// It replaces a string-munged guess. Until the register was authored, a rule
+	// reached its course through SOPRef -> SOPRefToDiseaseKey(), which lowercases
+	// the reference, swaps spaces for underscores and consults an alias map -- so a
+	// vet adding `sop_ref: Pneumonia` was betting that derivation would land on a
+	// disease key that exists. When it did not, the symptom was a course that
+	// simply never opened, with nothing anywhere saying why.
+	//
+	// Naming it outright lets PUBLISH refuse the mistake: a rule whose Treats has
+	// no published protocol in both age bands is rejected at authoring time. EMPTY
+	// IS LEGITIMATE and means a field action -- treated once, in place, opening no
+	// course (today's `sop_ref: Field`).
+	Treats string `yaml:"treats" json:"treats,omitempty"`
 }
 
 // Register is the loaded rule table, pinned to a version.
 type Register struct {
-	Version string `yaml:"register_version"`
+	Version string `yaml:"register_version" json:"register_version"`
 
 	// Status is the authoring state the SOP repo stamps on a register
 	// (`locked` once its catalog is stable). It is recorded, never acted on:
 	// which register serves a class is decided by the binding in embed.go, and
 	// a status field that could suppress a load would be a second, quieter
 	// switch over which animals get diagnosed.
-	Status string `yaml:"status"`
+	Status string `yaml:"status" json:"status"`
 
 	// AppliesClass is the register's own declaration of the animal classes it may
 	// serve. It exists because the loudest rule in the spec -- never load adult
@@ -188,14 +204,14 @@ type Register struct {
 	// Empty means the register makes no claim. Only adult-1 is in that state (it
 	// predates the four-class split), so its binding is asserted in a test
 	// instead.
-	AppliesClass []string `yaml:"applies_class"`
+	AppliesClass []string `yaml:"applies_class" json:"applies_class"`
 
 	// NonSpecific findings appear in almost every sick animal. They never enter
 	// the explained set even when a clause matched on them, which is what keeps
 	// the unexplained-findings channel alive.
-	NonSpecific []string `yaml:"non_specific"`
-	Vocabulary  []string `yaml:"vocabulary"`
-	Rules       []Rule   `yaml:"rules"`
+	NonSpecific []string `yaml:"non_specific" json:"non_specific"`
+	Vocabulary  []string `yaml:"vocabulary" json:"vocabulary"`
+	Rules       []Rule   `yaml:"rules" json:"rules"`
 
 	byID        map[string]*Rule
 	nonSpecific map[string]bool
