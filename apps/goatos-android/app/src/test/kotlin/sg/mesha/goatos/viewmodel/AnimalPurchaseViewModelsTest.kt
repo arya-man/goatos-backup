@@ -16,6 +16,10 @@ import kotlinx.coroutines.test.advanceUntilIdle
 import kotlinx.coroutines.test.resetMain
 import kotlinx.coroutines.test.runTest
 import kotlinx.coroutines.test.setMain
+import kotlinx.serialization.json.buildJsonObject
+import kotlinx.serialization.json.double
+import kotlinx.serialization.json.jsonPrimitive
+import kotlinx.serialization.json.put
 import org.junit.After
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
@@ -27,10 +31,6 @@ import org.junit.runner.RunWith
 import org.robolectric.RobolectricTestRunner
 import org.robolectric.RuntimeEnvironment
 import org.robolectric.annotation.Config
-import kotlinx.serialization.json.buildJsonObject
-import kotlinx.serialization.json.double
-import kotlinx.serialization.json.jsonPrimitive
-import kotlinx.serialization.json.put
 import sg.mesha.goatos.boot.RecordingAnalytics
 import sg.mesha.goatos.capture.CapturedPhoto
 import sg.mesha.goatos.capture.CapturedVideo
@@ -42,11 +42,13 @@ import sg.mesha.goatos.core.analytics.NoopCrashReporter
 import sg.mesha.goatos.core.common.AppResult
 import sg.mesha.goatos.core.data.AnimalPurchaseAnswers
 import sg.mesha.goatos.core.data.AnimalPurchaseRepository
-import sg.mesha.goatos.core.data.QueuedAnimalPurchaseAnimal
 import sg.mesha.goatos.core.data.BootstrapRepository
+import sg.mesha.goatos.core.data.QueuedAnimalPurchaseAnimal
 import sg.mesha.goatos.core.data.SalesDealTotals
 import sg.mesha.goatos.core.data.SalesLeadSide
 import sg.mesha.goatos.core.data.SalesRepository
+import sg.mesha.goatos.core.data.WorkflowVideoDraft
+import sg.mesha.goatos.core.data.WorkflowsRepository
 import sg.mesha.goatos.core.data.sync.SyncItemStatus
 import sg.mesha.goatos.core.data.sync.SyncQueueItem
 import sg.mesha.goatos.core.data.sync.SyncRepository
@@ -54,15 +56,15 @@ import sg.mesha.goatos.core.model.nav.NavState
 import sg.mesha.goatos.core.network.BootstrapOperatorProfileDto
 import sg.mesha.goatos.core.network.dto.AnimalPurchaseAnimalCreateRequestDto
 import sg.mesha.goatos.core.network.dto.AnimalPurchaseAnimalDto
+import sg.mesha.goatos.core.network.dto.AnimalPurchaseAnswerRowDto
+import sg.mesha.goatos.core.network.dto.AnimalPurchaseConditionDto
 import sg.mesha.goatos.core.network.dto.AnimalPurchaseCountsDto
 import sg.mesha.goatos.core.network.dto.AnimalPurchaseLoadCreateRequestDto
-import sg.mesha.goatos.core.network.dto.AnimalPurchaseAnswerRowDto
 import sg.mesha.goatos.core.network.dto.AnimalPurchaseLoadDto
-import sg.mesha.goatos.core.network.dto.AnimalPurchaseOptionDto
-import sg.mesha.goatos.core.network.dto.AnimalPurchaseOptionsDto
-import sg.mesha.goatos.core.network.dto.AnimalPurchaseConditionDto
 import sg.mesha.goatos.core.network.dto.AnimalPurchaseMediaItemDto
 import sg.mesha.goatos.core.network.dto.AnimalPurchaseMediaSlotDto
+import sg.mesha.goatos.core.network.dto.AnimalPurchaseOptionDto
+import sg.mesha.goatos.core.network.dto.AnimalPurchaseOptionsDto
 import sg.mesha.goatos.core.network.dto.AnimalPurchaseQuestionDto
 import sg.mesha.goatos.core.network.dto.SaleAllocationDto
 import sg.mesha.goatos.core.network.dto.SaleAllocationRequestDto
@@ -76,9 +78,14 @@ import sg.mesha.goatos.core.network.dto.SalesLeadBoardMetaDto
 import sg.mesha.goatos.core.network.dto.SalesOptionsDto
 import sg.mesha.goatos.core.network.dto.VendorOptionDto
 import sg.mesha.goatos.core.network.dto.VendorOptionsDto
+import sg.mesha.goatos.core.network.dto.WorkflowCardDto
+import sg.mesha.goatos.core.network.dto.WorkflowChipsDto
+import sg.mesha.goatos.core.network.dto.WorkflowDetailResponseDto
+import sg.mesha.goatos.core.network.dto.WorkflowNextActionDto
+import sg.mesha.goatos.core.network.dto.WorkflowOverdueDateDto
 import sg.mesha.goatos.feature.vendors.AnimalPurchaseAnimalCreateEvent
-import sg.mesha.goatos.feature.vendors.AnimalPurchaseLoadDetailEvent
 import sg.mesha.goatos.feature.vendors.AnimalPurchaseLoadCreateEvent
+import sg.mesha.goatos.feature.vendors.AnimalPurchaseLoadDetailEvent
 import sg.mesha.goatos.feature.vendors.AnimalPurchaseLoadField
 import sg.mesha.goatos.feature.vendors.AnimalPurchaseQuestionKind
 import sg.mesha.goatos.feature.vendors.VendorsTone
@@ -699,6 +706,45 @@ class AnimalPurchaseViewModelsTest {
             decisionNote = note,
         )
 
+
+    /**
+     * PROCUREMENT IS SOP-DRIVEN END TO END (2026-09-20): the load's steps card is the BACKEND's
+     * counters and next step, verbatim. The phone resolves the workflow by SUBJECT -- the load it
+     * is showing -- and counts nothing itself, so a step the farm adds on the web appears here
+     * with no app release.
+     */
+    @Test
+    fun `the load's steps card renders the backend's own counters`() = runTest(dispatcher) {
+        val repo = FakeAnimalPurchaseRepository()
+        val workflows = FakeLoadStepsRepository(
+            workflowId = "wf-load-1",
+            detail = WorkflowDetailResponseDto(
+                workflowId = "wf-load-1",
+                actionsDone = 2,
+                actionsTotal = 7,
+                nextAction = WorkflowNextActionDto(key = "arrival_video", title = "Record the animals arriving"),
+            ),
+        )
+        val vm = AnimalPurchaseLoadDetailViewModel(
+            repository = repo,
+            workflows = workflows,
+            syncRepository = RecordingAnimalPurchaseSyncRepository(),
+            analytics = RecordingAnalytics(),
+            crashReporter = NoopCrashReporter(),
+            savedStateHandle = SavedStateHandle(mapOf("load_id" to LOAD_ID)),
+        )
+        backgroundScope.launch { vm.state.collect {} }
+        advanceUntilIdle()
+
+        val state = vm.state.value
+        assertEquals("wf-load-1", state.stepsWorkflowId)
+        assertEquals("2 of 7 done", state.stepsProgressLine)
+        assertEquals("Next: Record the animals arriving", state.stepsNextLine)
+        assertFalse(state.stepsUnavailable)
+        // Resolved by the LOAD, on the intake template -- never by guessing a workflow id.
+        assertEquals(listOf("animal_purchase_intake" to LOAD_ID), workflows.subjectReads)
+    }
+
     private companion object {
         const val LOAD_ID = "load-1"
 
@@ -715,6 +761,7 @@ class AnimalPurchaseViewModelsTest {
         val sync = RecordingAnimalPurchaseSyncRepository()
         val vm = AnimalPurchaseLoadDetailViewModel(
             repository = repo,
+            workflows = FakeLoadStepsRepository(),
             syncRepository = sync,
             analytics = RecordingAnalytics(),
             crashReporter = NoopCrashReporter(),
@@ -923,4 +970,35 @@ private class StubSalesRepository : SalesRepository {
     override suspend fun saleAllocation(dealId: String): AppResult<SaleAllocationDto> = error("unused")
     override suspend fun previewAllocation(request: SaleAllocationRequestDto): AppResult<SalePreviewDto> = error("unused")
     override suspend fun confirmAllocation(idempotencyKey: String, request: SaleAllocationRequestDto): AppResult<SaleAllocationDto> = error("unused")
+}
+
+/**
+ * The load's SOP steps (PROCUREMENT IS SOP-DRIVEN END TO END, 2026-09-20): the workflow the backend
+ * opened for this load, resolved by subject. Every other method is the interface's own default.
+ */
+private class FakeLoadStepsRepository(
+    private val workflowId: String = "",
+    private val detail: WorkflowDetailResponseDto? = null,
+) : WorkflowsRepository {
+    var subjectReads: List<Pair<String, String>> = emptyList()
+        private set
+
+    override fun cards(module: String, date: String, filter: String): Flow<PagingData<WorkflowCardDto>> = flowOf(PagingData.empty())
+    override fun observeChips(module: String, date: String): Flow<WorkflowChipsDto?> = flowOf(null)
+    override fun observeOverdueDates(module: String): Flow<List<WorkflowOverdueDateDto>> = flowOf(emptyList())
+    override fun observeDetail(workflowId: String, lens: String, date: String): Flow<WorkflowDetailResponseDto?> = flowOf(detail)
+    override fun observeVideoDrafts(workflowId: String): Flow<List<WorkflowVideoDraft>> = flowOf(emptyList())
+    override suspend fun listVideoDrafts(workflowId: String): List<WorkflowVideoDraft> = emptyList()
+    override suspend fun replaceVideoDraft(draft: WorkflowVideoDraft): WorkflowVideoDraft? = null
+    override suspend fun clearVideoDrafts(workflowId: String) = Unit
+    override suspend fun markVideoDraftsSubmitting(workflowId: String) = Unit
+    override suspend fun refreshDetail(workflowId: String, lens: String, date: String): Result<Unit> = Result.success(Unit)
+    override suspend fun refreshDetailBySubject(templateKey: String, subjectRefId: String): Result<String> {
+        subjectReads = subjectReads + (templateKey to subjectRefId)
+        return Result.success(workflowId)
+    }
+
+    override suspend fun findCachedCard(workflowId: String): WorkflowCardDto? = null
+    override suspend fun markActionAnswered(workflowId: String, actionId: String, answerValue: String) = Unit
+    override suspend fun markActionCompleted(workflowId: String, actionId: String, inReview: Boolean) = Unit
 }

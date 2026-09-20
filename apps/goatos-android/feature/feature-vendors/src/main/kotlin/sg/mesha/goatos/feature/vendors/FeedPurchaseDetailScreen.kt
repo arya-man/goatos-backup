@@ -97,6 +97,18 @@ fun FeedPurchaseDetailScreen(
                     }
                 }
             }
+            // The load's SOP steps: the weighbridge slip, the arrival, the aflatoxin sign-off and
+            // the money -- authored on the web, run by the backend as one workflow per load.
+            item(key = "steps") {
+                PurchaseStepsCard(
+                    workflowId = state.stepsWorkflowId,
+                    progressLine = state.stepsProgressLine,
+                    nextLine = state.stepsNextLine,
+                    unavailable = state.stepsUnavailable,
+                    pendingCopy = FEED_STEPS_PENDING,
+                    onOpen = { onEvent(FeedPurchaseDetailEvent.OpenSteps(it)) },
+                )
+            }
             items(count = state.sections.size, key = { "section_${state.sections[it].title}" }) { index ->
                 VendorsDetailSection(state.sections[index])
             }
@@ -308,3 +320,6 @@ private const val TOTAL_HINT = "Leave blank to use the parts above"
 private const val LABEL_REACHED_ON = "Delivered on"
 private const val LABEL_REACHED_WEIGHT = "Weight received (kg)"
 private const val REACHED_WEIGHT_HINT = "Leave blank if nobody weighed it"
+
+/** Shown until the backend has opened the load's workflow (the recorded event still in flight). */
+private const val FEED_STEPS_PENDING = "Steps will appear once the load is synced."

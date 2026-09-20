@@ -170,6 +170,15 @@ data class AnimalPurchaseLoadDetailUiState(
     val emptyMessage: String? = null,
     /** Backend-owned prefix for the decided line (`animal.decided_by`). */
     val decidedByLabel: String = "",
+    // --- the load's SOP steps (PROCUREMENT IS SOP-DRIVEN END TO END, 2026-09-20) ---
+    /** The load's workflow id once the backend has opened it; blank until then. */
+    val stepsWorkflowId: String = "",
+    /** "2 of 7 done" -- the backend card's counters, VERBATIM. Blank until read. */
+    val stepsProgressLine: String = "",
+    /** "Next: Record the animals arriving" -- the card's next step title; blank when done. */
+    val stepsNextLine: String = "",
+    /** Whether the workflow read failed (offline); the card then says the steps are on the server. */
+    val stepsUnavailable: Boolean = false,
 )
 
 sealed interface AnimalPurchaseLoadDetailEvent {
@@ -185,6 +194,9 @@ sealed interface AnimalPurchaseLoadDetailEvent {
 
     /** A recorded animal's card was tapped: open everything the inspector entered. */
     data class OpenAnimal(val candidateId: String) : AnimalPurchaseLoadDetailEvent
+
+    /** Open the load's SOP steps (the shared workflow screen). */
+    data class OpenSteps(val workflowId: String) : AnimalPurchaseLoadDetailEvent
 }
 
 // ---------------------------------------------------------------------------------------------

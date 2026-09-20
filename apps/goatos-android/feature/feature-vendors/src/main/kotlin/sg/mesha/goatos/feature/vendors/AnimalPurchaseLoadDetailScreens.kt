@@ -62,6 +62,9 @@ import sg.mesha.goatos.core.ui.SyncStatusIndicator
  */
 const val ANIMAL_PURCHASE_LOAD_AUTO_REFRESH_MS = 30_000L
 
+/** Shown until the backend has opened the load's workflow (the recorded event still in flight). */
+private const val LOAD_STEPS_PENDING = "Steps will appear once the load is synced."
+
 /**
  * One purchase load (L1 drill): the backend title, summary and whole-load counts on top, then the
  * animals recorded in it, each with its SERVER-owned decision chip. Refresh-on-open, on resume AND
@@ -114,6 +117,19 @@ fun AnimalPurchaseLoadDetailScreen(
                 contentPadding = PaddingValues(top = 4.dp, bottom = 96.dp),
                 verticalArrangement = Arrangement.spacedBy(10.dp),
             ) {
+                // The load's SOP steps, above the animals: the work the load owes -- recording the
+                // animals, the office's decision, the arrival -- authored on the web and run by the
+                // backend as one workflow per load.
+                item(key = "steps") {
+                    PurchaseStepsCard(
+                        workflowId = state.stepsWorkflowId,
+                        progressLine = state.stepsProgressLine,
+                        nextLine = state.stepsNextLine,
+                        unavailable = state.stepsUnavailable,
+                        pendingCopy = LOAD_STEPS_PENDING,
+                        onOpen = { onEvent(AnimalPurchaseLoadDetailEvent.OpenSteps(it)) },
+                    )
+                }
                 if (state.animalsTitle.isNotBlank()) {
                     item(key = "animals_title") {
                         Text(

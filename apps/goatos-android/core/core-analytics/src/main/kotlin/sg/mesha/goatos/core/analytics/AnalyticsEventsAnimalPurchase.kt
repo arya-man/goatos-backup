@@ -21,6 +21,9 @@ object AnalyticsEventsAnimalPurchase {
     /** A load row was tapped and the load screen opened. */
     const val LOAD_OPENED = "animal_purchase_load_opened"
 
+    /** The load's SOP steps opened from its detail (PROCUREMENT SOP-DRIVEN, 2026-09-20). */
+    const val LOAD_STEPS_OPENED = "animal_purchase_load_steps_opened"
+
     /** The add-load form was opened. */
     const val LOAD_ADD_OPENED = "animal_purchase_load_add_opened"
 

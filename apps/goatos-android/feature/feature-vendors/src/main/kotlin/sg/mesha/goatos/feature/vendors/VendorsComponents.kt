@@ -547,3 +547,52 @@ internal fun VendorsAddButton(label: String, onClick: () -> Unit, modifier: Modi
         Spacer(Modifier.width(2.dp))
     }
 }
+
+/**
+ * PROCUREMENT IS SOP-DRIVEN END TO END (maintainer decision 2026-09-20): the steps a PURCHASE owes,
+ * on the load that owes them. One card for both kinds of load -- animals and feed -- because they
+ * are the same thing one document over: work authored on the web, opened by the backend when the
+ * load is recorded, and run on the shared workflow screen.
+ *
+ * The card shows the backend's counters and next step VERBATIM and never counts steps of its own.
+ * It knows nothing about which steps complete themselves (the office's decision, the ledger's
+ * arrival, the aflatoxin sign-off): those arrive already done, like any other finished step.
+ */
+@Composable
+fun PurchaseStepsCard(
+    workflowId: String,
+    progressLine: String,
+    nextLine: String,
+    unavailable: Boolean,
+    pendingCopy: String,
+    onOpen: (String) -> Unit,
+) {
+    val hasSteps = workflowId.isNotBlank()
+    Column(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(horizontal = MeshaDimens.gutter)
+            .clip(RoundedCornerShape(MeshaDimens.radiusCard))
+            .background(MeshaColors.Surf)
+            .clickable(enabled = hasSteps, role = Role.Button) { onOpen(workflowId) }
+            .padding(14.dp),
+        verticalArrangement = Arrangement.spacedBy(8.dp),
+    ) {
+        Text(text = PURCHASE_STEPS_TITLE, color = MeshaColors.Muted, style = MeshaType.sectionLabel)
+        when {
+            hasSteps -> {
+                Text(text = progressLine.ifBlank { PURCHASE_STEPS_OPEN }, color = MeshaColors.Ink, style = MeshaType.rowValue)
+                if (nextLine.isNotBlank()) {
+                    Text(text = nextLine, color = MeshaColors.Muted, style = MeshaType.caption)
+                }
+                Text(text = PURCHASE_STEPS_OPEN, color = MeshaColors.BrandD, style = MeshaType.pillStrong)
+            }
+            unavailable -> Text(text = PURCHASE_STEPS_OFFLINE, color = MeshaColors.Muted, style = MeshaType.caption)
+            else -> Text(text = pendingCopy, color = MeshaColors.Muted, style = MeshaType.caption)
+        }
+    }
+}
+
+private const val PURCHASE_STEPS_TITLE = "STEPS FOR THIS LOAD"
+private const val PURCHASE_STEPS_OPEN = "Open the steps"
+private const val PURCHASE_STEPS_OFFLINE = "Waiting for network to read the steps."
