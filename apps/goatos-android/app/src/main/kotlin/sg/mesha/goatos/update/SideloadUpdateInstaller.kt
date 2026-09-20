@@ -11,7 +11,10 @@ import dagger.hilt.android.qualifiers.ApplicationContext
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import java.io.File
+import java.net.HttpURLConnection
 import java.net.URL
+import java.util.zip.ZipException
+import java.util.zip.ZipFile
 import javax.inject.Inject
 import javax.inject.Singleton
 
@@ -41,12 +44,34 @@ class SideloadUpdateInstaller @Inject constructor(
     suspend fun downloadApk(apkUrl: String): File = withContext(Dispatchers.IO) {
         val updatesDir = File(context.cacheDir, "updates").apply { mkdirs() }
         val apkFile = File(updatesDir, "goatos-update.apk")
+        val partialFile = File(updatesDir, "goatos-update.apk.part")
+        partialFile.delete()
         val connection = URL(apkUrl).openConnection().apply {
             connectTimeout = DOWNLOAD_CONNECT_TIMEOUT_MS
             readTimeout = DOWNLOAD_READ_TIMEOUT_MS
         }
-        connection.getInputStream().use { input ->
-            apkFile.outputStream().use { output -> input.copyTo(output) }
+        try {
+            if (connection is HttpURLConnection) {
+                val responseCode = connection.responseCode
+                if (responseCode !in 200..299) {
+                    throw InvalidApkDownloadException("update_download_http_$responseCode")
+                }
+            }
+            connection.getInputStream().use { input ->
+                partialFile.outputStream().use { output -> input.copyTo(output) }
+            }
+            validateDownloadedApk(partialFile, connection.contentLengthLong)
+            if (!partialFile.renameTo(apkFile)) {
+                partialFile.copyTo(apkFile, overwrite = true)
+                partialFile.delete()
+            }
+        } catch (error: Throwable) {
+            partialFile.delete()
+            throw error
+        } finally {
+            if (connection is HttpURLConnection) {
+                connection.disconnect()
+            }
         }
         apkFile
     }
@@ -87,5 +112,33 @@ class SideloadUpdateInstaller @Inject constructor(
         private const val APK_MIME_TYPE = "application/vnd.android.package-archive"
         private const val DOWNLOAD_CONNECT_TIMEOUT_MS = 15_000
         private const val DOWNLOAD_READ_TIMEOUT_MS = 60_000
+        private const val MIN_REASONABLE_APK_BYTES = 1_048_576L
+
+        internal fun validateDownloadedApk(apkFile: File, expectedBytes: Long = -1L) {
+            val actualBytes = apkFile.length()
+            if (actualBytes < MIN_REASONABLE_APK_BYTES) {
+                throw InvalidApkDownloadException("update_download_too_small")
+            }
+            if (expectedBytes >= 0L && actualBytes != expectedBytes) {
+                throw InvalidApkDownloadException("update_download_incomplete")
+            }
+            try {
+                ZipFile(apkFile).use { zip ->
+                    if (zip.getEntry("AndroidManifest.xml") == null) {
+                        throw InvalidApkDownloadException("update_download_missing_manifest")
+                    }
+                    if (zip.getEntry("classes.dex") == null) {
+                        throw InvalidApkDownloadException("update_download_missing_dex")
+                    }
+                }
+            } catch (error: ZipException) {
+                throw InvalidApkDownloadException("update_download_not_zip", error)
+            }
+        }
     }
 }
+
+class InvalidApkDownloadException(
+    message: String,
+    cause: Throwable? = null,
+) : IllegalStateException(message, cause)
