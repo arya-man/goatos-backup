@@ -31,7 +31,7 @@ Prevent missing, extra, gapped, or conditionally-pruned PostgreSQL parameters fr
 
 ## Pending
 
-- Run full local CI, push branch, create PR, and verify PR/head state.
+- Push branch, create PR, and verify PR/head state.
 
 ## Tests and evidence
 
@@ -39,7 +39,8 @@ Prevent missing, extra, gapped, or conditionally-pruned PostgreSQL parameters fr
 - `make guardrail-registration-guard`: PASS; new guard registered and reachable.
 - Focused Go tests for `sqlbind`, AST scanner, and Weighing pruning: PASS.
 - Throwaway PostgreSQL 16 execution: PASS for `dimensions`, `origin`, `shed_type`, `weight_bands`, and `weekly_gain`; every test executed rather than skipped.
-- First full `make ci-local` at `3a4e3fa113b37220c0ca3b94ea339e56fe2a7bed`: RED only on missing leadership-assistant classification for the new infrastructure helpers and an exception-guard classification for malformed AST string literals. All product suites, the new bind guard, full Go tests, query plans, admin-web build/tests, and Android compile/unit/lint passed. Both metadata findings were fixed; a final full rerun is pending.
+- First full `make ci-local` at `3a4e3fa113b37220c0ca3b94ea339e56fe2a7bed`: RED only on missing leadership-assistant classification for the new infrastructure helpers and an exception-guard classification for malformed AST string literals. All product suites, the new bind guard, full Go tests, query plans, admin-web build/tests, and Android compile/unit/lint passed. Both metadata findings were fixed before the final rerun.
+- Final full `make ci-local` at implementation SHA `8827233e6e0f93c941c7a3b87f3133cffd49f73e`: GREEN with a fresh all-scope receipt. The optional `ai-doctor` step warned that the local Repowise index was stale; it was not a required product/landing gate.
 
 ## Known failures and constraints
 
@@ -56,4 +57,5 @@ Prevent missing, extra, gapped, or conditionally-pruned PostgreSQL parameters fr
 
 - Branch: `fix/sql-bind-contract-guard`.
 - Base SHA: `e565e0d291b89ec4ae31d9003f028cca5ed9638b`.
+- Last fully certified implementation SHA: `8827233e6e0f93c941c7a3b87f3133cffd49f73e`.
 - No push, PR, merge, or deployment yet.
