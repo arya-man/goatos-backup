@@ -80,10 +80,15 @@ type Option struct {
 	// unexplained finding.
 	Emits []string `json:"emits,omitempty"`
 
-	// Exclusive marks an answer on a MULTI question that cannot be combined with
-	// any other -- "none" beside a list of neuro signs. The phone clears the rest
-	// when it is picked and the engine refuses an answer that pairs it.
-	Exclusive bool `json:"exclusive,omitempty"`
+	// ConflictsWith names answers on the SAME question this one cannot be ticked
+	// beside. "None" beside a list of nervous signs conflicts with every one of
+	// them; the phone clears them when it is picked and the engine refuses the pair.
+	//
+	// It is a LIST rather than an exclusive flag because the real rules are not
+	// uniform: an animal that is off feed cannot also be eating concentrate, green
+	// feed or normally -- but it CAN be eating dry feed, and a blanket exclusive
+	// would quietly ban a combination the farm actually records.
+	ConflictsWith []string `json:"conflicts_with,omitempty"`
 }
 
 // Band maps a numeric answer to tokens. Bounds are half-open and may be combined
@@ -123,10 +128,18 @@ func (b Band) bounded() bool {
 	return b.Gt != nil || b.Gte != nil || b.Lt != nil || b.Lte != nil
 }
 
-// Condition hides a question unless an EARLIER question holds a given value.
+// Condition hides a question unless an EARLIER question holds one of the listed
+// answers.
+//
+// It takes a LIST rather than a single value because the rules it has to express are
+// mostly negative ones -- "ask the CMT only when there is milk to test" covers four
+// of the five lactation answers, and "grade the drop test only while the kid is on
+// its feet" covers every activity except down. Written as equality those would need
+// a NOT, and a condition language with negation in it is one an author has to reason
+// about rather than read.
 type Condition struct {
-	QuestionID string `json:"question_id"`
-	Value      string `json:"value"`
+	QuestionID string   `json:"question_id"`
+	In         []string `json:"in"`
 }
 
 // Question is one thing the manager is asked about the animal in front of them.
@@ -153,7 +166,13 @@ type Question struct {
 	// applicable", never nothing, so the compulsory rule still holds.
 	OnlyIfSex string `json:"only_if_sex,omitempty"`
 
-	// OnlyIf hides the question unless an earlier question holds a value.
+	// OnlyIfStage hides the question outside the listed lifecycle stages. The stage
+	// comes from the herd register, never from the form, for the same reason sex
+	// does: it decides how a missed feed is READ, and a manager who could type it
+	// could turn a real refusal into a learner's miss.
+	OnlyIfStage []string `json:"only_if_stage,omitempty"`
+
+	// OnlyIf hides the question unless an earlier question holds one of the answers.
 	OnlyIf *Condition `json:"only_if,omitempty"`
 }
 
@@ -199,6 +218,22 @@ var AnimalTokenPrefixes = []string{"species:", "sex:", "status:", "stage:"}
 // They are declared here so Validate can tell a legitimate one from a typo, and the
 // list is deliberately short -- every entry is a piece of logic the decision doc
 // records as staying in code.
+// EngineReadTokens are tokens the ENGINE consumes rather than a rule.
+//
+// They exist so the milk ladder can read the form without reading a QUESTION ID. If
+// milkProblem() looked up `milk_intake` by id, that id would become load-bearing and
+// a vet renaming the question would silently disarm the refusal reading -- the same
+// trap corrections exist to avoid. Reading a token instead means the register says
+// which answer feeds the ladder, and the id is free to change.
+//
+// The orphan check counts these as read, which is why a form emitting one is not
+// reported as a question that does nothing.
+var EngineReadTokens = []string{
+	// The bar reading as the manager saw it, before the refusal history is applied.
+	"milk:refused_this_feed",
+	"milk:reduced",
+}
+
 var EngineEmittedTokens = []string{
 	// milkProblem() reads the refusal history and the milk-bar stage, not a symptom.
 	"milk_intake:not_drinking",
@@ -218,6 +253,15 @@ func isAnimalToken(tok string) bool {
 
 func isEngineToken(tok string) bool {
 	for _, t := range EngineEmittedTokens {
+		if t == tok {
+			return true
+		}
+	}
+	return false
+}
+
+func isEngineReadToken(tok string) bool {
+	for _, t := range EngineReadTokens {
 		if t == tok {
 			return true
 		}

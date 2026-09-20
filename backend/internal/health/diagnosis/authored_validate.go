@@ -95,6 +95,11 @@ func (a *AuthoredRegister) validateQuestions(add, warn func(string, string, ...a
 		if q.OnlyIfSex != "" && q.OnlyIfSex != "M" && q.OnlyIfSex != "F" {
 			add(p+".only_if_sex", "%q is not M or F", q.OnlyIfSex)
 		}
+		for j, st := range q.OnlyIfStage {
+			if strings.TrimSpace(st) == "" {
+				add(fmt.Sprintf("%s.only_if_stage.%d", p, j), "blank")
+			}
+		}
 
 		switch q.Kind {
 		case QuestionChoice, QuestionMulti:
@@ -114,7 +119,6 @@ func (a *AuthoredRegister) validateQuestions(add, warn func(string, string, ...a
 		a.validateCondition(p, i, q, add)
 	}
 
-	a.refuseDiseaseNamingQuestions(add)
 	_ = warn
 	return emitted
 }
@@ -139,8 +143,16 @@ func (a *AuthoredRegister) validateOptions(p string, q Question, emitted map[str
 		if strings.TrimSpace(o.Label) == "" {
 			add(op+".label", "required")
 		}
-		if o.Exclusive && q.Kind != QuestionMulti {
-			add(op+".exclusive", "only a pick-many answer can be exclusive")
+		if len(o.ConflictsWith) > 0 && q.Kind != QuestionMulti {
+			add(op+".conflicts_with", "only a pick-many answer can conflict with another")
+		}
+		for k, other := range o.ConflictsWith {
+			cp := fmt.Sprintf("%s.conflicts_with.%d", op, k)
+			if other == o.Value {
+				add(cp, "an answer cannot conflict with itself")
+			} else if q.option(other) == nil {
+				add(cp, "%q is not an answer to this question", other)
+			}
 		}
 		validateEmits(op, o.Emits, q.ID+"."+o.Value, emitted, add)
 	}
@@ -232,36 +244,35 @@ func (a *AuthoredRegister) validateCondition(p string, idx int, q Question, add 
 		add(cp+".question_id", "%q is not a question on this form", q.OnlyIf.QuestionID)
 		return
 	}
-	for _, o := range src.Options {
-		if o.Value == q.OnlyIf.Value {
-			return
+	if len(q.OnlyIf.In) == 0 {
+		add(cp+".in", "name at least one answer that makes this question appear")
+		return
+	}
+	for j, v := range q.OnlyIf.In {
+		if src.option(v) == nil {
+			add(fmt.Sprintf("%s.in.%d", cp, j), "%q is not an answer to %q", v, q.OnlyIf.QuestionID)
 		}
 	}
-	add(cp+".value", "%q is not an answer to %q", q.OnlyIf.Value, q.OnlyIf.QuestionID)
+	// A condition covering EVERY answer never hides anything, which means the author
+	// meant a different question or a shorter list -- either way the form does not do
+	// what the register says it does.
+	if len(q.OnlyIf.In) >= len(src.Options) {
+		add(cp+".in", "this covers every answer to %q, so the question is never hidden", q.OnlyIf.QuestionID)
+	}
 }
 
-// refuseDiseaseNamingQuestions enforces the oldest rule on this form: the manager
-// records what they SEE, and the engine names the disease. A question titled
-// "Pneumonia?" turns an observation into a diagnosis typed by whoever holds the
-// phone, and every ranking guarantee downstream assumes that never happened.
-func (a *AuthoredRegister) refuseDiseaseNamingQuestions(add func(string, string, ...any)) {
-	names := map[string]string{}
-	for _, r := range a.Rules {
-		names[normalizeName(r.ID)] = r.ID
-		if r.Treats != "" {
-			names[normalizeName(r.Treats)] = r.Treats
-		}
-		if r.SOPRef != "" && !strings.EqualFold(r.SOPRef, "field") && !strings.EqualFold(r.SOPRef, "supportive") {
-			names[normalizeName(r.SOPRef)] = r.SOPRef
-		}
-	}
-	for i, q := range a.Questions {
-		if hit, ok := names[normalizeName(q.Title)]; ok {
-			add(fmt.Sprintf("questions.%d.title", i),
-				"a question may not name a diagnosis (%q); record the sign, and let the rules name the disease", hit)
-		}
-	}
-}
+// A CHECK THAT WAS TRIED AND REMOVED, recorded so it is not re-proposed.
+//
+// "The form never names a disease" is a real rule -- the manager records what they
+// see and the engine names the illness -- and refusing a question titled after a rule
+// looked like the way to enforce it. It cannot be: this register deliberately carries
+// SYMPTOM-LABEL rules (RED_URINE, WOUNDS, LUMPS, TICKS, FEVER), whose whole job is to
+// surface a finding no diagnosis accounted for. Their ids ARE sign names, so the
+// check refused four of the farm's own questions -- "Red urine", "Wounds", "Lumps",
+// "Ticks" -- for being named after the signs they record.
+//
+// A guard that refuses the correct register is worse than no guard, and no mechanical
+// test separates "Pneumonia?" from "Red urine" here. The rule stays a review rule.
 
 func normalizeName(s string) string {
 	s = strings.ToLower(strings.TrimSpace(s))
@@ -358,6 +369,16 @@ func (a *AuthoredRegister) validateRules(emitted map[string]string, add, warn fu
 	read := map[string]bool{}
 	seen := map[string]bool{}
 
+	// A correction that reads a token is a consumer of it as surely as a clause is.
+	for _, c := range a.Corrections {
+		for _, tok := range c.When {
+			read[tok] = true
+		}
+		for _, tok := range c.Remove {
+			read[tok] = true
+		}
+	}
+
 	for i := range a.Rules {
 		r := a.Rules[i]
 		p := fmt.Sprintf("rules.%d", i)
@@ -423,16 +444,24 @@ func (a *AuthoredRegister) validateRules(emitted map[string]string, add, warn fu
 		}
 	}
 
+	// A non-specific token nothing emits is INERT -- the list only ever stops a
+	// token from voting on identity, so an entry that can never appear changes
+	// nothing. That is a different failure from a rule clause, which silently
+	// disables a whole diagnosis, so it is reported and not refused.
+	//
+	// The adult register ships one: `head_position:down`, declared non-specific
+	// while no question has ever asked about head position.
 	for _, tok := range a.NonSpecific {
+		read[tok] = true
 		if _, ok := emitted[tok]; !ok && !isAnimalToken(tok) && !isEngineToken(tok) {
-			add("non_specific", "no answer on this form emits %q", tok)
+			warn("non_specific", "no answer on this form emits %q, so listing it has no effect", tok)
 		}
 	}
 
 	// The second direction: an answer that reaches no rule.
 	orphans := make([]string, 0)
 	for tok := range emitted {
-		if !read[tok] {
+		if !read[tok] && !isEngineReadToken(tok) {
 			orphans = append(orphans, tok)
 		}
 	}

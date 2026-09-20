@@ -85,10 +85,32 @@ func (q Question) Asks(animal Animal, ans Answers) bool {
 	if q.OnlyIfSex != "" && !strings.EqualFold(q.OnlyIfSex, animal.Sex) {
 		return false
 	}
-	if q.OnlyIf != nil && !ans[q.OnlyIf.QuestionID].has(q.OnlyIf.Value) {
+	if len(q.OnlyIfStage) > 0 && !containsFold(q.OnlyIfStage, animal.Stage) {
 		return false
 	}
+	if q.OnlyIf != nil {
+		got := ans[q.OnlyIf.QuestionID]
+		hit := false
+		for _, v := range q.OnlyIf.In {
+			if got.has(v) {
+				hit = true
+				break
+			}
+		}
+		if !hit {
+			return false
+		}
+	}
 	return true
+}
+
+func containsFold(list []string, v string) bool {
+	for _, got := range list {
+		if strings.EqualFold(got, v) {
+			return true
+		}
+	}
+	return false
 }
 
 // ValidateAnswers refuses a form that cannot be read, BEFORE anything is diagnosed
@@ -137,10 +159,14 @@ func (a *AuthoredRegister) ValidateAnswers(animal Animal, ans Answers) Problems 
 			a.checkValues(q, got.Values, add)
 		case QuestionMulti:
 			a.checkValues(q, got.Values, add)
-			if len(got.Values) > 1 {
-				for _, v := range got.Values {
-					if o := q.option(v); o != nil && o.Exclusive {
-						add(q.ID, "%q cannot be ticked alongside another answer", o.Label)
+			for _, v := range got.Values {
+				o := q.option(v)
+				if o == nil {
+					continue
+				}
+				for _, other := range o.ConflictsWith {
+					if got.has(other) {
+						add(q.ID, "%q cannot be ticked alongside %q", o.Label, labelOf(q, other))
 					}
 				}
 			}
@@ -271,6 +297,17 @@ func (a *AuthoredRegister) Evidence(animal Animal, ans Answers, engine map[strin
 	}
 
 	a.applyCorrections(ev)
+
+	// The form's signals to the ENGINE are not findings, and they leave here.
+	//
+	// `milk:refused_this_feed` says what the manager saw at the bar; whether that is
+	// a refusal or a learner's miss is the ladder's answer, and the ladder puts its
+	// OWN token back in through `engine`. Leaving the raw signal in the evidence set
+	// would surface it to the Health Director as an unaccounted-for finding beside
+	// the reading it was used to produce.
+	for _, tok := range EngineReadTokens {
+		delete(ev, tok)
+	}
 	return ev
 }
 
@@ -307,6 +344,13 @@ func (a *AuthoredRegister) applyCorrections(ev map[string]bool) {
 			ev[tok] = true
 		}
 	}
+}
+
+func labelOf(q Question, value string) string {
+	if o := q.option(value); o != nil {
+		return o.Label
+	}
+	return value
 }
 
 func trimFloat(f float64) string {

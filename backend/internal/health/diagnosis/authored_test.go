@@ -151,14 +151,13 @@ func TestAnAnswerMayNotEmitAnAnimalFact(t *testing.T) {
 	mustHaveFatal(t, r.Validate(), "supplied by the herd register")
 }
 
-// The form records what is SEEN. A question titled with a diagnosis turns the
-// observation into a verdict typed by whoever holds the phone.
-func TestAQuestionMayNotNameADiagnosis(t *testing.T) {
-	r := minimal()
-	r.Rules[0].ID = "PNEUMONIA"
-	r.Questions[0].Title = "Pneumonia?"
-	mustHaveFatal(t, r.Validate(), "may not name a diagnosis")
-}
+// A CHECK THAT WAS TRIED AND REMOVED. "The form never names a disease" is a real
+// rule, but it cannot be enforced by comparing a question's title to a rule id,
+// because this register deliberately carries SYMPTOM-LABEL rules -- RED_URINE,
+// WOUNDS, LUMPS, TICKS -- whose job is to surface a finding no diagnosis accounted
+// for. Their ids ARE sign names, so the check refused four of the farm's own
+// questions for being named after the signs they record. It stays a review rule; see
+// the note in authored_validate.go.
 
 func TestAnUnknownKeyIsRejectedRatherThanIgnored(t *testing.T) {
 	_, err := LoadAuthored([]byte(`{"register_version":"x","severity_fudge":3,"rules":[]}`))
@@ -298,7 +297,7 @@ func TestAnExclusiveAnswerCannotBeTickedAlongsideAnother(t *testing.T) {
 	r.Questions = append(r.Questions, Question{
 		ID: "neuro", Kind: QuestionMulti, Title: "Nervous signs",
 		Options: []Option{
-			{Value: "none", Label: "None", Exclusive: true},
+			{Value: "none", Label: "None", ConflictsWith: []string{"circling", "ataxia"}},
 			{Value: "circling", Label: "Circling", Emits: []string{"neuro:circling"}},
 			{Value: "ataxia", Label: "Unsteady", Emits: []string{"neuro:ataxia"}},
 		},
