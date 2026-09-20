@@ -20,7 +20,7 @@ import sg.mesha.goatos.feature.vendors.VendorsOptionUi
 
 /** A question is asked only when its "ask only when" condition holds on the current answers. */
 internal fun VendorQuestionUi.isAsked(answers: Map<String, String>): Boolean =
-    onlyIfQuestion.isBlank() || answers[onlyIfQuestion].orEmpty().trim() == onlyIfValue
+    onlyIfQuestion.isBlank() || (onlyIfValue.isNotBlank() && answers.containsKey(onlyIfQuestion) && answers[onlyIfQuestion].orEmpty().trim() == onlyIfValue)
 
 /** Evaluate the entire document in order, so stale hidden parents never activate descendants. */
 internal fun visibleVendorAnswers(pages: List<VendorFormPageUi>, answers: Map<String, String>): Map<String, String> = buildMap {

@@ -323,6 +323,9 @@ func ValidateEntryForm(profile EntryFormProfile, dsl VendorFormDSL) []string {
 				}
 			}
 			if q.OnlyIf != nil {
+				if strings.TrimSpace(q.OnlyIf.Value) == "" {
+					add("%s.only_if.value: a nonblank choice is required", qp)
+				}
 				dep, ok := seen[q.OnlyIf.QuestionID]
 				switch {
 				case !ok:
@@ -422,8 +425,11 @@ func (e ErrVendorAnswer) Error() string {
 func VisibleVendorAnswers(form VendorForm, answers map[string]string) map[string]string {
 	visible := map[string]string{}
 	for _, q := range form.Questions() {
-		if q.OnlyIf != nil && strings.TrimSpace(visible[q.OnlyIf.QuestionID]) != q.OnlyIf.Value {
-			continue
+		if q.OnlyIf != nil {
+			parent, present := visible[q.OnlyIf.QuestionID]
+			if !present || strings.TrimSpace(q.OnlyIf.Value) == "" || strings.TrimSpace(parent) != q.OnlyIf.Value {
+				continue
+			}
 		}
 		if value, ok := answers[q.ID]; ok {
 			visible[q.ID] = value
@@ -450,8 +456,11 @@ func ValidateVendorAnswers(form VendorForm, answers map[string]string) error {
 	}
 	answers = VisibleVendorAnswers(form, answers)
 	for _, q := range form.Questions() {
-		if q.OnlyIf != nil && strings.TrimSpace(answers[q.OnlyIf.QuestionID]) != q.OnlyIf.Value {
-			continue
+		if q.OnlyIf != nil {
+			parent, present := answers[q.OnlyIf.QuestionID]
+			if !present || strings.TrimSpace(q.OnlyIf.Value) == "" || strings.TrimSpace(parent) != q.OnlyIf.Value {
+				continue
+			}
 		}
 		value := strings.TrimSpace(answers[q.ID])
 		if value == "" {

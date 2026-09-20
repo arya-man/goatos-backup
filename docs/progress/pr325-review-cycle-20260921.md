@@ -53,3 +53,8 @@ All accepted R1/R2 fixes implemented: supplier SOP provenance + legacy replay, f
 Fresh integrated Go suites PASS (procurement/tasks/animalpurchase/toxin/SOP/workforce/notificationbridge/adminui). Web typecheck and six visibility/feed tests PASS. Android compile and FeedPurchaseFormAnswersTest, VendorFormAnswersTest, PushTargetResolverTest PASS after conditional edits. Final PostgreSQL hook/branch/opener race repeat and independent R3 reviews in progress.
 
 No latency improvement claimed. No STG/OCI/shared-local data changed. Local browser fixture only. Final stamped-commit responsive run and PR push pending.
+
+## Third review fixes and final source checkpoint
+R3 found blank conditional gate values diverging across platforms. Publication now rejects them and Go/Kotlin/TypeScript defensively never activate them; baseline regression red, candidate green. Final focused Go suites, Android compile and the three focused unit classes, web typecheck and seven form tests PASS. PostgreSQL branch/reanswer, repeated hooks, early event, stale snapshot and concurrent opener regressions PASS. Supplier/toxin and workflow judges report no further actionable findings.
+
+Broad guardrails found one new inline SQL count in repository.go. The receipt queries are now package-level named constants; scale-guard and actual PostgreSQL animal/feed receipt tests PASS. Full guardrails rerun in progress. Source checkpoint follows 653b9304e; final stamped local browser proof and branch push still pending. No merge/deploy.

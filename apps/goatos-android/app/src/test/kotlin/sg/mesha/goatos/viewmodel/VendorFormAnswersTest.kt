@@ -19,6 +19,19 @@ import sg.mesha.goatos.core.network.dto.VendorQuestionOnlyIfDto
  */
 class VendorFormAnswersTest {
     @Test
+    fun `blank condition never activates even when optional parent is blank`() {
+        val pages = listOf(VendorFormPageDto(key = "p", title = "Page", questions = listOf(
+            VendorQuestionDto(id = "a", kind = "choice", title = "A"),
+            VendorQuestionDto(id = "b", kind = "text", title = "B", required = true, onlyIf = VendorQuestionOnlyIfDto("a", "")),
+        )).toUi())
+        for (answers in listOf(mapOf("b" to "stale"), mapOf("a" to "", "b" to "stale"))) {
+            val visible = visibleVendorAnswers(pages, answers)
+            assertFalse(visible.containsKey("b"))
+            assertTrue(validateVendorFormPage(pages.first(), visible).isEmpty())
+        }
+    }
+
+    @Test
     fun `hidden cross page branches cannot reactivate from stale answers`() {
         val yesNo = listOf(VendorCatalogEntryDto("yes", "Yes"), VendorCatalogEntryDto("no", "No"))
         val pages = listOf(

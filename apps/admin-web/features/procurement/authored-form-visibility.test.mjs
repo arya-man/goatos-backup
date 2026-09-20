@@ -19,3 +19,10 @@ test("cross-page typed parent masks stale children from rendered controls and su
 test("a blank visible parent does not activate its child", () => {
   assert.deepEqual([...visibleQuestionIds([{id:"a"},{id:"b",only_if:{question_id:"a",value:"yes"}}], {})], ["a"]);
 });
+
+test("invalid blank condition never activates for an absent or blank optional parent", () => {
+  const questions = [{id:"a"},{id:"b",only_if:{question_id:"a",value:""}}];
+  for (const answers of [{b:"stale"},{a:"",b:"stale"}]) {
+    assert.deepEqual([...visibleQuestionIds(questions, answers)], ["a"]);
+  }
+});
