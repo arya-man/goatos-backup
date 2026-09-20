@@ -44,6 +44,11 @@ var requiredFollowUpTracks = map[string][]string{
 	// SALES SOP (2026-09-19): recording a sale opens the sales_deal track; a version without it
 	// would stop every sale from opening its steps.
 	tasksdomain.SOPCodeSalesDeal: {tasksdomain.TemplateKeySalesDeal},
+	// PROCUREMENT IS SOP-DRIVEN END TO END (2026-09-20): opening a purchase load, and recording a
+	// feed load, each open their own track. A version without it would leave every load from then
+	// on with no steps at all -- silently, because the opener has nothing to compile.
+	tasksdomain.SOPCodeAnimalPurchaseIntake: {tasksdomain.TemplateKeyAnimalPurchaseIntake},
+	tasksdomain.SOPCodeFeedPurchaseIntake:   {tasksdomain.TemplateKeyFeedPurchaseIntake},
 }
 
 // FollowUpRequired reports whether a SOP code's versions must carry a follow_up section. A
@@ -134,6 +139,20 @@ var requiredEngineHookSteps = map[string][]requiredEngineHookStep{
 	tasksdomain.SOPCodeSalesDeal: {
 		{track: tasksdomain.TemplateKeySalesDeal, hook: tasksdomain.EngineHookSaleTagAnimals, stepKey: "tag_animals", title: "Tag the animals sold",
 			why: "it ties the tagged animals to the sale; the engine completes it from the tagging confirm"},
+	},
+	// The purchase workflows' engine steps (2026-09-20). Each records a fact whose owner is
+	// elsewhere -- the office's decision, the ledger's delivery write, an accepted aflatoxin round
+	// -- and nothing else on the workflow can record it, so removing one leaves work that can
+	// never complete and a load that never closes.
+	tasksdomain.SOPCodeAnimalPurchaseIntake: {
+		{track: tasksdomain.TemplateKeyAnimalPurchaseIntake, hook: tasksdomain.EngineHookAnimalPurchaseDecision, stepKey: "decision", title: "Decision on every animal",
+			why: "the engine completes it when the load has no animal still waiting; nothing else can"},
+	},
+	tasksdomain.SOPCodeFeedPurchaseIntake: {
+		{track: tasksdomain.TemplateKeyFeedPurchaseIntake, hook: tasksdomain.EngineHookFeedPurchaseReached, stepKey: "mark_reached", title: "Mark the load as reached",
+			why: "the ledger's own delivery write completes it; a tap would let the step and the ledger disagree"},
+		{track: tasksdomain.TemplateKeyFeedPurchaseIntake, hook: tasksdomain.EngineHookToxinTestAccepted, stepKey: "toxin_test", title: "Aflatoxin test signed off",
+			why: "an accepted toxin round completes it; nothing on this workflow can say the load was screened"},
 	},
 	tasksdomain.SOPCodeBirth: {
 		{track: tasksdomain.TemplateKeyBirthKid, hook: tasksdomain.EngineHookTagKid, stepKey: tasksdomain.ActionKeyTagTheKid, title: "Tag the kid",
