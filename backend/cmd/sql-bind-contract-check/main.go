@@ -82,8 +82,10 @@ func scanTree(root string) ([]finding, error) {
 }
 
 func scanFile(path string, fs *token.FileSet, f *ast.File) []finding {
+	imports := collectImports(f)
 	constants := collectConstants(f)
-	bound := collectBoundQueries(f)
+	bound := collectBoundQueries(f, imports)
+	named := collectStrictNamedArgs(f, imports)
 	var out []finding
 	ast.Inspect(f, func(n ast.Node) bool {
 		call, ok := n.(*ast.CallExpr)
@@ -104,23 +106,48 @@ func scanFile(path string, fs *token.FileSet, f *ast.File) []finding {
 		default:
 			return true
 		}
+		if !shouldInspectCall(sel, imports) {
+			return true
+		}
 		if len(call.Args) <= sqlIndex {
 			return true
 		}
 		pos := fs.Position(call.Pos())
 		add := func(kind, msg string) { out = append(out, finding{filepath.ToSlash(path), pos.Line, kind, msg}) }
-		if isBoundUse(call, sqlIndex, bound) {
-			return true
-		}
-		if hasStrictNamedArgs(call.Args[sqlIndex+1:]) {
+		if isBoundUse(call, sqlIndex, name, bound, imports) {
 			return true
 		}
 		sql, ok := constantString(call.Args[sqlIndex], constants, map[string]bool{})
+		strictNamed, namedKeys, strictErr := strictNamedArgs(call.Args[sqlIndex+1:], name, imports, named)
+		if strictErr != "" {
+			kind := "invalid-strict-named-args"
+			if strings.HasPrefix(strictErr, "unverified:") {
+				kind = "unverified-dynamic-args"
+				strictErr = strings.TrimPrefix(strictErr, "unverified:")
+			}
+			add(kind, strictErr)
+			return true
+		}
+		if strictNamed {
+			if !ok {
+				add("unverified-dynamic-bind", "dynamic StrictNamedArgs SQL must use an approved validated builder")
+				return true
+			}
+			if err := sqlbind.ValidateNamed(sql, namedKeys); err != nil {
+				add("invalid-strict-named-args", err.Error())
+				return true
+			}
+			ordinals, err := sqlbind.PlaceholderOrdinals(sql)
+			if err != nil || len(ordinals) != 0 {
+				add("invalid-strict-named-args", "StrictNamedArgs SQL must not mix positional placeholders")
+			}
+			return true
+		}
 		if !ok {
 			add("unverified-dynamic-bind", "dynamic SQL must use sqlbind.BoundQuery or pgx.StrictNamedArgs")
 			return true
 		}
-		dataCount, provable := staticArgumentCount(call.Args[sqlIndex+1:], call.Ellipsis.IsValid())
+		dataCount, provable := staticArgumentCount(call.Args[sqlIndex+1:], call.Ellipsis.IsValid(), name, imports)
 		if !provable {
 			add("unverified-dynamic-args", "variadic or computed arguments must use sqlbind.BoundQuery")
 			return true
@@ -132,6 +159,25 @@ func scanFile(path string, fs *token.FileSet, f *ast.File) []finding {
 		return true
 	})
 	return out
+}
+
+func collectImports(f *ast.File) map[string]string {
+	imports := map[string]string{}
+	for _, spec := range f.Imports {
+		pathValue, err := strconv.Unquote(spec.Path.Value)
+		if err != nil {
+			continue
+		}
+		name := filepath.Base(pathValue)
+		if pathValue == "github.com/jackc/pgx/v5" {
+			name = "pgx"
+		}
+		if spec.Name != nil {
+			name = spec.Name.Name
+		}
+		imports[name] = pathValue
+	}
+	return imports
 }
 
 func collectConstants(f *ast.File) map[string]ast.Expr {
@@ -154,52 +200,151 @@ func collectConstants(f *ast.File) map[string]ast.Expr {
 	return m
 }
 
-func collectBoundQueries(f *ast.File) map[string]bool {
-	m := map[string]bool{}
+func collectBoundQueries(f *ast.File, imports map[string]string) map[*ast.Object]bool {
+	assignments := map[*ast.Object]int{}
+	valid := map[*ast.Object]bool{}
 	ast.Inspect(f, func(n ast.Node) bool {
 		as, ok := n.(*ast.AssignStmt)
 		if !ok {
 			return true
 		}
 		for i, rhs := range as.Rhs {
-			if i >= len(as.Lhs) || !isSQLBindConstructor(rhs) {
+			if i >= len(as.Lhs) {
 				continue
 			}
 			if id, ok := as.Lhs[i].(*ast.Ident); ok {
-				m[id.Name] = true
+				if id.Obj == nil {
+					continue
+				}
+				assignments[id.Obj]++
+				valid[id.Obj] = isSQLBindConstructor(rhs, imports)
 			}
 		}
 		return true
 	})
-	return m
+	out := map[*ast.Object]bool{}
+	for obj, count := range assignments {
+		out[obj] = count == 1 && valid[obj]
+	}
+	for obj := range collectCheckedBindQueries(f, imports) {
+		if assignments[obj] == 1 {
+			out[obj] = true
+		}
+	}
+	return out
 }
-func isSQLBindConstructor(e ast.Expr) bool {
+
+// collectCheckedBindQueries recognizes only the fail-closed form:
+//
+//	q, err := sqlbind.Bind(...)
+//	if err != nil { return ... }
+//
+// The check must be the immediately following statement and its body must end
+// in return. This intentionally rejects ignored, delayed, overwritten, or
+// merely logged errors without needing a general control-flow engine.
+func collectCheckedBindQueries(f *ast.File, imports map[string]string) map[*ast.Object]bool {
+	out := map[*ast.Object]bool{}
+	ast.Inspect(f, func(n ast.Node) bool {
+		block, ok := n.(*ast.BlockStmt)
+		if !ok {
+			return true
+		}
+		for i := 0; i+1 < len(block.List); i++ {
+			as, ok := block.List[i].(*ast.AssignStmt)
+			if !ok || len(as.Lhs) != 2 || len(as.Rhs) != 1 {
+				continue
+			}
+			q, okQ := as.Lhs[0].(*ast.Ident)
+			errID, okErr := as.Lhs[1].(*ast.Ident)
+			if !okQ || !okErr || q.Name == "_" || errID.Name == "_" || q.Obj == nil || errID.Obj == nil {
+				continue
+			}
+			if !isSQLBindCall(as.Rhs[0], imports, "Bind") {
+				continue
+			}
+			guard, ok := block.List[i+1].(*ast.IfStmt)
+			if !ok || guard.Init != nil || !isErrNotNil(guard.Cond, errID.Obj) || !endsInReturn(guard.Body) {
+				continue
+			}
+			out[q.Obj] = true
+		}
+		return true
+	})
+	return out
+}
+
+func isErrNotNil(e ast.Expr, errObj *ast.Object) bool {
+	b, ok := e.(*ast.BinaryExpr)
+	if !ok || b.Op != token.NEQ {
+		return false
+	}
+	check := func(a, b ast.Expr) bool {
+		id, ok := a.(*ast.Ident)
+		if !ok || id.Obj != errObj {
+			return false
+		}
+		nilID, ok := b.(*ast.Ident)
+		return ok && nilID.Name == "nil"
+	}
+	return check(b.X, b.Y) || check(b.Y, b.X)
+}
+func endsInReturn(block *ast.BlockStmt) bool {
+	if block == nil || len(block.List) == 0 {
+		return false
+	}
+	_, ok := block.List[len(block.List)-1].(*ast.ReturnStmt)
+	return ok
+}
+
+func isSQLBindCall(e ast.Expr, imports map[string]string, method string) bool {
 	c, ok := e.(*ast.CallExpr)
 	if !ok {
 		return false
 	}
 	s, ok := c.Fun.(*ast.SelectorExpr)
-	if !ok || (s.Sel.Name != "MustBind" && s.Sel.Name != "Bind") {
+	if !ok || s.Sel.Name != method {
 		return false
 	}
 	id, ok := s.X.(*ast.Ident)
-	return ok && id.Name == "sqlbind"
+	return ok && importedPackagePath(id, imports) == "github.com/vgoats/goatos/backend/internal/platform/sqlbind"
 }
-func isBoundUse(call *ast.CallExpr, sqlIndex int, bound map[string]bool) bool {
-	s, ok := call.Args[sqlIndex].(*ast.SelectorExpr)
+func isSQLBindConstructor(e ast.Expr, imports map[string]string) bool {
+	return isSQLBindCall(e, imports, "MustBind")
+}
+func isBoundUse(call *ast.CallExpr, sqlIndex int, method string, bound map[*ast.Object]bool, imports map[string]string) bool {
+	sqlCall, ok := call.Args[sqlIndex].(*ast.CallExpr)
+	if !ok || len(sqlCall.Args) != 0 {
+		return false
+	}
+	s, ok := sqlCall.Fun.(*ast.SelectorExpr)
 	if !ok || s.Sel.Name != "SQL" {
 		return false
 	}
 	id, ok := s.X.(*ast.Ident)
-	if !ok || !bound[id.Name] {
+	if !ok || id.Obj == nil || !bound[id.Obj] {
 		return false
 	}
 	if len(call.Args) <= sqlIndex+1 {
 		return false
 	}
-	last := call.Args[len(call.Args)-1]
-	a, ok := last.(*ast.SelectorExpr)
-	return ok && call.Ellipsis.IsValid() && a.Sel.Name == "Args" && exprIdent(a.X) == id.Name
+	last, ok := call.Args[len(call.Args)-1].(*ast.CallExpr)
+	if !ok || len(last.Args) != 0 {
+		return false
+	}
+	a, ok := last.Fun.(*ast.SelectorExpr)
+	if !ok || !call.Ellipsis.IsValid() || a.Sel.Name != "Args" {
+		return false
+	}
+	argID, ok := a.X.(*ast.Ident)
+	if !ok || argID.Obj != id.Obj {
+		return false
+	}
+	for _, option := range call.Args[sqlIndex+1 : len(call.Args)-1] {
+		if !isPGXOption(option, method, imports) {
+			return false
+		}
+	}
+	return true
 }
 func exprIdent(e ast.Expr) string {
 	if id, ok := e.(*ast.Ident); ok {
@@ -260,20 +405,147 @@ func constantString(e ast.Expr, constants map[string]ast.Expr, visiting map[stri
 	}
 	return "", false
 }
-func hasStrictNamedArgs(args []ast.Expr) bool {
-	for _, e := range args {
-		switch x := e.(type) {
-		case *ast.CompositeLit:
-			if selectorName(x.Type) == "StrictNamedArgs" {
-				return true
-			}
-		case *ast.CallExpr:
-			if selectorName(x.Fun) == "StrictNamedArgs" {
-				return true
+
+type namedInfo struct {
+	keys  []string
+	valid bool
+}
+
+func collectStrictNamedArgs(f *ast.File, imports map[string]string) map[*ast.Object]namedInfo {
+	infos := map[*ast.Object]namedInfo{}
+	ast.Inspect(f, func(n ast.Node) bool {
+		if vs, ok := n.(*ast.ValueSpec); ok && isStrictNamedType(vs.Type, imports) {
+			for _, id := range vs.Names {
+				if id.Obj != nil {
+					infos[id.Obj] = namedInfo{valid: false}
+				}
 			}
 		}
+		as, ok := n.(*ast.AssignStmt)
+		if !ok {
+			return true
+		}
+		for i, rhs := range as.Rhs {
+			if i >= len(as.Lhs) {
+				continue
+			}
+			id, ok := as.Lhs[i].(*ast.Ident)
+			if !ok || id.Obj == nil {
+				continue
+			}
+			keys, ok := strictNamedLiteralKeys(rhs, imports)
+			if ok {
+				infos[id.Obj] = namedInfo{keys: keys, valid: true}
+			}
+		}
+		return true
+	})
+	counts := map[*ast.Object]int{}
+	ast.Inspect(f, func(n ast.Node) bool {
+		as, ok := n.(*ast.AssignStmt)
+		if !ok {
+			return true
+		}
+		for _, lhs := range as.Lhs {
+			if id, ok := lhs.(*ast.Ident); ok && id.Obj != nil {
+				if _, tracked := infos[id.Obj]; tracked {
+					counts[id.Obj]++
+				}
+			}
+		}
+		return true
+	})
+	for obj, info := range infos {
+		info.valid = info.valid && counts[obj] == 1
+		infos[obj] = info
 	}
-	return false
+	return infos
+}
+
+func strictNamedArgs(args []ast.Expr, method string, imports map[string]string, named map[*ast.Object]namedInfo) (bool, []string, string) {
+	for len(args) > 0 && isPGXOption(args[0], method, imports) {
+		args = args[1:]
+	}
+	if len(args) == 0 || !isPGXStrictNamedArgs(args[0], imports) {
+		if len(args) > 0 {
+			if id, ok := args[0].(*ast.Ident); ok && id.Obj != nil {
+				if info, found := named[id.Obj]; found {
+					if !info.valid {
+						return false, nil, "unverified:StrictNamedArgs variable is reassigned or not a static literal"
+					}
+					if len(args) != 1 {
+						return false, nil, "StrictNamedArgs must be the sole data argument after valid leading pgx options"
+					}
+					return true, info.keys, ""
+				}
+			}
+		}
+		return false, nil, ""
+	}
+	if len(args) != 1 {
+		return false, nil, "StrictNamedArgs must be the sole data argument after valid leading pgx options"
+	}
+	keys, ok := strictNamedLiteralKeys(args[0], imports)
+	if !ok {
+		return false, nil, "StrictNamedArgs keys must be a static string-keyed literal"
+	}
+	return true, keys, ""
+}
+func isStrictNamedType(e ast.Expr, imports map[string]string) bool {
+	s, ok := e.(*ast.SelectorExpr)
+	if !ok || s.Sel.Name != "StrictNamedArgs" {
+		return false
+	}
+	id, ok := s.X.(*ast.Ident)
+	return ok && importedPackagePath(id, imports) == "github.com/jackc/pgx/v5"
+}
+func strictNamedLiteralKeys(e ast.Expr, imports map[string]string) ([]string, bool) {
+	cl, ok := e.(*ast.CompositeLit)
+	if !ok || !isPGXStrictNamedArgs(cl, imports) {
+		return nil, false
+	}
+	keys := make([]string, 0, len(cl.Elts))
+	for _, elt := range cl.Elts {
+		kv, ok := elt.(*ast.KeyValueExpr)
+		if !ok {
+			return nil, false
+		}
+		lit, ok := kv.Key.(*ast.BasicLit)
+		if !ok || lit.Kind != token.STRING {
+			return nil, false
+		}
+		key, err := strconv.Unquote(lit.Value)
+		if err != nil {
+			return nil, false
+		}
+		keys = append(keys, key)
+	}
+	return keys, true
+}
+func isPGXStrictNamedArgs(e ast.Expr, imports map[string]string) bool {
+	var target ast.Expr
+	switch x := e.(type) {
+	case *ast.CompositeLit:
+		target = x.Type
+	case *ast.CallExpr:
+		target = x.Fun
+	default:
+		return false
+	}
+	s, ok := target.(*ast.SelectorExpr)
+	if !ok || s.Sel.Name != "StrictNamedArgs" {
+		return false
+	}
+	id, ok := s.X.(*ast.Ident)
+	return ok && importedPackagePath(id, imports) == "github.com/jackc/pgx/v5"
+}
+func shouldInspectCall(sel *ast.SelectorExpr, imports map[string]string) bool {
+	if id, ok := sel.X.(*ast.Ident); ok {
+		if importedPackagePath(id, imports) != "" {
+			return false
+		}
+	}
+	return true
 }
 func selectorName(e ast.Expr) string {
 	if s, ok := e.(*ast.SelectorExpr); ok {
@@ -281,26 +553,49 @@ func selectorName(e ast.Expr) string {
 	}
 	return ""
 }
-func staticArgumentCount(args []ast.Expr, variadic bool) (int, bool) {
+func staticArgumentCount(args []ast.Expr, variadic bool, method string, imports map[string]string) (int, bool) {
 	if variadic {
 		return 0, false
 	}
-	n := 0
-	for _, e := range args {
-		if isPGXOption(e) {
-			continue
-		}
-		n++
+	for len(args) > 0 && isPGXOption(args[0], method, imports) {
+		args = args[1:]
 	}
-	return n, true
+	return len(args), true
 }
-func isPGXOption(e ast.Expr) bool {
+func isPGXOption(e ast.Expr, method string, imports map[string]string) bool {
+	if method == "Queue" {
+		return false
+	}
+	var name string
+	var pkg *ast.Ident
 	switch x := e.(type) {
 	case *ast.SelectorExpr:
-		return strings.HasPrefix(x.Sel.Name, "QueryExecMode") || x.Sel.Name == "QueryResultFormats" || x.Sel.Name == "QueryResultFormatsByOID"
+		name = x.Sel.Name
+		if id, ok := x.X.(*ast.Ident); ok {
+			pkg = id
+		}
 	case *ast.CompositeLit:
-		n := selectorName(x.Type)
-		return n == "QueryResultFormats" || n == "QueryResultFormatsByOID"
+		if s, ok := x.Type.(*ast.SelectorExpr); ok {
+			name = s.Sel.Name
+			if id, ok := s.X.(*ast.Ident); ok {
+				pkg = id
+			}
+		}
 	}
-	return false
+	if importedPackagePath(pkg, imports) != "github.com/jackc/pgx/v5" {
+		return false
+	}
+	if strings.HasPrefix(name, "QueryExecMode") {
+		return true
+	}
+	return method != "Exec" && (name == "QueryResultFormats" || name == "QueryResultFormatsByOID")
+}
+
+// Imported package identifiers are unresolved by go/parser (Obj == nil).
+// A same-named local has a non-nil Obj and must never inherit package trust.
+func importedPackagePath(id *ast.Ident, imports map[string]string) string {
+	if id == nil || id.Obj != nil {
+		return ""
+	}
+	return imports[id.Name]
 }

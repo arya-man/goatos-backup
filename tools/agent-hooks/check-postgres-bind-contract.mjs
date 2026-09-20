@@ -36,12 +36,14 @@ function changedLines(base) {
     const fileMatch = line.match(/^\+\+\+ b\/(backend\/.+\.go)$/);
     if (fileMatch) {
       file = fileMatch[1].slice("backend/".length);
+      changed.set(file, "all");
       continue;
     }
     const hunk = line.match(/^@@ -\d+(?:,\d+)? \+(\d+)(?:,(\d+))? @@/);
     if (!file || !hunk) continue;
     const start = Number(hunk[1]);
     const count = hunk[2] === undefined ? 1 : Number(hunk[2]);
+    if (changed.get(file) === "all") continue;
     const lines = changed.get(file) ?? new Set();
     for (let n = start; n < start + count; n += 1) lines.add(n);
     changed.set(file, lines);
@@ -57,7 +59,7 @@ function changedLines(base) {
 }
 
 function assess(findings, baseline, changed) {
-  const failures = findings.filter((item) => item.kind === "positional-bind-mismatch");
+  const failures = findings.filter((item) => item.kind === "positional-bind-mismatch" || item.kind === "invalid-strict-named-args");
   const current = countsByFileAndKind(findings);
   for (const [key, count] of Object.entries(current)) {
     const allowed = baseline[key] ?? 0;
@@ -84,8 +86,8 @@ function selfTest() {
   ].join("\n"));
   const baseline = { "b.go|unverified-dynamic-bind": 1, "c.go|unverified-dynamic-args": 1 };
   if (assess(findings, baseline, new Map()).length !== 1) throw new Error("hard mismatch was not isolated");
-  if (!assess(findings.slice(1), baseline, new Map([["b.go", new Set([20])]])).some((f) => f.kind === "changed-unverified-dynamic-bind")) {
-    throw new Error("changed legacy dynamic call was not rejected");
+  if (!assess(findings.slice(1), baseline, new Map([["b.go", "all"]])).some((f) => f.kind === "changed-unverified-dynamic-bind")) {
+    throw new Error("changed legacy dynamic file was not rejected");
   }
   if (!assess([...findings.slice(1), { file: "d.go", line: 1, kind: "unverified-dynamic-bind", message: "new" }], baseline, new Map()).some((f) => f.kind === "dynamic-debt-growth")) {
     throw new Error("new dynamic debt was not rejected");

@@ -1374,7 +1374,7 @@ SELECT
 	if bindErr != nil {
 		return domain.WeightDemographics{}, fmt.Errorf("weighing: bind weight demographics query: %w", bindErr)
 	}
-	if err := r.pool.QueryRow(ctx, bound.SQL, bound.Args...).Scan(
+	if err := r.pool.QueryRow(ctx, bound.SQL(), bound.Args()...).Scan(
 		&resolvedCount, &unresolvedCount, &lumpTotal, &lumpUnattributed,
 		&breedJSON, &sexJSON, &stageJSON,
 		&gainBreedJSON, &gainSexJSON, &gainStageJSON,

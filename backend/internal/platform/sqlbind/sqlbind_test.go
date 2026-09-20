@@ -3,8 +3,6 @@ package sqlbind
 import (
 	"strings"
 	"testing"
-
-	"github.com/jackc/pgx/v5"
 )
 
 func TestValidatePositionalMatrix(t *testing.T) {
@@ -20,9 +18,7 @@ func TestValidatePositionalMatrix(t *testing.T) {
 		{"gap", `select $1,$3`, []any{1, 2, 3}, "gaps"},
 		{"starts at two", `select $2`, []any{1, 2}, "gaps"},
 		{"pruned highest", `select $1`, []any{1, 2}, "unused argument"},
-		{"exec mode", `select $1`, []any{pgx.QueryExecModeExec, 1}, ""},
-		{"all query options", `select $1`, []any{pgx.QueryExecModeExec, pgx.QueryResultFormats{0}, pgx.QueryResultFormatsByOID{}, 1}, ""},
-		{"strict named", `select @id`, []any{pgx.QueryExecModeExec, pgx.StrictNamedArgs{"id": 1}}, ""},
+		{"huge ordinal bounded", `select $1000000000`, []any{1}, "missing argument count"},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -57,10 +53,29 @@ func TestPlaceholderLexerIgnoresNonCode(t *testing.T) {
 }
 
 func TestPlaceholderLexerRejectsMalformedSQLRegions(t *testing.T) {
-	for _, sql := range []string{`select /* nope`, `select $tag$ nope`} {
+	for _, sql := range []string{`select /* nope`, `select $tag$ nope`, `select 'nope`, `select "nope`} {
 		if _, err := PlaceholderOrdinals(sql); err == nil {
 			t.Fatalf("expected error for %q", sql)
 		}
+	}
+}
+
+func TestValidateNamedBidirectional(t *testing.T) {
+	for _, tc := range []struct {
+		name, sql string
+		keys      []string
+		wantErr   bool
+	}{
+		{"valid repeated", `select @id, @id`, []string{"id"}, false},
+		{"missing", `select @id, @tenant`, []string{"id"}, true},
+		{"extra", `select @id`, []string{"id", "unused"}, true},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			err := ValidateNamed(tc.sql, tc.keys)
+			if (err != nil) != tc.wantErr {
+				t.Fatalf("err=%v", err)
+			}
+		})
 	}
 }
 
@@ -71,7 +86,7 @@ func TestBindCopiesArgsAndMustBindPanics(t *testing.T) {
 		t.Fatal(err)
 	}
 	args[0] = 2
-	if q.Args[0] != 1 {
+	if q.Args()[0] != 1 {
 		t.Fatal("args not copied")
 	}
 	defer func() {
