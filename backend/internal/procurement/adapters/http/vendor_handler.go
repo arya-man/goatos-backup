@@ -27,6 +27,8 @@ type VendorService interface {
 	UpdateVendorStatus(ctx context.Context, tenantID, vendorID, status string, rowVersion int64, actorID string) (domain.Vendor, error)
 	ListVendorCatalog(ctx context.Context, tenantID string, side string) ([]domain.VendorCatalogEntry, error)
 	ListVendorOptions(ctx context.Context, tenantID string) (domain.VendorOptions, error)
+	VendorForm(ctx context.Context, tenantID, side string) (domain.VendorForm, error)
+	VendorAnswerRows(ctx context.Context, tenantID string, v domain.Vendor) []domain.VendorAnswerRow
 }
 
 // VendorHandler serves /procurement/vendors.
@@ -57,6 +59,23 @@ func RegisterVendors(mux *http.ServeMux, h *VendorHandler) {
 	mux.HandleFunc("POST /procurement/vendors/{vendor_id}/status", h.UpdateVendorStatus)
 	mux.HandleFunc("GET /procurement/vendor-catalog", h.ListVendorCatalog)
 	mux.HandleFunc("GET /procurement/vendor-options", h.ListVendorOptions)
+	mux.HandleFunc("GET /procurement/vendor-form", h.GetVendorForm)
+}
+
+// GetVendorForm serves GET /procurement/vendor-form: the published `sales.vendor` form the Add /
+// Edit vendor screens render, catalog choices filled (VENDOR FORM IS AUTHORED, 2026-09-19).
+func (h *VendorHandler) GetVendorForm(w http.ResponseWriter, r *http.Request) {
+	form, err := h.service.VendorForm(r.Context(), tenantID(r), r.URL.Query().Get("side"))
+	if err != nil {
+		if errors.Is(err, app.ErrVendorSideUnknown) {
+			h.writeErr(w, r, app.VendorHTTPError(err))
+			return
+		}
+		h.log.Error("vendor form unavailable", "err", err)
+		h.writeErr(w, r, app.Internal("The vendor form is not available right now. Try again."))
+		return
+	}
+	httpresponse.WriteJSON(w, http.StatusOK, toVendorFormPayload(form))
 }
 
 // maxVendorRequestBytes caps a write body. The register's largest legitimate payload is a couple of
@@ -149,7 +168,7 @@ func (h *VendorHandler) GetVendor(w http.ResponseWriter, r *http.Request) {
 		h.writeErr(w, r, app.VendorHTTPError(err))
 		return
 	}
-	httpresponse.WriteJSON(w, http.StatusOK, toVendorPayload(vendor, labels))
+	httpresponse.WriteJSON(w, http.StatusOK, h.withAnswerRows(r, toVendorPayload(vendor, labels), vendor))
 }
 
 // CreateVendor serves POST /procurement/vendors.
@@ -164,7 +183,7 @@ func (h *VendorHandler) CreateVendor(w http.ResponseWriter, r *http.Request) {
 		h.writeErr(w, r, app.VendorHTTPError(err))
 		return
 	}
-	httpresponse.WriteJSON(w, http.StatusCreated, toVendorPayload(created, labels))
+	httpresponse.WriteJSON(w, http.StatusCreated, h.withAnswerRows(r, toVendorPayload(created, labels), created))
 }
 
 // UpdateVendor serves PUT /procurement/vendors/{vendor_id}.
@@ -184,7 +203,7 @@ func (h *VendorHandler) UpdateVendor(w http.ResponseWriter, r *http.Request) {
 		h.writeErr(w, r, app.VendorHTTPError(err))
 		return
 	}
-	httpresponse.WriteJSON(w, http.StatusOK, toVendorPayload(updated, labels))
+	httpresponse.WriteJSON(w, http.StatusOK, h.withAnswerRows(r, toVendorPayload(updated, labels), updated))
 }
 
 // UpdateVendorStatus serves POST /procurement/vendors/{vendor_id}/status.
@@ -266,6 +285,17 @@ func (h *VendorHandler) ListVendorOptions(w http.ResponseWriter, r *http.Request
 	httpresponse.WriteJSON(w, http.StatusOK, vendorOptionsPayload{Vendors: items, Truncated: options.Truncated})
 }
 
+// withAnswerRows labels the vendor's extra answers by the form they were answered on, for the
+// single-vendor reads a detail screen opens. The list read stays lean (no per-row form read).
+func (h *VendorHandler) withAnswerRows(r *http.Request, p vendorPayload, v domain.Vendor) vendorPayload {
+	rows := h.service.VendorAnswerRows(r.Context(), tenantID(r), v)
+	p.AnswerRows = make([]vendorAnswerRowPayload, 0, len(rows))
+	for _, row := range rows {
+		p.AnswerRows = append(p.AnswerRows, vendorAnswerRowPayload{QuestionID: row.QuestionID, Label: row.Label, Value: row.Value})
+	}
+	return p
+}
+
 // decode reads and validates a JSON write body.
 //
 // DisallowUnknownFields is deliberate: a client sending "buisness_name" must be told, not silently
@@ -288,10 +318,14 @@ func (h *VendorHandler) writeErr(w http.ResponseWriter, r *http.Request, appErr 
 	if appErr == nil {
 		return
 	}
-	httpresponse.WriteError(w, r, h.log, appErr.HTTPStatus, map[string]any{
+	body := map[string]any{
 		"error":   appErr.Code,
 		"message": appErr.Message,
-	}, errors.New(appErr.Code))
+	}
+	if appErr.Field != "" {
+		body["field"] = appErr.Field
+	}
+	httpresponse.WriteError(w, r, h.log, appErr.HTTPStatus, body, errors.New(appErr.Code))
 }
 
 // catalogLabels resolves the tenant's catalog once per request so a vendor's capacity line can be

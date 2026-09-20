@@ -66,6 +66,7 @@ fun SaleDetailScreen(
             items(count = state.sections.size, key = { "section_${state.sections[it].title}" }) { index ->
                 VendorsDetailSection(state.sections[index])
             }
+            item(key = "steps") { StepsCard(state, onEvent) }
             item(key = "money") { MoneyCard(state, onEvent) }
             item(key = "status_edit") { StatusCard(state, onEvent) }
             item(key = "tagged") { TaggedAnimalsCard(state) }
@@ -219,6 +220,39 @@ private fun StatusCard(state: SaleDetailUiState, onEvent: (SaleDetailEvent) -> U
     }
 }
 
+/**
+ * The sale's SOP steps (SALES SOP, maintainer instruction 2026-09-19): what happens after the sale
+ * was recorded -- tagging, loading, the money -- authored on the web and run by the backend as one
+ * workflow per sale. The card shows the backend's counters and next step verbatim and opens the
+ * shared workflow screen; it never lists or counts steps of its own.
+ */
+@Composable
+private fun StepsCard(state: SaleDetailUiState, onEvent: (SaleDetailEvent) -> Unit) {
+    val hasSteps = state.stepsWorkflowId.isNotBlank()
+    Column(
+        modifier = Modifier
+            .fillMaxWidth()
+            .clip(RoundedCornerShape(MeshaDimens.radiusCard))
+            .background(MeshaColors.Surf)
+            .clickable(enabled = hasSteps, role = Role.Button) { onEvent(SaleDetailEvent.OpenSteps(state.stepsWorkflowId)) }
+            .padding(14.dp),
+        verticalArrangement = Arrangement.spacedBy(8.dp),
+    ) {
+        Text(text = STEPS_TITLE, color = MeshaColors.Muted, style = MeshaType.sectionLabel)
+        when {
+            hasSteps -> {
+                Text(text = state.stepsProgressLine.ifBlank { STEPS_OPEN }, color = MeshaColors.Ink, style = MeshaType.rowValue)
+                if (state.stepsNextLine.isNotBlank()) {
+                    Text(text = state.stepsNextLine, color = MeshaColors.Muted, style = MeshaType.caption)
+                }
+                Text(text = STEPS_OPEN, color = MeshaColors.BrandD, style = MeshaType.pillStrong)
+            }
+            state.stepsUnavailable -> Text(text = STEPS_OFFLINE, color = MeshaColors.Muted, style = MeshaType.caption)
+            else -> Text(text = STEPS_PENDING, color = MeshaColors.Muted, style = MeshaType.caption)
+        }
+    }
+}
+
 @Composable
 private fun TaggedAnimalsCard(state: SaleDetailUiState) {
     Column(
@@ -259,4 +293,8 @@ private const val LABEL_NOTE = "Note"
 private const val LABEL_STATUS = "Status"
 private const val TAG_ANIMALS = "Tag animals to sale"
 private const val TAGGED_TITLE = "ANIMALS TAGGED"
+private const val STEPS_TITLE = "STEPS FOR THIS SALE"
+private const val STEPS_OPEN = "Open the steps"
+private const val STEPS_PENDING = "Steps will appear once the sale is synced."
+private const val STEPS_OFFLINE = "Waiting for network to read the steps."
 private const val TAGGED_NONE = "No animals tagged yet"

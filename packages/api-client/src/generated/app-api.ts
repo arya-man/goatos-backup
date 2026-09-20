@@ -2998,6 +2998,26 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/procurement/vendor-form": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * The authored vendor form the Add / Edit vendor screens render.
+         * @description VENDOR FORM IS AUTHORED (maintainer instruction 2026-09-19): `form_dsl.vendor_form` of the published `sales.vendor` SOP -- pages of questions, compiled with the live vendor catalog so a catalog-backed question carries its choices. A question with `typed: true` is one of the register's own columns; the client sends its answer under the same id and reads it back from the typed vendor field. Every other answer is stored on the vendor as `answers`. A write carries every answer plus the `version` it rendered; a version no longer served is refused `vendor_form_changed` (reopen the form).
+         */
+        get: operations["getProcurementVendorForm"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/procurement/feed-purchases": {
         parameters: {
             query?: never;
@@ -4230,6 +4250,30 @@ export interface paths {
          * @description A PUT of the full cost state, naturally idempotent: writing the values the load already carries changes nothing. `animal_cost` is the anchor -- transport and other costs are rejected without it (400 `load_cost_invalid_animal_cost`), and all three null clears the recorded cost. Negative values are rejected, never coerced. Requires the dedicated buying-desk permission (`procurement.load_cost.write`), the same read/write split feed purchases keep.
          */
         put: operations["setLoadCost"];
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/sales/valuation-assumptions": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * The figures the live herd is valued at (Farm value, Load wise).
+         * @description FARM VALUATION ASSUMPTIONS (maintainer instruction 2026-09-19, docs/decisions/ sales-valuation-assumptions.md): per valuation bucket the weight used (or measured) and rupees per kg, the sale-ready weight line, and the price every unsold animal is carried at on Load wise. Decided figures, not measured ones: one row per tenant, edited on Sales Config, re-read per request by every consumer. Gated on sales.read.
+         */
+        get: operations["getSalesValuationAssumptions"];
+        /**
+         * Replace the valuation figures.
+         * @description Whole-set replace under a row_version fence (409 valuation_version_conflict on a stale one). Figures outside their business band are REFUSED with 400 valuation_invalid naming the field, never clamped. Exactly the seven buckets, once each. One audit row per write. Gated on sales.valuation.write (the Sales module's Configure level).
+         */
+        put: operations["putSalesValuationAssumptions"];
         post?: never;
         delete?: never;
         options?: never;
@@ -5733,6 +5777,26 @@ export interface paths {
          * @description GENERAL SOPs (maintainer decision 2026-09-18): farm-wide work tied to no module, authored on Configuration -> Work instructions and started from the phone. Lists the tenant's published general SOPs. Gated on task.execute or counts.write.
          */
         get: operations["listAppGeneralSops"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/app/workflows/subject": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Get the workflow keyed on a non-animal subject (a sale, a reconcile card).
+         * @description SALES SOP (docs/decisions/sales-sop.md): a recorded sale opens ONE workflow keyed on the deal (template_key=sales_deal, subject_ref_id=the sales_deals id). A screen that already knows the subject reads its steps here without paging the module list. Same response as the detail route. 404 workflow_not_found until the sales.deal.recorded event has opened it. Gated on any sales permission, counts.write or task.execute; the handler narrows per module (a caller admitted on a sales permission alone cannot read a birth card).
+         */
+        get: operations["getAppWorkflowBySubject"];
         put?: never;
         post?: never;
         delete?: never;
@@ -7671,6 +7735,14 @@ export interface components {
             average_animal_weight_kg?: string | null;
             /** @description BACKEND-composed "35 kg" from average_animal_weight_kg. Empty when not recorded. Rendered verbatim. */
             average_animal_weight_display?: string;
+            /** @description VENDOR FORM (2026-09-19): answers to the questions the published form added beyond the register's columns, keyed by question id. Empty for a vendor written before the form. */
+            answers?: {
+                [key: string]: string;
+            };
+            /** @description The sales.vendor form version the answers were given on; null before the form existed. */
+            questionnaire_version?: number | null;
+            /** @description On the single-vendor reads only: the same extra answers labelled by that version's question titles, in form order, for a detail screen. Rendered verbatim. */
+            answer_rows?: components["schemas"]["ProcurementVendorAnswerRow"][];
             /** Format: date-time */
             created_at: string;
             /** Format: date-time */
@@ -7723,11 +7795,54 @@ export interface components {
             voice_note_proof_ref?: string;
             /** @description Optional. Average live weight per animal in kg as a decimal string, more than zero, up to two places. Null or empty clears it (stores NULL, never 0). */
             average_animal_weight_kg?: string | null;
+            /** @description A form-driven client sends EVERY answer keyed by question id -- typed questions included (they are mapped onto the typed fields server-side, so the typed fields may be left blank) -- checked against the form version in `questionnaire_version`. Pick-many values are joined with `|`; an "other" free text rides `<question_id>_other`. Omitted means a typed-only client: stored extra answers are then preserved on update. */
+            answers?: {
+                [key: string]: string;
+            };
+            /** @description Required with `answers`: the form version the screen rendered. */
+            questionnaire_version?: number;
             /**
              * Format: int64
              * @description Required on update, ignored on create.
              */
             row_version?: number;
+        };
+        ProcurementVendorAnswerRow: {
+            question_id: string;
+            label: string;
+            value: string;
+        };
+        ProcurementVendorForm: {
+            version: number;
+            pages: components["schemas"]["ProcurementVendorFormPage"][];
+        };
+        ProcurementVendorFormPage: {
+            key: string;
+            title: string;
+            hint?: string;
+            questions: components["schemas"]["ProcurementVendorQuestion"][];
+        };
+        ProcurementVendorQuestion: {
+            id: string;
+            /** @enum {string} */
+            kind: "choice" | "multi" | "text" | "number";
+            title: string;
+            hint?: string;
+            required: boolean;
+            /** @description The register stores this answer in its own column (read it back from the typed vendor field). */
+            typed: boolean;
+            options?: {
+                value: string;
+                label: string;
+            }[];
+            allow_other?: boolean;
+            min?: number;
+            max?: number;
+            unit?: string;
+            only_if?: {
+                question_id: string;
+                value: string;
+            };
         };
         ProcurementVendorCatalogEntry: {
             value: string;
@@ -8098,6 +8213,8 @@ export interface components {
             total_loads: number;
             /** @description The tenant-wide average sold price used as the remaining-stock fallback basis. */
             overall_avg_sold_price?: number | null;
+            /** @description What every load's remaining stock was valued at: `assumed` (the price set on Sales Config's Farm valuation) or `overall` (the overall average sold price). */
+            unsold_price_basis?: string;
             summary: components["schemas"]["LoadwiseSummary"];
         };
         BuyerAnalyticsRow: {
@@ -9991,6 +10108,27 @@ export interface components {
             landing_cost_per_kg?: number | null;
             /** @description Parsed out of the market text at import time, never at read time. */
             market_price_per_kg?: number | null;
+        };
+        SalesValuationAssumptions: {
+            buckets: components["schemas"]["SalesValuationBucket"][];
+            /** @description Null keeps Load wise on the overall average sold price; a figure prices every unsold animal at it. */
+            unsold_stock_price_rupees: number | null;
+            row_version: number;
+            updated_at?: string;
+            updated_by_name?: string;
+            /** @description The bands a write is refused outside of. */
+            limits?: {
+                [key: string]: number;
+            };
+        };
+        SalesValuationBucket: {
+            /** @description fattening | adult_female | adult_male_buck | K0 | K1 | K2 | K3 (fixed classification). */
+            bucket: string;
+            label: string;
+            /** @description Null = price at the measured weight. */
+            fixed_weight_kg: number | null;
+            price_per_kg: number;
+            display_order: number;
         };
         /** @description The whole sales page contract, all blocks whole-filter aggregates. */
         SalesOverview: {
@@ -18303,17 +18441,21 @@ export interface components {
             /** Format: uuid */
             workflow_id: string;
             /** @enum {string} */
-            module: "birth" | "death" | "reconcile" | "shifting" | "general";
+            module: "birth" | "death" | "reconcile" | "shifting" | "general" | "sales";
             /**
              * @description The run's template. Module workflows use a fixed key (birth_kid, birth_mother, death,
-             *     reconcile, shifting). A GENERAL run -- a farm-wide SOP started by hand from Work
+             *     reconcile, shifting, sales_deal). A GENERAL run -- a farm-wide SOP started by hand from Work
              *     instructions -- is keyed by its SOP code as `general:<sop code>`, e.g.
              *     `general:general.gate_visitor_check`, so every authored general SOP is its own template
              *     without a contract change per SOP.
              */
             template_key: string;
-            /** @description Backend-owned kind label for the card ("Birth", "Death", "Pen return", "Pen move", or the general SOP's name). Render verbatim. */
+            /** @description Backend-owned kind label for the card ("Birth", "Death", "Pen return", "Pen move", "Sale", or the general SOP's name). Render verbatim. */
             template_label?: string;
+            /** @description The NON-animal subject a workflow is keyed on -- the sale's deal id, the reconcile card, a general run id. Absent on goat-keyed workflows. The phone deep-links the sale's tag-animals step to the tagging screen on it. */
+            subject_ref_id?: string;
+            /** @description Backend-composed line for a non-animal subject ("Kumar Traders · 12 animals · CBE" on a sale); absent elsewhere. Render verbatim. */
+            subject_label?: string;
             subject: components["schemas"]["WorkflowSubject"];
             /** Format: date-time */
             event_at: string;
@@ -18395,7 +18537,7 @@ export interface components {
              * @description Backend-owned reason; absent when blocked is false.
              * @enum {string}
              */
-            blocked_reason?: "previous_action" | "not_yet_due" | "signoff" | "awaiting_answer";
+            blocked_reason?: "previous_action" | "not_yet_due" | "signoff" | "awaiting_answer" | "for_other_role";
             answer_value: string | null;
             proof_ref: string | null;
             completed_by_label: string;
@@ -18420,6 +18562,10 @@ export interface components {
             rework_reason?: string;
             /** @description Backend-composed sentence for a step on an answer-driven branch ("Only if 'Is the animal ready?' is No"); absent on an unconditional step. Render verbatim. Such a step reads blocked_reason=awaiting_answer until its question is answered; a step on the branch NOT taken is never served (it is skipped, off every count). */
             branch_note?: string;
+            /** @description WHO DOES THE STEP (SALES SOP, docs/decisions/sales-sop.md): the designation code the SOP names ("park_head"); absent when anyone may do it. A caller who does not hold it reads blocked=true, blocked_reason=for_other_role and the write path refuses them (403 step_for_other_role); ceo_internal is never narrowed. */
+            owner_role?: string;
+            /** @description The designation catalog's label for owner_role ("Park Head"). Render verbatim. */
+            owner_label?: string;
         };
         WorkflowProofItem: {
             /** @description Server-minted proof id from /app/proofs/*. */
@@ -25544,6 +25690,32 @@ export interface operations {
             500: components["responses"]["ServerError"];
         };
     };
+    getProcurementVendorForm: {
+        parameters: {
+            query?: {
+                /** @description Narrows the record types offered to one half of the register, as vendor-catalog does. */
+                side?: "procurement" | "sales";
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The published form. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ProcurementVendorForm"];
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            500: components["responses"]["ServerError"];
+        };
+    };
     listFeedPurchases: {
         parameters: {
             query?: {
@@ -27588,6 +27760,58 @@ export interface operations {
             401: components["responses"]["Unauthorized"];
             403: components["responses"]["Forbidden"];
             404: components["responses"]["NotFoundOrNotAllowed"];
+            500: components["responses"]["ServerError"];
+        };
+    };
+    getSalesValuationAssumptions: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The tenant's assumptions (seeded defaults when never edited). */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SalesValuationAssumptions"];
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            500: components["responses"]["ServerError"];
+        };
+    };
+    putSalesValuationAssumptions: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["SalesValuationAssumptions"];
+            };
+        };
+        responses: {
+            /** @description The saved row. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SalesValuationAssumptions"];
+                };
+            };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            409: components["responses"]["WriteConflict"];
             500: components["responses"]["ServerError"];
         };
     };
@@ -30204,7 +30428,7 @@ export interface operations {
     listAppWorkflows: {
         parameters: {
             query: {
-                module: "birth" | "death" | "colostrum" | "general";
+                module: "birth" | "death" | "colostrum" | "general" | "sales";
                 /** @description Business date (Asia/Kolkata) to list; defaults to today IST. */
                 date?: string;
                 /** @description Card bucket filter; defaults to all (excludes canceled). */
@@ -30255,6 +30479,35 @@ export interface operations {
             };
             401: components["responses"]["Unauthorized"];
             403: components["responses"]["Forbidden"];
+            500: components["responses"]["ServerError"];
+        };
+    };
+    getAppWorkflowBySubject: {
+        parameters: {
+            query: {
+                /** @description A subject-keyed template (sales_deal, reconcile, or general:<sop code>). */
+                template_key: string;
+                subject_ref_id: string;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The workflow's card header, facts and operator action rows. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["WorkflowDetailResponse"];
+                };
+            };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFoundOrNotAllowed"];
             500: components["responses"]["ServerError"];
         };
     };

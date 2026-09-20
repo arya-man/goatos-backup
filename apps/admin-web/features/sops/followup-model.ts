@@ -48,6 +48,9 @@ export type FollowUpStepRow = {
   whenStep: string;
   whenOp: AnswerOp;
   whenValues: string[];
+  // Who does the step (SALES SOP, 2026-09-19): a designation code from the catalog served as
+  // the `sop_step_owners` option group. Blank = anyone who can open the workflow.
+  owner: string;
 };
 
 /** Answer comparisons the engine evaluates (tasks/domain.AnswerCondition). */
@@ -68,7 +71,7 @@ export type FollowUpRows = { tracks: FollowUpTrackRows[] };
 // Steps whose KEY the engine matches a behaviour on (tag promotion, pen fallback, colostrum lens,
 // numeric kg, death evidence, pen return, the dependency-timed ORS round). The editor keeps their
 // key and type fixed; title, instruction, proof and schedule stay editable.
-export const ENGINE_BOUND_TASK_TYPES = new Set(["weigh", "tag", "record_pen", "feed_colostrum", "death_evidence", "return_to_pen"]);
+export const ENGINE_BOUND_TASK_TYPES = new Set(["weigh", "tag", "record_pen", "feed_colostrum", "death_evidence", "return_to_pen", "sale_tag_animals"]);
 
 function str(v: unknown, fallback = ""): string {
   return typeof v === "string" ? v : fallback;
@@ -125,6 +128,7 @@ export function blankStep(taskType = "record_yes_no"): FollowUpStepRow {
     whenStep: "",
     whenOp: "eq",
     whenValues: [],
+    owner: "",
   };
 }
 
@@ -223,6 +227,7 @@ export function parseFollowUp(formDsl: unknown): FollowUpRows | null {
                 whenStep: str(whenAnswer["step"]),
                 whenOp: (ANSWER_OPS.includes(str(whenAnswer["op"]) as AnswerOp) ? str(whenAnswer["op"]) : "eq") as AnswerOp,
                 whenValues: strList(whenAnswer["value"]),
+                owner: str(step["owner"]),
               } satisfies FollowUpStepRow,
             ];
           }),
@@ -311,6 +316,7 @@ export function emitFollowUp(rows: FollowUpRows): Record<string, unknown> {
         if (row.requires.length) out.requires = row.requires;
         if (row.when) out.when = row.when;
         if (row.whenStep) out.when_answer = { step: row.whenStep, op: row.whenOp, value: row.whenValues.map((v) => v.trim()).filter(Boolean) };
+        if (row.owner.trim()) out.owner = row.owner.trim();
         return out;
       }),
     })),

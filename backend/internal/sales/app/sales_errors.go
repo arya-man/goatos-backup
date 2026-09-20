@@ -3,6 +3,7 @@ package app
 import (
 	"errors"
 	"net/http"
+	"strings"
 
 	"github.com/vgoats/goatos/backend/internal/sales/domain"
 	"github.com/vgoats/goatos/backend/internal/sales/ports"
@@ -77,6 +78,12 @@ func SalesHTTPError(err error) *Error {
 
 	case errors.Is(err, ErrSalesIdempotencyKeyRequired):
 		return BadRequest("missing_idempotency_key", "This sale could not be recorded safely. Try again.")
+
+	case errors.Is(err, ports.ErrValuationVersionConflict):
+		return Conflict("valuation_version_conflict", "The valuation was changed by someone else. Reload the page to see the current figures, then try again.")
+
+	case errors.Is(err, domain.ErrValuationInvalid):
+		return BadRequest("valuation_invalid", strings.TrimPrefix(err.Error(), domain.ErrValuationInvalid.Error()+": "))
 
 	default:
 		var v domain.ErrDealValidation

@@ -22,7 +22,8 @@ export type DomainId =
   | "procurement"
   | "farmernet"
   | "inventory"
-  | "people";
+  | "people"
+  | "sales";
 
 const DOMAIN_LABEL: Record<DomainId | "general", string> = {
   counts: "Counts",
@@ -36,6 +37,7 @@ const DOMAIN_LABEL: Record<DomainId | "general", string> = {
   farmernet: "Farmer Network",
   inventory: "Inventory",
   people: "HR",
+  sales: "Sales",
   general: "General",
 };
 
@@ -66,6 +68,9 @@ export function classifyDomain(code: string, name: string): DomainId | "general"
   // Procurement SOP (maintainer decision 2026-09-14): procurement.* is the animal purchase
   // inspection's own prefix.
   if (c.startsWith("procurement.")) return "procurement";
+  // Sales SOP (maintainer instruction 2026-09-19): sales.* is the sale's own prefix; the
+  // keyword table would file it under Procurement ("sale").
+  if (c.startsWith("sales.")) return "sales";
   const hay = `${code} ${name}`.toLowerCase();
   for (const rule of DOMAIN_KEYWORDS) {
     if (rule.words.some((w) => hay.includes(w))) return rule.id;
@@ -79,11 +84,13 @@ export function classifyDomain(code: string, name: string): DomainId | "general"
 // (maintainer decision): their codes are module-prefixed by migration 000186, so the prefix is
 // authoritative — keyword guessing would file milk.* under "Breeding" ("milk") and weighing.*
 // under "Counts" ("weigh").
-export function sopScopeKey(code: string, name: string): "vaccination" | "counts" | "feed" | "milk" | "weighing" | "procurement" | "general" {
+export function sopScopeKey(code: string, name: string): SopScopeDomain {
   const c = (code || "").toLowerCase();
   // GENERAL SOPs (SOP studio phase 2, 2026-09-18): the `general.` prefix is the kind, authored on
   // Configuration -> Work instructions.
   if (c.startsWith("general.")) return "general";
+  // SALES SOP (2026-09-19): `sales.` codes are authored on Sales -> Sales SOP.
+  if (c.startsWith("sales.")) return "sales";
   if (c.startsWith("procurement.")) return "procurement";
   if (c.startsWith("milk.")) return "milk";
   if (c === "weighing" || c.startsWith("weighing.")) return "weighing";
@@ -97,8 +104,9 @@ export function sopScopeKey(code: string, name: string): "vaccination" | "counts
 // vaccination, plus the migration-seeded Counts (birth / death / shifting) and Feed (distribution /
 // packing / transport) library documents. isVaccinationSop still decides which cards carry the
 // "Vaccination" chip label and which map to the vaccination filter chip.
-export const SOP_SLICE_LABEL: Record<"vaccination" | "counts" | "feed" | "milk" | "weighing" | "procurement" | "general", string> = {
+export const SOP_SLICE_LABEL: Record<SopScopeDomain, string> = {
   general: "General",
+  sales: "Sales",
   vaccination: "Vaccination",
   counts: "Herd Operations",
   feed: "Feed",
@@ -280,6 +288,9 @@ export type SopCardView = {
   // `inspection` document (pages of questions the phone runs); null otherwise.
   inspectionFormDsl: unknown;
   inspectionQuestionCount: number;
+  // VENDOR FORM (2026-09-19): the version's form_dsl when it carries a `vendor_form` document
+  // (the pages of questions Add / Edit vendor asks); null otherwise.
+  vendorFormDsl: unknown;
   // WEIGHING SOP (maintainer decision 2026-09-15): the form_dsl when it carries a `weighing`
   // rules section (what a weighing task is planned on and runs under); null otherwise.
   weighingFormDsl: unknown;
@@ -313,10 +324,11 @@ export function toSopView(def: SopDefLike, version: SopVersionLike | null): SopC
     versionStatus: version ? version.status : null,
     hasVersion: Boolean(version),
     inspectionFormDsl: version && hasInspection(version.form_dsl) ? version.form_dsl : null,
+    vendorFormDsl: version && hasSection(version.form_dsl, "vendor_form") ? version.form_dsl : null,
     weighingFormDsl: version && hasWeighingRules(version.form_dsl) ? version.form_dsl : null,
     feedFormDsl: version && hasFeedCards(version.form_dsl) ? version.form_dsl : null,
     shiftingFormDsl: version && hasShiftingCards(version.form_dsl) ? version.form_dsl : null,
-    inspectionQuestionCount: version ? deriveInspectionQuestionCount(version.form_dsl) : 0,
+    inspectionQuestionCount: version ? deriveInspectionQuestionCount(version.form_dsl) + deriveInspectionQuestionCount(version.form_dsl, "vendor_form") : 0,
     fields: version
       ? deriveFields(version.form_dsl).map((f) => ({ label: f.label, type: f.type, required: f.required, options: f.options, helpText: f.helpText }))
       : [],
@@ -354,15 +366,19 @@ function hasWeighingRules(formDsl: unknown): boolean {
 }
 
 function hasInspection(formDsl: unknown): boolean {
+  return hasSection(formDsl, "inspection");
+}
+
+function hasSection(formDsl: unknown, section: string): boolean {
   const dsl = asObject(formDsl);
-  return Boolean(dsl && asObject(dsl["inspection"]));
+  return Boolean(dsl && asObject(dsl[section]));
 }
 
 // deriveInspectionQuestionCount counts the authored questions across every page of
-// form_dsl.inspection (Procurement SOP); 0 when absent.
-export function deriveInspectionQuestionCount(formDsl: unknown): number {
+// form_dsl.inspection (Procurement SOP) -- or of the section named (`vendor_form`); 0 when absent.
+export function deriveInspectionQuestionCount(formDsl: unknown, section = "inspection"): number {
   const dsl = asObject(formDsl);
-  const ins = dsl ? asObject(dsl["inspection"]) : null;
+  const ins = dsl ? asObject(dsl[section]) : null;
   if (!ins || !Array.isArray(ins["pages"])) return 0;
   return (ins["pages"] as unknown[]).reduce<number>((n, raw) => {
     const p = asObject(raw);
@@ -534,7 +550,7 @@ export type SubjectScope = "batch" | "goat";
 
 // The New SOP builder is locked by its mounted module page. The domain is not a free choice inside
 // the builder; each route passes its own slice so new SOPs stay visible on the page that authored them.
-export type SopScopeDomain = "vaccination" | "counts" | "feed" | "milk" | "weighing" | "procurement" | "general";
+export type SopScopeDomain = "vaccination" | "counts" | "feed" | "milk" | "weighing" | "procurement" | "general" | "sales";
 
 export type SopBuilderInput = {
   name: string;

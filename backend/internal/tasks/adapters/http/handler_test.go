@@ -50,6 +50,10 @@ func (s *stubService) GetWorkflow(_ context.Context, _, _ string) (domain.Workfl
 	return s.detail, nil
 }
 
+func (s *stubService) GetWorkflowBySubject(ctx context.Context, tenantID, _, _ string) (domain.WorkflowDetail, error) {
+	return s.GetWorkflow(ctx, tenantID, "")
+}
+
 func (s *stubService) GetColostrumDay(_ context.Context, _, _, date string) (tasksapp.ColostrumDetail, error) {
 	s.lastDetailDate = date
 	if s.detailErr != nil {
@@ -358,6 +362,44 @@ func TestBothTicksReachBothModules(t *testing.T) {
 		if rec.Code != http.StatusOK {
 			t.Fatalf("%s with both ticks: status=%d (%s)", target, rec.Code, rec.Body.String())
 		}
+	}
+}
+
+func TestSalesReadCanOpenButCannotMutateSalesWorkflow(t *testing.T) {
+	svc := &stubService{detail: domain.WorkflowDetail{
+		Card: domain.WorkflowCard{WorkflowID: "wf-sale", Module: domain.ModuleSales, TemplateKey: domain.TemplateKeySalesDeal},
+	}}
+	mux := newTestMux(svc)
+	perms := []string{permissions.SalesRead}
+
+	rec := doRequestWithPermissions(mux, http.MethodGet, "/app/workflows/wf-sale", "", nil, true, perms)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("sales detail with sales.read: status=%d (%s)", rec.Code, rec.Body.String())
+	}
+
+	rec = doRequestWithPermissions(mux, http.MethodPost, "/app/workflows/wf-sale/actions/act-1/answer",
+		`{"answer_value":"yes"}`, map[string]string{"Idempotency-Key": "long-enough-key"}, true, perms)
+	if rec.Code != http.StatusForbidden || errCode(t, rec) != "permission_denied" {
+		t.Fatalf("sales answer with sales.read: status=%d code=%s", rec.Code, errCode(t, rec))
+	}
+	rec = doRequestWithPermissions(mux, http.MethodPost, "/app/workflows/wf-sale/actions/act-1/complete",
+		`{}`, map[string]string{"Idempotency-Key": "long-enough-key"}, true, perms)
+	if rec.Code != http.StatusForbidden || errCode(t, rec) != "permission_denied" {
+		t.Fatalf("sales complete with sales.read: status=%d code=%s", rec.Code, errCode(t, rec))
+	}
+	if svc.writeCalls != 0 {
+		t.Fatalf("sales.read reached mutation service: %d calls", svc.writeCalls)
+	}
+}
+
+func TestSalesWriteCanMutateSalesWorkflow(t *testing.T) {
+	svc := &stubService{detail: domain.WorkflowDetail{
+		Card: domain.WorkflowCard{WorkflowID: "wf-sale", Module: domain.ModuleSales, TemplateKey: domain.TemplateKeySalesDeal},
+	}}
+	rec := doRequestWithPermissions(newTestMux(svc), http.MethodPost, "/app/workflows/wf-sale/actions/act-1/answer",
+		`{"answer_value":"yes"}`, map[string]string{"Idempotency-Key": "long-enough-key"}, true, []string{permissions.SalesWrite})
+	if rec.Code != http.StatusOK || svc.writeCalls != 1 {
+		t.Fatalf("sales answer with sales.write: status=%d calls=%d (%s)", rec.Code, svc.writeCalls, rec.Body.String())
 	}
 }
 

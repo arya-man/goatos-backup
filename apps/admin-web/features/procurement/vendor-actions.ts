@@ -45,13 +45,35 @@ function readVendorForm(formData: FormData): ProcurementVendorWrite {
     return Number.isFinite(parsed) ? Math.trunc(parsed) : null;
   };
 
+  // VENDOR FORM IS AUTHORED (2026-09-19): a drawer rendered from the published form sends every
+  // answer keyed by question id plus the form version; the backend checks them against that
+  // version and maps the typed ones onto the columns. Pick-many boxes arrive as repeated values
+  // and are joined with "|"; an "other" free text rides `<id>_other`.
+  const questionIds = (formData.get("form_question_ids")?.toString() ?? "").split(",").map((s) => s.trim()).filter(Boolean);
+  const questionnaireVersion = Number(formData.get("questionnaire_version")?.toString() ?? "0");
+  const answers: Record<string, string> | undefined = questionIds.length && questionnaireVersion > 0 ? {} : undefined;
+  if (answers) {
+    for (const id of questionIds) {
+      const values = formData.getAll(id).map((v) => v.toString().trim()).filter(Boolean);
+      // Every asked question is sent, blank included: the write is a REPLACE, and a typed
+      // question cleared on screen must clear its column rather than keep the old value.
+      answers[id] = values.join("|");
+      const other = formData.get(`${id}_other`)?.toString().trim();
+      if (other) answers[`${id}_other`] = other;
+    }
+  }
+
   return {
-    record_type: requiredString(formData, "record_type"),
-    business_name: requiredString(formData, "business_name"),
+    // With answers present the backend maps the typed ones onto these columns, so a typed field
+    // the form asks may legitimately be absent here; without answers (the fallback form) the
+    // backend's own required checks still refuse a blank.
+    record_type: optionalString(formData, "record_type") ?? "",
+    business_name: optionalString(formData, "business_name") ?? "",
     // The backend re-validates this against its own enum; the cast only satisfies the generated
     // client's literal union, it is not a trust boundary.
-    status: requiredString(formData, "status") as ProcurementVendorWrite["status"],
-    state: requiredString(formData, "state"),
+    status: (optionalString(formData, "status") ?? "") as ProcurementVendorWrite["status"],
+    state: optionalString(formData, "state") ?? "",
+    ...(answers ? { answers, questionnaire_version: questionnaireVersion } : {}),
     contact_person_name: optionalString(formData, "contact_person_name") ?? "",
     phone_number: optionalString(formData, "phone_number") ?? "",
     breed: optionalString(formData, "breed") ?? "",

@@ -28,7 +28,19 @@ var FollowUpDocuments = map[string]string{
 	// The first GENERAL SOP (maintainer decision 2026-09-18): farm-wide, started by hand, with an
 	// answer-driven branch -- the shape phase 2 of the SOP studio adds.
 	SOPCodeGateVisitorCheck: "general_gate_visitor_check.json",
+	// The SALE (maintainer instruction 2026-09-19, docs/decisions/sales-sop.md): what happens
+	// after a sale is recorded -- tagging, loading, the money -- with the designation that does
+	// each step. Seeded by the sales-SOP migration; pinned by TestMigrationEmbedsTheSalesSeed.
+	SOPCodeSalesDeal: "sales_deal.json",
 }
+
+// SOPCodeSalesDeal is the seeded sale SOP's code.
+const SOPCodeSalesDeal = "sales.deal"
+
+// TaskTypeFiles are the Task Type Registry seed files in the order their migrations shipped:
+// task_types.json (000308) and task_types_sales.json (the sales-SOP migration). A registry row
+// is never edited in an already-applied migration, so a later hook gets its own file.
+var TaskTypeFiles = []string{"task_types.json", "task_types_sales.json"}
 
 // SOPCodeGateVisitorCheck is the seeded general SOP's code.
 const SOPCodeGateVisitorCheck = "general.gate_visitor_check"
@@ -64,15 +76,19 @@ func FollowUp(sopCode string) ([]byte, error) {
 	return files.ReadFile(name)
 }
 
-// TaskTypes decodes the seeded Task Type Registry.
+// TaskTypes decodes the seeded Task Type Registry: every TaskTypeFiles file, in order.
 func TaskTypes() ([]TaskType, error) {
-	raw, err := files.ReadFile("task_types.json")
-	if err != nil {
-		return nil, err
-	}
 	var out []TaskType
-	if err := json.Unmarshal(raw, &out); err != nil {
-		return nil, fmt.Errorf("sopseed: task_types.json: %w", err)
+	for _, name := range TaskTypeFiles {
+		raw, err := files.ReadFile(name)
+		if err != nil {
+			return nil, err
+		}
+		var rows []TaskType
+		if err := json.Unmarshal(raw, &rows); err != nil {
+			return nil, fmt.Errorf("sopseed: %s: %w", name, err)
+		}
+		out = append(out, rows...)
 	}
 	return out, nil
 }

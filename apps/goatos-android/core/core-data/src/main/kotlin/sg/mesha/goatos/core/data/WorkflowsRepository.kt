@@ -137,6 +137,14 @@ interface WorkflowsRepository {
     suspend fun findCachedCard(workflowId: String): WorkflowCardDto?
 
     /**
+     * Fetches the workflow keyed on a NON-animal subject (SALES SOP, docs/decisions/sales-sop.md:
+     * the sale's steps from its deal id), caches it under the workflow id -- the same key
+     * [observeDetail] reads -- and returns that id. Blank when the backend has no workflow for the
+     * subject yet (the recorded event still in flight); failure otherwise.
+     */
+    suspend fun refreshDetailBySubject(templateKey: String, subjectRefId: String): Result<String> = Result.success("")
+
+    /**
      * Optimistic local completion of an answered question: flips the cached detail action to
      * `completed` with [answerValue] the moment the answer is durably queued, so the row reads as
      * done immediately. The backend remains the authority; the next refresh reconciles.
@@ -322,6 +330,30 @@ class DefaultWorkflowsRepository(
         }
     }.onFailure { android.util.Log.w("WorkflowsRepository", "workflowActionId: deserialize outbox payload failed for op_type ${item.opType}", it) }
         .getOrNull()
+
+    override suspend fun refreshDetailBySubject(templateKey: String, subjectRefId: String): Result<String> = runCatching {
+        val detail = try {
+            api.getWorkflowBySubject(templateKey, subjectRefId)
+        } catch (t: Throwable) {
+            if (t.isHttpNotFound()) return@runCatching ""
+            throw t
+        }
+        val workflowId = detail.workflowId
+        if (workflowId.isBlank()) return@runCatching ""
+        val key = detailCacheKey(workflowId, "", "")
+        val detailDao = database.workflowDetailCacheDao()
+        val cached = detailDao.observe(key).firstOrNull()
+            ?.let { runCatching { json.decodeFromString<WorkflowDetailResponseDto>(it.dtoJson) }
+                .onFailure { android.util.Log.w("WorkflowsRepository", "refreshDetailBySubject: deserialize cached workflow detail failed for $key", it) }
+                .getOrNull() }
+        val reconciled = detail.withActiveWorkflowActionsPreserved(
+            cached = cached,
+            activeActionIds = activeWorkflowActionIds(workflowId),
+        )
+        detailDao.upsert(WorkflowDetailCacheEntity(cacheKey = key, dtoJson = json.encodeToString(reconciled), updatedAt = clock()))
+        detailDao.enforceCacheBounds()
+        workflowId
+    }
 
     override suspend fun findCachedCard(workflowId: String): WorkflowCardDto? =
         database.workflowCardDao().findById(workflowId)
@@ -779,3 +811,9 @@ private class WorkflowRemoteMediator(
         ).mapTo(mutableSetOf()) { it.groupKey }
     }
 }
+
+private fun Throwable.isHttpNotFound(): Boolean =
+    javaClass.name == "retrofit2.HttpException" &&
+        runCatching { javaClass.getMethod("code").invoke(this) as? Int }
+            .onFailure { android.util.Log.d("WorkflowsRepository", "isHttpNotFound: reflection failed", it) }
+            .getOrNull() == 404

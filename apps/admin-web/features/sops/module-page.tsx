@@ -9,7 +9,7 @@ import type { RouteSearchParams } from "@/lib/search-params";
 import type { SopScopeDomain } from "./sop-derive";
 import { InspectionEditor } from "./inspection-editor";
 import { publishedFromSearch } from "./published-href";
-import { parseInspection } from "./inspection-model";
+import { parseInspection, parseVendorForm } from "./inspection-model";
 import { WeighingEditor } from "./weighing-editor";
 import { parseWeighing } from "./weighing-model";
 import { FeedEditor } from "./feed-editor";
@@ -104,6 +104,25 @@ export async function renderSopModulePage(
               versionLabel={`${version.version_label} · ${version.status}`}
               initial={followUp}
               initialView={sp.view === "flow" ? "flow" : "list"}
+            />
+          );
+        }
+        // VENDOR FORM (2026-09-19): a SOP carrying a `vendor_form` document (the pages of
+        // questions Add / Edit vendor asks) is edited through the same pages editor, without the
+        // load form or media.
+        const vendorForm = parseVendorForm(version.form_dsl);
+        if (vendorForm) {
+          const pageContract = await pageContractPromise;
+          return (
+            <InspectionEditor
+              pageContract={pageContract}
+              basePath={basePath}
+              sopId={editId}
+              sopName={detail.data.sop.name}
+              sopCode={detail.data.sop.code}
+              versionLabel={`${version.version_label} · ${version.status}`}
+              initial={vendorForm}
+              profile="vendor_form"
             />
           );
         }

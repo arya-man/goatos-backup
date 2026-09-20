@@ -32,6 +32,12 @@ var (
 	// ErrPermanentIdentifierRequired prevents Tag the kid from finishing before the canonical goat
 	// has received its operator-scanned permanent RFID.
 	ErrPermanentIdentifierRequired = errors.New("tasks: assign the permanent RFID before completing Tag the kid")
+	// ErrStepForOtherRole is a write on a step whose SOP names another designation as the one
+	// that does it (HTTP 403 step_for_other_role). See StepOwnedBy.
+	ErrStepForOtherRole = errors.New("tasks: this step is done by another designation")
+	// ErrSaleTaggingPending refuses a by-hand completion of the sale's tag-animals step: the
+	// engine completes it from the allocation confirm, never a tap (HTTP 409).
+	ErrSaleTaggingPending = errors.New("tasks: tag the animals on the sale-tagging screen; this step completes when the tagging is confirmed")
 	// ErrActionNotAnswerable is answer on a non-question action (HTTP 400).
 	ErrActionNotAnswerable = errors.New("tasks: action is not a question and cannot be answered")
 	// ErrActionNotCompletable is complete on a question/approval action (HTTP 400).
@@ -110,6 +116,12 @@ type WorkflowAction struct {
 	// it names is answered the step is blocked; once answered it is either on the path (pending)
 	// or skipped.
 	AnswerGate *AnswerCondition
+	// OwnerRole is the designation that does this step (workflow_actions.owner_role), stamped
+	// from the SOP at open; blank = anyone who can open the workflow. See StepOwnedBy.
+	OwnerRole string
+	// OwnerLabel is the designation catalog's label for OwnerRole ("Park Head"); blank when
+	// unowned. Display only, resolved by the read.
+	OwnerLabel string
 	// ReworkReason is the verifier's words when this step was sent back; cleared on completion.
 	ReworkReason       *string
 	CompletedBy        *string
@@ -243,6 +255,9 @@ type AnswerActionCommand struct {
 	AnsweredAt         time.Time
 	IdempotencyKey     string
 	RequestFingerprint string
+	// ActorRoles are the designations the caller holds (its active grant roles); a step whose
+	// owner_role is not among them is refused (StepOwnedBy). Nil = an engine/CLI caller.
+	ActorRoles []string
 }
 
 // CompleteActionCommand completes an "action"-type step (optionally with a video proof).
@@ -256,6 +271,26 @@ type CompleteActionCommand struct {
 	CompletedAt        time.Time
 	IdempotencyKey     string
 	RequestFingerprint string
+	// ActorRoles: see AnswerActionCommand.ActorRoles.
+	ActorRoles []string
+}
+
+// StepOwnedBy reports whether a caller holding these designations may act on the step. A step
+// with no owner is anyone's; the CEO/CXO floor (ceo_internal) is never narrowed by an authored
+// owner, matching the request-path floor in permissions. A nil role list is an engine or CLI
+// caller and is never refused -- the phone always sends its roles.
+func StepOwnedBy(ownerRole string, actorRoles []string) bool {
+	owner := strings.TrimSpace(ownerRole)
+	if owner == "" || actorRoles == nil {
+		return true
+	}
+	for _, r := range actorRoles {
+		r = strings.TrimSpace(r)
+		if r == owner || r == "ceo_internal" {
+			return true
+		}
+	}
+	return false
 }
 
 // ActionWriteResult reports an answer/complete outcome.
@@ -480,6 +515,8 @@ func TemplateLabel(templateKey string) string {
 		return "Pen return"
 	case TemplateKeyShifting:
 		return "Pen move"
+	case TemplateKeySalesDeal:
+		return "Sale"
 	}
 	if _, general := GeneralSOPCode(templateKey); general {
 		return "Work instruction"

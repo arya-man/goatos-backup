@@ -6,6 +6,9 @@ type Error struct {
 	Code       string
 	Message    string
 	HTTPStatus int
+	// Field names the form question a refusal is about, "" when the error is not about one.
+	// The transport carries it as `field` so a form can show the reason in place.
+	Field string
 }
 
 func (e *Error) Error() string {

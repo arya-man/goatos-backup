@@ -22,6 +22,7 @@ import {
   setMarketCallTime,
   updateMarketCity,
   updateMarketQuestion,
+  setMarketReporter,
 } from "@/lib/api/market-server";
 import type { ApiResult } from "@/lib/api/server";
 
@@ -131,4 +132,16 @@ export async function setMarketCallTimeAction(previous: MarketActionState, formD
     return fieldsMissing(previous);
   }
   return outcome(previous, await setMarketCallTime(callTime), "market_call_time_saved");
+}
+
+/** Reporter toggle (Sales SOP page): give or take the market survey phone module for one person. */
+export async function setMarketReporterAction(previous: MarketActionState, formData: FormData): Promise<MarketActionState> {
+  let personId: string;
+  try {
+    personId = requiredString(formData, "person_id");
+  } catch {
+    return fieldsMissing(previous);
+  }
+  const enabled = optionalString(formData, "enabled") === "true";
+  return outcome(previous, await setMarketReporter(personId, enabled), "market_reporter_saved");
 }

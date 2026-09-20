@@ -79,7 +79,11 @@ type ReferenceFamilies struct {
 	// the same keys with Label = answer kind, so the builder knows which steps take options.
 	SOPTaskTypes           []ReferenceOption
 	SOPTaskTypeAnswerKinds []ReferenceOption
-	UIConfig               []ConfigEntry
+	// Designations is the farm's designation catalog (designation_catalog, migration 000219):
+	// Key = designation code, Label = job title. The SOP step editor's "Done by" select
+	// (SALES SOP, 2026-09-19) is compiled from it, never from a constant list.
+	Designations []ReferenceOption
+	UIConfig     []ConfigEntry
 	// WeighingWeightsPages is the tenant's weighing_calendar_config row, compiled
 	// into both page contracts. SQL edits bump the admin-ui family revision.
 	// Nil (new tenant without an authored row) uses the documented initial defaults.
@@ -936,7 +940,7 @@ func compilePages(pages []domain.PageContract, families ReferenceFamilies, input
 			if out[i].RouteID == "feed-analytics" {
 				out[i].OptionGroups = compileFeedAnalyticsOptionGroups(out[i].OptionGroups, input)
 			}
-		case "counts-sops", "feed-sops", "milk-sops", "weighing-sops", "procurement-sops", "configuration-work-instructions":
+		case "counts-sops", "feed-sops", "milk-sops", "weighing-sops", "procurement-sops", "configuration-work-instructions", "sales-sops":
 			// SOP-DRIVEN HERD OPERATIONS (2026-09-13): the follow-up step editor's task types are
 			// tenant registry rows, never constants in contract code -- same injection path feed
 			// items use. sop_task_type_answer_kinds is the metadata twin keyed on the same keys.
@@ -948,6 +952,9 @@ func compilePages(pages []domain.PageContract, families ReferenceFamilies, input
 				// weighing rules are read, so the figures they are judged against sit beside them.
 				out[i].Controls = compileWeighingAssumptionsControl(out[i].Controls, input, out[i].Copy)
 			}
+			// SALES SOP (2026-09-19): a step's "Done by" is a designation from the catalog -- the
+			// same rows /people pre-fills from -- so the editor offers exactly what publish accepts.
+			out[i].OptionGroups = replaceOptionGroup(out[i].OptionGroups, "sop_step_owners", optionsFromReferences(families.Designations, ""))
 			if out[i].RouteID == "counts-sops" {
 				// A NEW Herd Operations SOP seeds herd questions, not the vaccination drive's
 				// (the vaccination seed leaked onto this page until 2026-09-13).
@@ -1105,7 +1112,7 @@ func compileSalesWeightCards(controls []domain.Control, input BootstrapInput, co
 	}
 	return upsertControl(controls, domain.Control{
 		ID:             "weights_over_35_card",
-		Label:          controlCopy(copy, "kpi.over35", "Over 35 kg"),
+		Label:          controlCopy(copy, "kpi.over35", "Over {kg} kg"),
 		Kind:           "summary_card",
 		Enabled:        allowed,
 		DisabledReason: reason,
@@ -1350,13 +1357,32 @@ func compileSalesConfigControls(controls []domain.Control, input BootstrapInput,
 	if !marketAllowed {
 		marketReason = controlCopy(copy, "disabled.market_config", "Your current role can view the market survey but not change what is asked.")
 	}
-	return upsertControl(controls, domain.Control{
+	controls = upsertControl(controls, domain.Control{
 		ID:             "market_config_write",
 		Label:          controlCopy(copy, "action.market_config.label", "Change what is asked"),
 		Kind:           "secondary_action",
 		Enabled:        marketAllowed,
 		DisabledReason: marketReason,
 		Action:         "POST /market/cities",
+	})
+
+	// FARM VALUATION ASSUMPTIONS (maintainer instruction 2026-09-19): the figures Farm value and
+	// Load wise price the herd at -- per-bucket weight and rupees per kg, the sale-ready line, the
+	// unsold-stock price. Its OWN permission on the Sales module's Configure level, same shape as
+	// the market survey: a reader sees the section with its figures and the save disabled with
+	// the reason.
+	valuationAllowed := len(input.Grants) == 0 || grantsAuthorize(input.Grants, input.TenantID, []string{permissions.SalesValuationWrite})
+	valuationReason := ""
+	if !valuationAllowed {
+		valuationReason = controlCopy(copy, "disabled.valuation", "Your current role can see how the herd is valued but not change the figures.")
+	}
+	return upsertControl(controls, domain.Control{
+		ID:             "edit_valuation",
+		Label:          controlCopy(copy, "action.valuation.label", "Save valuation"),
+		Kind:           "secondary_action",
+		Enabled:        valuationAllowed,
+		DisabledReason: valuationReason,
+		Action:         "PUT /sales/valuation-assumptions",
 	})
 }
 
@@ -2360,7 +2386,7 @@ func permissionsForNav(id string) []string {
 		// deliberately OFF feature held back by exactly counts.read, so this also stops the
 		// leaf advertising a module that is switched off.
 		return []string{permissions.CountsRead}
-	case "counts-sops", "milk-sops", "feed-sops", "weighing-sops", "procurement-sops", "configuration-work-instructions":
+	case "counts-sops", "milk-sops", "feed-sops", "weighing-sops", "procurement-sops", "configuration-work-instructions", "sales-sops":
 		return []string{permissions.SOPRead}
 	case "health-analytics":
 		// health.read, which is what this screen's own data route requires. It must

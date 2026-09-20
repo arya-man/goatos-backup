@@ -41,10 +41,14 @@ import sg.mesha.goatos.core.data.sync.vendorCreateGroupKey
 import sg.mesha.goatos.core.data.sync.vendorUpdateGroupKey
 import sg.mesha.goatos.core.network.dto.VendorCatalogDto
 import sg.mesha.goatos.core.network.dto.VendorDto
+import sg.mesha.goatos.core.network.dto.VendorQuestionDto
 import sg.mesha.goatos.core.network.dto.VendorWriteDto
 import sg.mesha.goatos.feature.vendors.VendorCreateEvent
 import sg.mesha.goatos.feature.vendors.VendorCreateUiState
 import sg.mesha.goatos.feature.vendors.VendorField
+import sg.mesha.goatos.feature.vendors.VendorFormPageUi
+import sg.mesha.goatos.feature.vendors.VendorQuestionKind
+import sg.mesha.goatos.feature.vendors.VendorQuestionUi
 import sg.mesha.goatos.feature.vendors.VendorsOptionUi
 import sg.mesha.goatos.feature.vendors.VendorsWriteStatus
 import sg.mesha.goatos.feature.vendors.VoiceNoteSlotState
@@ -98,6 +102,12 @@ class VendorCreateViewModel @Inject constructor(
          * blanked by a form that never offered them.
          */
         val editing: VendorDto? = null,
+        /**
+         * VENDOR FORM IS AUTHORED (2026-09-19): the answers to the published form, keyed by
+         * question id (typed columns and extras alike), and the per-question refusals.
+         */
+        val answers: Map<String, String> = mapOf("status" to "active"),
+        val answerErrors: Map<String, String> = emptyMap(),
     )
 
     private val local = MutableStateFlow(Local())
@@ -120,6 +130,9 @@ class VendorCreateViewModel @Inject constructor(
         if (side.value == registerSide) return
         side.value = registerSide
         viewModelScope.launch { repository.refreshCatalog(registerSide) }
+        // The form is re-read on every open so a version published on the web a minute ago is
+        // what this wizard asks; the cached copy keeps it usable offline.
+        viewModelScope.launch { repository.refreshVendorForm(registerSide) }
     }
 
     /**
@@ -143,7 +156,7 @@ class VendorCreateViewModel @Inject constructor(
                 local.update { it.copy(message = MESSAGE_NOT_FOUND) }
                 return@launch
             }
-            local.update { it.copy(editing = vendor, values = vendor.toValues(), fieldErrors = emptyMap()) }
+            local.update { it.copy(editing = vendor, values = vendor.toValues(), answers = vendor.toVendorAnswers(), fieldErrors = emptyMap(), answerErrors = emptyMap()) }
         }
     }
 
@@ -152,11 +165,16 @@ class VendorCreateViewModel @Inject constructor(
     private val catalog = side
         .flatMapLatest { s -> if (s == null) flowOf(null) else repository.observeCatalog(s) }
 
-    val state: StateFlow<VendorCreateUiState> = combine(local, catalog) { l, catalog ->
+    @OptIn(ExperimentalCoroutinesApi::class)
+    private val form = side
+        .flatMapLatest { s -> if (s == null) flowOf(null) else repository.observeVendorForm(s) }
+
+    val state: StateFlow<VendorCreateUiState> = combine(local, catalog, form) { l, catalog, form ->
         val c = catalog ?: VendorCatalogDto()
+        val pages = form?.pages?.map { it.toUi() }.orEmpty()
         VendorCreateUiState(
             step = l.step,
-            stepCount = STEP_COUNT,
+            stepCount = if (pages.isNotEmpty()) pages.size else STEP_COUNT,
             values = l.values,
             recordTypes = c.recordTypes.options(),
             states = c.states.options(),
@@ -166,7 +184,7 @@ class VendorCreateViewModel @Inject constructor(
             feeds = c.feeds.options(),
             breeds = c.breeds.options(),
             fieldErrors = l.fieldErrors,
-            contextLine = contextLine(l.values, c),
+            contextLine = if (pages.isNotEmpty()) vendorContextLine(l.answers, pages) else contextLine(l.values, c),
             voiceNote = l.voiceNote,
             voiceNoteLength = l.voiceNoteLength,
             writeStatus = l.writeStatus,
@@ -175,8 +193,16 @@ class VendorCreateViewModel @Inject constructor(
             submitInFlight = l.submitInFlight,
             message = l.message,
             isEditing = l.editing != null,
+            form = pages,
+            formVersion = form?.version ?: 0,
+            answers = l.answers,
+            answerErrors = l.answerErrors,
         )
     }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), VendorCreateUiState())
+
+    /** The published form as the wizard holds it right now; empty when none is cached yet. */
+    private val currentForm: List<VendorFormPageUi> get() = state.value.form
+    private val currentFormVersion: Int get() = state.value.formVersion
 
     fun onEvent(event: VendorCreateEvent) {
         // A queued or accepted write is read-only: the last step stays on screen for the banner
@@ -186,6 +212,9 @@ class VendorCreateViewModel @Inject constructor(
         when (event) {
             is VendorCreateEvent.FieldChanged -> local.update {
                 it.copy(values = it.values + (event.field to event.value), fieldErrors = it.fieldErrors - event.field)
+            }
+            is VendorCreateEvent.AnswerChanged -> local.update {
+                it.copy(answers = it.answers + (event.questionId to event.value), answerErrors = it.answerErrors - event.questionId)
             }
             VendorCreateEvent.Next -> next()
             VendorCreateEvent.Previous -> local.update { it.copy(step = (it.step - 1).coerceAtLeast(0)) }
@@ -199,6 +228,16 @@ class VendorCreateViewModel @Inject constructor(
     }
 
     private fun next() {
+        val pages = currentForm
+        if (pages.isNotEmpty()) {
+            val errors = validateVendorFormPage(pages[local.value.step.coerceIn(0, pages.size - 1)], local.value.answers)
+            if (errors.isNotEmpty()) {
+                local.update { it.copy(answerErrors = errors) }
+                return
+            }
+            local.update { it.copy(step = (it.step + 1).coerceAtMost(pages.size - 1), answerErrors = emptyMap()) }
+            return
+        }
         val errors = validate(local.value.step, local.value.values)
         if (errors.isNotEmpty()) {
             local.update { it.copy(fieldErrors = errors) }
@@ -209,20 +248,34 @@ class VendorCreateViewModel @Inject constructor(
 
     private fun submit() {
         val current = local.value
-        val errors = (0 until STEP_COUNT).fold(emptyMap<VendorField, String>()) { acc, step -> acc + validate(step, current.values) }
-        if (errors.isNotEmpty()) {
-            // Jump back to the first step that still has a problem, with its refusal shown.
-            val firstStep = (0 until STEP_COUNT).first { step -> validate(step, current.values).isNotEmpty() }
-            local.update { it.copy(step = firstStep, fieldErrors = errors) }
-            return
+        val pages = currentForm
+        val formVersion = currentFormVersion
+        if (pages.isNotEmpty()) {
+            val firstBad = pages.indexOfFirst { validateVendorFormPage(it, current.answers).isNotEmpty() }
+            if (firstBad >= 0) {
+                local.update { it.copy(step = firstBad, answerErrors = validateVendorFormPage(pages[firstBad], current.answers)) }
+                return
+            }
+        } else {
+            val errors = (0 until STEP_COUNT).fold(emptyMap<VendorField, String>()) { acc, step -> acc + validate(step, current.values) }
+            if (errors.isNotEmpty()) {
+                // Jump back to the first step that still has a problem, with its refusal shown.
+                val firstStep = (0 until STEP_COUNT).first { step -> validate(step, current.values).isNotEmpty() }
+                local.update { it.copy(step = firstStep, fieldErrors = errors) }
+                return
+            }
         }
         viewModelScope.launch {
             local.update { it.copy(submitInFlight = true, message = null) }
             val editing = current.editing
+            // A form-driven write sends EVERY asked answer (blank included -- the write is a
+            // replace) with the form version; the typed columns are filled from the same answers
+            // so the queued row reads the same on this phone as it will on the server.
+            val request = if (pages.isNotEmpty()) vendorAnswersToWrite(current.answers, pages, formVersion) else current.values.toWrite()
             val result = if (editing == null) {
                 syncRepository.enqueueVendorCreate(
                     clientId = clientId,
-                    request = current.values.toWrite(),
+                    request = request,
                     voiceNoteOutboxItemId = current.voiceNoteOutboxItemId,
                 )
             } else {
@@ -235,7 +288,7 @@ class VendorCreateViewModel @Inject constructor(
                         clientId = clientId,
                         commitId = updateCommitId,
                         vendorId = editing.vendorId,
-                        request = current.values.toWrite().carryingUnshownFieldsOf(editing),
+                        request = if (pages.isNotEmpty()) request.carryingUnaskedVendorColumnsOf(editing, pages) else request.carryingUnshownFieldsOf(editing),
                         voiceNoteOutboxItemId = current.voiceNoteOutboxItemId,
                     ),
                 )

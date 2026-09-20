@@ -24,6 +24,7 @@ export function FollowUpFlow({
   answerKinds,
   answerKindLabels,
   taskTypes,
+  owners = [],
   selectedId,
   onSelect,
   onInsert,
@@ -35,6 +36,8 @@ export function FollowUpFlow({
   /** Answer kind key -> farm label. */
   answerKindLabels: Record<string, string>;
   taskTypes: { key: string; label: string }[];
+  /** Designations a step can be for; a node shows its owner's label as a chip. */
+  owners?: { key: string; label: string }[];
   selectedId: string;
   onSelect: (id: string) => void;
   /** Insert a new step at `insert.index` carrying `insert.when`. */
@@ -63,6 +66,7 @@ export function FollowUpFlow({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [track, answerKinds, pc]);
   const typeLabel = (key: string) => taskTypes.find((t) => t.key === key)?.label ?? key;
+  const ownerLabel = (key: string) => (key ? owners.find((o) => o.key === key)?.label ?? key : "");
   const selected = track.steps.find((s) => s.id === selectedId);
   const selectedIndex = track.steps.findIndex((s) => s.id === selectedId);
 
@@ -112,6 +116,11 @@ export function FollowUpFlow({
         <span className="studio-node-kind">{typeLabel(s.taskType)}</span>
         <b>{s.title || s.titlePattern || copy(pc, "followup.step.title")}</b>
         <span className="muted small">{[kind && kind !== "none" ? answerKindLabels[kind] ?? kind : "", proof].filter(Boolean).join(" · ")}</span>
+        {s.owner ? (
+          <span className="studio-node-owner" data-testid={`flow-owner-${s.key}`}>
+            {copy(pc, "followup.step.owner")}: {ownerLabel(s.owner)}
+          </span>
+        ) : null}
         {canBranch ? (
           <span className="studio-node-actions">
             <button

@@ -402,6 +402,13 @@ const (
 	// in each, with the unit each price is quoted in (Sales Config). Rides the Sales module's Do
 	// level -- the desks that record sales decide what the market is asked.
 	MarketConfigWrite = "sales.market.config.write"
+	// SalesValuationWrite gates the FARM VALUATION ASSUMPTIONS (maintainer instruction
+	// 2026-09-19): the per-bucket fixed weights and rupees per kg the live herd is valued at on
+	// Farm value, and the sale-ready weight line ("Over 35 kg"). Decided figures, never measured
+	// ones, so they are data edited on Sales Config -- on the Sales module's Configure level, the
+	// same level that decides what the market is asked. Reading them rides SalesRead: every
+	// reader of the valuation is owed the figures it was valued at.
+	SalesValuationWrite = "sales.valuation.write"
 	// MarketEntry gates RECORDING the day's prices on the phone (POST /app/market/survey/...).
 	// Held per person through RoleMarketReporter, never on a job: the phone offers the Market tab
 	// on this permission, so a Sales reader who does not make the calls never sees an entry form.
@@ -1319,7 +1326,7 @@ var rolePermissions = map[string]map[string]struct{}{
 		LocationsRead: {},
 		SalesRead:     {}, SalesWrite: {}, SalesAllocateAnimals: {},
 		// Market survey (2026-09-14): reads the analytics and authors the cities/questions.
-		MarketRead: {}, MarketConfigWrite: {},
+		MarketRead: {}, MarketConfigWrite: {}, SalesValuationWrite: {},
 		VendorRead: {}, VendorWrite: {}, VendorFinanceRead: {},
 		FeedPurchaseRead: {}, FeedPurchaseWrite: {}, LoadCostWrite: {},
 		AnimalPurchaseRead: {}, AnimalPurchaseWrite: {},
@@ -1518,7 +1525,7 @@ var rolePermissions = map[string]map[string]struct{}{
 		// founder/builder visibility invariant.
 		SalesRead: {}, SalesWrite: {}, SalesAllocateAnimals: {},
 		// Market survey (2026-09-14): reads the analytics and authors the cities/questions.
-		MarketRead: {}, MarketConfigWrite: {},
+		MarketRead: {}, MarketConfigWrite: {}, SalesValuationWrite: {},
 		// The feed purchase ledger (/procurement/feed-purchases): what feed was bought, at what
 		// landed cost, from whom. Same founder/builder visibility invariant.
 		FeedPurchaseRead: {}, FeedPurchaseWrite: {}, LoadCostWrite: {},

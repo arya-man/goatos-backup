@@ -2917,6 +2917,27 @@ WHERE tenant_id = $1::uuid AND status = 'active'`
 
 // ListActiveTaskTypes reads the tenant's Task Type Registry (migration 000308) for follow_up
 // validation at version creation. Implements sop/app.TaskTypeSource.
+// ListActiveDesignationCodes reads the designation catalog (a global, tens-of-rows table) for
+// the step-owner check at publish: an authored `owner` must be one of these codes.
+func (r *Repository) ListActiveDesignationCodes(ctx context.Context) ([]string, error) {
+	ctx, cancel := context.WithTimeout(ctx, r.timeout)
+	defer cancel()
+	rows, err := r.pool.Query(ctx, `SELECT designation_code FROM designation_catalog WHERE status = 'active' ORDER BY sort_order, designation_code`)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	out := []string{}
+	for rows.Next() {
+		var code string
+		if err := rows.Scan(&code); err != nil {
+			return nil, err
+		}
+		out = append(out, code)
+	}
+	return out, rows.Err()
+}
+
 func (r *Repository) ListActiveTaskTypes(ctx context.Context, tenantID string) (tasksdomain.TaskTypeRegistry, error) {
 	ctx, cancel := context.WithTimeout(ctx, r.timeout)
 	defer cancel()

@@ -382,7 +382,7 @@ function SopDetailModal({ view, pageContract, onClose, onEdit, onEditCapture, ed
           {/* An inspection SOP lists its load form and pages below; the generic field list would repeat the load form. */}
           {/* A general SOP has no capture form: its whole content is the operator steps below, so the
               capture section (and its "no form_dsl fields" note) is not the thing to show (PR 308 review). */}
-          {view.inspectionFormDsl || (view.fields.length === 0 && view.followUpStepCount > 0) ? null : (
+          {view.inspectionFormDsl || view.vendorFormDsl || (view.fields.length === 0 && view.followUpStepCount > 0) ? null : (
             <>
           <div className="b700" style={{ margin: "8px 0" }}>
             {copy(pageContract, "label.steps_questions")}{" "}
@@ -421,6 +421,7 @@ function SopDetailModal({ view, pageContract, onClose, onEdit, onEditCapture, ed
           )}
           {view.followUpStepCount > 0 ? <FollowUpStepsSummary pageContract={pageContract} formDsl={view.followUpFormDsl} /> : null}
           {view.inspectionFormDsl ? <InspectionSummary pageContract={pageContract} formDsl={view.inspectionFormDsl} /> : null}
+          {view.vendorFormDsl ? <InspectionSummary pageContract={pageContract} formDsl={view.vendorFormDsl} profile="vendor_form" /> : null}
           {view.weighingFormDsl ? <WeighingSummary pageContract={pageContract} formDsl={view.weighingFormDsl} /> : null}
           {view.feedFormDsl ? <FeedSummary pageContract={pageContract} sopCode={view.code} formDsl={view.feedFormDsl} /> : null}
           {view.shiftingFormDsl ? <ShiftingSummary pageContract={pageContract} formDsl={view.shiftingFormDsl} /> : null}
@@ -445,6 +446,8 @@ function SopDetailModal({ view, pageContract, onClose, onEdit, onEditCapture, ed
                 ? copy(pageContract, "action.edit_operator_steps")
                 : view.inspectionFormDsl
                   ? copy(pageContract, "action.edit_inspection")
+                  : view.vendorFormDsl
+                  ? copy(pageContract, "action.edit_vendor_form")
                   : view.feedFormDsl
                     ? copy(pageContract, "action.edit_feed")
                     : view.weighingFormDsl

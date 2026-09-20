@@ -27,6 +27,8 @@ type fakeRepo struct {
 	dams      map[string]string                  // dam ref -> goat_id
 	// pendingAppends are steps a mutation appended; mutate folds them into the workflow.
 	pendingAppends []domain.WorkflowAction
+	// saleTagCompletions records the deals whose tag step the engine was asked to complete.
+	saleTagCompletions []string
 }
 
 func newFakeRepo() *fakeRepo {
@@ -218,6 +220,11 @@ func (f *fakeRepo) CompleteAction(_ context.Context, cmd domain.CompleteActionCo
 		return domain.ActionWriteResult{}, err
 	}
 	return domain.WriteResult(w, actions, target, replay), nil
+}
+
+func (f *fakeRepo) CompleteSaleTagStep(_ context.Context, tenantID, dealID string, completedAt time.Time) error {
+	f.saleTagCompletions = append(f.saleTagCompletions, dealID)
+	return nil
 }
 
 func (f *fakeRepo) CompleteTagActionForGoat(_ context.Context, tenantID, goatID string, completedAt time.Time) error {

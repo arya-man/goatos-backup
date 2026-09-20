@@ -9,6 +9,7 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"errors"
+	"github.com/vgoats/goatos/backend/internal/platform/biztime"
 	"io"
 	"log/slog"
 	"net/http"
@@ -25,9 +26,13 @@ import (
 )
 
 const (
-	appWorkflowsRoute              = "/app/workflows"
-	appWorkflowDetailRoute         = "/app/workflows/{workflow_id}"
-	appWorkflowStartRoute          = "/app/workflows/start"
+	appWorkflowsRoute      = "/app/workflows"
+	appWorkflowDetailRoute = "/app/workflows/{workflow_id}"
+	appWorkflowStartRoute  = "/app/workflows/start"
+	// appWorkflowSubjectRoute serves the workflow keyed on a non-animal subject (a sale, a
+	// reconcile card) so a screen that knows the subject can show its steps without paging
+	// the module list: GET /app/workflows/subject?template_key=sales_deal&subject_ref_id=<deal>.
+	appWorkflowSubjectRoute        = "/app/workflows/subject"
 	appGeneralSOPsRoute            = "/app/sops/general"
 	appWorkflowActionAnswerRoute   = "/app/workflows/{workflow_id}/actions/{action_id}/answer"
 	appWorkflowActionCompleteRoute = "/app/workflows/{workflow_id}/actions/{action_id}/complete"
@@ -43,6 +48,7 @@ type WorkflowService interface {
 	ListWorkflows(ctx context.Context, in tasksapp.ListWorkflowsInput) (domain.WorkflowListPage, error)
 	ListColostrumDay(ctx context.Context, in tasksapp.ListColostrumDayInput) (domain.WorkflowListPage, error)
 	GetWorkflow(ctx context.Context, tenantID, workflowID string) (domain.WorkflowDetail, error)
+	GetWorkflowBySubject(ctx context.Context, tenantID, templateKey, subjectRefID string) (domain.WorkflowDetail, error)
 	GetColostrumDay(ctx context.Context, tenantID, workflowID, date string) (tasksapp.ColostrumDetail, error)
 	AnswerAction(ctx context.Context, in tasksapp.AnswerActionInput) (domain.ActionWriteResult, error)
 	CompleteAction(ctx context.Context, in tasksapp.CompleteActionInput) (domain.ActionWriteResult, error)
@@ -66,6 +72,8 @@ func NewHandler(svc WorkflowService, log *slog.Logger) *Handler {
 // Register mounts the workflow routes on the protected mux.
 func Register(mux *http.ServeMux, h *Handler) {
 	mux.HandleFunc("GET "+appWorkflowsRoute, h.ListWorkflows)
+	// Registered before the {workflow_id} pattern so "subject" is never read as an id.
+	mux.HandleFunc("GET "+appWorkflowSubjectRoute, h.GetWorkflowBySubject)
 	mux.HandleFunc("GET "+appWorkflowDetailRoute, h.GetWorkflow)
 	mux.HandleFunc("POST "+appWorkflowActionAnswerRoute, h.AnswerAction)
 	mux.HandleFunc("POST "+appWorkflowActionCompleteRoute, h.CompleteAction)
@@ -169,6 +177,11 @@ type workflowCardDTO struct {
 	NextAction           *domain.WorkflowNextAction `json:"next_action"`
 	AwaitingVerification bool                       `json:"awaiting_verification"`
 	State                string                     `json:"state"`
+	// SubjectRefID / SubjectLabel describe a NON-animal subject (the sale's deal id and
+	// "Kumar Traders · 12 animals · CBE"); blank on goat-keyed workflows. The phone deep-links the
+	// sale's tag-animals step to the tagging screen on subject_ref_id.
+	SubjectRefID string `json:"subject_ref_id,omitempty"`
+	SubjectLabel string `json:"subject_label,omitempty"`
 }
 
 type workflowListResponse struct {
@@ -206,7 +219,12 @@ type workflowActionDTO struct {
 	ReworkReason string `json:"rework_reason"`
 	// BranchNote is the backend-composed sentence for a step on an answer-driven branch ("Only
 	// if 'Is the animal ready?' is No"); blank on an unconditional step. Render verbatim.
-	BranchNote         string     `json:"branch_note,omitempty"`
+	BranchNote string `json:"branch_note,omitempty"`
+	// OwnerRole / OwnerLabel: the designation the SOP names for this step ("park_head" /
+	// "Park Head"); blank when anyone may do it. A caller who does not hold it gets
+	// blocked_reason = for_other_role and the write path refuses them.
+	OwnerRole          string     `json:"owner_role,omitempty"`
+	OwnerLabel         string     `json:"owner_label,omitempty"`
 	CompletedByLabel   string     `json:"completed_by_label"`
 	CompletedAt        *time.Time `json:"completed_at"`
 	VerificationStatus string     `json:"verification_status"`
@@ -253,8 +271,8 @@ func (h *Handler) ListWorkflows(w http.ResponseWriter, r *http.Request) {
 	// It selects the same card DTO built from a different grain: the kids with colostrum feeds due
 	// on ONE date, counted over that date's feeds (docs/decisions/colostrum-milk-module.md).
 	module := strings.ToLower(strings.TrimSpace(query.Get("module")))
-	if module != domain.ModuleBirth && module != domain.ModuleDeath && module != domain.ModuleColostrum && module != domain.ModuleGeneral {
-		h.writeError(w, r, http.StatusBadRequest, "invalid_module", "module must be birth, death, colostrum, or general", nil)
+	if module != domain.ModuleBirth && module != domain.ModuleDeath && module != domain.ModuleColostrum && module != domain.ModuleGeneral && module != domain.ModuleSales {
+		h.writeError(w, r, http.StatusBadRequest, "invalid_module", "module must be birth, death, colostrum, general, or sales", nil)
 		return
 	}
 	if !hasModulePermission(r.Context(), module) {
@@ -403,13 +421,49 @@ func (h *Handler) GetWorkflow(w http.ResponseWriter, r *http.Request) {
 		h.writeError(w, r, http.StatusForbidden, "permission_denied", "permission denied", nil)
 		return
 	}
+	h.writeDetail(w, detail, now, actorRoles(r.Context()))
+}
+
+// GetWorkflowBySubject serves the detail of the workflow keyed on a non-animal subject
+// (?template_key=sales_deal&subject_ref_id=<deal id>). 404 workflow_not_found until the
+// recorded event has opened it.
+func (h *Handler) GetWorkflowBySubject(w http.ResponseWriter, r *http.Request) {
+	tenantID := httpmiddleware.TenantIDFromContext(r.Context())
+	if tenantID == "" {
+		h.writeError(w, r, http.StatusUnauthorized, "missing_tenant", "missing tenant context", nil)
+		return
+	}
+	query := r.URL.Query()
+	templateKey := strings.TrimSpace(query.Get("template_key"))
+	subjectRef := strings.TrimSpace(query.Get("subject_ref_id"))
+	if !domain.SubjectKeyedTemplate(templateKey) && templateKey != domain.TemplateKeyReconcile {
+		h.writeError(w, r, http.StatusBadRequest, "invalid_template_key", "template_key must name a subject-keyed workflow", nil)
+		return
+	}
+	if subjectRef == "" {
+		h.writeError(w, r, http.StatusBadRequest, "missing_subject_ref_id", "subject_ref_id is required", nil)
+		return
+	}
+	detail, err := h.svc.GetWorkflowBySubject(r.Context(), tenantID, templateKey, subjectRef)
+	if err != nil {
+		h.writeDomainError(w, r, err)
+		return
+	}
+	if !hasModulePermission(r.Context(), detail.Card.Module) {
+		h.writeError(w, r, http.StatusForbidden, "permission_denied", "permission denied", nil)
+		return
+	}
+	h.writeDetail(w, detail, time.Now().In(biztime.DefaultLocation()), actorRoles(r.Context()))
+}
+
+func (h *Handler) writeDetail(w http.ResponseWriter, detail domain.WorkflowDetail, now time.Time, roles []string) {
 	actions := make([]workflowActionDTO, 0, len(detail.Actions))
 	for _, a := range detail.Actions {
 		// A skipped step is the branch the answer did not take: never shown, never owed.
 		if a.ActionType == domain.ActionTypeApproval || a.Status == domain.ActionStatusSkipped {
 			continue
 		}
-		actions = append(actions, actionDTO(detail.Card.TemplateKey, a, detail.Actions, now))
+		actions = append(actions, actionDTO(detail.Card.TemplateKey, a, detail.Actions, now, roles))
 	}
 	httpresponse.WriteJSON(w, http.StatusOK, workflowDetailResponse{
 		workflowCardDTO: cardDTOWithActions(detail.Card, detail.Actions),
@@ -418,6 +472,29 @@ func (h *Handler) GetWorkflow(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
+// actorRoles is the caller's designations: the roles on its active grants, deduplicated. The
+// SOP's step owner is matched against these (domain.StepOwnedBy). Never nil for a request --
+// an empty slice is a caller holding no designation, which an owned step refuses.
+func actorRoles(ctx context.Context) []string {
+	seen := map[string]struct{}{}
+	out := []string{}
+	for _, g := range httpmiddleware.AuthGrantsFromContext(ctx) {
+		role := strings.TrimSpace(g.Role)
+		if role == "" {
+			continue
+		}
+		if _, dup := seen[role]; dup {
+			continue
+		}
+		seen[role] = struct{}{}
+		out = append(out, role)
+	}
+	return out
+}
+
+// canReadWorkflowModule is the per-module read gate: herd operations on counts.write, a general
+// run for anyone who reached the route, and the SALE workflow for whoever can see a sale or tag
+// its animals (the sales desk and the park head).
 type proofItemDTO struct {
 	Ref  string `json:"ref"`
 	Kind string `json:"kind"`
@@ -478,6 +555,7 @@ func (h *Handler) AnswerAction(w http.ResponseWriter, r *http.Request) {
 		ProofRef:           req.ProofRef,
 		Proofs:             proofItemsFromDTO(req.Proofs),
 		AnsweredBy:         httpmiddleware.ActorIDFromContext(r.Context()),
+		ActorRoles:         actorRoles(r.Context()),
 		IdempotencyKey:     "tasks-workflow-answer:" + clientKey,
 		RequestFingerprint: stableHash("tasks-workflow-answer", canonical),
 	})
@@ -527,6 +605,7 @@ func (h *Handler) CompleteAction(w http.ResponseWriter, r *http.Request) {
 		ProofRef:           strings.TrimSpace(req.ProofRef),
 		Proofs:             proofItemsFromDTO(req.Proofs),
 		CompletedBy:        httpmiddleware.ActorIDFromContext(r.Context()),
+		ActorRoles:         actorRoles(r.Context()),
 		IdempotencyKey:     "tasks-workflow-complete:" + clientKey,
 		RequestFingerprint: stableHash("tasks-workflow-complete", canonical),
 	})
@@ -567,6 +646,8 @@ func cardDTO(card domain.WorkflowCard) workflowCardDTO {
 		NextAction:           nextAction,
 		AwaitingVerification: card.AwaitingVerification,
 		State:                card.State,
+		SubjectRefID:         card.SubjectRefID,
+		SubjectLabel:         card.SubjectLabel,
 	}
 }
 
@@ -602,7 +683,11 @@ func cardDTOWithActions(card domain.WorkflowCard, actions []domain.WorkflowActio
 	return out
 }
 
-func actionDTO(templateKey string, a domain.WorkflowAction, siblings []domain.WorkflowAction, now time.Time) workflowActionDTO {
+func actionDTO(templateKey string, a domain.WorkflowAction, siblings []domain.WorkflowAction, now time.Time, actorRoles ...[]string) workflowActionDTO {
+	var roles []string
+	if len(actorRoles) > 0 {
+		roles = actorRoles[0]
+	}
 	verificationStatus := ""
 	switch a.Status {
 	case domain.ActionStatusInReview:
@@ -616,6 +701,9 @@ func actionDTO(templateKey string, a domain.WorkflowAction, siblings []domain.Wo
 	}
 	blockedReason := ""
 	switch {
+	case roles != nil && !domain.StepOwnedBy(a.OwnerRole, roles):
+		// Another designation's step: shown, never tappable by this caller.
+		blockedReason = "for_other_role"
 	case domain.ActionTimeBlocked(a, now):
 		blockedReason = "not_yet_due"
 	case domain.AnswerGateUnresolved(a, siblings):
@@ -649,6 +737,8 @@ func actionDTO(templateKey string, a domain.WorkflowAction, siblings []domain.Wo
 		ProofMinPhotos:     a.ProofMinPhotos,
 		ProofRefs:          proofItemsToDTO(a.ProofRefs),
 		ReworkReason:       strings.TrimSpace(ptrString(a.ReworkReason)),
+		OwnerRole:          a.OwnerRole,
+		OwnerLabel:         a.OwnerLabel,
 		CompletedByLabel:   "", // operator display resolution is a follow-up; the id is not UI copy
 		CompletedAt:        a.CompletedAt,
 		VerificationStatus: verificationStatus,
@@ -706,23 +796,45 @@ func (h *Handler) authorizeWorkflowWrite(w http.ResponseWriter, r *http.Request,
 		h.writeDomainError(w, r, err)
 		return false
 	}
-	if !hasModulePermission(r.Context(), detail.Card.Module) {
+	if !hasModuleWritePermission(r.Context(), detail.Card.Module) {
 		h.writeError(w, r, http.StatusForbidden, "permission_denied", "permission denied", nil)
 		return false
 	}
 	return true
 }
 
-// hasModulePermission is THE per-module gate behind the shared workflow routes. A general
-// (work-instruction) run is opened, listed, answered and completed on WorkInstructionsExecute
-// alone; every herd-operations module (birth, death, shifting, reconcile, and the colostrum lens
-// over birth) on CountsWrite alone. Holding the other module's permission never carries across:
-// a counts-only tick must not reach a general run and a work-instructions-only tick must not
-// reach a birth (PR #308 review, 2026-09-19). Module is the workflow's stored module, or the
-// list route's module keyword.
+// hasModulePermission is THE per-module read gate behind the shared workflow routes. A general
+// (work-instruction) run is read on WorkInstructionsExecute alone; every herd-operations module
+// (birth, death, shifting, reconcile, and the colostrum lens over birth) on CountsWrite alone.
+// Holding the other module's permission never carries across: a counts-only tick must not reach a
+// general run and a work-instructions-only tick must not reach a birth (PR #308 review,
+// 2026-09-19). Module is the workflow's stored module, or the list route's module keyword.
 func hasModulePermission(ctx context.Context, module string) bool {
-	if module == domain.ModuleGeneral {
+	switch module {
+	case domain.ModuleGeneral:
 		return hasWorkflowPermission(ctx, permissions.WorkInstructionsExecute)
+	case domain.ModuleSales:
+		// SALES SOP (2026-09-19): a sale workflow is read by anyone the sale itself is visible
+		// to -- the sales desk, the tagger, or a counts writer (park head / operator).
+		return hasWorkflowPermission(ctx, permissions.SalesRead) ||
+			hasWorkflowPermission(ctx, permissions.SalesWrite) ||
+			hasWorkflowPermission(ctx, permissions.SalesAllocateAnimals) ||
+			hasWorkflowPermission(ctx, permissions.CountsWrite)
+	}
+	return hasWorkflowPermission(ctx, permissions.CountsWrite)
+}
+
+// hasModuleWritePermission is the mutation side of hasModulePermission. It deliberately does not
+// accept sales.read: the sales workflow may be visible to desk/read-only users, but answering or
+// completing a step is operational work.
+func hasModuleWritePermission(ctx context.Context, module string) bool {
+	switch module {
+	case domain.ModuleGeneral:
+		return hasWorkflowPermission(ctx, permissions.WorkInstructionsExecute)
+	case domain.ModuleSales:
+		return hasWorkflowPermission(ctx, permissions.SalesWrite) ||
+			hasWorkflowPermission(ctx, permissions.SalesAllocateAnimals) ||
+			hasWorkflowPermission(ctx, permissions.CountsWrite)
 	}
 	return hasWorkflowPermission(ctx, permissions.CountsWrite)
 }
@@ -821,6 +933,12 @@ func (h *Handler) writeDomainError(w http.ResponseWriter, r *http.Request, err e
 	case errors.Is(err, domain.ErrPermanentIdentifierRequired):
 		h.writeError(w, r, http.StatusUnprocessableEntity, "permanent_identifier_required",
 			"scan or enter the permanent RFID before recording the Tag the kid video", err)
+	case errors.Is(err, domain.ErrStepForOtherRole):
+		h.writeError(w, r, http.StatusForbidden, "step_for_other_role",
+			"this step is done by another designation", err)
+	case errors.Is(err, domain.ErrSaleTaggingPending):
+		h.writeError(w, r, http.StatusConflict, "sale_tagging_pending",
+			"tag the animals on the sale-tagging screen; this step completes when the tagging is confirmed", err)
 	case errors.Is(err, domain.ErrIdempotencyConflict):
 		h.writeError(w, r, http.StatusConflict, "idempotency_conflict",
 			"Idempotency-Key was reused with a different payload", err)

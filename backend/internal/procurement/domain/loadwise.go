@@ -28,6 +28,10 @@ const (
 	LoadwisePriceBasisLoad    = "load"
 	LoadwisePriceBasisOverall = "overall"
 	LoadwisePriceBasisNone    = "none"
+	// LoadwisePriceBasisAssumed: the unsold stock is valued at the price the farm SET on Sales
+	// Config (sales_valuation_assumptions.unsold_stock_price_rupees, maintainer instruction
+	// 2026-09-19), for every load alike, instead of a load's own or the overall average.
+	LoadwisePriceBasisAssumed = "assumed"
 )
 
 // LoadwiseLoad is one procurement load's reconciliation row.
@@ -206,7 +210,10 @@ type LoadwiseSales struct {
 	// TotalLoads is the whole-tenant load count; len(Loads) is the served window.
 	TotalLoads          int
 	OverallAvgSoldPrice *float64
-	Summary             LoadwiseSummary
+	// UnsoldPriceBasis says what every load's remaining stock was valued at: "assumed" when the
+	// farm set a price on Sales Config, "overall" when the overall average sold price stood in.
+	UnsoldPriceBasis string
+	Summary          LoadwiseSummary
 }
 
 // FinalizeLoadwise derives every per-row value the SQL read leaves to the domain — purchase value,
@@ -271,8 +278,20 @@ func DaysOnFarmSoFar(arrivedOn, asOf string, remaining int) *int {
 
 // FinalizeLoadwise takes asOf as the current Asia/Kolkata business date so the age clock is
 // derived, never stored: a stored age is wrong the next morning.
-func FinalizeLoadwise(loads []LoadwiseLoad, totalLoads int, overallAvg *float64, asOf string) LoadwiseSales {
-	out := LoadwiseSales{Loads: loads, TotalLoads: totalLoads, OverallAvgSoldPrice: overallAvg}
+func FinalizeLoadwise(loads []LoadwiseLoad, totalLoads int, overallAvg *float64, asOf string, assumedUnsoldPrice ...*float64) LoadwiseSales {
+	// An ASSUMED unsold price (Sales Config) replaces both fallbacks: every unsold animal on
+	// every load is carried at it. Passed variadic so the existing callers and tests keep their
+	// shape; nil or absent keeps the load-then-overall rule.
+	var assumed *float64
+	if len(assumedUnsoldPrice) > 0 && assumedUnsoldPrice[0] != nil && *assumedUnsoldPrice[0] > 0 {
+		assumed = assumedUnsoldPrice[0]
+	}
+	basis := LoadwisePriceBasisOverall
+	if assumed != nil {
+		overallAvg = assumed
+		basis = LoadwisePriceBasisAssumed
+	}
+	out := LoadwiseSales{Loads: loads, TotalLoads: totalLoads, OverallAvgSoldPrice: overallAvg, UnsoldPriceBasis: basis}
 	for i := range loads {
 		row := &loads[i]
 		// Fold the pre-GoatOS history in FIRST: those animals were purchased on this load and
@@ -294,6 +313,9 @@ func FinalizeLoadwise(loads []LoadwiseLoad, totalLoads int, overallAvg *float64,
 		row.Unaccounted = row.Purchased - row.Sold - row.Mortality - row.OtherExits - row.Remaining
 		row.PurchaseValue = loadPurchaseValue(row.AnimalCost, row.TransportCost, row.OtherCost)
 		row.AvgSoldPrice, row.PriceBasis = loadAvgSoldPrice(row.SoldValue, row.SoldPriced, overallAvg)
+		if assumed != nil {
+			row.AvgSoldPrice, row.PriceBasis = assumed, LoadwisePriceBasisAssumed
+		}
 		row.RemainingValue = remainingValue(row.Remaining, row.AvgSoldPrice)
 		row.LandedPricePerKg = landedPricePerKg(row.PurchaseValue, row.PurchaseWeightKg)
 		// Per-animal weights: the purchase side over the animals the load BROUGHT IN, the sale

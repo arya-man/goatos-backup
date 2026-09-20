@@ -23,8 +23,11 @@ func TestMigrationEmbedsTheSeededDocuments(t *testing.T) {
 	sql := string(raw)
 	files := []string{"categories.json", "task_types.json"}
 	for code, f := range sopseed.FollowUpDocuments {
-		if code == sopseed.SOPCodeGateVisitorCheck {
+		switch code {
+		case sopseed.SOPCodeGateVisitorCheck:
 			continue // seeded by 000361; pinned by TestMigrationEmbedsTheGeneralSeed
+		case sopseed.SOPCodeSalesDeal:
+			continue // seeded by 000366; pinned by TestMigrationEmbedsTheSalesSeed
 		}
 		files = append(files, f)
 	}
@@ -61,7 +64,7 @@ func TestTaskTypeRegistryCoversEveryHookAndAnswerKind(t *testing.T) {
 			hooks[tt.EngineHook]++
 		}
 	}
-	for _, h := range []string{EngineHookWeighKg, EngineHookTagKid, EngineHookRecordPen, EngineHookColostrum, EngineHookDeathVideo, EngineHookReturnAnimal} {
+	for _, h := range []string{EngineHookWeighKg, EngineHookTagKid, EngineHookRecordPen, EngineHookColostrum, EngineHookDeathVideo, EngineHookReturnAnimal, EngineHookSaleTagAnimals} {
 		if hooks[h] != 1 {
 			t.Fatalf("engine hook %q must be offered by exactly one task type, found %d", h, hooks[h])
 		}
@@ -100,5 +103,54 @@ func TestMigrationEmbedsTheGeneralSeed(t *testing.T) {
 	}
 	if tmpl.Module != ModuleGeneral || tmpl.Actions[2].AnswerGate == nil || tmpl.Actions[2].AnswerGate.Step != "from_other_farm" {
 		t.Fatalf("compiled = module %s gate %+v", tmpl.Module, tmpl.Actions[2].AnswerGate)
+	}
+}
+
+// TestMigrationEmbedsTheSalesSeed pins the sale SOP (migration 000366) and its task type to their
+// sopseed files byte for byte, and proves the seeded document compiles: five steps, the tag step
+// hooked for the engine, every step owned by a designation, and the balance step on the "No" branch
+// of the payment question.
+func TestMigrationEmbedsTheSalesSeed(t *testing.T) {
+	path := filepath.Join("..", "..", "..", "migrations", "postgres", "000366_sales_sop.sql")
+	raw, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, name := range []string{"sales_deal.json", "task_types_sales.json"} {
+		doc, err := sopseed.Raw(name)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if !strings.Contains(string(raw), "$seed$"+strings.TrimSpace(string(doc))+"$seed$") {
+			t.Fatalf("migration 000366 does not embed %s verbatim", name)
+		}
+	}
+	dsl := loadSeeded(t, sopseed.SOPCodeSalesDeal)
+	reg, _ := SeededTaskTypes()
+	if problems := ValidateFollowUp(dsl, reg); len(problems) > 0 {
+		t.Fatalf("seeded sale SOP: %v", problems)
+	}
+	track, ok := dsl.Track(TemplateKeySalesDeal)
+	if !ok {
+		t.Fatalf("sale SOP must carry the %q track", TemplateKeySalesDeal)
+	}
+	tmpl, err := CompileTrack(track, reg, CompileOptions{EventAt: time.Date(2026, 9, 19, 9, 0, 0, 0, time.UTC)})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if tmpl.Module != ModuleSales || len(tmpl.Actions) != 5 {
+		t.Fatalf("compiled = module %s, %d steps", tmpl.Module, len(tmpl.Actions))
+	}
+	if tmpl.Actions[0].EngineHook != EngineHookSaleTagAnimals || tmpl.Actions[0].Owner != "park_head" {
+		t.Fatalf("tag step = hook %q owner %q", tmpl.Actions[0].EngineHook, tmpl.Actions[0].Owner)
+	}
+	for _, a := range tmpl.Actions {
+		if a.Owner == "" {
+			t.Fatalf("seeded step %q names no designation", a.Key)
+		}
+	}
+	last := tmpl.Actions[4]
+	if last.AnswerGate == nil || last.AnswerGate.Step != "full_payment" || last.AnswerGate.Value[0] != "no" {
+		t.Fatalf("balance step gate = %+v", last.AnswerGate)
 	}
 }

@@ -463,8 +463,13 @@ func (r *Repository) loadwiseSales(ctx context.Context, tenantID, parkID string,
 	if pricedCount > 0 && overallAvg > 0 {
 		overall = &overallAvg
 	}
+	// The farm's own unsold-stock price (Sales Config, migration 000367), when set: one PK read.
+	var assumed *float64
+	if err := r.pool.QueryRow(ctx, `SELECT unsold_stock_price_rupees::float8 FROM public.sales_valuation_assumptions WHERE tenant_id = $1::uuid`, tenantID).Scan(&assumed); err != nil && !errors.Is(err, pgx.ErrNoRows) {
+		return domain.LoadwiseSales{}, fmt.Errorf("procurement: loadwise unsold price assumption: %w", err)
+	}
 
-	return domain.FinalizeLoadwise(loads, totalLoads, overall, asOf), nil
+	return domain.FinalizeLoadwise(loads, totalLoads, overall, asOf, assumed), nil
 }
 
 // bizDate renders an optional business DATE as its calendar day, never shifted through a timezone.

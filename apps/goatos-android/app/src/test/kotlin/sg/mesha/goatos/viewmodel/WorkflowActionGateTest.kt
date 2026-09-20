@@ -319,5 +319,19 @@ class WorkflowProofTargetTest {
     fun `a general run uses the work-instruction camera copy, never the birth one`() {
         assertEquals(sg.mesha.goatos.capture.ProofCapturePrompt.WORK_INSTRUCTION, workflowCapturePrompt(isDeath = false, action = null, isGeneral = true))
         assertEquals(sg.mesha.goatos.capture.ProofCapturePrompt.BIRTH, workflowCapturePrompt(isDeath = false, action = null))
+        // A sale run is neither birth nor death: it takes the neutral work-instruction camera copy.
+        assertEquals(sg.mesha.goatos.capture.ProofCapturePrompt.WORK_INSTRUCTION, workflowCapturePrompt(isDeath = false, action = null, isSale = true))
+    }
+}
+
+// SALES SOP (2026-09-19): a step another designation owns names that designation in the
+// backend's own label, and a plain blocked step without a label still says something.
+class WorkflowSaleStepNoteTest {
+    @Test
+    fun `a step for another designation names it`() {
+        assertEquals("For the Park Head.", workflowBlockedNote(true, WORKFLOW_BLOCKED_FOR_OTHER_ROLE, "sales", "", "Park Head"))
+        assertEquals("Done by another designation.", workflowBlockedNote(true, WORKFLOW_BLOCKED_FOR_OTHER_ROLE, "sales", "", ""))
+        // Not blocked: the owner is a chip, not a footer note.
+        assertEquals("", workflowBlockedNote(false, "", "sales", "", "Park Head"))
     }
 }

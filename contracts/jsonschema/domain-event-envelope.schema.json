@@ -44,6 +44,7 @@
         "goat.identity.merge_rejected",
         "goat.exited",
         "goat.sale_allocated",
+        "sales.deal.recorded",
         "goat.location.changed",
         "goat.stage_changed",
         "goat.health.changed",

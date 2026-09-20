@@ -63,9 +63,11 @@ fun VendorCreateScreen(
         }
     }
     Column(modifier = modifier.fillMaxSize().background(MeshaColors.PageBg)) {
+        val formDriven = state.form.isNotEmpty()
         MeshaScreenHeader(
             title = if (state.isEditing) TITLE_EDIT else TITLE,
-            subtitle = STEP_TITLES.getOrNull(state.step),
+            // The step's heading is the published page's title (backend words) when the form drives the wizard.
+            subtitle = if (formDriven) state.form.getOrNull(state.step)?.title?.ifBlank { null } else STEP_TITLES.getOrNull(state.step),
             onBack = { onEvent(VendorCreateEvent.Back) },
         )
         VendorsStepper(stepCount = state.stepCount, currentIndex = state.step, caption = "Step ${state.step + 1} of ${state.stepCount}")
@@ -78,10 +80,17 @@ fun VendorCreateScreen(
             state.message?.let { message ->
                 item(key = "message") { VendorsResultBanner(status = VendorsWriteStatus.FAILED, message = message) }
             }
-            when (state.step) {
-                0 -> item(key = "who") { WhoStep(state, onEvent) }
-                1 -> item(key = "where") { WhereStep(state, onEvent) }
-                else -> item(key = "supply") { SupplyStep(state, onEvent) }
+            if (formDriven) {
+                // VENDOR FORM IS AUTHORED (2026-09-19): one step per published page, one control
+                // per question by kind; the voice-note slot stays on the last page.
+                val page = state.form[state.step.coerceIn(0, state.form.size - 1)]
+                item(key = "page-" + page.key) { FormPageStep(page, state, onEvent, last = state.step == state.form.size - 1) }
+            } else {
+                when (state.step) {
+                    0 -> item(key = "who") { WhoStep(state, onEvent) }
+                    1 -> item(key = "where") { WhereStep(state, onEvent) }
+                    else -> item(key = "supply") { SupplyStep(state, onEvent) }
+                }
             }
         }
         VendorsWizardBar(contextLine = state.contextLine) {
@@ -104,6 +113,80 @@ fun VendorCreateScreen(
                 )
             }
         }
+    }
+}
+
+/** One published page: its questions in order, each drawn by kind; hidden ones (ask only when) skipped. */
+@Composable
+private fun FormPageStep(page: VendorFormPageUi, state: VendorCreateUiState, onEvent: (VendorCreateEvent) -> Unit, last: Boolean) {
+    val a = state.answers
+    val e = state.answerErrors
+    VendorsFormGroup(title = page.title.ifBlank { "Step ${state.step + 1}" }) {
+        if (page.hint.isNotBlank()) Text(text = page.hint, color = MeshaColors.Muted, style = MeshaType.caption)
+        for (q in page.questions) {
+            val asked = q.onlyIfQuestion.isBlank() || a[q.onlyIfQuestion].orEmpty().trim() == q.onlyIfValue
+            if (!asked) continue
+            val value = a[q.id].orEmpty()
+            val change: (String) -> Unit = { onEvent(VendorCreateEvent.AnswerChanged(q.id, it)) }
+            when (q.kind) {
+                VendorQuestionKind.CHOICE -> {
+                    if (q.id == QUESTION_STATUS && q.options.size in 2..4 && !q.allowOther) {
+                        Text(text = q.title, color = MeshaColors.Muted, style = MeshaType.fieldLabel)
+                        VendorsSegmented(options = q.options, selectedValue = value, onSelect = change)
+                    } else {
+                        VendorsDropdownField(
+                            q.title, value, q.options, change,
+                            required = q.required, error = e[q.id],
+                            placeholder = if (q.required) HINT_PICK else HINT_OPTIONAL,
+                            allowClear = !q.required, clearLabel = CLEAR,
+                        )
+                    }
+                    if (q.allowOther && value == OTHER_VALUE) {
+                        VendorsTextField(a[q.id + OTHER_TEXT_SUFFIX].orEmpty(), { onEvent(VendorCreateEvent.AnswerChanged(q.id + OTHER_TEXT_SUFFIX, it)) }, HINT_OTHER, required = true)
+                    }
+                    if (q.hint.isNotBlank()) Text(text = q.hint, color = MeshaColors.Muted, style = MeshaType.caption)
+                }
+                VendorQuestionKind.MULTI -> {
+                    Text(text = q.title + if (q.required) " *" else "", color = MeshaColors.Muted, style = MeshaType.fieldLabel)
+                    val chosen = value.split('|').map { it.trim() }.filter { it.isNotBlank() }.toSet()
+                    for (o in q.options) {
+                        val on = o.value in chosen
+                        Row(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .clip(RoundedCornerShape(MeshaDimens.radiusInput))
+                                .background(if (on) MeshaColors.BrandTint else MeshaColors.Surf2)
+                                .clickable(role = Role.Checkbox) {
+                                    val next = if (on) chosen - o.value else chosen + o.value
+                                    change(q.options.map { it.value }.filter { it in next }.joinToString("|"))
+                                }
+                                .padding(horizontal = 12.dp, vertical = 10.dp),
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(10.dp),
+                        ) {
+                            Icon(if (on) MeshaIcons.Check else MeshaIcons.Plus, contentDescription = null, tint = if (on) MeshaColors.BrandD else MeshaColors.Muted, modifier = Modifier.size(MeshaDimens.iconSm))
+                            Text(text = o.label, color = MeshaColors.Ink, style = MeshaType.body)
+                        }
+                    }
+                    e[q.id]?.let { Text(text = it, color = MeshaColors.Danger, style = MeshaType.caption) }
+                    if (q.hint.isNotBlank()) Text(text = q.hint, color = MeshaColors.Muted, style = MeshaType.caption)
+                }
+                VendorQuestionKind.NUMBER -> VendorsTextField(
+                    value, change, if (q.unit.isNotBlank()) "${q.title} (${q.unit})" else q.title,
+                    required = q.required, keyboard = KeyboardType.Decimal, error = e[q.id],
+                    supporting = q.hint.ifBlank { null },
+                )
+                VendorQuestionKind.TEXT -> VendorsTextField(
+                    value, change, q.title,
+                    required = q.required,
+                    keyboard = if (q.id == QUESTION_PHONE) KeyboardType.Phone else KeyboardType.Text,
+                    error = e[q.id],
+                    supporting = q.hint.ifBlank { null },
+                    singleLine = q.id != QUESTION_COMMENTS && q.id != QUESTION_DETAILS,
+                )
+            }
+        }
+        if (last) VoiceNoteSlot(state = state.voiceNote, length = state.voiceNoteLength, onEvent = onEvent)
     }
 }
 
@@ -290,3 +373,10 @@ private const val VOICE_FAILED = "Voice note not saved"
 private const val VOICE_HINT = "Speak instead of typing. Optional."
 private const val VOICE_RERECORD_HINT = "Tap to record again"
 private const val REMOVE = "Remove"
+private const val HINT_OTHER = "Say what the other is"
+private const val OTHER_VALUE = "other"
+private const val OTHER_TEXT_SUFFIX = "_other"
+private const val QUESTION_STATUS = "status"
+private const val QUESTION_PHONE = "phone_number"
+private const val QUESTION_COMMENTS = "comments"
+private const val QUESTION_DETAILS = "details"

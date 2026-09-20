@@ -97,7 +97,15 @@ type SalesRepository interface {
 
 	// CreateWeightCheck records one video-vs-book weight audit row. Same idempotency contract.
 	CreateWeightCheck(ctx context.Context, tenantID string, write domain.WeightCheckWrite, actorID, idempotencyKey string) error
+
+	// GetValuationAssumptions reads the tenant's farm valuation assumptions (seeded defaults when
+	// no row exists); PutValuationAssumptions replaces them under a row_version fence.
+	GetValuationAssumptions(ctx context.Context, tenantID string) (domain.ValuationAssumptions, error)
+	PutValuationAssumptions(ctx context.Context, tenantID string, write domain.ValuationAssumptions, actorID string) (domain.ValuationAssumptions, error)
 }
+
+// ErrValuationVersionConflict is a valuation write carrying a row_version the row has moved past.
+var ErrValuationVersionConflict = errors.New("sales: valuation assumptions changed since they were loaded")
 
 // BuyerLeadPage is one page of the buyer pipeline plus the whole-filter total and the existing
 // call-status vocabulary (distinct stored statuses, for the picker's suggestions).

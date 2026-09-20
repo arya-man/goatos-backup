@@ -14,7 +14,9 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.combine
+import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.flatMapLatest
+import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.flow.update
@@ -25,6 +27,7 @@ import sg.mesha.goatos.core.analytics.AnalyticsPort
 import sg.mesha.goatos.core.analytics.CrashReporter
 import sg.mesha.goatos.core.common.AppResult
 import sg.mesha.goatos.core.data.SalesRepository
+import sg.mesha.goatos.core.data.WorkflowsRepository
 import sg.mesha.goatos.core.data.sync.SalesPaymentOp
 import sg.mesha.goatos.core.data.sync.SyncRepository
 import sg.mesha.goatos.core.network.dto.SaleAllocationRequestDto
@@ -35,6 +38,7 @@ import sg.mesha.goatos.core.network.dto.SalesDealDto
 import sg.mesha.goatos.core.network.dto.SalesDealLineWriteDto
 import sg.mesha.goatos.core.network.dto.SalesDealWriteDto
 import sg.mesha.goatos.core.network.dto.SalesOptionsDto
+import sg.mesha.goatos.core.network.dto.WorkflowDetailResponseDto
 import sg.mesha.goatos.feature.vendors.SaleBuyerListState
 import sg.mesha.goatos.feature.vendors.SaleBuyerOptionUi
 import sg.mesha.goatos.feature.vendors.SaleCandidateUi
@@ -247,6 +251,7 @@ class SaleDetailViewModel @Inject constructor(
     savedStateHandle: SavedStateHandle,
     private val repository: SalesRepository,
     private val syncRepository: SyncRepository,
+    private val workflows: WorkflowsRepository,
     private val analytics: AnalyticsPort,
     private val crashReporter: CrashReporter,
 ) : ViewModel() {
@@ -255,6 +260,10 @@ class SaleDetailViewModel @Inject constructor(
     private data class Local(
         val refreshing: Boolean = false,
         val loaded: Boolean = false,
+        // The sale's SOP workflow (SALES SOP, 2026-09-19): resolved by subject on refresh, then
+        // observed from the Room detail cache under its workflow id like every other workflow.
+        val stepsWorkflowId: String = "",
+        val stepsUnavailable: Boolean = false,
         val taggedLine: String = "",
         val taggedGroups: List<SaleShedGroupUi> = emptyList(),
         val allocationRead: Boolean = false,
@@ -271,7 +280,11 @@ class SaleDetailViewModel @Inject constructor(
         refresh()
     }
 
-    val state: StateFlow<SaleDetailUiState> = combine(repository.observeDeal(dealId), repository.observeOptions(), local) { deal, options, l ->
+    @OptIn(ExperimentalCoroutinesApi::class)
+    private val stepsDetail: Flow<WorkflowDetailResponseDto?> = local.map { it.stepsWorkflowId }.distinctUntilChanged()
+        .flatMapLatest { id -> if (id.isBlank()) flowOf(null) else workflows.observeDetail(id) }
+
+    val state: StateFlow<SaleDetailUiState> = combine(repository.observeDeal(dealId), repository.observeOptions(), local, stepsDetail) { deal, options, l, steps ->
         if (deal == null) {
             SaleDetailUiState(isRefreshing = l.refreshing, isLoading = !l.loaded, message = l.message)
         } else {
@@ -302,6 +315,11 @@ class SaleDetailViewModel @Inject constructor(
                     complete -> "All $declared ${if (declared == 1) "animal is" else "animals are"} tagged. Tag more on the web if the count changes."
                     else -> ""
                 },
+                stepsWorkflowId = l.stepsWorkflowId,
+                // The backend card's counters and next step, verbatim; the phone never recounts.
+                stepsProgressLine = steps?.let { "${it.actionsDone} of ${it.actionsTotal} done" }.orEmpty(),
+                stepsNextLine = steps?.nextAction?.title?.takeIf { it.isNotBlank() }?.let { "Next: $it" }.orEmpty(),
+                stepsUnavailable = l.stepsUnavailable,
                 isRefreshing = l.refreshing,
                 isLoading = false,
                 message = l.message,
@@ -313,6 +331,7 @@ class SaleDetailViewModel @Inject constructor(
         when (event) {
             SaleDetailEvent.Refresh -> refresh()
             SaleDetailEvent.TagAnimals -> analytics.track(AnalyticsEventsVendors.VENDORS_TAG_ANIMALS_OPENED)
+            is SaleDetailEvent.OpenSteps -> analytics.track(AnalyticsEventsVendors.VENDORS_SALE_STEPS_OPENED)
             SaleDetailEvent.DismissMessage -> local.update { it.copy(message = null) }
             SaleDetailEvent.Back -> Unit
             is SaleDetailEvent.OpenPayment -> openPaymentEditor(event.paymentId)
@@ -499,6 +518,14 @@ class SaleDetailViewModel @Inject constructor(
                 // The ledger row is cached from the list page (there is no per-deal read on the
                 // backend); refreshing means refreshing the ledger it came from.
                 repository.invalidateDeals("")
+                // The sale's SOP steps, keyed on the deal. Blank = not opened yet (the recorded
+                // event still in flight); failure = offline, the cached detail stays visible.
+                workflows.refreshDetailBySubject(SALE_WORKFLOW_TEMPLATE_KEY, dealId)
+                    .onSuccess { id -> local.update { it.copy(stepsWorkflowId = id.ifBlank { it.stepsWorkflowId }, stepsUnavailable = false) } }
+                    .onFailure { t ->
+                        crashReporter.recordException(t, "sale steps read failed")
+                        local.update { it.copy(stepsUnavailable = it.stepsWorkflowId.isBlank()) }
+                    }
                 when (val result = repository.saleAllocation(dealId)) {
                     is AppResult.Ok -> {
                         val a = result.value
@@ -529,6 +556,8 @@ class SaleDetailViewModel @Inject constructor(
     }
 
     private companion object {
+        /** tasks/domain.TemplateKeySalesDeal -- the sale workflow's template key. */
+        const val SALE_WORKFLOW_TEMPLATE_KEY = "sales_deal"
         const val TAG_MANURE = "A manure sale has no animals to tag."
         const val TAG_FAILED = "A failed deal has no animals to tag."
         const val REQUIRED = "Required"

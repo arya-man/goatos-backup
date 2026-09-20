@@ -10,7 +10,7 @@ import { revalidatePath } from "next/cache";
 // Every module SOP route the sidebar serves is listed (review finding on PR 267): a route
 // missing here keeps serving the cached library after a publish, so the "Published vN"
 // banner and the lit card would point at a card still reading the old version.
-const SOP_PAGE_PATHS = ["/counts/sops", "/feed/sops", "/milk/sops", "/procurement/sops", "/weighing/sops"];
+const SOP_PAGE_PATHS = ["/counts/sops", "/feed/sops", "/milk/sops", "/procurement/sops", "/sales/sops", "/weighing/sops"];
 import {
   createSop,
   createSopVersion,
@@ -233,16 +233,18 @@ export interface InspectionSaveResult {
   report?: SOPValidationReport;
 }
 
-export async function saveInspectionVersion(sopId: string, inspection: Record<string, unknown>, label?: string): Promise<InspectionSaveResult> {
+// section names the form_dsl key the document replaces: `inspection` (default) or, for the
+// VENDOR FORM (2026-09-19), `vendor_form`. Everything else in the version is carried verbatim.
+export async function saveInspectionVersion(sopId: string, inspection: Record<string, unknown>, label?: string, section: "inspection" | "vendor_form" = "inspection"): Promise<InspectionSaveResult> {
   if (!sopId) return { ok: false, message: "SOP id is required" };
   const detail = await getSop(sopId);
   if (!detail.ok) return { ok: false, message: detail.error.message ?? "SOP could not be read", code: detail.error.code };
   // Build on the version in force, never on a stray draft / retired version above it.
   const base = detail.data.published_version ?? detail.data.latest_version;
   if (!base) return { ok: false, message: "This SOP has no version to build on." };
-  const formDsl = { ...(base.form_dsl as Record<string, unknown>), inspection };
+  const formDsl = { ...(base.form_dsl as Record<string, unknown>), [section]: inspection };
   const version = await createSopVersion(sopId, {
-    version_label: (label ?? "").trim() || `${detail.data.sop.name} · inspection`,
+    version_label: (label ?? "").trim() || `${detail.data.sop.name} · ${section === "vendor_form" ? "form" : "inspection"}`,
     form_dsl: formDsl,
     proof_policy: base.proof_policy as CreateSOPVersionRequest["proof_policy"],
   });
@@ -251,7 +253,7 @@ export async function saveInspectionVersion(sopId: string, inspection: Record<st
   const report = version.data.version.validation_report;
   return {
     ok: true,
-    message: report?.valid ? "Inspection saved as a draft version." : "Saved — backend flagged validation issues (see report).",
+    message: report?.valid ? (section === "vendor_form" ? "Vendor form saved as a draft version." : "Inspection saved as a draft version.") : "Saved — backend flagged validation issues (see report).",
     versionId: version.data.version.sop_version_id,
     rowVersion: version.data.version.row_version,
     versionNumber: version.data.version.version,
@@ -259,14 +261,20 @@ export async function saveInspectionVersion(sopId: string, inspection: Record<st
   };
 }
 
-export async function publishInspectionVersion(sopId: string, inspection: Record<string, unknown>, label?: string): Promise<InspectionSaveResult> {
-  const saved = await saveInspectionVersion(sopId, inspection, label);
+export async function publishInspectionVersion(sopId: string, inspection: Record<string, unknown>, label?: string, section: "inspection" | "vendor_form" = "inspection"): Promise<InspectionSaveResult> {
+  const saved = await saveInspectionVersion(sopId, inspection, label, section);
   if (!saved.ok || !saved.versionId || saved.rowVersion === undefined) return saved;
   if (saved.report && !saved.report.valid) return { ...saved, ok: false, message: saved.report.errors?.[0]?.message ?? "The inspection has validation issues; fix them and publish again." };
   const res = await publishSopVersion(sopId, saved.versionId, saved.rowVersion);
   if (!res.ok) return { ok: false, message: res.error.message ?? "publish failed", code: res.error.code };
   for (const path of SOP_PAGE_PATHS) revalidatePath(path);
-  return { ...saved, ok: true, message: `Published v${saved.versionNumber ?? ""}. Animals recorded from now on use this inspection.` };
+  return {
+    ...saved,
+    ok: true,
+    message: section === "vendor_form"
+      ? `Published v${saved.versionNumber ?? ""}. Vendors added or edited from now on use this form.`
+      : `Published v${saved.versionNumber ?? ""}. Animals recorded from now on use this inspection.`,
+  };
 }
 
 // WEIGHING SOP (maintainer decision 2026-09-15): the weighing rules editor saves a new version = the

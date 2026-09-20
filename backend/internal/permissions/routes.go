@@ -324,6 +324,8 @@ var protectedRoutes = []Route{
 	{OperationID: "updateProcurementVendor", Method: "PUT", Pattern: "/procurement/vendors/{vendor_id}", Permissions: []string{VendorWrite}},
 	{OperationID: "updateProcurementVendorStatus", Method: "POST", Pattern: "/procurement/vendors/{vendor_id}/status", Permissions: []string{VendorWrite}},
 	{OperationID: "listProcurementVendorCatalog", Method: "GET", Pattern: "/procurement/vendor-catalog", Permissions: []string{VendorRead}},
+	// The authored vendor form (sales.vendor SOP, 2026-09-19): what Add / Edit vendor asks.
+	{OperationID: "getProcurementVendorForm", Method: "GET", Pattern: "/procurement/vendor-form", Permissions: []string{VendorRead}},
 	// The ACTIVE register as a bounded picklist, for any screen that must name a counterparty --
 	// today Sales, which maps every deal to a vendor. It deliberately returns only id/name/type
 	// labels and truncation metadata, so SalesRead may use this picker without inheriting the full
@@ -378,6 +380,11 @@ var protectedRoutes = []Route{
 	{OperationID: "updateMarketCity", Method: "PUT", Pattern: "/market/cities/{city_id}", Permissions: []string{MarketConfigWrite}},
 	{OperationID: "createMarketQuestion", Method: "POST", Pattern: "/market/questions", Permissions: []string{MarketConfigWrite}},
 	{OperationID: "updateMarketQuestion", Method: "PUT", Pattern: "/market/questions/{question_id}", Permissions: []string{MarketConfigWrite}},
+	// Reporters (maintainer instruction 2026-09-19): who makes the morning calls, read and toggled
+	// from the Sales SOP page. Deciding who reports rides the same authority as deciding what is
+	// asked; the toggle writes through the person-access service.
+	{OperationID: "listMarketReporters", Method: "GET", Pattern: "/market/reporters", Permissions: []string{MarketRead}},
+	{OperationID: "setMarketReporter", Method: "PUT", Pattern: "/market/reporters/{person_id}", Permissions: []string{MarketConfigWrite}},
 	{OperationID: "setMarketCallTime", Method: "PUT", Pattern: "/market/config/call-time", Permissions: []string{MarketConfigWrite}},
 	{OperationID: "getMarketAnalytics", Method: "GET", Pattern: "/market/analytics", Permissions: []string{MarketRead}},
 	{OperationID: "getMarketSurveyDay", Method: "GET", Pattern: "/app/market/survey", Permissions: []string{MarketRead}},
@@ -547,6 +554,10 @@ var protectedRoutes = []Route{
 	{OperationID: "updateSalesFpoLead", Method: "POST", Pattern: "/sales/fpo-leads/{lead_id}", Permissions: []string{SalesWrite}},
 	{OperationID: "setSalesFpoLeadStatus", Method: "POST", Pattern: "/sales/fpo-leads/{lead_id}/status", Permissions: []string{SalesWrite}},
 	{OperationID: "createSalesMarketBenchmark", Method: "POST", Pattern: "/sales/market-benchmarks", Permissions: []string{SalesWrite}},
+	// FARM VALUATION ASSUMPTIONS (maintainer instruction 2026-09-19): every Sales reader is owed
+	// the figures the valuation is priced at; only the Configure level changes them.
+	{OperationID: "getSalesValuationAssumptions", Method: "GET", Pattern: "/sales/valuation-assumptions", Permissions: []string{SalesRead}},
+	{OperationID: "putSalesValuationAssumptions", Method: "PUT", Pattern: "/sales/valuation-assumptions", Permissions: []string{SalesValuationWrite}},
 	{OperationID: "createSalesSoldTags", Method: "POST", Pattern: "/sales/sold-tags", Permissions: []string{SalesWrite}},
 	{OperationID: "createSalesWeightCheck", Method: "POST", Pattern: "/sales/weight-checks", Permissions: []string{SalesWrite}},
 	// Procurement command-lens data is served by the TOP-LEVEL command screens via ?domain=procurement,
@@ -1138,13 +1149,18 @@ var protectedRoutes = []Route{
 	// SOP work opened by an APPROVED birth/death is operator ground work from the same phone as the
 	// Counts writes, so all four routes are gated on CountsWrite: the operator who records the birth
 	// is the operator who runs the kid's follow-up checklist and shoots the death evidence videos.
-	{OperationID: "listAppWorkflows", Method: "GET", Pattern: "/app/workflows", AnyPermissions: []string{CountsWrite, WorkInstructionsExecute}},
+	// SALES SOP (2026-09-19): the sale workflow rides the same routes, ORed with the sales
+	// permissions -- the sales desk (sales.read/write) and the park head who tags the animals
+	// (sales.allocate_animals) each own steps of it. The handler narrows per module: a caller
+	// admitted on a sales permission alone cannot read a birth card (canReadWorkflowModule).
+	{OperationID: "listAppWorkflows", Method: "GET", Pattern: "/app/workflows", AnyPermissions: []string{CountsWrite, WorkInstructionsExecute, SalesRead, SalesWrite, SalesAllocateAnimals}},
+	{OperationID: "getAppWorkflowBySubject", Method: "GET", Pattern: "/app/workflows/subject", AnyPermissions: []string{CountsWrite, WorkInstructionsExecute, SalesRead, SalesWrite, SalesAllocateAnimals}},
 	// The three per-run routes are ORed with WorkInstructionsExecute (2026-09-18): a general SOP
 	// run is driven through the same routes as a birth/death card, and a park head or director
 	// starting one at the gate holds work_instructions.execute, not necessarily counts.write.
-	{OperationID: "getAppWorkflow", Method: "GET", Pattern: "/app/workflows/{workflow_id}", AnyPermissions: []string{CountsWrite, WorkInstructionsExecute}},
-	{OperationID: "answerAppWorkflowAction", Method: "POST", Pattern: "/app/workflows/{workflow_id}/actions/{action_id}/answer", AnyPermissions: []string{CountsWrite, WorkInstructionsExecute}},
-	{OperationID: "completeAppWorkflowAction", Method: "POST", Pattern: "/app/workflows/{workflow_id}/actions/{action_id}/complete", AnyPermissions: []string{CountsWrite, WorkInstructionsExecute}},
+	{OperationID: "getAppWorkflow", Method: "GET", Pattern: "/app/workflows/{workflow_id}", AnyPermissions: []string{CountsWrite, WorkInstructionsExecute, SalesRead, SalesWrite, SalesAllocateAnimals}},
+	{OperationID: "answerAppWorkflowAction", Method: "POST", Pattern: "/app/workflows/{workflow_id}/actions/{action_id}/answer", AnyPermissions: []string{CountsWrite, WorkInstructionsExecute, SalesRead, SalesWrite, SalesAllocateAnimals}},
+	{OperationID: "completeAppWorkflowAction", Method: "POST", Pattern: "/app/workflows/{workflow_id}/actions/{action_id}/complete", AnyPermissions: []string{CountsWrite, WorkInstructionsExecute, SalesRead, SalesWrite, SalesAllocateAnimals}},
 	// General SOPs (maintainer decision 2026-09-18): farm-wide work instructions, listed and
 	// started on the phone's Work instructions module; the run itself rides the routes above.
 	{OperationID: "listAppGeneralSops", Method: "GET", Pattern: "/app/sops/general", Permissions: []string{WorkInstructionsExecute}},

@@ -9,6 +9,7 @@ import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
+import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
@@ -32,6 +33,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.res.stringResource
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import sg.mesha.goatos.core.designsystem.component.MeshaScreenHeader
 import sg.mesha.goatos.core.designsystem.icon.MeshaIcons
@@ -94,6 +96,10 @@ data class WorkflowActionUi(
     val canRecordVideo: Boolean,
     /** True also exposes the promote flow; video completion remains a separate required control. */
     val opensPromote: Boolean,
+    /** `sale_tag_animals` — open the sale-tagging screen for this sale; the engine completes the step. */
+    val opensSaleTagging: Boolean = false,
+    /** The designation the SOP names for this step ("Park Head"), VERBATIM; blank when anyone. */
+    val ownerLabel: String = "",
     /** Footer line with backend-owned completion attribution; blank hides it. */
     val footer: String,
     val answerValue: String?,
@@ -138,6 +144,10 @@ data class WorkflowDetailUiState(
     val isDeath: Boolean = false,
     /** A general work instruction has no animal: the header wears the document glyph, not the goat. */
     val isGeneral: Boolean = false,
+    /** A sale's workflow (SALES SOP): the header wears the sale glyph and names the buyer. */
+    val isSale: Boolean = false,
+    /** The sale this workflow is keyed on (its `subject_ref_id`), threaded to the tagging route. */
+    val saleDealId: String = "",
     val displayId: String = "",
     val roleLabel: String = "",
     /** "Birth · WF-0521"-style template line, VM-built from backend fields. */
@@ -219,6 +229,9 @@ sealed interface WorkflowDetailEvent {
 
     /** The host consumed [WorkflowDetailUiState.returnToList]; clear it so it fires once. */
     data object NavigationHandled : WorkflowDetailEvent
+
+    /** `sale_tag_animals` — open the Sales-owned tagging screen for the sale this workflow is about. */
+    data class OpenSaleTagging(val dealId: String) : WorkflowDetailEvent
 
     /** `tag_the_kid` — open the Birth-owned permanent RFID assignment for this canonical kid. */
     data class OpenPromote(
@@ -377,6 +390,7 @@ private fun WorkflowContextCard(state: WorkflowDetailUiState) {
                 Icon(
                     imageVector = when {
                         state.isDeath -> MeshaIcons.Warn
+                        state.isSale -> MeshaIcons.Sale
                         state.isGeneral -> MeshaIcons.Document
                         else -> MeshaIcons.Goat
                     },
@@ -407,13 +421,19 @@ private fun WorkflowContextCard(state: WorkflowDetailUiState) {
                                 .clip(RoundedCornerShape(10.dp))
                                 .background(MeshaColors.Surf2)
                                 .padding(horizontal = 10.dp, vertical = 7.dp),
-                            horizontalArrangement = Arrangement.SpaceBetween,
+                            // A gap between label and value, and the value takes the slack: a
+                            // long value ("19/09/2026 · 20:03") used to press flush against its
+                            // label on the sale run's Event cell.
+                            horizontalArrangement = Arrangement.spacedBy(8.dp),
+                            verticalAlignment = Alignment.Top,
                         ) {
                             Text(text = label, color = MeshaColors.Faint, style = MeshaType.caption)
                             Text(
                                 text = value,
                                 color = MeshaColors.Ink,
                                 style = MeshaType.pill,
+                                modifier = Modifier.weight(1f),
+                                textAlign = TextAlign.End,
                             )
                         }
                     }
@@ -459,8 +479,10 @@ private fun WorkflowActionRow(
             .fillMaxWidth()
             .clip(RoundedCornerShape(14.dp))
             .background(MeshaColors.Surf)
-            .clickable(enabled = hasDetail || action.opensPromote) {
-                if (action.opensPromote && state.subjectGoatId.isNotBlank() && state.subjectGoatRowVersion > 0) {
+            .clickable(enabled = hasDetail || action.opensPromote || action.opensSaleTagging) {
+                if (action.opensSaleTagging && state.saleDealId.isNotBlank()) {
+                    onEvent(WorkflowDetailEvent.OpenSaleTagging(state.saleDealId))
+                } else if (action.opensPromote && state.subjectGoatId.isNotBlank() && state.subjectGoatRowVersion > 0) {
                     onEvent(
                         WorkflowDetailEvent.OpenPromote(
                             goatId = state.subjectGoatId,
@@ -515,8 +537,15 @@ private fun WorkflowActionRow(
                         }
                     }
                 }
-                Row(horizontalArrangement = Arrangement.spacedBy(5.dp)) {
+                // A FlowRow, not a Row: with the owner tag (SALES SOP) beside the type tag, a
+                // third chip ("Answered no") was left the width the status chip spared and rendered
+                // one letter per line on the Realme. Chips now wrap to a second line instead.
+                FlowRow(horizontalArrangement = Arrangement.spacedBy(5.dp), verticalArrangement = Arrangement.spacedBy(5.dp)) {
                     WorkflowTag(action.typeLabel, MeshaColors.Surf3, MeshaColors.Muted)
+                    // WHO does the step, in the SOP's words (SALES SOP): "Park Head".
+                    if (action.ownerLabel.isNotBlank()) {
+                        WorkflowTag(action.ownerLabel, MeshaColors.BrandTint, MeshaColors.BrandD)
+                    }
                     action.answerValue?.takeIf { it.isNotBlank() }?.let { answer ->
                         val displayedAnswer = answer + action.numericAnswerUnit?.let { " $it" }.orEmpty()
                         WorkflowTag(

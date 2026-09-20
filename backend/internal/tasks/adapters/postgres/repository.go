@@ -111,9 +111,9 @@ func (r *Repository) OpenWorkflow(ctx context.Context, cmd ports.OpenWorkflowCom
 	ctx, cancel := r.withTimeout(ctx)
 	defer cancel()
 
-	_, general := domain.GeneralSOPCode(cmd.TemplateKey)
-	// A GENERAL SOP run has no animal (maintainer decision 2026-09-18): it is keyed on its
-	// subject_ref_id alone. Every other template names its goat.
+	general := domain.SubjectKeyedTemplate(cmd.TemplateKey)
+	// A GENERAL SOP run (maintainer decision 2026-09-18) and the SALE workflow (2026-09-19) have
+	// no animal: they are keyed on subject_ref_id alone. Every other template names its goat.
 	if strings.TrimSpace(cmd.TenantID) == "" || cmd.EventAt.IsZero() ||
 		(!general && strings.TrimSpace(cmd.SubjectGoatID) == "") ||
 		(general && (cmd.SubjectRefID == nil || strings.TrimSpace(*cmd.SubjectRefID) == "")) {
@@ -224,16 +224,16 @@ RETURNING workflow_id::text`,
 	sb.WriteString(`INSERT INTO workflow_actions (
   tenant_id, workflow_id, action_key, seq, section, action_type, title, detail, requires_video, options, due_at,
   task_type, answer_type, engine_hook, proof_min_videos, proof_min_photos, hard_time_gate, wait_for_all,
-  requires_keys, after_action_key, after_offset_seconds, answer_gate
+  requires_keys, after_action_key, after_offset_seconds, answer_gate, owner_role
 ) VALUES `)
 	for i, a := range template.Actions {
 		if i > 0 {
 			sb.WriteString(", ")
 		}
 		base := len(args)
-		sb.WriteString(fmt.Sprintf("($%d::uuid, $%d::uuid, $%d, $%d, $%d, $%d, $%d, $%d, $%d, $%d::jsonb, $%d::timestamptz, $%d, $%d, $%d, $%d, $%d, $%d, $%d, $%d::jsonb, $%d, $%d, $%d::jsonb)",
+		sb.WriteString(fmt.Sprintf("($%d::uuid, $%d::uuid, $%d, $%d, $%d, $%d, $%d, $%d, $%d, $%d::jsonb, $%d::timestamptz, $%d, $%d, $%d, $%d, $%d, $%d, $%d, $%d::jsonb, $%d, $%d, $%d::jsonb, $%d)",
 			base+1, base+2, base+3, base+4, base+5, base+6, base+7, base+8, base+9, base+10, base+11,
-			base+12, base+13, base+14, base+15, base+16, base+17, base+18, base+19, base+20, base+21, base+22))
+			base+12, base+13, base+14, base+15, base+16, base+17, base+18, base+19, base+20, base+21, base+22, base+23))
 		var options any
 		if len(a.Options) > 0 {
 			raw, err := json.Marshal(a.Options)
@@ -270,7 +270,7 @@ RETURNING workflow_id::text`,
 		}
 		args = append(args, cmd.TenantID, workflowID, a.Key, a.Seq, a.Section, a.Type, a.Title, a.Detail, a.RequiresVideo, options, dueAt,
 			a.TaskType, answerKind, a.EngineHook, a.Proof.Video, a.Proof.Photo, a.HardTimeGate, a.WaitForAll,
-			string(requires), a.Schedule.AfterStepKey, int(a.Schedule.Offset.Seconds()), answerGate)
+			string(requires), a.Schedule.AfterStepKey, int(a.Schedule.Offset.Seconds()), answerGate, a.Owner)
 	}
 	if _, err := tx.Exec(ctx, sb.String(), args...); err != nil {
 		return false, err
@@ -369,7 +369,9 @@ const cardSelectColumns = `
   COALESCE(park.name, ''), COALESCE(shed.name, ''),
   COALESCE(CASE WHEN gsp.shed_id = wi.shed_id AND lower(btrim(gsp.partition_label)) <> 'whole'
                 THEN btrim(gsp.partition_label) END, ''),
-  COALESCE(gsd.name, '')`
+  COALESCE(gsd.name, ''),
+  COALESCE(wi.subject_ref_id::text, ''),
+  COALESCE(sdl.buyer_name, ''), COALESCE(sdl.animal_count, 0), COALESCE(sdl.farm, '')`
 
 const cardJoins = `
 FROM workflow_instances wi
@@ -391,7 +393,10 @@ LEFT JOIN locations shed
 LEFT JOIN goat_shed_partitions gsp
   ON gsp.tenant_id = wi.tenant_id AND gsp.goat_id = wi.subject_goat_id
 LEFT JOIN sop_definitions gsd
-  ON gsd.tenant_id = wi.tenant_id AND wi.template_key = 'general:' || gsd.code`
+  ON gsd.tenant_id = wi.tenant_id
+ AND (wi.template_key = 'general:' || gsd.code OR (wi.template_key = 'sales_deal' AND gsd.code = 'sales.deal'))
+LEFT JOIN sales_deals sdl
+  ON wi.template_key = 'sales_deal' AND sdl.tenant_id = wi.tenant_id AND sdl.id = wi.subject_ref_id`
 
 // ListWorkflows serves one keyset page of cards plus the requested day's chip counts.
 //
@@ -562,6 +567,9 @@ func scanCard(row cardScanner, now time.Time) (domain.WorkflowCard, error) {
 		nextKey        *string
 		nextTitle      *string
 		nextDue        *time.Time
+		saleBuyer      string
+		saleAnimals    int
+		saleFarm       string
 	)
 	if err := row.Scan(
 		&card.WorkflowID, &card.Module, &card.TemplateKey, &card.Subject.GoatID,
@@ -571,9 +579,11 @@ func scanCard(row cardScanner, now time.Time) (domain.WorkflowCard, error) {
 		&card.Subject.DisplayID, &card.Subject.RowVersion, &card.Subject.Sex, &card.Subject.Breed,
 		&card.Subject.Tag,
 		&card.ParkLabel, &card.ShedLabel, &partitionLabel, &card.SOPName,
+		&card.SubjectRefID, &saleBuyer, &saleAnimals, &saleFarm,
 	); err != nil {
 		return domain.WorkflowCard{}, err
 	}
+	card.SubjectLabel = saleSubjectLabel(card.TemplateKey, saleBuyer, saleAnimals, saleFarm)
 	card.ShedLabel = cardPenLabel(card.ShedLabel, partitionLabel)
 	card.Subject.RoleLabel = domain.RoleLabelForTemplate(card.TemplateKey)
 	card.NextDueAt = nextDue
@@ -629,6 +639,9 @@ WHERE wi.tenant_id = $1::uuid AND wi.workflow_id = $2::uuid`, tenantID, workflow
 		nextKey        *string
 		nextTitle      *string
 		nextDue        *time.Time
+		saleBuyer      string
+		saleAnimals    int
+		saleFarm       string
 	)
 	err := row.Scan(
 		&card.WorkflowID, &card.Module, &card.TemplateKey, &card.Subject.GoatID,
@@ -638,6 +651,7 @@ WHERE wi.tenant_id = $1::uuid AND wi.workflow_id = $2::uuid`, tenantID, workflow
 		&card.Subject.DisplayID, &card.Subject.RowVersion, &card.Subject.Sex, &card.Subject.Breed,
 		&card.Subject.Tag,
 		&card.ParkLabel, &card.ShedLabel, &partitionLabel, &card.SOPName,
+		&card.SubjectRefID, &saleBuyer, &saleAnimals, &saleFarm,
 		&damDisplay,
 		&damRFID,
 		&litterSize,
@@ -648,6 +662,7 @@ WHERE wi.tenant_id = $1::uuid AND wi.workflow_id = $2::uuid`, tenantID, workflow
 	if err != nil {
 		return domain.WorkflowDetail{}, err
 	}
+	card.SubjectLabel = saleSubjectLabel(card.TemplateKey, saleBuyer, saleAnimals, saleFarm)
 	card.ShedLabel = cardPenLabel(card.ShedLabel, partitionLabel)
 	card.Subject.RoleLabel = domain.RoleLabelForTemplate(card.TemplateKey)
 	card.NextDueAt = nextDue
@@ -689,8 +704,39 @@ WHERE wi.tenant_id = $1::uuid AND wi.workflow_id = $2::uuid`, tenantID, workflow
 	if litterSize != nil {
 		facts = append(facts, domain.WorkflowFact{Label: "Litter size", Value: fmt.Sprintf("%d", *litterSize)})
 	}
+	if card.TemplateKey == domain.TemplateKeySalesDeal {
+		if saleBuyer != "" {
+			facts = append(facts, domain.WorkflowFact{Label: "Buyer", Value: saleBuyer})
+		}
+		if saleAnimals > 0 {
+			facts = append(facts, domain.WorkflowFact{Label: "Animals", Value: fmt.Sprintf("%d", saleAnimals)})
+		}
+	}
 	detail.Facts = facts
 	return detail, nil
+}
+
+// saleSubjectLabel composes the sale workflow's subject line from the sales_deals display join:
+// "Kumar Traders · 12 animals · CBE". Blank on every other template. The sales_deals read here
+// is a display enrichment on the card, 1:0..1 on the deal's primary key, exactly like the goats
+// join beside it; nothing in the engine reads a sale to decide anything.
+func saleSubjectLabel(templateKey, buyer string, animals int, farm string) string {
+	if templateKey != domain.TemplateKeySalesDeal {
+		return ""
+	}
+	parts := []string{}
+	if buyer != "" {
+		parts = append(parts, buyer)
+	}
+	if animals == 1 {
+		parts = append(parts, "1 animal")
+	} else if animals > 1 {
+		parts = append(parts, fmt.Sprintf("%d animals", animals))
+	}
+	if farm != "" {
+		parts = append(parts, farm)
+	}
+	return strings.Join(parts, " · ")
 }
 
 type queryer interface {
@@ -708,8 +754,9 @@ SELECT action_id::text, tenant_id::text, workflow_id::text, action_key, seq, sec
        answer_value, proof_ref, completed_by::text, completed_at, verification_item_id::text,
        idempotency_key, request_fingerprint, row_version,
        task_type, answer_type, engine_hook, proof_min_videos, proof_min_photos, proof_refs,
-       hard_time_gate, wait_for_all, requires_keys, after_action_key, after_offset_seconds, rework_reason, answer_gate
-FROM workflow_actions
+       hard_time_gate, wait_for_all, requires_keys, after_action_key, after_offset_seconds, rework_reason, answer_gate,
+       owner_role, COALESCE((SELECT dc.label FROM designation_catalog dc WHERE dc.designation_code = wa.owner_role), '')
+FROM workflow_actions wa
 WHERE tenant_id = $1::uuid AND workflow_id = $2::uuid
 ORDER BY seq ASC`+lock, tenantID, workflowID)
 	if err != nil {
@@ -733,6 +780,7 @@ ORDER BY seq ASC`+lock, tenantID, workflowID)
 			&a.IdempotencyKey, &a.RequestFingerprint, &a.RowVersion,
 			&a.TaskType, &a.AnswerType, &a.EngineHook, &a.ProofMinVideos, &a.ProofMinPhotos, &proofRefs,
 			&a.HardTimeGate, &a.WaitForAll, &requires, &a.AfterActionKey, &a.AfterOffsetSeconds, &a.ReworkReason, &answerGate,
+			&a.OwnerRole, &a.OwnerLabel,
 		); err != nil {
 			return nil, err
 		}
@@ -928,6 +976,9 @@ func (r *Repository) AnswerAction(ctx context.Context, cmd domain.AnswerActionCo
 			if idx < 0 {
 				return nil, false, domain.ErrNotFound
 			}
+			if !domain.StepOwnedBy(actions[idx].OwnerRole, cmd.ActorRoles) {
+				return nil, false, domain.ErrStepForOtherRole
+			}
 			if domain.OperatorActionBlocked(w.TemplateKey, actions[idx], actions) {
 				return nil, false, domain.ErrActionOutOfSequence
 			}
@@ -998,6 +1049,14 @@ func (r *Repository) CompleteAction(ctx context.Context, cmd domain.CompleteActi
 			idx := findAction(actions, cmd.ActionID)
 			if idx < 0 {
 				return nil, false, domain.ErrNotFound
+			}
+			if !domain.StepOwnedBy(actions[idx].OwnerRole, cmd.ActorRoles) {
+				return nil, false, domain.ErrStepForOtherRole
+			}
+			// The sale's tag-animals step is ENGINE-completed from the allocation confirm
+			// (CompleteSaleTagStep); a tap can never mark animals tagged that were not.
+			if actions[idx].HasHook(domain.EngineHookSaleTagAnimals) && cmd.ActorRoles != nil {
+				return nil, false, domain.ErrSaleTaggingPending
 			}
 			if domain.OperatorActionBlocked(w.TemplateKey, actions[idx], actions) {
 				return nil, false, domain.ErrActionOutOfSequence
@@ -1202,6 +1261,52 @@ LIMIT 1`, tenantID, goatID, domain.TemplateKeyBirthKid).Scan(&id)
 				actions[i].AnswerValue = &identifier
 				actions[i].RowVersion++
 				return []domain.WorkflowAction{actions[i]}, false, nil
+			}
+			return nil, true, nil
+		})
+	return err
+}
+
+// CompleteSaleTagStep completes the sale workflow's `sale_tag_animals` step when the allocation
+// confirm lands (goat.sale_allocated). Idempotent: a step already completed, or a sale with no
+// workflow yet (the recorded event may still be in flight), is a no-op -- the opener stamps the
+// step and the NEXT confirm, or a replay of this one, completes it. Runs the same card-maintaining
+// transaction every operator write uses, so the card and the phone list move together.
+func (r *Repository) CompleteSaleTagStep(ctx context.Context, tenantID, dealID string, completedAt time.Time) error {
+	workflowID, err := r.WorkflowIDBySubjectRef(ctx, tenantID, domain.TemplateKeySalesDeal, dealID)
+	if errors.Is(err, domain.ErrNotFound) {
+		return nil
+	}
+	if err != nil {
+		return err
+	}
+	_, _, _, err = r.workflowMutation(ctx, tenantID, workflowID,
+		func(tx pgx.Tx, w *domain.WorkflowInstance, actions []domain.WorkflowAction) ([]domain.WorkflowAction, bool, error) {
+			for i := range actions {
+				if !actions[i].HasHook(domain.EngineHookSaleTagAnimals) {
+					continue
+				}
+				if actions[i].Status != domain.ActionStatusPending && actions[i].Status != domain.ActionStatusRework {
+					return nil, true, nil
+				}
+				key := "sale_tag_animals:" + dealID + ":" + completedAt.UTC().Format(time.RFC3339Nano)
+				updated, isReplay, err := domain.ApplyComplete(actions[i], domain.CompleteActionCommand{
+					TenantID:           tenantID,
+					WorkflowID:         workflowID,
+					ActionID:           actions[i].ActionID,
+					CompletedBy:        "",
+					CompletedAt:        completedAt,
+					IdempotencyKey:     key,
+					RequestFingerprint: key,
+				})
+				if err != nil {
+					return nil, false, err
+				}
+				actions[i] = updated
+				if isReplay {
+					return nil, true, nil
+				}
+				return []domain.WorkflowAction{updated}, false, nil
 			}
 			return nil, true, nil
 		})

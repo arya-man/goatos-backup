@@ -1,0 +1,3 @@
+[
+  {"key": "sale_tag_animals", "name": "Tag the animals sold", "category_scope": ["action"], "answer_kind": "none", "engine_hook": "sale_tag_animals", "description": "Opens the sale-tagging screen; the step completes on its own when the tagging is confirmed, never by hand.", "parameter_schema": {"type": "object", "properties": {"proof": {"$ref": "#/$defs/proof"}}}}
+]

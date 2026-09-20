@@ -78,6 +78,11 @@ WITH day AS (
 //	awaiting_verification -> always false: verification is enqueued at whole-workflow grain, so one
 //	                         day's feeds can never sit in that bucket (domain.ColostrumFilterAllowed)
 //	sop_name              -> '' : a colostrum card is always a birth kid, never a general SOP run
+//	subject_ref_id, sale  -> '' / 0: never a sale workflow, so the sale subject columns are blank.
+//
+// Pinned by TestColostrumCardColumnsMatchTheCardScanner: the 2026-09-19 sale columns were added
+// to cardSelectColumns and scanCard but not here, and every colostrum read failed with
+// "number of field descriptions must equal number of destinations".
 const colostrumCardColumns = `
   wi.workflow_id::text, '` + domain.ModuleColostrum + `'::text, wi.template_key, wi.subject_goat_id::text,
   wi.event_at, wi.event_date::text,
@@ -89,7 +94,8 @@ const colostrumCardColumns = `
   COALESCE(park.name, ''), COALESCE(shed.name, ''),
   COALESCE(CASE WHEN gsp.shed_id = wi.shed_id AND lower(btrim(gsp.partition_label)) <> 'whole'
                 THEN btrim(gsp.partition_label) END, ''),
-  ''::text`
+  ''::text,
+  ''::text, ''::text, 0::integer, ''::text`
 
 // colostrumOverdueLookbackDays bounds the previous-day attention bell.
 //

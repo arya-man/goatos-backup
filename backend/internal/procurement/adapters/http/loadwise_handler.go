@@ -169,10 +169,12 @@ type loadwiseSummaryPayload struct {
 }
 
 type loadwisePayload struct {
-	Loads               []loadwiseLoadPayload  `json:"loads"`
-	TotalLoads          int                    `json:"total_loads"`
-	OverallAvgSoldPrice *float64               `json:"overall_avg_sold_price,omitempty"`
-	Summary             loadwiseSummaryPayload `json:"summary"`
+	Loads               []loadwiseLoadPayload `json:"loads"`
+	TotalLoads          int                   `json:"total_loads"`
+	OverallAvgSoldPrice *float64              `json:"overall_avg_sold_price,omitempty"`
+	// UnsoldPriceBasis: "assumed" (the Sales Config figure) or "overall" (average sold price).
+	UnsoldPriceBasis string                 `json:"unsold_price_basis"`
+	Summary          loadwiseSummaryPayload `json:"summary"`
 }
 
 // LoadwiseSales serves GET /procurement/loadwise-sales. park_id optionally narrows the rows to
@@ -240,6 +242,7 @@ func (h *LoadwiseHandler) LoadwiseSales(w http.ResponseWriter, r *http.Request) 
 		// operational read-model contract; no client re-derives its own totals.
 		TotalLoads:          out.TotalLoads,
 		OverallAvgSoldPrice: out.OverallAvgSoldPrice,
+		UnsoldPriceBasis:    out.UnsoldPriceBasis,
 		Summary: loadwiseSummaryPayload{
 			Purchased:   out.Summary.Purchased,
 			Sold:        out.Summary.Sold,

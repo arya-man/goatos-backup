@@ -62,6 +62,9 @@ export function FollowUpEditor({
   const taskTypes = optionGroup(pc, "sop_task_types");
   const answerKinds = useMemo(() => Object.fromEntries(optionGroup(pc, "sop_task_type_answer_kinds").map((o) => [o.key, o.label])), [pc]);
   const scheduleKinds = optionGroup(pc, "sop_schedule_kinds");
+  // WHO DOES A STEP (SALES SOP, 2026-09-19): the designation catalog, compiled by the bootstrap;
+  // an empty group (an older contract) simply hides the select.
+  const owners = optionGroup(pc, "sop_step_owners");
   const conditions = optionGroup(pc, "sop_step_conditions");
   const sections = optionGroup(pc, "sop_step_sections");
 
@@ -233,6 +236,7 @@ export function FollowUpEditor({
                 answerKinds={answerKinds}
                 answerKindLabels={answerKindLabels}
                 taskTypes={taskTypes}
+                owners={owners}
                 selectedId={selectedStep}
                 onSelect={setSelectedStep}
                 onInsert={(insert) => insertStep(track.key, insert)}
@@ -246,6 +250,7 @@ export function FollowUpEditor({
                     taskTypes={taskTypes}
                     answerKinds={answerKinds}
                     scheduleKinds={scheduleKinds}
+                    owners={owners}
                     conditions={conditions}
                     sections={sections}
                     onChange={(patch) => updateStep(track.key, step.id, patch)}
@@ -256,7 +261,7 @@ export function FollowUpEditor({
                     }}
                     takenKeys={new Set(track.steps.filter((s) => s.id !== step.id).map((s) => s.key))}
                     savedKeys={savedKeys}
-                    legacyCondition={track.module !== "general"}
+                    legacyCondition={hasEngineCondition(track.module)}
                   />
                 )}
               />
@@ -274,6 +279,7 @@ export function FollowUpEditor({
                     taskTypes={taskTypes}
                     answerKinds={answerKinds}
                     scheduleKinds={scheduleKinds}
+                    owners={owners}
                     conditions={conditions}
                     sections={sections}
                     onChange={(patch) => updateStep(track.key, step.id, patch)}
@@ -281,7 +287,7 @@ export function FollowUpEditor({
                     onRemove={() => removeStep(track.key, step.id)}
                     takenKeys={new Set(track.steps.filter((s) => s.id !== step.id).map((s) => s.key))}
                     savedKeys={savedKeys}
-                    legacyCondition={track.module !== "general"}
+                    legacyCondition={hasEngineCondition(track.module)}
                   />
                 ))}
                 <button type="button" className="btn sm ghost" onClick={() => addStep(track.key)}>
@@ -317,6 +323,13 @@ export function FollowUpEditor({
   );
 }
 
+// The one engine condition ("only when the kid pen could not be resolved") belongs to the herd
+// operations; a general work instruction or the sale has no such context, so the select is
+// not offered there (an "Include this step: Always" beside a sale step is noise).
+function hasEngineCondition(module: string): boolean {
+  return module !== "general" && module !== "sales";
+}
+
 function StepCard({
   pc,
   index,
@@ -325,6 +338,7 @@ function StepCard({
   taskTypes,
   answerKinds,
   scheduleKinds,
+  owners = [],
   conditions,
   sections,
   onChange,
@@ -341,6 +355,8 @@ function StepCard({
   taskTypes: { key: string; label: string; title?: string }[];
   answerKinds: Record<string, string>;
   scheduleKinds: { key: string; label: string; title?: string }[];
+  /** Designations a step can be for (`sop_step_owners`); empty hides the Done-by select. */
+  owners?: { key: string; label: string }[];
   conditions: { key: string; label: string }[];
   sections: { key: string; label: string; title?: string }[];
   onChange: (patch: Partial<FollowUpStepRow>) => void;
@@ -439,6 +455,22 @@ function StepCard({
           <input className="numfield" type="number" min={0} max={10} value={step.proofPhotos} onChange={(e) => onChange({ proofPhotos: Math.max(0, Number(e.target.value) || 0) })} />
         </label>
       </div>
+
+      {owners.length > 0 ? (
+        <div className="qcfg followup-owner">
+          <label title={copy(pc, "followup.step.owner_hint")}>
+            {copy(pc, "followup.step.owner")}
+            <select data-testid="step-owner" value={step.owner} onChange={(e) => onChange({ owner: e.target.value })}>
+              <option value="">{copy(pc, "followup.step.owner_any")}</option>
+              {owners.map((o) => (
+                <option key={o.key} value={o.key}>
+                  {o.label}
+                </option>
+              ))}
+            </select>
+          </label>
+        </div>
+      ) : null}
 
       <div className="qcfg followup-schedule">
         <label>

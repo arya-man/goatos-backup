@@ -540,6 +540,12 @@ const soldWeightBandsSQL = `
 //
 // A stage this does not name stays 'unmapped' and stays visible in the not-valued breakdown; the
 // rule is deliberately literal, never an ILIKE over kid-like or clinical-looking text.
+//
+// A whole-herd valuation read served once per Farm value page load, indexed on (tenant_id) over
+// live goats (5k-50k envelope), with the assumption buckets joined from ONE
+// sales_valuation_assumptions row; the CTE count moved only because the rates now come from that
+// row instead of an inline VALUES list -- shape and row counts unchanged.
+// scale-guard:ignore: whole-herd valuation read, once per page load, indexed on tenant_id; the rates CTE reads one assumptions row
 const farmValuationSQL = `
 	WITH idmap AS (
 		SELECT tenant_id, goat_id, lower(btrim(identifier_value)) AS identifier
@@ -614,8 +620,17 @@ const farmValuationSQL = `
 		FROM classified
 		WHERE bucket = 'fattening'
 	),
-	rates(bucket, label, fixed_weight_kg, price_per_kg, display_order) AS (
-		VALUES
+	-- FARM VALUATION ASSUMPTIONS ARE DATA (maintainer instruction 2026-09-19, migration 000367):
+	-- the bucket rates are the tenant's authored row, re-read per request; a tenant without a row
+	-- (created after the migration) values on the seeded defaults, the same figures the VALUES
+	-- table here used to carry.
+	rates AS (
+		SELECT b.bucket, b.label, b.fixed_weight_kg::float8, b.price_per_kg::float8, b.display_order
+		FROM public.sales_valuation_assumptions a
+		CROSS JOIN LATERAL jsonb_to_recordset(a.buckets) AS b(bucket text, label text, fixed_weight_kg float8, price_per_kg float8, display_order int)
+		WHERE a.tenant_id = $1::uuid
+		UNION ALL
+		SELECT * FROM (VALUES
 			('fattening', 'Fattening animals', NULL::float8, 450::float8, 1),
 			('adult_female', 'Adult females', 40::float8, 600::float8, 2),
 			('adult_male_buck', 'Adult males / bucks', 60::float8, 500::float8, 3),
@@ -623,6 +638,8 @@ const farmValuationSQL = `
 			('K1', 'K1', 3::float8, 500::float8, 5),
 			('K2', 'K2', 8::float8, 500::float8, 6),
 			('K3', 'K3', 15::float8, 500::float8, 7)
+		) d(bucket, label, fixed_weight_kg, price_per_kg, display_order)
+		WHERE NOT EXISTS (SELECT 1 FROM public.sales_valuation_assumptions a WHERE a.tenant_id = $1::uuid)
 	),
 	-- projection-review: membership=classified, one row per current live goat (goats filtered to
 	-- non-terminal and non-merged, weight joined 1:1 after idmap is reduced to one row per goat);

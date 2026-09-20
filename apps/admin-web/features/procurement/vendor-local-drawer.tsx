@@ -10,8 +10,9 @@ import {
 } from "@/components/local-overlay-link";
 import { Tag, type Tone } from "@/components/ui-primitives";
 import { copy, type AdminUiPageContract } from "@/lib/admin-ui-contract";
-import type { ProcurementVendor, ProcurementVendorCatalog } from "@/lib/api/server";
+import type { ProcurementVendor, ProcurementVendorCatalog, ProcurementVendorForm } from "@/lib/api/server";
 import { changeVendorStatusAction, createVendorAction, updateVendorAction } from "./vendor-actions";
+import { VendorFormFields, vendorAnswerRows } from "./vendor-form-fields";
 import { VendorVoiceNote } from "./vendor-voice-note";
 
 type CatalogEntry = { value: string; label: string; is_active: boolean };
@@ -83,12 +84,19 @@ function optionsFor(entries: CatalogEntry[] | undefined, current: string | null 
 export function VendorLocalDrawer({
   vendors,
   catalog,
+  form = null,
   pageContract,
   listHref,
 }: {
   /** The rendered page of vendors. The drawer opens from this data -- it issues no fetch of its own. */
   vendors: ProcurementVendor[];
   catalog: ProcurementVendorCatalog | null;
+  /**
+   * VENDOR FORM IS AUTHORED (2026-09-19): the published sales.vendor form. When present the
+   * add / edit body is rendered from it, question by question; the hard-coded field list below
+   * is the fallback for a backend that could not serve the form.
+   */
+  form?: ProcurementVendorForm | null;
   pageContract: AdminUiPageContract;
   /** The list URL to restore on close (current filters, without the vendor param). */
   listHref: string;
@@ -204,6 +212,10 @@ export function VendorLocalDrawer({
                 </>
               ) : null}
 
+              {form ? (
+                <VendorFormFields form={form} vendor={vendor} pageContract={pageContract} />
+              ) : (
+              <>
               <div className="note">{copy(pageContract, isAdding ? "required.hint.create" : "required.hint")}</div>
 
               <div className="fld">
@@ -342,6 +354,8 @@ export function VendorLocalDrawer({
                 </select>
                 <div className="muted small">{copy(pageContract, "hint.capacity")}</div>
               </div>
+              </>
+              )}
               {/* The voice note is recorded on the phone; the web edit carries it through unchanged. */}
               <input type="hidden" name="voice_note_proof_ref" value={vendor?.voice_note_proof_ref ?? ""} />
 
@@ -375,10 +389,12 @@ export function VendorLocalDrawer({
                 </>
               )}
 
+              {form ? null : (
               <div className="fld">
                 <label htmlFor="v-comments">{field("comments")}</label>
                 <textarea id="v-comments" name="comments" maxLength={2000} rows={2} defaultValue={vendor?.comments ?? ""} />
               </div>
+              )}
             </div>
             <div className="df">
               <button type="submit" className="btn p">
@@ -418,6 +434,10 @@ export function VendorLocalDrawer({
                     for prefilling the form only. */}
                 {cell(field("capacity"), vendor.capacity_display)}
                 {cell(field("comments"), vendor.comments)}
+                {/* Answers to the questions the published form added beyond the register's
+                    columns, labelled by the form the drawer holds (a question since removed shows
+                    its key). */}
+                {vendorAnswerRows(form, vendor).map((row) => cell(row.label, row.value))}
               </div>
 
               <div className="mt" style={{ marginTop: 4 }}>

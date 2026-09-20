@@ -308,7 +308,7 @@ if command -v rg >/dev/null 2>&1; then
       apps/admin-web/app apps/admin-web/components apps/admin-web/features apps/admin-web/lib/api/server.ts \
       --glob '!node_modules/**' \
       --glob '*.{ts,tsx}' >/tmp/goatos-admin-web-branding-boundary-warnings 2>/dev/null; then
-      if grep -viE 'GOATOS_|GoatOSApiError|X-GoatOS-|@goatos|goatos-build|goatos\.sop-form\.v1|goatos\.sop-followup\.v1|goatos\.sop-inspection\.v1|goatos\.sop-weighing\.v1|goatos\.sop-capture\.v1|goatos\.sop-shifting\.v1' /tmp/goatos-admin-web-branding-boundary-warnings \
+      if grep -viE 'GOATOS_|GoatOSApiError|X-GoatOS-|@goatos|goatos-build|goatos\.sop-form\.v1|goatos\.sop-followup\.v1|goatos\.sop-inspection\.v1|goatos\.sop-weighing\.v1|goatos\.sop-capture\.v1|goatos\.sop-shifting\.v1|goatos\.sop-vendor-form\.v1' /tmp/goatos-admin-web-branding-boundary-warnings \
         >/tmp/goatos-admin-web-branding-boundary-filtered; then
         cat /tmp/goatos-admin-web-branding-boundary-filtered
         echo "Admin web rendered/user-facing strings must use Mesha branding; Goat OS and VGoat are internal or legacy labels only."

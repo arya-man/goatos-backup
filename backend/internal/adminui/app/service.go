@@ -197,6 +197,10 @@ func navigation() domain.NavigationContract {
 					// to add him is what this leaf ends.
 					navLeaf("sales-vendors", "Vendors", "/sales/vendors", nil),
 					navLeaf("sales-config", "Sales Config", "/sales/config", nil),
+					// SALES SOP (maintainer instruction 2026-09-19): what happens after a sale is
+					// recorded -- tag, load, the money -- and WHO does each step, authored here in
+					// the same List | Flow shape as /counts/sops and run by the tasks engine.
+					navLeaf("sales-sops", "Sales SOP", "/sales/sops", nil),
 				},
 			},
 			{
@@ -1052,6 +1056,11 @@ func pages() []domain.PageContract {
 		// prefix `general.` and kind = general are set by the builder.
 		page("configuration-work-instructions", "/configuration/work-instructions", "/configuration/work-instructions", "Work instructions", "General SOPs: farm-wide work tied to no module, started by hand from the phone.", "module-surface",
 			[]domain.TableContract{table("sop-library", "Work instructions", "/admin/sops", []string{"sop", "domain", "trigger", "steps", "gates", "status"}, "sop_id")}),
+		// SALES SOP (maintainer instruction 2026-09-19, docs/decisions/sales-sop.md): the steps a
+		// recorded sale owes -- tag the animals, load them, the money -- and the designation that
+		// does each, authored here and run by the tasks engine as one workflow per sale.
+		page("sales-sops", "/sales/sops", "/sales/sops", "Sales SOP", "What happens after a sale is recorded -- tagging, loading, the money -- and who does each step.", "module-surface",
+			[]domain.TableContract{table("sop-library", "Sales SOPs", "/admin/sops", []string{"sop", "domain", "trigger", "steps", "gates", "status"}, "sop_id")}),
 		// PROCUREMENT SOP (maintainer decision 2026-09-14): the animal-purchase inspection --
 		// its pages, questions, proof and compulsory flags -- is authored here and served to the
 		// phone from the published version.
@@ -4109,7 +4118,10 @@ func pageSpecificCopy(id string) map[string]string {
 			// without a contact person, phone or city stay editable, so the two hints differ on
 			// purpose -- see domain.VendorWrite.ValidateForCreate.
 			"required.hint.create": "Business name, record type, contact person, phone number, state, city and status are required.",
-			"disabled.write":       "Your current role can view vendors but not change them.",
+			// VENDOR FORM IS AUTHORED (2026-09-19): the drawer follows the published Vendor form SOP.
+			"required.hint.form": "Fields marked * are required. This form follows the published Vendor form SOP.",
+			"hint.other":         "Say what the other is",
+			"disabled.write":     "Your current role can view vendors but not change them.",
 		}
 		if id == "sales-vendors" {
 			// The five differences, and each is a sentence that would be WRONG on the other page:
@@ -4243,6 +4255,7 @@ func pageSpecificCopy(id string) map[string]string {
 			"value.cost_missing":           "Cost not recorded",
 			"value.price_basis.load":       "at this load's own average sold price",
 			"value.price_basis.overall":    "at the overall average sold price",
+			"value.price_basis.assumed":    "at the unsold animal price set on Sales Config",
 			// The third basis, and the one a fresh tenant hits FIRST: with no sale anywhere there is
 			// no price to value stock at. It must be published like the other two -- the renderer
 			// resolves this key from price_basis, so an unpublished value takes the page down.
@@ -4326,9 +4339,39 @@ func pageSpecificCopy(id string) map[string]string {
 			// morning and the questions asked in each. A change here reaches the phone on its
 			// next refresh and applies from that day; entries already recorded keep the words
 			// they were recorded against.
-			"section.market.title":          "Market survey",
-			"section.market.sub":            "The cities phoned each morning and the questions asked in each. Prices are entered on the phone; changes here apply from today.",
-			"section.market.aria":           "Market survey configuration",
+			// FARM VALUATION (maintainer instruction 2026-09-19): the decided figures behind Farm
+			// value and Load wise, edited here. `{kg}` in a sentence is filled by the page from the
+			// saved sale-ready line, so no literal 35 lives in copy.
+			"action.valuation.label":          "Save valuation",
+			"disabled.valuation":              "Your current role can see how the herd is valued but not change the figures.",
+			"section.valuation.title":         "Farm valuation",
+			"section.valuation.sub":           "How the live herd is valued on Farm value and what unsold animals are carried at on Load wise. Every figure here was decided, not measured; a change applies the moment it is saved. The sale-ready weight line lives with the Weighing assumptions.",
+			"section.valuation.aria":          "Farm valuation assumptions",
+			"valuation.bucket":                "Animals",
+			"valuation.fixed_weight":          "Weight used (kg)",
+			"valuation.fixed_weight.measured": "measured weight",
+			"valuation.fixed_weight.hint":     "Leave blank to price the bucket at its animals' latest measured weight.",
+			"valuation.price_per_kg":          "Price (₹ per kg)",
+			"valuation.unsold_price":          "Unsold animal price (₹ each)",
+			"valuation.unsold_price.hint":     "Load wise carries every unsold animal at this price. Leave blank to use the average price the farm has actually sold at.",
+			"valuation.updated":               "Last saved",
+			"valuation.saved":                 "Valuation saved. Farm value and Load wise use these figures from now on.",
+			"valuation.error":                 "That could not be saved.",
+			"section.market.title":            "Market survey",
+			"section.market.sub":              "The cities phoned each morning and the questions asked in each. Prices are entered on the phone; changes here apply from today.",
+			"section.market.aria":             "Market survey configuration",
+			// Reporters (2026-09-19, Sales SOP page): who makes the calls.
+			"market.reporters.title":        "Reported by",
+			"market.reporters.sub":          "Who phones the markets each morning. Giving someone the survey puts the Market tab on their phone from their next refresh; taking it removes the tab.",
+			"market.reporters.aria":         "Market survey reporters",
+			"market.reporters.current":      "Reporting today",
+			"market.reporters.none":         "Nobody reports the market yet. Give the survey to someone below.",
+			"market.reporters.add":          "Give the survey to someone else",
+			"market.reporters.give":         "Give the survey",
+			"market.reporters.remove":       "Take it back",
+			"market.reporters.tag":          "Reports",
+			"market.reporters.people_link":  "Open People",
+			"action.market_reporter_saved":  "Saved. The Market tab changes on that phone at its next refresh.",
 			"market.cities.title":           "Cities",
 			"market.cities.hint":            "One card per city on the phone every morning.",
 			"market.questions.title":        "Questions",
@@ -8150,7 +8193,7 @@ func pageSpecificCopy(id string) map[string]string {
 		}
 	// Vaccination is deliberately absent: its SOP page is gone, and its content lives on
 	// the vaccination plan console. milk and weighing arrived on main meanwhile and stay.
-	case "counts-sops", "feed-sops", "milk-sops", "weighing-sops", "procurement-sops", "configuration-work-instructions":
+	case "counts-sops", "feed-sops", "milk-sops", "weighing-sops", "procurement-sops", "configuration-work-instructions", "sales-sops":
 		m := map[string]string{
 			"filter.search_label":                     "Search SOPs",
 			"filter.search_placeholder":               "Search SOP name, trigger, step, or proof...",
@@ -8429,6 +8472,11 @@ func pageSpecificCopy(id string) map[string]string {
 			"followup.proof.videos":                 "{n} video(s)",
 			"followup.proof.photos":                 "{n} photo(s)",
 			"followup.step.only_when":               "only when the kid pen could not be resolved",
+			// WHO DOES A STEP (SALES SOP, 2026-09-19): every follow-up editor offers the
+			// designation a step is for; blank is anyone who can open the workflow.
+			"followup.step.owner":      "Done by",
+			"followup.step.owner_any":  "Anyone",
+			"followup.step.owner_hint": "Only this designation can do the step on the phone; everyone else sees it read-only.",
 		}
 		// Per-module copy: crumb names the owning vertical, and the builder's domain lock names
 		// the module the page is scoped to (SOP split, maintainer decision 2026-08-18).
@@ -8453,6 +8501,24 @@ func pageSpecificCopy(id string) map[string]string {
 				m[k] = v
 			}
 			addHerdOpsCaptureCardCopy(m)
+		case "sales-sops":
+			m["crumb"] = "Sales"
+			m["filter.domain.current"] = "This page shows the Sales SOP: what happens after a sale is recorded, and who does each step"
+			m["modal.builder.domain_aria"] = "Domain — locked to Sales"
+			m["modal.builder.domain_title"] = "Domain is locked to Sales on this page"
+			m["modal.builder.domain_label"] = "Sales"
+			m["modal.builder.default_name"] = "Sale"
+			m["modal.builder.placeholder.name"] = "Sale"
+			m["modal.builder.policy_label"] = "sales policy"
+			m["modal.builder.eyebrow"] = "SOP · SALES"
+			m["empty.title"] = "No sales SOP yet"
+			m["empty.body"] = "Publish the Sale SOP to drive the steps the phone runs after a sale is recorded."
+			m["followup.subtitle"] = "What happens after a sale is recorded, in order: tagging the animals, loading them, the money. Each step names who does it, its type, the proof it needs, and when it is due. Publishing applies to sales recorded from then on; a sale already recorded keeps the steps it started with."
+			m["followup.notice.capture_kept"] = "Opened by the engine the moment a sale is recorded; the Record sale form itself is unchanged."
+			m["filter.domain.current"] = "This page shows the Sales SOPs: what happens after a sale is recorded and who does each step, and what the vendor form asks"
+			for k, v := range inspectionEditorCopy() {
+				m[k] = v
+			}
 		case "configuration-work-instructions":
 			m["crumb"] = "Configuration"
 			m["filter.domain.current"] = "This page shows general work instructions: SOPs tied to no module, started by hand"
@@ -9388,6 +9454,10 @@ func pageOptionGroups(id string) []domain.OptionGroup {
 		return withGenericOptionGroups(append(sopOptionGroupsFor(id), weighingSOPOptionGroups()...))
 	case "configuration-work-instructions":
 		return withGenericOptionGroups(sopOptionGroupsFor(id))
+	case "sales-sops":
+		// VENDOR FORM (2026-09-19): the sales.vendor SOP is edited through the inspection pages
+		// editor, which picks question kinds from the same closed vocabulary.
+		return withGenericOptionGroups(append(sopOptionGroupsFor(id), inspectionOptionGroups()...))
 	case "procurement-sops":
 		return withGenericOptionGroups(append(sopOptionGroupsFor(id), inspectionOptionGroups()...))
 	case "action-center":
@@ -9874,6 +9944,12 @@ var sopSeedStepsByModule = map[string][]domain.Option{
 		option("text", "Note what you found", "", ""),
 		option("photo_proof", "Photo of the finished work", "", ""),
 	},
+	// A new Sales SOP starts from what a sale owes, not an animal scan.
+	"sales-sops": {
+		option("yesno", "Has the buyer paid in full?", "", ""),
+		option("video_proof", "Record the animals being loaded", "", ""),
+		option("photo_proof", "Photo of the gate pass", "", ""),
+	},
 }
 
 func sopOptionGroups() []domain.OptionGroup {
@@ -9953,6 +10029,9 @@ func sopOptionGroups() []domain.OptionGroup {
 		// editor. sop_task_types / sop_task_type_answer_kinds are declared EMPTY here and
 		// filled from the tenant's Task Type Registry in compilePages (never constants).
 		{ID: "sop_task_types"},
+		// SALES SOP (2026-09-19): the step editor's "Done by" designations, filled from the
+		// designation catalog by the compiler (never a constant list here).
+		{ID: "sop_step_owners"},
 		{ID: "sop_task_type_answer_kinds"},
 		{
 			// When a step is due, relative to the event the workflow opened on. Keys are the
@@ -11226,65 +11305,73 @@ func displayRules() []domain.DisplayRule {
 // decision 2026-09-14): the animal-purchase inspection authored as pages of questions.
 func inspectionEditorCopy() map[string]string {
 	return map[string]string{
-		"action.edit_inspection":            "Change SOP",
-		"action.opening_editor":             "Opening…",
-		"label.inspection_questions":        "questions",
-		"label.inspection_pages":            "pages",
-		"inspection.title":                  "Animal purchase inspection",
-		"inspection.subtitle":               "What the inspector answers for each animal, page by page. Each question names its kind, whether it is compulsory, and the photo or video it needs. Publishing applies to animals recorded from then on; a form already open on a phone submits on the version it rendered.",
-		"inspection.drawer.title":           "What the inspector answers, page by page",
-		"inspection.drawer.subtitle":        "from the published SOP",
-		"inspection.page":                   "Page",
-		"inspection.page.title":             "Page heading",
-		"inspection.page.hint":              "Page note",
-		"inspection.page.add":               "Add page",
-		"inspection.page.remove":            "Remove page",
-		"inspection.page.first_untitled":    "The first page has no heading; every later page needs one.",
-		"inspection.question.kind":          "Question kind",
-		"inspection.question.title":         "Question the inspector sees",
-		"inspection.question.hint":          "Instruction",
-		"inspection.question.required":      "Compulsory",
-		"inspection.question.options":       "Choices",
-		"inspection.question.add_option":    "Add choice",
-		"inspection.question.allow_other":   "The \"other\" choice asks for free text (where / what)",
-		"inspection.question.accepts":       "Capture",
-		"inspection.question.max_files":     "Up to (files)",
-		"inspection.question.unit":          "Unit",
-		"inspection.question.min":           "Min",
-		"inspection.question.max":           "Max",
-		"inspection.question.only_if":       "Ask only when",
-		"inspection.question.only_if_value": "is",
-		"inspection.question.always":        "Always asked",
-		"inspection.question.add":           "Add question",
-		"inspection.question.remove":        "Remove question",
-		"inspection.question.move_up":       "Move up",
-		"inspection.question.move_down":     "Move down",
-		"inspection.question.move_page":     "Move to page",
-		"inspection.question.key":           "Question key",
-		"inspection.notice.locked":          "The register reads this answer; its kind and choices are fixed, everything else is yours to edit.",
-		"inspection.notice.capture_kept":    "Vendor, farm and load number stay compulsory on the load form; everything else on both forms is yours to change.",
-		"inspection.action.publish":         "Publish SOP",
-		"inspection.action.save_draft":      "Save as draft",
-		"inspection.empty":                  "No questions yet.",
-		"inspection.result.saved_draft":     "Inspection saved as a draft version.",
-		"inspection.result.published":       "Published. Animals recorded from now on use this inspection.",
-		"inspection.kind.choice":            "Pick one",
-		"inspection.kind.multi":             "Pick many",
-		"inspection.kind.text":              "Free text",
-		"inspection.kind.number":            "Number",
-		"inspection.kind.media":             "Photo / video",
-		"inspection.kind.vendor":            "Vendor (from the register)",
-		"option.yes":                        "Yes",
-		"option.no":                         "No",
-		"inspection.loadform.title":         "Load form",
-		"inspection.loadform.subtitle":      "asked once when a purchase load is opened; vendor, farm and load number stay compulsory; photos and videos are per animal",
-		"inspection.accepts.photo":          "Photo only",
-		"inspection.accepts.video":          "Video only",
-		"inspection.accepts.both":           "Photo or video",
-		"inspection.summary.required":       "compulsory",
-		"inspection.summary.optional":       "optional",
-		"inspection.summary.only_if":        "only when {question} is {value}",
-		"inspection.summary.files":          "up to {n}",
+		"action.edit_inspection": "Change SOP",
+		// VENDOR FORM (2026-09-19): the sales.vendor SOP, edited through the same pages editor.
+		"action.edit_vendor_form":            "Change form",
+		"vendor_form.title":                  "Vendor form",
+		"vendor_form.subtitle":               "What is asked when a vendor or buyer is added or edited, page by page. Each question names its kind and whether it is compulsory. Publishing applies to vendors added or edited from then on, on the web and on the phone.",
+		"vendor_form.drawer.title":           "What the form asks, page by page",
+		"vendor_form.drawer.subtitle":        "from the published SOP",
+		"vendor_form.notice.capture_kept":    "Name, type, state and status stay compulsory; the locked questions are the register's own columns. Everything else -- wording, order, pages, extra questions -- is yours to change.",
+		"vendor_form.notice.catalog_choices": "Choices come from the vendor catalog:",
+		"action.opening_editor":              "Opening…",
+		"label.inspection_questions":         "questions",
+		"label.inspection_pages":             "pages",
+		"inspection.title":                   "Animal purchase inspection",
+		"inspection.subtitle":                "What the inspector answers for each animal, page by page. Each question names its kind, whether it is compulsory, and the photo or video it needs. Publishing applies to animals recorded from then on; a form already open on a phone submits on the version it rendered.",
+		"inspection.drawer.title":            "What the inspector answers, page by page",
+		"inspection.drawer.subtitle":         "from the published SOP",
+		"inspection.page":                    "Page",
+		"inspection.page.title":              "Page heading",
+		"inspection.page.hint":               "Page note",
+		"inspection.page.add":                "Add page",
+		"inspection.page.remove":             "Remove page",
+		"inspection.page.first_untitled":     "The first page has no heading; every later page needs one.",
+		"inspection.question.kind":           "Question kind",
+		"inspection.question.title":          "Question the inspector sees",
+		"inspection.question.hint":           "Instruction",
+		"inspection.question.required":       "Compulsory",
+		"inspection.question.options":        "Choices",
+		"inspection.question.add_option":     "Add choice",
+		"inspection.question.allow_other":    "The \"other\" choice asks for free text (where / what)",
+		"inspection.question.accepts":        "Capture",
+		"inspection.question.max_files":      "Up to (files)",
+		"inspection.question.unit":           "Unit",
+		"inspection.question.min":            "Min",
+		"inspection.question.max":            "Max",
+		"inspection.question.only_if":        "Ask only when",
+		"inspection.question.only_if_value":  "is",
+		"inspection.question.always":         "Always asked",
+		"inspection.question.add":            "Add question",
+		"inspection.question.remove":         "Remove question",
+		"inspection.question.move_up":        "Move up",
+		"inspection.question.move_down":      "Move down",
+		"inspection.question.move_page":      "Move to page",
+		"inspection.question.key":            "Question key",
+		"inspection.notice.locked":           "The register reads this answer; its kind and choices are fixed, everything else is yours to edit.",
+		"inspection.notice.capture_kept":     "Vendor, farm and load number stay compulsory on the load form; everything else on both forms is yours to change.",
+		"inspection.action.publish":          "Publish SOP",
+		"inspection.action.save_draft":       "Save as draft",
+		"inspection.empty":                   "No questions yet.",
+		"inspection.result.saved_draft":      "Inspection saved as a draft version.",
+		"inspection.result.published":        "Published. Animals recorded from now on use this inspection.",
+		"inspection.kind.choice":             "Pick one",
+		"inspection.kind.multi":              "Pick many",
+		"inspection.kind.text":               "Free text",
+		"inspection.kind.number":             "Number",
+		"inspection.kind.media":              "Photo / video",
+		"inspection.kind.vendor":             "Vendor (from the register)",
+		"option.yes":                         "Yes",
+		"option.no":                          "No",
+		"inspection.loadform.title":          "Load form",
+		"inspection.loadform.subtitle":       "asked once when a purchase load is opened; vendor, farm and load number stay compulsory; photos and videos are per animal",
+		"inspection.accepts.photo":           "Photo only",
+		"inspection.accepts.video":           "Video only",
+		"inspection.accepts.both":            "Photo or video",
+		"inspection.summary.required":        "compulsory",
+		"inspection.summary.optional":        "optional",
+		"inspection.summary.only_if":         "only when {question} is {value}",
+		"inspection.summary.files":           "up to {n}",
 	}
 }
 

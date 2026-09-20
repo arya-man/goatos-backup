@@ -112,9 +112,15 @@ type WorkflowCard struct {
 	EventDate   string
 	ParkLabel   string
 	ShedLabel   string
-	// SOPName is the authored name of the SOP a GENERAL run was started from ("" on the
-	// herd-operations templates, whose label comes from the template key).
-	SOPName              string
+	// SOPName is the authored name of the SOP a GENERAL run or a SALE workflow was opened from
+	// ("" on the herd-operations templates, whose label comes from the template key).
+	SOPName string
+	// SubjectRefID is the non-animal subject a workflow is keyed on: the general run id, the
+	// reconcile card, the sale (sales_deals.id). Blank on the goat-keyed templates.
+	SubjectRefID string
+	// SubjectLabel is the backend-composed line for a non-animal subject ("Kumar Traders · 12
+	// animals · CBE" on a sale); blank elsewhere. Rendered verbatim.
+	SubjectLabel         string
 	ActionsDone          int
 	ActionsTotal         int
 	NextAction           *WorkflowNextAction

@@ -128,6 +128,10 @@ type Repository interface {
 	// mandatory tagging-video task. No-op when there is no such open step.
 	CompleteTagActionForGoat(ctx context.Context, tenantID, goatID string, completedAt time.Time) error
 
+	// CompleteSaleTagStep completes the sale workflow's sale_tag_animals step for the deal when
+	// its allocation confirm lands. No-op when there is no such open step.
+	CompleteSaleTagStep(ctx context.Context, tenantID, dealID string, completedAt time.Time) error
+
 	// DeathEvidenceForVerification loads an admin-approved death workflow (every step) by subject
 	// goat. Returns domain.ErrNotFound when no in-review death workflow exists.
 	DeathEvidenceForVerification(ctx context.Context, tenantID, goatID string) (DeathEvidenceReview, error)

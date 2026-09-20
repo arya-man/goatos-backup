@@ -65,6 +65,11 @@ const (
 	EngineHookColostrum    = "colostrum_feed" // feeds counted by the Colostrum lens
 	EngineHookDeathVideo   = "death_evidence" // death videos released to Verify on approval
 	EngineHookReturnAnimal = "return_to_pen"  // reconcile: the animal walked back
+	// EngineHookSaleTagAnimals (SALES SOP, maintainer instruction 2026-09-19): the step that ties
+	// the tagged animals to the sale. The phone opens the sale-tagging screen from it and the
+	// ENGINE completes it when the allocation confirm lands (goat.sale_allocated); it is never
+	// marked done by hand, so a sale cannot read "animals tagged" with no animal on it.
+	EngineHookSaleTagAnimals = "sale_tag_animals"
 )
 
 // Step condition tokens (a step included only when the opening context says so).
@@ -118,6 +123,13 @@ type FollowUpStep struct {
 	// the step runs only when an earlier question's answer satisfies the condition, and is SKIPPED
 	// -- off this path, never owed -- when it does not. Nil = the step always runs.
 	WhenAnswer *AnswerCondition `json:"when_answer,omitempty"`
+	// Owner is WHO DOES THE STEP (SALES SOP, maintainer instruction 2026-09-19: "who will have
+	// access" is authored, not hard-coded): a designation code from the farm's designation
+	// catalog (`park_head`, `operator`, `procurement_director`, ...). The engine stamps it on the
+	// action row; a principal who does not hold that job sees the step read-only and the write
+	// path refuses them. Blank = anyone who can open the workflow. Validated at publish against
+	// the live catalog (sop/app), never against a constant list.
+	Owner string `json:"owner,omitempty"`
 }
 
 // AnswerCondition is one branch condition: the earlier question step, the comparison and the
@@ -552,6 +564,7 @@ func CompileTrack(track FollowUpTrack, taskTypes map[string]FollowUpTaskTy, opts
 			WaitForAll:    s.WaitForAll,
 			Requires:      append([]string(nil), s.Requires...),
 			AnswerGate:    s.WhenAnswer,
+			Owner:         strings.TrimSpace(s.Owner),
 		}
 		switch s.Schedule.Kind {
 		case ScheduleKindSeries:
@@ -744,6 +757,8 @@ func TemplateKeyToSOP(templateKey string) (sopCode string, trackKey string, ok b
 		return code, GeneralTrackKey, true
 	}
 	switch templateKey {
+	case TemplateKeySalesDeal:
+		return SOPCodeSalesDeal, TemplateKeySalesDeal, true
 	case TemplateKeyBirthKid, TemplateKeyBirthMother:
 		return SOPCodeBirth, templateKey, true
 	case TemplateKeyDeath:
@@ -754,6 +769,26 @@ func TemplateKeyToSOP(templateKey string) (sopCode string, trackKey string, ok b
 		return SOPCodeShifting, templateKey, true
 	}
 	return "", "", false
+}
+
+// SALES SOP (maintainer instruction 2026-09-19, docs/decisions/sales-sop.md): a recorded sale
+// opens ONE workflow from the published `sales.deal` SOP's `sales_deal` track, keyed on the deal
+// (subject_ref_id = sales_deals.id, no animal). Its steps -- tag the animals, load them, settle the
+// money, whatever the farm adds -- are authored on /sales/sops, each with the designation that
+// does it.
+const (
+	SOPCodeSalesDeal     = "sales.deal"
+	TemplateKeySalesDeal = "sales_deal"
+	ModuleSales          = "sales"
+)
+
+// SubjectKeyedTemplate reports a template whose workflow is keyed on subject_ref_id and carries
+// no animal: every general SOP run and the sale workflow.
+func SubjectKeyedTemplate(templateKey string) bool {
+	if _, general := GeneralSOPCode(templateKey); general {
+		return true
+	}
+	return templateKey == TemplateKeySalesDeal
 }
 
 // General SOP template keys.

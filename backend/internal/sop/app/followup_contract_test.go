@@ -163,3 +163,90 @@ func TestSeededGeneralSOPWithNoFieldsStillSavesAndPublishes(t *testing.T) {
 		t.Fatal("a module document with no field must still be refused")
 	}
 }
+
+type stubDesignations struct{ codes []string }
+
+func (s stubDesignations) ListActiveDesignationCodes(context.Context) ([]string, error) {
+	return s.codes, nil
+}
+
+// SALES SOP (2026-09-19): the seeded sale document saves; its tag step (the engine hook that
+// ties the tagged animals to the sale) cannot be removed; and a step owner must be an active
+// designation from the catalog -- free text would lock a step for everyone.
+func TestSalesSOPContract(t *testing.T) {
+	svc := (&Service{}).WithDesignationSource(stubDesignations{codes: []string{"park_head", "procurement_director", "operator"}})
+	report := func(formDSL map[string]any) domain.ValidationReport {
+		r := domain.ValidationReport{Valid: true}
+		svc.validateFollowUpContract(context.Background(), &r, "tenant", tasksdomain.SOPCodeSalesDeal, formDSL)
+		return r
+	}
+	if r := report(seededFollowUpDSL(t, tasksdomain.SOPCodeSalesDeal)); !r.Valid {
+		t.Fatalf("seeded sale document refused: %+v", r.Errors)
+	}
+	if !FollowUpRequired(tasksdomain.SOPCodeSalesDeal) {
+		t.Fatal("sales.deal must require a follow_up section")
+	}
+
+	// The tag step is engine-owned: removing it is refused with its title.
+	dsl := seededFollowUpDSL(t, tasksdomain.SOPCodeSalesDeal)
+	track := dsl["follow_up"].(map[string]any)["tracks"].([]any)[0].(map[string]any)
+	track["steps"] = steps(t, dsl, 0)[1:]
+	r := report(dsl)
+	if r.Valid {
+		t.Fatal("removing the tag-animals step must be refused")
+	}
+	found := false
+	for _, e := range r.Errors {
+		if e.Code == "engine_step_removed" && strings.Contains(e.Message, "Tag the animals sold") {
+			found = true
+		}
+	}
+	if !found {
+		t.Fatalf("expected engine_step_removed naming the tag step, got %+v", r.Errors)
+	}
+
+	// An owner outside the catalog is refused by path; a catalog owner passes; blank is anyone.
+	dsl = seededFollowUpDSL(t, tasksdomain.SOPCodeSalesDeal)
+	step := steps(t, dsl, 0)[1].(map[string]any)
+	step["owner"] = "gate_keeper"
+	r = report(dsl)
+	if r.Valid {
+		t.Fatal("an owner outside the designation catalog must be refused")
+	}
+	if r.Errors[0].Field != "form_dsl.follow_up.tracks.0.steps.1.owner" || r.Errors[0].Code != "unknown_designation" {
+		t.Fatalf("owner error = %+v", r.Errors[0])
+	}
+	step["owner"] = ""
+	if r := report(dsl); !r.Valid {
+		t.Fatalf("a blank owner is anyone's step, got %+v", r.Errors)
+	}
+
+	// Without a wired catalog (unit fixtures) the owner check is skipped, never a false refusal.
+	dsl = seededFollowUpDSL(t, tasksdomain.SOPCodeSalesDeal)
+	steps(t, dsl, 0)[1].(map[string]any)["owner"] = "gate_keeper"
+	if r := followUpReport(t, tasksdomain.SOPCodeSalesDeal, dsl); !r.Valid {
+		t.Fatalf("no catalog wired: owner must not be checked, got %+v", r.Errors)
+	}
+}
+
+// The seeded SALE document ships `fields: []` too (its capture is the Record sale form the sales
+// module owns), so it must save and publish from the web exactly as the general one does -- the
+// 308-review P1 shape, found again on the throwaway stack on 2026-09-19.
+func TestSeededSaleSOPWithNoFieldsStillSavesAndPublishes(t *testing.T) {
+	repo := newFakeRepo()
+	repo.sop.Code = tasksdomain.SOPCodeSalesDeal
+	service := NewService(repo)
+	dsl := seededFollowUpDSL(t, tasksdomain.SOPCodeSalesDeal)
+	dsl["schema_version"] = "goatos.sop-form.v1"
+	dsl["sop_code"] = tasksdomain.SOPCodeSalesDeal
+	dsl["title"] = "Sale"
+	dsl["fields"] = []any{}
+	policy := map[string]any{"subject_scope": "task", "types": []any{"video", "photo"}, "required": false, "minimum_count": float64(0), "verify_before_apply": false, "approval_before_apply": false}
+	created, err := service.CreateVersion(context.Background(), ports.CreateVersionCommand{TenantID: testTenantID, ActorID: testActorID, SOPID: testSOPID, Body: domain.CreateSOPVersionRequest{VersionLabel: "edited on the web", FormDSL: dsl, ProofPolicy: policy}}, "trace")
+	if err != nil {
+		t.Fatalf("the seeded sale document must save: %#v", err)
+	}
+	if _, err := service.PublishVersion(context.Background(), ports.VersionCommand{TenantID: testTenantID, ActorID: testActorID, SOPID: testSOPID, SOPVersionID: created.Version.SOPVersionID, RowVersion: 1}, "trace"); err != nil {
+		t.Fatalf("the seeded sale document must publish: %#v", err)
+	}
+}

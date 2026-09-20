@@ -7986,6 +7986,39 @@ paths:
           $ref: "#/components/responses/Forbidden"
         "500":
           $ref: "#/components/responses/ServerError"
+  /procurement/vendor-form:
+    get:
+      tags:
+        - Procurement
+      operationId: getProcurementVendorForm
+      summary: The authored vendor form the Add / Edit vendor screens render.
+      description: >-
+        VENDOR FORM IS AUTHORED (maintainer instruction 2026-09-19): `form_dsl.vendor_form` of the
+        published `sales.vendor` SOP -- pages of questions, compiled with the live vendor catalog so
+        a catalog-backed question carries its choices. A question with `typed: true` is one of the
+        register's own columns; the client sends its answer under the same id and reads it back from
+        the typed vendor field. Every other answer is stored on the vendor as `answers`. A write
+        carries every answer plus the `version` it rendered; a version no longer served is refused
+        `vendor_form_changed` (reopen the form).
+      parameters:
+        - name: side
+          in: query
+          required: false
+          description: "Narrows the record types offered to one half of the register, as vendor-catalog does."
+          schema: { type: string, enum: [procurement, sales] }
+      responses:
+        "200":
+          description: The published form.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ProcurementVendorForm"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "500":
+          $ref: "#/components/responses/ServerError"
   /procurement/feed-purchases:
     get:
       tags:
@@ -10888,6 +10921,64 @@ paths:
           $ref: "#/components/responses/Forbidden"
         "404":
           $ref: "#/components/responses/NotFoundOrNotAllowed"
+        "500":
+          $ref: "#/components/responses/ServerError"
+  /sales/valuation-assumptions:
+    get:
+      tags:
+        - Sales
+      operationId: getSalesValuationAssumptions
+      summary: The figures the live herd is valued at (Farm value, Load wise).
+      description: >-
+        FARM VALUATION ASSUMPTIONS (maintainer instruction 2026-09-19, docs/decisions/
+        sales-valuation-assumptions.md): per valuation bucket the weight used (or measured) and
+        rupees per kg, the sale-ready weight line, and the price every unsold animal is carried at
+        on Load wise. Decided figures, not measured ones: one row per tenant, edited on Sales
+        Config, re-read per request by every consumer. Gated on sales.read.
+      responses:
+        "200":
+          description: The tenant's assumptions (seeded defaults when never edited).
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/SalesValuationAssumptions"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "500":
+          $ref: "#/components/responses/ServerError"
+    put:
+      tags:
+        - Sales
+      operationId: putSalesValuationAssumptions
+      summary: Replace the valuation figures.
+      description: >-
+        Whole-set replace under a row_version fence (409 valuation_version_conflict on a stale
+        one). Figures outside their business band are REFUSED with 400 valuation_invalid naming
+        the field, never clamped. Exactly the seven buckets, once each. One audit row per write.
+        Gated on sales.valuation.write (the Sales module's Configure level).
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/SalesValuationAssumptions"
+      responses:
+        "200":
+          description: The saved row.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/SalesValuationAssumptions"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "409":
+          $ref: "#/components/responses/WriteConflict"
         "500":
           $ref: "#/components/responses/ServerError"
   /sales/overview:
@@ -14852,6 +14943,7 @@ paths:
               - death
               - colostrum
               - general
+              - sales
         - name: date
           in: query
           required: false
@@ -14922,6 +15014,49 @@ paths:
           $ref: "#/components/responses/Unauthorized"
         "403":
           $ref: "#/components/responses/Forbidden"
+        "500":
+          $ref: "#/components/responses/ServerError"
+  /app/workflows/subject:
+    get:
+      tags:
+        - Workflows
+      operationId: getAppWorkflowBySubject
+      summary: Get the workflow keyed on a non-animal subject (a sale, a reconcile card).
+      description: >-
+        SALES SOP (docs/decisions/sales-sop.md): a recorded sale opens ONE workflow keyed on the
+        deal (template_key=sales_deal, subject_ref_id=the sales_deals id). A screen that already
+        knows the subject reads its steps here without paging the module list. Same response as
+        the detail route. 404 workflow_not_found until the sales.deal.recorded event has opened
+        it. Gated on any sales permission, counts.write or task.execute; the handler narrows per
+        module (a caller admitted on a sales permission alone cannot read a birth card).
+      parameters:
+        - name: template_key
+          in: query
+          required: true
+          description: A subject-keyed template (sales_deal, reconcile, or general:<sop code>).
+          schema:
+            type: string
+        - name: subject_ref_id
+          in: query
+          required: true
+          schema:
+            type: string
+            format: uuid
+      responses:
+        "200":
+          description: The workflow's card header, facts and operator action rows.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/WorkflowDetailResponse"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFoundOrNotAllowed"
         "500":
           $ref: "#/components/responses/ServerError"
   /app/workflows/start:
@@ -19044,6 +19179,23 @@ components:
           description: >-
             BACKEND-composed "35 kg" from average_animal_weight_kg. Empty when not recorded.
             Rendered verbatim.
+        answers:
+          type: object
+          additionalProperties: { type: string }
+          description: >-
+            VENDOR FORM (2026-09-19): answers to the questions the published form added beyond the
+            register's columns, keyed by question id. Empty for a vendor written before the form.
+        questionnaire_version:
+          type: integer
+          nullable: true
+          description: "The sales.vendor form version the answers were given on; null before the form existed."
+        answer_rows:
+          type: array
+          description: >-
+            On the single-vendor reads only: the same extra answers labelled by that version's
+            question titles, in form order, for a detail screen. Rendered verbatim.
+          items:
+            $ref: "#/components/schemas/ProcurementVendorAnswerRow"
         created_at: { type: string, format: date-time }
         updated_at: { type: string, format: date-time }
         row_version:
@@ -19115,10 +19267,79 @@ components:
           description: >-
             Optional. Average live weight per animal in kg as a decimal string, more than zero, up
             to two places. Null or empty clears it (stores NULL, never 0).
+        answers:
+          type: object
+          additionalProperties: { type: string }
+          description: >-
+            A form-driven client sends EVERY answer keyed by question id -- typed questions included
+            (they are mapped onto the typed fields server-side, so the typed fields may be left
+            blank) -- checked against the form version in `questionnaire_version`. Pick-many values
+            are joined with `|`; an "other" free text rides `<question_id>_other`. Omitted means a
+            typed-only client: stored extra answers are then preserved on update.
+        questionnaire_version:
+          type: integer
+          description: "Required with `answers`: the form version the screen rendered."
         row_version:
           type: integer
           format: int64
           description: Required on update, ignored on create.
+    ProcurementVendorAnswerRow:
+      type: object
+      required: [question_id, label, value]
+      properties:
+        question_id: { type: string }
+        label: { type: string }
+        value: { type: string }
+    ProcurementVendorForm:
+      type: object
+      required: [version, pages]
+      properties:
+        version: { type: integer }
+        pages:
+          type: array
+          items:
+            $ref: "#/components/schemas/ProcurementVendorFormPage"
+    ProcurementVendorFormPage:
+      type: object
+      required: [key, title, questions]
+      properties:
+        key: { type: string }
+        title: { type: string }
+        hint: { type: string }
+        questions:
+          type: array
+          items:
+            $ref: "#/components/schemas/ProcurementVendorQuestion"
+    ProcurementVendorQuestion:
+      type: object
+      required: [id, kind, title, required, typed]
+      properties:
+        id: { type: string }
+        kind: { type: string, enum: [choice, multi, text, number] }
+        title: { type: string }
+        hint: { type: string }
+        required: { type: boolean }
+        typed:
+          type: boolean
+          description: "The register stores this answer in its own column (read it back from the typed vendor field)."
+        options:
+          type: array
+          items:
+            type: object
+            required: [value, label]
+            properties:
+              value: { type: string }
+              label: { type: string }
+        allow_other: { type: boolean }
+        min: { type: number }
+        max: { type: number }
+        unit: { type: string }
+        only_if:
+          type: object
+          required: [question_id, value]
+          properties:
+            question_id: { type: string }
+            value: { type: string }
     ProcurementVendorCatalogEntry:
       type: object
       required: [value, label, is_active]
@@ -19740,6 +19961,11 @@ components:
           type: number
           nullable: true
           description: The tenant-wide average sold price used as the remaining-stock fallback basis.
+        unsold_price_basis:
+          description: >-
+            What every load's remaining stock was valued at: `assumed` (the price set on Sales
+            Config's Farm valuation) or `overall` (the overall average sold price).
+          type: string
         summary:
           $ref: "#/components/schemas/LoadwiseSummary"
     BuyerAnalyticsRow:
@@ -22398,6 +22624,45 @@ components:
           type: number
           nullable: true
           description: Parsed out of the market text at import time, never at read time.
+    SalesValuationAssumptions:
+      type: object
+      required: [buckets, unsold_stock_price_rupees, row_version]
+      properties:
+        buckets:
+          type: array
+          items:
+            $ref: "#/components/schemas/SalesValuationBucket"
+        unsold_stock_price_rupees:
+          description: Null keeps Load wise on the overall average sold price; a figure prices every unsold animal at it.
+          type: number
+          nullable: true
+        row_version:
+          type: integer
+        updated_at:
+          type: string
+        updated_by_name:
+          type: string
+        limits:
+          type: object
+          description: The bands a write is refused outside of.
+          additionalProperties: { type: number }
+    SalesValuationBucket:
+      type: object
+      required: [bucket, label, fixed_weight_kg, price_per_kg, display_order]
+      properties:
+        bucket:
+          description: fattening | adult_female | adult_male_buck | K0 | K1 | K2 | K3 (fixed classification).
+          type: string
+        label:
+          type: string
+        fixed_weight_kg:
+          description: Null = price at the measured weight.
+          type: number
+          nullable: true
+        price_per_kg:
+          type: number
+        display_order:
+          type: integer
     SalesOverview:
       type: object
       description: The whole sales page contract, all blocks whole-filter aggregates.
@@ -42367,17 +42632,29 @@ components:
             - reconcile
             - shifting
             - general
+            - sales
         template_key:
           description: |
             The run's template. Module workflows use a fixed key (birth_kid, birth_mother, death,
-            reconcile, shifting). A GENERAL run -- a farm-wide SOP started by hand from Work
+            reconcile, shifting, sales_deal). A GENERAL run -- a farm-wide SOP started by hand from Work
             instructions -- is keyed by its SOP code as `general:<sop code>`, e.g.
             `general:general.gate_visitor_check`, so every authored general SOP is its own template
             without a contract change per SOP.
           type: string
-          pattern: '^(birth_kid|birth_mother|death|reconcile|shifting|general:.+)$'
+          pattern: '^(birth_kid|birth_mother|death|reconcile|shifting|sales_deal|general:.+)$'
         template_label:
-          description: Backend-owned kind label for the card ("Birth", "Death", "Pen return", "Pen move", or the general SOP's name). Render verbatim.
+          description: Backend-owned kind label for the card ("Birth", "Death", "Pen return", "Pen move", "Sale", or the general SOP's name). Render verbatim.
+          type: string
+        subject_ref_id:
+          description: >-
+            The NON-animal subject a workflow is keyed on -- the sale's deal id, the reconcile
+            card, a general run id. Absent on goat-keyed workflows. The phone deep-links the
+            sale's tag-animals step to the tagging screen on it.
+          type: string
+        subject_label:
+          description: >-
+            Backend-composed line for a non-animal subject ("Kumar Traders · 12 animals · CBE"
+            on a sale); absent elsewhere. Render verbatim.
           type: string
         subject:
           $ref: "#/components/schemas/WorkflowSubject"
@@ -42568,6 +42845,7 @@ components:
             - not_yet_due
             - signoff
             - awaiting_answer
+            - for_other_role
         answer_value:
           type:
             - string
@@ -42620,6 +42898,16 @@ components:
             animal ready?' is No"); absent on an unconditional step. Render verbatim. Such a
             step reads blocked_reason=awaiting_answer until its question is answered; a step
             on the branch NOT taken is never served (it is skipped, off every count).
+          type: string
+        owner_role:
+          description: >-
+            WHO DOES THE STEP (SALES SOP, docs/decisions/sales-sop.md): the designation code the
+            SOP names ("park_head"); absent when anyone may do it. A caller who does not hold it
+            reads blocked=true, blocked_reason=for_other_role and the write path refuses them
+            (403 step_for_other_role); ceo_internal is never narrowed.
+          type: string
+        owner_label:
+          description: The designation catalog's label for owner_role ("Park Head"). Render verbatim.
           type: string
     WorkflowProofItem:
       type: object

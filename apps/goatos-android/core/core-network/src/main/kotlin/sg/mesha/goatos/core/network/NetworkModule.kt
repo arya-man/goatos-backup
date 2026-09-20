@@ -116,6 +116,7 @@ import sg.mesha.goatos.core.network.dto.ToxinSubmitRequestDto
 import sg.mesha.goatos.core.network.dto.ToxinTaskDetailDto
 import sg.mesha.goatos.core.network.dto.ToxinTaskPageDto
 import sg.mesha.goatos.core.network.dto.VendorCatalogDto
+import sg.mesha.goatos.core.network.dto.VendorFormDto
 import sg.mesha.goatos.core.network.dto.VendorDto
 import sg.mesha.goatos.core.network.dto.VendorPageDto
 import sg.mesha.goatos.core.network.dto.VendorWriteDto
@@ -1055,6 +1056,9 @@ interface AppApiService {
     @GET("procurement/vendor-catalog")
     suspend fun getProcurementVendorCatalog(@Query("side") side: String?): VendorCatalogDto
 
+    @GET("procurement/vendor-form")
+    suspend fun getProcurementVendorForm(@Query("side") side: String?): VendorFormDto
+
     @POST("procurement/vendors")
     suspend fun createProcurementVendor(@Body request: VendorWriteDto): VendorDto
 
@@ -1519,6 +1523,12 @@ interface AppApiService {
         @Path("workflow_id") workflowId: String,
         @Query("lens") lens: String? = null,
         @Query("date") date: String? = null,
+    ): WorkflowDetailResponseDto
+
+    @GET("app/workflows/subject")
+    suspend fun getWorkflowBySubject(
+        @Query("template_key") templateKey: String,
+        @Query("subject_ref_id") subjectRefId: String,
     ): WorkflowDetailResponseDto
 
     @GET("app/sops/general")
@@ -2451,6 +2461,8 @@ class RetrofitAppApi(
 
     override suspend fun getProcurementVendorCatalog(side: String?): VendorCatalogDto = service.getProcurementVendorCatalog(side)
 
+    override suspend fun getProcurementVendorForm(side: String?): VendorFormDto = service.getProcurementVendorForm(side)
+
     override suspend fun createProcurementVendor(request: VendorWriteDto): VendorDto =
         service.createProcurementVendor(request)
 
@@ -2764,6 +2776,9 @@ class RetrofitAppApi(
 
     override suspend fun getWorkflow(workflowId: String, lens: String?, date: String?): WorkflowDetailResponseDto =
         service.getWorkflow(workflowId, lens, date)
+
+    override suspend fun getWorkflowBySubject(templateKey: String, subjectRefId: String): WorkflowDetailResponseDto =
+        service.getWorkflowBySubject(templateKey, subjectRefId)
 
     override suspend fun listGeneralSops(): GeneralSopsResponseDto = service.listGeneralSops()
 

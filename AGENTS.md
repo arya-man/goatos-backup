@@ -829,6 +829,40 @@ both its own clips and the visit are approved; who visits is per-park HRMS confi
 one or more people. Do not re-fold the visit into a parent card, and do not re-title the board
 row as the parent work. Canonical prose: `docs/decisions/pen-visit-tasks.md` -> "2026-09-14".
 
+## The Sale Is A Workflow, Authored On /sales/sops (maintainer instruction 2026-09-19)
+
+What happens AFTER a sale is recorded -- tag the animals, load them, photograph the gate pass,
+settle the money -- and WHO does each step are no longer hard-coded on the phone. They are the
+published `sales.deal` SOP (kind `module`, module `sales`), authored on **Sales › Sales SOP**
+with the same List | Flow editor the herd operations use, and RUN by the tasks engine:
+`sales.Repository.CreateDeal` emits `sales.deal.recorded` inside its own transaction and
+`tasks/app.SaleRecordedWorkflowHandler` opens ONE workflow keyed on the deal (`subject_ref_id`,
+no animal, template key `sales_deal`), pinned to the version in force. Publishing a new version
+changes the next sale; a sale already recorded keeps the steps it started with.
+
+Three rules bind future changes:
+
+1. **WHO does a step is a property of the step.** `FollowUpStep.owner` is a designation code
+   from `designation_catalog`, stamped on `workflow_actions.owner_role`; a caller who does not
+   hold it sees the step read-only (`blocked_reason=for_other_role`) and the write path refuses
+   them (`403 step_for_other_role`, `domain.StepOwnedBy`). The CEO floor is never narrowed; an
+   engine caller (nil roles) is never refused; publish refuses an owner outside the catalog.
+   `/people` still decides who reaches Sales at all -- the SOP decides who does each step inside
+   a sale. Do not collapse the two.
+2. **The tag-animals step is engine-completed, never a tap.** `sale_tag_animals` (task type +
+   hook, seeded by 000366) is completed by `goat.sale_allocated` via
+   `tasks/app.SaleAllocatedWorkflowHandler`; a by-hand completion is refused
+   `409 sale_tagging_pending`, and a `sales.deal` version that drops the step cannot be published.
+   The phone deep-links it to the tagging screen on the card's `subject_ref_id`.
+3. **The Record sale form and the tagging screen's fields stay canonical data entry**, validated
+   by the sales module; SOP-authored capture questions are the same phase-2 item the herd
+   operations carry. The card's `sales_deals` join is a 1:0..1 display enrichment (buyer, animal
+   count, farm); the engine reads no sale to decide anything.
+
+Canonical prose: `docs/decisions/sales-sop.md`. Pinned by `TestMigrationEmbedsTheSalesSeed`,
+`TestStepOwnedByHonoursTheAuthoredDesignation`, `TestSalesSOPContract` and, on real Postgres,
+`TestSaleWorkflowRunsTheSalesSOP` (mutation-tested).
+
 ## Never Kill Another Agent's Build — and Never Wait For One (Claude AND Codex)
 
 Gradle is NOT a lock. Separate worktrees run separate daemons and build concurrently.
@@ -3010,8 +3044,15 @@ Purpose:
   `TestSalesReadPagesCarryNoWriteControl` (mutation-tested: restoring the write
   compilation on `/sales` turns it red), `TestSalesConfigPageContract` and the
   load-cost gate's sales-director row.
+  **SOP split EXTENSION (maintainer instruction 2026-09-19): `/sales/sops` (Sales SOP)
+  joins the same shape** — the `sop-library` contract over `/admin/sops` scoped to the
+  `sales.` prefix, with the `sales.deal` SOP seeded by migration `000366`. Unlike the
+  library-only milk/weighing documents, this one is RUN: recording a sale opens one
+  tasks-engine workflow from its `sales_deal` track (docs/decisions/sales-sop.md), every
+  step carrying the DESIGNATION that does it (`owner` → `workflow_actions.owner_role`),
+  and the tag-animals step is engine-completed from the tagging confirm, never a tap.
   The machine guard carries the same allowlist — the three Config entries plus
-  the five SOP-split routes — in `apps/admin-web/scripts/check-ia-guard.mjs`;
+  the six SOP-split routes — in `apps/admin-web/scripts/check-ia-guard.mjs`;
   widening it needs a new recorded maintainer decision here first.
 - Config / Protocol Rules is a generic Admin / Data Ops authority screen
   (`/config`) for CEO/COO/superadmin users. It is not owned by Preventive Care (PC) / Vaccination.

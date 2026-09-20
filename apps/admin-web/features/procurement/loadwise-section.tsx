@@ -140,18 +140,8 @@ export function LoadwiseSection({
       </div>
       {/* The section's own subtitle is deliberately NOT rendered here: the PAGE header already
           carries that sentence, and repeating it under the card reads as a stutter. */}
-      {/* The price every unsold animal is valued at, stated once and plainly: most of the profit
-          figures below are stock, so the rate behind them cannot be buried in a tooltip. */}
-      {view === "purchased" && data ? (
-        <div className="muted small" style={{ marginTop: 2 }}>
-          {data.overall_avg_sold_price
-            ? `${copy(pageContract, "loadwise.stock_price_note")} ${inr(
-                Math.round(data.overall_avg_sold_price),
-              )} ${copy(pageContract, "loadwise.stock_price_each")}`
-            : copy(pageContract, "loadwise.stock_price_unknown")}
-        </div>
-      ) : null}
-
+      {/* The unsold-animal price line is gone (maintainer instruction 2026-09-19): the figure is
+          set and read on Sales Config's Farm valuation, not stated under this table. */}
       {view !== "purchased" ? (
         <div className="empty" style={{ marginTop: 12 }}>
           {copy(pageContract, "empty.farm_born")}
