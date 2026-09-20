@@ -133,5 +133,7 @@ Prevent missing, extra, gapped, or conditionally-pruned PostgreSQL parameters fr
 - Starting PR head for the landing attempt: `6e5263de6a01898bca6b1c2eaf2da324b6ada53e`.
 - Review status before promotion: local read-only review found no blocking findings. `make postgres-bind-contract-guard`, focused scanner/sqlbind/Weighing Go tests, and `git diff --check origin/main...HEAD` passed on `6e5263de6a01898bca6b1c2eaf2da324b6ada53e`.
 - Required gate: run `make land-main` from this clean isolated worktree after this progress update is committed. The gate must rebase onto current `origin/main`, run selected local CI, stamp `goatos/land-main-receipt`, push the certified SHA to `main`, and verify `origin/main`.
-- Pending: exact `make land-main` receipt, main push/readback, and PR resolution after the certified SHA is on `origin/main`.
+- Landing result: PASS. `make land-main` first produced `ci-local: GREEN @ dcf7f3358bf7ea58633dd19a5e1105b4aff80ef5`; `origin/main` moved during the gate, so the script rebased and reused the patch-identical receipt for `8b50b442b1e2b67b3331194a24395daa52df9950`.
+- Main readback: `origin/main` is `8b50b442b1e2b67b3331194a24395daa52df9950`, with `goatos/land-main-receipt` stamped by the landing script.
+- Pending: close stale PR 326 after the landed SHA is recorded.
 - Deployment state: no staging or mobile deployment requested or started.
