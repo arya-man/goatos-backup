@@ -236,3 +236,10 @@ The static guard resolves constants by lexical identity; unresolved cross-file
 constants remain unverified rather than borrowing a same-named local value.
 Bound queries must be constructed at declaration, stay unmodified without pointer
 escapes, and reach the database only after a checked `Bind` succeeds.
+
+The scanner follows all file-local assignments when checking leading argument
+controls and collects custom `RewriteQuery` receiver types across each package.
+A reassigned interface value or a package-local custom rewriter is unverified,
+including at `Batch.Queue`; use a validated bound query instead. This rejection
+evidence does not replace full Go type or interprocedural analysis. Package
+facts are collected once and reused for every file in that package.
