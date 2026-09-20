@@ -135,6 +135,12 @@ type Repository interface {
 	// `animal_purchase_decision` step for the load when its last waiting animal is decided. A load
 	// with no workflow, a step already done, and a redelivery are all no-ops.
 	CompleteAnimalPurchaseDecisionStep(ctx context.Context, tenantID, loadID string, completedAt time.Time) error
+	// CompleteFeedPurchaseReachedStep completes the feed-purchase workflow's arrival step when the
+	// ledger marks the load delivered.
+	CompleteFeedPurchaseReachedStep(ctx context.Context, tenantID, purchaseID string, completedAt time.Time) error
+	// CompleteToxinTestStep completes the feed-purchase workflow's aflatoxin step when a round on
+	// the load is accepted.
+	CompleteToxinTestStep(ctx context.Context, tenantID, purchaseID string, completedAt time.Time) error
 
 	// DeathEvidenceForVerification loads an admin-approved death workflow (every step) by subject
 	// goat. Returns domain.ErrNotFound when no in-review death workflow exists.

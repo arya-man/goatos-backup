@@ -74,6 +74,12 @@ const (
 	// on a purchase load's animals. Completed by the ENGINE when the load has no animal still
 	// waiting, never by a tap -- a load must not read "decided" over an unanswered animal.
 	EngineHookAnimalPurchaseDecision = "animal_purchase_decision"
+	// EngineHookFeedPurchaseReached (2026-09-20): the feed load arriving. Completed by the engine
+	// from the ledger's own delivery write, so the step and the ledger cannot disagree.
+	EngineHookFeedPurchaseReached = "feed_purchase_reached"
+	// EngineHookToxinTestAccepted (2026-09-20): the load's aflatoxin round ACCEPTED. A rejected or
+	// void round mints a retest, so the step stays open -- the load is still owed a test.
+	EngineHookToxinTestAccepted = "toxin_test_accepted"
 )
 
 // Step condition tokens (a step included only when the opening context says so).
@@ -765,6 +771,8 @@ func TemplateKeyToSOP(templateKey string) (sopCode string, trackKey string, ok b
 		return SOPCodeSalesDeal, TemplateKeySalesDeal, true
 	case TemplateKeyAnimalPurchaseIntake:
 		return SOPCodeAnimalPurchaseIntake, TemplateKeyAnimalPurchaseIntake, true
+	case TemplateKeyFeedPurchaseIntake:
+		return SOPCodeFeedPurchaseIntake, TemplateKeyFeedPurchaseIntake, true
 	case TemplateKeyBirthKid, TemplateKeyBirthMother:
 		return SOPCodeBirth, templateKey, true
 	case TemplateKeyDeath:
@@ -798,6 +806,10 @@ const (
 	SOPCodeAnimalPurchaseIntake     = "procurement.animal_purchase_intake"
 	TemplateKeyAnimalPurchaseIntake = "animal_purchase_intake"
 	ModuleProcurement               = "procurement"
+	// The FEED purchase's own workflow, keyed on the feed_purchases row: the weighbridge slip,
+	// the arrival, the aflatoxin test and the money.
+	SOPCodeFeedPurchaseIntake     = "procurement.feed_purchase_intake"
+	TemplateKeyFeedPurchaseIntake = "feed_purchase_intake"
 )
 
 // SubjectKeyedTemplate reports a template whose workflow is keyed on subject_ref_id and carries
@@ -806,7 +818,9 @@ func SubjectKeyedTemplate(templateKey string) bool {
 	if _, general := GeneralSOPCode(templateKey); general {
 		return true
 	}
-	return templateKey == TemplateKeySalesDeal || templateKey == TemplateKeyAnimalPurchaseIntake
+	return templateKey == TemplateKeySalesDeal ||
+		templateKey == TemplateKeyAnimalPurchaseIntake ||
+		templateKey == TemplateKeyFeedPurchaseIntake
 }
 
 // General SOP template keys.

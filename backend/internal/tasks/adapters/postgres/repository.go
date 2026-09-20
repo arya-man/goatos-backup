@@ -1285,6 +1285,19 @@ func (r *Repository) CompleteAnimalPurchaseDecisionStep(ctx context.Context, ten
 	return r.completeHookStep(ctx, tenantID, domain.TemplateKeyAnimalPurchaseIntake, loadID, domain.EngineHookAnimalPurchaseDecision, completedAt)
 }
 
+// CompleteFeedPurchaseReachedStep completes the feed-purchase workflow's arrival step when the
+// ledger marks the load delivered (PROCUREMENT IS SOP-DRIVEN END TO END, 2026-09-20).
+func (r *Repository) CompleteFeedPurchaseReachedStep(ctx context.Context, tenantID, purchaseID string, completedAt time.Time) error {
+	return r.completeHookStep(ctx, tenantID, domain.TemplateKeyFeedPurchaseIntake, purchaseID, domain.EngineHookFeedPurchaseReached, completedAt)
+}
+
+// CompleteToxinTestStep completes the feed-purchase workflow's aflatoxin step when a round on the
+// load is ACCEPTED. A rejected or void round mints a retest, announces nothing, and leaves the
+// step open.
+func (r *Repository) CompleteToxinTestStep(ctx context.Context, tenantID, purchaseID string, completedAt time.Time) error {
+	return r.completeHookStep(ctx, tenantID, domain.TemplateKeyFeedPurchaseIntake, purchaseID, domain.EngineHookToxinTestAccepted, completedAt)
+}
+
 // completeHookStep completes the one step of a subject-keyed workflow carrying `hook`. A subject
 // with no workflow yet, a step already finished, and a redelivered event are all no-ops: the
 // completion is idempotent on the step, keyed by hook + subject + instant.

@@ -59,6 +59,8 @@
     "weighing.work_item.rolled_forward",
     "weighing.work_item.delayed",
     "procurement.feed_purchase.reached",
+    "procurement.toxin_test.accepted",
+    "procurement.feed_purchase.recorded",
     "goat.sale_allocated",
     "sales.deal.recorded",
     "procurement.animal_purchase.decided",
@@ -1568,11 +1570,66 @@
           "module": "toxin",
           "file": "backend/internal/toxin/app/feed_purchase_reached_handler.go",
           "notes": "Creates the load's aflatoxin strip-test task (round 1) idempotently on (tenant_id, feed_purchase_id, round_no); an event replay is a no-op, never a second task. Maintainer decision 2026-08-25: one toxin test per purchased feed load; review is CEO/CXO-only outside the generic Verification module. 2026-09-03: born when the load REACHES, not when it is bought."
+        },
+        {
+          "module": "tasks",
+          "file": "backend/internal/tasks/app/procurement_workflow.go",
+          "notes": "FeedPurchaseReachedWorkflowHandler completes the feed purchase workflow's feed_purchase_reached step. The LEDGER's delivery write is the truth and the step follows it, never the other way round, so a tap can never make the step and the ledger disagree. Idempotent on the step; a load with no workflow yet is a no-op. Registered in eventwiring.RegisterWorkflowConsumers."
         }
       ],
       "owningDoc": "docs/decisions/toxin-testing-module.md",
       "e2eProof": [
         "backend/internal/toxin/app/feed_purchase_reached_handler_test.go"
+      ],
+      "surfaces": [
+        "backend",
+        "frontend",
+        "mobile"
+      ]
+    },
+    {
+      "eventType": "procurement.feed_purchase.recorded",
+      "producer": "PROCUREMENT IS SOP-DRIVEN END TO END (maintainer decision 2026-09-20): procurement.Repository.CreateFeedPurchase emits ONE event per bought feed load, INSIDE the insert transaction, after the idempotency reservation. Deliberately a SECOND event beside procurement.feed_purchase.reached rather than a reuse of it: reached is the load ARRIVING (its consequence is stock and the toxin test), recorded is the load being BOUGHT (its consequence is the work owed on it). A load bought today and reaching on Friday emits both, three days apart, and each consumer reads the one it means. Payload: feed_purchase_id, park_id (resolved by the insert), farm_label, feed_item_key/label, vendor, batch_no, purchase_date, quantity_kg, already_reached. Idempotency key = 'feed-purchase-recorded:' + the record's own key.",
+      "producerFiles": [
+        "backend/internal/procurement/adapters/postgres/feed_purchase_outbox.go",
+        "backend/internal/procurement/adapters/postgres/feed_purchase_repository.go"
+      ],
+      "consumers": [
+        {
+          "module": "tasks",
+          "file": "backend/internal/tasks/app/procurement_workflow.go",
+          "notes": "FeedPurchaseRecordedWorkflowHandler opens the load's purchase workflow: OpenSubjectWorkflow(template feed_purchase_intake, subject_ref_id = the feed_purchases row, park from the payload, NO animal), compiled from the tenant's PUBLISHED procurement.feed_purchase_intake SOP track and pinned to that version, every step stamped with its designation. Idempotent on (tenant, template_key, subject_ref_id). Registered in eventwiring.RegisterWorkflowConsumers."
+        }
+      ],
+      "owningDoc": "docs/decisions/procurement-sop-driven.md",
+      "e2eProof": [
+        "backend/internal/tasks/app/procurement_workflow_test.go",
+        "backend/internal/tasks/domain/procurement_seed_test.go"
+      ],
+      "surfaces": [
+        "backend",
+        "frontend",
+        "mobile"
+      ]
+    },
+    {
+      "eventType": "procurement.toxin_test.accepted",
+      "producer": "PROCUREMENT IS SOP-DRIVEN END TO END (maintainer decision 2026-09-20): toxin.Repository.RecordVerdict emits this from INSIDE the verdict transaction, on an ACCEPT only. The toxin module announced nothing before this, so no other part of the farm could tell whether a load had been screened. A rejected or Invalid round cancels itself and mints a retest in the same transaction, so the load is still owed a test and NOTHING is announced -- announcing a reject would invite a consumer to read 'we looked at it' as 'it is done'. The strip OUTCOME rides along because an accepted POSITIVE is a real result that flags the load without blocking feeding. Payload: toxin_task_id, feed_purchase_id, round_no, outcome, farm_label, feed_item_key/label, vendor, batch_no, accepted_at. Idempotency key = 'toxin-accepted:' + the verdict's own key.",
+      "producerFiles": [
+        "backend/internal/toxin/adapters/postgres/outbox.go",
+        "backend/internal/toxin/adapters/postgres/repository.go"
+      ],
+      "consumers": [
+        {
+          "module": "tasks",
+          "file": "backend/internal/tasks/app/procurement_workflow.go",
+          "notes": "ToxinTestAcceptedWorkflowHandler completes the feed purchase workflow's toxin_test_accepted step for the load the round belongs to. This IS the mapping between the toxin module and the purchase: the round keeps its own state machine, retests and CEO-only verdict, and the purchase's step simply records that the load has been screened. Idempotent on the step; a load with no workflow, or an event naming no load, is a no-op. Registered in eventwiring.RegisterWorkflowConsumers."
+        }
+      ],
+      "owningDoc": "docs/decisions/procurement-sop-driven.md",
+      "e2eProof": [
+        "backend/internal/tasks/app/procurement_workflow_test.go",
+        "backend/internal/toxin/adapters/postgres/repository_integration_test.go"
       ],
       "surfaces": [
         "backend",

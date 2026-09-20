@@ -519,6 +519,8 @@ func TemplateLabel(templateKey string) string {
 		return "Sale"
 	case TemplateKeyAnimalPurchaseIntake:
 		return "Animal purchase"
+	case TemplateKeyFeedPurchaseIntake:
+		return "Feed purchase"
 	}
 	if _, general := GeneralSOPCode(templateKey); general {
 		return "Work instruction"

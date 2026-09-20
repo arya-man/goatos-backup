@@ -130,3 +130,116 @@ INSERT INTO outbox_messages (
 	}
 	return nil
 }
+
+// procurement.feed_purchase.recorded (PROCUREMENT IS SOP-DRIVEN END TO END, maintainer decision
+// 2026-09-20): buying a load is the moment the desk's work on it BEGINS -- the weighbridge slip,
+// chasing the truck, the arrival, the aflatoxin test, the money -- so it opens the load's
+// purchase workflow from the published `procurement.feed_purchase_intake` SOP.
+//
+// This is deliberately a SECOND event beside `.reached` rather than a reuse of it. Reached is the
+// load ARRIVING, whose consequence is stock and the toxin test; recorded is the load being
+// BOUGHT, whose consequence is the work owed on it. A load bought today and reaching on Friday
+// emits both, three days apart, and each consumer reads the one it means. The event rides the
+// insert transaction, so a committed purchase always has its steps and a rolled-back one
+// announces nothing.
+const feedPurchaseRecordedEventType = "procurement.feed_purchase.recorded"
+
+// feedPurchaseRecordedFacts is the load context the workflow opener reads. park_id is resolved by
+// the insert itself, so the consumer never re-derives it from the farm label.
+type feedPurchaseRecordedFacts struct {
+	PurchaseID    string
+	ParkID        string
+	FarmLabel     string
+	FeedItemKey   string
+	FeedItemLabel string
+	Vendor        string
+	BatchNo       int
+	PurchaseDate  string
+	QuantityKg    float64
+	Delivered     bool
+}
+
+// emitFeedPurchaseRecorded writes the purchase event into outbox_messages inside tx.
+func emitFeedPurchaseRecorded(ctx context.Context, tx pgx.Tx, tenantID, actorID, idempotencyKey string, facts feedPurchaseRecordedFacts) error {
+	eventID, err := newUUID(ctx, tx)
+	if err != nil {
+		return fmt.Errorf("procurement: feed purchase recorded event id: %w", err)
+	}
+	now := time.Now().UTC()
+	payload := map[string]any{
+		"feed_purchase_id": facts.PurchaseID,
+		"park_id":          facts.ParkID,
+		"farm_label":       facts.FarmLabel,
+		"feed_item_key":    facts.FeedItemKey,
+		"feed_item_label":  facts.FeedItemLabel,
+		"vendor":           facts.Vendor,
+		"batch_no":         facts.BatchNo,
+		"purchase_date":    facts.PurchaseDate,
+		"quantity_kg":      facts.QuantityKg,
+		"already_reached":  facts.Delivered,
+	}
+	envelope, err := json.Marshal(map[string]any{
+		"event_id":       eventID,
+		"event_type":     feedPurchaseRecordedEventType,
+		"schema_version": feedPurchaseReachedSchemaVersion,
+		"schema_ref":     feedPurchaseReachedSchemaRef,
+		"aggregate_type": "feed_purchase",
+		"aggregate_id":   facts.PurchaseID,
+		"occurred_at":    now.Format("2006-01-02T15:04:05.000000Z"),
+		"recorded_at":    now.Format("2006-01-02T15:04:05.000000Z"),
+		"producer": map[string]any{
+			"service": "goatos-api",
+			"module":  "procurement_feed_purchases",
+			"version": nil,
+		},
+		"idempotency_key": idempotencyKey,
+		"actor": map[string]any{
+			"actor_type": "human",
+			"actor_id":   nullableStringValue(&actorID),
+			"actor_ref":  nil,
+		},
+		"subject_type": "feed_purchase",
+		"subject_id":   facts.PurchaseID,
+		"visibility_scope": map[string]any{
+			"tenant_id": tenantID,
+		},
+		"evidence_refs": []map[string]string{{
+			"evidence_type": "source_record",
+			"evidence_id":   "feed_purchase:" + facts.PurchaseID,
+		}},
+		"payload":  payload,
+		"trace_id": "procurement-feed-purchase:" + facts.PurchaseID,
+	})
+	if err != nil {
+		return err
+	}
+	headers, err := json.Marshal(map[string]any{
+		"actor_id":      actorID,
+		"farm":          facts.FarmLabel,
+		"business_date": biztime.BusinessDate(now),
+	})
+	if err != nil {
+		return err
+	}
+	if _, err := tx.Exec(ctx, `
+INSERT INTO outbox_messages (
+  tenant_id, event_id, event_type, schema_version, aggregate_type, aggregate_id,
+  topic, payload, headers, idempotency_key, status
+) VALUES (
+  $1::uuid, $2::uuid, $3, $4, 'feed_purchase', $5::uuid,
+  $6, $7::jsonb, $8::jsonb, $9, 'pending'
+)`,
+		tenantID,
+		eventID,
+		feedPurchaseRecordedEventType,
+		feedPurchaseReachedSchemaVersion,
+		facts.PurchaseID,
+		feedPurchaseReachedTopic,
+		envelope,
+		headers,
+		"feed-purchase-recorded:"+idempotencyKey,
+	); err != nil {
+		return fmt.Errorf("procurement: outbox feed purchase recorded: %w", err)
+	}
+	return nil
+}

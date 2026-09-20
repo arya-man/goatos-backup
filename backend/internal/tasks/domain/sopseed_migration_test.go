@@ -30,6 +30,8 @@ func TestMigrationEmbedsTheSeededDocuments(t *testing.T) {
 			continue // seeded by 000369; pinned by TestMigrationEmbedsTheSalesSeed
 		case sopseed.SOPCodeAnimalPurchaseIntake:
 			continue // seeded by 000371; pinned by TestMigrationEmbedsTheProcurementSeed
+		case sopseed.SOPCodeFeedPurchaseIntake:
+			continue // seeded by 000373; pinned by TestMigrationEmbedsTheFeedPurchaseSeed
 		}
 		files = append(files, f)
 	}

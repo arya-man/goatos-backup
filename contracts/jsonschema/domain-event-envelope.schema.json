@@ -190,7 +190,8 @@
         "pen_routine_task",
         "leave_request",
         "animal_purchase_candidate",
-        "animal_purchase_load"
+        "animal_purchase_load",
+        "toxin_task"
       ]
     },
     "aggregate_id": {
@@ -229,7 +230,8 @@
         "pen_routine_task",
         "leave_request",
         "animal_purchase_candidate",
-        "animal_purchase_load"
+        "animal_purchase_load",
+        "toxin_task"
       ]
     },
     "subject_id": {

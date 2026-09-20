@@ -1,0 +1,16 @@
+{
+  "schema_version": "goatos.sop-followup.v1",
+  "tracks": [
+    {
+      "key": "feed_purchase_intake", "module": "procurement", "label": "Feed purchase", "subject": "feed_load",
+      "steps": [
+        {"key": "weighbridge_slip", "task_type": "photo_record", "title": "Photo of the weighbridge slip", "detail": "One photo of the slip the seller gives with the load, showing the weight loaded.", "proof": {"photo": 1}, "schedule": {"kind": "immediately"}, "owner": "procurement_director"},
+        {"key": "mark_reached", "task_type": "feed_purchase_reached", "title": "Mark the load as reached", "detail": "Record the day the truck arrived and the weight that came off it. This step completes on its own once the load is marked delivered.", "proof": {}, "schedule": {"kind": "immediately"}, "owner": "procurement_director"},
+        {"key": "unloading_photo", "task_type": "photo_record", "title": "Photo of the feed in the store", "detail": "One photo of the load stacked where it will be kept.", "proof": {"photo": 1}, "schedule": {"kind": "immediately"}, "owner": "park_head"},
+        {"key": "toxin_test", "task_type": "toxin_test_accepted", "title": "Aflatoxin test signed off", "detail": "The load's strip test is run and reviewed in the Toxin module. This step completes on its own when a round is accepted; a rejected or void round mints a retest and this stays open.", "proof": {}, "schedule": {"kind": "immediately"}},
+        {"key": "vendor_paid", "task_type": "record_yes_no", "title": "Has the vendor been paid in full?", "detail": "Answer Yes when the payments recorded on this load cover its cost. Answer No if a balance is still due.", "proof": {}, "schedule": {"kind": "immediately"}, "owner": "procurement_director"},
+        {"key": "settle_balance", "task_type": "do_and_confirm", "title": "Settle the balance and record the payment", "detail": "Pay what is still due on this load and record each payment against it as it goes out.", "proof": {}, "schedule": {"kind": "immediately"}, "owner": "procurement_director", "when_answer": {"step": "vendor_paid", "op": "eq", "value": ["no"]}}
+      ]
+    }
+  ]
+}

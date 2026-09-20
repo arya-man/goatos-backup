@@ -72,3 +72,56 @@ func TestMigrationEmbedsTheProcurementSeed(t *testing.T) {
 		t.Fatalf("proof counts = %+v", proofs)
 	}
 }
+
+// TestMigrationEmbedsTheFeedPurchaseSeed pins the feed-purchase SOP (migration 000373) and its
+// task types to their sopseed files byte for byte, and proves the seeded document compiles: six
+// steps, TWO of them engine-completed (the ledger's arrival and an accepted aflatoxin round), and
+// the balance step on the "No" branch of the payment question.
+func TestMigrationEmbedsTheFeedPurchaseSeed(t *testing.T) {
+	path := filepath.Join("..", "..", "..", "migrations", "postgres", "000373_procurement_feed_purchase_intake_sop.sql")
+	raw, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, name := range []string{"procurement_feed_purchase_intake.json", "task_types_procurement_feed.json"} {
+		doc, err := sopseed.Raw(name)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if !strings.Contains(string(raw), "$seed$"+strings.TrimSpace(string(doc))+"$seed$") {
+			t.Fatalf("migration 000373 does not embed %s verbatim", name)
+		}
+	}
+	dsl := loadSeeded(t, sopseed.SOPCodeFeedPurchaseIntake)
+	reg, _ := SeededTaskTypes()
+	if problems := ValidateFollowUp(dsl, reg); len(problems) > 0 {
+		t.Fatalf("seeded feed purchase SOP: %v", problems)
+	}
+	track, ok := dsl.Track(TemplateKeyFeedPurchaseIntake)
+	if !ok {
+		t.Fatalf("feed purchase SOP must carry the %q track", TemplateKeyFeedPurchaseIntake)
+	}
+	tmpl, err := CompileTrack(track, reg, CompileOptions{EventAt: time.Date(2026, 9, 20, 9, 0, 0, 0, time.UTC)})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if tmpl.Module != ModuleProcurement || len(tmpl.Actions) != 6 {
+		t.Fatalf("compiled = module %s, %d steps", tmpl.Module, len(tmpl.Actions))
+	}
+	hooks := map[string]string{}
+	for _, a := range tmpl.Actions {
+		hooks[a.Key] = a.EngineHook
+	}
+	// The two facts that already have an owner elsewhere are the engine's, so a tap can never
+	// make the step and the ledger (or the toxin round) disagree.
+	if hooks["mark_reached"] != EngineHookFeedPurchaseReached {
+		t.Fatalf("arrival step hook = %q", hooks["mark_reached"])
+	}
+	if hooks["toxin_test"] != EngineHookToxinTestAccepted {
+		t.Fatalf("aflatoxin step hook = %q", hooks["toxin_test"])
+	}
+	last := tmpl.Actions[len(tmpl.Actions)-1]
+	if last.AnswerGate == nil || last.AnswerGate.Step != "vendor_paid" || last.AnswerGate.Value[0] != "no" {
+		t.Fatalf("balance step gate = %+v", last.AnswerGate)
+	}
+}

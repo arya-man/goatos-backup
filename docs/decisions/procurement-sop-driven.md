@@ -107,8 +107,52 @@ empty load.
   (mutation-tested), `TestVendorSideComesFromTheCatalogNotTheCaller`,
   `TestMigrationEmbedsTheSeededProcurementVendorForm`.
 
+## Decision 4: buying a feed load opens its own workflow -- and the toxin test is mapped to it
+
+`procurement.feed_purchase_intake` ("Feed purchase") is the same shape one document over.
+`procurement.Repository.CreateFeedPurchase` emits `procurement.feed_purchase.recorded` inside the
+insert transaction and `tasks/app.FeedPurchaseRecordedWorkflowHandler` opens a workflow keyed on
+the `feed_purchases` row.
+
+`.recorded` is deliberately a SECOND event beside the existing `.reached` rather than a reuse of
+it: reached is the load ARRIVING, whose consequence is stock and the aflatoxin test; recorded is
+the load being BOUGHT, whose consequence is the work owed on it. A load bought today and reaching
+on Friday emits both, three days apart, and each consumer reads the one it means.
+
+| step | task type | owner | proof |
+|---|---|---|---|
+| Photo of the weighbridge slip | Take photo | Procurement Director | 1 photo |
+| Mark the load as reached | `feed_purchase_reached` (engine hook) | Procurement Director | -- |
+| Photo of the feed in the store | Take photo | Park Head | 1 photo |
+| Aflatoxin test signed off | `toxin_test_accepted` (engine hook) | -- (the engine's) | -- |
+| Has the vendor been paid in full? | Question (yes / no) | Procurement Director | -- |
+| Settle the balance and record the payment | Do & confirm, **only if** the answer is No | Procurement Director | -- |
+
+**TWO of its steps are the engine's, both for the same reason:** the fact each records already has
+an owner elsewhere, and a tap would let the two disagree. The arrival step is completed by the
+LEDGER's own delivery write (`procurement.feed_purchase.reached`); the aflatoxin step by an
+ACCEPTED toxin round.
+
+### The toxin mapping, one event wide
+
+The toxin module announced NOTHING before this: a round began from a feed load reaching the farm
+and ended on the CEO's screen, and no other part of the farm could tell whether a load had been
+screened. `toxin.Repository.RecordVerdict` now emits `procurement.toxin_test.accepted` from inside
+the verdict transaction, and that is the entire mapping the maintainer asked for.
+
+**Only the ACCEPT is announced, and that is the point.** A rejected or Invalid round cancels itself
+and mints a retest in the same transaction, so the load is still owed a test and its step must stay
+open; announcing a reject would invite a consumer to read "we looked at it" as "it is done". The
+strip OUTCOME rides along, because an accepted POSITIVE is a real result -- v1 flags the load and
+does not block feeding -- so a reader tells a clean load from a flagged one by reading the outcome
+rather than inferring it from the acceptance.
+
+The toxin module keeps everything else: its round state machine, its server-clock wait gates, its
+retest minting and its CEO/CXO-only verdict (maintainer choice 2026-09-20, "steps authored, toxin
+engine keeps state"). Its STEPS become authored in the next slice of this programme.
+
 ## Not here (yet)
 
-The feed-purchase form and its workflow, the toxin test's authored steps, and the source-entry
-load / landed-cost questions are the rest of this programme and land in the same document as they
-ship.
+The feed-purchase entry FORM (which questions the record drawer and the phone ask), the toxin
+test's authored steps, and the source-entry load / landed-cost questions are the rest of this
+programme and land in this document as they ship.

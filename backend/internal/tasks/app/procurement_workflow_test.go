@@ -81,3 +81,59 @@ func TestDecisionStepWaitsForTheLastAnimal(t *testing.T) {
 		})
 	}
 }
+
+// TestFeedPurchaseWorkflowOpensAndItsTwoEngineStepsFollowTheirOwners pins the feed half: the
+// purchase opens an animal-less workflow keyed on the load, the LEDGER's delivery write completes
+// the arrival step, and an ACCEPTED toxin round completes the aflatoxin step. Neither engine step
+// is reachable by a tap, which is the whole reason they are hooks: the fact each records already
+// has an owner elsewhere, and a tap would let the two disagree.
+func TestFeedPurchaseWorkflowOpensAndItsTwoEngineStepsFollowTheirOwners(t *testing.T) {
+	repo := &openRecorder{fakeRepo: newFakeRepo(), byRef: map[string]string{}}
+	svc := NewService(repo, nil)
+	svc.now = func() time.Time { return time.Date(2026, 9, 20, 9, 0, 0, 0, time.UTC) }
+
+	recorded, _ := json.Marshal(map[string]any{"feed_purchase_id": "load-9", "park_id": "park-2"})
+	if err := NewFeedPurchaseRecordedWorkflowHandler(svc).HandleEvent(context.Background(), eventbus.Event{
+		Type: EventFeedPurchaseRecorded, TenantID: "tenant", Payload: recorded,
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if len(repo.opened) != 1 || repo.opened[0].TemplateKey != domain.TemplateKeyFeedPurchaseIntake {
+		t.Fatalf("opened = %+v", repo.opened)
+	}
+	if repo.opened[0].SubjectGoatID != "" {
+		t.Fatalf("feed purchase workflow must carry no animal, got %q", repo.opened[0].SubjectGoatID)
+	}
+
+	reached, _ := json.Marshal(map[string]any{"feed_purchase_id": "load-9", "reached_on": "2026-09-24"})
+	if err := NewFeedPurchaseReachedWorkflowHandler(svc).HandleEvent(context.Background(), eventbus.Event{
+		Type: EventFeedPurchaseReached, TenantID: "tenant", Payload: reached,
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if len(repo.feedReachedCompletions) != 1 || repo.feedReachedCompletions[0] != "load-9" {
+		t.Fatalf("arrival completions = %v", repo.feedReachedCompletions)
+	}
+
+	accepted, _ := json.Marshal(map[string]any{"feed_purchase_id": "load-9", "toxin_task_id": "task-1", "accepted_at": "2026-09-25T10:00:00Z"})
+	if err := NewToxinTestAcceptedWorkflowHandler(svc).HandleEvent(context.Background(), eventbus.Event{
+		Type: EventToxinTestAccepted, TenantID: "tenant", Payload: accepted,
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if len(repo.toxinStepCompletions) != 1 || repo.toxinStepCompletions[0] != "load-9" {
+		t.Fatalf("aflatoxin completions = %v", repo.toxinStepCompletions)
+	}
+
+	// An event naming no load is ignored rather than guessed at: the aflatoxin step of SOME load
+	// is not a thing the engine may pick.
+	blank, _ := json.Marshal(map[string]any{"toxin_task_id": "task-2"})
+	if err := NewToxinTestAcceptedWorkflowHandler(svc).HandleEvent(context.Background(), eventbus.Event{
+		Type: EventToxinTestAccepted, TenantID: "tenant", Key: "task-2", Payload: blank,
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if len(repo.toxinStepCompletions) != 1 {
+		t.Fatalf("a load-less event completed something: %v", repo.toxinStepCompletions)
+	}
+}
