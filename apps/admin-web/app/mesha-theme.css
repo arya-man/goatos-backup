@@ -21,6 +21,12 @@
        button renders its label in body text -- which is exactly what happened. */
     --on-brand:#08130B; --on-status:#0B1A0E;
     --pop:0 18px 46px -12px rgba(0,0,0,.85);
+    /* Chart series ramp. A FIXED order of four slots for grouped bar charts, kept apart from the
+       status colours so a bar's hue is an identity, not a verdict. Validated as a categorical
+       palette against this panel on ALL pairs (worst CVD dE 8.7 deutan, worst normal-vision dE
+       15.5): the old set put --brand beside --teal at dE 12.6, two greens a reader could not tell
+       apart. The light steps are chosen for the white panel, never flipped from these. */
+    --chart-1:#5B9BE8; --chart-2:#A6E07A; --chart-3:#E8524E; --chart-4:#E0A53A;
   }
   :root.light{
     --bg:#F4F7F2; --panel:#FFFFFF; --panel-2:#F1F5EF; --ink:#16201B; --muted:#5E6E64; --faint:#8A998F;
@@ -36,6 +42,10 @@
     --amber:#C9871F; --danger-tag-ink:#8F1D1D; --danger-badge-ink:#FFFFFF; --shadow:0 1px 2px rgba(16,32,24,.04),0 6px 20px rgba(16,32,24,.06); --ring:rgba(84,160,44,.26);
     --on-brand:#FFFFFF; --on-status:#0B1A0E;
     --pop:0 16px 44px -12px rgba(16,32,24,.28);
+    /* The same four slots re-stepped for the white panel (worst CVD dE 10.3, normal-vision dE 16).
+       Slot 3 is deeper than --danger: at the status red a colour-blind reader could not separate it
+       from slot 2. Slot 2 sits under 3:1 on white, which every bar's printed figure relieves. */
+    --chart-1:#2B66B8; --chart-2:#7BC13F; --chart-3:#B83232; --chart-4:#B5791A;
   }
   *{box-sizing:border-box}
   html{max-width:100%;overflow-x:hidden}
@@ -4254,7 +4264,11 @@ aside.drawer.wt-feedband-drawer{width:94vw;max-width:960px}
 .mcol{flex:1 1 0;display:flex;flex-direction:column;align-items:center;min-width:58px}
 .mcarea{display:flex;align-items:flex-end;justify-content:center;height:138px;width:100%;border-bottom:1px solid var(--line)}
 .mcstack{display:flex;flex-direction:column;align-items:center;justify-content:flex-end;gap:4px;width:100%;height:100%;box-sizing:border-box;padding-top:17px}
-.mcv{font-size:11px;font-weight:800;color:var(--ink);white-space:nowrap;line-height:1;font-variant-numeric:tabular-nums;text-shadow:0 1px 2px var(--bg)}
+/* flex:0 0 auto -- the same crush the grouped chart's .gcval carries below, one chart over. The
+   tallest column's bar fills the stack's content box, so its figure overflows into the reserved
+   padding-top; as an ordinary flex item it was squeezed to nothing there, and on phones .mcv also
+   clips its own overflow, so the BIGGEST month was the one month whose number could not be read. */
+.mcv{flex:0 0 auto;font-size:11px;font-weight:800;color:var(--ink);white-space:nowrap;line-height:1;font-variant-numeric:tabular-nums;text-shadow:0 1px 2px var(--bg)}
 .mcbar{display:block;flex:0 0 auto;width:min(62%,30px);background:var(--brand);border-radius:4px 4px 0 0}
 .mclab{display:flex;flex-direction:column;align-items:center;gap:1px;font-size:11px;color:var(--muted);margin-top:5px;white-space:nowrap;line-height:1.05}
 .mcsub{font-size:10.5px;font-weight:600;color:var(--ink);opacity:.72;margin-top:2px;white-space:nowrap;line-height:1.2;font-variant-numeric:tabular-nums}
@@ -4278,7 +4292,7 @@ aside.drawer.wt-feedband-drawer{width:94vw;max-width:960px}
 
 /* Grouped (multi-series) columns — the sales board's load-wise charts (grouped-columns.tsx). */
 .gleg{display:flex;gap:14px;flex-wrap:wrap;padding:10px 18px 0;font-size:11px;color:var(--muted)}
-.gleg .sw{display:inline-block;width:10px;height:10px;border-radius:2px;margin-right:5px;vertical-align:-1px;background:var(--brand)}
+.gleg .sw{display:inline-block;width:10px;height:10px;border-radius:2px;margin-right:5px;vertical-align:-1px;background:var(--chart-2)}
 .gcols{display:flex;align-items:stretch;gap:12px;padding:10px 18px 14px;overflow-x:auto}
 /* Columns SHARE the card's full width rather than sitting in a fixed-width block at the left:
    grow to fill, and only start scrolling once each would fall under a readable 64px. */
@@ -4295,16 +4309,29 @@ aside.drawer.wt-feedband-drawer{width:94vw;max-width:960px}
    clipped sliver ("₹432" with its top half gone, 2026-09-18). It overflows UPWARD into .gcarea's
    padding-top instead, which is reserved for exactly this. */
 .gcval{flex:0 0 auto;font-size:10px;font-weight:700;color:var(--ink);white-space:nowrap;line-height:1.1;margin-bottom:3px;font-variant-numeric:tabular-nums;letter-spacing:-.2px}
-.gcbar{display:block;flex:0 0 auto;width:16px;border-radius:3px 3px 0 0;background:var(--brand)}
+/* Tones name a SLOT in the chart ramp, in its fixed order -- they are not the status colours they
+   are spelled like. `teal` and `warn` are the same slot: no chart draws both, and a fifth grouped
+   series is one more than four hues can separate here. */
+.gcbar{display:block;flex:0 0 auto;width:16px;border-radius:3px 3px 0 0;background:var(--chart-2)}
 .gcbar.none{background:transparent}
-.gcbar.info,.gleg .sw.info{background:var(--info)}
-.gcbar.ok,.gleg .sw.ok{background:var(--ok)}
-.gcbar.warn,.gleg .sw.warn{background:var(--warn)}
-.gcbar.danger,.gleg .sw.danger{background:var(--danger)}
-.gcbar.teal,.gleg .sw.teal{background:var(--teal)}
+.gcbar.info,.gleg .sw.info{background:var(--chart-1)}
+.gcbar.ok,.gleg .sw.ok{background:var(--chart-2)}
+.gcbar.warn,.gleg .sw.warn{background:var(--chart-4)}
+.gcbar.danger,.gleg .sw.danger{background:var(--chart-3)}
+.gcbar.teal,.gleg .sw.teal{background:var(--chart-4)}
 .gclab{font-size:11px;color:var(--muted);margin-top:5px;white-space:nowrap;line-height:1.2}
 .gcsub{font-size:10.5px;font-weight:600;color:var(--ink);opacity:.72;margin-top:2px;max-width:100%;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;line-height:1.2}
 @media(max-width:1080px){.gclab{font-size:9px}.gcsub{font-size:9px}.gcarea{height:90px}}
+/* A grouped column carries one bar PER SERIES, so four series need ~110px before their figures
+   start printing over the next column's bars. The 64px floor above is narrower than that, so on a
+   phone the numbers collided. Sized here on the COMPONENT rather than on one page, because Counts
+   Breakdown draws the same chart and had no such rule; `.gcols` already scrolls sideways. */
+@media(max-width:680px){
+  .gcol{flex:0 0 92px;min-width:92px}
+  .gcarea{height:116px;gap:6px}
+  .gcval{font-size:9.5px;max-width:72px;overflow:hidden;text-overflow:ellipsis}
+  .gclab,.gcsub{max-width:86px;overflow:hidden;text-overflow:ellipsis}
+}
 .sales-loads-page .gcols{scrollbar-width:thin}
 @media(max-width:680px){
   .sales-loads-head{display:block;padding-bottom:0}
@@ -4332,10 +4359,10 @@ aside.drawer.wt-feedband-drawer{width:94vw;max-width:960px}
 .gtip-h{font-size:11.5px;font-weight:700;color:var(--ink);white-space:nowrap;line-height:1.3;
   padding-bottom:5px;border-bottom:1px solid var(--line)}
 .gtip-r{display:flex;align-items:center;gap:7px;font-size:11px;color:var(--muted);white-space:nowrap}
-.gtip-r .sw{display:inline-block;width:9px;height:9px;border-radius:2px;flex:0 0 auto;background:var(--brand)}
-.gtip-r .sw.info{background:var(--info)}.gtip-r .sw.ok{background:var(--ok)}
-.gtip-r .sw.warn{background:var(--warn)}.gtip-r .sw.danger{background:var(--danger)}
-.gtip-r .sw.teal{background:var(--teal)}
+.gtip-r .sw{display:inline-block;width:9px;height:9px;border-radius:2px;flex:0 0 auto;background:var(--chart-2)}
+.gtip-r .sw.info{background:var(--chart-1)}.gtip-r .sw.ok{background:var(--chart-2)}
+.gtip-r .sw.warn{background:var(--chart-4)}.gtip-r .sw.danger{background:var(--chart-3)}
+.gtip-r .sw.teal{background:var(--chart-4)}
 .gtip-l{flex:1}
 .gtip-v{font-weight:700;color:var(--ink);font-variant-numeric:tabular-nums}
 .gtip-s{font-size:10.5px;color:var(--muted);padding-top:4px;border-top:1px solid var(--line);white-space:nowrap}

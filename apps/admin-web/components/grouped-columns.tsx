@@ -104,10 +104,22 @@ export function GroupedColumns({
                 {series.map((s, i) => {
                   const value = datum.values[i];
                   if (value === null || value === 0) {
-                    // Absent or zero: no bar and no figure. The tooltip still carries the display
-                    // string, so "cost not recorded" and "0" stay distinguishable where it matters.
+                    // No bar either way -- there is no height to draw. A MEASURED zero still prints
+                    // its figure on the baseline, because a slot with nothing above it reads as a
+                    // number that failed to load rather than as "none". An ABSENT value keeps the
+                    // hidden placeholder, so the slot still holds its place while "cost not
+                    // recorded" and "0" stay distinguishable -- the tooltip carries the wording.
+                    const zeroLabel = value === 0 ? barLabelFor(datum, i) : null;
+                    if (!zeroLabel) {
+                      return (
+                        <span key={s.key} className="gcb gcempty" aria-hidden="true">
+                          <span className="gcbar none" />
+                        </span>
+                      );
+                    }
                     return (
-                      <span key={s.key} className="gcb gcempty" aria-hidden="true">
+                      <span key={s.key} className="gcb">
+                        <span className="gcval">{zeroLabel}</span>
                         <span className="gcbar none" />
                       </span>
                     );

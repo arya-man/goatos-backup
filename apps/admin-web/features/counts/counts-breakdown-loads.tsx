@@ -34,9 +34,12 @@ export function CountsBreakdownLoads({
   const femaleKey = "female";
 
   const series: GroupedSeries[] = [
-    { key: "purchased", label: copy(pageContract, "chart.series.load_purchased"), tone: "brand" },
-    { key: "on_farm", label: copy(pageContract, "chart.series.load_on_farm"), tone: "teal" },
-    { key: "male", label: genderLabels.get(maleKey) ?? copy(pageContract, "chart.series.load_male"), tone: "info" },
+    // Slots of the chart ramp in its fixed order (mesha-theme.css `--chart-1..4`), so the four bars
+    // of one load separate for every reader. `teal` and `warn` are the SAME slot, which is what put
+    // two of these bars in one colour before.
+    { key: "purchased", label: copy(pageContract, "chart.series.load_purchased"), tone: "info" },
+    { key: "on_farm", label: copy(pageContract, "chart.series.load_on_farm"), tone: "ok" },
+    { key: "male", label: genderLabels.get(maleKey) ?? copy(pageContract, "chart.series.load_male"), tone: "danger" },
     { key: "female", label: genderLabels.get(femaleKey) ?? copy(pageContract, "chart.series.load_female"), tone: "warn" },
   ];
 
