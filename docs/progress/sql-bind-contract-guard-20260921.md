@@ -31,7 +31,7 @@ Prevent missing, extra, gapped, or conditionally-pruned PostgreSQL parameters fr
 
 ## Pending
 
-- Push branch, create PR, and verify PR/head state.
+- GitHub review and any requested follow-up. Main merge and deployment remain out of scope.
 
 ## Tests and evidence
 
@@ -59,4 +59,6 @@ Prevent missing, extra, gapped, or conditionally-pruned PostgreSQL parameters fr
 - Branch: `fix/sql-bind-contract-guard`.
 - Base SHA: `e565e0d291b89ec4ae31d9003f028cca5ed9638b`.
 - Last fully certified implementation SHA: `8827233e6e0f93c941c7a3b87f3133cffd49f73e`.
-- No push, PR, merge, or deployment yet.
+- Final pre-PR all-scope CI receipt: GREEN at `98d2aca15969ef49e7d7e7f3aa2f7f527a350869`.
+- Pushed branch and opened PR: https://github.com/vgoats/goatos/pull/326. Local, remote, and PR heads matched `98d2aca15969ef49e7d7e7f3aa2f7f527a350869` before this bookkeeping update.
+- No merge or deployment performed.
