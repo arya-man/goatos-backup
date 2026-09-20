@@ -83,3 +83,10 @@ Prevent missing, extra, gapped, or conditionally-pruned PostgreSQL parameters fr
 - Judge status: first independent Node guard/baseline/CI review reports no actionable findings. Counter-review found local option aliases, parenthesized pointer/assignment escapes, range overwrites, branching error guards, and E-string continuation; all fixed with regression coverage. Runtime re-review reports no further actionable findings; scanner re-review also reports no actionable findings after re-running all four confirmed bypass fixtures.
 - Pending: fresh full local CI, PR push and exact remote readback. Optional ai-doctor cannot use absent graph/Repowise indexes in this isolated checkout; source inspection used instead.
 - Known limitations: no live browser E2E or real-route latency certification; no frontend, SQL template, DB fanout, tenant/grant, or sync behavior changed.
+
+### Pushed-head review round
+
+- Pushed and read back implementation `4c5bd5d2b65a6cea4fd6d9634f47b8cca0173ee1` on PR 326; full Go suite PASS.
+- Post-push runtime reviewer: no actionable findings. Scanner reviewer reproduced a remaining batch QueryRewriter bypass; pgx rejected the supposedly valid batch. Fixed: Queue rejects known rewriters while preserving execution options as data. Scanner tests and repository guard pass (358 unchanged baseline findings).
+- Full CI on that superseded implementation was deliberately interrupted before completion; it is not a green receipt. The batch-fix commit restarts full CI and independent review; final receipt is kept in the worktree Git directory and the PR description records the exact tested SHA.
+- Deployment state remains unchanged: no merge, main push, or deployment.
