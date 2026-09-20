@@ -1948,6 +1948,64 @@ Canonical source: `context/architecture/verifier-app-and-flow.md` → "Roles (tr
 alignment)"; pinned by `TestVerificationSeparationOfDuty` and
 `TestVerdictRouteIsVerifierOnlyWhileQueueReadStaysLeadershipVisible`.
 
+## PROCUREMENT IS SOP-DRIVEN END TO END (maintainer decision 2026-09-20)
+
+Every procurement flow is AUTHORED on **Procurement › Procurement SOP** (`/procurement/sops`) with
+the shared **List (default) | Flow** editors, and run by the engines that already own the work.
+Six documents, each its own SOP so either half can be published without touching the other -- the
+`sales.deal` / `sales.vendor` shape:
+
+| SOP | What it authors |
+|---|---|
+| `procurement.animal_purchase` | the inspection + load FORMS (2026-09-14, unchanged) |
+| `procurement.animal_purchase_intake` | the purchase load's WORKFLOW: record the animals, the office's decision, arrival at the farm |
+| `procurement.vendor` | the SUPPLY register's form (split from `sales.vendor`, which keeps buyers) |
+| `procurement.feed_purchase_intake` | a bought feed load's WORKFLOW: weighbridge slip, arrival, aflatoxin sign-off, the money |
+| `procurement.feed_purchase_form` | what the Record feed purchase screens ASK |
+| `procurement.toxin_test` | the aflatoxin PROCEDURE: the steps, their instructions, their waits |
+
+**FIVE THINGS ARE NOT AUTHORED, and each is load-bearing.**
+
+1. **The toxin ROUND stays the engine's.** The document says what the procedure IS -- how many
+   steps, what each tells the tester, what is filmed, how long the extract sits, which step each
+   wait gates. The state machine, the retest an Invalid strip mints, the CEO/CXO-only verdict, the
+   reading vocabulary and the SERVER-CLOCK enforcement of every gate stay in `toxin`. That
+   separation is what made it safe to open a medically-gated flow at all; it is the maintainer's
+   recorded choice and reopening it needs a new one. `toxin/domain.Steps()` survives ONLY as the
+   golden oracle for the seed -- nothing on the runtime path may read it (guard rule
+   `toxin-steps-read-from-go`).
+2. **A round runs the procedure it was OPENED on.** `toxin_test_tasks.sop_version` is stamped at
+   creation, resolved IN SQL inside the writing transaction, and never changes. A RETEST is new
+   work and is minted on whatever is published then. Under the row lock the repository refuses a
+   procedure that is no longer the round's (`ErrProcedureChanged`).
+3. **FOUR steps are engine-completed, never a tap**, because the fact each records already has an
+   owner elsewhere and a tap would let the two disagree: `animal_purchase_decision` (completes
+   when the load has NO animal still waiting -- the count is the PRODUCER's, taken inside the
+   decision transaction), `feed_purchase_reached` (the ledger's own delivery write),
+   `toxin_test_accepted` (an ACCEPTED round), and the sale's existing `sale_tag_animals`. Each
+   needs a seeded task type carrying its hook (guard rule `engine-step-hook-missing`).
+4. **Only the toxin ACCEPT is announced.** A rejected or Invalid round cancels itself and mints a
+   retest in the same transaction, so the load is still owed a test and its step must stay OPEN.
+   Announcing a reject would invite a consumer to read "we looked at it" as "it is done". The strip
+   OUTCOME rides the event because an accepted Positive flags the load without blocking feeding.
+5. **`.recorded` and `.reached` are two events, not one.** Reached is the load ARRIVING (stock, and
+   the toxin task); recorded is the load being BOUGHT (the work owed on it). A load bought today
+   and reaching on Friday emits both, three days apart.
+
+**The FORMS share ONE engine**, told by an `EntryFormProfile` which section they live in, which ids
+the module reads into typed columns, which must stay compulsory and which catalogs fill their
+choices. Do not copy the validator for a sixth form. Typed ids are LOCKED because the downstream
+reads are keyed on them; choices come from the module's own live vocabularies, never a list typed
+into a document; a write names the version it rendered and is judged against exactly that one; a
+client sending typed fields only (an older APK) is accepted unchanged.
+
+**WHICH vendor document a row uses comes from the REGISTER's own data** -- the side its record type
+belongs to (`procurement_vendor_catalog.register_side`) -- never from anything a client sends.
+
+Canonical prose: `docs/decisions/procurement-sop-driven.md`. Machine gate:
+`make procurement-sop-guard` (six rules, each with an adversarial self-test fixture). Migrations
+`000370`-`000376`.
+
 Confirmed TOXIN module rule (maintainer decisions 2026-08-25; a RECORDED, SCOPED exception
 to the verifier verdict-exclusivity rule above that leaves that rule untouched): every feed
 load recorded on `/procurement/feed-purchases` owes one aflatoxin strip test (SafetiX SHF
