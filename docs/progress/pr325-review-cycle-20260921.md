@@ -2,7 +2,7 @@
 
 ## Current state
 - Target: `feat/procurement-sop-driven`, PR325 only. No main merge or staging deploy.
-- Final production-code SHA: `ddefb30ef` (following `653b9304e` and `a4bd5fa62`). This receipt/decision update is documentation-only; the containing commit identifies the review tip.
+- Pushed checkpoint: `df9ab9bb8`. The containing commit adds the final R5 compatibility repair; its exact pushed SHA is recorded in the local push-receipt.json linked below.
 - All accepted findings fixed. Final pushed-head independent confirmation follows the branch push; readback is retained locally in `.codex-goatos-render/pr325-cycle/push-receipt.json`.
 - Relevant Go, real PostgreSQL, Android compile/unit, web typecheck/mock-fidelity/form tests, media egress, and laptop/mobile browser gates PASS.
 - `make guardrails` passed all preceding targets and stopped at the final `local-gcp-kernel-parity-guard`: Docker CLI is absent (`check-local-gcp-kernel-parity.sh:58: docker: command not found`). No guard bypass; full `make ci-local` not run. This is not a main/stg promotion receipt.
@@ -88,3 +88,10 @@ Broad guardrails found one new inline SQL count in repository.go. The receipt qu
 Final-SHA laptop/mobile historical detail readback PASS at a4bd5fa62. Live authored feed submission then exposed valid question ID review_other being mistaken for a sidecar; HTTP400 reproduced. Exact authored IDs now take precedence, genuinely ambiguous sidecar/question collisions fail publication, and vendor/feed answer labels respect allow_other. Two baseline-red regressions and procurement domain/app/HTTP suites PASS. Full focused procurement/SOP repeat pending.
 
 Responsive guard correctly required an actual paginated fixture; initial 3-row local fixture had no pager. Expanding isolated local data for pagination proof, not weakening the gate. Broader guardrails reached vaccination fixture coupling: only378 triggered, and its module-owned vendor DDL plus supplier SOP copy qualifies for the guard's existing documented opt-out. Added precise migration annotation and adversarial tests proving goat-table DDL still requires source companions. Exact fixture guard PASS; full rerun pending.
+
+## Fifth review round: older Android edits and committed retries
+Post-push review at df9ab9bb8 found stale Other serialization. Android vendor/feed serializers now use the shared filtered map. Older clients may still send a known-parent stale sidecar; backend accepts then drops it, preserving unknown-field rejection. Android red-before regression passes after repair; root independently reran compile plus vendor/feed/push-routing classes and full mobile-guard PASS.
+
+Real PostgreSQL red-before also proved an old completed edit could hash stale hidden data. Internal json-excluded original-write metadata now recognizes that exact historical completed sales.vendor receipt; new reservations retain canonical fingerprints and never persist hidden data. Expanded tests cover hidden typed values, changed active/typed/version/code/sidecar/row-version conflicts, started-receipt refusal, and canonical new writes. Agent suite PASS12.367s; independent root repeat PASS7.995s. Entire procurement tests and scale-guard PASS. Independent cross-review reports no actionable findings in the frozen delta.
+
+Live strict-server HTTP400 for the legacy sidecar was reproduced and retained for post-build replay. Prior real web responsive/save/readback evidence remains applicable to unchanged web code. Full guardrail limitation is still absent Docker; no hooks or gates bypassed. No main/stg promotion.

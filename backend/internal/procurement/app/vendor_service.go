@@ -110,8 +110,12 @@ func (s *VendorService) applyForm(ctx context.Context, tenantID string, write do
 	if err := domain.ValidateVendorAnswers(form, write.SOPAnswers); err != nil {
 		return write, err
 	}
+	legacy, legacyExtras := domain.ApplyVendorAnswers(write, write.SOPAnswers)
+	legacy.SOPAnswers = legacyExtras
+	legacy.LegacyFormWrite = nil
 	applied, extras := domain.ApplyVendorAnswers(write, domain.VisibleVendorAnswers(form, write.SOPAnswers))
 	applied.SOPAnswers = extras
+	applied.LegacyFormWrite = &legacy
 	if applied.QuestionnaireSOPCode == "" {
 		applied.QuestionnaireSOPCode = domain.SOPCodeVendor
 	}

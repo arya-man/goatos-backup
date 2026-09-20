@@ -93,6 +93,13 @@ func canonicalJSON(raw json.RawMessage) string {
 // the caller can re-read and return the original result. On replay with a DIFFERENT fingerprint it returns
 // ports.ErrIdempotencyConflict so the caller rejects the request without mutating state.
 func reserveIdempotency(ctx context.Context, tx pgx.Tx, tenantID, scope, key, fingerprint string) (idemReservation, error) {
+	return reserveIdempotencyWithCompletedCompatibility(ctx, tx, tenantID, scope, key, fingerprint, nil)
+}
+
+// Only explicitly supplied historical hashes may match a completed reservation.
+// New writes always reserve the current canonical identity; started writes and
+// every caller using reserveIdempotency retain their existing strict behavior.
+func reserveIdempotencyWithCompletedCompatibility(ctx context.Context, tx pgx.Tx, tenantID, scope, key, fingerprint string, compatible []string) (idemReservation, error) {
 	scoped := idemScopedKey(tenantID, scope, key)
 	var claimed string
 	err := tx.QueryRow(ctx, `
@@ -114,7 +121,16 @@ FROM idempotency_keys
 WHERE idempotency_key = $1`, scoped).Scan(&existingHash, &status, &resultType, &resultID); err != nil {
 		return idemReservation{}, err
 	}
-	if existingHash != fingerprint {
+	matched := existingHash == fingerprint
+	if !matched && status == "completed" {
+		for _, historical := range compatible {
+			if existingHash == historical {
+				matched = true
+				break
+			}
+		}
+	}
+	if !matched {
 		return idemReservation{}, ports.ErrIdempotencyConflict
 	}
 	return idemReservation{proceed: false, resultType: resultType, resultID: resultID}, nil

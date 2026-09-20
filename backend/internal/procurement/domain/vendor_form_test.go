@@ -277,3 +277,18 @@ func TestQuestionCannotCollideWithAnotherQuestionsOtherSidecar(t *testing.T) {
 		}
 	}
 }
+
+func TestLegacyClientOtherSidecarIsAcceptedButNotStoredAfterRetirement(t *testing.T) {
+	form := VendorForm{Pages: []VendorFormPage{{Questions: []VendorQuestion{{ID: "transport", Kind: VendorQuestionChoice, Title: "Transport", Options: []VendorQuestionOpt{{Value: "yes", Label: "Yes"}}}}}}}
+	legacy := map[string]string{"transport": "yes", "transport_other": "Old explanation"}
+	if err := ValidateVendorAnswers(form, legacy); err != nil {
+		t.Fatalf("installed APK stale sidecar rejected: %v", err)
+	}
+	visible := VisibleVendorAnswers(form, legacy)
+	if _, ok := visible["transport_other"]; ok {
+		t.Fatalf("retired sidecar retained: %v", visible)
+	}
+	if err := ValidateVendorAnswers(form, map[string]string{"unknown_other": "not allowed"}); err == nil {
+		t.Fatal("unknown sidecar must still be rejected")
+	}
+}

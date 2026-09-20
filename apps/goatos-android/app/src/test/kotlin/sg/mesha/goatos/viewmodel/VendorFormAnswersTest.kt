@@ -19,6 +19,16 @@ import sg.mesha.goatos.core.network.dto.VendorQuestionOnlyIfDto
  */
 class VendorFormAnswersTest {
     @Test
+    fun `new form disabling Other drops the saved explanation from submission`() {
+        val pages = listOf(VendorFormPageDto(key = "p", title = "Page", questions = listOf(
+            VendorQuestionDto(id = "transport", kind = "choice", title = "Transport", allowOther = false,
+                options = listOf(VendorCatalogEntryDto("yes", "Yes"), VendorCatalogEntryDto("no", "No"))),
+        )).toUi())
+        val edited = mapOf("transport" to "yes", "transport_other" to "Saved old explanation")
+        assertEquals(mapOf("transport" to "yes"), vendorAnswersToWrite(edited, pages, 4).answers)
+    }
+
+    @Test
     fun `blank condition never activates even when optional parent is blank`() {
         val pages = listOf(VendorFormPageDto(key = "p", title = "Page", questions = listOf(
             VendorQuestionDto(id = "a", kind = "choice", title = "A"),

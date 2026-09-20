@@ -280,3 +280,9 @@ ending in `_other` remain valid IDs. Only a declared allow_other question owns i
 sidecar, and publication rejects a question that collides with that sidecar. Stored answers carry
 the historical version and read back using its labels, including retired questions and Other
 explanations; missing historical metadata preserves the raw answer rather than dropping it.
+
+Older APKs can send a retired Other explanation for a known question; validation tolerates that
+legacy wire shape, then the shared projection drops it. Completed pre-projection sales.vendor
+edit receipts may match the exact original request hash. This compatibility metadata stays
+internal and cannot enter JSON or persisted answers; new writes use canonical projected hashes,
+while changed requests and unfinished historical reservations do not gain replay permission.

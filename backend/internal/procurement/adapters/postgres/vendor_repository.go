@@ -332,7 +332,16 @@ func (r *Repository) UpdateVendor(ctx context.Context, tenantID, vendorID string
 	defer func() { _ = tx.Rollback(ctx) }()
 
 	fingerprint := vendorUpdateFingerprint(vendorID, w, rowVersion, preserveFinance)
-	reservation, err := reserveIdempotency(ctx, tx, tenantID, idemScopeVendorUpdate, idempotencyKey, fingerprint)
+	var compatible []string
+	// Before visibility projection, old clients could persist stale hidden values.
+	// Match that exact historical write only for a completed shared-sales request.
+	if w.LegacyFormWrite != nil && (w.QuestionnaireSOPCode == "" || w.QuestionnaireSOPCode == domain.SOPCodeVendor) {
+		legacy := w.LegacyFormWrite.Normalize()
+		if (legacy.QuestionnaireSOPCode == "" || legacy.QuestionnaireSOPCode == domain.SOPCodeVendor) && legacy.QuestionnaireVersion == w.QuestionnaireVersion {
+			compatible = append(compatible, vendorUpdateFingerprint(vendorID, legacy, rowVersion, preserveFinance))
+		}
+	}
+	reservation, err := reserveIdempotencyWithCompletedCompatibility(ctx, tx, tenantID, idemScopeVendorUpdate, idempotencyKey, fingerprint, compatible)
 	if err != nil {
 		return domain.Vendor{}, err
 	}
