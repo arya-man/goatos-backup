@@ -5,13 +5,16 @@ import (
 	sopdomain "github.com/vgoats/goatos/backend/internal/sop/domain"
 )
 
-// VendorFormSOPContract validates the `vendor_form` section of a sales.vendor version at save
+// VendorFormSOPContract validates the `vendor_form` section of a vendor SOP version at save
 // time (registered on sop/app via WithFormDSLContract). Every problem names its path so the web
 // editor can point at the question; the first one becomes the 400 message. A document the
 // register could not run -- a locked id with the wrong kind, a compulsory identity question made
 // optional, an only_if pointing forward -- is never saved.
 func VendorFormSOPContract(sopCode string, formDSL map[string]any, report *sopdomain.ValidationReport) {
-	if sopCode != domain.SOPCodeVendor {
+	// BOTH vendor documents are checked by the same rules (2026-09-20 split): the register they
+	// write is one table, so a supply form that drops an identity question breaks the same row a
+	// sales one would.
+	if sopCode != domain.SOPCodeVendor && sopCode != domain.SOPCodeProcurementVendor {
 		return
 	}
 	dsl, err := domain.ParseVendorForm(formDSL)

@@ -24,8 +24,17 @@ import (
 // in `procurement_vendors.sop_answers` with the version it was answered on.
 
 const (
-	SOPCodeVendor           = "sales.vendor"
-	VendorFormSchemaVersion = "goatos.sop-vendor-form.v1"
+	// SOPCodeVendor is the BUYER register's form, authored on Sales > Sales SOP.
+	SOPCodeVendor = "sales.vendor"
+	// SOPCodeProcurementVendor is the SUPPLY register's form, authored on Procurement >
+	// Procurement SOP (maintainer decision 2026-09-20: "split -- procurement.vendor for
+	// suppliers"). One register, two documents: the buying desk and the sales desk ask
+	// different things of the people they deal with, and asking a feed supplier for a
+	// slaughterhouse's questions is how a form grows fields nobody fills. Which document a
+	// vendor is answered on is decided by the SIDE its record type belongs to, which is the
+	// register's own data (procurement_vendor_catalog.register_side) -- never a client claim.
+	SOPCodeProcurementVendor = "procurement.vendor"
+	VendorFormSchemaVersion  = "goatos.sop-vendor-form.v1"
 
 	VendorQuestionChoice = "choice"
 	VendorQuestionMulti  = "multi"
@@ -115,6 +124,36 @@ var lockedVendorQuestions = map[string]VendorQuestion{
 
 // requiredVendorQuestionIDs must be present AND compulsory: a vendor cannot exist without them.
 var requiredVendorQuestionIDs = []string{"business_name", "record_type", "state", "status"}
+
+// VendorFormSOPCode is the form document a given register side is answered on. An unknown or
+// blank side resolves to the sales document, which is what the whole register answered on before
+// the split -- a legacy vendor keeps reading the form it was written against.
+func VendorFormSOPCode(side string) string {
+	if normalized, ok := NormalizeVendorSide(side); ok && normalized == VendorSideProcurement {
+		return SOPCodeProcurementVendor
+	}
+	return SOPCodeVendor
+}
+
+// VendorSideForRecordType resolves which register half a record type belongs to, from the
+// catalog itself. Blank when the catalog does not carry the type: the caller then falls back to
+// the sales document rather than guessing a side, and the write's own record-type validation is
+// what refuses an unknown type.
+func VendorSideForRecordType(catalog []VendorCatalogEntry, recordType string) string {
+	recordType = strings.TrimSpace(recordType)
+	if recordType == "" {
+		return ""
+	}
+	for _, e := range catalog {
+		if e.Kind != CatalogKindRecordType {
+			continue
+		}
+		if strings.EqualFold(strings.TrimSpace(e.Value), recordType) {
+			return e.RegisterSide
+		}
+	}
+	return ""
+}
 
 // IsTypedVendorQuestion reports a question the register stores in its own column.
 func IsTypedVendorQuestion(id string) bool { _, ok := lockedVendorQuestions[id]; return ok }
