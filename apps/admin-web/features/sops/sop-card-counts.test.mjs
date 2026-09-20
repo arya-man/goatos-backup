@@ -70,3 +70,31 @@ test("the editor derives a choice's value with slugValue, never with the key slu
     "a choice value must keep a leading number; slugKey drops it");
   assert.doesNotMatch(src, /: slugKey\(label, others, "choice"\)/);
 });
+
+import { vendorFormProblems, VENDOR_REQUIRED_KEYS, FEED_PURCHASE_REQUIRED_KEYS } from "./inspection-model.ts";
+
+// THE PRE-CHECKS BELONG TO THE PROFILE (2026-09-20). Both entry forms run through
+// vendorFormProblems, and while it named the vendor register's keys outright, the feed purchase
+// form could not be published from the editor at all -- Publish stayed disabled, demanding
+// `business_name` of a form that records a feed load.
+const q = (key, title, extra = {}) => ({ key, title, kind: "text", required: true, options: [], min: "", max: "", unit: "", hint: "", catalog: "", allowOther: false, onlyIfQuestion: "", onlyIfValue: "", ...extra });
+const rowsOf = (...keys) => ({ loadForm: [], pages: [{ key: "p1", title: "Page 1", hint: "", questions: keys.map((k) => q(k, k)) }] });
+
+test("the feed purchase form is judged on the feed ledger's own compulsory columns", () => {
+  const feedRows = rowsOf(...FEED_PURCHASE_REQUIRED_KEYS);
+  assert.deepEqual(vendorFormProblems(feedRows, FEED_PURCHASE_REQUIRED_KEYS, "A feed load"), []);
+  // the same document judged as a VENDOR form is refused, which is what was happening on screen
+  const asVendor = vendorFormProblems(feedRows, VENDOR_REQUIRED_KEYS, "A vendor");
+  assert.ok(asVendor.some((m) => m.includes("business_name")), "expected the vendor rules to refuse a feed form");
+});
+
+test("a feed load missing its own compulsory column is still refused, and says so as a feed load", () => {
+  const short = rowsOf("purchase_date", "farm_label", "feed_item_label", "quantity_kg");
+  const problems = vendorFormProblems(short, FEED_PURCHASE_REQUIRED_KEYS, "A feed load");
+  assert.ok(problems.some((m) => m.includes('A feed load cannot exist without "vendor"')), problems.join(" | "));
+});
+
+test("the supplier form keeps the register's rules by default", () => {
+  assert.deepEqual(vendorFormProblems(rowsOf(...VENDOR_REQUIRED_KEYS)), []);
+  assert.ok(vendorFormProblems(rowsOf("business_name")).some((m) => m.includes("record_type")));
+});

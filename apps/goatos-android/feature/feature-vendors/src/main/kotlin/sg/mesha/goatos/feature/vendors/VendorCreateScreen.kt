@@ -84,7 +84,20 @@ fun VendorCreateScreen(
                 // VENDOR FORM IS AUTHORED (2026-09-19): one step per published page, one control
                 // per question by kind; the voice-note slot stays on the last page.
                 val page = state.form[state.step.coerceIn(0, state.form.size - 1)]
-                item(key = "page-" + page.key) { FormPageStep(page, state, onEvent, last = state.step == state.form.size - 1) }
+                item(key = "page-" + page.key) {
+                    AuthoredFormPage(
+                        page = page,
+                        answers = state.answers,
+                        answerErrors = state.answerErrors,
+                        onAnswer = { id, value -> onEvent(VendorCreateEvent.AnswerChanged(id, value)) },
+                        fallbackTitle = "Step ${state.step + 1}",
+                        trailing = if (state.step == state.form.size - 1) {
+                            { VoiceNoteSlot(state = state.voiceNote, length = state.voiceNoteLength, onEvent = onEvent) }
+                        } else {
+                            null
+                        },
+                    )
+                }
             } else {
                 when (state.step) {
                     0 -> item(key = "who") { WhoStep(state, onEvent) }
@@ -116,18 +129,33 @@ fun VendorCreateScreen(
     }
 }
 
-/** One published page: its questions in order, each drawn by kind; hidden ones (ask only when) skipped. */
+/**
+ * One published page: its questions in order, each drawn by kind; hidden ones (ask only when)
+ * skipped.
+ *
+ * SHARED BY BOTH ENTRY FORMS (PROCUREMENT IS SOP-DRIVEN END TO END, 2026-09-20). It takes the
+ * answers, their errors and one callback rather than a wizard's whole state, so the feed purchase
+ * wizard renders its authored questions through the SAME renderer the vendor wizard does -- a
+ * second copy would drift on the next question kind, and the kinds are the SOP's, not a screen's.
+ */
 @Composable
-private fun FormPageStep(page: VendorFormPageUi, state: VendorCreateUiState, onEvent: (VendorCreateEvent) -> Unit, last: Boolean) {
-    val a = state.answers
-    val e = state.answerErrors
-    VendorsFormGroup(title = page.title.ifBlank { "Step ${state.step + 1}" }) {
+internal fun AuthoredFormPage(
+    page: VendorFormPageUi,
+    answers: Map<String, String>,
+    answerErrors: Map<String, String>,
+    onAnswer: (String, String) -> Unit,
+    fallbackTitle: String,
+    trailing: (@Composable () -> Unit)? = null,
+) {
+    val a = answers
+    val e = answerErrors
+    VendorsFormGroup(title = page.title.ifBlank { fallbackTitle }) {
         if (page.hint.isNotBlank()) Text(text = page.hint, color = MeshaColors.Muted, style = MeshaType.caption)
         for (q in page.questions) {
             val asked = q.onlyIfQuestion.isBlank() || a[q.onlyIfQuestion].orEmpty().trim() == q.onlyIfValue
             if (!asked) continue
             val value = a[q.id].orEmpty()
-            val change: (String) -> Unit = { onEvent(VendorCreateEvent.AnswerChanged(q.id, it)) }
+            val change: (String) -> Unit = { onAnswer(q.id, it) }
             when (q.kind) {
                 VendorQuestionKind.CHOICE -> {
                     if (q.id == QUESTION_STATUS && q.options.size in 2..4 && !q.allowOther) {
@@ -142,7 +170,7 @@ private fun FormPageStep(page: VendorFormPageUi, state: VendorCreateUiState, onE
                         )
                     }
                     if (q.allowOther && value == OTHER_VALUE) {
-                        VendorsTextField(a[q.id + OTHER_TEXT_SUFFIX].orEmpty(), { onEvent(VendorCreateEvent.AnswerChanged(q.id + OTHER_TEXT_SUFFIX, it)) }, HINT_OTHER, required = true)
+                        VendorsTextField(a[q.id + OTHER_TEXT_SUFFIX].orEmpty(), { onAnswer(q.id + OTHER_TEXT_SUFFIX, it) }, HINT_OTHER, required = true)
                     }
                     if (q.hint.isNotBlank()) Text(text = q.hint, color = MeshaColors.Muted, style = MeshaType.caption)
                 }
@@ -186,7 +214,7 @@ private fun FormPageStep(page: VendorFormPageUi, state: VendorCreateUiState, onE
                 )
             }
         }
-        if (last) VoiceNoteSlot(state = state.voiceNote, length = state.voiceNoteLength, onEvent = onEvent)
+        trailing?.invoke()
     }
 }
 

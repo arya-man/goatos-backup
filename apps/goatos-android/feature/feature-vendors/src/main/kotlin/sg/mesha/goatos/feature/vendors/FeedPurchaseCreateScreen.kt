@@ -12,6 +12,7 @@ import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.items
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
@@ -57,6 +58,21 @@ fun FeedPurchaseCreateScreen(
             when (state.step) {
                 0 -> item(key = "load") { LoadStep(state, onEvent) }
                 else -> item(key = "money") { MoneyStep(state, onEvent) }
+            }
+            // PROCUREMENT IS SOP-DRIVEN END TO END (2026-09-20): the buying desk's OWN questions,
+            // as published on Procurement SOP, after the ledger's own fields on the last step.
+            // They are drawn by the renderer the vendor wizard uses, so a question kind behaves
+            // the same wherever it is asked.
+            if (state.step == state.stepCount - 1) {
+                items(state.extraPages, key = { "authored-" + it.key }) { page ->
+                    AuthoredFormPage(
+                        page = page,
+                        answers = state.answers,
+                        answerErrors = state.answerErrors,
+                        onAnswer = { id, value -> onEvent(FeedPurchaseCreateEvent.AnswerChanged(id, value)) },
+                        fallbackTitle = page.key,
+                    )
+                }
             }
         }
         VendorsWizardBar(contextLine = state.contextLine) {

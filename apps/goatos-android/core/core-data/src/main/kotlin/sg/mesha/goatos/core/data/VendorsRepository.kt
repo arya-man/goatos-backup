@@ -81,6 +81,9 @@ internal fun vendorScopeKey(side: VendorRegisterSide, search: String, status: St
 internal fun vendorCatalogCacheKey(side: VendorRegisterSide): String = "catalog:" + side.wireValue
 internal fun vendorFormCacheKey(side: VendorRegisterSide): String = "form:" + side.wireValue
 
+/** The feed ledger has one entry form -- it is not split by register side. */
+internal const val FEED_PURCHASE_FORM_CACHE_KEY: String = "form:feed_purchase"
+
 /** Blob-cache key prefix of one feed purchase's detail row (written by the ledger page and by a landed create). */
 private const val PURCHASE_KEY_PREFIX = "purchase:"
 
@@ -137,6 +140,14 @@ interface VendorsRepository {
      */
     fun observeVendorForm(side: VendorRegisterSide): Flow<VendorFormDto?>
     suspend fun refreshVendorForm(side: VendorRegisterSide)
+
+    /**
+     * The published FEED PURCHASE entry form (PROCUREMENT IS SOP-DRIVEN END TO END, 2026-09-20).
+     * Cached and refreshed exactly like the vendor form, so a question published on the web is on
+     * the Record purchase wizard the next time it is opened -- no reinstall.
+     */
+    fun observeFeedPurchaseForm(): Flow<VendorFormDto?>
+    suspend fun refreshFeedPurchaseForm()
 
     suspend fun refreshCatalog(side: VendorRegisterSide)
 
@@ -236,6 +247,17 @@ class DefaultVendorsRepository(
     }
 
     override fun observeVendorForm(side: VendorRegisterSide): Flow<VendorFormDto?> = observeBlob(vendorFormCacheKey(side))
+
+    override fun observeFeedPurchaseForm(): Flow<VendorFormDto?> = observeBlob(FEED_PURCHASE_FORM_CACHE_KEY)
+
+    override suspend fun refreshFeedPurchaseForm() {
+        // exception:exempt expected refresh failure; the cached form keeps the wizard usable offline.
+        runCatching { putBlob(FEED_PURCHASE_FORM_CACHE_KEY, json.encodeToString(api.getFeedPurchaseForm())) }
+            .onFailure {
+                if (it is CancellationException) throw it
+                android.util.Log.w(LOG_TAG, "feed_purchase_form_refresh_failed", it)
+            }
+    }
 
     override suspend fun refreshVendorForm(side: VendorRegisterSide) {
         // exception:exempt expected refresh failure; the cached form keeps the wizard usable offline.

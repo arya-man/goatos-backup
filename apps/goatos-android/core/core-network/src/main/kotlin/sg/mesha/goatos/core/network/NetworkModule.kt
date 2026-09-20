@@ -1059,6 +1059,9 @@ interface AppApiService {
     @GET("procurement/vendor-form")
     suspend fun getProcurementVendorForm(@Query("side") side: String?): VendorFormDto
 
+    @GET("procurement/feed-purchase-form")
+    suspend fun getFeedPurchaseForm(): VendorFormDto
+
     @POST("procurement/vendors")
     suspend fun createProcurementVendor(@Body request: VendorWriteDto): VendorDto
 
@@ -2462,6 +2465,8 @@ class RetrofitAppApi(
     override suspend fun getProcurementVendorCatalog(side: String?): VendorCatalogDto = service.getProcurementVendorCatalog(side)
 
     override suspend fun getProcurementVendorForm(side: String?): VendorFormDto = service.getProcurementVendorForm(side)
+
+    override suspend fun getFeedPurchaseForm(): VendorFormDto = service.getFeedPurchaseForm()
 
     override suspend fun createProcurementVendor(request: VendorWriteDto): VendorDto =
         service.createProcurementVendor(request)
