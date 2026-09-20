@@ -115,3 +115,14 @@ Prevent missing, extra, gapped, or conditionally-pruned PostgreSQL parameters fr
 - Optional AI tooling doctor: source portability checks passed; fresh-worktree CRG/Repowise indexes are absent. Repository CI treats these indexes as optional and does not use them as product proof.
 - Independent performance re-review: PASS. Fixed 24-link chain 6.6-7.1ms; 40/100 links 8.9/10ms. Full-tree scanner 0.609-0.666s versus baseline 0.537-0.597s, with identical 358 legacy findings. No remaining performance finding.
 - Final bind guard and registration guard: PASS, unchanged baseline and 139 registered guards. Final full local CI and remote publication are recorded in the local follow-up log and PR description after this commit.
+
+## PR 326 container-control review fix
+
+- Scope: reject pgx controls and rewriters reached through struct fields, indexed containers, and subsequent field/element assignments. PR branch only.
+- Starting SHA: `6d27ec0912207b4371a7b4bc6e1920a45e21b2d6`; current SHA is the commit containing this entry.
+- Before: seven added field/slice/map/control/rewriter fixtures all failed because the scanner emitted no findings. After: all seven are rejected as unverified dynamic arguments.
+- Done: traverse container types and values and track assignments through their root object. This is conservative rejection evidence: selecting a data field from a container that also holds controls may require a validated builder. Added allowed cases for ordinary struct/slice/map values and batch execution-mode data.
+- Tests: focused scanner, sqlbind, and Weighing adapter packages PASS with `-count=1 -timeout=60s`; bind guard PASS with the unchanged 358-entry legacy finding count. Runtime SQL, API behavior, frontend, sync, query counts and data scope are unchanged; no API speedup claimed.
+- Pending: independent performance review, local CI, PR branch push and remote readback. No PostgreSQL integration or browser E2E run for this scanner-only fix.
+- Known failures: seven regression-first failures were expected and fixed. No implementation test failures remain.
+- Deployment state: no main merge, main push, or deploy.

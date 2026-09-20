@@ -698,11 +698,32 @@ func knownPGXControl(e ast.Expr, imports map[string]string, visited map[*ast.Obj
 	case *ast.SelectorExpr:
 		id, ok := x.X.(*ast.Ident)
 		if !ok || importedPackagePath(id, imports) != "github.com/jackc/pgx/v5" {
-			return false
+			return knownPGXControl(x.X, imports, visited, rewritersOnly, controls)
 		}
 		return x.Sel.Name == "QueryRewriter" || x.Sel.Name == "NamedArgs" || x.Sel.Name == "StrictNamedArgs" || (!rewritersOnly && (strings.HasPrefix(x.Sel.Name, "QueryExecMode") || x.Sel.Name == "QueryResultFormats" || x.Sel.Name == "QueryResultFormatsByOID"))
+	case *ast.IndexExpr:
+		return knownPGXControl(x.X, imports, visited, rewritersOnly, controls)
+	case *ast.ArrayType:
+		return knownPGXControl(x.Elt, imports, visited, rewritersOnly, controls)
+	case *ast.MapType:
+		return knownPGXControl(x.Value, imports, visited, rewritersOnly, controls)
+	case *ast.StructType:
+		for _, field := range x.Fields.List {
+			if knownPGXControl(field.Type, imports, visited, rewritersOnly, controls) {
+				return true
+			}
+		}
+	case *ast.KeyValueExpr:
+		return knownPGXControl(x.Value, imports, visited, rewritersOnly, controls)
 	case *ast.CompositeLit:
-		return knownPGXControl(x.Type, imports, visited, rewritersOnly, controls)
+		if knownPGXControl(x.Type, imports, visited, rewritersOnly, controls) {
+			return true
+		}
+		for _, elt := range x.Elts {
+			if knownPGXControl(elt, imports, visited, rewritersOnly, controls) {
+				return true
+			}
+		}
 	case *ast.CallExpr:
 		// Conversions can hide a control inside any/interface values.
 		for _, arg := range x.Args {
@@ -815,7 +836,7 @@ func collectControlFacts(files []*ast.File) controlFacts {
 			switch d := n.(type) {
 			case *ast.AssignStmt:
 				for i, lhs := range d.Lhs {
-					if id, ok := unparen(lhs).(*ast.Ident); ok && i < len(d.Rhs) {
+					if id := assignmentRoot(lhs); id != nil && i < len(d.Rhs) {
 						add(id, d.Rhs[i])
 					}
 				}
@@ -837,4 +858,21 @@ func collectControlFacts(files []*ast.File) controlFacts {
 		})
 	}
 	return facts
+}
+
+// Container provenance is rejection evidence, never proof that a particular
+// field is data. A control anywhere in a container makes its selected values
+// uncertain, including controls assigned after the container declaration.
+func assignmentRoot(e ast.Expr) *ast.Ident {
+	switch x := unparen(e).(type) {
+	case *ast.Ident:
+		return x
+	case *ast.SelectorExpr:
+		return assignmentRoot(x.X)
+	case *ast.IndexExpr:
+		return assignmentRoot(x.X)
+	case *ast.StarExpr:
+		return assignmentRoot(x.X)
+	}
+	return nil
 }
