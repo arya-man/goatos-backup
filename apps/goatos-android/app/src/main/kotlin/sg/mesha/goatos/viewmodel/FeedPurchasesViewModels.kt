@@ -644,10 +644,12 @@ class FeedPurchaseCreateViewModel @Inject constructor(
 
     val state: StateFlow<FeedPurchaseCreateUiState> = combine(local, repository.observeFeedPurchaseOptions(), repository.observeFeedPurchaseForm()) { l, options, form ->
         val o = options ?: FeedPurchaseOptionsDto()
+        val formPages = form?.pages.orEmpty().map { it.toUi() }
         val extraPages = form.extraPages()
         val visibleAnswers = l.values.feedPurchaseTypedAnswers() + l.answers
         FeedPurchaseCreateUiState(
             extraPages = extraPages,
+            formPages = formPages,
             answers = visibleAnswers,
             answerErrors = l.answerErrors,
             questionnaireVersion = form?.version ?: 0,
@@ -709,6 +711,7 @@ class FeedPurchaseCreateViewModel @Inject constructor(
         // The authored questions are checked by the SAME rules the vendor wizard applies, and the
         // server re-checks them: this is only so the refusal appears beside the box.
         val pages = state.value.extraPages
+        val formPages = state.value.formPages
         val visibleAnswers = current.values.feedPurchaseTypedAnswers() + current.answers
         val answerErrors = pages.fold(emptyMap<String, String>()) { acc, page -> acc + validateVendorFormPage(page, visibleAnswers) }
         if (answerErrors.isNotEmpty()) {
@@ -718,7 +721,7 @@ class FeedPurchaseCreateViewModel @Inject constructor(
         val version = state.value.questionnaireVersion
         viewModelScope.launch {
             local.update { it.copy(submitInFlight = true, message = null) }
-            when (val result = syncRepository.enqueueFeedPurchaseCreate(clientId, current.values.toWrite(current.answers, pages, version))) {
+            when (val result = syncRepository.enqueueFeedPurchaseCreate(clientId, current.values.toWrite(current.answers, formPages, version))) {
                 is AppResult.Ok -> {
                     analytics.track(AnalyticsEventsVendors.VENDORS_PURCHASE_QUEUED)
                     local.update { it.copy(submitInFlight = false, writeStatus = VendorsWriteStatus.QUEUED, writeMessage = MESSAGE_SAVING) }
@@ -791,6 +794,8 @@ class FeedPurchaseCreateViewModel @Inject constructor(
         fun money(f: PurchaseField): Double? = get(f).orEmpty().trim().ifBlank { null }?.toDoubleOrNull()
         val reachedOn = get(PurchaseField.REACHED_ON).orEmpty().ifBlank { null }
         val conditionAnswers = feedPurchaseTypedAnswers() + answers
+        val askedQuestions = pages.flatMap { page -> page.questions }.filter { it.isAsked(conditionAnswers) }
+        val askedTypedIds = askedQuestions.asSequence().filter { it.typed }.map { it.id }.toSet()
         return FeedPurchaseWriteDto(
             purchaseDate = get(PurchaseField.PURCHASE_DATE).orEmpty(),
             farm = get(PurchaseField.FARM).orEmpty(),
@@ -816,14 +821,18 @@ class FeedPurchaseCreateViewModel @Inject constructor(
             answers = buildMap<String, String> {
                 if (pages.isNotEmpty() || questionnaireVersion > 0) {
                     for ((question, field) in TYPED_PURCHASE_QUESTIONS) {
+                        if (askedTypedIds.isNotEmpty() && question !in askedTypedIds) continue
                         val given = this@toWrite[field].orEmpty().trim()
                         if (given.isNotEmpty()) put(question, given)
                     }
                 }
-                for (q in pages.flatMap { page -> page.questions }) {
-                    if (!q.isAsked(conditionAnswers)) continue
+                for (q in askedQuestions) {
+                    if (q.typed) continue
                     val given = answers[q.id].orEmpty().trim()
                     if (given.isNotEmpty()) put(q.id, given)
+                    if (q.allowOther && given == "other") {
+                        answers[q.id + "_other"]?.trim()?.takeIf { it.isNotEmpty() }?.let { put(q.id + "_other", it) }
+                    }
                 }
             }.takeIf { it.isNotEmpty() },
             questionnaireVersion = questionnaireVersion,

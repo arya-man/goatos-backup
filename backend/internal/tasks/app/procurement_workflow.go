@@ -158,6 +158,7 @@ type feedPurchasePayload struct {
 	FeedPurchaseID string `json:"feed_purchase_id"`
 	ParkID         string `json:"park_id"`
 	ReachedOn      string `json:"reached_on"`
+	AlreadyReached bool   `json:"already_reached"`
 	AcceptedAt     string `json:"accepted_at"`
 }
 
@@ -195,7 +196,7 @@ func (h *FeedPurchaseRecordedWorkflowHandler) HandleEvent(ctx context.Context, e
 		EventAt:      eventAt,
 		ParkID:       strings.TrimSpace(p.ParkID),
 	})
-	if err != nil || strings.TrimSpace(p.ReachedOn) == "" {
+	if err != nil || (!p.AlreadyReached && strings.TrimSpace(p.ReachedOn) == "") {
 		return err
 	}
 	return h.svc.CompleteFeedPurchaseReachedStep(ctx, e.TenantID, p.FeedPurchaseID, eventAt.UTC())

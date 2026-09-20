@@ -88,22 +88,27 @@ export function FeedPurchaseExtraFields({ form, pageContract }: { form: Procurem
                   {q.required ? " *" : ""}
                 </label>
                 {q.kind === "choice" ? (
-                  <select
-                    id={id}
-                    name={name}
-                    required={q.required}
-                    defaultValue=""
-                    onChange={(e) => setPicked((prev) => ({ ...prev, [q.id]: e.target.value }))}
-                  >
-                    <option value="" disabled>
-                      —
-                    </option>
-                    {(q.options ?? []).map((o) => (
-                      <option key={o.value} value={o.value}>
-                        {o.label}
+                  <>
+                    <select
+                      id={id}
+                      name={name}
+                      required={q.required}
+                      defaultValue=""
+                      onChange={(e) => setPicked((prev) => ({ ...prev, [q.id]: e.target.value }))}
+                    >
+                      <option value="" disabled>
+                        —
                       </option>
-                    ))}
-                  </select>
+                      {(q.options ?? []).map((o) => (
+                        <option key={o.value} value={o.value}>
+                          {o.label}
+                        </option>
+                      ))}
+                    </select>
+                    {q.allow_other && picked[q.id] === "other" ? (
+                      <input name={`${name}_other`} placeholder={copy(pageContract, "hint.other")} required maxLength={160} />
+                    ) : null}
+                  </>
                 ) : q.kind === "multi" ? (
                   <div className="vendor-form-multi">
                     {(q.options ?? []).map((o) => (

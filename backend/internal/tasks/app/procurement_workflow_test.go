@@ -157,7 +157,7 @@ func TestFeedPurchaseRecordedReconcilesAlreadyReachedLoad(t *testing.T) {
 	}
 
 	repo.feedReachedCompletions = nil
-	recorded, _ := json.Marshal(map[string]any{"feed_purchase_id": "load-10", "park_id": "park-2", "reached_on": "2026-09-24"})
+	recorded, _ := json.Marshal(map[string]any{"feed_purchase_id": "load-10", "park_id": "park-2", "already_reached": true})
 	if err := NewFeedPurchaseRecordedWorkflowHandler(svc).HandleEvent(context.Background(), eventbus.Event{
 		Type: EventFeedPurchaseRecorded, TenantID: "tenant", Payload: recorded,
 	}); err != nil {
