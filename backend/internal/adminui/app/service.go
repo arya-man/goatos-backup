@@ -7294,6 +7294,36 @@ func pageSpecificCopy(id string) map[string]string {
 			"label.warnings":                    "Worth knowing",
 			"note.register_warnings":            "These do not stop a publish. Each one is a question no rule reads yet, or an illness whose treatment course nobody has written.",
 			"register_config.disabled_no_write": "Your current role can read the diagnosis registers but cannot change them.",
+			"action.register_opened":            "Editing a copy of the live register. Nothing changes for the herd until you publish it.",
+			"action.register_saved":             "Saved as a draft. The live register is unchanged.",
+			// "Unchanged" is a real outcome, not a silent no-op: the author pressed save and
+			// nothing differed from what was already stored. Saying so beats a success that
+			// looks identical to one that wrote something.
+			"action.register_unchanged": "Nothing to save \u2014 this is already what the draft says.",
+			"action.register_published": "Published. New observations are judged against this register from now on; proposals already made keep the version they were made under.",
+			"action.register_discarded": "Draft discarded. The live register was never touched.",
+			// The class as a person says it. The stored value is a machine key; a farm reads
+			// "Kids on milk", which is the phrase a vet recognises from the shed.
+			"label.class.adult":         "Adults",
+			"label.class.kid_milk":      "Kids on milk",
+			"label.class.kid_weaning":   "Kids weaning",
+			"label.class.kid_fattening": "Kids fattening",
+			// The three tiers a rule can reach. They are a CONFIDENCE axis, separate from
+			// severity: a possible bloat outranks a confirmed pinkeye, because ranking on
+			// confidence alone treats the eye while the bladder ruptures.
+			"label.tier.pathognomonic": "Confirmed by",
+			"label.tier.probable":      "Probable when",
+			"label.tier.possible":      "Possible when",
+			"label.kind.choice":        "Pick one",
+			"label.kind.multi":         "Pick any",
+			"label.kind.number":        "Measurement",
+			"label.answer_no":          "No",
+			"label.answer_yes":         "Yes",
+			"action.remove_question":   "Remove question",
+			"action.remove_rule":       "Remove illness",
+			"action.remove_answer":     "Remove answer",
+			"action.remove_band":       "Remove band",
+			"action.remove_clause":     "Remove condition",
 		}
 	case "feed-config":
 		return map[string]string{

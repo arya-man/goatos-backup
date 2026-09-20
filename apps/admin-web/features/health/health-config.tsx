@@ -15,6 +15,7 @@ import { INTERNAL_LOGIN_PATH } from "@/lib/auth/session-cookie";
 import type { RouteSearchParams } from "@/lib/search-params";
 import { WorklistFilters, type WorklistFilterField } from "@/components/worklist-filters";
 import { createDisease, discardDraft, openDraft, publishDraft, saveDraft } from "./health-config-actions";
+import { HealthRegisterSection } from "./health-register";
 import { AddDiseaseForm, BackToListButton, DraftEditor, ProtocolActionButton } from "./health-config-editor";
 
 // Health -> Health Config. The authored treatment rulebook a diagnosis loads from: per disease, per
@@ -88,6 +89,42 @@ function LiveVersion({
   );
 }
 
+/**
+ * The two halves of the rulebook.
+ *
+ * Plain links, not client state: the tab is part of the URL so a vet can send "the diagnosis
+ * register for kids on milk" to someone and have it open there. Switching tabs also drops the
+ * other tab's selection, or a stale ?hc_version= would reopen an editor the author has left.
+ */
+function RulebookTabs({
+  tab,
+  pageContract,
+  basePath,
+  searchParams,
+}: {
+  tab: "treatment" | "diagnosis";
+  pageContract: AdminUiPageContract;
+  basePath: string;
+  searchParams: RouteSearchParams;
+}) {
+  const href = (next: "treatment" | "diagnosis") => {
+    const params = paramsWithout(searchParams, ["hc_tab", "hc_version", "hc_register", "hc_cursor"]);
+    if (next === "diagnosis") params.set("hc_tab", "diagnosis");
+    const qs = params.toString();
+    return qs ? `${basePath}?${qs}` : basePath;
+  };
+  return (
+    <div className="wftoolbar" style={{ gap: 8, marginBottom: 12 }}>
+      <a className={tab === "treatment" ? "btn" : "btn ghost"} href={href("treatment")}>
+        {copy(pageContract, "tab.protocols")}
+      </a>
+      <a className={tab === "diagnosis" ? "btn" : "btn ghost"} href={href("diagnosis")}>
+        {copy(pageContract, "tab.registers")}
+      </a>
+    </div>
+  );
+}
+
 export async function HealthConfigPage({
   searchParams,
   pageContract,
@@ -101,12 +138,17 @@ export async function HealthConfigPage({
   const draftOnly = (sp.hc_draft as string | undefined) === "only";
   const cursor = (sp.hc_cursor as string | undefined) || "";
   const selectedVersionId = (sp.hc_version as string | undefined) || "";
+  // The two halves of the rulebook are two tabs of ONE page: which illness the animal is judged to
+  // have, and what it is then given. A second route would let them drift apart in the navigation
+  // as well as in the data.
+  const tab = (sp.hc_tab as string | undefined) === "diagnosis" ? "diagnosis" : "treatment";
+  const selectedRegisterId = (sp.hc_register as string | undefined) || "";
 
   // The catalog and editor are separate route states. List mode reads exactly one bounded keyset
   // page. Editor mode reads exactly one selected version. Do not fetch the catalog behind the
   // full-screen editor: that turns a simple edit open into unnecessary backend fanout and regresses
   // the latency of the click Ravi is trying to make feel direct.
-  const catalogResult = selectedVersionId
+  const catalogResult = selectedVersionId || tab === "diagnosis"
     ? null
     : await listHealthConfigProtocols({
         age_band: ageBandFilter === "adult" || ageBandFilter === "kid" ? ageBandFilter : undefined,
@@ -115,7 +157,8 @@ export async function HealthConfigPage({
         cursor: cursor || undefined,
         limit: CATALOG_PAGE_SIZE,
       });
-  const detailResult = selectedVersionId ? await getHealthConfigProtocol(selectedVersionId) : null;
+  const detailResult =
+    selectedVersionId && tab !== "diagnosis" ? await getHealthConfigProtocol(selectedVersionId) : null;
 
   const authError = firstAuthRequiredError(catalogResult, detailResult);
   if (authError) redirect(INTERNAL_LOGIN_PATH);
@@ -170,6 +213,43 @@ export async function HealthConfigPage({
   const nextHref = catalog?.next_cursor ? `${PAGE_PATH}?${nextParams.toString()}` : null;
   const listParams = paramsWithout(sp, ["hc_version"]);
   const listHref = listParams.toString() ? `${PAGE_PATH}?${listParams.toString()}` : PAGE_PATH;
+
+  if (tab === "diagnosis") {
+    const registerListHref = (() => {
+      const params = paramsWithout(sp, ["hc_register", "hc_version", "hc_cursor"]);
+      params.set("hc_tab", "diagnosis");
+      return `${PAGE_PATH}?${params.toString()}`;
+    })();
+    return (
+      <div className="screen on">
+        <div className="phead">
+          <div>
+            <div className="crumb">
+              {copy(pageContract, "crumb")} / <b>{copy(pageContract, "tab.registers")}</b>
+            </div>
+            <h1>{pageContract.title}</h1>
+          </div>
+          <div className="sp" style={{ flex: 1 }} />
+          {selectedRegisterId ? (
+            <BackToListButton
+              href={registerListHref}
+              label={optionalCopy(pageContract, "action.back_to_list") ?? copy(pageContract, "action.back")}
+            />
+          ) : null}
+        </div>
+
+        <RulebookTabs tab={tab} pageContract={pageContract} basePath={PAGE_PATH} searchParams={sp} />
+
+        <HealthRegisterSection
+          selectedVersionId={selectedRegisterId}
+          pageContract={pageContract}
+          mayWrite={mayWrite}
+          writeDisabledReason={writeDisabledReason}
+          listHref={registerListHref}
+        />
+      </div>
+    );
+  }
 
   if (detail) {
     return (
@@ -249,6 +329,8 @@ export async function HealthConfigPage({
           disabledReason={writeDisabledReason}
         />
       </div>
+
+      <RulebookTabs tab={tab} pageContract={pageContract} basePath={PAGE_PATH} searchParams={sp} />
 
       <SectionError result={catalogResult} pageContract={pageContract} />
 
