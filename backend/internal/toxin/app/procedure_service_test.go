@@ -89,19 +89,12 @@ func TestAStepIsJudgedAgainstTheRoundsOwnProcedure(t *testing.T) {
 	}
 }
 
-// TestAnUnreadableProcedureFallsBackToTheSeededOne: a round whose version the library no longer
-// carries still runs -- on the seeded seven steps, the ones it was running before anything was
-// authored -- rather than becoming a test nobody can finish.
-func TestAnUnreadableProcedureFallsBackToTheSeededOne(t *testing.T) {
+// Missing authored history must not change the procedure a round runs.
+func TestAnUnreadableProcedureIsRefused(t *testing.T) {
 	repo := &versionedRepo{version: 7}
-	svc := NewService(repo, &fakeProofs{}).WithProcedureSource(&fakeProcedures{byVersion: map[int]domain.Procedure{}}).
-		WithClock(func() time.Time { return fixedNow })
-	if _, err := svc.CompleteStep(context.Background(), ports.CompleteStepParams{
-		TenantID: "t1", TaskID: "task-1", StepNo: 2, ProofRef: "proof-1", IdempotencyKey: "k1",
-	}); err != nil {
-		t.Fatal(err)
-	}
-	if got := len(repo.lastStep.Procedure.Steps); got != len(domain.Steps()) {
-		t.Fatalf("fallback procedure has %d steps, want the seeded %d", got, len(domain.Steps()))
+	svc := NewService(repo, &fakeProofs{}).WithProcedureSource(&fakeProcedures{})
+	_, err := svc.CompleteStep(context.Background(), ports.CompleteStepParams{TenantID: "t1", TaskID: "task-1", StepNo: 2, ProofRef: "proof-1", IdempotencyKey: "k1"})
+	if !errors.Is(err, ports.ErrProcedureVersionUnknown) || repo.completeStepCalls != 0 {
+		t.Fatalf("err=%v writes=%d", err, repo.completeStepCalls)
 	}
 }

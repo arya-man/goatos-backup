@@ -59,7 +59,15 @@ func (s *FeedPurchaseService) ListFeedPurchases(ctx context.Context, tenantID st
 		// REJECTED rather than clamped: clamping would serve page 1's rows under page 400's number.
 		return ports.FeedPurchasePage{}, ErrFeedPurchaseOffsetOutOfRange
 	}
-	return s.repo.ListFeedPurchases(ctx, tenantID, farm, delivery, domain.ClampFeedPurchasePageSize(q.Limit), q.Offset)
+	page, err := s.repo.ListFeedPurchases(ctx, tenantID, farm, delivery, domain.ClampFeedPurchasePageSize(q.Limit), q.Offset)
+	if err != nil {
+		return page, err
+	}
+	forms := map[int]domain.VendorForm{}
+	for i := range page.Purchases {
+		s.labelFeedPurchase(ctx, tenantID, &page.Purchases[i], forms)
+	}
+	return page, nil
 }
 
 // FeedPurchaseOptions returns the entry form's backend-owned vocabularies.
@@ -126,7 +134,7 @@ func (s *FeedPurchaseService) applyForm(ctx context.Context, tenantID string, wr
 	if err := domain.ValidateVendorAnswers(form, write.SOPAnswers); err != nil {
 		return write, err
 	}
-	applied, extras := domain.ApplyFeedPurchaseAnswers(write, write.SOPAnswers)
+	applied, extras := domain.ApplyFeedPurchaseAnswers(write, domain.VisibleVendorAnswers(form, write.SOPAnswers))
 	applied.SOPAnswers = extras
 	applied.QuestionnaireVersion = form.Version
 	return applied, nil
@@ -151,7 +159,11 @@ func (s *FeedPurchaseService) CreateFeedPurchase(ctx context.Context, tenantID s
 	if err := normalized.Validate(biztime.BusinessDayStart(s.now())); err != nil {
 		return domain.FeedPurchase{}, err
 	}
-	return s.repo.CreateFeedPurchase(ctx, tenantID, normalized, actorID, strings.TrimSpace(idempotencyKey))
+	p, err := s.repo.CreateFeedPurchase(ctx, tenantID, normalized, actorID, strings.TrimSpace(idempotencyKey))
+	if err == nil {
+		s.labelFeedPurchase(ctx, tenantID, &p, map[int]domain.VendorForm{})
+	}
+	return p, err
 }
 
 // RecordFeedPurchasePayment validates and records one instalment against one load.
@@ -169,7 +181,11 @@ func (s *FeedPurchaseService) RecordFeedPurchasePayment(ctx context.Context, ten
 	if err := normalized.Validate(biztime.BusinessDayStart(s.now())); err != nil {
 		return domain.FeedPurchase{}, err
 	}
-	return s.repo.RecordFeedPurchasePayment(ctx, tenantID, purchaseID, normalized, actorID, strings.TrimSpace(idempotencyKey))
+	p, err := s.repo.RecordFeedPurchasePayment(ctx, tenantID, purchaseID, normalized, actorID, strings.TrimSpace(idempotencyKey))
+	if err == nil {
+		s.labelFeedPurchase(ctx, tenantID, &p, map[int]domain.VendorForm{})
+	}
+	return p, err
 }
 
 // SetFeedPurchasePaymentStatus sets a load's payment status directly -- the edit control for a
@@ -184,7 +200,11 @@ func (s *FeedPurchaseService) SetFeedPurchasePaymentStatus(ctx context.Context, 
 		// fact nobody entered.
 		return domain.FeedPurchase{}, domain.ErrFeedPurchaseValidation{Field: "payment_status", Reason: "must be Paid or Pending"}
 	}
-	return s.repo.SetFeedPurchasePaymentStatus(ctx, tenantID, purchaseID, canonical, actorID)
+	p, err := s.repo.SetFeedPurchasePaymentStatus(ctx, tenantID, purchaseID, canonical, actorID)
+	if err == nil {
+		s.labelFeedPurchase(ctx, tenantID, &p, map[int]domain.VendorForm{})
+	}
+	return p, err
 }
 
 // EditFeedPurchase validates and applies an edit to an already-recorded load's values.
@@ -199,7 +219,11 @@ func (s *FeedPurchaseService) EditFeedPurchase(ctx context.Context, tenantID, pu
 	if err := normalized.Validate(biztime.BusinessDayStart(s.now())); err != nil {
 		return domain.FeedPurchase{}, err
 	}
-	return s.repo.UpdateFeedPurchase(ctx, tenantID, purchaseID, normalized, actorID)
+	p, err := s.repo.UpdateFeedPurchase(ctx, tenantID, purchaseID, normalized, actorID)
+	if err == nil {
+		s.labelFeedPurchase(ctx, tenantID, &p, map[int]domain.VendorForm{})
+	}
+	return p, err
 }
 
 // RecordFeedPurchaseDelivery marks a load reached, or corrects an already-reached load's arrival.
@@ -216,5 +240,27 @@ func (s *FeedPurchaseService) RecordFeedPurchaseDelivery(ctx context.Context, te
 	if err := normalized.Validate("", biztime.BusinessDayStart(s.now())); err != nil {
 		return domain.FeedPurchase{}, err
 	}
-	return s.repo.RecordFeedPurchaseDelivery(ctx, tenantID, purchaseID, normalized, actorID)
+	p, err := s.repo.RecordFeedPurchaseDelivery(ctx, tenantID, purchaseID, normalized, actorID)
+	if err == nil {
+		s.labelFeedPurchase(ctx, tenantID, &p, map[int]domain.VendorForm{})
+	}
+	return p, err
+}
+
+// Resolve each distinct historical version once per bounded page. If a version is
+// unavailable, preserve all stored values under their keys rather than hiding a load.
+func (s *FeedPurchaseService) labelFeedPurchase(ctx context.Context, tenantID string, p *domain.FeedPurchase, forms map[int]domain.VendorForm) {
+	form := domain.VendorForm{}
+	if len(p.SOPAnswers) > 0 && p.QuestionnaireVersion > 0 && s.form != nil {
+		var found bool
+		form, found = forms[p.QuestionnaireVersion]
+		if !found {
+			resolved, err := s.form.FeedPurchaseFormVersion(ctx, tenantID, p.QuestionnaireVersion, nil)
+			if err == nil {
+				form = resolved
+			}
+			forms[p.QuestionnaireVersion] = form
+		}
+	}
+	p.AnswerRows = domain.FeedPurchaseAnswerRows(form, p.SOPAnswers)
 }

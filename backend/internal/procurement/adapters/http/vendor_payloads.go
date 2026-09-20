@@ -70,6 +70,7 @@ type vendorPayload struct {
 	// same answers labelled by that form's question titles, in form order, for a detail screen.
 	Answers              map[string]string        `json:"answers"`
 	QuestionnaireVersion *int                     `json:"questionnaire_version"`
+	QuestionnaireSOPCode string                   `json:"questionnaire_sop_code"`
 	AnswerRows           []vendorAnswerRowPayload `json:"answer_rows,omitempty"`
 
 	CreatedAt string `json:"created_at"`
@@ -148,6 +149,7 @@ type vendorWritePayload struct {
 	// mean a typed-only client; stored extra answers are then preserved on update.
 	Answers              map[string]string `json:"answers"`
 	QuestionnaireVersion int               `json:"questionnaire_version"`
+	QuestionnaireSOPCode string            `json:"questionnaire_sop_code"`
 	// row_version is required on update and ignored on create.
 	RowVersion int64 `json:"row_version"`
 }
@@ -160,6 +162,7 @@ type vendorAnswerRowPayload struct {
 
 // vendorFormPayload is the published vendor form: pages of questions, catalog choices filled.
 type vendorFormPayload struct {
+	SOPCode string                  `json:"sop_code"`
 	Version int                     `json:"version"`
 	Pages   []vendorFormPagePayload `json:"pages"`
 }
@@ -216,7 +219,7 @@ func toFeedPurchaseFormPayload(f domain.VendorForm) vendorFormPayload {
 // toEntryFormPayload is the shared composer; `typed` names which ids the owning module stores in
 // a column of its own.
 func toEntryFormPayload(f domain.VendorForm, typed func(string) bool) vendorFormPayload {
-	out := vendorFormPayload{Version: f.Version, Pages: make([]vendorFormPagePayload, 0, len(f.Pages))}
+	out := vendorFormPayload{SOPCode: f.SOPCode, Version: f.Version, Pages: make([]vendorFormPagePayload, 0, len(f.Pages))}
 	for _, p := range f.Pages {
 		page := vendorFormPagePayload{Key: p.Key, Title: p.Title, Hint: p.Hint, Questions: make([]vendorQuestionPayload, 0, len(p.Questions))}
 		for _, q := range p.Questions {
@@ -260,6 +263,7 @@ func (p vendorWritePayload) toDomain() domain.VendorWrite {
 		AverageAnimalWeightKg: p.AverageAnimalWeightKg,
 		SOPAnswers:            p.Answers,
 		QuestionnaireVersion:  p.QuestionnaireVersion,
+		QuestionnaireSOPCode:  p.QuestionnaireSOPCode,
 	}
 }
 
@@ -280,6 +284,7 @@ func toVendorPayload(v domain.Vendor, labels catalogLabels) vendorPayload {
 		BusinessName:         v.BusinessName,
 		Answers:              vendorAnswersOrEmpty(v.SOPAnswers),
 		QuestionnaireVersion: v.QuestionnaireVersion,
+		QuestionnaireSOPCode: v.QuestionnaireSOPCode,
 		DisplayName:          vendorDisplayName(v),
 		ContactPersonName:    v.ContactPersonName,
 		PhoneNumber:          v.PhoneNumber,

@@ -195,7 +195,8 @@ class VendorCreateViewModel @Inject constructor(
             isEditing = l.editing != null,
             form = pages,
             formVersion = form?.version ?: 0,
-            answers = l.answers,
+            formSopCode = form?.sopCode ?: "sales.vendor",
+            answers = visibleVendorAnswers(pages, l.answers),
             answerErrors = l.answerErrors,
         )
     }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), VendorCreateUiState())
@@ -230,7 +231,7 @@ class VendorCreateViewModel @Inject constructor(
     private fun next() {
         val pages = currentForm
         if (pages.isNotEmpty()) {
-            val errors = validateVendorFormPage(pages[local.value.step.coerceIn(0, pages.size - 1)], local.value.answers)
+            val errors = validateVendorFormPage(pages[local.value.step.coerceIn(0, pages.size - 1)], visibleVendorAnswers(pages, local.value.answers))
             if (errors.isNotEmpty()) {
                 local.update { it.copy(answerErrors = errors) }
                 return
@@ -250,10 +251,11 @@ class VendorCreateViewModel @Inject constructor(
         val current = local.value
         val pages = currentForm
         val formVersion = currentFormVersion
+        val formSopCode = state.value.formSopCode
         if (pages.isNotEmpty()) {
-            val firstBad = pages.indexOfFirst { validateVendorFormPage(it, current.answers).isNotEmpty() }
+            val firstBad = pages.indexOfFirst { validateVendorFormPage(it, visibleVendorAnswers(pages, current.answers)).isNotEmpty() }
             if (firstBad >= 0) {
-                local.update { it.copy(step = firstBad, answerErrors = validateVendorFormPage(pages[firstBad], current.answers)) }
+                local.update { it.copy(step = firstBad, answerErrors = validateVendorFormPage(pages[firstBad], visibleVendorAnswers(pages, current.answers))) }
                 return
             }
         } else {
@@ -271,7 +273,7 @@ class VendorCreateViewModel @Inject constructor(
             // A form-driven write sends EVERY asked answer (blank included -- the write is a
             // replace) with the form version; the typed columns are filled from the same answers
             // so the queued row reads the same on this phone as it will on the server.
-            val request = if (pages.isNotEmpty()) vendorAnswersToWrite(current.answers, pages, formVersion) else current.values.toWrite()
+            val request = if (pages.isNotEmpty()) vendorAnswersToWrite(current.answers, pages, formVersion, formSopCode) else current.values.toWrite()
             val result = if (editing == null) {
                 syncRepository.enqueueVendorCreate(
                     clientId = clientId,

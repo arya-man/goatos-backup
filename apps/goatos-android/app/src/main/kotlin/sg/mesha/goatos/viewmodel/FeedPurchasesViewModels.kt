@@ -601,7 +601,7 @@ internal fun FeedPurchaseDto.sections(): List<VendorsDetailSectionUi> {
         "Balance to pay" to rupees(paymentBalance),
     )
     return listOfNotNull(
-        VendorsDetailSectionUi("The load", load).takeIf { load.isNotEmpty() },
+        VendorsDetailSectionUi("The load", load + answerRows.map { VendorsDetailRowUi(it.label, it.value) }).takeIf { load.isNotEmpty() || answerRows.isNotEmpty() },
         VendorsDetailSectionUi("The money", money).takeIf { money.isNotEmpty() },
     )
 }
@@ -647,7 +647,7 @@ class FeedPurchaseCreateViewModel @Inject constructor(
         val o = options ?: FeedPurchaseOptionsDto()
         val formPages = form?.pages.orEmpty().map { it.toUi() }
         val extraPages = form.extraPages()
-        val visibleAnswers = l.values.feedPurchaseTypedAnswers() + l.answers
+        val visibleAnswers = visibleVendorAnswers(formPages, l.values.feedPurchaseTypedAnswers() + l.answers)
         FeedPurchaseCreateUiState(
             extraPages = extraPages,
             formPages = formPages,
@@ -718,7 +718,7 @@ class FeedPurchaseCreateViewModel @Inject constructor(
             local.update { it.copy(step = 0, fieldErrors = current.fieldErrors + typedFormErrors) }
             return
         }
-        val visibleAnswers = current.values.feedPurchaseTypedAnswers() + current.answers
+        val visibleAnswers = visibleVendorAnswers(formPages, current.values.feedPurchaseTypedAnswers() + current.answers)
         val answerErrors = pages.fold(emptyMap<String, String>()) { acc, page -> acc + validateVendorFormPage(page, visibleAnswers) }
         if (answerErrors.isNotEmpty()) {
             local.update { it.copy(step = STEP_COUNT - 1, answerErrors = answerErrors) }
@@ -801,7 +801,7 @@ class FeedPurchaseCreateViewModel @Inject constructor(
     ): FeedPurchaseWriteDto {
         fun money(f: PurchaseField): Double? = get(f).orEmpty().trim().ifBlank { null }?.toDoubleOrNull()
         val reachedOn = get(PurchaseField.REACHED_ON).orEmpty().ifBlank { null }
-        val conditionAnswers = feedPurchaseTypedAnswers() + answers
+        val conditionAnswers = visibleVendorAnswers(pages, feedPurchaseTypedAnswers() + answers)
         val askedQuestions = pages.flatMap { page -> page.questions }.filter { it.isAsked(conditionAnswers) }
         val askedTypedIds = askedQuestions.asSequence().filter { it.typed }.map { it.id }.toSet()
         return FeedPurchaseWriteDto(
@@ -849,7 +849,7 @@ class FeedPurchaseCreateViewModel @Inject constructor(
     }
 
     private fun typedFieldErrors(pages: List<VendorFormPageUi>, values: Map<PurchaseField, String>, answers: Map<String, String>): Map<PurchaseField, String> = buildMap {
-        val visibleAnswers = values.feedPurchaseTypedAnswers() + answers
+        val visibleAnswers = visibleVendorAnswers(pages, values.feedPurchaseTypedAnswers() + answers)
         val authoredErrors = pages.fold(emptyMap<String, String>()) { acc, page -> acc + validateVendorFormPage(page, visibleAnswers) }
         for ((question, field) in TYPED_PURCHASE_QUESTIONS) {
             authoredErrors[question]?.let { put(field, it) }

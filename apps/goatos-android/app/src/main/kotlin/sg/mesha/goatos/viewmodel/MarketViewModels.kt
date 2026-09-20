@@ -49,7 +49,7 @@ private const val KEY_SAVE_CITY_ID = "market_city_entry.save_city_id"
 private const val KEY_SAVE_ANSWERS = "market_city_entry.save_answers"
 
 /**
- * The Market tab's L0 (`/sales/market`, maintainer decision 2026-09-14): today's city cards
+ * The Market tab's L0 (`/vendors/market`, a stable wire route now owned by Sales): today's city cards
  * from the cached day blob, refreshed on open/resume. Every label -- city, status, counts -- is
  * the server's; this only composes the progress sentence from the server's two integers.
  */
@@ -164,7 +164,7 @@ internal fun composeDayState(
 }
 
 /**
- * One city's entry form (`/sales/market/city/{city_id}`). The questions come from the cached
+ * One city's entry form (`/vendors/market/city/{city_id}`, hosted under Sales). The questions come from the cached
  * card; the typed figures live in this state holder until Save, which queues ONE outbox write
  * carrying every field that holds a number (prefilled or typed -- what the reporter SAW is what
  * is saved; a blank field is not an answer), overlays them onto the cached card at once, and

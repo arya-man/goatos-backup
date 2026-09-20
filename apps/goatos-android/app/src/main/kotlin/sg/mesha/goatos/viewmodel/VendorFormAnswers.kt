@@ -22,6 +22,17 @@ import sg.mesha.goatos.feature.vendors.VendorsOptionUi
 internal fun VendorQuestionUi.isAsked(answers: Map<String, String>): Boolean =
     onlyIfQuestion.isBlank() || answers[onlyIfQuestion].orEmpty().trim() == onlyIfValue
 
+/** Evaluate the entire document in order, so stale hidden parents never activate descendants. */
+internal fun visibleVendorAnswers(pages: List<VendorFormPageUi>, answers: Map<String, String>): Map<String, String> = buildMap {
+    for (q in pages.flatMap { it.questions }) {
+        if (!q.isAsked(this)) continue
+        answers[q.id]?.let { put(q.id, it) }
+        if (q.allowOther && answers[q.id].orEmpty().trim() == "other") {
+            answers[q.id + "_other"]?.let { put(q.id + "_other", it) }
+        }
+    }
+}
+
 /** Mirrors the backend's cheapest answer checks so the refusal shows beside the box before the write. */
 internal fun validateVendorFormPage(page: VendorFormPageUi, answers: Map<String, String>): Map<String, String> {
     val errors = mutableMapOf<String, String>() // mobile-guard:ignore: per-call validation result, at most one entry per asked question, returned and dropped
@@ -71,8 +82,9 @@ internal fun vendorContextLine(a: Map<String, String>, pages: List<VendorFormPag
  * Every asked answer, blank included, plus the typed columns filled from the same answers.
  * A question hidden by its condition is dropped so a stale follow-up answer never travels.
  */
-internal fun vendorAnswersToWrite(answers: Map<String, String>, pages: List<VendorFormPageUi>, version: Int): VendorWriteDto {
-    val asked = pages.flatMap { it.questions }.filter { it.isAsked(answers) }
+internal fun vendorAnswersToWrite(answers: Map<String, String>, pages: List<VendorFormPageUi>, version: Int, sopCode: String = "sales.vendor"): VendorWriteDto {
+    val visible = visibleVendorAnswers(pages, answers)
+    val asked = pages.flatMap { it.questions }.filter { it.isAsked(visible) }
     val sent = buildMap {
         for (q in asked) {
             put(q.id, answers[q.id].orEmpty().trim())
@@ -102,6 +114,7 @@ internal fun vendorAnswersToWrite(answers: Map<String, String>, pages: List<Vend
         averageAnimalWeightKg = t("average_animal_weight_kg").ifBlank { null },
         answers = sent,
         questionnaireVersion = version,
+        questionnaireSopCode = sopCode,
     )
 }
 

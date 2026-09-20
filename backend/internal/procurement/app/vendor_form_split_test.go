@@ -58,7 +58,7 @@ func TestVendorFormRoutesToTheRegisterSidesOwnDocument(t *testing.T) {
 	// A stored vendor's answers are labelled by the document ITS record type belongs to, resolved
 	// from the catalog rather than from anything a client sent.
 	version := 1
-	svc.VendorAnswerRows(ctx, "t1", domain.Vendor{RecordType: "Feed Agent", QuestionnaireVersion: &version, SOPAnswers: map[string]string{"comments": "x"}})
+	svc.VendorAnswerRows(ctx, "t1", domain.Vendor{RecordType: "Feed Agent", QuestionnaireSOPCode: domain.SOPCodeProcurementVendor, QuestionnaireVersion: &version, SOPAnswers: map[string]string{"comments": "x"}})
 	svc.VendorAnswerRows(ctx, "t1", domain.Vendor{RecordType: "Agent", QuestionnaireVersion: &version, SOPAnswers: map[string]string{"comments": "x"}})
 	if len(src.versioned) != 2 || src.versioned[0] != domain.SOPCodeProcurementVendor || src.versioned[1] != domain.SOPCodeVendor {
 		t.Fatalf("answer rows read %v, want [procurement.vendor sales.vendor]", src.versioned)

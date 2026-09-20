@@ -725,3 +725,45 @@ WHERE tenant_id = $1 AND event_type = 'procurement.feed_purchase.reached'`, test
 		_ = today
 	})
 }
+
+func TestFeedPurchaseAuthoredAnswersReadbackPostgres(t *testing.T) {
+	pgtest.SkipIfNoDocker(t)
+	ctx := context.Background()
+	pool := pgtest.StartPostgres(t, ctx)
+	defer pool.Close()
+	seedFeedPurchaseFixture(t, ctx, pool)
+	repo := NewRepository(pool, 10*time.Second)
+	write := feedWrite()
+	write.SOPAnswers = map[string]string{"lorry_number": "TN42 ABC"}
+	write.QuestionnaireVersion = 2
+	created, err := repo.CreateFeedPurchase(ctx, testTenant, write, "", "authored-readback")
+	if err != nil {
+		t.Fatal(err)
+	}
+	check := func(p domain.FeedPurchase) {
+		t.Helper()
+		if p.QuestionnaireVersion != 2 || p.SOPAnswers["lorry_number"] != "TN42 ABC" {
+			t.Fatalf("answers lost on read: %+v", p)
+		}
+	}
+	check(created)
+	page, err := repo.ListFeedPurchases(ctx, testTenant, "", "", 20, 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	found := false
+	for _, p := range page.Purchases {
+		if p.FeedPurchaseID == created.FeedPurchaseID {
+			check(p)
+			found = true
+		}
+	}
+	if !found {
+		t.Fatal("created purchase absent from list")
+	}
+	updated, err := repo.SetFeedPurchasePaymentStatus(ctx, testTenant, created.FeedPurchaseID, domain.FeedPaymentPending, "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	check(updated)
+}

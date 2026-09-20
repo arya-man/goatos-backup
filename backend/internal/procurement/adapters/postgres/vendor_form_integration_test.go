@@ -24,12 +24,12 @@ func TestVendorFormAnswersRoundTripAndSurviveATypedOnlyUpdate(t *testing.T) {
 	created, err := repo.CreateVendor(ctx, testTenant, domain.VendorWrite{
 		RecordType: "Agent", BusinessName: "Form Buyer", ContactPersonName: "Asha", PhoneNumber: "9000000001",
 		Status: "active", State: "Karnataka", City: "Mysuru",
-		SOPAnswers: map[string]string{"transport": "yes", "vehicle_count": "3"}, QuestionnaireVersion: 2,
+		SOPAnswers: map[string]string{"transport": "yes", "vehicle_count": "3"}, QuestionnaireVersion: 2, QuestionnaireSOPCode: domain.SOPCodeVendor,
 	}.Normalize(), "")
 	if err != nil {
 		t.Fatalf("create: %v", err)
 	}
-	if created.QuestionnaireVersion == nil || *created.QuestionnaireVersion != 2 || created.SOPAnswers["transport"] != "yes" || created.SOPAnswers["vehicle_count"] != "3" {
+	if created.QuestionnaireSOPCode != domain.SOPCodeVendor || created.QuestionnaireVersion == nil || *created.QuestionnaireVersion != 2 || created.SOPAnswers["transport"] != "yes" || created.SOPAnswers["vehicle_count"] != "3" {
 		t.Fatalf("answers did not round-trip: %v v%v", created.SOPAnswers, created.QuestionnaireVersion)
 	}
 
@@ -42,18 +42,19 @@ func TestVendorFormAnswersRoundTripAndSurviveATypedOnlyUpdate(t *testing.T) {
 	if after.City == nil || *after.City != "Bengaluru" {
 		t.Fatalf("typed change lost: %+v", after.City)
 	}
-	if after.QuestionnaireVersion == nil || *after.QuestionnaireVersion != 2 || after.SOPAnswers["transport"] != "yes" {
+	if after.QuestionnaireSOPCode != domain.SOPCodeVendor || after.QuestionnaireVersion == nil || *after.QuestionnaireVersion != 2 || after.SOPAnswers["transport"] != "yes" {
 		t.Fatalf("typed-only update cleared the answers: %v v%v", after.SOPAnswers, after.QuestionnaireVersion)
 	}
 
 	formDriven := typedOnly
 	formDriven.SOPAnswers = map[string]string{"transport": "no"}
 	formDriven.QuestionnaireVersion = 3
+	formDriven.QuestionnaireSOPCode = domain.SOPCodeProcurementVendor
 	replaced, err := repo.UpdateVendor(ctx, testTenant, created.VendorID, formDriven, after.RowVersion, "", "idem-form-1", false)
 	if err != nil {
 		t.Fatalf("form-driven update: %v", err)
 	}
-	if len(replaced.SOPAnswers) != 1 || replaced.SOPAnswers["transport"] != "no" || *replaced.QuestionnaireVersion != 3 {
+	if replaced.QuestionnaireSOPCode != domain.SOPCodeProcurementVendor || len(replaced.SOPAnswers) != 1 || replaced.SOPAnswers["transport"] != "no" || *replaced.QuestionnaireVersion != 3 {
 		t.Fatalf("form-driven update did not replace the answers: %v v%v", replaced.SOPAnswers, replaced.QuestionnaireVersion)
 	}
 

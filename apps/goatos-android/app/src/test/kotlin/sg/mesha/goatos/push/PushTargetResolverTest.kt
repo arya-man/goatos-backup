@@ -6,8 +6,26 @@ import org.junit.Assert.assertTrue
 import org.junit.Assert.assertNotEquals
 import org.junit.Test
 import sg.mesha.goatos.ui.Routes
+import sg.mesha.goatos.core.model.nav.NavState
+import sg.mesha.goatos.core.model.nav.NavChrome
+import sg.mesha.goatos.core.model.nav.NavItem
+import sg.mesha.goatos.core.model.nav.NavModule
+import sg.mesha.goatos.core.model.nav.NavModuleStatus
+import sg.mesha.goatos.core.model.nav.resolveModule
 
 class PushTargetResolverTest {
+    @Test
+    fun `old and renamed Market notifications open the single Sales owned tab`() {
+        val item = NavItem("market", "Market", "/vendors/market")
+        val sales = NavModule("sales", "Sales", item.href, NavModuleStatus.AVAILABLE, listOf(item))
+        val nav = NavState(NavChrome.MINIMAL, listOf(item), listOf(sales))
+        for (href in listOf("/vendors/market", "/sales/market")) {
+            val route = resolvePushRoute(mapOf(PushExtras.TARGET to href))
+            assertEquals("/vendors/market", route)
+            assertEquals("sales", nav.resolveModule(null, route)?.key)
+        }
+    }
+
     @Test
     fun `an animal purchase decided push opens the load the decision is on`() {
         // Maintainer decision 2026-09-13: the recorder is pushed the moment the CEO decides, with

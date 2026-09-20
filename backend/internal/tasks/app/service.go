@@ -643,16 +643,15 @@ func (s *Service) CompleteSaleTagStep(ctx context.Context, tenantID, dealID stri
 	return s.repo.CompleteSaleTagStep(ctx, tenantID, dealID, at)
 }
 
-// CompleteAnimalPurchaseDecisionStep completes the intake workflow's decision step for a load
-// whose animals have all been decided (PROCUREMENT IS SOP-DRIVEN END TO END, 2026-09-20).
-func (s *Service) CompleteAnimalPurchaseDecisionStep(ctx context.Context, tenantID, loadID string, at time.Time) error {
+// ReconcileAnimalPurchaseDecisionStep follows the newest source load snapshot.
+func (s *Service) ReconcileAnimalPurchaseDecisionStep(ctx context.Context, tenantID, loadID string, pending, decided int, at time.Time) error {
 	if strings.TrimSpace(tenantID) == "" || strings.TrimSpace(loadID) == "" {
 		return domain.ErrMissingRequiredField
 	}
 	if at.IsZero() {
 		at = s.now().UTC()
 	}
-	return s.repo.CompleteAnimalPurchaseDecisionStep(ctx, tenantID, loadID, at)
+	return s.repo.ReconcileAnimalPurchaseDecisionStep(ctx, tenantID, loadID, pending, decided, at)
 }
 
 // CompleteFeedPurchaseReachedStep completes the feed-purchase workflow's arrival step.
@@ -806,4 +805,13 @@ func optionalUUID(s string) *string {
 		return nil
 	}
 	return &s
+}
+
+// ReconcileFeedPurchaseSteps applies business facts which reached the consumer
+// before the purchase workflow existed. Zero timestamps only read stored receipts.
+func (s *Service) ReconcileFeedPurchaseSteps(ctx context.Context, tenantID, purchaseID string) error {
+	if err := s.repo.CompleteFeedPurchaseReachedStep(ctx, tenantID, purchaseID, time.Time{}); err != nil {
+		return err
+	}
+	return s.repo.CompleteToxinTestStep(ctx, tenantID, purchaseID, time.Time{})
 }

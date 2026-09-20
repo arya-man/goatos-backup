@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"regexp"
+	"sort"
 	"strconv"
 	"strings"
 )
@@ -31,8 +32,8 @@ const (
 	// suppliers"). One register, two documents: the buying desk and the sales desk ask
 	// different things of the people they deal with, and asking a feed supplier for a
 	// slaughterhouse's questions is how a form grows fields nobody fills. Which document a
-	// vendor is answered on is decided by the SIDE its record type belongs to, which is the
-	// register's own data (procurement_vendor_catalog.register_side) -- never a client claim.
+	// vendor is offered is decided by the register side; submitted and historical answers
+	// retain the rendered SOP code and version so cached forms and history stay readable.
 	SOPCodeProcurementVendor = "procurement.vendor"
 	VendorFormSchemaVersion  = "goatos.sop-vendor-form.v1"
 
@@ -91,6 +92,7 @@ type VendorQuestionOnlyIf struct {
 // VendorForm is the compiled, versioned form: what a phone rendered and what a write is checked
 // against. Catalog-backed questions carry their live choices; a titled page keeps its title.
 type VendorForm struct {
+	SOPCode string
 	Version int
 	Pages   []VendorFormPage
 }
@@ -415,6 +417,26 @@ func (e ErrVendorAnswer) Error() string {
 // ones (or "other" text when allowed), numbers numeric and inside min/max, and no answer to a
 // question the form does not carry. Typed answers are checked here too; the register's own
 // length/format rules still run on the mapped columns.
+// VisibleVendorAnswers evaluates dependencies in document order across every page.
+// A hidden answer cannot activate a later descendant, even if an older client sends it.
+func VisibleVendorAnswers(form VendorForm, answers map[string]string) map[string]string {
+	visible := map[string]string{}
+	for _, q := range form.Questions() {
+		if q.OnlyIf != nil && strings.TrimSpace(visible[q.OnlyIf.QuestionID]) != q.OnlyIf.Value {
+			continue
+		}
+		if value, ok := answers[q.ID]; ok {
+			visible[q.ID] = value
+		}
+		if q.AllowOther && strings.TrimSpace(answers[q.ID]) == "other" {
+			if value, ok := answers[q.ID+"_other"]; ok {
+				visible[q.ID+"_other"] = value
+			}
+		}
+	}
+	return visible
+}
+
 func ValidateVendorAnswers(form VendorForm, answers map[string]string) error {
 	known := map[string]VendorQuestion{}
 	for _, q := range form.Questions() {
@@ -426,6 +448,7 @@ func ValidateVendorAnswers(form VendorForm, answers map[string]string) error {
 			return ErrVendorAnswer{QuestionID: id, Reason: "is not a question on this form"}
 		}
 	}
+	answers = VisibleVendorAnswers(form, answers)
 	for _, q := range form.Questions() {
 		if q.OnlyIf != nil && strings.TrimSpace(answers[q.OnlyIf.QuestionID]) != q.OnlyIf.Value {
 			continue
@@ -595,11 +618,37 @@ func VendorAnswerRows(form VendorForm, answers map[string]string) []VendorAnswer
 		}
 		out = append(out, VendorAnswerRow{QuestionID: q.ID, Label: q.Title, Value: display})
 	}
-	for id, v := range answers {
-		if _, known := labels[strings.TrimSuffix(id, "_other")]; known || strings.TrimSpace(v) == "" || strings.HasSuffix(id, "_other") {
+	out = append(out, unresolvedAnswerRows(labels, answers)...)
+	return out
+}
+
+// Preserve every historical value even when its authored document cannot be read.
+// Pair an Other explanation with its choice and keep fallback ordering stable.
+func unresolvedAnswerRows(known map[string]VendorQuestion, answers map[string]string) []VendorAnswerRow {
+	ids := make([]string, 0, len(answers))
+	for id := range answers {
+		ids = append(ids, id)
+	}
+	sort.Strings(ids)
+	out := []VendorAnswerRow{}
+	for _, id := range ids {
+		value := strings.TrimSpace(answers[id])
+		if _, ok := known[id]; ok || value == "" {
 			continue
 		}
-		out = append(out, VendorAnswerRow{QuestionID: id, Label: id, Value: v})
+		if strings.HasSuffix(id, "_other") {
+			base := strings.TrimSuffix(id, "_other")
+			if _, ok := known[base]; ok {
+				continue
+			}
+			if strings.TrimSpace(answers[base]) == "other" {
+				continue
+			}
+		}
+		if value == "other" && strings.TrimSpace(answers[id+"_other"]) != "" {
+			value = strings.TrimSpace(answers[id+"_other"])
+		}
+		out = append(out, VendorAnswerRow{QuestionID: id, Label: id, Value: value})
 	}
 	return out
 }

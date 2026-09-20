@@ -146,8 +146,11 @@ func NormalizeFeedFarmFilter(raw string) (farm string, ok bool) {
 
 // FeedPurchase is one recorded load: one sheet Purchase row, or one purchase entered in the app.
 type FeedPurchase struct {
-	FeedPurchaseID string
-	TenantID       string
+	SOPAnswers           map[string]string
+	QuestionnaireVersion int
+	AnswerRows           []VendorAnswerRow
+	FeedPurchaseID       string
+	TenantID             string
 
 	PurchaseDate  string // YYYY-MM-DD business date
 	FarmLabel     string

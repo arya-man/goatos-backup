@@ -7,12 +7,15 @@ import (
 
 // feedPurchasePayload is one ledger row on the wire.
 type feedPurchasePayload struct {
-	FeedPurchaseID string  `json:"feed_purchase_id"`
-	PurchaseDate   string  `json:"purchase_date"`
-	Farm           string  `json:"farm"`
-	FeedItem       string  `json:"feed_item"`
-	BatchNo        int     `json:"batch_no"`
-	QuantityKg     float64 `json:"quantity_kg"`
+	Answers              map[string]string        `json:"answers"`
+	QuestionnaireVersion int                      `json:"questionnaire_version"`
+	AnswerRows           []vendorAnswerRowPayload `json:"answer_rows"`
+	FeedPurchaseID       string                   `json:"feed_purchase_id"`
+	PurchaseDate         string                   `json:"purchase_date"`
+	Farm                 string                   `json:"farm"`
+	FeedItem             string                   `json:"feed_item"`
+	BatchNo              int                      `json:"batch_no"`
+	QuantityKg           float64                  `json:"quantity_kg"`
 
 	FeedCost      *float64 `json:"feed_cost"`
 	TransportCost *float64 `json:"transport_cost"`
@@ -191,7 +194,16 @@ func toFeedPurchasePayload(p domain.FeedPurchase) feedPurchasePayload {
 			AmountRupees: payment.AmountRupees, Note: payment.Note, CreatedAt: payment.CreatedAt,
 		})
 	}
+	answers := p.SOPAnswers
+	if answers == nil {
+		answers = map[string]string{}
+	}
+	answerRows := make([]vendorAnswerRowPayload, 0, len(p.AnswerRows))
+	for _, row := range p.AnswerRows {
+		answerRows = append(answerRows, vendorAnswerRowPayload{QuestionID: row.QuestionID, Label: row.Label, Value: row.Value})
+	}
 	return feedPurchasePayload{
+		Answers: answers, QuestionnaireVersion: p.QuestionnaireVersion, AnswerRows: answerRows,
 		FeedPurchaseID: p.FeedPurchaseID, PurchaseDate: p.PurchaseDate, Farm: p.FarmLabel,
 		FeedItem: p.FeedItemLabel, BatchNo: p.BatchNo, QuantityKg: p.QuantityKg,
 		FeedCost: p.FeedCost, TransportCost: p.TransportCost, LoadingCost: p.LoadingCost,

@@ -143,7 +143,8 @@
         "pen_routine.submitted",
         "pen_routine.verified",
         "procurement.animal_purchase.decided",
-        "procurement.animal_purchase.load_recorded"
+        "procurement.animal_purchase.load_recorded",
+        "procurement.animal_purchase.candidate_recorded"
       ]
     },
     "schema_version": {

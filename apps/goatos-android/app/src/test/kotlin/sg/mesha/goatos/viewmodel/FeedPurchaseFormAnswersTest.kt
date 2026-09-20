@@ -3,6 +3,8 @@ package sg.mesha.goatos.viewmodel
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
 import org.junit.Test
+import sg.mesha.goatos.core.network.dto.FeedPurchaseDto
+import sg.mesha.goatos.core.network.dto.VendorAnswerRowDto
 import sg.mesha.goatos.core.network.dto.VendorFormDto
 import sg.mesha.goatos.core.network.dto.VendorFormPageDto
 import sg.mesha.goatos.core.network.dto.VendorQuestionDto
@@ -13,6 +15,16 @@ import sg.mesha.goatos.core.network.dto.VendorQuestionDto
  * These are the rules that decide which of the published questions that is.
  */
 class FeedPurchaseFormAnswersTest {
+    @Test
+    fun `detail keeps the original authored answer label from the server`() {
+        val purchase = FeedPurchaseDto(
+            feedPurchaseId = "load",
+            answerRows = listOf(VendorAnswerRowDto("retired_lorry_question", "Original lorry label", "TN42 ABC")),
+        )
+        val row = purchase.sections().flatMap { it.rows }.single { it.label == "Original lorry label" }
+        assertEquals("TN42 ABC", row.value)
+    }
+
 
     private val form = VendorFormDto(
         version = 3,

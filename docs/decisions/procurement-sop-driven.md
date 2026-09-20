@@ -243,3 +243,29 @@ The phone's entry points into the two purchase workflows -- a Steps card on the 
 the feed load, in the shape the sale detail already has. Everything else the phone shows for
 procurement is already served from these documents and needed no app change: the inspection, the
 load form, the supplier form and the toxin procedure are all rendered from backend payloads.
+
+### Out-of-order purchase events
+
+Tasks retains source-state receipts before looking up a workflow. Animal candidate
+creation and once-only decisions serialize on the load row; their count snapshots
+advance `pending + 2 * decided` monotonically. A later offline candidate therefore
+reopens the decision action, while an older decision delivery cannot complete it
+again. Opening the workflow reconciles the latest receipt, including when the
+last decision arrived first.
+
+Arrival and accepted toxin events are monotonic facts stored in the shared
+`workflow_subject_hook_receipts` table. The feed workflow opener replays these
+receipts, including when a later arrival or toxin verdict overtook the original
+in-transit purchase event. The receipts contain business inputs only: the existing
+workflow mutation engine continues to own actions, completion and card rollups.
+
+Regression coverage: `purchase_decision_sync_integration_test.go` proves both
+opener orders, incremental sync and stale delivery; `feed_lifecycle_order_integration_test.go`
+proves arrival and toxin acceptance before opening. The candidate event also
+passes the production outbox envelope validator.
+
+Receipt reconciliation also runs after branch resolution inside the shared workflow
+mutation transaction. Repeated hook task types receive distinct action keys;
+unanswered branches stay pending, false branches are skipped, and a re-answer
+that takes a branch applies its existing receipt immediately. Tests cover repeated
+hooks, branch re-answers, and concurrent workflow opening versus business events.

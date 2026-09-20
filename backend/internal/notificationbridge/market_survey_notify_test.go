@@ -70,7 +70,7 @@ func TestMarketSurveyNotifierNamesPendingCitiesAfterTheCutoff(t *testing.T) {
 	if !strings.Contains(got.Title, "2 of 3") || !strings.Contains(got.Body, "Chennai and Salem") || strings.Contains(got.Body, "Madurai") {
 		t.Fatalf("copy names the wrong cities: %q / %q", got.Title, got.Body)
 	}
-	if got.Context["href"] != "/sales/market" || len(got.Recipients) != 1 {
+	if got.Context["href"] != "/vendors/market" || len(got.Recipients) != 1 {
 		t.Fatalf("context/recipients = %v / %d", got.Context, len(got.Recipients))
 	}
 }
