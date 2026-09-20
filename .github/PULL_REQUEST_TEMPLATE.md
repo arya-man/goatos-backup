@@ -45,6 +45,7 @@ a concrete reason.
 - Red command/result on base:
 - Green command/result on candidate:
 - Guard self-test and real-check result:
+- SQL bind-contract classification/proof, or concrete `N/A` reason:
 - Affected `make ci-local` result and exact SHA:
 - Main-merge authorization, exact SHA, and source:
   - [ ] `make land-main` passed on the exact SHA; or

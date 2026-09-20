@@ -452,6 +452,17 @@
       "ciStep": "backend-foundations-guard"
     },
     {
+      "id": "postgres-bind-contract",
+      "script": "tools/agent-hooks/check-postgres-bind-contract.mjs",
+      "makeTarget": "postgres-bind-contract-guard",
+      "realCheck": "node tools/agent-hooks/check-postgres-bind-contract.mjs",
+      "selfTest": "node tools/agent-hooks/check-postgres-bind-contract.mjs --self-test",
+      "owningDoc": "docs/engineering/backend-go-postgres-quality.md",
+      "requiredInCI": true,
+      "ciStep": "postgres-bind-contract-guard",
+      "notes": "Derives positional placeholder contracts, blocks provable mismatches, rejects newly changed unverified dynamic bind calls, and keeps legacy dynamic debt on a per-file shrink-only baseline."
+    },
+    {
       "id": "calendar-endpoint-grain",
       "script": "tools/agent-hooks/check-calendar-endpoint-grain.mjs",
       "makeTarget": "calendar-endpoint-grain-guard",

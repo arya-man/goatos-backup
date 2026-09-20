@@ -52,6 +52,13 @@ rather than only the visible diff. Treat mismatches between the PR and current
 architecture, contracts, operational read models, mobile/backend/admin sync, or
 shared kernel flow as review findings even when the diff compiles.
 
+For any handwritten PostgreSQL change, treat the final SQL and final bind
+arguments as one contract. Prefer sqlc or `pgx.StrictNamedArgs`; dynamically
+assembled or pruned SQL must use the shared bound-query validator and executable
+PostgreSQL coverage for unresolved production shapes. Additions, removals,
+reordering, and pruning must pass `make postgres-bind-contract-guard`; never
+substitute a hardcoded current maximum placeholder or broaden a legacy baseline.
+
 For any review or code change that touches admin-web, website, dashboard,
 frontend, CSS, page contracts, route definitions, or web-visible copy, the
 review lens must include laptop and mobile UI/UX. Do not stop at compile,

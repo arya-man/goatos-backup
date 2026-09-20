@@ -116,6 +116,21 @@ memory — the allowed set changes by migration (states get added over time).
 ## Database, pgx & sqlc
 
 - [ ] Parameterized queries only — no string-concatenated SQL
+- [ ] Classify each new or modified query as sqlc-generated,
+      `pgx.StrictNamedArgs`, shared bound-query validation, or a narrowly
+      documented executable-test exemption. An unclassified handwritten pgx
+      call is a finding.
+- [ ] Review the final SQL after every optional clause, pruning branch, and
+      query-shape selection together with the actual final arguments. Positional
+      placeholders must be contiguous `$1..$N` and `N` must equal the number of
+      bind values; repeated placeholders are allowed. Never accept a hardcoded
+      current maximum placeholder as the primary invariant.
+- [ ] Parameter additions, removals, and reorderings have failing-before and
+      green-after bind-contract proof. Dynamic shapes that static analysis
+      cannot resolve execute every production variant against PostgreSQL.
+- [ ] `make postgres-bind-contract-guard` passes, including its adversarial
+      self-test; suppressions are narrow, documented, and point to executable
+      proof. The legacy baseline is shrink-only.
 - [ ] Every scoped query filters `tenant_id` (multi-tenant isolation)
 - [ ] **Cross-tenant IDOR:** a handler taking an object id from the URL path
       (`{goat_id}`, `{location_id}`, `{proof_id}`, `{task_id}`, `{obligation_id}`,

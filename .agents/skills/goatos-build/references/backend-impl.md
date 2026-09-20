@@ -189,6 +189,12 @@ reopened.
   change. Its security baseline is fail-closed: a reachable `govulncheck`
   finding is release-blocking until upgraded or covered by an owned, expiring
   exception.
+- For handwritten SQL, prefer `pgx.StrictNamedArgs`. When SQL is assembled or
+  pruned dynamically, build the final SQL and arguments as one bound-query value
+  and validate that value at the execution boundary. Do not protect positional
+  calls with a hardcoded maximum placeholder; run
+  `make postgres-bind-contract-guard`, and add executable PostgreSQL coverage for
+  any production shape the static guard cannot resolve.
 - Handlers stay thin: parse request, call app service, write contract-shaped
   response/error envelope.
 - App services own behavior, state transitions, idempotency, and error mapping.
