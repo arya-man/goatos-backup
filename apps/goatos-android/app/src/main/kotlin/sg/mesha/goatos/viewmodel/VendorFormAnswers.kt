@@ -87,8 +87,8 @@ internal fun vendorAnswersToWrite(answers: Map<String, String>, pages: List<Vend
     val asked = pages.flatMap { it.questions }.filter { it.isAsked(visible) }
     val sent = buildMap {
         for (q in asked) {
-            put(q.id, answers[q.id].orEmpty().trim())
-            answers[q.id + OTHER_SUFFIX]?.takeIf { it.isNotBlank() }?.let { put(q.id + OTHER_SUFFIX, it.trim()) }
+            put(q.id, visible[q.id].orEmpty().trim())
+            visible[q.id + OTHER_SUFFIX]?.takeIf { it.isNotBlank() }?.let { put(q.id + OTHER_SUFFIX, it.trim()) }
         }
     }
     fun t(id: String) = sent[id].orEmpty()

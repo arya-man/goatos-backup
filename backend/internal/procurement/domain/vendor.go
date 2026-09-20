@@ -219,6 +219,10 @@ func NormalizeVendorText(raw string) string {
 // resolve to the same stored NULL. An update replaces the whole row; there is no partial-patch
 // semantics to get wrong.
 type VendorWrite struct {
+	// LegacyFormWrite is internal replay metadata from the service, never a wire field.
+	// It captures the old pre-visibility mapping without changing stored answers.
+	LegacyFormWrite *VendorWrite `json:"-"`
+
 	RecordType        string
 	BusinessName      string
 	ContactPersonName string
@@ -275,6 +279,11 @@ func (e ErrVendorValidation) Error() string {
 // report precisely which normalized value then failed.
 func (w VendorWrite) Normalize() VendorWrite {
 	out := w
+	if w.LegacyFormWrite != nil {
+		legacy := *w.LegacyFormWrite
+		legacy.LegacyFormWrite = nil
+		out.LegacyFormWrite = &legacy
+	}
 	out.RecordType = NormalizeVendorText(w.RecordType)
 	out.BusinessName = NormalizeVendorText(w.BusinessName)
 	out.ContactPersonName = NormalizeVendorText(w.ContactPersonName)

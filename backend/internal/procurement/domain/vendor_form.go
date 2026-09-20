@@ -460,8 +460,10 @@ func ValidateVendorAnswers(form VendorForm, answers map[string]string) error {
 			continue
 		}
 		base := strings.TrimSuffix(id, "_other")
-		parent, knownParent := known[base]
-		if base == id || !knownParent || !parent.AllowOther {
+		_, knownParent := known[base]
+		// Older installed clients retain an explanation after Other is retired.
+		// Accept its legacy wire shape, then discard it in VisibleVendorAnswers.
+		if base == id || !knownParent {
 			return ErrVendorAnswer{QuestionID: id, Reason: "is not a question on this form"}
 		}
 	}

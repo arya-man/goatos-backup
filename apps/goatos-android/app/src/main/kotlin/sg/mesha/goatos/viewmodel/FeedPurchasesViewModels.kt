@@ -837,10 +837,10 @@ class FeedPurchaseCreateViewModel @Inject constructor(
                 }
                 for (q in askedQuestions) {
                     if (q.typed) continue
-                    val given = answers[q.id].orEmpty().trim()
+                    val given = conditionAnswers[q.id].orEmpty().trim()
                     if (given.isNotEmpty()) put(q.id, given)
                     if (q.allowOther && given == "other") {
-                        answers[q.id + "_other"]?.trim()?.takeIf { it.isNotEmpty() }?.let { put(q.id + "_other", it) }
+                        conditionAnswers[q.id + "_other"]?.trim()?.takeIf { it.isNotEmpty() }?.let { put(q.id + "_other", it) }
                     }
                 }
             }.takeIf { it.isNotEmpty() },
