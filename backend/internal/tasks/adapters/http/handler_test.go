@@ -403,6 +403,55 @@ func TestSalesWriteCanMutateSalesWorkflow(t *testing.T) {
 	}
 }
 
+func TestPurchasePermissionsCanOpenProcurementWorkflow(t *testing.T) {
+	for name, perms := range map[string][]string{
+		"animal purchase reader": {permissions.AnimalPurchaseRead},
+		"feed purchase reader":   {permissions.FeedPurchaseRead},
+	} {
+		t.Run(name, func(t *testing.T) {
+			svc := &stubService{detail: domain.WorkflowDetail{
+				Card: domain.WorkflowCard{WorkflowID: "wf-procurement", Module: domain.ModuleProcurement, TemplateKey: domain.TemplateKeyAnimalPurchaseIntake},
+			}}
+			rec := doRequestWithPermissions(newTestMux(svc), http.MethodGet, "/app/workflows/wf-procurement", "", nil, true, perms)
+			if rec.Code != http.StatusOK {
+				t.Fatalf("procurement detail with %v: status=%d (%s)", perms, rec.Code, rec.Body.String())
+			}
+		})
+	}
+}
+
+func TestFeedPurchaseReadCannotMutateProcurementWorkflow(t *testing.T) {
+	svc := &stubService{detail: domain.WorkflowDetail{
+		Card: domain.WorkflowCard{WorkflowID: "wf-feed", Module: domain.ModuleProcurement, TemplateKey: domain.TemplateKeyFeedPurchaseIntake},
+	}}
+	rec := doRequestWithPermissions(newTestMux(svc), http.MethodPost, "/app/workflows/wf-feed/actions/act-1/answer",
+		`{"answer_value":"yes"}`, map[string]string{"Idempotency-Key": "long-enough-key"}, true, []string{permissions.FeedPurchaseRead})
+	if rec.Code != http.StatusForbidden || errCode(t, rec) != "permission_denied" {
+		t.Fatalf("feed purchase read answer: status=%d code=%s", rec.Code, errCode(t, rec))
+	}
+	if svc.writeCalls != 0 {
+		t.Fatalf("feed purchase read reached mutation service: %d calls", svc.writeCalls)
+	}
+}
+
+func TestPurchaseWritePermissionsCanMutateProcurementWorkflow(t *testing.T) {
+	for name, perms := range map[string][]string{
+		"animal purchase writer": {permissions.AnimalPurchaseWrite},
+		"feed purchase writer":   {permissions.FeedPurchaseWrite},
+	} {
+		t.Run(name, func(t *testing.T) {
+			svc := &stubService{detail: domain.WorkflowDetail{
+				Card: domain.WorkflowCard{WorkflowID: "wf-procurement", Module: domain.ModuleProcurement, TemplateKey: domain.TemplateKeyAnimalPurchaseIntake},
+			}}
+			rec := doRequestWithPermissions(newTestMux(svc), http.MethodPost, "/app/workflows/wf-procurement/actions/act-1/answer",
+				`{"answer_value":"yes"}`, map[string]string{"Idempotency-Key": "long-enough-key"}, true, perms)
+			if rec.Code != http.StatusOK || svc.writeCalls != 1 {
+				t.Fatalf("procurement answer with %v: status=%d calls=%d (%s)", perms, rec.Code, svc.writeCalls, rec.Body.String())
+			}
+		})
+	}
+}
+
 func TestListWorkflowsReturnsPreviousOverdueDates(t *testing.T) {
 	svc := &stubService{}
 	rec := doRequest(newTestMux(svc), http.MethodGet,

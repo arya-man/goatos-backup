@@ -69,3 +69,37 @@ func TestFeedPurchaseRoutesAreGatedOnTheDedicatedPermissions(t *testing.T) {
 		}
 	}
 }
+
+func TestPurchasePermissionsReachSharedWorkflowRoutes(t *testing.T) {
+	wantOperations := map[string]bool{
+		"listAppWorkflows":          true,
+		"getAppWorkflowBySubject":   true,
+		"getAppWorkflow":            true,
+		"answerAppWorkflowAction":   true,
+		"completeAppWorkflowAction": true,
+	}
+	wantSets := map[string][]string{
+		"animal reader":  {AnimalPurchaseRead},
+		"animal writer":  {AnimalPurchaseWrite},
+		"animal decider": {AnimalPurchaseDecide},
+		"feed reader":    {FeedPurchaseRead},
+		"feed writer":    {FeedPurchaseWrite},
+	}
+	found := map[string]bool{}
+	for _, route := range ProtectedRoutes() {
+		if !wantOperations[route.OperationID] {
+			continue
+		}
+		found[route.OperationID] = true
+		for name, held := range wantSets {
+			if allowed, decidable := AuthorizePermissionSet(route, held); !decidable || !allowed {
+				t.Fatalf("%s refused %s on %s %s", route.OperationID, name, route.Method, route.Pattern)
+			}
+		}
+	}
+	for operationID := range wantOperations {
+		if !found[operationID] {
+			t.Fatalf("route operation %s missing from the permission table", operationID)
+		}
+	}
+}
