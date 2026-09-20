@@ -171,6 +171,26 @@ SET goat_id=EXCLUDED.goat_id, identifier_value=EXCLUDED.identifier_value, status
 	}
 }
 
+func TestWeightDemographicsSectionQueriesBindEveryArgument(t *testing.T) {
+	pgtest.SkipIfNoDocker(t)
+	ctx := context.Background()
+	pool := pgtest.StartPostgres(t, ctx)
+	defer pool.Close()
+	repo := NewRepository(pool, 5*time.Second)
+	from := time.Date(2026, 7, 29, 0, 0, 0, 0, time.UTC)
+	to := time.Date(2026, 7, 30, 0, 0, 0, 0, time.UTC)
+
+	for _, sections := range []string{"dimensions", "origin", "shed_type", "weight_bands", "weekly_gain"} {
+		t.Run(sections, func(t *testing.T) {
+			_, err := repo.GetWeightDemographics(ctx, repoTenant, []string{repoPark},
+				from, to, "", "", "", sections, []float64{15, 20, 25, 30, 35})
+			if err != nil {
+				t.Fatalf("GetWeightDemographics(%s) must execute its pruned SQL with all bound arguments: %v", sections, err)
+			}
+		})
+	}
+}
+
 func TestWeightDemographicsLumpCompositionResolvesPhysicalShedPartitions(t *testing.T) {
 	pgtest.SkipIfNoDocker(t)
 	ctx := context.Background()

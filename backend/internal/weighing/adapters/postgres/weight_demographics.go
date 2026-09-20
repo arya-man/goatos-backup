@@ -486,7 +486,8 @@ WITH _param_types AS (
     $27::bool AS need_lump,
     $28::bool AS need_gain,
     $29::bool AS need_lump_span,
-    $30::bool AS need_weekly_gain
+    $30::bool AS need_weekly_gain,
+    $31::numeric[] AS band_edges_kg
 ),
 scoped AS (
   SELECT cs.campaign_shed_id, cs.tenant_id, cs.location_id, c.park_id, COALESCE(cs.partition_label, '') AS partition_label, cs.weighing_category
