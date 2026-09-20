@@ -17,11 +17,14 @@ import { useEffect, useRef, useState } from "react";
 import { copy, type AdminUiPageContract } from "@/lib/admin-ui-contract";
 import type { ProcurementVendorForm, ProcurementVendorQuestion } from "@/lib/api/server";
 
+type ProcurementVendorFormPage = ProcurementVendorForm["pages"][number];
+type ProcurementVendorQuestionOption = ProcurementVendorQuestion["options"][number];
+
 /** authoredQuestions is every question the ledger does NOT store in a column of its own. */
 function authoredQuestions(form: ProcurementVendorForm): Array<{ page: string; questions: ProcurementVendorQuestion[] }> {
   return form.pages
-    .map((p) => ({ page: p.title ?? "", questions: p.questions.filter((q) => !q.typed) }))
-    .filter((p) => p.questions.length > 0);
+    .map((p: ProcurementVendorFormPage) => ({ page: p.title ?? "", questions: p.questions.filter((q: ProcurementVendorQuestion) => !q.typed) }))
+    .filter((p: { page: string; questions: ProcurementVendorQuestion[] }) => p.questions.length > 0);
 }
 
 const typedFeedPurchaseQuestions: Array<[questionId: string, fieldName: string]> = [
@@ -29,6 +32,7 @@ const typedFeedPurchaseQuestions: Array<[questionId: string, fieldName: string]>
   ["farm_label", "farm"],
   ["feed_item_label", "feed_item"],
   ["quantity_kg", "quantity_kg"],
+  ["batch_no", "batch_no"],
   ["vendor", "vendor"],
   ["feed_cost", "feed_cost"],
   ["transport_cost", "transport_cost"],
@@ -70,17 +74,25 @@ export function FeedPurchaseExtraFields({ form, pageContract }: { form: Procurem
   const pages = authoredQuestions(form);
   if (pages.length === 0) return null;
 
-  const answers = { ...typed, ...picked };
-  const visible = (q: ProcurementVendorQuestion) => !q.only_if || (answers[q.only_if.question_id] ?? "") === q.only_if.value;
+  const visibleAnswers = { ...typed };
+  const visiblePages = pages.map((page) => {
+    const questions = page.questions.filter((q) => {
+      const show = !q.only_if || (visibleAnswers[q.only_if.question_id] ?? "") === q.only_if.value;
+      if (show && q.kind === "choice") visibleAnswers[q.id] = picked[q.id] ?? "";
+      return show;
+    });
+    return { ...page, questions };
+  });
 
   return (
     <div ref={rootRef} style={{ display: "contents" }}>
-      {pages.map((page, pi) => (
+      {visiblePages.map((page, pi) => (
         <div key={`${page.page}-${pi}`} style={{ display: "contents" }}>
           {page.page ? <div className="dgrp">{page.page}</div> : null}
-          {page.questions.filter(visible).map((q) => {
+          {page.questions.map((q) => {
             const id = `fp-sop-${q.id}`;
             const name = `sop.${q.id}`;
+            const pickedValue = picked[q.id] ?? "";
             return (
               <div className="fld" key={q.id}>
                 <label htmlFor={id}>
@@ -93,25 +105,25 @@ export function FeedPurchaseExtraFields({ form, pageContract }: { form: Procurem
                       id={id}
                       name={name}
                       required={q.required}
-                      defaultValue=""
+                      value={pickedValue}
                       onChange={(e) => setPicked((prev) => ({ ...prev, [q.id]: e.target.value }))}
                     >
                       <option value="" disabled>
                         —
                       </option>
-                      {(q.options ?? []).map((o) => (
+                      {(q.options ?? []).map((o: ProcurementVendorQuestionOption) => (
                         <option key={o.value} value={o.value}>
                           {o.label}
                         </option>
                       ))}
                     </select>
-                    {q.allow_other && picked[q.id] === "other" ? (
+                    {q.allow_other && pickedValue === "other" ? (
                       <input name={`${name}_other`} placeholder={copy(pageContract, "hint.other")} required maxLength={160} />
                     ) : null}
                   </>
                 ) : q.kind === "multi" ? (
                   <div className="vendor-form-multi">
-                    {(q.options ?? []).map((o) => (
+                    {(q.options ?? []).map((o: ProcurementVendorQuestionOption) => (
                       <label key={o.value} className="chkline">
                         <input type="checkbox" name={name} value={o.value} /> {o.label}
                       </label>
