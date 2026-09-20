@@ -1,7 +1,5 @@
 "use server";
 
-import { revalidatePath } from "next/cache";
-
 import {
   discardHealthConfigRegisterDraft,
   openHealthConfigRegisterDraft,
@@ -27,7 +25,15 @@ import {
 // authorable — and the two directions usually fail in pairs, because an author adding a symptom
 // and the rule that reads it gets both halves wrong at once or neither.
 //
-// RULE 3 — WARNINGS SURVIVE A SUCCESS. A publish that went through still carries what it allowed:
+// RULE 3 — THESE ACTIONS RETURN A RESULT; THEY NEVER REVALIDATE THE ROUTE.
+//
+// A server action may hand the caller a result to apply in place, or it may redirect — never both.
+// Revalidating on top of a returned result re-renders the route underneath a client that is still
+// holding the answer, which on this screen would throw away an editor full of unsaved edits the
+// moment the author pressed save. The editor decides what to do with what it gets back: refresh in
+// place after a save, navigate after a publish or a discard.
+//
+// RULE 4 — WARNINGS SURVIVE A SUCCESS. A publish that went through still carries what it allowed:
 // a question no rule reads yet, an illness whose treatment course nobody has written. They are
 // returned on the ok path rather than dropped, because an author who is not told what they
 // published cannot fix it later.
@@ -46,8 +52,6 @@ export type HealthRegisterActionResult = {
   /** The version this write left in place, for the caller to navigate to. */
   versionId?: string;
 };
-
-const HEALTH_CONFIG_PATH = "/health/config";
 
 function failureKeyFor(code: string | undefined): string {
   switch (code) {
@@ -105,7 +109,6 @@ export async function openRegisterDraft(
       fieldErrors: fieldErrorsFrom(result.error),
     };
   }
-  revalidatePath(HEALTH_CONFIG_PATH);
   return { ok: true, messageKey: "action.register_opened", versionId: result.data.register_version_id };
 }
 
@@ -134,7 +137,6 @@ export async function saveRegisterDraft(
       fieldErrors: fieldErrorsFrom(result.error),
     };
   }
-  revalidatePath(HEALTH_CONFIG_PATH);
   return {
     ok: true,
     // "unchanged" is a real outcome, not a silent no-op: the author pressed save and nothing
@@ -161,7 +163,6 @@ export async function publishRegisterDraft(
       fieldErrors: fieldErrorsFrom(result.error),
     };
   }
-  revalidatePath(HEALTH_CONFIG_PATH);
   return {
     ok: true,
     messageKey: "action.register_published",
@@ -186,6 +187,5 @@ export async function discardRegisterDraft(
       fieldErrors: fieldErrorsFrom(result.error),
     };
   }
-  revalidatePath(HEALTH_CONFIG_PATH);
   return { ok: true, messageKey: "action.register_discarded", outcome: result.data.outcome };
 }
