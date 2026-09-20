@@ -49,32 +49,45 @@ LIMIT 1`
 // PublishedVendorForm is the form a screen opening now renders. No authored version (a tenant
 // created before the migration ran, or a test fixture) means the seeded document, version 1.
 func (s *VendorFormSource) PublishedVendorForm(ctx context.Context, tenantID, sopCode string, catalog []domain.VendorCatalogEntry) (domain.VendorForm, error) {
-	dsl, version, found, err := s.read(ctx, sqlPublishedVendorForm, tenantID, sopCode)
+	return s.publishedForm(ctx, tenantID, sopCode, domain.VendorFormProfile(), domain.SeededVendorFormDSL, catalog)
+}
+
+// publishedForm is the shared read: the published version of `sopCode`, parsed and validated
+// against `profile`, or the seeded document as version 1 when a tenant has authored nothing.
+func (s *VendorFormSource) publishedForm(ctx context.Context, tenantID, sopCode string, profile domain.EntryFormProfile, seed func() domain.VendorFormDSL, catalog []domain.VendorCatalogEntry) (domain.VendorForm, error) {
+	dsl, version, found, err := s.read(ctx, profile, sqlPublishedVendorForm, tenantID, sopCode)
 	if err != nil {
 		return domain.VendorForm{}, err
 	}
 	if !found {
-		dsl, version = domain.SeededVendorFormDSL(), 1
+		dsl, version = seed(), 1
 	}
 	return domain.CompileVendorForm(dsl, version, catalog), nil
 }
 
 // VendorFormVersion is the exact form a vendor was answered on.
 func (s *VendorFormSource) VendorFormVersion(ctx context.Context, tenantID, sopCode string, version int, catalog []domain.VendorCatalogEntry) (domain.VendorForm, error) {
-	dsl, got, found, err := s.read(ctx, sqlVendorFormVersion, tenantID, sopCode, version)
+	return s.formVersion(ctx, tenantID, sopCode, domain.VendorFormProfile(), domain.SeededVendorFormDSL, version, catalog)
+}
+
+// formVersion is the shared exact-version read. Version 1 ALWAYS resolves to the seeded document
+// when the library has no row: a record written before anything was authored still reads the form
+// it was written against.
+func (s *VendorFormSource) formVersion(ctx context.Context, tenantID, sopCode string, profile domain.EntryFormProfile, seed func() domain.VendorFormDSL, version int, catalog []domain.VendorCatalogEntry) (domain.VendorForm, error) {
+	dsl, got, found, err := s.read(ctx, profile, sqlVendorFormVersion, tenantID, sopCode, version)
 	if err != nil {
 		return domain.VendorForm{}, err
 	}
 	if !found {
-		if version == 1 {
-			return domain.CompileVendorForm(domain.SeededVendorFormDSL(), 1, catalog), nil
+		if version <= 1 {
+			return domain.CompileVendorForm(seed(), 1, catalog), nil
 		}
 		return domain.VendorForm{}, ports.ErrVendorFormVersionUnknown
 	}
 	return domain.CompileVendorForm(dsl, got, catalog), nil
 }
 
-func (s *VendorFormSource) read(ctx context.Context, sql string, args ...any) (domain.VendorFormDSL, int, bool, error) {
+func (s *VendorFormSource) read(ctx context.Context, profile domain.EntryFormProfile, sql string, args ...any) (domain.VendorFormDSL, int, bool, error) {
 	var version int
 	var raw []byte
 	err := s.pool.QueryRow(ctx, sql, args...).Scan(&version, &raw)
@@ -88,12 +101,12 @@ func (s *VendorFormSource) read(ctx context.Context, sql string, args ...any) (d
 	if err := json.Unmarshal(raw, &formDSL); err != nil {
 		return domain.VendorFormDSL{}, 0, false, fmt.Errorf("procurement: vendor form v%d form_dsl: %w", version, err)
 	}
-	dsl, err := domain.ParseVendorForm(formDSL)
+	dsl, err := domain.ParseEntryForm(profile, formDSL)
 	if err != nil {
-		return domain.VendorFormDSL{}, 0, false, fmt.Errorf("procurement: vendor form v%d: %w", version, err)
+		return domain.VendorFormDSL{}, 0, false, fmt.Errorf("procurement: %s v%d: %w", profile.Section, version, err)
 	}
-	if problems := domain.ValidateVendorForm(dsl); len(problems) > 0 {
-		return domain.VendorFormDSL{}, 0, false, fmt.Errorf("procurement: vendor form v%d: %s", version, problems[0])
+	if problems := domain.ValidateEntryForm(profile, dsl); len(problems) > 0 {
+		return domain.VendorFormDSL{}, 0, false, fmt.Errorf("procurement: %s v%d: %s", profile.Section, version, problems[0])
 	}
 	return dsl, version, true, nil
 }

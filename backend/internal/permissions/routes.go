@@ -338,6 +338,9 @@ var protectedRoutes = []Route{
 	// that serves the ENTRY FORM's vocabulary, so it sits on the read permission: a principal who
 	// may see the ledger may see which feeds and farms it is keyed by.
 	{OperationID: "listFeedPurchases", Method: "GET", Pattern: "/procurement/feed-purchases", Permissions: []string{FeedPurchaseRead}},
+	// The authored entry form (THE FEED PURCHASE FORM IS AUTHORED, 2026-09-20): what the Record
+	// purchase screens ask. Read-gated with the ledger it fills.
+	{OperationID: "getFeedPurchaseForm", Method: "GET", Pattern: "/procurement/feed-purchase-form", Permissions: []string{FeedPurchaseRead}},
 	{OperationID: "createFeedPurchase", Method: "POST", Pattern: "/procurement/feed-purchases", Permissions: []string{FeedPurchaseWrite}},
 	{OperationID: "getFeedPurchaseOptions", Method: "GET", Pattern: "/procurement/feed-purchase-options", Permissions: []string{FeedPurchaseRead}},
 	// Instalment payments and the payment-status edit are money writes on the same ledger, so they

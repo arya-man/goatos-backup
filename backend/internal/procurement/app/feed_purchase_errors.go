@@ -9,6 +9,12 @@ import (
 )
 
 var (
+	// ErrFeedPurchaseFormUnavailable reports a write carrying answers with no form source wired.
+	ErrFeedPurchaseFormUnavailable = errors.New("procurement: the feed purchase form is unavailable")
+	// ErrFeedPurchaseFormVersionRequired reports answers sent without the version they were
+	// answered on. The version is what the write is judged against; guessing it would judge a
+	// load against a form nobody filled in.
+	ErrFeedPurchaseFormVersionRequired = errors.New("procurement: feed purchase form version required")
 	// ErrFeedPurchaseInvalidFarm reports a farm filter that is neither blank/all nor a real farm.
 	ErrFeedPurchaseInvalidFarm = errors.New("procurement: unknown feed purchase farm filter")
 	// ErrFeedPurchaseInvalidDelivery reports a delivery filter that is neither blank/all nor a state.
@@ -77,6 +83,18 @@ func FeedPurchaseHTTPError(err error) *Error {
 	case errors.Is(err, ports.ErrFeedPurchaseNotFound):
 		return NotFound("Feed purchase not found.")
 
+	// THE FEED PURCHASE FORM IS AUTHORED (2026-09-20): a write is judged against the form version
+	// the client rendered, so an answer set with no version, or a version the library never
+	// published, is refused rather than judged against a form nobody filled in.
+	case errors.Is(err, ErrFeedPurchaseFormVersionRequired):
+		return BadRequest("feed_purchase_form_version_required", "Reopen the form and record this purchase again.")
+
+	case errors.Is(err, ports.ErrVendorFormVersionUnknown):
+		return BadRequest("feed_purchase_form_changed", "The purchase form has changed. Reopen it and record this purchase again.")
+
+	case errors.Is(err, ErrFeedPurchaseFormUnavailable):
+		return &Error{Code: "feed_purchase_form_unavailable", Message: "The purchase form could not be read. Try again.", HTTPStatus: http.StatusServiceUnavailable}
+
 	case errors.Is(err, ports.ErrFeedItemNotInCatalog):
 		return BadRequest("feed_item_not_in_catalog",
 			"That feed is not in the feed catalog, so it cannot be stocked. Add it in Feed Config first, then record the purchase.")
@@ -102,6 +120,16 @@ func FeedPurchaseHTTPError(err error) *Error {
 		return BadRequest("page_out_of_range", "That page is beyond the purchase ledger. Use the filters to narrow it down.")
 
 	default:
+		// A refused form answer names its question so the form can show it in place.
+		var a domain.ErrVendorAnswer
+		if errors.As(err, &a) {
+			return &Error{
+				Code:       "feed_purchase_answer_invalid",
+				Message:    "Check " + feedPurchaseFieldLabel(a.QuestionID) + ": " + a.Reason + ".",
+				HTTPStatus: http.StatusBadRequest,
+				Field:      a.QuestionID,
+			}
+		}
 		var v domain.ErrFeedPurchaseValidation
 		if errors.As(err, &v) {
 			return &Error{

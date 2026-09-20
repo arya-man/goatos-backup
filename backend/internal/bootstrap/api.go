@@ -602,6 +602,10 @@ func NewAPI(ctx context.Context, cfg Config, log *slog.Logger) (*API, error) {
 		// VENDOR FORM (2026-09-19): the sales.vendor version's `vendor_form` -- the questions
 		// the Add / Edit vendor screens ask -- is validated by the register that runs it.
 		WithFormDSLContract(procurementapp.VendorFormSOPContract).
+		// THE FEED PURCHASE FORM IS AUTHORED (2026-09-20): the procurement.feed_purchase_form
+		// version's `feed_purchase_form` -- what the Record purchase screens ask -- is validated
+		// by the ledger that runs it.
+		WithFormDSLContract(procurementapp.FeedPurchaseFormSOPContract).
 		// WEIGHING SOP (maintainer decision 2026-09-15): the weighing.session version's
 		// `weighing` section is validated here so a document the planner could not run
 		// is never saved.
@@ -844,7 +848,8 @@ func NewAPI(ctx context.Context, cfg Config, log *slog.Logger) (*API, error) {
 	// The feed PURCHASE ledger (maintainer decision 2026-08-24, retiring the read-only half of
 	// migration 000174's lock). Procurement owns the write; feeddirection keeps the stock read.
 	procurementFeedPurchaseHandler := procurementhttp.NewFeedPurchaseHandler(
-		procurementapp.NewFeedPurchaseService(procurementpg.NewRepository(pool, cfg.Postgres.QueryTimeout)), log)
+		procurementapp.NewFeedPurchaseService(procurementpg.NewRepository(pool, cfg.Postgres.QueryTimeout)).
+			WithFormSource(procurementpg.NewFeedPurchaseFormSource(pool)), log)
 	// The Sales page's LOAD-WISE reconciliation and the load-cost entry (maintainer decision
 	// 2026-08-31, docs/decisions/sales-loadwise.md).
 	procurementLoadwiseHandler := procurementhttp.NewLoadwiseHandler(

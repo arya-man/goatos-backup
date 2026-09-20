@@ -182,7 +182,15 @@ var (
 
 // ParseVendorForm extracts and type-checks form_dsl.vendor_form.
 func ParseVendorForm(formDSL map[string]any) (VendorFormDSL, error) {
-	raw, ok := formDSL["vendor_form"]
+	return ParseEntryForm(VendorFormProfile(), formDSL)
+}
+
+// ParseEntryForm extracts and type-checks a pages-of-questions document from the section the
+// profile names. The SHAPE is one engine -- pages, questions, locked typed ids, catalog-backed
+// choices, only_if -- and each form differs only in which section it lives in, which ids the
+// module reads into its own columns, and which catalogs fill its choices.
+func ParseEntryForm(profile EntryFormProfile, formDSL map[string]any) (VendorFormDSL, error) {
+	raw, ok := formDSL[profile.Section]
 	if !ok || raw == nil {
 		return VendorFormDSL{}, ErrVendorFormMissing
 	}
@@ -196,10 +204,37 @@ func ParseVendorForm(formDSL map[string]any) (VendorFormDSL, error) {
 	if err := dec.Decode(&out); err != nil {
 		return VendorFormDSL{}, fmt.Errorf("%w: %v", ErrVendorFormInvalid, err)
 	}
-	if out.SchemaVersion != VendorFormSchemaVersion {
+	if out.SchemaVersion != profile.SchemaVersion {
 		return VendorFormDSL{}, fmt.Errorf("%w: schema_version %q", ErrVendorFormInvalid, out.SchemaVersion)
 	}
 	return out, nil
+}
+
+// EntryFormProfile is what makes one pages-of-questions document different from another: the
+// form_dsl section it lives in, its schema tag, the LOCKED ids its module reads into typed
+// columns, the ids that must stay present and compulsory, and the catalogs its choice questions
+// may draw from. Everything else -- parsing, validation, compilation, answer checking -- is shared,
+// because a second copy of those rules is a second place for them to drift.
+type EntryFormProfile struct {
+	Section       string
+	SchemaVersion string
+	Locked        map[string]VendorQuestion
+	RequiredIDs   []string
+	CatalogKinds  []string
+	// Noun names the record in a problem message ("a vendor cannot exist without it").
+	Noun string
+}
+
+// VendorFormProfile is the vendor register's document.
+func VendorFormProfile() EntryFormProfile {
+	return EntryFormProfile{
+		Section:       "vendor_form",
+		SchemaVersion: VendorFormSchemaVersion,
+		Locked:        lockedVendorQuestions,
+		RequiredIDs:   requiredVendorQuestionIDs,
+		CatalogKinds:  VendorCatalogKinds,
+		Noun:          "a vendor",
+	}
 }
 
 var vendorQuestionIDPattern = regexp.MustCompile(`^[a-z][a-z0-9_]{0,63}$`)
@@ -207,19 +242,25 @@ var vendorQuestionIDPattern = regexp.MustCompile(`^[a-z][a-z0-9_]{0,63}$`)
 // ValidateVendorForm names every problem by path. Publishing runs it; a document with any problem
 // never becomes the published version.
 func ValidateVendorForm(dsl VendorFormDSL) []string {
+	return ValidateEntryForm(VendorFormProfile(), dsl)
+}
+
+// ValidateEntryForm is the shared validator, told by the profile which ids are locked, which are
+// compulsory and which catalogs exist.
+func ValidateEntryForm(profile EntryFormProfile, dsl VendorFormDSL) []string {
 	var problems []string
 	add := func(format string, args ...any) { problems = append(problems, fmt.Sprintf(format, args...)) }
 	if len(dsl.Pages) == 0 {
-		add("vendor_form.pages: at least one page is required")
+		add("%s.pages: at least one page is required", profile.Section)
 	}
 	if len(dsl.Pages) > maxVendorFormPages {
-		add("vendor_form.pages: at most %d pages", maxVendorFormPages)
+		add("%s.pages: at most %d pages", profile.Section, maxVendorFormPages)
 	}
 	seen := map[string]VendorQuestion{}
 	seenPages := map[string]bool{}
 	total := 0
 	for pi, p := range dsl.Pages {
-		pp := fmt.Sprintf("vendor_form.pages.%d", pi)
+		pp := fmt.Sprintf("%s.pages.%d", profile.Section, pi)
 		if !vendorQuestionIDPattern.MatchString(p.Key) {
 			add("%s.key: %q must be a-z, 0-9 and _ (start with a letter)", pp, p.Key)
 		}
@@ -270,13 +311,13 @@ func ValidateVendorForm(dsl VendorFormDSL) []string {
 			}
 			if q.Catalog != "" {
 				known := false
-				for _, k := range VendorCatalogKinds {
+				for _, k := range profile.CatalogKinds {
 					if k == q.Catalog {
 						known = true
 					}
 				}
 				if !known {
-					add("%s.catalog: %q is not a vendor catalog", qp, q.Catalog)
+					add("%s.catalog: %q is not a catalog this form can read", qp, q.Catalog)
 				}
 			}
 			if q.OnlyIf != nil {
@@ -290,7 +331,7 @@ func ValidateVendorForm(dsl VendorFormDSL) []string {
 					add("%s.only_if.value: %q is not a choice of %q", qp, q.OnlyIf.Value, q.OnlyIf.QuestionID)
 				}
 			}
-			if lk, locked := lockedVendorQuestions[q.ID]; locked {
+			if lk, locked := profile.Locked[q.ID]; locked {
 				if q.Kind != lk.Kind {
 					add("%s.kind: %q is fixed to %q (the register reads it)", qp, q.ID, lk.Kind)
 				}
@@ -302,16 +343,16 @@ func ValidateVendorForm(dsl VendorFormDSL) []string {
 		}
 	}
 	if total > maxVendorFormQuestions {
-		add("vendor_form: at most %d questions", maxVendorFormQuestions)
+		add("%s: at most %d questions", profile.Section, maxVendorFormQuestions)
 	}
-	for _, id := range requiredVendorQuestionIDs {
+	for _, id := range profile.RequiredIDs {
 		q, ok := seen[id]
 		if !ok {
-			add("vendor_form: question %q must be present (a vendor cannot exist without it)", id)
+			add("%s: question %q must be present (%s cannot exist without it)", profile.Section, id, profile.Noun)
 			continue
 		}
 		if !q.Required {
-			add("vendor_form: %q must stay compulsory (a vendor cannot exist without it)", id)
+			add("%s: %q must stay compulsory (%s cannot exist without it)", profile.Section, id, profile.Noun)
 		}
 	}
 	return problems

@@ -250,6 +250,13 @@ func (p FeedPurchase) StockKg() *float64 {
 type FeedPurchaseDeliveryWrite struct {
 	ReachedOn       string
 	ReachedWeightKg *float64
+
+	// SOPAnswers / QuestionnaireVersion carry what the AUTHORED entry form asked beyond the
+	// ledger's own columns, and the form version they were answered on (THE FEED PURCHASE FORM IS
+	// AUTHORED, 2026-09-20). Nil answers = an older client sending typed fields only, which is
+	// accepted unchanged.
+	SOPAnswers           map[string]string
+	QuestionnaireVersion int
 }
 
 // Normalize trims the write before validation, for the same reason FeedPurchaseWrite does.
@@ -460,6 +467,13 @@ type FeedPurchaseWrite struct {
 	// meaningful only with ReachedOn.
 	ReachedOn       string
 	ReachedWeightKg *float64
+
+	// SOPAnswers / QuestionnaireVersion carry what the AUTHORED entry form asked beyond the
+	// ledger's own columns, and the form version they were answered on (THE FEED PURCHASE FORM IS
+	// AUTHORED, 2026-09-20). Nil answers = an older client sending typed fields only, which is
+	// accepted unchanged.
+	SOPAnswers           map[string]string
+	QuestionnaireVersion int
 }
 
 // IsReached reports whether the record form describes a load that has already arrived.

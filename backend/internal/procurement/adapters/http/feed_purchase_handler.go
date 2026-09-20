@@ -21,6 +21,8 @@ import (
 type FeedPurchaseService interface {
 	ListFeedPurchases(ctx context.Context, tenantID string, q app.FeedPurchaseListQuery) (ports.FeedPurchasePage, error)
 	FeedPurchaseOptions(ctx context.Context, tenantID string) (ports.FeedPurchaseOptions, error)
+	// FeedPurchaseForm is the published entry form (THE FEED PURCHASE FORM IS AUTHORED, 2026-09-20).
+	FeedPurchaseForm(ctx context.Context, tenantID string) (domain.VendorForm, error)
 	CreateFeedPurchase(ctx context.Context, tenantID string, write domain.FeedPurchaseWrite, actorID, idempotencyKey string) (domain.FeedPurchase, error)
 	RecordFeedPurchasePayment(ctx context.Context, tenantID, purchaseID string, write domain.FeedPurchasePaymentWrite, actorID, idempotencyKey string) (domain.FeedPurchase, error)
 	SetFeedPurchasePaymentStatus(ctx context.Context, tenantID, purchaseID, status, actorID string) (domain.FeedPurchase, error)
@@ -48,6 +50,8 @@ func NewFeedPurchaseHandler(service FeedPurchaseService, log ...*slog.Logger) *F
 // table is matched by method + pattern, and a mismatch serves the route ungated.
 func RegisterFeedPurchases(mux *http.ServeMux, h *FeedPurchaseHandler) {
 	mux.HandleFunc("GET /procurement/feed-purchases", h.ListFeedPurchases)
+	// THE FEED PURCHASE FORM IS AUTHORED (2026-09-20): what the Record purchase screens ask.
+	mux.HandleFunc("GET /procurement/feed-purchase-form", h.GetFeedPurchaseForm)
 	mux.HandleFunc("POST /procurement/feed-purchases", h.CreateFeedPurchase)
 	mux.HandleFunc("GET /procurement/feed-purchase-options", h.FeedPurchaseOptions)
 	mux.HandleFunc("POST /procurement/feed-purchases/{purchase_id}/payments", h.RecordFeedPurchasePayment)
@@ -59,6 +63,18 @@ func RegisterFeedPurchases(mux *http.ServeMux, h *FeedPurchaseHandler) {
 // maxFeedPurchaseRequestBytes caps a write body. The largest legitimate record-purchase payload is
 // well under a kilobyte; the cap stops a hostile client streaming an unbounded body into memory.
 const maxFeedPurchaseRequestBytes = 64 * 1024
+
+// GetFeedPurchaseForm serves GET /procurement/feed-purchase-form: the published entry form the
+// web drawer and the phone render, its catalog choices filled from the ledger's own vocabularies.
+func (h *FeedPurchaseHandler) GetFeedPurchaseForm(w http.ResponseWriter, r *http.Request) {
+	form, err := h.service.FeedPurchaseForm(r.Context(), tenantID(r))
+	if err != nil {
+		h.log.Error("feed purchase form unavailable", "err", err)
+		h.writeErr(w, r, app.FeedPurchaseHTTPError(err))
+		return
+	}
+	httpresponse.WriteJSON(w, http.StatusOK, toVendorFormPayload(form))
+}
 
 // ListFeedPurchases serves GET /procurement/feed-purchases.
 func (h *FeedPurchaseHandler) ListFeedPurchases(w http.ResponseWriter, r *http.Request) {
