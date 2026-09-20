@@ -368,6 +368,8 @@ data class FeedPurchaseCreateUiState(
      * wizard uses, and they reach the server as `answers` against [questionnaireVersion].
      */
     val extraPages: List<VendorFormPageUi> = emptyList(),
+    /** The full served form, including typed questions hidden from the UI, used to shape answers. */
+    val formPages: List<VendorFormPageUi> = emptyList(),
     val answers: Map<String, String> = emptyMap(),
     val answerErrors: Map<String, String> = emptyMap(),
     val questionnaireVersion: Int = 0,

@@ -35,6 +35,14 @@ test("an authored batch question is included, and a retired typed question is om
   assert.equal(readFormAnswers(data).answers.transport_cost, undefined);
   assert.equal(readFormAnswers(data).answers.certificates, "organic|tested");
 });
+test("an authored other choice carries the explanation under the backend sidecar key", () => {
+  const data = submission();
+  data.append("sop.delivery_mode", "other");
+  data.set("sop.delivery_mode_other", "Night unload");
+  const result = readFormAnswers(data);
+  assert.equal(result.answers.delivery_mode, "other");
+  assert.equal(result.answers.delivery_mode_other, "Night unload");
+});
 test("legacy pages without a form version retain the typed-only write", () => {
   const data = submission();
   data.delete("questionnaire_version");
