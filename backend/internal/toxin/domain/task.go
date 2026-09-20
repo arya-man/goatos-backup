@@ -183,6 +183,12 @@ type Task struct {
 	SupersededByTaskID string
 	RowVersion         int64
 	CreatedAt          string
+	// SOPVersion is the AUTHORED PROCEDURE this round runs (THE TOXIN PROCEDURE IS AUTHORED,
+	// 2026-09-20). Stamped when the round is created and never changed: a procedure published
+	// mid-test must not move the steps under the tester's feet, and a round that ran the old
+	// seven steps stays readable as the test it actually was. A RETEST is new work and is minted
+	// on whatever is published then, so a corrected instruction reaches the next attempt.
+	SOPVersion int
 }
 
 // StepCompletion is one immutable completed working step.

@@ -154,7 +154,7 @@ func toTaskPayload(row ports.TaskRow, now time.Time, canExecute bool) taskPayloa
 		PurchaseDate:   t.PurchaseDate,
 		QuantityKg:     t.QuantityKg,
 		Status:         t.Status,
-		StatusChip:     domain.StatusChip(t, row.Completions, now),
+		StatusChip:     procedureOf(row).StatusChip(t, row.Completions, now),
 		Outcome:        t.Outcome,
 		OutcomeLabel:   domain.OutcomeLabel(t.Outcome),
 		StripPhotoRef:  t.StripPhotoRef,
@@ -164,7 +164,7 @@ func toTaskPayload(row ports.TaskRow, now time.Time, canExecute bool) taskPayloa
 		ReviewReason:   t.ReviewReason,
 		CancelReason:   t.CancelReason,
 		StepsDone:      len(row.Completions),
-		StepsTotal:     len(domain.WorkingSteps()),
+		StepsTotal:     len(procedureOf(row).WorkingSteps()),
 		RowVersion:     t.RowVersion,
 		CreatedAt:      t.CreatedAt,
 		ContextLine:    context,
@@ -172,13 +172,25 @@ func toTaskPayload(row ports.TaskRow, now time.Time, canExecute bool) taskPayloa
 	}
 }
 
+// procedureOf is the round's authored procedure, falling back to the seeded one for a row that
+// reached a transport without the app service attaching it (no source wired). The fallback is
+// the seven steps the engine ran as constants, so an unwired deployment renders exactly what it
+// rendered before rather than an empty step list.
+func procedureOf(row ports.TaskRow) domain.Procedure {
+	if row.Procedure.Version == 0 || len(row.Procedure.Steps) == 0 {
+		return domain.SeededProcedure()
+	}
+	return row.Procedure
+}
+
 // toStepPayloads composes each step's live state against the server clock. The phone
 // renders the states verbatim and never derives its own gate logic — its clock is not
 // the gate's clock.
 func toStepPayloads(row ports.TaskRow, now time.Time, canExecute bool) []stepPayload {
-	next := domain.NextStepNo(row.Completions)
-	out := make([]stepPayload, 0, len(domain.Steps()))
-	for _, spec := range domain.Steps() {
+	proc := procedureOf(row)
+	next := proc.NextStepNo(row.Completions)
+	out := make([]stepPayload, 0, len(proc.Steps))
+	for _, spec := range proc.Steps {
 		p := stepPayload{
 			StepNo:      spec.No,
 			Kind:        spec.Kind,
@@ -197,7 +209,7 @@ func toStepPayloads(row ports.TaskRow, now time.Time, canExecute bool) []stepPay
 		if spec.Kind == domain.StepKindWait {
 			// The wait row mirrors the step it gates: done once the settling hour has
 			// passed, waiting while it runs, locked before the shake video exists.
-			gated, _ := domain.StepSpecFor(5)
+			gated, _ := proc.GatedByWait(spec.No)
 			opensAt := domain.GateOpensAt(gated, row.Completions)
 			switch {
 			case opensAt.IsZero():

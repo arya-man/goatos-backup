@@ -612,7 +612,12 @@ func NewAPI(ctx context.Context, cfg Config, log *slog.Logger) (*API, error) {
 		WithFormDSLContract(feedsopapp.FeedSOPContract).
 		WithFormDSLContract(shiftingsopapp.ShiftingSOPContract).
 		// HERD OPERATIONS CAPTURE CARD (2026-09-16): counts.birth / counts.death `capture_card`.
-		WithFormDSLContract(countssopapp.CaptureCardContract)
+		WithFormDSLContract(countssopapp.CaptureCardContract).
+		// THE TOXIN PROCEDURE IS AUTHORED (2026-09-20): the procurement.toxin_test version's
+		// `toxin` section -- the steps of the aflatoxin test -- is validated here, so a document
+		// that renumbers its steps, loses its reading step or gates one on a later step is
+		// refused at publish rather than discovered by a tester standing over a strip.
+		WithFormDSLContract(toxinapp.ToxinSOPContract)
 
 	protocolRepo := protocolpg.NewRepository(pool, cfg.Postgres.QueryTimeout)
 	obligationRepo := obligationpg.NewRepository(pool, cfg.Postgres.QueryTimeout)
@@ -865,7 +870,8 @@ func NewAPI(ctx context.Context, cfg Config, log *slog.Logger) (*API, error) {
 	// born from procurement.feed_purchase.reached (consumer wired in kernelstages); the
 	// routes here serve the tester's guided step flow and the CEO/CXO-only review.
 	toxinHandler := toxinhttp.NewHandler(
-		toxinapp.NewService(toxinpg.NewRepository(pool, cfg.Postgres.QueryTimeout), toxinproof.NewValidator(proofRepo)), log)
+		toxinapp.NewService(toxinpg.NewRepository(pool, cfg.Postgres.QueryTimeout), toxinproof.NewValidator(proofRepo)).
+			WithProcedureSource(toxinpg.NewProcedureSource(pool)), log)
 	// Market survey (maintainer decision 2026-09-14): the morning market-price calls. Config
 	// and analytics under Sales on admin-web; the day's cards and the entry write on the phone.
 	marketHandler := markethttp.NewHandler(marketapp.NewService(marketpg.NewRepository(pool, cfg.Postgres.QueryTimeout)), log).

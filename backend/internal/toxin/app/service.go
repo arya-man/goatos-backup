@@ -20,14 +20,53 @@ const MaxPageSize = 50
 
 // Service is the toxin module's application service.
 type Service struct {
-	repo   ports.Repository
-	proofs ports.ProofValidator
-	now    func() time.Time
+	repo       ports.Repository
+	proofs     ports.ProofValidator
+	procedures ports.ProcedureSource
+	now        func() time.Time
 }
 
 // NewService wires the service over its persistence and proof seams.
 func NewService(repo ports.Repository, proofs ports.ProofValidator) *Service {
 	return &Service{repo: repo, proofs: proofs, now: time.Now}
+}
+
+// WithProcedureSource attaches the authored procedure reader (THE TOXIN PROCEDURE IS AUTHORED,
+// 2026-09-20). Without one the service runs the SEEDED procedure -- the seven steps the engine
+// ran as Go constants -- so a deployment that has not wired the source behaves exactly as it did
+// before, rather than serving a round with no steps at all.
+func (s *Service) WithProcedureSource(src ports.ProcedureSource) *Service {
+	s.procedures = src
+	return s
+}
+
+// procedureFor resolves the procedure a ROUND runs: its own stamped version, never the latest.
+// Rounds on the same page usually share a version, so the caller passes a per-request cache.
+func (s *Service) procedureFor(ctx context.Context, tenantID string, version int, cache map[int]domain.Procedure) domain.Procedure {
+	if version <= 0 {
+		version = 1
+	}
+	if proc, ok := cache[version]; ok {
+		return proc
+	}
+	proc := domain.SeededProcedure()
+	if s.procedures != nil {
+		if resolved, err := s.procedures.ProcedureVersion(ctx, tenantID, version); err == nil {
+			proc = resolved
+		}
+	}
+	if cache != nil {
+		cache[version] = proc
+	}
+	return proc
+}
+
+// attachProcedures fills each row's procedure, reading each distinct version ONCE per request.
+func (s *Service) attachProcedures(ctx context.Context, tenantID string, rows []ports.TaskRow) {
+	cache := map[int]domain.Procedure{}
+	for i := range rows {
+		rows[i].Procedure = s.procedureFor(ctx, tenantID, rows[i].Task.SOPVersion, cache)
+	}
 }
 
 // WithClock pins the clock for tests.
@@ -59,17 +98,28 @@ func (s *Service) ListTasks(ctx context.Context, tenantID string, statuses []str
 			return ports.TaskPage{}, BadRequest("invalid_status", "That status filter is not recognised.")
 		}
 	}
-	return s.repo.ListTasks(ctx, ports.ListTasksParams{
+	page, err := s.repo.ListTasks(ctx, ports.ListTasksParams{
 		TenantID: tenantID,
 		Statuses: cleaned,
 		Limit:    ClampPageSize(limit),
 		Cursor:   strings.TrimSpace(cursor),
 	})
+	if err != nil {
+		return page, err
+	}
+	s.attachProcedures(ctx, tenantID, page.Rows)
+	return page, nil
 }
 
-// GetTask reads one task with its step completions.
+// GetTask reads one task with its step completions and the procedure that round runs.
 func (s *Service) GetTask(ctx context.Context, tenantID, taskID string) (ports.TaskRow, error) {
-	return s.repo.GetTask(ctx, tenantID, strings.TrimSpace(taskID))
+	row, err := s.repo.GetTask(ctx, tenantID, strings.TrimSpace(taskID))
+	if err != nil {
+		return row, err
+	}
+	rows := []ports.TaskRow{row}
+	s.attachProcedures(ctx, tenantID, rows)
+	return rows[0], nil
 }
 
 // Now exposes the service clock so transports compose wait copy off the same instant
@@ -86,20 +136,33 @@ func (s *Service) CompleteStep(ctx context.Context, p ports.CompleteStepParams) 
 	if p.ProofRef == "" {
 		return ports.TaskRow{}, domain.ErrProofRequired
 	}
-	spec, ok := domain.StepSpecFor(p.StepNo)
+	// The step is judged against THIS ROUND's procedure, not the latest one: a farm that
+	// published a shorter test this morning must not invalidate a round opened yesterday.
+	row, err := s.repo.GetTask(ctx, p.TenantID, p.TaskID)
+	if err != nil {
+		return ports.TaskRow{}, err
+	}
+	proc := s.procedureFor(ctx, p.TenantID, row.Task.SOPVersion, nil)
+	spec, ok := proc.StepSpecFor(p.StepNo)
 	if !ok {
 		return ports.TaskRow{}, domain.ErrUnknownStep
 	}
 	if spec.Kind != domain.StepKindVideo {
-		// The wait row has nothing to complete, and step 7 goes through SubmitReading
-		// with the reading attached.
+		// A waiting row has nothing to complete, and the READING step goes through
+		// SubmitReading with the reading attached.
 		return ports.TaskRow{}, domain.ErrStepNotCompletable
 	}
+	p.Procedure = proc
 	if err := s.proofs.ValidateToxinStepVideo(ctx, p.TenantID, p.ProofRef); err != nil {
 		return ports.TaskRow{}, err
 	}
 	p.Now = s.now()
-	return s.repo.CompleteStep(ctx, p)
+	out, err := s.repo.CompleteStep(ctx, p)
+	if err != nil {
+		return out, err
+	}
+	out.Procedure = proc
+	return out, nil
 }
 
 // SubmitReading records step 7: the strip photo plus the reading. An Invalid strip
@@ -118,8 +181,18 @@ func (s *Service) SubmitReading(ctx context.Context, p ports.SubmitParams) (port
 	if err := s.proofs.ValidateToxinStripPhoto(ctx, p.TenantID, p.StripPhotoRef); err != nil {
 		return ports.TaskRow{}, err
 	}
+	row, err := s.repo.GetTask(ctx, p.TenantID, p.TaskID)
+	if err != nil {
+		return ports.TaskRow{}, err
+	}
+	p.Procedure = s.procedureFor(ctx, p.TenantID, row.Task.SOPVersion, nil)
 	p.Now = s.now()
-	return s.repo.SubmitReading(ctx, p)
+	out, err := s.repo.SubmitReading(ctx, p)
+	if err != nil {
+		return out, err
+	}
+	out.Procedure = p.Procedure
+	return out, nil
 }
 
 // RecordVerdict records the CEO/CXO accept/reject, fenced on the row_version the
@@ -135,5 +208,11 @@ func (s *Service) RecordVerdict(ctx context.Context, p ports.VerdictParams) (por
 	}
 	p.TaskID = strings.TrimSpace(p.TaskID)
 	p.Reason = strings.TrimSpace(p.Reason)
-	return s.repo.RecordVerdict(ctx, p)
+	out, err := s.repo.RecordVerdict(ctx, p)
+	if err != nil {
+		return out, err
+	}
+	rows := []ports.TaskRow{out}
+	s.attachProcedures(ctx, p.TenantID, rows)
+	return rows[0], nil
 }
