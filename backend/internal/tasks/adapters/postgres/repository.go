@@ -410,7 +410,7 @@ LEFT JOIN feed_purchases fpl
 
 // ListWorkflows serves one keyset page of cards plus the requested day's chip counts.
 //
-// projection-review: membership=workflow_instances for tenant module and event_date with card state pre-aggregated on write; group_key=workflow_id and status chip bucket; join_cardinality=goat tag park and shed enrichments are each one-to-at-most-one; pagination=chips aggregate the whole filter while cards use next_due_at and workflow_id keyset; scope=tenant_id module event_date and requested status
+// projection-review: membership=workflow_instances for tenant module and event_date with card state pre-aggregated on write; group_key=workflow_id and status chip bucket; join_cardinality=goat tag park and shed enrichments are each one-to-at-most-one, and so are the three subject-line joins: sales_deals on its PRIMARY KEY id, animal_purchase_loads on its PRIMARY KEY load_id and feed_purchases on its PRIMARY KEY feed_purchase_id, each matched against wi.subject_ref_id and gated on the template key, so a load with many candidates, lines or instalments is still exactly one card (pinned by purchase_workflow_grain_integration_test.go and its sales twin); pagination=chips aggregate the whole filter while cards use next_due_at and workflow_id keyset; scope=tenant_id module event_date and requested status
 // Producer grain = `workflow_actions` unique (workflow_id, action_key); consumer
 // card grain = `workflow_instances` unique (tenant_id, template_key, subject_goat_id) = 1 row per
 // card. The card counters were pre-aggregated ON WRITE in the action-write transaction, so this
