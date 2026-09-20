@@ -16,8 +16,6 @@ agent cost, performance, safety, and cleanup controls.
 
 ## Pending
 
-- Final diff/whitespace validation and repository landing receipt.
-- Push to `origin/main`.
 - Implementation intentionally awaits further discussion with Ravi.
 
 ## Exact tests and E2E
@@ -26,7 +24,11 @@ agent cost, performance, safety, and cleanup controls.
 - Manual diff review: passed; only the plan and this progress receipt are in scope.
 - Markdown linter: unavailable on this host, recorded rather than installed for a docs-only change.
 - Independent judge review: passed after its findings were incorporated into v3.
-- `make land-main`: pending.
+- First `make land-main`: blocked before push when the parallel-dispatch cleanup self-test observed a
+  temporary directory created by another concurrently running CI job.
+- Focused `bash tools/ci/check-parallel-dispatch-cleanup.sh`: passed in isolation with zero orphan
+  processes and zero leaked run directories.
+- Final `make land-main`: passed; common CI was green and the certified plan commit was pushed.
 - Browser E2E: not applicable to this documentation-only change; no runtime code changed.
 
 ## Known failures
@@ -49,8 +51,11 @@ present in v3.
 
 ## Current SHA
 
-Base: `e565e0d291b89ec4ae31d9003f028cca5ed9638b` (`origin/main` at worktree creation).
+Base: `e565e0d291b89ec4ae31d9003f028cca5ed9638b`.
+
+Certified plan commit: `79de4aba61ff4b31c71523879b807c916d88016a`; remote `origin/main` readback matched
+before this closeout update.
 
 ## Deployment state
 
-Documentation only. No automation implemented, enabled, or deployed.
+Documentation landed on `origin/main`. No automation implemented, enabled, or deployed.
