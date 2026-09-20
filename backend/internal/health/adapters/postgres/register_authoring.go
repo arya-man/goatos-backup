@@ -663,3 +663,106 @@ VALUES ($1::uuid, $2, $3, $4, $5, $6, NULLIF($7,'')::uuid, NULLIF($8,'')::uuid, 
 		e.ResultVersionID, e.RetiredVersionID, actorID)
 	return err
 }
+
+// SeedPublishedRegisters publishes the committed rule table as version 1 for every
+// animal class a tenant does not already have one for.
+//
+// It is how a farm's rulebook is BORN, and it runs once. A class that already has a
+// published register is left alone -- re-seeding would retire a register the farm has
+// since edited and replace it with the shipped one, silently discarding clinical work.
+// That is the same failure ReplacePublishedProtocols fails closed on for treatment
+// cards, and it is why this is additive rather than a replace.
+//
+// Every seeded register is validated before it is written, so a defect in the committed
+// YAML or in the transcribed form fails the seed instead of publishing a rule table
+// nobody can diagnose against.
+func (r *Repository) SeedPublishedRegisters(ctx context.Context, tenantID, actorID string) ([]domain.RegisterAuthoringResult, error) {
+	out := []domain.RegisterAuthoringResult{}
+
+	for _, class := range diagnosis.Classes {
+		doc, err := diagnosis.SeedAuthored(class, domain.SOPRefToDiseaseKey)
+		if err != nil {
+			return nil, fmt.Errorf("health: seed %s register: %w", class, err)
+		}
+		res, err := r.seedOneRegister(ctx, tenantID, actorID, class, *doc)
+		if err != nil {
+			return nil, err
+		}
+		out = append(out, res)
+	}
+	return out, nil
+}
+
+func (r *Repository) seedOneRegister(
+	ctx context.Context, tenantID, actorID, class string, doc diagnosis.AuthoredRegister,
+) (domain.RegisterAuthoringResult, error) {
+	var zero domain.RegisterAuthoringResult
+
+	tx, err := r.pool.BeginTx(ctx, pgx.TxOptions{})
+	if err != nil {
+		return zero, err
+	}
+	committed := false
+	defer func() {
+		if !committed {
+			_ = tx.Rollback(ctx)
+		}
+	}()
+
+	if _, err := lockRegisterIdentity(ctx, tx, tenantID, class); err != nil {
+		return zero, err
+	}
+
+	var existingID string
+	err = tx.QueryRow(ctx, `
+SELECT health_diagnosis_register_version_id::text FROM health_diagnosis_register_versions
+WHERE tenant_id=$1::uuid AND animal_class=$2 AND status='published'`, tenantID, class).Scan(&existingID)
+	if err == nil {
+		if err := tx.Commit(ctx); err != nil {
+			return zero, err
+		}
+		committed = true
+		return domain.RegisterAuthoringResult{
+			Outcome: "unchanged", AnimalClass: class, RegisterVersionID: existingID,
+		}, nil
+	}
+	if !errors.Is(err, pgx.ErrNoRows) {
+		return zero, fmt.Errorf("health: read published register: %w", err)
+	}
+
+	body, err := json.Marshal(doc)
+	if err != nil {
+		return zero, err
+	}
+	hash, err := domain.RegisterContentHash(doc)
+	if err != nil {
+		return zero, err
+	}
+
+	var next int
+	if err := tx.QueryRow(ctx, `
+SELECT COALESCE(MAX(version), 0) + 1 FROM health_diagnosis_register_versions
+WHERE tenant_id=$1::uuid AND animal_class=$2`, tenantID, class).Scan(&next); err != nil {
+		return zero, fmt.Errorf("health: next register version: %w", err)
+	}
+
+	var id string
+	if err := tx.QueryRow(ctx, `
+INSERT INTO health_diagnosis_register_versions
+  (tenant_id, animal_class, version, status, register_label, document, content_hash,
+   created_by, updated_by, published_by, published_at)
+VALUES ($1::uuid, $2, $3, 'published', $4, $5::jsonb, $6, $7::uuid, $7::uuid, $7::uuid, now())
+RETURNING health_diagnosis_register_version_id::text`,
+		tenantID, class, next, doc.RegisterVersion, body, hash, nullUUID(actorID)).Scan(&id); err != nil {
+		return zero, fmt.Errorf("health: seed register: %w", err)
+	}
+
+	if err := tx.Commit(ctx); err != nil {
+		return zero, err
+	}
+	committed = true
+	return domain.RegisterAuthoringResult{
+		Outcome: "published", AnimalClass: class, RegisterVersionID: id, Version: next,
+		Warnings: doc.Validate(),
+	}, nil
+}

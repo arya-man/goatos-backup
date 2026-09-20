@@ -834,6 +834,22 @@ var protectedRoutes = []Route{
 	{OperationID: "saveHealthConfigDraft", Method: "POST", Pattern: "/health-config/drafts/save", Permissions: []string{HealthConfigWrite}},
 	{OperationID: "publishHealthConfigDraft", Method: "POST", Pattern: "/health-config/protocols/{protocol_version_id}/publish", Permissions: []string{HealthConfigWrite}},
 	{OperationID: "discardHealthConfigDraft", Method: "POST", Pattern: "/health-config/protocols/{protocol_version_id}/discard", Permissions: []string{HealthConfigWrite}},
+	// The DIAGNOSIS REGISTER, the second tab of the same screen: the observation form,
+	// the mapping from each answer to a rule token, and the rules those tokens fire.
+	//
+	// Same two permissions as the treatment protocols, deliberately and not by
+	// convenience. Both tabs author the same rulebook -- one decides which illness an
+	// animal is judged to have, the other decides what it is then given -- and a
+	// principal trusted with one is the principal trusted with the other. Splitting
+	// them would invent a role the farm does not have.
+	//
+	// Opening a draft is a WRITE here too: it creates the draft row when none is open.
+	{OperationID: "listHealthConfigRegisters", Method: "GET", Pattern: "/health-config/registers", Permissions: []string{HealthConfigRead}},
+	{OperationID: "getHealthConfigRegister", Method: "GET", Pattern: "/health-config/registers/{register_version_id}", Permissions: []string{HealthConfigRead}},
+	{OperationID: "openHealthConfigRegisterDraft", Method: "POST", Pattern: "/health-config/registers/drafts", Permissions: []string{HealthConfigWrite}},
+	{OperationID: "saveHealthConfigRegisterDraft", Method: "POST", Pattern: "/health-config/registers/drafts/save", Permissions: []string{HealthConfigWrite}},
+	{OperationID: "publishHealthConfigRegisterDraft", Method: "POST", Pattern: "/health-config/registers/{register_version_id}/publish", Permissions: []string{HealthConfigWrite}},
+	{OperationID: "discardHealthConfigRegisterDraft", Method: "POST", Pattern: "/health-config/registers/{register_version_id}/discard", Permissions: []string{HealthConfigWrite}},
 	{OperationID: "getFeedDirectionGenerationPreview", Method: "GET", Pattern: "/feed-direction/generation-preview", Permissions: []string{FeedDirectionRead}},
 	{OperationID: "listFeedDirectionCountsProjectionExceptions", Method: "GET", Pattern: "/feed-direction/counts-projection/exceptions", Permissions: []string{FeedDirectionRead}},
 	{OperationID: "resolveFeedDirectionCountsProjectionException", Method: "POST", Pattern: "/feed-direction/counts-projection/exceptions/{exception_id}/resolve", Permissions: []string{FeedDirectionOversee}},

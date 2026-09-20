@@ -709,6 +709,10 @@ func NewAPI(ctx context.Context, cfg Config, log *slog.Logger) (*API, error) {
 	// the same module, not a different module.
 	healthConfigService := healthapp.NewConfigService(healthRepo)
 	healthConfigHandler := healthhttp.NewConfigHandler(healthConfigService, log)
+	// The diagnosis register is the second tab of the same screen and shares its
+	// repository: one Health Config, one rulebook.
+	healthRegisterConfigHandler := healthhttp.NewRegisterConfigHandler(
+		healthapp.NewRegisterConfigService(healthRepo), log)
 	// The diagnosis engine. The register is embedded and validated on first load,
 	// so a rule table that fails its structural checks stops the process here
 	// rather than diagnosing animals from a broken register.
@@ -1503,6 +1507,7 @@ func NewAPI(ctx context.Context, cfg Config, log *slog.Logger) (*API, error) {
 	taskshttp.Register(protectedMux, tasksWorkflowHandler)
 	healthhttp.Register(protectedMux, healthHandler)
 	healthhttp.RegisterConfig(protectedMux, healthConfigHandler)
+	healthhttp.RegisterRegisterConfig(protectedMux, healthRegisterConfigHandler)
 	herdsignalshttp.Register(protectedMux, herdSignalsHandler)
 	healthhttp.RegisterDiagnosis(protectedMux, healthDiagnosisHandler)
 	healthhttp.RegisterAnalytics(protectedMux, healthAnalyticsHandler)

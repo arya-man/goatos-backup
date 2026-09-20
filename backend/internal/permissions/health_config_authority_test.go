@@ -104,6 +104,15 @@ func TestHealthConfigRoutesCarryTheRightPermission(t *testing.T) {
 		{"POST", "/health-config/drafts/save", HealthConfigWrite},
 		{"POST", "/health-config/protocols/{protocol_version_id}/publish", HealthConfigWrite},
 		{"POST", "/health-config/protocols/{protocol_version_id}/discard", HealthConfigWrite},
+		// The diagnosis register rides the SAME two permissions as the protocols. Both
+		// tabs author one rulebook: which illness the animal is judged to have, and
+		// what it is then given.
+		{"GET", "/health-config/registers", HealthConfigRead},
+		{"GET", "/health-config/registers/{register_version_id}", HealthConfigRead},
+		{"POST", "/health-config/registers/drafts", HealthConfigWrite},
+		{"POST", "/health-config/registers/drafts/save", HealthConfigWrite},
+		{"POST", "/health-config/registers/{register_version_id}/publish", HealthConfigWrite},
+		{"POST", "/health-config/registers/{register_version_id}/discard", HealthConfigWrite},
 	}
 	for _, tc := range cases {
 		route, ok := Match(tc.method, tc.pattern)
