@@ -73,7 +73,7 @@ func (h *FeedPurchaseHandler) GetFeedPurchaseForm(w http.ResponseWriter, r *http
 		h.writeErr(w, r, app.FeedPurchaseHTTPError(err))
 		return
 	}
-	httpresponse.WriteJSON(w, http.StatusOK, toVendorFormPayload(form))
+	httpresponse.WriteJSON(w, http.StatusOK, toFeedPurchaseFormPayload(form))
 }
 
 // ListFeedPurchases serves GET /procurement/feed-purchases.

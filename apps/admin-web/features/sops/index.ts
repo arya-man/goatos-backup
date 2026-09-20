@@ -7,3 +7,5 @@ export type { SopCardView, BuilderInitial } from "./sop-derive";
 
 export { parseToxin, emitToxin, toxinProblems, toxinWorkingStepCount, TOXIN_SCHEMA_VERSION } from "./toxin-model";
 export type { ToxinRows, ToxinStepRow, ToxinStepKind } from "./toxin-model";
+
+export { parseFeedPurchaseForm, emitFeedPurchaseForm, FEED_PURCHASE_FORM_SCHEMA_VERSION } from "./inspection-model";
