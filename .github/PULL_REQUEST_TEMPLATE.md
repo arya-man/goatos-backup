@@ -46,6 +46,7 @@ a concrete reason.
 - Green command/result on candidate:
 - Guard self-test and real-check result:
 - SQL bind-contract classification/proof, or concrete `N/A` reason:
+- Bind-guard performance judge (frontend impact + API latency evidence), or concrete `N/A` reason:
 - Affected `make ci-local` result and exact SHA:
 - Main-merge authorization, exact SHA, and source:
   - [ ] `make land-main` passed on the exact SHA; or
@@ -58,6 +59,7 @@ a concrete reason.
 ## Review and landing
 
 - [ ] Independent counter-review reconciled every raised finding
+- [ ] Bind-guard/runtime-validation changes have independent frontend-performance and API-latency review, or are explicitly `N/A`
 - Independent judge model/reasoning and reviewed SHA:
 - [ ] Rollback class, kill switch/forward-repair path, and final ledger reconciliation are recorded
 

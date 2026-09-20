@@ -131,6 +131,11 @@ memory — the allowed set changes by migration (states get added over time).
 - [ ] `make postgres-bind-contract-guard` passes, including its adversarial
       self-test; suppressions are narrow, documented, and point to executable
       proof. The legacy baseline is shrink-only.
+- [ ] Any bind-guard/runtime-validation change has an independent performance
+      judge. Prove the admin-web bundle/runtime/fanout is unchanged or measured,
+      and measure or tightly bound API-path CPU, allocations, DB calls, query
+      text/plans, and latency risk. Build-time guard speed is not API-latency
+      proof; do not approve an unmeasured high-QPS runtime expansion.
 - [ ] Every scoped query filters `tenant_id` (multi-tenant isolation)
 - [ ] **Cross-tenant IDOR:** a handler taking an object id from the URL path
       (`{goat_id}`, `{location_id}`, `{proof_id}`, `{task_id}`, `{obligation_id}`,

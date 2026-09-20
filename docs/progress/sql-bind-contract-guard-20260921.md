@@ -52,6 +52,7 @@ Prevent missing, extra, gapped, or conditionally-pruned PostgreSQL parameters fr
 
 - Three specialist audits completed and incorporated. Independent judges found and drove fixes for changed-line enforcement, pgx option handling, named-map key validation, mutable wrappers, import spoofing and shadowing, cross-scope identifier collisions, unchecked `Bind` errors, extra bound-call arguments, non-pgx selector false positives, and a stale Weighing source guard.
 - Final judge verdicts: runtime/lexer APPROVE; guard/CI bypass resistance APPROVE; scope/skills completeness APPROVE.
+- Maintainer-requested performance judge: APPROVE. No admin-web/shared frontend package changed; the 57,062-byte Weighing SQL template and DB call count are unchanged. The only request-path work is one linear SQL scan, a 31-entry ordinal map, and two 31-element defensive slice copies before the existing query. The warm whole-repository build-time guard completed in about 1.02 seconds and is not installed as an editor-wide hook.
 
 ## Source and deployment state
 
