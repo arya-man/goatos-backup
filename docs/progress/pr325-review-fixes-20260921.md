@@ -37,4 +37,4 @@ Judge: self-review of diff, runtime outputs and screenshots complete. No delegat
 
 Local test stack remains available: admin-web `http://127.0.0.1:3315`, API `http://127.0.0.1:18095`, fresh database `goatos_pr325_fix` on local Postgres 15499. No shared stack, OCI or STG data was mutated.
 
-Pending: commit and push the validated candidate to PR #325, then verify remote head. Deployment state: not deployed.
+Delivery: code commit `53c892fa0b3839b0792ec2088d2e5d4a41db46ff` pushed to PR #325 and confirmed by GitHub head readback. This documentation-only closeout records that result. No implementation work remains for the reported findings. Full CI remains limited by the missing Docker executable as stated above. Deployment state: not deployed.
