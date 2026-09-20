@@ -455,6 +455,54 @@ func collectStrictNamedArgs(f *ast.File, imports map[string]string) map[*ast.Obj
 		}
 		return true
 	})
+	// Only the declaration and direct database-call argument uses preserve
+	// static map-key evidence. Index writes, delete/clear, aliases, pointers,
+	// and passing the map to helpers can mutate its keys; fail closed on all
+	// other uses rather than attempting interprocedural alias analysis.
+	safeUses := map[*ast.Ident]bool{}
+	for obj := range infos {
+		if as, ok := obj.Decl.(*ast.AssignStmt); ok {
+			for _, lhs := range as.Lhs {
+				if id, ok := lhs.(*ast.Ident); ok {
+					safeUses[id] = true
+				}
+			}
+		}
+	}
+	ast.Inspect(f, func(n ast.Node) bool {
+		call, ok := n.(*ast.CallExpr)
+		if !ok {
+			return true
+		}
+		sel, ok := call.Fun.(*ast.SelectorExpr)
+		if !ok || !shouldInspectCall(sel, imports) {
+			return true
+		}
+		start := 2
+		switch sel.Sel.Name {
+		case "Query", "QueryRow", "Exec":
+		case "Queue":
+			start = 1
+		default:
+			return true
+		}
+		for i := start; i < len(call.Args); i++ {
+			if id, ok := call.Args[i].(*ast.Ident); ok {
+				safeUses[id] = true
+			}
+		}
+		return true
+	})
+	ast.Inspect(f, func(n ast.Node) bool {
+		id, ok := n.(*ast.Ident)
+		if ok && id.Obj != nil && !safeUses[id] {
+			if info, tracked := infos[id.Obj]; tracked {
+				info.valid = false
+				infos[id.Obj] = info
+			}
+		}
+		return true
+	})
 	for obj, info := range infos {
 		info.valid = info.valid && counts[obj] == 1
 		infos[obj] = info
@@ -471,7 +519,7 @@ func strictNamedArgs(args []ast.Expr, method string, imports map[string]string, 
 			if id, ok := args[0].(*ast.Ident); ok && id.Obj != nil {
 				if info, found := named[id.Obj]; found {
 					if !info.valid {
-						return false, nil, "unverified:StrictNamedArgs variable is reassigned or not a static literal"
+						return false, nil, "unverified:StrictNamedArgs variable is reassigned, mutated, escapes, or is not a static literal"
 					}
 					if len(args) != 1 {
 						return false, nil, "StrictNamedArgs must be the sole data argument after valid leading pgx options"

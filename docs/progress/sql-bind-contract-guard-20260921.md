@@ -62,3 +62,14 @@ Prevent missing, extra, gapped, or conditionally-pruned PostgreSQL parameters fr
 - Final pre-PR all-scope CI receipt: GREEN at `98d2aca15969ef49e7d7e7f3aa2f7f527a350869`.
 - Pushed branch and opened PR: https://github.com/vgoats/goatos/pull/326. Local, remote, and PR heads matched `98d2aca15969ef49e7d7e7f3aa2f7f527a350869` before this bookkeeping update.
 - No merge or deployment performed.
+
+## PR 326 review fixes
+
+- Scope: address named-map mutation/escape false negatives and dollar signs inside unquoted SQL identifiers. Base reviewed SHA: `c8929125b923cf2cd6f4befb8e7ef26c2fc41443`; current fix SHA is the commit containing this entry.
+- Done: reject named-map index writes, delete/clear, aliases, helper calls, and pointer escapes as unverified; preserve direct database-call uses. Consume complete unquoted identifiers before scanning placeholders.
+- Tests: focused sqlbind, scanner, and Weighing postgres package tests PASS; regression cases cover mutations/escapes, repeated safe reads, dollar-containing and Unicode identifiers, extra arguments, and real placeholders beside identifier suffixes. Bind guard and registration guard PASS; legacy baseline remains 358, registration count 139.
+- Before/after: the two review fixtures previously produced scanner exit 0 with no findings; after fixes they produce positional-bind-mismatch and unverified-dynamic-args. No API latency improvement is claimed; SQL templates and database call counts are unchanged.
+- Known limitations: PostgreSQL integration tests remain opt-in and were not executed in this fix session; no live browser E2E or latency run, no fresh full local CI receipt. Map analysis intentionally fails closed on uses outside its approved direct-call pattern.
+- Judge status: local regression verification completed; no independent judge requested for this follow-up.
+- Pending: push this fix commit to the existing PR branch and verify remote head.
+- Deployment state: no main merge, main push, or staging deployment authorized or performed.

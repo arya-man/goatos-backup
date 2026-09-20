@@ -107,6 +107,13 @@ func bad(){ q := other(); p.Query(ctx,q.SQL(),q.Args()...) }`
 
 func TestStrictNamedIdentifierAndReassignment(t *testing.T) {
 	tests := []struct{ name, body, want string }{
+		{"deleted key", `a := pgx.StrictNamedArgs{"id":v}; delete(a,"id"); p.Query(ctx,"select @id",a)`, "unverified-dynamic-args"},
+		{"added key", `a := pgx.StrictNamedArgs{"id":v}; a["unused"] = v; p.Query(ctx,"select @id",a)`, "unverified-dynamic-args"},
+		{"cleared map", `a := pgx.StrictNamedArgs{"id":v}; clear(a); p.Query(ctx,"select @id",a)`, "unverified-dynamic-args"},
+		{"aliased map", `a := pgx.StrictNamedArgs{"id":v}; b := a; delete(b,"id"); p.Query(ctx,"select @id",a)`, "unverified-dynamic-args"},
+		{"helper escape", `a := pgx.StrictNamedArgs{"id":v}; mutate(a); p.Query(ctx,"select @id",a)`, "unverified-dynamic-args"},
+		{"pointer escape", `a := pgx.StrictNamedArgs{"id":v}; mutate(&a); p.Query(ctx,"select @id",a)`, "unverified-dynamic-args"},
+		{"repeated safe reads", `a := pgx.StrictNamedArgs{"id":v}; p.Query(ctx,"select @id",a); p.Exec(ctx,"select @id",a)`, ""},
 		{"identifier valid", `a := pgx.StrictNamedArgs{"id":v}; p.Query(ctx,"select @id",a)`, ""},
 		{"identifier missing", `a := pgx.StrictNamedArgs{"id":v}; p.Query(ctx,"select @id,@tenant",a)`, "invalid-strict-named-args"},
 		{"reassigned", `a := pgx.StrictNamedArgs{"id":v}; a = other; p.Query(ctx,"select @id",a)`, "unverified-dynamic-args"},
