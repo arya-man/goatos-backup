@@ -14,7 +14,9 @@ if (args.selfTest) {
   process.exit(0);
 }
 
-const receiptPath = args.receipt ?? process.env.GOATOS_STG_OCI_PARITY_RECEIPT ?? config.businessDataParity.latestFullParityReceiptPath;
+const receiptPath = expandHome(
+  args.receipt ?? process.env.GOATOS_STG_OCI_PARITY_RECEIPT ?? config.businessDataParity.latestFullParityReceiptPath,
+);
 const verdict = validateLatestParityReceipt(readJson(receiptPath), {
   now: new Date(),
   expectedStatus: config.businessDataParity.latestFullParityReceiptStatus,
@@ -76,6 +78,13 @@ function readJson(file) {
   } catch (error) {
     throw new Error(`cannot read latest STG-to-OCI parity receipt ${file}: ${error.message}`);
   }
+}
+
+function expandHome(file) {
+  if (typeof file !== "string" || file.length === 0) return file;
+  if (file === "~") return process.env.HOME ?? file;
+  if (file.startsWith("~/")) return path.join(process.env.HOME ?? "~", file.slice(2));
+  return file;
 }
 
 function parseDate(value) {

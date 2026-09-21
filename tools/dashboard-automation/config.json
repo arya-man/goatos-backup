@@ -78,7 +78,7 @@
     "stgReadOnlyTransactionRequired": true,
     "ociReadOnlyCheckRequired": true,
     "latestFullParityReceiptRequired": true,
-    "latestFullParityReceiptPath": "/Users/raviteja/.codex/automations/daily-stg-to-oci-delta-parity/last-run.json",
+    "latestFullParityReceiptPath": "~/.codex/automations/daily-stg-to-oci-delta-parity/last-run.json",
     "latestFullParityReceiptMaxAgeHours": 24,
     "latestFullParityReceiptIncludedTableCount": 293,
     "latestFullParityReceiptStatus": "READBACK_PASS",

@@ -29,7 +29,8 @@ The schedule and Slack destination are runtime configuration, not app code:
 - `GOATOS_DASHBOARD_DATA_PARITY=0` and `GOATOS_DASHBOARD_API_LATENCY=0` are break-glass
   disables only; parity and latency are on by default.
 - `GOATOS_STG_OCI_PARITY_RECEIPT` may point at the latest machine-readable STG-to-OCI full parity
-  receipt. If unset, the runner reads the configured daily parity `last-run.json`.
+  receipt. If unset, the runner reads the configured daily parity `last-run.json` under the OCI
+  user's home directory.
 
 Change these in `~/.config/goatos/dashboard-automation.env`, then rerun
 `GOATOS_DASHBOARD_AUTOMATION_INSTALL=1 tools/dashboard-automation/install-oci-user-timer.sh` or
