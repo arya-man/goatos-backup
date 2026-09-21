@@ -496,7 +496,7 @@ func (h *Handler) analyticsInput(w http.ResponseWriter, r *http.Request) (app.Di
 func (h *Handler) analyticsInputForPermission(
 	w http.ResponseWriter,
 	r *http.Request,
-	scopePermission string,
+	scopePermissions ...string,
 ) (app.DirectedAnalyticsInput, bool) {
 	tenantID := httpmiddleware.TenantIDFromContext(r.Context())
 	if tenantID == "" {
@@ -516,7 +516,7 @@ func (h *Handler) analyticsInputForPermission(
 		return app.DirectedAnalyticsInput{}, false
 	}
 	parkScope := httpmiddleware.ResolveAuthorizedParkScopeForCapabilities(
-		r.Context(), tenantID, strings.TrimSpace(query.Get("park_id")), scopePermission,
+		r.Context(), tenantID, strings.TrimSpace(query.Get("park_id")), scopePermissions...,
 	)
 	if !parkScope.Allowed {
 		httpresponse.WriteError(w, r, h.log, parkScope.Status, parkScope.Message, nil)
@@ -821,7 +821,7 @@ type stockLoadsDTO struct {
 
 // GetStockLoads serves GET /feed-analytics/stock-loads: the purchased-vs-consumed table.
 func (h *Handler) GetStockLoads(w http.ResponseWriter, r *http.Request) {
-	in, ok := h.analyticsInputForPermission(w, r, permissions.FeedAnalyticsStockRead)
+	in, ok := h.analyticsInputForPermission(w, r, permissions.FeedAnalyticsStockRead, permissions.FeedDirectionRead)
 	if !ok {
 		return
 	}
