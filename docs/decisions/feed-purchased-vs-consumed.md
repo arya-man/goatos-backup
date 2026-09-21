@@ -14,7 +14,7 @@ and stays blank.
 
 - **Entry**: `days_of_stock` on the feed-purchase record and edit forms, web
   (`/procurement/feed-purchases`) and phone (Procurement module). One nullable column on
-  `feed_purchases` (migration `000381`), `CHECK (days_of_stock IS NULL OR days_of_stock > 0)`.
+  `feed_purchases` (migration `000383`), `CHECK (days_of_stock IS NULL OR days_of_stock > 0)`.
   Zero is **rejected**, never read as "not stated": a client that coerces a blank box into `0`
   must hear about it rather than store a belief nobody held.
 - **Reading**: the **last table on the Stock tab** of `/feed/analytics` (maintainer instruction,

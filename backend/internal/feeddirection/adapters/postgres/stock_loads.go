@@ -119,8 +119,29 @@ burn AS (
 ),
 -- Which days drew on which load: a day touches load L when its running total passes L's start
 -- and the total before the day is still inside L's range. Never before the load's own arrival.
+-- The load that is newest AS OF THAT DAY takes any overrun above its own kg, so a later-arriving
+-- load is not charged for feed that had already gone out before it reached the farm.
 load_days AS (
     SELECT p.feed_purchase_id,
+           SUM(
+               GREATEST(0,
+                   LEAST(
+                       fc.cum_kg,
+                       CASE WHEN EXISTS (
+                           SELECT 1
+                           FROM positioned next_load
+                           WHERE next_load.farm_label = p.farm_label
+                             AND next_load.feed_item_key = p.feed_item_key
+                             AND next_load.depletes_from <= fc.feed_day
+                             AND (next_load.depletes_from, next_load.purchase_date, next_load.batch_no) >
+                                 (p.depletes_from, p.purchase_date, p.batch_no)
+                       )
+                       THEN p.prior_net_kg + p.net_kg
+                       ELSE fc.cum_kg
+                       END
+                   ) - GREATEST(fc.cum_kg - fc.kg, p.prior_net_kg)
+               )
+           )                                                            AS consumed_kg,
            COUNT(*)                                                     AS days_consumed,
            MIN(fc.feed_day)                                             AS consumption_from,
            MIN(fc.feed_day) FILTER (WHERE fc.cum_kg >= p.prior_net_kg + p.net_kg) AS finished_on
@@ -135,12 +156,9 @@ load_days AS (
 ),
 scored AS (
     SELECT p.*,
-           -- FIFO split. Every load but the newest is clamped to its own kg; the NEWEST load takes
-           -- the whole remainder so an overrun shows as negative kg left, never clamped away.
-           CASE WHEN p.recency = 1
-                THEN GREATEST(0, COALESCE(ft.directed_kg, 0) - p.prior_net_kg)
-                ELSE LEAST(p.net_kg, GREATEST(0, COALESCE(ft.directed_kg, 0) - p.prior_net_kg))
-           END AS consumed_kg,
+           -- FIFO split from actual feed days. Any overrun belongs to the load that was newest when
+           -- the feed went out, not to a future load that reached after those days.
+           COALESCE(ld.consumed_kg, 0) AS consumed_kg,
            ld.days_consumed, ld.consumption_from, ld.finished_on,
            b.avg_daily_kg
     FROM positioned p
