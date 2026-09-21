@@ -189,6 +189,26 @@ test("visual smoke fails on the visible admin error boundary", () => {
   assert.match(smokeSource, /rendered visible failure marker/);
 });
 
+test("visual smoke keeps mobile WebView layout regression checks wired", () => {
+  assert.match(smokeSource, /await assertLayoutHealthy\(page, route\.name, viewport\.label\);/);
+  assert.match(smokeSource, /await assertMobileWideTableGestures\(page, route\.name, viewport\.label, screenshotDir\);/);
+  assert.match(smokeSource, /await assertA11y\(page, route\.name, viewport\.label\);/);
+  assert.match(smokeSource, /await assertTruncationContracts\(page, route\.name, viewport\.label\);/);
+  assert.match(smokeSource, /await assertCoreInteractions\(page, route\.name, viewport\.label\);/);
+  for (const requiredCheck of [
+    "has horizontal overflow",
+    "has cards/panels cut at the viewport edge",
+    "has clipped button/link text",
+    "has interactive targets below 40px",
+    "has overlapping interactive elements",
+    "has wide tables that cannot be horizontally scrolled on mobile",
+    "mobile wide table did not respond to horizontal drag",
+    "mobile expected one mobile navigation menu button",
+  ]) {
+    assert.ok(smokeSource.includes(requiredCheck), `mobile/WebView smoke must keep check: ${requiredCheck}`);
+  }
+});
+
 test("pager-required routes cannot pass silently when the pager is missing", () => {
   const pagerBlock = smokeSource.match(/async function assertPaginationControls[\s\S]*?\n}\n\nasync function exerciseFirstPagerRoundTrip/)?.[0] ?? "";
   assert.match(pagerBlock, /const bodyText = \(await page\.locator\("body"\)\.innerText\(\)\.catch\(\(\) => ""\)\)\.replace/);
