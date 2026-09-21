@@ -97,26 +97,18 @@ Four narrowings, each pinned and each mutation-tested in
   load behind it nor is charged anything, and it gets no days projection.
 - **A load arriving into a family that has nothing left is drawn on from its own first locked day.**
 
-## KNOWN LIMITATION: a deficit is charged to the next load to arrive, even before it arrived
+## Deficits stay on the load that was available
 
 When the farm feeds past everything the ledger says it bought — the case this tab exists to
-surface — the deficit is charged to the newest REACHED load, because that is what makes an overrun
-show as negative kg rather than being clamped away. That rule has no date test on it, while the
-day columns do, so the two halves of such a row answer from different clocks:
+surface — the overrun is charged to the load that was newest **on the day the feed went out**. A
+later-arriving load cannot have fed an earlier locked sheet, so it is not charged just because it is
+the next reached row in the ledger.
 
-> `gap` family: 100 kg directed against a 50 kg load, the next load lands six days later.
-> It reads **in use, 50 kg used, 50 kg left** beside **used 0 days, never started** — and the 50 kg
-> left understates the 100 kg physically sitting in the store.
-
-The family total is still right (150 bought − 100 directed = 50 left), so the tab and the stock
-cards agree. What is wrong is WHICH LOAD carries the deficit: a load that had not arrived could not
-have fed anything, and the honest owner is the load that was newest on the day the feed went out.
-Correcting that changes what a per-load number means, so it is a maintainer decision rather than a
-bug fix. Both affected rows are pinned in the test (`gap#2` and `backdate#2`) with the value they
-should move to if it is ever corrected: `not_started`, with the full load still left.
-
-The tell to watch for in the UI is exactly what the test caught — kilograms consumed beside zero
-days consumed.
+For the `gap` family in the test, 100 kg was directed against a 50 kg load and the next load landed
+six days later. The first load therefore reads as an overrun with negative kg left, and the later
+load remains `not_started` with its full kg left. This keeps the per-load row honest about physical
+availability while still surfacing the ledger gap: the negative kg is the finding, and it says a load
+is missing from the ledger.
 
 ## What did NOT change
 

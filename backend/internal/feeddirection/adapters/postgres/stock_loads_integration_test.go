@@ -396,40 +396,31 @@ VALUES ($1, $2, 'CBE', $3, $4, $5::date, $6::numeric, 40, 1000, 0, $7::date, 'Na
 
 	// Recorded second, arrived first: batch 1 leads the queue. Batch order and entry order are
 	// both irrelevant -- only the arrival day counts.
-	check("backdate load 1 (bought later but arrived first, so it leads the queue)",
-		domain.StockLoadRow{Status: domain.StockLoadFinished, PurchasedKg: "100.0", ConsumedKg: "100.0", LeftKg: "0.0",
-			ConsumptionFrom: "2027-02-01", FinishedOn: "2027-02-02", DaysConsumed: 2, DaysLeft: n(0), GapDays: nil},
+	check("backdate load 1 (bought later but arrived first, so it owns the pre-arrival overrun)",
+		domain.StockLoadRow{Status: domain.StockLoadOverrun, PurchasedKg: "100.0", ConsumedKg: "200.0", LeftKg: "-100.0",
+			ConsumptionFrom: "2027-02-01", FinishedOn: "2027-02-02", DaysConsumed: 4, DaysLeft: n(0), GapDays: nil},
 		rows["backdate#1"])
-	// Batch 2 arrived on the 5th, after every locked day, so it hits the same limitation as the gap
-	// family above: charged the 100 kg remainder it could not have served, with no day to show for
-	// it. Pinned deliberately -- if the attribution is ever corrected, this is one of the two rows
-	// that must move, and it should move to not_started / 100 kg left.
-	check("backdate load 2 (arrived after every locked day -- known limitation)",
-		domain.StockLoadRow{Status: domain.StockLoadFinished, PurchasedKg: "100.0", ConsumedKg: "100.0", LeftKg: "0.0",
-			ConsumptionFrom: "", FinishedOn: "", DaysConsumed: 0, DaysLeft: n(0), GapDays: nil},
+	// Batch 2 arrived on the 5th, after every locked day. It cannot have served any of those days, so
+	// it stays untouched: the overrun, if any, belongs to the load that was available when the feed
+	// went out.
+	check("backdate load 2 (arrived after every locked day, so it is untouched)",
+		domain.StockLoadRow{Status: domain.StockLoadNotStarted, PurchasedKg: "100.0", ConsumedKg: "0.0", LeftKg: "100.0",
+			ConsumptionFrom: "", FinishedOn: "", DaysConsumed: 0, DaysLeft: n(2), GapDays: nil},
 		rows["backdate#2"])
 
-	// THE GAP, and the KNOWN LIMITATION it exposes -- pinned here so it cannot change unnoticed.
+	// THE GAP. The farm fed 100 kg against a 50 kg load, then the next load did not land for another
+	// six days. The overrun stays on the load that was available on those locked days; a later load is
+	// not charged for feed it could not have served.
 	//
-	// The farm fed 100 kg against a 50 kg load and the next load did not land for another six days,
-	// so 50 kg came from somewhere the ledger never recorded. The kg side charges that 50 to the
-	// next load to arrive (the newest reached load carries the whole remainder, by design, so an
-	// overrun cannot be clamped away); the DAY side will not, because no locked day falls on or
-	// after that load's arrival. The row therefore reads "in use, 50 kg used" beside "used 0 days,
-	// never started", and its 50 kg left understates the 100 kg physically in the store.
-	//
-	// This is the family-level truth the stock cards already show (150 bought - 100 directed = 50),
-	// so the two surfaces agree; what is wrong is WHICH LOAD carries the deficit. Charging it to a
-	// load that had not arrived is the defect, and the honest owner is the load that was newest on
-	// the day the feed actually went out. Changing that is a maintainer decision about what the
-	// number means, not a bug fix -- see the handoff note in docs/decisions/feed-purchased-vs-consumed.md.
+	// The tell is the first load's negative kg left. That is the missing-ledger finding this table
+	// exists to expose; the future load remains a future load.
 	check("gap load 1 (ran out on the 2nd, said three days)",
-		domain.StockLoadRow{Status: domain.StockLoadFinished, PurchasedKg: "50.0", ConsumedKg: "50.0", LeftKg: "0.0",
-			ConsumptionFrom: "2026-11-01", FinishedOn: "2026-11-02", DaysConsumed: 2, DaysLeft: n(0), GapDays: n(1)},
+		domain.StockLoadRow{Status: domain.StockLoadOverrun, PurchasedKg: "50.0", ConsumedKg: "100.0", LeftKg: "-50.0",
+			ConsumptionFrom: "2026-11-01", FinishedOn: "2026-11-02", DaysConsumed: 4, DaysLeft: n(0), GapDays: n(-1)},
 		rows["gap#1"])
 	check("gap load 2 (arrived 10 Nov, after every locked day)",
-		domain.StockLoadRow{Status: domain.StockLoadInUse, PurchasedKg: "100.0", ConsumedKg: "50.0", LeftKg: "50.0",
-			ConsumptionFrom: "", FinishedOn: "", DaysConsumed: 0, DaysLeft: n(2), GapDays: nil},
+		domain.StockLoadRow{Status: domain.StockLoadNotStarted, PurchasedKg: "100.0", ConsumedKg: "0.0", LeftKg: "100.0",
+			ConsumptionFrom: "", FinishedOn: "", DaysConsumed: 0, DaysLeft: n(4), GapDays: nil},
 		rows["gap#2"])
 }
 
