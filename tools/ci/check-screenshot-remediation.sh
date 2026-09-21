@@ -40,6 +40,7 @@ cd "$repo"
 rc=0
 fail() { echo "!! screenshot remediation guard: $*" >&2; rc=1; }
 note() { [ -n "${GOATOS_SCREENSHOT_REMEDIATION_VERBOSE:-}" ] && echo "   $*"; return 0; }
+contains() { case "$1" in *"$2"*) return 0 ;; *) return 1 ;; esac; }
 
 SANDBOX=""
 cleanup() { [ -n "$SANDBOX" ] && rm -rf "$SANDBOX"; }
@@ -129,7 +130,7 @@ build_sandbox || { echo "!! screenshot remediation guard: sandbox unavailable" >
 # (a) the pre-push block, driven for real with a blocking receipt.
 record_blocking_receipt || fail "could not record a skipped-with-ui-diff receipt in the sandbox"
 block_text="$(drive_pre_push)"
-if ! printf '%s' "$block_text" | grep -q 'skipped-with-ui-diff'; then
+if ! contains "$block_text" 'skipped-with-ui-diff'; then
   fail "a receipt recording screenshots=skipped-with-ui-diff did NOT block a main push; the screenshot evidence gate is inert"
   printf '%s\n' "$block_text" >&2
 fi
@@ -140,8 +141,10 @@ note "block message: $block_text"
 banner_text="$( cd "$SANDBOX" && env -u GOATOS_RUN_ANDROID_SCREENSHOTS \
   JAVA_HOME="$SANDBOX/fakejdk" ANDROID_HOME="$SANDBOX/fakesdk" \
   bash tools/ci/run-local-ci.sh android 2>&1 )"
-printf '%s' "$banner_text" | grep -q 'SKIPPED WITH UI DIFF\|TOUCHES ANDROID UI' \
-  || fail "the android job did not emit the UI-diff screenshot warning on a real Android UI diff; the banner path is dead"
+case "$banner_text" in
+  *"SKIPPED WITH UI DIFF"*|*"TOUCHES ANDROID UI"*) ;;
+  *) fail "the android job did not emit the UI-diff screenshot warning on a real Android UI diff; the banner path is dead" ;;
+esac
 
 msg_targets="$(printf '%s\n%s\n' "$block_text" "$banner_text" | grep -E 'screenshot|Paparazzi|SKIP' | { grep -oE 'make [a-z0-9][a-z0-9-]*' || true; } | sed 's/^make //' | sort -u)"
 count="$(printf '%s\n' "$msg_targets" | grep -c . || true)"
@@ -197,13 +200,13 @@ done
 clear_receipt
 record_blocking_receipt || fail "could not re-arm the blocking receipt"
 armed="$(cat "$(receipt_file)" 2>/dev/null)"
-run_out="$( cd "$SANDBOX" && env -u GOATOS_FAST_LOCAL_CI -u GOATOS_CI_TRACE_ONLY \
+run_out="$( cd "$SANDBOX" && env -u GOATOS_FAST_LOCAL_CI -u GOATOS_CI_TRACE_ONLY -u GOATOS_RUN_ANDROID_SCREENSHOTS \
   JAVA_HOME="$SANDBOX/fakejdk" ANDROID_HOME="$SANDBOX/fakesdk" \
   bash -c "$recipe" 2>&1 )"
 if [ "$(cat "$(receipt_file)" 2>/dev/null)" = "$armed" ]; then
   fail "\`make $TARGET\` is the command the screenshot block tells users to run, but it left the receipt UNTOUCHED — it is a partial run, and partial runs write no receipt by design. Following the instruction can never clear the block."
 fi
-if ! printf '%s' "$run_out" | grep -q 'ci-local: GREEN'; then
+if ! contains "$run_out" 'ci-local: GREEN'; then
   fail "\`make $TARGET\` did not reach a GREEN run in the sandbox; cannot prove it clears the block"
   printf '%s\n' "$run_out" | tail -20 >&2
   exit "$rc"
@@ -219,7 +222,7 @@ shots="$(node -e 'process.stdout.write(String(JSON.parse(require("fs").readFileS
 
 after="$(drive_pre_push)"
 after_rc=$?
-if [ "$after_rc" -ne 0 ] || printf '%s' "$after" | grep -q 'skipped-with-ui-diff'; then
+if [ "$after_rc" -ne 0 ] || contains "$after" 'skipped-with-ui-diff'; then
   fail "after running \`make $TARGET\` the main push is STILL blocked; the remediation does not remediate"
   printf '%s\n' "$after" >&2
 fi

@@ -30,6 +30,7 @@ trap cleanup EXIT
 
 pass() { echo "  ok   $1"; }
 fail() { echo "  FAIL $1" >&2; rc=1; }
+contains() { case "$1" in *"$2"*) return 0 ;; *) return 1 ;; esac; }
 
 # ── Watchdog ─────────────────────────────────────────────────────────────────
 # NO case in this file may hang. A hanging self-test is worse than a missing
@@ -220,9 +221,9 @@ if [ "$status" -ne 4 ]; then
 # exactly that under a loaded parallel run; this case shares the shape, so both are pipe-free.
 elif case "$out" in *UNRESOLVABLE*) false ;; *) true ;; esac; then
   fail "(d) exited 4 but never said the base was unresolvable"
-elif ! printf '%s' "$out" | grep -q "REFUSING to run the receipt-writing gate"; then
+elif ! contains "$out" "REFUSING to run the receipt-writing gate"; then
   fail "(d) exited 4 without naming the receipt-writing refusal"
-elif printf '%s' "$out" | grep -q '^CI-TRACE '; then
+elif contains "$out" "CI-TRACE "; then
   fail "(d) exited 4 but a gate had already run (CI-TRACE lines present); the refusal is too late"
 else
   pass "(d) fatal + loud, exit 4, before any job ran (zero CI-TRACE lines)"
