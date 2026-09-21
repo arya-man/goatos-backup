@@ -150,7 +150,7 @@ function dashboardRuntimeFindings() {
     if (!paritySource.includes(required)) findings.push(`${parityRel}: sentinel ${required} is configured but not invoked by the parity runner`);
   }
 
-  for (const fragment of ["begin read only", "GOATOS_STG_READONLY_DATABASE_URL", "GOATOS_OCI_READONLY_DATABASE_URL", "alias_location_id", "shed_partitions"]) {
+  for (const fragment of ["default_transaction_read_only", "GOATOS_STG_READONLY_DATABASE_URL", "GOATOS_OCI_READONLY_DATABASE_URL", "alias_location_id", "shed_partitions"]) {
     if (!paritySource.includes(fragment)) findings.push(`${parityRel}: missing parity safety/alias fragment ${fragment}`);
   }
 

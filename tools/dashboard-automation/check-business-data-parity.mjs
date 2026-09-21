@@ -386,7 +386,7 @@ function psqlRows(databaseUrl, sql) {
 }
 
 function readOnlySql(sql) {
-  return `begin read only; ${sql}; rollback`;
+  return `set default_transaction_read_only = on; ${sql}`;
 }
 
 function quoteIdent(value) {
