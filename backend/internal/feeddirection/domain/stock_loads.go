@@ -25,6 +25,18 @@ import "errors"
 // never zero, when the buyer stated no figure or when nothing has been fed recently enough to
 // project days left: a check nobody could make is not a check that passed.
 
+// StockLoadExcludedFeedItemKeys are the feeds this tab does not answer for (maintainer
+// instruction, 2026-09-21).
+//
+// UHT milk is not drawn off the ration sheet the way a bulk feed is -- it is consumed by milk
+// PREPARATION batches, which depletes it on submit. "How many days of stock did this load cover"
+// is a bulk-feed question, so a milk load is left out of the table and out of the feed-item
+// filter rather than answered with a figure that means something else.
+//
+// This is a REPORTING exclusion only: milk purchases, milk stock and the milk consumption series
+// are untouched everywhere else, and the excluded keys never reach a write path.
+var StockLoadExcludedFeedItemKeys = []string{"uht_milk"}
+
 // StockLoadStatus names where one load stands in the FIFO queue.
 type StockLoadStatus string
 
@@ -81,13 +93,10 @@ type StockLoadRow struct {
 
 // StockLoadsPage is one page of loads plus the whole-filter aggregates.
 type StockLoadsPage struct {
-	Rows  []StockLoadRow
-	Total int64
-	// NegativeGaps counts, across the WHOLE filter, loads whose gap is below zero -- the number the
-	// tab leads with, so a reader on page one knows how many bad loads sit on later pages.
-	NegativeGaps int64
-	Limit        int
-	Offset       int
+	Rows   []StockLoadRow
+	Total  int64
+	Limit  int
+	Offset int
 	// FeedItems is every feed the ledger holds a load for in the caller's park scope, unnarrowed
 	// by the filter, so the feed-item select can name a feed the current filter hides.
 	FeedItems []StockLoadFeedItem

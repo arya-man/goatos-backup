@@ -5925,7 +5925,10 @@ paths:
         negative means the load ran (or will run) out sooner than it was bought for.
 
 
-        `total` and `negative_gaps` are WHOLE-FILTER counts, never page-local.
+        `total` is a WHOLE-FILTER count, never page-local. Feeds named in
+        `domain.StockLoadExcludedFeedItemKeys` (UHT milk) are left out of the rows and of the
+        `feed_items` facet: milk is drawn by preparation batches, not the ration sheet, so a
+        per-load days-of-stock figure is not a question about it.
       parameters:
         - name: park_id
           in: query
@@ -23959,7 +23962,7 @@ components:
           $ref: "#/components/schemas/FeedAnalyticsSpendSummary"
     FeedAnalyticsStockLoadsResponse:
       type: object
-      required: [rows, total, negative_gaps, limit, offset, feed_items, farms]
+      required: [rows, total, limit, offset, feed_items, farms]
       properties:
         rows:
           type: array
@@ -23968,9 +23971,6 @@ components:
         total:
           type: integer
           description: Loads matching the filter, whole-filter.
-        negative_gaps:
-          type: integer
-          description: Loads whose `gap_days` is below zero, whole-filter -- what the tab leads with.
         limit: { type: integer }
         offset: { type: integer }
         feed_items:

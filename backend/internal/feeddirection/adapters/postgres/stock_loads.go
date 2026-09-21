@@ -22,7 +22,7 @@ import (
 // and the per-load day counts / first day / finish day aggregate those cells back to one row per
 // load; join_cardinality=loads LEFT JOIN cells 1:0..N then GROUP BY load id (many side aggregated),
 // loads LEFT JOIN family_total 1:1 (one row per pair), loads LEFT JOIN burn 1:0..1 (one row per
-// pair), and the page rows, total and negative_gaps all range over the same filtered load set
+// pair), and the page rows and total range over the same filtered load set
 // (the `page` CTE) so numerator and denominator share one key set; pagination=LIMIT/OFFSET bounded
 // by domain.NormaliseStockLoadsPage (offset capped at 10000) with whole-filter counts computed
 // beside the page, never page-local; scope=tenant_id everywhere plus the caller's authorized park
@@ -43,6 +43,7 @@ WITH loads AS (
     FROM feed_purchases p
     WHERE p.tenant_id = $1
       AND (coalesce(cardinality($2::uuid[]), 0) = 0 OR p.park_id = ANY ($2::uuid[]))
+      AND p.feed_item_key <> ALL ($7::text[])
 ),
 -- FIFO position within (farm, feed): the kg of every REACHED load that arrived before this one.
 -- Ordered by arrival day, then purchase day, then batch, so two loads reaching on one day keep
@@ -192,8 +193,7 @@ SELECT feed_purchase_id::text, farm_label, feed_item_label, feed_item_key, batch
        round(purchased_kg, 1)::text, round(consumed_kg, 1)::text, round(left_kg, 1)::text,
        days_of_stock, days_consumed, days_left, gap_days,
        COALESCE(round(avg_daily_kg, 1)::text, ''),
-       COUNT(*) OVER () AS total,
-       COUNT(*) FILTER (WHERE gap_days < 0) OVER () AS negative_gaps
+       COUNT(*) OVER () AS total
 FROM page
 ORDER BY purchase_date DESC, farm_label, feed_item_key, batch_no DESC
 LIMIT $5 OFFSET $6`
@@ -204,6 +204,7 @@ SELECT feed_item_key, MAX(feed_item_label)
 FROM feed_purchases
 WHERE tenant_id = $1
   AND (coalesce(cardinality($2::uuid[]), 0) = 0 OR park_id = ANY ($2::uuid[]))
+  AND feed_item_key <> ALL ($3::text[])
 GROUP BY feed_item_key
 ORDER BY MAX(feed_item_label)`
 
@@ -213,6 +214,7 @@ SELECT DISTINCT farm_label
 FROM feed_purchases
 WHERE tenant_id = $1
   AND (coalesce(cardinality($2::uuid[]), 0) = 0 OR park_id = ANY ($2::uuid[]))
+  AND feed_item_key <> ALL ($3::text[])
 ORDER BY farm_label`
 
 // StockLoads serves the purchased-vs-consumed table. Cached on the same stock revision as the
@@ -244,7 +246,8 @@ func (r *Repository) StockLoads(ctx context.Context, tenantID string, parkIDs []
 }
 
 func (r *Repository) loadStockLoads(ctx context.Context, tenantID string, parkIDs []uuid.UUID, farm, feedKey string, limit, offset int) (domain.StockLoadsPage, error) {
-	rows, err := r.pool.Query(ctx, stockLoadsSQL, tenantID, parkIDs, farm, feedKey, limit, offset)
+	excluded := domain.StockLoadExcludedFeedItemKeys
+	rows, err := r.pool.Query(ctx, stockLoadsSQL, tenantID, parkIDs, farm, feedKey, limit, offset, excluded)
 	if err != nil {
 		return domain.StockLoadsPage{}, fmt.Errorf("feed analytics stock loads: %w", err)
 	}
@@ -262,7 +265,7 @@ func (r *Repository) loadStockLoads(ctx context.Context, tenantID string, parkID
 			&row.PurchasedKg, &row.ConsumedKg, &row.LeftKg,
 			&row.DaysSaid, &row.DaysConsumed, &row.DaysLeft, &row.GapDays,
 			&row.AvgDailyKg,
-			&out.Total, &out.NegativeGaps,
+			&out.Total,
 		); err != nil {
 			return domain.StockLoadsPage{}, fmt.Errorf("feed analytics stock loads scan: %w", err)
 		}
@@ -272,7 +275,7 @@ func (r *Repository) loadStockLoads(ctx context.Context, tenantID string, parkID
 	if err := rows.Err(); err != nil {
 		return domain.StockLoadsPage{}, fmt.Errorf("feed analytics stock loads rows: %w", err)
 	}
-	items, err := r.pool.Query(ctx, stockLoadFeedItemsSQL, tenantID, parkIDs)
+	items, err := r.pool.Query(ctx, stockLoadFeedItemsSQL, tenantID, parkIDs, excluded)
 	if err != nil {
 		return domain.StockLoadsPage{}, fmt.Errorf("feed analytics stock load feed items: %w", err)
 	}
@@ -287,7 +290,7 @@ func (r *Repository) loadStockLoads(ctx context.Context, tenantID string, parkID
 	if err := items.Err(); err != nil {
 		return domain.StockLoadsPage{}, fmt.Errorf("feed analytics stock load feed items rows: %w", err)
 	}
-	farms, err := r.pool.Query(ctx, stockLoadFarmsSQL, tenantID, parkIDs)
+	farms, err := r.pool.Query(ctx, stockLoadFarmsSQL, tenantID, parkIDs, excluded)
 	if err != nil {
 		return domain.StockLoadsPage{}, fmt.Errorf("feed analytics stock load farms: %w", err)
 	}
@@ -304,12 +307,12 @@ func (r *Repository) loadStockLoads(ctx context.Context, tenantID string, parkID
 	}
 	if len(out.Rows) == 0 && offset > 0 {
 		// A page past the end still owes the whole-filter counts.
-		if err := r.pool.QueryRow(ctx, stockLoadsSQL, tenantID, parkIDs, farm, feedKey, 1, 0).Scan(
+		if err := r.pool.QueryRow(ctx, stockLoadsSQL, tenantID, parkIDs, farm, feedKey, 1, 0, excluded).Scan(
 			new(string), new(string), new(string), new(string), new(int64), new(string),
 			new(string), new(string), new(string), new(string), new(string),
 			new(string), new(string), new(string),
 			new(*int64), new(int64), new(*int64), new(*int64), new(string),
-			&out.Total, &out.NegativeGaps,
+			&out.Total,
 		); err != nil && !errors.Is(err, pgx.ErrNoRows) {
 			return domain.StockLoadsPage{}, fmt.Errorf("feed analytics stock loads totals: %w", err)
 		}

@@ -82,18 +82,6 @@ export function FeedStockLoadsTable({
         <p className="muted small">{fl("loads.empty")}</p>
       ) : (
         <>
-          <div className="kpi-row" style={{ marginBottom: 10, maxWidth: 320 }}>
-            <div className="kpi card">
-              <div className="val" style={data.negative_gaps > 0 ? { color: "var(--danger)" } : undefined}>
-                {data.negative_gaps}
-              </div>
-              <div className="dl">{fl("loads.check")}</div>
-              <div className="muted small">
-                {data.negative_gaps > 0 ? fl("loads.check.sub") : fl("loads.check.ok")}
-              </div>
-            </div>
-          </div>
-
           <div className="tablewrap" tabIndex={0} role="group" aria-label={fl("loads.title")}>
             <table className="tbl">
               <thead>
