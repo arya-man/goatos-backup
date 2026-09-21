@@ -1,0 +1,47 @@
+{
+  "$schema": "./config.schema.notes",
+  "version": 1,
+  "receiptRoot": ".codex-goatos-render/dashboard-automation",
+  "productionDashboardUrl": "https://dashboard.mesha.sg",
+  "viewports": [
+    { "name": "desktop", "width": 1440, "height": 1000 },
+    { "name": "mobile-webview", "width": 390, "height": 844 }
+  ],
+  "requiredFailureStrings": [
+    "backend_down",
+    "Admin-web contract unavailable",
+    "The board could not be loaded",
+    "Weights could not be loaded"
+  ],
+  "ociAlwaysFree": {
+    "minimumHeadroomGb": 20,
+    "maximumRunArtifactsMb": 2048,
+    "allowedVolumeAllocationGb": 100,
+    "forbiddenActions": [
+      "create-volume",
+      "resize-volume",
+      "create-backup",
+      "create-public-load-balancer",
+      "enable-paid-service"
+    ]
+  },
+  "agentReview": {
+    "enabledByDefault": false,
+    "providerEnv": "ANTHROPIC_API_KEY",
+    "perRunUsdCap": 1,
+    "monthlyUsdCap": 25,
+    "passingSamplePercent": 10,
+    "warnAtBudgetPercent": 80,
+    "stopAtBudgetPercent": 100
+  },
+  "deterministicSmoke": {
+    "adminWebScript": "apps/admin-web/scripts/smoke-visual-live.mjs",
+    "routeCoverageTest": "apps/admin-web/scripts/smoke-visual-route-coverage.test.mjs",
+    "requiredEnv": [
+      "GOATOS_API_BASE_URL",
+      "GOATOS_ADMIN_WEB_BASE_URL",
+      "GOATOS_BEARER_TOKEN",
+      "GOATOS_TENANT_ID"
+    ]
+  }
+}

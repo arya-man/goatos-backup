@@ -9,6 +9,7 @@ import (
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
 
+	"github.com/vgoats/goatos/backend/internal/platform/sqlbind"
 	"github.com/vgoats/goatos/backend/internal/toxin/domain"
 	"github.com/vgoats/goatos/backend/internal/toxin/ports"
 )
@@ -75,7 +76,8 @@ func (s *ProcedureSource) ProcedureVersion(ctx context.Context, tenantID string,
 func (s *ProcedureSource) read(ctx context.Context, sql string, args ...any) (domain.ToxinDSL, int, bool, error) {
 	var version int
 	var raw []byte
-	err := s.pool.QueryRow(ctx, sql, args...).Scan(&version, &raw)
+	bound := sqlbind.MustBind(sql, args...)
+	err := s.pool.QueryRow(ctx, bound.SQL(), bound.Args()...).Scan(&version, &raw)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return domain.ToxinDSL{}, 0, false, nil
 	}

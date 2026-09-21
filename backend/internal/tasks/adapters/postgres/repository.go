@@ -17,6 +17,7 @@ import (
 
 	"github.com/vgoats/goatos/backend/internal/platform/biztime"
 	"github.com/vgoats/goatos/backend/internal/platform/oploc"
+	"github.com/vgoats/goatos/backend/internal/platform/sqlbind"
 	"github.com/vgoats/goatos/backend/internal/sop/authored"
 	"github.com/vgoats/goatos/backend/internal/tasks/domain"
 	"github.com/vgoats/goatos/backend/internal/tasks/ports"
@@ -272,7 +273,8 @@ RETURNING workflow_id::text`,
 			a.TaskType, answerKind, a.EngineHook, a.Proof.Video, a.Proof.Photo, a.HardTimeGate, a.WaitForAll,
 			string(requires), a.Schedule.AfterStepKey, int(a.Schedule.Offset.Seconds()), answerGate, a.Owner)
 	}
-	if _, err := tx.Exec(ctx, sb.String(), args...); err != nil {
+	boundActionsInsert := sqlbind.MustBind(sb.String(), args...)
+	if _, err := tx.Exec(ctx, boundActionsInsert.SQL(), boundActionsInsert.Args()...); err != nil {
 		return false, err
 	}
 	if err := tx.Commit(ctx); err != nil {
@@ -525,11 +527,12 @@ LIMIT 5`, q.TenantID, q.Module, now.UTC(), todayDate)
 	}
 	args = append(args, pageSize+1)
 
-	rows, err := r.pool.Query(ctx, `
+	boundList := sqlbind.MustBind(`
 SELECT `+cardSelectColumns+cardJoins+`
 WHERE wi.tenant_id = $1::uuid AND wi.module = $2 AND wi.event_date = $3::date`+filterSQL+cursorSQL+`
 ORDER BY wi.next_due_at ASC NULLS LAST, wi.workflow_id ASC
 LIMIT $`+fmt.Sprint(len(args)), args...)
+	rows, err := r.pool.Query(ctx, boundList.SQL(), boundList.Args()...)
 	if err != nil {
 		return domain.WorkflowListPage{}, err
 	}
@@ -804,7 +807,7 @@ func (r *Repository) listActions(ctx context.Context, q queryer, tenantID, workf
 	if forUpdate {
 		lock = " FOR UPDATE"
 	}
-	rows, err := q.Query(ctx, `
+	boundActions := sqlbind.MustBind(`
 SELECT action_id::text, tenant_id::text, workflow_id::text, action_key, seq, section, action_type,
        title, COALESCE(detail, ''), requires_video, options, due_at, status,
        answer_value, proof_ref, completed_by::text, completed_at, verification_item_id::text,
@@ -815,6 +818,7 @@ SELECT action_id::text, tenant_id::text, workflow_id::text, action_key, seq, sec
 FROM workflow_actions wa
 WHERE tenant_id = $1::uuid AND workflow_id = $2::uuid
 ORDER BY seq ASC`+lock, tenantID, workflowID)
+	rows, err := q.Query(ctx, boundActions.SQL(), boundActions.Args()...)
 	if err != nil {
 		return nil, err
 	}
@@ -1366,7 +1370,8 @@ func (r *Repository) ReconcileAnimalPurchaseDecisionStep(ctx context.Context, te
 	// Save before looking up the workflow: a decision may arrive before its opener.
 	// Candidate creation and decisions serialize on the producer's load row. Both
 	// counters are monotonic (a candidate can only be decided once).
-	_, err := r.pool.Exec(ctx, upsertAnimalPurchaseDecisionReceiptSQL, tenantID, loadID, pending, decided, completedAt)
+	boundReceipt := sqlbind.MustBind(upsertAnimalPurchaseDecisionReceiptSQL, tenantID, loadID, pending, decided, completedAt)
+	_, err := r.pool.Exec(ctx, boundReceipt.SQL(), boundReceipt.Args()...)
 	if err != nil {
 		return err
 	}
@@ -1405,11 +1410,13 @@ func (r *Repository) completeHookStep(ctx context.Context, tenantID, templateKey
 	// Persist nonzero facts before workflow lookup so an out-of-order opener heals
 	// them. Replays keep the first completion instant and remain idempotent.
 	if !completedAt.IsZero() {
-		if _, err := r.pool.Exec(ctx, insertSubjectHookReceiptSQL, tenantID, templateKey, subjectRefID, hook, completedAt); err != nil {
+		boundInsert := sqlbind.MustBind(insertSubjectHookReceiptSQL, tenantID, templateKey, subjectRefID, hook, completedAt)
+		if _, err := r.pool.Exec(ctx, boundInsert.SQL(), boundInsert.Args()...); err != nil {
 			return err
 		}
 	}
-	if err := r.pool.QueryRow(ctx, selectSubjectHookReceiptSQL, tenantID, templateKey, subjectRefID, hook).Scan(&completedAt); err != nil {
+	boundSelect := sqlbind.MustBind(selectSubjectHookReceiptSQL, tenantID, templateKey, subjectRefID, hook)
+	if err := r.pool.QueryRow(ctx, boundSelect.SQL(), boundSelect.Args()...).Scan(&completedAt); err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
 			return nil
 		}
@@ -1701,8 +1708,8 @@ func (r *Repository) FetchShedDetails(ctx context.Context, tenantID, shedID stri
 	// Canonical resolver: oploc owns the query AND the column choice. Do not inline a
 	// SELECT here -- writing a bespoke one is how normalized_label ('3') got rendered in
 	// place of partition_label ('Part 3').
-	loc, err := oploc.ResolveShedLocation(ctx, r.pool.QueryRow(ctx, oploc.ShedScopedLocationSQL,
-		tenantID, shedID))
+	boundShed := sqlbind.MustBind(oploc.ShedScopedLocationSQL, tenantID, shedID)
+	loc, err := oploc.ResolveShedLocation(ctx, r.pool.QueryRow(ctx, boundShed.SQL(), boundShed.Args()...))
 
 	if err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {

@@ -437,6 +437,7 @@ run_common() {
   step "agent: boundaries self-test" bash tools/agent-hooks/check-boundaries.sh --self-test
   step "agent: boundaries"        bash tools/agent-hooks/check-boundaries.sh
   step "agent: refresh-binding"   node tools/agent-hooks/check-refresh-binding.mjs
+  step "dashboard-automation-guard" make dashboard-automation-guard
   step "agent: UI vaccine labels" make ui-vaccine-labels-guard
   step "agent: UI title case" make ui-title-case-guard
   step "agent: notification specificity" make notification-specificity-guard

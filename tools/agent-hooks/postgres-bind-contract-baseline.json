@@ -86,7 +86,6 @@
   "internal/sales/adapters/postgres/pipeline_repository.go|unverified-dynamic-bind": 7,
   "internal/sop/adapters/postgres/repository.go|unverified-dynamic-bind": 14,
   "internal/tasks/adapters/postgres/colostrum.go|unverified-dynamic-bind": 1,
-  "internal/tasks/adapters/postgres/repository.go|unverified-dynamic-bind": 4,
   "internal/toxin/adapters/postgres/repository.go|unverified-dynamic-bind": 3,
   "internal/vaccinationexecution/adapters/postgres/commandboard_drilldown.go|unverified-dynamic-bind": 4,
   "internal/vaccinationexecution/adapters/postgres/commandboard.go|unverified-dynamic-bind": 10,
