@@ -5495,6 +5495,10 @@ func pageSpecificCopy(id string) map[string]string {
 			"filter.gain_bucket.note":  "Monthly counts back 30 days at a time from the last day of the selected period",
 			"filter.time_pen.label":    "Pen",
 			"filter.time_pen.note":     "Shows this tab for one pen only: its growth, its breeds and the load it sits in",
+			// A pen the selected period holds no weighing for still narrows the page, so the control
+			// must name it rather than reading as "All" above an empty tab. Nothing in the period can
+			// give it its own name, so the option says what it is.
+			"filter.time_pen.unlisted": "Selected pen — not weighed in this period",
 
 			"tab.aria":    "ADG Analytics view",
 			"tab.general": "General",

@@ -47,7 +47,26 @@ test("the pen is a SCOPE on both reads, not a filter applied to their answers", 
 test("the pen picker's vocabulary comes from the read the pen scope does not narrow", () => {
   assert.match(pageSource, /pens=\{rows\.map\(/, "options come from the shed read every tab makes");
   assert.match(pageSource, /key: `\$\{row\.location_id\}::\$\{row\.partition_label \?\? ""\}`/, "keyed on identity, because a pen name repeats across parks");
-  assert.match(pageSource, /seenPens\.has\(penKey\) \? penKey : ""/, "a selection the vocabulary lacks shows as unselected");
+});
+
+// The CONTROL must show whatever the READS were narrowed by (review of PR #333). A stale
+// `tw_pen`, or a pen with no weighing inside the newly selected period, is absent from the
+// vocabulary but still narrows both reads -- and showing it as "All" puts an unscoped-looking
+// control above a scoped, usually empty, page, which reads as "no data" rather than as a filter
+// the reader can clear.
+test("a pen the vocabulary lacks still shows as the selection, never as All", () => {
+  assert.match(pageSource, /const selectedPen = penKey;/, "the control's value is the key the reads used");
+  assert.match(
+    pageSource,
+    /if \(penKey !== "" && !penListed\) \{\s*\n\s*penOptions\.unshift\(\{ value: penKey, label: copy\(pageContract, "filter\.time_pen\.unlisted"\) \}\);/,
+    "an unlisted pen is offered as its own backend-named option",
+  );
+  // The key the control shows is DERIVED FROM THE SCOPE, so the two cannot disagree: a value that
+  // narrowed nothing (malformed) reads back as All, and anything that narrowed shows as selected.
+  assert.match(
+    pageSource,
+    /const penKey = penScope\.pen_location_id \? `\$\{penScope\.pen_location_id\}::\$\{penScope\.pen_partition_label \?\? ""\}` : "";/,
+  );
 });
 
 test("every heading on the tab has a week wording and a 30-day wording, both backend-owned", () => {

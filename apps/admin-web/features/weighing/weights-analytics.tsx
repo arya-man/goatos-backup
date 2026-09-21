@@ -207,8 +207,11 @@ export async function WeighingWeightsAnalyticsPage({
   // applied to their answers -- three of the Time-wise sections are server-side aggregates (one
   // number per bucket, one row per breed, one row per load) and carry no pen to filter on once they
   // are grouped. A malformed value narrows nothing rather than emptying the tab.
-  const penKey = one(params, TIME_PEN_PARAM) ?? "";
-  const penScope = penScopeFrom(penKey);
+  const penScope = penScopeFrom(one(params, TIME_PEN_PARAM) ?? "");
+  // The key the CONTROL shows is the key the READS were narrowed by, always. A malformed value
+  // narrows nothing, so it reads back as "All"; anything that did narrow the reads must show as a
+  // selection, or a reader sees an unscoped-looking control above a scoped (often empty) page.
+  const penKey = penScope.pen_location_id ? `${penScope.pen_location_id}::${penScope.pen_partition_label ?? ""}` : "";
 
   const limit = boundedLimit(one(params, "limit"));
   const offset = boundedOffset(one(params, "offset"));
@@ -1305,10 +1308,16 @@ function TimeTab({
     penOptions.push({ value: pen.key, label: `${pen.park} · ${pen.label}` });
   }
   penOptions.sort((a, b) => a.label.localeCompare(b.label));
-  // A selection the vocabulary does not contain (a stale link, a pen not weighed in the newly
-  // selected period) still reaches the backend and simply answers for that pen -- which is empty.
-  // The control shows it as unselected rather than inventing an option for it.
-  const selectedPen = seenPens.has(penKey) ? penKey : "";
+  // A selection the vocabulary does not contain -- a stale link, or a pen not weighed inside the
+  // newly selected period -- STILL NARROWS THE READS, so it must still show as a selection. Showing
+  // it as "All" would put an unscoped-looking control above a page narrowed to one pen, which
+  // usually reads as an empty page rather than as a filter the reader can clear. It is offered as
+  // its own option, named by backend copy, because nothing in this period can name that pen.
+  const penListed = seenPens.has(penKey);
+  if (penKey !== "" && !penListed) {
+    penOptions.unshift({ value: penKey, label: copy(pageContract, "filter.time_pen.unlisted") });
+  }
+  const selectedPen = penKey;
 
   const timeFilterFields: WorklistFilterField[] = [
     {
