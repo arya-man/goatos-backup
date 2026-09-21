@@ -41,6 +41,7 @@ for (const file of [
   "tools/dashboard-automation/run-oci.sh",
   "tools/dashboard-automation/install-oci-user-timer.sh",
   "tools/dashboard-automation/check-business-data-parity.mjs",
+  "tools/dashboard-automation/self-heal-pr.mjs",
   "docs/runbooks/dashboard-automation-oci.md",
 ]) {
   if (!existsSync(file)) failures.push(`required dashboard automation file missing: ${file}`);
