@@ -34,6 +34,8 @@ const (
 	fcPennedShed = "00000000-0000-4000-8000-000000004004"
 	fcPenA       = "Part 3"
 	fcPenB       = "Part 4"
+	fcCastroShed = "00000000-0000-4000-8000-000000004014"
+	fcGodelShed  = "00000000-0000-4000-8000-000000004024"
 )
 
 // seedPennedShed adds a subdivided shed to the fixture park and catalogs its two pens.
@@ -62,6 +64,28 @@ VALUES
   ($1::uuid, $2::uuid, $4, regexp_replace(lower(btrim($4)), '^part[[:space:]]+', ''), 'manual')
 ON CONFLICT DO NOTHING`, fcTenant, fcPennedShed, fcPenA, fcPenB); err != nil {
 		t.Fatalf("seed shed partitions: %v", err)
+	}
+}
+
+func seedCanonicalDropdownPens(t *testing.T, ctx context.Context, pool *pgxpool.Pool) {
+	t.Helper()
+	if _, err := pool.Exec(ctx, `
+INSERT INTO locations (location_id, tenant_id, location_type, location_code, name, parent_location_id, status, display_order)
+VALUES
+  ($3::uuid, $1::uuid, 'shed', 'CBE-CASTRO', 'Castro', $2::uuid, 'active', 10),
+  ($4::uuid, $1::uuid, 'shed', 'CBE-GODEL2', 'Godel 2', $2::uuid, 'active', 20)
+ON CONFLICT (location_id) DO NOTHING`, fcTenant, fcPark, fcCastroShed, fcGodelShed); err != nil {
+		t.Fatalf("seed canonical dropdown sheds: %v", err)
+	}
+	if _, err := pool.Exec(ctx, `
+INSERT INTO shed_partitions (tenant_id, shed_id, partition_label, normalized_label, source)
+VALUES
+  ($1::uuid, $2::uuid, '1', '1', 'manual'),
+  ($1::uuid, $2::uuid, '2', '2', 'manual'),
+  ($1::uuid, $3::uuid, 'Part 1', '1', 'manual'),
+  ($1::uuid, $3::uuid, 'Part 2', '2', 'manual')
+ON CONFLICT DO NOTHING`, fcTenant, fcCastroShed, fcGodelShed); err != nil {
+		t.Fatalf("seed canonical dropdown partitions: %v", err)
 	}
 }
 
@@ -692,6 +716,7 @@ func TestSingleCellWriteCannotEnrollAnEmptyPen(t *testing.T) {
 func TestListPensReturnsTheHumanLabelAndItsConfiguredFlag(t *testing.T) {
 	ctx := context.Background()
 	pool := setupPennedDB(t, ctx)
+	seedCanonicalDropdownPens(t, ctx, pool)
 	repo := fcRepo(pool)
 
 	enrollExperimentPen(t, ctx, repo, "pen-list-a", fcPennedShed, fcPenA, "Arm A", []domain.ExperimentBatchCell{{FeedItemLabel: "Concentrate", GramsPerHead: "1.000"}})
@@ -705,8 +730,15 @@ func TestListPensReturnsTheHumanLabelAndItsConfiguredFlag(t *testing.T) {
 	}
 
 	byDisplay := map[string]domain.Pen{}
+	seenDisplay := map[string]int{}
 	for _, pen := range page.Items {
+		seenDisplay[pen.OperationalLocationDisplay]++
 		byDisplay[pen.OperationalLocationDisplay] = pen
+	}
+	for display, count := range seenDisplay {
+		if count > 1 {
+			t.Fatalf("pen catalog returned duplicate display %q (%d times); dropdowns must not offer the same pen twice", display, count)
+		}
 	}
 
 	// The authored pen, spelled the way the farm spells it and joined the canonical way.
@@ -732,6 +764,16 @@ func TestListPensReturnsTheHumanLabelAndItsConfiguredFlag(t *testing.T) {
 		t.Fatalf("pen B has no authored cell but reads as configured")
 	}
 
+	// Farm naming conventions from the production screenshot class: bare numeric partitions are
+	// physical pen names ("Castro 1"), while worded partitions keep the dash boundary
+	// ("Godel 2 - Part 1"). Returning "Castro - 1", "Godel 2 1", or a duplicate "Godel 2 - Part 1"
+	// here is a dropdown bug, not a cosmetic choice.
+	for _, want := range []string{"Castro 1", "Castro 2", "Godel 2 - Part 1", "Godel 2 - Part 2"} {
+		if _, ok := byDisplay[want]; !ok {
+			t.Fatalf("canonical pen label %q missing; got displays %v", want, keysOf(byDisplay))
+		}
+	}
+
 	// An UNDIVIDED shed appears exactly once, under its bare name -- never with a dangling
 	// separator and never as the 'whole' sentinel.
 	if _, ok := byDisplay["CPT Shed 1"]; !ok {
@@ -755,6 +797,51 @@ func TestListPensReturnsTheHumanLabelAndItsConfiguredFlag(t *testing.T) {
 	// shed_partitions catalog, because migration 000112 seeds pens by reading aliases that are
 	// inactive -- so the gap is in environment setup, upstream of this read.
 
+}
+
+func TestListPensConfiguredFlagTracksExperimentWorkflowConversion(t *testing.T) {
+	ctx := context.Background()
+	pool := setupPennedDB(t, ctx)
+	repo := fcRepo(pool)
+
+	hasConfig := func(pen string) bool {
+		t.Helper()
+		page, err := repo.ListPens(ctx, domain.PenQuery{TenantID: fcTenant, ParkID: fcPark, Page: domain.Page{Limit: 50}})
+		if err != nil {
+			t.Fatalf("list pens: %v", err)
+		}
+		for _, item := range page.Items {
+			if item.ShedID == fcPennedShed && item.PartitionLabel == pen {
+				return item.HasExperimentConfig
+			}
+		}
+		t.Fatalf("pen %q missing from catalog", pen)
+		return false
+	}
+
+	if hasConfig(fcPenA) {
+		t.Fatalf("fresh pen reads as configured before enrolment")
+	}
+	enrollExperimentPen(t, ctx, repo, "pen-flag-enrol", fcPennedShed, fcPenA, "Arm A",
+		[]domain.ExperimentBatchCell{{FeedItemLabel: "Concentrate", GramsPerHead: "1.000"}})
+	if !hasConfig(fcPenA) {
+		t.Fatalf("enrolled experiment pen still reads as an available normal candidate")
+	}
+	if _, err := repo.SetExperimentShedStatus(ctx, domain.SetExperimentShedStatusCommand{
+		WriteIdentity: domain.WriteIdentity{
+			TenantID: fcTenant, ActorRef: "tester", EffectiveFrom: "2026-08-09",
+			IdempotencyKey: "pen-flag-retire", RequestFingerprint: "fp-pen-flag-retire",
+		},
+		ParkID: fcPark, ShedID: fcPennedShed, PartitionLabel: fcPenA, Status: domain.ExperimentStatusRetired,
+	}); err != nil {
+		t.Fatalf("retire pen: %v", err)
+	}
+	if !hasConfig(fcPenA) {
+		t.Fatalf("retired experiment pen lost its authored config flag; restore dropdown would offer a duplicate enrolment instead of the existing row")
+	}
+	if hasConfig(fcPenB) {
+		t.Fatalf("sibling pen with no authored rows reads as configured")
+	}
 }
 
 func keysOf(m map[string]domain.Pen) []string {
