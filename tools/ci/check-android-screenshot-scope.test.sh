@@ -31,11 +31,11 @@ expect_feed() {
     rc=1
     return
   }
-  grep -q 'sg.mesha.goatos.ui.ScreenshotTest.feed_distribution_capture_reference' <<<"$out" || {
+  printf '%s\n' "$out" | grep -q 'sg.mesha.goatos.ui.ScreenshotTest.feed_distribution_capture_reference' || {
     echo "!! android screenshot scope self-test: $label missing feed distribution screenshot" >&2
     rc=1
   }
-  grep -q 'sg.mesha.goatos.ui.RoleChromeScreenshotTest.operator_feed' <<<"$out" || {
+  printf '%s\n' "$out" | grep -q 'sg.mesha.goatos.ui.RoleChromeScreenshotTest.operator_feed' || {
     echo "!! android screenshot scope self-test: $label missing feed role chrome screenshot" >&2
     rc=1
   }
@@ -50,11 +50,11 @@ expect_weighing_pccare() {
     rc=1
     return
   }
-  grep -q 'sg.mesha.goatos.ui.WeighingEdgeCaseScreenshotTest.weighingLumpsumShedProof' <<<"$out" || {
+  printf '%s\n' "$out" | grep -q 'sg.mesha.goatos.ui.WeighingEdgeCaseScreenshotTest.weighingLumpsumShedProof' || {
     echo "!! android screenshot scope self-test: $label missing weighing edge screenshot" >&2
     rc=1
   }
-  grep -q 'sg.mesha.goatos.ui.PcCareInventoryTaskScreenshotTest.inventoryVaccineTaskLongRequirements' <<<"$out" || {
+  printf '%s\n' "$out" | grep -q 'sg.mesha.goatos.ui.PcCareInventoryTaskScreenshotTest.inventoryVaccineTaskLongRequirements' || {
     echo "!! android screenshot scope self-test: $label missing pc care inventory screenshot" >&2
     rc=1
   }

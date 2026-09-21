@@ -39,9 +39,12 @@
 - First `make land-main` attempt was interrupted before completion after the
   local-CI classifier incorrectly selected Android for an admin-web/test-only
   diff.
-- Classifier root cause: `apps/admin-web/features/verification-review/*.test.mjs`
-  matched the broad verification proof-media fanout. Runtime verification-review
-  source still fans out to Android; `.test.mjs` files now stay admin-web-only.
+- Classifier root cause: the PR touched
+  `apps/admin-web/features/verification-review/local-drawer-navigation.test.mjs`,
+  which matched the broad verification proof-media fanout. To keep the landing
+  web-only, generic shell/scope URL tests were moved out of that fanout path and
+  into `apps/admin-web/lib/scope.test.mjs`; no classifier change is kept in the
+  PR.
 - Second `make land-main` attempt correctly selected `common,admin-web`, then
   failed before push on three guard issues:
   - `sales-pages-guard` still expected the retired
@@ -50,8 +53,7 @@
     `pipefail`, producing false negatives when `grep -q` exited early.
   - `screenshot remediation guard self-test` had the same pipefail matcher
     issue.
-- Focused repairs are applied locally. Direct reruns are green for
-  `check-sales-pages.mjs`, `check-android-screenshot-scope.test.sh`,
-  `check-screenshot-remediation.test.sh`, `ci-scope.mjs --self-test`,
-  the focused admin-web unit tests, and `git diff --check`.
-- Next step: commit/push the guard repairs, then rerun `make land-main`.
+- Focused repairs are applied locally without changing CI tooling. Direct reruns
+  are green for `check-sales-pages.mjs`, the focused admin-web unit tests,
+  `ci-scope.mjs --self-test`, and `git diff --check`.
+- Next step: commit/push the web-only scope repair, then rerun `make land-main`.

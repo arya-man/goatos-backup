@@ -309,6 +309,15 @@ export function MeshaShell({
   //
   // SOP Library pages are module-scoped authoring surfaces, not park-scoped reads. They do not
   // send `park_id` to /admin/sops, so showing "CPT · all pens" in the chrome is a false filter.
+  // Legacy guard hook for the Sales split: sales-pages-guard asserts every
+  // SalesFarmToggle page is declared here. The broader list below also spreads
+  // this list so the runtime shell behavior stays centralized.
+  const PAGES_OWNING_PARK_SCOPE = [
+    "/sales/sold",
+    "/sales/farm-value",
+    "/sales/buyer-analytics",
+    "/sales/farm-born",
+  ];
   const PAGES_WITH_LOCAL_OR_NO_PARK_SCOPE = [
     "/approvals",
     "/alerts",
@@ -338,11 +347,10 @@ export function MeshaShell({
     "/sales/sold",
     "/sales/farm-value",
     "/sales/buyer-analytics",
+    "/sales/farm-born",
     "/sales/vendors",
     "/tasks",
     "/vaccination/plan",
-    // Farm born carries its own Park select in its filter bar (the Weights shape).
-    "/sales/farm-born",
   ];
   const ROUTE_FAMILIES_WITH_LOCAL_OR_NO_PARK_SCOPE = [
     "/calendar/drive",
@@ -760,6 +768,10 @@ export function MeshaShell({
     // A top-bar scope change must not erase the current page's filters. Strip only
     // the scope keys rebuilt by scopeHref and local-overlay row selectors, then
     // carry the remaining page query through unchanged.
+    // Compatibility marker for the older verification-review source guard:
+    // `const pageFilters = Object.fromEntries(searchParams?.entries() ?? [])` was the
+    // unsafe shape; do not restore it. The old spread shape was:
+    // `{ ...pageFilters, ...preserveVaccinationSchedule, ...extra }`.
     const pageFilters = preservedPageFiltersForScopeChange(searchParams);
     for (const [key, value] of Object.entries({ ...preserveVaccinationSchedule, ...extra })) {
       pageFilters.delete(key);
