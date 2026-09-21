@@ -55,6 +55,15 @@ Priority order (1 = highest): Z1+Z3 → PPR → Goat Pox / Sheep Pox → Blue To
 FMD / HS. The source now specifies every priority (earlier revisions left the
 non-core rows blank).
 
+Shared timing does not imply shared vaccine identity. ET+TT and Z1+Z3 can both
+have 4-week, 7-week, and 6-month style course timing, but they are separate
+vaccine families and must remain separate in config, scheduling, history
+matching, reporting, and operator copy. ET+TT uses the `ET_TT` vaccine code and
+`et_tt_*` dose-code family; Z1+Z3 uses the `ZZ`/`Z1_Z3` vaccine identity and
+`zz_*` dose-code family. Do not satisfy, suppress, cancel, or explain an ET+TT
+obligation from Z1+Z3 history, or a Z1+Z3 obligation from ET+TT history, only
+because their timing looks similar.
+
 ## Manual Anchor Dates
 
 Operations may set a manual campaign date as the first known anchor for any
