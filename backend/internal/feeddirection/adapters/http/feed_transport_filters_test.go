@@ -115,6 +115,8 @@ type transportScopeSpyService struct {
 	transportFilterService
 	listCalls            int
 	listInput            app.ListTransportTasksInput
+	stockLoadsCalls      int
+	stockLoadsInput      app.StockLoadsInput
 	submitCalls          int
 	submitInput          app.SubmitTransportInput
 	completePackingCalls int
@@ -145,6 +147,12 @@ func (s *transportScopeSpyService) ListTransportTasks(_ context.Context, in app.
 	s.listCalls++
 	s.listInput = in
 	return ports.FeedTransportTaskPage{}, nil
+}
+
+func (s *transportScopeSpyService) StockLoads(_ context.Context, in app.StockLoadsInput) (domain.StockLoadsPage, error) {
+	s.stockLoadsCalls++
+	s.stockLoadsInput = in
+	return domain.StockLoadsPage{Rows: []domain.StockLoadRow{}, FeedItems: []domain.StockLoadFeedItem{}, Farms: []string{}, Limit: 25}, nil
 }
 
 func (s *transportScopeSpyService) SubmitTransport(_ context.Context, in app.SubmitTransportInput) (ports.SubmitTransportResult, error) {
@@ -257,6 +265,36 @@ func TestGetTransportTasksResolvesCapabilityAwareParkScope(t *testing.T) {
 			t.Fatalf("list calls=%d, want 0", service.listCalls)
 		}
 	})
+}
+
+func TestGetStockLoadsAcceptsFeedDirectionReader(t *testing.T) {
+	const (
+		tenantID = "00000000-0000-4000-8000-000000000001"
+		actorID  = "40000000-0000-4000-8000-000000000001"
+		parkA    = "20000000-0000-4000-8000-000000000001"
+	)
+	service := &transportScopeSpyService{}
+	req := httptest.NewRequest(http.MethodGet, "/feed-analytics/stock-loads?park_id="+parkA, nil)
+	ctx := httpmiddleware.WithActorID(httpmiddleware.WithTenantID(req.Context(), tenantID), actorID)
+	ctx = httpmiddleware.WithAuthGrants(ctx, []permissions.ActiveGrant{
+		{Role: permissions.RoleFeedDirector, ScopeType: "park", ScopeID: parkA},
+	})
+	recorder := httptest.NewRecorder()
+
+	NewHandler(service, slog.Default()).GetStockLoads(recorder, req.WithContext(ctx))
+
+	if recorder.Code != http.StatusOK {
+		t.Fatalf("status=%d body=%s", recorder.Code, recorder.Body.String())
+	}
+	if service.stockLoadsCalls != 1 {
+		t.Fatalf("stock loads calls=%d, want 1", service.stockLoadsCalls)
+	}
+	if service.stockLoadsInput.ParkID != parkA {
+		t.Fatalf("park_id=%q, want %q", service.stockLoadsInput.ParkID, parkA)
+	}
+	if got := service.stockLoadsInput.AuthorizedParkIDs; len(got) != 1 || got[0] != parkA {
+		t.Fatalf("authorized parks=%v, want [%s]", got, parkA)
+	}
 }
 
 func TestPostTransportSubmitPassesAuthorizedParkScope(t *testing.T) {
