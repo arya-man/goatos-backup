@@ -10,6 +10,29 @@ timer still requires host-specific secrets and service wiring on the OCI VM.
 
 Do not enable a timer until three manual dry or report-only runs produce clean receipts.
 
+The installed OCI timers are:
+
+- daily production smoke at `03:30 Asia/Kolkata` by default;
+- post-main certification poll every 10 minutes by default. It fetches `origin/main`, runs once per
+  new SHA, and records the last certified SHA under
+  `~/.local/state/goatos/dashboard-automation/last-post-main-sha`.
+
+Both timers use the same local env file and the same Slack notifier. They do not create OCI
+resources.
+
+The schedule and Slack destination are runtime configuration, not app code:
+
+- `GOATOS_DASHBOARD_AUTOMATION_ON_CALENDAR` changes the daily smoke time.
+- `GOATOS_DASHBOARD_POST_MAIN_ON_CALENDAR` changes how often OCI checks for a new `main` SHA.
+- `GOATOS_DASHBOARD_SLACK_CHANNEL_ID` changes the alert channel.
+- `GOATOS_DASHBOARD_SLACK_ALERTS=1` enables Slack delivery.
+
+Change these in `~/.config/goatos/dashboard-automation.env`, then rerun
+`GOATOS_DASHBOARD_AUTOMATION_INSTALL=1 tools/dashboard-automation/install-oci-user-timer.sh` or
+reload the user systemd timer. No Goat OS deploy is required. Do not put this schedule in the product
+database: the automation must still be able to run when the product database or API is exactly what
+is broken.
+
 ## Commands
 
 Validate the repository-owned wiring before touching production or OCI runtime state:
@@ -28,6 +51,13 @@ GOATOS_API_BASE_URL=... \
 GOATOS_TENANT_ID=... \
 GOATOS_BEARER_TOKEN=... \
 node tools/dashboard-automation/run.mjs --mode production-smoke
+```
+
+Install timers on the OCI runner only after the env file is ready:
+
+```sh
+GOATOS_DASHBOARD_AUTOMATION_INSTALL=1 \
+tools/dashboard-automation/install-oci-user-timer.sh
 ```
 
 The runner writes receipts under `.codex-goatos-render/dashboard-automation/<run>/receipt.json`.
@@ -97,6 +127,19 @@ The scheduled OCI run must cover these regular read-only flows:
   excluded from the sub-500 ms rule;
 - failure-string and HTTP-error gates for `backend_down`, `Admin-web contract unavailable`,
   `The board could not be loaded`, and `Weights could not be loaded`.
+
+The browser sweep is implemented in `apps/admin-web/scripts/smoke-visual-live.mjs`. It currently
+guards every registered page route through `apps/admin-web/scripts/smoke-visual-route-coverage.test.mjs`
+and exercises roughly 130 route/tab/filter states in both laptop and mobile viewports. It also checks
+screenshots, layout overflow/clipping, touch targets, overlapping controls, mobile table scrolling,
+serious/critical accessibility violations, pagination controls, selected dialogs, selected drawers,
+and known production failure strings.
+
+Do not claim it clicks every possible drawer/modal on every page. Current coverage is full
+route/tab/query-state coverage plus representative safe interaction coverage. Expanding a page's
+meaningful drawer/modal coverage requires adding explicit interactions to `assertCoreInteractions`
+or a dedicated `apps/admin-web/scripts/smoke-*-live.mjs` script, and the route guard must keep the
+page itself in the visual sweep.
 
 The same coverage matrix records recurring regression classes that must remain automated:
 

@@ -12,7 +12,11 @@ SYSTEMD_USER_DIR="${XDG_CONFIG_HOME:-${HOME}/.config}/systemd/user"
 UNIT_NAME="${GOATOS_DASHBOARD_AUTOMATION_UNIT_NAME:-goatos-dashboard-automation}"
 SERVICE_PATH="${SYSTEMD_USER_DIR}/${UNIT_NAME}.service"
 TIMER_PATH="${SYSTEMD_USER_DIR}/${UNIT_NAME}.timer"
+POST_MAIN_UNIT_NAME="${GOATOS_DASHBOARD_POST_MAIN_UNIT_NAME:-goatos-dashboard-post-main}"
+POST_MAIN_SERVICE_PATH="${SYSTEMD_USER_DIR}/${POST_MAIN_UNIT_NAME}.service"
+POST_MAIN_TIMER_PATH="${SYSTEMD_USER_DIR}/${POST_MAIN_UNIT_NAME}.timer"
 ON_CALENDAR="${GOATOS_DASHBOARD_AUTOMATION_ON_CALENDAR:-*-*-* 03:30:00 Asia/Kolkata}"
+POST_MAIN_ON_CALENDAR="${GOATOS_DASHBOARD_POST_MAIN_ON_CALENDAR:-*:0/10}"
 MODE="${GOATOS_DASHBOARD_AUTOMATION_MODE:-production-smoke}"
 ENV_FILE="${GOATOS_DASHBOARD_AUTOMATION_ENV_FILE:-${HOME}/.config/goatos/dashboard-automation.env}"
 
@@ -59,9 +63,38 @@ RandomizedDelaySec=10m
 WantedBy=timers.target
 TIMER
 
+cat >"${POST_MAIN_SERVICE_PATH}.tmp" <<SERVICE
+[Unit]
+Description=Goat OS dashboard post-main certification
+
+[Service]
+Type=oneshot
+WorkingDirectory=${REPO_ROOT}
+Environment=GOATOS_DASHBOARD_AUTOMATION_ENV_FILE=${ENV_FILE}
+ExecStart=${REPO_ROOT}/tools/dashboard-automation/run-post-main-if-new.sh
+Nice=10
+IOSchedulingClass=best-effort
+IOSchedulingPriority=7
+SERVICE
+
+cat >"${POST_MAIN_TIMER_PATH}.tmp" <<TIMER
+[Unit]
+Description=Poll origin/main and run Goat OS dashboard post-main certification
+
+[Timer]
+OnCalendar=${POST_MAIN_ON_CALENDAR}
+Persistent=true
+RandomizedDelaySec=2m
+
+[Install]
+WantedBy=timers.target
+TIMER
+
 echo "dashboard-automation-timer: generated:"
 echo "  ${SERVICE_PATH}.tmp"
 echo "  ${TIMER_PATH}.tmp"
+echo "  ${POST_MAIN_SERVICE_PATH}.tmp"
+echo "  ${POST_MAIN_TIMER_PATH}.tmp"
 
 if [[ "${GOATOS_DASHBOARD_AUTOMATION_INSTALL:-0}" != "1" ]]; then
   echo "dashboard-automation-timer: dry run only. Set GOATOS_DASHBOARD_AUTOMATION_INSTALL=1 to install."
@@ -70,6 +103,9 @@ fi
 
 mv "${SERVICE_PATH}.tmp" "$SERVICE_PATH"
 mv "${TIMER_PATH}.tmp" "$TIMER_PATH"
+mv "${POST_MAIN_SERVICE_PATH}.tmp" "$POST_MAIN_SERVICE_PATH"
+mv "${POST_MAIN_TIMER_PATH}.tmp" "$POST_MAIN_TIMER_PATH"
 systemctl --user daemon-reload
 systemctl --user enable --now "${UNIT_NAME}.timer"
-systemctl --user list-timers "${UNIT_NAME}.timer" --no-pager
+systemctl --user enable --now "${POST_MAIN_UNIT_NAME}.timer"
+systemctl --user list-timers "${UNIT_NAME}.timer" "${POST_MAIN_UNIT_NAME}.timer" --no-pager

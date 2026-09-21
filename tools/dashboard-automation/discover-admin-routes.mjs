@@ -23,7 +23,7 @@ export function discoverFilesystemRoutes(root = adminAppDir) {
 
 export function discoverSmokeRoutes(source = readFileSync(smokePath, "utf8")) {
   const block = source.match(/function buildRoutes\([\s\S]*?const pagerMinimums = new Map/)?.[0] ?? "";
-  return Array.from(block.matchAll(/name:\s*"([^"]+)"[\s\S]{0,600}?path:\s*([`"])([^`"]+)/g), ([, name, quote, rawPath]) => ({
+  return Array.from(block.matchAll(/\{\s*name:\s*"([^"]+)"[\s\S]{0,600}?path:\s*([`"])([^`"]+)/g), ([, name, quote, rawPath]) => ({
     name,
     path: quote === "`" ? normalizeTemplatePath(rawPath) : rawPath,
   })).sort((a, b) => a.name.localeCompare(b.name));

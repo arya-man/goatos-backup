@@ -1,0 +1,489 @@
+{
+  "schemaVersion": 1,
+  "description": "Read-only admin-web module journeys that must move with dashboard features pushed to main.",
+  "forbiddenActions": [
+    "submit forms",
+    "approve/reject/close records",
+    "create/update/delete business data",
+    "trigger exports with backend side effects",
+    "play remote videos or unbounded media"
+  ],
+  "requiredModules": [
+    "weighing",
+    "vaccination",
+    "feed",
+    "sales",
+    "procurement",
+    "counts-herd",
+    "health",
+    "work-board-action-center",
+    "calendar",
+    "people",
+    "operations"
+  ],
+  "journeys": [
+    {
+      "id": "weighing",
+      "owner": "weights-and-adg",
+      "routes": [
+        "weighing-weights",
+        "weighing-analytics",
+        "weighing-analytics-breed",
+        "weighing-analytics-breed-wide",
+        "weighing-analytics-birth",
+        "weighing-analytics-shed",
+        "weighing-analytics-weight",
+        "weighing-analytics-weight-not-shown",
+        "weighing-analytics-weight-band-filter",
+        "weighing-analytics-time",
+        "weighing-analytics-load",
+        "weighing-analytics-fcr",
+        "weighing-sops"
+      ],
+      "assertText": [
+        "Weights",
+        "Daily gain",
+        "Average weight"
+      ],
+      "safeClicks": [
+        {
+          "role": "button",
+          "name": "Not shown",
+          "optional": true,
+          "requireObserved": true
+        },
+        {
+          "testId": "fb-animals-all",
+          "optional": true
+        }
+      ],
+      "coverage": [
+        "tabs",
+        "date-window",
+        "filters",
+        "wide-table",
+        "sop-read"
+      ]
+    },
+    {
+      "id": "vaccination",
+      "owner": "preventive-care",
+      "routes": [
+        "vaccination",
+        "vaccination-schedule",
+        "vaccination-execution",
+        "vaccination-sheds-status-action",
+        "vaccination-sheds-capacity-action",
+        "vaccination-live-tracker",
+        "vaccination-plan",
+        "vaccination-plan-edit",
+        "vaccination-shed-execution-detail"
+      ],
+      "assertText": [
+        "Vaccination",
+        "Schedule",
+        "Execution"
+      ],
+      "safeClicks": [
+        {
+          "role": "button",
+          "name": "Filters",
+          "optional": true,
+          "requireObserved": true
+        },
+        {
+          "role": "button",
+          "name": "Close",
+          "optional": true
+        }
+      ],
+      "coverage": [
+        "tabs",
+        "schedule",
+        "execution",
+        "live-tracker",
+        "detail-drawer"
+      ]
+    },
+    {
+      "id": "feed",
+      "owner": "feed-ops",
+      "routes": [
+        "feed-config",
+        "feed-analytics",
+        "feed-analytics-items",
+        "feed-analytics-peranimal",
+        "feed-analytics-experiment",
+        "feed-analytics-execution",
+        "feed-analytics-stock-only",
+        "feed-direction",
+        "feed-packing",
+        "feed-sops"
+      ],
+      "assertText": [
+        "Feed",
+        "Stock",
+        "Packing"
+      ],
+      "safeClicks": [
+        {
+          "role": "button",
+          "name": "Filters",
+          "optional": true,
+          "requireObserved": true
+        },
+        {
+          "role": "button",
+          "name": "Clear",
+          "optional": true
+        }
+      ],
+      "coverage": [
+        "analytics-tabs",
+        "stock-filter",
+        "direction",
+        "packing",
+        "sop-read"
+      ]
+    },
+    {
+      "id": "sales",
+      "owner": "sales-and-valuation",
+      "routes": [
+        "sales",
+        "sales-sold",
+        "sales-farm-value",
+        "sales-loads",
+        "sales-loads-farm-born",
+        "sales-market-analytics",
+        "sales-buyer-analytics",
+        "sales-farm-born",
+        "sales-config",
+        "sales-vendors",
+        "sales-sops"
+      ],
+      "assertText": [
+        "Sales",
+        "Farm Value",
+        "Sold"
+      ],
+      "safeClicks": [
+        {
+          "role": "button",
+          "name": "Filters",
+          "optional": true,
+          "requireObserved": true
+        },
+        {
+          "role": "button",
+          "name": "Close",
+          "optional": true
+        }
+      ],
+      "coverage": [
+        "sold",
+        "valuation",
+        "loads",
+        "analytics",
+        "vendors"
+      ]
+    },
+    {
+      "id": "procurement",
+      "owner": "source-entry-and-purchases",
+      "routes": [
+        "procurement",
+        "procurement-source-entry",
+        "procurement-source-entry-health-pending",
+        "procurement-source-entry-arrival-review",
+        "procurement-source-entry-accepted-intake",
+        "procurement-vendors",
+        "procurement-feed-purchases",
+        "procurement-animal-purchases",
+        "procurement-sops",
+        "procurement-toxin-list",
+        "procurement-toxin-flow",
+        "procurement-load-detail"
+      ],
+      "assertText": [
+        "Procurement",
+        "Source Entry",
+        "Vendor"
+      ],
+      "safeClicks": [
+        {
+          "role": "button",
+          "name": "Filters",
+          "optional": true,
+          "requireObserved": true
+        },
+        {
+          "role": "button",
+          "name": "Close",
+          "optional": true
+        }
+      ],
+      "coverage": [
+        "source-entry-status",
+        "load-detail",
+        "vendors",
+        "purchases",
+        "toxin-sop"
+      ]
+    },
+    {
+      "id": "counts-herd",
+      "owner": "herd-register",
+      "routes": [
+        "counts-herd",
+        "counts-analytics",
+        "counts-breakdown",
+        "counts-mortality",
+        "counts-milk-preparation",
+        "counts-sops",
+        "counts-sops-builder",
+        "milk-sops",
+        "herd-signals",
+        "herd-signals-animals",
+        "herd-signals-mapping",
+        "herd-signals-alerts",
+        "herd-signals-gateways",
+        "herd-signals-insights",
+        "goat-passport"
+      ],
+      "assertText": [
+        "Herd",
+        "Counts",
+        "Animals"
+      ],
+      "safeClicks": [
+        {
+          "role": "button",
+          "name": "Filters",
+          "optional": true,
+          "requireObserved": true
+        },
+        {
+          "role": "button",
+          "name": "Close",
+          "optional": true
+        }
+      ],
+      "coverage": [
+        "register",
+        "analytics",
+        "breakdown",
+        "mortality",
+        "rfid-tabs",
+        "passport"
+      ]
+    },
+    {
+      "id": "health",
+      "owner": "health-analytics-and-config",
+      "routes": [
+        "health-analytics",
+        "health-analytics-diseases",
+        "health-analytics-mortality",
+        "health-analytics-treatment",
+        "health-analytics-engine",
+        "health-config"
+      ],
+      "assertText": [
+        "Health",
+        "Treatment",
+        "Mortality"
+      ],
+      "safeClicks": [
+        {
+          "role": "button",
+          "name": "Filters",
+          "optional": true,
+          "requireObserved": true
+        },
+        {
+          "role": "button",
+          "name": "Close",
+          "optional": true
+        }
+      ],
+      "coverage": [
+        "analytics-tabs",
+        "config-read",
+        "wide-table"
+      ]
+    },
+    {
+      "id": "work-board-action-center",
+      "owner": "operations-workflow",
+      "routes": [
+        "action-center",
+        "action-center-verify",
+        "action-center-overdue",
+        "action-center-due",
+        "work-board",
+        "work-board-populated",
+        "protocol-adherence",
+        "protocol-adherence-high",
+        "protocol-adherence-overdue",
+        "workflows",
+        "workflow-record",
+        "approvals",
+        "approvals-approved",
+        "approvals-rejected",
+        "verify",
+        "verify-all",
+        "verify-approved",
+        "verify-rejected",
+        "verify-toxin",
+        "verification",
+        "actions",
+        "control-tower"
+      ],
+      "assertText": [
+        "Action Center",
+        "Work Board",
+        "Protocol"
+      ],
+      "safeClicks": [
+        {
+          "css": ".card[data-filter-row]",
+          "optional": true,
+          "requireObserved": true
+        },
+        {
+          "role": "button",
+          "name": "Close",
+          "optional": true
+        }
+      ],
+      "coverage": [
+        "state-buckets",
+        "board-cards",
+        "local-drawer",
+        "approval-read",
+        "verification-read"
+      ]
+    },
+    {
+      "id": "calendar",
+      "owner": "calendar-and-drives",
+      "routes": [
+        "calendar",
+        "calendar-month",
+        "calendar-history",
+        "calendar-owner-pc",
+        "calendar-drive-detail"
+      ],
+      "assertText": [
+        "Calendar",
+        "Drive",
+        "Week"
+      ],
+      "safeClicks": [
+        {
+          "role": "link",
+          "name": "Next",
+          "optional": true,
+          "requireObserved": true
+        },
+        {
+          "role": "button",
+          "name": "Close",
+          "optional": true
+        }
+      ],
+      "coverage": [
+        "week",
+        "month",
+        "history",
+        "owner-filter",
+        "drive-detail"
+      ]
+    },
+    {
+      "id": "people",
+      "owner": "workforce",
+      "routes": [
+        "people",
+        "people-vaccination",
+        "people-clock",
+        "people-notifications",
+        "leave",
+        "leave-approved",
+        "leave-rejected",
+        "leave-withdrawn",
+        "routines"
+      ],
+      "assertText": [
+        "People",
+        "Clock",
+        "Notifications"
+      ],
+      "safeClicks": [
+        {
+          "role": "button",
+          "name": "Filters",
+          "optional": true,
+          "requireObserved": true
+        },
+        {
+          "role": "button",
+          "name": "Close",
+          "optional": true
+        }
+      ],
+      "coverage": [
+        "tabs",
+        "clock",
+        "notifications",
+        "leave-states",
+        "routines"
+      ]
+    },
+    {
+      "id": "operations",
+      "owner": "audit-and-dlq",
+      "routes": [
+        "operations-audit",
+        "operations-audit-awaiting",
+        "operations-audit-rejected",
+        "operations-audit-proof-gaps",
+        "operations-dlq",
+        "operations-dlq-failed",
+        "operations-dlq-discarded",
+        "alerts",
+        "alerts-populated",
+        "tasks",
+        "ceo-ai-admin",
+        "configuration-items",
+        "configuration-work-instructions"
+      ],
+      "assertText": [
+        "Operations",
+        "Audit",
+        "DLQ"
+      ],
+      "safeClicks": [
+        {
+          "role": "button",
+          "name": "Filters",
+          "optional": true,
+          "requireObserved": true
+        },
+        {
+          "role": "button",
+          "name": "Close",
+          "optional": true
+        }
+      ],
+      "coverage": [
+        "audit-filters",
+        "dlq-states",
+        "alerts",
+        "tasks",
+        "configuration"
+      ]
+    }
+  ]
+}

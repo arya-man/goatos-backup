@@ -43,12 +43,17 @@ for (const file of [
   "tools/dashboard-automation/run-oci.sh",
   "tools/dashboard-automation/install-oci-user-timer.sh",
   "tools/dashboard-automation/check-business-data-parity.mjs",
+  "tools/dashboard-automation/module-journeys.json",
+  "tools/dashboard-automation/check-module-journeys.mjs",
+  "tools/dashboard-automation/run-module-journeys.mjs",
   "tools/dashboard-automation/notify-slack.mjs",
   "tools/dashboard-automation/self-heal-pr.mjs",
   "docs/runbooks/dashboard-automation-oci.md",
 ]) {
   if (!existsSync(file)) failures.push(`required dashboard automation file missing: ${file}`);
 }
+failures.push(...dashboardRuntimeFindings());
+failures.push(...dashboardModuleJourneyFindings());
 failures.push(...dashboardStateContractFindings());
 
 if (failures.length > 0) {
@@ -121,6 +126,93 @@ function dashboardBugPatternCoverageFindings() {
   const roundTrip = manoharCases.find((item) => item.id === "planner_create_round_trip_uses_alias_form_a");
   if (roundTrip?.environment !== "disposable_preview_only") {
     findings.push(`${rel}: planner create/store round-trip is a write-path case and must stay marked disposable_preview_only, not STG/prod/OCI`);
+  }
+  return findings;
+}
+
+function dashboardRuntimeFindings() {
+  const findings = [];
+  const configRel = "tools/dashboard-automation/config.json";
+  const parityRel = "tools/dashboard-automation/check-business-data-parity.mjs";
+  const runnerRel = "tools/dashboard-automation/run.mjs";
+  if (!existsSync(configRel) || !existsSync(parityRel) || !existsSync(runnerRel)) return findings;
+  const config = JSON.parse(readFileSync(configRel, "utf8"));
+  const paritySource = readFileSync(parityRel, "utf8");
+  const runnerSource = readFileSync(runnerRel, "utf8");
+  const moduleRunnerRel = "tools/dashboard-automation/run-module-journeys.mjs";
+  const smokeRel = "apps/admin-web/scripts/smoke-visual-live.mjs";
+  const moduleRunnerSource = existsSync(moduleRunnerRel) ? readFileSync(moduleRunnerRel, "utf8") : "";
+  const smokeSource = existsSync(smokeRel) ? readFileSync(smokeRel, "utf8") : "";
+
+  for (const required of ["cbe_herd_analytics_window", "godel_2_timewise_adg", "weighing_pen_alias_form_b_rows", "sales_sold_weight_coverage"]) {
+    const configured = config.businessDataParity?.sentinelQueries?.some((item) => item.name === required && item.implementationStatus === "implemented");
+    if (!configured) findings.push(`${configRel}: sentinel ${required} must be configured as implemented`);
+    if (!paritySource.includes(required)) findings.push(`${parityRel}: sentinel ${required} is configured but not invoked by the parity runner`);
+  }
+
+  for (const fragment of ["begin read only", "GOATOS_STG_READONLY_DATABASE_URL", "GOATOS_OCI_READONLY_DATABASE_URL", "alias_location_id", "shed_partitions"]) {
+    if (!paritySource.includes(fragment)) findings.push(`${parityRel}: missing parity safety/alias fragment ${fragment}`);
+  }
+
+  for (const envFlag of ["GOATOS_DASHBOARD_DATA_PARITY", "GOATOS_DASHBOARD_API_LATENCY", "GOATOS_DASHBOARD_LIGHTHOUSE", "GOATOS_DASHBOARD_GRAFANA_SMOKE", "GOATOS_DASHBOARD_SLACK_ALERTS", "GOATOS_DASHBOARD_SELF_HEALING"]) {
+    if (!runnerSource.includes(envFlag)) findings.push(`${runnerRel}: dashboard automation env flag ${envFlag} is not wired`);
+  }
+  for (const required of ["tools/perf/api-latency-gate.mjs", "apps/admin-web/scripts/capture-lighthouse.mjs", "tools/deploy/smoke-stg-grafana-dashboards.mjs", "tools/dashboard-automation/run-module-journeys.mjs", "tools/dashboard-automation/notify-slack.mjs", "tools/dashboard-automation/self-heal-pr.mjs"]) {
+    if (!runnerSource.includes(required)) findings.push(`${runnerRel}: runner no longer invokes ${required}`);
+  }
+  if (!runnerSource.includes("GOATOS_SMOKE_READ_ONLY")) {
+    findings.push(`${runnerRel}: production/post-main browser automation must force GOATOS_SMOKE_READ_ONLY=1`);
+  }
+  for (const fragment of ["GOATOS_SMOKE_MODULE_ASSERT_TEXT", "GOATOS_SMOKE_MODULE_SAFE_CLICKS"]) {
+    if (!moduleRunnerSource.includes(fragment)) findings.push(`${moduleRunnerRel}: module runner must pass ${fragment} into Playwright`);
+    if (!smokeSource.includes(fragment)) findings.push(`${smokeRel}: visual smoke must consume ${fragment}, not leave module manifest fields as metadata`);
+  }
+  for (const fragment of ["assertModuleTextObserved", "exerciseManifestSafeClicks"]) {
+    if (!smokeSource.includes(fragment)) findings.push(`${smokeRel}: missing module journey enforcement helper ${fragment}`);
+  }
+  if (config.apiLatencyPolicy?.normalDashboardApisMustStayUnderMs !== 500) {
+    findings.push(`${configRel}: normal dashboard APIs must stay under the 500ms policy`);
+  }
+  if (!Array.isArray(config.apiLatencyPolicy?.allowLongRunningPatterns) || !config.apiLatencyPolicy.allowLongRunningPatterns.includes("/imports")) {
+    findings.push(`${configRel}: long-running import/export/upload exclusions must be explicit`);
+  }
+  return findings;
+}
+
+function dashboardModuleJourneyFindings() {
+  const rel = "tools/dashboard-automation/module-journeys.json";
+  if (!existsSync(rel)) return [`required dashboard automation module journey matrix missing: ${rel}`];
+  const matrix = JSON.parse(readFileSync(rel, "utf8"));
+  const findings = [];
+  const modules = Array.isArray(matrix.modules) ? matrix.modules : matrix.journeys ?? [];
+  const assigned = new Set(modules.flatMap((mod) => mod.routes ?? []));
+  const smokeNames = new Set(discoverSmokeRoutes().map((route) => route.name));
+  if (matrix.policy?.defaultReadOnly !== true && !Array.isArray(matrix.forbiddenActions)) {
+    findings.push(`${rel}: dashboard automation journeys must declare read-only policy or forbiddenActions`);
+  }
+  if (matrix.policy?.viewports) {
+    for (const required of ["laptop", "mobile"]) {
+      if (!matrix.policy.viewports.includes(required)) findings.push(`${rel}: missing required viewport ${required}`);
+    }
+  }
+  if (modules.length < 8) {
+    findings.push(`${rel}: module journey coverage must stay module-wise; do not collapse it into a single generic smoke`);
+  }
+  for (const mod of modules) {
+    if (!Array.isArray(mod.routes) || mod.routes.length === 0) findings.push(`${rel}: ${mod.id ?? "unknown module"} has no route ownership`);
+    if (!Array.isArray(mod.requiredInteractions) && !Array.isArray(mod.coverage)) findings.push(`${rel}: ${mod.id ?? "unknown module"} has no requiredInteractions/coverage`);
+    if (!Array.isArray(mod.forbiddenWrites) && !Array.isArray(matrix.forbiddenActions)) findings.push(`${rel}: ${mod.id ?? "unknown module"} has no forbiddenWrites/forbiddenActions`);
+    if (!Array.isArray(mod.safeClicks) || mod.safeClicks.length === 0) {
+      findings.push(`${rel}: ${mod.id ?? "unknown module"} has no manifest safe-click contract`);
+    } else if (!mod.safeClicks.some((click) => click.requireObserved === true)) {
+      findings.push(`${rel}: ${mod.id ?? "unknown module"} has no requireObserved safe-click contract`);
+    }
+    for (const route of mod.routes ?? []) {
+      if (!smokeNames.has(route)) findings.push(`${rel}: ${mod.id} references unknown smoke route ${route}`);
+    }
+  }
+  for (const route of smokeNames) {
+    if (!assigned.has(route)) findings.push(`${rel}: smoke route ${route} is not owned by any module journey`);
   }
   return findings;
 }

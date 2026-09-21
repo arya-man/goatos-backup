@@ -7,7 +7,9 @@ import { fileURLToPath } from "node:url";
 
 const repo = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "../..");
 const configPath = path.join(repo, "tools/dashboard-automation/config.json");
+const journeyPath = path.join(repo, "tools/dashboard-automation/module-journeys.json");
 const smokePath = path.join(repo, "apps/admin-web/scripts/smoke-visual-live.mjs");
+const packagePath = path.join(repo, "apps/admin-web/package.json");
 const adminAppRoot = path.join(repo, "apps/admin-web/app/(admin)");
 
 const args = new Set(process.argv.slice(2));
@@ -17,11 +19,15 @@ if (args.has("--self-test")) {
 }
 
 const config = JSON.parse(readFileSync(configPath, "utf8"));
+const journeyManifest = JSON.parse(readFileSync(journeyPath, "utf8"));
+const adminPackage = JSON.parse(readFileSync(packagePath, "utf8"));
 const problems = validateInventory({
   adminAppRoot,
   smokeScriptText: readFileSync(smokePath, "utf8"),
   failureStrings: config.requiredFailureStrings,
-  exclusions: config.explicitRouteExclusions
+  exclusions: config.explicitRouteExclusions,
+  journeyManifest,
+  packageScripts: adminPackage.scripts ?? {}
 });
 
 if (problems.length) {
@@ -30,12 +36,13 @@ if (problems.length) {
   process.exit(1);
 }
 
-console.log("dashboard automation static inventory guard: routes and required failure strings are covered");
+console.log("dashboard automation static inventory guard: routes, journeys, scripts, and required failure strings are covered");
 
-export function validateInventory({ adminAppRoot, smokeScriptText, failureStrings, exclusions = [] }) {
+export function validateInventory({ adminAppRoot, smokeScriptText, failureStrings, exclusions = [], journeyManifest = null, packageScripts = {} }) {
   const problems = [];
   const fsRoutes = discoverPageRoutes(adminAppRoot);
   const smokePaths = discoverSmokePaths(smokeScriptText);
+  const smokeRouteNames = discoverSmokeRouteNames(smokeScriptText);
   const exclusionMatchers = exclusions.map((item) => wildcardToRegExp(item.pattern));
 
   for (const route of fsRoutes) {
@@ -51,7 +58,58 @@ export function validateInventory({ adminAppRoot, smokeScriptText, failureString
     }
   }
 
+  problems.push(...validateJourneyManifest({ journeyManifest, smokeRouteNames, packageScripts }));
+
   return problems;
+}
+
+function validateJourneyManifest({ journeyManifest, smokeRouteNames, packageScripts }) {
+  if (!journeyManifest) return [];
+  const problems = [];
+  if (!Array.isArray(journeyManifest.journeys) || journeyManifest.journeys.length === 0) {
+    return ["read-only journey manifest must define at least one journey"];
+  }
+  const seenModules = new Set();
+  for (const journey of journeyManifest.journeys) {
+    const moduleId = journey.module ?? journey.id;
+    if (!moduleId || seenModules.has(moduleId)) {
+      problems.push(`read-only journey has missing or duplicate module: ${JSON.stringify(moduleId)}`);
+    }
+    seenModules.add(moduleId);
+    const journeyRoutes = journey.routeNames ?? journey.routes;
+    if (!Array.isArray(journeyRoutes) || journeyRoutes.length === 0) {
+      problems.push(`read-only journey ${moduleId} must name at least one smoke route`);
+      continue;
+    }
+    for (const routeName of journeyRoutes) {
+      if (!smokeRouteNames.has(routeName)) {
+        problems.push(`read-only journey ${moduleId} references route not covered by smoke-visual-live.mjs: ${routeName}`);
+      }
+    }
+    for (const scriptName of journey.companionScripts ?? []) {
+      if (!packageScripts[scriptName]) {
+        problems.push(`read-only journey ${moduleId} references missing admin-web package script: ${scriptName}`);
+      }
+    }
+    const assertions = journey.assertions ?? journey.assertText ?? journey.coverage;
+    if (!Array.isArray(assertions) || assertions.length === 0) {
+      problems.push(`read-only journey ${moduleId} must describe the user-visible assertions it protects`);
+    }
+  }
+  for (const routeName of smokeRouteNames) {
+    if (![...seenJourneyRoutes(journeyManifest)].includes(routeName)) {
+      problems.push(`smoke route ${routeName} is not assigned to any read-only journey module`);
+    }
+  }
+  return problems;
+}
+
+function seenJourneyRoutes(journeyManifest) {
+  const routes = new Set();
+  for (const journey of journeyManifest.journeys ?? []) {
+    for (const routeName of journey.routeNames ?? journey.routes ?? []) routes.add(routeName);
+  }
+  return routes;
 }
 
 function discoverPageRoutes(root) {
@@ -81,6 +139,15 @@ function discoverSmokePaths(text) {
     paths.add(stripQueryAndHash(match[2]));
   }
   return [...paths].sort();
+}
+
+function discoverSmokeRouteNames(text) {
+  const routeBlock = text.match(/function buildRoutes\([\s\S]*?const pagerMinimums = new Map/)?.[0] ?? text;
+  const names = new Set();
+  for (const match of routeBlock.matchAll(/\bname:\s*"([^"]+)"/g)) {
+    names.add(match[1]);
+  }
+  return names;
 }
 
 function stripQueryAndHash(value) {
@@ -130,20 +197,50 @@ function selfTest() {
     assert.deepEqual(validateInventory({
       adminAppRoot: root,
       smokeScriptText: goodSmoke,
-      failureStrings: ["backend_down", "Admin-web contract unavailable"]
+      failureStrings: ["backend_down", "Admin-web contract unavailable"],
+      journeyManifest: {
+        journeys: [
+          { module: "alpha", routeNames: ["alpha"], assertions: ["loads"] },
+          { module: "goat", routeNames: ["goat"], assertions: ["loads"] }
+        ]
+      }
     }), []);
     const missingRoute = validateInventory({
       adminAppRoot: root,
       smokeScriptText: goodSmoke.replace("/alpha?scope_mode=company", "/other?scope_mode=company"),
-      failureStrings: ["backend_down", "Admin-web contract unavailable"]
+      failureStrings: ["backend_down", "Admin-web contract unavailable"],
+      journeyManifest: {
+        journeys: [
+          { module: "alpha", routeNames: ["alpha"], assertions: ["loads"] },
+          { module: "goat", routeNames: ["goat"], assertions: ["loads"] }
+        ]
+      }
     });
     assert.ok(missingRoute.some((problem) => problem.includes("/alpha")));
     const missingString = validateInventory({
       adminAppRoot: root,
       smokeScriptText: goodSmoke.replace("backend_down", "different_error"),
-      failureStrings: ["backend_down", "Admin-web contract unavailable"]
+      failureStrings: ["backend_down", "Admin-web contract unavailable"],
+      journeyManifest: {
+        journeys: [
+          { module: "alpha", routeNames: ["alpha"], assertions: ["loads"] },
+          { module: "goat", routeNames: ["goat"], assertions: ["loads"] }
+        ]
+      }
     });
     assert.ok(missingString.some((problem) => problem.includes("backend_down")));
+    const missingJourneyRoute = validateInventory({
+      adminAppRoot: root,
+      smokeScriptText: goodSmoke,
+      failureStrings: ["backend_down", "Admin-web contract unavailable"],
+      journeyManifest: {
+        journeys: [
+          { module: "alpha", routeNames: ["alpha", "missing"], assertions: ["loads"] },
+          { module: "goat", routeNames: ["goat"], assertions: ["loads"] }
+        ]
+      }
+    });
+    assert.ok(missingJourneyRoute.some((problem) => problem.includes("missing")));
   } finally {
     rmSync(dir, { recursive: true, force: true });
   }
