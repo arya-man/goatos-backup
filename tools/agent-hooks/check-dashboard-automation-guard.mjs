@@ -37,8 +37,10 @@ for (const required of ["work-board", "weighing-weights", "herd-signals", "actio
 
 for (const file of [
   "tools/dashboard-automation/config.json",
-  "tools/dashboard-automation/run-dashboard-automation.mjs",
-  "tools/dashboard-automation/preflight-oci-free.mjs",
+  "tools/dashboard-automation/run.mjs",
+  "tools/dashboard-automation/run-oci.sh",
+  "tools/dashboard-automation/install-oci-user-timer.sh",
+  "tools/dashboard-automation/check-business-data-parity.mjs",
   "docs/runbooks/dashboard-automation-oci.md",
 ]) {
   if (!existsSync(file)) failures.push(`required dashboard automation file missing: ${file}`);
