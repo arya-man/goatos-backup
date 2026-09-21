@@ -112,17 +112,19 @@ test("date text is deterministic across server and browser locales", () => {
   );
 });
 
-test("a span is written as one filter, and its default window is expressed by absence", () => {
+test("a span is written as one filter, and a picked span is never un-pinned", () => {
   // Half a window is a guaranteed 400 from a read that takes from/to, so writing the ends in two
   // pushes would send the page through an error state on the way to a valid one — the same
   // reasoning as the compare control.
   assert.match(barSource, /function applyRange\(/);
   assert.match(barSource, /next\.set\(field\.param, from\);\s*\n\s*next\.set\(field\.toParam, to\);/);
-  // Landing back on the default CLEARS both, so a shared link keeps meaning "the last 30 days".
-  assert.match(
-    barSource,
-    /if \(from === field\.defaultFrom && to === field\.defaultTo\) \{\s*\n\s*next\.delete\(field\.param\);\s*\n\s*next\.delete\(field\.toParam\);/,
-  );
+  // A pick equal to the default span must NOT delete the parameters. It used to, so that a shared
+  // link kept meaning "the default window" — but ABSENCE is not the default span on this control's
+  // host: with no parameters the Weights pages derive the end from the LATEST WEIGHING DATE OF THE
+  // SELECTED PARK, while defaultTo here is today. A matching pick was therefore dropped from the
+  // URL, the chip kept showing the derived window, and the next park change silently re-derived the
+  // period. Clear all stays the one way back.
+  assert.doesNotMatch(barSource, /from === field\.defaultFrom && to === field\.defaultTo/);
   // Clear all resets BOTH ends; forgetting toParam leaves a half window the backend rejects.
   assert.match(barSource, /if \(field\.kind === "daterange"\) next\.delete\(field\.toParam\);/);
 });

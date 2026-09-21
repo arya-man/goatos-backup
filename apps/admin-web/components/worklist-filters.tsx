@@ -373,21 +373,29 @@ export function WorklistFilters({
   }
 
   /**
-   * Writes both ends of a span at once, or clears both when the reader lands back on the default.
+   * Writes both ends of a span at once. A PICKED span is ALWAYS written, even when it happens to
+   * equal the default one.
    *
    * Never one end at a time: a read that takes from/to rejects half a window, so setting them in two
    * pushes would send the page through a guaranteed error state on the way to a valid one — the same
    * reasoning as applyCompare.
+   *
+   * It used to DELETE both ends on a span equal to `defaultFrom … defaultTo`, so that a shared link
+   * kept meaning "the default window" rather than freezing the day it was copied. That silently
+   * un-pinned a real choice, because ABSENCE and the default span are not the same thing on the host
+   * that uses this control: with no parameters the Weights pages derive the window from the herd —
+   * start from the "Pages land on" assumption, end at the LATEST WEIGHING DATE **of the selected
+   * park** (landing-window.ts) — while `defaultTo` here is simply today. A reader whose pick matched
+   * that pair lost it from the URL, the chip still showed the derived window (which looks the same),
+   * and the next park change re-derived the period under them: the data moved, the control did not.
+   *
+   * So a pick now stays picked across park, sex and mode changes, and Clear all — which deletes both
+   * ends — is the one way back to the derived window.
    */
   function applyRange(field: Extract<WorklistFilterField, { kind: "daterange" }>, from: string, to: string) {
     const next = new URLSearchParams(activeSearch);
-    if (from === field.defaultFrom && to === field.defaultTo) {
-      next.delete(field.param);
-      next.delete(field.toParam);
-    } else {
-      next.set(field.param, from);
-      next.set(field.toParam, to);
-    }
+    next.set(field.param, from);
+    next.set(field.toParam, to);
     write(next);
   }
 
