@@ -795,9 +795,13 @@ func pages() []domain.PageContract {
 			// this table answers "which pens are heavy / growing", so it sorts on average weight
 			// and daily gain, and the bucket's workflow state -- an execution fact -- stays on
 			// the Weights page where the work is followed. Sorting is client-side over the rows
-			// already served; the window is still the backend's.
+			// already served; the window is still the backend's. The Breed column (maintainer
+			// request 2026-09-21) names the pen's resident cohort from the same composition
+			// chips the Weights table renders: one breed is named, several read "Mixed breeds",
+			// because one pen average cannot be divided between two cohorts and naming one of
+			// them would claim a herd nobody weighed.
 			[]domain.TableContract{
-				sortable(tableP("shed-weights", "Pens", "/weighing/shed-weights", []string{"park", "shed", "weighing", "animals_weighed", "average_weight", "daily_gain", "total_weight", "last_weighed"}, "location_id", []int{10, 25, 50}), "average_weight", "daily_gain"),
+				sortable(tableP("shed-weights", "Pens", "/weighing/shed-weights", []string{"park", "shed", "breed", "weighing", "animals_weighed", "average_weight", "daily_gain", "total_weight", "last_weighed"}, "location_id", []int{10, 25, 50}), "average_weight", "daily_gain"),
 				// The FCR tab's pen table (maintainer request 2026-09-07): one row per pen weighed
 				// in the period -- feed the sheet directed between its weighing rounds against the
 				// kilograms it gained, the ratio between the two, and what that gain is worth at the

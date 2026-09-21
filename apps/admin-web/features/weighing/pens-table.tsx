@@ -15,6 +15,8 @@ export type PensTableRow = {
   key: string;
   park: string;
   pen: string;
+  /** The pen's resident breed, or the backend's "Mixed breeds" word. Null = nothing to name. */
+  breed: string | null;
   weighingCategory: string;
   animals: number;
   averageKg: number;
@@ -54,6 +56,13 @@ export function PensTable({
   const columns = columnsFromContract<PensTableRow>(contract, {
     park: { cell: (row) => row.park },
     shed: { cell: (row) => <b>{row.pen}</b> },
+    // A pen holding more than one breed reads "Mixed breeds" (backend copy) and is never split
+    // across them: one pen average cannot be divided between two cohorts.
+    breed: {
+      cell: (row) =>
+        row.breed == null ? <span className="muted">{labels.noData}</span> : <span>{row.breed}</span>,
+      sortValue: (row) => row.breed ?? undefined,
+    },
     weighing: {
       cell: (row) => (
         <Tag tone={row.weighingCategory === "individual_animal" ? "info" : "mut"}>
