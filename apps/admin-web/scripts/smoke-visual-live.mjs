@@ -1550,6 +1550,7 @@ async function exerciseManifestSafeClicks(page, routeName, viewportLabel) {
 
 function manifestClickLocator(page, click) {
   if (click.testId) return page.getByTestId(String(click.testId));
+  if (click.css) return page.locator(String(click.css));
   if (click.role && click.name) {
     return page.getByRole(String(click.role), { name: String(click.name), exact: Boolean(click.exact ?? true) });
   }

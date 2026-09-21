@@ -68,6 +68,11 @@ export function checkJourneys({ manifest, filesystemRoutes = discoverFilesystemR
     if (!Array.isArray(journey.coverage) || journey.coverage.length < 2) findings.push(`${manifestPath}: ${journey.id} must list real coverage dimensions`);
     if (!Array.isArray(journey.assertText) || journey.assertText.length === 0) findings.push(`${manifestPath}: ${journey.id} must include visible text assertions`);
     if (!Array.isArray(journey.safeClicks) || journey.safeClicks.length === 0) findings.push(`${manifestPath}: ${journey.id} must include at least one read-only safe click target`);
+    for (const click of journey.safeClicks ?? []) {
+      if (!hasSupportedClickLocator(click)) {
+        findings.push(`${manifestPath}: ${journey.id} safe click must use one supported locator shape: testId, css, text, or role+name (${JSON.stringify(click)})`);
+      }
+    }
     for (const routeName of journey.routes ?? []) {
       coveredRoutes.add(routeName);
       if (!smokeByName.has(routeName)) findings.push(`${manifestPath}: ${journey.id} references unknown smoke route ${routeName}`);
@@ -118,6 +123,10 @@ function stripQuery(path) {
 
 function isRouteExempt(path) {
   return path.includes("[");
+}
+
+function hasSupportedClickLocator(click) {
+  return Boolean(click?.testId || click?.css || click?.text || (click?.role && click?.name));
 }
 
 function joinWithDirs(root, ...parts) {
