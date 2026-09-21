@@ -30,6 +30,20 @@ type DealLine struct {
 	FemaleCount   *float64
 	TotalWeightKg *float64
 	SalesValue    float64
+
+	// The recorded assumption for a line the desk could not weigh (migration 000381). It sits
+	// BESIDE TotalWeightKg and never replaces it: a line with a recorded weight is read from the
+	// recording, and only a line with none falls through to these. Exactly one of the two is
+	// ever set -- kilograms for the whole line, or a band where no kilogram is honestly knowable
+	// -- and WeightEstimateBasis says in words how the figure was arrived at, so the assumption
+	// can be audited and argued with rather than only obeyed.
+	//
+	// They are read by the sold-weight bands ALONE. Realized price per kg and the price bands
+	// deliberately do not see them: two of these estimates were derived FROM price, and feeding
+	// them back into a price average would only re-assert the rate they were derived from.
+	EstimatedWeightKg   *float64
+	EstimatedWeightBand string
+	WeightEstimateBasis string
 }
 
 // Animals resolves how many animals this line moved: animal_count when recorded, otherwise the

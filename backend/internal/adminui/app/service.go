@@ -4968,18 +4968,28 @@ func pageSpecificCopy(id string) map[string]string {
 
 			// Sold animals by weight (maintainer decision 2026-09-08): the live weight recorded
 			// when each animal was tagged to its sale, in the maintainer's four bands.
-			"section.sold_weight.title":    "Sold animals by weight",
-			"section.sold_weight.subtitle": "Weight recorded when each animal was tagged to its sale. All sales.",
+			"section.sold_weight.title": "Sold animals by weight",
+			// The subtitle names all three kinds of evidence, because the screen shows all three
+			// and a reader who is told only about tagging would read a load average as a scale
+			// reading.
+			"section.sold_weight.subtitle": "Weighed one by one where each animal was tagged to its sale, otherwise at the weight recorded for the load it went out in. All sales.",
 			"section.sold_weight.aria":     "Sold animals by weight band",
-			"sold_weight.band.under_20":    "Below 20 kg",
-			"sold_weight.band.20_35":       "20 to 35 kg",
-			"sold_weight.band.35_40":       "35 to 40 kg",
-			"sold_weight.band.40_plus":     "40 kg and above",
-			"sold_weight.unweighed":        "sold without a recorded weight",
-			"sold_weight.total":            "animals sold",
-			"empty.sold_weight":            "No animals tagged to a sale yet.",
-			"field.animal_weight":          "Weight (kg)",
-			"hint.animal_weight":           "Enter every animal's live weight in kg before confirming.",
+			// Keyed by the band's own wire value (domain.SoldBand*), so the page renders
+			// copy(`sold_weight.band.${band.band}`) and a band cannot arrive with no label
+			// because the two vocabularies drifted apart.
+			"sold_weight.band.under_20":       "Below 20 kg",
+			"sold_weight.band.from_20_to_35":  "20 to 35 kg",
+			"sold_weight.band.from_35_to_40":  "35 to 40 kg",
+			"sold_weight.band.at_or_above_40": "40 kg and above",
+			"sold_weight.unweighed":           "sold without a recorded weight",
+			"sold_weight.total":               "animals sold",
+			"sold_weight.source.measured":     "weighed",
+			"sold_weight.source.load_average": "at load average",
+			"sold_weight.source.estimated":    "estimated",
+			"sold_weight.estimated.note":      "Estimated animals were never weighed; their band is worked out from what the sale fetched and is kept out of the price per kg.",
+			"empty.sold_weight":               "No sales recorded yet.",
+			"field.animal_weight":             "Weight (kg)",
+			"hint.animal_weight":              "Enter every animal's live weight in kg before confirming.",
 
 			// Market check table.
 			"column.market":              "Market",

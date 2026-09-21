@@ -406,6 +406,24 @@ func importDeals(ctx context.Context, tx pgx.Tx, tenantID string, deals []fixtur
 		return fmt.Errorf("deals upsert: %w", err)
 	}
 
+	// A RE-IMPORT MUST NOT UNDO A RECORDED WEIGHT REPAIR (migration 000381). The line rewrite
+	// below deletes and re-inserts every touched line from the sheet's own columns, so without
+	// this the seven repaired lines would silently go back to carrying 35 kg for 42 goats and
+	// 350 kg for one, and the Sold page's bands would lose the animals again -- with no error,
+	// which is the worst shape a regression can take. Snapshot the repairs first, restore them
+	// after, and keep the deal-level rollup in step with the lines it rolls up.
+	if _, err := tx.Exec(ctx, `
+		CREATE TEMP TABLE sales_line_weight_repairs ON COMMIT DROP AS
+		SELECT d.source_row_no, l.line_no, l.total_weight_kg,
+		       l.estimated_weight_kg, l.estimated_weight_band, l.weight_estimate_basis
+		FROM public.sales_deal_lines l
+		JOIN public.sales_deals d ON d.id = l.deal_id AND d.tenant_id = l.tenant_id
+		WHERE d.tenant_id = $1 AND d.source_row_no = ANY($2::int[])
+		  AND btrim(coalesce(l.weight_estimate_basis, '')) <> ''`,
+		tenantID, rowNos(n)); err != nil {
+		return fmt.Errorf("deal line weight repairs snapshot: %w", err)
+	}
+
 	// Every sheet row is a SINGLE-LINE sale (migration 000296): mirror its own columns onto one
 	// line, the same way the migration backfilled the deals already recorded. Set-based, keyed
 	// by source_row_no, and REPLACING that one line on a re-run so an updated sheet row cannot
@@ -431,6 +449,38 @@ func importDeals(ctx context.Context, tx pgx.Tx, tenantID string, deals []fixtur
 		WHERE d.tenant_id = $1 AND d.source_row_no = ANY($2::int[])`,
 		tenantID, rowNos(n)); err != nil {
 		return fmt.Errorf("deal lines upsert: %w", err)
+	}
+
+	// Put the repairs back on the freshly written lines. The repaired weight wins over the
+	// sheet's, because the repair exists precisely where the sheet's figure was found not to be
+	// a weight at all.
+	if _, err := tx.Exec(ctx, `
+		UPDATE public.sales_deal_lines l
+		SET total_weight_kg = r.total_weight_kg,
+		    estimated_weight_kg = r.estimated_weight_kg,
+		    estimated_weight_band = r.estimated_weight_band,
+		    weight_estimate_basis = r.weight_estimate_basis
+		FROM sales_line_weight_repairs r, public.sales_deals d
+		WHERE d.id = l.deal_id AND d.tenant_id = l.tenant_id
+		  AND d.tenant_id = $1 AND d.source_row_no = r.source_row_no AND l.line_no = r.line_no`,
+		tenantID); err != nil {
+		return fmt.Errorf("deal line weight repairs restore: %w", err)
+	}
+
+	// The deal's weight is a rollup of its lines (000296), so a repaired line moves it too.
+	// Recomputed from the lines rather than re-derived from the sheet, so the two can never
+	// disagree about the same sale.
+	if _, err := tx.Exec(ctx, `
+		UPDATE public.sales_deals d
+		SET total_weight_kg = (
+			SELECT sum(l.total_weight_kg)
+			FROM public.sales_deal_lines l
+			WHERE l.tenant_id = d.tenant_id AND l.deal_id = d.id
+		)
+		WHERE d.tenant_id = $1
+		  AND d.source_row_no IN (SELECT source_row_no FROM sales_line_weight_repairs)`,
+		tenantID); err != nil {
+		return fmt.Errorf("deal weight rollup after repairs: %w", err)
 	}
 	return nil
 }

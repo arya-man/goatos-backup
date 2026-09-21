@@ -6,6 +6,7 @@ import (
 
 	"github.com/vgoats/goatos/backend/internal/adminui/domain"
 	"github.com/vgoats/goatos/backend/internal/permissions"
+	salesdomain "github.com/vgoats/goatos/backend/internal/sales/domain"
 )
 
 // TestSalesPageContractAndNavigation pins the sales page's published contract: its OWN top-level
@@ -804,5 +805,35 @@ func TestMarketConfigControlIsCapabilityGated(t *testing.T) {
 	}
 	if analytics.Copy["section.trend.title"] == "" || analytics.Copy["empty.config"] == "" {
 		t.Fatalf("sales-market-analytics copy missing its own keys: %v", analytics.Copy)
+	}
+}
+
+// TestSoldWeightBandCopyExistsForEveryBandTheBackendCanEmit is the drift check between the two
+// vocabularies this card straddles: the Sold page renders its tile label as
+// copy("sold_weight.band." + band.band), so a band the sales domain can emit with no copy row
+// would render a tile with an empty heading. Keyed off the domain's OWN band list, so adding a
+// fifth band without its label fails here rather than on the screen.
+func TestSoldWeightBandCopyExistsForEveryBandTheBackendCanEmit(t *testing.T) {
+	copyMap := pageSpecificCopy("sales")
+	bands := salesdomain.BuildSoldWeightBands(nil, nil).Bands
+	if len(bands) != 4 {
+		t.Fatalf("expected the four maintainer bands, got %d", len(bands))
+	}
+	for _, band := range bands {
+		key := "sold_weight.band." + band.Band
+		if copyMap[key] == "" {
+			t.Fatalf("no copy for band %q (key %q)", band.Band, key)
+		}
+	}
+	// The three provenances the tile names under the count, and the note that explains an
+	// estimate. Same reason: the page composes none of these words itself.
+	for _, key := range []string{
+		"sold_weight.source.measured", "sold_weight.source.load_average",
+		"sold_weight.source.estimated", "sold_weight.estimated.note",
+		"sold_weight.total", "sold_weight.unweighed",
+	} {
+		if copyMap[key] == "" {
+			t.Fatalf("sold weight copy missing %q", key)
+		}
 	}
 }

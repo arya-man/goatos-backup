@@ -476,9 +476,11 @@ type Overview struct {
 	TagRoster        TagRoster
 	WeightAudit      WeightAuditSummary
 	MarketBenchmarks []MarketBenchmark
-	// SoldWeightBands (maintainer decision 2026-09-08): every animal tagged sold, by the live
-	// weight recorded at tagging. Whole register, no window -- the Sales page carries no date
-	// filter, and the maintainer asked for all of it.
+	// SoldWeightBands (maintainer decisions 2026-09-08 and 2026-09-21): every animal sold on a
+	// closed deal, by weight -- measured at tagging where it was, spread from the load's own
+	// recorded weight where it was not, and from migration 000381's recorded assumption for the
+	// seven old animals neither could reach. Whole register, no window: the Sales page carries no
+	// date filter, and the maintainer asked for all of it.
 	SoldWeightBands SoldWeightBands
 	// FarmValuation is the live-herd valuation block behind the "Farm Value under Sales" cards.
 	// It is deliberately separate from closed-deal revenue: these animals are current inventory,
@@ -522,40 +524,6 @@ type FarmValuationBucket struct {
 	MaleCount       int
 	FemaleCount     int
 	SexMissingCount int
-}
-
-// SoldWeightBands counts sold animals by the weight recorded when they were tagged to a sale.
-//
-// The four bands are DISJOINT and exhaustive over recorded weights, with the maintainer's own
-// edges (2026-09-08: "40+, 35-40, 20-35, 20 below"): a weight goes in the LOWEST band whose
-// upper edge is above it, so exactly 20 kg is 20-35, exactly 35 is 35-40 and exactly 40 is 40+.
-// Unweighed is the honest remainder: animals tagged before the weight existed. They are counted
-// and shown, never filed into a band they were not measured for, so the bands plus Unweighed
-// always equal Total.
-type SoldWeightBands struct {
-	Total       int
-	Under20     int
-	From20To35  int
-	From35To40  int
-	AtOrAbove40 int
-	Unweighed   int
-}
-
-// AddSoldWeight files one sold animal into its band. nil is "no weight recorded".
-func (b *SoldWeightBands) AddSoldWeight(kg *float64) {
-	b.Total++
-	switch {
-	case kg == nil:
-		b.Unweighed++
-	case *kg < 20:
-		b.Under20++
-	case *kg < 35:
-		b.From20To35++
-	case *kg < 40:
-		b.From35To40++
-	default:
-		b.AtOrAbove40++
-	}
 }
 
 // Summary is the headline block. Only closed deals count; see BuildDealAggregates.
