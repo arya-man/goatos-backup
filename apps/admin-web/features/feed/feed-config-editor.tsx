@@ -1,7 +1,7 @@
 "use client";
 
-import { useEffect, useState, useTransition } from "react";
-import { Pencil } from "lucide-react";
+import { useEffect, useRef, useState, useTransition } from "react";
+import { Check, ChevronDown, Pencil } from "lucide-react";
 
 import { copy, type AdminUiPageContract } from "@/lib/admin-ui-contract";
 import type { FeedConfigActionResult } from "./feed-config-actions";
@@ -570,7 +570,14 @@ export function ExperimentShedSwitch({
 }
 
 /**
- * Enrol ONE PEN onto the experiment workflow, authoring every feed item of it in one atomic write.
+ * Enrol ONE OR MORE PENS onto the experiment workflow, authoring every feed item of each in one
+ * atomic write per pen.
+ *
+ * MULTI-SELECT (maintainer instruction 2026-09-21). The farm puts a whole arm on the experiment at
+ * once -- eight pens of Godel 1 on the same ration, entered eight times -- so the pen chooser is a
+ * tick list, not a single select, and the quantities and arm typed below apply to every pen ticked.
+ * Each pen is still authored by its own atomic write: one pen's failure leaves that pen untouched
+ * and is named in the result, rather than half-authoring the pen or silently dropping it.
  *
  * Enrolment happens through QUANTITIES, not a status flip, and that is the backend contract rather
  * than a UI choice: membership in the table is the workflow flag, so a pen cannot be "on the
@@ -612,6 +619,18 @@ export function ExperimentPenEnroller({
   // a select with one option. With two, it starts empty on purpose: see the kdoc.
   const [parkId, setParkId] = useState(parks.length === 1 ? parks[0].id : "");
   const parkPens = parkId ? pens.filter((pen) => pen.parkId === parkId) : [];
+  // Which pens are ticked, by the exact value the form posts. State is what makes "tick them all"
+  // and "clear" possible at all, and every box reads its own checked state from this one list, so
+  // what the operator sees ticked and what the form submits are the same array.
+  const [ticked, setTicked] = useState<string[]>([]);
+  // Ticks are dropped when the park changes: a pen of the old park is not on this list any more, and
+  // submitting it would enrol into a park the operator has navigated away from.
+  const onPark = (next: string) => {
+    setParkId(next);
+    setTicked([]);
+  };
+  const penValue = (pen: { shedId: string; partitionLabel: string }) =>
+    JSON.stringify({ s: pen.shedId, p: pen.partitionLabel });
 
   if (pens.length === 0) {
     return <div className="small muted">{copy(pageContract, "empty.experiment_candidates")}</div>;
@@ -629,7 +648,7 @@ export function ExperimentPenEnroller({
           id="exp-new-park"
           name="park_id"
           value={parkId}
-          onChange={(event) => setParkId(event.target.value)}
+          onChange={(event) => onPark(event.target.value)}
           aria-describedby="exp-new-park-hint"
         >
           {/* An explicit empty option when there is a real choice to make. Defaulting to the first
@@ -646,21 +665,35 @@ export function ExperimentPenEnroller({
         </div>
       </div>
       <div className="fld" style={{ marginBottom: 0 }}>
-        <label htmlFor="exp-new-pen">{copy(pageContract, "filter.pen_label")}</label>
-        {/* The pen carries its shed id and its RAW partition label as one JSON value. A delimiter
-            would be unsafe — a partition label is free text and may contain spaces or hyphens, so
-            any separator character could occur inside it. The label travels verbatim; the backend
-            normalizes and validates it against the shed's own catalog. */}
-        <select id="exp-new-pen" name="pen" defaultValue="" disabled={parkPens.length === 0}>
-          {parkPens.map((pen) => (
-            <option
-              key={`${pen.shedId}#${pen.partitionLabel}`}
-              value={JSON.stringify({ s: pen.shedId, p: pen.partitionLabel })}
-            >
-              {pen.display}
-            </option>
-          ))}
-        </select>
+        <div className="small" style={{ fontWeight: 600 }}>{copy(pageContract, "filter.pen_label")}</div>
+        <div className="small muted" style={{ marginTop: 4, marginBottom: 8, lineHeight: 1.5 }}>
+          {copy(pageContract, "label.experiment_enrol_pens_note")}
+        </div>
+        {/* The pens the form actually posts, as hidden inputs OUTSIDE the panel.
+            The panel's own checkboxes are unnamed and only drive state, because the panel is
+            unmounted while closed — named inputs in there would silently drop every tick the moment
+            the operator closed the list, which is the failure mode of the <details> this replaces.
+            Each value carries shed id and RAW partition label as one JSON value: a partition label
+            is free text ("Part 3"), so any delimiter character could occur inside it. */}
+        {ticked.map((value) => (
+          <input key={value} type="hidden" name="pen" value={value} />
+        ))}
+        <PenMultiSelect
+          pageContract={pageContract}
+          pens={parkPens}
+          ticked={ticked}
+          onToggle={(value) =>
+            setTicked((current) =>
+              current.includes(value) ? current.filter((held) => held !== value) : [...current, value],
+            )
+          }
+          onToggleAll={() =>
+            setTicked((current) =>
+              current.length === parkPens.length ? [] : parkPens.map((pen) => penValue(pen)),
+            )
+          }
+          penValue={penValue}
+        />
       </div>
       <div className="fld" style={{ marginBottom: 0 }}>
         <label htmlFor="exp-new-arm">{copy(pageContract, "label.experiment_category")}</label>
@@ -701,6 +734,152 @@ export function ExperimentPenEnroller({
         {copy(pageContract, "section.experiment.switch_note")}
       </div>
     </FeedConfigFormShell>
+  );
+}
+
+/**
+ * The pen chooser: a closed control that opens a panel of checkboxes, the same shape as the
+ * multi-select filters on this screen's own filter bar.
+ *
+ * It is NOT a <select multiple> and not an always-open list. A park holds ~50 pens: rendered inline
+ * they pushed the arm, the quantities and the Apply button off the bottom of the drawer, so the
+ * control the operator opened the form for was the one they could not reach.
+ *
+ * TICKS LIVE IN THE PARENT, and the panel posts nothing of its own — the parent renders a hidden
+ * input per ticked pen. That is what makes closing the panel safe: an unmounted named checkbox is a
+ * tick the form no longer carries, and the operator would never see it go.
+ *
+ * Opening is CLIENT-LOCAL state: it must not navigate or re-run the server component. Closes on an
+ * outside click or Escape, the two ways every popover on this screen closes.
+ */
+function PenMultiSelect({
+  pageContract,
+  pens,
+  ticked,
+  onToggle,
+  onToggleAll,
+  penValue,
+}: {
+  pageContract: AdminUiPageContract;
+  pens: { parkId: string; shedId: string; partitionLabel: string; display: string }[];
+  ticked: string[];
+  onToggle: (value: string) => void;
+  onToggleAll: () => void;
+  penValue: (pen: { shedId: string; partitionLabel: string }) => string;
+}) {
+  const [open, setOpen] = useState(false);
+  const wrapper = useRef<HTMLSpanElement | null>(null);
+
+  useEffect(() => {
+    if (!open) return undefined;
+    function onPointerDown(event: MouseEvent) {
+      if (wrapper.current && !wrapper.current.contains(event.target as Node)) setOpen(false);
+    }
+    function onKeyDown(event: KeyboardEvent) {
+      if (event.key === "Escape") setOpen(false);
+    }
+    document.addEventListener("mousedown", onPointerDown);
+    document.addEventListener("keydown", onKeyDown);
+    return () => {
+      document.removeEventListener("mousedown", onPointerDown);
+      document.removeEventListener("keydown", onKeyDown);
+    };
+  }, [open]);
+
+  // One pen ticked reads as that pen's own name; beyond that the button keeps the contract's label
+  // and the COUNT rides beside it as a number. A composed "3 selected" would be invented copy, and
+  // the number says the same thing in every language.
+  const chosen = new Set(ticked);
+  const single = ticked.length === 1 ? pens.find((pen) => chosen.has(penValue(pen)))?.display : undefined;
+  const label = copy(pageContract, "action.choose_experiment_pens");
+
+  return (
+    <span ref={wrapper} style={{ position: "relative", display: "block" }}>
+      <button
+        type="button"
+        className="tsize"
+        aria-haspopup="true"
+        aria-expanded={open}
+        aria-label={copy(pageContract, "filter.pen_label")}
+        disabled={pens.length === 0}
+        onClick={() => setOpen((value) => !value)}
+        style={{
+          display: "flex",
+          alignItems: "center",
+          justifyContent: "space-between",
+          gap: 8,
+          width: "100%",
+          cursor: pens.length === 0 ? "not-allowed" : "pointer",
+          opacity: pens.length === 0 ? 0.5 : 1,
+        }}
+      >
+        <span style={{ display: "inline-flex", alignItems: "center", gap: 8 }}>
+          <span>{single ?? label}</span>
+          {ticked.length > 1 ? <span className="tag t-ok">{ticked.length}</span> : null}
+        </span>
+        <ChevronDown className="ic" aria-hidden="true" style={{ width: 14, height: 14 }} />
+      </button>
+      {open ? (
+        <div
+          className="card"
+          role="group"
+          aria-label={copy(pageContract, "filter.pen_label")}
+          style={{
+            position: "absolute",
+            top: "calc(100% + 6px)",
+            left: 0,
+            zIndex: 40,
+            minWidth: 240,
+            padding: "8px 4px",
+          }}
+        >
+          {/* Capped and scrollable: a park holds ~50 pens and a panel that grows without limit runs
+              off the bottom of the screen. */}
+          {/* The row and its box are styled in mesha-theme.css (.exp-pen-row), not inline: these
+              rows sit inside .fld, whose `input` rule stretches a bare checkbox into a slab with
+              the tick off-centre in it, and that reset belongs beside the identical one the pen
+              routines drawer already carries. */}
+          <div className="exp-pen-list" style={{ maxHeight: 240, overflowY: "auto" }}>
+            {pens.map((pen) => {
+              const value = penValue(pen);
+              return (
+                <label key={value} className="exp-pen-row">
+                  {/* The tick is a real icon element, not a CSS-drawn one. Two rotated borders and
+                      an SVG background were both tried here and neither survived the rules this
+                      checkbox inherits from .fld — one rendered as a vertical hook, the other as a
+                      blank green box. An <svg> the page renders itself cannot be reshaped away, and
+                      it is the same lucide set the rest of the console draws from. */}
+                  <span className="exp-pen-box">
+                    <input type="checkbox" checked={chosen.has(value)} onChange={() => onToggle(value)} />
+                    <Check className="exp-pen-tick" aria-hidden="true" />
+                  </span>
+                  <span>{pen.display}</span>
+                </label>
+              );
+            })}
+          </div>
+          {/* OUTSIDE the scrolling list, so it stays reachable however many pens the park holds. */}
+          <div
+            style={{
+              display: "flex",
+              gap: 6,
+              padding: "8px 10px 2px",
+              borderTop: "1px solid var(--line)",
+              marginTop: 6,
+            }}
+          >
+            <button type="button" className="btn sm" onClick={onToggleAll}>
+              {copy(
+                pageContract,
+                ticked.length === pens.length
+                  ? "action.clear_experiment_pens"
+                  : "action.select_all_experiment_pens",
+              )}
+            </button>
+          </div>
+        </div>
+      ) : null}
+    </span>
   );
 }
 
