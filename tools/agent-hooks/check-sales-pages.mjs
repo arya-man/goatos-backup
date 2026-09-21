@@ -9,7 +9,7 @@
 //
 // RULE 1 — A PAGE THAT OWNS ITS PARK CHOICE HIDES THE SHELL'S. Every admin-web page that
 // renders `<SalesFarmToggle` carries the park choice in its own farm chips on the `farm`
-// parameter, so its PAGE_PATH must be in `PAGES_OWNING_PARK_SCOPE` in mesha-shell.tsx, or
+// parameter, so its PAGE_PATH must be in `PAGES_WITH_LOCAL_OR_NO_PARK_SCOPE` in mesha-shell.tsx, or
 // the top bar shows a second selector the page never reads (the P2 in the PR 238 review:
 // the lock named the retired "/sales" and neither new page). The retired path itself must
 // NOT be listed -- nothing renders there.
@@ -58,14 +58,14 @@ function walk(dir) {
 /** RULE 1. `pages` is a map of file -> source for every feature file; `shell` is mesha-shell.tsx. */
 export function parkScopeFailures(shell, pages) {
   const failures = [];
-  const lock = /const PAGES_OWNING_PARK_SCOPE = \[([\s\S]*?)\];/.exec(shell);
+  const lock = /const PAGES_WITH_LOCAL_OR_NO_PARK_SCOPE = \[([\s\S]*?)\];/.exec(shell);
   if (!lock) {
-    failures.push(`${SHELL}: PAGES_OWNING_PARK_SCOPE is gone; the shell can no longer hide its park selector on pages that own the choice`);
+    failures.push(`${SHELL}: PAGES_WITH_LOCAL_OR_NO_PARK_SCOPE is gone; the shell can no longer hide its park selector on pages that own or ignore the choice`);
     return failures;
   }
   const locked = new Set([...lock[1].matchAll(/"([^"]+)"/g)].map((m) => m[1]));
   if (locked.has("/sales")) {
-    failures.push(`${SHELL}: PAGES_OWNING_PARK_SCOPE lists the retired "/sales"; nothing renders there, list the pages that do`);
+    failures.push(`${SHELL}: PAGES_WITH_LOCAL_OR_NO_PARK_SCOPE lists the retired "/sales"; nothing renders there, list the pages that do`);
   }
   for (const [file, source] of Object.entries(pages)) {
     if (!/<SalesFarmToggle\b/.test(source)) continue;
@@ -75,7 +75,7 @@ export function parkScopeFailures(shell, pages) {
       continue;
     }
     if (!locked.has(path[1])) {
-      failures.push(`${file}: renders its own farm chips on ${path[1]} but that path is not in PAGES_OWNING_PARK_SCOPE (${SHELL}); the top bar will show a second park selector`);
+      failures.push(`${file}: renders its own farm chips on ${path[1]} but that path is not in PAGES_WITH_LOCAL_OR_NO_PARK_SCOPE (${SHELL}); the top bar will show a second park selector`);
     }
   }
   return failures;
@@ -123,7 +123,7 @@ export function smokeFailures(smoke, coverage) {
 }
 
 function selfTest() {
-  const shell = `const PAGES_OWNING_PARK_SCOPE = [\n  "/counts/breakdown",\n  "/sales/sold",\n  "/sales/farm-value",\n];`;
+  const shell = `const PAGES_WITH_LOCAL_OR_NO_PARK_SCOPE = [\n  "/counts/breakdown",\n  "/sales/sold",\n  "/sales/farm-value",\n];`;
   const sold = `const PAGE_PATH = "/sales/sold";\n<SalesFarmToggle pageContract={pageContract} />\n copy(pageContract, "section.buyers.title")\n <table className="sales-deals-table">`;
   const farmValue = `const PAGE_PATH = "/sales/farm-value";\n<SalesFarmToggle />\n {num(bucket.male_count)} {num(bucket.female_count)}`;
   const pages = { [SOLD]: sold, [FARM_VALUE]: farmValue };

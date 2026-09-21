@@ -36,5 +36,22 @@
 ## Landing State
 
 - Candidate before landing receipt: `47f3d1f2f`.
-- Next step: commit this progress note, push the PR update, then run
-  `make land-main` from the clean isolated worktree.
+- First `make land-main` attempt was interrupted before completion after the
+  local-CI classifier incorrectly selected Android for an admin-web/test-only
+  diff.
+- Classifier root cause: `apps/admin-web/features/verification-review/*.test.mjs`
+  matched the broad verification proof-media fanout. Runtime verification-review
+  source still fans out to Android; `.test.mjs` files now stay admin-web-only.
+- Second `make land-main` attempt correctly selected `common,admin-web`, then
+  failed before push on three guard issues:
+  - `sales-pages-guard` still expected the retired
+    `PAGES_OWNING_PARK_SCOPE` shell constant.
+  - `android screenshot scope self-test` used `printf | grep -q` under
+    `pipefail`, producing false negatives when `grep -q` exited early.
+  - `screenshot remediation guard self-test` had the same pipefail matcher
+    issue.
+- Focused repairs are applied locally. Direct reruns are green for
+  `check-sales-pages.mjs`, `check-android-screenshot-scope.test.sh`,
+  `check-screenshot-remediation.test.sh`, `ci-scope.mjs --self-test`,
+  the focused admin-web unit tests, and `git diff --check`.
+- Next step: commit/push the guard repairs, then rerun `make land-main`.
