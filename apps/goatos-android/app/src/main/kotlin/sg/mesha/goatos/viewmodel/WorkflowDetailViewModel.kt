@@ -1094,7 +1094,7 @@ class WorkflowDetailViewModel @Inject constructor(
                 val multiProof = ui.proofMinPhotos > 0 || ui.proofMinVideos > 1
                 val base = ui.copy(
                     hasVideoDraft = hasDraft,
-                    canRecordVideo = if (multiProof) ui.canRecordVideo && !draftsSubmitting else canRecordWorkflowVideo(action, blocked, draftsSubmitting),
+                    canRecordVideo = if (multiProof) ui.canRecordVideo && !draftsSubmitting else canRecordWorkflowVideo(action, blocked, draftsSubmitting, ui.opensPromote),
                 )
                 if (!isDeathModule && multiProof && action.actionId in pendingAnswers) {
                     // A multi-proof step's answer is kept on the phone until its proofs are in.
@@ -1249,7 +1249,14 @@ class WorkflowDetailViewModel @Inject constructor(
             section = section,
             canAnswer = actionable && isQuestion && !opensPromote && !opensSaleTagging,
             canComplete = actionable && actionType == TYPE_ACTION && minVideos == 0 && proofMinPhotos == 0 && !opensPromote && !opensSaleTagging,
-            canRecordVideo = actionable && minVideos > 0 && captured.count { it.kind == PROOF_KIND_VIDEO } < minVideos && !opensSaleTagging,
+            // TAG THE KID IS RFID FIRST, VIDEO SECOND (maintainer report 2026-09-21). Every other
+            // flag above already excludes opensPromote; this one did not, so the step offered
+            // "Record video" while the permanent RFID was still missing and the only way to enter
+            // it was an unlabelled tap on the row. The operator shot the clip, and the backend
+            // then refused the completion with permanent_identifier_required -- a wasted recording
+            // for work that was done. The video is still mandatory; it is simply not offered until
+            // the tag is on the record.
+            canRecordVideo = actionable && minVideos > 0 && captured.count { it.kind == PROOF_KIND_VIDEO } < minVideos && !opensPromote && !opensSaleTagging,
             canTakePhoto = actionable && proofMinPhotos > 0 && captured.count { it.kind == PROOF_KIND_PHOTO } < proofMinPhotos && !opensPromote && !opensSaleTagging,
             answerKind = if (isRecordPen) "select" else answerKind,
             proofMinVideos = minVideos,
@@ -1506,11 +1513,18 @@ internal fun canRecordWorkflowVideo(
     action: WorkflowActionDto,
     blocked: Boolean,
     draftsSubmitting: Boolean,
+    // TAG THE KID IS RFID FIRST, VIDEO SECOND (maintainer report, STG, 2026-09-21). Tag the kid is
+    // a one-video step, so it takes THIS legacy path rather than the multi-proof flag beside it --
+    // gating only the flag left the camera on screen. The video stays mandatory; it is simply not
+    // offered until the permanent RFID is on the record, which is the order the backend enforces
+    // anyway (it refuses the completion with permanent_identifier_required).
+    opensPromote: Boolean = false,
 ): Boolean = action.actionType == "action" &&
     action.requiresVideo &&
     !operatorFinishedWorkflowStatus(action.status) &&
     !blocked &&
-    !draftsSubmitting
+    !draftsSubmitting &&
+    !opensPromote
 
 internal fun operatorVisibleWorkflowActions(actions: List<WorkflowActionDto>): List<WorkflowActionDto> =
     actions.filter { it.actionType != "approval" }

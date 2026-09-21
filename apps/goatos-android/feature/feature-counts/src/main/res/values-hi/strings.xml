@@ -221,6 +221,7 @@
     <string name="counts_workflow_sect_sessions">कोलोस्ट्रम सत्र</string>
     <string name="counts_workflow_tag_video">वीडियो</string>
     <string name="counts_workflow_answered_fmt">उत्तर %1$s</string>
+    <string name="counts_workflow_enter_rfid">RFID स्कैन करें या दर्ज करें</string>
     <string name="counts_workflow_record_video">वीडियो रिकॉर्ड करें</string>
     <string name="counts_workflow_tag_videos_fmt">%1$d वीडियो</string>
     <string name="counts_workflow_tag_photo">फ़ोटो</string>

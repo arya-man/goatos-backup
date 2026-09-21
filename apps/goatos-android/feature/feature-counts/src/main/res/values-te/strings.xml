@@ -221,6 +221,7 @@
     <string name="counts_workflow_sect_sessions">కొలొస్ట్రమ్ సెషన్లు</string>
     <string name="counts_workflow_tag_video">వీడియో</string>
     <string name="counts_workflow_answered_fmt">సమాధానం %1$s</string>
+    <string name="counts_workflow_enter_rfid">RFID స్కాన్ చేయండి లేదా నమోదు చేయండి</string>
     <string name="counts_workflow_record_video">వీడియో రికార్డ్ చేయండి</string>
     <string name="counts_workflow_tag_videos_fmt">%1$d వీడియోలు</string>
     <string name="counts_workflow_tag_photo">ఫోటో</string>

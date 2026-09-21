@@ -690,6 +690,47 @@ private fun WorkflowActionRow(
                     .padding(vertical = 10.dp),
             )
         }
+        // TAG THE KID: the RFID entry is a BUTTON, not a bare row tap (maintainer report
+        // 2026-09-21). Opening the promote screen was only ever reachable by tapping the row
+        // body, with nothing on screen saying so -- so the step read as "record a video" with no
+        // way to enter or scan the tag at all. Every other step type renders its own control; this
+        // one now does too, and it is the only control offered until the tag is recorded.
+        if (action.opensPromote) {
+            val canOpenPromote = state.subjectGoatId.isNotBlank() && state.subjectGoatRowVersion > 0
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .clip(RoundedCornerShape(10.dp))
+                    .background(if (canOpenPromote) MeshaColors.Brand else MeshaColors.Surf3)
+                    .clickable(enabled = canOpenPromote) {
+                        onEvent(
+                            WorkflowDetailEvent.OpenPromote(
+                                goatId = state.subjectGoatId,
+                                displayId = state.displayId,
+                                temporaryIdentifier = state.subjectTemporaryIdentifier,
+                                locationDisplay = state.subjectLocationDisplay,
+                                rowVersion = state.subjectGoatRowVersion,
+                            ),
+                        )
+                    }
+                    .padding(vertical = 10.dp),
+                horizontalArrangement = Arrangement.Center,
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                Icon(
+                    imageVector = MeshaIcons.Edit,
+                    contentDescription = null,
+                    tint = if (canOpenPromote) MeshaColors.OnBrand else MeshaColors.Faint,
+                    modifier = Modifier.size(15.dp),
+                )
+                Text(
+                    text = stringResource(R.string.counts_workflow_enter_rfid),
+                    color = if (canOpenPromote) MeshaColors.OnBrand else MeshaColors.Faint,
+                    style = MeshaType.pillStrong,
+                    modifier = Modifier.padding(start = 6.dp),
+                )
+            }
+        }
         if (action.canRecordVideo) {
             Row(
                 modifier = Modifier
