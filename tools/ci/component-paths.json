@@ -85,9 +85,6 @@
         "apps/goatos-android/app/src/main/kotlin/sg/mesha/goatos/viewmodel/VerifyQueueViewModel.kt",
         "apps/goatos-android/core/core-network/src/main/kotlin/sg/mesha/goatos/core/network/dto/VerificationDto.kt"
       ],
-      "excludeSuffixes": [
-        ".test.mjs"
-      ],
       "components": [
         "backend",
         "adminWeb",

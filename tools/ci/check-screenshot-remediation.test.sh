@@ -44,7 +44,7 @@ expect() { # <case> <expected rc> <substring> <repo>
     rc=1
     return
   fi
-  if [ -n "$needle" ] && ! grep -qF "$needle" <<<"$out"; then
+  if [ -n "$needle" ] && ! printf '%s' "$out" | grep -qF "$needle"; then
     echo "!! $name: exit was $got but the message did not mention '$needle'" >&2
     printf '%s\n' "$out" >&2
     rc=1

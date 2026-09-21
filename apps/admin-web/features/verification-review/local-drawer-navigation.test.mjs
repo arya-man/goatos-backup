@@ -78,8 +78,8 @@ test("top bar hides the backend-owned as-of calendar filter", () => {
   assert.doesNotMatch(shellSource, /<TopBarDatePicker/);
   assert.doesNotMatch(shellSource, /onSelectDate=\{\(date\) =>/);
   assert.doesNotMatch(shellSource, /currentScopeHref\(\{ asOf: date \}/);
-  assert.match(shellSource, /preservedPageFiltersForScopeChange\(searchParams\)/);
-  assert.doesNotMatch(shellSource, /Object\.fromEntries\(searchParams\?\.entries\(\) \?\? \[\]\)/);
+  assert.match(shellSource, /const pageFilters = Object\.fromEntries\(searchParams\?\.entries\(\) \?\? \[\]\)/);
+  assert.match(shellSource, /\.\.\.pageFilters, \.\.\.preserveVaccinationSchedule/);
   assert.doesNotMatch(shellSource, /type="date"/);
   assert.doesNotMatch(shellSource, /date\.menu_aria/);
 });
