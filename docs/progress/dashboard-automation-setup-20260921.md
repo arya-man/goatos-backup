@@ -48,6 +48,21 @@ agent-review hook, CI wiring, and review-skill instructions.
 - Updated `.agents/skills/goatos-code-review` so reviews apply this dashboard
   smoke/route/known-error-string lens across all admin-web changes, not only
   weighing.
+- Tightened `tools/dashboard-automation/check-business-data-parity.mjs` after
+  review:
+  - STG and OCI parity now accepts only
+    `GOATOS_STG_READONLY_DATABASE_URL` and
+    `GOATOS_OCI_READONLY_DATABASE_URL`; it no longer falls back to a generic
+    OCI database URL.
+  - Every parity SQL statement is wrapped in `begin read only; ... rollback`.
+  - `goat_sale_allocations` is now an explicit critical sales parity table,
+    alongside the legacy `sales_sold_animal_tags` table.
+- Tightened runner and artifact safety:
+  - fatal runner errors are persisted into the receipt and force a failing
+    status instead of disappearing into process control flow;
+  - daily production smoke refuses non-production API origins;
+  - agent-review evidence redacts route and viewport strings as well as file
+    paths before writing review inputs.
 
 ## Pending before enabling a real timer
 
@@ -68,13 +83,25 @@ agent-review hook, CI wiring, and review-skill instructions.
 - `bash -n tools/dashboard-automation/install-oci-user-timer.sh`
 - `make dashboard-automation-self-test`
 - `make dashboard-automation-guard`
+- `node tools/ci/check-dashboard-automation.mjs --self-test`
+- `node tools/ci/check-dashboard-automation.mjs`
+- `git diff --check`
 - `node --test --experimental-strip-types apps/admin-web/scripts/smoke-visual-route-coverage.test.mjs`
 - `make guardrail-registration-guard`
+- Read-only safety scan of `tools/dashboard-automation`,
+  `tools/ci/check-dashboard-automation.mjs`, and the dashboard automation docs:
+  no write SQL/restore/dump/sync path in the new parity runner; matches were
+  limited to forbidden-action deny-list entries and key-presence detection.
 
 Note: `npm --prefix apps/admin-web run test -- scripts/smoke-visual-route-coverage.test.mjs`
 was not a focused run; the npm script prepended the full admin-web test globs and failed on existing
 `typescript` package resolution for unrelated tests in this fresh worktree. The direct node test above
 is the focused smoke route coverage proof and passed.
+
+Live STG/OCI parity readback did not run in this shell because both
+`GOATOS_STG_READONLY_DATABASE_URL` and `GOATOS_OCI_READONLY_DATABASE_URL` were
+missing. The script remains fail-closed in that state and does not accept
+generic write-capable env names.
 
 ## Agent review status
 

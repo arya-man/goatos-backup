@@ -48,6 +48,7 @@
       "autoApprove",
       "writeProductionData",
       "writeStagingData",
+      "writeOciData",
       "repairStagingData"
     ],
     "checksBeforePr": [
@@ -79,6 +80,7 @@
       "feed_direction_completions",
       "sales_deals",
       "sales_deal_lines",
+      "goat_sale_allocations",
       "sales_sold_animal_tags",
       "vaccination_source_facts",
       "vaccination_completions",
