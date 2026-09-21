@@ -117,6 +117,21 @@ ADG history, duplicates pens, freezes `gain_span_days`, or double-renders names 
 `Godel 2 - Part 1 - Part 1`. The check is read-only on both STG and OCI; repairing rows remains a
 separate, human-approved database operation.
 
+Manohar's 2026-09-21 Godel 2 note is tracked as a required pattern, not a one-off incident. The
+guarded cases are:
+
+1. A pen weighed under both key forms appears once in shed-weights, not twice.
+2. `gain_span_days` follows the requested window and cannot stay fixed at seven days.
+3. Different windows return independently computed ADG values, not the same frozen value.
+4. `operational_location_display` never doubles the pen name.
+5. Planner-to-create round-trip stores the same canonical pen identity the planner returned.
+6. No campaign row may use active shed + `partition_label` when an alias location row exists.
+
+Cases 1, 2, 3, 4, and 6 are read-only automation targets for STG/OCI parity and dashboard/API smoke.
+Case 6 is already implemented by `weighing_pen_alias_form_b_rows`. Case 5 is a write-path round-trip,
+so it must run only in a disposable preview/integration stack; it must never create or repair rows in
+STG, prod, or the OCI parity database.
+
 Android is included in the pattern review but not as a default OCI emulator/device job. The Android
 project already needs a 4 GB Gradle heap, and emulator/macrobenchmark requires additional RAM, CPU,
 SDK images, virtualization/KVM, and disk headroom. On the Always Free dashboard runner, Android
