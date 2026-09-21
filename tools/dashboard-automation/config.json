@@ -96,18 +96,22 @@
     "sentinelQueries": [
       {
         "name": "cbe_herd_analytics_window",
+        "implementationStatus": "implemented",
         "description": "CBE live herd, kids/adults, and exits for the visible weekly Herd Analytics window."
       },
       {
         "name": "castro_reconciliation",
+        "implementationStatus": "planned",
         "description": "Castro 2 and Castro 3 purchased/current/dead/ICU reconciliation."
       },
       {
         "name": "godel_2_timewise_adg",
+        "implementationStatus": "planned",
         "description": "Godel 2 Part 1 and Part 2 ADG must change with the selected range when underlying weighing data changes."
       },
       {
         "name": "sales_sold_weight_coverage",
+        "implementationStatus": "implemented",
         "description": "Sold animals by weight must include deal-line average weights when animal tags lack per-animal weights."
       }
     ],

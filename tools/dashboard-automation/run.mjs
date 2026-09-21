@@ -34,10 +34,11 @@ const receipt = {
 
 try {
   const staticOk = layer("static", "deterministic", () => runNode(["tools/dashboard-automation/check-static-inventory.mjs"]));
+  let dataParityOk = true;
   if (process.env.GOATOS_DASHBOARD_DATA_PARITY === "1") {
-    layer("business-data-parity", "deterministic", () => runNode(["tools/dashboard-automation/check-business-data-parity.mjs"]));
+    dataParityOk = layer("business-data-parity", "deterministic", () => runNode(["tools/dashboard-automation/check-business-data-parity.mjs"]));
   }
-  const ociOk = staticOk && layer("oci-free-preflight", "deterministic", () => assertOciAlwaysFree());
+  const ociOk = staticOk && dataParityOk && layer("oci-free-preflight", "deterministic", () => assertOciAlwaysFree());
   if (!ociOk) throw new Error("stopping before runtime automation because a prerequisite deterministic layer failed");
   if (mode === "post-main-certification") {
     layer("postgresql-integration", "deterministic", () => assertPostgresIntegrationConfigured());
