@@ -213,10 +213,17 @@ test("weighing visual smoke pins explicit date windows on every tabbed picker su
 
 test("feed config smoke checks experiment pen dropdown identity without writing", () => {
   assert.match(smokeSource, /if \(routeName === "feed-config"\) \{\s+await assertFeedConfigPenDropdownContracts\(page, routeName\);/);
-  assert.match(smokeSource, /#exp-new-pen/);
+  // The pen chooser is a checkbox PANEL, not a <select>: several pens are enrolled in one act, so
+  // the smoke reads `.exp-pen-row` rather than `#exp-new-pen option`. What this coverage test is
+  // protecting is unchanged -- that the smoke still opens the real chooser and still rejects a
+  // duplicate pen and a mis-composed operational location.
+  assert.match(smokeSource, /\.exp-pen-row/);
   assert.match(smokeSource, /duplicate option/);
   assert.match(smokeSource, /bare numeric pen with dash/);
-  assert.match(smokeSource, /Every pen already has experiment quantities\./);
+  // An empty-candidate park is a legitimate pass, and the smoke must say so rather than failing a
+  // park whose every pen is already on the experiment. Matched on the branch, not on the copy: that
+  // sentence is backend-owned and this test is not the place that pins its wording.
+  assert.match(smokeSource, /empty-candidate explanation/);
 });
 
 test("sales sold smoke proves the sold-weight band card from the live page", () => {
