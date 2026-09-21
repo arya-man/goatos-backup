@@ -2,9 +2,11 @@
 
 ## Scope
 
-Implement the first executable scaffold for the v3 dashboard automation plan:
-static guards, production-smoke runner wrapper, OCI Always Free refusal checks,
-agent-review hook, CI wiring, and review-skill instructions.
+Implement the repo-side dashboard automation suite for PR #331: module-wise
+read-only Playwright journeys, guard coverage that moves with admin-web
+features, backend/data parity hooks, performance/observability hooks,
+Slack/self-healing hooks, OCI post-main/daily runtime wrappers, receipts, and
+local proof gates.
 
 ## Done
 
@@ -77,6 +79,19 @@ agent-review hook, CI wiring, and review-skill instructions.
   - `tools/dashboard-automation/run.mjs` now uses module journeys for both
     production smoke and post-main certification, instead of one broad generic
     Playwright pass.
+- Wired module journey manifests into the Playwright smoke itself:
+  - `run-module-journeys.mjs` passes each module's `assertText` through
+    `GOATOS_SMOKE_MODULE_ASSERT_TEXT` and each module's `safeClicks` through
+    `GOATOS_SMOKE_MODULE_SAFE_CLICKS`.
+  - `apps/admin-web/scripts/smoke-visual-live.mjs` observes required text from
+    real rendered page bodies and fails the run if any module assertion is not
+    seen.
+  - The same smoke script performs manifest-declared read-only safe clicks,
+    refuses unsafe names such as submit/save/approve/delete, closes overlays,
+    and refuses safe-click execution when read-only smoke is disabled.
+  - `check-module-journeys.mjs` now fails if any module journey lacks route
+    ownership, real coverage dimensions, visible-text assertions, or at least
+    one read-only safe-click target.
 
 ## Pending before enabling a real timer
 
@@ -104,6 +119,7 @@ agent-review hook, CI wiring, and review-skill instructions.
 - `node tools/ci/check-dashboard-automation.mjs`
 - `git diff --check`
 - `node --test --experimental-strip-types apps/admin-web/scripts/smoke-visual-route-coverage.test.mjs`
+- `node --test --experimental-strip-types apps/admin-web/scripts/smoke-visual-route-coverage.test.mjs tools/perf/api-latency-policy.test.mjs`
 - `make guardrail-registration-guard`
 - Read-only safety scan of `tools/dashboard-automation`,
   `tools/ci/check-dashboard-automation.mjs`, and the dashboard automation docs:
@@ -122,9 +138,17 @@ generic write-capable env names.
 
 ## Agent review status
 
-Requested subagents for implementation, OCI fit, and judge review could not complete in this turn
-because Codex account usage was exhausted for spawned agents. Deterministic local validation above
-passed; independent agent/judge review remains pending.
+Automated judge/review hooks are wired and self-tested:
+
+- `node tools/dashboard-automation/agent-review.mjs --self-test`: PASS.
+- `make dashboard-automation-self-test`: PASS and includes the agent-review
+  hook, self-heal PR hook, Slack notify hook, parity self-test, module journey
+  guard self-test, module journey runner self-test, and shell syntax checks for
+  the OCI/post-main/timer scripts.
+- A focused final manifest judge was requested after commit `939572d66` to
+  verify that `assertText` and `safeClicks` are consumed by Playwright. Before
+  final push, the local implementation was additionally hardened so the module
+  journey guard itself rejects missing safe-click contracts.
 - `node tools/dashboard-automation/run.mjs --mode production-smoke --out-dir .codex-goatos-render/dashboard-automation/failclosed-check-2`
   - Expected failure: stopped after `oci-free-preflight` because local
     filesystem headroom was 11.0 GB, below the 20 GB threshold.
@@ -133,7 +157,9 @@ passed; independent agent/judge review remains pending.
 
 ## Current state
 
-This commit is safe to land as automation scaffolding. It does not create OCI
-resources, does not schedule a timer, does not mutate production or staging, and
-does not expose secrets. Runtime automation remains fail-closed until the OCI
-free-tier and auth/database inputs are explicitly present on the runner.
+PR #331 head `3f645e19d75d8ba39cd3852396f4859660e507be` contains the
+repo-side automation suite and local proof above. It does not create OCI
+resources, does not install the timer without explicit
+`GOATOS_DASHBOARD_AUTOMATION_INSTALL=1`, does not mutate production or staging,
+and does not expose secrets. Runtime execution remains fail-closed until the OCI
+free-tier, auth, and read-only database inputs are present on the runner.
