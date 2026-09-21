@@ -99,6 +99,29 @@ function dashboardBugPatternCoverageFindings() {
   if (coverage.slackAlerts?.channelId !== "C0C39G90FCJ") {
     findings.push(`${rel}: Slack alerts must target goatos-automation-alerts channel C0C39G90FCJ unless the OCI env overrides it`);
   }
+  const weighingAliasPattern = patterns.find((item) => item.id === "weighing-pen-alias-form-drift");
+  const manoharCases = Array.isArray(weighingAliasPattern?.manoharTestCases) ? weighingAliasPattern.manoharTestCases : [];
+  const requiredManoharCases = [
+    "single_physical_pen_row_in_shed_weights",
+    "gain_span_days_matches_requested_window",
+    "window_variance_changes_adg",
+    "operational_location_display_not_doubled",
+    "planner_create_round_trip_uses_alias_form_a",
+    "no_form_b_when_alias_exists",
+  ];
+  for (const requiredCase of requiredManoharCases) {
+    if (!manoharCases.some((item) => item.id === requiredCase)) {
+      findings.push(`${rel}: weighing-pen-alias-form-drift must preserve Manohar test case ${requiredCase}`);
+    }
+  }
+  const formBGuard = manoharCases.find((item) => item.id === "no_form_b_when_alias_exists");
+  if (!String(formBGuard?.automation ?? "").includes("weighing_pen_alias_form_b_rows")) {
+    findings.push(`${rel}: Manohar Form-B guard must point at the implemented weighing_pen_alias_form_b_rows sentinel`);
+  }
+  const roundTrip = manoharCases.find((item) => item.id === "planner_create_round_trip_uses_alias_form_a");
+  if (roundTrip?.environment !== "disposable_preview_only") {
+    findings.push(`${rel}: planner create/store round-trip is a write-path case and must stay marked disposable_preview_only, not STG/prod/OCI`);
+  }
   return findings;
 }
 

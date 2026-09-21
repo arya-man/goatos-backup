@@ -176,6 +176,56 @@
         "read-only STG and OCI comparison blocks when Form B rows exist while planner alias rows exist",
         "review skill requires planner create/store round-trip to preserve the canonical pen identity"
       ],
+      "manoharTestCases": [
+        {
+          "id": "single_physical_pen_row_in_shed_weights",
+          "source": "Manohar Godel 2 ADG note 2026-09-21 test case 1",
+          "expected": "A physical pen weighed under both key shapes appears once in shed-weights, not once per storage representation.",
+          "automation": "Read-only shed-weights semantic/API smoke plus weighing_pen_alias_form_b_rows sentinel.",
+          "environment": "stg_read_only_and_oci_read_only",
+          "writesAllowed": false
+        },
+        {
+          "id": "gain_span_days_matches_requested_window",
+          "source": "Manohar Godel 2 ADG note 2026-09-21 test case 2",
+          "expected": "gain_span_days follows the selected date window and must not stay pinned to seven days when the user asks for 14/21/28 day windows.",
+          "automation": "Read-only ADG API semantic check over known pens/windows, backed by STG-to-OCI parity so OCI data can reproduce the STG bug.",
+          "environment": "stg_read_only_and_oci_read_only",
+          "writesAllowed": false
+        },
+        {
+          "id": "window_variance_changes_adg",
+          "source": "Manohar Godel 2 ADG note 2026-09-21 test case 3",
+          "expected": "Three different windows for a pen with real history return three independently computed ADG values, not the same frozen value.",
+          "automation": "Read-only ADG API semantic check using fixed STG fixture pens such as the Godel 2 class.",
+          "environment": "stg_read_only_and_oci_read_only",
+          "writesAllowed": false
+        },
+        {
+          "id": "operational_location_display_not_doubled",
+          "source": "Manohar Godel 2 ADG note 2026-09-21 test case 4",
+          "expected": "operational_location_display never appends the partition twice, for example no Godel 2 - Part 1 - Part 1.",
+          "automation": "Read-only API/UI string guard in weighing pages and API payloads.",
+          "environment": "stg_read_only_and_oci_read_only",
+          "writesAllowed": false
+        },
+        {
+          "id": "planner_create_round_trip_uses_alias_form_a",
+          "source": "Manohar Godel 2 ADG note 2026-09-21 test case 5",
+          "expected": "The planner bucket returned for a pen is exactly the canonical value stored on create: alias location_id with NULL partition_label.",
+          "automation": "Disposable preview/integration round-trip only; never run as a write against STG, prod, or OCI parity DB.",
+          "environment": "disposable_preview_only",
+          "writesAllowed": true
+        },
+        {
+          "id": "no_form_b_when_alias_exists",
+          "source": "Manohar Godel 2 ADG note 2026-09-21 test case 6",
+          "expected": "No weighing_campaign_sheds row may store active shed + partition_label when an alias location row exists for the same physical pen.",
+          "automation": "Implemented read-only business-data sentinel weighing_pen_alias_form_b_rows.",
+          "environment": "stg_read_only_and_oci_read_only",
+          "writesAllowed": false
+        }
+      ],
       "ociNightlyCoverage": "read-only SQL sentinel over weighing_campaign_sheds and locations; no DB repair from automation"
     },
     {
