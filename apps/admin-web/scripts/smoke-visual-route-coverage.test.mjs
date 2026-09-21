@@ -80,18 +80,19 @@ test("visual smoke visits every live sidebar navigation leaf", () => {
     ["feed-sops", "/feed/sops?scope_mode=company"],
     ["feed-direction", "/feed/direction?scope_mode=company"],
     ["feed-packing", "/feed/packing?scope_mode=company"],
-    ["weighing-analytics", "/weighing/analytics?scope_mode=company&tab=general"],
-    ["weighing-analytics-breed", "/weighing/analytics?scope_mode=company&tab=breed"],
+    ["weighing-analytics", "/weighing/analytics?scope_mode=company&tab=general&wt_from=${dynamic}&wt_to=${dynamic}"],
+    ["weighing-analytics-breed", "/weighing/analytics?scope_mode=company&tab=breed&wt_from=${dynamic}&wt_to=${dynamic}"],
     ["weighing-analytics-breed-wide", "/weighing/analytics?scope_mode=company&tab=breed&wt_from=${dynamic}&wt_to=${dynamic}"],
-    ["weighing-analytics-birth", "/weighing/analytics?scope_mode=company&tab=birth"],
-    ["weighing-analytics-shed", "/weighing/analytics?scope_mode=company&tab=shed"],
-    ["weighing-analytics-weight", "/weighing/analytics?scope_mode=company&tab=weight"],
-    ["weighing-analytics-weight-not-shown", "/weighing/analytics?scope_mode=company&tab=weight&fb_view=unmatched"],
-    ["weighing-analytics-weight-band-filter", "/weighing/analytics?scope_mode=company&tab=weight&fb_band=25_30&fb_animals=all"],
-    ["weighing-analytics-time", "/weighing/analytics?scope_mode=company&tab=time"],
-    ["weighing-analytics-load", "/weighing/analytics?scope_mode=company&tab=load"],
+    ["weighing-analytics-birth", "/weighing/analytics?scope_mode=company&tab=birth&wt_from=${dynamic}&wt_to=${dynamic}"],
+    ["weighing-analytics-shed", "/weighing/analytics?scope_mode=company&tab=shed&wt_from=${dynamic}&wt_to=${dynamic}"],
+    ["weighing-analytics-weight", "/weighing/analytics?scope_mode=company&tab=weight&wt_from=${dynamic}&wt_to=${dynamic}"],
+    ["weighing-analytics-weight-not-shown", "/weighing/analytics?scope_mode=company&tab=weight&fb_view=unmatched&wt_from=${dynamic}&wt_to=${dynamic}"],
+    ["weighing-analytics-weight-band-filter", "/weighing/analytics?scope_mode=company&tab=weight&fb_band=25_30&fb_animals=all&wt_from=${dynamic}&wt_to=${dynamic}"],
+    ["weighing-analytics-time", "/weighing/analytics?scope_mode=company&tab=time&wt_from=${dynamic}&wt_to=${dynamic}"],
+    ["weighing-analytics-load", "/weighing/analytics?scope_mode=company&tab=load&wt_from=${dynamic}&wt_to=${dynamic}"],
+    ["weighing-analytics-fcr", "/weighing/analytics?scope_mode=company&tab=fcr&wt_from=${dynamic}&wt_to=${dynamic}"],
     ["weighing-sops", "/weighing/sops?scope_mode=company"],
-    ["weighing-weights", "/weighing/weights?scope_mode=company"],
+    ["weighing-weights", "/weighing/weights?scope_mode=company&wt_from=${dynamic}&wt_to=${dynamic}"],
     ["counts-analytics", "/counts/analytics?scope_mode=company"],
     ["counts-mortality", "/counts/mortality?scope_mode=company"],
     ["counts-breakdown", "/counts/breakdown?scope_mode=company"],
@@ -160,6 +161,14 @@ test("visual smoke keeps every live sidebar leaf covered on desktop and narrow/m
     const routeEntry = smokeRouteBlock.match(new RegExp(`name:\\s*"${routeName}"[\\s\\S]*?(?=\\n\\s*\\{|\\n\\s*\\];)`))?.[0] ?? "";
     assert.ok(routeEntry, `${routeName} must stay in the live visual smoke sweep`);
     assert.doesNotMatch(routeEntry, /viewports:\s*\[/, `${routeName} must run in both laptop and mobile visual sweeps`);
+  }
+});
+
+test("weighing visual smoke pins explicit date windows on every tabbed picker surface", () => {
+  for (const [routeName, path] of routeEntries) {
+    if (!routeName.startsWith("weighing-analytics") && routeName !== "weighing-weights") continue;
+    assert.match(path, /[?&]wt_from=\$\{dynamic\}(?:&|$)/, `${routeName} must carry an explicit wt_from window`);
+    assert.match(path, /[?&]wt_to=\$\{dynamic\}(?:&|$)/, `${routeName} must carry an explicit wt_to window`);
   }
 });
 

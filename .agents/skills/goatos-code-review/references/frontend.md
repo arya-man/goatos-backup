@@ -218,6 +218,16 @@ must be covered by the smoke inventory or explicitly excluded with a reason.
 Agent/visual review can add advisory findings, but it cannot override a failed
 deterministic guard or stand in for route coverage.
 
+Picker/filter state is URL contract, not cosmetic UI. For every date/week/month/
+range picker or selected-filter that changes the backend read window/body, verify
+the chosen params survive sibling filter changes, tab switches, top-bar park/scope
+changes, and deep links/bookmarks. Do not approve code that deletes an explicit
+picker param merely because the chosen value equals the current default; on
+data-derived pages, missing params often mean "derive a fresh backend window",
+not "use the operator's pinned choice". Route smoke should include every affected
+page tab with explicit picker params, and deterministic guards should fail if a
+new tab/page is added without that coverage.
+
 ### Additional targeted guard/smoke scripts
 
 Run when the touched surface matches (all confirmed real in
