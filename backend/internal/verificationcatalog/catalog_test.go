@@ -115,7 +115,7 @@ func TestWeighingSubjectLabelShowsTheVerifierNoOperatorWeight(t *testing.T) {
 // It matters because the two must move together. The closeout stops settling unsampled weighing
 // items the moment weighing becomes non-waivable (it must: auto-approving one would complete a
 // bucket with no verifier reading), so if the panel still let a CEO narrow the queue those items
-// would sit pending forever against an unconditional close gate. Migration 000254 clears the rows
+// would sit pending forever against an unconditional close gate. Migration 000384 clears the rows
 // already stored; this keeps the two halves from drifting apart later.
 func TestWeighingSamplingIsLockedBecauseTheVerifierIsTheDataSource(t *testing.T) {
 	if Weighing.SamplingWaivable() {
@@ -129,12 +129,12 @@ func TestWeighingSamplingIsLockedBecauseTheVerifierIsTheDataSource(t *testing.T)
 	}
 }
 
-// The 000254 migration clears weighing's stored sampling rows, and it can only do that by naming
+// The 000384 migration clears weighing's stored sampling rows, and it can only do that by naming
 // the category as a SQL literal. The first draft named "weighing" -- the NAVIGATION MODULE key --
 // and would have deleted nothing while reading as done, leaving the exact stranding it exists to
 // prevent. This pins the literal to the Go constant so the two cannot drift.
 func TestSamplingLockMigrationNamesTheRealWeighingCategory(t *testing.T) {
-	path := filepath.Join("..", "..", "migrations", "postgres", "000383_weighing_blind_verification.sql")
+	path := filepath.Join("..", "..", "migrations", "postgres", "000384_weighing_blind_verification.sql")
 	body, err := os.ReadFile(path)
 	if err != nil {
 		t.Fatalf("read migration: %v", err)

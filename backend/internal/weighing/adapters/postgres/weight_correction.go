@@ -38,6 +38,79 @@ import (
 // author as already wired.
 const idempotencyEventWeightCorrected = "weighing.observation_weight_corrected"
 
+const lockAnimalCorrectionScopeSQL = ` -- scale-guard:ignore: single-row verifier correction lookup by tenant + observation primary key; row lock protects the one record being corrected
+SELECT observation.campaign_id::text,
+  COALESCE(observation.campaign_shed_id::text, ''),
+  COALESCE(cs.display_name, ''),
+  COALESCE(observation.scanned_identifier, ''),
+  observation.weight_kg,
+  0,
+  observation.operator_weight_kg,
+  NULL::integer,
+  COALESCE(cs.status, ''),
+  false
+FROM weighing_observations observation
+LEFT JOIN weighing_campaign_sheds cs
+  ON cs.tenant_id=observation.tenant_id
+ AND cs.campaign_shed_id=observation.campaign_shed_id
+WHERE observation.tenant_id=$1::uuid
+  AND observation.observation_id=$2::uuid
+FOR UPDATE OF observation`
+
+const lockShedCorrectionScopeSQL = ` -- scale-guard:ignore: single-row verifier correction lookup by tenant + shed_observation primary key; row lock protects the one record being corrected
+SELECT observation.campaign_id::text,
+  observation.campaign_shed_id::text,
+  COALESCE(cs.display_name, ''),
+  '',
+  observation.weight_kg,
+  observation.animal_count,
+  observation.operator_weight_kg,
+  observation.operator_animal_count,
+  cs.status,
+  (observation.withdrawn_at IS NOT NULL)
+FROM weighing_shed_observations observation
+JOIN weighing_campaign_sheds cs
+  ON cs.tenant_id=observation.tenant_id
+ AND cs.campaign_shed_id=observation.campaign_shed_id
+WHERE observation.tenant_id=$1::uuid
+  AND observation.shed_observation_id=$2::uuid
+FOR UPDATE OF observation`
+
+const updateAnimalCorrectionSQL = `
+UPDATE weighing_observations
+SET weight_kg=$3::numeric,
+  operator_weight_kg=COALESCE(operator_weight_kg, weight_kg),
+  weight_corrected_by=$4::uuid,
+  weight_corrected_at=now(),
+  weight_correction_reason=NULLIF($5, '')
+WHERE tenant_id=$1::uuid
+  AND observation_id=$2::uuid
+RETURNING weight_corrected_at`
+
+const updateShedCorrectionSQL = `
+UPDATE weighing_shed_observations
+SET weight_kg=$3::numeric,
+  animal_count=$4::integer,
+  average_weight_kg=$5::numeric,
+  operator_weight_kg=COALESCE(operator_weight_kg, weight_kg),
+  operator_animal_count=COALESCE(operator_animal_count, animal_count),
+  weight_corrected_by=$6::uuid,
+  weight_corrected_at=now(),
+  weight_correction_reason=NULLIF($7, '')
+WHERE tenant_id=$1::uuid
+  AND shed_observation_id=$2::uuid
+RETURNING weight_corrected_at`
+
+const hasAnimalVerifierWeightSQL = `
+SELECT operator_weight_kg IS NOT NULL
+FROM weighing_observations
+WHERE tenant_id=$1::uuid AND observation_id=$2::uuid`
+
+const hasShedVerifierWeightSQL = `
+SELECT operator_weight_kg IS NOT NULL
+FROM weighing_shed_observations
+WHERE tenant_id=$1::uuid AND shed_observation_id=$2::uuid`
+
 // correctionScope is the pre-correction snapshot read under the row lock. Every
 // value the result and the audit trail need is taken from it, so nothing is
 // re-read after the UPDATE and the "before" state cannot drift from what was
@@ -207,65 +280,45 @@ func (r *Repository) weightCorrectionByIdempotency(
 // snapshot and the UPDATE cannot straddle a concurrent verdict or re-capture.
 func (r *Repository) lockCorrectionScope(ctx context.Context, tx pgx.Tx, cmd domain.WeightCorrectionCommand) (correctionScope, error) {
 	var scope correctionScope
-	var query string
 	switch cmd.RefType {
 	case domain.VerificationRefTypeAnimal:
-		query = `
-SELECT observation.campaign_id::text,
-  COALESCE(observation.campaign_shed_id::text, ''),
-  COALESCE(cs.display_name, ''),
-  COALESCE(observation.scanned_identifier, ''),
-  observation.weight_kg,
-  0,
-  observation.operator_weight_kg,
-  NULL::integer,
-  COALESCE(cs.status, ''),
-  false
-FROM weighing_observations observation
-LEFT JOIN weighing_campaign_sheds cs
-  ON cs.tenant_id=observation.tenant_id
- AND cs.campaign_shed_id=observation.campaign_shed_id
-WHERE observation.tenant_id=$1::uuid
-  AND observation.observation_id=$2::uuid
-FOR UPDATE OF observation`
+		if err := tx.QueryRow(ctx, lockAnimalCorrectionScopeSQL, cmd.TenantID, cmd.ObservationID).Scan(
+			&scope.CampaignID,
+			&scope.CampaignShedID,
+			&scope.ShedDisplay,
+			&scope.ScannedIdentifier,
+			&scope.WeightKg,
+			&scope.AnimalCount,
+			&scope.OperatorWeightKg,
+			&scope.OperatorAnimalCount,
+			&scope.BucketStatus,
+			&scope.Withdrawn,
+		); err != nil {
+			if errors.Is(err, pgx.ErrNoRows) {
+				return correctionScope{}, ports.ErrNotFound
+			}
+			return correctionScope{}, err
+		}
 	case domain.VerificationRefTypeShed:
-		query = `
-SELECT observation.campaign_id::text,
-  observation.campaign_shed_id::text,
-  COALESCE(cs.display_name, ''),
-  '',
-  observation.weight_kg,
-  observation.animal_count,
-  observation.operator_weight_kg,
-  observation.operator_animal_count,
-  cs.status,
-  (observation.withdrawn_at IS NOT NULL)
-FROM weighing_shed_observations observation
-JOIN weighing_campaign_sheds cs
-  ON cs.tenant_id=observation.tenant_id
- AND cs.campaign_shed_id=observation.campaign_shed_id
-WHERE observation.tenant_id=$1::uuid
-  AND observation.shed_observation_id=$2::uuid
-FOR UPDATE OF observation`
+		if err := tx.QueryRow(ctx, lockShedCorrectionScopeSQL, cmd.TenantID, cmd.ObservationID).Scan(
+			&scope.CampaignID,
+			&scope.CampaignShedID,
+			&scope.ShedDisplay,
+			&scope.ScannedIdentifier,
+			&scope.WeightKg,
+			&scope.AnimalCount,
+			&scope.OperatorWeightKg,
+			&scope.OperatorAnimalCount,
+			&scope.BucketStatus,
+			&scope.Withdrawn,
+		); err != nil {
+			if errors.Is(err, pgx.ErrNoRows) {
+				return correctionScope{}, ports.ErrNotFound
+			}
+			return correctionScope{}, err
+		}
 	default:
 		return correctionScope{}, ports.ErrInvalidArgument
-	}
-	if err := tx.QueryRow(ctx, query, cmd.TenantID, cmd.ObservationID).Scan(
-		&scope.CampaignID,
-		&scope.CampaignShedID,
-		&scope.ShedDisplay,
-		&scope.ScannedIdentifier,
-		&scope.WeightKg,
-		&scope.AnimalCount,
-		&scope.OperatorWeightKg,
-		&scope.OperatorAnimalCount,
-		&scope.BucketStatus,
-		&scope.Withdrawn,
-	); err != nil {
-		if errors.Is(err, pgx.ErrNoRows) {
-			return correctionScope{}, ports.ErrNotFound
-		}
-		return correctionScope{}, err
 	}
 	return scope, nil
 }
@@ -284,47 +337,37 @@ func (r *Repository) applyWeightCorrection(
 	animalCount int,
 ) (time.Time, error) {
 	var correctedAt time.Time
-	var query string
-	var args []any
+	var err error
 	switch cmd.RefType {
 	case domain.VerificationRefTypeAnimal:
-		query = `
-UPDATE weighing_observations
-SET weight_kg=$3::numeric,
-  operator_weight_kg=COALESCE(operator_weight_kg, weight_kg),
-  weight_corrected_by=$4::uuid,
-  weight_corrected_at=now(),
-  weight_correction_reason=NULLIF($5, '')
-WHERE tenant_id=$1::uuid
-  AND observation_id=$2::uuid
-RETURNING weight_corrected_at`
-		args = []any{cmd.TenantID, cmd.ObservationID, cmd.WeightKg, cmd.CorrectedBy, cmd.Reason}
+		err = tx.QueryRow(
+			ctx,
+			updateAnimalCorrectionSQL,
+			cmd.TenantID,
+			cmd.ObservationID,
+			cmd.WeightKg,
+			cmd.CorrectedBy,
+			cmd.Reason,
+		).Scan(&correctedAt)
 	case domain.VerificationRefTypeShed:
 		// average_weight_kg is a STORED derived column with its own (> 0) CHECK, so it
 		// is recomputed in the SAME statement. Leaving it stale would make the shed's
 		// average disagree with the shed's own total -- two numbers for one fact.
-		query = `
-UPDATE weighing_shed_observations
-SET weight_kg=$3::numeric,
-  animal_count=$4::integer,
-  average_weight_kg=$5::numeric,
-  operator_weight_kg=COALESCE(operator_weight_kg, weight_kg),
-  operator_animal_count=COALESCE(operator_animal_count, animal_count),
-  weight_corrected_by=$6::uuid,
-  weight_corrected_at=now(),
-  weight_correction_reason=NULLIF($7, '')
-WHERE tenant_id=$1::uuid
-  AND shed_observation_id=$2::uuid
-RETURNING weight_corrected_at`
-		args = []any{
-			cmd.TenantID, cmd.ObservationID, cmd.WeightKg, animalCount,
+		err = tx.QueryRow(
+			ctx,
+			updateShedCorrectionSQL,
+			cmd.TenantID,
+			cmd.ObservationID,
+			cmd.WeightKg,
+			animalCount,
 			domain.RecomputeAverageWeightKg(cmd.WeightKg, animalCount),
-			cmd.CorrectedBy, cmd.Reason,
-		}
+			cmd.CorrectedBy,
+			cmd.Reason,
+		).Scan(&correctedAt)
 	default:
 		return time.Time{}, ports.ErrInvalidArgument
 	}
-	if err := tx.QueryRow(ctx, query, args...).Scan(&correctedAt); err != nil {
+	if err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
 			// The row was locked a moment ago, so this can only mean it was deleted
 			// underneath us. Not-found is the honest answer.
@@ -391,24 +434,17 @@ func (r *Repository) HasVerifierWeight(ctx context.Context, tenantID, refType, o
 	ctx, cancel := r.timeout(ctx)
 	defer cancel()
 
-	var query string
+	var corrected bool
+	var err error
 	switch strings.TrimSpace(refType) {
 	case domain.VerificationRefTypeAnimal:
-		query = `
-SELECT operator_weight_kg IS NOT NULL
-FROM weighing_observations
-WHERE tenant_id=$1::uuid AND observation_id=$2::uuid`
+		err = r.pool.QueryRow(ctx, hasAnimalVerifierWeightSQL, tenantID, observationID).Scan(&corrected)
 	case domain.VerificationRefTypeShed:
-		query = `
-SELECT operator_weight_kg IS NOT NULL
-FROM weighing_shed_observations
-WHERE tenant_id=$1::uuid AND shed_observation_id=$2::uuid`
+		err = r.pool.QueryRow(ctx, hasShedVerifierWeightSQL, tenantID, observationID).Scan(&corrected)
 	default:
 		return false, ports.ErrInvalidArgument
 	}
-
-	var corrected bool
-	if err := r.pool.QueryRow(ctx, query, tenantID, observationID).Scan(&corrected); err != nil {
+	if err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
 			return false, nil
 		}

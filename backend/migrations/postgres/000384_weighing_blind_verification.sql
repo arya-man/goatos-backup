@@ -71,6 +71,7 @@ WHERE category = 'weighing_proof';
 -- row lock a live verdict is holding. Failing fast and being re-run is the safe outcome.
 SET lock_timeout = '5s';
 
+-- seed-migration-guard:ignore owner=codex issue=pr-343-blind-weighing-label-repair reason=pending-verification-queue-label-scrub-only-new-seeds-compose-blind-labels-from-code expiry=2026-12-31
 UPDATE public.verification_items
 SET subject_label = NULLIF(
       regexp_replace(
@@ -86,6 +87,7 @@ WHERE category = 'weighing_proof'
 -- form for its grain, so no queue row renders blank.
 SET lock_timeout = '5s';
 
+-- seed-migration-guard:ignore owner=codex issue=pr-343-blind-weighing-label-repair reason=pending-verification-queue-label-scrub-only-new-seeds-compose-blind-labels-from-code expiry=2026-12-31
 UPDATE public.verification_items
 SET subject_label = CASE WHEN source_ref_type = 'weighing_shed_observation'
                          THEN 'Whole pen' ELSE 'Individual weigh' END

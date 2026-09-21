@@ -102,7 +102,6 @@
   "internal/weighing/adapters/postgres/repository.go|unverified-dynamic-bind": 5,
   "internal/weighing/adapters/postgres/sex_scope.go|unverified-dynamic-bind": 1,
   "internal/weighing/adapters/postgres/verification_verdict.go|unverified-dynamic-bind": 3,
-  "internal/weighing/adapters/postgres/weight_correction.go|unverified-dynamic-bind": 2,
   "internal/weighing/adapters/postgres/weight_history.go|unverified-dynamic-bind": 1,
   "internal/weighingsop/adapters/postgres/rules_source.go|unverified-dynamic-bind": 1,
   "internal/workforce/adapters/http/leave_handler.go|unverified-dynamic-bind": 1,
