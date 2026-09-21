@@ -11,6 +11,7 @@ import (
 
 	"github.com/vgoats/goatos/backend/internal/platform/audit"
 	"github.com/vgoats/goatos/backend/internal/platform/oploc"
+	"github.com/vgoats/goatos/backend/internal/platform/sqlbind"
 	"github.com/vgoats/goatos/backend/internal/weighing/domain"
 	"github.com/vgoats/goatos/backend/internal/weighing/ports"
 )
@@ -431,24 +432,28 @@ func (r *Repository) SubmitFastingShed(ctx context.Context, cmd domain.SubmitFas
 	if err != nil {
 		return domain.FastingShedSubmitResult{}, err
 	}
-	if err := tx.QueryRow(ctx, fastingShedUpsertSQL,
+	upsert := sqlbind.MustBind(fastingShedUpsertSQL,
 		cmd.TenantID, cmd.FastingTaskID, cmd.CampaignShedID, shedLabel,
-		nullableUUIDString(cmd.FeedProofRef), nullableUUIDString(cmd.WaterProofRef), answersJSON, proofsJSON).Scan(&fastingShedID, &rowVersion); err != nil {
+		nullableUUIDString(cmd.FeedProofRef), nullableUUIDString(cmd.WaterProofRef), answersJSON, proofsJSON)
+	if err := tx.QueryRow(ctx, upsert.SQL(), upsert.Args()...).Scan(&fastingShedID, &rowVersion); err != nil {
 		return domain.FastingShedSubmitResult{}, err
 	}
 
 	var roundComplete bool
-	if err := tx.QueryRow(ctx, fastingRoundFullyCoveredSQL, cmd.TenantID, campaignID, cmd.FastingTaskID).Scan(&roundComplete); err != nil {
+	roundCovered := sqlbind.MustBind(fastingRoundFullyCoveredSQL, cmd.TenantID, campaignID, cmd.FastingTaskID)
+	if err := tx.QueryRow(ctx, roundCovered.SQL(), roundCovered.Args()...).Scan(&roundComplete); err != nil {
 		return domain.FastingShedSubmitResult{}, err
 	}
 	if roundComplete {
-		if _, err := tx.Exec(ctx, fastingSubmitUpdateSQL, cmd.TenantID, cmd.FastingTaskID, cmd.SubmittedBy); err != nil {
+		submitUpdate := sqlbind.MustBind(fastingSubmitUpdateSQL, cmd.TenantID, cmd.FastingTaskID, cmd.SubmittedBy)
+		if _, err := tx.Exec(ctx, submitUpdate.SQL(), submitUpdate.Args()...); err != nil {
 			return domain.FastingShedSubmitResult{}, err
 		}
 	}
 
 	var task domain.FastingTask
-	task, err = scanFastingTask(tx.QueryRow(ctx, fastingReadAfterSubmitSQL, cmd.TenantID, cmd.FastingTaskID))
+	readAfterSubmit := sqlbind.MustBind(fastingReadAfterSubmitSQL, cmd.TenantID, cmd.FastingTaskID)
+	task, err = scanFastingTask(tx.QueryRow(ctx, readAfterSubmit.SQL(), readAfterSubmit.Args()...))
 	if err != nil {
 		return domain.FastingShedSubmitResult{}, err
 	}

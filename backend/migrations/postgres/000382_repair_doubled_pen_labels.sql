@@ -1,4 +1,5 @@
 -- Repair the doubled pen labels written by the feed-&-water removal submit path.
+-- seed-migration-guard:ignore owner=codex issue=pr-340-pen-label-repair reason=live-display-copy-repair-only-no-initial-seed-path expiry=2026-12-31
 --
 -- The submit composed its label as Display(weighing_campaign_sheds.display_name, partition_label).
 -- `display_name` is a bucket's PLANNING label and already carries the pen for every partitioned
@@ -30,12 +31,14 @@ WHERE shed_label ~ '( [0-9]+)\1$';
 
 -- The verifier's subject line, which carries the same label inside a sentence
 -- ("Remove feed & water · Godel 2 - Part 1 - Part 1"), so it is anchored at end-of-string too.
+-- seed-migration-guard:ignore owner=codex issue=pr-340-pen-label-repair reason=live-display-copy-repair-only-no-initial-seed-path expiry=2026-12-31
 UPDATE verification_items
 SET subject_label = regexp_replace(subject_label, '( - Part ([0-9A-Za-z]+))\1$', '\1'),
     updated_at = now()
 WHERE category = 'weighing_fasting'
   AND subject_label ~ '( - Part ([0-9A-Za-z]+))\1$';
 
+-- seed-migration-guard:ignore owner=codex issue=pr-340-pen-label-repair reason=live-display-copy-repair-only-no-initial-seed-path expiry=2026-12-31
 UPDATE verification_items
 SET subject_label = regexp_replace(subject_label, '( [0-9]+)\1$', '\1'),
     updated_at = now()

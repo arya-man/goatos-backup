@@ -45,8 +45,8 @@ fun composeOperationalLocationLabel(shedName: String?, partitionLabel: String?):
  * for surfaces holding only the name/label pair. It strips the partition in the exact two forms
  * [composeOperationalLocationLabel] appends, so composing an already-composed answer is a no-op.
  */
-fun composeOperationalLocationLabelFromComposedName(shedName: String?, partitionLabel: String?): String {
-    val name = shedName?.trim().orEmpty()
+fun composeOperationalLocationLabelFromComposedName(composedName: String?, partitionLabel: String?): String {
+    val name = composedName?.trim().orEmpty()
     val partition = partitionLabel?.trim().orEmpty()
     if (partition.isEmpty() || partition.equals(WHOLE_SHED_PARTITION, ignoreCase = true)) return name
     if (name.isEmpty()) return partition
