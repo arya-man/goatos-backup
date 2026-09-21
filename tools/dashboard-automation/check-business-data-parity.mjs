@@ -429,9 +429,10 @@ function psql(databaseUrl, sql) {
 }
 
 function psqlRows(databaseUrl, sql) {
-  const child = spawnSync(psqlBin, [databaseUrl, "-v", "ON_ERROR_STOP=1", "-X", "-At", "-F", "\t", "-c", sql], {
+  const child = spawnSync(psqlBin, [databaseUrl, "-v", "ON_ERROR_STOP=1", "-X", "-At", "-F", "\t"], {
     cwd: repo,
-    encoding: "utf8"
+    encoding: "utf8",
+    input: `${sql}\n`
   });
   if (child.status !== 0) return { error: redactText(child.stderr || child.stdout || `psql exited ${child.status}`) };
   return {
