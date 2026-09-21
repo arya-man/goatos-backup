@@ -16,9 +16,18 @@ if (selfTest) {
     writeFileSync(joinWithDirs(appRoot, "new-module", "page.tsx"), "export default function Page() { return null; }\n");
     const fsRoutes = discoverFilesystemRoutes(appRoot);
     const smokeRoutes = [{ name: "feed-analytics", path: "/feed/analytics?scope_mode=company" }];
-    const fakeManifest = { requiredModules: ["feed"], journeys: [{ id: "feed", routes: ["feed-analytics"], coverage: ["tabs"], assertText: ["Feed"] }] };
+    const fakeManifest = {
+      requiredModules: ["feed"],
+      journeys: [{ id: "feed", routes: ["feed-analytics"], coverage: ["tabs"], assertText: ["Feed"], safeClicks: [{ text: "Filters", optional: true }] }],
+    };
     const result = checkJourneys({ manifest: fakeManifest, filesystemRoutes: fsRoutes, smokeRoutes });
     assert.ok(result.findings.some((finding) => /new-module/.test(finding)));
+    const missingClickResult = checkJourneys({
+      manifest: { requiredModules: ["feed"], journeys: [{ id: "feed", routes: ["feed-analytics"], coverage: ["tabs"], assertText: ["Feed"] }] },
+      filesystemRoutes: fsRoutes.filter((route) => route.path !== "/new-module"),
+      smokeRoutes,
+    });
+    assert.ok(missingClickResult.findings.some((finding) => /safe click/.test(finding)));
   } finally {
     rmSync(dir, { recursive: true, force: true });
   }
@@ -58,6 +67,7 @@ export function checkJourneys({ manifest, filesystemRoutes = discoverFilesystemR
     if (!Array.isArray(journey.routes) || journey.routes.length === 0) findings.push(`${manifestPath}: ${journey.id} must list smoke routes`);
     if (!Array.isArray(journey.coverage) || journey.coverage.length < 2) findings.push(`${manifestPath}: ${journey.id} must list real coverage dimensions`);
     if (!Array.isArray(journey.assertText) || journey.assertText.length === 0) findings.push(`${manifestPath}: ${journey.id} must include visible text assertions`);
+    if (!Array.isArray(journey.safeClicks) || journey.safeClicks.length === 0) findings.push(`${manifestPath}: ${journey.id} must include at least one read-only safe click target`);
     for (const routeName of journey.routes ?? []) {
       coveredRoutes.add(routeName);
       if (!smokeByName.has(routeName)) findings.push(`${manifestPath}: ${journey.id} references unknown smoke route ${routeName}`);
