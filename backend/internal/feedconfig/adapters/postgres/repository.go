@@ -36,6 +36,7 @@ import (
 	"github.com/vgoats/goatos/backend/internal/feedconfig/domain"
 	"github.com/vgoats/goatos/backend/internal/feedconfig/ports"
 	"github.com/vgoats/goatos/backend/internal/platform/oploc"
+	"github.com/vgoats/goatos/backend/internal/platform/sqlbind"
 )
 
 // writeLogIdempotencyConstraint is the unique index whose violation means "another transaction
@@ -771,12 +772,13 @@ ORDER BY p.pen_number, c.feed_item_key, c.experiment_config_id`
 		value := q.GramsCompare.Value
 		kgOp, kgValue = &op, &value
 	}
-	rows, err := r.pool.Query(ctx, query, q.TenantID, nullIfEmpty(q.ParkID),
+	boundList := sqlbind.MustBind(query, q.TenantID, nullIfEmpty(q.ParkID),
 		nullIfEmpty(q.ShedID), nullIfEmpty(q.Status), q.Page.Limit, q.Page.Offset,
 		nullIfEmptySlice(q.FeedItems), nullIfEmpty(q.ExperimentCategory), kgOp, kgValue,
 		// Blank binds as NULL, i.e. no partition filter — never as the 'whole' key. An undivided
 		// shed has exactly one pen and is already selected by shed_id alone.
 		nullIfEmpty(q.PartitionLabel))
+	rows, err := r.pool.Query(ctx, boundList.SQL(), boundList.Args()...)
 	if err != nil {
 		return domain.ExperimentConfigPage{}, fmt.Errorf("feedconfig: list experiment config: %w", err)
 	}
@@ -847,13 +849,14 @@ func (r *Repository) UpsertExperimentConfigBatch(ctx context.Context, cmd domain
 		// un-re-enrollable, which is the other half of "shifting a pen to normal feed removes it
 		// from this screen": it must be addable again afterwards, or the withdraw is one-way.
 		var alreadyConfigured bool
-		if err := tx.QueryRow(ctx, `
+		boundConfigured := sqlbind.MustBind(`
 SELECT EXISTS (
   SELECT 1 FROM feed_experiment_config
   WHERE tenant_id = $1::uuid AND park_id = $2::uuid AND shed_id = $3::uuid
     AND partition_key = `+partitionKeyMatch("$4")+`
     AND status = 'active'
-)`, cmd.TenantID, cmd.ParkID, cmd.ShedID, cmd.PartitionLabel).Scan(&alreadyConfigured); err != nil {
+)`, cmd.TenantID, cmd.ParkID, cmd.ShedID, cmd.PartitionLabel)
+		if err := tx.QueryRow(ctx, boundConfigured.SQL(), boundConfigured.Args()...).Scan(&alreadyConfigured); err != nil {
 			return writeEffect{}, fmt.Errorf("feedconfig: check experiment pen enrollment: %w", err)
 		}
 		if alreadyConfigured {
@@ -1743,12 +1746,13 @@ func (r *Repository) UpsertExperimentConfig(ctx context.Context, cmd domain.Upse
 			return writeEffect{}, err
 		}
 		var penConfigured bool
-		if err := tx.QueryRow(ctx, `
+		boundPenConfigured := sqlbind.MustBind(`
 SELECT EXISTS (
   SELECT 1 FROM feed_experiment_config
   WHERE tenant_id = $1::uuid AND park_id = $2::uuid AND shed_id = $3::uuid
     AND partition_key = `+partitionKeyMatch("$4")+`
-)`, cmd.TenantID, cmd.ParkID, cmd.ShedID, cmd.PartitionLabel).Scan(&penConfigured); err != nil {
+)`, cmd.TenantID, cmd.ParkID, cmd.ShedID, cmd.PartitionLabel)
+		if err := tx.QueryRow(ctx, boundPenConfigured.SQL(), boundPenConfigured.Args()...).Scan(&penConfigured); err != nil {
 			return writeEffect{}, fmt.Errorf("feedconfig: check experiment pen before cell edit: %w", err)
 		}
 		if !penConfigured {
@@ -1766,13 +1770,14 @@ SELECT EXISTS (
 		// replaced, which made 130 of 175 authored cells un-editable.
 		var openID, openBasis, openGrams, openCategory, openStatus string
 		var openHeadCount *int32
-		err := tx.QueryRow(ctx, `
+		boundOpen := sqlbind.MustBind(`
 SELECT experiment_config_id::text, quantity_basis, COALESCE(grams_per_head::text, ''), head_count, experiment_category, status
 FROM feed_experiment_config
 WHERE tenant_id = $1::uuid AND park_id = $2::uuid AND shed_id = $3::uuid
   AND partition_key = `+partitionKeyMatch("$5")+`
   AND feed_item_key = feed_config_norm($4)
-FOR UPDATE`, cmd.TenantID, cmd.ParkID, cmd.ShedID, cmd.FeedItemLabel, cmd.PartitionLabel).
+FOR UPDATE`, cmd.TenantID, cmd.ParkID, cmd.ShedID, cmd.FeedItemLabel, cmd.PartitionLabel)
+		err := tx.QueryRow(ctx, boundOpen.SQL(), boundOpen.Args()...).
 			Scan(&openID, &openBasis, &openGrams, &openHeadCount, &openCategory, &openStatus)
 
 		switch {
@@ -1891,7 +1896,7 @@ func syncExperimentShedMetadata(ctx context.Context, tx pgx.Tx, tenantID, parkID
 	// partitionKeyMatch: the Go twin this used to be handed disagreed with the generated column for
 	// any pen whose label carries a separator, so this sync silently updated NO sibling rows on
 	// exactly the pens that have them.
-	if _, err := tx.Exec(ctx, `
+	boundSync := sqlbind.MustBind(`
 UPDATE feed_experiment_config
 SET experiment_category = $5,
     updated_at = now()
@@ -1899,7 +1904,8 @@ WHERE tenant_id = $1::uuid AND park_id = $2::uuid AND shed_id = $3::uuid
   AND partition_key = `+partitionKeyMatch("$6")+`
   AND experiment_config_id <> $4::uuid
   AND experiment_category IS DISTINCT FROM $5`,
-		tenantID, parkID, shedID, editedRowID, category, partitionLabel); err != nil {
+		tenantID, parkID, shedID, editedRowID, category, partitionLabel)
+	if _, err := tx.Exec(ctx, boundSync.SQL(), boundSync.Args()...); err != nil {
 		return fmt.Errorf("feedconfig: sync experiment pen metadata: %w", err)
 	}
 	return nil
@@ -2044,12 +2050,13 @@ FOR UPDATE`, tenantID, shedID).Scan(&locked); err != nil {
 func reactivateExperimentPen(ctx context.Context, tx pgx.Tx, tenantID, parkID, shedID, partitionLabel string) error {
 	// scale-guard:ignore: one set-based UPDATE over ONE pen's authored experiment cells (bounded by
 	// the feed-item catalog, a handful of rows per pen today), never a per-row loop.
-	if _, err := tx.Exec(ctx, `
+	boundReactivate := sqlbind.MustBind(`
 UPDATE feed_experiment_config
 SET status = 'active', updated_at = now()
 WHERE tenant_id = $1::uuid AND park_id = $2::uuid AND shed_id = $3::uuid
   AND partition_key = `+partitionKeyMatch("$4")+`
-  AND status <> 'active'`, tenantID, parkID, shedID, partitionLabel); err != nil {
+  AND status <> 'active'`, tenantID, parkID, shedID, partitionLabel)
+	if _, err := tx.Exec(ctx, boundReactivate.SQL(), boundReactivate.Args()...); err != nil {
 		return fmt.Errorf("feedconfig: reactivate experiment pen: %w", err)
 	}
 	return nil
@@ -2081,13 +2088,14 @@ func (r *Repository) SetExperimentShedStatus(ctx context.Context, cmd domain.Set
 
 		// Lock the PEN's rows and learn what state it is currently in, in one read. Ordered so two
 		// concurrent flips cannot deadlock on overlapping lock acquisition order.
-		rows, err := tx.Query(ctx, `
+		boundLock := sqlbind.MustBind(`
 SELECT experiment_config_id::text, status
 FROM feed_experiment_config
 WHERE tenant_id = $1::uuid AND park_id = $2::uuid AND shed_id = $3::uuid
   AND partition_key = `+partitionKeyMatch("$4")+`
 ORDER BY experiment_config_id
 FOR UPDATE`, cmd.TenantID, cmd.ParkID, cmd.ShedID, cmd.PartitionLabel)
+		rows, err := tx.Query(ctx, boundLock.SQL(), boundLock.Args()...)
 		if err != nil {
 			return writeEffect{}, fmt.Errorf("feedconfig: lock experiment shed: %w", err)
 		}
@@ -2122,13 +2130,14 @@ FOR UPDATE`, cmd.TenantID, cmd.ParkID, cmd.ShedID, cmd.PartitionLabel)
 		}
 
 		// scale-guard:ignore: one set-based UPDATE over ONE pen's authored experiment cells (5 rows today, bounded by the feed-item catalog); it is the whole-pen atomic flip described above, never a per-row loop.
-		if _, err := tx.Exec(ctx, `
+		boundStatus := sqlbind.MustBind(`
 UPDATE feed_experiment_config
 SET status = $4, updated_at = now()
 WHERE tenant_id = $1::uuid AND park_id = $2::uuid AND shed_id = $3::uuid
   AND partition_key = `+partitionKeyMatch("$5")+`
   AND status IS DISTINCT FROM $4`,
-			cmd.TenantID, cmd.ParkID, cmd.ShedID, cmd.Status, cmd.PartitionLabel); err != nil {
+			cmd.TenantID, cmd.ParkID, cmd.ShedID, cmd.Status, cmd.PartitionLabel)
+		if _, err := tx.Exec(ctx, boundStatus.SQL(), boundStatus.Args()...); err != nil {
 			return writeEffect{}, fmt.Errorf("feedconfig: set experiment pen status: %w", err)
 		}
 		return writeEffect{Outcome: domain.OutcomeCorrected, ResultRowID: firstID}, nil

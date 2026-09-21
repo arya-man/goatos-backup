@@ -674,7 +674,7 @@ export function ExperimentPenEnroller({
             unmounted while closed — named inputs in there would silently drop every tick the moment
             the operator closed the list, which is the failure mode of the <details> this replaces.
             Each value carries shed id and RAW partition label as one JSON value: a partition label
-            is free text ("Part 3"), so any delimiter character could occur inside it. */}
+            is free text, so any delimiter character could occur inside it. */}
         {ticked.map((value) => (
           <input key={value} type="hidden" name="pen" value={value} />
         ))}

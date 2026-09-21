@@ -10,6 +10,7 @@ import (
 	"github.com/jackc/pgx/v5"
 
 	"github.com/vgoats/goatos/backend/internal/platform/audit"
+	"github.com/vgoats/goatos/backend/internal/platform/sqlbind"
 	"github.com/vgoats/goatos/backend/internal/sales/domain"
 	"github.com/vgoats/goatos/backend/internal/sales/ports"
 )
@@ -115,7 +116,8 @@ func (r *Repository) ListDeals(ctx context.Context, tenantID, farm string, limit
 	query := fmt.Sprintf(`SELECT %s FROM public.sales_deals d WHERE %s ORDER BY d.sale_date DESC, d.id LIMIT %d OFFSET %d`, // scale-guard:ignore: bounded authored ledger pagination; see note above
 		dealColumns, where, limit, offset)
 
-	rows, err := r.pool.Query(ctx, query, args...)
+	boundList := sqlbind.MustBind(query, args...)
+	rows, err := r.pool.Query(ctx, boundList.SQL(), boundList.Args()...)
 	if err != nil {
 		return ports.DealPage{}, fmt.Errorf("list sales deals: %w", err)
 	}
@@ -144,7 +146,8 @@ func (r *Repository) ListDeals(ctx context.Context, tenantID, farm string, limit
 	// Whole-filter total over the SAME predicates, built from the same buildDealFilter call so
 	// the list and its total cannot drift.
 	countQuery := fmt.Sprintf(`SELECT count(*) FROM public.sales_deals d WHERE %s`, where)
-	if err := r.pool.QueryRow(ctx, countQuery, args...).Scan(&page.Total); err != nil {
+	boundCount := sqlbind.MustBind(countQuery, args...)
+	if err := r.pool.QueryRow(ctx, boundCount.SQL(), boundCount.Args()...).Scan(&page.Total); err != nil {
 		return ports.DealPage{}, fmt.Errorf("count sales deals: %w", err)
 	}
 	return page, nil
@@ -153,7 +156,8 @@ func (r *Repository) ListDeals(ctx context.Context, tenantID, farm string, limit
 // getDeal reads one deal inside the caller's tenant. Used by the create replay path.
 func (r *Repository) getDeal(ctx context.Context, tenantID, dealID string) (domain.Deal, error) {
 	query := fmt.Sprintf(`SELECT %s FROM public.sales_deals d WHERE d.tenant_id = $1 AND d.id = $2`, dealColumns)
-	d, err := scanDeal(r.pool.QueryRow(ctx, query, tenantID, dealID))
+	boundDeal := sqlbind.MustBind(query, tenantID, dealID)
+	d, err := scanDeal(r.pool.QueryRow(ctx, boundDeal.SQL(), boundDeal.Args()...))
 	if errors.Is(err, pgx.ErrNoRows) {
 		return domain.Deal{}, ports.ErrDealNotFound
 	}

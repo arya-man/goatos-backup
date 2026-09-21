@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 
+	"github.com/vgoats/goatos/backend/internal/platform/sqlbind"
 	"github.com/vgoats/goatos/backend/internal/sales/domain"
 	"golang.org/x/sync/errgroup"
 )
@@ -123,7 +124,8 @@ func (r *Repository) GetOverview(ctx context.Context, tenantID, farm string) (do
 func (r *Repository) measuredSoldWeights(ctx context.Context, tenantID, farm string) (map[string][]float64, error) {
 	where, args := buildDealFilter(tenantID, farm)
 	query := fmt.Sprintf(measuredSoldWeightsSQL, where)
-	rows, err := r.pool.Query(ctx, query, args...)
+	boundMeasured := sqlbind.MustBind(query, args...)
+	rows, err := r.pool.Query(ctx, boundMeasured.SQL(), boundMeasured.Args()...)
 	if err != nil {
 		return nil, fmt.Errorf("sales measured sold weights: %w", err)
 	}
@@ -163,7 +165,8 @@ func (r *Repository) farmValuation(ctx context.Context, tenantID, farm string) (
 	}
 
 	query := farmValuationQuery(farm)
-	rows, err := r.pool.Query(ctx, query, args...)
+	boundValuation := sqlbind.MustBind(query, args...)
+	rows, err := r.pool.Query(ctx, boundValuation.SQL(), boundValuation.Args()...)
 	if err != nil {
 		return domain.FarmValuation{}, fmt.Errorf("sales farm valuation: %w", err)
 	}
@@ -242,7 +245,8 @@ func (r *Repository) closedDeals(ctx context.Context, tenantID, farm string) ([]
 	// grows by deals closed, never with herd size); the page contract is whole-filter aggregates,
 	// which cannot be computed from a page.
 	query := fmt.Sprintf(`SELECT %s FROM public.sales_deals d WHERE %s AND d.status = 'Deal Closed' ORDER BY d.sale_date, d.id`, dealColumns, where)
-	rows, err := r.pool.Query(ctx, query, args...)
+	boundClosed := sqlbind.MustBind(query, args...)
+	rows, err := r.pool.Query(ctx, boundClosed.SQL(), boundClosed.Args()...)
 	if err != nil {
 		return nil, fmt.Errorf("sales overview deals: %w", err)
 	}
@@ -296,7 +300,8 @@ func (r *Repository) buyerPipeline(ctx context.Context, tenantID, farm string) (
 		WHERE %s
 		GROUP BY 1
 		ORDER BY count(*) DESC, status`, domain.UncontactedStatusKey, where)
-	rows, err := r.pool.Query(ctx, query, args...)
+	boundStatus := sqlbind.MustBind(query, args...)
+	rows, err := r.pool.Query(ctx, boundStatus.SQL(), boundStatus.Args()...)
 	if err != nil {
 		return domain.BuyerPipeline{}, fmt.Errorf("sales buyer pipeline statuses: %w", err)
 	}
@@ -342,7 +347,8 @@ func (r *Repository) fpoPipeline(ctx context.Context, tenantID string) (domain.F
 		WHERE tenant_id = $1
 		GROUP BY 1
 		ORDER BY count(*) DESC, status`, domain.UncontactedStatusKey)
-	rows, err := r.pool.Query(ctx, query, tenantID)
+	boundStatus := sqlbind.MustBind(query, tenantID)
+	rows, err := r.pool.Query(ctx, boundStatus.SQL(), boundStatus.Args()...)
 	if err != nil {
 		return domain.FPOPipeline{}, fmt.Errorf("sales fpo pipeline statuses: %w", err)
 	}
@@ -375,7 +381,8 @@ func (r *Repository) fpoPipeline(ctx context.Context, tenantID string) (domain.F
 
 // placeCounts runs one (place, count) rollup query.
 func (r *Repository) placeCounts(ctx context.Context, query string, args []any, label string) ([]domain.PlaceCount, error) {
-	rows, err := r.pool.Query(ctx, query, args...)
+	boundPlaces := sqlbind.MustBind(query, args...)
+	rows, err := r.pool.Query(ctx, boundPlaces.SQL(), boundPlaces.Args()...)
 	if err != nil {
 		return nil, fmt.Errorf("%s: %w", label, err)
 	}
@@ -408,7 +415,8 @@ func (r *Repository) tagRoster(ctx context.Context, tenantID, farm string) (doma
 		SELECT count(*), count(DISTINCT source_sales_id)
 		FROM public.sales_sold_animal_tags
 		WHERE %s`, where)
-	if err := r.pool.QueryRow(ctx, totalsQuery, args...).Scan(&roster.Total, &roster.SalesCount); err != nil {
+	boundTotals := sqlbind.MustBind(totalsQuery, args...)
+	if err := r.pool.QueryRow(ctx, boundTotals.SQL(), boundTotals.Args()...).Scan(&roster.Total, &roster.SalesCount); err != nil {
 		return domain.TagRoster{}, fmt.Errorf("sales tag roster totals: %w", err)
 	}
 
@@ -418,7 +426,8 @@ func (r *Repository) tagRoster(ctx context.Context, tenantID, farm string) (doma
 		WHERE %s
 		GROUP BY animal_label
 		ORDER BY count(*) DESC, animal_label`, where)
-	rows, err := r.pool.Query(ctx, byTypeQuery, args...)
+	boundByType := sqlbind.MustBind(byTypeQuery, args...)
+	rows, err := r.pool.Query(ctx, boundByType.SQL(), boundByType.Args()...)
 	if err != nil {
 		return domain.TagRoster{}, fmt.Errorf("sales tag roster by type: %w", err)
 	}

@@ -447,11 +447,12 @@ export async function enrolExperimentPen(formData: FormData): Promise<FeedConfig
   // and the direction generator would then feed it nothing at all.
   if (items.length === 0) return EXPERIMENT_BLANK_IS_NOT_ZERO;
 
-  const formKey = readIdempotencyKey(formData);
-  const failures: string[] = [];
-  let enrolled = 0;
-  for (const pen of pens) {
-    const result = await upsertFeedConfigExperimentBatch(
+	const formKey = readIdempotencyKey(formData);
+	const failures: string[] = [];
+	let enrolled = 0;
+	for (const pen of pens) {
+		// serial-await: allow per-pen writes have independent idempotency receipts and partial-failure messages.
+		const result = await upsertFeedConfigExperimentBatch(
       {
         park_id: parkId,
         shed_id: pen.shedId,

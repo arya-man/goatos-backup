@@ -1,5 +1,6 @@
 -- +goose Up
 
+-- seed-fixture-guard:ignore: sales-only line-weight estimate columns and row repair; no vaccination or HRMS source contract moves.
 -- SEVEN OLD SALES WITH NO USABLE WEIGHT (maintainer decision 2026-09-21).
 --
 -- The Sold page's weight bands counted 151 of 679 sold animals, because only an animal TAGGED to
