@@ -69,3 +69,24 @@ type ProtocolAuthoring interface {
 	// DiscardDraft deletes a draft and its steps. Published versions are never deletable.
 	DiscardDraft(ctx context.Context, cmd domain.ProtocolVersionCommand) (domain.AuthoringResult, error)
 }
+
+// MedicineCatalog is the authoring picker's source: the medicines a protocol step may name.
+//
+// It exists because a treatment step names a medicine FROM THE CATALOG and never free text
+// (maintainer instruction 2026-09-21). Authoring by typing produced two spellings of one
+// medicine, a medicine nobody stocks, and a dosage attached to something the store has
+// never heard of.
+//
+// It is a HEALTH-owned read over the shared item registry rather than a filter threaded
+// through the configuration register interface: every register there shares one options
+// signature, and widening it for one consumer's kind filter would change a contract five
+// other screens depend on.
+type MedicineCatalog interface {
+	// ListMedicines returns the tenant's ACTIVE medicines, by name.
+	//
+	// Active only, and that is the enforcement point rather than a convenience: retiring a
+	// medicine on /configuration/items is how a farm stops new courses being written
+	// against it, and an archived row still showing in the picker would make that a
+	// suggestion instead of a decision.
+	ListMedicines(ctx context.Context, tenantID string) ([]domain.CatalogItem, error)
+}

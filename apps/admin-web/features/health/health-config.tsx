@@ -6,8 +6,10 @@ import { controlEnabled, control } from "@/lib/admin-ui-contract";
 import {
   firstAuthRequiredError,
   getHealthConfigProtocol,
+  listHealthConfigMedicines,
   listHealthConfigProtocols,
   type ApiResult,
+  type HealthCatalogItem,
   type HealthConfigProtocolDetail,
   type HealthConfigProtocolRow,
 } from "@/lib/api/server";
@@ -159,6 +161,9 @@ export async function HealthConfigPage({
       });
   const detailResult =
     selectedVersionId && tab !== "diagnosis" ? await getHealthConfigProtocol(selectedVersionId) : null;
+  // The medicine picker's source. Fetched only with the editor: the catalog is of no use to
+  // the list, and reading it there would be one backend call per page view for nothing.
+  const medicinesResult = detailResult ? await listHealthConfigMedicines() : null;
 
   const authError = firstAuthRequiredError(catalogResult, detailResult);
   if (authError) redirect(INTERNAL_LOGIN_PATH);
@@ -273,6 +278,7 @@ export async function HealthConfigPage({
 
         <SelectedProtocolEditor
           detail={detail}
+          medicines={medicinesResult?.ok ? medicinesResult.data.medicines : []}
           pageContract={pageContract}
           mayWrite={mayWrite}
           writeDisabledReason={writeDisabledReason}
@@ -464,12 +470,15 @@ export async function HealthConfigPage({
 
 function SelectedProtocolEditor({
   detail,
+  medicines,
   pageContract,
   mayWrite,
   writeDisabledReason,
   listHref,
 }: {
   detail: HealthConfigProtocolDetail;
+  /** The farm's active medicines — a step names one of these and nothing else. */
+  medicines: HealthCatalogItem[];
   pageContract: AdminUiPageContract;
   mayWrite: boolean;
   writeDisabledReason: string;
@@ -512,6 +521,7 @@ function SelectedProtocolEditor({
         {detail.status === "draft" ? (
           <>
             <DraftEditor
+              medicines={medicines}
               pageContract={pageContract}
               draft={detail}
               action={saveDraft}

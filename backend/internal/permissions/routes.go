@@ -834,6 +834,10 @@ var protectedRoutes = []Route{
 	{OperationID: "saveHealthConfigDraft", Method: "POST", Pattern: "/health-config/drafts/save", Permissions: []string{HealthConfigWrite}},
 	{OperationID: "publishHealthConfigDraft", Method: "POST", Pattern: "/health-config/protocols/{protocol_version_id}/publish", Permissions: []string{HealthConfigWrite}},
 	{OperationID: "discardHealthConfigDraft", Method: "POST", Pattern: "/health-config/protocols/{protocol_version_id}/discard", Permissions: []string{HealthConfigWrite}},
+	// The authoring picker's source. A treatment step names a medicine FROM THE ITEM
+	// REGISTRY and never free text, so the editor needs the list; choosing from it is not
+	// authority over it, and adding one is gated on /configuration/items.
+	{OperationID: "listHealthConfigMedicines", Method: "GET", Pattern: "/health-config/medicines", Permissions: []string{HealthConfigRead}},
 	// The DIAGNOSIS REGISTER, the second tab of the same screen: the observation form,
 	// the mapping from each answer to a rule token, and the rules those tokens fire.
 	//

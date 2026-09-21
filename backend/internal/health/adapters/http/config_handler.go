@@ -53,6 +53,7 @@ const (
 	protocolDraftRoute   = "/health-config/drafts"
 	protocolSaveRoute    = "/health-config/drafts/save"
 	diseasesRoute        = "/health-config/diseases"
+	medicinesRoute       = "/health-config/medicines"
 
 	createDiseaseCommand = "healthconfig.disease.create"
 	saveDraftCommand     = "healthconfig.draft.save"
@@ -69,6 +70,7 @@ type ConfigService interface {
 	SaveDraft(ctx context.Context, cmd domain.SaveDraftCommand) (domain.AuthoringResult, error)
 	PublishDraft(ctx context.Context, cmd domain.ProtocolVersionCommand) (domain.AuthoringResult, error)
 	DiscardDraft(ctx context.Context, cmd domain.ProtocolVersionCommand) (domain.AuthoringResult, error)
+	ListMedicines(ctx context.Context, tenantID string) ([]domain.CatalogItem, error)
 }
 
 type ConfigHandler struct {
@@ -91,6 +93,21 @@ func RegisterConfig(mux *http.ServeMux, h *ConfigHandler) {
 	mux.HandleFunc("POST "+protocolSaveRoute, h.SaveDraft)
 	mux.HandleFunc("POST "+protocolPublishRoute, h.PublishDraft)
 	mux.HandleFunc("POST "+protocolDiscardRoute, h.DiscardDraft)
+	mux.HandleFunc("GET "+medicinesRoute, h.ListMedicines)
+}
+
+// ListMedicines serves the authoring picker: the medicines this farm stocks.
+//
+// A read, on the READ permission, because choosing from the list is not authority over the
+// list -- a principal who may inspect the standing dosages may see which medicines they
+// name. Adding a medicine happens on /configuration/items and is gated there.
+func (h *ConfigHandler) ListMedicines(w http.ResponseWriter, r *http.Request) {
+	items, err := h.svc.ListMedicines(r.Context(), httpmiddleware.TenantIDFromContext(r.Context()))
+	if err != nil {
+		h.writeConfigError(w, r, err)
+		return
+	}
+	httpresponse.WriteJSON(w, http.StatusOK, map[string]any{"medicines": items})
 }
 
 // ---------------------------------------------------------------------------

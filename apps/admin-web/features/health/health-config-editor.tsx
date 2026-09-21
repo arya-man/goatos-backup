@@ -1,11 +1,11 @@
 "use client";
 
-import { useEffect, useMemo, useState, useTransition } from "react";
+import { useEffect, useId, useMemo, useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import { AlertTriangle, ArrowLeft, Plus, Trash2 } from "lucide-react";
 
 import { copy, optionalCopy, optionGroup, type AdminUiOption, type AdminUiPageContract } from "@/lib/admin-ui-contract";
-import type { HealthConfigProtocolDetail, HealthConfigStep } from "@/lib/api/server";
+import type { HealthCatalogItem, HealthConfigProtocolDetail, HealthConfigStep } from "@/lib/api/server";
 import type { HealthConfigActionResult } from "./health-config-actions";
 import { afterSubmit, CLOSED_STATE, openIntent, type AuthoringIdempotencyState } from "@/lib/authoring-idempotency";
 
@@ -104,6 +104,71 @@ function EmptyDraftOverLiveNotice({
       <AlertTriangle className="ic" aria-hidden="true" />
       <div>{copy(pageContract, "warn.empty_draft_over_live")}</div>
     </div>
+  );
+}
+
+/**
+ * The medicine field: PICKED from the farm's item registry, never typed.
+ *
+ * Maintainer instruction 2026-09-21 -- nothing is assigned at random. A medicine exists on
+ * /configuration/items first, and only then can a course name it. Typing produced two
+ * spellings of one medicine and dosages attached to things the store had never heard of.
+ *
+ * It is an input over a datalist rather than a select because the list grows: 35 medicines
+ * today, and a select is a list you scroll while a datalist is one you type into. The
+ * native control gives the search for free and stays keyboard- and screen-reader-friendly.
+ *
+ * A datalist does not CONSTRAIN the value, so the constraint is real and lives on the
+ * server: a save whose medicine matches no active item is refused, naming that step. This
+ * marks the field as soon as the author leaves the list, so they find out while looking at
+ * it rather than at save time -- but the refusal is what makes the rule true, because a
+ * client-side check is a suggestion an older client can skip.
+ */
+function MedicinePicker({
+  value,
+  medicines,
+  pageContract,
+  onChange,
+}: {
+  value: string;
+  medicines: HealthCatalogItem[];
+  pageContract: AdminUiPageContract;
+  onChange: (name: string) => void;
+}) {
+  const listId = useId();
+  const known = useMemo(
+    () => new Set(medicines.map((m) => m.name.trim().toLowerCase())),
+    [medicines],
+  );
+  const typed = value.trim();
+  // Nothing typed yet is not a mistake; it is a step the author has not finished.
+  const unknown = typed !== "" && !known.has(typed.toLowerCase());
+
+  return (
+    <label className="fld" style={{ flex: "1 1 260px", minWidth: 200 }}>
+      <span>{copy(pageContract, "label.medicine_name")}</span>
+      <input
+        type="text"
+        list={listId}
+        value={value}
+        placeholder={copy(pageContract, "label.pick_medicine")}
+        aria-invalid={unknown || undefined}
+        style={unknown ? { borderColor: "var(--danger)" } : undefined}
+        onChange={(event) => onChange(event.target.value)}
+      />
+      <datalist id={listId}>
+        {medicines.map((m) => (
+          <option key={m.item_id} value={m.name}>
+            {m.category_path}
+          </option>
+        ))}
+      </datalist>
+      {unknown ? (
+        <span className="small" style={{ color: "var(--danger)" }}>
+          {copy(pageContract, "warn.medicine_not_in_catalog")}
+        </span>
+      ) : null}
+    </label>
   );
 }
 
@@ -505,12 +570,15 @@ export function BackToListButton({ href, label }: { href: string; label: string 
 export function DraftEditor({
   pageContract,
   draft,
+  medicines,
   action,
   enabled,
   disabledReason,
 }: {
   pageContract: AdminUiPageContract;
   draft: HealthConfigProtocolDetail;
+  /** The farm's active medicines. A step names one of these and nothing else. */
+  medicines: HealthCatalogItem[];
   action: SubmitAction;
   enabled: boolean;
   disabledReason: string;
@@ -675,14 +743,12 @@ export function DraftEditor({
                 {/* WHAT: only the fields this kind of step actually carries. */}
                 {isMedicine ? (
                   <div style={{ display: "flex", gap: 10, flexWrap: "wrap", alignItems: "flex-end" }}>
-                    <label className="fld" style={{ flex: "1 1 260px", minWidth: 200 }}>
-                      <span>{copy(pageContract, "label.medicine_name")}</span>
-                      <input
-                        type="text"
-                        value={step.medicine_name}
-                        onChange={(event) => updateStep(step.key, { medicine_name: event.target.value })}
-                      />
-                    </label>
+                    <MedicinePicker
+                      value={step.medicine_name}
+                      medicines={medicines}
+                      pageContract={pageContract}
+                      onChange={(name) => updateStep(step.key, { medicine_name: name })}
+                    />
                     <label className="fld" style={{ width: 110 }}>
                       <span>{copy(pageContract, "label.dosage_text")}</span>
                       <input

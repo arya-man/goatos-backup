@@ -7258,7 +7258,12 @@ func pageSpecificCopy(id string) map[string]string {
 			// course still has them, and the two sentences sitting on one screen read as a
 			// contradiction. Say which one the animals are being treated from, and that
 			// discarding returns to it, because that is the recovery and it is not obvious.
-			"warn.empty_draft_over_live": "This draft is empty, but the live course still has its steps and is what animals are treated from. Publishing is blocked until you add one. Discard the draft to go back to the live course untouched.",
+			"label.pick_medicine": "Search the medicine list",
+			// A medicine exists on Configuration > Items first, and only then can a course
+			// name it. The sentence says where to add one, because "not in the list" without
+			// a next step is a dead end.
+			"warn.medicine_not_in_catalog": "Not in this farm's medicine list. Pick one from the list, or add it under Configuration \u203a Items first.",
+			"warn.empty_draft_over_live":   "This draft is empty, but the live course still has its steps and is what animals are treated from. Publishing is blocked until you add one. Discard the draft to go back to the live course untouched.",
 
 			// ---- the diagnosis register ---------------------------------------------------
 			// The other half of the rulebook. The copy's job is to keep two things

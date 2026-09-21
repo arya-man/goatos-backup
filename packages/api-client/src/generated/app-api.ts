@@ -6357,6 +6357,26 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/health-config/medicines": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * The medicines a treatment step may name.
+         * @description The authoring picker's source. A treatment step names a medicine FROM THE ITEM REGISTRY (/configuration/items) and never free text, so that a course cannot name a medicine the farm does not stock and one medicine cannot end up under two spellings. ACTIVE items only: retiring a medicine in the registry is how a farm stops new courses being written against it, and an archived row still offered here would make that a suggestion rather than a decision. Choosing from the list rides the READ permission because it is not authority over the list; adding a medicine is gated on the Configuration screen.
+         */
+        get: operations["listHealthConfigMedicines"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/health-config/registers": {
         parameters: {
             query?: never;
@@ -7795,6 +7815,15 @@ export interface components {
             duration_days?: number | null;
             /** @description The whole ordered step list. Order is positional; the server assigns seq 1..N. An empty array is a legitimate draft -- the strict rules apply at publish. */
             steps: components["schemas"]["SaveHealthConfigDraftStep"][];
+        };
+        HealthCatalogItem: {
+            /** Format: uuid */
+            item_id: string;
+            /** @description The label an operator reads mid-treatment. A step stores it alongside the id, so renaming an item in the registry never silently rewrites a course a goat is part way through. */
+            name: string;
+            category: string;
+            /** @description The editable subcategory the farm filed it under, for grouping the picker. */
+            category_path?: string;
         };
         HealthRegisterProblem: {
             /** @description The place in the document the problem is at, so an editor can mark that row. */
@@ -31865,6 +31894,31 @@ export interface operations {
             403: components["responses"]["Forbidden"];
             404: components["responses"]["NotFoundOrNotAllowed"];
             409: components["responses"]["WriteConflict"];
+            500: components["responses"]["ServerError"];
+        };
+    };
+    listHealthConfigMedicines: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description This farm's active medicines, by name. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        medicines: components["schemas"]["HealthCatalogItem"][];
+                    };
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
             500: components["responses"]["ServerError"];
         };
     };

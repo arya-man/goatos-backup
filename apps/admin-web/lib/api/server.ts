@@ -3031,6 +3031,33 @@ export type SaveHealthRegisterDraftRequest = {
   document: HealthRegisterDocument;
 };
 
+export type HealthCatalogItem = {
+  item_id: string;
+  name: string;
+  category: string;
+  category_path?: string;
+};
+
+/**
+ * The medicines a treatment step may name.
+ *
+ * A step names a medicine FROM THE ITEM REGISTRY and never free text, so this is the
+ * editor's only source for that field. Active items only — the registry is where a farm
+ * retires a medicine, and offering a retired one here would make that a suggestion.
+ */
+export async function listHealthConfigMedicines(): Promise<
+  ApiResult<{ medicines: HealthCatalogItem[] }>
+> {
+  const config = await getServerConfig();
+  if (!config.ok) return config;
+  const client = createAppApiClient(apiClientOptions(config.data));
+  return request(() =>
+    client.request<{ medicines: HealthCatalogItem[] }>("/health-config/medicines", {
+      cache: "no-store",
+    }),
+  );
+}
+
 /** Every class's live register and open draft. */
 export async function listHealthConfigRegisters(): Promise<
   ApiResult<{ registers: HealthRegisterRow[] }>

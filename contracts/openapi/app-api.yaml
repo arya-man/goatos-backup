@@ -16517,6 +16517,35 @@ paths:
         "404": { $ref: "#/components/responses/NotFoundOrNotAllowed" }
         "409": { $ref: "#/components/responses/WriteConflict" }
         "500": { $ref: "#/components/responses/ServerError" }
+  /health-config/medicines:
+    get:
+      tags: [Health Config]
+      operationId: listHealthConfigMedicines
+      summary: The medicines a treatment step may name.
+      description: >-
+        The authoring picker's source. A treatment step names a medicine FROM THE ITEM REGISTRY
+        (/configuration/items) and never free text, so that a course cannot name a medicine the farm
+        does not stock and one medicine cannot end up under two spellings. ACTIVE items only:
+        retiring a medicine in the registry is how a farm stops new courses being written against
+        it, and an archived row still offered here would make that a suggestion rather than a
+        decision. Choosing from the list rides the READ permission because it is not authority over
+        the list; adding a medicine is gated on the Configuration screen.
+      responses:
+        "200":
+          description: This farm's active medicines, by name.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [medicines]
+                properties:
+                  medicines:
+                    type: array
+                    items:
+                      $ref: "#/components/schemas/HealthCatalogItem"
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "500": { $ref: "#/components/responses/ServerError" }
   /health-config/registers:
     get:
       tags: [Health Config]
@@ -19399,6 +19428,22 @@ components:
             array is a legitimate draft -- the strict rules apply at publish.
           items:
             $ref: "#/components/schemas/SaveHealthConfigDraftStep"
+    HealthCatalogItem:
+      type: object
+      additionalProperties: false
+      required: [item_id, name, category]
+      properties:
+        item_id: { type: string, format: uuid }
+        name:
+          type: string
+          description: >-
+            The label an operator reads mid-treatment. A step stores it alongside the id, so
+            renaming an item in the registry never silently rewrites a course a goat is part way
+            through.
+        category: { type: string }
+        category_path:
+          type: string
+          description: The editable subcategory the farm filed it under, for grouping the picker.
     HealthRegisterProblem:
       type: object
       additionalProperties: false

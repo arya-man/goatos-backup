@@ -52,6 +52,10 @@ func (f *fakeConfigService) DiscardDraft(_ context.Context, cmd domain.ProtocolV
 	return f.result, f.err
 }
 
+func (f *fakeConfigService) ListMedicines(context.Context, string) ([]domain.CatalogItem, error) {
+	return []domain.CatalogItem{{ItemID: "i1", Name: "Meloxicam", Category: "medicine"}}, f.err
+}
+
 func configServer(svc ConfigService) *http.ServeMux {
 	mux := http.NewServeMux()
 	RegisterConfig(mux, NewConfigHandler(svc, nil))

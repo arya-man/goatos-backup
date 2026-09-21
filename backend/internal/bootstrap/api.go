@@ -707,7 +707,9 @@ func NewAPI(ctx context.Context, cfg Config, log *slog.Logger) (*API, error) {
 	// protocol tables belong to the Health module and a second package writing them would be the
 	// cross-module table write AGENTS.md bans -- the authoring surface is a different API over
 	// the same module, not a different module.
-	healthConfigService := healthapp.NewConfigService(healthRepo)
+	// The medicine picker's registry: a treatment step names an item from
+	// /configuration/items, never free text (maintainer instruction 2026-09-21).
+	healthConfigService := healthapp.NewConfigService(healthRepo).WithMedicineCatalog(healthRepo)
 	healthConfigHandler := healthhttp.NewConfigHandler(healthConfigService, log)
 	// The diagnosis register is the second tab of the same screen and shares its
 	// repository: one Health Config, one rulebook.

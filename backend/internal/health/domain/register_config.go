@@ -106,3 +106,20 @@ func RegisterContentHash(doc diagnosis.AuthoredRegister) (string, error) {
 	sum := sha256.Sum256(stable)
 	return hex.EncodeToString(sum[:]), nil
 }
+
+// CatalogItem is one row of the shared item registry as the authoring screens see it.
+//
+// The ID and the NAME are both carried because the step stores both: the id is the link
+// that makes the medicine a real registry row, and the name is the label an operator reads
+// off the phone mid-treatment. Keeping the name on the step is deliberate -- renaming an
+// item in the registry must not silently rewrite the wording of a course a goat is part
+// way through.
+type CatalogItem struct {
+	ItemID   string `json:"item_id"`
+	Name     string `json:"name"`
+	Category string `json:"category"`
+	// CategoryPath is the editable subcategory the farm filed it under ("Medicines >
+	// Antibiotics"), so a picker can group by something the farm chose rather than by the
+	// fixed kind.
+	CategoryPath string `json:"category_path,omitempty"`
+}
