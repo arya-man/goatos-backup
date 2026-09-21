@@ -608,6 +608,10 @@ function assertHealthyHTML(routeName, html, visibleText, token) {
       throw new Error(`${routeName} rendered visible failure marker: ${marker}`);
     }
   }
+  const doubledPartition = visibleText.match(/\b([A-Z][A-Za-z]+(?:\s+\d+)?)\s+-\s+Part\s+(\d+)\s+-\s+Part\s+\2\b/);
+  if (doubledPartition) {
+    throw new Error(`${routeName} rendered doubled operational partition label: ${doubledPartition[0]}`);
+  }
   if (token && html.includes(token)) {
     throw new Error(`${routeName} rendered GOATOS_BEARER_TOKEN into HTML`);
   }
@@ -752,6 +756,7 @@ async function assertRouteLoadedSignal(page, routeName, visibleText) {
     if (!/Weekly growth/i.test(normalized) || !/\bkids\b/i.test(normalized) || !/\bg\b/i.test(normalized)) {
       throw new Error(`${routeName} did not prove loaded time-wise Weighing analytics data`);
     }
+    await assertWeighingTimeWindowApiSemantics();
     return { has_weekly_growth: true, tab: "time" };
   }
   if (routeName === "weighing-analytics-load") {
@@ -761,6 +766,155 @@ async function assertRouteLoadedSignal(page, routeName, visibleText) {
     return { has_load_breakdown: true, tab: "load" };
   }
   return {};
+}
+
+async function assertWeighingTimeWindowApiSemantics() {
+  const windows = [14, 21, 28].map((days) => {
+    const to = smokeWideWindowTo;
+    const from = new Date(Date.parse(`${to}T00:00:00Z`) - (days - 1) * 24 * 60 * 60 * 1000).toISOString().slice(0, 10);
+    return { days, from, to };
+  });
+  const reads = [];
+  for (const win of windows) {
+    const url = new URL(`${apiBaseUrl}/weighing/leadership/growth`);
+    url.searchParams.set("from", win.from);
+    url.searchParams.set("to", win.to);
+    url.searchParams.set("bucket", "week");
+    url.searchParams.set("sections", "headline,weekly_gain,shed_leaderboard");
+    const body = await fetchSmokeJson(url.toString(), bearerToken, tenantId, `weighing ADG ${win.days}d window`);
+    if (body?.period_start !== win.from || body?.period_end !== win.to) {
+      throw new Error(`weighing ADG ${win.days}d window returned ${body?.period_start}..${body?.period_end}, wanted ${win.from}..${win.to}`);
+    }
+    assertNoDoubledOperationalLocation(body?.shed_leaderboard, `weighing ADG ${win.days}d shed leaderboard`);
+    reads.push({ ...win, body });
+  }
+  const populated = reads.filter((item) => Number(item.body?.headline?.headline_animals ?? 0) > 0 || Number(item.body?.eligibility?.animals_with_two_plus_weighs ?? 0) > 0);
+  if (populated.length >= 2) {
+    const fingerprints = new Set(populated.map((item) => adgWindowFingerprint(item.body)));
+    if (fingerprints.size === 1) {
+      throw new Error("weighing ADG 14/21/28 day windows collapsed to the same populated payload fingerprint");
+    }
+  }
+  const focusedPen = selectFocusedAdgPen(reads);
+  if (focusedPen) {
+    await assertFocusedPenAdgWindowSemantics(focusedPen, windows);
+  }
+  await assertShedWeightsGainSpanSemantics(windows);
+}
+
+function adgWindowFingerprint(body) {
+  return JSON.stringify({
+    period_start: body?.period_start,
+    period_end: body?.period_end,
+    headline: body?.headline,
+    weekly_gain: body?.weekly_gain,
+    trend: body?.trend,
+    shed_leaderboard: Array.isArray(body?.shed_leaderboard) ? body.shed_leaderboard.slice(0, 20) : [],
+  });
+}
+
+function selectFocusedAdgPen(reads) {
+  for (const read of reads) {
+    const rows = Array.isArray(read.body?.shed_leaderboard) ? read.body.shed_leaderboard : [];
+    const row = rows.find((item) =>
+      typeof item?.location_id === "string" &&
+      item.location_id.length > 0 &&
+      Number(item?.adg_pair_count ?? 0) > 0 &&
+      Number.isFinite(Number(item?.median_adg_g_per_day)));
+    if (row) {
+      return {
+        locationId: row.location_id,
+        partitionLabel: row.partition_label ?? "",
+        label: row.operational_location_display || row.display_name || row.location_id,
+      };
+    }
+  }
+  return null;
+}
+
+async function assertFocusedPenAdgWindowSemantics(pen, windows) {
+  const focusedReads = [];
+  for (const win of windows) {
+    const url = new URL(`${apiBaseUrl}/weighing/leadership/growth`);
+    url.searchParams.set("from", win.from);
+    url.searchParams.set("to", win.to);
+    url.searchParams.set("bucket", "week");
+    url.searchParams.set("sections", "headline,weekly_gain,shed_leaderboard");
+    url.searchParams.set("pen_location_id", pen.locationId);
+    url.searchParams.set("pen_partition_label", pen.partitionLabel);
+    const body = await fetchSmokeJson(url.toString(), bearerToken, tenantId, `focused weighing ADG ${win.days}d ${pen.label}`);
+    if (body?.period_start !== win.from || body?.period_end !== win.to) {
+      throw new Error(`focused weighing ADG ${win.days}d returned ${body?.period_start}..${body?.period_end}, wanted ${win.from}..${win.to}`);
+    }
+    assertNoDoubledOperationalLocation(body?.shed_leaderboard, `focused weighing ADG ${win.days}d ${pen.label}`);
+    focusedReads.push({ ...win, body });
+  }
+  const populated = focusedReads.filter((item) =>
+    Number(item.body?.headline?.headline_animals ?? 0) > 0 ||
+    (Array.isArray(item.body?.weekly_gain) && item.body.weekly_gain.length > 0) ||
+    (Array.isArray(item.body?.shed_leaderboard) && item.body.shed_leaderboard.some((row) => Number(row?.adg_pair_count ?? 0) > 0)));
+  if (populated.length >= 2) {
+    const fingerprints = new Set(populated.map((item) => adgWindowFingerprint(item.body)));
+    if (fingerprints.size === 1) {
+      throw new Error(`focused weighing ADG 14/21/28 day windows collapsed for ${pen.label}`);
+    }
+  }
+}
+
+async function assertShedWeightsGainSpanSemantics(windows) {
+  const reads = [];
+  for (const win of windows) {
+    const url = new URL(`${apiBaseUrl}/weighing/shed-weights`);
+    url.searchParams.set("from", win.from);
+    url.searchParams.set("to", win.to);
+    url.searchParams.set("weighing_category", "per_shed_partition");
+    const body = await fetchSmokeJson(url.toString(), bearerToken, tenantId, `shed weights gain span ${win.days}d`);
+    const rows = Array.isArray(body?.rows) ? body.rows : [];
+    assertNoDoubledOperationalLocation(rows, `shed weights ${win.days}d`);
+    for (const row of rows) {
+      const span = Number(row?.gain_span_days ?? 0);
+      if (span > win.days - 1) {
+        throw new Error(`shed weights ${win.days}d row ${row?.operational_location_display ?? row?.location_id ?? "unknown"} has impossible gain_span_days=${span}`);
+      }
+    }
+    reads.push({ ...win, rows });
+  }
+  const byPen = new Map();
+  for (const read of reads) {
+    for (const row of read.rows) {
+      const key = `${row?.park_id ?? ""}|${row?.location_id ?? ""}|${row?.partition_label ?? ""}`;
+      if (!row?.location_id) continue;
+      const current = byPen.get(key) ?? [];
+      current.push({
+        days: read.days,
+        label: row?.operational_location_display || row?.shed_display_name || key,
+        span: Number(row?.gain_span_days ?? 0),
+        adg: row?.shed_average_gain_g_per_day == null ? null : Number(row.shed_average_gain_g_per_day),
+      });
+      byPen.set(key, current);
+    }
+  }
+  for (const rows of byPen.values()) {
+    const populated = rows.filter((row) => row.span > 0 && Number.isFinite(row.adg));
+    if (populated.length >= 3) {
+      const spans = new Set(populated.map((row) => row.span));
+      const adgs = new Set(populated.map((row) => Math.round(row.adg * 1000) / 1000));
+      if (spans.size === 1 && adgs.size === 1) {
+        throw new Error(`shed weights 14/21/28 windows collapsed to one gain span and ADG for ${populated[0].label}`);
+      }
+    }
+  }
+}
+
+function assertNoDoubledOperationalLocation(rows, label) {
+  if (!Array.isArray(rows)) return;
+  for (const row of rows) {
+    const display = String(row?.operational_location_display || row?.display_name || row?.shed_display_name || "");
+    if (!display) continue;
+    if (/(^|\s-\s)(Part\s+\d+)\s-\s\2\b/i.test(display) || /\b(Castro|Yashoda)\s+(\d+)\s+\2\b/i.test(display)) {
+      throw new Error(`${label} rendered doubled operational location display: ${display}`);
+    }
+  }
 }
 
 function extractCountAfter(text, label) {

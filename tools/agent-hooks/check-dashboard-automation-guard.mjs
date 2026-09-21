@@ -159,6 +159,12 @@ function dashboardRuntimeFindings() {
   if (config.businessDataParity?.enabledByDefault !== true) {
     findings.push(`${configRel}: business data parity must be default-on for OCI automation`);
   }
+  if (config.businessDataParity?.criticalTableFingerprintRequired !== true) {
+    findings.push(`${configRel}: critical business tables must require deterministic content fingerprints, not only row counts`);
+  }
+  if (config.businessDataParity?.fieldReconciliationsAreDatedEvidence !== true) {
+    findings.push(`${configRel}: field reconciliations must be marked as dated evidence, not evergreen live truth`);
+  }
   if (config.slackAlerts?.enabledByDefault !== true) {
     findings.push(`${configRel}: Slack alerts must be default-on for OCI automation`);
   }
@@ -174,9 +180,25 @@ function dashboardRuntimeFindings() {
   if (!selfHealSource.includes("enabled(\"GOATOS_DASHBOARD_SELF_HEALING\", config.selfHealing.enabledByDefault")) {
     findings.push(`${selfHealRel}: self-healing PR creation must honor config default-on, not require env opt-in`);
   }
+  if (!selfHealSource.includes("git([\"worktree\", \"add\"") || selfHealSource.includes("checkout\", \"--quiet\", \"-B\"")) {
+    findings.push(`${selfHealRel}: self-healing must create report branches in a separate worktree, not mutate the runner checkout`);
+  }
 
   for (const envFlag of ["GOATOS_DASHBOARD_DATA_PARITY", "GOATOS_DASHBOARD_API_LATENCY", "GOATOS_DASHBOARD_LIGHTHOUSE", "GOATOS_DASHBOARD_GRAFANA_SMOKE", "GOATOS_DASHBOARD_SLACK_ALERTS", "GOATOS_DASHBOARD_SELF_HEALING"]) {
     if (!runnerSource.includes(envFlag)) findings.push(`${runnerRel}: dashboard automation env flag ${envFlag} is not wired`);
+  }
+  for (const fragment of ["tableFingerprintSql", "row_to_json", "content_fingerprint", "table_parity_mismatch"]) {
+    if (!paritySource.includes(fragment)) findings.push(`${parityRel}: critical table parity must include fingerprint fragment ${fragment}`);
+  }
+  for (const fragment of ["roleGrantProofSql", "has_table_privilege", "has_schema_privilege", "writePrivilegedTables"]) {
+    if (!paritySource.includes(fragment)) findings.push(`${parityRel}: read-only proof must include catalog grant fragment ${fragment}`);
+  }
+  if (paritySource.includes("date '2026-09-21'") || paritySource.includes("date '2026-09-14'")) {
+    findings.push(`${parityRel}: CBE herd window sentinel must use the current IST business date, not a stale September 2026 literal`);
+  }
+  const runbookSource = readFileSync("docs/runbooks/dashboard-automation-oci.md", "utf8");
+  for (const fragment of ["Herd Signal tables remain best-effort", "Castro field reconciliations are dated evidence", "deterministic content fingerprints"]) {
+    if (!runbookSource.includes(fragment)) findings.push(`docs/runbooks/dashboard-automation-oci.md: missing residual-risk/fingerprint note ${fragment}`);
   }
   for (const required of ["tools/perf/api-latency-gate.mjs", "apps/admin-web/scripts/capture-lighthouse.mjs", "tools/deploy/smoke-stg-grafana-dashboards.mjs", "tools/dashboard-automation/run-module-journeys.mjs", "tools/dashboard-automation/notify-slack.mjs", "tools/dashboard-automation/self-heal-pr.mjs"]) {
     if (!runnerSource.includes(required)) findings.push(`${runnerRel}: runner no longer invokes ${required}`);
@@ -190,6 +212,9 @@ function dashboardRuntimeFindings() {
   }
   for (const fragment of ["assertModuleTextObserved", "exerciseManifestSafeClicks"]) {
     if (!smokeSource.includes(fragment)) findings.push(`${smokeRel}: missing module journey enforcement helper ${fragment}`);
+  }
+  for (const fragment of ["assertWeighingTimeWindowApiSemantics", "assertFocusedPenAdgWindowSemantics", "assertShedWeightsGainSpanSemantics", "weighing ADG 14/21/28 day windows", "doubled operational location display"]) {
+    if (!smokeSource.includes(fragment)) findings.push(`${smokeRel}: missing Manohar/Godel executable smoke guard ${fragment}`);
   }
   if (config.apiLatencyPolicy?.normalDashboardApisMustStayUnderMs !== 500) {
     findings.push(`${configRel}: normal dashboard APIs must stay under the 500ms policy`);

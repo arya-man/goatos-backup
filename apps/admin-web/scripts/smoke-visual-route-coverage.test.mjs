@@ -293,6 +293,9 @@ test("PR264 routes record route-specific product signals in browser evidence", (
   assert.match(smokeSource, /routeName === "weighing-analytics"[\s\S]*has_weighing_kpis/);
   assert.match(smokeSource, /routeName === "weighing-analytics-breed" \|\| routeName === "weighing-analytics-breed-wide"[\s\S]*has_breed_breakdown/);
   assert.match(smokeSource, /routeName === "weighing-analytics-time"[\s\S]*has_weekly_growth/);
+  assert.match(smokeSource, /assertFocusedPenAdgWindowSemantics/);
+  assert.match(smokeSource, /assertShedWeightsGainSpanSemantics/);
+  assert.match(smokeSource, /14\/21\/28 day windows collapsed/);
   assert.match(smokeSource, /routeName === "weighing-analytics-load"[\s\S]*has_load_breakdown/);
 });
 
