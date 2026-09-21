@@ -2,7 +2,7 @@
 import { existsSync, readFileSync, writeFileSync } from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
-import { redactText } from "./lib/redact.mjs";
+import { containsUnredactedSecret, redactText } from "./lib/redact.mjs";
 
 const repo = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "../..");
 const config = JSON.parse(readFileSync(path.join(repo, "tools/dashboard-automation/config.json"), "utf8"));
@@ -69,8 +69,8 @@ function evidenceForAgent(receipt) {
       items.push({
         kind: artifact.kind,
         path: redactText(artifact.path ?? ""),
-        route: artifact.route ?? null,
-        viewport: artifact.viewport ?? null
+        route: redactText(artifact.route ?? null),
+        viewport: redactText(artifact.viewport ?? null)
       });
     }
   }
@@ -96,6 +96,7 @@ function selfTest() {
   };
   const items = evidenceForAgent(sample);
   if (items[0].path.includes("secret")) throw new Error("self-test: evidence path was not redacted");
+  if (containsUnredactedSecret(JSON.stringify(items))) throw new Error("self-test: evidence retained a secret-like value");
   if (config.selfHealing.mode !== "pull_request_only") throw new Error("self-test: self-healing must remain PR-only");
   console.log("dashboard agent review hook: self-test passed");
 }

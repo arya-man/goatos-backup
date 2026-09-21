@@ -28,7 +28,8 @@ const receipt = {
   productionUrl: config.productionUrl,
   layers: [],
   artifacts: [],
-  blockers: []
+  blockers: [],
+  fatalError: null
 };
 
 try {
@@ -46,9 +47,13 @@ try {
   } else {
     throw new Error(`unknown mode: ${mode}`);
   }
+} catch (error) {
+  const message = redactText(error?.message ?? String(error));
+  receipt.fatalError = message;
+  receipt.blockers.push({ layer: "runner", message });
 } finally {
   receipt.finishedAt = new Date().toISOString();
-  receipt.status = receipt.layers.every((item) => item.status === "pass") ? "pass" : "fail";
+  receipt.status = !receipt.fatalError && receipt.layers.length > 0 && receipt.layers.every((item) => item.status === "pass") ? "pass" : "fail";
   const receiptPath = path.join(outDir, "receipt.json");
   writeReceipt(receiptPath, receipt);
   const agent = spawnSync(process.execPath, ["tools/dashboard-automation/agent-review.mjs", "--receipt", receiptPath], {
@@ -61,6 +66,13 @@ try {
     stdout: redactText(agent.stdout).trim(),
     stderr: redactText(agent.stderr).trim()
   };
+  if (agent.status !== 0) {
+    receipt.status = "fail";
+    receipt.blockers.push({
+      layer: "agent-review",
+      message: receipt.agentReview.stderr || receipt.agentReview.stdout || `agent review exited ${agent.status}`
+    });
+  }
   writeReceipt(receiptPath, receipt);
   console.log(`dashboard automation ${receipt.status}; receipt ${path.relative(repo, receiptPath)}`);
   if (receipt.status !== "pass") process.exit(1);
@@ -113,6 +125,10 @@ function runProductionSmoke() {
   const required = ["GOATOS_API_BASE_URL", "GOATOS_BEARER_TOKEN", "GOATOS_TENANT_ID"];
   const missing = required.filter((key) => !process.env[key]);
   if (missing.length) throw new Error(`auth_blocked: missing production smoke env: ${missing.join(", ")}`);
+  const apiUrl = new URL(process.env.GOATOS_API_BASE_URL);
+  if (apiUrl.protocol !== "https:" || !["api.mesha.sg", "goatos-api.mesha.sg"].includes(apiUrl.hostname)) {
+    throw new Error(`daily production smoke refuses non-production API URL: ${apiUrl.origin}`);
+  }
   runNpm(["--prefix", "apps/admin-web", "run", "smoke:visual:live"], {
     ...process.env,
     GOATOS_ADMIN_WEB_BASE_URL: config.productionUrl

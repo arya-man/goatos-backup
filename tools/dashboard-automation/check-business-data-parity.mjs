@@ -15,7 +15,7 @@ if (args.selfTest) {
 }
 
 const stgUrl = process.env.GOATOS_STG_READONLY_DATABASE_URL;
-const ociUrl = process.env.GOATOS_OCI_READONLY_DATABASE_URL ?? process.env.GOATOS_OCI_DATABASE_URL;
+const ociUrl = process.env.GOATOS_OCI_READONLY_DATABASE_URL;
 if (!stgUrl || !ociUrl) {
   fail("missing read-only parity env: GOATOS_STG_READONLY_DATABASE_URL and GOATOS_OCI_READONLY_DATABASE_URL are required");
 }
@@ -50,7 +50,7 @@ console.log(`dashboard business data parity ${result.status}; wrote ${path.relat
 if (result.status !== "pass") process.exit(1);
 
 function compareCount(table, section, critical) {
-  const sql = `set transaction read only; select count(*)::text from ${quoteIdent(table)}`;
+  const sql = readOnlySql(`select count(*)::text from ${quoteIdent(table)}`);
   const stg = psql(stgUrl, sql);
   const oci = psql(ociUrl, sql);
   const row = { stg: stg.value, oci: oci.value, status: "pass" };
@@ -66,8 +66,8 @@ function compareCount(table, section, critical) {
 }
 
 function runSentinel(name, sql) {
-  const stg = psqlRows(stgUrl, `set transaction read only; ${sql}`);
-  const oci = psqlRows(ociUrl, `set transaction read only; ${sql}`);
+  const stg = psqlRows(stgUrl, readOnlySql(sql));
+  const oci = psqlRows(ociUrl, readOnlySql(sql));
   const row = { stg: stg.rows, oci: oci.rows, status: "pass" };
   if (stg.error || oci.error) {
     row.status = "fail";
@@ -82,8 +82,8 @@ function runSentinel(name, sql) {
 function runFieldReconciliation(reconciliation) {
   const name = reconciliation.name;
   const sql = fieldReconciliationSql(reconciliation);
-  const stg = psqlRows(stgUrl, `set transaction read only; ${sql}`);
-  const oci = psqlRows(ociUrl, `set transaction read only; ${sql}`);
+  const stg = psqlRows(stgUrl, readOnlySql(sql));
+  const oci = psqlRows(ociUrl, readOnlySql(sql));
   const expected = reconciliation.expected;
   const row = {
     source: reconciliation.source,
@@ -108,8 +108,8 @@ function runFieldReconciliation(reconciliation) {
 
 function runSalesSoldWeightCoverage() {
   const name = "sales_sold_weight_coverage";
-  const stg = psqlRows(stgUrl, `set transaction read only; ${salesSoldWeightCoverageSql()}`);
-  const oci = psqlRows(ociUrl, `set transaction read only; ${salesSoldWeightCoverageSql()}`);
+  const stg = psqlRows(stgUrl, readOnlySql(salesSoldWeightCoverageSql()));
+  const oci = psqlRows(ociUrl, readOnlySql(salesSoldWeightCoverageSql()));
   const row = { stg: salesWeightObject(stg.rows?.[0]), oci: salesWeightObject(oci.rows?.[0]), status: "pass" };
   if (stg.error || oci.error) {
     row.status = "fail";
@@ -238,6 +238,10 @@ function psqlRows(databaseUrl, sql) {
   };
 }
 
+function readOnlySql(sql) {
+  return `begin read only; ${sql}; rollback`;
+}
+
 function quoteIdent(value) {
   if (!/^[a-z_][a-z0-9_]*$/i.test(value)) throw new Error(`unsafe SQL identifier: ${value}`);
   return `"${value.replaceAll('"', '""')}"`;
@@ -267,6 +271,9 @@ function parseArgs(raw) {
 function selfTest() {
   if (!config.businessDataParity.criticalTables.includes("goats")) {
     throw new Error("self-test: goats must be a critical business parity table");
+  }
+  if (!config.businessDataParity.criticalTables.includes("goat_sale_allocations")) {
+    throw new Error("self-test: goat_sale_allocations must be a critical sales parity table");
   }
   if (!config.businessDataParity.bestEffortTables.some((table) => table.includes("herd_signal"))) {
     throw new Error("self-test: herd signal telemetry must be best-effort");

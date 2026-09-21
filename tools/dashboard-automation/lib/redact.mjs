@@ -18,6 +18,9 @@ export function containsUnredactedSecret(input) {
   const text = String(input ?? "");
   return SECRET_PATTERNS.some((pattern) => {
     pattern.lastIndex = 0;
-    return pattern.test(text);
+    for (const match of text.matchAll(pattern)) {
+      if (!match[0].includes("[REDACTED]")) return true;
+    }
+    return false;
   });
 }
