@@ -138,6 +138,44 @@ generic write-capable env names.
 
 ## Agent review status
 
+## 2026-09-21 Follow-up Judge Review
+
+Scope: review the August 1 through September 21 backend, admin-web, and Android
+bug-fix history for recurring failures that need default automation coverage,
+then land only after a fresh local receipt.
+
+Additional fixes now covered:
+
+- Business-data parity, Slack alerts, and self-healing PR creation are default-on
+  for OCI automation and can only be disabled through explicit break-glass envs.
+- STG/OCI parity proves `begin read only` / `transaction_read_only` before
+  comparing data and records the proof in the receipt.
+- Castro field reconciliation is marked implemented and summarized as a blocking
+  sentinel, alongside the Godel/alias, CBE, and sold-weight sentinels.
+- Android vaccination submit summary labels now use the shared operational
+  location label helper, preventing duplicated worded partition labels.
+
+Review verdict: signed off for landing. The recurring bug families from the
+Aug 1 review window are represented in `tools/dashboard-automation/bug-pattern-coverage.json`:
+SQL bind arity, known admin-web failure screens, picker URL state drift, mobile
+WebView layout/touch regressions, chart value integrity, API latency/fanout,
+STG/OCI parity, weighing pen alias drift, SOP cross-client drift, and Android
+proof/session UI regressions.
+
+Fresh local verification before landing:
+
+- `make dashboard-automation-self-test` — PASS.
+- `make dashboard-automation-guard` — PASS.
+- `make postgres-bind-contract-guard` — PASS.
+- `make api-latency-policy-test` — PASS.
+- `git diff --check` — PASS.
+- `ANDROID_HOME=/Users/raviteja/Library/Android/sdk ANDROID_SDK_ROOT=/Users/raviteja/Library/Android/sdk ./gradlew :core:core-ui:testDebugUnitTest --tests 'sg.mesha.goatos.core.ui.PartitionLabelTest' --no-configuration-cache --max-workers=1` — PASS.
+- `ANDROID_HOME=/Users/raviteja/Library/Android/sdk ANDROID_SDK_ROOT=/Users/raviteja/Library/Android/sdk ./gradlew :app:testProdDebugUnitTest --tests 'sg.mesha.goatos.viewmodel.FeedRowPartitionLabelTest' --no-configuration-cache --max-workers=1` — PASS.
+
+Not run locally: live STG/OCI parity readback, because the read-only STG and OCI
+database URLs were not exported in this shell. The runner remains fail-closed
+when those envs are missing and does not accept write-capable fallback URLs.
+
 Automated judge/review hooks are wired and self-tested:
 
 - `node tools/dashboard-automation/agent-review.mjs --self-test`: PASS.
