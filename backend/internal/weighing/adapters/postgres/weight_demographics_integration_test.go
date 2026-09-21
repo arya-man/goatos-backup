@@ -1880,7 +1880,7 @@ WHERE tenant_id = $1::uuid AND campaign_shed_id = $2::uuid`, repoTenant, loadPar
 //
 // Reproduced on the real read: seeded against the pre-change query this fails with "missing
 // composition for the first pen", which is exactly the blank cell the maintainer reported.
-func TestShedCompositionReportsEachPensOwnLatestWeighNotTheAnimalsLatestPen(t *testing.T) {
+func TestShedCompositionOneToManyPageBoundaryParkScopeReportsEachPensOwnLatestWeigh(t *testing.T) {
 	pgtest.SkipIfNoDocker(t)
 	ctx := context.Background()
 	pool := pgtest.StartPostgres(t, ctx)

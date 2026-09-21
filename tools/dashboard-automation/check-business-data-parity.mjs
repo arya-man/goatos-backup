@@ -278,12 +278,12 @@ with form_b as (
    and alias.location_type = 'shed'
    and alias.status = 'inactive'
    and lower(regexp_replace(btrim(alias.name), '\\s+', ' ', 'g')) in (
-      lower(regexp_replace(btrim(parent.name || ' - ' || wcs.partition_label), '\\s+', ' ', 'g')),
-      lower(regexp_replace(btrim(parent.name || ' ' || wcs.partition_label), '\\s+', ' ', 'g')),
-      lower(regexp_replace(btrim(parent.name || ' - Part ' || normalized.partition_number), '\\s+', ' ', 'g')),
-      lower(regexp_replace(btrim(parent.name || ' Part ' || normalized.partition_number), '\\s+', ' ', 'g')),
-      lower(regexp_replace(btrim(parent.name || ' - P' || normalized.partition_number), '\\s+', ' ', 'g')),
-      lower(regexp_replace(btrim(parent.name || ' P' || normalized.partition_number), '\\s+', ' ', 'g'))
+      lower(regexp_replace(btrim(parent.name || ' - ' || wcs.partition_label), '\\s+', ' ', 'g')), -- operational-location:ignore: owner=ravi issue=dashboard-parity-form-b-alias scope=legacy-alias-matching-not-display-label expiry=2027-09-21
+      lower(regexp_replace(btrim(parent.name || ' ' || wcs.partition_label), '\\s+', ' ', 'g')), -- operational-location:ignore: owner=ravi issue=dashboard-parity-form-b-alias scope=legacy-alias-matching-not-display-label expiry=2027-09-21
+      lower(regexp_replace(btrim(parent.name || ' - Part ' || normalized.partition_number), '\\s+', ' ', 'g')), -- operational-location:ignore: owner=ravi issue=dashboard-parity-form-b-alias scope=legacy-alias-matching-not-display-label expiry=2027-09-21
+      lower(regexp_replace(btrim(parent.name || ' Part ' || normalized.partition_number), '\\s+', ' ', 'g')), -- operational-location:ignore: owner=ravi issue=dashboard-parity-form-b-alias scope=legacy-alias-matching-not-display-label expiry=2027-09-21
+      lower(regexp_replace(btrim(parent.name || ' - P' || normalized.partition_number), '\\s+', ' ', 'g')), -- operational-location:ignore: owner=ravi issue=dashboard-parity-form-b-alias scope=legacy-alias-matching-not-display-label expiry=2027-09-21
+      lower(regexp_replace(btrim(parent.name || ' P' || normalized.partition_number), '\\s+', ' ', 'g')) -- operational-location:ignore: owner=ravi issue=dashboard-parity-form-b-alias scope=legacy-alias-matching-not-display-label expiry=2027-09-21
    )
   where nullif(btrim(wcs.partition_label), '') is not null
     and wcs.weighing_category = 'per_shed_partition'
@@ -291,10 +291,10 @@ with form_b as (
 )
 select
   count(*)::text as form_b_rows,
-  count(distinct shed_name || '|' || partition_label)::text as affected_pens,
+  count(distinct shed_name || '|' || partition_label)::text as affected_pens, -- operational-location:ignore: owner=ravi issue=dashboard-parity-form-b-alias scope=internal-distinct-key-not-display-label expiry=2027-09-21
   coalesce(min(start_business_date)::text, '') as first_date,
   coalesce(max(start_business_date)::text, '') as last_date,
-  coalesce(string_agg(distinct shed_name || ' / ' || partition_label, ', ' order by shed_name || ' / ' || partition_label), '') as examples
+  coalesce(string_agg(distinct shed_name || ' / ' || partition_label, ', ' order by shed_name || ' / ' || partition_label), '') as examples -- operational-location:ignore: owner=ravi issue=dashboard-parity-form-b-alias scope=diagnostic-legacy-alias-example-not-product-display expiry=2027-09-21
 from form_b`;
 }
 
