@@ -50,6 +50,18 @@ func mortalityGoatID(n int) string { return fmt.Sprintf("40000000-0000-4000-8000
 
 func istDate(t time.Time) string { return t.In(biztime.DefaultLocation()).Format("2006-01-02") }
 
+func TestMortalitySyntheticLoadLabelsUseBusinessBuckets(t *testing.T) {
+	if got := loadBucketLabel("farm_born", ""); got != "Farm born" {
+		t.Fatalf("farm_born label=%q, want Farm born", got)
+	}
+	if got := loadBucketLabel("no_load", ""); got != "Farm born" {
+		t.Fatalf("no_load label=%q, want Farm born; missing procurement_load_goats membership must not surface a scary third bucket", got)
+	}
+	if got := loadBucketLabel("11111111-1111-4111-8111-111111111111", "126"); got != "Load 126" {
+		t.Fatalf("real load label=%q, want Load 126", got)
+	}
+}
+
 // THE PARITY LOCK. Mortality and Herd Analytics count a death off the same row with the same
 // predicate; the Deaths tile must be the same number on both screens for the same window and
 // scope. Cross-surface disagreement about a business number is a maintainer question, so the

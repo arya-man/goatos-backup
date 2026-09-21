@@ -601,7 +601,7 @@ func loadBucketLabel(key, label string) string {
 	case "farm_born":
 		return "Farm born"
 	case "no_load":
-		return "Not on a purchase load"
+		return "Farm born"
 	}
 	if strings.TrimSpace(label) != "" {
 		// "Load 126", the same shape the Sales load-wise table prints a reference in.

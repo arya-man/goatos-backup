@@ -103,6 +103,8 @@
       "weighing_campaign_sheds",
       "procurement_loads",
       "procurement_load_goats",
+      "source_entry_decisions",
+      "health_death_causes",
       "feed_item_catalog",
       "feed_purchases",
       "feed_direction_completions",
