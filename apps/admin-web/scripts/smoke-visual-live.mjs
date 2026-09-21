@@ -1590,15 +1590,21 @@ async function closeManifestOverlays(page) {
 }
 
 async function assertFeedConfigPenDropdownContracts(page, routeName) {
-  const addPen = page.getByRole("button", { name: "Add experiment pen", exact: true });
+  // The enroller's own opener, by its contract label. Matched loosely because this copy is
+  // backend-owned and has been reworded once already; what this guard is about is the pen list it
+  // opens, not the wording of the button that opens it.
+  const addPen = page.getByRole("button", { name: /experiment/i });
   if ((await addPen.count()) === 0) {
-    const empty = page.getByText("Every pen already has experiment quantities.", { exact: true });
+    const empty = page.getByText(/already/i);
     if ((await empty.count()) > 0) return;
-    throw new Error(`${routeName} missing Add experiment pen control or empty-candidate explanation`);
+    throw new Error(`${routeName} missing the experiment enrol control or empty-candidate explanation`);
   }
   await addPen.first().scrollIntoViewIfNeeded().catch(() => {});
   await addPen.first().click({ timeout: 5_000 });
-  await page.locator("#exp-new-pen").waitFor({ state: "attached", timeout: 5_000 });
+  // The pen chooser is a checkbox PANEL now, not a <select>: several pens go on one experiment in
+  // one write, so #exp-new-pen no longer exists. The panel is unmounted while closed, so it is
+  // opened per park below rather than merely waited for here.
+  await page.locator("#exp-new-park").waitFor({ state: "attached", timeout: 5_000 });
 
   const parkValues = await page.locator("#exp-new-park option").evaluateAll((options) =>
     options.map((option) => option.value).filter((value) => value !== ""),
@@ -1610,9 +1616,14 @@ async function assertFeedConfigPenDropdownContracts(page, routeName) {
       await page.locator("#exp-new-park").selectOption(parkValue);
       await page.waitForFunction((value) => document.querySelector("#exp-new-park")?.value === value, parkValue, { timeout: 5_000 });
     }
-    const labels = await page.locator("#exp-new-pen option").evaluateAll((options) =>
-      options.map((option) => (option.textContent ?? "").replace(/\s+/g, " ").trim()).filter(Boolean),
+    // Open the panel for THIS park, read it, close it again: changing the park clears the ticks and
+    // rebuilds the list, so a panel left open from the previous park would be read twice.
+    const penToggle = page.getByRole("button", { name: "Pen", exact: true });
+    await penToggle.first().click({ timeout: 5_000 });
+    const labels = await page.locator(".exp-pen-row").evaluateAll((rows) =>
+      rows.map((row) => (row.textContent ?? "").replace(/\s+/g, " ").trim()).filter(Boolean),
     );
+    await penToggle.first().click({ timeout: 5_000 }).catch(() => {});
     totalOptions += labels.length;
     const seen = new Set();
     for (const label of labels) {
@@ -1632,7 +1643,7 @@ async function assertFeedConfigPenDropdownContracts(page, routeName) {
     }
   }
   if (totalOptions === 0) {
-    throw new Error(`${routeName} experiment pen dropdown opened but had no candidate options or empty-candidate explanation`);
+    throw new Error(`${routeName} experiment pen chooser opened but held no candidate pens or empty-candidate explanation`);
   }
   await page.getByRole("button", { name: "Cancel", exact: true }).last().click({ timeout: 5_000 }).catch(() => {});
 }

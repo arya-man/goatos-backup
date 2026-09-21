@@ -979,8 +979,14 @@ func TestListPensConfiguredFlagTracksExperimentWorkflowConversion(t *testing.T) 
 	}); err != nil {
 		t.Fatalf("retire pen: %v", err)
 	}
-	if !hasConfig(fcPenA) {
-		t.Fatalf("retired experiment pen lost its authored config flag; restore dropdown would offer a duplicate enrolment instead of the existing row")
+	// SUPERSEDED BY THE MAINTAINER, 2026-09-21, hours after this test was written: a pen shifted to
+	// normal feed leaves the experiment screen entirely, so there is no row left to restore and the
+	// enroller is the only way back. Keeping the flag true made that pen unreachable from BOTH
+	// controls -- invisible in the table and withheld from the chooser -- so the withdraw was
+	// one-way. The duplicate-enrolment worry this line guarded is answered a layer down instead:
+	// the batch write upserts onto the pen's retired rows rather than inserting beside them.
+	if hasConfig(fcPenA) {
+		t.Fatalf("a pen shifted to normal feed still reads as configured, so the chooser would not offer it back")
 	}
 	if hasConfig(fcPenB) {
 		t.Fatalf("sibling pen with no authored rows reads as configured")
