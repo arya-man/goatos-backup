@@ -332,6 +332,7 @@ const browserEvidence = {
   api_build_identity_source: "/version",
   routes: [],
 };
+const pageLoadBudgetMs = Number(process.env.GOATOS_SMOKE_PAGE_LOAD_BUDGET_MS || 8000);
 
 const browser = await chromium.launch({ channel: process.env.GOATOS_SMOKE_BROWSER_CHANNEL || "chrome" });
 try {
@@ -373,8 +374,13 @@ try {
       const page = await context.newPage();
       try {
         const url = `${appBaseUrl}${appPath(route.path)}`;
+        const loadStartedAt = performance.now();
         const response = await gotoWithRetry(page, url);
         await page.waitForLoadState("networkidle", { timeout: 5_000 }).catch(() => {});
+        const pageLoadMs = Math.round(performance.now() - loadStartedAt);
+        if (Number.isFinite(pageLoadBudgetMs) && pageLoadBudgetMs > 0 && pageLoadMs > pageLoadBudgetMs) {
+          throw new Error(`${route.name} ${viewport.label} page load ${pageLoadMs}ms exceeded budget ${pageLoadBudgetMs}ms`);
+        }
         if (!response) {
           await page.waitForURL(url, { timeout: 5_000 }).catch(() => undefined);
           if (page.url() !== url) {
@@ -394,6 +400,8 @@ try {
           actual_pathname: actualPathname,
           viewport: viewport.label,
           loaded: true,
+          page_load_ms: pageLoadMs,
+          page_load_budget_ms: pageLoadBudgetMs,
           forbidden_strings_absent: failureScreenMarkers,
           route_signals: routeSignals,
         });
