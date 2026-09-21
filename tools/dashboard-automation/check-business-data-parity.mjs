@@ -284,6 +284,9 @@ function selfTest() {
   if (config.selfHealing.mode !== "pull_request_only") {
     throw new Error("self-test: self-healing must be PR-only");
   }
+  if (!config.selfHealing.forbiddenActions.includes("writeOciData")) {
+    throw new Error("self-test: OCI writes must remain forbidden");
+  }
   console.log("dashboard business data parity: self-test passed");
 }
 
