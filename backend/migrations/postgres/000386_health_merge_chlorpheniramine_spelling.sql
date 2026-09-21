@@ -6,7 +6,7 @@
 -- WHY THIS EXISTS. The farm's treatment protocols carried the same medicine under two
 -- spellings -- "Chloropheniramine maleate" on 20 steps and "Chlorpheniramine maleate" on
 -- 4 -- and as free text nobody could see it. Moving medicines into the item registry
--- (000384) made it visible as two rows in Items & categories, which is exactly what the
+-- (000385) made it visible as two rows in Items & categories, which is exactly what the
 -- registry is for.
 --
 -- THE SOURCE IS FIXED TOO. context/source-findings/health-sop-v1.json now spells it one
