@@ -42,7 +42,20 @@ SET subject_label = regexp_replace(subject_label, '( [0-9]+)\1$', '\1'),
 WHERE category = 'weighing_fasting'
   AND subject_label ~ '( [0-9]+)\1$';
 
--- proof_artifacts and weighing_idempotency_records also carry the string, but only inside a stored
--- RESPONSE SNAPSHOT of a past request. Those are replay caches, deliberately immutable: rewriting
--- a recorded response would make a replay return something the original call never returned. They
--- age out on their own and are never rendered as a live label.
+-- WHAT IS DELIBERATELY NOT REPAIRED, and why -- audited against live STG on 2026-09-21, where the
+-- doubled string reached six tables:
+--
+--   weighing_fasting_shed_proofs   12 rows   REPAIRED above (the live label an operator reads)
+--   verification_items             12 rows   REPAIRED above (the live line a verifier reads)
+--   notification_requests         162 rows   NOT repaired -- HISTORY OF WHAT WAS SENT
+--   audit_log                      12 rows   NOT repaired -- immutable event history
+--   outbox_messages                12 rows   NOT repaired -- immutable event history
+--   proof_artifacts                26 rows   NOT repaired -- captured-at-the-time metadata
+--   weighing_idempotency_records   12 rows   NOT repaired -- stored RESPONSE snapshots
+--
+-- The line is LIVE COPY versus RECORD OF THE PAST. The first two are read fresh on every screen,
+-- so they must be right. The rest record what the system actually did at a past instant: 162
+-- pushes really were delivered to a verifier's phone reading "Godel 2 - Part 2 - Part 2", and a
+-- replay cache really did return that string. Rewriting them would make the audit trail state
+-- something that did not happen, and would make an idempotent replay return a value the original
+-- call never returned. They are never rendered as a live label and they age out on their own.
