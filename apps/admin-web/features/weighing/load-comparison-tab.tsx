@@ -162,12 +162,19 @@ export function LoadComparisonTab({
     if (purchaseValue !== null && stockValue !== null) {
       bars.push({ key: `${row.load.load_id}-gain`, label: copy(pageContract, "legend.load.gain"), value: Math.round(stockValue - purchaseValue), seriesKey: "gain" });
     }
-    const subheading =
+    const basis =
       stockAnimals === 0
         ? copy(pageContract, "load.value.sold_out")
         : purchaseValue === null
           ? copy(pageContract, "load.value.no_cost")
           : `${stockAnimals.toLocaleString("en-IN")} × ${kg(row.latestAvg ?? 0)} ${unit}`;
+    // WHERE the money is standing, on the same terms as the weight chart above (maintainer request
+    // 2026-09-21: name the pen on every graph, not only one). A bar saying a load is worth ₹4.2L
+    // names no pen, so a reader cannot walk from it to the pens table below or go and look at the
+    // animals -- and the two charts sitting side by side must label the same load the same way.
+    // A SOLD-OUT load keeps its own line alone: it has no animals standing anywhere, so naming the
+    // pens its animals used to sit in would point a reader at a pen that no longer holds them.
+    const subheading = stockAnimals === 0 ? basis : [basis, row.pens].filter(Boolean).join(" · ");
     return { key: `${row.load.load_id}-value`, heading: row.heading, subheading, bars };
   });
 

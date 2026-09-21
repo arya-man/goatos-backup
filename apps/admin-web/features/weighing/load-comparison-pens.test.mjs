@@ -35,3 +35,20 @@ test("the pen line takes its names from the backend, and disambiguates parks onl
 test("the caption says the pens are there", () => {
   assert.match(contract, /followed by the pens the load's weighed animals sit in/);
 });
+
+test("the value chart names the same pens as the weight chart beside it", () => {
+  // Maintainer request 2026-09-21: name the pen on EVERY graph, not only one. Two charts of the
+  // same loads, side by side, labelling them differently is the cross-surface disagreement this
+  // page's rules exist to stop -- and a bar saying a load is worth a sum of money names no pen, so
+  // a reader cannot walk from it to the animals any more than they could from the weight bars.
+  assert.match(
+    source,
+    /const subheading = stockAnimals === 0 \? basis : \[basis, row\.pens\]\.filter\(Boolean\)\.join\(" · "\);/,
+  );
+  // ONE pen line for the whole tab: both charts read row.pens, so they cannot drift.
+  assert.equal((source.match(/row\.pens/g) ?? []).length, 2);
+  // A SOLD-OUT load keeps its own line alone. Its animals are gone, so naming the pens they used
+  // to sit in would point the reader at a pen that no longer holds them.
+  assert.match(source, /stockAnimals === 0 \? basis :/);
+  assert.match(contract, /no stock to value, and names no pen/);
+});

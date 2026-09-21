@@ -5737,7 +5737,7 @@ func pageSpecificCopy(id string) map[string]string {
 			// The rates are the maintainer's assumptions, stated on the chart; a sold-out load
 			// has no stock to value and shows nothing here rather than a zero.
 			"section.load_value.title":   "Purchased value against current stock value",
-			"section.load_value.caption": "What each load cost, landed, against what its animals still on farm are worth today: remaining animals × latest average weight × the assumed live-weight rate. Gain is the difference. A load that has sold out has no stock to value.",
+			"section.load_value.caption": "What each load cost, landed, against what its animals still on farm are worth today: remaining animals × latest average weight × the assumed live-weight rate, followed by the pens the load's weighed animals sit in. Gain is the difference. A load that has sold out has no stock to value, and names no pen.",
 			"section.load_value.aria":    "Purchased value against current stock value by load",
 			"legend.load.purchase_value": "Purchased value (₹)",
 			"legend.load.stock_value":    "Current stock value (₹)",
