@@ -106,6 +106,7 @@ dashboard-automation-self-test:
 	node tools/dashboard-automation/check-business-data-parity.mjs --self-test
 	node tools/agent-hooks/check-dashboard-automation-guard.mjs --self-test
 	bash -n tools/dashboard-automation/run-oci.sh
+	bash -n tools/dashboard-automation/run-post-main-if-new.sh
 	bash -n tools/dashboard-automation/install-oci-user-timer.sh
 
 dashboard-automation-data-parity:
