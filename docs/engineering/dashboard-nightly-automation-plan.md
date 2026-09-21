@@ -56,8 +56,10 @@ on `main`. A failed certification creates a notification and evidence packet; it
 Run once daily against the deployed production dashboard. It is strictly non-mutating:
 
 - no submit, save, approve, delete, deploy, upload, replay, or data-edit actions;
-- no direct database writes or comparison against a potentially different STG database;
-- no autonomous repair or PR creation;
+- no direct database writes;
+- read-only critical business-data parity against the staging-equivalent OCI clone once a
+  non-personal read-only STG identity is installed;
+- no direct autonomous repair in production/staging;
 - stop with `auth_blocked` if authentication is missing or expired;
 - record the deployed version/SHA at start and end, and discard the run if it changes mid-sweep.
 
@@ -65,6 +67,19 @@ Production smoke uses safe navigation, tabs, read-only filters, pagination, and 
 drawers/detail overlays. Mutating interaction tests belong only in the isolated preview with disposable
 data. The post-main job catches code/contract regressions; the daily production job catches deployed
 environment, authentication, rendering, and availability regressions. Neither replaces the other.
+
+### 2.3 Self-healing lane: PR only, never production mutation
+
+Self-healing means the automation diagnoses a failure, prepares a pull request, runs deterministic
+checks, runs a judge/refinement pass, and tags Ravi and Manohar for review. It does not mean editing
+production/staging data, auto-merging, auto-deploying, approving its own PR, or hiding a red gate.
+
+The repair lane may start only from a concrete failing receipt: route, viewport, screenshot/trace,
+API latency sample, Lighthouse/page-load sample, Firebase/latest-app distribution check, or
+business-data parity drift. It must attach that receipt to the PR description and add or update a
+deterministic regression guard before asking for review.
+
+Required reviewer tags: Ravi and Manohar. Human approval remains mandatory.
 
 ## 3. Layer 1 — static and contract guards
 
@@ -97,6 +112,43 @@ Use real PostgreSQL, not a mock driver, to catch failures compilation cannot see
 The source database remains untouched and proves `default_transaction_read_only=on`. Only the uniquely
 named temporary database may be created, migrated, seeded, and dropped. Cleanup validates the exact
 database name and run id before deletion.
+
+### 4.1 Critical STG-to-OCI business data parity
+
+The OCI clone is useful only if the business data that drives the dashboard is fresh enough to catch
+the same class of defects seen in staging. The parity check is read-only on STG and read-only by
+default on OCI. It is a blocker for critical business tables:
+
+- goats, goat identifiers, locations, shed partitions, and current herd composition;
+- weighing observations/campaigns/sheds and ADG inputs;
+- procurement loads/load goats;
+- feed catalog, purchases, directions, and completions;
+- sales deals, deal lines, and sold-animal tags;
+- vaccination source facts, completions, drives, and assignment membership.
+
+Live Bluetooth/herd-signal telemetry is best-effort for now. A mismatch there is reported but does not
+block dashboard certification unless it causes page load, contract, or critical count failure.
+
+The STG credential must be a dedicated read-only automation identity/service account with the narrowest
+needed Cloud SQL/Secret Manager access plus a read-only database role. Ravi's personal `gcloud` or ADC
+session is acceptable for manual investigation only; it is not an acceptable scheduled automation
+dependency. If the read identity is missing or expired, the run reports `stg_read_auth_blocked`.
+
+Sentinel parity checks include the concrete failures from Manju's 2026-09-21 notes:
+
+- Herd Analytics CBE weekly window must match STG values and not drift in OCI.
+- Castro 2 and Castro 3 purchased/current/dead/ICU reconciliation must be explainable from one
+  canonical source of truth.
+- Godel 2 Part 1 and Part 2 time-wise ADG must respond to the selected date range when the underlying
+  weighing rows differ.
+- Sold animals by weight must include deal-line average weights when sale batches have average weight
+  but individual sold tags lack per-animal weights.
+
+Parity alone is not enough when the source system is stale or incomplete. Field reconciliations from
+validated farm records are configured as explicit sentinels and must be explainable by the dashboard
+source of truth. The first configured sentinel is Castro 3 / partition 3 from Manju's 2026-09-21
+evidence: 59 now + 6 deaths + 3 ICU + 1 sold + 1 Y1 = 70 total. A run fails if STG and OCI match each
+other but cannot explain that field truth.
 
 ## 5. Layer 3 — deterministic Playwright E2E
 
@@ -171,6 +223,11 @@ route, or stale content.
 - agent timeout or budget exhaustion: preserve the Layers 1–3 result and mark agent coverage incomplete;
 - authentication/infrastructure failure: `no_verdict`, bounded retry, never a false pass.
 
+When self-healing is enabled, the agent's maximum authority is to open or update a pull request with
+the deterministic evidence and a proposed fix. A second judge agent reviews the PR for correctness,
+frontend performance, API latency, route coverage, and missing regression guards. The PR remains red or
+draft until deterministic checks pass; it is never merged by the automation.
+
 ### 6.3 Cost and availability controls
 
 Supported modes:
@@ -206,6 +263,13 @@ The automation must not create the failure it measures:
 - compare old fanout and new bundled endpoints using the same tenant, user, parks, date, filters, and
   page size;
 - enforce repository policy: p90 <= 300 ms and p95/p99 <= 500 ms unless stricter route policy exists;
+- treat normal dashboard/API reads above 500 ms as failures; allow explicitly declared long-running
+  upload/import/export/proof-media endpoints to use their own policy instead of the dashboard hot-path
+  policy;
+- run Lighthouse/page-load checks for production and preview dashboards, recording LCP/CLS/INP,
+  transfer size, JS execution time, failed requests, and route-level regressions;
+- check Firebase latest-app distribution health separately from admin-web: current release visibility,
+  download/install metadata where available, and any publish/distribution error;
 - never hide a slow API with frontend retries, more parallel calls, or an unproved cache;
 - abort production smoke if it begins causing sustained errors or abnormal load.
 
@@ -259,11 +323,11 @@ receipt.
 2. Exact-SHA OCI worktree, preview lifecycle, temporary PostgreSQL lifecycle, cleanup trap, and receipt.
 3. Layer 2 integration tests with deterministic non-empty fixtures.
 4. Layer 3 desktop/mobile coverage, assertions, console/network capture, and artifact redaction.
-5. Run report-only post-main certification until three consecutive lifecycle runs complete cleanly.
-6. Add Layer 4 structured review with the API caps above, or Codex-plan mode with usage-limit reporting.
-7. Add daily production-safe smoke after authentication and non-mutation controls are proven.
-8. Treat agent-assisted fix proposals as a later, separately reviewed design. No autonomous healing is
-   approved here.
+5. Add critical STG-to-OCI business-data parity using a dedicated read-only automation identity.
+6. Run report-only post-main certification until three consecutive lifecycle runs complete cleanly.
+7. Add Layer 4 structured review with the API caps above, or Codex-plan mode with usage-limit reporting.
+8. Add daily production-safe smoke after authentication and non-mutation controls are proven.
+9. Enable PR-only self-healing after the first three layers and judge review are stable.
 
 ## 12. Acceptance criteria before enabling the timer
 
@@ -272,6 +336,11 @@ receipt.
 - Deliberate `backend_down`, Work Board, Weights, clipping, blank-chart, and false-null-bar fixtures fail
   Layer 3 on the required viewport.
 - The agent identifies a seeded visual defect, emits structured evidence, and stays within its cap.
+- Critical STG-to-OCI parity detects deliberate drift in goats, weighing, sales, procurement, feed, and
+  vaccination tables while ignoring best-effort Bluetooth telemetry drift.
+- API latency, page-load/Lighthouse, and Firebase/latest-app checks are present in receipts.
+- PR-only self-healing can create a draft PR from a seeded failure, add a deterministic regression
+  guard, run judge review, and tag Ravi and Manohar without merging/deploying.
 - Killing the runner at every lifecycle stage leaves no preview process or temporary database.
 - Authentication failure produces no verdict, never a false green.
 - Artifact scanning proves no credential/token is retained.
@@ -280,9 +349,11 @@ receipt.
 
 ## 13. Explicitly out of scope
 
-- Android application parity.
+- Android deep functional parity beyond Firebase/latest-app availability and explicitly requested
+  release smoke.
 - Automatic merge, deploy, approval, revert, or production/staging data repair.
-- Autonomous agent healing or PR creation.
+- Direct autonomous production/staging healing. PR-only fix proposals are in scope only after the
+  self-healing lane is enabled and remain human-approved.
 - Treating screenshots or agent prose as a substitute for deterministic checks.
 - Full agent review of every passing screenshot; Playwright covers every required surface while the
   agent reviews failures, new surfaces, risky surfaces, and a rotating sample.
