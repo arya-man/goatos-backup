@@ -340,7 +340,10 @@ const browserEvidence = {
 };
 const pageLoadBudgetMs = Number(process.env.GOATOS_SMOKE_PAGE_LOAD_BUDGET_MS || 8000);
 
-const browser = await chromium.launch({ channel: process.env.GOATOS_SMOKE_BROWSER_CHANNEL || "chrome" });
+const browserLaunchOptions = process.env.GOATOS_SMOKE_BROWSER_CHANNEL
+  ? { channel: process.env.GOATOS_SMOKE_BROWSER_CHANNEL }
+  : {};
+const browser = await chromium.launch(browserLaunchOptions);
 try {
   for (const viewport of [
     { label: "laptop", width: 1440, height: 1000 },

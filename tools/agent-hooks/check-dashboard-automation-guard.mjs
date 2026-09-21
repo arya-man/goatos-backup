@@ -253,6 +253,17 @@ function dashboardRuntimeFindings() {
   for (const fragment of ["Browser smoke", "Parity gate", "ran_degraded", "ran_failed", "Browser smoke did not run"]) {
     if (!slackSource.includes(fragment)) findings.push(`${slackRel}: Slack alerts must explicitly say whether Playwright/browser smoke ran (${fragment})`);
   }
+  if (smokeSource.includes('GOATOS_SMOKE_BROWSER_CHANNEL || "chrome"')) {
+    findings.push(`${smokeRel}: live smoke must not default to the system Chrome channel; OCI uses Playwright's bundled Chromium unless GOATOS_SMOKE_BROWSER_CHANNEL is explicitly set`);
+  }
+  if (!smokeSource.includes("browserLaunchOptions")) {
+    findings.push(`${smokeRel}: live smoke must derive browser launch options so OCI can use bundled Playwright Chromium`);
+  }
+  const runOciRel = "tools/dashboard-automation/run-oci.sh";
+  const runOciSource = existsSync(runOciRel) ? readFileSync(runOciRel, "utf8") : "";
+  if (!runOciSource.includes("CHROME_PATH") || !runOciSource.includes("chromium.executablePath")) {
+    findings.push(`${runOciRel}: OCI runner must export CHROME_PATH from Playwright for Lighthouse when no system Chrome exists`);
+  }
   for (const fragment of ["assertModuleTextObserved", "exerciseManifestSafeClicks"]) {
     if (!smokeSource.includes(fragment)) findings.push(`${smokeRel}: missing module journey enforcement helper ${fragment}`);
   }

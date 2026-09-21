@@ -31,6 +31,11 @@ fi
 
 cd "$REPO_ROOT"
 
+if [[ -z "${CHROME_PATH:-}" && -d "${REPO_ROOT}/node_modules/playwright" ]]; then
+  CHROME_PATH="$(node -e 'console.log(require("playwright").chromium.executablePath())')"
+  export CHROME_PATH
+fi
+
 if [[ -n "$(git status --porcelain --untracked-files=no)" ]]; then
   die "refusing dirty tracked checkout"
 fi
