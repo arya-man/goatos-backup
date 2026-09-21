@@ -104,6 +104,19 @@ try {
     }
     writeReceipt(receiptPath, receipt);
   }
+  if (process.env.GOATOS_DASHBOARD_SLACK_ALERTS === "1") {
+    const slack = spawnSync(process.execPath, ["tools/dashboard-automation/notify-slack.mjs", "--receipt", receiptPath], {
+      cwd: repo,
+      env: process.env,
+      encoding: "utf8"
+    });
+    receipt.slackAlert = {
+      status: slack.status === 0 ? "completed" : "failed",
+      stdout: redactText(slack.stdout).trim(),
+      stderr: redactText(slack.stderr).trim()
+    };
+    writeReceipt(receiptPath, receipt);
+  }
   console.log(`dashboard automation ${receipt.status}; receipt ${path.relative(repo, receiptPath)}`);
   if (receipt.status !== "pass") process.exit(1);
 }
@@ -253,5 +266,6 @@ function selfTest() {
   if (config.apiLatencyPolicy.normalDashboardApisMustStayUnderMs !== 500) throw new Error("self-test: dashboard API latency policy drifted");
   if (!config.selfHealing.checksBeforePr.includes("apiLatencyPolicy")) throw new Error("self-test: self-healing must include API latency checks");
   runNode(["tools/dashboard-automation/self-heal-pr.mjs", "--self-test"]);
+  runNode(["tools/dashboard-automation/notify-slack.mjs", "--self-test"]);
   console.log("dashboard automation runner: self-test passed");
 }

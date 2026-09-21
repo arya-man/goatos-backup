@@ -43,6 +43,7 @@ for (const file of [
   "tools/dashboard-automation/run-oci.sh",
   "tools/dashboard-automation/install-oci-user-timer.sh",
   "tools/dashboard-automation/check-business-data-parity.mjs",
+  "tools/dashboard-automation/notify-slack.mjs",
   "tools/dashboard-automation/self-heal-pr.mjs",
   "docs/runbooks/dashboard-automation-oci.md",
 ]) {
@@ -75,6 +76,7 @@ function dashboardBugPatternCoverageFindings() {
     "mobile-webview-layout-and-touch-regressions",
     "api-fanout-and-latency-regression",
     "stg-oci-data-parity-and-field-reconciliation",
+    "weighing-pen-alias-form-drift",
     "sop-authored-form-cross-client-drift",
     "android-proof-sync-session-and-ui-regressions",
   ]) {
@@ -93,6 +95,9 @@ function dashboardBugPatternCoverageFindings() {
   }
   if (coverage.androidOciFeasibility?.defaultInDashboardAutomation !== false) {
     findings.push(`${rel}: Android emulator/device flow must stay disabled by default in dashboard OCI automation until host capacity is proven`);
+  }
+  if (coverage.slackAlerts?.channelId !== "C0C39G90FCJ") {
+    findings.push(`${rel}: Slack alerts must target goatos-automation-alerts channel C0C39G90FCJ unless the OCI env overrides it`);
   }
   return findings;
 }

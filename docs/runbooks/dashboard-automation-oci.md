@@ -33,6 +33,20 @@ node tools/dashboard-automation/run.mjs --mode production-smoke
 The runner writes receipts under `.codex-goatos-render/dashboard-automation/<run>/receipt.json`.
 Receipts redact bearer tokens, JWT-looking strings, and Anthropic key material.
 
+## Slack alerts
+
+The channel for human-facing automation alerts is `goatos-automation-alerts`
+(`C0C39G90FCJ`). Enable delivery on OCI with either:
+
+- `GOATOS_DASHBOARD_SLACK_WEBHOOK_URL`, or
+- `SLACK_BOT_TOKEN` / `GOATOS_DASHBOARD_SLACK_BOT_TOKEN` plus
+  `GOATOS_DASHBOARD_SLACK_CHANNEL_ID=C0C39G90FCJ`.
+
+Set `GOATOS_DASHBOARD_SLACK_ALERTS=1` to turn delivery on. The notifier posts only on meaningful
+state changes: failure, missing auth/env blocker, self-healing PR opened, or recovery after a prior
+red run. Repeated identical failures are deduped for the configured cooldown (`240` minutes by
+default). Green runs stay quiet unless they recover a prior red run.
+
 ## Anthropic or agent review
 
 The repository runner records the agent-review policy and budget caps. The actual OCI host adapter
@@ -93,7 +107,15 @@ The same coverage matrix records recurring regression classes that must remain a
 - chart/KPI truthfulness and blank scaffolding;
 - API fanout/latency regressions;
 - STG-to-OCI data parity and field-reconciliation drift;
+- weighing pen alias-vs-partition identity drift, including the Godel 2 ADG bug class;
 - cross-client SOP/authored-form drift.
+
+The weighing pen identity sentinel is `weighing_pen_alias_form_b_rows`. It fails when a weighing
+campaign shed stores a pen as active shed + `partition_label` while a planner alias location row
+exists for the same physical pen. That is the Godel 2 / Mandela / Castro failure shape that splits
+ADG history, duplicates pens, freezes `gain_span_days`, or double-renders names such as
+`Godel 2 - Part 1 - Part 1`. The check is read-only on both STG and OCI; repairing rows remains a
+separate, human-approved database operation.
 
 Android is included in the pattern review but not as a default OCI emulator/device job. The Android
 project already needs a 4 GB Gradle heap, and emulator/macrobenchmark requires additional RAM, CPU,

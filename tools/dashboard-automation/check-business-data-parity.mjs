@@ -40,6 +40,7 @@ for (const table of config.businessDataParity.bestEffortTables) {
   compareCount(table, "bestEffortTables", false);
 }
 runSentinel("cbe_herd_analytics_window", cbeHerdWindowSql());
+runWeighingPenAliasFormBRows();
 runSalesSoldWeightCoverage();
 for (const reconciliation of config.businessDataParity.fieldReconciliations ?? []) {
   runFieldReconciliation(reconciliation);
@@ -124,6 +125,40 @@ function runSalesSoldWeightCoverage() {
   }
   result.sentinelQueries[name] = row;
   if (row.status === "fail") result.blockers.push({ kind: "sentinel_mismatch", name, reason: row.reason ?? "query_failed" });
+}
+
+function runWeighingPenAliasFormBRows() {
+  const name = "weighing_pen_alias_form_b_rows";
+  const stg = psqlRows(stgUrl, readOnlySql(weighingPenAliasFormBRowsSql()));
+  const oci = psqlRows(ociUrl, readOnlySql(weighingPenAliasFormBRowsSql()));
+  const row = {
+    stg: weighingAliasObject(stg.rows?.[0]),
+    oci: weighingAliasObject(oci.rows?.[0]),
+    status: "pass"
+  };
+  if (stg.error || oci.error) {
+    row.status = "fail";
+    row.error = redactText(stg.error ?? oci.error);
+  } else if (JSON.stringify(row.stg) !== JSON.stringify(row.oci)) {
+    row.status = "fail";
+    row.reason = "stg_oci_mismatch";
+  } else if ((row.stg?.formBRows ?? 0) > 0) {
+    row.status = "fail";
+    row.reason = "planner_alias_form_b_rows";
+  }
+  result.sentinelQueries[name] = row;
+  if (row.status === "fail") result.blockers.push({ kind: "sentinel_mismatch", name, reason: row.reason ?? "query_failed" });
+}
+
+function weighingAliasObject(row) {
+  if (!row) return null;
+  return {
+    formBRows: Number(row[0]),
+    affectedPens: Number(row[1]),
+    firstDate: row[2] || null,
+    lastDate: row[3] || null,
+    examples: row[4] || ""
+  };
 }
 
 function salesWeightObject(row) {
@@ -218,6 +253,51 @@ select sold_animals::text, animals_with_deal_avg_weight::text, tagged_allocation
 from deals, allocations`;
 }
 
+function weighingPenAliasFormBRowsSql() {
+  return `
+with form_b as (
+  select
+    wcs.campaign_shed_id,
+    wcs.start_business_date,
+    parent.name as shed_name,
+    wcs.partition_label,
+    alias.location_id as canonical_alias_location_id
+  from weighing_campaign_sheds wcs
+  cross join lateral (
+    select lower(regexp_replace(btrim(wcs.partition_label), '^(part|p)\\s*', '', 'i')) as partition_number
+  ) normalized
+  join locations parent
+    on parent.tenant_id = wcs.tenant_id
+   and parent.location_id = wcs.location_id
+   and parent.location_type = 'shed'
+   and parent.status = 'active'
+   and parent.retired_at is null
+  join locations alias
+    on alias.tenant_id = parent.tenant_id
+   and alias.parent_location_id = parent.parent_location_id
+   and alias.location_type = 'shed'
+   and alias.status = 'inactive'
+   and lower(regexp_replace(btrim(alias.name), '\\s+', ' ', 'g')) in (
+      lower(regexp_replace(btrim(parent.name || ' - ' || wcs.partition_label), '\\s+', ' ', 'g')),
+      lower(regexp_replace(btrim(parent.name || ' ' || wcs.partition_label), '\\s+', ' ', 'g')),
+      lower(regexp_replace(btrim(parent.name || ' - Part ' || normalized.partition_number), '\\s+', ' ', 'g')),
+      lower(regexp_replace(btrim(parent.name || ' Part ' || normalized.partition_number), '\\s+', ' ', 'g')),
+      lower(regexp_replace(btrim(parent.name || ' - P' || normalized.partition_number), '\\s+', ' ', 'g')),
+      lower(regexp_replace(btrim(parent.name || ' P' || normalized.partition_number), '\\s+', ' ', 'g'))
+   )
+  where nullif(btrim(wcs.partition_label), '') is not null
+    and wcs.weighing_category = 'per_shed_partition'
+    and wcs.status <> 'canceled'
+)
+select
+  count(*)::text as form_b_rows,
+  count(distinct shed_name || '|' || partition_label)::text as affected_pens,
+  coalesce(min(start_business_date)::text, '') as first_date,
+  coalesce(max(start_business_date)::text, '') as last_date,
+  coalesce(string_agg(distinct shed_name || ' / ' || partition_label, ', ' order by shed_name || ' / ' || partition_label), '') as examples
+from form_b`;
+}
+
 function psql(databaseUrl, sql) {
   const rows = psqlRows(databaseUrl, sql);
   if (rows.error) return { error: rows.error };
@@ -281,6 +361,13 @@ function selfTest() {
   }
   if (!config.businessDataParity.fieldReconciliations.some((item) => item.name === "castro_3_partition_3_2026_09_21")) {
     throw new Error("self-test: Castro 3 field reconciliation must be configured");
+  }
+  if (!config.businessDataParity.sentinelQueries.some((item) => item.name === "weighing_pen_alias_form_b_rows" && item.implementationStatus === "implemented")) {
+    throw new Error("self-test: weighing pen alias Form B sentinel must be implemented");
+  }
+  const aliasSql = weighingPenAliasFormBRowsSql();
+  for (const fragment of ["weighing_campaign_sheds", "partition_label", "locations alias", "form_b_rows"]) {
+    if (!aliasSql.includes(fragment)) throw new Error(`self-test: alias sentinel SQL missing ${fragment}`);
   }
   if (config.selfHealing.mode !== "pull_request_only") {
     throw new Error("self-test: self-healing must be PR-only");

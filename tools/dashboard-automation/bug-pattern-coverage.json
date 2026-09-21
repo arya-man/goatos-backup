@@ -39,6 +39,11 @@
       "destructiveWrites": false
     }
   ],
+  "slackAlerts": {
+    "channelId": "C0C39G90FCJ",
+    "channelName": "goatos-automation-alerts",
+    "policy": "Post only on failure, auth/env blocker, self-healing PR, or recovery after a red run; dedupe identical repeated failures inside the configured cooldown."
+  },
   "patterns": [
     {
       "id": "sql-bind-arity-and-control-flow",
@@ -156,6 +161,22 @@
         "no STG/OCI repair writes from dashboard automation"
       ],
       "ociNightlyCoverage": "read-only parity only; repair is a separate human-approved workflow"
+    },
+    {
+      "id": "weighing-pen-alias-form-drift",
+      "domain": "backend-admin-web-android",
+      "examples": [
+        "Godel 2 ADG bug 2026-09-21: history split between alias location rows and shed+partition rows",
+        "Mandela 2 CPT partition repair",
+        "Castro mid-history gaps still unrepaired as of Manohar note"
+      ],
+      "risk": "A physical pen can be stored as Form A (alias location_id, NULL partition_label) or Form B (parent shed location_id plus partition_label). If both exist, shed-weights and ADG reads split history, duplicate pens, freeze gain_span_days, or double-render operational_location_display.",
+      "automationCoverage": [
+        "business-data parity sentinel weighing_pen_alias_form_b_rows",
+        "read-only STG and OCI comparison blocks when Form B rows exist while planner alias rows exist",
+        "review skill requires planner create/store round-trip to preserve the canonical pen identity"
+      ],
+      "ociNightlyCoverage": "read-only SQL sentinel over weighing_campaign_sheds and locations; no DB repair from automation"
     },
     {
       "id": "sop-authored-form-cross-client-drift",
