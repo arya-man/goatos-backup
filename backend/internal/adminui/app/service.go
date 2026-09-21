@@ -7254,6 +7254,11 @@ func pageSpecificCopy(id string) map[string]string {
 			// author leaves it. Telling them it self-healed when it has not is worse than silence.
 			"error.stale_version": "That version is no longer there \u2014 it was published or discarded. Everything below is up to date.",
 			"action.back_to_list": "Back to the list",
+			// A draft that lost its steps is not "a course with no steps yet" -- the live
+			// course still has them, and the two sentences sitting on one screen read as a
+			// contradiction. Say which one the animals are being treated from, and that
+			// discarding returns to it, because that is the recovery and it is not obvious.
+			"warn.empty_draft_over_live": "This draft is empty, but the live course still has its steps and is what animals are treated from. Publishing is blocked until you add one. Discard the draft to go back to the live course untouched.",
 
 			// ---- the diagnosis register ---------------------------------------------------
 			// The other half of the rulebook. The copy's job is to keep two things

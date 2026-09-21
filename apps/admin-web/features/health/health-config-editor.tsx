@@ -2,7 +2,7 @@
 
 import { useEffect, useMemo, useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
-import { ArrowLeft, Plus, Trash2 } from "lucide-react";
+import { AlertTriangle, ArrowLeft, Plus, Trash2 } from "lucide-react";
 
 import { copy, optionalCopy, optionGroup, type AdminUiOption, type AdminUiPageContract } from "@/lib/admin-ui-contract";
 import type { HealthConfigProtocolDetail, HealthConfigStep } from "@/lib/api/server";
@@ -71,6 +71,40 @@ function readBackToListMarker(): BackToListMarker | null {
   } catch {
     return null;
   }
+}
+
+/**
+ * A DRAFT WITH NO STEPS WHILE THE LIVE COURSE HAS THEM.
+ *
+ * Two of these exist in the live database, both created on 2026-09-16 by a build that no
+ * longer runs -- opening a draft copies the published steps today, and a fresh one comes
+ * back with all 28. What is left is a screen that says "this course has no steps yet"
+ * directly above a history saying "v1 · Live · Steps: 28", and a reader is right to find
+ * that alarming.
+ *
+ * It says which version animals are actually treated from, that publishing is blocked
+ * (the strict rulebook refuses a course with no steps, so the live one cannot be replaced
+ * by this), and that discarding returns to it. The recovery is a button already on the
+ * screen; nothing said so.
+ */
+function EmptyDraftOverLiveNotice({
+  detail,
+  stepCount,
+  pageContract,
+}: {
+  detail: HealthConfigProtocolDetail;
+  stepCount: number;
+  pageContract: AdminUiPageContract;
+}) {
+  if (detail.status !== "draft" || stepCount > 0) return null;
+  const live = (detail.history ?? []).find((v) => v.status === "published");
+  if (!live || live.step_count === 0) return null;
+  return (
+    <div className="alert" style={{ marginBottom: 12 }}>
+      <AlertTriangle className="ic" aria-hidden="true" />
+      <div>{copy(pageContract, "warn.empty_draft_over_live")}</div>
+    </div>
+  );
 }
 
 function historyBackToListNonce(): string | null {
@@ -551,6 +585,8 @@ export function DraftEditor({
           {copy(pageContract, "note.days_shrink")} {copy(pageContract, "note.rename_scope")}
         </p>
       </div>
+
+      <EmptyDraftOverLiveNotice detail={draft} stepCount={steps.length} pageContract={pageContract} />
 
       {/* ONE READABLE BLOCK PER STEP, not a 10-column table.
           A treatment step has fields that only apply to its own kind: a medicine step has a
