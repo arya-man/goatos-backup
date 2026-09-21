@@ -2,7 +2,7 @@ const SECRET_PATTERNS = [
   /Bearer\s+[A-Za-z0-9._~+/=-]+/gi,
   /([?&](?:token|access_token|id_token|signature|X-Goog-Signature|X-Amz-Signature)=)[^&\s]+/gi,
   /(postgres(?:ql)?:\/\/)([^:@/\s]+):([^@/\s]+)@/gi,
-  /((?:api[_-]?key|anthropic[_-]?api[_-]?key|openai[_-]?api[_-]?key|password|secret|cookie)\s*[:=]\s*)[^\s"']+/gi
+  /((?:api[_-]?key|anthropic[_-]?api[_-]?key|openai[_-]?api[_-]?key|password|secret|cookie|token)\s*[:=]\s*)[^\s"']+/gi
 ];
 
 export function redactText(input) {

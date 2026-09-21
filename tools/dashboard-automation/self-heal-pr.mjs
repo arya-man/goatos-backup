@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 import { execFileSync } from "node:child_process";
-import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { redactText } from "./lib/redact.mjs";
@@ -39,7 +39,8 @@ const reportPath = path.join(repo, reportRel);
 git(["fetch", "--quiet", "origin", "main"]);
 git(["checkout", "--quiet", "-B", branch, "origin/main"]);
 mkdirSync(path.dirname(reportPath), { recursive: true });
-writeFileSync(reportPath, failureReport(receipt, args.receipt));
+const agentReview = readAgentReview(args.receipt);
+writeFileSync(reportPath, failureReport(receipt, args.receipt, agentReview));
 git(["add", reportRel]);
 git(["commit", "-m", "automation: report dashboard smoke failure"]);
 git(["push", "--set-upstream", "origin", branch]);
@@ -57,6 +58,7 @@ const pr = await githubJson(`/repos/${repoSlug}/pulls`, {
       "",
       `Receipt SHA: ${shortSha}`,
       `Report: ${reportRel}`,
+      agentReview ? `Agent review: ${agentReview.status} / ${agentReview.reason} / ${agentReview.model ?? "unknown model"}` : "Agent review: not found beside receipt",
       "",
       "Requested reviewers: @raviteja786143 @manohar-mesha"
     ].join("\n")
@@ -71,9 +73,10 @@ await githubJson(`/repos/${repoSlug}/pulls/${pr.number}/requested_reviewers`, {
 
 console.log(`dashboard self-healing PR: opened ${pr.html_url}`);
 
-function failureReport(value, receiptPath) {
+function failureReport(value, receiptPath, agentReview = null) {
   const blockers = (value.blockers ?? []).slice(0, 25);
   const layers = (value.layers ?? []).map((layer) => `- ${layer.name}: ${layer.status}${layer.message ? ` — ${redactText(layer.message)}` : ""}`).join("\n");
+  const agentLines = renderAgentReview(agentReview);
   return `${[
     "# Dashboard automation failure",
     "",
@@ -90,6 +93,10 @@ function failureReport(value, receiptPath) {
     "",
     blockers.length ? blockers.map((item) => `- ${redactText(JSON.stringify(item))}`).join("\n") : "- none",
     "",
+    "## Anthropic agent review",
+    "",
+    agentLines,
+    "",
     "## Safety",
     "",
     "- Report-only PR.",
@@ -98,6 +105,39 @@ function failureReport(value, receiptPath) {
     "- No STG/production/OCI data writes.",
     ""
   ].join("\n")}\n`;
+}
+
+function readAgentReview(receiptPath) {
+  const p = path.join(path.dirname(path.resolve(receiptPath)), "agent-review.json");
+  if (!existsSync(p)) return null;
+  return JSON.parse(readFileSync(p, "utf8"));
+}
+
+function renderAgentReview(review) {
+  if (!review) return "- No `agent-review.json` was found beside the receipt.";
+  const lines = [
+    `- Status: ${redactText(review.status ?? "unknown")}`,
+    `- Reason: ${redactText(review.reason ?? "unknown")}`,
+    `- Model: ${redactText(review.model ?? "unknown")}`
+  ];
+  if (review.usage) lines.push(`- Usage: ${redactText(JSON.stringify(review.usage))}`);
+  if (review.rawSummary) lines.push(`- Summary: ${redactText(review.rawSummary)}`);
+  const findings = Array.isArray(review.findings) ? review.findings.slice(0, 10) : [];
+  if (findings.length) {
+    lines.push("");
+    lines.push("### Findings");
+    for (const finding of findings) {
+      lines.push(`- [${redactText(finding.severity ?? "medium")}] ${redactText(finding.title ?? "Untitled")}: ${redactText(finding.detail ?? "")}`);
+    }
+  }
+  if (review.remediation) {
+    lines.push("");
+    lines.push("### Remediation");
+    lines.push("```json");
+    lines.push(redactText(JSON.stringify(review.remediation, null, 2)).slice(0, 6000));
+    lines.push("```");
+  }
+  return lines.join("\n");
 }
 
 async function githubJson(apiPath, options) {
@@ -134,8 +174,13 @@ function parseArgs(raw) {
 }
 
 function selfTest() {
-  const report = failureReport({ mode: "production-smoke", repoSha: "abc123", blockers: [{ message: "Bearer secret-token" }] }, "/tmp/receipt.json");
+  const report = failureReport(
+    { mode: "production-smoke", repoSha: "abc123", blockers: [{ message: "Bearer secret-token" }] },
+    "/tmp/receipt.json",
+    { status: "completed", reason: "anthropic_review_completed", model: "claude-test", findings: [{ severity: "high", title: "x", detail: "token=secret" }] },
+  );
   if (report.includes("secret-token")) throw new Error("self-test: report did not redact secret-like text");
+  if (report.includes("token=secret")) throw new Error("self-test: agent finding did not redact secret-like text");
   console.log("dashboard self-healing PR: self-test passed");
 }
 
