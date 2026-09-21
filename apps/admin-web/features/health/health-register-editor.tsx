@@ -2,7 +2,7 @@
 
 import { useRouter } from "next/navigation";
 import { useCallback, useMemo, useRef, useState, useTransition } from "react";
-import { AlertTriangle, Plus, Trash2 } from "lucide-react";
+import { AlertTriangle, Plus, Trash2, X } from "lucide-react";
 
 import { copy, optionalCopy, type AdminUiPageContract } from "@/lib/admin-ui-contract";
 import type {
@@ -16,6 +16,15 @@ import type {
 } from "@/lib/api/server";
 
 import { mintKey } from "./health-register-keys";
+import {
+  buildSignIndex,
+  derivedSign,
+  illnessLabel,
+  signChoices,
+  signLabel,
+  withSignAdded,
+  type SignIndex,
+} from "./health-register-model";
 import {
   discardRegisterDraft,
   publishRegisterDraft,
@@ -49,7 +58,17 @@ type SectionKey = "questions" | "rules";
 type RegisterWrite = {
   (): Promise<HealthRegisterActionResult>;
 };
-type OnWritten = (result: HealthRegisterActionResult) => void;
+
+/**
+ * Clears the key after a CONFIRMED success, so the next press of the same button is a
+ * new intent and a failed press can still be retried under the key it already used.
+ */
+function rotate(ref: { current: string }) {
+  return (result: HealthRegisterActionResult) => {
+    if (result.ok) ref.current = "";
+    return result;
+  };
+}
 
 function splitTokens(raw: string): string[] {
   return raw
@@ -98,16 +117,31 @@ export function RegisterEditor({
   const publishKey = useRef<string>("");
   const discardKey = useRef<string>("");
 
+  // The lens the whole screen reads: which answer produces which sign, and which illness
+  // looks at it. Rebuilt on every edit so the links are never a step behind the document.
+  const index = useMemo(() => buildSignIndex(doc), [doc]);
+
   const isDraft = detail.status === "draft";
   const editable = mayWrite && isDraft;
   const fieldErrors = result && !result.ok ? result.fieldErrors : undefined;
 
+  /**
+   * Run one write and then do exactly ONE of two things: stay and re-read, or leave.
+   *
+   * Refreshing after a push supersedes it -- both are transitions on the router, the
+   * refresh re-renders the route the push was leaving, and the navigation never lands.
+   * That is why publish wrote a new live register and left the author sitting on the
+   * draft they had just published, with nothing on screen saying it had worked.
+   */
   const run = useCallback(
-    (fn: RegisterWrite, onSuccess?: OnWritten) => {
+    (fn: RegisterWrite, opts?: { navigateTo?: string }) => {
       startTransition(async () => {
         const r = await fn();
         setResult(r);
-        if (r.ok) onSuccess?.(r);
+        if (r.ok && opts?.navigateTo) {
+          router.push(opts.navigateTo);
+          return;
+        }
         router.refresh();
       });
     },
@@ -116,34 +150,29 @@ export function RegisterEditor({
 
   const onSave = () => {
     if (!saveKey.current) saveKey.current = mintKey("register-save");
-    run(
-      () => saveRegisterDraft(detail.animal_class, doc, saveKey.current),
-      () => {
-        saveKey.current = "";
-      },
-    );
+    const key = saveKey.current;
+    // A save STAYS: the author keeps editing, and the refresh brings back the verdict a
+    // publish would now apply.
+    run(() => saveRegisterDraft(detail.animal_class, doc, key).then(rotate(saveKey)));
   };
 
   const onPublish = () => {
     if (!publishKey.current) publishKey.current = mintKey("register-publish");
-    run(
-      () => publishRegisterDraft(detail.register_version_id, publishKey.current),
-      () => {
-        publishKey.current = "";
-        router.push(listHref);
-      },
-    );
+    const key = publishKey.current;
+    // A publish LEAVES: this draft no longer exists as a draft, so staying on it would
+    // show a version that is now the live register under an editor that cannot save.
+    run(() => publishRegisterDraft(detail.register_version_id, key).then(rotate(publishKey)), {
+      navigateTo: listHref,
+    });
   };
 
   const onDiscard = () => {
     if (!discardKey.current) discardKey.current = mintKey("register-discard");
-    run(
-      () => discardRegisterDraft(detail.register_version_id, discardKey.current),
-      () => {
-        discardKey.current = "";
-        router.push(listHref);
-      },
-    );
+    const key = discardKey.current;
+    // A discard LEAVES for the same reason, and more bluntly: the version is gone.
+    run(() => discardRegisterDraft(detail.register_version_id, key).then(rotate(discardKey)), {
+      navigateTo: listHref,
+    });
   };
 
   const patchQuestion = (index: number, patch: Partial<HealthRegisterQuestion>) =>
@@ -207,7 +236,7 @@ export function RegisterEditor({
             <span className="small muted">{copy(pageContract, "section.questions.caption")}</span>
           </div>
           <p className="small muted" style={{ margin: "0 14px 10px", lineHeight: 1.6 }}>
-            {copy(pageContract, "section.questions.note")}
+            {copy(pageContract, "note.questions_how")}
           </p>
           <div className="bd" style={{ display: "grid", gap: 12 }}>
             {doc.questions.length === 0 ? (
@@ -222,8 +251,18 @@ export function RegisterEditor({
                   index={i}
                   editable={editable}
                   pageContract={pageContract}
+                  signIndex={index}
                   errors={errorsFor(fieldErrors, `questions.${i}`)}
                   onChange={(patch) => patchQuestion(i, patch)}
+                  onAddToIllness={(token, ruleId) =>
+                    setDoc((d) => ({
+                      ...d,
+                      rules: d.rules.map((r) =>
+                        r.id === ruleId ? withSignAdded(r, "probable", token) : r,
+                      ),
+                    }))
+                  }
+                  illnesses={doc.rules.map((r) => r.id).filter(Boolean)}
                   onRemove={() =>
                     setDoc((d) => ({ ...d, questions: d.questions.filter((_, k) => k !== i) }))
                   }
@@ -264,7 +303,7 @@ export function RegisterEditor({
             <span className="small muted">{copy(pageContract, "section.rules.caption")}</span>
           </div>
           <p className="small muted" style={{ margin: "0 14px 10px", lineHeight: 1.6 }}>
-            {copy(pageContract, "section.rules.note")}
+            {copy(pageContract, "note.rules_how")}
           </p>
           <div className="bd" style={{ display: "grid", gap: 12 }}>
             {doc.rules.length === 0 ? (
@@ -279,6 +318,8 @@ export function RegisterEditor({
                   index={i}
                   editable={editable}
                   pageContract={pageContract}
+                  signIndex={index}
+                  choices={signChoices(doc)}
                   errors={errorsFor(fieldErrors, `rules.${i}`)}
                   onChange={(patch) => patchRule(i, patch)}
                   onRemove={() => setDoc((d) => ({ ...d, rules: d.rules.filter((_, k) => k !== i) }))}
@@ -311,16 +352,22 @@ function QuestionRow({
   index,
   editable,
   pageContract,
+  signIndex,
+  illnesses,
   errors,
   onChange,
+  onAddToIllness,
   onRemove,
 }: {
   question: HealthRegisterQuestion;
   index: number;
   editable: boolean;
   pageContract: AdminUiPageContract;
+  signIndex: SignIndex;
+  illnesses: string[];
   errors: HealthConfigFieldError[];
   onChange: (patch: Partial<HealthRegisterQuestion>) => void;
+  onAddToIllness: (token: string, ruleId: string) => void;
   onRemove: () => void;
 }) {
   const options = question.options ?? [];
@@ -368,56 +415,20 @@ function QuestionRow({
         ) : (
           <div style={{ display: "grid", gap: 6 }}>
             <div className="small muted">{copy(pageContract, "label.answers")}</div>
-            <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }} aria-hidden="true">
-              <span className="small muted" style={{ flex: "1 1 140px" }}>
-                {copy(pageContract, "label.answer_label")}
-              </span>
-              <span className="small muted" style={{ flex: "1 1 110px" }}>
-                {copy(pageContract, "label.answer_value")}
-              </span>
-              {/* The JOIN. An answer with none is the absence of a sign, not a sign named "none". */}
-              <span className="small muted" style={{ flex: "2 1 220px" }}>
-                {copy(pageContract, "label.findings")}
-              </span>
-              <span style={{ width: 34 }} />
-            </div>
             {options.map((o, i) => (
-              <div key={`${o.value}-${i}`} style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
-                <input
-                  style={{ flex: "1 1 140px" }}
-                  value={o.label}
-                  disabled={!editable}
-                  onChange={(e) => patchOption(i, { label: e.target.value })}
-                  aria-label={`${copy(pageContract, "label.answers")} ${i + 1}`}
-                />
-                <input
-                  style={{ flex: "1 1 110px" }}
-                  value={o.value}
-                  disabled={!editable}
-                  onChange={(e) => patchOption(i, { value: e.target.value })}
-                  aria-label={`${copy(pageContract, "label.answers")} ${i + 1}`}
-                />
-                {/* The join. Empty is the common case and is correct: "normal" and "no" are the
-                    absence of a sign, not a sign named "none". */}
-                <input
-                  style={{ flex: "2 1 220px" }}
-                  value={joinTokens(o.emits)}
-                  disabled={!editable}
-                  placeholder={copy(pageContract, "label.findings")}
-                  onChange={(e) => patchOption(i, { emits: splitTokens(e.target.value) })}
-                  aria-label={`${copy(pageContract, "label.findings")} ${i + 1}`}
-                />
-                {editable ? (
-                  <button
-                    type="button"
-                    className="btn ghost"
-                    aria-label={`${copy(pageContract, "action.remove_answer")} ${i + 1}`}
-                    onClick={() => onChange({ options: options.filter((_, k) => k !== i) })}
-                  >
-                    <Trash2 className="ic" aria-hidden="true" />
-                  </button>
-                ) : null}
-              </div>
+              <AnswerRow
+                key={`${o.value}-${i}`}
+                question={question}
+                option={o}
+                index={i}
+                editable={editable}
+                pageContract={pageContract}
+                signIndex={signIndex}
+                illnesses={illnesses}
+                onChange={(patch) => patchOption(i, patch)}
+                onAddToIllness={onAddToIllness}
+                onRemove={() => onChange({ options: options.filter((_, k) => k !== i) })}
+              />
             ))}
             {editable ? (
               <button
@@ -433,6 +444,125 @@ function QuestionRow({
 
         <RowErrors errors={errors} />
       </div>
+    </div>
+  );
+}
+
+/**
+ * One answer, and the only place the word "sign" is decided.
+ *
+ * A layman's whole job on this screen is here: tick whether an answer MEANS SOMETHING IS
+ * WRONG, and see which illnesses it points to. The machine token is derived from the
+ * question and the answer rather than typed -- nobody has to know it exists -- and is
+ * shown small and muted for the reader who does.
+ */
+function AnswerRow({
+  question,
+  option,
+  index,
+  editable,
+  pageContract,
+  signIndex,
+  illnesses,
+  onChange,
+  onAddToIllness,
+  onRemove,
+}: {
+  question: HealthRegisterQuestion;
+  option: HealthRegisterOption;
+  index: number;
+  editable: boolean;
+  pageContract: AdminUiPageContract;
+  signIndex: SignIndex;
+  illnesses: string[];
+  onChange: (patch: Partial<HealthRegisterOption>) => void;
+  onAddToIllness: (token: string, ruleId: string) => void;
+  onRemove: () => void;
+}) {
+  const token = (option.emits ?? [])[0] ?? "";
+  const isSign = Boolean(token);
+  const pointsTo = token ? signIndex.usedBy.get(token) ?? [] : [];
+  const unlinked = illnesses.filter((id) => !pointsTo.includes(id));
+
+  return (
+    <div
+      style={{
+        display: "grid",
+        gap: 6,
+        padding: "8px 10px",
+        borderRadius: 8,
+        border: "1px solid var(--line)",
+      }}
+    >
+      <div style={{ display: "flex", gap: 8, flexWrap: "wrap", alignItems: "center" }}>
+        <input
+          style={{ flex: "1 1 180px" }}
+          value={option.label}
+          disabled={!editable}
+          onChange={(e) => onChange({ label: e.target.value })}
+          aria-label={`${copy(pageContract, "label.answer_label")} ${index + 1}`}
+        />
+        <label className="small" style={{ display: "inline-flex", alignItems: "center", gap: 6 }}>
+          <input
+            type="checkbox"
+            checked={isSign}
+            disabled={!editable}
+            onChange={(e) =>
+              onChange({
+                // Ticking DERIVES the token; unticking drops it. An author never types one,
+                // and an answer that means nothing is wrong carries none -- which is what
+                // keeps "Eating normally" out of the evidence the engine reasons over.
+                emits: e.target.checked ? [derivedSign(question, option.value)] : [],
+              })
+            }
+          />
+          {copy(pageContract, isSign ? "label.is_a_sign" : "label.not_a_sign")}
+        </label>
+        {editable ? (
+          <button
+            type="button"
+            className="btn ghost"
+            aria-label={`${copy(pageContract, "action.remove_answer")} ${index + 1}`}
+            onClick={onRemove}
+          >
+            <Trash2 className="ic" aria-hidden="true" />
+          </button>
+        ) : null}
+      </div>
+
+      {isSign ? (
+        <div style={{ display: "flex", gap: 6, flexWrap: "wrap", alignItems: "center" }}>
+          <span className="small muted">{copy(pageContract, "label.used_by")}</span>
+          {pointsTo.length === 0 ? (
+            <span className="small muted">{copy(pageContract, "label.used_by_none")}</span>
+          ) : (
+            pointsTo.map((id) => (
+              <span key={id} className="tag">
+                {illnessLabel(id)}
+              </span>
+            ))
+          )}
+          {editable && unlinked.length > 0 ? (
+            <select
+              value=""
+              aria-label={copy(pageContract, "label.pick_sign")}
+              onChange={(e) => {
+                if (e.target.value) onAddToIllness(token, e.target.value);
+              }}
+            >
+              <option value="">{copy(pageContract, "action.add_rule")}</option>
+              {unlinked.map((id) => (
+                <option key={id} value={id}>
+                  {illnessLabel(id)}
+                </option>
+              ))}
+            </select>
+          ) : null}
+          <span className="small muted" style={{ marginLeft: "auto", opacity: 0.6 }}>
+            {copy(pageContract, "label.advanced")}: {token}
+          </span>
+        </div>
+      ) : null}
     </div>
   );
 }
@@ -528,6 +658,8 @@ function RuleRow({
   index,
   editable,
   pageContract,
+  signIndex,
+  choices,
   errors,
   onChange,
   onRemove,
@@ -536,6 +668,8 @@ function RuleRow({
   index: number;
   editable: boolean;
   pageContract: AdminUiPageContract;
+  signIndex: SignIndex;
+  choices: Map<string, { token: string; questionTitle: string; answerLabel: string }[]>;
   errors: HealthConfigFieldError[];
   onChange: (patch: Partial<HealthRegisterRule>) => void;
   onRemove: () => void;
@@ -545,9 +679,12 @@ function RuleRow({
     { key: "probable" as const, label: copy(pageContract, "label.tier.probable") },
     { key: "possible" as const, label: copy(pageContract, "label.tier.possible") },
   ];
+  const total = tiers.reduce((n, t) => n + (rule[t.key] ?? []).length, 0);
+
   return (
     <div className="card" style={{ margin: 0, borderColor: errors.length ? "var(--danger)" : undefined }}>
-      <div className="bd" style={{ display: "grid", gap: 8 }}>
+      <div className="bd" style={{ display: "grid", gap: 10 }}>
+        {rule.id ? <h4 style={{ margin: 0 }}>{illnessLabel(rule.id)}</h4> : null}
         <div style={{ display: "flex", gap: 8, flexWrap: "wrap", alignItems: "flex-end" }}>
           <label className="fld" style={{ flex: "1 1 180px" }}>
             <span>{copy(pageContract, "label.rule_id")}</span>
@@ -576,66 +713,175 @@ function RuleRow({
             />
           </label>
           {editable ? (
-            <button type="button" className="btn ghost" onClick={onRemove} aria-label={copy(pageContract, "action.remove_rule")}>
+            <button
+              type="button"
+              className="btn ghost"
+              onClick={onRemove}
+              aria-label={copy(pageContract, "action.remove_rule")}
+            >
               <Trash2 className="ic" aria-hidden="true" />
             </button>
           ) : null}
         </div>
 
-        {tiers.map(({ key, label }) => {
-          const clauses = rule[key] ?? [];
-          return (
-            <div key={key} style={{ display: "grid", gap: 4 }}>
-              <div className="small muted">{label}</div>
-              {clauses.map((c, i) => (
-                <div key={i} style={{ display: "flex", gap: 8 }}>
-                  {/* Findings within one clause are an AND: the animal must show all of them. */}
-                  <input
-                    style={{ flex: 1 }}
-                    value={joinTokens(c.findings)}
-                    disabled={!editable}
-                    placeholder={copy(pageContract, "label.findings")}
-                    onChange={(e) =>
-                      onChange({
-                        [key]: clauses.map((x, k) =>
-                          k === i ? { ...x, findings: splitTokens(e.target.value) } : x,
-                        ),
-                      } as Partial<HealthRegisterRule>)
-                    }
-                    aria-label={`${label} ${i + 1}`}
-                  />
-                  {editable ? (
-                    <button
-                      type="button"
-                      className="btn ghost"
-                      aria-label={`${copy(pageContract, "action.remove_clause")} ${i + 1}`}
-                      onClick={() =>
-                        onChange({ [key]: clauses.filter((_, k) => k !== i) } as Partial<HealthRegisterRule>)
-                      }
-                    >
-                      <Trash2 className="ic" aria-hidden="true" />
-                    </button>
-                  ) : null}
-                </div>
-              ))}
-              {editable ? (
-                <button
-                  type="button"
-                  className="btn ghost"
-                  onClick={() =>
-                    onChange({ [key]: [...clauses, { findings: [] }] } as Partial<HealthRegisterRule>)
-                  }
-                >
-                  <Plus className="ic" aria-hidden="true" /> {copy(pageContract, "action.add_clause")}
-                </button>
-              ) : null}
-            </div>
-          );
-        })}
+        {total === 0 ? (
+          <div className="small muted">{copy(pageContract, "label.no_conditions")}</div>
+        ) : null}
+
+        {tiers.map(({ key, label }) => (
+          <TierBlock
+            key={key}
+            tierKey={key}
+            label={label}
+            clauses={rule[key] ?? []}
+            editable={editable}
+            pageContract={pageContract}
+            signIndex={signIndex}
+            choices={choices}
+            onChange={(clauses) => onChange({ [key]: clauses } as Partial<HealthRegisterRule>)}
+          />
+        ))}
 
         <RowErrors errors={errors} />
       </div>
     </div>
+  );
+}
+
+/**
+ * One confidence tier of one illness.
+ *
+ * Each line is ONE WAY to recognise the illness and any single line is enough, so the
+ * lines read as alternatives and the signs INSIDE a line read as "and". That is exactly
+ * how the engine evaluates them -- clauses are OR, findings within a clause are AND --
+ * and saying it in words is the difference between a screen a vet can check and a screen
+ * they have to be taught.
+ */
+function TierBlock({
+  tierKey,
+  label,
+  clauses,
+  editable,
+  pageContract,
+  signIndex,
+  choices,
+  onChange,
+}: {
+  tierKey: "pathognomonic" | "probable" | "possible";
+  label: string;
+  clauses: { findings: string[]; residual?: boolean }[];
+  editable: boolean;
+  pageContract: AdminUiPageContract;
+  signIndex: SignIndex;
+  choices: Map<string, { token: string; questionTitle: string; answerLabel: string }[]>;
+  onChange: (clauses: { findings: string[]; residual?: boolean }[]) => void;
+}) {
+  if (clauses.length === 0 && !editable) return null;
+  return (
+    <div style={{ display: "grid", gap: 4 }}>
+      <div className="small muted">
+        {label}
+        {clauses.length > 1 ? ` — ${copy(pageContract, "label.any_one_confirms")}` : ""}
+      </div>
+      {clauses.map((clause, i) => (
+        <div
+          key={`${tierKey}-${i}`}
+          style={{ display: "flex", gap: 6, flexWrap: "wrap", alignItems: "center", paddingLeft: 4 }}
+        >
+          {(clause.findings ?? []).map((token, k) => (
+            <span key={`${token}-${k}`} style={{ display: "inline-flex", alignItems: "center", gap: 4 }}>
+              {k > 0 ? (
+                <span className="small muted">{copy(pageContract, "label.all_must_hold")}</span>
+              ) : null}
+              <span className="tag" title={token}>
+                {signLabel(token, signIndex)}
+                {editable ? (
+                  <button
+                    type="button"
+                    className="btn ghost sm"
+                    aria-label={`${copy(pageContract, "action.remove_clause")} ${k + 1}`}
+                    style={{ marginLeft: 4, padding: 0, lineHeight: 1 }}
+                    onClick={() => {
+                      const next = clause.findings.filter((_, j) => j !== k);
+                      onChange(
+                        next.length === 0
+                          ? clauses.filter((_, j) => j !== i)
+                          : clauses.map((c, j) => (j === i ? { ...c, findings: next } : c)),
+                      );
+                    }}
+                  >
+                    <X className="ic" aria-hidden="true" style={{ width: 12 }} />
+                  </button>
+                ) : null}
+              </span>
+            </span>
+          ))}
+          {editable ? (
+            <SignPicker
+              pageContract={pageContract}
+              choices={choices}
+              onPick={(token) =>
+                onChange(
+                  clauses.map((c, j) =>
+                    j === i ? { ...c, findings: [...(c.findings ?? []), token] } : c,
+                  ),
+                )
+              }
+            />
+          ) : null}
+        </div>
+      ))}
+      {editable ? (
+        <SignPicker
+          pageContract={pageContract}
+          choices={choices}
+          addLabel={copy(pageContract, "action.add_clause")}
+          onPick={(token) => onChange([...clauses, { findings: [token] }])}
+        />
+      ) : null}
+    </div>
+  );
+}
+
+/**
+ * Pick a sign by the question and answer it comes from.
+ *
+ * Grouped by question, because that is how the manager meets them on the phone and how
+ * an author remembers them. A plain select rather than a search box: 34 questions is a
+ * list you scan, not one you have to query.
+ */
+function SignPicker({
+  pageContract,
+  choices,
+  onPick,
+  addLabel,
+}: {
+  pageContract: AdminUiPageContract;
+  choices: Map<string, { token: string; questionTitle: string; answerLabel: string }[]>;
+  onPick: (token: string) => void;
+  addLabel?: string;
+}) {
+  return (
+    <select
+      value=""
+      aria-label={addLabel ?? copy(pageContract, "label.pick_sign")}
+      onChange={(e) => {
+        if (e.target.value) onPick(e.target.value);
+        e.target.value = "";
+      }}
+      style={{ maxWidth: 260 }}
+    >
+      <option value="">{addLabel ?? copy(pageContract, "label.pick_sign")}</option>
+      {[...choices.entries()].map(([questionId, rows]) => (
+        <optgroup key={questionId} label={rows[0]?.questionTitle || questionId}>
+          {rows.map((row) => (
+            <option key={row.token} value={row.token}>
+              {row.answerLabel}
+            </option>
+          ))}
+        </optgroup>
+      ))}
+    </select>
   );
 }
 

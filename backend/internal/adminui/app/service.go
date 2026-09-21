@@ -7268,8 +7268,8 @@ func pageSpecificCopy(id string) map[string]string {
 			"section.questions.title":           "Questions",
 			"section.questions.caption":         "What the manager is asked about the animal in front of them",
 			"section.questions.note":            "Every question is compulsory. A blank cannot tell \u201cnobody looked\u201d from \u201cnormal\u201d, and the unaccounted-for findings on a proposal depend on that difference. A question that does not apply to the animal \u2014 an udder on a male \u2014 is not asked at all rather than left empty.",
-			"section.rules.title":               "Rules",
-			"section.rules.caption":             "Which illness a set of findings points to, and what it opens",
+			"section.rules.title":               "Illnesses",
+			"section.rules.caption":             "What each illness looks like, and the treatment it opens",
 			"section.rules.note":                "Rules are judged in parallel, never as a tree: an animal can have two illnesses at once, and a sign being absent does not rule one out. Treats names the treatment course the diagnosis opens; a rule with none is a field action, treated in place.",
 			"table.registers.aria":              "Diagnosis register rows",
 			"table.registers.noun":              "register",
@@ -7339,7 +7339,28 @@ func pageSpecificCopy(id string) map[string]string {
 			"action.add_rule":          "Add an illness",
 			"action.add_answer":        "Add an answer",
 			"action.add_band":          "Add a band",
-			"action.add_clause":        "Add a condition",
+			"action.add_clause":        "Add a way to recognise it",
+
+			// ---- the layman's vocabulary ---------------------------------------------------
+			// A register is two lists joined by one idea: an answer can be a SIGN, and an
+			// illness is recognised by signs. The screen says exactly that, everywhere, and
+			// never shows the machine token unless the reader asks for it.
+			"label.sign":             "Sign",
+			"label.signs":            "Signs",
+			"label.is_a_sign":        "This answer is a sign",
+			"label.not_a_sign":       "Normal — not a sign",
+			"label.used_by":          "Points to",
+			"label.used_by_none":     "No illness uses this yet",
+			"label.pick_sign":        "Add a sign",
+			"label.any_one_confirms": "Any one of these is enough",
+			"label.all_must_hold":    "and",
+			"label.advanced":         "Machine name",
+			"label.no_conditions":    "Nothing recognises this illness yet",
+			"label.question_count":   "questions",
+			"label.illness_count":    "illnesses",
+			"note.how_it_works":      "The manager answers every question about the sick animal. Some answers are SIGNS — something a healthy animal would not show. Each illness below lists the signs that point to it, and the engine proposes every illness whose signs are present. Two illnesses can be proposed at once, because an animal can have two.",
+			"note.questions_how":     "Mark an answer as a sign when it means something is wrong. \u201cEating normally\u201d is not a sign; \u201cNot eating\u201d is. Beside each sign you can see which illnesses it points to, and add it to another.",
+			"note.rules_how":         "An illness is recognised by its signs. Each line is one way to recognise it, and any single line is enough. A line with two signs needs both at once. Confirmed, Probable and Possible say how sure that line makes the engine.",
 		}
 	case "feed-config":
 		return map[string]string{

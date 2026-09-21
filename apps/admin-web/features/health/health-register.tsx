@@ -51,6 +51,25 @@ function className(animalClass: string, pageContract: AdminUiPageContract): stri
   return optionalCopy(pageContract, key) ?? animalClass.replace(/_/g, " ");
 }
 
+/**
+ * What a register IS, in three sentences, on every view of it.
+ *
+ * It sits on the LIST as well as the editor because that is where someone opening this
+ * screen for the first time lands, and "one register per animal class" tells them
+ * nothing until they know what a register does.
+ */
+function HowItWorks({ pageContract }: { pageContract: AdminUiPageContract }) {
+  return (
+    <section className="card" style={{ marginBottom: 16 }}>
+      <div className="bd">
+        <p className="small muted" style={{ margin: 0, lineHeight: 1.7 }}>
+          {copy(pageContract, "note.how_it_works")}
+        </p>
+      </div>
+    </section>
+  );
+}
+
 function SectionError({
   result,
   pageContract,
@@ -113,13 +132,16 @@ export async function HealthRegisterSection({
 
   if (detail) {
     return (
-      <RegisterEditor
+      <>
+        <HowItWorks pageContract={pageContract} />
+        <RegisterEditor
         detail={detail}
         pageContract={pageContract}
         mayWrite={mayWrite}
         disabledReason={writeDisabledReason}
-        listHref={listHref}
-      />
+          listHref={listHref}
+        />
+      </>
     );
   }
 
@@ -128,6 +150,7 @@ export async function HealthRegisterSection({
 
   return (
     <>
+      <HowItWorks pageContract={pageContract} />
       <SectionError result={listResult} pageContract={pageContract} />
       <section className="card" style={{ marginBottom: 16 }}>
         <div className="hd">
