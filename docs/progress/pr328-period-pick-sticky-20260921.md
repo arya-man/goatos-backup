@@ -12,7 +12,7 @@
 
 ## Pending
 
-- Push the follow-up commit to the PR branch.
+- None for the doc-comment follow-up.
 
 ## Tests / E2E
 
@@ -21,7 +21,7 @@
 
 ## Known Failures
 
-- None from this follow-up yet.
+- None from this follow-up.
 
 ## Before / After Metrics
 
@@ -34,7 +34,7 @@
 ## Current SHA
 
 - Before follow-up: `f6060a2c5f59bf66b19ddd967109943ecb8774e7`.
-- Follow-up SHA: read back from Git after push.
+- Follow-up SHA: `9c23507de55e62cb3fc5db6412015e64302f3ce4`.
 
 ## Deployment State
 
