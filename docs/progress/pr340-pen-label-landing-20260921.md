@@ -21,11 +21,15 @@
   - Routed fasting submit SQL calls through `sqlbind.MustBind` and shrank the postgres-bind baseline.
   - Renamed the Kotlin composed-name helper parameter so the partition-identity guard no longer misreads it as visible raw shed copy.
   - Moved reviewed no-seed-impact markers adjacent to both `verification_items` repair updates.
+- Focused reruns after committing `9e84a1961` passed:
+  - `node tools/agent-hooks/check-leadership-assistant-coverage.mjs`
+  - `node tools/agent-hooks/check-postgres-bind-contract.mjs`
+  - `node tools/agent-hooks/check-operational-partition-identity.mjs`
+  - `make seed-migration-guard`
 
 ## Pending
 
-- Commit the first landing-blocker repair set.
-- Rerun focused failing guards from committed state, then rerun required repo landing receipt: `make land-main`.
+- Rerun required repo landing receipt: `make land-main`.
 - If green, verify local `HEAD`, `origin/main`, and PR merge/readback all point at the certified SHA.
 
 ## Known Failures
@@ -39,5 +43,5 @@
 
 ## Current SHA
 
-- Candidate before landing receipt: `15f5deda4be27b2789e3c260bc2a0ef9cc7a06a0`.
+- Candidate before second landing receipt: `9e84a196126f576dd3c7609f1db7dd57263d7700`.
 - Deployment state: no staging deploy requested or performed.
