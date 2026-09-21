@@ -246,4 +246,3 @@ func CorrectedSubjectLabel(refType, shedDisplay, scannedIdentifier string, anima
 	}
 	return strings.Join(parts, " · ")
 }
-
