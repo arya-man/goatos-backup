@@ -134,7 +134,7 @@ func TestWeighingSamplingIsLockedBecauseTheVerifierIsTheDataSource(t *testing.T)
 // and would have deleted nothing while reading as done, leaving the exact stranding it exists to
 // prevent. This pins the literal to the Go constant so the two cannot drift.
 func TestSamplingLockMigrationNamesTheRealWeighingCategory(t *testing.T) {
-	path := filepath.Join("..", "..", "migrations", "postgres", "000382_weighing_sampling_locked.sql")
+	path := filepath.Join("..", "..", "migrations", "postgres", "000383_weighing_blind_verification.sql")
 	body, err := os.ReadFile(path)
 	if err != nil {
 		t.Fatalf("read migration: %v", err)

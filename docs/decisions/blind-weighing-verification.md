@@ -97,7 +97,7 @@ would keep a queue narrowed to 40% while the other 60% is settled by **nobody** 
 longer touches weighing — leaving those items pending forever, each holding its weighing bucket
 open against a close gate that is unconditional by design (ledger D-5).
 
-Migration `000382_weighing_sampling_locked.sql` **deletes** the stored weighing rows (rather than
+Migration `000383_weighing_sampling_locked.sql` **deletes** the stored weighing rows (rather than
 rewriting them to 100, which would read to the next author as a setting rather than a lock). With
 no row, the predicate's own `COALESCE(..., 100)` draws everything, and `SetSamplingPolicy` refuses
 new weighing rows with `sampling_not_available`.

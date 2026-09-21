@@ -2209,7 +2209,7 @@ auto-approving an unwatched weighing video would complete a bucket with no verif
 But `samplingsql.InSample` knows nothing about waivability and still reads whatever row
 `verification_sampling_policies` holds, so a tenant already set below 100% would keep a narrowed
 queue while the undrawn items are settled by NOBODY — pending forever, each holding its bucket
-open against the unconditional close gate (ledger D-5). Migration `000382` DELETES the stored
+open against the unconditional close gate (ledger D-5). Migration `000383` DELETES the stored
 weighing rows; the write path refuses new ones. **General rule: making a category non-waivable is
 not complete until its stored sampling rows are removed in the same change.**
 
