@@ -157,13 +157,15 @@ func TestAnIdenticalRegisterSaveIsNotANewVersion(t *testing.T) {
 	}
 }
 
-// THE CHECK THAT NEEDS A DATABASE, and the distinction that makes it useful.
+// THE CHECK THAT NEEDS A DATABASE, and the correction that running it forced.
 //
-// A treats naming a disease that does not exist is a TYPO, and publishing it leaves a
-// diagnosis that fires and then cannot open a course. A disease that exists but has no
-// published card yet is WORK NOT DONE -- nine of the shipped register's own diagnoses
-// are in that state -- and refusing it would make the farm's own rulebook unpublishable.
-func TestAnUnknownTreatsIsRefusedWhileAnUnwrittenCardIsOnlyAWarning(t *testing.T) {
+// Both cases REPORT and neither refuses. The first version made an unmatched treats key
+// fatal, on the reasoning that it could only be a typo -- and the seeded register itself
+// then failed to publish, because EIGHT of its own rules name diseases with no row in
+// the farm's catalog. Nothing mechanical separates a typo from a disease nobody has
+// authored yet: both produce no match. So the author is told the consequence -- the
+// diagnosis fires and opens no course -- and decides.
+func TestAnUnwritableTreatsWarnsRatherThanRefusingThePublish(t *testing.T) {
 	pgtest.SkipIfNoDocker(t)
 	ctx := context.Background()
 	pool := pgtest.StartPostgres(t, ctx)
@@ -205,28 +207,23 @@ func TestAnUnknownTreatsIsRefusedWhileAnUnwrittenCardIsOnlyAWarning(t *testing.T
 		return svc.PublishDraft(ctx, versionCmd(draft.RegisterVersionID, "publish-"+key))
 	}
 
-	if _, err := edit(t, "not_a_disease_at_all", "typo"); err == nil {
-		t.Fatal("a treats naming no disease in the catalog was published")
-	} else {
-		var ve *domain.ValidationError
-		if !errors.As(err, &ve) {
-			t.Fatalf("want a field error naming the rule, got %v", err)
+	for _, c := range []struct{ treats, key, why string }{
+		{"not_a_disease_at_all", "nocatalog", "a disease nobody has authored"},
+		{"ear_infection", "unwritten", "a disease whose course nobody has written"},
+	} {
+		res, err := edit(t, c.treats, c.key)
+		if err != nil {
+			t.Fatalf("%s must publish with a warning, not a refusal: %v", c.why, err)
 		}
-	}
-
-	// The draft is still open after the refusal, so the author can fix it in place.
-	res, err := edit(t, "ear_infection", "unwritten")
-	if err != nil {
-		t.Fatalf("a disease with no card yet must publish with a warning, not a refusal: %v", err)
-	}
-	var warned bool
-	for _, w := range res.Warnings {
-		if !w.Fatal {
-			warned = true
+		var warned bool
+		for _, w := range res.Warnings {
+			if !w.Fatal {
+				warned = true
+			}
 		}
-	}
-	if !warned {
-		t.Fatal("publishing a diagnosis whose course nobody has written must say so")
+		if !warned {
+			t.Fatalf("%s must be reported to the author", c.why)
+		}
 	}
 }
 

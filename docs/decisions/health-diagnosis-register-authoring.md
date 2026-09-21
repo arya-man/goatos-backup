@@ -117,7 +117,20 @@ content-hashed no-op detection, write-log ledger). Publish REFUSES:
 - an unknown key anywhere. `Load()` already rejects unknown fields and must keep doing so: a
   key nothing reads is an accept-and-discard that reads to the next author as honoured.
 
-### A disease whose course nobody has written yet is a WARNING, not a refusal
+### NOTHING about `treats` refuses a publish — corrected by running it
+
+The first version refused a `treats` key matching no disease at all, reasoning that it
+could only be a typo. Running the seeded register against the real 27-disease catalog
+disproved it in one press: EIGHT of the adult register's own rules -- metritis, tetanus,
+laminitis and five more -- name diseases with no catalog row, so the farm's OWN SHIPPED
+RULEBOOK could not be published.
+
+Nothing mechanical separates "you mistyped it" from "nobody has authored that disease
+yet": both produce no match. So both are REPORTED and neither refuses, and the sentence
+says the consequence -- the diagnosis will fire and open no course until someone authors
+it -- which is the part an author can act on.
+
+### A disease whose course nobody has written yet is also only a warning
 
 This is the correction the build forced, and it matters. Nine of the shipped register's
 thirty diagnoses point at treatment cards nobody has authored -- `SOPRefToDiseaseKey`'s
@@ -160,6 +173,18 @@ in committed files:
 
 Both are repaired in the seeded form. An observation already taken is unaffected: the old
 boolean maps to exactly the answer it used to mean.
+
+## The engine does NOT yet read the published register
+
+`NewDiagnosisService` resolves its registers from the EMBEDDED files once at startup, so
+publishing records the authored version and pins it for audit, but does not yet change
+what a live observation is judged against. The authored evaluator exists and is proven
+against the catalogs; wiring it into the serving path is blocked behind the same thing
+the next section describes, because `Evaluate` still takes the typed `Findings` struct.
+
+Until that lands, the screen is the source of truth for the RULEBOOK and the embedded
+files are still the source of truth for DIAGNOSIS. Do not describe the feature as live
+end to end before then.
 
 ## What is NOT yet authored, and why the job is not finished
 

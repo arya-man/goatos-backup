@@ -69,6 +69,7 @@ CREATE TABLE IF NOT EXISTS public.health_diagnosis_register_versions (
 
   created_by    uuid,
   updated_by    uuid,
+  -- NULL means the seed published it; see the shape check below.
   published_by  uuid,
   published_at  timestamptz,
   created_at    timestamptz NOT NULL DEFAULT now(),
@@ -84,10 +85,17 @@ CREATE TABLE IF NOT EXISTS public.health_diagnosis_register_versions (
     CHECK (btrim(register_label) <> ''),
   CONSTRAINT health_diagnosis_register_versions_hash_check
     CHECK (btrim(content_hash) <> ''),
-  -- A published version must say who published it and when. A row claiming to be live
-  -- with no signature is exactly the row an audit cannot answer for.
+  -- A published version must say WHEN it went live. That is always knowable and is what
+  -- pins a diagnosis run to the rules it was judged against.
+  --
+  -- published_by is deliberately NOT required, and the null is meaningful rather than
+  -- missing: the FIRST version of every class is published by the SEED, which transcribes
+  -- the rule table this repo ships, and no person authored it. Demanding a signature there
+  -- would mean writing a person who did not publish it -- worse provenance than an honest
+  -- null, and the same reasoning that lets a sampling closeout record a verdict with no
+  -- verified_by. Every version published FROM THE SCREEN carries its author.
   CONSTRAINT health_diagnosis_register_versions_published_shape_check
-    CHECK (status <> 'published' OR (published_by IS NOT NULL AND published_at IS NOT NULL)),
+    CHECK (status <> 'published' OR published_at IS NOT NULL),
   CONSTRAINT health_diagnosis_register_versions_identity_uq
     UNIQUE (tenant_id, animal_class, version)
 );

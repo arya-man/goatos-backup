@@ -68,25 +68,6 @@ function failureKeyFor(code: string | undefined): string {
   }
 }
 
-/**
- * The 422 body carries an `errors` array alongside the standard envelope. The generated error type
- * does not model that extra field, so it is read defensively — a missing or malformed array
- * degrades to "no field errors" and the summary still shows, rather than throwing inside a server
- * action where the failure would reach the author as a blank screen.
- */
-function fieldErrorsFrom(error: unknown): HealthConfigFieldError[] | undefined {
-  if (!error || typeof error !== "object") return undefined;
-  const raw = (error as { errors?: unknown }).errors;
-  if (!Array.isArray(raw)) return undefined;
-  const parsed = raw.filter(
-    (entry): entry is HealthConfigFieldError =>
-      Boolean(entry) &&
-      typeof entry === "object" &&
-      typeof (entry as HealthConfigFieldError).field === "string" &&
-      typeof (entry as HealthConfigFieldError).message === "string",
-  );
-  return parsed.length > 0 ? parsed : undefined;
-}
 
 function warningsFrom(raw: HealthRegisterProblem[] | null | undefined): HealthRegisterProblem[] | undefined {
   if (!Array.isArray(raw)) return undefined;
@@ -106,7 +87,7 @@ export async function openRegisterDraft(
       messageKey: failureKeyFor(result.error.code),
       detail: result.error.message,
       code: result.error.code,
-      fieldErrors: fieldErrorsFrom(result.error),
+      fieldErrors: result.error.fieldErrors,
     };
   }
   return { ok: true, messageKey: "action.register_opened", versionId: result.data.register_version_id };
@@ -134,7 +115,7 @@ export async function saveRegisterDraft(
       messageKey: failureKeyFor(result.error.code),
       detail: result.error.message,
       code: result.error.code,
-      fieldErrors: fieldErrorsFrom(result.error),
+      fieldErrors: result.error.fieldErrors,
     };
   }
   return {
@@ -160,7 +141,7 @@ export async function publishRegisterDraft(
       messageKey: failureKeyFor(result.error.code),
       detail: result.error.message,
       code: result.error.code,
-      fieldErrors: fieldErrorsFrom(result.error),
+      fieldErrors: result.error.fieldErrors,
     };
   }
   return {
@@ -184,7 +165,7 @@ export async function discardRegisterDraft(
       messageKey: failureKeyFor(result.error.code),
       detail: result.error.message,
       code: result.error.code,
-      fieldErrors: fieldErrorsFrom(result.error),
+      fieldErrors: result.error.fieldErrors,
     };
   }
   return { ok: true, messageKey: "action.register_discarded", outcome: result.data.outcome };

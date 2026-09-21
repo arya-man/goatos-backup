@@ -128,7 +128,12 @@ INSERT INTO health_register_write_log
    result_version_id, retired_version_id, actor_ref)
 VALUES ($1::uuid, $2, $3, $4, $5, $6, NULLIF($7,'')::uuid, NULLIF($8,'')::uuid, $9)`
 
-	sqlLockRegisterIdentity = `SELECT pg_advisory_xact_lock(hashtextextended($1, 0), hashtextextended($2, 0))`
+	// ONE bigint, not two. Postgres has pg_advisory_xact_lock(bigint) and
+	// pg_advisory_xact_lock(int, int) -- there is no two-bigint overload, and
+	// hashtextextended returns bigint, so the two-argument form fails at RUNTIME with
+	// "function does not exist" rather than at compile time. Hashing one combined key
+	// keeps the lock tenant-scoped and needs no overload that does not exist.
+	sqlLockRegisterIdentity = `SELECT pg_advisory_xact_lock(hashtextextended($1, 0))`
 )
 
 func (r *Repository) ListRegisters(ctx context.Context, tenantID string) ([]domain.RegisterSummary, error) {
@@ -451,16 +456,18 @@ func (r *Repository) DiscardRegisterDraft(ctx context.Context, cmd domain.Regist
 // checkTreatsAgainstCatalog is the check the pure validator cannot make: whether the
 // disease a rule opens actually exists, and whether its course has been written.
 //
-// The two outcomes are deliberately different, and the difference is the point.
+// EVERYTHING HERE IS A WARNING, and that was a correction rather than the first design.
+// The first version refused a treats key matching NO disease, on the reasoning that it
+// could only be a typo. Running the seeded register against the real catalog disproved
+// it: EIGHT of the adult register's own rules -- metritis, tetanus, laminitis and five
+// more -- name diseases that have no row in this farm's 27-disease catalog at all. That
+// is the state `SOPRefToDiseaseKey`'s own comment describes, and it made the farm's
+// OWN SHIPPED RULEBOOK unpublishable on the first press of Publish.
 //
-//	a key that matches NO disease            -> FATAL. It is a typo, and publishing it
-//	                                            leaves a diagnosis that fires and then
-//	                                            cannot open a course.
-//	a disease with no PUBLISHED protocol     -> WARNING. The card has not been written
-//	                                            yet, which is a real and normal state:
-//	                                            nine of this register's own diagnoses
-//	                                            are in it today. Refusing would make the
-//	                                            farm's existing rulebook unpublishable.
+// Nothing mechanical separates "you mistyped it" from "nobody has authored that disease
+// yet", because they produce the identical row: no match. So both are reported and
+// neither refuses, and the sentence says what the consequence is -- the diagnosis will
+// fire and open no course -- which is the part an author actually needs.
 //
 // Both age bands are required for a card to count as written, because the phone picks
 // the band from the goat and a missing one fails at diagnosis time reading like a bug.
@@ -507,8 +514,8 @@ func checkTreatsAgainstCatalog(ctx context.Context, tx pgx.Tx, tenantID string, 
 			path := fmt.Sprintf("rules.%d.treats", i)
 			switch {
 			case !exists:
-				ps = append(ps, diagnosis.Problem{Path: path, Fatal: true, Message: fmt.Sprintf(
-					"%q is not a disease in this farm's catalog, so %s would name a course that cannot be opened",
+				ps = append(ps, diagnosis.Problem{Path: path, Fatal: false, Message: fmt.Sprintf(
+					"%q is not a disease on this farm yet, so %s will be diagnosed and open no course until someone authors it",
 					key, rules[i].ID)})
 			case c.adult == 0 || c.kid == 0:
 				ps = append(ps, diagnosis.Problem{Path: path, Fatal: false, Message: fmt.Sprintf(
@@ -566,7 +573,7 @@ func loadRegisterInTx(ctx context.Context, tx pgx.Tx, tenantID, versionID string
 // lockRegisterIdentity serialises every write against one class so the
 // read-then-write sequences in this file cannot interleave.
 func lockRegisterIdentity(ctx context.Context, tx pgx.Tx, tenantID, animalClass string) (bool, error) {
-	if _, err := tx.Exec(ctx, sqlLockRegisterIdentity, tenantID, "health_register:"+animalClass); err != nil {
+	if _, err := tx.Exec(ctx, sqlLockRegisterIdentity, "health_register:"+tenantID+":"+animalClass); err != nil {
 		return false, fmt.Errorf("health: lock register identity: %w", err)
 	}
 	return true, nil

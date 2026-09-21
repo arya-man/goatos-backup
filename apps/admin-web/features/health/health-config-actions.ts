@@ -96,25 +96,6 @@ function failureKeyFor(code: string | undefined): string {
   }
 }
 
-/**
- * The backend's 422 body carries an `errors` array alongside the standard envelope. The generated
- * error type does not model that extra field (it is a superset of ErrorEnvelope), so it is read
- * defensively here rather than cast — a missing or malformed array degrades to "no field errors"
- * and the summary message still shows, instead of throwing inside a server action.
- */
-function fieldErrorsFrom(error: unknown): HealthConfigFieldError[] | undefined {
-  if (!error || typeof error !== "object") return undefined;
-  const raw = (error as { errors?: unknown }).errors;
-  if (!Array.isArray(raw)) return undefined;
-  const parsed = raw.filter(
-    (entry): entry is HealthConfigFieldError =>
-      Boolean(entry) &&
-      typeof entry === "object" &&
-      typeof (entry as HealthConfigFieldError).field === "string" &&
-      typeof (entry as HealthConfigFieldError).message === "string",
-  );
-  return parsed.length > 0 ? parsed : undefined;
-}
 
 function readString(formData: FormData, name: string): string {
   const value = formData.get(name);
@@ -159,7 +140,7 @@ export async function createDisease(formData: FormData): Promise<HealthConfigAct
       messageKey: failureKeyFor(result.error.code),
       code: result.error.code,
       detail: result.error.message,
-      fieldErrors: fieldErrorsFrom(result.error),
+      fieldErrors: result.error.fieldErrors,
     };
   }
   revalidatePath(HEALTH_CONFIG_PATH);
@@ -186,7 +167,7 @@ export async function openDraft(formData: FormData): Promise<HealthConfigActionR
       messageKey: failureKeyFor(result.error.code),
       code: result.error.code,
       detail: result.error.message,
-      fieldErrors: fieldErrorsFrom(result.error),
+      fieldErrors: result.error.fieldErrors,
     };
   }
   revalidatePath(HEALTH_CONFIG_PATH);
@@ -241,7 +222,7 @@ export async function saveDraft(formData: FormData): Promise<HealthConfigActionR
       messageKey: failureKeyFor(result.error.code),
       code: result.error.code,
       detail: result.error.message,
-      fieldErrors: fieldErrorsFrom(result.error),
+      fieldErrors: result.error.fieldErrors,
     };
   }
   revalidatePath(HEALTH_CONFIG_PATH);
@@ -258,7 +239,7 @@ export async function publishDraft(formData: FormData): Promise<HealthConfigActi
       messageKey: failureKeyFor(result.error.code),
       code: result.error.code,
       detail: result.error.message,
-      fieldErrors: fieldErrorsFrom(result.error),
+      fieldErrors: result.error.fieldErrors,
     };
   }
   revalidatePath(HEALTH_CONFIG_PATH);
@@ -280,7 +261,7 @@ export async function discardDraft(formData: FormData): Promise<HealthConfigActi
       messageKey: failureKeyFor(result.error.code),
       code: result.error.code,
       detail: result.error.message,
-      fieldErrors: fieldErrorsFrom(result.error),
+      fieldErrors: result.error.fieldErrors,
     };
   }
   revalidatePath(HEALTH_CONFIG_PATH);

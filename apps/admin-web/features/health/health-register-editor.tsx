@@ -252,7 +252,7 @@ export function RegisterEditor({
                   }))
                 }
               >
-                <Plus className="ic" aria-hidden="true" /> {copy(pageContract, "section.questions.title")}
+                <Plus className="ic" aria-hidden="true" /> {copy(pageContract, "action.add_question")}
               </button>
             ) : null}
           </div>
@@ -296,7 +296,7 @@ export function RegisterEditor({
                   }))
                 }
               >
-                <Plus className="ic" aria-hidden="true" /> {copy(pageContract, "section.rules.title")}
+                <Plus className="ic" aria-hidden="true" /> {copy(pageContract, "action.add_rule")}
               </button>
             ) : null}
           </div>
@@ -331,21 +331,21 @@ function QuestionRow({
     <div className="card" style={{ margin: 0, borderColor: errors.length ? "var(--danger)" : undefined }}>
       <div className="bd" style={{ display: "grid", gap: 8 }}>
         <div style={{ display: "flex", gap: 8, flexWrap: "wrap", alignItems: "flex-end" }}>
-          <label className="small" style={{ flex: "2 1 220px" }}>
-            {copy(pageContract, "section.questions.title")}
+          <label className="fld" style={{ flex: "2 1 240px" }}>
+            <span>{copy(pageContract, "label.question_title")}</span>
             <input
               value={question.title}
               disabled={!editable}
               onChange={(e) => onChange({ title: e.target.value })}
-              aria-label={`${copy(pageContract, "section.questions.title")} ${index + 1}`}
+              aria-label={`${copy(pageContract, "label.question_title")} ${index + 1}`}
             />
           </label>
-          <label className="small" style={{ flex: "1 1 120px" }}>
-            id
+          <label className="fld" style={{ flex: "1 1 140px" }}>
+            <span>{copy(pageContract, "label.question_id")}</span>
             <input value={question.id} disabled={!editable} onChange={(e) => onChange({ id: e.target.value })} />
           </label>
-          <label className="small" style={{ flex: "1 1 120px" }}>
-            kind
+          <label className="fld" style={{ flex: "1 1 150px" }}>
+            <span>{copy(pageContract, "label.question_kind")}</span>
             <select
               value={question.kind}
               disabled={!editable}
@@ -368,6 +368,19 @@ function QuestionRow({
         ) : (
           <div style={{ display: "grid", gap: 6 }}>
             <div className="small muted">{copy(pageContract, "label.answers")}</div>
+            <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }} aria-hidden="true">
+              <span className="small muted" style={{ flex: "1 1 140px" }}>
+                {copy(pageContract, "label.answer_label")}
+              </span>
+              <span className="small muted" style={{ flex: "1 1 110px" }}>
+                {copy(pageContract, "label.answer_value")}
+              </span>
+              {/* The JOIN. An answer with none is the absence of a sign, not a sign named "none". */}
+              <span className="small muted" style={{ flex: "2 1 220px" }}>
+                {copy(pageContract, "label.findings")}
+              </span>
+              <span style={{ width: 34 }} />
+            </div>
             {options.map((o, i) => (
               <div key={`${o.value}-${i}`} style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
                 <input
@@ -412,7 +425,7 @@ function QuestionRow({
                 className="btn ghost"
                 onClick={() => onChange({ options: [...options, { value: "", label: "", emits: [] }] })}
               >
-                <Plus className="ic" aria-hidden="true" /> {copy(pageContract, "label.answers")}
+                <Plus className="ic" aria-hidden="true" /> {copy(pageContract, "action.add_answer")}
               </button>
             ) : null}
           </div>
@@ -423,6 +436,14 @@ function QuestionRow({
     </div>
   );
 }
+
+/** The four bounds, in the words a vet uses rather than the operators SQL uses. */
+const BAND_BOUNDS = [
+  { bound: "gt", copyKey: "label.band_over" },
+  { bound: "gte", copyKey: "label.band_from" },
+  { bound: "lt", copyKey: "label.band_under" },
+  { bound: "lte", copyKey: "label.band_upto" },
+] as const;
 
 function BandList({
   question,
@@ -451,9 +472,9 @@ function BandList({
       </div>
       {bands.map((b, i) => (
         <div key={i} style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
-          {(["gt", "gte", "lt", "lte"] as const).map((bound) => (
-            <label key={bound} className="small" style={{ flex: "0 1 90px" }}>
-              {bound}
+          {BAND_BOUNDS.map(({ bound, copyKey }) => (
+            <label key={bound} className="fld" style={{ flex: "0 1 100px" }}>
+              <span>{copy(pageContract, copyKey)}</span>
               <input
                 value={b[bound] ?? ""}
                 disabled={!editable}
@@ -495,7 +516,7 @@ function BandList({
           className="btn ghost"
           onClick={() => onChange({ bands: [...bands, { emits: [] }] })}
         >
-          <Plus className="ic" aria-hidden="true" />
+          <Plus className="ic" aria-hidden="true" /> {copy(pageContract, "action.add_band")}
         </button>
       ) : null}
     </div>
@@ -528,12 +549,12 @@ function RuleRow({
     <div className="card" style={{ margin: 0, borderColor: errors.length ? "var(--danger)" : undefined }}>
       <div className="bd" style={{ display: "grid", gap: 8 }}>
         <div style={{ display: "flex", gap: 8, flexWrap: "wrap", alignItems: "flex-end" }}>
-          <label className="small" style={{ flex: "1 1 160px" }}>
-            id
+          <label className="fld" style={{ flex: "1 1 180px" }}>
+            <span>{copy(pageContract, "label.rule_id")}</span>
             <input value={rule.id} disabled={!editable} onChange={(e) => onChange({ id: e.target.value })} />
           </label>
-          <label className="small" style={{ flex: "1 1 160px" }}>
-            {copy(pageContract, "label.treats")}
+          <label className="fld" style={{ flex: "1 1 180px" }}>
+            <span>{copy(pageContract, "label.treats")}</span>
             <input
               value={rule.treats ?? ""}
               disabled={!editable}
@@ -542,8 +563,8 @@ function RuleRow({
               aria-label={`${copy(pageContract, "label.treats")} ${index + 1}`}
             />
           </label>
-          <label className="small" style={{ flex: "0 1 110px" }}>
-            severity
+          <label className="fld" style={{ flex: "0 1 120px" }}>
+            <span>{copy(pageContract, "label.severity")}</span>
             <input
               value={rule.severity_base ?? ""}
               disabled={!editable}
@@ -605,7 +626,7 @@ function RuleRow({
                     onChange({ [key]: [...clauses, { findings: [] }] } as Partial<HealthRegisterRule>)
                   }
                 >
-                  <Plus className="ic" aria-hidden="true" />
+                  <Plus className="ic" aria-hidden="true" /> {copy(pageContract, "action.add_clause")}
                 </button>
               ) : null}
             </div>
@@ -629,7 +650,14 @@ function RowErrors({ errors }: { errors: HealthConfigFieldError[] }) {
   );
 }
 
-/** The verdict a publish would apply, shown while editing rather than only on the button. */
+/**
+ * The verdict a publish would apply, shown WHILE EDITING rather than only on the button.
+ *
+ * It lists the blocking problems as well as the allowed ones. Showing only the warnings
+ * left an author with a draft that could not publish and a panel that said nothing about
+ * why -- they found out by pressing Publish, which is the opposite of what a verdict on
+ * the read is for.
+ */
 export function RegisterProblems({
   problems,
   pageContract,
@@ -641,8 +669,9 @@ export function RegisterProblems({
   heading: string;
   note?: string;
 }) {
-  const shown = useMemo(() => (problems ?? []).filter((p) => !p.fatal), [problems]);
-  if (shown.length === 0) return null;
+  const blocking = useMemo(() => (problems ?? []).filter((p) => p.fatal), [problems]);
+  const allowed = useMemo(() => (problems ?? []).filter((p) => !p.fatal), [problems]);
+  if (blocking.length === 0 && allowed.length === 0) return null;
   return (
     <section className="card" style={{ marginBottom: 16 }}>
       <div className="hd">
@@ -654,8 +683,15 @@ export function RegisterProblems({
             {note}
           </p>
         ) : null}
+        {blocking.length > 0 ? (
+          <ul className="small" style={{ margin: "0 0 10px", paddingLeft: 18, lineHeight: 1.7, color: "var(--danger)" }}>
+            {blocking.map((p, i) => (
+              <li key={`${p.path}-${i}`}>{p.message}</li>
+            ))}
+          </ul>
+        ) : null}
         <ul className="small muted" style={{ margin: 0, paddingLeft: 18, lineHeight: 1.7 }}>
-          {shown.map((p, i) => (
+          {allowed.map((p, i) => (
             <li key={`${p.path}-${i}`}>{p.message}</li>
           ))}
         </ul>

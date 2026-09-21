@@ -6193,7 +6193,16 @@ function parseParkScopeOptions(
 // read as "the server named no field" with confidence.
 function envelopeFieldErrors(body: unknown): ApiUiError["fieldErrors"] {
   if (!body || typeof body !== "object") return undefined;
-  const raw = (body as { field_errors?: unknown }).field_errors;
+  // TWO SPELLINGS, because the backend serves two and only one was being read.
+  //
+  // `field_errors` is the verifier's measurement envelope. `errors` is what every
+  // /health-config/* refusal has always returned -- the authored rulebook's whole
+  // validation pass, each entry naming `steps[i].field` or `questions.3.options.1`.
+  // Reading only the first meant the health editors received a 422 whose per-field
+  // detail was dropped in this function, so the author saw "fix the highlighted
+  // fields" with nothing highlighted. The list was on the wire the entire time.
+  const asObject = body as { field_errors?: unknown; errors?: unknown };
+  const raw = Array.isArray(asObject.field_errors) ? asObject.field_errors : asObject.errors;
   if (!Array.isArray(raw)) return undefined;
   const out: { field: string; code: string; message: string }[] = [];
   for (const entry of raw) {

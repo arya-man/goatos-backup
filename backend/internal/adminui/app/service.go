@@ -7324,6 +7324,22 @@ func pageSpecificCopy(id string) map[string]string {
 			"action.remove_answer":     "Remove answer",
 			"action.remove_band":       "Remove band",
 			"action.remove_clause":     "Remove condition",
+			"label.question_title":     "Question",
+			"label.question_id":        "Key",
+			"label.question_kind":      "Answered by",
+			"label.rule_id":            "Illness",
+			"label.severity":           "Severity",
+			"label.answer_label":       "Answer",
+			"label.answer_value":       "Key",
+			"label.band_over":          "Over",
+			"label.band_from":          "From",
+			"label.band_under":         "Under",
+			"label.band_upto":          "Up to",
+			"action.add_question":      "Add a question",
+			"action.add_rule":          "Add an illness",
+			"action.add_answer":        "Add an answer",
+			"action.add_band":          "Add a band",
+			"action.add_clause":        "Add a condition",
 		}
 	case "feed-config":
 		return map[string]string{
