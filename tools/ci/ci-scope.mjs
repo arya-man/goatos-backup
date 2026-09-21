@@ -15,6 +15,7 @@ function normalized(filePath) {
 
 function matches(pathname, group = {}) {
   const filePath = normalized(pathname);
+  if ((group.excludeSuffixes ?? []).some((suffix) => filePath.endsWith(suffix))) return false;
   return (group.files ?? []).includes(filePath)
     || (group.prefixes ?? []).some((prefix) => filePath.startsWith(prefix))
     || (group.extensions ?? []).some((extension) => filePath.endsWith(extension));
@@ -232,6 +233,10 @@ function selfTest() {
   assert.deepEqual(pick(["apps/admin-web/features/verification-review/verification-review-page.tsx"]), {
     common: true, backend: true, adminWeb: true, android: true, full: false,
     selectedJobs: ["common", "backend", "query-plans", "admin-web", "android"],
+  });
+  assert.deepEqual(pick(["apps/admin-web/features/verification-review/local-drawer-navigation.test.mjs"]), {
+    common: true, backend: false, adminWeb: true, android: false, full: false,
+    selectedJobs: ["common", "admin-web"],
   });
   assert.deepEqual(pick(["apps/goatos-android/feature/feature-verify/src/main/kotlin/sg/mesha/goatos/feature/verify/VerifyQueueScreen.kt"]), {
     common: true, backend: true, adminWeb: true, android: true, full: false,
