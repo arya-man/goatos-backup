@@ -65,8 +65,6 @@ const NAVHOST = "apps/goatos-android/app/src/main/kotlin/sg/mesha/goatos/ui/AppN
 // say why and what unblocks it. Removing an entry is the goal; adding one is a
 // maintainer decision, not a convenience.
 const PENDING_ALERTS_FEED = {
-  work_instructions:
-    "Work instructions (SOP studio phase 2, 2026-09-18) is a START surface: the person opens a general SOP and follows its steps on the shared workflow detail. A run raises no alerts of its own today -- an overdue step would belong to the task kernel's alerting once general runs are given a clock -- so there is no feed to scope a tab to yet.",
   work_board:
     "The Work Board is a READ over every other module's work (maintainer decision 2026-09-10); it raises no alerts of its own and its rows' alerts belong to the module that owns each row. An Alerts tab here would be a second, unscoped copy of those feeds.",
   counts:

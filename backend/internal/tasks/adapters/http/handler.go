@@ -28,12 +28,10 @@ import (
 const (
 	appWorkflowsRoute      = "/app/workflows"
 	appWorkflowDetailRoute = "/app/workflows/{workflow_id}"
-	appWorkflowStartRoute  = "/app/workflows/start"
 	// appWorkflowSubjectRoute serves the workflow keyed on a non-animal subject (a sale, a
 	// reconcile card) so a screen that knows the subject can show its steps without paging
 	// the module list: GET /app/workflows/subject?template_key=sales_deal&subject_ref_id=<deal>.
 	appWorkflowSubjectRoute        = "/app/workflows/subject"
-	appGeneralSOPsRoute            = "/app/sops/general"
 	appWorkflowActionAnswerRoute   = "/app/workflows/{workflow_id}/actions/{action_id}/answer"
 	appWorkflowActionCompleteRoute = "/app/workflows/{workflow_id}/actions/{action_id}/complete"
 
@@ -77,74 +75,9 @@ func Register(mux *http.ServeMux, h *Handler) {
 	mux.HandleFunc("GET "+appWorkflowDetailRoute, h.GetWorkflow)
 	mux.HandleFunc("POST "+appWorkflowActionAnswerRoute, h.AnswerAction)
 	mux.HandleFunc("POST "+appWorkflowActionCompleteRoute, h.CompleteAction)
-	// General SOPs (maintainer decision 2026-09-18): the startable work instructions and the
-	// start itself. Patterns are byte-identical to permissions/routes.go.
-	mux.HandleFunc("GET "+appGeneralSOPsRoute, h.ListGeneralSOPs)
-	mux.HandleFunc("POST "+appWorkflowStartRoute, h.StartGeneralWorkflow)
-}
-
-type generalSOPsResponse struct {
-	SOPs []ports.GeneralSOP `json:"sops"`
-}
-
-type startWorkflowRequest struct {
-	SOPCode string `json:"sop_code"`
-	ParkID  string `json:"park_id,omitempty"`
-}
-
-type startWorkflowResponse struct {
-	WorkflowID string `json:"workflow_id"`
-}
-
-// ListGeneralSOPs serves GET /app/sops/general.
-func (h *Handler) ListGeneralSOPs(w http.ResponseWriter, r *http.Request) {
-	tenantID := httpmiddleware.TenantIDFromContext(r.Context())
-	if tenantID == "" {
-		h.writeError(w, r, http.StatusUnauthorized, "missing_tenant", "missing tenant context", nil)
-		return
-	}
-	sops, err := h.svc.ListGeneralSOPs(r.Context(), tenantID)
-	if err != nil {
-		h.writeDomainError(w, r, err)
-		return
-	}
-	httpresponse.WriteJSON(w, http.StatusOK, generalSOPsResponse{SOPs: sops})
-}
-
-// StartGeneralWorkflow serves POST /app/workflows/start (Idempotency-Key mandatory: the key IS the
-// run, so a retried tap opens one workflow, not two).
-func (h *Handler) StartGeneralWorkflow(w http.ResponseWriter, r *http.Request) {
-	tenantID := httpmiddleware.TenantIDFromContext(r.Context())
-	if tenantID == "" {
-		h.writeError(w, r, http.StatusUnauthorized, "missing_tenant", "missing tenant context", nil)
-		return
-	}
-	clientKey := strings.TrimSpace(r.Header.Get("Idempotency-Key"))
-	if len(clientKey) < 8 || len(clientKey) > 200 {
-		h.writeError(w, r, http.StatusBadRequest, "missing_idempotency_key", "Idempotency-Key header (8-200 characters) is required", nil)
-		return
-	}
-	body, ok := h.readBody(w, r)
-	if !ok {
-		return
-	}
-	var req startWorkflowRequest
-	if err := decodeStrictJSON(body, &req); err != nil {
-		h.writeError(w, r, http.StatusBadRequest, "invalid_json", "request body must match StartWorkflowRequest", err)
-		return
-	}
-	workflowID, err := h.svc.StartGeneralWorkflow(r.Context(), tasksapp.StartGeneralWorkflowInput{
-		TenantID: tenantID,
-		SOPCode:  req.SOPCode,
-		ParkID:   req.ParkID,
-		ActorID:  httpmiddleware.ActorIDFromContext(r.Context()),
-		RunID:    runIDFromKey(tenantID, clientKey),
-	})
-	if err != nil {
-		h.writeDomainError(w, r, err)
-		return
-	}
-	httpresponse.WriteJSON(w, http.StatusCreated, startWorkflowResponse{WorkflowID: workflowID})
+	// The general-SOP start routes retired with the Work instructions phone module (2026-09-21,
+	// docs/decisions/sop-studio.md); the tasks service still opens a general run for a caller
+	// that has one, but nothing serves it over HTTP.
 }
 
 // runIDFromKey derives the run's subject_ref_id (a uuid) from the client's idempotency key, so
@@ -786,9 +719,9 @@ func writeResponse(result domain.ActionWriteResult) workflowActionWriteResponse 
 }
 
 // authorizeWorkflowWrite re-authorizes a shared /app/workflows write by the workflow's OWN
-// module. The route table ORs CountsWrite with WorkInstructionsExecute because the two modules
-// share these routes, so the route gate alone proves only that the caller holds ONE of them;
-// which one must match the workflow. It always reads the workflow first: a caller must not learn
+// module. The route table ORs CountsWrite with the sales and procurement permissions because
+// those modules share these routes, so the route gate alone proves only that the caller holds
+// ONE of them; which one must match the workflow. It always reads the workflow first: a caller must not learn
 // from the status code alone whether an id it cannot open exists.
 func (h *Handler) authorizeWorkflowWrite(w http.ResponseWriter, r *http.Request, tenantID, workflowID string) bool {
 	detail, err := h.svc.GetWorkflow(r.Context(), tenantID, workflowID)
@@ -803,16 +736,14 @@ func (h *Handler) authorizeWorkflowWrite(w http.ResponseWriter, r *http.Request,
 	return true
 }
 
-// hasModulePermission is THE per-module read gate behind the shared workflow routes. A general
-// (work-instruction) run is read on WorkInstructionsExecute alone; every herd-operations module
-// (birth, death, shifting, reconcile, and the colostrum lens over birth) on CountsWrite alone.
-// Holding the other module's permission never carries across: a counts-only tick must not reach a
-// general run and a work-instructions-only tick must not reach a birth (PR #308 review,
-// 2026-09-19). Module is the workflow's stored module, or the list route's module keyword.
+// hasModulePermission is THE per-module read gate behind the shared workflow routes. Every
+// herd-operations module (birth, death, shifting, reconcile, and the colostrum lens over birth)
+// is read on CountsWrite alone; sales and procurement carry their own sets below. Holding one
+// module's permission never carries across. Module is the workflow's stored module, or the list
+// route's module keyword. GENERAL runs have no gate of their own since Work instructions was
+// retired from the phone (2026-09-21), so they fall through to CountsWrite like any other.
 func hasModulePermission(ctx context.Context, module string) bool {
 	switch module {
-	case domain.ModuleGeneral:
-		return hasWorkflowPermission(ctx, permissions.WorkInstructionsExecute)
 	case domain.ModuleSales:
 		// SALES SOP (2026-09-19): a sale workflow is read by anyone the sale itself is visible
 		// to -- the sales desk, the tagger, or a counts writer (park head / operator).
@@ -840,8 +771,6 @@ func hasModulePermission(ctx context.Context, module string) bool {
 // completing a step is operational work.
 func hasModuleWritePermission(ctx context.Context, module string) bool {
 	switch module {
-	case domain.ModuleGeneral:
-		return hasWorkflowPermission(ctx, permissions.WorkInstructionsExecute)
 	case domain.ModuleSales:
 		return hasWorkflowPermission(ctx, permissions.SalesWrite) ||
 			hasWorkflowPermission(ctx, permissions.SalesAllocateAnimals) ||

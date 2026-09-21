@@ -286,9 +286,6 @@ import sg.mesha.goatos.viewmodel.PenVisitDetailViewModel
 import sg.mesha.goatos.viewmodel.PenVisitListViewModel
 import sg.mesha.goatos.viewmodel.PenRoutineDetailViewModel
 import sg.mesha.goatos.viewmodel.PenRoutineListViewModel
-import sg.mesha.goatos.viewmodel.WorkInstructionsViewModel
-import sg.mesha.goatos.feature.counts.WorkInstructionsEvent
-import sg.mesha.goatos.feature.counts.WorkInstructionsScreen
 import sg.mesha.goatos.viewmodel.WorkBoardDetailViewModel
 import sg.mesha.goatos.viewmodel.WorkBoardViewModel
 import sg.mesha.goatos.viewmodel.FeedPurchaseCreateViewModel
@@ -840,15 +837,6 @@ object Routes {
     // matches the backend nav item VERBATIM ({key:"pen_routines", href:"/pen-routines"}); the
     // task detail is a distinct hosted drill with Up/Back and NO root chrome, never a prefix
     // reuse of the L0 route.
-    // Work instructions (SOP studio phase 2, maintainer decision 2026-09-18,
-    // docs/decisions/sop-studio.md): the `work_instructions` module's ONE backend-composed nav
-    // item ({key:"work_instructions", href:"/work-instructions"}) -- an L0 root; a started run is
-    // a distinct hosted drill on the ordinary workflow screen, never a prefix reuse of the root.
-    const val WORK_INSTRUCTIONS = "/work-instructions"
-    const val WORK_INSTRUCTION_RUN = "/work-instructions/runs/{$WORKFLOW_ID_ARG}"
-
-    fun workInstructionRunRoute(workflowId: String): String = "/work-instructions/runs/${Uri.encode(workflowId)}"
-
     const val PEN_ROUTINES = "/pen-routines"
     const val PEN_ROUTINE_ID_ARG = "task_id"
     const val PEN_ROUTINE = "/pen-routines/{$PEN_ROUTINE_ID_ARG}"
@@ -2818,9 +2806,6 @@ fun AppNavHost(
             Routes.COUNTS_DEATH_WORKFLOW,
             Routes.COUNTS_COLOSTRUM_WORKFLOW,
             Routes.COUNTS_RECONCILE_WORKFLOW,
-            // A general SOP run (2026-09-18) is the same screen: its steps, answers, captures and
-            // branch notes are what the backend serves for any workflow.
-            Routes.WORK_INSTRUCTION_RUN,
             // A sale's steps (SALES SOP, 2026-09-19): the same screen; its tag-animals step opens
             // the Sales-owned tagging drill and is completed by the backend from the confirm.
             Routes.SALE_STEPS,
@@ -4385,24 +4370,6 @@ fun AppNavHost(
             }
         }
 
-        // --- Work instructions (SOP studio phase 2, maintainer decision 2026-09-18) ----------
-        // ONE L0 list of the general SOPs a person may start; the run opens on the workflow
-        // screen. Module visibility is backend-composed (`work_instructions.execute` on the nav
-        // item); nothing here gates on a role string.
-        composable(Routes.WORK_INSTRUCTIONS) {
-            val vm: WorkInstructionsViewModel = hiltViewModel()
-            LaunchedEffect(vm) { vm.bind(WORK_INSTRUCTIONS_TAB_TITLE) }
-            val state by vm.state.collectAsStateWithLifecycle()
-            LaunchedEffect(state.openWorkflowId) {
-                if (state.openWorkflowId.isNotBlank()) {
-                    val id = state.openWorkflowId
-                    vm.onEvent(WorkInstructionsEvent.NavigationHandled)
-                    navController.navigate(Routes.workInstructionRunRoute(id)) { launchSingleTop = true }
-                }
-            }
-            WorkInstructionsScreen(state = state, onEvent = vm::onEvent)
-        }
-
         // --- Pen routines (maintainer instruction 2026-09-16) --------------------------------
         // The Routines module: ONE L0 list of the park head's own routine tasks plus the hosted
         // task drill. Module visibility is backend-composed (`pen_routines.execute` on the nav
@@ -5196,9 +5163,6 @@ private val supportedRootDestinations = setOf(
 	// Pen routines (maintainer instruction 2026-09-16): the `pen_routines` module's one
 	// backend-composed nav item, so it is a root exactly like every other module leaf.
 	Routes.PEN_ROUTINES,
-	// Work instructions (2026-09-18): the `work_instructions` module's one backend-composed
-	// nav item, so it is a root exactly like every other module leaf.
-	Routes.WORK_INSTRUCTIONS,
 	// Work Board / My Work (maintainer decision 2026-09-10): the `work_board` module's one
 	// backend-composed bar item, so it is a root exactly like every other module leaf.
 	Routes.WORK,
@@ -5513,7 +5477,6 @@ private const val PEN_VISITS_TAB_TITLE = "For me"
 /** The backend's `nav.pen_routines` label, mirrored so the L0 header matches the nav item until
  *  the page's own backend title lands. */
 private const val PEN_ROUTINES_TAB_TITLE = "Routines"
-private const val WORK_INSTRUCTIONS_TAB_TITLE = "Work instructions"
 
 private fun NavGraphBuilder.pcCareCategoryComposable(
     route: String,

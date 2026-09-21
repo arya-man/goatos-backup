@@ -15024,29 +15024,6 @@ paths:
           $ref: "#/components/responses/Forbidden"
         "500":
           $ref: "#/components/responses/ServerError"
-  /app/sops/general:
-    get:
-      tags:
-        - Workflows
-      operationId: listAppGeneralSops
-      summary: The general work instructions an operator may start by hand.
-      description: >-
-        GENERAL SOPs (maintainer decision 2026-09-18): farm-wide work tied to no module, authored
-        on Configuration -> Work instructions and started from the phone. Lists the tenant's
-        published general SOPs. Gated on task.execute or counts.write.
-      responses:
-        "200":
-          description: The startable work instructions.
-          content:
-            application/json:
-              schema:
-                $ref: "#/components/schemas/GeneralSopsResponse"
-        "401":
-          $ref: "#/components/responses/Unauthorized"
-        "403":
-          $ref: "#/components/responses/Forbidden"
-        "500":
-          $ref: "#/components/responses/ServerError"
   /app/workflows/subject:
     get:
       tags:
@@ -15080,41 +15057,6 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/WorkflowDetailResponse"
-        "400":
-          $ref: "#/components/responses/BadRequest"
-        "401":
-          $ref: "#/components/responses/Unauthorized"
-        "403":
-          $ref: "#/components/responses/Forbidden"
-        "404":
-          $ref: "#/components/responses/NotFoundOrNotAllowed"
-        "500":
-          $ref: "#/components/responses/ServerError"
-  /app/workflows/start:
-    post:
-      tags:
-        - Workflows
-      operationId: startAppWorkflow
-      summary: Start one run of a general work instruction.
-      description: >-
-        Opens a workflow from the SOP's published main track, keyed on the Idempotency-Key (the
-        same key replays the same run, never a second one), with no animal. The run is then driven
-        through the workflow routes like any other. Gated on task.execute or counts.write.
-      parameters:
-        - $ref: "#/components/parameters/IdempotencyKey"
-      requestBody:
-        required: true
-        content:
-          application/json:
-            schema:
-              $ref: "#/components/schemas/StartWorkflowRequest"
-      responses:
-        "201":
-          description: The run.
-          content:
-            application/json:
-              schema:
-                $ref: "#/components/schemas/StartWorkflowResponse"
         "400":
           $ref: "#/components/responses/BadRequest"
         "401":
