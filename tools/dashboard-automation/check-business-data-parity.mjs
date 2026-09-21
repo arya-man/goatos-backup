@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 import { spawnSync } from "node:child_process";
-import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { containsUnredactedSecret, redactText } from "./lib/redact.mjs";
@@ -16,6 +16,7 @@ if (args.selfTest) {
 
 const stgUrl = process.env.GOATOS_STG_READONLY_DATABASE_URL;
 const ociUrl = process.env.GOATOS_OCI_READONLY_DATABASE_URL;
+const psqlBin = process.env.GOATOS_PSQL_BIN || (existsSync("/usr/bin/psql") ? "/usr/bin/psql" : "psql");
 if (!stgUrl || !ociUrl) {
   fail("missing read-only parity env: GOATOS_STG_READONLY_DATABASE_URL and GOATOS_OCI_READONLY_DATABASE_URL are required");
 }
@@ -224,7 +225,7 @@ function psql(databaseUrl, sql) {
 }
 
 function psqlRows(databaseUrl, sql) {
-  const child = spawnSync("psql", [databaseUrl, "-v", "ON_ERROR_STOP=1", "-X", "-At", "-F", "\t", "-c", sql], {
+  const child = spawnSync(psqlBin, [databaseUrl, "-v", "ON_ERROR_STOP=1", "-X", "-At", "-F", "\t", "-c", sql], {
     cwd: repo,
     encoding: "utf8"
   });
