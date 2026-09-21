@@ -139,6 +139,10 @@ function dashboardRuntimeFindings() {
   const config = JSON.parse(readFileSync(configRel, "utf8"));
   const paritySource = readFileSync(parityRel, "utf8");
   const runnerSource = readFileSync(runnerRel, "utf8");
+  const moduleRunnerRel = "tools/dashboard-automation/run-module-journeys.mjs";
+  const smokeRel = "apps/admin-web/scripts/smoke-visual-live.mjs";
+  const moduleRunnerSource = existsSync(moduleRunnerRel) ? readFileSync(moduleRunnerRel, "utf8") : "";
+  const smokeSource = existsSync(smokeRel) ? readFileSync(smokeRel, "utf8") : "";
 
   for (const required of ["cbe_herd_analytics_window", "godel_2_timewise_adg", "weighing_pen_alias_form_b_rows", "sales_sold_weight_coverage"]) {
     const configured = config.businessDataParity?.sentinelQueries?.some((item) => item.name === required && item.implementationStatus === "implemented");
@@ -158,6 +162,13 @@ function dashboardRuntimeFindings() {
   }
   if (!runnerSource.includes("GOATOS_SMOKE_READ_ONLY")) {
     findings.push(`${runnerRel}: production/post-main browser automation must force GOATOS_SMOKE_READ_ONLY=1`);
+  }
+  for (const fragment of ["GOATOS_SMOKE_MODULE_ASSERT_TEXT", "GOATOS_SMOKE_MODULE_SAFE_CLICKS"]) {
+    if (!moduleRunnerSource.includes(fragment)) findings.push(`${moduleRunnerRel}: module runner must pass ${fragment} into Playwright`);
+    if (!smokeSource.includes(fragment)) findings.push(`${smokeRel}: visual smoke must consume ${fragment}, not leave module manifest fields as metadata`);
+  }
+  for (const fragment of ["assertModuleTextObserved", "exerciseManifestSafeClicks"]) {
+    if (!smokeSource.includes(fragment)) findings.push(`${smokeRel}: missing module journey enforcement helper ${fragment}`);
   }
   if (config.apiLatencyPolicy?.normalDashboardApisMustStayUnderMs !== 500) {
     findings.push(`${configRel}: normal dashboard APIs must stay under the 500ms policy`);
