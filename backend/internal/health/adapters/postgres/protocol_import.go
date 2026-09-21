@@ -179,31 +179,34 @@ VALUES ($1::uuid,$2::uuid,$3,'1.0.0','health_protocol_version',$4::uuid,$5,$6::j
 	return err
 }
 
-// sqlStockMedicine files one medicine under the tenant's built-in Medicines root.
+// sqlStockMedicines files every medicine of one protocol under the tenant's built-in
+// Medicines root, in ONE statement.
 //
-// Idempotent on both unique indexes: a tenant that already stocks the medicine keeps ITS OWN
-// row untouched -- an import must not overwrite a name, unit or category a farm has since
-// corrected on screen.
-const sqlStockMedicine = `
+// Set-based rather than a statement per medicine: the import is a deployment seam, but a
+// DB call inside a loop is the shape that is fine at a handful and fatal at scale, and
+// there is no reason to write it here when UNNEST says the same thing.
+//
+// Idempotent on both unique indexes. A tenant that already stocks the medicine keeps ITS
+// OWN row untouched -- an import must not overwrite a name, unit or category a farm has
+// since corrected on screen.
+const sqlStockMedicines = `
 INSERT INTO inventory_items (tenant_id, item_code, name, category, base_unit, status, category_id)
 SELECT $1::uuid,
-       'med_' || regexp_replace(lower(btrim($2)), '[^a-z0-9]+', '_', 'g'),
-       btrim($2), 'medicine', 'unit', 'active', c.category_id
-FROM item_categories c
-WHERE c.tenant_id = $1::uuid AND c.parent_category_id IS NULL AND c.item_kind = 'medicine'
-  AND NOT EXISTS (
+       'med_' || regexp_replace(lower(m.name), '[^a-z0-9]+', '_', 'g'),
+       m.name, 'medicine', 'unit', 'active', c.category_id
+FROM unnest($2::text[]) AS m(name)
+JOIN item_categories c
+  ON c.tenant_id = $1::uuid AND c.parent_category_id IS NULL AND c.item_kind = 'medicine'
+WHERE NOT EXISTS (
     SELECT 1 FROM inventory_items i
-    WHERE i.tenant_id = $1::uuid AND lower(i.name) = lower(btrim($2))
+    WHERE i.tenant_id = $1::uuid AND lower(i.name) = lower(m.name)
   )
 ON CONFLICT DO NOTHING`
 
 // ensureMedicinesStocked adds every medicine these steps name to the item registry.
-//
-// One statement per DISTINCT medicine rather than per step: a 28-step course names a handful
-// of medicines and re-inserting each step's would be pure round trips. The whole import is
-// hard-capped at 200 protocols, so this stays bounded by construction.
 func ensureMedicinesStocked(ctx context.Context, tx pgx.Tx, tenantID string, steps []domain.ProtocolStep) error {
 	seen := map[string]bool{}
+	names := make([]string, 0, 8)
 	for _, s := range steps {
 		// A pointer because an ACTION step carries no medicine at all; nil and "" are the
 		// same thing here and both mean "nothing to stock".
@@ -215,11 +218,11 @@ func ensureMedicinesStocked(ctx context.Context, tx pgx.Tx, tenantID string, ste
 			continue
 		}
 		seen[strings.ToLower(name)] = true
-		// scale-guard:ignore: deployment-only strict snapshot import; the loop is over the
-		// distinct medicines of ONE protocol, and the import is hard-capped at 200 protocols.
-		if _, err := tx.Exec(ctx, sqlStockMedicine, tenantID, name); err != nil {
-			return err
-		}
+		names = append(names, name)
 	}
-	return nil
+	if len(names) == 0 {
+		return nil
+	}
+	_, err := tx.Exec(ctx, sqlStockMedicines, tenantID, names)
+	return err
 }
