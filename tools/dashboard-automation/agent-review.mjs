@@ -196,6 +196,7 @@ function buildPrompt({ receipt, receiptPath, evidenceItems }) {
       findings: [{ severity: "blocker|high|medium|low", title: "short", detail: "specific evidence" }],
       remediation: {
         immediate_next_step: "specific next step",
+        unified_diff: "unified git diff for a safe repo code/test fix, or null when no exact patch is safe",
         proposed_files: ["repo relative paths"],
         tests_to_run: ["commands"],
         forbidden_actions_acknowledged: ["no production data writes", "no staging data writes", "no OCI data writes", "no auto merge"]

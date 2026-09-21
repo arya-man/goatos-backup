@@ -1,6 +1,6 @@
 #!/usr/bin/env node
-import { execFileSync } from "node:child_process";
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, writeFileSync } from "node:fs";
+import { execFileSync, spawnSync } from "node:child_process";
+import { existsSync, mkdtempSync, readFileSync, unlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
@@ -32,6 +32,11 @@ if (!codePatchDecision.shouldOpen) {
   console.log(`dashboard self-healing PR: skipped (${codePatchDecision.reason})`);
   process.exit(0);
 }
+const patch = patchFromAgentReview(agentReview);
+if (!patch.ok) {
+  console.log(`dashboard self-healing PR: skipped (${patch.reason})`);
+  process.exit(0);
+}
 const token = process.env.GITHUB_TOKEN?.trim();
 if (!token) fail("GITHUB_TOKEN is required for dashboard self-healing PR creation");
 
@@ -39,32 +44,34 @@ const repoSlug = process.env.GOATOS_DASHBOARD_AUTOMATION_REPO || "vgoats/goatos"
 const shortSha = String(receipt.repoSha || git(["rev-parse", "HEAD"])).slice(0, 12);
 const stamp = new Date().toISOString().replaceAll(/[:.]/g, "-");
 const branch = `automation/dashboard-smoke-${stamp}-${shortSha}`;
-const reportRel = `docs/progress/dashboard-automation-failures/${stamp}-${shortSha}.md`;
-const reportWorktree = mkdtempSync(path.join(tmpdir(), "goatos-dashboard-self-heal-"));
-const reportPath = path.join(reportWorktree, reportRel);
+const fixWorktree = mkdtempSync(path.join(tmpdir(), "goatos-dashboard-self-heal-"));
 
 git(["fetch", "--quiet", "origin", "main"]);
-git(["worktree", "add", "--quiet", "-B", branch, reportWorktree, "origin/main"]);
-mkdirSync(path.dirname(reportPath), { recursive: true });
-writeFileSync(reportPath, failureReport(receipt, args.receipt, agentReview));
-git(["add", reportRel], reportWorktree);
-git(["commit", "-m", "automation: report dashboard smoke failure"], reportWorktree);
-git(["push", "--set-upstream", "origin", branch], reportWorktree);
+git(["worktree", "add", "--quiet", "-B", branch, fixWorktree, "origin/main"]);
+applyAgentPatch(fixWorktree, patch.diff);
+const changedFiles = git(["diff", "--name-only"], fixWorktree).split("\n").filter(Boolean);
+const fileDecision = changedFilesAreSafeFixes(changedFiles);
+if (!fileDecision.ok) fail(`refusing dashboard self-healing PR: ${fileDecision.reason}`);
+runAgentTests(fixWorktree, agentReview);
+git(["add", "--", ...changedFiles], fixWorktree);
+git(["commit", "-m", "fix: repair dashboard automation failure"], fixWorktree);
+git(["push", "--set-upstream", "origin", branch], fixWorktree);
 
 const pr = await githubJson(`/repos/${repoSlug}/pulls`, {
   method: "POST",
   body: {
-    title: `Dashboard automation failure: ${receipt.mode ?? "smoke"} ${shortSha}`,
+    title: `Fix dashboard automation failure: ${receipt.mode ?? "smoke"} ${shortSha}`,
     head: branch,
     base: "main",
     body: [
-      "Automated dashboard smoke/parity failure report.",
+      "Automated dashboard self-healing fix proposal.",
       "",
-      "This PR is report-only. It does not approve, merge, deploy, or write production/staging/OCI data.",
+      "This PR contains code/test changes only. It does not approve, merge, deploy, or write production/staging/OCI data.",
       "",
       `Receipt SHA: ${shortSha}`,
-      `Report: ${reportRel}`,
+      `Changed files: ${changedFiles.map((file) => `\`${file}\``).join(", ")}`,
       agentReview ? `Agent review: ${agentReview.status} / ${agentReview.reason} / ${agentReview.model ?? "unknown model"}` : "Agent review: not found beside receipt",
+      `Summary: ${redactText(agentReview?.rawSummary ?? agentReview?.remediation?.immediate_next_step ?? "agent supplied a concrete patch")}`,
       "",
       "Requested reviewers: @raviteja786143 @manohar-mesha"
     ].join("\n")
@@ -78,40 +85,6 @@ await githubJson(`/repos/${repoSlug}/pulls/${pr.number}/requested_reviewers`, {
 });
 
 console.log(`dashboard self-healing PR: opened ${pr.html_url}`);
-
-function failureReport(value, receiptPath, agentReview = null) {
-  const blockers = (value.blockers ?? []).slice(0, 25);
-  const layers = (value.layers ?? []).map((layer) => `- ${layer.name}: ${layer.status}${layer.message ? ` — ${redactText(layer.message)}` : ""}`).join("\n");
-  const agentLines = renderAgentReview(agentReview);
-  return `${[
-    "# Dashboard automation failure",
-    "",
-    `Generated: ${new Date().toISOString()}`,
-    `Mode: ${value.mode ?? "unknown"}`,
-    `Repo SHA: ${value.repoSha ?? "unknown"}`,
-    `Receipt path: ${redactText(path.relative(repo, path.resolve(receiptPath)))}`,
-    "",
-    "## Layers",
-    "",
-    layers || "- none",
-    "",
-    "## Blockers",
-    "",
-    blockers.length ? blockers.map((item) => `- ${redactText(JSON.stringify(item))}`).join("\n") : "- none",
-    "",
-    "## Anthropic agent review",
-    "",
-    agentLines,
-    "",
-    "## Safety",
-    "",
-    "- Report-only PR.",
-    "- No auto-merge.",
-    "- No deploy.",
-    "- No STG/production/OCI data writes.",
-    ""
-  ].join("\n")}\n`;
-}
 
 function readAgentReview(receiptPath) {
   const p = path.join(path.dirname(path.resolve(receiptPath)), "agent-review.json");
@@ -149,31 +122,62 @@ function codePatchableFailure(value, agentReview = null) {
   return { shouldOpen: true, reason: "code-patchable failure" };
 }
 
-function renderAgentReview(review) {
-  if (!review) return "- No `agent-review.json` was found beside the receipt.";
-  const lines = [
-    `- Status: ${redactText(review.status ?? "unknown")}`,
-    `- Reason: ${redactText(review.reason ?? "unknown")}`,
-    `- Model: ${redactText(review.model ?? "unknown")}`
-  ];
-  if (review.usage) lines.push(`- Usage: ${redactText(JSON.stringify(review.usage))}`);
-  if (review.rawSummary) lines.push(`- Summary: ${redactText(review.rawSummary)}`);
-  const findings = Array.isArray(review.findings) ? review.findings.slice(0, 10) : [];
-  if (findings.length) {
-    lines.push("");
-    lines.push("### Findings");
-    for (const finding of findings) {
-      lines.push(`- [${redactText(finding.severity ?? "medium")}] ${redactText(finding.title ?? "Untitled")}: ${redactText(finding.detail ?? "")}`);
-    }
+function patchFromAgentReview(review) {
+  const diff = review?.remediation?.unified_diff ?? review?.remediation?.patch ?? review?.patch;
+  if (typeof diff !== "string" || diff.trim() === "" || diff.trim() === "null") {
+    return { ok: false, reason: "agent review did not provide a concrete unified diff" };
   }
-  if (review.remediation) {
-    lines.push("");
-    lines.push("### Remediation");
-    lines.push("```json");
-    lines.push(redactText(JSON.stringify(review.remediation, null, 2)).slice(0, 6000));
-    lines.push("```");
+  if (!/^diff --git /m.test(diff) && !/^--- a\//m.test(diff)) {
+    return { ok: false, reason: "agent review patch is not a unified git diff" };
   }
-  return lines.join("\n");
+  if (containsUnredactedSecret(diff)) fail("refusing dashboard self-healing patch that appears to contain an unredacted secret");
+  return { ok: true, diff };
+}
+
+function applyAgentPatch(cwd, diff) {
+  const patchPath = path.join(cwd, ".dashboard-self-heal.patch");
+  writeFileSync(patchPath, diff);
+  try {
+    runChecked("git", ["apply", "--check", patchPath], cwd);
+    runChecked("git", ["apply", patchPath], cwd);
+  } finally {
+    try {
+      unlinkSync(patchPath);
+    } catch {}
+  }
+}
+
+function changedFilesAreSafeFixes(files) {
+  if (files.length === 0) return { ok: false, reason: "agent patch produced no file changes" };
+  const docsOnly = files.every((file) => file.endsWith(".md") || file.startsWith("docs/progress/"));
+  if (docsOnly) return { ok: false, reason: "agent patch is docs/report-only" };
+  const forbidden = files.find((file) =>
+    file.startsWith(".github/workflows/") ||
+    file.startsWith("docs/progress/dashboard-automation-failures/") ||
+    file.includes("/secrets/") ||
+    file.endsWith(".env") ||
+    file.includes(".env.")
+  );
+  if (forbidden) return { ok: false, reason: `agent patch touched forbidden path ${forbidden}` };
+  return { ok: true };
+}
+
+function runAgentTests(cwd, review) {
+  const commands = Array.isArray(review?.remediation?.tests_to_run) ? review.remediation.tests_to_run.slice(0, 5) : [];
+  const allowedCommands = new Set(["go", "make", "node", "npm", process.execPath]);
+  const safeCommands = commands.filter((command) => {
+    if (typeof command !== "string" || !command.trim() || /[;&|`$<>]/.test(command)) return false;
+    const commandName = command.trim().split(/\s+/)[0];
+    return allowedCommands.has(commandName);
+  });
+  if (safeCommands.length === 0) {
+    runChecked(process.execPath, ["tools/dashboard-automation/run.mjs", "--self-test"], cwd);
+    return;
+  }
+  for (const command of safeCommands) {
+    const parts = command.trim().split(/\s+/);
+    runChecked(parts[0], parts.slice(1), cwd);
+  }
 }
 
 async function githubJson(apiPath, options) {
@@ -196,6 +200,14 @@ async function githubJson(apiPath, options) {
 
 function git(args, cwd = repo) {
   return execFileSync("git", args, { cwd, encoding: "utf8" }).trim();
+}
+
+function runChecked(command, commandArgs, cwd) {
+  const result = spawnSync(command, commandArgs, { cwd, encoding: "utf8" });
+  if (result.status !== 0) {
+    throw new Error(`${command} ${commandArgs.join(" ")} failed: ${redactText(result.stderr || result.stdout || "")}`);
+  }
+  return redactText(result.stdout ?? "").trim();
 }
 
 function parseArgs(raw) {
@@ -223,16 +235,9 @@ function selfTest() {
   if (enabled("GOATOS_DASHBOARD_SELF_HEALING", true)) throw new Error("self-test: explicit self-healing disable should win");
   if (original == null) delete process.env.GOATOS_DASHBOARD_SELF_HEALING;
   else process.env.GOATOS_DASHBOARD_SELF_HEALING = original;
-  const report = failureReport(
-    { mode: "production-smoke", repoSha: "abc123", blockers: [{ message: "Bearer secret-token" }] },
-    "/tmp/receipt.json",
-    { status: "completed", reason: "anthropic_review_completed", model: "claude-test", findings: [{ severity: "high", title: "x", detail: "token=secret" }] },
-  );
-  if (report.includes("secret-token")) throw new Error("self-test: report did not redact secret-like text");
-  if (report.includes("token=secret")) throw new Error("self-test: agent finding did not redact secret-like text");
   const source = readFileSync(fileURLToPath(import.meta.url), "utf8");
   if (!source.includes("git([\"worktree\", \"add\"") || source.includes("checkout\", \"--quiet\", \"-B\"")) {
-    throw new Error("self-test: self-healing must create its report branch in a separate worktree");
+    throw new Error("self-test: self-healing must create its fix branch in a separate worktree");
   }
   const parityDecision = codePatchableFailure({
     layers: [{ name: "latest-full-parity-receipt", status: "fail" }],
@@ -244,6 +249,12 @@ function selfTest() {
     blockers: [{ layer: "production-module-journeys", message: "The board could not be loaded" }]
   }, { failureClass: "product_ui", shouldOpenFixPr: true, safeToPatchCode: true });
   if (!productDecision.shouldOpen) throw new Error("self-test: product UI failures must remain eligible for PR creation");
+  const missingPatch = patchFromAgentReview({ remediation: { immediate_next_step: "fix route", unified_diff: null } });
+  if (missingPatch.ok) throw new Error("self-test: missing patch must not open a PR");
+  const docsOnly = changedFilesAreSafeFixes(["docs/progress/dashboard-automation-failures/example.md"]);
+  if (docsOnly.ok) throw new Error("self-test: docs/report-only changes must not open a PR");
+  const codeFiles = changedFilesAreSafeFixes(["apps/admin-web/features/weighing/example.tsx", "apps/admin-web/scripts/example.test.mjs"]);
+  if (!codeFiles.ok) throw new Error("self-test: code/test changes must remain eligible");
   const missingReview = codePatchableFailure({
     layers: [{ name: "production-module-journeys", status: "fail" }],
     blockers: [{ layer: "production-module-journeys", message: "The board could not be loaded" }]
