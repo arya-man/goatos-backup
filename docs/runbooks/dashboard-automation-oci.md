@@ -25,7 +25,9 @@ The schedule and Slack destination are runtime configuration, not app code:
 - `GOATOS_DASHBOARD_AUTOMATION_ON_CALENDAR` changes the daily smoke time.
 - `GOATOS_DASHBOARD_POST_MAIN_ON_CALENDAR` changes how often OCI checks for a new `main` SHA.
 - `GOATOS_DASHBOARD_SLACK_CHANNEL_ID` changes the alert channel.
-- `GOATOS_DASHBOARD_SLACK_ALERTS=1` enables Slack delivery.
+- `GOATOS_DASHBOARD_SLACK_ALERTS=0` temporarily disables Slack delivery.
+- `GOATOS_DASHBOARD_DATA_PARITY=0` and `GOATOS_DASHBOARD_API_LATENCY=0` are break-glass
+  disables only; parity and latency are on by default.
 
 Change these in `~/.config/goatos/dashboard-automation.env`, then rerun
 `GOATOS_DASHBOARD_AUTOMATION_INSTALL=1 tools/dashboard-automation/install-oci-user-timer.sh` or
@@ -72,16 +74,18 @@ The channel for human-facing automation alerts is `goatos-automation-alerts`
 - `SLACK_BOT_TOKEN` / `GOATOS_DASHBOARD_SLACK_BOT_TOKEN` plus
   `GOATOS_DASHBOARD_SLACK_CHANNEL_ID=C0C39G90FCJ`.
 
-Set `GOATOS_DASHBOARD_SLACK_ALERTS=1` to turn delivery on. The notifier posts only on meaningful
-state changes: failure, missing auth/env blocker, self-healing PR opened, or recovery after a prior
-red run. Repeated identical failures are deduped for the configured cooldown (`240` minutes by
-default). Green runs stay quiet unless they recover a prior red run.
+Slack delivery is on by default for the OCI runner when the webhook or bot token is present. The
+notifier posts only on meaningful state changes: failure, missing auth/env blocker, self-healing PR
+opened, or recovery after a prior red run. Repeated identical failures are deduped for the configured
+cooldown (`240` minutes by default). Green runs stay quiet unless they recover a prior red run.
 
 ## Anthropic or agent review
 
-The repository runner records the agent-review policy and budget caps. The actual OCI host adapter
-must enforce the same USD 1 per-run and USD 25 monthly caps before making model calls. Agent output is
-advisory only; it must not turn a deterministic failure green.
+The repository runner records the agent-review policy and budget caps. Self-healing PR creation is on
+by default for failing OCI runs, but remains pull-request-only and must not auto-merge, auto-deploy,
+approve itself, or write product/STG/OCI data. The actual OCI host adapter must enforce the same USD 1
+per-run and USD 25 monthly caps before making model calls. Agent output is advisory only; it must not
+turn a deterministic failure green.
 
 ## Free-tier guard
 

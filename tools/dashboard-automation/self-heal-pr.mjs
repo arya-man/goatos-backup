@@ -7,6 +7,7 @@ import { redactText } from "./lib/redact.mjs";
 
 const repo = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "../..");
 const args = parseArgs(process.argv.slice(2));
+const config = JSON.parse(readFileSync(path.join(repo, "tools/dashboard-automation/config.json"), "utf8"));
 
 if (args.selfTest) {
   selfTest();
@@ -14,14 +15,13 @@ if (args.selfTest) {
 }
 
 if (!args.receipt) fail("usage: node tools/dashboard-automation/self-heal-pr.mjs --receipt <receipt.json>");
-if (process.env.GOATOS_DASHBOARD_SELF_HEALING !== "1") {
-  console.log("dashboard self-healing PR: skipped (GOATOS_DASHBOARD_SELF_HEALING is not 1)");
+if (!enabled("GOATOS_DASHBOARD_SELF_HEALING", config.selfHealing.enabledByDefault)) {
+  console.log("dashboard self-healing PR: skipped (disabled by GOATOS_DASHBOARD_SELF_HEALING/config)");
   process.exit(0);
 }
 const token = process.env.GITHUB_TOKEN?.trim();
 if (!token) fail("GITHUB_TOKEN is required for dashboard self-healing PR creation");
 
-const config = JSON.parse(readFileSync(path.join(repo, "tools/dashboard-automation/config.json"), "utf8"));
 const receipt = JSON.parse(readFileSync(args.receipt, "utf8"));
 if (receipt.status === "pass") {
   console.log("dashboard self-healing PR: skipped (receipt passed)");
@@ -173,7 +173,20 @@ function parseArgs(raw) {
   return parsed;
 }
 
+function enabled(envName, defaultValue = false) {
+  const value = process.env[envName];
+  if (value == null || value === "") return Boolean(defaultValue);
+  return !["0", "false", "no", "off"].includes(String(value).trim().toLowerCase());
+}
+
 function selfTest() {
+  const original = process.env.GOATOS_DASHBOARD_SELF_HEALING;
+  delete process.env.GOATOS_DASHBOARD_SELF_HEALING;
+  if (!enabled("GOATOS_DASHBOARD_SELF_HEALING", true)) throw new Error("self-test: default-on self-healing should be enabled");
+  process.env.GOATOS_DASHBOARD_SELF_HEALING = "0";
+  if (enabled("GOATOS_DASHBOARD_SELF_HEALING", true)) throw new Error("self-test: explicit self-healing disable should win");
+  if (original == null) delete process.env.GOATOS_DASHBOARD_SELF_HEALING;
+  else process.env.GOATOS_DASHBOARD_SELF_HEALING = original;
   const report = failureReport(
     { mode: "production-smoke", repoSha: "abc123", blockers: [{ message: "Bearer secret-token" }] },
     "/tmp/receipt.json",

@@ -28,7 +28,7 @@
     ]
   },
   "agentReview": {
-    "enabledByDefault": false,
+    "enabledByDefault": true,
     "perRunBudgetUsd": 1,
     "monthlyBudgetUsd": 25,
     "passingSamplePercent": 10,
@@ -36,7 +36,7 @@
     "budgetHardStopPercent": 100
   },
   "slackAlerts": {
-    "enabledByDefault": false,
+    "enabledByDefault": true,
     "channelId": "C0C39G90FCJ",
     "channelName": "goatos-automation-alerts",
     "minimumRepeatIntervalMinutes": 240,
@@ -48,7 +48,7 @@
     ]
   },
   "selfHealing": {
-    "enabledByDefault": false,
+    "enabledByDefault": true,
     "mode": "pull_request_only",
     "reviewers": [
       "raviteja786143",
@@ -73,7 +73,7 @@
     ]
   },
   "businessDataParity": {
-    "enabledByDefault": false,
+    "enabledByDefault": true,
     "stgReadIdentityRequired": true,
     "stgReadOnlyTransactionRequired": true,
     "ociReadOnlyCheckRequired": true,
@@ -114,8 +114,8 @@
       },
       {
         "name": "castro_reconciliation",
-        "implementationStatus": "planned",
-        "description": "Castro 2 and Castro 3 purchased/current/dead/ICU reconciliation."
+        "implementationStatus": "implemented",
+        "description": "Castro operator evidence reconciliation, backed by fieldReconciliations for current/dead/ICU/sold/Y1/total counts."
       },
       {
         "name": "godel_2_timewise_adg",

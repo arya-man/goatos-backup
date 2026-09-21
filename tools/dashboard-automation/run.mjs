@@ -34,14 +34,13 @@ const receipt = {
 
 try {
   const staticOk = layer("static", "deterministic", () => runNode(["tools/dashboard-automation/check-static-inventory.mjs"]));
-  let dataParityOk = true;
-  if (process.env.GOATOS_DASHBOARD_DATA_PARITY === "1") {
-    dataParityOk = layer("business-data-parity", "deterministic", () => runBusinessDataParity(outDir));
-  }
+  const dataParityOk = enabled("GOATOS_DASHBOARD_DATA_PARITY", config.businessDataParity.enabledByDefault)
+    ? layer("business-data-parity", "deterministic", () => runBusinessDataParity(outDir))
+    : true;
   const ociOk = staticOk && dataParityOk && layer("oci-free-preflight", "deterministic", () => assertOciAlwaysFree());
   if (!ociOk) throw new Error("stopping before runtime automation because a prerequisite deterministic layer failed");
   layer("firebase-analytics-guard", "deterministic", () => runNode(["tools/agent-hooks/check-firebase-analytics-param-budget.mjs"]));
-  if (process.env.GOATOS_DASHBOARD_API_LATENCY === "1") {
+  if (enabled("GOATOS_DASHBOARD_API_LATENCY", true)) {
     layer("api-latency", "deterministic", () => runApiLatency(outDir));
   }
   if (process.env.GOATOS_DASHBOARD_LIGHTHOUSE === "1") {
@@ -86,7 +85,7 @@ try {
     });
   }
   writeReceipt(receiptPath, receipt);
-  if (receipt.status !== "pass" && process.env.GOATOS_DASHBOARD_SELF_HEALING === "1") {
+  if (receipt.status !== "pass" && enabled("GOATOS_DASHBOARD_SELF_HEALING", config.selfHealing.enabledByDefault)) {
     const selfHeal = spawnSync(process.execPath, ["tools/dashboard-automation/self-heal-pr.mjs", "--receipt", receiptPath], {
       cwd: repo,
       env: process.env,
@@ -105,7 +104,7 @@ try {
     }
     writeReceipt(receiptPath, receipt);
   }
-  if (process.env.GOATOS_DASHBOARD_SLACK_ALERTS === "1") {
+  if (enabled("GOATOS_DASHBOARD_SLACK_ALERTS", config.slackAlerts.enabledByDefault)) {
     const slack = spawnSync(process.execPath, ["tools/dashboard-automation/notify-slack.mjs", "--receipt", receiptPath], {
       cwd: repo,
       env: process.env,
@@ -134,6 +133,12 @@ function layer(name, authority, fn) {
     receipt.blockers.push({ layer: name, message });
     return false;
   }
+}
+
+function enabled(envName, defaultValue = false) {
+  const value = process.env[envName];
+  if (value == null || value === "") return Boolean(defaultValue);
+  return !["0", "false", "no", "off"].includes(String(value).trim().toLowerCase());
 }
 
 function assertOciAlwaysFree() {
@@ -294,8 +299,14 @@ function selfTest() {
   if (config.apiLatencyPolicy.normalDashboardApisMustStayUnderMs !== 500) throw new Error("self-test: dashboard API latency policy drifted");
   if (!config.selfHealing.checksBeforePr.includes("apiLatencyPolicy")) throw new Error("self-test: self-healing must include API latency checks");
   if (!config.selfHealing.checksBeforePr.includes("vaccinationLifecycle")) throw new Error("self-test: self-healing must include vaccination lifecycle checks");
+  if (config.businessDataParity.enabledByDefault !== true) throw new Error("self-test: business data parity must be default-on for OCI automation");
+  if (config.slackAlerts.enabledByDefault !== true) throw new Error("self-test: Slack alerts must be default-on for OCI automation");
+  if (config.selfHealing.enabledByDefault !== true) throw new Error("self-test: self-healing PR creation must be default-on for failing OCI automation");
   if (!config.businessDataParity.sentinelQueries.some((item) => item.name === "godel_2_timewise_adg" && item.implementationStatus === "implemented")) {
     throw new Error("self-test: Manohar/Godel ADG sentinel must stay configured as implemented");
+  }
+  if (!config.businessDataParity.sentinelQueries.some((item) => item.name === "castro_reconciliation" && item.implementationStatus === "implemented")) {
+    throw new Error("self-test: Castro reconciliation sentinel must stay configured as implemented");
   }
   if (!readFileSync(fileURLToPath(import.meta.url), "utf8").includes("run-module-journeys.mjs")) {
     throw new Error("self-test: runner must invoke module-wise Playwright journeys, not only one generic smoke");

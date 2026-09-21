@@ -140,18 +140,39 @@ function dashboardRuntimeFindings() {
   const paritySource = readFileSync(parityRel, "utf8");
   const runnerSource = readFileSync(runnerRel, "utf8");
   const moduleRunnerRel = "tools/dashboard-automation/run-module-journeys.mjs";
+  const selfHealRel = "tools/dashboard-automation/self-heal-pr.mjs";
   const smokeRel = "apps/admin-web/scripts/smoke-visual-live.mjs";
   const moduleRunnerSource = existsSync(moduleRunnerRel) ? readFileSync(moduleRunnerRel, "utf8") : "";
+  const selfHealSource = existsSync(selfHealRel) ? readFileSync(selfHealRel, "utf8") : "";
   const smokeSource = existsSync(smokeRel) ? readFileSync(smokeRel, "utf8") : "";
 
-  for (const required of ["cbe_herd_analytics_window", "godel_2_timewise_adg", "weighing_pen_alias_form_b_rows", "sales_sold_weight_coverage"]) {
+  for (const required of ["cbe_herd_analytics_window", "castro_reconciliation", "godel_2_timewise_adg", "weighing_pen_alias_form_b_rows", "sales_sold_weight_coverage"]) {
     const configured = config.businessDataParity?.sentinelQueries?.some((item) => item.name === required && item.implementationStatus === "implemented");
     if (!configured) findings.push(`${configRel}: sentinel ${required} must be configured as implemented`);
     if (!paritySource.includes(required)) findings.push(`${parityRel}: sentinel ${required} is configured but not invoked by the parity runner`);
   }
 
-  for (const fragment of ["default_transaction_read_only", "GOATOS_STG_READONLY_DATABASE_URL", "GOATOS_OCI_READONLY_DATABASE_URL", "alias_location_id", "shed_partitions"]) {
+  for (const fragment of ["begin read only", "transaction_read_only", "default_transaction_read_only", "GOATOS_STG_READONLY_DATABASE_URL", "GOATOS_OCI_READONLY_DATABASE_URL", "alias_location_id", "shed_partitions"]) {
     if (!paritySource.includes(fragment)) findings.push(`${parityRel}: missing parity safety/alias fragment ${fragment}`);
+  }
+
+  if (config.businessDataParity?.enabledByDefault !== true) {
+    findings.push(`${configRel}: business data parity must be default-on for OCI automation`);
+  }
+  if (config.slackAlerts?.enabledByDefault !== true) {
+    findings.push(`${configRel}: Slack alerts must be default-on for OCI automation`);
+  }
+  if (config.selfHealing?.enabledByDefault !== true) {
+    findings.push(`${configRel}: self-healing PR creation must be default-on for failing OCI automation`);
+  }
+  if (!runnerSource.includes("enabled(\"GOATOS_DASHBOARD_DATA_PARITY\"") || !runnerSource.includes("config.businessDataParity.enabledByDefault")) {
+    findings.push(`${runnerRel}: business data parity must use config default, not an opt-in-only env gate`);
+  }
+  if (!runnerSource.includes("enabled(\"GOATOS_DASHBOARD_API_LATENCY\", true")) {
+    findings.push(`${runnerRel}: API latency must be default-on unless explicitly disabled`);
+  }
+  if (!selfHealSource.includes("enabled(\"GOATOS_DASHBOARD_SELF_HEALING\", config.selfHealing.enabledByDefault")) {
+    findings.push(`${selfHealRel}: self-healing PR creation must honor config default-on, not require env opt-in`);
   }
 
   for (const envFlag of ["GOATOS_DASHBOARD_DATA_PARITY", "GOATOS_DASHBOARD_API_LATENCY", "GOATOS_DASHBOARD_LIGHTHOUSE", "GOATOS_DASHBOARD_GRAFANA_SMOKE", "GOATOS_DASHBOARD_SLACK_ALERTS", "GOATOS_DASHBOARD_SELF_HEALING"]) {

@@ -27,11 +27,15 @@ mkdirSync(path.dirname(outPath), { recursive: true });
 const result = {
   generatedAt: new Date().toISOString(),
   status: "pass",
+  readOnlyProof: {},
   criticalTables: {},
   bestEffortTables: {},
   sentinelQueries: {},
   blockers: []
 };
+
+assertReadOnlyConnection("stg", stgUrl, true);
+assertReadOnlyConnection("oci", ociUrl, true);
 
 for (const table of config.businessDataParity.criticalTables) {
   compareCount(table, "criticalTables", true);
@@ -46,6 +50,7 @@ runSalesSoldWeightCoverage();
 for (const reconciliation of config.businessDataParity.fieldReconciliations ?? []) {
   runFieldReconciliation(reconciliation);
 }
+runCastroReconciliationSummary();
 
 if (result.blockers.length > 0) result.status = "fail";
 writeJson(outPath, result);
@@ -125,6 +130,25 @@ function runFieldReconciliation(reconciliation) {
   }
   result.sentinelQueries[name] = row;
   if (row.status === "fail") result.blockers.push({ kind: "field_reconciliation_mismatch", name, reason: row.reason ?? "query_failed" });
+}
+
+function runCastroReconciliationSummary() {
+  const name = "castro_reconciliation";
+  const castroChecks = (config.businessDataParity.fieldReconciliations ?? [])
+    .filter((item) => /^castro_/i.test(item.name) || /Castro/i.test(item.source_shed_name ?? ""));
+  const implemented = config.businessDataParity.sentinelQueries
+    .some((item) => item.name === name && item.implementationStatus === "implemented");
+  const statuses = castroChecks.map((item) => result.sentinelQueries[item.name]?.status ?? "missing");
+  const row = {
+    implemented,
+    coveredChecks: castroChecks.map((item) => item.name),
+    status: implemented && castroChecks.length > 0 && statuses.every((status) => status === "pass") ? "pass" : "fail"
+  };
+  if (!implemented) row.reason = "sentinel_not_marked_implemented";
+  else if (castroChecks.length === 0) row.reason = "no_castro_field_reconciliations";
+  else if (!statuses.every((status) => status === "pass")) row.reason = "castro_field_reconciliation_failed";
+  result.sentinelQueries[name] = row;
+  if (row.status === "fail") result.blockers.push({ kind: "sentinel_mismatch", name, reason: row.reason });
 }
 
 function runSalesSoldWeightCoverage() {
@@ -386,7 +410,35 @@ function psqlRows(databaseUrl, sql) {
 }
 
 function readOnlySql(sql) {
-  return `set default_transaction_read_only = on; ${sql}`;
+  return `begin read only; set local default_transaction_read_only = on; ${sql}; rollback`;
+}
+
+function assertReadOnlyConnection(name, databaseUrl, required) {
+  const proof = psqlRows(databaseUrl, readOnlySql(`
+select
+  current_user,
+  current_setting('transaction_read_only'),
+  current_setting('default_transaction_read_only')`));
+  const row = proof.rows?.[0];
+  result.readOnlyProof[name] = {
+    user: row?.[0] ?? null,
+    transactionReadOnly: row?.[1] ?? null,
+    defaultTransactionReadOnly: row?.[2] ?? null,
+    status: "pass"
+  };
+  if (proof.error || !row || row[1] !== "on") {
+    result.readOnlyProof[name].status = required ? "fail" : "skip";
+    result.readOnlyProof[name].error = proof.error;
+    if (required) {
+      result.blockers.push({
+        kind: "read_only_proof_failed",
+        database: name,
+        user: result.readOnlyProof[name].user,
+        transactionReadOnly: result.readOnlyProof[name].transactionReadOnly,
+        defaultTransactionReadOnly: result.readOnlyProof[name].defaultTransactionReadOnly
+      });
+    }
+  }
 }
 
 function quoteIdent(value) {
@@ -433,6 +485,12 @@ function selfTest() {
   }
   if (!config.businessDataParity.sentinelQueries.some((item) => item.name === "godel_2_timewise_adg" && item.implementationStatus === "implemented")) {
     throw new Error("self-test: Godel ADG sentinel must be implemented");
+  }
+  if (!config.businessDataParity.sentinelQueries.some((item) => item.name === "castro_reconciliation" && item.implementationStatus === "implemented")) {
+    throw new Error("self-test: Castro reconciliation sentinel must be implemented");
+  }
+  if (!readOnlySql("select 1").includes("begin read only") || !readOnlySql("select 1").includes("rollback")) {
+    throw new Error("self-test: parity SQL must run inside an explicit read-only transaction");
   }
   const aliasSql = weighingPenAliasFormBRowsSql();
   for (const fragment of ["weighing_campaign_sheds", "partition_label", "locations alias", "form_b_rows"]) {
