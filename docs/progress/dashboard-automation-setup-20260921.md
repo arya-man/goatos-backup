@@ -218,6 +218,42 @@ Fresh judge status:
   `01a0c505-498a-7441-a800-4beda935c1d1` - SIGN-OFF after rechecking the
   exact candidate worktree at `969e24374b44` with focused read-only commands.
 
+## 2026-09-22 Anti-noise hardening
+
+Scope: prevent dashboard automation from opening markdown/report-only
+self-healing PRs after Slack showed earlier report-style PR alerts.
+
+Changes:
+
+- `tools/dashboard-automation/agent-review.mjs` now asks the reviewer for an
+  explicit unified diff when a safe code/test fix exists.
+- `tools/dashboard-automation/self-heal-pr.mjs` now skips PR creation unless a
+  concrete unified diff is present, applies cleanly in an isolated worktree,
+  changes non-doc code/test files, and passes safe test commands.
+- Docs-only/report-only changes under dashboard automation failure reports are
+  rejected before PR creation.
+- Arbitrary shell from the agent review is not executed; test commands are
+  limited to known repo toolchains.
+
+Fresh verification:
+
+- `node tools/dashboard-automation/self-heal-pr.mjs --self-test` - PASS.
+- `node tools/dashboard-automation/agent-review.mjs --self-test` - PASS.
+- `node tools/dashboard-automation/run.mjs --self-test` - PASS.
+- `make dashboard-automation-self-test` - PASS.
+- `make dashboard-automation-guard` - PASS (`63` filesystem routes, `130`
+  smoke entries).
+- `git diff --check` - PASS.
+
+Live Slack readback:
+
+- `#goatos-automation-alerts` showed the automation running on OCI and posting
+  production-smoke failures at `2026-09-22 02:33:35 IST` and
+  `2026-09-22 03:01:08 IST`.
+- Those latest alerts did not include a self-healing PR link; earlier alerts in
+  the same channel did include report-style self-healing PR links, which is the
+  behavior this hardening blocks.
+
 The candidate does not create OCI resources, does not install the timer without
 explicit `GOATOS_DASHBOARD_AUTOMATION_INSTALL=1`, does not mutate production or
 staging, and does not expose secrets. Runtime execution remains fail-closed
