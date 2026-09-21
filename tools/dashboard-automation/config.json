@@ -42,6 +42,7 @@
     "minimumRepeatIntervalMinutes": 240,
     "postOn": [
       "failure",
+      "degraded",
       "auth_blocked",
       "self_healing_pr",
       "recovery"

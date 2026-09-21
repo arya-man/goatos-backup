@@ -185,6 +185,11 @@ function dashboardRuntimeFindings() {
   if (!runnerSource.includes("enabled(\"GOATOS_DASHBOARD_DATA_PARITY\"") || !runnerSource.includes("config.businessDataParity.enabledByDefault")) {
     findings.push(`${runnerRel}: business data parity must use config default, not an opt-in-only env gate`);
   }
+  for (const fragment of ["runtimePolicyForMode", "dataParityRequiredBeforeBrowser: false", "ran_degraded", "productionSmokeOk", "post-main certification requires fresh STG-to-OCI READBACK_PASS parity", "degraded production smoke only failed parity prerequisites", "receipt.status === \"fail\" && enabled(\"GOATOS_DASHBOARD_SELF_HEALING\""]) {
+    if (!runnerSource.includes(fragment)) {
+      findings.push(`${runnerRel}: production smoke must still run read-only Playwright in degraded mode when parity is red, while post-main certification stays strict (${fragment})`);
+    }
+  }
   if (!runnerSource.includes("enabled(\"GOATOS_DASHBOARD_API_LATENCY\", true")) {
     findings.push(`${runnerRel}: API latency must be default-on unless explicitly disabled`);
   }
@@ -227,9 +232,26 @@ function dashboardRuntimeFindings() {
   if (!runnerSource.includes("GOATOS_SMOKE_READ_ONLY")) {
     findings.push(`${runnerRel}: production/post-main browser automation must force GOATOS_SMOKE_READ_ONLY=1`);
   }
+  for (const fragment of ["dataParityRequiredBeforeBrowser: false", "ran_degraded", "productionSmokeOk", "computeStatus", "production-module-journeys"]) {
+    if (!runnerSource.includes(fragment)) {
+      findings.push(`${runnerRel}: production read-only smoke must keep running Playwright in degraded mode when only STG-to-OCI parity prerequisites fail (${fragment})`);
+    }
+  }
+  const notifyRel = "tools/dashboard-automation/notify-slack.mjs";
+  const notifySource = existsSync(notifyRel) ? readFileSync(notifyRel, "utf8") : "";
+  for (const fragment of ["degraded", "Browser smoke", "Parity gate", "ran_degraded", "Browser smoke did not run"]) {
+    if (!notifySource.includes(fragment)) {
+      findings.push(`${notifyRel}: Slack alerts must distinguish degraded browser-smoke runs from skipped Playwright runs (${fragment})`);
+    }
+  }
   for (const fragment of ["GOATOS_SMOKE_MODULE_ASSERT_TEXT", "GOATOS_SMOKE_MODULE_SAFE_CLICKS"]) {
     if (!moduleRunnerSource.includes(fragment)) findings.push(`${moduleRunnerRel}: module runner must pass ${fragment} into Playwright`);
     if (!smokeSource.includes(fragment)) findings.push(`${smokeRel}: visual smoke must consume ${fragment}, not leave module manifest fields as metadata`);
+  }
+  const slackRel = "tools/dashboard-automation/notify-slack.mjs";
+  const slackSource = existsSync(slackRel) ? readFileSync(slackRel, "utf8") : "";
+  for (const fragment of ["Browser smoke", "Parity gate", "ran_degraded", "ran_failed", "Browser smoke did not run"]) {
+    if (!slackSource.includes(fragment)) findings.push(`${slackRel}: Slack alerts must explicitly say whether Playwright/browser smoke ran (${fragment})`);
   }
   for (const fragment of ["assertModuleTextObserved", "exerciseManifestSafeClicks"]) {
     if (!smokeSource.includes(fragment)) findings.push(`${smokeRel}: missing module journey enforcement helper ${fragment}`);

@@ -51,6 +51,7 @@ function notificationDecision(value) {
     if (previous.lastStatus && previous.lastStatus !== "pass") return { shouldPost: true, kind: "recovery" };
     return { shouldPost: false, reason: "pass without prior failure" };
   }
+  if (status === "degraded") return { shouldPost: true, kind: "degraded" };
   if (blockers.some((item) => /auth_blocked|missing .*env|token|credential/i.test(JSON.stringify(item)))) {
     return { shouldPost: true, kind: "auth_blocked" };
   }
@@ -61,12 +62,14 @@ function notificationDecision(value) {
 function formatSlackMessage(value, kind, receiptFile) {
   const titleByKind = {
     failure: "Dashboard automation failed",
+    degraded: "Dashboard automation ran with degraded data trust",
     auth_blocked: "Dashboard automation needs auth/env",
     self_healing_pr: "Dashboard automation opened a self-healing PR",
     recovery: "Dashboard automation recovered"
   };
   const emojiByKind = {
     failure: ":rotating_light:",
+    degraded: ":warning:",
     auth_blocked: ":warning:",
     self_healing_pr: ":hammer_and_wrench:",
     recovery: ":white_check_mark:"
@@ -80,7 +83,9 @@ function formatSlackMessage(value, kind, receiptFile) {
     { type: "mrkdwn", text: `*Status*\n\`${value.status ?? "unknown"}\`` },
     { type: "mrkdwn", text: `*Mode*\n\`${value.mode ?? "unknown"}\`` },
     { type: "mrkdwn", text: `*SHA*\n\`${String(value.repoSha ?? "unknown").slice(0, 12)}\`` },
-    { type: "mrkdwn", text: `*Dashboard*\n${value.productionUrl ?? config.productionUrl}` }
+    { type: "mrkdwn", text: `*Dashboard*\n${value.productionUrl ?? config.productionUrl}` },
+    { type: "mrkdwn", text: `*Browser smoke*\n\`${browserSmokeStatus(value)}\`` },
+    { type: "mrkdwn", text: `*Parity gate*\n\`${parityGateStatus(value)}\`` }
   ];
   const blocks = [
     { type: "header", text: { type: "plain_text", text: title, emoji: true } },
@@ -93,6 +98,23 @@ function formatSlackMessage(value, kind, receiptFile) {
       text: {
         type: "mrkdwn",
         text: `*Failed layers*\n${failedLayers.map((layer) => `• \`${layer.name}\` — ${truncate(redactText(layer.message ?? layer.status), 180)}`).join("\n")}`
+      }
+    });
+  }
+  if (value.runtimePolicy?.browserSmoke === "ran_degraded") {
+    blocks.push({
+      type: "section",
+      text: {
+        type: "mrkdwn",
+        text: "*Important*\nProduction read-only Playwright/browser smoke still ran in degraded mode. This is a UI/WebView signal, not a certified STG-to-OCI data pass."
+      }
+    });
+  } else if (value.runtimePolicy?.browserSmoke === "not_run") {
+    blocks.push({
+      type: "section",
+      text: {
+        type: "mrkdwn",
+        text: "*Important*\nBrowser smoke did not run. The failure is a prerequisite/env/parity blocker, not a product page result."
       }
     });
   }
@@ -127,6 +149,9 @@ function formatSlackMessage(value, kind, receiptFile) {
 }
 
 function blockerText(blocker) {
+  if (blocker?.kind === "degraded_browser_smoke") {
+    return "production read-only Playwright ran in degraded mode because parity was not certified";
+  }
   if (blocker?.kind === "table_count_mismatch") {
     return `\`${blocker.table}\`: STG ${blocker.stg ?? "?"} vs OCI ${blocker.oci ?? "?"}${blocker.delta === undefined ? "" : ` (delta ${blocker.delta})`}`;
   }
@@ -139,6 +164,25 @@ function blockerText(blocker) {
   if (blocker?.name) return `${blocker.kind ?? "blocker"} ${blocker.name}${blocker.reason ? ` (${blocker.reason})` : ""}`;
   if (blocker?.layer) return `${blocker.layer}: ${blocker.message ?? JSON.stringify(blocker)}`;
   return JSON.stringify(blocker);
+}
+
+function browserSmokeStatus(value) {
+  const policy = value.runtimePolicy?.browserSmoke;
+  if (policy === "ran_degraded") return "ran_degraded";
+  if (policy === "ran_certified") return "ran_certified";
+  if (policy === "ran_failed") return "ran_failed";
+  if (policy === "not_run") return "not_run";
+  const runtimeLayer = (value.layers ?? []).find((layer) => /module-journeys|production-module-journeys|playwright/.test(layer.name ?? ""));
+  if (runtimeLayer?.status === "pass") return "ran";
+  if (runtimeLayer?.status === "fail") return "ran_failed";
+  return "unknown";
+}
+
+function parityGateStatus(value) {
+  const parityLayers = (value.layers ?? []).filter((layer) => ["latest-full-parity-receipt", "business-data-parity"].includes(layer.name));
+  if (parityLayers.length === 0) return "not_checked";
+  if (parityLayers.every((layer) => layer.status === "pass")) return "pass";
+  return "fail";
 }
 
 function selfHealingPrUrl(value) {
@@ -227,13 +271,31 @@ function selfTest() {
     blockers: [{ kind: "sentinel_mismatch", name: "weighing_pen_alias_form_b_rows", reason: "planner_alias_form_b_rows" }]
   };
   const message = formatSlackMessage(sample, "failure", path.join(repo, "receipt.json"));
-  for (const expected of ["Dashboard automation failed", "weighing_pen_alias_form_b_rows", "Dedupe: repeated identical failures"]) {
+  for (const expected of ["Dashboard automation failed", "weighing_pen_alias_form_b_rows", "Dedupe: repeated identical failures", "Browser smoke", "Parity gate"]) {
     if (!JSON.stringify(message).includes(expected)) throw new Error(`self-test: Slack message missing ${expected}`);
+  }
+  const degraded = formatSlackMessage({
+    ...sample,
+    runtimePolicy: { browserSmoke: "ran_degraded" },
+    layers: [{ name: "business-data-parity", status: "fail", message: "sentinel failed" }, { name: "production-module-journeys", status: "pass" }],
+    blockers: [{ layer: "runner", kind: "degraded_browser_smoke", message: "degraded" }]
+  }, "failure", path.join(repo, "receipt.json"));
+  if (!JSON.stringify(degraded).includes("ran_degraded") || !JSON.stringify(degraded).includes("Playwright/browser smoke still ran")) {
+    throw new Error("self-test: degraded browser smoke Slack wording missing");
+  }
+  const skipped = formatSlackMessage({
+    ...sample,
+    runtimePolicy: { browserSmoke: "not_run" },
+    layers: [{ name: "business-data-parity", status: "fail", message: "sentinel failed" }]
+  }, "failure", path.join(repo, "receipt.json"));
+  if (!JSON.stringify(skipped).includes("not_run") || !JSON.stringify(skipped).includes("Browser smoke did not run")) {
+    throw new Error("self-test: skipped browser smoke Slack wording missing");
   }
   if (!Array.isArray(message.blocks) || !message.blocks.some((block) => block.type === "header")) {
     throw new Error("self-test: Slack message must use block layout");
   }
   if (notificationDecision(sample).kind !== "failure") throw new Error("self-test: failure decision did not post");
+  if (notificationDecision({ ...sample, status: "degraded" }).kind !== "degraded") throw new Error("self-test: degraded decision did not post");
   console.log("dashboard Slack notify: self-test passed");
 }
 

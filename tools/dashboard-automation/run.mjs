@@ -26,9 +26,11 @@ const receipt = {
   repoSha: git(["rev-parse", "HEAD"]),
   originMainSha: git(["rev-parse", "origin/main"]),
   productionUrl: config.productionUrl,
+  runtimePolicy: runtimePolicyForMode(mode),
   layers: [],
   artifacts: [],
   blockers: [],
+  degraded: [],
   fatalError: null
 };
 
@@ -42,8 +44,23 @@ try {
       ? layer("business-data-parity", "deterministic", () => runBusinessDataParity(outDir))
       : true
   );
-  const ociOk = staticOk && fullParityReceiptOk && dataParityOk && layer("oci-free-preflight", "deterministic", () => assertOciAlwaysFree());
-  if (!ociOk) throw new Error("stopping before runtime automation because a prerequisite deterministic layer failed");
+  const ociFreeOk = layer("oci-free-preflight", "deterministic", () => assertOciAlwaysFree());
+  const strictPrereqOk = staticOk && fullParityReceiptOk && dataParityOk && ociFreeOk;
+  const runtimePrereqOk = staticOk && ociFreeOk && (receipt.runtimePolicy.dataParityRequiredBeforeBrowser === false || (fullParityReceiptOk && dataParityOk));
+  if (!runtimePrereqOk) {
+    receipt.runtimePolicy.browserSmoke = "not_run";
+    throw new Error("stopping before runtime automation because a required deterministic layer failed");
+  }
+  if (!strictPrereqOk && receipt.runtimePolicy.dataParityRequiredBeforeBrowser === false) {
+    receipt.runtimePolicy.dataTrust = "degraded";
+    receipt.degraded.push({
+      layer: "business-data-parity",
+      kind: "degraded_browser_smoke",
+      message: "production read-only browser smoke will run even though STG-to-OCI parity is not certified; certification remains failed"
+    });
+  } else {
+    receipt.runtimePolicy.dataTrust = "certified";
+  }
   layer("firebase-analytics-guard", "deterministic", () => runNode(["tools/agent-hooks/check-firebase-analytics-param-budget.mjs"]));
   if (enabled("GOATOS_DASHBOARD_API_LATENCY", true)) {
     layer("api-latency", "deterministic", () => runApiLatency(outDir));
@@ -56,10 +73,17 @@ try {
   }
   layer("vaccination-lifecycle", "deterministic", () => runVaccinationLifecycleTests());
   if (mode === "post-main-certification") {
+    if (!strictPrereqOk) throw new Error("post-main certification requires fresh STG-to-OCI READBACK_PASS parity before preview Playwright");
     layer("postgresql-integration", "deterministic", () => assertPostgresIntegrationConfigured());
-    layer("playwright-module-journeys", "deterministic", () => runPreviewPlaywright(outDir));
+    const playwrightOk = layer("playwright-module-journeys", "deterministic", () => runPreviewPlaywright(outDir));
+    receipt.runtimePolicy.browserSmoke = playwrightOk ? "ran_certified" : "ran_failed";
   } else if (mode === "production-smoke") {
-    layer("production-module-journeys", "deterministic", () => runProductionSmoke(outDir));
+    const productionSmokeOk = layer("production-module-journeys", "deterministic", () => runProductionSmoke(outDir));
+    if (productionSmokeOk) {
+      receipt.runtimePolicy.browserSmoke = receipt.runtimePolicy.dataTrust === "degraded" ? "ran_degraded" : "ran_certified";
+    } else {
+      receipt.runtimePolicy.browserSmoke = "ran_failed";
+    }
   } else {
     throw new Error(`unknown mode: ${mode}`);
   }
@@ -69,28 +93,35 @@ try {
   receipt.blockers.push({ layer: "runner", message });
 } finally {
   receipt.finishedAt = new Date().toISOString();
-  receipt.status = !receipt.fatalError && receipt.layers.length > 0 && receipt.layers.every((item) => item.status === "pass") ? "pass" : "fail";
+  receipt.status = computeStatus();
   const receiptPath = path.join(outDir, "receipt.json");
   writeReceipt(receiptPath, receipt);
-  const agent = spawnSync(process.execPath, ["tools/dashboard-automation/agent-review.mjs", "--receipt", receiptPath], {
-    cwd: repo,
-    env: process.env,
-    encoding: "utf8"
-  });
-  receipt.agentReview = {
-    status: agent.status === 0 ? "completed" : "failed",
-    stdout: redactText(agent.stdout).trim(),
-    stderr: redactText(agent.stderr).trim()
-  };
-  if (agent.status !== 0) {
-    receipt.status = "fail";
-    receipt.blockers.push({
-      layer: "agent-review",
-      message: receipt.agentReview.stderr || receipt.agentReview.stdout || `agent review exited ${agent.status}`
+  if (receipt.status === "degraded" && onlyDegradablePrerequisitesFailed()) {
+    receipt.agentReview = {
+      status: "skipped",
+      reason: "degraded production smoke only failed parity prerequisites; no code-patchable product failure to review"
+    };
+  } else {
+    const agent = spawnSync(process.execPath, ["tools/dashboard-automation/agent-review.mjs", "--receipt", receiptPath], {
+      cwd: repo,
+      env: process.env,
+      encoding: "utf8"
     });
+    receipt.agentReview = {
+      status: agent.status === 0 ? "completed" : "failed",
+      stdout: redactText(agent.stdout).trim(),
+      stderr: redactText(agent.stderr).trim()
+    };
+    if (agent.status !== 0) {
+      receipt.status = "fail";
+      receipt.blockers.push({
+        layer: "agent-review",
+        message: receipt.agentReview.stderr || receipt.agentReview.stdout || `agent review exited ${agent.status}`
+      });
+    }
   }
   writeReceipt(receiptPath, receipt);
-  if (receipt.status !== "pass" && enabled("GOATOS_DASHBOARD_SELF_HEALING", config.selfHealing.enabledByDefault)) {
+  if (receipt.status === "fail" && enabled("GOATOS_DASHBOARD_SELF_HEALING", config.selfHealing.enabledByDefault)) {
     const selfHeal = spawnSync(process.execPath, ["tools/dashboard-automation/self-heal-pr.mjs", "--receipt", receiptPath], {
       cwd: repo,
       env: process.env,
@@ -144,6 +175,27 @@ function enabled(envName, defaultValue = false) {
   const value = process.env[envName];
   if (value == null || value === "") return Boolean(defaultValue);
   return !["0", "false", "no", "off"].includes(String(value).trim().toLowerCase());
+}
+
+function computeStatus() {
+  if (receipt.fatalError) return "fail";
+  if (receipt.layers.length === 0) return "fail";
+  if (receipt.layers.every((item) => item.status === "pass")) return "pass";
+  if (mode === "production-smoke" && receipt.runtimePolicy.browserSmoke === "ran_degraded" && productionBrowserSmokePassed() && onlyDegradablePrerequisitesFailed()) {
+    return "degraded";
+  }
+  return "fail";
+}
+
+function productionBrowserSmokePassed() {
+  return receipt.layers.some((layer) => layer.name === "production-module-journeys" && layer.status === "pass");
+}
+
+function onlyDegradablePrerequisitesFailed() {
+  const allowed = new Set(["latest-full-parity-receipt", "business-data-parity"]);
+  return receipt.layers
+    .filter((layer) => layer.status !== "pass")
+    .every((layer) => allowed.has(layer.name));
 }
 
 function assertOciAlwaysFree() {
@@ -299,6 +351,23 @@ function parseArgs(raw) {
   return parsed;
 }
 
+function runtimePolicyForMode(value) {
+  if (value === "production-smoke") {
+    return {
+      dataParityRequiredBeforeBrowser: false,
+      browserSmoke: "pending",
+      dataTrust: "pending",
+      reason: "production read-only Playwright smoke must still collect UI/WebView evidence when OCI parity is degraded"
+    };
+  }
+  return {
+    dataParityRequiredBeforeBrowser: true,
+    browserSmoke: "pending",
+    dataTrust: "pending",
+    reason: "post-main certification must prove fresh STG-to-OCI parity before preview Playwright"
+  };
+}
+
 function selfTest() {
   if (!containsUnredactedSecret("Bearer abc.def")) throw new Error("self-test: bearer should be detected before redaction");
   const redacted = redactText("postgres://user:pass@example/db?token=secret");
@@ -322,6 +391,16 @@ function selfTest() {
   }
   if (!readFileSync(fileURLToPath(import.meta.url), "utf8").includes("run-module-journeys.mjs")) {
     throw new Error("self-test: runner must invoke module-wise Playwright journeys, not only one generic smoke");
+  }
+  const runnerSource = readFileSync(fileURLToPath(import.meta.url), "utf8");
+  if (!runnerSource.includes("dataParityRequiredBeforeBrowser: false") || !runnerSource.includes("ran_degraded") || !runnerSource.includes("productionSmokeOk")) {
+    throw new Error("self-test: production smoke must mark degraded browser smoke only after Playwright actually runs");
+  }
+  if (!runnerSource.includes("degraded production smoke only failed parity prerequisites") || !runnerSource.includes('receipt.status === "fail" && enabled("GOATOS_DASHBOARD_SELF_HEALING"')) {
+    throw new Error("self-test: degraded parity-only browser smoke must not spend agent/self-heal PR budget");
+  }
+  if (!runnerSource.includes("post-main certification requires fresh STG-to-OCI READBACK_PASS parity")) {
+    throw new Error("self-test: post-main certification must remain strict on STG-to-OCI parity");
   }
   if (!readFileSync(fileURLToPath(import.meta.url), "utf8").includes("runVaccinationLifecycleTests")) {
     throw new Error("self-test: runner must invoke deep vaccination lifecycle tests");
