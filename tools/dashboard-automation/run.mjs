@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 import { execFileSync, spawnSync } from "node:child_process";
-import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, readdirSync, readFileSync, writeFileSync } from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { containsUnredactedSecret, redactText } from "./lib/redact.mjs";
@@ -40,6 +40,16 @@ try {
   }
   const ociOk = staticOk && dataParityOk && layer("oci-free-preflight", "deterministic", () => assertOciAlwaysFree());
   if (!ociOk) throw new Error("stopping before runtime automation because a prerequisite deterministic layer failed");
+  layer("firebase-analytics-guard", "deterministic", () => runNode(["tools/agent-hooks/check-firebase-analytics-param-budget.mjs"]));
+  if (process.env.GOATOS_DASHBOARD_API_LATENCY === "1") {
+    layer("api-latency", "deterministic", () => runApiLatency(outDir));
+  }
+  if (process.env.GOATOS_DASHBOARD_LIGHTHOUSE === "1") {
+    layer("lighthouse", "deterministic", () => runLighthouse(outDir));
+  }
+  if (process.env.GOATOS_DASHBOARD_GRAFANA_SMOKE === "1") {
+    layer("grafana-smoke", "deterministic", () => runNode(["tools/deploy/smoke-stg-grafana-dashboards.mjs"]));
+  }
   if (mode === "post-main-certification") {
     layer("postgresql-integration", "deterministic", () => assertPostgresIntegrationConfigured());
     layer("playwright-e2e", "deterministic", () => runPreviewPlaywright());
@@ -136,14 +146,48 @@ function runProductionSmoke() {
   });
 }
 
+function runApiLatency(targetDir) {
+  const manifests = readdirSync(path.join(repo, "tools/perf"))
+    .filter((name) => /^hot-paths\..*\.json$/.test(name))
+    .sort();
+  if (manifests.length === 0) throw new Error("no API latency hot-path manifests found under tools/perf");
+  for (const manifestName of manifests) {
+    const output = path.join(targetDir, `api-latency-${manifestName.replaceAll(/[^a-zA-Z0-9._-]/g, "_")}`);
+    runNode([
+      "tools/perf/api-latency-gate.mjs",
+      "--manifest",
+      path.join("tools/perf", manifestName),
+      "--output",
+      output,
+      "--expected-sha",
+      receipt.repoSha
+    ]);
+    receipt.artifacts.push({ kind: "api-latency-report", manifest: path.join("tools/perf", manifestName), path: output });
+  }
+}
+
+function runLighthouse(targetDir) {
+  const output = path.join(targetDir, "lighthouse.json");
+  const headers = JSON.stringify({
+    Cookie: `goatos_firebase_id_token=${process.env.GOATOS_BEARER_TOKEN ?? ""}`,
+    "X-GoatOS-Tenant-ID": process.env.GOATOS_TENANT_ID ?? ""
+  });
+  runNode(["apps/admin-web/scripts/capture-lighthouse.mjs", "--url", config.productionUrl, "--output", output], {
+    ...process.env,
+    ADMIN_WEB_LIGHTHOUSE_EXPECT_FINAL_URL_CONTAINS: new URL(config.productionUrl).host,
+    ADMIN_WEB_LIGHTHOUSE_EXTRA_HEADERS: headers
+  });
+  receipt.artifacts.push({ kind: "lighthouse-report", path: output });
+}
+
 function filesystemFreeGb(target) {
   const output = execFileSync("df", ["-k", target], { encoding: "utf8" }).trim().split("\n").at(-1);
   const parts = output.trim().split(/\s+/);
   return Number(parts[3]) / 1024 / 1024;
 }
 
-function runNode(args) {
-  run(process.execPath, args);
+function runNode(args, env = process.env) {
+  run(process.execPath, args, env);
 }
 
 function runNpm(args, env = process.env) {
@@ -188,5 +232,6 @@ function selfTest() {
   if (config.selfHealing.mode !== "pull_request_only") throw new Error("self-test: self-healing must be PR-only");
   if (!config.selfHealing.forbiddenActions.includes("writeOciData")) throw new Error("self-test: OCI writes must remain forbidden");
   if (config.apiLatencyPolicy.normalDashboardApisMustStayUnderMs !== 500) throw new Error("self-test: dashboard API latency policy drifted");
+  if (!config.selfHealing.checksBeforePr.includes("apiLatencyPolicy")) throw new Error("self-test: self-healing must include API latency checks");
   console.log("dashboard automation runner: self-test passed");
 }
