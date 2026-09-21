@@ -42,8 +42,13 @@ type genProcurementPolicy struct {
 	// AdultPriorVaccinationAllowed is a pointer so an EXPLICIT false is distinguishable from an
 	// omitted field (R2-03). A plain bool made active() require a positive field, so publishing only
 	// {"adult_prior_vaccination_allowed": false} left the policy "inactive" and the false was ignored.
-	AdultPriorVaccinationAllowed *bool                                `json:"adult_prior_vaccination_allowed"`
-	PurposePlans                 map[string]genProcurementPurposePlan `json:"purpose_plans"`
+	AdultPriorVaccinationAllowed *bool `json:"adult_prior_vaccination_allowed"`
+	// seed-fixture-guard:ignore: decodes existing protocol procurement wave keys only; HRMS seed source rows, fixture columns, and import contracts are unchanged.
+	FirstWave           genStringList                        `json:"first_wave"`
+	SecondWaveAfterDays *int32                               `json:"second_wave_after_days"`
+	GoatSecondWave      genStringList                        `json:"goat_second_wave"`
+	SheepSecondWave     genStringList                        `json:"sheep_second_wave"`
+	PurposePlans        map[string]genProcurementPurposePlan `json:"purpose_plans"`
 }
 
 type genProcurementPurposePlan struct {
@@ -59,6 +64,9 @@ func (p genProcurementPolicy) active() bool {
 	return p.WarmupNoVaccinationDays > 0 ||
 		p.KidsNormalScheduleUntilWeeks > 0 ||
 		p.AdultPriorVaccinationAllowed != nil ||
+		len(p.FirstWave) > 0 ||
+		len(p.GoatSecondWave) > 0 ||
+		len(p.SheepSecondWave) > 0 ||
 		len(p.PurposePlans) > 0
 }
 

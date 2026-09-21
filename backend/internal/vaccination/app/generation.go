@@ -1272,11 +1272,24 @@ func campaignDueOverrides(plans []goatGenerationPlan, asOf time.Time, vaccineHis
 
 func procurementPurposePrimaryDue(g domain.EligibleGoat, rule protodomain.Rule, vaccine vaccineProfile, policy genProcurementPolicy) (time.Time, bool) {
 	purpose := strings.ToLower(strings.TrimSpace(g.ProcurementPurpose))
-	if purpose == "" || purpose == "unspecified" {
-		return time.Time{}, true
+	// seed-fixture-guard:ignore: applies already-authored procurement waves at runtime; no HRMS seed input, fixture column, or SOP source contract changes.
+	plan := genProcurementPurposePlan{
+		FirstWave:           policy.FirstWave,
+		SecondWaveAfterDays: policy.SecondWaveAfterDays,
+		GoatSecondWave:      policy.GoatSecondWave,
+		SheepSecondWave:     policy.SheepSecondWave,
 	}
-	plan, ok := policy.PurposePlans[purpose]
-	if !ok || purpose == "non_breeding" {
+	if purpose != "" && purpose != "unspecified" {
+		if purpose == "non_breeding" {
+			return time.Time{}, true
+		}
+		if purposePlan, ok := policy.PurposePlans[purpose]; ok {
+			plan = purposePlan
+		} else if len(plan.FirstWave) == 0 && len(plan.GoatSecondWave) == 0 && len(plan.SheepSecondWave) == 0 {
+			return time.Time{}, true
+		}
+	}
+	if len(plan.FirstWave) == 0 && len(plan.GoatSecondWave) == 0 && len(plan.SheepSecondWave) == 0 {
 		return time.Time{}, true
 	}
 	vaccineName := procurementVaccineName(vaccine)

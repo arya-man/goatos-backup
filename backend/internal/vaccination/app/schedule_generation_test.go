@@ -124,6 +124,50 @@ func TestGenerateForVersionUsesProcurementPurposePlans(t *testing.T) {
 	}
 }
 
+func TestGenerateForVersionUsesTopLevelProcurementFirstWaveWhenPurposeBlank(t *testing.T) {
+	ctx := context.Background()
+	entry := time.Date(2026, time.September, 16, 0, 0, 0, 0, time.UTC)
+	proto := &generationProtoFake{
+		ruleDSL: []byte(`{
+			"eligibility":{"animal_stage":"adult","species":["goat"],"sex":["female"],"breed":["all"],"lifecycle":["alive"],"health":["healthy"],"reproductive":["any"]},
+			"procurement_policy":{
+				"warmup_no_vaccination_days":7,
+				"kids_normal_schedule_until_weeks":16,
+				"first_wave":["ET+TT"],
+				"goat_second_wave":["Goat Pox"],
+				"sheep_second_wave":["Sheep Pox"],
+				"second_wave_after_days":28
+			}
+		}`),
+		rules: []protodomain.Rule{
+			{RuleID: "rule-et", DoseCode: "et_tt_adult_w1", Sequence: 1, TriggerType: "manual_campaign", DueWindowDays: 7, EligibilityJSON: []byte(`{"vaccine":{"code":"ET_TT","name":"ET+TT","type":"killed","pathogen_class":"bacterial"}}`)},
+			{RuleID: "rule-ppr", DoseCode: "ppr_adult_w1", Sequence: 2, TriggerType: "manual_campaign", DueWindowDays: 7, EligibilityJSON: []byte(`{"vaccine":{"code":"PPR","name":"PPR","type":"live","pathogen_class":"viral"}}`)},
+		},
+	}
+	goats := &generationGoatFake{list: []domain.EligibleGoat{{
+		GoatID: "cbe-godel2-procured", LifecycleStatus: "alive", HealthStatus: "healthy",
+		ReproductiveStatus: "open", Species: "goat", Sex: "female", Breed: "barbari",
+		Stage: "adult", OriginType: "procured", ProcurementPurpose: "",
+		EntryDate: &entry, WarmingEntryAt: &entry, ShedID: "shed-godel2", ParkID: "park-cbe",
+	}}}
+	obl := &generationObligationFake{seen: map[string]bool{}}
+	gen := NewGenerationService(proto, goats, obl)
+
+	result, err := gen.GenerateForVersion(ctx, "tenant-1", "version-1", time.Date(2026, time.September, 23, 0, 0, 0, 0, time.UTC))
+	if err != nil {
+		t.Fatalf("generate: %v", err)
+	}
+	if result.Generated != 1 || len(obl.inserted) != 1 {
+		t.Fatalf("result=%#v inserted=%#v, want one ET+TT first-wave obligation", result, obl.inserted)
+	}
+	if obl.inserted[0].RuleID != "rule-et" {
+		t.Fatalf("inserted rule=%q, want ET+TT first-wave rule", obl.inserted[0].RuleID)
+	}
+	if got, want := obl.inserted[0].DueAt.Format("2006-01-02"), "2026-09-23"; got != want {
+		t.Fatalf("due date=%s, want %s", got, want)
+	}
+}
+
 func TestGenerateForVersionSchedulesPregnantWithoutBreedingDate(t *testing.T) {
 	ctx := context.Background()
 	dob := time.Date(2026, time.May, 1, 0, 0, 0, 0, time.UTC)
