@@ -72,6 +72,11 @@ pop AS MATERIALIZED (
     CASE WHEN g.origin_type = 'birth' THEN 'farm_born'
          WHEN m.load_id IS NOT NULL THEN m.load_id::text
          ELSE 'no_load' END                 AS load_key,
+    -- projection-review: membership=one row per tenant animal that is live today or died in the
+    -- window; group_key=none here, this CTE only CARRIES the vendor key its branch groups by;
+    -- join_cardinality=member is DISTINCT ON goat_id and joins procurement_loads by primary key,
+    -- so an animal gains no row and carries at most one vendor; pagination=none; scope=the
+    -- tenant and optional park predicate below.
     CASE WHEN g.origin_type = 'birth' THEN 'farm_born'
          WHEN m.source_party_id IS NOT NULL THEN m.source_party_id::text
          ELSE 'no_vendor' END               AS vendor_key
@@ -154,9 +159,19 @@ SELECT 'vendor', v.vendor_key,
             ELSE COALESCE(NULLIF(btrim(pa.display_name), ''), '') END,
        '',
        v.deaths, v.animals
+  -- projection-review: membership=the same pop rows every other RATE branch ranges over, one
+  -- per animal, each flagged live / died before grouping; group_key=vendor party_id (the load's
+  -- source_party_id), with farm-born and load-less animals in their two synthetic keys;
+  -- join_cardinality=member is DISTINCT ON goat_id and its procurement_loads join is by primary
+  -- key, so an animal carries at most one vendor and cannot fan out; parties is a primary-key
+  -- label lookup AFTER aggregation; pagination=none, a whole-scope rollup; scope=the tenant and
+  -- optional park predicate pop already applies.
+  -- EVERY vendor, including one that has lost nothing. The load and pen series drop their
+  -- quiet buckets because 175 pens of zeros is noise; a farm buys from a handful of vendors
+  -- and the whole point of the series is comparing them, so a vendor whose animals are all
+  -- alive must be on the board at 0% rather than missing from it.
   FROM (SELECT vendor_key, count(*) FILTER (WHERE died)::bigint AS deaths, count(*) FILTER (WHERE live)::bigint AS animals
-          FROM pop GROUP BY vendor_key
-        HAVING count(*) FILTER (WHERE died) > 0 OR vendor_key IN ('farm_born', 'no_vendor')) v
+          FROM pop GROUP BY vendor_key) v
   -- parties is keyed by party_id alone (no tenant column); the cast is shape-guarded for
   -- the same reason the load branch guards its own.
   LEFT JOIN parties pa
@@ -320,6 +335,11 @@ SELECT 'load_by_cause', f.load_key,
          ON pl.tenant_id = $1::uuid
         AND pl.load_id = CASE WHEN f.load_key ~ '^[0-9a-f-]{36}$' THEN f.load_key::uuid END
 UNION ALL
+-- projection-review: membership=the same facts rows every other COUNT branch ranges over, one
+-- per death; group_key=(vendor party_id, cause column key); join_cardinality=the vendor rides the
+-- LIMIT 1 load LATERAL through a primary-key join, so it adds no row, and parties is a
+-- primary-key label lookup AFTER aggregation; pagination=none, a whole-window rollup;
+-- scope=the tenant and optional park predicate dead already applies.
 SELECT 'vendor_by_cause', f.vendor_key,
        CASE WHEN f.vendor_key IN ('farm_born', 'no_vendor') THEN ''
             ELSE COALESCE(NULLIF(btrim(pa.display_name), ''), '') END,
