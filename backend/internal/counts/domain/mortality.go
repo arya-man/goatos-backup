@@ -141,6 +141,8 @@ type Mortality struct {
 	// Vendor is the Load series rolled up to WHO the animals were bought from. A vendor
 	// sends many loads over time, so a weakness that reads as one unlucky batch under Load
 	// reads as a pattern here. Farm-born animals carry no vendor and keep their own bucket.
+	// Unlike Load and Pen this series keeps its QUIET buckets: a vendor that has lost nothing
+	// reads 0%, because a supplier board that lists only the bad ones cannot be compared.
 	Vendor []MortalityBucket `json:"vendor"`
 
 	// COUNT series (facts about the death alone).

@@ -613,7 +613,14 @@ RETURNING load_id::text`, countsTenant, vendor, key).Scan(&id); err != nil {
 	// Sardar sent TWO loads; Kumar one. An orphan load with no vendor row is impossible
 	// (source_party_id is NOT NULL), so 'no_vendor' is proved by a purchased animal that is on
 	// no load at all.
+	var reddy string
+	if err := pool.QueryRow(ctx, `
+INSERT INTO parties (party_type, display_name, status) VALUES ('org', 'Reddy Farms', 'active')
+RETURNING party_id::text`).Scan(&reddy); err != nil {
+		t.Fatalf("seed vendor: %v", err)
+	}
 	sardarA, sardarB, kumarLoad := newLoad(sardar, "L-1"), newLoad(sardar, "L-2"), newLoad(kumar, "L-3")
+	reddyLoad := newLoad(reddy, "L-4")
 	attach := func(load, goatID string) {
 		t.Helper()
 		if _, err := pool.Exec(ctx, `
@@ -644,6 +651,13 @@ VALUES ($1::uuid, $2::uuid, $3::uuid, 'accepted_herd_intake', 'accepted_herd_int
 	attach(kumarLoad, mortalityGoatID(710))
 	insertMortalityGoat(t, ctx, pool, mortalityGoatID(711), "Sirohi", "male", "F2-Male", "adult", "2025-01-01", "procured", "", "")
 	attach(kumarLoad, mortalityGoatID(711))
+	// Reddy has lost NOTHING. The load and pen series would drop him; the vendor board must
+	// keep him, because a supplier list showing only the vendors whose animals died cannot be
+	// compared -- the reader cannot tell a good vendor from one who is simply absent.
+	for _, id := range []string{mortalityGoatID(715), mortalityGoatID(716)} {
+		insertMortalityGoat(t, ctx, pool, id, "Sirohi", "female", "F2-Female", "adult", "2025-01-01", "procured", "", "")
+		attach(reddyLoad, id)
+	}
 	// Farm born: a death and a live animal, neither of which belongs to any vendor.
 	insertMortalityGoat(t, ctx, pool, mortalityGoatID(720), "Malai", "female", "K1", "kid", "2026-07-01", "birth", "died", died)
 	insertMortalityGoat(t, ctx, pool, mortalityGoatID(721), "Malai", "female", "K1", "kid", "2026-07-01", "birth", "", "")
@@ -675,6 +689,7 @@ INSERT INTO health_death_causes (tenant_id, goat_id, cause_key, cause_kind) VALU
 		"Kumar Livestock":    {1, 1, 100.0},
 		"Farm born":          {1, 1, 100.0},
 		"No vendor recorded": {1, 0, -1},
+		"Reddy Farms":        {0, 2, 0.0},
 	}
 	for label, w := range want {
 		got, ok := byLabel[label]
@@ -719,6 +734,11 @@ INSERT INTO health_death_causes (tenant_id, goat_id, cause_key, cause_kind) VALU
 	}
 	if crossDeaths["Sardar Traders"] != 2 || crossDeaths["Kumar Livestock"] != 1 || crossDeaths["Farm born"] != 1 {
 		t.Fatalf("vendor x cause rows %+v, want Sardar 2, Kumar 1, Farm born 1", crossDeaths)
+	}
+	// The cross tab is deaths only, so a vendor who has lost nothing has no row in it -- the
+	// series above is where he is compared.
+	if _, present := crossDeaths["Reddy Farms"]; present {
+		t.Fatalf("vendor x cause carries a row for a vendor with no deaths: %+v", crossDeaths)
 	}
 	var crossTotal int64
 	for _, c := range mort.VendorByCause {
