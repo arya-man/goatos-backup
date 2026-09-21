@@ -211,6 +211,14 @@ test("weighing visual smoke pins explicit date windows on every tabbed picker su
   }
 });
 
+test("feed config smoke checks experiment pen dropdown identity without writing", () => {
+  assert.match(smokeSource, /if \(routeName === "feed-config"\) \{\s+await assertFeedConfigPenDropdownContracts\(page, routeName\);/);
+  assert.match(smokeSource, /#exp-new-pen/);
+  assert.match(smokeSource, /duplicate option/);
+  assert.match(smokeSource, /bare numeric pen with dash/);
+  assert.match(smokeSource, /Every pen already has experiment quantities\./);
+});
+
 test("visual smoke fails on the visible admin error boundary", () => {
   const markerBlock = smokeSource.match(/const failureScreenMarkers = \[[\s\S]*?\];/)?.[0] ?? "";
   for (const marker of [

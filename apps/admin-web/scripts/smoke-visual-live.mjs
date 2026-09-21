@@ -1295,6 +1295,10 @@ async function assertCoreInteractions(page, routeName, viewportLabel) {
     }
   }
 
+  if (routeName === "feed-config") {
+    await assertFeedConfigPenDropdownContracts(page, routeName);
+  }
+
   if (routeName === "alerts-populated") {
     // The Configure drawer: open from the top-right button (an <a> only for alerts.configure
     // holders -- the CEO runs this smoke), prove both sections rendered, close via its X.
@@ -1583,6 +1587,54 @@ async function closeManifestOverlays(page) {
       await close.click({ timeout: 3_000 }).catch(() => {});
     }
   }
+}
+
+async function assertFeedConfigPenDropdownContracts(page, routeName) {
+  const addPen = page.getByRole("button", { name: "Add experiment pen", exact: true });
+  if ((await addPen.count()) === 0) {
+    const empty = page.getByText("Every pen already has experiment quantities.", { exact: true });
+    if ((await empty.count()) > 0) return;
+    throw new Error(`${routeName} missing Add experiment pen control or empty-candidate explanation`);
+  }
+  await addPen.first().scrollIntoViewIfNeeded().catch(() => {});
+  await addPen.first().click({ timeout: 5_000 });
+  await page.locator("#exp-new-pen").waitFor({ state: "attached", timeout: 5_000 });
+
+  const parkValues = await page.locator("#exp-new-park option").evaluateAll((options) =>
+    options.map((option) => option.value).filter((value) => value !== ""),
+  );
+  const parksToCheck = parkValues.length ? parkValues : [null];
+  let totalOptions = 0;
+  for (const parkValue of parksToCheck) {
+    if (parkValue !== null) {
+      await page.locator("#exp-new-park").selectOption(parkValue);
+      await page.waitForFunction((value) => document.querySelector("#exp-new-park")?.value === value, parkValue, { timeout: 5_000 });
+    }
+    const labels = await page.locator("#exp-new-pen option").evaluateAll((options) =>
+      options.map((option) => (option.textContent ?? "").replace(/\s+/g, " ").trim()).filter(Boolean),
+    );
+    totalOptions += labels.length;
+    const seen = new Set();
+    for (const label of labels) {
+      if (seen.has(label)) {
+        throw new Error(`${routeName} experiment pen dropdown has duplicate option ${JSON.stringify(label)}${parkValue ? ` in park ${parkValue}` : ""}`);
+      }
+      seen.add(label);
+      if (/\b(?:Castro|Gandhi|Ho Chi Minh|Yashoda)\s+-\s+\d+\b/i.test(label)) {
+        throw new Error(`${routeName} experiment pen dropdown renders bare numeric pen with dash: ${label}`);
+      }
+      if (/\bGodel\s+\d+\s+(?!-\s+Part\b)\d+\b/i.test(label)) {
+        throw new Error(`${routeName} experiment pen dropdown renders Godel worded partition without " - Part ": ${label}`);
+      }
+      if (/\bwhole\b/i.test(label)) {
+        throw new Error(`${routeName} experiment pen dropdown leaked whole sentinel: ${label}`);
+      }
+    }
+  }
+  if (totalOptions === 0) {
+    throw new Error(`${routeName} experiment pen dropdown opened but had no candidate options or empty-candidate explanation`);
+  }
+  await page.getByRole("button", { name: "Cancel", exact: true }).last().click({ timeout: 5_000 }).catch(() => {});
 }
 
 async function assertMobileSidebarNavigation(page, routeName) {
