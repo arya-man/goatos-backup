@@ -840,12 +840,19 @@ func (r *Repository) UpsertExperimentConfigBatch(ctx context.Context, cmd domain
 		if err := requirePartitionInShed(ctx, tx, cmd.TenantID, cmd.ShedID, cmd.PartitionLabel); err != nil {
 			return writeEffect{}, err
 		}
+		// ENROLLED means holding an ACTIVE cell (maintainer instruction 2026-09-21), not holding a
+		// row. The guard is stale-view protection -- it refuses to let a submitted subset overwrite
+		// the cells a pen is actually being fed from -- and a retired cell feeds nothing: the
+		// planner reads only active rows. Counting retired rows made a withdrawn pen permanently
+		// un-re-enrollable, which is the other half of "shifting a pen to normal feed removes it
+		// from this screen": it must be addable again afterwards, or the withdraw is one-way.
 		var alreadyConfigured bool
 		if err := tx.QueryRow(ctx, `
 SELECT EXISTS (
   SELECT 1 FROM feed_experiment_config
   WHERE tenant_id = $1::uuid AND park_id = $2::uuid AND shed_id = $3::uuid
     AND partition_key = `+partitionKeyMatch("$4")+`
+    AND status = 'active'
 )`, cmd.TenantID, cmd.ParkID, cmd.ShedID, cmd.PartitionLabel).Scan(&alreadyConfigured); err != nil {
 			return writeEffect{}, fmt.Errorf("feedconfig: check experiment pen enrollment: %w", err)
 		}
@@ -870,6 +877,21 @@ INSERT INTO feed_experiment_config (tenant_id, park_id, shed_id, partition_label
 SELECT $1::uuid, $2::uuid, $3::uuid, nullif(btrim($4),''), cell.item,
        'grams_per_head', cell.grams::numeric, $5, 'active', 'app', nullif($6,'')::uuid
 FROM unnest($7::text[], $8::text[]) AS cell(item, grams)
+-- The pen holds no ACTIVE cell (the guard above), but it may still hold RETIRED ones from an
+-- earlier enrolment of the same feed item -- the natural key is unique regardless of status, so a
+-- bare INSERT would fail on the one path this change exists to open. Re-authoring that cell is
+-- exactly what re-enrolling the pen means: it takes the newly entered quantity, the newly entered
+-- arm and the per-animal basis, and comes back active.
+ON CONFLICT (tenant_id, park_id, shed_id, partition_key, feed_item_key) DO UPDATE
+SET quantity_basis = 'grams_per_head',
+    grams_per_head = EXCLUDED.grams_per_head,
+    absolute_kg = NULL,
+    experiment_category = EXCLUDED.experiment_category,
+    partition_label = EXCLUDED.partition_label,
+    feed_item_label = EXCLUDED.feed_item_label,
+    status = 'active',
+    source = 'app',
+    updated_at = now()
 RETURNING experiment_config_id::text, feed_item_key`,
 			cmd.TenantID, cmd.ParkID, cmd.ShedID, cmd.PartitionLabel,
 			cmd.ExperimentCategory, actorUUID(cmd.ActorRef), items, grams)
@@ -927,6 +949,28 @@ RETURNING experiment_config_id::text, feed_item_key`,
 //
 // No per-animal table is touched. A pen holding zero animals is real, is listed, and is usually the
 // one about to be filled -- deriving this catalog from goat placement is what hides it.
+//
+// LEGACY ALIAS ROWS ARE EXCLUDED, and that is what stops this catalog offering one pen twice. Before
+// pens were normalized, each pen was its OWN `locations` shed row -- 'Gandhi 1', 'Godel 1 - Part 3' --
+// and those rows still exist beside the canonical shed plus its shed_partitions row. They were
+// believed to be status='inactive' everywhere, so the active-only filter above was thought to be
+// enough; they are ACTIVE on the maintainer's database (104 of them across the two parks), each with
+// no partitions of its own, so the whole-shed branch below emitted every one of them as a pen in its
+// own right. Coimbatore therefore offered 'Gandhi 1', 'Gandhi 2', 'Gandhi 3' twice: once as the real
+// pen (shed 'Gandhi' + label '1') and once as the dead alias row that spells the same place.
+//
+// The duplicate was not only cosmetic. feed_experiment_config is keyed on the CANONICAL (shed_id,
+// partition_key), so the EXISTS below reads false on the alias twin -- an already-enrolled pen came
+// back as a candidate through its alias spelling (Castro 1/2/3 and Godel 1 - Part 1..8 did exactly
+// that), and enrolling it would have authored quantities against a shed_id that holds no animals and
+// no partition, feeding nothing while looking configured.
+//
+// The exclusion is the DECLARED mapping, never a name or display match: shed_partitions.alias_location_id
+// records which legacy location row spells that pen, and a row some pen claims is that pen -- already
+// offered, once, through its canonical (shed, partition). Matching on composed names instead would be
+// the shed-name-keying defect AGENTS.md bans, and would break the moment a park holds a genuine
+// undivided shed whose name ends in a digit ('Ho Chi Minh 1', 'Yashoda 2'): those are claimed by
+// nothing and are still listed.
 func (r *Repository) ListPens(ctx context.Context, q domain.PenQuery) (domain.PenPage, error) {
 	ctx, cancel := context.WithTimeout(ctx, r.timeout)
 	defer cancel()
@@ -970,6 +1014,12 @@ SELECT shed.parent_location_id::text AS park_id,
          SELECT 1 FROM feed_experiment_config e
          WHERE e.tenant_id = shed.tenant_id
            AND e.shed_id = shed.location_id
+           -- ACTIVE cells only (maintainer instruction 2026-09-21). A pen shifted back to normal
+           -- feed leaves the experiment screen entirely, so "already configured" has to mean what
+           -- the screen shows: its retained retired cells are history, and counting them left the
+           -- pen unoffered here while being invisible there -- unreachable from either control.
+           -- Re-enrolling it reactivates those same rows, so nothing is duplicated.
+           AND e.status = 'active'
            AND e.partition_key = CASE
                  WHEN sp.partition_label IS NULL OR btrim(sp.partition_label) = '' THEN 'whole'
                  ELSE feed_config_norm(sp.partition_label)
@@ -986,9 +1036,18 @@ WHERE shed.tenant_id = $1::uuid
   AND shed.status = 'active'
   AND (
     sp.normalized_label IS NOT NULL
-    OR NOT EXISTS (
-      SELECT 1 FROM shed_partitions any_sp
-      WHERE any_sp.tenant_id = shed.tenant_id AND any_sp.shed_id = shed.location_id
+    OR (
+      NOT EXISTS (
+        SELECT 1 FROM shed_partitions any_sp
+        WHERE any_sp.tenant_id = shed.tenant_id AND any_sp.shed_id = shed.location_id
+      )
+      -- Scoped to the whole-shed branch on purpose: a row that owns pens is never dropped, whatever
+      -- else claims it, so a bad alias row can hide a spelling of a pen but never a pen.
+      AND NOT EXISTS (
+        SELECT 1 FROM shed_partitions alias_sp
+        WHERE alias_sp.tenant_id = shed.tenant_id
+          AND alias_sp.alias_location_id = shed.location_id
+      )
     )
   )
 ORDER BY shed.parent_location_id, shed.display_order, shed.name, shed.location_id,

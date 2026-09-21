@@ -303,7 +303,6 @@ export async function FeedConfigPage({
     penSeparator === -1 ? "" : experimentPenFilter.slice(penSeparator + 1);
   const experimentItemFilter = all(sp, "fc_exp_item");
   const experimentArmFilter = one(sp, "fc_exp_arm") || "";
-  const experimentStatusFilter = one(sp, "fc_exp_status") || "";
   const experimentKgOpFilter = one(sp, "fc_exp_kg_op") || "";
   const experimentKgValueFilter = one(sp, "fc_exp_kg_value") || "";
 
@@ -358,9 +357,12 @@ export async function FeedConfigPage({
       : Promise.resolve(null),
     scope.parkId ? listFeedConfigSessionTemplates({ park_id: scope.parkId, limit: SECONDARY_PAGE_SIZE }) : Promise.resolve(null),
     scope.parkId ? listFeedConfigSchedule({ park_id: scope.parkId, limit: SECONDARY_PAGE_SIZE }) : Promise.resolve(null),
-    // No `status` filter: retired rows must stay visible so a withdrawn shed's authored quantities
-    // can be seen and restored, and so an accidental withdrawal is not invisible on the screen that
-    // owns the decision. One bounded page — the live parks author 17 sheds x 5 items each.
+    // ACTIVE cells only (maintainer instruction 2026-09-21). Shifting a pen to normal feed takes it
+    // OFF this screen: what the table lists is what the experiment planner will feed, so a pen that
+    // is fed from the ration grid has no row here. Its authored quantities are retained in the
+    // database as history and are simply not shown; the pen returns to the enroller's candidate
+    // list, which is the only way back on. One bounded page — the live parks author 17 sheds x 5
+    // items each.
     scope.parkId
       ? listFeedConfigExperiment({
           // park_id omitted entirely in all-parks mode -- the backend reads that as "every park".
@@ -372,9 +374,10 @@ export async function FeedConfigPage({
           offset: experimentOffset,
           feed_item: experimentItemFilter,
           experiment_category: experimentArmFilter || undefined,
-          status: experimentStatusFilter === "active" || experimentStatusFilter === "retired"
-            ? experimentStatusFilter
-            : undefined,
+          // Pinned, never read from the URL: a retired cell is not a state this screen has an
+          // opinion about any more, and a typed ?fc_exp_status=retired must not resurrect the
+          // rows the withdraw removed.
+          status: "active",
           kg_op: asCompareOp(experimentKgOpFilter),
           kg_value: experimentKgValueFilter || undefined,
         })
@@ -535,7 +538,6 @@ export async function FeedConfigPage({
       experimentPenFilter ||
       experimentItemFilter.length > 0 ||
       experimentArmFilter ||
-      experimentStatusFilter ||
       experimentKgOpFilter ||
       experimentKgValueFilter,
   );
@@ -683,16 +685,6 @@ export async function FeedConfigPage({
       // the section is paged -- which is why it sits beside the arm the operator can already see
       // rather than claiming to be every arm in the tenant.
       options: experimentArmOptions,
-    },
-    {
-      kind: "select",
-      param: "fc_exp_status",
-      label: copy(pageContract, "filter.status_label"),
-      value: experimentStatusFilter,
-      options: optionGroup(pageContract, "feed_config_status").map((option) => ({
-        value: option.key,
-        label: option.label,
-      })),
     },
     {
       kind: "compare",

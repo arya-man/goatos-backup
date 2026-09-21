@@ -364,7 +364,24 @@ export async function saveShedFactor(formData: FormData): Promise<FeedConfigActi
 
 
 /**
- * Enrol ONE PEN onto the experiment workflow, authoring every feed item of it in a single write.
+ * Enrol EVERY TICKED PEN onto the experiment workflow, authoring every feed item of each pen in a
+ * single write per pen.
+ *
+ * MULTI-PEN since 2026-09-21 (maintainer instruction): the farm puts a whole arm on the experiment
+ * in one sitting, and doing it a pen at a time meant re-typing the same five quantities eight times
+ * — which is also eight chances to mistype one. The quantities and the arm are entered once and
+ * apply to every ticked pen.
+ *
+ * ONE ATOMIC WRITE PER PEN, NOT ONE ACROSS ALL OF THEM. The batch route enrols one pen, so several
+ * pens are several transactions. That boundary is the honest one: a pen is the unit the planner
+ * feeds, so a pen is either fully authored or untouched, and a failure part-way through leaves the
+ * earlier pens correctly enrolled rather than rolling back work that is already right. The result
+ * NAMES the pens that failed instead of reporting a blanket success — a silent drop here is a pen
+ * the operator believes is on the experiment and which is fed from the ration grid.
+ *
+ * EACH PEN CARRIES ITS OWN IDEMPOTENCY KEY, derived from the form's key plus the pen. One shared key
+ * would make the second pen's write an exact replay of the first and return the first pen's result
+ * without enrolling anything.
  *
  * REPLACES the old shed-level, one-item-at-a-time enroller, which had three defects at once: it
  * offered SHEDS (so a new pen of an already-enrolled shed — Godel 1 - Part 8 — was unreachable), it
@@ -386,27 +403,31 @@ export async function saveShedFactor(formData: FormData): Promise<FeedConfigActi
  */
 export async function enrolExperimentPen(formData: FormData): Promise<FeedConfigActionResult> {
   const parkId = readRequiredText(formData, "park_id");
-  const penRaw = readRequiredText(formData, "pen");
   const category = readRequiredText(formData, "experiment_category");
-  if (!parkId || !penRaw || !category) {
+  // EVERY ticked box, not the first: each posts under the same name. Ticking nothing is a rejection
+  // rather than a no-op success, because a form that reports "saved" having enrolled no pen is the
+  // one failure an operator cannot see.
+  const penValues = formData.getAll("pen").filter((value): value is string => typeof value === "string");
+  if (!parkId || penValues.length === 0 || !category) {
     return { ok: false, messageKey: REJECTED };
   }
 
-  // The pen select carries shed id and raw partition label as one JSON value. A delimiter would be
+  // Each pen carries shed id and raw partition label as one JSON value. A delimiter would be
   // unsafe: a partition label is free text ("Part 3"), so any separator could appear inside it.
-  let shedId = "";
-  let partitionLabel = "";
-  try {
-    const parsed: unknown = JSON.parse(penRaw);
-    if (typeof parsed !== "object" || parsed === null) return { ok: false, messageKey: REJECTED };
-    const pen = parsed as { s?: unknown; p?: unknown };
-    if (typeof pen.s !== "string" || pen.s.trim() === "") return { ok: false, messageKey: REJECTED };
-    // Absent `p` is a real value — an undivided shed — and must stay distinguishable from a bad one.
-    if (pen.p !== undefined && typeof pen.p !== "string") return { ok: false, messageKey: REJECTED };
-    shedId = pen.s.trim();
-    partitionLabel = (pen.p ?? "").toString().trim();
-  } catch {
-    return { ok: false, messageKey: REJECTED };
+  const pens: { shedId: string; partitionLabel: string }[] = [];
+  for (const penRaw of penValues) {
+    if (penRaw.trim() === "") return { ok: false, messageKey: REJECTED };
+    try {
+      const parsed: unknown = JSON.parse(penRaw);
+      if (typeof parsed !== "object" || parsed === null) return { ok: false, messageKey: REJECTED };
+      const pen = parsed as { s?: unknown; p?: unknown };
+      if (typeof pen.s !== "string" || pen.s.trim() === "") return { ok: false, messageKey: REJECTED };
+      // Absent `p` is a real value — an undivided shed — and must stay distinguishable from a bad one.
+      if (pen.p !== undefined && typeof pen.p !== "string") return { ok: false, messageKey: REJECTED };
+      pens.push({ shedId: pen.s.trim(), partitionLabel: (pen.p ?? "").toString().trim() });
+    } catch {
+      return { ok: false, messageKey: REJECTED };
+    }
   }
 
   const items: { feed_item: string; grams_per_head: number }[] = [];
@@ -426,23 +447,40 @@ export async function enrolExperimentPen(formData: FormData): Promise<FeedConfig
   // and the direction generator would then feed it nothing at all.
   if (items.length === 0) return EXPERIMENT_BLANK_IS_NOT_ZERO;
 
-  const result = await upsertFeedConfigExperimentBatch(
-    {
-      park_id: parkId,
-      shed_id: shedId,
-      partition_label: partitionLabel,
-      experiment_category: category,
-      items,
-    },
-    readIdempotencyKey(formData),
-  );
-  if (!result.ok) {
-    return { ok: false, messageKey: REJECTED, detail: result.error.message };
+  const formKey = readIdempotencyKey(formData);
+  const failures: string[] = [];
+  let enrolled = 0;
+  for (const pen of pens) {
+    const result = await upsertFeedConfigExperimentBatch(
+      {
+        park_id: parkId,
+        shed_id: pen.shedId,
+        partition_label: pen.partitionLabel,
+        experiment_category: category,
+        items,
+      },
+      // Per pen, so a retry of the whole form replays each pen's own write rather than making every
+      // pen after the first a replay of the first.
+      formKey === undefined ? undefined : `${formKey}:${pen.shedId}:${pen.partitionLabel}`,
+    );
+    if (result.ok) {
+      enrolled += 1;
+      continue;
+    }
+    failures.push(result.error.message);
   }
 
-  revalidatePath("/feed/config");
-  revalidatePath("/feed/direction");
-  revalidatePath("/feed/packing");
+  // Revalidate whenever ANY pen landed: the pens that did enrol are on the experiment now, and
+  // leaving the screen showing them as candidates would invite a second enrolment of a pen that is
+  // already configured.
+  if (enrolled > 0) {
+    revalidatePath("/feed/config");
+    revalidatePath("/feed/direction");
+    revalidatePath("/feed/packing");
+  }
+  if (failures.length > 0) {
+    return { ok: false, messageKey: REJECTED, detail: failures.join(" · ") };
+  }
   return { ok: true, messageKey: EXPERIMENT_SAVED };
 }
 

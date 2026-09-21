@@ -7201,7 +7201,9 @@ func pageSpecificCopy(id string) map[string]string {
 			// "Shift to normal feed" (maintainer, 2026-08-12). It names what happens to the ANIMALS —
 			// they go back to being fed from the standing ration — rather than to a table on this
 			// screen. "The normal grid" only means something to someone already looking at the grid.
-			"action.withdraw_experiment_shed":      "Shift to normal feed",
+			"action.withdraw_experiment_shed": "Shift to normal feed",
+			// Retained for an in-flight form; the table no longer lists a withdrawn pen, so nothing
+			// renders this. A pen comes back through the enroller, which offers it again.
 			"action.restore_experiment_shed":       "Return this pen to the experiment",
 			"action.experiment_saved":              "Saved. Each animal in this pen gets the grams authored here; the sheet multiplies by however many animals are in the pen that day.",
 			"action.experiment_switched":           "Workflow switched. What this pen is fed has changed — check the next Feed Direction for this park.",
@@ -7220,7 +7222,14 @@ func pageSpecificCopy(id string) map[string]string {
 			"notice.park_scope_fallback": "Experiment pens below show BOTH parks. The ration grid, feed factors, session template and feeding schedule are authored per park and cannot be shown for all parks at once, so those four are reading the park named here — use the Park filter to change it.",
 			// The enroller. It authors a PEN and every feed item of it in ONE atomic write, so its copy
 			// has to say both things: which pen, and that a blank kg authors nothing rather than zero.
-			"filter.pen_label":                  "Pen",
+			"filter.pen_label": "Pen",
+			// The enroller takes SEVERAL pens at once (maintainer instruction 2026-09-21). The note
+			// has to say the thing an operator would otherwise learn by being wrong: the quantities
+			// below are per animal and are authored onto every pen ticked, not split between them.
+			"label.experiment_enrol_pens_note":  "Tick every pen that goes on this experiment. The arm and the quantities below are authored onto each one.",
+			"action.choose_experiment_pens":     "Choose pens",
+			"action.select_all_experiment_pens": "Tick all pens",
+			"action.clear_experiment_pens":      "Clear",
 			"label.experiment_enrol_items":      "Quantities",
 			"label.experiment_enrol_items_note": "Enter the grams ONE animal in this pen gets of each feed item. The sheet multiplies by the number of animals in the pen that day. Leave an item blank to author nothing for it — blank is not zero. All of them are saved together, or none is.",
 			// Shown instead of a park name when the top bar reads company-wide. The experiment table

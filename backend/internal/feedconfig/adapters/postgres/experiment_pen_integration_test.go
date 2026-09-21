@@ -788,15 +788,158 @@ func TestListPensReturnsTheHumanLabelAndItsConfiguredFlag(t *testing.T) {
 		}
 	}
 
-	// KNOWN ENVIRONMENT HAZARD, deliberately not asserted here because it is not this query's to
-	// fix: the baseline also carries legacy alias rows that are THEMSELVES sheds named
-	// 'Godel 1 - Part 3'. In STG all 120 of them are status='inactive', so the active-only filter
-	// above excludes them and the catalog is clean. Nothing in migrations performs that
-	// deactivation, so on a freshly migrated database they are active and would be offered here as
-	// bare sheds alongside the real pens. That same fresh database also gets an EMPTY
-	// shed_partitions catalog, because migration 000112 seeds pens by reading aliases that are
-	// inactive -- so the gap is in environment setup, upstream of this read.
+}
 
+// TestWithdrawnPenLeavesTheTableAndCanBeEnrolledAgain pins the maintainer's 2026-09-21 rule:
+// shifting a pen to normal feed removes it from the experiment screen ENTIRELY, and the only way
+// back is the enroller.
+//
+// Both halves have to hold together or the pen is stranded. The screen now lists ACTIVE cells only,
+// so a withdrawn pen has no row to restore from; if "already configured" still counted its retained
+// retired cells, the enroller would not offer it either and the withdraw would be one-way. The
+// create-only batch guard had the same fault a layer down -- it refused any pen holding a row, so
+// even an offered pen would have failed on save.
+func TestWithdrawnPenLeavesTheTableAndCanBeEnrolledAgain(t *testing.T) {
+	ctx := context.Background()
+	pool := setupPennedDB(t, ctx)
+	repo := fcRepo(pool)
+
+	enrollExperimentPen(t, ctx, repo, "withdraw-enrol", fcPennedShed, fcPenA, "Arm A",
+		[]domain.ExperimentBatchCell{{FeedItemLabel: "Concentrate", GramsPerHead: "1.000"}})
+	if _, err := repo.SetExperimentShedStatus(ctx, domain.SetExperimentShedStatusCommand{
+		WriteIdentity: domain.WriteIdentity{
+			TenantID: fcTenant, ActorRef: "tester", EffectiveFrom: "2026-08-09",
+			IdempotencyKey: "withdraw-switch", RequestFingerprint: "fp-withdraw-switch",
+		},
+		ParkID: fcPark, ShedID: fcPennedShed, PartitionLabel: fcPenA, Status: "retired",
+	}); err != nil {
+		t.Fatalf("shift pen to normal feed: %v", err)
+	}
+
+	// GONE FROM THE SCREEN: the list the page reads is status=active, and the pen has no active cell.
+	active, err := repo.ListExperimentConfig(ctx, domain.ExperimentConfigQuery{
+		TenantID: fcTenant, ParkID: fcPark, Status: "active", Page: domain.Page{Limit: 50},
+	})
+	if err != nil {
+		t.Fatalf("list active experiment cells: %v", err)
+	}
+	for _, cell := range active.Items {
+		if cell.ShedID == fcPennedShed && cell.PartitionLabel == fcPenA {
+			t.Fatalf("withdrawn pen still listed on the experiment screen: %#v", cell)
+		}
+	}
+
+	// OFFERED AGAIN: its retained retired cell is history and must not read as configuration.
+	pens, err := repo.ListPens(ctx, domain.PenQuery{TenantID: fcTenant, ParkID: fcPark, Page: domain.Page{Limit: 50}})
+	if err != nil {
+		t.Fatalf("list pens: %v", err)
+	}
+	offered := false
+	for _, pen := range pens.Items {
+		if pen.ShedID == fcPennedShed && pen.PartitionLabel == fcPenA {
+			offered = true
+			if pen.HasExperimentConfig {
+				t.Fatalf("withdrawn pen reads as configured, so the enroller would not offer it")
+			}
+		}
+	}
+	if !offered {
+		t.Fatalf("withdrawn pen missing from the pen catalog entirely")
+	}
+
+	// AND THE SAVE LANDS, on the SAME rows, carrying the newly entered quantity and arm.
+	enrollExperimentPen(t, ctx, repo, "withdraw-reenrol", fcPennedShed, fcPenA, "Arm B",
+		[]domain.ExperimentBatchCell{{FeedItemLabel: "Concentrate", GramsPerHead: "2.500"}})
+	cells := penCells(t, ctx, pool, fcPenA)
+	if len(cells) != 1 {
+		t.Fatalf("re-enrolment left %d cells, want 1 (a second row means it inserted beside the retired one)", len(cells))
+	}
+	if cells["Concentrate"] != "2.500" {
+		t.Fatalf("re-enrolled quantity = %q, want 2.500", cells["Concentrate"])
+	}
+	if got := penStatuses(t, ctx, pool, fcPenA)["Concentrate"]; got != "active" {
+		t.Fatalf("re-enrolled cell status = %q, want active", got)
+	}
+}
+
+// TestListPensOffersEachPenOnceDespiteItsLegacyAliasRow pins the fix for the duplicated pen list.
+//
+// The note this test replaces recorded the alias rows as an ENVIRONMENT hazard "not this query's to
+// fix", on the belief that they are status='inactive' everywhere. They are ACTIVE on the
+// maintainer's database -- 104 of them -- so Coimbatore's enroller offered 'Gandhi 1', 'Gandhi 2'
+// and 'Gandhi 3' twice: once as the real pen, once as the dead shed row that spells it.
+//
+// It also pins the half that is not cosmetic. feed_experiment_config is keyed on the canonical
+// (shed_id, partition_key), so an already-enrolled pen read as UNCONFIGURED through its alias twin
+// and came back as a candidate to enrol again -- against a shed_id holding no animals and no
+// partition, which would look configured and feed nothing.
+func TestListPensOffersEachPenOnceDespiteItsLegacyAliasRow(t *testing.T) {
+	ctx := context.Background()
+	pool := setupPennedDB(t, ctx)
+	repo := fcRepo(pool)
+
+	// The legacy shape, exactly as the farm's own data carries it: a shed row that IS one pen,
+	// active, with no partitions of its own, and claimed by that pen's catalog row.
+	const aliasShed = "00000000-0000-4000-8000-00000000400a"
+	if _, err := pool.Exec(ctx, `
+INSERT INTO locations (location_id, tenant_id, location_type, location_code, name, parent_location_id, status)
+VALUES ($3::uuid, $1::uuid, 'shed', 'CPT-S4-P3', 'Kepler 7 - Part 3', $2::uuid, 'active')
+ON CONFLICT (location_id) DO NOTHING`, fcTenant, fcPark, aliasShed); err != nil {
+		t.Fatalf("seed legacy alias location: %v", err)
+	}
+	if _, err := pool.Exec(ctx, `
+UPDATE shed_partitions SET alias_location_id = $3::uuid
+WHERE tenant_id = $1::uuid AND shed_id = $2::uuid AND partition_label = $4`,
+		fcTenant, fcPennedShed, aliasShed, fcPenA); err != nil {
+		t.Fatalf("claim the alias location for pen A: %v", err)
+	}
+
+	// Pen A is enrolled through its CANONICAL address, the only address a write has.
+	enrollExperimentPen(t, ctx, repo, "pen-alias-a", fcPennedShed, fcPenA, "Arm A",
+		[]domain.ExperimentBatchCell{{FeedItemLabel: "Concentrate", GramsPerHead: "1.000"}})
+
+	page, err := repo.ListPens(ctx, domain.PenQuery{TenantID: fcTenant, ParkID: fcPark, Page: domain.Page{Limit: 50}})
+	if err != nil {
+		t.Fatalf("list pens: %v", err)
+	}
+
+	// Each pen once. Counting rather than map-keying: a map would have silently collapsed the two
+	// 'Kepler 7 - Part 3' rows and passed on the very data that fails the screen.
+	seen := 0
+	for _, pen := range page.Items {
+		if pen.OperationalLocationDisplay == "Kepler 7 - Part 3" {
+			seen++
+			if pen.ShedID != fcPennedShed {
+				t.Fatalf("pen offered under the alias shed %q, not the canonical shed %q", pen.ShedID, fcPennedShed)
+			}
+			if !pen.HasExperimentConfig {
+				t.Fatalf("an enrolled pen reads as unconfigured; the enroller would offer it again")
+			}
+		}
+	}
+	if seen != 1 {
+		t.Fatalf("pen listed %d times, want exactly 1 (its legacy alias row spells the same place)", seen)
+	}
+
+	// The alias row must not survive under ANY spelling either -- an option named after a dead
+	// location id is unenrollable whatever it is called.
+	for _, pen := range page.Items {
+		if pen.ShedID == aliasShed {
+			t.Fatalf("legacy alias row offered as a pen of its own: %q", pen.OperationalLocationDisplay)
+		}
+	}
+
+	// A genuine undivided shed is claimed by nothing and is still offered. This is the line that
+	// keeps the fix from becoming "hide every shed that has no partitions".
+	found := false
+	for _, pen := range page.Items {
+		if pen.OperationalLocationDisplay == "CPT Shed 1" {
+			found = true
+		}
+	}
+	if !found {
+		t.Fatalf("undivided shed dropped by the alias exclusion")
+	}
 }
 
 func TestListPensConfiguredFlagTracksExperimentWorkflowConversion(t *testing.T) {

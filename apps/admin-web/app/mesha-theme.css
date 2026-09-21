@@ -2846,6 +2846,30 @@
 .pen-routine-checklist .pen-routine-check{align-items:flex-start}
 .pen-routine-proof{display:grid;grid-template-columns:1fr 1fr;gap:6px}
 .fld .pen-routine-proof label{margin-bottom:3px}
+/* Experiment pen chooser (Feed Config): the tick list inside the enrol drawer.
+
+   Its rows live inside .fld, whose `input` rule is `width:100%` + padding for text boxes — applied
+   to a checkbox that stretches it into a large slab with the browser's small default tick sitting
+   off-centre in it. Same trap the pen-routine block above resets, so the reset is scoped the same
+   way and stays more specific than `.fld label`.
+
+   The box is drawn here rather than left to the browser so the tick is CENTRED and fills it: a
+   checkbox 18px square that a reader is ticking one of fifty times has to read as ticked at a
+   glance. `accent-color` alone cannot do this — it recolours the default box without fixing the
+   geometry .fld imposed.
+
+   The tick is a RENDERED icon element sitting over the box, not a CSS-drawn one. Two rotated
+   borders came out as a vertical hook and an SVG background came out blank, both because of what
+   this checkbox inherits inside .fld; an <svg> the page renders itself cannot be reshaped away. */
+.exp-pen-list{display:flex;flex-direction:column}
+.fld label.exp-pen-row,.exp-pen-row{display:flex;align-items:center;gap:10px;margin:0;padding:6px 10px;border-radius:8px;font-size:13px;font-weight:500;text-transform:none;letter-spacing:0;color:var(--ink);cursor:pointer;white-space:nowrap}
+.exp-pen-row:hover{background:var(--brand-soft)}
+.exp-pen-box{position:relative;display:inline-flex;flex:0 0 18px;width:18px;height:18px}
+.fld .exp-pen-box input[type=checkbox],.exp-pen-box input[type=checkbox]{appearance:none;-webkit-appearance:none;position:absolute;inset:0;width:18px;height:18px;min-height:0;margin:0;padding:0;border:1.5px solid var(--line);border-radius:6px;background:var(--panel);cursor:pointer;transition:background-color .12s ease,border-color .12s ease}
+.exp-pen-box input[type=checkbox]:checked{background-color:var(--brand);border-color:var(--brand)}
+.exp-pen-box input[type=checkbox]:focus-visible{outline:0;box-shadow:0 0 0 3px var(--brand-soft)}
+.exp-pen-box .exp-pen-tick{position:absolute;inset:0;margin:auto;width:12px;height:12px;stroke-width:3;color:#0c1a12;opacity:0;pointer-events:none}
+.exp-pen-box input[type=checkbox]:checked ~ .exp-pen-tick{opacity:1}
 .market-config-body{display:flex;flex-direction:column;gap:18px;padding-top:12px}
 .market-config-h4{margin:0 0 2px;font-size:13.5px}
 .market-config-hint{margin:0 0 10px;line-height:1.4}
