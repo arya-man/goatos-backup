@@ -38,7 +38,8 @@ const dealPaymentsForPageSQL = `
 
 const dealLinesForPageSQL = `
 	SELECT line_id::text, deal_id::text, line_no, product_type, breed,
-	       animal_count, male_count, female_count, total_weight_kg, sales_value
+	       animal_count, male_count, female_count, total_weight_kg, sales_value,
+	       estimated_weight_kg, coalesce(estimated_weight_band, ''), coalesce(weight_estimate_basis, '')
 	FROM public.sales_deal_lines
 	WHERE tenant_id = $1 AND deal_id = ANY($2::uuid[])
 	ORDER BY deal_id, line_no`
@@ -231,7 +232,8 @@ func (r *Repository) attachDealLines(ctx context.Context, tenantID string, deals
 			dealID string
 		)
 		if err := rows.Scan(&line.LineID, &dealID, &line.LineNo, &line.ProductType, &line.Breed,
-			&line.AnimalCount, &line.MaleCount, &line.FemaleCount, &line.TotalWeightKg, &line.SalesValue); err != nil {
+			&line.AnimalCount, &line.MaleCount, &line.FemaleCount, &line.TotalWeightKg, &line.SalesValue,
+			&line.EstimatedWeightKg, &line.EstimatedWeightBand, &line.WeightEstimateBasis); err != nil {
 			return fmt.Errorf("list sales deal lines scan: %w", err)
 		}
 		if i, ok := index[dealID]; ok {

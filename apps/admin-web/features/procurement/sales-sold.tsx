@@ -125,9 +125,12 @@ function SoldSections({
             </div>
           </section>
 
-          {/* Sold animals by weight (maintainer decision 2026-09-08; placed ABOVE the monthly charts at the maintainer's request): the weight recorded when
-              each animal was tagged to its sale, in the maintainer's four bands, whole register.
-              The unweighed remainder is named beside the total rather than hidden in a band. */}
+          {/* Sold animals by weight (maintainer decisions 2026-09-08 and 2026-09-21; placed ABOVE the
+              monthly charts at the maintainer's request): every animal sold on a closed deal, in the
+              maintainer's four bands, whole register. Each tile names where its weights came from,
+              because a scale reading and a load average are not the same evidence and the reader is
+              owed the difference. The unweighed remainder is named beside the total rather than
+              hidden in a band. Backend owns every count and every word here. */}
           <section className="card sales-card" aria-label={copy(pageContract, "section.sold_weight.aria")}>
             <div className="hd">
               <h3>{copy(pageContract, "section.sold_weight.title")}</h3>
@@ -147,21 +150,32 @@ function SoldSections({
                 </p>
                 {/* All FOUR bands, always, zeros included: the maintainer asked to see the count in
                     each range, and a band that vanishes when it is empty reads as a band that does
-                    not exist. Hence tiles rather than the bar list, which drops zero rows. */}
+                    not exist. Hence tiles rather than the bar list, which drops zero rows. The band
+                    ORDER is the backend's, heaviest first; the page does not re-sort it. */}
                 <div className="grid g4 kpi-row" style={{ marginTop: 8 }}>
-                  {[
-                    { key: "40_plus", label: copy(pageContract, "sold_weight.band.40_plus"), value: overview.sold_weight_bands.at_or_above_40_kg },
-                    { key: "35_40", label: copy(pageContract, "sold_weight.band.35_40"), value: overview.sold_weight_bands.from_35_to_40_kg },
-                    { key: "20_35", label: copy(pageContract, "sold_weight.band.20_35"), value: overview.sold_weight_bands.from_20_to_35_kg },
-                    { key: "under_20", label: copy(pageContract, "sold_weight.band.under_20"), value: overview.sold_weight_bands.under_20_kg },
-                  ].map((band) => (
-                    <div key={band.key} className="kpi" data-band={band.key}>
-                      <div className="lab">{band.label}</div>
-                      <div className="val">{num(band.value)}</div>
-                      <div className="dl">{copy(pageContract, "sold_weight.total")}</div>
+                  {overview.sold_weight_bands.bands.map((band) => (
+                    <div key={band.band} className="kpi" data-band={band.band}>
+                      <div className="lab">{copy(pageContract, `sold_weight.band.${band.band}`)}</div>
+                      <div className="val">{num(band.total)}</div>
+                      {/* The split is named only where it exists: a band whose animals were all
+                          weighed the same way says nothing extra rather than repeating itself. */}
+                      <div className="dl">
+                        {[
+                          band.measured > 0 ? `${num(band.measured)} ${copy(pageContract, "sold_weight.source.measured")}` : "",
+                          band.load_average > 0 ? `${num(band.load_average)} ${copy(pageContract, "sold_weight.source.load_average")}` : "",
+                          band.estimated > 0 ? `${num(band.estimated)} ${copy(pageContract, "sold_weight.source.estimated")}` : "",
+                        ]
+                          .filter(Boolean)
+                          .join(" · ") || copy(pageContract, "sold_weight.total")}
+                      </div>
                     </div>
                   ))}
                 </div>
+                {overview.sold_weight_bands.estimated > 0 ? (
+                  <p className="muted small" style={{ marginTop: 8 }}>
+                    {copy(pageContract, "sold_weight.estimated.note")}
+                  </p>
+                ) : null}
               </>
             )}
           </section>

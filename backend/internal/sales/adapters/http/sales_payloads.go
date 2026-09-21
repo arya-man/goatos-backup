@@ -220,8 +220,10 @@ type overviewPayload struct {
 	TagRoster        tagRosterPayload         `json:"tag_roster"`
 	WeightAudit      weightAuditPayload       `json:"weight_audit"`
 	MarketBenchmarks []marketBenchmarkPayload `json:"market_benchmarks"`
-	// sold_weight_bands (maintainer decision 2026-09-08): sold animals by the weight recorded
-	// at tagging. Disjoint bands plus the unweighed remainder; they sum to total.
+	// sold_weight_bands (maintainer decisions 2026-09-08 and 2026-09-21): every animal sold on a
+	// closed deal, by weight -- measured at tagging, spread from the load's own recorded weight,
+	// or from a recorded assumption. Disjoint bands plus the unweighed remainder; they sum to
+	// total, and total is the same animal count summary.animals reports.
 	SoldWeightBands soldWeightBandsPayload `json:"sold_weight_bands"`
 	FarmValuation   farmValuationPayload   `json:"farm_valuation"`
 }
@@ -258,12 +260,23 @@ type farmValuationBucketPayload struct {
 }
 
 type soldWeightBandsPayload struct {
-	Total       int `json:"total"`
-	Under20     int `json:"under_20_kg"`
-	From20To35  int `json:"from_20_to_35_kg"`
-	From35To40  int `json:"from_35_to_40_kg"`
-	AtOrAbove40 int `json:"at_or_above_40_kg"`
+	Total int `json:"total"`
+	// The three provenances, whole-register. They sum to Total minus Unweighed.
+	Measured    int `json:"measured"`
+	LoadAverage int `json:"load_average"`
+	Estimated   int `json:"estimated"`
 	Unweighed   int `json:"unweighed"`
+	// Always four, heaviest first, zeros included -- a band that disappears when it is empty
+	// reads as a band that does not exist.
+	Bands []soldWeightBandPayload `json:"bands"`
+}
+
+type soldWeightBandPayload struct {
+	Band        string `json:"band"`
+	Total       int    `json:"total"`
+	Measured    int    `json:"measured"`
+	LoadAverage int    `json:"load_average"`
+	Estimated   int    `json:"estimated"`
 }
 
 type summaryPayload struct {
@@ -443,9 +456,12 @@ func toOverviewPayload(o domain.Overview) overviewPayload {
 		},
 		MarketBenchmarks: benchmarks,
 		SoldWeightBands: soldWeightBandsPayload{
-			Total: o.SoldWeightBands.Total, Under20: o.SoldWeightBands.Under20,
-			From20To35: o.SoldWeightBands.From20To35, From35To40: o.SoldWeightBands.From35To40,
-			AtOrAbove40: o.SoldWeightBands.AtOrAbove40, Unweighed: o.SoldWeightBands.Unweighed,
+			Total:       o.SoldWeightBands.Total,
+			Measured:    o.SoldWeightBands.Measured,
+			LoadAverage: o.SoldWeightBands.LoadAverage,
+			Estimated:   o.SoldWeightBands.Estimated,
+			Unweighed:   o.SoldWeightBands.Unweighed,
+			Bands:       soldWeightBands(o.SoldWeightBands.Bands),
 		},
 		FarmValuation: farmValuationPayload{
 			TotalValueRupees: o.FarmValuation.TotalValueRupees,
@@ -457,6 +473,17 @@ func toOverviewPayload(o domain.Overview) overviewPayload {
 			Buckets:          valuationBuckets,
 		},
 	}
+}
+
+func soldWeightBands(in []domain.SoldWeightBand) []soldWeightBandPayload {
+	out := make([]soldWeightBandPayload, 0, len(in))
+	for _, b := range in {
+		out = append(out, soldWeightBandPayload{
+			Band: b.Band, Total: b.Total, Measured: b.Measured,
+			LoadAverage: b.LoadAverage, Estimated: b.Estimated,
+		})
+	}
+	return out
 }
 
 func statusCounts(in []domain.StatusCount) []statusCountPayload {

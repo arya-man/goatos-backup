@@ -41,7 +41,7 @@ func (r *Repository) GetOverview(ctx context.Context, tenantID, farm string) (do
 		tagRoster        domain.TagRoster
 		weightAudit      domain.WeightAuditSummary
 		marketBenchmarks []domain.MarketBenchmark
-		soldWeightBands  domain.SoldWeightBands
+		measuredWeights  map[string][]float64
 		farmValuation    domain.FarmValuation
 	)
 
@@ -78,7 +78,7 @@ func (r *Repository) GetOverview(ctx context.Context, tenantID, farm string) (do
 	})
 	group.Go(func() error {
 		var err error
-		soldWeightBands, err = r.soldWeightBands(gctx, tenantID, farm)
+		measuredWeights, err = r.measuredSoldWeights(gctx, tenantID, farm)
 		return err
 	})
 	group.Go(func() error {
@@ -95,50 +95,55 @@ func (r *Repository) GetOverview(ctx context.Context, tenantID, farm string) (do
 	overview.TagRoster = tagRoster
 	overview.WeightAudit = weightAudit
 	overview.MarketBenchmarks = marketBenchmarks
-	overview.SoldWeightBands = soldWeightBands
+	// The bands are folded from the SAME closed-deal rows the summary is folded from, so the
+	// banded total and the headline animals sold cannot disagree.
+	overview.SoldWeightBands = domain.BuildSoldWeightBands(closed, measuredWeights)
 	overview.FarmValuation = farmValuation
 	return overview, nil
 }
 
-// soldWeightBands counts every LIVE sale allocation (status 'tagged') by the weight recorded at
-// tagging, in ONE grouped read; the bands themselves are decided in domain.SoldWeightBands so
-// the edges live in exactly one place.
+// measuredSoldWeights reads the weight recorded when each animal was TAGGED to its sale, keyed
+// by deal. It is the best evidence the bands have: one animal, one scale reading. Everything else
+// the bands show is derived from a load, and domain.BuildSoldWeightBands keeps the two apart.
 //
-// projection-review: membership=goat_sale_allocations at (tenant_id, goat_id, sales_deal_id) grain, one
-// row per animal per sale, filtered to status='tagged' where the partial unique index
-// (tenant_id, goat_id) WHERE status='tagged' makes each sold animal appear exactly once;
-// group_key=a.weight_kg alone, each (weight, count) group folded by domain.SoldWeightBands into one
-// of four disjoint bands or the unweighed remainder, so band counts and Total range over the
-// identical key set of tagged allocation rows and bands + unweighed == total by construction;
-// join_cardinality=sales_deals joined 1:1 on (tenant_id, id) from (a.tenant_id, a.sales_deal_id)
-// purely for the farm predicate -- every allocation names exactly one deal, so the join can neither
-// fan out nor drop a row; pagination=none, whole-filter aggregate, the Sales page has no window;
-// scope=tenant, optionally narrowed to one farm through the deal's farm, the same buildDealFilter the
-// rest of the page uses.
-func (r *Repository) soldWeightBands(ctx context.Context, tenantID, farm string) (domain.SoldWeightBands, error) {
+// Keyed by DEAL and not by line because a tag names the sale, not which product line of it the
+// animal belongs to; the domain attaches them to the deal's live lines in line order.
+//
+// projection-review: membership=goat_sale_allocations at (tenant_id, goat_id, sales_deal_id)
+// grain, one row per animal per sale, filtered to status='tagged' where the partial unique index
+// (tenant_id, goat_id) WHERE status='tagged' makes each sold animal appear exactly once, and to
+// weight_kg IS NOT NULL because a tag with no weight is evidence of a sale and not of a weight;
+// group_key=sales_deal_id, one bucket per deal, and the rows within a bucket stay individual
+// because each is one animal's own weight; join_cardinality=sales_deals joined 1:1 on
+// (tenant_id, id) purely for the farm and closed-status predicates -- every allocation names
+// exactly one deal, so the join can neither fan out nor drop a row; pagination=none, whole-filter
+// read; scope=tenant, optionally narrowed to one farm through the deal, the same buildDealFilter
+// and the same status='Deal Closed' the closed-deal read uses, so the two sides of the fold
+// range over one deal set.
+func (r *Repository) measuredSoldWeights(ctx context.Context, tenantID, farm string) (map[string][]float64, error) {
 	where, args := buildDealFilter(tenantID, farm)
-	query := fmt.Sprintf(soldWeightBandsSQL, where)
+	query := fmt.Sprintf(measuredSoldWeightsSQL, where)
 	rows, err := r.pool.Query(ctx, query, args...)
 	if err != nil {
-		return domain.SoldWeightBands{}, fmt.Errorf("sales sold weight bands: %w", err)
+		return nil, fmt.Errorf("sales measured sold weights: %w", err)
 	}
 	defer rows.Close()
 
-	bands := domain.SoldWeightBands{}
+	out := map[string][]float64{}
 	for rows.Next() {
-		var kg *float64
-		var n int
-		if err := rows.Scan(&kg, &n); err != nil {
-			return domain.SoldWeightBands{}, fmt.Errorf("sales sold weight bands scan: %w", err)
+		var (
+			dealID string
+			kg     float64
+		)
+		if err := rows.Scan(&dealID, &kg); err != nil {
+			return nil, fmt.Errorf("sales measured sold weights scan: %w", err)
 		}
-		for i := 0; i < n; i++ {
-			bands.AddSoldWeight(kg)
-		}
+		out[dealID] = append(out[dealID], kg)
 	}
 	if err := rows.Err(); err != nil {
-		return domain.SoldWeightBands{}, fmt.Errorf("sales sold weight bands rows: %w", err)
+		return nil, fmt.Errorf("sales measured sold weights rows: %w", err)
 	}
-	return bands, nil
+	return out, nil
 }
 
 // farmValuation computes Manju's Sales farm-value cards from current live herd inventory, not the
@@ -490,31 +495,21 @@ func (r *Repository) marketBenchmarks(ctx context.Context, tenantID string) ([]d
 	return out, nil
 }
 
-// soldWeightBandsSQL is the one grouped read behind the Sales page's weight bands. %s is the
-// shared deal filter (tenant, optional farm) so the bands range over the same deals as the rest
-// of the page.
+// measuredSoldWeightsSQL reads one row per individually weighed sold animal. %s is the shared
+// deal filter (tenant, optional farm) so it ranges over the same deals as the rest of the page.
 //
-// projection-review: membership=goat_sale_allocations at (tenant_id, goat_id, sales_deal_id) grain, one
-// row per animal per sale, filtered to status='tagged' where the partial unique index
-// (tenant_id, goat_id) WHERE status='tagged' makes each sold animal appear exactly once;
-// group_key=a.weight_kg alone, each (weight, count) group folded by domain.SoldWeightBands into one
-// of four disjoint bands or the unweighed remainder, so band counts and Total range over the
-// identical key set of tagged allocation rows and bands + unweighed == total by construction;
-// join_cardinality=sales_deals joined 1:1 on (tenant_id, id) from (a.tenant_id, a.sales_deal_id)
-// purely for the farm predicate -- every allocation names exactly one deal, so the join can neither
-// fan out nor drop a row; pagination=none, whole-filter aggregate, the Sales page has no window;
-// scope=tenant, optionally narrowed to one farm through the deal's farm, the same buildDealFilter the
-// rest of the page uses.
+// projection-review: membership=goat_sale_allocations at (tenant_id, goat_id, sales_deal_id) grain, one row per animal per sale, narrowed to status='tagged' -- where the partial unique index (tenant_id, goat_id) WHERE status='tagged' makes each sold animal appear exactly once -- and to weight_kg IS NOT NULL, because a tag with no weight is evidence of a sale and not of a weight; group_key=none in SQL, this read is deliberately UNGROUPED and returns one row per animal so each weight keeps its own band, and the only key it carries is sales_deal_id, which the domain groups by; join_cardinality=sales_deals joined 1:1 on (tenant_id, id) from (a.tenant_id, a.sales_deal_id) purely for the farm and status predicates -- every allocation names exactly one deal, so the join can neither fan out nor drop a row, and sales_deal_lines is deliberately NOT joined here because a tag names the sale and not one product line of it; pagination=none, whole-filter read feeding a whole-register aggregate that cannot be computed from a page; scope=tenant_id plus the same buildDealFilter farm predicate and the same status='Deal Closed' the closed-deal read uses, so the two sides the domain folds together range over one deal set and the banded total equals the page's animals sold.
 //
-// scale-guard:ignore: grouped read over the sale-allocation register (one row per animal SOLD,
-// hundreds today, grows with sales rather than herd size) keyed by the indexed
-// (tenant_id, sales_deal_id); a whole-register count cannot be served from a page.
-const soldWeightBandsSQL = `
-		SELECT a.weight_kg::float8, count(*)
+// scale-guard:ignore: read over the sale-allocation register (one row per animal SOLD, 151 today,
+// grows with sales rather than herd size) keyed by the indexed (tenant_id, sales_deal_id); the
+// bands are a whole-register aggregate and cannot be served from a page.
+const measuredSoldWeightsSQL = `
+		SELECT a.sales_deal_id::text, a.weight_kg::float8
 		FROM public.goat_sale_allocations a
 		JOIN public.sales_deals d ON d.id = a.sales_deal_id AND d.tenant_id = a.tenant_id
-		WHERE %s AND a.tenant_id = $1 AND a.status = 'tagged'
-		GROUP BY a.weight_kg`
+		WHERE %s AND a.tenant_id = $1 AND a.status = 'tagged' AND a.weight_kg IS NOT NULL
+			AND d.status = 'Deal Closed'
+		ORDER BY a.sales_deal_id, a.weight_kg, a.allocation_id`
 
 // farmValuationSQL is the one live-inventory rollup behind the Farm Value cards. %s is the optional
 // farm-code predicate.

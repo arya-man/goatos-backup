@@ -10142,14 +10142,24 @@ export interface components {
             sold_weight_bands: components["schemas"]["SalesSoldWeightBands"];
             farm_valuation: components["schemas"]["SalesFarmValuation"];
         };
-        /** @description Every animal tagged sold, counted by the live weight recorded at tagging (maintainer decision 2026-09-08). The four bands are disjoint -- a weight sits in the lowest band whose upper edge is above it, so exactly 20 kg is 20-35 and exactly 40 kg is 40+ -- and `unweighed` is the remainder tagged before a weight was recorded. Bands plus unweighed equal total. Whole register, no window. */
+        /** @description Every animal sold on a closed deal, counted by weight (maintainer decisions 2026-09-08 and 2026-09-21). The four bands are disjoint -- a weight sits in the lowest band whose upper edge is above it, so exactly 20 kg is 20-35 and exactly 40 kg is 40+ -- and `unweighed` is the honest remainder whose weight was never recorded in any form. Bands plus unweighed equal total, and total is the same animal count `summary.animals` reports. Each band also says where its weights came from, because the three are not the same kind of evidence: `measured` was weighed one animal at a time when it was tagged to the sale, `load_average` is one animal of a load the desk weighed together, and `estimated` was never weighed and carries a recorded assumption instead. Whole register, no window. */
         SalesSoldWeightBands: {
             total: number;
-            under_20_kg: number;
-            from_20_to_35_kg: number;
-            from_35_to_40_kg: number;
-            at_or_above_40_kg: number;
+            measured: number;
+            load_average: number;
+            estimated: number;
             unweighed: number;
+            /** @description Always the four bands, heaviest first, zeros included -- a band that disappears when it is empty reads as a band that does not exist. */
+            bands: components["schemas"]["SalesSoldWeightBand"][];
+        };
+        /** @description One weight band's animals, split by where each weight came from. measured + load_average + estimated equals total. */
+        SalesSoldWeightBand: {
+            /** @enum {string} */
+            band: "at_or_above_40" | "from_35_to_40" | "from_20_to_35" | "under_20";
+            total: number;
+            measured: number;
+            load_average: number;
+            estimated: number;
         };
         FeedConfigRationGroupPage: {
             items: components["schemas"]["FeedConfigRationGroup"][];
