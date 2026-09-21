@@ -250,17 +250,22 @@ function runApiLatency(targetDir) {
     .filter((name) => /^hot-paths\..*\.json$/.test(name))
     .sort();
   if (manifests.length === 0) throw new Error("no API latency hot-path manifests found under tools/perf");
+  const requireExactApiSha = mode === "post-main-certification" || enabled("GOATOS_DASHBOARD_REQUIRE_API_SHA", false);
   for (const manifestName of manifests) {
     const output = path.join(targetDir, `api-latency-${manifestName.replaceAll(/[^a-zA-Z0-9._-]/g, "_")}`);
-    runNode([
+    const apiLatencyArgs = [
       "tools/perf/api-latency-gate.mjs",
       "--manifest",
       path.join("tools/perf", manifestName),
       "--output",
-      output,
-      "--expected-sha",
-      receipt.repoSha
-    ]);
+      output
+    ];
+    if (requireExactApiSha) {
+      apiLatencyArgs.push("--expected-sha", receipt.repoSha);
+    } else {
+      apiLatencyArgs.push("--allow-deployed-build", "1");
+    }
+    runNode(apiLatencyArgs);
     receipt.artifacts.push({ kind: "api-latency-report", manifest: path.join("tools/perf", manifestName), path: output });
   }
 }
@@ -405,6 +410,9 @@ function selfTest() {
   }
   if (!runnerSource.includes("post-main certification requires fresh STG-to-OCI READBACK_PASS parity")) {
     throw new Error("self-test: post-main certification must remain strict on STG-to-OCI parity");
+  }
+  if (!runnerSource.includes("GOATOS_DASHBOARD_REQUIRE_API_SHA") || !runnerSource.includes("--allow-deployed-build")) {
+    throw new Error("self-test: production API latency must test deployed prod without requiring latest main SHA unless explicitly requested");
   }
   if (!readFileSync(fileURLToPath(import.meta.url), "utf8").includes("runVaccinationLifecycleTests")) {
     throw new Error("self-test: runner must invoke deep vaccination lifecycle tests");

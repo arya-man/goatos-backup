@@ -49,6 +49,7 @@ for (const endpoint of endpoints) assertNoActorHeaderOverrides(endpoint.headers)
 const gitSha = currentGitSha();
 const worktree = currentWorktreeState();
 const expectedSha = String(args.expectedSha ?? process.env.GOATOS_PERF_EXPECTED_SHA ?? "").trim();
+const allowDeployedBuild = boolArg(args.allowDeployedBuild ?? process.env.GOATOS_PERF_ALLOW_DEPLOYED_BUILD, false);
 const startedAt = new Date().toISOString();
 let landingWindow = weighingWindow(startedAt);
 if (manifestDocument.scope?.evidence_profile === "pr264_performance") validateWeighingManifest(endpoints);
@@ -67,7 +68,7 @@ if (!bearerToken && !cookie) {
 }
 
 const observedBuildSha = await readApiBuildSha();
-if (observedBuildSha !== (expectedSha || gitSha)) {
+if (!allowDeployedBuild && observedBuildSha !== (expectedSha || gitSha)) {
   fail(`API build ${observedBuildSha} does not match expected ${expectedSha || gitSha}`);
 }
 const actorOptions = { baseUrl, tenantId, bearerToken, cookie, timeoutMs };
@@ -101,7 +102,8 @@ const report = {
   worktree_dirty: worktree.dirty,
   worktree_diff_sha256: worktree.diffSha256,
   worktree_status_short: worktree.statusShort,
-  expected_sha: expectedSha || gitSha,
+  build_policy: allowDeployedBuild ? "deployed_build_stable_only" : "exact_expected_sha",
+  expected_sha: allowDeployedBuild ? null : (expectedSha || gitSha),
   manifest_sha256: manifest ? sha256File(manifest) : null,
   scope: manifestDocument.scope,
   dataset,

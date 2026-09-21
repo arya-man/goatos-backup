@@ -193,6 +193,9 @@ function dashboardRuntimeFindings() {
   if (!runnerSource.includes("enabled(\"GOATOS_DASHBOARD_API_LATENCY\", true")) {
     findings.push(`${runnerRel}: API latency must be default-on unless explicitly disabled`);
   }
+  if (!runnerSource.includes("GOATOS_DASHBOARD_REQUIRE_API_SHA") || !runnerSource.includes("--allow-deployed-build")) {
+    findings.push(`${runnerRel}: production smoke must latency-test the deployed prod API without requiring latest main SHA; post-main certification may still require exact SHA`);
+  }
   if (!selfHealSource.includes("enabled(\"GOATOS_DASHBOARD_SELF_HEALING\", config.selfHealing.enabledByDefault")) {
     findings.push(`${selfHealRel}: self-healing PR creation must honor config default-on, not require env opt-in`);
   }
