@@ -250,8 +250,8 @@ func (cfg config) bumpAndroidReleaseVersionOnce(ctx context.Context, pat, trigge
 }
 
 func nextAndroidVersionFile(content string) (string, androidReleaseVersion, error) {
-	codeRe := regexp.MustCompile(`(?s)(val releaseVersionCode = \([\s\S]*?\)\s*\?\.\s*takeIf \{ it\.isNotBlank\(\) \}\s*\?\.\s*toInt\(\)\s*\?: )(\d+)`)
-	nameRe := regexp.MustCompile(`(?s)(val releaseVersionName = \([\s\S]*?\)\s*\?\.\s*takeIf \{ it\.isNotBlank\(\) \}\s*\?: ")(\d+\.\d+\.)(\d+)(")`)
+	codeRe := regexp.MustCompile(`(?s)(val releaseVersionCode = \([\s\S]*?\?:\s*)(\d+)`)
+	nameRe := regexp.MustCompile(`(?s)(val releaseVersionName = \([\s\S]*?\?:\s*")(\d+\.\d+\.)(\d+)(")`)
 
 	codeMatch := codeRe.FindStringSubmatch(content)
 	nameMatch := nameRe.FindStringSubmatch(content)
