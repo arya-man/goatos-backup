@@ -98,6 +98,7 @@ function selfTest() {
   if (items[0].path.includes("secret")) throw new Error("self-test: evidence path was not redacted");
   if (containsUnredactedSecret(JSON.stringify(items))) throw new Error("self-test: evidence retained a secret-like value");
   if (config.selfHealing.mode !== "pull_request_only") throw new Error("self-test: self-healing must remain PR-only");
+  if (!config.selfHealing.forbiddenActions.includes("writeOciData")) throw new Error("self-test: OCI writes must remain forbidden");
   console.log("dashboard agent review hook: self-test passed");
 }
 
