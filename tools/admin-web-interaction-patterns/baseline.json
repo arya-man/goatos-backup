@@ -6,7 +6,6 @@
     "apps/admin-web/features/counts/herd-actions-ui.tsx|native-date-input": 4,
     "apps/admin-web/features/counts/herd-actions.ts|revalidate-in-returning-action": 2,
     "apps/admin-web/features/feed/feed-config-actions.ts|revalidate-in-returning-action": 25,
-    "apps/admin-web/features/health/health-config-actions.ts|revalidate-in-returning-action": 5,
     "apps/admin-web/features/herd-signals/herd-signals-history-fullscreen.tsx|native-date-input": 2,
     "apps/admin-web/features/leave/actions.ts|revalidate-in-returning-action": 1,
     "apps/admin-web/features/pen-routines/pen-routine-actions.ts|revalidate-in-returning-action": 1,
