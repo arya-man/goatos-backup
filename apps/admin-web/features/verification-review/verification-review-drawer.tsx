@@ -31,6 +31,18 @@ import { submitVerificationReviewEvents } from "./review-events-server";
 const OPEN_FALLBACK_MS = 50;
 
 const PATHNAME = "/verify";
+const FEED_WASTAGE_REF_TYPE = "feed_wastage_completion";
+
+function singleMeasurementValueUsable(raw: string, refType: string | null | undefined): boolean {
+  const trimmed = raw.trim();
+  if (trimmed === "") return false;
+  const value = Number(trimmed);
+  if (!Number.isFinite(value)) return false;
+  // Feed wastage is the one single-value measurement where 0 is a real reading: an empty trough.
+  // Weighing must be positive, so admin-web holds Accept for 0 just like Android instead of
+  // enabling a submit that bounces from the backend.
+  return refType === FEED_WASTAGE_REF_TYPE ? value >= 0 : value > 0;
+}
 
 /**
  * The backend-composed section header a context row STARTS, or "" when it starts none: a producer
@@ -560,12 +572,12 @@ function VerificationReviewDrawerPanel({
   // neither wastage (born here) nor a per-field item offers it.
   const correctionFields = correction?.fields ?? [];
   const perFieldEntry = correctionFields.length > 0;
-  const measurementReasonSupported = correction?.ref_type !== "feed_wastage_completion" && !perFieldEntry;
+  const measurementReasonSupported = correction?.ref_type !== FEED_WASTAGE_REF_TYPE && !perFieldEntry;
   // A verdict is terminal: approved/rejected items stay open for viewing but cannot be re-decided.
   const verdictSettled = item.status !== "pending";
   // Blank means she has typed nothing. It is NOT a zero: for wastage an empty trough is a real
   // reading, so the two must stay distinguishable all the way to the server action.
-  const measurementEntered = measurementValue.trim() !== "";
+  const measurementEntered = singleMeasurementValueUsable(measurementValue, correction?.ref_type);
   const everyEntryFilled = correctionFields.every((field) => (entriesForItem[field.key] ?? "").trim() !== "");
   // Held wherever the backend says the reading is born on this screen: feed wastage, feed packing
   // -- and, since 2026-09-21, WEIGHING on both grains. Weighing's verifier is not shown the
@@ -929,6 +941,7 @@ function VerificationReviewDrawerPanel({
                   <input type="hidden" name="next_row" value={nextRowId} />
                   <input type="hidden" name="next_cursor" value={nextCursor} />
                   <input type="hidden" name="next_trail" value={nextTrail} />
+                  {correction ? <input type="hidden" name="measurement_ref_type" value={correction.ref_type} /> : null}
                   {/* Always shown (maintainer request 2026-09-08): a verifier may leave a note on
                       an ACCEPTED video too, so the box no longer waits for Reject to reveal it.
                       Reject still needs it filled; Accept sends it only when something was typed. */}
