@@ -374,6 +374,7 @@ export function WorklistFilters({
 
   /**
    * Writes both ends of a span at once. A PICKED span is ALWAYS written, even when it happens to
+   * Writes both ends of a span at once. A PICKED span is ALWAYS written, even when it happens to
    * equal the default one.
    *
    * Never one end at a time: a read that takes from/to rejects half a window, so setting them in two
