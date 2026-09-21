@@ -209,7 +209,9 @@ func TestWeightDemographicsSectionedReadsGateProducerCTEs(t *testing.T) {
 	src := readSource(t, "weight_demographics.go")
 	for _, required := range []string{
 		`cacheKey := weighingAnalyticsCacheKey("weight_demographics:"+sectionKey`,
-		`query := weightDemographicsPruneInactiveSectionSelects(q, sectionSet)`,
+		// The template is rendered for the selected Time-wise bucket (week, or a rolling 30-day
+		// block) BEFORE it is pruned, so the pruner still sees the whole query.
+		`query := weightDemographicsPruneInactiveSectionSelects(bucketedSQL, sectionSet)`,
 		`bound, bindErr := sqlbind.Bind(query,`,
 		`if bindErr != nil {`,
 		`return domain.WeightDemographics{}, fmt.Errorf("weighing: bind weight demographics query: %w", bindErr)`,

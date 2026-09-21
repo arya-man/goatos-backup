@@ -337,7 +337,7 @@ func weightDemographicsPruneInactiveSectionSelects(query string, sections map[st
 // than by_stage: a whole-shed weigh has no tags, so it reaches the stage rows via
 // its shed's cohort but never the breed or sex rows. The resolved / unresolved /
 // lump-sum counts are returned so that gap is legible rather than looking broken.
-func (r *Repository) GetWeightDemographics(ctx context.Context, tenantID string, parkIDs []string, periodStart, periodEnd time.Time, sex, origin, weighingCategory, sections string, bandEdgesKg []float64) (out domain.WeightDemographics, err error) {
+func (r *Repository) GetWeightDemographics(ctx context.Context, tenantID string, parkIDs []string, periodStart, periodEnd time.Time, sex, origin, weighingCategory, sections string, bandEdgesKg []float64, timeScope domain.TimeScope) (out domain.WeightDemographics, err error) {
 	// The band edges are the CALLER's (the tenant's weight_band_edges_kg assumption, maintainer
 	// decision 2026-09-19); this read names no assumptions table. width_bucket gives 0 below the
 	// first edge .. len(edges) at or above the last; key and farm label come from the same edges.
@@ -352,7 +352,7 @@ func (r *Repository) GetWeightDemographics(ctx context.Context, tenantID string,
 	for _, e := range bandEdgesKg {
 		edgeKey = append(edgeKey, strconv.FormatFloat(e, 'f', -1, 64))
 	}
-	cacheKey := weighingAnalyticsCacheKey("weight_demographics:"+sectionKey+":bands="+strings.Join(edgeKey, ","), tenantID, parkIDs, periodStart, periodEnd, sex, origin, weighingCategory)
+	cacheKey := weighingAnalyticsCacheKey("weight_demographics:"+sectionKey+":bands="+strings.Join(edgeKey, ",")+":"+timeScope.CacheKey(), tenantID, parkIDs, periodStart, periodEnd, sex, origin, weighingCategory)
 	if cached, ok := r.getReadCache(cacheKey); ok {
 		return cached.(domain.WeightDemographics), nil
 	}
@@ -496,6 +496,11 @@ scoped AS (
   JOIN weighing_campaigns c ON c.campaign_id = cs.campaign_id AND c.tenant_id = cs.tenant_id
   WHERE cs.tenant_id = $1::uuid AND c.park_id = ANY($2::uuid[]) AND cs.status <> 'canceled'
     AND ($16::text = '' OR cs.weighing_category = $16::text)
+    -- The Time-wise tab's selected pen ($32/$33, empty = every pen). Narrowed in this CTE, which
+    -- every arm below reads from, so the whole response is about that one pen: its breeds, its
+    -- weeks, and the load it sits in. A pen is (location, partition) -- a pen NAME repeats across
+    -- parks, and narrowing on one would merge CBE's Castro 1 with CPT's.
+    AND ($32::text = '' OR (cs.location_id::text = $32::text AND COALESCE(cs.partition_label, '') = $33::text))
 ),
 latest AS (
   -- Same-animal key ($17/$18, identity_scope.go). A double-tagged animal keyed by the raw string was
@@ -568,7 +573,7 @@ animal_gain AS (
 -- the whole window.
 animal_gain_week AS (
   SELECT tag,
-         (date_trunc('week', accepted_at AT TIME ZONE 'Asia/Kolkata'))::date AS week_start,
+         {{BUCKET_ACCEPTED_AT}} AS week_start,
          percentile_cont(0.5) WITHIN GROUP (
            ORDER BY (weight_kg - prev_w) * 1000.0 / (d - prev_d)) AS g
   FROM paired
@@ -816,21 +821,23 @@ lump_span AS (
       WHERE st.location_id = latest.location_id AND st.partition_label = latest.partition_label
     ))
 ),
--- Whole-shed pens cut by calendar week, the pen half of the breed trend. CONSECUTIVE weighs, not
--- first-vs-latest like lump_span: a weekly series must attribute movement to the week it was
--- observed in, so each pen weigh is paired with the one before it and bucketed by the later of the
--- two. rn = 1 keeps ONE movement per pen per week -- a pen weighed three times inside a week would
--- otherwise add its head count to that week twice.
+-- Whole-shed pens cut by bucket, the pen half of the breed trend. CONSECUTIVE weighs, not
+-- first-vs-latest like lump_span: a series must attribute movement to the bucket it was observed
+-- in, so each pen weigh is paired with the one before it and bucketed by the later of the two.
+-- The pen contributes ONE row per bucket -- a pen weighed three times inside one would otherwise
+-- add its head count to that bucket twice -- and its figure is the grams it gained across the
+-- bucket over the DAYS those legs cover, so a 30-day bucket reports thirty days of movement rather
+-- than its last leg. Its head count is the one recorded at its latest weigh in the bucket.
 pen_week AS (
-  SELECT week_start, location_id, partition_label, animals, g_per_day FROM (
-    SELECT (date_trunc('week', d::timestamp))::date AS week_start,
-           location_id, partition_label,
-           animal_count::float8 AS animals,
-           (average_weight_kg - prev_w) * 1000.0 / NULLIF(d - prev_d, 0) AS g_per_day,
-           row_number() OVER (
-             PARTITION BY location_id, partition_label, (date_trunc('week', d::timestamp))::date
-             ORDER BY d DESC
-           ) AS rn
+  SELECT week_start, location_id, partition_label,
+         (array_agg(animal_count ORDER BY d DESC))[1]::float8 AS animals,
+         sum(gain_g) / NULLIF(sum(leg_days), 0) AS g_per_day
+  FROM (
+    SELECT {{BUCKET_D}} AS week_start,
+           location_id, partition_label, d,
+           animal_count,
+           (average_weight_kg - prev_w) * 1000.0 AS gain_g,
+           (d - prev_d) AS leg_days
     FROM (
       SELECT s.location_id, COALESCE(s.partition_label, '') AS partition_label,
              so.average_weight_kg, so.animal_count,
@@ -851,7 +858,8 @@ pen_week AS (
                    ORDER BY (so.accepted_at AT TIME ZONE 'Asia/Kolkata')::date)
     ) pairs
     WHERE prev_w IS NOT NULL AND d > prev_d
-  ) ranked WHERE rn = 1
+  ) legs
+  GROUP BY week_start, location_id, partition_label
 ),
 -- THE PEN'S OWN LATEST WEIGH, not each animal's (maintainer decision 2026-09-21).
 --
@@ -1412,8 +1420,19 @@ SELECT
 		gainThresholdBreedJSON                                      []byte
 		compositionJSON                                             []byte
 	)
-	query := weightDemographicsPruneInactiveSectionSelects(q, sectionSet)
-	bound, bindErr := sqlbind.Bind(query, tenantID, parkIDs, periodStart, periodEnd, sexFilter,
+	// The month variant counts its 30-day blocks back from the window's last day; the week variant
+	// never names that parameter, so it is bound only for the month -- sqlbind requires the
+	// placeholders and the arguments to match exactly.
+	extraArgs := []any{}
+	if timeScope.Bucket == domain.GainBucketMonth {
+		extraArgs = append(extraArgs, gainBucketAnchor(periodEnd))
+	}
+	// ONE template, rendered for the selected bucket: the week variant is the query this read has
+	// always run, the month variant swaps the calendar week for a rolling 30-day block counted back
+	// from $34. Rendered BEFORE the section pruning so the pruner still sees the whole query.
+	bucketedSQL := bucketedQuery(q, timeScope.Bucket, weightDemographicsAnchorParam)
+	query := weightDemographicsPruneInactiveSectionSelects(bucketedSQL, sectionSet)
+	bindArgs := append([]any{tenantID, parkIDs, periodStart, periodEnd, sexFilter,
 		originFiltered, originScope.Tags, originScope.LocationIDs, originScope.PartitionLabels,
 		farmBornScope.Tags, purchasedScope.Tags,
 		farmBornScope.LocationIDs, farmBornScope.PartitionLabels,
@@ -1424,7 +1443,9 @@ SELECT
 		sectionSet["shed_type"], sectionSet["weight_bands"], sectionSet["weekly_gain"],
 		sectionSet["gain_thresholds"],
 		needLatest, needLump, needGain, needLumpSpan, needWeeklyGain,
-		bandEdgesKg)
+		bandEdgesKg,
+		timeScope.PenLocationID, timeScope.PenPartitionLabel}, extraArgs...)
+	bound, bindErr := sqlbind.Bind(query, bindArgs...)
 	if bindErr != nil {
 		return domain.WeightDemographics{}, fmt.Errorf("weighing: bind weight demographics query: %w", bindErr)
 	}

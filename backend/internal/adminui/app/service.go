@@ -5488,6 +5488,18 @@ func pageSpecificCopy(id string) map[string]string {
 			"filter.weight.value_aria": "Average weight in kilograms",
 			"filter.weight.note":       "Only pens whose average weight matches",
 
+			// The Time-wise tab's own two controls (maintainer request 2026-09-21). They are
+			// tab-local: the bucket decides how this tab's columns are cut, the pen picker narrows
+			// this tab's pen grid, and neither changes what another tab counts.
+			"filter.gain_bucket.label": "Show",
+			"filter.gain_bucket.note":  "Monthly counts back 30 days at a time from the last day of the selected period",
+			"filter.time_pen.label":    "Pen",
+			"filter.time_pen.note":     "Shows this tab for one pen only: its growth, its breeds and the load it sits in",
+			// A pen the selected period holds no weighing for still narrows the page, so the control
+			// must name it rather than reading as "All" above an empty tab. Nothing in the period can
+			// give it its own name, so the option says what it is.
+			"filter.time_pen.unlisted": "Selected pen — not weighed in this period",
+
 			"tab.aria":    "ADG Analytics view",
 			"tab.general": "General",
 			"tab.breed":   "Breed-wise",
@@ -5705,6 +5717,28 @@ func pageSpecificCopy(id string) map[string]string {
 			"section.time.load.caption": "The same weeks, one row per purchased load: the daily gain of the pens that load sits in, weighted by animals. A pen tagged to two loads counts toward neither, and a load whose pens were not weighed twice in a week shows a blank for it.",
 			"section.time.load.aria":    "Daily gain by purchased load and week",
 			"empty.time.load.body":      "No purchased load has a pen weighed twice inside this period.",
+
+			// The MONTHLY wording of the same four sections. A column is then a rolling 30-day
+			// block counted back from the period's last day, so a heading that said "week" would
+			// name something the table no longer shows. The page picks one set or the other; it
+			// never edits either, and the two must stay a matched pair.
+			"section.time.title.month":         "Growth every 30 days",
+			"section.time.caption.month":       "Daily gain in each 30-day block of the selected period under the selected weighing mode, counted back from the period's last day. The default period starts on 03 Aug 2026, where the reliable weighing run begins. Park, sex and origin filters still apply. A block the period starts part-way through is shorter than 30 days and is still headed by that block's own start date, which can fall before the period.",
+			"section.time.aria.month":          "Daily gain every 30 days",
+			"empty.time.body.month":            "No 30-day block in this period has a kid or a pen weighed twice.",
+			"section.time.breed.title.month":   "Growth every 30 days by breed",
+			"section.time.breed.caption.month": "The same 30-day blocks and weighing mode, one row per breed. A pen holding more than one breed is counted in the overall trend above but in no breed here, so the breed rows need not add up to it. A block the period starts part-way through is shorter than 30 days and is still headed by that block's own start date, which can fall before the period.",
+			"section.time.breed.aria.month":    "Daily gain by breed and 30-day block",
+			"empty.time.breed.body.month":      "No breed has a kid or a single-breed pen weighed twice in this period.",
+			"note.time.gaps.month":             "A 30-day block nobody weighed in has no bar. It is left out rather than drawn as zero, which would read as a block the kids stopped growing in.",
+			"section.time.pen.title.month":     "Growth every 30 days by pen",
+			"section.time.pen.caption.month":   "Daily gain for every pen in each 30-day block of the selected period, under the selected weighing mode. A pen is listed whatever it holds; the sex filter keeps a whole-pen weigh only when the pen holds that sex alone. A block the period starts part-way through is shorter than 30 days and is still headed by that block's own start date, which can fall before the period.",
+			"section.time.pen.aria.month":      "Daily gain by pen and 30-day block",
+			"empty.time.pen.body.month":        "No pen has a kid or a whole-pen weigh paired inside this period.",
+			"section.time.load.title.month":    "Growth every 30 days by load",
+			"section.time.load.caption.month":  "The same 30-day blocks, one row per purchased load: the daily gain of the pens that load sits in, weighted by animals. A pen tagged to two loads counts toward neither, and a load whose pens were not weighed twice in a block shows a blank for it. A block the period starts part-way through is shorter than 30 days and is still headed by that block's own start date, which can fall before the period.",
+			"section.time.load.aria.month":     "Daily gain by purchased load and 30-day block",
+			"empty.time.load.body.month":       "No purchased load has a pen weighed twice inside this period.",
 
 			// ---------------------------------------------------------------------------
 			// LOAD-WISE (maintainer request 2026-09-03). One chart and one table: per
@@ -11084,6 +11118,18 @@ func weighingWeightsOptionGroups() []domain.OptionGroup {
 		// window is now picked from a calendar, and a stale option group reads to the next author as
 		// a control that still exists somewhere.
 		{ID: "weighing_parks", Options: []domain.Option{}},
+		{
+			// The Time-wise tab's column width (maintainer request 2026-09-21). MONTHLY is a
+			// rolling 30-day block counted back from the selected period's last day -- the last 30
+			// days, then the 30 before that -- never a calendar month, because calendar months are
+			// 28 to 31 days long and a steady gain would read differently in February than in March
+			// purely because the bucket changed length. The labels say so in the farm's words.
+			ID: "gain_bucket",
+			Options: []domain.Option{
+				option("week", "Weekly", "", ""),
+				option("month", "Monthly (30 days)", "", ""),
+			},
+		},
 		{
 			// The pens table's average-weight comparison vocabulary, the feed config's grams
 			// filter re-used for kilograms. Backend-owned like every option group: the keys are

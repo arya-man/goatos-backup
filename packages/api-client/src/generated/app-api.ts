@@ -21316,6 +21316,12 @@ export interface operations {
                 weighing_category?: "all" | "individual_animal" | "per_shed_partition";
                 /** @description Optional comma-separated response sections. Omitted means the full legacy payload. Unknown section names are rejected rather than silently ignored. */
                 sections?: string;
+                /** @description How the Time-wise series is cut into columns. `week` (the default, and what every caller got before this parameter existed) is the CALENDAR week in Asia/Kolkata. `month` is NOT a calendar month: it is a rolling 30-day block counted BACK FROM the window's last day -- the last 30 days, then the 30 before that -- because calendar months are 28 to 31 days long and a steady gain would read differently in February than in March purely because the bucket changed length. An unknown value is REJECTED rather than defaulted, so a page asking for 30-day blocks never silently gets weeks. It changes only which columns the period series carries; every other figure on the response is unaffected. */
+                bucket?: "week" | "month";
+                /** @description Narrow the WHOLE read to one pen (maintainer request 2026-09-21): its own growth, its breeds, and the purchased load it sits in. A pen is (location, partition) because a pen NAME repeats across parks -- narrowing on the name would merge CBE's Castro 1 with CPT's. Omitted means every pen the caller's scope allows; a value that is not a uuid is REJECTED rather than ignored, because silently widening back to every pen would show the whole farm under a heading that names one pen. */
+                pen_location_id?: string;
+                /** @description The partition half of the pen, exactly as the read reports it. BLANK IS A VALUE -- it is an undivided shed, not a missing field -- so it is only meaningful beside pen_location_id. */
+                pen_partition_label?: string;
             };
             header?: never;
             path?: never;
@@ -21383,6 +21389,12 @@ export interface operations {
                 weighing_category?: "all" | "individual_animal" | "per_shed_partition";
                 /** @description Optional comma-separated response sections. Omitted means the full legacy payload. Unknown section names are rejected rather than silently ignored. */
                 sections?: string;
+                /** @description How the Time-wise series is cut into columns. `week` (the default, and what every caller got before this parameter existed) is the CALENDAR week in Asia/Kolkata. `month` is NOT a calendar month: it is a rolling 30-day block counted BACK FROM the window's last day -- the last 30 days, then the 30 before that -- because calendar months are 28 to 31 days long and a steady gain would read differently in February than in March purely because the bucket changed length. An unknown value is REJECTED rather than defaulted, so a page asking for 30-day blocks never silently gets weeks. It changes only which columns the period series carries; every other figure on the response is unaffected. */
+                bucket?: "week" | "month";
+                /** @description Narrow the WHOLE read to one pen (maintainer request 2026-09-21): its own growth, its breeds, and the purchased load it sits in. A pen is (location, partition) because a pen NAME repeats across parks -- narrowing on the name would merge CBE's Castro 1 with CPT's. Omitted means every pen the caller's scope allows; a value that is not a uuid is REJECTED rather than ignored, because silently widening back to every pen would show the whole farm under a heading that names one pen. */
+                pen_location_id?: string;
+                /** @description The partition half of the pen, exactly as the read reports it. BLANK IS A VALUE -- it is an undivided shed, not a missing field -- so it is only meaningful beside pen_location_id. */
+                pen_partition_label?: string;
             };
             header?: never;
             path?: never;
@@ -21510,6 +21522,12 @@ export interface operations {
                 sections?: string;
                 /** @description Comma-separated band edges in kg, lowest to highest (2..8 edges, 1..200 kg) -- the tenant's weight_band_edges_kg assumption, supplied by the caller because this read names no assumptions table. Omitted is 15,20,25,30,35; malformed or non-rising is REJECTED. */
                 band_edges_kg?: string;
+                /** @description How the Time-wise series is cut into columns. `week` (the default, and what every caller got before this parameter existed) is the CALENDAR week in Asia/Kolkata. `month` is NOT a calendar month: it is a rolling 30-day block counted BACK FROM the window's last day -- the last 30 days, then the 30 before that -- because calendar months are 28 to 31 days long and a steady gain would read differently in February than in March purely because the bucket changed length. An unknown value is REJECTED rather than defaulted, so a page asking for 30-day blocks never silently gets weeks. It changes only which columns the period series carries; every other figure on the response is unaffected. */
+                bucket?: "week" | "month";
+                /** @description Narrow the WHOLE read to one pen (maintainer request 2026-09-21): its own growth, its breeds, and the purchased load it sits in. A pen is (location, partition) because a pen NAME repeats across parks -- narrowing on the name would merge CBE's Castro 1 with CPT's. Omitted means every pen the caller's scope allows; a value that is not a uuid is REJECTED rather than ignored, because silently widening back to every pen would show the whole farm under a heading that names one pen. */
+                pen_location_id?: string;
+                /** @description The partition half of the pen, exactly as the read reports it. BLANK IS A VALUE -- it is an undivided shed, not a missing field -- so it is only meaningful beside pen_location_id. */
+                pen_partition_label?: string;
             };
             header?: never;
             path?: never;

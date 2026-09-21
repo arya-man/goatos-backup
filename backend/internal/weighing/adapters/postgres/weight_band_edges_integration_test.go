@@ -49,7 +49,7 @@ func TestWeightBandEdgesOneToManyPageBoundaryParkScopeStatusBuckets(t *testing.T
 	}
 
 	// STATUS BUCKETS: no edges == the default edges, and the default keys/labels are the old ones.
-	byDefault, err := repo.GetWeightDemographics(ctx, repoTenant, []string{repoPark}, from, to, "", "", "", "", nil)
+	byDefault, err := repo.GetWeightDemographics(ctx, repoTenant, []string{repoPark}, from, to, "", "", "", "", nil, domain.TimeScope{})
 	if err != nil {
 		t.Fatalf("GetWeightDemographics(default): %v", err)
 	}
@@ -69,7 +69,7 @@ func TestWeightBandEdgesOneToManyPageBoundaryParkScopeStatusBuckets(t *testing.T
 	}
 
 	// ONE-TO-MANY + PAGE BOUNDARY: a different partition moves the pen whole and keeps the total.
-	byTens, err := repo.GetWeightDemographics(ctx, repoTenant, []string{repoPark}, from, to, "", "", "", "", []float64{10, 20, 30, 40})
+	byTens, err := repo.GetWeightDemographics(ctx, repoTenant, []string{repoPark}, from, to, "", "", "", "", []float64{10, 20, 30, 40}, domain.TimeScope{})
 	if err != nil {
 		t.Fatalf("GetWeightDemographics(10/20/30/40): %v", err)
 	}
@@ -85,7 +85,7 @@ func TestWeightBandEdgesOneToManyPageBoundaryParkScopeStatusBuckets(t *testing.T
 	}
 
 	// PARK SCOPE: another park's list holds none of this pen's animals, whatever the edges.
-	other, err := repo.GetWeightDemographics(ctx, repoTenant, []string{"00000000-0000-4000-8000-00000000dead"}, from, to, "", "", "", "", []float64{10, 20, 30, 40})
+	other, err := repo.GetWeightDemographics(ctx, repoTenant, []string{"00000000-0000-4000-8000-00000000dead"}, from, to, "", "", "", "", []float64{10, 20, 30, 40}, domain.TimeScope{})
 	if err != nil {
 		t.Fatalf("GetWeightDemographics(other park): %v", err)
 	}
