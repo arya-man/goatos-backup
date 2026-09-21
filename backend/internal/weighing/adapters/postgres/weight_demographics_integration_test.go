@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"math"
+	"sort"
 	"testing"
 	"time"
 
@@ -1866,5 +1867,108 @@ WHERE tenant_id = $1::uuid AND campaign_shed_id = $2::uuid`, repoTenant, loadPar
 	if len(withdrawn.GainByLoadWeek) != 1 || withdrawn.GainByLoadWeek[0].Animals != 10 ||
 		math.Abs(withdrawn.GainByLoadWeek[0].AverageGainGPerDay-1000) > 0.01 {
 		t.Fatalf("the load row is now Part A alone, 10 head at 1000 g/day: %#v", withdrawn.GainByLoadWeek)
+	}
+}
+
+// THE PEN'S OWN LATEST WEIGH, not each animal's (maintainer decision 2026-09-21).
+//
+// An animal weighed in one pen and then, later in the same window, in another used to file its
+// composition chip under the SECOND pen only -- so the first pen carried weighs on its row and no
+// cohort at all, and the Breed column beside it read as absent data on a pen that was
+// demonstrably weighed. Both pens now report the animals of their OWN most recent weighing day,
+// which is the population the shed-weights row beside each one counts.
+//
+// Reproduced on the real read: seeded against the pre-change query this fails with "missing
+// composition for the first pen", which is exactly the blank cell the maintainer reported.
+func TestShedCompositionReportsEachPensOwnLatestWeighNotTheAnimalsLatestPen(t *testing.T) {
+	pgtest.SkipIfNoDocker(t)
+	ctx := context.Background()
+	pool := pgtest.StartPostgres(t, ctx)
+	defer pool.Close()
+	seedWeighingObservationFixture(t, ctx, pool)
+	repo := NewRepository(pool, 5*time.Second)
+
+	const (
+		secondShed   = "00000000-0000-4000-8000-0000000091f1"
+		secondBucket = "00000000-0000-4000-9000-0000000091f1"
+	)
+
+	execWeighingTestSQL(t, ctx, pool, `
+UPDATE goats SET breed='Sojat', sex='male'
+WHERE tenant_id=$1::uuid AND goat_id=$2::uuid`, repoTenant, repoAnimal)
+	execWeighingTestSQL(t, ctx, pool, `
+INSERT INTO goats (goat_id, tenant_id, display_id, breed, sex, age_band, lifecycle_status, management_stage, custodian_party_id, current_location_id, park_id, shed_id)
+VALUES ($1::uuid, $2::uuid, 'G-990003', 'Beetal', 'male', 'kid', 'alive', 'kid', $3::uuid, $4::uuid, $5::uuid, $4::uuid)
+ON CONFLICT (goat_id) DO UPDATE
+SET breed=EXCLUDED.breed, sex=EXCLUDED.sex, current_location_id=EXCLUDED.current_location_id, shed_id=EXCLUDED.shed_id`,
+		repoAnimalTwo, repoTenant, repoParty, repoExpectedShed, repoPark)
+	execWeighingTestSQL(t, ctx, pool, `
+INSERT INTO goat_identifiers (tenant_id, goat_id, identifier_type, identifier_value, normalized_value, scope_key, is_primary_for_goat, status, valid_from, normalizer_version)
+VALUES
+  ($1::uuid, $2::uuid, 'animal_identifier_1', 'chip-moved-one', 'chip-moved-one', 'global', true, 'active', now(), 'test'),
+  ($1::uuid, $3::uuid, 'animal_identifier_1', 'chip-moved-two', 'chip-moved-two', 'global', true, 'active', now(), 'test')
+ON CONFLICT (tenant_id, normalized_value) DO UPDATE
+SET goat_id=EXCLUDED.goat_id, identifier_value=EXCLUDED.identifier_value, status='active'`,
+		repoTenant, repoAnimal, repoAnimalTwo)
+
+	// A second pen, weighed the day after the first.
+	execWeighingTestSQL(t, ctx, pool, `
+INSERT INTO locations (location_id, tenant_id, location_type, name, parent_location_id, status)
+VALUES ($1::uuid, $2::uuid, 'shed', 'Second Pen', $3::uuid, 'active')
+ON CONFLICT (tenant_id, location_id) DO NOTHING`, secondShed, repoTenant, repoPark)
+	execWeighingTestSQL(t, ctx, pool, `
+INSERT INTO weighing_campaign_sheds (
+  campaign_shed_id, campaign_id, tenant_id, location_id, location_type,
+  display_name, weighing_category, operator_user_id, expected_animal_count)
+VALUES ($1::uuid, $2::uuid, $3::uuid, $4::uuid, 'shed', 'Second Pen', 'individual_animal', $5::uuid, 0)
+ON CONFLICT (campaign_shed_id) DO NOTHING`,
+		secondBucket, repoCampaign, repoTenant, secondShed, repoOperator)
+
+	firstDay := time.Date(2026, 7, 29, 6, 0, 0, 0, time.UTC)
+	secondDay := firstDay.AddDate(0, 0, 1)
+	seedShedWeightScan(t, ctx, pool, "chip-moved-one", 24.0, firstDay)
+	seedShedWeightScan(t, ctx, pool, "chip-moved-two", 25.0, firstDay)
+	for _, tag := range []string{"chip-moved-one", "chip-moved-two"} {
+		execWeighingTestSQL(t, ctx, pool, `
+INSERT INTO weighing_observations (tenant_id, campaign_id, campaign_shed_id, scanned_identifier, weight_kg, proof_artifact_id, recorded_by, idempotency_key, accepted_at, submitted_at)
+VALUES ($1::uuid, $2::uuid, $3::uuid, $4, 26.0, $5::uuid, $6::uuid, $7, $8::timestamptz, $8::timestamptz)`,
+			repoTenant, repoCampaign, secondBucket, tag, repoAnimalProof, repoOperator,
+			"secondpen:"+tag, secondDay)
+	}
+
+	out, err := repo.GetWeightDemographics(ctx, repoTenant, []string{repoPark},
+		time.Date(2026, 7, 29, 0, 0, 0, 0, time.UTC),
+		time.Date(2026, 7, 31, 0, 0, 0, 0, time.UTC), "", "", "", "composition", nil)
+	if err != nil {
+		t.Fatalf("GetWeightDemographics(composition): %v", err)
+	}
+
+	byLocation := map[string][]string{}
+	totals := map[string]int{}
+	for _, shed := range out.ShedComposition {
+		for _, chip := range shed.Chips {
+			byLocation[shed.LocationID] = append(byLocation[shed.LocationID], chip.Breed)
+		}
+		totals[shed.LocationID] = shed.TotalAnimals
+	}
+
+	first, ok := byLocation[repoExpectedShed]
+	if !ok {
+		t.Fatalf("missing composition for the first pen %s: a pen whose animals were weighed again elsewhere still has a cohort of its own, got %#v",
+			repoExpectedShed, out.ShedComposition)
+	}
+	sort.Strings(first)
+	if len(first) != 2 || first[0] != "Beetal" || first[1] != "Sojat" {
+		t.Fatalf("first pen chips = %#v, want Beetal + Sojat from its own weighing day", first)
+	}
+	if totals[repoExpectedShed] != 2 {
+		t.Fatalf("first pen total = %d, want the 2 animals it weighed", totals[repoExpectedShed])
+	}
+	second, ok := byLocation[secondShed]
+	if !ok {
+		t.Fatalf("missing composition for the second pen %s in %#v", secondShed, out.ShedComposition)
+	}
+	if len(second) != 2 || totals[secondShed] != 2 {
+		t.Fatalf("second pen chips = %#v total = %d, want its own 2 animals", second, totals[secondShed])
 	}
 }

@@ -853,6 +853,61 @@ pen_week AS (
     WHERE prev_w IS NOT NULL AND d > prev_d
   ) ranked WHERE rn = 1
 ),
+-- THE PEN'S OWN LATEST WEIGH, not each animal's (maintainer decision 2026-09-21).
+--
+-- The resolved CTE above keys one row per ANIMAL at its latest weigh ANYWHERE, which is the
+-- right grain for "average weight by breed" and the WRONG one for a pen's cohort: an animal
+-- weighed in Yashoda 7 and then again in Yashoda 3 filed its chip under Yashoda 3, so Yashoda 7
+-- ended up with weighs on its row and NO cohort at all -- reading as absent data on a pen that
+-- was demonstrably weighed. Composition is now the animals of the pen's OWN most recent
+-- weighing day inside the window, which is the population the shed-weights row beside it counts.
+--
+-- THE SEX FILTER IS APPLIED BEFORE THE DAY IS CHOSEN, and that ordering is the whole point: the
+-- shed-weights row narrows to the filtered animals first and then reports that pen's latest
+-- weigh OF THOSE animals. Choosing the day over every animal and filtering afterwards picks a
+-- day the filtered cohort may not have been weighed on at all, which is an empty cell beside a
+-- row that counts animals -- the very defect this replaces, one step further along.
+pen_scan AS (
+  SELECT s.location_id, s.partition_label,
+         COALESCE(akmap.canonical_tag, lower(btrim(o.scanned_identifier))) AS tag,
+         (o.accepted_at AT TIME ZONE 'Asia/Kolkata')::date AS d,
+         o.accepted_at, o.observation_id, g.breed, g.sex, g.management_stage
+  FROM weighing_observations o
+  JOIN scoped s ON s.campaign_shed_id = o.campaign_shed_id AND s.tenant_id = o.tenant_id
+  -- projection-review: membership=the same-animal map resolved by identity_scope.go plus the herd register read this file is exempted for; group_key=(location_id, partition_label, canonical tag); join_cardinality=0..1 map rows per observation (the map's tag column is unique by construction), 0..1 ident rows per tag (DISTINCT ON), 0..1 goats rows per goat_id (PK), so no join can multiply an observation; pagination=NONE, bounded by the tenant+park+window predicates; scope=tenant + the caller's park scope and window
+  LEFT JOIN unnest($17::text[], $18::text[]) AS akmap(tag, canonical_tag)
+    ON akmap.tag = lower(btrim(o.scanned_identifier))
+  LEFT JOIN ident i ON i.tag = COALESCE(akmap.canonical_tag, lower(btrim(o.scanned_identifier)))
+  LEFT JOIN goats g ON g.goat_id = i.goat_id AND g.tenant_id = $1::uuid
+  WHERE o.tenant_id = $1::uuid
+    AND $19::bool
+    AND o.accepted_at >= $3::timestamptz AND o.accepted_at < $4::timestamptz
+    AND o.verification_status <> 'rejected'
+    AND btrim(o.scanned_identifier) <> ''
+    AND ($16::text = '' OR $16::text = 'individual_animal')
+    -- Origin filter, the same bind pair and same FALSE-is-unfiltered rule the latest CTE uses.
+    AND (NOT $6::bool OR lower(btrim(o.scanned_identifier)) = ANY($7::text[]))
+    -- Sex filter, the same rule the resolved CTE states: an empty $5 is the unfiltered page and
+    -- keeps every row INCLUDING the tags that resolve to no animal, while a filtered page cannot
+    -- keep them because an unresolved tag has no sex to match.
+    AND ($5::text = '' OR lower(btrim(g.sex)) = $5::text)
+),
+pen_latest_scan AS (
+  -- One row per (pen, animal) on that pen's latest weighing day. DISTINCT ON the same-animal key
+  -- rather than the raw tag, so a pen scanned twice in a day -- or an animal scanned on its
+  -- primary tag and then its secondary -- is ONE animal here, exactly as the row counts it.
+  SELECT DISTINCT ON (ps.location_id, ps.partition_label, ps.tag)
+         ps.location_id, ps.partition_label, ps.tag, ps.breed, ps.sex, ps.management_stage
+  FROM pen_scan ps
+  JOIN (
+    SELECT location_id, partition_label, max(d) AS d
+    FROM pen_scan GROUP BY location_id, partition_label
+  ) pen_day
+    ON pen_day.location_id = ps.location_id
+   AND pen_day.partition_label = ps.partition_label
+   AND pen_day.d = ps.d
+  ORDER BY ps.location_id, ps.partition_label, ps.tag, ps.accepted_at DESC, ps.observation_id DESC
+),
 individual_composition AS (
   SELECT location_id, partition_label, 'scanned_tags'::text AS source,
          sum(animals)::int AS total_animals,
@@ -864,8 +919,7 @@ individual_composition AS (
            COALESCE(NULLIF(sex, ''), 'unknown sex') AS sex,
            COALESCE(NULLIF(management_stage, ''), 'Unknown stage') AS stage,
            count(*)::int AS animals
-    FROM resolved
-    WHERE $19::bool
+    FROM pen_latest_scan
     GROUP BY location_id, partition_label,
              COALESCE(NULLIF(breed, ''), 'Unknown breed'),
              COALESCE(NULLIF(sex, ''), 'unknown sex'),
