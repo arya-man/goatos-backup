@@ -126,9 +126,9 @@ type queueItemResponse struct {
 	// verifier may correct while reviewing the proof, and every word of that control's copy.
 	// Absent -- the normal case -- means no client renders a correction control.
 	//
-	// It carries NO current value: the number is already in SubjectLabel, which the producing
-	// module composes and the verifier is reading while she watches the video. Putting it here
-	// too would mean verification reading a producer's tables.
+	// It carries NO current value: categories such as blind weighing deliberately keep the
+	// operator's number off this contract, and putting it here would mean verification reading
+	// a producer's tables.
 	MeasurementCorrection *measurementCorrectionResponse `json:"measurement_correction,omitempty"`
 }
 
@@ -149,8 +149,8 @@ type measurementCorrectionResponse struct {
 	// (a lump-sum shed proof's head count). Absent means the client renders the value field alone.
 	CountLabel string `json:"count_label,omitempty"`
 	// RequiredForApprove tells the client to keep Approve disabled until a number is entered.
-	// True for feed wastage, where the operator sends a video only and the reading is born on the
-	// verifier's screen; false for weighing, where blank means the operator's weight is right.
+	// True wherever the reading is born on the verifier's screen: feed wastage, feed packing,
+	// and blind weighing on both grains.
 	RequiredForApprove bool `json:"required_for_approve"`
 	// Fields is the ordered per-item entry-box list for items whose approve carries one value PER
 	// FIELD (a feed packing item: one per feed item of that pen-session, names only -- the planned
@@ -533,8 +533,9 @@ type verdictRequest struct {
 	Reason     string `json:"reason"`
 	RowVersion int    `json:"row_version"`
 	// Measurement is the number the verifier read off the video, carried BY the approve
-	// (maintainer decision 2026-08-20). Absent is the normal weighing case -- blank keeps the
-	// operator's recorded weight. Ignored on a reject.
+	// (maintainer decision 2026-08-20). Required categories such as blind weighing refuse an
+	// approve without it unless the producer already has a verifier-recorded value. Ignored on
+	// a reject.
 	Measurement *verdictMeasurementRequest `json:"measurement,omitempty"`
 }
 

@@ -48,6 +48,7 @@ function verdictRequestFingerprint(value: unknown): string {
 const VARIANCE_CONFIRM_CODE = "measurement_confirmation_required";
 // Field errors on that refusal address each flagged entry box by its key.
 const VARIANCE_FIELD_PREFIX = "measurement.entries.";
+const FEED_WASTAGE_REF_TYPE = "feed_wastage_completion";
 
 // Explicit media open/play bridge for admin-web. Drawer/list hydration must carry only proof IDs
 // or backend proof routes; this server action resolves one browser-usable signed URL only after a
@@ -60,10 +61,9 @@ export async function resolveVerificationProofMediaUrl(proofRef: string): Promis
 
 // readMeasurement pulls the verifier's reading out of the verdict form.
 //
-// A BLANK FIELD IS NOT A ZERO. Blank means she entered nothing -- the normal weighing case, where
-// the operator's recorded weight stands -- while 0 is a real reading for wastage (an empty trough).
-// Coercing one into the other would either record a weight she never typed or silently discard a
-// measurement she did.
+// A BLANK FIELD IS NOT A ZERO. Blank means she entered nothing, while 0 is a real reading for
+// wastage (an empty trough). Weighing is different again: the verifier's reading is required and
+// must be positive, so 0 is refused here before the request leaves admin-web.
 type MeasurementRead =
   | {
       ok: true;
@@ -94,6 +94,7 @@ function readMeasurement(formData: FormData): MeasurementRead {
   }
 
   const raw = String(formData.get("measurement_value") ?? "").trim();
+  const refType = String(formData.get("measurement_ref_type") ?? "").trim();
   const countRaw = String(formData.get("measurement_count") ?? "").trim();
   if (raw === "" && countRaw === "" && entries.length === 0) return { ok: true };
   if (entries.length > 0) {
@@ -105,6 +106,7 @@ function readMeasurement(formData: FormData): MeasurementRead {
   }
   const value = Number(raw);
   if (raw === "" || !Number.isFinite(value) || value < 0) return { ok: false, code: "invalid_measurement" };
+  if (refType !== FEED_WASTAGE_REF_TYPE && value <= 0) return { ok: false, code: "invalid_measurement" };
   const count = countRaw === "" ? undefined : Number(countRaw);
   if (count !== undefined && (!Number.isInteger(count) || count < 1)) {
     return { ok: false, code: "invalid_measurement_count" };
