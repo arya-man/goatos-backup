@@ -2,11 +2,13 @@ package verificationbridge
 
 import (
 	"context"
+	"errors"
 
 	verificationapp "github.com/vgoats/goatos/backend/internal/verification/app"
 	verificationdomain "github.com/vgoats/goatos/backend/internal/verification/domain"
 	weighingapp "github.com/vgoats/goatos/backend/internal/weighing/app"
 	weighingdomain "github.com/vgoats/goatos/backend/internal/weighing/domain"
+	weighingports "github.com/vgoats/goatos/backend/internal/weighing/ports"
 )
 
 // WEIGHING'S HALF OF AN APPROVE THAT CARRIES A WEIGHT (maintainer decision 2026-08-20).
@@ -63,7 +65,40 @@ func (a *MeasurementApplier) ApplyMeasurement(ctx context.Context, in verificati
 		CorrectedBy:    in.VerifierID,
 		IdempotencyKey: in.IdempotencyKey,
 	})
-	return err
+	return refusal(err)
+}
+
+// refusal restates weighing's own refusals in the verification contract's terms.
+//
+// WHY THIS EXISTS: verification's mapRepoErr knows nothing about weighing's sentinels, so anything
+// it does not recognise falls through as a 500 `internal_error`. That was harmless while the
+// measurement was OPTIONAL -- an approve carrying no number never reached the correction write at
+// all. Now that weighing's approve MUST carry a weight, EVERY approve writes, so a bucket that is
+// already closed turns a legitimate business refusal into a server error: the verifier pressed
+// Accept, the drawer closed, and nothing happened or was said.
+//
+// The copy is the SAME sentence weighing's own correction route already returns for this case, so
+// the two paths cannot tell her different stories about the same refusal, and it names the REMEDY
+// (ask for a reopen) rather than stating that something is not editable.
+func refusal(err error) error {
+	switch {
+	case err == nil:
+		return nil
+	case errors.Is(err, weighingports.ErrCorrectionAfterClose):
+		return verificationapp.Conflict(
+			"weighing_bucket_closed",
+			"This pen's weighing is already closed. Ask a manager to reopen it before correcting the weight.",
+		)
+	case errors.Is(err, weighingports.ErrImmutable):
+		// A withdrawn lump-sum submission: the record it would correct is superseded and nothing
+		// reads it any more, so the honest answer is that this proof is out of date -- not a retry.
+		return verificationapp.Conflict(
+			"weighing_record_superseded",
+			"This weighing record has been replaced by a newer one, so it can no longer be corrected.",
+		)
+	default:
+		return err
+	}
 }
 
 // HasRecordedMeasurement reports whether a VERIFIER has already set this observation's weight.

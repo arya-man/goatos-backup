@@ -2287,10 +2287,24 @@ private fun DecisionButton(
     onClick: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
+    // A DISABLED BUTTON MUST LOOK DISABLED (maintainer decision 2026-09-21).
+    //
+    // `enabled` used to reach only .clickable(), so a held Approve rendered at FULL strength and
+    // simply swallowed the tap. On the blind weighing proof that is the common case -- she has not
+    // typed the weight yet -- and a live-looking button that does nothing reads as a frozen app,
+    // so she taps it again. The admin-web drawer greys its Accept in the same state; the two
+    // surfaces must not disagree about whether an action is available.
+    //
+    // Dimmed from the SAME tokens rather than a second palette, so a disabled Approve stays
+    // recognisably the Approve button and the design-system tokens remain the only source of
+    // colour. Alpha is not applied while `loading`, where the spinner already says "in flight".
+    val dim = !enabled && !loading
+    val bgColor = if (dim) bg.copy(alpha = 0.38f) else bg
+    val fgColor = if (dim) fg.copy(alpha = 0.38f) else fg
     Row(
         modifier = modifier
             .clip(RoundedCornerShape(14.dp))
-            .background(bg)
+            .background(bgColor)
             .clickable(enabled = enabled, onClick = onClick)
             .padding(vertical = 13.dp),
         horizontalArrangement = Arrangement.Center,
@@ -2299,9 +2313,9 @@ private fun DecisionButton(
         if (loading) {
             CircularProgressIndicator(modifier = Modifier.size(16.dp), color = fg, strokeWidth = 2.dp)
         } else {
-            Icon(imageVector = icon, contentDescription = null, tint = fg, modifier = Modifier.size(16.dp))
+            Icon(imageVector = icon, contentDescription = null, tint = fgColor, modifier = Modifier.size(16.dp))
             Spacer(Modifier.size(6.dp))
-            Text(text = label, color = fg, style = MeshaType.listTitle)
+            Text(text = label, color = fgColor, style = MeshaType.listTitle)
         }
     }
 }
