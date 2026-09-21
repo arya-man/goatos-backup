@@ -539,10 +539,6 @@ object MeshaIcons {
         // Work Board / My Work (maintainer decision 2026-09-10): every module's work on one list,
         // so it wears the recorded-check clipboard rather than any one module's own mark.
         "work_board" -> ClipboardCheck
-        // Work instructions (SOP studio phase 2, 2026-09-18): a general SOP is a document the
-        // person starts and follows, so it wears the document glyph -- not Routine (a recurring
-        // check the kernel raises) and not the Tasks glyph (a director's ask).
-        "work_instructions" -> Document
         else -> Module
     }
 }

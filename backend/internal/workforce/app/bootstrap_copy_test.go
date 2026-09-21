@@ -985,14 +985,13 @@ func TestVerifierNoDutyFallbackCoversEveryBuiltVerifiableModule(t *testing.T) {
 	// forever. Adding a module here instead of builtVerifiableFeatures is a recorded decision,
 	// not a default.
 	notVerifiable := map[string]string{
-		"approvals":         "capture-approval queue; approving is not evidence review and enqueues nothing",
-		"clock":             "attendance clock-in/out; no proof video, no verification category",
-		"toxin":             "strip-test module with its own CEO/CXO review routes; not a verificationcatalog producer",
-		"vendors":           "procurement register and feed purchase ledger; commercial records with no proof to verify",
-		"sales":             "sales ledger and the selling half of the vendor register (2026-09-05); commercial records with no proof to verify, exactly as vendors above",
-		"leadership_tasks":  "a director's ask of the CXO desk (2026-09-04); no proof of work, no verification category",
-		"work_board":        "a READ over every module's work (2026-09-10); it produces no proof of its own, and the verification rows it lists are the verifier's existing queue",
-		"work_instructions": "a general SOP run (2026-09-18) records answers and captures on its own workflow; no verification category is registered for it yet, so nothing reaches a verifier queue",
+		"approvals":        "capture-approval queue; approving is not evidence review and enqueues nothing",
+		"clock":            "attendance clock-in/out; no proof video, no verification category",
+		"toxin":            "strip-test module with its own CEO/CXO review routes; not a verificationcatalog producer",
+		"vendors":          "procurement register and feed purchase ledger; commercial records with no proof to verify",
+		"sales":            "sales ledger and the selling half of the vendor register (2026-09-05); commercial records with no proof to verify, exactly as vendors above",
+		"leadership_tasks": "a director's ask of the CXO desk (2026-09-04); no proof of work, no verification category",
+		"work_board":       "a READ over every module's work (2026-09-10); it produces no proof of its own, and the verification rows it lists are the verifier's existing queue",
 	}
 
 	listed := map[string]bool{}

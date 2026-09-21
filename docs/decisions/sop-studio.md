@@ -71,13 +71,27 @@ names the owner of a module-level SOP (migration 000354 backfills both from the 
 is a column, not a naming convention -- but the page decides it: a module SOP page authors module-level
 SOPs, **Configuration › Work instructions** (`/configuration/work-instructions`) authors general ones,
 and the builder shows the kind it will write. A general SOP's code is `general.<slug>`; its builder
-steps become the `main` follow-up track the phone runs (no capture form).
+steps become the `main` follow-up track (no capture form).
 
-A general run: `POST /app/workflows/start {sop_code}` under an `Idempotency-Key` (the key IS the run:
-a retried tap never opens two) → a workflow keyed on that run id with **no animal**
-(`workflow_instances.subject_goat_id` is nullable from 000354; template key `general:<code>`, module
-`general`), compiled by the same opener the herd operations use, driven through the same workflow
-routes. `GET /app/sops/general` lists what can be started.
+**THE PHONE HALF IS RETIRED (maintainer decision 2026-09-21).** A general SOP was reachable from a
+phone module of its own -- `work_instructions`, one bottom-bar item that listed the startable SOPs
+and opened a run -- and 000362 backfilled it onto every operator, park head, director and CXO at
+once. It shipped as a prototype and reached the deployed app before the farm had general SOPs worth
+running, so the maintainer retired it: the module, the `work_instructions.execute` permission it was
+offered on, its `/people` capability row, the stored mobile ticks (migration 000380), the Android
+screen/ViewModel/repository, and the two endpoints only it called --
+`GET /app/sops/general` and `POST /app/workflows/start`. There is no way to START a general run any
+more.
+
+**What is deliberately KEPT**, so this is reversible rather than a teardown: `sop_definitions.kind`,
+the Configuration › Work instructions authoring page, the nullable
+`workflow_instances.subject_goat_id`, the `general` module on the workflow opener, the
+`ListGeneralSOPs` / `StartGeneralWorkflow` service and repository, the seeded Gate visitor check,
+and every test pinning them. Bringing the module back is re-adding the registry entry, the
+permission, the capability row and the two routes -- not rebuilding the engine. Note the
+consequence while it is off: a general SOP authored on the web has no runner, and a general run's
+own read gate is gone, so `module = general` falls through to `counts.write` like any other
+workflow.
 
 The seeded first general SOP is the **Gate visitor check** (five steps, one answer-driven branch:
 footwear disinfection and overshoes only when the visitor has been on another livestock farm this
@@ -89,8 +103,9 @@ week), published v1 for every tenant by 000354 and pinned byte-for-byte to
 A step on a branch carries `branch_note` and, until its question is answered,
 `blocked_reason = awaiting_answer`; the phone renders the note verbatim in the step's footer
 (`WorkflowBranchNoteTest`). Skipped steps are never served, so nothing on the phone needs to know the
-status exists. The Work instructions phone module (start a general SOP, see today's runs) is the next
-slice of this programme.
+status exists. The Work instructions phone module that would have started one is retired (above);
+what remains on the phone is the shared workflow screen, which shows a general run exactly as it
+shows a birth card if one is ever opened again.
 
 ## Pinned by
 
@@ -98,7 +113,8 @@ slice of this programme.
   `tasks/adapters/postgres/general_sop_integration_test.go`.
 - `admin-web/features/sops/flow-layout.test.mjs`, `followup-model.test.mjs` (seeded documents still
   round-trip byte-for-byte with the branch fields present).
-- `adminui/app` page tests (the Work instructions page reaches the CEO; `sop.read` on the leaf).
+- `adminui/app` page tests (the Work instructions AUTHORING page reaches the CEO; `sop.read` on the
+  leaf -- it survives the 2026-09-21 phone retirement).
 - Browser proof 2026-09-18 on the throwaway stack (API :8102 → `goatos_cfgqa`, admin-web :3401):
   Herd Operations Flow (select, insert on a line, branch on "Is the kid clean? is No", Add branch,
   List parity, draft saved through the server validator), Weighing Flow (question added on the Whole

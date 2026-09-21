@@ -24,7 +24,7 @@ func TestBreedingDirectorPlansTrimmingOnly(t *testing.T) {
 	// routine checks (docs/decisions/pen-routines.md, the pen-visit precedent). Deliberate
 	// widening, 13 -> 15. Work instructions (2026-09-18): every field and leadership role may
 	// start a general SOP on the phone, 15 -> 16.
-	for _, want := range []string{PCCarePlanTrimming, PCCareMonitor, AppBootstrap, AdminWebBootstrap, LocationsRead, OperatorsRead, RosterRead, LeadershipTasksRead, LeadershipTasksRaise, PenVisitsExecute, PenRoutinesExecute, PenRoutinesRead, WorkBoardRead, WorkBoardOversee, AlertsRead, WorkInstructionsExecute} {
+	for _, want := range []string{PCCarePlanTrimming, PCCareMonitor, AppBootstrap, AdminWebBootstrap, LocationsRead, OperatorsRead, RosterRead, LeadershipTasksRead, LeadershipTasksRaise, PenVisitsExecute, PenRoutinesExecute, PenRoutinesRead, WorkBoardRead, WorkBoardOversee, AlertsRead} {
 		if _, ok := perms[want]; !ok {
 			t.Errorf("breeding_director must hold %s", want)
 		}
@@ -34,8 +34,8 @@ func TestBreedingDirectorPlansTrimmingOnly(t *testing.T) {
 			t.Errorf("breeding_director must NOT hold %s", mustNot)
 		}
 	}
-	if len(perms) != 16 {
-		t.Errorf("breeding_director carries %d permissions, want exactly 16 -- widen this test deliberately, never by accident", len(perms))
+	if len(perms) != 15 {
+		t.Errorf("breeding_director carries %d permissions, want exactly 15 -- widen this test deliberately, never by accident", len(perms))
 	}
 
 	// The whole-module plan is still the CEO's alone.
