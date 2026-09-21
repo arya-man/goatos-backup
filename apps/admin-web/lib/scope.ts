@@ -15,7 +15,7 @@
 //                                        to verification business_date so historical proof stays available.)
 //   date_from / date_to = YYYY-MM-DD    (custom range bounds)
 //   domain     = vaccination | procurement | …  (command-lens data source; omitted = default vaccination)
-import { one, type RouteSearchParams } from "@/lib/search-params";
+import { one, type RouteSearchParams } from "./search-params.ts";
 
 export type Park = { id: string; code: string | null; name: string };
 export type ScopeMode = "company" | "park";
@@ -36,6 +36,8 @@ export interface Scope {
 }
 
 const RANGES: RangeKey[] = ["last_7_days", "last_30_days", "custom"];
+const TOP_BAR_SCOPE_QUERY_KEYS = ["scope_mode", "park", "range", "as_of", "date_from", "date_to", "domain"];
+const ATOMIC_PAGE_FILTER_PAIRS = [["from", "to"]] as const;
 
 export function parseScope(sp: RouteSearchParams | undefined): Scope {
   const params = sp ?? {};
@@ -84,6 +86,25 @@ export function backendScope(scope: Scope): { parkId?: string; asOf?: string } {
   };
 }
 
+export function preservedPageFiltersForScopeChange(searchParams: URLSearchParams | null | undefined): URLSearchParams {
+  const pageFilters = new URLSearchParams(searchParams ?? undefined);
+  for (const key of TOP_BAR_SCOPE_QUERY_KEYS) {
+    pageFilters.delete(key);
+  }
+  for (const [fromKey, toKey] of ATOMIC_PAGE_FILTER_PAIRS) {
+    const hasFrom = pageFilters.has(fromKey);
+    const hasTo = pageFilters.has(toKey);
+    if (hasFrom !== hasTo) {
+      pageFilters.delete(fromKey);
+      pageFilters.delete(toKey);
+    }
+  }
+  for (const key of Array.from(pageFilters.keys())) {
+    if (key.endsWith("_row")) pageFilters.delete(key);
+  }
+  return pageFilters;
+}
+
 // Build a URL query string that preserves the current scope, applying overrides (e.g. switch park/range).
 // Pass park:null to clear to company-wide.
 export function scopeHref(
@@ -93,7 +114,7 @@ export function scopeHref(
   // Page-specific filters (severity, state, bucket, …) layered ON TOP of the preserved top-bar scope. This
   // is how CT/AC/PA/WF/Execution build their filter links without dropping scope — never hand-roll
   // URLSearchParams for a scoped link.
-  extra: Record<string, string | undefined> = {},
+  extra: Record<string, string | undefined> | URLSearchParams = {},
 ): string {
   const p = new URLSearchParams();
   const park = "park" in overrides ? overrides.park : scope.parkId ?? null;
@@ -114,8 +135,14 @@ export function scopeHref(
     if (scope.dateFrom) p.set("date_from", scope.dateFrom);
     if (scope.dateTo) p.set("date_to", scope.dateTo);
   }
-  for (const [k, v] of Object.entries(extra)) {
-    if (v && v !== "all") p.set(k, v);
+  const extraEntries = extra instanceof URLSearchParams ? extra.entries() : Object.entries(extra);
+  for (const [k, v] of extraEntries) {
+    if (!v || v === "all") continue;
+    if (extra instanceof URLSearchParams) {
+      p.append(k, v);
+    } else {
+      p.set(k, v);
+    }
   }
   const qs = p.toString();
   return qs ? `${basePath}?${qs}` : basePath;

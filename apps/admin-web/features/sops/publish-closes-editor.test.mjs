@@ -47,3 +47,43 @@ test("every module SOP route the sidebar serves is revalidated after a SOP mutat
   const listed = [...actions.match(/const SOP_PAGE_PATHS = \[([^\]]+)\]/)[1].matchAll(/"([^"]+)"/g)].map((m) => m[1]).sort();
   assert.deepEqual(listed, served);
 });
+
+test("module SOP pages do not show the global park selector", () => {
+  const service = readFileSync(new URL("../../../../backend/internal/adminui/app/service.go", import.meta.url), "utf8");
+  const shell = readFileSync(new URL("../../components/mesha-shell.tsx", import.meta.url), "utf8");
+  const served = [...new Set([...service.matchAll(/navLeaf(?:Domain)?\("[^"]+", "[^"]+", "(\/[a-z]+\/sops)"/g)].map((m) => m[1]))].sort();
+  const lock = shell.match(/const PAGES_WITH_LOCAL_OR_NO_PARK_SCOPE = \[([\s\S]*?)\];/);
+  assert.ok(lock, "PAGES_WITH_LOCAL_OR_NO_PARK_SCOPE must still exist");
+  const hidden = [...lock[1].matchAll(/"([^"]+)"/g)].map((m) => m[1]);
+  for (const path of served) {
+    assert.ok(hidden.includes(path), `${path} must hide the global park selector because SOP definitions are not park-scoped`);
+  }
+});
+
+test("top-bar park suppression applies to nested config routes", () => {
+  const shell = readFileSync(new URL("../../components/mesha-shell.tsx", import.meta.url), "utf8");
+  assert.match(shell, /routePrefixes: readonly string\[\]/);
+  assert.match(shell, /routePatterns: readonly RegExp\[\]/);
+  assert.match(shell, /routePrefixes\.some\(\(route\) => pathname === route \|\| pathname\.startsWith\(`\$\{route\}\/`\)\)/);
+  assert.match(shell, /routePatterns\.some\(\(pattern\) => pattern\.test\(pathname\)\)/);
+  assert.match(shell, /"\/vaccination\/plan"/);
+  assert.match(shell, /"\/calendar\/drive"/);
+  assert.match(shell, /"\/goats"/);
+  assert.match(shell, /"\/procurement\/source-entry\/loads"/);
+  assert.match(shell, /"\/vaccination\/execution\/sheds"/);
+  assert.match(shell, /\^\\\/workflows\\\/\[\^\/\]\+\$/);
+});
+
+test("known local/no-park pages are registered against false global park chrome", () => {
+  const shell = readFileSync(new URL("../../components/mesha-shell.tsx", import.meta.url), "utf8");
+  for (const path of [
+    "/alerts",
+    "/ceo-ai-admin",
+    "/configuration/items",
+    "/configuration/work-instructions",
+    "/health/config",
+    "/operations/audit",
+  ]) {
+    assert.match(shell, new RegExp(`"${path.replaceAll("/", "\\/")}"`), `${path} must hide the global park selector`);
+  }
+});
