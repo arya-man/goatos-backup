@@ -137,7 +137,7 @@ function runProductionSmoke() {
   const missing = required.filter((key) => !process.env[key]);
   if (missing.length) throw new Error(`auth_blocked: missing production smoke env: ${missing.join(", ")}`);
   const apiUrl = new URL(process.env.GOATOS_API_BASE_URL);
-  if (apiUrl.protocol !== "https:" || !["api.mesha.sg", "goatos-api.mesha.sg"].includes(apiUrl.hostname)) {
+  if (apiUrl.protocol !== "https:" || !["api.goatos.mesha.sg", "api.mesha.sg", "goatos-api.mesha.sg"].includes(apiUrl.hostname)) {
     throw new Error(`daily production smoke refuses non-production API URL: ${apiUrl.origin}`);
   }
   runNpm(["--prefix", "apps/admin-web", "run", "smoke:visual:live"], {
