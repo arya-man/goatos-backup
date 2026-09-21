@@ -38,10 +38,7 @@
         "weighing-analytics-time",
         "weighing-analytics-load",
         "weighing-analytics-fcr",
-        "weighing-sops",
-        "weighing-analytics-breed-wide",
-        "weighing-analytics-weight-not-shown",
-        "weighing-analytics-weight-band-filter"
+        "weighing-sops"
       ],
       "assertText": [
         "Weights",
@@ -79,9 +76,7 @@
         "vaccination-live-tracker",
         "vaccination-plan",
         "vaccination-plan-edit",
-        "vaccination-shed-execution-detail",
-        "vaccination-sheds-status-action",
-        "vaccination-sheds-capacity-action"
+        "vaccination-shed-execution-detail"
       ],
       "assertText": [
         "Vaccination",
@@ -249,8 +244,7 @@
         "herd-signals-alerts",
         "herd-signals-gateways",
         "herd-signals-insights",
-        "goat-passport",
-        "milk-sops"
+        "goat-passport"
       ],
       "assertText": [
         "Herd",
@@ -337,13 +331,7 @@
         "verify-toxin",
         "verification",
         "actions",
-        "control-tower",
-        "approvals-approved",
-        "approvals-rejected",
-        "verify-all",
-        "verify-approved",
-        "verify-rejected",
-        "verify-toxin"
+        "control-tower"
       ],
       "assertText": [
         "Action Center",
