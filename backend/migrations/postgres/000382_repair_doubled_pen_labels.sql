@@ -1,3 +1,9 @@
+-- +goose Up
+-- MARKERS ADDED 2026-09-21. The file shipped with NO `-- +goose Up` / `-- +goose Down`
+-- annotations, so the migrator refused to parse it ("missing -- +goose Up section") and HALTED
+-- THE WHOLE CHAIN -- this repair never ran, and neither did anything numbered after it.
+-- `make validate-migrations` does not check for the markers, which is why it passed review.
+--
 -- Repair the doubled pen labels written by the feed-&-water removal submit path.
 -- seed-migration-guard:ignore owner=codex issue=pr-340-pen-label-repair reason=live-display-copy-repair-only-no-initial-seed-path expiry=2026-12-31
 --
@@ -18,6 +24,12 @@
 -- "Part 1 - Part 2" (a merged pen) would not match, because the two halves differ.
 
 -- Evidence rows: the label the operator and the verifier both read.
+-- Bounded lock: verification_items is a hot table. These UPDATEs touch only the doubled labels
+-- (a handful of rows), but a migration must never wait unboundedly on a row lock a live verdict
+-- holds. Failing fast and being re-run is the safe outcome. Added with the goose markers above:
+-- the file could not previously be parsed, so validate-migrations never reached these statements.
+SET lock_timeout = '5s';
+
 UPDATE weighing_fasting_shed_proofs
 SET shed_label = regexp_replace(shed_label, '( - Part ([0-9A-Za-z]+))\1$', '\1'),
     updated_at = now()
@@ -62,3 +74,8 @@ WHERE category = 'weighing_fasting'
 -- replay cache really did return that string. Rewriting them would make the audit trail state
 -- something that did not happen, and would make an idempotent replay return a value the original
 -- call never returned. They are never rendered as a live label and they age out on their own.
+
+-- +goose Down
+-- Intentionally empty. This is a one-way data repair: the doubled labels carried no information
+-- the un-doubled ones lack, and re-doubling them would restore a rendering defect.
+SELECT 1;
