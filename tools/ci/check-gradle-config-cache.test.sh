@@ -117,6 +117,7 @@ run_guard() {
 }
 
 fail=0
+contains() { case "$1" in *"$2"*) return 0 ;; *) return 1 ;; esac; }
 
 echo "── case (a) RED: broken fixture must FAIL the guard"
 write_broken
@@ -125,7 +126,7 @@ if [ "$red_rc" -eq 0 ]; then
   echo "FAIL (a): guard PASSED a build.gradle.kts with a configuration-time ProcessBuilder." >&2
   echo "$red_out" >&2
   fail=1
-elif ! printf '%s' "$red_out" | grep -q 'CAUSE: an external process is started during the CONFIGURATION phase'; then
+elif ! contains "$red_out" 'CAUSE: an external process is started during the CONFIGURATION phase'; then
   echo "FAIL (a): guard failed, but not for the configuration-time-exec reason." >&2
   echo "$red_out" >&2
   fail=1
