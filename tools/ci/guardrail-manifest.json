@@ -1483,17 +1483,6 @@
       "owningDoc": "docs/decisions/scale-anti-patterns.md",
       "requiredInCI": true,
       "ciStep": "worker-stage-budgets-guard"
-    },
-    {
-      "id": "dashboard-automation",
-      "script": "tools/ci/check-dashboard-automation.mjs",
-      "makeTarget": "dashboard-automation-guard",
-      "realCheck": "node tools/ci/check-dashboard-automation.mjs",
-      "selfTest": "node tools/ci/check-dashboard-automation.mjs --self-test",
-      "owningDoc": "docs/engineering/dashboard-nightly-automation-plan.md",
-      "requiredInCI": true,
-      "ciStep": "dashboard-automation-guard",
-      "notes": "Keeps the production dashboard smoke inventory tied to the admin-web route tree and required production failure strings. New or removed pages must be covered by smoke-visual-live.mjs or explicitly excluded with a reason; failure strings such as backend_down and Weights could not be loaded must remain asserted."
     }
   ]
 }

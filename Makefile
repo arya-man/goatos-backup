@@ -98,15 +98,11 @@ update-docs-graph:
 stg-zero-downtime-migration-audit:
 	node tools/deploy/audit-stg-zero-downtime-migrations.mjs --enforce
 
-dashboard-automation-guard:
-	node tools/ci/check-dashboard-automation.mjs --self-test
-	node tools/ci/check-dashboard-automation.mjs
-
 dashboard-automation-self-test:
 	node tools/dashboard-automation/run.mjs --self-test
 	node tools/dashboard-automation/agent-review.mjs --self-test
 	node tools/dashboard-automation/check-business-data-parity.mjs --self-test
-	node tools/ci/check-dashboard-automation.mjs --self-test
+	node tools/agent-hooks/check-dashboard-automation-guard.mjs --self-test
 	bash -n tools/dashboard-automation/run-oci.sh
 	bash -n tools/dashboard-automation/install-oci-user-timer.sh
 
@@ -153,7 +149,6 @@ guardrails:
 	$(MAKE) stg-operator-scope-guard
 	$(MAKE) cascade-event-wiring-guard
 	$(MAKE) frontend-foundations-guard
-	$(MAKE) dashboard-automation-guard
 	$(MAKE) domain-event-architecture-guard
 	$(MAKE) operational-read-model-contract-guard
 	$(MAKE) critical-animal-action-availability-guard
