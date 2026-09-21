@@ -33,6 +33,9 @@ const receipt = {
 
 try {
   const staticOk = layer("static", "deterministic", () => runNode(["tools/dashboard-automation/check-static-inventory.mjs"]));
+  if (process.env.GOATOS_DASHBOARD_DATA_PARITY === "1") {
+    layer("business-data-parity", "deterministic", () => runNode(["tools/dashboard-automation/check-business-data-parity.mjs"]));
+  }
   const ociOk = staticOk && layer("oci-free-preflight", "deterministic", () => assertOciAlwaysFree());
   if (!ociOk) throw new Error("stopping before runtime automation because a prerequisite deterministic layer failed");
   if (mode === "post-main-certification") {
@@ -165,5 +168,7 @@ function selfTest() {
   if (!containsUnredactedSecret("Bearer abc.def")) throw new Error("self-test: bearer should be detected before redaction");
   const redacted = redactText("postgres://user:pass@example/db?token=secret");
   if (redacted.includes("pass") || redacted.includes("secret")) throw new Error("self-test: redaction failed");
+  if (config.selfHealing.mode !== "pull_request_only") throw new Error("self-test: self-healing must be PR-only");
+  if (config.apiLatencyPolicy.normalDashboardApisMustStayUnderMs !== 500) throw new Error("self-test: dashboard API latency policy drifted");
   console.log("dashboard automation runner: self-test passed");
 }

@@ -50,6 +50,13 @@ if (!agentConfig.enabledByDefault && process.env.GOATOS_DASHBOARD_AGENT_REVIEW !
 } else {
   review.status = "manual_queue";
   review.reason = "api_call_not_enabled_in_scaffold";
+  review.selfHealing = {
+    mode: config.selfHealing.mode,
+    enabled: config.selfHealing.enabledByDefault || process.env.GOATOS_DASHBOARD_SELF_HEALING === "1",
+    reviewers: config.selfHealing.reviewers,
+    requiredHumanApproval: true,
+    forbiddenActions: config.selfHealing.forbiddenActions
+  };
 }
 
 writeFileSync(outPath, `${JSON.stringify(review, null, 2)}\n`);
@@ -89,6 +96,7 @@ function selfTest() {
   };
   const items = evidenceForAgent(sample);
   if (items[0].path.includes("secret")) throw new Error("self-test: evidence path was not redacted");
+  if (config.selfHealing.mode !== "pull_request_only") throw new Error("self-test: self-healing must remain PR-only");
   console.log("dashboard agent review hook: self-test passed");
 }
 

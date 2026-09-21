@@ -1,0 +1,286 @@
+#!/usr/bin/env node
+import { spawnSync } from "node:child_process";
+import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
+import path from "node:path";
+import { fileURLToPath } from "node:url";
+import { containsUnredactedSecret, redactText } from "./lib/redact.mjs";
+
+const repo = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "../..");
+const config = JSON.parse(readFileSync(path.join(repo, "tools/dashboard-automation/config.json"), "utf8"));
+const args = parseArgs(process.argv.slice(2));
+
+if (args.selfTest) {
+  selfTest();
+  process.exit(0);
+}
+
+const stgUrl = process.env.GOATOS_STG_READONLY_DATABASE_URL;
+const ociUrl = process.env.GOATOS_OCI_READONLY_DATABASE_URL ?? process.env.GOATOS_OCI_DATABASE_URL;
+if (!stgUrl || !ociUrl) {
+  fail("missing read-only parity env: GOATOS_STG_READONLY_DATABASE_URL and GOATOS_OCI_READONLY_DATABASE_URL are required");
+}
+
+const outPath = path.resolve(args.out ?? path.join(repo, ".codex-goatos-render/dashboard-automation/business-data-parity.json"));
+mkdirSync(path.dirname(outPath), { recursive: true });
+
+const result = {
+  generatedAt: new Date().toISOString(),
+  status: "pass",
+  criticalTables: {},
+  bestEffortTables: {},
+  sentinelQueries: {},
+  blockers: []
+};
+
+for (const table of config.businessDataParity.criticalTables) {
+  compareCount(table, "criticalTables", true);
+}
+for (const table of config.businessDataParity.bestEffortTables) {
+  compareCount(table, "bestEffortTables", false);
+}
+runSentinel("cbe_herd_analytics_window", cbeHerdWindowSql());
+runSalesSoldWeightCoverage();
+for (const reconciliation of config.businessDataParity.fieldReconciliations ?? []) {
+  runFieldReconciliation(reconciliation);
+}
+
+if (result.blockers.length > 0) result.status = "fail";
+writeJson(outPath, result);
+console.log(`dashboard business data parity ${result.status}; wrote ${path.relative(repo, outPath)}`);
+if (result.status !== "pass") process.exit(1);
+
+function compareCount(table, section, critical) {
+  const sql = `set transaction read only; select count(*)::text from ${quoteIdent(table)}`;
+  const stg = psql(stgUrl, sql);
+  const oci = psql(ociUrl, sql);
+  const row = { stg: stg.value, oci: oci.value, status: "pass" };
+  if (stg.error || oci.error) {
+    row.status = critical ? "fail" : "skip";
+    row.error = redactText(stg.error ?? oci.error);
+  } else if (stg.value !== oci.value) {
+    row.status = critical ? "fail" : "warn";
+    row.delta = Number(oci.value) - Number(stg.value);
+  }
+  result[section][table] = row;
+  if (row.status === "fail") result.blockers.push({ kind: "table_count_mismatch", table, ...row });
+}
+
+function runSentinel(name, sql) {
+  const stg = psqlRows(stgUrl, `set transaction read only; ${sql}`);
+  const oci = psqlRows(ociUrl, `set transaction read only; ${sql}`);
+  const row = { stg: stg.rows, oci: oci.rows, status: "pass" };
+  if (stg.error || oci.error) {
+    row.status = "fail";
+    row.error = redactText(stg.error ?? oci.error);
+  } else if (JSON.stringify(stg.rows) !== JSON.stringify(oci.rows)) {
+    row.status = "fail";
+  }
+  result.sentinelQueries[name] = row;
+  if (row.status === "fail") result.blockers.push({ kind: "sentinel_mismatch", name });
+}
+
+function runFieldReconciliation(reconciliation) {
+  const name = reconciliation.name;
+  const sql = fieldReconciliationSql(reconciliation);
+  const stg = psqlRows(stgUrl, `set transaction read only; ${sql}`);
+  const oci = psqlRows(ociUrl, `set transaction read only; ${sql}`);
+  const expected = reconciliation.expected;
+  const row = {
+    source: reconciliation.source,
+    expected,
+    stg: rowObject(stg.rows?.[0]),
+    oci: rowObject(oci.rows?.[0]),
+    status: "pass"
+  };
+  if (stg.error || oci.error) {
+    row.status = "fail";
+    row.error = redactText(stg.error ?? oci.error);
+  } else if (JSON.stringify(row.stg) !== JSON.stringify(row.oci)) {
+    row.status = "fail";
+    row.reason = "stg_oci_mismatch";
+  } else if (!matchesExpected(row.stg, expected)) {
+    row.status = "fail";
+    row.reason = "field_reconciliation_mismatch";
+  }
+  result.sentinelQueries[name] = row;
+  if (row.status === "fail") result.blockers.push({ kind: "field_reconciliation_mismatch", name, reason: row.reason ?? "query_failed" });
+}
+
+function runSalesSoldWeightCoverage() {
+  const name = "sales_sold_weight_coverage";
+  const stg = psqlRows(stgUrl, `set transaction read only; ${salesSoldWeightCoverageSql()}`);
+  const oci = psqlRows(ociUrl, `set transaction read only; ${salesSoldWeightCoverageSql()}`);
+  const row = { stg: salesWeightObject(stg.rows?.[0]), oci: salesWeightObject(oci.rows?.[0]), status: "pass" };
+  if (stg.error || oci.error) {
+    row.status = "fail";
+    row.error = redactText(stg.error ?? oci.error);
+  } else if (JSON.stringify(row.stg) !== JSON.stringify(row.oci)) {
+    row.status = "fail";
+    row.reason = "stg_oci_mismatch";
+  } else if (row.stg?.status !== "ok") {
+    row.status = "fail";
+    row.reason = row.stg?.status ?? "unknown_sales_weight_gap";
+  }
+  result.sentinelQueries[name] = row;
+  if (row.status === "fail") result.blockers.push({ kind: "sentinel_mismatch", name, reason: row.reason ?? "query_failed" });
+}
+
+function salesWeightObject(row) {
+  if (!row) return null;
+  return {
+    soldAnimals: Number(row[0]),
+    animalsWithDealAvgWeight: Number(row[1]),
+    taggedAllocations: Number(row[2]),
+    taggedAllocationsWithWeight: Number(row[3]),
+    status: row[4]
+  };
+}
+
+
+function fieldReconciliationSql(reconciliation) {
+  const sourceShedName = sqlLiteral(reconciliation.source_shed_name);
+  const partitionLabel = sqlLiteral(reconciliation.partition_label);
+  return `
+select
+  count(*) filter (where g.lifecycle_status = 'alive' and g.merged_into_goat_id is null)::int as now,
+  count(*) filter (where (g.lifecycle_status = 'dead' or g.exit_reason in ('death', 'died')) and g.merged_into_goat_id is null)::int as deaths,
+  count(*) filter (where g.health_status ilike '%icu%' and g.merged_into_goat_id is null)::int as icu,
+  count(*) filter (where (g.lifecycle_status = 'sold' or g.exit_reason = 'sale') and g.merged_into_goat_id is null)::int as sold,
+  count(*) filter (where g.management_stage ilike '%y1%' and g.merged_into_goat_id is null)::int as y1,
+  count(*) filter (where g.merged_into_goat_id is null)::int as total
+from goat_shed_partitions gsp
+join goats g on g.goat_id = gsp.goat_id
+where gsp.source_shed_name = ${sourceShedName}
+  and gsp.partition_label = ${partitionLabel}`;
+}
+
+function rowObject(row) {
+  if (!row) return null;
+  return {
+    now: Number(row[0]),
+    deaths: Number(row[1]),
+    icu: Number(row[2]),
+    sold: Number(row[3]),
+    y1: Number(row[4]),
+    total: Number(row[5])
+  };
+}
+
+function matchesExpected(actual, expected) {
+  if (!actual) return false;
+  return ["now", "deaths", "icu", "sold", "y1", "total"].every((key) => Number(actual[key]) === Number(expected[key]));
+}
+
+function cbeHerdWindowSql() {
+  return `
+with cbe as (
+  select location_id from locations where location_code = 'CBE' and location_type = 'park' limit 1
+), live as (
+  select
+    count(*)::text total,
+    count(*) filter (where coalesce(herd_register_is_kid(age_band, management_stage), false))::text kids,
+    count(*) filter (where not coalesce(herd_register_is_kid(age_band, management_stage), false))::text adults
+  from goats g, cbe
+  where g.tenant_id = '00000000-0000-4000-8000-000000000001'
+    and g.park_id = cbe.location_id
+    and g.merged_into_goat_id is null
+    and g.lifecycle_status = 'alive'
+), flow as (
+  select
+    count(*) filter (where lifecycle_status = 'dead' or exit_reason = 'death')::text deaths,
+    count(*) filter (where lifecycle_status = 'sold' or exit_reason = 'sale')::text sold
+  from goats g, cbe
+  where g.tenant_id = '00000000-0000-4000-8000-000000000001'
+    and g.park_id = cbe.location_id
+    and g.merged_into_goat_id is null
+    and coalesce((g.exited_at at time zone 'Asia/Kolkata')::date, (g.updated_at at time zone 'Asia/Kolkata')::date)
+      between date '2026-09-14' and date '2026-09-21'
+)
+select total, kids, adults, deaths, sold from live, flow`;
+}
+
+function salesSoldWeightCoverageSql() {
+  return `
+with deals as (
+  select
+    coalesce(sum(animal_count), 0)::int as sold_animals,
+    coalesce(sum(animal_count) filter (where animal_count > 0 and total_weight_kg > 0), 0)::int as animals_with_deal_avg_weight
+  from sales_deals
+), allocations as (
+  select
+    count(*) filter (where status = 'tagged')::int as tagged_allocations,
+    count(*) filter (where status = 'tagged' and weight_kg is not null)::int as tagged_allocations_with_weight
+  from goat_sale_allocations
+)
+select sold_animals::text, animals_with_deal_avg_weight::text, tagged_allocations::text, tagged_allocations_with_weight::text,
+  case when animals_with_deal_avg_weight > tagged_allocations_with_weight then 'deal_average_weight_gap' else 'ok' end
+from deals, allocations`;
+}
+
+function psql(databaseUrl, sql) {
+  const rows = psqlRows(databaseUrl, sql);
+  if (rows.error) return { error: rows.error };
+  return { value: rows.rows[0]?.[0] ?? null };
+}
+
+function psqlRows(databaseUrl, sql) {
+  const child = spawnSync("psql", [databaseUrl, "-v", "ON_ERROR_STOP=1", "-X", "-At", "-F", "\t", "-c", sql], {
+    cwd: repo,
+    encoding: "utf8"
+  });
+  if (child.status !== 0) return { error: redactText(child.stderr || child.stdout || `psql exited ${child.status}`) };
+  return {
+    rows: child.stdout
+      .split("\n")
+      .filter(Boolean)
+      .filter((line) => !["SET", "BEGIN", "COMMIT", "ROLLBACK"].includes(line.trim()))
+      .map((line) => line.split("\t"))
+  };
+}
+
+function quoteIdent(value) {
+  if (!/^[a-z_][a-z0-9_]*$/i.test(value)) throw new Error(`unsafe SQL identifier: ${value}`);
+  return `"${value.replaceAll('"', '""')}"`;
+}
+
+function sqlLiteral(value) {
+  return `'${String(value).replaceAll("'", "''")}'`;
+}
+
+function writeJson(file, value) {
+  const text = `${JSON.stringify(value, null, 2)}\n`;
+  if (containsUnredactedSecret(text)) throw new Error("refusing to write parity receipt that appears to contain a secret");
+  writeFileSync(file, text);
+}
+
+function parseArgs(raw) {
+  const parsed = {};
+  for (let i = 0; i < raw.length; i += 1) {
+    const arg = raw[i];
+    if (arg === "--self-test") parsed.selfTest = true;
+    else if (arg === "--out") parsed.out = raw[++i];
+    else fail(`unknown argument: ${arg}`);
+  }
+  return parsed;
+}
+
+function selfTest() {
+  if (!config.businessDataParity.criticalTables.includes("goats")) {
+    throw new Error("self-test: goats must be a critical business parity table");
+  }
+  if (!config.businessDataParity.bestEffortTables.some((table) => table.includes("herd_signal"))) {
+    throw new Error("self-test: herd signal telemetry must be best-effort");
+  }
+  if (!config.businessDataParity.fieldReconciliations.some((item) => item.name === "castro_3_partition_3_2026_09_21")) {
+    throw new Error("self-test: Castro 3 field reconciliation must be configured");
+  }
+  if (config.selfHealing.mode !== "pull_request_only") {
+    throw new Error("self-test: self-healing must be PR-only");
+  }
+  console.log("dashboard business data parity: self-test passed");
+}
+
+function fail(message) {
+  console.error(message);
+  process.exit(1);
+}
