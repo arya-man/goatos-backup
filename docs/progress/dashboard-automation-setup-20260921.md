@@ -195,9 +195,36 @@ Automated judge/review hooks are wired and self-tested:
 
 ## Current state
 
-PR #331 head `cb46aa77e3be83883f99900707e1527aae4aaca7` contains the
-repo-side automation suite and local proof above. It does not create OCI
-resources, does not install the timer without explicit
-`GOATOS_DASHBOARD_AUTOMATION_INSTALL=1`, does not mutate production or staging,
-and does not expose secrets. Runtime execution remains fail-closed until the OCI
-free-tier, auth, and read-only database inputs are present on the runner.
+Candidate worktree
+`/Users/raviteja/mesha/.codex-worktrees/goatos-stg-mobile-deploy-main` is at
+`969e24374b44` on `codex/anthropic-dashboard-self-heal`.
+
+Fresh verification after the final judge feedback:
+
+- `make dashboard-automation-self-test` - PASS.
+- `make dashboard-automation-guard` - PASS
+  (`63` filesystem routes, `130` smoke entries).
+- `node apps/admin-web/scripts/smoke-visual-route-coverage.test.mjs` - PASS
+  (`13` tests).
+- `git diff --check` - PASS.
+
+Fresh judge status:
+
+- Dashboard automation coverage/safety judge task
+  `01a0c505-1cc7-70e1-a0a4-5b69cf5c097b` - SIGN-OFF.
+- OCI parity and runner-safety judge task
+  `01a0c505-3d24-72a0-a583-ed11740a8f3e` - SIGN-OFF.
+- Final Aug 1 through Sep 21 coverage judge task
+  `01a0c505-498a-7441-a800-4beda935c1d1` - SIGN-OFF after rechecking the
+  exact candidate worktree at `969e24374b44` with focused read-only commands.
+
+The candidate does not create OCI resources, does not install the timer without
+explicit `GOATOS_DASHBOARD_AUTOMATION_INSTALL=1`, does not mutate production or
+staging, and does not expose secrets. Runtime execution remains fail-closed
+until the OCI free-tier, auth, and read-only database inputs are present on the
+runner.
+
+Live STG/OCI parity readback still was not rerun in this shell because the
+read-only STG and OCI database URLs were not exported here. Do not claim current
+live parity from this progress note alone; require a fresh read-only parity
+receipt or the separate live parity task's durable `READBACK_PASS` artifact.
