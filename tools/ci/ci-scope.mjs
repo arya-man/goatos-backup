@@ -245,6 +245,10 @@ function selfTest() {
     common: false, backend: false, adminWeb: false, android: false, full: false,
     selectedJobs: ["docs-only"],
   });
+  assert.deepEqual(pick(["docs/preventive-care-vaccination/vaccination-rules.md"]), {
+    common: false, backend: false, adminWeb: false, android: false, full: false,
+    selectedJobs: ["docs-only"],
+  });
   assert.deepEqual(pick(["docs/strategy/livestock-backed-exchange.md", "docs/progress/digital-goat-exchange-strategy-20260918.md"]), {
     common: false, backend: false, adminWeb: false, android: false, full: false,
     selectedJobs: ["docs-only"],

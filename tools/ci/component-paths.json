@@ -24,6 +24,7 @@
       "tools/ci/check-android-ui-diff.test.sh",
       "tools/ci/check-local-ci-evidence.mjs",
       "tools/ci/check-screenshot-remediation.sh",
+      "tools/ci/check-screenshot-remediation.test.sh",
       "tools/ci/ci-scope.mjs",
       "tools/ci/component-paths.json",
       "tools/ci/land-main.sh",
@@ -34,10 +35,7 @@
   },
   "docsOnly": {
     "prefixes": [
-      "docs/progress/",
-      "docs/reviews/",
-      "docs/research/",
-      "docs/strategy/"
+      "docs/"
     ],
     "files": [
       "AGENTS.md",

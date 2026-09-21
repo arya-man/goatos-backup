@@ -73,7 +73,7 @@ mkdir -p "$d/tools"; cp -R "$repo/tools/ci" "$d/tools/ci"
   printf 'ci-local-screenshots:\n'
   printf '\tbash tools/ci/run-local-ci.sh\n'
 } >"$d/Makefile"
-expect "(d) full run WITHOUT the screenshot opt-in is REJECTED" 1 "not re-record the gap" "$d"
+expect "(d) full run WITHOUT the screenshot opt-in is REJECTED" 1 "STILL blocked" "$d"
 
 # (e) the live repo itself must pass.
 expect "(e) this checkout PASSES" 0 "" "$repo"
