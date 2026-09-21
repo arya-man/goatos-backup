@@ -14,6 +14,14 @@ type fakeCorrectionStore struct {
 	calls  []domain.WeightCorrectionCommand
 	result domain.WeightCorrectionResult
 	err    error
+	// measured is what HasVerifierWeight answers: whether a verifier has already set
+	// this observation's weight (the blank-approve gate, 2026-09-21).
+	measured    bool
+	measuredErr error
+}
+
+func (f *fakeCorrectionStore) HasVerifierWeight(_ context.Context, _, _, _ string) (bool, error) {
+	return f.measured, f.measuredErr
 }
 
 func (f *fakeCorrectionStore) CorrectObservationWeight(_ context.Context, cmd domain.WeightCorrectionCommand) (domain.WeightCorrectionResult, error) {

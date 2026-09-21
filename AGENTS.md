@@ -2095,13 +2095,14 @@ Four parts, each load-bearing:
    like the enqueue/withdraw/relabel seams producers already register. Each applier forwards to
    the SAME producer service its standalone route calls, so range checks, idempotency, audit and
    relabel are ONE implementation. Do NOT make verification read a producer's table.
-3. **`RequiredForApprove` is TRUE for feed wastage and FALSE for weighing, and that asymmetry is
-   the rule, not an oversight.** Wastage's operator submits a VIDEO AND NO NUMBER, so the
-   reading is born on the verifier's screen and approving blank would complete a pen-day with no
-   wastage recorded at all — checked BEFORE the verdict, because the producer's own
+3. **`RequiredForApprove` is TRUE wherever the reading is BORN on the verifier's screen.** Feed
+   wastage's operator submits a VIDEO AND NO NUMBER, so approving blank would complete a pen-day
+   with no wastage recorded at all — checked BEFORE the verdict, because the producer's own
    `ErrWastageMeasurementRequired` fires in the CONSUMER, after the verdict is durable, and
-   strands the item mid-apply. Weighing's operator already recorded a weight, so blank means
-   "his weight is right" and MUST stay a single tap.
+   strands the item mid-apply. Feed packing is the same shape, per feed item. **WEIGHING IS NOW
+   ALSO TRUE, on BOTH grains** — see the blind-weighing lock below, which SUPERSEDES the original
+   wording here ("weighing's operator already recorded a weight, so blank means 'his weight is
+   right' and MUST stay a single tap"). Do not restore that sentence: it is now false on purpose.
 4. **A REJECT never carries the number.** Rejection sends the work back to be recorded again, so
    a value written onto a record about to be redone is a number nobody will use. Reject is also
    never held on the measurement: a reading that cannot be taken off the clip is exactly the case
@@ -2165,6 +2166,65 @@ verdict; nothing enqueues it. Canonical prose: `docs/decisions/birth-death-workf
 `app.TestBirthStepRejectionSendsBackOnlyThatStep`,
 `postgres.TestBirthEvidenceIsReviewedPerRecordedStepPg` and the Android
 `WorkflowOptimisticSequenceTest` birth-rework case (each mutation-tested when written).
+
+Confirmed BLIND WEIGHING VERIFICATION rule (maintainer decision 2026-09-21, SUPERSEDING the
+optional-correction half of the 2026-08-17 weight-correction and 2026-08-20 approve-carries-the-
+number decisions, for WEIGHING only): **the verifier is not shown the operator's weight, and the
+number she types IS the weight.**
+
+The maintainer's words: "whatever operators give that will be the weighing until verifier gives.
+Whatever the verifier gives that will be the final weighing of that animal or that shed." So the
+operator's number is the working weight while the proof waits, and the verifier's reading replaces
+it as final — which is what `CorrectObservationWeight` already did. What changed is that she is no
+longer ALLOWED to skip it, and no longer SHOWN what she is replacing.
+
+Three parts, each load-bearing, and **any one alone is worse than none of them**:
+
+1. **The label carries no weight.** `weighing/domain.CorrectedSubjectLabel` composes the sentence
+   both surfaces render — pen + tag for an individual weigh, pen + frozen head count for a
+   lump-sum one — and the `weightKg` PARAMETER IS GONE rather than passed and ignored, so a caller
+   cannot put it back in one line that would read like a bugfix. The HEAD COUNT stays: it is
+   snapshotted from the herd register at submit and frozen (2026-08-24), so it is not a number the
+   operator typed and it anchors nobody; it says how many animals the pen total she is about to
+   read covers.
+2. **`RequiredForApprove: true`, on BOTH grains.** They share one category, and the decision names
+   both. An unreadable video is a REJECT, never a guess.
+3. **`HasRecordedMeasurement` must answer "has a VERIFIER set this weight", never "does this row
+   have a weight".** It used to `return true` flat, which was CORRECT while the measurement was
+   optional — verification only consults it for a `RequiredForApprove` category, so it was never
+   asked. Left as it was, it would have waved through every unmeasured item, because EVERY weighing
+   row carries a weight from the moment the operator captured it. It now reads
+   `operator_weight_kg IS NOT NULL`, which is written on the first correction and never again, so
+   its presence IS "a verifier has set this". This is the sharpest trap in the change.
+
+**WHY BLIND.** The label was widened to carry the weight precisely so a verifier could catch a
+120-kg-for-12-kg typo — but a reader who has already been told the answer confirms it. Hiding the
+number is what makes her an independent second reading rather than a rubber stamp. The fix that
+widening delivered must still survive: the SCANNED TAG stays on the label, because that, not the
+weight, is what keeps fifteen rows from one pen distinguishable.
+
+**IT LOCKS WEIGHING SAMPLING AT 100%, automatically.** `SamplingWaivable()` is derived from
+`RequiredForApprove`, so weighing leaves the closeout's waivable list — it must, since
+auto-approving an unwatched weighing video would complete a bucket with no verifier reading.
+But `samplingsql.InSample` knows nothing about waivability and still reads whatever row
+`verification_sampling_policies` holds, so a tenant already set below 100% would keep a narrowed
+queue while the undrawn items are settled by NOBODY — pending forever, each holding its bucket
+open against the unconditional close gate (ledger D-5). Migration `000382` DELETES the stored
+weighing rows; the write path refuses new ones. **General rule: making a category non-waivable is
+not complete until its stored sampling rows are removed in the same change.**
+
+BOTH SURFACES, from one contract. Neither the admin-web drawer nor the phone decides any of this:
+they render `subject_label` verbatim and honour `required_for_approve`, so the spec change reaches
+both. Do not add a client-side weighing branch.
+
+Canonical prose: `docs/decisions/blind-weighing-verification.md`. Pinned by
+`TestWeighingApproveRequiresTheVerifiersOwnWeightReading`,
+`TestWeighingSubjectLabelShowsTheVerifierNoOperatorWeight`,
+`TestWeighingSamplingIsLockedBecauseTheVerifierIsTheDataSource`,
+`TestSubjectLabelNeverCarriesTheWeightAtEitherGrain`,
+`TestUnverifiedWeighingProofReportsNoRecordedMeasurement` and its two siblings — each
+mutation-tested when written (reverting the spec flag, restoring the weight in the label, and
+restoring the flat `return true` each turn one red).
 
 Confirmed Approvals-on-mobile rule (maintainer decision 2026-08-05, SUPERSEDING the
 2026-07-21 decision that removed approvals from mobile and moved them to admin-web

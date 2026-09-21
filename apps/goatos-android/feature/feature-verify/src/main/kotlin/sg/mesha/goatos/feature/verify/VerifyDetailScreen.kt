@@ -211,9 +211,13 @@ data class VerifyWeightCorrection(
      */
     val submitLabel: String,
     /**
-     * Keep Approve DISABLED until she enters a number. True for feed wastage, where the operator
-     * submits a video only and the reading is born on this screen; false for weighing, where the
-     * operator already recorded a weight and blank means "his weight is right".
+     * Keep Approve DISABLED until she enters a number. True wherever the reading is born on this
+     * screen: feed wastage, feed packing -- and, since 2026-09-21, WEIGHING on both grains, where
+     * she is not shown the operator's weight and the number she types becomes the recorded weight
+     * of that animal or that pen. An unreadable video is a Reject, never a guess.
+     *
+     * Read from the backend contract, never decided here: the phone and the admin-web drawer must
+     * hold Approve on exactly the same categories.
      */
     val requiredForApprove: Boolean = false,
     /**
@@ -418,9 +422,9 @@ sealed interface VerifyDetailEvent {
     /**
      * THE APPROVE CARRIES THE NUMBER (maintainer decision 2026-08-20).
      *
-     * [measurement] is what she typed into the item's measurement field, or null -- the normal
-     * weighing case, where blank means the operator's recorded weight is right, and every category
-     * that declares no field at all.
+     * [measurement] is what she typed into the item's measurement field, or null for every
+     * category that declares no field at all. It is no longer null for weighing: that approve
+     * carries her own weight reading (maintainer decision 2026-09-21).
      */
     data class Approve(
         val itemId: String? = null,
@@ -672,9 +676,9 @@ private fun VerifyEntryCard(
         field.key to entryTexts[field.key]?.trim()?.toDoubleOrNull()?.takeIf { it.isFinite() && it >= 0 }
     }
     val everyFieldFilled = perFieldEntry && fieldReadings.values.all { it != null }
-    // Held only where the backend says the readings are born on this screen -- feed wastage's one
-    // value, or a per-field item's full set. Weighing stays a single tap when she agrees with the
-    // operator's weight.
+    // Held where the backend says the readings are born on this screen -- feed wastage's one value,
+    // a per-field item's full set, or a weighing proof, whose operator weight she is deliberately
+    // never shown.
     val measurementMissing = correction?.requiredForApprove == true &&
         (if (perFieldEntry) !everyFieldFilled else !valueIsUsable)
     val measurement = when {

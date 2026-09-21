@@ -68,10 +68,10 @@ data class VerificationMeasurementCorrectionDto(
     /**
      * Keep Approve DISABLED until a number is entered.
      *
-     * True for feed wastage, where the operator submits a video only and the reading is born on the
-     * verifier's screen -- approving without one completes a pen-day with no wastage recorded at
-     * all. False for weighing, where the operator already recorded a weight and a blank field means
-     * "his weight is right", the normal case, which stays a single tap.
+     * True wherever the reading is born on the verifier's screen: feed wastage, where approving
+     * without one completes a pen-day with no wastage recorded at all; feed packing; and, since
+     * 2026-09-21, WEIGHING on both grains, where she is not shown the operator's weight and the
+     * number she types becomes the recorded weight of that animal or that pen.
      *
      * Defaults FALSE so an older payload decodes to the permissive behaviour rather than locking
      * Approve on every measurable item.
@@ -249,7 +249,8 @@ data class VerificationVerdictRequestDto(
      * THE APPROVE CARRIES THE NUMBER (maintainer decision 2026-08-20). The reading the verifier
      * took off the video, applied by the backend in the same act as the verdict.
      *
-     * Null is the normal weighing case -- blank means the operator's recorded weight is right.
+     * Null for every category that declares no measurement. It is no longer null for weighing:
+     * that approve carries the verifier's own weight reading (maintainer decision 2026-09-21).
      * Send it ONLY on an approve of an item whose `measurement_correction` is present; the backend
      * drops it on a reject, because rejection sends the work back to be recorded again.
      */

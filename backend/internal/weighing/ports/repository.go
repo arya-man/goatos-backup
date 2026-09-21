@@ -522,6 +522,20 @@ type VerificationVerdictStore interface {
 // impossible by construction.
 type WeightCorrectionStore interface {
 	CorrectObservationWeight(ctx context.Context, cmd domain.WeightCorrectionCommand) (domain.WeightCorrectionResult, error)
+	// HasVerifierWeight reports whether a VERIFIER has already set this
+	// observation's weight -- not whether the row carries a weight at all, which
+	// it always does because the operator recorded one at capture.
+	//
+	// It exists because weighing's approve became blind and mandatory (maintainer
+	// decision 2026-09-21): verification asks this before letting a blank approve
+	// through, so an item measured earlier -- through the standalone correction
+	// route an installed APK still calls -- is not stranded unapprovable. Answering
+	// "the row has a weight" would defeat the whole gate, since every row does.
+	//
+	// The evidence is operator_weight_kg IS NOT NULL: that column is written on the
+	// FIRST correction and never again, so its presence is exactly "a verifier has
+	// set this weight".
+	HasVerifierWeight(ctx context.Context, tenantID, refType, observationID string) (bool, error)
 }
 
 // WeighingKernelStore is the PHASE 2 time-driven kernel write/read side. It is

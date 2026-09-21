@@ -1477,14 +1477,14 @@ func (s *Service) reviseVerificationRound(ctx context.Context, tenantID string, 
 // weight. Two copies of it would drift, and the drifted one would be the label the
 // verifier reads on a corrected item.
 func individualSubjectLabel(obs domain.Observation, shedDisplay string) string {
-	return domain.CorrectedSubjectLabel(domain.VerificationRefTypeAnimal, shedDisplay, obs.ScannedIdentifier, obs.WeightKg, 0)
+	return domain.CorrectedSubjectLabel(domain.VerificationRefTypeAnimal, shedDisplay, obs.ScannedIdentifier, 0)
 }
 
 // lumpSumSubjectLabel names the shed it weighed. It used to open with the hardcoded word "Whole
 // shed", which reads as a scope ("the whole shed was weighed at once") but was doing double duty
 // as the shed's NAME -- and so every lump-sum row in every shed rendered identically.
 func lumpSumSubjectLabel(obs domain.Observation, shedDisplay string) string {
-	return domain.CorrectedSubjectLabel(domain.VerificationRefTypeShed, shedDisplay, "", obs.WeightKg, obs.AnimalCount)
+	return domain.CorrectedSubjectLabel(domain.VerificationRefTypeShed, shedDisplay, "", obs.AnimalCount)
 }
 
 func (s *Service) enqueueVerification(ctx context.Context, tenantID, parkID, campaignID, campaignShedID, operatorID string, obs domain.Observation, category string, mediaRefs []string, meta []VerificationMediaMeta, rows []VerificationContextRow, label, shedLocationID string) error {
