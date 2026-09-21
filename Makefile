@@ -1551,9 +1551,9 @@ seed-vaccination-cpt-operator-drive:
 # fabricates goats, owners, protocol facts, completions, or operational events.
 # The Health treatment rulebook: 54 protocols and, from 2026-09-21, the medicines they name.
 #
-# NOT part of seed-vaccination-source-full or any other composite target, and that is a
-# GAP rather than a decision -- nothing in the Makefile, the seed scripts, the runbooks or
-# Cloud Build ran the importer, so a fresh deployment had no treatment protocols at all.
+# NOT wired into any composite target, and that is a GAP rather than a decision --
+# nothing in the Makefile, the seed scripts, the runbooks or Cloud Build ran the importer,
+# so a fresh deployment had no treatment protocols at all.
 # This target at least gives the step a name; wiring it into the deployment seed is a
 # maintainer call, because it decides whether every new farm starts from Mesha's rulebook.
 seed-health-protocols:
