@@ -1,0 +1,212 @@
+{
+  "$schema": "./bug-pattern-coverage.schema.notes",
+  "reviewWindow": {
+    "since": "2026-08-01",
+    "through": "2026-09-21",
+    "source": "git log --since=2026-08-01 plus PR review context"
+  },
+  "regularReadOnlyFlows": [
+    {
+      "name": "admin_web_full_surface_read_only_flow",
+      "domain": "admin-web",
+      "automation": "apps/admin-web/scripts/smoke-visual-live.mjs",
+      "coverage": "Every reachable admin page, nested tab, representative read-only filter state, detail/drawer overlay where safe, laptop and mobile viewports.",
+      "guards": [
+        "make dashboard-automation-guard",
+        "apps/admin-web/scripts/smoke-visual-route-coverage.test.mjs"
+      ],
+      "destructiveWrites": false
+    },
+    {
+      "name": "critical_business_data_read_flow",
+      "domain": "backend",
+      "automation": "tools/dashboard-automation/check-business-data-parity.mjs",
+      "coverage": "Read-only STG versus OCI parity for goats, identifiers, locations/partitions, weighing, feed, procurement, sales, vaccination, and best-effort herd-signal telemetry.",
+      "guards": [
+        "make dashboard-automation-self-test",
+        "dashboard automation business-data-parity layer"
+      ],
+      "destructiveWrites": false
+    },
+    {
+      "name": "dashboard_hot_api_latency_flow",
+      "domain": "backend",
+      "automation": "tools/perf/api-latency-gate.mjs",
+      "coverage": "Read-only dashboard/API hot paths stay below p95/p99 500 ms except declared long-running import/export/upload paths.",
+      "guards": [
+        "GOATOS_DASHBOARD_API_LATENCY=1 tools/dashboard-automation/run.mjs"
+      ],
+      "destructiveWrites": false
+    }
+  ],
+  "patterns": [
+    {
+      "id": "sql-bind-arity-and-control-flow",
+      "domain": "backend",
+      "examples": [
+        "5e4dd68ba feat(backend): enforce PostgreSQL bind contracts",
+        "0361dd110 fix(sqlbind): reject mutable named args and lex dollar identifiers",
+        "e3892943c fix(sqlbind): trace range-bound pgx controls",
+        "3c5294a76 fix(weighing): anchor the band-edges placeholder so section pruning never drops $31"
+      ],
+      "risk": "A query can compile yet fail at runtime when dynamic SQL drops, renumbers, or hides bind placeholders.",
+      "automationCoverage": [
+        "make postgres-bind-contract-guard",
+        "dashboard-automation-guard requires the guard file and route smoke coverage",
+        "review skill requires bind/performance judge for backend SQL changes"
+      ],
+      "ociNightlyCoverage": "static guard plus read-only API smoke/latency; no database mutation required"
+    },
+    {
+      "id": "admin-web-contract-and-known-failure-screens",
+      "domain": "admin-web",
+      "examples": [
+        "c186fee72 test(admin-web): wire live visual and perf guards",
+        "165ab9f76 test(admin-web): fail webview guard on route http errors",
+        "docs/reviews/work-board-latency-2026-09-14.md"
+      ],
+      "risk": "Pages can render login/loading/error scaffolding or known outage strings while static tests pass.",
+      "automationCoverage": [
+        "production visual smoke fails on backend_down",
+        "production visual smoke fails on Admin-web contract unavailable",
+        "production visual smoke fails on The board could not be loaded",
+        "production visual smoke fails on Weights could not be loaded",
+        "screenshots must be visually inspected before reporting"
+      ],
+      "ociNightlyCoverage": "full laptop plus mobile WebView-sized visual smoke"
+    },
+    {
+      "id": "picker-url-state-and-tab-scope-drift",
+      "domain": "admin-web",
+      "examples": [
+        "f6060a2c5 fix(admin-web): keep a picked period when the park changes",
+        "4fd9e21a2 automation: guard pinned picker windows"
+      ],
+      "risk": "A picker can show one period/filter while the backend silently derives another after park, scope, tab, or sibling filter changes.",
+      "automationCoverage": [
+        "dashboardStateContractFindings rejects defaultFrom/defaultTo param deletion",
+        "weighing analytics and weights smoke routes carry explicit wt_from/wt_to on every tab",
+        "review skill requires explicit picker params in every affected tab route"
+      ],
+      "ociNightlyCoverage": "browser smoke exercises pinned read-only picker URL states"
+    },
+    {
+      "id": "mobile-webview-layout-and-touch-regressions",
+      "domain": "admin-web",
+      "examples": [
+        "5ed171d9f fix(admin-web): prevent clipped labels in webview layouts",
+        "611e5545f fix(admin-web): clear android webview touch traps",
+        "c5800c967 fix(admin-web): meet mobile touch target guards",
+        "b38f7bc6f fix(admin-web): align mobile tabs and loadwise cards"
+      ],
+      "risk": "Desktop can pass while mobile/WebView has clipped labels, hidden names, overlapping controls, impossible horizontal scroll, or untappable controls.",
+      "automationCoverage": [
+        "smoke-visual-live mobile viewport 390px",
+        "failure strings plus visual screenshot evidence",
+        "admin-web phone viewport guards and responsive guard for local CI"
+      ],
+      "ociNightlyCoverage": "mobile WebView-sized browser pass; no Android emulator required"
+    },
+    {
+      "id": "chart-value-integrity-and-empty-scaffolds",
+      "domain": "admin-web",
+      "examples": [
+        "38924a13e fix(admin-web): every column carries its figure, on a phone too",
+        "f9752acbf test(admin-web): wait for chart marks in route visuals",
+        "91192e83a fix(admin-web): charts straddling the fold draw at load"
+      ],
+      "risk": "Charts can show blank scaffolding, false bars for missing values, or labels not tied to the rendered value.",
+      "automationCoverage": [
+        "visual smoke route-specific product signals",
+        "mobile/laptop screenshots",
+        "review skill requires charts/tables/legends/KPI cards in visual QA"
+      ],
+      "ociNightlyCoverage": "visual smoke plus product signals; exact numeric chart oracle remains route-specific"
+    },
+    {
+      "id": "api-fanout-and-latency-regression",
+      "domain": "backend",
+      "examples": [
+        "a80171412 perf(vaccination): reuse live operations cache window",
+        "docs/reviews/work-board-latency-2026-09-14.md",
+        "tools/perf/hot-paths.admin-all.json"
+      ],
+      "risk": "Pages can perform too many backend reads, broad sectionable aggregate reads, or per-row lookups that push normal APIs past 500 ms.",
+      "automationCoverage": [
+        "GOATOS_DASHBOARD_API_LATENCY=1",
+        "make api-latency-policy-test",
+        "admin-web request-read and sectioned-aggregate guards",
+        "Lighthouse/page-load layer"
+      ],
+      "ociNightlyCoverage": "read-only API latency gate against production or preview target"
+    },
+    {
+      "id": "stg-oci-data-parity-and-field-reconciliation",
+      "domain": "backend",
+      "examples": [
+        "Manju Castro-3 evidence 2026-09-21",
+        "sales_sold_weight_coverage sentinel",
+        "configuration_import_bundles and sales_valuation_assumptions table parity blockers"
+      ],
+      "risk": "OCI can be stale or semantically incomplete versus STG/field truth, so automation can miss the exact production bug.",
+      "automationCoverage": [
+        "read-only STG and read-only OCI parity envs are required",
+        "critical table parity blocks the run",
+        "field reconciliation sentinels block the run",
+        "no STG/OCI repair writes from dashboard automation"
+      ],
+      "ociNightlyCoverage": "read-only parity only; repair is a separate human-approved workflow"
+    },
+    {
+      "id": "sop-authored-form-cross-client-drift",
+      "domain": "backend-admin-web-android",
+      "examples": [
+        "a53de9ed1 fix(android): send the feed purchase's typed answers, not only the extras",
+        "701ec5d59 fix(procurement): preserve authored question IDs ending in other",
+        "b7579c001 fix(procurement): align blank conditional gates across clients",
+        "12a0ff34a fix(procurement): preserve form history and reconcile purchase workflows"
+      ],
+      "risk": "Backend, admin-web, and Android can disagree on authored SOP questions, conditional gates, typed answers, and history.",
+      "automationCoverage": [
+        "backend/admin-web regular smoke covers read-only authored forms",
+        "mobile-contract-ownership and offline-first guards cover static Android contract drift",
+        "Android unit/Paparazzi gates remain outside OCI dashboard nightly unless explicitly enabled"
+      ],
+      "ociNightlyCoverage": "non-mutating admin/backend coverage only; Android device/emulator execution not enabled by default"
+    },
+    {
+      "id": "android-proof-sync-session-and-ui-regressions",
+      "domain": "android",
+      "examples": [
+        "0d2cd08e9 fix(procurement): preserve legacy Android edits and completed retries",
+        "6c870e4c0 fix(mobile): the Market tab belongs to Sales, not Procurement",
+        "cc8ec9dc0 fix(android): workflow facts cell keeps a gap between label and value",
+        "a62a71f27 fix(android): sale steps use the neutral camera copy; step chips wrap"
+      ],
+      "risk": "Android offline/outbox/proof/session/navigation/UI bugs need JVM/unit/Paparazzi and emulator/device evidence; dashboard browser smoke cannot see Room, camera, Bluetooth, or app navigation.",
+      "automationCoverage": [
+        "mobile-guard",
+        "android-bounded-memory-guard",
+        "android-navigation-stack-guard",
+        "android runtime permission and vaccination submit guards",
+        "Gradle unit/lint/compile and optional Paparazzi on Android CI"
+      ],
+      "ociNightlyCoverage": "documented as not part of default OCI dashboard automation; requires separate Android runner or sufficient OCI host proof"
+    }
+  ],
+  "androidOciFeasibility": {
+    "defaultInDashboardAutomation": false,
+    "reason": "The Android project sets org.gradle.jvmargs=-Xmx4g; emulator/macrobenchmark is a managed-device path and needs additional RAM, CPU, nested virtualization/KVM, SDK system images, and disk headroom. Always Free OCI should not start emulator jobs until host readback proves capacity.",
+    "safeOciCoverageWithoutEmulator": [
+      "static guards",
+      "contract ownership guards",
+      "Gradle compile/unit/lint when memory headroom is proven",
+      "Paparazzi only when explicitly opted in and storage headroom remains safe"
+    ],
+    "requiresSeparateRunnerOrExplicitCapacityProof": [
+      "managed-device macrobenchmark",
+      "instrumented scan/proof/outbox E2E",
+      "real camera/Bluetooth final QA"
+    ]
+  }
+}

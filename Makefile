@@ -100,6 +100,7 @@ stg-zero-downtime-migration-audit:
 
 dashboard-automation-self-test:
 	node tools/dashboard-automation/run.mjs --self-test
+	node tools/dashboard-automation/preflight-oci-free.mjs --self-test
 	node tools/dashboard-automation/agent-review.mjs --self-test
 	node tools/dashboard-automation/self-heal-pr.mjs --self-test
 	node tools/dashboard-automation/check-business-data-parity.mjs --self-test

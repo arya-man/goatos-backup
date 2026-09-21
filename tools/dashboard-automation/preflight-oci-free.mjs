@@ -2,15 +2,24 @@ import { execFileSync, spawnSync } from "node:child_process";
 import { readFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
+import assert from "node:assert/strict";
 
 const repoRoot = dirname(dirname(dirname(fileURLToPath(import.meta.url))));
 const config = JSON.parse(readFileSync(join(repoRoot, "tools", "dashboard-automation", "config.json"), "utf8"));
 
+if (process.argv.includes("--self-test")) {
+  selfTest();
+  process.exit(0);
+}
+
 export function runPreflight({ requireOci = false } = {}) {
   const disk = readDiskHeadroomGb(repoRoot);
   const failures = [];
-  if (disk.availableGb < config.ociAlwaysFree.minimumHeadroomGb) {
-    failures.push(`filesystem headroom ${disk.availableGb.toFixed(1)} GB is below ${config.ociAlwaysFree.minimumHeadroomGb} GB`);
+  const minimumFreeFilesystemGb = config.ociAlwaysFree.minimumFreeFilesystemGb;
+  if (!Number.isFinite(minimumFreeFilesystemGb) || minimumFreeFilesystemGb <= 0) {
+    failures.push("OCI free-tier check is misconfigured: ociAlwaysFree.minimumFreeFilesystemGb must be a positive number");
+  } else if (disk.availableGb < minimumFreeFilesystemGb) {
+    failures.push(`filesystem headroom ${disk.availableGb.toFixed(1)} GB is below ${minimumFreeFilesystemGb} GB`);
   }
 
   const oci = readOciFreeShape();
@@ -55,4 +64,11 @@ if (import.meta.url === `file://${process.argv[1]}`) {
   const result = runPreflight({ requireOci: process.argv.includes("--require-oci") });
   console.log(JSON.stringify(result, null, 2));
   if (!result.ok) process.exit(1);
+}
+
+function selfTest() {
+  assert.equal(typeof config.ociAlwaysFree.minimumFreeFilesystemGb, "number");
+  assert.ok(config.ociAlwaysFree.minimumFreeFilesystemGb > 0);
+  assert.equal(config.ociAlwaysFree.minimumHeadroomGb, undefined);
+  console.log("dashboard automation OCI preflight: self-test passed");
 }

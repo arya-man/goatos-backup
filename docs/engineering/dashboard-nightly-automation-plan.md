@@ -347,10 +347,26 @@ receipt.
 - OCI readback proves no paid resource was created and required headroom remains.
 - A green receipt can be reproduced from the exact recorded SHA.
 
-## 13. Explicitly out of scope
+## 13. August-to-current bug-fix pattern coverage
 
-- Android deep functional parity beyond Firebase/latest-app availability and explicitly requested
-  release smoke.
+This automation is shaped by the bug-fix history from 2026-08-01 through 2026-09-21, not by an abstract
+dashboard checklist. The repeated patterns and their coverage are:
+
+| Pattern | Recent examples | Automation coverage |
+|---|---|---|
+| PostgreSQL placeholder/bind drift in dynamic SQL, pruned sections, and batches | `9102698cc` fixed Weighing section pruning that supplied 31 values to a 30-placeholder section; `dde3cc1f` fixed Feed workbook batch `$7` after the caller shrank to six values; `81bb247c` fixed clinical-conflict SQL with surplus values; `81d3f716` fixed Leadership Tasks binding a user for the tenant-wide branch. | Static `postgres-bind-contract-guard`, adversarial self-tests, final-SQL/final-args validation, and PostgreSQL integration for dynamic branches. |
+| API fanout, route latency, and backend warmup surfacing as visible outage strings | PR #273 Work Board row freshness/API latency/E2E proof; PR #264 Weights analytics latency; PR #286 shifting destination catalog latency; `8964bf79b` pipelined Tasks detail/list reads; `f86c54270` removed sidebar navigation tail latency. | API latency manifests, route fanout/request-path evidence, preview and production smoke fail on `backend_down`, `Admin-web contract unavailable`, Work Board load failure, and Weights load failure. |
+| DB pool, cache, and startup pressure causing indirect UI failures | `1de67ee5d` evicted idle bootstrap-contract cache entries before heap exhaustion; zero-downtime deploy fixes around hidden pre-migration revisions and readiness gating. | Preview lifecycle records cold/steady-state latency, failed requests, process readiness, and deterministic route failures; deploy mutation remains outside this job. |
+| Data parity and semantic count drift between STG, OCI, and field truth | Counts mortality fixes on 2026-09-18; feed-band exits/weighed splits; Castro/CBE reconciliation notes; sales sold-weight coverage gaps. | Read-only STG-to-OCI parity for critical tables plus sentinel queries and field reconciliations. STG and OCI matching is insufficient when configured farm truth disagrees. |
+| Missing read-only/write guards in preview or repair paths | Configuration import fencing, keyed delete guards, preview genuinely read-only fixes, parity write prohibition commits `0afb51908` and `23e74616f`. | Production smoke is non-mutating; parity starts read-only transactions; self-healing is PR-only and forbids production, staging, and OCI data writes. |
+| Admin-web mobile/WebView regressions: clipping, blank charts, invisible labels, wrong route/state | PR #324 mobile chart labels; PR #294 visual shell/mobile guards; many September admin-web fixes for Work Board, Weights, procurement, sales, vaccination, and SOP mobile surfaces. | Playwright inventory covers desktop and 390x844 mobile WebView-sized viewports, fails on clipping/overlap/blank chart/null/NaN/failure strings, and rejects stale/login/loading screenshots as proof. |
+| Android real-device defects not reproduced by web or backend tests | September fixes for keyboard insets, proof capture lanes, feed purchase typed answers, workflow facts spacing, and force-update APK validation. | Covered only by existing Android CI/static/unit/Paparazzi/release checks and local or dedicated device/emulator workflows. The OCI dashboard runner does not claim emulator, managed-device, Macrobenchmark, or real-phone coverage until a separate RAM/CPU headroom receipt proves it fits. |
+
+## 14. Explicitly out of scope
+
+- Android emulator, managed-device, Macrobenchmark, or real-phone E2E on the OCI Always Free dashboard
+  runner. Android deep functional parity remains on existing Android CI/local-device paths unless an
+  explicit OCI capacity proof is added.
 - Automatic merge, deploy, approval, revert, or production/staging data repair.
 - Direct autonomous production/staging healing. PR-only fix proposals are in scope only after the
   self-healing lane is enabled and remain human-approved.

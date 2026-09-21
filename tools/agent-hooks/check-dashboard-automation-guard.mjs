@@ -28,6 +28,7 @@ const failures = [];
 if (comparison.missing.length > 0) {
   failures.push(`admin-web route(s) missing deterministic smoke coverage: ${comparison.missing.map((route) => `${route.path} (${route.source})`).join(", ")}`);
 }
+failures.push(...dashboardBugPatternCoverageFindings());
 
 const smokeRoutes = discoverSmokeRoutes();
 const requiredNames = new Set(smokeRoutes.map((route) => route.name));
@@ -37,6 +38,7 @@ for (const required of ["work-board", "weighing-weights", "herd-signals", "actio
 
 for (const file of [
   "tools/dashboard-automation/config.json",
+  "tools/dashboard-automation/bug-pattern-coverage.json",
   "tools/dashboard-automation/run.mjs",
   "tools/dashboard-automation/run-oci.sh",
   "tools/dashboard-automation/install-oci-user-timer.sh",
@@ -54,6 +56,46 @@ if (failures.length > 0) {
 }
 
 console.log(`dashboard automation guard: PASS (${comparison.filesystemRoutes.length} filesystem routes, ${smokeRoutes.length} smoke entries)`);
+
+function dashboardBugPatternCoverageFindings() {
+  const rel = "tools/dashboard-automation/bug-pattern-coverage.json";
+  if (!existsSync(rel)) return [`required dashboard automation bug-pattern coverage file missing: ${rel}`];
+  const coverage = JSON.parse(readFileSync(rel, "utf8"));
+  const findings = [];
+  const patterns = Array.isArray(coverage.patterns) ? coverage.patterns : [];
+  const flows = Array.isArray(coverage.regularReadOnlyFlows) ? coverage.regularReadOnlyFlows : [];
+  const domains = new Set(patterns.flatMap((item) => String(item.domain ?? "").split("-")).filter(Boolean));
+  for (const required of ["backend", "admin", "web", "android"]) {
+    if (!domains.has(required)) findings.push(`${rel}: bug pattern coverage must include ${required} fixes from the Aug 1 review window`);
+  }
+  for (const required of [
+    "sql-bind-arity-and-control-flow",
+    "admin-web-contract-and-known-failure-screens",
+    "picker-url-state-and-tab-scope-drift",
+    "mobile-webview-layout-and-touch-regressions",
+    "api-fanout-and-latency-regression",
+    "stg-oci-data-parity-and-field-reconciliation",
+    "sop-authored-form-cross-client-drift",
+    "android-proof-sync-session-and-ui-regressions",
+  ]) {
+    if (!patterns.some((item) => item.id === required)) findings.push(`${rel}: missing bug-pattern automation coverage entry ${required}`);
+  }
+  for (const item of patterns) {
+    if (!Array.isArray(item.automationCoverage) || item.automationCoverage.length === 0) {
+      findings.push(`${rel}: ${item.id ?? "unnamed pattern"} must list automationCoverage, not only prose`);
+    }
+    if (!item.ociNightlyCoverage) {
+      findings.push(`${rel}: ${item.id ?? "unnamed pattern"} must say how OCI nightly covers or excludes it`);
+    }
+  }
+  for (const requiredFlow of ["admin_web_full_surface_read_only_flow", "critical_business_data_read_flow", "dashboard_hot_api_latency_flow"]) {
+    if (!flows.some((item) => item.name === requiredFlow)) findings.push(`${rel}: missing regular read-only flow coverage ${requiredFlow}`);
+  }
+  if (coverage.androidOciFeasibility?.defaultInDashboardAutomation !== false) {
+    findings.push(`${rel}: Android emulator/device flow must stay disabled by default in dashboard OCI automation until host capacity is proven`);
+  }
+  return findings;
+}
 
 function dashboardStateContractFindings() {
   const findings = [];
