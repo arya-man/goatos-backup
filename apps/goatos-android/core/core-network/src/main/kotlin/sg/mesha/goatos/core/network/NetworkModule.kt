@@ -228,9 +228,6 @@ import sg.mesha.goatos.core.network.dto.WorkflowActionAnswerRequestDto
 import sg.mesha.goatos.core.network.dto.WorkflowActionCompleteRequestDto
 import sg.mesha.goatos.core.network.dto.WorkflowActionWriteResponseDto
 import sg.mesha.goatos.core.network.dto.WorkflowDetailResponseDto
-import sg.mesha.goatos.core.network.dto.GeneralSopsResponseDto
-import sg.mesha.goatos.core.network.dto.StartWorkflowRequestDto
-import sg.mesha.goatos.core.network.dto.StartWorkflowResponseDto
 import sg.mesha.goatos.core.network.dto.WorkflowListResponseDto
 import sg.mesha.goatos.core.network.dto.WeighingFastingShedCardListResponseDto
 import sg.mesha.goatos.core.network.dto.WeighingFastingShedCardResponseDto
@@ -1534,15 +1531,6 @@ interface AppApiService {
         @Query("subject_ref_id") subjectRefId: String,
     ): WorkflowDetailResponseDto
 
-    @GET("app/sops/general")
-    suspend fun listGeneralSops(): GeneralSopsResponseDto
-
-    @POST("app/workflows/start")
-    suspend fun startWorkflow(
-        @Header("Idempotency-Key") idempotencyKey: String,
-        @Body request: StartWorkflowRequestDto,
-    ): StartWorkflowResponseDto
-
     @POST("app/workflows/{workflow_id}/actions/{action_id}/answer")
     suspend fun answerWorkflowAction(
         @Path("workflow_id") workflowId: String,
@@ -2784,11 +2772,6 @@ class RetrofitAppApi(
 
     override suspend fun getWorkflowBySubject(templateKey: String, subjectRefId: String): WorkflowDetailResponseDto =
         service.getWorkflowBySubject(templateKey, subjectRefId)
-
-    override suspend fun listGeneralSops(): GeneralSopsResponseDto = service.listGeneralSops()
-
-    override suspend fun startWorkflow(idempotencyKey: String, request: StartWorkflowRequestDto): StartWorkflowResponseDto =
-        service.startWorkflow(idempotencyKey, request)
 
     override suspend fun answerWorkflowAction(
         workflowId: String,
