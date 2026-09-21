@@ -40677,6 +40677,7 @@ components:
         - park
         - pen
         - load
+        - vendor
         - age_at_death
         - season
         - cause
@@ -40684,6 +40685,7 @@ components:
         - days_since_vaccination
         - season_by_stage
         - load_by_cause
+        - vendor_by_cause
         - breed_by_cause
         - deaths
         - recent_limit
@@ -40736,6 +40738,13 @@ components:
           description: Purchase loads that saw a death, plus the synthetic farm_born and no_load buckets.
           items:
             $ref: "#/components/schemas/MortalityBucket"
+        vendor:
+          type: array
+          description: >-
+            The load series rolled up to the vendor each load was bought from: vendors whose
+            animals saw a death, plus the synthetic farm_born and no_vendor buckets.
+          items:
+            $ref: "#/components/schemas/MortalityBucket"
         age_at_death:
           type: array
           items:
@@ -40761,6 +40770,10 @@ components:
           items:
             $ref: "#/components/schemas/MortalityCrossCell"
         load_by_cause:
+          type: array
+          items:
+            $ref: "#/components/schemas/MortalityCrossCell"
+        vendor_by_cause:
           type: array
           items:
             $ref: "#/components/schemas/MortalityCrossCell"

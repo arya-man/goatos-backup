@@ -17598,6 +17598,8 @@ export interface components {
             pen: components["schemas"]["MortalityBucket"][];
             /** @description Purchase loads that saw a death, plus the synthetic farm_born and no_load buckets. */
             load: components["schemas"]["MortalityBucket"][];
+            /** @description The load series rolled up to the vendor each load was bought from: vendors whose animals saw a death, plus the synthetic farm_born and no_vendor buckets. */
+            vendor: components["schemas"]["MortalityBucket"][];
             age_at_death: components["schemas"]["MortalityBucket"][];
             season: components["schemas"]["MortalityBucket"][];
             cause: components["schemas"]["MortalityBucket"][];
@@ -17605,6 +17607,7 @@ export interface components {
             days_since_vaccination: components["schemas"]["MortalityBucket"][];
             season_by_stage: components["schemas"]["MortalityCrossCell"][];
             load_by_cause: components["schemas"]["MortalityCrossCell"][];
+            vendor_by_cause: components["schemas"]["MortalityCrossCell"][];
             breed_by_cause: components["schemas"]["MortalityCrossCell"][];
             deaths: components["schemas"]["MortalityDeath"][];
             recent_limit: number;

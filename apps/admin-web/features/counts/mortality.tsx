@@ -25,7 +25,7 @@ import { MortalityTelemetry } from "./mortality-telemetry";
 //
 // Two kinds of series, and the page keeps them visibly apart:
 //
-//   RATE series (kids/adults, stage, breed, sex, species, farm, pen, load) are drawn as a
+//   RATE series (kids/adults, stage, breed, sex, species, farm, pen, load, vendor) are drawn as a
 //   rate table: deaths, animals in the section today and the rate with a proportional bar, because a breed with
 //   3 deaths out of 40 and one with 3 out of 400 must not look alike.
 //
@@ -499,6 +499,9 @@ export async function MortalityPage({
           <ChartCard title={mc(pageContract, "chart.load.title")} hint={mc(pageContract, "chart.load.hint")}>
             <RateTable buckets={data.load} unassignedLabel={mc(pageContract, "label.no_load")} ariaLabel={mc(pageContract, "chart.load.title")} {...rateLabels} />
           </ChartCard>
+          <ChartCard title={mc(pageContract, "chart.vendor.title")} hint={mc(pageContract, "chart.vendor.hint")}>
+            <RateTable buckets={data.vendor} unassignedLabel={mc(pageContract, "label.no_vendor")} ariaLabel={mc(pageContract, "chart.vendor.title")} {...rateLabels} />
+          </ChartCard>
           <ChartCard title={mc(pageContract, "chart.pen.title")} hint={mc(pageContract, "chart.pen.hint")}>
             <RateTable buckets={data.pen} unassignedLabel={mc(pageContract, "label.unassigned_pen")} ariaLabel={mc(pageContract, "chart.pen.title")} {...rateLabels} />
           </ChartCard>
@@ -586,6 +589,9 @@ export async function MortalityPage({
           </ChartCard>
           <ChartCard title={mc(pageContract, "cross.load_cause.title")} hint={mc(pageContract, "cross.load_cause.hint")}>
             <CrossTable cells={data.load_by_cause} totalLabel={mc(pageContract, "cross.total")} emptyLabel={emptyChart} ariaLabel={mc(pageContract, "cross.load_cause.title")} />
+          </ChartCard>
+          <ChartCard title={mc(pageContract, "cross.vendor_cause.title")} hint={mc(pageContract, "cross.vendor_cause.hint")}>
+            <CrossTable cells={data.vendor_by_cause} totalLabel={mc(pageContract, "cross.total")} emptyLabel={emptyChart} ariaLabel={mc(pageContract, "cross.vendor_cause.title")} />
           </ChartCard>
           <ChartCard title={mc(pageContract, "cross.breed_cause.title")} hint={mc(pageContract, "cross.breed_cause.hint")}>
             <CrossTable cells={data.breed_by_cause} totalLabel={mc(pageContract, "cross.total")} emptyLabel={emptyChart} ariaLabel={mc(pageContract, "cross.breed_cause.title")} />

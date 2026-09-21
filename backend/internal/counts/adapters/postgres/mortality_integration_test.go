@@ -104,7 +104,7 @@ func TestMortalityMultipleDimensionsMatchHerdAnalyticsAndPartitionAnimals(t *tes
 		t.Fatalf("kids %d + adults %d != deaths %d", mort.Totals.KidDeaths, mort.Totals.AdultDeaths, mort.Totals.Deaths)
 	}
 	// Every RATE series partitions both deaths and the live head count exactly.
-	for name, series := range map[string][]domain.MortalityBucket{"stage": mort.Stage, "breed": mort.Breed, "sex": mort.Sex, "kid_adult": mort.KidAdult, "park": mort.Park, "load": mort.Load} {
+	for name, series := range map[string][]domain.MortalityBucket{"stage": mort.Stage, "breed": mort.Breed, "sex": mort.Sex, "kid_adult": mort.KidAdult, "park": mort.Park, "load": mort.Load, "vendor": mort.Vendor} {
 		var deaths, animals int64
 		for _, b := range series {
 			deaths += b.Deaths
@@ -386,6 +386,16 @@ func TestMortalityStatusMatrixOnlyDiedCountsAsADeath(t *testing.T) {
 	if len(mort.Deaths) != 2 {
 		t.Fatalf("recent list %d rows, want the 2 deaths only", len(mort.Deaths))
 	}
+	// StatusMatrix, vendor side: the vendor series reads its membership off the same rows, so
+	// the eight non-death exits are in neither its deaths nor its head count.
+	var vendorDeaths, vendorAnimals int64
+	for _, b := range mort.Vendor {
+		vendorDeaths += b.Deaths
+		vendorAnimals += b.Animals
+	}
+	if vendorDeaths != 2 || vendorAnimals != 1 {
+		t.Fatalf("vendor series sums deaths=%d animals=%d, want 2/1 -- a sold, culled, transferred or lost animal is leaking into a vendor's rate", vendorDeaths, vendorAnimals)
+	}
 }
 
 // PARK SCOPE. A park filter must narrow EVERY series -- totals, rates, months, bands, causes
@@ -443,7 +453,9 @@ ON CONFLICT (location_id) DO NOTHING`, countsTenant, otherPark, otherShed); err 
 		}
 		return d
 	}
-	for name, series := range map[string][]domain.MortalityBucket{"breed": scoped.Breed, "age": scoped.AgeAtDeath, "season": scoped.Season, "cause": scoped.Cause, "pen": scoped.Pen, "vaccine": scoped.DaysSinceVaccine} {
+	// ParkScope covers the vendor series too: a vendor sells to both farms, so an unnarrowed
+	// vendor row would show one farm's leadership the estate's deaths under their own filter.
+	for name, series := range map[string][]domain.MortalityBucket{"breed": scoped.Breed, "age": scoped.AgeAtDeath, "season": scoped.Season, "cause": scoped.Cause, "pen": scoped.Pen, "vaccine": scoped.DaysSinceVaccine, "vendor": scoped.Vendor} {
 		if sum(series) != 2 {
 			t.Fatalf("%s series sums %d under the CPT scope, want 2: %+v", name, sum(series), series)
 		}
@@ -487,6 +499,18 @@ func TestMortalityRecentListPageBoundaryLeavesTotalsUntouched(t *testing.T) {
 	}
 	if mort.Totals.Deaths != int64(n) {
 		t.Fatalf("deaths=%d want %d: the total must not follow the list cap", mort.Totals.Deaths, n)
+	}
+	// PageBoundary, vendor side: the vendor series and its cross tab are whole-window rollups
+	// and must not follow the list cap either.
+	var vendor, vendorCause int64
+	for _, b := range mort.Vendor {
+		vendor += b.Deaths
+	}
+	for _, c := range mort.VendorByCause {
+		vendorCause += c.Deaths
+	}
+	if vendor != int64(n) || vendorCause != int64(n) {
+		t.Fatalf("vendor=%d vendor x cause=%d, want %d each: a whole-window rollup must not follow the recent-list cap", vendor, vendorCause, n)
 	}
 	var age, season, cause, months int64
 	for _, b := range mort.AgeAtDeath {
@@ -543,5 +567,164 @@ func TestMortalityAnimalsIsTodaysHeadCountNotAnAtRiskPopulation(t *testing.T) {
 		if b.Key == "K1" && (b.Animals != 2 || b.Deaths != 1) {
 			t.Fatalf("K1 bucket %+v, want 1 death / 2 animals", b)
 		}
+	}
+}
+
+// THE VENDOR ROLL-UP LOCK, and the cardinality axis of this change: a vendor stands in a
+// ONE-TO-MANY relation to its loads, which is exactly the shape that fans a bucket out or
+// collapses it to one member. The vendor series answers a question the load series cannot: one
+// bad load is bad luck, the same vendor twice is a supply problem. So a vendor's bucket must
+// gather EVERY load that vendor sent -- deaths and the live head count alike -- and must not
+// read as one load. The denominator is that vendor's own live animals, the page's locked
+// rule. Farm-born animals have no vendor and keep their own bucket; a purchased animal whose
+// load names no party lands in 'no_vendor' rather than being folded into a real vendor.
+//
+// Mutation-tested when written: grouping the vendor branch by the load (the tempting reuse of
+// the load_key already in `pop`) splits Sardar's six animals into two rows of three and turns
+// this red, as does dropping the parties label lookup, which leaves a bare uuid on screen.
+func TestMortalityVendorMultipleDimensionsRollUpEveryLoadThatVendorSent(t *testing.T) {
+	ctx := context.Background()
+	repo, pool := newHerdAnalyticsRepo(t, ctx)
+	died := "2026-07-15"
+	from, to := "2026-07-01", "2026-07-31"
+
+	var sardar, kumar string
+	if err := pool.QueryRow(ctx, `
+INSERT INTO parties (party_type, display_name, status) VALUES ('org', 'Sardar Traders', 'active')
+RETURNING party_id::text`).Scan(&sardar); err != nil {
+		t.Fatalf("seed vendor: %v", err)
+	}
+	if err := pool.QueryRow(ctx, `
+INSERT INTO parties (party_type, display_name, status) VALUES ('org', 'Kumar Livestock', 'active')
+RETURNING party_id::text`).Scan(&kumar); err != nil {
+		t.Fatalf("seed vendor: %v", err)
+	}
+	newLoad := func(vendor, key string) string {
+		t.Helper()
+		var id string
+		if err := pool.QueryRow(ctx, `
+INSERT INTO procurement_loads (tenant_id, source_party_id, purchase_date, status, idempotency_key, context)
+VALUES ($1::uuid, $2::uuid, '2026-06-01', 'accepted_intake', $3::text, jsonb_build_object('load_ref', $3::text))
+RETURNING load_id::text`, countsTenant, vendor, key).Scan(&id); err != nil {
+			t.Fatalf("seed load %s: %v", key, err)
+		}
+		return id
+	}
+	// Sardar sent TWO loads; Kumar one. An orphan load with no vendor row is impossible
+	// (source_party_id is NOT NULL), so 'no_vendor' is proved by a purchased animal that is on
+	// no load at all.
+	sardarA, sardarB, kumarLoad := newLoad(sardar, "L-1"), newLoad(sardar, "L-2"), newLoad(kumar, "L-3")
+	attach := func(load, goatID string) {
+		t.Helper()
+		if _, err := pool.Exec(ctx, `
+INSERT INTO procurement_load_goats (tenant_id, load_id, goat_id, selection_state, current_state, intake_accepted_at)
+VALUES ($1::uuid, $2::uuid, $3::uuid, 'accepted_herd_intake', 'accepted_herd_intake', now())`, countsTenant, load, goatID); err != nil {
+			t.Fatalf("attach goat to load: %v", err)
+		}
+	}
+	// Sardar: 2 deaths and 4 live, spread across his two loads so neither load alone is the answer.
+	sardarGoats := map[string][2]string{ // goat id -> {load, exit reason}
+		mortalityGoatID(700): {sardarA, "died"},
+		mortalityGoatID(701): {sardarB, "died"},
+		mortalityGoatID(702): {sardarA, ""},
+		mortalityGoatID(703): {sardarA, ""},
+		mortalityGoatID(704): {sardarB, ""},
+		mortalityGoatID(705): {sardarB, ""},
+	}
+	for id, spec := range sardarGoats {
+		exitedOn := ""
+		if spec[1] != "" {
+			exitedOn = died
+		}
+		insertMortalityGoat(t, ctx, pool, id, "Beetal", "female", "F2-Female", "adult", "2025-01-01", "procured", spec[1], exitedOn)
+		attach(spec[0], id)
+	}
+	// Kumar: 1 death against 1 live animal.
+	insertMortalityGoat(t, ctx, pool, mortalityGoatID(710), "Sirohi", "male", "F2-Male", "adult", "2025-01-01", "procured", "died", died)
+	attach(kumarLoad, mortalityGoatID(710))
+	insertMortalityGoat(t, ctx, pool, mortalityGoatID(711), "Sirohi", "male", "F2-Male", "adult", "2025-01-01", "procured", "", "")
+	attach(kumarLoad, mortalityGoatID(711))
+	// Farm born: a death and a live animal, neither of which belongs to any vendor.
+	insertMortalityGoat(t, ctx, pool, mortalityGoatID(720), "Malai", "female", "K1", "kid", "2026-07-01", "birth", "died", died)
+	insertMortalityGoat(t, ctx, pool, mortalityGoatID(721), "Malai", "female", "K1", "kid", "2026-07-01", "birth", "", "")
+	// Purchased but on no load at all.
+	insertMortalityGoat(t, ctx, pool, mortalityGoatID(730), "Beetal", "male", "F2-Male", "adult", "2025-01-01", "procured", "died", died)
+
+	// One recorded cause, so the cross tab has a named column beside the unrecorded ones.
+	if _, err := pool.Exec(ctx, `
+INSERT INTO health_death_causes (tenant_id, goat_id, cause_key, cause_kind) VALUES ($1::uuid, $2::uuid, 'MASTITIS', 'register_rule')`,
+		countsTenant, mortalityGoatID(700)); err != nil {
+		t.Fatalf("seed cause: %v", err)
+	}
+
+	mort, err := repo.GetMortality(ctx, domain.MortalityQuery{TenantID: countsTenant, FromDate: from, ToDate: to})
+	if err != nil {
+		t.Fatalf("mortality: %v", err)
+	}
+
+	byLabel := map[string]domain.MortalityBucket{}
+	for _, b := range mort.Vendor {
+		if _, clash := byLabel[b.Label]; clash {
+			t.Fatalf("vendor label %q appears twice, so one vendor reads as two rows: %+v", b.Label, mort.Vendor)
+		}
+		byLabel[b.Label] = b
+	}
+	// Sardar's TWO loads are ONE vendor row: 2 deaths against his 4 live animals.
+	want := map[string][3]float64{
+		"Sardar Traders":     {2, 4, 50.0},
+		"Kumar Livestock":    {1, 1, 100.0},
+		"Farm born":          {1, 1, 100.0},
+		"No vendor recorded": {1, 0, -1},
+	}
+	for label, w := range want {
+		got, ok := byLabel[label]
+		if !ok {
+			t.Fatalf("vendor series missing %q: %+v", label, mort.Vendor)
+		}
+		if float64(got.Deaths) != w[0] || float64(got.Animals) != w[1] {
+			t.Fatalf("%s bucket %+v, want deaths=%v animals=%v", label, got, w[0], w[1])
+		}
+		switch {
+		case w[2] < 0 && got.RatePct != nil:
+			// No live animal in the section: a rate would be invented, so there must be none.
+			t.Fatalf("%s carries rate %v with %d live animals, want no rate", label, *got.RatePct, got.Animals)
+		case w[2] >= 0 && (got.RatePct == nil || *got.RatePct != w[2]):
+			t.Fatalf("%s rate %v, want %v", label, got.RatePct, w[2])
+		}
+	}
+	// The series partitions the whole read exactly: every death and every live animal is in
+	// exactly one vendor bucket, the same property every other RATE series holds.
+	var deaths, animals int64
+	for _, b := range mort.Vendor {
+		deaths += b.Deaths
+		animals += b.Animals
+	}
+	if deaths != mort.Totals.Deaths || animals != mort.Totals.Animals {
+		t.Fatalf("vendor series sums deaths=%d animals=%d, want %d/%d", deaths, animals, mort.Totals.Deaths, mort.Totals.Animals)
+	}
+	// The vendor bucket is the vendor's loads added up, never one of them: Sardar's two load
+	// rows must each be smaller than his vendor row.
+	for _, b := range mort.Load {
+		if b.Label == "Load L-1" || b.Label == "Load L-2" {
+			if b.Deaths >= byLabel["Sardar Traders"].Deaths {
+				t.Fatalf("load %s has %d deaths, the same as the whole vendor -- the vendor row is one load, not the roll-up", b.Label, b.Deaths)
+			}
+		}
+	}
+	// Vendor x cause: every cell totals back to the vendor's deaths, and the cause column is
+	// labelled farm copy resolved by the app layer, never left as a bare key here.
+	crossDeaths := map[string]int64{}
+	for _, c := range mort.VendorByCause {
+		crossDeaths[c.RowLabel] += c.Deaths
+	}
+	if crossDeaths["Sardar Traders"] != 2 || crossDeaths["Kumar Livestock"] != 1 || crossDeaths["Farm born"] != 1 {
+		t.Fatalf("vendor x cause rows %+v, want Sardar 2, Kumar 1, Farm born 1", crossDeaths)
+	}
+	var crossTotal int64
+	for _, c := range mort.VendorByCause {
+		crossTotal += c.Deaths
+	}
+	if crossTotal != mort.Totals.Deaths {
+		t.Fatalf("vendor x cause totals %d != deaths %d", crossTotal, mort.Totals.Deaths)
 	}
 }
