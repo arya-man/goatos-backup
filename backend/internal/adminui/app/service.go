@@ -5864,6 +5864,7 @@ func pageSpecificCopy(id string) map[string]string {
 			"table.loads.purchased_avg": "At purchase",
 			"table.loads.latest_avg":    "Latest weighing",
 			"table.loads.multiple":      "Growth multiple",
+			"table.loads.pens":          "Pens",
 
 			// Three honesty notes. The denominators differ once part of a load is sold; the
 			// page's other filters cannot slice a load that is bought whole; and the latest

@@ -452,7 +452,10 @@ test("the two table cards are inset without losing their full-bleed tables", () 
   // Vertical padding on the CARD, horizontal on its children — never on the card itself, which
   // would inset the table away from its own header rule and row separators.
   assert.match(css, /\.wtable\{padding:14px 0\}/);
-  assert.match(css, /\.wtable > :not\(\.tablewrap\)\{padding-left:16px;padding-right:16px\}/);
+  // `.twrap` joined `.tablewrap` in the exclusion when the loads ledger took this card treatment
+  // (2026-09-21): it is the same wrapper one class over and owns its own horizontal scroll, so
+  // insetting it would pull that table away from its own header rule.
+  assert.match(css, /\.wtable > :not\(\.tablewrap\):not\(\.twrap\)\{padding-left:16px;padding-right:16px\}/);
   // The outer columns match the card's own 17px text edge; a cell padding, so the rules still reach
   // the frame.
   assert.match(css, /\.wtable table\.tbl th:first-child,\s*\n\.wtable table\.tbl td:first-child\{padding-left:16px\}/);

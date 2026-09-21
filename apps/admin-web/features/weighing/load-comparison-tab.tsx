@@ -283,7 +283,11 @@ export function LoadComparisonTab({
         )}
       </section>
 
-      <section className="card" style={{ marginTop: 12 }}>
+      {/* `wtable`: vertical padding on the CARD, horizontal on its children, and the outer
+          columns lined up with the card's own text -- the treatment the Weights tables already use,
+          so this card stops sitting flush against its frame while its header rule and row
+          separators still reach it. */}
+      <section className="card wtable" style={{ marginTop: 12 }}>
         <h2 className="h">{copy(pageContract, "table.loads.title")}</h2>
         <p className="muted small">{copy(pageContract, "note.load.denominator")}</p>
         <div className="twrap" style={{ marginTop: 8 }} tabIndex={0} role="region" aria-label={copy(pageContract, "table.loads.title")}>
@@ -296,6 +300,7 @@ export function LoadComparisonTab({
                 <th className="num">{`${copy(pageContract, "table.loads.purchased_avg")} (${unit})`}</th>
                 <th className="num">{`${copy(pageContract, "table.loads.latest_avg")} (${unit})`}</th>
                 <th className="num">{copy(pageContract, "table.loads.multiple")}</th>
+                <th className="pens">{copy(pageContract, "table.loads.pens")}</th>
               </tr>
             </thead>
             <tbody>
@@ -311,6 +316,9 @@ export function LoadComparisonTab({
                   <td className="num">
                     {row.multiple !== null ? <b>{`${row.multiple.toFixed(1)}${suffix}`}</b> : none}
                   </td>
+                  {/* The SAME line both charts carry, so the three surfaces on this tab name one
+                      load's pens identically. A load with no weighed pen reads as absent. */}
+                  <td className="pens">{row.pens || none}</td>
                 </tr>
               ))}
             </tbody>

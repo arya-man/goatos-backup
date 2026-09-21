@@ -45,10 +45,29 @@ test("the value chart names the same pens as the weight chart beside it", () => 
     source,
     /const subheading = stockAnimals === 0 \? basis : \[basis, row\.pens\]\.filter\(Boolean\)\.join\(" · "\);/,
   );
-  // ONE pen line for the whole tab: both charts read row.pens, so they cannot drift.
-  assert.equal((source.match(/row\.pens/g) ?? []).length, 2);
+  // ONE pen line for the whole tab: both charts AND the ledger read row.pens, so the three
+  // surfaces cannot drift into three spellings of one pen.
+  assert.equal((source.match(/row\.pens/g) ?? []).length, 3);
   // A SOLD-OUT load keeps its own line alone. Its animals are gone, so naming the pens they used
   // to sit in would point the reader at a pen that no longer holds them.
   assert.match(source, /stockAnimals === 0 \? basis :/);
   assert.match(contract, /no stock to value, and names no pen/);
+});
+
+test("the loads ledger names the pens too, and the card is inset like the Weights tables", () => {
+  const css = readFileSync(new URL("../../app/mesha-theme.css", import.meta.url), "utf8");
+  // Maintainer request 2026-09-21: the same pens in the table under the two charts. It renders the
+  // SAME row.pens, so the three surfaces on this tab cannot name one load's pens three ways.
+  assert.match(source, /<th className="pens">\{copy\(pageContract, "table\.loads\.pens"\)\}<\/th>/);
+  assert.match(source, /<td className="pens">\{row\.pens \|\| none\}<\/td>/);
+  assert.ok(contract.includes('"table.loads.pens"'), "the column label is backend copy");
+
+  // Vertical padding on the CARD, horizontal on its children — `.twrap` excluded beside
+  // `.tablewrap`, because insetting the wrapper would pull the table away from its own header rule.
+  assert.match(source, /className="card wtable" style=\{\{ marginTop: 12 \}\}/);
+  assert.match(css, /\.wtable > :not\(\.tablewrap\):not\(\.twrap\)\{padding-left:16px;padding-right:16px\}/);
+  assert.match(css, /\.wtable table\.loadwise-table th:first-child,\s*\n\.wtable table\.loadwise-table td:first-child\{padding-left:16px\}/);
+  // The pens cell is the ONE column allowed to wrap; every other cell in this table is nowrap so a
+  // load number or a park code can never break character-by-character.
+  assert.match(css, /table\.loadwise-table td\.pens\{white-space:normal/);
 });
