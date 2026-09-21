@@ -12,7 +12,7 @@ Do not enable a timer until three manual dry or report-only runs produce clean r
 
 The installed OCI timers are:
 
-- daily production smoke at `03:30 Asia/Kolkata` by default;
+- daily production smoke at `04:00 Asia/Kolkata` and `20:00 Asia/Kolkata` by default;
 - post-main certification poll every 10 minutes by default. It fetches `origin/main`, runs once per
   new SHA, and records the last certified SHA under
   `~/.local/state/goatos/dashboard-automation/last-post-main-sha`.
