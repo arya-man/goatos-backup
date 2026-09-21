@@ -194,6 +194,11 @@ function dashboardRuntimeFindings() {
   if (!selfHealSource.includes("git([\"worktree\", \"add\"") || selfHealSource.includes("checkout\", \"--quiet\", \"-B\"")) {
     findings.push(`${selfHealRel}: self-healing must create report branches in a separate worktree, not mutate the runner checkout`);
   }
+  for (const fragment of ["codePatchableFailure", "latest-full-parity-receipt", "shouldOpenFixPr", "safeToPatchCode", "precondition failure"]) {
+    if (!selfHealSource.includes(fragment)) {
+      findings.push(`${selfHealRel}: self-healing PR creation must skip non-code precondition failures and honor agent code-patchability (${fragment})`);
+    }
+  }
 
   for (const envFlag of ["GOATOS_DASHBOARD_DATA_PARITY", "GOATOS_DASHBOARD_API_LATENCY", "GOATOS_DASHBOARD_LIGHTHOUSE", "GOATOS_DASHBOARD_GRAFANA_SMOKE", "GOATOS_DASHBOARD_SLACK_ALERTS", "GOATOS_DASHBOARD_SELF_HEALING"]) {
     if (!runnerSource.includes(envFlag)) findings.push(`${runnerRel}: dashboard automation env flag ${envFlag} is not wired`);

@@ -20,15 +20,20 @@ if (!enabled("GOATOS_DASHBOARD_SELF_HEALING", config.selfHealing.enabledByDefaul
   console.log("dashboard self-healing PR: skipped (disabled by GOATOS_DASHBOARD_SELF_HEALING/config)");
   process.exit(0);
 }
-const token = process.env.GITHUB_TOKEN?.trim();
-if (!token) fail("GITHUB_TOKEN is required for dashboard self-healing PR creation");
-
 const receipt = JSON.parse(readFileSync(args.receipt, "utf8"));
 if (receipt.status === "pass") {
   console.log("dashboard self-healing PR: skipped (receipt passed)");
   process.exit(0);
 }
 if (config.selfHealing.mode !== "pull_request_only") fail("self-healing mode must stay pull_request_only");
+const agentReview = readAgentReview(args.receipt);
+const codePatchDecision = codePatchableFailure(receipt, agentReview);
+if (!codePatchDecision.shouldOpen) {
+  console.log(`dashboard self-healing PR: skipped (${codePatchDecision.reason})`);
+  process.exit(0);
+}
+const token = process.env.GITHUB_TOKEN?.trim();
+if (!token) fail("GITHUB_TOKEN is required for dashboard self-healing PR creation");
 
 const repoSlug = process.env.GOATOS_DASHBOARD_AUTOMATION_REPO || "vgoats/goatos";
 const shortSha = String(receipt.repoSha || git(["rev-parse", "HEAD"])).slice(0, 12);
@@ -41,7 +46,6 @@ const reportPath = path.join(reportWorktree, reportRel);
 git(["fetch", "--quiet", "origin", "main"]);
 git(["worktree", "add", "--quiet", "-B", branch, reportWorktree, "origin/main"]);
 mkdirSync(path.dirname(reportPath), { recursive: true });
-const agentReview = readAgentReview(args.receipt);
 writeFileSync(reportPath, failureReport(receipt, args.receipt, agentReview));
 git(["add", reportRel], reportWorktree);
 git(["commit", "-m", "automation: report dashboard smoke failure"], reportWorktree);
@@ -113,6 +117,33 @@ function readAgentReview(receiptPath) {
   const p = path.join(path.dirname(path.resolve(receiptPath)), "agent-review.json");
   if (!existsSync(p)) return null;
   return JSON.parse(readFileSync(p, "utf8"));
+}
+
+function codePatchableFailure(value, agentReview = null) {
+  const failedLayers = (value.layers ?? [])
+    .filter((layer) => layer.status !== "pass")
+    .map((layer) => String(layer.name ?? ""));
+  const blockerText = JSON.stringify(value.blockers ?? []);
+  const preconditionLayers = new Set([
+    "latest-full-parity-receipt",
+    "business-data-parity",
+    "oci-free-preflight",
+    "postgresql-integration"
+  ]);
+  if (failedLayers.length > 0 && failedLayers.every((name) => preconditionLayers.has(name))) {
+    return { shouldOpen: false, reason: `precondition failure (${failedLayers.join(", ")})` };
+  }
+  if (/auth_blocked|missing .*env|credential|token|latest-full-parity-receipt|READBACK_PASS|parity receipt/i.test(blockerText)) {
+    return { shouldOpen: false, reason: "auth/env/parity prerequisite failure" };
+  }
+  if (agentReview?.shouldOpenFixPr === false || agentReview?.safeToPatchCode === false) {
+    return { shouldOpen: false, reason: "agent review marked not code-patchable" };
+  }
+  const patchableClasses = new Set(["product_ui", "product_api", "latency"]);
+  if (agentReview?.failureClass && !patchableClasses.has(agentReview.failureClass)) {
+    return { shouldOpen: false, reason: `agent failure class ${agentReview.failureClass}` };
+  }
+  return { shouldOpen: true, reason: "code-patchable failure" };
 }
 
 function renderAgentReview(review) {
@@ -200,6 +231,21 @@ function selfTest() {
   if (!source.includes("git([\"worktree\", \"add\"") || source.includes("checkout\", \"--quiet\", \"-B\"")) {
     throw new Error("self-test: self-healing must create its report branch in a separate worktree");
   }
+  const parityDecision = codePatchableFailure({
+    layers: [{ name: "latest-full-parity-receipt", status: "fail" }],
+    blockers: [{ layer: "latest-full-parity-receipt", message: "READBACK_PASS receipt missing" }]
+  });
+  if (parityDecision.shouldOpen) throw new Error("self-test: parity receipt precondition must not open a PR");
+  const productDecision = codePatchableFailure({
+    layers: [{ name: "production-module-journeys", status: "fail" }],
+    blockers: [{ layer: "production-module-journeys", message: "The board could not be loaded" }]
+  }, { failureClass: "product_ui", shouldOpenFixPr: true, safeToPatchCode: true });
+  if (!productDecision.shouldOpen) throw new Error("self-test: product UI failures must remain eligible for PR creation");
+  const agentVeto = codePatchableFailure({
+    layers: [{ name: "production-module-journeys", status: "fail" }],
+    blockers: [{ layer: "production-module-journeys", message: "manual data repair needed" }]
+  }, { failureClass: "business_data_parity", shouldOpenFixPr: false, safeToPatchCode: false });
+  if (agentVeto.shouldOpen) throw new Error("self-test: agent non-code failures must not open a PR");
   console.log("dashboard self-healing PR: self-test passed");
 }
 

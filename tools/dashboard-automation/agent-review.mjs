@@ -145,6 +145,10 @@ async function runAnthropicReview({ apiKey, receipt, receiptPath, evidenceItems 
     reason: "anthropic_review_completed",
     model: payload.model ?? model,
     usage: payload.usage ?? null,
+    failureClass: redactText(parsed.failure_class ?? "unknown"),
+    shouldOpenFixPr: parsed.should_open_fix_pr === true,
+    safeToPatchCode: parsed.safe_to_patch_code === true,
+    requiredHumanAction: parsed.required_human_action == null ? null : redactText(parsed.required_human_action),
     findings: normalizeFindings(parsed.findings),
     remediation: parsed.remediation ?? parsed,
     rawSummary: redactText(parsed.summary ?? "")
