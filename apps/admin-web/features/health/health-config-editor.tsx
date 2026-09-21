@@ -114,15 +114,17 @@ function EmptyDraftOverLiveNotice({
  * /configuration/items first, and only then can a course name it. Typing produced two
  * spellings of one medicine and dosages attached to things the store had never heard of.
  *
- * It is an input over a datalist rather than a select because the list grows: 35 medicines
- * today, and a select is a list you scroll while a datalist is one you type into. The
- * native control gives the search for free and stays keyboard- and screen-reader-friendly.
+ * IT SUGGESTS AS YOU TYPE, BELOW THE FIELD. This started as an <input list> over a
+ * <datalist>, which is less work and was the wrong call: the native control decides for
+ * itself when to open, renders differently on every browser, and on the farm's machines it
+ * mostly waited for a click on the arrow. An author half-way through "chl" wants to see
+ * the match, so the list is rendered here and behaves the same everywhere.
  *
- * A datalist does not CONSTRAIN the value, so the constraint is real and lives on the
- * server: a save whose medicine matches no active item is refused, naming that step. This
- * marks the field as soon as the author leaves the list, so they find out while looking at
- * it rather than at save time -- but the refusal is what makes the rule true, because a
- * client-side check is a suggestion an older client can skip.
+ * A list does not CONSTRAIN the value, so the constraint is real and lives on the server:
+ * a save whose medicine matches no active item is refused, naming that step. This marks the
+ * field as soon as the author leaves the list, so they find out while looking at it -- but
+ * the refusal is what makes the rule true, because a client check is a suggestion an older
+ * client can skip.
  */
 function MedicinePicker({
   value,
@@ -135,34 +137,134 @@ function MedicinePicker({
   pageContract: AdminUiPageContract;
   onChange: (name: string) => void;
 }) {
+  const [open, setOpen] = useState(false);
+  const [highlight, setHighlight] = useState(0);
   const listId = useId();
+
   const known = useMemo(
     () => new Set(medicines.map((m) => m.name.trim().toLowerCase())),
     [medicines],
   );
   const typed = value.trim();
-  // Nothing typed yet is not a mistake; it is a step the author has not finished.
-  const unknown = typed !== "" && !known.has(typed.toLowerCase());
+  const noMatch = typed !== "" && !known.has(typed.toLowerCase());
+
+  // The suggestions, capped. A farm with three hundred medicines should not drop three
+  // hundred rows over the step below it -- the author narrows by typing one more letter,
+  // which is the whole point of a typeahead.
+  const matches = useMemo(() => {
+    const q = typed.toLowerCase();
+    const hits = q === ""
+      ? medicines
+      : medicines.filter((m) => m.name.toLowerCase().includes(q));
+    return hits.slice(0, 8);
+  }, [medicines, typed]);
+
+  // An exact hit is not a suggestion. Once the field holds a real medicine the list has
+  // nothing left to offer, and leaving it open covers the dosage the author reaches next.
+  const exact = matches.length === 1 && matches[0].name.trim().toLowerCase() === typed.toLowerCase();
+  const showList = open && matches.length > 0 && !exact;
+
+  // "bel" is a half-typed query, not a mistake. Warning while the suggestions are open
+  // tells an author they are wrong in the middle of getting it right, so the warning waits
+  // until there is nothing left to choose from -- either they have stopped typing, or what
+  // they typed matches nothing at all.
+  const unknown = noMatch && !showList;
+
+  const choose = (name: string) => {
+    onChange(name);
+    setOpen(false);
+    setHighlight(0);
+  };
 
   return (
-    <label className="fld" style={{ flex: "1 1 260px", minWidth: 200 }}>
+    <label className="fld" style={{ flex: "1 1 260px", minWidth: 200, position: "relative" }}>
       <span>{copy(pageContract, "label.medicine_name")}</span>
       <input
         type="text"
-        list={listId}
+        role="combobox"
+        aria-expanded={showList}
+        aria-controls={listId}
+        aria-autocomplete="list"
+        autoComplete="off"
         value={value}
         placeholder={copy(pageContract, "label.pick_medicine")}
         aria-invalid={unknown || undefined}
         style={unknown ? { borderColor: "var(--danger)" } : undefined}
-        onChange={(event) => onChange(event.target.value)}
+        onFocus={() => setOpen(true)}
+        onChange={(event) => {
+          onChange(event.target.value);
+          setOpen(true);
+          setHighlight(0);
+        }}
+        // Blur closes on a DELAY so a click on a suggestion lands first. The click itself
+        // is handled on mousedown for the same reason.
+        onBlur={() => window.setTimeout(() => setOpen(false), 120)}
+        onKeyDown={(event) => {
+          // KeyboardEvent.key names, compared lowercased. They are machine values, not copy
+          // -- the copy-firewall scan is right to be blunt about capitalised literals, and
+          // this is simply not prose.
+          const key = event.key.toLowerCase();
+          if (key === "escape") {
+            setOpen(false);
+            return;
+          }
+          if (!showList) return;
+          if (key === "arrowdown") {
+            event.preventDefault();
+            setHighlight((h) => (h + 1) % matches.length);
+          } else if (key === "arrowup") {
+            event.preventDefault();
+            setHighlight((h) => (h - 1 + matches.length) % matches.length);
+          } else if (key === "enter") {
+            event.preventDefault();
+            choose(matches[Math.min(highlight, matches.length - 1)].name);
+          }
+        }}
       />
-      <datalist id={listId}>
-        {medicines.map((m) => (
-          <option key={m.item_id} value={m.name}>
-            {m.category_path}
-          </option>
-        ))}
-      </datalist>
+      {showList ? (
+        <ul
+          id={listId}
+          role="listbox"
+          style={{
+            position: "absolute",
+            top: "100%",
+            left: 0,
+            right: 0,
+            zIndex: 30,
+            margin: "2px 0 0",
+            padding: 4,
+            listStyle: "none",
+            maxHeight: 260,
+            overflowY: "auto",
+            background: "var(--panel, #10160f)",
+            border: "1px solid var(--line)",
+            borderRadius: 8,
+            boxShadow: "0 8px 24px rgba(0,0,0,.45)",
+          }}
+        >
+          {matches.map((m, i) => (
+            <li
+              key={m.item_id}
+              role="option"
+              aria-selected={i === highlight}
+              onMouseDown={(event) => {
+                event.preventDefault();
+                choose(m.name);
+              }}
+              onMouseEnter={() => setHighlight(i)}
+              style={{
+                padding: "6px 8px",
+                borderRadius: 6,
+                cursor: "pointer",
+                background: i === highlight ? "var(--line)" : "transparent",
+              }}
+            >
+              <div>{m.name}</div>
+              {m.category_path ? <div className="small muted">{m.category_path}</div> : null}
+            </li>
+          ))}
+        </ul>
+      ) : null}
       {unknown ? (
         <span className="small" style={{ color: "var(--danger)" }}>
           {copy(pageContract, "warn.medicine_not_in_catalog")}

@@ -179,6 +179,22 @@ VALUES ($1::uuid,$2::uuid,$3,'1.0.0','health_protocol_version',$4::uuid,$5,$6::j
 	return err
 }
 
+// sqlEnsureMedicineRoot makes sure this tenant HAS a built-in Medicines category.
+//
+// It exists because of a silent failure found on a brand-new tenant. Migration 000346
+// created the seven built-in roots with a CROSS JOIN over the tenants that existed WHEN IT
+// RAN, and nothing creates them for a tenant made afterwards. The medicine insert below
+// joins that root, so on a fresh deployment it matched no row, stocked NOTHING, and the
+// import still reported "published 54 Health protocols" -- a farm whose every course names
+// a medicine it does not stock, with no error anywhere.
+//
+// Creating it here is narrow and idempotent. It is not this package's job to provision the
+// other six roots; the check below is what stops health quietly depending on them.
+const sqlEnsureMedicineRoot = `
+INSERT INTO item_categories (tenant_id, name, normalized_name, item_kind, sort_order, is_builtin)
+VALUES ($1::uuid, 'Medicines', 'medicines', 'medicine', 10, true)
+ON CONFLICT DO NOTHING`
+
 // sqlStockMedicines files every medicine of one protocol under the tenant's built-in
 // Medicines root, in ONE statement.
 //
@@ -204,6 +220,13 @@ WHERE NOT EXISTS (
 ON CONFLICT DO NOTHING`
 
 // ensureMedicinesStocked adds every medicine these steps name to the item registry.
+//
+// It VERIFIES afterwards rather than trusting the insert. A set-based INSERT ... SELECT
+// that matches no row is indistinguishable from one that had nothing to do -- both affect
+// zero rows and both return nil -- and that is precisely how a fresh deployment published
+// 54 protocols against an empty medicine list and called it success. A seed that cannot
+// stock what it just wrote must fail loudly, not leave the farm to discover it on the
+// first edit.
 func ensureMedicinesStocked(ctx context.Context, tx pgx.Tx, tenantID string, steps []domain.ProtocolStep) error {
 	seen := map[string]bool{}
 	names := make([]string, 0, 8)
@@ -223,6 +246,30 @@ func ensureMedicinesStocked(ctx context.Context, tx pgx.Tx, tenantID string, ste
 	if len(names) == 0 {
 		return nil
 	}
-	_, err := tx.Exec(ctx, sqlStockMedicines, tenantID, names)
-	return err
+
+	if _, err := tx.Exec(ctx, sqlEnsureMedicineRoot, tenantID); err != nil {
+		return fmt.Errorf("ensure Medicines category: %w", err)
+	}
+	if _, err := tx.Exec(ctx, sqlStockMedicines, tenantID, names); err != nil {
+		return err
+	}
+
+	var missing []string
+	if err := tx.QueryRow(ctx, sqlUnstockedMedicines, tenantID, names).Scan(&missing); err != nil {
+		return fmt.Errorf("verify stocked medicines: %w", err)
+	}
+	if len(missing) > 0 {
+		return fmt.Errorf("these medicines are not in the item registry and could not be added: %s",
+			strings.Join(missing, ", "))
+	}
+	return nil
 }
+
+// sqlUnstockedMedicines names any medicine that is STILL not in the registry.
+const sqlUnstockedMedicines = `
+SELECT coalesce(array_agg(m.name ORDER BY m.name), '{}')
+FROM unnest($2::text[]) AS m(name)
+WHERE NOT EXISTS (
+  SELECT 1 FROM inventory_items i
+  WHERE i.tenant_id = $1::uuid AND lower(i.name) = lower(m.name)
+)`
