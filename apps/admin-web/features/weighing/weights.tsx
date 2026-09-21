@@ -400,8 +400,8 @@ export async function WeighingWeightsPage({
       to: window.to,
       today,
       minDate: windowSettings.earliestDate,
-      // Landing on this window clears both parameters, so a shared link keeps meaning "the last 15
-      // days" rather than freezing on the fortnight it was copied in. Named fields, never a spread of
+      // This is only the fallback window the control shows when the URL carries no picked period. A
+      // picked span is still written explicitly, even when it equals this pair. Named fields, never a spread of
       // defaultWindow(): `{...{from,to}}` would silently overwrite the SELECTED window above with
       // the default and pin the page to 30 days whatever the reader picked.
       defaultFrom: defaultWindow(today, windowSettings).from,

@@ -131,9 +131,9 @@ export type WorklistFilterField =
        */
       minDate?: string;
       /**
-       * The window the page falls back to when neither parameter is present. Selecting exactly this
-       * span CLEARS both parameters, so a bookmark keeps meaning "the last 30 days" rather than
-       * freezing on the span it was taken in.
+       * The window the page falls back to when neither parameter is present. A picked span is still
+       * written explicitly, even when it equals this pair; Clear all is the way back to the page's
+       * no-parameter landing window.
        */
       defaultFrom: string;
       defaultTo: string;
