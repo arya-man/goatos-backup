@@ -115,6 +115,19 @@ WHERE tenant_id=$1::uuid AND source_ref=$2 AND status IN ('published','draft')`,
 				return fmt.Errorf("health: %s critical step has no guarded handoff type", key)
 			}
 		}
+		// THE MEDICINES THIS PROTOCOL NAMES MUST EXIST IN THE REGISTRY, and the import is
+		// what puts them there.
+		//
+		// A step names a medicine FROM /configuration/items and never free text, so a seed
+		// that wrote protocols without stocking their medicines would produce a farm whose
+		// every course is unauthorable on the first edit -- the validation would refuse a
+		// medicine the seed itself had just written. Stocking them HERE, in the same
+		// transaction, is what makes a fresh seed complete rather than something a repair
+		// migration has to finish afterwards.
+		if err := ensureMedicinesStocked(ctx, tx, tenantID, p.Steps); err != nil {
+			return fmt.Errorf("health: stock medicines for %s: %w", key, err)
+		}
+
 		var version int
 		if err := tx.QueryRow(ctx, `SELECT coalesce(max(version),0)+1 FROM health_protocol_versions WHERE tenant_id=$1::uuid AND disease_key=$2 AND age_band=$3`, tenantID, p.DiseaseKey, p.AgeBand).Scan(&version); err != nil { // scale-guard:ignore: deployment-only strict snapshot import, hard-capped at 200 protocols
 			return err
@@ -164,4 +177,49 @@ func insertProtocolOutbox(ctx context.Context, tx pgx.Tx, tenantID, actorID, pro
 	_, err = tx.Exec(ctx, `INSERT INTO outbox_messages (tenant_id,event_id,event_type,schema_version,aggregate_type,aggregate_id,topic,payload,headers,idempotency_key,trace_id,status,next_attempt_at)
 VALUES ($1::uuid,$2::uuid,$3,'1.0.0','health_protocol_version',$4::uuid,$5,$6::jsonb,$7::jsonb,$8,'','pending',now()) ON CONFLICT DO NOTHING`, tenantID, eventID, eventType, protocolID, healthTopic, body, headers, idem)
 	return err
+}
+
+// sqlStockMedicine files one medicine under the tenant's built-in Medicines root.
+//
+// Idempotent on both unique indexes: a tenant that already stocks the medicine keeps ITS OWN
+// row untouched -- an import must not overwrite a name, unit or category a farm has since
+// corrected on screen.
+const sqlStockMedicine = `
+INSERT INTO inventory_items (tenant_id, item_code, name, category, base_unit, status, category_id)
+SELECT $1::uuid,
+       'med_' || regexp_replace(lower(btrim($2)), '[^a-z0-9]+', '_', 'g'),
+       btrim($2), 'medicine', 'unit', 'active', c.category_id
+FROM item_categories c
+WHERE c.tenant_id = $1::uuid AND c.parent_category_id IS NULL AND c.item_kind = 'medicine'
+  AND NOT EXISTS (
+    SELECT 1 FROM inventory_items i
+    WHERE i.tenant_id = $1::uuid AND lower(i.name) = lower(btrim($2))
+  )
+ON CONFLICT DO NOTHING`
+
+// ensureMedicinesStocked adds every medicine these steps name to the item registry.
+//
+// One statement per DISTINCT medicine rather than per step: a 28-step course names a handful
+// of medicines and re-inserting each step's would be pure round trips. The whole import is
+// hard-capped at 200 protocols, so this stays bounded by construction.
+func ensureMedicinesStocked(ctx context.Context, tx pgx.Tx, tenantID string, steps []domain.ProtocolStep) error {
+	seen := map[string]bool{}
+	for _, s := range steps {
+		// A pointer because an ACTION step carries no medicine at all; nil and "" are the
+		// same thing here and both mean "nothing to stock".
+		if s.MedicineName == nil {
+			continue
+		}
+		name := strings.TrimSpace(*s.MedicineName)
+		if name == "" || seen[strings.ToLower(name)] {
+			continue
+		}
+		seen[strings.ToLower(name)] = true
+		// scale-guard:ignore: deployment-only strict snapshot import; the loop is over the
+		// distinct medicines of ONE protocol, and the import is hard-capped at 200 protocols.
+		if _, err := tx.Exec(ctx, sqlStockMedicine, tenantID, name); err != nil {
+			return err
+		}
+	}
+	return nil
 }
