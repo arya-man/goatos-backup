@@ -247,7 +247,7 @@ function dashboardRuntimeFindings() {
   }
   const notifyRel = "tools/dashboard-automation/notify-slack.mjs";
   const notifySource = existsSync(notifyRel) ? readFileSync(notifyRel, "utf8") : "";
-  for (const fragment of ["degraded", "Browser smoke", "Parity gate", "ran_degraded", "Browser smoke did not run"]) {
+  for (const fragment of ["degraded", "Browser", "Data parity", "ran_degraded", "Browser smoke did not run"]) {
     if (!notifySource.includes(fragment)) {
       findings.push(`${notifyRel}: Slack alerts must distinguish degraded browser-smoke runs from skipped Playwright runs (${fragment})`);
     }
@@ -258,7 +258,7 @@ function dashboardRuntimeFindings() {
   }
   const slackRel = "tools/dashboard-automation/notify-slack.mjs";
   const slackSource = existsSync(slackRel) ? readFileSync(slackRel, "utf8") : "";
-  for (const fragment of ["Browser smoke", "Parity gate", "ran_degraded", "ran_failed", "Browser smoke did not run"]) {
+  for (const fragment of ["Browser", "Data parity", "ran_degraded", "ran_failed", "Browser smoke did not run"]) {
     if (!slackSource.includes(fragment)) findings.push(`${slackRel}: Slack alerts must explicitly say whether Playwright/browser smoke ran (${fragment})`);
   }
   if (smokeSource.includes('GOATOS_SMOKE_BROWSER_CHANNEL || "chrome"')) {

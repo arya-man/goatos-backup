@@ -136,7 +136,10 @@ function codePatchableFailure(value, agentReview = null) {
   if (/auth_blocked|missing .*env|credential|token|latest-full-parity-receipt|READBACK_PASS|parity receipt/i.test(blockerText)) {
     return { shouldOpen: false, reason: "auth/env/parity prerequisite failure" };
   }
-  if (agentReview?.shouldOpenFixPr === false || agentReview?.safeToPatchCode === false) {
+  if (!agentReview) {
+    return { shouldOpen: false, reason: "agent review missing; refusing report-only PR" };
+  }
+  if (agentReview.shouldOpenFixPr !== true || agentReview.safeToPatchCode !== true) {
     return { shouldOpen: false, reason: "agent review marked not code-patchable" };
   }
   const patchableClasses = new Set(["product_ui", "product_api", "latency"]);
@@ -241,6 +244,11 @@ function selfTest() {
     blockers: [{ layer: "production-module-journeys", message: "The board could not be loaded" }]
   }, { failureClass: "product_ui", shouldOpenFixPr: true, safeToPatchCode: true });
   if (!productDecision.shouldOpen) throw new Error("self-test: product UI failures must remain eligible for PR creation");
+  const missingReview = codePatchableFailure({
+    layers: [{ name: "production-module-journeys", status: "fail" }],
+    blockers: [{ layer: "production-module-journeys", message: "The board could not be loaded" }]
+  });
+  if (missingReview.shouldOpen) throw new Error("self-test: missing agent review must not open report-only PRs");
   const agentVeto = codePatchableFailure({
     layers: [{ name: "production-module-journeys", status: "fail" }],
     blockers: [{ layer: "production-module-journeys", message: "manual data repair needed" }]
