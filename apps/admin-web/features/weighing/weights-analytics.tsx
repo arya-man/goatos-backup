@@ -225,10 +225,22 @@ export async function WeighingWeightsAnalyticsPage({
   const growthSections =
     tab === "general" ? "headline,shed_leaderboard,by_park" : tab === "time" ? "weekly_gain" : "";
   const wantsGrowth = growthSections !== "";
+  // General reads demographics too, for the pens table's Breed column ONLY (maintainer request
+  // 2026-09-21): the pen's resident cohort lives on the same `shed_composition` chips the Weights
+  // table renders, so the two screens can never name a different breed for one pen. It asks for
+  // the `composition` section alone -- the landing tab pays for that one read, not for the
+  // dimensions, bands and weekly gain it draws nothing from.
   const wantsDemographics =
-    tab === "breed" || tab === "shed" || tab === "birth" || tab === "weight" || tab === "time";
+    tab === "general" ||
+    tab === "breed" ||
+    tab === "shed" ||
+    tab === "birth" ||
+    tab === "weight" ||
+    tab === "time";
   const demographicsSections =
-    tab === "breed"
+    tab === "general"
+      ? "composition"
+      : tab === "breed"
       ? "dimensions"
       : tab === "birth"
         ? "origin"
@@ -479,6 +491,7 @@ export async function WeighingWeightsAnalyticsPage({
             parkFilter={parkFilter}
             modeFilter={modeFilter}
             growth={growth?.ok ? growth.data : null}
+            demo={demo}
             perParkGain={perParkGain}
             limit={limit}
             offset={offset}
@@ -566,6 +579,7 @@ function GeneralTab({
   parkFilter,
   modeFilter,
   growth,
+  demo,
   perParkGain,
   limit,
   offset,
@@ -580,6 +594,8 @@ function GeneralTab({
   parkFilter: string;
   modeFilter: string;
   growth: WeighingGrowthResponse | null;
+  /** The `composition` section only; a FAILED demographics read takes the page down above. */
+  demo: WeightDemographicsResponse | null;
   perParkGain: readonly { name: string; gain: number | null; animals: number }[];
   limit: number;
   offset: number;
@@ -630,6 +646,27 @@ function GeneralTab({
   // median of its kids' own gains; a whole-shed pen reports how fast its average is moving. They
   // are different measurements, which is why the row's existing capture-mode chip has to stay
   // beside this column: without it the two would read as one number.
+  // The pen's BREED, from the same `shed_composition` chips the Weights table renders as cohort
+  // cells (maintainer request 2026-09-21). One breed among the pen's live residents is named;
+  // SEVERAL read "Mixed breeds" rather than picking the largest, because one pen average cannot
+  // be split across breeds and naming one of them would claim a herd nobody weighed. A pen the
+  // register shows no cohort for reads as no data -- absence, never a breed.
+  const breedByShedKey = new Map<string, string>();
+  for (const item of demo?.shed_composition ?? []) {
+    const chips = item.chips ?? [];
+    if (chips.length === 0) continue;
+    const named = new Set(chips.map((chip) => chip.breed?.trim() ?? "").filter((breed) => breed !== ""));
+    const unnamed = chips.some((chip) => (chip.breed?.trim() ?? "") === "");
+    breedByShedKey.set(
+      shedKey(item.location_id, item.partition_label),
+      named.size === 0
+        ? copy(pageContract, "value.shed.unknown")
+        : named.size === 1 && !unnamed
+          ? [...named][0]
+          : copy(pageContract, "value.shed.mixed"),
+    );
+  }
+
   const shedGainByKey = new Map<string, number>();
   for (const shed of growth?.shed_leaderboard ?? []) {
     if (shed.adg_pair_count > 0) {
@@ -756,6 +793,7 @@ function GeneralTab({
                   key: shedKey(row.location_id, row.partition_label),
                   park: row.park_name,
                   pen: row.operational_location_display || row.shed_display_name,
+                  breed: breedByShedKey.get(shedKey(row.location_id, row.partition_label)) ?? null,
                   weighingCategory: row.weighing_category,
                   animals: row.animals_weighed,
                   averageKg: row.average_weight_kg,
