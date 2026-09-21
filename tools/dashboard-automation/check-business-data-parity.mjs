@@ -40,6 +40,7 @@ for (const table of config.businessDataParity.bestEffortTables) {
   compareCount(table, "bestEffortTables", false);
 }
 runSentinel("cbe_herd_analytics_window", cbeHerdWindowSql());
+runZeroRowSentinel("godel_2_timewise_adg", godelTimewiseAdgSql());
 runWeighingPenAliasFormBRows();
 runSalesSoldWeightCoverage();
 for (const reconciliation of config.businessDataParity.fieldReconciliations ?? []) {
@@ -79,6 +80,24 @@ function runSentinel(name, sql) {
   }
   result.sentinelQueries[name] = row;
   if (row.status === "fail") result.blockers.push({ kind: "sentinel_mismatch", name });
+}
+
+function runZeroRowSentinel(name, sql) {
+  const stg = psqlRows(stgUrl, readOnlySql(sql));
+  const oci = psqlRows(ociUrl, readOnlySql(sql));
+  const row = { stg: zeroRowObject(stg.rows?.[0]), oci: zeroRowObject(oci.rows?.[0]), status: "pass" };
+  if (stg.error || oci.error) {
+    row.status = "fail";
+    row.error = redactText(stg.error ?? oci.error);
+  } else if (JSON.stringify(row.stg) !== JSON.stringify(row.oci)) {
+    row.status = "fail";
+    row.reason = "stg_oci_mismatch";
+  } else if ((row.stg?.violations ?? 0) > 0) {
+    row.status = "fail";
+    row.reason = "semantic_violation";
+  }
+  result.sentinelQueries[name] = row;
+  if (row.status === "fail") result.blockers.push({ kind: "sentinel_mismatch", name, reason: row.reason ?? "query_failed" });
 }
 
 function runFieldReconciliation(reconciliation) {
@@ -161,6 +180,17 @@ function weighingAliasObject(row) {
   };
 }
 
+function zeroRowObject(row) {
+  if (!row) return null;
+  return {
+    violations: Number(row[0]),
+    affectedPens: Number(row[1]),
+    firstDate: row[2] || null,
+    lastDate: row[3] || null,
+    examples: row[4] || ""
+  };
+}
+
 function salesWeightObject(row) {
   if (!row) return null;
   return {
@@ -233,6 +263,42 @@ with cbe as (
       between date '2026-09-14' and date '2026-09-21'
 )
 select total, kids, adults, deaths, sold from live, flow`;
+}
+
+function godelTimewiseAdgSql() {
+  return `
+with alias_shape_split as (
+  select
+    wcs.campaign_shed_id,
+    wcs.start_business_date,
+    parent.name as shed_name,
+    wcs.partition_label,
+    alias.name as alias_name
+  from weighing_campaign_sheds wcs
+  join locations parent
+    on parent.tenant_id = wcs.tenant_id
+   and parent.location_id = wcs.location_id
+   and parent.location_type = 'shed'
+  join shed_partitions sp
+    on sp.tenant_id = wcs.tenant_id
+   and sp.shed_id = parent.location_id
+   and sp.normalized_label = regexp_replace(lower(btrim(wcs.partition_label)), '^(part|p)[[:space:]]+', '')
+   and sp.alias_location_id is not null
+  join locations alias
+    on alias.tenant_id = sp.tenant_id
+   and alias.location_id = sp.alias_location_id
+  where nullif(btrim(wcs.partition_label), '') is not null
+    and wcs.weighing_category = 'per_shed_partition'
+    and wcs.status <> 'canceled'
+    and lower(parent.name) ~ '(godel|mandela|castro)'
+)
+select
+  count(*)::text as violations,
+  count(distinct shed_name || '|' || partition_label)::text as affected_pens,
+  coalesce(min(start_business_date)::text, '') as first_date,
+  coalesce(max(start_business_date)::text, '') as last_date,
+  coalesce(string_agg(distinct shed_name || ' / ' || partition_label || ' should be ' || alias_name, ', ' order by shed_name || ' / ' || partition_label || ' should be ' || alias_name), '') as examples
+from alias_shape_split`;
 }
 
 function salesSoldWeightCoverageSql() {
@@ -365,9 +431,16 @@ function selfTest() {
   if (!config.businessDataParity.sentinelQueries.some((item) => item.name === "weighing_pen_alias_form_b_rows" && item.implementationStatus === "implemented")) {
     throw new Error("self-test: weighing pen alias Form B sentinel must be implemented");
   }
+  if (!config.businessDataParity.sentinelQueries.some((item) => item.name === "godel_2_timewise_adg" && item.implementationStatus === "implemented")) {
+    throw new Error("self-test: Godel ADG sentinel must be implemented");
+  }
   const aliasSql = weighingPenAliasFormBRowsSql();
   for (const fragment of ["weighing_campaign_sheds", "partition_label", "locations alias", "form_b_rows"]) {
     if (!aliasSql.includes(fragment)) throw new Error(`self-test: alias sentinel SQL missing ${fragment}`);
+  }
+  const godelSql = godelTimewiseAdgSql();
+  for (const fragment of ["shed_partitions", "alias_location_id", "godel|mandela|castro", "should be"]) {
+    if (!godelSql.includes(fragment)) throw new Error(`self-test: Godel sentinel SQL missing ${fragment}`);
   }
   if (config.selfHealing.mode !== "pull_request_only") {
     throw new Error("self-test: self-healing must be PR-only");
