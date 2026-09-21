@@ -31,6 +31,23 @@ fi
 
 cd "$REPO_ROOT"
 
+runtime_env_file=""
+cleanup_runtime_env() {
+  if [[ -n "$runtime_env_file" && -f "$runtime_env_file" ]]; then
+    rm -f "$runtime_env_file"
+  fi
+}
+trap cleanup_runtime_env EXIT
+
+if [[ -n "${GOATOS_FIREBASE_REFRESH_TOKEN:-}" ]]; then
+  runtime_env_file="$(mktemp)"
+  node tools/dashboard-automation/refresh-firebase-token.mjs \
+    --out-env "$runtime_env_file" \
+    --env-file "$ENV_FILE"
+  # shellcheck disable=SC1090
+  source "$runtime_env_file"
+fi
+
 if [[ -z "${CHROME_PATH:-}" && -d "${REPO_ROOT}/node_modules/playwright" ]]; then
   CHROME_PATH="$(node -e 'console.log(require("playwright").chromium.executablePath())')"
   export CHROME_PATH

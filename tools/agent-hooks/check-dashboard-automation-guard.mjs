@@ -48,6 +48,7 @@ for (const file of [
   "tools/dashboard-automation/run-module-journeys.mjs",
   "tools/dashboard-automation/notify-slack.mjs",
   "tools/dashboard-automation/self-heal-pr.mjs",
+  "tools/dashboard-automation/refresh-firebase-token.mjs",
   "docs/runbooks/dashboard-automation-oci.md",
 ]) {
   if (!existsSync(file)) failures.push(`required dashboard automation file missing: ${file}`);
@@ -210,6 +211,10 @@ function dashboardRuntimeFindings() {
 
   for (const envFlag of ["GOATOS_DASHBOARD_DATA_PARITY", "GOATOS_DASHBOARD_API_LATENCY", "GOATOS_DASHBOARD_LIGHTHOUSE", "GOATOS_DASHBOARD_GRAFANA_SMOKE", "GOATOS_DASHBOARD_SLACK_ALERTS", "GOATOS_DASHBOARD_SELF_HEALING"]) {
     if (!runnerSource.includes(envFlag)) findings.push(`${runnerRel}: dashboard automation env flag ${envFlag} is not wired`);
+  }
+  const ociSource = readFileSync("tools/dashboard-automation/run-oci.sh", "utf8");
+  if (!ociSource.includes("GOATOS_FIREBASE_REFRESH_TOKEN") || !ociSource.includes("refresh-firebase-token.mjs")) {
+    findings.push("tools/dashboard-automation/run-oci.sh: OCI automation must refresh Firebase bearer tokens instead of relying on stale static GOATOS_BEARER_TOKEN");
   }
   for (const fragment of ["tableFingerprintSql", "row_to_json", "content_fingerprint", "table_parity_mismatch"]) {
     if (!paritySource.includes(fragment)) findings.push(`${parityRel}: critical table parity must include fingerprint fragment ${fragment}`);

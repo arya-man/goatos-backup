@@ -429,6 +429,7 @@ function selfTest() {
   runNode(["tools/dashboard-automation/run-module-journeys.mjs", "--self-test"]);
   runNode(["tools/dashboard-automation/self-heal-pr.mjs", "--self-test"]);
   runNode(["tools/dashboard-automation/notify-slack.mjs", "--self-test"]);
+  runNode(["tools/dashboard-automation/refresh-firebase-token.mjs", "--self-test"]);
   runNode(["tools/dashboard-automation/check-latest-parity-receipt.mjs", "--self-test"]);
   console.log("dashboard automation runner: self-test passed");
 }
