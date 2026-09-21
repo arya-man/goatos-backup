@@ -23,8 +23,10 @@ case "$MODE" in
 esac
 
 if [[ -f "$ENV_FILE" ]]; then
+  set -a
   # shellcheck disable=SC1090
   source "$ENV_FILE"
+  set +a
 else
   die "env file not found: ${ENV_FILE}"
 fi
