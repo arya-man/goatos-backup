@@ -63,6 +63,20 @@ agent-review hook, CI wiring, and review-skill instructions.
   - daily production smoke refuses non-production API origins;
   - agent-review evidence redacts route and viewport strings as well as file
     paths before writing review inputs.
+- Added module-wise read-only Playwright journey coverage:
+  - `tools/dashboard-automation/module-journeys.json` owns every live smoke
+    route by business module: Weighing, Vaccination, Feed, Sales, Procurement,
+    Counts/Herd, Health, Work Board/Action Center, Calendar, People, and
+    Operations.
+  - `tools/dashboard-automation/run-module-journeys.mjs` runs the existing live
+    visual smoke per module with `GOATOS_SMOKE_ONLY_ROUTES` and
+    `GOATOS_SMOKE_READ_ONLY=1`, producing a module receipt.
+  - `tools/dashboard-automation/check-module-journeys.mjs` and the dashboard
+    guard now fail if a dashboard route or smoke state is not owned by a module
+    journey, so new features pushed to main must update automation coverage.
+  - `tools/dashboard-automation/run.mjs` now uses module journeys for both
+    production smoke and post-main certification, instead of one broad generic
+    Playwright pass.
 
 ## Pending before enabling a real timer
 
@@ -79,6 +93,9 @@ agent-review hook, CI wiring, and review-skill instructions.
 - `node tools/dashboard-automation/check-static-inventory.mjs`
 - `node tools/dashboard-automation/agent-review.mjs --self-test`
 - `node tools/dashboard-automation/run.mjs --self-test`
+- `node tools/dashboard-automation/check-module-journeys.mjs --self-test`
+- `node tools/dashboard-automation/check-module-journeys.mjs`
+- `node tools/dashboard-automation/run-module-journeys.mjs --self-test`
 - `bash -n tools/dashboard-automation/run-oci.sh`
 - `bash -n tools/dashboard-automation/install-oci-user-timer.sh`
 - `make dashboard-automation-self-test`

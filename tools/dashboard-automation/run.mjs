@@ -36,7 +36,7 @@ try {
   const staticOk = layer("static", "deterministic", () => runNode(["tools/dashboard-automation/check-static-inventory.mjs"]));
   let dataParityOk = true;
   if (process.env.GOATOS_DASHBOARD_DATA_PARITY === "1") {
-    dataParityOk = layer("business-data-parity", "deterministic", () => runNode(["tools/dashboard-automation/check-business-data-parity.mjs"]));
+    dataParityOk = layer("business-data-parity", "deterministic", () => runBusinessDataParity(outDir));
   }
   const ociOk = staticOk && dataParityOk && layer("oci-free-preflight", "deterministic", () => assertOciAlwaysFree());
   if (!ociOk) throw new Error("stopping before runtime automation because a prerequisite deterministic layer failed");
@@ -52,9 +52,9 @@ try {
   }
   if (mode === "post-main-certification") {
     layer("postgresql-integration", "deterministic", () => assertPostgresIntegrationConfigured());
-    layer("playwright-e2e", "deterministic", () => runPreviewPlaywright());
+    layer("playwright-module-journeys", "deterministic", () => runPreviewPlaywright(outDir));
   } else if (mode === "production-smoke") {
-    layer("production-playwright-smoke", "deterministic", () => runProductionSmoke());
+    layer("production-module-journeys", "deterministic", () => runProductionSmoke(outDir));
   } else {
     throw new Error(`unknown mode: ${mode}`);
   }
@@ -157,14 +157,17 @@ function assertPostgresIntegrationConfigured() {
   }
 }
 
-function runPreviewPlaywright() {
+function runPreviewPlaywright(targetDir) {
   const required = ["GOATOS_ADMIN_WEB_BASE_URL", "GOATOS_API_BASE_URL", "GOATOS_BEARER_TOKEN", "GOATOS_TENANT_ID"];
   const missing = required.filter((key) => !process.env[key]);
   if (missing.length) throw new Error(`missing preview Playwright env: ${missing.join(", ")}`);
-  runNpm(["--prefix", "apps/admin-web", "run", "smoke:visual:live"]);
+  runNode(["tools/dashboard-automation/run-module-journeys.mjs", "--out-dir", path.join(targetDir, "module-journeys")], {
+    ...process.env,
+    GOATOS_SMOKE_READ_ONLY: "1"
+  });
 }
 
-function runProductionSmoke() {
+function runProductionSmoke(targetDir) {
   const required = ["GOATOS_API_BASE_URL", "GOATOS_BEARER_TOKEN", "GOATOS_TENANT_ID"];
   const missing = required.filter((key) => !process.env[key]);
   if (missing.length) throw new Error(`auth_blocked: missing production smoke env: ${missing.join(", ")}`);
@@ -172,9 +175,10 @@ function runProductionSmoke() {
   if (apiUrl.protocol !== "https:" || !["api.goatos.mesha.sg", "api.mesha.sg", "goatos-api.mesha.sg"].includes(apiUrl.hostname)) {
     throw new Error(`daily production smoke refuses non-production API URL: ${apiUrl.origin}`);
   }
-  runNpm(["--prefix", "apps/admin-web", "run", "smoke:visual:live"], {
+  runNode(["tools/dashboard-automation/run-module-journeys.mjs", "--out-dir", path.join(targetDir, "module-journeys")], {
     ...process.env,
-    GOATOS_ADMIN_WEB_BASE_URL: config.productionUrl
+    GOATOS_ADMIN_WEB_BASE_URL: config.productionUrl,
+    GOATOS_SMOKE_READ_ONLY: "1"
   });
 }
 
@@ -196,6 +200,12 @@ function runApiLatency(targetDir) {
     ]);
     receipt.artifacts.push({ kind: "api-latency-report", manifest: path.join("tools/perf", manifestName), path: output });
   }
+}
+
+function runBusinessDataParity(targetDir) {
+  const output = path.join(targetDir, "business-data-parity.json");
+  runNode(["tools/dashboard-automation/check-business-data-parity.mjs", "--out", output]);
+  receipt.artifacts.push({ kind: "business-data-parity-report", path: output });
 }
 
 function runLighthouse(targetDir) {
@@ -265,6 +275,19 @@ function selfTest() {
   if (!config.selfHealing.forbiddenActions.includes("writeOciData")) throw new Error("self-test: OCI writes must remain forbidden");
   if (config.apiLatencyPolicy.normalDashboardApisMustStayUnderMs !== 500) throw new Error("self-test: dashboard API latency policy drifted");
   if (!config.selfHealing.checksBeforePr.includes("apiLatencyPolicy")) throw new Error("self-test: self-healing must include API latency checks");
+  if (!config.businessDataParity.sentinelQueries.some((item) => item.name === "godel_2_timewise_adg" && item.implementationStatus === "implemented")) {
+    throw new Error("self-test: Manohar/Godel ADG sentinel must stay configured as implemented");
+  }
+  if (!readFileSync(fileURLToPath(import.meta.url), "utf8").includes("run-module-journeys.mjs")) {
+    throw new Error("self-test: runner must invoke module-wise Playwright journeys, not only one generic smoke");
+  }
+  for (const key of ["GOATOS_DASHBOARD_DATA_PARITY", "GOATOS_DASHBOARD_API_LATENCY", "GOATOS_DASHBOARD_LIGHTHOUSE", "GOATOS_DASHBOARD_GRAFANA_SMOKE"]) {
+    if (!readFileSync(fileURLToPath(import.meta.url), "utf8").includes(key)) {
+      throw new Error(`self-test: runner no longer wires ${key}`);
+    }
+  }
+  runNode(["tools/dashboard-automation/check-module-journeys.mjs", "--self-test"]);
+  runNode(["tools/dashboard-automation/run-module-journeys.mjs", "--self-test"]);
   runNode(["tools/dashboard-automation/self-heal-pr.mjs", "--self-test"]);
   runNode(["tools/dashboard-automation/notify-slack.mjs", "--self-test"]);
   console.log("dashboard automation runner: self-test passed");

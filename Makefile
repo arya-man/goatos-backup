@@ -104,6 +104,8 @@ dashboard-automation-self-test:
 	node tools/dashboard-automation/agent-review.mjs --self-test
 	node tools/dashboard-automation/self-heal-pr.mjs --self-test
 	node tools/dashboard-automation/check-business-data-parity.mjs --self-test
+	node tools/dashboard-automation/check-module-journeys.mjs --self-test
+	node tools/dashboard-automation/run-module-journeys.mjs --self-test
 	node tools/agent-hooks/check-dashboard-automation-guard.mjs --self-test
 	bash -n tools/dashboard-automation/run-oci.sh
 	bash -n tools/dashboard-automation/run-post-main-if-new.sh

@@ -3,6 +3,7 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 
 const smokeSource = readFileSync(new URL("./smoke-visual-live.mjs", import.meta.url), "utf8");
+const journeyManifest = JSON.parse(readFileSync(new URL("../../../tools/dashboard-automation/module-journeys.json", import.meta.url), "utf8"));
 const smokeRouteBlock = smokeSource.match(/function buildRoutes\(\{ toxinSopId, goatId, procurementLoadId, workflowRowId, calendarEventId, vaccinationShedPath \}\) \{[\s\S]*?const pagerMinimums = new Map/)?.[0] ?? "";
 const routeEntries = Array.from(
   smokeRouteBlock.matchAll(/name:\s*"([^"]+)"[\s\S]{0,500}?path:\s*([`"])([^`"]+)/g),
@@ -150,6 +151,28 @@ test("visual smoke visits every live sidebar navigation leaf", () => {
     "vaccination-shed-execution-detail",
   ]) {
     assert.ok(routes.has(routeName), `${routeName} dynamic route must stay in the live visual smoke sweep`);
+  }
+});
+
+test("dashboard automation has a module-wise read-only journey contract for every smoke route", () => {
+  assert.ok(Array.isArray(journeyManifest.journeys), "journey manifest must expose journeys");
+  assert.ok(journeyManifest.journeys.length >= 10, "journey manifest must stay module-wise, not one generic smoke bucket");
+  const routeNames = new Set(routeEntries.map(([name]) => name));
+  const assignedRoutes = new Set();
+  for (const journey of journeyManifest.journeys) {
+    const moduleId = journey.module ?? journey.id;
+    const journeyRoutes = journey.routeNames ?? journey.routes;
+    const assertions = journey.assertions ?? journey.assertText ?? journey.coverage;
+    assert.ok(moduleId, "journey module is required");
+    assert.ok(Array.isArray(journeyRoutes) && journeyRoutes.length > 0, `${moduleId} must name route coverage`);
+    assert.ok(Array.isArray(assertions) && assertions.length > 0, `${moduleId} must document user-visible assertions`);
+    for (const routeName of journeyRoutes) {
+      assert.ok(routeNames.has(routeName), `${moduleId} references smoke route ${routeName}`);
+      assignedRoutes.add(routeName);
+    }
+  }
+  for (const routeName of routeNames) {
+    assert.ok(assignedRoutes.has(routeName), `${routeName} must be assigned to a read-only journey module`);
   }
 });
 

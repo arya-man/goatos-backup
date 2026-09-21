@@ -24,6 +24,7 @@ const apiBaseUrl = trimTrailingSlash(process.env.GOATOS_API_BASE_URL);
 const bearerToken = process.env.GOATOS_BEARER_TOKEN;
 const tenantId = process.env.GOATOS_TENANT_ID;
 const navigationTimeoutMs = Number(process.env.GOATOS_SMOKE_NAVIGATION_TIMEOUT_MS ?? 60_000);
+const readOnlySmoke = process.env.GOATOS_SMOKE_READ_ONLY !== "0";
 const repoRoot = resolve(dirname(fileURLToPath(import.meta.url)), "../../..");
 const baselineDir = normalizeRepoPath(args.baselineDir ?? process.env.GOATOS_VISUAL_BASELINE_DIR);
 const updateBaseline = args.updateBaseline || process.env.GOATOS_VISUAL_UPDATE_BASELINE === "1";
@@ -1276,7 +1277,9 @@ async function assertCoreInteractions(page, routeName, viewportLabel) {
     if ((await task.count()) === 1) {
       await openAndCloseDrawer(page, task, "ACTION", routeName);
     }
-    await submitActionCenterVerification(page, routeName);
+    if (!readOnlySmoke) {
+      await submitActionCenterVerification(page, routeName);
+    }
   }
 
   if (routeName === "alerts-populated") {
