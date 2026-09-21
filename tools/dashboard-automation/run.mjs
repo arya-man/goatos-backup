@@ -50,6 +50,7 @@ try {
   if (process.env.GOATOS_DASHBOARD_GRAFANA_SMOKE === "1") {
     layer("grafana-smoke", "deterministic", () => runNode(["tools/deploy/smoke-stg-grafana-dashboards.mjs"]));
   }
+  layer("vaccination-lifecycle", "deterministic", () => runVaccinationLifecycleTests());
   if (mode === "post-main-certification") {
     layer("postgresql-integration", "deterministic", () => assertPostgresIntegrationConfigured());
     layer("playwright-module-journeys", "deterministic", () => runPreviewPlaywright(outDir));
@@ -222,6 +223,23 @@ function runLighthouse(targetDir) {
   receipt.artifacts.push({ kind: "lighthouse-report", path: output });
 }
 
+function runVaccinationLifecycleTests() {
+  run("go", [
+    "test",
+    "./internal/vaccination/app",
+    "-run",
+    "TestGenerateForVersionUsesTopLevelProcurementFirstWaveWhenPurposeBlank|TestGenerateForVersionUsesProcurementPurposePlans|TestGenerateForVersionDefersDuringWarmupHold|TestGenerateForVersionTreatsTerminalAndClinicalStatesDifferently",
+    "-count=1"
+  ]);
+  run("go", [
+    "test",
+    "./internal/obligation/adapters/postgres",
+    "-run",
+    "TestPublishingAnAddedVaccineLeavesTheOtherFiveUntouched|TestCarryOverRebindsMedicalEquivalentPrimaryCourseFollowUp|TestGoatExitedRemovesAnimalFromPlannedDriveAssignments|TestMatrixClinicalDeferHoldsWorkAndReleasesPlannedDrive|TestMatrixClinicalRecoveryReopensWithoutCorruptingPlannedDrive",
+    "-count=1"
+  ]);
+}
+
 function filesystemFreeGb(target) {
   const output = execFileSync("df", ["-k", target], { encoding: "utf8" }).trim().split("\n").at(-1);
   const parts = output.trim().split(/\s+/);
@@ -275,11 +293,15 @@ function selfTest() {
   if (!config.selfHealing.forbiddenActions.includes("writeOciData")) throw new Error("self-test: OCI writes must remain forbidden");
   if (config.apiLatencyPolicy.normalDashboardApisMustStayUnderMs !== 500) throw new Error("self-test: dashboard API latency policy drifted");
   if (!config.selfHealing.checksBeforePr.includes("apiLatencyPolicy")) throw new Error("self-test: self-healing must include API latency checks");
+  if (!config.selfHealing.checksBeforePr.includes("vaccinationLifecycle")) throw new Error("self-test: self-healing must include vaccination lifecycle checks");
   if (!config.businessDataParity.sentinelQueries.some((item) => item.name === "godel_2_timewise_adg" && item.implementationStatus === "implemented")) {
     throw new Error("self-test: Manohar/Godel ADG sentinel must stay configured as implemented");
   }
   if (!readFileSync(fileURLToPath(import.meta.url), "utf8").includes("run-module-journeys.mjs")) {
     throw new Error("self-test: runner must invoke module-wise Playwright journeys, not only one generic smoke");
+  }
+  if (!readFileSync(fileURLToPath(import.meta.url), "utf8").includes("runVaccinationLifecycleTests")) {
+    throw new Error("self-test: runner must invoke deep vaccination lifecycle tests");
   }
   for (const key of ["GOATOS_DASHBOARD_DATA_PARITY", "GOATOS_DASHBOARD_API_LATENCY", "GOATOS_DASHBOARD_LIGHTHOUSE", "GOATOS_DASHBOARD_GRAFANA_SMOKE"]) {
     if (!readFileSync(fileURLToPath(import.meta.url), "utf8").includes(key)) {
