@@ -437,14 +437,14 @@ function enrichDriveOptions(
       }
     });
     const shedNames = Array.from(byShedKey.values())
-      .map((entry) => entry.operationalLocationDisplay || entry.shedName)
+      .map((entry) => entry.operationalLocationDisplay || operationalLocationLabel({ shedName: entry.shedName, partitionLabel: entry.partitionLabel }))
       .sort();
     const shedLocations = Array.from(byShedKey.values())
       .map((entry) => ({
         shedId: entry.shedId,
         shedName: entry.shedName,
         ...(entry.partitionLabel ? { partition_label: entry.partitionLabel } : {}),
-        operational_location_display: entry.operationalLocationDisplay || entry.shedName,
+        operational_location_display: entry.operationalLocationDisplay || operationalLocationLabel({ shedName: entry.shedName, partitionLabel: entry.partitionLabel }),
       }))
       .sort((a, b) => `${a.shedId}|${a.partition_label ?? ""}`.localeCompare(`${b.shedId}|${b.partition_label ?? ""}`));
     const doseCount = cells.reduce((sum, cell) => sum + (cell.animalCount ?? 0), 0);
@@ -667,7 +667,7 @@ export function CommandBoardView({ board, pageContract, driveBatchId, driveParkI
       const key = `${cell.shedId}|${cell.partition_label ?? ""}`;
       const row = byShed.get(key) ?? {
         key,
-        name: cell.operational_location_display || cell.shedName,
+        name: cell.operational_location_display || operationalLocationLabel({ shedName: cell.shedName, partitionLabel: cell.partition_label }),
         park: cell.parkName ?? undefined,
         cells: [],
       };
@@ -918,12 +918,16 @@ export function CommandBoardView({ board, pageContract, driveBatchId, driveParkI
               row = new Map();
               cellsByShed.set(opKey, row);
               shedOrder.push(opKey);
-              shedLabel.set(opKey, { name: cell.operational_location_display || cell.shedName, park: cell.parkName ?? undefined });
+              shedLabel.set(opKey, {
+                name: cell.operational_location_display || operationalLocationLabel({ shedName: cell.shedName, partitionLabel: cell.partition_label }),
+                park: cell.parkName ?? undefined,
+              });
             }
             row.set(cell.vaccineCode, cell);
-            const ids = nameCount.get(cell.operational_location_display || cell.shedName) ?? new Set<string>();
+            const cellLabel = cell.operational_location_display || operationalLocationLabel({ shedName: cell.shedName, partitionLabel: cell.partition_label });
+            const ids = nameCount.get(cellLabel) ?? new Set<string>();
             ids.add(opKey);
-            nameCount.set(cell.operational_location_display || cell.shedName, ids);
+            nameCount.set(cellLabel, ids);
           });
           // Counts sheds needing ANY attention, not just red ones. Counting only "behind" made the
           // summary read "every shed is up to date on every vaccine" while three sheds sat amber

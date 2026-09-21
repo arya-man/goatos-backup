@@ -47,6 +47,20 @@ var goldenFixture = []goldenFixtureRow{
 		want:      "Godel 1 - Part 10",
 	},
 	{
+		name:      "alias display already carries worded partition",
+		shedID:    "shed-mandela-1-part-1",
+		shedName:  "Mandela 1 - Part 1",
+		partition: "Part 1",
+		want:      "Mandela 1 - Part 1",
+	},
+	{
+		name:      "alias display already carries numeric partition",
+		shedID:    "shed-castro-1",
+		shedName:  "Castro 1",
+		partition: "1",
+		want:      "Castro 1",
+	},
+	{
 		name:      "subdivided shed, plain name, bare numeric partition",
 		shedID:    "shed-castro-cbe",
 		shedName:  "Castro",

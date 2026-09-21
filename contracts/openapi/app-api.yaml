@@ -25157,7 +25157,7 @@ components:
         operational_location_display:
           type: string
           description: >-
-            Backend-composed pen display ("Castro - 2"), rendered verbatim. Empty for
+            Backend-composed pen display ("Castro 2"), rendered verbatim. Empty for
             per-vaccine stock tasks, which have no operational location.
         planned_business_date: { type: string, format: date }
         due_business_date: { type: string, format: date }

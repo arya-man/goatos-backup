@@ -127,11 +127,29 @@ func (l OperationalLocation) Display() string {
 	if !IsPartitioned(label) {
 		return shed
 	}
+	if alreadyEndsWithPartition(shed, label) {
+		return shed
+	}
 	// Bare numerals (regex ^\d+$) join with space; worded labels ("Part 3") join with " - ".
 	if isBarNumericPartition(label) {
 		return shed + " " + label
 	}
 	return shed + " - " + label
+}
+
+func alreadyEndsWithPartition(shed, label string) bool {
+	canonicalShedText := strings.ToLower(strings.Join(strings.Fields(shed), " "))
+	canonicalPartitionText := strings.ToLower(strings.Join(strings.Fields(label), " "))
+	if canonicalPartitionText == "" {
+		return false
+	}
+	if isBarNumericPartition(canonicalPartitionText) {
+		return strings.HasSuffix(canonicalShedText, " "+canonicalPartitionText) ||
+			strings.HasSuffix(canonicalShedText, " - part "+canonicalPartitionText) ||
+			strings.HasSuffix(canonicalShedText, " part "+canonicalPartitionText)
+	}
+	return strings.HasSuffix(canonicalShedText, " - "+canonicalPartitionText) ||
+		strings.HasSuffix(canonicalShedText, " "+canonicalPartitionText)
 }
 
 // isBarNumericPartition reports whether a partition label is a bare ordinal (e.g., "1", "42")

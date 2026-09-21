@@ -18,6 +18,7 @@ import {
 } from "./work-state";
 import { ClipText, Tag, type Tone } from "@/components/ui-primitives";
 import { fmtDate } from "@/lib/format";
+import { operationalLocationLabel } from "@/lib/operational-location";
 import {
   copy,
   optionGroup,
@@ -82,7 +83,7 @@ function physicalShedName(row: VaccinationExecutionRow): string {
 }
 
 function partitionLabel(row: VaccinationExecutionRow): string {
-  return row.operational_location_display || row.shedName;
+  return row.operational_location_display || operationalLocationLabel({ shedName: row.shedName, partitionLabel: row.partition_label });
 }
 
 function groupByPhysicalShed(rows: VaccinationExecutionRow[]): PhysicalShedGroup[] {

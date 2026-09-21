@@ -71,16 +71,15 @@ class OperationalLocationLabelTest {
     }
 
     /**
-     * Separator rule (2026-08-14): bare numerals use space (farm's physical naming), worded labels
-     * use dash (visual boundary). Even for digit-terminated shed names like "Godel 1", the space form
-     * stays unambiguous because "Part" prefix only appears for worded labels, so the reader knows
-     * "Godel 1 1" means partition 1 (not a shed named "Godel 1 1" or worded "Godel 1 - Part 1").
+     * Separator rule: render a complete pen/display name exactly once. Bare parent shed names use
+     * space with numeric partitions; already-complete names like "Castro 1" / "Yashoda 2" do not
+     * receive the same suffix again. Worded labels use dash.
      */
     @Test
     fun `bare numerals use space, worded labels use dash`() {
-        assertEquals("Godel 1 1", operationalLocationLabel("Godel 1", "1"))
-        assertEquals("Godel 1 10", operationalLocationLabel("Godel 1", "10"))
-        assertEquals("Sumathi 2 7", operationalLocationLabel("Sumathi 2", "7"))
+        assertEquals("Godel 1", operationalLocationLabel("Godel 1", "1"))
+        assertEquals("Castro 1", operationalLocationLabel("Castro 1", "1"))
+        assertEquals("Yashoda 2", operationalLocationLabel("Yashoda 2", "2"))
         // Worded labels keep the dash.
         assertEquals("Godel 1 - Part 1", operationalLocationLabel("Godel 1", "Part 1"))
     }
@@ -92,6 +91,18 @@ class OperationalLocationLabelTest {
         assertEquals("Yashoda - Parts 1-3", operationalLocationLabel("Yashoda", "Parts 1-3"))
         // Case-insensitive
         assertEquals("Yashoda - part 2", operationalLocationLabel("Yashoda", "part 2"))
+    }
+
+    @Test
+    fun `worded alias display is not suffixed twice`() {
+        assertEquals("Mandela 1 - Part 1", operationalLocationLabel("Mandela 1 - Part 1", "Part 1"))
+        assertEquals("Mandela 1 - Part 10", operationalLocationLabel("Mandela 1 - Part 10", "Part 10"))
+    }
+
+    @Test
+    fun `numeric alias display is not suffixed twice`() {
+        assertEquals("Castro 1", operationalLocationLabel("Castro 1", "1"))
+        assertEquals("Yashoda 2", operationalLocationLabel("Yashoda 2", "2"))
     }
 
     @Test
@@ -175,6 +186,20 @@ private val goldenFixture = listOf(
         shedName = "Godel 1",
         partitionLabel = "Part 10",
         want = "Godel 1 - Part 10",
+    ),
+    GoldenFixtureRow(
+        name = "alias display already carries worded partition",
+        shedId = "shed-mandela-1-part-1",
+        shedName = "Mandela 1 - Part 1",
+        partitionLabel = "Part 1",
+        want = "Mandela 1 - Part 1",
+    ),
+    GoldenFixtureRow(
+        name = "alias display already carries numeric partition",
+        shedId = "shed-castro-1",
+        shedName = "Castro 1",
+        partitionLabel = "1",
+        want = "Castro 1",
     ),
     GoldenFixtureRow(
         name = "subdivided shed, plain name, bare numeric partition",

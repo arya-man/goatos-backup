@@ -33,6 +33,7 @@ import sg.mesha.goatos.core.data.sync.SubmittedGrainsSource
 import sg.mesha.goatos.core.network.dto.PcCareCreateRoundRequestDto
 import sg.mesha.goatos.core.network.dto.PcCareRoundPenDto
 import sg.mesha.goatos.core.network.userFacingMessage
+import sg.mesha.goatos.core.ui.operationalLocationLabel
 import sg.mesha.goatos.core.network.dto.PcCarePlannerCatalogDto
 import sg.mesha.goatos.core.network.dto.PcCareRoundCardDto
 import sg.mesha.goatos.feature.pccare.PcCareRoundCardUi
@@ -193,7 +194,7 @@ class PcCarePlanViewModel @Inject constructor(
                             openRoundPens = pens.map { pen ->
                                 PcCareRoundPenUi(
                                     taskId = pen.taskId,
-                                    penLabel = pen.operationalLocationDisplay.ifBlank { pen.shedLabel },
+                                    penLabel = pen.operationalLocationDisplay.ifBlank { operationalLocationLabel(pen.shedLabel, pen.partitionLabel) },
                                     statusLabel = pcCareCardStatusLabel(pen.workState, pen.status),
                                     reopenable = pen.workState == "closed",
                                 )
@@ -735,7 +736,7 @@ class PcCarePlanViewModel @Inject constructor(
                 val mapped = page.sheds.map { shed ->
                     PcCarePlanPenUi(
                         shedId = shed.shedId,
-                        locationDisplay = shed.operationalLocationDisplay.ifBlank { shed.shedLabel },
+                        locationDisplay = shed.operationalLocationDisplay.ifBlank { operationalLocationLabel(shed.shedLabel, shed.partitionLabel) },
                         partitionLabel = shed.partitionLabel,
                         existingTaskId = shed.existingTaskId,
                     )

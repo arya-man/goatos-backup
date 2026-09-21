@@ -41,6 +41,7 @@ import androidx.compose.ui.unit.sp
 import sg.mesha.goatos.core.designsystem.theme.GoatOsTheme
 import sg.mesha.goatos.core.designsystem.theme.MeshaColors
 import sg.mesha.goatos.core.designsystem.theme.MeshaType
+import sg.mesha.goatos.core.ui.operationalLocationLabel
 
 // ---------------------------------------------------------------------------
 // Submit (v-submit) — ONE shed record covering every due vaccine in a shed.
@@ -710,22 +711,8 @@ private fun ShedCompletionSummaryCard(summary: ShedCompletionSummary) {
 
 private val ShedCompletionSummary.displayLocation: String
     get() {
-        val partition = partitionLabel?.trim()?.takeIf { it.isNotBlank() && !it.equals("whole", ignoreCase = true) }
-        val displayPartition = partition?.let {
-            if (it.matches(Regex("\\d+"))) "Part $it" else it
-        }
-        operationalLocationDisplay.takeIf { it.isNotBlank() }?.let { display ->
-            return if (displayPartition == null || display.contains(displayPartition, ignoreCase = true)) {
-                display
-            } else {
-                "$display - $displayPartition"
-            }
-        }
-        return if (displayPartition == null || shedName.contains(displayPartition, ignoreCase = true)) {
-            shedName
-        } else {
-            "$shedName - $displayPartition"
-        }
+        return operationalLocationDisplay.takeIf { it.isNotBlank() }
+            ?: operationalLocationLabel(shedName, partitionLabel)
     }
 
 @Composable

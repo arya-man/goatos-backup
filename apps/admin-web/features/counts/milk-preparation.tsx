@@ -12,6 +12,7 @@ import {
 } from "@/lib/api/server";
 import { getCensusLocations } from "@/lib/api/herd-locations";
 import { INTERNAL_LOGIN_PATH } from "@/lib/auth/session-cookie";
+import { operationalLocationLabel } from "@/lib/operational-location";
 import { backendScope, parseScope } from "@/lib/scope";
 import { one, type RouteSearchParams } from "@/lib/search-params";
 
@@ -196,7 +197,7 @@ export async function MilkPreparationPage({
                 <tr><td colSpan={cols.length}><div className="muted small" style={{ padding: "18px 4px", textAlign: "center" }}>{copy(pageContract, "empty.preparation")}</div></td></tr>
               ) : rows.map((row) => {
                 const status = verificationTag(row, pageContract);
-                const locationLabel = row.operational_location_display || row.shed_label;
+                const locationLabel = row.operational_location_display || operationalLocationLabel({ shedName: row.shed_label, partitionLabel: row.partition_label });
                 return <tr key={`${row.park_id}|${row.shed_id}|${row.partition_label ?? ""}|${row.management_stage}`}>
                   <td>{row.park_label || copy(pageContract, "label.unassigned_park")}</td>
                   <td>{locationLabel || copy(pageContract, "label.unassigned_shed")}</td>

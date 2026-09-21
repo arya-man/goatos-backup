@@ -168,7 +168,9 @@ class ExecutionRepositoryPaginationTest {
                     shedId = SHED_ID,
                     shedName = "Castro",
                     partitionLabel = partitionLabel,
-                    operationalLocationDisplay = partitionLabel?.let { "Castro - $it" } ?: "Castro",
+                    operationalLocationDisplay = partitionLabel?.let {
+                        if (it.startsWith("Part", ignoreCase = true)) "Castro - $it" else "Castro $it"
+                    } ?: "Castro",
                 )
             }
 

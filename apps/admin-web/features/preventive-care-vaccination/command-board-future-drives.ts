@@ -1,5 +1,7 @@
 import type { AppApiComponents } from "@goatos/api-client";
 
+import { operationalLocationLabel } from "../../lib/operational-location.ts";
+
 type ApiCommandBoardDriveOption = AppApiComponents["schemas"]["VaccinationCommandBoardDriveOption"];
 type CommandBoardShedLocation = {
   shedId: string;
@@ -148,7 +150,7 @@ export function scheduledDriveRows(options: CommandBoardDriveOption[]): Schedule
     if (option.shedLocations?.length) {
       option.shedLocations.forEach((location) => {
         shedIdSet.add(`${location.shedId}|${location.partition_label ?? ""}`);
-        shedNameSet.add(location.operational_location_display || location.shedName);
+        shedNameSet.add(location.operational_location_display || operationalLocationLabel({ shedName: location.shedName, partitionLabel: location.partition_label }));
       });
     } else {
       (option.shedIds ?? []).forEach((id: string) => {
@@ -260,7 +262,7 @@ export function executedDriveCampaigns(options: CommandBoardDriveOption[]): Sche
         batchIds: [option.driveBatchId],
       }));
       const shedNames = option.shedLocations?.length
-        ? option.shedLocations.map((location) => location.operational_location_display || location.shedName)
+        ? option.shedLocations.map((location) => location.operational_location_display || operationalLocationLabel({ shedName: location.shedName, partitionLabel: location.partition_label }))
         : option.shedNames ?? [];
       return {
         key: `${option.driveBatchId}|${option.parkId ?? ""}`,

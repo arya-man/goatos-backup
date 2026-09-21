@@ -61,7 +61,7 @@ func TestApplyShedPartitionDisplayCarriesParentAndPartition(t *testing.T) {
 	}
 	// The composed display uses the " - " separator (2026-08-06).
 	if shed.OperationalLocationDisplay != "Godel 1 - Part 3" {
-		t.Fatalf("OperationalLocationDisplay = %q, want %q", shed.OperationalLocationDisplay, "Castro - 2")
+		t.Fatalf("OperationalLocationDisplay = %q, want %q", shed.OperationalLocationDisplay, "Godel 1 - Part 3")
 	}
 }
 

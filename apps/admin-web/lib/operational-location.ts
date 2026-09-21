@@ -59,6 +59,7 @@ export function operationalLocationLabel({ shedName, partitionLabel, sourceShedN
   // Separator depends on partition format: bare numerals use space (farm's physical naming),
   // worded labels use dash (visual boundary, since shed names often end in digits).
   // Keep identical to oploc.Display() (Go) and PartitionLabel.kt (Android).
+  if (alreadyEndsWithPartition(shed, rawPartition)) return shed;
   const separator = isBarNumericPartition(rawPartition) ? " " : " - ";
   return `${shed}${separator}${rawPartition}`;
 }
@@ -68,6 +69,18 @@ function isBarNumericPartition(label: string): boolean {
   const trimmed = label.trim();
   if (trimmed === "") return false;
   return /^\d+$/.test(trimmed);
+}
+
+function alreadyEndsWithPartition(shed: string, partitionLabel: string): boolean {
+  const normalizedShed = shed.trim().replace(/\s+/g, " ").toLowerCase();
+  const normalizedPartition = partitionLabel.trim().replace(/\s+/g, " ").toLowerCase();
+  if (normalizedPartition === "") return false;
+  if (isBarNumericPartition(normalizedPartition)) {
+    return normalizedShed.endsWith(` ${normalizedPartition}`) ||
+      normalizedShed.endsWith(` - part ${normalizedPartition}`) ||
+      normalizedShed.endsWith(` part ${normalizedPartition}`);
+  }
+  return normalizedShed.endsWith(` - ${normalizedPartition}`) || normalizedShed.endsWith(` ${normalizedPartition}`);
 }
 
 /** True when the given partition label represents a real (non-whole) partition. */

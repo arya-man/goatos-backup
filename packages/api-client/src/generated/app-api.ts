@@ -11258,7 +11258,7 @@ export interface components {
             vaccine_label?: string;
             /** @description Backend-owned card headline, rendered verbatim - the pen display for shed-scoped tasks, the vaccine label for per-vaccine stock tasks. */
             task_label: string;
-            /** @description Backend-composed pen display ("Castro - 2"), rendered verbatim. Empty for per-vaccine stock tasks, which have no operational location. */
+            /** @description Backend-composed pen display ("Castro 2"), rendered verbatim. Empty for per-vaccine stock tasks, which have no operational location. */
             operational_location_display: string;
             /** Format: date */
             planned_business_date: string;

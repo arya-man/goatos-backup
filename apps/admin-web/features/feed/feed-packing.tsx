@@ -9,8 +9,9 @@ import {
 } from "@/lib/api/server";
 import { getCensusLocations } from "@/lib/api/herd-locations";
 import { INTERNAL_LOGIN_PATH } from "@/lib/auth/session-cookie";
-import type { RouteSearchParams } from "@/lib/search-params";
 import { fmtDate } from "@/lib/format";
+import { operationalLocationLabel } from "@/lib/operational-location";
+import type { RouteSearchParams } from "@/lib/search-params";
 import { FeedFilters, type FeedFilterField } from "./feed-filters";
 import { FeedLifecycleBanner, isLifecycleEmpty } from "./feed-lifecycle";
 import { FeedPager } from "./feed-pager";
@@ -296,7 +297,9 @@ export async function FeedPackingPage({
                               park is named by the Park filter above. */}
                           <td rowSpan={span}>
                             <div style={{ display: "flex", flexDirection: "column", gap: 4 }}>
-                              <span style={{ fontWeight: 650 }}>{row.operational_location_display || row.shed_label}</span>
+                              <span style={{ fontWeight: 650 }}>
+                                {row.operational_location_display || operationalLocationLabel({ shedName: row.shed_label, partitionLabel: row.partition_label })}
+                              </span>
                               <FeedWorkflowTag workflow={row.workflow} pageContract={pageContract} />
                               {/* No experiment arm here. A packer's unit of work is the bag: the
                                   Experiment tag already says this shed's quantity is hand-authored

@@ -26,14 +26,13 @@ test("operationalLocationLabel: prefixed partition convention joins with a dash"
   assert.equal(operationalLocationLabel({ shedName: "Godel 1", partitionLabel: "part 3" }), "Godel 1 - part 3");
 });
 
-// Separator rule (maintainer decision, 2026-08-14): bare numerals use space (farm's physical
-// naming), worded labels use dash (visual boundary). Even for digit-terminated shed names
-// like "Godel 1", the space form stays unambiguous because "Part" prefix only appears for
-// worded labels, so the reader knows "Godel 1 1" means partition 1 (not a shed named "Godel 1 1").
+// Separator rule: render a complete pen/display name exactly once. Bare parent shed names use
+// space with numeric partitions; already-complete names like "Castro 1" / "Yashoda 2" do not
+// receive the same suffix again. Worded labels use dash.
 test("operationalLocationLabel: bare numerals use space, worded labels use dash", () => {
-  assert.equal(operationalLocationLabel({ shedName: "Godel 1", partitionLabel: "1" }), "Godel 1 1");
-  assert.equal(operationalLocationLabel({ shedName: "Godel 1", partitionLabel: "10" }), "Godel 1 10");
-  assert.equal(operationalLocationLabel({ shedName: "Sumathi 2", partitionLabel: "7" }), "Sumathi 2 7");
+  assert.equal(operationalLocationLabel({ shedName: "Godel 1", partitionLabel: "1" }), "Godel 1");
+  assert.equal(operationalLocationLabel({ shedName: "Castro 1", partitionLabel: "1" }), "Castro 1");
+  assert.equal(operationalLocationLabel({ shedName: "Yashoda 2", partitionLabel: "2" }), "Yashoda 2");
   // Worded labels keep the dash.
   assert.equal(operationalLocationLabel({ shedName: "Godel 1", partitionLabel: "Part 1" }), "Godel 1 - Part 1");
 });
@@ -50,6 +49,28 @@ test("operationalLocationLabel: sourceShedName is already partition-bearing, nev
   assert.equal(
     operationalLocationLabel({ shedName: "Castro", partitionLabel: "1" }),
     "Castro 1",
+  );
+});
+
+test("operationalLocationLabel: worded alias display is not suffixed twice", () => {
+  assert.equal(
+    operationalLocationLabel({ shedName: "Mandela 1 - Part 1", partitionLabel: "Part 1" }),
+    "Mandela 1 - Part 1",
+  );
+  assert.equal(
+    operationalLocationLabel({ shedName: "Mandela 1 - Part 10", partitionLabel: "Part 10" }),
+    "Mandela 1 - Part 10",
+  );
+});
+
+test("operationalLocationLabel: numeric alias display is not suffixed twice", () => {
+  assert.equal(
+    operationalLocationLabel({ shedName: null, sourceShedName: "Castro 1", partitionLabel: "1" }),
+    "Castro 1",
+  );
+  assert.equal(
+    operationalLocationLabel({ shedName: null, sourceShedName: "Yashoda 2", partitionLabel: "2" }),
+    "Yashoda 2",
   );
 });
 
@@ -82,6 +103,20 @@ const goldenFixture = [
     shedName: "Godel 1",
     partitionLabel: "Part 10",
     want: "Godel 1 - Part 10",
+  },
+  {
+    name: "alias display already carries worded partition",
+    shedId: "shed-mandela-1-part-1",
+    shedName: "Mandela 1 - Part 1",
+    partitionLabel: "Part 1",
+    want: "Mandela 1 - Part 1",
+  },
+  {
+    name: "alias display already carries numeric partition",
+    shedId: "shed-castro-1",
+    shedName: "Castro 1",
+    partitionLabel: "1",
+    want: "Castro 1",
   },
   {
     name: "subdivided shed, plain name, bare numeric partition",

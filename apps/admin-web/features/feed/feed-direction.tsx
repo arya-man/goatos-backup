@@ -10,6 +10,7 @@ import {
 } from "@/lib/api/server";
 import { getCensusLocations } from "@/lib/api/herd-locations";
 import { INTERNAL_LOGIN_PATH } from "@/lib/auth/session-cookie";
+import { operationalLocationLabel } from "@/lib/operational-location";
 import type { RouteSearchParams } from "@/lib/search-params";
 import { FeedFilters, type FeedFilterField } from "./feed-filters";
 import { FeedLifecycleBanner, isLifecycleEmpty } from "./feed-lifecycle";
@@ -325,7 +326,9 @@ export async function FeedDirectionPage({
                               adminui/app/service.go pages(). */}
                           <td rowSpan={span}>
                             <div style={{ display: "flex", flexDirection: "column", gap: 4 }}>
-                              <span style={{ fontWeight: 650 }}>{row.operational_location_display || row.shed_label}</span>
+                              <span style={{ fontWeight: 650 }}>
+                                {row.operational_location_display || operationalLocationLabel({ shedName: row.shed_label, partitionLabel: row.partition_label })}
+                              </span>
                               <span style={{ display: "inline-flex", gap: 5, flexWrap: "wrap" }}>
                                 <FeedWorkflowTag workflow={row.workflow} pageContract={pageContract} />
                                 {row.overdue_pending ? <FeedOverdueShiftingChip pageContract={pageContract} /> : null}

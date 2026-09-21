@@ -26,6 +26,7 @@ import sg.mesha.goatos.core.data.PcCareWorklistQuery
 import sg.mesha.goatos.core.data.sync.SubmittedGrainsSource
 import sg.mesha.goatos.core.data.sync.submittedGrainKey
 import sg.mesha.goatos.core.network.dto.PcCareTaskDto
+import sg.mesha.goatos.core.ui.operationalLocationLabel
 import sg.mesha.goatos.feature.pccare.PcCareInventoryRequirementUi
 import sg.mesha.goatos.feature.pccare.PcCareStatusTone
 import sg.mesha.goatos.feature.pccare.PcCareTaskCardUi
@@ -228,11 +229,12 @@ internal fun PcCareTaskDto.visibleOnOperatorWorklist(locallySubmittedForReview: 
 }
 
 private fun PcCareTaskDto.displayLocationLabel(): String {
-    val backendLabel = taskLabel.ifBlank { operationalLocationDisplay.ifBlank { shedLabel } }
+    val fallbackLabel = operationalLocationLabel(shedLabel, partitionLabel)
+    val backendLabel = taskLabel.ifBlank { operationalLocationDisplay.ifBlank { fallbackLabel } }
     if (category != PC_CARE_CATEGORY_FEED_WATER_REMOVAL) return backendLabel
     return backendLabel.stripRemovalPrefix()
         .ifBlank { operationalLocationDisplay.stripRemovalPrefix() }
-        .ifBlank { shedLabel }
+        .ifBlank { fallbackLabel }
 }
 
 internal const val PC_CARE_CATEGORY_FEED_WATER_REMOVAL = "feed_water_removal"

@@ -62,15 +62,15 @@ func TestDisplayPreservesEachShedsOwnConvention(t *testing.T) {
 		{"Godel 1", "Part 3", "Godel 1 - Part 3"},
 		{"Mandela 1", "Part 10", "Mandela 1 - Part 10"},
 		{"Godel 1", "Part 1", "Godel 1 - Part 1"},
+		// Alias/display inputs may already carry the worded partition. Do not append it again.
+		{"Mandela 1 - Part 1", "Part 1", "Mandela 1 - Part 1"},
+		{"Mandela 1 - Part 10", "Part 10", "Mandela 1 - Part 10"},
 		// Non-partitioned sheds: bare shed name only, no partition rendering.
 		{"Yashoda", "", "Yashoda"},
-		// Digit-terminated shed names with bare numeric partitions (75% of live STG data):
-		// space separator remains unambiguous because "Part" prefix exists for the rare
-		// worded case, so the reader knows "Godel 1 1" means partition 1 (not a shed
-		// named "Godel 1 1", which would use "Part" prefix).
-		{"Godel 1", "1", "Godel 1 1"},
-		{"Godel 1", "10", "Godel 1 10"},
-		{"Sumathi 2", "7", "Sumathi 2 7"},
+		// If the catalog/display name already carries the numeric pen suffix, render it once.
+		{"Godel 1", "1", "Godel 1"},
+		{"Castro 1", "1", "Castro 1"},
+		{"Yashoda 2", "2", "Yashoda 2"},
 		{"Old Yashoda", "5", "Old Yashoda 5"},
 	}
 	for _, c := range cases {

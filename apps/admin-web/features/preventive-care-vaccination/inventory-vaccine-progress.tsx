@@ -4,6 +4,7 @@ import { Tag, type Tone } from "@/components/ui-primitives";
 import { copy, optionLabel, tableLabels, type AdminUiPageContract } from "@/lib/admin-ui-contract";
 import { fmtDate } from "@/lib/format";
 import { listPCCareTasks, type ApiResult, type PCCareTask, type PCCareTaskPage } from "@/lib/api/server";
+import { operationalLocationLabel } from "@/lib/operational-location";
 import { parseScope } from "@/lib/scope";
 import type { RouteSearchParams } from "@/lib/search-params";
 
@@ -57,8 +58,8 @@ function visibleInventoryRows(tasks: PCCareTask[], asOf: string) {
     .sort((a, b) => {
       const aDelayed = a.work_state === "delayed" ? 0 : 1;
       const bDelayed = b.work_state === "delayed" ? 0 : 1;
-      const aLabel = a.task_label || a.operational_location_display || a.shed_label;
-      const bLabel = b.task_label || b.operational_location_display || b.shed_label;
+      const aLabel = a.task_label || a.operational_location_display || operationalLocationLabel({ shedName: a.shed_label, partitionLabel: a.partition_label });
+      const bLabel = b.task_label || b.operational_location_display || operationalLocationLabel({ shedName: b.shed_label, partitionLabel: b.partition_label });
       return aDelayed - bDelayed || a.due_business_date.localeCompare(b.due_business_date) || aLabel.localeCompare(bLabel);
     });
 }
@@ -161,7 +162,7 @@ function InventoryProgressContent({
                     <td>{task.park_label}</td>
                     <td>
                       <div style={{ display: "flex", flexDirection: "column", gap: 2 }}>
-                        <span>{task.task_label || task.operational_location_display || task.shed_label}</span>
+                        <span>{task.task_label || task.operational_location_display || operationalLocationLabel({ shedName: task.shed_label, partitionLabel: task.partition_label })}</span>
                         {task.partition_label ? <span className="small muted">{task.partition_label}</span> : null}
                       </div>
                     </td>
