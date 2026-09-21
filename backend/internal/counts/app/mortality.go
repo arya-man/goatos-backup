@@ -33,7 +33,7 @@ func (s *HerdRegisterService) WithDeathCauseLabeler(labeler ports.DeathCauseLabe
 //	                  name, already farm copy.
 //	basis "none"      Key is "", Label takes the domain's one owned label.
 //
-// The same scheme rides the cause column of the two cross tabs and the CauseLabel of each
+// The same scheme rides the cause column of the three cross tabs and the CauseLabel of each
 // row in the recent list.
 func (s *HerdRegisterService) GetMortality(ctx context.Context, req domain.MortalityQuery) (domain.Mortality, error) {
 	if s.mortality == nil {
@@ -74,6 +74,7 @@ func (s *HerdRegisterService) GetMortality(ctx context.Context, req domain.Morta
 		}
 	}
 	relabel(out.LoadByCause)
+	relabel(out.VendorByCause)
 	relabel(out.BreedByCause)
 	for i := range out.Deaths {
 		d := &out.Deaths[i]

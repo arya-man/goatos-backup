@@ -403,18 +403,20 @@ as the Counts mortality read. It asks one question from every angle the farm can
 ask it: total deaths and mortality rate; kids against adults; the stage the
 animal carried when it died (pregnant, non-pregnant, fattening, bucks, K0–K4);
 age at death (0–7 days, 8–30, 1–3 months, …); breed; purchase load beside farm
-born; cause (the disease named on the death form, an inferred open case for
+born; the vendor that load was bought from, rolled up across every load that
+vendor sent (maintainer request 2026-09-21), so one bad batch is told apart from
+a supplier that keeps sending them; cause (the disease named on the death form, an inferred open case for
 older deaths, or no cause recorded); season (summer / monsoon / post-monsoon /
 winter on the IST death date); pen; sex; species; farm; days on the farm before
-death; days since the last vaccination; and three cross tabs — season × stage,
-load × cause, breed × cause — with a bounded recent-deaths list. It reads
+death; days since the last vaccination; and four cross tabs — season × stage,
+load × cause, vendor × cause, breed × cause — with a bounded recent-deaths list. It reads
 `GET /counts/mortality`, three canonical indexed SQL statements in one batch
 under the 5k-50k envelope. A death is the SAME row and predicate Herd Analytics
 counts (`exit_reason = 'died'` on the animal's own exit), so the two screens
 cannot disagree, and every RATE divides the window's deaths by the animals in
 that section today (the Counts Breakdown head count); COUNT series (age, season, cause, days-since)
 carry no rate because no denominator exists for a fact about the death alone.
-Every label — bands, seasons, causes, pens, loads — is backend-owned.
+Every label — bands, seasons, causes, pens, loads, vendors — is backend-owned.
 
 `Milk` is its own sidebar group (maintainer decision 2026-08-11), holding
 `Milk Preparation` (`/counts/milk-preparation`). It was moved out of the Counts
@@ -513,7 +515,7 @@ These are the only current implemented admin-web product routes:
 /counts/herd               Herd Register for vaccination trigger closure (route live, nav leaf withheld)
 /counts/analytics          Herd Analytics: composition now, movement by month
 /counts/breakdown          Counts Breakdown census
-/counts/mortality          Mortality: deaths by stage, age, breed, load, cause, season, pen
+/counts/mortality          Mortality: deaths by stage, age, breed, load, vendor, cause, season, pen
 /counts/milk-preparation   Current milk preparation worklist
 /operations/audit          Admin / Data Ops Audit Log (business surface)
 /config

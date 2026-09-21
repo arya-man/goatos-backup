@@ -702,7 +702,7 @@ func pages() []domain.PageContract {
 		// froze at death, beside the live head count of each section for the rate series. No table
 		// contract: every mark is drawn from the one /counts/mortality payload and the
 		// recent-deaths list carries its columns in the copy map below.
-		page("counts-mortality", "/counts/mortality", "/counts/mortality", "Mortality", "Deaths over a chosen window from every angle: overall rate, kids and adults, stage, age at death, breed, purchase load, cause, season, pen, sex, and the cross tabs between them. Every rate divides the deaths by the animals in that section today.", "module-surface",
+		page("counts-mortality", "/counts/mortality", "/counts/mortality", "Mortality", "Deaths over a chosen window from every angle: overall rate, kids and adults, stage, age at death, breed, purchase load, vendor, cause, season, pen, sex, and the cross tabs between them. Every rate divides the deaths by the animals in that section today.", "module-surface",
 			[]domain.TableContract{
 				// The bounded most-recent list under the charts. Its columns are this contract's;
 				// the figures above it count the whole window and do not move with its cap.
@@ -6068,7 +6068,7 @@ func pageSpecificCopy(id string) map[string]string {
 	case "counts-mortality":
 		return map[string]string{
 			"crumb":        "Counts",
-			"banner.basis": "Deaths are counted on the day the animal was recorded dead. Every rate divides the deaths in the window by the animals in that section today. Breed, sex, stage, pen and load are read as they stood when the animal died.",
+			"banner.basis": "Deaths are counted on the day the animal was recorded dead. Every rate divides the deaths in the window by the animals in that section today. Breed, sex, stage, pen, load and vendor are read as they stood when the animal died.",
 
 			"filter.date":                  "Window",
 			"filter.date.today":            "Today",
@@ -6118,6 +6118,8 @@ func pageSpecificCopy(id string) map[string]string {
 			"chart.pen.hint":        "Pens that saw a death, with the rate against the animals in that pen today — a single bad pen points at ventilation, drainage or crowding rather than a farm-wide problem",
 			"chart.load.title":      "By purchase load",
 			"chart.load.hint":       "Deaths and rate per load the animals came in on, beside farm-born animals — a bad batch shows here before it shows anywhere else",
+			"chart.vendor.title":    "By vendor",
+			"chart.vendor.hint":     "The same deaths grouped by who the animals were bought from, across every load that vendor sent — one bad load is bad luck, the same vendor twice is a supply problem",
 			"chart.cause.title":     "By cause",
 			"chart.cause.hint":      "The disease named on the death form. Older deaths are attributed from a case that was open when the animal died; a death with neither is counted as no cause recorded and never given a disease.",
 			"chart.season.title":    "By season",
@@ -6138,6 +6140,8 @@ func pageSpecificCopy(id string) map[string]string {
 			"cross.season_stage.hint":  "Deaths in each season by the stage the animal carried — where kid deaths pile up in one season",
 			"cross.load_cause.title":   "Load × cause",
 			"cross.load_cause.hint":    "Which loads brought which diseases in",
+			"cross.vendor_cause.title": "Vendor × cause",
+			"cross.vendor_cause.hint":  "Which vendors send animals that die of what, across all their loads",
 			"cross.breed_cause.title":  "Breed × cause",
 			"cross.breed_cause.hint":   "Which breeds are prone to which diseases",
 			"cross.total":              "Total",
@@ -6165,6 +6169,7 @@ func pageSpecificCopy(id string) map[string]string {
 			"label.days_suffix":   "days",
 			"label.no_tag":        "No tag",
 			"label.no_load":       "—",
+			"label.no_vendor":     "—",
 
 			"state.unavailable": "Mortality unavailable",
 			"empty.title":       "No deaths recorded",

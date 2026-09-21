@@ -11,7 +11,8 @@ import (
 // It introduces no fact of its own. A death is the animal's own exit row (`exit_reason =
 // 'died'`, dated the IST day of `exited_at`), exactly as Herd Analytics counts it, so the
 // Deaths tile here and the Deaths tile there can never disagree. Every attribute a death is
-// sliced by -- breed, sex, pen tag, pen, farm, date of birth, purchase load -- is read off the
+// sliced by -- breed, sex, pen tag, pen, farm, date of birth, purchase load and the vendor that
+// load was bought from -- is read off the
 // animal's own row as it stood WHEN IT DIED, because the exit UPDATE touches only the
 // lifecycle columns and leaves everything else frozen. The cause is Health's
 // `health_death_causes` row where the death form recorded one.
@@ -137,6 +138,10 @@ type Mortality struct {
 	Park     []MortalityBucket `json:"park"`
 	Pen      []MortalityBucket `json:"pen"`
 	Load     []MortalityBucket `json:"load"`
+	// Vendor is the Load series rolled up to WHO the animals were bought from. A vendor
+	// sends many loads over time, so a weakness that reads as one unlucky batch under Load
+	// reads as a pattern here. Farm-born animals carry no vendor and keep their own bucket.
+	Vendor []MortalityBucket `json:"vendor"`
 
 	// COUNT series (facts about the death alone).
 	AgeAtDeath       []MortalityBucket `json:"age_at_death"`
@@ -148,6 +153,7 @@ type Mortality struct {
 	// Cross tabs.
 	SeasonByStage []MortalityCrossCell `json:"season_by_stage"`
 	LoadByCause   []MortalityCrossCell `json:"load_by_cause"`
+	VendorByCause []MortalityCrossCell `json:"vendor_by_cause"`
 	BreedByCause  []MortalityCrossCell `json:"breed_by_cause"`
 
 	// Deaths is the bounded most-recent list; RecentLimit says how many it was capped at.

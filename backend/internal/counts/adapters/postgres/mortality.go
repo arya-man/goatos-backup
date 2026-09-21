@@ -24,7 +24,7 @@ import (
 // aggregation over the tenant's own rows with no per-row fan-out and no page walk; this
 // screen earns its own projection only under that ADR's scale-out ladder.
 
-// projection-review: membership=canonical goats rows for the tenant with merged_into_goat_id IS NULL that are either LIVE today (the Counts Breakdown head count) or died on an IST day inside the window, each row flagged live / died so a bucket's animals and its deaths are counted off the same rows; group_key=kid/adult band | management_stage | breed | sex | species | park_id | (shed_id, normalized partition) | load_id, one dimension per UNION branch, each ranging over the SAME per-animal key set as the total branch, with the death flag evaluated per animal BEFORE grouping; join_cardinality=goat_shed_partitions is PK (tenant_id, goat_id) so 1:{0,1}, member is DISTINCT ON goat_id so 1:{0,1}, and locations / procurement_loads are primary-key label lookups AFTER aggregation; pagination=none, every series is a whole-scope rollup; scope=tenant_id plus one optional park equality predicate
+// projection-review: membership=canonical goats rows for the tenant with merged_into_goat_id IS NULL that are either LIVE today (the Counts Breakdown head count) or died on an IST day inside the window, each row flagged live / died so a bucket's animals and its deaths are counted off the same rows; group_key=kid/adult band | management_stage | breed | sex | species | park_id | (shed_id, normalized partition) | load_id | vendor party_id, one dimension per UNION branch, each ranging over the SAME per-animal key set as the total branch, with the death flag evaluated per animal BEFORE grouping; join_cardinality=goat_shed_partitions is PK (tenant_id, goat_id) so 1:{0,1}, member is DISTINCT ON goat_id so 1:{0,1} (its own LEFT JOIN to procurement_loads is by primary key, so it cannot multiply a membership row before the DISTINCT ON), and locations / procurement_loads / parties are primary-key label lookups AFTER aggregation; pagination=none, every series is a whole-scope rollup; scope=tenant_id plus one optional park equality predicate
 //
 // Expanded rationale:
 //
@@ -45,8 +45,12 @@ WITH bounds AS (
   SELECT $2::date AS from_date, $3::date AS to_date
 ),
 member AS (
-  SELECT DISTINCT ON (plg.goat_id) plg.goat_id, plg.load_id
+  -- The load an animal came in on, and the vendor that load was bought from. The join to
+  -- procurement_loads is by primary key, so it cannot multiply a membership row and the
+  -- DISTINCT ON still leaves exactly one row per animal.
+  SELECT DISTINCT ON (plg.goat_id) plg.goat_id, plg.load_id, pl.source_party_id
   FROM procurement_load_goats plg
+  LEFT JOIN procurement_loads pl ON pl.tenant_id = $1::uuid AND pl.load_id = plg.load_id
   WHERE plg.tenant_id = $1::uuid AND plg.current_state = 'accepted_herd_intake'
   ORDER BY plg.goat_id, plg.intake_accepted_at DESC NULLS LAST, plg.created_at DESC, plg.load_goat_id DESC
 ),
@@ -67,7 +71,10 @@ pop AS MATERIALIZED (
     COALESCE(gsp.partition_label, '')       AS partition_label,
     CASE WHEN g.origin_type = 'birth' THEN 'farm_born'
          WHEN m.load_id IS NOT NULL THEN m.load_id::text
-         ELSE 'no_load' END                 AS load_key
+         ELSE 'no_load' END                 AS load_key,
+    CASE WHEN g.origin_type = 'birth' THEN 'farm_born'
+         WHEN m.source_party_id IS NOT NULL THEN m.source_party_id::text
+         ELSE 'no_vendor' END               AS vendor_key
   FROM goats g
   CROSS JOIN bounds b
   LEFT JOIN goat_shed_partitions gsp ON gsp.tenant_id = $1::uuid AND gsp.goat_id = g.goat_id
@@ -137,9 +144,26 @@ SELECT 'load', l.load_key,
   LEFT JOIN procurement_loads pl
          ON pl.tenant_id = $1::uuid
         AND pl.load_id = CASE WHEN l.load_key ~ '^[0-9a-f-]{36}$' THEN l.load_key::uuid END
+UNION ALL
+-- Vendors: the load series rolled up to WHO the animals were bought from. A vendor sends
+-- many loads, so a weakness that reads as one unlucky batch under Load reads as a pattern
+-- here. Same shape as that branch, same two synthetic keys: farm-born animals have no
+-- vendor, and a purchased animal whose load carries no party is 'no_vendor'.
+SELECT 'vendor', v.vendor_key,
+       CASE WHEN v.vendor_key IN ('farm_born', 'no_vendor') THEN ''
+            ELSE COALESCE(NULLIF(btrim(pa.display_name), ''), '') END,
+       '',
+       v.deaths, v.animals
+  FROM (SELECT vendor_key, count(*) FILTER (WHERE died)::bigint AS deaths, count(*) FILTER (WHERE live)::bigint AS animals
+          FROM pop GROUP BY vendor_key
+        HAVING count(*) FILTER (WHERE died) > 0 OR vendor_key IN ('farm_born', 'no_vendor')) v
+  -- parties is keyed by party_id alone (no tenant column); the cast is shape-guarded for
+  -- the same reason the load branch guards its own.
+  LEFT JOIN parties pa
+         ON pa.party_id = CASE WHEN v.vendor_key ~ '^[0-9a-f-]{36}$' THEN v.vendor_key::uuid END
 `
 
-// projection-review: membership=goats that died (exit_reason 'died', or NULL exit_reason with lifecycle 'dead') on an IST day inside the window, optionally one park -- the SAME predicate the population read flags `died` with, so every COUNT series here totals the deaths tile there; group_key=one derived fact of the death per UNION branch (IST month, age band, season, cause, days since arrival, days since last accepted vaccination) or one pair for a cross tab, each ranging over the identical `dead` row set; join_cardinality=health_death_causes is PK (tenant_id, goat_id) so 1:{0,1}, and the inferred-case, last-vaccination and load lookups are LATERAL subqueries returning exactly ONE row by construction (a bare aggregate over zero-or-more rows, or LIMIT 1), so none can multiply an animal; pagination=none, whole-window rollups; scope=tenant_id plus one optional park equality predicate
+// projection-review: membership=goats that died (exit_reason 'died', or NULL exit_reason with lifecycle 'dead') on an IST day inside the window, optionally one park -- the SAME predicate the population read flags `died` with, so every COUNT series here totals the deaths tile there; group_key=one derived fact of the death per UNION branch (IST month, age band, season, cause, days since arrival, days since last accepted vaccination) or one pair for a cross tab (season x stage, load x cause, vendor x cause, breed x cause), each ranging over the identical `dead` row set; join_cardinality=health_death_causes is PK (tenant_id, goat_id) so 1:{0,1}, and the inferred-case, last-vaccination and load/vendor lookups are LATERAL subqueries returning exactly ONE row by construction (a bare aggregate over zero-or-more rows, or LIMIT 1 -- the vendor rides on that same LIMIT 1 load row through a primary-key join, so it adds no row), so none can multiply an animal; parties is a primary-key label lookup AFTER aggregation; pagination=none, whole-window rollups; scope=tenant_id plus one optional park equality predicate
 //
 // Expanded rationale:
 //
@@ -173,14 +197,16 @@ dead AS MATERIALIZED (
     g.origin_type,
     g.entry_date,
     m.load_id,
+    m.source_party_id AS vendor_party_id,
     dc.cause_key,
     inferred.disease_label
   FROM goats g
   CROSS JOIN bounds b
   LEFT JOIN health_death_causes dc ON dc.tenant_id = $1::uuid AND dc.goat_id = g.goat_id
   LEFT JOIN LATERAL (
-    SELECT plg.load_id
+    SELECT plg.load_id, pl.source_party_id
     FROM procurement_load_goats plg
+    LEFT JOIN procurement_loads pl ON pl.tenant_id = $1::uuid AND pl.load_id = plg.load_id
     WHERE plg.tenant_id = $1::uuid AND plg.goat_id = g.goat_id AND plg.current_state = 'accepted_herd_intake'
     ORDER BY plg.intake_accepted_at DESC NULLS LAST, plg.created_at DESC, plg.load_goat_id DESC
     LIMIT 1
@@ -234,7 +260,10 @@ facts AS MATERIALIZED (
          ELSE COALESCE(d.disease_label, '') END AS cause_col_label,
     CASE WHEN d.origin_type = 'birth' THEN 'farm_born'
          WHEN d.load_id IS NOT NULL THEN d.load_id::text
-         ELSE 'no_load' END AS load_key
+         ELSE 'no_load' END AS load_key,
+    CASE WHEN d.origin_type = 'birth' THEN 'farm_born'
+         WHEN d.vendor_party_id IS NOT NULL THEN d.vendor_party_id::text
+         ELSE 'no_vendor' END AS vendor_key
   FROM dead d
   LEFT JOIN LATERAL (
     SELECT plg.arrived_at, pl.arrived_on
@@ -290,6 +319,15 @@ SELECT 'load_by_cause', f.load_key,
   LEFT JOIN procurement_loads pl
          ON pl.tenant_id = $1::uuid
         AND pl.load_id = CASE WHEN f.load_key ~ '^[0-9a-f-]{36}$' THEN f.load_key::uuid END
+UNION ALL
+SELECT 'vendor_by_cause', f.vendor_key,
+       CASE WHEN f.vendor_key IN ('farm_born', 'no_vendor') THEN ''
+            ELSE COALESCE(NULLIF(btrim(pa.display_name), ''), '') END,
+       f.cause_col_key, f.cause_col_label, f.deaths, 0
+  FROM (SELECT vendor_key, cause_col_key, cause_col_label, count(*)::bigint AS deaths
+          FROM facts GROUP BY vendor_key, cause_col_key, cause_col_label) f
+  LEFT JOIN parties pa
+         ON pa.party_id = CASE WHEN f.vendor_key ~ '^[0-9a-f-]{36}$' THEN f.vendor_key::uuid END
 UNION ALL
 SELECT 'breed_by_cause', breed, breed, cause_col_key, cause_col_label, count(*)::bigint, 0
   FROM facts GROUP BY breed, cause_col_key, cause_col_label
@@ -399,6 +437,7 @@ func (r *Repository) GetMortality(ctx context.Context, req domain.MortalityQuery
 		Park:             []domain.MortalityBucket{},
 		Pen:              []domain.MortalityBucket{},
 		Load:             []domain.MortalityBucket{},
+		Vendor:           []domain.MortalityBucket{},
 		AgeAtDeath:       []domain.MortalityBucket{},
 		Season:           []domain.MortalityBucket{},
 		Cause:            []domain.MortalityBucket{},
@@ -406,6 +445,7 @@ func (r *Repository) GetMortality(ctx context.Context, req domain.MortalityQuery
 		DaysSinceVaccine: []domain.MortalityBucket{},
 		SeasonByStage:    []domain.MortalityCrossCell{},
 		LoadByCause:      []domain.MortalityCrossCell{},
+		VendorByCause:    []domain.MortalityCrossCell{},
 		BreedByCause:     []domain.MortalityCrossCell{},
 		Deaths:           []domain.MortalityDeath{},
 		RecentLimit:      domain.MortalityRecentLimit,
@@ -455,6 +495,9 @@ func (r *Repository) GetMortality(ctx context.Context, req domain.MortalityQuery
 		case "load":
 			bucket.Label = loadBucketLabel(key, label)
 			out.Load = append(out.Load, bucket)
+		case "vendor":
+			bucket.Label = vendorBucketLabel(key, label)
+			out.Vendor = append(out.Vendor, bucket)
 		}
 	}
 	popRows.Close()
@@ -510,6 +553,10 @@ func (r *Repository) GetMortality(ctx context.Context, req domain.MortalityQuery
 			out.LoadByCause = append(out.LoadByCause, domain.MortalityCrossCell{
 				RowKey: key, RowLabel: loadBucketLabel(key, label), ColKey: key2, ColLabel: label2, Deaths: deaths,
 			})
+		case "vendor_by_cause":
+			out.VendorByCause = append(out.VendorByCause, domain.MortalityCrossCell{
+				RowKey: key, RowLabel: vendorBucketLabel(key, label), ColKey: key2, ColLabel: label2, Deaths: deaths,
+			})
 		case "breed_by_cause":
 			out.BreedByCause = append(out.BreedByCause, domain.MortalityCrossCell{
 				RowKey: key, RowLabel: label, ColKey: key2, ColLabel: label2, Deaths: deaths,
@@ -545,7 +592,7 @@ func (r *Repository) GetMortality(ctx context.Context, req domain.MortalityQuery
 	}
 	// Rate series: most deaths first, then most animals, then label, so the chart reads
 	// top-down and two equal buckets keep a stable order across reloads.
-	for _, series := range []*[]domain.MortalityBucket{&out.Stage, &out.Breed, &out.Sex, &out.Species, &out.Park, &out.Pen, &out.Load, &out.KidAdult} {
+	for _, series := range []*[]domain.MortalityBucket{&out.Stage, &out.Breed, &out.Sex, &out.Species, &out.Park, &out.Pen, &out.Load, &out.Vendor, &out.KidAdult} {
 		sortBuckets(*series)
 	}
 	sortBuckets(out.Cause)
@@ -609,6 +656,25 @@ func loadBucketLabel(key, label string) string {
 	}
 	if len(key) >= 8 {
 		return "Load " + key[:8]
+	}
+	return key
+}
+
+// vendorBucketLabel names a vendor bucket. The two synthetic keys carry domain copy; a real
+// vendor carries the display name the one vendor register prints, or its id's short form when
+// the party row has no name -- never a blank row.
+func vendorBucketLabel(key, label string) string {
+	switch key {
+	case "farm_born":
+		return "Farm born"
+	case "no_vendor":
+		return "No vendor recorded"
+	}
+	if trimmed := strings.TrimSpace(label); trimmed != "" {
+		return trimmed
+	}
+	if len(key) >= 8 {
+		return "Vendor " + key[:8]
 	}
 	return key
 }
