@@ -36,8 +36,11 @@ func samplingService(t *testing.T, repo *fakeRepo, now time.Time) *Service {
 			},
 		},
 		{
-			// Weighing declares a measurement but does NOT require it: the operator already
-			// recorded a weight, so a blank field means "his weight is right". Samplable.
+			// A HYPOTHETICAL category that declares a measurement but does NOT require it, kept so
+			// the samplable/locked split is exercised on both sides of the rule. It is deliberately
+			// not the real weighing category, which REQUIRES the verifier's own weight reading and
+			// is therefore locked at 100% (maintainer decision 2026-09-21,
+			// verificationcatalog.TestWeighingSamplingIsLockedBecauseTheVerifierIsTheDataSource).
 			Vertical: "weighing", Module: "weighing", Category: "weighing_proof",
 			NavigationModule: "weighing", NavigationModuleLabel: "Weighing",
 			PageKey: "weighing", PageLabel: "Weighing", PageOrder: 1,
@@ -165,7 +168,9 @@ func TestACategoryWhoseApproveCarriesTheNumberCannotBeSampled(t *testing.T) {
 	if row.LockedReason == "" {
 		t.Fatal("locked row carried no reason; a disabled control with no reason is the defect this prevents")
 	}
-	// Weighing declares a measurement too, but does not REQUIRE it, so it stays samplable.
+	// The hypothetical category declares a measurement too, but does not REQUIRE it, so it stays
+	// samplable -- which is what proves the lock is derived from RequiredForApprove rather than from
+	// "declares a measurement at all".
 	if !findSamplingRow(t, overview, "weighing_proof").Waivable {
 		t.Fatal("weighing was locked; a blank correction means the operator's weight stands, so it is a spot check")
 	}

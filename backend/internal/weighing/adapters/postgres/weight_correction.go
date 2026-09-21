@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"strings"
 	"time"
 
 	"github.com/jackc/pgx/v5"
@@ -151,7 +152,7 @@ func (r *Repository) CorrectObservationWeight(ctx context.Context, cmd domain.We
 		OperatorWeightKg: operatorWeight,
 		Reason:           cmd.Reason,
 		CorrectedBy:      cmd.CorrectedBy,
-		SubjectLabel:     domain.CorrectedSubjectLabel(cmd.RefType, scope.ShedDisplay, scope.ScannedIdentifier, cmd.WeightKg, animalCount),
+		SubjectLabel:     domain.CorrectedSubjectLabel(cmd.RefType, scope.ShedDisplay, scope.ScannedIdentifier, animalCount),
 		// India business time: every Goat OS business meaning derives from
 		// Asia/Kolkata, never UTC (AGENTS.md). Recorded into the idempotency
 		// snapshot below so a replay returns this same instant verbatim.
@@ -369,4 +370,49 @@ func (r *Repository) auditWeightCorrection(
 			"client_idempotency_key": cmd.IdempotencyKey,
 		},
 	})
+}
+
+// HasVerifierWeight answers whether a verifier has ALREADY set this observation's
+// weight, which is what verification asks before letting a blank approve through on
+// the now-mandatory weighing measurement (maintainer decision 2026-09-21).
+//
+// The question is NOT "does the row have a weight" -- every row does, because the
+// operator recorded one when he captured the animal. It is "has the weight been
+// replaced by a verifier", and operator_weight_kg answers it exactly: that column is
+// NULL until the first correction, written once at that moment, and never touched
+// again (see CorrectObservationWeight above), so its presence IS the fact.
+//
+// One indexed primary-key lookup per grain, no lock: this is a read on the approve
+// path, and the correction it is asking about is already committed or it is not.
+// A missing row is reported as "not measured" rather than an error -- the verdict
+// path's own not-found handling owns that case, and inventing a measurement for a
+// row that does not exist would be the one wrong answer here.
+func (r *Repository) HasVerifierWeight(ctx context.Context, tenantID, refType, observationID string) (bool, error) {
+	ctx, cancel := r.timeout(ctx)
+	defer cancel()
+
+	var query string
+	switch strings.TrimSpace(refType) {
+	case domain.VerificationRefTypeAnimal:
+		query = `
+SELECT operator_weight_kg IS NOT NULL
+FROM weighing_observations
+WHERE tenant_id=$1::uuid AND observation_id=$2::uuid`
+	case domain.VerificationRefTypeShed:
+		query = `
+SELECT operator_weight_kg IS NOT NULL
+FROM weighing_shed_observations
+WHERE tenant_id=$1::uuid AND shed_observation_id=$2::uuid`
+	default:
+		return false, ports.ErrInvalidArgument
+	}
+
+	var corrected bool
+	if err := r.pool.QueryRow(ctx, query, tenantID, observationID).Scan(&corrected); err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return false, nil
+		}
+		return false, err
+	}
+	return corrected, nil
 }

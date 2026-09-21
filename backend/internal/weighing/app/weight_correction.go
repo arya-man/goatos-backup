@@ -37,7 +37,7 @@ func NewWeightCorrectionService(store ports.WeightCorrectionStore, log *slog.Log
 }
 
 // WithVerificationRelabeler wires the seam that keeps the verifier's queue row in
-// step with the corrected weight.
+// step with the recomposed subject sentence.
 //
 // Optional on purpose, exactly like the verdict handler's apply-acker: without it
 // the correction still lands on the observation and every weighing read model shows
@@ -89,7 +89,12 @@ func (s *WeightCorrectionService) CorrectObservationWeight(ctx context.Context, 
 	return result, nil
 }
 
-// relabel restates the verification item's subject label with the corrected weight.
+// relabel restates the verification item's subject label.
+//
+// Since 2026-09-21 that sentence carries NO WEIGHT, so this no longer exists to stop
+// the queue advertising a replaced number -- it keeps the pen/tag half in step, and
+// it stays wired because the order it imposes (apply -> relabel -> re-read
+// row_version -> verdict) is what the 2026-08-20 version-fencing fix depends on.
 //
 // Deliberately AFTER the correction transaction committed and deliberately NOT
 // fatal, for the same reason the verdict handler's ack is: the correction is a write
@@ -109,6 +114,22 @@ func (s *WeightCorrectionService) relabel(ctx context.Context, cmd domain.Weight
 			"error", err,
 		)
 	}
+}
+
+// HasVerifierWeight reports whether a verifier has already set this observation's
+// weight, for verification's blank-approve gate.
+//
+// Weighing's approve is BLIND and MANDATORY (maintainer decision 2026-09-21): the
+// verifier is not shown the operator's number and must type her own. Verification
+// asks this only when an approve arrives carrying NO number, so that an item already
+// measured through the standalone correction route -- which an installed APK still
+// calls -- is not stranded unapprovable. A brand-new item answers false and the
+// approve is refused with "record the value before approving".
+func (s *WeightCorrectionService) HasVerifierWeight(ctx context.Context, tenantID, refType, observationID string) (bool, error) {
+	if s == nil || s.store == nil {
+		return false, ports.ErrInvalidArgument
+	}
+	return s.store.HasVerifierWeight(ctx, tenantID, refType, observationID)
 }
 
 // CorrectionCode extracts the field-level refusal code from an error returned by

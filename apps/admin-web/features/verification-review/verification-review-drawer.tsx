@@ -535,9 +535,13 @@ function VerificationReviewDrawerPanel({
   // renders nothing extra rather than printing the token itself.
   const feedbackMessage = (code: string) => copy(pageContract, `feedback.${code}`, "");
 
-  // The heading is the same sentence the verifier clicked in the queue -- shed, animal/tag,
-  // vaccine, weight -- falling back to operator/shed only when the backend sent no subject. It is
-  // never the item id: an id tells her nothing about the video she is about to judge.
+  // The heading is the same sentence the verifier clicked in the queue -- pen, animal/tag, vaccine
+  // -- falling back to operator/pen only when the backend sent no subject. It is never the item id:
+  // an id tells her nothing about the video she is about to judge.
+  //
+  // A WEIGHING subject deliberately carries NO WEIGHT (maintainer decision 2026-09-21): she reads
+  // the scale off the video and types what she sees, and her reading becomes the recorded weight.
+  // The backend composes this sentence; do not enrich it here with a number it left out.
   const subjectHeading = item.subject_label?.trim()
     ? item.subject_label
     : [item.operator_name, item.shed_label].filter(Boolean).join(" · ") || text("drawer.eyebrow");
@@ -548,8 +552,8 @@ function VerificationReviewDrawerPanel({
   // with them; keeping a permission flag for controls that no longer exist is how a screen quietly
   // regrows them.
   const mayReview = controlEnabled(pageContract, "record_verdict", false);
-  // The backend attaches this only to items carrying a number the verifier may correct, and owns
-  // every word of the control. Absent -- every category but weighing today -- means no control.
+  // The backend attaches this only to items carrying a number the verifier records, and owns every
+  // word of the control. Absent -- most categories -- means no control at all.
   const correction = item.measurement_correction;
   // Per-field items (feed packing) render one box per field instead of the single value field; the
   // "why was the number wrong" note only makes sense where a prior recorded number exists, so
@@ -563,11 +567,13 @@ function VerificationReviewDrawerPanel({
   // reading, so the two must stay distinguishable all the way to the server action.
   const measurementEntered = measurementValue.trim() !== "";
   const everyEntryFilled = correctionFields.every((field) => (entriesForItem[field.key] ?? "").trim() !== "");
-  // Feed wastage cannot be approved without a number -- the operator submits only a video, so the
-  // reading is born on this screen. The backend refuses it too (422 measurement_required); doing it
-  // here as well means she is told before she loses a round-trip. Weighing's flag is false, so a
-  // verifier who agrees with the operator's weight still approves in one press. A per-field item
-  // (feed packing) holds Accept until EVERY box is filled -- zero is a valid entry, blank is not.
+  // Held wherever the backend says the reading is born on this screen: feed wastage, feed packing
+  // -- and, since 2026-09-21, WEIGHING on both grains. Weighing's verifier is not shown the
+  // operator's weight, so approving blank would record a number nobody on this side ever saw; an
+  // unreadable video is a Reject, never a guess. The backend refuses it too (422
+  // measurement_required); doing it here as well means she is told before she loses a round-trip.
+  // A per-field item (feed packing) holds Accept until EVERY box is filled -- zero is a valid
+  // entry, blank is not.
   const measurementMissing = Boolean(correction?.required_for_approve) && (perFieldEntry ? !everyEntryFilled : !measurementEntered);
   // Flagged boxes still holding the value that was flagged. Direction code per key, for the copy
   // lookup below; the planned figure and the gap never reach this screen.
@@ -585,7 +591,7 @@ function VerificationReviewDrawerPanel({
                 the raw module/vertical pair -- a config token plus a UUID as the headline of the
                 review surface. The locked spec bans rendering an id as a label, and the raw
                 vertical/module pair is the same leak just removed from the queue table. The
-                verifier needs the sentence she clicked: shed, animal/tag, vaccine, weight. */}
+                verifier needs the sentence she clicked: pen, animal/tag, vaccine. */}
             <h2>{subjectHeading}</h2>
             <div className="sb">{actionTypeLabel}</div>
           </div>

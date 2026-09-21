@@ -1,20 +1,20 @@
 package app
 
-// A weighing verification item MUST name the animal and its recorded weight.
+// A weighing verification item MUST name the animal or the pen -- and MUST NOT name its weight.
 //
-// The verifier's whole job is deciding whether the video matches the weight. Before this,
-// every individual weighing item carried the hardcoded literal "individual animal weight"
-// as its subject: fifteen items from the same shed rendered byte-identical, and the weight
-// under review was never shown to the person reviewing it. An operator who typed 120 kg
-// instead of 12 kg produced a correct-looking video of a goat on a scale that no verifier
-// could catch.
+// BLIND VERIFICATION (maintainer decision 2026-09-21). The verifier watches the video, reads the
+// scale herself and types what she sees; her reading becomes the recorded weight of that animal or
+// that pen. Showing her the operator's number first would make her a rubber stamp on it, and an
+// anchored reader is exactly the one who waves through the 120-kg-for-12-kg typo.
 //
-// The scanned tag and the weight are both already on the observation the enqueue site
-// holds (repository.go:1601 / :1830 return them), so the subject is composed there and both
-// clients simply render it -- backend owns the label.
+// The label previously CARRIED the weight, and for a good reason at the time: before that, every
+// individual weighing item read the hardcoded literal "individual animal weight", so fifteen items
+// from one pen rendered byte-identical and the verifier had nothing to tell them apart. The fix to
+// THAT defect must survive this one -- which is why the scanned tag stays on the label and the
+// weight leaves. The tag is what distinguishes the rows; the weight was never needed for it.
 //
-// Free-flow rule: the scanned identifier IS the identity. Nothing here resolves it to a
-// goat, and lump-sum carries no per-animal identity at all -- only its total and count.
+// Free-flow rule: the scanned identifier IS the identity. Nothing here resolves it to a goat, and
+// lump-sum carries no per-animal identity at all -- only the pen and its frozen head count.
 
 import (
 	"context"
@@ -25,7 +25,7 @@ import (
 	"github.com/vgoats/goatos/backend/internal/weighing/domain"
 )
 
-func TestRecordAnimalObservationVerificationSubjectNamesTagAndWeight(t *testing.T) {
+func TestRecordAnimalObservationVerificationSubjectNamesTagButNeverTheWeight(t *testing.T) {
 	enqueuer := &captureVerificationEnqueuer{}
 	service := NewService(&animalObservationRepo{}).WithVerificationEnqueuer(enqueuer)
 	operator := domain.Actor{TenantID: testTenant, UserID: testOp, Roles: []string{permissions.RoleOperator}}
@@ -40,12 +40,11 @@ func TestRecordAnimalObservationVerificationSubjectNamesTagAndWeight(t *testing.
 	}); err != nil {
 		t.Fatalf("record animal observation: %v", err)
 	}
-	got := enqueuer.received.SubjectLabel
-	if !strings.Contains(got, "901007000504407") {
-		t.Fatalf("verification subject = %q, want it to name the scanned tag 901007000504407", got)
-	}
-	if !strings.Contains(got, "12.0 kg") {
-		t.Fatalf("verification subject = %q, want it to carry the recorded weight 12.0 kg", got)
+	// Asserted on the WHOLE string, not a substring. A label that merely stopped saying "kg" while
+	// still printing "12" would pass a contains-check and still anchor the verifier on the
+	// operator's number.
+	if got := enqueuer.received.SubjectLabel; got != "Godel 1 - Part 3 · Tag 901007000504407" {
+		t.Fatalf("verification subject = %q, want pen and tag with NO weight", got)
 	}
 }
 
@@ -69,14 +68,17 @@ func TestRecordAnimalObservationVerificationSubjectsAreDistinguishableWithinAShe
 		return enqueuer.received.SubjectLabel
 	}
 
+	// The SAME weight on both, deliberately: the weight is no longer on the label, so this proves
+	// the scanned TAG is what keeps two rows apart. Giving them different weights would let this
+	// test pass again if the weight were ever put back.
 	first := capture("901007000504332", 15, "scan-subject-label-a")
-	second := capture("901007000504392", 17, "scan-subject-label-b")
+	second := capture("901007000504392", 15, "scan-subject-label-b")
 	if first == second {
 		t.Fatalf("two animals in the same shed produced the same verification subject %q", first)
 	}
 }
 
-func TestRecordShedObservationVerificationSubjectNamesTotalWeightAndCount(t *testing.T) {
+func TestRecordShedObservationVerificationSubjectNamesPenAndCountButNeverTheWeight(t *testing.T) {
 	enqueuer := &captureVerificationEnqueuer{}
 	service := NewService(&shedObservationRepo{}).WithVerificationEnqueuer(enqueuer)
 	operator := domain.Actor{TenantID: testTenant, UserID: testOp, Roles: []string{permissions.RoleOperator}}
@@ -92,12 +94,11 @@ func TestRecordShedObservationVerificationSubjectNamesTotalWeightAndCount(t *tes
 	}); err != nil {
 		t.Fatalf("record shed observation: %v", err)
 	}
-	got := enqueuer.received.SubjectLabel
-	if !strings.Contains(got, "250.0 kg") {
-		t.Fatalf("verification subject = %q, want it to carry the total weight 250.0 kg", got)
-	}
-	if !strings.Contains(got, "10 goats") {
-		t.Fatalf("verification subject = %q, want it to carry the animal count 10 goats", got)
+	// The head count STAYS while the weight goes. The count is snapshotted from the herd register
+	// at submit and frozen (2026-08-24), so it is not a number the operator typed and it anchors
+	// nobody; it tells the verifier how many animals the pen total she is about to read covers.
+	if got := enqueuer.received.SubjectLabel; got != "Godel 1 - Part 3 · 10 goats" {
+		t.Fatalf("verification subject = %q, want pen and head count with NO weight", got)
 	}
 }
 

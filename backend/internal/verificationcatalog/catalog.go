@@ -40,20 +40,35 @@ var Weighing = domain.CategoryDefinition{
 	Vertical: weighingdomain.VerificationVerticalWeighing, Module: weighingdomain.VerificationModuleWeighing,
 	Category:      weighingdomain.VerificationCategoryWeighing,
 	ExpectedMedia: []string{"video"}, MediaLabels: []string{"Weighing video"},
-	// THE VERIFIER'S WEIGHT CORRECTION (maintainer decision 2026-08-17). Weighing is
-	// the one category today whose proof shows a number an operator typed, so it is
-	// the one that declares a correctable measurement. Every visible word lives here
-	// because the backend owns labels: her phone and her admin-web drawer render this
-	// same copy, and neither may word it itself.
+	// BLIND WEIGHING VERIFICATION (maintainer decision 2026-09-21, SUPERSEDING the
+	// optional-correction half of the 2026-08-17 / 2026-08-20 decisions).
 	//
-	// The help sentence says REPLACES on purpose. A verifier who believes she is
-	// filing a note rather than overwriting the operator's record is the single most
+	// The verifier no longer sees the operator's weight and no longer merely agrees
+	// with it. She watches the video, READS THE SCALE HERSELF, and the number she
+	// types becomes the recorded weight of that animal or that pen. The operator's
+	// number stands as the working weight until she gives hers; from that moment
+	// hers is final.
+	//
+	// Every visible word lives here because the backend owns labels: her phone and
+	// her admin-web drawer render this same copy, and neither may word it itself.
+	//
+	// The help sentence says BECOMES on purpose. A verifier who believes she is
+	// filing a note rather than setting the recorded weight is the single most
 	// expensive misunderstanding this control can cause.
 	MeasurementCorrection: &domain.MeasurementCorrectionSpec{
-		Title:       "Correct the weight",
-		Help:        "Enter the weight you can see in the video. It replaces the weight recorded here.",
-		ValueLabel:  "Corrected weight (kg)",
-		SubmitLabel: "Save corrected weight",
+		Title:       "Record the weight",
+		Help:        "Enter the weight you can see in the video. Your reading becomes the recorded weight.",
+		ValueLabel:  "Weight (kg)",
+		SubmitLabel: "Save weight",
+		// The number is judged BLIND: the operator's weight is deliberately absent from
+		// the subject label this item carries (weighingdomain.CorrectedSubjectLabel), so
+		// approving without a reading would record a weight nobody on the verifying side
+		// ever saw. An unreadable video is a REJECTION, never a guess -- the same trade
+		// feed wastage and feed packing already take.
+		//
+		// This covers BOTH grains. Individual and lump-sum weighing share one category,
+		// and the maintainer's decision names both: "that animal or that shed".
+		RequiredForApprove: true,
 		// NO CountLabel / CountRefTypes, deliberately (maintainer decision
 		// 2026-08-24, retiring the 2026-08-17 head-count edit): the lump-sum
 		// head count is snapshotted from the herd register at submit and is

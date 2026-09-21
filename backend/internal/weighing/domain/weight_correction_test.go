@@ -2,6 +2,7 @@ package domain
 
 import (
 	"math"
+	"strings"
 	"testing"
 )
 
@@ -136,22 +137,42 @@ func TestRecomputedAverageFollowsTheCorrectedTotal(t *testing.T) {
 	}
 }
 
-func TestCorrectedLabelRestatesTheWeightAtBothGrains(t *testing.T) {
-	// The label is what the verifier READS while she decides. If it is not
-	// recomposed after a correction, she sees the number she just replaced and has
-	// no way to tell whether her correction landed.
-	lump := CorrectedSubjectLabel(VerificationRefTypeShed, "Godel 1 - Part 3", "", 732, 31)
-	if lump != "Godel 1 - Part 3 · 732.0 kg · 31 goats" {
-		t.Fatalf("lump-sum label must name shed, corrected total and count, got %q", lump)
+func TestSubjectLabelNeverCarriesTheWeightAtEitherGrain(t *testing.T) {
+	// BLIND VERIFICATION (maintainer decision 2026-09-21). The label is what the
+	// verifier READS while she decides, and the weight is precisely what she must
+	// NOT be told: she reads the scale off the video and types what she sees, and
+	// her reading becomes the recorded weight. A label that showed the operator's
+	// number first would make her a rubber stamp on it.
+	//
+	// These assertions are on the WHOLE string, not a substring: a label that merely
+	// stopped SAYING "kg" while still printing the number would pass a contains-check
+	// and fail the rule.
+	lump := CorrectedSubjectLabel(VerificationRefTypeShed, "Godel 1 - Part 3", "", 31)
+	if lump != "Godel 1 - Part 3 · 31 goats" {
+		t.Fatalf("lump-sum label must name pen and head count and NO weight, got %q", lump)
 	}
-	individual := CorrectedSubjectLabel(VerificationRefTypeAnimal, "Castro 2", "9010123", 28.5, 0)
-	if individual != "Castro 2 · Tag 9010123 · 28.5 kg" {
-		t.Fatalf("individual label must name shed, tag and corrected weight, got %q", individual)
+	individual := CorrectedSubjectLabel(VerificationRefTypeAnimal, "Castro 2", "9010123", 0)
+	if individual != "Castro 2 · Tag 9010123" {
+		t.Fatalf("individual label must name pen and tag and NO weight, got %q", individual)
 	}
-	// A bucket whose shed lookup found nothing degrades to the shed-less form rather
-	// than printing a UUID or a dangling separator (LOCKED SPEC section 5).
-	if bare := CorrectedSubjectLabel(VerificationRefTypeShed, "", "", 732, 0); bare != "Whole pen · 732.0 kg" {
-		t.Fatalf("a shed-less lump-sum label must degrade, got %q", bare)
+	// A pen whose lookup found nothing degrades to the pen-less form rather than
+	// printing a UUID or a dangling separator (LOCKED SPEC section 5).
+	if bare := CorrectedSubjectLabel(VerificationRefTypeShed, "", "", 0); bare != "Whole pen" {
+		t.Fatalf("a pen-less lump-sum label must degrade, got %q", bare)
+	}
+	// Neither pen nor tag resolved: the row still says what KIND of proof it is.
+	if bare := CorrectedSubjectLabel(VerificationRefTypeAnimal, "", "", 0); bare != "Individual weigh" {
+		t.Fatalf("a bare individual label must still name the proof kind, got %q", bare)
+	}
+}
+
+// The head count STAYS while the weight goes, and the difference is not arbitrary.
+// The count is snapshotted from the herd register at submit and frozen (2026-08-24)
+// -- it is not a number the operator typed, so it anchors nobody; it tells the
+// verifier how many animals the pen total she is about to read covers.
+func TestLumpSumLabelKeepsTheFrozenHeadCount(t *testing.T) {
+	if got := CorrectedSubjectLabel(VerificationRefTypeShed, "Godel 1 - Part 3", "", 31); !strings.Contains(got, "31 goats") {
+		t.Fatalf("lump-sum label must still carry the frozen head count, got %q", got)
 	}
 }
 

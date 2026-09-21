@@ -24,6 +24,7 @@ import (
 // test can drive the applier without a database.
 type weightCorrector interface {
 	CorrectObservationWeight(ctx context.Context, cmd weighingdomain.WeightCorrectionCommand) (weighingdomain.WeightCorrectionResult, error)
+	HasVerifierWeight(ctx context.Context, tenantID, refType, observationID string) (bool, error)
 }
 
 // MeasurementApplier applies a verifier's corrected weight as part of her approve.
@@ -65,11 +66,22 @@ func (a *MeasurementApplier) ApplyMeasurement(ctx context.Context, in verificati
 	return err
 }
 
-// HasRecordedMeasurement always reports true for weighing.
+// HasRecordedMeasurement reports whether a VERIFIER has already set this observation's weight.
 //
-// It is only consulted for a category whose spec is RequiredForApprove, and weighing's is not: the
-// OPERATOR already recorded a weight when he captured the animal, so there is never a weighing item
-// with no number on it. The blank field means "his weight is right", which stays a single tap.
-func (a *MeasurementApplier) HasRecordedMeasurement(context.Context, string, verificationdomain.SourceRef) (bool, error) {
-	return true, nil
+// IT MUST NOT ANSWER "the row has a weight" (maintainer decision 2026-09-21). It used to return a
+// flat true, which was correct while weighing's measurement was OPTIONAL -- the question was never
+// asked, because verification only consults it for a RequiredForApprove category. Weighing's
+// approve is now blind and mandatory, so this IS the gate on a blank approve, and a flat true would
+// wave every unmeasured item through: every weighing row carries a weight from the moment the
+// operator captured it, so "has a weight" is true before any verifier has looked at the video.
+//
+// The real question is whether the weight was replaced by a verifier, and weighing answers it from
+// operator_weight_kg -- written on the first correction and never again. A false answer means the
+// approve is refused with "record the value before approving", which is exactly right for an item
+// nobody has read the scale for.
+//
+// The escape hatch this preserves: an item measured earlier through the standalone correction route
+// (an installed APK still showing its own save button) answers true and stays approvable in one tap.
+func (a *MeasurementApplier) HasRecordedMeasurement(ctx context.Context, tenantID string, source verificationdomain.SourceRef) (bool, error) {
+	return a.corrections.HasVerifierWeight(ctx, tenantID, source.RefType, source.RefID)
 }

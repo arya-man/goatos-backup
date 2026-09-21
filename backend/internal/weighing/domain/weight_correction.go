@@ -94,9 +94,12 @@ type WeightCorrectionResult struct {
 	OperatorAnimalCount int     `json:"operator_animal_count,omitempty"`
 	Reason              string  `json:"reason,omitempty"`
 	CorrectedBy         string  `json:"corrected_by"`
-	// SubjectLabel is the REcomposed verifier-facing sentence for this observation,
-	// carrying the corrected weight. The caller pushes it back onto the verification
-	// item so the queue stops advertising the number that was just replaced.
+	// SubjectLabel is the REcomposed verifier-facing sentence for this observation.
+	// It names the pen and the animal and carries NO WEIGHT (maintainer decision
+	// 2026-09-21) -- the queue never advertised the number, so this restates a
+	// sentence rather than correcting one. The caller still pushes it back onto the
+	// verification item, which keeps the pen/tag half in step when a correction is
+	// the first read that resolved them.
 	SubjectLabel string    `json:"subject_label"`
 	CorrectedAt  time.Time `json:"corrected_at"`
 }
@@ -192,41 +195,55 @@ func RecomputeAverageWeightKg(totalKg float64, animalCount int) float64 {
 	return roundKg(totalKg / float64(animalCount))
 }
 
-// CorrectedSubjectLabel recomposes the sentence the verifier reads for a corrected
-// observation, so the queue row and the drawer header stop advertising the weight
-// that was just replaced.
+// CorrectedSubjectLabel composes the sentence the verifier reads for one weighing
+// proof: WHICH pen, WHICH animal -- and deliberately NOT what it weighs.
+//
+// IT CARRIES NO WEIGHT, and that absence is the feature (maintainer decision
+// 2026-09-21). The verifier judges blind: she reads the scale off the video and
+// types what she sees, and her reading becomes the recorded weight. Showing her
+// the operator's number first would make her a rubber stamp on it -- a reader who
+// has already been told the answer confirms it, and the 120-kg-for-12-kg typo this
+// label was originally widened to expose is exactly the one an anchored reader
+// waves through.
+//
+// The weightKg PARAMETER IS GONE ON PURPOSE rather than passed and ignored. A
+// caller that can still hand a weight to the label composer is one edit away from
+// rendering it again, and that edit would look like a bugfix.
+//
+// The head count STAYS on a lump-sum label: it is snapshotted from the herd
+// register at submit, frozen and never operator-entered (maintainer decision
+// 2026-08-24), so it is not a number she is being anchored on -- it tells her how
+// many animals the pen total she is about to read covers.
 //
 // It mirrors individualSubjectLabel / lumpSumSubjectLabel in weighing/app, which
 // compose the same sentence at enqueue. The composition lives here so the correct
 // path and the capture path cannot drift into two different sentences for the same
 // fact; the app-side helpers delegate to it.
-func CorrectedSubjectLabel(refType, shedDisplay, scannedIdentifier string, weightKg float64, animalCount int) string {
+func CorrectedSubjectLabel(refType, shedDisplay, scannedIdentifier string, animalCount int) string {
 	shed := strings.TrimSpace(shedDisplay)
 	if refType == VerificationRefTypeShed {
 		head := shed
 		if head == "" {
 			head = "Whole pen"
 		}
-		label := head + " · " + FormatWeightKg(weightKg)
 		if animalCount > 0 {
-			label += " · " + strconv.Itoa(animalCount) + " goats"
+			head += " · " + strconv.Itoa(animalCount) + " goats"
 		}
-		return label
+		return head
 	}
 
-	parts := make([]string, 0, 3)
+	parts := make([]string, 0, 2)
 	if shed != "" {
 		parts = append(parts, shed)
 	}
 	if tag := strings.TrimSpace(scannedIdentifier); tag != "" {
 		parts = append(parts, "Tag "+tag)
 	}
-	parts = append(parts, FormatWeightKg(weightKg))
+	if len(parts) == 0 {
+		// Neither the pen nor the tag resolved. The row still has to say what KIND of
+		// proof it is rather than render blank or a UUID (LOCKED SPEC section 5).
+		return "Individual weigh"
+	}
 	return strings.Join(parts, " · ")
 }
 
-// FormatWeightKg always carries the unit — a bare number on a verification screen
-// is the exact ambiguity the subject label exists to remove.
-func FormatWeightKg(weightKg float64) string {
-	return strconv.FormatFloat(weightKg, 'f', 1, 64) + " kg"
-}
