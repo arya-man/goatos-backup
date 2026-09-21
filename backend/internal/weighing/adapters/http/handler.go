@@ -47,10 +47,10 @@ type Service interface {
 	WeighingProcessState(ctx context.Context, actor domain.Actor, campaignID, fromBusinessDate, toBusinessDate string) (domain.ProcessState, error)
 	ListAlerts(ctx context.Context, actor domain.Actor, cursor string, limit int) (domain.AlertPage, error)
 	GetWeightHistory(ctx context.Context, actor domain.Actor, parkID, campaignShedID string) (domain.WeightHistory, error)
-	GetLeadershipGrowthADG(ctx context.Context, actor domain.Actor, parkID, fromBusinessDate, toBusinessDate, sex, origin, weighingCategory, sections string) (domain.GrowthADG, error)
+	GetLeadershipGrowthADG(ctx context.Context, actor domain.Actor, parkID, fromBusinessDate, toBusinessDate, sex, origin, weighingCategory, sections, bucket, penLocationID, penPartitionLabel string) (domain.GrowthADG, error)
 	GetShedWeights(ctx context.Context, actor domain.Actor, parkID, fromBusinessDate, toBusinessDate, sex, origin, weighingCategory, saleThresholdToleranceGrams string, saleLowerKg, saleUpperKg float64) (domain.ShedWeights, error)
 	GetWeighingDates(ctx context.Context, actor domain.Actor, parkID, fromBusinessDate, toBusinessDate, sex, origin, weighingCategory string) (domain.WeighingDates, error)
-	GetWeightDemographics(ctx context.Context, actor domain.Actor, parkID, fromBusinessDate, toBusinessDate, sex, origin, weighingCategory, sections string, bandEdgesKg []float64) (domain.WeightDemographics, error)
+	GetWeightDemographics(ctx context.Context, actor domain.Actor, parkID, fromBusinessDate, toBusinessDate, sex, origin, weighingCategory, sections string, bandEdgesKg []float64, bucket, penLocationID, penPartitionLabel string) (domain.WeightDemographics, error)
 	ExportCampaignCSV(ctx context.Context, actor domain.Actor, campaignID string, writer io.Writer) error
 	ExportCSV(ctx context.Context, actor domain.Actor, fromBusinessDate, toBusinessDate, parkID string, shedLocationIDs []string, sex, origin, weighingCategory string, writer io.Writer) error
 	// Fasting (feed & water removal) precondition cards, maintainer decision
@@ -197,6 +197,11 @@ func (h *Handler) GetLeadershipGrowthADG(w http.ResponseWriter, r *http.Request)
 		r.URL.Query().Get("origin"),
 		r.URL.Query().Get("weighing_category"),
 		r.URL.Query().Get("sections"),
+		// The Time-wise tab's own two controls: how wide a column is, and which pen the whole read
+		// is about. Both default to the behaviour every caller had before they existed.
+		r.URL.Query().Get("bucket"),
+		r.URL.Query().Get("pen_location_id"),
+		r.URL.Query().Get("pen_partition_label"),
 	)
 	h.maybeWriteTiming(w, r, "leadership_growth", start)
 	h.respond(w, r, result, err)
@@ -271,6 +276,9 @@ func (h *Handler) GetWeightDemographics(w http.ResponseWriter, r *http.Request) 
 		r.URL.Query().Get("sex"), r.URL.Query().Get("origin"), r.URL.Query().Get("weighing_category"),
 		r.URL.Query().Get("sections"),
 		edges,
+		r.URL.Query().Get("bucket"),
+		r.URL.Query().Get("pen_location_id"),
+		r.URL.Query().Get("pen_partition_label"),
 	)
 	h.maybeWriteTiming(w, r, "weight_demographics", start)
 	h.respond(w, r, result, err)

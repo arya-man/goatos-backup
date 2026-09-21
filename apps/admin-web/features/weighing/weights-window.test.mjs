@@ -95,8 +95,8 @@ test("weights analytics time-wise uses the same selected/default period as every
   // and its caption says so. Every other tab still reads the page's own scope and window.
   assert.match(analyticsSource, /const shedParams = \{\s*\n\s*\.\.\.\(wantsLoads \? \{ park_id: parkFilter \|\| undefined, from: LOAD_TAB_ALL_TIME_FROM, to: today \} : \{ \.\.\.scope, \.\.\.readWindow \}\),/);
   assert.match(analyticsSource, /getShedWeights\(shedParams\)/);
-  assert.match(analyticsSource, /getWeighingGrowth\(\{ \.\.\.scope, \.\.\.readWindow, sections: growthSections \}\)/);
-  assert.match(analyticsSource, /getWeightDemographics\(\{ \.\.\.scope, \.\.\.readWindow, sections: demographicsSections, band_edges_kg: bandEdgesParam\(assumptionRows\) \}\)/);
+  assert.match(analyticsSource, /getWeighingGrowth\(\{\s*\n\s*\.\.\.scope,\s*\n\s*\.\.\.readWindow,\s*\n\s*sections: growthSections,\s*\n\s*\.\.\.\(tab === "time" \? \{ bucket: gainBucket, \.\.\.penScope \} : \{\}\),/);
+  assert.match(analyticsSource, /getWeightDemographics\(\{\s*\n\s*\.\.\.scope,\s*\n\s*\.\.\.readWindow,\s*\n\s*sections: demographicsSections,\s*\n\s*band_edges_kg: bandEdgesParam\(assumptionRows\),\s*\n\s*\.\.\.\(tab === "time" \? \{ bucket: gainBucket, \.\.\.penScope \} : \{\}\),/);
   assert.doesNotMatch(contract, /last 12 weeks/);
   assert.doesNotMatch(contract, /those 12 weeks/);
   assert.doesNotMatch(contract, /not moved by the period filter/);
@@ -133,8 +133,8 @@ test("weights analytics sends the weighing mode through every tab read", () => {
   // The shed read routes through shedParams so the Load-wise tab can drop the page filters a
   // whole load cannot honour; on every other tab shedParams IS { ...scope, ...readWindow }.
   assert.match(analyticsSource, /getShedWeights\(shedParams\)/);
-  assert.match(analyticsSource, /getWeighingGrowth\(\{ \.\.\.scope, \.\.\.readWindow, sections: growthSections \}\)/);
-  assert.match(analyticsSource, /getWeightDemographics\(\{ \.\.\.scope, \.\.\.readWindow, sections: demographicsSections, band_edges_kg: bandEdgesParam\(assumptionRows\) \}\)/);
+  assert.match(analyticsSource, /getWeighingGrowth\(\{\s*\n\s*\.\.\.scope,\s*\n\s*\.\.\.readWindow,\s*\n\s*sections: growthSections,\s*\n\s*\.\.\.\(tab === "time" \? \{ bucket: gainBucket, \.\.\.penScope \} : \{\}\),/);
+  assert.match(analyticsSource, /getWeightDemographics\(\{\s*\n\s*\.\.\.scope,\s*\n\s*\.\.\.readWindow,\s*\n\s*sections: demographicsSections,\s*\n\s*band_edges_kg: bandEdgesParam\(assumptionRows\),\s*\n\s*\.\.\.\(tab === "time" \? \{ bucket: gainBucket, \.\.\.penScope \} : \{\}\),/);
   assert.match(analyticsSource, /weighingCategory=\{modeFilter !== "all" \? modeFilter : undefined\}/);
 });
 
@@ -185,7 +185,7 @@ test("weights page sends the weighing mode through every backend read", () => {
 test("weights analytics tabs request only the growth sections they render", () => {
   assert.match(analyticsSource, /tab === "general" \? "headline,shed_leaderboard,by_park" : tab === "time" \? "weekly_gain" : ""/);
   assert.match(analyticsSource, /const wantsGrowth = growthSections !== "";/);
-  assert.match(analyticsSource, /wantsGrowth \? getWeighingGrowth\(\{ \.\.\.scope, \.\.\.readWindow, sections: growthSections \}\) : null/);
+  assert.match(analyticsSource, /getWeighingGrowth\(\{\s*\n\s*\.\.\.scope,\s*\n\s*\.\.\.readWindow,\s*\n\s*sections: growthSections,\s*\n\s*\.\.\.\(tab === "time" \? \{ bucket: gainBucket, \.\.\.penScope \} : \{\}\),/);
   assert.doesNotMatch(analyticsSource, /sectioned-aggregate-reads:allow/);
   assert.doesNotMatch(analyticsSource, /getWeighingGrowth\(\{ \.\.\.scope, \.\.\.readWindow \}\)/);
 });
@@ -196,7 +196,7 @@ test("weights analytics tabs request only the demographics sections they render"
   assert.match(analyticsSource, /tab === "shed"[\s\S]*\? "shed_type"/);
   assert.match(analyticsSource, /tab === "weight"[\s\S]*\? "weight_bands"/);
   assert.match(analyticsSource, /tab === "time"[\s\S]*\? "weekly_gain"/);
-  assert.match(analyticsSource, /wantsDemographics \? getWeightDemographics\(\{ \.\.\.scope, \.\.\.readWindow, sections: demographicsSections, band_edges_kg: bandEdgesParam\(assumptionRows\) \}\) : null/);
+  assert.match(analyticsSource, /getWeightDemographics\(\{\s*\n\s*\.\.\.scope,\s*\n\s*\.\.\.readWindow,\s*\n\s*sections: demographicsSections,\s*\n\s*band_edges_kg: bandEdgesParam\(assumptionRows\),\s*\n\s*\.\.\.\(tab === "time" \? \{ bucket: gainBucket, \.\.\.penScope \} : \{\}\),/);
   assert.doesNotMatch(analyticsSource, /getWeightDemographics\(\{ \.\.\.scope, \.\.\.readWindow \}\)/);
 });
 

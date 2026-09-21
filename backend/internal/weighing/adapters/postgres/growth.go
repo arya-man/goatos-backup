@@ -11,6 +11,7 @@ import (
 	"github.com/jackc/pgx/v5"
 
 	"github.com/vgoats/goatos/backend/internal/platform/oploc"
+	"github.com/vgoats/goatos/backend/internal/platform/sqlbind"
 	"github.com/vgoats/goatos/backend/internal/weighing/domain"
 )
 
@@ -281,9 +282,9 @@ qualifying AS (
 //
 // periodStart/periodEnd are Asia/Kolkata business-day boundaries expressed as UTC instants by
 // the caller (the service layer), half-open [periodStart, periodEnd).
-func (r *Repository) GetLeadershipGrowthADG(ctx context.Context, tenantID string, parkIDs []string, periodStart, periodEnd time.Time, sex, origin, weighingCategory, sections string) (out domain.GrowthADG, err error) {
+func (r *Repository) GetLeadershipGrowthADG(ctx context.Context, tenantID string, parkIDs []string, periodStart, periodEnd time.Time, sex, origin, weighingCategory, sections string, timeScope domain.TimeScope) (out domain.GrowthADG, err error) {
 	sectionSet := growthADGSectionSet(sections)
-	cacheKey := weighingAnalyticsCacheKey("growth_adg:"+growthADGSectionKey(sectionSet), tenantID, parkIDs, periodStart, periodEnd, sex, origin, weighingCategory)
+	cacheKey := weighingAnalyticsCacheKey("growth_adg:"+growthADGSectionKey(sectionSet)+":"+timeScope.CacheKey(), tenantID, parkIDs, periodStart, periodEnd, sex, origin, weighingCategory)
 	if cached, ok := r.getReadCache(cacheKey); ok {
 		return cached.(domain.GrowthADG), nil
 	}
@@ -460,7 +461,7 @@ func (r *Repository) GetLeadershipGrowthADG(ctx context.Context, tenantID string
 	if sectionSet["weekly_gain"] {
 		run(func() error {
 			var err error
-			weeklyGain, err = r.growthWeeklyGain(ctx, tenantID, parkIDs, lookbackStart, periodStart, periodEnd, sexFiltered, scope, idMap, weighingCategory)
+			weeklyGain, err = r.growthWeeklyGain(ctx, tenantID, parkIDs, lookbackStart, periodStart, periodEnd, sexFiltered, scope, idMap, weighingCategory, timeScope)
 			return err
 		})
 	}
@@ -732,8 +733,12 @@ SELECT
 	// median/percent are left as SQL NULL (never COALESCEd to 0) when inperiod is empty, and
 	// scanned straight into pointer fields -- this is the ZERO-vs-UNKNOWN fix: a park where every
 	// animal was weighed exactly once must come back with these fields absent, not "0".
-	err := r.pool.QueryRow(ctx, q, tenantID, parkIDs, lookbackStart, periodEnd, periodStart, sexFiltered, scope.Tags, idMap.Tags, idMap.CanonicalTags,
-		scope.LocationIDs, scope.PartitionLabels, weighingCategory).Scan(
+	bound, bindErr := sqlbind.Bind(q, tenantID, parkIDs, lookbackStart, periodEnd, periodStart, sexFiltered, scope.Tags, idMap.Tags, idMap.CanonicalTags,
+		scope.LocationIDs, scope.PartitionLabels, weighingCategory)
+	if bindErr != nil {
+		return h, fmt.Errorf("weighing: bind growth headline query: %w", bindErr)
+	}
+	err := r.pool.QueryRow(ctx, bound.SQL(), bound.Args()...).Scan(
 		&h.AverageADGGPerDay, &h.PairCount, &h.HeadlineAnimals, &h.PositiveADGPercent, &h.NegativeADGCount,
 		&h.UnverifiedObservationCount,
 	)
@@ -843,7 +848,11 @@ GROUP BY week_start
 -- is never interpolated with a fabricated zero or a carried-forward value, and no week is ever
 -- flagged as "missed" or "overdue".
 ORDER BY week_start`
-	rows, err := r.pool.Query(ctx, q, tenantID, parkIDs, lookbackStart, periodEnd, periodStart, sexFiltered, scope.Tags, idMap.Tags, idMap.CanonicalTags, weighingCategory)
+	bound1, bindErr1 := sqlbind.Bind(q, tenantID, parkIDs, lookbackStart, periodEnd, periodStart, sexFiltered, scope.Tags, idMap.Tags, idMap.CanonicalTags, weighingCategory)
+	if bindErr1 != nil {
+		return nil, fmt.Errorf("weighing: bind growth query: %w", bindErr1)
+	}
+	rows, err := r.pool.Query(ctx, bound1.SQL(), bound1.Args()...)
 	if err != nil {
 		return nil, err
 	}
@@ -887,12 +896,15 @@ ORDER BY week_start`
 //
 // growthWeeklyGainQuery is hoisted to package scope rather than built inside the function so a
 // query-plan test can reach it by name, which is what the scale guard is asking for.
-const growthWeeklyGainQuery = `WITH ` + growthPairsCTE + `),
+const growthWeeklyGainTemplate = `WITH ` + growthPairsCTE + `),
 inperiod AS (
-  SELECT *, (date_trunc('week', accepted_at AT TIME ZONE 'Asia/Kolkata'))::date AS week_start
+  SELECT *, {{BUCKET_ACCEPTED_AT}} AS week_start
   FROM qualifying
   WHERE accepted_at >= $5::timestamptz
     AND ($12::text = '' OR weighing_category = $12::text)
+    -- The selected pen ($13/$14, empty = every pen). Narrowed HERE rather than after the grouping
+    -- because the rows stop carrying a pen the moment they are grouped by bucket.
+    AND ($13::text = '' OR (location_id::text = $13::text AND partition_label = $14::text))
 ),
 -- Arm (a): ONE GAIN PER ANIMAL PER WEEK, at the median of that animal's pairs landing in the week.
 -- Grouping by pairs instead would count the most-handled kids twice, which is the defect the
@@ -916,6 +928,7 @@ pen_obs AS (
     AND o.withdrawn_at IS NULL AND o.verification_status <> 'rejected'
     AND o.accepted_at >= $5::timestamptz AND o.accepted_at < $4::timestamptz
     AND ($12::text = '' OR cs2.weighing_category = $12::text)
+    AND ($13::text = '' OR (cs2.location_id::text = $13::text AND COALESCE(cs2.partition_label, '') = $14::text))
     AND (NOT $6::bool OR EXISTS (
       SELECT 1 FROM unnest($10::uuid[], $11::text[]) AS b(loc, part)
       WHERE b.loc = cs2.location_id AND b.part = COALESCE(cs2.partition_label, '')))
@@ -931,22 +944,29 @@ pen_pairs AS (
   FROM pen_obs
   WINDOW w AS (PARTITION BY location_id, partition_label ORDER BY d)
 ),
--- ONE MOVEMENT PER PEN PER WEEK, the most recent in that week. A pen weighed three times inside one
--- week yields two pairs, and counting both would add its head count to that week's denominator
+-- ONE FIGURE PER PEN PER BUCKET, over ALL the movement inside it. A pen weighed three times in one
+-- bucket yields two pairs, and counting both would add its head count to that bucket's denominator
 -- twice -- the same double-count arm (a) avoids by grouping on animal_key.
-pen_ranked AS (
-  SELECT (date_trunc('week', d::timestamp))::date AS week_start,
-         animal_count::float8 AS animals,
-         (average_weight_kg - prev_w) * 1000.0 / NULLIF(d - prev_d, 0) AS g_per_day,
-         row_number() OVER (
-           PARTITION BY location_id, partition_label, (date_trunc('week', d::timestamp))::date
-           ORDER BY d DESC
-         ) AS rn
+--
+-- The figure is the pen's grams gained across the bucket divided by the DAYS those legs cover, not
+-- the last leg alone. Over a calendar week that is the same number, because a pen is rarely weighed
+-- twice inside one -- but over a 30-day bucket (maintainer request 2026-09-21) a weekly-weighed pen
+-- has four legs, and reporting only the last one would put one week's gain under a heading that
+-- says thirty days. The head count is the pen's at its LATEST weigh in the bucket, counted once.
+pen_bucketed AS (
+  SELECT {{BUCKET_D}} AS week_start, location_id, partition_label, d,
+         animal_count,
+         (average_weight_kg - prev_w) * 1000.0 AS gain_g,
+         (d - prev_d) AS leg_days
   FROM pen_pairs
   WHERE prev_w IS NOT NULL AND d > prev_d
 ),
 shed_span AS (
-  SELECT week_start, animals, g_per_day FROM pen_ranked WHERE rn = 1
+  SELECT week_start,
+         (array_agg(animal_count ORDER BY d DESC))[1]::float8 AS animals,
+         sum(gain_g) / NULLIF(sum(leg_days), 0) AS g_per_day
+  FROM pen_bucketed
+  GROUP BY week_start, location_id, partition_label
 ),
 -- Each arm is already at its own grain, so this UNION ALL cannot fan out.
 weekly AS (
@@ -964,9 +984,30 @@ GROUP BY week_start
 HAVING sum(animals) > 0
 ORDER BY week_start`
 
-func (r *Repository) growthWeeklyGain(ctx context.Context, tenantID string, parkIDs []string, lookbackStart, periodStart, periodEnd time.Time, sexFiltered bool, scope SexScope, idMap AnimalIdentityMap, weighingCategory string) ([]domain.GrowthWeeklyGainPoint, error) {
-	rows, err := r.pool.Query(ctx, growthWeeklyGainQuery, tenantID, parkIDs, lookbackStart, periodEnd, periodStart, sexFiltered, scope.Tags, idMap.Tags, idMap.CanonicalTags,
-		scope.LocationIDs, scope.PartitionLabels, weighingCategory)
+// The two rendered variants. $13/$14 are the selected pen (empty = every pen) and $15 is the
+// window's last business date, bound ONLY by the month variant, which is the only one that names it.
+var (
+	growthWeeklyGainQuery      = bucketedQuery(growthWeeklyGainTemplate, domain.GainBucketWeek, 15)
+	growthWeeklyGainMonthQuery = bucketedQuery(growthWeeklyGainTemplate, domain.GainBucketMonth, 15)
+)
+
+func (r *Repository) growthWeeklyGain(ctx context.Context, tenantID string, parkIDs []string, lookbackStart, periodStart, periodEnd time.Time, sexFiltered bool, scope SexScope, idMap AnimalIdentityMap, weighingCategory string, timeScope domain.TimeScope) ([]domain.GrowthWeeklyGainPoint, error) {
+	// The month variant needs the window's last day to count its 30-day blocks back from; the week
+	// variant never mentions it, so binding it there would be a parameter the statement does not
+	// take. The point's WeekStart therefore carries the START of whichever bucket was asked for.
+	query := growthWeeklyGainQuery
+	args := []any{tenantID, parkIDs, lookbackStart, periodEnd, periodStart, sexFiltered, scope.Tags, idMap.Tags, idMap.CanonicalTags,
+		scope.LocationIDs, scope.PartitionLabels, weighingCategory,
+		timeScope.PenLocationID, timeScope.PenPartitionLabel}
+	if timeScope.Bucket == domain.GainBucketMonth {
+		query = growthWeeklyGainMonthQuery
+		args = append(args, gainBucketAnchor(periodEnd))
+	}
+	bound, bindErr := sqlbind.Bind(query, args...)
+	if bindErr != nil {
+		return nil, fmt.Errorf("weighing: bind weekly gain query: %w", bindErr)
+	}
+	rows, err := r.pool.Query(ctx, bound.SQL(), bound.Args()...)
 	if err != nil {
 		return nil, err
 	}
@@ -1053,7 +1094,11 @@ SELECT sw.location_id, sw.shed_name, sw.partition_label, sw.park_name, sw.n, sw.
 FROM shed_weight sw
 LEFT JOIN shed_adg sa ON sa.location_id = sw.location_id AND COALESCE(sa.partition_label, '') = COALESCE(sw.partition_label, '')
 ORDER BY sw.shed_name, sw.partition_label`
-	rows, err := r.pool.Query(ctx, q, tenantID, parkIDs, lookbackStart, periodEnd, periodStart, sexFiltered, scope.Tags, idMap.Tags, idMap.CanonicalTags, weighingCategory)
+	bound2, bindErr2 := sqlbind.Bind(q, tenantID, parkIDs, lookbackStart, periodEnd, periodStart, sexFiltered, scope.Tags, idMap.Tags, idMap.CanonicalTags, weighingCategory)
+	if bindErr2 != nil {
+		return nil, fmt.Errorf("weighing: bind growth query: %w", bindErr2)
+	}
+	rows, err := r.pool.Query(ctx, bound2.SQL(), bound2.Args()...)
 	if err != nil {
 		return nil, err
 	}
@@ -1339,7 +1384,11 @@ FROM latest_pair
 WHERE adg_g_per_day < 0
 ORDER BY adg_g_per_day ASC
 LIMIT 200`
-	rows, err := r.pool.Query(ctx, q, tenantID, parkIDs, lookbackStart, periodEnd, periodStart, sexFiltered, scope.Tags, idMap.Tags, idMap.CanonicalTags, weighingCategory)
+	bound3, bindErr3 := sqlbind.Bind(q, tenantID, parkIDs, lookbackStart, periodEnd, periodStart, sexFiltered, scope.Tags, idMap.Tags, idMap.CanonicalTags, weighingCategory)
+	if bindErr3 != nil {
+		return nil, fmt.Errorf("weighing: bind growth query: %w", bindErr3)
+	}
+	rows, err := r.pool.Query(ctx, bound3.SQL(), bound3.Args()...)
 	if err != nil {
 		return nil, err
 	}

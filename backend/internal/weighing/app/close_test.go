@@ -376,7 +376,7 @@ func (r *scenarioRepo) GetWeightHistory(context.Context, string, []string, strin
 	return domain.WeightHistory{}, nil
 }
 
-func (r *scenarioRepo) GetLeadershipGrowthADG(context.Context, string, []string, time.Time, time.Time, string, string, string, string) (domain.GrowthADG, error) {
+func (r *scenarioRepo) GetLeadershipGrowthADG(context.Context, string, []string, time.Time, time.Time, string, string, string, string, domain.TimeScope) (domain.GrowthADG, error) {
 	return domain.GrowthADG{}, nil
 }
 
@@ -389,7 +389,7 @@ func (r *scenarioRepo) GetWeighingDates(context.Context, string, []string, time.
 	return domain.WeighingDates{}, nil
 }
 
-func (r *scenarioRepo) GetWeightDemographics(context.Context, string, []string, time.Time, time.Time, string, string, string, string, []float64) (domain.WeightDemographics, error) {
+func (r *scenarioRepo) GetWeightDemographics(context.Context, string, []string, time.Time, time.Time, string, string, string, string, []float64, domain.TimeScope) (domain.WeightDemographics, error) {
 	return domain.WeightDemographics{}, nil
 }
 
@@ -405,7 +405,7 @@ func (r *multiParkScenarioRepo) GetWeightHistory(context.Context, string, []stri
 	return domain.WeightHistory{}, nil
 }
 
-func (r *multiParkScenarioRepo) GetLeadershipGrowthADG(context.Context, string, []string, time.Time, time.Time, string, string, string, string) (domain.GrowthADG, error) {
+func (r *multiParkScenarioRepo) GetLeadershipGrowthADG(context.Context, string, []string, time.Time, time.Time, string, string, string, string, domain.TimeScope) (domain.GrowthADG, error) {
 	return domain.GrowthADG{}, nil
 }
 
@@ -418,7 +418,7 @@ func (r *multiParkScenarioRepo) GetWeighingDates(context.Context, string, []stri
 	return domain.WeighingDates{}, nil
 }
 
-func (r *multiParkScenarioRepo) GetWeightDemographics(context.Context, string, []string, time.Time, time.Time, string, string, string, string, []float64) (domain.WeightDemographics, error) {
+func (r *multiParkScenarioRepo) GetWeightDemographics(context.Context, string, []string, time.Time, time.Time, string, string, string, string, []float64, domain.TimeScope) (domain.WeightDemographics, error) {
 	return domain.WeightDemographics{}, nil
 }
 

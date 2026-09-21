@@ -108,7 +108,7 @@ func TestParkGainsAreOneToManyPairsCollapsedToOneAnimal(t *testing.T) {
 	seedLoadLumpWeigh(t, ctx, pool, pgBucketCPT, pgCampaignCPT, repoShedProofFive, 20.0, 10, day)
 	seedLoadLumpWeigh(t, ctx, pool, pgBucketCPT2, pgCampCPTTwo, repoShedProofSix, 23.0, 10, day.AddDate(0, 0, 10))
 
-	before, err := repo.GetLeadershipGrowthADG(ctx, repoTenant, []string{repoPark, lsParkCPT}, start, end, "", "", "", "")
+	before, err := repo.GetLeadershipGrowthADG(ctx, repoTenant, []string{repoPark, lsParkCPT}, start, end, "", "", "", "", domain.TimeScope{})
 	if err != nil {
 		t.Fatalf("baseline growth: %v", err)
 	}
@@ -117,7 +117,7 @@ func TestParkGainsAreOneToManyPairsCollapsedToOneAnimal(t *testing.T) {
 	// A THIRD weigh of the SAME kid: a second pair, still one animal.
 	seedParkGainWeigh(t, ctx, pool, repoAnimalScope, repoCampaign, "park-gain-thrice", 24.0, day.AddDate(0, 0, 20))
 
-	after, err := repo.GetLeadershipGrowthADG(ctx, repoTenant, []string{repoPark, lsParkCPT}, start, end, "", "", "", "")
+	after, err := repo.GetLeadershipGrowthADG(ctx, repoTenant, []string{repoPark, lsParkCPT}, start, end, "", "", "", "", domain.TimeScope{})
 	if err != nil {
 		t.Fatalf("growth after the third weigh: %v", err)
 	}
@@ -151,12 +151,12 @@ func TestParkGainsParkScopeMatchesTheSingleParkRead(t *testing.T) {
 	seedLoadLumpWeigh(t, ctx, pool, pgBucketCPT, pgCampaignCPT, repoShedProofFive, 20.0, 10, day)
 	seedLoadLumpWeigh(t, ctx, pool, pgBucketCPT2, pgCampCPTTwo, repoShedProofSix, 23.0, 10, day.AddDate(0, 0, 10))
 
-	both, err := repo.GetLeadershipGrowthADG(ctx, repoTenant, []string{repoPark, lsParkCPT}, start, end, "", "", "", "")
+	both, err := repo.GetLeadershipGrowthADG(ctx, repoTenant, []string{repoPark, lsParkCPT}, start, end, "", "", "", "", domain.TimeScope{})
 	if err != nil {
 		t.Fatalf("two-park growth: %v", err)
 	}
 	for _, parkID := range []string{repoPark, lsParkCPT} {
-		alone, err := repo.GetLeadershipGrowthADG(ctx, repoTenant, []string{parkID}, start, end, "", "", "", "")
+		alone, err := repo.GetLeadershipGrowthADG(ctx, repoTenant, []string{parkID}, start, end, "", "", "", "", domain.TimeScope{})
 		if err != nil {
 			t.Fatalf("single-park growth for %s: %v", parkID, err)
 		}
@@ -205,7 +205,7 @@ func TestParkGainsPaginationIsOneRowPerParkAndAbsentForASinglePark(t *testing.T)
 	seedLoadLumpWeigh(t, ctx, pool, pgBucketCPT, pgCampaignCPT, repoShedProofFive, 20.0, 10, day)
 	seedLoadLumpWeigh(t, ctx, pool, pgBucketCPT2, pgCampCPTTwo, repoShedProofSix, 23.0, 10, day.AddDate(0, 0, 10))
 
-	both, err := repo.GetLeadershipGrowthADG(ctx, repoTenant, []string{repoPark, lsParkCPT}, start, end, "", "", "", "")
+	both, err := repo.GetLeadershipGrowthADG(ctx, repoTenant, []string{repoPark, lsParkCPT}, start, end, "", "", "", "", domain.TimeScope{})
 	if err != nil {
 		t.Fatalf("two-park growth: %v", err)
 	}
@@ -229,7 +229,7 @@ func TestParkGainsPaginationIsOneRowPerParkAndAbsentForASinglePark(t *testing.T)
 		t.Fatalf("CPT card is labelled %q, want the park's short code", name)
 	}
 
-	alone, err := repo.GetLeadershipGrowthADG(ctx, repoTenant, []string{repoPark}, start, end, "", "", "", "")
+	alone, err := repo.GetLeadershipGrowthADG(ctx, repoTenant, []string{repoPark}, start, end, "", "", "", "", domain.TimeScope{})
 	if err != nil {
 		t.Fatalf("single-park growth: %v", err)
 	}
@@ -255,7 +255,7 @@ func TestParkGainsIncludeScopedParksWithNoQualifyingGain(t *testing.T) {
 	seedParkGainWeigh(t, ctx, pool, repoAnimalScope, repoCampaign, "park-gain-only-cbe", 20.0, day)
 	seedParkGainWeigh(t, ctx, pool, repoAnimalScope, repoCampaign, "park-gain-only-cbe", 23.0, day.AddDate(0, 0, 10))
 
-	adg, err := repo.GetLeadershipGrowthADG(ctx, repoTenant, []string{repoPark, lsParkCPT}, start, end, "", "", "", "")
+	adg, err := repo.GetLeadershipGrowthADG(ctx, repoTenant, []string{repoPark, lsParkCPT}, start, end, "", "", "", "", domain.TimeScope{})
 	if err != nil {
 		t.Fatalf("two-park growth: %v", err)
 	}
@@ -296,7 +296,7 @@ func TestParkGainsStatusBucketsExcludeWithdrawnAndKeepPendingWeighs(t *testing.T
 	seedLoadLumpWeigh(t, ctx, pool, pgBucketCPT, pgCampaignCPT, repoShedProofFive, 20.0, 10, day)
 	seedLoadLumpWeigh(t, ctx, pool, pgBucketCPT2, pgCampCPTTwo, repoShedProofSix, 23.0, 10, day.AddDate(0, 0, 10))
 
-	before, err := repo.GetLeadershipGrowthADG(ctx, repoTenant, []string{repoPark, lsParkCPT}, start, end, "", "", "", "")
+	before, err := repo.GetLeadershipGrowthADG(ctx, repoTenant, []string{repoPark, lsParkCPT}, start, end, "", "", "", "", domain.TimeScope{})
 	if err != nil {
 		t.Fatalf("growth before the withdrawn weigh: %v", err)
 	}
@@ -312,7 +312,7 @@ INSERT INTO weighing_shed_observations (tenant_id, campaign_id, campaign_shed_id
 VALUES ($1::uuid, $2::uuid, $3::uuid, 900, 90, 10, $4::uuid, $5::uuid, 'park-gain-withdrawn', $6::timestamptz, now())`,
 		repoTenant, pgCampCPTTwo, pgBucketCPT2, repoShedProofSix, repoOperator, day.AddDate(0, 0, 20))
 
-	after, err := repo.GetLeadershipGrowthADG(ctx, repoTenant, []string{repoPark, lsParkCPT}, start, end, "", "", "", "")
+	after, err := repo.GetLeadershipGrowthADG(ctx, repoTenant, []string{repoPark, lsParkCPT}, start, end, "", "", "", "", domain.TimeScope{})
 	if err != nil {
 		t.Fatalf("growth after the withdrawn weigh: %v", err)
 	}
@@ -334,7 +334,7 @@ VALUES ($1::uuid, $2::uuid, $3::uuid, 900, 90, 10, $4::uuid, $5::uuid, 'park-gai
 UPDATE weighing_observations SET verification_status = 'pending'
 WHERE tenant_id = $1::uuid AND scanned_identifier = 'park-gain-pending'`, repoTenant)
 
-	withPending, err := repo.GetLeadershipGrowthADG(ctx, repoTenant, []string{repoPark, lsParkCPT}, start, end, "", "", "", "")
+	withPending, err := repo.GetLeadershipGrowthADG(ctx, repoTenant, []string{repoPark, lsParkCPT}, start, end, "", "", "", "", domain.TimeScope{})
 	if err != nil {
 		t.Fatalf("growth with a pending kid: %v", err)
 	}

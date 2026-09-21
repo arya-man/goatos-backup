@@ -51,6 +51,11 @@ const SEX_PARAM = "sex";
 const ORIGIN_PARAM = "origin";
 const TAB_PARAM = "tab";
 // The pens table's own average-weight filter: an operator and a typed value, applied together.
+// The Time-wise tab's own two controls (maintainer request 2026-09-21). They are TAB-LOCAL, like
+// the pens table's weight filter and unlike Sex or Origin: the bucket decides how this tab's own
+// columns are cut, and the pen narrows this tab to one pen. Neither changes what another tab counts.
+const GAIN_BUCKET_PARAM = "tw_bucket";
+const TIME_PEN_PARAM = "tw_pen";
 const WEIGHT_OP_PARAM = "w_op";
 const WEIGHT_VALUE_PARAM = "w_kg";
 // The Weight-wise tab's feed table carries four filters of its own, scoped to that table: the
@@ -70,6 +75,23 @@ const FEED_BAND_SEARCH_PARAM = "fb_q";
 const FEED_BAND_LIMIT_PARAM = "fb_limit";
 const FEED_BAND_OFFSET_PARAM = "fb_offset";
 const PAGE_SIZE_OPTIONS = [10, 25, 50] as const;
+
+/**
+ * Splits the pen picker's `location::partition` value into the two query parameters the reads take.
+ *
+ * A pen is (location, partition): a pen NAME repeats across parks, so the key carries the location
+ * id. An empty or malformed value is NO scope -- every pen -- rather than a scope that matches
+ * nothing, because a stale link must land on the whole tab, not on an empty one.
+ */
+function penScopeFrom(penKey: string): { pen_location_id?: string; pen_partition_label?: string } {
+  const separator = penKey.indexOf("::");
+  if (separator <= 0) return {};
+  return {
+    pen_location_id: penKey.slice(0, separator),
+    pen_partition_label: penKey.slice(separator + 2),
+  };
+}
+
 
 /** The six operators of the `weight_kg_compare` option group, evaluated on a pen's average. */
 function compareKg(actual: number, op: string, wanted: number): boolean {
@@ -176,6 +198,17 @@ export async function WeighingWeightsAnalyticsPage({
   const sexChoice = sexFilter === "" ? "all" : sexFilter;
   const rawOrigin = one(params, ORIGIN_PARAM);
   const originFilter = rawOrigin === "farm_born" || rawOrigin === "purchased" ? rawOrigin : "";
+
+  // WEEK is the default and anything unrecognised falls back to it, because a bucket the backend
+  // would refuse must not take the whole tab down over a hand-typed URL. `month` is a rolling
+  // 30-day block counted back from the window's last day, never a calendar month.
+  const gainBucket = one(params, GAIN_BUCKET_PARAM) === "month" ? "month" : "week";
+  // The selected pen, as the picker encodes it: `location::partition`. It is sent to the reads, not
+  // applied to their answers -- three of the Time-wise sections are server-side aggregates (one
+  // number per bucket, one row per breed, one row per load) and carry no pen to filter on once they
+  // are grouped. A malformed value narrows nothing rather than emptying the tab.
+  const penKey = one(params, TIME_PEN_PARAM) ?? "";
+  const penScope = penScopeFrom(penKey);
 
   const limit = boundedLimit(one(params, "limit"));
   const offset = boundedOffset(one(params, "offset"));
@@ -285,8 +318,26 @@ export async function WeighingWeightsAnalyticsPage({
   const wantsFCR = tab === "fcr";
   const [weights, growth, demographics, loadwise, loadValues, feedBand, fcr, salePrices] = await Promise.all([
     getShedWeights(shedParams),
-    wantsGrowth ? getWeighingGrowth({ ...scope, ...readWindow, sections: growthSections }) : null,
-    wantsDemographics ? getWeightDemographics({ ...scope, ...readWindow, sections: demographicsSections, band_edges_kg: bandEdgesParam(assumptionRows) }) : null,
+    // The bucket and the pen ride BOTH Time-wise reads, and only on that tab: the tab's four
+    // sections must sit on one set of columns and answer for one pen, while the General and
+    // Shed-wise tabs read the same growth response and have no such control of their own.
+    wantsGrowth
+      ? getWeighingGrowth({
+          ...scope,
+          ...readWindow,
+          sections: growthSections,
+          ...(tab === "time" ? { bucket: gainBucket, ...penScope } : {}),
+        })
+      : null,
+    wantsDemographics
+      ? getWeightDemographics({
+          ...scope,
+          ...readWindow,
+          sections: demographicsSections,
+          band_edges_kg: bandEdgesParam(assumptionRows),
+          ...(tab === "time" ? { bucket: gainBucket, ...penScope } : {}),
+        })
+      : null,
     wantsLoads ? getLoadwiseWeights({ park_id: parkFilter || undefined }) : null,
     wantsValue ? getLoadwiseSales({ park_id: parkFilter || undefined }) : null,
     wantsFeedBand
@@ -518,7 +569,21 @@ export async function WeighingWeightsAnalyticsPage({
         ) : null}
 
         {tab === "time" ? (
-          <TimeTab pageContract={pageContract} growth={growth?.ok ? growth.data : null} demo={demo} />
+          <TimeTab
+            pageContract={pageContract}
+            growth={growth?.ok ? growth.data : null}
+            demo={demo}
+            gainBucket={gainBucket}
+            penKey={penKey}
+            /* The pen vocabulary comes from the SHED read, which every tab already makes and which
+               the pen scope never narrows. Building it from the narrowed response instead would
+               leave the picker holding one option -- the pen already chosen -- with no way back. */
+            pens={rows.map((row) => ({
+              key: `${row.location_id}::${row.partition_label ?? ""}`,
+              park: row.park_name,
+              label: row.operational_location_display || row.shed_display_name,
+            }))}
+          />
         ) : null}
 
         {/* Load-wise degrades by half, not whole-page: a dead purchase ledger empties the tab
@@ -1204,11 +1269,67 @@ function TimeTab({
   pageContract,
   growth,
   demo,
+  gainBucket,
+  penKey,
+  pens,
 }: {
   pageContract: AdminUiPageContract;
   growth: WeighingGrowthResponse | null;
   demo: WeightDemographicsResponse | null;
+  /** `week` or `month` — which bucket the backend cut EVERY series on this tab into. */
+  gainBucket: string;
+  /** The selected pen key (`location::partition`), or "" for every pen. */
+  penKey: string;
+  /**
+   * Every pen weighed in the selected period, from the shed read the pen scope does NOT narrow —
+   * so the picker still offers the way back once a pen is chosen.
+   */
+  pens: readonly { key: string; park: string; label: string }[];
 }) {
+  // Every heading, caption and empty state on this tab has a WEEK wording and a 30-DAY wording,
+  // both authored in the page contract. This picks the pair that matches the bucket the backend
+  // actually cut the data into; it never edits a string, so a heading can never describe columns
+  // the table is not showing.
+  const bucketCopy = (key: string) => copy(pageContract, gainBucket === "month" ? `${key}.month` : key);
+
+  // The pen picker's vocabulary, keyed on (location, partition) rather than on the name -- a pen
+  // name repeats across parks, and keying on it would merge two real pens into one option. It is
+  // built from the pens WEIGHED IN THE PERIOD (the shed read), not from the narrowed response: once
+  // a pen is selected the response holds only that pen, and a picker built from it would offer no
+  // way back.
+  const penOptions: { value: string; label: string }[] = [];
+  const seenPens = new Set<string>();
+  for (const pen of pens) {
+    if (seenPens.has(pen.key)) continue;
+    seenPens.add(pen.key);
+    penOptions.push({ value: pen.key, label: `${pen.park} · ${pen.label}` });
+  }
+  penOptions.sort((a, b) => a.label.localeCompare(b.label));
+  // A selection the vocabulary does not contain (a stale link, a pen not weighed in the newly
+  // selected period) still reaches the backend and simply answers for that pen -- which is empty.
+  // The control shows it as unselected rather than inventing an option for it.
+  const selectedPen = seenPens.has(penKey) ? penKey : "";
+
+  const timeFilterFields: WorklistFilterField[] = [
+    {
+      kind: "select",
+      param: GAIN_BUCKET_PARAM,
+      label: copy(pageContract, "filter.gain_bucket.label"),
+      value: gainBucket,
+      options: optionGroup(pageContract, "gain_bucket").map((option) => ({ value: option.key, label: option.label })),
+      note: copy(pageContract, "filter.gain_bucket.note"),
+    },
+    {
+      kind: "select",
+      param: TIME_PEN_PARAM,
+      label: copy(pageContract, "filter.time_pen.label"),
+      value: selectedPen,
+      allowAll: true,
+      options: penOptions,
+      note: copy(pageContract, "filter.time_pen.note"),
+    },
+  ];
+
   const bars = (growth?.weekly_gain ?? []).map((point) => ({
     key: point.week_start,
     label: point.week_start,
@@ -1260,20 +1381,29 @@ function TimeTab({
 
   return (
     <>
-    <section className="card wchart" aria-label={copy(pageContract, "section.time.aria")}>
+    {/* One bar for the whole tab: both controls govern all four sections below, so a control
+        sitting on any one of them would read as narrower than it is. */}
+    <WorklistFilters
+      basePath={PAGE_PATH}
+      pageParam="offset"
+      fields={timeFilterFields}
+      pageContract={pageContract}
+      telemetry={{ eventPrefix: "weights_analytics_time_filter_apply", surface: "time_wise", route: PAGE_PATH }}
+    />
+    <section className="card wchart" aria-label={bucketCopy("section.time.aria")}>
       <h2 className="h">
-        <CalendarRange className="ic" size={15} aria-hidden /> {copy(pageContract, "section.time.title")}
+        <CalendarRange className="ic" size={15} aria-hidden /> {bucketCopy("section.time.title")}
       </h2>
-      <p className="muted small">{copy(pageContract, "section.time.caption")}</p>
+      <p className="muted small">{bucketCopy("section.time.caption")}</p>
       <WeightBars
         data={bars}
-        emptyLabel={copy(pageContract, "empty.time.body")}
+        emptyLabel={bucketCopy("empty.time.body")}
         unit="g"
-        chartLabel={copy(pageContract, "section.time.aria")}
+        chartLabel={bucketCopy("section.time.aria")}
         size="bands"
         wide
       />
-      <p className="muted small">{copy(pageContract, "note.time.gaps")}</p>
+      <p className="muted small">{bucketCopy("note.time.gaps")}</p>
     </section>
     {/* The selected period's weeks, one row per breed. A second section rather than more series on
         the chart above: many weeks across six breeds is dense, and stacking them on one axis
@@ -1282,16 +1412,16 @@ function TimeTab({
         The breed rows need not add up to the overall trend, and the caption says so -- a shed
         holding more than one breed counts in the overall series and in no breed here, because one
         shed average cannot be divided between two cohorts. */}
-    <section className="card wchart" aria-label={copy(pageContract, "section.time.breed.aria")}>
+    <section className="card wchart" aria-label={bucketCopy("section.time.breed.aria")}>
       <h2 className="h">
-        <Sprout className="ic" size={15} aria-hidden /> {copy(pageContract, "section.time.breed.title")}
+        <Sprout className="ic" size={15} aria-hidden /> {bucketCopy("section.time.breed.title")}
       </h2>
-      <p className="muted small">{copy(pageContract, "section.time.breed.caption")}</p>
+      <p className="muted small">{bucketCopy("section.time.breed.caption")}</p>
       <GroupedBars
         groups={breedWeekGroups}
         series={[{ key: "gain", label: copy(pageContract, "series.gain"), unit: "g", fractionDigits: 0 }]}
-        emptyLabel={copy(pageContract, "empty.time.breed.body")}
-        chartLabel={copy(pageContract, "section.time.breed.aria")}
+        emptyLabel={bucketCopy("empty.time.breed.body")}
+        chartLabel={bucketCopy("section.time.breed.aria")}
       />
     </section>
     {/* Every pen, every week (maintainer request 2026-09-08): the weekly line above cut one pen at
@@ -1299,23 +1429,23 @@ function TimeTab({
         "how did THIS pen do THIS week", which a grid answers on sight and a forest of bars does
         not. Unlike the breed rows a pen needs no single-cohort claim to be itself, so a mixed pen
         is listed here; only the page's own filters narrow it. */}
-    <section className="card wchart" aria-label={copy(pageContract, "section.time.pen.aria")}>
+    <section className="card wchart" aria-label={bucketCopy("section.time.pen.aria")}>
       <h2 className="h">
-        <LayoutGrid className="ic" size={15} aria-hidden /> {copy(pageContract, "section.time.pen.title")}
+        <LayoutGrid className="ic" size={15} aria-hidden /> {bucketCopy("section.time.pen.title")}
       </h2>
-      <p className="muted small">{copy(pageContract, "section.time.pen.caption")}</p>
+      <p className="muted small">{bucketCopy("section.time.pen.caption")}</p>
       {/* A long period is many week columns, so the grid scrolls inside its own box rather
           than pushing the page sideways. */}
-      <div className="tablewrap" style={{ overflowX: "auto" }} tabIndex={0} role="group" aria-label={copy(pageContract, "section.time.pen.aria")}>
+      <div className="tablewrap" style={{ overflowX: "auto" }} tabIndex={0} role="group" aria-label={bucketCopy("section.time.pen.aria")}>
         <PenWeekGainTable
           contract={table(pageContract, "pen-week-gain")}
           points={penWeekPoints}
           labels={{
-            ariaLabel: copy(pageContract, "section.time.pen.aria"),
+            ariaLabel: bucketCopy("section.time.pen.aria"),
             blank: copy(pageContract, "value.time.pen.blank"),
             unit: copy(pageContract, "value.time.pen.unit"),
             animals: copy(pageContract, "value.time.animals"),
-            empty: copy(pageContract, "empty.time.pen.body"),
+            empty: bucketCopy("empty.time.pen.body"),
           }}
         />
       </div>
@@ -1325,21 +1455,21 @@ function TimeTab({
         attribution the Load-wise tab uses -- so its weekly figure is those pens' gain weighted by
         animals, and a pen tagged to two loads counts toward neither. The same grid shape, because
         the question is the same: "how did THIS load do THIS week". */}
-    <section className="card wchart" aria-label={copy(pageContract, "section.time.load.aria")}>
+    <section className="card wchart" aria-label={bucketCopy("section.time.load.aria")}>
       <h2 className="h">
-        <PackageOpen className="ic" size={15} aria-hidden /> {copy(pageContract, "section.time.load.title")}
+        <PackageOpen className="ic" size={15} aria-hidden /> {bucketCopy("section.time.load.title")}
       </h2>
-      <p className="muted small">{copy(pageContract, "section.time.load.caption")}</p>
-      <div className="tablewrap" style={{ overflowX: "auto" }} tabIndex={0} role="group" aria-label={copy(pageContract, "section.time.load.aria")}>
+      <p className="muted small">{bucketCopy("section.time.load.caption")}</p>
+      <div className="tablewrap" style={{ overflowX: "auto" }} tabIndex={0} role="group" aria-label={bucketCopy("section.time.load.aria")}>
         <LoadWeekGainTable
           contract={table(pageContract, "load-week-gain")}
           points={loadWeekPoints}
           labels={{
-            ariaLabel: copy(pageContract, "section.time.load.aria"),
+            ariaLabel: bucketCopy("section.time.load.aria"),
             blank: copy(pageContract, "value.time.pen.blank"),
             unit: copy(pageContract, "value.time.pen.unit"),
             animals: copy(pageContract, "value.time.animals"),
-            empty: copy(pageContract, "empty.time.load.body"),
+            empty: bucketCopy("empty.time.load.body"),
           }}
         />
       </div>

@@ -1815,7 +1815,31 @@ const growthDefaultPeriodDays = domain.ShedWeightsDefaultPeriodDays
 // Requires WeighingMonitor, park-scoped exactly like GetWeightHistory: a park-scoped monitor may
 // only request a park inside their own grant, and a tenant-wide monitor may request any park in
 // the tenant.
-func (s *Service) GetLeadershipGrowthADG(ctx context.Context, actor domain.Actor, parkID, fromBusinessDate, toBusinessDate, sex, origin, weighingCategory, sections string) (domain.GrowthADG, error) {
+// resolveTimeScope validates the Time-wise tab's own two controls for both reads that serve it, so
+// the bucket and the pen can never be accepted by one and refused by the other -- the tab sends the
+// same pair to both, and its chart and its grids must be about the same pen and the same columns.
+//
+// A blank pen is every pen, which is the query these reads ran before the control existed. A pen id
+// that is not a uuid is REFUSED rather than ignored: silently widening back to every pen would show
+// the whole farm under a heading naming one pen. The partition may legitimately be blank -- that is
+// an undivided shed, not a missing value.
+func resolveTimeScope(bucket, penLocationID, penPartitionLabel string) (domain.TimeScope, bool) {
+	gainBucket, bucketOK := domain.NormalizeGainBucket(bucket)
+	if !bucketOK {
+		return domain.TimeScope{}, false
+	}
+	penLocationID = strings.TrimSpace(penLocationID)
+	if penLocationID != "" && !uuidutil.IsUUIDString(penLocationID) {
+		return domain.TimeScope{}, false
+	}
+	return domain.TimeScope{
+		Bucket:            gainBucket,
+		PenLocationID:     penLocationID,
+		PenPartitionLabel: strings.TrimSpace(penPartitionLabel),
+	}, true
+}
+
+func (s *Service) GetLeadershipGrowthADG(ctx context.Context, actor domain.Actor, parkID, fromBusinessDate, toBusinessDate, sex, origin, weighingCategory, sections, bucket, penLocationID, penPartitionLabel string) (domain.GrowthADG, error) {
 	if !actor.Holds(permissions.WeighingMonitor) {
 		return domain.GrowthADG{}, ports.ErrForbidden
 	}
@@ -1824,6 +1848,10 @@ func (s *Service) GetLeadershipGrowthADG(ctx context.Context, actor domain.Actor
 	}
 	if err := validateGrowthADGSections(sections); err != nil {
 		return domain.GrowthADG{}, err
+	}
+	timeScope, scopeOK := resolveTimeScope(bucket, penLocationID, penPartitionLabel)
+	if !scopeOK {
+		return domain.GrowthADG{}, ports.ErrInvalidArgument
 	}
 	weighingCategory = strings.TrimSpace(weighingCategory)
 	if weighingCategory == "all" {
@@ -1887,7 +1915,7 @@ func (s *Service) GetLeadershipGrowthADG(ctx context.Context, actor domain.Actor
 		return domain.GrowthADG{}, scopeErr
 	}
 
-	return s.repo.GetLeadershipGrowthADG(ctx, actor.TenantID, parkIDs, periodStart, periodEndExclusive, sex, origin, weighingCategory, sections)
+	return s.repo.GetLeadershipGrowthADG(ctx, actor.TenantID, parkIDs, periodStart, periodEndExclusive, sex, origin, weighingCategory, sections, timeScope)
 }
 
 func validateGrowthADGSections(raw string) error {
@@ -2016,7 +2044,7 @@ func (s *Service) resolveMonitorParkScope(ctx context.Context, actor domain.Acto
 
 // GetWeightDemographics serves the breed / sex / stage breakdown on the Weights
 // screen. Same capability and scope rules as the other leadership reads.
-func (s *Service) GetWeightDemographics(ctx context.Context, actor domain.Actor, parkID, fromBusinessDate, toBusinessDate, sex, origin, weighingCategory, sections string, bandEdgesKg []float64) (domain.WeightDemographics, error) {
+func (s *Service) GetWeightDemographics(ctx context.Context, actor domain.Actor, parkID, fromBusinessDate, toBusinessDate, sex, origin, weighingCategory, sections string, bandEdgesKg []float64, bucket, penLocationID, penPartitionLabel string) (domain.WeightDemographics, error) {
 	// The band edges are the caller's (the tenant's weight_band_edges_kg assumption); empty means
 	// the defaults, and a malformed list is refused rather than repaired.
 	if !domain.ValidWeightBandEdgesKg(bandEdgesKg) {
@@ -2028,6 +2056,10 @@ func (s *Service) GetWeightDemographics(ctx context.Context, actor domain.Actor,
 	if err := validateWeightDemographicsSections(sections); err != nil {
 		return domain.WeightDemographics{}, err
 	}
+	timeScope, scopeOK := resolveTimeScope(bucket, penLocationID, penPartitionLabel)
+	if !scopeOK {
+		return domain.WeightDemographics{}, ports.ErrInvalidArgument
+	}
 	periodStart, periodEndExclusive, err := s.resolveWeighingWindow(fromBusinessDate, toBusinessDate)
 	if err != nil {
 		return domain.WeightDemographics{}, err
@@ -2036,7 +2068,7 @@ func (s *Service) GetWeightDemographics(ctx context.Context, actor domain.Actor,
 	if scopeErr != nil {
 		return domain.WeightDemographics{}, scopeErr
 	}
-	return s.repo.GetWeightDemographics(ctx, actor.TenantID, parkIDs, periodStart, periodEndExclusive, sex, origin, weighingCategory, sections, bandEdgesKg)
+	return s.repo.GetWeightDemographics(ctx, actor.TenantID, parkIDs, periodStart, periodEndExclusive, sex, origin, weighingCategory, sections, bandEdgesKg, timeScope)
 }
 
 // GetShedWeights serves the admin-web "Kids — Weights" screen: one row per shed

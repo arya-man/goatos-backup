@@ -52,7 +52,7 @@ func (r *shedWeightsRepo) GetWeighingDates(context.Context, string, []string, ti
 	return domain.WeighingDates{}, nil
 }
 
-func (r *shedWeightsRepo) GetWeightDemographics(_ context.Context, _ string, scopeParkIDs []string, start, end time.Time, _, _, _, sections string, _ []float64) (domain.WeightDemographics, error) {
+func (r *shedWeightsRepo) GetWeightDemographics(_ context.Context, _ string, scopeParkIDs []string, start, end time.Time, _, _, _, sections string, _ []float64, _ domain.TimeScope) (domain.WeightDemographics, error) {
 	r.gotScopeParkIDs = append([]string(nil), scopeParkIDs...)
 	r.gotStart, r.gotEnd = start, end
 	r.gotDemographicsSection = sections
@@ -196,7 +196,7 @@ func TestGetLeadershipGrowthADGRejectsMalformedSections(t *testing.T) {
 		Role: permissions.RoleGrowthDirector, ScopeType: "tenant", ScopeID: swTenant,
 	})
 
-	if _, err := svc.GetLeadershipGrowthADG(ctx, swActor(), swParkA, "", "", "", "", "", "parks,magic"); err != ports.ErrInvalidArgument {
+	if _, err := svc.GetLeadershipGrowthADG(ctx, swActor(), swParkA, "", "", "", "", "", "parks,magic", "", "", ""); err != ports.ErrInvalidArgument {
 		t.Fatalf("want ErrInvalidArgument, got %v", err)
 	}
 	if repo.gotScopeParkIDs != nil {
@@ -211,7 +211,7 @@ func TestGetWeightDemographicsRejectsMalformedSections(t *testing.T) {
 		Role: permissions.RoleGrowthDirector, ScopeType: "tenant", ScopeID: swTenant,
 	})
 
-	if _, err := svc.GetWeightDemographics(ctx, swActor(), swParkA, "", "", "", "", "", "origin,magic", nil); err != ports.ErrInvalidArgument {
+	if _, err := svc.GetWeightDemographics(ctx, swActor(), swParkA, "", "", "", "", "", "origin,magic", nil, "", "", ""); err != ports.ErrInvalidArgument {
 		t.Fatalf("want ErrInvalidArgument, got %v", err)
 	}
 	if repo.gotScopeParkIDs != nil {
@@ -226,7 +226,7 @@ func TestGetWeightDemographicsPassesSectionsToRepository(t *testing.T) {
 		Role: permissions.RoleGrowthDirector, ScopeType: "park", ScopeID: swParkA,
 	})
 
-	if _, err := svc.GetWeightDemographics(ctx, swActor(), "", "2026-07-01", "2026-07-28", "", "", "", "weekly_gain", nil); err != nil {
+	if _, err := svc.GetWeightDemographics(ctx, swActor(), "", "2026-07-01", "2026-07-28", "", "", "", "weekly_gain", nil, "", "", ""); err != nil {
 		t.Fatalf("GetWeightDemographics: %v", err)
 	}
 	if repo.gotDemographicsSection != "weekly_gain" {

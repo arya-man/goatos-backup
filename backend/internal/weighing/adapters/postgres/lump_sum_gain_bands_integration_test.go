@@ -8,6 +8,7 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 
 	"github.com/vgoats/goatos/backend/internal/platform/pgtest"
+	"github.com/vgoats/goatos/backend/internal/weighing/domain"
 )
 
 // LUMP-SUM SHEDS IN THE GAIN CHARTS (maintainer decision 2026-08-25).
@@ -132,7 +133,7 @@ ON CONFLICT (goat_id) DO NOTHING`, goat.id, repoTenant, goat.display, goat.breed
 
 	from := time.Date(2026, 8, 1, 0, 0, 0, 0, time.UTC)
 	to := time.Date(2026, 8, 9, 0, 0, 0, 0, time.UTC)
-	out, err := repo.GetWeightDemographics(ctx, repoTenant, []string{repoPark}, from, to, "", "", "", "", nil)
+	out, err := repo.GetWeightDemographics(ctx, repoTenant, []string{repoPark}, from, to, "", "", "", "", nil, domain.TimeScope{})
 	if err != nil {
 		t.Fatalf("GetWeightDemographics: %v", err)
 	}
@@ -177,7 +178,7 @@ ON CONFLICT (goat_id) DO NOTHING`, goat.id, repoTenant, goat.display, goat.breed
 		t.Fatal("Anantapur Sheep missing from gain_by_breed")
 	}
 
-	sectioned, err := repo.GetWeightDemographics(ctx, repoTenant, []string{repoPark}, from, to, "", "", "", "weight_bands", nil)
+	sectioned, err := repo.GetWeightDemographics(ctx, repoTenant, []string{repoPark}, from, to, "", "", "", "weight_bands", nil, domain.TimeScope{})
 	if err != nil {
 		t.Fatalf("GetWeightDemographics(weight_bands section): %v", err)
 	}
@@ -206,7 +207,7 @@ WHERE tenant_id=$1::uuid AND shed_id=$2::uuid`, repoTenant, repoPerShed)
 	seedLumpSumObservation(t, ctx, pool, repoShedScope, 4, 20.0, time.Date(2026, 8, 3, 6, 0, 0, 0, time.UTC))
 
 	out, err := repo.GetWeightDemographics(ctx, repoTenant, []string{repoPark},
-		time.Date(2026, 8, 1, 0, 0, 0, 0, time.UTC), time.Date(2026, 8, 9, 0, 0, 0, 0, time.UTC), "", "", "", "", nil)
+		time.Date(2026, 8, 1, 0, 0, 0, 0, time.UTC), time.Date(2026, 8, 9, 0, 0, 0, 0, time.UTC), "", "", "", "", nil, domain.TimeScope{})
 	if err != nil {
 		t.Fatalf("GetWeightDemographics: %v", err)
 	}
@@ -331,7 +332,7 @@ ON CONFLICT (goat_id) DO NOTHING`, goat.id, repoTenant, goat.display, repoParty,
 	to := time.Date(2026, 8, 9, 0, 0, 0, 0, time.UTC)
 
 	// Scoped to the fixture park: 4 animals, once, in the >250 band; Jamnapari absent.
-	out, err := repo.GetWeightDemographics(ctx, repoTenant, []string{repoPark}, from, to, "", "", "", "", nil)
+	out, err := repo.GetWeightDemographics(ctx, repoTenant, []string{repoPark}, from, to, "", "", "", "", nil, domain.TimeScope{})
 	if err != nil {
 		t.Fatalf("GetWeightDemographics(one park): %v", err)
 	}
@@ -352,7 +353,7 @@ ON CONFLICT (goat_id) DO NOTHING`, goat.id, repoTenant, goat.display, repoParty,
 	}
 
 	// Both parks selected: Jamnapari joins with its own 2 animals (200 g/day ⇒ 180–200 band).
-	both, err := repo.GetWeightDemographics(ctx, repoTenant, []string{repoPark, lgOtherPark}, from, to, "", "", "", "", nil)
+	both, err := repo.GetWeightDemographics(ctx, repoTenant, []string{repoPark, lgOtherPark}, from, to, "", "", "", "", nil, domain.TimeScope{})
 	if err != nil {
 		t.Fatalf("GetWeightDemographics(both parks): %v", err)
 	}

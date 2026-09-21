@@ -1233,6 +1233,19 @@ export async function getWeightDemographics(params: {
   sections?: string;
   /** Comma-separated band edges in kg (the tenant's weight_band_edges_kg assumption); omitted is 15,20,25,30,35. */
   band_edges_kg?: string;
+  /**
+   * `week` (the default) cuts the Time-wise series into calendar weeks; `month` cuts it into
+   * rolling 30-day blocks counted back from the window's last day. Nothing else on the response
+   * changes, and an unknown value is refused by the backend rather than defaulted.
+   */
+  bucket?: string;
+  /**
+   * Narrows the WHOLE read to one pen: its growth, its breeds, and the load it sits in. A pen is
+   * (location, partition) — a pen name repeats across parks. Omitted means every pen.
+   */
+  pen_location_id?: string;
+  /** The partition half of the pen; blank is an undivided shed, not a missing value. */
+  pen_partition_label?: string;
 }): Promise<ApiResult<WeightDemographicsResponse>> {
   const config = await getServerConfig();
   if (!config.ok) return config;
@@ -1302,6 +1315,19 @@ export async function getWeighingGrowth(params: {
   origin?: string;
   weighing_category?: string;
   sections?: string;
+  /**
+   * `week` (the default) cuts the Time-wise series into calendar weeks; `month` cuts it into
+   * rolling 30-day blocks counted back from the window's last day. Nothing else on the response
+   * changes, and an unknown value is refused by the backend rather than defaulted.
+   */
+  bucket?: string;
+  /**
+   * Narrows the WHOLE read to one pen: its growth, its breeds, and the load it sits in. A pen is
+   * (location, partition) — a pen name repeats across parks. Omitted means every pen.
+   */
+  pen_location_id?: string;
+  /** The partition half of the pen; blank is an undivided shed, not a missing value. */
+  pen_partition_label?: string;
 }): Promise<ApiResult<WeighingGrowthResponse>> {
   const config = await getServerConfig();
   if (!config.ok) return config;
