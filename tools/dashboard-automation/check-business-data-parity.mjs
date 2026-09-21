@@ -294,10 +294,10 @@ with alias_shape_split as (
 )
 select
   count(*)::text as violations,
-  count(distinct shed_name || '|' || partition_label)::text as affected_pens,
+  count(distinct shed_name || '|' || partition_label)::text as affected_pens, -- operational-location:ignore: owner=ravi issue=dashboard-parity-form-b-alias scope=internal-distinct-key-not-display-label expiry=2027-09-21
   coalesce(min(start_business_date)::text, '') as first_date,
   coalesce(max(start_business_date)::text, '') as last_date,
-  coalesce(string_agg(distinct shed_name || ' / ' || partition_label || ' should be ' || alias_name, ', ' order by shed_name || ' / ' || partition_label || ' should be ' || alias_name), '') as examples
+  coalesce(string_agg(distinct shed_name || ' / ' || partition_label || ' should be ' || alias_name, ', ' order by shed_name || ' / ' || partition_label || ' should be ' || alias_name), '') as examples -- operational-location:ignore: owner=ravi issue=dashboard-parity-form-b-alias scope=diagnostic-legacy-alias-example-not-product-display expiry=2027-09-21
 from alias_shape_split`;
 }
 

@@ -100,7 +100,6 @@
   "internal/weighing/adapters/postgres/campaign_sheds_page.go|unverified-dynamic-bind": 2,
   "internal/weighing/adapters/postgres/close.go|unverified-dynamic-bind": 1,
   "internal/weighing/adapters/postgres/fasting_shed_cards.go|unverified-dynamic-bind": 3,
-  "internal/weighing/adapters/postgres/growth.go|unverified-dynamic-bind": 4,
   "internal/weighing/adapters/postgres/kernel.go|unverified-dynamic-bind": 1,
   "internal/weighing/adapters/postgres/leadership_sheds_page.go|unverified-dynamic-bind": 2,
   "internal/weighing/adapters/postgres/operator_summaries.go|unverified-dynamic-bind": 1,
