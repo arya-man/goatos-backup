@@ -157,7 +157,7 @@ Automated judge/review hooks are wired and self-tested:
 
 ## Current state
 
-PR #331 head `3f645e19d75d8ba39cd3852396f4859660e507be` contains the
+PR #331 head `cb46aa77e3be83883f99900707e1527aae4aaca7` contains the
 repo-side automation suite and local proof above. It does not create OCI
 resources, does not install the timer without explicit
 `GOATOS_DASHBOARD_AUTOMATION_INSTALL=1`, does not mutate production or staging,
