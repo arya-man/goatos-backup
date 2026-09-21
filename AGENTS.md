@@ -52,6 +52,29 @@ rather than only the visible diff. Treat mismatches between the PR and current
 architecture, contracts, operational read models, mobile/backend/admin sync, or
 shared kernel flow as review findings even when the diff compiles.
 
+For every Goat OS review or change that touches backend, admin-web/frontend,
+Android/mobile, OpenAPI, migrations, seeds, or any read model with shed, pen,
+partition, operational location, work-board, weighing, vaccination, feed, counts,
+verification, task, or command-board labels, the review lens must explicitly
+check operational-location display identity. First inspect the last one month of
+relevant commits for repeated shed/pen/partition naming fixes, then verify the
+candidate does not reintroduce either direction of the bug:
+
+- missing partition identity: `Castro` when the work is in `Castro 1` or
+  `Castro 2`; `Godel 2` when the work is in `Godel 2 - Part 1`; `Mandela 1`
+  when the work is in `Mandela 1 - Part 10`.
+- doubled partition identity: `Castro 1 1`, `Castro 2 2`,
+  `Godel 2 - Part 1 - Part 1`, `Mandela 1 - Part 10 - Part 10`.
+
+The accepted visible forms are concrete operational sheds such as `Castro 1`,
+`Castro 2`, `Mandela 1 - Part 10`, and `Godel 2 - Part 1`. A physical shed name
+plus partition label may use the canonical composer. An already-composed
+display string must never be passed back into that unconditional composer; use
+the composed-name-safe helper or the backend-owned `operational_location_display`
+field. Private suffix guards like `endsWith(partitionLabel)` are review
+findings because they only patch one surface and let backend, frontend, or mobile
+repeat the same bug.
+
 For any handwritten PostgreSQL change, treat the final SQL and final bind
 arguments as one contract. Prefer sqlc or `pgx.StrictNamedArgs`; dynamically
 assembled or pruned SQL must use the shared bound-query validator and executable

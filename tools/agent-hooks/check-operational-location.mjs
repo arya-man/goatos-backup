@@ -70,6 +70,16 @@
 //                   when the same partition label appears in multiple parks or
 //                   rows from different parks have identical names. Caught only
 //                   by integration tests; documented here.
+//   composed-name-into-composer
+//                   an already-composed operational display string is fed into
+//                   the unconditional shed-name composer. This is the 2026-09-21
+//                   repeated bug class visible as labels such as
+//                   "Mandela 1 - Part 1 - Part 1" and
+//                   "Mandela 1 - Part 10 - Part 10". Reviewers must check this
+//                   across backend, admin-web/frontend, and Android/mobile, not
+//                   only the touched surface. Correct visible forms include
+//                   "Castro 1", "Castro 2", "Mandela 1 - Part 10", and
+//                   "Godel 2 - Part 1".
 //   weighing-alias-resolution-predicate
 //                   Legacy partition aliases in `locations` are inactive shed rows.
 //                   Weighing runtime and forward-repair SQL must never match an
@@ -530,11 +540,12 @@ const CHECKS = [
     // PHYSICAL shed name -- so the defect is at the call site, and it renders the pen twice:
     // "Mandela 1 - Part 1 - Part 1", read by an operator on the weighing schedule 2026-09-21.
     //
-    // This check exists because the fix had already been applied FOUR times, once per sighting,
-    // as a private suffix guard bolted onto whichever call site was reported (growth.go's
-    // leaderboard, admin-web's sourceShedName arm, WeighingRepository.kt's endsWith). Each left
-    // the composer naive, so the next call site started unguarded -- commit 2095f11e4 added two
-    // in one afternoon and four more sat in the feed-&-water removal reads.
+    // This check exists because the fix had already been applied many times, once per sighting,
+    // as a private suffix guard bolted onto whichever call site was reported. Last-month commit
+    // history shows the same family in weighing schedule/verifier, feed dropdowns, birth/death
+    // cards, vaccination command-board labels, command-board partition catalogs, PC-care pen
+    // selection, counts/calendar verification, and AGENTS wording around "Castro is the shed".
+    // Each one-surface fix left the next backend/frontend/mobile path free to repeat it.
     //
     // The approved answer is the named "may already be composed" entry point:
     //   Go      oploc.ResolveComposedName(shedID, name, partitionLabel)
@@ -1020,6 +1031,16 @@ function selfTest() {
       `shedName = operationalLocationLabel(displayName.ifBlank { locationId }, partitionLabel),`,
       "composed-name-into-composer",
     ],
+    [
+      "apps/admin-web/features/work-board/page.tsx",
+      `const label = operationalLocationLabel({ shedName: row.operationalLocationDisplay, partitionLabel: row.partitionLabel });`,
+      "composed-name-into-composer",
+    ],
+    [
+      "apps/admin-web/features/weighing/schedule.tsx",
+      `const label = operationalLocationLabel({ shedName: row.displayName, partitionLabel: row.partitionLabel });`,
+      "composed-name-into-composer",
+    ],
     // the FIXED forms must stay clean
     [
       "backend/internal/weighing/adapters/postgres/fasting.go",
@@ -1029,6 +1050,11 @@ function selfTest() {
     [
       "apps/goatos-android/app/src/main/kotlin/sg/mesha/goatos/viewmodel/WeighingViewModel.kt",
       `shedName = operationalLocationLabelFromComposedName(displayName.ifBlank { locationId }, partitionLabel),`,
+      null,
+    ],
+    [
+      "apps/admin-web/features/work-board/page.tsx",
+      `const label = row.operationalLocationDisplay || operationalLocationLabel({ shedName: row.shedName, partitionLabel: row.partitionLabel });`,
       null,
     ],
     // ADVERSARIAL: a caller holding a genuine PHYSICAL shed name is correct as-is and must not be

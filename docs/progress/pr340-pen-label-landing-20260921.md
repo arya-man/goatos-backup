@@ -26,9 +26,23 @@
   - `node tools/agent-hooks/check-postgres-bind-contract.mjs`
   - `node tools/agent-hooks/check-operational-partition-identity.mjs`
   - `make seed-migration-guard`
+- Interrupted the second landing receipt before push so the recurring
+  shed/pen/partition review guard could be strengthened in the same landing.
+- Inspected last-month commit history for repeated operational-location naming
+  fixes across weighing schedule/verifier, feed dropdowns, birth/death cards,
+  vaccination command-board labels, command-board partition catalogs, PC-care
+  pen selection, counts/calendar verification, and AGENTS wording.
+- Added repo-level review instructions requiring backend, admin-web/frontend,
+  Android/mobile, OpenAPI, migration, seed, and read-model reviews to check both
+  missing partition labels and doubled labels such as `Mandela 1 - Part 10 - Part 10`.
+- Strengthened `check-operational-location.mjs` docs and self-test fixtures for
+  admin-web/front-end composed-name reuse.
+- Operational-location guard self-test passed after the review-guard update:
+  - `node tools/agent-hooks/check-operational-location.mjs --self-test`
 
 ## Pending
 
+- Run the full operational-location guard after the review-guard update.
 - Rerun required repo landing receipt: `make land-main`.
 - If green, verify local `HEAD`, `origin/main`, and PR merge/readback all point at the certified SHA.
 
@@ -44,4 +58,6 @@
 ## Current SHA
 
 - Candidate before second landing receipt: `9e84a196126f576dd3c7609f1db7dd57263d7700`.
+- Second landing receipt was interrupted before push to include stronger review
+  guard instructions; candidate SHA will change after that commit.
 - Deployment state: no staging deploy requested or performed.
