@@ -1448,6 +1448,7 @@ async function assertCoreInteractions(page, routeName, viewportLabel) {
   }
 
   if (routeName === "counts-herd") {
+    await assertTopBarScopePreservesPageWindow(page, routeName);
     const hasHerdTable = await assertHerdIdentityColumns(page, routeName);
     await openDialogIfPresent(page, page.getByRole("button", { name: "Filters", exact: true }), "Filter — Counts / Herd", "Close filters", routeName);
     await openDialogIfPresent(page, page.getByRole("button", { name: "Register animal", exact: true }), "Register animal", "Close", routeName);
@@ -1809,8 +1810,11 @@ async function assertFeedConfigPenDropdownContracts(page, routeName) {
         throw new Error(`${routeName} experiment pen dropdown has duplicate option ${JSON.stringify(label)}${parkValue ? ` in park ${parkValue}` : ""}`);
       }
       seen.add(label);
-      if (/\b(?:Castro|Gandhi|Ho Chi Minh|Yashoda)\s+-\s+\d+\b/i.test(label)) {
+      if (/\b(?:Castro|Gandhi|Ho Chi Minh|Mandela|Yashoda)\s+-\s+\d+\b/i.test(label)) {
         throw new Error(`${routeName} experiment pen dropdown renders bare numeric pen with dash: ${label}`);
+      }
+      if (/\b([A-Z][\w ]*?\d+)\s+-\s+Part\s+(\d+)\s+-\s+Part\s+\2\b/i.test(label)) {
+        throw new Error(`${routeName} experiment pen dropdown doubles the partition name: ${label}`);
       }
       if (/\bGodel\s+\d+\s+(?!-\s+Part\b)\d+\b/i.test(label)) {
         throw new Error(`${routeName} experiment pen dropdown renders Godel worded partition without " - Part ": ${label}`);
@@ -1824,6 +1828,56 @@ async function assertFeedConfigPenDropdownContracts(page, routeName) {
     throw new Error(`${routeName} experiment pen chooser opened but held no candidate pens or empty-candidate explanation`);
   }
   await page.getByRole("button", { name: "Cancel", exact: true }).last().click({ timeout: 5_000 }).catch(() => {});
+}
+
+async function assertTopBarScopePreservesPageWindow(page, routeName) {
+  const fullWindowUrl = `${appBaseUrl}${appPath("/counts/herd?scope_mode=company&from=2026-09-14&to=2026-09-22&status=live&status=icu")}`;
+  await gotoWithRetry(page, fullWindowUrl);
+  const parkHref = await firstTopBarParkHref(page, routeName);
+  const parkUrl = new URL(parkHref, appBaseUrl);
+  const statuses = parkUrl.searchParams.getAll("status");
+  if (parkUrl.searchParams.get("from") !== "2026-09-14" || parkUrl.searchParams.get("to") !== "2026-09-22") {
+    throw new Error(`${routeName} top-bar park link dropped a complete page-local from/to window: ${parkUrl.pathname}${parkUrl.search}`);
+  }
+  if (statuses.length !== 2 || !statuses.includes("live") || !statuses.includes("icu")) {
+    throw new Error(`${routeName} top-bar park link collapsed repeated page filters: ${parkUrl.pathname}${parkUrl.search}`);
+  }
+  await clickTopBarParkHref(page, parkHref, routeName);
+  const clickedUrl = new URL(page.url());
+  if (clickedUrl.searchParams.get("from") !== "2026-09-14" || clickedUrl.searchParams.get("to") !== "2026-09-22") {
+    throw new Error(`${routeName} top-bar park click dropped a complete page-local from/to window: ${clickedUrl.pathname}${clickedUrl.search}`);
+  }
+  if (clickedUrl.searchParams.getAll("status").length !== 2) {
+    throw new Error(`${routeName} top-bar park click collapsed repeated page filters: ${clickedUrl.pathname}${clickedUrl.search}`);
+  }
+
+  const halfWindowUrl = `${appBaseUrl}${appPath("/counts/herd?scope_mode=company&to=2026-09-22&status=live&status=icu")}`;
+  await gotoWithRetry(page, halfWindowUrl);
+  const halfHref = await firstTopBarParkHref(page, routeName);
+  const halfUrl = new URL(halfHref, appBaseUrl);
+  if (halfUrl.searchParams.has("from") || halfUrl.searchParams.has("to")) {
+    throw new Error(`${routeName} top-bar park link preserved a corrupt half window: ${halfUrl.pathname}${halfUrl.search}`);
+  }
+}
+
+async function firstTopBarParkHref(page, routeName) {
+  const selector = '.parksel a[href*="scope_mode=park"], .parksel a[href*="park="]';
+  const hrefs = await page.locator(selector).evaluateAll((links) =>
+    links.map((link) => link.getAttribute("href")).filter(Boolean),
+  );
+  const href = hrefs.find((value) => value && !/park=all(?:&|$)/.test(value));
+  if (!href) throw new Error(`${routeName} expected at least one real top-bar park scope link`);
+  return href;
+}
+
+async function clickTopBarParkHref(page, href, routeName) {
+  await page.locator(".parksel .pscope").first().click({ timeout: 5_000 });
+  const link = page.locator(`.parksel a[href="${cssString(href)}"]`).first();
+  if ((await link.count()) !== 1) throw new Error(`${routeName} expected exactly one top-bar park link for ${href}`);
+  await Promise.all([
+    page.waitForURL((url) => url.searchParams.get("scope_mode") === "park", { timeout: 10_000 }),
+    link.click({ timeout: 5_000 }),
+  ]);
 }
 
 async function assertMobileSidebarNavigation(page, routeName) {

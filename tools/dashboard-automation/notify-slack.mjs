@@ -44,8 +44,6 @@ console.log(`dashboard Slack notify: posted ${decision.kind}`);
 function notificationDecision(value) {
   const status = value.status ?? "unknown";
   const blockers = value.blockers ?? [];
-  const selfHealingUrl = selfHealingPrUrl(value);
-  if (selfHealingUrl) return { shouldPost: true, kind: "self_healing_pr" };
   if (status === "pass") {
     const previous = readState(process.env.GOATOS_DASHBOARD_SLACK_STATE_FILE || path.join(path.dirname(receiptPath), "..", "slack-notify-state.json"));
     if (previous.lastStatus && previous.lastStatus !== "pass") return { shouldPost: true, kind: "recovery" };
@@ -64,31 +62,35 @@ function formatSlackMessage(value, kind, receiptFile) {
     failure: "Dashboard automation failed",
     degraded: "Dashboard automation ran with degraded data trust",
     auth_blocked: "Dashboard automation needs auth/env",
-    self_healing_pr: "Dashboard automation opened a self-healing PR",
     recovery: "Dashboard automation recovered"
   };
   const emojiByKind = {
     failure: ":rotating_light:",
     degraded: ":warning:",
     auth_blocked: ":warning:",
-    self_healing_pr: ":hammer_and_wrench:",
     recovery: ":white_check_mark:"
   };
-  const blockers = (value.blockers ?? []).slice(0, 6);
+  const blockers = (value.blockers ?? []).slice(0, 4);
   const failedLayers = (value.layers ?? []).filter((layer) => layer.status !== "pass").slice(0, 6);
-  const prUrl = selfHealingPrUrl(value);
   const title = `${emojiByKind[kind] ?? ":information_source:"} ${titleByKind[kind] ?? "Dashboard automation update"}`;
   const receiptRel = redactText(path.relative(repo, receiptFile));
+  const summary = automationSummary(value, kind);
+  const nextAction = automationNextAction(value, kind);
   const fields = [
-    { type: "mrkdwn", text: `*Status*\n\`${value.status ?? "unknown"}\`` },
     { type: "mrkdwn", text: `*Mode*\n\`${value.mode ?? "unknown"}\`` },
     { type: "mrkdwn", text: `*SHA*\n\`${String(value.repoSha ?? "unknown").slice(0, 12)}\`` },
-    { type: "mrkdwn", text: `*Dashboard*\n${value.productionUrl ?? config.productionUrl}` },
-    { type: "mrkdwn", text: `*Browser smoke*\n\`${browserSmokeStatus(value)}\`` },
-    { type: "mrkdwn", text: `*Parity gate*\n\`${parityGateStatus(value)}\`` }
+    { type: "mrkdwn", text: `*Browser*\n\`${browserSmokeStatus(value)}\`` },
+    { type: "mrkdwn", text: `*Data parity*\n\`${parityGateStatus(value)}\`` }
   ];
   const blocks = [
     { type: "header", text: { type: "plain_text", text: title, emoji: true } },
+    {
+      type: "section",
+      text: {
+        type: "mrkdwn",
+        text: `*What happened*\n${summary}\n\n*Next action*\n${nextAction}`
+      }
+    },
     { type: "section", fields },
     { type: "divider" }
   ];
@@ -97,7 +99,7 @@ function formatSlackMessage(value, kind, receiptFile) {
       type: "section",
       text: {
         type: "mrkdwn",
-        text: `*Failed layers*\n${failedLayers.map((layer) => `• \`${layer.name}\` — ${truncate(redactText(layer.message ?? layer.status), 180)}`).join("\n")}`
+        text: `*Failed checks*\n${failedLayers.map((layer) => `• ${layerText(layer)}`).join("\n")}`
       }
     });
   }
@@ -127,12 +129,6 @@ function formatSlackMessage(value, kind, receiptFile) {
       }
     });
   }
-  if (prUrl) {
-    blocks.push({
-      type: "section",
-      text: { type: "mrkdwn", text: `*Self-healing PR*\n<${prUrl}|Open proposed fix / report PR>` }
-    });
-  }
   blocks.push({
     type: "context",
     elements: [
@@ -142,10 +138,65 @@ function formatSlackMessage(value, kind, receiptFile) {
   });
   const text = [
     `${title} — ${value.status ?? "unknown"} ${value.mode ?? "unknown"} ${String(value.repoSha ?? "unknown").slice(0, 12)}`,
-    blockers.length ? `Top blocker: ${blockerText(blockers[0])}` : "",
-    prUrl ? `Self-healing PR: ${prUrl}` : ""
+    summary,
+    `Next action: ${nextAction}`
   ].filter(Boolean).join("\n");
   return { text, blocks };
+}
+
+function automationSummary(value, kind) {
+  if (kind === "recovery") return "The latest dashboard automation run is green again.";
+  if (kind === "auth_blocked") return "The runner is missing or has expired auth/env, so product quality was not fully tested.";
+  if (value.runtimePolicy?.browserSmoke === "not_run") {
+    return "The runner stopped before browser/Playwright checks. Treat this as automation setup/data-prep failure, not a proven product UI failure.";
+  }
+  if (value.runtimePolicy?.browserSmoke === "ran_degraded") {
+    return "Browser/Playwright checks ran, but data trust was degraded because STG-to-OCI parity was not certified.";
+  }
+  if (browserSmokeStatus(value) === "ran_failed") {
+    return "Browser/Playwright checks ran and found a product-visible failure.";
+  }
+  return "One or more dashboard automation gates failed. See failed checks below.";
+}
+
+function automationNextAction(value, kind) {
+  if (kind === "recovery") return "No action needed.";
+  if (value.runtimePolicy?.browserSmoke === "not_run") return "Fix the prerequisite/env/data-parity gate first, then rerun browser smoke.";
+  if (browserSmokeStatus(value) === "ran_failed") return "Open the receipt/screenshots and fix the product route that failed.";
+  if (parityGateStatus(value) === "fail") return "Refresh/repair OCI parity from STG read-only data, then rerun.";
+  return "Open the receipt only if this is new or not covered by the muted duplicate.";
+}
+
+function layerText(layer) {
+  const name = String(layer.name ?? "unknown");
+  const labelByLayer = {
+    "latest-full-parity-receipt": "STG-to-OCI parity receipt",
+    "business-data-parity": "STG-to-OCI business data parity",
+    "api-latency": "Dashboard API latency",
+    lighthouse: "Lighthouse page performance",
+    "grafana-smoke": "Grafana/dashboard health",
+    "vaccination-lifecycle": "Vaccination backend lifecycle tests",
+    "production-module-journeys": "Production browser module journeys",
+    "playwright-module-journeys": "Preview browser module journeys",
+    "firebase-analytics-guard": "Firebase analytics guard",
+    "oci-free-preflight": "OCI Always Free/storage preflight",
+    static: "Static automation inventory"
+  };
+  const label = labelByLayer[name] ?? name;
+  return `*${label}* — ${friendlyLayerMessage(layer)}`;
+}
+
+function friendlyLayerMessage(layer) {
+  const name = String(layer.name ?? "");
+  const message = String(layer.message ?? layer.status ?? "");
+  if (name === "business-data-parity") return "OCI data does not currently match the required STG business snapshot.";
+  if (name === "api-latency") return "At least one normal dashboard API exceeded the latency policy.";
+  if (name === "lighthouse") return "Frontend page performance check failed.";
+  if (name === "grafana-smoke") return "Grafana/monitoring smoke check failed.";
+  if (name === "vaccination-lifecycle") return "Focused vaccination lifecycle tests failed.";
+  if (/module-journeys|playwright/i.test(name)) return "Browser journey smoke failed; check screenshots/receipt for the route.";
+  if (/required deterministic layer failed/i.test(message)) return "A prerequisite gate failed before this layer could run cleanly.";
+  return truncate(redactText(message), 140);
 }
 
 function blockerText(blocker) {
@@ -162,8 +213,19 @@ function blockerText(blocker) {
     return `field reconciliation \`${blocker.name}\`${blocker.reason ? ` — ${blocker.reason}` : ""}`;
   }
   if (blocker?.name) return `${blocker.kind ?? "blocker"} ${blocker.name}${blocker.reason ? ` (${blocker.reason})` : ""}`;
-  if (blocker?.layer) return `${blocker.layer}: ${blocker.message ?? JSON.stringify(blocker)}`;
+  if (blocker?.layer) return `${blocker.layer}: ${friendlyBlockerMessage(blocker.message ?? JSON.stringify(blocker))}`;
   return JSON.stringify(blocker);
+}
+
+function friendlyBlockerMessage(message) {
+  const text = String(message ?? "");
+  if (/check-business-data-parity\.mjs/i.test(text)) return "STG-to-OCI business data parity check failed.";
+  if (/api-latency-gate\.mjs/i.test(text)) return "Dashboard API latency gate failed.";
+  if (/capture-lighthouse\.mjs/i.test(text)) return "Lighthouse performance gate failed.";
+  if (/smoke-stg-grafana-dashboards\.mjs/i.test(text)) return "Grafana/dashboard smoke failed.";
+  if (/go test \.\/internal\/vaccination\/app/i.test(text)) return "Vaccination lifecycle test suite failed.";
+  if (/run-module-journeys\.mjs/i.test(text)) return "Browser module journey smoke failed.";
+  return text;
 }
 
 function browserSmokeStatus(value) {
@@ -271,8 +333,14 @@ function selfTest() {
     blockers: [{ kind: "sentinel_mismatch", name: "weighing_pen_alias_form_b_rows", reason: "planner_alias_form_b_rows" }]
   };
   const message = formatSlackMessage(sample, "failure", path.join(repo, "receipt.json"));
-  for (const expected of ["Dashboard automation failed", "weighing_pen_alias_form_b_rows", "Dedupe: repeated identical failures", "Browser smoke", "Parity gate"]) {
+  for (const expected of ["Dashboard automation failed", "weighing_pen_alias_form_b_rows", "Dedupe: repeated identical failures", "Browser", "Data parity"]) {
     if (!JSON.stringify(message).includes(expected)) throw new Error(`self-test: Slack message missing ${expected}`);
+  }
+  if (JSON.stringify(formatSlackMessage({
+    ...sample,
+    selfHealing: { stdout: "opened https://github.com/vgoats/goatos/pull/999" }
+  }, "failure", path.join(repo, "receipt.json"))).includes("Self-healing PR")) {
+    throw new Error("self-test: Slack message must not surface self-healing PR jargon");
   }
   const degraded = formatSlackMessage({
     ...sample,

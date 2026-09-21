@@ -220,10 +220,23 @@ test("feed config smoke checks experiment pen dropdown identity without writing"
   assert.match(smokeSource, /\.exp-pen-row/);
   assert.match(smokeSource, /duplicate option/);
   assert.match(smokeSource, /bare numeric pen with dash/);
+  assert.match(smokeSource, /doubles the partition name/);
+  assert.match(smokeSource, /Castro\|Gandhi\|Ho Chi Minh\|Mandela\|Yashoda/);
   // An empty-candidate park is a legitimate pass, and the smoke must say so rather than failing a
   // park whose every pen is already on the experiment. Matched on the branch, not on the copy: that
   // sentence is backend-owned and this test is not the place that pins its wording.
   assert.match(smokeSource, /empty-candidate explanation/);
+});
+
+test("counts herd smoke proves top-bar park changes preserve complete page-local windows", () => {
+  assert.match(smokeSource, /if \(routeName === "counts-herd"\) \{\s+await assertTopBarScopePreservesPageWindow\(page, routeName\);/);
+  assert.match(smokeSource, /counts\/herd\?scope_mode=company&from=2026-09-14&to=2026-09-22&status=live&status=icu/);
+  assert.match(smokeSource, /top-bar park link dropped a complete page-local from\/to window/);
+  assert.match(smokeSource, /top-bar park link collapsed repeated page filters/);
+  assert.match(smokeSource, /await clickTopBarParkHref\(page, parkHref, routeName\);/);
+  assert.match(smokeSource, /top-bar park click dropped a complete page-local from\/to window/);
+  assert.match(smokeSource, /top-bar park click collapsed repeated page filters/);
+  assert.match(smokeSource, /top-bar park link preserved a corrupt half window/);
 });
 
 test("sales sold smoke proves the sold-weight band card from the live page", () => {
