@@ -240,6 +240,7 @@
     <string name="counts_workflow_sect_sessions">Colostrum sessions</string>
     <string name="counts_workflow_tag_video">Video</string>
     <string name="counts_workflow_answered_fmt">Answered %1$s</string>
+    <string name="counts_workflow_enter_rfid">Scan or enter RFID</string>
     <string name="counts_workflow_record_video">Record video</string>
     <!-- SOP-driven operator steps (2026-09-13): proof counters, photos, text / pick-many answers. -->
     <string name="counts_workflow_tag_videos_fmt">%1$d videos</string>

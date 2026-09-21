@@ -13,6 +13,8 @@ import kotlinx.coroutines.test.runTest
 import kotlinx.coroutines.test.setMain
 import org.junit.After
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
+import org.junit.Assert.assertTrue
 import org.junit.Before
 import org.junit.Test
 import org.junit.runner.RunWith
@@ -505,6 +507,68 @@ class WorkflowDetailViewModelTest {
         advanceUntilIdle()
 
         assertEquals(yes, viewModel.state.value.actions.single().answerValue)
+    }
+
+    // -----------------------------------------------------------------------------------------
+    // TAG THE KID IS RFID FIRST, VIDEO SECOND (maintainer report, STG, 2026-09-21). The last step
+    // of a birth read as "record a video" with no way to enter or scan the tag: `opensPromote`
+    // gated canAnswer / canComplete / canTakePhoto but NOT canRecordVideo, and the promote screen
+    // was reachable only by an unlabelled tap on the row body. So the operator shot the clip and
+    // the backend refused the completion with permanent_identifier_required (repository.go ->
+    // HasHook(EngineHookTagKid)) -- a wasted recording for work that was really done.
+    // -----------------------------------------------------------------------------------------
+
+    private fun tagTheKidDetail(answerValue: String? = null) = requiresVideoDetail().copy(
+        actions = listOf(
+            WorkflowActionDto(
+                actionId = "tag-1",
+                actionKey = "tag_the_kid",
+                seq = 8,
+                actionType = "action",
+                taskType = "tag",
+                title = "Tag the kid",
+                detail = "Scan or enter the permanent RFID, then record one tagging video.",
+                requiresVideo = true,
+                proofMinVideos = 1,
+                status = "pending",
+                answerValue = answerValue,
+            ),
+        ),
+    )
+
+    @Test
+    fun `tag the kid offers the RFID entry and no camera until the permanent tag is recorded`() = runTest(dispatcher) {
+        val viewModel = buildViewModel(
+            FakeWorkflowDetailRepository(tagTheKidDetail()),
+            FakeWorkflowDetailSyncRepository(),
+            FakeProofCaptureRepository(),
+            FakeProofCaptureSource(mutableListOf()),
+        )
+        backgroundScope.launch { viewModel.state.collect {} }
+        advanceUntilIdle()
+
+        val step = viewModel.state.value.actions.single()
+        assertTrue("the RFID entry must be offered", step.opensPromote)
+        assertFalse("the camera must not be offered before the tag is on the record", step.canRecordVideo)
+        // The screen needs a goat and its row version to open the promote form at all; without
+        // them the button would render and do nothing.
+        assertEquals("goat-1", viewModel.state.value.subjectGoatId)
+    }
+
+    @Test
+    fun `tag the kid offers the camera once the permanent tag is on the record`() = runTest(dispatcher) {
+        val viewModel = buildViewModel(
+            FakeWorkflowDetailRepository(tagTheKidDetail(answerValue = "1420 0001")),
+            FakeWorkflowDetailSyncRepository(),
+            FakeProofCaptureRepository(),
+            FakeProofCaptureSource(mutableListOf()),
+        )
+        backgroundScope.launch { viewModel.state.collect {} }
+        advanceUntilIdle()
+
+        val step = viewModel.state.value.actions.single()
+        assertFalse("the tag is recorded, so the entry is done", step.opensPromote)
+        assertTrue("the mandatory tagging video is now owed", step.canRecordVideo)
     }
 
     // -----------------------------------------------------------------------------------------

@@ -221,6 +221,7 @@
     <string name="counts_workflow_sect_sessions">ಕೊಲೊಸ್ಟ್ರಮ್ ಅವಧಿಗಳು</string>
     <string name="counts_workflow_tag_video">ವೀಡಿಯೊ</string>
     <string name="counts_workflow_answered_fmt">ಉತ್ತರ %1$s</string>
+    <string name="counts_workflow_enter_rfid">RFID ಸ್ಕ್ಯಾನ್ ಮಾಡಿ ಅಥವಾ ನಮೂದಿಸಿ</string>
     <string name="counts_workflow_record_video">ವೀಡಿಯೊ ರೆಕಾರ್ಡ್ ಮಾಡಿ</string>
     <string name="counts_workflow_tag_videos_fmt">%1$d ವೀಡಿಯೊಗಳು</string>
     <string name="counts_workflow_tag_photo">ಫೋಟೋ</string>
