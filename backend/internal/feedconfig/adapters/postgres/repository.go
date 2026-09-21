@@ -772,6 +772,7 @@ ORDER BY p.pen_number, c.feed_item_key, c.experiment_config_id`
 		value := q.GramsCompare.Value
 		kgOp, kgValue = &op, &value
 	}
+	// projection-review: membership=distinct authored tenant/park/shed/partition pens after the same filters used by ranked_pens and returned cells; group_key=(park_id,shed_id,partition_key) operational pen plus the live census key (tenant_id,shed_id,partition_label); join_cardinality=page_pens joins authored cells 1:N by the full pen key while goat_shed_partitions is 0:1 per goat and the live census is LEFT JOINed so empty pens remain visible; pagination=rank complete pens before joining cells so limit/offset and has_more are pen-grain, not cell-grain; scope=tenant is mandatory with optional exact park/shed/status/feed-item/arm/grams/partition filters applied identically to pen membership and returned cells.
 	boundList := sqlbind.MustBind(query, q.TenantID, nullIfEmpty(q.ParkID),
 		nullIfEmpty(q.ShedID), nullIfEmpty(q.Status), q.Page.Limit, q.Page.Offset,
 		nullIfEmptySlice(q.FeedItems), nullIfEmpty(q.ExperimentCategory), kgOp, kgValue,
