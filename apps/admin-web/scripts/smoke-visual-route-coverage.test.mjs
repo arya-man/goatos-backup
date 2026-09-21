@@ -219,6 +219,21 @@ test("feed config smoke checks experiment pen dropdown identity without writing"
   assert.match(smokeSource, /Every pen already has experiment quantities\./);
 });
 
+test("sales sold smoke proves the sold-weight band card from the live page", () => {
+  assert.match(smokeSource, /if \(routeName === "sales-sold"\) \{/);
+  for (const required of [
+    "Sold animals by weight",
+    "40 kg and above",
+    "35 to 40 kg",
+    "20 to 35 kg",
+    "Below 20 kg",
+    "animals sold",
+  ]) {
+    assert.ok(smokeSource.includes(required), `sales-sold smoke must check ${required}`);
+  }
+  assert.match(smokeSource, /weighed\|at load average\|estimated\|sold without a recorded weight/);
+});
+
 test("visual smoke fails on the visible admin error boundary", () => {
   const markerBlock = smokeSource.match(/const failureScreenMarkers = \[[\s\S]*?\];/)?.[0] ?? "";
   for (const marker of [
