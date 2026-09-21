@@ -28,6 +28,7 @@ const readOnlySmoke = process.env.GOATOS_SMOKE_READ_ONLY !== "0";
 const moduleAssertText = parseJsonEnvArray("GOATOS_SMOKE_MODULE_ASSERT_TEXT");
 const moduleSafeClicks = parseJsonEnvArray("GOATOS_SMOKE_MODULE_SAFE_CLICKS");
 const observedModuleText = new Set();
+const observedModuleSafeClicks = new Set();
 const repoRoot = resolve(dirname(fileURLToPath(import.meta.url)), "../../..");
 const baselineDir = normalizeRepoPath(args.baselineDir ?? process.env.GOATOS_VISUAL_BASELINE_DIR);
 const updateBaseline = args.updateBaseline || process.env.GOATOS_VISUAL_UPDATE_BASELINE === "1";
@@ -437,6 +438,7 @@ try {
 }
 
 assertModuleTextObserved();
+assertRequiredModuleSafeClicksObserved();
 
 writeFileSync(
   join(screenshotDir, "manifest.json"),
@@ -456,6 +458,7 @@ writeFileSync(
       module_assert_text: moduleAssertText,
       module_assert_text_observed: [...observedModuleText],
       module_safe_clicks: moduleSafeClicks,
+      module_safe_clicks_observed: [...observedModuleSafeClicks],
     },
     null,
     2,
@@ -1540,9 +1543,13 @@ async function exerciseManifestSafeClicks(page, routeName, viewportLabel) {
       continue;
     }
     await target.scrollIntoViewIfNeeded().catch(() => {});
-    await target.click({ timeout: 5_000 }).catch((error) => {
+    try {
+      await target.click({ timeout: 5_000 });
+      observedModuleSafeClicks.add(moduleSafeClickKey(click));
+    } catch (error) {
       if (!click.optional) throw error;
-    });
+      continue;
+    }
     await page.keyboard.press("Escape").catch(() => {});
     await closeManifestOverlays(page);
   }
@@ -1556,6 +1563,14 @@ function manifestClickLocator(page, click) {
   }
   if (click.text) return page.getByText(String(click.text), { exact: Boolean(click.exact ?? true) });
   return null;
+}
+
+function moduleSafeClickKey(click) {
+  if (click.testId) return `testId:${click.testId}`;
+  if (click.css) return `css:${click.css}`;
+  if (click.role && click.name) return `role:${click.role}:${click.name}`;
+  if (click.text) return `text:${click.text}`;
+  return JSON.stringify(click);
 }
 
 async function closeManifestOverlays(page) {
@@ -1884,6 +1899,14 @@ function assertModuleTextObserved() {
   const missing = moduleAssertText.filter((expected) => !observedModuleText.has(String(expected)));
   if (missing.length) {
     throw new Error(`Module journey did not observe required text: ${missing.join(", ")}`);
+  }
+}
+
+function assertRequiredModuleSafeClicksObserved() {
+  const required = moduleSafeClicks.filter((click) => click.requireObserved === true);
+  const missing = required.filter((click) => !observedModuleSafeClicks.has(moduleSafeClickKey(click)));
+  if (missing.length) {
+    throw new Error(`Module journey did not exercise required safe click(s): ${missing.map((click) => moduleSafeClickKey(click)).join(", ")}`);
   }
 }
 

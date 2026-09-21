@@ -166,6 +166,10 @@ test("dashboard automation has a module-wise read-only journey contract for ever
     assert.ok(moduleId, "journey module is required");
     assert.ok(Array.isArray(journeyRoutes) && journeyRoutes.length > 0, `${moduleId} must name route coverage`);
     assert.ok(Array.isArray(assertions) && assertions.length > 0, `${moduleId} must document user-visible assertions`);
+    assert.ok(
+      Array.isArray(journey.safeClicks) && journey.safeClicks.some((click) => click.requireObserved === true),
+      `${moduleId} must require at least one observed safe click`,
+    );
     for (const routeName of journeyRoutes) {
       assert.ok(routeNames.has(routeName), `${moduleId} references smoke route ${routeName}`);
       assignedRoutes.add(routeName);
@@ -174,6 +178,13 @@ test("dashboard automation has a module-wise read-only journey contract for ever
   for (const routeName of routeNames) {
     assert.ok(assignedRoutes.has(routeName), `${routeName} must be assigned to a read-only journey module`);
   }
+});
+
+test("module journey safe clicks must be observed by the live smoke runner", () => {
+  assert.match(smokeSource, /const observedModuleSafeClicks = new Set\(\);/);
+  assert.match(smokeSource, /observedModuleSafeClicks\.add\(moduleSafeClickKey\(click\)\)/);
+  assert.match(smokeSource, /assertRequiredModuleSafeClicksObserved\(\);/);
+  assert.match(smokeSource, /click\.requireObserved === true/);
 });
 
 test("visual smoke keeps every live sidebar leaf covered on desktop and narrow/mobile", () => {
