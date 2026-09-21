@@ -290,14 +290,14 @@ function runLighthouse(targetDir) {
 }
 
 function runVaccinationLifecycleTests() {
-  run("go", [
+  runInDir(path.join(repo, "backend"), "go", [
     "test",
     "./internal/vaccination/app",
     "-run",
     "TestGenerateForVersionUsesTopLevelProcurementFirstWaveWhenPurposeBlank|TestGenerateForVersionUsesProcurementPurposePlans|TestGenerateForVersionDefersDuringWarmupHold|TestGenerateForVersionTreatsTerminalAndClinicalStatesDifferently",
     "-count=1"
   ]);
-  run("go", [
+  runInDir(path.join(repo, "backend"), "go", [
     "test",
     "./internal/obligation/adapters/postgres",
     "-run",
@@ -321,7 +321,11 @@ function runNpm(args, env = process.env) {
 }
 
 function run(command, args, env = process.env) {
-  const result = spawnSync(command, args, { cwd: repo, env, encoding: "utf8" });
+  return runInDir(repo, command, args, env);
+}
+
+function runInDir(cwd, command, args, env = process.env) {
+  const result = spawnSync(command, args, { cwd, env, encoding: "utf8" });
   const stdout = redactText(result.stdout);
   const stderr = redactText(result.stderr);
   if (stdout.trim()) console.log(stdout.trim());
@@ -404,6 +408,9 @@ function selfTest() {
   }
   if (!readFileSync(fileURLToPath(import.meta.url), "utf8").includes("runVaccinationLifecycleTests")) {
     throw new Error("self-test: runner must invoke deep vaccination lifecycle tests");
+  }
+  if (!runnerSource.includes('runInDir(path.join(repo, "backend"), "go"')) {
+    throw new Error("self-test: backend Go lifecycle tests must run from the backend module");
   }
   for (const key of ["GOATOS_DASHBOARD_DATA_PARITY", "GOATOS_DASHBOARD_API_LATENCY", "GOATOS_DASHBOARD_LIGHTHOUSE", "GOATOS_DASHBOARD_GRAFANA_SMOKE"]) {
     if (!readFileSync(fileURLToPath(import.meta.url), "utf8").includes(key)) {
