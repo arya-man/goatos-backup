@@ -24,7 +24,7 @@ const apiBaseUrl = trimTrailingSlash(process.env.GOATOS_API_BASE_URL);
 const bearerToken = process.env.GOATOS_BEARER_TOKEN;
 const tenantId = process.env.GOATOS_TENANT_ID;
 const navigationTimeoutMs = Number(process.env.GOATOS_SMOKE_NAVIGATION_TIMEOUT_MS ?? 60_000);
-const readOnlySmoke = process.env.GOATOS_SMOKE_READ_ONLY !== "0";
+const readOnlySmoke = process.env.GOATOS_SMOKE_READ_ONLY === "1";
 const moduleAssertText = parseJsonEnvArray("GOATOS_SMOKE_MODULE_ASSERT_TEXT");
 const moduleSafeClicks = parseJsonEnvArray("GOATOS_SMOKE_MODULE_SAFE_CLICKS");
 const observedModuleText = new Set();

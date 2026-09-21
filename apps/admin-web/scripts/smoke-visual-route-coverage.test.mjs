@@ -187,6 +187,11 @@ test("module journey safe clicks must be observed by the live smoke runner", () 
   assert.match(smokeSource, /click\.requireObserved === true/);
 });
 
+test("read-only smoke is opt-in so the shared live smoke keeps Action Center submit coverage", () => {
+  assert.match(smokeSource, /const readOnlySmoke = process\.env\.GOATOS_SMOKE_READ_ONLY === "1";/);
+  assert.match(smokeSource, /if \(!readOnlySmoke\) \{\s+await submitActionCenterVerification\(page, routeName\);/);
+});
+
 test("visual smoke keeps every live sidebar leaf covered on desktop and narrow/mobile", () => {
   assert.match(smokeSource, /label:\s*"laptop"[\s\S]*?width:\s*1440[\s\S]*?height:\s*1000/);
   assert.match(smokeSource, /label:\s*"mobile"[\s\S]*?width:\s*390[\s\S]*?height:\s*900/);
