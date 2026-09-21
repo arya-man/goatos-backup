@@ -19,9 +19,9 @@ import "errors"
 //
 //	gap = days_said - days_consumed - days_left
 //
-// Zero means the buyer's figure is holding. Positive means the load is lasting longer than it was
-// bought for. NEGATIVE means it ran out (or will run out) sooner -- the case the table highlights,
-// because it is the one that leaves animals unfed if nobody re-orders in time. The gap is ABSENT,
+// Zero means the buyer's figure is holding. Positive means it ran out (or will run out) sooner --
+// the case the table highlights, because it is the one that leaves animals unfed if nobody
+// re-orders in time. Negative means the load is lasting longer than it was bought for. The gap is ABSENT,
 // never zero, when the buyer stated no figure or when nothing has been fed recently enough to
 // project days left: a check nobody could make is not a check that passed.
 
