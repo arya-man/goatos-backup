@@ -77,6 +77,23 @@ optimistic selected value immediately. Run `make frontend-foundations-guard`
 after touching these controls; it includes the stale-select regression that hit
 Feed Config.
 
+### Top-Bar Scope And Page-Local Filter Guard
+
+When reviewing or changing the admin-web top bar, park selector, shell scope
+links, or any route with its own farm/park/date controls, block the PR unless
+the route actually consumes the chrome scope it displays. Do not show the global
+park selector on authority/config pages, SOP authoring surfaces, fixed-detail
+pages, or pages with their own local farm/park selector unless the page read path
+uses the top-bar `park` / `scope_mode` as the effective backend scope.
+
+Changing top-bar scope must preserve page-local filters without corrupting their
+shape. Complete paired windows such as `from` + `to` must survive together; a
+one-sided half window must be removed or canonicalized before navigation; and
+repeated query params must remain repeated instead of being collapsed through
+`Object.fromEntries`. Add or update focused source tests for these invariants
+whenever touching `components/mesha-shell.tsx`, `lib/scope.ts`, page-local date
+filters, or route chrome suppression lists.
+
 Operational hygiene when you do restart/rebuild (so a restart is clean, not
 destructive):
 

@@ -210,8 +210,8 @@ test("Sold ends with the deals ledger and Farm value carries no sold block", () 
 // matches any page that renders.
 test("the shell hides its park selector on Sold and Farm value", () => {
   const shell = readFileSync(new URL("../../components/mesha-shell.tsx", import.meta.url), "utf8");
-  const lock = shell.match(/const PAGES_OWNING_PARK_SCOPE = \[([\s\S]*?)\];/);
-  assert.ok(lock, "PAGES_OWNING_PARK_SCOPE must still exist");
+  const lock = shell.match(/const PAGES_WITH_LOCAL_OR_NO_PARK_SCOPE = \[([\s\S]*?)\];/);
+  assert.ok(lock, "PAGES_WITH_LOCAL_OR_NO_PARK_SCOPE must still exist");
   assert.match(lock[1], /"\/sales\/sold"/);
   assert.match(lock[1], /"\/sales\/farm-value"/);
   assert.doesNotMatch(lock[1], /"\/sales"[,\s]/, "the retired board path is not a page that renders");

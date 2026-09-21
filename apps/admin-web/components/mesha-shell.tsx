@@ -43,7 +43,7 @@ import {
 } from "@/components/push-permission-prompt-lazy";
 import { preloadFirebasePerformance, startFirebasePerformanceTrace } from "@/lib/firebase-performance";
 import { reportAdminPerformanceEvent } from "@/lib/performance-events";
-import { parkLabel, parseScope, scopeHref, type Park } from "@/lib/scope";
+import { parkLabel, parseScope, preservedPageFiltersForScopeChange, scopeHref, type Park } from "@/lib/scope";
 import type { AdminWebBootstrapResponse } from "@/lib/api/server";
 
 type NavItem = AdminWebBootstrapResponse["navigation"]["primary"][number];
@@ -124,6 +124,19 @@ function shellCopy(contract: AdminWebBootstrapResponse, key: string): string {
 function parkScopeLabel(parks: Park[], parkId: string | undefined, contract: AdminWebBootstrapResponse): string {
   if (!parkId) return shellCopy(contract, "scope.all_parks");
   return parkLabel(parks, parkId) || shellCopy(contract, "scope.selected_park");
+}
+
+export function routeOwnsOrIgnoresTopBarPark(
+  pathname: string,
+  routes: readonly string[],
+  routePrefixes: readonly string[],
+  routePatterns: readonly RegExp[],
+): boolean {
+  return (
+    routes.includes(pathname) ||
+    routePrefixes.some((route) => pathname === route || pathname.startsWith(`${route}/`)) ||
+    routePatterns.some((pattern) => pattern.test(pathname))
+  );
 }
 
 function enabledNavHrefs(contract: AdminWebBootstrapResponse): string[] {
@@ -279,26 +292,74 @@ export function MeshaShell({
   // was a second, stale-looking answer to the same question sitting three inches above the real
   // one. Nothing is lost by removing it: these pages own the park in their own filter bar, so the
   // choice is still on screen, once.
-  // Pages that render their OWN park control on the `park` query param. The shell's global park
-  // selector is hidden for them, because two controls writing one parameter fight each other and
-  // the reader has no way to tell which one won. Weights analytics carries the same filter bar as
-  // Weights beside it, so it belongs here for the same reason.
+  // Pages where the shell's global park selector would be false or duplicative. Some render their
+  // OWN park/farm control; some are authority/config pages that intentionally read tenant-level
+  // data and do not send `park_id` anywhere. Showing "CPT · all pens" on those routes implies a
+  // filter the page does not apply.
+  //
+  // Routes that genuinely consume top-bar `park` stay OUT of this list (for example /sales/loads).
+  //
+  // Weights analytics carries the same filter bar as Weights beside it, so it belongs here for the
+  // same reason.
   // Sales too (maintainer request 2026-09-03): its farm chips ARE its park choice, on the page's
   // own `farm` parameter, so the top-bar chip was a second answer the page never read. The board
   // was divided into Sold and Farm value on 2026-09-11 (/sales only redirects now), and both
   // carry the same farm chips, so both are listed -- an exact match on the retired path alone
   // brought the second selector back on the pages that actually render (PR 238 review).
-  const PAGES_OWNING_PARK_SCOPE = [
+  //
+  // SOP Library pages are module-scoped authoring surfaces, not park-scoped reads. They do not
+  // send `park_id` to /admin/sops, so showing "CPT · all pens" in the chrome is a false filter.
+  const PAGES_WITH_LOCAL_OR_NO_PARK_SCOPE = [
+    "/approvals",
+    "/alerts",
+    "/ceo-ai-admin",
+    "/configuration/items",
+    "/configuration/work-instructions",
     "/counts/breakdown",
+    "/counts/sops",
+    "/feed/sops",
+    "/health/config",
+    "/leave",
+    "/milk/sops",
+    "/operations/audit",
+    "/operations/dlq",
+    "/people",
+    "/procurement/animal-purchases",
+    "/procurement/feed-purchases",
+    "/procurement/source-entry",
+    "/procurement/vendors",
+    "/procurement/sops",
+    "/sales/config",
+    "/sales/market-analytics",
+    "/sales/sops",
     "/weighing/weights",
     "/weighing/analytics",
+    "/weighing/sops",
     "/sales/sold",
     "/sales/farm-value",
     "/sales/buyer-analytics",
+    "/sales/vendors",
+    "/tasks",
+    "/vaccination/plan",
     // Farm born carries its own Park select in its filter bar (the Weights shape).
     "/sales/farm-born",
   ];
-  const lockTopBarParkSelector = PAGES_OWNING_PARK_SCOPE.includes(pathname);
+  const ROUTE_FAMILIES_WITH_LOCAL_OR_NO_PARK_SCOPE = [
+    "/calendar/drive",
+    "/goats",
+    "/procurement/source-entry/loads",
+    "/vaccination/execution/sheds",
+    "/vaccination/plan",
+  ];
+  const ROUTE_PATTERNS_WITH_LOCAL_OR_NO_PARK_SCOPE = [
+    /^\/workflows\/[^/]+$/,
+  ];
+  const lockTopBarParkSelector = routeOwnsOrIgnoresTopBarPark(
+    pathname,
+    PAGES_WITH_LOCAL_OR_NO_PARK_SCOPE,
+    ROUTE_FAMILIES_WITH_LOCAL_OR_NO_PARK_SCOPE,
+    ROUTE_PATTERNS_WITH_LOCAL_OR_NO_PARK_SCOPE,
+  );
   const [navOpen, setNavOpen] = useState(false);
   const [rail, setRail] = useState(false);
 
@@ -699,14 +760,12 @@ export function MeshaShell({
     // A top-bar scope change must not erase the current page's filters. Strip only
     // the scope keys rebuilt by scopeHref and local-overlay row selectors, then
     // carry the remaining page query through unchanged.
-    const pageFilters = Object.fromEntries(searchParams?.entries() ?? []);
-    for (const key of ["scope_mode", "park", "range", "as_of", "date_from", "date_to", "domain", "from"]) {
-      delete pageFilters[key];
+    const pageFilters = preservedPageFiltersForScopeChange(searchParams);
+    for (const [key, value] of Object.entries({ ...preserveVaccinationSchedule, ...extra })) {
+      pageFilters.delete(key);
+      if (value && value !== "all") pageFilters.set(key, value);
     }
-    for (const key of Object.keys(pageFilters)) {
-      if (key.endsWith("_row")) delete pageFilters[key];
-    }
-    return scopeHref(pathname, scope, overrides, { ...pageFilters, ...preserveVaccinationSchedule, ...extra });
+    return scopeHref(pathname, scope, overrides, pageFilters);
   }
 
   return (
