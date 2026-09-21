@@ -25,6 +25,9 @@ const bearerToken = process.env.GOATOS_BEARER_TOKEN;
 const tenantId = process.env.GOATOS_TENANT_ID;
 const navigationTimeoutMs = Number(process.env.GOATOS_SMOKE_NAVIGATION_TIMEOUT_MS ?? 60_000);
 const readOnlySmoke = process.env.GOATOS_SMOKE_READ_ONLY !== "0";
+const moduleAssertText = parseJsonEnvArray("GOATOS_SMOKE_MODULE_ASSERT_TEXT");
+const moduleSafeClicks = parseJsonEnvArray("GOATOS_SMOKE_MODULE_SAFE_CLICKS");
+const observedModuleText = new Set();
 const repoRoot = resolve(dirname(fileURLToPath(import.meta.url)), "../../..");
 const baselineDir = normalizeRepoPath(args.baselineDir ?? process.env.GOATOS_VISUAL_BASELINE_DIR);
 const updateBaseline = args.updateBaseline || process.env.GOATOS_VISUAL_UPDATE_BASELINE === "1";
@@ -395,6 +398,7 @@ try {
         const html = await page.content();
         const visibleText = await page.locator("body").innerText({ timeout: 5_000 }).catch(() => "");
         assertHealthyHTML(route.name, html, visibleText, bearerToken);
+        markObservedModuleText(visibleText);
         const routeSignals = await assertRouteLoadedSignal(page, route.name, visibleText);
         browserEvidence.routes.push({
           name: route.name,
@@ -413,6 +417,7 @@ try {
         await assertTruncationContracts(page, route.name, viewport.label);
         await assertPaginationControls(page, route.name, viewport.label);
         await assertCoreInteractions(page, route.name, viewport.label);
+        await exerciseManifestSafeClicks(page, route.name, viewport.label);
         await settleAtTop(page);
         const screenshotName = `${viewport.label}-${route.name}.png`;
         const screenshotPath = join(screenshotDir, screenshotName);
@@ -431,6 +436,8 @@ try {
   await browser.close();
 }
 
+assertModuleTextObserved();
+
 writeFileSync(
   join(screenshotDir, "manifest.json"),
   JSON.stringify(
@@ -446,6 +453,9 @@ writeFileSync(
       baseline_compared: baselineCompared,
       baseline_updated: baselineUpdated,
       max_diff_ratio: baselineDir ? maxDiffRatio : null,
+      module_assert_text: moduleAssertText,
+      module_assert_text_observed: [...observedModuleText],
+      module_safe_clicks: moduleSafeClicks,
     },
     null,
     2,
@@ -1507,6 +1517,58 @@ async function assertCoreInteractions(page, routeName, viewportLabel) {
   }
 }
 
+async function exerciseManifestSafeClicks(page, routeName, viewportLabel) {
+  if (moduleSafeClicks.length === 0) return;
+  if (!readOnlySmoke) {
+    throw new Error(`${routeName} ${viewportLabel} refuses manifest safeClicks when read-only smoke is disabled`);
+  }
+  for (const click of moduleSafeClicks) {
+    const locator = manifestClickLocator(page, click);
+    if (!locator) continue;
+    const count = await locator.count();
+    if (count === 0) {
+      if (!click.optional) throw new Error(`${routeName} ${viewportLabel} required manifest click target missing: ${JSON.stringify(click)}`);
+      continue;
+    }
+    const target = locator.first();
+    if (!(await target.isVisible().catch(() => false))) {
+      if (!click.optional) throw new Error(`${routeName} ${viewportLabel} required manifest click target is hidden: ${JSON.stringify(click)}`);
+      continue;
+    }
+    if (/^(close|cancel|delete|approve|reject|submit|save|create|new|verify)$/i.test(String(click.name ?? ""))) {
+      if (!click.optional) throw new Error(`${routeName} ${viewportLabel} manifest click target is not read-only safe: ${JSON.stringify(click)}`);
+      continue;
+    }
+    await target.scrollIntoViewIfNeeded().catch(() => {});
+    await target.click({ timeout: 5_000 }).catch((error) => {
+      if (!click.optional) throw error;
+    });
+    await page.keyboard.press("Escape").catch(() => {});
+    await closeManifestOverlays(page);
+  }
+}
+
+function manifestClickLocator(page, click) {
+  if (click.testId) return page.getByTestId(String(click.testId));
+  if (click.role && click.name) {
+    return page.getByRole(String(click.role), { name: String(click.name), exact: Boolean(click.exact ?? true) });
+  }
+  if (click.text) return page.getByText(String(click.text), { exact: Boolean(click.exact ?? true) });
+  return null;
+}
+
+async function closeManifestOverlays(page) {
+  for (const close of [
+    page.locator('button[aria-label^="Close"], a[aria-label^="Close"]').first(),
+    page.getByRole("button", { name: /^Close$/ }).first(),
+    page.getByRole("button", { name: /^Close filters$/ }).first(),
+  ]) {
+    if ((await close.count()) > 0 && (await close.isVisible().catch(() => false))) {
+      await close.click({ timeout: 3_000 }).catch(() => {});
+    }
+  }
+}
+
 async function assertMobileSidebarNavigation(page, routeName) {
   const originalUrl = page.url();
   const menu = page.locator("button.hamb").first();
@@ -1798,6 +1860,30 @@ async function gotoWithRetry(page, url) {
 
 function comparableHeader(value) {
   return value.trim().replace(/\s+/g, " ").toLowerCase();
+}
+
+function parseJsonEnvArray(name) {
+  const raw = process.env[name];
+  if (!raw) return [];
+  const parsed = JSON.parse(raw);
+  if (!Array.isArray(parsed)) throw new Error(`${name} must be a JSON array`);
+  return parsed;
+}
+
+function markObservedModuleText(visibleText) {
+  const comparable = visibleText.toLowerCase();
+  for (const expected of moduleAssertText) {
+    if (comparable.includes(String(expected).toLowerCase())) {
+      observedModuleText.add(String(expected));
+    }
+  }
+}
+
+function assertModuleTextObserved() {
+  const missing = moduleAssertText.filter((expected) => !observedModuleText.has(String(expected)));
+  if (missing.length) {
+    throw new Error(`Module journey did not observe required text: ${missing.join(", ")}`);
+  }
 }
 
 function compareOrUpdateBaseline(screenshotName, screenshotPath) {

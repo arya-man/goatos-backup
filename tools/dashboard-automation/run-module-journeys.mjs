@@ -35,7 +35,9 @@ for (const mod of modules) {
     env: {
       ...process.env,
       GOATOS_SMOKE_ONLY_ROUTES: routeList,
-      GOATOS_SMOKE_READ_ONLY: "1"
+      GOATOS_SMOKE_READ_ONLY: "1",
+      GOATOS_SMOKE_MODULE_ASSERT_TEXT: JSON.stringify(mod.assertText ?? []),
+      GOATOS_SMOKE_MODULE_SAFE_CLICKS: JSON.stringify(mod.safeClicks ?? [])
     },
     encoding: "utf8"
   });
@@ -43,8 +45,9 @@ for (const mod of modules) {
     id: mod.id,
     label: mod.label,
     routes: mod.routes,
-    requiredInteractions: mod.requiredInteractions,
-    forbiddenWrites: mod.forbiddenWrites,
+    coverage: mod.coverage ?? [],
+    requiredInteractions: mod.requiredInteractions ?? mod.coverage ?? [],
+    forbiddenWrites: mod.forbiddenWrites ?? matrix.forbiddenActions ?? [],
     startedAt,
     finishedAt: new Date().toISOString(),
     status: result.status === 0 ? "pass" : "fail",
@@ -81,6 +84,7 @@ function selfTest() {
   for (const mod of modules) {
     if (!Array.isArray(mod.routes) || mod.routes.length === 0) throw new Error(`self-test: ${mod.id} has no routes`);
     if (!Array.isArray(mod.coverage) || mod.coverage.length === 0) throw new Error(`self-test: ${mod.id} has no coverage dimensions`);
+    if (!Array.isArray(mod.assertText) || mod.assertText.length === 0) throw new Error(`self-test: ${mod.id} has no assertText`);
   }
   console.log("dashboard module journey runner: self-test passed");
 }
