@@ -10,7 +10,6 @@ import (
 
 	calendarports "github.com/vgoats/goatos/backend/internal/calendar/ports"
 	leadershiptasksdomain "github.com/vgoats/goatos/backend/internal/leadershiptasks/domain"
-	audiencedomain "github.com/vgoats/goatos/backend/internal/notificationaudience/domain"
 	"github.com/vgoats/goatos/backend/internal/platform/biztime"
 	"github.com/vgoats/goatos/backend/internal/platform/eventbus"
 )
@@ -63,12 +62,10 @@ type leadershipTaskEventPayload struct {
 // LeadershipTaskNotifyConsumer turns the two task events into one push each.
 type LeadershipTaskNotifyConsumer struct {
 	recipients RecipientResolver
-	// audience gates both pushes per designation (leadership.task_raised / task_done): the
-	// addressed person is kept while their job title is ticked, other ticked titles get a copy.
-	audience AudienceResolver
-	queue    NotificationQueue
-	logger   *slog.Logger
-	now      func() time.Time
+	audience   AudienceResolver
+	queue      NotificationQueue
+	logger     *slog.Logger
+	now        func() time.Time
 }
 
 // NewLeadershipTaskNotifyConsumer wires the consumer.
@@ -129,11 +126,7 @@ func (c *LeadershipTaskNotifyConsumer) notifyRaised(ctx context.Context, tenantI
 	if err != nil {
 		return fmt.Errorf("leadership task notification: resolve assignee: %w", err)
 	}
-	recipients, err := c.audience.Addressed(ctx, tenantID, "", audiencedomain.AlertLeadershipTaskRaised,
-		[]string{audiencedomain.DesignationCEO}, dedupeQueueRecipients(toQueueRecipients(devices, roleLabelCEO)))
-	if err != nil {
-		return fmt.Errorf("leadership task notification: %w", err)
-	}
+	recipients := dedupeQueueRecipients(toQueueRecipients(devices, "assignee"))
 	if len(recipients) == 0 {
 		if c.logger != nil {
 			c.logger.WarnContext(ctx, "leadership_task_raised_notification_no_recipients",
@@ -180,22 +173,13 @@ func (c *LeadershipTaskNotifyConsumer) notifyStatusChanged(ctx context.Context, 
 	// change is its own news.
 	eventKey := EventLeadershipTaskStatusChanged + ":" + p.TaskID + ":" + eventID
 
-	// UP to the raiser (a director) when someone else moved the task: gated by the
-	// leadership.task_done row, whose default is every director title.
+	// UP to the raiser when someone else moved the task.
 	if raiser := strings.TrimSpace(p.RaisedByUserID); raiser != "" && raiser != changedBy {
 		devices, err := c.recipients.ResolveMemberRecipients(ctx, tenantID, raiser)
 		if err != nil {
 			return fmt.Errorf("leadership task notification: resolve raiser: %w", err)
 		}
-		addressee := []string{strings.TrimSpace(p.RaisedByDesignation)}
-		if addressee[0] == "" {
-			addressee = audiencedomain.DirectorDesignations
-		}
-		recipients, err := c.audience.Addressed(ctx, tenantID, "", audiencedomain.AlertLeadershipTaskDone,
-			addressee, dedupeQueueRecipients(toQueueRecipients(devices, "director")))
-		if err != nil {
-			return fmt.Errorf("leadership task notification: %w", err)
-		}
+		recipients := dedupeQueueRecipients(toQueueRecipients(devices, "raiser"))
 		if len(recipients) == 0 {
 			if c.logger != nil {
 				c.logger.WarnContext(ctx, "leadership_task_status_notification_no_raiser_recipients",
@@ -225,18 +209,13 @@ func (c *LeadershipTaskNotifyConsumer) notifyStatusChanged(ctx context.Context, 
 		}
 	}
 
-	// DOWN to the CXO the task is addressed to when someone else moved it (the raiser cancelled
-	// or reopened it): gated by the leadership.task_raised row, whose default is CEO / CXO.
+	// DOWN to the assignee when someone else moved it.
 	if assignee := strings.TrimSpace(p.AssigneeUserID); assignee != "" && assignee != changedBy {
 		devices, err := c.recipients.ResolveMemberRecipients(ctx, tenantID, assignee)
 		if err != nil {
 			return fmt.Errorf("leadership task notification: resolve assignee: %w", err)
 		}
-		recipients, err := c.audience.Addressed(ctx, tenantID, "", audiencedomain.AlertLeadershipTaskRaised,
-			[]string{audiencedomain.DesignationCEO}, dedupeQueueRecipients(toQueueRecipients(devices, roleLabelCEO)))
-		if err != nil {
-			return fmt.Errorf("leadership task notification: %w", err)
-		}
+		recipients := dedupeQueueRecipients(toQueueRecipients(devices, "assignee"))
 		if len(recipients) == 0 {
 			if c.logger != nil {
 				c.logger.WarnContext(ctx, "leadership_task_status_notification_no_assignee_recipients",

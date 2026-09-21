@@ -8,7 +8,6 @@ import (
 	"testing"
 
 	calendarports "github.com/vgoats/goatos/backend/internal/calendar/ports"
-	audiencedomain "github.com/vgoats/goatos/backend/internal/notificationaudience/domain"
 	"github.com/vgoats/goatos/backend/internal/notificationbridge"
 	"github.com/vgoats/goatos/backend/internal/platform/eventbus"
 )
@@ -119,46 +118,24 @@ func TestLeadershipTaskDonePushGoesBackToTheRaiser(t *testing.T) {
 	}
 }
 
-type leadershipAudienceGate struct {
-	t             *testing.T
-	ticked        []string
-	addressedSeen []string
+type leadershipAudienceMustNotBeUsed struct {
+	t *testing.T
 }
 
-func (a *leadershipAudienceGate) Recipients(context.Context, string, string, string) ([]calendarports.NotificationRecipient, error) {
+func (a *leadershipAudienceMustNotBeUsed) Recipients(context.Context, string, string, string) ([]calendarports.NotificationRecipient, error) {
+	a.t.Fatal("leadership task party pushes must not resolve designation audiences")
 	return nil, nil
 }
 
-func (a *leadershipAudienceGate) Addressed(_ context.Context, _, _ string, alertKey string, addressee []string, addressed []calendarports.NotificationRecipient) ([]calendarports.NotificationRecipient, error) {
-	a.addressedSeen = append([]string(nil), addressee...)
-	if alertKey != audiencedomain.AlertLeadershipTaskDone {
-		return addressed, nil
-	}
-	ticked := map[string]struct{}{}
-	for _, code := range a.ticked {
-		ticked[code] = struct{}{}
-	}
-	keepAddressed := false
-	for _, code := range addressee {
-		if _, ok := ticked[code]; ok {
-			keepAddressed = true
-		}
-		delete(ticked, code)
-	}
-	var out []calendarports.NotificationRecipient
-	if keepAddressed {
-		out = append(out, addressed...)
-	}
-	for code := range ticked {
-		out = append(out, calendarports.NotificationRecipient{MemberID: "copy-" + code, DeviceID: "device-" + code, FCMToken: "token-" + code, RoleLabel: code})
-	}
-	return out, nil
+func (a *leadershipAudienceMustNotBeUsed) Addressed(context.Context, string, string, string, []string, []calendarports.NotificationRecipient) ([]calendarports.NotificationRecipient, error) {
+	a.t.Fatal("leadership task party pushes must not resolve designation audiences")
+	return nil, nil
 }
 
-func TestLeadershipTaskDoneAudienceUsesTheRaisersActualDesignation(t *testing.T) {
+func TestLeadershipTaskDoneDoesNotFanOutToLeadershipAudience(t *testing.T) {
 	recipients := &targetTestRecipients{}
 	queue := &targetTestQueue{}
-	audience := &leadershipAudienceGate{t: t, ticked: []string{audiencedomain.DesignationFeedDirector}}
+	audience := &leadershipAudienceMustNotBeUsed{t: t}
 	consumer := notificationbridge.NewLeadershipTaskNotifyConsumer(recipients, queue, slog.Default()).WithAudience(audience)
 
 	if err := consumer.HandleEvent(context.Background(), eventbus.Event{
@@ -169,20 +146,17 @@ func TestLeadershipTaskDoneAudienceUsesTheRaisersActualDesignation(t *testing.T)
 			"status":                "done",
 			"previous_status":       "in_progress",
 			"changed_by_user_id":    "44444444-4444-4444-8444-444444444444",
-			"raised_by_designation": audiencedomain.DesignationPCDirector,
+			"raised_by_designation": "pc_director",
 		}),
 	}); err != nil {
 		t.Fatalf("HandleEvent: %v", err)
-	}
-	if len(audience.addressedSeen) != 1 || audience.addressedSeen[0] != audiencedomain.DesignationPCDirector {
-		t.Fatalf("task_done must gate the addressed raiser by their actual title, got %v", audience.addressedSeen)
 	}
 	if len(queue.queued) != 1 {
 		t.Fatalf("queued %d notifications, want exactly 1", len(queue.queued))
 	}
 	got := queue.queued[0].Recipients
-	if len(got) != 1 || got[0].MemberID != "copy-"+audiencedomain.DesignationFeedDirector {
-		t.Fatalf("only the configured copy designation should receive this update; got %+v", got)
+	if len(got) != 1 || got[0].MemberID != "33333333-3333-4333-8333-333333333333" {
+		t.Fatalf("only the task raiser should receive this update; got %+v", got)
 	}
 }
 
