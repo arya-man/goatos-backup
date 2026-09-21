@@ -151,7 +151,18 @@ load_days AS (
      AND fc.feed_item_key = p.feed_item_key
      AND fc.feed_day >= p.depletes_from
      AND fc.cum_kg > p.prior_net_kg
-     AND fc.cum_kg - fc.kg < p.prior_net_kg + p.net_kg
+     AND (
+         fc.cum_kg - fc.kg < p.prior_net_kg + p.net_kg
+         OR NOT EXISTS (
+             SELECT 1
+             FROM positioned next_load
+             WHERE next_load.farm_label = p.farm_label
+               AND next_load.feed_item_key = p.feed_item_key
+               AND next_load.depletes_from <= fc.feed_day
+               AND (next_load.depletes_from, next_load.purchase_date, next_load.batch_no) >
+                   (p.depletes_from, p.purchase_date, p.batch_no)
+         )
+     )
     GROUP BY p.feed_purchase_id
 ),
 scored AS (
