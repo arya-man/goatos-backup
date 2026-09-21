@@ -1,6 +1,7 @@
 #!/usr/bin/env node
 import { execFileSync } from "node:child_process";
-import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { redactText } from "./lib/redact.mjs";
@@ -34,16 +35,17 @@ const shortSha = String(receipt.repoSha || git(["rev-parse", "HEAD"])).slice(0, 
 const stamp = new Date().toISOString().replaceAll(/[:.]/g, "-");
 const branch = `automation/dashboard-smoke-${stamp}-${shortSha}`;
 const reportRel = `docs/progress/dashboard-automation-failures/${stamp}-${shortSha}.md`;
-const reportPath = path.join(repo, reportRel);
+const reportWorktree = mkdtempSync(path.join(tmpdir(), "goatos-dashboard-self-heal-"));
+const reportPath = path.join(reportWorktree, reportRel);
 
 git(["fetch", "--quiet", "origin", "main"]);
-git(["checkout", "--quiet", "-B", branch, "origin/main"]);
+git(["worktree", "add", "--quiet", "-B", branch, reportWorktree, "origin/main"]);
 mkdirSync(path.dirname(reportPath), { recursive: true });
 const agentReview = readAgentReview(args.receipt);
 writeFileSync(reportPath, failureReport(receipt, args.receipt, agentReview));
-git(["add", reportRel]);
-git(["commit", "-m", "automation: report dashboard smoke failure"]);
-git(["push", "--set-upstream", "origin", branch]);
+git(["add", reportRel], reportWorktree);
+git(["commit", "-m", "automation: report dashboard smoke failure"], reportWorktree);
+git(["push", "--set-upstream", "origin", branch], reportWorktree);
 
 const pr = await githubJson(`/repos/${repoSlug}/pulls`, {
   method: "POST",
@@ -158,8 +160,8 @@ async function githubJson(apiPath, options) {
   return response.status === 204 ? {} : response.json();
 }
 
-function git(args) {
-  return execFileSync("git", args, { cwd: repo, encoding: "utf8" }).trim();
+function git(args, cwd = repo) {
+  return execFileSync("git", args, { cwd, encoding: "utf8" }).trim();
 }
 
 function parseArgs(raw) {
@@ -194,6 +196,10 @@ function selfTest() {
   );
   if (report.includes("secret-token")) throw new Error("self-test: report did not redact secret-like text");
   if (report.includes("token=secret")) throw new Error("self-test: agent finding did not redact secret-like text");
+  const source = readFileSync(fileURLToPath(import.meta.url), "utf8");
+  if (!source.includes("git([\"worktree\", \"add\"") || source.includes("checkout\", \"--quiet\", \"-B\"")) {
+    throw new Error("self-test: self-healing must create its report branch in a separate worktree");
+  }
   console.log("dashboard self-healing PR: self-test passed");
 }
 

@@ -38,10 +38,10 @@ assertReadOnlyConnection("stg", stgUrl, true);
 assertReadOnlyConnection("oci", ociUrl, true);
 
 for (const table of config.businessDataParity.criticalTables) {
-  compareCount(table, "criticalTables", true);
+  compareTable(table, "criticalTables", true);
 }
 for (const table of config.businessDataParity.bestEffortTables) {
-  compareCount(table, "bestEffortTables", false);
+  compareTable(table, "bestEffortTables", false);
 }
 runSentinel("cbe_herd_analytics_window", cbeHerdWindowSql());
 runZeroRowSentinel("godel_2_timewise_adg", godelTimewiseAdgSql());
@@ -57,20 +57,27 @@ writeJson(outPath, result);
 console.log(`dashboard business data parity ${result.status}; wrote ${path.relative(repo, outPath)}`);
 if (result.status !== "pass") process.exit(1);
 
-function compareCount(table, section, critical) {
-  const sql = readOnlySql(`select count(*)::text from ${quoteIdent(table)}`);
-  const stg = psql(stgUrl, sql);
-  const oci = psql(ociUrl, sql);
-  const row = { stg: stg.value, oci: oci.value, status: "pass" };
+function compareTable(table, section, critical) {
+  const stg = psqlRows(stgUrl, readOnlySql(tableFingerprintSql(table)));
+  const oci = psqlRows(ociUrl, readOnlySql(tableFingerprintSql(table)));
+  const row = {
+    stg: tableFingerprintObject(stg.rows?.[0]),
+    oci: tableFingerprintObject(oci.rows?.[0]),
+    status: "pass"
+  };
   if (stg.error || oci.error) {
     row.status = critical ? "fail" : "skip";
     row.error = redactText(stg.error ?? oci.error);
-  } else if (stg.value !== oci.value) {
+  } else if (row.stg?.count !== row.oci?.count) {
     row.status = critical ? "fail" : "warn";
-    row.delta = Number(oci.value) - Number(stg.value);
+    row.reason = "count_mismatch";
+    row.delta = Number(row.oci?.count ?? 0) - Number(row.stg?.count ?? 0);
+  } else if (row.stg?.fingerprint !== row.oci?.fingerprint) {
+    row.status = critical ? "fail" : "warn";
+    row.reason = "fingerprint_mismatch";
   }
   result[section][table] = row;
-  if (row.status === "fail") result.blockers.push({ kind: "table_count_mismatch", table, ...row });
+  if (row.status === "fail") result.blockers.push({ kind: "table_parity_mismatch", table, reason: row.reason ?? "query_failed", ...row });
 }
 
 function runSentinel(name, sql) {
@@ -265,6 +272,10 @@ function cbeHerdWindowSql() {
   return `
 with cbe as (
   select location_id from locations where location_code = 'CBE' and location_type = 'park' limit 1
+), window as (
+  select
+    ((now() at time zone 'Asia/Kolkata')::date - interval '7 days')::date as start_date,
+    (now() at time zone 'Asia/Kolkata')::date as end_date
 ), live as (
   select
     count(*)::text total,
@@ -279,14 +290,35 @@ with cbe as (
   select
     count(*) filter (where lifecycle_status = 'dead' or exit_reason = 'death')::text deaths,
     count(*) filter (where lifecycle_status = 'sold' or exit_reason = 'sale')::text sold
-  from goats g, cbe
+  from goats g, cbe, window
   where g.tenant_id = '00000000-0000-4000-8000-000000000001'
     and g.park_id = cbe.location_id
     and g.merged_into_goat_id is null
     and coalesce((g.exited_at at time zone 'Asia/Kolkata')::date, (g.updated_at at time zone 'Asia/Kolkata')::date)
-      between date '2026-09-14' and date '2026-09-21'
+      between window.start_date and window.end_date
 )
 select total, kids, adults, deaths, sold from live, flow`;
+}
+
+function tableFingerprintSql(table) {
+  const ident = quoteIdent(table);
+  return `
+with rows as (
+  select md5(row_to_json(t)::text) as row_hash
+  from ${ident} t
+)
+select
+  count(*)::text as row_count,
+  md5(coalesce(string_agg(row_hash, '' order by row_hash), '')) as content_fingerprint
+from rows`;
+}
+
+function tableFingerprintObject(row) {
+  if (!row) return null;
+  return {
+    count: Number(row[0]),
+    fingerprint: row[1] || null
+  };
 }
 
 function godelTimewiseAdgSql() {
@@ -414,31 +446,60 @@ function readOnlySql(sql) {
 }
 
 function assertReadOnlyConnection(name, databaseUrl, required) {
-  const proof = psqlRows(databaseUrl, readOnlySql(`
+  const transactionProof = psqlRows(databaseUrl, readOnlySql(`
 select
   current_user,
   current_setting('transaction_read_only'),
   current_setting('default_transaction_read_only')`));
-  const row = proof.rows?.[0];
+  const grantProof = psqlRows(databaseUrl, roleGrantProofSql());
+  const row = transactionProof.rows?.[0];
+  const grant = grantProof.rows?.[0];
+  const writePrivilegedTables = grant?.[2] ? grant[2].split(",").filter(Boolean) : [];
   result.readOnlyProof[name] = {
     user: row?.[0] ?? null,
     transactionReadOnly: row?.[1] ?? null,
     defaultTransactionReadOnly: row?.[2] ?? null,
+    checkedTables: Number(grant?.[0] ?? 0),
+    writePrivilegedTables,
+    roleCanCreateInPublicSchema: grant?.[1] === "true",
     status: "pass"
   };
-  if (proof.error || !row || row[1] !== "on") {
+  if (transactionProof.error || grantProof.error || !row || row[1] !== "on" || writePrivilegedTables.length > 0 || grant?.[1] === "true") {
     result.readOnlyProof[name].status = required ? "fail" : "skip";
-    result.readOnlyProof[name].error = proof.error;
+    result.readOnlyProof[name].error = transactionProof.error ?? grantProof.error;
     if (required) {
       result.blockers.push({
         kind: "read_only_proof_failed",
         database: name,
         user: result.readOnlyProof[name].user,
         transactionReadOnly: result.readOnlyProof[name].transactionReadOnly,
-        defaultTransactionReadOnly: result.readOnlyProof[name].defaultTransactionReadOnly
+        defaultTransactionReadOnly: result.readOnlyProof[name].defaultTransactionReadOnly,
+        writePrivilegedTables,
+        roleCanCreateInPublicSchema: result.readOnlyProof[name].roleCanCreateInPublicSchema
       });
     }
   }
+}
+
+function roleGrantProofSql() {
+  return `
+with checked(table_name) as (
+  values ${config.businessDataParity.criticalTables.map((table) => `(${sqlLiteral(table)})`).join(", ")}
+), privilege_scan as (
+  select
+    table_name,
+    has_table_privilege(current_user, 'public.' || table_name, 'INSERT')
+      or has_table_privilege(current_user, 'public.' || table_name, 'UPDATE')
+      or has_table_privilege(current_user, 'public.' || table_name, 'DELETE')
+      or has_table_privilege(current_user, 'public.' || table_name, 'TRUNCATE')
+      as has_write_privilege
+  from checked
+)
+select
+  count(*)::text,
+  has_schema_privilege(current_user, 'public', 'CREATE')::text,
+  coalesce(string_agg(table_name, ',' order by table_name) filter (where has_write_privilege), '')
+from privilege_scan`;
 }
 
 function quoteIdent(value) {
@@ -474,6 +535,12 @@ function selfTest() {
   if (!config.businessDataParity.criticalTables.includes("goat_sale_allocations")) {
     throw new Error("self-test: goat_sale_allocations must be a critical sales parity table");
   }
+  if (config.businessDataParity.criticalTableFingerprintRequired !== true) {
+    throw new Error("self-test: critical table fingerprints must be required");
+  }
+  if (config.businessDataParity.fieldReconciliationsAreDatedEvidence !== true) {
+    throw new Error("self-test: field reconciliations must be marked as dated evidence");
+  }
   if (!config.businessDataParity.bestEffortTables.some((table) => table.includes("herd_signal"))) {
     throw new Error("self-test: herd signal telemetry must be best-effort");
   }
@@ -491,6 +558,17 @@ function selfTest() {
   }
   if (!readOnlySql("select 1").includes("begin read only") || !readOnlySql("select 1").includes("rollback")) {
     throw new Error("self-test: parity SQL must run inside an explicit read-only transaction");
+  }
+  const fingerprintSql = tableFingerprintSql("goats");
+  for (const fragment of ["row_to_json", "content_fingerprint", "order by row_hash"]) {
+    if (!fingerprintSql.includes(fragment)) throw new Error(`self-test: table fingerprint SQL missing ${fragment}`);
+  }
+  const grantSql = roleGrantProofSql();
+  for (const fragment of ["has_table_privilege", "has_schema_privilege", "TRUNCATE"]) {
+    if (!grantSql.includes(fragment)) throw new Error(`self-test: read-only role proof SQL missing ${fragment}`);
+  }
+  if (cbeHerdWindowSql().includes("2026-09-21")) {
+    throw new Error("self-test: CBE herd window must not be pinned to a stale calendar date");
   }
   const aliasSql = weighingPenAliasFormBRowsSql();
   for (const fragment of ["weighing_campaign_sheds", "partition_label", "locations alias", "form_b_rows"]) {

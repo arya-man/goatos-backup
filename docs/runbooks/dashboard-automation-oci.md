@@ -65,6 +65,12 @@ tools/dashboard-automation/install-oci-user-timer.sh
 The runner writes receipts under `.codex-goatos-render/dashboard-automation/<run>/receipt.json`.
 Receipts redact bearer tokens, JWT-looking strings, and Anthropic key material.
 
+The business-data parity layer must use DB identities that have no effective write privileges on the
+critical business tables and cannot create objects in the public schema. The receipt records the
+current DB user, read-only transaction proof, checked table count, and any unexpected write-privileged
+tables. This is a catalog/grant proof plus `BEGIN READ ONLY` transaction enforcement; it must not
+probe STG or OCI by attempting writes.
+
 ## Slack alerts
 
 The channel for human-facing automation alerts is `goatos-automation-alerts`
@@ -126,7 +132,7 @@ The scheduled OCI run must cover these regular read-only flows:
 - every registered admin page, nested tab, representative filter state, and safe detail/drawer
   overlay;
 - critical business-data parity for goats, identifiers, locations/partitions, weighing, feed,
-  procurement, sales, and vaccination;
+  procurement, sales, and vaccination, using both row counts and deterministic content fingerprints;
 - dashboard/API latency gates for normal read APIs, with bulk import/export/upload paths explicitly
   excluded from the sub-500 ms rule;
 - failure-string and HTTP-error gates for `backend_down`, `Admin-web contract unavailable`,
@@ -178,6 +184,19 @@ Cases 1, 2, 3, 4, and 6 are read-only automation targets for STG/OCI parity and 
 Case 6 is already implemented by `weighing_pen_alias_form_b_rows`. Case 5 is a write-path round-trip,
 so it must run only in a disposable preview/integration stack; it must never create or repair rows in
 STG, prod, or the OCI parity database.
+
+The CBE Herd Analytics window sentinel follows the current `Asia/Kolkata` business date at run time.
+It must not stay pinned to a historical September 2026 week.
+
+Castro field reconciliations are dated evidence checks. They deliberately compare the configured
+operator-observed snapshot against STG and OCI for the named date/source; they are not a replacement
+for a continuously changing live herd truth source. If the real-world field baseline changes, update
+the dated reconciliation explicitly rather than silently weakening the sentinel.
+
+Herd Signal tables remain best-effort in this dashboard parity layer. A green dashboard automation
+receipt does not certify Herd Signal telemetry freshness; it certifies only that Herd Signal mismatches
+did not block the business-table dashboard smoke. Treat any Herd Signal warning in the receipt as
+residual risk to inspect separately.
 
 Android is included in the pattern review but not as a default OCI emulator/device job. The Android
 project already needs a 4 GB Gradle heap, and emulator/macrobenchmark requires additional RAM, CPU,

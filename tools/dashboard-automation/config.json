@@ -77,6 +77,8 @@
     "stgReadIdentityRequired": true,
     "stgReadOnlyTransactionRequired": true,
     "ociReadOnlyCheckRequired": true,
+    "criticalTableFingerprintRequired": true,
+    "fieldReconciliationsAreDatedEvidence": true,
     "criticalTables": [
       "goats",
       "goat_identifiers",
@@ -115,7 +117,7 @@
       {
         "name": "castro_reconciliation",
         "implementationStatus": "implemented",
-        "description": "Castro operator evidence reconciliation, backed by fieldReconciliations for current/dead/ICU/sold/Y1/total counts."
+        "description": "Castro operator evidence reconciliation, backed by dated fieldReconciliations for current/dead/ICU/sold/Y1/total counts."
       },
       {
         "name": "godel_2_timewise_adg",

@@ -189,7 +189,7 @@
           "id": "gain_span_days_matches_requested_window",
           "source": "Manohar Godel 2 ADG note 2026-09-21 test case 2",
           "expected": "gain_span_days follows the selected date window and must not stay pinned to seven days when the user asks for 14/21/28 day windows.",
-          "automation": "Read-only ADG API semantic check over known pens/windows, backed by STG-to-OCI parity so OCI data can reproduce the STG bug.",
+          "automation": "Read-only live ADG API semantic smoke calls /weighing/leadership/growth over 14/21/28-day windows, re-queries a focused populated pen, and fails if populated windows collapse to the same payload.",
           "environment": "stg_read_only_and_oci_read_only",
           "writesAllowed": false
         },
@@ -197,7 +197,7 @@
           "id": "window_variance_changes_adg",
           "source": "Manohar Godel 2 ADG note 2026-09-21 test case 3",
           "expected": "Three different windows for a pen with real history return three independently computed ADG values, not the same frozen value.",
-          "automation": "Read-only ADG API semantic check using fixed STG fixture pens such as the Godel 2 class.",
+          "automation": "Read-only live ADG API semantic smoke over 14/21/28-day windows with focused pen re-query, plus the parity sentinel that keeps OCI data aligned enough to reproduce the STG bug class.",
           "environment": "stg_read_only_and_oci_read_only",
           "writesAllowed": false
         },
@@ -205,7 +205,7 @@
           "id": "operational_location_display_not_doubled",
           "source": "Manohar Godel 2 ADG note 2026-09-21 test case 4",
           "expected": "operational_location_display never appends the partition twice, for example no Godel 2 - Part 1 - Part 1.",
-          "automation": "Read-only API/UI string guard in weighing pages and API payloads.",
+          "automation": "Visual smoke fails on doubled operational partition labels, and business-data parity blocks Form-B alias rows that create the duplicated-label/source split.",
           "environment": "stg_read_only_and_oci_read_only",
           "writesAllowed": false
         },
