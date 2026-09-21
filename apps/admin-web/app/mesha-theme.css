@@ -3402,7 +3402,9 @@ select:disabled { opacity: .45; }
    list of child classes, so a future row added to these cards is inset by default instead of
    silently reintroducing the defect. */
 .wtable{padding:14px 0}
-.wtable > :not(.tablewrap){padding-left:16px;padding-right:16px}
+/* `.twrap` is the same wrapper one class over (the loads ledger uses it); both own their own
+   horizontal scroll, so both must be excluded, or the table is inset away from its own rules. */
+.wtable > :not(.tablewrap):not(.twrap){padding-left:16px;padding-right:16px}
 /* The table needs air from the caption above it and the pager below it, which the card's own
    padding no longer provides now that the wrapper is excluded from it. */
 .wtable > .tablewrap{margin:12px 0}
@@ -3412,6 +3414,19 @@ select:disabled { opacity: .45; }
    separators must still reach the frame. */
 .wtable table.tbl th:first-child,
 .wtable table.tbl td:first-child{padding-left:16px}
+/* The loads ledger, same treatment: its own wrapper gets the air the card no longer provides, and
+   its outer columns line up with the card's text. */
+.wtable > .twrap{margin:12px 0}
+.wtable table.loadwise-table th:first-child,
+.wtable table.loadwise-table td:first-child{padding-left:16px}
+.wtable table.loadwise-table th:last-child,
+.wtable table.loadwise-table td:last-child{padding-right:16px}
+/* The pens cell is the one column that may WRAP. Every other cell here is nowrap on purpose (a
+   load number and a 3-letter park must never break character-by-character), but a load sitting in
+   three pens is a sentence, and holding it on one line pushes the numeric columns behind a
+   horizontal scrollbar for the sake of text nobody reads left-to-right. */
+.main table.loadwise-table th.pens,
+.main table.loadwise-table td.pens{white-space:normal;overflow-wrap:normal;word-break:normal;min-width:180px}
 /* ---- Shed daily-gain / average-weight TABLE view ---------------------------------------------
    The same card as the bar chart, read as exact figures (maintainer request 2026-09-01).
    `table-layout:fixed` because a pen label carries its whole breed/sex composition — "Yashoda 7
