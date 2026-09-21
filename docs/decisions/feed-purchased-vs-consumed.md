@@ -17,10 +17,17 @@ and stays blank.
   `feed_purchases` (migration `000381`), `CHECK (days_of_stock IS NULL OR days_of_stock > 0)`.
   Zero is **rejected**, never read as "not stated": a client that coerces a blank box into `0`
   must hear about it rather than store a belief nobody held.
-- **Reading**: the **Purchased vs consumed** tab on `/feed/analytics`, served by
-  `GET /feed-analytics/stock-loads`. It rides the Stock tab's permission
-  (`feed_analytics.stock.read`), so whoever sees Stock — the Procurement Director included — sees
-  it. The Procurement Director's stock-scope page therefore now offers two tabs.
+- **Reading**: the **last table on the Stock tab** of `/feed/analytics` (maintainer instruction,
+  2026-09-21 — it was briefly a tab of its own), served by `GET /feed-analytics/stock-loads`. The
+  cards answer "how much is in the store"; this answers "what happened to each load that put it
+  there", and a reader should not change tabs between the two. Being a table on that tab, it rides
+  the stock permission (`feed_analytics.stock.read`) by construction: there is no separate tab
+  option to grant or withhold, so whoever sees Stock — the Procurement Director included — sees it.
+- **Milk is left out** of the rows and of the feed-item filter (maintainer instruction, same day).
+  UHT milk is drawn by preparation batches rather than the ration sheet, so days-of-stock per load
+  is not a question about it, and an option that can never produce a row would be a dead one. The
+  exclusion is one named list, `domain.StockLoadExcludedFeedItemKeys`, reporting-only; milk stock,
+  milk purchases and the milk consumption series are untouched everywhere else.
 
 ## The arithmetic, and why it is FIFO
 
@@ -50,10 +57,20 @@ Days:
   (no figure stated, or no rate to project from). A check nobody could make is not a check that
   passed, so absence renders as a dash, never as "matches".
 
-Zero means the buyer's figure held. Positive means the load is lasting longer than it was bought
-for (amber). **Negative is red**: the load ran, or will run, out sooner than said — the case that
-leaves animals unfed if nobody re-orders in time. The tab leads with the whole-filter count of
-negative loads so a reader on page one knows how many sit on later pages.
+Zero means the buyer's figure held.
+
+> **OPEN — the sign of this check is currently mislabelled, raised 2026-09-21 and awaiting the
+> maintainer's call.** With `gap = said − used − left`, a load that runs SHORT produces a POSITIVE
+> number and one that lasts LONGER produces a NEGATIVE one — but the copy reads `+N days` for the
+> first and "N days short" (red) for the second, which is the wrong way round on both. Observed
+> live: a load said to cover 12 days, 13 used with 1 left (so 2 days LONGER), rendered "2 days
+> short". The arithmetic matches the instruction as given; only the words and tones hung on it are
+> inverted. Resolve by either relabelling (positive = short, red) or negating the formula; do not
+> change one half alone.
+
+The whole-filter count of negative loads was shown as a tile above the table and was REMOVED on
+2026-09-21 (maintainer instruction) along with its `negative_gaps` field, end to end — a payload key
+no consumer reads is an accept-and-discard, so it is deleted rather than left served.
 
 An in-transit load shows its bought quantity as what is coming, nothing consumed, and no days
 projection.
@@ -127,6 +144,14 @@ days consumed.
   bought late but delivered early. Mutation-tested four ways (relaxing the boundary to `>=`,
   reading `quantity_kg` instead of `stock_kg`, ordering FIFO by purchase day instead of arrival
   day, and letting in-transit loads hold a place) — each turns it red.
+- `feeddirection/adapters/postgres.TestStockLoadsEndToEndFromPurchaseThroughSheetLockToCorrection`
+  — the whole chain through both modules' real write paths, nothing hand-inserted: a load recorded
+  through procurement's `CreateFeedPurchase`, a sheet ISSUED (which must move nothing) then LOCKED
+  (which is the moment stock moves), the rate proved as the mean of the three most recent locked
+  days, and corrections through `UpdateFeedPurchase` — stated days, quantity, and clearing the
+  figure — each reaching the very next read rather than a stale cached page. Mutation-tested by
+  letting an issued sheet deplete stock and by narrowing the rate window to two days.
+- `feeddirection/adapters/postgres.TestStockLoadsLeavesMilkOutOfTheTableAndOutOfTheFeedFilter`.
 - `feeddirection/domain.TestStockLoadGapIsAbsentWheneverEitherSideIsUnknown`.
 - `procurement/domain.TestFeedPurchaseValidateRejectsEachBadField` (zero / negative days) and
   `procurement/adapters/postgres.TestFeedPurchaseEditPostgresPaths` (recorded, edited, cleared).
