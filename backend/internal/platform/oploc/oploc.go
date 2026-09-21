@@ -207,3 +207,90 @@ func SplitShedPartitionName(name string) (shedName, partitionLabel string) {
 	}
 	return strings.TrimSpace(m[3]), m[4]
 }
+
+// ResolveComposedName is for the ONE caller shape Display() cannot serve safely: a caller whose
+// shed-NAME source may ALREADY be a composed operational display.
+//
+// Display() appends unconditionally, and correctly so -- it is handed a physical shed name and a
+// partition. But several row sources do not hold a physical shed name. A weighing bucket's
+// `display_name`, a synthetic per-partition location's own `name`, and every catalog row in the
+// legacy partition-alias shape all read "Godel 2 - Part 1" while a sibling column separately says
+// "Part 1". Feeding that pair to Display() renders "Godel 2 - Part 1 - Part 1", which is what an
+// operator saw on the weighing schedule on 2026-09-21.
+//
+// This has now been fixed FOUR times, once per sighting, by bolting a private suffix check onto
+// whichever call site was reported: growth.go's leaderboard, the admin-web helper's
+// sourceShedName arm, WeighingRepository.kt's endsWith guard, and this. Each fix left the
+// composer naive, so the NEXT call site started unguarded again -- commit 2095f11e4 added two on
+// the same afternoon. The knowledge belongs in ONE named function that a new caller can find,
+// which is this one. A caller that genuinely holds a physical shed name must keep using Display();
+// this is deliberately not the default, because guessing is only correct when the input really may
+// be pre-composed.
+//
+// It returns all three fields rather than just the string so a caller can stamp ParentShedName and
+// PartitionLabel from the same decision that produced the display -- three fields derived by two
+// different rules is how they come to disagree.
+//
+// WHAT IT CANNOT DO, stated because the limit is real and permanent: "Mandela 1" + partition "1"
+// is genuinely ambiguous. It is either the composed display of shed "Mandela" pen "1", or the
+// undivided shed named "Mandela 1" that happens to hold a pen "1". Nothing in the two strings
+// says which, and AGENTS.md records that the numeric convention is NOT parseable from a name.
+// This resolves it as ALREADY-COMPOSED, which is the behaviour the weighing campaign-shed read
+// has shipped and rendered on the farm's screens since 2026-08-10. Preserving that is the point:
+// the fasting card and the task card name the same pen, and the one thing worse than an arguable
+// label is two surfaces disagreeing about it.
+//
+// That ambiguity is also, today, UNREACHABLE on real data, and the reason is worth writing down
+// because it is a property of the register rather than of this code: every bare-numeric pen in the
+// live catalog hangs off a parent whose name has NO trailing digit (Castro, Gandhi, Yashoda, Ho Chi
+// Minh, Old Yashoda), while every parent that DOES end in a digit (Godel 1/2, Mandela 1/2) uses the
+// worded "Part N" convention, which is unambiguous. So no pair reaching this function can be read
+// both ways. Pinned by TestResolveComposedNameAmbiguityIsUnreachableOnTheLiveConventions -- if the
+// farm ever names a pen "1" under a shed "Mandela 1", that test is where the decision gets made.
+func ResolveComposedName(shedID, name, storedPartitionLabel string) (parentShedName, partitionLabel, display string) {
+	trimmedName := strings.TrimSpace(name)
+	parsedParent, parsedPartition := SplitShedPartitionName(trimmedName)
+
+	partitionLabel = strings.TrimSpace(storedPartitionLabel)
+	if partitionLabel == "" {
+		// No stored label: the NAME is the only evidence, so its own worded suffix is the answer.
+		// An unpartitioned name parses to itself with an empty label and composes back to itself.
+		parentShedName = parsedParent
+		partitionLabel = parsedPartition
+	} else {
+		parentShedName = parentFromComposedName(trimmedName, parsedParent, partitionLabel)
+	}
+
+	display = OperationalLocation{
+		ShedID:         strings.TrimSpace(shedID),
+		ShedName:       parentShedName,
+		PartitionLabel: partitionLabel,
+	}.Display()
+	return parentShedName, partitionLabel, display
+}
+
+// parentFromComposedName strips an ALREADY-APPENDED partition off a name, in the exact two forms
+// Display() itself appends -- " - Part 3" (worded) and " 1" (bare numeric). Checking for the
+// separator, rather than the bare label, is what keeps a shed named "Part 3 Annexe" from being
+// mistaken for a composed one.
+//
+// The bare-numeric arm matters and is not defensive padding: a park whose canonical shed carries
+// catalog partitions stores display_name "Castro 1" beside partition_label "1", and the Kotlin
+// guard this replaces checked only the worded form -- so "Castro 1 1" was still reachable.
+//
+// Falling back to the PARSED parent before the raw name keeps a row whose stored label disagrees
+// with its name ("Godel 2 - Part 1" stored against label "Part 7") from rendering the partition
+// twice over; the stored label wins, as the authoritative column.
+func parentFromComposedName(name, parsedParent, partition string) string {
+	for _, suffix := range []string{" - " + partition, " " + partition} {
+		if strings.HasSuffix(name, suffix) {
+			if parent := strings.TrimSpace(strings.TrimSuffix(name, suffix)); parent != "" {
+				return parent
+			}
+		}
+	}
+	if strings.TrimSpace(parsedParent) != "" {
+		return strings.TrimSpace(parsedParent)
+	}
+	return name
+}

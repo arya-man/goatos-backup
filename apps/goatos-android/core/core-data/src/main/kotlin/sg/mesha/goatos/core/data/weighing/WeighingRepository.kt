@@ -60,6 +60,7 @@ import java.util.UUID
 import java.time.Instant
 import java.time.ZoneId
 import java.time.format.DateTimeFormatter
+import sg.mesha.goatos.core.common.composeOperationalLocationLabelFromComposedName
 
 data class WeighingScanMatch(
     val row: WeighingRosterRowEntity?,
@@ -3381,14 +3382,14 @@ fun weighingCacheAgeNotice(cachedAt: Long, now: Long = System.currentTimeMillis(
     return "Saved on ${cachedDay.format(WEIGHING_CACHE_DAY_FORMAT)}."
 }
 
-private fun operationalWeighingLocationLabel(shedName: String?, partitionLabel: String?): String {
-    val shed = shedName?.trim().orEmpty()
-    val partition = partitionLabel?.trim().orEmpty()
-    if (partition.isBlank() || partition.equals("whole", ignoreCase = true)) return shed
-    if (shed.isBlank()) return partition
-    if (shed.endsWith(" - $partition", ignoreCase = true)) return shed
-    return "$shed - $partition"
-}
+/**
+ * Retired in favour of the shared [composeOperationalLocationLabelFromComposedName], which is the Kotlin
+ * twin of Go's `oploc.ResolveComposedName`. This private copy guarded only the worded " - Part 3"
+ * form, so a park sending "Castro 1" beside partition "1" still doubled; keeping two helpers is
+ * also how the view-model call sites came to use the unguarded one.
+ */
+private fun operationalWeighingLocationLabel(shedName: String?, partitionLabel: String?): String =
+    composeOperationalLocationLabelFromComposedName(shedName, partitionLabel)
 
 /** Weighing is planned, executed and read on the Asia/Kolkata business day. */
 private const val WEIGHING_CACHE_BUSINESS_ZONE = "Asia/Kolkata"

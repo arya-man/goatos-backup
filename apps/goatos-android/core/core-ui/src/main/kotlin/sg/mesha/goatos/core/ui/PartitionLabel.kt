@@ -1,5 +1,9 @@
 package sg.mesha.goatos.core.ui
 
+import sg.mesha.goatos.core.common.WHOLE_SHED_PARTITION
+import sg.mesha.goatos.core.common.composeOperationalLocationLabel
+import sg.mesha.goatos.core.common.composeOperationalLocationLabelFromComposedName
+
 /**
  * Shed-partition display rules, shared by every surface that shows a drive's shed/partition so the
  * same label can never render two different ways.
@@ -38,37 +42,9 @@ fun partitionDisplayLabel(partition: String, format: (String) -> String): String
  *    "Godel 1 1" space form would be ambiguous without the dash convention distinguishing it).
  * Keep identical to oploc.Display() (Go) and lib/operational-location.ts (admin-web).
  */
-fun operationalLocationLabel(shedName: String?, partitionLabel: String?): String {
-    val normalizedShed = shedName?.trim().takeIf { !it.isNullOrEmpty() } ?: ""
-    val normalizedPartition = partitionLabel?.trim().takeIf { !it.isNullOrEmpty() } ?: ""
+fun operationalLocationLabel(shedName: String?, partitionLabel: String?): String =
+    composeOperationalLocationLabel(shedName, partitionLabel)
 
-    // No partition or literal "whole" means non-partitioned
-    if (normalizedPartition.isEmpty() || normalizedPartition.equals("whole", ignoreCase = true)) {
-        return normalizedShed
-    }
-
-    // No shed name: return partition label alone (fallback)
-    if (normalizedShed.isEmpty()) {
-        return normalizedPartition
-    }
-
-    // Select separator based on partition format: bare numerals use space; worded labels use dash.
-    // isAlreadyWordedPartition is still used by partitionDisplayLabel above (the standalone chip,
-    // where re-wording "Part 3" would read "Part Part 3"); only this JOIN checks the format.
-    val separator = if (isBarNumericPartition(normalizedPartition)) " " else " - "
-    return "$normalizedShed$separator$normalizedPartition"
-}
-
-/**
- * True when the partition label is a bare ordinal (e.g., "1", "42") with no "Part" prefix or other wording.
- * Used to determine the separator in operationalLocationLabel: bare numerics join with space,
- * worded labels join with " - ".
- */
-private fun isBarNumericPartition(label: String): Boolean {
-    val trimmed = label.trim()
-    if (trimmed.isEmpty()) return false
-    return trimmed.all { it.isDigit() }
-}
 
 /**
  * True when the raw label already reads as a partition phrase, so re-wording it would double the
@@ -78,6 +54,24 @@ private fun isBarNumericPartition(label: String): Boolean {
 private fun isAlreadyWordedPartition(partition: String): Boolean =
     ALREADY_WORDED_PARTITION.containsMatchIn(partition)
 
-private const val WHOLE_SHED_PARTITION = "whole"
 
 private val ALREADY_WORDED_PARTITION = Regex("^parts?\\b", RegexOption.IGNORE_CASE)
+
+/**
+ * Formats an operational location for a caller whose SHED-NAME source may ALREADY be a composed
+ * operational display — the Kotlin twin of Go's `oploc.ResolveComposedName`, and the only safe
+ * entry point for a weighing bucket, whose `display_name` already carries the pen while a sibling
+ * field separately says `partition_label`.
+ *
+ * [operationalLocationLabel] appends unconditionally, which is right when it is handed a physical
+ * shed name. Handed "Mandela 1 - Part 1" and "Part 1" it renders "Mandela 1 - Part 1 - Part 1",
+ * which is what an operator read on the weighing schedule on 2026-09-21.
+ *
+ * Prefer the backend's own `operational_location_display` whenever the payload carries it; this is
+ * for the surfaces that hold only the name/label pair. It strips the partition in the exact two
+ * forms [operationalLocationLabel] appends — " - Part 3" and " 1" — so composing twice is a no-op.
+ * The bare-numeric arm is not padding: a park whose canonical shed carries catalog partitions
+ * sends "Castro 1" beside "1", and the guard this replaces checked only the worded form.
+ */
+fun operationalLocationLabelFromComposedName(shedName: String?, partitionLabel: String?): String =
+    composeOperationalLocationLabelFromComposedName(shedName, partitionLabel)

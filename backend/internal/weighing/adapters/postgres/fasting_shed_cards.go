@@ -179,7 +179,8 @@ func (r *Repository) ListFastingShedCardsForOperator(ctx context.Context, tenant
 		if len(card.ProofRefs) == 0 {
 			card.ProofRefs = nil
 		}
-		card.ShedLabel = oploc.OperationalLocation{ShedName: displayName, PartitionLabel: partitionLabel}.Display()
+		// display_name already carries the pen; ResolveComposedName appends it once, never twice.
+		_, _, card.ShedLabel = oploc.ResolveComposedName("", displayName, partitionLabel)
 		card.SubjectLabel = domain.FastingShedSubjectLabel(card.ShedLabel)
 		card.RemovalBusinessDate = domain.RemovalBusinessDate(card.WeighBusinessDate)
 		card.SubmittedAt = submittedAt
@@ -403,7 +404,9 @@ func (r *Repository) SubmitFastingShed(ctx context.Context, cmd domain.SubmitFas
 		return domain.FastingShedSubmitResult{}, err
 	}
 
-	shedLabel := oploc.OperationalLocation{ShedName: displayName, PartitionLabel: partitionLabel}.Display()
+	// PERSISTED on submit, into weighing_fasting_shed_proofs.shed_label and onward into the
+	// verifier item's subject line -- so a double here is written down, not merely rendered.
+	_, _, shedLabel := oploc.ResolveComposedName(shedLocationID, displayName, partitionLabel)
 	var fastingShedID string
 	var rowVersion int
 	answers := cmd.Answers

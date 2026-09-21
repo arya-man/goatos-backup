@@ -34,47 +34,30 @@ func splitShedPartitionName(name string) (parentShedName, partitionLabel string)
 // through oploc.OperationalLocation.Display() so it follows the exact same rendering rule as
 // every other module and can never show the "whole" sentinel.
 func applyShedPartitionDisplay(shed *domain.CampaignShed) {
-	parent, partition := splitShedPartitionName(shed.DisplayName)
-	shed.ParentShedName = parent
-	shed.PartitionLabel = partition
-	shed.OperationalLocationDisplay = oploc.OperationalLocation{
-		ShedID:         shed.LocationID,
-		ShedName:       parent,
-		PartitionLabel: partition,
-	}.Display()
+	applyShedPartitionDisplayWithStoredLabel(shed, "")
 }
 
+// applyShedPartitionDisplayWithStoredLabel is the campaign-shed binding of
+// oploc.ResolveComposedName. `display_name` is a bucket's PLANNING label and already carries the
+// pen for every partitioned row, so the stored partition column must never simply be appended to
+// it -- see that function for the defect this shape produced.
 func applyShedPartitionDisplayWithStoredLabel(shed *domain.CampaignShed, storedPartitionLabel string) {
-	applyShedPartitionDisplay(shed)
-	partition := strings.TrimSpace(storedPartitionLabel)
-	if partition == "" {
-		return
-	}
-	parent := parentShedNameFromStoredPartitionDisplay(shed.DisplayName, shed.ParentShedName, partition)
-	shed.ParentShedName = parent
-	shed.PartitionLabel = partition
-	shed.OperationalLocationDisplay = oploc.OperationalLocation{
-		ShedID:         shed.LocationID,
-		ShedName:       parent,
-		PartitionLabel: partition,
-	}.Display()
+	shed.ParentShedName, shed.PartitionLabel, shed.OperationalLocationDisplay =
+		oploc.ResolveComposedName(shed.LocationID, shed.DisplayName, storedPartitionLabel)
 }
 
+// parentShedNameFromStoredPartitionDisplay survives for the leadership binding below, which owns
+// a ShedName rather than a DisplayName field. It defers to oploc so there is still exactly one
+// implementation of the strip.
 func parentShedNameFromStoredPartitionDisplay(displayName, parsedParent, partition string) string {
-	display := strings.TrimSpace(displayName)
-	partition = strings.TrimSpace(partition)
-	for _, suffix := range []string{" - " + partition, " " + partition} {
-		if partition != "" && strings.HasSuffix(display, suffix) {
-			parent := strings.TrimSpace(strings.TrimSuffix(display, suffix))
-			if parent != "" {
-				return parent
-			}
-		}
+	parent, _, _ := oploc.ResolveComposedName("", displayName, partition)
+	if strings.TrimSpace(parent) != "" {
+		return parent
 	}
 	if strings.TrimSpace(parsedParent) != "" {
 		return strings.TrimSpace(parsedParent)
 	}
-	return display
+	return strings.TrimSpace(displayName)
 }
 
 // applyPlannerShedPartitionDisplay is the PlannerShed twin of applyShedPartitionDisplay.

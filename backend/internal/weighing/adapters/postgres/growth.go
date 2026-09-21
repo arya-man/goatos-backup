@@ -1110,22 +1110,11 @@ ORDER BY sw.shed_name, sw.partition_label`
 			&row.MedianADGGPerDay, &row.ADGPairCount); err != nil {
 			return nil, err
 		}
-		// COMPOSE ONLY WHEN THE NAME DOES NOT ALREADY CARRY THE PEN. A weighing bucket is often a
-		// SYNTHETIC per-partition location whose own name is already "Mandela 1 - Part 5", and
-		// oploc.Display() appends unconditionally (correctly -- it is given a shed name and a
-		// partition). Feeding it a name that already ends in the partition produced
-		// "Mandela 1 - Part 5 - Part 5". The field was never read by a screen until the gain chart
-		// started using it, so the doubling sat here unseen; the same guard is used by the sibling
-		// composer in growthdirector's operationalLabel.
-		if row.PartitionLabel != "" && strings.HasSuffix(row.DisplayName, row.PartitionLabel) {
-			row.OperationalLocationDisplay = row.DisplayName
-		} else {
-			row.OperationalLocationDisplay = (oploc.OperationalLocation{
-				ShedID:         row.LocationID,
-				ShedName:       row.DisplayName,
-				PartitionLabel: row.PartitionLabel,
-			}).Display()
-		}
+		// A weighing bucket is often a SYNTHETIC per-partition location whose own name is already
+		// "Mandela 1 - Part 5", so this goes through ResolveComposedName rather than Display().
+		// This site used to carry its own HasSuffix guard; it now shares the one implementation, so
+		// the leaderboard and the operator's card can no longer drift apart on the same pen.
+		_, _, row.OperationalLocationDisplay = oploc.ResolveComposedName(row.LocationID, row.DisplayName, row.PartitionLabel)
 		out = append(out, row)
 	}
 	return out, rows.Err()

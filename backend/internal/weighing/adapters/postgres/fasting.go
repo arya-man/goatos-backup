@@ -441,7 +441,8 @@ func (r *Repository) attachFastingSheds(ctx context.Context, items []domain.Fast
 		if len(shed.ProofKinds) == 0 {
 			shed.ProofKinds = nil
 		}
-		shed.ShedLabel = oploc.OperationalLocation{ShedName: displayName, PartitionLabel: partitionLabel}.Display()
+		// display_name already carries the pen; ResolveComposedName appends it once, never twice.
+		_, _, shed.ShedLabel = oploc.ResolveComposedName(shed.ShedLocationID, displayName, partitionLabel)
 		idx, ok := byTask[taskID]
 		if !ok {
 			continue
@@ -500,7 +501,8 @@ func scanFastingShedRows(rows pgx.Rows) ([]domain.FastingShedProof, error) {
 		if len(shed.Answers) == 0 {
 			shed.Answers = nil
 		}
-		shed.ShedLabel = oploc.OperationalLocation{ShedName: displayName, PartitionLabel: partitionLabel}.Display()
+		// display_name already carries the pen; ResolveComposedName appends it once, never twice.
+		_, _, shed.ShedLabel = oploc.ResolveComposedName(shed.ShedLocationID, displayName, partitionLabel)
 		out = append(out, shed)
 	}
 	return out, rows.Err()

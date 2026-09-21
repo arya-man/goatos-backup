@@ -524,6 +524,59 @@ const CHECKS = [
     msg: "shed name-keyed grouping or map key; shed names repeat across parks (two Castro, two Gandhi); use shed_id + park instead",
   },
   {
+    id: "composed-name-into-composer",
+    // A shed-NAME argument whose own identifier says it is a composed DISPLAY, handed to the
+    // UNCONDITIONAL composer. That composer is right to append -- it is documented as taking a
+    // PHYSICAL shed name -- so the defect is at the call site, and it renders the pen twice:
+    // "Mandela 1 - Part 1 - Part 1", read by an operator on the weighing schedule 2026-09-21.
+    //
+    // This check exists because the fix had already been applied FOUR times, once per sighting,
+    // as a private suffix guard bolted onto whichever call site was reported (growth.go's
+    // leaderboard, admin-web's sourceShedName arm, WeighingRepository.kt's endsWith). Each left
+    // the composer naive, so the next call site started unguarded -- commit 2095f11e4 added two
+    // in one afternoon and four more sat in the feed-&-water removal reads.
+    //
+    // The approved answer is the named "may already be composed" entry point:
+    //   Go      oploc.ResolveComposedName(shedID, name, partitionLabel)
+    //   Kotlin  composeOperationalLocationLabelFromComposedName(name, partitionLabel)
+    //   TS      prefer the backend's operational_location_display field
+    //
+    // PRECISION: it fires only when the shed-name argument is LEXICALLY a display -- an
+    // identifier containing "display" (displayName, ShedDisplayName, operationalLocationDisplay)
+    // or a name already ending in a composed suffix. A caller holding a genuine physical shed
+    // name (shedName, ParentShedName, locations.name) is untouched, because for that caller the
+    // unconditional composer is correct and switching would be wrong.
+    test: (line, file) => {
+      if (/^\s*(\/\/|\*|\/\*)/.test(line)) return false; // comments
+      const isGo = /backend\/.*\.go$/.test(file) && !/_test\.go$/.test(file);
+      const isKt = /apps\/goatos-android\/.*\.kt$/.test(file) && !/\/test\//.test(file);
+      const isTs = /apps\/admin-web\/.*\.(ts|tsx)$/.test(file) && !/\.test\./.test(file);
+      if (!isGo && !isKt && !isTs) return false;
+      // The approved homes may name both sides freely.
+      if (/platform\/oploc\//.test(file)) return false;
+      if (/OperationalLocationLabel\.kt$|PartitionLabel\.kt$/.test(file)) return false;
+      if (/lib\/operational-location\.ts$/.test(file)) return false;
+      // Already routed through the composed-name-safe entry point.
+      if (/ResolveComposedName|FromComposedName/.test(line)) return false;
+      // Guarded by preferring the backend-composed field first.
+      if (/operational_location_display\s*\|\||operationalLocationDisplay\.ifBlank/.test(line)) return false;
+
+      if (isGo) {
+        // oploc.OperationalLocation{ ... ShedName: <display-ish> ... }
+        const m = /ShedName:\s*([A-Za-z_][A-Za-z0-9_.]*)/.exec(line);
+        if (!m) return false;
+        if (!/display/i.test(m[1])) return false;
+        // Only when this line is part of an oploc composition or a .Display() call.
+        return /oploc\.OperationalLocation|\.Display\(\)/.test(line);
+      }
+      // Kotlin / TypeScript: first argument (or shedName property) of the plain composer.
+      const call = /\b(?:operationalLocationLabel|composeOperationalLocationLabel)\s*\(\s*\{?\s*(?:shedName\s*[:=]\s*)?([A-Za-z_][A-Za-z0-9_.?]*)/.exec(line);
+      if (!call) return false;
+      return /display/i.test(call[1]);
+    },
+    msg: "an already-composed operational display is being passed as the shed NAME to the unconditional composer; this renders the pen twice (\"Mandela 1 - Part 1 - Part 1\"). Use oploc.ResolveComposedName / composeOperationalLocationLabelFromComposedName, or prefer the backend's operational_location_display field",
+  },
+  {
     id: "go-display-drift",
     // Detect Go string concatenation of shed names with partition labels outside
     // the approved helper (oploc.OperationalLocation{}.Display() or a matching
@@ -955,6 +1008,54 @@ function selfTest() {
     ],
     // the primitive itself is allowed to name the sentinel
     ["backend/internal/platform/oploc/oploc.go", `const label = "whole"`, null],
+    // --- composed-name-into-composer ---------------------------------------
+    // the 2026-09-21 defect, in each language it shipped in
+    [
+      "backend/internal/weighing/adapters/postgres/fasting.go",
+      `shed.ShedLabel = oploc.OperationalLocation{ShedName: displayName, PartitionLabel: partitionLabel}.Display()`,
+      "composed-name-into-composer",
+    ],
+    [
+      "apps/goatos-android/app/src/main/kotlin/sg/mesha/goatos/viewmodel/WeighingViewModel.kt",
+      `shedName = operationalLocationLabel(displayName.ifBlank { locationId }, partitionLabel),`,
+      "composed-name-into-composer",
+    ],
+    // the FIXED forms must stay clean
+    [
+      "backend/internal/weighing/adapters/postgres/fasting.go",
+      `_, _, shed.ShedLabel = oploc.ResolveComposedName(shed.ShedLocationID, displayName, partitionLabel)`,
+      null,
+    ],
+    [
+      "apps/goatos-android/app/src/main/kotlin/sg/mesha/goatos/viewmodel/WeighingViewModel.kt",
+      `shedName = operationalLocationLabelFromComposedName(displayName.ifBlank { locationId }, partitionLabel),`,
+      null,
+    ],
+    // ADVERSARIAL: a caller holding a genuine PHYSICAL shed name is correct as-is and must not be
+    // flagged -- a guard that pushes correct code onto the composed-name path would make the
+    // ambiguous "Castro" + "1" case resolve the wrong way.
+    [
+      "backend/internal/counts/adapters/postgres/x.go",
+      `loc := oploc.OperationalLocation{ShedName: shedName, PartitionLabel: partitionLabel}`,
+      null,
+    ],
+    [
+      "apps/goatos-android/app/src/main/kotlin/sg/mesha/goatos/viewmodel/ShiftingViewModel.kt",
+      `val where = operationalLocationLabel(animal.shedName, animal.partitionLabel)`,
+      null,
+    ],
+    // ADVERSARIAL: preferring the backend-composed field first is the encouraged shape.
+    [
+      "apps/admin-web/features/counts/x.tsx",
+      `const s = row.operational_location_display || operationalLocationLabel({ shedName: row.display_name, partitionLabel: row.partition_label });`,
+      null,
+    ],
+    // the approved homes may compose freely
+    [
+      "apps/goatos-android/core/core-common/src/main/kotlin/sg/mesha/goatos/core/common/OperationalLocationLabel.kt",
+      `return composeOperationalLocationLabel(displayName, partition)`,
+      null,
+    ],
     // --- oploc-display-wire-name -------------------------------------------
     // the real 2026-08-06 defect: bare `display` beside a partition_label sibling
     [
