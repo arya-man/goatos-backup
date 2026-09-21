@@ -811,13 +811,12 @@ type stockLoadFeedItemDTO struct {
 }
 
 type stockLoadsDTO struct {
-	Rows         []stockLoadRowDTO      `json:"rows"`
-	Total        int64                  `json:"total"`
-	NegativeGaps int64                  `json:"negative_gaps"`
-	Limit        int                    `json:"limit"`
-	Offset       int                    `json:"offset"`
-	FeedItems    []stockLoadFeedItemDTO `json:"feed_items"`
-	Farms        []string               `json:"farms"`
+	Rows      []stockLoadRowDTO      `json:"rows"`
+	Total     int64                  `json:"total"`
+	Limit     int                    `json:"limit"`
+	Offset    int                    `json:"offset"`
+	FeedItems []stockLoadFeedItemDTO `json:"feed_items"`
+	Farms     []string               `json:"farms"`
 }
 
 // GetStockLoads serves GET /feed-analytics/stock-loads: the purchased-vs-consumed table.
@@ -866,7 +865,7 @@ func (h *Handler) GetStockLoads(w http.ResponseWriter, r *http.Request) {
 	}
 	dto := stockLoadsDTO{
 		Rows: make([]stockLoadRowDTO, 0, len(result.Rows)), Total: result.Total,
-		NegativeGaps: result.NegativeGaps, Limit: result.Limit, Offset: result.Offset,
+		Limit: result.Limit, Offset: result.Offset,
 		FeedItems: make([]stockLoadFeedItemDTO, 0, len(result.FeedItems)),
 		Farms:     append([]string{}, result.Farms...),
 	}

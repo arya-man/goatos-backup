@@ -2,6 +2,7 @@ package postgres
 
 import (
 	"context"
+	"fmt"
 	"strconv"
 	"testing"
 	"time"
@@ -11,6 +12,8 @@ import (
 	"github.com/vgoats/goatos/backend/internal/feeddirection/domain"
 	"github.com/vgoats/goatos/backend/internal/feeddirection/ports"
 	"github.com/vgoats/goatos/backend/internal/platform/biztime"
+	procurementpg "github.com/vgoats/goatos/backend/internal/procurement/adapters/postgres"
+	procdomain "github.com/vgoats/goatos/backend/internal/procurement/domain"
 )
 
 // Purchased vs consumed, load by load (maintainer request 2026-09-19).
@@ -149,9 +152,6 @@ VALUES ($1, $2, $3, $4, $5, $6::date, $7::numeric, 40, 1000, 0, $8::date, 'Naval
 		// the negative kg is what flags this row.
 		t.Errorf("overrun load: left 0 days, gap 3-1-0 = 2: left %s gap %s", str(cpt.DaysLeft), str(cpt.GapDays))
 	}
-	if page.NegativeGaps != 1 {
-		t.Errorf("exactly one load (CBE#2) is short of what was said: got %d", page.NegativeGaps)
-	}
 	if len(page.FeedItems) != 1 || page.FeedItems[0].Key != key {
 		t.Errorf("feed-item facet lists the one feed in the ledger: %+v", page.FeedItems)
 	}
@@ -164,7 +164,7 @@ VALUES ($1, $2, $3, $4, $5, $6::date, $7::numeric, 40, 1000, 0, $8::date, 'Naval
 		if err != nil {
 			t.Fatalf("scoped: %v", err)
 		}
-		if scoped.Total != 1 || len(scoped.Rows) != 1 || scoped.Rows[0].FarmLabel != "CPT" || scoped.NegativeGaps != 0 {
+		if scoped.Total != 1 || len(scoped.Rows) != 1 || scoped.Rows[0].FarmLabel != "CPT" {
 			t.Fatalf("park scope must narrow to CPT's one load with its own counts: %+v", scoped)
 		}
 		// The park filter must not disturb FIFO inside the other farm either.
@@ -175,8 +175,8 @@ VALUES ($1, $2, $3, $4, $5, $6::date, $7::numeric, 40, 1000, 0, $8::date, 'Naval
 		if err != nil {
 			t.Fatalf("farm page: %v", err)
 		}
-		if farm.Total != 3 || len(farm.Rows) != 1 || farm.NegativeGaps != 1 {
-			t.Fatalf("page of one must still carry the whole-filter total (3) and negatives (1): %+v", farm)
+		if farm.Total != 3 || len(farm.Rows) != 1 {
+			t.Fatalf("page of one must still carry the whole-filter total (3): %+v", farm)
 		}
 		// Newest purchase first: the in-transit 20 Aug load.
 		if farm.Rows[0].BatchNo != 3 {
@@ -431,4 +431,224 @@ VALUES ($1, $2, 'CBE', $3, $4, $5::date, $6::numeric, 40, 1000, 0, $7::date, 'Na
 		domain.StockLoadRow{Status: domain.StockLoadInUse, PurchasedKg: "100.0", ConsumedKg: "50.0", LeftKg: "50.0",
 			ConsumptionFrom: "", FinishedOn: "", DaysConsumed: 0, DaysLeft: n(2), GapDays: nil},
 		rows["gap#2"])
+}
+
+// Milk is left out of this tab entirely (maintainer instruction, 2026-09-21): it is drawn by
+// preparation batches rather than the ration sheet, so "how many days of stock did this load
+// cover" is not a question about it. The exclusion must reach the FILTER FACET too -- a feed
+// offered in the select that can never produce a row is a dead option -- and it must not disturb
+// the FIFO of the feeds that remain, which is why the milk load here sits at the same farm as a
+// real one.
+func TestStockLoadsLeavesMilkOutOfTheTableAndOutOfTheFeedFilter(t *testing.T) {
+	ctx := context.Background()
+	repo, pool := setupIssueDB(t, ctx)
+
+	insert := func(label string, batch int64, qty string) {
+		t.Helper()
+		if _, err := pool.Exec(ctx, `
+INSERT INTO feed_purchases (tenant_id, park_id, farm_label, feed_item_label, batch_no,
+                            purchase_date, quantity_kg, per_kg_cost, total_cost,
+                            consumed_at_import_kg, depletes_from, vendor, payment_status,
+                            delivery_status, reached_on, days_of_stock)
+VALUES ($1, $2, 'CBE', $3, $4, DATE '2026-08-01', $5::numeric, 40, 1000, 0, DATE '2026-08-01',
+        'Navaladi', 'Paid', 'reached', DATE '2026-08-01', 5)`,
+			fdiTenant, fdiPark, label, batch, qty); err != nil {
+			t.Fatalf("purchase %s: %v", label, err)
+		}
+	}
+	insert("UHT Milk", 1, "300.000")
+	insert("Mesha Kids Goat Concentrate", 2, "100.000")
+
+	page, err := repo.StockLoads(ctx, fdiTenant, nil, domain.StockLoadsQuery{})
+	if err != nil {
+		t.Fatalf("StockLoads: %v", err)
+	}
+	if page.Total != 1 || len(page.Rows) != 1 {
+		t.Fatalf("the milk load must not be counted or listed, only the concentrate: total %d rows %+v", page.Total, page.Rows)
+	}
+	if page.Rows[0].FeedItemKey != "mesha_kids_goat_concentrate" {
+		t.Errorf("the one row is the concentrate: %+v", page.Rows[0])
+	}
+	if len(page.FeedItems) != 1 || page.FeedItems[0].Key != "mesha_kids_goat_concentrate" {
+		t.Errorf("the feed filter must not offer milk -- an option that can never produce a row: %+v", page.FeedItems)
+	}
+	// Asking for milk by key is honest emptiness, never a leak around the exclusion.
+	milk, err := repo.StockLoads(ctx, fdiTenant, nil, domain.StockLoadsQuery{FeedItemKey: "uht_milk"})
+	if err != nil {
+		t.Fatalf("milk filter: %v", err)
+	}
+	if milk.Total != 0 || len(milk.Rows) != 0 {
+		t.Errorf("naming milk explicitly still returns nothing: %+v", milk)
+	}
+}
+
+// END TO END, through the real write paths on both sides (maintainer questions, 2026-09-21):
+// "at what time do we ignore it from the stock", "how are you calculating how many days left",
+// and "if I change rows will everything change".
+//
+// The load is RECORDED through procurement's own CreateFeedPurchase and later CORRECTED through
+// its UpdateFeedPurchase; the sheet is issued and locked through feeddirection's own PersistIssue
+// and LockIssue. Nothing is hand-inserted, so what this asserts is what the app actually does.
+//
+// The three answers it pins:
+//
+//	WHEN     a load starts depleting at the LOCK, never at issue. An issued sheet is a plan and
+//	         moves no kilogram; the moment the sheet is locked its kg count against stock.
+//	DAYS     days left = floor(kg left / the mean of the THREE most recent locked days). Every
+//	         number below is arithmetic anyone can redo by hand.
+//	CHANGES  a correction to the load re-reads: the page is served from a cache keyed on a
+//	         revision of the ledger and the sheets, so an edit must move the figure on the next
+//	         read with no restart and no waiting.
+func TestStockLoadsEndToEndFromPurchaseThroughSheetLockToCorrection(t *testing.T) {
+	ctx := context.Background()
+	repo, pool := setupIssueDB(t, ctx)
+	procurement := procurementpg.NewRepository(pool, 10*time.Second)
+
+	const label = "Mesha Kids Goat Concentrate"
+	if _, err := pool.Exec(ctx, `
+INSERT INTO feed_item_catalog (tenant_id, feed_item_label, status) VALUES ($1::uuid, $2, 'active')
+ON CONFLICT (tenant_id, feed_item_key) DO NOTHING`, fdiTenant, label); err != nil {
+		t.Fatalf("seed catalog: %v", err)
+	}
+	four := 4
+	record := func(day, qty string, days *int, idem string) procdomain.FeedPurchase {
+		t.Helper()
+		amount := 40.0
+		kgFloat, _ := strconv.ParseFloat(qty, 64)
+		got, err := procurement.CreateFeedPurchase(ctx, fdiTenant, procdomain.FeedPurchaseWrite{
+			PurchaseDate: day, FarmLabel: "CBE", FeedItemLabel: label, QuantityKg: kgFloat,
+			TotalCost: &amount, Vendor: "Navaladi", PaymentStatus: "Paid",
+			DaysOfStock: days, ReachedOn: day,
+		}, "", idem)
+		if err != nil {
+			t.Fatalf("record purchase %s: %v", idem, err)
+		}
+		return got
+	}
+	// Issue a day's sheet WITHOUT locking it, and lock it separately, so the two moments can be
+	// told apart -- that is the whole point of this test.
+	issue := func(day, qty string) {
+		t.Helper()
+		at := time.Date(2026, 9, 1, 9, 0, 0, 0, biztime.DefaultLocation())
+		if _, err := repo.PersistIssue(ctx, ports.PersistIssueCommand{
+			TenantID: fdiTenant, ParkID: fdiPark, FeedDay: day, Workflow: domain.WorkflowNormal,
+			IssuedAt: at, Fingerprint: "e2e" + day,
+			IdempotencyKey: "issue:" + fdiTenant + ":" + fdiPark + ":" + day + ":e2e",
+			GeneratedBy:    "test",
+			Cells: []domain.StoredCell{{
+				ParkID: fdiPark, ParkLabel: "CBE", ShedID: fdiShedA, ShedLabel: "Castro",
+				PartitionLabel: "1", ShedTag: "Non-Pregnant", Breed: "Beetal",
+				RationGroup: "Beetal/Sirohi", SessionNo: 1, SessionLabel: "Morning",
+				HeadCount: 10, Workflow: domain.WorkflowNormal,
+				FeedItemLabel: label, FeedItemKey: "mesha_kids_goat_concentrate",
+				QuantityKg: kg(qty), SessionTotalKg: qty,
+			}},
+		}); err != nil {
+			t.Fatalf("issue %s: %v", day, err)
+		}
+	}
+	lock := func(day string) {
+		t.Helper()
+		at := time.Date(2026, 9, 1, 15, 30, 0, 0, biztime.DefaultLocation())
+		if out, err := repo.LockIssue(ctx, ports.LockIssueCommand{
+			TenantID: fdiTenant, ParkID: fdiPark, FeedDay: day,
+			Workflow: domain.WorkflowNormal, LockedAt: at,
+		}); err != nil || out.Outcome != "locked" {
+			t.Fatalf("lock %s = (%v, %v)", day, out.Outcome, err)
+		}
+	}
+	read := func(stage string) domain.StockLoadRow {
+		t.Helper()
+		page, err := repo.StockLoads(ctx, fdiTenant, nil, domain.StockLoadsQuery{})
+		if err != nil {
+			t.Fatalf("%s: StockLoads: %v", stage, err)
+		}
+		if len(page.Rows) == 0 {
+			t.Fatalf("%s: no rows", stage)
+		}
+		return page.Rows[len(page.Rows)-1] // oldest purchase last; load A throughout
+	}
+	show := func(r domain.StockLoadRow) string {
+		d := func(v *int64) string {
+			if v == nil {
+				return "nil"
+			}
+			return itoa(*v)
+		}
+		return fmt.Sprintf("status=%s bought=%s used=%s left=%s from=%q daysUsed=%d rate=%q daysLeft=%s gap=%s",
+			r.Status, r.PurchasedKg, r.ConsumedKg, r.LeftKg, r.ConsumptionFrom, r.DaysConsumed, r.AvgDailyKg, d(r.DaysLeft), d(r.GapDays))
+	}
+
+	// STEP 1 -- the load is bought and has arrived. Nothing has been fed, so nothing is used and
+	// there is no rate to divide by: days left is ABSENT, not zero, and so is the check.
+	loadA := record("2026-09-01", "100.000", &four, "e2e-load-a")
+	if got := show(read("after purchase")); got != `status=not_started bought=100.0 used=0.0 left=100.0 from="" daysUsed=0 rate="" daysLeft=nil gap=nil` {
+		t.Fatalf("a bought load nobody has fed from yet:\n got %s", got)
+	}
+
+	// STEP 2 -- THE SHEET IS ISSUED BUT NOT LOCKED. This is the answer to "at what time".
+	// An issued sheet is a plan; it must move NOTHING. Byte for byte the step-1 row.
+	issue("2026-09-01", "30.000")
+	if got := show(read("after issue, before lock")); got != `status=not_started bought=100.0 used=0.0 left=100.0 from="" daysUsed=0 rate="" daysLeft=nil gap=nil` {
+		t.Fatalf("an ISSUED sheet is a plan and must not deplete stock:\n got %s", got)
+	}
+
+	// STEP 3 -- THE LOCK. Now the 30 kg count. Rate = 30 (one locked day), left = 70,
+	// days left = floor(70 / 30) = 2, check = said 4 - used 1 - left 2 = 1.
+	lock("2026-09-01")
+	if got := show(read("after lock")); got != `status=in_use bought=100.0 used=30.0 left=70.0 from="2026-09-01" daysUsed=1 rate="30.0" daysLeft=2 gap=1` {
+		t.Fatalf("the LOCK is the moment stock moves:\n got %s", got)
+	}
+
+	// STEP 4 -- two more locked days at a different rate. The rate is the mean of the three most
+	// recent locked days: (30 + 20 + 10) / 3 = 20. Left = 100 - 60 = 40, floor(40/20) = 2,
+	// check = 4 - 3 - 2 = -1.
+	issue("2026-09-02", "20.000")
+	lock("2026-09-02")
+	issue("2026-09-03", "10.000")
+	lock("2026-09-03")
+	if got := show(read("three locked days")); got != `status=in_use bought=100.0 used=60.0 left=40.0 from="2026-09-01" daysUsed=3 rate="20.0" daysLeft=2 gap=-1` {
+		t.Fatalf("days left divides by the mean of the three most recent locked days:\n got %s", got)
+	}
+
+	// STEP 5 -- a SECOND load arrives. It must not disturb load A at all: same kg, same days,
+	// same check. A purchase is not a consumption event.
+	record("2026-09-04", "50.000", nil, "e2e-load-b")
+	if got := show(read("after the second load")); got != `status=in_use bought=100.0 used=60.0 left=40.0 from="2026-09-01" daysUsed=3 rate="20.0" daysLeft=2 gap=-1` {
+		t.Fatalf("buying another load changes nothing about the one being fed:\n got %s", got)
+	}
+
+	// STEP 6 -- "IF I CHANGE ROWS WILL IT CHANGE". The buyer corrects his figure from 4 days to 9
+	// through the real edit path. The page is served from a revision-keyed cache, so the check
+	// must move on the very next read: 9 - 3 - 2 = 4.
+	nine := 9
+	if _, err := procurement.UpdateFeedPurchase(ctx, fdiTenant, loadA.FeedPurchaseID, procdomain.FeedPurchaseEdit{
+		PurchaseDate: "2026-09-01", QuantityKg: 100, Vendor: "Navaladi", DaysOfStock: &nine,
+	}, ""); err != nil {
+		t.Fatalf("edit days of stock: %v", err)
+	}
+	if got := show(read("after correcting days said")); got != `status=in_use bought=100.0 used=60.0 left=40.0 from="2026-09-01" daysUsed=3 rate="20.0" daysLeft=2 gap=4` {
+		t.Fatalf("a corrected figure must reach the next read, not a stale cached page:\n got %s", got)
+	}
+
+	// STEP 7 -- correcting the QUANTITY moves the kilograms and everything derived from them:
+	// 70 bought, 60 already fed, 10 left, floor(10/20) = 0 days left, check 9 - 3 - 0 = 6.
+	if _, err := procurement.UpdateFeedPurchase(ctx, fdiTenant, loadA.FeedPurchaseID, procdomain.FeedPurchaseEdit{
+		PurchaseDate: "2026-09-01", QuantityKg: 70, Vendor: "Navaladi", DaysOfStock: &nine,
+	}, ""); err != nil {
+		t.Fatalf("edit quantity: %v", err)
+	}
+	if got := show(read("after correcting the quantity")); got != `status=in_use bought=70.0 used=60.0 left=10.0 from="2026-09-01" daysUsed=3 rate="20.0" daysLeft=0 gap=6` {
+		t.Fatalf("a corrected quantity must move the kg and everything derived from them:\n got %s", got)
+	}
+
+	// STEP 8 -- CLEARING the figure (nil, not 0) takes the check away rather than reading zero.
+	if _, err := procurement.UpdateFeedPurchase(ctx, fdiTenant, loadA.FeedPurchaseID, procdomain.FeedPurchaseEdit{
+		PurchaseDate: "2026-09-01", QuantityKg: 70, Vendor: "Navaladi", DaysOfStock: nil,
+	}, ""); err != nil {
+		t.Fatalf("clear days of stock: %v", err)
+	}
+	if got := show(read("after clearing days said")); got != `status=in_use bought=70.0 used=60.0 left=10.0 from="2026-09-01" daysUsed=3 rate="20.0" daysLeft=0 gap=nil` {
+		t.Fatalf("a cleared figure is absent, never a zero the buyer never stated:\n got %s", got)
+	}
 }

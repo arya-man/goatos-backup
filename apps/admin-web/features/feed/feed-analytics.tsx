@@ -72,7 +72,7 @@ function dedupeOptions(options: { value: string; label: string }[]): { value: st
   }
   return [...seen.entries()].map(([value, label]) => ({ value, label })).sort((a, b) => a.label.localeCompare(b.label));
 }
-const TABS = ["overview", "items", "loads", "peranimal", "experiment", "execution"] as const;
+const TABS = ["overview", "items", "peranimal", "experiment", "execution"] as const;
 type Tab = (typeof TABS)[number];
 // The Consumption tab's two readings (maintainer request 2026-09-17): General is everything the tab
 // already showed; Status-wise is the average directed feed one animal gets per day, per pen tag.
@@ -355,8 +355,11 @@ export async function FeedAnalyticsPage({
   const completionShedFilter = one(searchParams, "fdc_shed") ?? "";
   const completionStatusFilter = readCompletionStatus(searchParams);
   const wantStock = (tab === "overview" && !statusWise) || tab === "items";
-  // Purchased vs consumed: its own paged endpoint with its own farm / feed-item narrowing.
-  const wantLoads = tab === "loads";
+  // Purchased vs consumed is the LAST TABLE ON THE STOCK TAB (maintainer instruction 2026-09-21),
+  // not a tab of its own: the cards answer "how much is in the store", this answers "what happened
+  // to each load that put it there", and a reader should not have to change tabs between the two.
+  // Its own paged endpoint keeps its own farm / feed-item narrowing.
+  const wantLoads = tab === "items";
   const loadsPageSizes = tablePageSizes(pageContract, "stock-loads");
   const loadsLimit = feedLimit(searchParams, "fl_limit", loadsPageSizes, loadsPageSizes[0]);
   const loadsOffset = feedOffset(searchParams, "fl_offset");
@@ -524,16 +527,6 @@ export async function FeedAnalyticsPage({
         <StockCards stock={stock?.ok ? stock.data : null} pageContract={pageContract} />
       ) : null}
 
-      {tab === "loads" && loads?.ok ? (
-        <FeedStockLoadsTable
-          data={loads.data}
-          pageContract={pageContract}
-          basePath={PAGE_PATH}
-          searchParams={searchParams}
-          filters={{ farm: loadsFarm, item: loadsItem, limit: loadsLimit, offset: loadsOffset, pageSizes: loadsPageSizes }}
-        />
-      ) : null}
-
       {!stockOnly && statusWise && directed?.ok ? (
         <FeedStatusWise data={directed.data} pageContract={pageContract} />
       ) : null}
@@ -607,6 +600,15 @@ export async function FeedAnalyticsPage({
             disabledReason: parkId ? fa(pageContract, "filter.scope_readonly") : undefined,
             options: locations.parks.map((park) => ({ value: park.id, label: park.name })),
           }}
+        />
+      ) : null}
+      {tab === "items" && loads?.ok ? (
+        <FeedStockLoadsTable
+          data={loads.data}
+          pageContract={pageContract}
+          basePath={PAGE_PATH}
+          searchParams={searchParams}
+          filters={{ farm: loadsFarm, item: loadsItem, limit: loadsLimit, offset: loadsOffset, pageSizes: loadsPageSizes }}
         />
       ) : null}
     </div>

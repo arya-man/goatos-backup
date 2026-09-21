@@ -2169,7 +2169,7 @@ export interface paths {
          *
          *     `days_said` is the buyer's OPTIONAL figure entered on the purchase form; `days_consumed` counts the locked feed days that drew on the load; `days_left` is kg left over the feed's recent (3 locked days) daily rate, 0 once finished and null when no recent rate exists. `gap_days` = days_said - days_consumed - days_left, null whenever either side is unknown: a check nobody could make is not a check that passed. Zero means the figure held; negative means the load ran (or will run) out sooner than it was bought for.
          *
-         *     `total` and `negative_gaps` are WHOLE-FILTER counts, never page-local.
+         *     `total` is a WHOLE-FILTER count, never page-local. Feeds named in `domain.StockLoadExcludedFeedItemKeys` (UHT milk) are left out of the rows and of the `feed_items` facet: milk is drawn by preparation batches, not the ration sheet, so a per-load days-of-stock figure is not a question about it.
          */
         get: operations["getFeedAnalyticsStockLoads"];
         put?: never;
@@ -10679,8 +10679,6 @@ export interface components {
             rows: components["schemas"]["FeedAnalyticsStockLoadRow"][];
             /** @description Loads matching the filter, whole-filter. */
             total: number;
-            /** @description Loads whose `gap_days` is below zero, whole-filter -- what the tab leads with. */
-            negative_gaps: number;
             limit: number;
             offset: number;
             /** @description Every feed the ledger holds a load for in the park scope, unnarrowed by the filter, for the feed-item select. */

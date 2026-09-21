@@ -6537,7 +6537,6 @@ func pageSpecificCopy(id string) map[string]string {
 			"banner.basis":   "Figures show feed as DIRECTED on the daily sheet, plus the milk the crew prepared. The two daily charts run through today, whose sheet is already issued; the tiles and the execution figures describe yesterday, the last finished day. Leftovers are not measured yet, so read quantities as instructions, not consumption.",
 			"tab.overview":   "Consumption",
 			"tab.items":      "Stock",
-			"tab.loads":      "Purchased vs consumed",
 			"tab.peranimal":  "Per Animal",
 			"tab.execution":  "Execution",
 			"tab.experiment": "Experiment",
@@ -6605,10 +6604,7 @@ func pageSpecificCopy(id string) map[string]string {
 			// within one farm and feed, off the locked sheets -- the same FIFO the Stock tab's
 			// "Consumption from" already uses for the latest load.
 			"loads.title":                  "Purchased vs consumed, load by load",
-			"loads.hint":                   "Each load is used up in the order it arrived, per farm and feed, from what the sheet DIRECTED after lock. Days said is what the buyer entered when the load was recorded; the check is days said minus days consumed minus days left. Zero means the figure held; red means the load ran (or will run) out sooner than it was bought for.",
-			"loads.check":                  "Loads short of what was said",
-			"loads.check.sub":              "Days said minus days consumed minus days left is below zero",
-			"loads.check.ok":               "Every stated figure is holding",
+			"loads.hint":                   "Each load is used up in the order it arrived, per farm and feed, from what the sheet DIRECTED after lock. Days said is what the buyer entered when the load was recorded; the check is days said minus days consumed minus days left. Zero means the figure held. Milk is left out: it is drawn by preparation batches rather than the ration sheet, so days of stock per load is not a question about it.",
 			"loads.empty":                  "No loads in the purchase ledger yet.",
 			"loads.col.purchase_date":      "Bought",
 			"loads.col.feed_item":          "Feed item",
@@ -9425,7 +9421,6 @@ func pageOptionGroups(id string) []domain.OptionGroup {
 			Options: []domain.Option{
 				option("overview", "Overview", "", ""),
 				option("items", "Stock", "", ""),
-				option("loads", "Purchased vs consumed", "", ""),
 				option("peranimal", "Per Animal", "", ""),
 				option("experiment", "Experiment", "", ""),
 				option("execution", "Execution", "", ""),
