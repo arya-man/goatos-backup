@@ -3,6 +3,7 @@ import { readFileSync } from "node:fs";
 import { test } from "node:test";
 
 const source = readFileSync(new URL("./feed-analytics.tsx", import.meta.url), "utf8");
+const stockLoadsSource = readFileSync(new URL("./feed-stock-loads-table.tsx", import.meta.url), "utf8");
 const directedViewBlock = source.slice(
   source.indexOf("function buildDirectedView"),
   source.indexOf("// ---------------------------------------------------------------------------", source.indexOf("function buildDirectedView") + 1),
@@ -196,6 +197,17 @@ test("the Consumption tab requests every stock arm it renders, item money includ
   for (const arm of ["expenditure", "spend", "item_expenditure"]) {
     assert.ok(asked.has(arm), `the Consumption tab renders ${arm} and must request it`);
   }
+});
+
+test("stock load check signs match the days arithmetic", () => {
+  const contract = readFileSync(
+    new URL("../../../../backend/internal/adminui/app/service.go", import.meta.url),
+    "utf8",
+  );
+  assert.match(contract, /"loads\.gap\.positive":\s*"\{days\} days short"/);
+  assert.match(contract, /"loads\.gap\.negative":\s*"\+\{days\} days"/);
+  assert.match(stockLoadsSource, /if \(gap > 0\) return <Tag tone="dng">/);
+  assert.match(stockLoadsSource, /return <Tag tone="warn">\{fl\("loads\.gap\.negative"\)/);
 });
 
 // The Stock tab reads items/farm_items/forecast and nothing else; paying for

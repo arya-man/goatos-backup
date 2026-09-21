@@ -173,14 +173,14 @@ export function FeedStockLoadsTable({
   );
 }
 
-// The check column: zero matches, above zero is spare, below zero is the highlighted shortfall.
+// The check column: zero matches, above zero is short, below zero is spare.
 // Absent means one side of the sum is unknown -- no figure stated, or nothing fed recently enough
 // to project days left -- and reads as a dash, never as a pass.
 function GapCell({ gap, fl }: { gap: number | null | undefined; fl: (key: string) => string }) {
   if (gap == null) return <span className="muted">{fl("loads.gap.none")}</span>;
   if (gap === 0) return <Tag tone="ok">{fl("loads.gap.zero")}</Tag>;
-  if (gap > 0) return <Tag tone="warn">{fl("loads.gap.positive").replace("{days}", String(gap))}</Tag>;
-  return <Tag tone="dng">{fl("loads.gap.negative").replace("{days}", String(-gap))}</Tag>;
+  if (gap > 0) return <Tag tone="dng">{fl("loads.gap.positive").replace("{days}", String(gap))}</Tag>;
+  return <Tag tone="warn">{fl("loads.gap.negative").replace("{days}", String(-gap))}</Tag>;
 }
 
 function hrefWith(basePath: string, sp: RouteSearchParams | undefined, next: Record<string, string | undefined>): string {
