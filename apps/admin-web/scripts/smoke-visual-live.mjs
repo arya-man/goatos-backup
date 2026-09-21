@@ -691,6 +691,27 @@ async function assertRouteLoadedSignal(page, routeName, visibleText) {
     }
     return { alert_kpis: kpis, alert_rows: rowCount, empty_state: emptyState > 0 };
   }
+  if (routeName === "sales-sold") {
+    for (const required of [
+      /Sold animals by weight/i,
+      /40 kg and above/i,
+      /35 to 40 kg/i,
+      /20 to 35 kg/i,
+      /Below 20 kg/i,
+      /animals sold/i,
+    ]) {
+      if (!required.test(normalized)) {
+        throw new Error(`${routeName} did not prove loaded sold-weight band card: missing ${required}`);
+      }
+    }
+    if (/No sales recorded yet\./i.test(normalized)) {
+      return { has_sold_weight_bands: true, sold_weight_empty: true };
+    }
+    if (!/(weighed|at load average|estimated|sold without a recorded weight)/i.test(normalized)) {
+      throw new Error(`${routeName} sold-weight card rendered no weight provenance or unweighed evidence`);
+    }
+    return { has_sold_weight_bands: true, sold_weight_empty: false };
+  }
   if (routeName === "weighing-weights") {
     if (!/Kids losing weight/i.test(normalized) || !/\bkg\b/i.test(normalized) || !/\bPage\b/i.test(normalized)) {
       throw new Error(`${routeName} did not prove loaded Weighing weights data`);
