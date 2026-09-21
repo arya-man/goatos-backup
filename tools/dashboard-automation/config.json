@@ -77,6 +77,18 @@
     "stgReadIdentityRequired": true,
     "stgReadOnlyTransactionRequired": true,
     "ociReadOnlyCheckRequired": true,
+    "latestFullParityReceiptRequired": true,
+    "latestFullParityReceiptPath": "/Users/raviteja/.codex/automations/daily-stg-to-oci-delta-parity/last-run.json",
+    "latestFullParityReceiptMaxAgeHours": 24,
+    "latestFullParityReceiptIncludedTableCount": 293,
+    "latestFullParityReceiptStatus": "READBACK_PASS",
+    "latestFullParityReceiptExcludedPatterns": [
+      "analytics.*",
+      "public.audit_log",
+      "public.domain_event_processed_events",
+      "public.outbox_messages",
+      "public.herd_signal_*"
+    ],
     "criticalTableFingerprintRequired": true,
     "fieldReconciliationsAreDatedEvidence": true,
     "criticalTables": [

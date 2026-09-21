@@ -159,6 +159,17 @@ function dashboardRuntimeFindings() {
   if (config.businessDataParity?.enabledByDefault !== true) {
     findings.push(`${configRel}: business data parity must be default-on for OCI automation`);
   }
+  if (config.businessDataParity?.latestFullParityReceiptRequired !== true) {
+    findings.push(`${configRel}: dashboard automation must require the latest full STG-to-OCI READBACK_PASS receipt before OCI-backed smoke`);
+  }
+  if (config.businessDataParity?.latestFullParityReceiptStatus !== "READBACK_PASS" || config.businessDataParity?.latestFullParityReceiptIncludedTableCount !== 293) {
+    findings.push(`${configRel}: latest full parity receipt must require READBACK_PASS for 293 included business tables`);
+  }
+  for (const requiredExclusion of ["analytics.*", "public.audit_log", "public.domain_event_processed_events", "public.outbox_messages", "public.herd_signal_*"]) {
+    if (!config.businessDataParity?.latestFullParityReceiptExcludedPatterns?.includes(requiredExclusion)) {
+      findings.push(`${configRel}: latest full parity receipt must preserve exclusion ${requiredExclusion}`);
+    }
+  }
   if (config.businessDataParity?.criticalTableFingerprintRequired !== true) {
     findings.push(`${configRel}: critical business tables must require deterministic content fingerprints, not only row counts`);
   }
@@ -200,8 +211,13 @@ function dashboardRuntimeFindings() {
   for (const fragment of ["Herd Signal tables remain best-effort", "Castro field reconciliations are dated evidence", "deterministic content fingerprints"]) {
     if (!runbookSource.includes(fragment)) findings.push(`docs/runbooks/dashboard-automation-oci.md: missing residual-risk/fingerprint note ${fragment}`);
   }
-  for (const required of ["tools/perf/api-latency-gate.mjs", "apps/admin-web/scripts/capture-lighthouse.mjs", "tools/deploy/smoke-stg-grafana-dashboards.mjs", "tools/dashboard-automation/run-module-journeys.mjs", "tools/dashboard-automation/notify-slack.mjs", "tools/dashboard-automation/self-heal-pr.mjs"]) {
+  for (const required of ["tools/dashboard-automation/check-latest-parity-receipt.mjs", "tools/perf/api-latency-gate.mjs", "apps/admin-web/scripts/capture-lighthouse.mjs", "tools/deploy/smoke-stg-grafana-dashboards.mjs", "tools/dashboard-automation/run-module-journeys.mjs", "tools/dashboard-automation/notify-slack.mjs", "tools/dashboard-automation/self-heal-pr.mjs"]) {
     if (!runnerSource.includes(required)) findings.push(`${runnerRel}: runner no longer invokes ${required}`);
+  }
+  const latestReceiptRel = "tools/dashboard-automation/check-latest-parity-receipt.mjs";
+  const latestReceiptSource = existsSync(latestReceiptRel) ? readFileSync(latestReceiptRel, "utf8") : "";
+  for (const fragment of ["READBACK_PASS", "includedTableCount", "stgReadOnly", "excludedPatterns", "maxAgeHours"]) {
+    if (!latestReceiptSource.includes(fragment)) findings.push(`${latestReceiptRel}: latest parity receipt guard missing fragment ${fragment}`);
   }
   if (!runnerSource.includes("GOATOS_SMOKE_READ_ONLY")) {
     findings.push(`${runnerRel}: production/post-main browser automation must force GOATOS_SMOKE_READ_ONLY=1`);

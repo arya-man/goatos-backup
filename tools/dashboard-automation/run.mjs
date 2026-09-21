@@ -34,10 +34,15 @@ const receipt = {
 
 try {
   const staticOk = layer("static", "deterministic", () => runNode(["tools/dashboard-automation/check-static-inventory.mjs"]));
-  const dataParityOk = enabled("GOATOS_DASHBOARD_DATA_PARITY", config.businessDataParity.enabledByDefault)
-    ? layer("business-data-parity", "deterministic", () => runBusinessDataParity(outDir))
+  const fullParityReceiptOk = config.businessDataParity.latestFullParityReceiptRequired === true
+    ? layer("latest-full-parity-receipt", "deterministic", () => runLatestFullParityReceipt())
     : true;
-  const ociOk = staticOk && dataParityOk && layer("oci-free-preflight", "deterministic", () => assertOciAlwaysFree());
+  const dataParityOk = fullParityReceiptOk && (
+    enabled("GOATOS_DASHBOARD_DATA_PARITY", config.businessDataParity.enabledByDefault)
+      ? layer("business-data-parity", "deterministic", () => runBusinessDataParity(outDir))
+      : true
+  );
+  const ociOk = staticOk && fullParityReceiptOk && dataParityOk && layer("oci-free-preflight", "deterministic", () => assertOciAlwaysFree());
   if (!ociOk) throw new Error("stopping before runtime automation because a prerequisite deterministic layer failed");
   layer("firebase-analytics-guard", "deterministic", () => runNode(["tools/agent-hooks/check-firebase-analytics-param-budget.mjs"]));
   if (enabled("GOATOS_DASHBOARD_API_LATENCY", true)) {
@@ -214,6 +219,10 @@ function runBusinessDataParity(targetDir) {
   receipt.artifacts.push({ kind: "business-data-parity-report", path: output });
 }
 
+function runLatestFullParityReceipt() {
+  runNode(["tools/dashboard-automation/check-latest-parity-receipt.mjs"]);
+}
+
 function runLighthouse(targetDir) {
   const output = path.join(targetDir, "lighthouse.json");
   const headers = JSON.stringify({
@@ -300,6 +309,9 @@ function selfTest() {
   if (!config.selfHealing.checksBeforePr.includes("apiLatencyPolicy")) throw new Error("self-test: self-healing must include API latency checks");
   if (!config.selfHealing.checksBeforePr.includes("vaccinationLifecycle")) throw new Error("self-test: self-healing must include vaccination lifecycle checks");
   if (config.businessDataParity.enabledByDefault !== true) throw new Error("self-test: business data parity must be default-on for OCI automation");
+  if (config.businessDataParity.latestFullParityReceiptRequired !== true) throw new Error("self-test: latest full STG-to-OCI parity receipt must be required");
+  if (config.businessDataParity.latestFullParityReceiptIncludedTableCount !== 293) throw new Error("self-test: full parity receipt must require 293 included tables");
+  if (config.businessDataParity.latestFullParityReceiptStatus !== "READBACK_PASS") throw new Error("self-test: full parity receipt must require READBACK_PASS");
   if (config.slackAlerts.enabledByDefault !== true) throw new Error("self-test: Slack alerts must be default-on for OCI automation");
   if (config.selfHealing.enabledByDefault !== true) throw new Error("self-test: self-healing PR creation must be default-on for failing OCI automation");
   if (!config.businessDataParity.sentinelQueries.some((item) => item.name === "godel_2_timewise_adg" && item.implementationStatus === "implemented")) {
@@ -323,5 +335,6 @@ function selfTest() {
   runNode(["tools/dashboard-automation/run-module-journeys.mjs", "--self-test"]);
   runNode(["tools/dashboard-automation/self-heal-pr.mjs", "--self-test"]);
   runNode(["tools/dashboard-automation/notify-slack.mjs", "--self-test"]);
+  runNode(["tools/dashboard-automation/check-latest-parity-receipt.mjs", "--self-test"]);
   console.log("dashboard automation runner: self-test passed");
 }

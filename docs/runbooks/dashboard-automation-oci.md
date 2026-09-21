@@ -28,6 +28,8 @@ The schedule and Slack destination are runtime configuration, not app code:
 - `GOATOS_DASHBOARD_SLACK_ALERTS=0` temporarily disables Slack delivery.
 - `GOATOS_DASHBOARD_DATA_PARITY=0` and `GOATOS_DASHBOARD_API_LATENCY=0` are break-glass
   disables only; parity and latency are on by default.
+- `GOATOS_STG_OCI_PARITY_RECEIPT` may point at the latest machine-readable STG-to-OCI full parity
+  receipt. If unset, the runner reads the configured daily parity `last-run.json`.
 
 Change these in `~/.config/goatos/dashboard-automation.env`, then rerun
 `GOATOS_DASHBOARD_AUTOMATION_INSTALL=1 tools/dashboard-automation/install-oci-user-timer.sh` or
@@ -70,6 +72,13 @@ critical business tables and cannot create objects in the public schema. The rec
 current DB user, read-only transaction proof, checked table count, and any unexpected write-privileged
 tables. This is a catalog/grant proof plus `BEGIN READ ONLY` transaction enforcement; it must not
 probe STG or OCI by attempting writes.
+
+Before any OCI-backed dashboard smoke runs, the runner also requires a latest full STG-to-OCI parity
+receipt with `READBACK_PASS`, `293` included business tables, STG read-only proof, and the expected
+exclusions: `analytics.*`, `public.audit_log`, `public.domain_event_processed_events`,
+`public.outbox_messages`, and `public.herd_signal_*`. A stale, blocked, or prose-only parity note is
+not enough; replace the parity automation `last-run.json` or set `GOATOS_STG_OCI_PARITY_RECEIPT` to
+the current machine-readable receipt after the parity runner completes.
 
 ## Slack alerts
 
