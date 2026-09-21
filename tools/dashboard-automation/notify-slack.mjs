@@ -35,7 +35,7 @@ if (state.lastSignature === signature && now - Number(state.lastPostedAtMs ?? 0)
 }
 
 const message = formatSlackMessage(receipt, decision.kind, receiptPath);
-if (containsUnredactedSecret(message)) fail("refusing to send Slack message that appears to contain an unredacted secret");
+if (containsUnredactedSecret(JSON.stringify(message))) fail("refusing to send Slack message that appears to contain an unredacted secret");
 
 await postSlack(message);
 writeState(statePath, { lastSignature: signature, lastPostedAtMs: now, lastStatus: receipt.status ?? "unknown" });
@@ -74,26 +74,68 @@ function formatSlackMessage(value, kind, receiptFile) {
   const blockers = (value.blockers ?? []).slice(0, 6);
   const failedLayers = (value.layers ?? []).filter((layer) => layer.status !== "pass").slice(0, 6);
   const prUrl = selfHealingPrUrl(value);
-  const lines = [
-    `${emojiByKind[kind] ?? ":information_source:"} *${titleByKind[kind] ?? "Dashboard automation update"}*`,
-    `*Mode:* \`${value.mode ?? "unknown"}\`  *Status:* \`${value.status ?? "unknown"}\`  *SHA:* \`${String(value.repoSha ?? "unknown").slice(0, 12)}\``,
-    `*URL:* ${value.productionUrl ?? config.productionUrl}`,
+  const title = `${emojiByKind[kind] ?? ":information_source:"} ${titleByKind[kind] ?? "Dashboard automation update"}`;
+  const receiptRel = redactText(path.relative(repo, receiptFile));
+  const fields = [
+    { type: "mrkdwn", text: `*Status*\n\`${value.status ?? "unknown"}\`` },
+    { type: "mrkdwn", text: `*Mode*\n\`${value.mode ?? "unknown"}\`` },
+    { type: "mrkdwn", text: `*SHA*\n\`${String(value.repoSha ?? "unknown").slice(0, 12)}\`` },
+    { type: "mrkdwn", text: `*Dashboard*\n${value.productionUrl ?? config.productionUrl}` }
+  ];
+  const blocks = [
+    { type: "header", text: { type: "plain_text", text: title, emoji: true } },
+    { type: "section", fields },
+    { type: "divider" }
   ];
   if (failedLayers.length) {
-    lines.push("*Failed layers:*");
-    for (const layer of failedLayers) lines.push(`• \`${layer.name}\` — ${truncate(redactText(layer.message ?? layer.status), 220)}`);
+    blocks.push({
+      type: "section",
+      text: {
+        type: "mrkdwn",
+        text: `*Failed layers*\n${failedLayers.map((layer) => `• \`${layer.name}\` — ${truncate(redactText(layer.message ?? layer.status), 180)}`).join("\n")}`
+      }
+    });
   }
   if (blockers.length) {
-    lines.push("*Top blockers:*");
-    for (const blocker of blockers) lines.push(`• ${truncate(redactText(blockerText(blocker)), 240)}`);
+    blocks.push({
+      type: "section",
+      text: {
+        type: "mrkdwn",
+        text: `*Top blockers*\n${blockers.map((blocker) => `• ${truncate(redactText(blockerText(blocker)), 220)}`).join("\n")}`
+      }
+    });
   }
-  if (prUrl) lines.push(`*Self-healing PR:* ${prUrl}`);
-  lines.push(`*Receipt:* \`${redactText(path.relative(repo, receiptFile))}\``);
-  lines.push("_No ping on repeated identical failures inside the cooldown. Green runs stay quiet unless they recover a prior red run._");
-  return lines.join("\n");
+  if (prUrl) {
+    blocks.push({
+      type: "section",
+      text: { type: "mrkdwn", text: `*Self-healing PR*\n<${prUrl}|Open proposed fix / report PR>` }
+    });
+  }
+  blocks.push({
+    type: "context",
+    elements: [
+      { type: "mrkdwn", text: `Receipt: \`${receiptRel}\`` },
+      { type: "mrkdwn", text: `Dedupe: repeated identical failures are muted for ${config.slackAlerts?.minimumRepeatIntervalMinutes ?? 240} min` }
+    ]
+  });
+  const text = [
+    `${title} — ${value.status ?? "unknown"} ${value.mode ?? "unknown"} ${String(value.repoSha ?? "unknown").slice(0, 12)}`,
+    blockers.length ? `Top blocker: ${blockerText(blockers[0])}` : "",
+    prUrl ? `Self-healing PR: ${prUrl}` : ""
+  ].filter(Boolean).join("\n");
+  return { text, blocks };
 }
 
 function blockerText(blocker) {
+  if (blocker?.kind === "table_count_mismatch") {
+    return `\`${blocker.table}\`: STG ${blocker.stg ?? "?"} vs OCI ${blocker.oci ?? "?"}${blocker.delta === undefined ? "" : ` (delta ${blocker.delta})`}`;
+  }
+  if (blocker?.kind === "sentinel_mismatch") {
+    return `sentinel \`${blocker.name}\`${blocker.reason ? ` — ${blocker.reason}` : ""}`;
+  }
+  if (blocker?.kind === "field_reconciliation_mismatch") {
+    return `field reconciliation \`${blocker.name}\`${blocker.reason ? ` — ${blocker.reason}` : ""}`;
+  }
   if (blocker?.name) return `${blocker.kind ?? "blocker"} ${blocker.name}${blocker.reason ? ` (${blocker.reason})` : ""}`;
   if (blocker?.layer) return `${blocker.layer}: ${blocker.message ?? JSON.stringify(blocker)}`;
   return JSON.stringify(blocker);
@@ -104,9 +146,10 @@ function selfHealingPrUrl(value) {
   return text.match(/https:\/\/github\.com\/[^\s)]+\/pull\/\d+/)?.[0] ?? null;
 }
 
-async function postSlack(message) {
+async function postSlack(payload) {
   if (process.env.GOATOS_DASHBOARD_SLACK_DRY_RUN === "1") {
-    console.log(message);
+    console.log(payload.text);
+    console.log(JSON.stringify(payload.blocks, null, 2));
     return;
   }
   const webhook = process.env.GOATOS_DASHBOARD_SLACK_WEBHOOK_URL?.trim();
@@ -114,7 +157,7 @@ async function postSlack(message) {
     const response = await fetch(webhook, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ text: message })
+      body: JSON.stringify(payload)
     });
     if (!response.ok) throw new Error(`Slack webhook HTTP ${response.status}: ${redactText(await response.text())}`);
     return;
@@ -131,7 +174,7 @@ async function postSlack(message) {
       "Authorization": `Bearer ${token}`,
       "Content-Type": "application/json; charset=utf-8"
     },
-    body: JSON.stringify({ channel, text: message, unfurl_links: false, unfurl_media: false })
+    body: JSON.stringify({ channel, text: payload.text, blocks: payload.blocks, unfurl_links: false, unfurl_media: false })
   });
   const body = await response.json().catch(async () => ({ ok: false, error: await response.text() }));
   if (!response.ok || !body.ok) throw new Error(`Slack chat.postMessage failed: ${redactText(JSON.stringify(body))}`);
@@ -184,8 +227,11 @@ function selfTest() {
     blockers: [{ kind: "sentinel_mismatch", name: "weighing_pen_alias_form_b_rows", reason: "planner_alias_form_b_rows" }]
   };
   const message = formatSlackMessage(sample, "failure", path.join(repo, "receipt.json"));
-  for (const expected of ["Dashboard automation failed", "weighing_pen_alias_form_b_rows", "No ping on repeated identical failures"]) {
-    if (!message.includes(expected)) throw new Error(`self-test: Slack message missing ${expected}`);
+  for (const expected of ["Dashboard automation failed", "weighing_pen_alias_form_b_rows", "Dedupe: repeated identical failures"]) {
+    if (!JSON.stringify(message).includes(expected)) throw new Error(`self-test: Slack message missing ${expected}`);
+  }
+  if (!Array.isArray(message.blocks) || !message.blocks.some((block) => block.type === "header")) {
+    throw new Error("self-test: Slack message must use block layout");
   }
   if (notificationDecision(sample).kind !== "failure") throw new Error("self-test: failure decision did not post");
   console.log("dashboard Slack notify: self-test passed");
