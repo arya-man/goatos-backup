@@ -1054,7 +1054,7 @@ func pages() []domain.PageContract {
 		// SOP studio phase 2 (2026-09-18): general work instructions, the SOP kind tied to no
 		// module. Same library + operator-steps editor shape as the module pages; the code
 		// prefix `general.` and kind = general are set by the builder.
-		page("configuration-work-instructions", "/configuration/work-instructions", "/configuration/work-instructions", "Work instructions", "General SOPs: farm-wide work tied to no module, started by hand from the phone.", "module-surface",
+		page("configuration-work-instructions", "/configuration/work-instructions", "/configuration/work-instructions", "Work instructions", "General SOPs: farm-wide work tied to no module. Authoring remains available; the phone runner is retired.", "module-surface",
 			[]domain.TableContract{table("sop-library", "Work instructions", "/admin/sops", []string{"sop", "domain", "trigger", "steps", "gates", "status"}, "sop_id")}),
 		// SALES SOP (maintainer instruction 2026-09-19, docs/decisions/sales-sop.md): the steps a
 		// recorded sale owes -- tag the animals, load them, the money -- and the designation that
@@ -8436,7 +8436,7 @@ func pageSpecificCopy(id string) map[string]string {
 			"studio.kind.module":         "Module-level",
 			"studio.kind.general":        "General",
 			"studio.kind.module_hint":    "Owned and run by a module: birth by Herd Operations, a weighing session by Weighing, packing by Feed.",
-			"studio.kind.general_hint":   "Farm-wide work tied to no module, started by hand from the phone.",
+			"studio.kind.general_hint":   "Farm-wide work tied to no module. Authoring remains available; the phone runner is retired.",
 			"followup.step.add":          "Add step",
 			"followup.step.remove":       "Remove step",
 			"followup.step.move_up":      "Move up",
