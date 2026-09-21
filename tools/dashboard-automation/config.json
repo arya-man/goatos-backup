@@ -35,6 +35,18 @@
     "budgetWarningPercent": 80,
     "budgetHardStopPercent": 100
   },
+  "slackAlerts": {
+    "enabledByDefault": false,
+    "channelId": "C0C39G90FCJ",
+    "channelName": "goatos-automation-alerts",
+    "minimumRepeatIntervalMinutes": 240,
+    "postOn": [
+      "failure",
+      "auth_blocked",
+      "self_healing_pr",
+      "recovery"
+    ]
+  },
   "selfHealing": {
     "enabledByDefault": false,
     "mode": "pull_request_only",
@@ -106,8 +118,13 @@
       },
       {
         "name": "godel_2_timewise_adg",
-        "implementationStatus": "planned",
-        "description": "Godel 2 Part 1 and Part 2 ADG must change with the selected range when underlying weighing data changes."
+        "implementationStatus": "implemented",
+        "description": "No weighing campaign shed may use active shed + partition when a planner alias row exists for the same physical pen; this prevents Godel/Mandela/Castro ADG history splits."
+      },
+      {
+        "name": "weighing_pen_alias_form_b_rows",
+        "implementationStatus": "implemented",
+        "description": "Detects Form B weighing rows (shed id + partition_label) when the canonical planner alias row exists (alias location_id + NULL partition_label)."
       },
       {
         "name": "sales_sold_weight_coverage",
