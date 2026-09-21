@@ -185,6 +185,7 @@ function selfTest() {
   const redacted = redactText("postgres://user:pass@example/db?token=secret");
   if (redacted.includes("pass") || redacted.includes("secret")) throw new Error("self-test: redaction failed");
   if (config.selfHealing.mode !== "pull_request_only") throw new Error("self-test: self-healing must be PR-only");
+  if (!config.selfHealing.forbiddenActions.includes("writeOciData")) throw new Error("self-test: OCI writes must remain forbidden");
   if (config.apiLatencyPolicy.normalDashboardApisMustStayUnderMs !== 500) throw new Error("self-test: dashboard API latency policy drifted");
   console.log("dashboard automation runner: self-test passed");
 }
