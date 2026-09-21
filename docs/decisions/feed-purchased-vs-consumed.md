@@ -5,7 +5,7 @@
 When the procurement desk records a feed load it may say how many **days of stock** the load is
 meant to cover. Feed Analytics then shows, for every load, what the buyer said against what
 actually happened to the load: how many days it has been consumed, how many are left, and whether
-the sum comes out even. A load that ran out sooner than it was bought for is highlighted.
+the sum comes out even. A load that ran out sooner than it was bought for is highlighted red.
 
 The figure is **optional** (maintainer clarification, same day). Sheet history never carried one
 and stays blank.
@@ -59,14 +59,10 @@ Days:
 
 Zero means the buyer's figure held.
 
-> **OPEN — the sign of this check is currently mislabelled, raised 2026-09-21 and awaiting the
-> maintainer's call.** With `gap = said − used − left`, a load that runs SHORT produces a POSITIVE
-> number and one that lasts LONGER produces a NEGATIVE one — but the copy reads `+N days` for the
-> first and "N days short" (red) for the second, which is the wrong way round on both. Observed
-> live: a load said to cover 12 days, 13 used with 1 left (so 2 days LONGER), rendered "2 days
-> short". The arithmetic matches the instruction as given; only the words and tones hung on it are
-> inverted. Resolve by either relabelling (positive = short, red) or negating the formula; do not
-> change one half alone.
+> **Sign decision, resolved 2026-09-21.** With `gap = said − used − left`, a load that runs SHORT
+> produces a POSITIVE number and reads "N days short" in red; one that lasts LONGER produces a
+> NEGATIVE number and reads `+N days` in amber. The ambiguity was observed live on a load said to
+> cover 12 days, 13 used with 1 left.
 
 The whole-filter count of negative loads was shown as a tile above the table and was REMOVED on
 2026-09-21 (maintainer instruction) along with its `negative_gaps` field, end to end — a payload key

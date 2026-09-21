@@ -10,7 +10,7 @@
 -- path reads it; the Feed Analytics "Purchased vs consumed" tab shows it beside what actually
 -- happened to the load (FIFO consumption off the locked feed sheets) so the two can be compared
 -- per load: days said minus days consumed minus days left, highlighted when it does not come
--- out at zero and red when it is negative (the load ran out sooner than it was bought for).
+-- out at zero and red when it is positive (the load ran out sooner than it was bought for).
 ALTER TABLE public.feed_purchases
   ADD COLUMN IF NOT EXISTS days_of_stock integer;
 

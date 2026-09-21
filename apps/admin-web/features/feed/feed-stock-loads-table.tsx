@@ -10,7 +10,7 @@ import { FeedPager } from "./feed-pager";
 // the purchase ledger: when it was bought, how many days the buyer SAID it would cover, and what
 // the locked sheets actually did to it, load by load in arrival order. Every figure is a backend
 // field -- the FIFO split, the day counts and the check column all come off the wire -- and this
-// component only decides how to colour them: a check below zero is the load that ran out sooner
+// component only decides how to colour them: a check above zero is the load that ran out sooner
 // than it was bought for, and it reads red because that is the one that leaves animals unfed.
 
 const STATUS_TONE: Record<FeedAnalyticsStockLoadRow["status"], Tone> = {
