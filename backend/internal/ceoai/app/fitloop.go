@@ -20,6 +20,19 @@ type RelevanceJudge interface {
 	JudgeFit(ctx context.Context, question string, facts []domain.Fact) (fits bool, reason string, usage TokenUsage, err error)
 }
 
+// FitJudgeReplanner folds the judge and the re-plan into ONE model call: it
+// reads the evidence a plan returned, says whether it answers the question,
+// and — only when it does not — returns the replacement plan in the same
+// response. The split capabilities below cost two SERIAL Vertex round trips on
+// the misfit path (judge, then re-plan) for one decision the model makes from
+// the same evidence; this asks for the verdict and its consequence together.
+// It only judges and plans: it never picks scope, sees credentials or reads
+// data. A provider that does not implement it degrades to JudgeFit +
+// PlanWithFeedback with no behaviour change.
+type FitJudgeReplanner interface {
+	JudgeFitAndReplan(ctx context.Context, q domain.Question, mem []domain.ResolvedEntities, catalog []ports.ToolSpec, facts []domain.Fact) (fits bool, reason string, plan domain.Plan, usage TokenUsage, err error)
+}
+
 // FeedbackPlanner is the optional model capability to re-plan a question with
 // server feedback about why the previous plan's read did not fit. The feedback
 // is kept apart from the question text so it can never shift the
@@ -124,8 +137,11 @@ func deterministicFitIssues(q domain.Question, req RequestedShape, subs []domain
 }
 
 // answerFit returns the ways the executed plan does not answer the question
-// as asked, a feedback sentence for a re-plan, and the judge's token usage.
-func (a *Assistant) answerFit(ctx context.Context, q domain.Question, req RequestedShape, subs []domain.SubQuestion, results []domain.ToolResult, catalog []ports.ToolSpec, skipJudge bool) ([]FitIssue, string, TokenUsage) {
+// as asked, a feedback sentence for a re-plan, the judge's token usage, and —
+// when the folded judge+replan capability answered — the replacement plan the
+// same call already produced, so the orchestrator does not spend a second
+// serial round trip asking for it.
+func (a *Assistant) answerFit(ctx context.Context, q domain.Question, mem []domain.ResolvedEntities, req RequestedShape, subs []domain.SubQuestion, results []domain.ToolResult, catalog []ports.ToolSpec, skipJudge bool) ([]FitIssue, string, TokenUsage, *domain.Plan) {
 	issues, reasons := deterministicFitIssues(q, req, subs, results, catalog)
 	// Nothing came back at all (every read errored or was empty): the plan
 	// did not answer, so it deserves the same one re-plan a misfit gets.
@@ -142,39 +158,57 @@ func (a *Assistant) answerFit(ctx context.Context, q domain.Question, req Reques
 		reasons = append(reasons, "the previous read did not answer: "+strings.Join(errs, "; "))
 	}
 	var usage TokenUsage
+	var replacement *domain.Plan
 	// The model judge is a whole extra round trip on the critical path, so it
 	// is asked only when its answer can still change the outcome. It cannot
 	// when the caller opted out (the streaming path), when the deterministic
 	// checks above ALREADY found a misfit -- the one re-plan is triggered
 	// either way and the judge's sentence only lengthens the feedback -- or
 	// when the question asserts no shape to judge the evidence against.
-	if judgeWorthAsking(req, issues, skipJudge) {
-		if j, ok := a.provider.(RelevanceJudge); ok && a.provider.PlannedByModel() {
-			var facts []domain.Fact
-			for _, r := range results {
-				if r.Err != nil {
-					continue
+	if judgeWorthAsking(req, issues, skipJudge) && a.provider != nil && a.provider.PlannedByModel() {
+		var facts []domain.Fact
+		for _, r := range results {
+			if r.Err != nil {
+				continue
+			}
+			for _, f := range r.Facts {
+				if len(facts) >= maxJudgedFacts {
+					break
 				}
-				for _, f := range r.Facts {
-					if len(facts) >= maxJudgedFacts {
-						break
-					}
-					facts = append(facts, f)
+				facts = append(facts, f)
+			}
+		}
+		if len(facts) > 0 {
+			var (
+				fits   = true
+				reason string
+				err    error
+			)
+			if jr, ok := a.provider.(FitJudgeReplanner); ok {
+				var alt domain.Plan
+				fits, reason, alt, usage, err = jr.JudgeFitAndReplan(ctx, q, mem, catalog, facts)
+				// A plan only counts when the verdict is "does not answer" and
+				// it is usable; a refusal or an empty plan is no plan.
+				if err == nil && !fits && alt.Refusal == "" && len(alt.SubQuestions) > 0 {
+					replacement = &alt
+				}
+			} else if j, ok := a.provider.(RelevanceJudge); ok {
+				fits, reason, usage, err = j.JudgeFit(ctx, q.Text, facts)
+			}
+			if err == nil && !fits {
+				issues = append(issues, FitIssue{Kind: "judge", Detail: "for the exact measure, breakdown or period you asked for"})
+				if strings.TrimSpace(reason) != "" {
+					reasons = append(reasons, strings.TrimSpace(reason))
 				}
 			}
-			if len(facts) > 0 {
-				fits, reason, u, err := j.JudgeFit(ctx, q.Text, facts)
-				usage = u
-				if err == nil && !fits {
-					issues = append(issues, FitIssue{Kind: "judge", Detail: "for the exact measure, breakdown or period you asked for"})
-					if strings.TrimSpace(reason) != "" {
-						reasons = append(reasons, strings.TrimSpace(reason))
-					}
-				}
+			if err != nil {
+				// A judge failure is not a verdict, and a replacement produced
+				// beside a failed verdict is not one either.
+				replacement = nil
 			}
 		}
 	}
-	return dedupeIssues(issues), strings.Join(reasons, "; "), usage
+	return dedupeIssues(issues), strings.Join(reasons, "; "), usage, replacement
 }
 
 // judgeWorthAsking reports whether the model judge can still change what

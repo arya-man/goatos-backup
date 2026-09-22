@@ -36,6 +36,15 @@ type Config struct {
 	Project  string
 	Location string
 	Model    string
+	// JudgeModel answers the calls that only CLASSIFY — the grounding critic,
+	// which decides whether every number in a drafted answer traces to a fact.
+	// Classification does not need the planner's model: it reads a short list
+	// of facts and returns a boolean, and running it on a smaller/faster model
+	// takes a whole round trip off the non-streaming critical path. Empty
+	// means "use Model", so a deployment that sets nothing behaves exactly as
+	// before. Planning, re-planning and SQL repair stay on Model: they write
+	// SQL and pick tools, which is not classification.
+	JudgeModel string
 }
 
 // Planner calls Gemini via Vertex to plan leadership questions.
@@ -84,10 +93,12 @@ func defaultEndpoint(cfg Config) string {
 	)
 }
 
-// The Vertex planner is also the answer-fit judge and the feedback re-planner.
+// The Vertex planner is also the answer-fit judge and the feedback re-planner,
+// and folds the two into one call.
 var (
-	_ app.RelevanceJudge  = (*Planner)(nil)
-	_ app.FeedbackPlanner = (*Planner)(nil)
+	_ app.RelevanceJudge    = (*Planner)(nil)
+	_ app.FeedbackPlanner   = (*Planner)(nil)
+	_ app.FitJudgeReplanner = (*Planner)(nil)
 )
 
 // PlannedByModel is true: this is the real model planner.
@@ -148,6 +159,43 @@ func (p *Planner) JudgeFit(ctx context.Context, question string, facts []domain.
 	return fits, reason, usage, nil
 }
 
+// JudgeFitAndReplan folds the answer-fit verdict and the re-plan into ONE
+// Vertex call (app.FitJudgeReplanner). The model is given the question, the
+// evidence rows and the full planning context, and returns the verdict plus —
+// only when the evidence does not answer — the replacement plan. The separate
+// JudgeFit + PlanWithFeedback pair is two SERIAL round trips for the same
+// decision; this removes one from the worst case. A failure is not a verdict:
+// the caller treats an error as "no opinion", exactly as with JudgeFit.
+func (p *Planner) JudgeFitAndReplan(ctx context.Context, q domain.Question, mem []domain.ResolvedEntities, catalog []ports.ToolSpec, facts []domain.Fact) (bool, string, domain.Plan, Usage, error) {
+	prompt := buildFitJudgePrompt(q.Text, facts) +
+		"\n\nIf the rows DO NOT answer the question, plan the reads that would, using the catalog and schema cards below, and return them in \"sub_questions\". If they DO answer it, return \"sub_questions\": [].\n\n" +
+		buildPlanPrompt(q, mem, catalog)
+	raw, usage, err := p.generate(ctx, systemFitJudgeReplanInstruction, prompt)
+	if err != nil {
+		return true, "", domain.Plan{}, usage, err
+	}
+	fits, reason, err := parseFitJudge(raw)
+	if err != nil {
+		return true, "", domain.Plan{}, usage, err
+	}
+	if fits {
+		return true, reason, domain.Plan{}, usage, nil
+	}
+	// The replacement plan is parsed with the SAME parser the planner uses, so
+	// it is validated, Cube-first normalised and guard-checked by the app in
+	// exactly the same way a first plan is. A plan that will not parse is not
+	// a reason to discard the verdict.
+	plan, perr := parsePlan(raw)
+	if perr != nil {
+		return false, reason, domain.Plan{}, usage, nil
+	}
+	// A refusal returned beside "these rows do not answer" is the model
+	// declining to plan, not a refusal of the question; drop it and let the
+	// caller fall back to its own re-plan.
+	plan.Refusal = ""
+	return false, reason, plan, usage, nil
+}
+
 // RepairSQL is the one-shot repair call (plan v3 D1.3): given the rejected
 // draft, the guard/Postgres reason and the schema card of the referenced
 // view, ask the model for exactly one corrected draft. The caller re-validates
@@ -183,7 +231,9 @@ func (p *Planner) Critique(ctx context.Context, answer string, facts []domain.Fa
 		"Facts (the ONLY allowed evidence):\n%s\nDrafted answer:\n%q\n\nReturn strict JSON {\"grounded\":bool,\"reason\":string}. Check that every NUMBER and DATA CLAIM (figure, count, rate, percent, named entity, scope) in the answer traces to a fact. Ignore narrative prose, restatements, draft-metric disclaimers, source labels, and framing words. grounded=false ONLY if a number or data claim is missing from or contradicts the facts.",
 		sb.String(), answer,
 	)
-	raw, _, err := p.generate(ctx, systemReviewerInstruction, prompt)
+	// The critic only classifies (is every number supported?), so it runs on
+	// the smaller/faster model when one is configured.
+	raw, _, err := p.generateOn(ctx, p.judgeConfig(), systemReviewerInstruction, prompt)
 	if err != nil {
 		return true, "", err // reviewer failure must not block; app is authoritative
 	}
@@ -251,6 +301,21 @@ func parseUsage(u *usageMetadata) Usage {
 }
 
 func (p *Planner) generate(ctx context.Context, system, user string) (string, Usage, error) {
+	return p.generateOn(ctx, p.cfg, system, user)
+}
+
+// judgeConfig is p.cfg with the classifier model substituted when one is
+// configured. Only the model name changes; project, location and credentials
+// are the planner's.
+func (p *Planner) judgeConfig() Config {
+	cfg := p.cfg
+	if strings.TrimSpace(p.cfg.JudgeModel) != "" {
+		cfg.Model = strings.TrimSpace(p.cfg.JudgeModel)
+	}
+	return cfg
+}
+
+func (p *Planner) generateOn(ctx context.Context, cfg Config, system, user string) (string, Usage, error) {
 	reqBody := genContentRequest{
 		SystemInstruction: &content{Parts: []part{{Text: system}}},
 		Contents:          []content{{Role: "user", Parts: []part{{Text: user}}}},
@@ -258,7 +323,7 @@ func (p *Planner) generate(ctx context.Context, system, user string) (string, Us
 		SafetySettings:    defaultSafetySettings(),
 	}
 	buf, _ := json.Marshal(reqBody)
-	httpReq, err := http.NewRequestWithContext(ctx, http.MethodPost, p.endpoint(p.cfg), bytes.NewReader(buf))
+	httpReq, err := http.NewRequestWithContext(ctx, http.MethodPost, p.endpoint(cfg), bytes.NewReader(buf))
 	if err != nil {
 		return "", Usage{}, err
 	}

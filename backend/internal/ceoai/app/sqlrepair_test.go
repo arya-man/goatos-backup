@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -42,7 +43,12 @@ func (r *repairProvider) RepairSQL(_ context.Context, _ domain.Question, _ strin
 
 // sequencedSQLFallback fails the first N executes with a scripted error, then
 // succeeds; it records every statement it was handed.
+//
+// It is mutex-guarded because the step executor runs a plan's independent
+// sub-questions CONCURRENTLY: a plan with two SQL reads calls this double from
+// two goroutines at once, exactly as it calls the real pgx-backed executor.
 type sequencedSQLFallback struct {
+	mu     sync.Mutex
 	errs   []error
 	calls  int
 	sqls   []string
@@ -50,9 +56,11 @@ type sequencedSQLFallback struct {
 }
 
 func (f *sequencedSQLFallback) Execute(_ context.Context, _ domain.Actor, sql string, _ []any) (domain.ToolResult, error) {
+	f.mu.Lock()
 	f.sqls = append(f.sqls, sql)
 	i := f.calls
 	f.calls++
+	f.mu.Unlock()
 	if i < len(f.errs) && f.errs[i] != nil {
 		return domain.ToolResult{}, f.errs[i]
 	}

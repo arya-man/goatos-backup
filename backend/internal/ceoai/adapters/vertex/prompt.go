@@ -180,6 +180,18 @@ Judge only three things: (1) MEASURE — the rows measure what was asked (e.g. t
 Ignore formatting, units spelled differently, extra columns, and rows beyond what was asked. Be decisive; do not flag when unsure.
 Output STRICT JSON only: {"answers": true|false, "reason": "<one short sentence naming what is missing>"}`
 
+// systemFitJudgeReplanInstruction is the FOLDED judge + re-plan prompt: one
+// call that returns the fit verdict and, when the evidence does not answer,
+// the replacement plan. It repeats the judge's five checks verbatim so the
+// verdict is the same judgement, and adds the planner's own rules for the
+// plan half.
+const systemFitJudgeReplanInstruction = systemFitJudgeInstruction + `
+
+THEN, and ONLY IF "answers" is false, also plan the reads that WOULD answer the question, following the planner rules in the prompt: choose ONE tool per sub-question from the catalog, or draft sql_fallback over the schema card whose columns hold the asked measure, grouped by exactly the requested dimensions, binding the period exactly as instructed. Do NOT reuse a tool that cannot return the requested measure, grouping and period. You are READ-ONLY, and tenant/role scope comes from the server session — never from the question.
+Output STRICT JSON only, with BOTH parts:
+{"answers": true|false, "reason": "<one short sentence>", "sub_questions": [{"id":"0","text":"...","intent_class":"...","route":"cube|api|toolbox|sql","tool":"<catalog name>","params":{"...":"..."},"answer":{"measure":"...","group_by":["..."],"window":"..."}}]}
+When "answers" is true, "sub_questions" MUST be [].`
+
 func buildFitJudgePrompt(question string, facts []domain.Fact) string {
 	var sb strings.Builder
 	sb.WriteString("Question (data): ")

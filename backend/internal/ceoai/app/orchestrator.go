@@ -66,6 +66,7 @@ type Assistant struct {
 	convo     ports.ConversationStore
 	memory    ports.MemoryStore
 	cache     ports.Cache
+	plans     *planCache
 	limiter   ports.RateLimiter
 	budget    ports.Budget
 	audit     ports.AuditSink
@@ -116,7 +117,8 @@ func NewAssistant(cfg Config, d Deps) *Assistant {
 		memory = NewInMemoryMemory(0, 0)
 	}
 	return &Assistant{
-		cfg: cfg.withDefaults(), provider: d.Provider, fallback: d.Fallback,
+		plans: newPlanCache(planCacheTTL, planCacheEntries, nil),
+		cfg:   cfg.withDefaults(), provider: d.Provider, fallback: d.Fallback,
 		registry: d.Registry, metrics: d.Metrics, moderator: d.Moderator,
 		convo: d.Convo, memory: memory, cache: d.Cache, limiter: d.Limiter,
 		budget: d.Budget, audit: d.Audit, critic: d.Critic, telemetry: d.Telemetry,
@@ -263,7 +265,23 @@ func (a *Assistant) ask(ctx context.Context, q domain.Question, opts askOptions)
 	//
 	// Real token accounting (plan v3 D1.1): the planner's Vertex usageMetadata
 	// plus any repair call, recorded to the budget instead of len/4 when reported.
-	plan, planned, usage, err := a.planWithFallback(ctx, q, mem, catalog)
+	//
+	// Audit breadcrumbs for the plan-shaping decisions below.
+	var fitAudit []string
+	//
+	// Shape-keyed PLAN cache: a repeat ask reuses the routing the planner
+	// already produced for this exact question (same tenant, same user, same
+	// conversation, same business day) and skips the planner round trip. The
+	// DATA is never cached — the plan below is executed again against the live
+	// database, so the answer is re-read every time.
+	planKey := a.planCacheKey(q)
+	plan, planned, usage, err := domain.Plan{}, false, TokenUsage{}, error(nil)
+	if cached, hit := a.plans.get(planKey, q.Actor); hit {
+		plan, planned = cached, true
+		fitAudit = append(fitAudit, "plan_cache_hit")
+	} else {
+		plan, planned, usage, err = a.planWithFallback(ctx, q, mem, catalog)
+	}
 	if err != nil {
 		// A cancelled/expired context is the client disconnecting (or the wall
 		// clock firing), not a transient planner fault: propagate it so the
@@ -275,8 +293,6 @@ func (a *Assistant) ask(ctx context.Context, q domain.Question, opts askOptions)
 		return a.plainAnswer(requestID, q.ConversationID, domain.ModePartial,
 			"I couldn't process that request just now. Please try again."), nil
 	}
-	// Audit breadcrumbs for the plan-shaping decisions below.
-	var fitAudit []string
 	if plan.Refusal != "" {
 		// A refusal that claims the farm does not RECORD something is checked
 		// against the schema cards before a leader is told it: "no rows yet" and
@@ -339,6 +355,12 @@ func (a *Assistant) ask(ctx context.Context, q domain.Question, opts askOptions)
 	// and the wall clock bound the QUESTION rather than one loop inside it.
 	budget := newAskBudget(a.cfg.MaxSteps, a.cfg.WallClock, a.now)
 
+	// The plan AS PLANNED, before executePlan writes this ask's as-of day and
+	// window literals into its params. This copy is what the plan cache stores
+	// — a cached plan carrying yesterday's bound dates would be a cached READ,
+	// which is exactly what must never happen.
+	plannedShape := clonePlan(plan)
+
 	results, traces, truncated, execUsage := a.executePlan(ctx, q, plan.SubQuestions, window, budget)
 	usage = usage.add(execUsage)
 	// If the client disconnected during tool execution, abort rather than
@@ -373,13 +395,27 @@ func (a *Assistant) ask(ctx context.Context, q domain.Question, opts askOptions)
 	if planned {
 		var feedback string
 		var judgeUsage TokenUsage
-		fitIssues, feedback, judgeUsage = a.answerFit(ctx, q, requested, plan.SubQuestions, results, catalog, opts.skipModelCritic)
+		var folded *domain.Plan
+		fitIssues, feedback, judgeUsage, folded = a.answerFit(ctx, q, mem, requested, plan.SubQuestions, results, catalog, opts.skipModelCritic)
 		usage = usage.add(judgeUsage)
 		if len(fitIssues) > 0 {
 			fitAudit = append(fitAudit, "answer_fit_first_plan:"+feedback)
-			if alt, altUsage, ok := a.replanForFit(ctx, q, mem, catalog, feedback); ok {
+			// The folded judge+replan call already returned the replacement
+			// plan with its verdict, so the misfit path costs ONE model round
+			// trip instead of two serial ones. Fall back to the separate
+			// feedback re-plan when it did not (deterministic misfit, judge
+			// not asked, or a provider without the folded capability).
+			alt, altUsage, ok := domain.Plan{}, TokenUsage{}, false
+			if folded != nil {
+				alt, ok = *folded, true
+				fitAudit = append(fitAudit, "replan_folded_into_judge_call")
+			} else {
+				alt, altUsage, ok = a.replanForFit(ctx, q, mem, catalog, feedback)
+			}
+			if ok {
 				usage = usage.add(altUsage)
 				a.normalizePlan(ctx, q, &alt)
+				altShape := clonePlan(alt)
 				altResults, altTraces, altTruncated, altExecUsage := a.executePlan(ctx, q, alt.SubQuestions, window, budget)
 				usage = usage.add(altExecUsage)
 				if ctxErr := ctx.Err(); ctxErr != nil {
@@ -387,6 +423,7 @@ func (a *Assistant) ask(ctx context.Context, q domain.Question, opts askOptions)
 				}
 				if hasUsableResult(altResults) {
 					plan, results, traces, truncated = alt, altResults, append(traces, altTraces...), altTruncated
+					plannedShape = altShape
 					// The RE-PLAN gets the same deterministic post-read checks
 					// the first plan got, not only the shape one. Recomputing
 					// planFitIssues alone silently cleared a measure-binding
@@ -562,6 +599,14 @@ func (a *Assistant) ask(ctx context.Context, q domain.Question, opts askOptions)
 	// be wholly the actor's — a mixed/foreign fact set is never stored.
 	if a.cache != nil && mode == domain.ModePlanned && verdict.Grounded && validateFactTenants(q.Actor, results) == nil {
 		a.cache.Set(cacheKey, answer)
+	}
+	// Remember the ROUTING, on the same condition the answer is cached on: a
+	// plan is worth reusing only when it produced a grounded, unflagged,
+	// model-planned answer. A fallback plan, a flagged one or a downgraded one
+	// is not a plan to repeat. Unlike the answer above, this is re-executed on
+	// every hit, so a hit still reads today's data.
+	if planned && mode == domain.ModePlanned && verdict.Grounded && len(fitIssues) == 0 {
+		a.plans.set(planKey, q.Actor, plannedShape)
 	}
 	return answer, nil
 }

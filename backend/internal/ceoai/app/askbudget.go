@@ -2,6 +2,7 @@ package app
 
 import (
 	"context"
+	"sync"
 	"time"
 )
 
@@ -14,7 +15,13 @@ import (
 // retry round-trips ran outside the executor entirely, on the raw request
 // context, counted by nothing. Every one of those paths now draws on this one
 // budget, so the bound describes the ASK rather than one loop inside it.
+//
+// It is safe for concurrent use: the step executor now runs a plan's
+// independent sub-questions at the same time, so several goroutines draw on
+// this one allowance. The mutex is what keeps MaxSteps a real bound rather
+// than an approximate one under fan-out.
 type askBudget struct {
+	mu        sync.Mutex
 	remaining int
 	deadline  time.Time
 	now       func() time.Time
@@ -43,7 +50,9 @@ func (b *askBudget) take() bool {
 	if b == nil {
 		return true
 	}
-	if b.remaining <= 0 || b.expired() {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	if b.remaining <= 0 || b.expiredLocked() {
 		b.refused++
 		return false
 	}
@@ -56,6 +65,13 @@ func (b *askBudget) expired() bool {
 	if b == nil {
 		return false
 	}
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	return b.expiredLocked()
+}
+
+// expiredLocked is expired() for a caller that already holds the mutex.
+func (b *askBudget) expiredLocked() bool {
 	return b.now().After(b.deadline)
 }
 
@@ -65,7 +81,9 @@ func (b *askBudget) withDeadline(ctx context.Context) (context.Context, context.
 	if b == nil {
 		return ctx, func() {}
 	}
+	b.mu.Lock()
 	d := b.deadline.Sub(b.now())
+	b.mu.Unlock()
 	if d <= 0 {
 		// Already past: hand back a cancelled context so the caller's own
 		// ctx.Err() check short-circuits exactly as it does on a timeout.

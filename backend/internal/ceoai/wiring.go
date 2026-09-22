@@ -51,6 +51,10 @@ func NewVertexProvider(ctx context.Context, log *slog.Logger) *vertex.Planner {
 		Project:  os.Getenv("MESHA_VERTEX_PROJECT"),
 		Location: os.Getenv("MESHA_VERTEX_LOCATION"),
 		Model:    envOr("MESHA_VERTEX_MODEL", "gemini-3.8-flash"),
+		// The classifying call (the grounding critic) runs on a smaller, faster
+		// model. Unset falls back to the planner model, so nothing changes for a
+		// deployment that does not configure one.
+		JudgeModel: os.Getenv("MESHA_VERTEX_JUDGE_MODEL"),
 	})
 	if err != nil {
 		if log != nil {
