@@ -653,6 +653,10 @@ one product; this skill is the navigation layer.
   Do not copy or hand-roll kid/adult path logic in seeders; call the live
   vaccination schedule-path helper/config. Checklist:
   `docs/runbooks/vaccination-seed-source-date-contract.md`.
+  Recovery/reschedule output is clamped to each rule's own floor (birth_age
+  DOB+offset, post_arrival arrival+offset, after_previous_completion previous
+  completion+offset/min-gap). That clamp is OUTPUT-side: it changes no source
+  rule and no fixture, so it is not a reason to revise a seed bundle.
 - Vaccination proof grain is SOP-owned and must flow through backend config/API
   into Android. Current source fixture contract is shed-level video proof:
   one-to-five shed videos (camera or gallery) plus per-goat scan timestamps.

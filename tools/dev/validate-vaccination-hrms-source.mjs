@@ -138,6 +138,10 @@ const RAW_ATTENDANCE_EXTRA_HEADERS = new Set(["Basic Salary", "Incentive", "DOJ"
 // must not introduce a parallel admin business/person role.
 const FULL_ACCESS_GRANT_ROLE = "ceo_internal";
 const FULL_ACCESS_WORKFORCE_HINT = "cxo";
+// Recovery/reschedule due FLOOR (2026-09-23) is deliberately not validated here: it clamps the
+// kernel's GENERATED dates after eligibility, so it constrains output, not source bundles. A
+// source bundle carries rules and history; the floor those rules already imply is re-derived at
+// generation time. See docs/runbooks/vaccination-seed-source-date-contract.md.
 const DERIVED_DRIVE_ASSIGNMENT_CONTRACT = "vaccination_drive_assignments are generated after validation from animal eligibility plus operator timetable/leave; source bundles must not include manual drive-assignment rows";
 const DRIVE_ASSIGNMENT_CAPACITY_GRAIN = "operator_business_date_unique_animals";
 const HEALTH_CASE_LOG_CONTRACT = `health_status case-log values normalize as Open->${HEALTH_CASE_LOG_NORMALIZATION.Open}, Extended->${HEALTH_CASE_LOG_NORMALIZATION.Extended}, Closed->${HEALTH_CASE_LOG_NORMALIZATION.Closed}, Fine->${HEALTH_CASE_LOG_NORMALIZATION.Fine}; Closed/Fine are resolved/healthy and must not become recovering`;

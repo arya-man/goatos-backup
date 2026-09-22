@@ -298,6 +298,33 @@ Seed closeout must prove that adult ET+TT dose 2 exists. A DB with accepted
 completion is broken and must be reset/reseeded before any drive table is
 reported as final.
 
+### Recovery reschedule cannot land before the rule's own floor (2026-09-23)
+
+When a health defer clears, the kernel reschedules the deferred work. That
+reschedule is allowed to move a due date LATER -- onto a nearby drive, past a
+cross-vaccine gap -- but it must never produce a date EARLIER than the date the
+rule itself would have derived from its own anchor:
+
+| Rule trigger | Floor |
+| --- | --- |
+| `birth_age` | trusted DOB + `offset_days` |
+| `post_arrival` | trusted herd-entry/arrival date + `offset_days` |
+| `after_previous_completion` | previous accepted completion + `offset_days` / min-gap |
+
+A rule with no usable anchor (no trusted DOB for `birth_age`, no arrival for
+`post_arrival`) has no floor and is left as the reschedule computed it, rather
+than clamped against a guessed anchor.
+
+**This is an OUTPUT clamp, not a source-contract change** (maintainer review
+2026-09-23). The anchor order above is unchanged, the published rules are
+unchanged, and no seeded source data, fixture bundle, or fixture schema moves
+because of it: `birth_age` still means DOB + offset, `post_arrival` still means
+entry/arrival + offset, and `after_previous_completion` still means previous
+completion + offset/min-gap. The clamp only refuses to emit a GENERATED due
+date that sits before the floor those same rules already define, so
+`fixtures/vaccination-hrms-source-full/manifest.json` keeps
+`minimum_migration: 000008` and its reviewed `data_as_of`.
+
 ### Sanitized mock-fixture exception
 
 The runtime/kernel rule above remains strict: it never derives DOB from a

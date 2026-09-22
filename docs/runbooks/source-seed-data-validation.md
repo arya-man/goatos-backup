@@ -407,6 +407,19 @@ that contains this contract before they can satisfy the gate.
 
 Species and sex are lookup codes since migration 000346 (species_lookup / sex_lookup, Configuration -> Items and settings): goats.species / goats.sex no longer carry CHECK constraints, and the four literals every seed writes (goat, sheep, female, male) are the built-in rows of those lookups. A seeded goat therefore validates exactly as before; a tenant with no lookup rows still accepts the built-ins.
 
+## Recovery due floor is out of this report's scope (2026-09-23)
+
+The recovery/reschedule due floor clamps dates the kernel GENERATES after a
+health defer clears; it never reads or rewrites a source bundle. Source
+validation therefore does not check it, and a bundle cannot be invalid
+"because of" the floor. What this report still owns is the input the floor is
+derived from -- trusted DOB, trusted herd-entry/arrival date, and accepted
+previous completions. If those are wrong in source, the floor is wrong
+downstream, which is the ordinary reason this report gates a seed at all.
+
+The rule itself is in
+`docs/runbooks/vaccination-seed-source-date-contract.md`.
+
 ## Database boundary
 
 `make seed-vaccination-source-full` depends on the strict committed-fixture

@@ -360,6 +360,10 @@ export function validateLoadedFixture(bundle, { checkHashes = true } = {}) {
   const { manifest } = bundle;
   expect(manifest.fixture_kind === "synthetic_sanitized", "manifest.fixture_kind must be synthetic_sanitized", problems);
   expect(manifest.data_as_of === "2026-07-20", "manifest.data_as_of must pin the reviewed business date 2026-07-20", problems);
+  // Reviewed again 2026-09-23 for the recovery/reschedule due floor and DELIBERATELY unchanged:
+  // that floor clamps GENERATED due dates only (docs/runbooks/vaccination-seed-source-date-contract.md).
+  // It moves no source rule, no fixture row and no fixture schema, so the pin stays at 000008 --
+  // raising it would claim this bundle needs a migration it does not need.
   expect(manifest.minimum_migration === "000008", "manifest.minimum_migration must be 000008", problems);
   expect(manifest.contracts?.source_policy_sha256 === SEED_SOURCE_POLICY_SHA256, "manifest source policy digest differs from contracts/vaccination-seed-source-policy.json", problems);
   expect(manifest.contracts?.vaccination_sop_code === "vaccination.drive", "manifest must bind vaccination.drive SOP", problems);

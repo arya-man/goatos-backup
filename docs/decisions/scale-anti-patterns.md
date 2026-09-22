@@ -556,6 +556,23 @@ proof after seed, generation, and sweeper. Static guard:
 `make goat-shed-scope-guard`. Post-seed DB proof:
 `make goat-shed-integrity-db-proof`.
 
+## Reconcile-path membership probes belong at package level
+
+The rule-identity reconcile path asks one question per obligation -- is this row
+still a live member of a vaccination drive -- and the answer decides whether the
+planned date may move. Written inline in the reconcile function, that statement
+is unreachable to both a query-plan test and `scale-guard`: neither can see SQL
+that only exists as a string literal inside a method body, so a hot-path probe
+with no index behind it looks exactly like a probe with one.
+
+`liveDriveMembershipExistsSelect` is declared at package level in
+`backend/internal/obligation/adapters/postgres/repository.go` for that reason,
+and the partial index its predicate matches
+(`vaccination_drive_assignment_members (tenant_id, assignment_id) WHERE
+canceled_at IS NULL`) ships in the same change. Same rule as the rest of this
+document: if a statement runs per row on a reconcile or serving path, it must be
+a named const something can measure.
+
 ## Projection rebuild anti-patterns
 
 The `full (stop-the-world) MV refresh` rule above bans the delete+reinsert
