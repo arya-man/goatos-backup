@@ -16,10 +16,10 @@
 //      again (feedWeightPhotoCaptured / waterVideoCaptureEnabled ...), which is how a
 //      "step unlocks next step" chain re-enters. The ViewModel's capture gate must read
 //      `slot.captureEnabled`, not a sibling or the whole list.
-//   2. mime-blind-backstop — CaptureRepository's Gate-3 backstop calls validateVideoFile on
-//      the capture path without an image/-mime branch. The video duration probe on a JPEG
-//      silently pushed every valid photo to the raw-original fallback THREE times
-//      (field bugs 2026-08-15); the mime branch must stay.
+//   2. mime-blind-backstop — CaptureRepository's capture path must persist the camera URI in
+//      Room before Gate-3 validation, then Gate-3 must branch by mime type. The Room-first order
+//      keeps one-time field work retryable when validation/processing fails; the mime branch keeps
+//      the video duration probe from rejecting valid JPEG proof photos.
 //   3. processed-validation-mime-blind — CaptureRepository validates a PROCESSED artifact
 //      without passing the output mime type (single-argument validateProcessedArtifact).
 //   4. overlay-pipeline-dropped — AppProofMediaProcessor's photo or video path no longer
@@ -87,10 +87,11 @@ if (process.argv.includes('--self-test')) {
     console.error('self-test FAILED: sequential-slot-gating detector missed seeded ViewModel gate on the slot list');
     process.exit(1);
   }
-  const badGate3 = `// Gate 3: Backstop validation
+  const badGate3 = `dao.insert(entity)
+        // Gate 3: Backstop validation
         val validationResult = proofArtifactValidator.validateVideoFile(localUri)
-        dao.insert(entity)`;
-  const g3 = badGate3.match(/Gate 3[\s\S]{0,1500}?dao\.insert/);
+        if (!validationResult.isValid) return AppResult.Err("bad")`;
+  const g3 = badGate3.match(/dao\.insert\(entity\)[\s\S]{0,2500}?Gate 3[\s\S]{0,2500}?if \(!validationResult\.isValid\)/);
   if (!g3 || /startsWith\("image\/"\)/.test(g3[0])) {
     console.error('self-test FAILED: mime-blind-backstop detector missed seeded violation');
     process.exit(1);
@@ -151,9 +152,9 @@ const capRepo = read(capRepoPath);
 if (capRepo == null) {
   failures.push(`missing-file: ${capRepoPath}`);
 } else {
-  const gate3 = capRepo.match(/Gate 3[\s\S]{0,1500}?dao\.insert/);
+  const gate3 = capRepo.match(/dao\.insert\(entity\)[\s\S]{0,2500}?Gate 3[\s\S]{0,2500}?if \(!validationResult\.isValid\)/);
   if (!gate3) {
-    failures.push('mime-blind-backstop: Gate-3 backstop block not found before dao.insert');
+    failures.push('mime-blind-backstop: Room-first insert followed by Gate-3 backstop block not found');
   } else if (!/startsWith\("image\/"\)/.test(gate3[0]) || !/validateImageFile/.test(gate3[0])) {
     failures.push(
       'mime-blind-backstop: Gate-3 must branch image/* to validateImageFile — video probe on a JPEG forces raw fallback',
