@@ -108,12 +108,19 @@ async function main() {
   const outDir = path.resolve(args.outDir ?? path.join(repo, ".codex-goatos-render/android-journeys", stamp()));
   mkdirSync(outDir, { recursive: true });
 
-  const submitted = submitToTestLab({ plan, apks, outDir });
-  recordSpend(spendPath(), plan);
+  const submitted = submitToTestLab({ plan, apks, outDir, catalog });
+  const outcomesForSpend = parseTestLabOutcome(submitted.stdout || submitted.stderr);
+  const booked = reachedADevice(submitted.exitCode, outcomesForSpend);
+  // Only device time that was actually booked comes out of the day's allowance. A
+  // rejected submission costs nothing, and charging the ledger for it would park a
+  // legitimate run later for a device that never existed.
+  if (booked) recordSpend(spendPath(), plan);
+  else console.log("  free tier       nothing spent — the submission never booked a device");
 
   const journeys = collectResults({ catalog, plan, outDir, submitted });
   const receipt = {
-    status: journeys.some((j) => j.outcome === "fail") ? "fail" : "pass",
+    status: !booked ? "not-run" : journeys.some((j) => j.outcome === "fail") ? "fail" : "pass",
+    blockedReason: booked ? null : blockedReason(submitted),
     lane: "lane5-android",
     ranAt: new Date().toISOString(),
     device: `Firebase Test Lab virtual ${plan.matrix.model} / Android ${plan.matrix.version}`,
@@ -127,9 +134,13 @@ async function main() {
       .map((j) => ({ name: j.name, reason: j.physicalReason, humanFailure: j.humanFailure }))
   };
   if (args.out) writeOut(args.out, receipt);
+  if (!booked) {
+    console.log(`android journeys not-run; nothing about the app was checked. ${receipt.blockedReason}`);
+    process.exit(3);
+  }
   console.log(`android journeys ${receipt.status}; ${journeys.filter((j) => j.outcome === "pass").length} passed, ` +
     `${journeys.filter((j) => j.outcome === "fail").length} failed, ` +
-    `${journeys.filter((j) => j.outcome === "skipped").length} not attempted`);
+    `${journeys.filter((j) => j.outcome === "skipped" || j.outcome === "not-attempted").length} not attempted`);
   if (receipt.status !== "pass") process.exit(1);
 }
 
@@ -314,6 +325,27 @@ export function describePlan(plan, spent, verdict) {
 // So: only the dev flavour may ever be submitted, and if that cannot be PROVEN the
 // run is refused. "Probably dev" is not good enough when the cost of being wrong is
 // a write into a real farm's records.
+/**
+ * Ravi's rule, and it settles the naming trap: `stg-api.dashboard.mesha.sg` serves the
+ * same STG-backed data as production. "stg prod is still prod only" — the difference
+ * is a name, not the data behind it. Neither is ever a valid target for this lane.
+ */
+export function backendUrlVerdict(url) {
+  const text = String(url ?? "").trim();
+  if (!text) return { allowed: true, reason: "no backend url was named, so the one compiled into the APK stands" };
+  let host;
+  try {
+    host = new URL(text).hostname;
+  } catch {
+    return { allowed: false, reason: `"${text}" is not a url this runner can check, so which backend it points at cannot be proven` };
+  }
+  const forbidden = FORBIDDEN_BACKENDS.find((entry) => host === entry.host || host.endsWith(`.${entry.host}`));
+  if (forbidden) {
+    return { allowed: false, reason: `${host} is ${forbidden.what}. These journeys write, and stg serves the same data as production — the difference is a name, not the data. It may never be a target.` };
+  }
+  return { allowed: true, reason: `${host} is not a production-backed host` };
+}
+
 export function applicationIdVerdict(applicationId) {
   const id = String(applicationId ?? "").trim();
   if (!id) {
@@ -368,6 +400,16 @@ function resolveApks(options) {
   for (const [label, file] of [["app", app], ["test", test]]) {
     if (!existsSync(file)) throw new Error(`${label} APK not found: ${file}`);
   }
+  // Three independent reads, all unconditional. Any one of them refusing stops the run.
+  const urlVerdict = backendUrlVerdict(options.apiBaseUrl ?? process.env.GOATOS_ANDROID_API_BASE_URL);
+  if (!urlVerdict.allowed) {
+    throw new Error(`this run may not be submitted: ${urlVerdict.reason}`);
+  }
+  const mentioned = apkMentionsForbiddenBackend(app);
+  if (mentioned.length) {
+    throw new Error(`this APK may not be submitted: it carries ${mentioned.map((m) => `${m.host} (${m.what})`).join(" and ")}. ` +
+      "These journeys write, and stg serves the same data as production — the difference is a name, not the data.");
+  }
   const applicationId = readApplicationId(app);
   const verdict = applicationIdVerdict(applicationId);
   if (!verdict.allowed) {
@@ -384,7 +426,7 @@ function resolveApks(options) {
   return { app, test, applicationId, testApplicationId };
 }
 
-function submitToTestLab({ plan, apks, outDir }) {
+function submitToTestLab({ plan, apks, outDir, catalog }) {
   const resultsBucketDir = `lane5-${stamp()}`;
   const gcloudArgs = [
     "firebase", "test", "android", "run",
@@ -402,7 +444,7 @@ function submitToTestLab({ plan, apks, outDir }) {
     "--format", "json"
   ];
   // Only the journeys that were planned, so the receipt and the matrix can never disagree.
-  const classes = [...new Set(plan.journeys.map(testClassFor).filter(Boolean))];
+  const classes = [...new Set(plan.journeys.map((name) => testClassFor(name, catalog)).filter(Boolean))];
   if (classes.length) gcloudArgs.push("--test-targets", classes.map((c) => `class ${c}`).join(","));
 
   console.log(`\nsubmitting: gcloud ${gcloudArgs.filter((a) => !a.endsWith(".apk")).join(" ")}`);
@@ -415,10 +457,12 @@ function submitToTestLab({ plan, apks, outDir }) {
   return { exitCode: result.status, stdout, stderr, resultsBucketDir };
 }
 
-let catalogForClasses = null;
-function testClassFor(journeyName) {
-  catalogForClasses ??= readCatalog();
-  const journey = catalogForClasses.journeys.find((j) => j.name === journeyName);
+// No module-level mutable state here on purpose. `main()` runs at import time, which
+// is ABOVE every `let`/`const` further down this file: function declarations hoist,
+// bindings do not, so a memo variable declared below would be in its temporal dead
+// zone by the time the runner reached it. The catalogue is passed in instead.
+export function testClassFor(journeyName, catalog) {
+  const journey = catalog.journeys.find((j) => j.name === journeyName);
   const cls = journey?.automation?.testClass;
   return cls ? `sg.mesha.goatos.journeys.${cls}` : null;
 }
@@ -462,6 +506,20 @@ export function normaliseOutcome(value) {
   return "fail";
 }
 
+/**
+ * Did the submission ever reach a device at all?
+ *
+ * Learned the hard way on the first live attempt: the matrix was rejected before any
+ * device was booked, and the runner reported two journeys as FAILED — which would have
+ * put "People are signed out at random" into Slack when the truth was that nothing ran.
+ * That is the mirror image of a false green and just as dishonest: it blames the app
+ * for an infrastructure problem. A run that never started is NOT ATTEMPTED.
+ */
+export function reachedADevice(exitCode, outcomes) {
+  if (outcomes.length > 0) return true;
+  return exitCode === 0;
+}
+
 /** Did the whole device die, rather than a journey failing? The farm reads these differently. */
 export function deviceDied(outcomes) {
   return outcomes.length > 0 && outcomes.every((o) => o.outcome === "fail") &&
@@ -470,6 +528,17 @@ export function deviceDied(outcomes) {
 
 function collectResults({ catalog, plan, outDir, submitted }) {
   const outcomes = parseTestLabOutcome(submitted.stdout || submitted.stderr);
+  if (!reachedADevice(submitted.exitCode, outcomes)) {
+    // Nothing ran, so nothing is known about the app. Say exactly that.
+    return plan.journeys.map((name) => ({
+      name,
+      screen: catalog.journeys.find((j) => j.name === name)?.screen ?? null,
+      outcome: "not-attempted",
+      covered: false,
+      humanFailure: null,
+      note: "not attempted — the run was rejected before any phone was started, so nothing about the app was checked"
+    }));
+  }
   const died = deviceDied(outcomes);
   const devicePassed = outcomes.length > 0 && outcomes.every((o) => o.outcome === "pass");
   const evidence = readEvidence(outDir);
@@ -501,6 +570,23 @@ function collectResults({ catalog, plan, outDir, submitted }) {
       seen: evidence[`${name}.seen`] ?? null
     };
   });
+}
+
+/** Why the submission never booked a device, in words the operator can act on. */
+export function blockedReason(submitted) {
+  const text = `${submitted.stdout ?? ""}\n${submitted.stderr ?? ""}`;
+  const service = text.match(/API \[([\w.]+)\] not enabled|serviceTitle: ([^\n]+)/);
+  if (/SERVICE_DISABLED|not enabled on project|has not been used in project/i.test(text)) {
+    const name = (service?.[1] || service?.[2] || "a required Google Cloud API").trim();
+    return `${name} is not enabled on the project, so Test Lab refused the run before starting a phone. Enabling it is a project-configuration change and is Ravi's to make.`;
+  }
+  if (/PERMISSION_DENIED|does not have permission/i.test(text)) {
+    return "the account running this does not have permission to start a Test Lab run on the project.";
+  }
+  if (/quota|exceeded/i.test(text)) {
+    return "Test Lab refused the run on quota. Nothing was spent; it runs again tomorrow.";
+  }
+  return "Test Lab refused the run before starting a phone; the reason is in testlab-stderr.txt beside this receipt.";
 }
 
 function readEvidence(outDir) {
@@ -563,6 +649,7 @@ function parseArgs(raw) {
     else if (arg === "--app-apk") parsed.appApk = raw[++i];
     else if (arg === "--test-apk") parsed.testApk = raw[++i];
     else if (arg === "--physical") parsed.physical = true;
+    else if (arg === "--api-base-url") parsed.apiBaseUrl = raw[++i];
     else throw new Error(`unknown argument: ${arg}`);
   }
   return parsed;
@@ -604,6 +691,11 @@ function selfTest() {
   assert(!applicationIdVerdict(null).allowed, "an unreadable application id must be refused");
   assert(/real farm data/i.test(applicationIdVerdict("sg.mesha.goatos").reason),
     "the production refusal must say plainly that real farm data is at stake");
+  assert(!backendUrlVerdict("https://api.goatos.mesha.sg/").allowed, "production must be refused as a backend url");
+  assert(!backendUrlVerdict("https://stg-api.dashboard.mesha.sg/").allowed, "the stg api must be refused as a backend url");
+  assert(backendUrlVerdict("http://localhost:8080/").allowed, "a local backend must be allowed");
+  assert(backendUrlVerdict("").allowed, "naming no url must leave the APK's own backend to the flavour guard");
+  assert(!backendUrlVerdict("not a url").allowed, "an unparseable url must be refused, not assumed safe");
 
   // A virtual run can never claim a physical check.
   const runnable = runnableJourneys(catalog);
@@ -623,6 +715,21 @@ function selfTest() {
   assert(normaliseOutcome("Timed out") === "fail", "a timed-out device must read as a failure");
   assert(normaliseOutcome("Inconclusive") === "fail", "an inconclusive device must read as a failure");
   assert(normaliseOutcome("something new google invented") === "fail", "an unknown outcome must read as a failure, not a pass");
+
+  // Exercise the real pre-submit path. A binding used by main() but declared below
+  // main()'s call site is in its temporal dead zone and throws only at submit time —
+  // which is exactly when it costs a run to find out.
+  assert(testClassFor("login-and-session", catalog) === "sg.mesha.goatos.journeys.GoatOsColdBootJourneys",
+    "the runner must resolve a journey to its test class");
+  assert(testClassFor("proof-capture", catalog) === null,
+    "a physical journey must resolve to no test class");
+  {
+    const planned = planMatrix(catalog, {});
+    const classes = [...new Set(planned.journeys.map((name) => testClassFor(name, catalog)).filter(Boolean))];
+    assert(classes.length > 0, "a planned run must resolve to at least one test class");
+    assert(classes.every((c) => c.startsWith("sg.mesha.goatos.journeys.")),
+      "every resolved test class must be one of this lane's own");
+  }
 
   assert(readFileSync(fileURLToPath(import.meta.url), "utf8").includes("freeTierVerdict"),
     "the free-tier guard must stay in this runner");

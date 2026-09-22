@@ -22,6 +22,9 @@ import {
   FREE_TIER,
   PAID_RATES,
   applicationIdVerdict,
+  backendUrlVerdict,
+  blockedReason,
+  reachedADevice,
   deviceDied,
   freeTierVerdict,
   normaliseOutcome,
@@ -179,6 +182,46 @@ test("the catalogue says which backend the APK under test points at, and why not
     assert.equal(journey.backend, "none-by-design",
       `${journey.name} is claimed as covered, but it needs a backend and there is no safe one to give it`);
   }
+});
+
+test("a backend url pointing at production or stg is refused", () => {
+  // "stg prod is still prod only" — stg-api serves the same STG-backed data as
+  // production. The difference is a name, not the data behind it.
+  for (const url of ["https://api.goatos.mesha.sg/", "https://api.goatos.mesha.sg/v1/goats",
+                     "https://stg-api.dashboard.mesha.sg/", "https://stg-api.dashboard.mesha.sg/health"]) {
+    const verdict = backendUrlVerdict(url);
+    assert.equal(verdict.allowed, false, `${url} must be refused`);
+    assert.match(verdict.reason, /may never be a target/);
+  }
+  assert.equal(backendUrlVerdict("http://localhost:8080/").allowed, true);
+  assert.equal(backendUrlVerdict("http://127.0.0.1:15432/").allowed, true);
+  assert.equal(backendUrlVerdict("garbage").allowed, false, "an unparseable url must be refused, not assumed safe");
+});
+
+// ---------------------------------------------------------------------------
+// 1c. A run that never started must never be reported as the app failing
+// ---------------------------------------------------------------------------
+test("a submission that never booked a device is not-attempted, never a journey failure", () => {
+  // Learned live: the first real submission was rejected before any phone started,
+  // and the runner called two journeys FAILED — which would have put "People are
+  // signed out at random" into Slack when nothing had run. That is a false red, and
+  // it blames the app for an infrastructure problem.
+  assert.equal(reachedADevice(1, []), false, "a non-zero exit with no outcomes means no device ran");
+  assert.equal(reachedADevice(0, []), true, "a clean exit means the run happened");
+  assert.equal(reachedADevice(1, [{ outcome: "fail" }]), true, "a real outcome means a device ran and the journey failed");
+});
+
+test("the reason a run never started is named in words an operator can act on", () => {
+  const disabledApi = blockedReason({
+    stdout: "",
+    stderr: "API [toolresults.googleapis.com] not enabled on project [goatos-stg] ... reason: SERVICE_DISABLED"
+  });
+  assert.match(disabledApi, /toolresults\.googleapis\.com/);
+  assert.match(disabledApi, /not enabled/);
+  assert.match(disabledApi, /Ravi/, "enabling a project API is a decision, so it must say whose");
+  assert.match(blockedReason({ stderr: "PERMISSION_DENIED" }), /permission/);
+  assert.match(blockedReason({ stderr: "quota exceeded" }), /Nothing was spent/);
+  assert.match(blockedReason({ stderr: "something unexpected" }), /testlab-stderr/);
 });
 
 // ---------------------------------------------------------------------------
