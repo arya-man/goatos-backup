@@ -2297,25 +2297,31 @@
   "expect": [
    {
     "visible": {
-     "text": "Mortality"
+     "css": ".feed-tabbar"
     }
    },
    {
     "visible": {
-     "text": "Diagnosis engine"
+     "css": ".feed-tabbar :has-text(\"Mortality\")"
     }
    },
    {
     "visible": {
-     "text": "Open cases now"
+     "css": ".feed-tabbar :has-text(\"Diagnosis engine\")"
+    }
+   },
+   {
+    "visible": {
+     "css": ".kpi-row :has-text(\"Open cases now\")"
     }
    }
   ],
   "status": "assert",
-  "evidence": "backend/internal/adminui/app/service.go:6237 \"Health problems\"; backend/internal/adminui/app/service.go:6241 \"Diagnosis engine\"; backend/internal/adminui/app/service.go:6278 \"Open cases now\"",
+  "evidence": "apps/admin-web/features/health/health-analytics.tsx:453 .feed-tabbar; :419 .kpi-row; backend/internal/adminui/app/service.go:6250 \"Mortality\"; :6252 \"Diagnosis engine\"; :6289 \"Open cases now\"",
   "group": "A",
-  "verdict": "pass",
-  "reason": "'Health problems' tab copy ships in 26a11d2d8 (2026-09-22 12:28), which is newer than the deployed build; asserting a tab that shipped with this commit instead"
+  "verdict": "fix",
+  "reason": "Bad assertion, not a product bug: the screen ships the tabs and the KPI row (laptop-health-analytics-feature-missing.png shows Overview / Diseases / Mortality / Treatment / Diagnosis engine and the OPEN CASES NOW tile). The bare text target matched the sidebar first: mesha-shell.tsx renders every nav group's leaves and hides the collapsed ones with .subnav{display:none}, so Counts -> Mortality is the first \"Mortality\" in the DOM and is not visible on laptop. On mobile .layout.rail .side .subnav{display:flex} makes that same hidden leaf visible, which is why the identical assertion passed on phone and failed on laptop. Scoped to .feed-tabbar / .kpi-row so it asserts the Health Analytics screen instead of the nav.",
+  "triage": "bad-assertion"
  },
  {
   "sha": "a3fef7bd2",
@@ -17606,6 +17612,11 @@
   "expect": [
    {
     "visible": {
+     "css": "[data-testid=\"studio-view-list\"][aria-selected=\"true\"]"
+    }
+   },
+   {
+    "visible": {
      "css": ".sop-weighing .qlist"
     }
    }
@@ -17613,7 +17624,9 @@
   "status": "assert",
   "evidence": "apps/admin-web/features/sops/weighing-editor.tsx:378",
   "group": "C",
-  "verdict": "pass"
+  "verdict": "fix",
+  "reason": "Not a product bug and not a wrong selector: the markup is on origin/main (weighing-editor.tsx:378 .sop-weighing, :392 studio-view-list, and the list view renders .qlist). This is the FIRST clicking entry on the route, so it runs straight after a fresh load, and its click landed before React hydrated the toggle -- the view stayed on flow and .qlist never rendered. Every later clicking entry on the same route (99ff6d5cb asserts >=2 of this exact selector, plus 551b2b596 / 9b8050f6a / feb608513) passed on the same laptop run, and the whole set passed 8/8 on mobile. Fixed in the runner: a clicking entry is replayed once before it is called missing. The expect now also pins aria-selected on the List tab so a future failure says whether the click or the list view was the part that broke.",
+  "triage": "harness-flake"
  },
  {
   "sha": "9b8050f6a",

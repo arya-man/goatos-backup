@@ -35,8 +35,15 @@ if (state.lastSignature === signature && now - Number(state.lastPostedAtMs ?? 0)
 }
 
 // Same problem on laptop + phone, or on sibling tab routes, is one issue with one screenshot.
+// Slow page loads are a budget breach, not a visual break: they get collapsed into one
+// line of their own instead of flooding the numbered list (see groupSlowPages).
 const visualIssues = [];
+const slowIssues = [];
 for (const issue of moduleFailures(receiptPath).map(humanIssue).filter(Boolean)) {
+  if (issue.kind === "slow-page") {
+    slowIssues.push(issue);
+    continue;
+  }
   // Group by page family (first two words: "Feed Analytics", "Weighing Weights") + problem.
   const family = issue.page.split(" ").slice(0, 2).join(" ");
   const key = `${issue.what}|${family}`;
@@ -48,13 +55,14 @@ for (const issue of moduleFailures(receiptPath).map(humanIssue).filter(Boolean))
   }
   visualIssues.push({ ...issue, page: family, key, views: 1 });
 }
-const message = visualIssues.length && decision.kind === "failure"
-  ? formatVisualIssuesMessage(receipt, visualIssues)
+const slowPages = groupSlowPages(slowIssues);
+const message = (visualIssues.length || slowPages.pages.length) && decision.kind === "failure"
+  ? formatVisualIssuesMessage(receipt, visualIssues, slowPages)
   : formatSlackMessage(receipt, decision.kind, receiptPath);
 if (containsUnredactedSecret(JSON.stringify(message))) fail("refusing to send Slack message that appears to contain an unredacted secret");
 
 const screenshotFiles = screenshotPaths(receipt, receiptPath);
-const reportFile = writeHtmlReport(receipt, receiptPath, decision.kind, screenshotFiles, visualIssues);
+const reportFile = writeHtmlReport(receipt, receiptPath, decision.kind, screenshotFiles, visualIssues, slowPages);
 const inlineShots = visualIssues.filter((issue) => issue.screenshot).slice(0, 12).map((issue) => ({ file: issue.screenshot, title: issue.caption }));
 await postSlack(message, inlineShots.length ? [reportFile] : [reportFile, ...screenshotFiles], statePath, { lastSignature: signature, lastPostedAtMs: now, lastStatus: receipt.status ?? "unknown" }, inlineShots);
 console.log(`dashboard Slack notify: posted ${decision.kind}`);
@@ -137,20 +145,84 @@ function humanIssue(failure) {
   const page = String(routeName ?? "").replace(/-/g, " ").replace(/\b\w/g, (c) => c.toUpperCase());
   const deviceLabel = device === "mobile" ? "📱 Phone" : device === "laptop" ? "💻 Laptop" : "";
   const screenshot = (failure.screenshots ?? []).filter((file) => existsSync(file)).pop() ?? null;
-  return { page, deviceLabel, what, example, screenshot, raw, caption: `${page} · ${deviceLabel.replace(/^\S+ /, "")} — ${what}${example}`.slice(0, 250) };
+  // "<route> <viewport> page load 14812ms exceeded budget 8000ms" — keep the numbers so the
+  // slow-page summary can rank worst-first and name the budget once.
+  const slow = raw.match(/page load (\d+)ms exceeded budget (\d+)ms/);
+  const kind = slow ? "slow-page" : "visual";
+  return {
+    page,
+    deviceLabel,
+    what,
+    example,
+    screenshot,
+    raw,
+    kind,
+    loadMs: slow ? Number(slow[1]) : null,
+    budgetMs: slow ? Number(slow[2]) : null,
+    caption: `${page} · ${deviceLabel.replace(/^\S+ /, "")} — ${what}${example}`.slice(0, 250)
+  };
 }
 
-function formatVisualIssuesMessage(value, issues) {
+// One slow page seen on laptop and phone is one slow page. Worst load time wins, and the
+// devices merge into a single "laptop+phone" note.
+function groupSlowPages(issues) {
+  const pages = [];
+  for (const issue of issues) {
+    const seen = pages.find((existing) => existing.page === issue.page);
+    const device = /phone/i.test(issue.deviceLabel) ? "phone" : /laptop/i.test(issue.deviceLabel) ? "laptop" : null;
+    if (seen) {
+      if (device && !seen.devices.includes(device)) seen.devices.push(device);
+      if ((issue.loadMs ?? 0) > seen.loadMs) seen.loadMs = issue.loadMs ?? seen.loadMs;
+      seen.views += 1;
+      seen.raws.push(issue.raw);
+      continue;
+    }
+    pages.push({
+      page: issue.page,
+      loadMs: issue.loadMs ?? 0,
+      budgetMs: issue.budgetMs ?? 0,
+      devices: device ? [device] : [],
+      views: 1,
+      raws: [issue.raw]
+    });
+  }
+  pages.sort((a, b) => b.loadMs - a.loadMs);
+  const budgetMs = pages.find((p) => p.budgetMs)?.budgetMs ?? 0;
+  const devices = [...new Set(pages.flatMap((p) => p.devices))].sort();
+  return { pages, budgetMs, devices };
+}
+
+// Declared, not const: --self-test runs before the module body finishes evaluating.
+function seconds(ms) {
+  return `${(Number(ms) / 1000).toFixed(1).replace(/\.0$/, "")}s`;
+}
+
+// "12 pages slower than 8s — worst: Goat Passport 14.8s, Herd Signals 9.1s (laptop+phone)"
+function slowPagesLine(slow) {
+  if (!slow?.pages?.length) return "";
+  const worst = slow.pages.slice(0, 3).map((p) => `${p.page} ${seconds(p.loadMs)}`).join(", ");
+  const where = slow.devices.length ? ` (${slow.devices.join("+")})` : "";
+  const budget = slow.budgetMs ? ` slower than ${seconds(slow.budgetMs)}` : " over the page load budget";
+  return `${slow.pages.length} page${slow.pages.length === 1 ? "" : "s"}${budget} — worst: ${worst}${where}`;
+}
+
+function formatVisualIssuesMessage(value, issues, slow = { pages: [] }) {
   const shown = issues.slice(0, 20);
   const lines = shown.map((issue, i) => `*${i + 1}. ${issue.page}*${issue.views > 1 ? ` (${issue.views} views)` : ""}  ${issue.deviceLabel}\n      ${issue.what}${issue.example}`);
   const title = `:rotating_light: ${issues.length} visible issue${issues.length === 1 ? "" : "s"} on production`;
   const blocks = [
     { type: "header", text: { type: "plain_text", text: title.replace(":rotating_light: ", "🚨 "), emoji: true } },
-    { type: "section", text: { type: "mrkdwn", text: lines.join("\n") } },
   ];
+  if (lines.length) blocks.push({ type: "section", text: { type: "mrkdwn", text: lines.join("\n") } });
   if (issues.length > shown.length) blocks.push({ type: "context", elements: [{ type: "mrkdwn", text: `+${issues.length - shown.length} more in the report` }] });
+  // Slow pages are their own section: one line, never numbered among the visible breaks.
+  const slowLine = slowPagesLine(slow);
+  if (slowLine) {
+    blocks.push({ type: "section", text: { type: "mrkdwn", text: `*:hourglass_flowing_sand: Slow pages*\n${slowLine}` } });
+  }
   blocks.push({ type: "context", elements: [{ type: "mrkdwn", text: `Screenshots of the first 12 below, problem boxed in red · checked on laptop and phone · build \`${String(value.repoSha ?? "").slice(0, 9)}\` · full report in thread` }] });
-  return { text: `${title}\n${shown.map((issue) => `• ${issue.caption}`).join("\n")}`, blocks };
+  const fallback = [title, ...shown.map((issue) => `• ${issue.caption}`), slowLine ? `• Slow pages: ${slowLine}` : ""].filter(Boolean).join("\n");
+  return { text: fallback, blocks };
 }
 
 function formatSlackMessage(value, kind, receiptFile) {
@@ -482,7 +554,7 @@ async function uploadSlackFile(token, file) {
   return meta.file_id;
 }
 
-function writeHtmlReport(value, receiptFile, kind, screenshots, issues = []) {
+function writeHtmlReport(value, receiptFile, kind, screenshots, issues = [], slow = { pages: [] }) {
   const esc = (v) => String(v ?? "").replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" })[c]);
   const img = (file) => `data:image/png;base64,${readFileSync(file).toString("base64")}`;
   const layers = value.layers ?? [];
@@ -502,6 +574,18 @@ function writeHtmlReport(value, receiptFile, kind, screenshots, issues = []) {
       ${issue.screenshot && existsSync(issue.screenshot) ? `<figure class="${phone(issue) ? "phone" : "laptop"}"><img loading="lazy" src="${img(issue.screenshot)}" alt=""><figcaption>Problem outlined in red · ${esc(path.basename(issue.screenshot))}</figcaption></figure>` : ""}
       <details><summary>Technical detail</summary><pre>${esc(redactText(issue.raw ?? ""))}</pre></details>
     </article>`).join("");
+
+  // Slow pages live in their own section, with every page and every raw line kept.
+  const slowSection = slow?.pages?.length ? `
+    <section class="slow">
+      <h2>Slow pages</h2>
+      <p class="what">${esc(slowPagesLine(slow))}</p>
+      <table>
+        <thead><tr><th>Page</th><th>Worst load</th><th>Budget</th><th>Seen on</th></tr></thead>
+        <tbody>${slow.pages.map((p) => `<tr><td>${esc(p.page)}</td><td>${esc(seconds(p.loadMs))}</td><td>${p.budgetMs ? esc(seconds(p.budgetMs)) : "—"}</td><td>${esc(p.devices.join(" + ") || "—")}</td></tr>`).join("")}</tbody>
+      </table>
+      <details><summary>Technical detail</summary><pre>${esc(redactText(slow.pages.flatMap((p) => p.raws).join("\n")))}</pre></details>
+    </section>` : "";
 
   const failedLayers = layers.filter((l) => l.status !== "pass").map((l) => esc(l.name)).join(", ");
   const html = `<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
@@ -531,8 +615,13 @@ function writeHtmlReport(value, receiptFile, kind, screenshots, issues = []) {
  figcaption{color:var(--mut);font-size:12.5px;margin-top:6px}
  details{margin-top:12px} summary{cursor:pointer;color:var(--mut);font-size:13px}
  pre{white-space:pre-wrap;word-break:break-word;background:#0f1512;color:#e8efe9;padding:12px;border-radius:8px;font-size:12px;overflow:auto}
+ .slow{background:#fff;border:1px solid var(--line);border-left:4px solid #b7791f;border-radius:12px;padding:16px 18px;margin:0 0 16px}
+ .slow h2{margin:0 0 4px;font-size:17px}
+ .slow table{border-collapse:collapse;width:100%;margin-top:12px;font-size:14px}
+ .slow th,.slow td{text-align:left;padding:6px 10px;border-bottom:1px solid var(--line)}
+ .slow th{color:var(--mut);font-weight:600;font-size:13px}
  footer{color:var(--mut);font-size:13px;border-top:1px solid var(--line);padding-top:14px;margin-top:22px}
- @media (prefers-color-scheme: dark){:root{--ink:#e8efe9;--mut:#9aa8a0;--line:#2a332d;--bg:#10150f} header,.issue,.tag,figure img{background:#161c18} .what{color:#dbe4dd}}
+ @media (prefers-color-scheme: dark){:root{--ink:#e8efe9;--mut:#9aa8a0;--line:#2a332d;--bg:#10150f} header,.issue,.slow,.tag,figure img{background:#161c18} .what{color:#dbe4dd}}
 </style></head><body>
 <header><div class="wrap">
   <h1>${issues.length ? `${issues.length} issue${issues.length === 1 ? "" : "s"} a person would notice` : "Production check"}</h1>
@@ -541,6 +630,7 @@ function writeHtmlReport(value, receiptFile, kind, screenshots, issues = []) {
 </div></header>
 <main><div class="wrap">
   ${cards || "<p>No visible issues found on this run.</p>"}
+  ${slowSection}
   <footer>Each screenshot is the page as the check saw it, with the problem outlined in red. Receipt: <code>${esc(path.relative(repo, receiptFile))}</code></footer>
 </div></main></body></html>`;
   const out = path.join(path.dirname(receiptFile), "report.html");
@@ -636,7 +726,50 @@ function selfTest() {
   if (parityOnlyNoBrowser.shouldPost || !parityOnlyNoBrowser.reason.includes("receipt-only")) {
     throw new Error("self-test: parity-only browser-not-run failures must stay out of Slack");
   }
+  selfTestSlowPageGrouping();
   console.log("dashboard Slack notify: self-test passed");
+}
+
+function selfTestSlowPageGrouping() {
+  const slowFailure = (route, device, ms) => ({
+    module: "perf",
+    route: `${device}:${route}`,
+    error: `${route} ${device} page load ${ms}ms exceeded budget 8000ms`
+  });
+  const raw = [
+    slowFailure("goat-passport", "laptop", 14812),
+    slowFailure("goat-passport", "mobile", 12004),
+    slowFailure("herd-signals", "laptop", 9142),
+    { module: "health", route: "laptop:health-analytics", error: "health-analytics laptop feature missing: Health Analytics screen with tabs [798497220]" }
+  ].map(humanIssue).filter(Boolean);
+
+  const visual = raw.filter((issue) => issue.kind !== "slow-page");
+  const slow = groupSlowPages(raw.filter((issue) => issue.kind === "slow-page"));
+
+  if (visual.length !== 1) throw new Error("self-test: slow page loads must stay out of the visible-issue list");
+  if (slow.pages.length !== 2) throw new Error(`self-test: slow pages must collapse per page, got ${slow.pages.length}`);
+  if (slow.pages[0].page !== "Goat Passport" || slow.pages[0].loadMs !== 14812) {
+    throw new Error("self-test: slow pages must be ranked worst-first with the worst load time kept");
+  }
+  if (slow.pages[0].devices.join("+") !== "laptop+phone") throw new Error("self-test: laptop + phone must merge into one slow page");
+
+  const line = slowPagesLine(slow);
+  for (const expected of ["2 pages slower than 8s", "worst: Goat Passport 14.8s, Herd Signals 9.1s", "(laptop+phone)"]) {
+    if (!line.includes(expected)) throw new Error(`self-test: slow page line missing ${expected} — got "${line}"`);
+  }
+
+  const message = formatVisualIssuesMessage({ repoSha: "abc123456789" }, visual, slow);
+  const asText = JSON.stringify(message);
+  if (!asText.includes("Slow pages")) throw new Error("self-test: Slack message needs its own slow-pages section");
+  if (/\*1\. Goat Passport\*/.test(asText)) throw new Error("self-test: slow pages must not be numbered among the visible issues");
+  if (!message.text.includes("Slow pages:")) throw new Error("self-test: Slack fallback text must mention slow pages");
+
+  // Slow pages alone still produce the grouped message rather than the generic failure card.
+  const slowOnly = formatVisualIssuesMessage({ repoSha: "abc123456789" }, [], slow);
+  if (!JSON.stringify(slowOnly).includes("Slow pages")) throw new Error("self-test: slow-only runs must still report slow pages");
+  if (slowOnly.blocks.some((block) => block.type === "section" && /\*1\./.test(block.text?.text ?? ""))) {
+    throw new Error("self-test: slow-only runs must not emit an empty numbered list");
+  }
 }
 
 function fail(message) {

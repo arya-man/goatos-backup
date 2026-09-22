@@ -4,6 +4,7 @@ import { assertRegressionPatterns } from "./lib/regression-checks.mjs";
 import { exerciseOverlays } from "./lib/overlay-journeys.mjs";
 import { assertFeaturesPresent } from "./lib/feature-assertions.mjs";
 import { validateLocalStackReceipt, validateSmokeActor } from "./lib/local-stack-receipt.mjs";
+import { noRoutesLeftError, planRouteSelection, routeSkippedLine } from "./lib/route-skips.mjs";
 import { copyFileSync, existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { dirname, isAbsolute, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -98,21 +99,43 @@ const runsRoute = (name) => onlyRoutes.length === 0 || onlyRoutes.includes(name)
 await waitForApp(appBaseUrl);
 // Resolve per-route smoke fixtures lazily: only hit /goats/search or the procurement load lookup when a
 // selected route actually needs it, so a focused `calendar` run never fails on an unrelated lookup.
-const goatId = runsRoute("goat-passport") ? await resolveSmokeGoatID(apiBaseUrl, bearerToken, tenantId) : null;
-const procurementLoadId = runsRoute("procurement-load-detail")
-  ? await resolveSmokeProcurementLoadID(apiBaseUrl, bearerToken, tenantId)
-  : null;
-const workflowRowId = runsRoute("workflow-record") ? await resolveSmokeWorkflowRowID(apiBaseUrl, bearerToken, tenantId) : null;
-const calendarEventId = runsRoute("calendar-drive-detail") ? await resolveSmokeCalendarEventID(apiBaseUrl, bearerToken, tenantId) : null;
-const vaccinationShedPath = runsRoute("vaccination-shed-execution-detail")
-  ? await resolveSmokeVaccinationShedPath(apiBaseUrl, bearerToken, tenantId)
-  : null;
-const toxinSopId = runsRoute("procurement-toxin-list") || runsRoute("procurement-toxin-flow")
-  ? await resolveSmokeToxinSopID(apiBaseUrl, bearerToken, tenantId)
-  : null;
+// A fixture the run cannot resolve costs us that route, not the whole module. Why each route
+// dropped out is remembered here so the selection step can say route_skipped=<name>:<why>,
+// and a lookup that failed with a backend error is reported as one finding of its own.
+const routeSkipReasons = new Map();
+const fixtureFindings = [];
+async function resolveFixture(label, routeNames, resolve) {
+  if (!routeNames.some((name) => runsRoute(name))) return null;
+  try {
+    const value = await resolve();
+    if (!value) for (const name of routeNames) routeSkipReasons.set(name, `${label} unavailable in this run`);
+    return value ?? null;
+  } catch (error) {
+    // A backend error is a finding worth reporting, but it must not stop the other routes.
+    const why = String(error?.message ?? error).split("\n")[0].slice(0, 300);
+    for (const name of routeNames) routeSkipReasons.set(name, why);
+    fixtureFindings.push({ viewport: "fixture", route: label, error: why });
+    console.log(`fixture_lookup_failed=${label}|${why}`);
+    return null;
+  }
+}
+
+const goatId = await resolveFixture("goat", ["goat-passport"], () => resolveSmokeGoatID(apiBaseUrl, bearerToken, tenantId));
+const procurementLoadId = await resolveFixture("procurement load", ["procurement-load-detail"], () =>
+  resolveSmokeProcurementLoadID(apiBaseUrl, bearerToken, tenantId));
+const workflowRowId = await resolveFixture("workflow row", ["workflow-record"], () =>
+  resolveSmokeWorkflowRowID(apiBaseUrl, bearerToken, tenantId));
+const calendarEventId = await resolveFixture("calendar event", ["calendar-drive-detail"], () =>
+  resolveSmokeCalendarEventID(apiBaseUrl, bearerToken, tenantId));
+const vaccinationShedPath = await resolveFixture("vaccination shed", ["vaccination-shed-execution-detail"], () =>
+  resolveSmokeVaccinationShedPath(apiBaseUrl, bearerToken, tenantId));
+const toxinSopId = await resolveFixture("toxin SOP", ["procurement-toxin-list", "procurement-toxin-flow"], () =>
+  resolveSmokeToxinSopID(apiBaseUrl, bearerToken, tenantId));
 const sopFlowIds = {};
 for (const [routeName, { code }] of Object.entries(SOP_FLOW_CODES)) {
-  if (runsRoute(routeName)) sopFlowIds[routeName] = await resolveSmokeSopIDByCode(apiBaseUrl, bearerToken, tenantId, code);
+  const id = await resolveFixture(`SOP ${code}`, [routeName], () =>
+    resolveSmokeSopIDByCode(apiBaseUrl, bearerToken, tenantId, code));
+  if (id) sopFlowIds[routeName] = id;
 }
 mkdirSync(screenshotDir, { recursive: true });
 if (baselineDir) mkdirSync(diffDir, { recursive: true });
@@ -306,6 +329,8 @@ function buildRoutes({ toxinSopId, goatId, procurementLoadId, workflowRowId, cal
   // The load-detail route needs a real load to visit; its NAME is still valid to ask for.
   return routes.filter((route) => {
     if (route.name === "procurement-load-detail") return Boolean(procurementLoadId);
+    if (route.name === "goat-passport") return Boolean(goatId);
+    if (route.name === "procurement-toxin-list" || route.name === "procurement-toxin-flow") return Boolean(toxinSopId);
     if (route.name === "workflow-record") return Boolean(workflowRowId);
     if (route.name === "calendar-drive-detail") return Boolean(calendarEventId);
     if (route.name === "vaccination-shed-execution-detail") return Boolean(vaccinationShedPath);
@@ -317,19 +342,18 @@ function buildRoutes({ toxinSopId, goatId, procurementLoadId, workflowRowId, cal
 const routes = buildRoutes({ toxinSopId, goatId, procurementLoadId, workflowRowId, calendarEventId, vaccinationShedPath, sopFlowIds });
 
 // Names were already validated up front against KNOWN_ROUTE_NAMES; resolve the selection to concrete
-// routes. A requested route the run couldn't build (e.g. procurement-load-detail with no seeded load)
-// fails loudly here rather than silently running fewer routes than asked for.
-const selectedRoutes = onlyRoutes.length ? routes.filter((route) => onlyRoutes.includes(route.name)) : routes;
-if (onlyRoutes.length) {
-  const built = new Set(routes.map((route) => route.name));
-  const unavailable = onlyRoutes.filter((name) => !built.has(name));
-  if (unavailable.length) {
-    throw new Error(`GOATOS_SMOKE_ONLY_ROUTES selected route(s) not available in this run: ${unavailable.join(", ")}`);
-  }
-}
-if (selectedRoutes.length === 0) {
-  throw new Error("GOATOS_SMOKE_ONLY_ROUTES selected zero routes");
-}
+// routes. A requested route the run couldn't build (e.g. procurement-load-detail with no seeded load,
+// or a fixture lookup that came back 500) is logged as route_skipped=<name>:<why> and dropped, so the
+// rest of the selection still runs. Only a selection where NOTHING can run is fatal.
+const { selectedNames, skipped: skippedRoutes } = planRouteSelection({
+  onlyRoutes,
+  builtRouteNames: routes.map((route) => route.name),
+  skipReasons: routeSkipReasons,
+});
+for (const skip of skippedRoutes) console.log(routeSkippedLine(skip));
+const selectedRoutes = onlyRoutes.length ? routes.filter((route) => selectedNames.includes(route.name)) : routes;
+const noRoutesLeft = noRoutesLeftError({ onlyRoutes, selectedNames: selectedRoutes.map((r) => r.name), skipped: skippedRoutes });
+if (noRoutesLeft) throw new Error(noRoutesLeft);
 
 const pagerMinimums = new Map([
   ["workflows", 1],
@@ -396,7 +420,9 @@ const browserLaunchOptions = process.env.GOATOS_SMOKE_BROWSER_CHANNEL
   : {};
 const browser = await chromium.launch(browserLaunchOptions);
 try {
-  var routeFailures = [];
+  // Fixture lookups that failed with a backend error are findings too: they ride along with the
+  // route failures instead of having aborted the module before the browser ever opened.
+  var routeFailures = [...fixtureFindings];
   for (const viewport of [
     { label: "laptop", width: 1440, height: 1000 },
     {
@@ -525,6 +551,7 @@ writeFileSync(
       calendar_event_id: calendarEventId,
       vaccination_shed_path: vaccinationShedPath,
       routes: selectedRoutes.map((route) => appPath(route.path)),
+      routes_skipped: skippedRoutes,
       baseline_dir: baselineDir ? relativeToRepo(baselineDir) : null,
       baseline_compared: baselineCompared,
       baseline_updated: baselineUpdated,

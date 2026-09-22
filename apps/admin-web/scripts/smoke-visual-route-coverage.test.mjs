@@ -326,3 +326,40 @@ test("historical Work Board proof requires actual rendered cards", () => {
   assert.match(smokeSource, /routeName === "work-board-populated" && hasWorkCards <= 0/);
   assert.ok(!smokeSource.includes('[data-work-board-row]'));
 });
+
+test("a route whose fixture is unavailable is skipped, not fatal to the whole module", () => {
+  // Tonight's lane lost an entire module to "backend smoke vaccination shed lookup failed: status 500".
+  // One fixture must cost one route.
+  assert.match(smokeSource, /planRouteSelection\(/, "route selection must go through the testable planner");
+  assert.match(smokeSource, /routeSkippedLine\(skip\)/, "every dropped route must log route_skipped=<name>:<why>");
+  assert.doesNotMatch(
+    smokeSource,
+    /throw new Error\(`GOATOS_SMOKE_ONLY_ROUTES selected route\(s\) not available/,
+    "a partially-available selection must skip the missing routes instead of throwing",
+  );
+  assert.match(
+    smokeSource,
+    /const noRoutesLeft = noRoutesLeftError\(/,
+    "a selection where nothing can run must still be fatal",
+  );
+});
+
+test("a failed fixture lookup is reported as a finding instead of aborting before the browser opens", () => {
+  assert.match(smokeSource, /async function resolveFixture\(/, "fixture lookups must go through the catching helper");
+  assert.match(smokeSource, /fixtureFindings\.push\(/, "a backend error on a fixture lookup must be recorded as a finding");
+  assert.match(smokeSource, /var routeFailures = \[\.\.\.fixtureFindings\]/, "fixture findings must be reported with the route failures");
+  for (const fixture of ["calendar event", "procurement load", "goat", "toxin SOP", "vaccination shed", "workflow row"]) {
+    assert.ok(smokeSource.includes(`resolveFixture("${fixture}"`), `${fixture} lookup must be wrapped by resolveFixture`);
+  }
+});
+
+test("routes that need a fixture id are dropped when that id is missing", () => {
+  for (const route of ["goat-passport", "procurement-toxin-list", "procurement-toxin-flow", "vaccination-shed-execution-detail"]) {
+    assert.ok(
+      smokeSource.includes(`route.name === "${route}"`) || smokeSource.includes(`"${route}"`),
+      `${route} must be filtered out when its fixture id is unavailable`,
+    );
+  }
+  assert.match(smokeSource, /if \(route\.name === "goat-passport"\) return Boolean\(goatId\);/);
+  assert.match(smokeSource, /return Boolean\(toxinSopId\);/);
+});
