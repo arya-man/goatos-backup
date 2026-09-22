@@ -1,5 +1,6 @@
 import { readWeighingPolicy } from "../../../tools/perf/weighing-workload.mjs";
 import { assertSmokeRouteIdentity, assertAnimalPurchaseHeading } from "./lib/smoke-route-identity.mjs";
+import { assertRegressionPatterns } from "./lib/regression-checks.mjs";
 import { validateLocalStackReceipt, validateSmokeActor } from "./lib/local-stack-receipt.mjs";
 import { copyFileSync, existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { dirname, isAbsolute, join, resolve } from "node:path";
@@ -423,7 +424,7 @@ try {
         browserEvidence.routes[browserEvidence.routes.length - 1].screenshot = screenshotPath;
         writeBrowserEvidence(browserEvidence);
         console.log(`screenshot_path=${relativeToRepo(screenshotPath)}`);
-        await assertReadableText(page, route.name, viewport.label, screenshotDir);
+        await assertRegressionPatterns(page, { routeName: route.name, viewportLabel: viewport.label, screenshotDir, relativeToRepo });
         await assertLayoutHealthy(page, route.name, viewport.label);
         await assertMobileWideTableGestures(page, route.name, viewport.label, screenshotDir);
         await assertA11y(page, route.name, viewport.label);
@@ -929,93 +930,6 @@ function extractCountAfter(text, label) {
   const escaped = label.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
   const match = text.match(new RegExp(`${escaped}(?:\\s+[^\\d\\s]+)?\\s+(\\d+)`));
   return match ? Number(match[1]) : null;
-}
-
-// Visible readability breaks only: text drawn over other text, chart/graph labels that are
-// clipped out of their SVG or collide with each other, and text cut off with no ellipsis.
-async function assertReadableText(page, routeName, viewportLabel, screenshotRoot) {
-  const problems = await page.evaluate(() => {
-    const visible = (el) => {
-      const style = getComputedStyle(el);
-      if (style.visibility === "hidden" || style.display === "none" || Number(style.opacity) === 0) return false;
-      const r = el.getBoundingClientRect();
-      return r.width > 0 && r.height > 0;
-    };
-    const label = (el) => `${el.tagName.toLowerCase()}${el.className && typeof el.className === "string" ? "." + el.className.trim().split(/\s+/).slice(0, 2).join(".") : ""} "${(el.textContent ?? "").trim().slice(0, 40)}"`;
-    const inter = (a, b) => Math.max(0, Math.min(a.right, b.right) - Math.max(a.left, b.left)) * Math.max(0, Math.min(a.bottom, b.bottom) - Math.max(a.top, b.top));
-    const found = [];
-    const mark = (el, kind, detail) => { el.setAttribute("data-smoke-issue", kind); found.push({ kind, element: label(el), detail }); };
-
-    // 1. HTML text overlapping other HTML text (different, unrelated elements).
-    const root = document.querySelector("main") ?? document.body;
-    const boxes = [];
-    const walker = document.createTreeWalker(root, NodeFilter.SHOW_TEXT);
-    for (let node = walker.nextNode(); node && boxes.length < 1500; node = walker.nextNode()) {
-      const el = node.parentElement;
-      if (!el || !node.textContent.trim() || el.closest("svg, [aria-hidden='true'], .sr-only, [data-smoke-ignore]") || !visible(el)) continue;
-      const range = document.createRange();
-      range.selectNodeContents(node);
-      for (const rect of range.getClientRects()) {
-        if (rect.width < 2 || rect.height < 2) continue;
-        // Only compare what is actually painted (skip text scrolled away inside a scroller).
-        const cx = rect.left + rect.width / 2, cy = rect.top + rect.height / 2;
-        if (cx < 0 || cy < 0 || cx > innerWidth || cy > innerHeight) { boxes.push({ el, rect }); continue; }
-        const hit = document.elementFromPoint(cx, cy);
-        if (hit && (hit === el || el.contains(hit) || hit.contains(el))) boxes.push({ el, rect });
-      }
-    }
-    for (let i = 0; i < boxes.length && found.length < 8; i += 1) {
-      for (let j = i + 1; j < boxes.length; j += 1) {
-        const a = boxes[i], b = boxes[j];
-        if (a.el === b.el || a.el.contains(b.el) || b.el.contains(a.el)) continue;
-        const overlap = inter(a.rect, b.rect);
-        const smaller = Math.min(a.rect.width * a.rect.height, b.rect.width * b.rect.height);
-        if (overlap > 12 && overlap / smaller > 0.25) {
-          mark(a.el, "text-overlap", `overlaps ${label(b.el)}`);
-          b.el.setAttribute("data-smoke-issue", "text-overlap");
-          break;
-        }
-      }
-    }
-
-    // 2. Chart / graph labels: SVG text clipped outside its chart, or colliding with sibling labels.
-    for (const svg of Array.from(document.querySelectorAll("main svg")).filter(visible)) {
-      const svgBox = svg.getBoundingClientRect();
-      if (svgBox.width < 80 || svgBox.height < 60) continue; // icons
-      const texts = Array.from(svg.querySelectorAll("text, tspan:only-child")).filter((t) => (t.textContent ?? "").trim() && visible(t));
-      const rects = texts.map((t) => ({ t, r: t.getBoundingClientRect() }));
-      for (const { t, r } of rects) {
-        const cut = Math.max(svgBox.left - r.left, r.right - svgBox.right, svgBox.top - r.top, r.bottom - svgBox.bottom);
-        if (cut > 3) mark(t, "chart-label-clipped", `cut off by ${Math.round(cut)}px outside the chart`);
-      }
-      for (let i = 0; i < rects.length; i += 1) {
-        for (let j = i + 1; j < rects.length; j += 1) {
-          const o = inter(rects[i].r, rects[j].r);
-          const smaller = Math.min(rects[i].r.width * rects[i].r.height, rects[j].r.width * rects[j].r.height);
-          if (o > 6 && smaller > 0 && o / smaller > 0.3) mark(rects[i].t, "chart-label-overlap", `collides with "${(rects[j].t.textContent ?? "").trim().slice(0, 30)}"`);
-        }
-      }
-    }
-
-    // 3. Text cut off by its box with no ellipsis (half a word just vanishes).
-    for (const el of Array.from(root.querySelectorAll("td, th, span, p, div, label, h1, h2, h3, h4, strong, small, b"))) {
-      if (el.children.length > 0 || !(el.textContent ?? "").trim() || el.closest("[data-truncate], svg, [data-smoke-ignore]") || !visible(el)) continue;
-      const style = getComputedStyle(el);
-      const clipsX = /hidden|clip/.test(style.overflowX) && style.textOverflow !== "ellipsis" && el.scrollWidth - el.clientWidth > 3;
-      const clipsY = /hidden|clip/.test(style.overflowY) && style.webkitLineClamp === "none" && el.scrollHeight - el.clientHeight > 4;
-      if (clipsX || clipsY) mark(el, "text-cut-off", `${clipsX ? el.scrollWidth - el.clientWidth : el.scrollHeight - el.clientHeight}px of text hidden`);
-      if (found.length >= 12) break;
-    }
-    return found.slice(0, 12);
-  });
-  if (problems.length === 0) return;
-  // Circle every offender in red and take a dedicated evidence screenshot.
-  await page.addStyleTag({ content: "[data-smoke-issue]{outline:3px solid #e11d48 !important;outline-offset:1px;background:rgba(225,29,72,.12) !important}" });
-  const issuesPath = join(screenshotRoot, `${viewportLabel}-${routeName}-issues.png`);
-  await page.screenshot({ path: issuesPath, fullPage: true });
-  console.log(`screenshot_path=${relativeToRepo(issuesPath)}`);
-  const summary = problems.map((p) => `${p.kind}: ${p.element} ${p.detail}`).join(" | ");
-  throw new Error(`${routeName} ${viewportLabel} has unreadable text: ${summary}`);
 }
 
 async function assertLayoutHealthy(page, routeName, viewportLabel) {

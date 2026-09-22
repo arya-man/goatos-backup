@@ -300,10 +300,10 @@ test("pager-required routes report a missing pager instead of failing the run", 
   assert.match(pagerBlock, /pager_warning=\$\{routeName\}:\$\{viewportLabel\}:no-pager2-footer/);
 });
 
-test("visual smoke fails on visible text/chart readability breaks with an annotated screenshot", () => {
-  assert.match(smokeSource, /await assertReadableText\(page, route\.name, viewport\.label, screenshotDir\);/);
-  for (const kind of ["text-overlap", "chart-label-clipped", "chart-label-overlap", "text-cut-off"]) assert.ok(smokeSource.includes(`"${kind}"`), kind);
-  assert.match(smokeSource, /-issues\.png/);
+test("visual smoke fails on regression patterns with an annotated screenshot", () => {
+  assert.match(smokeSource, /import \{ assertRegressionPatterns \} from "\.\/lib\/regression-checks\.mjs";/);
+  assert.match(smokeSource, /await assertRegressionPatterns\(page, \{ routeName: route\.name, viewportLabel: viewport\.label, screenshotDir, relativeToRepo \}\);/);
+  assert.doesNotMatch(smokeSource, /assertReadableText/);
 });
 
 test("PR264 routes record route-specific product signals in browser evidence", () => {
