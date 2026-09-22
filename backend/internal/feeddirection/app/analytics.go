@@ -235,3 +235,19 @@ func (s *Service) ShedFeedAnalytics(ctx context.Context, in DirectedAnalyticsInp
 		ParkIDs: parkIDs, DateFrom: in.DateFrom, DateTo: in.DateTo,
 	})
 }
+
+// FeedFollowUp serves the Feed follow-up tab: for every pen that gained or lost
+// animals in the window, what the sheet fed before and after, and whether it
+// moved at all.
+func (s *Service) FeedFollowUp(ctx context.Context, in DirectedAnalyticsInput) (domain.FeedFollowUp, error) {
+	if s.analytics == nil {
+		return domain.FeedFollowUp{}, fmt.Errorf("feeddirection: analytics reader is not wired")
+	}
+	parkIDs, err := analyticsParkFilter(in.ParkID, in.AuthorizedParkIDs)
+	if err != nil {
+		return domain.FeedFollowUp{}, err
+	}
+	return s.analytics.FeedFollowUp(ctx, in.TenantID, domain.DirectedAnalyticsQuery{
+		ParkIDs: parkIDs, DateFrom: in.DateFrom, DateTo: in.DateTo,
+	})
+}

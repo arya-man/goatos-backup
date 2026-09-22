@@ -2041,6 +2041,11 @@ func compileFeedAnalyticsOptionGroups(groups []domain.OptionGroup, input Bootstr
 			option("peranimal", "Per Animal", "", ""),
 			option("experiment", "Experiment", "", ""),
 			option("execution", "Execution", "", ""),
+			// LAST in the bar (maintainer request 2026-09-22). It also rides the
+			// FULL feed gate, never the stock-only one: it reads the herd
+			// register's purchases, sales and deaths, which a stock-scoped
+			// reader has no business seeing.
+			option("followup", "Follow-up", "", ""),
 		}
 	}
 	return replaceOptionGroup(groups, "feed_analytics_tabs", tabs)

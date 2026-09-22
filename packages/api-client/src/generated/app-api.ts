@@ -2204,6 +2204,40 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/feed-analytics/follow-up": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Did the feed sheet react when animals were purchased, sold or died?
+         * @description For every pen that gained or lost animals inside the window, what the frozen sheet fed before and after each event day, and whether the pen's head count moved at all. The question the farm asks after a death or a sale: was the feed reduced for that pen the next day, or is the crew still packing for an animal that is not there?
+         *
+         *     BOTH SIDES ARE STORED FACTS. The head counts and kg come from the FROZEN sheet (`feed_direction_issue_rows`, the same membership and pen grain as `/feed-analytics/shed-feed`), so a pen's figures here and on the overview table agree. The causes come from the herd register's own exits and intakes. Nothing is re-planned.
+         *
+         *     THREE CAUSES, and only three: `purchased` (accepted off a procurement load), `sold` (tagged to a sale) and `died`. Animals SHIFTED between pens are deliberately not counted; a shift surfaces in `unexplained` instead, which carries the part of a head-count move these three causes do not account for. `unexplained` is REPORTED, never forced to zero, so the walk `start_animals + purchased - sold - died` need not equal `end_animals`.
+         *
+         *     WHICH SHEET IS JUDGED, and it is the whole rule. The sheet for tomorrow is issued this morning, corrected at the park's `correction_time` (14:00 on both parks today) and packed by 15:00. An event BEFORE that cut-off is owed TOMORROW's sheet; one AFTER it cannot reach tomorrow at all — that feed is already bagged — and is owed the DAY AFTER tomorrow. The check therefore sits on `expected_day`, the first sheet that could carry the change, and compares it against the last sheet before it. The cut-off is read per park and per date from `feed_schedule_config`, never assumed.
+         *
+         *     Two events either side of a cut-off can share one `expected_day` and arrive as ONE check; each event keeps its own `event_date` and its own `after_cutoff`.
+         *
+         *     VERDICTS. `followed` — the pen's head count moved on the expected sheet. `not_followed` — animals entered or left and that sheet fed the pen for exactly as many mouths as before; this is the only state anyone has to act on. `pending` — the expected sheet has not been issued yet, so there is no verdict (absence of one, never a pass). A pen's status is its worst day. "The next sheet" means the next issued SHEET, not the next calendar date: a day the farm issued nothing has no head count to read.
+         *
+         *     Rows are ordered `not_followed` first, then `pending`, then `followed`, each by farm and pen — the pens to act on lead. A pen with no cause in the window is ABSENT: this read answers for the pens where animals moved. Identifiers on the expanded events are RFID / tag values, capped at 12 per cause per day with `tags_total` carrying the true count.
+         *
+         *     `operational_location_display` is backend-composed per the operational-location convention ("Castro 1", "Godel 1 - Part 3"); clients render it verbatim.
+         */
+        get: operations["getFeedAnalyticsFollowUp"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/feed-direction/preview": {
         parameters: {
             query?: never;
@@ -11118,6 +11152,119 @@ export interface components {
             /** Format: date */
             date_to: string;
             rows: components["schemas"]["FeedAnalyticsShedFeedRow"][];
+        };
+        /** @description Pens that gained or lost animals in the window, and whether the feed sheet moved with them. Head counts and kg are the FROZEN sheet's own; causes are the herd register's. */
+        FeedAnalyticsFollowUpResponse: {
+            /** Format: date */
+            date_from: string;
+            /** Format: date */
+            date_to: string;
+            totals: components["schemas"]["FeedAnalyticsFollowUpTotals"];
+            rows: components["schemas"]["FeedAnalyticsFollowUpRow"][];
+        };
+        /**
+         * @description The window's walk from the mouths the sheet started feeding to the mouths it ended feeding, by cause, plus the pen verdict counts.
+         *
+         *     THE WALK NEED NOT CLOSE. `start_animals` and `end_animals` are sheet head counts while the causes are register events, so a shift between pens moves one without the other. `unexplained` carries that difference openly: `end_animals - (start_animals + purchased - sold - died)`.
+         */
+        FeedAnalyticsFollowUpTotals: {
+            /** @description Mouths the sheet fed on each pen's FIRST day in the window, summed. */
+            start_animals: number;
+            purchased: number;
+            sold: number;
+            died: number;
+            /** @description Mouths the sheet fed on each pen's LAST day in the window, summed. */
+            end_animals: number;
+            /** @description The head-count move the three causes do not account for — shifts between pens, births, corrections. Reported, never forced to zero. */
+            unexplained: number;
+            /** @description Directed kg on those same first days, summed. Empty when no pen had a reading. */
+            start_kg: string;
+            /** @description Directed kg on those same last days, summed. Empty when no pen had a reading. */
+            end_kg: string;
+            /** @description Pens whose sheet moved after every event day. */
+            followed: number;
+            /** @description Pens where animals entered or left and the next sheet fed the same mouths. */
+            not_followed: number;
+            /** @description Pens still waiting for the next sheet after an event. Not a pass. */
+            pending: number;
+        };
+        /** @description One pen's window — what entered and left, what the sheet fed at each end, and its verdict. */
+        FeedAnalyticsFollowUpRow: {
+            /** Format: uuid */
+            park_id: string;
+            park_label: string;
+            /** Format: uuid */
+            shed_id: string;
+            shed_label: string;
+            /** @description Human label ("Part 3", "2"); empty for an undivided shed. Never the matching key. */
+            partition_label: string;
+            /** @description Backend-composed pen name; render verbatim. */
+            operational_location_display: string;
+            purchased: number;
+            sold: number;
+            died: number;
+            /** @description The pen's first sheet day in the window; empty when the sheet never reached it. */
+            first_day: string;
+            /** @description The pen's last sheet day in the window. */
+            last_day: string;
+            head_before: number;
+            head_after: number;
+            kg_before: string;
+            kg_after: string;
+            /**
+             * @description The pen's WORST event day.
+             * @enum {string}
+             */
+            status: "followed" | "not_followed" | "pending";
+            /** @description The pen's event days, ascending. A day with no cause is absent. */
+            days: components["schemas"]["FeedAnalyticsFollowUpDay"][];
+        };
+        /** @description ONE CHECK in one pen: the day the feed was supposed to change, everything that made it change, and the sheet on either side of it. `before_day` is the last sheet day BEFORE `expected_day` (the sheet that could not carry the change); `after_day` is the first sheet day ON OR AFTER it — the next issued SHEET, which is not always the next calendar date. */
+        FeedAnalyticsFollowUpDay: {
+            /**
+             * Format: date
+             * @description The first sheet day that could carry these changes: the day after an event that happened before the park's cut-off, the day after that for one at or after it.
+             */
+            expected_day: string;
+            /** @description The park's correction time (HH:MM, IST) that decided it, from `feed_schedule_config` as it stood on the event's own day. Empty when the park had no configured clock. */
+            cutoff_time: string;
+            purchased: number;
+            sold: number;
+            died: number;
+            /** @description purchased - sold - died. Mouths the causes say the pen gained. */
+            net_animals: number;
+            /** @description Sheet day the before reading comes from — the last sheet BEFORE `expected_day`. Empty when the pen had no earlier sheet. */
+            before_day: string;
+            /** @description Sheet day the after reading comes from — the first sheet ON OR AFTER `expected_day`. Empty while the verdict is pending. */
+            after_day: string;
+            head_before: number;
+            head_after: number;
+            kg_before: string;
+            kg_after: string;
+            /** @description head_after - head_before. What the sheet actually did. */
+            head_delta: number;
+            /** @description head_delta - net_animals. Non-zero means a move these causes do not explain. */
+            unexplained: number;
+            /** @enum {string} */
+            status: "followed" | "not_followed" | "pending";
+            events: components["schemas"]["FeedAnalyticsFollowUpEvent"][];
+        };
+        /** @description One cause on one day in one pen, with the animals it moved. */
+        FeedAnalyticsFollowUpEvent: {
+            /** @enum {string} */
+            kind: "purchased" | "sold" | "died";
+            /**
+             * Format: date
+             * @description The IST business day the animal actually moved.
+             */
+            event_date: string;
+            /** @description True when it happened at or after the park's correction time, so the next day's feed was already packed and the first sheet that could carry it is the day after that. */
+            after_cutoff: boolean;
+            animals: number;
+            /** @description RFID / tag numbers, at most 12 — never internal goat ids. A sale of eighty animals does not need eighty strings on screen to make its point. */
+            tags: string[];
+            /** @description How many animals there really were, so a truncated list can say so. */
+            tags_total: number;
         };
         /** @description ONE ROW PER OPERATIONAL LOCATION PER SESSION -- one pen, one feeding instruction. A pen holding several breeds or management stages is ONE row whose descriptive columns list every value present (` + `-joined) and whose quantities are summed, never several rows an operator has to re-add at the pen door. The packing worklist is built at the same grain, so a row and the bag packed for it always describe the same pen. */
         FeedDirectionRow: {
@@ -24587,6 +24734,47 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["FeedAnalyticsShedFeedResponse"];
+                };
+            };
+            /** @description Malformed date or park id. */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Caller lacks feed direction read for the requested scope. */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    getFeedAnalyticsFollowUp: {
+        parameters: {
+            query?: {
+                /** @description Narrow to one park. Absent means every park the caller is authorized for — a park-scoped principal can never widen past their grant. */
+                park_id?: string;
+                /** @description Inclusive window start (Asia/Kolkata business date). Defaults to 29 days before `date_to`. Capped at 92 days, keeping the most recent days. */
+                date_from?: string;
+                /** @description Inclusive window end, defaulting to yesterday; window capped at 92 days. */
+                date_to?: string;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description One row per pen that gained or lost animals, worst verdict first. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["FeedAnalyticsFollowUpResponse"];
                 };
             };
             /** @description Malformed date or park id. */

@@ -6747,3 +6747,41 @@ aside.drawer.ltd-drawer{width:min(720px,94vw);overflow-y:auto;overscroll-behavio
   .wt-feedband-cards .wt-feedband-gone{display:inline-flex;align-items:center;min-height:40px;padding:0 6px;font-size:12px}
   .wt-feedband-cardempty{padding:14px 4px}
 }
+
+/* Feed follow-up (2026-09-22): one flat table, one line per change. It had a
+   verdict strip, a range summary and an expanding pen row; the maintainer asked
+   for the two facts that matter as columns instead, so all of that is gone and
+   only the table's own small touches remain. */
+/* `.card` carries NO padding of its own in this theme -- each card pads its own
+   children -- so this one does it here, and does it the `.wtable` way: every
+   direct child EXCEPT the table wrapper gets the horizontal gutter, because the
+   wrapper owns the horizontal scroll and padding it would scroll the gutter
+   away with the content. The table's outer CELLS carry the same 16px instead,
+   so the pen names and the result chips stay off the card's border at every
+   scroll position. Without this the whole table sat flush on the border. */
+.ffu-card{padding:14px 0 6px}
+.ffu-card > :not(.tablewrap){padding-left:16px;padding-right:16px}
+.ffu-table td{vertical-align:top}
+/* GUTTERS GO ON THE OUTER CELLS, not on the wrapper. The wrapper owns the
+   horizontal scroll, so padding it would scroll the gutter away with the
+   content; putting it on the first and last cells keeps the pen names and the
+   result chips off the card's border at every scroll position. Same trade
+   `.wtable` makes above. */
+.ffu-table th:first-child,.ffu-table td:first-child{padding-left:16px}
+.ffu-table th:last-child,.ffu-table td:last-child{padding-right:16px}
+/* Room to breathe down the rows too: each line carries two stacked lines of
+   text, and at the default row padding they ran together. */
+.ffu-table th{padding-top:12px;padding-bottom:10px}
+.ffu-table td{padding-top:12px;padding-bottom:12px}
+.ffu-card > .tablewrap{margin:4px 0 0}
+.ffu-chips{display:inline-flex;flex-wrap:wrap;gap:5px}
+.ffu-move{display:inline-flex;align-items:baseline;gap:6px;font-variant-numeric:tabular-nums;justify-content:flex-end}
+/* An unchanged pair IS the finding on a red line, so the "from" is never struck
+   through or dimmed into looking superseded when it is not. */
+.ffu-move .ffu-from{color:var(--muted)}
+.ffu-move .ffu-arrow{color:var(--muted);font-size:11px}
+.ffu-move.changed .ffu-to{font-weight:700}
+/* Result then footnote, stacked: side by side they overflowed the table. */
+.ffu-result{white-space:nowrap}
+.ffu-result>.tag{display:inline-block}
+.ffu-result>.tag+.tag{display:block;margin-top:4px}
