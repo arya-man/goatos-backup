@@ -464,3 +464,79 @@ func TestRolloutWaitKeepsABoundAndIsOverridable(t *testing.T) {
 		t.Fatalf("a rollout-wait timeout must report the state it last saw, not just that it gave up")
 	}
 }
+
+// A rollout still moving through Cloud Deploy must never be offered a Deploy button.
+// The notice posted beside the panel says to watch that rollout to completion, so an
+// idle panel under it invites exactly the second staging deploy it warns against.
+func TestIdlePanelIsWithheldWhileTheRolloutIsStillMoving(t *testing.T) {
+	for _, state := range []string{"IN_PROGRESS", "PENDING", "PENDING_APPROVAL", "PENDING_RELEASE"} {
+		for _, status := range []string{"FAILURE", "TIMED_OUT", "CANCELLED", "INTERNAL_ERROR"} {
+			rollout := rolloutStatus{ID: "r-7e0939befad2-180845-to-goatos-stg-0001", State: state}
+			if shouldPostIdlePanel(status, rollout) {
+				t.Fatalf("build %s with rollout %s must not post the deploy controls", status, state)
+			}
+		}
+	}
+}
+
+// The panel is the operator's way back in, so withholding it must stay narrow: a
+// settled rollout, and a build that died before any rollout existed, both get it.
+func TestIdlePanelStillReturnsOnceTheRolloutHasSettled(t *testing.T) {
+	for _, state := range []string{"SUCCEEDED", "FAILED", "CANCELLED", "HALTED", ""} {
+		rollout := rolloutStatus{State: state}
+		if !shouldPostIdlePanel("FAILURE", rollout) {
+			t.Fatalf("a failed build with rollout state %q must post the deploy controls", state)
+		}
+	}
+	if !shouldPostIdlePanel("TIMED_OUT", rolloutStatus{}) {
+		t.Fatalf("a monitor timeout with no resolvable rollout must post the deploy controls")
+	}
+	if shouldPostIdlePanel("SUCCESS", rolloutStatus{State: "SUCCEEDED"}) {
+		t.Fatalf("a green build posts its panel elsewhere; this path must not double-post")
+	}
+}
+
+// Both Go post sites and the Cloud Build trap must share the rule, or one path keeps
+// handing out Deploy buttons under a live rollout.
+func TestEveryTerminalPanelPostIsGatedOnTheRolloutState(t *testing.T) {
+	goSrc, err := os.ReadFile("main.go")
+	if err != nil {
+		t.Fatalf("read main.go: %v", err)
+	}
+	text := string(goSrc)
+
+	if strings.Contains(text, "if build.Status != \"SUCCESS\" {\n\t\t\t\tcfg.postDeployPanel(responseURL)") {
+		t.Fatalf("the terminal-build panel post is gated on build status alone again")
+	}
+	posts := strings.Count(text, "cfg.postDeployPanel(responseURL)")
+	gated := strings.Count(text, "if shouldPostIdlePanel(")
+	if posts-gated > 1 {
+		t.Fatalf("found %d postDeployPanel call sites but only %d gated; every terminal post must ask shouldPostIdlePanel", posts, gated)
+	}
+
+	shell, err := os.ReadFile("../stg-cloudbuild-release.sh")
+	if err != nil {
+		t.Fatalf("read stg-cloudbuild-release.sh: %v", err)
+	}
+	shellText := string(shell)
+
+	if strings.Contains(shellText, "notify_build_failed\n    post_deploy_panel") {
+		t.Fatalf("the Cloud Build trap posts the deploy controls unconditionally again")
+	}
+	for _, want := range []string{
+		"rollout_in_flight=1",
+		`if [[ "$rollout_in_flight" != "1" ]]; then`,
+	} {
+		if !strings.Contains(shellText, want) {
+			t.Fatalf("stg-cloudbuild-release.sh is missing %q", want)
+		}
+	}
+	// The flag must be raised in the in-progress branch, not somewhere that would
+	// withhold the panel after a settled rollout.
+	inProgress := strings.Index(shellText, "IN_PROGRESS|PENDING|PENDING_APPROVAL|PENDING_RELEASE)")
+	raise := strings.Index(shellText, "rollout_in_flight=1")
+	failed := strings.Index(shellText, "FAILED|CANCELLED|HALTED)")
+	if inProgress < 0 || raise < inProgress || (failed > 0 && raise > failed && failed > inProgress) {
+		t.Fatalf("rollout_in_flight must be raised inside the in-progress branch")
+	}
+}

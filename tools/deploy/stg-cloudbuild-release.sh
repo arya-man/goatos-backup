@@ -301,6 +301,11 @@ release_created() {
   [[ -f "$release_created_file" ]] && grep -qxF "$release_id" "$release_created_file"
 }
 
+# Set by notify_build_failed when it leaves a rollout still moving through Cloud
+# Deploy, so the trap can withhold the Deploy buttons rather than invite a second
+# staging deploy underneath the first.
+rollout_in_flight=0
+
 notify_build_failed() {
   local state note rollout_id
   note="$(skipped_steps_note)"
@@ -321,7 +326,8 @@ notify_build_failed() {
       notify_slack "FAILED" "Cloud Deploy rollout \`${rollout_id}\` ended in \`${state}\`. Backend/web was NOT updated to \`${commit_sha}\`. ${note}"
       ;;
     IN_PROGRESS|PENDING|PENDING_APPROVAL|PENDING_RELEASE)
-      notify_slack "ROLLOUT_IN_PROGRESS" "Cloud Build gave up, but Cloud Deploy rollout \`${rollout_id}\` is still \`${state}\` - it has NOT failed. Watch Cloud Deploy to completion before starting another deploy. ${note}"
+      rollout_in_flight=1
+      notify_slack "ROLLOUT_IN_PROGRESS" "Cloud Build gave up, but Cloud Deploy rollout \`${rollout_id}\` is still \`${state}\` - it has NOT failed. Watch Cloud Deploy to completion before starting another deploy. The deploy controls are withheld until it settles. ${note}"
       ;;
     "")
       notify_slack "ROLLOUT_UNKNOWN" "Cloud Build failed and the Cloud Deploy rollout state for \`${release_id}\` could not be read, so whether backend/web rolled out is UNKNOWN. Check Cloud Deploy before assuming either way. ${note}"
@@ -336,7 +342,10 @@ on_exit() {
   local rc=$?
   if [[ "$rc" -ne 0 ]]; then
     notify_build_failed
-    post_deploy_panel
+    # A rollout still in flight must not be handed a Deploy button.
+    if [[ "$rollout_in_flight" != "1" ]]; then
+      post_deploy_panel
+    fi
   fi
 }
 

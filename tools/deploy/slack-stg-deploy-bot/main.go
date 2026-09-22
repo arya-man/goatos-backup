@@ -136,6 +136,19 @@ func (r rolloutStatus) inProgress() bool {
 	}
 }
 
+// shouldPostIdlePanel decides whether the idle controls panel -- which carries the
+// Deploy buttons -- may be posted after a job ends. A rollout still moving through
+// Cloud Deploy must never be offered one: the notice posted above it says to watch
+// that rollout to completion, and a second staging deploy started underneath the
+// first is exactly the outcome that notice exists to prevent. The panel returns on
+// the next deploy, or when someone opens the controls themselves.
+func shouldPostIdlePanel(buildStatus string, rollout rolloutStatus) bool {
+	if buildStatus == "SUCCESS" {
+		return false
+	}
+	return !rollout.inProgress()
+}
+
 func (r rolloutStatus) label() string {
 	switch {
 	case r.State == "":
@@ -645,7 +658,9 @@ func (cfg config) monitorBuild(responseURL, buildID, triggeredBy, actionLabel st
 				"text":             fmt.Sprintf("%s monitor timed out for build `%s`; check Cloud Build logs.", actionLabel, buildID),
 				"attachments":      deployTerminalAttachments("TIMED_OUT", triggeredBy, actionLabel, buildID, deploySTG, mobileDistribution, cfg.cloudBuildURL(buildID), cfg.cloudDeployURL(), nil, rollout),
 			})
-			cfg.postDeployPanel(responseURL)
+			if shouldPostIdlePanel("TIMED_OUT", rollout) {
+				cfg.postDeployPanel(responseURL)
+			}
 			return
 		case <-ticker.C:
 			build, err := cfg.getBuild(ctx, buildID)
@@ -668,7 +683,7 @@ func (cfg config) monitorBuild(responseURL, buildID, triggeredBy, actionLabel st
 				"text":             fmt.Sprintf("%s finished with Cloud Build status `%s` for `%s`.", actionLabel, build.Status, buildID),
 				"attachments":      deployTerminalAttachments(build.Status, triggeredBy, actionLabel, buildID, deploySTG, mobileDistribution, cfg.cloudBuildURL(buildID), cfg.cloudDeployURL(), build.Steps, rollout),
 			})
-			if build.Status != "SUCCESS" {
+			if shouldPostIdlePanel(build.Status, rollout) {
 				cfg.postDeployPanel(responseURL)
 			}
 			return
