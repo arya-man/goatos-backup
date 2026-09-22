@@ -3,7 +3,6 @@
   "cmd/import-feed-external-consumption/main.go|unverified-dynamic-bind": 1,
   "cmd/import-feed-purchases/main.go|unverified-dynamic-bind": 1,
   "cmd/legacy-god-sheet-sync/main.go|unverified-dynamic-bind": 1,
-  "cmd/migrate/main.go|unverified-dynamic-bind": 2,
   "cmd/seed-shed-positions/main.go|unverified-dynamic-bind": 1,
   "cmd/seed-vaccination-per-goat-qa/main.go|unverified-dynamic-bind": 2,
   "cmd/seed-vaccination-real/main.go|unverified-dynamic-bind": 10,

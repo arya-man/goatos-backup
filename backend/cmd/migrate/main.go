@@ -21,6 +21,7 @@ import (
 	"github.com/vgoats/goatos/backend/internal/platform/localtarget"
 	"github.com/vgoats/goatos/backend/internal/platform/observability"
 	platformpg "github.com/vgoats/goatos/backend/internal/platform/postgres"
+	"github.com/vgoats/goatos/backend/internal/platform/sqlbind"
 )
 
 type cliConfig struct {
@@ -613,7 +614,11 @@ func ensureConcurrentIndexesValid(ctx context.Context, conn *pgxpool.Conn, migra
 			slog.String("index", name),
 			slog.Bool("index_existed", exists))
 		if exists {
-			if _, err := conn.Exec(ctx, fmt.Sprintf("DROP INDEX CONCURRENTLY IF EXISTS %s", pgQuoteIdent(name))); err != nil {
+			drop, err := sqlbind.Bind(fmt.Sprintf("DROP INDEX CONCURRENTLY IF EXISTS %s", pgQuoteIdent(name)))
+			if err != nil {
+				return fmt.Errorf("build drop for invalid index %s (migration %s): %w", name, migration.Version, err)
+			}
+			if _, err := conn.Exec(ctx, drop.SQL(), drop.Args()...); err != nil {
 				return fmt.Errorf("drop invalid index %s before rebuild (migration %s): %w", name, migration.Version, err)
 			}
 		}
@@ -687,7 +692,13 @@ func execMigrationSQL(ctx context.Context, exec migrationExecutor, sql string) e
 		return err
 	}
 	for _, statement := range statements {
-		if _, err := exec.Exec(ctx, statement); err != nil {
+		// Migration statements carry no bind arguments; Bind proves no stray $N
+		// placeholder sits outside quotes / dollar-quoted bodies.
+		q, err := sqlbind.Bind(statement)
+		if err != nil {
+			return err
+		}
+		if _, err := exec.Exec(ctx, q.SQL(), q.Args()...); err != nil {
 			return err
 		}
 	}
