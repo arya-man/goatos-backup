@@ -6686,72 +6686,19 @@ aside.drawer.ltd-drawer{width:min(720px,94vw);overflow-y:auto;overscroll-behavio
   .wt-feedband-cardempty{padding:14px 4px}
 }
 
-/* Feed follow-up (2026-09-22): did the sheet react when animals were bought,
-   sold or lost? The verdict strip leads, the walk explains the range, and the
-   table names the pen -- see features/feed/feed-follow-up.tsx. */
-.ffu-strip{display:grid;grid-template-columns:repeat(auto-fit,minmax(200px,1fr));gap:12px;margin-top:10px}
-.ffu-tile{display:flex;flex-direction:column;align-items:flex-start;gap:2px;text-align:left;
-  background:var(--panel);border:1px solid var(--line);border-left-width:3px;border-radius:var(--r);
-  padding:12px 14px;box-shadow:var(--shadow);cursor:pointer;min-width:0}
-.ffu-tile:hover{background:var(--panel-2)}
-.ffu-tile.on{background:var(--panel-2);box-shadow:0 0 0 1px var(--line) inset}
-.ffu-tile-n{font-size:24px;font-weight:800;line-height:1.1;font-variant-numeric:tabular-nums}
-.ffu-tile-l{font-size:12.5px;font-weight:700}
-.ffu-tile-s{font-size:11.5px}
-/* The tone lives on the left rule and the number, never on the whole tile: a
-   fully red card reads as an outage, and "2 pens to check" is not one. */
-.ffu-tile.ffu-dng{border-left-color:var(--danger)}
-.ffu-tile.ffu-dng .ffu-tile-n{color:var(--danger)}
-.ffu-tile.ffu-warn{border-left-color:var(--warn)}
-.ffu-tile.ffu-warn .ffu-tile-n{color:var(--warn)}
-.ffu-tile.ffu-ok{border-left-color:var(--ok)}
-.ffu-tile.ffu-ok .ffu-tile-n{color:var(--ok)}
-
-/* The walk: six plain figures, not a chart. Start on the left, the causes in
-   the middle, the end on the right -- read as a sentence at any width. */
-.ffu-walk{display:flex;flex-wrap:wrap;align-items:center;justify-content:space-between;gap:14px 26px;margin-top:10px}
-.ffu-walk-end{display:flex;flex-direction:column;gap:1px;min-width:0}
-.ffu-walk-n{font-size:30px;font-weight:800;line-height:1.05;font-variant-numeric:tabular-nums}
-.ffu-walk-l{font-size:11.5px;color:var(--muted)}
-/* The causes sit together and apart from the two ends, so it is obvious which
-   figures are the herd moving and which are where it stood. */
-/* The causes sit between the two ends, fenced off so it is obvious which
-   figures are the herd moving and which are where the herd stood. They do NOT
-   take the remaining space: letting them grow pushed "At the end" flush
-   against the card's right edge. */
-.ffu-walk-causes{display:flex;flex-wrap:wrap;gap:10px 26px;
-  padding:8px 26px;border-left:1px solid var(--line);border-right:1px solid var(--line)}
-.ffu-walk-cause{display:flex;flex-direction:column;gap:1px;min-width:0}
-.ffu-walk-cn{font-size:19px;font-weight:700;line-height:1.1;font-variant-numeric:tabular-nums}
-.ffu-walk-cause.ffu-ok .ffu-walk-cn{color:var(--ok)}
-.ffu-walk-cause.ffu-dng .ffu-walk-cn{color:var(--danger)}
-.ffu-walk-cause.ffu-mut .ffu-walk-cn{color:var(--muted)}
-@media(max-width:700px){
-  .ffu-walk-causes{border-left:0;border-right:0;border-top:1px solid var(--line);
-    border-bottom:1px solid var(--line);padding:10px 0;flex-basis:100%}
-}
-
-.ffu-table td{vertical-align:middle}
-.ffu-row{cursor:pointer}
-.ffu-row:hover{background:var(--panel-2)}
-.ffu-row.on{background:var(--panel-2)}
-.ffu-expand{background:none;border:0;color:var(--muted);cursor:pointer;padding:0 6px 0 0;font-size:11px}
+/* Feed follow-up (2026-09-22): one flat table, one line per change. It had a
+   verdict strip, a range summary and an expanding pen row; the maintainer asked
+   for the two facts that matter as columns instead, so all of that is gone and
+   only the table's own small touches remain. */
+.ffu-table td{vertical-align:top}
 .ffu-chips{display:inline-flex;flex-wrap:wrap;gap:5px}
 .ffu-move{display:inline-flex;align-items:baseline;gap:6px;font-variant-numeric:tabular-nums;justify-content:flex-end}
-/* An unchanged pair is the finding on a not-followed row, so the "from" is
-   never struck through or dimmed into looking superseded when it is not. */
+/* An unchanged pair IS the finding on a red line, so the "from" is never struck
+   through or dimmed into looking superseded when it is not. */
 .ffu-move .ffu-from{color:var(--muted)}
 .ffu-move .ffu-arrow{color:var(--muted);font-size:11px}
 .ffu-move.changed .ffu-to{font-weight:700}
-.ffu-detail>td{background:var(--panel-2);padding:0}
-.ffu-days{display:grid;gap:10px;padding:12px 14px}
-.ffu-day{border-left:3px solid var(--line);padding:2px 0 2px 10px}
-.ffu-day.ffu-dng{border-left-color:var(--danger)}
-.ffu-day.ffu-warn{border-left-color:var(--warn)}
-.ffu-day.ffu-ok{border-left-color:var(--ok)}
-.ffu-day-head{display:flex;flex-wrap:wrap;align-items:center;gap:8px;margin-bottom:5px}
-.ffu-events{list-style:none;margin:0;padding:0;display:grid;gap:4px}
-.ffu-events li{font-size:12px}
-.ffu-tags{font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-size:11.5px;color:var(--muted);overflow-wrap:anywhere}
-.ffu-sheets{margin:6px 0 0}
-@media(max-width:600px){.ffu-strip{grid-template-columns:1fr}}
+/* Result then footnote, stacked: side by side they overflowed the table. */
+.ffu-result{white-space:nowrap}
+.ffu-result>.tag{display:inline-block}
+.ffu-result>.tag+.tag{display:block;margin-top:4px}
