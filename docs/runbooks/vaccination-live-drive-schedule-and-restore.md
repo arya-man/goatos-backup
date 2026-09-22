@@ -25,6 +25,18 @@ Evidence showed the data was removed by backend automation, not a field user:
 The unsafe behavior is that sweep rebuilt active drive assignments from a
 partially canceled/deferred obligation set while proof was already arriving.
 
+Root cause: vaccination generation treated the manual drive rows as ordinary
+generated seed obligations. When it saw history/protocol state that seemed to
+outrank the seed, it called the obligation cancel paths with reasons such as
+`vaccine_history_outranks_primary_seed`. That rule is valid for loose generated
+rows, but not for rows already bound to a same-day drive assignment.
+
+Code guard: the repository cancel paths must not cancel an open vaccination
+obligation when `vaccination_drive_assignment_members` links it to a
+`vaccination_drive_assignments` row whose `planned_date` is today or earlier.
+Manual live-drive assignment is the operational authority; the generator may
+log/report protocol mismatch, but it must not remove the operator's live work.
+
 ## Rule For Combo Drives
 
 For a combo drive such as ET+TT + PPR:

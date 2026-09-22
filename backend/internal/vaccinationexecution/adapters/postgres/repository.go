@@ -1447,8 +1447,14 @@ raw_obligations AS MATERIALIZED (
     COALESCE(vda_member.operator_id, vda_guess.operator_id) AS conducted_by,
     COALESCE(vda_member.assignment_planned_at, vda_guess.assignment_planned_at) AS assignment_planned_at,
     COALESCE(vda_member.physical_shed, vda_guess.physical_shed) AS physical_shed,
-    COALESCE(NULLIF(btrim(gsp.partition_label), ''), NULLIF(btrim(vda_member.partition_label), ''), 'whole') AS partition_label,
-    regexp_replace(lower(btrim(COALESCE(NULLIF(btrim(gsp.partition_label), ''), NULLIF(btrim(vda_member.partition_label), ''), 'whole'))), '^part[[:space:]]+', '') AS partition_key,
+    CASE
+      WHEN lower(btrim(COALESCE(vda_member.partition_label, ''))) = 'whole' THEN 'whole'
+      ELSE COALESCE(NULLIF(btrim(gsp.partition_label), ''), NULLIF(btrim(vda_member.partition_label), ''), 'whole')
+    END AS partition_label,
+    CASE
+      WHEN lower(btrim(COALESCE(vda_member.partition_label, ''))) = 'whole' THEN 'whole'
+      ELSE regexp_replace(lower(btrim(COALESCE(NULLIF(btrim(gsp.partition_label), ''), NULLIF(btrim(vda_member.partition_label), ''), 'whole'))), '^part[[:space:]]+', '')
+    END AS partition_key,
     NULLIF(btrim(gsp.source_shed_name), '') AS source_shed_name,
     g.lifecycle_status AS goat_lifecycle_status,
     g.health_status AS goat_health_status,

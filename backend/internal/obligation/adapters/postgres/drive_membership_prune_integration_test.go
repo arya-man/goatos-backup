@@ -80,6 +80,72 @@ func TestPruneDriveMembershipOnIdempotencyKeyCancel(t *testing.T) {
 	}
 }
 
+func TestCancelByKeyDoesNotCancelTodayDriveAssignedVaccination(t *testing.T) {
+	pgtest.SkipIfNoDocker(t)
+	ctx := context.Background()
+	pool := pgtest.StartPostgres(t, ctx)
+	defer pool.Close()
+	env := newBug041Env(t, ctx, pool, "live_key_cancel_guard")
+	ruleID := env.rule(t, "et_tt_manual_drive", 1)
+
+	shed := "00000000-0000-4000-8000-0000000042d1"
+	goats := env.shedWithGoats(t, shed, "Manual Drive", "1", 1)
+	day := time.Date(2026, 9, 22, 0, 0, 0, 0, time.UTC)
+
+	const key = "live-drive-manual-key"
+	oblID := env.obligationFor(t, ruleID, shed, goats[0], key, day)
+	batchID := env.parkBatch(t, "combo:live-key", day, env.opOne, []string{oblID})
+	assignmentID := writeSingleDriveCell(t, ctx, env, batchID, day, shed, ruleID, 1)
+	assertAssignmentCounts(t, ctx, pool, assignmentID, 1, 1)
+
+	canceledID, ok, err := env.repo.CancelOpenObligationByIdempotencyKey(ctx, tenantID, key, "vaccine_history_outranks_primary_seed", day.Add(12*time.Hour))
+	if err != nil {
+		t.Fatalf("CancelOpenObligationByIdempotencyKey: %v", err)
+	}
+	if ok || canceledID != "" {
+		t.Fatalf("live drive cancel changed row id=%q ok=%v, want no-op", canceledID, ok)
+	}
+	if got := obligationStatus(t, ctx, pool, oblID); got != "scheduled" {
+		t.Fatalf("obligation status = %q, want scheduled", got)
+	}
+	if n := countRows(t, ctx, pool, `SELECT count(*) FROM vaccination_drive_assignment_members WHERE tenant_id=$1 AND obligation_id=$2`, tenantID, oblID); n != 1 {
+		t.Fatalf("drive membership rows = %d, want 1", n)
+	}
+	assertAssignmentCounts(t, ctx, pool, assignmentID, 1, 1)
+}
+
+func TestCancelGoatDoseDoesNotCancelTodayDriveAssignedVaccination(t *testing.T) {
+	pgtest.SkipIfNoDocker(t)
+	ctx := context.Background()
+	pool := pgtest.StartPostgres(t, ctx)
+	defer pool.Close()
+	env := newBug041Env(t, ctx, pool, "live_dose_cancel_guard")
+	ruleID := env.rule(t, "et_tt_manual_drive_dose", 1)
+
+	shed := "00000000-0000-4000-8000-0000000042d2"
+	goats := env.shedWithGoats(t, shed, "Manual Drive", "1", 1)
+	day := time.Date(2026, 9, 22, 0, 0, 0, 0, time.UTC)
+
+	oblID := env.obligationFor(t, ruleID, shed, goats[0], "live-drive-manual-dose", day)
+	batchID := env.parkBatch(t, "combo:live-dose", day, env.opOne, []string{oblID})
+	assignmentID := writeSingleDriveCell(t, ctx, env, batchID, day, shed, ruleID, 1)
+
+	n, err := env.repo.CancelOpenVaccinationObligationsForGoatDose(ctx, tenantID, goats[0], "et_tt_manual_drive_dose", "vaccine_history_outranks_primary_seed", day.Add(12*time.Hour))
+	if err != nil {
+		t.Fatalf("CancelOpenVaccinationObligationsForGoatDose: %v", err)
+	}
+	if n != 0 {
+		t.Fatalf("live drive dose cancel changed %d rows, want 0", n)
+	}
+	if got := obligationStatus(t, ctx, pool, oblID); got != "scheduled" {
+		t.Fatalf("obligation status = %q, want scheduled", got)
+	}
+	if rows := countRows(t, ctx, pool, `SELECT count(*) FROM vaccination_drive_assignment_members WHERE tenant_id=$1 AND obligation_id=$2`, tenantID, oblID); rows != 1 {
+		t.Fatalf("drive membership rows = %d, want 1", rows)
+	}
+	assertAssignmentCounts(t, ctx, pool, assignmentID, 1, 1)
+}
+
 // TestPruneDriveMembershipCancelKeepsSharedGoatCounted proves the "shared assignment" edge case
 // explicitly required by the fix: a goat with TWO obligations bound to the SAME assignment row
 // (two vaccine lanes covered by one combo drive cell) must stay counted in animal_count after ONE of
@@ -218,4 +284,15 @@ WHERE tenant_id = $1 AND assignment_id = $2`, tenantID, assignmentID).Scan(&anim
 	if animals != wantAnimals || doses != wantDoses {
 		t.Fatalf("assignment %s counts = (animal_count=%d, total_doses=%d), want (%d, %d)", assignmentID, animals, doses, wantAnimals, wantDoses)
 	}
+}
+
+func obligationStatus(t *testing.T, ctx context.Context, pool *pgxpool.Pool, obligationID string) string {
+	t.Helper()
+	var status string
+	if err := pool.QueryRow(ctx, `
+SELECT status FROM obligation_instances
+WHERE tenant_id = $1 AND obligation_id = $2`, tenantID, obligationID).Scan(&status); err != nil {
+		t.Fatalf("read obligation status %s: %v", obligationID, err)
+	}
+	return status
 }

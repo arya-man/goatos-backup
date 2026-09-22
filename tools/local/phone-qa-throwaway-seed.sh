@@ -1207,6 +1207,7 @@ CREATE TEMP TABLE qa_vaccine_rules (
 
 INSERT INTO qa_vaccine_rules VALUES
   ('91000000-0000-4000-8000-000000000503', 'ET_TT_QA', 'ET+TT', 1),
+  ('91000000-0000-4000-8000-000000000505', 'ET_TT_QA_BOOSTER', 'ET+TT', 3),
   ('91000000-0000-4000-8000-000000000504', 'PPR_QA', 'PPR', 2);
 
 ALTER TABLE protocol_rules DISABLE TRIGGER ALL;
@@ -1233,6 +1234,35 @@ VALUES (
   '91000000-0000-4000-8000-000000000402',
   '{"types":["video"],"required":true,"proof_mode":"per_goat_video","subject_scope":"goat","expected_subjects":["goat"],"minimum_count":1,"minimum_count_per_subject":1,"maximum_count":1,"maximum_count_per_subject":1,"capture_source":"in_app_camera","allowed_capture_sources":["in_app_camera","gallery_picker"],"verify_capability":"proof.verify","verify_before_apply":true,"retention_policy":"operational_90d"}'::jsonb,
   20
+)
+ON CONFLICT (rule_id) DO UPDATE
+SET dose_code = EXCLUDED.dose_code,
+    sequence = EXCLUDED.sequence,
+    trigger_type = EXCLUDED.trigger_type,
+    proof_policy = EXCLUDED.proof_policy,
+    sort_order = EXCLUDED.sort_order;
+
+INSERT INTO protocol_rules (
+  rule_id, tenant_id, protocol_version_id, dose_code, sequence, trigger_type,
+  offset_days, due_window_days, min_gap_days, repeat, catch_up,
+  eligibility_json, sop_version_id, proof_policy, sort_order
+)
+VALUES (
+  '91000000-0000-4000-8000-000000000505',
+  '${tenant_id}'::uuid,
+  '91000000-0000-4000-8000-000000000502',
+  'ET_TT_QA_BOOSTER',
+  3,
+  'manual_campaign',
+  0,
+  3,
+  0,
+  'none',
+  'immediate',
+  '{"stage":"K2","lifecycle":"alive"}'::jsonb,
+  '91000000-0000-4000-8000-000000000402',
+  '{"types":["video"],"required":true,"proof_mode":"per_goat_video","subject_scope":"goat","expected_subjects":["goat"],"minimum_count":1,"minimum_count_per_subject":1,"maximum_count":1,"maximum_count_per_subject":1,"capture_source":"in_app_camera","allowed_capture_sources":["in_app_camera","gallery_picker"],"verify_capability":"proof.verify","verify_before_apply":true,"retention_policy":"operational_90d"}'::jsonb,
+  30
 )
 ON CONFLICT (rule_id) DO UPDATE
 SET dose_code = EXCLUDED.dose_code,
@@ -1533,6 +1563,28 @@ SET batch_id = EXCLUDED.batch_id,
     due_at = now(),
     updated_at = now();
 
+-- Amit regression fixture: Mandela 2 has two animals under one assignment and
+-- both are ET+TT, but they use different ET+TT dose/rule ids. The phone must
+-- show one ET+TT entity with 2 doses, not two duplicate ET+TT cards.
+WITH mandela AS (
+  SELECT oi.obligation_id,
+         row_number() OVER (ORDER BY oi.target_id) AS rn
+  FROM obligation_instances oi
+  JOIN qa_due_goats d
+    ON d.goat_id = oi.target_id
+   AND d.shed_seq = 5
+  WHERE oi.tenant_id = '${tenant_id}'::uuid
+    AND oi.rule_id = '91000000-0000-4000-8000-000000000503'
+)
+UPDATE obligation_instances oi
+SET rule_id = '91000000-0000-4000-8000-000000000505',
+    idempotency_key = 'qa-vax-ET_TT_QA_BOOSTER-' || oi.target_id::text,
+    sequence = 3,
+    updated_at = now()
+FROM mandela m
+WHERE oi.obligation_id = m.obligation_id
+  AND m.rn = 2;
+
 -- One drive assignment per shed, owned by that park's vaccination operator.
 INSERT INTO vaccination_drive_assignments (assignment_id, tenant_id, batch_id, planned_date, operator_id, park_id, shed_id, physical_shed, partition_label, animal_count, capacity_status, warnings, vaccine_rule_ids, total_doses)
 SELECT ('9e000000-0000-4000-8000-' || lpad(s.seq::text, 12, '0'))::uuid,
@@ -1543,7 +1595,9 @@ SELECT ('9e000000-0000-4000-8000-' || lpad(s.seq::text, 12, '0'))::uuid,
        s.park_id, s.shed_id, s.shed_name, 'whole',
        (SELECT count(DISTINCT d.goat_id) FROM qa_due_goats d WHERE d.shed_id = s.shed_id),
        'within_cap', '[]'::jsonb,
-       CASE WHEN s.seq IN (2, 6)
+       CASE WHEN s.seq = 5
+            THEN ARRAY['91000000-0000-4000-8000-000000000503','91000000-0000-4000-8000-000000000505']::uuid[]
+            WHEN s.seq IN (2, 6)
             THEN ARRAY['91000000-0000-4000-8000-000000000503','91000000-0000-4000-8000-000000000504']::uuid[]
             ELSE ARRAY['91000000-0000-4000-8000-000000000503']::uuid[] END,
        (SELECT count(*) FROM obligation_instances oi WHERE oi.tenant_id = '${tenant_id}'::uuid AND oi.batch_id = s.batch_id AND oi.scope_id = s.shed_id AND oi.status = 'due')
