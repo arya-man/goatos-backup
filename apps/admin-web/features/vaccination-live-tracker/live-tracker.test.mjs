@@ -224,13 +224,19 @@ test("timestamps render in the business timezone, not the viewer's", () => {
   assert.match(format, /Intl\.DateTimeFormat/);
 });
 
-test("scope-aware files never read a top-bar scope key or hand-roll a query string", () => {
+test("the page park filter is authoritative for the read path, not the global top-bar selector", () => {
   for (const [name, source] of Object.entries({ board, params })) {
     assert.ok(!/new URLSearchParams\(/.test(code(source)), `${name} must build links through scopeHref`);
-    assert.ok(!/one\(sp, ?["']park["']\)/.test(code(source)), `${name} must read park through parseScope`);
   }
   assert.match(params, /parseScope/);
   assert.match(params, /scopeHref/);
+  assert.match(params, /const parkId = uuidOrUndefined\(one\(sp, "park"\)\);/);
+  assert.match(board, /parkId: params\.parkId/);
+  assert.match(board, /Park is authoritative for this page's backend read/);
+  const shell = readFileSync(new URL("../../components/mesha-shell.tsx", import.meta.url), "utf8");
+  const localScopeBlock = shell.match(/const PAGES_WITH_LOCAL_OR_NO_PARK_SCOPE = \[([\s\S]*?)\];/);
+  assert.ok(localScopeBlock, "shell local-scope route list must be parseable");
+  assert.match(localScopeBlock[1], /"\/vaccination\/live-tracker"/, "the duplicate global park selector must stay hidden on this page");
 });
 
 test("dense tables pin their cells to one line, per the mock-anatomy rule", () => {

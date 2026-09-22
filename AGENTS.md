@@ -200,6 +200,26 @@ manual one-off obligation insert.
 Read the detailed operational runbook before changing anchor code, config, or
 data: `docs/preventive-care-vaccination/vaccination-anchor-runbook.md`.
 
+For any live vaccination drive where scheduled work disappears, operators lose
+rows mid-drive, completed proof/videos no longer close the drive, or the
+maintainer says the kernel/sweeper destroyed vaccination rows, first read:
+`docs/runbooks/vaccination-live-drive-schedule-and-restore.md`.
+
+Start the code investigation in these areas before guessing:
+
+- `backend/internal/kernelstages/generation.go`
+- `backend/internal/vaccination/app/generation.go`
+- `backend/internal/obligation/adapters/postgres/repository.go`
+- `backend/internal/obligation/adapters/postgres/visit_shot_lock.go`
+- `backend/internal/vaccinationexecution/adapters/postgres/repository.go`
+- `backend/internal/vaccinationexecution/adapters/postgres/live_tracker_repository.go`
+
+The known failure mode is: generation cancels/deferred vaccination obligations,
+then `obligation-sweep` rebuilds `vaccination_drive_assignments` from the
+remaining open obligation set and physically removes active assignment rows.
+Never assume canceled assignment rows are harmless during a same-day drive if
+proof artifacts, scans, completions, or operator work already exist.
+
 Required behavior:
 
 1. Resolve the exact vaccine/program name the maintainer used. For example,

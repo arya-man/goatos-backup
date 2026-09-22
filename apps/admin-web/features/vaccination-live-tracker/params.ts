@@ -2,8 +2,9 @@ import { parseScope, scopeHref, type Scope } from "@/lib/scope";
 import { boundedInt, one, type RouteSearchParams } from "@/lib/search-params";
 import type { VaccinationLiveTrackerStatus } from "@/lib/api/server";
 
-// URL keys owned by this page. Park / date scope is NOT among them: that lives in the top bar and is
-// read through parseScope, exactly like every other scope-aware surface.
+// URL keys owned by this page. `park` is deliberately page-authoritative here: the live tracker has
+// its own park filter beside the rest of the drive filters, and the backend read must honor that
+// selection even when the shell/global scope chrome is company-wide or hidden.
 export const LIVE_TRACKER_PATH = "/vaccination/live-tracker";
 
 const STATUS_VALUES: VaccinationLiveTrackerStatus[] = ["active", "done", "pending", "review"];
@@ -23,12 +24,12 @@ export type LiveTrackerParams = {
   activityBefore?: string;
   activityBeforeId?: string;
   hasFilter: boolean;
-  // hasNarrowing includes the top-bar PARK scope; hasFilter does not.
+  // hasNarrowing includes the page park scope; hasFilter does not.
   //
   // They are different questions. "Is anything narrowing this board?" decides whether the empty
   // state may say "No vaccination drive work on this day" — which is a claim about the whole day and
   // is false when the other park is running. "Is there a page-local filter to clear?" decides whether
-  // a clear-all control does anything, and clearing must not silently drop the shared top-bar scope.
+  // a clear-all control does anything, and clearing must not silently drop the page park selection.
   hasNarrowing: boolean;
 };
 
@@ -53,9 +54,7 @@ export function parseLiveTrackerParams(searchParams: RouteSearchParams | undefin
   const sp = searchParams ?? {};
   const scope = parseScope(sp);
 
-  // Park comes from the top-bar scope. The filter bar's park control writes the SAME scope key, so
-  // there is one park truth on the page rather than a second inline scope.
-  const parkId = scope.parkId;
+  const parkId = uuidOrUndefined(one(sp, "park"));
   const shedId = uuidOrUndefined(one(sp, "lt_shed"));
   const partitionLabel = boundedText(one(sp, "lt_partition"), 64);
   const operatorId = uuidOrUndefined(one(sp, "lt_operator"));
@@ -85,12 +84,13 @@ export function parseLiveTrackerParams(searchParams: RouteSearchParams | undefin
   };
 }
 
-// Every link on this page routes through here, so the top-bar scope and the page's own filter state
-// survive each other. Hand-rolling a URLSearchParams for one of them is how a filter link silently
-// drops the park a user had selected.
+// Every link on this page routes through here, so the page's own filter state survives filter changes.
+// Hand-rolling a URLSearchParams for one link is how a selected drive park silently falls out of the
+// backend read.
 export function liveTrackerHref(params: LiveTrackerParams, overrides: Record<string, string | undefined> = {}): string {
   const { park, ...rest } = overrides as Record<string, string | undefined> & { park?: string };
-  const scopeOverride = "park" in overrides ? { park: park ?? null, mode: (park ? "park" : "company") as "park" | "company" } : {};
+  const effectivePark = "park" in overrides ? park : params.parkId;
+  const scopeOverride = { park: effectivePark ?? null, mode: (effectivePark ? "park" : "company") as "park" | "company" };
   return scopeHref(LIVE_TRACKER_PATH, params.scope, scopeOverride, {
     lt_shed: params.shedId,
     lt_partition: params.partitionLabel,
@@ -107,5 +107,10 @@ export function liveTrackerHref(params: LiveTrackerParams, overrides: Record<str
 }
 
 export function liveTrackerResetHref(params: LiveTrackerParams): string {
-  return scopeHref(LIVE_TRACKER_PATH, params.scope, {}, { lt_date: params.businessDate });
+  return scopeHref(
+    LIVE_TRACKER_PATH,
+    params.scope,
+    { park: params.parkId ?? null, mode: params.parkId ? "park" : "company" },
+    { lt_date: params.businessDate },
+  );
 }
