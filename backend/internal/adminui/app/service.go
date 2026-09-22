@@ -217,6 +217,7 @@ func navigation() domain.NavigationContract {
 					navLeafDomain("preventive-care-vaccination", "Vaccination", "/vaccination", "pc.vaccination", nil),
 					navLeafDomain("vaccination-live-tracker", "Live Drive Tracker", "/vaccination/live-tracker", "pc.vaccination", nil),
 					navLeafDomain("vaccination-plan", "Vaccination plan", "/vaccination/plan", "pc.vaccination", nil),
+					navLeaf("pc-care-sops", "Preventive Care SOP", "/pc-care/sops", nil),
 				},
 			},
 			{
@@ -316,6 +317,7 @@ func routeLabels() []domain.RouteLabelRule {
 		{Pattern: "/procurement/feed-purchases", Label: "Feed Purchases", Match: "exact"},
 		{Pattern: "/procurement/animal-purchases", Label: "Animal purchases", Match: "exact"},
 		{Pattern: "/procurement/sops", Label: "Procurement SOP", Match: "exact"},
+		{Pattern: "/pc-care/sops", Label: "Preventive Care SOP", Match: "exact"},
 		{Pattern: "/sales/sold", Label: "Summary", Match: "exact"},
 		{Pattern: "/sales/market-analytics", Label: "Market analytics", Match: "exact"},
 		{Pattern: "/sales/buyer-analytics", Label: "Buyer analytics", Match: "exact"},
@@ -1061,6 +1063,11 @@ func pages() []domain.PageContract {
 			[]domain.TableContract{table("sop-library", "Milk SOPs", "/admin/sops", []string{"sop", "domain", "trigger", "steps", "gates", "status"}, "sop_id")}),
 		page("weighing-sops", "/weighing/sops", "/weighing/sops", "Weighing SOP", "The scan-and-submit weighing session document.", "module-surface",
 			[]domain.TableContract{table("sop-library", "Weighing SOPs", "/admin/sops", []string{"sop", "domain", "trigger", "steps", "gates", "status"}, "sop_id")}),
+		// PC CARE SOP (maintainer decision 2026-09-22): what the operator captures and answers
+		// for deworming, anti protozoan, ticks removal and the two trimming jobs, and whether a
+		// tablet-in-feed deworming removes feed & water the evening before.
+		page("pc-care-sops", "/pc-care/sops", "/pc-care/sops", "Preventive Care SOP", "What the operator captures and answers on a deworming, ticks removal or trimming task — and the evening-before feed & water removal.", "module-surface",
+			[]domain.TableContract{table("sop-library", "Preventive Care SOPs", "/admin/sops", []string{"sop", "domain", "trigger", "steps", "gates", "status"}, "sop_id")}),
 		// SOP studio phase 2 (2026-09-18): general work instructions, the SOP kind tied to no
 		// module. Same library + operator-steps editor shape as the module pages; the code
 		// prefix `general.` and kind = general are set by the builder.
@@ -8304,7 +8311,7 @@ func pageSpecificCopy(id string) map[string]string {
 		}
 	// Vaccination is deliberately absent: its SOP page is gone, and its content lives on
 	// the vaccination plan console. milk and weighing arrived on main meanwhile and stay.
-	case "counts-sops", "feed-sops", "milk-sops", "weighing-sops", "procurement-sops", "configuration-work-instructions", "sales-sops":
+	case "counts-sops", "feed-sops", "milk-sops", "weighing-sops", "procurement-sops", "configuration-work-instructions", "sales-sops", "pc-care-sops":
 		m := map[string]string{
 			"filter.search_label":                     "Search SOPs",
 			"filter.search_placeholder":               "Search SOP name, trigger, step, or proof...",
@@ -8642,6 +8649,23 @@ func pageSpecificCopy(id string) map[string]string {
 			m["modal.builder.eyebrow"] = "SOP · GENERAL"
 			m["followup.subtitle"] = "What the operator does once they start this work instruction, in order. Each step names its type, the proof it needs, and when it is due. Publishing applies to runs started from then on; a run already started keeps the steps it started with."
 			m["followup.notice.capture_kept"] = "Started by hand from the phone; every run is its own record."
+		case "pc-care-sops":
+			// PC CARE SOP editor + drawer summary copy (2026-09-22). Merged FIRST so the module's
+			// own builder names below still win -- the weighing page's own trap, recorded there.
+			for k, v := range pcCareSOPEditorCopy() {
+				m[k] = v
+			}
+			m["crumb"] = "Preventive Care"
+			m["filter.domain.current"] = "This page shows Preventive Care SOPs (deworming, ticks removal, trimming)"
+			m["modal.builder.domain_aria"] = "Domain — locked to Preventive Care"
+			m["modal.builder.domain_title"] = "Domain is locked to Preventive Care on this page"
+			m["modal.builder.domain_label"] = "Preventive Care"
+			m["modal.builder.default_name"] = "Preventive Care task"
+			m["modal.builder.placeholder.name"] = "Preventive Care task"
+			m["modal.builder.policy_label"] = "preventive care policy"
+			m["modal.builder.eyebrow"] = "SOP · PREVENTIVE CARE"
+			m["empty.title"] = "No preventive care SOPs yet"
+			m["empty.body"] = "Publish the document that says what the operator captures on a deworming, ticks removal or trimming task."
 		case "feed-sops":
 			m["crumb"] = "Feed"
 			m["filter.domain.current"] = "This page shows Feed SOPs (distribution, packing, transport)"
@@ -9574,6 +9598,11 @@ func pageOptionGroups(id string) []domain.OptionGroup {
 		return withGenericOptionGroups(append(sopOptionGroupsFor(id), weighingSOPOptionGroups()...))
 	case "weighing-sops":
 		return withGenericOptionGroups(append(sopOptionGroupsFor(id), weighingSOPOptionGroups()...))
+	case "pc-care-sops":
+		// PC CARE SOP (2026-09-22): the care cards editor reuses the weighing card's question and
+		// capture-kind vocabularies -- one meaning of "photo / video / either" on every card --
+		// and adds its own removal-mode and category vocabularies.
+		return withGenericOptionGroups(append(append(sopOptionGroupsFor(id), weighingSOPOptionGroups()...), pcCareSOPOptionGroups()...))
 	case "configuration-work-instructions":
 		return withGenericOptionGroups(sopOptionGroupsFor(id))
 	case "sales-sops":
@@ -10070,6 +10099,12 @@ var sopSeedStepsByModule = map[string][]domain.Option{
 		option("yesno", "Is everything in place to start?", "", ""),
 		option("text", "Note what you found", "", ""),
 		option("photo_proof", "Photo of the finished work", "", ""),
+	},
+	// A new Preventive Care SOP starts from the animal in front of the operator.
+	"pc-care-sops": {
+		option("animal_id_scan", "Scan the animal", "", ""),
+		option("video_proof", "Record the dose being given", "", ""),
+		option("yesno", "Did the animal take the full dose?", "", ""),
 	},
 	// A new Sales SOP starts from what a sale owes, not an animal scan.
 	"sales-sops": {
@@ -11811,6 +11846,103 @@ func weighingSOPOptionGroups() []domain.OptionGroup {
 			},
 		},
 	}
+}
+
+// pcCareSOPOptionGroups are the PC Care editor's OWN closed vocabularies: the removal mode
+// (whose wording is about care work, not weighing) and the categories the removal may apply to.
+// The question kinds and capture kinds come from weighingSOPOptionGroups -- one vocabulary.
+func pcCareSOPOptionGroups() []domain.OptionGroup {
+	return []domain.OptionGroup{
+		{
+			ID: "pcsop_removal_modes",
+			Options: []domain.Option{
+				option("required", "Always, on the work below", "Every task of a ticked category carries it; the planner is not asked.", ""),
+				option("optional", "Planner decides per task", "The planner is offered the removal on a ticked category and chooses.", ""),
+				option("off", "Never", "No removal step at all; a task can be planned for today.", ""),
+			},
+		},
+		{
+			ID: "pcsop_categories",
+			Options: []domain.Option{
+				option("deworming", "Deworming", "", ""),
+				option("anti_protozoan", "Anti Protozoan", "", ""),
+				option("ticks_removal", "Ticks Removal", "", ""),
+				option("hoof_trimming", "Hoof Trimming", "", ""),
+				option("hair_trimming", "Hair Trimming", "", ""),
+			},
+		},
+	}
+}
+
+// pcCareSOPEditorCopy is the `pcsop.*` namespace: the rules editor and the drawer summary on
+// /pc-care/sops. It starts from the weighing card's copy so the shared question and capture-slot
+// rows read identically on every SOP page (the feedSOPEditorCopy shape).
+func pcCareSOPEditorCopy() map[string]string {
+	m := map[string]string{}
+	for k, v := range weighingSOPEditorCopy() {
+		m[k] = v
+	}
+	for k, v := range map[string]string{
+		"action.edit_pc_care":               "Change SOP",
+		"pcsop.title":                       "Preventive Care SOP — what the operator captures",
+		"pcsop.subtitle":                    "Each work category lists the captures the operator records for every animal and the questions they answer when submitting. Add a photo beside a video, replace a video with a photo, drop a capture or ask one more question: the phone renders whatever is published here.",
+		"pcsop.notice.pinned":               "A task already planned keeps the card it was planned with; publishing changes the next task planned.",
+		"pcsop.drawer.title":                "What the operator captures",
+		"pcsop.drawer.subtitle":             "Published card, per work category",
+		"pcsop.section.removal":             "Feed & water removal",
+		"pcsop.section.removal.subtitle":    "Tablets given in feed need feed and water removed the evening before. Say whether that applies, to which work, and what the evening crew records for each pen.",
+		"pcsop.removal.mode":                "When does it apply",
+		"pcsop.removal.applies_to":          "Work it applies to",
+		"pcsop.removal.applies_to.subtitle": "The planner is only offered the removal on these categories; on any other it is refused.",
+		"pcsop.removal.applies_to.empty":    "Tick at least one kind of work, or switch the removal off.",
+		"pcsop.removal.instruction":         "What the evening crew is told",
+		"pcsop.removal.cutoff":              "Evening from",
+		"pcsop.removal.cutoff.hint":         "Leave blank to use the farm's own evening, the one weighing shares.",
+		"pcsop.removal.cutoff.farm":         "Farm evening",
+		"pcsop.removal.proofs":              "What the crew records, per pen",
+		"pcsop.removal.proofs.subtitle":     "One capture per row. At least one must be compulsory.",
+		"pcsop.removal.questions":           "What the crew answers, per pen",
+		"pcsop.removal.questions.subtitle":  "Answered once for each pen, beside the captures.",
+		"pcsop.removal.questions.empty":     "No questions on the removal card.",
+		"pcsop.removal.off_note":            "The removal is switched off: no task carries it and the planner is never asked.",
+		"pcsop.section.categories":          "The work",
+		"pcsop.section.categories.subtitle": "One card per kind of work. The way the operator reaches an animal — scanning a tag, or tapping it off the pen roster — is fixed by the work itself and is not authored here.",
+		"pcsop.category.instruction":        "What the operator is told",
+		"pcsop.category.proofs":             "What the operator records, per animal",
+		"pcsop.category.proofs.subtitle":    "One capture per row. At least one must be compulsory — the work has to be proven by something the verifier can see.",
+		"pcsop.category.add_capture":        "Add a capture",
+		"pcsop.category.at_least_one":       "Keep at least one compulsory capture.",
+		"pcsop.category.questions":          "What the operator answers",
+		"pcsop.category.questions.subtitle": "Answered once for the whole task, when it is submitted.",
+		"pcsop.category.questions.empty":    "No questions on this card.",
+		"pcsop.capture.min_seconds":         "Record about (seconds)",
+		"pcsop.capture.min_seconds.hint":    "Guidance shown on the recorder. It never blocks a shorter clip.",
+		"pcsop.capture.min_seconds.photo":   "A photo has no length.",
+		"pcsop.summary.captures_one":        "1 capture",
+		"pcsop.summary.captures_many":       "{count} captures",
+		"pcsop.summary.questions_one":       "1 question",
+		"pcsop.summary.questions_many":      "{count} questions",
+		"pcsop.summary.removal.required":    "Always",
+		"pcsop.summary.removal.optional":    "Planner decides",
+		"pcsop.summary.removal.off":         "Never",
+		"pcsop.footer.ready":                "Ready to publish.",
+		"pcsop.flow.start":                  "Task planned",
+		"pcsop.flow.start_hint":             "The CEO picks the work, the pens, the day and the operators.",
+		"pcsop.flow.removal":                "Feed & water removed",
+		"pcsop.flow.removal_hint":           "The evening before, pen by pen.",
+		"pcsop.flow.removal_off":            "No feed & water removal",
+		"pcsop.flow.decision":               "Which work",
+		"pcsop.flow.reach":                  "Reach the animal",
+		"pcsop.flow.reach_scan":             "Scan the tag; the recorder opens.",
+		"pcsop.flow.reach_roster":           "Tap the animal on the pen roster.",
+		"pcsop.flow.submit":                 "Submit the task",
+		"pcsop.flow.submit_hint":            "Every animal carries every compulsory capture.",
+		"pcsop.flow.verify":                 "Verifier reviews",
+		"pcsop.flow.verify_hint":            "One item per task, carrying every animal's captures.",
+	} {
+		m[k] = v
+	}
+	return m
 }
 
 // inspectionOptionGroups are the editor's closed vocabularies.

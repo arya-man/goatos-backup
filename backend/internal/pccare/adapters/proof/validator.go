@@ -50,6 +50,23 @@ func (v *Validator) ValidateLiveCameraProofKind(ctx context.Context, tenantID st
 	return v.validateLiveCameraProofs(ctx, tenantID, proofIDs, strings.TrimSpace(strings.ToLower(requiredKind)))
 }
 
+// LiveCameraProofKind validates ONE live-camera proof of either kind and reports the kind the
+// register judged it as -- an authored `either` slot takes whichever the operator chose.
+func (v *Validator) LiveCameraProofKind(ctx context.Context, tenantID, proofID string) (string, error) {
+	if err := v.validateLiveCameraProofs(ctx, tenantID, []string{proofID}, ""); err != nil {
+		return "", err
+	}
+	found, err := v.repo.GetProofsByIDs(ctx, tenantID, []string{proofID})
+	if err != nil {
+		return "", err
+	}
+	art, ok := found[proofID]
+	if !ok {
+		return "", pccareports.ErrInvalidProof
+	}
+	return strings.ToLower(strings.TrimSpace(art.ProofType)), nil
+}
+
 func (v *Validator) validateLiveCameraProofs(ctx context.Context, tenantID string, proofIDs []string, requiredKind string) error {
 	if len(proofIDs) == 0 {
 		return nil

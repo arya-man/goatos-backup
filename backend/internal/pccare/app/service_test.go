@@ -25,6 +25,9 @@ const (
 // fakeStore is a minimal TaskStore for app-gate tests.
 type fakeStore struct {
 	ports.TaskStore
+	// taskCategory is what GetTask reports for testTask (deworming when blank): the service
+	// judges a slot against the task's PINNED card, so the fake must say which card.
+	taskCategory   string
 	assignees      map[string]bool
 	scanCalls      int
 	submitCalls    int
@@ -43,6 +46,14 @@ type fakeStore struct {
 func (f *fakeStore) IsAssignee(_ context.Context, _, _, userID string) (bool, error) {
 	return f.assignees[userID], nil
 }
+func (f *fakeStore) GetTask(_ context.Context, _, taskID string, _ []string, _ bool) (ports.TaskRow, error) {
+	category := f.taskCategory
+	if category == "" {
+		category = domain.CategoryDeworming
+	}
+	return ports.TaskRow{TaskID: taskID, Category: category}, nil
+}
+func (f *fakeStore) TaskSOPVersion(context.Context, string, string) (int, error) { return 0, nil }
 func (f *fakeStore) ScanAnimal(_ context.Context, _ ports.ScanAnimalParams) (ports.ScanAnimalResult, error) {
 	f.scanCalls++
 	return ports.ScanAnimalResult{AnimalRowID: testAnimal}, nil
@@ -113,6 +124,15 @@ func (f *fakeProofValidator) ValidateLiveCameraMedia(_ context.Context, tenantID
 	f.lastProofs = append([]string(nil), proofIDs...)
 	return f.err
 }
+
+func (f *fakeProofValidator) LiveCameraProofKind(ctx context.Context, tenantID, proofID string) (string, error) {
+	if err := f.ValidateLiveCameraMedia(ctx, tenantID, []string{proofID}); err != nil {
+		return "", err
+	}
+	return "video", nil
+}
+
+func boolPtr(v bool) *bool { return &v }
 
 func (f *fakeProofValidator) ValidateLiveCameraProofKind(_ context.Context, tenantID string, proofIDs []string, requiredKind string) error {
 	f.kindCalls++
@@ -263,7 +283,7 @@ func TestExecuteWritesRequireThePermission(t *testing.T) {
 }
 
 func TestRegisterTaskProofRequiresAssigneeAndValidatesLiveCameraMedia(t *testing.T) {
-	store := &fakeStore{assignees: map[string]bool{testAssignee: true}}
+	store := &fakeStore{assignees: map[string]bool{testAssignee: true}, taskCategory: domain.CategoryInventoryVaccine}
 	proofs := &fakeProofValidator{}
 	svc := NewService(store).WithFeedWaterRemovalCutoff(eightPM).WithProofValidator(proofs)
 
@@ -314,7 +334,7 @@ func TestRegisterTaskProofRequiresAssigneeAndValidatesLiveCameraMedia(t *testing
 }
 
 func TestRegisterTaskProofRejectsWrongLiveCameraProofKind(t *testing.T) {
-	store := &fakeStore{assignees: map[string]bool{testAssignee: true}}
+	store := &fakeStore{assignees: map[string]bool{testAssignee: true}, taskCategory: domain.CategoryInventoryVaccine}
 	proofs := &fakeProofValidator{err: ports.ErrInvalidProof}
 	svc := NewService(store).WithFeedWaterRemovalCutoff(eightPM).WithProofValidator(proofs)
 

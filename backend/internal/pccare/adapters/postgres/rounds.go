@@ -3,6 +3,7 @@ package postgres
 import (
 	"context"
 	"encoding/base64"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"sort"
@@ -14,6 +15,7 @@ import (
 	"github.com/vgoats/goatos/backend/internal/pccare/ports"
 	"github.com/vgoats/goatos/backend/internal/platform/audit"
 	"github.com/vgoats/goatos/backend/internal/platform/oploc"
+	"github.com/vgoats/goatos/backend/internal/sop/authored"
 )
 
 const (
@@ -110,7 +112,7 @@ func (r *Repository) CreateRound(ctx context.Context, p ports.CreateRoundParams)
 
 	var roundID string
 	if err := tx.QueryRow(ctx, roundInsertSQL,
-		p.TenantID, p.Category, p.ParkID, plannedDate, p.IdempotencyKey, p.CreatedBy,
+		p.TenantID, p.Category, p.ParkID, plannedDate, p.IdempotencyKey, p.CreatedBy, p.SOPVersion,
 	).Scan(&roundID); err != nil {
 		return ports.RoundRow{}, fmt.Errorf("pccare: insert round: %w", err)
 	}
@@ -126,7 +128,8 @@ func (r *Repository) CreateRound(ctx context.Context, p ports.CreateRoundParams)
 	// key (one live task per category/pen/day) refuse a pen already planned; anything less
 	// than the full pen set coming back means the round cannot be planned whole.
 	rows, err := tx.Query(ctx, roundTasksInsertSQL,
-		p.TenantID, p.Category, p.ParkID, shedIDs, partitionLabels, plannedDate, roundID, p.CreatedBy)
+		p.TenantID, p.Category, p.ParkID, shedIDs, partitionLabels, plannedDate, roundID, p.CreatedBy,
+		p.SOPVersion, p.RequiredSlotKeys)
 	if err != nil {
 		return ports.RoundRow{}, fmt.Errorf("pccare: insert round pen tasks: %w", err)
 	}
@@ -231,6 +234,7 @@ func createRoundRemoval(
 	var removalTaskID string
 	err := tx.QueryRow(ctx, roundRemovalInsertSQL,
 		p.TenantID, p.ParkID, removalDate, roundID, p.IdempotencyKey+":fasting", p.CreatedBy,
+		p.SOPVersion, p.RemovalRequiredSlotKeys,
 	).Scan(&removalTaskID)
 	if errors.Is(err, pgx.ErrNoRows) {
 		// A live removal card already gates this round. The pair cannot be planned whole,
@@ -366,20 +370,15 @@ func resolveRoundPens(ctx context.Context, tx pgx.Tx, tenantID, parkID string, p
 
 // A re-shoot REPLACES the pen's clip for that slot rather than adding a second one: the
 // verifier judges the video the operator stands behind, and the pair CHECK admits one of each.
-const removalPenFeedProofSQL = `
+// removalPenProofSQL stores ONE authored slot's capture on ONE pen (PC CARE SOP, 2026-09-22):
+// the keyed map is the source of truth; the two legacy columns mirror the seeded feed_video /
+// water_video keys so every pre-existing reader still finds a ref. The slot KEY is a bind
+// value, never spliced into the statement.
+const removalPenProofSQL = `
 UPDATE pc_care_removal_pen_proofs
-SET feed_proof_ref = $4,
-    status = 'open',
-    rework_reason = NULL,
-    updated_at = now(),
-    row_version = row_version + 1
-WHERE tenant_id = $1::uuid AND removal_task_id = $2::uuid AND gated_task_id = $3::uuid
-  AND status <> 'completed'
-RETURNING removal_pen_id::text`
-
-const removalPenWaterProofSQL = `
-UPDATE pc_care_removal_pen_proofs
-SET water_proof_ref = $4,
+SET sop_proofs = sop_proofs || jsonb_build_object($4::text, $5::text),
+    feed_proof_ref = CASE WHEN $4::text = 'feed_video' THEN $5::text ELSE feed_proof_ref END,
+    water_proof_ref = CASE WHEN $4::text = 'water_video' THEN $5::text ELSE water_proof_ref END,
     status = 'open',
     rework_reason = NULL,
     updated_at = now(),
@@ -396,7 +395,8 @@ WHERE tenant_id = $1::uuid AND removal_task_id = $2::uuid AND gated_task_id = $3
 
 const removalPenSubmitRefsSQL = `
 SELECT removal_pen_id::text, gated_task_id::text, pen_label,
-       coalesce(feed_proof_ref, ''), coalesce(water_proof_ref, ''), status, row_version
+       coalesce(feed_proof_ref, ''), coalesce(water_proof_ref, ''), status, row_version,
+       sop_proofs
 FROM pc_care_removal_pen_proofs
 WHERE tenant_id = $1::uuid AND removal_task_id = $2::uuid
 ORDER BY pen_label, removal_pen_id
@@ -433,7 +433,7 @@ SELECT`
 const listRemovalPenProofsSQL = `
 SELECT removal_pen_id::text, gated_task_id::text, pen_label,
        coalesce(feed_proof_ref, ''), coalesce(water_proof_ref, ''),
-       status, coalesce(rework_reason, ''), row_version
+       status, coalesce(rework_reason, ''), row_version, sop_proofs
 FROM pc_care_removal_pen_proofs
 WHERE tenant_id = $1::uuid AND removal_task_id = $2::uuid
 ORDER BY pen_label, removal_pen_id`
@@ -495,8 +495,8 @@ WHERE tenant_id = $1::uuid
   AND work_state IN ('scheduled', 'delayed')`
 
 const roundInsertSQL = `
-INSERT INTO pc_care_rounds (tenant_id, category, park_id, planned_business_date, idempotency_key, created_by)
-VALUES ($1::uuid, $2, $3::uuid, $4::date, $5, $6::uuid)
+INSERT INTO pc_care_rounds (tenant_id, category, park_id, planned_business_date, idempotency_key, created_by, sop_version)
+VALUES ($1::uuid, $2, $3::uuid, $4::date, $5, $6::uuid, nullif($7::int, 0))
 RETURNING round_id::text`
 
 // roundTasksInsertSQL inserts every pen bucket of a round in ONE statement. The two text
@@ -505,13 +505,15 @@ RETURNING round_id::text`
 const roundTasksInsertSQL = `
 INSERT INTO pc_care_tasks (
   tenant_id, category, park_id, shed_id, partition_label,
-  planned_business_date, due_business_date, round_id, idempotency_key, created_by
+  planned_business_date, due_business_date, round_id, idempotency_key, created_by,
+  sop_version, required_slot_keys
 )
 SELECT
   $1::uuid, $2, $3::uuid, pen.shed_id, nullif(btrim(pen.partition_label), ''),
   $6::date, $6::date, $7::uuid,
   $7::text || ':' || pen.shed_id::text || ':' || coalesce(nullif(btrim(pen.partition_label), ''), 'whole'),
-  $8::uuid
+  $8::uuid,
+  nullif($9::int, 0), coalesce($10::text[], '{}'::text[])
 FROM unnest($4::uuid[], $5::text[]) AS pen(shed_id, partition_label)
 ON CONFLICT (tenant_id, category, park_id, shed_id, partition_key, planned_business_date)
   WHERE work_state <> 'canceled'
@@ -530,10 +532,10 @@ CROSS JOIN unnest($3::uuid[]) AS o(operator_user_id)`
 const roundRemovalInsertSQL = `
 INSERT INTO pc_care_tasks (
   tenant_id, category, park_id, planned_business_date, due_business_date,
-  gates_round_id, idempotency_key, created_by
+  gates_round_id, idempotency_key, created_by, sop_version, required_slot_keys
 ) VALUES (
   $1::uuid, 'feed_water_removal', $2::uuid, $3::date, $3::date,
-  $4::uuid, $5, $6::uuid
+  $4::uuid, $5, $6::uuid, nullif($7::int, 0), coalesce($8::text[], '{}'::text[])
 )
 ON CONFLICT (tenant_id, gates_round_id) WHERE gates_round_id IS NOT NULL
 DO NOTHING
@@ -631,9 +633,13 @@ func (r *Repository) ListRemovalPenProofs(ctx context.Context, tenantID, removal
 	out := make([]ports.RemovalPenProofRow, 0, 8)
 	for rows.Next() {
 		var p ports.RemovalPenProofRow
+		var proofsJSON []byte
 		if err := rows.Scan(&p.RemovalPenID, &p.GatedTaskID, &p.PenLabel,
-			&p.FeedProofRef, &p.WaterProofRef, &p.Status, &p.ReworkReason, &p.RowVersion); err != nil {
+			&p.FeedProofRef, &p.WaterProofRef, &p.Status, &p.ReworkReason, &p.RowVersion, &proofsJSON); err != nil {
 			return nil, fmt.Errorf("pccare: scan removal pen proof: %w", err)
+		}
+		if err := json.Unmarshal(proofsJSON, &p.Proofs); err != nil {
+			return nil, fmt.Errorf("pccare: decode removal pen proofs: %w", err)
 		}
 		out = append(out, p)
 	}
@@ -652,7 +658,7 @@ func (r *Repository) RegisterRemovalPenProof(ctx context.Context, p ports.Regist
 	defer cancel()
 
 	slot := strings.TrimSpace(p.SlotKey)
-	if slot != domain.SlotFeedVideo && slot != domain.SlotWaterVideo {
+	if slot == "" {
 		return domain.ErrInvalidSlotForCategory
 	}
 	if strings.TrimSpace(p.ProofRef) == "" {
@@ -703,16 +709,11 @@ func (r *Repository) RegisterRemovalPenProof(ctx context.Context, p ports.Regist
 	//
 	// One named const per slot rather than a column spliced into the string: a query the guard
 	// and a plan test can both reach, and a shape where no caller-derived text touches SQL.
-	updateSQL := removalPenFeedProofSQL
-	if slot == domain.SlotWaterVideo {
-		updateSQL = removalPenWaterProofSQL
-	}
-	// A re-shoot REPLACES the pen's clip for that slot rather than adding a second one: the
-	// verifier judges the video the operator stands behind, and the pair CHECK on the table
-	// admits only one of each.
+	// A re-shoot REPLACES the pen's capture for that slot rather than adding a second one: the
+	// verifier judges the capture the operator stands behind.
 	var removalPenID string
-	err = tx.QueryRow(ctx, updateSQL,
-		p.TenantID, p.RemovalTaskID, p.GatedTaskID, strings.TrimSpace(p.ProofRef)).Scan(&removalPenID)
+	err = tx.QueryRow(ctx, removalPenProofSQL,
+		p.TenantID, p.RemovalTaskID, p.GatedTaskID, slot, strings.TrimSpace(p.ProofRef)).Scan(&removalPenID)
 	if errors.Is(err, pgx.ErrNoRows) {
 		var completedRemovalPenID string
 		completedErr := tx.QueryRow(ctx, removalPenCompletedIDSQL,
@@ -776,7 +777,7 @@ func (r *Repository) RegisterRemovalPenProof(ctx context.Context, p ports.Regist
 // removalPenSubmitRefs is the round-grain removal's submit readiness check, run inside the
 // submit transaction. EVERY pen must carry BOTH videos: a card submitted with one pen
 // unfilmed would tell the midnight gate that pen's animals were fasted when they were not.
-func removalPenSubmitRefs(ctx context.Context, tx pgx.Tx, tenantID, removalTaskID string) ([]ports.RemovalPenRef, []ports.LabeledRef, error) {
+func removalPenSubmitRefs(ctx context.Context, tx pgx.Tx, tenantID, removalTaskID string, slots []authored.ProofSlot) ([]ports.RemovalPenRef, []ports.LabeledRef, error) {
 	rows, err := tx.Query(ctx, removalPenSubmitRefsSQL, tenantID, removalTaskID)
 	if err != nil {
 		return nil, nil, fmt.Errorf("pccare: read removal pen proofs for submit: %w", err)
@@ -785,12 +786,32 @@ func removalPenSubmitRefs(ctx context.Context, tx pgx.Tx, tenantID, removalTaskI
 	pensNeedingVerification := make([]ports.RemovalPenRef, 0, 8)
 	for rows.Next() {
 		var pen ports.RemovalPenRef
+		var proofsJSON []byte
 		if err := rows.Scan(&pen.RemovalPenID, &pen.GatedTaskID, &pen.PenLabel,
-			&pen.FeedProofRef, &pen.WaterProofRef, &pen.Status, &pen.RowVersion); err != nil {
+			&pen.FeedProofRef, &pen.WaterProofRef, &pen.Status, &pen.RowVersion, &proofsJSON); err != nil {
 			return nil, nil, fmt.Errorf("pccare: scan removal pen proof for submit: %w", err)
 		}
-		if strings.TrimSpace(pen.FeedProofRef) == "" || strings.TrimSpace(pen.WaterProofRef) == "" {
-			return nil, nil, domain.ErrRemovalProofIncomplete
+		var proofs map[string]string
+		if err := json.Unmarshal(proofsJSON, &proofs); err != nil {
+			return nil, nil, fmt.Errorf("pccare: decode removal pen proofs for submit: %w", err)
+		}
+		// EVERY compulsory slot of the PINNED card must be captured on EVERY pen: a card
+		// submitted with one pen unfilmed would tell the midnight gate that pen's animals were
+		// fasted when they were not. Captures travel in slot order, titled by the card.
+		pen.Proofs = make([]ports.LabeledRef, 0, len(slots))
+		for _, slot := range slots {
+			ref := strings.TrimSpace(proofs[slot.Key])
+			if ref == "" {
+				if slot.Required {
+					return nil, nil, domain.ErrRemovalProofIncomplete
+				}
+				continue
+			}
+			kind := slot.Kind
+			if kind == authored.KindEither {
+				kind = ""
+			}
+			pen.Proofs = append(pen.Proofs, ports.LabeledRef{ProofRef: ref, Label: slot.Title, Kind: kind})
 		}
 		if pen.Status != domain.StatusCompleted {
 			pensNeedingVerification = append(pensNeedingVerification, pen)
@@ -805,10 +826,9 @@ func removalPenSubmitRefs(ctx context.Context, tx pgx.Tx, tenantID, removalTaskI
 	}
 	media := make([]ports.LabeledRef, 0, len(pensNeedingVerification)*2)
 	for _, pen := range pensNeedingVerification {
-		media = append(media,
-			ports.LabeledRef{ProofRef: pen.FeedProofRef, Label: pen.PenLabel + " · Feed removal video"},
-			ports.LabeledRef{ProofRef: pen.WaterProofRef, Label: pen.PenLabel + " · Water removal video"},
-		)
+		for _, proof := range pen.Proofs {
+			media = append(media, ports.LabeledRef{ProofRef: proof.ProofRef, Label: pen.PenLabel + " · " + proof.Label, Kind: proof.Kind})
+		}
 	}
 	if _, err := tx.Exec(ctx, removalPensPendingSQL, tenantID, removalTaskID); err != nil {
 		return nil, nil, fmt.Errorf("pccare: flip removal pens pending: %w", err)

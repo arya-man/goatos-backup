@@ -1,0 +1,55 @@
+{
+  "schema_version": "goatos.sop-pc-care.v1",
+  "feed_water_removal": {
+    "mode": "optional",
+    "applies_to": ["deworming"],
+    "cutoff_time": "",
+    "instruction": "Remove feed and water from every pen in this round the evening before the deworming. Film the feed being removed and the water being removed as two separate live-camera videos per pen and submit before midnight.",
+    "proofs": [
+      {"key": "feed_video", "title": "Feed removal video", "hint": "Show the feed being taken out of this pen.", "kind": "video", "required": true},
+      {"key": "water_video", "title": "Water removal video", "hint": "Show the water being taken out of this pen.", "kind": "video", "required": true}
+    ],
+    "questions": []
+  },
+  "categories": {
+    "deworming": {
+      "instruction": "Scan each animal and film the dose being given.",
+      "proofs": [
+        {"key": "video", "title": "Deworming video", "hint": "Show the dose being given to this animal", "kind": "video", "required": true}
+      ],
+      "questions": []
+    },
+    "anti_protozoan": {
+      "instruction": "Scan each animal and film the dose being given.",
+      "proofs": [
+        {"key": "video", "title": "Anti Protozoan video", "hint": "Show the dose being given to this animal", "kind": "video", "required": true}
+      ],
+      "questions": []
+    },
+    "ticks_removal": {
+      "instruction": "Scan each animal and film the ticks being removed.",
+      "proofs": [
+        {"key": "video", "title": "Ticks removal video", "hint": "Show the ticks being removed from this animal", "kind": "video", "required": true}
+      ],
+      "questions": []
+    },
+    "hoof_trimming": {
+      "instruction": "Pick each animal off the pen roster and record the three clips: before, while and after the trimming.",
+      "proofs": [
+        {"key": "before_video", "title": "Before trimming", "hint": "Show the animal's hooves before the work", "kind": "video", "required": true},
+        {"key": "during_video", "title": "While trimming", "hint": "Record the hooves being trimmed", "kind": "video", "required": true, "min_seconds": 10},
+        {"key": "after_video", "title": "After trimming", "hint": "Show the trimmed hooves after the work", "kind": "video", "required": true}
+      ],
+      "questions": []
+    },
+    "hair_trimming": {
+      "instruction": "Pick each animal off the pen roster and record the three clips: before, while and after the trimming.",
+      "proofs": [
+        {"key": "before_video", "title": "Before trimming", "hint": "Show the animal's coat before the work", "kind": "video", "required": true},
+        {"key": "during_video", "title": "While trimming", "hint": "Record the hair being trimmed", "kind": "video", "required": true, "min_seconds": 10},
+        {"key": "after_video", "title": "After trimming", "hint": "Show the trimmed coat after the work", "kind": "video", "required": true}
+      ],
+      "questions": []
+    }
+  }
+}

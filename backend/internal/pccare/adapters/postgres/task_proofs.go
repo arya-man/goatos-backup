@@ -11,6 +11,7 @@ import (
 	"github.com/vgoats/goatos/backend/internal/pccare/domain"
 	"github.com/vgoats/goatos/backend/internal/pccare/ports"
 	"github.com/vgoats/goatos/backend/internal/platform/audit"
+	"github.com/vgoats/goatos/backend/internal/sop/authored"
 )
 
 const pcCareTaskProofAction = "pc_care.task.proof_recorded"
@@ -39,8 +40,13 @@ func (r *Repository) RegisterTaskProof(ctx context.Context, p ports.RegisterTask
 	if err != nil {
 		return err
 	}
-	if domain.CaptureModeForCategory(category) != domain.CaptureModeTaskProof ||
-		!domain.IsValidSlotForCategory(category, strings.TrimSpace(p.SlotKey)) {
+	// The slot key of a REMOVAL card was judged against the task's PINNED card by the service
+	// (PC CARE SOP, 2026-09-22). inventory_vaccine is NOT authored -- the fridge photo + video
+	// are the kernel's own stock check -- so it keeps the fixed pair, checked here.
+	if domain.CaptureModeForCategory(category) != domain.CaptureModeTaskProof {
+		return domain.ErrInvalidSlotForCategory
+	}
+	if category == domain.CategoryInventoryVaccine && !domain.IsValidSlotForCategory(category, strings.TrimSpace(p.SlotKey)) {
 		return domain.ErrInvalidSlotForCategory
 	}
 
@@ -155,8 +161,17 @@ ORDER BY p.slot_key`, tenantID, taskID)
 // taskProofMediaRefs composes the labeled media set for a task-proof capture-mode submit:
 // EVERY slot the category declares must carry a proof (a missing one is ErrProofIncomplete),
 // returned in the category's declared slot order.
-func (r *Repository) taskProofMediaRefs(ctx context.Context, tx pgx.Tx, tenantID, taskID, category string) ([]ports.LabeledRef, int, error) {
-	slots := domain.SlotsForCategory(category)
+func (r *Repository) taskProofMediaRefs(ctx context.Context, tx pgx.Tx, tenantID, taskID, category string, removalSlots []authored.ProofSlot) ([]ports.LabeledRef, int, error) {
+	// A single-task removal card runs the PINNED card's slots (PC CARE SOP, 2026-09-22);
+	// inventory_vaccine's fridge pair is the kernel's own and is not authored.
+	slots := make([]domain.Slot, 0, len(removalSlots))
+	if category == domain.CategoryInventoryVaccine {
+		slots = domain.SlotsForCategory(domain.CategoryInventoryVaccine)
+	} else {
+		for _, p := range removalSlots {
+			slots = append(slots, domain.Slot{FieldKey: p.Key, Label: p.Title, Description: p.Hint, Kind: p.Kind, Required: p.Required})
+		}
+	}
 	slotKeys := make([]string, 0, len(slots))
 	for _, slot := range slots {
 		slotKeys = append(slotKeys, slot.FieldKey)
@@ -185,9 +200,16 @@ WHERE tenant_id = $1::uuid AND task_id = $2::uuid AND slot_key = ANY($3)`,
 	for _, slot := range slots {
 		proofRef := strings.TrimSpace(bySlot[slot.FieldKey])
 		if proofRef == "" {
-			return nil, 0, domain.ErrProofIncomplete
+			if slot.Required {
+				return nil, 0, domain.ErrProofIncomplete
+			}
+			continue
 		}
-		out = append(out, ports.LabeledRef{ProofRef: proofRef, Label: slot.Label})
+		kind := slot.Kind
+		if kind == authored.KindEither {
+			kind = ""
+		}
+		out = append(out, ports.LabeledRef{ProofRef: proofRef, Label: slot.Label, Kind: kind})
 	}
 	return out, 0, nil
 }

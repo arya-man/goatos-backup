@@ -940,7 +940,7 @@ func compilePages(pages []domain.PageContract, families ReferenceFamilies, input
 			if out[i].RouteID == "feed-analytics" {
 				out[i].OptionGroups = compileFeedAnalyticsOptionGroups(out[i].OptionGroups, input)
 			}
-		case "counts-sops", "feed-sops", "milk-sops", "weighing-sops", "procurement-sops", "configuration-work-instructions", "sales-sops":
+		case "counts-sops", "feed-sops", "milk-sops", "weighing-sops", "procurement-sops", "configuration-work-instructions", "sales-sops", "pc-care-sops":
 			// SOP-DRIVEN HERD OPERATIONS (2026-09-13): the follow-up step editor's task types are
 			// tenant registry rows, never constants in contract code -- same injection path feed
 			// items use. sop_task_type_answer_kinds is the metadata twin keyed on the same keys.
@@ -2389,7 +2389,7 @@ func permissionsForNav(id string) []string {
 		// deliberately OFF feature held back by exactly counts.read, so this also stops the
 		// leaf advertising a module that is switched off.
 		return []string{permissions.CountsRead}
-	case "counts-sops", "milk-sops", "feed-sops", "weighing-sops", "procurement-sops", "configuration-work-instructions", "sales-sops":
+	case "counts-sops", "milk-sops", "feed-sops", "weighing-sops", "procurement-sops", "configuration-work-instructions", "sales-sops", "pc-care-sops":
 		return []string{permissions.SOPRead}
 	case "health-analytics":
 		// health.read, which is what this screen's own data route requires. It must

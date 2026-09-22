@@ -45,7 +45,7 @@ func TestCreateTaskCarriesFeedRemovalFieldsAndMapsPreconditionErrors(t *testing.
 	if rec.Code != http.StatusOK {
 		t.Fatalf("create status=%d body=%s, want 200", rec.Code, rec.Body.String())
 	}
-	if !service.lastCreate.FeedRemovalRequired {
+	if service.lastCreate.FeedRemovalRequested == nil || !*service.lastCreate.FeedRemovalRequested {
 		t.Fatal("feed_removal_required must reach the app input")
 	}
 	if len(service.lastCreate.RemovalOperatorUserIDs) != 1 ||

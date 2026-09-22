@@ -22,10 +22,11 @@ type createRoundRequest struct {
 	Pens                []createRoundPen `json:"pens"`
 	PlannedBusinessDate string           `json:"planned_business_date"`
 	AssigneeUserIDs     []string         `json:"assignee_user_ids"`
-	// FeedRemovalRequired (deworming only) also plans the evening-before feed & water
-	// removal: ONE card for the round, one feed video + one water video PER PEN. On any
-	// other category these fields are rejected, never dropped.
-	FeedRemovalRequired    bool     `json:"feed_removal_required"`
+	// FeedRemovalRequired is the planner's word on the evening-before feed & water removal
+	// (ABSENT = not said); the pinned SOP decides what it means. When it applies: ONE card for
+	// the round, the card's authored captures PER PEN. On a category the removal does not
+	// apply to the ask is rejected, never dropped.
+	FeedRemovalRequired    *bool    `json:"feed_removal_required"`
 	RemovalOperatorUserIDs []string `json:"removal_operator_user_ids"`
 }
 
@@ -182,7 +183,7 @@ func (h *Handler) PostCreateRound(w http.ResponseWriter, r *http.Request) {
 		Pens:                   pens,
 		PlannedBusinessDate:    body.PlannedBusinessDate,
 		AssigneeUserIDs:        body.AssigneeUserIDs,
-		FeedRemovalRequired:    body.FeedRemovalRequired,
+		FeedRemovalRequested:   body.FeedRemovalRequired,
 		RemovalOperatorUserIDs: body.RemovalOperatorUserIDs,
 		IdempotencyKey:         key,
 		ActorID:                a.UserID,

@@ -8,6 +8,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"io"
 	"log/slog"
 	"net/http"
 	"strconv"
@@ -21,6 +22,7 @@ import (
 	"github.com/vgoats/goatos/backend/internal/platform/httpmiddleware"
 	"github.com/vgoats/goatos/backend/internal/platform/httpresponse"
 	"github.com/vgoats/goatos/backend/internal/platform/oploc"
+	"github.com/vgoats/goatos/backend/internal/sop/authored"
 )
 
 // Service is the app boundary this handler renders.
@@ -112,10 +114,15 @@ func Register(mux *http.ServeMux, h *Handler) {
 type slotDTO struct {
 	FieldKey string `json:"field_key"`
 	Label    string `json:"label"`
-	// Description is backend-owned farm copy saying what this video must show.
+	// Description is backend-owned farm copy saying what this capture must show.
 	Description string `json:"description,omitempty"`
 	// MinDurationHintSeconds is recorder-chrome guidance, never a client-enforced cap.
 	MinDurationHintSeconds int `json:"min_duration_hint_seconds,omitempty"`
+	// Kind is the capture the slot takes -- video / photo / either -- and Required whether the
+	// task can be submitted without it (PC CARE SOP, 2026-09-22). Authored on /pc-care/sops;
+	// an older phone that reads neither field records a video, which every seeded slot takes.
+	Kind     string `json:"kind"`
+	Required bool   `json:"required"`
 }
 
 type taskDTO struct {
@@ -162,6 +169,13 @@ type taskDTO struct {
 	// TaskProofs is present for task-level proof categories such as inventory_vaccine so a
 	// second device can render already-captured fridge proof media.
 	TaskProofs []taskProofDTO `json:"task_proofs,omitempty"`
+	// SOPVersion is the pc_care.tasks SOP version this task was PLANNED on and runs under to
+	// the end (0 = the seeded rules); SOP is that PINNED rule set as clients read it, on the
+	// single-task read (absent on list rows). Questions answered at submit come from it.
+	SOPVersion int           `json:"sop_version"`
+	SOP        *domain.Rules `json:"sop,omitempty"`
+	// SOPAnswers are the answers given at submit, keyed by question id.
+	SOPAnswers authored.Answers `json:"sop_answers,omitempty"`
 	// The next-day pen visit is NOT carried here (maintainer decision 2026-09-14, retiring the
 	// 2026-09-12 step-on-the-card fold): it is a task of its own on the Tasks module's "For me"
 	// tab (/app/pen-visits). This card reads the task's OWN state; the kernel clock still closes
@@ -183,10 +197,23 @@ type taskProofDTO struct {
 }
 
 func taskDTOFrom(t ports.TaskRow) taskDTO {
-	slots := domain.SlotsForCategory(t.Category)
+	// The slot LIST is the task's PINNED card (PC CARE SOP, 2026-09-22): the service attaches
+	// the rules on the single-task read; a list row (no rules attached) renders the seeded
+	// card, which is what every task planned before the SOP existed runs.
+	rules := domain.SeededRules()
+	if t.SOP != nil {
+		rules = *t.SOP
+	}
+	slots := rules.CategorySlots(t.Category)
+	if t.Category == domain.CategoryFeedWaterRemoval {
+		slots = make([]domain.Slot, 0, len(rules.RemovalProofs()))
+		for _, p := range rules.RemovalProofs() {
+			slots = append(slots, domain.Slot{FieldKey: p.Key, Label: p.Title, Description: p.Hint, Kind: p.Kind, Required: p.Required})
+		}
+	}
 	slotDTOs := make([]slotDTO, 0, len(slots))
 	for _, s := range slots {
-		slotDTOs = append(slotDTOs, slotDTO{FieldKey: s.FieldKey, Label: s.Label, Description: s.Description, MinDurationHintSeconds: s.MinDurationHintSeconds})
+		slotDTOs = append(slotDTOs, slotDTO{FieldKey: s.FieldKey, Label: s.Label, Description: s.Description, MinDurationHintSeconds: s.MinDurationHintSeconds, Kind: s.Kind, Required: s.Required})
 	}
 	assigneeIDs := t.AssigneeUserIDs
 	if assigneeIDs == nil {
@@ -254,6 +281,9 @@ func taskDTOFrom(t ports.TaskRow) taskDTO {
 		ExpectedSlots:              slotDTOs,
 		InventoryRequirements:      requirements,
 		TaskProofs:                 taskProofs,
+		SOPVersion:                 t.SOPVersion,
+		SOP:                        t.SOP,
+		SOPAnswers:                 t.SOPAnswers,
 	}
 }
 
@@ -320,6 +350,10 @@ type plannerCatalogResponse struct {
 	Operators []plannerOperatorDTO `json:"operators"`
 	// Categories is the module's backend-owned category vocabulary for the wizard.
 	Categories []categoryDTO `json:"categories"`
+	// SOP is the PUBLISHED rule set a task planned now is stamped with (PC CARE SOP,
+	// 2026-09-22): the wizard renders the removal mode, the categories it applies to and the
+	// effective evening from it, never from a client constant.
+	SOP domain.Rules `json:"sop"`
 }
 
 type categoryDTO struct {
@@ -359,10 +393,12 @@ type createTaskRequest struct {
 	PartitionLabel      string   `json:"partition_label"`
 	PlannedBusinessDate string   `json:"planned_business_date"`
 	AssigneeUserIDs     []string `json:"assignee_user_ids"`
-	// FeedRemovalRequired (deworming only) also plans the evening-before feed & water removal
-	// task in the same write; RemovalOperatorUserIDs (>=1 when the toggle is on) are its
-	// operators. On any other category these fields are rejected, never dropped.
-	FeedRemovalRequired    bool     `json:"feed_removal_required"`
+	// FeedRemovalRequired is the planner's word on the evening-before feed & water removal;
+	// ABSENT means "not said". The pinned SOP decides what it means (required / optional /
+	// off, and on which categories); a request on a category the removal does not apply to
+	// is rejected, never dropped. RemovalOperatorUserIDs (>=1 when the removal applies) are
+	// its operators.
+	FeedRemovalRequired    *bool    `json:"feed_removal_required"`
 	RemovalOperatorUserIDs []string `json:"removal_operator_user_ids"`
 }
 
@@ -383,6 +419,12 @@ type stockVerdictRequest struct {
 	Verdict string `json:"verdict"`
 	// Reason is mandatory on a reject; it becomes the operators' rework banner, verbatim.
 	Reason string `json:"reason"`
+}
+
+// submitTaskRequest carries the answers to the pinned SOP's questions (a task-level card,
+// answered once at submit). An older phone sends no body at all.
+type submitTaskRequest struct {
+	Answers authored.Answers `json:"answers"`
 }
 
 type submitTaskResponse struct {
@@ -467,6 +509,7 @@ func (h *Handler) GetPlannerCatalog(w http.ResponseWriter, r *http.Request) {
 		Parks:      make([]plannerParkDTO, 0, len(catalog.Parks)),
 		Operators:  make([]plannerOperatorDTO, 0, len(catalog.Operators)),
 		Categories: make([]categoryDTO, 0, len(catalog.Categories)),
+		SOP:        catalog.SOP,
 	}
 	for _, park := range catalog.Parks {
 		resp.Parks = append(resp.Parks, plannerParkDTO{ParkID: park.ParkID, ParkLabel: park.ParkName})
@@ -538,7 +581,7 @@ func (h *Handler) PostCreateTask(w http.ResponseWriter, r *http.Request) {
 		PartitionLabel:         body.PartitionLabel,
 		PlannedBusinessDate:    body.PlannedBusinessDate,
 		AssigneeUserIDs:        body.AssigneeUserIDs,
-		FeedRemovalRequired:    body.FeedRemovalRequired,
+		FeedRemovalRequested:   body.FeedRemovalRequired,
 		RemovalOperatorUserIDs: body.RemovalOperatorUserIDs,
 		IdempotencyKey:         key,
 		ActorID:                a.UserID,
@@ -831,9 +874,17 @@ func (h *Handler) PostSubmitTask(w http.ResponseWriter, r *http.Request) {
 	if !ok {
 		return
 	}
+	var body submitTaskRequest
+	if r.Body != nil && r.ContentLength != 0 {
+		if err := json.NewDecoder(http.MaxBytesReader(w, r.Body, 1<<20)).Decode(&body); err != nil && !errors.Is(err, io.EOF) {
+			httpresponse.WriteError(w, r, h.log, http.StatusBadRequest, "request body must be valid JSON", nil)
+			return
+		}
+	}
 	result, err := h.service.SubmitTask(r.Context(), a, app.SubmitTaskInput{
 		TaskID:         r.PathValue("task_id"),
 		IdempotencyKey: key,
+		Answers:        body.Answers,
 		ActorID:        a.UserID,
 		ActorType:      "operator",
 		TraceID:        httpmiddleware.TraceIDFromContext(r.Context()),
@@ -941,6 +992,17 @@ func (h *Handler) writeServiceError(w http.ResponseWriter, r *http.Request, op s
 		httpresponse.WriteError(w, r, h.log, http.StatusUnprocessableEntity, codedError{Code: "feed_water_removal_cutoff_missing", Message: "the feed & water removal cutoff time is not set up for this farm yet — ask an admin to set it, then try again"}, nil)
 	case errors.Is(err, domain.ErrRemovalOperatorsRequired):
 		httpresponse.WriteError(w, r, h.log, http.StatusUnprocessableEntity, codedError{Code: "removal_operators_required", Message: "name at least one operator for the feed & water removal"}, nil)
+	case errors.Is(err, domain.ErrRemovalNotOffered):
+		httpresponse.WriteError(w, r, h.log, http.StatusUnprocessableEntity, codedError{Code: "feed_water_removal_not_offered", Message: "feed & water removal is switched off by the PC Care SOP"}, nil)
+	case errors.Is(err, ports.ErrSOPVersionUnknown):
+		httpresponse.WriteError(w, r, h.log, http.StatusConflict, codedError{Code: "pc_care_sop_version_unknown", Message: "this task was planned on a PC Care SOP version that is no longer available"}, nil)
+	case errors.Is(err, authored.ErrAnswerInvalid):
+		var answerErr *authored.AnswerError
+		message := "an answer is missing or not allowed"
+		if errors.As(err, &answerErr) {
+			message = answerErr.Message
+		}
+		httpresponse.WriteError(w, r, h.log, http.StatusUnprocessableEntity, codedError{Code: "pc_care_answer_invalid", Message: message}, nil)
 	case errors.Is(err, domain.ErrFeedRemovalNotApplicable):
 		httpresponse.WriteError(w, r, h.log, http.StatusUnprocessableEntity, codedError{Code: "feed_removal_not_applicable", Message: "feed & water removal applies to deworming only"}, nil)
 	case errors.Is(err, ports.ErrOperatorOutsidePark):
