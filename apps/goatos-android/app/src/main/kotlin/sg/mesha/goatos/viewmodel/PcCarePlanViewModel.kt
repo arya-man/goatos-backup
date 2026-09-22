@@ -25,6 +25,8 @@ import sg.mesha.goatos.core.analytics.CrashReporter
 import sg.mesha.goatos.core.common.datetime.GoatOsDates
 import sg.mesha.goatos.core.data.BootstrapRepository
 import sg.mesha.goatos.core.data.PcCareRepository
+import sg.mesha.goatos.core.data.pccare.PcCareSopRules
+import sg.mesha.goatos.core.data.pccare.toRules
 import sg.mesha.goatos.core.data.PcCareRoundsWindow
 import sg.mesha.goatos.core.ui.filters.WorklistDateWindow
 import sg.mesha.goatos.core.ui.filters.WorklistPenOption
@@ -112,6 +114,12 @@ class PcCarePlanViewModel @Inject constructor(
      * backend remains the source of truth for accepting or rejecting the save.
      */
     private var removalCutoff: java.time.LocalTime? = null
+
+    // PC CARE SOP (maintainer decision 2026-09-22): the PUBLISHED rules a task planned now is
+    // stamped with. The wizard reads the removal mode, the work it applies to and the effective
+    // evening from here, never from a constant of its own. Unserved (an older server, a failed
+    // load) leaves the SEEDED rules, which are what the module always did.
+    private var sopRules: PcCareSopRules = PcCareSopRules.Seeded
     private var pensCursor: String? = null
     private var pensLoadInFlight = false
     private var pendingPensReload = false
@@ -294,11 +302,13 @@ class PcCarePlanViewModel @Inject constructor(
                 selectedPenLabel = "",
                 selectedPenKeys = emptySet(),
                 selectedOperatorIds = emptySet(),
-                // Feed & water removal is a DEWORMING question only (maintainer decision
-                // 2026-09-03): tablets given in feed need feed & water removed the evening
-                // before; injection deworming and every other category never see the toggle.
-                feedRemovalOffered = categoryKey == CATEGORY_DEWORMING,
-                feedRemovalRequired = false,
+                // Feed & water removal is the PUBLISHED SOP's call (PC CARE SOP, 2026-09-22):
+                // which work it applies to, and whether the planner is asked at all. Under
+                // `required` it applies and the toggle is not a choice; under `optional` the
+                // planner decides; under `off` the step is not shown.
+                feedRemovalOffered = sopRules.removalAppliesToCategory(categoryKey),
+                feedRemovalIsAChoice = sopRules.removalOptional,
+                feedRemovalRequired = sopRules.removalRequired && sopRules.removalAppliesToCategory(categoryKey),
                 selectedRemovalOperatorIds = emptySet(),
                 minSelectableDateIso = "",
                 creating = false,
@@ -479,11 +489,30 @@ class PcCarePlanViewModel @Inject constructor(
                 val loaded = repository.plannerCatalog()
                 catalog = loaded
                 val categories = loaded.categories.map { PcCarePlanOption(it.key, it.label) }
+                sopRules = loaded.sop?.toRules() ?: PcCareSopRules.Seeded
+                // The SOP may author its OWN removal evening; blank means the farm's, which the
+                // bootstrap carries. Either way the server has already resolved the effective one.
+                sopRules.removalCutoffTime.takeIf { it.isNotBlank() }?.let { own ->
+                    applyRemovalCutoff(parseFeedWaterRemovalCutoff(own))
+                }
                 _state.update { current ->
                     current.copy(
                         categories = categories,
                         parks = loaded.parks.map { PcCarePlanOption(it.parkId, it.parkLabel) },
                         operators = loaded.operators.map { PcCarePlanOption(it.userId, it.displayName, it.parkIds) },
+                        // A wizard already open on a category re-reads the rules it was offered.
+                        feedRemovalOffered = current.selectedCategoryKey.isNotBlank() &&
+                            sopRules.removalAppliesToCategory(current.selectedCategoryKey),
+                        feedRemovalIsAChoice = sopRules.removalOptional,
+                        feedRemovalRequired = if (
+                            current.selectedCategoryKey.isNotBlank() &&
+                            sopRules.removalRequired &&
+                            sopRules.removalAppliesToCategory(current.selectedCategoryKey)
+                        ) {
+                            true
+                        } else {
+                            current.feedRemovalRequired
+                        },
                     )
                 }
             } catch (cancelled: CancellationException) {
@@ -584,7 +613,9 @@ class PcCarePlanViewModel @Inject constructor(
      */
     private fun toggleFeedRemoval() {
         val current = _state.value
-        if (!current.feedRemovalOffered) return
+        // Under `required` the removal is the farm's rule, not the planner's choice: the switch
+        // is shown on but does nothing. Under `off` there is no switch at all.
+        if (!current.feedRemovalOffered || !current.feedRemovalIsAChoice) return
         val next = !current.feedRemovalRequired
         if (!next) {
             trackWizardInteraction("feed_removal_off")

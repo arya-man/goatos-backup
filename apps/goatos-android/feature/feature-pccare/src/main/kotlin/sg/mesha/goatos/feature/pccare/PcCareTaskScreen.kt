@@ -250,6 +250,9 @@ fun PcCareTaskScreen(
                         animal = state.animals[index],
                         locked = state.isLocked,
                         onOpen = { onEvent(PcCareTaskEvent.RosterTapped(state.animals[index].key)) },
+                        onRecordSlotPhoto = { fieldKey ->
+                            onEvent(PcCareTaskEvent.RecordSlot(state.animals[index].key, fieldKey, photo = true))
+                        },
                         onRecordSlot = { fieldKey ->
                             onEvent(PcCareTaskEvent.RecordSlot(state.animals[index].key, fieldKey))
                         },
@@ -473,6 +476,7 @@ private fun PcCareAnimalRow(
     locked: Boolean,
     onOpen: () -> Unit,
     onRecordSlot: (String) -> Unit,
+    onRecordSlotPhoto: (String) -> Unit,
     onPreviewAction: (String, String, String, String) -> Unit = { _, _, _, _ -> },
 ) {
     Column(
@@ -497,6 +501,7 @@ private fun PcCareAnimalRow(
                 slot = slot,
                 locked = locked,
                 onRecord = { onRecordSlot(slot.fieldKey) },
+                onRecordPhoto = { onRecordSlotPhoto(slot.fieldKey) },
                 onPreviewAction = { action ->
                     onPreviewAction(
                         slot.fieldKey,
@@ -563,17 +568,26 @@ private fun PcCareSlotChipRow(
             }
         }
         if (!locked && slot.canRecord) {
-            if (onRecordPhoto == null) {
-                if (slot.state == PcCareSlotState.EMPTY) {
-                    PcCarePrimaryButton(label = "Record", enabled = true, onClick = onRecord)
-                } else {
-                    PcCareProofRetryButton(label = "Retry video", onClick = onRecord)
-                }
-            } else {
-                FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                    PcCarePrimaryButton(label = "Photo", enabled = true, onClick = onRecordPhoto)
+            // The verbs are the SLOT's (PC CARE SOP, 2026-09-22): a video slot offers Record, a
+            // photo slot Take photo, an `either` slot both and the operator picks. A row with no
+            // photo handler at all (the task-proof face passes none) keeps the video verb.
+            val takesPhoto = onRecordPhoto != null && (slot.kind == "photo" || slot.kind == "either")
+            val takesVideo = slot.kind != "photo"
+            when {
+                takesPhoto && takesVideo -> FlowRow(
+                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                    verticalArrangement = Arrangement.spacedBy(8.dp),
+                ) {
+                    PcCarePrimaryButton(label = "Photo", enabled = true, onClick = onRecordPhoto!!)
                     PcCarePrimaryButton(label = "Video", enabled = true, onClick = onRecord)
                 }
+                takesPhoto -> if (slot.state == PcCareSlotState.EMPTY) {
+                    PcCarePrimaryButton(label = "Take photo", enabled = true, onClick = onRecordPhoto!!)
+                } else {
+                    PcCareProofRetryButton(label = "Retry photo", onClick = onRecordPhoto!!)
+                }
+                slot.state == PcCareSlotState.EMPTY -> PcCarePrimaryButton(label = "Record", enabled = true, onClick = onRecord)
+                else -> PcCareProofRetryButton(label = "Retry video", onClick = onRecord)
             }
         }
     }

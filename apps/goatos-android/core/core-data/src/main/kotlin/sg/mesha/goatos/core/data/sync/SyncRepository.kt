@@ -619,6 +619,7 @@ interface SyncRepository {
     suspend fun enqueuePcCareTaskSubmit(
         taskId: String,
         rowVersion: Int,
+        answers: JsonObject = JsonObject(emptyMap()),
     ): AppResult<String> = AppResult.Err("pc care submit sync is not configured")
 
     /**
@@ -1819,12 +1820,13 @@ class DefaultSyncRepository(
     override suspend fun enqueuePcCareTaskSubmit(
         taskId: String,
         rowVersion: Int,
+        answers: JsonObject,
     ): AppResult<String> = enqueue(
         opType = OutboxOpType.PC_CARE_TASK_SUBMIT,
         groupKey = pcCareTaskGroupKey(taskId.trim()),
-        idempotencyKey = pcCareSubmitIdempotencyKey(taskId.trim(), rowVersion),
+        idempotencyKey = pcCareSubmitIdempotencyKey(taskId.trim(), rowVersion, answers),
         payloadJson = syncJson.encodeToString(
-            PcCareTaskSubmitPayload(taskId = taskId.trim(), rowVersion = rowVersion),
+            PcCareTaskSubmitPayload(taskId = taskId.trim(), rowVersion = rowVersion, answers = answers),
         ),
     )
 

@@ -4784,6 +4784,11 @@ fun AppNavHost(
             val content: @Composable () -> Unit = {
                 if (!monitor) {
                     BindVideoCaptureSource(rememberDelegatingProofCaptureSource())
+                    // The per-animal slots are AUTHORED (PC CARE SOP, 2026-09-22) and may take a
+                    // PHOTO. Without this delegate every "Take photo" tap would return null and
+                    // read as a cancelled capture with no error at all -- the exact defect
+                    // WeighingRouteIdentityTest exists for, one route over.
+                    BindPhotoCaptureSource(rememberDelegatingPhotoCaptureSource())
                 }
                 sg.mesha.goatos.feature.pccare.PcCareAnimalScreen(
                     state = state,

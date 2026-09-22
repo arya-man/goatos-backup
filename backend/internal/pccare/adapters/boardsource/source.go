@@ -97,7 +97,10 @@ END`
 const animalsLateral = `
 LEFT JOIN LATERAL (
   SELECT count(*)::int AS scanned,
-         count(*) FILTER (WHERE an.sop_proofs ?& t.required_slot_keys)::int AS slots_done
+         -- FAIL CLOSED on a row that states no requirement: the has-all-keys test is vacuously
+         -- TRUE against an EMPTY key list, so an unfilmed animal would read as done. Every row
+         -- the module writes carries its pinned card's keys (000385 backfilled the rest).
+         count(*) FILTER (WHERE cardinality(t.required_slot_keys) > 0 AND an.sop_proofs ?& t.required_slot_keys)::int AS slots_done
   FROM pc_care_task_animals an
   WHERE an.tenant_id = t.tenant_id AND an.task_id = t.task_id
 ) animals ON true`
@@ -134,7 +137,7 @@ const listSQL = `
 WITH tasks AS (
   SELECT t.task_id, t.category, t.park_id, t.shed_id, COALESCE(t.partition_label, '') AS partition_label,
          t.planned_business_date, t.due_business_date, t.work_state, t.status,
-         animals.scanned, animals.video_done, animals.triple_done,
+         animals.scanned, animals.slots_done,
          ` + workStateSQL + ` AS board_state
   FROM pc_care_tasks t
   ` + animalsLateral + `
@@ -145,7 +148,7 @@ SELECT i.task_id::text, i.category, i.park_id::text, COALESCE(park.name, ''),
        COALESCE(i.shed_id::text, ''), COALESCE(shed.name, ''), i.partition_label,
        i.planned_business_date::text, i.due_business_date::text,
        i.work_state, i.status, i.board_state,
-       i.scanned, i.video_done, i.triple_done,
+       i.scanned, i.slots_done,
        COALESCE(owner.user_id, ''), COALESCE(owner.member_id, ''), COALESCE(owner.display_name, ''),
        COALESCE(owner.assignee_count, 0)
 FROM tasks i
