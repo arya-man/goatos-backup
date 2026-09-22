@@ -459,6 +459,19 @@ try {
       if (route.viewports && !route.viewports.includes(viewport.label)) continue;
       console.log(`visual_route_start=${viewport.label}:${route.name}`);
       const page = await context.newPage();
+      // Time every request so a slow page can name what was slow instead of just "slow".
+      const requestTimes = new Map();
+      const slowest = [];
+      page.on("request", (request) => requestTimes.set(request, performance.now()));
+      page.on("requestfinished", (request) => {
+        const started = requestTimes.get(request);
+        if (started === undefined) return;
+        requestTimes.delete(request);
+        const ms = Math.round(performance.now() - started);
+        if (ms < 400) return;
+        const target = new URL(request.url());
+        slowest.push({ ms, label: `${request.method()} ${target.pathname}${target.search.slice(0, 60)}` });
+      });
       try {
         const url = `${appBaseUrl}${appPath(route.path)}`;
         const loadStartedAt = performance.now();
@@ -466,7 +479,8 @@ try {
         await page.waitForLoadState("networkidle", { timeout: 5_000 }).catch(() => {});
         const pageLoadMs = Math.round(performance.now() - loadStartedAt);
         if (Number.isFinite(pageLoadBudgetMs) && pageLoadBudgetMs > 0 && pageLoadMs > pageLoadBudgetMs) {
-          throw new Error(`${route.name} ${viewport.label} page load ${pageLoadMs}ms exceeded budget ${pageLoadBudgetMs}ms`);
+          const worst = slowest.sort((a, b) => b.ms - a.ms).slice(0, 2).map((item) => `${item.label} ${(item.ms / 1000).toFixed(1)}s`).join(", ");
+          throw new Error(`${route.name} ${viewport.label} page load ${pageLoadMs}ms exceeded budget ${pageLoadBudgetMs}ms${worst ? ` — slowest requests: ${worst}` : ""}`);
         }
         if (!response) {
           await page.waitForURL(url, { timeout: 5_000 }).catch(() => undefined);
