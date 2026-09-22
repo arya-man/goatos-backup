@@ -60,14 +60,28 @@ for (const mod of modules) {
   if (result.status !== 0) {
     // Keep going so one broken module never hides failures in the others.
     const stdoutLines = redactText(result.stdout ?? "").split("\n");
-    const route = stdoutLines.filter((line) => line.startsWith("visual_route_start=")).pop()?.slice("visual_route_start=".length) ?? null;
-    const screenshots = stdoutLines.filter((line) => line.startsWith("screenshot_path=")).slice(-2)
-      .map((line) => path.resolve(repo, line.slice("screenshot_path=".length).trim()));
-    const errorLine = redactText(result.stderr ?? "").split("\n").filter((line) => /Error:/.test(line)).pop() ?? `Error: module ${mod.id} exited ${result.status}`;
-    const error = errorLine.replace(/^.*?Error:\s*/, "").slice(0, 600);
-    receipt.modules[receipt.modules.length - 1].failure = { route, error, screenshots };
+    // Group screenshot paths by route so each failure carries its own evidence.
+    const shotsByRoute = new Map();
+    let current = null;
+    for (const line of stdoutLines) {
+      if (line.startsWith("visual_route_start=")) { current = line.slice("visual_route_start=".length); shotsByRoute.set(current, []); }
+      else if (line.startsWith("screenshot_path=") && current) shotsByRoute.get(current).push(path.resolve(repo, line.slice("screenshot_path=".length).trim()));
+    }
+    const failures = stdoutLines.filter((line) => line.startsWith("route_failed=")).map((line) => {
+      const [route, ...rest] = line.slice("route_failed=".length).split("|");
+      const shots = shotsByRoute.get(route) ?? [];
+      const issues = shots.filter((file) => /-issues\.png$/.test(file));
+      return { route, error: rest.join("|").slice(0, 600), screenshots: (issues.length ? issues : shots).slice(-2) };
+    });
+    if (!failures.length) {
+      const errorLine = redactText(result.stderr ?? "").split("\n").filter((line) => /Error:/.test(line)).pop() ?? `Error: module ${mod.id} exited ${result.status}`;
+      const route = stdoutLines.filter((line) => line.startsWith("visual_route_start=")).pop()?.slice("visual_route_start=".length) ?? null;
+      failures.push({ route, error: errorLine.replace(/^.*?Error:\s*/, "").slice(0, 600), screenshots: (shotsByRoute.get(route) ?? []).slice(-2) });
+    }
+    receipt.modules[receipt.modules.length - 1].failures = failures;
+    receipt.modules[receipt.modules.length - 1].failure = failures[0];
     writeFileSync(path.join(outDir, "module-journeys-receipt.json"), `${JSON.stringify(receipt, null, 2)}\n`);
-    console.error(`FAILED ${mod.id} ${route ?? ""}: ${error.slice(0, 200)}`);
+    for (const f of failures) console.error(`FAILED ${mod.id} ${f.route ?? ""}: ${f.error.slice(0, 200)}`);
     failedModules.push(mod.id);
   }
 }

@@ -291,7 +291,7 @@ function moduleFailures(receiptFile) {
   const file = path.join(path.dirname(receiptFile), "module-journeys", "module-journeys-receipt.json");
   if (!existsSync(file)) return [];
   try {
-    return (JSON.parse(readFileSync(file, "utf8")).modules ?? []).filter((mod) => mod.failure).map((mod) => ({ module: mod.id, ...mod.failure }));
+    return (JSON.parse(readFileSync(file, "utf8")).modules ?? []).flatMap((mod) => (mod.failures ?? (mod.failure ? [mod.failure] : [])).map((failure) => ({ module: mod.id, ...failure })));
   } catch {
     return [];
   }
@@ -299,7 +299,7 @@ function moduleFailures(receiptFile) {
 
 function screenshotPaths(value, receiptFile) {
   const structured = moduleFailures(receiptFile).flatMap((failure) => (failure.screenshots ?? []).slice(-1)).filter((file) => existsSync(file));
-  if (structured.length) return structured.slice(0, 10);
+  if (structured.length) return structured.slice(0, 20);
   const root = path.dirname(receiptFile);
   const text = [
     ...(value.layers ?? []).map((layer) => layer.message ?? ""),
