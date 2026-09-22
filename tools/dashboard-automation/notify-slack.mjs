@@ -51,7 +51,7 @@ function notificationDecision(value) {
     return { shouldPost: false, reason: "pass without prior failure" };
   }
   if (status === "degraded") return { shouldPost: true, kind: "degraded" };
-  if (blockers.some((item) => /auth_blocked|missing .*env|token|credential/i.test(JSON.stringify(item)))) {
+  if (blockers.some((item) => /auth_blocked|missing [A-Z_]*\s*env|\b(bearer|id|firebase|refresh|access) token\b|token (expired|invalid|missing)|credentials? (missing|expired|invalid)|\b401\b|\b403\b/i.test(JSON.stringify(item)))) {
     return { shouldPost: true, kind: "auth_blocked" };
   }
   if (isParityOnlyNoBrowserFailure(value)) {
@@ -484,6 +484,8 @@ function selfTest() {
     throw new Error("self-test: Slack message must use block layout");
   }
   if (notificationDecision(sample).kind !== "failure") throw new Error("self-test: failure decision did not post");
+  const uiFailure = notificationDecision({ ...sample, blockers: [{ layer: "production-module-journeys", message: "calendar laptop C-cell-mid-token-wrap: Warmup split over 2 lines" }] });
+  if (uiFailure.kind !== "failure") throw new Error("self-test: UI text containing 'token' must not be classed as auth_blocked");
   if (notificationDecision({ ...sample, status: "degraded" }).kind !== "degraded") throw new Error("self-test: degraded decision did not post");
   const parityOnlyNoBrowser = notificationDecision({
     ...sample,

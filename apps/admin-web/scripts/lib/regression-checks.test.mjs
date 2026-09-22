@@ -13,7 +13,7 @@ test("exports the smoke entry point and the in-page collector", () => {
 test("every regression pattern family is declared and emitted by the collector", () => {
   for (const name of ["text-overlap", "text-cut-off", "A-chart-label-collapsed", "A-chart-label-clipped", "A-chart-label-overlap",
     "A-chart-label-column-narrow", "A-chart-labels-truncated", "A-chart-value-missing", "A-chart-empty-frame", "A-svg-text-clipped",
-    "A-svg-text-overlap", "A-svg-text-tiny", "B-container-overflow", "C-cell-mid-token-wrap", "C-cell-overpaint", "chip-crushed",
+    "A-svg-text-overlap", "A-svg-text-tiny", "B-container-overflow", "C-cell-mid-word-wrap", "C-cell-overpaint", "chip-crushed",
     "J-raw-text", "D-page-overflow"]) {
     assert.ok(REGRESSION_PATTERNS[name], `declared: ${name}`);
     assert.ok(source.includes(`add("${name}"`), `emitted: ${name}`);

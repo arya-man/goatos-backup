@@ -18,7 +18,7 @@ export const REGRESSION_PATTERNS = Object.freeze({
   "A-svg-text-overlap": "SVG chart texts collide",
   "A-svg-text-tiny": "SVG chart text scaled below the readable minimum",
   "B-container-overflow": "content wider than its card/KPI/dialog/drawer/modal",
-  "C-cell-mid-token-wrap": "table cell text broken mid-token across lines",
+  "C-cell-mid-word-wrap": "table cell text broken mid-word across lines",
   "C-cell-overpaint": "table cell text painting over the next column",
   "chip-crushed": "chip/badge text wrapped mid-word or clipped",
   "J-raw-text": "raw value/code/copy key/ISO date/doubled label leaked into the UI",
@@ -224,7 +224,7 @@ export function collectRegressionFindings({ mobile = false, limit = 40 } = {}) {
       const t = txt(el);
       if (!t || el.querySelector("td, table")) continue;
       const broken = brokenToken(el);
-      if (broken) { add("C-cell-mid-token-wrap", el, `"${broken.token.slice(0, 24)}" split over ${broken.lines} lines`); break; }
+      if (broken) { add("C-cell-mid-word-wrap", el, `"${broken.token.slice(0, 24)}" split over ${broken.lines} lines`); break; }
     }
     const s = getComputedStyle(td);
     if (s.overflowX === "visible" && td.scrollWidth > td.clientWidth + 1 && !td.querySelector("[style*=absolute], .dot")) add("C-cell-overpaint", td, `text ${td.scrollWidth - td.clientWidth}px wider than the cell`);
