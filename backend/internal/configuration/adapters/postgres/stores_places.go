@@ -98,8 +98,11 @@ func (parkStore) update(ctx context.Context, tx pgx.Tx, t, id string, f map[stri
 	if _, err := tx.Exec(ctx, `INSERT INTO park_profiles (location_id, tenant_id) VALUES ($1::uuid, $2) ON CONFLICT (location_id) DO NOTHING`, id, t); err != nil {
 		return "", err
 	}
-	bound := sqlbind.MustBind(fmt.Sprintf(`UPDATE park_profiles SET %s, updated_at = now(), row_version = row_version + 1 WHERE location_id = $1::uuid AND tenant_id = $2`, set), append([]any{id, t}, args...)...)
-	_, err := tx.Exec(ctx, bound.SQL(), bound.Args()...)
+	q, err := sqlbind.Bind(fmt.Sprintf(`UPDATE park_profiles SET %s, updated_at = now(), row_version = row_version + 1 WHERE location_id = $1::uuid AND tenant_id = $2`, set), append([]any{id, t}, args...)...)
+	if err != nil {
+		return "", err
+	}
+	_, err = tx.Exec(ctx, q.SQL(), q.Args()...)
 	return "", err
 }
 
@@ -123,9 +126,8 @@ SELECT l.location_id::text AS id,
        l.row_version,
        false AS is_builtin,
        jsonb_build_object('park_id', l.parent_location_id::text, 'name', l.name, 'capacity', sp.capacity,
-                          'stage_id', sp.animal_stage_id::text, 'sex', sp.sex, 'shed_type', sp.shed_type,
-                          'has_icu', COALESCE(sp.has_icu, false), 'notes', NULLIF(sp.notes, '')) AS fields,
-       jsonb_strip_nulls(jsonb_build_object('park_id', p.name, 'stage_id', st.name)) AS labels,
+                          'notes', NULLIF(sp.notes, '')) AS fields,
+       jsonb_strip_nulls(jsonb_build_object('park_id', p.name)) AS labels,
        jsonb_build_object(
          'partitions', (SELECT count(*) FROM shed_partitions x WHERE x.tenant_id = l.tenant_id AND x.shed_id = l.location_id AND x.status = 'active'),
          'animals', (SELECT count(*) FROM goats g WHERE g.tenant_id = l.tenant_id AND g.shed_id = l.location_id AND g.lifecycle_status = 'alive')
@@ -134,7 +136,6 @@ SELECT l.location_id::text AS id,
 FROM locations l
 JOIN locations p ON p.tenant_id = l.tenant_id AND p.location_id = l.parent_location_id AND p.location_type = 'park'
 LEFT JOIN shed_profiles sp ON sp.tenant_id = l.tenant_id AND sp.location_id = l.location_id
-LEFT JOIN animal_stage_lookup st ON st.tenant_id = l.tenant_id AND st.animal_stage_id = sp.animal_stage_id
 WHERE l.tenant_id = $1 AND l.location_type = 'shed'
   AND ` + oploc.PartitionAliasExclusionSQL("l")}
 
@@ -171,30 +172,18 @@ func (penStore) insert(ctx context.Context, tx pgx.Tx, t string, f map[string]an
 	if err != nil {
 		return "", err
 	}
-	if stageID := nullText(f, "stage_id"); stageID != nil {
-		if err := requireStage(ctx, tx, t, *stageID); err != nil {
-			return "", err
-		}
-	}
 	name := domain.FieldString(f, "name")
 	var id string
 	if err := tx.QueryRow(ctx, sqlPlaces6, t, penCode(parkCode, name), name, parkID).Scan(&id); err != nil {
 		return "", locationWriteError(err, "pen")
 	}
-	if _, err := tx.Exec(ctx, sqlPlaces7,
-		id, t, nullText(f, "stage_id"), nullText(f, "sex"), nullInt(f, "capacity"), domain.FieldBool(f, "has_icu"), nullText(f, "notes"),
-		nullText(f, "shed_type")); err != nil {
+	if _, err := tx.Exec(ctx, sqlPlaces7, id, t, nullInt(f, "capacity"), nullText(f, "notes")); err != nil {
 		return "", err
 	}
 	return id, nil
 }
 
 func (penStore) update(ctx context.Context, tx pgx.Tx, t, id string, f map[string]any, rv int) (string, error) {
-	if stageID := nullText(f, "stage_id"); stageID != nil {
-		if err := requireStage(ctx, tx, t, *stageID); err != nil {
-			return "", err
-		}
-	}
 	if sent(f, "park_id") {
 		// A pen may be re-parented only while it holds no animals: the herd never moves parks.
 		var animals int
@@ -241,13 +230,7 @@ func (penStore) update(ctx context.Context, tx pgx.Tx, t, id string, f map[strin
 		return "", err
 	}
 	set, args := setClause(f, []colBind{
-		{"stage_id", "animal_stage_id", func(m map[string]any) any { return nullText(m, "stage_id") }},
-		{"sex", "sex", textArg("sex")},
-		// A cleared Pen type writes NULL, which is "nobody has said": the reports drop the pen
-		// from both sides rather than keeping the answer it used to give.
-		{"shed_type", "shed_type", func(m map[string]any) any { return nullText(m, "shed_type") }},
 		{"capacity", "capacity", intArg("capacity")},
-		{"has_icu", "has_icu", boolArg("has_icu")},
 		{"notes", "notes", textOrEmpty("notes")},
 	}, 3)
 	if set == "" {
@@ -256,8 +239,11 @@ func (penStore) update(ctx context.Context, tx pgx.Tx, t, id string, f map[strin
 	if _, err := tx.Exec(ctx, `INSERT INTO shed_profiles (location_id, tenant_id) VALUES ($1::uuid, $2) ON CONFLICT (location_id) DO NOTHING`, id, t); err != nil {
 		return "", err
 	}
-	bound := sqlbind.MustBind(fmt.Sprintf(`UPDATE shed_profiles SET %s, updated_at = now(), row_version = row_version + 1 WHERE location_id = $1::uuid AND tenant_id = $2`, set), append([]any{id, t}, args...)...)
-	_, err := tx.Exec(ctx, bound.SQL(), bound.Args()...)
+	q, err := sqlbind.Bind(fmt.Sprintf(`UPDATE shed_profiles SET %s, updated_at = now(), row_version = row_version + 1 WHERE location_id = $1::uuid AND tenant_id = $2`, set), append([]any{id, t}, args...)...)
+	if err != nil {
+		return "", err
+	}
+	_, err = tx.Exec(ctx, q.SQL(), q.Args()...)
 	return "", err
 }
 
@@ -282,7 +268,7 @@ SELECT concat_ws(':', x.shed_id::text, x.normalized_label) AS id,
        replace(x.status, 'retired', 'archived') AS status,
        0 AS row_version,
        false AS is_builtin,
-       jsonb_build_object('park_id', s.parent_location_id::text, 'pen_id', x.shed_id::text, 'label', x.partition_label, 'sort_order', x.display_order, 'shed_name', s.name) AS fields,
+       jsonb_build_object('park_id', s.parent_location_id::text, 'pen_id', x.shed_id::text, 'label', x.partition_label, 'sort_order', x.display_order, 'shed_name', s.name, 'shed_type', x.shed_type) AS fields,
        jsonb_strip_nulls(jsonb_build_object('park_id', p.name, 'pen_id', s.name)) AS labels,
        jsonb_build_object(
          'animals', (SELECT count(*) FROM goat_shed_partitions gp JOIN goats g ON g.tenant_id = gp.tenant_id AND g.goat_id = gp.goat_id
@@ -349,7 +335,7 @@ func (partitionStore) insert(ctx context.Context, tx pgx.Tx, t string, f map[str
 	if normalized == oploc.WholeSentinel {
 		return "", &ports.DuplicateError{Field: "label", Message: "Give the partition a label such as Part 3 or 2."}
 	}
-	if _, err := tx.Exec(ctx, sqlPlaces9, t, penID, label, normalized, nullInt(f, "sort_order")); err != nil {
+	if _, err := tx.Exec(ctx, sqlPlaces9, t, penID, label, normalized, nullInt(f, "sort_order"), nullText(f, "shed_type")); err != nil {
 		var pgErr *pgconn.PgError
 		if errors.As(err, &pgErr) && pgErr.Code == "23505" {
 			return "", &ports.DuplicateError{Field: "label", Message: "This pen already has that partition."}
@@ -403,6 +389,11 @@ func (partitionStore) update(ctx context.Context, tx pgx.Tx, t, id string, f map
 			return "", err
 		}
 	}
+	if sent(f, "shed_type") {
+		if _, err := tx.Exec(ctx, sqlPlaces11, t, shedID, normalized, nullText(f, "shed_type")); err != nil {
+			return "", err
+		}
+	}
 	// A rename past the matching key moves the row's id with it.
 	return shedID + ":" + normalized, nil
 }
@@ -452,8 +443,11 @@ func updateLocation(ctx context.Context, tx pgx.Tx, t, id string, f map[string]a
 	} else {
 		set += ", updated_at = now(), row_version = row_version + 1"
 	}
-	bound := sqlbind.MustBind(fmt.Sprintf(`UPDATE locations SET %s WHERE tenant_id = $1 AND location_id = $2::uuid AND ($3 = 0 OR row_version = $3)`, set), append([]any{t, id, rv}, args...)...)
-	tag, err := tx.Exec(ctx, bound.SQL(), bound.Args()...)
+	q, err := sqlbind.Bind(fmt.Sprintf(`UPDATE locations SET %s WHERE tenant_id = $1 AND location_id = $2::uuid AND ($3 = 0 OR row_version = $3)`, set), append([]any{t, id, rv}, args...)...)
+	if err != nil {
+		return err
+	}
+	tag, err := tx.Exec(ctx, q.SQL(), q.Args()...)
 	if err != nil {
 		return locationWriteError(err, noun)
 	}
@@ -475,8 +469,11 @@ func setLocationStatus(ctx context.Context, tx pgx.Tx, t, id, status string, rv 
 }
 
 func deleteLocation(ctx context.Context, tx pgx.Tx, t, id string, rv int, profileTable string) error {
-	bound := sqlbind.MustBind(fmt.Sprintf(`DELETE FROM %s WHERE tenant_id = $1 AND location_id = $2::uuid`, profileTable), t, id)
-	if _, err := tx.Exec(ctx, bound.SQL(), bound.Args()...); err != nil {
+	q, err := sqlbind.Bind(fmt.Sprintf(`DELETE FROM %s WHERE tenant_id = $1 AND location_id = $2::uuid`, profileTable), t, id)
+	if err != nil {
+		return err
+	}
+	if _, err := tx.Exec(ctx, q.SQL(), q.Args()...); err != nil {
 		return err
 	}
 	if _, err := tx.Exec(ctx, `DELETE FROM location_operational_attributes WHERE tenant_id = $1 AND location_id = $2::uuid`, t, id); err != nil {
@@ -566,16 +563,19 @@ INSERT INTO locations (tenant_id, location_type, location_code, name, parent_loc
 VALUES ($1, 'shed', $2, $3, $4::uuid, 'active')
 RETURNING location_id::text`
 	sqlPlaces7 = `
-INSERT INTO shed_profiles (location_id, tenant_id, animal_stage_id, sex, capacity, has_icu, notes, shed_type)
-VALUES ($1::uuid, $2, $3::uuid, $4, $5, $6, COALESCE($7, ''), $8)`
+INSERT INTO shed_profiles (location_id, tenant_id, capacity, notes)
+VALUES ($1::uuid, $2, $3, COALESCE($4, ''))`
 	sqlPlaces8 = `
 SELECT count(*) FROM goat_shed_partitions gp
 JOIN goats g ON g.tenant_id = gp.tenant_id AND g.goat_id = gp.goat_id
 WHERE gp.tenant_id = $1 AND gp.shed_id = $2::uuid AND g.lifecycle_status = 'alive'
   AND regexp_replace(lower(btrim(gp.partition_label)), '^part[[:space:]]+', '') = $3`
 	sqlPlaces9 = `
-INSERT INTO shed_partitions (tenant_id, shed_id, partition_label, normalized_label, status, display_order, source)
-VALUES ($1, $2::uuid, $3, $4, 'active', $5, 'manual')`
+INSERT INTO shed_partitions (tenant_id, shed_id, partition_label, normalized_label, status, display_order, source, shed_type)
+VALUES ($1, $2::uuid, $3, $4, 'active', $5, 'manual', $6)`
+	sqlPlaces11 = `
+UPDATE shed_partitions SET shed_type = $4, updated_at = now()
+WHERE tenant_id = $1 AND shed_id = $2::uuid AND normalized_label = $3`
 	sqlPlaces10 = `
 SELECT count(*) FROM goat_shed_partitions gp JOIN goats g ON g.tenant_id = gp.tenant_id AND g.goat_id = gp.goat_id
 WHERE gp.tenant_id = $1 AND gp.shed_id = $2::uuid AND g.lifecycle_status = 'alive'

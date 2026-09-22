@@ -10,8 +10,9 @@ import (
 // words elevated / crown / ground in the pen's free-text notes and, failing that, matched the
 // pen's NAME against a list of buildings hardcoded in Go. A test used to pin that list.
 //
-// Pen type is now CONFIGURED per pen (maintainer instruction 2026-09-22, migration 000385) and
-// read from shed_profiles.shed_type. This test is the old one inverted, and it is the more
+// Pen type is now CONFIGURED per PARTITION (maintainer instructions 2026-09-22, migrations 000385
+// then 000389) and read from shed_partitions.shed_type. This test is the old one inverted, and it
+// is the more
 // valuable of the two: the name list was the thing that made a pen built after it was written
 // silently unclassifiable, and a future edit "restoring" a fallback would reintroduce exactly
 // that. It would also make CLEARING a pen's type on screen do nothing, because the guess would
@@ -23,19 +24,22 @@ func TestWeightDemographicsReadsTheConfiguredPenTypeAndNeverGuesses(t *testing.T
 	}
 	query := string(text)
 
-	if !strings.Contains(query, "COALESCE(sp.shed_type, parent_sp.shed_type)") {
-		t.Fatal("the pen-type CTE must read the configured shed_profiles.shed_type, falling back only to the parent pen's")
+	if !strings.Contains(query, "alias_pen.shed_type") || !strings.Contains(query, "own_pen.shed_type") {
+		t.Fatal("the pen-type CTE must read the configured shed_partitions.shed_type, resolving a pen by its alias row or by its parent plus label")
+	}
+	if strings.Contains(query, "shed_profiles") {
+		t.Fatal("the pen type moved to the partition in 000389; reading shed_profiles here would resurrect the retired column")
 	}
 
 	// The building names, lowercased as the retired regex had them. Any of them reappearing in
 	// a classification position means the guess is back.
 	for _, name := range []string{"gandhi", "castro", "ho chi minh", "mandela", "godel", "sumathi", "yashoda"} {
 		if strings.Contains(strings.ToLower(query), "'\\m("+name) || strings.Contains(strings.ToLower(query), "|"+name+"|") {
-			t.Fatalf("pen type is guessed from the pen name %q again; it is configured on Configuration -> Items and settings -> Pens", name)
+			t.Fatalf("pen type is guessed from the pen name %q again; it is configured on Configuration -> Items and settings -> Partitions", name)
 		}
 	}
 	if strings.Contains(query, "'crown|crowned|ground'") || strings.Contains(query, "(crown|crowned|ground)") {
-		t.Fatal("pen type is inferred from free-text notes again; it is configured per pen")
+		t.Fatal("pen type is inferred from free-text notes again; it is configured per partition")
 	}
 
 	// The retired second class was keyed 'ground' and labelled Crown/Ground. One farm concept,

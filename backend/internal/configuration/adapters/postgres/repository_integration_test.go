@@ -38,6 +38,17 @@ func seedConfigurationFixture(t *testing.T, ctx context.Context, pool *pgxpool.P
 	// afterwards gets them the same way a seed would. (The FK to tenants is why this is here.)
 	exec(`INSERT INTO species_lookup (tenant_id, species_code, name, sort_order, is_builtin) VALUES ($1::uuid,'goat','Goat',10,true), ($1::uuid,'sheep','Sheep',20,true) ON CONFLICT DO NOTHING`, cfgTenant)
 	exec(`INSERT INTO sex_lookup (tenant_id, sex_code, name, sort_order, is_builtin) VALUES ($1::uuid,'female','Female',10,true), ($1::uuid,'male','Male',20,true) ON CONFLICT DO NOTHING`, cfgTenant)
+	// The tenant is created here, AFTER the migrations ran, so migration 000348's per-tenant seed
+	// of the reference lists never covered it -- exactly as it never covered species or gender,
+	// which this fixture already writes by hand. Without this the exit-reasons register has no
+	// list to hold an entry and the lifecycle test fails on an unknown record; it was red on main
+	// for that reason and nothing to do with the register under test.
+	exec(`INSERT INTO reference_lists (tenant_id, list_key, name, description, sort_order, is_builtin)
+VALUES ($1::uuid, 'exit_reasons', 'Exit reasons', 'Why an animal leaves the herd register.', 10, true) ON CONFLICT DO NOTHING`, cfgTenant)
+	exec(`INSERT INTO reference_list_entries (tenant_id, list_key, entry_code, name, sort_order, is_builtin)
+VALUES ($1::uuid,'exit_reasons','sold','Sold',10,true), ($1::uuid,'exit_reasons','died','Died',20,true),
+       ($1::uuid,'exit_reasons','culled','Culled',30,true), ($1::uuid,'exit_reasons','transferred','Transferred',40,true),
+       ($1::uuid,'exit_reasons','lost','Lost',50,true) ON CONFLICT DO NOTHING`, cfgTenant)
 	exec(`INSERT INTO item_categories (tenant_id, name, normalized_name, item_kind, sort_order, is_builtin)
 VALUES ($1::uuid,'Medicines','medicines','medicine',10,true), ($1::uuid,'Vaccines','vaccines','vaccine',20,true), ($1::uuid,'Feed','feed','feed',40,true) ON CONFLICT DO NOTHING`, cfgTenant)
 	exec(`INSERT INTO locations (location_id, tenant_id, location_type, location_code, name, status) VALUES ($2::uuid, $1::uuid, 'park', 'CBE', 'Coimbatore', 'active') ON CONFLICT DO NOTHING`, cfgTenant, cfgParkCBE)
@@ -105,11 +116,11 @@ func TestConfigurationRegistersLifecyclePostgresPaths(t *testing.T) {
 	}
 
 	// --- create a pen under the park; its code follows the park's; a duplicate name is refused ---
-	pen, err := repo.Create(ctx, write("pen-1"), domain.RegPens, map[string]any{"park_id": cfgParkCBE, "name": "Gandhi", "capacity": int64(120), "sex": "female", "has_icu": true})
+	pen, err := repo.Create(ctx, write("pen-1"), domain.RegPens, map[string]any{"park_id": cfgParkCBE, "name": "Gandhi", "capacity": int64(120)})
 	if err != nil {
 		t.Fatalf("create pen: %v", err)
 	}
-	if pen.Display != "Gandhi" || pen.Fields["capacity"] != float64(120) || pen.Fields["sex"] != "female" || pen.Fields["has_icu"] != true || pen.RowVersion != 1 {
+	if pen.Display != "Gandhi" || pen.Fields["capacity"] != float64(120) || pen.RowVersion != 1 {
 		t.Fatalf("pen = %+v", pen)
 	}
 	var code string
@@ -117,7 +128,7 @@ func TestConfigurationRegistersLifecyclePostgresPaths(t *testing.T) {
 		t.Fatalf("pen code = %q %v", code, err)
 	}
 	// Exact replay returns the same row without a second insert; a different payload is refused.
-	again, err := repo.Create(ctx, write("pen-1"), domain.RegPens, map[string]any{"park_id": cfgParkCBE, "name": "Gandhi", "capacity": int64(120), "sex": "female", "has_icu": true})
+	again, err := repo.Create(ctx, write("pen-1"), domain.RegPens, map[string]any{"park_id": cfgParkCBE, "name": "Gandhi", "capacity": int64(120)})
 	if err != nil || again.ID != pen.ID {
 		t.Fatalf("replay: %v %+v", err, again)
 	}

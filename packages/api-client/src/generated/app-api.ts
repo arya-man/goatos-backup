@@ -6357,6 +6357,146 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/health-config/medicines": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * The medicines a treatment step may name.
+         * @description The authoring picker's source. A treatment step names a medicine FROM THE ITEM REGISTRY (/configuration/items) and never free text, so that a course cannot name a medicine the farm does not stock and one medicine cannot end up under two spellings. ACTIVE items only: retiring a medicine in the registry is how a farm stops new courses being written against it, and an archived row still offered here would make that a suggestion rather than a decision. Choosing from the list rides the READ permission because it is not authority over the list; adding a medicine is gated on the Configuration screen.
+         */
+        get: operations["listHealthConfigMedicines"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/health-config/registers": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * The live register and open draft for every animal class.
+         * @description A diagnosis register holds the observation form, the mapping from each answer to a finding, and the rules those findings fire -- in ONE published version. One register serves each animal class, because the loudest rule in the clinical contract is that a milk kid is never diagnosed against the adult table.
+         */
+        get: operations["listHealthConfigRegisters"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/health-config/registers/{register_version_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * One register version with its whole document.
+         * @description Returns the document AND the verdict a publish would apply, including the warnings a publish allows. The verdict is on the read rather than only on the publish button so an author sees "not finished yet" while editing instead of "rejected" at the end.
+         */
+        get: operations["getHealthConfigRegister"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/health-config/registers/drafts": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Open the editor on a class's register.
+         * @description Returns the open draft, CREATING it as a copy of the live register when none is open -- which is why an edit always begins from what is currently diagnosing animals rather than from a blank form. A second open returns the same draft, so an author may close the tab and come back. This is a WRITE despite reading like a read.
+         */
+        post: operations["openHealthConfigRegisterDraft"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/health-config/registers/drafts/save": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Replace a draft's whole document.
+         * @description The form and the rules are saved together because they are one statement: a question whose answer no rule reads does nothing, and a rule reading a finding no question asks can never be diagnosed. Both directions are checked here, at SAVE time, so a missing mapping is one line to fix rather than a hunt through a document that has moved on. A save whose content matches the draft writes no new version and reports "unchanged".
+         */
+        post: operations["saveHealthConfigRegisterDraft"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/health-config/registers/{register_version_id}/publish": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Publish a draft register, retiring the one it replaces.
+         * @description Promotes the draft and retires the live register in one transaction. Diagnoses already made are UNAFFECTED: every run pins the register version it was produced under, so publishing changes what the NEXT observation is judged against, never what an old proposal meant. Publish re-validates what is STORED and adds the check that needs the catalog: a rule whose treats names no disease at all is refused as a typo, while a disease whose treatment course nobody has written yet publishes with a warning.
+         */
+        post: operations["publishHealthConfigRegisterDraft"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/health-config/registers/{register_version_id}/discard": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Discard a draft register without publishing it.
+         * @description Only a draft can be discarded. A published register is immutable because animals are being diagnosed against it, and a retired one is the record of what they were diagnosed against.
+         */
+        post: operations["discardHealthConfigRegisterDraft"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/app/counts/approvals": {
         parameters: {
             query?: never;
@@ -7675,6 +7815,142 @@ export interface components {
             duration_days?: number | null;
             /** @description The whole ordered step list. Order is positional; the server assigns seq 1..N. An empty array is a legitimate draft -- the strict rules apply at publish. */
             steps: components["schemas"]["SaveHealthConfigDraftStep"][];
+        };
+        HealthCatalogItem: {
+            /** Format: uuid */
+            item_id: string;
+            /** @description The label an operator reads mid-treatment. A step stores it alongside the id, so renaming an item in the registry never silently rewrites a course a goat is part way through. */
+            name: string;
+            category: string;
+            /** @description The editable subcategory the farm filed it under, for grouping the picker. */
+            category_path?: string;
+        };
+        HealthRegisterProblem: {
+            /** @description The place in the document the problem is at, so an editor can mark that row. */
+            path: string;
+            message: string;
+            /** @description A fatal problem refuses the publish. A non-fatal one is shown to the author and allowed through -- a finding declared but not yet read by any rule, or a diagnosis whose treatment course nobody has written. */
+            fatal: boolean;
+        };
+        HealthRegisterOption: {
+            value: string;
+            label: string;
+            /** @description The findings this answer puts in front of the rules. EMPTY IS NORMAL and is the common case -- "normal", "no" and "none" are the absence of a sign, not a sign named "none", and emitting one would let a rule anchor on it and surface it as an unaccounted-for finding. */
+            emits?: string[];
+            /** @description Answers on the same question this one cannot be ticked beside. */
+            conflicts_with?: string[];
+        };
+        /** @description Maps a measurement to findings. FIRST MATCH WINS, so bands are listed most severe first; a band an earlier one already covers entirely is refused, because that is how a high fever ends up permanently unreachable. */
+        HealthRegisterBand: {
+            gt?: number;
+            gte?: number;
+            lt?: number;
+            lte?: number;
+            emits: string[];
+        };
+        HealthRegisterCondition: {
+            question_id: string;
+            in: string[];
+        };
+        /** @description One thing the manager is asked about the animal in front of them. There is deliberately no "required" flag: every question is compulsory, because a blank cannot tell "nobody looked" from "normal" and the unaccounted-for findings on a proposal depend on that difference. */
+        HealthRegisterQuestion: {
+            id: string;
+            /** @enum {string} */
+            kind: "choice" | "multi" | "number";
+            title: string;
+            hint?: string;
+            section?: string;
+            options?: components["schemas"]["HealthRegisterOption"][];
+            bands?: components["schemas"]["HealthRegisterBand"][];
+            unit?: string;
+            min?: number;
+            max?: number;
+            /** @description Hides the question for the other sex. A hidden question is NOT ASKED rather than left blank, which is what keeps every asked question compulsory. */
+            only_if_sex?: string;
+            only_if_stage?: string[];
+            only_if?: components["schemas"]["HealthRegisterCondition"] | null;
+        };
+        /** @description Rewrites the findings where one observation changes how another is read -- a drawn-in stomach makes the skin tent read one band worse than the animal is. */
+        HealthRegisterCorrection: {
+            id: string;
+            when: string[];
+            remove?: string[];
+            add?: string[];
+            note?: string;
+        };
+        HealthRegisterClause: {
+            findings: string[];
+            /** @description Fires only when every finding in it is still unaccounted for, which is what stops a symptom label opening a second problem beside the illness that already explains it. */
+            residual?: boolean;
+        };
+        HealthRegisterSeverityModifier: {
+            finding: string;
+            severity: number;
+        };
+        HealthRegisterRule: {
+            id: string;
+            kind?: string;
+            applies_species?: string[];
+            applies_sex?: string[];
+            applies_status?: string[];
+            gate_required?: string[];
+            gate_excluded?: string[];
+            human_selected_only?: boolean;
+            pathognomonic?: components["schemas"]["HealthRegisterClause"][];
+            probable?: components["schemas"]["HealthRegisterClause"][];
+            possible?: components["schemas"]["HealthRegisterClause"][];
+            severity_base?: number;
+            severity_modifiers?: components["schemas"]["HealthRegisterSeverityModifier"][];
+            acute_actionable?: boolean;
+            treatment_risk?: string;
+            exit_type?: string;
+            sop_ref?: string;
+            containment?: string;
+            explains_findings?: string[];
+            suppresses?: string[];
+            recheck_id_possible?: string;
+            adjunct_when?: string[];
+            /** @description The treatment course this diagnosis opens, by disease key. EMPTY IS LEGITIMATE and means a field action -- treated in place, opening no course. */
+            treats?: string;
+        };
+        HealthRegisterDocument: {
+            register_version: string;
+            applies_class: string[];
+            questions: components["schemas"]["HealthRegisterQuestion"][];
+            corrections?: components["schemas"]["HealthRegisterCorrection"][];
+            non_specific?: string[];
+            vocabulary?: string[];
+            rules: components["schemas"]["HealthRegisterRule"][];
+        };
+        HealthRegisterSummary: {
+            /** Format: uuid */
+            register_version_id: string;
+            animal_class: string;
+            version: number;
+            /** @enum {string} */
+            status: "draft" | "published" | "retired";
+            register_label: string;
+            question_count: number;
+            rule_count: number;
+            /** Format: date-time */
+            published_at?: string | null;
+            /** Format: date-time */
+            updated_at: string;
+        };
+        HealthRegisterDetail: components["schemas"]["HealthRegisterSummary"] & {
+            document: components["schemas"]["HealthRegisterDocument"];
+            problems?: components["schemas"]["HealthRegisterProblem"][] | null;
+        };
+        HealthRegisterWriteResult: {
+            /** @enum {string} */
+            outcome: "saved" | "unchanged" | "published" | "discarded";
+            animal_class: string;
+            register_version_id?: string | null;
+            version?: number | null;
+            retired_version_id?: string | null;
+            idempotent_replay: boolean;
+            /** @description What the published register still carries. Returned rather than swallowed because the publish ALLOWED them, and an author who is not told what they published cannot fix it. */
+            warnings?: components["schemas"]["HealthRegisterProblem"][] | null;
         };
         HealthConfigWriteResult: {
             /**
@@ -31677,6 +31953,239 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["HealthConfigWriteResult"];
+                };
+            };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFoundOrNotAllowed"];
+            409: components["responses"]["WriteConflict"];
+            500: components["responses"]["ServerError"];
+        };
+    };
+    listHealthConfigMedicines: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description This farm's active medicines, by name. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        medicines: components["schemas"]["HealthCatalogItem"][];
+                    };
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            500: components["responses"]["ServerError"];
+        };
+    };
+    listHealthConfigRegisters: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Every class's live register and open draft. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        registers: components["schemas"]["HealthRegisterSummary"][];
+                    };
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            500: components["responses"]["ServerError"];
+        };
+    };
+    getHealthConfigRegister: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                register_version_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The register version. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HealthRegisterDetail"];
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFoundOrNotAllowed"];
+            500: components["responses"]["ServerError"];
+        };
+    };
+    openHealthConfigRegisterDraft: {
+        parameters: {
+            query?: never;
+            header: {
+                "Idempotency-Key": components["parameters"]["IdempotencyKey"];
+            };
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": {
+                    /** @description adult, kid_milk, kid_weaning or kid_fattening. */
+                    animal_class: string;
+                };
+            };
+        };
+        responses: {
+            /** @description The open draft. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HealthRegisterDetail"];
+                };
+            };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFoundOrNotAllowed"];
+            409: components["responses"]["WriteConflict"];
+            /** @description The class is not one this farm diagnoses. */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HealthConfigValidationError"];
+                };
+            };
+            500: components["responses"]["ServerError"];
+        };
+    };
+    saveHealthConfigRegisterDraft: {
+        parameters: {
+            query?: never;
+            header: {
+                "Idempotency-Key": components["parameters"]["IdempotencyKey"];
+            };
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": {
+                    animal_class: string;
+                    document: components["schemas"]["HealthRegisterDocument"];
+                };
+            };
+        };
+        responses: {
+            /** @description The draft was saved, or was already identical. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HealthRegisterWriteResult"];
+                };
+            };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFoundOrNotAllowed"];
+            409: components["responses"]["WriteConflict"];
+            /** @description The document is not saveable. Every problem is named with its own path. */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HealthConfigValidationError"];
+                };
+            };
+            500: components["responses"]["ServerError"];
+        };
+    };
+    publishHealthConfigRegisterDraft: {
+        parameters: {
+            query?: never;
+            header: {
+                "Idempotency-Key": components["parameters"]["IdempotencyKey"];
+            };
+            path: {
+                register_version_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The draft is now the live register. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HealthRegisterWriteResult"];
+                };
+            };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFoundOrNotAllowed"];
+            409: components["responses"]["WriteConflict"];
+            /** @description The stored draft is not publishable. Every problem is named. */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HealthConfigValidationError"];
+                };
+            };
+            500: components["responses"]["ServerError"];
+        };
+    };
+    discardHealthConfigRegisterDraft: {
+        parameters: {
+            query?: never;
+            header: {
+                "Idempotency-Key": components["parameters"]["IdempotencyKey"];
+            };
+            path: {
+                register_version_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The draft was discarded. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HealthRegisterWriteResult"];
                 };
             };
             400: components["responses"]["BadRequest"];

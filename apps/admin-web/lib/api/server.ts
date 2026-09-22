@@ -2909,6 +2909,264 @@ export async function discardHealthConfigDraft(
   );
 }
 
+// ---------------------------------------------------------------------------
+// The diagnosis register — the other half of the Health Config rulebook.
+//
+// These types mirror the engine's own document shape one for one, deliberately. The
+// register is evaluated by the backend from exactly this JSON, so a second, friendlier
+// client-side shape would be a translation layer between the screen and the thing that
+// actually diagnoses animals — and the two would drift on the first field added.
+// ---------------------------------------------------------------------------
+
+export type HealthRegisterOption = {
+  value: string;
+  label: string;
+  /** The findings this answer puts in front of the rules. Empty is normal: "no" is the
+   *  absence of a sign, not a sign named "no". */
+  emits?: string[];
+  conflicts_with?: string[];
+};
+
+export type HealthRegisterBand = {
+  gt?: number;
+  gte?: number;
+  lt?: number;
+  lte?: number;
+  emits: string[];
+};
+
+export type HealthRegisterCondition = { question_id: string; in: string[] };
+
+export type HealthRegisterQuestion = {
+  id: string;
+  kind: "choice" | "multi" | "number";
+  title: string;
+  hint?: string;
+  section?: string;
+  options?: HealthRegisterOption[];
+  bands?: HealthRegisterBand[];
+  unit?: string;
+  min?: number;
+  max?: number;
+  only_if_sex?: string;
+  only_if_stage?: string[];
+  only_if?: HealthRegisterCondition | null;
+};
+
+export type HealthRegisterCorrection = {
+  id: string;
+  when: string[];
+  remove?: string[];
+  add?: string[];
+  note?: string;
+};
+
+export type HealthRegisterClause = { findings: string[]; residual?: boolean };
+
+export type HealthRegisterRule = {
+  id: string;
+  kind?: string;
+  applies_species?: string[];
+  applies_sex?: string[];
+  applies_status?: string[];
+  gate_required?: string[];
+  gate_excluded?: string[];
+  human_selected_only?: boolean;
+  pathognomonic?: HealthRegisterClause[];
+  probable?: HealthRegisterClause[];
+  possible?: HealthRegisterClause[];
+  severity_base?: number;
+  severity_modifiers?: { finding: string; severity: number }[];
+  acute_actionable?: boolean;
+  treatment_risk?: string;
+  exit_type?: string;
+  sop_ref?: string;
+  containment?: string;
+  explains_findings?: string[];
+  suppresses?: string[];
+  recheck_id_possible?: string;
+  adjunct_when?: string[];
+  /** The treatment course this diagnosis opens, by disease key. Empty means a field
+   *  action — treated in place, opening no course. */
+  treats?: string;
+};
+
+export type HealthRegisterDocument = {
+  register_version: string;
+  applies_class: string[];
+  questions: HealthRegisterQuestion[];
+  corrections?: HealthRegisterCorrection[];
+  non_specific?: string[];
+  vocabulary?: string[];
+  rules: HealthRegisterRule[];
+};
+
+export type HealthRegisterProblem = { path: string; message: string; fatal: boolean };
+
+export type HealthRegisterRow = {
+  register_version_id: string;
+  animal_class: string;
+  version: number;
+  status: "draft" | "published" | "retired";
+  register_label: string;
+  question_count: number;
+  rule_count: number;
+  published_at?: string | null;
+  updated_at: string;
+};
+
+export type HealthRegisterDetail = HealthRegisterRow & {
+  document: HealthRegisterDocument;
+  problems?: HealthRegisterProblem[] | null;
+};
+
+export type HealthRegisterWriteResult = {
+  outcome: string;
+  animal_class: string;
+  register_version_id?: string;
+  version?: number;
+  retired_version_id?: string;
+  idempotent_replay: boolean;
+  warnings?: HealthRegisterProblem[] | null;
+};
+
+export type SaveHealthRegisterDraftRequest = {
+  animal_class: string;
+  document: HealthRegisterDocument;
+};
+
+export type HealthCatalogItem = {
+  item_id: string;
+  name: string;
+  category: string;
+  category_path?: string;
+};
+
+/**
+ * The medicines a treatment step may name.
+ *
+ * A step names a medicine FROM THE ITEM REGISTRY and never free text, so this is the
+ * editor's only source for that field. Active items only — the registry is where a farm
+ * retires a medicine, and offering a retired one here would make that a suggestion.
+ */
+export async function listHealthConfigMedicines(): Promise<
+  ApiResult<{ medicines: HealthCatalogItem[] }>
+> {
+  const config = await getServerConfig();
+  if (!config.ok) return config;
+  const client = createAppApiClient(apiClientOptions(config.data));
+  return request(() =>
+    client.request<{ medicines: HealthCatalogItem[] }>("/health-config/medicines", {
+      cache: "no-store",
+    }),
+  );
+}
+
+/** Every class's live register and open draft. */
+export async function listHealthConfigRegisters(): Promise<
+  ApiResult<{ registers: HealthRegisterRow[] }>
+> {
+  const config = await getServerConfig();
+  if (!config.ok) return config;
+  const client = createAppApiClient(apiClientOptions(config.data));
+  return request(() =>
+    client.request<{ registers: HealthRegisterRow[] }>("/health-config/registers", {
+      cache: "no-store",
+    }),
+  );
+}
+
+/** One version with its whole document and the verdict a publish would apply. */
+export async function getHealthConfigRegister(
+  registerVersionId: string,
+): Promise<ApiResult<HealthRegisterDetail>> {
+  const config = await getServerConfig();
+  if (!config.ok) return config;
+  const client = createAppApiClient(apiClientOptions(config.data));
+  const path =
+    `/health-config/registers/${encodeURIComponent(registerVersionId)}` as keyof AppApiPaths &
+      string;
+  return request(() => client.request<HealthRegisterDetail>(path, { cache: "no-store" }));
+}
+
+/** Open the editor. Creates the draft from the live register when none is open, which is
+ *  why an edit always begins from what is currently diagnosing animals. */
+export async function openHealthConfigRegisterDraft(
+  animalClass: string,
+  idempotencyKey = `health-register-open-${randomUUID()}`,
+): Promise<ApiResult<HealthRegisterDetail>> {
+  const config = await getServerConfig(true);
+  if (!config.ok) return config;
+  const client = createAppApiClient(apiClientOptions(config.data));
+  return request(() =>
+    client.request<HealthRegisterDetail>("/health-config/registers/drafts", {
+      method: "POST",
+      cache: "no-store",
+      headers: { "Idempotency-Key": idempotencyKey },
+      body: { animal_class: animalClass },
+    }),
+  );
+}
+
+/** Replace a draft's whole document — the form and the rules together. */
+export async function saveHealthConfigRegisterDraft(
+  body: SaveHealthRegisterDraftRequest,
+  idempotencyKey = `health-register-save-${randomUUID()}`,
+): Promise<ApiResult<HealthRegisterWriteResult>> {
+  const config = await getServerConfig(true);
+  if (!config.ok) return config;
+  const client = createAppApiClient(apiClientOptions(config.data));
+  return request(() =>
+    client.request<HealthRegisterWriteResult>("/health-config/registers/drafts/save", {
+      method: "POST",
+      cache: "no-store",
+      headers: { "Idempotency-Key": idempotencyKey },
+      body,
+    }),
+  );
+}
+
+/** Publish a draft, retiring the register it replaces. Runs already diagnosed keep the
+ *  version they were produced under. */
+export async function publishHealthConfigRegisterDraft(
+  registerVersionId: string,
+  idempotencyKey = `health-register-publish-${randomUUID()}`,
+): Promise<ApiResult<HealthRegisterWriteResult>> {
+  const config = await getServerConfig(true);
+  if (!config.ok) return config;
+  const client = createAppApiClient(apiClientOptions(config.data));
+  const path =
+    `/health-config/registers/${encodeURIComponent(registerVersionId)}/publish` as keyof AppApiPaths &
+      string;
+  return request(() =>
+    client.request<HealthRegisterWriteResult>(path, {
+      method: "POST",
+      cache: "no-store",
+      headers: { "Idempotency-Key": idempotencyKey },
+    }),
+  );
+}
+
+/** Discard a draft without publishing it. */
+export async function discardHealthConfigRegisterDraft(
+  registerVersionId: string,
+  idempotencyKey = `health-register-discard-${randomUUID()}`,
+): Promise<ApiResult<HealthRegisterWriteResult>> {
+  const config = await getServerConfig(true);
+  if (!config.ok) return config;
+  const client = createAppApiClient(apiClientOptions(config.data));
+  const path =
+    `/health-config/registers/${encodeURIComponent(registerVersionId)}/discard` as keyof AppApiPaths &
+      string;
+  return request(() =>
+    client.request<HealthRegisterWriteResult>(path, {
+      method: "POST",
+      cache: "no-store",
+      headers: { "Idempotency-Key": idempotencyKey },
+    }),
+  );
+}
+
 export async function setFeedConfigExperimentShedStatus(
   body: SetFeedConfigExperimentShedStatusRequest,
   idempotencyKey = `feed-experiment-status-${randomUUID()}`,
@@ -5966,7 +6224,16 @@ function parseParkScopeOptions(
 // read as "the server named no field" with confidence.
 function envelopeFieldErrors(body: unknown): ApiUiError["fieldErrors"] {
   if (!body || typeof body !== "object") return undefined;
-  const raw = (body as { field_errors?: unknown }).field_errors;
+  // TWO SPELLINGS, because the backend serves two and only one was being read.
+  //
+  // `field_errors` is the verifier's measurement envelope. `errors` is what every
+  // /health-config/* refusal has always returned -- the authored rulebook's whole
+  // validation pass, each entry naming `steps[i].field` or `questions.3.options.1`.
+  // Reading only the first meant the health editors received a 422 whose per-field
+  // detail was dropped in this function, so the author saw "fix the highlighted
+  // fields" with nothing highlighted. The list was on the wire the entire time.
+  const asObject = body as { field_errors?: unknown; errors?: unknown };
+  const raw = Array.isArray(asObject.field_errors) ? asObject.field_errors : asObject.errors;
   if (!Array.isArray(raw)) return undefined;
   const out: { field: string; code: string; message: string }[] = [];
   for (const entry of raw) {

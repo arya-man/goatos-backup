@@ -157,13 +157,19 @@ func ValidateWrite(reg Register, raw map[string]any, existing *Row, kind string)
 			continue
 		}
 		if len(c.Kinds) > 0 && sent && kind != "" && !containsString(c.Kinds, kind) {
-			if !isBlank(v) {
+			// A value the register already knows is DROPPED, not refused: an items sheet is one
+			// sheet for every kind, so a feed row naturally repeats the unit the register would
+			// have used anyway. Refusing it failed the whole row over an agreement.
+			if !isBlank(v) && !c.ImpliedOutOfKind {
 				errs = append(errs, FieldError{Field: c.Key, Code: "not_for_kind", Message: c.Label + " does not apply to this kind of item."})
 			}
 			continue
 		}
 		if !sent {
-			if c.Required && existing == nil {
+			// A kind-scoped column is only required for the kinds it applies to. Unit is required
+			// on a medicine and meaningless on a feed item, which is weighed in kg and has no unit
+			// column at all; without this test the feed drawer demanded a field it never showed.
+			if c.Required && existing == nil && (len(c.Kinds) == 0 || kind == "" || containsString(c.Kinds, kind)) {
 				errs = append(errs, FieldError{Field: c.Key, Code: "required", Message: c.Label + " is required."})
 			}
 			continue

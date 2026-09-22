@@ -1074,6 +1074,28 @@ func compileHealthConfigControls(controls []domain.Control, input BootstrapInput
 			Kind:   "secondary_action",
 			Action: "POST /health-config/protocols/{protocol_version_id}/discard",
 		},
+		// The diagnosis register's three controls ride the SAME permission, because both
+		// tabs author one rulebook: which illness the animal is judged to have, and what
+		// it is then given. A principal trusted with one is the principal trusted with the
+		// other, and splitting them would invent a role the farm does not have.
+		{
+			ID:     "edit_register",
+			Label:  controlCopy(copy, "action.edit_register", "Edit"),
+			Kind:   "row_action",
+			Action: "POST /health-config/registers/drafts",
+		},
+		{
+			ID:     "publish_register",
+			Label:  controlCopy(copy, "action.publish_register", "Publish"),
+			Kind:   "primary_action",
+			Action: "POST /health-config/registers/{register_version_id}/publish",
+		},
+		{
+			ID:     "discard_register_draft",
+			Label:  controlCopy(copy, "action.discard_register_draft", "Discard draft"),
+			Kind:   "secondary_action",
+			Action: "POST /health-config/registers/{register_version_id}/discard",
+		},
 	} {
 		c.Enabled = allowed
 		c.DisabledReason = reason

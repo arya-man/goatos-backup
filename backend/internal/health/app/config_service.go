@@ -2,6 +2,8 @@ package app
 
 import (
 	"context"
+	"fmt"
+	"sort"
 	"strings"
 
 	"github.com/vgoats/goatos/backend/internal/health/domain"
@@ -16,10 +18,89 @@ import (
 // second client). The handler's job is to decode and map errors to status codes.
 type ConfigService struct {
 	repo ports.ProtocolAuthoring
+	// catalog is the item registry a medication step must name. Optional so a caller that
+	// only reads protocols (a fixture, a contract test) needs no registry.
+	catalog ports.MedicineCatalog
 }
 
 func NewConfigService(repo ports.ProtocolAuthoring) *ConfigService {
 	return &ConfigService{repo: repo}
+}
+
+// WithMedicineCatalog turns on the rule that a medication step names a medicine FROM THE
+// CATALOG and never free text.
+func (s *ConfigService) WithMedicineCatalog(catalog ports.MedicineCatalog) *ConfigService {
+	s.catalog = catalog
+	return s
+}
+
+// ListMedicines is the authoring picker's read.
+func (s *ConfigService) ListMedicines(ctx context.Context, tenantID string) ([]domain.CatalogItem, error) {
+	if s.catalog == nil {
+		return []domain.CatalogItem{}, nil
+	}
+	return s.catalog.ListMedicines(ctx, tenantID)
+}
+
+/*
+checkMedicinesAreInTheCatalog refuses a step naming a medicine the farm does not stock.
+
+THE POINT IS THE STORE, NOT THE SPELLING. A course that names a medicine nobody has is a
+course an operator cannot carry out, and one authored by typing produced two spellings of
+the same medicine and a dosage attached to something the store has never heard of. The
+medicine list is maintained on /configuration/items; this is what makes it the only source.
+
+It matches on NAME, case-insensitively, rather than on the id the editor sends, because the
+importer and older clients write a name only. A step whose name matches nothing ACTIVE is a
+field error naming that step, so the editor can mark the row -- the author's next move is to
+pick another medicine or add the one they meant to the registry.
+*/
+func (s *ConfigService) checkMedicinesAreInTheCatalog(ctx context.Context, tenantID string, steps []domain.AuthoredStep) error {
+	if s.catalog == nil {
+		return nil
+	}
+	wanted := map[string][]int{}
+	for i, step := range steps {
+		if step.RecordType != domain.RecordTypeMedication {
+			continue
+		}
+		name := strings.ToLower(strings.TrimSpace(step.MedicineName))
+		if name == "" {
+			continue // the "Enter the medicine." rule already covers a blank.
+		}
+		wanted[name] = append(wanted[name], i)
+	}
+	if len(wanted) == 0 {
+		return nil
+	}
+
+	items, err := s.catalog.ListMedicines(ctx, tenantID)
+	if err != nil {
+		return err
+	}
+	stocked := make(map[string]bool, len(items))
+	for _, item := range items {
+		stocked[strings.ToLower(strings.TrimSpace(item.Name))] = true
+	}
+
+	var errs []domain.FieldError
+	for name, indexes := range wanted {
+		if stocked[name] {
+			continue
+		}
+		for _, i := range indexes {
+			errs = append(errs, domain.FieldError{
+				Field: fmt.Sprintf("steps[%d].medicine_name", i),
+				Message: "Choose a medicine from the list. Add it under Configuration " +
+					"\u203a Items first if it is missing.",
+			})
+		}
+	}
+	if len(errs) > 0 {
+		sort.Slice(errs, func(a, b int) bool { return errs[a].Field < errs[b].Field })
+		return &domain.ValidationError{Errors: errs}
+	}
+	return nil
 }
 
 func (s *ConfigService) ListProtocolCatalog(ctx context.Context, q domain.ProtocolCatalogQuery) (domain.ProtocolCatalogPage, error) {
@@ -95,6 +176,9 @@ func (s *ConfigService) SaveDraft(ctx context.Context, cmd domain.SaveDraftComma
 	cmd.Protocol = domain.NormalizeAuthoredProtocol(cmd.Protocol)
 
 	if err := domain.ValidateAuthoredProtocol(cmd.Protocol, false); err != nil {
+		return domain.AuthoringResult{}, err
+	}
+	if err := s.checkMedicinesAreInTheCatalog(ctx, cmd.TenantID, cmd.Protocol.Steps); err != nil {
 		return domain.AuthoringResult{}, err
 	}
 	cmd.Protocol.Steps = domain.SortAuthoredSteps(cmd.Protocol.Steps)

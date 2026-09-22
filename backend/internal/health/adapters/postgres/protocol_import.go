@@ -115,6 +115,19 @@ WHERE tenant_id=$1::uuid AND source_ref=$2 AND status IN ('published','draft')`,
 				return fmt.Errorf("health: %s critical step has no guarded handoff type", key)
 			}
 		}
+		// THE MEDICINES THIS PROTOCOL NAMES MUST EXIST IN THE REGISTRY, and the import is
+		// what puts them there.
+		//
+		// A step names a medicine FROM /configuration/items and never free text, so a seed
+		// that wrote protocols without stocking their medicines would produce a farm whose
+		// every course is unauthorable on the first edit -- the validation would refuse a
+		// medicine the seed itself had just written. Stocking them HERE, in the same
+		// transaction, is what makes a fresh seed complete rather than something a repair
+		// migration has to finish afterwards.
+		if err := ensureMedicinesStocked(ctx, tx, tenantID, p.Steps); err != nil {
+			return fmt.Errorf("health: stock medicines for %s: %w", key, err)
+		}
+
 		var version int
 		if err := tx.QueryRow(ctx, `SELECT coalesce(max(version),0)+1 FROM health_protocol_versions WHERE tenant_id=$1::uuid AND disease_key=$2 AND age_band=$3`, tenantID, p.DiseaseKey, p.AgeBand).Scan(&version); err != nil { // scale-guard:ignore: deployment-only strict snapshot import, hard-capped at 200 protocols
 			return err
@@ -165,3 +178,98 @@ func insertProtocolOutbox(ctx context.Context, tx pgx.Tx, tenantID, actorID, pro
 VALUES ($1::uuid,$2::uuid,$3,'1.0.0','health_protocol_version',$4::uuid,$5,$6::jsonb,$7::jsonb,$8,'','pending',now()) ON CONFLICT DO NOTHING`, tenantID, eventID, eventType, protocolID, healthTopic, body, headers, idem)
 	return err
 }
+
+// sqlEnsureMedicineRoot makes sure this tenant HAS a built-in Medicines category.
+//
+// It exists because of a silent failure found on a brand-new tenant. Migration 000346
+// created the seven built-in roots with a CROSS JOIN over the tenants that existed WHEN IT
+// RAN, and nothing creates them for a tenant made afterwards. The medicine insert below
+// joins that root, so on a fresh deployment it matched no row, stocked NOTHING, and the
+// import still reported "published 54 Health protocols" -- a farm whose every course names
+// a medicine it does not stock, with no error anywhere.
+//
+// Creating it here is narrow and idempotent. It is not this package's job to provision the
+// other six roots; the check below is what stops health quietly depending on them.
+const sqlEnsureMedicineRoot = `
+INSERT INTO item_categories (tenant_id, name, normalized_name, item_kind, sort_order, is_builtin)
+VALUES ($1::uuid, 'Medicines', 'medicines', 'medicine', 10, true)
+ON CONFLICT DO NOTHING`
+
+// sqlStockMedicines files every medicine of one protocol under the tenant's built-in
+// Medicines root, in ONE statement.
+//
+// Set-based rather than a statement per medicine: the import is a deployment seam, but a
+// DB call inside a loop is the shape that is fine at a handful and fatal at scale, and
+// there is no reason to write it here when UNNEST says the same thing.
+//
+// Idempotent on both unique indexes. A tenant that already stocks the medicine keeps ITS
+// OWN row untouched -- an import must not overwrite a name, unit or category a farm has
+// since corrected on screen.
+const sqlStockMedicines = `
+INSERT INTO inventory_items (tenant_id, item_code, name, category, base_unit, status, category_id)
+SELECT $1::uuid,
+       'med_' || regexp_replace(lower(m.name), '[^a-z0-9]+', '_', 'g'),
+       m.name, 'medicine', 'unit', 'active', c.category_id
+FROM unnest($2::text[]) AS m(name)
+JOIN item_categories c
+  ON c.tenant_id = $1::uuid AND c.parent_category_id IS NULL AND c.item_kind = 'medicine'
+WHERE NOT EXISTS (
+    SELECT 1 FROM inventory_items i
+    WHERE i.tenant_id = $1::uuid AND lower(i.name) = lower(m.name)
+  )
+ON CONFLICT DO NOTHING`
+
+// ensureMedicinesStocked adds every medicine these steps name to the item registry.
+//
+// It VERIFIES afterwards rather than trusting the insert. A set-based INSERT ... SELECT
+// that matches no row is indistinguishable from one that had nothing to do -- both affect
+// zero rows and both return nil -- and that is precisely how a fresh deployment published
+// 54 protocols against an empty medicine list and called it success. A seed that cannot
+// stock what it just wrote must fail loudly, not leave the farm to discover it on the
+// first edit.
+func ensureMedicinesStocked(ctx context.Context, tx pgx.Tx, tenantID string, steps []domain.ProtocolStep) error {
+	seen := map[string]bool{}
+	names := make([]string, 0, 8)
+	for _, s := range steps {
+		// A pointer because an ACTION step carries no medicine at all; nil and "" are the
+		// same thing here and both mean "nothing to stock".
+		if s.MedicineName == nil {
+			continue
+		}
+		name := strings.TrimSpace(*s.MedicineName)
+		if name == "" || seen[strings.ToLower(name)] {
+			continue
+		}
+		seen[strings.ToLower(name)] = true
+		names = append(names, name)
+	}
+	if len(names) == 0 {
+		return nil
+	}
+
+	if _, err := tx.Exec(ctx, sqlEnsureMedicineRoot, tenantID); err != nil {
+		return fmt.Errorf("ensure Medicines category: %w", err)
+	}
+	if _, err := tx.Exec(ctx, sqlStockMedicines, tenantID, names); err != nil {
+		return err
+	}
+
+	var missing []string
+	if err := tx.QueryRow(ctx, sqlUnstockedMedicines, tenantID, names).Scan(&missing); err != nil {
+		return fmt.Errorf("verify stocked medicines: %w", err)
+	}
+	if len(missing) > 0 {
+		return fmt.Errorf("these medicines are not in the item registry and could not be added: %s",
+			strings.Join(missing, ", "))
+	}
+	return nil
+}
+
+// sqlUnstockedMedicines names any medicine that is STILL not in the registry.
+const sqlUnstockedMedicines = `
+SELECT coalesce(array_agg(m.name ORDER BY m.name), '{}')
+FROM unnest($2::text[]) AS m(name)
+WHERE NOT EXISTS (
+  SELECT 1 FROM inventory_items i
+  WHERE i.tenant_id = $1::uuid AND lower(i.name) = lower(m.name)
+)`

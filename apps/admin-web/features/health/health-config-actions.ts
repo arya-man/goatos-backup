@@ -1,7 +1,5 @@
 "use server";
 
-import { revalidatePath } from "next/cache";
-
 import {
   createHealthConfigDisease,
   discardHealthConfigDraft,
@@ -35,7 +33,15 @@ import {
 // This layer passes that list through untouched so the editor can mark every bad row at once. A
 // 28-step protocol rejected one field per round trip is not authorable.
 //
-// RULE 3 — IDEMPOTENCY KEYS ARE MINTED PER HUMAN INTENT, NOT PER RETRY.
+// RULE 3 — THESE ACTIONS RETURN A RESULT; THEY NEVER REVALIDATE THE ROUTE.
+//
+// A server action may hand the caller a result to apply in place, or it may redirect — never both.
+// Revalidating on top of a returned result re-renders the route underneath a client that is still
+// inside the transition, and the navigation that was supposed to follow is raced by it: the Edit
+// button sat on "Loading" forever and the draft it had just opened never appeared. The editor
+// decides what to do with what it gets back.
+//
+// RULE 4 — IDEMPOTENCY KEYS ARE MINTED PER HUMAN INTENT, NOT PER RETRY.
 //
 // Each submit carries the key the client minted when the form was opened and reuses it across
 // retries of that same submit; the client rotates it only after a confirmed success. That is what
@@ -74,8 +80,6 @@ export type HealthConfigActionResult = {
   versionId?: string;
 };
 
-const HEALTH_CONFIG_PATH = "/health/config";
-
 /** Maps a backend error envelope onto a contract copy key the page owns. */
 function failureKeyFor(code: string | undefined): string {
   switch (code) {
@@ -96,25 +100,6 @@ function failureKeyFor(code: string | undefined): string {
   }
 }
 
-/**
- * The backend's 422 body carries an `errors` array alongside the standard envelope. The generated
- * error type does not model that extra field (it is a superset of ErrorEnvelope), so it is read
- * defensively here rather than cast — a missing or malformed array degrades to "no field errors"
- * and the summary message still shows, instead of throwing inside a server action.
- */
-function fieldErrorsFrom(error: unknown): HealthConfigFieldError[] | undefined {
-  if (!error || typeof error !== "object") return undefined;
-  const raw = (error as { errors?: unknown }).errors;
-  if (!Array.isArray(raw)) return undefined;
-  const parsed = raw.filter(
-    (entry): entry is HealthConfigFieldError =>
-      Boolean(entry) &&
-      typeof entry === "object" &&
-      typeof (entry as HealthConfigFieldError).field === "string" &&
-      typeof (entry as HealthConfigFieldError).message === "string",
-  );
-  return parsed.length > 0 ? parsed : undefined;
-}
 
 function readString(formData: FormData, name: string): string {
   const value = formData.get(name);
@@ -159,10 +144,9 @@ export async function createDisease(formData: FormData): Promise<HealthConfigAct
       messageKey: failureKeyFor(result.error.code),
       code: result.error.code,
       detail: result.error.message,
-      fieldErrors: fieldErrorsFrom(result.error),
+      fieldErrors: result.error.fieldErrors,
     };
   }
-  revalidatePath(HEALTH_CONFIG_PATH);
   return { ok: true, messageKey: "action.success_message", outcome: result.data.outcome };
 }
 
@@ -186,10 +170,9 @@ export async function openDraft(formData: FormData): Promise<HealthConfigActionR
       messageKey: failureKeyFor(result.error.code),
       code: result.error.code,
       detail: result.error.message,
-      fieldErrors: fieldErrorsFrom(result.error),
+      fieldErrors: result.error.fieldErrors,
     };
   }
-  revalidatePath(HEALTH_CONFIG_PATH);
   return {
     ok: true,
     messageKey: "action.success_message",
@@ -241,10 +224,9 @@ export async function saveDraft(formData: FormData): Promise<HealthConfigActionR
       messageKey: failureKeyFor(result.error.code),
       code: result.error.code,
       detail: result.error.message,
-      fieldErrors: fieldErrorsFrom(result.error),
+      fieldErrors: result.error.fieldErrors,
     };
   }
-  revalidatePath(HEALTH_CONFIG_PATH);
   return { ok: true, messageKey: "action.success_message", outcome: result.data.outcome };
 }
 
@@ -258,10 +240,9 @@ export async function publishDraft(formData: FormData): Promise<HealthConfigActi
       messageKey: failureKeyFor(result.error.code),
       code: result.error.code,
       detail: result.error.message,
-      fieldErrors: fieldErrorsFrom(result.error),
+      fieldErrors: result.error.fieldErrors,
     };
   }
-  revalidatePath(HEALTH_CONFIG_PATH);
   return { ok: true, messageKey: "action.success_message", outcome: result.data.outcome };
 }
 
@@ -280,9 +261,8 @@ export async function discardDraft(formData: FormData): Promise<HealthConfigActi
       messageKey: failureKeyFor(result.error.code),
       code: result.error.code,
       detail: result.error.message,
-      fieldErrors: fieldErrorsFrom(result.error),
+      fieldErrors: result.error.fieldErrors,
     };
   }
-  revalidatePath(HEALTH_CONFIG_PATH);
   return { ok: true, messageKey: "action.success_message", outcome: result.data.outcome };
 }

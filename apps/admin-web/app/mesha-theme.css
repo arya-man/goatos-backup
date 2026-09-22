@@ -6633,6 +6633,36 @@ aside.drawer.ltd-drawer{width:min(720px,94vw);overflow-y:auto;overscroll-behavio
 .cfg-row-link{color:inherit;text-decoration:none}
 .cfg-row-link:hover b{color:var(--brand-d)}
 .cfg-items .tbl tr.cfg-archived td{opacity:.6}
+/* The row's own actions (maintainer instruction 2026-09-22): Edit beside a menu holding Make
+   inactive / Remove. The cell is the last column, right-aligned, and the menu is anchored to it
+   rather than to the page so it cannot drift away from the row it acts on. */
+.cfg-rowacts-cell{text-align:right;white-space:nowrap;width:1%}
+.cfg-rowacts{position:relative;display:inline-flex;gap:6px;align-items:center;justify-content:flex-end}
+.cfg-rowacts-more{min-width:30px;padding-left:8px;padding-right:8px;font-size:15px;line-height:1}
+.cfg-rowacts-menu{position:fixed;z-index:60;min-width:200px;max-width:280px;padding:6px;
+  background:var(--panel);border:1px solid var(--line);border-radius:10px;box-shadow:var(--shadow-2,0 8px 24px rgba(0,0,0,.14));
+  display:flex;flex-direction:column;gap:6px;text-align:left;white-space:normal}
+/* Each choice is drawn AS A BUTTON, not as a line of text (maintainer screenshot 2026-09-22).
+   Borderless items on a dark panel read as labels: nothing says where the target is or that it
+   can be pressed, and the only feedback arrived on hover, which a touch screen never shows. Each
+   one now carries its own outline at rest, fills on hover, and shows a focus ring for the
+   keyboard. */
+.cfg-rowacts-menu button{display:block;width:100%;text-align:left;padding:8px 10px;border-radius:8px;
+  border:1px solid var(--line);background:var(--panel-2);color:var(--ink);font:inherit;font-size:13px;
+  font-weight:600;cursor:pointer;transition:background .12s ease,border-color .12s ease}
+.cfg-rowacts-menu button:hover:not(:disabled){background:var(--brand-soft);border-color:var(--brand);color:var(--brand-d)}
+.cfg-rowacts-menu button:active:not(:disabled){transform:translateY(1px)}
+.cfg-rowacts-menu button:focus-visible{outline:2px solid var(--brand);outline-offset:2px}
+.cfg-rowacts-menu button:disabled{opacity:.55;cursor:default}
+/* Remove is the destructive one and is coloured at rest, so it is told apart before it is read.
+   Scoped under the menu so it OUTWEIGHS the shared button rule above; on its own the single class
+   lost the cascade to `.cfg-rowacts-menu button` and the item rendered in the ordinary ink. */
+.cfg-rowacts-menu button.cfg-rowacts-danger{color:var(--danger);border-color:color-mix(in srgb,var(--danger) 45%,var(--line))}
+.cfg-rowacts-menu button.cfg-rowacts-danger:hover:not(:disabled){background:color-mix(in srgb,var(--danger) 14%,var(--panel));border-color:var(--danger);color:var(--danger)}
+.cfg-rowacts-menu button.cfg-rowacts-danger:focus-visible{outline-color:var(--danger)}
+.cfg-rowacts-confirm{display:flex;flex-direction:column;gap:2px}
+.cfg-rowacts-confirm p{margin:2px 2px 6px;font-size:12px;color:var(--muted);font-weight:500;line-height:1.35}
+.cfg-rowacts-error{margin:6px 2px 2px;font-size:12px;color:var(--danger);font-weight:600;line-height:1.35}
 .cfg-items .tbl td.num{text-align:right;font-variant-numeric:tabular-nums}
 .cfg-items .mono{font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-size:12px}
 .cfg-ferr{font-size:12px;color:var(--danger)}

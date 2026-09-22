@@ -50,6 +50,13 @@ type Column struct {
 	Options []Option `json:"options,omitempty"`
 	// Kinds restricts the column to items whose category kind is one of these; empty = every row.
 	Kinds []string `json:"kinds,omitempty"`
+	// ImpliedOutOfKind drops a value this column's kinds do not cover instead of refusing it,
+	// because the register already knows the answer and the sheet merely repeated it. A feed
+	// item's unit is always kg, so a filled-in template saying "kg" is agreeing, not asserting --
+	// refusing it broke the onboarding import for every feed row. A column carrying a fact the
+	// register would LOSE, such as a route on a vaccine, must NOT set this: there the refusal is
+	// the point.
+	ImpliedOutOfKind bool `json:"implied_out_of_kind,omitempty"`
 	// Immutable columns are written once (a code) and refused on update.
 	Immutable bool `json:"immutable,omitempty"`
 	// Hint is a one-line help sentence under the input.
@@ -255,34 +262,39 @@ var Registers = []Register{
 		},
 	},
 	{
+		// A PEN IS A BUILDING IN A PARK, AND NOTHING ELSE (maintainer instruction 2026-09-22: "no
+		// need stage and gender, ICU, all that -- what I keep is my wish; just pens and mapping to
+		// park"). Stage, Gender and ICU described what is KEPT in a pen, which is a daily herd
+		// decision rather than a setting: the pen's stage is written by the shifting/tag rules and
+		// newborn placement, and shed_profiles.sex / has_icu were read by NOTHING outside this
+		// screen. They are off the register; the columns stay in the table, so no stored value was
+		// lost. PEN TYPE moved DOWN to the partition -- see the Partitions register below.
 		Key: RegPens, Label: "Pens", One: "Pen", Group: GroupFarmPlaces,
 		Hint:    "A pen is a building in a park. Split it into partitions below when animals are kept apart inside it.",
-		Filters: []string{"park_id", "shed_type"},
+		Filters: []string{"park_id"},
 		Columns: []Column{
 			{Key: "park_id", Label: "Park", Type: TypeRef, Ref: RegParks, Required: true},
 			{Key: "name", Label: "Name", Type: TypeText, Required: true},
-			{Key: "capacity", Label: "Capacity", Type: TypeNumber, Min: zero(), Integer: true},
-			{Key: "stage_id", Label: "Stage", Type: TypeRef, Ref: RegStages, Hint: "The lifecycle stage the pen is kept for, when it has one."},
-			{Key: "sex", Label: "Gender", Type: TypeEnum, Options: []Option{{Value: "mixed", Label: "Mixed"}, {Value: "female", Label: "Female"}, {Value: "male", Label: "Male"}}},
-			// Pen type is set ONE PEN AT A TIME and nowhere else (maintainer instruction
-			// 2026-09-22): the farm mixes both kinds inside one park, so there is no park-wide
-			// or farm-wide switch. Leaving it unset is a real answer -- the pen is reported as
-			// unclassified rather than counted into either half of a comparison.
-			{Key: "shed_type", Label: "Pen type", Type: TypeEnum,
-				Options: []Option{{Value: "elevated", Label: "Elevated"}, {Value: "non_elevated", Label: "Non-elevated"}},
-				Hint:    "Elevated pens keep the animals off the ground. Weighing and Health Analytics compare the two kinds."},
-			{Key: "has_icu", Label: "ICU", Type: TypeBool},
+			{Key: "capacity", Label: "Capacity", Type: TypeNumber, Min: zero(), Integer: true, Hint: "How many animals the building holds, when it is worth recording."},
 			{Key: "notes", Label: "Notes", Type: TypeNotes, ListHidden: true},
 		},
 	},
 	{
+		// PEN TYPE IS SET PER PARTITION (maintainer instruction 2026-09-22: "assignment will be per
+		// partition only not pen"). A partition IS the pen the farm works -- Castro 1, Mandela 1 -
+		// Part 3 -- and one building can hold pens that were built differently, which a single
+		// value on the building cannot say. Migration 000389 moved the column down from
+		// shed_profiles and carried every already-classified pen with it.
 		Key: RegPartitions, Label: "Partitions", One: "Partition", Group: GroupFarmPlaces,
 		Hint:    "A partition is one section of a pen, such as Part 3 or 2. Its label is what is painted on the pen.",
-		Filters: []string{"park_id", "pen_id"},
+		Filters: []string{"park_id", "pen_id", "shed_type"},
 		Columns: []Column{
 			{Key: "park_id", Label: "Park", Type: TypeRef, Ref: RegParks, Required: true},
 			{Key: "pen_id", Label: "Pen", Type: TypeRef, Ref: RegPens, Required: true},
 			{Key: "label", Label: "Label", Type: TypeText, Required: true, Hint: "Part 3 and 3 are the same partition."},
+			{Key: "shed_type", Label: "Pen type", Type: TypeEnum,
+				Options: []Option{{Value: "elevated", Label: "Elevated"}, {Value: "non_elevated", Label: "Non-elevated"}},
+				Hint:    "Elevated pens keep the animals off the ground. Weighing and Health Analytics compare the two kinds. Left blank, this pen is reported as unclassified rather than counted into either side."},
 			{Key: "sort_order", Label: "Order", Type: TypeNumber, Min: zero(), Integer: true},
 		},
 	},
@@ -353,7 +365,7 @@ var Registers = []Register{
 			{Key: "tracking", Label: "Tracking", Type: TypeText, Derived: true, ListHidden: true},
 			{Key: "category_id", Label: "Category", Type: TypeRef, Ref: RegCategories, Required: true},
 			{Key: "code", Label: "Code", Type: TypeText, Hint: "Left blank, one is made from the name."},
-			{Key: "unit", Label: "Unit", Type: TypeText, Required: true, Hint: "ml, dose, tablet, kg, piece."},
+			{Key: "unit", Label: "Unit", Type: TypeText, Required: true, Kinds: []string{"medicine", "vaccine", "dewormer", "supplement", "consumable", "other"}, ImpliedOutOfKind: true, Hint: "ml, dose, tablet, kg, piece."},
 			{Key: "route", Label: "Route", Type: TypeEnum, Kinds: []string{"medicine", "dewormer"}, Options: []Option{{Value: "im", Label: "IM"}, {Value: "iv", Label: "IV"}, {Value: "sc", Label: "SC"}, {Value: "oral", Label: "Oral"}, {Value: "topical", Label: "Topical"}}},
 			{Key: "strength", Label: "Strength", Type: TypeText, Kinds: []string{"medicine", "dewormer"}, Hint: "e.g. 10 mg/ml"},
 			{Key: "withdrawal_days", Label: "Withdrawal (days)", Type: TypeNumber, Min: zero(), Integer: true, Kinds: []string{"medicine", "dewormer", "vaccine"}},
@@ -361,12 +373,20 @@ var Registers = []Register{
 			{Key: "manufacturer", Label: "Manufacturer", Type: TypeText, Kinds: []string{"vaccine", "medicine", "dewormer"}, ListHidden: true},
 			{Key: "doses_per_vial", Label: "Doses per vial", Type: TypeNumber, Min: zero(), Integer: true, Kinds: []string{"vaccine"}},
 			{Key: "vaccine_type", Label: "Live / killed", Type: TypeEnum, Kinds: []string{"vaccine"}, Options: []Option{{Value: "live", Label: "Live"}, {Value: "killed", Label: "Killed"}}},
+			// The three numbers the ration maths reads. They sit beside the feed's name now that a
+			// feed item is added and removed here rather than on Feed Config.
+			{Key: "energy_kcal_per_kg", Label: "Energy (kcal/kg)", Type: TypeNumber, Kinds: []string{"feed"}, Min: zero(), ListHidden: true},
+			{Key: "dry_matter_factor", Label: "Dry matter", Type: TypeNumber, Kinds: []string{"feed"}, Min: zero(), ListHidden: true, Hint: "Between 0 and 1."},
+			{Key: "wastage_factor", Label: "Wastage", Type: TypeNumber, Kinds: []string{"feed"}, Min: zero(), ListHidden: true, Hint: "Between 0 and 1."},
 			{Key: "notes", Label: "Notes", Type: TypeNotes, ListHidden: true},
 		},
 	},
 	{
-		Key: RegFeedItems, Label: "Feed items", One: "Feed item", Group: GroupCatalogue, ReadOnly: true, Hidden: true, EditHref: "/feed/config", EditLabel: "Feed Config",
-		Hint: "What the farm feeds. Edited in Feed Config, where the ration grid depends on it.",
+		// Kept hidden and read-only as a listing of its own; a feed item is ADDED, EDITED and
+		// REMOVED on Items & categories under Feed (maintainer instruction 2026-09-22), not here
+		// and no longer on Feed Config.
+		Key: RegFeedItems, Label: "Feed items", One: "Feed item", Group: GroupCatalogue, ReadOnly: true, Hidden: true, EditHref: "/configuration/items", EditLabel: "Items & categories",
+		Hint: "What the farm feeds. Added and removed under Items & categories -> Feed.",
 		Columns: []Column{
 			{Key: "name", Label: "Name", Type: TypeText, Required: true},
 			{Key: "energy_kcal_per_kg", Label: "Energy (kcal/kg)", Type: TypeNumber},

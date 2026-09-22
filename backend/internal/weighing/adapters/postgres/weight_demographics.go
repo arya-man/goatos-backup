@@ -1000,24 +1000,42 @@ lump_composition AS (
   GROUP BY l.location_id, l.partition_label
 ),
 shed_type AS (
-  -- CONFIGURED, NEVER GUESSED (maintainer instruction 2026-09-22). The pen's own
-  -- shed_profiles.shed_type, set on Configuration -> Items and settings -> Pens, and the
-  -- parent pen's only when a partition has not been typed itself.
+  -- CONFIGURED PER PARTITION, NEVER GUESSED (maintainer instructions 2026-09-22). The pen's own
+  -- shed_partitions.shed_type, set on Configuration -> Items and settings -> Partitions.
   --
-  -- This replaced an in-query inference that read the words elevated / crown / ground out of
-  -- free-text notes and then fell back to a hardcoded list of pen names. Migration 000385 wrote
-  -- that inference's answers into the column once, so no chart moved, and the guess is not kept
-  -- as a fallback on purpose: a pen the farm deliberately CLEARS must go back to unclassified,
-  -- and a fallback would quietly re-assert the old answer and make the screen look broken.
+  -- It replaced an in-query inference that read the words elevated / crown / ground out of
+  -- free-text notes and then fell back to a hardcoded list of pen names; 000385 wrote that
+  -- inference's answers down once and 000389 carried them from the building to its pens, so no
+  -- chart moved on either step. The guess is not kept as a fallback on purpose: a pen the farm
+  -- deliberately CLEARS must go back to unclassified, and a fallback would quietly re-assert the
+  -- old answer and make the screen look broken.
+  --
+  -- Two scalar subqueries, not a join: each is at most ONE row by a unique key -- the alias index,
+  -- then the catalog's own primary key -- so neither can pick a winner among rows that disagree,
+  -- and neither can fan a bucket out. The bucket may name the pen as its own legacy location
+  -- ("Godel 2 - Part 1") or as its parent plus a label; both spellings resolve to one row.
   --
   -- NULL stays NULL and every consumer drops it: an untyped pen is never counted into a side.
+  --
+  -- projection-review: membership=one row per scoped weighing bucket, DISTINCT over shed_targets,
+  -- unchanged by this read; group_key=(src.location_id, src.partition_label), exactly the DISTINCT
+  -- list and what every consumer joins back on; join_cardinality=no join is added -- both lookups
+  -- are SCALAR subqueries bounded to one row by a unique key, so the row count equals
+  -- shed_targets'; pagination=NONE, every scoped bucket retained; scope=tenant plus the authorized
+  -- park campaign scope shed_targets already applied, and each subquery re-asserts tenant_id.
   SELECT DISTINCT src.location_id, src.partition_label,
-         COALESCE(sp.shed_type, parent_sp.shed_type) AS shed_type
+         COALESCE(
+           (SELECT alias_pen.shed_type FROM shed_partitions alias_pen
+             WHERE alias_pen.tenant_id = $1::uuid
+               AND alias_pen.alias_location_id = src.location_id
+               AND alias_pen.status = 'active'),
+           (SELECT own_pen.shed_type FROM shed_partitions own_pen
+             WHERE own_pen.tenant_id = $1::uuid
+               AND own_pen.shed_id = src.resolved_id
+               AND own_pen.status = 'active'
+               AND own_pen.normalized_label = regexp_replace(lower(btrim(COALESCE(NULLIF(src.partition_label, ''), src.resolved_partition_label))), '^(part|pt)[\s.-]*', ''))
+         ) AS shed_type
   FROM shed_targets src
-  JOIN locations loc ON loc.location_id = src.location_id AND loc.tenant_id = $1::uuid
-  LEFT JOIN locations parent_loc ON parent_loc.location_id = src.resolved_id AND parent_loc.tenant_id = $1::uuid
-  LEFT JOIN shed_profiles sp ON sp.location_id = src.location_id AND sp.tenant_id = $1::uuid
-  LEFT JOIN shed_profiles parent_sp ON parent_sp.location_id = src.resolved_id AND parent_sp.tenant_id = $1::uuid
   WHERE $22::bool
 )
 SELECT
@@ -1703,24 +1721,42 @@ pen_week AS (
   ) ranked WHERE rn = 1
 ),
 shed_type AS (
-  -- CONFIGURED, NEVER GUESSED (maintainer instruction 2026-09-22). The pen's own
-  -- shed_profiles.shed_type, set on Configuration -> Items and settings -> Pens, and the
-  -- parent pen's only when a partition has not been typed itself.
+  -- CONFIGURED PER PARTITION, NEVER GUESSED (maintainer instructions 2026-09-22). The pen's own
+  -- shed_partitions.shed_type, set on Configuration -> Items and settings -> Partitions.
   --
-  -- This replaced an in-query inference that read the words elevated / crown / ground out of
-  -- free-text notes and then fell back to a hardcoded list of pen names. Migration 000385 wrote
-  -- that inference's answers into the column once, so no chart moved, and the guess is not kept
-  -- as a fallback on purpose: a pen the farm deliberately CLEARS must go back to unclassified,
-  -- and a fallback would quietly re-assert the old answer and make the screen look broken.
+  -- It replaced an in-query inference that read the words elevated / crown / ground out of
+  -- free-text notes and then fell back to a hardcoded list of pen names; 000385 wrote that
+  -- inference's answers down once and 000389 carried them from the building to its pens, so no
+  -- chart moved on either step. The guess is not kept as a fallback on purpose: a pen the farm
+  -- deliberately CLEARS must go back to unclassified, and a fallback would quietly re-assert the
+  -- old answer and make the screen look broken.
+  --
+  -- Two scalar subqueries, not a join: each is at most ONE row by a unique key -- the alias index,
+  -- then the catalog's own primary key -- so neither can pick a winner among rows that disagree,
+  -- and neither can fan a bucket out. The bucket may name the pen as its own legacy location
+  -- ("Godel 2 - Part 1") or as its parent plus a label; both spellings resolve to one row.
   --
   -- NULL stays NULL and every consumer drops it: an untyped pen is never counted into a side.
+  --
+  -- projection-review: membership=one row per scoped weighing bucket, DISTINCT over shed_targets,
+  -- unchanged by this read; group_key=(src.location_id, src.partition_label), exactly the DISTINCT
+  -- list and what every consumer joins back on; join_cardinality=no join is added -- both lookups
+  -- are SCALAR subqueries bounded to one row by a unique key, so the row count equals
+  -- shed_targets'; pagination=NONE, every scoped bucket retained; scope=tenant plus the authorized
+  -- park campaign scope shed_targets already applied, and each subquery re-asserts tenant_id.
   SELECT DISTINCT src.location_id, src.partition_label,
-         COALESCE(sp.shed_type, parent_sp.shed_type) AS shed_type
+         COALESCE(
+           (SELECT alias_pen.shed_type FROM shed_partitions alias_pen
+             WHERE alias_pen.tenant_id = $1::uuid
+               AND alias_pen.alias_location_id = src.location_id
+               AND alias_pen.status = 'active'),
+           (SELECT own_pen.shed_type FROM shed_partitions own_pen
+             WHERE own_pen.tenant_id = $1::uuid
+               AND own_pen.shed_id = src.resolved_id
+               AND own_pen.status = 'active'
+               AND own_pen.normalized_label = regexp_replace(lower(btrim(COALESCE(NULLIF(src.partition_label, ''), src.resolved_partition_label))), '^(part|pt)[\s.-]*', ''))
+         ) AS shed_type
   FROM shed_targets src
-  JOIN locations loc ON loc.location_id = src.location_id AND loc.tenant_id = $1::uuid
-  LEFT JOIN locations parent_loc ON parent_loc.location_id = src.resolved_id AND parent_loc.tenant_id = $1::uuid
-  LEFT JOIN shed_profiles sp ON sp.location_id = src.location_id AND sp.tenant_id = $1::uuid
-  LEFT JOIN shed_profiles parent_sp ON parent_sp.location_id = src.resolved_id AND parent_sp.tenant_id = $1::uuid
   WHERE $8::bool
 )
 SELECT

@@ -497,7 +497,7 @@ ORDER BY d.business_date DESC, d.goat_id
 // `dimension` column, so the client receives one row set and the totals of the
 // three groups are arithmetically identical by construction.
 //
-// projection-review: membership=health_cases opened inside the window for the tenant, optionally narrowed to one park -- the identical predicate healthAnalyticsCaseTotalsSQL counts as new_cases; group_key=(dimension, bucket key) where the key is the breed, the pen type or the age band of the case's OWN row; join_cardinality=goats is joined on (tenant_id, goat_id) which is its primary key so 1:1, and shed_profiles on (tenant_id, location_id) which is unique per pen so 1:{0,1} -- neither can multiply a case; pagination=none, the breed arm is capped in Go after the whole window is aggregated so the cap never changes the total; scope=tenant_id plus one optional park equality predicate inside scoped, applied once and inherited by all three arms.
+// projection-review: membership=health_cases opened inside the window for the tenant, optionally narrowed to one park -- the identical predicate healthAnalyticsCaseTotalsSQL counts as new_cases; group_key=(dimension, bucket key) where the key is the breed, the pen type or the age band of the case's OWN row; join_cardinality=goats is joined on (tenant_id, goat_id) which is its primary key so 1:1, and the pen type arrives from two SCALAR subqueries over shed_partitions, each one row by a unique key (the alias index, then the catalog primary key with goat_shed_partitions' own (tenant_id, goat_id) key) -- none of them can multiply a case; pagination=none, the breed arm is capped in Go after the whole window is aggregated so the cap never changes the total; scope=tenant_id plus one optional park equality predicate inside scoped, applied once and inherited by all three arms.
 //
 // Expanded rationale:
 //
@@ -510,10 +510,12 @@ ORDER BY d.business_date DESC, d.goat_id
 //	               whose animal has no date of birth is BUCKETED, never dropped:
 //	               COALESCE to an explicit key on every arm. A dropped row would
 //	               make a breakdown answer a smaller question than its headline.
-//	pen type     = the pen's own configured shed_profiles.shed_type, falling
-//	               back to its parent pen's for a partition that has not been
-//	               typed itself -- the same resolution the weighing comparison
-//	               uses, and never a guess from the pen's name.
+//	pen type     = the pen's own configured shed_partitions.shed_type -- the
+//	               same stored fact the weighing comparison reads, never a guess
+//	               from the pen's name. The case names a LOCATION, so the pen is
+//	               reached either as its own legacy alias row or through the
+//	               animal's own partition; each lookup is one row by a unique
+//	               key, so neither can multiply a case.
 //	age          = COALESCE(dob, approx_dob) to the case's START date, so it is
 //	               how old the animal was when it fell ill. approx_dob is an
 //	               estimate and is used because the alternative is throwing a
@@ -526,7 +528,19 @@ WITH bounds AS (
 scoped AS (
   SELECT hc.health_case_id,
          COALESCE(NULLIF(btrim(g.breed), ''), 'unknown') AS breed,
-         COALESCE(sp.shed_type, parent_sp.shed_type, 'unclassified') AS pen_type,
+         COALESCE(
+           (SELECT alias_pen.shed_type FROM shed_partitions alias_pen
+             WHERE alias_pen.tenant_id = hc.tenant_id
+               AND alias_pen.alias_location_id = hc.shed_id
+               AND alias_pen.status = 'active'),
+           (SELECT own_pen.shed_type FROM shed_partitions own_pen
+             JOIN goat_shed_partitions gsp
+               ON gsp.tenant_id = hc.tenant_id AND gsp.goat_id = hc.goat_id
+             WHERE own_pen.tenant_id = hc.tenant_id
+               AND own_pen.shed_id = hc.shed_id
+               AND own_pen.status = 'active'
+               AND own_pen.normalized_label = regexp_replace(lower(btrim(gsp.partition_label)), '^(part|pt)[\s.-]*', '')),
+           'unclassified') AS pen_type,
          CASE
            WHEN COALESCE(g.dob, g.approx_dob) IS NULL THEN 'unknown'
            WHEN hc.start_date - COALESCE(g.dob, g.approx_dob) < 0 THEN 'unknown'
@@ -539,10 +553,6 @@ scoped AS (
          END AS age_band
   FROM health_cases hc
   JOIN goats g ON g.tenant_id = hc.tenant_id AND g.goat_id = hc.goat_id
-  LEFT JOIN locations pen ON pen.tenant_id = hc.tenant_id AND pen.location_id = hc.shed_id
-  LEFT JOIN shed_profiles sp ON sp.tenant_id = hc.tenant_id AND sp.location_id = hc.shed_id
-  LEFT JOIN shed_profiles parent_sp
-    ON parent_sp.tenant_id = hc.tenant_id AND parent_sp.location_id = pen.parent_location_id
   CROSS JOIN bounds b
   WHERE hc.tenant_id = $1::uuid
     AND ($4 = '' OR hc.park_id = NULLIF($4, '')::uuid)

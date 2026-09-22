@@ -1,5 +1,7 @@
 SQLC ?= $(shell command -v sqlc 2>/dev/null || if command -v go >/dev/null 2>&1; then gopath=$$(go env GOPATH 2>/dev/null); if [ -x "$$gopath/bin/sqlc" ]; then printf '%s/bin/sqlc' "$$gopath"; fi; fi)
 GOATOS_LOCAL_TENANT_ID ?= 00000000-0000-4000-8000-000000000001
+# The local dev actor, matching apps/admin-web/scripts/run-local-next.mjs.
+GOATOS_LOCAL_USER_ID ?= 90000000-0000-4000-8000-000000000101
 GOATOS_VACCINATION_SOURCE_DIR ?= $(REPO_ROOT)/fixtures/vaccination-hrms-source-full
 GOATOS_SHED_MANAGER_MAPPING ?= $(GOATOS_VACCINATION_SOURCE_DIR)/shed-manager-mapping.jul11-vaccination.csv
 GOATOS_DEV_DASHBOARD_ADMIN_EMAILS ?= aryaman@mesha.sg manju@mesha.sg manohark@mesha.sg ravi@mesha.sg
@@ -1552,6 +1554,27 @@ seed-vaccination-cpt-operator-drive:
 # Deterministic post-seed/post-migration closeout. Runs only projectors/backfills
 # that derive app-visible read models from canonical source truth; it never
 # fabricates goats, owners, protocol facts, completions, or operational events.
+# The Health treatment rulebook: 54 protocols and, from 2026-09-21, the medicines they name.
+#
+# NOT wired into any composite target, and that is a GAP rather than a decision --
+# nothing in the Makefile, the seed scripts, the runbooks or Cloud Build ran the importer,
+# so a fresh deployment had no treatment protocols at all.
+# This target at least gives the step a name; wiring it into the deployment seed is a
+# maintainer call, because it decides whether every new farm starts from Mesha's rulebook.
+seed-health-protocols:
+	cd backend && go run ./cmd/health-sop-import \
+	  -tenant "$${GOATOS_TENANT_ID:-$(GOATOS_LOCAL_TENANT_ID)}" \
+	  -actor "$${GOATOS_SEED_ACTOR_ID:-$(GOATOS_LOCAL_USER_ID)}" \
+	  -file context/source-findings/health-sop-v1.json
+
+# The authored diagnosis registers: the observation form, the answer-to-finding mapping and
+# the rules, published as version 1 per animal class. Additive and idempotent -- a class
+# that already has a published register is left exactly as it is.
+seed-health-diagnosis-registers:
+	cd backend && go run ./cmd/seed-health-diagnosis-registers \
+	  -tenant-id "$${GOATOS_TENANT_ID:-$(GOATOS_LOCAL_TENANT_ID)}" \
+	  -actor-id "$${GOATOS_SEED_ACTOR_ID:-$(GOATOS_LOCAL_USER_ID)}"
+
 seed-closeout:
 	bash tools/dev/seed-closeout.sh
 

@@ -778,13 +778,8 @@ func addKidEvidence(ev map[string]bool, animal Animal, f Findings) {
 		ev["stage:"+animal.Stage] = true
 	}
 
-	if milkProblem(animal, f) {
-		ev["milk_intake:not_drinking"] = true
-		if animal.class() != ClassKidWeaning {
-			ev["eating:not_eating"] = true
-		}
-	} else if animal.Stage != "K1" && f.MilkIntake.has("reduced") {
-		ev["milk_intake:reduced"] = true
+	for tok := range MilkTokens(animal, f) {
+		ev[tok] = true
 	}
 
 	if isOneOf(f.Suckle, "present", "absent") {
@@ -799,6 +794,38 @@ func addKidEvidence(ev map[string]bool, animal Animal, f Findings) {
 	if isOneOf(f.Landing, "spiderman", "barely", "falls", "na") {
 		ev["landing:"+f.Landing] = true
 	}
+}
+
+// MilkTokens is the refusal reading: what this feed MEANS for this kid, given its
+// stage and how many feeds it has already refused today.
+//
+// It is the one part of the mapping that stayed in Go when the rest became authored
+// data, and the reason is that it reads HISTORY. No answer on the form carries "this
+// kid refused the last two bar sessions", so no `emits:` could express it -- and the
+// three slices count a miss so differently that collapsing them would either send a
+// healthy K1 learner to the ward or under-treat a K2 that has demonstrably stopped
+// drinking. See milkProblem.
+//
+// It is extracted rather than inlined so the authored path and the legacy path run the
+// SAME ladder. Two copies of this would be two clinical rules.
+func MilkTokens(animal Animal, f Findings) map[string]bool {
+	out := map[string]bool{}
+	if !animal.isKid() {
+		return out
+	}
+	if milkProblem(animal, f) {
+		out["milk_intake:not_drinking"] = true
+		// A milk kid off the bar is off feed: at that stage the bar IS the diet.
+		// Weaning is the deliberate exception -- a K3 kid that skips a 200 ml bottle
+		// is still eating concentrate, and calling it off feed would misread a missed
+		// bottle as a rumen problem and hand it an acidosis emergency it does not have.
+		if animal.class() != ClassKidWeaning {
+			out["eating:not_eating"] = true
+		}
+	} else if animal.Stage != "K1" && f.MilkIntake.has("reduced") {
+		out["milk_intake:reduced"] = true
+	}
+	return out
 }
 
 func sortedTokens(set map[string]bool) []string {

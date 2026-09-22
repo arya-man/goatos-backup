@@ -315,9 +315,15 @@ const HERD_JOIN_EXEMPT_FILES = new Map([
   [
     "backend/internal/weighing/adapters/postgres/weight_demographics.go",
     {
+      // NARROWED on 2026-09-22, and the narrowing is the point: the elevated/ground split used
+      // to be GUESSED here from shed_profiles.notes/context keywords, so this file needed that
+      // table. The farm now sets a pen type per partition in Configuration and the code is
+      // stored on shed_partitions, which is on the read allowlist for every weighing file --
+      // so the exemption gives this one back. An exemption that stops being needed is removed,
+      // never left standing as a permission nobody is using.
       reason:
-        "maintainer decisions 2026-08-07/2026-08-19/2026-09-02: average weight by breed/sex/stage, lump-sum shed/partition composition, and explicit shed-type profile metadata on the Weights screen",
-      tables: [...HERD_JOIN_BASE_TABLES, "shed_profiles"],
+        "maintainer decisions 2026-08-07/2026-08-19: average weight by breed/sex/stage and lump-sum shed/partition composition on the Weights screen",
+      tables: [...HERD_JOIN_BASE_TABLES],
     },
   ],
   [

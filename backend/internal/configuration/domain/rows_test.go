@@ -75,13 +75,21 @@ func TestValidateWriteCreateRequiresAndCoerces(t *testing.T) {
 	}
 
 	clean, err := ValidateWrite(reg, map[string]any{
-		"park_id": "11111111-1111-4111-8111-111111111111", "name": " Castro ", "capacity": "120", "sex": "Female", "has_icu": "yes", "notes": "",
+		"park_id": "11111111-1111-4111-8111-111111111111", "name": " Castro ", "capacity": "120", "notes": "",
 	}, nil, "")
 	if err != nil {
 		t.Fatalf("unexpected: %v", err)
 	}
-	if clean["name"] != "Castro" || clean["capacity"] != int64(120) || clean["sex"] != "female" || clean["has_icu"] != true {
+	if clean["name"] != "Castro" || clean["capacity"] != int64(120) {
 		t.Fatalf("clean = %#v", clean)
+	}
+	// A pen is a building in a park (maintainer instruction 2026-09-22): what is KEPT in it is not
+	// a setting, so the register no longer carries stage, gender or ICU and a write naming one is
+	// an unknown field like any other.
+	if _, err := ValidateWrite(reg, map[string]any{
+		"park_id": "11111111-1111-4111-8111-111111111111", "name": "Castro", "sex": "female", "has_icu": true, "stage_id": "x",
+	}, nil, ""); fieldCodes(t, err)["sex"] != "unknown" || fieldCodes(t, err)["has_icu"] != "unknown" || fieldCodes(t, err)["stage_id"] != "unknown" {
+		t.Fatalf("stage / gender / ICU must be unknown on a pen now, got %v", fieldCodes(t, err))
 	}
 	if v, ok := clean["notes"]; !ok || v != nil {
 		t.Fatalf("a blank optional field must be sent as nil (clear), got %#v", clean["notes"])
@@ -91,11 +99,17 @@ func TestValidateWriteCreateRequiresAndCoerces(t *testing.T) {
 func TestValidateWriteRefusesUnknownEnumNumberAndKey(t *testing.T) {
 	reg := mustRegister(t, RegPens)
 	_, err := ValidateWrite(reg, map[string]any{
-		"park_id": "x", "name": "A", "capacity": "-3", "sex": "other", "bogus": 1,
+		"park_id": "x", "name": "A", "capacity": "-3", "bogus": 1,
 	}, nil, "")
 	codes := fieldCodes(t, err)
-	if codes["capacity"] != "invalid" || codes["sex"] != "invalid" || codes["bogus"] != "unknown" {
+	if codes["capacity"] != "invalid" || codes["bogus"] != "unknown" {
 		t.Fatalf("codes = %v", codes)
+	}
+	// The enum refusal moved to a register that still has one; Pens carries no enum any more.
+	tasks := mustRegister(t, RegTaskTypes)
+	_, err = ValidateWrite(tasks, map[string]any{"name": "A", "code": "a", "answer_kind": "other"}, nil, "")
+	if fieldCodes(t, err)["answer_kind"] != "invalid" {
+		t.Fatalf("an unknown enum choice must be refused, got %v", fieldCodes(t, err))
 	}
 	_, err = ValidateWrite(reg, map[string]any{"park_id": "x", "name": "A", "capacity": "12.5"}, nil, "")
 	if fieldCodes(t, err)["capacity"] != "invalid" {

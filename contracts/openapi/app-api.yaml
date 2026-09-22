@@ -16555,6 +16555,242 @@ paths:
         "404": { $ref: "#/components/responses/NotFoundOrNotAllowed" }
         "409": { $ref: "#/components/responses/WriteConflict" }
         "500": { $ref: "#/components/responses/ServerError" }
+  /health-config/medicines:
+    get:
+      tags: [Health Config]
+      operationId: listHealthConfigMedicines
+      summary: The medicines a treatment step may name.
+      description: >-
+        The authoring picker's source. A treatment step names a medicine FROM THE ITEM REGISTRY
+        (/configuration/items) and never free text, so that a course cannot name a medicine the farm
+        does not stock and one medicine cannot end up under two spellings. ACTIVE items only:
+        retiring a medicine in the registry is how a farm stops new courses being written against
+        it, and an archived row still offered here would make that a suggestion rather than a
+        decision. Choosing from the list rides the READ permission because it is not authority over
+        the list; adding a medicine is gated on the Configuration screen.
+      responses:
+        "200":
+          description: This farm's active medicines, by name.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [medicines]
+                properties:
+                  medicines:
+                    type: array
+                    items:
+                      $ref: "#/components/schemas/HealthCatalogItem"
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "500": { $ref: "#/components/responses/ServerError" }
+  /health-config/registers:
+    get:
+      tags: [Health Config]
+      operationId: listHealthConfigRegisters
+      summary: The live register and open draft for every animal class.
+      description: >-
+        A diagnosis register holds the observation form, the mapping from each answer to a finding,
+        and the rules those findings fire -- in ONE published version. One register serves each
+        animal class, because the loudest rule in the clinical contract is that a milk kid is never
+        diagnosed against the adult table.
+      responses:
+        "200":
+          description: Every class's live register and open draft.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [registers]
+                properties:
+                  registers:
+                    type: array
+                    items:
+                      $ref: "#/components/schemas/HealthRegisterSummary"
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "500": { $ref: "#/components/responses/ServerError" }
+  /health-config/registers/{register_version_id}:
+    get:
+      tags: [Health Config]
+      operationId: getHealthConfigRegister
+      summary: One register version with its whole document.
+      description: >-
+        Returns the document AND the verdict a publish would apply, including the warnings a publish
+        allows. The verdict is on the read rather than only on the publish button so an author sees
+        "not finished yet" while editing instead of "rejected" at the end.
+      parameters:
+        - name: register_version_id
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      responses:
+        "200":
+          description: The register version.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/HealthRegisterDetail"
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "404": { $ref: "#/components/responses/NotFoundOrNotAllowed" }
+        "500": { $ref: "#/components/responses/ServerError" }
+  /health-config/registers/drafts:
+    post:
+      tags: [Health Config]
+      operationId: openHealthConfigRegisterDraft
+      summary: Open the editor on a class's register.
+      description: >-
+        Returns the open draft, CREATING it as a copy of the live register when none is open --
+        which is why an edit always begins from what is currently diagnosing animals rather than
+        from a blank form. A second open returns the same draft, so an author may close the tab and
+        come back. This is a WRITE despite reading like a read.
+      parameters:
+        - $ref: "#/components/parameters/IdempotencyKey"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [animal_class]
+              properties:
+                animal_class:
+                  type: string
+                  description: adult, kid_milk, kid_weaning or kid_fattening.
+      responses:
+        "200":
+          description: The open draft.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/HealthRegisterDetail"
+        "400": { $ref: "#/components/responses/BadRequest" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "404": { $ref: "#/components/responses/NotFoundOrNotAllowed" }
+        "409": { $ref: "#/components/responses/WriteConflict" }
+        "422":
+          description: The class is not one this farm diagnoses.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/HealthConfigValidationError"
+        "500": { $ref: "#/components/responses/ServerError" }
+  /health-config/registers/drafts/save:
+    post:
+      tags: [Health Config]
+      operationId: saveHealthConfigRegisterDraft
+      summary: Replace a draft's whole document.
+      description: >-
+        The form and the rules are saved together because they are one statement: a question whose
+        answer no rule reads does nothing, and a rule reading a finding no question asks can never
+        be diagnosed. Both directions are checked here, at SAVE time, so a missing mapping is one
+        line to fix rather than a hunt through a document that has moved on. A save whose content
+        matches the draft writes no new version and reports "unchanged".
+      parameters:
+        - $ref: "#/components/parameters/IdempotencyKey"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [animal_class, document]
+              properties:
+                animal_class:
+                  type: string
+                document:
+                  $ref: "#/components/schemas/HealthRegisterDocument"
+      responses:
+        "200":
+          description: The draft was saved, or was already identical.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/HealthRegisterWriteResult"
+        "400": { $ref: "#/components/responses/BadRequest" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "404": { $ref: "#/components/responses/NotFoundOrNotAllowed" }
+        "409": { $ref: "#/components/responses/WriteConflict" }
+        "422":
+          description: The document is not saveable. Every problem is named with its own path.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/HealthConfigValidationError"
+        "500": { $ref: "#/components/responses/ServerError" }
+  /health-config/registers/{register_version_id}/publish:
+    post:
+      tags: [Health Config]
+      operationId: publishHealthConfigRegisterDraft
+      summary: Publish a draft register, retiring the one it replaces.
+      description: >-
+        Promotes the draft and retires the live register in one transaction. Diagnoses already made
+        are UNAFFECTED: every run pins the register version it was produced under, so publishing
+        changes what the NEXT observation is judged against, never what an old proposal meant.
+        Publish re-validates what is STORED and adds the check that needs the catalog: a rule whose
+        treats names no disease at all is refused as a typo, while a disease whose treatment course
+        nobody has written yet publishes with a warning.
+      parameters:
+        - name: register_version_id
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+        - $ref: "#/components/parameters/IdempotencyKey"
+      responses:
+        "200":
+          description: The draft is now the live register.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/HealthRegisterWriteResult"
+        "400": { $ref: "#/components/responses/BadRequest" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "404": { $ref: "#/components/responses/NotFoundOrNotAllowed" }
+        "409": { $ref: "#/components/responses/WriteConflict" }
+        "422":
+          description: The stored draft is not publishable. Every problem is named.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/HealthConfigValidationError"
+        "500": { $ref: "#/components/responses/ServerError" }
+  /health-config/registers/{register_version_id}/discard:
+    post:
+      tags: [Health Config]
+      operationId: discardHealthConfigRegisterDraft
+      summary: Discard a draft register without publishing it.
+      description: >-
+        Only a draft can be discarded. A published register is immutable because animals are being
+        diagnosed against it, and a retired one is the record of what they were diagnosed against.
+      parameters:
+        - name: register_version_id
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+        - $ref: "#/components/parameters/IdempotencyKey"
+      responses:
+        "200":
+          description: The draft was discarded.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/HealthRegisterWriteResult"
+        "400": { $ref: "#/components/responses/BadRequest" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "404": { $ref: "#/components/responses/NotFoundOrNotAllowed" }
+        "409": { $ref: "#/components/responses/WriteConflict" }
+        "500": { $ref: "#/components/responses/ServerError" }
   /app/counts/approvals:
     get:
       tags:
@@ -19230,6 +19466,272 @@ components:
             array is a legitimate draft -- the strict rules apply at publish.
           items:
             $ref: "#/components/schemas/SaveHealthConfigDraftStep"
+    HealthCatalogItem:
+      type: object
+      additionalProperties: false
+      required: [item_id, name, category]
+      properties:
+        item_id: { type: string, format: uuid }
+        name:
+          type: string
+          description: >-
+            The label an operator reads mid-treatment. A step stores it alongside the id, so
+            renaming an item in the registry never silently rewrites a course a goat is part way
+            through.
+        category: { type: string }
+        category_path:
+          type: string
+          description: The editable subcategory the farm filed it under, for grouping the picker.
+    HealthRegisterProblem:
+      type: object
+      additionalProperties: false
+      required: [path, message, fatal]
+      properties:
+        path:
+          type: string
+          description: The place in the document the problem is at, so an editor can mark that row.
+        message:
+          type: string
+        fatal:
+          type: boolean
+          description: >-
+            A fatal problem refuses the publish. A non-fatal one is shown to the author and allowed
+            through -- a finding declared but not yet read by any rule, or a diagnosis whose
+            treatment course nobody has written.
+    HealthRegisterOption:
+      type: object
+      additionalProperties: false
+      required: [value, label]
+      properties:
+        value: { type: string }
+        label: { type: string }
+        emits:
+          type: array
+          items: { type: string }
+          description: >-
+            The findings this answer puts in front of the rules. EMPTY IS NORMAL and is the common
+            case -- "normal", "no" and "none" are the absence of a sign, not a sign named "none",
+            and emitting one would let a rule anchor on it and surface it as an unaccounted-for
+            finding.
+        conflicts_with:
+          type: array
+          items: { type: string }
+          description: Answers on the same question this one cannot be ticked beside.
+    HealthRegisterBand:
+      type: object
+      additionalProperties: false
+      required: [emits]
+      properties:
+        gt: { type: number }
+        gte: { type: number }
+        lt: { type: number }
+        lte: { type: number }
+        emits:
+          type: array
+          items: { type: string }
+      description: >-
+        Maps a measurement to findings. FIRST MATCH WINS, so bands are listed most severe first; a
+        band an earlier one already covers entirely is refused, because that is how a high fever
+        ends up permanently unreachable.
+    HealthRegisterCondition:
+      type: object
+      additionalProperties: false
+      required: [question_id, in]
+      properties:
+        question_id: { type: string }
+        in:
+          type: array
+          items: { type: string }
+    HealthRegisterQuestion:
+      type: object
+      additionalProperties: false
+      required: [id, kind, title]
+      properties:
+        id: { type: string }
+        kind:
+          type: string
+          enum: [choice, multi, number]
+        title: { type: string }
+        hint: { type: string }
+        section: { type: string }
+        options:
+          type: array
+          items: { $ref: "#/components/schemas/HealthRegisterOption" }
+        bands:
+          type: array
+          items: { $ref: "#/components/schemas/HealthRegisterBand" }
+        unit: { type: string }
+        min: { type: number }
+        max: { type: number }
+        only_if_sex:
+          type: string
+          description: >-
+            Hides the question for the other sex. A hidden question is NOT ASKED rather than left
+            blank, which is what keeps every asked question compulsory.
+        only_if_stage:
+          type: array
+          items: { type: string }
+        only_if:
+          allOf:
+            - $ref: "#/components/schemas/HealthRegisterCondition"
+          nullable: true
+      description: >-
+        One thing the manager is asked about the animal in front of them. There is deliberately no
+        "required" flag: every question is compulsory, because a blank cannot tell "nobody looked"
+        from "normal" and the unaccounted-for findings on a proposal depend on that difference.
+    HealthRegisterCorrection:
+      type: object
+      additionalProperties: false
+      required: [id, when]
+      properties:
+        id: { type: string }
+        when:
+          type: array
+          items: { type: string }
+        remove:
+          type: array
+          items: { type: string }
+        add:
+          type: array
+          items: { type: string }
+        note: { type: string }
+      description: >-
+        Rewrites the findings where one observation changes how another is read -- a drawn-in
+        stomach makes the skin tent read one band worse than the animal is.
+    HealthRegisterClause:
+      type: object
+      additionalProperties: false
+      required: [findings]
+      properties:
+        findings:
+          type: array
+          items: { type: string }
+        residual:
+          type: boolean
+          description: >-
+            Fires only when every finding in it is still unaccounted for, which is what stops a
+            symptom label opening a second problem beside the illness that already explains it.
+    HealthRegisterSeverityModifier:
+      type: object
+      additionalProperties: false
+      required: [finding, severity]
+      properties:
+        finding: { type: string }
+        severity: { type: integer }
+    HealthRegisterRule:
+      type: object
+      additionalProperties: false
+      required: [id]
+      properties:
+        id: { type: string }
+        kind: { type: string }
+        applies_species: { type: array, items: { type: string } }
+        applies_sex: { type: array, items: { type: string } }
+        applies_status: { type: array, items: { type: string } }
+        gate_required: { type: array, items: { type: string } }
+        gate_excluded: { type: array, items: { type: string } }
+        human_selected_only: { type: boolean }
+        pathognomonic: { type: array, items: { $ref: "#/components/schemas/HealthRegisterClause" } }
+        probable: { type: array, items: { $ref: "#/components/schemas/HealthRegisterClause" } }
+        possible: { type: array, items: { $ref: "#/components/schemas/HealthRegisterClause" } }
+        severity_base: { type: integer }
+        severity_modifiers:
+          type: array
+          items: { $ref: "#/components/schemas/HealthRegisterSeverityModifier" }
+        acute_actionable: { type: boolean }
+        treatment_risk: { type: string }
+        exit_type: { type: string }
+        sop_ref: { type: string }
+        containment: { type: string }
+        explains_findings: { type: array, items: { type: string } }
+        suppresses: { type: array, items: { type: string } }
+        recheck_id_possible: { type: string }
+        adjunct_when: { type: array, items: { type: string } }
+        treats:
+          type: string
+          description: >-
+            The treatment course this diagnosis opens, by disease key. EMPTY IS LEGITIMATE and means
+            a field action -- treated in place, opening no course.
+    HealthRegisterDocument:
+      type: object
+      additionalProperties: false
+      required: [register_version, applies_class, questions, rules]
+      properties:
+        register_version: { type: string }
+        applies_class:
+          type: array
+          items: { type: string }
+        questions:
+          type: array
+          items: { $ref: "#/components/schemas/HealthRegisterQuestion" }
+        corrections:
+          type: array
+          items: { $ref: "#/components/schemas/HealthRegisterCorrection" }
+        non_specific:
+          type: array
+          items: { type: string }
+        vocabulary:
+          type: array
+          items: { type: string }
+        rules:
+          type: array
+          items: { $ref: "#/components/schemas/HealthRegisterRule" }
+    HealthRegisterSummary:
+      type: object
+      additionalProperties: false
+      required:
+        - register_version_id
+        - animal_class
+        - version
+        - status
+        - register_label
+        - question_count
+        - rule_count
+        - updated_at
+      properties:
+        register_version_id: { type: string, format: uuid }
+        animal_class: { type: string }
+        version: { type: integer }
+        status:
+          type: string
+          enum: [draft, published, retired]
+        register_label: { type: string }
+        question_count: { type: integer }
+        rule_count: { type: integer }
+        published_at: { type: string, format: date-time, nullable: true }
+        updated_at: { type: string, format: date-time }
+    HealthRegisterDetail:
+      allOf:
+        - $ref: "#/components/schemas/HealthRegisterSummary"
+        - type: object
+          required: [document]
+          properties:
+            document:
+              $ref: "#/components/schemas/HealthRegisterDocument"
+            problems:
+              type: array
+              nullable: true
+              items: { $ref: "#/components/schemas/HealthRegisterProblem" }
+    HealthRegisterWriteResult:
+      type: object
+      additionalProperties: false
+      required: [outcome, animal_class, idempotent_replay]
+      properties:
+        outcome:
+          type: string
+          enum: [saved, unchanged, published, discarded]
+        animal_class: { type: string }
+        register_version_id: { type: string, nullable: true }
+        version: { type: integer, nullable: true }
+        retired_version_id: { type: string, nullable: true }
+        idempotent_replay: { type: boolean }
+        warnings:
+          type: array
+          nullable: true
+          items: { $ref: "#/components/schemas/HealthRegisterProblem" }
+          description: >-
+            What the published register still carries. Returned rather than swallowed because the
+            publish ALLOWED them, and an author who is not told what they published cannot fix it.
     HealthConfigWriteResult:
       type: object
       additionalProperties: false

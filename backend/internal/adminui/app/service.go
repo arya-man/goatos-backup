@@ -1013,9 +1013,18 @@ func pages() []domain.PageContract {
 				table("health-medicines", "Medicines given", "/health/analytics", []string{"medicine", "route", "doses", "animals"}, "medicine"),
 				table("health-engine-rules", "Rules the engine proposed", "/health/analytics", []string{"rule", "proposed", "opened", "not_taken_up"}, "rule"),
 			}),
-		page("health-config", "/health/config", "/health/config", "Health Config — Treatment Protocols", "Health-owned authority screen for the authored disease treatment courses: medicines, dosages, routes, and how many days each course runs.", "module-surface",
+		page("health-config", "/health/config", "/health/config", "Health Config", "Health-owned authority screen for the farm's whole clinical rulebook: which illness an animal is judged to have, and what it is then given.", "module-surface",
 			[]domain.TableContract{
 				tableP("protocol-catalog", "Treatment protocols", "/health-config/protocols", []string{"display_name", "age_band", "duration_days", "step_count", "medication_count", "critical_action_count", "published_version", "draft_state"}, "protocol_version_id", []int{10, 25, 50}),
+				// The DIAGNOSIS REGISTER, the other half of the same rulebook: the questions
+				// the observation form asks, the tokens each answer emits, and the rules
+				// those tokens fire. One row per animal class, because a milk kid is never
+				// diagnosed against the adult table.
+				table("register-catalog", "Diagnosis registers", "/health-config/registers", []string{"animal_class", "register_label", "status", "question_count", "rule_count", "published"}, "register_version_id"),
+				// The document, in two tables because an author works on one half at a time:
+				// what the form ASKS, and what the rules MAKE of the answers.
+				table("register-questions", "Questions", "/health-config/registers", []string{"title", "kind", "section", "answers", "emits", "only_if"}, "question_id"),
+				table("register-rules", "Rules", "/health-config/registers", []string{"rule_id", "treats", "severity_base", "pathognomonic", "probable", "possible"}, "rule_id"),
 				// The document. medicine/dosage/route are empty on action and critical-action
 				// steps by design -- those steps carry an instruction instead -- so the columns are
 				// deliberately sparse rather than being split into three tables an author would
@@ -2594,29 +2603,31 @@ func pageSpecificCopy(id string) map[string]string {
 			"rail.title":                   "Registers",
 			"search.placeholder":           "Search",
 			"status.active":                "Active",
-			"status.archived":              "Archived",
+			"status.archived":              "Inactive",
 			"status.all":                   "All",
 			"action.create_row.label":      "Add",
 			"action.edit_row.label":        "Edit",
-			"action.set_row_status.label":  "Archive / restore",
-			"action.delete_row.label":      "Delete",
-			"action.archive":               "Archive",
-			"action.restore":               "Restore",
-			"action.delete":                "Delete",
+			"action.set_row_status.label":  "Make active or inactive",
+			"action.delete_row.label":      "Remove",
+			"action.archive":               "Make inactive",
+			"action.restore":               "Make active",
+			"action.delete":                "Remove",
 			"action.save":                  "Save",
 			"action.cancel":                "Cancel",
 			"action.close":                 "Close",
 			"action.edit_elsewhere":        "Edit in",
 			"action.success_message":       "Saved.",
-			"action.deleted_message":       "Deleted.",
+			"action.deleted_message":       "Removed.",
+			"action.row_menu":              "More",
+			"action.row_actions":           "Actions",
 			"action.failed_message":        "That could not be saved.",
 			"action.error_form":            "Check the highlighted fields.",
 			"drawer.create_title":          "New",
 			"drawer.edit_title":            "Edit",
 			"drawer.usage_title":           "Where it is used",
-			"drawer.builtin_hint":          "Built into the product: it can be renamed but not removed.",
-			"drawer.delete_confirm":        "Delete this record? This cannot be undone.",
-			"drawer.archive_hint":          "Archived records stay on everything that already uses them and stop being offered for new ones.",
+			"drawer.builtin_hint":          "Built into the product: it can be renamed, but not made inactive or removed.",
+			"drawer.delete_confirm":        "Remove this for good? It cannot be undone. A record something still uses can be neither removed nor made inactive.",
+			"drawer.archive_hint":          "An inactive record stops being offered for anything new. A record something still uses must be freed first \u2014 move the animals, or change what names it.",
 			"empty.rows":                   "Nothing here yet.",
 			"empty.search":                 "No matches.",
 			"pager.noun":                   "records",
@@ -7267,6 +7278,123 @@ func pageSpecificCopy(id string) map[string]string {
 			// author leaves it. Telling them it self-healed when it has not is worse than silence.
 			"error.stale_version": "That version is no longer there \u2014 it was published or discarded. Everything below is up to date.",
 			"action.back_to_list": "Back to the list",
+			// A draft that lost its steps is not "a course with no steps yet" -- the live
+			// course still has them, and the two sentences sitting on one screen read as a
+			// contradiction. Say which one the animals are being treated from, and that
+			// discarding returns to it, because that is the recovery and it is not obvious.
+			"label.pick_medicine": "Search the medicine list",
+			// A medicine exists on Configuration > Items first, and only then can a course
+			// name it. The sentence says where to add one, because "not in the list" without
+			// a next step is a dead end.
+			"warn.medicine_not_in_catalog": "Not in this farm's medicine list. Pick one from the list, or add it under Configuration \u203a Items first.",
+			"warn.empty_draft_over_live":   "This draft is empty, but the live course still has its steps and is what animals are treated from. Publishing is blocked until you add one. Discard the draft to go back to the live course untouched.",
+
+			// ---- the diagnosis register ---------------------------------------------------
+			// The other half of the rulebook. The copy's job is to keep two things
+			// un-missable: a version carries the FORM and the RULES together, and the two
+			// halves are checked against each other rather than saved side by side.
+			"tab.protocols":                     "Treatment",
+			"tab.registers":                     "Diagnosis",
+			"section.registers.title":           "Diagnosis registers",
+			"section.registers.aria":            "Authored diagnosis registers",
+			"section.registers.caption":         "One register per animal class \u2014 the questions asked about a sick animal, and the illnesses the answers point to",
+			"section.registers.note":            "A register holds the observation form AND the rules together, in one published version. A question whose answer no rule reads does nothing; a rule that reads a finding no question asks can never be diagnosed. Publishing checks both directions, so the two halves can only go live together.",
+			"section.questions.title":           "Questions",
+			"section.questions.caption":         "What the manager is asked about the animal in front of them",
+			"section.questions.note":            "Every question is compulsory. A blank cannot tell \u201cnobody looked\u201d from \u201cnormal\u201d, and the unaccounted-for findings on a proposal depend on that difference. A question that does not apply to the animal \u2014 an udder on a male \u2014 is not asked at all rather than left empty.",
+			"section.rules.title":               "Illnesses",
+			"section.rules.caption":             "What each illness looks like, and the treatment it opens",
+			"section.rules.note":                "Rules are judged in parallel, never as a tree: an animal can have two illnesses at once, and a sign being absent does not rule one out. Treats names the treatment course the diagnosis opens; a rule with none is a field action, treated in place.",
+			"table.registers.aria":              "Diagnosis register rows",
+			"table.registers.noun":              "register",
+			"table.questions.aria":              "Question rows",
+			"table.questions.noun":              "question",
+			"table.rules.aria":                  "Rule rows",
+			"table.rules.noun":                  "rule",
+			"empty.registers":                   "No diagnosis register is published yet.",
+			"empty.questions":                   "This register asks nothing yet.",
+			"empty.rules":                       "This register names no illness yet.",
+			"action.edit_register":              "Edit",
+			"action.publish_register":           "Publish",
+			"action.discard_register_draft":     "Discard draft",
+			"label.animal_class":                "Animals",
+			"label.register_live":               "Live",
+			"label.register_draft":              "Draft",
+			"label.answers":                     "Answers",
+			"label.findings":                    "Findings",
+			"label.treats":                      "Opens",
+			"label.field_action":                "Treated in place",
+			"label.only_if":                     "Asked when",
+			"label.warnings":                    "Worth knowing",
+			"note.register_warnings":            "These do not stop a publish. Each one is a question no rule reads yet, or an illness whose treatment course nobody has written.",
+			"register_config.disabled_no_write": "Your current role can read the diagnosis registers but cannot change them.",
+			"action.register_opened":            "Editing a copy of the live register. Nothing changes for the herd until you publish it.",
+			"action.register_saved":             "Saved as a draft. The live register is unchanged.",
+			// "Unchanged" is a real outcome, not a silent no-op: the author pressed save and
+			// nothing differed from what was already stored. Saying so beats a success that
+			// looks identical to one that wrote something.
+			"action.register_unchanged": "Nothing to save \u2014 this is already what the draft says.",
+			"action.register_published": "Published. New observations are judged against this register from now on; proposals already made keep the version they were made under.",
+			"action.register_discarded": "Draft discarded. The live register was never touched.",
+			// The class as a person says it. The stored value is a machine key; a farm reads
+			// "Kids on milk", which is the phrase a vet recognises from the shed.
+			"label.class.adult":         "Adults",
+			"label.class.kid_milk":      "Kids on milk",
+			"label.class.kid_weaning":   "Kids weaning",
+			"label.class.kid_fattening": "Kids fattening",
+			// The three tiers a rule can reach. They are a CONFIDENCE axis, separate from
+			// severity: a possible bloat outranks a confirmed pinkeye, because ranking on
+			// confidence alone treats the eye while the bladder ruptures.
+			"label.tier.pathognomonic": "Confirmed by",
+			"label.tier.probable":      "Probable when",
+			"label.tier.possible":      "Possible when",
+			"label.kind.choice":        "Pick one",
+			"label.kind.multi":         "Pick any",
+			"label.kind.number":        "Measurement",
+			"label.answer_no":          "No",
+			"label.answer_yes":         "Yes",
+			"action.remove_question":   "Remove question",
+			"action.remove_rule":       "Remove illness",
+			"action.remove_answer":     "Remove answer",
+			"action.remove_band":       "Remove band",
+			"action.remove_clause":     "Remove condition",
+			"label.question_title":     "Question",
+			"label.question_id":        "Key",
+			"label.question_kind":      "Answered by",
+			"label.rule_id":            "Illness",
+			"label.severity":           "Severity",
+			"label.answer_label":       "Answer",
+			"label.answer_value":       "Key",
+			"label.band_over":          "Over",
+			"label.band_from":          "From",
+			"label.band_under":         "Under",
+			"label.band_upto":          "Up to",
+			"action.add_question":      "Add a question",
+			"action.add_rule":          "Add an illness",
+			"action.add_answer":        "Add an answer",
+			"action.add_band":          "Add a band",
+			"action.add_clause":        "Add a way to recognise it",
+
+			// ---- the layman's vocabulary ---------------------------------------------------
+			// A register is two lists joined by one idea: an answer can be a SIGN, and an
+			// illness is recognised by signs. The screen says exactly that, everywhere, and
+			// never shows the machine token unless the reader asks for it.
+			"label.sign":             "Sign",
+			"label.signs":            "Signs",
+			"label.is_a_sign":        "This answer is a sign",
+			"label.not_a_sign":       "Normal — not a sign",
+			"label.used_by":          "Points to",
+			"label.used_by_none":     "No illness uses this yet",
+			"label.pick_sign":        "Add a sign",
+			"label.any_one_confirms": "Any one of these is enough",
+			"label.all_must_hold":    "and",
+			"label.advanced":         "Machine name",
+			"label.no_conditions":    "Nothing recognises this illness yet",
+			"label.question_count":   "questions",
+			"label.illness_count":    "illnesses",
+			"note.how_it_works":      "The manager answers every question about the sick animal. Some answers are SIGNS — something a healthy animal would not show. Each illness below lists the signs that point to it, and the engine proposes every illness whose signs are present. Two illnesses can be proposed at once, because an animal can have two.",
+			"note.questions_how":     "Mark an answer as a sign when it means something is wrong. \u201cEating normally\u201d is not a sign; \u201cNot eating\u201d is. Beside each sign you can see which illnesses it points to, and add it to another.",
+			"note.rules_how":         "An illness is recognised by its signs. Each line is one way to recognise it, and any single line is enough. A line with two signs needs both at once. Confirmed, Probable and Possible say how sure that line makes the engine.",
 		}
 	case "feed-config":
 		return map[string]string{

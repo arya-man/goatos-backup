@@ -6,11 +6,13 @@ import (
 	"errors"
 	"fmt"
 	"strings"
+	"unicode"
 
 	"github.com/jackc/pgx/v5"
 
 	"github.com/vgoats/goatos/backend/internal/configuration/domain"
 	"github.com/vgoats/goatos/backend/internal/configuration/ports"
+	"github.com/vgoats/goatos/backend/internal/platform/sqlbind"
 )
 
 // projection is the ONE shape every register's read SQL produces, so list / get / count /
@@ -51,7 +53,13 @@ const listWrapSQL = `
 SELECT id, display, status, row_version, is_builtin, fields, labels, counts, sort_key
 FROM (%s) r
 WHERE ($2 = 'all' OR r.status = $2)
-  AND ($3 = '' OR r.display ILIKE '%%' || $3 || '%%' OR COALESCE(r.fields->>'label', '') ILIKE '%%' || $3 || '%%')
+  AND ($3 = ''
+       OR r.display ILIKE '%%' || $3 || '%%'
+       OR COALESCE(r.fields->>'label', '') ILIKE '%%' || $3 || '%%'
+       OR (cardinality($7::text[]) > 0 AND NOT EXISTS (
+            SELECT 1 FROM unnest($7::text[]) AS term
+            WHERE r.display NOT ILIKE '%%' || term || '%%'
+              AND COALESCE(r.fields->>'label', '') NOT ILIKE '%%' || term || '%%')))
   AND ($4::jsonb = '{}'::jsonb OR r.fields @> $4::jsonb)
   AND ($5 = '' OR (r.sort_key, r.id) > (split_part($5, E'\x1f', 1), split_part($5, E'\x1f', 2)))
 ORDER BY r.sort_key, r.id
@@ -62,7 +70,13 @@ const countWrapSQL = `
 SELECT count(*)
 FROM (%s) r
 WHERE ($2 = 'all' OR r.status = $2)
-  AND ($3 = '' OR r.display ILIKE '%%' || $3 || '%%' OR COALESCE(r.fields->>'label', '') ILIKE '%%' || $3 || '%%')
+  AND ($3 = ''
+       OR r.display ILIKE '%%' || $3 || '%%'
+       OR COALESCE(r.fields->>'label', '') ILIKE '%%' || $3 || '%%'
+       OR (cardinality($5::text[]) > 0 AND NOT EXISTS (
+            SELECT 1 FROM unnest($5::text[]) AS term
+            WHERE r.display NOT ILIKE '%%' || term || '%%'
+              AND COALESCE(r.fields->>'label', '') NOT ILIKE '%%' || term || '%%')))
   AND ($4::jsonb = '{}'::jsonb OR r.fields @> $4::jsonb)`
 
 const getWrapSQL = `
@@ -118,7 +132,11 @@ func uuidOrNil(id string) *string {
 
 func (p projection) count(ctx context.Context, q querier, tenantID string) (int, error) {
 	var n int
-	err := q.QueryRow(ctx, fmt.Sprintf(activeCountSQL, p.sql), tenantID).Scan(&n)
+	bound, err := sqlbind.Bind(fmt.Sprintf(activeCountSQL, p.sql), tenantID)
+	if err != nil {
+		return 0, err
+	}
+	err = q.QueryRow(ctx, bound.SQL(), bound.Args()...).Scan(&n)
 	return n, err
 }
 
@@ -140,7 +158,11 @@ func (p projection) list(ctx context.Context, q querier, tenantID string, lp por
 	if status == "" {
 		status = domain.StatusActive
 	}
-	rows, err := q.Query(ctx, fmt.Sprintf(listWrapSQL, p.sql), tenantID, status, strings.TrimSpace(lp.Query), string(filterJSON), lp.Cursor, lp.Limit+1)
+	bound, err := sqlbind.Bind(fmt.Sprintf(listWrapSQL, p.sql), tenantID, status, strings.TrimSpace(lp.Query), string(filterJSON), lp.Cursor, lp.Limit+1, searchTerms(lp.Query))
+	if err != nil {
+		return ports.Page{}, err
+	}
+	rows, err := q.Query(ctx, bound.SQL(), bound.Args()...)
 	if err != nil {
 		return ports.Page{}, err
 	}
@@ -165,7 +187,11 @@ func (p projection) list(ctx context.Context, q querier, tenantID string, lp por
 	if err := rows.Err(); err != nil {
 		return ports.Page{}, err
 	}
-	if err := q.QueryRow(ctx, fmt.Sprintf(countWrapSQL, p.sql), tenantID, status, strings.TrimSpace(lp.Query), string(filterJSON)).Scan(&out.Total); err != nil {
+	countBound, err := sqlbind.Bind(fmt.Sprintf(countWrapSQL, p.sql), tenantID, status, strings.TrimSpace(lp.Query), string(filterJSON), searchTerms(lp.Query))
+	if err != nil {
+		return ports.Page{}, err
+	}
+	if err := q.QueryRow(ctx, countBound.SQL(), countBound.Args()...).Scan(&out.Total); err != nil {
 		return ports.Page{}, err
 	}
 	return out, nil
@@ -180,7 +206,11 @@ func (p projection) get(ctx context.Context, q querier, tenantID, id string) (do
 		sql = fmt.Sprintf(getWrapSQL, p.getSQL)
 		args = append(args, uuidOrNil(id))
 	}
-	row, _, err := scanRow(q.QueryRow(ctx, sql, args...))
+	getBound, bindErr := sqlbind.Bind(sql, args...)
+	if bindErr != nil {
+		return domain.Row{}, bindErr
+	}
+	row, _, err := scanRow(q.QueryRow(ctx, getBound.SQL(), getBound.Args()...))
 	if err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
 			return domain.Row{}, ports.ErrNotFound
@@ -194,7 +224,11 @@ func (p projection) get(ctx context.Context, q querier, tenantID, id string) (do
 }
 
 func (p projection) options(ctx context.Context, q querier, tenantID string) ([]ports.RefOption, error) {
-	rows, err := q.Query(ctx, fmt.Sprintf(optionsWrapSQL, p.sql), tenantID)
+	bound, err := sqlbind.Bind(fmt.Sprintf(optionsWrapSQL, p.sql), tenantID)
+	if err != nil {
+		return nil, err
+	}
+	rows, err := q.Query(ctx, bound.SQL(), bound.Args()...)
 	if err != nil {
 		return nil, err
 	}
@@ -233,8 +267,14 @@ func usageOf(ctx context.Context, q querier, tenantID, id string, checks ...usag
 	out := domain.Usage{Uses: make([]domain.UsageCount, 0, len(checks))}
 	for _, c := range checks {
 		var n int
+		// Bound, not passed raw: a usage check is a per-register string, so its placeholders and
+		// the two arguments here are only ever matched up by eye. sqlbind checks them.
+		bound, err := sqlbind.Bind(c.sql, tenantID, id)
+		if err != nil {
+			return domain.Usage{}, fmt.Errorf("usage %s: %w", c.noun, err)
+		}
 		// scale-guard:ignore: bounded by the register's fixed usage-check list (<= 3), one row, not a data loop
-		if err := q.QueryRow(ctx, c.sql, tenantID, id).Scan(&n); err != nil {
+		if err := q.QueryRow(ctx, bound.SQL(), bound.Args()...).Scan(&n); err != nil {
 			return domain.Usage{}, fmt.Errorf("usage %s: %w", c.noun, err)
 		}
 		out.Uses = append(out.Uses, domain.UsageCount{Noun: c.noun, Count: n})
@@ -256,7 +296,11 @@ func fenced(ctx context.Context, q querier, affected int64, existsSQL string, ar
 		return nil
 	}
 	var one int
-	if err := q.QueryRow(ctx, existsSQL, args...).Scan(&one); err != nil {
+	bound, bindErr := sqlbind.Bind(existsSQL, args...)
+	if bindErr != nil {
+		return bindErr
+	}
+	if err := q.QueryRow(ctx, bound.SQL(), bound.Args()...).Scan(&one); err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
 			return ports.ErrNotFound
 		}
@@ -283,6 +327,26 @@ func nullInt(fields map[string]any, key string) *int64 {
 	return &v
 }
 
+// nullNumber is a *float64 for an absent decimal: a feed item's energy, dry matter and wastage are
+// optional, and a blank one must leave the stored value alone rather than write a zero.
+func nullNumber(fields map[string]any, key string) *float64 {
+	v, ok := fields[key]
+	if !ok || v == nil {
+		return nil
+	}
+	switch n := v.(type) {
+	case float64:
+		return &n
+	case int64:
+		f := float64(n)
+		return &f
+	case int:
+		f := float64(n)
+		return &f
+	}
+	return nil
+}
+
 // sent reports whether the write named the field at all (nil means "clear it").
 func sent(fields map[string]any, key string) bool {
 	_, ok := fields[key]
@@ -295,6 +359,35 @@ type colBind struct {
 	field string
 	col   string
 	arg   func(fields map[string]any) any
+}
+
+// searchTerms splits a search box into the words EVERY row must carry, so a person can type the
+// name they see. A pen's stored display is only its shed ("Castro") because the operational name
+// is composed in Go through oploc, never in SQL -- so "Castro 1", the name printed on the
+// building and shown in the table, matched the display on neither half and returned NOTHING while
+// "Castro" and "1" each worked. Matching word by word against display OR label spans the two
+// without composing a name in SQL, which the operational-location convention forbids.
+//
+// It is ADDITIVE: the whole-string test above still runs first, so every query that matched
+// before still matches, and a single-word search behaves exactly as it did.
+func searchTerms(query string) []string {
+	terms := make([]string, 0, 4)
+	for _, field := range strings.Fields(query) {
+		// A SEPARATOR is not a word to match on: the pen shown as "Godel 1 - Part 3" is stored as
+		// display "Godel 1" plus label "Part 3", and neither half carries the dash that joins them
+		// on screen, so requiring it matched nothing.
+		if strings.TrimFunc(field, func(r rune) bool { return !unicode.IsLetter(r) && !unicode.IsDigit(r) }) == "" {
+			continue
+		}
+		terms = append(terms, field)
+	}
+	if len(terms) < 2 {
+		// One word is already covered by the whole-string test. Returning nothing here is why the
+		// SQL guards on cardinality first: NOT EXISTS over an EMPTY set is TRUE, so an unguarded
+		// predicate matches every row in the register instead of staying inert.
+		return []string{}
+	}
+	return terms
 }
 
 func setClause(fields map[string]any, binds []colBind, startArg int) (string, []any) {

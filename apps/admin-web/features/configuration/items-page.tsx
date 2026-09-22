@@ -18,6 +18,7 @@ import type { ApiResult, ApiUiError } from "@/lib/api/server";
 import { all, boundedInt, one, type RouteSearchParams } from "@/lib/search-params";
 import { CatalogueLists, type CatalogueList } from "./catalogue-lists";
 import { RegisterFilter } from "./register-filter";
+import { RowActions } from "./row-actions";
 import { RowDrawerForm } from "./row-drawer";
 import { SheetDrawer } from "./sheet-drawer";
 import { WorkbookDrawer } from "./workbook-drawer";
@@ -186,6 +187,21 @@ export function ItemsPage({ searchParams, pageContract, data }: { searchParams?:
   const pageNo = boundedInt(one(sp, PARAM_PAGE), 1, 1, 1000000);
   const placeholder = "—";
   const writable = !!register && !register.read_only;
+  // THE ROW'S OWN ACTIONS (maintainer instruction 2026-09-22). The column appears only when this
+  // person can actually do something to a row of this register, so a reader is never shown a menu
+  // whose every item would be refused.
+  const rowsWritable = writable;
+  const rowActionsOffered = rowsWritable && (canEdit || canSetStatus || canDelete);
+  const rowActionLabels = {
+    edit: c("action.edit_row.label"),
+    deactivate: c("action.archive"),
+    activate: c("action.restore"),
+    remove: c("action.delete"),
+    cancel: c("action.cancel"),
+    confirmRemove: c("drawer.delete_confirm"),
+    more: c("action.row_menu"),
+    failed: c("action.failed_message"),
+  };
 
   // Table columns: the display name first, then every column not hidden from the list and not the
   // one the display already shows, then what the row holds, then status.
@@ -201,6 +217,7 @@ export function ItemsPage({ searchParams, pageContract, data }: { searchParams?:
     });
   });
   const hasCounts = rows.some((row) => row.counts && Object.keys(row.counts).length > 0);
+  const displayColumnLabel = (register?.display_column ? register.columns.find((column) => column.key === register.display_column)?.label : "") || c("column.display");
 
   const filterColumns = (register?.filters ?? []).map((key) => register?.columns.find((column) => column.key === key)).filter((column): column is ConfigurationColumn => !!column);
 
@@ -554,13 +571,19 @@ export function ItemsPage({ searchParams, pageContract, data }: { searchParams?:
                 <table className="tbl">
                   <thead>
                     <tr>
-                      <th>{isCatalogue ? c("column.item") : c("column.display")}</th>
+                      {/* A register that names its own display column is headed by THAT column's
+                          own label, which the backend contract carries: the Animals table used to
+                          file an animal tag under the generic header, and an animal has no name. */}
+                      <th>{isCatalogue ? c("column.item") : displayColumnLabel}</th>
                       {isCatalogue ? <th>{c("column.tracking")}</th> : null}
                       {(isCatalogue ? [] : listColumns).map((column) => (
                         <th key={column.key}>{column.label}</th>
                       ))}
                       {hasCounts && !isCatalogue ? <th>{c("column.counts")}</th> : null}
                       <th>{c("column.status")}</th>
+                      {/* The actions column carries no heading: its buttons name themselves, and a
+                          heading over a 2-button cell reads as a data column that is always blank. */}
+                      {rowActionsOffered ? <th aria-label={c("action.row_actions")} /> : null}
                     </tr>
                   </thead>
                   <tbody>
@@ -600,6 +623,22 @@ export function ItemsPage({ searchParams, pageContract, data }: { searchParams?:
                         <td>
                           <Tag tone={STATUS_TONE[row.status]}>{c(`status.${row.status}`)}</Tag>
                         </td>
+                        {rowActionsOffered ? (
+                          <td className="cfg-rowacts-cell">
+                            <RowActions
+                              register={params.register}
+                              rowId={row.id}
+                              rowVersion={row.row_version}
+                              status={row.status}
+                              isBuiltin={row.is_builtin}
+                              editHref={editHref(row.id)}
+                              canEdit={rowsWritable && canEdit && row.fields.read_only !== true}
+                              canSetStatus={rowsWritable && canSetStatus && row.fields.read_only !== true}
+                              canDelete={rowsWritable && canDelete && row.fields.read_only !== true}
+                              labels={rowActionLabels}
+                            />
+                          </td>
+                        ) : null}
                       </tr>
                     ))}
                   </tbody>
