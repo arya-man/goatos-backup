@@ -344,7 +344,16 @@ function runInDir(cwd, command, args, env = process.env) {
   const stderr = redactText(result.stderr);
   if (stdout.trim()) console.log(stdout.trim());
   if (stderr.trim()) console.error(stderr.trim());
-  if (result.status !== 0) throw new Error(`${command} ${args.join(" ")} failed with exit ${result.status}`);
+  if (result.status !== 0) {
+    const detail = truncateRunOutput([stderr, stdout].filter(Boolean).join("\n"));
+    throw new Error(`${command} ${args.join(" ")} failed with exit ${result.status}${detail ? `\n${detail}` : ""}`);
+  }
+}
+
+function truncateRunOutput(value, max = 1800) {
+  const text = String(value ?? "").trim();
+  if (text.length <= max) return text;
+  return `${text.slice(0, max)}…`;
 }
 
 function writeReceipt(file, value) {
