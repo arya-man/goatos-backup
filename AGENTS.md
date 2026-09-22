@@ -3483,6 +3483,40 @@ retired Android pattern and a Go word-month layout, while PASSING wire formats.
 a stated reason. Canonical prose and the stated blind spots:
 `docs/decisions/date-display-format.md`.
 
+## Every Load Chart Names Its Pens (maintainer request 2026-09-22)
+
+Any graph on the dashboard that names a LOAD carries that load's PENS in a bracket beside the
+name -- `131 (CPT Castro 1, CPT Castro 2)`. A load number says which invoice the animals arrived
+on; it does not say where to walk, and every question a load chart raises is answered by going to
+look at the animals.
+
+Four charts today: the load weight/gain bars on `/weighing/weights`, both Load-wise charts on
+`/weighing/analytics`, all five load columns on `/sales/loads`, and the Purchased loads columns on
+`/counts/breakdown`. It SUPERSEDES THE SHAPE of the 2026-09-21 change that put pens on the
+Load-wise tab: those rode a SUB-LINE and are now the bracket, so every load chart labels a load
+the same way. The head counts stay in that tab's Pens TABLE column, which has the room an axis
+does not.
+
+**THE FIRST THREE AND THE FOURTH ANSWER DIFFERENT QUESTIONS AND MUST NOT BE RECONCILED.** The
+weighing-backed charts read `weighing_shed_load_tags` and say WHERE THIS LOAD WAS WEIGHED: a pen
+holding two loads is attributed to neither, and an animal that walked into an untagged pen is
+absent. Counts reads the herd register and says WHERE THIS LOAD'S ANIMALS LIVE NOW, so that animal
+IS there. On 2026-09-22 the gap was real and the maintainer left it: load 130 read 73 animals in
+`CBE Castro 2` against 77 bought, because three had moved into untagged Yashoda pens and a fourth
+was never registered. Do not teach either side the other's source.
+
+ONE COMPOSITION, `apps/admin-web/lib/load-pens.ts` (`withLoadPens`), for the same reason `oploc`
+is one. THE PARK IS PART OF THE PEN NAME -- `Castro 1` is a real pen in BOTH parks, and an
+unqualified bracket on a chart that mixes them is the OL-1 name-merge defect. THE BRACKET IS NEVER
+INVENTED -- no known pen means no bracket at all, so a principal without the weighing read, a load
+with no tagged pen, and a sold-out load each render exactly as they did before. The axis spells
+out two pens and COUNTS the rest (`+3`); the tooltip spells out every one.
+
+Canonical prose: `docs/decisions/load-charts-name-their-pens.md`. Pinned by
+`apps/admin-web/lib/load-pens.test.mjs`,
+`apps/admin-web/features/weighing/load-comparison-pens.test.mjs` and
+`TestCountsBreakdownLoadsNameThePensTheirAnimalsSitIn` (mutation-tested).
+
 ## The Word On Screen Is PEN, Never SHED (maintainer lock, 2026-09-02)
 
 Every user-visible string says **pen**. The word *shed* appears on no screen a person reads --

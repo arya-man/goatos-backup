@@ -17404,6 +17404,19 @@ export interface components {
             /** @description Current management-stage mix of the load's filtered live animals, largest first. key is the raw stored stage, empty when unrecorded. */
             stages: components["schemas"]["CountsBreakdownSeriesPoint"][];
             sexes: components["schemas"]["CountsBreakdownSeriesPoint"][];
+            /** @description Where this load's filtered live animals sit now, biggest pen first; the bracket the chart renders beside the load name. Rolled over the same key set as on_farm, so the animals sum to on_farm bar an animal whose shed is unrecorded, which has no pen to name. This is the HERD REGISTER's answer and is deliberately not the weighing side's, which names the pens a load was WEIGHED in. */
+            pens: components["schemas"]["CountsBreakdownLoadPen"][];
+        };
+        /** @description One pen holding some of a purchased load's filtered live animals. */
+        CountsBreakdownLoadPen: {
+            /** @description Park short code (CBE, CPT) when it has one, else the full name. */
+            park_name: string;
+            shed_display_name: string;
+            /** @description The HUMAN partition label, absent for a non-partitioned shed. Never the normalized matching key. */
+            partition_label?: string;
+            /** @description Backend-composed pen name ("Castro 1", "Godel 2 - Part 1"); render verbatim. */
+            operational_location_display: string;
+            animals: number;
         };
         /** @description One active current goat identifier value on a purchased load. */
         CountsBreakdownLoadTag: {

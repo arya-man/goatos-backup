@@ -2,6 +2,7 @@ import { GroupedColumns, type GroupedSeries } from "@/components/grouped-columns
 import { copy, type AdminUiPageContract } from "@/lib/admin-ui-contract";
 import type { CountsBreakdownResponse } from "@/lib/api/server";
 import { fmtDate } from "@/lib/format";
+import { withLoadPens, type LoadPen } from "@/lib/load-pens";
 
 // Counts Breakdown -> Purchased loads: the last card on the page (maintainer request 2026-09-18).
 // One column group per purchased load — animals bought, still on farm under the current filters,
@@ -49,6 +50,18 @@ export function CountsBreakdownLoads({
     return vendor ? `${loadTitle(load)} · ${vendor}` : loadTitle(load);
   };
 
+  // The pens beside the load name (maintainer request 2026-09-22). These are the HERD REGISTER's
+  // pens -- where the load's filtered live animals sit NOW -- which is the same key set on_farm
+  // and the stage/sex splits on this very chart are rolled over, so the bracket and the bars
+  // agree. The Weights and ADG load charts name the pens a load was WEIGHED in, a different
+  // question; the two are not meant to match.
+  const pensOf = (load: LoadRow): LoadPen[] =>
+    (load.pens ?? []).map((pen) => ({
+      park: pen.park_name,
+      pen: pen.operational_location_display,
+      animals: pen.animals,
+    }));
+
   const columns = [
     "column.load",
     "column.load_vendor",
@@ -75,8 +88,11 @@ export function CountsBreakdownLoads({
             const female = countFor(load.sexes, femaleKey);
             return {
               key: load.load_id,
-              axisLabel: load.load_ref ? load.load_ref : load.purchase_date ? fmtDate(load.purchase_date) : unnumbered,
-              label: loadLabel(load),
+              axisLabel: withLoadPens(
+                load.load_ref ? load.load_ref : load.purchase_date ? fmtDate(load.purchase_date) : unnumbered,
+                pensOf(load),
+              ),
+              label: withLoadPens(loadLabel(load), pensOf(load), Number.POSITIVE_INFINITY),
               values: [load.purchased, load.on_farm, male, female],
               displays: [String(load.purchased), String(load.on_farm), String(male), String(female)],
               subLabel: load.vendor_name,

@@ -3245,7 +3245,12 @@ live_detail AS (
     SELECT m.load_id,
            g.goat_id,
            COALESCE(g.management_stage, '') AS management_stage,
-           g.sex
+           g.sex,
+           -- The animal's location, for the pen bracket beside the load on the chart. Carried
+           -- here rather than re-joined later because this CTE is already one row per goat.
+           g.park_id,
+           g.shed_id,
+           COALESCE(btrim(gsp.partition_label), '') AS partition_label
     FROM member m
     JOIN window_loads w ON w.load_id = m.load_id
     JOIN goats g ON g.tenant_id = $1::uuid AND g.goat_id = m.goat_id
@@ -3272,6 +3277,51 @@ live AS (
     FROM live_detail
     GROUP BY load_id, management_stage, sex
 ),
+-- WHERE the load's filtered live animals sit now, for the pen bracket beside the load
+-- (maintainer request 2026-09-22). Grouped on (load, park, shed, partition) and then collapsed to
+-- ONE jsonb array per load, exactly like current_tags below, so it attaches to window_loads 1:1
+-- and widens no key set the counts above range over. Rolled over the SAME live_detail rows the
+-- on_farm/stage/sex figures are, so sum(animals) equals on_farm for every load.
+--
+-- projection-review: membership=live_detail, which is already one row per GOAT (member is DISTINCT ON goat_id, joined 1:1 to goats on its PK) and already carries this page's lifecycle/park/pen/stage/breed/sex predicates, so the pens range over exactly the animals on_farm counts; group_key=(load_id, park_name, shed_name, partition_label) in live_pens, then load_id alone in pens_json, which is the column window_loads is joined on; join_cardinality=locations twice on its (tenant_id, location_id) PK, so each is 1:{0,1} per goat row and neither fans the count out, and pens_json is 0..1 per load so the final LEFT JOIN cannot duplicate a load's stage x sex rows; pagination=NONE -- bounded by window_loads' own LIMIT 100 loads times the pens those loads occupy, never by herd size; scope=tenant_id on both locations joins and inherited from live_detail on everything else
+--
+--   PRODUCER UNIQUENESS vs CONSUMER MATCH KEYS, side by side:
+--     live_detail    unique on goat_id                                   [member is DISTINCT ON goat_id]
+--     live_pens      unique on (load_id, park, shed, partition)          [its own GROUP BY]
+--     pens_json      unique on load_id                                   [its own GROUP BY]
+--     final SELECT   joins on w.load_id                                  [matches pens_json's key]
+--
+--   RATIO KEY SETS: there is no ratio here, only a COUNT. Its key set is live_detail, the
+--   identical key set the live CTE counts for on_farm, which is what makes sum(pens.animals) == on_farm
+--   an invariant rather than a coincidence -- minus only the rows dropped by pens_json's
+--   blank-shed_name filter: an animal with no shed row has no pen to name, and is still counted
+--   in on_farm. TestCountsBreakdownLoadsNameThePensTheirAnimalsSitIn asserts the equality.
+live_pens AS (
+    SELECT ld.load_id,
+           COALESCE(NULLIF(pk.location_code, ''), pk.name, '') AS park_name,
+           COALESCE(shed.name, '')                             AS shed_name,
+           ld.partition_label,
+           count(*)                                            AS animal_count
+    FROM live_detail ld
+    LEFT JOIN locations shed ON shed.tenant_id = $1::uuid AND shed.location_id = ld.shed_id
+    LEFT JOIN locations pk ON pk.tenant_id = $1::uuid AND pk.location_id = ld.park_id
+    GROUP BY 1, 2, 3, 4
+),
+pens_json AS (
+    -- An animal with no shed row has no pen to name, so it is dropped from the bracket rather
+    -- than rendered as a nameless entry. It is still counted in on_farm, which is why the bracket
+    -- can legitimately total less than the on-farm figure beside it.
+    SELECT load_id,
+           jsonb_agg(jsonb_build_object(
+             'park_name', park_name,
+             'shed_display_name', shed_name,
+             'partition_label', partition_label,
+             'animals', animal_count
+           ) ORDER BY animal_count DESC, park_name, shed_name, partition_label) AS pens
+    FROM live_pens
+    WHERE shed_name <> ''
+    GROUP BY load_id
+),
 current_tags AS (
     SELECT tagged.load_id,
            COALESCE(jsonb_agg(
@@ -3292,10 +3342,14 @@ current_tags AS (
 )
 SELECT w.load_id::text, w.load_ref, w.vendor_name, w.purchase_date, w.purchased,
        COALESCE(l.management_stage, ''), COALESCE(l.sex, ''), COALESCE(l.animal_count, 0),
-       COALESCE(ct.tags, '[]'::jsonb)
+       COALESCE(ct.tags, '[]'::jsonb),
+       -- One row per load, repeated across that load's stage x sex rows; Go reads it once, on the
+       -- first row of each load.
+       COALESCE(pj.pens, '[]'::jsonb)
 FROM window_loads w
 LEFT JOIN live l ON l.load_id = w.load_id
 LEFT JOIN current_tags ct ON ct.load_id = w.load_id
+LEFT JOIN pens_json pj ON pj.load_id = w.load_id
 ORDER BY w.purchase_date DESC, w.load_id, COALESCE(l.animal_count, 0) DESC, l.management_stage, l.sex`
 
 // GetCountsBreakdown serves the Counts Breakdown census: one page of farm x stage x breed x sex x
@@ -3579,6 +3633,49 @@ func (r *Repository) GetCountsBreakdown(ctx context.Context, req domain.CountsBr
 	return out, nil
 }
 
+// decodeCountsBreakdownLoadPens turns the loads read's pens array into domain rows, composing the
+// operational location through oploc.Display() -- never by hand, so this screen's pen names cannot
+// drift from every other surface's (the OL-7 defect class).
+func decodeCountsBreakdownLoadPens(raw []byte) ([]domain.CountsBreakdownLoadPen, error) {
+	out := []domain.CountsBreakdownLoadPen{}
+	if len(raw) == 0 {
+		return out, nil
+	}
+	var rows []struct {
+		ParkName string `json:"park_name"`
+		// The RAW locations.name, which may itself already carry a partition on a legacy alias
+		// row -- hence ResolveComposedName below rather than the bare composer.
+		ShedName       string `json:"shed_display_name"`
+		PartitionLabel string `json:"partition_label"`
+		Animals        int64  `json:"animals"`
+	}
+	if err := json.Unmarshal(raw, &rows); err != nil {
+		return nil, fmt.Errorf("counts breakdown: loads pens decode: %w", err)
+	}
+	for _, row := range rows {
+		if strings.TrimSpace(row.ShedName) == "" {
+			continue
+		}
+		// ResolveComposedName, never the bare composer: `locations.name` is NOT guaranteed to be
+		// a parent shed name. This tenant carries legacy per-pen alias rows -- a goat's shed_id
+		// can point at a location already NAMED "Mandela 1 - Part 1" while its
+		// goat_shed_partitions row stores "Part 1" -- and composing those two would render
+		// "Mandela 1 - Part 1 - Part 1". This helper strips an already-appended partition in the
+		// exact two forms Display() appends, so both shapes land on one name.
+		parentShed, partition, display := oploc.ResolveComposedName("", row.ShedName, row.PartitionLabel)
+		out = append(out, domain.CountsBreakdownLoadPen{
+			ParkName:        row.ParkName,
+			ShedDisplayName: parentShed,
+			// The HUMAN partition label, never the normalized matching key, and "" for a
+			// non-partitioned shed so the 'whole' sentinel can never reach a reader.
+			PartitionLabel:             partition,
+			OperationalLocationDisplay: display,
+			Animals:                    row.Animals,
+		})
+	}
+	return out, nil
+}
+
 // scanCountsBreakdownLoads drains the loads read: one row per load x current stage x sex (or one
 // row with a blank stage/sex and a zero count for a load none of whose animals survive the
 // filter), re-rolled to one CountsBreakdownLoadRow per load. Rows arrive load-contiguous.
@@ -3601,13 +3698,17 @@ func scanCountsBreakdownLoads(rows pgx.Rows) ([]domain.CountsBreakdownLoadRow, e
 	for rows.Next() {
 		var loadID, loadRef, vendor, purchaseDate, stage, sex string
 		var purchased, count int64
-		var tagJSON []byte
-		if err := rows.Scan(&loadID, &loadRef, &vendor, &purchaseDate, &purchased, &stage, &sex, &count, &tagJSON); err != nil {
+		var tagJSON, pensJSON []byte
+		if err := rows.Scan(&loadID, &loadRef, &vendor, &purchaseDate, &purchased, &stage, &sex, &count, &tagJSON, &pensJSON); err != nil {
 			return nil, fmt.Errorf("counts breakdown: loads scan: %w", err)
 		}
 		if len(out) == 0 || out[len(out)-1].LoadID != loadID {
 			flush()
 			tags, err := decodeCountsBreakdownLoadTags(tagJSON)
+			if err != nil {
+				return nil, err
+			}
+			pens, err := decodeCountsBreakdownLoadPens(pensJSON)
 			if err != nil {
 				return nil, err
 			}
@@ -3617,6 +3718,7 @@ func scanCountsBreakdownLoads(rows pgx.Rows) ([]domain.CountsBreakdownLoadRow, e
 				CurrentTags: tags,
 				Stages:      []domain.CountsBreakdownSeriesPoint{},
 				Sexes:       []domain.CountsBreakdownSeriesPoint{},
+				Pens:        pens,
 			})
 		}
 		if count == 0 {

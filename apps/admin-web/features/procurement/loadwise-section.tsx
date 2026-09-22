@@ -4,6 +4,7 @@ import { LocalOverlayLink } from "@/components/local-overlay-link";
 import { Boxes } from "lucide-react";
 
 import { GroupedColumns, type GroupedSeries } from "@/components/grouped-columns";
+import { withLoadPens, type LoadPen } from "@/lib/load-pens";
 import { Tag } from "@/components/ui-primitives";
 import { copy, tableLabels, type AdminUiPageContract } from "@/lib/admin-ui-contract";
 import type { LoadwiseLoad, LoadwiseSales } from "@/lib/api/procurement";
@@ -67,6 +68,13 @@ function loadLabel(load: LoadwiseLoad, loadWord: string, none: string): string {
  */
 export type LoadCurrentWeights = Record<string, { averageKg: number; animals: number }>;
 
+/**
+ * The pens each load sits in, keyed by the farm's load number — the bracket every chart below
+ * carries beside the load name (maintainer request 2026-09-22). Null when the weighing read was
+ * not fetched for this principal; a load absent from the map simply gets no bracket.
+ */
+export type LoadPensByRef = Record<string, LoadPen[]>;
+
 export function LoadwiseSection({
   pageContract,
   view,
@@ -74,8 +82,11 @@ export function LoadwiseSection({
   canRecordCost,
   costHref,
   currentWeights = null,
+  loadPens = null,
 }: {
   currentWeights?: LoadCurrentWeights | null;
+  /** Pens per load number, for the bracket beside each load on every chart below. */
+  loadPens?: LoadPensByRef | null;
   pageContract: AdminUiPageContract;
   /** The validated ?view= tab key (an option key of sales_views). The PAGE owns the tab chips. */
   view: string;
@@ -88,6 +99,18 @@ export function LoadwiseSection({
 }) {
   const none = copy(pageContract, "value.none");
   const loadWord = copy(pageContract, "column.load");
+  // Every chart below names its loads through these two, so the five cannot drift apart: the
+  // AXIS carries the load number with a short pen bracket (it is one column wide), and the
+  // TOOLTIP carries the full name with every pen spelled out.
+  const pensOf = (load: LoadwiseLoad): LoadPen[] =>
+    (load.load_ref && loadPens ? loadPens[load.load_ref] : undefined) ?? [];
+  const axisName = (load: LoadwiseLoad): string =>
+    withLoadPens(
+      load.load_ref ? load.load_ref : load.purchase_date ? shortDate(load.purchase_date) : none,
+      pensOf(load),
+    );
+  const tipName = (load: LoadwiseLoad): string =>
+    withLoadPens(loadLabel(load, loadWord, none), pensOf(load), Number.POSITIVE_INFINITY);
   const columns = tableLabels(pageContract, "sales-loadwise");
 
   const countSeries: GroupedSeries[] = [
@@ -210,8 +233,8 @@ export function LoadwiseSection({
             emptyLabel={copy(pageContract, "chart.loadwise_counts.empty")}
             data={loads.map((load) => ({
               key: load.load_id,
-              axisLabel: load.load_ref ? load.load_ref : load.purchase_date ? shortDate(load.purchase_date) : none,
-              label: loadLabel(load, loadWord, none),
+              axisLabel: axisName(load),
+              label: tipName(load),
               values: [load.purchased, load.sold, load.mortality, load.remaining],
               displays: [num(load.purchased), num(load.sold), num(load.mortality), num(load.remaining)],
               subLabel: load.vendor_name,
@@ -227,8 +250,8 @@ export function LoadwiseSection({
             emptyLabel={copy(pageContract, "chart.loadwise_value.empty")}
             data={loads.map((load) => ({
               key: load.load_id,
-              axisLabel: load.load_ref ? load.load_ref : load.purchase_date ? shortDate(load.purchase_date) : none,
-              label: loadLabel(load, loadWord, none),
+              axisLabel: axisName(load),
+              label: tipName(load),
               values: [
                 load.purchase_value ?? null,
                 load.sold_value > 0 ? load.sold_value : null,
@@ -258,8 +281,8 @@ export function LoadwiseSection({
             emptyLabel={copy(pageContract, "chart.loadwise_weight.empty")}
             data={loads.map((load) => ({
               key: load.load_id,
-              axisLabel: load.load_ref ? load.load_ref : load.purchase_date ? shortDate(load.purchase_date) : none,
-              label: loadLabel(load, loadWord, none),
+              axisLabel: axisName(load),
+              label: tipName(load),
               values: [
                 load.avg_purchase_weight_kg ?? null,
                 load.avg_sale_weight_kg ?? null,
@@ -314,8 +337,8 @@ export function LoadwiseSection({
             emptyLabel={copy(pageContract, "chart.loadwise_per_kg.empty")}
             data={loads.map((load) => ({
               key: load.load_id,
-              axisLabel: load.load_ref ? load.load_ref : load.purchase_date ? shortDate(load.purchase_date) : none,
-              label: loadLabel(load, loadWord, none),
+              axisLabel: axisName(load),
+              label: tipName(load),
               values: [load.landed_price_per_kg ?? null, load.sale_price_per_kg ?? null],
               displays: [
                 load.landed_price_per_kg == null
@@ -344,8 +367,8 @@ export function LoadwiseSection({
             emptyLabel={copy(pageContract, "chart.loadwise_fattening.empty")}
             data={loads.map((load) => ({
               key: load.load_id,
-              axisLabel: load.load_ref ? load.load_ref : load.purchase_date ? shortDate(load.purchase_date) : none,
-              label: loadLabel(load, loadWord, none),
+              axisLabel: axisName(load),
+              label: tipName(load),
               values: [load.fattening_days ?? null, load.days_on_farm_so_far ?? null],
               displays: [
                 load.fattening_days == null

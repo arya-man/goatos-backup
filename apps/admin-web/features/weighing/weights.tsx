@@ -22,6 +22,7 @@ import {
   type ShedWeightsRow,
 } from "@/lib/api/server";
 import { INTERNAL_LOGIN_PATH } from "@/lib/auth/session-cookie";
+import { pensFromPlacements, withLoadPens } from "@/lib/load-pens";
 import { byParkThen, parkRank } from "@/lib/park-order";
 import { one, type RouteSearchParams } from "@/lib/search-params";
 // The landing window is SHARED with /weighing/analytics so the two screens can never disagree
@@ -697,12 +698,24 @@ export async function WeighingWeightsPage({
     return best;
   };
   const loadOrder = [...parkOrder, ""];
+  // The pens each load sits in, in a bracket beside its name (maintainer request 2026-09-22): a
+  // load number says which invoice the animals arrived on, not where to walk. The SAME
+  // `placements` the load-placements table below reads, so a bar and its row can never name
+  // different pens, and a load with no placement gets no bracket rather than a guess.
+  // The pens are the TRAILING bracket, as they are on every other load chart. On the gain view
+  // that puts them AFTER the span -- "126 · Ramesh Reddy (49d) (CBE Castro 1)" -- rather than
+  // between the name and the span, which read as two competing parentheses.
+  const loadName = (load: (typeof byLoad)[number], suffix = ""): string =>
+    withLoadPens(
+      `${load.owner_name ? `${load.load_ref} · ${load.owner_name}` : load.load_ref}${suffix}`,
+      pensFromPlacements(load.placements),
+    );
   const loadWeightBars = byLoad
     .slice()
     .sort(byParkThen(loadOrder, loadPark, (a, b) => b.average_weight_kg - a.average_weight_kg))
     .map((load) => ({
       key: load.load_ref,
-      label: load.owner_name ? `${load.load_ref} · ${load.owner_name}` : load.load_ref,
+      label: loadName(load),
       value: Number(load.average_weight_kg.toFixed(1)),
     }));
   const loadGainBars = byLoad
@@ -710,7 +723,7 @@ export async function WeighingWeightsPage({
     .sort(byParkThen(loadOrder, loadPark))
     .map((load) => ({
       key: load.load_ref,
-      label: `${load.owner_name ? `${load.load_ref} · ${load.owner_name}` : load.load_ref} (${load.gain_span_days ?? 0}d)`,
+      label: loadName(load, ` (${load.gain_span_days ?? 0}d)`),
       value: Math.round(load.gain_g_per_day as number),
     }));
 
