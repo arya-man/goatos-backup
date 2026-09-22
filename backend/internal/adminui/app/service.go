@@ -6627,7 +6627,7 @@ func pageSpecificCopy(id string) map[string]string {
 			"tab.peranimal":  "Per Animal",
 			"tab.execution":  "Execution",
 			"tab.experiment": "Experiment",
-			"tab.followup":   "Feed follow-up",
+			"tab.followup":   "Follow-up",
 			// Feed follow-up. The words here carry the rule, because the tab is
 			// an accusation when it says "Not followed" and the reader is owed
 			// exactly what was compared: the sheet before the event, and the
@@ -9553,7 +9553,7 @@ func pageOptionGroups(id string) []domain.OptionGroup {
 				option("peranimal", "Per Animal", "", ""),
 				option("experiment", "Experiment", "", ""),
 				option("execution", "Execution", "", ""),
-				option("followup", "Feed follow-up", "", ""),
+				option("followup", "Follow-up", "", ""),
 			},
 		}))
 	case "calendar":

@@ -66,7 +66,7 @@ export function FeedFollowUpTab({
 }) {
   const lines = linesOf(data);
   return (
-    <section className="card">
+    <section className="card ffu-card">
       <h2 className="h">{fa(pageContract, "followup.table.title")}</h2>
       <p className="muted small" style={{ margin: "0 0 10px" }}>{fa(pageContract, "followup.hint")}</p>
       {lines.length === 0 ? (

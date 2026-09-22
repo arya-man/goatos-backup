@@ -2023,7 +2023,7 @@ func compileFeedAnalyticsOptionGroups(groups []domain.OptionGroup, input Bootstr
 			// FULL feed gate, never the stock-only one: it reads the herd
 			// register's purchases, sales and deaths, which a stock-scoped
 			// reader has no business seeing.
-			option("followup", "Feed follow-up", "", ""),
+			option("followup", "Follow-up", "", ""),
 		}
 	}
 	return replaceOptionGroup(groups, "feed_analytics_tabs", tabs)
