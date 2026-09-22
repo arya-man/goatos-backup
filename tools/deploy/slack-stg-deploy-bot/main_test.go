@@ -160,3 +160,255 @@ func mustJSON(t *testing.T, v any) string {
 	}
 	return string(b)
 }
+
+// Build dd97ab48-c979-43d0-95eb-3fdbaae9c20f on commit 7e0939befad2 is the regression
+// this whole group exists for: Cloud Build went red on the 1800s rollout watchdog at
+// 18:40:15Z, rollout r-7e0939befad2-180845-to-goatos-stg-0001 reached SUCCEEDED at
+// 18:41:39Z, and the channel was told the deploy had failed before the rollout
+// completed. A red build and a failed rollout are different facts.
+func TestRedBuildWithSucceededRolloutIsNotReportedAsADeployFailure(t *testing.T) {
+	rollout := rolloutStatus{ID: "r-7e0939befad2-180845-to-goatos-stg-0001", State: "SUCCEEDED"}
+	verdict := deployVerdictFor("FAILURE", true, true, rollout)
+
+	if strings.Contains(strings.ToLower(verdict.Title), "deploy failed") {
+		t.Fatalf("a succeeded rollout must not be titled as a deploy failure: %q", verdict.Title)
+	}
+	if verdict.Color == colorDeployFailure {
+		t.Fatalf("a succeeded rollout must not be coloured as a failure: %q", verdict.Color)
+	}
+	if !strings.Contains(verdict.Text, "SUCCEEDED") {
+		t.Fatalf("message must say the rollout succeeded:\n%s", verdict.Text)
+	}
+	if !strings.Contains(verdict.Text, rollout.ID) {
+		t.Fatalf("message must name the rollout it is reporting on:\n%s", verdict.Text)
+	}
+	for _, banned := range []string{
+		"failed before backend/web rollout completed",
+		"rollout did not complete",
+	} {
+		if strings.Contains(verdict.Text, banned) {
+			t.Fatalf("message claims the rollout did not complete when it did: %q in\n%s", banned, verdict.Text)
+		}
+	}
+	// The part that silently bites: the later steps never ran, so no Android shipped.
+	if !strings.Contains(verdict.Text, "android-mobile-distribution") || !strings.Contains(verdict.Text, "stg-release-tag-bookkeeping") {
+		t.Fatalf("message must name the steps that were skipped:\n%s", verdict.Text)
+	}
+}
+
+func TestRedBuildWithFailedRolloutStaysALoudFailure(t *testing.T) {
+	rollout := rolloutStatus{ID: "r-deadbeefcafe-101010-to-goatos-stg-0001", State: "FAILED", Description: "migrate job returned 1"}
+	verdict := deployVerdictFor("FAILURE", true, false, rollout)
+
+	if verdict.Title != "Goat OS deploy failed" {
+		t.Fatalf("a genuinely failed rollout must stay a deploy failure, got %q", verdict.Title)
+	}
+	if verdict.Color != colorDeployFailure {
+		t.Fatalf("a genuinely failed rollout must keep the failure colour, got %q", verdict.Color)
+	}
+	if !strings.Contains(verdict.Text, "NOT updated") {
+		t.Fatalf("message must say backend/web was not updated:\n%s", verdict.Text)
+	}
+	if !strings.Contains(verdict.Text, "migrate job returned 1") {
+		t.Fatalf("message must carry the rollout failure reason:\n%s", verdict.Text)
+	}
+}
+
+func TestRedBuildWithInProgressRolloutSaysStillInProgress(t *testing.T) {
+	rollout := rolloutStatus{ID: "r-deadbeefcafe-101010-to-goatos-stg-0001", State: "IN_PROGRESS"}
+	verdict := deployVerdictFor("TIMED_OUT", true, false, rollout)
+
+	if !strings.Contains(strings.ToLower(verdict.Title), "still in progress") {
+		t.Fatalf("an in-progress rollout must be titled as still in progress, got %q", verdict.Title)
+	}
+	if strings.Contains(strings.ToLower(verdict.Title), "failed") {
+		t.Fatalf("an in-progress rollout must not be titled as failed, got %q", verdict.Title)
+	}
+	if !strings.Contains(verdict.Text, "has NOT failed") {
+		t.Fatalf("message must state the rollout has not failed:\n%s", verdict.Text)
+	}
+}
+
+func TestUnreadableRolloutStateIsNeverReportedAsAFailedRollout(t *testing.T) {
+	verdict := deployVerdictFor("FAILURE", true, false, rolloutStatus{})
+
+	if !strings.Contains(verdict.Text, "UNKNOWN") {
+		t.Fatalf("an unreadable rollout state must be reported as unknown:\n%s", verdict.Text)
+	}
+	if strings.Contains(verdict.Text, "NOT updated") {
+		t.Fatalf("an unreadable rollout state must not claim backend/web was not updated:\n%s", verdict.Text)
+	}
+}
+
+func TestGreenBuildStillReportsSuccess(t *testing.T) {
+	verdict := deployVerdictFor("SUCCESS", true, true, rolloutStatus{})
+	if verdict.Title != "Goat OS deploy succeeded" || verdict.Color != colorDeploySuccess {
+		t.Fatalf("a green build must still read as a success, got %q / %q", verdict.Title, verdict.Color)
+	}
+}
+
+func TestTerminalAttachmentCarriesTheRolloutStateBesideTheBuildStatus(t *testing.T) {
+	rollout := rolloutStatus{ID: "r-7e0939befad2-180845-to-goatos-stg-0001", State: "SUCCEEDED"}
+	steps := []struct {
+		ID     string `json:"id"`
+		Status string `json:"status"`
+	}{
+		{ID: "stg-cloud-deploy-release", Status: "FAILURE"},
+		{ID: "android-mobile-distribution", Status: "QUEUED"},
+	}
+	encoded := mustJSON(t, deployTerminalAttachments(
+		"FAILURE", "<@U1>", "Backend/web deploy", "dd97ab48-c979-43d0-95eb-3fdbaae9c20f",
+		true, true, "https://build", "https://deploy", steps, rollout))
+
+	for _, want := range []string{
+		"Cloud Deploy rollout",
+		"SUCCEEDED (r-7e0939befad2-180845-to-goatos-stg-0001)",
+		"Cloud Build status",
+		"stg-cloud-deploy-release",
+	} {
+		if !strings.Contains(encoded, want) {
+			t.Fatalf("attachment is missing %q:\n%s", want, encoded)
+		}
+	}
+	if strings.Contains(encoded, "Goat OS deploy needs attention") {
+		t.Fatalf("a succeeded rollout must not fall back to the build-status-only wording:\n%s", encoded)
+	}
+}
+
+func TestAndroidOnlyJobNeverInventsARollout(t *testing.T) {
+	verdict := deployVerdictFor("FAILURE", false, true, rolloutStatus{})
+	if !strings.Contains(verdict.Text, "No backend/web rollout was part of this job") {
+		t.Fatalf("an Android-only job must not speak about a rollout it never created:\n%s", verdict.Text)
+	}
+}
+
+func TestMatchRolloutPicksTheCommitsOwnRollout(t *testing.T) {
+	const prefix = "projects/goatos-stg/locations/asia-south1/deliveryPipelines/goatos-stg/releases/"
+	rollouts := []cloudDeployRollout{
+		{Name: prefix + "r-7eceb8285102-223003/rollouts/r-7eceb8285102-223003-to-goatos-stg-0001", State: "SUCCEEDED", CreateTime: "2026-09-21T22:33:08.000000Z"},
+		{Name: prefix + "r-7e0939befad2-180845/rollouts/r-7e0939befad2-180845-to-goatos-stg-0001", State: "SUCCEEDED", CreateTime: "2026-09-22T18:10:04.537559Z"},
+	}
+
+	got := matchRollout(rollouts, "7e0939befad2")
+	if got.ID != "r-7e0939befad2-180845-to-goatos-stg-0001" || got.State != "SUCCEEDED" {
+		t.Fatalf("matchRollout = %+v, want the 7e0939befad2 rollout", got)
+	}
+	if other := matchRollout(rollouts, "000000000000"); other.State != "" {
+		t.Fatalf("an unmatched commit must resolve to unknown, got %+v", other)
+	}
+	if blank := matchRollout(rollouts, ""); blank.State != "" {
+		t.Fatalf("a blank commit must resolve to unknown, got %+v", blank)
+	}
+}
+
+// Cloud Deploy refuses `orderBy=createTime desc` on this collection, so the page
+// arrives in an order the API does not promise and the match must order it itself.
+func TestMatchRolloutTakesTheNewestReleaseOfARedeployedCommit(t *testing.T) {
+	const prefix = "projects/goatos-stg/locations/asia-south1/deliveryPipelines/goatos-stg/releases/"
+	older := cloudDeployRollout{
+		Name:          prefix + "r-7e0939befad2-235959/rollouts/r-7e0939befad2-235959-to-goatos-stg-0001",
+		State:         "FAILED",
+		CreateTime:    "2026-09-21T23:59:59.000000Z",
+		FailureReason: "first attempt",
+	}
+	newer := cloudDeployRollout{
+		Name:       prefix + "r-7e0939befad2-000101/rollouts/r-7e0939befad2-000101-to-goatos-stg-0001",
+		State:      "SUCCEEDED",
+		CreateTime: "2026-09-22T00:01:01.000000Z",
+	}
+
+	for _, order := range [][]cloudDeployRollout{{older, newer}, {newer, older}} {
+		got := matchRollout(order, "7e0939befad2")
+		if got.ID != "r-7e0939befad2-000101-to-goatos-stg-0001" || got.State != "SUCCEEDED" {
+			t.Fatalf("matchRollout = %+v, want the newest rollout regardless of listing order", got)
+		}
+	}
+}
+
+func TestBuildCommitSHAResolvesTheReleaseNamePrefix(t *testing.T) {
+	build := cloudBuildGetBuild{Substitutions: map[string]string{"_COMMIT_SHA": "7e0939befad2"}}
+	if got := buildCommitSHA(build); got != "7e0939befad2" {
+		t.Fatalf("buildCommitSHA = %q, want 7e0939befad2", got)
+	}
+
+	build = cloudBuildGetBuild{Substitutions: map[string]string{"REVISION_ID": "7e0939befad2f1c0ff33"}}
+	if got := buildCommitSHA(build); got != "7e0939befad2" {
+		t.Fatalf("a full revision id must shorten to the 12-char release prefix, got %q", got)
+	}
+
+	build = cloudBuildGetBuild{}
+	build.SourceProvenance.ResolvedRepoSource.CommitSHA = "7e0939befad2f1c0ff33"
+	if got := buildCommitSHA(build); got != "7e0939befad2" {
+		t.Fatalf("source provenance must be the last resort, got %q", got)
+	}
+
+	if got := buildCommitSHA(cloudBuildGetBuild{}); got != "" {
+		t.Fatalf("an unresolvable build must return no sha, got %q", got)
+	}
+}
+
+func TestCloudDeployLinkUsesTheDeployRegionNotTheTriggerLocation(t *testing.T) {
+	cfg := config{ProjectID: "goatos-stg", ProjectNumber: "514832198871", Location: "global", DeployRegion: "asia-south1", DeliveryPipeline: "goatos-stg"}
+	url := cfg.cloudDeployURL()
+	if !strings.Contains(url, "/delivery-pipelines/asia-south1/goatos-stg") {
+		t.Fatalf("Cloud Deploy link must point at the deploy region: %s", url)
+	}
+	if strings.Contains(url, "/delivery-pipelines/global/") {
+		t.Fatalf("Cloud Deploy link must not use the Cloud Build trigger location: %s", url)
+	}
+}
+
+// The Slack message that actually reached the channel on 2026-09-22 was composed by
+// the Cloud Build step script, not by this bot, so the shell half is pinned here too.
+func TestCloudBuildReleaseScriptAsksCloudDeployBeforeAnnouncingAFailure(t *testing.T) {
+	content, err := os.ReadFile("../stg-cloudbuild-release.sh")
+	if err != nil {
+		t.Fatalf("read stg-cloudbuild-release.sh: %v", err)
+	}
+	text := string(content)
+
+	if strings.Contains(text, `notify_slack "FAILED" "Cloud Build failed before backend/web rollout completed."`) {
+		t.Fatalf("the unconditional false failure notice is back; a red build does not mean the rollout did not complete")
+	}
+	for _, want := range []string{
+		"rollout_state()",
+		"gcloud deploy rollouts describe",
+		"ROLLOUT_SUCCEEDED_BUILD_FAILED",
+		"ROLLOUT_IN_PROGRESS",
+		"ROLLOUT_UNKNOWN",
+		"release_requested=1",
+		"stg-release-tag-bookkeeping",
+		"android-mobile-distribution",
+	} {
+		if !strings.Contains(text, want) {
+			t.Fatalf("stg-cloudbuild-release.sh is missing %q", want)
+		}
+	}
+
+	consult := strings.Index(text, `state="$(rollout_state)"`)
+	announce := strings.Index(text, `notify_slack "ROLLOUT_SUCCEEDED_BUILD_FAILED"`)
+	if consult < 0 || announce < 0 || consult > announce {
+		t.Fatalf("the rollout state must be read before any failure wording is chosen")
+	}
+}
+
+func TestRolloutWaitKeepsABoundAndIsOverridable(t *testing.T) {
+	content, err := os.ReadFile("../stg-clouddeploy-release.sh")
+	if err != nil {
+		t.Fatalf("read stg-clouddeploy-release.sh: %v", err)
+	}
+	text := string(content)
+
+	if !strings.Contains(text, `ROLLOUT_TIMEOUT_SECONDS="${GOATOS_STG_ROLLOUT_TIMEOUT_SECONDS:-3600}"`) {
+		t.Fatalf("rollout wait must default to 3600s and stay overridable by GOATOS_STG_ROLLOUT_TIMEOUT_SECONDS")
+	}
+	if strings.Contains(text, "GOATOS_STG_ROLLOUT_TIMEOUT_SECONDS:-1800") {
+		t.Fatalf("the 1800s default that failed a 1819s rollout is back")
+	}
+	if !strings.Contains(text, "timed out waiting for rollout") {
+		t.Fatalf("the rollout wait must keep a timeout; it must not become unbounded")
+	}
+	if !strings.Contains(text, "last observed rollout state") {
+		t.Fatalf("a rollout-wait timeout must report the state it last saw, not just that it gave up")
+	}
+}

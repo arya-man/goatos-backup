@@ -8,7 +8,12 @@ ARTIFACT_REPOSITORY="${ARTIFACT_REPOSITORY:-goatos}"
 DELIVERY_PIPELINE="${DELIVERY_PIPELINE:-goatos-stg}"
 TARGET_ID="${TARGET_ID:-goatos-stg}"
 WAIT_FOR_ROLLOUT="${GOATOS_STG_RELEASE_WAIT:-1}"
-ROLLOUT_TIMEOUT_SECONDS="${GOATOS_STG_ROLLOUT_TIMEOUT_SECONDS:-1800}"
+# 1800s was too tight for a real rollout: on 2026-09-22 the rollout for commit
+# 7e0939befad2 (build dd97ab48-c979-43d0-95eb-3fdbaae9c20f) took 1819s and reached
+# SUCCEEDED 84s after this watchdog had already failed the build step. Keep a bound,
+# but give a slow-but-healthy rollout room; override per run when a rollout is known
+# to be longer.
+ROLLOUT_TIMEOUT_SECONDS="${GOATOS_STG_ROLLOUT_TIMEOUT_SECONDS:-3600}"
 ROLLOUT_POLL_SECONDS="${GOATOS_STG_ROLLOUT_POLL_SECONDS:-20}"
 GOATOS_STG_ZERO_DOWNTIME_DEPLOY="${GOATOS_STG_ZERO_DOWNTIME_DEPLOY:-true}"
 SLACK_WEBHOOK_SECRET="${SLACK_WEBHOOK_SECRET:-goatos-stg-deploy-slack-webhook-url}"
@@ -232,7 +237,10 @@ wait_for_rollout() {
         ;;
     esac
     if (( $(date +%s) >= deadline )); then
-      die "timed out waiting for rollout $rollout_id after ${ROLLOUT_TIMEOUT_SECONDS}s"
+      # This watchdog expiring does NOT mean the rollout failed. Say what the rollout
+      # was actually doing so nothing downstream reports a failed deploy from a build
+      # status alone.
+      die "timed out waiting for rollout $rollout_id after ${ROLLOUT_TIMEOUT_SECONDS}s; last observed rollout state: ${state:-unknown}${description:+ - $description}. The rollout may still be running - check Cloud Deploy before treating this as a failed deploy."
     fi
     sleep "$ROLLOUT_POLL_SECONDS"
   done

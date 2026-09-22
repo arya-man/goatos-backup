@@ -12,6 +12,8 @@ PUBLIC_API_HOST="${PUBLIC_API_HOST:-api.goatos.mesha.sg}"
 EXPECTED_LB_IP="${EXPECTED_LB_IP:-8.233.143.24}"
 URL_MAP_NAME="${URL_MAP_NAME:-goatos-stg-dashboard-map}"
 GOATOS_STG_ZERO_DOWNTIME_DEPLOY="${GOATOS_STG_ZERO_DOWNTIME_DEPLOY:-true}"
+DELIVERY_PIPELINE="${DELIVERY_PIPELINE:-goatos-stg}"
+TARGET_ID="${TARGET_ID:-goatos-stg}"
 
 if repo_root="$(git rev-parse --show-toplevel 2>/dev/null)"; then
   :
@@ -50,14 +52,26 @@ import sys
 import urllib.parse
 
 status, text, sha, release, build_id, triggered_by, include_panel, project_number, region, authuser = sys.argv[1:]
-color = {"STARTED": "#439FE0", "SUCCEEDED": "#2EB67D", "FAILED": "#E01E5A"}.get(status, "#AAAAAA")
+color = {
+    "STARTED": "#439FE0",
+    "SUCCEEDED": "#2EB67D",
+    "FAILED": "#E01E5A",
+    "ROLLOUT_SUCCEEDED_BUILD_FAILED": "#ECB22E",
+    "ROLLOUT_IN_PROGRESS": "#ECB22E",
+    "ROLLOUT_UNKNOWN": "#E01E5A",
+}.get(status, "#AAAAAA")
+title = {
+    "ROLLOUT_SUCCEEDED_BUILD_FAILED": "GoatOS rollout succeeded; Cloud Build did not finish",
+    "ROLLOUT_IN_PROGRESS": "GoatOS rollout is still in progress",
+    "ROLLOUT_UNKNOWN": "GoatOS deploy needs attention",
+}.get(status, f"GoatOS deploy {status.lower()}")
 query = urllib.parse.urlencode({"project": project_number, "authuser": authuser})
 build_url = f"https://console.cloud.google.com/cloud-build/builds;region={region}/{build_id}?{query}"
 deploy_url = f"https://console.cloud.google.com/deploy/delivery-pipelines/{region}/goatos-stg/releases/{release}?{query}"
 payload = {
     "attachments": [{
         "color": color,
-        "title": f"GoatOS deploy {status.lower()}",
+        "title": title,
         "text": text,
         "fields": [
             {"title": "Commit", "value": sha, "short": True},
@@ -252,10 +266,68 @@ smoke_grafana_dashboards() {
   return 1
 }
 
+# The Cloud Deploy rollout is the only thing that knows whether backend/web actually
+# rolled out. Cloud Build going red is a DIFFERENT fact: on 2026-09-22 build
+# dd97ab48-c979-43d0-95eb-3fdbaae9c20f failed on the 1800s rollout watchdog while
+# rollout r-7e0939befad2-180845-to-goatos-stg-0001 reached SUCCEEDED 84s later, and the
+# channel was told "Cloud Build failed before backend/web rollout completed" about a
+# rollout that had completed. Ask Cloud Deploy before announcing anything.
+rollout_state() {
+  local rollout_id="${release_id}-to-${TARGET_ID}-0001"
+  gcloud deploy rollouts describe "$rollout_id" \
+    --project="$PROJECT_ID" \
+    --region="$REGION" \
+    --delivery-pipeline="$DELIVERY_PIPELINE" \
+    --release="$release_id" \
+    --format='value(state)' 2>/dev/null || true
+}
+
+skipped_steps_note() {
+  if [[ "$DEPLOY_MOBILE" == "true" ]]; then
+    printf '%s' 'Because the build stopped here, `stg-release-tag-bookkeeping` and `android-mobile-distribution` did NOT run: no release tag was written and no Android release shipped from this build.'
+  else
+    printf '%s' 'Because the build stopped here, `stg-release-tag-bookkeeping` did NOT run, so no release tag was written for this commit.'
+  fi
+}
+
+# Set to 1 immediately before the Cloud Deploy release is requested, so the failure
+# notice can tell "we never got as far as a rollout" apart from "the rollout exists".
+release_requested=0
+
+notify_build_failed() {
+  local state note rollout_id
+  note="$(skipped_steps_note)"
+  rollout_id="${release_id}-to-${TARGET_ID}-0001"
+
+  if [[ "$release_requested" != "1" ]]; then
+    notify_slack "FAILED" "Cloud Build failed before the Cloud Deploy release was created, so no backend/web rollout was started. ${note}"
+    return 0
+  fi
+
+  state="$(rollout_state)"
+  case "$state" in
+    SUCCEEDED)
+      notify_slack "ROLLOUT_SUCCEEDED_BUILD_FAILED" "This is NOT a failed rollout. Cloud Deploy rollout \`${rollout_id}\` reached \`SUCCEEDED\`, so backend/web is serving \`${commit_sha}\`. Cloud Build stopped afterwards - the rollout wait timed out, or a post-rollout verification failed. Read the Cloud Build log for which. ${note}"
+      ;;
+    FAILED|CANCELLED|HALTED)
+      notify_slack "FAILED" "Cloud Deploy rollout \`${rollout_id}\` ended in \`${state}\`. Backend/web was NOT updated to \`${commit_sha}\`. ${note}"
+      ;;
+    IN_PROGRESS|PENDING|PENDING_APPROVAL|PENDING_RELEASE)
+      notify_slack "ROLLOUT_IN_PROGRESS" "Cloud Build gave up, but Cloud Deploy rollout \`${rollout_id}\` is still \`${state}\` - it has NOT failed. Watch Cloud Deploy to completion before starting another deploy. ${note}"
+      ;;
+    "")
+      notify_slack "ROLLOUT_UNKNOWN" "Cloud Build failed and the Cloud Deploy rollout state for \`${release_id}\` could not be read, so whether backend/web rolled out is UNKNOWN. Check Cloud Deploy before assuming either way. ${note}"
+      ;;
+    *)
+      notify_slack "ROLLOUT_UNKNOWN" "Cloud Build failed. Cloud Deploy rollout \`${rollout_id}\` reports \`${state}\`, which this script does not classify - check Cloud Deploy before assuming the deploy failed. ${note}"
+      ;;
+  esac
+}
+
 on_exit() {
   local rc=$?
   if [[ "$rc" -ne 0 ]]; then
-    notify_slack "FAILED" "Cloud Build failed before backend/web rollout completed."
+    notify_build_failed
     post_deploy_panel
   fi
 }
@@ -284,6 +356,7 @@ export RELEASE_ID="$release_id"
 } >"$deploy_metadata_file"
 notify_slack "STARTED" "Building images and creating Cloud Deploy release for backend/web."
 
+release_requested=1
 tools/deploy/stg-clouddeploy-release.sh
 deploy_herd_signals_mqtt_bridge
 smoke_grafana_dashboards

@@ -24,16 +24,18 @@ import (
 const maxSlackSkew = 5 * time.Minute
 
 type config struct {
-	ProjectID       string
-	ProjectNumber   string
-	Location        string
-	TriggerID       string
-	SigningSecret   string
-	AllowedUsers    map[string]bool
-	ConsoleAuthUser string
-	GitHubPATSecret string
-	GitHubOwner     string
-	GitHubRepo      string
+	ProjectID        string
+	ProjectNumber    string
+	Location         string
+	DeployRegion     string
+	DeliveryPipeline string
+	TriggerID        string
+	SigningSecret    string
+	AllowedUsers     map[string]bool
+	ConsoleAuthUser  string
+	GitHubPATSecret  string
+	GitHubOwner      string
+	GitHubRepo       string
 }
 
 type slackActionPayload struct {
@@ -87,6 +89,62 @@ type cloudBuildGetBuild struct {
 		ID     string `json:"id"`
 		Status string `json:"status"`
 	} `json:"steps"`
+	SourceProvenance struct {
+		ResolvedRepoSource struct {
+			CommitSHA string `json:"commitSha"`
+		} `json:"resolvedRepoSource"`
+	} `json:"sourceProvenance"`
+}
+
+type cloudDeployRolloutList struct {
+	Rollouts []cloudDeployRollout `json:"rollouts"`
+}
+
+type cloudDeployRollout struct {
+	Name          string `json:"name"`
+	State         string `json:"state"`
+	CreateTime    string `json:"createTime"`
+	FailureReason string `json:"failureReason"`
+}
+
+// rolloutStatus is what Cloud Deploy says about the rollout a deploy build created.
+// An empty State means the bot could NOT read it, which is never the same fact as a
+// failed rollout and must never be reported as one.
+type rolloutStatus struct {
+	ID          string
+	State       string
+	Description string
+}
+
+func (r rolloutStatus) succeeded() bool { return r.State == "SUCCEEDED" }
+
+func (r rolloutStatus) failed() bool {
+	switch r.State {
+	case "FAILED", "CANCELLED", "HALTED":
+		return true
+	default:
+		return false
+	}
+}
+
+func (r rolloutStatus) inProgress() bool {
+	switch r.State {
+	case "IN_PROGRESS", "PENDING", "PENDING_APPROVAL", "PENDING_RELEASE":
+		return true
+	default:
+		return false
+	}
+}
+
+func (r rolloutStatus) label() string {
+	switch {
+	case r.State == "":
+		return "unknown"
+	case r.ID == "":
+		return r.State
+	default:
+		return fmt.Sprintf("%s (%s)", r.State, r.ID)
+	}
 }
 
 type androidReleaseVersion struct {
@@ -120,16 +178,20 @@ type githubUpdateResponse struct {
 
 func main() {
 	cfg := config{
-		ProjectID:       env("PROJECT_ID", "goatos-stg"),
-		ProjectNumber:   env("PROJECT_NUMBER", "514832198871"),
-		Location:        env("TRIGGER_LOCATION", "global"),
-		TriggerID:       mustEnv("TRIGGER_ID"),
-		SigningSecret:   mustEnv("SLACK_SIGNING_SECRET"),
-		AllowedUsers:    parseAllowedUsers(os.Getenv("SLACK_ALLOWED_USER_IDS")),
-		ConsoleAuthUser: env("CONSOLE_AUTHUSER", "ravi@mesha.sg"),
-		GitHubPATSecret: env("GITHUB_PAT_SECRET", "goatos-github-pat"),
-		GitHubOwner:     env("GITHUB_OWNER", "vgoats"),
-		GitHubRepo:      env("GITHUB_REPO", "goatos"),
+		ProjectID:     env("PROJECT_ID", "goatos-stg"),
+		ProjectNumber: env("PROJECT_NUMBER", "514832198871"),
+		Location:      env("TRIGGER_LOCATION", "global"),
+		// Cloud Build triggers live in `global`; the Cloud Deploy delivery pipeline
+		// lives in the deploy region, so the two must not share one location value.
+		DeployRegion:     env("DEPLOY_REGION", "asia-south1"),
+		DeliveryPipeline: env("DELIVERY_PIPELINE", "goatos-stg"),
+		TriggerID:        mustEnv("TRIGGER_ID"),
+		SigningSecret:    mustEnv("SLACK_SIGNING_SECRET"),
+		AllowedUsers:     parseAllowedUsers(os.Getenv("SLACK_ALLOWED_USER_IDS")),
+		ConsoleAuthUser:  env("CONSOLE_AUTHUSER", "ravi@mesha.sg"),
+		GitHubPATSecret:  env("GITHUB_PAT_SECRET", "goatos-github-pat"),
+		GitHubOwner:      env("GITHUB_OWNER", "vgoats"),
+		GitHubRepo:       env("GITHUB_REPO", "goatos"),
 	}
 
 	mux := http.NewServeMux()
@@ -568,11 +630,20 @@ func (cfg config) monitorBuild(responseURL, buildID, triggeredBy, actionLabel st
 	for {
 		select {
 		case <-ctx.Done():
+			// ctx is already done, so the rollout read needs its own budget.
+			lookup, cancelLookup := context.WithTimeout(context.Background(), time.Minute)
+			rollout := rolloutStatus{}
+			if build, err := cfg.getBuild(lookup, buildID); err == nil {
+				rollout = cfg.rolloutForBuild(lookup, build, deploySTG)
+			} else {
+				log.Printf("build monitor timeout get failed for %s: %v", buildID, err)
+			}
+			cancelLookup()
 			cfg.postSlackResponse(responseURL, map[string]any{
 				"response_type":    "in_channel",
 				"replace_original": true,
 				"text":             fmt.Sprintf("%s monitor timed out for build `%s`; check Cloud Build logs.", actionLabel, buildID),
-				"attachments":      deployTerminalAttachments("TIMED_OUT", triggeredBy, actionLabel, buildID, deploySTG, mobileDistribution, cfg.cloudBuildURL(buildID), cfg.cloudDeployURL(), nil),
+				"attachments":      deployTerminalAttachments("TIMED_OUT", triggeredBy, actionLabel, buildID, deploySTG, mobileDistribution, cfg.cloudBuildURL(buildID), cfg.cloudDeployURL(), nil, rollout),
 			})
 			cfg.postDeployPanel(responseURL)
 			return
@@ -585,11 +656,17 @@ func (cfg config) monitorBuild(responseURL, buildID, triggeredBy, actionLabel st
 			if !isTerminalBuildStatus(build.Status) {
 				continue
 			}
+			// Cloud Build going red is not the same fact as the rollout failing, so
+			// ask Cloud Deploy what actually happened before announcing anything.
+			rollout := rolloutStatus{}
+			if build.Status != "SUCCESS" {
+				rollout = cfg.rolloutForBuild(ctx, build, deploySTG)
+			}
 			cfg.postSlackResponse(responseURL, map[string]any{
 				"response_type":    "in_channel",
 				"replace_original": true,
 				"text":             fmt.Sprintf("%s finished with Cloud Build status `%s` for `%s`.", actionLabel, build.Status, buildID),
-				"attachments":      deployTerminalAttachments(build.Status, triggeredBy, actionLabel, buildID, deploySTG, mobileDistribution, cfg.cloudBuildURL(buildID), cfg.cloudDeployURL(), build.Steps),
+				"attachments":      deployTerminalAttachments(build.Status, triggeredBy, actionLabel, buildID, deploySTG, mobileDistribution, cfg.cloudBuildURL(buildID), cfg.cloudDeployURL(), build.Steps, rollout),
 			})
 			if build.Status != "SUCCESS" {
 				cfg.postDeployPanel(responseURL)
@@ -597,6 +674,116 @@ func (cfg config) monitorBuild(responseURL, buildID, triggeredBy, actionLabel st
 			return
 		}
 	}
+}
+
+// rolloutForBuild resolves the Cloud Deploy rollout this build created. Every failure
+// to resolve it degrades to the zero value, which the message composition reads as
+// "unknown" -- never as a failed rollout.
+func (cfg config) rolloutForBuild(ctx context.Context, build cloudBuildGetBuild, deploySTG bool) rolloutStatus {
+	if !deploySTG {
+		return rolloutStatus{}
+	}
+	sha := buildCommitSHA(build)
+	if sha == "" {
+		log.Printf("could not resolve a commit sha for build %s; cloud deploy rollout state unknown", build.ID)
+		return rolloutStatus{}
+	}
+	rollout, err := cfg.latestRolloutForCommit(ctx, sha)
+	if err != nil {
+		log.Printf("cloud deploy rollout lookup failed for %s: %v", sha, err)
+		return rolloutStatus{}
+	}
+	return rollout
+}
+
+// buildCommitSHA returns the 12-character prefix the deploy scripts name their Cloud
+// Deploy release after: release id `r-<sha12>-<HHMMSS>`.
+func buildCommitSHA(build cloudBuildGetBuild) string {
+	for _, key := range []string{"_COMMIT_SHA", "COMMIT_SHA", "REVISION_ID", "SHORT_SHA"} {
+		if value := shortCommitSHA(build.Substitutions[key]); value != "" {
+			return value
+		}
+	}
+	return shortCommitSHA(build.SourceProvenance.ResolvedRepoSource.CommitSHA)
+}
+
+func shortCommitSHA(sha string) string {
+	sha = strings.TrimSpace(sha)
+	if len(sha) > 12 {
+		return sha[:12]
+	}
+	return sha
+}
+
+func rolloutShortName(name string) string {
+	if idx := strings.LastIndex(name, "/rollouts/"); idx >= 0 {
+		return name[idx+len("/rollouts/"):]
+	}
+	return name
+}
+
+// matchRollout picks the rollout belonging to a commit. Releases are named
+// `r-<sha12>-<HHMMSS>` and their rollouts extend that name, so the prefix identifies
+// the commit; when a commit was released more than once (retry, redeploy) the NEWEST
+// createTime wins. The listing order is deliberately not relied on: Cloud Deploy
+// rejects `orderBy=createTime desc` on this collection ("cannot sort on field:
+// createTime"), so the page arrives in an order the API does not promise.
+// createTime is RFC3339 UTC from one source, so comparing the strings orders them.
+func matchRollout(rollouts []cloudDeployRollout, shortSHA string) rolloutStatus {
+	if shortSHA == "" {
+		return rolloutStatus{}
+	}
+	prefix := "r-" + shortSHA + "-"
+	var (
+		best        rolloutStatus
+		bestCreated string
+	)
+	for _, rollout := range rollouts {
+		id := rolloutShortName(rollout.Name)
+		if !strings.HasPrefix(id, prefix) {
+			continue
+		}
+		if best.ID != "" && rollout.CreateTime <= bestCreated {
+			continue
+		}
+		best = rolloutStatus{ID: id, State: rollout.State, Description: strings.TrimSpace(rollout.FailureReason)}
+		bestCreated = rollout.CreateTime
+	}
+	return best
+}
+
+func (cfg config) latestRolloutForCommit(ctx context.Context, shortSHA string) (rolloutStatus, error) {
+	token, err := metadataToken(ctx)
+	if err != nil {
+		return rolloutStatus{}, err
+	}
+	// `releases/-` lists across every release of the pipeline. No orderBy: Cloud Deploy
+	// rejects sorting this collection on createTime, so matchRollout does the ordering.
+	endpoint := fmt.Sprintf(
+		"https://clouddeploy.googleapis.com/v1/projects/%s/locations/%s/deliveryPipelines/%s/releases/-/rollouts?pageSize=100",
+		cfg.ProjectID, cfg.DeployRegion, cfg.DeliveryPipeline,
+	)
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, endpoint, nil)
+	if err != nil {
+		return rolloutStatus{}, err
+	}
+	req.Header.Set("Authorization", "Bearer "+token)
+
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		return rolloutStatus{}, err
+	}
+	defer resp.Body.Close()
+	respBody, _ := io.ReadAll(io.LimitReader(resp.Body, 1<<22))
+	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
+		return rolloutStatus{}, fmt.Errorf("cloud deploy rollouts list returned %s: %s", resp.Status, strings.TrimSpace(string(respBody)))
+	}
+
+	var parsed cloudDeployRolloutList
+	if err := json.Unmarshal(respBody, &parsed); err != nil {
+		return rolloutStatus{}, err
+	}
+	return matchRollout(parsed.Rollouts, shortSHA), nil
 }
 
 func (cfg config) getBuild(ctx context.Context, buildID string) (cloudBuildGetBuild, error) {
@@ -637,21 +824,103 @@ func isTerminalBuildStatus(status string) bool {
 	}
 }
 
+const (
+	colorDeploySuccess = "#2EB67D"
+	colorDeployWarning = "#ECB22E"
+	colorDeployFailure = "#E01E5A"
+)
+
+type deployVerdict struct {
+	Title string
+	Color string
+	Text  string
+}
+
+// deployVerdictFor turns a terminal Cloud Build status PLUS the real Cloud Deploy
+// rollout state into what the channel is told. The two are different facts and must not
+// be collapsed: on 2026-09-22 build dd97ab48-c979-43d0-95eb-3fdbaae9c20f (commit
+// 7e0939befad2) went red on the 1800s rollout watchdog while rollout
+// r-7e0939befad2-180845-to-goatos-stg-0001 reached SUCCEEDED 84s later, and the deploy
+// was announced as failed. Nothing here may say the rollout did not complete unless
+// Cloud Deploy actually says so.
+func deployVerdictFor(buildStatus string, deploySTG, mobileDistribution bool, rollout rolloutStatus) deployVerdict {
+	if buildStatus == "SUCCESS" {
+		return deployVerdict{
+			Title: "Goat OS deploy succeeded",
+			Color: colorDeploySuccess,
+			Text:  "Cloud Build finished green.",
+		}
+	}
+	if !deploySTG {
+		// Android-only distribution creates no Cloud Deploy rollout to consult.
+		return deployVerdict{
+			Title: "Goat OS Android distribution needs attention",
+			Color: colorDeployFailure,
+			Text:  fmt.Sprintf("Cloud Build ended `%s`. No backend/web rollout was part of this job.", buildStatus),
+		}
+	}
+
+	skipped := skippedStepsNote(mobileDistribution)
+	switch {
+	case rollout.succeeded():
+		return deployVerdict{
+			Title: "Goat OS rollout succeeded; Cloud Build did not finish",
+			Color: colorDeployWarning,
+			Text: fmt.Sprintf(
+				"This is NOT a failed rollout. Cloud Deploy rollout `%s` reached `SUCCEEDED`, so backend/web is serving this commit. Cloud Build ended `%s` afterwards - the rollout wait timed out, or a post-rollout verification failed. %s",
+				rollout.ID, buildStatus, skipped),
+		}
+	case rollout.failed():
+		return deployVerdict{
+			Title: "Goat OS deploy failed",
+			Color: colorDeployFailure,
+			Text: fmt.Sprintf(
+				"Cloud Deploy rollout `%s` ended `%s`%s. Backend/web was NOT updated. Cloud Build ended `%s`. %s",
+				rollout.ID, rollout.State, descriptionSuffix(rollout.Description), buildStatus, skipped),
+		}
+	case rollout.inProgress():
+		return deployVerdict{
+			Title: "Goat OS rollout is still in progress",
+			Color: colorDeployWarning,
+			Text: fmt.Sprintf(
+				"Cloud Build ended `%s`, but Cloud Deploy rollout `%s` is still `%s` - it has NOT failed. Watch Cloud Deploy to completion before starting another deploy. %s",
+				buildStatus, rollout.ID, rollout.State, skipped),
+		}
+	default:
+		return deployVerdict{
+			Title: "Goat OS deploy needs attention",
+			Color: colorDeployFailure,
+			Text: fmt.Sprintf(
+				"Cloud Build ended `%s`. The Cloud Deploy rollout state could not be read, so whether backend/web rolled out is UNKNOWN - check Cloud Deploy before assuming either way. %s",
+				buildStatus, skipped),
+		}
+	}
+}
+
+// skippedStepsNote names the work that silently does not happen when the deploy build
+// stops at `stg-cloud-deploy-release`: the later steps never run, so an Android release
+// the requester asked for does not ship.
+func skippedStepsNote(mobileDistribution bool) string {
+	if mobileDistribution {
+		return "Because the build stopped there, `stg-release-tag-bookkeeping` and `android-mobile-distribution` did NOT run: no release tag was written and no Android release shipped from this build."
+	}
+	return "Because the build stopped there, `stg-release-tag-bookkeeping` did NOT run, so no release tag was written for this commit."
+}
+
+func descriptionSuffix(description string) string {
+	if strings.TrimSpace(description) == "" {
+		return ""
+	}
+	return " - " + strings.TrimSpace(description)
+}
+
 func deployTerminalAttachments(status, triggeredBy, actionLabel, buildID string, deploySTG, mobileDistribution bool, buildURL, deployURL string, steps []struct {
 	ID     string `json:"id"`
 	Status string `json:"status"`
-}) []map[string]any {
-	title := "Goat OS deploy finished"
-	color := "#AAAAAA"
-	switch status {
-	case "SUCCESS":
-		title = "Goat OS deploy succeeded"
-		color = "#2EB67D"
-	case "FAILURE", "INTERNAL_ERROR", "TIMEOUT", "CANCELLED", "EXPIRED", "TIMED_OUT":
-		title = "Goat OS deploy needs attention"
-		color = "#E01E5A"
-	}
-	stepText := "Cloud Build reached a terminal state."
+}, rollout rolloutStatus) []map[string]any {
+	verdict := deployVerdictFor(status, deploySTG, mobileDistribution, rollout)
+
+	text := verdict.Text
 	if len(steps) > 0 {
 		var parts []string
 		for _, step := range steps {
@@ -660,7 +929,7 @@ func deployTerminalAttachments(status, triggeredBy, actionLabel, buildID string,
 			}
 		}
 		if len(parts) > 0 {
-			stepText = "Non-green steps: " + strings.Join(parts, ", ")
+			text += "\nNon-green steps: " + strings.Join(parts, ", ")
 		}
 	}
 
@@ -671,17 +940,24 @@ func deployTerminalAttachments(status, triggeredBy, actionLabel, buildID string,
 		actions = append(actions, map[string]any{"type": "button", "text": "Cloud Deploy", "url": deployURL})
 	}
 
+	fields := []map[string]any{
+		{"title": "Build", "value": buildID, "short": true},
+		{"title": "Cloud Build status", "value": status, "short": true},
+	}
+	if deploySTG {
+		fields = append(fields, map[string]any{"title": "Cloud Deploy rollout", "value": rollout.label(), "short": false})
+	}
+	fields = append(fields,
+		map[string]any{"title": "Triggered by", "value": triggeredBy, "short": false},
+		map[string]any{"title": "Mode", "value": deployModeLabel(deploySTG, mobileDistribution), "short": false},
+	)
+
 	return []map[string]any{
 		{
-			"color": color,
-			"title": title,
-			"text":  stepText,
-			"fields": []map[string]any{
-				{"title": "Build", "value": buildID, "short": true},
-				{"title": "Status", "value": status, "short": true},
-				{"title": "Triggered by", "value": triggeredBy, "short": false},
-				{"title": "Mode", "value": deployModeLabel(deploySTG, mobileDistribution), "short": false},
-			},
+			"color":   verdict.Color,
+			"title":   verdict.Title,
+			"text":    text,
+			"fields":  fields,
 			"actions": actions,
 		},
 	}
@@ -771,11 +1047,11 @@ func (cfg config) runTrigger(ctx context.Context, deploySTG, mobileDistribution 
 	source := map[string]any{
 		"branchName": "main",
 		"substitutions": map[string]string{
-			"_DEPLOY_STG":                       strconv.FormatBool(deploySTG),
-			"_DEPLOY_MOBILE":                    strconv.FormatBool(mobileDistribution),
+			"_DEPLOY_STG":                      strconv.FormatBool(deploySTG),
+			"_DEPLOY_MOBILE":                   strconv.FormatBool(mobileDistribution),
 			"_GOATOS_STG_ZERO_DOWNTIME_DEPLOY": "true",
-			"_SLACK_USER_ID":                    slackUserID,
-			"_TRIGGERED_BY":                     triggeredBy,
+			"_SLACK_USER_ID":                   slackUserID,
+			"_TRIGGERED_BY":                    triggeredBy,
 		},
 	}
 	if sourceCommitSHA != "" {
@@ -898,7 +1174,9 @@ func (cfg config) cloudDeployURL() string {
 	if cfg.ConsoleAuthUser != "" {
 		values.Set("authuser", cfg.ConsoleAuthUser)
 	}
-	return fmt.Sprintf("https://console.cloud.google.com/deploy/delivery-pipelines/%s/goatos-stg?%s", cfg.Location, values.Encode())
+	// The delivery pipeline lives in the deploy region, never in the Cloud Build
+	// trigger location, so this link must not be built from cfg.Location.
+	return fmt.Sprintf("https://console.cloud.google.com/deploy/delivery-pipelines/%s/%s?%s", cfg.DeployRegion, cfg.DeliveryPipeline, values.Encode())
 }
 
 func (cfg config) consoleProject() string {
