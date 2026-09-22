@@ -6,6 +6,7 @@ import (
 	"sort"
 	"strings"
 
+	"github.com/vgoats/goatos/backend/internal/platform/herdstage"
 	"github.com/vgoats/goatos/backend/internal/platform/oploc"
 	"github.com/vgoats/goatos/backend/internal/procurement/domain"
 	"github.com/vgoats/goatos/backend/internal/procurement/ports"
@@ -129,7 +130,9 @@ WHERE (l.bucket = 'on_farm' OR (l.bucket = 'sold' AND l.sale_date BETWEEN $2::da
   AND ($7::text = '' OR l.species = $7)
   AND ($8::text = '' OR lower(btrim(l.breed)) = $8)
   AND ($9::text = '' OR l.sex = $9)
-  AND ($10::text = '' OR lower(btrim(l.stage)) = $10)
+  -- The stage filter offers ONE fattening option and matches the three stored values it stands
+  -- for (herdstage.ExpandFilter), so this predicate is a SET where the others are a single value.
+  AND (cardinality($10::text[]) = 0 OR lower(btrim(l.stage)) = ANY($10::text[]))
 ORDER BY l.sale_date DESC NULLS LAST, l.tag, l.goat_id`
 
 // farmBornOptionsSQL is the filter bar's vocabulary: every distinct park,
@@ -139,8 +142,12 @@ ORDER BY l.sale_date DESC NULLS LAST, l.tag, l.goat_id`
 //
 // projection-review: membership=the same located population as the facts read (tenant,
 // origin_type = 'birth'), restricted to animals on farm or sold; group_key=the distinct
-// (park, shed, partition_key, species, breed, sex, stage) tuple -- a vocabulary, not a count, so no
-// figure is derived from it; join_cardinality=1:{0,1} per animal on every branch as above;
+// (park, shed, partition_key, species, breed, sex, FOLDED stage, stage name) tuple -- a vocabulary,
+// not a count, so no figure is derived from it and a fold that maps three codes onto one can only
+// remove a row, never invent one; join_cardinality=1:{0,1} per animal on every branch as above,
+// plus animal_stage_lookup LEFT JOINed once on its unique (tenant_id, stage_code) key -- a strict
+// 1:{0,1} LABEL-ONLY lookup reached through the folded code, supplying no identity, and the
+// CROSS JOIN LATERAL is a scalar CASE over the row itself, exactly one row per input row;
 // pagination=none; scope=tenant_id on every branch.
 //
 // scale-guard:ignore: bounded DISTINCT over the same set-based population read; the result is the
@@ -149,8 +156,22 @@ const farmBornOptionsSQL = farmBornPopulationSQL + `
 SELECT DISTINCT
        COALESCE(l.park_id::text, ''), l.park_name, l.park_code,
        COALESCE(l.shed_id::text, ''), l.shed_name, l.partition_label, l.partition_key,
-       l.species, l.breed, l.sex, l.stage
+       l.species, l.breed, l.sex, folded.code, COALESCE(sl.name, '')
 FROM located l
+-- The FATTENING FOLD, and the lookup name for the code it folds onto. This page carries a sex
+-- filter, so the sexed fattening tags arrive as ONE option -- named by the COHORT's authored row
+-- ("Fattening"), which is also what Counts Breakdown's stage filter calls it. Naming it from a
+-- member instead would label the whole cohort "Fattening female" on one screen and something else
+-- on the other. The membership is BOUND ($2/$3, from platform/herdstage) rather than spelled out
+-- here, so this SQL is not a second copy of the vocabulary. Every other stage keeps its own code,
+-- exactly as before: the join is reached only through the folded code, and a stage with no lookup
+-- row falls back to it.
+CROSS JOIN LATERAL (
+  SELECT CASE WHEN lower(btrim(COALESCE(l.stage, ''))) = ANY($2::text[])
+              THEN $3::text ELSE l.stage END AS code
+) folded
+LEFT JOIN animal_stage_lookup sl
+       ON sl.tenant_id = $1::uuid AND sl.stage_code = folded.code
 WHERE l.bucket IN ('on_farm', 'sold')`
 
 // FarmBornAnimals implements ports.FarmBornSalesRepository.
@@ -169,7 +190,7 @@ func (r *Repository) FarmBornAnimals(ctx context.Context, tenantID string, f dom
 		strings.ToLower(strings.TrimSpace(f.Species)),
 		strings.ToLower(strings.TrimSpace(f.Breed)),
 		strings.ToLower(strings.TrimSpace(f.Sex)),
-		strings.ToLower(strings.TrimSpace(f.Stage)),
+		lowerAll(herdstage.ExpandFilter(compactStage(f.Stage))),
 	)
 	if err != nil {
 		return nil, fmt.Errorf("procurement: farm born animals: %w", err)
@@ -208,7 +229,7 @@ func (r *Repository) FarmBornOptions(ctx context.Context, tenantID string) (doma
 	ctx, cancel := context.WithTimeout(ctx, r.timeout)
 	defer cancel()
 
-	rows, err := r.pool.Query(ctx, farmBornOptionsSQL, tenantID)
+	rows, err := r.pool.Query(ctx, farmBornOptionsSQL, tenantID, herdstage.LowerMembers(), herdstage.FatteningKey)
 	if err != nil {
 		return domain.FarmBornOptions{}, fmt.Errorf("procurement: farm born options: %w", err)
 	}
@@ -225,8 +246,8 @@ func (r *Repository) FarmBornOptions(ctx context.Context, tenantID string) (doma
 	sexes := map[string]domain.FarmBornOption{}
 	stages := map[string]domain.FarmBornOption{}
 	for rows.Next() {
-		var parkID, parkName, parkCodeValue, shedID, shedName, partitionLabel, partitionKey, sp, breed, sex, stage string
-		if err := rows.Scan(&parkID, &parkName, &parkCodeValue, &shedID, &shedName, &partitionLabel, &partitionKey, &sp, &breed, &sex, &stage); err != nil {
+		var parkID, parkName, parkCodeValue, shedID, shedName, partitionLabel, partitionKey, sp, breed, sex, stage, stageName string
+		if err := rows.Scan(&parkID, &parkName, &parkCodeValue, &shedID, &shedName, &partitionLabel, &partitionKey, &sp, &breed, &sex, &stage, &stageName); err != nil {
 			return domain.FarmBornOptions{}, fmt.Errorf("procurement: farm born options scan: %w", err)
 		}
 		if parkID != "" {
@@ -257,10 +278,16 @@ func (r *Repository) FarmBornOptions(ctx context.Context, tenantID string) (doma
 		if sex != "" {
 			sexes[sex] = domain.FarmBornOption{Key: sex, Label: domain.FarmBornSexLabel(sex)}
 		}
+		// `stage` is already the FOLDED code: the three fattening values arrive as one. Its label
+		// is the cohort's authored name when the lookup has one, and its own code otherwise --
+		// herdstage.DisplayLabel, the same rule Counts Breakdown's filter reads, so the two pages
+		// cannot call one cohort two things.
 		if s := strings.TrimSpace(stage); s != "" {
 			key := strings.ToLower(s)
-			if cur, seen := stages[key]; !seen || s < cur.Label {
-				stages[key] = domain.FarmBornOption{Key: key, Label: s}
+			label := herdstage.DisplayLabel(s, stageName)
+			// Spellings that differ only by case are ONE stage; the first-sorting label names it.
+			if cur, seen := stages[key]; !seen || label < cur.Label {
+				stages[key] = domain.FarmBornOption{Key: key, Label: label}
 			}
 		}
 	}
@@ -346,4 +373,23 @@ func firstNonBlank(values ...string) string {
 		}
 	}
 	return ""
+}
+
+// compactStage turns the page's single stage parameter into the set the predicate binds: empty
+// means no filter, so a blank value must not become a one-element set matching nothing.
+func compactStage(stage string) []string {
+	if trimmed := strings.TrimSpace(stage); trimmed != "" {
+		return []string{trimmed}
+	}
+	return nil
+}
+
+// lowerAll matches the predicate's own lower(btrim(...)) normalization; a nil set stays nil so
+// cardinality() reads zero and the filter is off.
+func lowerAll(values []string) []string {
+	out := make([]string, 0, len(values))
+	for _, value := range values {
+		out = append(out, strings.ToLower(strings.TrimSpace(value)))
+	}
+	return out
 }

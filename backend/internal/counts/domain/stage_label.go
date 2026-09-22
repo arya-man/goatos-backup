@@ -1,6 +1,6 @@
 package domain
 
-import "strings"
+import "github.com/vgoats/goatos/backend/internal/platform/herdstage"
 
 // StageDisplayLabel is the stage label a Counts reader sees, given the raw stored stage_code and
 // the name the tenant configured for it in animal_stage_lookup.
@@ -18,15 +18,10 @@ import "strings"
 // The WORDS are business-managed: they come from animal_stage_lookup.name, so renaming Fattening
 // is a data edit and never a deploy. Only the CHOICE of which codes show their name lives here.
 // An F2 stage with no configured name falls back to its code rather than to an invented word.
+// The rule itself lives in platform/herdstage beside the membership it depends on, because Sales >
+// Farm born renders the same cohort and the two pages must not call it two different things.
 func StageDisplayLabel(stageCode, configuredName string) string {
-	if !IsFatteningStage(stageCode) {
-		return stageCode
-	}
-	name := strings.TrimSpace(configuredName)
-	if name == "" {
-		return stageCode
-	}
-	return name
+	return herdstage.DisplayLabel(stageCode, configuredName)
 }
 
 // IsFatteningStage reports whether a stage code belongs to the fattening family: bare "F2" and its
@@ -35,11 +30,9 @@ func StageDisplayLabel(stageCode, configuredName string) string {
 // Matched on the WHOLE code (case-insensitively, since the column has no CHECK constraint and the
 // importer writes the source sheet cell verbatim), never on a "F2" prefix -- a prefix test would
 // also claim a future "F2X" or "F2-Trial" that the farm might mean as something else entirely.
+// The membership itself lives in platform/herdstage, which is also what the stage FILTER folds on
+// -- the label and the filter must agree about which codes are one cohort, and two lists would be
+// free to drift.
 func IsFatteningStage(stageCode string) bool {
-	switch strings.ToLower(strings.TrimSpace(stageCode)) {
-	case "f2", "f2-male", "f2-female":
-		return true
-	default:
-		return false
-	}
+	return herdstage.IsFattening(stageCode)
 }
