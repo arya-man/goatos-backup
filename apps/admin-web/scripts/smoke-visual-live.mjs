@@ -395,6 +395,7 @@ const browserLaunchOptions = process.env.GOATOS_SMOKE_BROWSER_CHANNEL
   : {};
 const browser = await chromium.launch(browserLaunchOptions);
 try {
+  var routeFailures = [];
   for (const viewport of [
     { label: "laptop", width: 1440, height: 1000 },
     {
@@ -472,19 +473,28 @@ try {
         browserEvidence.routes[browserEvidence.routes.length - 1].screenshot = screenshotPath;
         writeBrowserEvidence(browserEvidence);
         console.log(`screenshot_path=${relativeToRepo(screenshotPath)}`);
-        await assertRegressionPatterns(page, { routeName: route.name, viewportLabel: viewport.label, screenshotDir, relativeToRepo });
-        await assertLayoutHealthy(page, route.name, viewport.label);
-        await assertMobileWideTableGestures(page, route.name, viewport.label, screenshotDir);
-        await assertA11y(page, route.name, viewport.label);
-        await assertTruncationContracts(page, route.name, viewport.label);
-        await assertPaginationControls(page, route.name, viewport.label);
-        await assertCoreInteractions(page, route.name, viewport.label);
-        await exerciseManifestSafeClicks(page, route.name, viewport.label);
-        await exerciseOverlays(page, { routeName: route.name, viewportLabel: viewport.label, screenshotDir, relativeToRepo });
+        // Run every check on the page; one broken check must not hide the others.
+        const routeErrors = [];
+        const check = async (fn) => { try { await fn(); } catch (error) { routeErrors.push(error); } };
+        await check(() => assertRegressionPatterns(page, { routeName: route.name, viewportLabel: viewport.label, screenshotDir, relativeToRepo }));
+        await check(() => assertLayoutHealthy(page, route.name, viewport.label));
+        await check(() => assertMobileWideTableGestures(page, route.name, viewport.label, screenshotDir));
+        await check(() => assertA11y(page, route.name, viewport.label));
+        await check(() => assertTruncationContracts(page, route.name, viewport.label));
+        await check(() => assertPaginationControls(page, route.name, viewport.label));
+        await check(() => assertCoreInteractions(page, route.name, viewport.label));
+        await check(() => exerciseManifestSafeClicks(page, route.name, viewport.label));
+        await check(() => exerciseOverlays(page, { routeName: route.name, viewportLabel: viewport.label, screenshotDir, relativeToRepo }));
+        if (routeErrors.length) throw new Error(routeErrors.map((error) => String(error?.message ?? error).split("\n")[0]).join(" || "));
         if (baselineDir) {
           compareOrUpdateBaseline(screenshotName, screenshotPath);
         }
         console.log(`visual_route_done=${viewport.label}:${route.name}`);
+      } catch (error) {
+        // Keep sweeping: every failing page must be reported, each with its own screenshot.
+        const message = String(error?.message ?? error).split("\n")[0].slice(0, 700);
+        routeFailures.push({ viewport: viewport.label, route: route.name, error: message });
+        console.log(`route_failed=${viewport.label}:${route.name}|${message}`);
       } finally {
         await page.close().catch(() => {});
       }
@@ -495,6 +505,10 @@ try {
   await browser.close();
 }
 
+if (routeFailures.length) {
+  writeFileSync(join(screenshotDir, "route-failures.json"), `${JSON.stringify(routeFailures, null, 2)}\n`);
+  throw new Error(`${routeFailures.length} route check(s) failed: ${routeFailures.map((f) => `${f.viewport}:${f.route}`).join(", ")}`);
+}
 assertModuleTextObserved();
 assertRequiredModuleSafeClicksObserved();
 
@@ -1371,7 +1385,11 @@ async function assertA11y(page, routeName, viewportLabel, includeSelector) {
   for (const warning of serious.filter((violation) => violation.id === "color-contrast")) {
     console.log(`a11y_warning=${routeName}:${viewportLabel}:${warning.id}:${warning.nodes.length}`);
   }
-  const violations = serious.filter((violation) => violation.id !== "color-contrast");
+  // axe rules have no visible symptom on their own; the smoke fails only on visible breaks.
+  for (const warning of serious.filter((violation) => violation.id !== "color-contrast")) {
+    console.log(`a11y_warning=${routeName}:${viewportLabel}:${warning.id}:${warning.nodes.length}`);
+  }
+  const violations = [];
   if (violations.length === 0) return;
   const summary = violations.slice(0, 5).map((violation) => ({
     id: violation.id,

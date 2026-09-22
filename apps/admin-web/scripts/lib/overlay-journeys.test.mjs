@@ -39,5 +39,5 @@ test("every journey targets a route in the live smoke list and names real source
 });
 
 test("smoke calls exerciseOverlays right after manifest safe clicks", () => {
-  assert.match(smokeSource, /exerciseManifestSafeClicks\(page, route\.name, viewport\.label\);\s*\n\s*await exerciseOverlays\(page,/);
+  assert.match(smokeSource, /exerciseManifestSafeClicks\(page, route\.name, viewport\.label\)\);\s*\n\s*await check\(\(\) => exerciseOverlays\(page,/);
 });

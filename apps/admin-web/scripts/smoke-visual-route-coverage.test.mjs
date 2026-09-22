@@ -273,12 +273,13 @@ test("visual smoke fails on the visible admin error boundary", () => {
 });
 
 test("visual smoke keeps mobile WebView layout regression checks wired", () => {
-  assert.match(smokeSource, /await assertLayoutHealthy\(page, route\.name, viewport\.label\);/);
-  assert.match(smokeSource, /await assertMobileWideTableGestures\(page, route\.name, viewport\.label, screenshotDir\);/);
-  assert.match(smokeSource, /await assertA11y\(page, route\.name, viewport\.label\);/);
-  assert.match(smokeSource, /await assertTruncationContracts\(page, route\.name, viewport\.label\);/);
+  assert.match(smokeSource, /route_failed=\$\{viewport\.label\}:\$\{route\.name\}/, "every failing page must be reported, not just the first");
+  assert.match(smokeSource, /await check\(\(\) => assertLayoutHealthy\(page, route\.name, viewport\.label\)\);/);
+  assert.match(smokeSource, /await check\(\(\) => assertMobileWideTableGestures\(page, route\.name, viewport\.label, screenshotDir\)\);/);
+  assert.match(smokeSource, /await check\(\(\) => assertA11y\(page, route\.name, viewport\.label\)\);/);
+  assert.match(smokeSource, /await check\(\(\) => assertTruncationContracts\(page, route\.name, viewport\.label\)\);/);
   assert.doesNotMatch(smokeSource, /function isAllowed(ClippedControl|SmallTarget|MobileScrollProblem|A11yFinding)/, "smoke must not waive real UI failures");
-  assert.match(smokeSource, /await assertCoreInteractions\(page, route\.name, viewport\.label\);/);
+  assert.match(smokeSource, /await check\(\(\) => assertCoreInteractions\(page, route\.name, viewport\.label\)\);/);
   for (const requiredCheck of [
     "has horizontal overflow",
     "has cards/panels cut at the viewport edge",
@@ -302,7 +303,7 @@ test("pager-required routes report a missing pager instead of failing the run", 
 
 test("visual smoke fails on regression patterns with an annotated screenshot", () => {
   assert.match(smokeSource, /import \{ assertRegressionPatterns \} from "\.\/lib\/regression-checks\.mjs";/);
-  assert.match(smokeSource, /await assertRegressionPatterns\(page, \{ routeName: route\.name, viewportLabel: viewport\.label, screenshotDir, relativeToRepo \}\);/);
+  assert.match(smokeSource, /await check\(\(\) => assertRegressionPatterns\(page, \{ routeName: route\.name, viewportLabel: viewport\.label, screenshotDir, relativeToRepo \}\)\);/);
   assert.doesNotMatch(smokeSource, /assertReadableText/);
 });
 
