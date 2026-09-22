@@ -287,7 +287,7 @@ export async function getBuyerAnalytics(
   );
 }
 
-// Farm born: the not-on-a-load half of the herd -- on farm today, sold in the window, the four
+// Farm born: the animals born on this farm -- on farm today, sold in the window, the four
 // breakdowns, one page of the sold ledger and the filter vocabulary, in ONE bounded request per
 // render. The window binds the sold side only; every other parameter narrows the whole page.
 export async function getFarmBornSales(

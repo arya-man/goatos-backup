@@ -866,7 +866,7 @@ func NewAPI(ctx context.Context, cfg Config, log *slog.Logger) (*API, error) {
 	// shape as load-wise, one read behind /sales/buyer-analytics.
 	procurementBuyerAnalyticsHandler := procurementhttp.NewBuyerAnalyticsHandler(
 		procurementapp.NewBuyerAnalyticsService(procurementpg.NewRepository(pool, cfg.Postgres.QueryTimeout)), log)
-	// Farm born (maintainer request 2026-09-18): the not-on-a-load half of the herd, the same
+	// Farm born (maintainer request 2026-09-18): the animals born on this farm, the same
 	// recorded procurement-reads-sales shape as load-wise, one read behind /sales/farm-born.
 	procurementFarmBornHandler := procurementhttp.NewFarmBornSalesHandler(
 		procurementapp.NewFarmBornSalesService(procurementpg.NewRepository(pool, cfg.Postgres.QueryTimeout)), log)
