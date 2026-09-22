@@ -293,11 +293,17 @@ test("visual smoke keeps mobile WebView layout regression checks wired", () => {
   }
 });
 
-test("pager-required routes cannot pass silently when the pager is missing", () => {
+test("pager-required routes report a missing pager instead of failing the run", () => {
   const pagerBlock = smokeSource.match(/async function assertPaginationControls[\s\S]*?\n}\n\nasync function exerciseFirstPagerRoundTrip/)?.[0] ?? "";
   assert.match(pagerBlock, /const bodyText = \(await page\.locator\("body"\)\.innerText\(\)\.catch\(\(\) => ""\)\)\.replace/);
   assert.match(pagerBlock, /0 rows\|0 results\|Nothing\|No rows\|No data/);
-  assert.match(pagerBlock, /expected at least \$\{minimum\} pager2 footer\(s\), found none/);
+  assert.match(pagerBlock, /pager_warning=\$\{routeName\}:\$\{viewportLabel\}:no-pager2-footer/);
+});
+
+test("visual smoke fails on visible text/chart readability breaks with an annotated screenshot", () => {
+  assert.match(smokeSource, /await assertReadableText\(page, route\.name, viewport\.label, screenshotDir\);/);
+  for (const kind of ["text-overlap", "chart-label-clipped", "chart-label-overlap", "text-cut-off"]) assert.ok(smokeSource.includes(`"${kind}"`), kind);
+  assert.match(smokeSource, /-issues\.png/);
 });
 
 test("PR264 routes record route-specific product signals in browser evidence", () => {
