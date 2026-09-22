@@ -347,6 +347,19 @@ func (a *Assistant) ask(ctx context.Context, q domain.Question, opts askOptions)
 		return domain.Answer{}, ctxErr
 	}
 
+	// Fail closed on a measure NOTHING models, judged after the reads ran so
+	// the decision rests on evidence rather than on a guess about the question.
+	// The failure mode this prevents is not an empty answer -- it is the
+	// nearest number, confidently relabelled (a milk question answered "CBE 24,
+	// CPT 24" from the animal-scope view). A leader cannot catch that.
+	unmodelled, terms := measureUnmodelled(q.Text, reporting.Cards(), catalog)
+	if unmodelled && someReadNamesACard(plan.SubQuestions, results) {
+		fitAudit = append(fitAudit, "refused_unmodelled_measure:"+strings.Join(terms, ","))
+		a.log.InfoContext(ctx, "ceoai refusing a measure nothing models",
+			"terms", terms, "tenant_id", q.Actor.TenantID)
+		return a.refusal(requestID, q.ConversationID, unmodelledRefusal(terms)), nil
+	}
+
 	// Answer fit (planned path): the measure, grouping, unit and period the
 	// question asked for must be what the plan declared and what actually ran.
 	// Checked generically (fit.go) and — when a model judge is wired — by the

@@ -7,6 +7,7 @@ import (
 
 	"github.com/vgoats/goatos/backend/internal/ceoai/domain"
 	"github.com/vgoats/goatos/backend/internal/ceoai/ports"
+	"github.com/vgoats/goatos/backend/internal/ceoai/reporting"
 )
 
 // RelevanceJudge is the optional model capability that reads the evidence a
@@ -104,6 +105,14 @@ func (a *Assistant) answerFit(ctx context.Context, q domain.Question, req Reques
 	for _, is := range unsupportedParamIssues(subs, catalog) {
 		issues = append(issues, is)
 		reasons = append(reasons, is.Detail)
+	}
+	// The measure must be bound to a column the read actually read, not to the
+	// label the model wrote over it. This is what stops a milk question being
+	// answered with an animal count.
+	for _, is := range measureBindingIssues(q, subs, results, reporting.Cards(), catalog) {
+		issues = append(issues, is)
+		reasons = append(reasons, "the read did not report "+is.Detail+
+			"; plan a read over a source whose own columns carry that measure, and if none does, refuse")
 	}
 	// Nothing came back at all (every read errored or was empty): the plan
 	// did not answer, so it deserves the same one re-plan a misfit gets.
