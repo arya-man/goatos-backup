@@ -706,7 +706,7 @@ func withGroundedFacts(r domain.ToolResult) domain.ToolResult {
 
 // readFailureLine is the user-facing sentence for a read that errored.
 func readFailureLine(r domain.ToolResult) string {
-	return fmt.Sprintf("I couldn't read the %s data for this question, so no figure is shown for it.", readSubject(r))
+	return fmt.Sprintf("I couldn't read the %s needed for this question, so no figure is shown for it.", readSubject(r))
 }
 
 // emptyReadLine is the user-facing sentence for a read that ran and returned
@@ -714,7 +714,7 @@ func readFailureLine(r domain.ToolResult) string {
 // Window fact is the only other place that says so), because "no records found"
 // with no period reads as "never", which is a different claim.
 func emptyReadLine(r domain.ToolResult) string {
-	return fmt.Sprintf("No records found in the %s data for the requested scope.", readSubject(r))
+	return fmt.Sprintf("No records found in %s for the requested scope.", readSubject(r))
 }
 
 // readSubject names a result in words. A bare route token ("sql", "api") is
@@ -723,7 +723,7 @@ func readSubject(r domain.ToolResult) string {
 	if s := strings.TrimSpace(r.Surface); s != "" {
 		return s
 	}
-	return "source"
+	return "the source records"
 }
 
 func surfaceOrRoute(r domain.ToolResult) string {
