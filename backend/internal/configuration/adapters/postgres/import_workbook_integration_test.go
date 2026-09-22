@@ -198,11 +198,12 @@ func TestConfigurationWorkbookPostgresPaths(t *testing.T) {
 		tab("Parks", []string{"name", "code", "capacity"},
 			[]string{"Chennai", "CHN", "500"},
 			[]string{"", "NON", "10"}). // name missing: invalid
-		tab("Pens", []string{"park_id", "name", "capacity", "stage_id", "sex"},
-			[]string{"Chennai", "Nehru", "40", "K1", "female"}, // pending park, pending stage
-			[]string{"CBE", "Castro", "20", "", "mixed"},       // the park already has Castro: fails at apply
-			[]string{"Nowhere", "Orphan", "10", "", ""},        // unknown park: invalid
-			[]string{"NON", "Ghost", "10", "", ""}).            // names the INVALID parks row: invalid
+		// A pen is a building in a park: stage and gender left the register on 2026-09-22.
+		tab("Pens", []string{"park_id", "name", "capacity"},
+			[]string{"Chennai", "Nehru", "40"},  // pending park
+			[]string{"CBE", "Castro", "20"},     // the park already has Castro: fails at apply
+			[]string{"Nowhere", "Orphan", "10"}, // unknown park: invalid
+			[]string{"NON", "Ghost", "10"}).     // names the INVALID parks row: invalid
 		tab("Partitions", []string{"park_id", "pen_id", "label", "sort_order"},
 			[]string{"Chennai", "Nehru", "Part 1", "1"}, // pending park + pending pen
 			[]string{"Chennai", "Nehru", "Part 2", "2"},
@@ -270,17 +271,24 @@ func TestConfigurationWorkbookPostgresPaths(t *testing.T) {
 			}
 		}
 	}
-	// The pending pen names its park and stage by TOKEN, never by a guessed id.
+	// The pending pen names its park by TOKEN, never by a guessed id.
 	pens := h.tabByRegister(bundle, domain.RegPens)
 	parks := h.tabByRegister(bundle, domain.RegParks)
-	stages := h.tabByRegister(bundle, domain.RegStages)
+	partitionsTab := h.tabByRegister(bundle, domain.RegPartitions)
 	for _, row := range h.rowsIn(pens.ID, domain.ImportRowValid) {
 		if domain.FieldString(row.Fields, "name") == "Nehru" {
 			if got := domain.FieldString(row.Fields, "park_id"); got != domain.BundleRowToken(parks.ID, 2) {
 				t.Fatalf("Nehru park_id = %q, want the Parks row 2 token", got)
 			}
-			if got := domain.FieldString(row.Fields, "stage_id"); got != domain.BundleRowToken(stages.ID, 2) {
-				t.Fatalf("Nehru stage_id = %q, want the Stages row 2 token", got)
+		}
+	}
+	// A ref to a row that does not exist YET, on another tab of the same workbook, resolves to that
+	// tab's row token and becomes its id at apply. The pen's stage used to carry this proof; a pen
+	// no longer has one, so the partition's pen does -- the same shape, one tab further down.
+	for _, row := range h.rowsIn(partitionsTab.ID, domain.ImportRowValid) {
+		if domain.FieldString(row.Fields, "label") == "Part 1" {
+			if got := domain.FieldString(row.Fields, "pen_id"); got != domain.BundleRowToken(pens.ID, 2) {
+				t.Fatalf("Part 1 pen_id = %q, want the Pens row 2 token", got)
 			}
 		}
 	}
@@ -372,10 +380,6 @@ func TestConfigurationWorkbookPostgresPaths(t *testing.T) {
 	nehru := h.findRow(domain.RegPens, "Nehru")
 	if domain.FieldString(nehru.Fields, "park_id") != chennai.ID {
 		t.Fatalf("Nehru park = %q, want Chennai %s", domain.FieldString(nehru.Fields, "park_id"), chennai.ID)
-	}
-	k1 := h.findRow(domain.RegStages, "Kid one")
-	if domain.FieldString(nehru.Fields, "stage_id") != k1.ID {
-		t.Fatalf("Nehru stage = %q, want K1 %s", domain.FieldString(nehru.Fields, "stage_id"), k1.ID)
 	}
 	var partitions int
 	if err := pool.QueryRow(ctx, `SELECT count(*) FROM shed_partitions WHERE tenant_id = $1::uuid AND shed_id = $2::uuid`, cfgTenant, nehru.ID).Scan(&partitions); err != nil || partitions != 2 {

@@ -110,7 +110,7 @@ func TestConfigurationBulkSheetsPostgresPaths(t *testing.T) {
 		t.Fatalf("export: %v", err)
 	}
 	lines := strings.Split(strings.TrimSpace(buf.String()), "\n")
-	if !strings.HasPrefix(lines[0], "id,row_version,park_id,name,capacity") {
+	if !strings.HasPrefix(lines[0], "id,row_version,park_id,name,capacity,notes") {
 		t.Fatalf("export header = %q", lines[0])
 	}
 	edited := make([]string, 0, len(lines))

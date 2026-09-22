@@ -365,7 +365,7 @@ var Registers = []Register{
 			{Key: "tracking", Label: "Tracking", Type: TypeText, Derived: true, ListHidden: true},
 			{Key: "category_id", Label: "Category", Type: TypeRef, Ref: RegCategories, Required: true},
 			{Key: "code", Label: "Code", Type: TypeText, Hint: "Left blank, one is made from the name."},
-			{Key: "unit", Label: "Unit", Type: TypeText, Required: true, Hint: "ml, dose, tablet, kg, piece."},
+			{Key: "unit", Label: "Unit", Type: TypeText, Required: true, Kinds: []string{"medicine", "vaccine", "dewormer", "supplement", "consumable", "other"}, ImpliedOutOfKind: true, Hint: "ml, dose, tablet, kg, piece."},
 			{Key: "route", Label: "Route", Type: TypeEnum, Kinds: []string{"medicine", "dewormer"}, Options: []Option{{Value: "im", Label: "IM"}, {Value: "iv", Label: "IV"}, {Value: "sc", Label: "SC"}, {Value: "oral", Label: "Oral"}, {Value: "topical", Label: "Topical"}}},
 			{Key: "strength", Label: "Strength", Type: TypeText, Kinds: []string{"medicine", "dewormer"}, Hint: "e.g. 10 mg/ml"},
 			{Key: "withdrawal_days", Label: "Withdrawal (days)", Type: TypeNumber, Min: zero(), Integer: true, Kinds: []string{"medicine", "dewormer", "vaccine"}},
@@ -373,12 +373,20 @@ var Registers = []Register{
 			{Key: "manufacturer", Label: "Manufacturer", Type: TypeText, Kinds: []string{"vaccine", "medicine", "dewormer"}, ListHidden: true},
 			{Key: "doses_per_vial", Label: "Doses per vial", Type: TypeNumber, Min: zero(), Integer: true, Kinds: []string{"vaccine"}},
 			{Key: "vaccine_type", Label: "Live / killed", Type: TypeEnum, Kinds: []string{"vaccine"}, Options: []Option{{Value: "live", Label: "Live"}, {Value: "killed", Label: "Killed"}}},
+			// The three numbers the ration maths reads. They sit beside the feed's name now that a
+			// feed item is added and removed here rather than on Feed Config.
+			{Key: "energy_kcal_per_kg", Label: "Energy (kcal/kg)", Type: TypeNumber, Kinds: []string{"feed"}, Min: zero(), ListHidden: true},
+			{Key: "dry_matter_factor", Label: "Dry matter", Type: TypeNumber, Kinds: []string{"feed"}, Min: zero(), ListHidden: true, Hint: "Between 0 and 1."},
+			{Key: "wastage_factor", Label: "Wastage", Type: TypeNumber, Kinds: []string{"feed"}, Min: zero(), ListHidden: true, Hint: "Between 0 and 1."},
 			{Key: "notes", Label: "Notes", Type: TypeNotes, ListHidden: true},
 		},
 	},
 	{
-		Key: RegFeedItems, Label: "Feed items", One: "Feed item", Group: GroupCatalogue, ReadOnly: true, Hidden: true, EditHref: "/feed/config", EditLabel: "Feed Config",
-		Hint: "What the farm feeds. Edited in Feed Config, where the ration grid depends on it.",
+		// Kept hidden and read-only as a listing of its own; a feed item is ADDED, EDITED and
+		// REMOVED on Items & categories under Feed (maintainer instruction 2026-09-22), not here
+		// and no longer on Feed Config.
+		Key: RegFeedItems, Label: "Feed items", One: "Feed item", Group: GroupCatalogue, ReadOnly: true, Hidden: true, EditHref: "/configuration/items", EditLabel: "Items & categories",
+		Hint: "What the farm feeds. Added and removed under Items & categories -> Feed.",
 		Columns: []Column{
 			{Key: "name", Label: "Name", Type: TypeText, Required: true},
 			{Key: "energy_kcal_per_kg", Label: "Energy (kcal/kg)", Type: TypeNumber},

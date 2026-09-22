@@ -30,6 +30,13 @@ ALTER TABLE public.shed_partitions
 
 -- Carry every classified building down to its own pens. A partition that already carries a type
 -- keeps it: this migration must be able to run after someone has started classifying by hand.
+-- projection-review: membership=every active-or-retired shed_partitions row of the tenant, joined
+-- to the profile of its OWN building and of its alias location; group_key=(tenant_id, shed_id,
+-- normalized_label), which is shed_partitions' primary key, so the UPDATE touches each pen once;
+-- join_cardinality=shed_profiles is keyed on location_id (its primary key) so each of the two
+-- LEFT JOINs is 1:{0,1} and neither can multiply a partition; pagination=NONE, a one-shot
+-- migration over a bounded catalog (117 pens on the live farm); scope=tenant_id carried on every
+-- join and on the UPDATE predicate, so one tenant's pens can never be typed from another's.
 UPDATE public.shed_partitions sp
 SET shed_type = src.shed_type,
     updated_at = now()
@@ -77,6 +84,13 @@ ALTER TABLE public.shed_profiles
 -- Going back up a grain cannot be exact: a building whose pens disagree has no single answer, so
 -- it is left unclassified rather than given one of them. Recorded here because a reader of the
 -- Down path deserves to know it is lossy.
+-- projection-review: membership=every (tenant, shed) whose partitions carry a type;
+-- group_key=(tenant_id, shed_id), exactly the GROUP BY; join_cardinality=the many partitions are
+-- COLLAPSED by the aggregate and the HAVING count(DISTINCT shed_type) = 1 is what keeps it honest
+-- -- a building whose pens DISAGREE yields no row at all rather than one of their answers;
+-- pagination=NONE; scope=tenant_id is in the GROUP BY and in the UPDATE predicate. Ratio key set:
+-- the min() and the count(DISTINCT) range over the IDENTICAL grouped rows, so a count of 1
+-- provably means the single value min() returns.
 UPDATE public.shed_profiles pr
 SET shed_type = agreed.shed_type
 FROM (

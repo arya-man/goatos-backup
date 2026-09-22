@@ -105,11 +105,11 @@ func TestConfigurationRegistersLifecyclePostgresPaths(t *testing.T) {
 	}
 
 	// --- create a pen under the park; its code follows the park's; a duplicate name is refused ---
-	pen, err := repo.Create(ctx, write("pen-1"), domain.RegPens, map[string]any{"park_id": cfgParkCBE, "name": "Gandhi", "capacity": int64(120), "sex": "female", "has_icu": true})
+	pen, err := repo.Create(ctx, write("pen-1"), domain.RegPens, map[string]any{"park_id": cfgParkCBE, "name": "Gandhi", "capacity": int64(120)})
 	if err != nil {
 		t.Fatalf("create pen: %v", err)
 	}
-	if pen.Display != "Gandhi" || pen.Fields["capacity"] != float64(120) || pen.Fields["sex"] != "female" || pen.Fields["has_icu"] != true || pen.RowVersion != 1 {
+	if pen.Display != "Gandhi" || pen.Fields["capacity"] != float64(120) || pen.RowVersion != 1 {
 		t.Fatalf("pen = %+v", pen)
 	}
 	var code string
@@ -117,7 +117,7 @@ func TestConfigurationRegistersLifecyclePostgresPaths(t *testing.T) {
 		t.Fatalf("pen code = %q %v", code, err)
 	}
 	// Exact replay returns the same row without a second insert; a different payload is refused.
-	again, err := repo.Create(ctx, write("pen-1"), domain.RegPens, map[string]any{"park_id": cfgParkCBE, "name": "Gandhi", "capacity": int64(120), "sex": "female", "has_icu": true})
+	again, err := repo.Create(ctx, write("pen-1"), domain.RegPens, map[string]any{"park_id": cfgParkCBE, "name": "Gandhi", "capacity": int64(120)})
 	if err != nil || again.ID != pen.ID {
 		t.Fatalf("replay: %v %+v", err, again)
 	}
