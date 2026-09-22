@@ -283,7 +283,7 @@ var Registers = []Register{
 		// PEN TYPE IS SET PER PARTITION (maintainer instruction 2026-09-22: "assignment will be per
 		// partition only not pen"). A partition IS the pen the farm works -- Castro 1, Mandela 1 -
 		// Part 3 -- and one building can hold pens that were built differently, which a single
-		// value on the building cannot say. Migration 000389 moved the column down from
+		// value on the building cannot say. Migration 000391 moved the column down from
 		// shed_profiles and carried every already-classified pen with it.
 		Key: RegPartitions, Label: "Partitions", One: "Partition", Group: GroupFarmPlaces,
 		Hint:    "A partition is one section of a pen, such as Part 3 or 2. Its label is what is painted on the pen.",

@@ -6,7 +6,7 @@ import (
 	"testing"
 )
 
-// 000389 moves pen type down a grain -- off the BUILDING (shed_profiles.shed_type, written by
+// 000391 moves pen type down a grain -- off the BUILDING (shed_profiles.shed_type, written by
 // 000385) and onto the PEN THE FARM WORKS (shed_partitions.shed_type). Four properties decide
 // whether that move loses or invents a classification, and each is asserted against the migration
 // text because the alternative is discovering it on the farm's own data after the deploy.
@@ -23,7 +23,7 @@ import (
 //	            is safe to run after someone has started classifying by hand, and a building with
 //	            no type writes nothing rather than writing NULL over a real answer.
 func TestPenTypeMoveOneToManyAliasRowsPageBoundaryParkScopeStatusBuckets(t *testing.T) {
-	raw, err := os.ReadFile("000389_pen_type_moves_to_the_partition.sql")
+	raw, err := os.ReadFile("000391_pen_type_moves_to_the_partition.sql")
 	if err != nil {
 		t.Fatalf("read migration: %v", err)
 	}

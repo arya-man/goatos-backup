@@ -11,7 +11,7 @@ import (
 // pen's NAME against a list of buildings hardcoded in Go. A test used to pin that list.
 //
 // Pen type is now CONFIGURED per PARTITION (maintainer instructions 2026-09-22, migrations 000385
-// then 000389) and read from shed_partitions.shed_type. This test is the old one inverted, and it
+// then 000391) and read from shed_partitions.shed_type. This test is the old one inverted, and it
 // is the more
 // valuable of the two: the name list was the thing that made a pen built after it was written
 // silently unclassifiable, and a future edit "restoring" a fallback would reintroduce exactly
@@ -28,7 +28,7 @@ func TestWeightDemographicsReadsTheConfiguredPenTypeAndNeverGuesses(t *testing.T
 		t.Fatal("the pen-type CTE must read the configured shed_partitions.shed_type, resolving a pen by its alias row or by its parent plus label")
 	}
 	if strings.Contains(query, "shed_profiles") {
-		t.Fatal("the pen type moved to the partition in 000389; reading shed_profiles here would resurrect the retired column")
+		t.Fatal("the pen type moved to the partition in 000391; reading shed_profiles here would resurrect the retired column")
 	}
 
 	// The building names, lowercased as the retired regex had them. Any of them reappearing in

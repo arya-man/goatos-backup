@@ -1005,7 +1005,7 @@ shed_type AS (
   --
   -- It replaced an in-query inference that read the words elevated / crown / ground out of
   -- free-text notes and then fell back to a hardcoded list of pen names; 000385 wrote that
-  -- inference's answers down once and 000389 carried them from the building to its pens, so no
+  -- inference's answers down once and 000391 carried them from the building to its pens, so no
   -- chart moved on either step. The guess is not kept as a fallback on purpose: a pen the farm
   -- deliberately CLEARS must go back to unclassified, and a fallback would quietly re-assert the
   -- old answer and make the screen look broken.
@@ -1726,7 +1726,7 @@ shed_type AS (
   --
   -- It replaced an in-query inference that read the words elevated / crown / ground out of
   -- free-text notes and then fell back to a hardcoded list of pen names; 000385 wrote that
-  -- inference's answers down once and 000389 carried them from the building to its pens, so no
+  -- inference's answers down once and 000391 carried them from the building to its pens, so no
   -- chart moved on either step. The guess is not kept as a fallback on purpose: a pen the farm
   -- deliberately CLEARS must go back to unclassified, and a fallback would quietly re-assert the
   -- old answer and make the screen look broken.
