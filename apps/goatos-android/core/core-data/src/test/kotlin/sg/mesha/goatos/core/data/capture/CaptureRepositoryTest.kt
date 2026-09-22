@@ -3954,6 +3954,17 @@ class CaptureRepositoryTest {
                     "Rejected garbage row records the validation failure",
                     failedRows.any { it.lastError == "Recording has no valid duration." },
                 )
+                val invalidProofId = failedRows.single { it.lastError == "Recording has no valid duration." }.id
+                repeat(2) { retryIndex ->
+                    val retry = proofs.retryUpload("vacc-task-2", invalidProofId)
+                    assertTrue("Invalid local proof retry #$retryIndex is refused", retry is AppResult.Err)
+                }
+                assertEquals("Invalid saved proof retry never queues the original", 0, sync.enqueueCalls.size)
+                assertEquals(
+                    "Invalid saved proof retry records the retry validation refusal",
+                    2,
+                    db.proofCaptureDao().countStateEvents(invalidProofId, "local_artifact_retry_validation_failed"),
+                )
             } finally {
                 tempGarbageFile.delete()
             }
