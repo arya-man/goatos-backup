@@ -110,8 +110,8 @@ func (s *DiagnosisService) SubmitObservation(ctx context.Context, in domain.Subm
 // already refused anything it could not class, so an unknown class here means the two
 // have drifted apart -- and the safe answer is to diagnose NOTHING rather than to fall
 // back to adult, which would hand a kid the adult table under a kid label.
-func (s *DiagnosisService) evaluate(ctx context.Context, tenantID string, animal diagnosis.Animal, f diagnosis.Findings, dctx diagnosis.Context) (diagnosis.Proposal, []domain.ConfirmableProblem) {
-	reg, err := s.registerFor(ctx, tenantID, animal.Class)
+func (s *DiagnosisService) evaluate(ctx context.Context, tenantID string, animal diagnosis.Animal, f diagnosis.Findings, dctx diagnosis.Context, authored *domain.RegisterDetail, authoredErr error) (diagnosis.Proposal, []domain.ConfirmableProblem) {
+	reg, err := s.registerFor(ctx, tenantID, animal.Class, authored, authoredErr)
 	if err != nil {
 		return diagnosis.Proposal{
 			Valid:        false,
@@ -123,7 +123,13 @@ func (s *DiagnosisService) evaluate(ctx context.Context, tenantID string, animal
 	return proposal, s.confirmableFrom(proposal)
 }
 
-func (s *DiagnosisService) registerFor(ctx context.Context, tenantID, class string) (*diagnosis.Register, error) {
+func (s *DiagnosisService) registerFor(ctx context.Context, tenantID, class string, authored *domain.RegisterDetail, authoredErr error) (*diagnosis.Register, error) {
+	if authored != nil {
+		return diagnosis.RegisterForServing(authored.Document, class)
+	}
+	if authoredErr != nil && !errors.Is(authoredErr, ports.ErrRegisterNotFound) {
+		return nil, fmt.Errorf("read published diagnosis register for %s: %w", class, authoredErr)
+	}
 	if s.registerSource != nil {
 		detail, err := s.registerSource.PublishedRegister(ctx, tenantID, class)
 		if err == nil {

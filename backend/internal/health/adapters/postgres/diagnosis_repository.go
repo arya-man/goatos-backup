@@ -15,6 +15,7 @@ import (
 	"github.com/vgoats/goatos/backend/internal/platform/audit"
 	"github.com/vgoats/goatos/backend/internal/platform/biztime"
 	"github.com/vgoats/goatos/backend/internal/platform/oploc"
+	"github.com/vgoats/goatos/backend/internal/platform/sqlbind"
 )
 
 // DiagnosisRepository persists observation runs and opens the courses a
@@ -89,7 +90,8 @@ func (r *DiagnosisRepository) SubmitObservation(
 	dctx := in.Context
 	dctx.Open = openProblems
 
-	proposal, confirmable := evaluate(ctx, in.TenantID, animal, in.Findings, dctx)
+	publishedRegister, registerErr := r.publishedRegisterInTx(ctx, tx, in.TenantID, animal.Class)
+	proposal, confirmable := evaluate(ctx, in.TenantID, animal, in.Findings, dctx, publishedRegister, registerErr)
 
 	formJSON, err := json.Marshal(in.Findings)
 	if err != nil {
@@ -180,6 +182,18 @@ RETURNING health_diagnosis_run_id::text`,
 		Proposal:       proposal,
 		Confirmable:    confirmable,
 	}, nil
+}
+
+func (r *DiagnosisRepository) publishedRegisterInTx(ctx context.Context, tx pgx.Tx, tenantID, animalClass string) (*domain.RegisterDetail, error) {
+	bound := sqlbind.MustBind(sqlPublishedRegister, tenantID, animalClass)
+	detail, err := scanRegister(tx.QueryRow(ctx, bound.SQL(), bound.Args()...))
+	if errors.Is(err, pgx.ErrNoRows) {
+		return nil, ports.ErrRegisterNotFound
+	}
+	if err != nil {
+		return nil, err
+	}
+	return &detail, nil
 }
 
 // annotateSOPAvailability marks each proposed diagnosis with whether its
@@ -815,7 +829,8 @@ func (r *DiagnosisRepository) attachLocations(
 	if len(shedIDs) == 0 {
 		return nil
 	}
-	rows, err := r.pool.Query(ctx, oploc.ShedScopedLocationBatchSQL, tenantID, shedIDs)
+	bound := sqlbind.MustBind(oploc.ShedScopedLocationBatchSQL, tenantID, shedIDs)
+	rows, err := r.pool.Query(ctx, bound.SQL(), bound.Args()...)
 	if err != nil {
 		return fmt.Errorf("health: resolve queue locations: %w", err)
 	}

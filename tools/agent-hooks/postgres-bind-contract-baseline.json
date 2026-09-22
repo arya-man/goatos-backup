@@ -35,7 +35,6 @@
   "internal/growthdirector/adapters/postgres/feed.go|unverified-dynamic-bind": 1,
   "internal/growthdirector/adapters/postgres/feed_weight_band.go|unverified-dynamic-bind": 2,
   "internal/growthdirector/adapters/postgres/growth_cohorts.go|unverified-dynamic-bind": 3,
-  "internal/health/adapters/postgres/diagnosis_repository.go|unverified-dynamic-bind": 1,
   "internal/health/adapters/postgres/repository.go|unverified-dynamic-args": 3,
   "internal/health/adapters/postgres/repository.go|unverified-dynamic-bind": 2,
   "internal/herdsignals/adapters/postgres/activity.go|unverified-dynamic-bind": 1,

@@ -12,12 +12,17 @@ import (
 type fakeDiagnosisRepo struct{}
 
 func (fakeDiagnosisRepo) SubmitObservation(ctx context.Context, in domain.SubmitObservationInput, evaluate ports.EvaluateFunc) (domain.SubmitObservationResult, error) {
+	var authored *domain.RegisterDetail
+	var authoredErr error
+	if in.Context.Open != nil {
+		authoredErr = ports.ErrRegisterNotFound
+	}
 	proposal, confirmable := evaluate(ctx, in.TenantID, diagnosis.Animal{
 		Class:   diagnosis.ClassAdult,
 		Species: "goat",
 		Sex:     "F",
 		Status:  "normal",
-	}, in.Findings, in.Context)
+	}, in.Findings, in.Context, authored, authoredErr)
 	return domain.SubmitObservationResult{Proposal: proposal, Confirmable: confirmable}, nil
 }
 

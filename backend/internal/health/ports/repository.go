@@ -55,7 +55,7 @@ var (
 // by the repository once it has resolved the animal inside its transaction. It
 // exists so the engine is called in exactly one place: an adapter that could
 // diagnose on its own could diagnose differently.
-type EvaluateFunc func(context.Context, string, diagnosis.Animal, diagnosis.Findings, diagnosis.Context) (diagnosis.Proposal, []domain.ConfirmableProblem)
+type EvaluateFunc func(context.Context, string, diagnosis.Animal, diagnosis.Findings, diagnosis.Context, *domain.RegisterDetail, error) (diagnosis.Proposal, []domain.ConfirmableProblem)
 
 // DiagnosisRepository persists observation runs and opens the courses a
 // confirmation authorises.
