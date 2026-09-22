@@ -158,9 +158,15 @@ type Mortality struct {
 	VendorByCause []MortalityCrossCell `json:"vendor_by_cause"`
 	BreedByCause  []MortalityCrossCell `json:"breed_by_cause"`
 
-	// Deaths is the bounded most-recent list; RecentLimit says how many it was capped at.
-	Deaths      []MortalityDeath `json:"deaths"`
-	RecentLimit int              `json:"recent_limit"`
+	// Deaths is ONE PAGE of the window's deaths, most-recent first: RecentLimit rows starting at
+	// RecentOffset. The list walks the whole window rather than stopping at a cap -- a reader who
+	// can see the rate for a load or a vendor has to be able to read the animals behind it -- and
+	// every figure above it is computed by its own whole-window query, so nothing on the page moves
+	// when the page turns. Totals.Deaths is the pager's total: the list's membership is exactly the
+	// window deaths that tile counts.
+	Deaths       []MortalityDeath `json:"deaths"`
+	RecentLimit  int              `json:"recent_limit"`
+	RecentOffset int              `json:"recent_offset"`
 
 	GeneratedAt time.Time `json:"generated_at"`
 }
@@ -173,11 +179,46 @@ type MortalityQuery struct {
 	ParkID   *string
 	FromDate string
 	ToDate   string
+
+	// RecentLimit / RecentOffset page the per-animal list ONLY. Both are resolved through
+	// ResolveMortalityRecentPage, so an absent, malformed or out-of-range value lands on the
+	// first page at the default size rather than being refused -- a bad pager parameter must
+	// not take the whole screen down, because every other figure on it is unaffected by paging.
+	RecentLimit  int
+	RecentOffset int
 }
 
-// MortalityRecentLimit caps the per-animal list. The counts above it are whole-window
-// figures computed by their own queries and do not move with this cap.
-const MortalityRecentLimit = 50
+// MortalityRecentLimit is the default page size of the per-animal list. The counts above it
+// are whole-window figures computed by their own queries and do not move with the page.
+const MortalityRecentLimit = 25
+
+// MortalityRecentPageSizes is the page-size vocabulary the pager offers, and the ONLY set the
+// backend accepts: a size outside it resolves to MortalityRecentLimit. Matching the page
+// contract's own list is what keeps the chip a reader taps and the page the server serves the
+// same size.
+var MortalityRecentPageSizes = []int{10, 25, 50}
+
+// MortalityRecentMaxOffset caps how deep the list can be walked. Deaths in one window are a
+// small set beside the herd, so this is generous rather than restrictive; it exists so a typed
+// or crafted offset cannot ask the database to count past a bounded page set.
+const MortalityRecentMaxOffset = 5000
+
+// ResolveMortalityRecentPage normalises a requested page size and offset. It never errors:
+// paging is a view over a list whose figures are already whole-window, so the honest answer to
+// a nonsense parameter is the first page, not a failed screen.
+func ResolveMortalityRecentPage(limit, offset int) (int, int) {
+	resolved := MortalityRecentLimit
+	for _, size := range MortalityRecentPageSizes {
+		if size == limit {
+			resolved = limit
+			break
+		}
+	}
+	if offset < 0 || offset > MortalityRecentMaxOffset {
+		offset = 0
+	}
+	return resolved, offset
+}
 
 // ---------------------------------------------------------------------------
 // Band vocabularies

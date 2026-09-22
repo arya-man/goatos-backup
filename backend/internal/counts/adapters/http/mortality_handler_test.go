@@ -77,3 +77,31 @@ func TestGetMortalityRejectsInvalidWindows(t *testing.T) {
 		}
 	}
 }
+
+// The DEATHS-LIST pager rides the same request and reaches the reader as asked. It is resolved
+// downstream, never here -- and deliberately never a 400, unlike the window above it: the window
+// decides what the WHOLE screen is about, while a stray pager parameter affects one card whose
+// figures are all computed whole-window anyway. Refusing the request would hide them.
+func TestGetMortalityPassesTheDeathsPagerThroughAndNeverRefusesIt(t *testing.T) {
+	service := &mortalityHandlerService{}
+	handler := NewHandler(service, slog.Default())
+	for _, tc := range []struct {
+		query         string
+		limit, offset int
+	}{
+		{"from=2026-03-04&to=2026-09-17&recent_limit=50&recent_offset=100", 50, 100},
+		{"from=2026-03-04&to=2026-09-17", 0, 0},
+		{"from=2026-03-04&to=2026-09-17&recent_limit=nope&recent_offset=-4", 0, -4},
+	} {
+		req := httptest.NewRequest(http.MethodGet, "/counts/mortality?"+tc.query, nil)
+		req = req.WithContext(httpmiddleware.WithTenantID(req.Context(), "10000000-0000-4000-8000-000000000001"))
+		recorder := httptest.NewRecorder()
+		handler.GetMortality(recorder, req)
+		if recorder.Code != http.StatusOK {
+			t.Fatalf("%s: status=%d want 200 -- a pager parameter must not fail the screen", tc.query, recorder.Code)
+		}
+		if service.seen.RecentLimit != tc.limit || service.seen.RecentOffset != tc.offset {
+			t.Fatalf("%s: service saw limit=%d offset=%d, want %d/%d", tc.query, service.seen.RecentLimit, service.seen.RecentOffset, tc.limit, tc.offset)
+		}
+	}
+}

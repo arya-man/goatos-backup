@@ -13865,9 +13865,11 @@ paths:
         `days_since_vaccination`) are facts about the death alone and carry no rate. Cause has
         three disjoint bases: `recorded` (named on the death form), `inferred` (a case open when
         the animal died, for deaths before the form carried a cause), `none`. `totals` are
-        whole-window rollups and must never be re-derived from the series. `deaths` is a
-        bounded most-recent list capped at `recent_limit`; nothing above it moves with the cap.
-        Window rules are those of `/counts/herd-analytics`.
+        whole-window rollups and must never be re-derived from the series. `deaths` is ONE PAGE of
+        the window's deaths, most-recent first -- `recent_limit` rows from `recent_offset` -- and
+        `totals.deaths` is that list's total, since the two share one membership predicate; nothing
+        above the list moves when the page turns. Window rules are those of
+        `/counts/herd-analytics`.
       parameters:
         - name: park_id
           in: query
@@ -13892,9 +13894,32 @@ paths:
             description: >-
               Inclusive last IST business day. Omitting BOTH bounds selects the default window;
               anything else invalid is rejected with 400, never rewritten.
+        - name: recent_limit
+          in: query
+          required: false
+          schema:
+            type: integer
+            enum: [10, 25, 50]
+            default: 25
+            description: >-
+              Page size of the `deaths` list only. A size outside this set resolves to the default
+              instead of being rejected: paging is a view over one card, and every other figure on
+              the payload is whole-window.
+        - name: recent_offset
+          in: query
+          required: false
+          schema:
+            type: integer
+            minimum: 0
+            maximum: 5000
+            default: 0
+            description: >-
+              First row of the `deaths` page. Out of range resolves to 0, for the same reason
+              `recent_limit` does. The list orders by (died_on DESC, goat_id), which is total over
+              the window's deaths, so a page boundary cannot repeat or skip an animal.
       responses:
         "200":
-          description: Whole-window totals, every series, the cross tabs and the bounded recent list.
+          description: Whole-window totals, every series, the cross tabs and one page of the deaths list.
           content:
             application/json:
               schema:
@@ -40689,6 +40714,7 @@ components:
         - breed_by_cause
         - deaths
         - recent_limit
+        - recent_offset
         - generated_at
       properties:
         window_from:
@@ -40783,10 +40809,17 @@ components:
             $ref: "#/components/schemas/MortalityCrossCell"
         deaths:
           type: array
+          description: >-
+            ONE PAGE of the window's deaths, most-recent first. `totals.deaths` is the pager's
+            total: the list and that tile share one membership predicate.
           items:
             $ref: "#/components/schemas/MortalityDeath"
         recent_limit:
           type: integer
+          description: Page size actually served, after the request's value was resolved.
+        recent_offset:
+          type: integer
+          description: First row of the page actually served, after the request's value was resolved.
         generated_at:
           type: string
           format: date-time

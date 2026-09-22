@@ -706,9 +706,13 @@ func pages() []domain.PageContract {
 		// recent-deaths list carries its columns in the copy map below.
 		page("counts-mortality", "/counts/mortality", "/counts/mortality", "Mortality", "Deaths over a chosen window from every angle: overall rate, kids and adults, stage, age at death, breed, purchase load, vendor, cause, season, pen, sex, and the cross tabs between them. Every rate divides the deaths by the animals in that section today.", "module-surface",
 			[]domain.TableContract{
-				// The bounded most-recent list under the charts. Its columns are this contract's;
-				// the figures above it count the whole window and do not move with its cap.
-				table("recent-deaths", "Recent deaths", "/counts/mortality", []string{"died_on", "tag", "breed", "sex", "stage", "age_at_death", "farm", "shed", "load", "cause"}, "goat_id"),
+				// The per-animal list under the charts. Its columns are this contract's, and so is its
+				// page-size vocabulary -- the backend accepts exactly these three sizes, so a chip a
+				// reader taps is always a page the server will serve. The list PAGES through the whole
+				// window rather than stopping at a cap: a reader shown a rate for a vendor or a load has
+				// to be able to read the animals behind it. The figures above it count the whole window
+				// and do not move when the page turns.
+				tableP("recent-deaths", "Deaths in this window", "/counts/mortality", []string{"died_on", "tag", "breed", "sex", "stage", "age_at_death", "farm", "shed", "load", "cause"}, "goat_id", []int{10, 25, 50}),
 			}),
 		page("counts-breakdown", "/counts/breakdown", "/counts/breakdown", "Counts Breakdown", "Live head count per pen, with breed, gender and stage on the same line; open a pen for the exact stage × breed × gender split.", "module-surface",
 			[]domain.TableContract{
@@ -6170,13 +6174,19 @@ func pageSpecificCopy(id string) map[string]string {
 			"basis.inferred":           "From open case",
 			"basis.none":               "No cause recorded",
 
-			"table.recent.title":  "Recent deaths",
-			"table.recent.hint":   "The most recent animals recorded dead in this window; every figure above counts the whole window, not this list.",
-			"table.recent.capped": "Showing the most recent %d.",
-			"label.days_suffix":   "days",
-			"label.no_tag":        "No tag",
-			"label.no_load":       "—",
-			"label.no_vendor":     "—",
+			"table.recent.title": "Deaths in this window",
+			"table.recent.hint":  "Every animal recorded dead in this window, most recent first. The figures above count the whole window, so they do not change as this list is paged.",
+			"table.recent.noun":  "death",
+			"label.days_suffix":  "days",
+			"label.no_tag":       "No tag",
+			"label.no_load":      "—",
+			"label.no_vendor":    "—",
+
+			"pager.page":      "Page",
+			"pager.of":        "of",
+			"pager.rows":      "Rows",
+			"action.previous": "Previous",
+			"action.next":     "Next",
 
 			"state.unavailable": "Mortality unavailable",
 			"empty.title":       "No deaths recorded",

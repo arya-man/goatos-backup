@@ -89,3 +89,34 @@ func TestMortalityRatePct(t *testing.T) {
 		t.Fatalf("0/400 = %v, want 0", got)
 	}
 }
+
+// The deaths list's pager is resolved, never trusted and never refused. A size the pager does not
+// offer, a negative offset and an offset past the clamp all land on the first page at the default
+// size -- the rest of the payload is whole-window, so failing it over a pager parameter would hide
+// every figure the reader came for. A size the pager DOES offer is honoured exactly.
+func TestResolveMortalityRecentPageLandsNonsenseOnTheFirstPage(t *testing.T) {
+	for _, size := range MortalityRecentPageSizes {
+		if limit, offset := ResolveMortalityRecentPage(size, 30); limit != size || offset != 30 {
+			t.Fatalf("offered size %d resolved to %d/%d, want %d/30", size, limit, offset, size)
+		}
+	}
+	for _, tc := range []struct {
+		name          string
+		limit, offset int
+		wantLimit     int
+		wantOffset    int
+	}{
+		{"size outside the vocabulary", 7, 10, MortalityRecentLimit, 10},
+		{"zero size (absent parameter)", 0, 0, MortalityRecentLimit, 0},
+		{"negative offset", 25, -1, 25, 0},
+		{"offset past the clamp", 25, MortalityRecentMaxOffset + 1, 25, 0},
+		{"offset exactly at the clamp is kept", 25, MortalityRecentMaxOffset, 25, MortalityRecentMaxOffset},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			limit, offset := ResolveMortalityRecentPage(tc.limit, tc.offset)
+			if limit != tc.wantLimit || offset != tc.wantOffset {
+				t.Fatalf("resolved to %d/%d, want %d/%d", limit, offset, tc.wantLimit, tc.wantOffset)
+			}
+		})
+	}
+}
