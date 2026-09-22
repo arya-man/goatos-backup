@@ -38,8 +38,8 @@ const message = formatSlackMessage(receipt, decision.kind, receiptPath);
 if (containsUnredactedSecret(JSON.stringify(message))) fail("refusing to send Slack message that appears to contain an unredacted secret");
 
 const screenshotFiles = screenshotPaths(receipt, receiptPath);
-await postSlack(message, screenshotFiles);
-writeState(statePath, { lastSignature: signature, lastPostedAtMs: now, lastStatus: receipt.status ?? "unknown" });
+const reportFile = writeHtmlReport(receipt, receiptPath, decision.kind, screenshotFiles);
+await postSlack(message, [reportFile, ...screenshotFiles], statePath, { lastSignature: signature, lastPostedAtMs: now, lastStatus: receipt.status ?? "unknown" });
 console.log(`dashboard Slack notify: posted ${decision.kind}`);
 
 function notificationDecision(value) {
@@ -206,7 +206,13 @@ function friendlyLayerMessage(layer) {
   if (name === "lighthouse") return "Frontend page performance check failed.";
   if (name === "grafana-smoke") return "Grafana/monitoring smoke check failed.";
   if (name === "vaccination-lifecycle") return "Focused vaccination lifecycle tests failed.";
-  if (/module-journeys|playwright/i.test(name)) return "Browser journey smoke failed; check screenshots/receipt for the route.";
+  if (/module-journeys|playwright/i.test(name)) {
+    const lines = message.split("\n").map((line) => line.trim());
+    const route = lines.filter((line) => line.startsWith("visual_route_start=")).pop()?.slice("visual_route_start=".length);
+    const error = lines.filter((line) => /Error:/.test(line)).pop();
+    if (!error) return "Browser journey smoke failed; see the HTML report and screenshots in the thread.";
+    return `${route ? `route \`${route}\`: ` : ""}${truncate(redactText(error.replace(/^.*?Error:\s*/, "")), 400)}`;
+  }
   if (/required deterministic layer failed/i.test(message)) return "A prerequisite gate failed before this layer could run cleanly.";
   return truncate(redactText(message), 140);
 }
@@ -285,64 +291,97 @@ function screenshotPaths(value, receiptFile) {
     const fallback = path.resolve(root, raw);
     const file = existsSync(absolute) ? absolute : existsSync(fallback) ? fallback : null;
     if (file && !found.includes(file)) found.push(file);
-    if (found.length >= 4) break;
   }
-  return found;
+  // The route that failed is the last one screenshotted; keep the tail.
+  return found.slice(-4);
 }
 
-async function postSlack(payload, screenshots = []) {
+async function postSlack(payload, attachments, statePath, nextState) {
   if (process.env.GOATOS_DASHBOARD_SLACK_DRY_RUN === "1") {
     console.log(payload.text);
     console.log(JSON.stringify(payload.blocks, null, 2));
-    for (const file of screenshots) console.log(`dashboard Slack notify: would upload screenshot ${path.relative(repo, file)}`);
-    return;
-  }
-  const webhook = process.env.GOATOS_DASHBOARD_SLACK_WEBHOOK_URL?.trim();
-  if (webhook) {
-    const response = await fetch(webhook, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(payload)
-    });
-    if (!response.ok) throw new Error(`Slack webhook HTTP ${response.status}: ${redactText(await response.text())}`);
+    for (const file of attachments) console.log(`dashboard Slack notify: would upload ${path.relative(repo, file)}`);
     return;
   }
   const token = process.env.SLACK_BOT_TOKEN?.trim() || process.env.GOATOS_DASHBOARD_SLACK_BOT_TOKEN?.trim();
   const channel = process.env.GOATOS_DASHBOARD_SLACK_CHANNEL_ID?.trim() || config.slackAlerts?.channelId;
+  const webhook = process.env.GOATOS_DASHBOARD_SLACK_WEBHOOK_URL?.trim();
   if (!token || !channel) {
-    console.log("dashboard Slack notify: skipped (missing webhook or bot token/channel)");
+    if (!webhook) {
+      console.log("dashboard Slack notify: skipped (missing webhook or bot token/channel)");
+      return;
+    }
+    // Webhooks cannot carry files; say so in the alert instead of silently dropping evidence.
+    payload.blocks.push({ type: "context", elements: [{ type: "mrkdwn", text: ":warning: Screenshots/report not attached: runner has only a webhook. Set SLACK_BOT_TOKEN (files:write) to get them in-thread." }] });
+    const response = await fetch(webhook, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(payload) });
+    if (!response.ok) throw new Error(`Slack webhook HTTP ${response.status}: ${redactText(await response.text())}`);
+    writeState(statePath, nextState);
     return;
   }
-  const response = await fetch("https://slack.com/api/chat.postMessage", {
-    method: "POST",
-    headers: {
-      "Authorization": `Bearer ${token}`,
-      "Content-Type": "application/json; charset=utf-8"
-    },
-    body: JSON.stringify({ channel, text: payload.text, blocks: payload.blocks, unfurl_links: false, unfurl_media: false })
-  });
-  const body = await response.json().catch(async () => ({ ok: false, error: await response.text() }));
-  if (!response.ok || !body.ok) throw new Error(`Slack chat.postMessage failed: ${redactText(JSON.stringify(body))}`);
-  for (const file of screenshots) {
-    await uploadSlackScreenshot(token, channel, file);
+  const body = await slackApi(token, "chat.postMessage", { channel, text: payload.text, blocks: payload.blocks, unfurl_links: false, unfurl_media: false });
+  // Persist dedupe state as soon as the alert is posted so a failed upload can never cause repeat spam.
+  writeState(statePath, nextState);
+  const uploaded = [];
+  for (const file of attachments) {
+    try {
+      uploaded.push({ id: await uploadSlackFile(token, file), title: path.basename(file) });
+    } catch (error) {
+      console.error(`dashboard Slack notify: upload failed for ${path.basename(file)}: ${redactText(error.message)}`);
+    }
   }
+  if (uploaded.length === 0) return;
+  await slackApi(token, "files.completeUploadExternal", {
+    files: uploaded,
+    channel_id: channel,
+    thread_ts: body.ts,
+    initial_comment: `Evidence: HTML report + ${uploaded.length - 1} failure screenshot(s)`
+  });
 }
 
-async function uploadSlackScreenshot(token, channel, file) {
-  const form = new FormData();
-  const data = new Blob([readFileSync(file)], { type: "image/png" });
-  form.set("channels", channel);
-  form.set("file", data, path.basename(file));
-  form.set("filename", path.basename(file));
-  form.set("title", path.basename(file));
-  form.set("initial_comment", `Failure screenshot: \`${redactText(path.relative(repo, file))}\``);
-  const response = await fetch("https://slack.com/api/files.upload", {
+async function slackApi(token, method, payload) {
+  const response = await fetch(`https://slack.com/api/${method}`, {
     method: "POST",
-    headers: { "Authorization": `Bearer ${token}` },
-    body: form
+    headers: { "Authorization": `Bearer ${token}`, "Content-Type": "application/json; charset=utf-8" },
+    body: JSON.stringify(payload)
   });
   const body = await response.json().catch(async () => ({ ok: false, error: await response.text() }));
-  if (!response.ok || !body.ok) throw new Error(`Slack files.upload failed: ${redactText(JSON.stringify(body))}`);
+  if (!response.ok || !body.ok) throw new Error(`Slack ${method} failed: ${redactText(JSON.stringify(body))}`);
+  return body;
+}
+
+async function uploadSlackFile(token, file) {
+  const bytes = readFileSync(file);
+  const params = new URLSearchParams({ filename: path.basename(file), length: String(bytes.length) });
+  const response = await fetch("https://slack.com/api/files.getUploadURLExternal", {
+    method: "POST",
+    headers: { "Authorization": `Bearer ${token}`, "Content-Type": "application/x-www-form-urlencoded" },
+    body: params
+  });
+  const meta = await response.json();
+  if (!meta.ok) throw new Error(`files.getUploadURLExternal: ${JSON.stringify(meta)}`);
+  const put = await fetch(meta.upload_url, { method: "POST", body: bytes });
+  if (!put.ok) throw new Error(`upload POST HTTP ${put.status}`);
+  return meta.file_id;
+}
+
+function writeHtmlReport(value, receiptFile, kind, screenshots) {
+  const esc = (v) => String(v ?? "").replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" })[c]);
+  const layers = value.layers ?? [];
+  const errorLines = layers
+    .filter((layer) => layer.status !== "pass")
+    .flatMap((layer) => String(layer.message ?? "").split("\n").filter((line) => /Error:|failed|screenshot_path=|visual_route_start=/.test(line)).slice(-12).map((line) => ({ layer: layer.name, line: redactText(line.trim()) })));
+  const shots = screenshots.map((file) => `<figure><img src="data:image/png;base64,${readFileSync(file).toString("base64")}" alt="${esc(path.basename(file))}"><figcaption>${esc(path.basename(file))}</figcaption></figure>`).join("");
+  const rows = layers.map((layer) => `<tr class="${layer.status === "pass" ? "ok" : "bad"}"><td>${esc(layer.name)}</td><td>${esc(layer.status)}</td><td>${esc(layer.durationMs ? `${Math.round(layer.durationMs / 1000)}s` : "")}</td></tr>`).join("");
+  const html = `<!doctype html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>GoatOS dashboard automation ${esc(value.mode)}</title>
+<style>:root{--g:#1f6f43;--bad:#b42318;--bg:#f7f8f6;--ink:#1b1f1c;--mut:#5d665f}body{margin:0;font:15px/1.5 system-ui,sans-serif;background:var(--bg);color:var(--ink)}header{background:var(--g);color:#fff;padding:20px 24px}header.fail{background:var(--bad)}main{max-width:1100px;margin:0 auto;padding:16px}h1{margin:0;font-size:22px}.meta{display:flex;gap:18px;flex-wrap:wrap;opacity:.9;margin-top:6px;font-size:13px}section{background:#fff;border-radius:10px;padding:16px;margin:14px 0;box-shadow:0 1px 3px #0001}table{width:100%;border-collapse:collapse}td{padding:6px 8px;border-bottom:1px solid #eee}tr.bad td{color:var(--bad);font-weight:600}pre{white-space:pre-wrap;background:#111;color:#f3f3f3;padding:12px;border-radius:8px;font-size:12.5px;overflow:auto}figure{margin:0 0 18px}img{max-width:100%;border:1px solid #ddd;border-radius:8px}figcaption{color:var(--mut);font-size:13px}</style></head><body>
+<header class="${value.status === "pass" ? "" : "fail"}"><h1>${esc(kind === "recovery" ? "Dashboard automation recovered" : "Dashboard automation failed")}</h1><div class="meta"><span>Mode: ${esc(value.mode)}</span><span>SHA: ${esc(String(value.repoSha ?? "").slice(0, 12))}</span><span>Browser: ${esc(browserSmokeStatus(value))}</span><span>${esc(new Date().toISOString())}</span></div></header>
+<main><section><h2>What failed</h2>${errorLines.length ? `<pre>${errorLines.map((e) => `[${esc(e.layer)}] ${esc(e.line)}`).join("\n")}</pre>` : "<p>No concrete error lines captured; see receipt.</p>"}</section>
+<section><h2>Screenshots</h2>${shots || "<p>No screenshots captured for this run.</p>"}</section>
+<section><h2>All checks</h2><table>${rows}</table></section>
+<section><p>Receipt: <code>${esc(path.relative(repo, receiptFile))}</code></p></section></main></body></html>`;
+  const out = path.join(path.dirname(receiptFile), "report.html");
+  writeFileSync(out, html);
+  return out;
 }
 
 function alertSignature(value, kind) {

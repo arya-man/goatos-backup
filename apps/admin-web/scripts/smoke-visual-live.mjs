@@ -1186,7 +1186,7 @@ async function assertLayoutHealthy(page, routeName, viewportLabel) {
   if (layout.panels.length > 0) {
     throw new Error(`${routeName} ${viewportLabel} has cards/panels cut at the viewport edge: ${JSON.stringify(layout.panels)}`);
   }
-  const blockingClippedControls = layout.clippedControls.filter((control) => !isAllowedClippedControl(routeName, viewportLabel, control));
+  const blockingClippedControls = layout.clippedControls;
   if (blockingClippedControls.length > 0) {
     throw new Error(`${routeName} ${viewportLabel} has clipped button/link text: ${JSON.stringify(blockingClippedControls)}`);
   }
@@ -1196,7 +1196,7 @@ async function assertLayoutHealthy(page, routeName, viewportLabel) {
   if (viewportLabel === "laptop" && layout.navLabelSpread > 1) {
     throw new Error(`${routeName} ${viewportLabel} has misaligned navigation labels; x spread ${layout.navLabelSpread}px`);
   }
-  const blockingSmallTargets = layout.smallTargets.filter((target) => !isAllowedSmallTarget(routeName, viewportLabel, target));
+  const blockingSmallTargets = layout.smallTargets;
   if (viewportLabel === "mobile" && blockingSmallTargets.length > 0) {
     throw new Error(`${routeName} ${viewportLabel} has interactive targets below 40px: ${JSON.stringify(blockingSmallTargets)}`);
   }
@@ -1209,79 +1209,10 @@ async function assertLayoutHealthy(page, routeName, viewportLabel) {
   if (layout.truncationStyleProblems.length > 0) {
     throw new Error(`${routeName} ${viewportLabel} has malformed truncation styling: ${JSON.stringify(layout.truncationStyleProblems)}`);
   }
-  const blockingMobileScrollProblems = layout.mobileScrollProblems.filter((problem) => !isAllowedMobileScrollProblem(routeName, viewportLabel, problem));
+  const blockingMobileScrollProblems = layout.mobileScrollProblems;
   if (blockingMobileScrollProblems.length > 0) {
     throw new Error(`${routeName} ${viewportLabel} has wide tables that cannot be horizontally scrolled on mobile: ${JSON.stringify(blockingMobileScrollProblems)}`);
   }
-}
-
-function isAllowedClippedControl(routeName, viewportLabel, control) {
-  if (viewportLabel !== "mobile" || !(routeName === "procurement" || routeName.startsWith("procurement-source-entry"))) return false;
-  if (control?.tag !== "a" || control?.className !== "celllink" || control?.text !== "Accepted intake") return false;
-  const cssPath = join(repoRoot, "apps/admin-web/app/mesha-theme.css");
-  const testPath = join(repoRoot, "apps/admin-web/features/procurement/source-entry-board-contract.test.mjs");
-  const css = readFileSync(cssPath, "utf8");
-  const test = readFileSync(testPath, "utf8");
-  return /\.main table\.source-loads-table th:nth-child\(9\),\.main table\.source-loads-table td:nth-child\(9\)\{min-width:172px\}/.test(css)
-    && test.includes("source-entry status column must fit Accepted intake");
-}
-
-function isAllowedSmallTarget(routeName, viewportLabel, target) {
-  if (viewportLabel !== "mobile") return false;
-  if (routeName !== "sales-config") return false;
-  if (target?.tag !== "input" || target?.ariaLabel !== "Unit" || target?.width !== 36 || target?.height < 40) return false;
-  const cssPath = join(repoRoot, "apps/admin-web/app/mesha-theme.css");
-  const testPath = join(repoRoot, "apps/admin-web/features/responsive-viewport-guard.test.mjs");
-  const css = readFileSync(cssPath, "utf8");
-  const test = readFileSync(testPath, "utf8");
-  return /\.vplan \.durunit \{[^}]*min-width:\s*104px/.test(css)
-    && test.includes("duration control width should stay tappable");
-}
-
-function isAllowedMobileScrollProblem(routeName, viewportLabel, problem) {
-  if (viewportLabel !== "mobile" || problem?.kind !== "missing-scroll-owner") return false;
-  if (routeName === "vaccination-schedule" && problem?.table?.className === "full-vaccine-schedule-table") {
-    const sourcePath = join(repoRoot, "apps/admin-web/features/preventive-care-vaccination/full-vaccine-schedule.tsx");
-    const cssPath = join(repoRoot, "apps/admin-web/app/mesha-theme.css");
-    const source = readFileSync(sourcePath, "utf8");
-    const css = readFileSync(cssPath, "utf8");
-    return source.includes('className="bd tablewrap vaccination-schedule-tablewrap"')
-      && /\.vaccination-schedule-tablewrap\{[^}]*overflow-x\s*:\s*auto/.test(css);
-  }
-  if (routeName === "feed-config" && problem?.table?.className === "feed-table") {
-    const allowedLabels = new Set(["Experiment pen rows", "Session template rows", "Feeding schedule rows"]);
-    if (!allowedLabels.has(problem?.table?.ariaLabel)) return false;
-    const sourcePath = join(repoRoot, "apps/admin-web/features/feed/feed-config.tsx");
-    const source = readFileSync(sourcePath, "utf8");
-    return source.includes('className="bd tablewrap feed-stock-tablewrap feed-scroll"');
-  }
-  if (routeName === "feed-direction" && problem?.table?.className === "feed-table" && problem?.table?.ariaLabel === "Feed direction rows") {
-    const sourcePath = join(repoRoot, "apps/admin-web/features/feed/feed-direction.tsx");
-    const source = readFileSync(sourcePath, "utf8");
-    return source.includes('className="bd tablewrap feed-stock-tablewrap feed-scroll"');
-  }
-  if (routeName === "feed-packing" && problem?.table?.className === "feed-table" && problem?.table?.ariaLabel === "Feed packing lines") {
-    const sourcePath = join(repoRoot, "apps/admin-web/features/feed/feed-packing.tsx");
-    const source = readFileSync(sourcePath, "utf8");
-    return source.includes('className="bd tablewrap feed-stock-tablewrap feed-scroll"');
-  }
-  if (routeName === "sales-config" && problem?.table?.className === "tbl" && problem?.table?.text === "AnimalsWeight used (kg)Price (₹ per kg)") {
-    const sourcePath = join(repoRoot, "apps/admin-web/features/procurement/valuation-section.tsx");
-    const cssPath = join(repoRoot, "apps/admin-web/app/mesha-theme.css");
-    const source = readFileSync(sourcePath, "utf8");
-    const css = readFileSync(cssPath, "utf8");
-    return source.includes('className="tablewrap sales-valuation-tablewrap"')
-      && /\.sales-valuation-tablewrap\{[^}]*overflow-x\s*:\s*auto/.test(css);
-  }
-  if (routeName === "procurement-load-detail" && problem?.table?.text?.startsWith("Animal IDsSelectionCurrent stageSource entryOwnershipHealthWarmupDownstream")) {
-    const sourcePath = join(repoRoot, "apps/admin-web/features/procurement/load-detail.tsx");
-    const cssPath = join(repoRoot, "apps/admin-web/app/mesha-theme.css");
-    const source = readFileSync(sourcePath, "utf8");
-    const css = readFileSync(cssPath, "utf8");
-    return /className="twrap"[\s\S]*?<table className="procurement-load-goats-table">/.test(source)
-      && /\.main table\.procurement-load-goats-table\{min-width:1280px\}/.test(css);
-  }
-  return false;
 }
 
 async function assertMobileWideTableGestures(page, routeName, viewportLabel, screenshotRoot) {
@@ -1368,13 +1299,7 @@ async function assertA11y(page, routeName, viewportLabel, includeSelector) {
   const builder = new AxeBuilder({ page });
   if (includeSelector) builder.include(includeSelector);
   const results = await analyzeA11yWithNavigationRetry(builder, page);
-  const violations = results.violations
-    .filter((violation) => violation.impact === "critical" || violation.impact === "serious")
-    .map((violation) => ({
-      ...violation,
-      nodes: violation.nodes.filter((node) => !isAllowedA11yFinding(routeName, violation, node)),
-    }))
-    .filter((violation) => violation.nodes.length > 0);
+  const violations = results.violations.filter((violation) => violation.impact === "critical" || violation.impact === "serious");
   if (violations.length === 0) return;
   const summary = violations.slice(0, 5).map((violation) => ({
     id: violation.id,
@@ -1383,24 +1308,6 @@ async function assertA11y(page, routeName, viewportLabel, includeSelector) {
     nodes: violation.nodes.slice(0, 3).map((node) => node.target),
   }));
   throw new Error(`${routeName} ${viewportLabel} has serious/critical accessibility violations: ${JSON.stringify(summary)}`);
-}
-
-function isAllowedA11yFinding(routeName, violation, node) {
-  if (routeName === "weighing-analytics-fcr") {
-    if (violation.id !== "color-contrast") return false;
-    const targets = node.target ?? [];
-    if (targets.length !== 1 || targets[0] !== "small") return false;
-    return true;
-  }
-  if (routeName === "feed-analytics") {
-    if (violation.id !== "scrollable-region-focusable") return false;
-    const targets = node.target ?? [];
-    if (!targets.every((target) => /^\.penbars(?::nth-child\(\d+\))?$/.test(target))) return false;
-    const sourcePath = join(repoRoot, "apps/admin-web/features/feed/feed-shed-feed-charts.tsx");
-    const source = readFileSync(sourcePath, "utf8");
-    return /className="penbars"[\s\S]*?role="group"[\s\S]*?tabIndex=\{0\}/.test(source);
-  }
-  return false;
 }
 
 async function analyzeA11yWithNavigationRetry(builder, page) {
