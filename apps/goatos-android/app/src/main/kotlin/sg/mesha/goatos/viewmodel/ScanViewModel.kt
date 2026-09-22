@@ -31,6 +31,8 @@ import sg.mesha.goatos.BuildConfig
 import sg.mesha.goatos.core.analytics.AnalyticsEvents
 import sg.mesha.goatos.core.analytics.AnalyticsFunnels
 import sg.mesha.goatos.core.analytics.AnalyticsPort
+import sg.mesha.goatos.core.analytics.CrashReporter
+import sg.mesha.goatos.core.analytics.NoopCrashReporter
 import sg.mesha.goatos.core.analytics.ProofPreviewActionTrace
 import sg.mesha.goatos.core.data.BootstrapRepository
 import sg.mesha.goatos.core.data.ExecutionRepository
@@ -118,6 +120,7 @@ class ScanViewModel @Inject constructor(
     savedStateHandle: SavedStateHandle,
     private val rfidInputTransform: RfidInputTransform = PassthroughRfidInputTransform,
     private val scannedTagResolver: ScannedTagResolver = PassthroughScannedTagResolver,
+    private val crashReporter: CrashReporter = NoopCrashReporter(),
 ) : ViewModel() {
 
     private val shedId: String? = savedStateHandle.get<String>("shedId")?.takeIf { it.isNotBlank() }
@@ -1282,16 +1285,35 @@ class ScanViewModel @Inject constructor(
             .map { ScanSyncTarget(it.goatId, it.obligationId, it.obligationRowVersion) }
             .ifEmpty { listOf(ScanSyncTarget(row.goatId, row.obligationId, row.obligationRowVersion)) }
         rowsToSync.forEach { target ->
-            scanCaptureRepository.recordScan(
-                taskId = selectedTaskId,
-                fieldKey = ROSTER_SCAN_FIELD_KEY,
-                tag = capturedTag,
-                goatId = target.goatId.ifBlank { row.goatId },
-                obligationId = target.obligationId.takeIf { it.isNotBlank() },
-                obligationRowVersion = target.obligationRowVersion,
-                capturedAtMs = capturedAtMs,
-                partitionLabel = partitionLabel,
-            )
+            try {
+                scanCaptureRepository.recordScan(
+                    taskId = selectedTaskId,
+                    fieldKey = ROSTER_SCAN_FIELD_KEY,
+                    tag = capturedTag,
+                    goatId = target.goatId.ifBlank { row.goatId },
+                    obligationId = target.obligationId.takeIf { it.isNotBlank() },
+                    obligationRowVersion = target.obligationRowVersion,
+                    capturedAtMs = capturedAtMs,
+                    partitionLabel = partitionLabel,
+                )
+            } catch (error: CancellationException) {
+                throw error
+            } catch (error: Throwable) {
+                crashReporter.recordException(error, "vaccination scan capture failed")
+                analytics.track(
+                    AnalyticsEvents.VACCINATION_PROOF_CAPTURE_FAILURE,
+                    vaccinationActionProps(row, capturedTag) +
+                        mapOf(
+                            AnalyticsEvents.Params.ACTION to "scan_capture",
+                            AnalyticsEvents.Params.FIELD to ROSTER_SCAN_FIELD_KEY,
+                            AnalyticsEvents.Params.SOURCE to "scan_capture_repository",
+                            AnalyticsEvents.Params.OUTCOME to "failure",
+                            AnalyticsEvents.Params.REASON to (error.message ?: error::class.simpleName.orEmpty()).take(MAX_ANALYTICS_REASON_CHARS),
+                            "obligation_id" to target.obligationId,
+                            "obligation_row_version" to target.obligationRowVersion.toString(),
+                        ),
+                )
+            }
         }
     }
 
