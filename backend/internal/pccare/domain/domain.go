@@ -479,5 +479,5 @@ var (
 	// ErrFeedRemovalNotApplicable is returned when feed & water removal fields ride a create for
 	// a category other than deworming — rejected loudly, never silently dropped. Surfaces as 422
 	// feed_removal_not_applicable.
-	ErrFeedRemovalNotApplicable = errors.New("pccare: feed and water removal applies to deworming only")
+	ErrFeedRemovalNotApplicable = errors.New("pccare: the published card does not apply feed and water removal to this work")
 )
