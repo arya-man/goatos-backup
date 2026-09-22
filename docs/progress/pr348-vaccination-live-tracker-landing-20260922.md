@@ -10,7 +10,8 @@
 - PR head before landing gate: `0479cd61fd2a53650c855138911c3b22089c6d3c`.
 - Base branch: `main`.
 - Rebased candidate after first landing attempt: `c504d51431e33e97b13814fa7c9a427d103150e0`.
-- Merge/push/deploy status: not merged, not pushed to `main`, not deployed.
+- Certified landing SHA: `66ae11007e32967d3818e99e18d4af6e7fc99981`.
+- Merge/push/deploy status: pushed to `main` by `make land-main`; no staging deploy requested or run.
 
 ## Done
 
@@ -51,15 +52,15 @@
   - `npm --prefix apps/admin-web test -- --runInBand`
   - `GOATOS_FAST_LOCAL_CI=1 GOATOS_SQLC_PLAN_ADMIN_DSN="$DATABASE_URL" GOATOS_PGTEST_ADMIN_DSN="$DATABASE_URL" tools/ci/run-local-ci.sh query-plans`
 - Fourth `make land-main` attempt at `f3c2997421deb7bd001e94bcfc51800fba511747` failed before any push on `required PostgreSQL query plans`; focused query-plan reruns passed, so the next gate keeps `DATABASE_URL` out of unrelated parallel jobs and passes only the required `GOATOS_*` DSNs to the landing command.
+- Final `make land-main` at `66ae11007e32967d3818e99e18d4af6e7fc99981` passed and pushed to `main`:
+  - `source /Users/raviteja/mesha/local-data/goatos-stg-to-oci/oci-goatos-db.env; env -u DATABASE_URL GOATOS_SQLC_PLAN_ADMIN_DSN="$DATABASE_URL" GOATOS_PGTEST_ADMIN_DSN="$DATABASE_URL" ANDROID_HOME=/Users/raviteja/Library/Android/sdk ANDROID_SDK_ROOT=/Users/raviteja/Library/Android/sdk make land-main`
+  - `ci-local: GREEN @ 66ae11007e32967d3818e99e18d4af6e7fc99981`
+  - `land-main: LANDED 66ae11007e32; origin/main is 66ae11007e32`
 
 ## Pending
 
-- Run exact repo landing gate from this clean isolated worktree:
-  - `source /Users/raviteja/mesha/local-data/goatos-stg-to-oci/oci-goatos-db.env; env -u DATABASE_URL GOATOS_SQLC_PLAN_ADMIN_DSN="$DATABASE_URL" GOATOS_PGTEST_ADMIN_DSN="$DATABASE_URL" ANDROID_HOME=/Users/raviteja/Library/Android/sdk ANDROID_SDK_ROOT=/Users/raviteja/Library/Android/sdk make land-main`
-- Verify `origin/main` readback after landing.
 - Resolve GitHub PR 348 state after the certified SHA reaches `main`.
 
 ## Known Gaps
 
-- The focused failed gates are green; final certification still requires the full landing rerun after committing the latest fixes.
 - No staging deploy has been requested or run.
