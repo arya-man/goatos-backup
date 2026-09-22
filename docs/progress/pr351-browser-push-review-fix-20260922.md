@@ -8,10 +8,11 @@ Done:
 - Review found `NewStoredAudience(rosterService, ...)` still bypassed `WithBrowserRecipients`.
 - Switched production stored-audience wiring to use the browser-aware recipient resolver.
 - Tightened `audience_wiring_test.go` so `NewStoredAudience` cannot be built from the raw roster service.
-- Added this progress note before pushing the PR branch.
+- Added browser-aware batch recipient support for reminder cadence duty and leadership audiences.
+- Pushed PR branch `codex/web-push-notifications` to `aa72343f352d266fc4015425b67f5e9cf10ca01a`.
 
 Pending:
-- Commit and push to PR branch `codex/web-push-notifications`.
+- Post-push review agent pass.
 
 Tests/E2E:
 - Before fix, PR-listed tests passed in isolated worktree.
@@ -23,7 +24,7 @@ Known failures:
 - None in focused tests.
 
 Judge status:
-- Review finding fixed locally; push pending.
+- Review finding fixed and pushed; review agent pass pending.
 
 Deployment state:
 - No merge, no main push, no staging deploy.
