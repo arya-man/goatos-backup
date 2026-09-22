@@ -161,9 +161,9 @@ function automationSummary(value, kind) {
 
 function automationNextAction(value, kind) {
   if (kind === "recovery") return "No action needed.";
-  if (value.runtimePolicy?.browserSmoke === "not_run") return "Fix the prerequisite/env/data-parity gate first, then rerun browser smoke.";
+  if (value.runtimePolicy?.browserSmoke === "not_run") return "Fix the runner/auth/static prerequisite first, then rerun browser smoke.";
   if (browserSmokeStatus(value) === "ran_failed") return "Open the receipt/screenshots and fix the product route that failed.";
-  if (parityGateStatus(value) === "fail") return "Refresh/repair OCI parity from STG read-only data, then rerun.";
+  if (parityGateStatus(value) === "fail") return "Treat OCI parity as a data-trust signal only; fix product routes only if browser/API evidence failed.";
   return "Open the receipt only if this is new or not covered by the muted duplicate.";
 }
 

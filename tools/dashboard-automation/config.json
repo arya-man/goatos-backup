@@ -74,7 +74,7 @@
     ]
   },
   "businessDataParity": {
-    "enabledByDefault": true,
+    "enabledByDefault": false,
     "stgReadIdentityRequired": true,
     "stgReadOnlyTransactionRequired": true,
     "ociReadOnlyCheckRequired": true,
