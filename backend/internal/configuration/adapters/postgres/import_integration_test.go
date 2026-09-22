@@ -164,7 +164,7 @@ func TestConfigurationBulkSheetsPostgresPaths(t *testing.T) {
 		t.Fatalf("open xlsx: %v", err)
 	}
 	header, err := reader.Next()
-	if err != nil || strings.Join(header, ",") != "id,row_version,park_id,name,capacity,stage_id,sex,has_icu,notes" {
+	if err != nil || strings.Join(header, ",") != "id,row_version,park_id,name,capacity,notes" {
 		t.Fatalf("xlsx header = %v %v", header, err)
 	}
 
