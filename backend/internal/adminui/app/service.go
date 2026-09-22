@@ -6665,11 +6665,12 @@ func pageSpecificCopy(id string) map[string]string {
 			// an accusation when it says "Not followed" and the reader is owed
 			// exactly what was compared: the sheet before the event, and the
 			// first sheet issued after it.
-			// The hint carries the FARM CLOCK, because without it the tab reads
-			// as an accusation. Tomorrow's sheet is corrected and packed this
-			// afternoon, so an animal sold this evening cannot change
-			// tomorrow's feed at all -- the day after is the first that can.
-			"followup.hint":                "One line per change. Tomorrow's feed is corrected and packed by early afternoon, so a change BEFORE the cut-off should show on tomorrow's sheet and one after it on the day after. Each line compares the sheet that had to change with the last one before it. Animals moved between pens are not counted as a cause — that shows up as an unexplained change.",
+			// The hint carries the FARM CLOCK, because without it the tab reads as
+			// an accusation. A pen's feed is packed a day ahead, so a change
+			// entered late cannot reach tomorrow's sheet at all -- the farm gets
+			// until the day after, and the check spans both rather than guessing
+			// which of the two it should have been.
+			"followup.hint":                "One line per change. A pen's feed is packed a day ahead, so a change has until the day after next to show on the sheet. Each line compares what the pen was fed on the day the animals moved with what it was fed two days later. Animals moved between pens are not counted as a cause — that shows up as an unexplained change.",
 			"followup.status.followed":     "Feed changed",
 			"followup.status.not_followed": "Feed unchanged",
 			"followup.status.pending":      "Sheet not issued yet",
@@ -6685,14 +6686,11 @@ func pageSpecificCopy(id string) map[string]string {
 			"followup.cause.died":          "Died",
 			"followup.unexplained.chip":    "{count} unexplained",
 			"followup.unexplained.help":    "The pen's number moved by more than buying, selling and deaths account for — usually animals moved in or out of the pen.",
-			// Named in the SAME order as the arrows beside them: the sheet that
-			// could not carry the change first, then the one that had to.
+			// Named in the SAME order as the arrows beside them: what the pen
+			// was fed when the animals moved, then what it was fed after.
 			"followup.day.sheets":  "{before} → {after}",
 			"followup.day.pending": "Not issued yet",
-			// A late change is the one a reader would otherwise call a mistake:
-			// the feed truly could not change the next day.
-			"followup.late.short": "(after {time}, next day already packed)",
-			"followup.empty":      "No animals were bought, sold or lost in this range, so there is nothing to follow up.",
+			"followup.empty":       "No animals were bought, sold or lost in this range, so there is nothing to follow up.",
 			// Consumption's two readings (maintainer request 2026-09-17). Status-wise is the average
 			// DIRECTED feed one animal gets per day, grouped by the PEN's tag on the sheet.
 			"consumption.view.aria":          "Consumption view",

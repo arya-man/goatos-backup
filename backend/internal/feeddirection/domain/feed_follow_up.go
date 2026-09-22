@@ -1,6 +1,9 @@
 package domain
 
-import "sort"
+import (
+	"sort"
+	"time"
+)
 
 // Feed follow-up: did the sheet react when animals entered or left a pen?
 // ---------------------------------------------------------------------------
@@ -11,27 +14,36 @@ import "sort"
 // after a death or a sale: was the feed changed for that pen, or is the crew
 // still packing for an animal that is not there?
 //
-// WHICH SHEET IS ALLOWED TO REACT IS THE WHOLE RULE, and getting it wrong makes
-// the tab accuse the farm of ignoring an animal it could not physically have
-// acted on. The feed day runs on a fixed clock (AGENTS.md -> Feed Direction
-// stage-clock rule): the sheet for tomorrow is issued this MORNING, corrected
-// at the park's CORRECTION TIME (14:00 today on both parks), packed, and staged
-// out of the sheds by 15:00. So:
+// WHICH SHEETS ARE COMPARED IS THE WHOLE RULE, and getting it wrong makes the
+// tab accuse the farm of ignoring an animal it demonstrably did not.
 //
-//	sold at 10:00 today   -> today's 14:00 correction can still fix it,
-//	                         so TOMORROW's sheet must carry the new count
-//	sold at 16:00 today   -> tomorrow's feed is already packed and frozen;
-//	                         nothing can be done about it, and the first sheet
-//	                         that can carry it is the DAY AFTER tomorrow
+// The feed day runs on a fixed clock (AGENTS.md -> Feed Direction stage-clock
+// rule): the sheet for tomorrow is issued this MORNING, corrected at the park's
+// correction time, and locked for packing mid-afternoon. A change entered
+// before that lock can reach tomorrow's sheet; one entered after it cannot --
+// that feed is already bagged -- and the first sheet that can carry it is the
+// day after tomorrow.
 //
-// The verdict is therefore read on the EXPECTED DAY -- the first sheet that
-// could carry the change -- against the sheet immediately before it. An event
-// after the cut-off is never judged against tomorrow's frozen sheet.
+// SO THE CHECK SPANS BOTH, and does NOT try to decide which of the two it
+// should have been. It compares the last sheet ON OR BEFORE the day the animal
+// moved against the first sheet FeedFollowUpReactionDays later. If the pen's
+// count moved anywhere across that span, the farm reacted.
 //
-// The cut-off is NOT a constant here: it is read per park and per date from
-// feed_schedule_config, the same row the generator and the correction run on.
-// DefaultCorrectionTime is only the fallback for a park with no configured
-// clock, so a farm that moves its correction to 13:00 moves this rule with it.
+// WHY NOT USE THE TIME OF DAY (this is the important part, found on live data
+// 2026-09-23): the recorded instant is when the day's sales were ENTERED, not
+// when the animals left. All 154 sale rows on the live database share TEN
+// distinct instants -- one per day, identical to the microsecond -- and most of
+// them fall in the evening, after the lock. Keying the cut-off on that stamp
+// pushed nearly every sale to "judge the day after tomorrow" and then compared
+// two sheets that BOTH already carried the change: CBE Godel 2 - Part 1 was fed
+// for 5 animals on the 12th and 1 on the 13th, exactly the 4 sold, and the tab
+// still reported "Feed unchanged" because it was looking at the 13th against
+// the 14th. A rule keyed on a data-entry timestamp reports the farm's
+// bookkeeping habits, not its feeding.
+//
+// The cost of the wider span is stated plainly: it cannot say WHETHER the farm
+// reacted on the first day or the second, only that it did. Nobody asks that
+// question, and the alternative is a false accusation.
 //
 // WHAT MAKES THIS HONEST RATHER THAN DERIVED. Both halves are already stored
 // facts. The pen's head count and kg come from feed_direction_issue_rows -- the
@@ -81,12 +93,12 @@ const (
 	FeedFollowUpPending = "pending"
 )
 
-// DefaultCorrectionTime is the fallback cut-off for a park with NO configured
-// clock, as HH:MM in Asia/Kolkata. Every park on the farm today configures
-// 14:00 in feed_schedule_config and that row is what the rule reads; this
-// exists so a park missing a clock still gets the farm's ordinary answer
-// rather than no answer at all.
-const DefaultCorrectionTime = "14:00"
+// FeedFollowUpReactionDays is how far ahead the check looks for the sheet that
+// had to carry a change. TWO days, because a change entered after a day's sheet
+// is locked for packing cannot reach tomorrow at all, and the day after is the
+// first one that can. See the header for why the recorded time of day cannot be
+// used to narrow this to one day.
+const FeedFollowUpReactionDays = 2
 
 // FeedFollowUpMaxTags caps the identifiers carried per cause per day. The
 // expanded row names the animals so the reader can walk out and check the pen;
@@ -99,13 +111,10 @@ const FeedFollowUpMaxTags = 12
 // internal goat ids (AGENTS.md -> Mesha / Goat OS RFID Language).
 type FeedFollowUpEvent struct {
 	Kind string
-	// EventDate is the IST business day the animal actually moved.
+	// EventDate is the IST business day the register records the animal moving
+	// on. Only the DAY is trusted -- see the header on the time of day.
 	EventDate string
-	// AfterCutoff is true when it happened at or after the park's correction
-	// time, so the NEXT day's sheet was already packed and frozen and the first
-	// sheet that could carry it is the day after that.
-	AfterCutoff bool
-	Animals     int
+	Animals   int
 	// Tags is a sample of at most FeedFollowUpMaxTags identifiers. TagsTotal
 	// is how many there really were, so a truncated list can say so rather
 	// than reading as the whole sale.
@@ -113,20 +122,11 @@ type FeedFollowUpEvent struct {
 	TagsTotal int
 }
 
-// FeedFollowUpDay is ONE CHECK in one pen: the day the feed was supposed to
-// change, everything that made it change, and the sheet on either side of it.
-//
-// The grain is the EXPECTED DAY, not the day the animal moved. Two events can
-// land on one check -- a sale after yesterday's cut-off and a death before
-// today's both point at tomorrow's sheet -- and that is correct: tomorrow's
-// sheet has to account for both. Each event keeps its own date and its own
-// side of the cut-off, so the reader can see why they arrived together.
+// FeedFollowUpDay is ONE CHECK in one pen: a day animals moved, and the sheet
+// on either side of the span the farm had to react in.
 type FeedFollowUpDay struct {
-	// ExpectedDay is the first sheet day that could carry these changes.
-	ExpectedDay string
-	// CutoffTime is the park's correction time (HH:MM, IST) that decided it,
-	// carried so the screen can name the actual cut-off rather than assume one.
-	CutoffTime string
+	// EventDate is the day the animals moved.
+	EventDate string
 
 	Purchased int
 	Sold      int
@@ -135,9 +135,11 @@ type FeedFollowUpDay struct {
 	// say the pen gained (negative when it lost).
 	NetAnimals int
 
-	// BeforeDay is the last sheet day BEFORE the expected day -- the sheet that
-	// could not carry the change. AfterDay is the first sheet day ON OR AFTER
-	// the expected day; it is empty when no such sheet has been issued yet.
+	// BeforeDay is the last sheet day ON OR BEFORE the event -- the sheet that
+	// was already packed when the animals moved. AfterDay is the first sheet
+	// day at or after EventDate + FeedFollowUpReactionDays, which is the first
+	// one that must carry the change however late in the day it was entered.
+	// AfterDay is empty when no such sheet has been issued yet.
 	BeforeDay string
 	AfterDay  string
 
@@ -245,28 +247,21 @@ type FeedFollowUpSheetDay struct {
 // register, before any sheet is looked at.
 type FeedFollowUpCause struct {
 	EventDate string
-	// ExpectedDay is the first sheet day that could carry this change: the day
-	// after the event when it happened before the park's correction time, and
-	// the day after that when it did not. Computed where the clock is read,
-	// never re-derived by a caller.
-	ExpectedDay string
-	AfterCutoff bool
-	Kind        string
-	Animals     int
-	Tags        []string
-	TagsTotal   int
+	Kind      string
+	Animals   int
+	Tags      []string
+	TagsTotal int
 }
 
-// ResolveFeedFollowUpDay judges ONE expected day against the sheet on either
-// side of it. Pure: the caller supplies the pen's sheet days and the causes
-// already carrying their expected day, and this picks the two readings and
-// applies the rule.
+// ResolveFeedFollowUpDay judges ONE event day against the sheets on either side
+// of the span the farm had to react in. Pure: the caller supplies the pen's
+// sheet days and this picks the two readings and applies the rule.
 //
 // sheet must be ascending by FeedDay. Days are compared as ISO strings, which
 // sort identically to dates and keeps business-date semantics (AGENTS.md: the
 // vaccination/feed grain is the BUSINESS DAY, never an instant).
-func ResolveFeedFollowUpDay(expectedDay string, causes []FeedFollowUpCause, sheet []FeedFollowUpSheetDay) FeedFollowUpDay {
-	day := FeedFollowUpDay{ExpectedDay: expectedDay, Events: []FeedFollowUpEvent{}}
+func ResolveFeedFollowUpDay(eventDate string, causes []FeedFollowUpCause, sheet []FeedFollowUpSheetDay) FeedFollowUpDay {
+	day := FeedFollowUpDay{EventDate: eventDate, Events: []FeedFollowUpEvent{}}
 	for _, c := range causes {
 		switch c.Kind {
 		case FeedFollowUpPurchased:
@@ -277,37 +272,31 @@ func ResolveFeedFollowUpDay(expectedDay string, causes []FeedFollowUpCause, shee
 			day.Died += c.Animals
 		}
 		day.Events = append(day.Events, FeedFollowUpEvent{
-			Kind:        c.Kind,
-			EventDate:   c.EventDate,
-			AfterCutoff: c.AfterCutoff,
-			Animals:     c.Animals,
-			Tags:        c.Tags,
-			TagsTotal:   c.TagsTotal,
+			Kind:      c.Kind,
+			EventDate: c.EventDate,
+			Animals:   c.Animals,
+			Tags:      c.Tags,
+			TagsTotal: c.TagsTotal,
 		})
 	}
-	// Oldest event first, then by cause, so a check built from two days reads
-	// in the order the farm lived it.
-	sort.SliceStable(day.Events, func(i, j int) bool {
-		if day.Events[i].EventDate != day.Events[j].EventDate {
-			return day.Events[i].EventDate < day.Events[j].EventDate
-		}
-		return day.Events[i].Kind < day.Events[j].Kind
-	})
+	sort.SliceStable(day.Events, func(i, j int) bool { return day.Events[i].Kind < day.Events[j].Kind })
 	day.NetAnimals = day.Purchased - day.Sold - day.Died
 
-	// BEFORE is the last sheet day STRICTLY BEFORE the expected day: the sheet
-	// that could not carry the change. AFTER is the first sheet day ON OR AFTER
-	// it -- the first sheet that could. A day the farm issued no sheet simply
-	// is not there, so this walks to the next sheet rather than the next date.
+	// BEFORE is the last sheet ON OR BEFORE the event day: what the pen was
+	// being fed when the animals moved. AFTER is the first sheet at or after
+	// the reaction deadline -- the first that must carry the change whatever
+	// time of day it was entered. A day the farm issued no sheet simply is not
+	// there, so this walks on to the next sheet rather than the next date.
+	deadline := AddBusinessDays(eventDate, FeedFollowUpReactionDays)
 	var before, after *FeedFollowUpSheetDay
 	for i := range sheet {
 		d := &sheet[i]
-		if d.FeedDay < expectedDay {
+		if d.FeedDay <= eventDate {
 			before = d
-			continue
 		}
-		after = d
-		break
+		if after == nil && d.FeedDay >= deadline {
+			after = d
+		}
 	}
 	if before != nil {
 		day.BeforeDay = before.FeedDay
@@ -315,8 +304,8 @@ func ResolveFeedFollowUpDay(expectedDay string, causes []FeedFollowUpCause, shee
 		day.KgBefore = before.Kg
 	}
 	if after == nil {
-		// The sheet that should carry this has not been issued yet. No verdict
-		// is available, and declaring one would be inventing it.
+		// The sheet that must carry this has not been issued yet. No verdict is
+		// available, and declaring one would be inventing it.
 		day.Status = FeedFollowUpPending
 		return day
 	}
@@ -324,7 +313,7 @@ func ResolveFeedFollowUpDay(expectedDay string, causes []FeedFollowUpCause, shee
 	day.HeadAfter = after.HeadCount
 	day.KgAfter = after.Kg
 	if before == nil {
-		// The pen's first sheet in the window IS the expected day or later, so
+		// The pen's first sheet in the window is already past the event, so
 		// there is no earlier reading to compare against. Pending, not a pass.
 		day.Status = FeedFollowUpPending
 		return day
@@ -337,11 +326,6 @@ func ResolveFeedFollowUpDay(expectedDay string, causes []FeedFollowUpCause, shee
 	// change, a stage move). Judging on the head count alone called a pen that
 	// dropped 100.4 kg to 90.4 kg "not followed", which is plainly false to
 	// anyone reading the two columns beside the verdict.
-	//
-	// So a verdict is negative only when animals entered or left AND the sheet
-	// carried the same mouths AND the same kg. Either figure moving is the
-	// sheet reacting; whether it moved by the RIGHT amount is what Unexplained
-	// and the feed-unchanged note beside it are for.
 	feedHeld := day.KgBefore != "" && day.KgBefore == day.KgAfter
 	switch {
 	case day.NetAnimals != 0 && day.HeadDelta == 0 && feedHeld:
@@ -350,6 +334,19 @@ func ResolveFeedFollowUpDay(expectedDay string, causes []FeedFollowUpCause, shee
 		day.Status = FeedFollowUpFollowed
 	}
 	return day
+}
+
+// AddBusinessDays shifts an ISO business date by whole days. Dates travel as
+// strings through this read (they are business days, never instants), so this
+// is the one place that has to parse one. An unparseable date is returned
+// unchanged rather than defaulted, so a bad value cannot silently become a
+// different day's deadline.
+func AddBusinessDays(date string, days int) string {
+	parsed, err := time.Parse("2006-01-02", date)
+	if err != nil {
+		return date
+	}
+	return parsed.AddDate(0, 0, days).Format("2006-01-02")
 }
 
 // DecidingFeedFollowUpDay picks the check a pen's verdict came from: the first

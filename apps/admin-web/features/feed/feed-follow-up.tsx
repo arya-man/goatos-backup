@@ -50,8 +50,8 @@ function linesOf(data: FeedAnalyticsFollowUpResponse): Line[] {
   return lines.sort((a, b) => {
     const rank = (STATUS_RANK[a.check.status] ?? 9) - (STATUS_RANK[b.check.status] ?? 9);
     if (rank !== 0) return rank;
-    if (a.check.expected_day !== b.check.expected_day) {
-      return a.check.expected_day < b.check.expected_day ? 1 : -1;
+    if (a.check.event_date !== b.check.event_date) {
+      return a.check.event_date < b.check.event_date ? 1 : -1;
     }
     return a.pen.operational_location_display.localeCompare(b.pen.operational_location_display);
   });
@@ -87,7 +87,7 @@ export function FeedFollowUpTab({
             <tbody>
               {lines.map(({ pen, check }) => (
                 <FollowUpLine
-                  key={`${pen.park_id}:${pen.shed_id}:${pen.partition_label}:${check.expected_day}`}
+                  key={`${pen.park_id}:${pen.shed_id}:${pen.partition_label}:${check.event_date}`}
                   pen={pen}
                   check={check}
                   pageContract={pageContract}
@@ -123,7 +123,7 @@ function FollowUpLine({
         <span className="ffu-chips">
           {check.events.map((event) => (
             <Tag
-              key={`${event.kind}-${event.event_date}-${String(event.after_cutoff)}`}
+              key={`${event.kind}-${event.event_date}`}
               tone={event.kind === "purchased" ? "ok" : event.kind === "sold" ? "info" : "dng"}
               // The animals themselves, on hover: RFID / tag values, never goat
               // ids. They do not need a line of their own to be reachable.
@@ -133,17 +133,10 @@ function FollowUpLine({
             </Tag>
           ))}
         </span>
-        <div className="muted small">
-          {check.events.map((event, i) => (
-            <span key={`${event.kind}-${event.event_date}-${i}`}>
-              {i > 0 ? " · " : ""}
-              {event.event_date}
-              {event.after_cutoff
-                ? ` ${fa(pageContract, "followup.late.short").replace("{time}", check.cutoff_time)}`
-                : ""}
-            </span>
-          ))}
-        </div>
+        {/* The day the animals moved. Only the DAY -- the recorded time of day
+            is a batch data-entry stamp, so printing it would invite a reader to
+            reason from a clock that means nothing. */}
+        <div className="muted small">{check.event_date}</div>
       </td>
       <td className="muted small">
         {/* The two sheets compared. Naming them is what keeps a negative
