@@ -68,6 +68,38 @@ func TestCreateTaskCarriesFeedRemovalFieldsAndMapsPreconditionErrors(t *testing.
 	}
 }
 
+// The refusal for a category the card does not cover must NOT name a category. Which work the
+// removal accompanies is the PUBLISHED card's call (PC CARE SOP, 2026-09-22); this sentence read
+// "feed & water removal applies to deworming only" while the live document also listed ticks
+// removal and hoof trimming, so it told the planner a rule that was no longer true.
+func TestRemovalNotApplicableRefusalNamesTheCardNotACategory(t *testing.T) {
+	mux := http.NewServeMux()
+	Register(mux, NewHandler(&fakePCCareHTTPService{createErr: domain.ErrFeedRemovalNotApplicable}, nil))
+	req := httptest.NewRequest(http.MethodPost, "/app/pc-care/tasks", strings.NewReader(`{"category":"hair_trimming"}`))
+	req.Header.Set("Idempotency-Key", "pc-removal-not-applicable-copy")
+	ctx := httpmiddleware.WithTenantID(req.Context(), httpTenant)
+	ctx = httpmiddleware.WithActorID(ctx, httpActor)
+	ctx = httpmiddleware.WithAuthGrants(ctx, []permissions.ActiveGrant{{
+		Role: permissions.RoleCEOInternal, ScopeType: "tenant", ScopeID: httpTenant,
+	}})
+	rec := httptest.NewRecorder()
+	httpmiddleware.RequestContext(nil)(mux).ServeHTTP(rec, req.WithContext(ctx))
+
+	body := rec.Body.String()
+	if rec.Code != http.StatusUnprocessableEntity || !strings.Contains(body, "feed_removal_not_applicable") {
+		t.Fatalf("status=%d body=%s, want 422 feed_removal_not_applicable", rec.Code, body)
+	}
+	lower := strings.ToLower(body)
+	for _, category := range []string{"deworming", "ticks removal", "hoof trimming", "hair trimming", "anti protozoan"} {
+		if strings.Contains(lower, category) {
+			t.Fatalf("the refusal names %q; which work the removal covers is the card's call, so the sentence must point at the card: %s", category, body)
+		}
+	}
+	if !strings.Contains(lower, "sop") && !strings.Contains(lower, "card") {
+		t.Fatalf("the refusal should point the planner at the document: %s", body)
+	}
+}
+
 // Copy firewall: the removal task's operator-visible contract copy is farm language — the
 // backend-owned labels carry no internal words.
 func TestFeedWaterRemovalContractCopyIsFarmLanguage(t *testing.T) {

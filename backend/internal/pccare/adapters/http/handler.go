@@ -1004,7 +1004,10 @@ func (h *Handler) writeServiceError(w http.ResponseWriter, r *http.Request, op s
 		}
 		httpresponse.WriteError(w, r, h.log, http.StatusUnprocessableEntity, codedError{Code: "pc_care_answer_invalid", Message: message}, nil)
 	case errors.Is(err, domain.ErrFeedRemovalNotApplicable):
-		httpresponse.WriteError(w, r, h.log, http.StatusUnprocessableEntity, codedError{Code: "feed_removal_not_applicable", Message: "feed & water removal applies to deworming only"}, nil)
+		// The CARD decides which work the removal may accompany (PC CARE SOP, 2026-09-22), so
+		// the sentence must not name one category: it read "applies to deworming only" while
+		// the published document also listed ticks removal and hoof trimming.
+		httpresponse.WriteError(w, r, h.log, http.StatusUnprocessableEntity, codedError{Code: "feed_removal_not_applicable", Message: "the Preventive Care SOP does not apply feed & water removal to this work"}, nil)
 	case errors.Is(err, ports.ErrOperatorOutsidePark):
 		httpresponse.WriteError(w, r, h.log, http.StatusUnprocessableEntity, codedError{Code: "operator_outside_park", Message: "every assigned operator, including the feed & water removal operator, must work in this park"}, nil)
 	case errors.Is(err, ports.ErrShedNotInPark), errors.Is(err, ports.ErrInvalidPartition):
