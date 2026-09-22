@@ -22,7 +22,21 @@ are not built. This document is the handover.
 - Disk: 83 GB root, ~27 GB free (the 44 GB clone dominates), plus an unused
   15 GB `/var/oled`. **No `/dev/kvm`**, so an Android emulator cannot run there.
 - Both OCI timers (`goatos-dashboard-automation.timer`,
-  `goatos-dashboard-post-main.timer`) are currently **inactive**.
+  `goatos-dashboard-post-main.timer`) are currently **inactive** (`disabled`), as is
+  `goatos-dashboard-automation-bootstrap.timer`. `goatos-stg-readonly-proxy.service` is active.
+- **Reaching the box:** `ssh goatos-oci`. The key is `~/.ssh/goatos_oci_dev_ed25519`; it was not
+  in `~/.ssh/config`, so a bare `ssh opc@144.24.107.47` is refused with `publickey denied` and
+  looks like missing access. A `goatos-oci` Host alias was added on 2026-09-23. Do not conclude
+  access is missing without trying that key.
+- On the box: `/home/opc/goatos-automation/goatos` is the checkout
+  `goatos-dashboard-automation.service` runs from (via `tools/dashboard-automation/run-oci.sh`),
+  `pr-350-dashboard-parity/` is a checkout of PR #350's head, and `reports/` holds past runs.
+  `/home/opc/.config/goatos/dashboard-automation.env` (mode 0600) carries `GOATOS_BEARER_TOKEN`,
+  `GOATOS_FIREBASE_REFRESH_TOKEN`, `GOATOS_FIREBASE_WEB_CONFIG` and `ANTHROPIC_API_KEY`. Load it
+  by path the way `run-oci.sh` does; never print or copy a value into code, a receipt, a log or a
+  commit.
+- The box is normally **idle** (load average ~0.07) while the laptop is often pinned by
+  `make land-main`. Heavy automation belongs on the box, not on the laptop.
 
 ## Lane 1 - production browser sweep (BUILT, PR #350)
 
@@ -80,6 +94,13 @@ Contracts live in `backend/internal/adminui/app/` and `contracts/`.
 
 ## Lane 4 - write-path on the OCI clone (NOT BUILT, ~2h)
 
+**Table policy (decided 2026-09-23, Ravi):** lane 4 refreshes and restores **only the tables each
+individual journey actually writes** — a per-journey snapshot -> write -> assert -> restore ->
+prove-the-restore cycle. No wholesale nightly refresh of a big table list. Each journey declares its
+own `writesTables`; the harness snapshots exactly those, and a journey that touches a table it did
+not declare fails. This keeps the blast radius minimal and makes the restore provable per journey.
+Analytics, telemetry and obligations tables are never touched.
+
 The flows production cannot test. Point an API + admin-web instance at the OCI
 Postgres (the box already runs API processes on 127.0.0.1:18873/18874 for
 preview Playwright; see `runPreviewPlaywright` in
@@ -121,3 +142,24 @@ capture, BLE and RFID, which a virtual device cannot exercise.
 - Coverage is derived from **every** commit, never a sample.
 - Merging to `main` is `make land-main` with a green receipt. Never
   `gh pr merge`.
+
+## Build log
+
+Progress on lanes 2-5 is appended here as it lands, so the PR is the record.
+
+### 2026-09-23
+
+- Environment facts above corrected: OCI SSH access **works** (`ssh goatos-oci`); the earlier
+  "no key" reading was a missing `~/.ssh/config` entry, not missing access. Lane 4's live run is
+  therefore not blocked.
+- Lane 4 table policy decided and recorded above.
+- Lanes 2, 3 and 4 under construction in parallel, each in its own isolated worktree off PR #350's
+  head, with a standing judge reviewing continuously and a history miner classifying every
+  non-frontend commit since 2026-08-01 into per-lane check specs (the same method that produced
+  lane 1's 919 assertions; full reconciliation, never a sample).
+- **Slack message contract:** each lane owns
+  `tools/dashboard-automation/lib/finding-kinds/<lane>.mjs` and touches `notify-slack.mjs` with one
+  import plus one `FINDING_KINDS` registry entry. `formatVisualIssuesMessage`, `formatSlackMessage`,
+  `humanIssue` and `groupSlowPages` stay untouched, and every lane's self-test must prove a
+  lane-1-only receipt still renders byte-identically. Slack text carries no SQL, table or column
+  names, endpoint or field paths, status codes, selectors or check codes.
