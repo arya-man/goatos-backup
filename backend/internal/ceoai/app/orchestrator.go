@@ -387,7 +387,17 @@ func (a *Assistant) ask(ctx context.Context, q domain.Question, opts askOptions)
 				}
 				if hasUsableResult(altResults) {
 					plan, results, traces, truncated = alt, altResults, append(traces, altTraces...), altTruncated
-					fitIssues = planFitIssues(requested, plan.SubQuestions, results)
+					// The RE-PLAN gets the same deterministic post-read checks
+					// the first plan got, not only the shape one. Recomputing
+					// planFitIssues alone silently cleared a measure-binding
+					// flag the moment the second read returned rows: asked how
+					// many tasks were VERIFIED yesterday, the re-plan grouped
+					// the due-day column again, and because only the shape was
+					// re-checked the answer went out as "planned" with no flag.
+					// A second read is not evidence that it bound the measure.
+					// The model judge is deliberately NOT re-run here: it is a
+					// round trip, and there is no re-plan left to spend it on.
+					fitIssues, _ = deterministicFitIssues(q, requested, plan.SubQuestions, results, catalog)
 					fitAudit = append(fitAudit, "replanned_for_fit")
 				}
 			}

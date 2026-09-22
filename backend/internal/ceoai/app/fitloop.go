@@ -90,12 +90,18 @@ func (a *Assistant) executePlan(ctx context.Context, q domain.Question, subs []d
 	return results, traces, truncated, usage
 }
 
-// answerFit returns the ways the executed plan does not answer the question
-// as asked, a feedback sentence for a re-plan, and the judge's token usage.
-func (a *Assistant) answerFit(ctx context.Context, q domain.Question, req RequestedShape, subs []domain.SubQuestion, results []domain.ToolResult, catalog []ports.ToolSpec, skipJudge bool) ([]FitIssue, string, TokenUsage) {
-	issues := planFitIssues(req, subs, results)
+// deterministicFitIssues is every post-read check that costs nothing but a look
+// at the plan, the SQL and the rows: the requested shape, the period the tool
+// can serve, the params it accepts, and the binding of the measure to a column
+// the read actually read. It is deliberately ONE function called from both
+// places a plan is judged -- the first plan and the re-plan -- because the
+// re-plan used to be re-checked on shape alone, which quietly cleared a
+// measure-binding flag as soon as the second read returned any rows.
+func deterministicFitIssues(q domain.Question, req RequestedShape, subs []domain.SubQuestion, results []domain.ToolResult, catalog []ports.ToolSpec) ([]FitIssue, []string) {
+	var issues []FitIssue
 	var reasons []string
-	for _, is := range issues {
+	for _, is := range planFitIssues(req, subs, results) {
+		issues = append(issues, is)
 		reasons = append(reasons, "the answer is not broken down "+is.Detail)
 	}
 	for _, is := range periodCapabilityIssues(q, req, subs, catalog) {
@@ -114,6 +120,13 @@ func (a *Assistant) answerFit(ctx context.Context, q domain.Question, req Reques
 		reasons = append(reasons, "the read did not report "+is.Detail+
 			"; plan a read over a source whose own columns carry that measure, and if none does, refuse")
 	}
+	return issues, reasons
+}
+
+// answerFit returns the ways the executed plan does not answer the question
+// as asked, a feedback sentence for a re-plan, and the judge's token usage.
+func (a *Assistant) answerFit(ctx context.Context, q domain.Question, req RequestedShape, subs []domain.SubQuestion, results []domain.ToolResult, catalog []ports.ToolSpec, skipJudge bool) ([]FitIssue, string, TokenUsage) {
+	issues, reasons := deterministicFitIssues(q, req, subs, results, catalog)
 	// Nothing came back at all (every read errored or was empty): the plan
 	// did not answer, so it deserves the same one re-plan a misfit gets.
 	if len(subs) > 0 && !hasUsableResult(results) {

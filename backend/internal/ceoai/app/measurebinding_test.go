@@ -88,6 +88,94 @@ func TestASubjectNothingModelsIsRefusedRatherThanAnsweredFromANeighbour(t *testi
 	}
 }
 
+// THE READ THAT ACTUALLY SHIPPED, reproduced verbatim. The gate above passed its
+// own tests and stayed silent on this one live: asked "Kids on milk feeding per
+// park today (head count)" the assistant counted rows in ceo_ai.animal_current_scope
+// and answered "CBE 24, CPT 24".
+//
+// It stayed silent because a term was held against a read ONLY when the card that
+// ran HAS a column for it, and the animal-scope view has no milk column, no
+// feeding column and no head column -- so every term was skipped as unproven and
+// the substitution case, the one the gate exists for, was the one case it could
+// not see. A card that models NONE of the question is now the evidence.
+func TestTheMilkQuestionAnsweredFromTheAnimalScopeViewIsFlagged(t *testing.T) {
+	card, ok := reporting.CardByName("animal_current_scope")
+	if !ok {
+		t.Skip("card not in the catalogue")
+	}
+	asked := domain.Question{Text: "Kids on milk feeding per park today (head count)"}
+	shipped := sqlSub("SELECT 'Kids on milk feeding' AS label, CAST(count(*) AS text) AS value, " +
+		"park_label AS scope FROM ceo_ai." + card.Name + " WHERE lifecycle_status = 'alive' " +
+		"AND management_stage = 'K2' GROUP BY park_label")
+	results := []domain.ToolResult{{ToolName: "sql_fallback", SourceView: card.Name, Facts: oneFact()}}
+
+	// The catalogue must offer something the question's words DO name, or this
+	// is the untracked case rather than the substitution case.
+	if len(modelledTerms(measureTerms(asked.Text), reporting.Cards(), nil)) == 0 {
+		t.Skip("nothing in the catalogue models this question; that is the refusal path")
+	}
+	issues := measureBindingIssues(asked, []domain.SubQuestion{shipped}, results, reporting.Cards(), nil)
+	if len(issues) == 0 {
+		t.Fatal("an animal count from the animal-scope view was presented as the milk answer, unflagged")
+	}
+	if issues[0].Kind != "measure_binding" {
+		t.Errorf("wrong issue kind %q", issues[0].Kind)
+	}
+}
+
+// The other half, and the one that keeps the rule above from flagging ordinary
+// correct work: a read whose own card carries the question's subject binds, and
+// must pass even though plenty of the question's other words match nothing.
+func TestAReadOverASourceThatCarriesTheSubjectIsNotFlagged(t *testing.T) {
+	card, ok := reporting.CardByName("workforce_tasks_base")
+	if !ok {
+		t.Skip("card not in the catalogue")
+	}
+	asked := domain.Question{Text: "How many tasks did operators finish yesterday, by task type?"}
+	bound := sqlSub("SELECT task_type, count(*) FROM ceo_ai." + card.Name + " GROUP BY task_type")
+	results := []domain.ToolResult{{ToolName: "sql_fallback", SourceView: card.Name, Facts: oneFact()}}
+	if issues := measureBindingIssues(asked, []domain.SubQuestion{bound}, results, reporting.Cards(), nil); len(issues) > 0 {
+		t.Errorf("a read that named the task columns was flagged: %+v", issues)
+	}
+}
+
+// hl-03: "How many treatment sessions were missed yesterday?" -- the farm's read
+// models carry no treatment and no missed column, so this is the refusal case.
+// It was answered anyway (from workforce tasks, then from vaccination obligations
+// on a re-run) because the coverage matcher nominated a view on the strength of a
+// single incidental `planned_sessions` column: questionWords supplies both
+// "sessions" and its crude singular "session", and the "two INDEPENDENT words"
+// rule counted the same word twice.
+func TestASinglePluralColumnMatchDoesNotDisarmTheRefusal(t *testing.T) {
+	catalog := []ports.ToolSpec{{
+		Name: "counts_breakdown", Route: domain.RouteAPI,
+		Description: "Live animal counts by park, pen, stage, breed and sex",
+	}}
+	const q = "How many treatment sessions were missed yesterday?"
+	if got := coveringSources(q, reporting.Cards(), catalog); len(got) > 0 {
+		t.Errorf("one repeated word nominated %v as covering a subject the farm does not model", got)
+	}
+	unmodelled, terms := measureUnmodelled(q, reporting.Cards(), catalog)
+	if !unmodelled {
+		t.Fatal("a treatment-session question found a source in a catalogue that models neither word")
+	}
+	if !strings.Contains(strings.Join(terms, " "), "treatment") {
+		t.Errorf("the refusal must name what is not tracked, got %v", terms)
+	}
+}
+
+// The stem fold must not make the matcher blind: two genuinely different words
+// still nominate a view exactly as they did before.
+func TestTwoDifferentWordsStillNominateTheirView(t *testing.T) {
+	if _, ok := reporting.CardByName("vaccination_obligations_base"); !ok {
+		t.Skip("card not in the catalogue")
+	}
+	got := coveringSources("which vaccination obligations are due", reporting.Cards(), nil)
+	if len(got) == 0 {
+		t.Error("two independent subject words stopped nominating the view that carries both")
+	}
+}
+
 // The same check must not refuse a question the farm DOES answer. A subject the
 // coverage matcher nominates is answerable even when the question's own words
 // are not column names.

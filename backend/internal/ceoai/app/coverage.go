@@ -69,12 +69,7 @@ func coveringTools(questionText string, catalog []ports.ToolSpec) []string {
 	for _, spec := range catalog {
 		haystack := strings.ToLower(spec.Name + " " + spec.Description + " " + strings.Join(spec.Params, " "))
 		haystack = strings.ReplaceAll(haystack, "_", " ")
-		score := 0
-		for w := range words {
-			if strings.Contains(haystack, w) {
-				score++
-			}
-		}
+		score := distinctStemHits(words, haystack)
 		if score >= 2 {
 			hits = append(hits, scored{name: spec.Name, score: score})
 		}
@@ -108,15 +103,9 @@ func coveringViews(questionText string, cards []reporting.SchemaCard) []reportin
 	for _, card := range cards {
 		haystack := strings.ToLower(card.Name + " " + strings.Join(columnNames(card), " "))
 		haystack = strings.ReplaceAll(haystack, "_", " ")
-		score := 0
-		for w := range words {
-			if strings.Contains(haystack, w) {
-				score++
-			}
-		}
 		// Two independent words keep a single incidental match ("date", "label")
 		// from nominating every view in the catalog.
-		if score >= 2 {
+		if score := distinctStemHits(words, haystack); score >= 2 {
 			hits = append(hits, scored{card: card, score: score})
 		}
 	}
@@ -135,6 +124,34 @@ func coveringViews(questionText string, cards []reporting.SchemaCard) []reportin
 		out = append(out, h.card)
 	}
 	return out
+}
+
+// distinctStemHits counts how many INDEPENDENT subject words of the question a
+// source carries. questionWords deliberately adds a crude singular beside every
+// plural, so "sessions" arrives as both "sessions" and "session" -- and a source
+// with one incidental `planned_sessions` column then scored 2 and satisfied the
+// "two independent words" rule on its own. That is how "how many treatment
+// sessions were missed yesterday" nominated the vaccination-shed view and
+// disarmed the refusal for a subject the farm's read models do not carry at all.
+// Counting by stem restores what the rule always meant.
+func distinctStemHits(words map[string]bool, haystack string) int {
+	seen := map[string]bool{}
+	for w := range words {
+		if !strings.Contains(haystack, w) {
+			continue
+		}
+		seen[wordStem(w)] = true
+	}
+	return len(seen)
+}
+
+// wordStem folds a plural onto its singular so the two forms of one word count
+// once. It mirrors the singularization questionWords applies.
+func wordStem(w string) string {
+	if strings.HasSuffix(w, "s") && len(w) > 4 {
+		return strings.TrimSuffix(w, "s")
+	}
+	return w
 }
 
 // coverageFeedback is the re-plan instruction: it names the sources and says
