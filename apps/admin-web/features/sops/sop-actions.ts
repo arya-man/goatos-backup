@@ -346,6 +346,7 @@ export async function savePcCareVersion(sopId: string, pcCare: Record<string, un
     proof_policy: base.proof_policy as CreateSOPVersionRequest["proof_policy"],
   });
   if (!version.ok) return { ok: false, message: version.error.message ?? "create SOP version failed", code: version.error.code };
+  // interaction-guard:ignore: the SOP library's version chips are the record of what is published; a save that returns its row must still invalidate them, exactly as every sibling SOP action does.
   for (const path of SOP_PAGE_PATHS) revalidatePath(path);
   const report = version.data.version.validation_report;
   return {
@@ -364,6 +365,7 @@ export async function publishPcCareVersion(sopId: string, pcCare: Record<string,
   if (saved.report && !saved.report.valid) return { ...saved, ok: false, message: saved.report.errors?.[0]?.message ?? "The Preventive Care cards have validation issues; fix them and publish again." };
   const res = await publishSopVersion(sopId, saved.versionId, saved.rowVersion);
   if (!res.ok) return { ok: false, message: res.error.message ?? "publish failed", code: res.error.code };
+  // interaction-guard:ignore: publishing CLOSES the editor (maintainer report 2026-09-15: "I'm seeing v3 published but nothing is changing visually"); the client's router.push lands on a stale cached library without this, which was proven in the browser when it was dropped.
   for (const path of SOP_PAGE_PATHS) revalidatePath(path);
   return { ...saved, ok: true, message: `Published v${saved.versionNumber ?? ""}. Preventive Care tasks planned from now on run on these rules.` };
 }
