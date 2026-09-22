@@ -521,8 +521,9 @@ try {
       } catch (error) {
         // Keep sweeping: every failing page must be reported, each with its own screenshot.
         const message = String(error?.message ?? error).split("\n")[0].slice(0, 700);
-        routeFailures.push({ viewport: viewport.label, route: route.name, error: message });
-        console.log(`route_failed=${viewport.label}:${route.name}|${message}`);
+        const failedUrl = `${appBaseUrl}${appPath(route.path)}`;
+        routeFailures.push({ viewport: viewport.label, route: route.name, url: failedUrl, error: message });
+        console.log(`route_failed=${viewport.label}:${route.name}|${failedUrl}|${message}`);
       } finally {
         await page.close().catch(() => {});
       }

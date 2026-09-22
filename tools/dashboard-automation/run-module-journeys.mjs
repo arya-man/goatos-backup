@@ -68,10 +68,10 @@ for (const mod of modules) {
       else if (line.startsWith("screenshot_path=") && current) shotsByRoute.get(current).push(path.resolve(repo, line.slice("screenshot_path=".length).trim()));
     }
     const failures = stdoutLines.filter((line) => line.startsWith("route_failed=")).map((line) => {
-      const [route, ...rest] = line.slice("route_failed=".length).split("|");
+      const [route, url, ...rest] = line.slice("route_failed=".length).split("|");
       const shots = shotsByRoute.get(route) ?? [];
       const issues = shots.filter((file) => /-issues\.png$/.test(file));
-      return { route, error: rest.join("|").slice(0, 600), screenshots: (issues.length ? issues : shots).slice(-2) };
+      return { route, url, error: rest.join("|").slice(0, 600), screenshots: (issues.length ? issues : shots).slice(-2) };
     });
     if (!failures.length) {
       const errorLine = redactText(result.stderr ?? "").split("\n").filter((line) => /Error:/.test(line)).pop() ?? `Error: module ${mod.id} exited ${result.status}`;
