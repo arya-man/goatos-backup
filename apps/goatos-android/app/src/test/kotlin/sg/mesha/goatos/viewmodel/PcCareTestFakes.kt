@@ -214,18 +214,30 @@ internal class FakePcCareRepository : PcCareRepository {
             AppResult.Ok(proofDownloadUrls[proofId] ?: "https://proof.local/$proofId")
         }
 
-    override suspend fun submitTask(taskId: String, rowVersion: Int): AppResult<String> {
+    /** The answers the last submit carried, so a test can assert what the card sent. */
+    var lastSubmitAnswers: kotlinx.serialization.json.JsonObject = kotlinx.serialization.json.JsonObject(emptyMap())
+        private set
+
+    override suspend fun submitTask(
+        taskId: String,
+        rowVersion: Int,
+        answers: kotlinx.serialization.json.JsonObject,
+    ): AppResult<String> {
         if (failNextSubmit) {
             failNextSubmit = false
             return AppResult.Err("test submit failure")
         }
         submitCalls += taskId to rowVersion
+        lastSubmitAnswers = answers
         return AppResult.Ok("submit-outbox-${submitCalls.size}")
     }
 
     override suspend fun persistTaskSubmitResult(taskId: String, status: String, rowVersion: Int, animalCount: Int) = Unit
 
-    override suspend fun plannerCatalog(): PcCarePlannerCatalogDto = PcCarePlannerCatalogDto()
+    /** The PUBLISHED rules the wizard reads (PC CARE SOP, 2026-09-22); null = an older server. */
+    var plannerCatalog: PcCarePlannerCatalogDto = PcCarePlannerCatalogDto()
+
+    override suspend fun plannerCatalog(): PcCarePlannerCatalogDto = plannerCatalog
 
     var plannerSheds: PcCarePlannerShedsDto = PcCarePlannerShedsDto()
     val plannerShedQueries = mutableListOf<List<String>>()

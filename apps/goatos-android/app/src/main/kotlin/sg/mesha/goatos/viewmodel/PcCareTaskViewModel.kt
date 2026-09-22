@@ -3172,7 +3172,7 @@ internal fun pcCareAnswersJson(detail: PcCareTaskDto?, answers: Map<String, Stri
     val questions = pcCareTaskQuestions(detail)
     if (questions.isEmpty()) return JsonObject(emptyMap())
     val card = SopCardUi(questions = questions, answers = answers)
-    val out = linkedMapOf<String, JsonElement>()
+    val out = linkedMapOf<String, JsonElement>() // mobile-guard:ignore: a per-call local built inside this function and returned; bounded by the card's questions (the document allows at most 50) and never held past the submit.
     for (q in questions) {
         if (!card.appliesTo(q)) continue
         val raw = answers[q.id].orEmpty().trim()
