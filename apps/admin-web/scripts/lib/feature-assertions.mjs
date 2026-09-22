@@ -14,7 +14,9 @@ export const WRITE_WORDS = /\b(save|approve|reject|delete|remove|retire|submit|u
 export function loadFeatureAssertions(path = manifestPath) {
   if (!existsSync(path)) return [];
   const all = JSON.parse(readFileSync(path, "utf8"));
-  return all.filter((entry) => entry.status === "assert" || entry.status === "data-dependent");
+  return all
+    .filter((entry) => ["assert", "data-dependent", "mobile-only"].includes(entry.status))
+    .map((entry) => (entry.status === "mobile-only" ? { ...entry, status: "assert", viewports: ["mobile"] } : entry));
 }
 
 function locatorFor(page, target) {
@@ -52,7 +54,12 @@ async function checkExpect(page, expect) {
   }
   if (expect.count) {
     const n = await page.locator(expect.count.css).count();
-    return n >= (expect.count.min ?? 1) ? null : { what: `expected at least ${expect.count.min ?? 1} of ${expect.count.css}, found ${n}`, loc: null };
+    if (expect.count.max !== undefined && n > expect.count.max) return { what: `expected at most ${expect.count.max} of ${expect.count.css}, found ${n}`, loc: null };
+    const min = expect.count.min ?? (expect.count.max !== undefined ? 0 : 1);
+    return n >= min ? null : { what: `expected at least ${min} of ${expect.count.css}, found ${n}`, loc: null };
+  }
+  if (expect.url) {
+    return page.url().includes(expect.url.contains) ? null : { what: `address should contain ${expect.url.contains}`, loc: null };
   }
   return null;
 }
@@ -62,6 +69,8 @@ export async function assertFeaturesPresent(page, { routeName, viewportLabel, sc
   const entries = loadFeatureAssertions().filter((e) => e.route === routeName && (e.viewports ?? ["laptop", "mobile"]).includes(viewportLabel));
   if (entries.length === 0) return;
   const missing = [];
+  // Order no-click checks first, then reload before each clicking check so every check starts clean.
+  entries.sort((a, b) => (a.steps?.length ? 1 : 0) - (b.steps?.length ? 1 : 0));
   for (const entry of entries) {
     try {
       if (entry.steps?.length && reload) await reload();
