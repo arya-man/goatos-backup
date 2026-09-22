@@ -1464,14 +1464,6 @@ class DefaultProofCaptureRepository(
         uploadGroupKey: String? = null,
     ) {
         val uploadEntity = prepareFinalArtifact(entity)
-        // P1 fix: a processing failure that left the row AWAITING_RETRY must never proceed to
-        // registration/upload — that would ship the raw original as completed proof for a
-        // required-overlay flow. The row's DB state already reflects "awaiting operator action"
-        // (see prepareFinalArtifact's failure catch blocks); nothing more to do here until an
-        // explicit retry (retryUpload) resets processingAttempted and re-invokes the processor.
-        if (uploadEntity.processingState == ProofProcessingState.PROCESSING_FAILED_AWAITING_RETRY.name) {
-            return
-        }
         val request = ProofUploadRequestDto(
             proofType = proofTypeForMime(uploadEntity.mimeType),
             mimeType = uploadEntity.mimeType,
@@ -1515,6 +1507,14 @@ class DefaultProofCaptureRepository(
                     ?.let { put("captured_by_principal_id", JsonPrimitive(it)) }
             },
         )
+        // P1 fix: a processing failure that left the row AWAITING_RETRY must never proceed to
+        // registration/upload yet, but the raw camera clip is still one-time field evidence.
+        // Save it to Gallery now so vaccination / PC Care operators keep a local copy even if the
+        // overlay/compression path failed before GCS upload was queued.
+        if (uploadEntity.processingState == ProofProcessingState.PROCESSING_FAILED_AWAITING_RETRY.name) {
+            saveFinalArtifactToGallery(uploadEntity, request, allowProcessingFailedOriginal = true)
+            return
+        }
         saveFinalArtifactToGallery(uploadEntity, request)
         when (
             val result = syncRepository.enqueueProofUpload(
@@ -1898,7 +1898,11 @@ class DefaultProofCaptureRepository(
         error("proof processing did not reach a final artifact before upload")
     }
 
-    private suspend fun saveFinalArtifactToGallery(entity: ProofCaptureEntity, request: ProofUploadRequestDto) {
+    private suspend fun saveFinalArtifactToGallery(
+        entity: ProofCaptureEntity,
+        request: ProofUploadRequestDto,
+        allowProcessingFailedOriginal: Boolean = false,
+    ) {
         gallerySaveLocks.getOrPut(entity.id) { Mutex() }.withLock {
             val current = dao.findById(entity.id) ?: entity
             if (!current.gallerySavedUri.isNullOrBlank()) return
@@ -1908,7 +1912,11 @@ class DefaultProofCaptureRepository(
             }
             check(
                 current.processingState == ProofProcessingState.PROCESSED.name ||
-                    current.processingState == ProofProcessingState.PROCESSING_FAILED_ORIGINAL_UPLOAD_QUEUED.name,
+                    current.processingState == ProofProcessingState.PROCESSING_FAILED_ORIGINAL_UPLOAD_QUEUED.name ||
+                    (
+                        allowProcessingFailedOriginal &&
+                            current.processingState == ProofProcessingState.PROCESSING_FAILED_AWAITING_RETRY.name
+                    ),
             ) {
                 "refusing to save non-final proof artifact to Gallery: ${current.processingState}"
             }

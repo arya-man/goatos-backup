@@ -43,6 +43,7 @@ import sg.mesha.goatos.core.data.capture.ProofCaptureRow
 import sg.mesha.goatos.core.data.capture.ProofSubject
 import sg.mesha.goatos.core.data.capture.RfidScanAttemptOutcome
 import sg.mesha.goatos.core.data.capture.RfidScanTagRole
+import sg.mesha.goatos.core.database.capture.ProofProcessingState
 import sg.mesha.goatos.core.data.forms.FormField
 import sg.mesha.goatos.core.data.forms.FormFieldType
 import sg.mesha.goatos.core.data.forms.FormSpec
@@ -1557,6 +1558,41 @@ class ScanViewModelTest {
         val action = vm.state.value.proofActionNeeded.single()
         assertEquals("goat-2", action.goatId)
         assertEquals(sg.mesha.goatos.feature.scan.ProofUploadStatus.FAILED, action.proofUploadStatus)
+    }
+
+    @Test
+    fun `a processing failed proof row is failed not stuck uploading`() = runTest(dispatcher) {
+        val proofRepo = FakeProofCaptureRepository()
+        val vm = proofGateVm(doneRosterRepo(1), proofRepo)
+        backgroundScope.launch { vm.state.collect {} }
+        advanceUntilIdle()
+
+        proofRepo.seedProofs(
+            ProofCaptureRow(
+                id = "processing-failed-proof",
+                fieldKey = "vaccination_goat_proof",
+                proofSubject = ProofSubject.GOAT,
+                subjectId = "goat-1",
+                localUri = "file://g1.mp4",
+                mimeType = "video/mp4",
+                caption = null,
+                capturedAtMs = 1L,
+                capturedStartMs = 1L,
+                capturedEndMs = 2L,
+                capturedByPrincipalId = "op",
+                syncStatus = CaptureSyncStatus.PENDING,
+                serverProofId = null,
+                outboxItemId = null,
+                lastError = null,
+                processingState = ProofProcessingState.PROCESSING_FAILED_AWAITING_RETRY.name,
+            ),
+        )
+        advanceUntilIdle()
+
+        assertFalse("a processing-failed video cannot be submitted as uploaded", vm.state.value.canSubmit)
+        val action = vm.state.value.proofActionNeeded.single()
+        assertEquals("goat-1", action.goatId)
+        assertEquals(ProofUploadStatus.FAILED, action.proofUploadStatus)
     }
 
     @Test

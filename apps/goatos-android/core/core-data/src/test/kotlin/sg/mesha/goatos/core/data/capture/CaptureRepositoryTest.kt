@@ -1438,9 +1438,11 @@ class CaptureRepositoryTest {
                 ) as AppResult.Ok
                 ).value
 
-            // NO original upload op enqueued for this required-overlay flow.
+            // NO original upload op enqueued for this required-overlay flow. The raw camera clip
+            // is still copied to Gallery immediately so one-time field work (vaccination/PC care)
+            // keeps a local fallback while the operator retries the saved proof row.
             assertEquals("Corrupt processing must not enqueue any upload", emptyList<String>(), sync.enqueueCalls)
-            assertEquals("Corrupt processing must not save to Gallery either", emptyList<String>(), gallery.paths)
+            assertEquals("Corrupt processing saves the original proof to Gallery", listOf(original.toURI().toString()), gallery.paths)
 
             val row = db.proofCaptureDao().findById(captured.id)
             assertEquals(
@@ -1450,6 +1452,7 @@ class CaptureRepositoryTest {
             )
             assertEquals("uploadOriginal must stay false — nothing is queued", false, row?.uploadOriginal)
             assertEquals("Original file path preserved (safety kept)", original.toURI().toString(), row?.localUri)
+            assertEquals("Gallery marker points at the saved original", original.toURI().toString(), row?.gallerySavedUri)
             assertEquals("syncStatus stays PENDING — never FAILED for a processing failure", CaptureSyncStatus.PENDING.name, row?.syncStatus)
             val processingFailure = telemetryEvents.firstOrNull { it.first == "proof_processing_failed" }?.second
             assertTrue("processing failure must emit a durable forensic event", processingFailure != null)

@@ -245,7 +245,7 @@ enum class ProofProcessingStatus(val wireValue: String, val operatorLabel: Strin
     UPLOADED("uploaded", "Proof uploaded"),
     RETRYING("retrying", "Upload failed. Retrying"),
     RETRYING_ORIGINAL("retrying_original", "Retrying original proof upload..."),
-    RECORD_AGAIN("record_again", "Record again"),
+    RECORD_AGAIN("record_again", "Retry saved proof upload"),
     ;
 
     companion object {
@@ -275,9 +275,9 @@ enum class ProofProcessingStatus(val wireValue: String, val operatorLabel: Strin
                 // here with syncStatus still PENDING (nothing is ever enqueued for this state —
                 // see CaptureRepository's P1 fix). Without this branch it fell through to the
                 // syncStatus=PENDING default below and read as "Uploading proof..." forever, with
-                // no operator affordance to notice the stuck row. RECORD_AGAIN is the SAME
-                // recovery action DEAD_LETTER already renders: a fresh recording sidesteps the
-                // stuck row entirely via captureReplacingLatest.
+                // no operator affordance to notice the stuck row. Keep it operator-actionable,
+                // but the retry path must reuse the saved clip; one-time care acts such as
+                // vaccination and deworming cannot be recreated for the camera.
                 "PROCESSING_FAILED_AWAITING_RETRY" -> RECORD_AGAIN
                 else -> when (syncStatus) {
                     CaptureSyncStatus.PENDING,
