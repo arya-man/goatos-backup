@@ -216,3 +216,39 @@ SDK images, virtualization/KVM, and disk headroom. On the Always Free dashboard 
 coverage is therefore limited to static/contract/unit/Paparazzi-capable checks when capacity is
 proven; instrumented emulator/device, Bluetooth, camera, process-death, and Firebase distribution
 flows belong in a separate Android lane or a host with explicit capacity proof.
+
+
+## OCI billing check (Always Free proof)
+
+The automation VM is `VM.Standard.A1.Flex`, 4 OCPU / 24 GB, `ap-mumbai-1`. That
+is exactly the whole Always Free A1 allowance: any second A1 instance or more
+OCPU/RAM in the tenancy is billed on a Pay-As-You-Go account.
+
+Month-to-date cost by service:
+
+```sh
+tools/dashboard-automation/oci-billing-report.sh            # this month
+tools/dashboard-automation/oci-billing-report.sh 2026-09-01 2026-10-01
+```
+
+It uses an API-key profile `[BILLING]` in `~/.oci/config` (not the browser
+session profile, which expires after an hour):
+
+```ini
+[BILLING]
+user=<user OCID>
+fingerprint=<API key fingerprint>
+tenancy=<tenancy OCID>
+region=ap-mumbai-1
+key_file=~/.oci/keys/goatos-billing.pem
+```
+
+Where the credential lives:
+
+- The private key is stored in Google Secret Manager as
+  `goatos-oci-billing-api-key` (project `goatos-stg`). Nothing secret is in
+  this repository.
+- Restore it on a new machine:
+  `gcloud secrets versions access latest --secret=goatos-oci-billing-api-key --project=goatos-stg > ~/.oci/keys/goatos-billing.pem && chmod 600 ~/.oci/keys/goatos-billing.pem`
+- The public key is registered on the OCI user under Profile → API keys. Rotate
+  by adding a new key there, updating the secret, then deleting the old key.
