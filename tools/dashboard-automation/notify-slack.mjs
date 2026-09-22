@@ -106,6 +106,7 @@ function issueRules() {
   [/clipped button\/link text/, "Button text cut off"],
   [/text-cut-off|text hidden/, "Text cut off"],
   [/overlay .*did not open|never mounted/, "Clicking it did not open"],
+  [/feature missing/, "Feature missing or broken"],
   [/header not visible at the top/, "Drawer opens with its title bar scrolled out of view"],
   [/overlapping interactive elements/, "Buttons overlapping each other"],
   [/anchored to ancestor|backdrop-f/, "Popup opens in the wrong place (pinned to the header, not the screen)"],
@@ -126,6 +127,8 @@ function humanIssue(failure) {
   const quoted = [...raw.matchAll(/"([^"]{1,60})"(?!\s*:)/g)].map((m) => m[1]).filter((t) => t.trim().length > 1 && !/^[:;,.\s]+$/.test(t) && !/^\w+-\w+-/.test(t) && !/^(tag|kind|className|ariaLabel|text|table|missing-scroll-owner|button|input|a|span|div|td)$/.test(t));
   // Checks that dump element JSON: name the thing by its label or visible text.
   // Raw-code findings: show the code itself. Element-dump findings: name the element by label/text.
+  const featureTitle = raw.match(/feature missing: ([^\[;]{3,120})/)?.[1]?.trim();
+  if (featureTitle) quoted.unshift(featureTitle);
   const code = raw.match(/(?:snake_case code|copy key|raw value) "([^"]{1,60})"/)?.[1];
   const named = /^\s*[\w-]+ \w+ (has|overlay)/.test(raw) ? (raw.match(/"ariaLabel":"([^"]{2,60})"/)?.[1] || raw.match(/"text":"([^"]{2,60})"/)?.[1] || raw.match(/"className":"([^"]{2,40})"/)?.[1]) : null;
   if (code) quoted.unshift(code);
