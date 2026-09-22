@@ -191,8 +191,11 @@ function dashboardRuntimeFindings() {
       findings.push(`${runnerRel}: dashboard smoke must still collect read-only browser evidence when parity is red (${fragment})`);
     }
   }
-  if (!runnerSource.includes("enabled(\"GOATOS_DASHBOARD_API_LATENCY\", true")) {
-    findings.push(`${runnerRel}: API latency must be default-on unless explicitly disabled`);
+  if (!runnerSource.includes("GOATOS_DASHBOARD_CERTIFICATION_EXTRAS") || !runnerSource.includes('mode !== "production-smoke" || enabled("GOATOS_DASHBOARD_CERTIFICATION_EXTRAS", false)')) {
+    findings.push(`${runnerRel}: production smoke must keep broad certification extras explicit-only`);
+  }
+  if (!runnerSource.includes("runCertificationExtras && enabled(\"GOATOS_DASHBOARD_API_LATENCY\", true")) {
+    findings.push(`${runnerRel}: API latency must remain default-on for certification runs but off for production-smoke unless certification extras are explicit`);
   }
   if (!runnerSource.includes("GOATOS_DASHBOARD_REQUIRE_API_SHA") || !runnerSource.includes("--allow-deployed-build")) {
     findings.push(`${runnerRel}: production smoke must latency-test the deployed prod API without requiring latest main SHA; post-main certification may still require exact SHA`);
@@ -209,7 +212,7 @@ function dashboardRuntimeFindings() {
     }
   }
 
-  for (const envFlag of ["GOATOS_DASHBOARD_DATA_PARITY", "GOATOS_DASHBOARD_API_LATENCY", "GOATOS_DASHBOARD_LIGHTHOUSE", "GOATOS_DASHBOARD_GRAFANA_SMOKE", "GOATOS_DASHBOARD_SLACK_ALERTS", "GOATOS_DASHBOARD_SELF_HEALING"]) {
+  for (const envFlag of ["GOATOS_DASHBOARD_DATA_PARITY", "GOATOS_DASHBOARD_CERTIFICATION_EXTRAS", "GOATOS_DASHBOARD_API_LATENCY", "GOATOS_DASHBOARD_LIGHTHOUSE", "GOATOS_DASHBOARD_GRAFANA_SMOKE", "GOATOS_DASHBOARD_VACCINATION_LIFECYCLE", "GOATOS_DASHBOARD_SLACK_ALERTS", "GOATOS_DASHBOARD_SELF_HEALING"]) {
     if (!runnerSource.includes(envFlag)) findings.push(`${runnerRel}: dashboard automation env flag ${envFlag} is not wired`);
   }
   const ociSource = readFileSync("tools/dashboard-automation/run-oci.sh", "utf8");

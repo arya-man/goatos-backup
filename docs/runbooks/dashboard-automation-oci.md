@@ -26,8 +26,11 @@ The schedule and Slack destination are runtime configuration, not app code:
 - `GOATOS_DASHBOARD_POST_MAIN_ON_CALENDAR` changes how often OCI checks for a new `main` SHA.
 - `GOATOS_DASHBOARD_SLACK_CHANNEL_ID` changes the alert channel.
 - `GOATOS_DASHBOARD_SLACK_ALERTS=0` temporarily disables Slack delivery.
-- `GOATOS_DASHBOARD_DATA_PARITY=0` and `GOATOS_DASHBOARD_API_LATENCY=0` are break-glass
-  disables only; parity and latency are on by default.
+- `GOATOS_DASHBOARD_DATA_PARITY=1` opts into the live STG-to-OCI business-data check. It is off by
+  default for production smoke because STG continuously moves.
+- `GOATOS_DASHBOARD_CERTIFICATION_EXTRAS=1` opts a `production-smoke` run into broad certification
+  layers such as API latency, Lighthouse, Grafana, and backend vaccination lifecycle checks. Those
+  layers remain default-on for `post-main-certification`.
 - `GOATOS_STG_OCI_PARITY_RECEIPT` may point at the latest machine-readable STG-to-OCI full parity
   receipt. If unset, the runner reads the configured daily parity `last-run.json` under the OCI
   user's home directory.
@@ -68,18 +71,17 @@ tools/dashboard-automation/install-oci-user-timer.sh
 The runner writes receipts under `.codex-goatos-render/dashboard-automation/<run>/receipt.json`.
 Receipts redact bearer tokens, JWT-looking strings, and Anthropic key material.
 
-The business-data parity layer must use DB identities that have no effective write privileges on the
+The business-data parity layer, when explicitly enabled, must use DB identities that have no effective write privileges on the
 critical business tables and cannot create objects in the public schema. The receipt records the
 current DB user, read-only transaction proof, checked table count, and any unexpected write-privileged
 tables. This is a catalog/grant proof plus `BEGIN READ ONLY` transaction enforcement; it must not
 probe STG or OCI by attempting writes.
 
-Before any OCI-backed dashboard smoke runs, the runner also requires a latest full STG-to-OCI parity
-receipt with `READBACK_PASS`, `293` included business tables, STG read-only proof, and the expected
-exclusions: `analytics.*`, `public.audit_log`, `public.domain_event_processed_events`,
-`public.outbox_messages`, and `public.herd_signal_*`. A stale, blocked, or prose-only parity note is
-not enough; replace the parity automation `last-run.json` or set `GOATOS_STG_OCI_PARITY_RECEIPT` to
-the current machine-readable receipt after the parity runner completes.
+Post-main certification requires a latest full STG-to-OCI parity receipt with `READBACK_PASS`, `293`
+included business tables, STG read-only proof, and the expected exclusions: `analytics.*`,
+`public.audit_log`, `public.domain_event_processed_events`, `public.outbox_messages`, and
+`public.herd_signal_*`. Production smoke records `dataTrust: not_checked_read_only_smoke` and keeps
+running the live browser sweep without waiting for that parity receipt.
 
 ## Slack alerts
 
