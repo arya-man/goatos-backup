@@ -62,23 +62,25 @@ func measureBindingIssues(q domain.Question, subs []domain.SubQuestion, results 
 	// went untouched. A word the card has no column for says nothing about that
 	// read: the answer may still be wrong, but this evidence cannot show it,
 	// and flagging on it would fail every question carrying an adjective.
-	// THE SUBSTITUTION CASE, which the per-column check above cannot see. When
-	// the read ran over a card that models NOTHING the question asked about --
-	// not one of its columns, not its own name -- while the catalogue does
-	// offer a source that models it, the number that came back belongs to a
-	// neighbouring subject. This is the milk question answered "CBE 24, CPT 24"
-	// from the animal-scope view: animal_current_scope has no milk, no feeding
-	// and no head column, so every term was skipped as "unproven" and the gate
-	// stayed silent on exactly the read it was written to catch.
+	// A BLUNTER RULE WAS TRIED HERE AND MEASURED, AND IT IS RECORDED BECAUSE IT
+	// LOOKS RIGHT: flag the read when the card that ran models NOTHING the
+	// question asked about, which is exactly the shape of the milk question
+	// answered "CBE 24, CPT 24" from the animal-scope view. On the held-out set
+	// it also flagged three answers that were CORRECT -- "what's the current
+	// headcount per park?" and "how many kids vs adults are there in each park",
+	// both answered rightly by counting rows of that same animal-scope view.
 	//
-	// It stays evidence-only and it does not guess: the terms come from the
-	// question, the columns from the SQL, and the issue is raised only when
-	// SOMETHING in the catalogue models the subject -- a question whose words
-	// no source carries anywhere ("how many goats", against animals_base) can
-	// never raise it, because there is no better source to have read.
+	// The reason is worth keeping: a COUNT(*) has no column to bind to. The
+	// measure IS the row count, and the subject is carried by a filter VALUE
+	// ('K2') rather than by any column name, so a correct read of that shape can
+	// never satisfy a column-level binding test. "Kids on milk feeding per park"
+	// and "kids vs adults per park" produce almost the same SQL over the same
+	// view; the only thing separating them is the word "milk", which nothing in
+	// the catalogue models -- so the discriminator lives in the REFUSAL path
+	// (measureUnmodelled), not here. Making that per-term needs a vocabulary of
+	// the VALUES a column takes, which the schema cards do not carry yet.
 	judged := false
 	unmet := map[string]bool{}
-	anyBound := false
 	for i := range results {
 		var sub domain.SubQuestion
 		if i < len(subs) {
@@ -89,9 +91,6 @@ func measureBindingIssues(q domain.Question, subs []domain.SubQuestion, results 
 			continue
 		}
 		judged = true
-		if readTouchesAny(results[i], sub, terms, card) {
-			anyBound = true
-		}
 		for _, t := range modelled {
 			if !cardHasColumnFor(card, t) {
 				continue
@@ -105,17 +104,7 @@ func measureBindingIssues(q domain.Question, subs []domain.SubQuestion, results 
 			}
 		}
 	}
-	if !judged {
-		return nil
-	}
-	if !anyBound {
-		return []FitIssue{{
-			Kind: "measure_binding",
-			Detail: "the " + strings.Join(modelled, " / ") + " you asked about (the read that ran is over a source " +
-				"that carries none of it, so its number belongs to a different subject)",
-		}}
-	}
-	if len(unmet) == 0 {
+	if !judged || len(unmet) == 0 {
 		return nil
 	}
 	missing := make([]string, 0, len(unmet))
