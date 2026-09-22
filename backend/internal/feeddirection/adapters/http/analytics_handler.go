@@ -973,7 +973,10 @@ func (h *Handler) GetShedFeedAnalytics(w http.ResponseWriter, r *http.Request) {
 type feedFollowUpEventDTO struct {
 	Kind      string `json:"kind"`
 	EventDate string `json:"event_date"`
-	Animals   int    `json:"animals"`
+	// AfterCutoff: the next day's feed was already packed when this happened,
+	// so the first sheet that could carry it is the day after that.
+	AfterCutoff bool `json:"after_cutoff"`
+	Animals     int  `json:"animals"`
 	// Tags are RFID / tag numbers, capped; TagsTotal is how many there really
 	// were, so the client can say "12 of 80" instead of reading as the whole.
 	Tags      []string `json:"tags"`
@@ -981,18 +984,20 @@ type feedFollowUpEventDTO struct {
 }
 
 type feedFollowUpDayDTO struct {
-	EventDate  string `json:"event_date"`
-	Purchased  int    `json:"purchased"`
-	Sold       int    `json:"sold"`
-	Died       int    `json:"died"`
-	NetAnimals int    `json:"net_animals"`
-	BeforeDay  string `json:"before_day"`
-	AfterDay   string `json:"after_day"`
-	HeadBefore int    `json:"head_before"`
-	HeadAfter  int    `json:"head_after"`
-	KgBefore   string `json:"kg_before"`
-	KgAfter    string `json:"kg_after"`
-	HeadDelta  int    `json:"head_delta"`
+	// ExpectedDay is the first sheet that could carry these changes.
+	ExpectedDay string `json:"expected_day"`
+	CutoffTime  string `json:"cutoff_time"`
+	Purchased   int    `json:"purchased"`
+	Sold        int    `json:"sold"`
+	Died        int    `json:"died"`
+	NetAnimals  int    `json:"net_animals"`
+	BeforeDay   string `json:"before_day"`
+	AfterDay    string `json:"after_day"`
+	HeadBefore  int    `json:"head_before"`
+	HeadAfter   int    `json:"head_after"`
+	KgBefore    string `json:"kg_before"`
+	KgAfter     string `json:"kg_after"`
+	HeadDelta   int    `json:"head_delta"`
 	// Unexplained is the head-count move these three causes do not account
 	// for. Carried openly rather than forced to zero.
 	Unexplained int                    `json:"unexplained"`
@@ -1073,12 +1078,13 @@ func (h *Handler) GetFeedFollowUp(w http.ResponseWriter, r *http.Request) {
 					tags = []string{}
 				}
 				events = append(events, feedFollowUpEventDTO{
-					Kind: e.Kind, EventDate: e.EventDate, Animals: e.Animals,
-					Tags: tags, TagsTotal: e.TagsTotal,
+					Kind: e.Kind, EventDate: e.EventDate, AfterCutoff: e.AfterCutoff,
+					Animals: e.Animals, Tags: tags, TagsTotal: e.TagsTotal,
 				})
 			}
 			days = append(days, feedFollowUpDayDTO{
-				EventDate: d.EventDate, Purchased: d.Purchased, Sold: d.Sold, Died: d.Died,
+				ExpectedDay: d.ExpectedDay, CutoffTime: d.CutoffTime,
+				Purchased: d.Purchased, Sold: d.Sold, Died: d.Died,
 				NetAnimals: d.NetAnimals, BeforeDay: d.BeforeDay, AfterDay: d.AfterDay,
 				HeadBefore: d.HeadBefore, HeadAfter: d.HeadAfter,
 				KgBefore: d.KgBefore, KgAfter: d.KgAfter,

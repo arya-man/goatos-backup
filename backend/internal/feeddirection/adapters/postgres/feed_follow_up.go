@@ -145,6 +145,21 @@ ORDER BY park_id, shed_id, pen_key, feed_day`
 // UTC never defines a Goat OS business day), taken from the instant the register
 // records for the exit or the intake.
 //
+// WHICH SHEET HAS TO CARRY THE CHANGE IS DECIDED HERE, because this is where the
+// event's TIME OF DAY is still in hand. The farm issues tomorrow's sheet this
+// morning, corrects it at the park's correction_time, and packs it by 15:00, so
+// an event BEFORE that cut-off is owed tomorrow's sheet and one AFTER it cannot
+// reach tomorrow at all -- that feed is already bagged -- and is owed the day
+// after. Judging a frozen sheet would accuse the farm of ignoring an animal it
+// could not act on.
+//
+// The cut-off comes from feed_schedule_config for THAT park, effective-dated on
+// the event's own day, for the NORMAL workflow -- the same row the generator and
+// the afternoon correction run on. A park with no row falls back to $5, which
+// the caller fills from domain.DefaultCorrectionTime. It is deliberately not a
+// literal here: a farm that moves its correction to 13:00 moves this rule with
+// it, with no code change.
+//
 // Identifiers are RFID / tag values, never goat ids (AGENTS.md -> Mesha / Goat
 // OS RFID Language): the sale carries the string the operator read off the
 // animal while tagging, and the other two resolve the register's own active
@@ -170,7 +185,7 @@ WITH bounds AS (
 -- animal here too.
 intake AS (
     SELECT DISTINCT ON (plg.goat_id) plg.goat_id,
-           (plg.intake_accepted_at AT TIME ZONE 'Asia/Kolkata')::date AS event_date
+           plg.intake_accepted_at AT TIME ZONE 'Asia/Kolkata' AS event_at
     FROM procurement_load_goats plg
     CROSS JOIN bounds b
     WHERE plg.tenant_id = $1
@@ -186,8 +201,7 @@ events AS (
            g.park_id,
            g.shed_id,
            COALESCE(gsp.partition_label, 'whole') AS partition_label,
-           COALESCE((g.exited_at AT TIME ZONE 'Asia/Kolkata')::date,
-                    (g.updated_at AT TIME ZONE 'Asia/Kolkata')::date) AS event_date,
+           COALESCE(g.exited_at, g.updated_at) AT TIME ZONE 'Asia/Kolkata' AS event_at,
            ''::text AS snapshot_tag
     FROM goats g
     CROSS JOIN bounds b
@@ -207,7 +221,7 @@ events AS (
            a.park_id,
            a.shed_id,
            COALESCE(NULLIF(btrim(a.partition_label), ''), 'whole'),
-           (a.allocated_at AT TIME ZONE 'Asia/Kolkata')::date,
+           a.allocated_at AT TIME ZONE 'Asia/Kolkata',
            COALESCE(btrim(a.tag_number), '')
     FROM goat_sale_allocations a
     CROSS JOIN bounds b
@@ -223,7 +237,7 @@ events AS (
            g.park_id,
            g.shed_id,
            COALESCE(gsp.partition_label, 'whole'),
-           i.event_date,
+           i.event_at,
            ''::text
     FROM intake i
     JOIN goats g ON g.tenant_id = $1 AND g.goat_id = i.goat_id
@@ -239,9 +253,23 @@ tagged AS (
            -- sentinel and must never reach a screen, so it blanks here.
            CASE WHEN COALESCE(btrim(e.partition_label), '') IN ('', 'whole') THEN ''
                 ELSE btrim(e.partition_label) END AS partition_label,
-           e.event_date,
+           e.event_at::date AS event_date,
+           -- At or after the cut-off, tomorrow's feed is already packed.
+           (e.event_at::time >= COALESCE(sc.correction_time, $5::time)) AS after_cutoff,
+           e.event_at::date
+             + CASE WHEN e.event_at::time >= COALESCE(sc.correction_time, $5::time)
+                    THEN 2 ELSE 1 END AS expected_day,
+           to_char(COALESCE(sc.correction_time, $5::time), 'HH24:MI') AS cutoff_time,
            COALESCE(NULLIF(e.snapshot_tag, ''), id.identifier_value, '') AS tag
     FROM events e
+    -- The park's clock as it stood ON THE EVENT'S OWN DAY, never today's: a
+    -- correction time changed last week must not re-judge the weeks before it.
+    LEFT JOIN feed_schedule_config sc
+      ON sc.tenant_id = $1
+     AND sc.park_id = e.park_id
+     AND sc.workflow = 'normal'
+     AND sc.valid_from <= e.event_at::date
+     AND (sc.valid_to IS NULL OR sc.valid_to > e.event_at::date)
     LEFT JOIN LATERAL (
         SELECT gi.identifier_value
         FROM goat_identifiers gi
@@ -265,14 +293,17 @@ SELECT t.park_id::text,
        COALESCE(MAX(sh.name), ''),
        COALESCE(MAX(t.partition_label), ''),
        t.event_date::text,
+       t.expected_day::text,
+       t.after_cutoff,
+       COALESCE(MAX(t.cutoff_time), ''),
        t.kind,
        count(*)::int                                                   AS animals,
        (array_agg(t.tag ORDER BY t.tag) FILTER (WHERE t.tag <> ''))[1:` + feedFollowUpTagCap + `] AS tags
 FROM tagged t
 LEFT JOIN locations sh ON sh.tenant_id = $1 AND sh.location_id = t.shed_id
 LEFT JOIN locations pk ON pk.tenant_id = $1 AND pk.location_id = t.park_id
-GROUP BY t.park_id, t.shed_id, t.pen_key, t.event_date, t.kind
-ORDER BY t.park_id, t.shed_id, t.pen_key, t.event_date, t.kind`
+GROUP BY t.park_id, t.shed_id, t.pen_key, t.event_date, t.expected_day, t.after_cutoff, t.kind
+ORDER BY t.park_id, t.shed_id, t.pen_key, t.expected_day, t.event_date, t.kind`
 
 // feedFollowUpTagCap renders domain.FeedFollowUpMaxTags into the SQL slice
 // bound, so the cap has ONE definition and the payload cannot advertise a
@@ -284,6 +315,11 @@ func init() {
 		panic("feedFollowUpTagCap is out of step with domain.FeedFollowUpMaxTags")
 	}
 }
+
+// feedFollowUpSheetLookahead is how far past the event window the sheet read
+// reaches: the furthest an event can push its expected day (after the cut-off
+// on the window's last day -> two days later).
+const feedFollowUpSheetLookahead = 2
 
 type followUpSheetDay struct {
 	penKey    penIdentity
@@ -310,7 +346,10 @@ func (r *Repository) FeedFollowUp(ctx context.Context, tenantID string, q domain
 	// altogether rather than aggregating the farm's whole pen catalog to
 	// discover there is nothing to report.
 	labels := map[penIdentity]penLabels{}
-	causes, err := r.feedFollowUpCauses(ctx, tenantID, q.ParkIDs, from, to, labels)
+	// The park's cut-off that decided each check, keyed by expected day + shed
+	// so the screen can name the actual clock instead of assuming one.
+	cutoffs := map[string]string{}
+	causes, err := r.feedFollowUpCauses(ctx, tenantID, q.ParkIDs, from, to, labels, cutoffs)
 	if err != nil {
 		return domain.FeedFollowUp{}, err
 	}
@@ -318,11 +357,17 @@ func (r *Repository) FeedFollowUp(ctx context.Context, tenantID string, q domain
 		return domain.FeedFollowUp{Rows: []domain.FeedFollowUpPenRow{}}, nil
 	}
 	sheds := shedIDsOf(causes)
-	sheet, err := r.feedFollowUpSheet(ctx, tenantID, q.ParkIDs, from, to, sheds, labels)
+	// The SHEET window reaches PAST the event window. An event on the last day
+	// before the cut-off is owed the next day's sheet, and one after it is owed
+	// the day after that -- both outside the range the user asked for. Reading
+	// two extra days means a late event at the edge is judged on the sheet that
+	// actually answers it instead of reporting pending forever.
+	sheetTo := to.AddDate(0, 0, feedFollowUpSheetLookahead)
+	sheet, err := r.feedFollowUpSheet(ctx, tenantID, q.ParkIDs, from, sheetTo, sheds, labels)
 	if err != nil {
 		return domain.FeedFollowUp{}, err
 	}
-	return composeFeedFollowUp(sheet, labels, causes), nil
+	return composeFeedFollowUp(sheet, labels, causes, cutoffs), nil
 }
 
 type penLabels struct {
@@ -385,9 +430,9 @@ func (r *Repository) feedFollowUpSheet(ctx context.Context, tenantID string, par
 // feedFollowUpCauses reads the herd side and FILLS IN labels for any pen the
 // sheet read did not cover, writing into the shared `labels` map rather than
 // returning a second one -- one pen must resolve to one set of words.
-func (r *Repository) feedFollowUpCauses(ctx context.Context, tenantID string, parkIDs []uuid.UUID, from, to time.Time, labels map[penIdentity]penLabels) (map[penIdentity][]domain.FeedFollowUpCause, error) {
+func (r *Repository) feedFollowUpCauses(ctx context.Context, tenantID string, parkIDs []uuid.UUID, from, to time.Time, labels map[penIdentity]penLabels, cutoffs map[string]string) (map[penIdentity][]domain.FeedFollowUpCause, error) {
 	rows, err := r.pool.Query(ctx, feedFollowUpCausesSQL, tenantID, parkIDs,
-		from.Format("2006-01-02"), to.Format("2006-01-02"))
+		from.Format("2006-01-02"), to.Format("2006-01-02"), domain.DefaultCorrectionTime)
 	if err != nil {
 		return nil, fmt.Errorf("feed follow-up causes: %w", err)
 	}
@@ -395,14 +440,16 @@ func (r *Repository) feedFollowUpCauses(ctx context.Context, tenantID string, pa
 	out := map[penIdentity][]domain.FeedFollowUpCause{}
 	for rows.Next() {
 		var (
-			pen  penIdentity
-			lbl  penLabels
-			c    domain.FeedFollowUpCause
-			tags []string
+			pen    penIdentity
+			lbl    penLabels
+			c      domain.FeedFollowUpCause
+			cutoff string
+			tags   []string
 		)
 		if err := rows.Scan(&pen.ParkID, &pen.ShedID, &pen.PartitionKey,
 			&lbl.ParkLabel, &lbl.ShedLabel, &lbl.PartitionLabel,
-			&c.EventDate, &c.Kind, &c.Animals, &tags); err != nil {
+			&c.EventDate, &c.ExpectedDay, &c.AfterCutoff, &cutoff,
+			&c.Kind, &c.Animals, &tags); err != nil {
 			return nil, fmt.Errorf("feed follow-up causes scan: %w", err)
 		}
 		// Written FIRST (this read runs first now); the sheet read overwrites
@@ -412,6 +459,7 @@ func (r *Repository) feedFollowUpCauses(ctx context.Context, tenantID string, pa
 		}
 		c.TagsTotal = c.Animals
 		c.Tags = tags
+		cutoffs[c.ExpectedDay+"|"+pen.ShedID] = cutoff
 		if c.Tags == nil {
 			c.Tags = []string{}
 		}
@@ -433,6 +481,7 @@ func composeFeedFollowUp(
 	sheet map[penIdentity][]domain.FeedFollowUpSheetDay,
 	labels map[penIdentity]penLabels,
 	causes map[penIdentity][]domain.FeedFollowUpCause,
+	cutoffs map[string]string,
 ) domain.FeedFollowUp {
 	out := domain.FeedFollowUp{Rows: []domain.FeedFollowUpPenRow{}}
 	// The sheet's own word for each park, collected before any row is built.
@@ -442,6 +491,9 @@ func composeFeedFollowUp(
 			parkWords[pen.ParkID] = lbl.ParkLabel
 		}
 	}
+	// The window's two ends, accumulated across pens as each row is built.
+	windowStart, windowEnd := 0, 0
+	startKg, endKg := []string{}, []string{}
 	for pen, penCauses := range causes {
 		penSheet := sheet[pen]
 		lbl := labels[pen]
@@ -464,13 +516,16 @@ func composeFeedFollowUp(
 			}.Display(),
 			Days: []domain.FeedFollowUpDay{},
 		}
+		// Grouped by the day the feed was SUPPOSED to change, not the day the
+		// animal moved: two events either side of a cut-off can be owed the
+		// same sheet, and that sheet has to account for both.
 		byDate := map[string][]domain.FeedFollowUpCause{}
 		dates := []string{}
 		for _, c := range penCauses {
-			if _, seen := byDate[c.EventDate]; !seen {
-				dates = append(dates, c.EventDate)
+			if _, seen := byDate[c.ExpectedDay]; !seen {
+				dates = append(dates, c.ExpectedDay)
 			}
-			byDate[c.EventDate] = append(byDate[c.EventDate], c)
+			byDate[c.ExpectedDay] = append(byDate[c.ExpectedDay], c)
 			switch c.Kind {
 			case domain.FeedFollowUpPurchased:
 				row.Purchased += c.Animals
@@ -482,13 +537,27 @@ func composeFeedFollowUp(
 		}
 		sort.Strings(dates)
 		for _, d := range dates {
-			row.Days = append(row.Days, domain.ResolveFeedFollowUpDay(d, byDate[d], penSheet))
+			check := domain.ResolveFeedFollowUpDay(d, byDate[d], penSheet)
+			check.CutoffTime = cutoffs[d+"|"+pen.ShedID]
+			row.Days = append(row.Days, check)
 		}
 		row.Status = domain.RollUpFeedFollowUpStatus(row.Days)
+		// The row carries THE COMPARISON ITS VERDICT CAME FROM, so the two
+		// arrows beside the chip always explain the chip.
+		if deciding, ok := domain.DecidingFeedFollowUpDay(row.Days); ok {
+			row.FirstDay, row.HeadBefore, row.KgBefore = deciding.BeforeDay, deciding.HeadBefore, deciding.KgBefore
+			row.LastDay, row.HeadAfter, row.KgAfter = deciding.AfterDay, deciding.HeadAfter, deciding.KgAfter
+		}
+		// The WALK's two ends are a different question from the row's: "how
+		// many mouths did the farm feed at each end of the range", which is
+		// the pen's own first and last sheet, not whichever check decided its
+		// verdict. Summing the deciding checks put 261 -> 258 under a range
+		// that really ran 344 -> 291.
 		if len(penSheet) > 0 {
-			first, last := penSheet[0], penSheet[len(penSheet)-1]
-			row.FirstDay, row.HeadBefore, row.KgBefore = first.FeedDay, first.HeadCount, first.Kg
-			row.LastDay, row.HeadAfter, row.KgAfter = last.FeedDay, last.HeadCount, last.Kg
+			windowStart += penSheet[0].HeadCount
+			windowEnd += penSheet[len(penSheet)-1].HeadCount
+			startKg = append(startKg, penSheet[0].Kg)
+			endKg = append(endKg, penSheet[len(penSheet)-1].Kg)
 		}
 		out.Rows = append(out.Rows, row)
 	}
@@ -511,12 +580,11 @@ func composeFeedFollowUp(
 		return a.OperationalLocationDisplay < b.OperationalLocationDisplay
 	})
 
+	out.Totals.StartAnimals, out.Totals.EndAnimals = windowStart, windowEnd
 	for _, row := range out.Rows {
 		out.Totals.Purchased += row.Purchased
 		out.Totals.Sold += row.Sold
 		out.Totals.Died += row.Died
-		out.Totals.StartAnimals += row.HeadBefore
-		out.Totals.EndAnimals += row.HeadAfter
 		switch row.Status {
 		case domain.FeedFollowUpNotFollowed:
 			out.Totals.NotFollowed++
@@ -531,8 +599,7 @@ func composeFeedFollowUp(
 	// other. The remainder is CARRIED, never absorbed.
 	out.Totals.Unexplained = out.Totals.EndAnimals -
 		(out.Totals.StartAnimals + out.Totals.Purchased - out.Totals.Sold - out.Totals.Died)
-	out.Totals.StartKg = sumFollowUpKg(out.Rows, func(r domain.FeedFollowUpPenRow) string { return r.KgBefore })
-	out.Totals.EndKg = sumFollowUpKg(out.Rows, func(r domain.FeedFollowUpPenRow) string { return r.KgAfter })
+	out.Totals.StartKg, out.Totals.EndKg = sumFollowUpKg(startKg), sumFollowUpKg(endKg)
 	return out
 }
 
@@ -541,11 +608,10 @@ func composeFeedFollowUp(
 // into a float at every hop is how a total starts disagreeing with its rows);
 // this is the one place a total is needed, so it parses once, adds, and renders
 // back at the sheet's own one decimal place.
-func sumFollowUpKg(rows []domain.FeedFollowUpPenRow, pick func(domain.FeedFollowUpPenRow) string) string {
+func sumFollowUpKg(values []string) string {
 	total := 0.0
 	any := false
-	for _, row := range rows {
-		raw := pick(row)
+	for _, raw := range values {
 		if raw == "" {
 			continue
 		}

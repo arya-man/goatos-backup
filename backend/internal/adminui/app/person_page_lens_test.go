@@ -120,10 +120,10 @@ func TestCeoKeepsEveryFeedAnalyticsTab(t *testing.T) {
 	})
 	page := pageByRouteID(t, resp.Pages, "feed-analytics")
 	tabs := optionGroupByID(t, page.OptionGroups, "feed_analytics_tabs")
-	// Feed follow-up sits beside Consumption: it reads the herd register's
-	// purchases, sales and deaths, so it rides the FULL feed gate and is
-	// withheld from the stock-only reader in the test below.
-	want := []string{"overview", "followup", "items", "peranimal", "experiment", "execution"}
+	// Feed follow-up is LAST in the bar and rides the FULL feed gate: it reads
+	// the herd register's purchases, sales and deaths, so it is withheld from
+	// the stock-only reader in the test below.
+	want := []string{"overview", "items", "peranimal", "experiment", "execution", "followup"}
 	if len(tabs.Options) != len(want) {
 		t.Fatalf("CEO feed tabs = %+v; want %v", tabs.Options, want)
 	}

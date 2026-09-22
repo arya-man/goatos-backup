@@ -75,7 +75,7 @@ function dedupeOptions(options: { value: string; label: string }[]): { value: st
   }
   return [...seen.entries()].map(([value, label]) => ({ value, label })).sort((a, b) => a.label.localeCompare(b.label));
 }
-const TABS = ["overview", "followup", "items", "peranimal", "experiment", "execution"] as const;
+const TABS = ["overview", "items", "peranimal", "experiment", "execution", "followup"] as const;
 type Tab = (typeof TABS)[number];
 // The Consumption tab's two readings (maintainer request 2026-09-17): General is everything the tab
 // already showed; Status-wise is the average directed feed one animal gets per day, per pen tag.

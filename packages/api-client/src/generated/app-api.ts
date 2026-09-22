@@ -2219,7 +2219,11 @@ export interface paths {
          *
          *     THREE CAUSES, and only three: `purchased` (accepted off a procurement load), `sold` (tagged to a sale) and `died`. Animals SHIFTED between pens are deliberately not counted; a shift surfaces in `unexplained` instead, which carries the part of a head-count move these three causes do not account for. `unexplained` is REPORTED, never forced to zero, so the walk `start_animals + purchased - sold - died` need not equal `end_animals`.
          *
-         *     VERDICTS. `followed` — the pen's head count moved on the next issued sheet. `not_followed` — animals entered or left and the next sheet fed the pen for exactly as many mouths as before; this is the only state anyone has to act on. `pending` — no sheet has been issued since the event, so there is no verdict yet (absence of one, never a pass). A pen's status is its worst day. "The next day" means the next issued SHEET, not the next calendar date: a day the farm issued nothing has no head count to read.
+         *     WHICH SHEET IS JUDGED, and it is the whole rule. The sheet for tomorrow is issued this morning, corrected at the park's `correction_time` (14:00 on both parks today) and packed by 15:00. An event BEFORE that cut-off is owed TOMORROW's sheet; one AFTER it cannot reach tomorrow at all — that feed is already bagged — and is owed the DAY AFTER tomorrow. The check therefore sits on `expected_day`, the first sheet that could carry the change, and compares it against the last sheet before it. The cut-off is read per park and per date from `feed_schedule_config`, never assumed.
+         *
+         *     Two events either side of a cut-off can share one `expected_day` and arrive as ONE check; each event keeps its own `event_date` and its own `after_cutoff`.
+         *
+         *     VERDICTS. `followed` — the pen's head count moved on the expected sheet. `not_followed` — animals entered or left and that sheet fed the pen for exactly as many mouths as before; this is the only state anyone has to act on. `pending` — the expected sheet has not been issued yet, so there is no verdict (absence of one, never a pass). A pen's status is its worst day. "The next sheet" means the next issued SHEET, not the next calendar date: a day the farm issued nothing has no head count to read.
          *
          *     Rows are ordered `not_followed` first, then `pending`, then `followed`, each by farm and pen — the pens to act on lead. A pen with no cause in the window is ABSENT: this read answers for the pens where animals moved. Identifiers on the expanded events are RFID / tag values, capped at 12 per cause per day with `tags_total` carrying the true count.
          *
@@ -10939,18 +10943,23 @@ export interface components {
             /** @description The pen's event days, ascending. A day with no cause is absent. */
             days: components["schemas"]["FeedAnalyticsFollowUpDay"][];
         };
-        /** @description One event day in one pen, with the sheet on either side of it. `before_day` is the last sheet day on or before the event; `after_day` is the first sheet day strictly after it — the next issued SHEET, which is not always the next calendar date. */
+        /** @description ONE CHECK in one pen: the day the feed was supposed to change, everything that made it change, and the sheet on either side of it. `before_day` is the last sheet day BEFORE `expected_day` (the sheet that could not carry the change); `after_day` is the first sheet day ON OR AFTER it — the next issued SHEET, which is not always the next calendar date. */
         FeedAnalyticsFollowUpDay: {
-            /** Format: date */
-            event_date: string;
+            /**
+             * Format: date
+             * @description The first sheet day that could carry these changes: the day after an event that happened before the park's cut-off, the day after that for one at or after it.
+             */
+            expected_day: string;
+            /** @description The park's correction time (HH:MM, IST) that decided it, from `feed_schedule_config` as it stood on the event's own day. Empty when the park had no configured clock. */
+            cutoff_time: string;
             purchased: number;
             sold: number;
             died: number;
             /** @description purchased - sold - died. Mouths the causes say the pen gained. */
             net_animals: number;
-            /** @description Sheet day the before reading comes from; empty when the pen had no earlier sheet. */
+            /** @description Sheet day the before reading comes from — the last sheet BEFORE `expected_day`. Empty when the pen had no earlier sheet. */
             before_day: string;
-            /** @description Sheet day the after reading comes from; empty while the verdict is pending. */
+            /** @description Sheet day the after reading comes from — the first sheet ON OR AFTER `expected_day`. Empty while the verdict is pending. */
             after_day: string;
             head_before: number;
             head_after: number;
@@ -10968,8 +10977,13 @@ export interface components {
         FeedAnalyticsFollowUpEvent: {
             /** @enum {string} */
             kind: "purchased" | "sold" | "died";
-            /** Format: date */
+            /**
+             * Format: date
+             * @description The IST business day the animal actually moved.
+             */
             event_date: string;
+            /** @description True when it happened at or after the park's correction time, so the next day's feed was already packed and the first sheet that could carry it is the day after that. */
+            after_cutoff: boolean;
             animals: number;
             /** @description RFID / tag numbers, at most 12 — never internal goat ids. A sale of eighty animals does not need eighty strings on screen to make its point. */
             tags: string[];

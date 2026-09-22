@@ -70,27 +70,35 @@ VALUES ($1::uuid, $2::uuid, 'animal_identifier_1', $3, lower($3), 'tenant', 'act
 		fdiTenant, goatID, tag)
 }
 
-func ffuMarkDied(t *testing.T, ctx context.Context, pool *pgxpool.Pool, goatID, day string) {
+// 10:00 is BEFORE the park's 14:00 correction, so the next day's sheet is the
+// one that had to carry it. 16:00 is after, so that sheet is already packed and
+// the day after is the first that could.
+const (
+	ffuBeforeCutoff = "10:00"
+	ffuAfterCutoff  = "16:00"
+)
+
+func ffuMarkDied(t *testing.T, ctx context.Context, pool *pgxpool.Pool, goatID, day, atTime string) {
 	t.Helper()
 	if _, err := pool.Exec(ctx, `UPDATE goats
-SET lifecycle_status='dead', exit_reason='died', exited_at=($2::date + time '10:00') AT TIME ZONE 'Asia/Kolkata'
-WHERE tenant_id=$3::uuid AND goat_id=$1::uuid`, goatID, day, fdiTenant); err != nil {
+SET lifecycle_status='dead', exit_reason='died', exited_at=($2::date + $4::time) AT TIME ZONE 'Asia/Kolkata'
+WHERE tenant_id=$3::uuid AND goat_id=$1::uuid`, goatID, day, fdiTenant, atTime); err != nil {
 		t.Fatalf("mark died: %v", err)
 	}
 }
 
-func ffuMarkSold(t *testing.T, ctx context.Context, pool *pgxpool.Pool, goatID, shed, pen, tag, day string) {
+func ffuMarkSold(t *testing.T, ctx context.Context, pool *pgxpool.Pool, goatID, shed, pen, tag, day, atTime string) {
 	t.Helper()
 	if _, err := pool.Exec(ctx, `INSERT INTO goat_sale_allocations
   (tenant_id, goat_id, sales_deal_id, park_id, shed_id, partition_label, tag_number, status, allocated_at, idempotency_key)
 VALUES ($1::uuid, $2::uuid, gen_random_uuid(), $3::uuid, $4::uuid, $5, $6, 'tagged',
-        ($7::date + time '11:00') AT TIME ZONE 'Asia/Kolkata', 'ffu:' || $2)`,
-		fdiTenant, goatID, fdiPark, shed, pen, tag, day); err != nil {
+        ($7::date + $8::time) AT TIME ZONE 'Asia/Kolkata', 'ffu:' || $2)`,
+		fdiTenant, goatID, fdiPark, shed, pen, tag, day, atTime); err != nil {
 		t.Fatalf("mark sold: %v", err)
 	}
 }
 
-func ffuMarkPurchased(t *testing.T, ctx context.Context, pool *pgxpool.Pool, goatID, day string) {
+func ffuMarkPurchased(t *testing.T, ctx context.Context, pool *pgxpool.Pool, goatID, day, atTime string) {
 	t.Helper()
 	exec := func(sql string, args ...any) {
 		t.Helper()
@@ -101,8 +109,8 @@ func ffuMarkPurchased(t *testing.T, ctx context.Context, pool *pgxpool.Pool, goa
 	exec(`INSERT INTO procurement_loads (load_id, tenant_id, source_party_id, idempotency_key)
 VALUES ($1::uuid, $2::uuid, $3::uuid, 'ffu-load') ON CONFLICT (load_id) DO NOTHING`, ffuLoad, fdiTenant, ffuParty)
 	exec(`INSERT INTO procurement_load_goats (tenant_id, load_id, goat_id, current_state, intake_accepted_at)
-VALUES ($1::uuid, $2::uuid, $3::uuid, 'accepted_herd_intake', ($4::date + time '09:00') AT TIME ZONE 'Asia/Kolkata')`,
-		fdiTenant, ffuLoad, goatID, day)
+VALUES ($1::uuid, $2::uuid, $3::uuid, 'accepted_herd_intake', ($4::date + $5::time) AT TIME ZONE 'Asia/Kolkata')`,
+		fdiTenant, ffuLoad, goatID, day, atTime)
 }
 
 // ffuCell is one sheet cell at a pen, with the head count the sheet packs for.
@@ -162,8 +170,8 @@ func TestFeedFollowUpOneToManySheetRowsStayOnePenRow(t *testing.T) {
 	for _, g := range []struct{ id, tag string }{{sold1, "RF-A1"}, {sold2, "RF-A2"}, {kept, "RF-A3"}} {
 		ffuSeedHerd(t, ctx, pool, g.id, fdiShedA, "1", g.tag)
 	}
-	ffuMarkSold(t, ctx, pool, sold1, fdiShedA, "1", "RF-A1", "2026-07-30")
-	ffuMarkSold(t, ctx, pool, sold2, fdiShedA, "1", "RF-A2", "2026-07-30")
+	ffuMarkSold(t, ctx, pool, sold1, fdiShedA, "1", "RF-A1", "2026-07-30", ffuBeforeCutoff)
+	ffuMarkSold(t, ctx, pool, sold2, fdiShedA, "1", "RF-A2", "2026-07-30", ffuBeforeCutoff)
 
 	persist := func(day string, heads int64, qty string) {
 		t.Helper()
@@ -231,9 +239,9 @@ func TestFeedFollowUpMultipleDimensionsKeepWordedAndNumericPensApart(t *testing.
 	ffuSeedHerd(t, ctx, pool, numeric, fdiShedA, "1", "RF-B1")
 	ffuSeedHerd(t, ctx, pool, worded, godel, "Part 3", "RF-B2")
 	ffuSeedHerd(t, ctx, pool, undivided, fdiShedB, "", "RF-B3")
-	ffuMarkDied(t, ctx, pool, numeric, "2026-07-30")
-	ffuMarkDied(t, ctx, pool, worded, "2026-07-30")
-	ffuMarkDied(t, ctx, pool, undivided, "2026-07-30")
+	ffuMarkDied(t, ctx, pool, numeric, "2026-07-30", ffuBeforeCutoff)
+	ffuMarkDied(t, ctx, pool, worded, "2026-07-30", ffuBeforeCutoff)
+	ffuMarkDied(t, ctx, pool, undivided, "2026-07-30", ffuBeforeCutoff)
 
 	persist := func(day string, heads int64) {
 		t.Helper()
@@ -291,8 +299,8 @@ func TestFeedFollowUpPaginationIsWholeWindowAndTotalsMatchTheRows(t *testing.T) 
 	b := "fd100000-0000-4000-8000-00000000c002"
 	ffuSeedHerd(t, ctx, pool, a, fdiShedA, "1", "RF-C1")
 	ffuSeedHerd(t, ctx, pool, b, godel, "Part 3", "RF-C2")
-	ffuMarkSold(t, ctx, pool, a, fdiShedA, "1", "RF-C1", "2026-07-30")
-	ffuMarkPurchased(t, ctx, pool, b, "2026-07-30")
+	ffuMarkSold(t, ctx, pool, a, fdiShedA, "1", "RF-C1", "2026-07-30", ffuBeforeCutoff)
+	ffuMarkPurchased(t, ctx, pool, b, "2026-07-30", ffuBeforeCutoff)
 
 	cells := []domain.StoredCell{
 		ffuCell(fdiShedA, "Castro", "1", 1, 5, "1.000", 0),
@@ -348,7 +356,7 @@ func TestFeedFollowUpParkScopeBindsTheHerdSideToo(t *testing.T) {
 
 	g := "fd100000-0000-4000-8000-00000000d001"
 	ffuSeedHerd(t, ctx, pool, g, fdiShedA, "1", "RF-D1")
-	ffuMarkSold(t, ctx, pool, g, fdiShedA, "1", "RF-D1", "2026-07-30")
+	ffuMarkSold(t, ctx, pool, g, fdiShedA, "1", "RF-D1", "2026-07-30", ffuBeforeCutoff)
 
 	cells := []domain.StoredCell{ffuCell(fdiShedA, "Castro", "1", 1, 4, "1.000", 0)}
 	for _, day := range []string{"2026-07-30", "2026-07-31"} {
@@ -402,10 +410,11 @@ func TestFeedFollowUpStatusBucketsAreDisjointAndCoverEveryPen(t *testing.T) {
 	ffuSeedHerd(t, ctx, pool, ignored, fdiShedA, "1", "RF-E1")
 	ffuSeedHerd(t, ctx, pool, acted, godel, "Part 3", "RF-E2")
 	ffuSeedHerd(t, ctx, pool, lastDay, fdiShedB, "", "RF-E3")
-	ffuMarkDied(t, ctx, pool, ignored, "2026-07-30")
-	ffuMarkDied(t, ctx, pool, acted, "2026-07-30")
-	// The event lands on the window's LAST sheet day, so no sheet follows it.
-	ffuMarkDied(t, ctx, pool, lastDay, "2026-07-31")
+	ffuMarkDied(t, ctx, pool, ignored, "2026-07-30", ffuBeforeCutoff)
+	ffuMarkDied(t, ctx, pool, acted, "2026-07-30", ffuBeforeCutoff)
+	// AFTER the cut-off on the window's last sheet day: the 31st is already
+	// packed, and the sheet that could carry it (Aug 2) does not exist.
+	ffuMarkDied(t, ctx, pool, lastDay, "2026-07-31", ffuAfterCutoff)
 
 	persist := func(day string, castroHeads, godelHeads, yashodaHeads int64) {
 		t.Helper()
@@ -455,5 +464,69 @@ func TestFeedFollowUpStatusBucketsAreDisjointAndCoverEveryPen(t *testing.T) {
 	castro := ffuRowByPen(t, got, "Castro 1")
 	if len(castro.Days) != 1 || castro.Days[0].Unexplained != 1 {
 		t.Errorf("an ignored death must read as one over-fed mouth, got %+v", castro.Days)
+	}
+}
+
+// THE FARM CLOCK, end to end (maintainer correction 2026-09-22): an animal sold
+// AFTER the park's correction time cannot change tomorrow's feed, because that
+// feed is already packed. Tomorrow's sheet must NOT be judged; the day after is
+// the first one that could carry it.
+//
+// It also proves the sheet read reaches PAST the requested window: the event is
+// on the window's last day and the sheet that answers it is two days later, so
+// a read bounded by date_to would report pending forever.
+func TestFeedFollowUpLateEventIsJudgedOnTheSheetAfterTheFrozenOne(t *testing.T) {
+	ctx := context.Background()
+	repo, pool := setupIssueDB(t, ctx)
+	issuedAt := time.Date(2026, 7, 29, 9, 0, 0, 0, biztime.DefaultLocation())
+
+	g := "fd100000-0000-4000-8000-00000000f001"
+	ffuSeedHerd(t, ctx, pool, g, fdiShedA, "1", "RF-F1")
+	// 16:00 on the 31st: past the fixture park's 14:00 correction, so the 1st
+	// is already packed and the 2nd is the first sheet that could react.
+	ffuMarkSold(t, ctx, pool, g, fdiShedA, "1", "RF-F1", "2026-07-31", ffuAfterCutoff)
+
+	persist := func(day string, heads int64) {
+		t.Helper()
+		cells := []domain.StoredCell{ffuCell(fdiShedA, "Castro", "1", 1, heads, "1.000", 0)}
+		if _, err := repo.PersistIssue(ctx, ports.PersistIssueCommand{
+			TenantID: fdiTenant, ParkID: fdiPark, FeedDay: day, Workflow: domain.WorkflowNormal,
+			IssuedAt: issuedAt, Fingerprint: "fp-ffu-late-" + day,
+			IdempotencyKey: "issue:" + fdiTenant + ":" + fdiPark + ":" + day + ":ffulate",
+			GeneratedBy:    "test", Cells: cells,
+		}); err != nil {
+			t.Fatalf("persist %s: %v", day, err)
+		}
+	}
+	persist("2026-07-31", 5)
+	// FROZEN: packed before the sale, so it still feeds 5 and must not be the
+	// sheet the verdict is read from.
+	persist("2026-08-01", 5)
+	persist("2026-08-02", 4)
+
+	// The window ENDS on the event day; the answering sheet is two days later.
+	got, err := repo.FeedFollowUp(ctx, fdiTenant, ffuWindow("2026-07-30", "2026-07-31"))
+	if err != nil {
+		t.Fatalf("FeedFollowUp: %v", err)
+	}
+	row := ffuRowByPen(t, got, "Castro 1")
+	if len(row.Days) != 1 {
+		t.Fatalf("want one check, got %d: %+v", len(row.Days), row.Days)
+	}
+	check := row.Days[0]
+	if check.ExpectedDay != "2026-08-02" {
+		t.Fatalf("expected day = %q, want 2026-08-02 -- the 1st was already packed", check.ExpectedDay)
+	}
+	if check.BeforeDay != "2026-08-01" || check.AfterDay != "2026-08-02" {
+		t.Fatalf("readings %q -> %q, want the frozen 1st compared with the 2nd", check.BeforeDay, check.AfterDay)
+	}
+	if check.Status != domain.FeedFollowUpFollowed {
+		t.Fatalf("status = %q, want followed -- judging the frozen sheet would blame the farm for a day it could not act on", check.Status)
+	}
+	if len(check.Events) != 1 || !check.Events[0].AfterCutoff {
+		t.Fatalf("the event must remember it landed after the cut-off: %+v", check.Events)
+	}
+	if check.CutoffTime != "14:00" {
+		t.Errorf("cut-off = %q, want the park's configured 14:00 rather than an assumed one", check.CutoffTime)
 	}
 }

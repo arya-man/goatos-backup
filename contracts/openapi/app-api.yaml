@@ -6058,12 +6058,25 @@ paths:
         so the walk `start_animals + purchased - sold - died` need not equal `end_animals`.
 
 
-        VERDICTS. `followed` — the pen's head count moved on the next issued sheet. `not_followed`
-        — animals entered or left and the next sheet fed the pen for exactly as many mouths as
-        before; this is the only state anyone has to act on. `pending` — no sheet has been issued
-        since the event, so there is no verdict yet (absence of one, never a pass). A pen's status
-        is its worst day. "The next day" means the next issued SHEET, not the next calendar date:
-        a day the farm issued nothing has no head count to read.
+        WHICH SHEET IS JUDGED, and it is the whole rule. The sheet for tomorrow is issued this
+        morning, corrected at the park's `correction_time` (14:00 on both parks today) and packed
+        by 15:00. An event BEFORE that cut-off is owed TOMORROW's sheet; one AFTER it cannot reach
+        tomorrow at all — that feed is already bagged — and is owed the DAY AFTER tomorrow. The
+        check therefore sits on `expected_day`, the first sheet that could carry the change, and
+        compares it against the last sheet before it. The cut-off is read per park and per date
+        from `feed_schedule_config`, never assumed.
+
+
+        Two events either side of a cut-off can share one `expected_day` and arrive as ONE check;
+        each event keeps its own `event_date` and its own `after_cutoff`.
+
+
+        VERDICTS. `followed` — the pen's head count moved on the expected sheet. `not_followed` —
+        animals entered or left and that sheet fed the pen for exactly as many mouths as before;
+        this is the only state anyone has to act on. `pending` — the expected sheet has not been
+        issued yet, so there is no verdict (absence of one, never a pass). A pen's status is its
+        worst day. "The next sheet" means the next issued SHEET, not the next calendar date: a day
+        the farm issued nothing has no head count to read.
 
 
         Rows are ordered `not_followed` first, then `pending`, then `followed`, each by farm and
@@ -24473,11 +24486,13 @@ components:
       type: object
       additionalProperties: false
       description: >-
-        One event day in one pen, with the sheet on either side of it. `before_day` is the last
-        sheet day on or before the event; `after_day` is the first sheet day strictly after it —
-        the next issued SHEET, which is not always the next calendar date.
+        ONE CHECK in one pen: the day the feed was supposed to change, everything that made it
+        change, and the sheet on either side of it. `before_day` is the last sheet day BEFORE
+        `expected_day` (the sheet that could not carry the change); `after_day` is the first sheet
+        day ON OR AFTER it — the next issued SHEET, which is not always the next calendar date.
       required:
-        - event_date
+        - expected_day
+        - cutoff_time
         - purchased
         - sold
         - died
@@ -24493,9 +24508,17 @@ components:
         - status
         - events
       properties:
-        event_date:
+        expected_day:
           type: string
           format: date
+          description: >-
+            The first sheet day that could carry these changes: the day after an event that
+            happened before the park's cut-off, the day after that for one at or after it.
+        cutoff_time:
+          type: string
+          description: >-
+            The park's correction time (HH:MM, IST) that decided it, from `feed_schedule_config`
+            as it stood on the event's own day. Empty when the park had no configured clock.
         purchased:
           type: integer
         sold:
@@ -24507,10 +24530,14 @@ components:
           description: purchased - sold - died. Mouths the causes say the pen gained.
         before_day:
           type: string
-          description: Sheet day the before reading comes from; empty when the pen had no earlier sheet.
+          description: >-
+            Sheet day the before reading comes from — the last sheet BEFORE `expected_day`. Empty
+            when the pen had no earlier sheet.
         after_day:
           type: string
-          description: Sheet day the after reading comes from; empty while the verdict is pending.
+          description: >-
+            Sheet day the after reading comes from — the first sheet ON OR AFTER `expected_day`.
+            Empty while the verdict is pending.
         head_before:
           type: integer
         head_after:
@@ -24536,7 +24563,7 @@ components:
       type: object
       additionalProperties: false
       description: One cause on one day in one pen, with the animals it moved.
-      required: [kind, event_date, animals, tags, tags_total]
+      required: [kind, event_date, after_cutoff, animals, tags, tags_total]
       properties:
         kind:
           type: string
@@ -24544,6 +24571,12 @@ components:
         event_date:
           type: string
           format: date
+          description: The IST business day the animal actually moved.
+        after_cutoff:
+          type: boolean
+          description: >-
+            True when it happened at or after the park's correction time, so the next day's feed
+            was already packed and the first sheet that could carry it is the day after that.
         animals:
           type: integer
         tags:

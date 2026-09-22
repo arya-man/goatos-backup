@@ -99,7 +99,7 @@ export function FeedFollowUpTab({
       {/* 2. THE WALK. */}
       <section className="card">
         <h2 className="h">{fa(pageContract, "followup.walk.title")}</h2>
-        <Waterfall totals={data.totals} pageContract={pageContract} />
+        <WalkSummary totals={data.totals} pageContract={pageContract} />
         <p className="muted small" style={{ margin: "10px 0 0" }}>{fa(pageContract, "followup.walk.note")}</p>
       </section>
 
@@ -174,106 +174,64 @@ function StatusTile({
 }
 
 // ---------------------------------------------------------------------------
-// The walk, drawn as a waterfall: one number pushed up and down by named
-// causes, which is exactly what a waterfall is for.
+// The walk, read as a sentence rather than drawn as a chart.
 //
-// It is drawn from the SERVED totals and closes only if they close. When they
-// do not -- animals shifted between pens, which this tab does not count as a
-// cause -- the remainder is drawn as its own bar rather than quietly folded
-// into the end bar, so the chart never claims an arithmetic it does not have.
+// It WAS a waterfall (maintainer request 2026-09-22 replaced it). A waterfall
+// puts each cause on a floating bar whose height is its size and whose position
+// is the running total, which means the reader has to decode two things at once
+// and the small causes -- a two-animal death against a 344 start -- come out as
+// a sliver nobody can read. There are six numbers here and one question: what
+// came in, what went out, where did it start and end. Six plain figures answer
+// it faster than any geometry.
+//
+// Still drawn from the SERVED totals, and still only closing if they close:
+// when animals moved between pens, the remainder stands as its own figure
+// rather than being folded into the end.
 // ---------------------------------------------------------------------------
 
-type WalkBar = { label: string; value: number; kind: "end" | "up" | "down" | "gap" };
-
-function Waterfall({
+function WalkSummary({
   totals,
   pageContract,
 }: {
   totals: FeedAnalyticsFollowUpResponse["totals"];
   pageContract: AdminUiPageContract;
 }) {
-  const bars: WalkBar[] = [
-    { label: fa(pageContract, "followup.walk.start"), value: totals.start_animals, kind: "end" },
-    { label: fa(pageContract, "followup.walk.purchased"), value: totals.purchased, kind: "up" },
-    { label: fa(pageContract, "followup.walk.sold"), value: -totals.sold, kind: "down" },
-    { label: fa(pageContract, "followup.walk.died"), value: -totals.died, kind: "down" },
+  const n = (value: number) => value.toLocaleString("en-IN");
+  const signed = (value: number) => (value > 0 ? `+${n(value)}` : n(value));
+  const causes: { key: string; label: string; value: string; tone: string }[] = [
+    { key: "bought", label: fa(pageContract, "followup.walk.purchased"), value: signed(totals.purchased), tone: "ok" },
+    { key: "sold", label: fa(pageContract, "followup.walk.sold"), value: signed(-totals.sold), tone: "dng" },
+    { key: "died", label: fa(pageContract, "followup.walk.died"), value: signed(-totals.died), tone: "dng" },
   ];
-  // A zero remainder is the ordinary case and adds nothing to read, so the bar
-  // appears only when there is something to explain.
+  // A zero remainder is the ordinary case and adds nothing to read, so the
+  // figure appears only when there is something to explain.
   if (totals.unexplained !== 0) {
-    bars.push({ label: fa(pageContract, "followup.walk.unexplained"), value: totals.unexplained, kind: "gap" });
+    causes.push({
+      key: "unexplained",
+      label: fa(pageContract, "followup.walk.unexplained"),
+      value: signed(totals.unexplained),
+      tone: "mut",
+    });
   }
-  bars.push({ label: fa(pageContract, "followup.walk.end"), value: totals.end_animals, kind: "end" });
-
-  // Running tops, so each middle bar floats where it actually acts.
-  let running = 0;
-  const spans = bars.map((bar) => {
-    if (bar.kind === "end") {
-      running = bar.value;
-      return { bar, from: 0, to: bar.value };
-    }
-    const from = running;
-    running += bar.value;
-    return { bar, from, to: running };
-  });
-  const ceiling = Math.max(1, ...spans.map((s) => Math.max(s.from, s.to)));
-
-  const W = 720;
-  const H = 210;
-  const padB = 46;
-  const padT = 14;
-  const slot = W / spans.length;
-  const barW = Math.min(64, slot * 0.54);
-  const y = (v: number) => padT + (1 - v / ceiling) * (H - padT - padB);
-
-  // The THEME's own tokens. `dng`/`mut` are Tag class suffixes, not colour
-  // variables -- using them here painted the Sold, Died and Unexplained bars
-  // black on the first render, because an undefined custom property falls back
-  // to the SVG default fill.
-  const fill: Record<WalkBar["kind"], string> = {
-    end: "var(--brand)",
-    up: "var(--ok)",
-    down: "var(--danger)",
-    gap: "var(--muted)",
-  };
-
   return (
-    <svg
-      className="ffu-walk"
-      viewBox={`0 0 ${W} ${H}`}
-      role="img"
-      aria-label={fa(pageContract, "followup.walk.title")}
-    >
-      {spans.map(({ bar, from, to }, i) => {
-        const cx = i * slot + slot / 2;
-        const top = Math.min(y(from), y(to));
-        const height = Math.max(2, Math.abs(y(from) - y(to)));
-        const sign = bar.kind === "up" || bar.kind === "gap" ? (bar.value > 0 ? "+" : "") : bar.kind === "down" ? "" : "";
-        return (
-          <g key={bar.label}>
-            {/* The connector to the next bar: the eye follows the level across,
-                which is what makes a waterfall readable as one running number. */}
-            {i < spans.length - 1 ? (
-              <line
-                x1={cx + barW / 2}
-                x2={(i + 1) * slot + slot / 2 - barW / 2}
-                y1={y(to)}
-                y2={y(to)}
-                stroke="var(--line)"
-                strokeDasharray="3 3"
-              />
-            ) : null}
-            <rect x={cx - barW / 2} y={top} width={barW} height={height} rx={3} fill={fill[bar.kind]} />
-            <text x={cx} y={top - 5} textAnchor="middle" className="ffu-walk-v">
-              {bar.kind === "end" ? bar.value.toLocaleString("en-IN") : `${sign}${bar.value.toLocaleString("en-IN")}`}
-            </text>
-            <text x={cx} y={H - padB + 20} textAnchor="middle" className="ffu-walk-l">
-              {bar.label}
-            </text>
-          </g>
-        );
-      })}
-    </svg>
+    <div className="ffu-walk">
+      <div className="ffu-walk-end">
+        <span className="ffu-walk-n">{n(totals.start_animals)}</span>
+        <span className="ffu-walk-l">{fa(pageContract, "followup.walk.start")}</span>
+      </div>
+      <div className="ffu-walk-causes">
+        {causes.map((cause) => (
+          <div className={`ffu-walk-cause ffu-${cause.tone}`} key={cause.key}>
+            <span className="ffu-walk-cn">{cause.value}</span>
+            <span className="ffu-walk-l">{cause.label}</span>
+          </div>
+        ))}
+      </div>
+      <div className="ffu-walk-end">
+        <span className="ffu-walk-n">{n(totals.end_animals)}</span>
+        <span className="ffu-walk-l">{fa(pageContract, "followup.walk.end")}</span>
+      </div>
+    </div>
   );
 }
 
@@ -318,11 +276,16 @@ function PenRows({
         <td>
           <CauseChips row={row} pageContract={pageContract} />
         </td>
+        {/* A pen still waiting has no "after" reading, so both columns say so
+            rather than printing the zero value as if the sheet fed nobody. */}
         <td className="r nums">
-          <Movement before={row.head_before.toLocaleString("en-IN")} after={row.head_after.toLocaleString("en-IN")} />
+          <Movement
+            before={row.head_before.toLocaleString("en-IN")}
+            after={row.last_day === "" ? "—" : row.head_after.toLocaleString("en-IN")}
+          />
         </td>
         <td className="r nums">
-          <Movement before={kg(row.kg_before)} after={kg(row.kg_after)} />
+          <Movement before={kg(row.kg_before)} after={row.last_day === "" ? "—" : kg(row.kg_after)} />
         </td>
         <td>
           <Tag tone={statusTone}>{statusLabel}</Tag>
@@ -333,7 +296,7 @@ function PenRows({
           <td colSpan={5}>
             <div className="ffu-days">
               {row.days.map((day) => (
-                <DayBlock key={day.event_date} day={day} pageContract={pageContract} />
+                <DayBlock key={day.expected_day} day={day} pageContract={pageContract} />
               ))}
             </div>
           </td>
@@ -388,13 +351,11 @@ function DayBlock({
   return (
     <div className={`ffu-day ffu-${tone}`}>
       <div className="ffu-day-head">
-        <strong>{day.event_date}</strong>
+        {/* The day the feed was SUPPOSED to change -- not the day the animal
+            moved. After the afternoon cut-off those are two different days, and
+            naming the wrong one makes the verdict look wrong. */}
+        <strong>{fa(pageContract, "followup.day.title").replace("{date}", day.expected_day)}</strong>
         <Tag tone={tone}>{fa(pageContract, `followup.status.${day.status}`)}</Tag>
-        {/* The head count moved and the quantity did not. The verdict stays on
-            the head count -- that is the number the sheet is computed from, and
-            an experiment pen's kg is authored flat on purpose -- but a reader
-            asking "was the feed reduced" is owed this plainly rather than
-            having to spot it in the two columns. */}
         {day.head_delta !== 0 && day.kg_before !== "" && day.kg_before === day.kg_after ? (
           <Tag tone="warn" title={fa(pageContract, "followup.feedflat.help")}>
             {fa(pageContract, "followup.feedflat.chip")}
@@ -404,28 +365,36 @@ function DayBlock({
           <Tag tone="mut" title={fa(pageContract, "followup.unexplained.help")}>
             {fa(pageContract, "followup.unexplained.chip").replace(
               "{count}",
-              (day.unexplained > 0 ? `+${day.unexplained}` : String(day.unexplained)),
+              day.unexplained > 0 ? `+${day.unexplained}` : String(day.unexplained),
             )}
           </Tag>
         ) : null}
       </div>
       <ul className="ffu-events">
         {day.events.map((event) => (
-          <li key={`${event.kind}-${event.event_date}`}>
+          <li key={`${event.kind}-${event.event_date}-${String(event.after_cutoff)}`}>
             <Tag tone={event.kind === "purchased" ? "ok" : event.kind === "sold" ? "info" : "dng"}>
               {fa(pageContract, `followup.cause.${event.kind}`)} {event.animals}
             </Tag>{" "}
-            {/* Identifiers, not goat ids: the reader can walk to the pen and check the animal. */}
-            <span className="ffu-tags">{event.tags.join(", ")}</span>
-            {event.tags_total > event.tags.length ? (
-              <span className="muted small">
-                {" "}
-                {fa(pageContract, "followup.tags.more").replace(
-                  "{count}",
-                  String(event.tags_total - event.tags.length),
-                )}
-              </span>
-            ) : null}
+            <span className="muted small">{event.event_date}</span>{" "}
+            {/* Why THIS check and not the next day's: the cut-off the park
+                actually runs on, which the backend resolved per park and date. */}
+            <span className="muted small">
+              {fa(pageContract, event.after_cutoff ? "followup.day.late" : "followup.day.early")
+                .replace("{time}", day.cutoff_time)}
+            </span>
+            <div className="ffu-tags">
+              {event.tags.join(", ")}
+              {event.tags_total > event.tags.length ? (
+                <span className="muted small">
+                  {" "}
+                  {fa(pageContract, "followup.tags.more").replace(
+                    "{count}",
+                    String(event.tags_total - event.tags.length),
+                  )}
+                </span>
+              ) : null}
+            </div>
           </li>
         ))}
       </ul>
@@ -435,9 +404,9 @@ function DayBlock({
         <p className="muted small ffu-sheets">{fa(pageContract, "followup.day.pending")}</p>
       ) : (
         <p className="muted small ffu-sheets">
-          {fa(pageContract, "followup.day.before").replace("{date}", day.before_day)}
-          {" · "}
-          {fa(pageContract, "followup.day.after").replace("{date}", day.after_day)}
+          {fa(pageContract, "followup.day.sheets")
+            .replace("{before}", day.before_day)
+            .replace("{after}", day.after_day)}
           {" · "}
           {fa(pageContract, "followup.day.animals")
             .replace("{before}", String(day.head_before))
