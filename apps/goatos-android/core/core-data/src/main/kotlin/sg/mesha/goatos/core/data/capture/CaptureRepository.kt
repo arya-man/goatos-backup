@@ -1067,6 +1067,15 @@ class DefaultProofCaptureRepository(
             AppResult.Ok(Unit)
         }
 
+    private fun validateLocalArtifact(
+        localUri: String,
+        mimeType: String,
+    ): ProofArtifactValidator.ValidationResult = when {
+        mimeType.startsWith("image/") -> proofArtifactValidator.validateImageFile(localUri)
+        mimeType.startsWith("audio/") -> proofArtifactValidator.validateAudioFile(localUri)
+        else -> proofArtifactValidator.validateVideoFile(localUri)
+    }
+
     override suspend fun remove(taskId: String, id: String): AppResult<Unit> = withContext(dispatchers.io) {
         // R50-028: fetch the row BEFORE processing so its local video file can be reclaimed too —
         // otherwise every removed proof leaks its recorded clip on device storage forever.
@@ -1123,6 +1132,25 @@ class DefaultProofCaptureRepository(
         // prepareFinalArtifact re-invokes the media processor (a fresh attempt, not the crash-mid-
         // PROCESSING_MEDIA recovery branch), then drive registration through the normal path.
         if (entity.processingState == ProofProcessingState.PROCESSING_FAILED_AWAITING_RETRY.name) {
+            val retryValidation = validateLocalArtifact(entity.originalUri ?: entity.localUri, entity.mimeType)
+            if (!retryValidation.isValid) {
+                val reason = retryValidation.reason ?: "Proof file is invalid. Please re-record."
+                dao.updateStatus(entity.id, EntitySyncStatus.FAILED.name, null, reason)
+                recordProofEvent(
+                    entity,
+                    "local_artifact_retry_validation_failed",
+                    ProofProcessingState.PROCESSING_FAILED_AWAITING_RETRY.name,
+                    entity.stateAttempt,
+                    bytesIn = localFileBytes(entity.originalUri ?: entity.localUri),
+                    errorClass = "ProofArtifactValidation",
+                    retryable = true,
+                )
+                telemetry.track(
+                    proofCaptureValidationFailedEvent,
+                    proofCaptureValidationFailureProps(entity, retryValidation),
+                )
+                return@withContext AppResult.Err(reason)
+            }
             dao.updateProcessingState(
                 id = entity.id,
                 processingState = ProofProcessingState.CAPTURED_ORIGINAL.name,
