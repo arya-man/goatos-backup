@@ -1,0 +1,2109 @@
+{
+  "$schema": "./data-sanity-checks.notes",
+  "description": "Read-only data sanity checks for the STG-backed production replica. Every entry is a single SELECT that returns only the rows that should not exist. Zero rows is a pass. Human sentences are what a farm manager reads in Slack: no SQL, no table or column names, no check codes.",
+  "maxSampleRows": 10,
+  "maxOffendingRows": 500,
+  "maxCellChars": 80,
+  "statementTimeoutMs": 20000,
+  "checks": [
+    {
+      "name": "herd_total_vs_status_breakdown",
+      "question": "Does the herd total equal alive plus sold plus dead plus inactive?",
+      "severity": "high",
+      "expectRows": 0,
+      "page": {
+        "title": "Herd register",
+        "path": "/counts/herd"
+      },
+      "sql": "select g.display_id as animal, g.lifecycle_status as state from goats g where g.merged_into_goat_id is null and g.lifecycle_status not in ('alive', 'sold', 'dead', 'inactive') order by g.display_id limit 500",
+      "humanFailure": "The herd total does not equal alive plus sold plus dead plus inactive. Some animals are in a state the register cannot count, so the headline number is wrong.",
+      "countUnit": "animals in a state the register cannot count",
+      "sourceCommits": [
+        "21ac4f56a",
+        "5c4c0eba6",
+        "1095aabcc",
+        "71f87ad77",
+        "01d240cd5"
+      ],
+      "minerCheckIds": [
+        "lane2.herd-total-reconciles"
+      ],
+      "sourceCommitDetail": [
+        {
+          "sha": "21ac4f56a",
+          "date": "2026-09-19",
+          "subject": "fix(configuration): resolve an item's category kind through the cheap walk, not the counted projection"
+        },
+        {
+          "sha": "5c4c0eba6",
+          "date": "2026-09-19",
+          "subject": "fix(configuration): read an item by its key inside the projection, not through a cast the index cannot serve"
+        },
+        {
+          "sha": "1095aabcc",
+          "date": "2026-09-18",
+          "subject": "fix(ceo-ai): keep projection review comments out of SQL"
+        },
+        {
+          "sha": "71f87ad77",
+          "date": "2026-09-18",
+          "subject": "feat(counts): Mortality page \u2014 deaths from every angle beside the at-risk herd"
+        },
+        {
+          "sha": "01d240cd5",
+          "date": "2026-09-18",
+          "subject": "fix(weighing): feed-band exits reconcile to Herd Analytics; weighed / not-weighed split"
+        }
+      ]
+    },
+    {
+      "name": "park_total_vs_pen_sum",
+      "question": "Do the pen counts add up to the park total?",
+      "severity": "high",
+      "expectRows": 0,
+      "page": {
+        "title": "Counts breakdown",
+        "path": "/counts/breakdown"
+      },
+      "sql": "select g.display_id as animal, park.name as counted_under, pen.name as standing_in from goats g join locations pen on pen.location_id = g.shed_id left join locations park on park.location_id = g.park_id where g.merged_into_goat_id is null and g.lifecycle_status = 'alive' and pen.parent_location_id is distinct from g.park_id order by g.display_id limit 500",
+      "humanFailure": "Some animals are counted under one farm but standing in a pen that belongs to another, so the farm totals and the pen totals cannot both be right.",
+      "countUnit": "animals counted under the wrong farm",
+      "sourceCommits": [
+        "a8e58fe2f",
+        "ddf6e8788",
+        "dec8a6232",
+        "39ec65231",
+        "bdc50109b",
+        "8f2c2742c"
+      ],
+      "minerCheckIds": [
+        "lane2.check-filed-under-the-right-pen",
+        "lane2.partition-label-is-catalogued"
+      ],
+      "sourceCommitDetail": [
+        {
+          "sha": "a8e58fe2f",
+          "date": "2026-08-31",
+          "subject": "fix(vaccination): scope anchor publish idempotency"
+        },
+        {
+          "sha": "ddf6e8788",
+          "date": "2026-08-23",
+          "subject": "fix(herd-signals): package and deploy mqtt bridge"
+        },
+        {
+          "sha": "dec8a6232",
+          "date": "2026-08-23",
+          "subject": "fix(herd-signals): wire mqtt bridge into stg deploy"
+        },
+        {
+          "sha": "39ec65231",
+          "date": "2026-09-04",
+          "subject": "fix(counts): reject blank legacy partition labels"
+        },
+        {
+          "sha": "bdc50109b",
+          "date": "2026-08-31",
+          "subject": "Fix lump-sum weighing census for partition aliases"
+        },
+        {
+          "sha": "8f2c2742c",
+          "date": "2026-08-16",
+          "subject": "fix(vaccination): card-summary partition filter + partition-match parity, drift guards"
+        }
+      ]
+    },
+    {
+      "name": "alive_animal_without_pen",
+      "question": "Is every living animal in a pen?",
+      "severity": "medium",
+      "expectRows": 0,
+      "page": {
+        "title": "Herd register",
+        "path": "/counts/herd"
+      },
+      "sql": "select g.display_id as animal, g.age_band as age_group from goats g where g.merged_into_goat_id is null and g.lifecycle_status = 'alive' and g.shed_id is null order by g.display_id limit 500",
+      "humanFailure": "Some living animals are not in any pen. They are in the farm total but in none of the pen totals, so the two will never agree.",
+      "countUnit": "animals in no pen",
+      "sourceCommits": [
+        "2b8a83dff",
+        "3535a1f3a",
+        "601f6b72b",
+        "02ef1e08d",
+        "409925cad"
+      ],
+      "minerCheckIds": [
+        "lane2.no-orphan-pen-rows",
+        "lane2.animal-in-exactly-one-pen"
+      ],
+      "sourceCommitDetail": [
+        {
+          "sha": "2b8a83dff",
+          "date": "2026-08-07",
+          "subject": "fix(location): renumber migrations off main collision, broaden SQL display-drift rule"
+        },
+        {
+          "sha": "3535a1f3a",
+          "date": "2026-09-21",
+          "subject": "chore(migrations): renumber the pen-label repair to 000382"
+        },
+        {
+          "sha": "601f6b72b",
+          "date": "2026-09-21",
+          "subject": "fix(migrations): make the merged pen-label repair actually runnable"
+        },
+        {
+          "sha": "02ef1e08d",
+          "date": "2026-09-17",
+          "subject": "fix(shifting): a raise retry that converges an orphaned movement keeps the approver's capture"
+        },
+        {
+          "sha": "409925cad",
+          "date": "2026-09-22",
+          "subject": "feat(configuration): pen type moves to the partition, and a row's actions are on the row"
+        }
+      ]
+    },
+    {
+      "name": "animal_in_two_pens",
+      "question": "Is any animal standing in more than one pen at once?",
+      "severity": "high",
+      "expectRows": 0,
+      "page": {
+        "title": "Herd register",
+        "path": "/counts/herd"
+      },
+      "sql": "select p.goat_id::text as animal_ref, count(*)::text as pens from goat_shed_partitions p group by p.goat_id having count(*) > 1 order by count(*) desc limit 500",
+      "humanFailure": "Some animals are recorded in two pens at the same time, so they are counted twice and every pen total that includes them is too high.",
+      "countUnit": "animals in two pens at once",
+      "sourceCommits": [
+        "3535a1f3a",
+        "601f6b72b",
+        "02ef1e08d",
+        "409925cad"
+      ],
+      "minerCheckIds": [
+        "lane2.animal-in-exactly-one-pen"
+      ],
+      "sourceCommitDetail": [
+        {
+          "sha": "3535a1f3a",
+          "date": "2026-09-21",
+          "subject": "chore(migrations): renumber the pen-label repair to 000382"
+        },
+        {
+          "sha": "601f6b72b",
+          "date": "2026-09-21",
+          "subject": "fix(migrations): make the merged pen-label repair actually runnable"
+        },
+        {
+          "sha": "02ef1e08d",
+          "date": "2026-09-17",
+          "subject": "fix(shifting): a raise retry that converges an orphaned movement keeps the approver's capture"
+        },
+        {
+          "sha": "409925cad",
+          "date": "2026-09-22",
+          "subject": "feat(configuration): pen type moves to the partition, and a row's actions are on the row"
+        }
+      ]
+    },
+    {
+      "name": "pen_record_disagrees_with_animal_record",
+      "question": "Does the pen sheet agree with the animal's own record about where it is?",
+      "severity": "high",
+      "expectRows": 0,
+      "page": {
+        "title": "Herd register",
+        "path": "/counts/herd"
+      },
+      "sql": "select g.display_id as animal, sheet.name as pen_sheet_says, own.name as animal_record_says from goat_shed_partitions p join goats g on g.goat_id = p.goat_id and g.tenant_id = p.tenant_id left join locations sheet on sheet.location_id = p.shed_id left join locations own on own.location_id = g.shed_id where g.shed_id is distinct from p.shed_id order by g.display_id limit 500",
+      "humanFailure": "For some animals the pen sheet and the animal's own record name different pens, so two screens will show the same animal in two places.",
+      "countUnit": "animals whose two records disagree",
+      "sourceCommits": [
+        "d085b2a4d",
+        "1e77e6a69",
+        "ad82d5afb",
+        "02ef1e08d",
+        "7b196ea1f"
+      ],
+      "minerCheckIds": [
+        "lane2.current-location-agrees-with-history"
+      ],
+      "sourceCommitDetail": [
+        {
+          "sha": "d085b2a4d",
+          "date": "2026-09-22",
+          "subject": "fix(weighing): an animal's gain is total movement, not a median of leg rates"
+        },
+        {
+          "sha": "1e77e6a69",
+          "date": "2026-08-10",
+          "subject": "Move feed transport rollout repair forward"
+        },
+        {
+          "sha": "ad82d5afb",
+          "date": "2026-08-07",
+          "subject": "fix(feed): repair the projected-counts query that 500'd every feed sheet"
+        },
+        {
+          "sha": "02ef1e08d",
+          "date": "2026-09-17",
+          "subject": "fix(shifting): a raise retry that converges an orphaned movement keeps the approver's capture"
+        },
+        {
+          "sha": "7b196ea1f",
+          "date": "2026-09-17",
+          "subject": "fix(shifting): a raise retry that converges an orphaned movement keeps the approver's capture"
+        }
+      ]
+    },
+    {
+      "name": "register_status_disagrees_with_animal",
+      "question": "Does the herd register show the same status as the animal's own record?",
+      "severity": "high",
+      "expectRows": 0,
+      "page": {
+        "title": "Herd register",
+        "path": "/counts/herd"
+      },
+      "sql": "select g.display_id as animal, p.lifecycle_status as register_shows, g.lifecycle_status as record_says from herd_register_goat_projection p join goats g on g.goat_id = p.goat_id and g.tenant_id = p.tenant_id where p.lifecycle_status is distinct from g.lifecycle_status order by g.display_id limit 500",
+      "humanFailure": "The herd register shows a different status for some animals than their own record does, so the page and the animal's history disagree.",
+      "countUnit": "animals whose status differs between screens",
+      "sourceCommits": [
+        "5090bf8cb",
+        "5e9672c09",
+        "7ea2b43ac",
+        "01d240cd5",
+        "92bfbf5a1"
+      ],
+      "minerCheckIds": [
+        "lane2.herd-goat-projection-agrees"
+      ],
+      "sourceCommitDetail": [
+        {
+          "sha": "5090bf8cb",
+          "date": "2026-09-22",
+          "subject": "fix(configuration): restore the feed columns lost in the merge, and reconcile the bulk fixtures"
+        },
+        {
+          "sha": "5e9672c09",
+          "date": "2026-09-16",
+          "subject": "fix(counts): reconcile questionnaire completes through its own workflow and keeps every proof's title, kind and answer"
+        },
+        {
+          "sha": "7ea2b43ac",
+          "date": "2026-09-16",
+          "subject": "feat(counts): SOP capture card on Add birth / Add death -- judge, snapshot, store, report"
+        },
+        {
+          "sha": "01d240cd5",
+          "date": "2026-09-18",
+          "subject": "fix(weighing): feed-band exits reconcile to Herd Analytics; weighed / not-weighed split"
+        },
+        {
+          "sha": "92bfbf5a1",
+          "date": "2026-09-18",
+          "subject": "perf+fix(weighing): client-side feed-band card, cached concurrent read, exited buckets"
+        }
+      ]
+    },
+    {
+      "name": "duplicate_animal_tag",
+      "question": "Is any tag number shared by two animals?",
+      "severity": "high",
+      "expectRows": 0,
+      "page": {
+        "title": "Herd register",
+        "path": "/counts/herd"
+      },
+      "sql": "select i.identifier_type as tag_kind, i.normalized_value as tag, count(distinct i.goat_id)::text as animals from goat_identifiers i where i.status = 'active' group by i.identifier_type, i.normalized_value having count(distinct i.goat_id) > 1 order by count(distinct i.goat_id) desc limit 500",
+      "humanFailure": "The same tag number is active on more than one animal, so a scan can land on the wrong animal and any work recorded against it goes to the wrong place.",
+      "countUnit": "tag numbers shared by more than one animal",
+      "sourceCommits": [
+        "442d67df0",
+        "fc7b08bca",
+        "58bfd3177",
+        "240b84fc1",
+        "7dbbc777f"
+      ],
+      "minerCheckIds": [
+        "lane2.one-active-tag-per-animal"
+      ],
+      "sourceCommitDetail": [
+        {
+          "sha": "442d67df0",
+          "date": "2026-09-18",
+          "subject": "fix(vaccination): align Castro ETTT repair with STG data"
+        },
+        {
+          "sha": "fc7b08bca",
+          "date": "2026-09-18",
+          "subject": "fix: repair CBE Castro ETTT history"
+        },
+        {
+          "sha": "58bfd3177",
+          "date": "2026-08-13",
+          "subject": "fix(identity): repair stale age band on shed reclassify"
+        },
+        {
+          "sha": "240b84fc1",
+          "date": "2026-09-21",
+          "subject": "fix(android): Tag the kid asks for the RFID before it asks for the video"
+        },
+        {
+          "sha": "7dbbc777f",
+          "date": "2026-09-22",
+          "subject": "fix(vaccination): collapse duplicate drive proof rows"
+        }
+      ]
+    },
+    {
+      "name": "non_positive_animal_weight",
+      "question": "Is every recorded animal weight above zero?",
+      "severity": "high",
+      "expectRows": 0,
+      "page": {
+        "title": "Weights",
+        "path": "/weighing/weights"
+      },
+      "sql": "select o.scanned_identifier as tag, o.weight_kg::text as weight, o.created_at::date::text as recorded_on from weighing_observations o where o.weight_kg is not null and o.weight_kg <= 0 order by o.created_at desc limit 500",
+      "humanFailure": "Some animals are recorded with a weight of zero or less. Any average, growth rate or weight band built on those rows is wrong.",
+      "countUnit": "weighings recorded at zero or less",
+      "sourceCommits": [
+        "e25ebf86f",
+        "b72e1d2da",
+        "910795e34",
+        "d085b2a4d",
+        "b195865f2"
+      ],
+      "minerCheckIds": [
+        "lane2.weighing-work-not-stuck"
+      ],
+      "sourceCommitDetail": [
+        {
+          "sha": "e25ebf86f",
+          "date": "2026-09-16",
+          "subject": "test: repair combined PR validation fixtures"
+        },
+        {
+          "sha": "b72e1d2da",
+          "date": "2026-08-07",
+          "subject": "feat(verification): backfill subject labels that predate the shed/vaccine fix"
+        },
+        {
+          "sha": "910795e34",
+          "date": "2026-08-03",
+          "subject": "fix(weighing): reject a verdict on a reopened round, fingerprint the evidence, and make the 000082 repair lock and resume"
+        },
+        {
+          "sha": "d085b2a4d",
+          "date": "2026-09-22",
+          "subject": "fix(weighing): an animal's gain is total movement, not a median of leg rates"
+        },
+        {
+          "sha": "b195865f2",
+          "date": "2026-09-22",
+          "subject": "fix(weights): the chart chip counts animals, so stop calling them kids"
+        }
+      ]
+    },
+    {
+      "name": "non_positive_pen_weight",
+      "question": "Is every whole-pen weight above zero?",
+      "severity": "high",
+      "expectRows": 0,
+      "page": {
+        "title": "Weights",
+        "path": "/weighing/weights"
+      },
+      "sql": "select s.weight_kg::text as pen_weight, s.animal_count::text as animals, s.created_at::date::text as recorded_on from weighing_shed_observations s where s.weight_kg is not null and s.weight_kg <= 0 order by s.created_at desc limit 500",
+      "humanFailure": "Some whole-pen weighings are recorded as zero or less, so the pen average and the growth chart built from them are wrong.",
+      "countUnit": "whole-pen weighings recorded at zero or less",
+      "sourceCommits": [
+        "e25ebf86f",
+        "b72e1d2da",
+        "910795e34",
+        "8759f9c57",
+        "b6fb80c5e"
+      ],
+      "minerCheckIds": [
+        "lane2.weighing-work-not-stuck"
+      ],
+      "sourceCommitDetail": [
+        {
+          "sha": "e25ebf86f",
+          "date": "2026-09-16",
+          "subject": "test: repair combined PR validation fixtures"
+        },
+        {
+          "sha": "b72e1d2da",
+          "date": "2026-08-07",
+          "subject": "feat(verification): backfill subject labels that predate the shed/vaccine fix"
+        },
+        {
+          "sha": "910795e34",
+          "date": "2026-08-03",
+          "subject": "fix(weighing): reject a verdict on a reopened round, fingerprint the evidence, and make the 000082 repair lock and resume"
+        },
+        {
+          "sha": "8759f9c57",
+          "date": "2026-09-22",
+          "subject": "fix(weights): the grain race must use a whole-pen weigh the page can claim"
+        },
+        {
+          "sha": "b6fb80c5e",
+          "date": "2026-09-22",
+          "subject": "fix(weights): a pen's breed follows whichever way it was weighed last"
+        }
+      ]
+    },
+    {
+      "name": "implausible_weight_jump",
+      "question": "Did any animal double or halve its weight between two weighings?",
+      "severity": "medium",
+      "expectRows": 0,
+      "page": {
+        "title": "Weights",
+        "path": "/weighing/weights"
+      },
+      "sql": "with paired as (select o.scanned_identifier as tag, o.weight_kg as weight, o.created_at as at, lag(o.weight_kg) over (partition by o.scanned_identifier order by o.created_at) as previous_weight, lag(o.created_at) over (partition by o.scanned_identifier order by o.created_at) as previous_at from weighing_observations o where o.weight_kg > 0 and o.scanned_identifier is not null) select tag, previous_weight::text as was, weight::text as now_is, at::date::text as on_date from paired where previous_weight is not null and previous_at > at - interval '60 days' and (weight > previous_weight * 2 or weight < previous_weight / 2) order by at desc limit 500",
+      "humanFailure": "Some animals more than doubled or lost more than half their weight between two weighings within two months. One of the two readings is wrong and the growth figures follow it.",
+      "countUnit": "weight readings that cannot be right",
+      "sourceCommits": [
+        "e25ebf86f",
+        "b72e1d2da",
+        "910795e34",
+        "d085b2a4d",
+        "8759f9c57"
+      ],
+      "minerCheckIds": [
+        "lane2.weighing-work-not-stuck"
+      ],
+      "sourceCommitDetail": [
+        {
+          "sha": "e25ebf86f",
+          "date": "2026-09-16",
+          "subject": "test: repair combined PR validation fixtures"
+        },
+        {
+          "sha": "b72e1d2da",
+          "date": "2026-08-07",
+          "subject": "feat(verification): backfill subject labels that predate the shed/vaccine fix"
+        },
+        {
+          "sha": "910795e34",
+          "date": "2026-08-03",
+          "subject": "fix(weighing): reject a verdict on a reopened round, fingerprint the evidence, and make the 000082 repair lock and resume"
+        },
+        {
+          "sha": "d085b2a4d",
+          "date": "2026-09-22",
+          "subject": "fix(weighing): an animal's gain is total movement, not a median of leg rates"
+        },
+        {
+          "sha": "8759f9c57",
+          "date": "2026-09-22",
+          "subject": "fix(weights): the grain race must use a whole-pen weigh the page can claim"
+        }
+      ]
+    },
+    {
+      "name": "pen_average_disagrees_with_pen_total",
+      "question": "Does the stored pen average match the pen total divided by the head count?",
+      "severity": "medium",
+      "expectRows": 0,
+      "page": {
+        "title": "Weights",
+        "path": "/weighing/weights"
+      },
+      "sql": "select s.animal_count::text as animals, s.weight_kg::text as pen_total, s.average_weight_kg::text as stored_average, round(s.weight_kg / s.animal_count, 2)::text as should_be from weighing_shed_observations s where s.animal_count > 0 and s.weight_kg > 0 and s.average_weight_kg is not null and abs(s.average_weight_kg - (s.weight_kg / s.animal_count)) > 0.5 order by s.created_at desc limit 500",
+      "humanFailure": "For some pens the stored average weight is not the pen total divided by the number of animals, so the average shown on screen is not the average of what was weighed.",
+      "countUnit": "pens whose average does not match the total",
+      "sourceCommits": [
+        "e25ebf86f",
+        "b72e1d2da",
+        "910795e34",
+        "8759f9c57",
+        "b7d0b1a55"
+      ],
+      "minerCheckIds": [
+        "lane2.weighing-work-not-stuck"
+      ],
+      "sourceCommitDetail": [
+        {
+          "sha": "e25ebf86f",
+          "date": "2026-09-16",
+          "subject": "test: repair combined PR validation fixtures"
+        },
+        {
+          "sha": "b72e1d2da",
+          "date": "2026-08-07",
+          "subject": "feat(verification): backfill subject labels that predate the shed/vaccine fix"
+        },
+        {
+          "sha": "910795e34",
+          "date": "2026-08-03",
+          "subject": "fix(weighing): reject a verdict on a reopened round, fingerprint the evidence, and make the 000082 repair lock and resume"
+        },
+        {
+          "sha": "8759f9c57",
+          "date": "2026-09-22",
+          "subject": "fix(weights): the grain race must use a whole-pen weigh the page can claim"
+        },
+        {
+          "sha": "b7d0b1a55",
+          "date": "2026-09-18",
+          "subject": "fix(weighing): feed-band lump-sum pairing by folded pen key; card segments no longer trigger tab skeleton"
+        }
+      ]
+    },
+    {
+      "name": "feed_issued_exceeds_purchased",
+      "question": "Has more feed been issued to the pens than was ever bought?",
+      "severity": "high",
+      "expectRows": 0,
+      "page": {
+        "title": "Feed analytics",
+        "path": "/feed/analytics"
+      },
+      "sql": "with issued as (select coalesce(r.feed_item_key, r.feed_item_label) as item, sum(r.quantity_kg) as issued_kg from feed_direction_issue_rows r where r.quantity_kg is not null group by 1), bought as (select coalesce(p.feed_item_key, p.feed_item_label) as item, sum(p.quantity_kg) as bought_kg from feed_purchases p where p.quantity_kg is not null group by 1) select issued.item as feed, round(issued.issued_kg)::text as issued_kg, round(coalesce(bought.bought_kg, 0))::text as bought_kg from issued left join bought on bought.item = issued.item where issued.issued_kg > coalesce(bought.bought_kg, 0) order by issued.issued_kg - coalesce(bought.bought_kg, 0) desc limit 500",
+      "humanFailure": "More of some feeds has been sent out to the pens than was ever bought. Either purchases are missing or the daily sheets are issuing feed the store never had, so the stock figure cannot be trusted.",
+      "countUnit": "feeds sent out in greater quantity than was bought",
+      "sourceCommits": [
+        "5ae02c0c8",
+        "ccb3434a9",
+        "83ebfaee7",
+        "ebc0d99ce",
+        "8e0c1df3a"
+      ],
+      "minerCheckIds": [
+        "lane2.feed-issued-is-not-more-than-bought",
+        "lane2.stock-is-never-negative"
+      ],
+      "sourceCommitDetail": [
+        {
+          "sha": "5ae02c0c8",
+          "date": "2026-09-21",
+          "subject": "fix(feed): repair stock load attribution"
+        },
+        {
+          "sha": "ccb3434a9",
+          "date": "2026-08-27",
+          "subject": "fix(pccare): certify inventory vaccine projection"
+        },
+        {
+          "sha": "83ebfaee7",
+          "date": "2026-09-21",
+          "subject": "feat(feed): Purchased vs consumed moves onto Stock, milk left out, tile dropped"
+        },
+        {
+          "sha": "ebc0d99ce",
+          "date": "2026-09-22",
+          "subject": "feat(feed): the loads table answers what is in the store, and agrees with the card"
+        },
+        {
+          "sha": "8e0c1df3a",
+          "date": "2026-09-21",
+          "subject": "fix(procurement): close feed purchase review gaps"
+        }
+      ]
+    },
+    {
+      "name": "negative_feed_quantity",
+      "question": "Is every feed quantity on a daily sheet a positive number?",
+      "severity": "high",
+      "expectRows": 0,
+      "page": {
+        "title": "Feed direction",
+        "path": "/feed/direction"
+      },
+      "sql": "select r.feed_item_label as feed, r.shed_label as pen, r.quantity_kg::text as quantity_kg from feed_direction_issue_rows r where r.quantity_kg is not null and r.quantity_kg < 0 order by r.quantity_kg limit 500",
+      "humanFailure": "Some rows on the daily feed sheet ask for a negative quantity, which nobody can weigh out and which quietly subtracts from the day's total.",
+      "countUnit": "feed sheet rows asking for a negative quantity",
+      "sourceCommits": [
+        "ccb3434a9",
+        "8c2bc1218",
+        "1c1ac878a",
+        "5b302507d",
+        "5a4b7e53f",
+        "83ebfaee7"
+      ],
+      "minerCheckIds": [
+        "lane2.stock-is-never-negative",
+        "lane2.feed-row-quantity-matches-its-rate"
+      ],
+      "sourceCommitDetail": [
+        {
+          "sha": "ccb3434a9",
+          "date": "2026-08-27",
+          "subject": "fix(pccare): certify inventory vaccine projection"
+        },
+        {
+          "sha": "8c2bc1218",
+          "date": "2026-09-21",
+          "subject": "fix: add feed aggregate projection receipt"
+        },
+        {
+          "sha": "1c1ac878a",
+          "date": "2026-09-17",
+          "subject": "fix(feed): older apps, heal-on-retry, fresh captures and stale verdicts on the feed cards"
+        },
+        {
+          "sha": "5b302507d",
+          "date": "2026-09-17",
+          "subject": "fix(feed): older apps, heal-on-retry, fresh captures and stale verdicts on the feed cards"
+        },
+        {
+          "sha": "5a4b7e53f",
+          "date": "2026-09-21",
+          "subject": "fix(procurement): close second-pass feed purchase form gaps"
+        },
+        {
+          "sha": "83ebfaee7",
+          "date": "2026-09-21",
+          "subject": "feat(feed): Purchased vs consumed moves onto Stock, milk left out, tile dropped"
+        }
+      ]
+    },
+    {
+      "name": "drive_doses_exceed_pen_animals",
+      "question": "Does any vaccination round list more animals than the pen it is planned for?",
+      "severity": "medium",
+      "expectRows": 0,
+      "page": {
+        "title": "Vaccination plan",
+        "path": "/vaccination/plan"
+      },
+      "sql": "select a.planned_date::text as planned_for, a.physical_shed as pen, a.animal_count::text as pen_says, count(distinct m.goat_id)::text as round_lists from vaccination_drive_assignments a join vaccination_drive_assignment_members m on m.assignment_id = a.assignment_id and m.canceled_at is null group by a.assignment_id, a.planned_date, a.physical_shed, a.animal_count having count(distinct m.goat_id) > a.animal_count order by count(distinct m.goat_id) - a.animal_count desc limit 500",
+      "humanFailure": "Some vaccination rounds list more animals than the pen they are planned for holds, so the operator is asked to treat animals that are not there and the dose count is too high.",
+      "countUnit": "vaccination rounds listing more animals than the pen holds",
+      "sourceCommits": [
+        "2ccd63d77",
+        "9525786e1",
+        "477413486",
+        "442ebce13",
+        "da50a2ff8"
+      ],
+      "minerCheckIds": [
+        "lane2.no-double-dosing"
+      ],
+      "sourceCommitDetail": [
+        {
+          "sha": "2ccd63d77",
+          "date": "2026-09-22",
+          "subject": "fix(vaccination): clean live tracker assignment totals"
+        },
+        {
+          "sha": "9525786e1",
+          "date": "2026-09-22",
+          "subject": "fix(vaccination): reconcile completed proof uploads"
+        },
+        {
+          "sha": "477413486",
+          "date": "2026-09-12",
+          "subject": "fix: resolve combined PR integration drift"
+        },
+        {
+          "sha": "442ebce13",
+          "date": "2026-09-22",
+          "subject": "Fix combo drive assignment animal counts"
+        },
+        {
+          "sha": "da50a2ff8",
+          "date": "2026-09-22",
+          "subject": "fix(vaccination): protect live drive assignments"
+        }
+      ]
+    },
+    {
+      "name": "drive_scheduled_for_exited_animal",
+      "question": "Is any upcoming vaccination planned for an animal that has already left?",
+      "severity": "high",
+      "expectRows": 0,
+      "page": {
+        "title": "Vaccination live tracker",
+        "path": "/vaccination/live-tracker"
+      },
+      "sql": "select a.planned_date::text as planned_for, a.physical_shed as pen, g.display_id as animal, g.lifecycle_status as animal_is from vaccination_drive_assignment_members m join vaccination_drive_assignments a on a.assignment_id = m.assignment_id join goats g on g.goat_id = m.goat_id where m.canceled_at is null and a.planned_date >= (now() at time zone 'Asia/Kolkata')::date and g.lifecycle_status in ('sold', 'dead') order by a.planned_date limit 500",
+      "humanFailure": "Upcoming vaccination rounds still list animals that have already been sold or have died. The operator will be sent looking for animals that are not on the farm, and the round can never be completed.",
+      "countUnit": "upcoming vaccinations planned for animals that have left",
+      "sourceCommits": [
+        "2ccd63d77",
+        "9525786e1",
+        "477413486",
+        "12f773673",
+        "e7d920b3d",
+        "f1c1ca727"
+      ],
+      "minerCheckIds": [
+        "lane2.no-double-dosing",
+        "lane2.due-doses-do-not-sit-past-their-window"
+      ],
+      "sourceCommitDetail": [
+        {
+          "sha": "2ccd63d77",
+          "date": "2026-09-22",
+          "subject": "fix(vaccination): clean live tracker assignment totals"
+        },
+        {
+          "sha": "9525786e1",
+          "date": "2026-09-22",
+          "subject": "fix(vaccination): reconcile completed proof uploads"
+        },
+        {
+          "sha": "477413486",
+          "date": "2026-09-12",
+          "subject": "fix: resolve combined PR integration drift"
+        },
+        {
+          "sha": "12f773673",
+          "date": "2026-09-08",
+          "subject": "fix(process-integrity): bucket adherence due-after cache key"
+        },
+        {
+          "sha": "e7d920b3d",
+          "date": "2026-09-08",
+          "subject": "fix(sqlc): refresh generated obligation models"
+        },
+        {
+          "sha": "f1c1ca727",
+          "date": "2026-08-24",
+          "subject": "fix(vaccination): the window follows the due date, and the backfill refuses to guess"
+        }
+      ]
+    },
+    {
+      "name": "drive_animal_not_in_planned_pen",
+      "question": "Is every animal on an upcoming vaccination round actually in the pen the round names?",
+      "severity": "medium",
+      "expectRows": 0,
+      "page": {
+        "title": "Vaccination plan",
+        "path": "/vaccination/plan"
+      },
+      "sql": "select a.planned_date::text as planned_for, a.physical_shed as round_pen, g.display_id as animal, pen.name as animal_is_in from vaccination_drive_assignment_members m join vaccination_drive_assignments a on a.assignment_id = m.assignment_id join goats g on g.goat_id = m.goat_id left join locations pen on pen.location_id = g.shed_id where m.canceled_at is null and a.shed_id is not null and a.planned_date >= (now() at time zone 'Asia/Kolkata')::date and g.shed_id is distinct from a.shed_id order by a.planned_date limit 500",
+      "humanFailure": "Some animals on upcoming vaccination rounds have since moved to a different pen. The operator will not find them where the round says they are, and the pen's dose count is wrong.",
+      "countUnit": "upcoming vaccinations whose animal has moved pen",
+      "sourceCommits": [
+        "a8e58fe2f",
+        "ddf6e8788",
+        "dec8a6232",
+        "2ccd63d77",
+        "9525786e1",
+        "477413486"
+      ],
+      "minerCheckIds": [
+        "lane2.check-filed-under-the-right-pen",
+        "lane2.no-double-dosing"
+      ],
+      "sourceCommitDetail": [
+        {
+          "sha": "a8e58fe2f",
+          "date": "2026-08-31",
+          "subject": "fix(vaccination): scope anchor publish idempotency"
+        },
+        {
+          "sha": "ddf6e8788",
+          "date": "2026-08-23",
+          "subject": "fix(herd-signals): package and deploy mqtt bridge"
+        },
+        {
+          "sha": "dec8a6232",
+          "date": "2026-08-23",
+          "subject": "fix(herd-signals): wire mqtt bridge into stg deploy"
+        },
+        {
+          "sha": "2ccd63d77",
+          "date": "2026-09-22",
+          "subject": "fix(vaccination): clean live tracker assignment totals"
+        },
+        {
+          "sha": "9525786e1",
+          "date": "2026-09-22",
+          "subject": "fix(vaccination): reconcile completed proof uploads"
+        },
+        {
+          "sha": "477413486",
+          "date": "2026-09-12",
+          "subject": "fix: resolve combined PR integration drift"
+        }
+      ]
+    },
+    {
+      "name": "future_dated_animal_record",
+      "question": "Is any animal recorded as born or arriving in the future?",
+      "severity": "high",
+      "expectRows": 0,
+      "page": {
+        "title": "Herd register",
+        "path": "/counts/herd"
+      },
+      "sql": "select g.display_id as animal, g.dob::text as born_on, g.entry_date::text as arrived_on from goats g where (g.dob is not null and g.dob > (now() at time zone 'Asia/Kolkata')::date) or (g.entry_date is not null and g.entry_date > (now() at time zone 'Asia/Kolkata')::date) order by greatest(coalesce(g.dob, g.entry_date), coalesce(g.entry_date, g.dob)) desc limit 500",
+      "humanFailure": "Some animals are recorded as born or as arriving on a date that has not happened yet, which pushes their age and their weight-for-age band out by months.",
+      "countUnit": "animals dated in the future",
+      "sourceCommits": [
+        "f7e03ef75",
+        "7f7ec470c",
+        "240b84fc1"
+      ],
+      "minerCheckIds": [
+        "lane2.no-future-dated-records"
+      ],
+      "sourceCommitDetail": [
+        {
+          "sha": "f7e03ef75",
+          "date": "2026-08-30",
+          "subject": "fix(vaccination): allow future manual anchors"
+        },
+        {
+          "sha": "7f7ec470c",
+          "date": "2026-09-22",
+          "subject": "feat(sales): Farm born is what the register marks born here"
+        },
+        {
+          "sha": "240b84fc1",
+          "date": "2026-09-21",
+          "subject": "fix(android): Tag the kid asks for the RFID before it asks for the video"
+        }
+      ]
+    },
+    {
+      "name": "future_dated_work_record",
+      "question": "Is any purchase, sale or feed day recorded in the future?",
+      "severity": "high",
+      "expectRows": 0,
+      "page": {
+        "title": "Feed direction",
+        "path": "/feed/direction"
+      },
+      "sql": "select 'feed day' as record, i.feed_day::text as dated from feed_direction_issues i where i.feed_day > (now() at time zone 'Asia/Kolkata')::date union all select 'feed purchase', p.purchase_date::text from feed_purchases p where p.purchase_date > (now() at time zone 'Asia/Kolkata')::date union all select 'sale', d.sale_date::text from sales_deals d where d.sale_date > (now() at time zone 'Asia/Kolkata')::date order by 2 desc limit 500",
+      "humanFailure": "Some purchases, sales or feed days are dated in the future. They are already counted in today's totals even though they have not happened.",
+      "countUnit": "records dated in the future",
+      "sourceCommits": [
+        "f7e03ef75",
+        "e682f7dfa",
+        "5a4b7e53f",
+        "ebc0d99ce"
+      ],
+      "minerCheckIds": [
+        "lane2.no-future-dated-records",
+        "lane2.weighing-campaign-dates-make-sense"
+      ],
+      "sourceCommitDetail": [
+        {
+          "sha": "f7e03ef75",
+          "date": "2026-08-30",
+          "subject": "fix(vaccination): allow future manual anchors"
+        },
+        {
+          "sha": "e682f7dfa",
+          "date": "2026-08-02",
+          "subject": "fix(weighing): repair migration for draft-campaign work-item leak, lock in publish ordering"
+        },
+        {
+          "sha": "5a4b7e53f",
+          "date": "2026-09-21",
+          "subject": "fix(procurement): close second-pass feed purchase form gaps"
+        },
+        {
+          "sha": "ebc0d99ce",
+          "date": "2026-09-22",
+          "subject": "feat(feed): the loads table answers what is in the store, and agrees with the card"
+        }
+      ]
+    },
+    {
+      "name": "death_before_birth",
+      "question": "Did any animal die before it was born?",
+      "severity": "high",
+      "expectRows": 0,
+      "page": {
+        "title": "Mortality",
+        "path": "/counts/mortality"
+      },
+      "sql": "select g.display_id as animal, g.dob::text as born_on, g.exited_at::date::text as died_on from goats g where g.dob is not null and g.exited_at is not null and g.exit_reason = 'died' and g.exited_at::date < g.dob order by g.exited_at limit 500",
+      "humanFailure": "Some animals are recorded as having died before they were born, so their age at death and every mortality figure that uses it are wrong.",
+      "countUnit": "animals recorded as dying before they were born",
+      "sourceCommits": [
+        "f7e03ef75",
+        "71f87ad77",
+        "52a95af4b"
+      ],
+      "minerCheckIds": [
+        "lane2.no-future-dated-records"
+      ],
+      "sourceCommitDetail": [
+        {
+          "sha": "f7e03ef75",
+          "date": "2026-08-30",
+          "subject": "fix(vaccination): allow future manual anchors"
+        },
+        {
+          "sha": "71f87ad77",
+          "date": "2026-09-18",
+          "subject": "feat(counts): Mortality page \u2014 deaths from every angle beside the at-risk herd"
+        },
+        {
+          "sha": "52a95af4b",
+          "date": "2026-09-22",
+          "subject": "feat(counts): the deaths list pages, and its card stops hugging the border"
+        }
+      ]
+    },
+    {
+      "name": "capture_after_submission",
+      "question": "Was any proof photo taken after the work it proves was signed off?",
+      "severity": "medium",
+      "expectRows": 0,
+      "page": {
+        "title": "Verification",
+        "path": "/verification"
+      },
+      "sql": "select v.module as work, v.subject_label as about, v.captured_at::date::text as captured_on, v.verified_at::date::text as approved_on from verification_items v where v.captured_at is not null and (v.captured_at > v.created_at + interval '1 hour' or (v.verified_at is not null and v.verified_at < v.captured_at)) order by v.captured_at desc limit 500",
+      "humanFailure": "Some proof photos are timestamped after the work they prove was submitted or approved, so the evidence trail does not hold together.",
+      "countUnit": "proofs timestamped after the work they prove",
+      "sourceCommits": [
+        "b8e726ce2",
+        "49a8dcc28",
+        "65da13338",
+        "4ac1361ac",
+        "bb927e2a9"
+      ],
+      "minerCheckIds": [
+        "lane2.completion-verified-has-its-proof"
+      ],
+      "sourceCommitDetail": [
+        {
+          "sha": "b8e726ce2",
+          "date": "2026-09-19",
+          "subject": "fix(tasks): gate shared workflow routes by the workflow's own module"
+        },
+        {
+          "sha": "49a8dcc28",
+          "date": "2026-09-17",
+          "subject": "revert(tasks): a bare legacy proof_ref stays the client's video, as on main"
+        },
+        {
+          "sha": "65da13338",
+          "date": "2026-09-17",
+          "subject": "revert(tasks): a bare legacy proof_ref stays the client's video, as on main"
+        },
+        {
+          "sha": "4ac1361ac",
+          "date": "2026-09-22",
+          "subject": "fix(verify): grey the held Approve, and say why a closed pen refuses"
+        },
+        {
+          "sha": "bb927e2a9",
+          "date": "2026-09-22",
+          "subject": "fix(weighing): satisfy blind verification landing guards"
+        }
+      ],
+      "thresholdReason": "One hour, not one minute: a phone whose clock has drifted by seconds must not raise an alert every run. An hour is well beyond drift and still catches a proof attached to the wrong piece of work."
+    },
+    {
+      "name": "orphan_weighing_record",
+      "question": "Does every weighing still belong to a weighing round that exists?",
+      "severity": "high",
+      "expectRows": 0,
+      "page": {
+        "title": "Weights",
+        "path": "/weighing/weights"
+      },
+      "sql": "select 'animal weighing' as record, o.scanned_identifier as tag, o.created_at::date::text as recorded_on from weighing_observations o left join weighing_campaigns c on c.campaign_id = o.campaign_id where c.campaign_id is null union all select 'pen weighing', null, s.created_at::date::text from weighing_shed_observations s left join weighing_campaign_sheds cs on cs.campaign_shed_id = s.campaign_shed_id where cs.campaign_shed_id is null order by 3 desc limit 500",
+      "humanFailure": "Some weighings no longer belong to any weighing round. They will never appear on the weighing screens, so the totals there are lower than what was actually weighed.",
+      "countUnit": "weighings with no weighing round",
+      "sourceCommits": [
+        "2b8a83dff",
+        "e25ebf86f",
+        "b72e1d2da",
+        "910795e34",
+        "e2a70f3db",
+        "b7d0b1a55"
+      ],
+      "minerCheckIds": [
+        "lane2.no-orphan-pen-rows",
+        "lane2.weighing-work-not-stuck"
+      ],
+      "sourceCommitDetail": [
+        {
+          "sha": "2b8a83dff",
+          "date": "2026-08-07",
+          "subject": "fix(location): renumber migrations off main collision, broaden SQL display-drift rule"
+        },
+        {
+          "sha": "e25ebf86f",
+          "date": "2026-09-16",
+          "subject": "test: repair combined PR validation fixtures"
+        },
+        {
+          "sha": "b72e1d2da",
+          "date": "2026-08-07",
+          "subject": "feat(verification): backfill subject labels that predate the shed/vaccine fix"
+        },
+        {
+          "sha": "910795e34",
+          "date": "2026-08-03",
+          "subject": "fix(weighing): reject a verdict on a reopened round, fingerprint the evidence, and make the 000082 repair lock and resume"
+        },
+        {
+          "sha": "e2a70f3db",
+          "date": "2026-09-21",
+          "subject": "fix(weighing): stop rendering the pen twice on the schedule"
+        },
+        {
+          "sha": "b7d0b1a55",
+          "date": "2026-09-18",
+          "subject": "fix(weighing): feed-band lump-sum pairing by folded pen key; card segments no longer trigger tab skeleton"
+        }
+      ]
+    },
+    {
+      "name": "orphan_sale_record",
+      "question": "Does every sale line and every sold animal still belong to a deal that exists?",
+      "severity": "high",
+      "expectRows": 0,
+      "page": {
+        "title": "Sales",
+        "path": "/sales"
+      },
+      "sql": "select 'deal line' as record, l.line_no::text as detail, l.created_at::date::text as created_on from sales_deal_lines l left join sales_deals d on d.id = l.deal_id where d.id is null union all select 'sold animal', a.tag_number, a.created_at::date::text from goat_sale_allocations a left join sales_deals d2 on d2.id = a.sales_deal_id where d2.id is null order by 3 desc limit 500",
+      "humanFailure": "Some sale lines and sold animals point at a deal that no longer exists, so the sales totals and the list of sold animals cannot be reconciled.",
+      "countUnit": "sale records with no deal",
+      "sourceCommits": [
+        "210b96a51",
+        "42171d6d0",
+        "f7cd84c03",
+        "33f8bfc16",
+        "7f7ec470c"
+      ],
+      "minerCheckIds": [
+        "lane2.sale-line-totals-match-the-deal"
+      ],
+      "sourceCommitDetail": [
+        {
+          "sha": "210b96a51",
+          "date": "2026-09-19",
+          "subject": "fix(weighing): enforce sale-line invariant in transaction"
+        },
+        {
+          "sha": "42171d6d0",
+          "date": "2026-09-08",
+          "subject": "fix(sqlc): carry sale allocation weight check"
+        },
+        {
+          "sha": "f7cd84c03",
+          "date": "2026-09-08",
+          "subject": "fix(contract): restore sale allocation weight schema"
+        },
+        {
+          "sha": "33f8bfc16",
+          "date": "2026-09-21",
+          "subject": "feat(sales): band every sold animal, not only the tagged ones"
+        },
+        {
+          "sha": "7f7ec470c",
+          "date": "2026-09-22",
+          "subject": "feat(sales): Farm born is what the register marks born here"
+        }
+      ]
+    },
+    {
+      "name": "orphan_load_record",
+      "question": "Does every purchased animal still belong to a purchase load that exists?",
+      "severity": "high",
+      "expectRows": 0,
+      "page": {
+        "title": "Source entry",
+        "path": "/procurement/source-entry"
+      },
+      "sql": "select lg.animal_identifier_1 as tag, lg.current_state as state, lg.created_at::date::text as created_on from procurement_load_goats lg left join procurement_loads l on l.load_id = lg.load_id where l.load_id is null order by lg.created_at desc limit 500",
+      "humanFailure": "Some purchased animals point at a purchase load that no longer exists, so they are missing from the purchase screens while still sitting in the herd.",
+      "countUnit": "purchased animals with no purchase load",
+      "sourceCommits": [
+        "b4b12e92b",
+        "3b74d99ad",
+        "f650257db"
+      ],
+      "minerCheckIds": [
+        "lane2.procurement-load-counts-add-up"
+      ],
+      "sourceCommitDetail": [
+        {
+          "sha": "b4b12e92b",
+          "date": "2026-08-31",
+          "subject": "Loadwise: the membership dedupe needs a TOTAL order"
+        },
+        {
+          "sha": "3b74d99ad",
+          "date": "2026-09-21",
+          "subject": "feat(counts): Mortality reads vendor-wise, not only load-wise"
+        },
+        {
+          "sha": "f650257db",
+          "date": "2026-09-21",
+          "subject": "feat(counts): the vendor board keeps the vendors who lost nothing"
+        }
+      ]
+    },
+    {
+      "name": "purchase_load_count_disagrees",
+      "question": "Does each purchase load hold the number of animals it says it expected?",
+      "severity": "medium",
+      "expectRows": 0,
+      "page": {
+        "title": "Source entry",
+        "path": "/procurement/source-entry"
+      },
+      "sql": "select l.purchase_date::text as bought_on, l.status as state, l.expected_count::text as expected, count(lg.goat_id)::text as actually_listed from procurement_loads l left join procurement_load_goats lg on lg.load_id = l.load_id group by l.load_id, l.purchase_date, l.status, l.expected_count having l.expected_count is distinct from count(lg.goat_id) order by l.purchase_date desc limit 500",
+      "humanFailure": "Some purchase loads list a different number of animals than the number they were expected to bring, so the intake figures and the herd growth do not match the paperwork.",
+      "countUnit": "purchase loads whose head count does not match",
+      "sourceCommits": [
+        "b4b12e92b",
+        "3b74d99ad",
+        "f31762033"
+      ],
+      "minerCheckIds": [
+        "lane2.procurement-load-counts-add-up"
+      ],
+      "sourceCommitDetail": [
+        {
+          "sha": "b4b12e92b",
+          "date": "2026-08-31",
+          "subject": "Loadwise: the membership dedupe needs a TOTAL order"
+        },
+        {
+          "sha": "3b74d99ad",
+          "date": "2026-09-21",
+          "subject": "feat(counts): Mortality reads vendor-wise, not only load-wise"
+        },
+        {
+          "sha": "f31762033",
+          "date": "2026-09-13",
+          "subject": "fix(android): animal purchase sync -- per-draft outbox lane, typed values survive process death, a dead clip offers retry"
+        }
+      ]
+    },
+    {
+      "name": "weighing_run_stuck_over_2_days",
+      "question": "Has any weighing round been left running for more than two days?",
+      "severity": "medium",
+      "expectRows": 0,
+      "page": {
+        "title": "Weights",
+        "path": "/weighing/weights"
+      },
+      "sql": "select c.period_start_date::text as started_on, c.status as state, floor(extract(epoch from now() - c.created_at) / 86400)::text as days_open from weighing_campaigns c where c.status = 'in_progress' and coalesce(c.start_business_date, c.created_at::date) < (now() at time zone 'Asia/Kolkata')::date - 2 order by c.created_at limit 500",
+      "humanFailure": "A weighing round has been left running for more than two days. Until it is closed the pens inside it keep showing as still to be weighed, and the week's figures stay incomplete.",
+      "countUnit": "weighing rounds left running",
+      "sourceCommits": [
+        "e25ebf86f",
+        "b72e1d2da",
+        "910795e34",
+        "e682f7dfa",
+        "e2a70f3db",
+        "bb927e2a9"
+      ],
+      "minerCheckIds": [
+        "lane2.weighing-work-not-stuck",
+        "lane2.weighing-campaign-dates-make-sense"
+      ],
+      "sourceCommitDetail": [
+        {
+          "sha": "e25ebf86f",
+          "date": "2026-09-16",
+          "subject": "test: repair combined PR validation fixtures"
+        },
+        {
+          "sha": "b72e1d2da",
+          "date": "2026-08-07",
+          "subject": "feat(verification): backfill subject labels that predate the shed/vaccine fix"
+        },
+        {
+          "sha": "910795e34",
+          "date": "2026-08-03",
+          "subject": "fix(weighing): reject a verdict on a reopened round, fingerprint the evidence, and make the 000082 repair lock and resume"
+        },
+        {
+          "sha": "e682f7dfa",
+          "date": "2026-08-02",
+          "subject": "fix(weighing): repair migration for draft-campaign work-item leak, lock in publish ordering"
+        },
+        {
+          "sha": "e2a70f3db",
+          "date": "2026-09-21",
+          "subject": "fix(weighing): stop rendering the pen twice on the schedule"
+        },
+        {
+          "sha": "bb927e2a9",
+          "date": "2026-09-22",
+          "subject": "fix(weighing): satisfy blind verification landing guards"
+        }
+      ]
+    },
+    {
+      "name": "vaccination_round_unfinished_over_2_days",
+      "question": "Are there vaccination rounds whose day has passed with animals still untreated?",
+      "severity": "medium",
+      "expectRows": 0,
+      "page": {
+        "title": "Vaccination live tracker",
+        "path": "/vaccination/live-tracker"
+      },
+      "sql": "select a.planned_date::text as planned_for, a.physical_shed as pen, count(distinct m.goat_id)::text as still_waiting from vaccination_drive_assignments a join vaccination_drive_assignment_members m on m.assignment_id = a.assignment_id and m.canceled_at is null where a.planned_date < (now() at time zone 'Asia/Kolkata')::date - 2 and not exists (select 1 from vaccination_completions vc where vc.obligation_id = m.obligation_id) group by a.assignment_id, a.planned_date, a.physical_shed order by a.planned_date limit 500",
+      "humanFailure": "Vaccination rounds whose planned day passed more than two days ago still have animals waiting with nothing recorded against them. Either the work was done and never captured, or the animals have been missed.",
+      "countUnit": "vaccination rounds overdue with animals still waiting",
+      "sourceCommits": [
+        "12f773673",
+        "e7d920b3d",
+        "f1c1ca727",
+        "fe30f8ff9",
+        "7dbbc777f"
+      ],
+      "minerCheckIds": [
+        "lane2.due-doses-do-not-sit-past-their-window"
+      ],
+      "sourceCommitDetail": [
+        {
+          "sha": "12f773673",
+          "date": "2026-09-08",
+          "subject": "fix(process-integrity): bucket adherence due-after cache key"
+        },
+        {
+          "sha": "e7d920b3d",
+          "date": "2026-09-08",
+          "subject": "fix(sqlc): refresh generated obligation models"
+        },
+        {
+          "sha": "f1c1ca727",
+          "date": "2026-08-24",
+          "subject": "fix(vaccination): the window follows the due date, and the backfill refuses to guess"
+        },
+        {
+          "sha": "fe30f8ff9",
+          "date": "2026-09-22",
+          "subject": "fix(vaccination): ignore canceled drive members on proof completion"
+        },
+        {
+          "sha": "7dbbc777f",
+          "date": "2026-09-22",
+          "subject": "fix(vaccination): collapse duplicate drive proof rows"
+        }
+      ]
+    },
+    {
+      "name": "feed_sheet_unlocked_over_2_days",
+      "question": "Has any day's feed sheet been left open for more than two days?",
+      "severity": "low",
+      "expectRows": 0,
+      "page": {
+        "title": "Feed direction",
+        "path": "/feed/direction"
+      },
+      "sql": "select i.feed_day::text as feed_day, i.state as state, i.workflow as sheet from feed_direction_issues i where i.state = 'issued' and i.feed_day < (now() at time zone 'Asia/Kolkata')::date - 2 order by i.feed_day limit 500",
+      "humanFailure": "Some days' feed sheets were issued more than two days ago and never closed off, so what was actually fed on those days is still unconfirmed.",
+      "countUnit": "feed sheets left open",
+      "sourceCommits": [
+        "8c2bc1218",
+        "1c1ac878a",
+        "5b302507d",
+        "83ebfaee7",
+        "48a32c6a5"
+      ],
+      "minerCheckIds": [
+        "lane2.feed-row-quantity-matches-its-rate"
+      ],
+      "sourceCommitDetail": [
+        {
+          "sha": "8c2bc1218",
+          "date": "2026-09-21",
+          "subject": "fix: add feed aggregate projection receipt"
+        },
+        {
+          "sha": "1c1ac878a",
+          "date": "2026-09-17",
+          "subject": "fix(feed): older apps, heal-on-retry, fresh captures and stale verdicts on the feed cards"
+        },
+        {
+          "sha": "5b302507d",
+          "date": "2026-09-17",
+          "subject": "fix(feed): older apps, heal-on-retry, fresh captures and stale verdicts on the feed cards"
+        },
+        {
+          "sha": "83ebfaee7",
+          "date": "2026-09-21",
+          "subject": "feat(feed): Purchased vs consumed moves onto Stock, milk left out, tile dropped"
+        },
+        {
+          "sha": "48a32c6a5",
+          "date": "2026-09-22",
+          "subject": "feat(feed): Feed follow-up tab \u2014 did the sheet react when animals moved?"
+        }
+      ]
+    },
+    {
+      "name": "verification_pending_over_7_days",
+      "question": "Is anything waiting for approval for more than a week?",
+      "severity": "medium",
+      "expectRows": 0,
+      "page": {
+        "title": "Verification",
+        "path": "/verification"
+      },
+      "sql": "select v.module as work, count(*)::text as waiting, floor(extract(epoch from now() - min(v.created_at)) / 86400)::text as oldest_days from verification_items v where v.status = 'pending' and v.created_at < now() - interval '7 days' group by v.module order by count(*) desc limit 500",
+      "humanFailure": "Work submitted more than a week ago is still waiting for someone to approve it. Until it is approved it does not count anywhere, so the completion figures on those screens read lower than the work actually done.",
+      "countUnit": "kinds of work waiting more than a week for approval",
+      "sourceCommits": [
+        "690fd67f9",
+        "455bf3269",
+        "0ee4265f3",
+        "4ac1361ac",
+        "bb927e2a9"
+      ],
+      "minerCheckIds": [
+        "lane2.verification-not-pending-too-long"
+      ],
+      "sourceCommitDetail": [
+        {
+          "sha": "690fd67f9",
+          "date": "2026-08-12",
+          "subject": "fix: add projection-review markers and integration tests for oversight analytics aggregates"
+        },
+        {
+          "sha": "455bf3269",
+          "date": "2026-08-07",
+          "subject": "fix(verification): repair CreateItem INSERT broken by the partition_label column"
+        },
+        {
+          "sha": "0ee4265f3",
+          "date": "2026-08-06",
+          "subject": "feat: add partition_label backfill and operational_location_display to verification queue"
+        },
+        {
+          "sha": "4ac1361ac",
+          "date": "2026-09-22",
+          "subject": "fix(verify): grey the held Approve, and say why a closed pen refuses"
+        },
+        {
+          "sha": "bb927e2a9",
+          "date": "2026-09-22",
+          "subject": "fix(weighing): satisfy blind verification landing guards"
+        }
+      ]
+    },
+    {
+      "name": "sales_sold_count_vs_herd_sold",
+      "question": "Does the number of animals on closed deals match the number the herd register marks sold?",
+      "severity": "high",
+      "expectRows": 0,
+      "page": {
+        "title": "Sold animals",
+        "path": "/sales/sold"
+      },
+      "sql": "with on_deals as (select coalesce(sum(d.animal_count), 0) as counted from sales_deals d where d.status = 'Deal Closed'), in_register as (select count(*) as counted from goats g where g.lifecycle_status = 'sold') select on_deals.counted::text as sales_screen_says, in_register.counted::text as herd_register_says, (on_deals.counted - in_register.counted)::text as gap from on_deals, in_register where on_deals.counted is distinct from in_register.counted limit 1",
+      "humanFailure": "The sales screen and the herd register disagree about how many animals have been sold, so whichever number is quoted, the other screen contradicts it.",
+      "countUnit": "disagreement between the sales screen and the herd register",
+      "sourceCommits": [
+        "210b96a51",
+        "42171d6d0",
+        "f7cd84c03",
+        "33f8bfc16",
+        "532cdf3a8",
+        "7f7ec470c"
+      ],
+      "summaryRow": true,
+      "minerCheckIds": [
+        "lane2.sale-line-totals-match-the-deal"
+      ],
+      "sourceCommitDetail": [
+        {
+          "sha": "210b96a51",
+          "date": "2026-09-19",
+          "subject": "fix(weighing): enforce sale-line invariant in transaction"
+        },
+        {
+          "sha": "42171d6d0",
+          "date": "2026-09-08",
+          "subject": "fix(sqlc): carry sale allocation weight check"
+        },
+        {
+          "sha": "f7cd84c03",
+          "date": "2026-09-08",
+          "subject": "fix(contract): restore sale allocation weight schema"
+        },
+        {
+          "sha": "33f8bfc16",
+          "date": "2026-09-21",
+          "subject": "feat(sales): band every sold animal, not only the tagged ones"
+        },
+        {
+          "sha": "532cdf3a8",
+          "date": "2026-09-21",
+          "subject": "test: cover sold weight bands in dashboard smoke"
+        },
+        {
+          "sha": "7f7ec470c",
+          "date": "2026-09-22",
+          "subject": "feat(sales): Farm born is what the register marks born here"
+        }
+      ]
+    },
+    {
+      "name": "dead_animal_without_recorded_cause",
+      "question": "Does every death have a cause recorded against it?",
+      "severity": "medium",
+      "expectRows": 0,
+      "page": {
+        "title": "Mortality",
+        "path": "/counts/mortality"
+      },
+      "sql": "select g.display_id as animal, g.exited_at::date::text as died_on, g.park_id::text as farm_ref from goats g left join health_death_causes c on c.goat_id = g.goat_id where g.lifecycle_status = 'dead' and c.goat_id is null order by g.exited_at desc limit 500",
+      "humanFailure": "Some deaths have no cause recorded against them, so they are counted in the death total but appear under no reason on the mortality breakdown.",
+      "countUnit": "deaths with no cause recorded",
+      "sourceCommits": [
+        "0842c4c3b",
+        "65ca12386",
+        "a91ef0eac",
+        "bf8ff5878",
+        "71f87ad77",
+        "3b74d99ad"
+      ],
+      "minerCheckIds": [
+        "lane2.health-cases-close-on-time",
+        "lane2.count-exceptions-not-ignored"
+      ],
+      "sourceCommitDetail": [
+        {
+          "sha": "0842c4c3b",
+          "date": "2026-09-22",
+          "subject": "chore(health): renumber again past main's 000383"
+        },
+        {
+          "sha": "65ca12386",
+          "date": "2026-09-22",
+          "subject": "chore(health): renumber the three migrations past main's 000384 and 000385"
+        },
+        {
+          "sha": "a91ef0eac",
+          "date": "2026-09-22",
+          "subject": "chore(health): renumber the three migrations past main's new ones"
+        },
+        {
+          "sha": "bf8ff5878",
+          "date": "2026-08-05",
+          "subject": "chore: enforce telemetry and exception standards, docs and E2E tooling"
+        },
+        {
+          "sha": "71f87ad77",
+          "date": "2026-09-18",
+          "subject": "feat(counts): Mortality page \u2014 deaths from every angle beside the at-risk herd"
+        },
+        {
+          "sha": "3b74d99ad",
+          "date": "2026-09-21",
+          "subject": "feat(counts): Mortality reads vendor-wise, not only load-wise"
+        }
+      ]
+    },
+    {
+      "name": "vaccination_recorded_twice_for_same_dose",
+      "question": "Was any animal recorded as vaccinated twice for the same due dose?",
+      "severity": "high",
+      "expectRows": 0,
+      "page": {
+        "title": "Vaccination live tracker",
+        "path": "/vaccination/live-tracker"
+      },
+      "sql": "SELECT obligation_id, goat_id, COUNT(*) AS recorded_times, MIN(administered_at) AS first_at, MAX(administered_at) AS last_at FROM vaccination_completions WHERE status IN ('recorded', 'accepted') GROUP BY obligation_id, goat_id HAVING COUNT(*) > 1 limit 500",
+      "humanFailure": "Some animals are recorded as having had the same dose twice. The doses used and the coverage figure are both counted twice, so the vaccine stock and the coverage percentage are both wrong.",
+      "countUnit": "animals recorded as vaccinated twice for the same dose",
+      "minerCheckIds": [
+        "lane2.no-double-dosing"
+      ],
+      "repeatCommitCount": 38,
+      "topPatterns": [
+        "P-double-count-duplicate",
+        "P-verification-gate",
+        "P-totals-do-not-reconcile",
+        "P-published-version-not-locked"
+      ],
+      "sourceCommits": [
+        "9525786e1",
+        "2ccd63d77",
+        "477413486",
+        "3efc21e5d",
+        "6b8086169",
+        "e7a288e88"
+      ],
+      "sourceCommitDetail": [
+        {
+          "sha": "9525786e1",
+          "date": "2026-09-22",
+          "subject": "fix(vaccination): reconcile completed proof uploads"
+        },
+        {
+          "sha": "2ccd63d77",
+          "date": "2026-09-22",
+          "subject": "fix(vaccination): clean live tracker assignment totals"
+        },
+        {
+          "sha": "477413486",
+          "date": "2026-09-12",
+          "subject": "fix: resolve combined PR integration drift"
+        },
+        {
+          "sha": "3efc21e5d",
+          "date": "2026-09-06",
+          "subject": "fix: remove duplicate fasting migrations after main merge"
+        },
+        {
+          "sha": "6b8086169",
+          "date": "2026-09-05",
+          "subject": "fix(perf): close remaining stale cache gaps"
+        },
+        {
+          "sha": "e7a288e88",
+          "date": "2026-09-05",
+          "subject": "fix(vaccination): preserve exact shed summary snapshots"
+        }
+      ]
+    },
+    {
+      "name": "pen_label_not_in_catalogue",
+      "question": "Is every pen label on an animal a real pen label from the catalogue?",
+      "severity": "high",
+      "expectRows": 0,
+      "page": {
+        "title": "Counts breakdown",
+        "path": "/counts/breakdown"
+      },
+      "sql": "select gsp.shed_id::text as pen_ref, gsp.partition_label as pen_label, count(*)::text as animals from goat_shed_partitions gsp left join shed_partitions sp on sp.shed_id = gsp.shed_id and sp.partition_label = gsp.partition_label and sp.status = 'active' where sp.shed_id is null or btrim(gsp.partition_label) = '' or (length(gsp.partition_label) > 1 and length(gsp.partition_label) % 2 = 0 and gsp.partition_label = repeat(substring(gsp.partition_label from 1 for length(gsp.partition_label) / 2), 2)) group by gsp.shed_id, gsp.partition_label order by count(*) desc limit 500",
+      "humanFailure": "Some animals carry a pen label that is not in the pen catalogue, is blank, or has been written twice over. Those animals fall out of the pen they belong to, so that pen's total is short.",
+      "countUnit": "pen labels that are not in the catalogue or are doubled up",
+      "minerCheckIds": [
+        "lane2.partition-label-is-catalogued"
+      ],
+      "repeatCommitCount": 12,
+      "topPatterns": [
+        "P-partition-pen-label",
+        "P-totals-do-not-reconcile",
+        "P-verification-gate",
+        "P-double-count-duplicate"
+      ],
+      "sourceCommits": [
+        "39ec65231",
+        "bdc50109b",
+        "8f2c2742c",
+        "d12eff22c",
+        "33e9cfdbd",
+        "df8582a44"
+      ],
+      "sourceCommitDetail": [
+        {
+          "sha": "39ec65231",
+          "date": "2026-09-04",
+          "subject": "fix(counts): reject blank legacy partition labels"
+        },
+        {
+          "sha": "bdc50109b",
+          "date": "2026-08-31",
+          "subject": "Fix lump-sum weighing census for partition aliases"
+        },
+        {
+          "sha": "8f2c2742c",
+          "date": "2026-08-16",
+          "subject": "fix(vaccination): card-summary partition filter + partition-match parity, drift guards"
+        },
+        {
+          "sha": "d12eff22c",
+          "date": "2026-08-12",
+          "subject": "fix(weighing): block legacy partition duplicate schedules"
+        },
+        {
+          "sha": "33e9cfdbd",
+          "date": "2026-08-11",
+          "subject": "fix(weighing): guard partition rollback duplicates"
+        },
+        {
+          "sha": "df8582a44",
+          "date": "2026-08-11",
+          "subject": "fix(migrate): allow sop submission partition checksum drift"
+        }
+      ],
+      "thresholdReason": "The doubled-label test is an exact 'the label is the same text written twice' test rather than a regular-expression backreference, so the catalogue needs no escape characters and the single-read guard can stay strict about backslashes."
+    },
+    {
+      "name": "treatment_course_open_past_its_length",
+      "question": "Are treatment courses being closed within the number of days they were given?",
+      "severity": "medium",
+      "expectRows": 0,
+      "page": {
+        "title": "Health analytics",
+        "path": "/health/analytics"
+      },
+      "sql": "SELECT hc.health_case_id, hc.goat_id, g.display_id, hc.disease_name, hc.start_date, hc.duration_days, hc.status FROM health_cases hc JOIN goats g ON g.goat_id = hc.goat_id WHERE hc.status NOT IN ('closed', 'resolved', 'cancelled', 'canceled', 'died') AND hc.duration_days IS NOT NULL AND (hc.start_date + (hc.duration_days * interval '1 day'))::date < CURRENT_DATE - 7 limit 500",
+      "humanFailure": "Some treatment courses are still open more than a week after the number of days they were prescribed for. The animals keep showing as under treatment and the recovery figures never close.",
+      "countUnit": "treatment courses still open a week past their length",
+      "minerCheckIds": [
+        "lane2.health-cases-close-on-time"
+      ],
+      "repeatCommitCount": 6,
+      "topPatterns": [],
+      "sourceCommits": [
+        "65ca12386",
+        "0842c4c3b",
+        "a91ef0eac",
+        "796016871",
+        "88e5bb0bc",
+        "6af40f847"
+      ],
+      "sourceCommitDetail": [
+        {
+          "sha": "65ca12386",
+          "date": "2026-09-22",
+          "subject": "chore(health): renumber the three migrations past main's 000384 and 000385"
+        },
+        {
+          "sha": "0842c4c3b",
+          "date": "2026-09-22",
+          "subject": "chore(health): renumber again past main's 000383"
+        },
+        {
+          "sha": "a91ef0eac",
+          "date": "2026-09-22",
+          "subject": "chore(health): renumber the three migrations past main's new ones"
+        },
+        {
+          "sha": "796016871",
+          "date": "2026-09-21",
+          "subject": "fix(health): one antihistamine, spelled Chlorpheniramine maleate"
+        },
+        {
+          "sha": "88e5bb0bc",
+          "date": "2026-08-31",
+          "subject": "chore(health): split health_cases ALTERs out of 000229 into 000231"
+        },
+        {
+          "sha": "6af40f847",
+          "date": "2026-08-31",
+          "subject": "chore(health): renumber closure migration to 000230; regenerate api client"
+        }
+      ]
+    },
+    {
+      "name": "signed_off_feed_work_without_proof",
+      "question": "Does every signed-off feed job still have the photo it was signed off on?",
+      "severity": "high",
+      "expectRows": 0,
+      "page": {
+        "title": "Verification",
+        "path": "/verification"
+      },
+      "sql": "SELECT 'packing' AS work_kind, completion_id::text AS record, park_id, shed_id, target_date, status, verified_at FROM feed_packing_completions WHERE verified_at IS NOT NULL AND (packing_proof_ref IS NULL OR btrim(packing_proof_ref) = '') UNION ALL SELECT 'carrying', completion_id::text, park_id, shed_id, target_date, status, verified_at FROM feed_distribution_completions WHERE verified_at IS NOT NULL AND (distribution_proof_ref IS NULL OR btrim(distribution_proof_ref) = '') UNION ALL SELECT 'wastage', completion_id::text, park_id, shed_id, target_date, status, verified_at FROM feed_wastage_completions WHERE verified_at IS NOT NULL AND (wastage_proof_ref IS NULL OR btrim(wastage_proof_ref) = '') limit 500",
+      "humanFailure": "Some feed jobs were signed off but no longer carry the photo they were signed off on. The approval on screen has nothing behind it.",
+      "countUnit": "signed-off feed jobs with no photo behind them",
+      "minerCheckIds": [
+        "lane2.completion-verified-has-its-proof"
+      ],
+      "repeatCommitCount": 6,
+      "topPatterns": [
+        "P-proof-media-missing",
+        "P-totals-do-not-reconcile",
+        "P-verification-gate"
+      ],
+      "sourceCommits": [
+        "b8e726ce2",
+        "49a8dcc28",
+        "65da13338",
+        "e7e73af01",
+        "d6b9c8f2f",
+        "2adff4998"
+      ],
+      "sourceCommitDetail": [
+        {
+          "sha": "b8e726ce2",
+          "date": "2026-09-19",
+          "subject": "fix(tasks): gate shared workflow routes by the workflow's own module"
+        },
+        {
+          "sha": "49a8dcc28",
+          "date": "2026-09-17",
+          "subject": "revert(tasks): a bare legacy proof_ref stays the client's video, as on main"
+        },
+        {
+          "sha": "65da13338",
+          "date": "2026-09-17",
+          "subject": "revert(tasks): a bare legacy proof_ref stays the client's video, as on main"
+        },
+        {
+          "sha": "e7e73af01",
+          "date": "2026-09-05",
+          "subject": "fix(ci): repair landing gate drift"
+        },
+        {
+          "sha": "d6b9c8f2f",
+          "date": "2026-09-04",
+          "subject": "chore(openapi): list audio once in the proof_type enums"
+        },
+        {
+          "sha": "2adff4998",
+          "date": "2026-08-09",
+          "subject": "fix(feed): batch verification item repair migrations"
+        }
+      ]
+    },
+    {
+      "name": "repeat_dose_with_more_than_one_open_successor",
+      "question": "Does each repeating dose have exactly one next dose open?",
+      "severity": "medium",
+      "expectRows": 0,
+      "page": {
+        "title": "Vaccination plan",
+        "path": "/vaccination/plan"
+      },
+      "sql": "SELECT rule_id, target_type, target_id, COUNT(*) AS open_successors, MIN(due_at) AS earliest_due, MAX(due_at) AS latest_due FROM obligation_instances WHERE completed_at IS NULL AND status NOT IN ('completed', 'cancelled', 'canceled', 'superseded', 'expired') GROUP BY rule_id, target_type, target_id HAVING COUNT(*) > 1 limit 500",
+      "humanFailure": "Some repeating doses have more than one next dose open at the same time. The same animal appears on two rounds, so the plan asks for more work than there is.",
+      "countUnit": "repeating doses with more than one next dose open",
+      "minerCheckIds": [
+        "lane2.one-open-successor-per-repeat-dose"
+      ],
+      "repeatCommitCount": 6,
+      "topPatterns": [
+        "P-latency-regression",
+        "P-verification-gate"
+      ],
+      "sourceCommits": [
+        "a9d54f5c9",
+        "d3944496f",
+        "51750c51e",
+        "562bbf8e8",
+        "a89d6747c",
+        "06abeb022"
+      ],
+      "sourceCommitDetail": [
+        {
+          "sha": "a9d54f5c9",
+          "date": "2026-09-01",
+          "subject": "fix(vaccination): honor anchor events during generation"
+        },
+        {
+          "sha": "d3944496f",
+          "date": "2026-09-01",
+          "subject": "fix(vaccination): carry over medical-equivalent work"
+        },
+        {
+          "sha": "51750c51e",
+          "date": "2026-08-22",
+          "subject": "fix: the documented repair command, and the held animal's existing repeat dose"
+        },
+        {
+          "sha": "562bbf8e8",
+          "date": "2026-08-21",
+          "subject": "fix(vaccination): anchor the generation repeat path too, and absorb index rejection"
+        },
+        {
+          "sha": "a89d6747c",
+          "date": "2026-08-21",
+          "subject": "feat(vaccination): completion mints a successor anchored to the dose that caused it"
+        },
+        {
+          "sha": "06abeb022",
+          "date": "2026-08-21",
+          "subject": "feat(obligation): repeat-cycle identity columns and the two open-successor indexes"
+        }
+      ]
+    },
+    {
+      "name": "check_filed_under_the_wrong_pen",
+      "question": "Is every check filed under the pen the work was actually done in?",
+      "severity": "medium",
+      "expectRows": 0,
+      "page": {
+        "title": "Verification",
+        "path": "/verification"
+      },
+      "sql": "SELECT vi.item_id, vi.module, vi.subject_label, vi.shed_id AS filed_under_shed, t.scope_id AS work_done_in_shed FROM verification_items vi JOIN sop_tasks t ON t.task_id = vi.source_task_id WHERE t.scope_type = 'shed' AND vi.shed_id IS DISTINCT FROM t.scope_id limit 500",
+      "humanFailure": "Some checks are filed under a different pen than the one the work was done in. The pen that did the work gets no credit for it and the other pen's figures are inflated.",
+      "countUnit": "checks filed under a different pen than the work",
+      "minerCheckIds": [
+        "lane2.check-filed-under-the-right-pen"
+      ],
+      "repeatCommitCount": 5,
+      "topPatterns": [
+        "P-permission-or-access-drift",
+        "P-published-version-not-locked",
+        "P-idempotency-outbox-replay",
+        "P-double-count-duplicate"
+      ],
+      "sourceCommits": [
+        "a8e58fe2f",
+        "dec8a6232",
+        "ddf6e8788",
+        "6b1fdad55",
+        "d642e2bd1"
+      ],
+      "sourceCommitDetail": [
+        {
+          "sha": "a8e58fe2f",
+          "date": "2026-08-31",
+          "subject": "fix(vaccination): scope anchor publish idempotency"
+        },
+        {
+          "sha": "dec8a6232",
+          "date": "2026-08-23",
+          "subject": "fix(herd-signals): wire mqtt bridge into stg deploy"
+        },
+        {
+          "sha": "ddf6e8788",
+          "date": "2026-08-23",
+          "subject": "fix(herd-signals): package and deploy mqtt bridge"
+        },
+        {
+          "sha": "6b1fdad55",
+          "date": "2026-08-22",
+          "subject": "feat(herd-signals): MQTT bridge, server-stamped received_at, device_seen_at dedup"
+        },
+        {
+          "sha": "d642e2bd1",
+          "date": "2026-08-07",
+          "subject": "fix(sopbridge): file each per-animal verification item under its OWN shed"
+        }
+      ]
+    },
+    {
+      "name": "sop_without_exactly_one_published_version",
+      "question": "Does every work instruction have exactly one published version?",
+      "severity": "high",
+      "expectRows": 0,
+      "page": {
+        "title": "Work instructions",
+        "path": "/configuration/work-instructions"
+      },
+      "sql": "SELECT v.sop_id, d.name AS sop_name, COUNT(*) FILTER (WHERE v.status = 'published') AS published_versions, string_agg(DISTINCT v.version_label, ', ') FILTER (WHERE v.status = 'published') AS labels FROM sop_versions v JOIN sop_definitions d ON d.sop_id = v.sop_id GROUP BY v.sop_id, d.name HAVING COUNT(*) FILTER (WHERE v.status = 'published') <> 1 limit 500",
+      "humanFailure": "Some work instructions have no published version, or more than one at once. Whoever opens them on the phone may see the wrong steps, or none at all.",
+      "countUnit": "work instructions without exactly one published version",
+      "minerCheckIds": [
+        "lane2.one-published-sop-version"
+      ],
+      "repeatCommitCount": 2,
+      "topPatterns": [],
+      "sourceCommits": [
+        "4c67500e2",
+        "d893cabc9"
+      ],
+      "sourceCommitDetail": [
+        {
+          "sha": "4c67500e2",
+          "date": "2026-09-17",
+          "subject": "fix(sop): a number answer out of range names only the bounds the author set"
+        },
+        {
+          "sha": "d893cabc9",
+          "date": "2026-09-17",
+          "subject": "fix(sop): a number answer out of range names only the bounds the author set"
+        }
+      ]
+    },
+    {
+      "name": "open_task_on_an_unpublished_sop",
+      "question": "Do open tasks still point at a published set of steps?",
+      "severity": "high",
+      "expectRows": 0,
+      "page": {
+        "title": "Tasks",
+        "path": "/tasks"
+      },
+      "sql": "SELECT t.task_id, t.title, t.state, t.sop_id, t.sop_version_id, v.status AS version_status, v.retired_at FROM sop_tasks t JOIN sop_versions v ON v.sop_version_id = t.sop_version_id WHERE t.state NOT IN ('accepted', 'canceled', 'cancelled', 'rejected') AND v.status <> 'published' limit 500",
+      "humanFailure": "Some open tasks still point at a set of steps that is no longer published. The person who picks the task up will be working to instructions that were withdrawn.",
+      "countUnit": "open tasks pointing at steps that are no longer published",
+      "minerCheckIds": [
+        "lane2.open-tasks-use-the-published-sop"
+      ],
+      "repeatCommitCount": 2,
+      "topPatterns": [
+        "P-published-version-not-locked",
+        "P-stuck-or-rolled-forward-work"
+      ],
+      "sourceCommits": [
+        "8df9414cd",
+        "228d97e7c"
+      ],
+      "sourceCommitDetail": [
+        {
+          "sha": "8df9414cd",
+          "date": "2026-09-01",
+          "subject": "fix(vaccination): retire stale disqualified rows"
+        },
+        {
+          "sha": "228d97e7c",
+          "date": "2026-08-31",
+          "subject": "fix(vaccination): retire replaced plan anchors"
+        }
+      ]
+    },
+    {
+      "name": "approval_without_who_or_when",
+      "question": "Does every approval or rejection record who did it and when?",
+      "severity": "medium",
+      "expectRows": 0,
+      "page": {
+        "title": "Verification",
+        "path": "/verification"
+      },
+      "sql": "select item_id::text as record, module as work, status as verdict, verified_at::date::text as approved_on from verification_items where auto_resolution is null and status in ('approved', 'rejected') and (verified_by is null or verified_at is null) order by created_at desc limit 500",
+      "humanFailure": "Some approvals and rejections carry no person and no time. Nobody can say who signed the work off or when, which is the whole point of the approval.",
+      "countUnit": "approvals with no person or no time against them",
+      "minerCheckIds": [
+        "lane2.verification-verdicts-are-complete"
+      ],
+      "repeatCommitCount": 2,
+      "topPatterns": [
+        "P-proof-media-missing",
+        "P-verification-gate"
+      ],
+      "sourceCommits": [
+        "dd5a90e06",
+        "1ec4c465a"
+      ],
+      "sourceCommitDetail": [
+        {
+          "sha": "dd5a90e06",
+          "date": "2026-08-06",
+          "subject": "feat(verifier): video-review telemetry ingest + CEO integrity aggregate"
+        },
+        {
+          "sha": "1ec4c465a",
+          "date": "2026-08-04",
+          "subject": "chore(api-client): regenerate app-api client from the verdict-gate spec"
+        }
+      ]
+    },
+    {
+      "name": "current_feed_rate_names_a_retired_feed",
+      "question": "Does every current feed rate name a feed that is still in use?",
+      "severity": "high",
+      "expectRows": 0,
+      "page": {
+        "title": "Feed configuration",
+        "path": "/feed/config"
+      },
+      "sql": "select c.feed_item_label as feed, c.status as catalogue_state, count(*)::text as current_rates from feed_ration_rates r join feed_item_catalog c on c.tenant_id = r.tenant_id and c.feed_item_key = r.feed_item_key where r.valid_to is null and c.status <> 'active' group by c.feed_item_label, c.status order by count(*) desc limit 500",
+      "humanFailure": "Some feeds have been retired while rates are still set against them. The daily sheet keeps asking for feed that the store no longer stocks.",
+      "countUnit": "feeds that are retired but still named by a current rate",
+      "minerCheckIds": [
+        "lane2.feed-rates-name-a-real-feed-item"
+      ],
+      "repeatCommitCount": 1,
+      "topPatterns": [],
+      "sourceCommits": [
+        "75e788602"
+      ],
+      "sourceCommitDetail": [
+        {
+          "sha": "75e788602",
+          "date": "2026-08-24",
+          "subject": "People/HRMS: per-person module capability catalog + role backfill"
+        }
+      ]
+    },
+    {
+      "name": "count_exception_unresolved_over_7_days",
+      "question": "Are counting exceptions being resolved, or left sitting?",
+      "severity": "medium",
+      "expectRows": 0,
+      "page": {
+        "title": "Counts breakdown",
+        "path": "/counts/breakdown"
+      },
+      "sql": "SELECT count_projection_exception_id, exception_type, park_id, shed_id, severity, status, due_at, created_at FROM count_projection_exceptions WHERE resolved_at IS NULL AND created_at < now() - interval '7 days' ORDER BY created_at limit 500",
+      "humanFailure": "Counting exceptions raised more than a week ago are still unresolved. Until they are, the pens they touch are counted from an incomplete base and the headline count is an estimate.",
+      "countUnit": "counting exceptions left unresolved for over a week",
+      "minerCheckIds": [
+        "lane2.count-exceptions-not-ignored"
+      ],
+      "repeatCommitCount": 1,
+      "topPatterns": [],
+      "sourceCommits": [
+        "bf8ff5878"
+      ],
+      "sourceCommitDetail": [
+        {
+          "sha": "bf8ff5878",
+          "date": "2026-08-05",
+          "subject": "chore: enforce telemetry and exception standards, docs and E2E tooling"
+        }
+      ]
+    },
+    {
+      "name": "workflow_step_counts_disagree",
+      "question": "Does the step count on a record match the steps it actually has?",
+      "severity": "medium",
+      "expectRows": 0,
+      "page": {
+        "title": "Workflows",
+        "path": "/workflows"
+      },
+      "sql": "SELECT wi.workflow_id, wi.module, wi.template_key, wi.event_date, wi.state, wi.actions_total, wi.actions_done, a.done_actions, a.all_actions FROM workflow_instances wi JOIN (SELECT workflow_id, COUNT(*) AS all_actions, COUNT(*) FILTER (WHERE status IN ('completed', 'done', 'accepted')) AS done_actions FROM workflow_actions GROUP BY workflow_id) a ON a.workflow_id = wi.workflow_id WHERE wi.actions_total IS DISTINCT FROM a.all_actions OR wi.actions_done IS DISTINCT FROM a.done_actions limit 500",
+      "humanFailure": "Some records show a different number of steps than they actually have, so the progress bar on screen does not match the work that is left.",
+      "countUnit": "records whose step count does not match their steps",
+      "minerCheckIds": [
+        "lane2.workflow-step-counts-agree"
+      ],
+      "repeatCommitCount": 4,
+      "topPatterns": [
+        "P-double-count-duplicate"
+      ],
+      "sourceCommits": [
+        "fb50c9f74",
+        "0376e86ef",
+        "2479391de",
+        "08439db7b"
+      ],
+      "sourceCommitDetail": [
+        {
+          "sha": "fb50c9f74",
+          "date": "2026-09-19",
+          "subject": "fix(tasks): the service opens a sale workflow without an animal"
+        },
+        {
+          "sha": "0376e86ef",
+          "date": "2026-09-18",
+          "subject": "fix(tasks): keep work instructions out of counts workflows"
+        },
+        {
+          "sha": "2479391de",
+          "date": "2026-09-17",
+          "subject": "fix(counts): approving a duplicate death report after the animal died is a 409, not a 500"
+        },
+        {
+          "sha": "08439db7b",
+          "date": "2026-09-17",
+          "subject": "fix(counts): approving a duplicate death report after the animal died is a 409, not a 500"
+        }
+      ]
+    }
+  ],
+  "parkedChecks": [
+    {
+      "minerCheckId": "lane2.feed-row-quantity-matches-its-rate",
+      "reason": "Parked, not run. The derived rule expects a feed row's quantity to be heads x rate, but on the live replica that fires on 26,066 of 27,394 rows: the issued quantity is consistently the day's ration split across sessions, which the rule does not model. A check that fires on 95% of rows is noise, so it stays parked until the session split is modelled.",
+      "evidence": "read-only count against the STG replica on 2026-09-23"
+    },
+    {
+      "minerCheckId": "lane2.notifications-are-not-stuck",
+      "reason": "Parked, not run. The 2,535 rows it returns are all in terminal states the system sets on purpose (suppressed, retries exhausted), not a figure a farm manager reads on a screen. It belongs with backend alerting, not with this lane.",
+      "evidence": "read-only count against the STG replica on 2026-09-23"
+    },
+    {
+      "minerCheckId": "lane2.messages-not-stuck-in-the-outbox",
+      "reason": "Parked, not run. Outbox depth is infrastructure health, not a number anybody reads on a Goat OS screen. Lane 3 is the right home for it.",
+      "evidence": "not run"
+    },
+    {
+      "minerCheckId": "lane2.exited-animal-not-in-a-pen",
+      "reason": "Parked, not run as written. On the live replica all 160 sold or dead animals still carry their last pen, and that is deliberate: the register filters by status, so nothing wrong appears on any screen. The visible half of this rule is covered instead by the check that compares the register's status against the animal's own record.",
+      "evidence": "160 of 160 exited animals carry a pen; read-only count against the STG replica on 2026-09-23"
+    }
+  ]
+}

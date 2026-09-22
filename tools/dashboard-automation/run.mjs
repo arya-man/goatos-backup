@@ -68,6 +68,11 @@ try {
     receipt.runtimePolicy.dataTrust = "certified";
   }
   layer("firebase-analytics-guard", "deterministic", () => runNode(["tools/agent-hooks/check-firebase-analytics-param-budget.mjs"]));
+  // Lane 2: read-only SQL against the production replica. Seconds of pure reads, so it is on by
+  // default; it never writes and never blocks the browser sweep that follows it.
+  if (enabled("GOATOS_DASHBOARD_DATA_SANITY", true)) {
+    layer("data-sanity", "deterministic", () => runDataSanity(outDir));
+  }
   if (runCertificationExtras && enabled("GOATOS_DASHBOARD_API_LATENCY", true)) {
     layer("api-latency", "deterministic", () => runApiLatency(outDir));
   }
@@ -282,6 +287,28 @@ function runApiLatency(targetDir) {
   }
 }
 
+function runDataSanity(targetDir) {
+  const output = path.join(targetDir, "data-sanity.json");
+  receipt.artifacts.push({ kind: "data-sanity-report", path: output });
+  try {
+    runNode(["tools/dashboard-automation/check-data-sanity.mjs", "--out", output]);
+  } catch (error) {
+    // The layer message is quoted into the receipt and can reach Slack, so it must already be
+    // the sentence a farm manager reads. The runner writes that sentence into its own report.
+    throw new Error(dataSanitySentence(output) ?? redactText(error?.message ?? String(error)));
+  }
+}
+
+function dataSanitySentence(reportPath) {
+  try {
+    const report = JSON.parse(readFileSync(reportPath, "utf8"));
+    const sentence = String(report.slackLayerMessage ?? "").trim();
+    return sentence.length > 0 ? sentence : null;
+  } catch {
+    return null;
+  }
+}
+
 function runBusinessDataParity(targetDir) {
   const output = path.join(targetDir, "business-data-parity.json");
   runNode(["tools/dashboard-automation/check-business-data-parity.mjs", "--out", output]);
@@ -455,6 +482,22 @@ function selfTest() {
   if (!runnerSource.includes('layer("coverage-sync"') || !runnerSource.includes("sync-coverage.mjs")) {
     throw new Error("self-test: post-main certification must run the coverage-sync layer so new commits cannot fall out of smoke coverage");
   }
+  if (!runnerSource.includes('layer("data-sanity"') || !runnerSource.includes("check-data-sanity.mjs")) {
+    throw new Error("self-test: the runner must run the read-only data sanity layer against the production replica");
+  }
+  if (!runnerSource.includes('enabled("GOATOS_DASHBOARD_DATA_SANITY", true)')) {
+    throw new Error("self-test: read-only data sanity must stay on by default; it is seconds of pure reads");
+  }
+  if (!runnerSource.includes("dataSanitySentence")) {
+    throw new Error("self-test: a failing data sanity layer must report the plain-English sentence, not a command line");
+  }
+  if (!runnerSource.includes('kind: "data-sanity-report"')) {
+    throw new Error("self-test: the data sanity report must be an artifact on the receipt so Slack can find it");
+  }
+  if (new Set(["latest-full-parity-receipt", "business-data-parity"]).has("data-sanity")) {
+    throw new Error("self-test: data sanity must never be treated as a degradable prerequisite");
+  }
+  runNode(["tools/dashboard-automation/check-data-sanity.mjs", "--self-test"]);
   runNode(["tools/dashboard-automation/check-module-journeys.mjs", "--self-test"]);
   runNode(["tools/dashboard-automation/run-module-journeys.mjs", "--self-test"]);
   runNode(["tools/dashboard-automation/self-heal-pr.mjs", "--self-test"]);

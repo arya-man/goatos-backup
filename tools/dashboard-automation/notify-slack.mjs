@@ -5,6 +5,173 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { containsUnredactedSecret, redactText } from "./lib/redact.mjs";
 
+// --- finding kinds (additive; one import + one registry entry per lane) ---
+// A lane adds its Slack rendering as a module here and NOTHING else in this file changes.
+// With no lane contributing findings every function below is a no-op, so a lane-1-only
+// receipt renders byte-identically to what it rendered before the registry existed.
+import writeJourneysKind from "./lib/finding-kinds/write-journeys.mjs";
+import dataSanityKind from "./lib/finding-kinds/data-sanity.mjs";
+const FINDING_KINDS = [writeJourneysKind, dataSanityKind];
+
+// Only the lanes that actually found something on THIS receipt are active. A registered lane that
+// contributed no findings contributes no rules and no blocks, so it cannot relabel, reorder or
+// otherwise alter a lane-1-only message. `collectFindingKinds` must run before `issueRules()` is
+// first consumed, which is why it sits above the humanIssue loop.
+let activeFindingKinds = [];
+// A lane whose module throws loses its own section, never the message. Its failure becomes a
+// finding of its own -- silence is the worst outcome, because the automation would go quiet
+// exactly when something is wrong. The module's name and error go to the log, never to Slack.
+const BROKEN_KIND_SEVERITY = 5;
+const brokenFindingKind = {
+  id: "finding-kind-failed",
+  severity: BROKEN_KIND_SEVERITY,
+  issueRules: () => [],
+  renderSection: (findings) => [{
+    type: "section",
+    text: { type: "mrkdwn", text: `*Something could not be checked*\n${findings.map((item) => `• ${item.what}`).join("\n")}` }
+  }],
+  summaryText: (findings) => `${findings.length} part${findings.length === 1 ? "" : "s"} of this run could not be checked at all`,
+  renderReplies: () => []
+};
+function collectFindingKinds(value, receiptFile) {
+  const collected = [];
+  const broken = [];
+  for (const kind of FINDING_KINDS) {
+    // One lane's broken module must never silence the whole alert, including lane 1's part of it.
+    try {
+      const findings = kind.toFindings?.(value, path.dirname(receiptFile)) ?? [];
+      if (findings.length) collected.push({ kind, findings, severity: Number(kind.severity ?? 100) });
+    } catch (error) {
+      console.error(`dashboard Slack notify: finding kind ${kind?.id ?? "unknown"} failed and was dropped: ${redactText(String(error?.message ?? error))}`);
+      broken.push({ what: "One of the checks could not run at all, so whatever it looks after was not checked this time." });
+    }
+  }
+  if (broken.length) collected.push({ kind: brokenFindingKind, findings: broken, severity: BROKEN_KIND_SEVERITY });
+  // Severity decides who leads the message and who owns the headline. Registry order never does.
+  collected.sort((a, b) => a.severity - b.severity);
+  activeFindingKinds = collected;
+  return collected;
+}
+function findingKindRules() {
+  return activeFindingKinds.flatMap(({ kind }) => kind.issueRules?.() ?? []);
+}
+function applyFindingKinds(message, collected, context = {}) {
+  if (!collected.length) return message;
+  const headerAt = message.blocks.findIndex((block) => block.type === "header");
+  let insertAt = headerAt + 1;
+  for (const { kind, findings } of collected) {
+    try {
+      const blocks = kind.renderSection?.(findings) ?? [];
+      message.blocks.splice(insertAt, 0, ...blocks);
+      insertAt += blocks.length;
+      const summary = kind.summaryText?.(findings) ?? "";
+      if (summary) message.text = `${message.text}\n${summary}`;
+    } catch (error) {
+      console.error(`dashboard Slack notify: finding kind ${kind?.id ?? "unknown"} could not render and was dropped: ${redactText(String(error?.message ?? error))}`);
+    }
+  }
+  if (!context.hasOwnIssues && headerAt >= 0) {
+    const owner = collected.find(({ kind }) => typeof kind.headline === "function");
+    if (owner) message.blocks[headerAt].text.text = owner.kind.headline(owner.findings);
+  }
+  return message;
+}
+function findingKindReplies(collected) {
+  return collected.flatMap(({ kind, findings }) => {
+    try {
+      return kind.renderReplies?.(findings) ?? [];
+    } catch {
+      return [];
+    }
+  });
+}
+function findingKindSelfTests() {
+  for (const kind of FINDING_KINDS) kind.selfTest?.();
+  selfTestInactiveKindChangesNothing();
+  selfTestBrokenKindDoesNotSilenceTheAlert();
+}
+// A lane whose module throws must lose its own section, not the whole message.
+function selfTestBrokenKindDoesNotSilenceTheAlert() {
+  const broken = { id: "fake-broken", toFindings() { throw new Error("boom"); }, renderSection() { throw new Error("boom"); } };
+  const healthy = {
+    id: "fake-healthy",
+    severity: 50,
+    toFindings: () => [{ what: "x" }],
+    renderSection: () => [{ type: "section", text: { type: "mrkdwn", text: "*Healthy lane still reported*" } }],
+    summaryText: () => "healthy lane summary",
+    renderReplies: () => []
+  };
+  const saved = FINDING_KINDS.splice(0, FINDING_KINDS.length, broken, healthy);
+  try {
+    const collected = collectFindingKinds({}, path.join(repo, "receipt.json"));
+    if (!collected.some(({ kind }) => kind.id === "fake-healthy")) {
+      throw new Error("self-test: a broken lane must not take a healthy lane's findings down with it");
+    }
+    if (!collected.some(({ kind }) => kind.id === "finding-kind-failed")) {
+      throw new Error("self-test: a lane whose module throws must become a finding of its own, not silence");
+    }
+    // The lane-1 part of the message must survive untouched, and the failure must read plainly.
+    const laneOneBlocks = [
+      { type: "header", text: { type: "plain_text", text: "h" } },
+      { type: "section", text: { type: "mrkdwn", text: "*What is wrong*\n• 1 x Chart labels squashed, cut off or missing" } }
+    ];
+    const message = { text: "lane one text", blocks: [...laneOneBlocks.map((block) => JSON.parse(JSON.stringify(block)))] };
+    applyFindingKinds(message, collected, { hasOwnIssues: true });
+    if (JSON.stringify(message.blocks.at(-1)) !== JSON.stringify(laneOneBlocks[1])) {
+      throw new Error("self-test: lane 1's own section must survive a broken lane intact");
+    }
+    const rendered = JSON.stringify(message);
+    if (!rendered.includes("Something could not be checked") || !rendered.includes("could not run at all")) {
+      throw new Error("self-test: a broken lane must be reported in plain words");
+    }
+    if (rendered.includes("fake-broken") || rendered.includes("boom")) {
+      throw new Error("self-test: a broken lane's module name and error must stay out of Slack");
+    }
+    if (!rendered.includes("Healthy lane still reported")) {
+      throw new Error("self-test: the healthy lane's section must still be in the message");
+    }
+    if (!message.text.includes("lane one text")) throw new Error("self-test: lane 1's fallback text must survive");
+    // And a kind that throws while RENDERING is dropped without damaging what is already there.
+    const second = { text: "t", blocks: [{ type: "header", text: { type: "plain_text", text: "h" } }] };
+    applyFindingKinds(second, [{ kind: broken, findings: [{}], severity: 0 }], { hasOwnIssues: true });
+    if (second.blocks.length !== 1 || second.text !== "t") {
+      throw new Error("self-test: a kind that throws while rendering must not damage the message");
+    }
+  } finally {
+    FINDING_KINDS.splice(0, FINDING_KINDS.length, ...saved);
+    activeFindingKinds = [];
+  }
+}
+// The invariant that outlives this lane: a registered kind that found NOTHING must not change a
+// lane-1 message, even when it contributes rules. Registering lane 2 or lane 3 must not break this.
+function selfTestInactiveKindChangesNothing() {
+  const failure = { module: "tasks", route: "laptop:tasks-board", error: 'tasks-board laptop pen label reads "Godel 1" instead of the partition it belongs to' };
+  const before = humanIssue(failure);
+  const saved = activeFindingKinds;
+  try {
+    activeFindingKinds = [];
+    const silent = { id: "fake-silent", issueRules: () => [[/pen label reads/, "Pen shown without its part number"]], toFindings: () => [] };
+    const collected = [];
+    for (const kind of [silent]) {
+      const found = kind.toFindings() ?? [];
+      if (found.length) collected.push({ kind, findings: found, severity: 0 });
+    }
+    activeFindingKinds = collected;
+    const after = humanIssue(failure);
+    if (JSON.stringify(before) !== JSON.stringify(after)) {
+      throw new Error("self-test: a finding kind with no findings must not change how a lane-1 issue is described");
+    }
+    const message = { text: "t", blocks: [{ type: "header", text: { type: "plain_text", text: "h" } }] };
+    const rendered = JSON.stringify(applyFindingKinds(message, collected, { hasOwnIssues: true }));
+    if (rendered !== JSON.stringify({ text: "t", blocks: [{ type: "header", text: { type: "plain_text", text: "h" } }] })) {
+      throw new Error("self-test: a finding kind with no findings must add no blocks and no text");
+    }
+  } finally {
+    activeFindingKinds = saved;
+  }
+}
+// --- end finding kinds ---
+
 const repo = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "../..");
 const config = JSON.parse(readFileSync(path.join(repo, "tools/dashboard-automation/config.json"), "utf8"));
 const args = parseArgs(process.argv.slice(2));
@@ -37,6 +204,7 @@ if (state.lastSignature === signature && now - Number(state.lastPostedAtMs ?? 0)
 // Same problem on laptop + phone, or on sibling tab routes, is one issue with one screenshot.
 // Slow page loads are a budget breach, not a visual break: they get collapsed into one
 // line of their own instead of flooding the numbered list (see groupSlowPages).
+const findingKinds = collectFindingKinds(receipt, receiptPath); // --- finding kinds (additive) ---
 const visualIssues = [];
 const slowIssues = [];
 for (const issue of moduleFailures(receiptPath).map(humanIssue).filter(Boolean)) {
@@ -59,6 +227,7 @@ const slowPages = groupSlowPages(slowIssues);
 const message = (visualIssues.length || slowPages.pages.length) && decision.kind === "failure"
   ? formatVisualIssuesMessage(receipt, visualIssues, slowPages)
   : formatSlackMessage(receipt, decision.kind, receiptPath);
+applyFindingKinds(message, findingKinds, { hasOwnIssues: visualIssues.length > 0 || slowPages.pages.length > 0 }); // --- finding kinds (additive) ---
 if (containsUnredactedSecret(JSON.stringify(message))) fail("refusing to send Slack message that appears to contain an unredacted secret");
 
 const screenshotFiles = screenshotPaths(receipt, receiptPath);
@@ -79,6 +248,7 @@ const inlineShots = [...visualIssues.filter((issue) => issue.screenshot).slice(0
     null
   ].filter(Boolean).join("\n")
 }));
+inlineShots.push(...findingKindReplies(findingKinds)); // --- finding kinds (additive) ---
 await postSlack(message, inlineShots.length ? [reportFile] : [reportFile, ...screenshotFiles], statePath, { lastSignature: signature, lastPostedAtMs: now, lastStatus: receipt.status ?? "unknown" }, inlineShots);
 console.log(`dashboard Slack notify: posted ${decision.kind}`);
 
@@ -140,6 +310,7 @@ function issueRules() {
   [/accessibility violations/, null],
   [/new commit\(s\) need smoke coverage/, "New work shipped with no smoke check covering it"],
   [/assertion\(s\) need review/, "Some smoke checks point at screen text that no longer exists"],
+  ...findingKindRules(), // --- finding kinds (additive) ---
   ];
 }
 
@@ -840,6 +1011,7 @@ function selfTest() {
   selfTestShotFileDescription();
   selfTestEvidenceComment();
   selfTestSlowPageGrouping();
+  findingKindSelfTests(); // --- finding kinds (additive) ---
   console.log("dashboard Slack notify: self-test passed");
 }
 
