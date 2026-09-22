@@ -228,6 +228,12 @@ func tierHit(resp *AssistantResponse, want []string) (bool, []string) {
 	got := map[string]bool{}
 	for _, c := range resp.Citations {
 		t := strings.ToLower(strings.TrimSpace(c.Tier))
+		if t == "" {
+			// The backend's citation contract (domain.Citation) names the tier
+			// "route"; reading only "tier" scored every live answer as having
+			// no tier at all.
+			t = strings.ToLower(strings.TrimSpace(c.Route))
+		}
 		if t != "" {
 			got[t] = true
 		}

@@ -34,7 +34,8 @@ RULES:
 - Prefer aggregate tools; never request raw per-animal dumps for leadership.
 - OPERATOR QUESTIONS: for "which operator is behind / who is overloaded / who is at capacity / operator load", choose the operator drive metric (operator_vaccination_overdue, operator_vaccination_utilization, operator_vaccination_capacity, operator_vaccination_load) AND set "group_by":"operator_label" so each returned row is one named operator. A bare tenant-wide total cannot name the operator and is wrong for these questions.
 - DIAGNOSTIC "WHY" QUESTIONS: for "why are we behind on vaccination / what is driving the overdue", do NOT return one number. Decompose into contributor breakdowns: one sub-question for vaccination_overdue with "group_by":"shed_label", and one for operator_vaccination_overdue with "group_by":"operator_label". If the user explicitly asks "by park", use "group_by":"park_label"; if the user explicitly asks "by shed", use "group_by":"shed_label".
-- ANSWER FIT: every answer must return exactly the MEASURE, the GROUPING ("by park", "per pen", "per day", "weekly", "by breed"…) and the PERIOD ("last 14 days", "this month", "yesterday") the user asked for. A tool that returns a related but different measure (variance instead of total, a headcount instead of kg), a different grain, or only today's snapshot is WRONG for that question — in that case draft sql_fallback over the schema card whose columns hold that measure, grouped by exactly the requested dimensions (a time grain groups by the card's date column, or date_trunc('week'|'month', date_col)), and bind the period as instructed.
+- ANSWER FIT: every answer must return exactly the MEASURE, the GROUPING ("by park", "per pen", "per day", "weekly", "by breed"…) and the PERIOD ("last 14 days", "this month", "yesterday") the user asked for. A tool that returns a related but different measure (variance instead of total, a headcount instead of kg), a different grain, or only today's snapshot is WRONG for that question — in that case draft sql_fallback over the schema card whose columns hold that measure, grouped by exactly the requested dimensions (a time grain groups by the card's date column, or by date_trunc('week', <date_col>) / date_trunc('month', <date_col>)), and bind the period as instructed.
+- A filtered question (one species, sex, breed, park, status) needs the figure for exactly that subset; a total for a larger population is WRONG. A "how many" question needs a number, not a list of records.
 - For every sub-question declare what it returns in "answer": {"measure": "<measure and unit>", "group_by": ["<dimension>", ...], "window": "<period or empty>"}. Use dimension words like park, pen, species, breed, operator, vaccine, feed_item, stage, sex, load, buyer, vendor, day, week, month.
 - Output STRICT JSON only, no prose.`
 
@@ -135,6 +136,7 @@ The SQL is only a DRAFT. The server will validate it with sqlguard and run it th
 - Return SQL columns as label, value, scope when possible; e.g. SELECT 'Active animals by breed' AS label, CAST(count(*) AS text) AS value, breed AS scope ...
 - Several grouping dimensions (e.g. park AND day) all go in scope: concat_ws(' · ', park_label, to_char(<date_col>, 'DD/MM/YYYY')) AS scope, and each of them must also be a grouping key. Choose the measure column that IS what was asked (e.g. a directed/planned quantity, not its variance) and aggregate it the way the question says (total, average, number of).
 - PERIODS: when the question names a period, pick a view WITH a date_col and bind the server-resolved window EXACTLY as <date_col> >= '<from>' AND <date_col> < '<to_exclusive>' (half-open, ISO dates). A view marked current-state has no period: answer as of now and say so.
+- Never use double-quoted identifiers; aliases are plain lowercase words (label, value, scope).
 - FUNCTIONS: only these may be called (any other function is rejected): %s. Cast with CAST(x AS text) or x::text; use date_part('year', col), never EXTRACT(... FROM ...); use BETWEEN only on non-date columns.
 `, tenantID, strings.Join(sqlguard.AllowedFunctions(), ", ")))
 	if window != "" {
@@ -174,7 +176,7 @@ func buildFeedbackSection(feedback string) string {
 
 // systemFitJudgeInstruction is the answer-fit judge system prompt.
 const systemFitJudgeInstruction = `You check whether evidence rows returned for a leadership question actually answer THAT question.
-Judge only three things: (1) MEASURE — the rows measure what was asked (e.g. total directed kg is not a variance; a number of deaths is not a number of sales); (2) BREAKDOWN — when the question asks "by X"/"per X"/"each X"/daily/weekly/monthly, the rows are split by X (row scopes/labels name the X values); a question that asks for one total may be answered by one row; (3) PERIOD — when the question names a period, nothing in the rows contradicts it (rows are not obviously for a different period).
+Judge only three things: (1) MEASURE — the rows measure what was asked (e.g. total directed kg is not a variance; a number of deaths is not a number of sales); (2) BREAKDOWN — when the question asks "by X"/"per X"/"each X"/daily/weekly/monthly, the rows are split by X (row scopes/labels name the X values); a question that asks for one total may be answered by one row; (3) PERIOD — when the question names a period, nothing in the rows contradicts it (rows are not obviously for a different period); (4) SUBSET — a question about a subset (one species, sex, breed, park, status) is not answered by a figure for the whole population plus an unrelated breakdown; (5) NUMBER — a "how many" question is not answered by a list of individual records without their number.
 Ignore formatting, units spelled differently, extra columns, and rows beyond what was asked. Be decisive; do not flag when unsure.
 Output STRICT JSON only: {"answers": true|false, "reason": "<one short sentence naming what is missing>"}`
 
@@ -209,7 +211,7 @@ func parseFitJudge(raw string) (bool, string, error) {
 // and the card of the view it referenced, and must return one corrected draft.
 const systemRepairInstruction = `You repair ONE rejected read-only SQL draft for Mesha's leadership assistant.
 You will receive the rejected SQL, the server's rejection reason, and the schema card of the ceo_ai.* view it may read.
-RULES: return exactly one flat SELECT over that single ceo_ai.* view; keep WHERE tenant_id = '<given tenant>' unchanged; keep LIMIT <= 100; use only columns on the card; no joins, subqueries, CTEs, comments, semicolons or writes; bind any required period exactly as instructed.
+RULES: return exactly one flat SELECT over that single ceo_ai.* view; never use double-quoted identifiers (aliases are plain lowercase words); when the reason lists a column's actual values, filter on exactly those stored values; keep WHERE tenant_id = '<given tenant>' unchanged; keep LIMIT <= 100; use only columns on the card; no joins, subqueries, CTEs, comments, semicolons or writes; bind any required period exactly as instructed.
 Output STRICT JSON only: {"sql":"..."}`
 
 // buildRepairPrompt renders the repair user prompt.

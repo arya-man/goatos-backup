@@ -149,6 +149,7 @@ type phraseMatch struct {
 	pattern    *phrasePattern
 	start, end int
 	groups     []string
+	text       string // the whole matched phrase
 }
 
 type phrasePattern struct {
@@ -159,16 +160,20 @@ type phrasePattern struct {
 const monthAlt = `(january|february|march|april|may|june|july|august|september|october|november|december|jan|feb|mar|apr|jun|jul|aug|sept|sep|oct|nov|dec)`
 
 var (
-	reISORange   = regexp.MustCompile(`\b(\d{4}-\d{2}-\d{2})\s*(?:\.\.|to|-|through|until|till|and)\s*(\d{4}-\d{2}-\d{2})\b`)
-	reISOSingle  = regexp.MustCompile(`\b(\d{4}-\d{2}-\d{2})\b`)
-	reDMYRange   = regexp.MustCompile(`\b(\d{1,2}/\d{1,2}/\d{4})\s*(?:\.\.|to|-|through|until|till|and)\s*(\d{1,2}/\d{1,2}/\d{4})\b`)
-	reDMYSingle  = regexp.MustCompile(`\b(\d{1,2}/\d{1,2}/\d{4})\b`)
-	reSince      = regexp.MustCompile(`\b(?:since|from|starting|starting from|after)\s+(\d{4}-\d{2}-\d{2}|\d{1,2}/\d{1,2}/\d{4}|(?:\d{1,2}(?:st|nd|rd|th)?\s+)?` + monthAlt + `(?:\s+\d{1,2}(?:st|nd|rd|th)?)?(?:,?\s*\d{4})?)\b`)
-	reRelDay     = regexp.MustCompile(`\b(day before yesterday|yesterday|today)\b`)
-	reToDate     = regexp.MustCompile(`\b(mtd|month to date|month-to-date|ytd|year to date|year-to-date|qtd|quarter to date|quarter-to-date|wtd|week to date|week-to-date)\b`)
-	reThisLast   = regexp.MustCompile(`\b(this|current|last|previous|past|prior)\s+(week|month|quarter|year)\b`)
-	reLastN      = regexp.MustCompile(`\b(?:last|past|previous|trailing|prior)\s+(\d{1,3}|a|an|one|two|three|four|five|six|seven|eight|nine|ten|eleven|twelve)\s+(day|days|week|weeks|month|months|quarter|quarters|year|years)\b`)
-	reQuarter    = regexp.MustCompile(`\b(?:q([1-4])(?:\s*[-' ]?\s*(\d{4}|\d{2}))?|(first|second|third|fourth|1st|2nd|3rd|4th)\s+quarter(?:\s+(?:of\s+)?(\d{4}))?)\b`)
+	reISORange  = regexp.MustCompile(`\b(\d{4}-\d{2}-\d{2})\s*(?:\.\.|to|-|through|until|till|and)\s*(\d{4}-\d{2}-\d{2})\b`)
+	reISOSingle = regexp.MustCompile(`\b(\d{4}-\d{2}-\d{2})\b`)
+	reDMYRange  = regexp.MustCompile(`\b(\d{1,2}/\d{1,2}/\d{4})\s*(?:\.\.|to|-|through|until|till|and)\s*(\d{1,2}/\d{1,2}/\d{4})\b`)
+	reDMYSingle = regexp.MustCompile(`\b(\d{1,2}/\d{1,2}/\d{4})\b`)
+	reSince     = regexp.MustCompile(`\b(?:since|from|starting|starting from|after)\s+(\d{4}-\d{2}-\d{2}|\d{1,2}/\d{1,2}/\d{4}|(?:\d{1,2}(?:st|nd|rd|th)?\s+)?` + monthAlt + `(?:\s+\d{1,2}(?:st|nd|rd|th)?)?(?:,?\s*\d{4})?)\b`)
+	reRelDay    = regexp.MustCompile(`\b(day before yesterday|yesterday|today)\b`)
+	reToDate    = regexp.MustCompile(`\b(mtd|month to date|month-to-date|ytd|year to date|year-to-date|qtd|quarter to date|quarter-to-date|wtd|week to date|week-to-date)\b`)
+	reThisLast  = regexp.MustCompile(`\b(this|current|last|previous|past|prior)\s+(week|month|quarter|year)\b`)
+	reLastN     = regexp.MustCompile(`\b(?:last|past|previous|trailing|prior)\s+(\d{1,3}|a|an|one|two|three|four|five|six|seven|eight|nine|ten|eleven|twelve)\s+(day|days|week|weeks|month|months|quarter|quarters|year|years)\b`)
+	reQuarter   = regexp.MustCompile(`\b(?:q([1-4])(?:\s*[-' ]?\s*(\d{4}|\d{2}))?|(first|second|third|fourth|1st|2nd|3rd|4th)\s+quarter(?:\s+(?:of\s+)?(\d{4}))?)\b`)
+	// A named single day: "18 september 2026", "18th sep", "september 18, 2026".
+	// It must win over reMonth, which would otherwise read "on 18 September
+	// 2026" as the whole month.
+	reNamedDay   = regexp.MustCompile(`\b(?:\d{1,2}(?:st|nd|rd|th)?\s+` + monthAlt + `|` + monthAlt + `\s+\d{1,2}(?:st|nd|rd|th)?)(?:,?\s*\d{4})?\b`)
 	reMonth      = regexp.MustCompile(`\b` + monthAlt + `(?:\s*,?\s*'?(\d{4}|\d{2}))?\b`)
 	reYear       = regexp.MustCompile(`\b(?:in|for|during|of|year)\s+(20\d{2})\b`)
 	reWordNumber = map[string]int{"a": 1, "an": 1, "one": 1, "two": 2, "three": 3, "four": 4, "five": 5, "six": 6, "seven": 7, "eight": 8, "nine": 9, "ten": 10, "eleven": 11, "twelve": 12}
@@ -195,6 +200,7 @@ var phrasePatterns = []*phrasePattern{
 	{re: reLastN, resolve: resolveLastN},
 	{re: reThisLast, resolve: resolveThisLast},
 	{re: reQuarter, resolve: resolveQuarter},
+	{re: reNamedDay, resolve: resolveNamedDay},
 	{re: reMonth, resolve: resolveMonth},
 	{re: reYear, resolve: resolveYear},
 }
@@ -205,7 +211,7 @@ func findPhraseMatches(norm string) []phraseMatch {
 	var all []phraseMatch
 	for _, p := range phrasePatterns {
 		for _, loc := range p.re.FindAllStringSubmatchIndex(norm, -1) {
-			m := phraseMatch{pattern: p, start: loc[0], end: loc[1]}
+			m := phraseMatch{pattern: p, start: loc[0], end: loc[1], text: norm[loc[0]:loc[1]]}
 			for g := 1; g < len(loc)/2; g++ {
 				if loc[2*g] >= 0 {
 					m.groups = append(m.groups, norm[loc[2*g]:loc[2*g+1]])
@@ -214,6 +220,9 @@ func findPhraseMatches(norm string) []phraseMatch {
 				}
 			}
 			if p.re == reMonth && !monthMatchIsPeriod(norm, m) {
+				continue
+			}
+			if p.re == reNamedDay && !namedDayIsPeriod(norm, m) {
 				continue
 			}
 			overlaps := false
@@ -250,6 +259,24 @@ func monthMatchIsPeriod(norm string, m phraseMatch) bool {
 	}
 	switch before[len(before)-1] {
 	case "in", "for", "during", "of", "since", "from", "till", "until", "to", "through", "vs", "vs.", "versus", "and", "compare", "against", "with":
+		return true
+	}
+	return false
+}
+
+// namedDayIsPeriod applies the same "may" caution to a named day: "12 may be
+// sick" is not the 12th of May unless a year follows or a date preposition
+// precedes it.
+func namedDayIsPeriod(norm string, m phraseMatch) bool {
+	if !regexp.MustCompile(`\bmay\b`).MatchString(m.text) || regexp.MustCompile(`\d{4}`).MatchString(m.text) {
+		return true
+	}
+	before := strings.Fields(norm[:m.start])
+	if len(before) == 0 {
+		return false
+	}
+	switch before[len(before)-1] {
+	case "on", "since", "from", "till", "until", "to", "by", "for", "of", "before", "after":
 		return true
 	}
 	return false
@@ -350,6 +377,15 @@ func resolveSince(m phraseMatch, today time.Time, loc *time.Location) (Window, b
 		return Window{}, false
 	}
 	return Window{From: from, To: today}, true
+}
+
+// resolveNamedDay resolves one named calendar day to a single-day window.
+func resolveNamedDay(m phraseMatch, today time.Time, loc *time.Location) (Window, bool) {
+	day, ok := parseMonthDayYear(m.text, today, loc)
+	if !ok {
+		return Window{}, false
+	}
+	return Window{From: day, To: day}, true
 }
 
 var reOrdinal = regexp.MustCompile(`^(\d{1,2})(?:st|nd|rd|th)?$`)

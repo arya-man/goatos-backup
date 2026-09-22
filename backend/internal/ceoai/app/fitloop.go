@@ -78,6 +78,10 @@ func (a *Assistant) executePlan(ctx context.Context, q domain.Question, subs []d
 	// the view's schema card, then re-run through the same guard.
 	usage := a.repairSQLResults(ctx, q, subs, results, &traces)
 
+	// A model read that ran but matched nothing because it filtered on a value
+	// the data does not use gets ONE repair with the column's real values.
+	usage = usage.add(a.repairEmptyFilterReads(ctx, q, subs, results, &traces))
+
 	// Runtime fallback (P1-3): before composing, retry any errored/empty
 	// result at the next tier in Cube -> API -> Toolbox -> SQL order.
 	a.retryFailedResults(ctx, q.Actor, subs, results)
@@ -95,6 +99,20 @@ func (a *Assistant) answerFit(ctx context.Context, q domain.Question, req Reques
 	for _, is := range periodCapabilityIssues(q, req, subs, catalog) {
 		issues = append(issues, is)
 		reasons = append(reasons, is.Detail)
+	}
+	// Nothing came back at all (every read errored or was empty): the plan
+	// did not answer, so it deserves the same one re-plan a misfit gets.
+	if len(subs) > 0 && !hasUsableResult(results) {
+		issues = append(issues, FitIssue{Kind: "empty", Detail: "from the data (the chosen read returned nothing)"})
+		var errs []string
+		for _, r := range results {
+			if r.Err != nil {
+				errs = append(errs, r.ToolName+" failed: "+truncateText(r.Err.Error(), 200))
+			} else {
+				errs = append(errs, r.ToolName+" returned no rows")
+			}
+		}
+		reasons = append(reasons, "the previous read did not answer: "+strings.Join(errs, "; "))
 	}
 	var usage TokenUsage
 	if j, ok := a.provider.(RelevanceJudge); ok && a.provider.PlannedByModel() {
@@ -207,6 +225,23 @@ func periodCapabilityIssues(q domain.Question, req RequestedShape, subs []domain
 		}
 	}
 	return nil
+}
+
+func withoutKind(in []FitIssue, kind string) []FitIssue {
+	var out []FitIssue
+	for _, is := range in {
+		if is.Kind != kind {
+			out = append(out, is)
+		}
+	}
+	return out
+}
+
+func truncateText(s string, n int) string {
+	if len(s) <= n {
+		return s
+	}
+	return s[:n] + "…"
 }
 
 // hasUsableResult reports whether any sub-question returned grounding facts.

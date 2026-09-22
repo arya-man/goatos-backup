@@ -132,7 +132,8 @@ type ChartSeries struct {
 type Citation struct {
 	Surface        string `json:"surface"`
 	AsOf           string `json:"as_of"`
-	Tier           string `json:"tier"` // cube|api|toolbox|sql
+	Tier           string `json:"tier"`  // cube|api|toolbox|sql (legacy name)
+	Route          string `json:"route"` // cube|api|toolbox|sql (domain.Citation wire name)
 	PlannedByModel bool   `json:"planned_by_model"`
 }
 

@@ -96,7 +96,7 @@ var dimensionEvidence = map[string][]string{
 var coarserThanDay = []string{"week", "month", "year", "quarter"}
 
 var (
-	byDimensionRe = regexp.MustCompile(`\b(?:by|per|each|every|across|between)\s+(?:the\s+|each\s+|every\s+|individual\s+|one\s+)?([a-z]+)`)
+	byDimensionRe = regexp.MustCompile(`\b(?:by|per|each|every)\s+(?:the\s+|each\s+|every\s+|individual\s+|one\s+)?([a-z]+)`)
 	wiseRe        = regexp.MustCompile(`\b([a-z]+)[- ]?wise\b`)
 	periodicRe    = regexp.MustCompile(`\b(daily|weekly|monthly|yearly|annually|quarterly|day[- ]by[- ]day|week[- ]by[- ]week|month[- ]by[- ]month|day[- ]wise|date[- ]wise|month[- ]wise|week[- ]wise)\b`)
 	kgUnitRe      = regexp.MustCompile(`\b(kg|kgs|kilo|kilos|kilograms?|tonnes?|tons?)\b`)

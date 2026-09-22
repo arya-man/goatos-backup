@@ -339,6 +339,9 @@ func (a *Assistant) ask(ctx context.Context, q domain.Question, opts askOptions)
 			}
 		}
 	}
+	// An empty read earns the re-plan above, but "nothing found" is itself an
+	// honest answer, so it is never flagged as a shape mismatch.
+	fitIssues = withoutKind(fitIssues, "empty")
 	if truncated && mode == domain.ModePlanned {
 		mode = domain.ModePartial
 	}

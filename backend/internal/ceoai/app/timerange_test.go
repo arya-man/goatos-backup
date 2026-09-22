@@ -21,6 +21,11 @@ func TestResolveWindowTable(t *testing.T) {
 	}{
 		// relative days
 		{"today", "how many deaths today", "2026-07-22", "2026-07-22", "", ""},
+		// A named single day is that day, never the whole month it names.
+		{"named day", "feed directed to CBE on 18 July 2026, in kg", "2026-07-18", "2026-07-18", "", ""},
+		{"named day ordinal no year", "deaths on 3rd july", "2026-07-03", "2026-07-03", "", ""},
+		{"month-first named day", "sales on july 5, 2026", "2026-07-05", "2026-07-05", "", ""},
+		{"may as a verb is not a named day", "animals that 12 may be sick yesterday", "2026-07-21", "2026-07-21", "", ""},
 		{"yesterday", "vaccinations done yesterday", "2026-07-21", "2026-07-21", "", ""},
 		{"day before yesterday", "feed fed day before yesterday", "2026-07-20", "2026-07-20", "", ""},
 		// this / last units (Monday-start weeks)

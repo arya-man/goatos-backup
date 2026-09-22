@@ -423,6 +423,93 @@ func TestPeriodQuestionOnAToolWithoutPeriodParamsIsFlagged(t *testing.T) {
 	}
 }
 
+// scriptedSQL answers each statement from a function (probe vs draft vs repair).
+type scriptedSQL struct {
+	answer func(sql string) domain.ToolResult
+	seen   []string
+}
+
+func (s *scriptedSQL) Execute(_ context.Context, _ domain.Actor, sql string, _ []any) (domain.ToolResult, error) {
+	s.seen = append(s.seen, sql)
+	r := s.answer(sql)
+	r.Route, r.ToolName = domain.RouteSQL, "sql_fallback"
+	return r, nil
+}
+func (s *scriptedSQL) ExecuteTrusted(ctx context.Context, a domain.Actor, sql string, args []any) (domain.ToolResult, error) {
+	return s.Execute(ctx, a, sql, args)
+}
+
+type repairingProvider struct {
+	fakeProvider
+	reason string
+	fixed  string
+}
+
+func (p *repairingProvider) RepairSQL(_ context.Context, _ domain.Question, _, reason, _, _ string) (string, TokenUsage, error) {
+	p.reason = reason
+	return p.fixed, TokenUsage{}, nil
+}
+
+// A model read that filters on a value the data does not use ("Female" when
+// the column stores "female") is valid SQL that returns a confident 0. The
+// filtered column's real values are probed and the model repairs ONCE with
+// them; the repaired read answers.
+func TestEmptyReadWithWrongFilterValueIsRepairedWithTheRealValues(t *testing.T) {
+	draft := "SELECT 'Female animals' AS label, CAST(count(*) AS text) AS value FROM ceo_ai.animal_current_scope WHERE tenant_id = 't1' AND lifecycle_status = 'alive' AND sex = 'Female' LIMIT 1"
+	fixed := "SELECT 'Female animals' AS label, CAST(count(*) AS text) AS value FROM ceo_ai.animal_current_scope WHERE tenant_id = 't1' AND lifecycle_status = 'alive' AND sex = 'female' LIMIT 1"
+	sqlFB := &scriptedSQL{answer: func(sql string) domain.ToolResult {
+		switch {
+		case strings.Contains(sql, "GROUP BY sex"):
+			return domain.ToolResult{Facts: []domain.Fact{{TenantID: "t1", Label: "value", Value: "female"}, {TenantID: "t1", Label: "value", Value: "male"}}}
+		case strings.Contains(sql, "GROUP BY lifecycle_status"):
+			return domain.ToolResult{Facts: []domain.Fact{{TenantID: "t1", Label: "value", Value: "alive"}, {TenantID: "t1", Label: "value", Value: "exited"}}}
+		case strings.Contains(sql, "sex = 'female'"):
+			return domain.ToolResult{Facts: []domain.Fact{{TenantID: "t1", Label: "Female animals", Value: "985"}}}
+		default:
+			return domain.ToolResult{Facts: []domain.Fact{{TenantID: "t1", Label: "Female animals", Value: "0"}}}
+		}
+	}}
+	prov := &repairingProvider{fakeProvider: fakeProvider{byModel: true, plan: modelSQLPlan(draft, domain.AnswerSpec{})}, fixed: fixed}
+	a := NewAssistant(Config{}, Deps{Provider: prov, Registry: NewRegistry(nil, nil, sqlFB)})
+	ans, err := a.Ask(context.Background(), domain.Question{Actor: leadershipActor(), Text: "How many female animals are alive?"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(prov.reason, `no value "Female"`) || !strings.Contains(prov.reason, "female, male") {
+		t.Fatalf("repair reason must name the bad literal and the real values, got %q", prov.reason)
+	}
+	if strings.Contains(prov.reason, "lifecycle_status") {
+		t.Fatalf("a literal that IS a stored value must not be reported: %q", prov.reason)
+	}
+	if !strings.Contains(ans.Answer, "985") {
+		t.Fatalf("the repaired read must answer, got %q", ans.Answer)
+	}
+	for _, s := range sqlFB.seen {
+		if err := sqlguard.Validate(s); err != nil {
+			t.Fatalf("every probe/draft must pass the real guard: %v (%s)", err, s)
+		}
+	}
+}
+
+// A genuinely empty read whose literals are all real values is NOT repaired.
+func TestEmptyReadWithRealFilterValuesIsLeftAlone(t *testing.T) {
+	draft := "SELECT 'Deaths' AS label, CAST(count(*) AS text) AS value FROM ceo_ai.animal_current_scope WHERE tenant_id = 't1' AND sex = 'male' LIMIT 1"
+	sqlFB := &scriptedSQL{answer: func(sql string) domain.ToolResult {
+		if strings.Contains(sql, "GROUP BY sex") {
+			return domain.ToolResult{Facts: []domain.Fact{{TenantID: "t1", Label: "value", Value: "female"}, {TenantID: "t1", Label: "value", Value: "male"}}}
+		}
+		return domain.ToolResult{Facts: []domain.Fact{{TenantID: "t1", Label: "Deaths", Value: "0"}}}
+	}}
+	prov := &repairingProvider{fakeProvider: fakeProvider{byModel: true, plan: modelSQLPlan(draft, domain.AnswerSpec{})}, fixed: "unused"}
+	a := NewAssistant(Config{}, Deps{Provider: prov, Registry: NewRegistry(nil, nil, sqlFB)})
+	if _, err := a.Ask(context.Background(), domain.Question{Actor: leadershipActor(), Text: "how many male deaths"}); err != nil {
+		t.Fatal(err)
+	}
+	if prov.reason != "" {
+		t.Fatalf("no repair expected for a genuinely empty read, got %q", prov.reason)
+	}
+}
+
 type setCountingCache struct{ sets int }
 
 func (c *setCountingCache) Get(string) (domain.Answer, bool) { return domain.Answer{}, false }
