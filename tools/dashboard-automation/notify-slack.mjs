@@ -207,11 +207,11 @@ function friendlyLayerMessage(layer) {
   if (name === "grafana-smoke") return "Grafana/monitoring smoke check failed.";
   if (name === "vaccination-lifecycle") return "Focused vaccination lifecycle tests failed.";
   if (/module-journeys|playwright/i.test(name)) {
-    const lines = message.split("\n").map((line) => line.trim());
-    const route = lines.filter((line) => line.startsWith("visual_route_start=")).pop()?.slice("visual_route_start=".length);
-    const error = lines.filter((line) => /Error:/.test(line)).pop();
-    if (!error) return "Browser journey smoke failed; see the HTML report and screenshots in the thread.";
-    return `${route ? `route \`${route}\`: ` : ""}${truncate(redactText(error.replace(/^.*?Error:\s*/, "")), 400)}`;
+    const errors = message.split("\n").map((line) => line.trim())
+      .filter((line) => /Error:/.test(line) && !/module journeys? .*failed|failed with exit/.test(line))
+      .map((line) => truncate(redactText(line.replace(/^.*?Error:\s*/, "").replace(/: \[\{.*$/, "")), 160));
+    if (!errors.length) return "Browser journey smoke failed; see the HTML report and screenshots in the thread.";
+    return `${errors.length} failing route(s):\n${[...new Set(errors)].slice(0, 8).map((e) => `   ◦ ${e}`).join("\n")}`;
   }
   if (/required deterministic layer failed/i.test(message)) return "A prerequisite gate failed before this layer could run cleanly.";
   return truncate(redactText(message), 140);
