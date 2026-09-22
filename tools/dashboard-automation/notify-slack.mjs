@@ -576,7 +576,10 @@ async function postSlack(payload, attachments, statePath, nextState, inlineShots
         initial_comment: shot.comment ?? shot.title
       });
     } catch (error) {
-      console.error(`dashboard Slack notify: upload failed for ${path.basename(shot.file)}: ${redactText(error.message)}`);
+      // describeShotFile, not path.basename: a lane that hands us a non-path (undefined, or a
+      // gs:// URI from a Test Lab pull) makes readFileSync throw, and path.basename(undefined)
+      // then throws again from inside this catch — unhandled, after the message already posted.
+      console.error(`dashboard Slack notify: upload failed for ${describeShotFile(shot)}: ${redactText(error?.message ?? String(error))}`);
     }
   }
   const uploaded = [];
@@ -600,6 +603,18 @@ async function postSlack(payload, attachments, statePath, nextState, inlineShots
 // this line only ever runs on the real upload path, never in dry-run, which is how a stale
 // identifier (`inline` for `inlineShots`) shipped and crashed every live alert after the message
 // had already posted — the alert arrived with no screenshots attached.
+// Never throws. The only job here is to name the offending attachment inside a catch block, so it
+// must survive whatever a finding-kind module put in `file` — including nothing at all.
+function describeShotFile(shot) {
+  const file = shot?.file;
+  if (typeof file !== "string" || file === "") return "an attachment with no usable file path";
+  try {
+    return path.basename(file);
+  } catch {
+    return file.slice(0, 80);
+  }
+}
+
 function evidenceComment(inlineShots, uploaded) {
   return inlineShots.length
     ? "Full report (every check, every page)"
@@ -818,6 +833,7 @@ function selfTest() {
   if (parityOnlyNoBrowser.shouldPost || !parityOnlyNoBrowser.reason.includes("receipt-only")) {
     throw new Error("self-test: parity-only browser-not-run failures must stay out of Slack");
   }
+  selfTestShotFileDescription();
   selfTestEvidenceComment();
   selfTestSlowPageGrouping();
   console.log("dashboard Slack notify: self-test passed");
@@ -826,6 +842,23 @@ function selfTest() {
 // Guards the caption above, and the whole upload path it lives on, against another stale
 // identifier. The runtime crash this pins was invisible to every existing test because
 // GOATOS_DASHBOARD_SLACK_DRY_RUN=1 returns before any upload happens.
+function selfTestShotFileDescription() {
+  // Each of these made postSlack's catch block throw a second, unhandled error.
+  for (const shot of [{}, { file: undefined }, { file: null }, { file: 123 }, { file: "" }, undefined]) {
+    const described = describeShotFile(shot);
+    if (typeof described !== "string" || described === "") {
+      throw new Error(`self-test: describeShotFile must always name something: ${JSON.stringify(shot)}`);
+    }
+  }
+  if (describeShotFile({ file: "/tmp/a/b/weighing-issues.png" }) !== "weighing-issues.png") {
+    throw new Error("self-test: describeShotFile stopped naming a normal screenshot by its file name");
+  }
+  // A Test Lab pull lands in a GCS bucket, not on local disk; lane 5 can hand us one of these.
+  if (!describeShotFile({ file: "gs://goatos-testlab/run/shot.png" }).includes("shot.png")) {
+    throw new Error("self-test: describeShotFile should still name a gs:// artefact");
+  }
+}
+
 function selfTestEvidenceComment() {
   const withShots = evidenceComment([{ file: "a.png" }], [{ id: "1" }, { id: "2" }]);
   if (withShots !== "Full report (every check, every page)") {
