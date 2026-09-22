@@ -181,6 +181,9 @@ function humanIssue(failure) {
     screenshot,
     raw,
     kind,
+    // Computed above and previously dropped here, so every `issue.url` downstream read undefined
+    // and no finding or slow page ever carried its link. Findings must name the page AND link to it.
+    url,
     loadMs: slow ? Number(slow[1]) : null,
     budgetMs: slow ? Number(slow[2]) : null,
     caption: `${page} · ${deviceLabel.replace(/^\S+ /, "")} — ${what}${example}`.slice(0, 250)
@@ -833,6 +836,7 @@ function selfTest() {
   if (parityOnlyNoBrowser.shouldPost || !parityOnlyNoBrowser.reason.includes("receipt-only")) {
     throw new Error("self-test: parity-only browser-not-run failures must stay out of Slack");
   }
+  selfTestIssueCarriesItsLink();
   selfTestShotFileDescription();
   selfTestEvidenceComment();
   selfTestSlowPageGrouping();
@@ -842,6 +846,20 @@ function selfTest() {
 // Guards the caption above, and the whole upload path it lives on, against another stale
 // identifier. The runtime crash this pins was invisible to every existing test because
 // GOATOS_DASHBOARD_SLACK_DRY_RUN=1 returns before any upload happens.
+function selfTestIssueCarriesItsLink() {
+  const issue = humanIssue({
+    module: "smoke",
+    route: "mobile:weighing-weights",
+    url: "https://dashboard.mesha.sg/weighing/weights",
+    error: "weighing-weights mobile page load 14812ms exceeded budget 8000ms"
+  });
+  if (issue.url !== "https://dashboard.mesha.sg/weighing/weights") {
+    throw new Error("self-test: a finding must carry its link — three render sites read issue.url");
+  }
+  const plain = humanIssue({ module: "smoke", route: "laptop:herd-signals", error: "text-overlap: \"Godel 1\" overlaps" });
+  if (plain.url !== null) throw new Error("self-test: a finding with no url must report null, not undefined");
+}
+
 function selfTestShotFileDescription() {
   // Each of these made postSlack's catch block throw a second, unhandled error.
   for (const shot of [{}, { file: undefined }, { file: null }, { file: 123 }, { file: "" }, undefined]) {
