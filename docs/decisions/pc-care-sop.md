@@ -87,7 +87,7 @@ The module's locks stay locks, and the document says so on screen:
 `TestSeededPCCareSOPIsThePreSOPBehaviour` against the legacy slot table itself: the same keys, the
 same titles, the same hints, the same order, every capture a compulsory video, the 10-second hint
 on both trimming "while" clips, no questions anywhere, and the removal `optional` on **deworming
-alone** with its two clips. Migration `000383` seeds the definition and v1 with that document
+alone** with its two clips. Migration `000385` seeds the definition and v1 with that document
 embedded verbatim (`TestMigrationEmbedsTheSeededPCCareSOP`). Tasks planned before the migration
 carry `sop_version NULL` = the seed = what they already do.
 
@@ -101,7 +101,7 @@ deworming publishes `required` instead. `docs/decisions/feed-water-removal-preco
 
 ## Storage
 
-Migration `000383_pc_care_sop.sql`, every change rollout-safe (nullable or defaulted):
+Migration `000385_pc_care_sop.sql`, every change rollout-safe (nullable or defaulted):
 
 - `pc_care_tasks.sop_version` / `pc_care_rounds.sop_version` — the pin.
 - `pc_care_tasks.required_slot_keys` — the compulsory keys of the pinned card, backfilled from the
