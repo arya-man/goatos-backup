@@ -56,6 +56,7 @@ import sg.mesha.goatos.core.data.forms.ProofPolicy
 import sg.mesha.goatos.core.data.sync.SyncRepository
 import sg.mesha.goatos.core.data.sync.SyncItemStatus
 import sg.mesha.goatos.core.data.sync.SyncQueueItem
+import sg.mesha.goatos.core.database.capture.ProofProcessingState
 import sg.mesha.goatos.core.network.dto.ShedCompletionSummaryDto
 import sg.mesha.goatos.core.network.dto.SubmitTaskRequestDto
 import sg.mesha.goatos.core.network.dto.TaskSummaryDto
@@ -1558,14 +1559,17 @@ class ScanViewModel @Inject constructor(
         // outrank a clip that already reached the backend, or the row shows "Proof uploading" forever
         // while rendering as done.
         val latestUploadingProof = goatProofs
-            .filter { it.syncStatus == CaptureSyncStatus.PENDING || it.syncStatus == CaptureSyncStatus.IN_FLIGHT }
+            .filter {
+                (it.syncStatus == CaptureSyncStatus.PENDING || it.syncStatus == CaptureSyncStatus.IN_FLIGHT) &&
+                    !it.isRetryableVaccinationProof()
+            }
             .maxByOrNull { it.capturedAtMs }
             ?.takeUnless { hasSyncedProof }
         val effectiveOptimisticUploadingAtMs = optimisticProofUploadingAtMs?.takeUnless { hasSyncedProof }
         val uploadingProofs = latestUploadingProof != null || effectiveOptimisticUploadingAtMs != null
-        val failedProofs = !hasSyncedProof && goatProofs.any { it.syncStatus == CaptureSyncStatus.FAILED }
+        val failedProofs = !hasSyncedProof && goatProofs.any { it.isRetryableVaccinationProof() }
         val latestFailedProof = goatProofs
-            .filter { it.syncStatus == CaptureSyncStatus.FAILED }
+            .filter { it.isRetryableVaccinationProof() }
             .maxByOrNull { it.capturedAtMs }
             ?.takeUnless { hasSyncedProof }
         val latestPreviewProof = goatProofs.maxByOrNull { it.capturedAtMs }
@@ -1693,7 +1697,8 @@ class ScanViewModel @Inject constructor(
         val uploadingGoatIds = proofRows
             .filter { row ->
                 row.proofSubject == ProofSubject.GOAT &&
-                    (row.syncStatus == CaptureSyncStatus.PENDING || row.syncStatus == CaptureSyncStatus.IN_FLIGHT)
+                    (row.syncStatus == CaptureSyncStatus.PENDING || row.syncStatus == CaptureSyncStatus.IN_FLIGHT) &&
+                    !row.isRetryableVaccinationProof()
             }
             .mapNotNull { it.subjectId }
             .toSet()
@@ -1806,6 +1811,8 @@ class ScanViewModel @Inject constructor(
     private fun proofStatus(proofs: List<ProofCaptureRow>, optimisticProofUploadingAtMs: Long? = null): ProofUploadStatus = when {
         proofs.any { it.syncStatus == CaptureSyncStatus.SYNCED && !it.serverProofId.isNullOrBlank() } ->
             ProofUploadStatus.SYNCED
+        proofs.any { it.processingState == ProofProcessingState.PROCESSING_FAILED_AWAITING_RETRY.name } ->
+            ProofUploadStatus.FAILED
         optimisticProofUploadingAtMs != null ||
             proofs.any { it.syncStatus == CaptureSyncStatus.PENDING || it.syncStatus == CaptureSyncStatus.IN_FLIGHT } ->
             ProofUploadStatus.UPLOADING
@@ -2041,6 +2048,9 @@ class ScanViewModel @Inject constructor(
             } catch (error: CancellationException) {
                 throw error
             } catch (error: Throwable) {
+                crashReporter.recordException(error, "vaccination proof capture failed after camera")
+                _pendingLocalProofPreview.update { it - row.goatId }
+                _lastProofCaptureError.update { "Proof video saved locally but upload setup failed. Tap retry on this animal." }
                 analytics.track(
                     AnalyticsEvents.VACCINATION_PROOF_CAPTURE_FAILURE,
                     vaccinationActionProps(row, row.primaryTag) +
@@ -2052,7 +2062,6 @@ class ScanViewModel @Inject constructor(
                             AnalyticsEvents.Params.REASON to (error.message ?: error::class.simpleName.orEmpty()).take(MAX_ANALYTICS_REASON_CHARS),
                         ),
                 )
-                throw error
             } finally {
                 // Only the job that still OWNS the in-flight state may clean it up. Guard on JOB
                 // identity, not subject identity: an A -> B -> A rescan makes a subject-id guard
@@ -2150,7 +2159,7 @@ class ScanViewModel @Inject constructor(
             val row = (state.value.roster + state.value.proofActionNeeded)
                 .firstOrNull { it.goatId == goatId }
             val failedProofs = observedProofs.value.orEmpty()
-                .filter { it.subjectId == goatId && it.syncStatus == CaptureSyncStatus.FAILED }
+                .filter { proof -> proof.subjectId == goatId && proof.isRetryableVaccinationProof() }
             if (failedProofs.isEmpty()) {
                 analytics.track(
                     AnalyticsEvents.VACCINATION_PROOF_ACTION_TAPPED,
@@ -2209,6 +2218,10 @@ class ScanViewModel @Inject constructor(
             }
         }
     }
+
+    private fun ProofCaptureRow.isRetryableVaccinationProof(): Boolean =
+        syncStatus == CaptureSyncStatus.FAILED ||
+            processingState == ProofProcessingState.PROCESSING_FAILED_AWAITING_RETRY.name
 
     private fun trackProofActionTapped(goatId: String, action: String) {
         val row = (state.value.roster + state.value.proofActionNeeded)
