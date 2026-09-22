@@ -12,6 +12,7 @@ import (
 
 	"github.com/vgoats/goatos/backend/internal/configuration/domain"
 	"github.com/vgoats/goatos/backend/internal/configuration/ports"
+	"github.com/vgoats/goatos/backend/internal/platform/sqlbind"
 )
 
 // ---------------------------------------------------------------------------------------------
@@ -216,7 +217,11 @@ func (categoryStore) update(ctx context.Context, tx pgx.Tx, t, id string, f map[
 	} else {
 		set += ", updated_at = now(), row_version = row_version + 1"
 	}
-	tag, err := tx.Exec(ctx, fmt.Sprintf(`UPDATE item_categories SET %s WHERE tenant_id = $1 AND category_id = $2::uuid AND ($3 = 0 OR row_version = $3)`, set), append([]any{t, id, rv}, args...)...)
+	q, err := sqlbind.Bind(fmt.Sprintf(`UPDATE item_categories SET %s WHERE tenant_id = $1 AND category_id = $2::uuid AND ($3 = 0 OR row_version = $3)`, set), append([]any{t, id, rv}, args...)...)
+	if err != nil {
+		return "", err
+	}
+	tag, err := tx.Exec(ctx, q.SQL(), q.Args()...)
 	if err != nil {
 		var pgErr *pgconn.PgError
 		if errors.As(err, &pgErr) && pgErr.Code == "23505" {
@@ -402,8 +407,12 @@ func feedItemUsage(ctx context.Context, q querier, t, feedItemID string) (domain
 	out := domain.Usage{Uses: make([]domain.UsageCount, 0, 5)}
 	for _, check := range feedItemUsageChecks {
 		var n int
+		bound, bindErr := sqlbind.Bind(check.sql, t, key)
+		if bindErr != nil {
+			return domain.Usage{}, fmt.Errorf("feed usage %s: %w", check.noun, bindErr)
+		}
 		// scale-guard:ignore: a fixed five-check list over feed tables indexed on the key, one row each
-		if err := q.QueryRow(ctx, check.sql, t, key).Scan(&n); err != nil {
+		if err := q.QueryRow(ctx, bound.SQL(), bound.Args()...).Scan(&n); err != nil {
 			return domain.Usage{}, fmt.Errorf("feed usage %s: %w", check.noun, err)
 		}
 		out.Uses = append(out.Uses, domain.UsageCount{Noun: check.noun, Count: n})
@@ -620,7 +629,11 @@ func (itemStore) update(ctx context.Context, tx pgx.Tx, t, id string, f map[stri
 		set += ", "
 	}
 	set += "category = $4, context = $3::jsonb, updated_at = now(), row_version = row_version + 1"
-	tag, err := tx.Exec(ctx, fmt.Sprintf(`UPDATE inventory_items SET %s WHERE tenant_id = $1 AND item_id = $2::uuid AND ($%d = 0 OR row_version = $%d)`, set, 5+len(args), 5+len(args)), append(append([]any{t, id, contextJSON, kind}, args...), rv)...)
+	q, err := sqlbind.Bind(fmt.Sprintf(`UPDATE inventory_items SET %s WHERE tenant_id = $1 AND item_id = $2::uuid AND ($%d = 0 OR row_version = $%d)`, set, 5+len(args), 5+len(args)), append(append([]any{t, id, contextJSON, kind}, args...), rv)...)
+	if err != nil {
+		return "", err
+	}
+	tag, err := tx.Exec(ctx, q.SQL(), q.Args()...)
 	if err != nil {
 		var pgErr *pgconn.PgError
 		if errors.As(err, &pgErr) && pgErr.Code == "23505" {
