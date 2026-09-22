@@ -363,7 +363,10 @@ type HealthAnalyticsProblems struct {
 	ByBreed []HealthAnalyticsProblemBucket `json:"by_breed"`
 	// ByPenType is ELEVATED, NON-ELEVATED and unclassified, always in that
 	// order and always all three, so the two real bars never swap places
-	// between windows and an empty side reads as a zero rather than vanishing.
+	// between windows and a side with no cases is still REPORTED. The client
+	// names the empty buckets under the chart: the shared bar chart draws
+	// nothing for a zero, and one bar alone would read as "the farm only has
+	// elevated pens" rather than "non-elevated pens had no problems".
 	ByPenType []HealthAnalyticsProblemBucket `json:"by_pen_type"`
 	// ByAge is ordered youngest band first, with the unknown band last.
 	ByAge []HealthAnalyticsProblemBucket `json:"by_age"`

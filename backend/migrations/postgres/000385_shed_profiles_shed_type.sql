@@ -47,43 +47,55 @@ COMMENT ON COLUMN public.shed_profiles.shed_type IS
 --
 -- Source 2 is a GUESS and is written here only because it is the guess the farm has been reading
 -- for months; the point of the column is that the Pens screen is now where it gets corrected.
--- A pen matching neither is left NULL rather than assigned a side.
-WITH pen_words AS (
-  SELECT sp.location_id,
-         sp.tenant_id,
+-- A pen matching neither is left unclassified rather than assigned a side.
+--
+-- IT DRIVES OFF locations, NOT shed_profiles, AND INSERTS THE MISSING PROFILE ROW. This is the
+-- whole reason the first version of this backfill was wrong, and it was only visible against the
+-- farm's own data: 49 of 122 active pens have no shed_profiles row at all -- including Mandela 1,
+-- which holds 118 live animals -- because a profile row is written lazily, when someone first
+-- sets a capacity or a gender. An UPDATE could never reach them, so the pens that matter most
+-- landed unclassified and dropped off both bars. The retired inference LEFT JOINed the profile
+-- and never noticed.
+INSERT INTO public.shed_profiles (location_id, tenant_id, shed_type)
+SELECT pen.location_id,
+       pen.tenant_id,
+       CASE
+         WHEN pen.words ~ '\melevate' THEN 'elevated'
+         WHEN pen.words ~ '\m(crown|crowned|ground)\M' THEN 'non_elevated'
+         WHEN pen.names ~ '\m(gandhi|castro|ho chi minh|old yashoda|yashoda old)\M' THEN 'non_elevated'
+         WHEN pen.names ~ '\m(mandela|godel|sumathi|new yashoda|yashoda new|yashoda)\M' THEN 'elevated'
+       END
+FROM (
+  SELECT l.location_id,
+         l.tenant_id,
          lower(
            coalesce(l.operational_notes, '') || ' ' ||
            coalesce(parent.operational_notes, '') || ' ' ||
            coalesce(sp.notes, '') || ' ' || coalesce(sp.context::text, '') || ' ' ||
            coalesce(parent_sp.notes, '') || ' ' || coalesce(parent_sp.context::text, '')
          ) AS words,
-         lower(coalesce(l.name, '') || ' ' || coalesce(parent.name, '')) AS names
-  FROM public.shed_profiles sp
-  JOIN public.locations l
-    ON l.location_id = sp.location_id AND l.tenant_id = sp.tenant_id
+         lower(coalesce(l.name, '') || ' ' || coalesce(parent.name, '')) AS names,
+         sp.shed_type AS existing_type
+  FROM public.locations l
   LEFT JOIN public.locations parent
-    ON parent.location_id = l.parent_location_id AND parent.tenant_id = sp.tenant_id
+    ON parent.location_id = l.parent_location_id AND parent.tenant_id = l.tenant_id
+  LEFT JOIN public.shed_profiles sp
+    ON sp.location_id = l.location_id AND sp.tenant_id = l.tenant_id
   LEFT JOIN public.shed_profiles parent_sp
-    ON parent_sp.location_id = l.parent_location_id AND parent_sp.tenant_id = sp.tenant_id
-)
-UPDATE public.shed_profiles sp
-SET shed_type = CASE
-      WHEN pw.words ~ '\melevate' THEN 'elevated'
-      WHEN pw.words ~ '\m(crown|crowned|ground)\M' THEN 'non_elevated'
-      WHEN pw.names ~ '\m(gandhi|castro|ho chi minh|old yashoda|yashoda old)\M' THEN 'non_elevated'
-      WHEN pw.names ~ '\m(mandela|godel|sumathi|new yashoda|yashoda new|yashoda)\M' THEN 'elevated'
-    END,
-    updated_at = now(),
-    row_version = sp.row_version + 1
-FROM pen_words pw
-WHERE pw.location_id = sp.location_id
-  AND pw.tenant_id = sp.tenant_id
-  AND sp.shed_type IS NULL
+    ON parent_sp.location_id = l.parent_location_id AND parent_sp.tenant_id = l.tenant_id
+  WHERE l.location_type = 'shed'
+) pen
+WHERE pen.existing_type IS NULL
   AND (
-    pw.words ~ '\melevate'
-    OR pw.words ~ '\m(crown|crowned|ground)\M'
-    OR pw.names ~ '\m(gandhi|castro|ho chi minh|old yashoda|yashoda old|mandela|godel|sumathi|new yashoda|yashoda new|yashoda)\M'
-  );
+    pen.words ~ '\melevate'
+    OR pen.words ~ '\m(crown|crowned|ground)\M'
+    OR pen.names ~ '\m(gandhi|castro|ho chi minh|old yashoda|yashoda old|mandela|godel|sumathi|new yashoda|yashoda new|yashoda)\M'
+  )
+ON CONFLICT (location_id) DO UPDATE
+  SET shed_type = EXCLUDED.shed_type,
+      updated_at = now(),
+      row_version = public.shed_profiles.row_version + 1
+  WHERE public.shed_profiles.shed_type IS NULL;
 
 -- +goose Down
 ALTER TABLE public.shed_profiles

@@ -6250,6 +6250,10 @@ func pageSpecificCopy(id string) map[string]string {
 			"problems.chart.age.hint": "How old each animal was when the case was opened, not how old it is today. " +
 				"Animals with no date of birth on record are shown in their own band.",
 			"problems.capped_breeds": "Busiest 15 breeds",
+			// The shared bar chart draws no bar for a zero, which on a two-sided comparison
+			// would leave one bar looking like the only kind of pen the farm has. Naming the
+			// empty buckets keeps "nothing happened here" apart from "this was not measured".
+			"problems.none_recorded": "Nothing recorded for",
 
 			"kpi.open.label":         "Open cases now",
 			"kpi.open.sub":           "Being treated today, not a window figure",

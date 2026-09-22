@@ -185,6 +185,15 @@ function hrefWith(searchParams: RouteSearchParams, updates: Record<string, strin
   return qs ? `${PAGE_PATH}?${qs}` : PAGE_PATH;
 }
 
+/**
+ * Names the buckets of a FIXED spine that came back at zero, under the chart that could not
+ * draw them. Renders nothing when every bucket has cases, so a full chart carries no clutter.
+ */
+function EmptyBuckets({ lead, names }: { lead: string; names: string[] }) {
+  if (names.length === 0) return null;
+  return <p className="muted small">{`${lead}: ${names.join(", ")}`}</p>;
+}
+
 function Kpi({
   accent,
   label,
@@ -322,6 +331,13 @@ export async function HealthAnalyticsPage({
   const toBars = (buckets: typeof problems.by_breed): SvgBarDatum[] =>
     buckets.map((bucket) => ({ key: bucket.key, label: bucket.label, value: bucket.cases }));
   const breedBars = toBars(problems.by_breed);
+  // The shared bar chart draws nothing for a zero. On the two FIXED spines that would be a
+  // lie by omission: a pen-type chart showing one bar reads as "the farm only has elevated
+  // pens", and an age chart missing its youngest bands reads as though nobody weighed kids.
+  // The empty buckets are named underneath instead, so a zero stays visibly a zero.
+  const emptyNames = (buckets: typeof problems.by_pen_type) =>
+    buckets.filter((bucket) => bucket.cases === 0).map((bucket) => bucket.label);
+  const noneRecorded = ha(pageContract, "problems.none_recorded");
   const penTypeBars = toBars(problems.by_pen_type);
   const ageBars = toBars(problems.by_age);
 
@@ -543,6 +559,7 @@ export async function HealthAnalyticsPage({
                 emptyLabel={emptyChart}
               />
             </ChartHover>
+            <EmptyBuckets lead={noneRecorded} names={emptyNames(problems.by_pen_type)} />
           </section>
 
           <section className="card wchart" aria-label={ha(pageContract, "problems.chart.age.title")}>
@@ -558,6 +575,7 @@ export async function HealthAnalyticsPage({
                 emptyLabel={emptyChart}
               />
             </ChartHover>
+            <EmptyBuckets lead={noneRecorded} names={emptyNames(problems.by_age)} />
           </section>
         </>
       ) : null}
