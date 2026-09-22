@@ -592,8 +592,18 @@ async function postSlack(payload, attachments, statePath, nextState, inlineShots
     files: uploaded,
     channel_id: channel,
     thread_ts: body.ts,
-    initial_comment: inline.length ? "Full report (every check, every page)" : `Evidence: HTML report + ${uploaded.length - 1} failure screenshot(s)`
+    initial_comment: evidenceComment(inlineShots, uploaded)
   });
+}
+
+// The evidence caption on the final bundle upload. Extracted so it is reachable from --self-test:
+// this line only ever runs on the real upload path, never in dry-run, which is how a stale
+// identifier (`inline` for `inlineShots`) shipped and crashed every live alert after the message
+// had already posted — the alert arrived with no screenshots attached.
+function evidenceComment(inlineShots, uploaded) {
+  return inlineShots.length
+    ? "Full report (every check, every page)"
+    : `Evidence: HTML report + ${uploaded.length - 1} failure screenshot(s)`;
 }
 
 async function slackApi(token, method, payload) {
@@ -808,8 +818,32 @@ function selfTest() {
   if (parityOnlyNoBrowser.shouldPost || !parityOnlyNoBrowser.reason.includes("receipt-only")) {
     throw new Error("self-test: parity-only browser-not-run failures must stay out of Slack");
   }
+  selfTestEvidenceComment();
   selfTestSlowPageGrouping();
   console.log("dashboard Slack notify: self-test passed");
+}
+
+// Guards the caption above, and the whole upload path it lives on, against another stale
+// identifier. The runtime crash this pins was invisible to every existing test because
+// GOATOS_DASHBOARD_SLACK_DRY_RUN=1 returns before any upload happens.
+function selfTestEvidenceComment() {
+  const withShots = evidenceComment([{ file: "a.png" }], [{ id: "1" }, { id: "2" }]);
+  if (withShots !== "Full report (every check, every page)") {
+    throw new Error("self-test: evidence caption changed when per-issue screenshots are present");
+  }
+  const withoutShots = evidenceComment([], [{ id: "1" }, { id: "2" }, { id: "3" }]);
+  if (withoutShots !== "Evidence: HTML report + 2 failure screenshot(s)") {
+    throw new Error(`self-test: evidence caption wrong without per-issue screenshots: ${withoutShots}`);
+  }
+  // The upload path never runs in dry-run, so read it as source and refuse any identifier that is
+  // not in scope there. `inline` was one; this stops the next one reaching production.
+  const source = readFileSync(fileURLToPath(import.meta.url), "utf8");
+  const uploadPath = source.slice(source.indexOf("async function postSlack"), source.indexOf("async function slackApi"));
+  for (const stale of [/[^\w.]inline\./, /[^\w.]shots\./, /[^\w.]attachment\./]) {
+    if (stale.test(uploadPath)) {
+      throw new Error(`self-test: postSlack references an identifier that is not in scope there: ${stale}`);
+    }
+  }
 }
 
 function selfTestSlowPageGrouping() {
