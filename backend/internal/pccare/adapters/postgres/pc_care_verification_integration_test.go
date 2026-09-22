@@ -13,6 +13,7 @@ import (
 	"github.com/vgoats/goatos/backend/internal/pccare/ports"
 	"github.com/vgoats/goatos/backend/internal/platform/biztime"
 	"github.com/vgoats/goatos/backend/internal/platform/pgtest"
+	"github.com/vgoats/goatos/backend/internal/sop/authored"
 )
 
 // PC Care verification gate — proofs of the maintainer-2026-08-21 rules against the REAL
@@ -570,5 +571,81 @@ FROM pc_care_tasks WHERE tenant_id = $1::uuid AND task_id = $2::uuid`,
 	again, err := repo.SweepTaskRollForward(ctx, pcTenant, asOf, 200, 50)
 	if err != nil || again.RolledForward != 0 {
 		t.Fatalf("second sweep = %+v err=%v, want zero", again, err)
+	}
+}
+
+// TestSubmitCarriesTheAnsweredQuestionsToTheVerifier is the PC CARE SOP's (2026-09-22) other
+// half of "what the verifier sees": the captures under their AUTHORED titles with the kind each
+// really is, and the operators' ANSWERS as context rows in farm words.
+//
+// The answers were built and then dropped on the floor -- the payload key was never set -- so a
+// verifier reviewing a card with questions saw the clips and nothing the operator had said. A
+// live run found it; this pins it.
+func TestSubmitCarriesTheAnsweredQuestionsToTheVerifier(t *testing.T) {
+	ctx := context.Background()
+	repo, pool := setupPCCareDB(t, ctx)
+	task := createPCTask(t, ctx, repo, domain.CategoryDeworming, "pc-answers-create")
+
+	scan, err := repo.ScanAnimal(ctx, ports.ScanAnimalParams{
+		TenantID: pcTenant, TaskID: task.TaskID,
+		ScannedIdentifier: "RFID-ANSWERS", ScannedBy: pcOperator1,
+		IdempotencyKey: "pc-answers-scan-1", ActorID: pcOperator1, ActorType: "operator",
+	})
+	if err != nil {
+		t.Fatalf("ScanAnimal: %v", err)
+	}
+	if err := registerSlot(t, ctx, repo, task.TaskID, scan.AnimalRowID, domain.SlotVideo, "proof-answers-1", pcOperator1, "pc-answers-slot-1"); err != nil {
+		t.Fatalf("video slot: %v", err)
+	}
+
+	result, err := repo.SubmitTask(ctx, ports.SubmitTaskParams{
+		TenantID: pcTenant, TaskID: task.TaskID, SubmittedBy: pcOperator1,
+		IdempotencyKey: "pc-answers-submit-1", ActorType: "operator",
+		Slots: domain.SeededRules().CategorySlots(domain.CategoryDeworming),
+		AnswerRows: []authored.AnswerRow{
+			{Title: "Did the animal take the full dose?", Value: "No"},
+			{Title: "Why not?", Value: "She spat half of it out."},
+		},
+	})
+	if err != nil {
+		t.Fatalf("SubmitTask: %v", err)
+	}
+	if !result.NewlyPending {
+		t.Fatalf("submit did not flip the task pending: %+v", result)
+	}
+
+	var payload []byte
+	if err := pool.QueryRow(ctx, `
+SELECT payload FROM outbox_messages
+WHERE tenant_id = $1::uuid AND event_type = 'pc_care.task.pending_verification' AND aggregate_id = $2::uuid
+ORDER BY created_at DESC LIMIT 1`, pcTenant, task.TaskID).Scan(&payload); err != nil {
+		t.Fatalf("read outbox: %v", err)
+	}
+	var envelope struct {
+		Payload struct {
+			MediaRefs []struct {
+				Label string `json:"label"`
+				Kind  string `json:"kind"`
+			} `json:"media_refs"`
+			ContextRows []struct {
+				Label string `json:"label"`
+				Value string `json:"value"`
+			} `json:"context_rows"`
+		} `json:"payload"`
+	}
+	if err := json.Unmarshal(payload, &envelope); err != nil {
+		t.Fatalf("decode payload: %v", err)
+	}
+	if len(envelope.Payload.MediaRefs) != 1 || envelope.Payload.MediaRefs[0].Kind != "video" {
+		t.Fatalf("media refs = %+v, want one video carrying its kind", envelope.Payload.MediaRefs)
+	}
+	if envelope.Payload.MediaRefs[0].Label != "RFID-ANSWERS · Deworming video" {
+		t.Fatalf("media label = %q, want the animal and the authored slot title", envelope.Payload.MediaRefs[0].Label)
+	}
+	if len(envelope.Payload.ContextRows) != 2 {
+		t.Fatalf("context rows = %+v, want the operator's two answers", envelope.Payload.ContextRows)
+	}
+	if envelope.Payload.ContextRows[1].Value != "She spat half of it out." {
+		t.Fatalf("second answer = %+v, want the conditional's own words", envelope.Payload.ContextRows[1])
 	}
 }

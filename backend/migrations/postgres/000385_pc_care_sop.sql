@@ -197,7 +197,11 @@ jsonb_build_object(
   }
 }$seed$::jsonb
 ),
-'{"subject_scope": "goat", "types": ["video", "photo"], "required": true, "minimum_count": 1, "verify_before_apply": false}'::jsonb,
+-- The captures are the CARD's, validated by the pc_care contract; the generic proof policy must
+-- not also demand a capture FIELD, because this document carries no capture form at all
+-- (fields: []). A required policy here refuses every publish, including a re-publish of this very
+-- document -- the procurement.feed_purchase_form shape is the fieldless one.
+'{"subject_scope": "goat", "types": ["video", "photo"], "required": false, "minimum_count": 0, "verify_before_apply": false}'::jsonb,
 '{"min_app_version": "0.2.0", "supported_field_types": ["text", "number", "date_time", "select", "multiselect", "goat_lookup", "animal_id_scan", "location_picker", "photo_proof", "video_proof"], "supported_proof_actions": ["video.capture", "photo.capture"], "supported_rule_operators": ["equals", "not_equals", "empty", "not_empty", "in"]}'::jsonb,
 '{"valid": true, "errors": [], "warnings": [{"code": "seeded", "field": "form_dsl", "message": "Seeded from the PC Care slot table as the pc_care rules section (2026-09-22)."}]}'::jsonb,
 now()
