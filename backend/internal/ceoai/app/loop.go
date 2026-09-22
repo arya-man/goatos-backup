@@ -12,19 +12,19 @@ import (
 // the bound is hit. Each step is one sub-question execution recorded as a
 // StepTrace (internal-only).
 type stepExecutor struct {
-	maxSteps  int
-	wallClock time.Duration
-	now       func() time.Time
+	budget *askBudget
+	now    func() time.Time
 }
 
-func newStepExecutor(maxSteps int, wallClock time.Duration) stepExecutor {
-	if maxSteps <= 0 {
-		maxSteps = 6
+// newStepExecutor binds the executor to the ASK's budget, so a second call to
+// executePlan (the fit re-plan) continues spending the same allowance instead
+// of starting a fresh one.
+func newStepExecutor(budget *askBudget) stepExecutor {
+	now := time.Now
+	if budget != nil && budget.now != nil {
+		now = budget.now
 	}
-	if wallClock <= 0 {
-		wallClock = 25 * time.Second
-	}
-	return stepExecutor{maxSteps: maxSteps, wallClock: wallClock, now: time.Now}
+	return stepExecutor{budget: budget, now: now}
 }
 
 // run executes each sub-question via exec, bounded by maxSteps and wallClock.
@@ -34,24 +34,15 @@ func (se stepExecutor) run(
 	subs []domain.SubQuestion,
 	exec func(context.Context, domain.Actor, domain.SubQuestion) (domain.ToolResult, error),
 ) (results []domain.ToolResult, traces []domain.StepTrace, truncated bool) {
-	deadline := se.now().Add(se.wallClock)
-	steps := 0
 	for _, sub := range subs {
-		if steps >= se.maxSteps || se.now().After(deadline) {
+		if !se.budget.take() {
 			truncated = true
 			break
 		}
-		steps++
 		start := se.now()
-		stepCtx := ctx
-		var cancel context.CancelFunc
-		if d := time.Until(deadline); d > 0 {
-			stepCtx, cancel = context.WithTimeout(ctx, d)
-		}
+		stepCtx, cancel := se.budget.withDeadline(ctx)
 		res, err := exec(stepCtx, actor, sub)
-		if cancel != nil {
-			cancel()
-		}
+		cancel()
 		if err != nil {
 			res = domain.ToolResult{SubQuestionID: sub.ID, Route: sub.Route, ToolName: sub.ToolName, Err: err}
 		}

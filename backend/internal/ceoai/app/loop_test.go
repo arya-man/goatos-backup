@@ -17,7 +17,7 @@ import (
 // failure mode never showed up in the internal admin trace: a failed tool
 // step was indistinguishable from a successful empty one.
 func TestStepExecutorRecordsToolResultErrInTrace(t *testing.T) {
-	se := newStepExecutor(6, 0)
+	se := newStepExecutor(newAskBudget(6, 0, nil))
 	sub := domain.SubQuestion{ID: "0", ToolName: "counts_breakdown", Route: domain.RouteAPI}
 
 	exec := func(_ context.Context, _ domain.Actor, sub domain.SubQuestion) (domain.ToolResult, error) {
@@ -48,7 +48,7 @@ func TestStepExecutorRecordsToolResultErrInTrace(t *testing.T) {
 // existing behavior: a real Go error from exec (e.g. a cancelled sub-step)
 // still lands in the trace.
 func TestStepExecutorGoErrorStillRecorded(t *testing.T) {
-	se := newStepExecutor(6, 0)
+	se := newStepExecutor(newAskBudget(6, 0, nil))
 	sub := domain.SubQuestion{ID: "0", ToolName: "vaccination_overdue", Route: domain.RouteCube}
 	wantErr := errors.New("cube metric service not wired")
 

@@ -56,7 +56,7 @@ func (a *Assistant) normalizePlan(ctx context.Context, q domain.Question, plan *
 // rejected model-drafted SQL once, and retries failed/empty results down the
 // Cube -> API -> Toolbox -> SQL tiers. It returns the model token usage of the
 // repair calls.
-func (a *Assistant) executePlan(ctx context.Context, q domain.Question, subs []domain.SubQuestion, window Window) ([]domain.ToolResult, []domain.StepTrace, bool, TokenUsage) {
+func (a *Assistant) executePlan(ctx context.Context, q domain.Question, subs []domain.SubQuestion, window Window, budget *askBudget) ([]domain.ToolResult, []domain.StepTrace, bool, TokenUsage) {
 	// Thread the resolved as-of business instant into every sub-question's
 	// params (P1-4) so a scoped/as-of question reaches the reader that honors it.
 	injectAsOf(subs, q.AsOf)
@@ -68,7 +68,7 @@ func (a *Assistant) executePlan(ctx context.Context, q domain.Question, subs []d
 	injectWindow(subs, window, q.Text)
 	prepareSQLWindows(subs, window, q.AsOf)
 
-	se := newStepExecutor(a.cfg.MaxSteps, a.cfg.WallClock)
+	se := newStepExecutor(budget)
 	results, traces, truncated := se.run(ctx, q.Actor, subs, a.registry.Execute)
 	if ctx.Err() != nil {
 		return results, traces, truncated, TokenUsage{}
@@ -77,15 +77,15 @@ func (a *Assistant) executePlan(ctx context.Context, q domain.Question, subs []d
 	// One-shot SQL repair (plan v3 D1.3): a model-drafted sql_fallback that the
 	// guard rejected or Postgres refused is re-prompted ONCE with the reason and
 	// the view's schema card, then re-run through the same guard.
-	usage := a.repairSQLResults(ctx, q, subs, results, &traces)
+	usage := a.repairSQLResults(ctx, q, subs, results, &traces, budget)
 
 	// A model read that ran but matched nothing because it filtered on a value
 	// the data does not use gets ONE repair with the column's real values.
-	usage = usage.add(a.repairEmptyFilterReads(ctx, q, subs, results, &traces))
+	usage = usage.add(a.repairEmptyFilterReads(ctx, q, subs, results, &traces, budget))
 
 	// Runtime fallback (P1-3): before composing, retry any errored/empty
 	// result at the next tier in Cube -> API -> Toolbox -> SQL order.
-	a.retryFailedResults(ctx, q.Actor, subs, results)
+	a.retryFailedResults(ctx, q.Actor, subs, results, budget)
 	return results, traces, truncated, usage
 }
 

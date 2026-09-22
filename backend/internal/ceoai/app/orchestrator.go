@@ -333,7 +333,13 @@ func (a *Assistant) ask(ctx context.Context, q domain.Question, opts askOptions)
 	// "querying <route>" frame when tools run — a coarse route label, not reasoning.
 	opts.progress.emit("querying", queryLabel(plan.SubQuestions))
 
-	results, traces, truncated, execUsage := a.executePlan(ctx, q, plan.SubQuestions, window)
+	// ONE allowance for the whole ask. The fit re-plan below calls executePlan
+	// again, and the repair/probe/retry paths inside it are model and database
+	// round trips of their own; they all draw on this budget, so MESHA_AI_MAX_STEPS
+	// and the wall clock bound the QUESTION rather than one loop inside it.
+	budget := newAskBudget(a.cfg.MaxSteps, a.cfg.WallClock, a.now)
+
+	results, traces, truncated, execUsage := a.executePlan(ctx, q, plan.SubQuestions, window, budget)
 	usage = usage.add(execUsage)
 	// If the client disconnected during tool execution, abort rather than
 	// composing/reviewing/persisting an answer for a dead request.
@@ -361,7 +367,7 @@ func (a *Assistant) ask(ctx context.Context, q domain.Question, opts askOptions)
 			if alt, altUsage, ok := a.replanForFit(ctx, q, mem, catalog, feedback); ok {
 				usage = usage.add(altUsage)
 				a.normalizePlan(ctx, q, &alt)
-				altResults, altTraces, altTruncated, altExecUsage := a.executePlan(ctx, q, alt.SubQuestions, window)
+				altResults, altTraces, altTruncated, altExecUsage := a.executePlan(ctx, q, alt.SubQuestions, window, budget)
 				usage = usage.add(altExecUsage)
 				if ctxErr := ctx.Err(); ctxErr != nil {
 					return domain.Answer{}, ctxErr
@@ -438,7 +444,7 @@ func (a *Assistant) ask(ctx context.Context, q domain.Question, opts askOptions)
 		if a.telemetry != nil {
 			a.telemetry.ReviewCorrection(ctx)
 		}
-		if a.retryFailedResults(ctx, q.Actor, plan.SubQuestions, results) {
+		if a.retryFailedResults(ctx, q.Actor, plan.SubQuestions, results, budget) {
 			body, citations, sections, composeErr = comp.composeFor(q.Actor, results)
 			if composeErr != nil {
 				return a.tenantGateRefusal(ctx, q, requestID, start, "compose_retry", composeErr, results, traces), nil

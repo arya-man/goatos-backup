@@ -217,7 +217,7 @@ func resultNeedsFallback(r domain.ToolResult) bool {
 // compose — an unwired API executor (e.g. feed, counts before this fix) meant
 // the user got "isn't available yet" even when Cube or the Toolbox could
 // answer the same question.
-func (a *Assistant) retryFailedResults(ctx context.Context, actor domain.Actor, subs []domain.SubQuestion, results []domain.ToolResult) bool {
+func (a *Assistant) retryFailedResults(ctx context.Context, actor domain.Actor, subs []domain.SubQuestion, results []domain.ToolResult, budget *askBudget) bool {
 	changed := false
 	for i := range results {
 		if i >= len(subs) {
@@ -247,7 +247,13 @@ func (a *Assistant) retryFailedResults(ctx context.Context, actor domain.Actor, 
 				ToolName:    toolName,
 				Params:      fallbackParams(subs[i].Params, results[i].ToolName),
 			}
-			res, err := a.registry.Execute(ctx, actor, retrySub)
+			// A tier retry is another execution and is charged to the ask.
+			if !budget.take() {
+				return changed
+			}
+			retryCtx, cancelRetry := budget.withDeadline(ctx)
+			res, err := a.registry.Execute(retryCtx, actor, retrySub)
+			cancelRetry()
 			if err != nil || res.Err != nil || len(res.Facts) == 0 {
 				continue
 			}

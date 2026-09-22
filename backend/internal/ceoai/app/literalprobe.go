@@ -15,6 +15,7 @@ package app
 // this column".
 
 import (
+	"errors"
 	"context"
 	"fmt"
 	"regexp"
@@ -97,7 +98,7 @@ func literalMatchesAny(lit string, values []string) bool {
 // read against the real values of those dimension columns and returns a
 // repair reason naming every literal that is not a value (empty = nothing to
 // repair: the read is genuinely empty).
-func (a *Assistant) probeFilterValues(ctx context.Context, actor domain.Actor, sql string) string {
+func (a *Assistant) probeFilterValues(ctx context.Context, actor domain.Actor, sql string, budget *askBudget) string {
 	card, ok := reporting.CardForSQL(sql)
 	if !ok {
 		return ""
@@ -117,7 +118,7 @@ func (a *Assistant) probeFilterValues(ctx context.Context, actor domain.Actor, s
 		if !dims[col] || col == strings.ToLower(card.DateColumn) || strings.HasSuffix(col, "_id") || col == "tenant_id" {
 			continue
 		}
-		values, err := a.distinctValues(ctx, actor, card.Name, col)
+		values, err := a.distinctValues(ctx, actor, card.Name, col, budget)
 		if err != nil {
 			// The probe is best-effort — it only explains an empty read — but a
 			// silent skip made a repeatedly failing probe indistinguishable from a
@@ -143,10 +144,16 @@ func (a *Assistant) probeFilterValues(ctx context.Context, actor domain.Actor, s
 
 // distinctValues reads the distinct values of one dimension column of one
 // ceo_ai view for the actor's tenant, through the same guarded executor.
-func (a *Assistant) distinctValues(ctx context.Context, actor domain.Actor, view, col string) ([]string, error) {
+func (a *Assistant) distinctValues(ctx context.Context, actor domain.Actor, view, col string, budget *askBudget) ([]string, error) {
+	// Each probe is its own database round trip and is charged to the ask.
+	if !budget.take() {
+		return nil, errAskBudgetSpent
+	}
+	probeCtx, cancelProbe := budget.withDeadline(ctx)
+	defer cancelProbe()
 	probe := fmt.Sprintf("SELECT 'value' AS label, CAST(%s AS text) AS value FROM ceo_ai.%s WHERE tenant_id = %s AND %s IS NOT NULL GROUP BY %s LIMIT %d",
 		col, view, sqlStringLiteral(actor.TenantID), col, col, maxProbedValues)
-	res, err := a.registry.Execute(ctx, actor, domain.SubQuestion{
+	res, err := a.registry.Execute(probeCtx, actor, domain.SubQuestion{
 		ID: "value_probe", Route: domain.RouteSQL, ToolName: "sql_fallback",
 		// Marked server-authored (not a model draft) so no period contract
 		// applies; it still runs through sqlguard + the tenant-bound executor.
@@ -173,7 +180,7 @@ func (a *Assistant) distinctValues(ctx context.Context, actor domain.Actor, view
 // filter literals and, when one is not a stored value, ask the model ONCE for
 // a corrected draft with the real values, re-run it through the same guard,
 // and keep it when it returns data.
-func (a *Assistant) repairEmptyFilterReads(ctx context.Context, q domain.Question, subs []domain.SubQuestion, results []domain.ToolResult, traces *[]domain.StepTrace) TokenUsage {
+func (a *Assistant) repairEmptyFilterReads(ctx context.Context, q domain.Question, subs []domain.SubQuestion, results []domain.ToolResult, traces *[]domain.StepTrace, budget *askBudget) TokenUsage {
 	var usage TokenUsage
 	repairer, canRepair := a.provider.(sqlRepairer)
 	if !canRepair {
@@ -184,7 +191,7 @@ func (a *Assistant) repairEmptyFilterReads(ctx context.Context, q domain.Questio
 			continue
 		}
 		sql, _ := subs[i].Params["sql"].(string)
-		reason := a.probeFilterValues(ctx, q.Actor, sql)
+		reason := a.probeFilterValues(ctx, q.Actor, sql, budget)
 		if reason == "" {
 			continue
 		}
@@ -200,8 +207,13 @@ func (a *Assistant) repairEmptyFilterReads(ctx context.Context, q domain.Questio
 			}
 			windowText = col + " >= '" + w.FromLiteral() + "' AND " + col + " < '" + w.ToExclusiveLiteral() + "'"
 		}
+		if !budget.take() {
+			continue
+		}
+		repairCtx, cancelRepair := budget.withDeadline(ctx)
 		start := a.now()
-		fixed, u, err := repairer.RepairSQL(ctx, q, sql, reason, cardText, windowText)
+		fixed, u, err := repairer.RepairSQL(repairCtx, q, sql, reason, cardText, windowText)
+		cancelRepair()
 		usage = usage.add(u)
 		if err != nil {
 			continue
@@ -237,3 +249,8 @@ func (a *Assistant) repairEmptyFilterReads(ctx context.Context, q domain.Questio
 	}
 	return usage
 }
+
+// errAskBudgetSpent reports that the ask has no allowance left for this probe.
+// It is never surfaced to the reader: the caller stops probing and the empty
+// read is reported as the empty read it is.
+var errAskBudgetSpent = errors.New("ceoai: ask budget spent")

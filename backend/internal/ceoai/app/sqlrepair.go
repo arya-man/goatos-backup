@@ -289,7 +289,7 @@ func sqlFailureKind(err error) string {
 // (Validate -> ValidateWindow -> executor), and replaces the result on
 // success. A second failure is recorded and left for the existing
 // honest-partial path. It returns the token usage of the repair calls.
-func (a *Assistant) repairSQLResults(ctx context.Context, q domain.Question, subs []domain.SubQuestion, results []domain.ToolResult, traces *[]domain.StepTrace) TokenUsage {
+func (a *Assistant) repairSQLResults(ctx context.Context, q domain.Question, subs []domain.SubQuestion, results []domain.ToolResult, traces *[]domain.StepTrace, budget *askBudget) TokenUsage {
 	var usage TokenUsage
 	repairer, canRepair := a.provider.(sqlRepairer)
 	for i := range results {
@@ -321,8 +321,16 @@ func (a *Assistant) repairSQLResults(ctx context.Context, q domain.Question, sub
 				windowText += " (primary window) or " + col + " >= '" + cw.FromLiteral() + "' AND " + col + " < '" + cw.ToExclusiveLiteral() + "' (comparison window)"
 			}
 		}
+		// A repair is a model round trip and a re-execution: it is charged to the
+		// ASK's allowance, and an exhausted ask keeps the honest failed read
+		// rather than starting work whose answer arrives after the reply.
+		if !budget.take() {
+			continue
+		}
+		repairCtx, cancelRepair := budget.withDeadline(ctx)
 		start := a.now()
-		fixed, u, rerr := repairer.RepairSQL(ctx, q, failedSQL, err.Error(), cardText, windowText)
+		fixed, u, rerr := repairer.RepairSQL(repairCtx, q, failedSQL, err.Error(), cardText, windowText)
+		cancelRepair()
 		usage = usage.add(u)
 		if rerr != nil {
 			a.log.WarnContext(ctx, "ceoai sql repair call failed", "error", rerr)
