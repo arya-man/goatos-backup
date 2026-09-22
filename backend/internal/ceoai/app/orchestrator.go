@@ -21,6 +21,7 @@ import (
 	"github.com/vgoats/goatos/backend/internal/ceoai/app/guard"
 	"github.com/vgoats/goatos/backend/internal/ceoai/domain"
 	"github.com/vgoats/goatos/backend/internal/ceoai/ports"
+	"github.com/vgoats/goatos/backend/internal/ceoai/reporting"
 	"github.com/vgoats/goatos/backend/internal/permissions"
 	"github.com/vgoats/goatos/backend/internal/platform/biztime"
 )
@@ -274,8 +275,28 @@ func (a *Assistant) ask(ctx context.Context, q domain.Question, opts askOptions)
 		return a.plainAnswer(requestID, q.ConversationID, domain.ModePartial,
 			"I couldn't process that request just now. Please try again."), nil
 	}
+	// Audit breadcrumbs for the plan-shaping decisions below.
+	var fitAudit []string
 	if plan.Refusal != "" {
-		return a.refusal(requestID, q.ConversationID, plan.Refusal), nil
+		// A refusal that claims the farm does not RECORD something is checked
+		// against the schema cards before a leader is told it: "no rows yet" and
+		// "not modelled" are different answers, and only the second is a refusal.
+		// One re-plan naming the covering views; if the planner still declines,
+		// the reply says the read could not be built rather than asserting the
+		// records do not exist.
+		if covering := coveringSources(q.Text, reporting.Cards(), catalog); notTrackedRefusal(plan.Refusal) && len(covering) > 0 {
+			fitAudit = append(fitAudit, "refusal_rechecked_against_schema_cards")
+			if alt, altUsage, ok := a.replanForFit(ctx, q, mem, catalog, coverageFeedback(covering)); ok {
+				usage = usage.add(altUsage)
+				plan = alt
+				fitAudit = append(fitAudit, "replanned_after_not_tracked_refusal")
+			} else {
+				return a.refusal(requestID, q.ConversationID,
+					"I couldn't build a read for that question right now. The underlying records exist, so please rephrase it and I'll try again."), nil
+			}
+		} else {
+			return a.refusal(requestID, q.ConversationID, plan.Refusal), nil
+		}
 	}
 
 	// CUBE-FIRST enforcement: a sub-question that maps to a governed Cube metric
@@ -330,7 +351,6 @@ func (a *Assistant) ask(ctx context.Context, q domain.Question, opts askOptions)
 	// records why. Nothing here can widen scope: the re-plan goes through the
 	// same guard, tenant binding and Cube-first normalization as the first.
 	var fitIssues []FitIssue
-	var fitAudit []string
 	if planned {
 		var feedback string
 		var judgeUsage TokenUsage
