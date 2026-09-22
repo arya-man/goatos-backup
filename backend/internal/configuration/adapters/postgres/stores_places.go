@@ -12,6 +12,7 @@ import (
 	"github.com/vgoats/goatos/backend/internal/configuration/domain"
 	"github.com/vgoats/goatos/backend/internal/configuration/ports"
 	"github.com/vgoats/goatos/backend/internal/platform/oploc"
+	"github.com/vgoats/goatos/backend/internal/platform/sqlbind"
 )
 
 // Farm places live on the tables the whole product reads: locations (farm / park / shed rows,
@@ -97,7 +98,8 @@ func (parkStore) update(ctx context.Context, tx pgx.Tx, t, id string, f map[stri
 	if _, err := tx.Exec(ctx, `INSERT INTO park_profiles (location_id, tenant_id) VALUES ($1::uuid, $2) ON CONFLICT (location_id) DO NOTHING`, id, t); err != nil {
 		return "", err
 	}
-	_, err := tx.Exec(ctx, fmt.Sprintf(`UPDATE park_profiles SET %s, updated_at = now(), row_version = row_version + 1 WHERE location_id = $1::uuid AND tenant_id = $2`, set), append([]any{id, t}, args...)...)
+	bound := sqlbind.MustBind(fmt.Sprintf(`UPDATE park_profiles SET %s, updated_at = now(), row_version = row_version + 1 WHERE location_id = $1::uuid AND tenant_id = $2`, set), append([]any{id, t}, args...)...)
+	_, err := tx.Exec(ctx, bound.SQL(), bound.Args()...)
 	return "", err
 }
 
@@ -254,7 +256,8 @@ func (penStore) update(ctx context.Context, tx pgx.Tx, t, id string, f map[strin
 	if _, err := tx.Exec(ctx, `INSERT INTO shed_profiles (location_id, tenant_id) VALUES ($1::uuid, $2) ON CONFLICT (location_id) DO NOTHING`, id, t); err != nil {
 		return "", err
 	}
-	_, err := tx.Exec(ctx, fmt.Sprintf(`UPDATE shed_profiles SET %s, updated_at = now(), row_version = row_version + 1 WHERE location_id = $1::uuid AND tenant_id = $2`, set), append([]any{id, t}, args...)...)
+	bound := sqlbind.MustBind(fmt.Sprintf(`UPDATE shed_profiles SET %s, updated_at = now(), row_version = row_version + 1 WHERE location_id = $1::uuid AND tenant_id = $2`, set), append([]any{id, t}, args...)...)
+	_, err := tx.Exec(ctx, bound.SQL(), bound.Args()...)
 	return "", err
 }
 
@@ -449,7 +452,8 @@ func updateLocation(ctx context.Context, tx pgx.Tx, t, id string, f map[string]a
 	} else {
 		set += ", updated_at = now(), row_version = row_version + 1"
 	}
-	tag, err := tx.Exec(ctx, fmt.Sprintf(`UPDATE locations SET %s WHERE tenant_id = $1 AND location_id = $2::uuid AND ($3 = 0 OR row_version = $3)`, set), append([]any{t, id, rv}, args...)...)
+	bound := sqlbind.MustBind(fmt.Sprintf(`UPDATE locations SET %s WHERE tenant_id = $1 AND location_id = $2::uuid AND ($3 = 0 OR row_version = $3)`, set), append([]any{t, id, rv}, args...)...)
+	tag, err := tx.Exec(ctx, bound.SQL(), bound.Args()...)
 	if err != nil {
 		return locationWriteError(err, noun)
 	}
@@ -471,7 +475,8 @@ func setLocationStatus(ctx context.Context, tx pgx.Tx, t, id, status string, rv 
 }
 
 func deleteLocation(ctx context.Context, tx pgx.Tx, t, id string, rv int, profileTable string) error {
-	if _, err := tx.Exec(ctx, fmt.Sprintf(`DELETE FROM %s WHERE tenant_id = $1 AND location_id = $2::uuid`, profileTable), t, id); err != nil {
+	bound := sqlbind.MustBind(fmt.Sprintf(`DELETE FROM %s WHERE tenant_id = $1 AND location_id = $2::uuid`, profileTable), t, id)
+	if _, err := tx.Exec(ctx, bound.SQL(), bound.Args()...); err != nil {
 		return err
 	}
 	if _, err := tx.Exec(ctx, `DELETE FROM location_operational_attributes WHERE tenant_id = $1 AND location_id = $2::uuid`, t, id); err != nil {

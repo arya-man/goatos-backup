@@ -5712,10 +5712,10 @@ func pageSpecificCopy(id string) map[string]string {
 
 			// Time-wise. It follows the same selected window as the other tabs so every tab slices
 			// one population. The default window begins at the first dense weighing run.
-			"section.time.title":         "Weekly growth",
-			"section.time.caption":       "Daily gain by week inside the selected period under the selected weighing mode. The default period starts on 03/08/2026, where the reliable weighing run begins. Park, sex and origin filters still apply.",
-			"section.time.aria":          "Daily gain by week",
-			"empty.time.body":            "No week in this period has a kid or a pen weighed twice.",
+			"section.time.title":   "Weekly growth",
+			"section.time.caption": "Daily gain by week inside the selected period under the selected weighing mode. The default period starts on 03/08/2026, where the reliable weighing run begins. Park, sex and origin filters still apply.",
+			"section.time.aria":    "Daily gain by week",
+			"empty.time.body":      "No week in this period has a kid or a pen weighed twice.",
 			// The chip beside every bar on these charts counts ANIMALS, not kids. Nothing in
 			// weight_demographics.go filters by age: management_stage is a reporting dimension
 			// there, never a predicate, so a scanned weigh counts whatever the tag resolves to and

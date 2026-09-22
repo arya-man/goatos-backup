@@ -12,6 +12,7 @@ import (
 	"github.com/vgoats/goatos/backend/internal/health/domain"
 	"github.com/vgoats/goatos/backend/internal/platform/biztime"
 	"github.com/vgoats/goatos/backend/internal/platform/oploc"
+	"github.com/vgoats/goatos/backend/internal/platform/sqlbind"
 )
 
 // Health Analytics — the Health vertical's leadership read.
@@ -963,7 +964,8 @@ WHERE g.tenant_id = $1::uuid
 // rendering the raw uuid it was parked as — a sibling queue once shipped
 // `Raised by <uuid>` to operators, and that is the defect being avoided.
 func (r *Repository) attachDeathLocations(ctx context.Context, tenantID string, shedIDs []string, out *domain.HealthAnalytics) error {
-	rows, err := r.pool.Query(ctx, oploc.ShedScopedLocationBatchSQL, tenantID, shedIDs)
+	bound := sqlbind.MustBind(oploc.ShedScopedLocationBatchSQL, tenantID, shedIDs)
+	rows, err := r.pool.Query(ctx, bound.SQL(), bound.Args()...)
 	if err != nil {
 		return fmt.Errorf("health analytics: pen names query: %w", err)
 	}
