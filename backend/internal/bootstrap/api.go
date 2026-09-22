@@ -433,7 +433,9 @@ func NewAPI(ctx context.Context, cfg Config, log *slog.Logger) (*API, error) {
 		return nil, err
 	}
 
-	pool, err := platformpg.Connect(ctx, cfg.Postgres)
+	pgCfg := cfg.Postgres
+	pgCfg.ApplicationName = platformpg.ServiceApplicationName("api")
+	pool, err := platformpg.Connect(ctx, pgCfg)
 	if err != nil {
 		return nil, err
 	}

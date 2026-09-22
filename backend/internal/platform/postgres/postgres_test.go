@@ -36,20 +36,21 @@ func TestConfigFromEnvIncludesBoundedMinConns(t *testing.T) {
 	}
 }
 
-func TestConfigureOLTPRuntimeTagsServiceApplicationName(t *testing.T) {
-	cases := map[string]string{
-		"postgres://u@h/db":                                   "goatos-backend",
-		"postgres://u@h/db?application_name=psql":             "goatos-backend",
-		"postgres://u@h/db?application_name=goatos-analytics": "goatos-analytics",
+func TestApplyApplicationNameIsOptIn(t *testing.T) {
+	cases := []struct{ dsn, name, want string }{
+		{"postgres://u@h/db", "", ""},
+		{"postgres://u@h/db?application_name=psql", "", "psql"},
+		{"postgres://u@h/db", ServiceApplicationName("api"), "goatos-api"},
 	}
-	for dsn, want := range cases {
-		cfg, err := pgxpool.ParseConfig(dsn)
+	for _, tc := range cases {
+		cfg, err := pgxpool.ParseConfig(tc.dsn)
 		if err != nil {
-			t.Fatalf("parse %q: %v", dsn, err)
+			t.Fatalf("parse %q: %v", tc.dsn, err)
 		}
 		configureOLTPRuntime(cfg)
-		if got := cfg.ConnConfig.RuntimeParams["application_name"]; got != want {
-			t.Fatalf("%q: application_name = %q, want %q", dsn, got, want)
+		applyApplicationName(cfg, tc.name)
+		if got := cfg.ConnConfig.RuntimeParams["application_name"]; got != tc.want {
+			t.Fatalf("%q/%q: application_name = %q, want %q", tc.dsn, tc.name, got, tc.want)
 		}
 	}
 }

@@ -67,16 +67,22 @@ SELECT * FROM audit.db_changes WHERE txid = <txid> ORDER BY id;
 
 ## How service traffic is excluded
 
-`platform/postgres.Connect`, which every Goat OS binary uses (API, workers,
-migrate), sets `application_name = 'goatos-backend'` unless the DSN already sets
-a `goatos-*` name. Each audit trigger has
-`WHEN (current_setting('application_name') NOT LIKE 'goatos-%')`, so for service
+Tagging is **opt-in per deployed binary**. Only the deployed Cloud Run services and
+scheduled jobs (API, workers, sweepers, migrate) set
+`Config.ApplicationName = platformpg.ServiceApplicationName("<binary>")`, which
+gives their pool `application_name = 'goatos-<binary>'`. Each audit trigger has
+`WHEN (current_setting('application_name') NOT LIKE 'goatos-%')`, so for those
 sessions Postgres evaluates that condition in C and never runs the trigger
 function. API write latency is unaffected.
 
-The one-off `backend/cmd/*` tools that open their own `pgxpool.New` / `pgx.Connect`
-(imports, backfills, seeds) are **not** tagged, so their writes are audited. That
-is intended: they are manual operator actions.
+Everything else stays untagged and **is audited**: every operator CLI under
+`backend/cmd/*` (repairs such as `repair-obligation-duplicates`, recomputes,
+backfills, seeds, imports), whether it uses `platformpg.Connect` or its own pool.
+
+`backend/internal/platform/postgres/service_application_name_guard_test.go` pins
+the exact list of service-tagged binaries. Tagging any other binary fails the
+test. Adding a name there is a deliberate review decision that exempts that
+binary from the audit; never do it just to fix a build.
 
 ## Operations
 

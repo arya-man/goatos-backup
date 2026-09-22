@@ -6,7 +6,6 @@ import (
 	"fmt"
 	"os"
 	"strconv"
-	"strings"
 	"time"
 
 	"github.com/exaring/otelpgx"
@@ -20,6 +19,9 @@ type Config struct {
 	MinConns       int32
 	ConnectTimeout time.Duration
 	QueryTimeout   time.Duration
+	// ApplicationName is set only by deployed services (ServiceApplicationName).
+	// Empty leaves the DSN/driver default, which the manual change audit records.
+	ApplicationName string
 }
 
 // ConfigFromEnv builds pool config from environment variables without
@@ -48,6 +50,7 @@ func Connect(ctx context.Context, cfg Config) (*pgxpool.Pool, error) {
 	poolCfg.MaxConns = cfg.MaxConns
 	poolCfg.MinConns = cfg.MinConns
 	configureOLTPRuntime(poolCfg)
+	applyApplicationName(poolCfg, cfg.ApplicationName)
 	// otelpgx attaches a span per query/batch/copy/prepare/acquire (using the
 	// OTel global TracerProvider/MeterProvider, which observability.SetupTelemetry
 	// installs) plus its own duration/error metrics. It defaults to
@@ -98,21 +101,27 @@ func configureOLTPRuntime(poolCfg *pgxpool.Config) {
 		poolCfg.ConnConfig.RuntimeParams = map[string]string{}
 	}
 	poolCfg.ConnConfig.RuntimeParams["jit"] = "off"
-	tagServiceApplicationName(poolCfg)
 }
 
 // ServiceApplicationNamePrefix marks a connection as Goat OS service traffic. The
 // manual DB change audit triggers (migration 000387) skip sessions whose
-// application_name starts with this prefix and record every other session, so
-// psql / agent / one-off script writes are audited while API writes are not.
-// See docs/runbooks/manual-db-change-audit.md.
+// application_name starts with this prefix and record every other session.
+// Only deployed services / scheduled jobs opt in via ServiceApplicationName;
+// operator CLIs (repairs, backfills, seeds) stay untagged so their writes are
+// audited. See docs/runbooks/manual-db-change-audit.md.
 const ServiceApplicationNamePrefix = "goatos-"
 
-func tagServiceApplicationName(poolCfg *pgxpool.Config) {
-	if strings.HasPrefix(poolCfg.ConnConfig.RuntimeParams["application_name"], ServiceApplicationNamePrefix) {
+// ServiceApplicationName returns the application_name a deployed service binary
+// sets on Config.ApplicationName.
+func ServiceApplicationName(binary string) string {
+	return ServiceApplicationNamePrefix + binary
+}
+
+func applyApplicationName(poolCfg *pgxpool.Config, name string) {
+	if name == "" {
 		return
 	}
-	poolCfg.ConnConfig.RuntimeParams["application_name"] = ServiceApplicationNamePrefix + "backend"
+	poolCfg.ConnConfig.RuntimeParams["application_name"] = name
 }
 
 // Ping verifies database readiness within the provided timeout.

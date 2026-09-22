@@ -97,6 +97,7 @@ func run(ctx context.Context, args []string) error {
 	defer func() { _ = observability.FlushWithTimeout(shutdown, observability.DefaultShutdownTimeout) }()
 
 	pgCfg := platformpg.ConfigFromEnv()
+	pgCfg.ApplicationName = platformpg.ServiceApplicationName("domain-event-consumer")
 	pool, err := platformpg.Connect(ctx, pgCfg)
 	if err != nil {
 		return err

@@ -77,6 +77,7 @@ func run() error {
 	defer cancel()
 
 	pgCfg := platformpg.ConfigFromEnv()
+	pgCfg.ApplicationName = platformpg.ServiceApplicationName("herd-signals-mqtt-bridge")
 	pool, err := platformpg.Connect(ctx, pgCfg)
 	if err != nil {
 		return fmt.Errorf("connect postgres: %w", err)

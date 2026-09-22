@@ -46,6 +46,7 @@ func run(args []string) error {
 	defer func() { _ = observability.FlushWithTimeout(shutdown, observability.DefaultShutdownTimeout) }()
 
 	pgCfg := platformpg.ConfigFromEnv()
+	pgCfg.ApplicationName = platformpg.ServiceApplicationName("idempotency-key-sweeper")
 	pool, err := platformpg.Connect(ctx, pgCfg)
 	if err != nil {
 		return err

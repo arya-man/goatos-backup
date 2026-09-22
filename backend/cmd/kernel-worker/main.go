@@ -50,6 +50,7 @@ func run(ctx context.Context, args []string) error {
 	logger := observability.New(observability.Config{Service: "kernel-worker"})
 
 	pgCfg := platformpg.ConfigFromEnv()
+	pgCfg.ApplicationName = platformpg.ServiceApplicationName("kernel-worker")
 	pool, err := platformpg.Connect(ctx, pgCfg)
 	if err != nil {
 		return err

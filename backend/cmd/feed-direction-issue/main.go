@@ -67,6 +67,7 @@ func run(args []string, now func() time.Time) error {
 	defer cancel()
 
 	pgCfg := platformpg.ConfigFromEnv()
+	pgCfg.ApplicationName = platformpg.ServiceApplicationName("feed-direction-issue")
 	pool, err := platformpg.Connect(ctx, pgCfg)
 	if err != nil {
 		return err

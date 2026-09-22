@@ -45,6 +45,7 @@ func run(args []string) error {
 	logger := observability.New(observability.Config{Service: "analytics-rollup"})
 
 	pgCfg := platformpg.ConfigFromEnv()
+	pgCfg.ApplicationName = platformpg.ServiceApplicationName("analytics-rollup")
 	pool, err := platformpg.Connect(ctx, pgCfg)
 	if err != nil {
 		return err

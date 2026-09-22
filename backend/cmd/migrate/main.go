@@ -67,6 +67,7 @@ func run(ctx context.Context, args []string, log *slog.Logger) error {
 	if err := validateMigrationTarget(pgCfg.DatabaseURL); err != nil {
 		return err
 	}
+	pgCfg.ApplicationName = platformpg.ServiceApplicationName("migrate")
 	pool, err := platformpg.Connect(ctx, pgCfg)
 	if err != nil {
 		return err
