@@ -26,6 +26,9 @@ import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.job
 import kotlinx.coroutines.launch
+import kotlinx.serialization.json.buildJsonArray
+import kotlinx.serialization.json.buildJsonObject
+import kotlinx.serialization.json.put
 import kotlin.coroutines.cancellation.CancellationException
 import sg.mesha.goatos.BuildConfig
 import sg.mesha.goatos.core.analytics.AnalyticsEvents
@@ -1985,6 +1988,22 @@ class ScanViewModel @Inject constructor(
                         mimeType = captured.mimeType,
                         caption = vaccinationProofCaption(row, state.value.cohortLabel, taskDetail.value),
                         rfidTag = row.primaryTag.takeIf { it.isNotBlank() },
+                        obligationId = row.obligationId.takeIf { it.isNotBlank() },
+                        obligationRowVersion = row.obligationRowVersion,
+                        obligationCyclesJson = pendingScanCommit?.rosterRows
+                            ?.filter { it.obligationId.isNotBlank() }
+                            ?.distinctBy { it.obligationId }
+                            ?.takeIf { it.isNotEmpty() }
+                            ?.let { rows ->
+                                buildJsonArray {
+                                    rows.forEach { cycleRow ->
+                                        add(buildJsonObject {
+                                            put("obligation_id", cycleRow.obligationId)
+                                            put("obligation_row_version", cycleRow.obligationRowVersion)
+                                        })
+                                    }
+                                }.toString()
+                            },
                         scopeType = "task",
                         scopeId = selectedTaskId,
                         capturedStartMs = captured.startedAtMs,

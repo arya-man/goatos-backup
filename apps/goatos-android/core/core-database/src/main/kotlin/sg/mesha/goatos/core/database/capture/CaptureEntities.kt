@@ -425,6 +425,11 @@ data class ProofCaptureEntity(
     val caption: String? = null,
     /** Human-readable RFID/tag to burn on individual-animal overlays. Never a goat UUID. */
     val rfidTag: String? = null,
+    /** Optional vaccination obligation cycle this proof was recorded for. Persisted so a late
+     *  upload retry after verifier rework cannot satisfy a newer reopened obligation. */
+    val obligationId: String? = null,
+    val obligationRowVersion: Int = 0,
+    val obligationCyclesJson: String? = null,
     val capturedAtMs: Long,
     /** Freshness/attribution metadata (docs/mobile/proof-capture-sync-and-e2e.md
      *  "Capture-source rules"): device-clock capture/import start/stop, so a verifier can see
