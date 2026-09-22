@@ -18,6 +18,7 @@ import (
 	"github.com/vgoats/goatos/backend/internal/pccare/domain"
 	"github.com/vgoats/goatos/backend/internal/pccare/ports"
 	"github.com/vgoats/goatos/backend/internal/platform/audit"
+	"github.com/vgoats/goatos/backend/internal/platform/sqlbind"
 )
 
 const (
@@ -840,11 +841,12 @@ func (r *Repository) ListTasks(ctx context.Context, q ports.ListTasksQuery) (por
 	if q.RemovalCutoff.Valid() {
 		removalCutoffSQLTime = q.RemovalCutoff.SQLTime()
 	}
-	rows, err := r.pool.Query(ctx, "SELECT"+taskSelectColumns+taskFromJoins+listTasksPageSQL,
+	boundList := sqlbind.MustBind("SELECT"+taskSelectColumns+taskFromJoins+listTasksPageSQL,
 		q.TenantID, q.DueBusinessDate, q.TenantWide, q.AuthorizedParkIDs,
 		q.ParkID, q.Category, q.AssigneeUserID, limit+1,
 		afterPark, afterShed, afterPartition, afterCategory, afterTask, q.CurrentOrCarry,
 		now, removalCutoffSQLTime)
+	rows, err := r.pool.Query(ctx, boundList.SQL(), boundList.Args()...)
 	if err != nil {
 		return ports.TaskPage{}, fmt.Errorf("pccare: list tasks: %w", err)
 	}
@@ -1076,7 +1078,7 @@ func (r *Repository) PlannerParkSheds(ctx context.Context, tenantID, parkID, cat
 	// live), joined on that exact key; pagination=keyset on the ORDER BY tuple (shed name,
 	// shed_id, partition_key); scope=tenant_id + park_id + category + planned date.
 	// scale-guard:ignore: one keyset page of ONE park's pen catalog (physical infrastructure, never herd-sized); the existing-task join hits pc_care_tasks_natural_uq.
-	rows, err := r.pool.Query(ctx, `
+	boundPens := sqlbind.MustBind(`
 WITH pens AS (
   SELECT shed.location_id AS shed_id, shed.name AS shed_name,
          COALESCE(NULLIF(BTRIM(sp.partition_label), ''), '') AS partition_label,
@@ -1112,6 +1114,7 @@ ORDER BY p.shed_name, p.shed_id::text, p.partition_key
 LIMIT $8`,
 		tenantID, parkID, category, plannedBusinessDate,
 		afterName, afterShed, afterPartition, limit+1)
+	rows, err := r.pool.Query(ctx, boundPens.SQL(), boundPens.Args()...)
 	if err != nil {
 		return ports.PlannerParkSheds{}, fmt.Errorf("pccare: planner park sheds: %w", err)
 	}

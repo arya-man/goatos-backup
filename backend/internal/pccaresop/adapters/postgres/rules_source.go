@@ -18,6 +18,7 @@ import (
 
 	"github.com/vgoats/goatos/backend/internal/pccare/domain"
 	"github.com/vgoats/goatos/backend/internal/pccare/ports"
+	"github.com/vgoats/goatos/backend/internal/platform/sqlbind"
 )
 
 // RulesSource is the Postgres SOPRulesSource. One indexed lookup per call.
@@ -83,7 +84,10 @@ func (s *RulesSource) read(ctx context.Context, sql string, args ...any) (domain
 	}
 	var version int
 	var raw []byte
-	err := s.pool.QueryRow(ctx, sql, args...).Scan(&version, &raw)
+	// One of the two package-level statements with its own arguments; binding them together is
+	// what keeps a future edit from pruning a placeholder without its value.
+	bound := sqlbind.MustBind(sql, args...)
+	err := s.pool.QueryRow(ctx, bound.SQL(), bound.Args()...).Scan(&version, &raw)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return domain.Rules{}, false, nil
 	}
