@@ -4,6 +4,7 @@ import android.graphics.Point
 import androidx.test.platform.app.InstrumentationRegistry
 import androidx.test.uiautomator.By
 import androidx.test.uiautomator.BySelector
+import androidx.test.uiautomator.StaleObjectException
 import androidx.test.uiautomator.UiDevice
 import androidx.test.uiautomator.Until
 import org.junit.Assume.assumeTrue
@@ -130,10 +131,37 @@ internal object GoatOsJourney {
 
     fun sees(selector: BySelector): Boolean = device.hasObject(selector)
 
-    fun visibleText(): String =
-        device.findObjects(By.clazz("android.widget.TextView"))
-            .mapNotNull { runCatching { it.text }.getOrNull() }
-            .joinToString(" | ")
+    /**
+     * One sweep of the screen's TextViews. [vanishedNodes] counts the nodes that
+     * disappeared between being found and being read — an ordinary race on a live
+     * phone, and not something the app did wrong.
+     */
+    data class ScreenText(val text: String, val vanishedNodes: Int)
+
+    /**
+     * Reads every TextView on screen.
+     *
+     * A node that goes stale between findObjects() and the read is skipped and
+     * counted: the screen moved on underneath us, which is normal while an app is
+     * still drawing. Anything else thrown is a real fault and is left to propagate.
+     * Swallowing it here would turn a broken harness into an apparently empty
+     * screen and accuse the app of a blank-screen bug it does not have.
+     */
+    fun readScreen(): ScreenText {
+        var vanished = 0
+        val texts = device.findObjects(By.clazz("android.widget.TextView"))
+            .mapNotNull { node ->
+                try {
+                    node.text
+                } catch (gone: StaleObjectException) {
+                    vanished += 1
+                    null
+                }
+            }
+        return ScreenText(texts.joinToString(" | "), vanished)
+    }
+
+    fun visibleText(): String = readScreen().text
 
     /**
      * Something crashed or died: Android's own "keeps stopping" dialog, or the app
@@ -152,7 +180,10 @@ internal object GoatOsJourney {
      * A screen with nothing on it is a failure a person sees, and it is the exact
      * shape of "the app showed empty screens instead of telling them to update".
      */
-    fun screenIsBlank(): Boolean = visibleText().isBlank()
+    fun screenIsBlank(): Boolean {
+        val screen = readScreen()
+        return screen.text.isBlank() && screen.vanishedNodes == 0
+    }
 
     // --- evidence ------------------------------------------------------------
 

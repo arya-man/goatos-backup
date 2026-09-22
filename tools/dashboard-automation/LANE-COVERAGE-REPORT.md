@@ -14,21 +14,21 @@ Window: `git log origin/main --since=2026-08-01T00:00:00+05:30 --no-merges`, pin
 
 ## Reconciliation - count in equals count out
 
-**Commits in the window: 4108.** Every commit is assigned exactly one primary bucket.
+**Commits in the window: 4125.** Every commit is assigned exactly one primary bucket.
 A commit that also matters to another lane carries an `alsoLanes` field on its row; that field
 never moves the commit between buckets, so the arithmetic below stays exact.
 
 | Bucket | Commits |
 | --- | ---: |
 | Lane 1 - already covered by PR #350's web ledger (not re-classified here) | 1023 |
-| Lane 2 - read-only data sanity SQL on the STG replica | 170 |
-| Lane 3 - read-only production API contract + latency | 609 |
+| Lane 2 - read-only data sanity SQL on the STG replica | 171 |
+| Lane 3 - read-only production API contract + latency | 612 |
 | Lane 4 - write-path journeys on the OCI writable clone | 426 |
 | Lane 5 - Android on Firebase Test Lab | 1051 |
-| Parked - not automatable, with a reason on every row | 829 |
-| **Total** | **4108** |
+| Parked - not automatable, with a reason on every row | 842 |
+| **Total** | **4125** |
 
-`1023 + 170 + 609 + 426 + 1051 + 829 = 4108` and the window holds `4108` commits, so **4108 == 4108**.
+`1023 + 171 + 612 + 426 + 1051 + 842 = 4125` and the window holds `4125` commits, so **4125 == 4125**.
 
 ### How the bucket is decided (deterministic, in this order)
 
