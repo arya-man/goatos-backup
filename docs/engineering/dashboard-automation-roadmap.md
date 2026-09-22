@@ -383,3 +383,24 @@ run on the box yet, so this layer is not yet trusted unattended; and lane 2's re
 per-issue screenshot, the fallback screenshots are no longer attached. That line belongs to lane 4
 and is being fixed.
 
+### Two rules learned the hard way, 2026-09-23
+
+**Never hotfix the box's checkout.** `run-oci.sh` refuses to run when `git status --porcelain
+--untracked-files=no` is non-empty, and separately when `HEAD` does not equal the local
+`origin/main` ref. Both guards are right: a receipt's `repoSha` is a lie if the tree has been
+edited, and automation that drifts from main is testing something nobody reviewed. A one-word
+hotfix applied to `notify-slack.mjs` on the box — to make alerts carry their screenshots before
+PR #367 landed — is exactly what made the 04:00 sweep **die at startup**, exit 2 in 753ms, without
+even creating a run directory. The fix is always: land it, then fast-forward the box. Note that
+`git fetch` alone breaks the second guard, because `origin/main` moves while `HEAD` does not — the
+box must be fetched and moved to `origin/main` in one step.
+
+**Resolve schema from `information_schema`, never from memory.** PR #356 landed a breaking rename:
+`shed_profiles.shed_type` dropped, `shed_partitions.shed_type` added, plus `inventory_items` and
+`health_protocol_steps.medicine_item_id`. Verified live on the replica. Lane 2's checks are correct
+across that change only because they resolved every column against the live database rather than
+from a remembered schema — and pens, partitions and the medicine catalogue are precisely the tables
+they read. A lane written from a remembered schema breaks **silently** against exactly this kind of
+change: the query errors, the check is skipped, and nothing on any screen says so. This is a rule
+for every lane, not a habit of lane 2's.
+
