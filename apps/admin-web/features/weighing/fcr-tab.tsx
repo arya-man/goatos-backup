@@ -31,7 +31,7 @@ function KPI({ label, value, unit, sub, tone }: { label: string; value: string; 
     <div className="kpi">
       <div className="lab">{label}</div>
       <div className="val">
-        {value} {unit ? <small className="fcr-kpi-unit">{unit}</small> : null}
+        {value} {unit ? <small className="fcr-kpi-unit" style={{ color: "var(--muted)" }}>{unit}</small> : null}
       </div>
       {sub ? <div className={`dl ${tone === "warn" ? "warn" : "muted"}`}>{sub}</div> : null}
     </div>
