@@ -173,7 +173,7 @@ func ffuRowByPen(t *testing.T, got domain.FeedFollowUp, display string) domain.F
 // This is the OneToMany proof: the sheet side fans out per session and per day,
 // and the herd side fans out per animal, so both many-sides are present at once
 // on one pen.
-func TestFeedFollowUpOneToManySheetRowsStayOnePenRow(t *testing.T) {
+func TestFeedFollowUpOneToManyLockedDirectionRowsStayOnePenRow(t *testing.T) {
 	ctx := context.Background()
 	repo, pool := setupIssueDB(t, ctx)
 	issuedAt := time.Date(2026, 7, 29, 9, 0, 0, 0, biztime.DefaultLocation())
@@ -312,7 +312,7 @@ func TestFeedFollowUpMultipleDimensionsKeepWordedAndNumericPensApart(t *testing.
 // The read is a WHOLE-WINDOW aggregate with no paging: every pen that had an
 // event is served, and the totals range over exactly the served rows. A client
 // that pages does so over the bounded set it was given.
-func TestFeedFollowUpPaginationIsWholeWindowAndTotalsMatchTheRows(t *testing.T) {
+func TestFeedFollowUpPaginationIsWholeWindowAndTotalsMatchTheServedRows(t *testing.T) {
 	ctx := context.Background()
 	repo, pool := setupIssueDB(t, ctx)
 	issuedAt := time.Date(2026, 7, 29, 9, 0, 0, 0, biztime.DefaultLocation())
@@ -373,7 +373,7 @@ func TestFeedFollowUpPaginationIsWholeWindowAndTotalsMatchTheRows(t *testing.T) 
 // A park-scoped caller sees their park and nothing else -- the scope predicate
 // binds BOTH reads, so a sale in another park cannot leak in through the herd
 // side while the sheet side is filtered.
-func TestFeedFollowUpParkScopeBindsTheHerdSideToo(t *testing.T) {
+func TestFeedFollowUpParkScopeBindsBothReadsIncludingTheHerdSide(t *testing.T) {
 	ctx := context.Background()
 	repo, pool := setupIssueDB(t, ctx)
 	issuedAt := time.Date(2026, 7, 29, 9, 0, 0, 0, biztime.DefaultLocation())
@@ -423,7 +423,7 @@ func TestFeedFollowUpParkScopeBindsTheHerdSideToo(t *testing.T) {
 
 // Every pen lands in exactly ONE verdict bucket, the buckets sum to the rows,
 // and each bucket means what it says.
-func TestFeedFollowUpStatusBucketsAreDisjointAndCoverEveryPen(t *testing.T) {
+func TestFeedFollowUpStatusBucketsStayDisjointUnderTheTwoDayWindow(t *testing.T) {
 	ctx := context.Background()
 	repo, pool := setupIssueDB(t, ctx)
 	issuedAt := time.Date(2026, 7, 29, 9, 0, 0, 0, biztime.DefaultLocation())
