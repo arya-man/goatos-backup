@@ -3170,8 +3170,17 @@ internal fun pcCareEvaluateSubmit(
             val peerCaptured = serverSlots.any { it.fieldKey == slot.fieldKey && it.proofRef.isNotBlank() }
             when {
                 localQueuedOrSynced || peerCaptured -> Unit
+                // Recorded and still going up: WAIT, whether the card needs it or not. Submitting
+                // over an upload in flight would land the task without evidence the operator
+                // actually captured.
                 localRow != null -> uploadsInFlight++
-                else -> missing = true
+                // Not recorded at all. Only a COMPULSORY capture holds the submit -- the server
+                // gates on required_slot_keys alone (pccare/app.service requiredKeys), so gating
+                // on every slot here made `required = false` mean nothing on the phone: an
+                // optional capture could never be skipped. `required` defaults to TRUE on the
+                // wire, so a server predating the card still holds every slot compulsory.
+                slot.required -> missing = true
+                else -> Unit
             }
         }
         if (missing) animalsMissingVideos++
@@ -3215,7 +3224,11 @@ internal fun pcCareEvaluateTaskProofSubmit(
             .maxByOrNull { it.capturedAtMs }
         if (localRow?.syncStatus == CaptureSyncStatus.SYNCED && !localRow.serverProofId.isNullOrBlank()) return@forEach
         if (localRow?.outboxItemId?.isNotBlank() == true) return@forEach
+        // Recording right now blocks whatever the card says: the clip is seconds from existing.
         if (capturingSlotKey == slot.fieldKey) return PcCareSubmitEvaluation(ready = false, blockedReason = "Proof is still recording") // mobile-contract:ignore: device-local pre-sync gate copy
+        // Nothing recorded: only a COMPULSORY capture holds the card, the same rule the server
+        // applies. An OPTIONAL capture on a removal card may be left unshot.
+        if (!slot.required) return@forEach
         return PcCareSubmitEvaluation(ready = false, blockedReason = missingCopy)
     }
     return PcCareSubmitEvaluation(ready = true)

@@ -86,6 +86,66 @@ class PcCareSubmitGateTest {
         assertEquals("1 animal still needs videos", evaluation.blockedReason)
     }
 
+    // An OPTIONAL capture may be skipped: the server gates the submit on required_slot_keys
+    // alone, so gating on every slot made `required = false` mean nothing on the phone — the
+    // operator could never finish a task carrying one (PR 349 review, second pass).
+    private val optionalExtraDetail = pcCareTaskDtoFixture(
+        category = "deworming",
+        expectedSlots = listOf(
+            sg.mesha.goatos.core.network.dto.PcCareSlotDto(fieldKey = "video", label = "Deworming video", required = true),
+            sg.mesha.goatos.core.network.dto.PcCareSlotDto(fieldKey = "dose_photo", label = "Dose photo", kind = "photo", required = false),
+        ),
+    )
+
+    @Test
+    fun `an optional capture never holds the submit`() {
+        val animals = listOf(pcCareAnimalEntity(tag = "t1"))
+        val proofs = listOf(localProof(pcCareSlotProofFieldKey("t1", "video")))
+
+        val evaluation = pcCareEvaluateSubmit(optionalExtraDetail.expectedSlots, animals, proofs, json)
+
+        assertTrue(evaluation.ready)
+        assertEquals(listOf("t1"), evaluation.submittableTags)
+    }
+
+    @Test
+    fun `the compulsory capture still holds the submit when the optional one is shot`() {
+        val animals = listOf(pcCareAnimalEntity(tag = "t1"))
+        val proofs = listOf(localProof(pcCareSlotProofFieldKey("t1", "dose_photo")))
+
+        val evaluation = pcCareEvaluateSubmit(optionalExtraDetail.expectedSlots, animals, proofs, json)
+
+        assertFalse(evaluation.ready)
+        assertEquals("1 animal still needs videos", evaluation.blockedReason)
+    }
+
+    @Test
+    fun `an optional capture still uploading is waited for`() {
+        // Recorded but not yet queued: submitting over it would land the task without evidence
+        // the operator actually captured, optional or not.
+        val animals = listOf(pcCareAnimalEntity(tag = "t1"))
+        val proofs = listOf(
+            localProof(pcCareSlotProofFieldKey("t1", "video")),
+            localProof(pcCareSlotProofFieldKey("t1", "dose_photo")).copy(outboxItemId = null),
+        )
+
+        val evaluation = pcCareEvaluateSubmit(optionalExtraDetail.expectedSlots, animals, proofs, json)
+
+        assertFalse(evaluation.ready)
+        assertEquals("1 video still uploading", evaluation.blockedReason)
+    }
+
+    @Test
+    fun `a card that sends no required flag keeps every capture compulsory`() {
+        // An older server sends no `required`; the wire default is TRUE, so nothing loosens.
+        val legacy = pcCareTaskDtoFixture(
+            category = "deworming",
+            expectedSlots = listOf(sg.mesha.goatos.core.network.dto.PcCareSlotDto(fieldKey = "video", label = "Deworming video")),
+        )
+        val evaluation = pcCareEvaluateSubmit(legacy.expectedSlots, listOf(pcCareAnimalEntity(tag = "t1")), emptyList(), json)
+        assertFalse(evaluation.ready)
+    }
+
     @Test
     fun `a peer's server-attributed proof unblocks the slot`() {
         val animals = listOf(
