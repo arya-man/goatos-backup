@@ -117,7 +117,7 @@ func (r *BrowserAwareRecipients) ResolveModuleDutyRecipients(ctx context.Context
 	if err != nil {
 		return nil, err
 	}
-	browsers, browserErr := r.browsers.ResolveModuleDutyBrowserRecipients(ctx, tenantID, scopeType, scopeID, moduleCode, dutyType, time.Now().UTC())
+	browsers, browserErr := r.browsers.ResolveModuleDutyBrowserRecipients(ctx, tenantID, scopeType, scopeID, moduleCode, dutyType, time.Now())
 	if browserErr != nil {
 		r.logBrowserError(ctx, tenantID, browserErr)
 		return devices, nil
@@ -132,7 +132,7 @@ func (r *BrowserAwareRecipients) ResolvePositionRecipients(ctx context.Context, 
 	if err != nil {
 		return nil, err
 	}
-	browsers, browserErr := r.browsers.ResolvePositionBrowserRecipients(ctx, tenantID, scopeType, scopeID, positionCode, time.Now().UTC())
+	browsers, browserErr := r.browsers.ResolvePositionBrowserRecipients(ctx, tenantID, scopeType, scopeID, positionCode, time.Now())
 	if browserErr != nil {
 		r.logBrowserError(ctx, tenantID, browserErr)
 		return devices, nil
