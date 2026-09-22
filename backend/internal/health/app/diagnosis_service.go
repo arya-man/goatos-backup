@@ -108,7 +108,7 @@ func (s *DiagnosisService) evaluate(_ context.Context, published *diagnosis.Auth
 
 func (s *DiagnosisService) registerFor(published *diagnosis.AuthoredRegister, class string) (*diagnosis.Register, error) {
 	if published != nil {
-		return published.CompileRegister(class)
+		return diagnosis.RegisterForServing(*published, class)
 	}
 	return diagnosis.RegisterFor(class)
 }

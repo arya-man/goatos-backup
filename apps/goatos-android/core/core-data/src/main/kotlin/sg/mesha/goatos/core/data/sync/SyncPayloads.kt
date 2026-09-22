@@ -490,6 +490,7 @@ data class HealthCaseClosePayload(
 data class HealthObservationSubmitPayload(
     @SerialName("goat_id") val goatId: String,
     val findings: HealthObservationFindingsDto,
+    val answers: JsonObject? = null,
     val context: HealthObservationContextDto = HealthObservationContextDto(),
     /** Local-only label shown while this write waits in the outbox. */
     @SerialName("goat_display_id") val goatDisplayId: String = "",

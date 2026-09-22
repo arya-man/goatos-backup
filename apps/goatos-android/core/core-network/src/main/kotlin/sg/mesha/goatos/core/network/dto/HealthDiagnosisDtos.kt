@@ -2,6 +2,7 @@ package sg.mesha.goatos.core.network.dto
 
 import kotlinx.serialization.SerialName
 import kotlinx.serialization.Serializable
+import kotlinx.serialization.json.JsonObject
 
 /**
  * Wire contract for the Health diagnosis engine.
@@ -107,6 +108,7 @@ data class HealthObservationContextDto(
 data class SubmitHealthObservationRequestDto(
     @SerialName("goat_id") val goatId: String,
     val findings: HealthObservationFindingsDto,
+    val answers: JsonObject? = null,
     val context: HealthObservationContextDto = HealthObservationContextDto(),
 )
 

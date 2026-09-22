@@ -114,6 +114,50 @@ func TestDiagnosisEvaluationAcceptsAuthoredAnswers(t *testing.T) {
 	}
 }
 
+func TestDiagnosisEvaluationUsesAuthoredTreatsAsDiseaseKey(t *testing.T) {
+	doc := &diagnosis.AuthoredRegister{
+		RegisterVersion: "adult-treats-1",
+		AppliesClass:    []string{diagnosis.ClassAdult},
+		Questions: []diagnosis.Question{{
+			ID: "symptom", Kind: diagnosis.QuestionChoice, Title: "Symptom",
+			Options: []diagnosis.Option{
+				{Value: "no", Label: "No"},
+				{Value: "yes", Label: "Yes", Emits: []string{"symptom:yes"}},
+			},
+		}},
+		Rules: []diagnosis.Rule{{
+			ID:            "CUSTOM_RULE",
+			Kind:          diagnosis.KindProblem,
+			AppliesStatus: []string{"any"},
+			SOPRef:        "Wrong Legacy Name",
+			Treats:        "authored_treatment_key",
+			ExitType:      "recovered",
+			SeverityBase:  1,
+			Probable:      []diagnosis.Clause{{Findings: []string{"symptom:yes"}}},
+		}},
+	}
+	svc, err := NewDiagnosisService(fakeDiagnosisRepo{})
+	if err != nil {
+		t.Fatalf("wire service: %v", err)
+	}
+
+	proposal, confirmable, err := svc.evaluate(context.Background(), doc,
+		diagnosis.Animal{Class: diagnosis.ClassAdult, Sex: "F", Status: "normal"},
+		diagnosis.Findings{},
+		diagnosis.Answers{"symptom": {Values: []string{"yes"}}},
+		diagnosis.Context{})
+	if err != nil {
+		t.Fatalf("evaluate: %v", err)
+	}
+
+	if proposal.SOP["CUSTOM_RULE"] != "authored_treatment_key" {
+		t.Fatalf("proposal = %+v; SOP = %q, want authored treats key", proposal, proposal.SOP["CUSTOM_RULE"])
+	}
+	if len(confirmable) != 1 || confirmable[0].DiseaseKey != "authored_treatment_key" {
+		t.Fatalf("confirmable = %+v, want authored treatment key", confirmable)
+	}
+}
+
 func TestDiagnosisEvaluationRejectsExplicitEmptyAuthoredAnswers(t *testing.T) {
 	doc, err := diagnosis.SeedAuthored(diagnosis.ClassAdult, domain.SOPRefToDiseaseKey)
 	if err != nil {

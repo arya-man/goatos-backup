@@ -15,6 +15,10 @@ import kotlinx.coroutines.flow.mapNotNull
 import kotlinx.coroutines.flow.receiveAsFlow
 import kotlinx.coroutines.launch
 import kotlinx.serialization.json.Json
+import kotlinx.serialization.json.JsonArray
+import kotlinx.serialization.json.JsonObject
+import kotlinx.serialization.json.JsonPrimitive
+import kotlinx.serialization.json.buildJsonObject
 import sg.mesha.goatos.core.analytics.AnalyticsEvents
 import sg.mesha.goatos.core.analytics.AnalyticsPort
 import sg.mesha.goatos.core.common.AppResult
@@ -219,6 +223,7 @@ class ObservationFormViewModel @Inject constructor(
             val result = syncRepository.enqueueHealthObservationSubmit(
                 goatId = goatId,
                 findings = current.form.toFindingsDto(),
+                answers = current.form.toAuthoredAnswersJson(),
                 context = HealthObservationContextDto(),
                 idempotencyKey = idempotencyKey.current(),
                 goatDisplayId = current.goatDisplayId,
@@ -310,3 +315,88 @@ internal fun ObservationFormState.toFindingsDto(): HealthObservationFindingsDto 
         refusalsToday = refusalsToday.toIntOrNull().takeIf { isKid },
         session = session.toIntOrNull().takeIf { isKid },
     )
+
+/**
+ * Maps the current fixed Android form to the v1 authored-register answer layer.
+ *
+ * Unlike findings, normal answers are still answers here: required yes/no authored
+ * questions need an explicit "no" so the backend can distinguish "normal" from
+ * "not examined".
+ */
+internal fun ObservationFormState.toAuthoredAnswersJson(): JsonObject? {
+    return buildJsonObject {
+        fun putString(id: String, value: String?) {
+            if (!value.isNullOrBlank()) put(id, JsonPrimitive(value))
+        }
+        fun putNumber(id: String, value: Number?) {
+            if (value != null) put(id, JsonPrimitive(value))
+        }
+        fun putBool(id: String, value: Boolean?) {
+            if (value != null) put(id, JsonPrimitive(if (value) "yes" else "no"))
+        }
+        fun putValues(id: String, values: Collection<String>) {
+            if (values.isNotEmpty()) put(id, JsonArray(values.map { JsonPrimitive(it) }))
+        }
+
+        putNumber("temp", temp.toDoubleOrNull())
+        putValues("eating", eating)
+        putString("activity", activity.ifBlank { null })
+        putValues("breathing", breathing)
+        putBool("nasal", nasal)
+
+        putValues("left_stomach", leftStomach)
+        putBool("frothy_mouth", frothyMouth)
+        putString("rumen_movement", rumenMovement.ifBlank { null })
+        putBool("diarrhea", diarrhea)
+        putString("skin_tent", when (skinTent) {
+            "2-4", "2-4s", "2–4s" -> "s2_4s"
+            else -> skinTent.ifBlank { null }
+        })
+
+        if (isFemale) {
+            putString("lactation", lactation.ifBlank { null })
+            if (cmtApplies) putString("cmt", cmt.ifBlank { null })
+            putString("udder", udder.ifBlank { null })
+            putString("vulva", vulva.ifBlank { null })
+        }
+        putString("famacha", famacha.toIntOrNull()?.let { "f$it" })
+        putBool("yellow", yellow)
+
+        if (isMale) putString("straining", straining.ifBlank { null })
+        putBool("red_urine", redUrine)
+        putBool("body_edema", bodyEdema)
+        putBool("competition", competition)
+        putBool("stomach_inside", stomachInside)
+
+        putString("mouth", mouth.ifBlank { null })
+        putValues("eyes", eyes)
+        putBool("locked_jaw", lockedJaw)
+        putValues("neuro", neuro)
+        putString("rash_character", rashCharacter.ifBlank { null })
+        putValues("hairloss", if (hairloss == true) listOf("body") else if (hairloss == false) listOf("no") else emptyList())
+
+        putString("leg", leg.ifBlank { null })
+        putString("lumps", lumps.ifBlank { null })
+        putValues("wounds", wounds)
+
+        putBool("flystrike", flystrike)
+        putBool("eartag_flystrike", eartagFlystrike)
+        putBool("eartag_wound", eartagWound)
+        putBool("ticks", ticks)
+
+        if (isKid) {
+            putString("suckle", suckle.ifBlank { null })
+            putString("responsiveness", responsiveness.ifBlank { null })
+            if (isMilkKid) putString("navel", navel.ifBlank { null })
+            if (landingApplies && landing != "na") putString("landing", landing.ifBlank { null })
+            if (isMilkKid || isWeaningKid) {
+                val authoredMilkIntake = when {
+                    milkIntake.isNotEmpty() -> milkIntake
+                    (refusalsToday.toIntOrNull() ?: 0) > 0 -> setOf("not_drinking")
+                    else -> setOf("normal")
+                }
+                putValues("milk_intake", authoredMilkIntake)
+            }
+        }
+    }
+}

@@ -944,6 +944,7 @@ interface SyncRepository {
         context: HealthObservationContextDto,
         idempotencyKey: String,
         goatDisplayId: String,
+        answers: kotlinx.serialization.json.JsonObject? = null,
     ): AppResult<String> = AppResult.Err("health observation sync is not configured")
 
     /**
@@ -2463,6 +2464,7 @@ class DefaultSyncRepository(
         context: HealthObservationContextDto,
         idempotencyKey: String,
         goatDisplayId: String,
+        answers: kotlinx.serialization.json.JsonObject?,
     ): AppResult<String> = enqueue(
         opType = OutboxOpType.HEALTH_OBSERVATION_SUBMIT,
         groupKey = goatId,
@@ -2471,6 +2473,7 @@ class DefaultSyncRepository(
             HealthObservationSubmitPayload(
                 goatId = goatId,
                 findings = findings,
+                answers = answers,
                 context = context,
                 goatDisplayId = goatDisplayId,
             ),

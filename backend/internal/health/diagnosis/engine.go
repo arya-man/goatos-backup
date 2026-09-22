@@ -822,6 +822,9 @@ func (r *Register) applyCourseRefs(p *Proposal, s kidState) {
 			p.CourseType[id] = "Supportive"
 		case rule != nil:
 			ref := rule.SOPRef
+			if rule.Treats != "" {
+				ref = rule.Treats
+			}
 			if ref == "" {
 				ref = id
 			}

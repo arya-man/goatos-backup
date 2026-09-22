@@ -5,6 +5,7 @@ import (
 	"testing"
 
 	"github.com/vgoats/goatos/backend/internal/health/diagnosis"
+	"github.com/vgoats/goatos/backend/internal/health/domain"
 )
 
 func TestObservationFormPersistenceKeepsAuthoredAnswers(t *testing.T) {
@@ -62,6 +63,21 @@ func TestObservationFormPersistenceKeepsExplicitEmptyAuthoredAnswers(t *testing.
 	}
 	if len(answers) != 0 {
 		t.Fatalf("answers = %+v, want empty map", answers)
+	}
+}
+
+func TestProtocolAgeBandForDiagnosisScopeUsesStoredDiagnosisClass(t *testing.T) {
+	cases := map[string]string{
+		diagnosis.ClassAdult:        domain.AgeBandAdult,
+		diagnosis.ClassKidMilk:      domain.AgeBandKid,
+		diagnosis.ClassKidWeaning:   domain.AgeBandKid,
+		diagnosis.ClassKidFattening: domain.AgeBandKid,
+		"custom":                    "custom",
+	}
+	for scope, want := range cases {
+		if got := protocolAgeBandForDiagnosisScope(scope); got != want {
+			t.Fatalf("protocolAgeBandForDiagnosisScope(%q) = %q, want %q", scope, got, want)
+		}
 	}
 }
 

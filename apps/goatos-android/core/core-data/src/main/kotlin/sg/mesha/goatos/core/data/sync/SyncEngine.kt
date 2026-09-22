@@ -2432,6 +2432,7 @@ class SyncEngine(
             request = sg.mesha.goatos.core.network.dto.SubmitHealthObservationRequestDto(
                 goatId = payload.goatId,
                 findings = payload.findings,
+                answers = payload.answers,
                 context = payload.context,
             ),
         )

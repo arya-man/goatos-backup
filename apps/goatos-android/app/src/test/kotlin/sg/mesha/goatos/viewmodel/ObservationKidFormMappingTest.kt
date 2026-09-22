@@ -1,8 +1,12 @@
 package sg.mesha.goatos.viewmodel
 
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertNotNull
 import org.junit.Assert.assertNull
 import org.junit.Test
+import kotlinx.serialization.json.JsonArray
+import kotlinx.serialization.json.JsonPrimitive
+import kotlinx.serialization.json.contentOrNull
 import sg.mesha.goatos.feature.health.KID_CLASS_FATTENING
 import sg.mesha.goatos.feature.health.KID_CLASS_MILK
 import sg.mesha.goatos.feature.health.KID_CLASS_WEANING
@@ -69,6 +73,64 @@ class ObservationKidFormMappingTest {
         assertNull(dto.milkIntake)
         assertNull(dto.refusalsToday)
         assertNull(dto.session)
+    }
+
+    @Test
+    fun `authored answers keep explicit normal yes-no values`() {
+        val answers = ObservationFormState(
+            temp = "102.4",
+            eating = setOf("normal"),
+            activity = "standing",
+            breathing = setOf("normal"),
+            nasal = false,
+            leftStomach = setOf("normal"),
+            frothyMouth = false,
+            rumenMovement = "felt",
+            diarrhea = false,
+            skinTent = "2-4",
+            famacha = "2",
+            yellow = false,
+            redUrine = false,
+            bodyEdema = false,
+            competition = false,
+            stomachInside = false,
+            mouth = "normal",
+            eyes = setOf("normal"),
+            lockedJaw = false,
+            neuro = setOf("none"),
+            rashCharacter = "none",
+            hairloss = false,
+            leg = "normal",
+            lumps = "no",
+            wounds = setOf("no"),
+            flystrike = false,
+            eartagFlystrike = false,
+            eartagWound = false,
+            ticks = false,
+        ).toAuthoredAnswersJson()
+
+        assertNotNull(answers)
+        assertEquals("no", (answers!!["nasal"] as JsonPrimitive).contentOrNull)
+        assertEquals("no", (answers["frothy_mouth"] as JsonPrimitive).contentOrNull)
+        assertEquals("s2_4s", (answers["skin_tent"] as JsonPrimitive).contentOrNull)
+        assertEquals("f2", (answers["famacha"] as JsonPrimitive).contentOrNull)
+        assertEquals("no", ((answers["hairloss"] as JsonArray).first() as JsonPrimitive).contentOrNull)
+    }
+
+    @Test
+    fun `authored answers cover every kid slice`() {
+        val k1 = milkKid("K1").copy(refusalsToday = "0", milkIntake = emptySet()).toAuthoredAnswersJson()
+        val weaning = milkKid("").copy(
+            kidClass = KID_CLASS_WEANING,
+            kidStage = "K3",
+            refusalsToday = "1",
+            milkIntake = emptySet(),
+        ).toAuthoredAnswersJson()
+        val k2 = milkKid("K2").toAuthoredAnswersJson()
+
+        assertEquals("normal", ((k1!!["milk_intake"] as JsonArray).first() as JsonPrimitive).contentOrNull)
+        assertEquals("not_drinking", ((weaning!!["milk_intake"] as JsonArray).first() as JsonPrimitive).contentOrNull)
+        assertEquals("not_drinking", ((k2!!["milk_intake"] as JsonArray).first() as JsonPrimitive).contentOrNull)
     }
 
     @Test

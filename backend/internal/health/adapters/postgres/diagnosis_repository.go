@@ -357,12 +357,13 @@ FROM health_diagnosis_runs WHERE tenant_id=$1::uuid AND idempotency_key=$2`,
 	// Confirmable would cache a still-proposed run with no decision choices for
 	// the Director until a later detail refresh repaired it. Mirrors
 	// GetDiagnosisRun: only a run still awaiting a decision offers one; the
-	// run's own scope is the age band the first response annotated with.
+	// stored diagnosis scope is immutable and maps back to the protocol lookup
+	// age band used by the first response.
 	var confirmable []domain.ConfirmableProblem
 	if status == domain.DiagnosisStatusProposed {
 		confirmable = domain.ConfirmableFromProposal(proposal)
 		if len(confirmable) > 0 {
-			confirmable, err = r.annotateSOPAvailability(ctx, tx, in.TenantID, scope, confirmable)
+			confirmable, err = r.annotateSOPAvailability(ctx, tx, in.TenantID, protocolAgeBandForDiagnosisScope(scope), confirmable)
 			if err != nil {
 				return domain.SubmitObservationResult{}, false, err
 			}
@@ -375,6 +376,17 @@ FROM health_diagnosis_runs WHERE tenant_id=$1::uuid AND idempotency_key=$2`,
 		Confirmable:      confirmable,
 		IdempotentReplay: true,
 	}, true, nil
+}
+
+func protocolAgeBandForDiagnosisScope(scope string) string {
+	switch scope {
+	case diagnosis.ClassKidMilk, diagnosis.ClassKidWeaning, diagnosis.ClassKidFattening:
+		return domain.AgeBandKid
+	case diagnosis.ClassAdult:
+		return domain.AgeBandAdult
+	default:
+		return scope
+	}
 }
 
 // ConfirmDiagnosis records the Director's decision and opens a course for each
@@ -704,10 +716,10 @@ func (r *DiagnosisRepository) GetDiagnosisRun(ctx context.Context, tenantID, run
 	var out domain.DiagnosisRun
 	var proposalJSON, formJSON []byte
 	var businessDate time.Time
-	var ageBand string
-	// The goat is joined rather than read separately: the display id, the shed and
-	// the age band all come off the same row, and the age band was previously a
-	// second round trip for the SOP lookup below.
+	var scope string
+	// The goat is joined rather than read separately: the display id and location
+	// all come off the same row, while the stored diagnosis scope stays the
+	// durable SOP lookup source below.
 	//
 	// A LEFT JOIN, so a run whose animal has since been hard-deleted still reads
 	// back. The assessment is a durable medical record; losing it because the
@@ -715,13 +727,13 @@ func (r *DiagnosisRepository) GetDiagnosisRun(ctx context.Context, tenantID, run
 	err := r.pool.QueryRow(ctx, `
 SELECT dr.health_diagnosis_run_id::text, dr.goat_id::text, dr.register_version, dr.observed_by::text,
        dr.observed_at, dr.business_date, dr.form, dr.proposal, dr.status, dr.confirmed_by::text, dr.confirmed_at,
-       coalesce((SELECT gi.identifier_value FROM goat_identifiers gi WHERE gi.tenant_id=g.tenant_id AND gi.goat_id=g.goat_id AND gi.identifier_type='animal_identifier_1' AND gi.status='active' ORDER BY gi.is_primary_for_goat DESC,gi.identifier_value LIMIT 1),g.display_id,''), COALESCE(g.age_band, '')
+       coalesce((SELECT gi.identifier_value FROM goat_identifiers gi WHERE gi.tenant_id=g.tenant_id AND gi.goat_id=g.goat_id AND gi.identifier_type='animal_identifier_1' AND gi.status='active' ORDER BY gi.is_primary_for_goat DESC,gi.identifier_value LIMIT 1),g.display_id,''), dr.scope
 FROM health_diagnosis_runs dr
 LEFT JOIN goats g ON g.tenant_id = dr.tenant_id AND g.goat_id = dr.goat_id
 WHERE dr.tenant_id=$1::uuid AND dr.health_diagnosis_run_id=$2::uuid`, tenantID, runID).Scan(
 		&out.DiagnosisRunID, &out.GoatID, &out.RegisterVersion, &out.ObservedBy, &out.ObservedAt,
 		&businessDate, &formJSON, &proposalJSON, &out.Status, &out.ConfirmedBy, &out.ConfirmedAt,
-		&out.GoatDisplayID, &ageBand)
+		&out.GoatDisplayID, &scope)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return domain.DiagnosisRun{}, ports.ErrNotFound
 	}
@@ -751,7 +763,7 @@ WHERE dr.tenant_id=$1::uuid AND dr.health_diagnosis_run_id=$2::uuid`, tenantID, 
 				return domain.DiagnosisRun{}, fmt.Errorf("health: begin sop lookup: %w", err)
 			}
 			defer func() { _ = tx.Rollback(ctx) }()
-			out.Confirmable, err = r.annotateSOPAvailability(ctx, tx, tenantID, ageBand, confirmable)
+			out.Confirmable, err = r.annotateSOPAvailability(ctx, tx, tenantID, protocolAgeBandForDiagnosisScope(scope), confirmable)
 			if err != nil {
 				return domain.DiagnosisRun{}, err
 			}
