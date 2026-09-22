@@ -902,6 +902,20 @@ pen_scan AS (
     -- keep them because an unresolved tag has no sex to match.
     AND ($5::text = '' OR lower(btrim(g.sex)) = $5::text)
 ),
+-- The pen's latest WHOLE-PEN weigh, for the grain race below. A pen weighed both ways inside the
+-- window has two candidate cohorts, and only one of them describes the row on screen.
+pen_lump_day AS (
+  SELECT s.location_id, s.partition_label,
+         max((sh.accepted_at AT TIME ZONE 'Asia/Kolkata')::date) AS d
+  FROM scoped s
+  JOIN weighing_shed_observations sh
+    ON sh.campaign_shed_id = s.campaign_shed_id AND sh.tenant_id = s.tenant_id
+   AND sh.withdrawn_at IS NULL
+   AND sh.accepted_at >= $3::timestamptz AND sh.accepted_at < $4::timestamptz
+   AND sh.verification_status <> 'rejected'
+  WHERE $19::bool AND s.weighing_category = 'per_shed_partition'
+  GROUP BY s.location_id, s.partition_label
+),
 pen_latest_scan AS (
   -- One row per (pen, animal) on that pen's latest weighing day. DISTINCT ON the same-animal key
   -- rather than the raw tag, so a pen scanned twice in a day -- or an animal scanned on its
@@ -916,6 +930,16 @@ pen_latest_scan AS (
     ON pen_day.location_id = ps.location_id
    AND pen_day.partition_label = ps.partition_label
    AND pen_day.d = ps.d
+  -- THE TWO GRAINS RACE ON DATE, and the LATER weigh wins (maintainer report 2026-09-22).
+  -- A pen weighed animal by animal for weeks and then weighed WHOLE keeps both histories inside
+  -- one window, and the row on screen reports the pen's LATEST weigh -- so the cohort beside it
+  -- must come from that same weigh. Existing only because scans exist is what put mixed scanned
+  -- breeds ("Beetal") next to a whole-pen row of ten Anantapur Sheep on CBE Godel 2 - Part 1.
+  -- A TIE goes to the whole-pen side: its cohort covers every animal the row counted, while the
+  -- scan set covers only the ones a person scanned that day.
+  LEFT JOIN pen_lump_day pld
+    ON pld.location_id = ps.location_id AND pld.partition_label = ps.partition_label
+  WHERE pld.d IS NULL OR pen_day.d > pld.d
   ORDER BY ps.location_id, ps.partition_label, ps.tag, ps.accepted_at DESC, ps.observation_id DESC
 ),
 individual_composition AS (

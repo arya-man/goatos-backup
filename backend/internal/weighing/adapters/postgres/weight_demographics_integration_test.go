@@ -2204,3 +2204,230 @@ WHERE tenant_id = $1::uuid AND campaign_shed_id = $2::uuid`, repoTenant, loadPar
 		t.Fatalf("Part B alone remains: %#v", after.GainByPenWeek)
 	}
 }
+
+// THE TWO GRAINS RACE ON DATE (maintainer report 2026-09-22, live STG).
+//
+// A pen weighed animal by animal for weeks and then weighed WHOLE keeps both histories inside one
+// window. The row on screen reports the pen's LATEST weigh, so the cohort beside it must come from
+// that same weigh. Reported on CBE Godel 2 - Part 1: ten resident Anantapur Sheep weighed as one
+// total on 22/09, labelled "Beetal" from a single scanned kid on 08/09 -- a breed the pen does not
+// hold, next to a count it does not match (1 against the row's 10).
+//
+// Both directions are asserted here on purpose: whichever grain was weighed LAST wins, so this
+// cannot be satisfied by simply preferring the whole-pen side.
+//
+// ONE-TO-MANY: a pen holds MANY weighs of each kind -- an animal scanned on several days, a pen
+// weighed whole more than once -- and the cohort is a count of ANIMALS, so repeats must not fan it
+// out. PAGE BOUNDARY and PARK SCOPE: the pens table pages client-side over a whole-result read, so
+// the cohort a pen carries must be identical whatever page of shed rows the caller asked for and
+// whether the caller selected one park or left the park filter open. STATUS MATRIX: only a weigh
+// that still counts can win the race -- a REJECTED scan is not a weigh however recent it is, and
+// withdrawing the whole-pen weighs hands the pen back to the scans.
+func TestPenCohortOneToManyPageBoundaryParkScopeAndStatusMatrixFollowTheGrainWeighedLast(t *testing.T) {
+	pgtest.SkipIfNoDocker(t)
+	ctx := context.Background()
+	pool := pgtest.StartPostgres(t, ctx)
+	defer pool.Close()
+	seedWeighingObservationFixture(t, ctx, pool)
+
+	const (
+		individualBucketOnLumpPen = "00000000-0000-4000-9000-0000000092f1"
+		// A SECOND campaign: one campaign may hold only one bucket per (location, partition)
+		// (weighing_campaign_sheds_campaign_location_partition_uidx), and a pen weighed both ways
+		// really is two pieces of work.
+		raceCampaign = "00000000-0000-4000-8000-0000000092f2"
+		// A third campaign for the pen's SECOND whole-pen weigh: one bucket may hold only one LIVE
+		// shed observation (weighing_shed_observations_one_open_scope_uidx), so a pen weighed whole
+		// twice really is two buckets.
+		raceCampaignTwo  = "00000000-0000-4000-8000-0000000092f3"
+		secondLumpBucket = "00000000-0000-4000-9000-0000000092f4"
+	)
+
+	// The pen's OWN residents: four Anantapur Sheep, the cohort a whole-pen weigh covers.
+	execWeighingTestSQL(t, ctx, pool, `
+UPDATE goats SET breed='Anantapur Sheep', sex='male'
+WHERE tenant_id=$1::uuid AND shed_id=$2::uuid`, repoTenant, repoPerShed)
+	// The animals whose TAGS were scanned in that pen are different animals of different breeds,
+	// and the register does not place them there -- exactly the STG shape.
+	execWeighingTestSQL(t, ctx, pool, `
+UPDATE goats SET breed='Sojat', sex='male' WHERE tenant_id=$1::uuid AND goat_id=$2::uuid`,
+		repoTenant, repoAnimal)
+	execWeighingTestSQL(t, ctx, pool, `
+INSERT INTO goats (goat_id, tenant_id, display_id, breed, sex, age_band, lifecycle_status, management_stage, custodian_party_id, current_location_id, park_id, shed_id)
+VALUES ($1::uuid, $2::uuid, 'G-990004', 'Beetal', 'male', 'kid', 'alive', 'kid', $3::uuid, $4::uuid, $5::uuid, $4::uuid)
+ON CONFLICT (goat_id) DO UPDATE
+SET breed=EXCLUDED.breed, sex=EXCLUDED.sex, shed_id=EXCLUDED.shed_id`,
+		repoAnimalTwo, repoTenant, repoParty, repoExpectedShed, repoPark)
+	execWeighingTestSQL(t, ctx, pool, `
+INSERT INTO goat_identifiers (tenant_id, goat_id, identifier_type, identifier_value, normalized_value, scope_key, is_primary_for_goat, status, valid_from, normalizer_version)
+VALUES
+  ($1::uuid, $2::uuid, 'animal_identifier_1', 'chip-race-one', 'chip-race-one', 'global', true, 'active', now(), 'test'),
+  ($1::uuid, $3::uuid, 'animal_identifier_1', 'chip-race-two', 'chip-race-two', 'global', true, 'active', now(), 'test')
+ON CONFLICT (tenant_id, normalized_value) DO UPDATE
+SET goat_id=EXCLUDED.goat_id, identifier_value=EXCLUDED.identifier_value, status='active'`,
+		repoTenant, repoAnimal, repoAnimalTwo)
+
+	// An individual bucket on the SAME pen as the whole-pen bucket, in its own campaign.
+	execWeighingTestSQL(t, ctx, pool, `
+INSERT INTO weighing_campaigns (campaign_id, tenant_id, park_id, period_start_date, period_end_date, start_business_date, status, planned_cap_per_day, operator_user_id, created_by)
+VALUES ($1::uuid, $2::uuid, $3::uuid, '2026-07-27', '2026-08-02', '2026-07-29', 'published', 100, $4::uuid, $4::uuid)
+ON CONFLICT (campaign_id) DO NOTHING`,
+		raceCampaign, repoTenant, repoPark, repoOperator)
+	execWeighingTestSQL(t, ctx, pool, `
+INSERT INTO weighing_campaign_sheds (
+  campaign_shed_id, campaign_id, tenant_id, location_id, location_type,
+  display_name, weighing_category, operator_user_id, expected_animal_count, status)
+-- 'completed': only ONE bucket per park/date/pen may be OPEN
+-- (uq_weighing_open_shed_partition_per_park_date), and the whole-pen bucket already holds that
+-- slot. A finished round of scanning is what this fixture means anyway.
+VALUES ($1::uuid, $2::uuid, $3::uuid, $4::uuid, 'shed', 'Lump Pen', 'individual_animal', $5::uuid, 0, 'completed')
+ON CONFLICT (campaign_shed_id) DO NOTHING`,
+		individualBucketOnLumpPen, raceCampaign, repoTenant, repoPerShed, repoOperator)
+
+	// ONE-TO-MANY on the scanned side: each animal is scanned THREE times, twice on the pen's
+	// latest day. Two animals were weighed, however many captures they left behind.
+	scanDay := time.Date(2026, 7, 29, 6, 0, 0, 0, time.UTC)
+	for _, tag := range []string{"chip-race-one", "chip-race-two"} {
+		for i, at := range []time.Time{scanDay.AddDate(0, 0, -1), scanDay, scanDay.Add(3 * time.Hour)} {
+			execWeighingTestSQL(t, ctx, pool, `
+INSERT INTO weighing_observations (tenant_id, campaign_id, campaign_shed_id, scanned_identifier, weight_kg, proof_artifact_id, recorded_by, idempotency_key, accepted_at, submitted_at)
+VALUES ($1::uuid, $2::uuid, $3::uuid, $4, 24.0, $5::uuid, $6::uuid, $7, $8::timestamptz, $8::timestamptz)`,
+				repoTenant, raceCampaign, individualBucketOnLumpPen, tag, repoAnimalProof, repoOperator,
+				fmt.Sprintf("race:%s:%d", tag, i), at)
+		}
+	}
+
+	window := func() (time.Time, time.Time) {
+		return time.Date(2026, 7, 29, 0, 0, 0, 0, time.UTC), time.Date(2026, 8, 2, 0, 0, 0, 0, time.UTC)
+	}
+	cohortFor := func(t *testing.T) (string, []string, int) {
+		t.Helper()
+		from, to := window()
+		// A FRESH repository per read: this path memoises by (tenant, parks, window, filters,
+		// sections), so asking the same question twice inside one instance answers from the cache
+		// and the second half of this test would assert against the first half's answer.
+		repo := NewRepository(pool, 5*time.Second)
+		out, err := repo.GetWeightDemographics(ctx, repoTenant, []string{repoPark}, from, to, "", "", "", "composition", nil, domain.TimeScope{})
+		if err != nil {
+			t.Fatalf("GetWeightDemographics(composition): %v", err)
+		}
+		for _, shed := range out.ShedComposition {
+			if shed.LocationID != repoPerShed {
+				continue
+			}
+			breeds := make([]string, 0, len(shed.Chips))
+			for _, chip := range shed.Chips {
+				breeds = append(breeds, chip.Breed)
+			}
+			sort.Strings(breeds)
+			return shed.Source, breeds, shed.TotalAnimals
+		}
+		t.Fatalf("no composition for the pen in %#v", out.ShedComposition)
+		return "", nil, 0
+	}
+
+	// SCANS ONLY so far: the pen is described by the animals actually scanned in it.
+	source, breeds, total := cohortFor(t)
+	if source != "scanned_tags" || total != 2 || len(breeds) != 2 || breeds[0] != "Beetal" || breeds[1] != "Sojat" {
+		t.Fatalf("with scans as the pen's only weigh the cohort is the scanned one, got source=%q breeds=%#v total=%d",
+			source, breeds, total)
+	}
+
+	// A WHOLE-PEN weigh LATER in the same window: the row now reports that weigh, so the cohort
+	// must follow it -- the pen's own four residents, not one scanned kid of another breed.
+	execWeighingTestSQL(t, ctx, pool, `
+INSERT INTO weighing_shed_observations (
+  tenant_id, campaign_id, campaign_shed_id, weight_kg, average_weight_kg, animal_count,
+  proof_artifact_id, recorded_by, idempotency_key, accepted_at)
+VALUES ($1::uuid, $2::uuid, $3::uuid, 96.0, 24.0, 4, $4::uuid, $5::uuid, 'race:lump', $6::timestamptz)`,
+		repoTenant, repoCampaign, repoShedScope, repoShedProofTwo, repoOperator,
+		scanDay.AddDate(0, 0, 1))
+
+	// ONE-TO-MANY on the whole-pen side too: a SECOND live whole-pen weigh, later again. The pen
+	// holds four animals however many times it was put on the scale.
+	execWeighingTestSQL(t, ctx, pool, `
+INSERT INTO weighing_campaigns (campaign_id, tenant_id, park_id, period_start_date, period_end_date, start_business_date, status, planned_cap_per_day, operator_user_id, created_by)
+VALUES ($1::uuid, $2::uuid, $3::uuid, '2026-07-27', '2026-08-02', '2026-07-31', 'published', 100, $4::uuid, $4::uuid)
+ON CONFLICT (campaign_id) DO NOTHING`,
+		raceCampaignTwo, repoTenant, repoPark, repoOperator)
+	execWeighingTestSQL(t, ctx, pool, `
+INSERT INTO weighing_campaign_sheds (
+  campaign_shed_id, campaign_id, tenant_id, location_id, location_type,
+  display_name, weighing_category, operator_user_id, expected_animal_count, status)
+VALUES ($1::uuid, $2::uuid, $3::uuid, $4::uuid, 'shed', 'Lump Pen', 'per_shed_partition', $5::uuid, 0, 'completed')
+ON CONFLICT (campaign_shed_id) DO NOTHING`,
+		secondLumpBucket, raceCampaignTwo, repoTenant, repoPerShed, repoOperator)
+	execWeighingTestSQL(t, ctx, pool, `
+INSERT INTO weighing_shed_observations (
+  tenant_id, campaign_id, campaign_shed_id, weight_kg, average_weight_kg, animal_count,
+  proof_artifact_id, recorded_by, idempotency_key, accepted_at)
+VALUES ($1::uuid, $2::uuid, $3::uuid, 100.0, 25.0, 4, $4::uuid, $5::uuid, 'race:lump-two', $6::timestamptz)`,
+		repoTenant, raceCampaignTwo, secondLumpBucket, repoShedProofThree, repoOperator,
+		scanDay.AddDate(0, 0, 2))
+
+	source, breeds, total = cohortFor(t)
+	if source != "live_shed_cohort" || total != 4 {
+		t.Fatalf("a whole-pen weigh AFTER the last scan owns the cohort, got source=%q total=%d (want live_shed_cohort/4)",
+			source, total)
+	}
+	for _, breed := range breeds {
+		if breed != "Anantapur Sheep" {
+			t.Fatalf("the whole-pen cohort is the pen's own residents, got %#v", breeds)
+		}
+	}
+
+	// PAGE BOUNDARY: the cohort is a whole-result fact about the pen, so it cannot move with the
+	// page of shed rows a caller asked for. Both reads are taken over the same window and filters.
+	from, to := window()
+	for _, page := range []struct {
+		name           string
+		selectedParkID string
+	}{{"all parks", ""}, {"one park", repoPark}} {
+		rows, err := NewRepository(pool, 5*time.Second).GetShedWeights(ctx, repoTenant, []string{repoPark},
+			page.selectedParkID, from, to, "", "", "", 0, 30, 35)
+		if err != nil {
+			t.Fatalf("GetShedWeights(%s): %v", page.name, err)
+		}
+		var found bool
+		for _, row := range rows.Rows {
+			if row.LocationID != repoPerShed {
+				continue
+			}
+			found = true
+			if row.AnimalsWeighed != 4 {
+				t.Fatalf("%s: the pen's row counts the animals it weighed once, got %d captures' worth",
+					page.name, row.AnimalsWeighed)
+			}
+		}
+		if !found {
+			t.Fatalf("%s: the pen is missing from the shed rows the cohort labels", page.name)
+		}
+		if _, gotBreeds, gotTotal := cohortFor(t); gotTotal != total || len(gotBreeds) != len(breeds) {
+			t.Fatalf("%s: the cohort moved with the caller's page: %d/%#v became %d/%#v",
+				page.name, total, breeds, gotTotal, gotBreeds)
+		}
+	}
+
+	// STATUS: WITHDRAWN is how a weigh is retired here -- migration 000058 narrowed
+	// verification_status to pending/verified/rework, so `<> 'rejected'` can no longer exclude
+	// anything and withdrawal is the real lever. Retire the LATER whole-pen weigh and the earlier
+	// one still stands, so the pen stays with its residents.
+	execWeighingTestSQL(t, ctx, pool, `
+UPDATE weighing_shed_observations SET withdrawn_at = now()
+WHERE tenant_id = $1::uuid AND campaign_shed_id = $2::uuid`, repoTenant, secondLumpBucket)
+	if source, _, total := cohortFor(t); source != "live_shed_cohort" || total != 4 {
+		t.Fatalf("one retired whole-pen weigh does not hand the pen back while another still stands, got source=%q total=%d",
+			source, total)
+	}
+
+	// STATUS, the other way: retire the LAST standing whole-pen weigh and the scans are the pen's
+	// most recent weigh again, so the cohort returns to them. This is what proves the race reads
+	// the live rows rather than merely preferring one grain.
+	execWeighingTestSQL(t, ctx, pool, `
+UPDATE weighing_shed_observations SET withdrawn_at = now()
+WHERE tenant_id = $1::uuid AND campaign_shed_id = $2::uuid`, repoTenant, repoShedScope)
+	if source, breeds, total := cohortFor(t); source != "scanned_tags" || total != 2 || len(breeds) != 2 {
+		t.Fatalf("with every whole-pen weigh withdrawn the scans own the pen again, got source=%q breeds=%#v total=%d",
+			source, breeds, total)
+	}
+}
