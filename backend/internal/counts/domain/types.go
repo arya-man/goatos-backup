@@ -640,6 +640,34 @@ type CountsBreakdownLoadRow struct {
 	// raw stored stage ("" when unrecorded) and Label repeats it, as on the pen rows.
 	Stages []CountsBreakdownSeriesPoint `json:"stages"`
 	Sexes  []CountsBreakdownSeriesPoint `json:"sexes"`
+	// Pens names WHERE this load's FILTERED LIVE animals sit right now, biggest pen first, never
+	// nil. It is the bracket the chart renders beside the load name (maintainer request
+	// 2026-09-22): a load number says which invoice the animals arrived on, not where to walk.
+	//
+	// Rolled over the SAME key set as OnFarm/Stages/Sexes, so the animals sum to OnFarm (bar an
+	// animal whose shed is unrecorded, which has no pen to name) and a page filtered to one pen
+	// names that pen alone.
+	//
+	// THIS IS THE HERD REGISTER'S ANSWER AND IS DELIBERATELY NOT THE WEIGHING SIDE'S. The Weights
+	// and ADG load charts name the pens a load was WEIGHED in, read from weighing_shed_load_tags;
+	// an animal that walked into an untagged pen is absent there and present here. Two honest
+	// answers to two different questions -- do not "reconcile" them into one.
+	Pens []CountsBreakdownLoadPen `json:"pens"`
+}
+
+// CountsBreakdownLoadPen is one pen holding some of a purchased load's filtered live animals.
+type CountsBreakdownLoadPen struct {
+	// ParkName is the park's SHORT CODE (CBE, CPT) when it has one, else its full name -- the
+	// same rule every other park label on this screen follows.
+	ParkName string `json:"park_name"`
+	// ShedDisplayName comes from locations.name.
+	ShedDisplayName string `json:"shed_display_name"`
+	// PartitionLabel is the HUMAN label, absent for a non-partitioned shed. Never the normalized
+	// matching key -- rendering that key produced "Mandela 2 - 3" on screen once already.
+	PartitionLabel string `json:"partition_label,omitempty"`
+	// OperationalLocationDisplay is composed by oploc.Display(); clients render it verbatim.
+	OperationalLocationDisplay string `json:"operational_location_display"`
+	Animals                    int64  `json:"animals"`
 }
 
 // CountsBreakdown is the whole census breakdown payload: one page of grain rows plus

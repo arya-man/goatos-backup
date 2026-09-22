@@ -3,6 +3,7 @@ import { Scale } from "lucide-react";
 import { GroupedBars, type BarGroup, type GroupedBar } from "./grouped-bars";
 import { copy, type AdminUiPageContract } from "@/lib/admin-ui-contract";
 import { fmtDate } from "@/lib/format";
+import { pensFromPlacements, withLoadPens } from "@/lib/load-pens";
 import type { GrowthSalePrice, ShedWeightsResponse } from "@/lib/api/server";
 import type { LoadwiseLoad, LoadwiseWeightLoad } from "@/lib/api/procurement";
 
@@ -102,8 +103,17 @@ export function LoadComparisonTab({
     purchasedAvg: number | null;
     latestAvg: number | null;
     multiple: number | null;
-    /** Where this load's weighed animals actually are, ready to render. */
+    /** Where this load's weighed animals actually are, with head counts — the TABLE's cell. */
     pens: string;
+    /**
+     * The CHART heading: the load's name with its pens in a bracket beside it (maintainer
+     * request 2026-09-22, replacing the sub-line these two charts used to carry). One shape
+     * across every load chart on the dashboard, composed by the shared helper.
+     *
+     * The head counts stay in the table and out of the bracket: the axis is one column wide,
+     * and a heading is read at a glance while a cell is read deliberately.
+     */
+    chartHeading: string;
   };
   const rows: Row[] = loads
     .map((load) => {
@@ -112,7 +122,16 @@ export function LoadComparisonTab({
       const latestAvg = bucket ? bucket.average_weight_kg : null;
       const multiple =
         purchasedAvg !== null && purchasedAvg > 0 && latestAvg !== null ? latestAvg / purchasedAvg : null;
-      return { load, heading: loadHeading(load), purchasedAvg, latestAvg, multiple, pens: penList(bucket) };
+      const heading = loadHeading(load);
+      return {
+        load,
+        heading,
+        chartHeading: withLoadPens(heading, pensFromPlacements(bucket?.placements)),
+        purchasedAvg,
+        latestAvg,
+        multiple,
+        pens: penList(bucket),
+      };
     })
     // ONLY loads with a latest weighing (maintainer request 2026-09-03): this tab compares, and a
     // load nobody has weighed since it arrived has nothing to compare. The note above the chart
@@ -172,10 +191,19 @@ export function LoadComparisonTab({
     // 2026-09-21: name the pen on every graph, not only one). A bar saying a load is worth ₹4.2L
     // names no pen, so a reader cannot walk from it to the pens table below or go and look at the
     // animals -- and the two charts sitting side by side must label the same load the same way.
-    // A SOLD-OUT load keeps its own line alone: it has no animals standing anywhere, so naming the
-    // pens its animals used to sit in would point a reader at a pen that no longer holds them.
-    const subheading = stockAnimals === 0 ? basis : [basis, row.pens].filter(Boolean).join(" · ");
-    return { key: `${row.load.load_id}-value`, heading: row.heading, subheading, bars };
+    //
+    // It rides the HEADING in a bracket now (maintainer request 2026-09-22) rather than the
+    // sub-line, which is the shape every other load chart on the dashboard uses.
+    //
+    // A SOLD-OUT load is named WITHOUT its pens: it has no animals standing anywhere, so naming
+    // the pens its animals used to sit in would point a reader at a pen that no longer holds
+    // them. That rule predates the bracket and survives it.
+    return {
+      key: `${row.load.load_id}-value`,
+      heading: stockAnimals === 0 ? row.heading : row.chartHeading,
+      subheading: basis,
+      bars,
+    };
   });
 
   const groups: BarGroup[] = rows.map((row) => {
@@ -196,13 +224,14 @@ export function LoadComparisonTab({
         seriesKey: "latest",
       });
     }
-    // The multiple, then WHERE the load is. A bar saying a supplier's stock grew 1.4x names no
-    // pen, so a reader cannot walk from it to the pens table below or go and look at the animals.
+    // The multiple stays the sub-line; WHERE the load is now rides the heading in a bracket.
+    // A bar saying a supplier's stock grew 1.4x names no pen, so a reader cannot walk from it to
+    // the pens table below or go and look at the animals.
     const multiple = row.multiple !== null ? `${row.multiple.toFixed(1)}${suffix}` : "";
     return {
       key: row.load.load_id,
-      heading: row.heading,
-      subheading: [multiple, row.pens].filter(Boolean).join(" · ") || undefined,
+      heading: row.chartHeading,
+      subheading: multiple || undefined,
       bars,
     };
   });

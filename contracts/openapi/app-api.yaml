@@ -41122,6 +41122,7 @@ components:
         - current_tags
         - stages
         - sexes
+        - pens
       properties:
         load_id:
           type: string
@@ -41153,6 +41154,40 @@ components:
           type: array
           items:
             $ref: "#/components/schemas/CountsBreakdownSeriesPoint"
+        pens:
+          type: array
+          description: >-
+            Where this load's filtered live animals sit now, biggest pen first; the bracket the
+            chart renders beside the load name. Rolled over the same key set as on_farm, so the
+            animals sum to on_farm bar an animal whose shed is unrecorded, which has no pen to
+            name. This is the HERD REGISTER's answer and is deliberately not the weighing side's,
+            which names the pens a load was WEIGHED in.
+          items:
+            $ref: "#/components/schemas/CountsBreakdownLoadPen"
+    CountsBreakdownLoadPen:
+      type: object
+      additionalProperties: false
+      description: One pen holding some of a purchased load's filtered live animals.
+      required:
+        - park_name
+        - shed_display_name
+        - operational_location_display
+        - animals
+      properties:
+        park_name:
+          type: string
+          description: Park short code (CBE, CPT) when it has one, else the full name.
+        shed_display_name:
+          type: string
+        partition_label:
+          type: string
+          description: The HUMAN partition label, absent for a non-partitioned shed. Never the normalized matching key.
+        operational_location_display:
+          type: string
+          description: Backend-composed pen name ("Castro 1", "Godel 2 - Part 1"); render verbatim.
+        animals:
+          type: integer
+          minimum: 0
     CountsBreakdownLoadTag:
       type: object
       additionalProperties: false

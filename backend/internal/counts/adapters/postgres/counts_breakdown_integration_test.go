@@ -2900,3 +2900,232 @@ ON CONFLICT (tenant_id, stage_code) DO NOTHING`, countsTenant, row[0], row[1]); 
 		}
 	}
 }
+
+// A load names the PENS its filtered live animals sit in (maintainer request 2026-09-22), so the
+// chart can carry them in a bracket beside the load number. Four properties, each a way the
+// bracket could lie:
+//
+//  1. Pens are the HERD REGISTER's answer at PEN grain, biggest first — never rolled up to the
+//     shed, which would merge Castro 1's two pens into one entry naming neither.
+//  2. Same-named sheds in two parks stay two entries, carrying their own park code. This is the
+//     OL-1 name-merge defect: both parks really do have a `Castro 1`.
+//  3. The pens sum to on_farm, so the bracket and the bars on the SAME chart agree, and a page
+//     filtered to one stage narrows both while bought — the load's own fact — does not move.
+//  4. The HUMAN partition label is rendered, never the normalized matching key: `Part 1` must
+//     read "Castro 1 - Part 1", never "Castro 1 - 1".
+func TestCountsBreakdownLoadsNameThePensTheirAnimalsSitIn(t *testing.T) {
+	ctx := context.Background()
+	repo, pool := newBreakdownRepo(t, ctx)
+	seedSameNamedShedsInTwoParks(t, ctx, pool)
+
+	var vendor string
+	if err := pool.QueryRow(ctx, `
+INSERT INTO parties (party_type, display_name, status) VALUES ('org', 'Krishnamorrthy', 'active')
+RETURNING party_id::text`).Scan(&vendor); err != nil {
+		t.Fatalf("seed vendor: %v", err)
+	}
+	var loadID string
+	if err := pool.QueryRow(ctx, `
+INSERT INTO procurement_loads (tenant_id, source_party_id, purchase_date, status, expected_count, idempotency_key, context)
+VALUES ($1::uuid, $2::uuid, '2026-08-01'::date, 'accepted_intake', 0, 'pens-load', jsonb_build_object('load_ref', '131'))
+RETURNING load_id::text`, countsTenant, vendor).Scan(&loadID); err != nil {
+		t.Fatalf("seed load: %v", err)
+	}
+
+	// Three pens across two parks, with the SAME shed name on both sides. The K1 kid in `Part 1`
+	// is the stage-filter probe; everything else is Fattening.
+	place := func(i int, shed, park, label, stage string) {
+		t.Helper()
+		insertBreakdownGoat(t, ctx, pool, goatUUID(i), goatDisplayID(i),
+			"female", "Beetal", "alive", stage, strp(park), strp(shed), nil)
+		if _, err := pool.Exec(ctx, `
+INSERT INTO goat_shed_partitions (tenant_id, goat_id, shed_id, partition_label, source_shed_name)
+VALUES ($1::uuid, $2::uuid, $3::uuid, $4, 'seed')
+ON CONFLICT (tenant_id, goat_id) DO UPDATE SET partition_label = EXCLUDED.partition_label`,
+			countsTenant, goatUUID(i), shed, label); err != nil {
+			t.Fatalf("seed goat_shed_partitions: %v", err)
+		}
+		if _, err := pool.Exec(ctx, `
+INSERT INTO procurement_load_goats (tenant_id, load_id, goat_id, selection_state, current_state, intake_accepted_at)
+VALUES ($1::uuid, $2::uuid, $3::uuid, 'accepted_herd_intake', 'accepted_herd_intake', '2026-08-01T10:00:00Z'::timestamptz)`,
+			countsTenant, loadID, goatUUID(i)); err != nil {
+			t.Fatalf("seed load goat: %v", err)
+		}
+	}
+	place(0, countsShedCastroOne, countsPark, "2", "Fattening")
+	place(1, countsShedCastroOne, countsPark, "2", "Fattening")
+	place(2, countsShedCastroOne, countsPark, "Part 1", "K1")
+	place(3, countsShedCastroTwo, countsParkTwo, "2", "Fattening")
+
+	got, err := repo.GetCountsBreakdown(ctx, domain.CountsBreakdownQuery{TenantID: countsTenant, Limit: 50})
+	if err != nil {
+		t.Fatalf("GetCountsBreakdown: %v", err)
+	}
+	if len(got.Loads) != 1 {
+		t.Fatalf("loads=%d, want 1: %+v", len(got.Loads), got.Loads)
+	}
+	row := got.Loads[0]
+
+	// Park codes come from the response's own facet — the shared fixture inserts with
+	// ON CONFLICT DO NOTHING, so which id carries which code depends on what the suite seeded
+	// first, and a literal here would fail for a reason unrelated to the behaviour under test.
+	parkCode := map[string]string{}
+	for _, park := range got.Facets.Parks {
+		parkCode[park.Key] = park.Label
+	}
+	one, two := parkCode[countsPark], parkCode[countsParkTwo]
+	if one == "" || two == "" || one == two {
+		t.Fatalf("park facet did not resolve two distinct park codes: %+v", got.Facets.Parks)
+	}
+
+	// (1) + (2) + (4): pen grain, biggest first, park-qualified, HUMAN partition label. Ties (the
+	// two single-animal pens) fall back to park, then shed, then partition — the SQL's own ORDER
+	// BY — so the expectation is deterministic.
+	type pen struct {
+		park, display string
+		animals       int64
+	}
+	gotPens := make([]pen, 0, len(row.Pens))
+	for _, p := range row.Pens {
+		gotPens = append(gotPens, pen{p.ParkName, p.OperationalLocationDisplay, p.Animals})
+	}
+	wantPens := []pen{
+		{one, "Castro 1 2", 2},
+		{one, "Castro 1 - Part 1", 1},
+		{two, "Castro 1 2", 1},
+	}
+	if !reflect.DeepEqual(gotPens, wantPens) {
+		t.Errorf("pens = %+v, want %+v", gotPens, wantPens)
+	}
+	for _, p := range row.Pens {
+		if p.OperationalLocationDisplay == "Castro 1 - 1" {
+			t.Errorf("rendered the normalized partition KEY instead of its label: %+v", row.Pens)
+		}
+		if p.OperationalLocationDisplay == "Castro 1" {
+			t.Errorf("rolled a pen up to its shed — the bracket must name the PEN: %+v", row.Pens)
+		}
+	}
+
+	// (3): the pens partition on_farm exactly, so the bracket and the bars agree.
+	var animals int64
+	for _, p := range row.Pens {
+		animals += p.Animals
+	}
+	if animals != row.OnFarm || row.OnFarm != 4 {
+		t.Errorf("pens sum to %d and on_farm=%d, want both 4", animals, row.OnFarm)
+	}
+
+	// (3), the other half: a page filtered to one stage narrows the pens with the counts, while
+	// bought is the load's own fact and must NOT move.
+	filtered, err := repo.GetCountsBreakdown(ctx, domain.CountsBreakdownQuery{TenantID: countsTenant, ManagementStages: []string{"K1"}, Limit: 50})
+	if err != nil {
+		t.Fatalf("GetCountsBreakdown(K1): %v", err)
+	}
+	fr := filtered.Loads[0]
+	if len(fr.Pens) != 1 || fr.Pens[0].OperationalLocationDisplay != "Castro 1 - Part 1" || fr.Pens[0].Animals != 1 {
+		t.Errorf("filtered pens = %+v, want only the kid's own pen", fr.Pens)
+	}
+	if fr.Purchased != row.Purchased {
+		t.Errorf("filtering moved bought from %d to %d — bought is the load's own fact", row.Purchased, fr.Purchased)
+	}
+
+	// A load whose animals all fall out of the filter names NO pen rather than the pens they used
+	// to be in, and the field is an empty slice rather than null.
+	none, err := repo.GetCountsBreakdown(ctx, domain.CountsBreakdownQuery{TenantID: countsTenant, ManagementStages: []string{"Milking"}, Limit: 50})
+	if err != nil {
+		t.Fatalf("GetCountsBreakdown(Milking): %v", err)
+	}
+	if nr := none.Loads[0]; nr.Pens == nil || len(nr.Pens) != 0 || nr.OnFarm != 0 {
+		t.Errorf("load under a filter nothing survives = %+v, want on_farm 0 and an empty (non-nil) pens", nr)
+	}
+
+	// The four ways a JOIN + COUNT + GROUP BY silently reports the wrong number, asked of the pens
+	// aggregate specifically. Each one is a shape that would leave the bracket disagreeing with
+	// the bars beside it on the SAME chart.
+	t.Run("OneToManyLocationJoinDoesNotFanOutPenCounts", func(t *testing.T) {
+		// A shed whose park carries more than one location row of the same name, and an animal
+		// whose partition row is rewritten, must still be counted ONCE. Both locations joins are
+		// on the (tenant_id, location_id) primary key, so neither can widen the key set -- this
+		// asserts that rather than trusting it.
+		if _, err := pool.Exec(ctx, `
+UPDATE goat_shed_partitions SET partition_label = '2'
+WHERE tenant_id = $1::uuid AND goat_id = $2::uuid`, countsTenant, goatUUID(0)); err != nil {
+			t.Fatalf("rewrite partition: %v", err)
+		}
+		got, err := repo.GetCountsBreakdown(ctx, domain.CountsBreakdownQuery{TenantID: countsTenant, Limit: 50})
+		if err != nil {
+			t.Fatalf("GetCountsBreakdown: %v", err)
+		}
+		row := got.Loads[0]
+		var animals int64
+		for _, p := range row.Pens {
+			animals += p.Animals
+		}
+		if animals != row.OnFarm {
+			t.Errorf("pens sum to %d but on_farm is %d — a join fanned the pen counts out: %+v", animals, row.OnFarm, row.Pens)
+		}
+	})
+
+	t.Run("PaginationDoesNotMoveThePens", func(t *testing.T) {
+		// The loads read is WHOLE-RESULT: it is never paged with the pen table under it, so
+		// walking to page two must not change a load's pens or their counts. A pens aggregate
+		// computed over the PAGE rather than the whole result is the classic version of this bug.
+		first, err := repo.GetCountsBreakdown(ctx, domain.CountsBreakdownQuery{TenantID: countsTenant, Limit: 1, Offset: 0})
+		if err != nil {
+			t.Fatalf("page 1: %v", err)
+		}
+		second, err := repo.GetCountsBreakdown(ctx, domain.CountsBreakdownQuery{TenantID: countsTenant, Limit: 1, Offset: 1})
+		if err != nil {
+			t.Fatalf("page 2: %v", err)
+		}
+		if !reflect.DeepEqual(first.Loads[0].Pens, second.Loads[0].Pens) {
+			t.Errorf("pens moved between pages: %+v vs %+v", first.Loads[0].Pens, second.Loads[0].Pens)
+		}
+	})
+
+	t.Run("ParkScopeHierarchyNarrowsThePensWithTheCounts", func(t *testing.T) {
+		// Scoping to ONE park must drop the other park's pens entirely -- and the pens must still
+		// sum to the narrowed on_farm, not to the unscoped one.
+		scoped, err := repo.GetCountsBreakdown(ctx, domain.CountsBreakdownQuery{TenantID: countsTenant, ParkIDs: []string{countsParkTwo}, Limit: 50})
+		if err != nil {
+			t.Fatalf("GetCountsBreakdown(park two): %v", err)
+		}
+		row := scoped.Loads[0]
+		var animals int64
+		for _, p := range row.Pens {
+			animals += p.Animals
+			if p.ParkName == one {
+				t.Errorf("park-scoped read still names a pen in the other park: %+v", row.Pens)
+			}
+		}
+		if animals != row.OnFarm {
+			t.Errorf("park-scoped pens sum to %d, want the narrowed on_farm %d", animals, row.OnFarm)
+		}
+	})
+
+	t.Run("StatusMatrixExcludesEveryNonLiveAnimalFromThePens", func(t *testing.T) {
+		// A dead or sold animal is in NO pen bucket. The page defaults to the live herd, so an
+		// animal that leaves must leave the bracket too -- otherwise the bracket keeps pointing a
+		// reader at a pen holding an animal that is not there.
+		if _, err := pool.Exec(ctx, `
+UPDATE goats SET lifecycle_status = 'dead' WHERE tenant_id = $1::uuid AND goat_id = $2::uuid`,
+			countsTenant, goatUUID(3)); err != nil {
+			t.Fatalf("kill goat: %v", err)
+		}
+		got, err := repo.GetCountsBreakdown(ctx, domain.CountsBreakdownQuery{TenantID: countsTenant, Limit: 50})
+		if err != nil {
+			t.Fatalf("GetCountsBreakdown: %v", err)
+		}
+		row := got.Loads[0]
+		var animals int64
+		for _, p := range row.Pens {
+			animals += p.Animals
+			if p.ParkName == two {
+				t.Errorf("the dead animal's park is still named in the pens: %+v", row.Pens)
+			}
+		}
+		if animals != row.OnFarm {
+			t.Errorf("pens sum to %d, want on_farm %d after the death", animals, row.OnFarm)
+		}
+	})
+}

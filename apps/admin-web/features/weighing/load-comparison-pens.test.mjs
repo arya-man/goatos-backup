@@ -10,12 +10,18 @@ const contract = readFileSync(
 
 test("each load on the comparison chart names the pens its weighed animals sit in", () => {
   // A bar saying a supplier's stock grew 1.4x, with no pen named, cannot be walked from: the
-  // reader has no way to reach the animals it describes. The pens ride the group's own sub-line,
-  // beside the multiple, so they are VISIBLE rather than hidden behind a hover panel.
+  // reader has no way to reach the animals it describes.
+  //
+  // The pens ride the group's own HEADING, in a bracket beside the load (maintainer request
+  // 2026-09-22, replacing the sub-line this tab carried from 2026-09-21) -- the shape every load
+  // chart on the dashboard now uses. They are still VISIBLE rather than hidden behind a hover
+  // panel, which was the point of the sub-line and survives the move.
+  assert.match(source, /chartHeading: withLoadPens\(heading, pensFromPlacements\(bucket\?\.placements\)\)/);
+  assert.match(source, /heading: row\.chartHeading,/);
+  // The TABLE keeps the fuller line, head counts and all, because a cell has room the axis does
+  // not. Its head count comes from the same placement row the load's own average is weighted by,
+  // so the line and the chart cannot disagree about how many animals were weighed where.
   assert.match(source, /pens: penList\(bucket\)/);
-  assert.match(source, /subheading: \[multiple, row\.pens\]\.filter\(Boolean\)\.join\(" · "\) \|\| undefined/);
-  // Head count comes from the same placement row the load's own average is weighted by, so the
-  // line and the chart cannot disagree about how many animals were weighed where.
   assert.match(source, /\$\{where\} · \$\{p\.animals\.toLocaleString\("en-IN"\)\}/);
 });
 
@@ -41,23 +47,23 @@ test("the value chart names the same pens as the weight chart beside it", () => 
   // same loads, side by side, labelling them differently is the cross-surface disagreement this
   // page's rules exist to stop -- and a bar saying a load is worth a sum of money names no pen, so
   // a reader cannot walk from it to the animals any more than they could from the weight bars.
-  assert.match(
-    source,
-    /const subheading = stockAnimals === 0 \? basis : \[basis, row\.pens\]\.filter\(Boolean\)\.join\(" · "\);/,
-  );
-  // ONE pen line for the whole tab: both charts AND the ledger read row.pens, so the three
-  // surfaces cannot drift into three spellings of one pen.
-  assert.equal((source.match(/row\.pens/g) ?? []).length, 3);
-  // A SOLD-OUT load keeps its own line alone. Its animals are gone, so naming the pens they used
-  // to sit in would point the reader at a pen that no longer holds them.
-  assert.match(source, /stockAnimals === 0 \? basis :/);
+  //
+  // Both charts read the SAME row.chartHeading, so they cannot drift into two spellings of one
+  // load's pens.
+  assert.equal((source.match(/row\.chartHeading/g) ?? []).length, 2);
+  // A SOLD-OUT load is named WITHOUT its pens. Its animals are gone, so naming the pens they used
+  // to sit in would point the reader at a pen that no longer holds them. That rule predates the
+  // bracket and survives it -- this is the ONE place the two charts label a load differently, and
+  // it is deliberate.
+  assert.match(source, /heading: stockAnimals === 0 \? row\.heading : row\.chartHeading,/);
   assert.match(contract, /no stock to value, and names no pen/);
 });
 
 test("the loads ledger names the pens too, and the card is inset like the Weights tables", () => {
   const css = readFileSync(new URL("../../app/mesha-theme.css", import.meta.url), "utf8");
-  // Maintainer request 2026-09-21: the same pens in the table under the two charts. It renders the
-  // SAME row.pens, so the three surfaces on this tab cannot name one load's pens three ways.
+  // Maintainer request 2026-09-21: the same pens in the table under the two charts. The table is
+  // the ONE place row.pens is rendered now -- the charts carry the shorter bracket -- and both are
+  // composed from the same placements, so the surfaces cannot name one load's pens two ways.
   assert.match(source, /<th className="pens">\{copy\(pageContract, "table\.loads\.pens"\)\}<\/th>/);
   assert.match(source, /<td className="pens">\{row\.pens \|\| none\}<\/td>/);
   assert.ok(contract.includes('"table.loads.pens"'), "the column label is backend copy");

@@ -8,7 +8,8 @@ import { getLoadwiseSales } from "@/lib/api/procurement-server";
 import { getShedWeights } from "@/lib/api/server";
 import { istDayPlus, todayIso } from "@/lib/format";
 import { one, type RouteSearchParams } from "@/lib/search-params";
-import { LoadwiseSection, type LoadCurrentWeights } from "./loadwise-section";
+import { pensFromPlacements } from "@/lib/load-pens";
+import { LoadwiseSection, type LoadCurrentWeights, type LoadPensByRef } from "./loadwise-section";
 
 const PAGE_PATH = "/sales/loads";
 /** The tab the page opens on when the URL names none — the first option the contract serves. */
@@ -74,10 +75,19 @@ export async function SalesLoadsPage({
   ]);
   if (loadwiseResult && firstAuthRequiredError(loadwiseResult)) redirect(INTERNAL_LOGIN_PATH);
   let currentWeights: LoadCurrentWeights | null = null;
+  // The pens each load sits in, for the bracket beside its name on every chart (maintainer
+  // request 2026-09-22). Read from the SAME by_load buckets as the "weighs now" series, and kept
+  // in its own map deliberately: that series is withheld from a SOLD load, whose animals have
+  // left, while the pens it was weighed in remain the honest answer to "where was this load".
+  // Null when the weighing read was not fetched for this principal — the charts then name no pen
+  // rather than guessing one.
+  let loadPens: LoadPensByRef | null = null;
   if (weightsResult?.ok) {
     currentWeights = {};
+    loadPens = {};
     for (const bucket of weightsResult.data.by_load) {
       currentWeights[bucket.load_ref] = { averageKg: bucket.average_weight_kg, animals: bucket.animals };
+      loadPens[bucket.load_ref] = pensFromPlacements(bucket.placements);
     }
   }
 
@@ -146,6 +156,7 @@ export async function SalesLoadsPage({
         canRecordCost={canRecordCost}
         costHref={(loadId) => hrefWithQuery(sp, { cost_load: loadId })}
         currentWeights={currentWeights}
+        loadPens={loadPens}
       />
     </div>
   );
