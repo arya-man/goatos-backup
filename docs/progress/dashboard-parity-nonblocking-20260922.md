@@ -17,6 +17,8 @@ evidence.
   when parity is degraded.
 - Updated Slack next-action copy so `Browser: not_run` no longer points at
   STG-to-OCI parity repair.
+- Updated `tools/agent-hooks/check-dashboard-automation-guard.mjs` so local CI
+  enforces the new nonblocking parity policy instead of the old strict policy.
 
 ## Pending
 
@@ -30,19 +32,25 @@ evidence.
 - `node --check tools/dashboard-automation/run.mjs`
 - `node --check tools/dashboard-automation/notify-slack.mjs`
 - `node tools/dashboard-automation/run.mjs --self-test`
+- `node tools/agent-hooks/check-dashboard-automation-guard.mjs --self-test`
+- `node tools/agent-hooks/check-dashboard-automation-guard.mjs`
 
-Result: green.
+Result: focused checks green.
 
 ## Known Failures
 
-- No current known focused-test failure for this scoped change.
+- Full `bash tools/ci/run-local-ci.sh` first failed only
+  `dashboard-automation-guard` because the guard still encoded the old
+  strict-parity rule. The guard has been updated and rerun focused green.
 
 ## Current SHA
 
 - Base: `origin/main` at `7772c2e92`
-- Working tree: uncommitted scoped automation fix.
+- PR branch: `codex/dashboard-parity-nonblocking-pr`
+- Latest local commit before guard update: `c356ff8cc`
 
 ## Deployment State
 
 - Not deployed.
-- Not pushed to main yet.
+- Not pushed to main.
+- PR opened: https://github.com/vgoats/goatos/pull/350

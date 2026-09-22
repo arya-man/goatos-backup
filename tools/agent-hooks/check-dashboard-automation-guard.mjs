@@ -157,8 +157,8 @@ function dashboardRuntimeFindings() {
     if (!paritySource.includes(fragment)) findings.push(`${parityRel}: missing parity safety/alias fragment ${fragment}`);
   }
 
-  if (config.businessDataParity?.enabledByDefault !== true) {
-    findings.push(`${configRel}: business data parity must be default-on for OCI automation`);
+  if (config.businessDataParity?.enabledByDefault !== false) {
+    findings.push(`${configRel}: live STG-to-OCI parity must be explicit-only; STG continuously moves and must not block production browser smoke`);
   }
   if (config.businessDataParity?.latestFullParityReceiptRequired !== true) {
     findings.push(`${configRel}: dashboard automation must require the latest full STG-to-OCI READBACK_PASS receipt before OCI-backed smoke`);
@@ -184,11 +184,11 @@ function dashboardRuntimeFindings() {
     findings.push(`${configRel}: self-healing PR creation must be default-on for failing OCI automation`);
   }
   if (!runnerSource.includes("enabled(\"GOATOS_DASHBOARD_DATA_PARITY\"") || !runnerSource.includes("config.businessDataParity.enabledByDefault")) {
-    findings.push(`${runnerRel}: business data parity must use config default, not an opt-in-only env gate`);
+    findings.push(`${runnerRel}: business data parity must remain explicitly overridable by env/config`);
   }
-  for (const fragment of ["runtimePolicyForMode", "dataParityRequiredBeforeBrowser: false", "ran_degraded", "productionSmokeOk", "post-main certification requires fresh STG-to-OCI READBACK_PASS parity", "degraded production smoke only failed parity prerequisites", "receipt.status === \"fail\" && enabled(\"GOATOS_DASHBOARD_SELF_HEALING\""]) {
+  for (const fragment of ["runtimePolicyForMode", "dataParityRequiredBeforeBrowser: false", "ran_degraded", "productionSmokeOk", "not_checked_read_only_smoke", "post-main certification must still collect read-only browser evidence", "degraded production smoke only failed parity prerequisites", "receipt.status === \"fail\" && enabled(\"GOATOS_DASHBOARD_SELF_HEALING\""]) {
     if (!runnerSource.includes(fragment)) {
-      findings.push(`${runnerRel}: production smoke must still run read-only Playwright in degraded mode when parity is red, while post-main certification stays strict (${fragment})`);
+      findings.push(`${runnerRel}: dashboard smoke must still collect read-only browser evidence when parity is red (${fragment})`);
     }
   }
   if (!runnerSource.includes("enabled(\"GOATOS_DASHBOARD_API_LATENCY\", true")) {
