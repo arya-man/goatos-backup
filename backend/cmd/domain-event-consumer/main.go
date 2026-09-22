@@ -183,7 +183,7 @@ func buildDomainBus(pool *pgxpool.Pool, pgCfg platformpg.Config, logger *slog.Lo
 	// WHO hears each leadership push is per-designation config (maintainer decision 2026-09-08):
 	// every upward-routing consumer below resolves its audience through the stored override,
 	// falling back to the catalog default. Pinned by notificationbridge's audience wiring test.
-	leadershipAudience := notificationbridge.NewStoredAudience(rosterService, notificationaudiencepg.NewRepository(pool, pgCfg.QueryTimeout), logger)
+	leadershipAudience := notificationbridge.NewStoredAudience(notifyRecipients, notificationaudiencepg.NewRepository(pool, pgCfg.QueryTimeout), logger)
 	notificationbridge.NewVerificationEventConsumer(notifyRecipients, calendarService, logger).WithAudience(leadershipAudience).WithVaccineLabels(vaccineLabels).WithLocationNames(locationNames).Register(bus)
 	notificationbridge.NewWeighingSubmissionEventConsumer(notifyRecipients, calendarService, logger).WithAudience(leadershipAudience).Register(bus)
 	notificationbridge.NewWeighingLifecycleEventConsumer(notifyRecipients, calendarService, logger).WithAudience(leadershipAudience).Register(bus)

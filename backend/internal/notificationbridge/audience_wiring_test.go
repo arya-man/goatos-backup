@@ -215,8 +215,8 @@ func TestEveryNotifierInAnAsyncProcessReachesBrowsers(t *testing.T) {
 }
 
 // bareRosterConsumerSites returns one finding per notificationbridge consumer/notifier
-// construction in the file whose arguments name a roster-service binding, and the number of
-// construction sites seen.
+// construction in the file whose arguments name a roster-service binding, plus every stored
+// audience resolver built from that raw roster, and the number of construction sites seen.
 func bareRosterConsumerSites(t *testing.T, path string) ([]string, int) {
 	t.Helper()
 	fset := token.NewFileSet()
@@ -274,7 +274,21 @@ func bareRosterConsumerSites(t *testing.T, path string) ([]string, int) {
 	sites := 0
 	ast.Inspect(file, func(n ast.Node) bool {
 		call, ok := n.(*ast.CallExpr)
-		if !ok || !isCall(call, "notificationbridge", "") {
+		if !ok {
+			return true
+		}
+		if isCall(call, "notificationbridge", "NewStoredAudience") {
+			for _, arg := range call.Args {
+				ast.Inspect(arg, func(m ast.Node) bool {
+					if id, ok := m.(*ast.Ident); ok && rosters[id.Name] {
+						findings = append(findings, fmt.Sprintf("%s: notificationbridge.NewStoredAudience is built on the raw roster service (%q); stored leadership audiences must use WithBrowserRecipients / kernelstages.notifyRecipients, or Chrome recipients are skipped", fset.Position(call.Pos()), id.Name))
+					}
+					return true
+				})
+			}
+			return true
+		}
+		if !isCall(call, "notificationbridge", "") {
 			return true
 		}
 		name := call.Fun.(*ast.SelectorExpr).Sel.Name
@@ -333,8 +347,8 @@ func wire(pool any, logger any) {
 	if sites != 6 {
 		t.Fatalf("sites = %d, want 6", sites)
 	}
-	if len(findings) != 3 {
-		t.Fatalf("findings = %d, want 3 (alias, alias-of-alias at depth 2, non-first argument):\n%s", len(findings), strings.Join(findings, "\n"))
+	if len(findings) != 4 {
+		t.Fatalf("findings = %d, want 4 (stored audience, alias, alias-of-alias at depth 2, non-first argument):\n%s", len(findings), strings.Join(findings, "\n"))
 	}
 	for _, want := range []string{`"roster"`, `"again"`, `"rosterService"`} {
 		if !strings.Contains(strings.Join(findings, "\n"), want) {

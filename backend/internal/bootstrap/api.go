@@ -1358,7 +1358,7 @@ func NewAPI(ctx context.Context, cfg Config, log *slog.Logger) (*API, error) {
 	// logs and returns the phones untouched. See notificationbridge/browser_push_recipients.go for
 	// what it deliberately does NOT cover (the position/module-duty paths).
 	notifyRecipients := notificationbridge.WithBrowserRecipients(rosterService, browserPushService, log)
-	leadershipAudience := notificationbridge.NewStoredAudience(rosterService, notificationaudiencepg.NewRepository(pool, cfg.Postgres.QueryTimeout), log)
+	leadershipAudience := notificationbridge.NewStoredAudience(notifyRecipients, notificationaudiencepg.NewRepository(pool, cfg.Postgres.QueryTimeout), log)
 	notificationbridge.NewVerificationEventConsumer(notifyRecipients, calendarService, log).WithAudience(leadershipAudience).WithVaccineLabels(vaccineLabels).WithLocationNames(locationNames).Register(bus)
 	notificationbridge.NewWeighingSubmissionEventConsumer(notifyRecipients, calendarService, log).WithAudience(leadershipAudience).Register(bus)
 	// Weighing publish/verdict/close pushes. Registered next to the submission

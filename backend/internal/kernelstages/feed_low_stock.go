@@ -31,10 +31,11 @@ func NewFeedLowStockStage(deps Deps, tenantID string, logger *slog.Logger) *Feed
 	calendarService := calendarapp.NewService(calendarpg.NewRepository(deps.Pool, deps.PgCfg.QueryTimeout))
 	workforceRepo := workforcepg.NewRepository(deps.Pool, deps.PgCfg.QueryTimeout)
 	rosterService := workforceapp.NewRosterService(workforceRepo, workforceRepo)
+	recipients := notifyRecipients(deps, rosterService, logger)
 	return &FeedLowStockStage{
-		notifier: notificationbridge.NewFeedLowStockNotifier(feedRepo, notifyRecipients(deps, rosterService, logger), calendarService, logger).
+		notifier: notificationbridge.NewFeedLowStockNotifier(feedRepo, recipients, calendarService, logger).
 			WithLocationNames(notificationbridge.NewLocationNameResolver(deps.Pool)).
-			WithAudience(notificationbridge.NewStoredAudience(rosterService, notificationaudiencepg.NewRepository(deps.Pool, deps.PgCfg.QueryTimeout), logger)),
+			WithAudience(notificationbridge.NewStoredAudience(recipients, notificationaudiencepg.NewRepository(deps.Pool, deps.PgCfg.QueryTimeout), logger)),
 		tenantID: tenantID,
 	}
 }

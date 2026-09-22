@@ -34,11 +34,12 @@ func NewSaleFeedReduceReminderStage(deps Deps, tenantID string, logger *slog.Log
 	calendarService := calendarapp.NewService(calendarpg.NewRepository(deps.Pool, deps.PgCfg.QueryTimeout))
 	workforceRepo := workforcepg.NewRepository(deps.Pool, deps.PgCfg.QueryTimeout)
 	rosterService := workforceapp.NewRosterService(workforceRepo, workforceRepo)
+	recipients := notifyRecipients(deps, rosterService, logger)
 	return &SaleFeedReduceReminderStage{
-		notifier: notificationbridge.NewSaleFeedReduceNotifier(notifyRecipients(deps, rosterService, logger), calendarService, logger).
+		notifier: notificationbridge.NewSaleFeedReduceNotifier(recipients, calendarService, logger).
 			WithBatches(identitypg.NewRepository(deps.Pool, deps.PgCfg.QueryTimeout)).
 			WithFeedClocks(feeddirectionpg.NewRepository(deps.Pool, deps.PgCfg.QueryTimeout)).
-			WithAudience(notificationbridge.NewStoredAudience(rosterService, notificationaudiencepg.NewRepository(deps.Pool, deps.PgCfg.QueryTimeout), logger)),
+			WithAudience(notificationbridge.NewStoredAudience(recipients, notificationaudiencepg.NewRepository(deps.Pool, deps.PgCfg.QueryTimeout), logger)),
 		tenantID: tenantID,
 	}
 }

@@ -31,9 +31,10 @@ func NewLoadAgeAlertStage(deps Deps, tenantID string, logger *slog.Logger) *Load
 	calendarService := calendarapp.NewService(calendarpg.NewRepository(deps.Pool, deps.PgCfg.QueryTimeout))
 	workforceRepo := workforcepg.NewRepository(deps.Pool, deps.PgCfg.QueryTimeout)
 	rosterService := workforceapp.NewRosterService(workforceRepo, workforceRepo)
+	recipients := notifyRecipients(deps, rosterService, logger)
 	return &LoadAgeAlertStage{
-		notifier: notificationbridge.NewLoadAgeNotifier(loadRepo, notifyRecipients(deps, rosterService, logger), calendarService, logger).
-			WithAudience(notificationbridge.NewStoredAudience(rosterService, notificationaudiencepg.NewRepository(deps.Pool, deps.PgCfg.QueryTimeout), logger)),
+		notifier: notificationbridge.NewLoadAgeNotifier(loadRepo, recipients, calendarService, logger).
+			WithAudience(notificationbridge.NewStoredAudience(recipients, notificationaudiencepg.NewRepository(deps.Pool, deps.PgCfg.QueryTimeout), logger)),
 		tenantID: tenantID,
 	}
 }
