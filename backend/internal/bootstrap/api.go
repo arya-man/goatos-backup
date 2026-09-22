@@ -591,9 +591,9 @@ func NewAPI(ctx context.Context, cfg Config, log *slog.Logger) (*API, error) {
 		return nil, err
 	}
 	proofRepo := proofpg.NewRepository(pool, cfg.Postgres.QueryTimeout)
+	sopRepo := soppg.NewRepository(pool, cfg.Postgres.QueryTimeout)
 	proofService := proofapp.NewService(proofRepo, proofStorage)
 	proofHandler := proofhttp.NewHandler(proofService, log)
-	sopRepo := soppg.NewRepository(pool, cfg.Postgres.QueryTimeout)
 	sopService := sopapp.NewService(sopRepo).WithProofValidator(proofService).
 		WithTaskTypeSource(sopRepo).
 		WithDesignationSource(sopRepo).
@@ -968,6 +968,8 @@ func NewAPI(ctx context.Context, cfg Config, log *slog.Logger) (*API, error) {
 		salesService, log)
 	vaccinationRepo := vaccinationpg.NewRepository(pool, cfg.Postgres.QueryTimeout)
 	vaccinationService := vaccinationapp.NewService(vaccinationRepo).WithAnchorObligationSuppressor(obligationRepo)
+	vaccinationService.WithProofCompletionObligationCompleter(obligationRepo)
+	proofService.WithCompletedProofObserver(vaccinationService)
 	inventoryService := inventoryapp.NewService(inventorypg.NewRepository(pool, cfg.Postgres.QueryTimeout))
 	vaccinationCompletion := vaccinationapp.NewCompletionService(vaccinationService, obligationRepo, inventoryService)
 	vaccinationBooster := vaccinationapp.NewBoosterService(protocolRepo, obligationRepo).WithGoatReader(vaccinationRepo).WithCrossVaccineGapReader(vaccinationRepo)

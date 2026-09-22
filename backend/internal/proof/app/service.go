@@ -25,14 +25,26 @@ const (
 var ErrInvalid = errors.New("proof: invalid input")
 
 type Service struct {
-	repo    ports.Repository
-	storage ports.Storage
-	now     func() time.Time
-	ttl     time.Duration
+	repo                   ports.Repository
+	storage                ports.Storage
+	now                    func() time.Time
+	ttl                    time.Duration
+	completedProofObserver CompletedProofObserver
 }
 
 func NewService(repo ports.Repository, storage ports.Storage) *Service {
 	return &Service{repo: repo, storage: storage, now: time.Now, ttl: defaultSignedURLTTL}
+}
+
+// CompletedProofObserver is notified after an artifact reaches upload_state=completed. Observers
+// must be idempotent: CompleteUpload can be retried after the artifact already completed.
+type CompletedProofObserver interface {
+	OnProofCompleted(ctx context.Context, proof domain.Artifact) error
+}
+
+func (s *Service) WithCompletedProofObserver(observer CompletedProofObserver) *Service {
+	s.completedProofObserver = observer
+	return s
 }
 
 func (s *Service) CreateUpload(ctx context.Context, in domain.CreateUpload) (domain.UploadTarget, error) {
@@ -92,6 +104,9 @@ func (s *Service) CompleteUpload(ctx context.Context, in domain.CompleteUpload) 
 		return domain.Artifact{}, err
 	}
 	if proof.UploadState == "completed" {
+		if err := s.observeCompletedProof(ctx, proof); err != nil {
+			return domain.Artifact{}, err
+		}
 		return proof, nil
 	}
 	stored, err := s.storage.FinalizeUpload(ctx, proof, in)
@@ -101,7 +116,21 @@ func (s *Service) CompleteUpload(ctx context.Context, in domain.CompleteUpload) 
 	in.ContentHash = stored.ContentHash
 	in.MimeType = stored.MimeType
 	in.SizeBytes = stored.SizeBytes
-	return s.repo.CompleteProof(ctx, in)
+	completed, err := s.repo.CompleteProof(ctx, in)
+	if err != nil {
+		return domain.Artifact{}, err
+	}
+	if err := s.observeCompletedProof(ctx, completed); err != nil {
+		return domain.Artifact{}, err
+	}
+	return completed, nil
+}
+
+func (s *Service) observeCompletedProof(ctx context.Context, proof domain.Artifact) error {
+	if s.completedProofObserver == nil || proof.UploadState != "completed" {
+		return nil
+	}
+	return s.completedProofObserver.OnProofCompleted(ctx, proof)
 }
 
 func (s *Service) StoreUpload(ctx context.Context, tenantID, proofID, mimeType string, body io.Reader) (domain.Artifact, error) {

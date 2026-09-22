@@ -1828,6 +1828,237 @@ WHERE vc.tenant_id = $1
 	return count, nil
 }
 
+// RecordCompletionsFromCompletedProof closes the media/completion split window for vaccination
+// goat proofs: once a live-camera proof reaches completed upload state, every matching open
+// same-task goat obligation must have a recorded completion. This is intentionally idempotent on
+// (proof_id, obligation_id) and records only 'recorded' completions; stock consumption remains
+// gated by the existing verification/accept path.
+func (r *Repository) RecordCompletionsFromCompletedProof(ctx context.Context, tenantID, proofID string) ([]domain.SubmissionCompletion, error) {
+	ctx, cancel := r.withTimeout(ctx)
+	defer cancel()
+	tenant, err := pgconv.UUID(tenantID)
+	if err != nil {
+		return nil, fmt.Errorf("vaccination: tenant id: %w", err)
+	}
+	proof, err := pgconv.UUID(proofID)
+	if err != nil {
+		return nil, fmt.Errorf("vaccination: proof id: %w", err)
+	}
+	rows, err := r.pool.Query(ctx, `
+WITH proof AS (
+  SELECT p.tenant_id,
+         p.proof_id,
+         p.scope_id AS task_id,
+         p.subject_id AS goat_id,
+         p.uploaded_by,
+         COALESCE(p.uploaded_at, p.updated_at, p.created_at, now()) AS administered_at
+  FROM proof_artifacts p
+  WHERE p.tenant_id = $1
+    AND p.proof_id = $2
+    AND p.upload_state = 'completed'
+    AND p.scope_type = 'task'
+    AND p.subject_type = 'goat'
+    AND p.subject_id IS NOT NULL
+    AND p.proof_type = 'video'
+    AND p.metadata ->> 'field_key' = 'vaccination_goat_proof'
+),
+task_ctx AS (
+  SELECT proof.*, st.task_type, sd.code AS sop_code, ob.batch_id AS task_batch_id, ob.primary_inventory_lot_id
+  FROM proof
+  JOIN sop_tasks st
+    ON st.tenant_id = proof.tenant_id
+   AND st.task_id = proof.task_id
+  JOIN sop_definitions sd
+    ON sd.tenant_id = st.tenant_id
+   AND sd.sop_id = st.sop_id
+  LEFT JOIN obligation_batches ob
+    ON ob.tenant_id = st.tenant_id
+   AND ob.sop_task_id = st.task_id
+  WHERE sd.code IN ('vaccination.drive', 'vaccination.session')
+     OR st.task_type IN ('vaccination', 'vaccination_drive', 'vaccination_session')
+),
+eligible AS (
+  SELECT tc.tenant_id,
+         tc.proof_id,
+         tc.task_id,
+         tc.goat_id,
+         tc.uploaded_by,
+         tc.administered_at,
+         oi.obligation_id,
+         oi.batch_id,
+         oi.status AS obligation_status,
+         pr.withdrawal_days,
+         COALESCE(
+           tc.primary_inventory_lot_id,
+           (
+             SELECT ism.lot_id
+             FROM inventory_stock_movements ism
+             WHERE ism.tenant_id = tc.tenant_id
+               AND ism.batch_id = oi.batch_id
+               AND ism.movement_type = 'reserve'
+             ORDER BY ism.occurred_at, ism.movement_id
+             LIMIT 1
+           )
+         ) AS vaccine_inventory_lot_id
+  FROM task_ctx tc
+  JOIN obligation_instances oi
+    ON oi.tenant_id = tc.tenant_id
+   AND oi.target_type = 'goat'
+   AND oi.target_id = tc.goat_id
+   AND (
+        oi.sop_task_id = tc.task_id
+        OR (tc.task_batch_id IS NOT NULL AND oi.batch_id = tc.task_batch_id)
+   )
+  JOIN protocol_rules pr
+    ON pr.tenant_id = oi.tenant_id
+   AND pr.rule_id = oi.rule_id
+  WHERE oi.status NOT IN ('waived', 'canceled', 'superseded')
+    AND (
+      tc.task_batch_id IS NULL
+      OR EXISTS (
+        SELECT 1
+        FROM vaccination_drive_assignment_members member
+        JOIN vaccination_drive_assignments assignment
+          ON assignment.tenant_id = member.tenant_id
+         AND assignment.assignment_id = member.assignment_id
+        WHERE member.tenant_id = tc.tenant_id
+          AND member.goat_id = tc.goat_id
+          AND member.obligation_id = oi.obligation_id
+          AND assignment.batch_id = tc.task_batch_id
+      )
+    )
+),
+inserted AS (
+  INSERT INTO vaccination_completions (
+    tenant_id,
+    obligation_id,
+    batch_id,
+    goat_id,
+    sop_submission_item_id,
+    vaccine_inventory_lot_id,
+    doses,
+    dose_ml_given,
+    route_site,
+    adverse_reaction,
+    cold_chain_verified,
+    administered_at,
+    status,
+    withdrawal_until_date,
+    recorded_by,
+    idempotency_key
+  )
+  SELECT
+    e.tenant_id,
+    e.obligation_id,
+    e.batch_id,
+    e.goat_id,
+    NULL::uuid,
+    e.vaccine_inventory_lot_id,
+    1,
+    NULL::numeric,
+    NULL::text,
+    false,
+    true,
+    e.administered_at,
+    'recorded',
+    CASE
+      WHEN e.withdrawal_days IS NOT NULL THEN ((e.administered_at AT TIME ZONE 'Asia/Kolkata')::date + e.withdrawal_days)
+      ELSE NULL
+    END,
+    e.uploaded_by,
+    'vaccination:proof_upload:' || e.proof_id::text || ':obligation:' || e.obligation_id::text
+  FROM eligible e
+  WHERE e.obligation_status IN ('scheduled', 'due', 'in_progress', 'missed')
+  ON CONFLICT DO NOTHING
+  RETURNING completion_id, tenant_id, obligation_id, goat_id, administered_at, idempotency_key
+),
+active AS (
+  SELECT vc.completion_id,
+         vc.tenant_id,
+         vc.obligation_id,
+         vc.goat_id,
+         vc.administered_at
+  FROM vaccination_completions vc
+  JOIN eligible e
+    ON e.tenant_id = vc.tenant_id
+   AND e.obligation_id = vc.obligation_id
+   AND e.goat_id = vc.goat_id
+  WHERE vc.status IN ('recorded', 'accepted')
+)
+SELECT DISTINCT ON (a.obligation_id)
+       a.completion_id::text,
+       a.obligation_id::text,
+       a.goat_id::text,
+       COALESCE(g.display_id, '')::text,
+       COALESCE(g.shed_id::text, ''),
+       COALESCE(NULLIF(shed.name, ''), NULLIF(shed.location_code, ''), g.shed_id::text, '')::text AS shed_label,
+       COALESCE(NULLIF(gsp.partition_label, ''), 'whole')::text,
+       COALESCE(g.park_id::text, ''),
+       a.administered_at,
+       COALESCE(pd.name, ''),
+       COALESCE(pr.dose_code, '')
+FROM active a
+JOIN obligation_instances oi
+  ON oi.tenant_id = a.tenant_id
+ AND oi.obligation_id = a.obligation_id
+JOIN protocol_rules pr
+  ON pr.tenant_id = oi.tenant_id
+ AND pr.rule_id = oi.rule_id
+LEFT JOIN protocol_versions pv
+  ON pv.protocol_version_id = pr.protocol_version_id
+LEFT JOIN protocol_definitions pd
+  ON pd.protocol_id = pv.protocol_id
+JOIN goats g
+  ON g.tenant_id = a.tenant_id
+ AND g.goat_id = a.goat_id
+LEFT JOIN locations shed
+  ON shed.tenant_id = g.tenant_id
+ AND shed.location_id = g.shed_id
+ AND shed.location_type = 'shed'
+LEFT JOIN goat_shed_partitions gsp
+  ON gsp.tenant_id = g.tenant_id
+ AND gsp.goat_id = g.goat_id
+ AND gsp.shed_id = g.shed_id
+ORDER BY a.obligation_id, a.completion_id
+LIMIT 32`, tenant, proof)
+	if err != nil {
+		return nil, fmt.Errorf("vaccination: record completions from completed proof: %w", err)
+	}
+	defer rows.Close()
+	out := make([]domain.SubmissionCompletion, 0)
+	for rows.Next() {
+		var item domain.SubmissionCompletion
+		var protocolName, doseCode string
+		var partitionLabelRaw string
+		if err := rows.Scan(
+			&item.CompletionID,
+			&item.ObligationID,
+			&item.GoatID,
+			&item.GoatLabel,
+			&item.ShedID,
+			&item.ShedLabel,
+			&partitionLabelRaw,
+			&item.ParkID,
+			&item.AdministeredAt,
+			&protocolName,
+			&doseCode,
+		); err != nil {
+			return nil, fmt.Errorf("vaccination: scan completed proof completion: %w", err)
+		}
+		item.ProofRefIDs = []string{proofID}
+		if partitionLabelRaw != "" && partitionLabelRaw != "whole" {
+			item.PartitionLabel = partitionLabelRaw
+		}
+		item.AdministeredAt = item.AdministeredAt.UTC()
+		item.VaccineLabel = domain.DoseDisplayLabel(protocolName, doseCode)
+		out = append(out, item)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("vaccination: completed proof completion rows: %w", err)
+	}
+	return out, nil
+}
+
 // ShedCompletionSummary computes the FROZEN read-only shed-completion / submit summary for a
 // vaccination task: how many animals were expected vs. scanned vs. proof-ready, a display-name
 // vaccine breakdown, and whether Submit is enabled. Shed completion is an acknowledgement, not a

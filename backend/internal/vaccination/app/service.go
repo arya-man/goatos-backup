@@ -5,8 +5,11 @@ package app
 
 import (
 	"context"
+	"fmt"
+	"log/slog"
 	"time"
 
+	proofdomain "github.com/vgoats/goatos/backend/internal/proof/domain"
 	"github.com/vgoats/goatos/backend/internal/vaccination/domain"
 	"github.com/vgoats/goatos/backend/internal/vaccination/ports"
 )
@@ -15,15 +18,24 @@ import (
 type Service struct {
 	repo              ports.Repository
 	anchorObligations anchorObligationSuppressor
+	proofObligations  proofObligationCompleter
 }
 
 type anchorObligationSuppressor interface {
 	CancelOpenVaccinationObligationsBeforeActiveAnchors(ctx context.Context, tenantID string, goatIDs []string, occurredAt time.Time) (int, error)
 }
 
+type proofObligationCompleter interface {
+	MarkCompleted(ctx context.Context, tenantID, obligationID string) (bool, error)
+}
+
 type anchorRepository interface {
 	PreviewAnchor(ctx context.Context, in domain.AnchorCommand) (domain.AnchorPreview, error)
 	CreateAnchor(ctx context.Context, in domain.AnchorCommand) (domain.AnchorPreview, error)
+}
+
+type proofCompletionRepository interface {
+	RecordCompletionsFromCompletedProof(ctx context.Context, tenantID, proofID string) ([]domain.SubmissionCompletion, error)
 }
 
 // NewService constructs a Service.
@@ -33,6 +45,11 @@ func NewService(repo ports.Repository) *Service {
 
 func (s *Service) WithAnchorObligationSuppressor(obl anchorObligationSuppressor) *Service {
 	s.anchorObligations = obl
+	return s
+}
+
+func (s *Service) WithProofCompletionObligationCompleter(obl proofObligationCompleter) *Service {
+	s.proofObligations = obl
 	return s
 }
 
@@ -160,6 +177,78 @@ func (s *Service) RecordCompletionsFromSubmission(ctx context.Context, tenantID,
 // SubmissionCompletions returns the per-goat completion context created by one SOP submission.
 func (s *Service) SubmissionCompletions(ctx context.Context, tenantID, submissionID string) ([]domain.SubmissionCompletion, error) {
 	return s.repo.ListSubmissionCompletions(ctx, tenantID, submissionID)
+}
+
+func (s *Service) OnProofCompleted(ctx context.Context, proof proofdomain.Artifact) error {
+	if !isVaccinationGoatProof(proof) {
+		return nil
+	}
+	repo, ok := s.repo.(proofCompletionRepository)
+	if !ok {
+		slog.Error("vaccination proof completion reconciliation is not wired",
+			"tenant_id", proof.TenantID,
+			"proof_id", proof.ProofID,
+			"task_id", proof.ScopeID,
+			"goat_id", derefProofSubject(proof.SubjectID))
+		return fmt.Errorf("vaccination: completed proof reconciliation is not wired")
+	}
+	completions, err := repo.RecordCompletionsFromCompletedProof(ctx, proof.TenantID, proof.ProofID)
+	if err != nil {
+		slog.Error("vaccination proof completion reconciliation failed",
+			"tenant_id", proof.TenantID,
+			"proof_id", proof.ProofID,
+			"task_id", proof.ScopeID,
+			"goat_id", derefProofSubject(proof.SubjectID),
+			"error", err)
+		return err
+	}
+	if len(completions) == 0 {
+		slog.Error("vaccination proof completed without matching completion",
+			"tenant_id", proof.TenantID,
+			"proof_id", proof.ProofID,
+			"task_id", proof.ScopeID,
+			"goat_id", derefProofSubject(proof.SubjectID))
+		return fmt.Errorf("vaccination: completed proof %s materialized no completions", proof.ProofID)
+	}
+	if s.proofObligations == nil {
+		return nil
+	}
+	seen := make(map[string]struct{}, len(completions))
+	for _, completion := range completions {
+		if completion.ObligationID == "" {
+			continue
+		}
+		if _, ok := seen[completion.ObligationID]; ok {
+			continue
+		}
+		seen[completion.ObligationID] = struct{}{}
+		if _, err := s.proofObligations.MarkCompleted(ctx, proof.TenantID, completion.ObligationID); err != nil {
+			slog.Error("vaccination proof completion obligation close failed",
+				"tenant_id", proof.TenantID,
+				"proof_id", proof.ProofID,
+				"task_id", proof.ScopeID,
+				"goat_id", completion.GoatID,
+				"obligation_id", completion.ObligationID,
+				"error", err)
+			return fmt.Errorf("vaccination: close obligation %s after proof %s completed: %w", completion.ObligationID, proof.ProofID, err)
+		}
+	}
+	return nil
+}
+
+func isVaccinationGoatProof(proof proofdomain.Artifact) bool {
+	if proof.UploadState != "completed" || proof.ScopeType != "task" || proof.SubjectType != "goat" || proof.SubjectID == nil || proof.ProofType != "video" {
+		return false
+	}
+	field, _ := proof.Metadata["field_key"].(string)
+	return field == "vaccination_goat_proof"
+}
+
+func derefProofSubject(v *string) string {
+	if v == nil {
+		return ""
+	}
+	return *v
 }
 
 // ShedCompletionSummary returns the read-only shed-completion/submit summary for a vaccination

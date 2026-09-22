@@ -52,6 +52,46 @@ func TestCompleteUploadUsesStorageFinalization(t *testing.T) {
 	}
 }
 
+func TestCompleteUploadNotifiesCompletedProofObserver(t *testing.T) {
+	proof := baseProof()
+	proof.UploadState = "pending"
+	repo := &fakeProofRepo{proof: proof}
+	storage := &fakeProofStorage{stored: domain.StoredObject{
+		ContentHash: "sha256:actual",
+		MimeType:    "video/mp4",
+		SizeBytes:   123,
+	}}
+	observer := &fakeCompletedProofObserver{}
+	service := NewService(repo, storage).WithCompletedProofObserver(observer)
+
+	if _, err := service.CompleteUpload(context.Background(), domain.CompleteUpload{
+		TenantID: proofTestTenant,
+		ProofID:  proofTestID,
+	}); err != nil {
+		t.Fatalf("CompleteUpload() error = %v", err)
+	}
+	if observer.calls != 1 || observer.proof.ProofID != proofTestID || observer.proof.UploadState != "completed" {
+		t.Fatalf("observer = calls %d proof %#v, want completed %s", observer.calls, observer.proof, proofTestID)
+	}
+}
+
+func TestCompleteUploadRetriesObserverForAlreadyCompletedProof(t *testing.T) {
+	proof := baseProof()
+	proof.UploadState = "completed"
+	observer := &fakeCompletedProofObserver{}
+	service := NewService(&fakeProofRepo{proof: proof}, &fakeProofStorage{}).WithCompletedProofObserver(observer)
+
+	if _, err := service.CompleteUpload(context.Background(), domain.CompleteUpload{
+		TenantID: proofTestTenant,
+		ProofID:  proofTestID,
+	}); err != nil {
+		t.Fatalf("CompleteUpload() error = %v", err)
+	}
+	if observer.calls != 1 || observer.proof.ProofID != proofTestID {
+		t.Fatalf("observer = calls %d proof %#v, want retry notification", observer.calls, observer.proof)
+	}
+}
+
 func TestCompleteUploadRejectsStorageMismatch(t *testing.T) {
 	proof := baseProof()
 	proof.UploadState = "pending"
@@ -525,6 +565,17 @@ type fakeProofStorage struct {
 	deleted     domain.Artifact
 	uploadTTL   time.Duration
 	downloadTTL time.Duration
+}
+
+type fakeCompletedProofObserver struct {
+	calls int
+	proof domain.Artifact
+}
+
+func (o *fakeCompletedProofObserver) OnProofCompleted(_ context.Context, proof domain.Artifact) error {
+	o.calls++
+	o.proof = proof
+	return nil
 }
 
 func (s *fakeProofStorage) Provider() string { return "local" }
