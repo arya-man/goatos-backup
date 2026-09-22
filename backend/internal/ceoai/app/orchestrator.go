@@ -382,6 +382,19 @@ func (a *Assistant) ask(ctx context.Context, q domain.Question, opts askOptions)
 		return a.refusal(requestID, q.ConversationID, unmodelledRefusal(terms)), nil
 	}
 
+	// Fail closed on a SUBSTITUTED subject: the question named a compound
+	// subject ("milk feeding") whose one word nothing in the catalogue models,
+	// and the read that returned these rows does not report it either. The
+	// number is real and belongs to something else, which is the one failure a
+	// leader cannot catch. See subjectSubstitution for why the binding gate and
+	// measureUnmodelled both structurally miss this shape.
+	if substituted, subject, view := subjectSubstitution(q.Text, plan.SubQuestions, results, reporting.Cards(), catalog); substituted {
+		fitAudit = append(fitAudit, "refused_substituted_subject:"+subject)
+		a.log.InfoContext(ctx, "ceoai refusing a subject the read that ran does not model",
+			"subject", subject, "source_view", view, "tenant_id", q.Actor.TenantID)
+		return a.refusal(requestID, q.ConversationID, substitutedSubjectRefusal(subject, view)), nil
+	}
+
 	// Answer fit (planned path): the measure, grouping, unit and period the
 	// question asked for must be what the plan declared and what actually ran.
 	// Checked generically (fit.go) and — when a model judge is wired — by the

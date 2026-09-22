@@ -76,9 +76,18 @@ func measureBindingIssues(q domain.Question, subs []domain.SubQuestion, results 
 	// never satisfy a column-level binding test. "Kids on milk feeding per park"
 	// and "kids vs adults per park" produce almost the same SQL over the same
 	// view; the only thing separating them is the word "milk", which nothing in
-	// the catalogue models -- so the discriminator lives in the REFUSAL path
-	// (measureUnmodelled), not here. Making that per-term needs a vocabulary of
-	// the VALUES a column takes, which the schema cards do not carry yet.
+	// the catalogue models -- so the discriminator lives in the REFUSAL path,
+	// in subjectSubstitution below, and not here.
+	//
+	// A VALUE VOCABULARY on the cards (management_stage 'K2' = "kids") was
+	// proposed as the way to make that per-term refusal safe, and MEASURED
+	// before it was built: it is not what separates the two questions. "kids"
+	// and "adults" are already modelled -- the counts_breakdown tool's own
+	// catalogue sentence names them -- so ct-05 was never at risk from a
+	// per-term rule; what put every other held-out question at risk was that
+	// ~25 of 43 carry SOME word no schema models ("percentage", "biggest",
+	// "cases", "rounds"). The shape that separates them is the compound
+	// SUBJECT, not the value dictionary, so the cards were left alone.
 	judged := false
 	unmet := map[string]bool{}
 	for i := range results {
@@ -148,6 +157,171 @@ func measureUnmodelled(questionText string, cards []reporting.SchemaCard, catalo
 		return false, nil
 	}
 	return true, terms
+}
+
+// subjectSubstitution catches the failure measureUnmodelled and the binding gate
+// structurally cannot: "how many kids are on MILK FEEDING, by park", answered
+// "CBE 24, CPT 24" from the animal-scope view -- the 48-goat park split of a
+// COUNT(*), wearing the milk question's words.
+//
+// Why neither existing check sees it. The binding gate needs a COLUMN to bind
+// the measure to, and a COUNT(*) has none: the measure IS the row count and the
+// subject rides a FILTER VALUE (management_stage = 'K2'), so "kids per park"
+// and "kids on milk feeding per park" produce almost the same SQL over the same
+// view. measureUnmodelled needs EVERY term unmodelled, and "kids"/"feeding" are
+// modelled elsewhere in the catalogue, so one unmodelled word never reaches it.
+//
+// The discriminator is the COMPOUND SUBJECT. "milk feeding" is two adjacent
+// content words: nothing in the catalogue models "milk", while "feeding" is
+// modelled -- by the FEED views, not by the animal-scope card that answered.
+// So the question names a subject that (a) no source models and (b) the source
+// that ran does not report either. That is a substituted number, and it is
+// refused. "kids vs adults per park" has no such pair (both words are modelled,
+// and the card that ran is the one that models them), so it still answers.
+//
+// Four narrowings, each measured against the held-out set and each load-bearing:
+//
+//   - ROWS WERE RETURNED. An empty read answered "No records found" is honest
+//     whatever the question named -- nothing was substituted, so there is
+//     nothing to refuse. This is what keeps the health-case and milk-session
+//     questions, whose sources really are empty, answering as they do today.
+//   - THE PARTNER IS MODELLED SOMEWHERE BUT NOT BY THE CARD THAT RAN. A card
+//     that models the partner IS on the question's subject ("crowded sheds"
+//     over the shed-capacity view, "preventive care tasks" over a task view),
+//     so an unmodelled adjective beside it proves nothing.
+//   - THE UNMODELLED WORD MUST NAME A SUBJECT. Comparatives and computations
+//     ("biggest", "highest", "percentage", "shortfall", "compared") are how a
+//     question asks for arithmetic, never what it asks about, and no schema
+//     models them.
+//   - A TOOL CATALOGUE IS IN HAND. With none, the views are half the evidence
+//     and "modelled by nothing" cannot be judged (same reasoning as
+//     measureUnmodelled).
+func subjectSubstitution(questionText string, subs []domain.SubQuestion, results []domain.ToolResult, cards []reporting.SchemaCard, catalog []ports.ToolSpec) (bool, string, string) {
+	if len(catalog) == 0 {
+		return false, "", ""
+	}
+	pairs := compoundSubjects(questionText)
+	if len(pairs) == 0 {
+		return false, "", ""
+	}
+	for i := range results {
+		var sub domain.SubQuestion
+		if i < len(subs) {
+			sub = subs[i]
+		}
+		if results[i].Err != nil || len(results[i].Facts) == 0 {
+			continue
+		}
+		card, ok := cardForResult(results[i], sub)
+		if !ok {
+			continue
+		}
+		for _, p := range pairs {
+			head, tail := p[0], p[1]
+			var unmodelled, partner string
+			switch {
+			case !termModelled(head, cards, catalog) && termModelled(tail, cards, catalog):
+				unmodelled, partner = head, tail
+			case !termModelled(tail, cards, catalog) && termModelled(head, cards, catalog):
+				unmodelled, partner = tail, head
+			default:
+				continue
+			}
+			if !namesASubject(unmodelled) {
+				continue
+			}
+			if cardModels(card, unmodelled) || cardModels(card, partner) {
+				continue
+			}
+			return true, head + " " + tail, card.Name
+		}
+	}
+	return false, "", ""
+}
+
+// compoundSubjects are the question's adjacent content-word pairs, in the order
+// the question said them. A subject the farm does not record is usually named by
+// two words together ("milk feeding", "treatment sessions"), and it is the PAIR
+// that makes one unmodelled word meaningful.
+func compoundSubjects(questionText string) [][2]string {
+	fields := strings.Fields(strings.ToLower(questionText))
+	var out [][2]string
+	for i := 0; i+1 < len(fields); i++ {
+		a, b := contentWord(fields[i]), contentWord(fields[i+1])
+		if a == "" || b == "" {
+			continue
+		}
+		out = append(out, [2]string{a, b})
+	}
+	return out
+}
+
+// contentWord strips a question word down to the noun it carries, or returns ""
+// when it carries none. The apostrophe cut matters: "what's" tokenizes into
+// "what'" and "what's", neither of which any schema models and neither of which
+// asks about anything.
+func contentWord(raw string) string {
+	w := strings.Trim(raw, ".,;:?!()\"'“”")
+	if i := strings.Index(w, "'"); i > 0 {
+		w = w[:i]
+	}
+	if len(w) < 4 || questionStopWords[w] {
+		return ""
+	}
+	return w
+}
+
+// namesASubject rejects the words a question uses to ask for ARITHMETIC or to
+// point at a period, rather than to name what it is about. They are unmodelled
+// by every schema, for the same reason: they are not things the farm records.
+func namesASubject(term string) bool {
+	if term == "" || questionStopWords[term] || nonMeasureWords[term] {
+		return false
+	}
+	if _, isDimension := dimensionNouns[term]; isDimension {
+		return false
+	}
+	return !derivationWords[wordStem(term)]
+}
+
+// derivationWords name HOW MUCH or HOW COMPARED, never WHAT.
+var derivationWords = map[string]bool{
+	"actually": true, "biggest": true, "largest": true, "smallest": true,
+	"highest": true, "lowest": true, "most": true, "least": true, "best": true,
+	"worst": true, "better": true, "worse": true, "more": true, "less": true,
+	"compared": true, "comparison": true, "versus": true, "split": true,
+	"share": true, "percentage": true, "percent": true, "ratio": true,
+	"relative": true, "breakdown": true, "shortfall": true, "variance": true,
+	"difference": true, "between": true, "still": true, "came": true,
+	"need": true, "bought": true, "realised": true, "realized": true,
+	"record": true, "recorded": true, "down": true, "have": true, "were": true,
+	"been": true, "there": true, "they": true, "them": true, "then": true,
+	"than": true, "other": true, "olde": true, "older": true, "print": true,
+	"delete": true, "update": true, "select": true, "ignore": true,
+}
+
+// cardModels reports that the card the answer came from carries this word in
+// its own repo-owned description -- its name, a column, or its purpose
+// sentence. The purpose is included deliberately: it is written in this repo,
+// not by the model, and it says in farm language what the view is FOR, which is
+// what a row count of it means.
+func cardModels(card reporting.SchemaCard, term string) bool {
+	if matchesTerm(term, card.Name) || matchesTerm(term, card.Purpose) {
+		return true
+	}
+	return cardHasColumnFor(card, term)
+}
+
+// substitutedSubjectRefusal is what a leader is told instead of a neighbouring
+// view's number wearing their question's words.
+func substitutedSubjectRefusal(subject string, sourceView string) string {
+	from := ""
+	if sourceView != "" {
+		from = " I read " + sourceView + ", which does not report it."
+	}
+	return "We don't track " + subject + " in Goat OS, so I have no source for that." + from +
+		" I won't answer it from a different measure that happens to be nearby — " +
+		"if it is recorded somewhere else, tell me where and I'll read that."
 }
 
 // unmodelledRefusal is what a leader is told instead of a neighbour's number.
