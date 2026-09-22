@@ -902,8 +902,19 @@ pen_scan AS (
     -- keep them because an unresolved tag has no sex to match.
     AND ($5::text = '' OR lower(btrim(g.sex)) = $5::text)
 ),
--- The pen's latest WHOLE-PEN weigh, for the grain race below. A pen weighed both ways inside the
--- window has two candidate cohorts, and only one of them describes the row on screen.
+-- The pen's latest CLAIMABLE WHOLE-PEN weigh, for the grain race below. A pen weighed both ways
+-- inside the window has two candidate cohorts, and only one of them describes the row on screen.
+--
+-- THE TWO CLAIM PREDICATES BELOW ARE lump's, AND THEY MUST STAY IDENTICAL TO IT. This CTE only
+-- silences scans; lump is what actually produces the whole-pen cohort, so a weigh this one sees
+-- and lump refuses takes a pen off the page entirely -- the scans suppressed here, and no
+-- lump_composition row to replace them, because that reads pens from lump. A pen of MALE
+-- residents scanned on 29 Jul and weighed WHOLE on 30 Jul did exactly that on a FEMALE page: two
+-- real scanned female kids disappeared behind a weigh that page cannot count. The race must run
+-- against the weighs THIS reader can claim, not against every weigh in the window.
+--
+-- A pen the filter cannot claim therefore resolves to NO lump day at all, and the scans win -- the
+-- honest answer, since the scanned animals are the only ones this page can speak for.
 pen_lump_day AS (
   SELECT s.location_id, s.partition_label,
          max((sh.accepted_at AT TIME ZONE 'Asia/Kolkata')::date) AS d
@@ -914,6 +925,19 @@ pen_lump_day AS (
    AND sh.accepted_at >= $3::timestamptz AND sh.accepted_at < $4::timestamptz
    AND sh.verification_status <> 'rejected'
   WHERE $19::bool AND s.weighing_category = 'per_shed_partition'
+    -- Sex claim, lump's rule verbatim: a whole-pen weigh is claimed only when the pen's resident
+    -- cohort is single-sex and that sex is the selected one. A mixed pen is claimed by neither
+    -- side rather than split, so it cannot silence the scans either.
+    AND ($5::text = '' OR EXISTS (
+      SELECT 1 FROM shed_cohort sc
+      WHERE sc.location_id = s.location_id AND sc.partition_label = COALESCE(s.partition_label, '')
+        AND sc.sexes = 1 AND lower(btrim(sc.sex)) = $5::text
+    ))
+    -- Origin claim, lump's rule verbatim, and FALSE-is-unfiltered the same way.
+    AND (NOT $6::bool OR EXISTS (
+      SELECT 1 FROM unnest($8::uuid[], $9::text[]) AS b(loc, part)
+      WHERE b.loc = s.location_id AND b.part = COALESCE(s.partition_label, '')
+    ))
   GROUP BY s.location_id, s.partition_label
 ),
 pen_latest_scan AS (

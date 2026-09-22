@@ -2431,3 +2431,129 @@ WHERE tenant_id = $1::uuid AND campaign_shed_id = $2::uuid`, repoTenant, repoShe
 			source, breeds, total)
 	}
 }
+
+// TestFilteredPenCohortKeepsScansWhenTheLaterWholePenWeighCannotBeClaimed is the regression test
+// for the review finding on PR 346: the grain race suppressed a filtered page's scanned cohort
+// using a whole-pen weigh that same page refuses to count.
+//
+// pen_lump_day asked only "was this pen weighed whole, and when", while `lump` -- the CTE every
+// whole-pen consumer reads -- claims a pen only when its resident cohort is single-sex and matches
+// the selected sex, and when the pen is inside the selected origin scope. A pen of MALE residents
+// scanned on 29 Jul and weighed WHOLE on 30 Jul therefore fell between the two on a FEMALE page:
+// the scans were suppressed because a later whole-pen weigh existed, and lump_composition never
+// produced the pen because `lump` correctly refused to claim it. The pen vanished from the
+// composition panel entirely, taking real filtered scanned animals with it.
+//
+// The race must therefore run against whole-pen weighs THIS page can claim, not against every
+// whole-pen weigh in the window.
+//
+// MUTATION TEST when this was written: dropping either claim predicate from pen_lump_day turns
+// this red with the pen missing from ShedComposition, while the unfiltered assertion below still
+// passes -- which is exactly why the shipped grain-race test did not catch it.
+func TestFilteredPenCohortKeepsScansWhenTheLaterWholePenWeighCannotBeClaimed(t *testing.T) {
+	pgtest.SkipIfNoDocker(t)
+	ctx := context.Background()
+	pool := pgtest.StartPostgres(t, ctx)
+	defer pool.Close()
+	seedWeighingObservationFixture(t, ctx, pool)
+
+	const (
+		filteredIndividualBucket = "00000000-0000-4000-9000-0000000093f1"
+		filteredCampaign         = "00000000-0000-4000-8000-0000000093f2"
+	)
+
+	// The pen's OWN residents are MALE, so a female page cannot claim the whole-pen weigh.
+	execWeighingTestSQL(t, ctx, pool, `
+UPDATE goats SET breed='Anantapur Sheep', sex='male'
+WHERE tenant_id=$1::uuid AND shed_id=$2::uuid`, repoTenant, repoPerShed)
+	// The animals whose tags were SCANNED in that pen are FEMALE, so they are exactly what a
+	// female page is asking to see.
+	execWeighingTestSQL(t, ctx, pool, `
+UPDATE goats SET breed='Sojat', sex='female' WHERE tenant_id=$1::uuid AND goat_id=$2::uuid`,
+		repoTenant, repoAnimal)
+	execWeighingTestSQL(t, ctx, pool, `
+INSERT INTO goats (goat_id, tenant_id, display_id, breed, sex, age_band, lifecycle_status, management_stage, custodian_party_id, current_location_id, park_id, shed_id)
+VALUES ($1::uuid, $2::uuid, 'G-990005', 'Beetal', 'female', 'kid', 'alive', 'kid', $3::uuid, $4::uuid, $5::uuid, $4::uuid)
+ON CONFLICT (goat_id) DO UPDATE
+SET breed=EXCLUDED.breed, sex=EXCLUDED.sex, shed_id=EXCLUDED.shed_id`,
+		repoAnimalTwo, repoTenant, repoParty, repoExpectedShed, repoPark)
+	execWeighingTestSQL(t, ctx, pool, `
+INSERT INTO goat_identifiers (tenant_id, goat_id, identifier_type, identifier_value, normalized_value, scope_key, is_primary_for_goat, status, valid_from, normalizer_version)
+VALUES
+  ($1::uuid, $2::uuid, 'animal_identifier_1', 'chip-filter-one', 'chip-filter-one', 'global', true, 'active', now(), 'test'),
+  ($1::uuid, $3::uuid, 'animal_identifier_1', 'chip-filter-two', 'chip-filter-two', 'global', true, 'active', now(), 'test')
+ON CONFLICT (tenant_id, normalized_value) DO UPDATE
+SET goat_id=EXCLUDED.goat_id, identifier_value=EXCLUDED.identifier_value, status='active'`,
+		repoTenant, repoAnimal, repoAnimalTwo)
+
+	execWeighingTestSQL(t, ctx, pool, `
+INSERT INTO weighing_campaigns (campaign_id, tenant_id, park_id, period_start_date, period_end_date, start_business_date, status, planned_cap_per_day, operator_user_id, created_by)
+VALUES ($1::uuid, $2::uuid, $3::uuid, '2026-07-27', '2026-08-02', '2026-07-29', 'published', 100, $4::uuid, $4::uuid)
+ON CONFLICT (campaign_id) DO NOTHING`,
+		filteredCampaign, repoTenant, repoPark, repoOperator)
+	execWeighingTestSQL(t, ctx, pool, `
+INSERT INTO weighing_campaign_sheds (
+  campaign_shed_id, campaign_id, tenant_id, location_id, location_type,
+  display_name, weighing_category, operator_user_id, expected_animal_count, status)
+VALUES ($1::uuid, $2::uuid, $3::uuid, $4::uuid, 'shed', 'Lump Pen', 'individual_animal', $5::uuid, 0, 'completed')
+ON CONFLICT (campaign_shed_id) DO NOTHING`,
+		filteredIndividualBucket, filteredCampaign, repoTenant, repoPerShed, repoOperator)
+
+	scanDay := time.Date(2026, 7, 29, 6, 0, 0, 0, time.UTC)
+	for _, tag := range []string{"chip-filter-one", "chip-filter-two"} {
+		execWeighingTestSQL(t, ctx, pool, `
+INSERT INTO weighing_observations (tenant_id, campaign_id, campaign_shed_id, scanned_identifier, weight_kg, proof_artifact_id, recorded_by, idempotency_key, accepted_at, submitted_at)
+VALUES ($1::uuid, $2::uuid, $3::uuid, $4, 24.0, $5::uuid, $6::uuid, $7, $8::timestamptz, $8::timestamptz)`,
+			repoTenant, filteredCampaign, filteredIndividualBucket, tag, repoAnimalProof, repoOperator,
+			fmt.Sprintf("filtered-race:%s", tag), scanDay)
+	}
+	// The whole-pen weigh, LATER than every scan. A female page must not count it -- the pen holds
+	// only male residents -- and must not let it silence the scans either.
+	execWeighingTestSQL(t, ctx, pool, `
+INSERT INTO weighing_shed_observations (
+  tenant_id, campaign_id, campaign_shed_id, weight_kg, average_weight_kg, animal_count,
+  proof_artifact_id, recorded_by, idempotency_key, accepted_at)
+VALUES ($1::uuid, $2::uuid, $3::uuid, 96.0, 24.0, 4, $4::uuid, $5::uuid, 'filtered-race:lump', $6::timestamptz)`,
+		repoTenant, repoCampaign, repoShedScope, repoShedProofTwo, repoOperator,
+		scanDay.AddDate(0, 0, 1))
+
+	from := time.Date(2026, 7, 29, 0, 0, 0, 0, time.UTC)
+	to := time.Date(2026, 8, 2, 0, 0, 0, 0, time.UTC)
+	// A FRESH repository per read: this path memoises by (tenant, parks, window, filters, sections).
+	cohortFor := func(t *testing.T, sex string) (string, int, bool) {
+		t.Helper()
+		out, err := NewRepository(pool, 5*time.Second).
+			GetWeightDemographics(ctx, repoTenant, []string{repoPark}, from, to, sex, "", "", "composition", nil, domain.TimeScope{})
+		if err != nil {
+			t.Fatalf("GetWeightDemographics(sex=%q): %v", sex, err)
+		}
+		for _, shed := range out.ShedComposition {
+			if shed.LocationID == repoPerShed {
+				return shed.Source, shed.TotalAnimals, true
+			}
+		}
+		return "", 0, false
+	}
+
+	// THE FINDING: a female page keeps its scanned animals.
+	source, total, found := cohortFor(t, "female")
+	if !found {
+		t.Fatalf("the pen vanished from a female page: its two scanned female kids were suppressed by " +
+			"a whole-pen weigh that same page refuses to count")
+	}
+	if source != "scanned_tags" || total != 2 {
+		t.Fatalf("a female page describes the pen by the animals it can claim, got source=%q total=%d (want scanned_tags/2)",
+			source, total)
+	}
+
+	// AND THE GRAIN RACE STILL HOLDS unfiltered, where the whole-pen weigh IS claimable: the later
+	// weigh owns the cohort, which is the defect the race was added for.
+	source, total, found = cohortFor(t, "")
+	if !found {
+		t.Fatalf("the pen vanished from the unfiltered page")
+	}
+	if source != "live_shed_cohort" || total != 4 {
+		t.Fatalf("unfiltered, the later whole-pen weigh still owns the cohort, got source=%q total=%d (want live_shed_cohort/4)",
+			source, total)
+	}
+}
