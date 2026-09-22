@@ -392,7 +392,7 @@ func (a *Assistant) ask(ctx context.Context, q domain.Question, opts askOptions)
 	var comp composer
 	// Tenant gate (plan v3 D0 "Chart / facts"): a fact set that is not wholly
 	// the actor's never reaches compose, chart or cache — it becomes a refusal.
-	body, citations, _, composeErr := comp.composeFor(q.Actor, results)
+	body, citations, sections, composeErr := comp.composeFor(q.Actor, results)
 	if composeErr != nil {
 		return a.tenantGateRefusal(ctx, q, requestID, start, "compose", composeErr, results, traces), nil
 	}
@@ -408,7 +408,7 @@ func (a *Assistant) ask(ctx context.Context, q domain.Question, opts askOptions)
 	if a.cfg.ReviewEnabled && !opts.skipModelCritic {
 		rvw.critic = a.critic
 	}
-	verdict := rvw.review(ctx, body, results, len(plan.SubQuestions))
+	verdict := rvw.reviewSections(ctx, body, sections, results, len(plan.SubQuestions))
 	// Honor review.go's Complete verdict (previously ignored here — P1-3): an
 	// answer that is grounded/scope-safe but INCOMPLETE (some sub-questions
 	// never resolved) must not just fall straight to the generic
@@ -419,18 +419,18 @@ func (a *Assistant) ask(ctx context.Context, q domain.Question, opts askOptions)
 			a.telemetry.ReviewCorrection(ctx)
 		}
 		if a.retryFailedResults(ctx, q.Actor, plan.SubQuestions, results) {
-			body, citations, _, composeErr = comp.composeFor(q.Actor, results)
+			body, citations, sections, composeErr = comp.composeFor(q.Actor, results)
 			if composeErr != nil {
 				return a.tenantGateRefusal(ctx, q, requestID, start, "compose_retry", composeErr, results, traces), nil
 			}
 			for i := range citations {
 				citations[i].PlannedByModel = planned
 			}
-			verdict = rvw.review(ctx, body, results, len(plan.SubQuestions))
+			verdict = rvw.reviewSections(ctx, body, sections, results, len(plan.SubQuestions))
 		}
 	}
 	if !verdict.Grounded || !verdict.ScopeSafe || !verdict.Complete {
-		body = a.strictRecompose(results)
+		body, sections = a.strictRecomposeSections(results)
 		// The strict recompose is grounded-by-CONSTRUCTION: every line is emitted
 		// verbatim from a Fact (label/scope/value), so the deterministic heuristic
 		// reviewer is authoritative here. Re-running the fuzzy Gemini critic on it is
@@ -441,7 +441,7 @@ func (a *Assistant) ask(ctx context.Context, q domain.Question, opts askOptions)
 		// only (no model critic) so a grounded answer can never degrade to the
 		// generic refusal.
 		var strictRvw reviewer
-		verdict = strictRvw.review(ctx, body, results, len(plan.SubQuestions))
+		verdict = strictRvw.reviewSections(ctx, body, sections, results, len(plan.SubQuestions))
 		verdict.Downgraded = true
 		if !verdict.Grounded || !verdict.ScopeSafe {
 			body = "I could retrieve the underlying records but couldn't fully verify a figure for this answer. Please refine the question or check the source screens."
@@ -750,23 +750,36 @@ func asksAllParks(questionText string) bool {
 }
 
 func (a *Assistant) strictRecompose(results []domain.ToolResult) string {
+	body, _ := a.strictRecomposeSections(results)
+	return body
+}
+
+// strictRecomposeSections re-renders each result verbatim AND reports which
+// result each line came from, so the reviewer can ground a line against its own
+// evidence rather than against every result's numbers pooled together.
+func (a *Assistant) strictRecomposeSections(results []domain.ToolResult) (string, []answerSection) {
 	var lines []string
+	var sections []answerSection
 	for _, r := range results {
-		if r.Err != nil {
-			lines = append(lines, readFailureLine(r))
-			continue
+		line := ""
+		switch {
+		case r.Err != nil:
+			line = readFailureLine(r)
+		default:
+			r = withGroundedFacts(r)
+			if len(r.Facts) == 0 {
+				line = emptyReadLine(r)
+			} else {
+				line = renderAnswerBlock(r)
+			}
 		}
-		r = withGroundedFacts(r)
-		if len(r.Facts) == 0 {
-			lines = append(lines, emptyReadLine(r))
-			continue
-		}
-		lines = append(lines, renderAnswerBlock(r))
+		lines = append(lines, line)
+		sections = append(sections, answerSection{text: line, result: r})
 	}
 	if len(lines) == 0 {
-		return ""
+		return "", nil
 	}
-	return strings.Join(lines, "\n\n")
+	return strings.Join(lines, "\n\n"), sections
 }
 
 func (a *Assistant) recordAudit(ctx context.Context, q domain.Question, requestID, convoID string, mode domain.Mode, results []domain.ToolResult, traces []domain.StepTrace, verdict domain.ReviewVerdict, start time.Time) {

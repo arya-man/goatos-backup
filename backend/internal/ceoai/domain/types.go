@@ -135,7 +135,15 @@ type ToolResult struct {
 	Facts []Fact
 	// Summary is a short natural-language rollup the composer may use.
 	Summary string
-	Err     error // non-nil => this step failed (never swallowed to empty)
+	// SourceView is the ceo_ai view a model-DRAFTED read actually ran over
+	// (bare name, no schema). It is resolved from the executed SQL, never from
+	// the plan: the LABELS on a model-drafted row are written by the model, so
+	// the only thing that says which business records a figure came from is the
+	// view. The composer renders it as the block's heading, which is what makes
+	// a module substitution ("delayed tasks" answered from vaccination
+	// obligations) visible instead of silent.
+	SourceView string
+	Err        error // non-nil => this step failed (never swallowed to empty)
 }
 
 // Fact is one groundable datum (a labelled value with optional scope).

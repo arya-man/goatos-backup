@@ -53,20 +53,29 @@ func validateFactTenants(actor domain.Actor, results []domain.ToolResult) error 
 	return nil
 }
 
+// answerSection is one rendered block of the answer beside the ONE result it
+// was rendered from. The reviewer grounds a section's numbers against that
+// result alone: a global bag of every result's numbers would let a figure from
+// step A silently ground a sentence carrying step B's label.
+type answerSection struct {
+	text   string
+	result domain.ToolResult
+}
+
 // composeFor is the tenant-gated entry point the orchestrator uses: it rejects
 // a fact set that is not wholly the actor's before any figure is rendered.
-func (c composer) composeFor(actor domain.Actor, results []domain.ToolResult) (body string, citations []domain.Citation, groundValues []string, err error) {
+func (c composer) composeFor(actor domain.Actor, results []domain.ToolResult) (body string, citations []domain.Citation, sections []answerSection, err error) {
 	if err := validateFactTenants(actor, results); err != nil {
 		return "", nil, nil, err
 	}
-	body, citations, groundValues = c.compose(results)
-	return body, citations, groundValues, nil
+	body, citations, sections = c.compose(results)
+	return body, citations, sections, nil
 }
 
 // compose builds the user-facing answer body and citations from tool results.
 // Callers on the live path go through composeFor so the tenant gate runs first.
-func (composer) compose(results []domain.ToolResult) (body string, citations []domain.Citation, groundValues []string) {
-	var sections []string
+func (composer) compose(results []domain.ToolResult) (body string, citations []domain.Citation, sections []answerSection) {
+	var texts []string
 	seenSurface := map[string]bool{}
 
 	for _, r := range results {
@@ -77,18 +86,17 @@ func (composer) compose(results []domain.ToolResult) (body string, citations []d
 			// the surface in words rather than the route token, so a failed
 			// model-drafted read never renders as the bare "sql: could not be
 			// retrieved." the held-out judge caught.
-			sections = append(sections, readFailureLine(r))
+			texts = append(texts, readFailureLine(r))
+			sections = append(sections, answerSection{text: readFailureLine(r), result: r})
 			continue
 		}
 		r = withGroundedFacts(r)
+		text := renderAnswerBlock(r)
 		if len(r.Facts) == 0 && strings.TrimSpace(r.Summary) == "" {
-			sections = append(sections, emptyReadLine(r))
-		} else {
-			sections = append(sections, renderAnswerBlock(r))
-			for _, f := range r.Facts {
-				groundValues = append(groundValues, f.Value)
-			}
+			text = emptyReadLine(r)
 		}
+		texts = append(texts, text)
+		sections = append(sections, answerSection{text: text, result: r})
 		if !seenSurface[r.Surface] && r.Surface != "" {
 			seenSurface[r.Surface] = true
 			citations = append(citations, domain.Citation{
@@ -96,8 +104,8 @@ func (composer) compose(results []domain.ToolResult) (body string, citations []d
 			})
 		}
 	}
-	body = strings.Join(sections, "\n\n")
-	return body, citations, groundValues
+	body = strings.Join(texts, "\n\n")
+	return body, citations, sections
 }
 
 // operatorUtilizationLabel is the business title of the operator utilization
@@ -205,7 +213,42 @@ func synthesizeLead(results []domain.ToolResult) string {
 	}
 }
 
+// renderAnswerBlock renders ONE result. When the read was model-drafted SQL the
+// block is TITLED with the view that actually ran, because every other word in
+// it (the row labels) was written by the planner: a heading derived from the
+// data is the only thing in the block the model did not choose.
 func renderAnswerBlock(r domain.ToolResult) string {
+	return withSourceHeading(r, renderAnswerBody(r))
+}
+
+// withSourceHeading prefixes a model-drafted block with its view's business
+// title. A result with no SourceView (Cube, a read API, a curated toolbox tool —
+// none of which let the model name the metric) renders exactly as before.
+func withSourceHeading(r domain.ToolResult, body string) string {
+	title := viewTitle(r.SourceView)
+	if title == "" || strings.TrimSpace(body) == "" {
+		return body
+	}
+	return "From " + title + ":\n" + body
+}
+
+// viewTitle turns a ceo_ai view name into the business phrase a leader reads:
+// "vaccination_obligations_base" -> "Vaccination obligations". It is derived
+// from the view NAME rather than a hand-written map so a view added tomorrow is
+// titled without anyone remembering to add a row.
+func viewTitle(view string) string {
+	name := strings.TrimSpace(strings.ToLower(view))
+	name = strings.TrimSuffix(name, "_base")
+	name = strings.TrimSuffix(name, "_view")
+	name = strings.ReplaceAll(name, "_", " ")
+	name = strings.TrimSpace(name)
+	if name == "" {
+		return ""
+	}
+	return strings.ToUpper(name[:1]) + name[1:]
+}
+
+func renderAnswerBody(r domain.ToolResult) string {
 	block := ""
 	if block := renderSalesAnswer(r); block != "" {
 		return appendMetricStatus(block, r)

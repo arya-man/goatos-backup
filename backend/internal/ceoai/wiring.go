@@ -28,6 +28,7 @@ import (
 	"github.com/vgoats/goatos/backend/internal/ceoai/domain"
 	"github.com/vgoats/goatos/backend/internal/ceoai/persistence"
 	"github.com/vgoats/goatos/backend/internal/ceoai/ports"
+	"github.com/vgoats/goatos/backend/internal/ceoai/reporting"
 	"github.com/vgoats/goatos/backend/internal/ceoai/safety"
 	"github.com/vgoats/goatos/backend/internal/ceoai/sqlguard"
 	"github.com/vgoats/goatos/backend/internal/ceoai/toolboxclient"
@@ -404,7 +405,7 @@ func (a *sqlFallbackAdapter) Execute(ctx context.Context, actor domain.Actor, sq
 	if err != nil {
 		return domain.ToolResult{}, fmt.Errorf("sqlguard fallback: %w", err)
 	}
-	return rowsToToolResult(actor.TenantID, rows), nil
+	return rowsToToolResult(actor.TenantID, rows, sql), nil
 }
 
 // ExecuteTrusted runs server-authored SQL with the session tenant ALWAYS bound
@@ -414,7 +415,7 @@ func (a *sqlFallbackAdapter) ExecuteTrusted(ctx context.Context, actor domain.Ac
 	if err != nil {
 		return domain.ToolResult{}, fmt.Errorf("trusted sql fallback: %w", err)
 	}
-	return rowsToToolResult(actor.TenantID, rows), nil
+	return rowsToToolResult(actor.TenantID, rows, sql), nil
 }
 
 // seriesColumnPrefix is the SQL fact contract's multi-metric column prefix:
@@ -428,10 +429,14 @@ const seriesColumnPrefix = "series_"
 // SESSION tenant the executor already bound the query to; it is stamped onto
 // every fact here and is never read from a row column (a `tenant_id` column in
 // the result is just another scalar and is not trusted for scoping).
-func rowsToToolResult(tenantID string, rows []sqlguard.Row) domain.ToolResult {
+func rowsToToolResult(tenantID string, rows []sqlguard.Row, sql string) domain.ToolResult {
 	tr := domain.ToolResult{
 		Route:    domain.RouteSQL,
 		ToolName: "sql_fallback",
+		// Which ceo_ai view answered, taken from the executed statement. The
+		// composer titles the block with it so a model-authored row label can
+		// never stand alone as the only claim about what the figure counts.
+		SourceView: reporting.ViewNameFromSQL(sql),
 		// User-facing source label: a clean business phrase. The read-only SQL route
 		// stays in the audit (Route above), never in the leadership chip.
 		Surface: "Mesha operational data",

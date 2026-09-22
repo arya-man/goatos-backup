@@ -25,7 +25,7 @@ func TestSQLFactsSeriesColumns(t *testing.T) {
 		},
 		{"label": "Sirohi", "scope": "Coimbatore", "value": "120"},
 	}
-	tr := rowsToToolResult("tenant-a", rows)
+	tr := rowsToToolResult("tenant-a", rows, "")
 	if len(tr.Facts) != 2 {
 		t.Fatalf("want 2 facts, got %d", len(tr.Facts))
 	}
@@ -48,7 +48,7 @@ func TestSQLFactsSeriesColumns(t *testing.T) {
 	}
 
 	// Free-shape rows (no label/value pair) are still stamped per column.
-	loose := rowsToToolResult("tenant-a", []sqlguard.Row{{"goats": 12, "sheep": 3}})
+	loose := rowsToToolResult("tenant-a", []sqlguard.Row{{"goats": 12, "sheep": 3}}, "")
 	for _, f := range loose.Facts {
 		if f.TenantID != "tenant-a" {
 			t.Fatalf("loose fact %q not stamped: %+v", f.Label, f)
@@ -62,7 +62,7 @@ func TestSQLFactsLabelLessRowStaysOneFact(t *testing.T) {
 	tr := rowsToToolResult("tenant-a", []sqlguard.Row{
 		{"scope": "Channapatna", "value": int64(242)},
 		{"scope": "Coimbatore", "value": int64(342)},
-	})
+	}, "")
 	if len(tr.Facts) != 2 {
 		t.Fatalf("want one fact per row, got %+v", tr.Facts)
 	}
