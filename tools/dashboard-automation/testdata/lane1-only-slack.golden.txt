@@ -21,7 +21,7 @@ Slow pages: 1 page slower than 8s — worst: Goat Passport 14.8s (laptop+phone)
     "type": "section",
     "text": {
       "type": "mrkdwn",
-      "text": "*Slow pages* (budget 8s)\n• Goat Passport — *14.8s* · slowest /api/goat-passport 9.2s"
+      "text": "*Slow pages* (budget 8s)\n• <https://dashboard.mesha.sg/goats/x|Goat Passport> — *14.8s* · slowest /api/goat-passport 9.2s"
     }
   },
   {
