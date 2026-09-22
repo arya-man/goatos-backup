@@ -10,7 +10,7 @@ import { revalidatePath } from "next/cache";
 // Every module SOP route the sidebar serves is listed (review finding on PR 267): a route
 // missing here keeps serving the cached library after a publish, so the "Published vN"
 // banner and the lit card would point at a card still reading the old version.
-const SOP_PAGE_PATHS = ["/counts/sops", "/feed/sops", "/milk/sops", "/procurement/sops", "/sales/sops", "/weighing/sops"];
+const SOP_PAGE_PATHS = ["/counts/sops", "/feed/sops", "/milk/sops", "/pc-care/sops", "/procurement/sops", "/sales/sops", "/weighing/sops"];
 import {
   createSop,
   createSopVersion,
@@ -325,6 +325,48 @@ export async function publishWeighingVersion(sopId: string, weighing: Record<str
 // the field named); publishing makes it the card for sheets issued from then on -- a sheet already
 // issued keeps the card it was issued with.
 export type FeedSaveResult = InspectionSaveResult;
+
+// PC CARE SOP (maintainer decision 2026-09-22): the cards editor saves a new version = the
+// published version's form_dsl (capture form, proof policy: unchanged) + the emitted `pc_care`
+// document. The backend validates it (a card the phone could not render is refused with the field
+// named); publishing makes it the card for tasks planned from then on -- a task already planned
+// keeps the card it was planned with.
+export type PcCareSaveResult = InspectionSaveResult;
+
+export async function savePcCareVersion(sopId: string, pcCare: Record<string, unknown>, label?: string): Promise<PcCareSaveResult> {
+  if (!sopId) return { ok: false, message: "SOP id is required" };
+  const detail = await getSop(sopId);
+  if (!detail.ok) return { ok: false, message: detail.error.message ?? "SOP could not be read", code: detail.error.code };
+  const base = detail.data.published_version ?? detail.data.latest_version;
+  if (!base) return { ok: false, message: "This SOP has no version to build on." };
+  const formDsl = { ...(base.form_dsl as Record<string, unknown>), pc_care: pcCare };
+  const version = await createSopVersion(sopId, {
+    version_label: (label ?? "").trim() || `${detail.data.sop.name} · rules`,
+    form_dsl: formDsl,
+    proof_policy: base.proof_policy as CreateSOPVersionRequest["proof_policy"],
+  });
+  if (!version.ok) return { ok: false, message: version.error.message ?? "create SOP version failed", code: version.error.code };
+  for (const path of SOP_PAGE_PATHS) revalidatePath(path);
+  const report = version.data.version.validation_report;
+  return {
+    ok: true,
+    message: report?.valid ? "Preventive Care cards saved as a draft version." : "Saved — backend flagged validation issues (see report).",
+    versionId: version.data.version.sop_version_id,
+    rowVersion: version.data.version.row_version,
+    versionNumber: version.data.version.version,
+    report,
+  };
+}
+
+export async function publishPcCareVersion(sopId: string, pcCare: Record<string, unknown>, label?: string): Promise<PcCareSaveResult> {
+  const saved = await savePcCareVersion(sopId, pcCare, label);
+  if (!saved.ok || !saved.versionId || saved.rowVersion === undefined) return saved;
+  if (saved.report && !saved.report.valid) return { ...saved, ok: false, message: saved.report.errors?.[0]?.message ?? "The Preventive Care cards have validation issues; fix them and publish again." };
+  const res = await publishSopVersion(sopId, saved.versionId, saved.rowVersion);
+  if (!res.ok) return { ok: false, message: res.error.message ?? "publish failed", code: res.error.code };
+  for (const path of SOP_PAGE_PATHS) revalidatePath(path);
+  return { ...saved, ok: true, message: `Published v${saved.versionNumber ?? ""}. Preventive Care tasks planned from now on run on these rules.` };
+}
 
 export async function saveFeedVersion(sopId: string, feed: Record<string, unknown>, label?: string): Promise<FeedSaveResult> {
   if (!sopId) return { ok: false, message: "SOP id is required" };

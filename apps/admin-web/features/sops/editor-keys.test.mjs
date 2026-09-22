@@ -8,7 +8,7 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 import { followQuestionKey, keyForTitle } from "./weighing-model.ts";
 
-const editors = ["shifting-editor.tsx", "weighing-editor.tsx", "capture-editor.tsx", "inspection-editor.tsx", "feed-editor.tsx"];
+const editors = ["shifting-editor.tsx", "weighing-editor.tsx", "capture-editor.tsx", "inspection-editor.tsx", "feed-editor.tsx", "pc-care-editor.tsx"];
 
 test("no SOP editor freezes a new key at the title's first keystroke", () => {
   for (const file of editors) {
@@ -18,7 +18,7 @@ test("no SOP editor freezes a new key at the title's first keystroke", () => {
 });
 
 test("editors that render slots or questions hand the loaded keys to them", () => {
-  for (const file of ["shifting-editor.tsx", "weighing-editor.tsx", "capture-editor.tsx", "inspection-editor.tsx"]) {
+  for (const file of ["shifting-editor.tsx", "weighing-editor.tsx", "capture-editor.tsx", "inspection-editor.tsx", "pc-care-editor.tsx"]) {
     const src = readFileSync(new URL(`./${file}`, import.meta.url), "utf8");
     assert.match(src, /savedKeys/, `${file} must know which keys the loaded version already carries`);
   }

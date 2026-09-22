@@ -451,6 +451,15 @@ func slotsAsAuthored(slots []domain.Slot) []authored.ProofSlot {
 	return out
 }
 
+// allKeys lists every key of a slot list, in order.
+func allKeys(slots []authored.ProofSlot) []string {
+	out := []string{}
+	for _, p := range slots {
+		out = append(out, p.Key)
+	}
+	return out
+}
+
 // requiredKeys lists the compulsory keys of a slot list, in order.
 func requiredKeys(slots []authored.ProofSlot) []string {
 	out := []string{}
@@ -548,7 +557,9 @@ func (s *Service) CreateTask(ctx context.Context, actor domain.Actor, in CreateT
 		FeedRemovalRequired:     removalApplies,
 		RemovalOperatorUserIDs:  removalOperators,
 		SOPVersion:              rules.Version,
+		SlotKeys:                allKeys(slotsAsAuthored(rules.CategorySlots(in.Category))),
 		RequiredSlotKeys:        rules.RequiredSlotKeys(in.Category),
+		RemovalSlotKeys:         allKeys(rules.RemovalProofs()),
 		RemovalRequiredSlotKeys: requiredKeys(rules.RemovalProofs()),
 		IdempotencyKey:          strings.TrimSpace(in.IdempotencyKey),
 		CreatedBy:               actor.UserID,

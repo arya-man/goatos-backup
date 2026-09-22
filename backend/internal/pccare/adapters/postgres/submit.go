@@ -139,7 +139,7 @@ FOR UPDATE`, p.TenantID, p.TaskID).Scan(
 		// submitted with one pen unfilmed would tell the midnight gate that pen's animals were
 		// fasted when they were not.
 		var err error
-		removalPens, mediaRefs, err = removalPenSubmitRefs(ctx, tx, p.TenantID, p.TaskID, p.RemovalSlots)
+		removalPens, mediaRefs, err = removalPenSubmitRefs(ctx, tx, p.TenantID, p.TaskID, removalSlotsOrSeeded(p.RemovalSlots))
 		if err != nil {
 			return ports.SubmitTaskResult{}, err
 		}
@@ -160,7 +160,7 @@ WHERE tenant_id = $1::uuid AND task_id = $2::uuid AND required_doses > 0`,
 		}
 		// Every declared slot must carry its proof — for feed_water_removal, BOTH the feed
 		// removal video and the water removal video.
-		mediaRefs, animalCount, err = r.taskProofMediaRefs(ctx, tx, p.TenantID, p.TaskID, category, p.RemovalSlots)
+		mediaRefs, animalCount, err = r.taskProofMediaRefs(ctx, tx, p.TenantID, p.TaskID, category, removalSlotsOrSeeded(p.RemovalSlots))
 		if err != nil {
 			return ports.SubmitTaskResult{}, err
 		}
@@ -175,7 +175,7 @@ SELECT count(*)::int,
 FROM pc_care_task_animals an
 JOIN pc_care_tasks t ON t.tenant_id = an.tenant_id AND t.task_id = an.task_id
 WHERE an.tenant_id = $1::uuid AND an.task_id = $2::uuid`,
-			p.TenantID, p.TaskID, p.RequiredSlotKeys,
+			p.TenantID, p.TaskID, requiredKeysOrSeeded(category, p.RequiredSlotKeys),
 		).Scan(&animalCount, &missingCount); err != nil {
 			return ports.SubmitTaskResult{}, fmt.Errorf("pccare: submit readiness count: %w", err)
 		}
@@ -209,7 +209,7 @@ WHERE tenant_id = $1::uuid AND task_id = $2::uuid`, p.TenantID, p.TaskID); err !
 
 	if gatesRoundID == "" && domain.CaptureModeForCategory(category) != domain.CaptureModeTaskProof {
 		var err error
-		mediaRefs, err = r.composeSubmitMediaRefs(ctx, tx, p.TenantID, p.TaskID, p.Slots)
+		mediaRefs, err = r.composeSubmitMediaRefs(ctx, tx, p.TenantID, p.TaskID, captureSlotsOrSeeded(category, p.Slots))
 		if err != nil {
 			return ports.SubmitTaskResult{}, err
 		}
@@ -298,6 +298,36 @@ UPDATE pc_care_tasks SET sop_answers = $3::jsonb WHERE tenant_id = $1::uuid AND 
 	result.MediaRefs = mediaRefs
 	result.AnimalCount = int32(animalCount)
 	return result, nil
+}
+
+// removalSlotsOrSeeded / captureSlotsOrSeeded / requiredKeysOrSeeded are the submit's FAIL-CLOSED
+// rule, the twin of the create's slotKeysOrSeeded: a caller that hands the store no card runs the
+// SEEDED one (version 0), never a card that asks for nothing. Without this a direct store submit
+// would pass readiness vacuously and reach the verifier with no media at all.
+func removalSlotsOrSeeded(slots []authored.ProofSlot) []authored.ProofSlot {
+	if len(slots) > 0 {
+		return slots
+	}
+	return domain.SeededRules().RemovalProofs()
+}
+
+func seededRemovalSlots() []domain.Slot {
+	out := []domain.Slot{}
+	for _, p := range domain.SeededRules().RemovalProofs() {
+		out = append(out, domain.Slot{FieldKey: p.Key, Label: p.Title, Description: p.Hint, Kind: p.Kind, Required: p.Required})
+	}
+	return out
+}
+
+func captureSlotsOrSeeded(category string, slots []domain.Slot) []domain.Slot {
+	if len(slots) > 0 {
+		return slots
+	}
+	return domain.SeededRules().CategorySlots(category)
+}
+
+func requiredKeysOrSeeded(category string, keys []string) []string {
+	return slotKeysOrSeeded(category, keys, true)
 }
 
 type pendingVerificationOutbox struct {

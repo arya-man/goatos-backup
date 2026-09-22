@@ -32,23 +32,48 @@ const (
 // lockTaskForCapture locks the task row and asserts it is open for capture writes: status
 // open|rework and work_state scheduled|delayed. Returns the task's category.
 func lockTaskForCapture(ctx context.Context, tx pgx.Tx, tenantID, taskID string) (category string, err error) {
+	category, _, err = lockTaskForCaptureWithSlots(ctx, tx, tenantID, taskID)
+	return category, err
+}
+
+// lockTaskForCaptureWithSlots is the same lock, also returning the slot keys the task's PINNED
+// card accepts (pc_care_tasks.slot_keys, snapshotted at create). The service already judged the
+// key against the pinned document; this is the store's own refusal, taken under the row lock so
+// no caller -- a kernel write, a replay, a test -- can file a capture into a slot the card does
+// not ask for.
+func lockTaskForCaptureWithSlots(ctx context.Context, tx pgx.Tx, tenantID, taskID string) (category string, slotKeys []string, err error) {
 	var status, workState string
 	err = tx.QueryRow(ctx, `
-SELECT category, status, work_state
+SELECT category, status, work_state, slot_keys
 FROM pc_care_tasks
 WHERE tenant_id = $1::uuid AND task_id = $2::uuid
-FOR UPDATE`, tenantID, taskID).Scan(&category, &status, &workState)
+FOR UPDATE`, tenantID, taskID).Scan(&category, &status, &workState, &slotKeys)
 	if errors.Is(err, pgx.ErrNoRows) {
-		return "", ports.ErrNotFound
+		return "", nil, ports.ErrNotFound
 	}
 	if err != nil {
-		return "", fmt.Errorf("pccare: lock task: %w", err)
+		return "", nil, fmt.Errorf("pccare: lock task: %w", err)
 	}
 	if (status != domain.StatusOpen && status != domain.StatusRework) ||
 		(workState != domain.WorkStateScheduled && workState != domain.WorkStateDelayed) {
-		return "", domain.ErrTaskNotOpen
+		return "", nil, domain.ErrTaskNotOpen
 	}
-	return category, nil
+	return category, slotKeys, nil
+}
+
+// acceptsSlot reports whether a task's pinned card asks for this slot. A row with NO snapshot
+// (older than the column, or a fixture) falls back to the SEEDED card for its category rather
+// than accepting anything: an empty list must never read as "every key is fine".
+func acceptsSlot(category string, slotKeys []string, key string) bool {
+	if len(slotKeys) == 0 {
+		slotKeys = slotKeysOrSeeded(category, nil, false)
+	}
+	for _, k := range slotKeys {
+		if k == key {
+			return true
+		}
+	}
+	return false
 }
 
 // ScanAnimal inserts one scanned tag into the task, VERBATIM, at scan time. The ONE business
@@ -180,10 +205,14 @@ func (r *Repository) RegisterSlotProof(ctx context.Context, p ports.RegisterSlot
 		}
 	}()
 
-	// The slot was judged against the task's PINNED rules by the service; the lock here is
-	// what refuses a capture on a task that has since been submitted or closed.
-	if _, err := lockTaskForCapture(ctx, tx, p.TenantID, p.TaskID); err != nil {
+	// The lock refuses a capture on a task that has since been submitted or closed, and the
+	// task's own snapshot refuses one aimed at a slot its card does not ask for.
+	category, slotKeys, err := lockTaskForCaptureWithSlots(ctx, tx, p.TenantID, p.TaskID)
+	if err != nil {
 		return err
+	}
+	if !acceptsSlot(category, slotKeys, p.SlotFieldKey) {
+		return domain.ErrInvalidSlotForCategory
 	}
 
 	fingerprint := requestFingerprint(p.TaskID, p.AnimalRowID, p.SlotFieldKey, p.ProofRef)
