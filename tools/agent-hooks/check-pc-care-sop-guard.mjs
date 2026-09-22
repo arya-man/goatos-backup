@@ -48,7 +48,7 @@ import { join, resolve } from "node:path";
 import { tmpdir } from "node:os";
 
 const REPO = resolve(new URL("../..", import.meta.url).pathname);
-const MIGRATION = "backend/migrations/postgres/000385_pc_care_sop.sql";
+const MIGRATION = "backend/migrations/postgres/000386_pc_care_sop.sql";
 const SEED = "backend/internal/pccare/domain/sopseed/pc_care.json";
 const PCCARE_DIR = "backend/internal/pccare";
 const PCCARE_APP = "backend/internal/pccare/app";

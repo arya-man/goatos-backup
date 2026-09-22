@@ -1030,7 +1030,7 @@
       "owningDoc": "docs/decisions/pc-care-sop.md",
       "requiredInCI": true,
       "ciStep": "pc-care-sop-guard",
-      "notes": "Maintainer decision 2026-09-22: the PC Care per-animal captures, the questions answered at submit and the evening-before feed & water removal come from the PUBLISHED pc_care.tasks SOP version, pinned per task. The seed is embedded verbatim in migration 000385; no production Go under pccare reads the legacy slot table for an authored category or decides the removal from the category; readiness is the pinned required_slot_keys rather than the legacy proof columns; backend/internal/pccare names no sop_* table; the phone renders the served expected_slots; and /pc-care/sops is registered end to end in the adminui contract."
+      "notes": "Maintainer decision 2026-09-22: the PC Care per-animal captures, the questions answered at submit and the evening-before feed & water removal come from the PUBLISHED pc_care.tasks SOP version, pinned per task. The seed is embedded verbatim in migration 000386; no production Go under pccare reads the legacy slot table for an authored category or decides the removal from the category; readiness is the pinned required_slot_keys rather than the legacy proof columns; backend/internal/pccare names no sop_* table; the phone renders the served expected_slots; and /pc-care/sops is registered end to end in the adminui contract."
     },
     {
       "id": "shifting-sop",
