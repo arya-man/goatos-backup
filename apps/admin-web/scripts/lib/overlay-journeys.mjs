@@ -246,7 +246,10 @@ function inspectOverlayInPage({ overlay, header, body, kind, minWidthRatio, mark
     const hit = document.elementFromPoint(cx, cy);
     if (!hit || !el.contains(hit)) flag(el, `centre is covered by ${hit ? `${hit.tagName.toLowerCase()}.${String(hit.className).split(" ").slice(0, 2).join(".")}` : "nothing"}`);
   }
-  if (cs.position === "fixed") {
+  // A fixed overlay under a filtered ancestor only matters if it actually lands off-screen.
+  const selfBox = el.getBoundingClientRect();
+  const fullyOnScreen = selfBox.top >= -1 && selfBox.left >= -1 && selfBox.right <= vw + 1 && selfBox.bottom <= vh + 1;
+  if (cs.position === "fixed" && !fullyOnScreen) {
     for (let p = el.parentElement; p && p !== document.documentElement; p = p.parentElement) {
       const ps = getComputedStyle(p);
       const culprit =
