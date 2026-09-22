@@ -678,7 +678,7 @@ assignment_groups AS (
     physical_shed,
     partition_key,
     (ARRAY_AGG(partition_label ORDER BY length(partition_label), partition_label))[1] AS partition_label,
-    SUM(animal_count)::int AS animal_count,
+    MAX(animal_count)::int AS animal_count,
     CASE
       WHEN bool_or(capacity_status = 'capacity_action') THEN 'capacity_action'
       WHEN bool_or(capacity_status = 'over_cap_required') THEN 'over_cap_required'

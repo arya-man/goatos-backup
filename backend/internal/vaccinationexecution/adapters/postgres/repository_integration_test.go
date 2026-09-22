@@ -856,6 +856,124 @@ WHERE tenant_id=$1 AND park_id=$2 AND vaccine_code='PPR' AND original_drive_date
 	}
 }
 
+func TestDriveAssignmentsComboVaccinesKeepAnimalGrainWhileDosesAdd(t *testing.T) {
+	pgtest.SkipIfNoDocker(t)
+	ctx := context.Background()
+	pool := pgtest.StartPostgres(t, ctx)
+	defer pool.Close()
+	seedVaccinationExecutionProjection(t, ctx, pool)
+
+	const (
+		etttProtocol    = "70000000-0000-4000-8000-000000001001"
+		etttVersion     = "70000000-0000-4000-8000-000000001002"
+		etttRule        = "70000000-0000-4000-8000-000000001003"
+		pprProtocol     = "70000000-0000-4000-8000-000000001004"
+		pprVersion      = "70000000-0000-4000-8000-000000001005"
+		pprRule         = "70000000-0000-4000-8000-000000001006"
+		comboBatch      = "70000000-0000-4000-8000-000000001007"
+		comboAssignment = "70000000-0000-4000-8000-000000001008"
+	)
+	seedRule := func(protocolID, versionID, ruleID, name, code string) {
+		t.Helper()
+		execProjectionSQL(t, ctx, pool, "combo protocol "+name, `
+INSERT INTO protocol_definitions (protocol_id, tenant_id, code, name, category, status)
+VALUES ($1,$2,$3,$4,'vaccination','draft')`, protocolID, testTenant, "vaccination."+strings.ToLower(strings.ReplaceAll(code, "_", "-")), name)
+		execProjectionSQL(t, ctx, pool, "combo version "+name, `
+INSERT INTO protocol_versions (protocol_version_id, tenant_id, protocol_id, scope_type, version, status, effective_from, rule_dsl, proof_policy)
+VALUES ($1,$2,$3,'tenant',1,'draft',DATE '2026-12-01','{}'::jsonb,'{}'::jsonb)`, versionID, testTenant, protocolID)
+		execProjectionSQL(t, ctx, pool, "combo rule "+name, `
+INSERT INTO protocol_rules (rule_id, tenant_id, protocol_version_id, dose_code, sequence, trigger_type, eligibility_json, proof_policy)
+VALUES ($1,$2,$3,'D1',1,'birth_age','{}'::jsonb,'{}'::jsonb)`, ruleID, testTenant, versionID)
+		execProjectionSQL(t, ctx, pool, "combo dimension "+name, `
+INSERT INTO protocol_rule_dimensions (tenant_id, protocol_version_id, rule_id, category, selector_key, dose_code, vaccine_code)
+VALUES ($1,$2,$3,'vaccination',$4,'D1',$4)`, testTenant, versionID, ruleID, code)
+	}
+	seedRule(etttProtocol, etttVersion, etttRule, "ET+TT", "ET_TT")
+	seedRule(pprProtocol, pprVersion, pprRule, "PPR", "PPR")
+
+	execProjectionSQL(t, ctx, pool, "combo ten goats", `
+INSERT INTO goats (goat_id, tenant_id, lifecycle_status, species, custodian_party_id, sex, current_location_id, park_id, shed_id, management_stage, health_status)
+SELECT ('71000000-0000-4000-8000-' || lpad((1000 + n)::text, 12, '0'))::uuid,
+       $1, 'alive', 'goat', $2, 'female', $3, $4, $3, 'Adult', 'healthy'
+FROM generate_series(1, 10) AS n`, testTenant, testParty, testShed, testPark)
+	execProjectionSQL(t, ctx, pool, "combo batch", `
+INSERT INTO obligation_batches (batch_id, tenant_id, protocol_version_id, scope_type, scope_id, status, planned_date, conducted_by)
+VALUES ($1,$2,$3,'shed',$4,'in_progress',DATE '2026-12-22',$5)`,
+		comboBatch, testTenant, etttVersion, testShed, testOperator)
+	execProjectionSQL(t, ctx, pool, "combo ettt obligations", `
+INSERT INTO obligation_instances (obligation_id, tenant_id, protocol_version_id, rule_id, batch_id, target_type, target_id, scope_type, scope_id, due_at, status, idempotency_key, sequence)
+SELECT ('72000000-0000-4000-8000-' || lpad((1000 + n)::text, 12, '0'))::uuid,
+       $1, $2, $3, $4, 'goat',
+       ('71000000-0000-4000-8000-' || lpad((1000 + n)::text, 12, '0'))::uuid,
+       'shed', $5, TIMESTAMPTZ '2026-12-22 00:00:00+00', 'completed',
+       'combo-ettt-' || n::text, 1
+FROM generate_series(1, 10) AS n`, testTenant, etttVersion, etttRule, comboBatch, testShed)
+	execProjectionSQL(t, ctx, pool, "combo ppr obligations", `
+INSERT INTO obligation_instances (obligation_id, tenant_id, protocol_version_id, rule_id, batch_id, target_type, target_id, scope_type, scope_id, due_at, status, idempotency_key, sequence)
+SELECT ('73000000-0000-4000-8000-' || lpad((1000 + n)::text, 12, '0'))::uuid,
+       $1, $2, $3, $4, 'goat',
+       ('71000000-0000-4000-8000-' || lpad((1000 + n)::text, 12, '0'))::uuid,
+       'shed', $5, TIMESTAMPTZ '2026-12-22 00:00:00+00', 'completed',
+       'combo-ppr-' || n::text, 1
+FROM generate_series(1, 10) AS n`, testTenant, pprVersion, pprRule, comboBatch, testShed)
+	execProjectionSQL(t, ctx, pool, "combo assignment", `
+INSERT INTO vaccination_drive_assignments (assignment_id, tenant_id, batch_id, planned_date, operator_id, park_id, shed_id, physical_shed, partition_label, animal_count, vaccine_rule_ids, total_doses)
+VALUES ($1,$2,$3,DATE '2026-12-22',$4,$5,$6,'Combo Shed','whole',10,ARRAY[$7::uuid,$8::uuid],20)`,
+		comboAssignment, testTenant, comboBatch, testOperator, testPark, testShed, etttRule, pprRule)
+	execProjectionSQL(t, ctx, pool, "combo assignment members", `
+INSERT INTO vaccination_drive_assignment_members (tenant_id, assignment_id, obligation_id, goat_id)
+SELECT $1, $2,
+       ('72000000-0000-4000-8000-' || lpad((1000 + n)::text, 12, '0'))::uuid,
+       ('71000000-0000-4000-8000-' || lpad((1000 + n)::text, 12, '0'))::uuid
+FROM generate_series(1, 10) AS n
+UNION ALL
+SELECT $1, $2,
+       ('73000000-0000-4000-8000-' || lpad((1000 + n)::text, 12, '0'))::uuid,
+       ('71000000-0000-4000-8000-' || lpad((1000 + n)::text, 12, '0'))::uuid
+FROM generate_series(1, 10) AS n`, testTenant, comboAssignment)
+	execProjectionSQL(t, ctx, pool, "combo completions", `
+INSERT INTO vaccination_completions (completion_id, tenant_id, obligation_id, batch_id, goat_id, administered_at, status, idempotency_key, recorded_by)
+SELECT ('74000000-0000-4000-8000-' || lpad((1000 + n)::text, 12, '0'))::uuid,
+       $1,
+       ('72000000-0000-4000-8000-' || lpad((1000 + n)::text, 12, '0'))::uuid,
+       $2,
+       ('71000000-0000-4000-8000-' || lpad((1000 + n)::text, 12, '0'))::uuid,
+       TIMESTAMPTZ '2026-12-22 09:00:00+00', 'accepted', 'combo-ettt-complete-' || n::text, $3
+FROM generate_series(1, 10) AS n
+UNION ALL
+SELECT ('75000000-0000-4000-8000-' || lpad((1000 + n)::text, 12, '0'))::uuid,
+       $1,
+       ('73000000-0000-4000-8000-' || lpad((1000 + n)::text, 12, '0'))::uuid,
+       $2,
+       ('71000000-0000-4000-8000-' || lpad((1000 + n)::text, 12, '0'))::uuid,
+       TIMESTAMPTZ '2026-12-22 09:00:00+00', 'accepted', 'combo-ppr-complete-' || n::text, $3
+FROM generate_series(1, 10) AS n`, testTenant, comboBatch, testOperator)
+
+	repo := NewRepository(pool, 5*time.Second)
+	rows, err := repo.DriveAssignments(ctx, domain.DriveAssignmentQuery{
+		TenantID:   testTenant,
+		ParkID:     strPtr(testPark),
+		MonthStart: time.Date(2026, 12, 1, 0, 0, 0, 0, time.UTC),
+		Limit:      50,
+	})
+	if err != nil {
+		t.Fatalf("DriveAssignments: %v", err)
+	}
+	row := driveAssignmentRowFor(rows, "2026-12-22", "Combo Shed")
+	if row == nil {
+		t.Fatalf("missing combo assignment row: %#v", rows)
+	}
+	if !containsString(row.VaccineCodes, "ET_TT") || !containsString(row.VaccineCodes, "PPR") {
+		t.Fatalf("vaccine codes = %#v, want ET_TT and PPR", row.VaccineCodes)
+	}
+	if row.Animals != 10 || row.DueAnimals != 0 || row.DoneAnimals != 10 {
+		t.Fatalf("animal/due/done = %d/%d/%d, want 10/0/10 at animal grain", row.Animals, row.DueAnimals, row.DoneAnimals)
+	}
+	if row.TotalDoses != 20 {
+		t.Fatalf("total_doses = %d, want 20 combined ET+TT/PPR doses", row.TotalDoses)
+	}
+}
+
 func TestDriveAssignmentsOneToManyPageBoundaryExecutionDateParkScopeStatusMatrixDerivesVaccineChipsFromExactMembersWhenPersistedRuleIdsAreIncomplete(t *testing.T) {
 	pgtest.SkipIfNoDocker(t)
 	ctx := context.Background()
