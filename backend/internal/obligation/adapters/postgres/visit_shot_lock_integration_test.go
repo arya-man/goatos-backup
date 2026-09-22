@@ -84,6 +84,27 @@ func TestAvailableVaccinationOperatorsCapacityOverrideOneToManyMultipleDimension
 	}
 }
 
+func TestReplaceVaccinationDriveAssignmentsForBatchGuardsEmptyRebuildAfterProofProgress(t *testing.T) {
+	source, err := os.ReadFile("visit_shot_lock.go")
+	if err != nil {
+		t.Fatalf("read visit_shot_lock.go: %v", err)
+	}
+	sql := string(source)
+	for _, required := range []string{
+		"vaccinationDriveBatchHasProofOrCompletionProgress",
+		"refusing empty vaccination drive assignment replacement",
+		"JOIN vaccination_drive_assignment_members m",
+		"oi.status IN ('completed', 'in_progress')",
+		"vc.status IN ('recorded', 'accepted')",
+		"proof_artifacts pa",
+		"pa.upload_state = 'completed'",
+	} {
+		if !strings.Contains(sql, required) {
+			t.Fatalf("empty replacement proof-progress guard missing %q", required)
+		}
+	}
+}
+
 func TestAvailableVaccinationOperatorsForDriveOneToManyPaginationExecutionDateParkScopeStatusMatrixReadsSelectedOperatorsAndLoad(t *testing.T) {
 	pgtest.SkipIfNoDocker(t)
 	ctx := context.Background()
@@ -1040,6 +1061,69 @@ ORDER BY physical_shed`, tenantID, batchID)
 	}
 	if got := countRows(t, ctx, pool, `SELECT count(*) FROM vaccination_drive_assignments WHERE tenant_id=$1 AND batch_id=$2`, tenantID, batchID); got != 1 {
 		t.Fatalf("row count after re-replace = %d, want still 1 (idempotent)", got)
+	}
+}
+
+func TestReplaceVaccinationDriveAssignmentsForBatchRejectsEmptyReplacementAfterProofProgress(t *testing.T) {
+	pgtest.SkipIfNoDocker(t)
+	ctx := context.Background()
+	pool := pgtest.StartPostgres(t, ctx)
+	defer pool.Close()
+
+	proto := protopg.NewRepository(pool, 5*time.Second)
+	repo := NewRepository(pool, 5*time.Second)
+	versions := seedShotCapVersions(t, ctx, proto, "vaccination.assignmentreplace.proofguard", 1)
+
+	const goatID = "10000000-0000-4000-8000-00000000f351"
+	const shedID = "00000000-0000-4000-8000-00000000d351"
+	seedParkConsolidationShed(t, ctx, pool, shedID, "assignment-replace-proof-guard-shed")
+	seedReserveGoats(t, ctx, pool, shedID, cbePark, goatID)
+
+	planned := time.Date(2026, 9, 22, 0, 0, 0, 0, time.UTC)
+	obligationID, batchID := seedShotOnDate(t, ctx, repo, versions[0], goatID, "shed", shedID, planned, planned, "assignment-replace-proof-guard")
+	assignment := domain.DriveAssignment{
+		BatchID: batchID, PlannedDate: planned, ParkID: cbePark, ShedID: testStringPtr(shedID),
+		PhysicalShed: "Godel 2", PartitionLabel: "Part 1", AnimalCount: 1, VaccineRuleIDs: []string{versions[0].ruleID},
+		TotalDoses: 1, CapacityStatus: "within_cap",
+	}
+	if err := repo.UpsertVaccinationDriveAssignments(ctx, tenantID, []domain.DriveAssignment{assignment}); err != nil {
+		t.Fatalf("seed drive assignment: %v", err)
+	}
+	var assignmentID string
+	if err := pool.QueryRow(ctx, `
+SELECT assignment_id::text
+FROM vaccination_drive_assignments
+WHERE tenant_id=$1 AND batch_id=$2`, tenantID, batchID).Scan(&assignmentID); err != nil {
+		t.Fatalf("read assignment id: %v", err)
+	}
+	if _, err := pool.Exec(ctx, `
+INSERT INTO vaccination_drive_assignment_members (tenant_id, assignment_id, goat_id, obligation_id)
+VALUES ($1, $2, $3, $4)`, tenantID, assignmentID, goatID, obligationID); err != nil {
+		t.Fatalf("seed assignment member: %v", err)
+	}
+	if _, err := pool.Exec(ctx, `
+INSERT INTO proof_artifacts (
+  proof_id, tenant_id, storage_provider, object_key, mime_type, upload_state,
+  scope_type, scope_id, subject_type, subject_id, proof_type, uploaded_at
+) VALUES (
+  gen_random_uuid(), $1, 'gcs', 'tests/vaccination/proof-guard.mp4', 'video/mp4', 'completed',
+  'task', gen_random_uuid(), 'goat', $2, 'video', $3
+)`, tenantID, goatID, planned.Add(10*time.Hour)); err != nil {
+		t.Fatalf("seed proof artifact: %v", err)
+	}
+
+	err := repo.ReplaceVaccinationDriveAssignmentsForBatch(ctx, tenantID, batchID, nil)
+	if err == nil {
+		t.Fatalf("ReplaceVaccinationDriveAssignmentsForBatch empty set after proof progress succeeded, want guard error")
+	}
+	if !strings.Contains(err.Error(), "refusing empty vaccination drive assignment replacement") {
+		t.Fatalf("ReplaceVaccinationDriveAssignmentsForBatch error = %v, want proof-progress guard", err)
+	}
+	if got := countRows(t, ctx, pool, `SELECT count(*) FROM vaccination_drive_assignments WHERE tenant_id=$1 AND batch_id=$2`, tenantID, batchID); got != 1 {
+		t.Fatalf("assignment rows after rejected empty replace = %d, want original row preserved", got)
+	}
+	if got := countRows(t, ctx, pool, `SELECT count(*) FROM vaccination_drive_assignment_members WHERE tenant_id=$1 AND assignment_id=$2`, tenantID, assignmentID); got != 1 {
+		t.Fatalf("assignment members after rejected empty replace = %d, want original member preserved", got)
 	}
 }
 
