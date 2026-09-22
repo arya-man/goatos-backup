@@ -53,6 +53,19 @@ func TestLiveTrackerOneToManyCannotFanOutAdministrations(t *testing.T) {
 	}
 }
 
+func TestDriveAssignmentsMergedAssignmentProgressUsesAllBatches(t *testing.T) {
+	sql := driveAssignmentsSQL
+	if !strings.Contains(sql, "ARRAY_AGG(DISTINCT batch_id) AS batch_ids") {
+		t.Fatal("merged assignment groups must carry every batch id, not just MIN(batch_id)")
+	}
+	if !strings.Contains(sql, "AND oi.batch_id = ANY(effective.batch_ids)") {
+		t.Fatal("assignment progress must count completions from every grouped batch id")
+	}
+	if strings.Contains(sql, "AND oi.batch_id = effective.batch_id") {
+		t.Fatal("assignment progress must not filter to the representative MIN(batch_id)")
+	}
+}
+
 // TestLiveTrackerDayPredicatesAreSargableRanges pins that every day boundary is a half-open
 // timestamptz range against an indexable column, not (<ts> AT TIME ZONE 'Asia/Kolkata')::date = $2.
 //

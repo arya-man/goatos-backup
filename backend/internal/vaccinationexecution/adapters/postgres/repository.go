@@ -674,6 +674,7 @@ assignment_groups AS (
     MIN(original_planned_date) AS original_planned_date,
     MIN(assignment_id::text)::uuid AS assignment_id,
     MIN(batch_id::text)::uuid AS batch_id,
+    ARRAY_AGG(DISTINCT batch_id) AS batch_ids,
     operator_id,
     park_id,
     shed_id,
@@ -705,6 +706,7 @@ effective_assignments AS (
     original_planned_date,
     assignment_id,
     batch_id,
+    batch_ids,
     operator_id,
     park_id,
     shed_id,
@@ -774,7 +776,7 @@ LEFT JOIN LATERAL (
    AND gsp.goat_id = g.goat_id
    AND gsp.shed_id = effective.shed_id
   WHERE oi.tenant_id = $1::uuid
-    AND oi.batch_id = effective.batch_id
+    AND oi.batch_id = ANY(effective.batch_ids)
     AND oi.target_type = 'goat'
     AND g.shed_id = effective.shed_id
     AND (
