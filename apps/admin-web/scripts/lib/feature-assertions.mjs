@@ -94,18 +94,31 @@ export async function assertFeaturesPresent(page, { routeName, viewportLabel, sc
     if (entry.needsRoute) { console.log(`feature_assertion_skip=${routeName}:${viewportLabel}:${entry.sha}:needs route ${entry.needsRoute}`); continue; }
     if (deployedSha && isAwaitingDeploy(entry.sha, deployedSha)) { awaiting.push(entry); continue; }
     try {
-      if (entry.steps?.length && reload) await reload();
-      for (const step of entry.steps ?? []) await runStep(page, step);
-      for (const expect of entry.expect ?? []) {
-        const miss = await checkExpect(page, expect);
-        if (miss) {
-          // Data-dependent features render only when the page has rows: absence is not a failure,
-          // but something that must NOT appear is still a failure.
-          if (entry.status === "data-dependent" && /^(not visible|expected at least)/.test(miss.what)) break;
-          missing.push({ entry, miss });
-          if (miss.loc) await miss.loc.evaluate((el) => el.setAttribute("data-smoke-issue", "feature")).catch(() => {});
-          break;
+      // One attempt = fresh load, replay the steps, check the expects.
+      const attempt = async () => {
+        if (entry.steps?.length && reload) await reload();
+        for (const step of entry.steps ?? []) await runStep(page, step);
+        for (const expect of entry.expect ?? []) {
+          const miss = await checkExpect(page, expect);
+          if (miss) {
+            // Data-dependent features render only when the page has rows: absence is not a failure,
+            // but something that must NOT appear is still a failure.
+            if (entry.status === "data-dependent" && /^(not visible|expected at least)/.test(miss.what)) return null;
+            return miss;
+          }
         }
+        return null;
+      };
+      let miss = await attempt();
+      // The first click after a fresh load can land before React has attached its handler, so the
+      // control is visible, the click is a no-op, and the view never changes. That looked like a
+      // missing feature (acbb15186 on laptop, passing on mobile, with every sibling check on the
+      // same route green). Replay a clicking entry once before calling it broken: a feature that is
+      // genuinely gone fails both times, and the retry is only paid on a failure.
+      if (miss && entry.steps?.length && reload) miss = await attempt();
+      if (miss) {
+        missing.push({ entry, miss });
+        if (miss.loc) await miss.loc.evaluate((el) => el.setAttribute("data-smoke-issue", "feature")).catch(() => {});
       }
     } catch (error) {
       const message = String(error?.message ?? error);
