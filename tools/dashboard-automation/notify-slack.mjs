@@ -110,10 +110,29 @@ function findingKindReplies(collected) {
   });
 }
 function findingKindSelfTests() {
+  selfTestEveryFindingKindHasAPlainEnglishLabel();
   for (const kind of FINDING_KINDS) kind.selfTest?.();
   selfTestInactiveKindChangesNothing();
   selfTestBrokenKindDoesNotSilenceTheAlert();
 }
+// A layer with no labelByLayer entry falls through to its own raw name, so the generic failure
+// card says "android-journeys" — a check code in Slack, which is the one thing this channel must
+// never show. Each lane may only add an import and a registry entry here, so no lane could add
+// its own label; this refuses the next one that forgets. A kind's id IS its layer name in run.mjs.
+function selfTestEveryFindingKindHasAPlainEnglishLabel() {
+  const labels = labelByLayer();
+  for (const kind of FINDING_KINDS) {
+    const id = String(kind?.id ?? "");
+    if (!id) throw new Error("self-test: every registered finding kind must have an id naming its layer");
+    const label = labels[id];
+    if (!label) {
+      throw new Error(`self-test: layer "${id}" has no labelByLayer entry, so Slack would show the check code itself`);
+    }
+    if (label === id) throw new Error(`self-test: layer "${id}" is labelled with its own code, not plain English`);
+    if (/[-_]/.test(label)) throw new Error(`self-test: layer "${id}" label reads like a code, not a sentence: ${label}`);
+  }
+}
+
 // A lane whose module throws must lose its own section, not the whole message.
 function selfTestBrokenKindDoesNotSilenceTheAlert() {
   const broken = { id: "fake-broken", toFindings() { throw new Error("boom"); }, renderSection() { throw new Error("boom"); } };
@@ -652,6 +671,9 @@ function labelByLayer() {
     "business-data-parity": "STG-to-OCI business data parity",
     "api-latency": "Dashboard API latency",
     "api-contracts": "Screens getting their data from the server", // --- finding kinds (additive) ---
+    "data-sanity": "Figures on production that do not add up", // --- finding kinds (additive) ---
+    "write-journeys": "Things a person does on the site", // --- finding kinds (additive) ---
+    "android-journeys": "The phone app's opening screens", // --- finding kinds (additive) ---
     lighthouse: "Lighthouse page performance",
     "grafana-smoke": "Grafana/dashboard health",
     "vaccination-lifecycle": "Vaccination backend lifecycle tests",
