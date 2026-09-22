@@ -65,7 +65,7 @@ func (a *Assistant) executePlan(ctx context.Context, q domain.Question, subs []d
 	// ISO business dates on every sub-question. A model-drafted SQL read on a
 	// current-state view (no date column) is converted to an explicit "as of
 	// now" read here, so the guard never rejects it and the composer says so.
-	injectWindow(subs, window)
+	injectWindow(subs, window, q.Text)
 	prepareSQLWindows(subs, window, q.AsOf)
 
 	se := newStepExecutor(a.cfg.MaxSteps, a.cfg.WallClock)

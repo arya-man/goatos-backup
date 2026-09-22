@@ -77,6 +77,13 @@ const (
 	paramCompareFrom = "compare_from"
 	paramCompareTo   = "compare_to"
 	paramWindowAsOf  = "window_as_of"
+	// paramWindowAltCols lists the ALTERNATE date columns this question is
+	// allowed to bind its period on, comma-separated, computed by the SERVER
+	// from the question's own words. A card's other date columns are NOT
+	// interchangeable: binding "last 90 days" to verified_at and then labelling
+	// the answer with the requested period reports a figure read over a date
+	// nobody asked about, and the reader cannot see the swap.
+	paramWindowAltCols = "window_alt_columns"
 )
 
 // isModelSQL reports whether a sub-question is a model-drafted SQL fallback
@@ -177,7 +184,10 @@ func validateModelSQL(sql string, params map[string]any) error {
 	}
 	var card sqlguard.SchemaCardLike
 	if c, found := reporting.CardForSQL(sql); found {
-		card = c
+		// The card's alternate date columns are narrowed to the ones the
+		// QUESTION named, so a period can only ride a second date column when
+		// the leader asked about that date.
+		card = narrowAlternates(c, allowedAltColumns(params))
 	}
 	primaryErr := sqlguard.ValidateWindow(sql, card, w)
 	if primaryErr == nil {
@@ -493,4 +503,49 @@ func describeExecutedWindows(w Window, boundPrimary, boundCompare bool) string {
 		// comparison that did not run.
 		return describeOne(w) + " (comparison with " + describeOne(*w.Compare) + " could not be answered)"
 	}
+}
+
+// allowedAltColumns reads the server-computed alternate-date allowance off the
+// sub-question's params. Absent means NONE: an alternate date column is opt-in,
+// per question.
+func allowedAltColumns(params map[string]any) []string {
+	raw, _ := params[paramWindowAltCols].(string)
+	var out []string
+	for _, c := range strings.Split(raw, ",") {
+		if c = strings.TrimSpace(c); c != "" {
+			out = append(out, c)
+		}
+	}
+	return out
+}
+
+// narrowedCard is a schema card whose alternate date columns are restricted to
+// the ones the question named. The card's OWN business-day column is never
+// narrowed — that is the default period column and needs no permission.
+type narrowedCard struct {
+	reporting.SchemaCard
+	allowed []string
+}
+
+// AlternateDateColumns implements sqlguard.AlternateDateColumnsCard.
+func (n narrowedCard) AlternateDateColumns() []string {
+	if len(n.allowed) == 0 {
+		return nil
+	}
+	declared := n.SchemaCard.AlternateDateColumns()
+	var out []string
+	for _, col := range declared {
+		for _, want := range n.allowed {
+			if strings.EqualFold(col, want) {
+				out = append(out, col)
+				break
+			}
+		}
+	}
+	return out
+}
+
+// narrowAlternates wraps a card with the per-question allowance.
+func narrowAlternates(card reporting.SchemaCard, allowed []string) sqlguard.SchemaCardLike {
+	return narrowedCard{SchemaCard: card, allowed: allowed}
 }

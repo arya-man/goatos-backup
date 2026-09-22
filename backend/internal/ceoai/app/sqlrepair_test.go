@@ -313,7 +313,7 @@ func TestInjectWindowAndPrepareSQLWindows(t *testing.T) {
 		{ID: "1", Route: domain.RouteSQL, ToolName: "sql_fallback", Params: map[string]any{"sql": scopeSQL}},
 		{ID: "2", Route: domain.RouteSQL, ToolName: "sql_fallback", Params: map[string]any{"sql": goodSQL, paramFrom: "2026-01-01", paramTo: "2026-01-31"}},
 	}
-	injectWindow(subs, w)
+	injectWindow(subs, w, "")
 	for _, s := range subs[:2] {
 		if s.Params[paramFrom] != "2025-08-01" || s.Params[paramTo] != "2025-08-31" || s.Params[paramCompareFrom] != "2025-09-01" || s.Params[paramCompareTo] != "2025-09-30" || s.Params[paramWindowLabel] != "aug" {
 			t.Fatalf("sub %s params: %+v", s.ID, s.Params)
@@ -342,7 +342,7 @@ func TestInjectWindowAndPrepareSQLWindows(t *testing.T) {
 	}
 	// Zero window: nothing injected.
 	fresh := []domain.SubQuestion{{ID: "x", Route: domain.RouteCube}}
-	injectWindow(fresh, Window{})
+	injectWindow(fresh, Window{}, "")
 	if _, has := fresh[0].Params[paramFrom]; has {
 		t.Fatal("zero window must inject nothing")
 	}
@@ -373,7 +373,7 @@ func TestModelSuppliedWindowIgnored(t *testing.T) {
 		t.Fatal("expected a resolved window")
 	}
 	subs := []domain.SubQuestion{{ID: "0", Route: domain.RouteSQL, ToolName: "sql_fallback", Params: modelParams()}}
-	injectWindow(subs, w)
+	injectWindow(subs, w, "")
 	if subs[0].Params[paramFrom] != "2026-06-01" || subs[0].Params[paramTo] != "2026-06-30" {
 		t.Fatalf("server window must overwrite model from/to: %+v", subs[0].Params)
 	}
@@ -391,7 +391,7 @@ func TestModelSuppliedWindowIgnored(t *testing.T) {
 	// 2. No resolved window: the model's from/to are stripped, the draft is
 	//    not window-checked, and no "Window:" line can be produced from them.
 	subs = []domain.SubQuestion{{ID: "0", Route: domain.RouteSQL, ToolName: "sql_fallback", Params: modelParams()}}
-	injectWindow(subs, Window{})
+	injectWindow(subs, Window{}, "")
 	for _, k := range []string{paramFrom, paramTo, paramWindowLabel, paramCompareFrom, paramCompareTo} {
 		if _, has := subs[0].Params[k]; has {
 			t.Fatalf("model-supplied %s must be stripped when no window resolved: %+v", k, subs[0].Params)
@@ -454,7 +454,7 @@ func TestCompareWindowsThreadedAndValidated(t *testing.T) {
 		{ID: "0", Route: domain.RouteSQL, ToolName: "sql_fallback", Params: map[string]any{"sql": q3SQL}},
 		{ID: "1", Route: domain.RouteSQL, ToolName: "sql_fallback", Params: map[string]any{"sql": q2SQL}},
 	}
-	injectWindow(subs, w)
+	injectWindow(subs, w, "")
 	for _, s := range subs {
 		if s.Params[paramFrom] != "2026-07-01" || s.Params[paramTo] != "2026-09-30" || s.Params[paramCompareFrom] != "2026-04-01" || s.Params[paramCompareTo] != "2026-06-30" {
 			t.Fatalf("sub %s must carry both windows: %+v", s.ID, s.Params)

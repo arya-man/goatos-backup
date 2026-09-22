@@ -2,9 +2,12 @@ package app
 
 import (
 	"context"
+	"sort"
+	"strings"
 	"time"
 
 	"github.com/vgoats/goatos/backend/internal/ceoai/domain"
+	"github.com/vgoats/goatos/backend/internal/ceoai/reporting"
 	"github.com/vgoats/goatos/backend/internal/platform/biztime"
 )
 
@@ -43,16 +46,65 @@ func injectAsOf(subs []domain.SubQuestion, asOf time.Time) {
 // sub-question too: the planner is asked to draft one sub-question per
 // window, and validateModelSQL accepts a model-SQL sub that binds EITHER the
 // primary or the comparison window (M1), so the comparison arm is answerable.
-func injectWindow(subs []domain.SubQuestion, w Window) {
+// questionNamedDateColumns returns the date columns the QUESTION itself named,
+// across every card: a column is named when the question carries the words its
+// own name is made of ("purchased" -> purchase_date, "verified" -> verified_at).
+// It is derived from the column NAME, so a column added tomorrow needs no list.
+func questionNamedDateColumns(questionText string) []string {
+	words := questionWords(questionText)
+	if len(words) == 0 {
+		return nil
+	}
+	seen := map[string]bool{}
+	var out []string
+	for _, card := range reporting.Cards() {
+		for _, col := range card.AlternateDateColumns() {
+			if seen[strings.ToLower(col)] {
+				continue
+			}
+			// The column's own distinguishing word, minus the date suffix:
+			// purchase_date -> "purchase", verified_at -> "verified".
+			for _, token := range strings.Split(strings.ToLower(col), "_") {
+				if token == "date" || token == "at" || token == "day" || token == "on" || len(token) < 4 {
+					continue
+				}
+				if questionNames(words, token) {
+					seen[strings.ToLower(col)] = true
+					out = append(out, col)
+					break
+				}
+			}
+		}
+	}
+	sort.Strings(out)
+	return out
+}
+
+// questionNames reports whether any of the question's words is, or starts with,
+// the column's token ("purchased" names purchase; "verification" names verified
+// only through its shared stem, so both directions are checked).
+func questionNames(words map[string]bool, token string) bool {
+	for w := range words {
+		if w == token || strings.HasPrefix(w, token) || strings.HasPrefix(token, w) {
+			return true
+		}
+	}
+	return false
+}
+
+func injectWindow(subs []domain.SubQuestion, w Window, questionText string) {
 	for i := range subs {
 		if subs[i].Params == nil {
 			subs[i].Params = map[string]any{}
 		}
-		for _, k := range []string{paramFrom, paramTo, paramWindowLabel, paramCompareFrom, paramCompareTo} {
+		for _, k := range []string{paramFrom, paramTo, paramWindowLabel, paramCompareFrom, paramCompareTo, paramWindowAltCols} {
 			delete(subs[i].Params, k)
 		}
 		if w.IsZero() {
 			continue
+		}
+		if alt := questionNamedDateColumns(questionText); len(alt) > 0 {
+			subs[i].Params[paramWindowAltCols] = strings.Join(alt, ",")
 		}
 		subs[i].Params[paramFrom] = w.FromDate()
 		subs[i].Params[paramTo] = w.ToDate()
