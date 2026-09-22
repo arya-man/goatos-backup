@@ -1557,11 +1557,12 @@ class DefaultProofCaptureRepository(
                     put("obligation_id", JsonPrimitive(it))
                     put("obligation_row_version", JsonPrimitive(uploadEntity.obligationRowVersion))
                 }
-                uploadEntity.obligationCyclesJson?.takeIf { it.isNotBlank() }?.let { raw ->
-                    runCatching { syncJson.decodeFromString<JsonElement>(raw) }
-                        .getOrNull()
-                        ?.let { put("obligation_cycles", it) }
-                }
+				uploadEntity.obligationCyclesJson?.takeIf { it.isNotBlank() }?.let { raw ->
+					runCatching { syncJson.decodeFromString<JsonElement>(raw) }
+						.onFailure { failureReporter.recordException(it, "proof obligation cycles metadata decode failed") }
+						.getOrNull()
+						?.let { put("obligation_cycles", it) }
+				}
                 uploadEntity.capturedByPrincipalId?.takeIf { it.isNotBlank() }
                     ?.let { put("captured_by_principal_id", JsonPrimitive(it)) }
             },

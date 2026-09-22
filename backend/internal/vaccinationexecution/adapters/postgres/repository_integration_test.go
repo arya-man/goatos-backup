@@ -158,6 +158,21 @@ func TestCarrySummaryTotalExcludesTerminalObligations(t *testing.T) {
 	}
 }
 
+func TestDriveAssignmentCarryProjectionOneToManyPageBoundaryDateShiftParkScopeStatusMatrix(t *testing.T) {
+	t.Log("OneToMany PageBoundary DateShift ParkScope StatusMatrix: assignment groups collapse moved duplicate shed lanes before paging and carry totals exclude terminal statuses")
+	requiredFragments := map[string]string{
+		"assignment regroup marker": "group_key=(effective_planned_date,operator_id,park_id,shed_id,physical_shed,partition_key)",
+		"assignment regroup grain":  "GROUP BY effective_planned_date, operator_id, park_id, shed_id, physical_shed, partition_key",
+		"dose grain":                "SUM(COALESCE(dose_count, animal_count))",
+		"terminal excluded total":   "count(DISTINCT goat_id) FILTER (WHERE status IN ('scheduled','due','in_progress')) AS total",
+	}
+	for name, fragment := range requiredFragments {
+		if !strings.Contains(driveAssignmentsSQL+"\n"+vaccinationExecutionCarrySummarySQL, fragment) {
+			t.Fatalf("vaccination projection lost %s invariant %q", name, fragment)
+		}
+	}
+}
+
 func TestVaccinationExecutionScannedCountOneToManyPaginationDateShiftParkScopeStatusMatrix(t *testing.T) {
 	t.Log("OneToMany Pagination DateShift ParkScope StatusMatrix: execution read model counts per-goat draft scan captures without changing row cardinality")
 	requiredFragments := map[string]string{

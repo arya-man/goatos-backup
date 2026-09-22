@@ -21,6 +21,7 @@ import (
 	"github.com/vgoats/goatos/backend/internal/platform/biztime"
 	"github.com/vgoats/goatos/backend/internal/platform/httpmiddleware"
 	platformoutbox "github.com/vgoats/goatos/backend/internal/platform/outbox"
+	"github.com/vgoats/goatos/backend/internal/platform/sqlbind"
 	vaccinatdomain "github.com/vgoats/goatos/backend/internal/vaccination/domain"
 	"github.com/vgoats/goatos/backend/internal/vaccinationexecution/domain"
 	"github.com/vgoats/goatos/backend/internal/vaccinationexecution/ports"
@@ -666,6 +667,7 @@ WITH assignment_vaccines AS (
   WHERE vda.tenant_id = $1::uuid
     AND ($4::text = '' OR vda.park_id::text = $4)
 ),
+-- projection-review: membership=assignment_vaccines rows for one tenant after exact member-ledger expansion and legacy rule fallback; group_key=(effective_planned_date,operator_id,park_id,shed_id,physical_shed,partition_key), deliberately collapsing duplicate raw assignment rows for the same normalized shed partition on a moved drive day; join_cardinality=assignment_vaccines is already one row per assignment+rule, and this aggregate uses MAX animal_count plus SUM dose_count so multi-vaccine rows add doses without multiplying animals; pagination=full month-filtered assignment set is regrouped before the final LIMIT, so a page boundary cannot split sibling vaccine lanes for one operator/shed/partition/date; scope=tenant plus optional park filter inherited from assignment_vaccines, with shed/partition identity preserved in the group key.
 assignment_groups AS (
   SELECT
     effective_planned_date AS planned_date,
@@ -3466,9 +3468,10 @@ func (r *Repository) listShedCanonical(ctx context.Context, q domain.ShedSummary
 		return nil, fmt.Errorf("vaccination execution: shed summary capacity config: %w", err)
 	}
 	query := strings.Replace(shedSummaryCanonicalReadSQL, "__ORDER_BY__", shedSummaryOrderBy(q.Sort), 1)
-	rows, err := r.pool.Query(ctx, query,
+	bound := sqlbind.MustBind(query,
 		q.TenantID, asOf, dueBefore, cfg.MaxPerDay, cfg.MaxBufferDays,
 		optStr(q.ParkID), optStr(q.ShedID), optStr(q.Search), status, capacity, limit, q.Offset)
+	rows, err := r.pool.Query(ctx, bound.SQL(), bound.Args()...)
 	if err != nil {
 		return nil, fmt.Errorf("vaccination execution: shed summary canonical read: %w", err)
 	}
@@ -4220,7 +4223,8 @@ INSERT INTO outbox_messages (
 ) VALUES ($1::uuid, $2::uuid, $3, '1.0.0', 'park', $4::uuid,
   'vaccination.events', $5::jsonb, $6::jsonb, $7, $7, 'pending', now())
 ON CONFLICT (tenant_id, idempotency_key) WHERE event_type = '` + eventType + `' DO NOTHING`
-		if _, err := tx.Exec(ctx, sql, tenantID, eventID, eventType, cfg.ParkID, envelope, headers, idempotencyKey); err != nil {
+		bound := sqlbind.MustBind(sql, tenantID, eventID, eventType, cfg.ParkID, envelope, headers, idempotencyKey)
+		if _, err := tx.Exec(ctx, bound.SQL(), bound.Args()...); err != nil {
 			return fmt.Errorf("vaccination execution: enqueue %s to outbox: %w", eventType, err)
 		}
 		return nil

@@ -19,6 +19,7 @@ type Service struct {
 	repo              ports.Repository
 	anchorObligations anchorObligationSuppressor
 	proofObligations  proofObligationCompleter
+	log               *slog.Logger
 }
 
 type anchorObligationSuppressor interface {
@@ -40,7 +41,7 @@ type proofCompletionRepository interface {
 
 // NewService constructs a Service.
 func NewService(repo ports.Repository) *Service {
-	return &Service{repo: repo}
+	return &Service{repo: repo, log: slog.Default()}
 }
 
 func (s *Service) WithAnchorObligationSuppressor(obl anchorObligationSuppressor) *Service {
@@ -50,6 +51,13 @@ func (s *Service) WithAnchorObligationSuppressor(obl anchorObligationSuppressor)
 
 func (s *Service) WithProofCompletionObligationCompleter(obl proofObligationCompleter) *Service {
 	s.proofObligations = obl
+	return s
+}
+
+func (s *Service) WithLogger(log *slog.Logger) *Service {
+	if log != nil {
+		s.log = log
+	}
 	return s
 }
 
@@ -185,7 +193,7 @@ func (s *Service) OnProofCompleted(ctx context.Context, proof proofdomain.Artifa
 	}
 	repo, ok := s.repo.(proofCompletionRepository)
 	if !ok {
-		slog.Error("vaccination proof completion reconciliation is not wired",
+		s.log.Error("vaccination proof completion reconciliation is not wired",
 			"tenant_id", proof.TenantID,
 			"proof_id", proof.ProofID,
 			"task_id", proof.ScopeID,
@@ -194,7 +202,7 @@ func (s *Service) OnProofCompleted(ctx context.Context, proof proofdomain.Artifa
 	}
 	completions, err := repo.RecordCompletionsFromCompletedProof(ctx, proof.TenantID, proof.ProofID)
 	if err != nil {
-		slog.Error("vaccination proof completion reconciliation failed",
+		s.log.Error("vaccination proof completion reconciliation failed",
 			"tenant_id", proof.TenantID,
 			"proof_id", proof.ProofID,
 			"task_id", proof.ScopeID,
@@ -203,7 +211,7 @@ func (s *Service) OnProofCompleted(ctx context.Context, proof proofdomain.Artifa
 		return err
 	}
 	if len(completions) == 0 {
-		slog.Error("vaccination proof completed without matching completion",
+		s.log.Error("vaccination proof completed without matching completion",
 			"tenant_id", proof.TenantID,
 			"proof_id", proof.ProofID,
 			"task_id", proof.ScopeID,
@@ -223,7 +231,7 @@ func (s *Service) OnProofCompleted(ctx context.Context, proof proofdomain.Artifa
 		}
 		seen[completion.ObligationID] = struct{}{}
 		if _, err := s.proofObligations.MarkCompleted(ctx, proof.TenantID, completion.ObligationID); err != nil {
-			slog.Error("vaccination proof completion obligation close failed",
+			s.log.Error("vaccination proof completion obligation close failed",
 				"tenant_id", proof.TenantID,
 				"proof_id", proof.ProofID,
 				"task_id", proof.ScopeID,

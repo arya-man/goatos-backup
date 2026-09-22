@@ -11,6 +11,7 @@ import (
 	"github.com/jackc/pgx/v5"
 	"golang.org/x/sync/errgroup"
 
+	"github.com/vgoats/goatos/backend/internal/platform/sqlbind"
 	vaccinatdomain "github.com/vgoats/goatos/backend/internal/vaccination/domain"
 	"github.com/vgoats/goatos/backend/internal/vaccinationexecution/domain"
 	"github.com/vgoats/goatos/backend/internal/verification/samplingsql"
@@ -461,6 +462,7 @@ LIMIT ` + fmt.Sprint(domain.LiveTrackerMaxActors)
 // day across the whole herd cannot stream every animal into the page.
 var liveTrackerComboSQL = liveTrackerScopedCTE + `,
 combo_goats AS (
+  -- projection-review: membership=scoped_enriched goat rows for the requested live tracker day and filters; group_key=goat_id animals with more than one distinct vaccine family; join_cardinality=scoped_enriched already normalizes obligation/proof/location joins and this aggregate counts DISTINCT vaccine_family so multi-dose rows cannot duplicate combo animals; pagination=combo_total is computed before combo_page LIMIT and combo_page orders by goat_id with caller limit; scope=tenant plus backend-clamped park/shed/partition/operator/vaccine filters from liveTrackerScopedCTE.
   SELECT goat_id
   FROM scoped_enriched
   GROUP BY goat_id
@@ -1228,7 +1230,9 @@ func liveTrackerParkFilter(ctx context.Context, q domain.LiveTrackerQuery) strin
 }
 
 func (r *Repository) liveTrackerCells(ctx context.Context, base []any) ([]liveTrackerCell, error) {
-	rows, err := r.pool.Query(ctx, liveTrackerCellsSQL, base...)
+	// projection-review: membership=liveTrackerScopedCTE day-scoped vaccination obligations for one tenant/date after backend park clamp; group_key=(park,shed,partition,vaccine,operator) cells from the shared CTE; join_cardinality=goat/proof/scan/evidence sources are pre-aggregated or lookup-bound before section reads; pagination=cells are server-bounded and report truncation, no UI page decides totals; scope=tenant plus authorized park/shed/partition/operator/vaccine filters in the CTE.
+	bound := sqlbind.MustBind(liveTrackerCellsSQL, base...)
+	rows, err := r.pool.Query(ctx, bound.SQL(), bound.Args()...)
 	if err != nil {
 		return nil, err
 	}
@@ -1249,7 +1253,8 @@ func (r *Repository) liveTrackerCells(ctx context.Context, base []any) ([]liveTr
 }
 
 func (r *Repository) liveTrackerActors(ctx context.Context, base []any) ([]liveTrackerActor, error) {
-	rows, err := r.pool.Query(ctx, liveTrackerActorSQL, base...)
+	bound := sqlbind.MustBind(liveTrackerActorSQL, base...)
+	rows, err := r.pool.Query(ctx, bound.SQL(), bound.Args()...)
 	if err != nil {
 		return nil, err
 	}
@@ -1267,7 +1272,8 @@ func (r *Repository) liveTrackerActors(ctx context.Context, base []any) ([]liveT
 
 func (r *Repository) liveTrackerCombo(ctx context.Context, base []any) (domain.LiveTrackerCombo, error) {
 	args := append(append([]any{}, base...), domain.LiveTrackerMaxComboRows)
-	rows, err := r.pool.Query(ctx, liveTrackerComboSQL, args...)
+	bound := sqlbind.MustBind(liveTrackerComboSQL, args...)
+	rows, err := r.pool.Query(ctx, bound.SQL(), bound.Args()...)
 	if err != nil {
 		return domain.LiveTrackerCombo{}, err
 	}
@@ -1343,7 +1349,8 @@ func (r *Repository) liveTrackerActivity(ctx context.Context, base []any, limit 
 		beforeArg = *before
 	}
 	args := append(append([]any{}, base...), limit, beforeArg, beforeID)
-	rows, err := r.pool.Query(ctx, liveTrackerActivitySQL, args...)
+	bound := sqlbind.MustBind(liveTrackerActivitySQL, args...)
+	rows, err := r.pool.Query(ctx, bound.SQL(), bound.Args()...)
 	if err != nil {
 		return domain.LiveTrackerActivity{}, err
 	}
@@ -1395,7 +1402,8 @@ func (r *Repository) liveTrackerActivity(ctx context.Context, base []any, limit 
 func (r *Repository) liveTrackerFilterOptions(ctx context.Context, tenantID, businessDate string, parkScope any) (domain.LiveTrackerFilterOptions, error) {
 	// $3 (the caller's own park selection) is deliberately empty so the park control cannot
 	// self-collapse; $8 (the authorization park set) is the narrowing that must never be dropped.
-	rows, err := r.pool.Query(ctx, liveTrackerFilterOptionsSQL, tenantID, businessDate, "", "", "", "", "", parkScope)
+	bound := sqlbind.MustBind(liveTrackerFilterOptionsSQL, tenantID, businessDate, "", "", "", "", "", parkScope)
+	rows, err := r.pool.Query(ctx, bound.SQL(), bound.Args()...)
 	if err != nil {
 		return domain.LiveTrackerFilterOptions{}, err
 	}
@@ -1471,7 +1479,8 @@ func liveTrackerDoseLabels(raw string) string {
 
 func (r *Repository) liveTrackerVerification(ctx context.Context, tenantID, businessDate, parkFilter, shedFilter string, parkScope any) (domain.LiveTrackerVerification, error) {
 	var v domain.LiveTrackerVerification
-	err := r.pool.QueryRow(ctx, liveTrackerVerificationSQL, tenantID, businessDate, parkFilter, shedFilter, parkScope).
+	bound := sqlbind.MustBind(liveTrackerVerificationSQL, tenantID, businessDate, parkFilter, shedFilter, parkScope)
+	err := r.pool.QueryRow(ctx, bound.SQL(), bound.Args()...).
 		Scan(&v.AwaitingReviewItems, &v.AwaitingReviewSheds, &v.VerifiedTodayItems, &v.VerifiedTodaySheds, &v.ReworkRequested)
 	if err != nil && err != pgx.ErrNoRows {
 		return domain.LiveTrackerVerification{}, err

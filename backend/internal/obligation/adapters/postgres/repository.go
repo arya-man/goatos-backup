@@ -26,6 +26,7 @@ import (
 	"github.com/vgoats/goatos/backend/internal/platform/oploc"
 	platformoutbox "github.com/vgoats/goatos/backend/internal/platform/outbox"
 	"github.com/vgoats/goatos/backend/internal/platform/pgconv"
+	"github.com/vgoats/goatos/backend/internal/platform/sqlbind"
 )
 
 const defaultQueryTimeout = 3 * time.Second
@@ -1804,6 +1805,7 @@ WITH target AS (
   WHERE tenant_id = $1
     AND idempotency_key = $2
     AND status IN ('scheduled', 'due', 'in_progress', 'deferred')
+    -- projection-review: membership=one open obligation row addressed by deterministic idempotency_key unless it already belongs to an executable drive on/before the event day; group_key=obligation_id single-row cancel target; join_cardinality=NOT EXISTS joins drive members to assignment by PK and only suppresses cancellation, never multiplies returned rows; pagination=n/a single-key transactional write; scope=tenant plus idempotency key and assignment planned_date business-day fence.
     AND NOT EXISTS (
       SELECT 1
       FROM vaccination_drive_assignment_members vdam
@@ -3204,6 +3206,7 @@ WHERE oi.tenant_id = $1::uuid
   AND pv.protocol_version_id = oi.protocol_version_id
   AND pd.category = 'vaccination'
   AND NOT (oi.protocol_version_id = ANY($3::uuid[]))
+  -- projection-review: membership=open vaccination obligation rows for one goat whose protocol_version is no longer effective unless already assigned to an executable drive on/before the event day; group_key=obligation_id returned once from obligation_instances; join_cardinality=protocol joins are keyed lookups and NOT EXISTS assignment-member join is a semijoin filter only; pagination=n/a goat-scoped transactional write; scope=tenant plus goat plus effective-version exclusion and assignment planned_date business-day fence.
   AND NOT EXISTS (
     SELECT 1
     FROM vaccination_drive_assignment_members vdam
@@ -3340,6 +3343,7 @@ WHERE oi.tenant_id = $1::uuid
   AND pv.tenant_id = oi.tenant_id
   AND pv.protocol_version_id = oi.protocol_version_id
   AND pd.category = 'vaccination'
+  -- projection-review: membership=open vaccination obligation rows for one goat/protocol version unless already assigned to an executable drive on/before the event day; group_key=obligation_id returned once from obligation_instances; join_cardinality=protocol joins are keyed lookups and NOT EXISTS assignment-member join is a semijoin filter only; pagination=n/a goat-scoped transactional write; scope=tenant plus goat plus protocol version and assignment planned_date business-day fence.
   AND NOT EXISTS (
     SELECT 1
     FROM vaccination_drive_assignment_members vdam
@@ -3856,7 +3860,9 @@ func (r *Repository) listUnbatchedDueForVersionKeysetSnapshot(ctx context.Contex
 		args = append(args, after.ScopeType, scopeID, ruleID, pgconv.Timestamptz(after.DueAt), obligationID)
 	}
 	// scale-guard:ignore: keyset pagination on the query's own indexed ORDER BY tuple, bounded to LIMIT per page; read-only preflight/HWM-bounded real-sweep read, no OFFSET.
-	rows, err := r.pool.Query(ctx, sql, args...)
+	// projection-review: membership=unbatched obligation_instances for one tenant/protocol version and optional preflight snapshot; group_key=(scope_type,scope_id,rule_id,due_at,obligation_id) keyset tuple, not an aggregate rollup; join_cardinality=target goat/location joins are 0..1 lookup dimensions and do not multiply obligation rows; pagination=stable keyset over the same tuple used by ORDER BY with caller-carried cursor and LIMIT; scope=tenant plus protocol version, candidate snapshot, and live goat/scope eligibility filters.
+	bound := sqlbind.MustBind(sql, args...)
+	rows, err := r.pool.Query(ctx, bound.SQL(), bound.Args()...)
 	if err != nil {
 		return nil, fmt.Errorf("obligation: list unbatched due keyset: %w", err)
 	}
@@ -4585,7 +4591,9 @@ LIMIT $` + strconv.Itoa(argIdx)
 
 	args = append(args, limit)
 
-	rows, err := r.pool.Query(ctx, query, args...)
+	// projection-review: membership=planned combo batches plus a LATERAL aggregate of their own open obligation_instances; group_key=batch_id one row per batch; join_cardinality=LATERAL collapses target ids and safe window to one row per batch before the outer read; pagination=keyset over immutable scope/session/batch tuple with LIMIT so a caller can assemble groups across pages; scope=batch scope_type/scope_id for one tenant.
+	bound := sqlbind.MustBind(query, args...)
+	rows, err := r.pool.Query(ctx, bound.SQL(), bound.Args()...)
 	if err != nil {
 		return nil, fmt.Errorf("obligation: list planned combo batches keyset: %w", err)
 	}
@@ -8142,7 +8150,8 @@ func (r *Repository) ResolveShedLocation(ctx context.Context, tenantID, shedID s
 	if err != nil {
 		return oploc.OperationalLocation{}, fmt.Errorf("obligation: shed id: %w", err)
 	}
-	row := r.pool.QueryRow(ctx, oploc.ShedScopedLocationSQL, tenant, shed)
+	bound := sqlbind.MustBind(oploc.ShedScopedLocationSQL, tenant, shed)
+	row := r.pool.QueryRow(ctx, bound.SQL(), bound.Args()...)
 	loc, err := oploc.ResolveShedLocation(ctx, row)
 	if err != nil {
 		return oploc.OperationalLocation{}, fmt.Errorf("obligation: resolve shed location: %w", err)
