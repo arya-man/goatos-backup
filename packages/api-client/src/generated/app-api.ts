@@ -2165,11 +2165,11 @@ export interface paths {
         };
         /**
          * Purchased vs consumed, one row per feed load, for the Feed Analytics page.
-         * @description Every load in the purchase ledger with its FIFO consumption position: loads of one feed at one farm are drawn on in arrival order, so a load's consumed kg is whatever the family's directed total (LOCKED sheets plus externally-tracked consumption, from the ledger start) reaches past the kg of every earlier load, capped at the load's own kg -- except the NEWEST load, which takes the whole remainder so an overrun reads as negative kg left rather than being clamped away.
+         * @description Every load in the purchase ledger with its FIFO consumption position: loads of one feed at one farm are drawn on in arrival order, so a load's consumed kg is whatever the family's directed total (LOCKED sheets plus externally-tracked consumption, from the ledger start) reaches past the kg of every earlier load, capped at the load's own kg -- except the load that was newest on the feed day itself, which takes the whole remainder, so feeding beyond what the ledger bought reads as negative kg left rather than being clamped away.
          *
-         *     `days_said` is the buyer's OPTIONAL figure entered on the purchase form; `days_consumed` counts the locked feed days that drew on the load; `days_left` is kg left over the feed's recent (3 locked days) daily rate, 0 once finished and null when no recent rate exists. `gap_days` = days_said - days_consumed - days_left, null whenever either side is unknown: a check nobody could make is not a check that passed. Zero means the figure held; negative means the load ran (or will run) out sooner than it was bought for.
+         *     `days_said` is the buyer's OPTIONAL figure entered on the purchase form; `days_consumed` counts the locked feed days that drew on the load; `days_left` is the RUNWAY -- everything still in the store up to and including this load, over the feed FAMILY's recent daily rate (3 locked days, with the same pinned overrides the stock cards use) -- so the newest load of a feed carries the same days-left figure as that feed's stock card, and the two surfaces cannot disagree about the runway. It is null when no recent rate exists. `gap_days` stays about the load ALONE: days_said - days_consumed - (this load's own kg over that rate), null whenever either side is unknown, because a check nobody could make is not a check that passed. Zero means the figure held; positive means the load ran (or will run) out sooner than it was bought for.
          *
-         *     `total` is a WHOLE-FILTER count, never page-local. Feeds named in `domain.StockLoadExcludedFeedItemKeys` (UHT milk) are left out of the rows and of the `feed_items` facet: milk is drawn by preparation batches, not the ration sheet, so a per-load days-of-stock figure is not a question about it.
+         *     `total` is a WHOLE-FILTER count, never page-local. FINISHED loads are left out: the table answers what is in the store now, not what the store has been through. Loads of a RETIRED feed are left out of the rows and of the `feed_items` facet for the same reason -- the farm no longer buys it -- while their leftover kg still count toward the family runway, exactly as they do on the stock cards.
          */
         get: operations["getFeedAnalyticsStockLoads"];
         put?: never;
@@ -10741,14 +10741,14 @@ export interface components {
             /** @description Feed day the load's last kilogram was directed; empty while any remains. */
             finished_on: string;
             /**
-             * @description `overrun` is the NEWEST load of its feed with more directed against it than it held -- the farm fed feed the ledger never bought, so a load is missing from the ledger.
+             * @description `finished` is never served -- the table lists only what is still in the store. A load fed beyond its own kg is `in_use`, because it is the load the store is drawing on; its negative `left_kg` is the finding.
              * @enum {string}
              */
-            status: "in_transit" | "not_started" | "in_use" | "finished" | "overrun";
+            status: "in_transit" | "not_started" | "in_use" | "finished";
             /** @description What the load is worth in the store, net of consumption already recorded at import. */
             purchased_kg: string;
             consumed_kg: string;
-            /** @description Can be NEGATIVE on an overrun load; never clamped. */
+            /** @description Can be NEGATIVE when the farm fed more than the ledger bought; never clamped. */
             left_kg: string;
             /**
              * Format: int64
@@ -10762,15 +10762,15 @@ export interface components {
             days_consumed: number;
             /**
              * Format: int64
-             * @description kg left over the feed's recent daily rate; 0 once finished, null with no recent rate.
+             * @description Runway to the end of this load: everything in the store up to and including it, over the feed family's recent daily rate. Null with no recent rate.
              */
             days_left: number | null;
             /**
              * Format: int64
-             * @description days_said - days_consumed - days_left; null whenever either side is unknown.
+             * @description days_said - days_consumed - this load's OWN days left; null whenever either side is unknown.
              */
             gap_days: number | null;
-            /** @description The feed's recent daily rate the days-left figure divides by; empty when none. */
+            /** @description The feed FAMILY's recent daily rate the days-left figure divides by; empty when none. */
             avg_daily_kg: string;
         };
         /** @description One farm's requirement for one feed over the next 7 days, at the CURRENT feeding rate. Quantities are kg and money is rupees, both as decimal strings; an empty string means the figure is unavailable for this row rather than zero -- `stock_kg` and the cost fields are empty when the purchase ledger carries no load for this farm and feed, and a never-purchased feed still reports its requirement. */
