@@ -9187,7 +9187,9 @@ func pageOptionGroups(id string) []domain.OptionGroup {
 	case "sales-farm-born":
 		// Sex and species are fixed register vocabularies; the other filters' choices (parks,
 		// pens, breeds, stages) are LIVE herd facts and ride on the data read itself, never
-		// here. There is no origin group: the page is every not-on-a-load animal, full stop.
+		// here. There is no origin group, and since 2026-09-22 there could not be one: origin IS the
+		// page's membership, so every animal on it carries the same value and a filter on it would
+		// offer one choice that changes nothing.
 		return withGenericOptionGroups([]domain.OptionGroup{
 			{
 				ID: "farm_born_sexes",

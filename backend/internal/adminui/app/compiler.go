@@ -2357,7 +2357,7 @@ func permissionsForNav(id string) []string {
 		// capability-gated read control (compileBuyerAnalyticsControls) that follows VendorRead.
 		return []string{permissions.SalesRead}
 	case "sales-farm-born":
-		// The not-on-a-load half of the herd and its sales money, so the sales permission -- the
+		// The farm's own born-here animals and their sales money, so the sales permission -- the
 		// same key its data route (GET /procurement/farm-born-sales) requires.
 		return []string{permissions.SalesRead}
 	case "sales-market-analytics":
