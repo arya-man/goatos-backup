@@ -91,7 +91,7 @@ func (a *Assistant) executePlan(ctx context.Context, q domain.Question, subs []d
 
 // answerFit returns the ways the executed plan does not answer the question
 // as asked, a feedback sentence for a re-plan, and the judge's token usage.
-func (a *Assistant) answerFit(ctx context.Context, q domain.Question, req RequestedShape, subs []domain.SubQuestion, results []domain.ToolResult, catalog []ports.ToolSpec) ([]FitIssue, string, TokenUsage) {
+func (a *Assistant) answerFit(ctx context.Context, q domain.Question, req RequestedShape, subs []domain.SubQuestion, results []domain.ToolResult, catalog []ports.ToolSpec, skipJudge bool) ([]FitIssue, string, TokenUsage) {
 	issues := planFitIssues(req, subs, results)
 	var reasons []string
 	for _, is := range issues {
@@ -120,31 +120,52 @@ func (a *Assistant) answerFit(ctx context.Context, q domain.Question, req Reques
 		reasons = append(reasons, "the previous read did not answer: "+strings.Join(errs, "; "))
 	}
 	var usage TokenUsage
-	if j, ok := a.provider.(RelevanceJudge); ok && a.provider.PlannedByModel() {
-		var facts []domain.Fact
-		for _, r := range results {
-			if r.Err != nil {
-				continue
-			}
-			for _, f := range r.Facts {
-				if len(facts) >= maxJudgedFacts {
-					break
+	// The model judge is a whole extra round trip on the critical path, so it
+	// is asked only when its answer can still change the outcome. It cannot
+	// when the caller opted out (the streaming path), when the deterministic
+	// checks above ALREADY found a misfit -- the one re-plan is triggered
+	// either way and the judge's sentence only lengthens the feedback -- or
+	// when the question asserts no shape to judge the evidence against.
+	if judgeWorthAsking(req, issues, skipJudge) {
+		if j, ok := a.provider.(RelevanceJudge); ok && a.provider.PlannedByModel() {
+			var facts []domain.Fact
+			for _, r := range results {
+				if r.Err != nil {
+					continue
 				}
-				facts = append(facts, f)
+				for _, f := range r.Facts {
+					if len(facts) >= maxJudgedFacts {
+						break
+					}
+					facts = append(facts, f)
+				}
 			}
-		}
-		if len(facts) > 0 {
-			fits, reason, u, err := j.JudgeFit(ctx, q.Text, facts)
-			usage = u
-			if err == nil && !fits {
-				issues = append(issues, FitIssue{Kind: "judge", Detail: "for the exact measure, breakdown or period you asked for"})
-				if strings.TrimSpace(reason) != "" {
-					reasons = append(reasons, strings.TrimSpace(reason))
+			if len(facts) > 0 {
+				fits, reason, u, err := j.JudgeFit(ctx, q.Text, facts)
+				usage = u
+				if err == nil && !fits {
+					issues = append(issues, FitIssue{Kind: "judge", Detail: "for the exact measure, breakdown or period you asked for"})
+					if strings.TrimSpace(reason) != "" {
+						reasons = append(reasons, strings.TrimSpace(reason))
+					}
 				}
 			}
 		}
 	}
 	return dedupeIssues(issues), strings.Join(reasons, "; "), usage
+}
+
+// judgeWorthAsking reports whether the model judge can still change what
+// happens next. A judge call the outcome does not depend on is pure latency on
+// a leader's question.
+func judgeWorthAsking(req RequestedShape, issues []FitIssue, skipJudge bool) bool {
+	if skipJudge || len(issues) > 0 {
+		return false
+	}
+	// A question naming no breakdown, no unit and no period asserts no shape
+	// the evidence could fail to have; there is nothing for the judge to hold
+	// the facts against.
+	return len(req.Dimensions) > 0 || len(req.Units) > 0 || !req.Window.From.IsZero()
 }
 
 // replanForFit asks the model planner ONCE for a different plan, telling it

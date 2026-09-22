@@ -360,7 +360,7 @@ func (a *Assistant) ask(ctx context.Context, q domain.Question, opts askOptions)
 	if planned {
 		var feedback string
 		var judgeUsage TokenUsage
-		fitIssues, feedback, judgeUsage = a.answerFit(ctx, q, requested, plan.SubQuestions, results, catalog)
+		fitIssues, feedback, judgeUsage = a.answerFit(ctx, q, requested, plan.SubQuestions, results, catalog, opts.skipModelCritic)
 		usage = usage.add(judgeUsage)
 		if len(fitIssues) > 0 {
 			fitAudit = append(fitAudit, "answer_fit_first_plan:"+feedback)

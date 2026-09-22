@@ -292,6 +292,10 @@ func sqlFailureKind(err error) string {
 func (a *Assistant) repairSQLResults(ctx context.Context, q domain.Question, subs []domain.SubQuestion, results []domain.ToolResult, traces *[]domain.StepTrace, budget *askBudget) TokenUsage {
 	var usage TokenUsage
 	repairer, canRepair := a.provider.(sqlRepairer)
+	// A model that answered with nothing has nothing to say about the next
+	// failed read either, so the first empty candidate ends repair for this
+	// ask rather than spending a round trip per failed read on it.
+	repairSilent := false
 	for i := range results {
 		if i >= len(subs) || !isModelSQL(subs[i]) {
 			continue
@@ -324,13 +328,16 @@ func (a *Assistant) repairSQLResults(ctx context.Context, q domain.Question, sub
 		// A repair is a model round trip and a re-execution: it is charged to the
 		// ASK's allowance, and an exhausted ask keeps the honest failed read
 		// rather than starting work whose answer arrives after the reply.
-		if !budget.take() {
+		if repairSilent || !budget.take() {
 			continue
 		}
 		repairCtx, cancelRepair := budget.withDeadline(ctx)
 		start := a.now()
 		fixed, u, rerr := repairer.RepairSQL(repairCtx, q, failedSQL, err.Error(), cardText, windowText)
 		cancelRepair()
+		if modelAnsweredNothing(rerr) {
+			repairSilent = true
+		}
 		usage = usage.add(u)
 		if rerr != nil {
 			a.log.WarnContext(ctx, "ceoai sql repair call failed", "error", rerr)
@@ -556,4 +563,11 @@ func (n narrowedCard) AlternateDateColumns() []string {
 // narrowAlternates wraps a card with the per-question allowance.
 func narrowAlternates(card reporting.SchemaCard, allowed []string) sqlguard.SchemaCardLike {
 	return narrowedCard{SchemaCard: card, allowed: allowed}
+}
+
+// modelAnsweredNothing reports the provider returning no candidate at all --
+// not a rejected repair, but the model saying nothing. Asking it again inside
+// the same ask spends a round trip for the same silence.
+func modelAnsweredNothing(err error) bool {
+	return err != nil && strings.Contains(err.Error(), "empty candidate")
 }

@@ -15,8 +15,8 @@ package app
 // this column".
 
 import (
-	"errors"
 	"context"
+	"errors"
 	"fmt"
 	"regexp"
 	"sort"
@@ -94,6 +94,10 @@ func literalMatchesAny(lit string, values []string) bool {
 	return false
 }
 
+// maxProbedColumns bounds how many dimension columns one empty read may cost
+// in probe round trips.
+const maxProbedColumns = 2
+
 // probeFilterValues checks the filter literals of an empty/all-zero model SQL
 // read against the real values of those dimension columns and returns a
 // repair reason naming every literal that is not a value (empty = nothing to
@@ -114,10 +118,18 @@ func (a *Assistant) probeFilterValues(ctx context.Context, actor domain.Actor, s
 		cols = append(cols, c)
 	}
 	sort.Strings(cols)
+	// The probe only EXPLAINS an empty read, so it is bounded: a query
+	// filtering on many columns does not earn a database round trip each,
+	// and the first wrong literal is already enough to ask for a repair.
+	probed := 0
 	for _, col := range cols {
+		if probed >= maxProbedColumns {
+			break
+		}
 		if !dims[col] || col == strings.ToLower(card.DateColumn) || strings.HasSuffix(col, "_id") || col == "tenant_id" {
 			continue
 		}
+		probed++
 		values, err := a.distinctValues(ctx, actor, card.Name, col, budget)
 		if err != nil {
 			// The probe is best-effort — it only explains an empty read — but a
