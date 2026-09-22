@@ -113,10 +113,20 @@ interface ScanCaptureRepository {
     suspend fun clearForTask(taskId: String)
 }
 
+fun interface ProofCaptureFailureReporter {
+    fun recordException(throwable: Throwable, message: String?)
+
+    object Noop : ProofCaptureFailureReporter {
+        override fun recordException(throwable: Throwable, message: String?) {}
+    }
+}
+
 class DefaultScanCaptureRepository(
     private val dao: ScannedGoatDao,
     private val syncRepository: SyncRepository? = null,
     private val dispatchers: DispatcherProvider = DefaultDispatchers,
+    private val failureReporter: ProofCaptureFailureReporter = ProofCaptureFailureReporter.Noop,
+    private val telemetry: ProofCaptureTelemetry = ProofCaptureTelemetry.Noop,
     private val clock: () -> Long = System::currentTimeMillis,
     private val idGenerator: () -> String = { UUID.randomUUID().toString() },
 ) : ScanCaptureRepository {
@@ -277,8 +287,52 @@ class DefaultScanCaptureRepository(
             ),
         )) {
             is AppResult.Ok -> retryFailedScanCaptureIfNeeded(result.value)
-            is AppResult.Err -> Unit
-            null -> Unit
+            is AppResult.Err -> {
+                dao.markFieldTagStatus(
+                    taskId = taskId,
+                    partitionKey = partitionKey,
+                    fieldKey = fieldKey,
+                    tag = tag.filter { it.isLetterOrDigit() }.lowercase(),
+                    obligationId = obligationId?.takeIf { it.isNotBlank() },
+                    status = EntitySyncStatus.FAILED.name,
+                )
+                failureReporter.recordException(
+                    result.cause ?: IllegalStateException(result.message),
+                    "scan capture enqueue failed",
+                )
+                telemetry.track(
+                    scanCaptureEnqueueFailedEvent,
+                    scanCaptureFailureProps(
+                        taskId = taskId,
+                        partitionKey = partitionKey,
+                        fieldKey = fieldKey,
+                        tag = tag,
+                        goatId = goatId,
+                        obligationId = obligationId,
+                        obligationRowVersion = obligationRowVersion,
+                        reason = result.message,
+                    ),
+                )
+            }
+            null -> {
+                failureReporter.recordException(
+                    IllegalStateException("scan capture sync repository missing"),
+                    "scan capture enqueue missing",
+                )
+                telemetry.track(
+                    scanCaptureEnqueueFailedEvent,
+                    scanCaptureFailureProps(
+                        taskId = taskId,
+                        partitionKey = partitionKey,
+                        fieldKey = fieldKey,
+                        tag = tag,
+                        goatId = goatId,
+                        obligationId = obligationId,
+                        obligationRowVersion = obligationRowVersion,
+                        reason = "sync_repository_missing",
+                    ),
+                )
+            }
         }
     }
 
@@ -651,6 +705,7 @@ class DefaultProofCaptureRepository(
     private val idGenerator: () -> String = { UUID.randomUUID().toString() },
     private val locationProvider: ProofLocationProvider = ProofLocationProvider.Unavailable,
     private val proofArtifactValidator: ProofArtifactValidator = NoopProofArtifactValidator,
+    private val failureReporter: ProofCaptureFailureReporter = ProofCaptureFailureReporter.Noop,
     // Production always reconciles orphan uploads on construction. Tests set this false to drive
     // reconcileRecoverableUploadsNow() explicitly (awaited) instead of racing the fire-and-forget
     // init launch — Room's suspend @Query runs on Room's own executor, so a virtual-clock
@@ -1507,6 +1562,10 @@ class DefaultProofCaptureRepository(
                     proofAnalyticsProps(uploadEntity, proofUploadStatus = "failed") +
                         mapOf("reason" to result.message),
                 )
+                failureReporter.recordException(
+                    result.cause ?: IllegalStateException(result.message),
+                    "proof upload enqueue failed",
+                )
             }
         }
     }
@@ -1627,6 +1686,7 @@ class DefaultProofCaptureRepository(
                                 "retryable" to (!uploadOriginalAfterRetryFailure).toString(),
                             ),
                     )
+                    failureReporter.recordException(error, "proof processing failed")
                     dao.findById(entity.id) ?: entity.copy(
                         localUri = entity.originalUri ?: entity.localUri,
                         processingState = fallbackState.name,
@@ -1777,6 +1837,7 @@ class DefaultProofCaptureRepository(
                         "retryable" to (!uploadOriginalAfterRetryFailure).toString(),
                     ),
             )
+            failureReporter.recordException(error, "proof processing failed")
             dao.findById(entity.id) ?: entity.copy(
                 localUri = entity.originalUri ?: entity.localUri,
                 processingState = fallbackState.name,
@@ -2201,6 +2262,27 @@ private const val proofUploadCompletedEvent = "proof_upload_completed"
 private const val proofUploadFailedEvent = "proof_upload_failed"
 private const val proofUploadEnqueueFailedEvent = "proof_upload_enqueue_failed"
 private const val proofUploadDriverMissingEvent = "proof_upload_driver_missing"
+private const val scanCaptureEnqueueFailedEvent = "scan_capture_enqueue_failed"
+
+private fun scanCaptureFailureProps(
+    taskId: String,
+    partitionKey: String,
+    fieldKey: String,
+    tag: String,
+    goatId: String?,
+    obligationId: String?,
+    obligationRowVersion: Int,
+    reason: String,
+): Map<String, String> = buildMap {
+    put("task_id", taskId)
+    put("partition_key", partitionKey)
+    put("field_key", fieldKey)
+    put("rfid_tag", tag)
+    goatId?.takeIf { it.isNotBlank() }?.let { put("goat_id", it) }
+    obligationId?.takeIf { it.isNotBlank() }?.let { put("obligation_id", it) }
+    put("obligation_row_version", obligationRowVersion.toString())
+    put("reason", reason.take(96))
+}
 
 private fun proofAnalyticsProps(
     entity: ProofCaptureEntity,

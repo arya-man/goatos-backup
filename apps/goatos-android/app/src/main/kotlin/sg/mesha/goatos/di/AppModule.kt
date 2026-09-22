@@ -858,7 +858,14 @@ object AppModule {
     fun provideScanCaptureRepository(
         dao: ScannedGoatDao,
         syncRepository: SyncRepository,
-    ): ScanCaptureRepository = DefaultScanCaptureRepository(dao, syncRepository)
+        analytics: AnalyticsPort,
+        crashReporter: CrashReporter,
+    ): ScanCaptureRepository = DefaultScanCaptureRepository(
+        dao = dao,
+        syncRepository = syncRepository,
+        failureReporter = { throwable, message -> crashReporter.recordException(throwable, message) },
+        telemetry = ProofCaptureTelemetry { event, props -> analytics.track(event, props) },
+    )
 
     @Provides
     @Singleton
@@ -876,6 +883,7 @@ object AppModule {
         syncRepository: SyncRepository,
         appScope: CoroutineScope,
         analytics: AnalyticsPort,
+        crashReporter: CrashReporter,
         mediaProcessor: AppProofMediaProcessor,
         locationProvider: AppProofLocationProvider,
     ): ProofCaptureRepository = DefaultProofCaptureRepository(
@@ -887,6 +895,7 @@ object AppModule {
         proofArtifactValidator = FileSystemProofArtifactValidator(),
         galleryProofSaver = MediaStoreGalleryProofSaver(context),
         telemetry = ProofCaptureTelemetry { event, props -> analytics.track(event, props) },
+        failureReporter = { throwable, message -> crashReporter.recordException(throwable, message) },
     )
 
     // --- Offline sync engine (outbox) --------------------------------------------------
