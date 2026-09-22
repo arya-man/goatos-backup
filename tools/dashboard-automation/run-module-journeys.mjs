@@ -27,6 +27,7 @@ const receipt = {
   modules: []
 };
 
+const failedModules = [];
 for (const mod of modules) {
   const routeList = [...new Set(mod.routes)].join(",");
   const startedAt = new Date().toISOString();
@@ -57,9 +58,20 @@ for (const mod of modules) {
   });
   writeFileSync(path.join(outDir, "module-journeys-receipt.json"), `${JSON.stringify(receipt, null, 2)}\n`);
   if (result.status !== 0) {
-    console.error(redactText(result.stderr || result.stdout));
-    throw new Error(`module journey ${mod.id} failed`);
+    // Keep going so one broken module never hides failures in the others.
+    const stdoutLines = redactText(result.stdout ?? "").split("\n");
+    const lastRoute = stdoutLines.filter((line) => line.startsWith("visual_route_start=")).pop();
+    const shots = stdoutLines.filter((line) => line.startsWith("screenshot_path=")).slice(-2);
+    const error = redactText(result.stderr ?? "").split("\n").filter((line) => /Error:/.test(line)).pop() ?? `Error: module ${mod.id} exited ${result.status}`;
+    console.error([lastRoute, ...shots, error].filter(Boolean).join("\n"));
+    failedModules.push(mod.id);
   }
+}
+if (failedModules.length) {
+  receipt.finishedAt = new Date().toISOString();
+  receipt.status = "fail";
+  writeFileSync(path.join(outDir, "module-journeys-receipt.json"), `${JSON.stringify(receipt, null, 2)}\n`);
+  throw new Error(`module journeys failed: ${failedModules.join(", ")}`);
 }
 
 receipt.finishedAt = new Date().toISOString();
