@@ -37,10 +37,16 @@ if (state.lastSignature === signature && now - Number(state.lastPostedAtMs ?? 0)
 // Same problem on laptop + phone, or on sibling tab routes, is one issue with one screenshot.
 const visualIssues = [];
 for (const issue of moduleFailures(receiptPath).map(humanIssue).filter(Boolean)) {
-  const key = `${issue.what}|${issue.example}|${issue.page.replace(/ (Month|Metric Weight|Overview|Problems)$/, "")}`;
+  // Group by page family (first two words: "Feed Analytics", "Weighing Weights") + problem.
+  const family = issue.page.split(" ").slice(0, 2).join(" ");
+  const key = `${issue.what}|${family}`;
   const seen = visualIssues.find((existing) => existing.key === key);
-  if (seen) { if (!seen.deviceLabel.includes(issue.deviceLabel)) seen.deviceLabel += ` ${issue.deviceLabel}`; continue; }
-  visualIssues.push({ ...issue, key });
+  if (seen) {
+    if (!seen.deviceLabel.includes(issue.deviceLabel)) seen.deviceLabel += ` ${issue.deviceLabel}`;
+    seen.views += 1;
+    continue;
+  }
+  visualIssues.push({ ...issue, page: family, key, views: 1 });
 }
 const message = visualIssues.length && decision.kind === "failure"
   ? formatVisualIssuesMessage(receipt, visualIssues)
@@ -100,6 +106,9 @@ function issueRules() {
   [/clipped button\/link text/, "Button text cut off"],
   [/text-cut-off|text hidden/, "Text cut off"],
   [/overlay .*did not open|never mounted/, "Clicking it did not open"],
+  [/anchored to ancestor|backdrop-f/, "Popup opens in the wrong place (pinned to the header, not the screen)"],
+  [/locator\.click: Timeout/, "A button on the page could not be clicked"],
+  [/Smoke route redirected/, null],
   [/overlay .*off-screen|outside the viewport|translate/, "Drawer/popup opens off-screen"],
   [/page load \d+ms exceeded/, "Page slow to load"],
   [/accessibility violations/, null],
@@ -112,7 +121,7 @@ function humanIssue(failure) {
   if (rule && rule[1] === null) return null;
   const what = rule ? rule[1] : raw.replace(/\[[A-Za-z-]+\]\s*/g, "").slice(0, 120);
   const [device, routeName] = String(failure.route ?? "").includes(":") ? failure.route.split(":") : ["", failure.route ?? failure.module];
-  const quoted = [...raw.matchAll(/"([^"]{1,60})"(?!\s*:)/g)].map((m) => m[1]).filter((t) => !/^\w+-\w+-/.test(t) && !/^(tag|kind|className|ariaLabel|text|table|missing-scroll-owner|button|input|a|span|div|td)$/.test(t));
+  const quoted = [...raw.matchAll(/"([^"]{1,60})"(?!\s*:)/g)].map((m) => m[1]).filter((t) => t.trim().length > 1 && !/^[:;,.\s]+$/.test(t) && !/^\w+-\w+-/.test(t) && !/^(tag|kind|className|ariaLabel|text|table|missing-scroll-owner|button|input|a|span|div|td)$/.test(t));
   const example = quoted[0] ? ` — "${quoted[0]}"` : (raw.match(/(\d+px[^;|]*)/)?.[1] ? ` — ${raw.match(/(\d+px[^;|]*)/)[1].slice(0, 60)}` : "");
   const page = String(routeName ?? "").replace(/-/g, " ").replace(/\b\w/g, (c) => c.toUpperCase());
   const deviceLabel = device === "mobile" ? "📱 Phone" : device === "laptop" ? "💻 Laptop" : "";
@@ -122,7 +131,7 @@ function humanIssue(failure) {
 
 function formatVisualIssuesMessage(value, issues) {
   const shown = issues.slice(0, 20);
-  const lines = shown.map((issue, i) => `*${i + 1}. ${issue.page}* ${issue.deviceLabel}\n      ${issue.what}${issue.example}`);
+  const lines = shown.map((issue, i) => `*${i + 1}. ${issue.page}*${issue.views > 1 ? ` (${issue.views} views)` : ""}  ${issue.deviceLabel}\n      ${issue.what}${issue.example}`);
   const title = `:rotating_light: ${issues.length} visible issue${issues.length === 1 ? "" : "s"} on production`;
   const blocks = [
     { type: "header", text: { type: "plain_text", text: title.replace(":rotating_light: ", "🚨 "), emoji: true } },
