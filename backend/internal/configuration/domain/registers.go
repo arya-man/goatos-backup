@@ -50,6 +50,13 @@ type Column struct {
 	Options []Option `json:"options,omitempty"`
 	// Kinds restricts the column to items whose category kind is one of these; empty = every row.
 	Kinds []string `json:"kinds,omitempty"`
+	// ImpliedOutOfKind drops a value this column's kinds do not cover instead of refusing it,
+	// because the register already knows the answer and the sheet merely repeated it. A feed
+	// item's unit is always kg, so a filled-in template saying "kg" is agreeing, not asserting --
+	// refusing it broke the onboarding import for every feed row. A column carrying a fact the
+	// register would LOSE, such as a route on a vaccine, must NOT set this: there the refusal is
+	// the point.
+	ImpliedOutOfKind bool `json:"implied_out_of_kind,omitempty"`
 	// Immutable columns are written once (a code) and refused on update.
 	Immutable bool `json:"immutable,omitempty"`
 	// Hint is a one-line help sentence under the input.
@@ -255,34 +262,39 @@ var Registers = []Register{
 		},
 	},
 	{
+		// A PEN IS A BUILDING IN A PARK, AND NOTHING ELSE (maintainer instruction 2026-09-22: "no
+		// need stage and gender, ICU, all that -- what I keep is my wish; just pens and mapping to
+		// park"). Stage, Gender and ICU described what is KEPT in a pen, which is a daily herd
+		// decision rather than a setting: the pen's stage is written by the shifting/tag rules and
+		// newborn placement, and shed_profiles.sex / has_icu were read by NOTHING outside this
+		// screen. They are off the register; the columns stay in the table, so no stored value was
+		// lost. PEN TYPE moved DOWN to the partition -- see the Partitions register below.
 		Key: RegPens, Label: "Pens", One: "Pen", Group: GroupFarmPlaces,
 		Hint:    "A pen is a building in a park. Split it into partitions below when animals are kept apart inside it.",
-		Filters: []string{"park_id", "shed_type"},
+		Filters: []string{"park_id"},
 		Columns: []Column{
 			{Key: "park_id", Label: "Park", Type: TypeRef, Ref: RegParks, Required: true},
 			{Key: "name", Label: "Name", Type: TypeText, Required: true},
-			{Key: "capacity", Label: "Capacity", Type: TypeNumber, Min: zero(), Integer: true},
-			{Key: "stage_id", Label: "Stage", Type: TypeRef, Ref: RegStages, Hint: "The lifecycle stage the pen is kept for, when it has one."},
-			{Key: "sex", Label: "Gender", Type: TypeEnum, Options: []Option{{Value: "mixed", Label: "Mixed"}, {Value: "female", Label: "Female"}, {Value: "male", Label: "Male"}}},
-			// Pen type is set ONE PEN AT A TIME and nowhere else (maintainer instruction
-			// 2026-09-22): the farm mixes both kinds inside one park, so there is no park-wide
-			// or farm-wide switch. Leaving it unset is a real answer -- the pen is reported as
-			// unclassified rather than counted into either half of a comparison.
-			{Key: "shed_type", Label: "Pen type", Type: TypeEnum,
-				Options: []Option{{Value: "elevated", Label: "Elevated"}, {Value: "non_elevated", Label: "Non-elevated"}},
-				Hint:    "Elevated pens keep the animals off the ground. Weighing and Health Analytics compare the two kinds."},
-			{Key: "has_icu", Label: "ICU", Type: TypeBool},
+			{Key: "capacity", Label: "Capacity", Type: TypeNumber, Min: zero(), Integer: true, Hint: "How many animals the building holds, when it is worth recording."},
 			{Key: "notes", Label: "Notes", Type: TypeNotes, ListHidden: true},
 		},
 	},
 	{
+		// PEN TYPE IS SET PER PARTITION (maintainer instruction 2026-09-22: "assignment will be per
+		// partition only not pen"). A partition IS the pen the farm works -- Castro 1, Mandela 1 -
+		// Part 3 -- and one building can hold pens that were built differently, which a single
+		// value on the building cannot say. Migration 000389 moved the column down from
+		// shed_profiles and carried every already-classified pen with it.
 		Key: RegPartitions, Label: "Partitions", One: "Partition", Group: GroupFarmPlaces,
 		Hint:    "A partition is one section of a pen, such as Part 3 or 2. Its label is what is painted on the pen.",
-		Filters: []string{"park_id", "pen_id"},
+		Filters: []string{"park_id", "pen_id", "shed_type"},
 		Columns: []Column{
 			{Key: "park_id", Label: "Park", Type: TypeRef, Ref: RegParks, Required: true},
 			{Key: "pen_id", Label: "Pen", Type: TypeRef, Ref: RegPens, Required: true},
 			{Key: "label", Label: "Label", Type: TypeText, Required: true, Hint: "Part 3 and 3 are the same partition."},
+			{Key: "shed_type", Label: "Pen type", Type: TypeEnum,
+				Options: []Option{{Value: "elevated", Label: "Elevated"}, {Value: "non_elevated", Label: "Non-elevated"}},
+				Hint:    "Elevated pens keep the animals off the ground. Weighing and Health Analytics compare the two kinds. Left blank, this pen is reported as unclassified rather than counted into either side."},
 			{Key: "sort_order", Label: "Order", Type: TypeNumber, Min: zero(), Integer: true},
 		},
 	},

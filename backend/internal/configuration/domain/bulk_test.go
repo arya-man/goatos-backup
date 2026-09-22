@@ -33,8 +33,8 @@ func TestProductWideRegistersStayReadOnly(t *testing.T) {
 
 func TestMatchHeaderAcceptsKeysAndLabelsAndReportsGaps(t *testing.T) {
 	reg := mustRegister(t, RegPens)
-	keys, unknown, missing := MatchHeader(reg, []string{"Park", "name", " Capacity ", "Gender", "colour", ""})
-	if strings.Join(keys, ",") != "park_id,name,capacity,sex,," {
+	keys, unknown, missing := MatchHeader(reg, []string{"Park", "name", " Capacity ", "Notes", "colour", ""})
+	if strings.Join(keys, ",") != "park_id,name,capacity,notes,," {
 		t.Fatalf("keys = %v", keys)
 	}
 	if len(unknown) != 1 || unknown[0] != "colour" || len(missing) != 0 {
@@ -69,7 +69,7 @@ func TestSheetRowDropsBlankCells(t *testing.T) {
 }
 
 func TestSheetCellRendersLabelsBoolsAndNumbers(t *testing.T) {
-	row := Row{ID: "r1", Status: "active", Fields: map[string]any{"park_id": "p1", "has_icu": true, "capacity": float64(40), "name": "Castro"}, Labels: map[string]string{"park_id": "Coimbatore"}}
+	row := Row{ID: "r1", Status: "active", Fields: map[string]any{"park_id": "p1", "capacity": float64(40), "name": "Castro"}, Labels: map[string]string{"park_id": "Coimbatore"}}
 	reg := mustRegister(t, RegPens)
 	get := func(key string) string {
 		for _, c := range SheetColumns(reg) {
@@ -81,8 +81,17 @@ func TestSheetCellRendersLabelsBoolsAndNumbers(t *testing.T) {
 		return ""
 	}
 	row.RowVersion = 7
-	if get("id") != "r1" || get("row_version") != "7" || get("status") != "active" || get("park_id") != "Coimbatore" || get("has_icu") != "yes" || get("capacity") != "40" || get("name") != "Castro" || get("notes") != "" {
-		t.Fatalf("cells: %s %s %s %s %s", get("park_id"), get("has_icu"), get("capacity"), get("name"), get("notes"))
+	if get("id") != "r1" || get("row_version") != "7" || get("status") != "active" || get("park_id") != "Coimbatore" || get("capacity") != "40" || get("name") != "Castro" || get("notes") != "" {
+		t.Fatalf("cells: %s %s %s %s", get("park_id"), get("capacity"), get("name"), get("notes"))
+	}
+	// No register carries a bool column today (Pens lost ICU on 2026-09-22), so the bool rendering
+	// is proved against the column type directly rather than dropped: the sheet writer still has to
+	// answer for one the day a register declares it.
+	yes := Row{Fields: map[string]any{"flag": true}}
+	no := Row{Fields: map[string]any{"flag": false}}
+	boolColumn := Column{Key: "flag", Label: "Flag", Type: TypeBool}
+	if SheetCell(boolColumn, yes) != "yes" || SheetCell(boolColumn, no) != "no" {
+		t.Fatalf("bool cells: %q / %q", SheetCell(boolColumn, yes), SheetCell(boolColumn, no))
 	}
 }
 

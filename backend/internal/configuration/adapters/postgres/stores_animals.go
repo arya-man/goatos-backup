@@ -11,6 +11,7 @@ import (
 	"github.com/vgoats/goatos/backend/internal/configuration/domain"
 	"github.com/vgoats/goatos/backend/internal/configuration/ports"
 	"github.com/vgoats/goatos/backend/internal/permissions"
+	"github.com/vgoats/goatos/backend/internal/platform/sqlbind"
 )
 
 // ---------------------------------------------------------------------------------------------
@@ -70,7 +71,11 @@ func (s codeLookupStore) insert(ctx context.Context, tx pgx.Tx, t string, f map[
 	if !ok {
 		sort = 100
 	}
-	if _, err := tx.Exec(ctx, fmt.Sprintf(`INSERT INTO %s (tenant_id, %s, name, sort_order) VALUES ($1, $2, $3, $4)`, s.table, s.codeCol), t, code, domain.FieldString(f, "name"), sort); err != nil {
+	q, err := sqlbind.Bind(fmt.Sprintf(`INSERT INTO %s (tenant_id, %s, name, sort_order) VALUES ($1, $2, $3, $4)`, s.table, s.codeCol), t, code, domain.FieldString(f, "name"), sort)
+	if err != nil {
+		return "", err
+	}
+	if _, err := tx.Exec(ctx, q.SQL(), q.Args()...); err != nil {
 		return "", err
 	}
 	return code, nil
@@ -86,7 +91,11 @@ func (s codeLookupStore) update(ctx context.Context, tx pgx.Tx, t, id string, f 
 	if set == "" {
 		return "", nil
 	}
-	tag, err := tx.Exec(ctx, fmt.Sprintf(`UPDATE %s SET %s, updated_at = now(), row_version = row_version + 1 WHERE tenant_id = $1 AND %s = $2 AND ($3 = 0 OR row_version = $3)`, s.table, set, s.codeCol), append([]any{t, id, rv}, args...)...)
+	q, err := sqlbind.Bind(fmt.Sprintf(`UPDATE %s SET %s, updated_at = now(), row_version = row_version + 1 WHERE tenant_id = $1 AND %s = $2 AND ($3 = 0 OR row_version = $3)`, s.table, set, s.codeCol), append([]any{t, id, rv}, args...)...)
+	if err != nil {
+		return "", err
+	}
+	tag, err := tx.Exec(ctx, q.SQL(), q.Args()...)
 	if err != nil {
 		return "", err
 	}
@@ -94,7 +103,11 @@ func (s codeLookupStore) update(ctx context.Context, tx pgx.Tx, t, id string, f 
 }
 
 func (s codeLookupStore) setStatus(ctx context.Context, tx pgx.Tx, t, id, status string, rv int) error {
-	tag, err := tx.Exec(ctx, fmt.Sprintf(`UPDATE %s SET status = $4, updated_at = now(), row_version = row_version + 1 WHERE tenant_id = $1 AND %s = $2 AND ($3 = 0 OR row_version = $3)`, s.table, s.codeCol), t, id, rv, status)
+	q, err := sqlbind.Bind(fmt.Sprintf(`UPDATE %s SET status = $4, updated_at = now(), row_version = row_version + 1 WHERE tenant_id = $1 AND %s = $2 AND ($3 = 0 OR row_version = $3)`, s.table, s.codeCol), t, id, rv, status)
+	if err != nil {
+		return err
+	}
+	tag, err := tx.Exec(ctx, q.SQL(), q.Args()...)
 	if err != nil {
 		return err
 	}
@@ -102,7 +115,11 @@ func (s codeLookupStore) setStatus(ctx context.Context, tx pgx.Tx, t, id, status
 }
 
 func (s codeLookupStore) del(ctx context.Context, tx pgx.Tx, t, id string, rv int) error {
-	tag, err := tx.Exec(ctx, fmt.Sprintf(`DELETE FROM %s WHERE tenant_id = $1 AND %s = $2 AND ($3 = 0 OR row_version = $3) AND NOT is_builtin`, s.table, s.codeCol), t, id, rv)
+	q, err := sqlbind.Bind(fmt.Sprintf(`DELETE FROM %s WHERE tenant_id = $1 AND %s = $2 AND ($3 = 0 OR row_version = $3) AND NOT is_builtin`, s.table, s.codeCol), t, id, rv)
+	if err != nil {
+		return err
+	}
+	tag, err := tx.Exec(ctx, q.SQL(), q.Args()...)
 	if err != nil {
 		return err
 	}
@@ -170,11 +187,23 @@ func (stageStore) update(ctx context.Context, tx pgx.Tx, t, id string, f map[str
 			}
 			return int64(100)
 		}},
-	}, 3)
+		// The SET list starts at $4, NOT $3. The WHERE already spends $1 tenant, $2 id and $3 the
+		// row-version fence, so numbering the first assignment $3 made it collide with the fence and
+		// left the statement one argument short of its placeholders: EVERY stage rename failed with
+		// pgx "mismatched param and argument count", surfacing as a 500 and a "that could not be
+		// saved" on screen. Found 2026-09-22 by sweeping every register's edit path.
+	}, 4)
 	if set == "" {
 		return "", nil
 	}
-	tag, err := tx.Exec(ctx, fmt.Sprintf(`UPDATE animal_stage_lookup SET %s, updated_at = now(), row_version = row_version + 1 WHERE tenant_id = $1 AND animal_stage_id = $2::uuid AND ($3 = 0 OR row_version = $3)`, set), append([]any{t, id, rv}, args...)...)
+	// Bound rather than exec'd raw: sqlbind checks that the placeholders a composed statement
+	// carries are exactly $1..$N and that N matches the arguments, so the same off-by-one comes
+	// back as a named error at the seam instead of a 500 from the driver.
+	q, err := sqlbind.Bind(fmt.Sprintf(`UPDATE animal_stage_lookup SET %s, updated_at = now(), row_version = row_version + 1 WHERE tenant_id = $1 AND animal_stage_id = $2::uuid AND ($3 = 0 OR row_version = $3)`, set), append([]any{t, id, rv}, args...)...)
+	if err != nil {
+		return "", err
+	}
+	tag, err := tx.Exec(ctx, q.SQL(), q.Args()...)
 	if err != nil {
 		return "", err
 	}
@@ -282,7 +311,11 @@ func (roleStore) update(ctx context.Context, tx pgx.Tx, t, id string, f map[stri
 	if set == "" {
 		return "", nil
 	}
-	tag, err := tx.Exec(ctx, fmt.Sprintf(`UPDATE designation_catalog SET %s WHERE designation_code = $1`, set), append([]any{id}, args...)...)
+	q, err := sqlbind.Bind(fmt.Sprintf(`UPDATE designation_catalog SET %s WHERE designation_code = $1`, set), append([]any{id}, args...)...)
+	if err != nil {
+		return "", err
+	}
+	tag, err := tx.Exec(ctx, q.SQL(), q.Args()...)
 	if err != nil {
 		return "", err
 	}
@@ -408,7 +441,11 @@ func (breedStore) update(ctx context.Context, tx pgx.Tx, t, id string, f map[str
 	if set == "" {
 		return "", nil
 	}
-	tag, err := tx.Exec(ctx, fmt.Sprintf(`UPDATE breeds SET %s, updated_at = now() WHERE breed_id = $1::uuid`, set), append([]any{id}, args...)...)
+	q, err := sqlbind.Bind(fmt.Sprintf(`UPDATE breeds SET %s, updated_at = now() WHERE breed_id = $1::uuid`, set), append([]any{id}, args...)...)
+	if err != nil {
+		return "", err
+	}
+	tag, err := tx.Exec(ctx, q.SQL(), q.Args()...)
 	if err != nil {
 		var pgErr *pgconn.PgError
 		if errors.As(err, &pgErr) && pgErr.Code == "23505" {

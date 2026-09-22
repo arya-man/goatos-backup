@@ -23,25 +23,21 @@ import { FeedFilters, type FeedFilterField } from "./feed-filters";
 import { FeedPager } from "./feed-pager";
 import { FeedFaroView } from "./feed-faro-view";
 import { isConfiguredZero } from "./feed-quantity";
-import { FeedItemsTable } from "./feed-items-table";
 import { RationGridTable } from "./ration-grid-table";
 import { feedHref, feedLimit, feedOffset, resolveFeedScope } from "./feed-scope";
 import {
   enrolExperimentPen,
   saveExperimentCell,
-  saveFeedItem,
   saveRationRate,
   saveSchedule,
   saveSessionFeed,
   setExperimentShedStatus,
-  setFeedItemStatus,
 } from "./feed-config-actions";
 import {
   ExperimentCellEditor,
   ExperimentCellAdder,
   ExperimentPenEnroller,
   ExperimentShedSwitch,
-  FeedItemCreator,
   ScheduleEditor,
   SessionFeedsCell,
 } from "./feed-config-editor";
@@ -468,7 +464,6 @@ export async function FeedConfigPage({
   const sessionCols = tableLabels(pageContract, "session-template");
   const scheduleCols = tableLabels(pageContract, "schedule-config");
   const experimentCols = tableLabels(pageContract, "experiment-config");
-  const feedItemsTable = table(pageContract, "feed-items");
 
   const shedNameById = new Map(locations.sheds.map((shed) => [shed.id, shed.name]));
   // The park being read, by name. Live data from the locations master — never composed from a code
@@ -807,55 +802,15 @@ export async function FeedConfigPage({
       </section>
 
 
-      {/* ------------------------------------------------------------------- feed items (catalog) */}
-      {/* The vocabulary the grid above is indexed by, directly under it. Two things separate this
-          section from every other one on the page, and both are stated in its copy rather than left
-          to be inferred:
+      {/* Feed items are NOT on this page (maintainer instruction 2026-09-22: "I should not see feed
+          items, everything in feed config; feed items addition, removal should be happening in
+          Items and categories, Feed section"). The vocabulary is authored there, beside the
+          medicines and vaccines, and this page keeps the RULES written in it: the ration grid, the
+          shed factors, the session template and the experiment pens.
 
-          It is TENANT-wide, not park-scoped — the Park filter does not narrow it, because
-          feed_item_catalog is keyed on (tenant, item) and both parks author against one list.
-
-          And adding an item authors NO quantity. The new name becomes selectable on the grid above,
-          the shed factors and the experiment sheds; every combination using it stays unconfigured —
-          and therefore blocked — until a rate is authored. That is why this section sits next to
-          the ration grid rather than replacing any part of it. */}
-      <SectionError result={feedItemsResult} titleKey="state.feed_items_unavailable" pageContract={pageContract} />
-      <section className="card" style={{ marginBottom: 16 }}>
-        <div className="hd">
-          <h3>{copy(pageContract, "section.feed_items.title")}</h3>
-          <span className="small muted">{copy(pageContract, "section.feed_items.caption")}</span>
-          <div className="sp" style={{ flex: 1 }} />
-          {/* In the section header, next to the list it changes — the same placement as the
-              experiment enroller, for the same reason. */}
-          <FeedItemCreator pageContract={pageContract} action={saveFeedItem} />
-        </div>
-        <div
-          className="bd feed-scroll"
-          style={{ padding: 0, overflowX: "auto" }}
-          tabIndex={0}
-          role="group"
-          aria-label={copy(pageContract, "section.feed_items.aria")}
-        >
-          {/* Headless table, same contract-driven column model as the ration grid above. The status
-              cell is edited IN PLACE — double-click swaps the chip for a picker of the backend's
-              `feed_item_status` vocabulary and the choice applies at once — which replaced the old
-              confirm-then-apply retire/restore button. */}
-          <FeedItemsTable
-            contract={feedItemsTable}
-            pageContract={pageContract}
-            rows={feedItems?.items ?? []}
-            ariaLabel={copy(pageContract, "table.feed_items.aria")}
-            statusAction={setFeedItemStatus}
-            empty={
-              <div className="muted small" style={{ padding: "18px 4px", textAlign: "center", lineHeight: 1.6 }}>
-                {!feedItemsResult || feedItemsResult.ok
-                  ? copy(pageContract, "empty.feed_items")
-                  : copy(pageContract, "state.feed_items_unavailable")}
-              </div>
-            }
-          />
-        </div>
-      </section>
+          Removing a feed item is refused there while any ration row, session-template row, purchase
+          or issued-feed row still names it -- the check the schema never had, since every feed table
+          carries feed_item_key as plain text with no foreign key. */}
 
       {/* ------------------------------------------------------------ experiment sheds (editable) */}
       {/* Its OWN section, deliberately separated from the ration grid above rather than mixed into

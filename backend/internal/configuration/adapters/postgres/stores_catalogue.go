@@ -324,7 +324,7 @@ SELECT 'feed:' || f.feed_item_id::text AS id,
        false AS is_builtin,
        jsonb_build_object('name', f.feed_item_label, 'category_id', fc.category_id::text, 'code', NULL, 'unit', 'kg', 'kind', 'feed',
                           'category_ids', COALESCE(jsonb_build_array(fc.category_id::text), '[]'::jsonb),
-                          'department', 'feed', 'tracking', 'Feed Config', 'read_only', true,
+                          'department', 'feed', 'tracking', 'Feed',
                           'energy_kcal_per_kg', f.energy_kcal_per_kg, 'dry_matter_factor', f.dry_matter_factor, 'wastage_factor', f.wastage_factor) AS fields,
        jsonb_strip_nulls(jsonb_build_object('category_id', fc.name)) AS labels,
        NULL::jsonb AS counts,
@@ -362,7 +362,7 @@ func (itemStore) options(ctx context.Context, q querier, t string) ([]ports.RefO
 }
 func (itemStore) usage(ctx context.Context, q querier, t, id string) (domain.Usage, error) {
 	if isFeedRow(id) {
-		return domain.Usage{Blocked: true, Uses: []domain.UsageCount{{Noun: "Feed Config", Count: 1}}}, nil
+		return feedItemUsage(ctx, q, t, feedRowID(id))
 	}
 	if !isUUID(id) {
 		return domain.Usage{}, ports.ErrNotFound
@@ -371,6 +371,142 @@ func (itemStore) usage(ctx context.Context, q querier, t, id string) (domain.Usa
 		usageCheck{"stock lots", `SELECT count(*) FROM inventory_stock WHERE tenant_id = $1 AND item_id = $2::uuid`},
 	)
 }
+
+// ---------------------------------------------------------------------------------------------
+// Feed items. A feed item is ADDED, EDITED and REMOVED here, under Items & categories -> Feed
+// (maintainer instruction 2026-09-22: "feed items addition removal should be happening in items
+// and categories feed section"), and no longer on Feed Config. Feed Config keeps the ration grid,
+// which is the rules; this is the vocabulary those rules are written in.
+//
+// The row lives in feed_item_catalog, whose key every other feed table names as TEXT with NO
+// foreign key: ration rates, purchases, experiment config, issue rows and the session template all
+// carry feed_item_key and nothing in the database stops a delete from orphaning them. That is why
+// removal is checked HERE, in the same transaction, and refused with the count -- the protection
+// a foreign key would have given, written out.
+
+func feedRowID(id string) string { return strings.TrimPrefix(id, "feed:") }
+
+// feedItemUsage counts every row that names this feed, so Remove can refuse with a real sentence.
+func feedItemUsage(ctx context.Context, q querier, t, feedItemID string) (domain.Usage, error) {
+	if !isUUID(feedItemID) {
+		return domain.Usage{}, ports.ErrNotFound
+	}
+	var key string
+	err := q.QueryRow(ctx, sqlFeed1, t, feedItemID).Scan(&key)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return domain.Usage{}, ports.ErrNotFound
+	}
+	if err != nil {
+		return domain.Usage{}, err
+	}
+	out := domain.Usage{Uses: make([]domain.UsageCount, 0, 5)}
+	for _, check := range feedItemUsageChecks {
+		var n int
+		// scale-guard:ignore: a fixed five-check list over feed tables indexed on the key, one row each
+		if err := q.QueryRow(ctx, check.sql, t, key).Scan(&n); err != nil {
+			return domain.Usage{}, fmt.Errorf("feed usage %s: %w", check.noun, err)
+		}
+		out.Uses = append(out.Uses, domain.UsageCount{Noun: check.noun, Count: n})
+		if n > 0 {
+			out.Blocked = true
+		}
+	}
+	return out, nil
+}
+
+var feedItemUsageChecks = []usageCheck{
+	{"ration rows", `SELECT count(*) FROM feed_ration_rates WHERE tenant_id = $1 AND feed_item_key = $2`},
+	{"experiment rows", `SELECT count(*) FROM feed_experiment_config WHERE tenant_id = $1 AND feed_item_key = $2`},
+	{"session template rows", `SELECT count(*) FROM feed_session_template_items WHERE tenant_id = $1 AND feed_item_key = $2`},
+	{"purchases", `SELECT count(*) FROM feed_purchases WHERE tenant_id = $1 AND feed_item_key = $2`},
+	{"issued feed rows", `SELECT count(*) FROM feed_direction_issue_rows WHERE tenant_id = $1 AND feed_item_key = $2`},
+}
+
+func insertFeedItem(ctx context.Context, tx pgx.Tx, t string, f map[string]any) (string, error) {
+	var id string
+	err := tx.QueryRow(ctx, sqlFeed2, t, domain.FieldString(f, "name"),
+		nullNumber(f, "energy_kcal_per_kg"), nullNumber(f, "dry_matter_factor"), nullNumber(f, "wastage_factor")).Scan(&id)
+	if err != nil {
+		var pgErr *pgconn.PgError
+		if errors.As(err, &pgErr) && pgErr.Code == "23505" {
+			return "", &ports.DuplicateError{Field: "name", Message: "The farm already feeds something by that name."}
+		}
+		return "", err
+	}
+	return "feed:" + id, nil
+}
+
+func updateFeedItem(ctx context.Context, tx pgx.Tx, t, id string, f map[string]any) error {
+	if !isUUID(id) {
+		return ports.ErrNotFound
+	}
+	tag, err := tx.Exec(ctx, sqlFeed3, t, id,
+		nullText(f, "name"), nullNumber(f, "energy_kcal_per_kg"), nullNumber(f, "dry_matter_factor"), nullNumber(f, "wastage_factor"))
+	if err != nil {
+		var pgErr *pgconn.PgError
+		if errors.As(err, &pgErr) && pgErr.Code == "23505" {
+			return &ports.DuplicateError{Field: "name", Message: "The farm already feeds something by that name."}
+		}
+		return err
+	}
+	if tag.RowsAffected() == 0 {
+		return ports.ErrNotFound
+	}
+	return nil
+}
+
+func setFeedItemStatus(ctx context.Context, tx pgx.Tx, t, id, status string) error {
+	if !isUUID(id) {
+		return ports.ErrNotFound
+	}
+	// The catalog's own vocabulary is active|retired; the register's is active|archived.
+	dbStatus := "retired"
+	if status == domain.StatusActive {
+		dbStatus = "active"
+	}
+	tag, err := tx.Exec(ctx, sqlFeed4, t, id, dbStatus)
+	if err != nil {
+		return err
+	}
+	if tag.RowsAffected() == 0 {
+		return ports.ErrNotFound
+	}
+	return nil
+}
+
+func deleteFeedItem(ctx context.Context, tx pgx.Tx, t, id string) error {
+	if !isUUID(id) {
+		return ports.ErrNotFound
+	}
+	tag, err := tx.Exec(ctx, sqlFeed5, t, id)
+	if err != nil {
+		return err
+	}
+	if tag.RowsAffected() == 0 {
+		return ports.ErrNotFound
+	}
+	return nil
+}
+
+const (
+	sqlFeed1 = `SELECT feed_item_key FROM feed_item_catalog WHERE tenant_id = $1 AND feed_item_id = $2::uuid`
+	sqlFeed2 = `
+INSERT INTO feed_item_catalog (tenant_id, feed_item_label, energy_kcal_per_kg, dry_matter_factor, wastage_factor,
+                               display_order, status)
+VALUES ($1, $2, $3, $4, $5,
+        COALESCE((SELECT max(display_order) + 1 FROM feed_item_catalog WHERE tenant_id = $1), 0), 'active')
+RETURNING feed_item_id::text`
+	sqlFeed3 = `
+UPDATE feed_item_catalog
+SET feed_item_label = COALESCE($3, feed_item_label),
+    energy_kcal_per_kg = CASE WHEN $4::numeric IS NULL THEN energy_kcal_per_kg ELSE $4::numeric END,
+    dry_matter_factor = CASE WHEN $5::numeric IS NULL THEN dry_matter_factor ELSE $5::numeric END,
+    wastage_factor = CASE WHEN $6::numeric IS NULL THEN wastage_factor ELSE $6::numeric END,
+    updated_at = now()
+WHERE tenant_id = $1 AND feed_item_id = $2::uuid`
+	sqlFeed4 = `UPDATE feed_item_catalog SET status = $3, updated_at = now() WHERE tenant_id = $1 AND feed_item_id = $2::uuid`
+	sqlFeed5 = `DELETE FROM feed_item_catalog WHERE tenant_id = $1 AND feed_item_id = $2::uuid`
+)
 
 func itemContext(f map[string]any, existing map[string]any) ([]byte, error) {
 	ctxMap := map[string]any{}
@@ -405,6 +541,9 @@ func (itemStore) insert(ctx context.Context, tx pgx.Tx, t string, f map[string]a
 		}
 		return "", err
 	}
+	if kind == "feed" {
+		return insertFeedItem(ctx, tx, t, f)
+	}
 	contextJSON, err := itemContext(f, nil)
 	if err != nil {
 		return "", err
@@ -432,7 +571,7 @@ func upsertVaccine(ctx context.Context, tx pgx.Tx, t, itemID string, f map[strin
 
 func (itemStore) update(ctx context.Context, tx pgx.Tx, t, id string, f map[string]any, rv int) (string, error) {
 	if isFeedRow(id) {
-		return "", domain.ErrReadOnlyRegister
+		return "", updateFeedItem(ctx, tx, t, feedRowID(id), f)
 	}
 	if !isUUID(id) {
 		return "", ports.ErrNotFound
@@ -500,7 +639,7 @@ func (itemStore) update(ctx context.Context, tx pgx.Tx, t, id string, f map[stri
 
 func (itemStore) setStatus(ctx context.Context, tx pgx.Tx, t, id, status string, rv int) error {
 	if isFeedRow(id) {
-		return domain.ErrReadOnlyRegister
+		return setFeedItemStatus(ctx, tx, t, feedRowID(id), status)
 	}
 	if !isUUID(id) {
 		return ports.ErrNotFound
@@ -518,7 +657,7 @@ func (itemStore) setStatus(ctx context.Context, tx pgx.Tx, t, id, status string,
 
 func (itemStore) del(ctx context.Context, tx pgx.Tx, t, id string, rv int) error {
 	if isFeedRow(id) {
-		return domain.ErrReadOnlyRegister
+		return deleteFeedItem(ctx, tx, t, feedRowID(id))
 	}
 	if !isUUID(id) {
 		return ports.ErrNotFound
