@@ -2,11 +2,13 @@ package postgres
 
 import (
 	"context"
+	"strings"
 	"testing"
 	"time"
 
 	"github.com/jackc/pgx/v5/pgxpool"
 
+	"github.com/vgoats/goatos/backend/internal/platform/herdstage"
 	"github.com/vgoats/goatos/backend/internal/platform/pgtest"
 	"github.com/vgoats/goatos/backend/internal/procurement/domain"
 )
@@ -179,6 +181,19 @@ func TestFarmBornAnimalsOneToManyLoadsDealsAndTagsResolveToOneFactPerAnimal(t *t
 	fx := seedFarmBornFixture(t, ctx, pool)
 	repo := NewRepository(pool, 5*time.Second)
 
+	// OneToMany across the stage LABEL LOOKUP the options read now joins. A lookup row PER MEMBER of
+	// the fattening cohort is the adversarial case: the options read folds the three codes onto
+	// one and joins the lookup through the FOLDED code, so three rows must not become three
+	// options -- and the animals read must not gain a row from a label lookup at all.
+	if _, err := pool.Exec(ctx, `
+INSERT INTO animal_stage_lookup (tenant_id, stage_code, name, age_band, status, sort_order)
+VALUES ($1::uuid, 'F2', 'Fattening', 'kid', 'active', 1),
+       ($1::uuid, 'F2-Male', 'Fattening male', 'kid', 'active', 2),
+       ($1::uuid, 'F2-Female', 'Fattening female', 'kid', 'active', 3)
+ON CONFLICT (tenant_id, stage_code) DO NOTHING`, testTenant); err != nil {
+		t.Fatalf("seed stage lookup: %v", err)
+	}
+
 	facts, err := repo.FarmBornAnimals(ctx, testTenant, domain.FarmBornFilter{From: "2026-08-18", To: "2026-09-18"})
 	if err != nil {
 		t.Fatal(err)
@@ -243,6 +258,25 @@ func TestFarmBornAnimalsOneToManyLoadsDealsAndTagsResolveToOneFactPerAnimal(t *t
 	if malai.Label != "Malai" || malai.OnFarm != 4 || malai.Sold != 2 || malai.Revenue != 20000 {
 		t.Fatalf("by breed[0] = %+v", malai)
 	}
+	// Three lookup rows, ONE stage option: a label join that fanned out would offer the cohort
+	// three times over, and a DISTINCT would hide a count bug rather than fix one.
+	options, err := repo.FarmBornOptions(ctx, testTenant)
+	if err != nil {
+		t.Fatal(err)
+	}
+	fattening := 0
+	for _, option := range options.Stages {
+		if herdstage.IsFattening(option.Key) {
+			fattening++
+			if option.Label != "Fattening" {
+				t.Errorf("fattening option label = %q, want the cohort's authored name", option.Label)
+			}
+		}
+	}
+	if fattening != 1 {
+		t.Errorf("stage options carry %d fattening entries, want exactly 1: %+v", fattening, options.Stages)
+	}
+
 }
 
 // TestFarmBornAnimalsStatusMatrixAndOriginDecidesMembership pins every lifecycle bucket: sold is lifecycle
@@ -265,6 +299,26 @@ func TestFarmBornAnimalsStatusMatrixAndOriginDecidesMembership(t *testing.T) {
 		}
 		return farmBornByName(fx, facts)
 	}
+	// The folded fattening filter obeys the same StatusMatrix as the unfiltered read: it reaches
+	// the cohort on BOTH
+	// sides (one on farm, one sold inside the window) and still admits neither the dead animal nor
+	// the sale outside it, both of which are F2 cohort members too.
+	staged, err := repo.FarmBornAnimals(ctx, testTenant, domain.FarmBornFilter{
+		From: "2026-08-18", To: "2026-09-18", Stage: herdstage.FatteningKey,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	stagedByName := farmBornByName(fx, staged)
+	if stagedByName["alive-cbe-p3-a"].Bucket != domain.FarmBornOnFarm || stagedByName["sold-deal-a"].Bucket != domain.FarmBornSold {
+		t.Fatalf("folded stage filter must span both buckets: %+v", stagedByName)
+	}
+	for _, absent := range []string{"dead", "merged", "sold-old"} {
+		if _, ok := stagedByName[absent]; ok {
+			t.Fatalf("folded stage filter admitted %q, which the status matrix excludes", absent)
+		}
+	}
+
 	birth := read("2026-08-18", "2026-09-18")
 	for _, absent := range []string{"dead", "merged", "sold-old", "sold-advance-open", "procured-noload", "origin-null"} {
 		if _, ok := birth[absent]; ok {
@@ -299,7 +353,8 @@ func TestFarmBornAnimalsStatusMatrixAndOriginDecidesMembership(t *testing.T) {
 	}
 
 	// Options: parks CBE before CPT, the undivided Godel 1 then its two pens, then the undivided
-	// Gandhi, both species, the breeds folded case-insensitively, every stage seen.
+	// Gandhi, both species, the breeds folded case-insensitively, and the stages seen with the
+	// fattening pair folded into one option.
 	options, err := repo.FarmBornOptions(ctx, testTenant)
 	if err != nil {
 		t.Fatal(err)
@@ -324,8 +379,90 @@ func TestFarmBornAnimalsStatusMatrixAndOriginDecidesMembership(t *testing.T) {
 	if len(options.Breeds) != 5 || breedKeys[0] != "anantapur sheep" || breedKeys[1] != "beetal" || breedKeys[2] != "malai" || breedKeys[3] != "osmanabadi" || breedKeys[4] != "sirohi" {
 		t.Fatalf("breeds = %+v", options.Breeds)
 	}
-	if len(options.Species) != 2 || len(options.Sexes) != 2 || len(options.Stages) != 3 {
-		t.Fatalf("species/sexes/stages = %d/%d/%d", len(options.Species), len(options.Sexes), len(options.Stages))
+	// F2-Male and F2-Female are ONE option here (this page carries a sex filter), so the fixture's
+	// three stored stages offer two: the folded fattening one, and Non-Pregnant.
+	stageKeys := []string{}
+	for _, st := range options.Stages {
+		stageKeys = append(stageKeys, st.Key+"="+st.Label)
+	}
+	if len(options.Species) != 2 || len(options.Sexes) != 2 {
+		t.Fatalf("species/sexes = %d/%d", len(options.Species), len(options.Sexes))
+	}
+	// No lookup row names the cohort in this fixture, so the folded option falls back to its CODE
+	// rather than borrowing "Fattening female" from a member. TestFarmBornFatteningStageFilter...
+	// below seeds the authored name and pins the other half.
+	if len(options.Stages) != 2 || stageKeys[0] != "f2=F2" || stageKeys[1] != "non-pregnant=Non-Pregnant" {
+		t.Fatalf("stages = %v — the fattening pair must fold into one option that names itself", stageKeys)
+	}
+}
+
+// TestFarmBornFatteningStageFilterMatchesTheWholeCohort is the other half of the fold: the single
+// option the bar now offers has to reach every animal it claims, and a sexed value sent directly
+// (a bookmarked URL, an older client) must still mean only itself.
+func TestFarmBornFatteningStageFilterMatchesTheWholeCohort(t *testing.T) {
+	ctx := context.Background()
+	pool := pgtest.StartPostgres(t, ctx)
+	fx := seedFarmBornFixture(t, ctx, pool)
+	repo := NewRepository(pool, 15*time.Second)
+
+	read := func(f domain.FarmBornFilter) map[string]domain.FarmBornAnimalFact {
+		t.Helper()
+		f.From, f.To = "2026-08-18", "2026-09-18"
+		facts, err := repo.FarmBornAnimals(ctx, testTenant, f)
+		if err != nil {
+			t.Fatal(err)
+		}
+		return farmBornByName(fx, facts)
+	}
+
+	// The authored name for the COHORT. The option must read "Fattening" -- the word Counts
+	// Breakdown's stage filter uses for the same animals -- never a member's "Fattening female".
+	if _, err := pool.Exec(ctx, `
+INSERT INTO animal_stage_lookup (tenant_id, stage_code, name, age_band, status, sort_order)
+VALUES ($1::uuid, 'F2', 'Fattening', 'kid', 'active', 1),
+       ($1::uuid, 'F2-Female', 'Fattening female', 'kid', 'active', 2)
+ON CONFLICT (tenant_id, stage_code) DO NOTHING`, testTenant); err != nil {
+		t.Fatalf("seed stage lookup: %v", err)
+	}
+	options, err := repo.FarmBornOptions(ctx, testTenant)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var fatteningLabel string
+	for _, option := range options.Stages {
+		if option.Key == strings.ToLower(herdstage.FatteningKey) {
+			fatteningLabel = option.Label
+		}
+		if option.Key == "f2-female" {
+			t.Fatal("stage options still offer f2-female; the fattening pair must fold into one")
+		}
+	}
+	if fatteningLabel != "Fattening" {
+		t.Fatalf("folded option label = %q, want the cohort's own authored name %q", fatteningLabel, "Fattening")
+	}
+
+	folded := read(domain.FarmBornFilter{Stage: herdstage.FatteningKey})
+	for _, tag := range []string{"alive-cbe-p3-a", "alive-cbe-p3-b", "sold-deal-a", "sold-deal-b"} {
+		if _, ok := folded[tag]; !ok {
+			t.Fatalf("stage F2 missing %q — the folded option must match every stored value it stands for", tag)
+		}
+	}
+	if _, ok := folded["alive-cbe-p5"]; ok {
+		t.Fatal("stage F2 admitted a Non-Pregnant animal")
+	}
+
+	// Not widened: F2-Female means F2-Female.
+	sexed := read(domain.FarmBornFilter{Stage: "f2-female"})
+	if _, ok := sexed["alive-cbe-p3-b"]; ok {
+		t.Fatal("stage f2-female admitted an F2-Male animal — a value named directly must not widen")
+	}
+	if _, ok := sexed["alive-cbe-p3-a"]; !ok {
+		t.Fatal("stage f2-female lost its own animal")
+	}
+
+	// The fold is FILTER-OPTIONS-ONLY: each row still carries the stage the register recorded.
+	if got := folded["alive-cbe-p3-b"].Stage; got != "F2-Male" {
+		t.Fatalf("row stage = %q, want the stored F2-Male — the fold must not rewrite a fact", got)
 	}
 }
 
@@ -375,6 +512,12 @@ func TestFarmBornAnimalsParkScopeAndPenPredicates(t *testing.T) {
 	assertExactly("breed MALAI", read(domain.FarmBornFilter{Breed: "MALAI"}), "alive-cbe-p3-a", "alive-cbe-p3-b", "load-rejected", "on-load", "sold-deal-a", "sold-deal-b")
 	assertExactly("sex female", read(domain.FarmBornFilter{Sex: "female"}), "alive-cbe-p3-a", "alive-cbe-p5", "alive-cbe-whole", "sold-deal-b", "sold-nodeal")
 	assertExactly("stage f2-male", read(domain.FarmBornFilter{Stage: "f2-male"}), "alive-cbe-p3-b", "alive-cpt", "load-rejected", "on-load", "sold-deal-a")
+	// The FOLDED option reaches the whole cohort, and still composes with park scope rather than
+	// widening past it: CPT holds one fattening animal, CBE the rest.
+	assertExactly("stage F2", read(domain.FarmBornFilter{Stage: herdstage.FatteningKey}),
+		"alive-cbe-p3-a", "alive-cbe-p3-b", "alive-cpt", "load-rejected", "on-load",
+		"sold-deal-a", "sold-deal-b", "sold-nodeal")
+	assertExactly("ParkScope CPT + folded stage", read(domain.FarmBornFilter{ParkID: fx.cptPark, Stage: herdstage.FatteningKey}), "alive-cpt")
 	assertExactly("park CBE + sex male", read(domain.FarmBornFilter{ParkID: fx.cbePark, Sex: "male"}), "alive-cbe-p3-b", "load-rejected", "on-load", "sold-deal-a")
 	// The origin field narrows every predicate, not only the unfiltered read: the CBE females and
 	// the CPT Non-Pregnant animals each include one the register does not mark born here
@@ -415,5 +558,25 @@ func TestFarmBornSalesPaginationSlicesTheLedgerOnly(t *testing.T) {
 	// Newest sale first: the 17 Sep no-deal sale leads, the two 6 Sep deal sales follow.
 	if first.Sold[0].SaleDate != "2026-09-17" || first.Sold[1].SaleDate != "2026-09-06" || second.Sold[0].SaleDate != "2026-09-06" {
 		t.Fatalf("ledger order = %s, %s | %s", first.Sold[0].SaleDate, first.Sold[1].SaleDate, second.Sold[0].SaleDate)
+	}
+
+	// The folded fattening filter is a WHOLE-FILTER narrowing, so its summary is page-independent
+	// too: the stage predicate now binds a SET, and a set predicate evaluated per page would make
+	// the KPI strip disagree with itself between page 1 and page 2.
+	staged := filter
+	staged.Stage = herdstage.FatteningKey
+	stagedFacts, err := repo.FarmBornAnimals(ctx, testTenant, staged)
+	if err != nil {
+		t.Fatal(err)
+	}
+	pageOne := domain.BuildFarmBornSales(stagedFacts, staged, 1, 0)
+	pageTwo := domain.BuildFarmBornSales(stagedFacts, staged, 1, 1)
+	if pageOne.Summary != pageTwo.Summary {
+		t.Fatalf("Pagination: folded-stage summary moved across pages: %+v vs %+v", pageOne.Summary, pageTwo.Summary)
+	}
+	// Four on farm and three sold: the cohort's F2-Male AND F2-Female animals on both sides, which
+	// is the point — a per-page evaluation of the set predicate would report one sex's share.
+	if pageOne.Summary.OnFarm != 4 || pageOne.TotalSold != 3 {
+		t.Fatalf("folded stage summary = on farm %d, sold %d; want 4 and 3", pageOne.Summary.OnFarm, pageOne.TotalSold)
 	}
 }
