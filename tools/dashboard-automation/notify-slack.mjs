@@ -129,7 +129,11 @@ function issueRules() {
 }
 
 function humanIssue(failure) {
-  const raw = String(failure.error ?? "");
+  const whole = String(failure.error ?? "");
+  // One route reports several checks joined by " || "; describe and quote from the SAME one,
+  // or a feature title from another check leaks in as if it were text on the screen.
+  const segments = whole.split(" || ").filter(Boolean);
+  const raw = segments.find((segment) => issueRules().some(([re, label]) => label && re.test(segment))) ?? whole;
   const rule = issueRules().find(([re]) => re.test(raw));
   if (rule && rule[1] === null) return null;
   const what = rule ? rule[1] : raw.replace(/\[[A-Za-z-]+\]\s*/g, "").slice(0, 120);
