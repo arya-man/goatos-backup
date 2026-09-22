@@ -946,6 +946,10 @@ func (h *Handler) writeServiceError(w http.ResponseWriter, r *http.Request, op s
 		httpresponse.WriteError(w, r, h.log, http.StatusUnprocessableEntity, codedError{Code: "proof_incomplete", Message: "some animals are still missing required videos"}, nil)
 	case errors.Is(err, domain.ErrNoAnimals):
 		httpresponse.WriteError(w, r, h.log, http.StatusUnprocessableEntity, codedError{Code: "no_animals", Message: "no animals scanned in this task yet"}, nil)
+	case errors.Is(err, domain.ErrProofRulesUnresolved):
+		// A CONFIGURATION fault, said in farm words and deliberately not blamed on the operator:
+		// their work is not missing a video, the card that says which videos prove it is missing.
+		httpresponse.WriteError(w, r, h.log, http.StatusUnprocessableEntity, codedError{Code: "proof_rules_unresolved", Message: "this work has no video steps set up yet; ask the office to publish them"}, nil)
 	case errors.Is(err, ports.ErrProofRequired):
 		httpresponse.WriteError(w, r, h.log, http.StatusUnprocessableEntity, codedError{Code: "proof_required", Message: "a video is required"}, nil)
 	case errors.Is(err, ports.ErrInvalidProof):

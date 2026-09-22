@@ -102,6 +102,13 @@ func (r *Repository) CreateTask(ctx context.Context, p ports.CreateTaskParams) (
 		return r.GetTask(ctx, p.TenantID, reservation.resultID, nil, true)
 	}
 
+	// The task states what will prove it BEFORE it exists: a category whose card cannot be
+	// resolved fails here rather than becoming a row whose readiness predicate passes vacuously.
+	slotKeys, requiredSlotKeys, err := taskSlotSnapshot(p.Category, p.SlotKeys, p.RequiredSlotKeys)
+	if err != nil {
+		return ports.TaskRow{}, err
+	}
+
 	var taskID string
 	err = tx.QueryRow(ctx, `
 INSERT INTO pc_care_tasks (
@@ -119,7 +126,7 @@ DO NOTHING
 RETURNING task_id::text`,
 		p.TenantID, p.Category, p.ParkID, p.ShedID, p.PartitionLabel,
 		plannedDate, p.IdempotencyKey, p.CreatedBy, p.SOPVersion,
-		slotKeysOrSeeded(p.Category, p.SlotKeys, false), slotKeysOrSeeded(p.Category, p.RequiredSlotKeys, true)).Scan(&taskID)
+		slotKeys, requiredSlotKeys).Scan(&taskID)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return ports.TaskRow{}, domain.ErrTaskAlreadyPlanned
 	}
@@ -168,12 +175,15 @@ SELECT $1::uuid, $2::uuid, unnest($3::uuid[])`,
 	// gate can hold the deworming until the removal is submitted.
 	if p.FeedRemovalRequired {
 		removalDate := p.PlannedBusinessDate.AddDate(0, 0, -1).Format("2006-01-02")
+		removalSlotKeys, removalRequiredKeys, err := taskSlotSnapshot(domain.CategoryFeedWaterRemoval, p.RemovalSlotKeys, p.RemovalRequiredSlotKeys)
+		if err != nil {
+			return ports.TaskRow{}, err
+		}
 		var removalTaskID string
 		err = tx.QueryRow(ctx, removalTaskInsertSQL,
 			p.TenantID, domain.CategoryFeedWaterRemoval, p.ParkID, p.ShedID, p.PartitionLabel,
 			removalDate, taskID, p.IdempotencyKey+":fasting", p.CreatedBy, p.SOPVersion,
-			slotKeysOrSeeded(domain.CategoryFeedWaterRemoval, p.RemovalSlotKeys, false),
-			slotKeysOrSeeded(domain.CategoryFeedWaterRemoval, p.RemovalRequiredSlotKeys, true)).Scan(&removalTaskID)
+			removalSlotKeys, removalRequiredKeys).Scan(&removalTaskID)
 		if errors.Is(err, pgx.ErrNoRows) {
 			// A live removal task already covers this pen on the evening-before date (e.g. a
 			// canceled deworming left its removal row live). The pair cannot be planned whole,
@@ -224,11 +234,26 @@ SELECT $1::uuid, $2::uuid, unnest($3::uuid[])`,
 
 // slotKeysOrSeeded is the store's FAIL-CLOSED rule for a caller that passes no card (the kernel's
 // own writes, a fixture): the task is snapshotted with the SEEDED document's keys for its
-// category, which is exactly what a task pinned to version 0 runs. An empty snapshot would
-// otherwise mean "nothing is required", and every submit would pass vacuously.
-func slotKeysOrSeeded(category string, keys []string, requiredOnly bool) []string {
+// category, which is exactly what a task pinned to version 0 runs.
+//
+// IT REFUSES AN EMPTY ANSWER RATHER THAN RETURNING ONE, and that is the whole point of the error
+// return. Readiness is `an.sop_proofs ?& t.required_slot_keys`, and `?&` against an EMPTY array is
+// vacuously TRUE in Postgres — so an empty list does not read downstream as "nothing is required",
+// it reads as "every animal is complete", and a task nobody filmed would submit clean. UNRESOLVED
+// and NOTHING-REQUIRED must never be spelled the same way; returning the empty list is what lets
+// them be.
+//
+// The Work Board closed this on the READING side (cardinality(...) > 0 before the `?&`). Closing
+// it here shuts it on the WRITING side too, and one step earlier: a task that cannot state what
+// would prove it is never created, so no later read has to be careful.
+//
+// An authored card is used verbatim — the refusal is only for a card that could not be resolved
+// at all, never a judgement about what a farm authored. The validator already requires at least
+// one compulsory capture per card (authored.ValidateProofSlots, requireOne), so a published
+// document can never land here.
+func slotKeysOrSeeded(category string, keys []string, requiredOnly bool) ([]string, error) {
 	if len(keys) > 0 {
-		return keys
+		return keys, nil
 	}
 	seeded := domain.SeededRules()
 	out := []string{}
@@ -238,14 +263,32 @@ func slotKeysOrSeeded(category string, keys []string, requiredOnly bool) []strin
 				out = append(out, p.Key)
 			}
 		}
-		return out
-	}
-	for _, slot := range seeded.CategorySlots(category) {
-		if !requiredOnly || slot.Required {
-			out = append(out, slot.FieldKey)
+	} else {
+		for _, slot := range seeded.CategorySlots(category) {
+			if !requiredOnly || slot.Required {
+				out = append(out, slot.FieldKey)
+			}
 		}
 	}
-	return out
+	if len(out) == 0 {
+		return nil, fmt.Errorf("%w: the seeded card for %q names none", domain.ErrProofRulesUnresolved, category)
+	}
+	return out, nil
+}
+
+// taskSlotSnapshot resolves the pair a task row is created with: every capture key its pinned card
+// asks for, and the compulsory subset readiness is later judged against. Either one failing to
+// resolve fails the CREATE, so an unprovable task is never written.
+func taskSlotSnapshot(category string, all, required []string) ([]string, []string, error) {
+	allKeys, err := slotKeysOrSeeded(category, all, false)
+	if err != nil {
+		return nil, nil, err
+	}
+	requiredKeys, err := slotKeysOrSeeded(category, required, true)
+	if err != nil {
+		return nil, nil, err
+	}
+	return allKeys, requiredKeys, nil
 }
 
 // distinctIDs de-duplicates an id list (the create's union assignee-existence check compares a

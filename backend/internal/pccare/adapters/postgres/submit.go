@@ -170,6 +170,16 @@ WHERE tenant_id = $1::uuid AND task_id = $2::uuid AND required_doses > 0`,
 		// Readiness: every scanned animal must carry every COMPULSORY slot of the task's pinned
 		// card -- the keys snapshotted on the task row at create (PC CARE SOP, 2026-09-22). ONE
 		// bounded set-based count per submit (a write, not a list).
+		// Resolve what would prove this task BEFORE asking the database whether it is proven.
+		// `sop_proofs ?& '{}'` is vacuously TRUE, so an unresolvable card reaching the predicate
+		// would count every animal complete; refusing here is the difference between a task that
+		// cannot be submitted and one that submits with no evidence at all. A task created since
+		// this rule exists can never land here -- the create refuses first -- so this covers the
+		// rows that predate it.
+		requiredKeys, err := requiredKeysOrSeeded(category, p.RequiredSlotKeys)
+		if err != nil {
+			return ports.SubmitTaskResult{}, err
+		}
 		var missingCount int
 		if err := tx.QueryRow(ctx, `
 SELECT count(*)::int,
@@ -177,7 +187,7 @@ SELECT count(*)::int,
 FROM pc_care_task_animals an
 JOIN pc_care_tasks t ON t.tenant_id = an.tenant_id AND t.task_id = an.task_id
 WHERE an.tenant_id = $1::uuid AND an.task_id = $2::uuid`,
-			p.TenantID, p.TaskID, requiredKeysOrSeeded(category, p.RequiredSlotKeys),
+			p.TenantID, p.TaskID, requiredKeys,
 		).Scan(&animalCount, &missingCount); err != nil {
 			return ports.SubmitTaskResult{}, fmt.Errorf("pccare: submit readiness count: %w", err)
 		}
@@ -328,7 +338,7 @@ func captureSlotsOrSeeded(category string, slots []domain.Slot) []domain.Slot {
 	return domain.SeededRules().CategorySlots(category)
 }
 
-func requiredKeysOrSeeded(category string, keys []string) []string {
+func requiredKeysOrSeeded(category string, keys []string) ([]string, error) {
 	return slotKeysOrSeeded(category, keys, true)
 }
 
