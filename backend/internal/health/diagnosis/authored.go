@@ -409,3 +409,54 @@ func (ps Problems) Error() string {
 	}
 	return strings.Join(out, "; ")
 }
+
+// CompileRegister turns a published authored document into the rule table the
+// diagnosis engine evaluates.
+//
+// The authored document owns the form and the answer mapping too, but the current
+// observation endpoint still receives the legacy Findings struct. Compiling the
+// rules here is the bridge that makes publishing a register change the next
+// diagnosis run without changing the wire shape in the same PR.
+func (a AuthoredRegister) CompileRegister(class string) (*Register, error) {
+	if strings.TrimSpace(a.RegisterVersion) == "" {
+		return nil, fmt.Errorf("register has no register_version")
+	}
+	if len(a.Rules) == 0 {
+		return nil, fmt.Errorf("register %s has no rules", a.RegisterVersion)
+	}
+	if len(a.AppliesClass) > 0 && !containsString(a.AppliesClass, class) {
+		return nil, fmt.Errorf("health: %s authored register applies_class=%v does not claim class %s",
+			class, a.AppliesClass, class)
+	}
+
+	reg := &Register{
+		Version:      a.RegisterVersion,
+		AppliesClass: append([]string(nil), a.AppliesClass...),
+		NonSpecific:  append([]string(nil), a.NonSpecific...),
+		Vocabulary:   append([]string(nil), a.Vocabulary...),
+		Rules:        append([]Rule(nil), a.Rules...),
+		boundClass:   class,
+	}
+	reg.byID = make(map[string]*Rule, len(reg.Rules))
+	reg.quarantine = make(map[string]bool)
+	for i := range reg.Rules {
+		r := &reg.Rules[i]
+		if strings.TrimSpace(r.ID) == "" {
+			return nil, fmt.Errorf("register %s: rule at index %d has no id", reg.Version, i)
+		}
+		if _, dup := reg.byID[r.ID]; dup {
+			return nil, fmt.Errorf("register %s: duplicate rule id %s", reg.Version, r.ID)
+		}
+		applyRuleDefaults(r)
+		reg.byID[r.ID] = r
+		if r.Containment == "quarantine" {
+			reg.quarantine[r.ID] = true
+		}
+	}
+	reg.nonSpecific = toSet(reg.NonSpecific)
+	reg.vocabulary = toSet(reg.Vocabulary)
+	if errs := reg.Validate(); len(errs) > 0 {
+		return nil, fmt.Errorf("health: %s authored register failed validation: %w", class, errs[0])
+	}
+	return reg, nil
+}

@@ -1,6 +1,7 @@
 package postgres
 
 import (
+	"strings"
 	"testing"
 
 	"github.com/vgoats/goatos/backend/internal/health/domain"
@@ -36,6 +37,15 @@ func TestHealthProblemBreakdownsEachSumToTheTotal(t *testing.T) {
 		if sum != got.Total {
 			t.Fatalf("%s sums to %d but the headline says %d; a breakdown that does not add up to its own total is answering a different question", name, sum, got.Total)
 		}
+	}
+}
+
+func TestHealthProblemsPenTypeUsesCaseSnapshotNotCurrentGoatPartition(t *testing.T) {
+	if strings.Contains(healthAnalyticsProblemsSQL, "goat_shed_partitions") {
+		t.Fatal("health problem pen-type breakdown must not follow the goat's current partition after the case was opened")
+	}
+	if !strings.Contains(healthAnalyticsProblemsSQL, "hc.partition_label") {
+		t.Fatal("health problem pen-type breakdown must resolve the pen from the health_cases partition snapshot")
 	}
 }
 

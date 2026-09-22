@@ -19,6 +19,7 @@ import (
 	"github.com/vgoats/goatos/backend/internal/platform/audit"
 	"github.com/vgoats/goatos/backend/internal/platform/oploc"
 	platformoutbox "github.com/vgoats/goatos/backend/internal/platform/outbox"
+	"github.com/vgoats/goatos/backend/internal/platform/sqlbind"
 )
 
 const healthTopic = "health.events"
@@ -59,11 +60,15 @@ func (r *Repository) OpenCase(ctx context.Context, in domain.OpenCaseInput) (dom
 	}()
 
 	var lifecycle, goatAgeBand string
-	var parkID, shedID *string
+	var parkID, shedID, partitionLabel *string
 	err = tx.QueryRow(ctx, `
-SELECT lifecycle_status, coalesce(age_band,''), park_id::text, shed_id::text
+SELECT lifecycle_status, coalesce(age_band,''), park_id::text, shed_id::text,
+       (SELECT gsp.partition_label FROM goat_shed_partitions gsp
+        WHERE gsp.tenant_id = goats.tenant_id AND gsp.goat_id = goats.goat_id
+          AND gsp.shed_id = goats.shed_id
+        LIMIT 1)
 FROM goats WHERE tenant_id=$1::uuid AND goat_id=$2::uuid
-FOR SHARE`, in.TenantID, in.GoatID).Scan(&lifecycle, &goatAgeBand, &parkID, &shedID)
+FOR SHARE`, in.TenantID, in.GoatID).Scan(&lifecycle, &goatAgeBand, &parkID, &shedID, &partitionLabel)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return domain.OpenCaseResult{}, ports.ErrNotFound
 	}
@@ -109,11 +114,11 @@ FROM health_cases hc WHERE hc.tenant_id=$1::uuid AND hc.idempotency_key=$2`,
 	err = tx.QueryRow(ctx, `
 INSERT INTO health_cases (
  tenant_id,goat_id,health_protocol_version_id,disease_key,disease_name,age_band,start_date,
- duration_days,status,park_id,shed_id,diagnosed_by,idempotency_key,request_fingerprint
+ duration_days,status,park_id,shed_id,partition_label,diagnosed_by,idempotency_key,request_fingerprint
 ) VALUES ($1::uuid,$2::uuid,$3::uuid,$4,$5,$6,$7::date,$8,'active',
- nullif($9,'')::uuid,nullif($10,'')::uuid,$11::uuid,$12,$13)
+ nullif($9,'')::uuid,nullif($10,'')::uuid,nullif($11,''),$12::uuid,$13,$14)
 RETURNING health_case_id::text`, in.TenantID, in.GoatID, p.id, p.diseaseKey, p.diseaseName, p.ageBand,
-		in.StartDate.Format("2006-01-02"), p.duration, valueOrEmpty(parkID), valueOrEmpty(shedID), in.ActorID, in.IdempotencyKey, in.RequestFingerprint).Scan(&caseID)
+		in.StartDate.Format("2006-01-02"), p.duration, valueOrEmpty(parkID), valueOrEmpty(shedID), valueOrEmpty(partitionLabel), in.ActorID, in.IdempotencyKey, in.RequestFingerprint).Scan(&caseID)
 	if err != nil {
 		return domain.OpenCaseResult{}, fmt.Errorf("health: insert case: %w", err)
 	}
@@ -236,9 +241,8 @@ func (r *Repository) ListWorkItems(ctx context.Context, f domain.ListFilter) (do
 	if err != nil {
 		return domain.WorkItemPage{}, ports.ErrConflict
 	}
-	args := []any{f.TenantID, f.Date, f.AgeBand, f.Status, f.DiseaseKey, f.ParkID, f.ShedID, f.Session, cursorAt, cursorID, f.Limit + 1}
 	// scale-guard:ignore: one selected business-day + age-band keyset page, capped at 21 and covered by health_sessions_worklist_idx; CTE page first prevents the step join from widening the page.
-	rows, err := r.pool.Query(ctx, `
+	bound := sqlbind.MustBind(`
 WITH page AS (
  SELECT hs.health_session_id,hs.health_case_id,hs.goat_id,hs.day_no,hs.business_date,hs.session,hs.due_at,
         CASE WHEN hs.status='scheduled' AND hs.due_at<=now() THEN 'due' ELSE hs.status END AS effective_status
@@ -265,7 +269,8 @@ FROM page p JOIN health_cases hc ON hc.health_case_id=p.health_case_id JOIN goat
 LEFT JOIN locations pl ON pl.tenant_id=hc.tenant_id AND pl.location_id=hc.park_id
 LEFT JOIN locations sl ON sl.tenant_id=hc.tenant_id AND sl.location_id=hc.shed_id
 LEFT JOIN step_counts sc ON sc.health_session_id=p.health_session_id
-ORDER BY p.due_at,p.health_session_id`, args...)
+ORDER BY p.due_at,p.health_session_id`, f.TenantID, f.Date, f.AgeBand, f.Status, f.DiseaseKey, f.ParkID, f.ShedID, f.Session, cursorAt, cursorID, f.Limit+1)
+	rows, err := r.pool.Query(ctx, bound.SQL(), bound.Args()...)
 	if err != nil {
 		return domain.WorkItemPage{}, fmt.Errorf("health: list work items: %w", err)
 	}
@@ -831,7 +836,8 @@ func (r *Repository) applyDeathState(ctx context.Context, tenantID, goatID, even
 	default:
 		return fmt.Errorf("health: unsupported death lifecycle event %q", eventType)
 	}
-	caseRows, err := tx.Query(ctx, caseSQL, tenantID, goatID)
+	caseBound := sqlbind.MustBind(caseSQL, tenantID, goatID)
+	caseRows, err := tx.Query(ctx, caseBound.SQL(), caseBound.Args()...)
 	if err != nil {
 		return err
 	}
@@ -847,7 +853,8 @@ func (r *Repository) applyDeathState(ctx context.Context, tenantID, goatID, even
 		return err
 	}
 	caseRows.Close()
-	if _, err := tx.Exec(ctx, sessionSQL, tenantID, goatID); err != nil {
+	sessionBound := sqlbind.MustBind(sessionSQL, tenantID, goatID)
+	if _, err := tx.Exec(ctx, sessionBound.SQL(), sessionBound.Args()...); err != nil {
 		return err
 	}
 	if err := markDeathCauseCase(ctx, tx, tenantID, goatID, cause); err != nil {
@@ -859,7 +866,8 @@ func (r *Repository) applyDeathState(ctx context.Context, tenantID, goatID, even
 		if err != nil {
 			return err
 		}
-		outboxBatch.Queue(insertHealthOutboxSQL, args...)
+		bound := sqlbind.MustBind(insertHealthOutboxSQL, args...)
+		outboxBatch.Queue(bound.SQL(), bound.Args()...)
 	}
 	if len(ids) > 0 {
 		if err := tx.SendBatch(ctx, &outboxBatch).Close(); err != nil {
@@ -927,7 +935,8 @@ func insertHealthOutboxFor(ctx context.Context, tx pgx.Tx, aggregateType, tenant
 	if err != nil {
 		return err
 	}
-	_, err = tx.Exec(ctx, insertHealthOutboxSQL, args...)
+	bound := sqlbind.MustBind(insertHealthOutboxSQL, args...)
+	_, err = tx.Exec(ctx, bound.SQL(), bound.Args()...)
 	if err != nil {
 		return fmt.Errorf("health: insert outbox: %w", err)
 	}

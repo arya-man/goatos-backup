@@ -90,10 +90,17 @@ func (r *DiagnosisRepository) SubmitObservation(
 	dctx := in.Context
 	dctx.Open = openProblems
 
-	publishedRegister, registerErr := r.publishedRegisterInTx(ctx, tx, in.TenantID, animal.Class)
-	proposal, confirmable := evaluate(ctx, in.TenantID, animal, in.Findings, dctx, publishedRegister, registerErr)
+	publishedRegister, err := publishedRegisterDocumentInTx(ctx, tx, in.TenantID, animal.Class)
+	if err != nil {
+		return domain.SubmitObservationResult{}, err
+	}
 
-	formJSON, err := json.Marshal(in.Findings)
+	proposal, confirmable, err := evaluate(ctx, publishedRegister, animal, in.Findings, in.Answers, dctx)
+	if err != nil {
+		return domain.SubmitObservationResult{}, err
+	}
+
+	formJSON, err := marshalObservationForm(in.Findings, in.Answers)
 	if err != nil {
 		return domain.SubmitObservationResult{}, fmt.Errorf("health: encode form: %w", err)
 	}
@@ -184,16 +191,45 @@ RETURNING health_diagnosis_run_id::text`,
 	}, nil
 }
 
-func (r *DiagnosisRepository) publishedRegisterInTx(ctx context.Context, tx pgx.Tx, tenantID, animalClass string) (*domain.RegisterDetail, error) {
+func publishedRegisterDocumentInTx(ctx context.Context, tx pgx.Tx, tenantID, animalClass string) (*diagnosis.AuthoredRegister, error) {
 	bound := sqlbind.MustBind(sqlPublishedRegister, tenantID, animalClass)
 	detail, err := scanRegister(tx.QueryRow(ctx, bound.SQL(), bound.Args()...))
 	if errors.Is(err, pgx.ErrNoRows) {
-		return nil, ports.ErrRegisterNotFound
+		return nil, nil
 	}
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("health: read published diagnosis register: %w", err)
 	}
-	return &detail, nil
+	return &detail.Document, nil
+}
+
+func marshalObservationForm(findings diagnosis.Findings, answers diagnosis.Answers) ([]byte, error) {
+	if answers == nil {
+		return json.Marshal(findings)
+	}
+	return json.Marshal(struct {
+		Findings diagnosis.Findings `json:"findings"`
+		Answers  diagnosis.Answers  `json:"answers"`
+	}{
+		Findings: findings,
+		Answers:  answers,
+	})
+}
+
+func decodeObservationForm(raw []byte, findings *diagnosis.Findings, answers *diagnosis.Answers) error {
+	var wrapped struct {
+		Findings *diagnosis.Findings `json:"findings"`
+		Answers  diagnosis.Answers   `json:"answers"`
+	}
+	if err := json.Unmarshal(raw, &wrapped); err != nil {
+		return err
+	}
+	if wrapped.Findings != nil {
+		*findings = *wrapped.Findings
+		*answers = wrapped.Answers
+		return nil
+	}
+	return json.Unmarshal(raw, findings)
 }
 
 // annotateSOPAvailability marks each proposed diagnosis with whether its
@@ -252,15 +288,7 @@ WHERE tenant_id=$1::uuid AND age_band=$2 AND status='published' AND disease_key 
 func loadGoatFacts(ctx context.Context, tx pgx.Tx, tenantID, goatID string) (domain.GoatFacts, error) {
 	var facts domain.GoatFacts
 	var daysSinceKidding *int
-	err := tx.QueryRow(ctx, `
-SELECT g.species, g.sex, coalesce(g.age_band,''), coalesce(g.management_stage,''), g.lifecycle_status,
-       (SELECT (current_date - max(child.dob))::int
-          FROM goat_births b
-          JOIN goats child ON child.tenant_id = b.tenant_id AND child.goat_id = b.child_goat_id
-         WHERE b.tenant_id = g.tenant_id AND b.mother_goat_id = g.goat_id AND child.dob IS NOT NULL)
-FROM goats g
-WHERE g.tenant_id=$1::uuid AND g.goat_id=$2::uuid
-FOR SHARE`, tenantID, goatID).Scan(
+	err := tx.QueryRow(ctx, loadDiagnosisGoatFactsSQL, tenantID, goatID).Scan(
 		&facts.Species, &facts.Sex, &facts.AgeBand, &facts.ManagementStage, &facts.LifecycleStatus, &daysSinceKidding)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return facts, ports.ErrNotFound
@@ -271,6 +299,16 @@ FOR SHARE`, tenantID, goatID).Scan(
 	facts.DaysSinceKidding = daysSinceKidding
 	return facts, nil
 }
+
+const loadDiagnosisGoatFactsSQL = `
+	SELECT g.species, g.sex, coalesce(g.age_band,''), coalesce(g.management_stage,''), g.lifecycle_status,
+	       (SELECT (current_date - max(child.dob))::int
+	          FROM goat_births b
+	          JOIN goats child ON child.tenant_id = b.tenant_id AND child.goat_id = b.child_goat_id
+	         WHERE b.tenant_id = g.tenant_id AND b.mother_goat_id = g.goat_id AND child.dob IS NOT NULL)
+	FROM goats g
+	WHERE g.tenant_id=$1::uuid AND g.goat_id=$2::uuid
+	FOR SHARE`
 
 // loadOpenRegisterRules returns the register ids of this animal's active
 // courses, which is what reconcile compares today's form against.
@@ -500,9 +538,16 @@ func (r *DiagnosisRepository) openCourseFromDiagnosis(
 	visits := domain.ScheduleCourse(card.steps, horizonDays, sessions)
 	start := biztime.BusinessDayStart(r.now())
 
-	var parkID, shedID *string
-	if err := tx.QueryRow(ctx, `SELECT park_id::text, shed_id::text FROM goats WHERE tenant_id=$1::uuid AND goat_id=$2::uuid`,
-		in.TenantID, goatID).Scan(&parkID, &shedID); err != nil {
+	var parkID, shedID, partitionLabel *string
+	if err := tx.QueryRow(ctx, `
+SELECT park_id::text, shed_id::text,
+       (SELECT gsp.partition_label FROM goat_shed_partitions gsp
+        WHERE gsp.tenant_id = goats.tenant_id AND gsp.goat_id = goats.goat_id
+          AND gsp.shed_id = goats.shed_id
+        LIMIT 1)
+FROM goats
+WHERE tenant_id=$1::uuid AND goat_id=$2::uuid`,
+		in.TenantID, goatID).Scan(&parkID, &shedID, &partitionLabel); err != nil {
 		return domain.OpenedCase{}, fmt.Errorf("health: read goat location: %w", err)
 	}
 
@@ -511,14 +556,14 @@ func (r *DiagnosisRepository) openCourseFromDiagnosis(
 	err = tx.QueryRow(ctx, `
 INSERT INTO health_cases
  (tenant_id,goat_id,health_protocol_version_id,disease_key,disease_name,age_band,start_date,
-  duration_days,exit_type,status,park_id,shed_id,diagnosed_by,idempotency_key,request_fingerprint,
+  duration_days,exit_type,status,park_id,shed_id,partition_label,diagnosed_by,idempotency_key,request_fingerprint,
   health_diagnosis_run_id,register_rule_id)
 VALUES ($1::uuid,$2::uuid,$3::uuid,$4,$5,$6,$7::date,
-  $8,$9,'active',nullif($10,'')::uuid,nullif($11,'')::uuid,$12::uuid,$13,$14,
-  $15::uuid,$16)
+  $8,$9,'active',nullif($10,'')::uuid,nullif($11,'')::uuid,nullif($12,''),$13::uuid,$14,$15,
+  $16::uuid,$17)
 RETURNING health_case_id::text`,
 		in.TenantID, goatID, card.id, card.diseaseKey, card.diseaseName, card.ageBand,
-		start.Format("2006-01-02"), durationDays, problem.ExitType, valueOrEmpty(parkID), valueOrEmpty(shedID), in.ActorID,
+		start.Format("2006-01-02"), durationDays, problem.ExitType, valueOrEmpty(parkID), valueOrEmpty(shedID), valueOrEmpty(partitionLabel), in.ActorID,
 		caseKey, in.RequestFingerprint, in.DiagnosisRunID, problem.ID).Scan(&caseID)
 	if err != nil {
 		return domain.OpenedCase{}, fmt.Errorf("health: open course for %s: %w", problem.ID, err)
@@ -657,7 +702,7 @@ func (r *DiagnosisRepository) GetDiagnosisRun(ctx context.Context, tenantID, run
 	defer cancel()
 
 	var out domain.DiagnosisRun
-	var proposalJSON []byte
+	var proposalJSON, formJSON []byte
 	var businessDate time.Time
 	var ageBand string
 	// The goat is joined rather than read separately: the display id, the shed and
@@ -669,13 +714,13 @@ func (r *DiagnosisRepository) GetDiagnosisRun(ctx context.Context, tenantID, run
 	// animal row went would be worse than showing it without a name.
 	err := r.pool.QueryRow(ctx, `
 SELECT dr.health_diagnosis_run_id::text, dr.goat_id::text, dr.register_version, dr.observed_by::text,
-       dr.observed_at, dr.business_date, dr.proposal, dr.status, dr.confirmed_by::text, dr.confirmed_at,
+       dr.observed_at, dr.business_date, dr.form, dr.proposal, dr.status, dr.confirmed_by::text, dr.confirmed_at,
        coalesce((SELECT gi.identifier_value FROM goat_identifiers gi WHERE gi.tenant_id=g.tenant_id AND gi.goat_id=g.goat_id AND gi.identifier_type='animal_identifier_1' AND gi.status='active' ORDER BY gi.is_primary_for_goat DESC,gi.identifier_value LIMIT 1),g.display_id,''), COALESCE(g.age_band, '')
 FROM health_diagnosis_runs dr
 LEFT JOIN goats g ON g.tenant_id = dr.tenant_id AND g.goat_id = dr.goat_id
 WHERE dr.tenant_id=$1::uuid AND dr.health_diagnosis_run_id=$2::uuid`, tenantID, runID).Scan(
 		&out.DiagnosisRunID, &out.GoatID, &out.RegisterVersion, &out.ObservedBy, &out.ObservedAt,
-		&businessDate, &proposalJSON, &out.Status, &out.ConfirmedBy, &out.ConfirmedAt,
+		&businessDate, &formJSON, &proposalJSON, &out.Status, &out.ConfirmedBy, &out.ConfirmedAt,
 		&out.GoatDisplayID, &ageBand)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return domain.DiagnosisRun{}, ports.ErrNotFound
@@ -684,6 +729,13 @@ WHERE dr.tenant_id=$1::uuid AND dr.health_diagnosis_run_id=$2::uuid`, tenantID, 
 		return domain.DiagnosisRun{}, fmt.Errorf("health: read diagnosis run: %w", err)
 	}
 	out.BusinessDate = businessDate.Format("2006-01-02")
+	var answers diagnosis.Answers
+	if err := decodeObservationForm(formJSON, &out.Findings, &answers); err != nil {
+		return domain.DiagnosisRun{}, fmt.Errorf("health: decode stored form: %w", err)
+	}
+	if answers != nil {
+		out.Answers = &answers
+	}
 	if err := json.Unmarshal(proposalJSON, &out.Proposal); err != nil {
 		return domain.DiagnosisRun{}, fmt.Errorf("health: decode stored proposal: %w", err)
 	}
@@ -747,19 +799,7 @@ func (r *DiagnosisRepository) ListDiagnosisRuns(
 
 	// scale-guard:ignore: one tenant + status keyset page capped at limit+1 (<=51), served by the
 	// partial health_diagnosis_runs_pending_idx (tenant_id, status, observed_at DESC, id).
-	rows, err := r.pool.Query(ctx, `
-SELECT dr.health_diagnosis_run_id::text, dr.goat_id::text, coalesce((SELECT gi.identifier_value FROM goat_identifiers gi WHERE gi.tenant_id=g.tenant_id AND gi.goat_id=g.goat_id AND gi.identifier_type='animal_identifier_1' AND gi.status='active' ORDER BY gi.is_primary_for_goat DESC,gi.identifier_value LIMIT 1),g.display_id,''),
-       COALESCE(g.shed_id::text, ''), dr.observed_at, dr.business_date, dr.status,
-       dr.proposal->'problems', dr.proposal->'emergencies', dr.proposal->'unexplained'
-FROM health_diagnosis_runs dr
-JOIN goats g ON g.tenant_id = dr.tenant_id AND g.goat_id = dr.goat_id
-WHERE dr.tenant_id = $1::uuid
-  AND ($2 = '' OR dr.status = $2)
-  AND ($3 = '' OR dr.goat_id = nullif($3,'')::uuid)
-  AND ($4::timestamptz IS NULL
-       OR (dr.observed_at, dr.health_diagnosis_run_id) < ($4::timestamptz, nullif($5,'')::uuid))
-ORDER BY dr.observed_at DESC, dr.health_diagnosis_run_id DESC
-LIMIT $6`, f.TenantID, f.Status, f.GoatID, cursorAt, cursorID, f.Limit+1)
+	rows, err := r.pool.Query(ctx, diagnosisRunsPageSQL, f.TenantID, f.Status, f.GoatID, cursorAt, cursorID, f.Limit+1)
 	if err != nil {
 		return page, fmt.Errorf("health: list diagnosis runs: %w", err)
 	}
@@ -812,6 +852,20 @@ LIMIT $6`, f.TenantID, f.Status, f.GoatID, cursorAt, cursorID, f.Limit+1)
 	}
 	return page, nil
 }
+
+const diagnosisRunsPageSQL = `
+SELECT dr.health_diagnosis_run_id::text, dr.goat_id::text, coalesce((SELECT gi.identifier_value FROM goat_identifiers gi WHERE gi.tenant_id=g.tenant_id AND gi.goat_id=g.goat_id AND gi.identifier_type='animal_identifier_1' AND gi.status='active' ORDER BY gi.is_primary_for_goat DESC,gi.identifier_value LIMIT 1),g.display_id,''),
+       COALESCE(g.shed_id::text, ''), dr.observed_at, dr.business_date, dr.status,
+       dr.proposal->'problems', dr.proposal->'emergencies', dr.proposal->'unexplained'
+FROM health_diagnosis_runs dr
+JOIN goats g ON g.tenant_id = dr.tenant_id AND g.goat_id = dr.goat_id
+WHERE dr.tenant_id = $1::uuid
+  AND ($2 = '' OR dr.status = $2)
+  AND ($3 = '' OR dr.goat_id = nullif($3,'')::uuid)
+  AND ($4::timestamptz IS NULL
+       OR (dr.observed_at, dr.health_diagnosis_run_id) < ($4::timestamptz, nullif($5,'')::uuid))
+ORDER BY dr.observed_at DESC, dr.health_diagnosis_run_id DESC
+LIMIT $6`
 
 // attachLocations resolves every row's shed in ONE round trip.
 //

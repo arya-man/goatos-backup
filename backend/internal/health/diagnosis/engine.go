@@ -212,19 +212,7 @@ type Housing struct {
 // "treat" for a problem already under treatment, and every daily follow-up
 // duplicates every open problem.
 func (r *Register) Evaluate(animal Animal, f Findings, ctx Context) Proposal {
-	p := Proposal{
-		Valid:           true,
-		Scope:           animal.class(),
-		RegisterVersion: r.Version,
-		Tiers:           map[string]Tier{},
-		SOP:             map[string]string{},
-		CourseType:      map[string]string{},
-		Housing: Housing{
-			Acuity:         AcuityHome,
-			Containment:    ContainmentHome,
-			NoDueOvernight: true,
-		},
-	}
+	p := r.newProposal(animal)
 
 	// A register may only diagnose the class it was bound to. This is the last
 	// line of defence for the spec's loudest never -- do not load adult YAML for
@@ -247,6 +235,58 @@ func (r *Register) Evaluate(animal Animal, f Findings, ctx Context) Proposal {
 	p.Emergencies = detectEmergencies(animal, f, d)
 
 	evidence := buildEvidence(animal, f, d)
+	return r.evaluateEvidence(p, animal, f, d, ctx, evidence)
+}
+
+// EvaluateAuthored runs the production engine with evidence emitted by an authored
+// register document. The legacy Findings struct is still accepted because the app
+// API carries clinical context and emergency fields there today; answers carries
+// the authorable question/answer layer.
+func (r *Register) EvaluateAuthored(doc *AuthoredRegister, animal Animal, f Findings, answers Answers, ctx Context) Proposal {
+	p := r.newProposal(animal)
+	if r.boundClass != "" && r.boundClass != animal.class() {
+		p.Valid = false
+		p.RejectReason = RejectRegisterClassMismatch
+		return p
+	}
+	if doc == nil {
+		p.Valid = false
+		p.RejectReason = "missing authored register"
+		return p
+	}
+	if problems := doc.ValidateAnswers(animal, answers); problems.Fatal() {
+		p.Valid = false
+		p.RejectReason = problems.Error()
+		return p
+	}
+	if reason := validateForm(animal, f); reason != "" {
+		p.Valid = false
+		p.RejectReason = reason
+		return p
+	}
+	d := deriveTokens(animal, f)
+	p.Emergencies = detectEmergencies(animal, f, d)
+	evidence := doc.Evidence(animal, answers, MilkTokens(animal, f))
+	return r.evaluateEvidence(p, animal, f, d, ctx, evidence)
+}
+
+func (r *Register) newProposal(animal Animal) Proposal {
+	return Proposal{
+		Valid:           true,
+		Scope:           animal.class(),
+		RegisterVersion: r.Version,
+		Tiers:           map[string]Tier{},
+		SOP:             map[string]string{},
+		CourseType:      map[string]string{},
+		Housing: Housing{
+			Acuity:         AcuityHome,
+			Containment:    ContainmentHome,
+			NoDueOvernight: true,
+		},
+	}
+}
+
+func (r *Register) evaluateEvidence(p Proposal, animal Animal, f Findings, d derived, ctx Context, evidence map[string]bool) Proposal {
 	matched := r.evaluateRegister(animal, evidence)
 
 	p.Unexplained = matched.unexplained

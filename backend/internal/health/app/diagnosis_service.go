@@ -30,49 +30,29 @@ var (
 // DiagnosisService runs the observation form through the engine and mediates the
 // Director's confirmation.
 //
-// It holds the registers rather than loading them per request: the rule tables are
-// immutable for the life of the process, and re-parsing one on every observation
-// would make an already-hot path do avoidable work.
-//
 // ONE REGISTER PER CLASS, chosen from the animal. This used to be a single register,
 // which meant a kid resolved to `kid_milk` was still diagnosed off the ADULT table --
 // the proposal even said `scope: kid_milk, register_version: adult-1`, so the wrong
 // answer was labelled with the right cohort. That is the exact failure the class split
 // exists to prevent, and it is invisible unless you read the version.
 type DiagnosisService struct {
-	repo            ports.DiagnosisRepository
-	registerSource  ports.RegisterAuthoring
-	seededRegisters map[string]*diagnosis.Register
+	repo ports.DiagnosisRepository
 }
 
-// NewDiagnosisService wires the service to every class register. It fails closed: a
-// missing register would silently diagnose nothing, which reads to an operator as a
-// healthy animal.
-//
-// All four are resolved up front rather than on first use, so a malformed rule table is
-// a startup failure the deploy surfaces, never a 500 the first manager to check a
-// weaning kid discovers in a shed.
-func NewDiagnosisService(repo ports.DiagnosisRepository, _ *diagnosis.Register) (*DiagnosisService, error) {
+// NewDiagnosisService wires the service to the diagnosis run repository.
+func NewDiagnosisService(repo ports.DiagnosisRepository) (*DiagnosisService, error) {
 	if repo == nil {
 		return nil, errors.New("health: diagnosis repository is required")
 	}
-	registers := make(map[string]*diagnosis.Register, len(diagnosis.Classes))
+	// The committed seed remains the fallback for tenants whose first authored
+	// register has not been published. Load every class at startup so a broken seed
+	// still fails the deploy rather than the first shed observation.
 	for _, class := range diagnosis.Classes {
-		reg, err := diagnosis.RegisterFor(class)
-		if err != nil {
+		if _, err := diagnosis.RegisterFor(class); err != nil {
 			return nil, fmt.Errorf("health: diagnosis register for %s: %w", class, err)
 		}
-		registers[class] = reg
 	}
-	return &DiagnosisService{repo: repo, seededRegisters: registers}, nil
-}
-
-// WithRegisterAuthoring makes live observation serving read the tenant's published
-// authored register. The embedded registers remain the startup-validated fallback
-// for tenants whose seed has not run yet.
-func (s *DiagnosisService) WithRegisterAuthoring(source ports.RegisterAuthoring) *DiagnosisService {
-	s.registerSource = source
-	return s
+	return &DiagnosisService{repo: repo}, nil
 }
 
 // SubmitObservation evaluates one form and stores the proposal.
@@ -100,7 +80,9 @@ func (s *DiagnosisService) SubmitObservation(ctx context.Context, in domain.Subm
 	// The engine is pure, but it needs the animal. The repository resolves the
 	// animal, runs the closure below inside its transaction, and persists the
 	// result atomically with the audit and outbox rows.
-	return s.repo.SubmitObservation(ctx, in, s.evaluate)
+	return s.repo.SubmitObservation(ctx, in, func(ctx context.Context, published *diagnosis.AuthoredRegister, animal diagnosis.Animal, f diagnosis.Findings, answers diagnosis.Answers, dctx diagnosis.Context) (diagnosis.Proposal, []domain.ConfirmableProblem, error) {
+		return s.evaluate(ctx, published, animal, f, answers, dctx)
+	})
 }
 
 // evaluate is the pure step the repository calls once it has resolved the
@@ -110,40 +92,25 @@ func (s *DiagnosisService) SubmitObservation(ctx context.Context, in domain.Subm
 // already refused anything it could not class, so an unknown class here means the two
 // have drifted apart -- and the safe answer is to diagnose NOTHING rather than to fall
 // back to adult, which would hand a kid the adult table under a kid label.
-func (s *DiagnosisService) evaluate(ctx context.Context, tenantID string, animal diagnosis.Animal, f diagnosis.Findings, dctx diagnosis.Context, authored *domain.RegisterDetail, authoredErr error) (diagnosis.Proposal, []domain.ConfirmableProblem) {
-	reg, err := s.registerFor(ctx, tenantID, animal.Class, authored, authoredErr)
+func (s *DiagnosisService) evaluate(_ context.Context, published *diagnosis.AuthoredRegister, animal diagnosis.Animal, f diagnosis.Findings, answers diagnosis.Answers, dctx diagnosis.Context) (diagnosis.Proposal, []domain.ConfirmableProblem, error) {
+	reg, err := s.registerFor(published, animal.Class)
 	if err != nil {
-		return diagnosis.Proposal{
-			Valid:        false,
-			RejectReason: err.Error(),
-			Scope:        diagnosis.ScopeOutOfScope,
-		}, nil
+		return diagnosis.Proposal{}, nil, err
 	}
-	proposal := reg.Evaluate(animal, f, dctx)
-	return proposal, s.confirmableFrom(proposal)
+	var proposal diagnosis.Proposal
+	if published != nil && answers != nil {
+		proposal = reg.EvaluateAuthored(published, animal, f, answers, dctx)
+	} else {
+		proposal = reg.Evaluate(animal, f, dctx)
+	}
+	return proposal, s.confirmableFrom(proposal), nil
 }
 
-func (s *DiagnosisService) registerFor(ctx context.Context, tenantID, class string, authored *domain.RegisterDetail, authoredErr error) (*diagnosis.Register, error) {
-	if authored != nil {
-		return diagnosis.RegisterForServing(authored.Document, class)
+func (s *DiagnosisService) registerFor(published *diagnosis.AuthoredRegister, class string) (*diagnosis.Register, error) {
+	if published != nil {
+		return published.CompileRegister(class)
 	}
-	if authoredErr != nil && !errors.Is(authoredErr, ports.ErrRegisterNotFound) {
-		return nil, fmt.Errorf("read published diagnosis register for %s: %w", class, authoredErr)
-	}
-	if s.registerSource != nil {
-		detail, err := s.registerSource.PublishedRegister(ctx, tenantID, class)
-		if err == nil {
-			return diagnosis.RegisterForServing(detail.Document, class)
-		}
-		if !errors.Is(err, ports.ErrRegisterNotFound) {
-			return nil, fmt.Errorf("read published diagnosis register for %s: %w", class, err)
-		}
-	}
-	reg, ok := s.seededRegisters[class]
-	if !ok {
-		return nil, fmt.Errorf("no rule table for animal class %q", class)
-	}
-	return reg, nil
+	return diagnosis.RegisterFor(class)
 }
 
 // confirmableFrom turns the proposal's problems into the Director's decision
@@ -223,10 +190,11 @@ func (s *DiagnosisService) GetDiagnosisRun(ctx context.Context, tenantID, runID 
 // produced an old proposal. An unknown class returns "" rather than the adult
 // version, because naming the wrong table is worse than naming none.
 func (s *DiagnosisService) RegisterVersion(class string) string {
-	if reg, ok := s.seededRegisters[class]; ok {
-		return reg.Version
+	reg, err := diagnosis.RegisterFor(class)
+	if err != nil {
+		return ""
 	}
-	return ""
+	return reg.Version
 }
 
 // Queue paging bounds. Twenty is one phone viewport with a little headroom; the

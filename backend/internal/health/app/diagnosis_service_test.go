@@ -2,6 +2,7 @@ package app
 
 import (
 	"context"
+	"strings"
 	"testing"
 
 	"github.com/vgoats/goatos/backend/internal/health/diagnosis"
@@ -11,21 +12,9 @@ import (
 
 type fakeDiagnosisRepo struct{}
 
-func (fakeDiagnosisRepo) SubmitObservation(ctx context.Context, in domain.SubmitObservationInput, evaluate ports.EvaluateFunc) (domain.SubmitObservationResult, error) {
-	var authored *domain.RegisterDetail
-	var authoredErr error
-	if in.Context.Open != nil {
-		authoredErr = ports.ErrRegisterNotFound
-	}
-	proposal, confirmable := evaluate(ctx, in.TenantID, diagnosis.Animal{
-		Class:   diagnosis.ClassAdult,
-		Species: "goat",
-		Sex:     "F",
-		Status:  "normal",
-	}, in.Findings, in.Context, authored, authoredErr)
-	return domain.SubmitObservationResult{Proposal: proposal, Confirmable: confirmable}, nil
+func (fakeDiagnosisRepo) SubmitObservation(context.Context, domain.SubmitObservationInput, ports.EvaluateFunc) (domain.SubmitObservationResult, error) {
+	return domain.SubmitObservationResult{}, nil
 }
-
 func (fakeDiagnosisRepo) ConfirmDiagnosis(context.Context, domain.ConfirmDiagnosisInput) (domain.ConfirmDiagnosisResult, error) {
 	return domain.ConfirmDiagnosisResult{}, nil
 }
@@ -36,81 +25,116 @@ func (fakeDiagnosisRepo) ListDiagnosisRuns(context.Context, domain.DiagnosisQueu
 	return domain.DiagnosisQueuePage{}, nil
 }
 
-type fakeRegisterSource struct {
-	doc domain.RegisterDetail
-	err error
-}
-
-func (f fakeRegisterSource) PublishedRegister(context.Context, string, string) (domain.RegisterDetail, error) {
-	return f.doc, f.err
-}
-func (fakeRegisterSource) ListRegisters(context.Context, string) ([]domain.RegisterSummary, error) {
-	return nil, nil
-}
-func (fakeRegisterSource) GetRegister(context.Context, string, string) (domain.RegisterDetail, error) {
-	return domain.RegisterDetail{}, nil
-}
-func (fakeRegisterSource) GetRegisterDraftForEdit(context.Context, domain.RegisterVersionCommand, string) (domain.RegisterDetail, error) {
-	return domain.RegisterDetail{}, nil
-}
-func (fakeRegisterSource) SaveRegisterDraft(context.Context, domain.SaveRegisterDraftCommand) (domain.RegisterAuthoringResult, error) {
-	return domain.RegisterAuthoringResult{}, nil
-}
-func (fakeRegisterSource) PublishRegisterDraft(context.Context, domain.RegisterVersionCommand) (domain.RegisterAuthoringResult, error) {
-	return domain.RegisterAuthoringResult{}, nil
-}
-func (fakeRegisterSource) DiscardRegisterDraft(context.Context, domain.RegisterVersionCommand) (domain.RegisterAuthoringResult, error) {
-	return domain.RegisterAuthoringResult{}, nil
-}
-
-func TestDiagnosisUsesPublishedTenantRegister(t *testing.T) {
-	temp := 102.0
+func TestDiagnosisEvaluationUsesPublishedAuthoredRegister(t *testing.T) {
 	doc, err := diagnosis.SeedAuthored(diagnosis.ClassAdult, domain.SOPRefToDiseaseKey)
 	if err != nil {
-		t.Fatal(err)
+		t.Fatalf("seed authored register: %v", err)
 	}
-	doc.RegisterVersion = "tenant-live-42"
-
-	svc, err := NewDiagnosisService(fakeDiagnosisRepo{}, nil)
+	doc.RegisterVersion = "adult-live-from-health-config"
+	svc, err := NewDiagnosisService(fakeDiagnosisRepo{})
 	if err != nil {
-		t.Fatal(err)
+		t.Fatalf("wire service: %v", err)
 	}
-	svc.WithRegisterAuthoring(fakeRegisterSource{doc: domain.RegisterDetail{Document: *doc}})
 
-	res, err := svc.SubmitObservation(context.Background(), domain.SubmitObservationInput{
-		TenantID:       "10000000-0000-4000-8000-000000000001",
-		ActorID:        "20000000-0000-4000-8000-000000000001",
-		GoatID:         "30000000-0000-4000-8000-000000000001",
-		Findings:       diagnosis.Findings{Temp: &temp, Eating: diagnosis.MultiValue{"normal"}, Activity: "standing"},
-		IdempotencyKey: "obs-1",
-	})
+	proposal, _, err := svc.evaluate(context.Background(), doc,
+		diagnosis.Animal{Class: diagnosis.ClassAdult, Sex: "F", Status: "normal"},
+		diagnosis.Findings{Temp: ptrFloat(104.5)},
+		nil,
+		diagnosis.Context{})
 	if err != nil {
-		t.Fatal(err)
+		t.Fatalf("evaluate: %v", err)
 	}
-	if res.Proposal.RegisterVersion != "tenant-live-42" {
-		t.Fatalf("register version = %q, want tenant-live-42; proposal=%+v", res.Proposal.RegisterVersion, res.Proposal)
+
+	if proposal.RegisterVersion != "adult-live-from-health-config" {
+		t.Fatalf("register version = %q, want the published authored register", proposal.RegisterVersion)
 	}
 }
 
-func TestDiagnosisFallsBackToSeedWhenTenantRegisterMissing(t *testing.T) {
-	temp := 102.0
-	svc, err := NewDiagnosisService(fakeDiagnosisRepo{}, nil)
+func TestDiagnosisEvaluationFallsBackToCommittedSeedWhenNoPublishedRegisterExists(t *testing.T) {
+	svc, err := NewDiagnosisService(fakeDiagnosisRepo{})
 	if err != nil {
-		t.Fatal(err)
+		t.Fatalf("wire service: %v", err)
 	}
-	svc.WithRegisterAuthoring(fakeRegisterSource{err: ports.ErrRegisterNotFound})
 
-	res, err := svc.SubmitObservation(context.Background(), domain.SubmitObservationInput{
-		TenantID:       "10000000-0000-4000-8000-000000000001",
-		ActorID:        "20000000-0000-4000-8000-000000000001",
-		GoatID:         "30000000-0000-4000-8000-000000000001",
-		Findings:       diagnosis.Findings{Temp: &temp, Eating: diagnosis.MultiValue{"normal"}, Activity: "standing"},
-		IdempotencyKey: "obs-1",
-	})
+	proposal, _, err := svc.evaluate(context.Background(), nil,
+		diagnosis.Animal{Class: diagnosis.ClassAdult, Sex: "F", Status: "normal"},
+		diagnosis.Findings{Temp: ptrFloat(104.5)},
+		nil,
+		diagnosis.Context{})
 	if err != nil {
-		t.Fatal(err)
+		t.Fatalf("evaluate: %v", err)
 	}
-	if res.Proposal.RegisterVersion == "" || res.Proposal.RegisterVersion == "tenant-live-42" {
-		t.Fatalf("fallback register version = %q", res.Proposal.RegisterVersion)
+
+	if proposal.RegisterVersion != "adult-1" {
+		t.Fatalf("register version = %q, want committed fallback adult-1", proposal.RegisterVersion)
 	}
 }
+
+func TestDiagnosisEvaluationReturnsPublishedRegisterCompileErrors(t *testing.T) {
+	doc, err := diagnosis.SeedAuthored(diagnosis.ClassAdult, domain.SOPRefToDiseaseKey)
+	if err != nil {
+		t.Fatalf("seed authored register: %v", err)
+	}
+	doc.AppliesClass = []string{diagnosis.ClassKidMilk}
+	svc, err := NewDiagnosisService(fakeDiagnosisRepo{})
+	if err != nil {
+		t.Fatalf("wire service: %v", err)
+	}
+
+	_, _, err = svc.evaluate(context.Background(), doc,
+		diagnosis.Animal{Class: diagnosis.ClassAdult, Sex: "F", Status: "normal"},
+		diagnosis.Findings{Temp: ptrFloat(104.5)},
+		nil,
+		diagnosis.Context{})
+
+	if err == nil || !strings.Contains(err.Error(), "does not claim class adult") {
+		t.Fatalf("err = %v, want compile error", err)
+	}
+}
+
+func TestDiagnosisEvaluationAcceptsAuthoredAnswers(t *testing.T) {
+	doc, err := diagnosis.SeedAuthored(diagnosis.ClassAdult, domain.SOPRefToDiseaseKey)
+	if err != nil {
+		t.Fatalf("seed authored register: %v", err)
+	}
+	doc.RegisterVersion = "adult-authored-answers"
+	svc, err := NewDiagnosisService(fakeDiagnosisRepo{})
+	if err != nil {
+		t.Fatalf("wire service: %v", err)
+	}
+	animal := diagnosis.Animal{Class: diagnosis.ClassAdult, Sex: "F", Status: "normal"}
+	findings := diagnosis.Findings{Temp: ptrFloat(104.5)}
+
+	proposal, _, err := svc.evaluate(context.Background(), doc, animal, findings, diagnosis.LegacyAnswers(animal, findings), diagnosis.Context{})
+	if err != nil {
+		t.Fatalf("evaluate: %v", err)
+	}
+	if proposal.RegisterVersion != "adult-authored-answers" {
+		t.Fatalf("register version = %q, want authored register", proposal.RegisterVersion)
+	}
+}
+
+func TestDiagnosisEvaluationRejectsExplicitEmptyAuthoredAnswers(t *testing.T) {
+	doc, err := diagnosis.SeedAuthored(diagnosis.ClassAdult, domain.SOPRefToDiseaseKey)
+	if err != nil {
+		t.Fatalf("seed authored register: %v", err)
+	}
+	svc, err := NewDiagnosisService(fakeDiagnosisRepo{})
+	if err != nil {
+		t.Fatalf("wire service: %v", err)
+	}
+
+	proposal, _, err := svc.evaluate(context.Background(), doc,
+		diagnosis.Animal{Class: diagnosis.ClassAdult, Sex: "F", Status: "normal"},
+		diagnosis.Findings{},
+		diagnosis.Answers{},
+		diagnosis.Context{})
+	if err != nil {
+		t.Fatalf("evaluate: %v", err)
+	}
+	if proposal.Valid || !strings.Contains(proposal.RejectReason, "has not been answered") {
+		t.Fatalf("proposal = %+v, want authored validation rejection", proposal)
+	}
+}
+
+func ptrFloat(v float64) *float64 { return &v }

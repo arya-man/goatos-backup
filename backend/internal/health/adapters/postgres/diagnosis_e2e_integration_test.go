@@ -26,11 +26,7 @@ func diagnosisStack(t *testing.T, ctx context.Context, pool *pgxpool.Pool) (*hea
 	t.Helper()
 	base := NewRepository(pool, 30*time.Second)
 	repo := NewDiagnosisRepository(base)
-	reg, err := diagnosis.AdultRegister()
-	if err != nil {
-		t.Fatalf("load register: %v", err)
-	}
-	svc, err := healthapp.NewDiagnosisService(repo, reg)
+	svc, err := healthapp.NewDiagnosisService(repo)
 	if err != nil {
 		t.Fatalf("wire service: %v", err)
 	}

@@ -58,6 +58,7 @@ func RegisterDiagnosis(mux *http.ServeMux, h *DiagnosisHandler) {
 type submitObservationRequest struct {
 	GoatID   string                    `json:"goat_id"`
 	Findings diagnosis.Findings        `json:"findings"`
+	Answers  diagnosis.Answers         `json:"answers"`
 	Context  observationContextRequest `json:"context"`
 }
 
@@ -134,6 +135,7 @@ func (h *DiagnosisHandler) SubmitObservation(w http.ResponseWriter, r *http.Requ
 		ActorID:            httpmiddleware.ActorIDFromContext(r.Context()),
 		GoatID:             req.GoatID,
 		Findings:           req.Findings,
+		Answers:            req.Answers,
 		Context:            req.Context.toDomain(),
 		IdempotencyKey:     idem,
 		RequestFingerprint: fingerprint(body),
