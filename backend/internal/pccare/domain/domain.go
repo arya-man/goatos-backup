@@ -175,12 +175,31 @@ type Slot struct {
 	// MinDurationHintSeconds is recorder-chrome GUIDANCE (the ~10 s "during" clip), never a
 	// client-enforced cap. Zero means no hint.
 	MinDurationHintSeconds int
+	// Kind is the capture the slot takes: video / photo / either (PC CARE SOP, 2026-09-22).
+	// The legacy table below is video-only except the fridge photo.
+	Kind string
+	// Required: the task cannot be submitted while a scanned animal misses this slot.
+	Required bool
 }
 
 // SlotsForCategory returns the ordered mandatory proof slots for a category. Every scanned
 // animal must carry every slot before the task can be submitted. The slot set is BACKEND-OWNED:
 // clients iterate this list off the contract and never hardcode a category→slot map.
 func SlotsForCategory(category string) []Slot {
+	slots := legacySlotsForCategory(category)
+	for i := range slots {
+		if slots[i].Kind == "" {
+			slots[i].Kind = "video"
+		}
+		slots[i].Required = true
+	}
+	return slots
+}
+
+// legacySlotsForCategory is the pre-SOP slot table. For the five authored categories it is the
+// SEED ORACLE only (pinned equal to the seeded document by TestSeededPCCareSOPIsThePreSOPBehaviour);
+// the served slots come from the pinned rules. inventory_vaccine keeps it as its live contract.
+func legacySlotsForCategory(category string) []Slot {
 	switch category {
 	case CategoryDeworming:
 		return []Slot{{
@@ -218,6 +237,7 @@ func SlotsForCategory(category string) []Slot {
 			{
 				FieldKey: SlotStockFridgePhoto, Label: "Fridge stock photo",
 				Description: "Take a clear photo of the vaccine stock available in the fridge",
+				Kind:        "photo",
 			},
 			{
 				FieldKey: SlotStockFridgeVideo, Label: "Fridge stock video",
@@ -459,5 +479,5 @@ var (
 	// ErrFeedRemovalNotApplicable is returned when feed & water removal fields ride a create for
 	// a category other than deworming — rejected loudly, never silently dropped. Surfaces as 422
 	// feed_removal_not_applicable.
-	ErrFeedRemovalNotApplicable = errors.New("pccare: feed and water removal applies to deworming only")
+	ErrFeedRemovalNotApplicable = errors.New("pccare: the published card does not apply feed and water removal to this work")
 )

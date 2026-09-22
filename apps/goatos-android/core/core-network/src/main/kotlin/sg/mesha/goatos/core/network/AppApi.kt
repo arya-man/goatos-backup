@@ -1,5 +1,6 @@
 package sg.mesha.goatos.core.network
 
+import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.SerialName
 import kotlinx.serialization.Serializable
 import sg.mesha.goatos.core.model.nav.NavChrome
@@ -1423,9 +1424,14 @@ interface AppApi {
      * until every scanned animal carries its full slot set (`422 proof_incomplete`) or while no
      * animal is scanned (`422 no_animals`). Idempotent on [idempotencyKey].
      */
-    suspend fun submitPcCareTask(
+    /**
+      * Submits the whole task. [answers] are the operator's answers to the task's PINNED SOP
+      * questions (PC CARE SOP, 2026-09-22); an empty object is a card that asks none.
+      */
+     suspend fun submitPcCareTask(
         taskId: String,
         idempotencyKey: String,
+        answers: JsonObject = JsonObject(emptyMap()),
     ): PcCareSubmitResponseDto
 
     suspend fun getPcCarePlannerCatalog(): PcCarePlannerCatalogDto
@@ -3123,6 +3129,7 @@ class FakeAppApi(private val chrome: String = "expanded") : AppApi {
     override suspend fun submitPcCareTask(
         taskId: String,
         idempotencyKey: String,
+        answers: JsonObject,
     ): PcCareSubmitResponseDto = PcCareSubmitResponseDto(
         taskId = taskId,
         status = "pending_verification",

@@ -14,7 +14,7 @@ test("module SOP pages author into their own slice", () => {
   assert.doesNotMatch(builderSource, /const domain: SopScopeDomain = "vaccination"/);
   // Procurement joined the split on 2026-09-14 (Procurement SOP: the animal purchase inspection);
   // Sales on 2026-09-19 (Sales SOP: what a recorded sale owes and who does each step).
-  assert.match(deriveSource, /export type SopScopeDomain = "vaccination" \| "counts" \| "feed" \| "milk" \| "weighing" \| "procurement" \| "general" \| "sales";/);
+  assert.match(deriveSource, /export type SopScopeDomain = "vaccination" \| "counts" \| "feed" \| "milk" \| "weighing" \| "procurement" \| "general" \| "sales" \| "pc_care";/);
   assert.match(deriveSource, /const prefix = input\.domain;/);
   assert.match(actionsSource, /SOP_SLICE_LABEL\[input\.domain\]/);
 });

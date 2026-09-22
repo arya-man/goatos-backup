@@ -3,6 +3,9 @@ package sg.mesha.goatos.feature.pccare
 // telemetry:exempt pure stateless renderer; PcCareTaskViewModel (in :app) owns the pc_care_*
 // AnalyticsEvents + CrashReporter wiring for scans, captures, and submits.
 
+import androidx.compose.foundation.layout.Box
+import sg.mesha.goatos.core.ui.sop.SopQuestionCard
+import sg.mesha.goatos.core.ui.sop.SopCardUi
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
@@ -156,19 +159,27 @@ fun PcCareTaskScreen(
                     key = { index -> "task_proof_slot_" + state.taskProofSlots[index].fieldKey },
                 ) { index ->
                     val proofSlot = state.taskProofSlots[index]
+                    // The verb is the CAPTURE's, not the card's (PC CARE SOP, 2026-09-22): a slot
+                    // authored as a photo opens the photo recorder and says so. `either` keeps the
+                    // video verb here — this face records one capture per row, and the operator
+                    // picks between two verbs only on the per-animal row.
+                    val takesPhoto = proofSlot.kind == "photo"
+                    val mediaKind = if (takesPhoto) "photo" else "video"
                     PcCareTaskProofAction(
-                        title = "Record video",
+                        title = if (takesPhoto) "Take photo" else "Record video",
                         subtitle = proofSlot.label,
-                        icon = MeshaIcons.Video,
+                        icon = if (takesPhoto) MeshaIcons.Plus else MeshaIcons.Video,
                         slot = proofSlot,
                         locked = state.isLocked,
-                        loadingLabel = "Saving video",
-                        retryLabel = "Retry video",
-                        replaceLabel = "Replace video",
-                        capturedLabel = proofSlot.statusLabel.ifBlank { "Video captured" },
-                        onRecord = { onEvent(PcCareTaskEvent.RecordTaskProof(proofSlot.fieldKey, "video")) },
+                        loadingLabel = if (takesPhoto) "Saving photo" else "Saving video",
+                        retryLabel = if (takesPhoto) "Retry photo" else "Retry video",
+                        replaceLabel = if (takesPhoto) "Replace photo" else "Replace video",
+                        capturedLabel = proofSlot.statusLabel.ifBlank {
+                            if (takesPhoto) "Photo captured" else "Video captured"
+                        },
+                        onRecord = { onEvent(PcCareTaskEvent.RecordTaskProof(proofSlot.fieldKey, mediaKind)) },
                         onPreviewAction = { action ->
-                            onEvent(PcCareTaskEvent.ProofPreviewAction(proofSlot.fieldKey, "video", action))
+                            onEvent(PcCareTaskEvent.ProofPreviewAction(proofSlot.fieldKey, mediaKind, action))
                         },
                     )
                 }
@@ -250,6 +261,9 @@ fun PcCareTaskScreen(
                         animal = state.animals[index],
                         locked = state.isLocked,
                         onOpen = { onEvent(PcCareTaskEvent.RosterTapped(state.animals[index].key)) },
+                        onRecordSlotPhoto = { fieldKey ->
+                            onEvent(PcCareTaskEvent.RecordSlot(state.animals[index].key, fieldKey, photo = true))
+                        },
                         onRecordSlot = { fieldKey ->
                             onEvent(PcCareTaskEvent.RecordSlot(state.animals[index].key, fieldKey))
                         },
@@ -257,6 +271,34 @@ fun PcCareTaskScreen(
                             onEvent(PcCareTaskEvent.ProofPreviewAction(fieldKey, mediaKind, action, tagKey = tagKey))
                         },
                     )
+                }
+            }
+
+            // The questions the task's PINNED card asks (PC CARE SOP, 2026-09-22), answered ONCE
+            // for the whole task and carried by the submit. They sit AFTER the captures and
+            // before the submit bar, which is the order the operator works in. A conditional
+            // question appears only while its trigger holds — `appliesTo` walks the same chain
+            // the server walks, so a follow-up abandoned by a change of mind disappears and its
+            // answer is never sent.
+            if (state.questions.isNotEmpty()) {
+                val answerCard = SopCardUi(questions = state.questions, answers = state.answers)
+                val asked = state.questions.filter { answerCard.appliesTo(it) }
+                if (asked.isNotEmpty()) {
+                    // No heading: every other SOP screen renders the question cards bare, because
+                    // each one carries its own authored title (core-ui sopCardItems).
+                    items(count = asked.size, key = { index -> "pc_care_question_" + asked[index].id }) { index ->
+                        val question = asked[index]
+                        Box(modifier = Modifier.padding(horizontal = 16.dp, vertical = 4.dp)) {
+                            SopQuestionCard(
+                                question = question,
+                                answer = state.answers[question.id].orEmpty(),
+                                otherText = state.answers[question.id + "_other"].orEmpty(),
+                                enabled = !state.isLocked,
+                                onAnswer = { value -> onEvent(PcCareTaskEvent.SetAnswer(question.id, value)) },
+                                onOther = { value -> onEvent(PcCareTaskEvent.SetAnswerOther(question.id, value)) },
+                            )
+                        }
+                    }
                 }
             }
         }
@@ -473,6 +515,7 @@ private fun PcCareAnimalRow(
     locked: Boolean,
     onOpen: () -> Unit,
     onRecordSlot: (String) -> Unit,
+    onRecordSlotPhoto: (String) -> Unit,
     onPreviewAction: (String, String, String, String) -> Unit = { _, _, _, _ -> },
 ) {
     Column(
@@ -497,6 +540,7 @@ private fun PcCareAnimalRow(
                 slot = slot,
                 locked = locked,
                 onRecord = { onRecordSlot(slot.fieldKey) },
+                onRecordPhoto = { onRecordSlotPhoto(slot.fieldKey) },
                 onPreviewAction = { action ->
                     onPreviewAction(
                         slot.fieldKey,
@@ -563,17 +607,26 @@ private fun PcCareSlotChipRow(
             }
         }
         if (!locked && slot.canRecord) {
-            if (onRecordPhoto == null) {
-                if (slot.state == PcCareSlotState.EMPTY) {
-                    PcCarePrimaryButton(label = "Record", enabled = true, onClick = onRecord)
-                } else {
-                    PcCareProofRetryButton(label = "Retry video", onClick = onRecord)
-                }
-            } else {
-                FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                    PcCarePrimaryButton(label = "Photo", enabled = true, onClick = onRecordPhoto)
+            // The verbs are the SLOT's (PC CARE SOP, 2026-09-22): a video slot offers Record, a
+            // photo slot Take photo, an `either` slot both and the operator picks. A row with no
+            // photo handler at all (the task-proof face passes none) keeps the video verb.
+            val takesPhoto = onRecordPhoto != null && (slot.kind == "photo" || slot.kind == "either")
+            val takesVideo = slot.kind != "photo"
+            when {
+                takesPhoto && takesVideo -> FlowRow(
+                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                    verticalArrangement = Arrangement.spacedBy(8.dp),
+                ) {
+                    PcCarePrimaryButton(label = "Photo", enabled = true, onClick = onRecordPhoto!!)
                     PcCarePrimaryButton(label = "Video", enabled = true, onClick = onRecord)
                 }
+                takesPhoto -> if (slot.state == PcCareSlotState.EMPTY) {
+                    PcCarePrimaryButton(label = "Take photo", enabled = true, onClick = onRecordPhoto!!)
+                } else {
+                    PcCareProofRetryButton(label = "Retry photo", onClick = onRecordPhoto!!)
+                }
+                slot.state == PcCareSlotState.EMPTY -> PcCarePrimaryButton(label = "Record", enabled = true, onClick = onRecord)
+                else -> PcCareProofRetryButton(label = "Retry video", onClick = onRecord)
             }
         }
     }

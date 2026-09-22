@@ -2634,6 +2634,11 @@
   .sop-weighing .inspection-page>.bd>.qcfg label.chkline{display:flex;align-items:flex-start;gap:8px;width:auto}
   .sop-weighing .inspection-page>.bd>.qcfg label.chkline input{width:auto;flex:0 0 auto;margin-top:2px}
   .sop-weighing .inspection-page>.bd>.qcfg label.chkline .muted{font-weight:500}
+  /* Preventive Care SOP: the work-it-applies-to list nests its checkbox rows one level
+     deeper than the weighing rule above reaches, so the box was stretched by the page's
+     text-field width rule and clipped by its row. */
+  .sop-pc-care .qcfg .qlist>label.chkline{display:flex;align-items:center;gap:8px;width:auto}
+  .sop-pc-care .qcfg .qlist>label.chkline input{width:auto;flex:0 0 auto}
   .sop-inspection .qcard .rowf{display:flex;gap:8px;flex-wrap:wrap}
   .sop-inspection .qcard .rowf>*{flex:1;min-width:0}
   .sop-inspection .qcard .optrow code{flex:none;max-width:120px;overflow:hidden;text-overflow:ellipsis}

@@ -1,5 +1,6 @@
 package sg.mesha.goatos.core.data
 
+import kotlinx.serialization.json.JsonObject
 import androidx.paging.ExperimentalPagingApi
 import androidx.paging.LoadType
 import androidx.paging.Pager
@@ -265,7 +266,8 @@ interface PcCareRepository {
     suspend fun proofDownloadUrl(proofId: String): AppResult<String>
 
     /** Enqueues the whole-task submit under the stable per-(task, rowVersion) key. */
-    suspend fun submitTask(taskId: String, rowVersion: Int): AppResult<String>
+    /** Submits the whole task with the operator's answers to its pinned SOP questions. */
+    suspend fun submitTask(taskId: String, rowVersion: Int, answers: JsonObject = JsonObject(emptyMap())): AppResult<String>
 
     /**
      * Reconciles a successful submit's POST-dispatch server result into every Room copy of the
@@ -675,8 +677,8 @@ class DefaultPcCareRepository(
             proofOutboxItemId = proofOutboxItemId,
         )
 
-    override suspend fun submitTask(taskId: String, rowVersion: Int): AppResult<String> =
-        syncRepository.enqueuePcCareTaskSubmit(taskId, rowVersion)
+    override suspend fun submitTask(taskId: String, rowVersion: Int, answers: JsonObject): AppResult<String> =
+        syncRepository.enqueuePcCareTaskSubmit(taskId, rowVersion, answers)
 
     override suspend fun persistTaskSubmitResult(
         taskId: String,

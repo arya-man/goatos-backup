@@ -80,8 +80,10 @@ ON CONFLICT (workforce_member_id) DO NOTHING`, bsMember, bsTenant, bsOperator, b
 	for _, tk := range tasks {
 		exec(t, ctx, pool, `
 INSERT INTO pc_care_tasks (task_id, tenant_id, category, park_id, shed_id, partition_label, planned_business_date, due_business_date, work_state, status, idempotency_key, created_by,
+                           slot_keys, required_slot_keys,
                            closed_by, close_reason, terminal_at)
 VALUES ($1::uuid, $2::uuid, $3, $4::uuid, $5::uuid, NULLIF($6, ''), $7::date, $8::date, $9, $10, 'board-' || $1, $11::uuid,
+        ARRAY['video'], ARRAY['video'],
         CASE WHEN $9 = 'closed' THEN $11::uuid END, CASE WHEN $9 = 'closed' THEN 'Pen emptied before the work' END, CASE WHEN $9 = 'closed' THEN now() END)
 ON CONFLICT (task_id) DO NOTHING`, tk.id, bsTenant, tk.category, tk.park, bsShed, tk.partition, tk.planned, tk.due, tk.workState, tk.status, bsCEO)
 		for _, a := range tk.assignees {
@@ -94,8 +96,8 @@ INSERT INTO pc_care_task_assignees (tenant_id, task_id, operator_user_id) VALUES
 	scan := func(task, tag string, filmed bool) {
 		if filmed {
 			exec(t, ctx, pool, `
-INSERT INTO pc_care_task_animals (tenant_id, task_id, scanned_identifier, scanned_by, video_proof_ref, video_captured_by, video_captured_at, idempotency_key)
-VALUES ($1::uuid, $2::uuid, $3, $4::uuid, 'proof/' || $3, $4::uuid, now(), 'board-' || $2 || '-' || $3) ON CONFLICT DO NOTHING`, bsTenant, task, tag, bsOperator)
+INSERT INTO pc_care_task_animals (tenant_id, task_id, scanned_identifier, scanned_by, video_proof_ref, video_captured_by, video_captured_at, sop_proofs, idempotency_key)
+VALUES ($1::uuid, $2::uuid, $3, $4::uuid, 'proof/' || $3, $4::uuid, now(), jsonb_build_object('video', 'proof/' || $3), 'board-' || $2 || '-' || $3) ON CONFLICT DO NOTHING`, bsTenant, task, tag, bsOperator)
 			return
 		}
 		exec(t, ctx, pool, `

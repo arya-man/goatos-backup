@@ -25,7 +25,9 @@ type CreateRoundInput struct {
 	AssigneeUserIDs     []string
 	// FeedRemovalRequired (deworming only) asks for the evening-before feed & water removal:
 	// ONE round-grain card, one feed video + one water video PER PEN.
-	FeedRemovalRequired bool
+	// FeedRemovalRequested is the planner's word on the removal (nil = not said); the pinned SOP
+	// decides what it means -- see CreateTaskInput.
+	FeedRemovalRequested *bool
 	// RemovalOperatorUserIDs are the operators for that card (>=1 when the toggle is on).
 	RemovalOperatorUserIDs []string
 	IdempotencyKey         string
@@ -106,52 +108,38 @@ func (s *Service) CreateRound(ctx context.Context, actor domain.Actor, in Create
 		return ports.RoundRow{}, ports.ErrInvalidArgument
 	}
 
-	// Feed & water removal precondition. Honored on deworming ONLY and validate-or-reject on
-	// every other category — a dropped toggle would read to the planner as accepted while
-	// creating no removal card at all.
-	var removalOperators []string
-	if in.FeedRemovalRequired || len(in.RemovalOperatorUserIDs) > 0 {
-		if in.Category != domain.CategoryDeworming || !in.FeedRemovalRequired {
-			return ports.RoundRow{}, domain.ErrFeedRemovalNotApplicable
-		}
-		removalOperators, err = dedupUUIDList(in.RemovalOperatorUserIDs)
-		if err != nil {
-			return ports.RoundRow{}, err
-		}
-		if len(removalOperators) == 0 {
-			return ports.RoundRow{}, domain.ErrRemovalOperatorsRequired
-		}
-		// Configured planning cutoff: the removal happens the EVENING BEFORE, so the earliest
-		// deworming date is tomorrow before the tenant's cutoff and the day after tomorrow from
-		// the cutoff on. Business-DAY comparison on the service's injectable clock — never
-		// now±N hours. The cutoff is a property of the FARM's evening, not of a pen or a
-		// module: one evening, one crew, read from config.
-		cutoff, err := s.removalCutoff(ctx, actor.TenantID)
-		if err != nil {
-			return ports.RoundRow{}, err
-		}
-		if planned.Before(domain.EarliestFeedRemovalDewormingDate(s.now(), cutoff)) {
-			return ports.RoundRow{}, domain.ErrFastingWindowClosed
-		}
+	// Feed & water removal precondition, decided by the PUBLISHED SOP (PC CARE SOP, 2026-09-22).
+	rules, err := s.publishedRules(ctx, actor.TenantID)
+	if err != nil {
+		return ports.RoundRow{}, err
+	}
+	removalApplies, removalOperators, err := s.applyRemovalRules(ctx, actor.TenantID, rules, in.Category, in.FeedRemovalRequested, in.RemovalOperatorUserIDs, planned)
+	if err != nil {
+		return ports.RoundRow{}, err
 	}
 
 	if s.rounds == nil {
 		return ports.RoundRow{}, ports.ErrStoreUnavailable
 	}
 	return s.rounds.CreateRound(ctx, ports.CreateRoundParams{
-		TenantID:               actor.TenantID,
-		Category:               in.Category,
-		ParkID:                 in.ParkID,
-		Pens:                   pens,
-		PlannedBusinessDate:    planned,
-		AssigneeUserIDs:        assignees,
-		FeedRemovalRequired:    in.FeedRemovalRequired,
-		RemovalOperatorUserIDs: removalOperators,
-		IdempotencyKey:         strings.TrimSpace(in.IdempotencyKey),
-		CreatedBy:              actor.UserID,
-		ActorID:                in.ActorID,
-		ActorType:              in.ActorType,
-		TraceID:                in.TraceID,
+		TenantID:                actor.TenantID,
+		Category:                in.Category,
+		ParkID:                  in.ParkID,
+		Pens:                    pens,
+		PlannedBusinessDate:     planned,
+		AssigneeUserIDs:         assignees,
+		FeedRemovalRequired:     removalApplies,
+		RemovalOperatorUserIDs:  removalOperators,
+		SOPVersion:              rules.Version,
+		SlotKeys:                allKeys(slotsAsAuthored(rules.CategorySlots(in.Category))),
+		RequiredSlotKeys:        rules.RequiredSlotKeys(in.Category),
+		RemovalSlotKeys:         allKeys(rules.RemovalProofs()),
+		RemovalRequiredSlotKeys: requiredKeys(rules.RemovalProofs()),
+		IdempotencyKey:          strings.TrimSpace(in.IdempotencyKey),
+		CreatedBy:               actor.UserID,
+		ActorID:                 in.ActorID,
+		ActorType:               in.ActorType,
+		TraceID:                 in.TraceID,
 	})
 }
 
@@ -314,7 +302,14 @@ func (s *Service) RegisterRemovalPenProof(ctx context.Context, actor domain.Acto
 		return ports.ErrInvalidArgument
 	}
 	slot := strings.TrimSpace(in.SlotKey)
-	if slot != domain.SlotFeedVideo && slot != domain.SlotWaterVideo {
+	// The key must be one of the PINNED removal card's slots and the capture of the slot's
+	// kind (PC CARE SOP, 2026-09-22).
+	rules, err := s.rulesForTask(ctx, actor.TenantID, in.RemovalTaskID)
+	if err != nil {
+		return err
+	}
+	removalSlot, ok := rules.RemovalProof(slot)
+	if !ok {
 		return domain.ErrInvalidSlotForCategory
 	}
 	in.ProofRef = strings.TrimSpace(in.ProofRef)
@@ -324,10 +319,8 @@ func (s *Service) RegisterRemovalPenProof(ctx context.Context, actor domain.Acto
 	if strings.TrimSpace(in.IdempotencyKey) == "" {
 		return ports.ErrIdempotencyRequired
 	}
-	if s.proofs != nil {
-		if err := s.proofs.ValidateLiveCameraProofKind(ctx, actor.TenantID, []string{in.ProofRef}, "video"); err != nil {
-			return err
-		}
+	if _, err := s.validateSlotCapture(ctx, actor.TenantID, removalSlot, in.ProofRef); err != nil {
+		return err
 	}
 	if s.rounds == nil {
 		return ports.ErrStoreUnavailable

@@ -1,5 +1,11 @@
 package sg.mesha.goatos.viewmodel
 
+import sg.mesha.goatos.core.ui.sop.SopQuestionUi
+import sg.mesha.goatos.core.ui.sop.SopCardUi
+import kotlinx.serialization.json.JsonPrimitive
+import kotlinx.serialization.json.JsonObject
+import kotlinx.serialization.json.JsonElement
+import kotlinx.serialization.json.JsonArray
 import androidx.lifecycle.SavedStateHandle
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
@@ -148,6 +154,12 @@ class PcCareTaskViewModel @Inject constructor(
          * tell which pen was actually emptied. Empty on every other card.
          */
         val removalPens: List<PcCareRemovalPenDto> = emptyList(),
+        /**
+         * The operator's answers to the task's PINNED SOP questions (PC CARE SOP, 2026-09-22),
+         * given once for the whole task and carried by the submit. Device-local until then; a
+         * question whose condition stops holding is dropped before the submit, never sent.
+         */
+        val answers: Map<String, String> = emptyMap(),
     )
 
     private val local = MutableStateFlow(LocalBits())
@@ -317,7 +329,9 @@ class PcCareTaskViewModel @Inject constructor(
         when (event) {
             is PcCareTaskEvent.ScanInputChanged -> local.update { it.copy(scanInput = event.value) }
             PcCareTaskEvent.SubmitTypedScan -> handleScan(local.value.scanInput, fromTypedEntry = true)
-            is PcCareTaskEvent.RecordSlot -> onRecordSlot(event.tagKey, event.slotFieldKey)
+            is PcCareTaskEvent.RecordSlot -> onRecordSlot(event.tagKey, event.slotFieldKey, photo = event.photo)
+            is PcCareTaskEvent.SetAnswer -> setAnswer(event.questionId, event.value)
+            is PcCareTaskEvent.SetAnswerOther -> setAnswer(event.questionId + "_other", event.value)
             is PcCareTaskEvent.RecordTaskProof -> onRecordTaskProof(event.slotFieldKey, event.mediaKind)
             is PcCareTaskEvent.ProofPreviewAction -> trackProofPreviewAction(
                 slotFieldKey = event.slotFieldKey,
@@ -497,6 +511,15 @@ class PcCareTaskViewModel @Inject constructor(
         }
     }
 
+    /**
+     * Records one answer to the task's pinned card. Answers are device-local until the submit
+     * carries them; a question whose condition stops holding is dropped by the shared card model,
+     * so a hidden answer can never reach the server (the sop/authored applicability rule).
+     */
+    private fun setAnswer(questionId: String, value: String) {
+        local.update { it.copy(answers = it.answers + (questionId to value)) }
+    }
+
     // ---- Slot capture ------------------------------------------------------------------------
 
     /**
@@ -505,7 +528,7 @@ class PcCareTaskViewModel @Inject constructor(
      * being recorded records that animal into the task but can NEVER retarget this capture (the
      * weighing mid-recording defect class).
      */
-    private fun onRecordSlot(tagKey: String, slotFieldKey: String, tagVerbatimFallback: String? = null) {
+    private fun onRecordSlot(tagKey: String, slotFieldKey: String, tagVerbatimFallback: String? = null, photo: Boolean = false) {
         val bits = local.value
         if (bits.capturingSlotKey != null) {
             local.update { it.copy(message = "Finish the current video first.") }
@@ -550,7 +573,28 @@ class PcCareTaskViewModel @Inject constructor(
         )
         viewModelScope.launch {
             try {
-                val captured =
+                // The camera is the SLOT's (PC CARE SOP, 2026-09-22): a photo slot opens the photo
+                // camera, a video slot the recorder, and an `either` slot whichever verb the
+                // operator tapped. A slot from an older server carries no kind and is a video,
+                // which every seeded slot is.
+                val takePhoto = slotDto.kind == PC_CARE_SLOT_KIND_PHOTO ||
+                    (slotDto.kind == PC_CARE_SLOT_KIND_EITHER && photo)
+                val captured = if (takePhoto) {
+                    photoCaptureSource.capturePhoto(
+                        PhotoCaptureContext(
+                            title = slotDto.label,
+                            instruction = slotDto.description.ifBlank { slotDto.label },
+                        ),
+                    )?.let {
+                        PcCareCapturedTaskProof(
+                            localUri = it.localUri,
+                            mimeType = it.mimeType,
+                            startedAtMs = it.capturedAtMs,
+                            endedAtMs = it.capturedAtMs,
+                            captureSource = it.captureSource,
+                        )
+                    }
+                } else {
                     proofCaptureSource.captureVideo(
                         ProofCaptureContext(
                             // Backend-owned slot label leads the recorder chrome; the duration
@@ -560,7 +604,16 @@ class PcCareTaskViewModel @Inject constructor(
                             workLabel = pcCareSlotHintLabel(slotDto.minDurationHintSeconds),
                             headerTitle = pcCareTaskTitle(detail).ifBlank { null },
                         ),
-                    )
+                    )?.let {
+                        PcCareCapturedTaskProof(
+                            localUri = it.localUri,
+                            mimeType = it.mimeType,
+                            startedAtMs = it.startedAtMs,
+                            endedAtMs = it.endedAtMs,
+                            captureSource = it.captureSource,
+                        )
+                    }
+                }
                 if (captured == null) {
                     analytics.track(
                         AnalyticsEvents.PC_CARE_SLOT_CAPTURE_RESULT,
@@ -1475,7 +1528,7 @@ class PcCareTaskViewModel @Inject constructor(
         viewModelScope.launch {
             reconcileSlotRegistrations()
             syncRepository.triggerDrain()
-            when (val result = repository.submitTask(taskId, detail.rowVersion)) {
+            when (val result = repository.submitTask(taskId, detail.rowVersion, pcCareAnswersJson(detail, local.value.answers))) {
                 is AppResult.Ok -> {
                     analytics.track(AnalyticsEvents.PC_CARE_SUBMIT_CONFIRMED)
                     if (pcCareIsTaskProofMode(detail)) {
@@ -1661,8 +1714,9 @@ class PcCareTaskViewModel @Inject constructor(
             // file a pen's removal video as some ANIMAL's scan proof, with a task id for a tag
             // and ":feed_video" for a slot — a wrong write, not merely a missed retry.
             val (removalGatedTaskId, removalSlot) = pcCareSplitRemovalSlotKey(row.fieldKey)
-            if (removalGatedTaskId.isNotBlank() && pcCareTaskProofSlotKeys.contains(removalSlot)) {
-                if (!pcCareStockSlotMatchesMime(removalSlot, row.mimeType)) return@forEach
+            val knownSlotKeys = pcCareTaskProofSlotKeysFor(latestDetail)
+            if (removalGatedTaskId.isNotBlank() && knownSlotKeys.contains(removalSlot)) {
+                if (!pcCareStockSlotMatchesMime(removalSlot, row.mimeType, latestDetail)) return@forEach
                 val result = repository.registerTaskProof(taskId, removalSlot, outboxId, removalGatedTaskId)
                 analytics.track(
                     AnalyticsEvents.PC_CARE_STOCK_PROOF_REGISTRATION,
@@ -1702,8 +1756,8 @@ class PcCareTaskViewModel @Inject constructor(
                         outboxItemId = (result as? AppResult.Ok)?.value,
                     ),
                 )
-            } else if (pcCareTaskProofSlotKeys.contains(row.fieldKey)) {
-                if (!pcCareStockSlotMatchesMime(pcCareSplitRemovalSlotKey(row.fieldKey).second, row.mimeType)) {
+            } else if (knownSlotKeys.contains(row.fieldKey)) {
+                if (!pcCareStockSlotMatchesMime(pcCareSplitRemovalSlotKey(row.fieldKey).second, row.mimeType, latestDetail)) {
                     analytics.track(
                         AnalyticsEvents.PC_CARE_STOCK_PROOF_REGISTRATION,
                         pcCareStockProofAnalyticsProps(
@@ -1917,16 +1971,38 @@ class PcCareTaskViewModel @Inject constructor(
     private fun pcCareTaskProofMediaKind(slotKey: String): String =
         if (slotKey.endsWith(PC_CARE_SLOT_STOCK_FRIDGE_PHOTO)) "photo" else "video"
 
-    private fun pcCareStockSlotMatchesMime(fieldKey: String, mimeType: String): Boolean =
-        when (fieldKey) {
+    /**
+     * Does this clip match what the capture TAKES? The answer comes from the AUTHORED slot where
+     * the card has one (PC CARE SOP, 2026-09-22) and only falls back to the fixed fridge-stock
+     * pair, which is not authored. Before this it was a key table ending in `else -> false`, so a
+     * capture the card added — a third removal video, a renamed key, one authored as a photo —
+     * was silently skipped by the repair below and its registration was never retried.
+     */
+    private fun pcCareStockSlotMatchesMime(fieldKey: String, mimeType: String, detail: PcCareTaskDto? = null): Boolean {
+        val authored = detail?.expectedSlots?.firstOrNull { it.fieldKey == fieldKey }?.kind?.ifBlank { "video" }
+        if (authored != null) {
+            return when (authored) {
+                "photo" -> mimeType.startsWith("image/", ignoreCase = true)
+                "either" -> mimeType.startsWith("image/", ignoreCase = true) || mimeType.startsWith("video/", ignoreCase = true)
+                else -> mimeType.startsWith("video/", ignoreCase = true)
+            }
+        }
+        return when (fieldKey) {
             PC_CARE_SLOT_STOCK_FRIDGE_PHOTO -> mimeType.startsWith("image/", ignoreCase = true)
             PC_CARE_SLOT_STOCK_FRIDGE_VIDEO,
-            // Both removal slots are VIDEO (backend slot contract, maintainer decision 2026-09-03).
             PC_CARE_SLOT_FEED_VIDEO,
             PC_CARE_SLOT_WATER_VIDEO,
             -> mimeType.startsWith("video/", ignoreCase = true)
             else -> false
         }
+    }
+
+    /**
+     * The task-proof slot keys this task actually has: the card's own, plus the fixed fridge pair
+     * for the un-authored stock face. A constant set could not see a capture the card added.
+     */
+    private fun pcCareTaskProofSlotKeysFor(detail: PcCareTaskDto?): Set<String> =
+        pcCareTaskProofSlotKeys + (detail?.expectedSlots?.map { it.fieldKey }?.toSet() ?: emptySet())
 
     // ---- State assembly ----------------------------------------------------------------------
 
@@ -2245,6 +2321,12 @@ class PcCareTaskViewModel @Inject constructor(
         } else {
             emptyList()
         }
+        // The task's PINNED card, judged by the SAME rules the server applies (SopCardUi mirrors
+        // sop/authored ValidateAnswers, message for message), so the phone refuses what the
+        // server would refuse and says the same words rather than sending it and being rejected.
+        val answerCard = SopCardUi(questions = pcCareTaskQuestions(detail), answers = bits.answers)
+        val answerProblem = answerCard.answerProblem
+
         val evaluation = if (taskProofMode) {
             pcCareEvaluateTaskProofSubmit(
                 expectedSlots,
@@ -2279,6 +2361,8 @@ class PcCareTaskViewModel @Inject constructor(
                         fieldKey = slot.fieldKey,
                         label = slot.label,
                         description = slot.description,
+                        kind = slot.kind.ifBlank { "video" },
+                        required = slot.required,
                         state = PcCareSlotState.EMPTY,
                         statusLabel = "",
                         hintLabel = pcCareSlotHintLabel(slot.minDurationHintSeconds),
@@ -2395,9 +2479,18 @@ class PcCareTaskViewModel @Inject constructor(
             } else {
                 ""
             },
-            submitEnabled = evaluation.ready && !locked,
+            // The task's PINNED card and the operator's answers to it (PC CARE SOP, 2026-09-22).
+            // Both must reach the screen: the questions so they can be ASKED, and the answers so
+            // the fields keep what was typed across every re-render.
+            questions = answerCard.questions,
+            answers = bits.answers,
+            // A required answer gates the submit HERE, with the server's own words, rather than
+            // letting the operator press submit into a refusal they cannot read.
+            submitEnabled = evaluation.ready && !locked && answerProblem == null,
             submitBlockedReason = when {
-                evaluation.ready || locked -> ""
+                locked -> ""
+                answerProblem != null && evaluation.ready -> answerProblem.message
+                evaluation.ready -> ""
                 // Roster mode has no scan verb — the same gate reads as a record ask.
                 taskProofMode -> evaluation.blockedReason
                 rosterMode && animals.isEmpty() -> "Record at least one animal first" // mobile-contract:ignore: device-local pre-sync gate copy
@@ -2439,6 +2532,11 @@ class PcCareTaskViewModel @Inject constructor(
         internal const val PC_CARE_SLOT_FEED_VIDEO = "feed_video"
         internal const val PC_CARE_SLOT_WATER_VIDEO = "water_video"
         internal const val PC_CARE_SLOT_STOCK_FRIDGE_PHOTO = "stock_fridge_photo"
+
+        // What an AUTHORED slot takes (PC CARE SOP, 2026-09-22). A slot from an older server
+        // carries no kind at all, which reads as a video -- every seeded slot is one.
+        internal const val PC_CARE_SLOT_KIND_PHOTO = "photo"
+        internal const val PC_CARE_SLOT_KIND_EITHER = "either"
         internal const val PC_CARE_SLOT_STOCK_FRIDGE_VIDEO = "stock_fridge_video"
 
         const val ARG_TASK_ID = "task_id"
@@ -2626,6 +2724,8 @@ internal fun pcCareSlotChip(
                 fieldKey = slot.fieldKey,
                 label = slot.label,
                 description = slot.description,
+                kind = slot.kind.ifBlank { "video" },
+                required = slot.required,
                 state = PcCareSlotState.FAILED,
                 statusLabel = "Retry video",
                 hintLabel = hint,
@@ -2641,6 +2741,8 @@ internal fun pcCareSlotChip(
                 fieldKey = slot.fieldKey,
                 label = slot.label,
                 description = slot.description,
+                kind = slot.kind.ifBlank { "video" },
+                required = slot.required,
                 state = if (localRow.syncStatus == CaptureSyncStatus.FAILED) PcCareSlotState.FAILED else PcCareSlotState.WORKING,
                 statusLabel = localRow.processingStatus.operatorLabel,
                 hintLabel = hint,
@@ -2678,6 +2780,8 @@ internal fun pcCareSlotChip(
         fieldKey = slot.fieldKey,
         label = slot.label,
         description = slot.description,
+        kind = slot.kind.ifBlank { "video" },
+        required = slot.required,
         state = PcCareSlotState.EMPTY,
         statusLabel = "",
         hintLabel = hint,
@@ -2685,7 +2789,28 @@ internal fun pcCareSlotChip(
     )
 }
 
+/**
+ * The task-proof chip for one AUTHORED capture. The chrome (state, status copy, preview) is built
+ * by [pcCareBuildTaskProofSlotChrome]; what the capture TAKES and whether the work needs it come
+ * from the card and are stamped here, so a removal capture authored as a photo is not rendered as
+ * a video (PC CARE SOP, 2026-09-22 -- before this the removal face was video-shaped by key).
+ */
 internal fun pcCareBuildTaskProofSlot(
+    slot: PcCareSlotDto,
+    proofs: List<ProofCaptureRow>,
+    taskProofs: List<PcCareTaskProofDto>,
+    capturingSlotKey: String?,
+    remotePreviewUrls: Map<String, TaskProofPreviewUrl> = emptyMap(),
+    category: String = PcCareTaskViewModel.PC_CARE_CATEGORY_INVENTORY_VACCINE,
+): PcCareSlotChipUi = pcCareBuildTaskProofSlotChrome(
+    slot, proofs, taskProofs, capturingSlotKey, remotePreviewUrls, category,
+).copy(
+    // Blank, from a server predating the card, reads as a video: every seeded slot is one.
+    kind = slot.kind.ifBlank { "video" },
+    required = slot.required,
+)
+
+private fun pcCareBuildTaskProofSlotChrome(
     slot: PcCareSlotDto,
     proofs: List<ProofCaptureRow>,
     taskProofs: List<PcCareTaskProofDto>,
@@ -2811,6 +2936,8 @@ internal fun pcCareBuildTaskProofSlot(
                 fieldKey = slot.fieldKey,
                 label = slot.label,
                 description = slot.description,
+                kind = slot.kind.ifBlank { "video" },
+                required = slot.required,
                 state = PcCareSlotState.WORKING,
                 statusLabel = "Proof uploaded, saving to task...",
                 hintLabel = hint,
@@ -2830,6 +2957,8 @@ internal fun pcCareBuildTaskProofSlot(
                 fieldKey = slot.fieldKey,
                 label = slot.label,
                 description = slot.description,
+                kind = slot.kind.ifBlank { "video" },
+                required = slot.required,
                 state = PcCareSlotState.FAILED,
                 statusLabel = "Retry proof",
                 hintLabel = hint,
@@ -2845,6 +2974,8 @@ internal fun pcCareBuildTaskProofSlot(
                 fieldKey = slot.fieldKey,
                 label = slot.label,
                 description = slot.description,
+                kind = slot.kind.ifBlank { "video" },
+                required = slot.required,
                 state = if (localRow.syncStatus == CaptureSyncStatus.FAILED) PcCareSlotState.FAILED else PcCareSlotState.WORKING,
                 statusLabel = localRow.processingStatus.operatorLabel,
                 hintLabel = hint,
@@ -2862,6 +2993,8 @@ internal fun pcCareBuildTaskProofSlot(
         fieldKey = slot.fieldKey,
         label = slot.label,
         description = slot.description,
+        kind = slot.kind.ifBlank { "video" },
+        required = slot.required,
         state = PcCareSlotState.EMPTY,
         statusLabel = "",
         hintLabel = hint,
@@ -3037,8 +3170,17 @@ internal fun pcCareEvaluateSubmit(
             val peerCaptured = serverSlots.any { it.fieldKey == slot.fieldKey && it.proofRef.isNotBlank() }
             when {
                 localQueuedOrSynced || peerCaptured -> Unit
+                // Recorded and still going up: WAIT, whether the card needs it or not. Submitting
+                // over an upload in flight would land the task without evidence the operator
+                // actually captured.
                 localRow != null -> uploadsInFlight++
-                else -> missing = true
+                // Not recorded at all. Only a COMPULSORY capture holds the submit -- the server
+                // gates on required_slot_keys alone (pccare/app.service requiredKeys), so gating
+                // on every slot here made `required = false` mean nothing on the phone: an
+                // optional capture could never be skipped. `required` defaults to TRUE on the
+                // wire, so a server predating the card still holds every slot compulsory.
+                slot.required -> missing = true
+                else -> Unit
             }
         }
         if (missing) animalsMissingVideos++
@@ -3082,8 +3224,65 @@ internal fun pcCareEvaluateTaskProofSubmit(
             .maxByOrNull { it.capturedAtMs }
         if (localRow?.syncStatus == CaptureSyncStatus.SYNCED && !localRow.serverProofId.isNullOrBlank()) return@forEach
         if (localRow?.outboxItemId?.isNotBlank() == true) return@forEach
+        // Recording right now blocks whatever the card says: the clip is seconds from existing.
         if (capturingSlotKey == slot.fieldKey) return PcCareSubmitEvaluation(ready = false, blockedReason = "Proof is still recording") // mobile-contract:ignore: device-local pre-sync gate copy
+        // Nothing recorded: only a COMPULSORY capture holds the card, the same rule the server
+        // applies. An OPTIONAL capture on a removal card may be left unshot.
+        if (!slot.required) return@forEach
         return PcCareSubmitEvaluation(ready = false, blockedReason = missingCopy)
     }
     return PcCareSubmitEvaluation(ready = true)
+}
+
+/**
+ * The answers as the server reads them (PC CARE SOP, 2026-09-22): a pick-one is its option value,
+ * a pick-many an array, a number a JSON number, text a string, and a pick-one's "other" free text
+ * rides under "<id>_other". Only questions that APPLY are sent -- a conditional whose trigger no
+ * longer holds is not an answer the operator gave (the shared sop/authored rule).
+ */
+internal fun pcCareAnswersJson(detail: PcCareTaskDto?, answers: Map<String, String>): JsonObject {
+    val questions = pcCareTaskQuestions(detail)
+    if (questions.isEmpty()) return JsonObject(emptyMap())
+    val card = SopCardUi(questions = questions, answers = answers)
+    val out = linkedMapOf<String, JsonElement>() // mobile-guard:ignore: a per-call local built inside this function and returned; bounded by the card's questions (the document allows at most 50) and never held past the submit.
+    for (q in questions) {
+        if (!card.appliesTo(q)) continue
+        val raw = answers[q.id].orEmpty().trim()
+        if (raw.isEmpty()) continue
+        out[q.id] = when (q.kind) {
+            "multi" -> JsonArray(raw.split(",").map { it.trim() }.filter { it.isNotEmpty() }.map { JsonPrimitive(it) })
+            "number" -> raw.toDoubleOrNull()?.let { JsonPrimitive(it) } ?: JsonPrimitive(raw)
+            else -> JsonPrimitive(raw)
+        }
+        if (q.kind == "choice" && q.allowOther && raw == "other") {
+            answers[q.id + "_other"]?.trim()?.takeIf { it.isNotEmpty() }?.let { out[q.id + "_other"] = JsonPrimitive(it) }
+        }
+    }
+    return JsonObject(out)
+}
+
+/** The questions the task's PINNED card asks, mapped to the shared card model's shape. */
+internal fun pcCareTaskQuestions(detail: PcCareTaskDto?): List<SopQuestionUi> {
+    val sop = detail?.sop ?: return emptyList()
+    val dtos = if (detail.category == "feed_water_removal") {
+        sop.feedWaterRemoval.questions
+    } else {
+        sop.categories[detail.category]?.questions.orEmpty()
+    }
+    return dtos.map { q ->
+        SopQuestionUi(
+            id = q.id,
+            kind = q.kind,
+            title = q.title,
+            hint = q.hint,
+            required = q.required,
+            options = q.options.map { it.value to it.label },
+            allowOther = q.allowOther,
+            unit = q.unit,
+            min = q.min,
+            max = q.max,
+            onlyIfQuestion = q.onlyIf?.questionId.orEmpty(),
+            onlyIfValue = q.onlyIf?.value.orEmpty(),
+        )
+    }
 }

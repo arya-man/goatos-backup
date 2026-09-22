@@ -35,11 +35,19 @@ type CreateRoundParams struct {
 	FeedRemovalRequired bool
 	// RemovalOperatorUserIDs are the operators for that removal card.
 	RemovalOperatorUserIDs []string
-	IdempotencyKey         string
-	CreatedBy              string
-	ActorID                string
-	ActorType              string
-	TraceID                string
+	// SOPVersion is the published pc_care.tasks version the round and its tasks are pinned
+	// to (0 = seed); RequiredSlotKeys / RemovalRequiredSlotKeys are that version's compulsory
+	// slot keys, snapshotted on every row for the set-based readiness predicate.
+	SOPVersion              int
+	SlotKeys                []string
+	RequiredSlotKeys        []string
+	RemovalSlotKeys         []string
+	RemovalRequiredSlotKeys []string
+	IdempotencyKey          string
+	CreatedBy               string
+	ActorID                 string
+	ActorType               string
+	TraceID                 string
 }
 
 // RoundRow is one round as served to planner/monitor/worklist reads and echoed by the
@@ -82,9 +90,12 @@ type RemovalPenProofRow struct {
 	PenLabel      string
 	FeedProofRef  string
 	WaterProofRef string
-	Status        string
-	ReworkReason  string
-	RowVersion    int32
+	// Proofs is {slot key: proof ref} for every authored removal slot captured on this pen;
+	// FeedProofRef / WaterProofRef mirror the seeded feed_video / water_video keys.
+	Proofs       map[string]string
+	Status       string
+	ReworkReason string
+	RowVersion   int32
 }
 
 // RegisterRemovalPenProofParams stores ONE pen's feed or water video on a round-grain
@@ -94,7 +105,7 @@ type RegisterRemovalPenProofParams struct {
 	TenantID      string
 	RemovalTaskID string
 	GatedTaskID   string
-	// SlotKey is domain.SlotFeedVideo or domain.SlotWaterVideo.
+	// SlotKey is one of the pinned removal card's slot keys (validated by the service).
 	SlotKey        string
 	ProofRef       string
 	CapturedBy     string
@@ -112,8 +123,11 @@ type RemovalPenRef struct {
 	PenLabel      string
 	FeedProofRef  string
 	WaterProofRef string
-	Status        string
-	RowVersion    int32
+	// Proofs are the pen's captures in the pinned card's slot order, each with its slot title
+	// and kind for the verifier item.
+	Proofs     []LabeledRef
+	Status     string
+	RowVersion int32
 }
 
 // ApplyRemovalPenVerdictParams applies one verifier verdict to one pen's evidence row.

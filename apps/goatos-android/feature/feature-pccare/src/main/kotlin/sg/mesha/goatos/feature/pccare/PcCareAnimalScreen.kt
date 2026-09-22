@@ -89,9 +89,10 @@ fun PcCareAnimalScreen(
                 ) { index ->
                     PcCareProofCard(
                         slot = animal.slots[index],
-                        stepLabel = if (animal.slots.size > 1) "Video ${index + 1} of ${animal.slots.size}" else "",
+                        stepLabel = if (animal.slots.size > 1) "Step ${index + 1} of ${animal.slots.size}" else "",
                         locked = state.isLocked,
                         onRecord = { onEvent(PcCareTaskEvent.RecordSlot(animal.key, animal.slots[index].fieldKey)) },
+                        onRecordPhoto = { onEvent(PcCareTaskEvent.RecordSlot(animal.key, animal.slots[index].fieldKey, photo = true)) },
                         onPreviewAction = { action ->
                             onEvent(
                                 PcCareTaskEvent.ProofPreviewAction(
@@ -144,6 +145,7 @@ private fun PcCareProofCard(
     stepLabel: String,
     locked: Boolean,
     onRecord: () -> Unit,
+    onRecordPhoto: () -> Unit = onRecord,
     onPreviewAction: (String) -> Unit = {},
 ) {
     val working = slot.state == PcCareSlotState.WORKING
@@ -227,10 +229,23 @@ private fun PcCareProofCard(
                 )
             }
             if (canRecord && !working) {
-                if (slot.state == PcCareSlotState.EMPTY) {
-                    PcCarePrimaryButton(label = "Record", enabled = true, onClick = onRecord)
-                } else {
-                    PcCareCompactRetryButton(label = "Retry video", onClick = onRecord)
+                // The verbs are the AUTHORED slot's (PC CARE SOP, 2026-09-22): a photo slot asks
+                // for a photo, an `either` slot offers both and the operator picks.
+                val takesPhoto = slot.kind == "photo" || slot.kind == "either"
+                val takesVideo = slot.kind != "photo"
+                when {
+                    takesPhoto && takesVideo -> {
+                        PcCarePrimaryButton(label = "Photo", enabled = true, onClick = onRecordPhoto)
+                        PcCarePrimaryButton(label = "Video", enabled = true, onClick = onRecord)
+                    }
+                    takesPhoto -> if (slot.state == PcCareSlotState.EMPTY) {
+                        PcCarePrimaryButton(label = "Take photo", enabled = true, onClick = onRecordPhoto)
+                    } else {
+                        PcCareCompactRetryButton(label = "Retry photo", onClick = onRecordPhoto)
+                    }
+                    slot.state == PcCareSlotState.EMPTY ->
+                        PcCarePrimaryButton(label = "Record", enabled = true, onClick = onRecord)
+                    else -> PcCareCompactRetryButton(label = "Retry video", onClick = onRecord)
                 }
             }
         }

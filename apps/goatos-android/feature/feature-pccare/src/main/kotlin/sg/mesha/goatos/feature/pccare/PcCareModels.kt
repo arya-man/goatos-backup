@@ -3,6 +3,7 @@ package sg.mesha.goatos.feature.pccare
 // telemetry:exempt pure UI model declarations; the @HiltViewModels in :app own the pc_care_*
 // AnalyticsEvents + CrashReporter wiring for every read refresh, scan, capture, and submit.
 
+import sg.mesha.goatos.core.ui.sop.SopQuestionUi
 import androidx.compose.runtime.Immutable
 import java.time.LocalDate
 import sg.mesha.goatos.core.ui.filters.WorklistDateWindow
@@ -114,8 +115,16 @@ data class PcCareSlotChipUi(
     /** Recorder GUIDANCE only ("Record at least 10 seconds") — never a client-enforced cap. */
     val hintLabel: String = "",
     val canRecord: Boolean = false,
-    /** Backend-owned farm copy saying what this video must show, rendered verbatim. */
+    /** Backend-owned farm copy saying what this capture must show, rendered verbatim. */
     val description: String = "",
+    /**
+     * What this slot TAKES: "video", "photo" or "either" (PC CARE SOP, 2026-09-22 -- the slots
+     * are authored on /pc-care/sops). Blank, from an older server, reads as a video, which every
+     * seeded slot is. The row offers the verbs this allows and nothing else.
+     */
+    val kind: String = "video",
+    /** Whether the task can be submitted without this capture. */
+    val required: Boolean = true,
     /** Local captured proof preview, preferring the processed overlay artifact when available. */
     val previewPath: String = "",
     /** Stable proof/slot identity used to keep refreshed signed URLs from resetting preview players. */
@@ -174,6 +183,13 @@ data class PcCareTaskUiState(
      */
     val taskProofSlots: List<PcCareSlotChipUi> = emptyList(),
     val animalCountLabel: String = "",
+    /**
+     * The questions the task's PINNED SOP card asks (PC CARE SOP, 2026-09-22), answered ONCE for
+     * the whole task when it is submitted. Empty on a card that asks none, which is the seed.
+     */
+    val questions: List<SopQuestionUi> = emptyList(),
+    /** {question id: answer}; an "other" free text rides under "<id>_other". */
+    val answers: Map<String, String> = emptyMap(),
     val submitEnabled: Boolean = false,
     /** Why submit is blocked ("2 animals still need videos"); blank when submittable. */
     val submitBlockedReason: String = "",
@@ -237,7 +253,17 @@ data class PcCareRosterRowUi(
 sealed interface PcCareTaskEvent {
     data class ScanInputChanged(val value: String) : PcCareTaskEvent
     data object SubmitTypedScan : PcCareTaskEvent
-    data class RecordSlot(val tagKey: String, val slotFieldKey: String) : PcCareTaskEvent
+    /**
+     * Record ONE slot of ONE scanned animal. [photo] is the operator's choice on an `either`
+     * slot; a video-only or photo-only slot ignores it and opens the one camera it takes.
+     */
+    data class RecordSlot(val tagKey: String, val slotFieldKey: String, val photo: Boolean = false) : PcCareTaskEvent
+
+    /** Answers one of the pinned card's questions; [value] is the option value or the typed text. */
+    data class SetAnswer(val questionId: String, val value: String) : PcCareTaskEvent
+
+    /** The free text under a pick-one's "other" option. */
+    data class SetAnswerOther(val questionId: String, val value: String) : PcCareTaskEvent
     data class RecordTaskProof(val slotFieldKey: String, val mediaKind: String) : PcCareTaskEvent
     data class ProofPreviewAction(
         val slotFieldKey: String,
@@ -420,7 +446,14 @@ data class PcCarePlanUiState(
     val selectedOperatorIds: Set<String> = emptySet(),
     // -- Feed & water removal before deworming (maintainer decision 2026-09-03) ---------------
     /** True only on the deworming wizard: the toggle + removal-people section is offered. */
-    val feedRemovalOffered: Boolean = false,
+    /**
+      * Whether the wizard SHOWS the removal step for the chosen work (PC CARE SOP, 2026-09-22):
+      * the published rules decide -- never offered under `off`, and only for work the document
+      * lists. [feedRemovalIsAChoice] says whether the planner is ASKED or simply told.
+      */
+     val feedRemovalOffered: Boolean = false,
+     /** False when the rules say `required`: the removal applies and the toggle is not a choice. */
+     val feedRemovalIsAChoice: Boolean = true,
     /** The planner's answer to "Feed removed before deworming?". */
     val feedRemovalRequired: Boolean = false,
     /** Who removes feed & water the evening before; required when the toggle is ON. */

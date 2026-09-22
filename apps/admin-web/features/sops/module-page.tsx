@@ -15,7 +15,9 @@ import { ToxinEditor } from "./toxin-editor";
 import { parseToxin } from "./toxin-model";
 import { parseWeighing } from "./weighing-model";
 import { FeedEditor } from "./feed-editor";
+import { PcCareEditor } from "./pc-care-editor";
 import { parseFeed } from "./feed-model";
+import { parsePcCare } from "./pc-care-model";
 import { ShiftingEditor } from "./shifting-editor";
 import { parseShifting } from "./shifting-model";
 import { CaptureCardEditor } from "./capture-editor";
@@ -183,6 +185,25 @@ export async function renderSopModulePage(
               sopCode={detail.data.sop.code}
               versionLabel={`${version.version_label} · ${version.status}`}
               initial={inspection}
+            />
+          );
+        }
+        // PC CARE SOP (maintainer decision 2026-09-22): a SOP carrying a `pc_care` cards section
+        // is edited through the preventive-care editor; the capture form it also carries is passed
+        // through verbatim on save.
+        const pcCare = parsePcCare(version.form_dsl);
+        if (pcCare) {
+          const pageContract = await pageContractPromise;
+          return (
+            <PcCareEditor
+              pageContract={pageContract}
+              basePath={basePath}
+              sopId={editId}
+              sopName={detail.data.sop.name}
+              sopCode={detail.data.sop.code}
+              versionLabel={`${version.version_label} · ${version.status}`}
+              initial={pcCare}
+              initialView={sp.view === "flow" ? "flow" : "list"}
             />
           );
         }

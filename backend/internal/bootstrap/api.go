@@ -149,6 +149,8 @@ import (
 	animalpurchasepg "github.com/vgoats/goatos/backend/internal/animalpurchase/adapters/postgres"
 	animalpurchaseproof "github.com/vgoats/goatos/backend/internal/animalpurchase/adapters/proof"
 	animalpurchaseapp "github.com/vgoats/goatos/backend/internal/animalpurchase/app"
+	pccaresoppg "github.com/vgoats/goatos/backend/internal/pccaresop/adapters/postgres"
+	pccaresopapp "github.com/vgoats/goatos/backend/internal/pccaresop/app"
 	"github.com/vgoats/goatos/backend/internal/platform/firebaseidentity"
 	"github.com/vgoats/goatos/backend/internal/platform/httpmiddleware"
 	"github.com/vgoats/goatos/backend/internal/platform/migrationguard"
@@ -610,6 +612,9 @@ func NewAPI(ctx context.Context, cfg Config, log *slog.Logger) (*API, error) {
 		// `weighing` section is validated here so a document the planner could not run
 		// is never saved.
 		WithFormDSLContract(weighingsopapp.WeighingSOPContract).
+		// PC CARE SOP (maintainer decision 2026-09-22): the `pc_care` section of pc_care.tasks
+		// is validated at save so a card the operators could not run is never published.
+		WithFormDSLContract(pccaresopapp.PCCareSOPContract).
 		// FEED SOP (maintainer decision 2026-09-16): the feed.direction / feed.packing /
 		// feed.transport versions' `feed` section -- the cards the crew runs -- is validated here
 		// so a card the phone could not render is never saved.
@@ -831,7 +836,10 @@ func NewAPI(ctx context.Context, cfg Config, log *slog.Logger) (*API, error) {
 	pcCareService := pccareapp.NewService(pcCareRepo).
 		WithRoundStore(pcCareRepo).
 		WithFeedWaterRemovalCutoff(feedWaterRemovalCutoffs).
-		WithProofValidator(pccareproof.NewValidator(proofRepo))
+		WithProofValidator(pccareproof.NewValidator(proofRepo)).
+		// PC CARE SOP (maintainer decision 2026-09-22): the rules a task is planned on and runs
+		// under come from the published pc_care.tasks version, read outside the module.
+		WithSOPRules(pccaresoppg.NewRulesSource(pool, cfg.Postgres.QueryTimeout), pcCareRepo)
 	pcCareHandler := pccarehttp.NewHandler(pcCareService, log)
 	procurementService := procurementapp.NewService(procurementpg.NewRepository(pool, cfg.Postgres.QueryTimeout)).WithVaccinationCanceler(obligationRepo)
 	procurementHandler := procurementhttp.NewHandler(procurementService, log)

@@ -178,7 +178,7 @@ func TestCreateRoundFeedRemovalIsDewormingOnly(t *testing.T) {
 
 	wrongCategory := dewormingRoundInput("2026-09-11")
 	wrongCategory.Category = domain.CategoryTicksRemoval
-	wrongCategory.FeedRemovalRequired = true
+	wrongCategory.FeedRemovalRequested = boolPtr(true)
 	wrongCategory.RemovalOperatorUserIDs = []string{fastingRemover}
 	if _, err := svc.CreateRound(plannerCtx(), plannerActor(), wrongCategory); !errors.Is(err, domain.ErrFeedRemovalNotApplicable) {
 		t.Fatalf("ticks removal with the toggle err = %v, want ErrFeedRemovalNotApplicable", err)
@@ -191,7 +191,7 @@ func TestCreateRoundFeedRemovalIsDewormingOnly(t *testing.T) {
 	}
 
 	toggleWithoutOperators := dewormingRoundInput("2026-09-11")
-	toggleWithoutOperators.FeedRemovalRequired = true
+	toggleWithoutOperators.FeedRemovalRequested = boolPtr(true)
 	if _, err := svc.CreateRound(plannerCtx(), plannerActor(), toggleWithoutOperators); !errors.Is(err, domain.ErrRemovalOperatorsRequired) {
 		t.Fatalf("toggle without operators err = %v, want ErrRemovalOperatorsRequired", err)
 	}
@@ -219,7 +219,7 @@ func TestCreateRoundFeedRemovalEveningCutoff(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			svc, rounds := roundSvc(tc.now)
 			in := dewormingRoundInput(tc.planned, pens...)
-			in.FeedRemovalRequired = true
+			in.FeedRemovalRequested = boolPtr(true)
 			in.RemovalOperatorUserIDs = []string{fastingRemover}
 
 			_, err := svc.CreateRound(plannerCtx(), plannerActor(), in)
@@ -305,7 +305,7 @@ func TestAntiProtozoanRoundRefusesFeedAndWaterRemoval(t *testing.T) {
 
 	in := dewormingRoundInput("2026-09-11")
 	in.Category = domain.CategoryAntiProtozoan
-	in.FeedRemovalRequired = true
+	in.FeedRemovalRequested = boolPtr(true)
 	in.RemovalOperatorUserIDs = []string{fastingRemover}
 
 	if _, err := svc.CreateRound(plannerCtx(), plannerActor(), in); !errors.Is(err, domain.ErrFeedRemovalNotApplicable) {

@@ -6,6 +6,7 @@ package app
 
 import (
 	"context"
+	"errors"
 	"strings"
 	"time"
 
@@ -17,6 +18,7 @@ import (
 	"github.com/vgoats/goatos/backend/internal/platform/biztime"
 	"github.com/vgoats/goatos/backend/internal/platform/httpmiddleware"
 	"github.com/vgoats/goatos/backend/internal/platform/uuidutil"
+	"github.com/vgoats/goatos/backend/internal/sop/authored"
 )
 
 // VerificationEnqueuer enqueues the ONE verification item a submitted PC Care task produces. The
@@ -48,6 +50,15 @@ type VerificationEnqueueRequest struct {
 	// item against the pen instead of the task, so the verifier's verdict lands on the pen.
 	RemovalPenID    string
 	RemovalPenLabel string
+	// ContextRows are the operators' answers to the pinned SOP's questions, in farm words,
+	// appended to the item's context block under "Answers".
+	ContextRows []VerificationContextRow
+}
+
+// VerificationContextRow is one answer in farm words for the verifier's context block.
+type VerificationContextRow struct {
+	Label string
+	Value string
 }
 
 // Service is the PC Care application service.
@@ -64,7 +75,10 @@ type Service struct {
 	// resolve it through this seam and refuse with ErrCutoffNotConfigured when it is unwired
 	// or unset -- never a literal hour.
 	cutoffs fwrports.CutoffReader
-	now     func() time.Time
+	// sop resolves the PC Care SOP rules a task is planned on and runs under (PC CARE SOP,
+	// 2026-09-22); nil runs the seeded rules.
+	sop *sopRules
+	now func() time.Time
 }
 
 // NewService constructs the service over the task store.
@@ -294,6 +308,14 @@ func (s *Service) PlannerCatalog(ctx context.Context, actor domain.Actor) (ports
 	// wizard offers hoof and hair trimming and nothing else, so the phone never shows a
 	// category the create write would refuse.
 	catalog.Categories = plannableCategories(actor)
+	// The PUBLISHED rule set a task planned now is stamped with (PC CARE SOP, 2026-09-22): the
+	// wizard renders the removal mode, the categories it applies to and the effective evening
+	// from it, never from a client constant.
+	published, err := s.publishedRules(ctx, actor.TenantID)
+	if err != nil {
+		return ports.PlannerCatalog{}, err
+	}
+	catalog.SOP = s.servedRules(ctx, actor.TenantID, published)
 	authorizedParks, tenantWide := authorizedParkSet(ctx, actor.TenantID, planOrMonitorParkCapabilities...)
 	if tenantWide {
 		return catalog, nil
@@ -370,15 +392,83 @@ type CreateTaskInput struct {
 	PartitionLabel      string
 	PlannedBusinessDate string
 	AssigneeUserIDs     []string
-	// FeedRemovalRequired (deworming only) asks for the evening-before feed & water removal
-	// precondition: a linked feed_water_removal task in the same transaction, one day earlier.
-	FeedRemovalRequired bool
-	// RemovalOperatorUserIDs are the operators for that removal task (>=1 when the toggle is on).
+	// FeedRemovalRequested is the planner's word on the evening-before feed & water removal:
+	// nil = not said. The pinned SOP decides what it means (domain.Rules.RemovalDecision):
+	// under `required` the removal applies regardless, under `optional` the planner's word
+	// stands, under `off` an explicit ask is refused by name.
+	FeedRemovalRequested *bool
+	// RemovalOperatorUserIDs are the operators for that removal task (>=1 when it applies).
 	RemovalOperatorUserIDs []string
 	IdempotencyKey         string
 	ActorID                string
 	ActorType              string
 	TraceID                string
+}
+
+// applyRemovalRules is the SOP half of a create: whether THIS task carries the removal, the
+// operators it needs, and the evening it is planned against. It returns the resolved decision
+// and the deduplicated removal operators (nil when the removal does not apply).
+func (s *Service) applyRemovalRules(ctx context.Context, tenantID string, rules domain.Rules, category string, requested *bool, operatorIDs []string, planned time.Time) (bool, []string, error) {
+	applies, err := rules.RemovalDecision(category, requested)
+	if err != nil {
+		return false, nil, err
+	}
+	if !applies {
+		if len(operatorIDs) > 0 && rules.FeedWaterRemoval.Mode != domain.RemovalModeOff {
+			// Operators named for a removal that does not apply: refused loudly, never dropped
+			// (a dropped list would read to the planner as accepted while planning nothing).
+			return false, nil, domain.ErrFeedRemovalNotApplicable
+		}
+		// Under OFF an older app that always sends the crew is simply not asked.
+		return false, nil, nil
+	}
+	operators, err := dedupUUIDList(operatorIDs)
+	if err != nil {
+		return false, nil, err
+	}
+	if len(operators) == 0 {
+		return false, nil, domain.ErrRemovalOperatorsRequired
+	}
+	// The removal happens the EVENING BEFORE, so the earliest date is tomorrow before the
+	// evening cutoff and the day after tomorrow from the cutoff on. Business-DAY comparison on
+	// the service's injectable clock; the evening is the SOP's own when authored, else the farm's.
+	cutoff, err := s.effectiveRemovalCutoff(ctx, tenantID, rules)
+	if err != nil {
+		return false, nil, err
+	}
+	if planned.Before(domain.EarliestFeedRemovalDewormingDate(s.now(), cutoff)) {
+		return false, nil, domain.ErrFastingWindowClosed
+	}
+	return true, operators, nil
+}
+
+// slotsAsAuthored views a served slot list as the shared authored type.
+func slotsAsAuthored(slots []domain.Slot) []authored.ProofSlot {
+	out := make([]authored.ProofSlot, 0, len(slots))
+	for _, s := range slots {
+		out = append(out, authored.ProofSlot{Key: s.FieldKey, Title: s.Label, Hint: s.Description, Kind: s.Kind, Required: s.Required})
+	}
+	return out
+}
+
+// allKeys lists every key of a slot list, in order.
+func allKeys(slots []authored.ProofSlot) []string {
+	out := []string{}
+	for _, p := range slots {
+		out = append(out, p.Key)
+	}
+	return out
+}
+
+// requiredKeys lists the compulsory keys of a slot list, in order.
+func requiredKeys(slots []authored.ProofSlot) []string {
+	out := []string{}
+	for _, p := range slots {
+		if p.Required {
+			out = append(out, p.Key)
+		}
+	}
+	return out
 }
 
 // dedupUUIDList trims, validates and de-duplicates a client-supplied user-id list.
@@ -445,49 +535,37 @@ func (s *Service) CreateTask(ctx context.Context, actor domain.Actor, in CreateT
 		return ports.TaskRow{}, ports.ErrInvalidArgument
 	}
 
-	// Feed & water removal precondition (maintainer decision 2026-09-03). The fields are honored
-	// on deworming ONLY, and validate-or-reject on every other category — a dropped toggle would
-	// read to the planner as accepted while creating no removal task.
-	var removalOperators []string
-	if in.FeedRemovalRequired || len(in.RemovalOperatorUserIDs) > 0 {
-		if in.Category != domain.CategoryDeworming || !in.FeedRemovalRequired {
-			return ports.TaskRow{}, domain.ErrFeedRemovalNotApplicable
-		}
-		removalOperators, err = dedupUUIDList(in.RemovalOperatorUserIDs)
-		if err != nil {
-			return ports.TaskRow{}, err
-		}
-		if len(removalOperators) == 0 {
-			return ports.TaskRow{}, domain.ErrRemovalOperatorsRequired
-		}
-		// Configured planning cutoff: the removal happens the EVENING BEFORE the deworming, so
-		// the earliest deworming date is tomorrow before the tenant's cutoff and the day after
-		// tomorrow from the cutoff on. Business-DAY comparison on the service's injectable
-		// clock and the cutoff read from config.
-		cutoff, err := s.removalCutoff(ctx, actor.TenantID)
-		if err != nil {
-			return ports.TaskRow{}, err
-		}
-		if planned.Before(domain.EarliestFeedRemovalDewormingDate(s.now(), cutoff)) {
-			return ports.TaskRow{}, domain.ErrFastingWindowClosed
-		}
+	// Feed & water removal precondition, decided by the PUBLISHED SOP (PC CARE SOP, 2026-09-22):
+	// which categories it applies to, whether it is required / optional / off, and the evening.
+	rules, err := s.publishedRules(ctx, actor.TenantID)
+	if err != nil {
+		return ports.TaskRow{}, err
+	}
+	removalApplies, removalOperators, err := s.applyRemovalRules(ctx, actor.TenantID, rules, in.Category, in.FeedRemovalRequested, in.RemovalOperatorUserIDs, planned)
+	if err != nil {
+		return ports.TaskRow{}, err
 	}
 
 	return s.store.CreateTask(ctx, ports.CreateTaskParams{
-		TenantID:               actor.TenantID,
-		Category:               in.Category,
-		ParkID:                 in.ParkID,
-		ShedID:                 in.ShedID,
-		PartitionLabel:         strings.TrimSpace(in.PartitionLabel),
-		PlannedBusinessDate:    planned,
-		AssigneeUserIDs:        assignees,
-		FeedRemovalRequired:    in.FeedRemovalRequired,
-		RemovalOperatorUserIDs: removalOperators,
-		IdempotencyKey:         strings.TrimSpace(in.IdempotencyKey),
-		CreatedBy:              actor.UserID,
-		ActorID:                in.ActorID,
-		ActorType:              in.ActorType,
-		TraceID:                in.TraceID,
+		TenantID:                actor.TenantID,
+		Category:                in.Category,
+		ParkID:                  in.ParkID,
+		ShedID:                  in.ShedID,
+		PartitionLabel:          strings.TrimSpace(in.PartitionLabel),
+		PlannedBusinessDate:     planned,
+		AssigneeUserIDs:         assignees,
+		FeedRemovalRequired:     removalApplies,
+		RemovalOperatorUserIDs:  removalOperators,
+		SOPVersion:              rules.Version,
+		SlotKeys:                allKeys(slotsAsAuthored(rules.CategorySlots(in.Category))),
+		RequiredSlotKeys:        rules.RequiredSlotKeys(in.Category),
+		RemovalSlotKeys:         allKeys(rules.RemovalProofs()),
+		RemovalRequiredSlotKeys: requiredKeys(rules.RemovalProofs()),
+		IdempotencyKey:          strings.TrimSpace(in.IdempotencyKey),
+		CreatedBy:               actor.UserID,
+		ActorID:                 in.ActorID,
+		ActorType:               in.ActorType,
+		TraceID:                 in.TraceID,
 	})
 }
 
@@ -662,13 +740,40 @@ func (s *Service) GetTask(ctx context.Context, actor domain.Actor, taskID string
 	if err != nil {
 		return ports.TaskRow{}, err
 	}
-	rows := []ports.TaskRow{task}
-	return rows[0], nil
+	// The single-task read carries the PINNED rule set as clients read it, so the phone renders
+	// the slots, the questions and the removal card's copy from it. A pin the farm never
+	// published renders the seeded rules -- the write paths still refuse it by name.
+	rules, err := s.rulesForVersionLenient(ctx, actor.TenantID, task.SOPVersion)
+	if err != nil {
+		return ports.TaskRow{}, err
+	}
+	served := s.servedRules(ctx, actor.TenantID, rules)
+	task.SOP = &served
+	return task, nil
+}
+
+// rulesForVersionLenient is rulesForVersion for READ paths: an unpublished pin reads as the seed.
+func (s *Service) rulesForVersionLenient(ctx context.Context, tenantID string, version int) (domain.Rules, error) {
+	rules, err := s.rulesForVersion(ctx, tenantID, version)
+	if errors.Is(err, ports.ErrSOPVersionUnknown) {
+		return domain.SeededRules(), nil
+	}
+	return rules, err
+}
+
+// TaskSlots is the per-animal slot list a task runs under: the pinned rules' card for its
+// category (kernel-owned categories keep the fixed table).
+func (s *Service) TaskSlots(task ports.TaskRow) []domain.Slot {
+	if task.SOP != nil {
+		return task.SOP.CategorySlots(task.Category)
+	}
+	return domain.SeededRules().CategorySlots(task.Category)
 }
 
 // ListTaskAnimals is the peer-visibility poll: one task's scanned animals + slot maps.
 func (s *Service) ListTaskAnimals(ctx context.Context, actor domain.Actor, taskID, cursor string, limit int) ([]ports.AnimalRow, string, error) {
-	if _, err := s.GetTask(ctx, actor, taskID); err != nil {
+	task, err := s.GetTask(ctx, actor, taskID)
+	if err != nil {
 		return nil, "", err
 	}
 	if limit <= 0 {
@@ -677,7 +782,39 @@ func (s *Service) ListTaskAnimals(ctx context.Context, actor domain.Actor, taskI
 	if limit > 100 {
 		limit = 100
 	}
-	return s.store.ListTaskAnimals(ctx, actor.TenantID, strings.TrimSpace(taskID), strings.TrimSpace(cursor), limit)
+	rows, next, err := s.store.ListTaskAnimals(ctx, actor.TenantID, strings.TrimSpace(taskID), strings.TrimSpace(cursor), limit)
+	if err != nil {
+		return nil, "", err
+	}
+	// The store hands back whatever keys the animal carries; the served row lists the PINNED
+	// card's slots in slot order (empty ones included, so a peer's phone renders every chip),
+	// then any capture under a key the card no longer names, so nothing recorded is hidden.
+	slots := s.TaskSlots(task)
+	for i := range rows {
+		rows[i].Slots = orderAnimalSlots(slots, rows[i].Slots)
+	}
+	return rows, next, nil
+}
+
+func orderAnimalSlots(slots []domain.Slot, present []ports.AnimalSlot) []ports.AnimalSlot {
+	byKey := map[string]ports.AnimalSlot{}
+	for _, p := range present {
+		byKey[p.FieldKey] = p
+	}
+	out := make([]ports.AnimalSlot, 0, len(slots)+len(present))
+	seen := map[string]bool{}
+	for _, slot := range slots {
+		p := byKey[slot.FieldKey]
+		p.FieldKey = slot.FieldKey
+		out = append(out, p)
+		seen[slot.FieldKey] = true
+	}
+	for _, p := range present {
+		if !seen[p.FieldKey] && strings.TrimSpace(p.ProofRef) != "" {
+			out = append(out, p)
+		}
+	}
+	return out
 }
 
 // TaskRoster pages the RFIDs of animals currently in the task's pen — the roster-pick capture
@@ -806,21 +943,39 @@ func (s *Service) RegisterTaskProof(ctx context.Context, actor domain.Actor, in 
 	if strings.TrimSpace(in.IdempotencyKey) == "" {
 		return ports.ErrIdempotencyRequired
 	}
-	if s.proofs != nil {
-		requiredKind := ""
-		switch strings.TrimSpace(in.SlotKey) {
-		case domain.SlotStockFridgePhoto:
-			requiredKind = "photo"
-		case domain.SlotStockFridgeVideo, domain.SlotFeedVideo, domain.SlotWaterVideo:
-			requiredKind = "video"
-		}
-		if requiredKind != "" {
-			if err := s.proofs.ValidateLiveCameraProofKind(ctx, actor.TenantID, []string{in.ProofRef}, requiredKind); err != nil {
-				return err
-			}
-		} else if err := s.proofs.ValidateLiveCameraMedia(ctx, actor.TenantID, []string{in.ProofRef}); err != nil {
+	in.SlotKey = strings.TrimSpace(in.SlotKey)
+	task, err := s.store.GetTask(ctx, actor.TenantID, in.TaskID, nil, true)
+	if err != nil {
+		return err
+	}
+	var slot authored.ProofSlot
+	if task.Category == domain.CategoryFeedWaterRemoval {
+		// A single-task removal card (the kernel's own create path) runs the PINNED removal
+		// card's slots: the key must be one of them.
+		rules, err := s.rulesForVersion(ctx, actor.TenantID, task.SOPVersion)
+		if err != nil {
 			return err
 		}
+		removalSlot, ok := rules.RemovalProof(in.SlotKey)
+		if !ok {
+			return domain.ErrInvalidSlotForCategory
+		}
+		slot = removalSlot
+	} else {
+		// inventory_vaccine keeps its fixed fridge photo + video.
+		found := false
+		for _, legacy := range domain.SlotsForCategory(task.Category) {
+			if legacy.FieldKey == in.SlotKey {
+				slot = authored.ProofSlot{Key: legacy.FieldKey, Title: legacy.Label, Kind: legacy.Kind, Required: legacy.Required}
+				found = true
+			}
+		}
+		if !found {
+			return domain.ErrInvalidSlotForCategory
+		}
+	}
+	if _, err := s.validateSlotCapture(ctx, actor.TenantID, slot, in.ProofRef); err != nil {
+		return err
 	}
 	return s.store.RegisterTaskProof(ctx, ports.RegisterTaskProofParams{
 		TenantID:       actor.TenantID,
@@ -853,19 +1008,34 @@ func (s *Service) RegisterSlotProof(ctx context.Context, actor domain.Actor, in 
 	if strings.TrimSpace(in.IdempotencyKey) == "" {
 		return ports.ErrIdempotencyRequired
 	}
-	// Slot validity against the CATEGORY is enforced in the store write, which reads the task
-	// row in the same transaction; validating here would race a concurrent cancel.
-	if s.proofs != nil {
-		if err := s.proofs.ValidateLiveCameraVideos(ctx, actor.TenantID, []string{in.ProofRef}); err != nil {
-			return err
-		}
+	// The slot is judged against the task's PINNED rules (PC CARE SOP, 2026-09-22): the key
+	// must be one of the category's authored slots and the capture must be of the kind the
+	// slot takes. A pinned version is immutable, so this cannot race a later publish; the
+	// store still refuses a locked task under its own row lock.
+	in.SlotFieldKey = strings.TrimSpace(in.SlotFieldKey)
+	task, err := s.store.GetTask(ctx, actor.TenantID, in.TaskID, nil, true)
+	if err != nil {
+		return err
+	}
+	rules, err := s.rulesForVersion(ctx, actor.TenantID, task.SOPVersion)
+	if err != nil {
+		return err
+	}
+	slot, ok := rules.SlotForCategory(task.Category, in.SlotFieldKey)
+	if !ok {
+		return domain.ErrInvalidSlotForCategory
+	}
+	kind, err := s.validateSlotCapture(ctx, actor.TenantID, slot.ProofSlot, in.ProofRef)
+	if err != nil {
+		return err
 	}
 	return s.store.RegisterSlotProof(ctx, ports.RegisterSlotProofParams{
 		TenantID:       actor.TenantID,
 		TaskID:         in.TaskID,
 		AnimalRowID:    in.AnimalRowID,
-		SlotFieldKey:   strings.TrimSpace(in.SlotFieldKey),
+		SlotFieldKey:   in.SlotFieldKey,
 		ProofRef:       in.ProofRef,
+		Kind:           kind,
 		CapturedBy:     actor.UserID,
 		IdempotencyKey: strings.TrimSpace(in.IdempotencyKey),
 		ActorID:        in.ActorID,
@@ -874,13 +1044,46 @@ func (s *Service) RegisterSlotProof(ctx context.Context, actor domain.Actor, in 
 	})
 }
 
+// validateSlotCapture checks one capture against the slot it is meant to prove -- a real,
+// completed, tenant-owned, LIVE-CAMERA proof of the slot's kind -- and reports the kind the
+// register judged it as (an `either` slot takes whichever the operator chose). Without a
+// validator (tests) the slot's own kind is reported.
+func (s *Service) validateSlotCapture(ctx context.Context, tenantID string, slot authored.ProofSlot, ref string) (string, error) {
+	if s.proofs == nil {
+		if slot.Kind == authored.KindEither {
+			return authored.KindVideo, nil
+		}
+		return slot.Kind, nil
+	}
+	switch slot.Kind {
+	case authored.KindVideo, authored.KindPhoto:
+		if err := s.proofs.ValidateLiveCameraProofKind(ctx, tenantID, []string{ref}, slot.Kind); err != nil {
+			return "", err
+		}
+		return slot.Kind, nil
+	default:
+		kind, err := s.proofs.LiveCameraProofKind(ctx, tenantID, ref)
+		if err != nil {
+			return "", err
+		}
+		if !slot.Accepts(kind) {
+			return "", ports.ErrInvalidProof
+		}
+		return kind, nil
+	}
+}
+
 // SubmitTaskInput submits the whole task.
 type SubmitTaskInput struct {
 	TaskID         string
 	IdempotencyKey string
-	ActorID        string
-	ActorType      string
-	TraceID        string
+	// Answers are the operators' answers to the pinned version's questions (a task-level
+	// card, answered once at submit). Judged against the pinned rules: an unknown question, a
+	// missing required answer or an out-of-range number refuses the submit by name.
+	Answers   authored.Answers
+	ActorID   string
+	ActorType string
+	TraceID   string
 }
 
 // SubmitTask flips the task to pending_verification (readiness enforced in the store write) and
@@ -899,16 +1102,52 @@ func (s *Service) SubmitTask(ctx context.Context, actor domain.Actor, in SubmitT
 	if strings.TrimSpace(in.IdempotencyKey) == "" {
 		return ports.SubmitTaskResult{}, ports.ErrIdempotencyRequired
 	}
+	task, err := s.store.GetTask(ctx, actor.TenantID, in.TaskID, nil, true)
+	if err != nil {
+		return ports.SubmitTaskResult{}, err
+	}
+	rules, err := s.rulesForVersion(ctx, actor.TenantID, task.SOPVersion)
+	if err != nil {
+		return ports.SubmitTaskResult{}, err
+	}
+	// The pinned card decides what is asked and what is proven: the questions answered at
+	// submit and the slots the verifier item is titled by.
+	var questions []authored.Question
+	var slots []domain.Slot
+	var removalSlots []authored.ProofSlot
+	switch task.Category {
+	case domain.CategoryFeedWaterRemoval:
+		questions = rules.RemovalQuestions()
+		removalSlots = rules.RemovalProofs()
+	case domain.CategoryInventoryVaccine:
+		// The director's stock check has no authored card.
+	default:
+		questions = rules.CategoryQuestions(task.Category)
+		slots = rules.CategorySlots(task.Category)
+	}
+	answers := in.Answers
+	if answers == nil {
+		answers = authored.Answers{}
+	}
+	if err := authored.ValidateAnswers(questions, answers); err != nil {
+		return ports.SubmitTaskResult{}, err
+	}
+	answers = authored.NormalizeAnswers(questions, answers)
 
 	result, err := s.store.SubmitTask(ctx, ports.SubmitTaskParams{
-		TenantID:       actor.TenantID,
-		TaskID:         in.TaskID,
-		SubmittedBy:    actor.UserID,
-		IdempotencyKey: strings.TrimSpace(in.IdempotencyKey),
-		ActorID:        in.ActorID,
-		ActorType:      in.ActorType,
-		TraceID:        in.TraceID,
-		Now:            s.now().UTC(),
+		TenantID:         actor.TenantID,
+		TaskID:           in.TaskID,
+		SubmittedBy:      actor.UserID,
+		IdempotencyKey:   strings.TrimSpace(in.IdempotencyKey),
+		ActorID:          in.ActorID,
+		ActorType:        in.ActorType,
+		TraceID:          in.TraceID,
+		Now:              s.now().UTC(),
+		Answers:          answers,
+		AnswerRows:       authored.AnswerRows(questions, answers),
+		Slots:            slots,
+		RequiredSlotKeys: requiredKeys(slotsAsAuthored(slots)),
+		RemovalSlots:     removalSlots,
 	})
 	if err != nil {
 		return ports.SubmitTaskResult{}, err

@@ -526,34 +526,47 @@ fun PcCarePlanWizardScreen(
                             )
                         }
                     }
-                    // Feed & water removal before deworming (maintainer decision 2026-09-03) —
-                    // offered ONLY on the deworming wizard. Wording is minimal wizard chrome like
-                    // this screen's other step titles; every refusal sentence stays server-owned.
+                    // Feed & water removal (PC CARE SOP, maintainer decision 2026-09-22): the
+                    // PUBLISHED rules decide whether this step appears at all and whether the
+                    // planner is ASKED or simply told. Wording is minimal wizard chrome like this
+                    // screen's other step titles; every refusal sentence stays server-owned.
                     if (state.feedRemovalOffered) {
                         item(key = "feed_removal_toggle") {
                             Column(modifier = Modifier.padding(top = 8.dp)) {
-                                WizardStepTitle("Feed removed before deworming?")
+                                WizardStepTitle(
+                                    if (state.feedRemovalIsAChoice) {
+                                        "Feed removed the evening before?"
+                                    } else {
+                                        "Feed & water removed the evening before"
+                                    },
+                                )
                                 Text(
-                                    text = "Tablets given in feed need feed & water taken out the evening before.",
+                                    text = if (state.feedRemovalIsAChoice) {
+                                        "Tablets given in feed need feed & water taken out the evening before."
+                                    } else {
+                                        "This work always needs feed & water taken out the evening before."
+                                    },
                                     color = MeshaColors.Muted,
                                     style = MeshaType.caption,
                                     modifier = Modifier.padding(horizontal = 16.dp, vertical = 4.dp),
                                 )
                             }
                         }
-                        item(key = "feed_removal_yes") {
-                            WizardOptionRow(
-                                label = "Yes — remove feed & water the evening before",
-                                selected = state.feedRemovalRequired,
-                                onClick = { if (!state.feedRemovalRequired) onEvent(PcCarePlanEvent.ToggleFeedRemoval) },
-                            )
-                        }
-                        item(key = "feed_removal_no") {
-                            WizardOptionRow(
-                                label = "No — given by injection",
-                                selected = !state.feedRemovalRequired,
-                                onClick = { if (state.feedRemovalRequired) onEvent(PcCarePlanEvent.ToggleFeedRemoval) },
-                            )
+                        if (state.feedRemovalIsAChoice) {
+                            item(key = "feed_removal_yes") {
+                                WizardOptionRow(
+                                    label = "Yes — remove feed & water the evening before",
+                                    selected = state.feedRemovalRequired,
+                                    onClick = { if (!state.feedRemovalRequired) onEvent(PcCarePlanEvent.ToggleFeedRemoval) },
+                                )
+                            }
+                            item(key = "feed_removal_no") {
+                                WizardOptionRow(
+                                    label = "No — given by injection",
+                                    selected = !state.feedRemovalRequired,
+                                    onClick = { if (state.feedRemovalRequired) onEvent(PcCarePlanEvent.ToggleFeedRemoval) },
+                                )
+                            }
                         }
                         if (state.feedRemovalRequired) {
                             item(key = "removal_people_title") {

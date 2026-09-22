@@ -90,14 +90,17 @@ const countWorkStateSQL = `CASE
 END`
 
 // animalsLateral counts the task's own captures ONCE per task on
-// pc_care_task_animals_task_idx (tenant_id, task_id, animal_row_id). Two "complete" counts
-// are returned so the single-video vs before/while/after rule stays in Go
-// (pcdomain.IsSingleVideoCategory) rather than being copied into SQL.
+// pc_care_task_animals_task_idx (tenant_id, task_id, animal_row_id). An animal is DONE when it
+// carries every compulsory slot of the task's PINNED card -- the keys snapshotted on the task
+// row (PC CARE SOP, 2026-09-22) -- the same predicate the submit applies, so the board and the
+// submit cannot disagree.
 const animalsLateral = `
 LEFT JOIN LATERAL (
   SELECT count(*)::int AS scanned,
-         count(*) FILTER (WHERE an.video_proof_ref IS NOT NULL)::int AS video_done,
-         count(*) FILTER (WHERE an.before_proof_ref IS NOT NULL AND an.during_proof_ref IS NOT NULL AND an.after_proof_ref IS NOT NULL)::int AS triple_done
+         -- FAIL CLOSED on a row that states no requirement: the has-all-keys test is vacuously
+         -- TRUE against an EMPTY key list, so an unfilmed animal would read as done. Every row
+         -- the module writes carries its pinned card's keys (000385 backfilled the rest).
+         count(*) FILTER (WHERE cardinality(t.required_slot_keys) > 0 AND an.sop_proofs ?& t.required_slot_keys)::int AS slots_done
   FROM pc_care_task_animals an
   WHERE an.tenant_id = t.tenant_id AND an.task_id = t.task_id
 ) animals ON true`
@@ -134,7 +137,7 @@ const listSQL = `
 WITH tasks AS (
   SELECT t.task_id, t.category, t.park_id, t.shed_id, COALESCE(t.partition_label, '') AS partition_label,
          t.planned_business_date, t.due_business_date, t.work_state, t.status,
-         animals.scanned, animals.video_done, animals.triple_done,
+         animals.scanned, animals.slots_done,
          ` + workStateSQL + ` AS board_state
   FROM pc_care_tasks t
   ` + animalsLateral + `
@@ -145,7 +148,7 @@ SELECT i.task_id::text, i.category, i.park_id::text, COALESCE(park.name, ''),
        COALESCE(i.shed_id::text, ''), COALESCE(shed.name, ''), i.partition_label,
        i.planned_business_date::text, i.due_business_date::text,
        i.work_state, i.status, i.board_state,
-       i.scanned, i.video_done, i.triple_done,
+       i.scanned, i.slots_done,
        COALESCE(owner.user_id, ''), COALESCE(owner.member_id, ''), COALESCE(owner.display_name, ''),
        COALESCE(owner.assignee_count, 0)
 FROM tasks i
@@ -239,13 +242,13 @@ func scanRow(rows pgx.Rows) (domain.Row, error) {
 		taskID, category, parkID, parkName            string
 		shedID, shedName, partitionLabel              string
 		planned, due, kernelState, status, boardState string
-		scanned, videoDone, tripleDone                int
+		scanned, slotsDone                            int
 		ownerUserID, ownerMemberID, ownerName         string
 		assigneeCount                                 int
 	)
 	if err := rows.Scan(&taskID, &category, &parkID, &parkName,
 		&shedID, &shedName, &partitionLabel, &planned, &due,
-		&kernelState, &status, &boardState, &scanned, &videoDone, &tripleDone,
+		&kernelState, &status, &boardState, &scanned, &slotsDone,
 		&ownerUserID, &ownerMemberID, &ownerName, &assigneeCount); err != nil {
 		return domain.Row{}, fmt.Errorf("pccare boardsource scan: %w", err)
 	}
@@ -274,13 +277,11 @@ func scanRow(rows pgx.Rows) (domain.Row, error) {
 		title += " · " + pen.Display
 	}
 
-	// Counts are the task's OWN captures: an animal is done when it carries every slot its
-	// category demands (the same readiness rule submit applies), pending while scanned but
-	// short of one. A task with no scan yet is one unit of work, done or pending by state.
-	done := tripleDone
-	if pcdomain.IsSingleVideoCategory(category) {
-		done = videoDone
-	}
+	// Counts are the task's OWN captures: an animal is done when it carries every compulsory
+	// slot of the task's pinned card (the same readiness rule submit applies), pending while
+	// scanned but short of one. A task with no scan yet is one unit of work, done or pending
+	// by state.
+	done := slotsDone
 	counts := domain.Counts{}
 	subtitle := ""
 	if scanned > 0 {

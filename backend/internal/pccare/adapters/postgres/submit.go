@@ -16,6 +16,8 @@ import (
 	"github.com/vgoats/goatos/backend/internal/platform/audit"
 	"github.com/vgoats/goatos/backend/internal/platform/oploc"
 	platformoutbox "github.com/vgoats/goatos/backend/internal/platform/outbox"
+	"github.com/vgoats/goatos/backend/internal/platform/sqlbind"
+	"github.com/vgoats/goatos/backend/internal/sop/authored"
 )
 
 const (
@@ -73,7 +75,8 @@ FOR UPDATE`, p.TenantID, p.TaskID).Scan(
 	// shed; its verifier subject is the vaccine label instead.
 	var shedLocation oploc.OperationalLocation
 	if shedID != "" {
-		shedLocation, err = oploc.ResolveShedLocation(ctx, tx.QueryRow(ctx, oploc.ShedScopedLocationSQL, p.TenantID, shedID))
+		boundShed := sqlbind.MustBind(oploc.ShedScopedLocationSQL, p.TenantID, shedID)
+		shedLocation, err = oploc.ResolveShedLocation(ctx, tx.QueryRow(ctx, boundShed.SQL(), boundShed.Args()...))
 		if err != nil {
 			return ports.SubmitTaskResult{}, fmt.Errorf("pccare: resolve submit shed location: %w", err)
 		}
@@ -138,7 +141,7 @@ FOR UPDATE`, p.TenantID, p.TaskID).Scan(
 		// submitted with one pen unfilmed would tell the midnight gate that pen's animals were
 		// fasted when they were not.
 		var err error
-		removalPens, mediaRefs, err = removalPenSubmitRefs(ctx, tx, p.TenantID, p.TaskID)
+		removalPens, mediaRefs, err = removalPenSubmitRefs(ctx, tx, p.TenantID, p.TaskID, removalSlotsOrSeeded(p.RemovalSlots))
 		if err != nil {
 			return ports.SubmitTaskResult{}, err
 		}
@@ -159,28 +162,22 @@ WHERE tenant_id = $1::uuid AND task_id = $2::uuid AND required_doses > 0`,
 		}
 		// Every declared slot must carry its proof — for feed_water_removal, BOTH the feed
 		// removal video and the water removal video.
-		mediaRefs, animalCount, err = r.taskProofMediaRefs(ctx, tx, p.TenantID, p.TaskID, category)
+		mediaRefs, animalCount, err = r.taskProofMediaRefs(ctx, tx, p.TenantID, p.TaskID, category, removalSlotsOrSeeded(p.RemovalSlots))
 		if err != nil {
 			return ports.SubmitTaskResult{}, err
 		}
 	default:
-		// Readiness: every scanned animal must carry every slot the category demands. ONE bounded
-		// count per submit (a write, not a list), category-aware.
+		// Readiness: every scanned animal must carry every COMPULSORY slot of the task's pinned
+		// card -- the keys snapshotted on the task row at create (PC CARE SOP, 2026-09-22). ONE
+		// bounded set-based count per submit (a write, not a list).
 		var missingCount int
 		if err := tx.QueryRow(ctx, `
 SELECT count(*)::int,
-       count(*) FILTER (
-         WHERE CASE WHEN $3::bool
-           THEN video_proof_ref IS NULL
-           ELSE before_proof_ref IS NULL OR during_proof_ref IS NULL OR after_proof_ref IS NULL
-         END
-       )::int
-FROM pc_care_task_animals
-WHERE tenant_id = $1::uuid AND task_id = $2::uuid`,
-			p.TenantID, p.TaskID,
-			// The ONE-video categories. Anti protozoan is deworming's twin here: miss it and
-			// the readiness check would demand the three trimming slots and refuse every submit.
-			domain.IsSingleVideoCategory(category),
+       count(*) FILTER (WHERE NOT (an.sop_proofs ?& coalesce(nullif(t.required_slot_keys, '{}'::text[]), $3::text[])))::int
+FROM pc_care_task_animals an
+JOIN pc_care_tasks t ON t.tenant_id = an.tenant_id AND t.task_id = an.task_id
+WHERE an.tenant_id = $1::uuid AND an.task_id = $2::uuid`,
+			p.TenantID, p.TaskID, requiredKeysOrSeeded(category, p.RequiredSlotKeys),
 		).Scan(&animalCount, &missingCount); err != nil {
 			return ports.SubmitTaskResult{}, fmt.Errorf("pccare: submit readiness count: %w", err)
 		}
@@ -214,10 +211,23 @@ WHERE tenant_id = $1::uuid AND task_id = $2::uuid`, p.TenantID, p.TaskID); err !
 
 	if gatesRoundID == "" && domain.CaptureModeForCategory(category) != domain.CaptureModeTaskProof {
 		var err error
-		mediaRefs, err = r.composeSubmitMediaRefs(ctx, tx, p.TenantID, p.TaskID, category)
+		mediaRefs, err = r.composeSubmitMediaRefs(ctx, tx, p.TenantID, p.TaskID, captureSlotsOrSeeded(category, p.Slots))
 		if err != nil {
 			return ports.SubmitTaskResult{}, err
 		}
+	}
+	// The answers given at submit are stored on the task beside the pin they were judged by.
+	answersJSON, err := json.Marshal(p.Answers)
+	if err != nil {
+		return ports.SubmitTaskResult{}, fmt.Errorf("pccare: encode sop answers: %w", err)
+	}
+	if p.Answers == nil {
+		answersJSON = []byte("{}")
+	}
+	if _, err := tx.Exec(ctx, `
+UPDATE pc_care_tasks SET sop_answers = $3::jsonb WHERE tenant_id = $1::uuid AND task_id = $2::uuid`,
+		p.TenantID, p.TaskID, answersJSON); err != nil {
+		return ports.SubmitTaskResult{}, fmt.Errorf("pccare: store sop answers: %w", err)
 	}
 
 	actorType := strings.TrimSpace(p.ActorType)
@@ -270,6 +280,7 @@ WHERE tenant_id = $1::uuid AND task_id = $2::uuid`, p.TenantID, p.TaskID); err !
 		MediaRefs:           mediaRefs,
 		AnimalCount:         int32(animalCount),
 		RemovalPens:         removalPens,
+		AnswerRows:          p.AnswerRows,
 		OperatorID:          p.SubmittedBy,
 		RowVersion:          rowVersion,
 		OccurredAt:          p.Now,
@@ -291,6 +302,36 @@ WHERE tenant_id = $1::uuid AND task_id = $2::uuid`, p.TenantID, p.TaskID); err !
 	return result, nil
 }
 
+// removalSlotsOrSeeded / captureSlotsOrSeeded / requiredKeysOrSeeded are the submit's FAIL-CLOSED
+// rule, the twin of the create's slotKeysOrSeeded: a caller that hands the store no card runs the
+// SEEDED one (version 0), never a card that asks for nothing. Without this a direct store submit
+// would pass readiness vacuously and reach the verifier with no media at all.
+func removalSlotsOrSeeded(slots []authored.ProofSlot) []authored.ProofSlot {
+	if len(slots) > 0 {
+		return slots
+	}
+	return domain.SeededRules().RemovalProofs()
+}
+
+func seededRemovalSlots() []domain.Slot {
+	out := []domain.Slot{}
+	for _, p := range domain.SeededRules().RemovalProofs() {
+		out = append(out, domain.Slot{FieldKey: p.Key, Label: p.Title, Description: p.Hint, Kind: p.Kind, Required: p.Required})
+	}
+	return out
+}
+
+func captureSlotsOrSeeded(category string, slots []domain.Slot) []domain.Slot {
+	if len(slots) > 0 {
+		return slots
+	}
+	return domain.SeededRules().CategorySlots(category)
+}
+
+func requiredKeysOrSeeded(category string, keys []string) []string {
+	return slotKeysOrSeeded(category, keys, true)
+}
+
 type pendingVerificationOutbox struct {
 	TenantID            string
 	TaskID              string
@@ -306,10 +347,12 @@ type pendingVerificationOutbox struct {
 	// RemovalPens is set only on a round-grain removal submit; the consumer fans it out into
 	// ONE verifier item per pen.
 	RemovalPens []ports.RemovalPenRef
-	OperatorID  string
-	RowVersion  int32
-	OccurredAt  time.Time
-	TraceID     string
+	// AnswerRows are the operators' answers in farm words, for the verifier's context rows.
+	AnswerRows []authored.AnswerRow
+	OperatorID string
+	RowVersion int32
+	OccurredAt time.Time
+	TraceID    string
 }
 
 func insertPendingVerificationOutbox(ctx context.Context, tx pgx.Tx, o pendingVerificationOutbox) error {
@@ -320,14 +363,23 @@ func insertPendingVerificationOutbox(ctx context.Context, tx pgx.Tx, o pendingVe
 		if strings.TrimSpace(ref.ProofRef) == "" {
 			continue
 		}
-		media = append(media, map[string]string{"proof_ref": ref.ProofRef, "label": ref.Label})
+		media = append(media, map[string]string{"proof_ref": ref.ProofRef, "label": ref.Label, "kind": ref.Kind})
 	}
 	// One entry per pen on a round-grain removal, so the consumer can mint ONE verifier item
 	// per pen. Absent on every other submit, which keeps those payloads byte-identical to
 	// what they were before rounds existed.
+	answerRows := make([]map[string]string, 0, len(o.AnswerRows))
+	for _, row := range o.AnswerRows {
+		answerRows = append(answerRows, map[string]string{"label": row.Title, "value": row.Value})
+	}
 	removalPens := make([]map[string]any, 0, len(o.RemovalPens))
 	for _, pen := range o.RemovalPens {
+		penProofs := make([]map[string]string, 0, len(pen.Proofs))
+		for _, proof := range pen.Proofs {
+			penProofs = append(penProofs, map[string]string{"proof_ref": proof.ProofRef, "label": proof.Label, "kind": proof.Kind})
+		}
 		removalPens = append(removalPens, map[string]any{
+			"proofs":          penProofs,
 			"removal_pen_id":  pen.RemovalPenID,
 			"gated_task_id":   pen.GatedTaskID,
 			"pen_label":       pen.PenLabel,
@@ -352,6 +404,12 @@ func insertPendingVerificationOutbox(ctx context.Context, tx pgx.Tx, o pendingVe
 	}
 	if len(removalPens) > 0 {
 		payload["removal_pens"] = removalPens
+	}
+	// The operators' answers to the pinned card's questions, in farm words, so the verifier
+	// reads them beside the captures they explain. Absent on a card that asks none, which keeps
+	// the payload byte-identical to what it was before the SOP existed.
+	if len(answerRows) > 0 {
+		payload["context_rows"] = answerRows
 	}
 	envelope := pcCareEventEnvelope{
 		EventID:        eventID,
@@ -395,14 +453,13 @@ ON CONFLICT DO NOTHING`,
 	return nil
 }
 
-// composeSubmitMediaRefs builds the verification item's labeled media set: every animal's slot
-// videos in scan order then slot order, each labeled "<tag> · <slot label>" so the verifier
-// can tell which animal and which step every clip proves. One bounded read of one task's rows.
-func (r *Repository) composeSubmitMediaRefs(ctx context.Context, tx pgx.Tx, tenantID, taskID, category string) ([]ports.LabeledRef, error) {
+// composeSubmitMediaRefs builds the verification item's labeled media set: every animal's
+// captures in scan order then the PINNED card's slot order, each labeled "<tag> · <slot title>"
+// with the kind the register judged it, so the verifier can tell which animal and which step
+// every capture proves. One bounded read of one task's rows.
+func (r *Repository) composeSubmitMediaRefs(ctx context.Context, tx pgx.Tx, tenantID, taskID string, slots []domain.Slot) ([]ports.LabeledRef, error) {
 	rows, err := tx.Query(ctx, `
-SELECT scanned_identifier,
-       coalesce(video_proof_ref, ''), coalesce(before_proof_ref, ''),
-       coalesce(during_proof_ref, ''), coalesce(after_proof_ref, '')
+SELECT scanned_identifier, sop_proofs, sop_proof_meta
 FROM pc_care_task_animals
 WHERE tenant_id = $1::uuid AND task_id = $2::uuid
 ORDER BY scanned_at, animal_row_id`, tenantID, taskID)
@@ -411,25 +468,33 @@ ORDER BY scanned_at, animal_row_id`, tenantID, taskID)
 	}
 	defer rows.Close()
 
-	slots := domain.SlotsForCategory(category)
 	out := make([]ports.LabeledRef, 0, 64)
 	for rows.Next() {
-		var tag, videoRef, beforeRef, duringRef, afterRef string
-		if err := rows.Scan(&tag, &videoRef, &beforeRef, &duringRef, &afterRef); err != nil {
+		var tag string
+		var proofsJSON, metaJSON []byte
+		if err := rows.Scan(&tag, &proofsJSON, &metaJSON); err != nil {
 			return nil, fmt.Errorf("pccare: scan submit media row: %w", err)
 		}
-		byKey := map[string]string{
-			domain.SlotVideo:  videoRef,
-			domain.SlotBefore: beforeRef,
-			domain.SlotDuring: duringRef,
-			domain.SlotAfter:  afterRef,
+		var byKey map[string]string
+		if err := json.Unmarshal(proofsJSON, &byKey); err != nil {
+			return nil, fmt.Errorf("pccare: decode submit media proofs: %w", err)
+		}
+		var meta map[string]struct {
+			Kind string `json:"kind"`
+		}
+		if err := json.Unmarshal(metaJSON, &meta); err != nil {
+			return nil, fmt.Errorf("pccare: decode submit media meta: %w", err)
 		}
 		for _, slot := range slots {
 			ref := byKey[slot.FieldKey]
 			if ref == "" {
 				continue
 			}
-			out = append(out, ports.LabeledRef{ProofRef: ref, Label: tag + " · " + slot.Label})
+			kind := meta[slot.FieldKey].Kind
+			if kind == "" && slot.Kind != authored.KindEither {
+				kind = slot.Kind
+			}
+			out = append(out, ports.LabeledRef{ProofRef: ref, Label: tag + " · " + slot.Label, Kind: kind})
 		}
 	}
 	return out, rows.Err()

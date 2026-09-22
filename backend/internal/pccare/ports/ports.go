@@ -7,6 +7,8 @@ package ports
 import (
 	"context"
 	"errors"
+	"github.com/vgoats/goatos/backend/internal/pccare/domain"
+	"github.com/vgoats/goatos/backend/internal/sop/authored"
 	"time"
 
 	fwrdomain "github.com/vgoats/goatos/backend/internal/feedwaterremoval/domain"
@@ -65,11 +67,23 @@ type CreateTaskParams struct {
 	// RemovalOperatorUserIDs are the operators for the linked removal task (one or more when
 	// FeedRemovalRequired; validated as active workforce members like AssigneeUserIDs).
 	RemovalOperatorUserIDs []string
-	IdempotencyKey         string
-	CreatedBy              string
-	ActorID                string
-	ActorType              string
-	TraceID                string
+	// SOPVersion is the published pc_care.tasks version the task is pinned to (0 = seed).
+	SOPVersion int
+	// SlotKeys are EVERY per-animal slot key of the pinned version's card for the category
+	// (compulsory or not); RequiredSlotKeys are the compulsory subset. Both are snapshotted on
+	// the row: the first is what the store accepts a capture into, the second is the set-based
+	// readiness predicate.
+	SlotKeys         []string
+	RequiredSlotKeys []string
+	// RemovalSlotKeys / RemovalRequiredSlotKeys are the same pair for the pinned removal card
+	// (when FeedRemovalRequired).
+	RemovalSlotKeys         []string
+	RemovalRequiredSlotKeys []string
+	IdempotencyKey          string
+	CreatedBy               string
+	ActorID                 string
+	ActorType               string
+	TraceID                 string
 }
 
 // CloseTaskParams ends one task's work.
@@ -129,6 +143,14 @@ type TaskRow struct {
 	// AnimalPenLabels are inferred from already-scanned animals. They are a display-only fallback
 	// for legacy/bad parent-shed task rows whose own partition_label is empty.
 	AnimalPenLabels []string
+	// SOPVersion is the pc_care.tasks SOP version this task was PLANNED on (PC CARE SOP,
+	// 2026-09-22); 0 = the seeded rules (a task planned before the rule existed).
+	SOPVersion int
+	// SOPAnswers are the answers given at submit to the pinned version's questions.
+	SOPAnswers authored.Answers
+	// SOP is the PINNED rule set as clients read it; filled by the service on the single-task
+	// read only (nil on list rows).
+	SOP *domain.Rules
 	// The next-day pen visit a pen task owes is NOT carried on the row (maintainer decision
 	// 2026-09-14): it is a task of its own on the Tasks module's "For me" tab. A pen task's
 	// work_state still reaches 'completed' only once that visit is verified (pen_visit.verified
@@ -172,8 +194,11 @@ type RegisterSlotProofParams struct {
 	TaskID      string
 	AnimalRowID string
 	// SlotFieldKey is one of the task category's expected slots (domain.Slot*).
-	SlotFieldKey   string
-	ProofRef       string
+	SlotFieldKey string
+	ProofRef     string
+	// Kind is the capture kind the proof register judged the ref as (video / photo), already
+	// checked by the service against the pinned slot; stored beside the ref for the verifier.
+	Kind           string
 	CapturedBy     string
 	IdempotencyKey string
 	ActorID        string
@@ -220,6 +245,8 @@ type AnimalSlot struct {
 	CapturedBy     string
 	CapturedByName string
 	CapturedAt     *time.Time
+	// Kind is what the proof register judged the capture as (video / photo); blank when empty.
+	Kind string
 }
 
 // LabeledRef pairs a media ref with the verifier-facing label naming the animal and slot
@@ -227,6 +254,8 @@ type AnimalSlot struct {
 type LabeledRef struct {
 	ProofRef string
 	Label    string
+	// Kind is the capture's kind (video / photo) for the verifier's media meta; blank = unknown.
+	Kind string
 }
 
 // SubmitTaskParams submits the WHOLE task (any assignee) once every scanned animal carries its
@@ -240,6 +269,20 @@ type SubmitTaskParams struct {
 	ActorType      string
 	TraceID        string
 	Now            time.Time
+	// Answers are the operators' answers to the pinned version's questions, already validated
+	// and normalized by the service; stored on the task and rendered to the verifier as rows.
+	Answers authored.Answers
+	// AnswerRows are those answers in farm words, for the verifier's context rows.
+	AnswerRows []authored.AnswerRow
+	// Slots are the pinned per-animal slots in slot order (title + kind): the media labels
+	// and kinds the verifier item is built from. Empty for task-proof categories.
+	Slots []domain.Slot
+	// RequiredSlotKeys are the pinned card's compulsory per-animal keys. The row's own
+	// snapshot (required_slot_keys) decides readiness; this list stands in when a row carries
+	// none (a fixture, a row older than the snapshot), so the check never passes vacuously.
+	RequiredSlotKeys []string
+	// RemovalSlots are the pinned removal card's slots, for a feed_water_removal submit.
+	RemovalSlots []authored.ProofSlot
 }
 
 // SubmitTaskResult reports the submit outcome, mirroring feed's CompletePackingResult: the
@@ -360,6 +403,9 @@ type PlannerCatalog struct {
 	// monitor with no planning capability sees the full planner list, since the wizard is
 	// not offered to them anyway and the list still labels the board's filter.
 	Categories []string
+	// SOP is the PUBLISHED rule set a task planned now is stamped with, as clients read it
+	// (PC CARE SOP, 2026-09-22). Filled by the service.
+	SOP domain.Rules
 }
 
 // PlannerPark is one pickable park.
@@ -451,6 +497,8 @@ type TaskStore interface {
 	// PlannerCatalog returns the tenant's parks + assignable operators (service filters to the
 	// caller's authorized parks).
 	PlannerCatalog(ctx context.Context, tenantID string) (PlannerCatalog, error)
+	// TaskSOPVersion reads the pc_care.tasks SOP version a task was planned on (0 = seed).
+	TaskSOPVersion(ctx context.Context, tenantID, taskID string) (int, error)
 
 	// PlannerParkSheds pages one park's pens (shed_partitions catalog grain), each decorated
 	// with any existing live task for category+date.
@@ -463,4 +511,7 @@ type ProofValidator interface {
 	ValidateLiveCameraVideos(ctx context.Context, tenantID string, proofIDs []string) error
 	ValidateLiveCameraMedia(ctx context.Context, tenantID string, proofIDs []string) error
 	ValidateLiveCameraProofKind(ctx context.Context, tenantID string, proofIDs []string, requiredKind string) error
+	// LiveCameraProofKind validates ONE live-camera proof of any kind and reports the kind the
+	// register judged it as (video / photo) -- for an authored `either` slot.
+	LiveCameraProofKind(ctx context.Context, tenantID, proofID string) (string, error)
 }

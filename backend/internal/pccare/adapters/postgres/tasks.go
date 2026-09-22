@@ -18,6 +18,7 @@ import (
 	"github.com/vgoats/goatos/backend/internal/pccare/domain"
 	"github.com/vgoats/goatos/backend/internal/pccare/ports"
 	"github.com/vgoats/goatos/backend/internal/platform/audit"
+	"github.com/vgoats/goatos/backend/internal/platform/sqlbind"
 )
 
 const (
@@ -105,17 +106,20 @@ func (r *Repository) CreateTask(ctx context.Context, p ports.CreateTaskParams) (
 	err = tx.QueryRow(ctx, `
 INSERT INTO pc_care_tasks (
   tenant_id, category, park_id, shed_id, partition_label,
-  planned_business_date, due_business_date, idempotency_key, created_by
+  planned_business_date, due_business_date, idempotency_key, created_by,
+  sop_version, slot_keys, required_slot_keys
 ) VALUES (
   $1::uuid, $2, $3::uuid, $4::uuid, nullif($5::text, ''),
-  $6::date, $6::date, $7, $8::uuid
+  $6::date, $6::date, $7, $8::uuid,
+  nullif($9::int, 0), coalesce($10::text[], '{}'::text[]), coalesce($11::text[], '{}'::text[])
 )
 ON CONFLICT (tenant_id, category, park_id, shed_id, partition_key, planned_business_date)
   WHERE work_state <> 'canceled'
 DO NOTHING
 RETURNING task_id::text`,
 		p.TenantID, p.Category, p.ParkID, p.ShedID, p.PartitionLabel,
-		plannedDate, p.IdempotencyKey, p.CreatedBy).Scan(&taskID)
+		plannedDate, p.IdempotencyKey, p.CreatedBy, p.SOPVersion,
+		slotKeysOrSeeded(p.Category, p.SlotKeys, false), slotKeysOrSeeded(p.Category, p.RequiredSlotKeys, true)).Scan(&taskID)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return ports.TaskRow{}, domain.ErrTaskAlreadyPlanned
 	}
@@ -167,7 +171,9 @@ SELECT $1::uuid, $2::uuid, unnest($3::uuid[])`,
 		var removalTaskID string
 		err = tx.QueryRow(ctx, removalTaskInsertSQL,
 			p.TenantID, domain.CategoryFeedWaterRemoval, p.ParkID, p.ShedID, p.PartitionLabel,
-			removalDate, taskID, p.IdempotencyKey+":fasting", p.CreatedBy).Scan(&removalTaskID)
+			removalDate, taskID, p.IdempotencyKey+":fasting", p.CreatedBy, p.SOPVersion,
+			slotKeysOrSeeded(domain.CategoryFeedWaterRemoval, p.RemovalSlotKeys, false),
+			slotKeysOrSeeded(domain.CategoryFeedWaterRemoval, p.RemovalRequiredSlotKeys, true)).Scan(&removalTaskID)
 		if errors.Is(err, pgx.ErrNoRows) {
 			// A live removal task already covers this pen on the evening-before date (e.g. a
 			// canceled deworming left its removal row live). The pair cannot be planned whole,
@@ -214,6 +220,32 @@ SELECT $1::uuid, $2::uuid, unnest($3::uuid[])`,
 	}
 	committed = true
 	return r.GetTask(ctx, p.TenantID, taskID, nil, true)
+}
+
+// slotKeysOrSeeded is the store's FAIL-CLOSED rule for a caller that passes no card (the kernel's
+// own writes, a fixture): the task is snapshotted with the SEEDED document's keys for its
+// category, which is exactly what a task pinned to version 0 runs. An empty snapshot would
+// otherwise mean "nothing is required", and every submit would pass vacuously.
+func slotKeysOrSeeded(category string, keys []string, requiredOnly bool) []string {
+	if len(keys) > 0 {
+		return keys
+	}
+	seeded := domain.SeededRules()
+	out := []string{}
+	if category == domain.CategoryFeedWaterRemoval {
+		for _, p := range seeded.RemovalProofs() {
+			if !requiredOnly || p.Required {
+				out = append(out, p.Key)
+			}
+		}
+		return out
+	}
+	for _, slot := range seeded.CategorySlots(category) {
+		if !requiredOnly || slot.Required {
+			out = append(out, slot.FieldKey)
+		}
+	}
+	return out
 }
 
 // distinctIDs de-duplicates an id list (the create's union assignee-existence check compares a
@@ -278,10 +310,12 @@ WHERE m.tenant_id = $1::uuid AND m.status = 'active' AND m.user_id = ANY($2::uui
 const removalTaskInsertSQL = `
 INSERT INTO pc_care_tasks (
   tenant_id, category, park_id, shed_id, partition_label,
-  planned_business_date, due_business_date, gates_task_id, idempotency_key, created_by
+  planned_business_date, due_business_date, gates_task_id, idempotency_key, created_by,
+  sop_version, slot_keys, required_slot_keys
 ) VALUES (
   $1::uuid, $2, $3::uuid, $4::uuid, nullif($5::text, ''),
-  $6::date, $6::date, $7::uuid, $8, $9::uuid
+  $6::date, $6::date, $7::uuid, $8, $9::uuid,
+  nullif($10::int, 0), coalesce($11::text[], '{}'::text[]), coalesce($12::text[], '{}'::text[])
 )
 ON CONFLICT (tenant_id, category, park_id, shed_id, partition_key, planned_business_date)
   WHERE work_state <> 'canceled'
@@ -498,7 +532,9 @@ const taskSelectColumns = `
   coalesce(requirements.items, '[]'::jsonb),
   coalesce(task_proofs.items, '[]'::jsonb),
   coalesce(removal_pens.labels, ARRAY[]::text[]),
-  coalesce(animal_pens.items, '[]'::jsonb)`
+  coalesce(animal_pens.items, '[]'::jsonb),
+  coalesce(t.sop_version, 0),
+  t.sop_answers`
 
 // taskFromJoins is the FROM/JOIN block matching taskSelectColumns. The assignee and animal
 // sides are PRE-AGGREGATED to exactly one row per task before joining, so they cannot multiply
@@ -593,14 +629,21 @@ func scanTaskRow(row pgx.Row) (ports.TaskRow, error) {
 	var requirementsJSON []byte
 	var taskProofsJSON []byte
 	var animalPensJSON []byte
+	var answersJSON []byte
 	if err := row.Scan(
 		&t.TaskID, &t.Category, &t.ParkID, &t.ParkName, &t.ShedID, &t.ShedName,
 		&t.PartitionLabel, &t.VaccineLabel, &t.PlannedBusinessDate, &t.DueBusinessDate,
 		&t.WorkState, &t.Status, &t.ReworkReason, &t.CloseReason, &t.RowVersion,
 		&t.SubmittedBy, &submittedAt, &t.AssigneeUserIDs, &t.AssigneeNames, &t.AnimalCount,
 		&requirementsJSON, &taskProofsJSON, &t.RemovalPenLabels, &animalPensJSON,
+		&t.SOPVersion, &answersJSON,
 	); err != nil {
 		return ports.TaskRow{}, err
+	}
+	if len(answersJSON) > 0 {
+		if err := json.Unmarshal(answersJSON, &t.SOPAnswers); err != nil {
+			return ports.TaskRow{}, fmt.Errorf("pccare: decode sop answers: %w", err)
+		}
 	}
 	if len(requirementsJSON) > 0 {
 		var raw []struct {
@@ -661,6 +704,23 @@ func scanTaskRow(row pgx.Row) (ports.TaskRow, error) {
 	}
 	t.SubmittedAt = submittedAt
 	return t, nil
+}
+
+// TaskSOPVersion reads the pc_care.tasks SOP version a task was planned on (0 = seed).
+func (r *Repository) TaskSOPVersion(ctx context.Context, tenantID, taskID string) (int, error) {
+	ctx, cancel := r.timeout(ctx)
+	defer cancel()
+	var version int
+	err := r.pool.QueryRow(ctx, `
+SELECT coalesce(sop_version, 0) FROM pc_care_tasks WHERE tenant_id = $1::uuid AND task_id = $2::uuid`,
+		tenantID, taskID).Scan(&version)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return 0, ports.ErrNotFound
+	}
+	if err != nil {
+		return 0, fmt.Errorf("pccare: read task sop version: %w", err)
+	}
+	return version, nil
 }
 
 // GetTask reads one task clamped to the authorized parks; outside scope reads as not-found.
@@ -781,11 +841,12 @@ func (r *Repository) ListTasks(ctx context.Context, q ports.ListTasksQuery) (por
 	if q.RemovalCutoff.Valid() {
 		removalCutoffSQLTime = q.RemovalCutoff.SQLTime()
 	}
-	rows, err := r.pool.Query(ctx, "SELECT"+taskSelectColumns+taskFromJoins+listTasksPageSQL,
+	boundList := sqlbind.MustBind("SELECT"+taskSelectColumns+taskFromJoins+listTasksPageSQL,
 		q.TenantID, q.DueBusinessDate, q.TenantWide, q.AuthorizedParkIDs,
 		q.ParkID, q.Category, q.AssigneeUserID, limit+1,
 		afterPark, afterShed, afterPartition, afterCategory, afterTask, q.CurrentOrCarry,
 		now, removalCutoffSQLTime)
+	rows, err := r.pool.Query(ctx, boundList.SQL(), boundList.Args()...)
 	if err != nil {
 		return ports.TaskPage{}, fmt.Errorf("pccare: list tasks: %w", err)
 	}
@@ -1017,7 +1078,7 @@ func (r *Repository) PlannerParkSheds(ctx context.Context, tenantID, parkID, cat
 	// live), joined on that exact key; pagination=keyset on the ORDER BY tuple (shed name,
 	// shed_id, partition_key); scope=tenant_id + park_id + category + planned date.
 	// scale-guard:ignore: one keyset page of ONE park's pen catalog (physical infrastructure, never herd-sized); the existing-task join hits pc_care_tasks_natural_uq.
-	rows, err := r.pool.Query(ctx, `
+	boundPens := sqlbind.MustBind(`
 WITH pens AS (
   SELECT shed.location_id AS shed_id, shed.name AS shed_name,
          COALESCE(NULLIF(BTRIM(sp.partition_label), ''), '') AS partition_label,
@@ -1053,6 +1114,7 @@ ORDER BY p.shed_name, p.shed_id::text, p.partition_key
 LIMIT $8`,
 		tenantID, parkID, category, plannedBusinessDate,
 		afterName, afterShed, afterPartition, limit+1)
+	rows, err := r.pool.Query(ctx, boundPens.SQL(), boundPens.Args()...)
 	if err != nil {
 		return ports.PlannerParkSheds{}, fmt.Errorf("pccare: planner park sheds: %w", err)
 	}

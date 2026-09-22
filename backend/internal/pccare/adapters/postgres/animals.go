@@ -2,8 +2,10 @@ package postgres
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
+	"sort"
 	"strings"
 	"time"
 
@@ -13,6 +15,8 @@ import (
 	"github.com/vgoats/goatos/backend/internal/pccare/domain"
 	"github.com/vgoats/goatos/backend/internal/pccare/ports"
 	"github.com/vgoats/goatos/backend/internal/platform/audit"
+	"github.com/vgoats/goatos/backend/internal/platform/sqlbind"
+	"github.com/vgoats/goatos/backend/internal/sop/authored"
 )
 
 const (
@@ -29,23 +33,48 @@ const (
 // lockTaskForCapture locks the task row and asserts it is open for capture writes: status
 // open|rework and work_state scheduled|delayed. Returns the task's category.
 func lockTaskForCapture(ctx context.Context, tx pgx.Tx, tenantID, taskID string) (category string, err error) {
+	category, _, err = lockTaskForCaptureWithSlots(ctx, tx, tenantID, taskID)
+	return category, err
+}
+
+// lockTaskForCaptureWithSlots is the same lock, also returning the slot keys the task's PINNED
+// card accepts (pc_care_tasks.slot_keys, snapshotted at create). The service already judged the
+// key against the pinned document; this is the store's own refusal, taken under the row lock so
+// no caller -- a kernel write, a replay, a test -- can file a capture into a slot the card does
+// not ask for.
+func lockTaskForCaptureWithSlots(ctx context.Context, tx pgx.Tx, tenantID, taskID string) (category string, slotKeys []string, err error) {
 	var status, workState string
 	err = tx.QueryRow(ctx, `
-SELECT category, status, work_state
+SELECT category, status, work_state, slot_keys
 FROM pc_care_tasks
 WHERE tenant_id = $1::uuid AND task_id = $2::uuid
-FOR UPDATE`, tenantID, taskID).Scan(&category, &status, &workState)
+FOR UPDATE`, tenantID, taskID).Scan(&category, &status, &workState, &slotKeys)
 	if errors.Is(err, pgx.ErrNoRows) {
-		return "", ports.ErrNotFound
+		return "", nil, ports.ErrNotFound
 	}
 	if err != nil {
-		return "", fmt.Errorf("pccare: lock task: %w", err)
+		return "", nil, fmt.Errorf("pccare: lock task: %w", err)
 	}
 	if (status != domain.StatusOpen && status != domain.StatusRework) ||
 		(workState != domain.WorkStateScheduled && workState != domain.WorkStateDelayed) {
-		return "", domain.ErrTaskNotOpen
+		return "", nil, domain.ErrTaskNotOpen
 	}
-	return category, nil
+	return category, slotKeys, nil
+}
+
+// acceptsSlot reports whether a task's pinned card asks for this slot. A row with NO snapshot
+// (older than the column, or a fixture) falls back to the SEEDED card for its category rather
+// than accepting anything: an empty list must never read as "every key is fine".
+func acceptsSlot(category string, slotKeys []string, key string) bool {
+	if len(slotKeys) == 0 {
+		slotKeys = slotKeysOrSeeded(category, nil, false)
+	}
+	for _, k := range slotKeys {
+		if k == key {
+			return true
+		}
+	}
+	return false
 }
 
 // ScanAnimal inserts one scanned tag into the task, VERBATIM, at scan time. The ONE business
@@ -135,8 +164,10 @@ RETURNING animal_row_id::text`,
 	return ports.ScanAnimalResult{AnimalRowID: animalRowID}, nil
 }
 
-// slotColumn maps a slot field key to its column triple prefix. The map is the ONLY place the
-// four column names are spelled, so a slot cannot address another slot's columns.
+// slotColumn maps a SEEDED slot key to its legacy column triple prefix. The keyed map
+// (sop_proofs / sop_proof_meta) is the source of truth since the PC CARE SOP (2026-09-22); the
+// four legacy columns MIRROR these keys so every pre-existing reader still finds a ref. An
+// authored key outside this table lives in the map alone.
 func slotColumn(fieldKey string) (prefix string, ok bool) {
 	switch fieldKey {
 	case domain.SlotVideo:
@@ -160,8 +191,7 @@ func (r *Repository) RegisterSlotProof(ctx context.Context, p ports.RegisterSlot
 	ctx, cancel := r.timeout(ctx)
 	defer cancel()
 
-	prefix, ok := slotColumn(p.SlotFieldKey)
-	if !ok {
+	if !authored.IDPattern.MatchString(p.SlotFieldKey) {
 		return domain.ErrInvalidSlotForCategory
 	}
 
@@ -176,11 +206,13 @@ func (r *Repository) RegisterSlotProof(ctx context.Context, p ports.RegisterSlot
 		}
 	}()
 
-	category, err := lockTaskForCapture(ctx, tx, p.TenantID, p.TaskID)
+	// The lock refuses a capture on a task that has since been submitted or closed, and the
+	// task's own snapshot refuses one aimed at a slot its card does not ask for.
+	category, slotKeys, err := lockTaskForCaptureWithSlots(ctx, tx, p.TenantID, p.TaskID)
 	if err != nil {
 		return err
 	}
-	if !domain.IsValidSlotForCategory(category, p.SlotFieldKey) {
+	if !acceptsSlot(category, slotKeys, p.SlotFieldKey) {
 		return domain.ErrInvalidSlotForCategory
 	}
 
@@ -197,13 +229,12 @@ func (r *Repository) RegisterSlotProof(ctx context.Context, p ports.RegisterSlot
 		return nil
 	}
 
-	// The column names are compiled from the slotColumn map above, never from request input.
 	var previousRef string
 	err = tx.QueryRow(ctx, `
-SELECT coalesce(`+prefix+`_proof_ref, '')
+SELECT coalesce(sop_proofs->>$4::text, '')
 FROM pc_care_task_animals
 WHERE tenant_id = $1::uuid AND task_id = $2::uuid AND animal_row_id = $3::uuid
-FOR UPDATE`, p.TenantID, p.TaskID, p.AnimalRowID).Scan(&previousRef)
+FOR UPDATE`, p.TenantID, p.TaskID, p.AnimalRowID, p.SlotFieldKey).Scan(&previousRef)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return ports.ErrNotFound
 	}
@@ -212,14 +243,29 @@ FOR UPDATE`, p.TenantID, p.TaskID, p.AnimalRowID).Scan(&previousRef)
 	}
 
 	if previousRef != p.ProofRef {
-		if _, err := tx.Exec(ctx, `
+		kind := strings.TrimSpace(p.Kind)
+		if kind == "" {
+			kind = authored.KindVideo
+		}
+		// The keyed map is written for every slot; a SEEDED key is also mirrored into its
+		// legacy column triple. The legacy column names come from the slotColumn table above,
+		// never from request input; the slot key itself is a bind value.
+		updateSQL := `
 UPDATE pc_care_task_animals
-SET `+prefix+`_proof_ref = $4,
-    `+prefix+`_captured_by = $5::uuid,
-    `+prefix+`_captured_at = now(),
-    updated_at = now()
-WHERE tenant_id = $1::uuid AND task_id = $2::uuid AND animal_row_id = $3::uuid`,
-			p.TenantID, p.TaskID, p.AnimalRowID, p.ProofRef, p.CapturedBy); err != nil {
+SET sop_proofs = sop_proofs || jsonb_build_object($4::text, $5::text),
+    sop_proof_meta = sop_proof_meta || jsonb_build_object($4::text, jsonb_build_object('captured_by', $6::text, 'captured_at', now(), 'kind', $7::text)),
+    updated_at = now()`
+		if prefix, mirrored := slotColumn(p.SlotFieldKey); mirrored {
+			updateSQL += `,
+    ` + prefix + `_proof_ref = $5,
+    ` + prefix + `_captured_by = $6::uuid,
+    ` + prefix + `_captured_at = now()`
+		}
+		updateSQL += `
+WHERE tenant_id = $1::uuid AND task_id = $2::uuid AND animal_row_id = $3::uuid`
+		bound := sqlbind.MustBind(updateSQL,
+			p.TenantID, p.TaskID, p.AnimalRowID, p.SlotFieldKey, p.ProofRef, p.CapturedBy, kind)
+		if _, err := tx.Exec(ctx, bound.SQL(), bound.Args()...); err != nil {
 			return fmt.Errorf("pccare: register slot proof: %w", err)
 		}
 		actorType := strings.TrimSpace(p.ActorType)
@@ -262,6 +308,7 @@ WHERE tenant_id = $1::uuid AND task_id = $2::uuid AND animal_row_id = $3::uuid`,
 
 // animalScanRow is the raw scan of one pc_care_task_animals row.
 type animalScanRow struct {
+	kinds       map[string]string
 	animalRowID string
 	tag         string
 	scannedBy   string
@@ -281,24 +328,20 @@ func (r *Repository) ListTaskAnimals(ctx context.Context, tenantID, taskID, curs
 		limit = 50
 	}
 
-	var category string
+	var exists bool
 	err := r.pool.QueryRow(ctx, `
-SELECT category FROM pc_care_tasks WHERE tenant_id = $1::uuid AND task_id = $2::uuid`,
-		tenantID, taskID).Scan(&category)
+SELECT true FROM pc_care_tasks WHERE tenant_id = $1::uuid AND task_id = $2::uuid`,
+		tenantID, taskID).Scan(&exists)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return nil, "", ports.ErrNotFound
 	}
 	if err != nil {
-		return nil, "", fmt.Errorf("pccare: read task category: %w", err)
+		return nil, "", fmt.Errorf("pccare: read task: %w", err)
 	}
 
 	// scale-guard:ignore: one keyset page of ONE task's animal rows, covered by pc_care_task_animals_task_idx (tenant_id, task_id, animal_row_id).
 	rows, err := r.pool.Query(ctx, `
-SELECT animal_row_id::text, scanned_identifier, scanned_by::text, scanned_at,
-       coalesce(video_proof_ref, ''), coalesce(video_captured_by::text, ''), video_captured_at,
-       coalesce(before_proof_ref, ''), coalesce(before_captured_by::text, ''), before_captured_at,
-       coalesce(during_proof_ref, ''), coalesce(during_captured_by::text, ''), during_captured_at,
-       coalesce(after_proof_ref, ''), coalesce(after_captured_by::text, ''), after_captured_at
+SELECT animal_row_id::text, scanned_identifier, scanned_by::text, scanned_at, sop_proofs, sop_proof_meta
 FROM pc_care_task_animals
 WHERE tenant_id = $1::uuid AND task_id = $2::uuid
   AND ($3::text = '' OR animal_row_id > $3::uuid)
@@ -315,24 +358,26 @@ LIMIT $4`, tenantID, taskID, strings.TrimSpace(cursor), limit+1)
 			refs:       map[string]string{},
 			capturedBy: map[string]string{},
 			capturedAt: map[string]*time.Time{},
+			kinds:      map[string]string{},
 		}
-		var (
-			videoRef, videoBy, beforeRef, beforeBy, duringRef, duringBy, afterRef, afterBy string
-			videoAt, beforeAt, duringAt, afterAt                                           *time.Time
-		)
-		if err := rows.Scan(
-			&a.animalRowID, &a.tag, &a.scannedBy, &a.scannedAt,
-			&videoRef, &videoBy, &videoAt,
-			&beforeRef, &beforeBy, &beforeAt,
-			&duringRef, &duringBy, &duringAt,
-			&afterRef, &afterBy, &afterAt,
-		); err != nil {
+		var proofsJSON, metaJSON []byte
+		if err := rows.Scan(&a.animalRowID, &a.tag, &a.scannedBy, &a.scannedAt, &proofsJSON, &metaJSON); err != nil {
 			return nil, "", fmt.Errorf("pccare: scan animal row: %w", err)
 		}
-		a.refs[domain.SlotVideo], a.capturedBy[domain.SlotVideo], a.capturedAt[domain.SlotVideo] = videoRef, videoBy, videoAt
-		a.refs[domain.SlotBefore], a.capturedBy[domain.SlotBefore], a.capturedAt[domain.SlotBefore] = beforeRef, beforeBy, beforeAt
-		a.refs[domain.SlotDuring], a.capturedBy[domain.SlotDuring], a.capturedAt[domain.SlotDuring] = duringRef, duringBy, duringAt
-		a.refs[domain.SlotAfter], a.capturedBy[domain.SlotAfter], a.capturedAt[domain.SlotAfter] = afterRef, afterBy, afterAt
+		if err := json.Unmarshal(proofsJSON, &a.refs); err != nil {
+			return nil, "", fmt.Errorf("pccare: decode animal proofs: %w", err)
+		}
+		var meta map[string]struct {
+			CapturedBy string     `json:"captured_by"`
+			CapturedAt *time.Time `json:"captured_at"`
+			Kind       string     `json:"kind"`
+		}
+		if err := json.Unmarshal(metaJSON, &meta); err != nil {
+			return nil, "", fmt.Errorf("pccare: decode animal proof meta: %w", err)
+		}
+		for key, m := range meta {
+			a.capturedBy[key], a.capturedAt[key], a.kinds[key] = m.CapturedBy, m.CapturedAt, m.Kind
+		}
 		raw = append(raw, a)
 	}
 	if err := rows.Err(); err != nil {
@@ -361,7 +406,8 @@ LIMIT $4`, tenantID, taskID, strings.TrimSpace(cursor), limit+1)
 		return nil, "", err
 	}
 
-	slots := domain.SlotsForCategory(category)
+	// Every key the animal carries, in key order; the SERVICE orders them by the task's pinned
+	// card and fills the empty slots (it holds the rules, the store does not).
 	out := make([]ports.AnimalRow, 0, len(raw))
 	for _, a := range raw {
 		row := ports.AnimalRow{
@@ -370,15 +416,21 @@ LIMIT $4`, tenantID, taskID, strings.TrimSpace(cursor), limit+1)
 			ScannedBy:         a.scannedBy,
 			ScannedByName:     names[a.scannedBy],
 			ScannedAt:         a.scannedAt,
-			Slots:             make([]ports.AnimalSlot, 0, len(slots)),
+			Slots:             make([]ports.AnimalSlot, 0, len(a.refs)),
 		}
-		for _, slot := range slots {
+		keys := make([]string, 0, len(a.refs))
+		for key := range a.refs {
+			keys = append(keys, key)
+		}
+		sort.Strings(keys)
+		for _, key := range keys {
 			row.Slots = append(row.Slots, ports.AnimalSlot{
-				FieldKey:       slot.FieldKey,
-				ProofRef:       a.refs[slot.FieldKey],
-				CapturedBy:     a.capturedBy[slot.FieldKey],
-				CapturedByName: names[a.capturedBy[slot.FieldKey]],
-				CapturedAt:     a.capturedAt[slot.FieldKey],
+				FieldKey:       key,
+				ProofRef:       a.refs[key],
+				CapturedBy:     a.capturedBy[key],
+				CapturedByName: names[a.capturedBy[key]],
+				CapturedAt:     a.capturedAt[key],
+				Kind:           a.kinds[key],
 			})
 		}
 		out = append(out, row)

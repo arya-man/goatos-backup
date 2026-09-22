@@ -42,7 +42,8 @@ END`
 // projection-review: membership=the ONE pc_care_tasks row named by (tenant_id, park_id, due_business_date, task_id) with canceled excluded, then every pc_care_task_animals row of that task (pc_care_task_animals_task_idx on tenant_id, task_id) or one synthetic unit when the task has none; group_key=(tenant_id, unit id) where the unit id is the animal row id or the task id for the synthetic unit, so one scanned animal is one subtask; join_cardinality=the two UNION ALL arms are exclusive on the NOT EXISTS so a task contributes exactly its animals or exactly one unit, and workforce_members filtered to status='active' on the partial-unique (tenant_id,user_id) index (at most 1), so nothing fans an animal out and the window total counts each unit once; pagination=keyset on (rank, unit id) ASC after ($5, $6) with LIMIT $7 and the whole count carried by count(*) OVER () computed before the keyset cut; scope=tenant_id, park_id, due_business_date and task_id, the same predicate the row read binds on pc_care_tasks.
 const pccareSubtasksSQL = `
 WITH task AS (
-  SELECT t.task_id, t.category, t.status AS task_status, t.work_state, COALESCE(t.rework_reason, '') AS rework_reason
+  SELECT t.task_id, t.category, t.status AS task_status, t.work_state, COALESCE(t.rework_reason, '') AS rework_reason,
+         t.required_slot_keys
   FROM pc_care_tasks t
   WHERE t.tenant_id = $1::uuid
     AND t.park_id = $2::uuid
@@ -52,14 +53,16 @@ WITH task AS (
 ),
 units AS (
   SELECT 'animal'::text AS kind, an.animal_row_id::text AS unit_id, an.scanned_identifier AS name,
-         an.scanned_at, (an.video_proof_ref IS NOT NULL) AS video_done,
-         ((an.before_proof_ref IS NOT NULL)::int + (an.during_proof_ref IS NOT NULL)::int + (an.after_proof_ref IS NOT NULL)::int) AS triple_slots,
+         -- FAIL CLOSED: the has-all-keys test is vacuously true against an empty list (source.go).
+         an.scanned_at, (cardinality(k.required_slot_keys) > 0 AND an.sop_proofs ?& k.required_slot_keys) AS slots_done,
+         (SELECT count(*)::int FROM unnest(k.required_slot_keys) rk WHERE an.sop_proofs ? rk) AS slots_filled,
+         cardinality(k.required_slot_keys) AS slots_required,
          (an.submitted_at IS NOT NULL) AS animal_submitted, an.scanned_by AS actor_id,
          k.category, k.task_status, k.work_state, k.rework_reason
   FROM task k
   JOIN pc_care_task_animals an ON an.tenant_id = $1::uuid AND an.task_id = k.task_id
   UNION ALL
-  SELECT 'task', k.task_id::text, '', NULL, false, 0, false, NULL,
+  SELECT 'task', k.task_id::text, '', NULL, false, 0, cardinality(k.required_slot_keys), false, NULL,
          k.category, k.task_status, k.work_state, k.rework_reason
   FROM task k
   WHERE NOT EXISTS (SELECT 1 FROM pc_care_task_animals an WHERE an.tenant_id = $1::uuid AND an.task_id = k.task_id)
@@ -68,7 +71,7 @@ ranked AS (
   SELECT u.*, ` + pccareSubtaskRankSQL + ` AS rank, count(*) OVER () AS total
   FROM units u
 )
-SELECT r.kind, r.unit_id, r.name, r.scanned_at, r.video_done, r.triple_slots, r.animal_submitted,
+SELECT r.kind, r.unit_id, r.name, r.scanned_at, r.slots_done, r.slots_filled, r.slots_required, r.animal_submitted,
        r.category, r.task_status, r.work_state, r.rework_reason, r.rank, r.total,
        COALESCE(r.actor_id::text, ''), COALESCE(m.workforce_member_id::text, ''), COALESCE(m.display_name, '')
 FROM ranked r
@@ -118,12 +121,12 @@ func scanPCCareSubtask(rows pgx.Rows) (domain.Subtask, int, error) {
 	var (
 		kind, unitID, name                         string
 		scannedAt                                  *time.Time
-		videoDone, animalSubmitted                 bool
-		tripleSlots, rank, total                   int
+		slotsDone, animalSubmitted                 bool
+		slotsFilled, slotsRequired, rank, total    int
 		category, taskStatus, workState, reworkMsg string
 		ownerUserID, ownerMemberID, ownerName      string
 	)
-	if err := rows.Scan(&kind, &unitID, &name, &scannedAt, &videoDone, &tripleSlots, &animalSubmitted,
+	if err := rows.Scan(&kind, &unitID, &name, &scannedAt, &slotsDone, &slotsFilled, &slotsRequired, &animalSubmitted,
 		&category, &taskStatus, &workState, &reworkMsg, &rank, &total, &ownerUserID, &ownerMemberID, &ownerName); err != nil {
 		return domain.Subtask{}, 0, fmt.Errorf("pccare boardsource subtask scan: %w", err)
 	}
@@ -137,22 +140,16 @@ func scanPCCareSubtask(rows pgx.Rows) (domain.Subtask, int, error) {
 		if scannedAt != nil {
 			scan.Detail = "Scanned " + scannedAt.In(biztime.DefaultLocation()).Format("15:04")
 		}
-		// Proof readiness is the SAME rule submit applies: one video for a single-video
-		// category, all three of before / while / after for the trimming pair.
-		if pcdomain.IsSingleVideoCategory(category) {
+		// Proof readiness is the SAME rule submit applies: every compulsory slot of the task's
+		// pinned card (PC CARE SOP, 2026-09-22) -- one capture for the 2-second jobs, the
+		// before / while / after triple for the trimming jobs, whatever the farm authored since.
+		switch {
+		case slotsDone:
+			proof.State = domain.StepDone
+		case slotsFilled > 0 && slotsRequired > 1:
+			proof.State, proof.Detail = domain.StepInProgress, fmt.Sprintf("%d of %d captures", slotsFilled, slotsRequired)
+		default:
 			proof.State = domain.StepTodo
-			if videoDone {
-				proof.State = domain.StepDone
-			}
-		} else {
-			switch {
-			case tripleSlots >= 3:
-				proof.State = domain.StepDone
-			case tripleSlots > 0:
-				proof.State, proof.Detail = domain.StepInProgress, fmt.Sprintf("%d of 3 videos", tripleSlots)
-			default:
-				proof.State = domain.StepTodo
-			}
 		}
 		submit.State = domain.StepTodo
 		if proof.State != domain.StepDone {

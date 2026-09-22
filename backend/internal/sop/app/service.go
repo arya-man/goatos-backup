@@ -1064,7 +1064,7 @@ func evaluationRequiresProof(evaluation domain.DryRunResponse) bool {
 // on 2026-09-20, found by publishing each document through the real service rather than calling
 // its own contract in a unit test. Adding a section here is what makes a new module-owned document
 // editable from the web at all.
-var moduleOwnedSections = []string{"vendor_form", "feed_purchase_form", "toxin"}
+var moduleOwnedSections = []string{"vendor_form", "feed_purchase_form", "toxin", "pc_care"}
 
 // fieldlessSOPCodes are the documents that never carry a capture form of their own: their whole
 // substance is a workflow track or a module-owned section. Naming the CODE (not only the section)
@@ -1078,6 +1078,7 @@ var fieldlessSOPCodes = map[string]bool{
 	procurementSOPCodeFeedPurchaseForm:      true,
 	toxinSOPCode:                            true,
 	salesSOPCodeVendor:                      true,
+	pcCareSOPCode:                           true,
 }
 
 // The codes are spelled here rather than imported so sop/app keeps no dependency on the
@@ -1088,6 +1089,7 @@ const (
 	procurementSOPCodeFeedPurchaseForm = "procurement.feed_purchase_form"
 	toxinSOPCode                       = "procurement.toxin_test"
 	salesSOPCodeVendor                 = "sales.vendor"
+	pcCareSOPCode                      = "pc_care.tasks"
 )
 
 // generalDocumentShape reports a document whose whole substance is a follow-up track or a
