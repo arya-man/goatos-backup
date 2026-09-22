@@ -1460,10 +1460,10 @@ private fun TagLine(primaryTag: String, secondaryTag: String?, color: Color) {
 }
 
 private fun proofLineAndTone(row: RosterRow): Pair<String, ScanFeedTone> = when {
-    row.proofUploadStatus == ProofUploadStatus.UPLOADING || row.evidenceUploading ->
-        (row.proofStatusLabel ?: "Uploading proof · retrying if needed") to ScanFeedTone.DUPLICATE
     row.proofUploadStatus == ProofUploadStatus.FAILED || row.evidenceFailed ->
         (row.proofStatusLabel ?: "Upload failed · scan again to replace") to ScanFeedTone.REJECTED
+    row.proofUploadStatus == ProofUploadStatus.UPLOADING || row.evidenceUploading ->
+        (row.proofStatusLabel ?: "Uploading proof · retrying if needed") to ScanFeedTone.DUPLICATE
     row.proofUploadStatus == ProofUploadStatus.SYNCED || row.evidenceSyncedCount > 0 ->
         (row.proofStatusLabel ?: "Proof synced") to ScanFeedTone.ACCEPTED
     else ->
