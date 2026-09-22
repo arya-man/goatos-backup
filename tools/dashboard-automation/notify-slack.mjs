@@ -34,7 +34,14 @@ if (state.lastSignature === signature && now - Number(state.lastPostedAtMs ?? 0)
   process.exit(0);
 }
 
-const visualIssues = moduleFailures(receiptPath).map(humanIssue).filter(Boolean);
+// Same problem on laptop + phone, or on sibling tab routes, is one issue with one screenshot.
+const visualIssues = [];
+for (const issue of moduleFailures(receiptPath).map(humanIssue).filter(Boolean)) {
+  const key = `${issue.what}|${issue.example}|${issue.page.replace(/ (Month|Metric Weight|Overview|Problems)$/, "")}`;
+  const seen = visualIssues.find((existing) => existing.key === key);
+  if (seen) { if (!seen.deviceLabel.includes(issue.deviceLabel)) seen.deviceLabel += ` ${issue.deviceLabel}`; continue; }
+  visualIssues.push({ ...issue, key });
+}
 const message = visualIssues.length && decision.kind === "failure"
   ? formatVisualIssuesMessage(receipt, visualIssues)
   : formatSlackMessage(receipt, decision.kind, receiptPath);
@@ -42,7 +49,7 @@ if (containsUnredactedSecret(JSON.stringify(message))) fail("refusing to send Sl
 
 const screenshotFiles = screenshotPaths(receipt, receiptPath);
 const reportFile = writeHtmlReport(receipt, receiptPath, decision.kind, screenshotFiles);
-const inlineShots = visualIssues.filter((issue) => issue.screenshot).map((issue) => ({ file: issue.screenshot, title: issue.caption }));
+const inlineShots = visualIssues.filter((issue) => issue.screenshot).slice(0, 12).map((issue) => ({ file: issue.screenshot, title: issue.caption }));
 await postSlack(message, inlineShots.length ? [reportFile] : [reportFile, ...screenshotFiles], statePath, { lastSignature: signature, lastPostedAtMs: now, lastStatus: receipt.status ?? "unknown" }, inlineShots);
 console.log(`dashboard Slack notify: posted ${decision.kind}`);
 
@@ -105,7 +112,7 @@ function humanIssue(failure) {
   if (rule && rule[1] === null) return null;
   const what = rule ? rule[1] : raw.replace(/\[[A-Za-z-]+\]\s*/g, "").slice(0, 120);
   const [device, routeName] = String(failure.route ?? "").includes(":") ? failure.route.split(":") : ["", failure.route ?? failure.module];
-  const quoted = [...raw.matchAll(/"([^"]{1,60})"/g)].map((m) => m[1]).filter((t) => !/^\w+-\w+-/.test(t));
+  const quoted = [...raw.matchAll(/"([^"]{1,60})"(?!\s*:)/g)].map((m) => m[1]).filter((t) => !/^\w+-\w+-/.test(t) && !/^(tag|kind|className|ariaLabel|text|table|missing-scroll-owner|button|input|a|span|div|td)$/.test(t));
   const example = quoted[0] ? ` — "${quoted[0]}"` : (raw.match(/(\d+px[^;|]*)/)?.[1] ? ` — ${raw.match(/(\d+px[^;|]*)/)[1].slice(0, 60)}` : "");
   const page = String(routeName ?? "").replace(/-/g, " ").replace(/\b\w/g, (c) => c.toUpperCase());
   const deviceLabel = device === "mobile" ? "📱 Phone" : device === "laptop" ? "💻 Laptop" : "";
@@ -122,7 +129,7 @@ function formatVisualIssuesMessage(value, issues) {
     { type: "section", text: { type: "mrkdwn", text: lines.join("\n") } },
   ];
   if (issues.length > shown.length) blocks.push({ type: "context", elements: [{ type: "mrkdwn", text: `+${issues.length - shown.length} more in the report` }] });
-  blocks.push({ type: "context", elements: [{ type: "mrkdwn", text: `Screenshots below, problem boxed in red · checked on laptop and phone · build \`${String(value.repoSha ?? "").slice(0, 9)}\` · full report in thread` }] });
+  blocks.push({ type: "context", elements: [{ type: "mrkdwn", text: `Screenshots of the first 12 below, problem boxed in red · checked on laptop and phone · build \`${String(value.repoSha ?? "").slice(0, 9)}\` · full report in thread` }] });
   return { text: `${title}\n${shown.map((issue) => `• ${issue.caption}`).join("\n")}`, blocks };
 }
 
