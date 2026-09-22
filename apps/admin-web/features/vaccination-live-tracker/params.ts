@@ -2,9 +2,9 @@ import { parseScope, scopeHref, type Scope } from "@/lib/scope";
 import { boundedInt, one, type RouteSearchParams } from "@/lib/search-params";
 import type { VaccinationLiveTrackerStatus } from "@/lib/api/server";
 
-// URL keys owned by this page. `park` is deliberately page-authoritative here: the live tracker has
-// its own park filter beside the rest of the drive filters, and the backend read must honor that
-// selection even when the shell/global scope chrome is company-wide or hidden.
+// URL keys owned by this page. `park` is owned by the shared top-bar scope parser, and the live
+// tracker treats that parsed scope as its page park filter so shell/global scope and backend reads
+// cannot drift.
 export const LIVE_TRACKER_PATH = "/vaccination/live-tracker";
 
 const STATUS_VALUES: VaccinationLiveTrackerStatus[] = ["active", "done", "pending", "review"];
@@ -54,7 +54,7 @@ export function parseLiveTrackerParams(searchParams: RouteSearchParams | undefin
   const sp = searchParams ?? {};
   const scope = parseScope(sp);
 
-  const parkId = uuidOrUndefined(one(sp, "park"));
+  const parkId = uuidOrUndefined(scope.parkId);
   const shedId = uuidOrUndefined(one(sp, "lt_shed"));
   const partitionLabel = boundedText(one(sp, "lt_partition"), 64);
   const operatorId = uuidOrUndefined(one(sp, "lt_operator"));

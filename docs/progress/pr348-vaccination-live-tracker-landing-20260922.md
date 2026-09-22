@@ -31,17 +31,29 @@
   - `make postgres-bind-contract-guard`
   - `make exception-guard scale-guard admin-web-request-reads-guard`
   - `go test ./internal/vaccinationexecution/adapters/postgres -run 'TestDriveAssignmentCarryProjectionOneToManyPageBoundaryDateShiftParkScopeStatusMatrix|TestCarrySummaryTotalExcludesTerminalObligations|TestCanonicalVaccinationReadsUseDriveAssignmentPlannedDateOneToManyPageBoundaryExecutionDateParkScopeStatusMatrix'`
+- Second `make land-main` attempt at `805de97a60b67e8514fe1d0afe63797529b019f2` failed before any push on:
+  - `required PostgreSQL query plans` (no Postgres DSN in the gate environment)
+  - `command-board query plans` (no Postgres DSN in the gate environment)
+  - `admin-web mock-fidelity` (live tracker read `park` directly instead of through shared scope parsing)
+  - `android screenshots` (`RoleChromeScreenshotTest.role_operator_drawer` and `role_ceo_drawer`, app version text snapshot delta)
+- Final blocker fixes applied:
+  - Live tracker now uses `parseScope()`'s parsed `scope.parkId` instead of reading `park` directly.
+  - Accepted visually inspected role-drawer Paparazzi snapshots for the app version text update (`1.0.35-dev`, code `85`).
+- Focused reruns passed:
+  - `npm --prefix apps/admin-web run check:mock-fidelity`
+  - `ANDROID_HOME=/Users/raviteja/Library/Android/sdk ANDROID_SDK_ROOT=/Users/raviteja/Library/Android/sdk ./gradlew :app:verifyPaparazziDevDebug --no-daemon --console=plain --no-configuration-cache --max-workers=1 -Dkotlin.compiler.execution.strategy=in-process -Dkotlin.daemon.enabled=false -Pkotlin.compiler.execution.strategy=in-process --tests 'sg.mesha.goatos.ui.RoleChromeScreenshotTest'`
+  - `GOATOS_SQLC_PLAN_ADMIN_DSN="$DATABASE_URL" make validate-sqlc-plans` after sourcing `/Users/raviteja/mesha/local-data/goatos-stg-to-oci/oci-goatos-db.env`
+  - `GOATOS_PGTEST_ADMIN_DSN="$DATABASE_URL" GOATOS_SQLC_PLAN_ADMIN_DSN="$DATABASE_URL" make commandboard-query-plan-guard` after sourcing `/Users/raviteja/mesha/local-data/goatos-stg-to-oci/oci-goatos-db.env`
 
 ## Pending
 
-- Commit the landing-blocker fixes.
-- Rerun `make aggregate-projection-guard` after the fixes are in the committed diff.
+- Commit the final landing-blocker fixes.
 - Run exact repo landing gate from this clean isolated worktree:
-  - `ANDROID_HOME=/Users/raviteja/Library/Android/sdk ANDROID_SDK_ROOT=/Users/raviteja/Library/Android/sdk make land-main`
+  - `set -a; source /Users/raviteja/mesha/local-data/goatos-stg-to-oci/oci-goatos-db.env; set +a; GOATOS_SQLC_PLAN_ADMIN_DSN="$DATABASE_URL" GOATOS_PGTEST_ADMIN_DSN="$DATABASE_URL" ANDROID_HOME=/Users/raviteja/Library/Android/sdk ANDROID_SDK_ROOT=/Users/raviteja/Library/Android/sdk make land-main`
 - Verify `origin/main` readback after landing.
 - Resolve GitHub PR 348 state after the certified SHA reaches `main`.
 
 ## Known Gaps
 
-- The first landing attempt's Android screenshot stage failed in `RoleChromeScreenshotTest.role_operator_drawer` and `role_ceo_drawer`; this still needs the full landing rerun after backend/guard fixes.
+- The focused failed gates are green; final certification still requires the full landing rerun after committing the latest fixes.
 - No staging deploy has been requested or run.
