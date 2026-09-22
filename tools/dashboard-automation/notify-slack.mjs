@@ -54,7 +54,7 @@ const message = visualIssues.length && decision.kind === "failure"
 if (containsUnredactedSecret(JSON.stringify(message))) fail("refusing to send Slack message that appears to contain an unredacted secret");
 
 const screenshotFiles = screenshotPaths(receipt, receiptPath);
-const reportFile = writeHtmlReport(receipt, receiptPath, decision.kind, screenshotFiles);
+const reportFile = writeHtmlReport(receipt, receiptPath, decision.kind, screenshotFiles, visualIssues);
 const inlineShots = visualIssues.filter((issue) => issue.screenshot).slice(0, 12).map((issue) => ({ file: issue.screenshot, title: issue.caption }));
 await postSlack(message, inlineShots.length ? [reportFile] : [reportFile, ...screenshotFiles], statePath, { lastSignature: signature, lastPostedAtMs: now, lastStatus: receipt.status ?? "unknown" }, inlineShots);
 console.log(`dashboard Slack notify: posted ${decision.kind}`);
@@ -137,7 +137,7 @@ function humanIssue(failure) {
   const page = String(routeName ?? "").replace(/-/g, " ").replace(/\b\w/g, (c) => c.toUpperCase());
   const deviceLabel = device === "mobile" ? "📱 Phone" : device === "laptop" ? "💻 Laptop" : "";
   const screenshot = (failure.screenshots ?? []).filter((file) => existsSync(file)).pop() ?? null;
-  return { page, deviceLabel, what, example, screenshot, caption: `${page} · ${deviceLabel.replace(/^\S+ /, "")} — ${what}${example}`.slice(0, 250) };
+  return { page, deviceLabel, what, example, screenshot, raw, caption: `${page} · ${deviceLabel.replace(/^\S+ /, "")} — ${what}${example}`.slice(0, 250) };
 }
 
 function formatVisualIssuesMessage(value, issues) {
@@ -482,23 +482,67 @@ async function uploadSlackFile(token, file) {
   return meta.file_id;
 }
 
-function writeHtmlReport(value, receiptFile, kind, screenshots) {
+function writeHtmlReport(value, receiptFile, kind, screenshots, issues = []) {
   const esc = (v) => String(v ?? "").replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" })[c]);
+  const img = (file) => `data:image/png;base64,${readFileSync(file).toString("base64")}`;
   const layers = value.layers ?? [];
-  const errorLines = layers
-    .filter((layer) => layer.status !== "pass")
-    .flatMap((layer) => String(layer.message ?? "").split("\n").filter((line) => /Error:|failed|screenshot_path=|visual_route_start=/.test(line)).slice(-12).map((line) => ({ layer: layer.name, line: redactText(line.trim()) })));
-  const failures = moduleFailures(receiptFile);
-  const failureCards = failures.map((f) => `<section class="fail-card"><h3>${esc(f.module)} · <code>${esc(f.route)}</code></h3><p class="err">${esc(redactText(f.error))}</p>${(f.screenshots ?? []).filter((file) => existsSync(file)).slice(-1).map((file) => `<img loading="lazy" src="data:image/png;base64,${readFileSync(file).toString("base64")}" alt="${esc(path.basename(file))}">`).join("")}</section>`).join("");
-  const shots = screenshots.map((file) => `<figure><img src="data:image/png;base64,${readFileSync(file).toString("base64")}" alt="${esc(path.basename(file))}"><figcaption>${esc(path.basename(file))}</figcaption></figure>`).join("");
-  const rows = layers.map((layer) => `<tr class="${layer.status === "pass" ? "ok" : "bad"}"><td>${esc(layer.name)}</td><td>${esc(layer.status)}</td><td>${esc(layer.durationMs ? `${Math.round(layer.durationMs / 1000)}s` : "")}</td></tr>`).join("");
-  const html = `<!doctype html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>GoatOS dashboard automation ${esc(value.mode)}</title>
-<style>:root{--g:#1f6f43;--bad:#b42318;--bg:#f7f8f6;--ink:#1b1f1c;--mut:#5d665f}body{margin:0;font:15px/1.5 system-ui,sans-serif;background:var(--bg);color:var(--ink)}header{background:var(--g);color:#fff;padding:20px 24px}header.fail{background:var(--bad)}main{max-width:1100px;margin:0 auto;padding:16px}h1{margin:0;font-size:22px}.meta{display:flex;gap:18px;flex-wrap:wrap;opacity:.9;margin-top:6px;font-size:13px}section{background:#fff;border-radius:10px;padding:16px;margin:14px 0;box-shadow:0 1px 3px #0001}table{width:100%;border-collapse:collapse}td{padding:6px 8px;border-bottom:1px solid #eee}tr.bad td{color:var(--bad);font-weight:600}pre{white-space:pre-wrap;background:#111;color:#f3f3f3;padding:12px;border-radius:8px;font-size:12.5px;overflow:auto}figure{margin:0 0 18px}img{max-width:100%;border:1px solid #ddd;border-radius:8px}figcaption{color:var(--mut);font-size:13px}.fail-card{border-left:4px solid var(--bad)}.fail-card h3{margin:0 0 6px}.err{font-family:ui-monospace,monospace;font-size:13px;color:var(--bad);word-break:break-word}</style></head><body>
-<header class="${value.status === "pass" ? "" : "fail"}"><h1>${esc(kind === "recovery" ? "Dashboard automation recovered" : "Dashboard automation failed")}</h1><div class="meta"><span>Mode: ${esc(value.mode)}</span><span>SHA: ${esc(String(value.repoSha ?? "").slice(0, 12))}</span><span>Browser: ${esc(browserSmokeStatus(value))}</span><span>${esc(new Date().toISOString())}</span></div></header>
-<main>${failureCards ? `<h2>${failures.length} failing route(s)</h2>${failureCards}` : ""}<section><h2>What failed</h2>${errorLines.length ? `<pre>${errorLines.map((e) => `[${esc(e.layer)}] ${esc(e.line)}`).join("\n")}</pre>` : "<p>No concrete error lines captured; see receipt.</p>"}</section>
-${failureCards ? "" : `<section><h2>Screenshots</h2>${shots || "<p>No screenshots captured for this run.</p>"}</section>`}
-<section><h2>All checks</h2><table>${rows}</table></section>
-<section><p>Receipt: <code>${esc(path.relative(repo, receiptFile))}</code></p></section></main></body></html>`;
+  const when = new Date().toLocaleString("en-GB", { timeZone: "Asia/Kolkata", dateStyle: "medium", timeStyle: "short" });
+  const phone = (issue) => /phone/i.test(issue.deviceLabel);
+
+  const cards = issues.map((issue, i) => `
+    <article class="issue">
+      <div class="issue-head">
+        <span class="num">${i + 1}</span>
+        <div>
+          <h3>${esc(issue.page)}${issue.views > 1 ? ` <span class="views">${issue.views} views</span>` : ""}</h3>
+          <p class="what">${esc(issue.what)}${issue.example ? ` <span class="eg">${esc(issue.example.replace(/^ — /, ""))}</span>` : ""}</p>
+        </div>
+        <span class="where">${esc(issue.deviceLabel.replace(/[^\x20-\x7E]/g, "").trim() || "Laptop")}</span>
+      </div>
+      ${issue.screenshot && existsSync(issue.screenshot) ? `<figure class="${phone(issue) ? "phone" : "laptop"}"><img loading="lazy" src="${img(issue.screenshot)}" alt=""><figcaption>Problem outlined in red · ${esc(path.basename(issue.screenshot))}</figcaption></figure>` : ""}
+      <details><summary>Technical detail</summary><pre>${esc(redactText(issue.raw ?? ""))}</pre></details>
+    </article>`).join("");
+
+  const failedLayers = layers.filter((l) => l.status !== "pass").map((l) => esc(l.name)).join(", ");
+  const html = `<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Production check · ${esc(value.mode ?? "")}</title>
+<style>
+ :root{--ink:#14201a;--mut:#5d6b62;--line:#e3e8e4;--bad:#b42318;--ok:#1f6f43;--bg:#f6f8f6}
+ *{box-sizing:border-box} body{margin:0;background:var(--bg);color:var(--ink);font:16px/1.55 -apple-system,BlinkMacSystemFont,"Segoe UI",system-ui,sans-serif}
+ header{background:#fff;border-bottom:1px solid var(--line);padding:26px 24px}
+ .wrap{max-width:1000px;margin:0 auto}
+ h1{margin:0 0 4px;font-size:26px;letter-spacing:-.01em}
+ .sub{color:var(--mut);font-size:14px}
+ .tags{display:flex;gap:8px;flex-wrap:wrap;margin-top:14px}
+ .tag{border:1px solid var(--line);border-radius:999px;padding:4px 11px;font-size:13px;color:var(--mut);background:#fff}
+ main{padding:22px 24px 60px}
+ .issue{background:#fff;border:1px solid var(--line);border-left:4px solid var(--bad);border-radius:12px;padding:16px 18px;margin:0 0 16px}
+ .issue-head{display:flex;gap:12px;align-items:flex-start}
+ .num{background:var(--bad);color:#fff;border-radius:8px;min-width:26px;height:26px;display:inline-flex;align-items:center;justify-content:center;font-size:14px;font-weight:600;flex:0 0 auto}
+ h3{margin:0;font-size:17px}
+ .views{color:var(--mut);font-weight:400;font-size:13px}
+ .what{margin:3px 0 0;color:#333}
+ .eg{color:var(--mut)}
+ .where{margin-left:auto;color:var(--mut);font-size:13px;white-space:nowrap}
+ figure{margin:14px 0 0}
+ figure img{display:block;border:1px solid var(--line);border-radius:8px;background:#fff}
+ figure.phone img{width:320px;max-width:100%}
+ figure.laptop img{width:100%;max-height:460px;object-fit:cover;object-position:top}
+ figcaption{color:var(--mut);font-size:12.5px;margin-top:6px}
+ details{margin-top:12px} summary{cursor:pointer;color:var(--mut);font-size:13px}
+ pre{white-space:pre-wrap;word-break:break-word;background:#0f1512;color:#e8efe9;padding:12px;border-radius:8px;font-size:12px;overflow:auto}
+ footer{color:var(--mut);font-size:13px;border-top:1px solid var(--line);padding-top:14px;margin-top:22px}
+ @media (prefers-color-scheme: dark){:root{--ink:#e8efe9;--mut:#9aa8a0;--line:#2a332d;--bg:#10150f} header,.issue,.tag,figure img{background:#161c18} .what{color:#dbe4dd}}
+</style></head><body>
+<header><div class="wrap">
+  <h1>${issues.length ? `${issues.length} issue${issues.length === 1 ? "" : "s"} a person would notice` : "Production check"}</h1>
+  <div class="sub">Checked every page on a laptop and an Android phone · ${esc(when)} IST</div>
+  <div class="tags"><span class="tag">Build ${esc(String(value.repoSha ?? "").slice(0, 9))}</span><span class="tag">${esc(value.mode ?? "")}</span>${failedLayers ? `<span class="tag">Failed stages: ${failedLayers}</span>` : ""}</div>
+</div></header>
+<main><div class="wrap">
+  ${cards || "<p>No visible issues found on this run.</p>"}
+  <footer>Each screenshot is the page as the check saw it, with the problem outlined in red. Receipt: <code>${esc(path.relative(repo, receiptFile))}</code></footer>
+</div></main></body></html>`;
   const out = path.join(path.dirname(receiptFile), "report.html");
   writeFileSync(out, html);
   return out;
