@@ -12,7 +12,8 @@ import { containsUnredactedSecret, redactText } from "./lib/redact.mjs";
 import writeJourneysKind from "./lib/finding-kinds/write-journeys.mjs";
 import dataSanityKind from "./lib/finding-kinds/data-sanity.mjs";
 import apiContractsKind from "./lib/finding-kinds/api-contracts.mjs";
-const FINDING_KINDS = [writeJourneysKind, dataSanityKind, apiContractsKind];
+import androidJourneysKind from "./lib/finding-kinds/android-journeys.mjs";
+const FINDING_KINDS = [writeJourneysKind, dataSanityKind, apiContractsKind, androidJourneysKind];
 
 // Only the lanes that actually found something on THIS receipt are active. A registered lane that
 // contributed no findings contributes no rules and no blocks, so it cannot relabel, reorder or

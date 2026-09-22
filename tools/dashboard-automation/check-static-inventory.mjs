@@ -8,6 +8,7 @@ import { fileURLToPath } from "node:url";
 const repo = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "../..");
 const configPath = path.join(repo, "tools/dashboard-automation/config.json");
 const journeyPath = path.join(repo, "tools/dashboard-automation/module-journeys.json");
+const androidJourneysPath = path.join(repo, "tools/dashboard-automation/android-journeys.json");
 const smokePath = path.join(repo, "apps/admin-web/scripts/smoke-visual-live.mjs");
 const packagePath = path.join(repo, "apps/admin-web/package.json");
 const adminAppRoot = path.join(repo, "apps/admin-web/app/(admin)");
@@ -27,7 +28,8 @@ const problems = validateInventory({
   failureStrings: config.requiredFailureStrings,
   exclusions: config.explicitRouteExclusions,
   journeyManifest,
-  packageScripts: adminPackage.scripts ?? {}
+  packageScripts: adminPackage.scripts ?? {},
+  androidJourneys: existsSync(androidJourneysPath) ? JSON.parse(readFileSync(androidJourneysPath, "utf8")) : null
 });
 
 if (problems.length) {
@@ -36,9 +38,9 @@ if (problems.length) {
   process.exit(1);
 }
 
-console.log("dashboard automation static inventory guard: routes, journeys, scripts, and required failure strings are covered");
+console.log("dashboard automation static inventory guard: routes, journeys, phone journeys, scripts, and required failure strings are covered");
 
-export function validateInventory({ adminAppRoot, smokeScriptText, failureStrings, exclusions = [], journeyManifest = null, packageScripts = {} }) {
+export function validateInventory({ adminAppRoot, smokeScriptText, failureStrings, exclusions = [], journeyManifest = null, packageScripts = {}, androidJourneys = null }) {
   const problems = [];
   const fsRoutes = discoverPageRoutes(adminAppRoot);
   const smokePaths = discoverSmokePaths(smokeScriptText);
@@ -59,7 +61,60 @@ export function validateInventory({ adminAppRoot, smokeScriptText, failureString
   }
 
   problems.push(...validateJourneyManifest({ journeyManifest, smokeRouteNames, packageScripts }));
+  problems.push(...validateAndroidJourneys(androidJourneys));
 
+  return problems;
+}
+
+// Lane 5's phone-journey catalogue. The invariants here are the ones that, if they
+// ever quietly stopped holding, would let a Test Lab run on a VIRTUAL device claim a
+// check that only a real farm phone can prove.
+export function validateAndroidJourneys(catalog) {
+  if (!catalog) return [];
+  const problems = [];
+  if (!Array.isArray(catalog.journeys) || catalog.journeys.length === 0) {
+    return ["the Android journey catalogue must define at least one journey"];
+  }
+  const seen = new Set();
+  for (const journey of catalog.journeys) {
+    const name = journey.name;
+    if (!name || seen.has(name)) problems.push(`Android journey has a missing or duplicate name: ${JSON.stringify(name)}`);
+    seen.add(name);
+    if (!journey.humanFailure) problems.push(`Android journey ${name} has no sentence for a farm manager to read`);
+    if (!journey.story) problems.push(`Android journey ${name} has no plain-English story`);
+    if (!Array.isArray(journey.sourceCommits)) problems.push(`Android journey ${name} does not name the commits it covers`);
+    if (!["virtual", "physical"].includes(journey.device)) {
+      problems.push(`Android journey ${name} must say whether it needs a virtual or a physical device`);
+    }
+    if (journey.device === "physical") {
+      if (!journey.physicalReason) {
+        problems.push(`Android journey ${name} needs a physical device but does not say why a virtual one would be a false green`);
+      }
+      if (journey.automation?.testClass) {
+        problems.push(`Android journey ${name} is physical-device-only, so it must carry no test class that a virtual run could execute`);
+      }
+      if (journey.automation?.tier !== "physical-only") {
+        problems.push(`Android journey ${name} needs a physical device, so its automation tier must stay physical-only`);
+      }
+    }
+    // Anything claimed as covered has to say which half of its check it really proves.
+    if (journey.automation?.tier === "runs-on-virtual" && !journey.automation?.coversPartially) {
+      problems.push(`Android journey ${name} is claimed as covered, so it must say which half of its check it actually proves`);
+    }
+    // Nothing is parked without a reason.
+    if (["parked", "needs-seeded-session"].includes(journey.automation?.tier) && !String(journey.automation?.note ?? "").trim()) {
+      problems.push(`Android journey ${name} is parked with no reason`);
+    }
+  }
+  // A physical allowance inside anything labelled free tier reads as permission to spend.
+  const freeTier = JSON.stringify(catalog.budget?.freeTier ?? {});
+  if (/physical\w*"\s*:\s*\d/i.test(freeTier)) {
+    problems.push("the Android free-tier budget must carry no physical-device allowance; the free tier grants none");
+  }
+  const claimed = catalog.journeys.filter((j) => j.automation?.tier === "runs-on-virtual").length;
+  if (catalog.coverageToday && catalog.coverageToday.journeysAVirtualRunCanProveToday !== claimed) {
+    problems.push(`the Android catalogue says ${catalog.coverageToday.journeysAVirtualRunCanProveToday} journeys are covered but ${claimed} rows claim it`);
+  }
   return problems;
 }
 
@@ -244,6 +299,36 @@ function selfTest() {
   } finally {
     rmSync(dir, { recursive: true, force: true });
   }
+  // The guard must actually catch a physical check being dressed up as a virtual one.
+  {
+    const physicalAsVirtual = {
+      budget: { freeTier: { virtualTestsPerDay: 10 } },
+      journeys: [{
+        name: "proof-capture", story: "A stockman photographs the work.", humanFailure: "Photos do not attach to the job.",
+        sourceCommits: [], device: "physical", physicalReason: "needs a real camera",
+        automation: { tier: "runs-on-virtual", testClass: "GoatOsColdBootJourneys" }
+      }]
+    };
+    const found = validateAndroidJourneys(physicalAsVirtual);
+    assert.ok(found.some((p) => /must carry no test class/.test(p)), "a physical journey with a test class must be caught");
+    assert.ok(found.some((p) => /physical-only/.test(p)), "a physical journey claimed as virtual must be caught");
+  }
+  {
+    const parkedWithNoReason = {
+      journeys: [{
+        name: "x", story: "A story about the farm.", humanFailure: "It did not work.", sourceCommits: [],
+        device: "virtual", automation: { tier: "parked", note: "  " }
+      }]
+    };
+    assert.ok(validateAndroidJourneys(parkedWithNoReason).some((p) => /parked with no reason/.test(p)),
+      "parked work with no reason must be caught");
+  }
+  {
+    const spendAllowance = { journeys: [{ name: "x", story: "A story about the farm.", humanFailure: "It did not work.", sourceCommits: [], device: "virtual", automation: { tier: "parked", note: "n" } }], budget: { freeTier: { physicalTestsPerDay: 5 } } };
+    assert.ok(validateAndroidJourneys(spendAllowance).some((p) => /no physical-device allowance/.test(p)),
+      "a physical allowance inside the free-tier block must be caught");
+  }
+  assert.deepEqual(validateAndroidJourneys(null), [], "a repo without the Android catalogue must still pass");
   console.log("dashboard automation static inventory guard: self-test passed");
 }
 

@@ -76,6 +76,13 @@ try {
   if (enabled("GOATOS_DASHBOARD_DATA_SANITY", true)) {
     layer("data-sanity", "deterministic", () => runDataSanity(outDir));
   }
+  // Lane 5: the farm journeys on a Firebase Test Lab VIRTUAL device. DEFAULT OFF, and it
+  // stays off: the free tier is 10 tests and 60 device-minutes a day for the whole project,
+  // so this is a nightly or on-demand layer, never something every run spends quota on.
+  // The runner refuses a matrix that would cross either line rather than trimming it.
+  if (enabled("GOATOS_DASHBOARD_ANDROID_JOURNEYS", false)) {
+    layer("android-journeys", "deterministic", () => runAndroidJourneys(outDir));
+  }
   if (runCertificationExtras && enabled("GOATOS_DASHBOARD_API_LATENCY", true)) {
     layer("api-latency", "deterministic", () => runApiLatency(outDir));
   }
@@ -319,6 +326,43 @@ function runApiLatency(targetDir) {
     }
     runNode(apiLatencyArgs);
     receipt.artifacts.push({ kind: "api-latency-report", manifest: path.join("tools/perf", manifestName), path: output });
+  }
+}
+
+function runAndroidJourneys(targetDir) {
+  const output = path.join(targetDir, "android-journeys", "android-journeys-receipt.json");
+  receipt.artifacts.push({ kind: "android-journeys-report", path: output });
+  try {
+    runNode([
+      "tools/dashboard-automation/run-android-journeys.mjs",
+      "--out", output,
+      "--out-dir", path.join(targetDir, "android-journeys")
+    ]);
+  } catch (error) {
+    // Exit 2 is the free-tier guard refusing to submit. That is the runner working, not the
+    // farm having a problem, so it is reported as a parked run rather than as a phone failure.
+    const message = redactText(error?.message ?? String(error));
+    if (/REFUSED|free tier/i.test(message)) {
+      throw new Error("The phone checks did not run today because the free daily allowance of test devices is used up. No money was spent. They run again tomorrow.");
+    }
+    // The layer message is quoted into the receipt and reaches Slack, so it must already
+    // be the sentence a farm manager reads, not the runner's stderr.
+    throw new Error(androidJourneySentence(output) ?? message);
+  }
+}
+
+// "2 of the phone checks failed: the proof upload screen, and signing in." Reads as a
+// place and a problem; never a journey name, a class or an exit code.
+function androidJourneySentence(reportPath) {
+  try {
+    const report = JSON.parse(readFileSync(reportPath, "utf8"));
+    const failed = (report.journeys ?? []).filter((journey) => journey.outcome === "fail");
+    if (!failed.length) return null;
+    const screens = [...new Set(failed.map((journey) => journey.screen).filter(Boolean))];
+    return `${failed.length} check${failed.length === 1 ? "" : "s"} on the phone failed, on ${screens.slice(0, 3).join(", ")}` +
+      `${screens.length > 3 ? ` and ${screens.length - 3} other screen(s)` : ""}. Each one has its own screenshot in the thread.`;
+  } catch {
+    return null;
   }
 }
 
@@ -571,6 +615,34 @@ function selfTest() {
   if (new Set(["latest-full-parity-receipt", "business-data-parity"]).has("data-sanity")) {
     throw new Error("self-test: data sanity must never be treated as a degradable prerequisite");
   }
+  if (!runnerSource.includes('layer("android-journeys"') || !runnerSource.includes("run-android-journeys.mjs")) {
+    throw new Error("self-test: the Android farm journeys layer must stay wired into the runner");
+  }
+  if (!runnerSource.includes('enabled("GOATOS_DASHBOARD_ANDROID_JOURNEYS", false)')) {
+    throw new Error("self-test: the Android journeys layer must stay DEFAULT OFF; the Test Lab free tier is 10 tests a day for the whole project");
+  }
+  if (!runnerSource.includes('kind: "android-journeys-report"')) {
+    throw new Error("self-test: an Android journeys run must leave its receipt as an artifact so Slack can carry the phone screens");
+  }
+  if (!runnerSource.includes("No money was spent")) {
+    throw new Error("self-test: a run parked by the free-tier guard must say plainly that nothing was spent, not read as a product failure");
+  }
+  // The guard itself must exist in the Android runner, not merely be described in a doc.
+  {
+    const androidRunner = readFileSync(path.join(repo, "tools/dashboard-automation/run-android-journeys.mjs"), "utf8");
+    if (!androidRunner.includes("export function freeTierVerdict")) {
+      throw new Error("self-test: the Test Lab free-tier guard must exist in code, in run-android-journeys.mjs");
+    }
+    if (!/virtualTestsPerDay:\s*10/.test(androidRunner) || !/virtualDeviceMinutesPerDay:\s*60/.test(androidRunner)) {
+      throw new Error("self-test: the free-tier numbers (10 tests, 60 device-minutes a day) must stay pinned in the guard");
+    }
+    // The word "physical" may appear in the block as a comment saying there is none.
+    // What may never appear is a physical KEY WITH A NUMBER, which reads as an allowance.
+    const freeTierBlock = androidRunner.slice(androidRunner.indexOf("export const FREE_TIER"), androidRunner.indexOf("export const PAID_RATES"));
+    if (/physical\w*\s*:\s*\d/i.test(freeTierBlock)) {
+      throw new Error("self-test: no physical-device allowance may sit inside anything labelled free tier; the free tier grants none and a number there reads as permission to spend");
+    }
+  }
   runNode(["tools/dashboard-automation/check-data-sanity.mjs", "--self-test"]);
   if (modeFlags("write-journeys").parityIsNeverAGate !== true) {
     throw new Error("self-test: parity must never gate the write-path lane; it restores what it touched and proves it");
@@ -606,6 +678,7 @@ function selfTest() {
     throw new Error("self-test: write journeys must still run against a disposable automation database");
   }
   runNode(["tools/dashboard-automation/run-write-journeys.mjs", "--self-test"]);
+  runNode(["tools/dashboard-automation/run-android-journeys.mjs", "--self-test"]);
   runNode(["tools/dashboard-automation/check-module-journeys.mjs", "--self-test"]);
   runNode(["tools/dashboard-automation/run-module-journeys.mjs", "--self-test"]);
   runNode(["tools/dashboard-automation/self-heal-pr.mjs", "--self-test"]);
