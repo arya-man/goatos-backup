@@ -115,7 +115,13 @@ func Build(opts Options) *Service {
 		Memory:    opts.Memory,
 		Cache:     memcache.New(60*time.Second, 512),
 		Limiter:   ratelimit.New(30, time.Minute, 10_000),
-		Budget:    app.NewInMemoryBudget(2_000_000, 200_000),
+		// Daily token caps (per tenant / per user). Defaults unchanged; the env
+		// knobs exist so a bulk answer-quality eval run can be given its own
+		// ceiling without editing code, the same shape as MESHA_AI_MAX_STEPS.
+		Budget: app.NewInMemoryBudget(
+			envInt("MESHA_AI_TENANT_DAILY_TOKENS", 2_000_000),
+			envInt("MESHA_AI_USER_DAILY_TOKENS", 200_000),
+		),
 		Audit:     opts.Audit,
 		Critic:    opts.Critic,
 		Telemetry: opts.Telemetry,
