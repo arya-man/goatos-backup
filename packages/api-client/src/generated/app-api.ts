@@ -19115,6 +19115,9 @@ export interface components {
             /** Format: uuid */
             goat_id: string;
             findings: components["schemas"]["HealthObservationFindings"];
+            answers?: {
+                [key: string]: string | string[] | number | null;
+            };
             context?: components["schemas"]["HealthObservationContext"];
         };
         /** @description Where the animal should be, and which shift lists it appears on. A DIRECTIVE only -- Health never moves an animal or changes its containment; the policy-pack workflow that owns location is the only writer. */
@@ -19203,7 +19206,7 @@ export interface components {
             /** Format: date */
             business_date: string;
             /** @enum {string} */
-            status: "proposed" | "confirmed" | "superseded";
+            status: "proposed" | "confirmed" | "declined" | "superseded";
             /** @description The ranked diagnosis ids, severity first then confidence. The order is the backend's; re-sorting it on a client would put a mild certainty above a serious maybe. */
             problems: string[];
             /** @description How many things need doing NOW. On the row rather than only inside the proposal because emergencies do not wait for the Director — a queue that hides one behind a tap is worse than no queue. */
@@ -19222,7 +19225,7 @@ export interface components {
             /** Format: uuid */
             health_diagnosis_run_id: string;
             /** @enum {string} */
-            status: "proposed" | "confirmed" | "superseded";
+            status: "proposed" | "confirmed" | "declined" | "superseded";
             proposal: components["schemas"]["HealthDiagnosisProposal"];
             confirmable?: components["schemas"]["HealthConfirmableProblem"][];
             /** @description Whether the submitter may also decide. Normally false — the health manager records, the Director confirms — but a Director recording an observation themselves collapses the two acts into one visit. */
@@ -19248,7 +19251,7 @@ export interface components {
             /** Format: uuid */
             health_diagnosis_run_id: string;
             /** @enum {string} */
-            status: "proposed" | "confirmed" | "superseded";
+            status: "proposed" | "confirmed" | "declined" | "superseded";
             opened_cases?: components["schemas"]["HealthOpenedCase"][];
             /** @description Proposed diagnoses the Director did not confirm. Every override is a rule defect worth reviewing. */
             declined?: string[];
@@ -19268,9 +19271,13 @@ export interface components {
             observed_at: string;
             /** Format: date */
             business_date: string;
+            findings: components["schemas"]["HealthObservationFindings"];
+            answers?: {
+                [key: string]: string | string[] | number | null;
+            };
             proposal: components["schemas"]["HealthDiagnosisProposal"];
             /** @enum {string} */
-            status: "proposed" | "confirmed" | "superseded";
+            status: "proposed" | "confirmed" | "declined" | "superseded";
             /** @description What the Director may still act on, carried on the read so the queue is self-sufficient on a device that never saw the submit response. Empty once the run is decided. */
             confirmable: components["schemas"]["HealthConfirmableProblem"][];
             /** @description Whether THIS caller may cast the decision, resolved from their own grants. A separate fact from `confirmable`: the manager who recorded the observation receives the same list and is precisely the person who must not confirm it. Advisory for the client only — the confirm route is gated independently. */
@@ -31332,7 +31339,7 @@ export interface operations {
         parameters: {
             query?: {
                 /** @description Defaults to `proposed`. `all` clears the filter. An unrecognised value is rejected rather than ignored, so a typo cannot silently return the wrong queue. */
-                status?: "proposed" | "confirmed" | "superseded" | "all";
+                status?: "proposed" | "confirmed" | "declined" | "superseded" | "all";
                 /** @description Narrows to one animal's diagnosis history. */
                 goat_id?: string;
                 /** @description Opaque keyset cursor from the previous page's `next_cursor`. Never an offset — new observations land at the head of a newest-first queue, so an offset page would re-show or skip rows as work arrives mid-scroll. */

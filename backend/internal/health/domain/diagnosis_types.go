@@ -37,6 +37,7 @@ type SubmitObservationInput struct {
 	GoatID   string
 
 	Findings diagnosis.Findings
+	Answers  diagnosis.Answers
 	Context  diagnosis.Context
 
 	BusinessDate       time.Time
@@ -187,6 +188,9 @@ type DiagnosisRun struct {
 	ObservedBy   string    `json:"observed_by"`
 	ObservedAt   time.Time `json:"observed_at"`
 	BusinessDate string    `json:"business_date"`
+
+	Findings diagnosis.Findings `json:"findings"`
+	Answers  *diagnosis.Answers `json:"answers,omitempty"`
 
 	Proposal diagnosis.Proposal `json:"proposal"`
 	Status   string             `json:"status"`

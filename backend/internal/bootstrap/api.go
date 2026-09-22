@@ -75,7 +75,6 @@ import (
 	healthpg "github.com/vgoats/goatos/backend/internal/health/adapters/postgres"
 	healthverificationbridge "github.com/vgoats/goatos/backend/internal/health/adapters/verificationbridge"
 	healthapp "github.com/vgoats/goatos/backend/internal/health/app"
-	"github.com/vgoats/goatos/backend/internal/health/diagnosis"
 	herdsignalshttp "github.com/vgoats/goatos/backend/internal/herdsignals/adapters/http"
 	herdsignalspg "github.com/vgoats/goatos/backend/internal/herdsignals/adapters/postgres"
 	herdsignalsapp "github.com/vgoats/goatos/backend/internal/herdsignals/app"
@@ -715,15 +714,9 @@ func NewAPI(ctx context.Context, cfg Config, log *slog.Logger) (*API, error) {
 	// repository: one Health Config, one rulebook.
 	healthRegisterConfigHandler := healthhttp.NewRegisterConfigHandler(
 		healthapp.NewRegisterConfigService(healthRepo), log)
-	// The diagnosis engine. The register is embedded and validated on first load,
-	// so a rule table that fails its structural checks stops the process here
-	// rather than diagnosing animals from a broken register.
-	healthRegister, err := diagnosis.AdultRegister()
-	if err != nil {
-		pool.Close()
-		return nil, err
-	}
-	healthDiagnosisService, err := healthapp.NewDiagnosisService(healthpg.NewDiagnosisRepository(healthRepo), healthRegister, healthRepo)
+	// The diagnosis engine reads the tenant's published Health Config register at
+	// observation time, with the committed seed as the fallback for unseeded tenants.
+	healthDiagnosisService, err := healthapp.NewDiagnosisService(healthpg.NewDiagnosisRepository(healthRepo))
 	if err != nil {
 		pool.Close()
 		return nil, err

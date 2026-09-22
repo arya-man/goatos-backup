@@ -59,11 +59,15 @@ func (r *Repository) OpenCase(ctx context.Context, in domain.OpenCaseInput) (dom
 	}()
 
 	var lifecycle, goatAgeBand string
-	var parkID, shedID *string
+	var parkID, shedID, partitionLabel *string
 	err = tx.QueryRow(ctx, `
-SELECT lifecycle_status, coalesce(age_band,''), park_id::text, shed_id::text
+SELECT lifecycle_status, coalesce(age_band,''), park_id::text, shed_id::text,
+       (SELECT gsp.partition_label FROM goat_shed_partitions gsp
+        WHERE gsp.tenant_id = goats.tenant_id AND gsp.goat_id = goats.goat_id
+          AND gsp.shed_id = goats.shed_id
+        LIMIT 1)
 FROM goats WHERE tenant_id=$1::uuid AND goat_id=$2::uuid
-FOR SHARE`, in.TenantID, in.GoatID).Scan(&lifecycle, &goatAgeBand, &parkID, &shedID)
+FOR SHARE`, in.TenantID, in.GoatID).Scan(&lifecycle, &goatAgeBand, &parkID, &shedID, &partitionLabel)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return domain.OpenCaseResult{}, ports.ErrNotFound
 	}
@@ -109,11 +113,11 @@ FROM health_cases hc WHERE hc.tenant_id=$1::uuid AND hc.idempotency_key=$2`,
 	err = tx.QueryRow(ctx, `
 INSERT INTO health_cases (
  tenant_id,goat_id,health_protocol_version_id,disease_key,disease_name,age_band,start_date,
- duration_days,status,park_id,shed_id,diagnosed_by,idempotency_key,request_fingerprint
+ duration_days,status,park_id,shed_id,partition_label,diagnosed_by,idempotency_key,request_fingerprint
 ) VALUES ($1::uuid,$2::uuid,$3::uuid,$4,$5,$6,$7::date,$8,'active',
- nullif($9,'')::uuid,nullif($10,'')::uuid,$11::uuid,$12,$13)
+ nullif($9,'')::uuid,nullif($10,'')::uuid,nullif($11,''),$12::uuid,$13,$14)
 RETURNING health_case_id::text`, in.TenantID, in.GoatID, p.id, p.diseaseKey, p.diseaseName, p.ageBand,
-		in.StartDate.Format("2006-01-02"), p.duration, valueOrEmpty(parkID), valueOrEmpty(shedID), in.ActorID, in.IdempotencyKey, in.RequestFingerprint).Scan(&caseID)
+		in.StartDate.Format("2006-01-02"), p.duration, valueOrEmpty(parkID), valueOrEmpty(shedID), valueOrEmpty(partitionLabel), in.ActorID, in.IdempotencyKey, in.RequestFingerprint).Scan(&caseID)
 	if err != nil {
 		return domain.OpenCaseResult{}, fmt.Errorf("health: insert case: %w", err)
 	}

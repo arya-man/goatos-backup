@@ -50,8 +50,10 @@ func assertProblemsAddUp(t *testing.T, problems domain.HealthAnalyticsProblems) 
 func setPenType(t *testing.T, ctx context.Context, pool *pgxpool.Pool, shedID, penType string) {
 	t.Helper()
 	if _, err := pool.Exec(ctx, `
-INSERT INTO shed_profiles (location_id, tenant_id, shed_type) VALUES ($1::uuid, $2::uuid, $3)
-ON CONFLICT (location_id) DO UPDATE SET shed_type = EXCLUDED.shed_type`, shedID, healthTenant, penType); err != nil {
+INSERT INTO shed_partitions (tenant_id, shed_id, partition_label, normalized_label, status, source, shed_type)
+VALUES ($2::uuid, $1::uuid, 'Part 1', '1', 'active', 'manual', $3)
+ON CONFLICT (tenant_id, shed_id, normalized_label) DO UPDATE
+SET shed_type = EXCLUDED.shed_type, status = 'active'`, shedID, healthTenant, penType); err != nil {
 		t.Fatalf("set pen type: %v", err)
 	}
 }
@@ -81,10 +83,10 @@ func TestHealthProblemsOneToManyCountsEachEpisodeOnceAcrossEveryBreakdown(t *tes
 	diagnoseFever(t, ctx, pool, analyticsDeadGoat, "problems-fanout-1")
 	if _, err := pool.Exec(ctx, `
 INSERT INTO health_cases (tenant_id, goat_id, health_protocol_version_id, disease_key, disease_name,
-                          age_band, start_date, duration_days, status, park_id, shed_id,
+                          age_band, start_date, duration_days, status, park_id, shed_id, partition_label,
                           register_rule_id, idempotency_key, request_fingerprint)
 SELECT c.tenant_id, c.goat_id, c.health_protocol_version_id, 'mastitis', 'Mastitis',
-       c.age_band, c.start_date, c.duration_days, 'active', c.park_id, c.shed_id,
+       c.age_band, c.start_date, c.duration_days, 'active', c.park_id, c.shed_id, c.partition_label,
        'MASTITIS', 'problems-fanout-2', 'problems-fanout-2-fp'
 FROM health_cases c
 WHERE c.tenant_id = $1::uuid AND c.goat_id = $2::uuid
@@ -145,10 +147,10 @@ WITH new_goat AS (
   RETURNING goat_id, tenant_id
 )
 INSERT INTO health_cases (tenant_id, goat_id, health_protocol_version_id, disease_key, disease_name,
-                          age_band, start_date, duration_days, status, park_id, shed_id,
+                          age_band, start_date, duration_days, status, park_id, shed_id, partition_label,
                           register_rule_id, idempotency_key, request_fingerprint)
 SELECT n.tenant_id, n.goat_id, c.health_protocol_version_id, 'fever', 'Fever', 'adult', c.start_date,
-       c.duration_days, 'active', c.park_id, c.shed_id, 'FEVER',
+       c.duration_days, 'active', c.park_id, c.shed_id, c.partition_label, 'FEVER',
        'problems-cap-' || $2::text, 'problems-cap-fp-' || $2::text
 FROM new_goat n, health_cases c
 WHERE c.tenant_id = $1::uuid
@@ -219,10 +221,10 @@ WITH new_goat AS (
   RETURNING goat_id, tenant_id
 )
 INSERT INTO health_cases (tenant_id, goat_id, health_protocol_version_id, disease_key, disease_name,
-                          age_band, start_date, duration_days, status, park_id, shed_id,
+                          age_band, start_date, duration_days, status, park_id, shed_id, partition_label,
                           register_rule_id, idempotency_key, request_fingerprint)
 SELECT n.tenant_id, n.goat_id, c.health_protocol_version_id, 'fever', 'Fever', 'adult', c.start_date,
-       c.duration_days, 'active', $3::uuid, $4::uuid, 'FEVER', 'problems-scope-out', 'problems-scope-out-fp'
+       c.duration_days, 'active', $3::uuid, $4::uuid, 'Part 1', 'FEVER', 'problems-scope-out', 'problems-scope-out-fp'
 FROM new_goat n, health_cases c
 WHERE c.tenant_id = $1::uuid
 LIMIT 1`, healthTenant, healthParty, otherPark, otherShed); err != nil {

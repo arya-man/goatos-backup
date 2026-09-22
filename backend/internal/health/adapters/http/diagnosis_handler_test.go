@@ -109,7 +109,7 @@ func TestObservationCarriesOnlyTheGoatID(t *testing.T) {
 	svc := &fakeDiagnosisService{}
 	h := NewDiagnosisHandler(svc, nil)
 	w := httptest.NewRecorder()
-	h.SubmitObservation(w, submitRequest(`{"goat_id":"30000000-0000-4000-8000-000000000001","findings":{"temp":104.8}}`))
+	h.SubmitObservation(w, submitRequest(`{"goat_id":"30000000-0000-4000-8000-000000000001","findings":{"temp":104.8},"answers":{"temperature":104.8}}`))
 	if w.Code != http.StatusCreated {
 		t.Fatalf("status = %d, want 201; body=%s", w.Code, w.Body.String())
 	}
@@ -118,6 +118,9 @@ func TestObservationCarriesOnlyTheGoatID(t *testing.T) {
 	}
 	if svc.submitted.Findings.Temp == nil || *svc.submitted.Findings.Temp != 104.8 {
 		t.Errorf("findings not forwarded: %+v", svc.submitted.Findings)
+	}
+	if got := svc.submitted.Answers["temperature"].Number; got == nil || *got != 104.8 {
+		t.Errorf("authored answers not forwarded: %+v", svc.submitted.Answers)
 	}
 	if svc.submitted.IdempotencyKey != "obs-1" {
 		t.Errorf("idempotency key not forwarded: %q", svc.submitted.IdempotencyKey)

@@ -2,7 +2,7 @@ package app
 
 import (
 	"context"
-	"errors"
+	"strings"
 	"testing"
 
 	"github.com/vgoats/goatos/backend/internal/health/diagnosis"
@@ -10,72 +10,131 @@ import (
 	"github.com/vgoats/goatos/backend/internal/health/ports"
 )
 
-type fakePublishedRegister struct {
-	detail domain.RegisterDetail
-	err    error
+type fakeDiagnosisRepo struct{}
+
+func (fakeDiagnosisRepo) SubmitObservation(context.Context, domain.SubmitObservationInput, ports.EvaluateFunc) (domain.SubmitObservationResult, error) {
+	return domain.SubmitObservationResult{}, nil
+}
+func (fakeDiagnosisRepo) ConfirmDiagnosis(context.Context, domain.ConfirmDiagnosisInput) (domain.ConfirmDiagnosisResult, error) {
+	return domain.ConfirmDiagnosisResult{}, nil
+}
+func (fakeDiagnosisRepo) GetDiagnosisRun(context.Context, string, string) (domain.DiagnosisRun, error) {
+	return domain.DiagnosisRun{}, nil
+}
+func (fakeDiagnosisRepo) ListDiagnosisRuns(context.Context, domain.DiagnosisQueueFilter) (domain.DiagnosisQueuePage, error) {
+	return domain.DiagnosisQueuePage{}, nil
 }
 
-func (f fakePublishedRegister) PublishedRegister(context.Context, string, string) (domain.RegisterDetail, error) {
-	return f.detail, f.err
-}
-
-func TestDiagnosisServiceUsesPublishedAuthoredRegister(t *testing.T) {
+func TestDiagnosisEvaluationUsesPublishedAuthoredRegister(t *testing.T) {
 	doc, err := diagnosis.SeedAuthored(diagnosis.ClassAdult, domain.SOPRefToDiseaseKey)
 	if err != nil {
 		t.Fatalf("seed authored register: %v", err)
 	}
-	doc.RegisterVersion = "adult-authored-test"
-
-	svc := &DiagnosisService{
-		registers: map[string]*diagnosis.Register{},
-		publishedRegister: fakePublishedRegister{detail: domain.RegisterDetail{
-			RegisterSummary: domain.RegisterSummary{AnimalClass: diagnosis.ClassAdult},
-			Document:        *doc,
-		}},
-	}
-
-	reg, err := svc.registerFor(context.Background(), "tenant-1", diagnosis.ClassAdult)
+	doc.RegisterVersion = "adult-live-from-health-config"
+	svc, err := NewDiagnosisService(fakeDiagnosisRepo{})
 	if err != nil {
-		t.Fatalf("registerFor: %v", err)
+		t.Fatalf("wire service: %v", err)
 	}
-	if reg.Version != "adult-authored-test" {
-		t.Fatalf("register version = %q, want the published authored version", reg.Version)
+
+	proposal, _, err := svc.evaluate(context.Background(), doc,
+		diagnosis.Animal{Class: diagnosis.ClassAdult, Sex: "F", Status: "normal"},
+		diagnosis.Findings{Temp: ptrFloat(104.5)},
+		nil,
+		diagnosis.Context{})
+	if err != nil {
+		t.Fatalf("evaluate: %v", err)
 	}
-	if reg.BoundClass() != diagnosis.ClassAdult {
-		t.Fatalf("bound class = %q, want %q", reg.BoundClass(), diagnosis.ClassAdult)
+
+	if proposal.RegisterVersion != "adult-live-from-health-config" {
+		t.Fatalf("register version = %q, want the published authored register", proposal.RegisterVersion)
 	}
 }
 
-func TestDiagnosisServiceFallsBackOnlyWhenNoPublishedRegisterExists(t *testing.T) {
-	embedded, err := diagnosis.RegisterFor(diagnosis.ClassAdult)
+func TestDiagnosisEvaluationFallsBackToCommittedSeedWhenNoPublishedRegisterExists(t *testing.T) {
+	svc, err := NewDiagnosisService(fakeDiagnosisRepo{})
 	if err != nil {
-		t.Fatalf("embedded register: %v", err)
-	}
-	svc := &DiagnosisService{
-		registers:         map[string]*diagnosis.Register{diagnosis.ClassAdult: embedded},
-		publishedRegister: fakePublishedRegister{err: ports.ErrRegisterNotFound},
+		t.Fatalf("wire service: %v", err)
 	}
 
-	reg, err := svc.registerFor(context.Background(), "tenant-1", diagnosis.ClassAdult)
+	proposal, _, err := svc.evaluate(context.Background(), nil,
+		diagnosis.Animal{Class: diagnosis.ClassAdult, Sex: "F", Status: "normal"},
+		diagnosis.Findings{Temp: ptrFloat(104.5)},
+		nil,
+		diagnosis.Context{})
 	if err != nil {
-		t.Fatalf("registerFor fallback: %v", err)
+		t.Fatalf("evaluate: %v", err)
 	}
-	if reg.Version != embedded.Version {
-		t.Fatalf("fallback version = %q, want %q", reg.Version, embedded.Version)
+
+	if proposal.RegisterVersion != "adult-1" {
+		t.Fatalf("register version = %q, want committed fallback adult-1", proposal.RegisterVersion)
 	}
 }
 
-func TestDiagnosisServiceFailsClosedWhenPublishedRegisterReadFails(t *testing.T) {
-	embedded, err := diagnosis.RegisterFor(diagnosis.ClassAdult)
+func TestDiagnosisEvaluationReturnsPublishedRegisterCompileErrors(t *testing.T) {
+	doc, err := diagnosis.SeedAuthored(diagnosis.ClassAdult, domain.SOPRefToDiseaseKey)
 	if err != nil {
-		t.Fatalf("embedded register: %v", err)
+		t.Fatalf("seed authored register: %v", err)
 	}
-	svc := &DiagnosisService{
-		registers:         map[string]*diagnosis.Register{diagnosis.ClassAdult: embedded},
-		publishedRegister: fakePublishedRegister{err: errors.New("database offline")},
+	doc.AppliesClass = []string{diagnosis.ClassKidMilk}
+	svc, err := NewDiagnosisService(fakeDiagnosisRepo{})
+	if err != nil {
+		t.Fatalf("wire service: %v", err)
 	}
 
-	if _, err := svc.registerFor(context.Background(), "tenant-1", diagnosis.ClassAdult); err == nil {
-		t.Fatal("registerFor must fail closed on a published-register read error")
+	_, _, err = svc.evaluate(context.Background(), doc,
+		diagnosis.Animal{Class: diagnosis.ClassAdult, Sex: "F", Status: "normal"},
+		diagnosis.Findings{Temp: ptrFloat(104.5)},
+		nil,
+		diagnosis.Context{})
+
+	if err == nil || !strings.Contains(err.Error(), "does not claim class adult") {
+		t.Fatalf("err = %v, want compile error", err)
 	}
 }
+
+func TestDiagnosisEvaluationAcceptsAuthoredAnswers(t *testing.T) {
+	doc, err := diagnosis.SeedAuthored(diagnosis.ClassAdult, domain.SOPRefToDiseaseKey)
+	if err != nil {
+		t.Fatalf("seed authored register: %v", err)
+	}
+	doc.RegisterVersion = "adult-authored-answers"
+	svc, err := NewDiagnosisService(fakeDiagnosisRepo{})
+	if err != nil {
+		t.Fatalf("wire service: %v", err)
+	}
+	animal := diagnosis.Animal{Class: diagnosis.ClassAdult, Sex: "F", Status: "normal"}
+	findings := diagnosis.Findings{Temp: ptrFloat(104.5)}
+
+	proposal, _, err := svc.evaluate(context.Background(), doc, animal, findings, diagnosis.LegacyAnswers(animal, findings), diagnosis.Context{})
+	if err != nil {
+		t.Fatalf("evaluate: %v", err)
+	}
+	if proposal.RegisterVersion != "adult-authored-answers" {
+		t.Fatalf("register version = %q, want authored register", proposal.RegisterVersion)
+	}
+}
+
+func TestDiagnosisEvaluationRejectsExplicitEmptyAuthoredAnswers(t *testing.T) {
+	doc, err := diagnosis.SeedAuthored(diagnosis.ClassAdult, domain.SOPRefToDiseaseKey)
+	if err != nil {
+		t.Fatalf("seed authored register: %v", err)
+	}
+	svc, err := NewDiagnosisService(fakeDiagnosisRepo{})
+	if err != nil {
+		t.Fatalf("wire service: %v", err)
+	}
+
+	proposal, _, err := svc.evaluate(context.Background(), doc,
+		diagnosis.Animal{Class: diagnosis.ClassAdult, Sex: "F", Status: "normal"},
+		diagnosis.Findings{},
+		diagnosis.Answers{},
+		diagnosis.Context{})
+	if err != nil {
+		t.Fatalf("evaluate: %v", err)
+	}
+	if proposal.Valid || !strings.Contains(proposal.RejectReason, "has not been answered") {
+		t.Fatalf("proposal = %+v, want authored validation rejection", proposal)
+	}
+}
+
+func ptrFloat(v float64) *float64 { return &v }

@@ -15872,7 +15872,7 @@ paths:
           required: false
           schema:
             type: string
-            enum: [proposed, confirmed, superseded, all]
+            enum: [proposed, confirmed, declined, superseded, all]
           description: >-
             Defaults to `proposed`. `all` clears the filter. An unrecognised value is rejected
             rather than ignored, so a typo cannot silently return the wrong queue.
@@ -44023,6 +44023,15 @@ components:
       properties:
         goat_id: { type: string, format: uuid }
         findings: { $ref: "#/components/schemas/HealthObservationFindings" }
+        answers:
+          type: object
+          additionalProperties:
+            oneOf:
+              - type: string
+              - type: array
+                items: { type: string }
+              - type: number
+              - type: "null"
         context: { $ref: "#/components/schemas/HealthObservationContext" }
     HealthHousingDirective:
       type: object
@@ -44120,7 +44129,7 @@ components:
             it; blank when the shed does not resolve, in which case the row shows the animal alone.
         observed_at: { type: string, format: date-time }
         business_date: { type: string, format: date }
-        status: { type: string, enum: [proposed, confirmed, superseded] }
+        status: { type: string, enum: [proposed, confirmed, declined, superseded] }
         problems:
           type: array
           items: { type: string }
@@ -44159,7 +44168,7 @@ components:
       required: [health_diagnosis_run_id, status, proposal]
       properties:
         health_diagnosis_run_id: { type: string, format: uuid }
-        status: { type: string, enum: [proposed, confirmed, superseded] }
+        status: { type: string, enum: [proposed, confirmed, declined, superseded] }
         proposal: { $ref: "#/components/schemas/HealthDiagnosisProposal" }
         confirmable: { type: array, items: { $ref: "#/components/schemas/HealthConfirmableProblem" } }
         may_confirm:
@@ -44203,7 +44212,7 @@ components:
       required: [health_diagnosis_run_id, status]
       properties:
         health_diagnosis_run_id: { type: string, format: uuid }
-        status: { type: string, enum: [proposed, confirmed, superseded] }
+        status: { type: string, enum: [proposed, confirmed, declined, superseded] }
         opened_cases: { type: array, items: { $ref: "#/components/schemas/HealthOpenedCase" } }
         declined: { type: array, items: { type: string }, description: "Proposed diagnoses the Director did not confirm. Every override is a rule defect worth reviewing." }
         idempotent_replay: { type: boolean }
@@ -44212,7 +44221,7 @@ components:
       additionalProperties: false
       required:
         [health_diagnosis_run_id, goat_id, goat_display_id, register_version, observed_by,
-         observed_at, business_date, proposal, status, confirmable, may_confirm]
+         observed_at, business_date, findings, proposal, status, confirmable, may_confirm]
       properties:
         health_diagnosis_run_id: { type: string, format: uuid }
         goat_id: { type: string, format: uuid }
@@ -44227,8 +44236,18 @@ components:
         observed_by: { type: string, format: uuid }
         observed_at: { type: string, format: date-time }
         business_date: { type: string, format: date }
+        findings: { $ref: "#/components/schemas/HealthObservationFindings" }
+        answers:
+          type: object
+          additionalProperties:
+            oneOf:
+              - type: string
+              - type: array
+                items: { type: string }
+              - type: number
+              - type: "null"
         proposal: { $ref: "#/components/schemas/HealthDiagnosisProposal" }
-        status: { type: string, enum: [proposed, confirmed, superseded] }
+        status: { type: string, enum: [proposed, confirmed, declined, superseded] }
         confirmable:
           type: array
           description: >-
