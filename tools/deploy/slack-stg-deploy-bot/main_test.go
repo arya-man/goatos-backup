@@ -376,7 +376,7 @@ func TestCloudBuildReleaseScriptAsksCloudDeployBeforeAnnouncingAFailure(t *testi
 		"ROLLOUT_SUCCEEDED_BUILD_FAILED",
 		"ROLLOUT_IN_PROGRESS",
 		"ROLLOUT_UNKNOWN",
-		"release_requested=1",
+		"release_created()",
 		"stg-release-tag-bookkeeping",
 		"android-mobile-distribution",
 	} {
@@ -389,6 +389,58 @@ func TestCloudBuildReleaseScriptAsksCloudDeployBeforeAnnouncingAFailure(t *testi
 	announce := strings.Index(text, `notify_slack "ROLLOUT_SUCCEEDED_BUILD_FAILED"`)
 	if consult < 0 || announce < 0 || consult > announce {
 		t.Fatalf("the rollout state must be read before any failure wording is chosen")
+	}
+}
+
+// A failure inside stg-clouddeploy-release.sh can happen long before "gcloud deploy
+// releases create" runs - runner receipt, Alloy image validation, auth/project checks,
+// dirty/non-main guards. No release exists in that case, so the build failure notice must
+// say so plainly instead of reporting the rollout state as UNKNOWN.
+func TestFailureBeforeReleaseCreationIsNotReportedAsUnknownRollout(t *testing.T) {
+	wrapper, err := os.ReadFile("../stg-cloudbuild-release.sh")
+	if err != nil {
+		t.Fatalf("read stg-cloudbuild-release.sh: %v", err)
+	}
+	child, err := os.ReadFile("../stg-clouddeploy-release.sh")
+	if err != nil {
+		t.Fatalf("read stg-clouddeploy-release.sh: %v", err)
+	}
+	wrapperText := string(wrapper)
+	childText := string(child)
+
+	// The wrapper must never mark the release as created just because it is about to call
+	// the child script; only the child, after Cloud Deploy accepts the release, may do that.
+	// Anchor on the bare invocation LINE: the file also mentions the child script by name in
+	// a comment, and matching that comment instead would scan only the file header and make
+	// this assertion vacuous.
+	const invocation = "\ntools/deploy/stg-clouddeploy-release.sh\n"
+	call := strings.Index(wrapperText, invocation)
+	if call < 0 {
+		t.Fatalf("stg-cloudbuild-release.sh no longer invokes stg-clouddeploy-release.sh on its own line")
+	}
+	if strings.Contains(wrapperText[call+len(invocation):], invocation) {
+		t.Fatalf("stg-clouddeploy-release.sh is invoked more than once; this assertion assumes a single call site")
+	}
+	if strings.Contains(wrapperText[:call], "release_requested=1") {
+		t.Fatalf("the release must not be marked created before stg-clouddeploy-release.sh has created it")
+	}
+
+	// The child writes the sentinel only after the release-create command returns.
+	create := strings.Index(childText, "gcloud deploy releases create")
+	sentinel := strings.Index(childText, "GOATOS_STG_RELEASE_CREATED_FILE")
+	if create < 0 || sentinel < 0 || sentinel < create {
+		t.Fatalf("stg-clouddeploy-release.sh must write the release-created sentinel after creating the release")
+	}
+
+	// A readable rollout state must still win over a missing sentinel, so a failed sentinel
+	// write can never downgrade a real in-flight rollout to "no rollout was started".
+	if !strings.Contains(wrapperText, `if ! release_created && [[ -z "$state" ]]; then`) {
+		t.Fatalf("the no-rollout notice must require both a missing sentinel and an unreadable rollout state")
+	}
+	guard := strings.Index(wrapperText, `if ! release_created && [[ -z "$state" ]]; then`)
+	read := strings.Index(wrapperText, `state="$(rollout_state)"`)
+	if read < 0 || read > guard {
+		t.Fatalf("Cloud Deploy must be consulted before claiming no rollout was started")
 	}
 }
 

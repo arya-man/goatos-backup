@@ -198,6 +198,13 @@ gcloud deploy releases create "$release_id" \
 
 echo "Release submitted: $release_id"
 
+# Record that Cloud Deploy accepted the release, so a caller classifying a build failure
+# can tell an aborted-before-release run apart from one with a real rollout in flight.
+release_created_file="${GOATOS_STG_RELEASE_CREATED_FILE:-}"
+if [[ -n "$release_created_file" ]]; then
+  printf '%s\n' "$release_id" >"$release_created_file"
+fi
+
 rollout_id="${release_id}-to-${TARGET_ID}-0001"
 
 wait_for_rollout() {

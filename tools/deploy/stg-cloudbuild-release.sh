@@ -31,6 +31,11 @@ release_id="${RELEASE_ID:-r-${commit_sha}-$(date -u +%H%M%S)}"
 build_id="${BUILD_ID:-local}"
 triggered_by="${TRIGGERED_BY:-unknown Slack user}"
 deploy_metadata_file="${GOATOS_STG_DEPLOY_METADATA_FILE:-/workspace/goatos-stg-deploy.env}"
+# Written by tools/deploy/stg-clouddeploy-release.sh only after "gcloud deploy releases
+# create" returns, so a failure earlier in that script is never mistaken for a rollout.
+release_created_file="${GOATOS_STG_RELEASE_CREATED_FILE:-/workspace/goatos-stg-release-created}"
+export GOATOS_STG_RELEASE_CREATED_FILE="$release_created_file"
+rm -f "$release_created_file"
 
 slack_webhook_url() {
   gcloud secrets versions access latest \
@@ -290,21 +295,24 @@ skipped_steps_note() {
   fi
 }
 
-# Set to 1 immediately before the Cloud Deploy release is requested, so the failure
-# notice can tell "we never got as far as a rollout" apart from "the rollout exists".
-release_requested=0
+# True only once Cloud Deploy has actually accepted the release, so the failure notice
+# can tell "we never got as far as a rollout" apart from "the rollout exists".
+release_created() {
+  [[ -f "$release_created_file" ]] && grep -qxF "$release_id" "$release_created_file"
+}
 
 notify_build_failed() {
   local state note rollout_id
   note="$(skipped_steps_note)"
   rollout_id="${release_id}-to-${TARGET_ID}-0001"
 
-  if [[ "$release_requested" != "1" ]]; then
+  state="$(rollout_state)"
+
+  if ! release_created && [[ -z "$state" ]]; then
     notify_slack "FAILED" "Cloud Build failed before the Cloud Deploy release was created, so no backend/web rollout was started. ${note}"
     return 0
   fi
 
-  state="$(rollout_state)"
   case "$state" in
     SUCCEEDED)
       notify_slack "ROLLOUT_SUCCEEDED_BUILD_FAILED" "This is NOT a failed rollout. Cloud Deploy rollout \`${rollout_id}\` reached \`SUCCEEDED\`, so backend/web is serving \`${commit_sha}\`. Cloud Build stopped afterwards - the rollout wait timed out, or a post-rollout verification failed. Read the Cloud Build log for which. ${note}"
@@ -356,7 +364,6 @@ export RELEASE_ID="$release_id"
 } >"$deploy_metadata_file"
 notify_slack "STARTED" "Building images and creating Cloud Deploy release for backend/web."
 
-release_requested=1
 tools/deploy/stg-clouddeploy-release.sh
 deploy_herd_signals_mqtt_bridge
 smoke_grafana_dashboards
