@@ -106,7 +106,16 @@ function formatSlackMessage(value, kind, receiptFile) {
     { type: "section", fields },
     { type: "divider" }
   ];
-  if (failedLayers.length) {
+  const failures = moduleFailures(receiptFile);
+  if (failures.length) {
+    blocks.push({
+      type: "section",
+      text: {
+        type: "mrkdwn",
+        text: `*${failures.length} failing route(s)*\n${failures.slice(0, 12).map((f) => `• *${f.module}* \`${f.route ?? "?"}\` — ${truncate(redactText(f.error.replace(/: \[\{.*$/, "")), 180)}`).join("\n")}`
+      }
+    });
+  } else if (failedLayers.length) {
     blocks.push({
       type: "section",
       text: {
@@ -132,7 +141,7 @@ function formatSlackMessage(value, kind, receiptFile) {
       }
     });
   }
-  if (blockers.length) {
+  if (blockers.length && !failures.length) {
     blocks.push({
       type: "section",
       text: {
@@ -278,7 +287,19 @@ function selfHealingPrUrl(value) {
   return text.match(/https:\/\/github\.com\/[^\s)]+\/pull\/\d+/)?.[0] ?? null;
 }
 
+function moduleFailures(receiptFile) {
+  const file = path.join(path.dirname(receiptFile), "module-journeys", "module-journeys-receipt.json");
+  if (!existsSync(file)) return [];
+  try {
+    return (JSON.parse(readFileSync(file, "utf8")).modules ?? []).filter((mod) => mod.failure).map((mod) => ({ module: mod.id, ...mod.failure }));
+  } catch {
+    return [];
+  }
+}
+
 function screenshotPaths(value, receiptFile) {
+  const structured = moduleFailures(receiptFile).flatMap((failure) => (failure.screenshots ?? []).slice(-1)).filter((file) => existsSync(file));
+  if (structured.length) return structured.slice(0, 10);
   const root = path.dirname(receiptFile);
   const text = [
     ...(value.layers ?? []).map((layer) => layer.message ?? ""),
@@ -370,13 +391,15 @@ function writeHtmlReport(value, receiptFile, kind, screenshots) {
   const errorLines = layers
     .filter((layer) => layer.status !== "pass")
     .flatMap((layer) => String(layer.message ?? "").split("\n").filter((line) => /Error:|failed|screenshot_path=|visual_route_start=/.test(line)).slice(-12).map((line) => ({ layer: layer.name, line: redactText(line.trim()) })));
+  const failures = moduleFailures(receiptFile);
+  const failureCards = failures.map((f) => `<section class="fail-card"><h3>${esc(f.module)} · <code>${esc(f.route)}</code></h3><p class="err">${esc(redactText(f.error))}</p>${(f.screenshots ?? []).filter((file) => existsSync(file)).slice(-1).map((file) => `<img loading="lazy" src="data:image/png;base64,${readFileSync(file).toString("base64")}" alt="${esc(path.basename(file))}">`).join("")}</section>`).join("");
   const shots = screenshots.map((file) => `<figure><img src="data:image/png;base64,${readFileSync(file).toString("base64")}" alt="${esc(path.basename(file))}"><figcaption>${esc(path.basename(file))}</figcaption></figure>`).join("");
   const rows = layers.map((layer) => `<tr class="${layer.status === "pass" ? "ok" : "bad"}"><td>${esc(layer.name)}</td><td>${esc(layer.status)}</td><td>${esc(layer.durationMs ? `${Math.round(layer.durationMs / 1000)}s` : "")}</td></tr>`).join("");
   const html = `<!doctype html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>GoatOS dashboard automation ${esc(value.mode)}</title>
-<style>:root{--g:#1f6f43;--bad:#b42318;--bg:#f7f8f6;--ink:#1b1f1c;--mut:#5d665f}body{margin:0;font:15px/1.5 system-ui,sans-serif;background:var(--bg);color:var(--ink)}header{background:var(--g);color:#fff;padding:20px 24px}header.fail{background:var(--bad)}main{max-width:1100px;margin:0 auto;padding:16px}h1{margin:0;font-size:22px}.meta{display:flex;gap:18px;flex-wrap:wrap;opacity:.9;margin-top:6px;font-size:13px}section{background:#fff;border-radius:10px;padding:16px;margin:14px 0;box-shadow:0 1px 3px #0001}table{width:100%;border-collapse:collapse}td{padding:6px 8px;border-bottom:1px solid #eee}tr.bad td{color:var(--bad);font-weight:600}pre{white-space:pre-wrap;background:#111;color:#f3f3f3;padding:12px;border-radius:8px;font-size:12.5px;overflow:auto}figure{margin:0 0 18px}img{max-width:100%;border:1px solid #ddd;border-radius:8px}figcaption{color:var(--mut);font-size:13px}</style></head><body>
+<style>:root{--g:#1f6f43;--bad:#b42318;--bg:#f7f8f6;--ink:#1b1f1c;--mut:#5d665f}body{margin:0;font:15px/1.5 system-ui,sans-serif;background:var(--bg);color:var(--ink)}header{background:var(--g);color:#fff;padding:20px 24px}header.fail{background:var(--bad)}main{max-width:1100px;margin:0 auto;padding:16px}h1{margin:0;font-size:22px}.meta{display:flex;gap:18px;flex-wrap:wrap;opacity:.9;margin-top:6px;font-size:13px}section{background:#fff;border-radius:10px;padding:16px;margin:14px 0;box-shadow:0 1px 3px #0001}table{width:100%;border-collapse:collapse}td{padding:6px 8px;border-bottom:1px solid #eee}tr.bad td{color:var(--bad);font-weight:600}pre{white-space:pre-wrap;background:#111;color:#f3f3f3;padding:12px;border-radius:8px;font-size:12.5px;overflow:auto}figure{margin:0 0 18px}img{max-width:100%;border:1px solid #ddd;border-radius:8px}figcaption{color:var(--mut);font-size:13px}.fail-card{border-left:4px solid var(--bad)}.fail-card h3{margin:0 0 6px}.err{font-family:ui-monospace,monospace;font-size:13px;color:var(--bad);word-break:break-word}</style></head><body>
 <header class="${value.status === "pass" ? "" : "fail"}"><h1>${esc(kind === "recovery" ? "Dashboard automation recovered" : "Dashboard automation failed")}</h1><div class="meta"><span>Mode: ${esc(value.mode)}</span><span>SHA: ${esc(String(value.repoSha ?? "").slice(0, 12))}</span><span>Browser: ${esc(browserSmokeStatus(value))}</span><span>${esc(new Date().toISOString())}</span></div></header>
-<main><section><h2>What failed</h2>${errorLines.length ? `<pre>${errorLines.map((e) => `[${esc(e.layer)}] ${esc(e.line)}`).join("\n")}</pre>` : "<p>No concrete error lines captured; see receipt.</p>"}</section>
-<section><h2>Screenshots</h2>${shots || "<p>No screenshots captured for this run.</p>"}</section>
+<main>${failureCards ? `<h2>${failures.length} failing route(s)</h2>${failureCards}` : ""}<section><h2>What failed</h2>${errorLines.length ? `<pre>${errorLines.map((e) => `[${esc(e.layer)}] ${esc(e.line)}`).join("\n")}</pre>` : "<p>No concrete error lines captured; see receipt.</p>"}</section>
+${failureCards ? "" : `<section><h2>Screenshots</h2>${shots || "<p>No screenshots captured for this run.</p>"}</section>`}
 <section><h2>All checks</h2><table>${rows}</table></section>
 <section><p>Receipt: <code>${esc(path.relative(repo, receiptFile))}</code></p></section></main></body></html>`;
   const out = path.join(path.dirname(receiptFile), "report.html");
