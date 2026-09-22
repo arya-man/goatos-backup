@@ -139,9 +139,13 @@ class RecordViewModel @Inject constructor(
 
     private fun VaccinationExecutionShedDrilldownDto.toRecordUiState(): RecordUiState {
         val base = sampleRecordState()
-        val groups = drives.map { drive ->
+        val groups = drives
+            .map { drive -> drive.driveName ?: drive.driveId.orEmpty() }
+            .filter { it.isNotBlank() }
+            .distinctBy { it.trim().lowercase() }
+            .map { driveName ->
             VaccineGroupRow(
-                vaccine = drive.driveName ?: drive.driveId.orEmpty(),
+                vaccine = driveName,
                 given = summary.completed,
                 due = summary.total,
                 dose = "",

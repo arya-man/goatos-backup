@@ -219,10 +219,24 @@ func (s *Service) ShedDrilldown(ctx context.Context, q domain.ExecutionQuery) (d
 	head := rows[0]
 	stagesSeen := map[string]bool{}
 	drives := make([]domain.DriveSummary, 0, len(rows))
+	driveSeen := map[string]bool{}
 	summary := domain.ShedDrilldownSummary{}
 	for _, row := range rows {
 		stagesSeen[row.AnimalStage] = true
-		drives = append(drives, domain.DriveSummary{DriveID: row.DriveID, DriveName: row.DriveName, WorkState: row.WorkState, Severity: row.Severity})
+		driveKey := ""
+		if row.DriveName != nil {
+			driveKey = strings.ToLower(strings.TrimSpace(*row.DriveName))
+		}
+		if driveKey == "" && row.DriveID != nil {
+			driveKey = strings.ToLower(strings.TrimSpace(*row.DriveID))
+		}
+		if driveKey == "" {
+			driveKey = string(row.WorkState)
+		}
+		if !driveSeen[driveKey] {
+			driveSeen[driveKey] = true
+			drives = append(drives, domain.DriveSummary{DriveID: row.DriveID, DriveName: row.DriveName, WorkState: row.WorkState, Severity: row.Severity})
+		}
 		summary.Total++
 		switch row.WorkState {
 		case domain.WorkStateDue:

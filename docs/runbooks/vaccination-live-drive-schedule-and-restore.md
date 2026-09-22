@@ -251,4 +251,3 @@ The correct code behavior is:
 - system cancellations must write audit evidence
 - live tracker must exclude terminal rows from carry totals but preserve active
   completed/proofed work
-
