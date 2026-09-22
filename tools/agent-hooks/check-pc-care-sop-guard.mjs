@@ -98,6 +98,105 @@ function read(root, rel) {
   try { return readFileSync(join(root, rel), "utf8"); } catch { return ""; }
 }
 
+
+// ---- 8. The page's OWN copy map carries every key its screens read ------------------------
+//
+// A key declared SOMEWHERE in service.go is not a key this page serves: `copy()` throws on the
+// page CONTRACT, and each SOP page merges its own editor map. On 2026-09-22 the Preventive Care
+// editor rendered the SHARED capture card (features/sops/feed-editor.tsx `SlotCard`), which names
+// `fsop.proof.title` / `.hint` / `.remove` -- declared, but only inside feedSOPEditorCopy(), which
+// this page does not merge. The whole editor threw behind the error boundary ("Something went
+// wrong") while the repo-wide copy-keys test stayed green, because the key existed. So this rule
+// resolves the PAGE's merged map and checks the keys the PAGE's screens actually read, the
+// imported shared cards included.
+const PC_CARE_SCREENS = "apps/admin-web/features/sops";
+// Keys composed at runtime from a closed vocabulary; the screens never write them as literals.
+const PC_CARE_DYNAMIC_KEYS = ["video", "photo", "either"].map((k) => `wsop.proof.kind.${k}`)
+  .concat(["choice", "multi", "text", "number"].map((k) => `inspection.kind.${k}`));
+
+/** The {...} literal starting at [from], by brace count. */
+function braceSlice(text, from) {
+  const start = text.indexOf("{", from);
+  if (start < 0) return "";
+  let depth = 0;
+  for (let i = start; i < text.length; i += 1) {
+    if (text[i] === "{") depth += 1;
+    else if (text[i] === "}") { depth -= 1; if (depth === 0) return text.slice(start, i + 1); }
+  }
+  return "";
+}
+
+/** Every key a Go copy function declares, following the maps it merges in. */
+function goCopyFnKeys(adminui, fn, seen = new Set()) {
+  if (seen.has(fn)) return new Set();
+  seen.add(fn);
+  const at = adminui.indexOf(`func ${fn}() map[string]string {`);
+  if (at < 0) return new Set();
+  // Bounded STRUCTURALLY (to the function's closing brace at column 0), never by counting
+  // braces: Go copy strings carry "{n}" placeholders and a lone "}" would run the slice into
+  // the next function, which is how this rule first read another page's map as its own.
+  const end = adminui.indexOf("\n}\n", at);
+  const body = adminui.slice(at, end < 0 ? adminui.length : end);
+  const keys = new Set([...body.matchAll(/"([a-z0-9_.]+)"\s*:/g)].map((m) => m[1]));
+  for (const m of body.matchAll(/range (\w+)\(\)/g)) for (const k of goCopyFnKeys(adminui, m[1], seen)) keys.add(k);
+  return keys;
+}
+
+/** The keys the /pc-care/sops page contract actually serves. */
+function pcCarePageKeys(adminui) {
+  const shared = adminui.indexOf('case "counts-sops",');
+  if (shared < 0) return null;
+  // The shared map runs from the outer case to the first per-page case inside it.
+  let sharedEnd = adminui.indexOf('\n\t\tcase "', shared);
+  if (sharedEnd < 0) sharedEnd = adminui.length;
+  const keys = new Set([...adminui.slice(shared, sharedEnd).matchAll(/"([a-z0-9_.]+)"\s*:/g)].map((m) => m[1]));
+  const own = adminui.indexOf('case "pc-care-sops":', shared);
+  if (own < 0) return keys;
+  let end = adminui.indexOf("\n\t\tcase \"", own + 8);
+  if (end < 0) end = adminui.length;
+  const block = adminui.slice(own, end);
+  for (const m of block.matchAll(/m\["([a-z0-9_.]+)"\]/g)) keys.add(m[1]);
+  for (const m of block.matchAll(/range (\w+)\(\)/g)) for (const k of goCopyFnKeys(adminui, m[1])) keys.add(k);
+  return keys;
+}
+
+/**
+ * The text of one exported TSX function, from its signature to the next top-level declaration.
+ * NOT braceSlice: a destructured parameter list opens a brace of its own, so brace-counting from
+ * the signature returns the PARAMETERS and never sees the body -- which made this rule vacuous
+ * the first time it was written.
+ */
+function tsxFnBody(src, name) {
+  const at = src.search(new RegExp(`export function ${name}\\b`));
+  if (at < 0) return "";
+  const rest = src.slice(at + 1);
+  const next = rest.search(/\nexport (?:function|const|type) |\nfunction /);
+  return next < 0 ? rest : rest.slice(0, next);
+}
+
+/** Every literal copy key the pc-care screens read, the shared cards they import included. */
+function pcCareScreenKeys(root) {
+  const dir = join(root, PC_CARE_SCREENS);
+  let names = [];
+  try { names = readdirSync(dir); } catch { return []; }
+  const out = [];
+  for (const name of names.filter((n) => /^pc-care-.*\.tsx?$/.test(n) && !n.includes(".test."))) {
+    const src = readFileSync(join(dir, name), "utf8");
+    for (const m of src.matchAll(/\bcopy\(\s*\w+\s*,\s*"([a-z0-9_.]+)"/g)) out.push({ file: `${PC_CARE_SCREENS}/${name}`, key: m[1] });
+    // A shared card imported here reads ITS OWN keys on THIS page's contract.
+    for (const imp of src.matchAll(/import \{([^}]+)\} from "\.\/([a-z-]+)"/g)) {
+      let shared = "";
+      try { shared = readFileSync(join(dir, `${imp[2]}.tsx`), "utf8"); } catch { continue; }
+      for (const sym of imp[1].split(",").map((s) => s.trim()).filter((s) => /^[A-Z]/.test(s))) {
+        for (const m of tsxFnBody(shared, sym).matchAll(/\bcopy\(\s*\w+\s*,\s*"([a-z0-9_.]+)"/g)) {
+          out.push({ file: `${PC_CARE_SCREENS}/${imp[2]}.tsx:${sym}`, key: m[1] });
+        }
+      }
+    }
+  }
+  return out;
+}
+
 export function check(root) {
   const findings = [];
 
@@ -194,6 +293,24 @@ export function check(root) {
     }
   }
 
+  // 8. Every key the page's screens read is in the page's OWN merged map.
+  if (adminui) {
+    const served = pcCarePageKeys(adminui);
+    if (served) {
+      for (const k of PC_CARE_DYNAMIC_KEYS) served.add(k);
+      const seen = new Set();
+      for (const { file, key } of pcCareScreenKeys(root)) {
+        if (served.has(key) || seen.has(key)) continue;
+        seen.add(key);
+        findings.push({
+          rule: "page-copy-key-not-served",
+          file,
+          detail: `reads ${key}, which /pc-care/sops does not serve; copy() throws and the whole editor renders the error boundary`,
+        });
+      }
+    }
+  }
+
   return findings;
 }
 
@@ -218,7 +335,13 @@ function selfTest() {
     writeFileSync(join(tmp, PCCARE_PG, "rules.go"), "package postgres\nconst r = `SELECT form_dsl FROM sop_versions`\n");
     writeFileSync(join(tmp, PHONE_DIRS[1], "PcCareTaskScreen.kt"),
       'fun slots(category: String) = when (category) {\n  "deworming" -> listOf(PcCareSlot("video"))\n  else -> emptyList()\n}\n');
-    writeFileSync(join(tmp, ADMINUI_SERVICE), "package app\n// no pc care page at all\n");
+    // No page registration at all (rule 7), and a copy map that serves the page's own key
+    // while the SHARED capture card the editor imports reads one it does not (rule 8) --
+    // the exact 2026-09-22 defect: the key existed in the file, in ANOTHER page's map.
+    writeFileSync(join(tmp, ADMINUI_SERVICE), 'package app\nfunc pageSpecificCopy(id string) map[string]string {\n\tswitch id {\n\tcase "counts-sops", "pc-care-sops":\n\t\tm := map[string]string{\n\t\t\t"crumb": "SOPs",\n\t\t}\n\t\tswitch id {\n\t\tcase "pc-care-sops":\n\t\t\tfor k, v := range pcCareCopy() {\n\t\t\t\tm[k] = v\n\t\t\t}\n\t\t}\n\t\treturn m\n\t}\n\treturn nil\n}\n\nfunc pcCareCopy() map[string]string {\n\treturn map[string]string{"pcsop.title": "Preventive Care SOP"}\n}\n\nfunc feedCopy() map[string]string {\n\treturn map[string]string{"fsop.proof.remove": "Remove this capture"}\n}\n');
+    mkdirSync(join(tmp, PC_CARE_SCREENS), { recursive: true });
+    writeFileSync(join(tmp, PC_CARE_SCREENS, "feed-editor.tsx"), 'export function SlotCard({ pc }) {\n  return <button aria-label={copy(pc, "fsop.proof.remove")} />;\n}\n');
+    writeFileSync(join(tmp, PC_CARE_SCREENS, "pc-care-editor.tsx"), 'import { SlotCard } from "./feed-editor";\nexport function PcCareEditor({ pc }) {\n  return <h1>{copy(pc, "pcsop.title")}</h1>;\n}\n');
 
     const bad = check(tmp);
     const rules = new Set(bad.map((b) => b.rule));
@@ -230,6 +353,7 @@ function selfTest() {
       "fixed-proof-column-readiness",
       "phone-hardcodes-care-slots",
       "page-copy-registered",
+      "page-copy-key-not-served",
     ]) {
       if (!rules.has(r)) { console.error(`self-test: expected ${r}`, bad); process.exit(1); }
     }
@@ -255,8 +379,7 @@ function selfTest() {
       "package postgres\nconst q = `SELECT v.version, v.form_dsl FROM public.sop_versions v`\n");
     writeFileSync(join(tmp, PHONE_DIRS[1], "PcCareTaskScreen.kt"),
       "@Composable fun Slots(state: PcCareTaskUiState) { state.expectedSlots.forEach { SlotRow(it) } }\n");
-    writeFileSync(join(tmp, ADMINUI_SERVICE),
-      'package app\nvar n = navLeaf("pc-care-sops", "Preventive Care SOP", "/pc-care/sops", nil)\nvar p = page("pc-care-sops", "/pc-care/sops")\nfunc pcCareSOPEditorCopy() map[string]string { return nil }\n');
+    writeFileSync(join(tmp, ADMINUI_SERVICE), 'package app\nvar n = navLeaf("pc-care-sops", "Preventive Care SOP", "/pc-care/sops", nil)\nvar p = page("pc-care-sops", "/pc-care/sops")\n\nfunc pageSpecificCopy(id string) map[string]string {\n\tswitch id {\n\tcase "counts-sops", "pc-care-sops":\n\t\tm := map[string]string{\n\t\t\t"crumb": "SOPs",\n\t\t}\n\t\tswitch id {\n\t\tcase "pc-care-sops":\n\t\t\tfor k, v := range pcCareSOPEditorCopy() {\n\t\t\t\tm[k] = v\n\t\t\t}\n\t\t}\n\t\treturn m\n\t}\n\treturn nil\n}\n\nfunc pcCareSOPEditorCopy() map[string]string {\n\treturn map[string]string{\n\t\t"pcsop.title":       "Preventive Care SOP",\n\t\t"fsop.proof.remove": "Remove this capture",\n\t}\n}\n');
 
     const good = check(tmp);
     if (good.length) { console.error("self-test: expected clean, got", good); process.exit(1); }
