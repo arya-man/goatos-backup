@@ -679,6 +679,41 @@ coverage-matrix mapping required.
 
 | feed_follow_up_day_window | func:ResolveFeedFollowUpDay, func:AddBusinessDays | Explicit exclusion: internal feed follow-up day-window helpers only; the existing feed direction reads remain the leadership assistant coverage source. |
 
+## Explicit exclusion: vaccination drive date protection and merged-batch progress (2026-09-23)
+
+Three changes to vaccination scheduling and execution, none of which adds a
+leadership read surface:
+
+1. **Recovery due floor** (`backend/internal/vaccination/app/generation.go`,
+   `schedule_policy.go`). After a health defer clears, the reschedule may move a
+   due date later but never earlier than the rule's own floor. This is an
+   OUTPUT clamp on dates the kernel already generates -- no new table, read API
+   route, Cube metric, `ceo_ai.*` view, MCP Toolbox tool, or read-only SQL
+   fallback. Details in
+   `docs/runbooks/vaccination-seed-source-date-contract.md`.
+2. **Assigned drive dates survive rule-identity reconcile**
+   (`backend/internal/obligation/adapters/postgres/repository.go`). A reconcile
+   may re-address an obligation that is a live drive member but must not move
+   its planned date. Membership is read through
+   `liveDriveMembershipExistsSelect` against
+   `vaccination_drive_assignment_members`, a table the drive-assignment
+   producer already owns. Migration `000392` adds `canceled_at` to it so a
+   rebuilt assignment's stale members stop counting -- an operational marker on
+   a runtime-written table, not a reporting column.
+3. **Merged-batch assignment progress**
+   (`backend/internal/vaccinationexecution/adapters/postgres/repository.go`).
+   Progress for a merged assignment now counts completions from every grouped
+   batch rather than the representative one. Same rows, same grain, corrected
+   membership.
+
+Leadership assistant coverage is unchanged and remains the existing vaccination
+execution and verification reporting surfaces: what the assistant can answer
+about drives, completions and verification is the same set of facts, read the
+same way. These changes make the operator board's numbers right; they do not
+add a fact the assistant could not already reach.
+
+| vaccination_drive_date_protection | func:ResolveFeedFollowUpDay-style internal helpers; table:vaccination_drive_assignment_members.canceled_at | Explicit exclusion: drive date protection, member cancellation and merged-batch progress correct existing execution reads; existing vaccination execution and verification reporting remain the leadership assistant coverage source. |
+
 ## Explicit exclusion: vaccination submit write helpers (2026-09-05)
 
 `func:AssignmentMatchesActor` and `func:ListScanCaptures` are internal SOP
