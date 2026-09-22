@@ -100,11 +100,15 @@ func (e *Enqueuer) EnqueuePCCareVerification(ctx context.Context, in pccareapp.V
 	}
 
 	mediaRefs := make([]string, 0, len(in.MediaRefs))
+	captures := make([]verificationdomain.ProofCapture, 0, len(in.MediaRefs))
 	for _, ref := range in.MediaRefs {
 		if strings.TrimSpace(ref.ProofRef) == "" {
 			continue
 		}
 		mediaRefs = append(mediaRefs, ref.ProofRef)
+		// The capture's SOP title and the kind the register judged it (blank = the verifier
+		// read asks the register), POSITIONAL against MediaRefs -- the feed bridges' shape.
+		captures = append(captures, verificationdomain.ProofCapture{Title: ref.Label, Kind: ref.Kind})
 	}
 
 	_, err := e.verification.CreateItem(ctx, verificationdomain.CreateItem{
@@ -116,6 +120,7 @@ func (e *Enqueuer) EnqueuePCCareVerification(ctx context.Context, in pccareapp.V
 		ContextRows:    contextRows(in),
 		Source:         sourceRefFor(in),
 		MediaRefs:      mediaRefs,
+		MediaMeta:      verificationdomain.BuildMediaMeta(captures),
 		OperatorID:     ptrIfSet(in.OperatorID),
 		ShedID:         ptrIfSet(in.ShedID),
 		PartitionLabel: ptrIfSet(in.PartitionLabel),
@@ -160,6 +165,11 @@ func contextRows(in pccareapp.VerificationEnqueueRequest) []verificationdomain.C
 	}
 	if strings.TrimSpace(in.PlannedBusinessDate) != "" {
 		rows = append(rows, verificationdomain.ContextRow{Label: "Planned for", Value: in.PlannedBusinessDate})
+	}
+	// The operators' answers to the pinned SOP's questions (PC CARE SOP, 2026-09-22), under
+	// their own group so the verifier reads them beside the captures they explain.
+	for _, row := range in.ContextRows {
+		rows = append(rows, verificationdomain.ContextRow{Label: row.Label, Value: row.Value, Group: "Answers"})
 	}
 	return rows
 }

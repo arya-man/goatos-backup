@@ -7545,8 +7545,12 @@ paths:
       operationId: appSubmitPCCareTask
       summary: Submit the whole task for verifier review (any assignee).
       description: >-
-        Refused until every scanned animal carries its full slot set (422 proof_incomplete) and
-        while no animal is scanned (422 no_animals). For inventory_vaccine, refused until the
+        Refused until every scanned animal carries every COMPULSORY slot of the task's PINNED
+        SOP card (422 proof_incomplete) and while no animal is scanned (422 no_animals). The body
+        carries the answers to the pinned card's questions (a task-level card, answered once at
+        submit; PC CARE SOP, 2026-09-22): a missing required answer, an unknown question or an
+        out-of-range number -> 422 pc_care_answer_invalid naming the question. An older phone
+        sends no body. For inventory_vaccine, refused until the
         task-level stock_fridge_photo and stock_fridge_video proofs are present; the task has no animal rows. On success
         the task flips to pending_verification and locks for every assignee. For the four
         verifier-reviewed categories ONE verification item carries the animal clips and the
@@ -7559,6 +7563,11 @@ paths:
           required: true
           schema: { type: string, format: uuid }
         - $ref: "#/components/parameters/IdempotencyKey"
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/PCCareSubmitRequest" }
       responses:
         "200":
           description: The submit outcome (idempotent — a resend echoes the current state).
@@ -25356,13 +25365,28 @@ components:
         min_duration_hint_seconds on the trimming "during" clip is recorder guidance, never a
         client-enforced cap.
       properties:
-        field_key: { type: string, enum: [video, before_video, during_video, after_video, stock_fridge_photo, stock_fridge_video, feed_video, water_video] }
+        field_key:
+          type: string
+          description: >-
+            The slot key. Since the PC CARE SOP (2026-09-22) the per-animal slot list is AUTHORED
+            on /pc-care/sops, so the key is any authored id (a-z, 0-9, _); the seeded keys are
+            video / before_video / during_video / after_video, and the removal card's are
+            feed_video / water_video. inventory_vaccine keeps stock_fridge_photo / stock_fridge_video.
         label: { type: string }
         description:
           type: string
-          description: Backend-owned farm copy saying what this video must show, rendered verbatim.
+          description: Backend-owned farm copy saying what this capture must show, rendered verbatim.
         min_duration_hint_seconds: { type: integer }
-      required: [field_key, label]
+        kind:
+          type: string
+          enum: [video, photo, either]
+          description: >-
+            The capture the slot takes (PC CARE SOP, 2026-09-22). A phone that reads neither this
+            nor `required` records a live-camera video, which every seeded slot takes.
+        required:
+          type: boolean
+          description: Whether the task can be submitted without this capture on every animal.
+      required: [field_key, label, kind, required]
     PCCareTask:
       type: object
       properties:
@@ -25425,6 +25449,19 @@ components:
         expected_slots:
           type: array
           items: { $ref: "#/components/schemas/PCCareSlot" }
+        sop_version:
+          type: integer
+          minimum: 0
+          description: >-
+            The pc_care.tasks SOP version this task was PLANNED on and runs under to the end
+            (PC CARE SOP, 2026-09-22); 0 = the seeded rules (a task planned before the rule
+            existed).
+        sop:
+          $ref: "#/components/schemas/PCCareSOPRules"
+        sop_answers:
+          type: object
+          additionalProperties: true
+          description: The answers given at submit to the pinned version's questions, keyed by question id.
         inventory_requirements:
           type: array
           description: Vaccine/count lines for inventory_vaccine fridge stock tasks.
@@ -25550,7 +25587,9 @@ components:
               key: { $ref: "#/components/schemas/PCCareCategory" }
               label: { type: string }
             required: [key, label]
-      required: [parks, operators, categories]
+        sop:
+          $ref: "#/components/schemas/PCCareSOPRules"
+      required: [parks, operators, categories, sop]
     PCCarePlannerSheds:
       type: object
       properties:
@@ -25688,16 +25727,18 @@ components:
         feed_removal_required:
           type: boolean
           description: >-
-            Deworming only (maintainer decision 2026-09-03, at round grain 2026-09-05):
-            tablets given in feed need feed & water removed the evening before. When true
-            the same write also creates ONE round-grain feed_water_removal card for the
-            evening before, assigned to removal_operator_user_ids, carrying one feed video
-            and one water video slot PER PEN. The deworming date must still have a removal
-            evening ahead of it (creating at/after the tenant's configured removal cutoff
-            -- BootstrapResponse.feed_water_removal_cutoff_time -- for tomorrow -> 422
-            fasting_window_closed; no configured cutoff -> 422
-            feed_water_removal_cutoff_missing). On any other category -> 422
-            feed_removal_not_applicable. Injection deworming simply omits it.
+            The planner's word on the evening-before feed & water removal; ABSENT means "not
+            said". The PUBLISHED PC Care SOP decides what it means (PC CARE SOP, 2026-09-22;
+            PCCarePlannerCatalog.sop.feed_water_removal): under `required` the removal applies to
+            every task of a listed category and a decline is ignored; under `optional` (the seed)
+            this is the planner's choice; under `off` an explicit true -> 422
+            feed_water_removal_not_offered. When it applies the same write also creates ONE
+            round-grain feed_water_removal card for the evening before, assigned to
+            removal_operator_user_ids, carrying the pinned card's captures PER PEN. The date must
+            still have a removal evening ahead of it (creating at/after the effective cutoff --
+            the SOP's own, else the farm's -- for tomorrow -> 422 fasting_window_closed; no
+            evening configured -> 422 feed_water_removal_cutoff_missing). On a category the SOP
+            does not list (the seed lists deworming alone) -> 422 feed_removal_not_applicable.
         removal_operator_user_ids:
           type: array
           items: { type: string, format: uuid }
@@ -25781,15 +25822,10 @@ components:
         feed_removal_required:
           type: boolean
           description: >-
-            Deworming only (maintainer decision 2026-09-03): tablets given in feed need
-            feed & water removed the evening before. When true, the same write also
-            creates the linked feed_water_removal task for the evening before the
-            deworming date, assigned to removal_operator_user_ids, and the deworming
-            date must still have a removal evening ahead of it (creating at/after the
-            tenant's configured removal cutoff for tomorrow -> 422 fasting_window_closed;
-            no configured cutoff -> 422 feed_water_removal_cutoff_missing). On any other
-            category -> 422 feed_removal_not_applicable. Injection deworming simply
-            omits it.
+            The planner's word on the evening-before feed & water removal; ABSENT means "not
+            said". The PUBLISHED PC Care SOP decides what it means -- see
+            PCCareCreateRoundRequest.feed_removal_required. When it applies the same write also
+            creates the linked feed_water_removal task for the evening before.
         removal_operator_user_ids:
           type: array
           items: { type: string, format: uuid }
@@ -25824,6 +25860,92 @@ components:
         row_version: { type: integer }
         animal_count: { type: integer }
       required: [task_id, status, row_version, animal_count]
+    PCCareSubmitRequest:
+      type: object
+      description: The answers to the task's pinned SOP questions, given once at submit.
+      properties:
+        answers:
+          type: object
+          additionalProperties: true
+          description: >-
+            {question id: answer}: choice = the option value (an "other" free text rides under
+            "<id>_other"); multi = array of option values; number = a JSON number; text = a string.
+    PCCareSOPRules:
+      type: object
+      description: >-
+        The compiled pc_care.tasks SOP rule set (form_dsl.pc_care, schema goatos.sop-pc-care.v1)
+        at one version (PC CARE SOP, 2026-09-22). Served on the planner catalog (the PUBLISHED
+        version a new task is stamped with) and on the single-task read (the task's PINNED
+        version). Clients render it; they hold no rule of their own. Every list is non-empty-safe
+        (never null) and every planner category is present.
+      additionalProperties: false
+      required: [version, schema_version, feed_water_removal, categories]
+      properties:
+        version:
+          type: integer
+          minimum: 0
+          description: The SOP version number; 0 = the seeded document.
+        schema_version:
+          type: string
+        feed_water_removal:
+          $ref: "#/components/schemas/PCCareSOPRemovalRules"
+        categories:
+          type: object
+          description: One card per planner category, keyed by PCCareCategory.
+          additionalProperties:
+            $ref: "#/components/schemas/PCCareSOPCategoryRules"
+    PCCareSOPRemovalRules:
+      type: object
+      description: >-
+        The evening-before feed & water removal rules. mode: required (every task of a listed
+        category carries it, the planner is not asked) / optional (the planner decides per task
+        -- the seed) / off (never offered). applies_to lists the categories it may accompany
+        (the seed: deworming alone). cutoff_time is the EFFECTIVE evening (HH:MM, Asia/Kolkata)
+        on a served rule set; the phone never resolves it.
+      additionalProperties: false
+      required: [mode, applies_to, proofs, questions]
+      properties:
+        mode:
+          type: string
+          enum: [required, optional, off]
+        applies_to:
+          type: array
+          items: { $ref: "#/components/schemas/PCCareCategory" }
+        cutoff_time:
+          type: string
+        instruction:
+          type: string
+        proofs:
+          type: array
+          items: { $ref: "#/components/schemas/WeighingRemovalProofSlot" }
+        questions:
+          type: array
+          items: { $ref: "#/components/schemas/WeighingSOPQuestion" }
+    PCCareSOPCategoryRules:
+      type: object
+      description: >-
+        One category's card: the instruction, the per-animal capture slots and the questions
+        answered once per task at submit.
+      additionalProperties: false
+      required: [proofs, questions]
+      properties:
+        instruction:
+          type: string
+        proofs:
+          type: array
+          items: { $ref: "#/components/schemas/PCCareSOPCaptureSlot" }
+        questions:
+          type: array
+          items: { $ref: "#/components/schemas/WeighingSOPQuestion" }
+    PCCareSOPCaptureSlot:
+      allOf:
+        - $ref: "#/components/schemas/WeighingRemovalProofSlot"
+        - type: object
+          properties:
+            min_seconds:
+              type: integer
+              minimum: 0
+              description: Recorder-chrome guidance ("record about N seconds"), never a client-enforced cap.
     FeedWastageWorklistPage:
       type: object
       additionalProperties: false

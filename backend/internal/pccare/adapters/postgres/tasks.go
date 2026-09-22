@@ -105,17 +105,19 @@ func (r *Repository) CreateTask(ctx context.Context, p ports.CreateTaskParams) (
 	err = tx.QueryRow(ctx, `
 INSERT INTO pc_care_tasks (
   tenant_id, category, park_id, shed_id, partition_label,
-  planned_business_date, due_business_date, idempotency_key, created_by
+  planned_business_date, due_business_date, idempotency_key, created_by,
+  sop_version, required_slot_keys
 ) VALUES (
   $1::uuid, $2, $3::uuid, $4::uuid, nullif($5::text, ''),
-  $6::date, $6::date, $7, $8::uuid
+  $6::date, $6::date, $7, $8::uuid,
+  nullif($9::int, 0), coalesce($10::text[], '{}'::text[])
 )
 ON CONFLICT (tenant_id, category, park_id, shed_id, partition_key, planned_business_date)
   WHERE work_state <> 'canceled'
 DO NOTHING
 RETURNING task_id::text`,
 		p.TenantID, p.Category, p.ParkID, p.ShedID, p.PartitionLabel,
-		plannedDate, p.IdempotencyKey, p.CreatedBy).Scan(&taskID)
+		plannedDate, p.IdempotencyKey, p.CreatedBy, p.SOPVersion, p.RequiredSlotKeys).Scan(&taskID)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return ports.TaskRow{}, domain.ErrTaskAlreadyPlanned
 	}
@@ -167,7 +169,8 @@ SELECT $1::uuid, $2::uuid, unnest($3::uuid[])`,
 		var removalTaskID string
 		err = tx.QueryRow(ctx, removalTaskInsertSQL,
 			p.TenantID, domain.CategoryFeedWaterRemoval, p.ParkID, p.ShedID, p.PartitionLabel,
-			removalDate, taskID, p.IdempotencyKey+":fasting", p.CreatedBy).Scan(&removalTaskID)
+			removalDate, taskID, p.IdempotencyKey+":fasting", p.CreatedBy,
+			p.SOPVersion, p.RemovalRequiredSlotKeys).Scan(&removalTaskID)
 		if errors.Is(err, pgx.ErrNoRows) {
 			// A live removal task already covers this pen on the evening-before date (e.g. a
 			// canceled deworming left its removal row live). The pair cannot be planned whole,
@@ -278,10 +281,12 @@ WHERE m.tenant_id = $1::uuid AND m.status = 'active' AND m.user_id = ANY($2::uui
 const removalTaskInsertSQL = `
 INSERT INTO pc_care_tasks (
   tenant_id, category, park_id, shed_id, partition_label,
-  planned_business_date, due_business_date, gates_task_id, idempotency_key, created_by
+  planned_business_date, due_business_date, gates_task_id, idempotency_key, created_by,
+  sop_version, required_slot_keys
 ) VALUES (
   $1::uuid, $2, $3::uuid, $4::uuid, nullif($5::text, ''),
-  $6::date, $6::date, $7::uuid, $8, $9::uuid
+  $6::date, $6::date, $7::uuid, $8, $9::uuid,
+  nullif($10::int, 0), coalesce($11::text[], '{}'::text[])
 )
 ON CONFLICT (tenant_id, category, park_id, shed_id, partition_key, planned_business_date)
   WHERE work_state <> 'canceled'
@@ -498,7 +503,9 @@ const taskSelectColumns = `
   coalesce(requirements.items, '[]'::jsonb),
   coalesce(task_proofs.items, '[]'::jsonb),
   coalesce(removal_pens.labels, ARRAY[]::text[]),
-  coalesce(animal_pens.items, '[]'::jsonb)`
+  coalesce(animal_pens.items, '[]'::jsonb),
+  coalesce(t.sop_version, 0),
+  t.sop_answers`
 
 // taskFromJoins is the FROM/JOIN block matching taskSelectColumns. The assignee and animal
 // sides are PRE-AGGREGATED to exactly one row per task before joining, so they cannot multiply
@@ -593,14 +600,21 @@ func scanTaskRow(row pgx.Row) (ports.TaskRow, error) {
 	var requirementsJSON []byte
 	var taskProofsJSON []byte
 	var animalPensJSON []byte
+	var answersJSON []byte
 	if err := row.Scan(
 		&t.TaskID, &t.Category, &t.ParkID, &t.ParkName, &t.ShedID, &t.ShedName,
 		&t.PartitionLabel, &t.VaccineLabel, &t.PlannedBusinessDate, &t.DueBusinessDate,
 		&t.WorkState, &t.Status, &t.ReworkReason, &t.CloseReason, &t.RowVersion,
 		&t.SubmittedBy, &submittedAt, &t.AssigneeUserIDs, &t.AssigneeNames, &t.AnimalCount,
 		&requirementsJSON, &taskProofsJSON, &t.RemovalPenLabels, &animalPensJSON,
+		&t.SOPVersion, &answersJSON,
 	); err != nil {
 		return ports.TaskRow{}, err
+	}
+	if len(answersJSON) > 0 {
+		if err := json.Unmarshal(answersJSON, &t.SOPAnswers); err != nil {
+			return ports.TaskRow{}, fmt.Errorf("pccare: decode sop answers: %w", err)
+		}
 	}
 	if len(requirementsJSON) > 0 {
 		var raw []struct {
@@ -661,6 +675,23 @@ func scanTaskRow(row pgx.Row) (ports.TaskRow, error) {
 	}
 	t.SubmittedAt = submittedAt
 	return t, nil
+}
+
+// TaskSOPVersion reads the pc_care.tasks SOP version a task was planned on (0 = seed).
+func (r *Repository) TaskSOPVersion(ctx context.Context, tenantID, taskID string) (int, error) {
+	ctx, cancel := r.timeout(ctx)
+	defer cancel()
+	var version int
+	err := r.pool.QueryRow(ctx, `
+SELECT coalesce(sop_version, 0) FROM pc_care_tasks WHERE tenant_id = $1::uuid AND task_id = $2::uuid`,
+		tenantID, taskID).Scan(&version)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return 0, ports.ErrNotFound
+	}
+	if err != nil {
+		return 0, fmt.Errorf("pccare: read task sop version: %w", err)
+	}
+	return version, nil
 }
 
 // GetTask reads one task clamped to the authorized parks; outside scope reads as not-found.

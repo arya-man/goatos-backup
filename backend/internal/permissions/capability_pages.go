@@ -90,6 +90,9 @@ var modulePages = []ModulePage{
 	{Key: "preventive-care-vaccination", Module: "vaccination", Label: "Vaccination", Href: "/vaccination", Permissions: []string{ObligationRead, VaccinationRead}},
 	{Key: "vaccination-live-tracker", Module: "vaccination", Label: "Live Drive Tracker", Href: "/vaccination/live-tracker", Permissions: []string{LocationsRead, ObligationRead, VaccinationRead}},
 	{Key: "vaccination-plan", Module: "vaccination", Label: "Vaccination plan", Href: "/vaccination/plan", Permissions: []string{ProtocolRead}},
+	// PC CARE SOP (maintainer decision 2026-09-22): pc_care's FIRST admin-web page. The module
+	// is otherwise phone-only; this is the desk where its cards are authored.
+	{Key: "pc-care-sops", Module: "pc_care", Label: "Preventive Care SOP", Href: "/pc-care/sops", Permissions: []string{SOPRead}},
 
 	{Key: "procurement-source-entry", Module: "procurement", Label: "Source Entry", Href: "/procurement/source-entry", Permissions: []string{ProcurementRead}},
 	{Key: "procurement-vendors", Module: "vendors", Label: "Vendors", Href: "/procurement/vendors", Permissions: []string{VendorRead}},
@@ -210,6 +213,7 @@ var moduleRoutePrefixes = map[string]string{
 	"/procurement/feed-purchases":   "feed_purchases",
 	"/procurement/animal-purchases": "animal_purchases",
 	"/procurement/sops":             "procurement",
+	"/pc-care":                      "pc_care",
 	"/counts":                       "counts",
 	"/counts/herd":                  "herd_register",
 	"/milk":                         "milk",
@@ -258,7 +262,7 @@ func ModulePages() []ModulePage {
 }
 
 // PagesForModule returns a module's individually tickable pages, in sidebar order. A
-// module with none (pc_care, toxin, herd_register, config, locations, verification_policy)
+// module with none (toxin, herd_register, config, locations, verification_policy)
 // has no admin-web sidebar leaf of its own -- its screens are either phone-only or reached
 // from inside another page.
 func PagesForModule(moduleKey string) []ModulePage {

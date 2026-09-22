@@ -51,7 +51,13 @@ type pcCarePendingVerificationPayload struct {
 	MediaRefs           []struct {
 		ProofRef string `json:"proof_ref"`
 		Label    string `json:"label"`
+		Kind     string `json:"kind"`
 	} `json:"media_refs"`
+	// ContextRows are the operators' answers to the pinned SOP's questions, in farm words.
+	ContextRows []struct {
+		Label string `json:"label"`
+		Value string `json:"value"`
+	} `json:"context_rows"`
 	AnimalCount int32  `json:"animal_count"`
 	OperatorID  string `json:"operator_id"`
 	RowVersion  int32  `json:"row_version"`
@@ -64,7 +70,14 @@ type pcCarePendingVerificationPayload struct {
 		PenLabel      string `json:"pen_label"`
 		FeedProofRef  string `json:"feed_proof_ref"`
 		WaterProofRef string `json:"water_proof_ref"`
-		RowVersion    int32  `json:"row_version"`
+		// Proofs are the pen's captures in the pinned card's slot order (PC CARE SOP,
+		// 2026-09-22); the legacy pair above is kept for events written before it.
+		Proofs []struct {
+			ProofRef string `json:"proof_ref"`
+			Label    string `json:"label"`
+			Kind     string `json:"kind"`
+		} `json:"proofs"`
+		RowVersion int32 `json:"row_version"`
 	} `json:"removal_pens"`
 }
 
@@ -115,7 +128,14 @@ func (h *PCCarePendingVerificationHandler) HandleEvent(ctx context.Context, e ev
 		if strings.TrimSpace(ref.ProofRef) == "" {
 			continue
 		}
-		refs = append(refs, ports.LabeledRef{ProofRef: ref.ProofRef, Label: ref.Label})
+		refs = append(refs, ports.LabeledRef{ProofRef: ref.ProofRef, Label: ref.Label, Kind: ref.Kind})
+	}
+	contextRows := make([]VerificationContextRow, 0, len(p.ContextRows))
+	for _, row := range p.ContextRows {
+		if strings.TrimSpace(row.Label) == "" || strings.TrimSpace(row.Value) == "" {
+			continue
+		}
+		contextRows = append(contextRows, VerificationContextRow{Label: row.Label, Value: row.Value})
 	}
 	capturedAt := time.Now().UTC()
 	if !e.OccurredAt.IsZero() {
@@ -133,11 +153,19 @@ func (h *PCCarePendingVerificationHandler) HandleEvent(ctx context.Context, e ev
 				continue
 			}
 			penRefs := make([]ports.LabeledRef, 0, 2)
-			if ref := strings.TrimSpace(pen.FeedProofRef); ref != "" {
-				penRefs = append(penRefs, ports.LabeledRef{ProofRef: ref, Label: "Feed removal video"})
+			for _, proof := range pen.Proofs {
+				if ref := strings.TrimSpace(proof.ProofRef); ref != "" {
+					penRefs = append(penRefs, ports.LabeledRef{ProofRef: ref, Label: proof.Label, Kind: proof.Kind})
+				}
 			}
-			if ref := strings.TrimSpace(pen.WaterProofRef); ref != "" {
-				penRefs = append(penRefs, ports.LabeledRef{ProofRef: ref, Label: "Water removal video"})
+			if len(penRefs) == 0 {
+				// An event written before the card was authored carries the seeded pair.
+				if ref := strings.TrimSpace(pen.FeedProofRef); ref != "" {
+					penRefs = append(penRefs, ports.LabeledRef{ProofRef: ref, Label: "Feed removal video", Kind: "video"})
+				}
+				if ref := strings.TrimSpace(pen.WaterProofRef); ref != "" {
+					penRefs = append(penRefs, ports.LabeledRef{ProofRef: ref, Label: "Water removal video", Kind: "video"})
+				}
 			}
 			// scale-guard:ignore: one verifier item PER PEN is the decided review grain (review follows the evidence: one feed + one water video per pen); bounded by domain.MaxPensPerRound and CreateItem has no batch form.
 			if err := h.enqueuer.EnqueuePCCareVerification(ctx, VerificationEnqueueRequest{
@@ -147,6 +175,7 @@ func (h *PCCarePendingVerificationHandler) HandleEvent(ctx context.Context, e ev
 				ParkID:              strings.TrimSpace(p.ParkID),
 				PlannedBusinessDate: strings.TrimSpace(p.PlannedBusinessDate),
 				MediaRefs:           penRefs,
+				ContextRows:         contextRows,
 				OperatorID:          strings.TrimSpace(p.OperatorID),
 				CapturedAt:          capturedAt,
 				// The item is the PEN's, so its source ref and its subject are the pen's too.
@@ -170,6 +199,7 @@ func (h *PCCarePendingVerificationHandler) HandleEvent(ctx context.Context, e ev
 		VaccineLabel:        strings.TrimSpace(p.VaccineLabel),
 		PlannedBusinessDate: strings.TrimSpace(p.PlannedBusinessDate),
 		MediaRefs:           refs,
+		ContextRows:         contextRows,
 		AnimalCount:         p.AnimalCount,
 		OperatorID:          strings.TrimSpace(p.OperatorID),
 		CapturedAt:          capturedAt,

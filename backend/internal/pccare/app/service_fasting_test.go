@@ -81,7 +81,7 @@ func TestCreateTaskFeedRemovalRequiresRemovalOperators(t *testing.T) {
 	store := &fakeCreateStore{}
 	svc := NewService(store).WithFeedWaterRemovalCutoff(eightPM).WithNow(func() time.Time { return pinnedIST(10, 9, 0) })
 	in := dewormingCreateInput("2026-09-11")
-	in.FeedRemovalRequired = true // and NO removal operators
+	in.FeedRemovalRequested = boolPtr(true) // and NO removal operators
 
 	_, err := svc.CreateTask(plannerCtx(), plannerActor(), in)
 	if !errors.Is(err, domain.ErrRemovalOperatorsRequired) {
@@ -98,7 +98,7 @@ func TestCreateTaskFeedRemovalOnNonDewormingIsRejected(t *testing.T) {
 
 	in := dewormingCreateInput("2026-09-11")
 	in.Category = domain.CategoryTicksRemoval
-	in.FeedRemovalRequired = true
+	in.FeedRemovalRequested = boolPtr(true)
 	in.RemovalOperatorUserIDs = []string{fastingRemover}
 	if _, err := svc.CreateTask(plannerCtx(), plannerActor(), in); !errors.Is(err, domain.ErrFeedRemovalNotApplicable) {
 		t.Fatalf("toggle on ticks_removal err = %v, want ErrFeedRemovalNotApplicable", err)
@@ -134,7 +134,7 @@ func TestCreateTaskFeedRemovalEveningCutoff(t *testing.T) {
 		store := &fakeCreateStore{}
 		svc := NewService(store).WithFeedWaterRemovalCutoff(eightPM).WithNow(func() time.Time { return tc.now })
 		in := dewormingCreateInput(tc.planned)
-		in.FeedRemovalRequired = true
+		in.FeedRemovalRequested = boolPtr(true)
 		in.RemovalOperatorUserIDs = []string{fastingRemover}
 
 		_, err := svc.CreateTask(plannerCtx(), plannerActor(), in)
@@ -167,7 +167,7 @@ func TestCreateTaskFeedRemovalEveningCutoff(t *testing.T) {
 // code made up. Mutation-tested by hardcoding 20 in feedwaterremoval/domain (first case red).
 func TestCreateTaskFeedRemovalCutoffComesFromConfig(t *testing.T) {
 	in := dewormingCreateInput("2026-09-11")
-	in.FeedRemovalRequired = true
+	in.FeedRemovalRequested = boolPtr(true)
 	in.RemovalOperatorUserIDs = []string{fastingRemover}
 
 	store := &fakeCreateStore{}
@@ -255,7 +255,7 @@ func TestListReadsCarryTheCallersClock(t *testing.T) {
 
 // The removal videos are validated as live-camera VIDEOS on the task-proof register path.
 func TestRegisterTaskProofRequiresVideoKindForRemovalSlots(t *testing.T) {
-	store := &fakeStore{assignees: map[string]bool{testAssignee: true}}
+	store := &fakeStore{assignees: map[string]bool{testAssignee: true}, taskCategory: domain.CategoryFeedWaterRemoval}
 	validator := &fakeProofValidator{}
 	svc := NewService(store).WithFeedWaterRemovalCutoff(eightPM).WithProofValidator(validator)
 
