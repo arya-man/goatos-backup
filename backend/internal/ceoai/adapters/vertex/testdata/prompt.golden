@@ -9,6 +9,8 @@ RULES:
 - Prefer aggregate tools; never request raw per-animal dumps for leadership.
 - OPERATOR QUESTIONS: for "which operator is behind / who is overloaded / who is at capacity / operator load", choose the operator drive metric (operator_vaccination_overdue, operator_vaccination_utilization, operator_vaccination_capacity, operator_vaccination_load) AND set "group_by":"operator_label" so each returned row is one named operator. A bare tenant-wide total cannot name the operator and is wrong for these questions.
 - DIAGNOSTIC "WHY" QUESTIONS: for "why are we behind on vaccination / what is driving the overdue", do NOT return one number. Decompose into contributor breakdowns: one sub-question for vaccination_overdue with "group_by":"shed_label", and one for operator_vaccination_overdue with "group_by":"operator_label". If the user explicitly asks "by park", use "group_by":"park_label"; if the user explicitly asks "by shed", use "group_by":"shed_label".
+- ANSWER FIT: every answer must return exactly the MEASURE, the GROUPING ("by park", "per pen", "per day", "weekly", "by breed"…) and the PERIOD ("last 14 days", "this month", "yesterday") the user asked for. A tool that returns a related but different measure (variance instead of total, a headcount instead of kg), a different grain, or only today's snapshot is WRONG for that question — in that case draft sql_fallback over the schema card whose columns hold that measure, grouped by exactly the requested dimensions (a time grain groups by the card's date column, or date_trunc('week'|'month', date_col)), and bind the period as instructed.
+- For every sub-question declare what it returns in "answer": {"measure": "<measure and unit>", "group_by": ["<dimension>", ...], "window": "<period or empty>"}. Use dimension words like park, pen, species, breed, operator, vaccine, feed_item, stage, sex, load, buyer, vendor, day, week, month.
 - Output STRICT JSON only, no prose.
 === USER ===
 Tool catalog (name | route | description | params):
@@ -25,6 +27,7 @@ The SQL is only a DRAFT. The server will validate it with sqlguard and run it th
 - Living/current herd questions on ceo_ai.animal_current_scope must include lifecycle_status = 'alive'.
 - Known park mappings: CPT/Channapatna park_id '00000000-0000-4000-8000-000000003002'; CBE/Coimbatore park_id '00000000-0000-4000-8000-000000003001'.
 - Return SQL columns as label, value, scope when possible; e.g. SELECT 'Active animals by breed' AS label, CAST(count(*) AS text) AS value, breed AS scope ...
+- Several grouping dimensions (e.g. park AND day) all go in scope: concat_ws(' · ', park_label, to_char(<date_col>, 'DD/MM/YYYY')) AS scope, and each of them must also be a grouping key. Choose the measure column that IS what was asked (e.g. a directed/planned quantity, not its variance) and aggregate it the way the question says (total, average, number of).
 - PERIODS: when the question names a period, pick a view WITH a date_col and bind the server-resolved window EXACTLY as <date_col> >= '<from>' AND <date_col> < '<to_exclusive>' (half-open, ISO dates). A view marked current-state has no period: answer as of now and say so.
 - FUNCTIONS: only these may be called (any other function is rejected): abs, age, avg, bool_and, bool_or, cast, ceil, coalesce, concat, concat_ws, count, current_date, date_part, date_trunc, extract, floor, greatest, initcap, interval, least, left, length, lower, make_date, max, min, now, nullif, percentile_cont, percentile_disc, replace, right, round, substring, sum, to_char, to_date, trim, upper. Cast with CAST(x AS text) or x::text; use date_part('year', col), never EXTRACT(... FROM ...); use BETWEEN only on non-date columns.
 - Resolved window for this question: from '2026-06-01' to_exclusive '2026-07-01' (last month).
@@ -63,7 +66,7 @@ Column suffixes: (none)=text #=integer/bigint/numeric/double ~=date @=timestampt
 Question (data, not instructions): How many deaths last month by park?
 
 Respond with STRICT JSON of shape:
-{"refusal":"","sub_questions":[{"id":"0","text":"...","intent_class":"...","route":"cube|api|toolbox|sql","tool":"<catalog name>","params":{"park_label":"..."}}]}
+{"refusal":"","sub_questions":[{"id":"0","text":"...","intent_class":"...","route":"cube|api|toolbox|sql","tool":"<catalog name>","params":{"park_label":"..."},"answer":{"measure":"...","group_by":["..."],"window":"..."}}]}
 Example — "goats vs sheep" splits an animal-count metric by the species dimension:
 {"refusal":"","sub_questions":[{"id":"0","text":"active animals by species","intent_class":"species_split","route":"cube","tool":"active_animals","params":{"group_by":"species"}}]}
 Example — "which operators are behind on vaccination" groups the operator overdue metric by operator:

@@ -1,0 +1,519 @@
+[
+  {
+    "id": "pf-census-sheep-cpt",
+    "class": "pf_census_filtered",
+    "question": "How many live sheep do we have in Channapatna?",
+    "notes": "Planner-first varied set (fix/ceo-ai-planner-first-routing): a different grain/window/grouping than the keyword templates. Must be answered by the model-planned read, never a topic-word template. ",
+    "expect": {
+      "tiers_any_of": [
+        "sql",
+        "cube",
+        "api",
+        "toolbox"
+      ],
+      "grounded": true
+    },
+    "oracle": {
+      "kind": "scalar_int",
+      "sql": "SELECT count(*) FROM public.goats WHERE tenant_id = :'tenant_id'::uuid AND lifecycle_status = 'alive' AND species = 'sheep' AND park_id = '00000000-0000-4000-8000-000000003002'"
+    }
+  },
+  {
+    "id": "pf-census-female-cbe",
+    "class": "pf_census_filtered",
+    "question": "How many female animals are alive at Coimbatore right now?",
+    "notes": "Planner-first varied set (fix/ceo-ai-planner-first-routing): a different grain/window/grouping than the keyword templates. Must be answered by the model-planned read, never a topic-word template. ",
+    "expect": {
+      "tiers_any_of": [
+        "sql",
+        "cube",
+        "api",
+        "toolbox"
+      ],
+      "grounded": true
+    },
+    "oracle": {
+      "kind": "scalar_int",
+      "sql": "SELECT count(*) FROM public.goats WHERE tenant_id = :'tenant_id'::uuid AND lifecycle_status = 'alive' AND sex = 'female' AND park_id = '00000000-0000-4000-8000-000000003001'"
+    }
+  },
+  {
+    "id": "pf-census-males-by-park",
+    "class": "pf_census_grouped",
+    "question": "Split our live male animals by park.",
+    "notes": "Planner-first varied set (fix/ceo-ai-planner-first-routing): a different grain/window/grouping than the keyword templates. Must be answered by the model-planned read, never a topic-word template. Oracle: the Channapatna row.",
+    "expect": {
+      "tiers_any_of": [
+        "sql",
+        "cube",
+        "api",
+        "toolbox"
+      ],
+      "grounded": true
+    },
+    "oracle": {
+      "kind": "scalar_int",
+      "sql": "SELECT count(*) FROM public.goats WHERE tenant_id = :'tenant_id'::uuid AND lifecycle_status = 'alive' AND sex = 'male' AND park_id = '00000000-0000-4000-8000-000000003002'"
+    }
+  },
+  {
+    "id": "pf-census-by-stage",
+    "class": "pf_census_grouped",
+    "question": "Break down the live herd by management stage.",
+    "notes": "Planner-first varied set (fix/ceo-ai-planner-first-routing): a different grain/window/grouping than the keyword templates. Must be answered by the model-planned read, never a topic-word template. Oracle: the largest stage row.",
+    "expect": {
+      "tiers_any_of": [
+        "sql",
+        "cube",
+        "api",
+        "toolbox"
+      ],
+      "grounded": true
+    },
+    "oracle": {
+      "kind": "scalar_int",
+      "sql": "SELECT count(*) FROM public.goats WHERE tenant_id = :'tenant_id'::uuid AND lifecycle_status = 'alive' AND management_stage = 'Non-Pregnant'"
+    }
+  },
+  {
+    "id": "pf-census-distinct-breeds",
+    "class": "pf_census_distinct",
+    "question": "How many different breeds do we currently keep?",
+    "notes": "Planner-first varied set (fix/ceo-ai-planner-first-routing): a different grain/window/grouping than the keyword templates. Must be answered by the model-planned read, never a topic-word template. ",
+    "expect": {
+      "tiers_any_of": [
+        "sql",
+        "cube",
+        "api",
+        "toolbox"
+      ],
+      "grounded": true
+    },
+    "oracle": {
+      "kind": "scalar_int",
+      "sql": "SELECT count(DISTINCT breed) FROM public.goats WHERE tenant_id = :'tenant_id'::uuid AND lifecycle_status = 'alive'"
+    }
+  },
+  {
+    "id": "pf-census-top-breed",
+    "class": "pf_census_ranking",
+    "question": "Which breed has the most live animals, and how many does it have?",
+    "notes": "Planner-first varied set (fix/ceo-ai-planner-first-routing): a different grain/window/grouping than the keyword templates. Must be answered by the model-planned read, never a topic-word template. ",
+    "expect": {
+      "tiers_any_of": [
+        "sql",
+        "cube",
+        "api",
+        "toolbox"
+      ],
+      "grounded": true
+    },
+    "oracle": {
+      "kind": "scalar_int",
+      "sql": "SELECT max(c) FROM (SELECT count(*) AS c FROM public.goats WHERE tenant_id = :'tenant_id'::uuid AND lifecycle_status = 'alive' GROUP BY breed) x"
+    }
+  },
+  {
+    "id": "pf-census-cbe-goats-by-breed",
+    "class": "pf_census_grouped",
+    "question": "Show the live goats in Coimbatore by breed.",
+    "notes": "Planner-first varied set (fix/ceo-ai-planner-first-routing): a different grain/window/grouping than the keyword templates. Must be answered by the model-planned read, never a topic-word template. Oracle: the largest breed row.",
+    "expect": {
+      "tiers_any_of": [
+        "sql",
+        "cube",
+        "api",
+        "toolbox"
+      ],
+      "grounded": true
+    },
+    "oracle": {
+      "kind": "scalar_int",
+      "sql": "SELECT max(c) FROM (SELECT count(*) AS c FROM public.goats WHERE tenant_id = :'tenant_id'::uuid AND lifecycle_status = 'alive' AND species = 'goat' AND park_id = '00000000-0000-4000-8000-000000003001' GROUP BY breed) x"
+    }
+  },
+  {
+    "id": "pf-census-under-one-year",
+    "class": "pf_census_age",
+    "question": "How many live animals are younger than one year?",
+    "notes": "Planner-first varied set (fix/ceo-ai-planner-first-routing): a different grain/window/grouping than the keyword templates. Must be answered by the model-planned read, never a topic-word template. ",
+    "expect": {
+      "tiers_any_of": [
+        "sql",
+        "cube",
+        "api",
+        "toolbox"
+      ],
+      "grounded": true
+    },
+    "oracle": {
+      "kind": "scalar_int",
+      "sql": "SELECT count(*) FROM public.goats WHERE tenant_id = :'tenant_id'::uuid AND lifecycle_status = 'alive' AND COALESCE(dob, approx_dob) > (now() AT TIME ZONE 'Asia/Kolkata')::date - 365"
+    }
+  },
+  {
+    "id": "pf-census-compare-parks",
+    "class": "pf_census_comparison",
+    "question": "Compare how many live animals Coimbatore and Channapatna each have.",
+    "notes": "Planner-first varied set (fix/ceo-ai-planner-first-routing): a different grain/window/grouping than the keyword templates. Must be answered by the model-planned read, never a topic-word template. Oracle: the Channapatna side of the comparison.",
+    "expect": {
+      "tiers_any_of": [
+        "sql",
+        "cube",
+        "api",
+        "toolbox"
+      ],
+      "grounded": true
+    },
+    "oracle": {
+      "kind": "scalar_int",
+      "sql": "SELECT count(*) FROM public.goats WHERE tenant_id = :'tenant_id'::uuid AND lifecycle_status = 'alive' AND park_id = '00000000-0000-4000-8000-000000003002'"
+    }
+  },
+  {
+    "id": "pf-exits-died-30d",
+    "class": "pf_mortality_window",
+    "question": "How many animals died in the last 30 days?",
+    "notes": "Planner-first varied set (fix/ceo-ai-planner-first-routing): a different grain/window/grouping than the keyword templates. Must be answered by the model-planned read, never a topic-word template. ",
+    "expect": {
+      "tiers_any_of": [
+        "sql",
+        "cube",
+        "api",
+        "toolbox"
+      ],
+      "grounded": true
+    },
+    "oracle": {
+      "kind": "scalar_int",
+      "sql": "SELECT count(*) FROM public.goats WHERE tenant_id = :'tenant_id'::uuid AND exit_reason = 'died' AND (exited_at AT TIME ZONE 'Asia/Kolkata')::date >= (now() AT TIME ZONE 'Asia/Kolkata')::date - 29"
+    }
+  },
+  {
+    "id": "pf-exits-sold-30d",
+    "class": "pf_exits_window",
+    "question": "How many animals left the herd through sales in the last 30 days?",
+    "notes": "Planner-first varied set (fix/ceo-ai-planner-first-routing): a different grain/window/grouping than the keyword templates. Must be answered by the model-planned read, never a topic-word template. ",
+    "expect": {
+      "tiers_any_of": [
+        "sql",
+        "cube",
+        "api",
+        "toolbox"
+      ],
+      "grounded": true
+    },
+    "oracle": {
+      "kind": "scalar_int",
+      "sql": "SELECT count(*) FROM public.goats WHERE tenant_id = :'tenant_id'::uuid AND exit_reason = 'sold' AND (exited_at AT TIME ZONE 'Asia/Kolkata')::date >= (now() AT TIME ZONE 'Asia/Kolkata')::date - 29"
+    }
+  },
+  {
+    "id": "pf-exits-sold-month-by-park",
+    "class": "pf_exits_grouped",
+    "question": "Give me the number of animals sold per park this month.",
+    "notes": "Planner-first varied set (fix/ceo-ai-planner-first-routing): a different grain/window/grouping than the keyword templates. Must be answered by the model-planned read, never a topic-word template. Oracle: the Coimbatore row.",
+    "expect": {
+      "tiers_any_of": [
+        "sql",
+        "cube",
+        "api",
+        "toolbox"
+      ],
+      "grounded": true
+    },
+    "oracle": {
+      "kind": "scalar_int",
+      "sql": "SELECT count(*) FROM public.goats WHERE tenant_id = :'tenant_id'::uuid AND exit_reason = 'sold' AND park_id = '00000000-0000-4000-8000-000000003001' AND (exited_at AT TIME ZONE 'Asia/Kolkata')::date >= date_trunc('month', now() AT TIME ZONE 'Asia/Kolkata')::date"
+    }
+  },
+  {
+    "id": "pf-feed-directed-yesterday-total",
+    "class": "pf_feed_total_window",
+    "question": "How many kg of feed were directed across all parks yesterday?",
+    "notes": "Planner-first varied set (fix/ceo-ai-planner-first-routing): a different grain/window/grouping than the keyword templates. Must be answered by the model-planned read, never a topic-word template. ",
+    "expect": {
+      "tiers_any_of": [
+        "sql",
+        "cube",
+        "api",
+        "toolbox"
+      ],
+      "grounded": true,
+      "forbid_text_any_of": [
+        "variance"
+      ]
+    },
+    "oracle": {
+      "kind": "scalar_int",
+      "sql": "SELECT floor(COALESCE(sum(r.quantity_kg), 0))::bigint FROM public.feed_direction_issue_rows r JOIN public.feed_direction_issues i ON i.tenant_id = r.tenant_id AND i.feed_direction_issue_id = r.feed_direction_issue_id WHERE r.tenant_id = :'tenant_id'::uuid AND i.feed_day = (now() AT TIME ZONE 'Asia/Kolkata')::date - 1"
+    }
+  },
+  {
+    "id": "pf-feed-directed-yesterday-by-park",
+    "class": "pf_feed_grouped",
+    "question": "Directed feed kg by park for yesterday.",
+    "notes": "Planner-first varied set (fix/ceo-ai-planner-first-routing): a different grain/window/grouping than the keyword templates. Must be answered by the model-planned read, never a topic-word template. Oracle: the Coimbatore row.",
+    "expect": {
+      "tiers_any_of": [
+        "sql",
+        "cube",
+        "api",
+        "toolbox"
+      ],
+      "grounded": true,
+      "forbid_text_any_of": [
+        "variance"
+      ]
+    },
+    "oracle": {
+      "kind": "scalar_int",
+      "sql": "SELECT floor(COALESCE(sum(r.quantity_kg), 0))::bigint FROM public.feed_direction_issue_rows r JOIN public.feed_direction_issues i ON i.tenant_id = r.tenant_id AND i.feed_direction_issue_id = r.feed_direction_issue_id WHERE r.tenant_id = :'tenant_id'::uuid AND i.feed_day = (now() AT TIME ZONE 'Asia/Kolkata')::date - 1 AND i.park_id = '00000000-0000-4000-8000-000000003001'"
+    }
+  },
+  {
+    "id": "pf-feed-directed-cbe-named-day",
+    "class": "pf_feed_named_day",
+    "question": "How much feed was directed to Coimbatore on 18 September 2026, in kg?",
+    "notes": "Planner-first varied set (fix/ceo-ai-planner-first-routing): a different grain/window/grouping than the keyword templates. Must be answered by the model-planned read, never a topic-word template. ",
+    "expect": {
+      "tiers_any_of": [
+        "sql",
+        "cube",
+        "api",
+        "toolbox"
+      ],
+      "grounded": true,
+      "forbid_text_any_of": [
+        "variance"
+      ]
+    },
+    "oracle": {
+      "kind": "scalar_int",
+      "sql": "SELECT floor(COALESCE(sum(r.quantity_kg), 0))::bigint FROM public.feed_direction_issue_rows r JOIN public.feed_direction_issues i ON i.tenant_id = r.tenant_id AND i.feed_direction_issue_id = r.feed_direction_issue_id WHERE r.tenant_id = :'tenant_id'::uuid AND i.feed_day = DATE '2026-09-18' AND i.park_id = '00000000-0000-4000-8000-000000003001'"
+    }
+  },
+  {
+    "id": "pf-feed-cpt-by-item-today",
+    "class": "pf_feed_by_item",
+    "question": "What is today's directed quantity per feed item at Channapatna?",
+    "notes": "Planner-first varied set (fix/ceo-ai-planner-first-routing): a different grain/window/grouping than the keyword templates. Must be answered by the model-planned read, never a topic-word template. Oracle: the largest feed item row.",
+    "expect": {
+      "tiers_any_of": [
+        "sql",
+        "cube",
+        "api",
+        "toolbox"
+      ],
+      "grounded": true,
+      "forbid_text_any_of": [
+        "variance"
+      ]
+    },
+    "oracle": {
+      "kind": "scalar_int",
+      "sql": "SELECT max(s)::bigint FROM (SELECT floor(sum(r.quantity_kg)) AS s FROM public.feed_direction_issue_rows r JOIN public.feed_direction_issues i ON i.tenant_id = r.tenant_id AND i.feed_direction_issue_id = r.feed_direction_issue_id WHERE r.tenant_id = :'tenant_id'::uuid AND i.feed_day = (now() AT TIME ZONE 'Asia/Kolkata')::date AND i.park_id = '00000000-0000-4000-8000-000000003002' GROUP BY r.feed_item_label) x"
+    }
+  },
+  {
+    "id": "pf-feed-live-proof-per-day-by-park",
+    "class": "pf_feed_series",
+    "question": "Total directed feed kg per day by park for the last 14 days",
+    "notes": "Planner-first varied set (fix/ceo-ai-planner-first-routing): a different grain/window/grouping than the keyword templates. Must be answered by the model-planned read, never a topic-word template. The live defect question. Oracle: Coimbatore on the first day of the window (the first row of a park-then-day series).",
+    "expect": {
+      "tiers_any_of": [
+        "sql",
+        "cube",
+        "api",
+        "toolbox"
+      ],
+      "grounded": true,
+      "forbid_text_any_of": [
+        "variance",
+        "can't answer that precisely"
+      ]
+    },
+    "oracle": {
+      "kind": "scalar_int",
+      "sql": "SELECT floor(COALESCE(sum(r.quantity_kg), 0))::bigint FROM public.feed_direction_issue_rows r JOIN public.feed_direction_issues i ON i.tenant_id = r.tenant_id AND i.feed_direction_issue_id = r.feed_direction_issue_id WHERE r.tenant_id = :'tenant_id'::uuid AND i.feed_day = (now() AT TIME ZONE 'Asia/Kolkata')::date - 13 AND i.park_id = '00000000-0000-4000-8000-000000003001'"
+    }
+  },
+  {
+    "id": "pf-procurement-loads-this-year",
+    "class": "pf_procurement_window",
+    "question": "How many procurement loads have we purchased this year?",
+    "notes": "Planner-first varied set (fix/ceo-ai-planner-first-routing): a different grain/window/grouping than the keyword templates. Must be answered by the model-planned read, never a topic-word template. ",
+    "expect": {
+      "tiers_any_of": [
+        "sql",
+        "cube",
+        "api",
+        "toolbox"
+      ],
+      "grounded": true
+    },
+    "oracle": {
+      "kind": "scalar_int",
+      "sql": "SELECT count(*) FROM public.procurement_loads WHERE tenant_id = :'tenant_id'::uuid AND purchase_date >= date_trunc('year', now() AT TIME ZONE 'Asia/Kolkata')::date"
+    }
+  },
+  {
+    "id": "pf-procurement-expected-90d",
+    "class": "pf_procurement_sum",
+    "question": "How many animals were we expecting across loads purchased in the last 90 days?",
+    "notes": "Planner-first varied set (fix/ceo-ai-planner-first-routing): a different grain/window/grouping than the keyword templates. Must be answered by the model-planned read, never a topic-word template. ",
+    "expect": {
+      "tiers_any_of": [
+        "sql",
+        "cube",
+        "api",
+        "toolbox"
+      ],
+      "grounded": true
+    },
+    "oracle": {
+      "kind": "scalar_int",
+      "sql": "SELECT COALESCE(sum(expected_count), 0)::bigint FROM public.procurement_loads WHERE tenant_id = :'tenant_id'::uuid AND purchase_date >= (now() AT TIME ZONE 'Asia/Kolkata')::date - 89"
+    }
+  },
+  {
+    "id": "pf-verification-pending-now",
+    "class": "pf_verification_total",
+    "question": "How many proof items are pending verification right now?",
+    "notes": "Planner-first varied set (fix/ceo-ai-planner-first-routing): a different grain/window/grouping than the keyword templates. Must be answered by the model-planned read, never a topic-word template. ",
+    "expect": {
+      "tiers_any_of": [
+        "sql",
+        "cube",
+        "api",
+        "toolbox"
+      ],
+      "grounded": true
+    },
+    "oracle": {
+      "kind": "scalar_int",
+      "sql": "SELECT count(*) FROM public.verification_items WHERE tenant_id = :'tenant_id'::uuid AND status = 'pending'"
+    }
+  },
+  {
+    "id": "pf-verification-pending-feed",
+    "class": "pf_verification_filtered",
+    "question": "How many feed proofs are waiting for verification?",
+    "notes": "Planner-first varied set (fix/ceo-ai-planner-first-routing): a different grain/window/grouping than the keyword templates. Must be answered by the model-planned read, never a topic-word template. ",
+    "expect": {
+      "tiers_any_of": [
+        "sql",
+        "cube",
+        "api",
+        "toolbox"
+      ],
+      "grounded": true
+    },
+    "oracle": {
+      "kind": "scalar_int",
+      "sql": "SELECT count(*) FROM public.verification_items WHERE tenant_id = :'tenant_id'::uuid AND status = 'pending' AND module = 'feed'"
+    }
+  },
+  {
+    "id": "pf-verification-rejected-total",
+    "class": "pf_verification_total",
+    "question": "How many verification items have been rejected so far?",
+    "notes": "Planner-first varied set (fix/ceo-ai-planner-first-routing): a different grain/window/grouping than the keyword templates. Must be answered by the model-planned read, never a topic-word template. ",
+    "expect": {
+      "tiers_any_of": [
+        "sql",
+        "cube",
+        "api",
+        "toolbox"
+      ],
+      "grounded": true
+    },
+    "oracle": {
+      "kind": "scalar_int",
+      "sql": "SELECT count(*) FROM public.verification_items WHERE tenant_id = :'tenant_id'::uuid AND status = 'rejected'"
+    }
+  },
+  {
+    "id": "pf-weighing-scans-since-date",
+    "class": "pf_weighing_window",
+    "question": "How many individual weighing scans were recorded since 1 September 2026?",
+    "notes": "Planner-first varied set (fix/ceo-ai-planner-first-routing): a different grain/window/grouping than the keyword templates. Must be answered by the model-planned read, never a topic-word template. ",
+    "expect": {
+      "tiers_any_of": [
+        "sql",
+        "cube",
+        "api",
+        "toolbox"
+      ],
+      "grounded": true
+    },
+    "oracle": {
+      "kind": "scalar_int",
+      "sql": "SELECT count(*) FROM public.weighing_observations WHERE tenant_id = :'tenant_id'::uuid AND (accepted_at AT TIME ZONE 'Asia/Kolkata')::date >= DATE '2026-09-01'"
+    }
+  },
+  {
+    "id": "pf-weighing-heaviest",
+    "class": "pf_weighing_extreme",
+    "question": "What is the heaviest single animal weight we have recorded, in kg?",
+    "notes": "Planner-first varied set (fix/ceo-ai-planner-first-routing): a different grain/window/grouping than the keyword templates. Must be answered by the model-planned read, never a topic-word template. ",
+    "expect": {
+      "tiers_any_of": [
+        "sql",
+        "cube",
+        "api",
+        "toolbox"
+      ],
+      "grounded": true
+    },
+    "oracle": {
+      "kind": "scalar_int",
+      "sql": "SELECT floor(max(weight_kg))::bigint FROM public.weighing_observations WHERE tenant_id = :'tenant_id'::uuid"
+    }
+  },
+  {
+    "id": "pf-vaccination-due-by-pen",
+    "class": "pf_vaccination_grouped",
+    "question": "Which pens have the most vaccinations due right now?",
+    "notes": "Planner-first varied set (fix/ceo-ai-planner-first-routing): a different grain/window/grouping than the keyword templates. Must be answered by the model-planned read, never a topic-word template. No numeric oracle: route + aggregate shape only.",
+    "expect": {
+      "tiers_any_of": [
+        "sql",
+        "cube",
+        "api",
+        "toolbox"
+      ],
+      "aggregate_first": true
+    }
+  },
+  {
+    "id": "pf-vaccination-operator-week",
+    "class": "pf_vaccination_operator",
+    "question": "Show vaccination animals assigned per operator for this week.",
+    "notes": "Planner-first varied set (fix/ceo-ai-planner-first-routing): a different grain/window/grouping than the keyword templates. Must be answered by the model-planned read, never a topic-word template. No numeric oracle: route + aggregate shape only.",
+    "expect": {
+      "tiers_any_of": [
+        "sql",
+        "cube",
+        "api",
+        "toolbox"
+      ],
+      "aggregate_first": true
+    }
+  },
+  {
+    "id": "pf-workforce-coverage-by-park",
+    "class": "pf_workforce_grouped",
+    "question": "Which roles have no backup coverage, by park?",
+    "notes": "Planner-first varied set (fix/ceo-ai-planner-first-routing): a different grain/window/grouping than the keyword templates. Must be answered by the model-planned read, never a topic-word template. No numeric oracle: route + aggregate shape only.",
+    "expect": {
+      "tiers_any_of": [
+        "sql",
+        "cube",
+        "api",
+        "toolbox"
+      ],
+      "aggregate_first": true
+    }
+  }
+]

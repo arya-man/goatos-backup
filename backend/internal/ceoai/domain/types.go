@@ -75,6 +75,42 @@ type SubQuestion struct {
 	// needs a narrow backend-authored read shape. It is intentionally not parsed
 	// from model output or user text.
 	TrustedSQL bool
+	// Declared is what the sub-question claims it will return: the measure,
+	// the grouping dimensions and the period. The model planner declares it
+	// alongside its tool choice; a deterministic fallback template declares
+	// the fixed shape its SQL computes. The orchestrator compares it (and the
+	// executed read itself) against what the QUESTION asked for, so an answer
+	// of a different measure/grain/window is flagged or refused instead of
+	// being presented as the answer. Zero value = nothing declared.
+	Declared AnswerSpec
+}
+
+// AnswerSpec is the declared shape of one sub-question's answer. Dimensions
+// use the canonical vocabulary of app.CanonicalDimension (park, pen, species,
+// breed, operator, day, week, month, …).
+type AnswerSpec struct {
+	Measure    string
+	Dimensions []string
+	Window     string
+	// Template marks a deterministic fallback template's spec. Its fields are
+	// authoritative about what the template CAN answer (MeasureTerms,
+	// WindowFrom/WindowTo), which is what the fallback relevance gate checks.
+	Template bool
+	// MeasureTerms (templates only): words naming the measure the template
+	// computes. A fallback template answers only questions that ask for it.
+	MeasureTerms []string
+	// WindowFrom/WindowTo (templates only): the inclusive ISO business dates
+	// the template's SQL binds; empty = current-state / all-time (no period).
+	WindowFrom string
+	WindowTo   string
+	// Description (templates only): a plain phrase of what the template
+	// reports, used in the honest "can't answer precisely" reply.
+	Description string
+}
+
+// IsZero reports whether nothing was declared.
+func (s AnswerSpec) IsZero() bool {
+	return s.Measure == "" && len(s.Dimensions) == 0 && s.Window == "" && !s.Template
 }
 
 // Plan is the planner output for a Question: an ordered set of sub-questions.

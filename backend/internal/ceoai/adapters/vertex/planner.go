@@ -84,6 +84,12 @@ func defaultEndpoint(cfg Config) string {
 	)
 }
 
+// The Vertex planner is also the answer-fit judge and the feedback re-planner.
+var (
+	_ app.RelevanceJudge  = (*Planner)(nil)
+	_ app.FeedbackPlanner = (*Planner)(nil)
+)
+
 // PlannedByModel is true: this is the real model planner.
 func (*Planner) PlannedByModel() bool { return true }
 
@@ -111,6 +117,35 @@ func (p *Planner) PlanWithUsage(ctx context.Context, q domain.Question, mem []do
 	}
 	plan, err := parsePlan(raw)
 	return plan, usage, err
+}
+
+// PlanWithFeedback re-plans a question ONCE with server feedback about why the
+// previous plan's read did not answer it (app.FeedbackPlanner). The feedback
+// rides in its own prompt section, never in the question text, so the
+// server-resolved period hint is computed from the user's words alone.
+func (p *Planner) PlanWithFeedback(ctx context.Context, q domain.Question, mem []domain.ResolvedEntities, catalog []ports.ToolSpec, feedback string) (domain.Plan, Usage, error) {
+	prompt := buildPlanPrompt(q, mem, catalog) + buildFeedbackSection(feedback)
+	raw, usage, err := p.generate(ctx, systemPlannerInstruction, prompt)
+	if err != nil {
+		return domain.Plan{}, usage, err
+	}
+	plan, err := parsePlan(raw)
+	return plan, usage, err
+}
+
+// JudgeFit asks the model whether the evidence rows a plan returned answer the
+// question as asked — same measure, breakdown and period (app.RelevanceJudge).
+// A judge failure is not a verdict: the caller treats an error as "no opinion".
+func (p *Planner) JudgeFit(ctx context.Context, question string, facts []domain.Fact) (bool, string, Usage, error) {
+	raw, usage, err := p.generate(ctx, systemFitJudgeInstruction, buildFitJudgePrompt(question, facts))
+	if err != nil {
+		return true, "", usage, err
+	}
+	fits, reason, err := parseFitJudge(raw)
+	if err != nil {
+		return true, "", usage, err
+	}
+	return fits, reason, usage, nil
 }
 
 // RepairSQL is the one-shot repair call (plan v3 D1.3): given the rejected

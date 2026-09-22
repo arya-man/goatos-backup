@@ -299,6 +299,13 @@ func TestMultiToolDecompositionSynthesizesOneAnswer(t *testing.T) {
 	}
 }
 
+// Updated for planner-first routing: this test used to give the model a plan
+// (counts_breakdown) and assert the natural-SQL template still won and the
+// model's tool was never called. That was the keyword-hijack defect itself —
+// the template ran BEFORE the model on any topic word. The template's SQL
+// shape is still pinned here, but now in its only legitimate role: the model
+// planner is unavailable (Vertex down). TestModelPlanWinsOverTopicTemplate
+// pins the other half (model up => model plan runs, template never does).
 func TestNaturalActiveAnimalQuestionUsesLiveSQLFallbackForCPT(t *testing.T) {
 	sqlFB := &fakeSQLFallback{result: domain.ToolResult{
 		Facts: []domain.Fact{
@@ -310,7 +317,7 @@ func TestNaturalActiveAnimalQuestionUsesLiveSQLFallbackForCPT(t *testing.T) {
 	api := &fakeExec{spec: ports.ToolSpec{Name: "counts_breakdown", Route: domain.RouteAPI},
 		result: domain.ToolResult{Surface: "Mesha read API", Facts: []domain.Fact{{TenantID: "t1", Label: "wrong", Value: "1"}}}}
 	reg.Register(api)
-	prov := &fakeProvider{byModel: true, plan: domain.Plan{SubQuestions: []domain.SubQuestion{
+	prov := &fakeProvider{byModel: true, err: errVertexDown, plan: domain.Plan{SubQuestions: []domain.SubQuestion{
 		{ID: "0", ToolName: "counts_breakdown", Route: domain.RouteAPI},
 	}}}
 	a := NewAssistant(Config{}, Deps{Provider: prov, Registry: reg})
@@ -378,7 +385,7 @@ func TestNaturalFarmBornQuestionUsesOriginAndParkScope(t *testing.T) {
 		Facts: []domain.Fact{{TenantID: "t1", Label: "Farm-born animals", Value: "42", Scope: "goat"}},
 	}}
 	reg := NewRegistry(nil, nil, sqlFB)
-	a := NewAssistant(Config{}, Deps{Provider: &fakeProvider{byModel: true}, Registry: reg})
+	a := NewAssistant(Config{}, Deps{Provider: &fakeProvider{byModel: true, err: errVertexDown}, Registry: reg})
 
 	ans, err := a.Ask(context.Background(), domain.Question{Actor: leadershipActor(), Text: "how many animals are farm born in cbe"})
 	if err != nil {
@@ -410,7 +417,7 @@ func TestNaturalOwnFarmsQuestionDefaultsToKnownParks(t *testing.T) {
 		},
 	}}
 	reg := NewRegistry(nil, nil, sqlFB)
-	a := NewAssistant(Config{}, Deps{Provider: &fakeProvider{byModel: true}, Registry: reg})
+	a := NewAssistant(Config{}, Deps{Provider: &fakeProvider{byModel: true, err: errVertexDown}, Registry: reg})
 
 	_, err := a.Ask(context.Background(), domain.Question{Actor: leadershipActor(), Text: "how many animals are from our own farms"})
 	if err != nil {
@@ -435,7 +442,7 @@ func TestNaturalActiveAnimalQuestionToleratesTyposAndCBEAbbrev(t *testing.T) {
 		},
 	}}
 	reg := NewRegistry(nil, nil, sqlFB)
-	prov := &fakeProvider{byModel: true, plan: domain.Plan{SubQuestions: []domain.SubQuestion{
+	prov := &fakeProvider{byModel: true, err: errVertexDown, plan: domain.Plan{SubQuestions: []domain.SubQuestion{
 		{ID: "0", ToolName: "counts_breakdown", Route: domain.RouteAPI},
 	}}}
 	a := NewAssistant(Config{}, Deps{Provider: prov, Registry: reg})
@@ -463,7 +470,7 @@ func TestNaturalActiveAnimalFollowupUsesRememberedParkForBreed(t *testing.T) {
 		},
 	}}
 	reg := NewRegistry(nil, nil, sqlFB)
-	prov := &fakeProvider{byModel: true, plan: domain.Plan{SubQuestions: []domain.SubQuestion{
+	prov := &fakeProvider{byModel: true, err: errVertexDown, plan: domain.Plan{SubQuestions: []domain.SubQuestion{
 		{ID: "0", ToolName: "counts_breakdown", Route: domain.RouteAPI},
 	}}}
 	mem := &fakeMemory{recall: []domain.ResolvedEntities{{ParkLabel: "CPT"}}}
@@ -496,7 +503,7 @@ func TestNaturalActiveAnimalGraphByPenUsesSQLAndReturnsChart(t *testing.T) {
 		},
 	}}
 	reg := NewRegistry(nil, nil, sqlFB)
-	prov := &fakeProvider{byModel: true, plan: domain.Plan{SubQuestions: []domain.SubQuestion{
+	prov := &fakeProvider{byModel: true, err: errVertexDown, plan: domain.Plan{SubQuestions: []domain.SubQuestion{
 		{ID: "0", ToolName: "mesha_count_by_scope", Route: domain.RouteToolbox},
 	}}}
 	a := NewAssistant(Config{}, Deps{Provider: prov, Registry: reg})
@@ -527,7 +534,7 @@ func TestNaturalWeighingQuestionToleratesAvgShorthand(t *testing.T) {
 		},
 	}}
 	reg := NewRegistry(nil, nil, sqlFB)
-	prov := &fakeProvider{byModel: true, plan: domain.Plan{Refusal: "wrong fallback"}}
+	prov := &fakeProvider{byModel: true, err: errVertexDown, plan: domain.Plan{Refusal: "wrong fallback"}}
 	a := NewAssistant(Config{}, Deps{Provider: prov, Registry: reg})
 
 	ans, err := a.Ask(context.Background(), domain.Question{Actor: leadershipActor(), Text: "which pens have lowest avg weight?"})

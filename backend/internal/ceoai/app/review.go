@@ -11,6 +11,9 @@ import (
 
 var numberRe = regexp.MustCompile(`\d[\d,]*\.?\d*`)
 
+// truncationMarkerRe matches renderFacts' row-cap marker.
+var truncationMarkerRe = regexp.MustCompile(`… \d+ more not shown`)
+
 // reviewer runs the runtime review pass before returning: groundedness (every
 // number in the answer traces to a tool fact), scope/safety (no raw dump, no
 // cross-tenant, no write, no chain-of-thought in the body), and completeness
@@ -48,7 +51,11 @@ func (rv reviewer) review(ctx context.Context, body string, results []domain.Too
 		// NOT ground the answer. Only Fact values/labels are trusted. This is what
 		// lets the review pass catch a hallucinated figure smuggled into a summary.
 	}
-	for _, n := range numberRe.FindAllString(body, -1) {
+	// The composer's own truncation marker ("… 46 more not shown") counts rows,
+	// it is not a business figure; left in, it failed EVERY answer with more
+	// than the rendered row cap (e.g. a per-day-per-park series) as
+	// "ungrounded" and replaced it with the generic couldn't-verify reply.
+	for _, n := range numberRe.FindAllString(truncationMarkerRe.ReplaceAllString(body, ""), -1) {
 		nn := normalizeNum(n)
 		if len(nn) <= 1 {
 			continue // ignore trivial single digits (list bullets etc.)

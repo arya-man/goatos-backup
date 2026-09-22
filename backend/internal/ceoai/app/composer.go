@@ -265,7 +265,10 @@ func renderSalesAnswer(r domain.ToolResult) string {
 	} else if thisMonth {
 		b.WriteString("This month, ")
 	} else {
-		b.WriteString("For the selected period, ")
+		// No month was bound: the sales reader returns its all-time summary.
+		// Saying "for the selected period" presented that as the period the
+		// leader asked about.
+		b.WriteString("Across all recorded sales, ")
 	}
 	switch {
 	case soldTotal != "" && soldGoats != "" && soldSheep != "" && revenue != "":

@@ -236,30 +236,28 @@ func (a *Assistant) ask(ctx context.Context, q domain.Question, opts askOptions)
 	// so the UI shows progressive status within <1s instead of a frozen blank.
 	opts.progress.emit("planning", "")
 
-	var plan domain.Plan
-	planned := false
+	// PLANNER-FIRST (fix/ceo-ai-planner-first-routing): the model plans every
+	// question. The deterministic keyword/template path runs ONLY when no model
+	// planner is configured or the model call failed, and then only answers a
+	// question whose shape it actually covers (fallbackFit below). It used to
+	// run BEFORE the model and win on any topic word ("feed", "weight",
+	// "vaccination"…), answering a different hard-coded metric labelled
+	// "fallback" while Vertex was up — which made the schema-card SQL path
+	// unreachable for every common topic.
+	//
 	// Real token accounting (plan v3 D1.1): the planner's Vertex usageMetadata
 	// plus any repair call, recorded to the budget instead of len/4 when reported.
-	var usage TokenUsage
-	if a.registry != nil && a.registry.HasSQLFallback() {
-		if sub, ok := naturalSQLPlan(q, mem); ok {
-			plan.SubQuestions = []domain.SubQuestion{sub}
+	plan, planned, usage, err := a.planWithFallback(ctx, q, mem, catalog)
+	if err != nil {
+		// A cancelled/expired context is the client disconnecting (or the wall
+		// clock firing), not a transient planner fault: propagate it so the
+		// caller (streaming transport) stops upstream work instead of degrading
+		// to a graceful answer for a request nobody is listening to.
+		if ctxErr := ctx.Err(); ctxErr != nil {
+			return domain.Answer{}, ctxErr
 		}
-	}
-	if len(plan.SubQuestions) == 0 {
-		var err error
-		plan, planned, usage, err = a.planWithFallback(ctx, q, mem, catalog)
-		if err != nil {
-			// A cancelled/expired context is the client disconnecting (or the wall
-			// clock firing), not a transient planner fault: propagate it so the
-			// caller (streaming transport) stops upstream work instead of degrading
-			// to a graceful answer for a request nobody is listening to.
-			if ctxErr := ctx.Err(); ctxErr != nil {
-				return domain.Answer{}, ctxErr
-			}
-			return a.plainAnswer(requestID, q.ConversationID, domain.ModePartial,
-				"I couldn't process that request just now. Please try again."), nil
-		}
+		return a.plainAnswer(requestID, q.ConversationID, domain.ModePartial,
+			"I couldn't process that request just now. Please try again."), nil
 	}
 	if plan.Refusal != "" {
 		return a.refusal(requestID, q.ConversationID, plan.Refusal), nil
@@ -267,40 +265,29 @@ func (a *Assistant) ask(ctx context.Context, q domain.Question, opts askOptions)
 
 	// CUBE-FIRST enforcement: a sub-question that maps to a governed Cube metric
 	// is forced to route=cube regardless of what the planner proposed.
-	a.enforceCubeFirst(ctx, plan.SubQuestions)
+	a.normalizePlan(ctx, q, &plan)
 
-	// Leadership "how many do we have" means the LIVING herd. Deterministically
-	// prefer the active-animal census over the all-time total (which includes
-	// exited/dead animals) for a plain headcount/species-split question, unless the
-	// user explicitly asked for the all-time total. Without this, a planner that
-	// picks total_animals answers "goats 975 / sheep 336" (3 dead included) where
-	// leadership means "goats 972 / sheep 336" (active).
-	preferActiveCensus(q.Text, plan.SubQuestions)
-
-	// "Who is overloaded / at capacity" is answered by the operator UTILIZATION
-	// ratio (assigned ÷ daily capacity). A planner that picks only load/capacity
-	// leaves the answer as raw assigned-vs-capacity with no explicit over-capacity
-	// framing. Deterministically guarantee the utilization metric is queried (per
-	// operator) so the composer can state exactly which operators are OVER capacity
-	// and by how much (e.g. "155% of capacity").
-	plan.SubQuestions = ensureUtilizationForOverload(q.Text, plan.SubQuestions)
-
-	normalizeVaccinationIntent(q.Text, plan.SubQuestions)
-
-	// Thread the resolved as-of business instant into every sub-question's
-	// params (P1-4). Question.AsOf was already resolved above but previously
-	// stopped at the top of the pipeline — SubQuestion/executor signatures
-	// never carried it, so a scoped/as-of question ("counts as of yesterday")
-	// could not reach the reader that would actually honor it.
-	injectAsOf(plan.SubQuestions, q.AsOf)
-
-	// Thread the server-resolved period (plan v3 D1.2) the same way: from/to
-	// ISO business dates on every sub-question. A model-drafted SQL read on a
-	// current-state view (no date column) is converted to an explicit "as of
-	// now" read here, so the guard never rejects it and the composer says so.
+	// The server-resolved period (plan v3 D1.2) and the generic requested
+	// answer shape (grouping, unit, period) the answer must correspond to.
 	window, _ := ResolveWindow(q.Text, q.AsOf, nil)
-	injectWindow(plan.SubQuestions, window)
-	prepareSQLWindows(plan.SubQuestions, window, q.AsOf)
+	requested := ParseRequestedShape(q.Text, window)
+
+	// Fallback relevance gate: without the model, a deterministic plan answers
+	// only when its declared/visible shape covers the question. Otherwise the
+	// honest reply is "can't answer that precisely right now", never a
+	// different metric.
+	if !planned && len(plan.SubQuestions) > 0 {
+		if issues := fallbackFit(q, requested, plan.SubQuestions); len(issues) > 0 {
+			reasons := []string{"fallback_unfit"}
+			for _, is := range issues {
+				reasons = append(reasons, "fallback_unfit:"+is.Kind)
+			}
+			a.recordAudit(ctx, q, requestID, q.ConversationID, domain.ModeFallback, nil, nil,
+				domain.ReviewVerdict{ScopeSafe: true, FailReasons: reasons}, start)
+			return a.plainAnswer(requestID, q.ConversationID, domain.ModeFallback,
+				fallbackCannotAnswer(plan.SubQuestions, issues)), nil
+		}
+	}
 
 	mode := domain.ModePlanned
 	if !planned {
@@ -310,29 +297,51 @@ func (a *Assistant) ask(ctx context.Context, q domain.Question, opts askOptions)
 	// "querying <route>" frame when tools run — a coarse route label, not reasoning.
 	opts.progress.emit("querying", queryLabel(plan.SubQuestions))
 
-	se := newStepExecutor(a.cfg.MaxSteps, a.cfg.WallClock)
-	results, traces, truncated := se.run(ctx, q.Actor, plan.SubQuestions, a.registry.Execute)
+	results, traces, truncated, execUsage := a.executePlan(ctx, q, plan.SubQuestions, window)
+	usage = usage.add(execUsage)
 	// If the client disconnected during tool execution, abort rather than
 	// composing/reviewing/persisting an answer for a dead request.
 	if ctxErr := ctx.Err(); ctxErr != nil {
 		return domain.Answer{}, ctxErr
 	}
+
+	// Answer fit (planned path): the measure, grouping, unit and period the
+	// question asked for must be what the plan declared and what actually ran.
+	// Checked generically (fit.go) and — when a model judge is wired — by the
+	// model on the evidence itself, which also catches a read-API tool that
+	// ignores a requested grouping/period. A mismatch gets ONE re-plan with the
+	// reason as feedback; whatever still does not fit is flagged on the answer,
+	// the mode is downgraded to partial (so it is never cached) and the audit
+	// records why. Nothing here can widen scope: the re-plan goes through the
+	// same guard, tenant binding and Cube-first normalization as the first.
+	var fitIssues []FitIssue
+	var fitAudit []string
+	if planned {
+		var feedback string
+		var judgeUsage TokenUsage
+		fitIssues, feedback, judgeUsage = a.answerFit(ctx, q, requested, plan.SubQuestions, results, catalog)
+		usage = usage.add(judgeUsage)
+		if len(fitIssues) > 0 {
+			fitAudit = append(fitAudit, "answer_fit_first_plan:"+feedback)
+			if alt, altUsage, ok := a.replanForFit(ctx, q, mem, catalog, feedback); ok {
+				usage = usage.add(altUsage)
+				a.normalizePlan(ctx, q, &alt)
+				altResults, altTraces, altTruncated, altExecUsage := a.executePlan(ctx, q, alt.SubQuestions, window)
+				usage = usage.add(altExecUsage)
+				if ctxErr := ctx.Err(); ctxErr != nil {
+					return domain.Answer{}, ctxErr
+				}
+				if hasUsableResult(altResults) {
+					plan, results, traces, truncated = alt, altResults, append(traces, altTraces...), altTruncated
+					fitIssues = planFitIssues(requested, plan.SubQuestions, results)
+					fitAudit = append(fitAudit, "replanned_for_fit")
+				}
+			}
+		}
+	}
 	if truncated && mode == domain.ModePlanned {
 		mode = domain.ModePartial
 	}
-
-	// One-shot SQL repair (plan v3 D1.3): a model-drafted sql_fallback that the
-	// guard rejected or Postgres refused is re-prompted ONCE with the reason and
-	// the view's schema card, then re-run through the same guard. A second
-	// failure stays failed and takes the existing honest-partial path below.
-	usage = usage.add(a.repairSQLResults(ctx, q, plan.SubQuestions, results, &traces))
-
-	// Runtime fallback (P1-3): before composing, retry any errored/empty
-	// result at the next tier in Cube -> API -> Toolbox -> SQL order. This is
-	// what turns an unwired/mismatched API tool (e.g. feed, counts) into a
-	// real grounded answer instead of the pipeline silently composing from an
-	// empty/errored result.
-	a.retryFailedResults(ctx, q.Actor, plan.SubQuestions, results)
 
 	// The dominant read tier + rows grounding this answer are known now; label
 	// the terminal metric and record the row histogram.
@@ -411,6 +420,17 @@ func (a *Assistant) ask(ctx context.Context, q domain.Question, opts askOptions)
 		}
 	}
 
+	if len(fitIssues) > 0 {
+		body = strings.TrimSpace(body + "\n\n" + fitNote(fitIssues))
+		if mode == domain.ModePlanned {
+			mode = domain.ModePartial
+		}
+		for _, is := range fitIssues {
+			verdict.FailReasons = append(verdict.FailReasons, "answer_fit:"+is.Kind+":"+is.Detail)
+		}
+	}
+	verdict.FailReasons = append(verdict.FailReasons, fitAudit...)
+
 	if a.moderator != nil {
 		if ok, refusal := a.moderator.CheckOutbound(ctx, body); !ok {
 			return a.refusal(requestID, q.ConversationID, refusal), nil
@@ -469,10 +489,85 @@ func (a *Assistant) ask(ctx context.Context, q domain.Question, opts askOptions)
 	return answer, nil
 }
 
-// planWithFallback plans with the primary provider (Vertex), then the
-// deterministic keyword planner. It returns the provider's real token usage
-// when the provider reports it (usagePlanner); zero usage means "estimate".
+// planWithFallback is planner-first routing. When the primary provider is a
+// real model (PlannedByModel), it plans every question and its plan is used
+// as-is (planned=true). The deterministic path — natural-SQL templates, then a
+// non-model primary provider, then the keyword fallback — runs ONLY when there
+// is no model planner or the model call failed, and always reports
+// planned=false, so an answer is labelled "fallback" exactly when the model
+// did not plan. It returns the provider's real token usage when reported.
 func (a *Assistant) planWithFallback(ctx context.Context, q domain.Question, mem []domain.ResolvedEntities, catalog []ports.ToolSpec) (domain.Plan, bool, TokenUsage, error) {
+	var usage TokenUsage
+	var modelErr error
+	if a.provider != nil && a.provider.PlannedByModel() {
+		plan, u, err := a.planWithModel(ctx, q, mem, catalog)
+		usage = usage.add(u)
+		if err == nil {
+			return plan, true, usage, nil
+		}
+		// Don't paper a client disconnect / deadline over with the deterministic
+		// fallback: surface the context error so the pipeline aborts cleanly.
+		if ctxErr := ctx.Err(); ctxErr != nil {
+			return domain.Plan{}, false, usage, ctxErr
+		}
+		a.log.WarnContext(ctx, "ceoai planner failed, using deterministic fallback", "error", err)
+		if a.telemetry != nil {
+			a.telemetry.VertexFailover(ctx)
+		}
+		modelErr = err
+	}
+	plan, err := a.deterministicPlan(ctx, q, mem, catalog)
+	if err != nil {
+		if modelErr != nil {
+			return domain.Plan{}, false, usage, modelErr
+		}
+		return domain.Plan{}, false, usage, err
+	}
+	return plan, false, usage, nil
+}
+
+// deterministicPlan is the model-free path: a natural-SQL template when one
+// matches the topic (and the SQL fallback is wired), else a non-model primary
+// provider, else the keyword fallback planner. Its plan is still subject to
+// the fallback relevance gate (fallbackFit) before anything runs.
+func (a *Assistant) deterministicPlan(ctx context.Context, q domain.Question, mem []domain.ResolvedEntities, catalog []ports.ToolSpec) (domain.Plan, error) {
+	if a.registry != nil && a.registry.HasSQLFallback() {
+		if sub, ok := naturalSQLPlan(q, mem); ok {
+			return domain.Plan{SubQuestions: []domain.SubQuestion{sub}}, nil
+		}
+	}
+	var firstErr error
+	var empty *domain.Plan
+	for _, p := range []ports.AIProvider{a.provider, a.fallback} {
+		if p == nil || p.PlannedByModel() {
+			continue
+		}
+		plan, err := p.Plan(ctx, q, mem, catalog)
+		if err != nil {
+			if firstErr == nil {
+				firstErr = err
+			}
+			continue
+		}
+		if plan.Refusal != "" || len(plan.SubQuestions) > 0 {
+			return plan, nil
+		}
+		if empty == nil {
+			empty = &plan
+		}
+	}
+	if empty != nil {
+		return *empty, nil
+	}
+	if firstErr != nil {
+		return domain.Plan{}, firstErr
+	}
+	return domain.Plan{}, fmt.Errorf("ceoai: no planner available")
+}
+
+// planWithModel calls the model planner with bounded transient retries. It
+// returns the provider's real token usage when reported (usagePlanner).
+func (a *Assistant) planWithModel(ctx context.Context, q domain.Question, mem []domain.ResolvedEntities, catalog []ports.ToolSpec) (domain.Plan, TokenUsage, error) {
 	var plan domain.Plan
 	var usage TokenUsage
 	up, hasUsage := a.provider.(usagePlanner)
@@ -493,26 +588,7 @@ func (a *Assistant) planWithFallback(ctx context.Context, q domain.Question, mem
 		plan = p
 		return nil
 	})
-	if err == nil {
-		return plan, a.provider.PlannedByModel(), usage, nil
-	}
-	// Don't paper a client disconnect / deadline over with the deterministic
-	// fallback: surface the context error so the pipeline aborts cleanly.
-	if ctxErr := ctx.Err(); ctxErr != nil {
-		return domain.Plan{}, false, usage, ctxErr
-	}
-	a.log.WarnContext(ctx, "ceoai planner failed, using deterministic fallback", "error", err)
-	if a.telemetry != nil {
-		a.telemetry.VertexFailover(ctx)
-	}
-	if a.fallback == nil {
-		return domain.Plan{}, false, usage, err
-	}
-	p, e := a.fallback.Plan(ctx, q, mem, catalog)
-	if e != nil {
-		return domain.Plan{}, false, usage, e
-	}
-	return p, false, usage, nil
+	return plan, usage, err
 }
 
 // enforceCubeFirst rewrites any sub-question whose resolved tool name matches a

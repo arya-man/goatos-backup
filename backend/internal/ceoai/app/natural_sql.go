@@ -60,6 +60,8 @@ func naturalSQLPlan(q domain.Question, mem []domain.ResolvedEntities) (domain.Su
 			}
 			sql := activeAnimalsSQL(q.Actor.TenantID, scopes, groupBy, normalizedText)
 			return domain.SubQuestion{
+				Declared: templateSpec("live headcount of animals", nil, "", "",
+					"how many", "count", "number of", "headcount", "census", "present", "active", "total", "do we have", "split", "breakdown", "break down", "population", "herd", "breed", "farm born", "farm-born", "home bred", "home-bred"),
 				ID:          "0",
 				Text:        q.Text,
 				IntentClass: "active_animals_live_sql",
@@ -88,6 +90,7 @@ func naturalFeedWeightBandPlan(q domain.Question, normalizedText string, mem []d
 		params["park_code"] = scope.code
 	}
 	return domain.SubQuestion{
+		Declared:    templateSpec("the feed-by-weight-band summary", nil, "", "", "weight band", "matched animals"),
 		ID:          "0",
 		Text:        q.Text,
 		IntentClass: "feed_weight_band_live_api",
@@ -99,13 +102,18 @@ func naturalFeedWeightBandPlan(q domain.Question, normalizedText string, mem []d
 
 func naturalSalesPlan(q domain.Question, normalizedText string, mem []domain.ResolvedEntities) domain.SubQuestion {
 	params := map[string]any{}
+	var from, to string
 	if strings.Contains(normalizedText, "this month") || strings.Contains(normalizedText, "month") {
 		params["month"] = "current"
+		if w, ok := ResolveWindow("this month", q.AsOf, nil); ok {
+			from, to = w.FromDate(), w.ToDate()
+		}
 	}
 	if scope, ok := resolveKnownParkScope(normalizedText, mem); ok {
 		params["farm"] = scope.code
 	}
 	return domain.SubQuestion{
+		Declared:    templateSpec("the sales overview (deals and animals sold)", nil, from, to, "sale", "sold", "selling", "revenue", "buyer", "customer"),
 		ID:          "0",
 		Text:        q.Text,
 		IntentClass: "sales_overview_live_api",
@@ -119,13 +127,27 @@ func naturalOperationalSQLPlan(q domain.Question, normalizedText string, mem []d
 	scope, hasScope := resolveKnownParkScope(normalizedText, mem)
 	switch {
 	case mortalityQuestion.MatchString(normalizedText):
-		return sqlSubQuestion(q, "mortality_live_sql", mortalitySQL(q.Actor.TenantID, scope, hasScope, normalizedText, q.AsOf), "mortality", scope, hasScope), true
+		sql, from, to := mortalitySQL(q.Actor.TenantID, scope, hasScope, normalizedText, q.AsOf)
+		sub := sqlSubQuestion(q, "mortality_live_sql", sql, "mortality", scope, hasScope)
+		sub.Declared = templateSpec("recorded deaths", nil, from, to, "death", "died", "dead", "mortality")
+		return sub, true
 	case weighingQuestion.MatchString(normalizedText):
-		return sqlSubQuestion(q, "weighing_live_sql", weighingSQL(q.Actor.TenantID, scope, hasScope, normalizedText), "weighing", scope, hasScope), true
+		sub := sqlSubQuestion(q, "weighing_live_sql", weighingSQL(q.Actor.TenantID, scope, hasScope, normalizedText), "weighing", scope, hasScope)
+		sub.Declared = templateSpec("weighing capture totals and average pen weights", nil, "", "", "weigh", "weight", "lump", "per animal")
+		return sub, true
 	case vaccinationQuestion.MatchString(normalizedText) && (strings.Contains(normalizedText, "overload") || strings.Contains(normalizedText, "over capacity")):
-		return sqlSubQuestion(q, "vaccination_operator_live_sql", vaccinationOperatorSQL(q.Actor.TenantID, scope, hasScope), "vaccination_operator", scope, hasScope), true
+		sub := sqlSubQuestion(q, "vaccination_operator_live_sql", vaccinationOperatorSQL(q.Actor.TenantID, scope, hasScope), "vaccination_operator", scope, hasScope)
+		sub.Declared = templateSpec("vaccination operator utilization", nil, "", "", "overload", "over capacity", "utilization", "utilisation")
+		return sub, true
 	case feedQuestion.MatchString(normalizedText) && !feedByWeightBandQuestion.MatchString(normalizedText):
-		return sqlSubQuestion(q, "feed_live_sql", feedSQL(q.Actor.TenantID, scope, hasScope, q.AsOf), "feed", scope, hasScope), true
+		sub := sqlSubQuestion(q, "feed_live_sql", feedSQL(q.Actor.TenantID, scope, hasScope, q.AsOf), "feed", scope, hasScope)
+		day := ""
+		if !q.AsOf.IsZero() {
+			day = q.AsOf.In(biztime.DefaultLocation()).Format("2006-01-02")
+		}
+		sub.Declared = templateSpec("today's pens that are short of their feed direction (variance per pen)", nil, day, day,
+			"variance", "short", "shortfall", "pending", "behind", "blocked", "gap", "deficit", "adherence", "under", "missed", "less than")
+		return sub, true
 	case sourceEntryHealthQuestion.MatchString(normalizedText):
 		// Trusted (server-authored) SQL: the tenant is NEVER interpolated. The
 		// executor binds the session tenant as $1; park scope rides as $2.
@@ -133,9 +155,12 @@ func naturalOperationalSQLPlan(q domain.Question, normalizedText string, mem []d
 		sub := sqlSubQuestion(q, "health_issue_live_sql", sql, "health_issue", scope, hasScope)
 		sub.TrustedSQL = true
 		sub.Params["args"] = args
+		sub.Declared = templateSpec("source-entry health blockers per load", nil, "", "", "health", "issue", "blocker")
 		return sub, true
 	case opsRiskQuestion.MatchString(normalizedText):
-		return sqlSubQuestion(q, "ops_risk_live_sql", opsRiskSQL(q.Actor.TenantID, scope, hasScope), "ops_risk", scope, hasScope), true
+		sub := sqlSubQuestion(q, "ops_risk_live_sql", opsRiskSQL(q.Actor.TenantID, scope, hasScope), "ops_risk", scope, hasScope)
+		sub.Declared = templateSpec("the open action-center exceptions", nil, "", "", "worry", "risk", "exception", "gap", "action center")
+		return sub, true
 	default:
 		return domain.SubQuestion{}, false
 	}
@@ -354,7 +379,8 @@ func weighingSQL(tenantID string, scope knownParkScope, hasScope bool, text stri
 	)
 }
 
-func mortalitySQL(tenantID string, scope knownParkScope, hasScope bool, text string, asOf time.Time) string {
+func mortalitySQL(tenantID string, scope knownParkScope, hasScope bool, text string, asOf time.Time) (string, string, string) {
+	var boundFrom, boundTo string
 	where := "tenant_id = " + sqlStringLiteral(tenantID)
 	if hasScope {
 		where += " AND park_label = " + sqlStringLiteral(scope.label)
@@ -363,11 +389,21 @@ func mortalitySQL(tenantID string, scope knownParkScope, hasScope bool, text str
 		day := asOf.In(biztime.DefaultLocation())
 		if strings.Contains(text, "today") {
 			where += " AND event_date = " + sqlStringLiteral(day.Format("2006-01-02"))
+			boundFrom, boundTo = day.Format("2006-01-02"), day.Format("2006-01-02")
 		} else {
 			start := time.Date(day.Year(), day.Month(), 1, 0, 0, 0, 0, biztime.DefaultLocation())
 			where += " AND event_date >= " + sqlStringLiteral(start.Format("2006-01-02")) + " AND event_date <= " + sqlStringLiteral(day.Format("2006-01-02"))
+			// Rows stop at today, so this binds the same period the server
+			// resolves for "this month" (the whole calendar month).
+			if w, ok := ResolveWindow("this month", asOf, nil); ok {
+				boundFrom, boundTo = w.FromDate(), w.ToDate()
+			}
 		}
 	}
+	return mortalitySelect(where, text), boundFrom, boundTo
+}
+
+func mortalitySelect(where, text string) string {
 	switch {
 	case strings.Contains(text, "kid"):
 		return fmt.Sprintf("SELECT 'Kid deaths' AS label, CAST(sum(kid_deaths) AS text) AS value, park_label AS scope FROM ceo_ai.mortality_base WHERE %s GROUP BY park_label ORDER BY sum(kid_deaths) DESC LIMIT 50", where)
@@ -457,6 +493,22 @@ func opsRiskSQL(tenantID string, scope knownParkScope, hasScope bool) string {
 		"SELECT title AS label, severity AS value, area AS scope FROM ceo_ai.action_center_current WHERE %s ORDER BY due_at ASC LIMIT 50",
 		where,
 	)
+}
+
+// templateSpec is the declared shape of a deterministic fallback template:
+// what it measures (the words a question must use to be asking for it), the
+// period its read binds, and a plain description for the honest refusal. The
+// grouping is NOT declared here: the relevance gate reads it off the
+// template's own SQL, so the two can never disagree.
+func templateSpec(description string, dims []string, from, to string, measureTerms ...string) domain.AnswerSpec {
+	return domain.AnswerSpec{
+		Template:     true,
+		Description:  description,
+		Dimensions:   dims,
+		MeasureTerms: measureTerms,
+		WindowFrom:   from,
+		WindowTo:     to,
+	}
 }
 
 func sqlStringLiteral(s string) string {

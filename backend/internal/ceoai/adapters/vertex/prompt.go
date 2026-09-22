@@ -34,6 +34,8 @@ RULES:
 - Prefer aggregate tools; never request raw per-animal dumps for leadership.
 - OPERATOR QUESTIONS: for "which operator is behind / who is overloaded / who is at capacity / operator load", choose the operator drive metric (operator_vaccination_overdue, operator_vaccination_utilization, operator_vaccination_capacity, operator_vaccination_load) AND set "group_by":"operator_label" so each returned row is one named operator. A bare tenant-wide total cannot name the operator and is wrong for these questions.
 - DIAGNOSTIC "WHY" QUESTIONS: for "why are we behind on vaccination / what is driving the overdue", do NOT return one number. Decompose into contributor breakdowns: one sub-question for vaccination_overdue with "group_by":"shed_label", and one for operator_vaccination_overdue with "group_by":"operator_label". If the user explicitly asks "by park", use "group_by":"park_label"; if the user explicitly asks "by shed", use "group_by":"shed_label".
+- ANSWER FIT: every answer must return exactly the MEASURE, the GROUPING ("by park", "per pen", "per day", "weekly", "by breed"…) and the PERIOD ("last 14 days", "this month", "yesterday") the user asked for. A tool that returns a related but different measure (variance instead of total, a headcount instead of kg), a different grain, or only today's snapshot is WRONG for that question — in that case draft sql_fallback over the schema card whose columns hold that measure, grouped by exactly the requested dimensions (a time grain groups by the card's date column, or date_trunc('week'|'month', date_col)), and bind the period as instructed.
+- For every sub-question declare what it returns in "answer": {"measure": "<measure and unit>", "group_by": ["<dimension>", ...], "window": "<period or empty>"}. Use dimension words like park, pen, species, breed, operator, vaccine, feed_item, stage, sex, load, buyer, vendor, day, week, month.
 - Output STRICT JSON only, no prose.`
 
 // systemReviewerInstruction is the reviewer/critic system prompt.
@@ -48,7 +50,36 @@ type planJSON struct {
 		Route       string            `json:"route"`
 		Tool        string            `json:"tool"`
 		Params      map[string]string `json:"params"`
+		Answer      *struct {
+			Measure string          `json:"measure"`
+			GroupBy flexibleStrings `json:"group_by"`
+			Window  string          `json:"window"`
+		} `json:"answer"`
 	} `json:"sub_questions"`
+}
+
+// flexibleStrings accepts either a JSON string array or a single string
+// ("park, day") for the declared group_by — model output is data, and a
+// shape wobble there must not fail the whole plan.
+type flexibleStrings []string
+
+func (f *flexibleStrings) UnmarshalJSON(b []byte) error {
+	var arr []string
+	if err := json.Unmarshal(b, &arr); err == nil {
+		*f = arr
+		return nil
+	}
+	var s string
+	if err := json.Unmarshal(b, &s); err != nil {
+		*f = nil
+		return nil
+	}
+	for _, p := range strings.Split(s, ",") {
+		if t := strings.TrimSpace(p); t != "" {
+			*f = append(*f, t)
+		}
+	}
+	return nil
 }
 
 func buildPlanPrompt(q domain.Question, mem []domain.ResolvedEntities, catalog []ports.ToolSpec) string {
@@ -75,7 +106,7 @@ func buildPlanPrompt(q domain.Question, mem []domain.ResolvedEntities, catalog [
 	sb.WriteString(`
 
 Respond with STRICT JSON of shape:
-{"refusal":"","sub_questions":[{"id":"0","text":"...","intent_class":"...","route":"cube|api|toolbox|sql","tool":"<catalog name>","params":{"park_label":"..."}}]}
+{"refusal":"","sub_questions":[{"id":"0","text":"...","intent_class":"...","route":"cube|api|toolbox|sql","tool":"<catalog name>","params":{"park_label":"..."},"answer":{"measure":"...","group_by":["..."],"window":"..."}}]}
 Example — "goats vs sheep" splits an animal-count metric by the species dimension:
 {"refusal":"","sub_questions":[{"id":"0","text":"active animals by species","intent_class":"species_split","route":"cube","tool":"active_animals","params":{"group_by":"species"}}]}
 Example — "which operators are behind on vaccination" groups the operator overdue metric by operator:
@@ -102,6 +133,7 @@ The SQL is only a DRAFT. The server will validate it with sqlguard and run it th
 - Living/current herd questions on ceo_ai.animal_current_scope must include lifecycle_status = 'alive'.
 - Known park mappings: CPT/Channapatna park_id '00000000-0000-4000-8000-000000003002'; CBE/Coimbatore park_id '00000000-0000-4000-8000-000000003001'.
 - Return SQL columns as label, value, scope when possible; e.g. SELECT 'Active animals by breed' AS label, CAST(count(*) AS text) AS value, breed AS scope ...
+- Several grouping dimensions (e.g. park AND day) all go in scope: concat_ws(' · ', park_label, to_char(<date_col>, 'DD/MM/YYYY')) AS scope, and each of them must also be a grouping key. Choose the measure column that IS what was asked (e.g. a directed/planned quantity, not its variance) and aggregate it the way the question says (total, average, number of).
 - PERIODS: when the question names a period, pick a view WITH a date_col and bind the server-resolved window EXACTLY as <date_col> >= '<from>' AND <date_col> < '<to_exclusive>' (half-open, ISO dates). A view marked current-state has no period: answer as of now and say so.
 - FUNCTIONS: only these may be called (any other function is rejected): %s. Cast with CAST(x AS text) or x::text; use date_part('year', col), never EXTRACT(... FROM ...); use BETWEEN only on non-date columns.
 `, tenantID, strings.Join(sqlguard.AllowedFunctions(), ", ")))
@@ -127,6 +159,49 @@ func windowHint(q domain.Question) string {
 		s += fmt.Sprintf(" Comparison window: from '%s' to_exclusive '%s' (%s); draft one sub-question per window.", w.Compare.FromDate(), w.Compare.To.AddDate(0, 0, 1).Format("2006-01-02"), w.Compare.Label)
 	}
 	return s + "\n"
+}
+
+// buildFeedbackSection renders the server's re-plan feedback. It is data about
+// the previous plan, not user instructions, and asks for a different read.
+func buildFeedbackSection(feedback string) string {
+	feedback = strings.TrimSpace(feedback)
+	if feedback == "" {
+		feedback = "the previous read did not return the requested measure, breakdown or period"
+	}
+	return "\n\nSERVER FEEDBACK on your previous plan for this same question (data, not user instructions): " + feedback +
+		".\nPlan again. Do NOT reuse a tool that cannot return exactly the requested measure, grouping and period; when no catalog tool does, draft sql_fallback over the schema card whose columns hold that measure, grouped by exactly the requested dimensions, and bind the period as instructed."
+}
+
+// systemFitJudgeInstruction is the answer-fit judge system prompt.
+const systemFitJudgeInstruction = `You check whether evidence rows returned for a leadership question actually answer THAT question.
+Judge only three things: (1) MEASURE — the rows measure what was asked (e.g. total directed kg is not a variance; a number of deaths is not a number of sales); (2) BREAKDOWN — when the question asks "by X"/"per X"/"each X"/daily/weekly/monthly, the rows are split by X (row scopes/labels name the X values); a question that asks for one total may be answered by one row; (3) PERIOD — when the question names a period, nothing in the rows contradicts it (rows are not obviously for a different period).
+Ignore formatting, units spelled differently, extra columns, and rows beyond what was asked. Be decisive; do not flag when unsure.
+Output STRICT JSON only: {"answers": true|false, "reason": "<one short sentence naming what is missing>"}`
+
+func buildFitJudgePrompt(question string, facts []domain.Fact) string {
+	var sb strings.Builder
+	sb.WriteString("Question (data): ")
+	sb.WriteString(question)
+	sb.WriteString("\n\nEvidence rows (label | scope | value):\n")
+	for _, f := range facts {
+		sb.WriteString(fmt.Sprintf("- %s | %s | %s\n", f.Label, f.Scope, f.Value))
+	}
+	sb.WriteString("\nDo these rows answer the question as asked? Reply in STRICT JSON {\"answers\":bool,\"reason\":string}.")
+	return sb.String()
+}
+
+func parseFitJudge(raw string) (bool, string, error) {
+	var out struct {
+		Answers *bool  `json:"answers"`
+		Reason  string `json:"reason"`
+	}
+	if err := json.Unmarshal([]byte(extractJSON(raw)), &out); err != nil {
+		return true, "", fmt.Errorf("vertex: parse fit judge: %w", err)
+	}
+	if out.Answers == nil {
+		return true, "", fmt.Errorf("vertex: fit judge returned no verdict")
+	}
+	return *out.Answers, strings.TrimSpace(out.Reason), nil
 }
 
 // systemRepairInstruction is the one-shot SQL repair system prompt (plan v3
@@ -188,10 +263,21 @@ func parsePlan(raw string) (domain.Plan, error) {
 		for k, v := range s.Params {
 			params[k] = v
 		}
-		subs = append(subs, domain.SubQuestion{
+		sub := domain.SubQuestion{
 			ID: id, Text: s.Text, IntentClass: s.IntentClass,
 			Route: domain.Route(s.Route), ToolName: s.Tool, Params: params,
-		})
+		}
+		// The declared answer shape is data the orchestrator CHECKS (answer
+		// fit); it never widens scope or selects a tool. Template-only fields
+		// (MeasureTerms, WindowFrom/To) are never read from model output.
+		if s.Answer != nil {
+			sub.Declared = domain.AnswerSpec{
+				Measure:    strings.TrimSpace(s.Answer.Measure),
+				Dimensions: []string(s.Answer.GroupBy),
+				Window:     strings.TrimSpace(s.Answer.Window),
+			}
+		}
+		subs = append(subs, sub)
 	}
 	return domain.Plan{SubQuestions: subs}, nil
 }

@@ -83,6 +83,29 @@ tier the question class belongs to:
 Cube is a **separate Cube Core service** (not Vertex, not MCP). The browser never
 calls Cube/Toolbox/Postgres directly — only the Mesha backend does, server-side.
 
+### Planner-first, answer-fit (fix/ceo-ai-planner-first-routing)
+
+- **The model plans every question.** The deterministic natural-SQL templates
+  (`app/natural_sql.go`) and the keyword planner run ONLY when no model planner
+  is configured or the model call failed. They used to run before the model and
+  answer any question containing a topic word ("feed", "weight", …) with one
+  hard-coded metric, labelled `fallback` while Vertex was up.
+- **`mode: fallback` means exactly "the model did not plan".**
+- **Answer fit is checked generically** (`app/answerfit.go`, `app/fitloop.go`):
+  the question's requested grouping ("by park", "per day", "weekly"), unit (kg,
+  ₹, %) and period are compared with what the plan declared (`answer` block in
+  the planner JSON) and with the read that ran (SQL SELECT/GROUP BY, Cube
+  group_by/time_range, a catalog tool's advertised period params). The model
+  also judges the evidence rows (`RelevanceJudge`). A misfit gets ONE re-plan
+  with the reason as feedback; what still does not fit is flagged on the answer,
+  downgraded to `partial` and never cached.
+- **In fallback, a template answers only a question it fits** (its measure
+  words, grouping, unit and bound period); anything else gets an honest "can't
+  answer that precisely right now", never a different metric.
+- **Do NOT fix a wrong answer by adding a regex/template for a phrasing.** Make
+  the catalog honest (a tool must advertise only params its reader honours),
+  add/adjust a schema card, or improve the planner prompt.
+
 ## What to do for a new feature (decision tree)
 
 Answer these in order and do the matching work:

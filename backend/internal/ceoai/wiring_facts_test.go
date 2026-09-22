@@ -55,3 +55,18 @@ func TestSQLFactsSeriesColumns(t *testing.T) {
 		}
 	}
 }
+
+// A value(+scope) row without a label is still one fact per row — it must not
+// be exploded column-by-column into unrelated "value"/"scope" facts.
+func TestSQLFactsLabelLessRowStaysOneFact(t *testing.T) {
+	tr := rowsToToolResult("tenant-a", []sqlguard.Row{
+		{"scope": "Channapatna", "value": int64(242)},
+		{"scope": "Coimbatore", "value": int64(342)},
+	})
+	if len(tr.Facts) != 2 {
+		t.Fatalf("want one fact per row, got %+v", tr.Facts)
+	}
+	if tr.Facts[0].Scope != "Channapatna" || tr.Facts[0].Value != "242" || tr.Facts[0].Label == "" {
+		t.Fatalf("label-less row mis-mapped: %+v", tr.Facts[0])
+	}
+}

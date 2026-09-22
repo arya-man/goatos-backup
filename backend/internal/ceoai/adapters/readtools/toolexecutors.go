@@ -297,7 +297,11 @@ func (e *salesOverviewExecutor) Spec() ports.ToolSpec {
 		Name:        "sales_overview",
 		Route:       domain.RouteAPI,
 		Description: "Sales overview for closed deals: sold animals, sheep/goat split, revenue, deals, monthly sales",
-		Params:      []string{"farm", "month", "time_range", "group_by"},
+		// Only what the reader honours (buildSalesOverviewReader reads farm and a
+		// calendar month). It used to also advertise time_range and group_by,
+		// which the reader ignored: the planner then trusted it for "last 30
+		// days" / "per park" questions and got the all-time summary back.
+		Params: []string{"farm", "month"},
 	}
 }
 

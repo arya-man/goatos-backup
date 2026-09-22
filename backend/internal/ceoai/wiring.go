@@ -438,8 +438,16 @@ func rowsToToolResult(tenantID string, rows []sqlguard.Row) domain.ToolResult {
 		AsOf:    time.Now(),
 	}
 	for _, row := range rows {
-		if label, ok := row["label"]; ok {
-			if value, hasValue := row["value"]; hasValue {
+		label, hasLabel := row["label"]
+		value, hasValue := row["value"]
+		// A contract row that carries value (+ scope) but no label is still ONE
+		// fact per row. Exploding it column-by-column below split "Channapatna"
+		// and "242" into two unrelated facts, in map order.
+		if !hasLabel && hasValue {
+			label, hasLabel = "Result", true
+		}
+		if hasLabel {
+			if hasValue {
 				fact := domain.Fact{TenantID: tenantID, Label: scalarString(label), Value: scalarString(value)}
 				if scope, hasScope := row["scope"]; hasScope {
 					fact.Scope = scalarString(scope)
