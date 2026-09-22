@@ -50,12 +50,12 @@
 - Follow-up focused reruns passed:
   - `npm --prefix apps/admin-web test -- --runInBand`
   - `GOATOS_FAST_LOCAL_CI=1 GOATOS_SQLC_PLAN_ADMIN_DSN="$DATABASE_URL" GOATOS_PGTEST_ADMIN_DSN="$DATABASE_URL" tools/ci/run-local-ci.sh query-plans`
+- Fourth `make land-main` attempt at `f3c2997421deb7bd001e94bcfc51800fba511747` failed before any push on `required PostgreSQL query plans`; focused query-plan reruns passed, so the next gate keeps `DATABASE_URL` out of unrelated parallel jobs and passes only the required `GOATOS_*` DSNs to the landing command.
 
 ## Pending
 
-- Commit the admin unit-test contract fix.
 - Run exact repo landing gate from this clean isolated worktree:
-  - `set -a; source /Users/raviteja/mesha/local-data/goatos-stg-to-oci/oci-goatos-db.env; set +a; GOATOS_SQLC_PLAN_ADMIN_DSN="$DATABASE_URL" GOATOS_PGTEST_ADMIN_DSN="$DATABASE_URL" ANDROID_HOME=/Users/raviteja/Library/Android/sdk ANDROID_SDK_ROOT=/Users/raviteja/Library/Android/sdk make land-main`
+  - `source /Users/raviteja/mesha/local-data/goatos-stg-to-oci/oci-goatos-db.env; env -u DATABASE_URL GOATOS_SQLC_PLAN_ADMIN_DSN="$DATABASE_URL" GOATOS_PGTEST_ADMIN_DSN="$DATABASE_URL" ANDROID_HOME=/Users/raviteja/Library/Android/sdk ANDROID_SDK_ROOT=/Users/raviteja/Library/Android/sdk make land-main`
 - Verify `origin/main` readback after landing.
 - Resolve GitHub PR 348 state after the certified SHA reaches `main`.
 
