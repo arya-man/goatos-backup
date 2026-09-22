@@ -32,11 +32,14 @@
 - Final push readback: `72201cb02..d00825522 HEAD -> main`.
 - Prior receipt doc correction landing receipt: `make land-main` passed with docs-only scope.
 - Prior receipt doc correction push readback: `d00825522..6e6dbcc71 HEAD -> main`.
+- Final receipt clarification landing receipt: `make land-main` passed with docs-only scope.
+- Final receipt clarification push readback: `5c442915e..a43e95b3c HEAD -> main`.
 
 ## State
 
 - Current base before fix: PR 365 SHA `8c3aa11f3895a1e4fb967e82a3fa7891610ecd7a`.
 - Landed SHA: `d008255228dd265f8f60c3a728a789bf95612e78`.
 - Prior receipt doc correction SHA: `6e6dbcc710cb153bc8c3757d613ace5412bb43e5`.
+- Final receipt clarification SHA: `a43e95b3ca940b78f3f71713187e4f220172a853`.
 - Deployment: none.
 - Main push: done.
