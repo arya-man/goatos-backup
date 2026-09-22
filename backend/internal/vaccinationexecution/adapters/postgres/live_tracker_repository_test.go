@@ -66,6 +66,74 @@ func TestDriveAssignmentsMergedAssignmentProgressUsesAllBatches(t *testing.T) {
 	}
 }
 
+// The four below pin the merged-batch regroup from every angle the projection can go wrong.
+// Widening assignment progress from one representative batch to ANY(batch_ids) changes WHICH rows
+// a group counts, so each axis of the group -- how many rows it can produce, what it returns, what
+// it may merge with, and which status it reports -- has to be re-pinned against the wider set.
+
+// Cardinality: a goat in two merged batches is still ONE animal. COUNT(oi.target_id) would count
+// it once per batch, which reads as a shed doing more animals than it holds.
+func TestDriveAssignmentsMergedBatchesOneToManyCannotDoubleCountAnAnimal(t *testing.T) {
+	sql := driveAssignmentsSQL
+	if !strings.Contains(sql, "SELECT COUNT(DISTINCT oi.target_id)::int AS done_animals") {
+		t.Fatal("done_animals must COUNT(DISTINCT target_id): ANY(batch_ids) can match one goat through several merged batches")
+	}
+	if !strings.Contains(sql, "ARRAY_AGG(DISTINCT batch_id) AS batch_ids") {
+		t.Error("batch_ids must be DISTINCT; a repeated batch id widens the predicate for nothing")
+	}
+}
+
+// Pagination: batch_ids is an internal predicate, not a column. If it reached the SELECT list the
+// row shape would change under the LIMIT and the Go scan would drift from the query.
+func TestDriveAssignmentsMergedBatchesPaginationKeepsTheArrayInternal(t *testing.T) {
+	sql := driveAssignmentsSQL
+	final := sql[strings.LastIndex(sql, "SELECT"):]
+	if strings.Contains(final, "batch_ids") {
+		t.Error("batch_ids must stay a join predicate; returning it changes the paged row shape")
+	}
+	if !strings.Contains(sql, "LIMIT $5") {
+		t.Fatal("the LIMIT must still sit after the regroup, so merged groups page as one row")
+	}
+}
+
+// Scope: batches merge only WITHIN one park/shed/partition/day. Dropping park_id or shed_id from
+// the group key would collect another park's batch ids into the same array and count its work here.
+func TestDriveAssignmentsMergedBatchesParkScopeCannotMergeAcrossParks(t *testing.T) {
+	sql := driveAssignmentsSQL
+	idx := strings.Index(sql, "ARRAY_AGG(DISTINCT batch_id) AS batch_ids")
+	if idx < 0 {
+		t.Fatal("merged batch ids are missing")
+	}
+	group := sql[idx:]
+	end := strings.Index(group, "\n),")
+	if end > 0 {
+		group = group[:end]
+	}
+	for _, key := range []string{"park_id", "shed_id", "physical_shed", "partition_key", "effective_planned_date"} {
+		if !strings.Contains(group, "GROUP BY effective_planned_date, operator_id, park_id, shed_id, physical_shed, partition_key") {
+			t.Fatalf("the batch-id aggregate must be grouped by the full identity; %s is what stops a cross-park merge", key)
+		}
+	}
+}
+
+// Status: the reported status must be folded from the SAME rows the batch ids come from. Reading it
+// off the MIN(batch_id) representative would report one batch's status for work spanning several.
+func TestDriveAssignmentsMergedBatchesStatusMatrixFoldsEveryBatch(t *testing.T) {
+	sql := driveAssignmentsSQL
+	for _, fold := range []string{
+		"WHEN bool_or(batch_status = 'in_progress') THEN 'in_progress'",
+		"WHEN bool_or(batch_status = 'planned') THEN 'planned'",
+		"WHEN bool_or(batch_status = 'completed') THEN 'completed'",
+	} {
+		if !strings.Contains(sql, fold) {
+			t.Errorf("batch_status must be folded across every merged batch with bool_or; missing %q", fold)
+		}
+	}
+	if strings.Contains(sql, "MIN(batch_status)") {
+		t.Error("batch_status must not be taken from the representative batch; it is a fold over all of them")
+	}
+}
+
 // TestLiveTrackerDayPredicatesAreSargableRanges pins that every day boundary is a half-open
 // timestamptz range against an indexable column, not (<ts> AT TIME ZONE 'Asia/Kolkata')::date = $2.
 //
