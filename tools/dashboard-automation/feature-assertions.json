@@ -20258,10 +20258,16 @@
     "visible": {
      "css": ".screen"
     }
+   },
+   {
+    "absent": {
+     "css": ".top .pscope"
+    }
    }
   ],
   "status": "assert",
-  "evidence": "apps/admin-web/components/mesha-shell.tsx:321 PAGES_WITH_LOCAL_OR_NO_PARK_SCOPE; :322 \"/approvals\"; :335 \"/people\"; :368 passed to routeOwnsOrIgnoresTopBarPark"
+  "evidence": "apps/admin-web/components/mesha-shell.tsx:321 PAGES_WITH_LOCAL_OR_NO_PARK_SCOPE; :322 \"/approvals\"; :335 \"/people\"; :368 passed to routeOwnsOrIgnoresTopBarPark",
+  "reason": " | asserts the park chip is absent on a page that owns its own scope"
  },
  {
   "sha": "34eac7b39",
