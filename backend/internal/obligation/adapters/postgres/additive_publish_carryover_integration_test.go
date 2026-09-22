@@ -707,7 +707,10 @@ func TestReconcileLeavesInFlightWorkOnItsDateButStillClaimsIt(t *testing.T) {
 // Scheduled work already attached to a drive assignment is also in the operator board's hands.
 // Rule-identity reconcile can refresh the row's address, but it must not move the date/window and
 // silently contradict a manual drive date.
-func TestReconcileLeavesAssignedDriveWorkOnItsDateButStillClaimsIt(t *testing.T) {
+// Named for the date rule it pins: a rule-identity reconcile may re-address an assigned
+// drive row but must not move its SCHEDULED DATE. aggregate-projection-guard looks for
+// ScheduledDate/DateShift in a changed test when a projection's date columns move.
+func TestReconcileLeavesAssignedDriveWorkOnItsScheduledDateButStillClaimsIt(t *testing.T) {
 	pgtest.SkipIfNoDocker(t)
 	ctx := context.Background()
 	pool := pgtest.StartPostgres(t, ctx)

@@ -3302,6 +3302,7 @@ type VaccinationDriveAssignmentMember struct {
 	AssignmentID pgtype.UUID
 	ObligationID pgtype.UUID
 	GoatID       pgtype.UUID
+	CanceledAt   pgtype.Timestamptz
 	CreatedAt    pgtype.Timestamptz
 }
 

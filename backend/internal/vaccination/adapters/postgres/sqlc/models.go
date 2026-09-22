@@ -3051,6 +3051,7 @@ type VaccinationDriveAssignmentMember struct {
 	ObligationID pgtype.UUID
 	GoatID       pgtype.UUID
 	CreatedAt    pgtype.Timestamptz
+	CanceledAt   pgtype.Timestamptz
 }
 
 type VaccinationDriveDateOverride struct {

@@ -2557,14 +2557,7 @@ FOR UPDATE`, tenant, in.TargetType, target, in.RuleIdentityKey, in.Sequence).
 	}
 	ref.DueAt = priorDue
 	var liveDriveMember bool
-	if err := tx.QueryRow(ctx, `
-SELECT EXISTS (
-  SELECT 1
-  FROM vaccination_drive_assignment_members m
-  WHERE m.tenant_id = $1
-    AND m.obligation_id = $2::uuid
-    AND m.canceled_at IS NULL
-)`, tenant, ref.ObligationID).Scan(&liveDriveMember); err != nil {
+	if err := tx.QueryRow(ctx, liveDriveMembershipExistsSelect, tenant, ref.ObligationID).Scan(&liveDriveMember); err != nil {
 		return domain.ObligationRef{}, false, fmt.Errorf("obligation: read identity reconcile drive membership: %w", err)
 	}
 	if ref.Status != "in_progress" &&
@@ -3729,6 +3722,18 @@ func (r *Repository) ListUnbatchedDueForVersion(ctx context.Context, tenantID, v
 // concurrently (outside the tenant-sweep lock -- vaccination/app's InsertObligation callers do not
 // hold it) after that instant is invisible to BOTH the write-free preview and the real writes this
 // cycle, and is naturally picked up next cycle (which re-preflights against its own fresh HWM).
+// liveDriveMembershipExistsSelect answers whether an obligation is still a member of a
+// vaccination drive assignment. Package-level (not inline) so a query-plan test and the
+// scale guard can both reach the statement -- see docs/decisions/scale-anti-patterns.md.
+const liveDriveMembershipExistsSelect = `
+SELECT EXISTS (
+  SELECT 1
+  FROM vaccination_drive_assignment_members m
+  WHERE m.tenant_id = $1
+    AND m.obligation_id = $2::uuid
+    AND m.canceled_at IS NULL
+)`
+
 const unbatchedDueKeysetSelect = `
 WITH candidates AS (
   SELECT oi.obligation_id AS obligation_id_key,
