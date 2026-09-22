@@ -326,11 +326,17 @@ export function describePlan(plan, spent, verdict) {
 // run is refused. "Probably dev" is not good enough when the cost of being wrong is
 // a write into a real farm's records.
 /**
- * Ravi's rule, and it settles the naming trap: `stg-api.dashboard.mesha.sg` serves the
- * same STG-backed data as production. "stg prod is still prod only" — the difference
- * is a name, not the data behind it. Neither is ever a valid target for this lane.
+ * Ravi's rule, and it settles the naming trap: the stg API serves the same STG-backed
+ * data as production. "stg prod is still prod only" — the difference is a name, not the
+ * data behind it. Neither is ever a valid target for this lane.
+ *
+ * THIS NEVER OPENS A SOCKET. It parses the url and compares hostnames as strings. It
+ * does not resolve DNS and it does not connect, because the whole point is to refuse
+ * BEFORE anything talks to a host holding real farm data. `forbiddenList` is injectable
+ * so the tests can prove the mechanism against invented hostnames instead of naming
+ * real ones.
  */
-export function backendUrlVerdict(url) {
+export function backendUrlVerdict(url, forbiddenList = FORBIDDEN_BACKENDS) {
   const text = String(url ?? "").trim();
   if (!text) return { allowed: true, reason: "no backend url was named, so the one compiled into the APK stands" };
   let host;
@@ -339,7 +345,7 @@ export function backendUrlVerdict(url) {
   } catch {
     return { allowed: false, reason: `"${text}" is not a url this runner can check, so which backend it points at cannot be proven` };
   }
-  const forbidden = FORBIDDEN_BACKENDS.find((entry) => host === entry.host || host.endsWith(`.${entry.host}`));
+  const forbidden = forbiddenList.find((entry) => host === entry.host || host.endsWith(`.${entry.host}`));
   if (forbidden) {
     return { allowed: false, reason: `${host} is ${forbidden.what}. These journeys write, and stg serves the same data as production — the difference is a name, not the data. It may never be a target.` };
   }
@@ -691,11 +697,23 @@ function selfTest() {
   assert(!applicationIdVerdict(null).allowed, "an unreadable application id must be refused");
   assert(/real farm data/i.test(applicationIdVerdict("sg.mesha.goatos").reason),
     "the production refusal must say plainly that real farm data is at stake");
-  assert(!backendUrlVerdict("https://api.goatos.mesha.sg/").allowed, "production must be refused as a backend url");
-  assert(!backendUrlVerdict("https://stg-api.dashboard.mesha.sg/").allowed, "the stg api must be refused as a backend url");
-  assert(backendUrlVerdict("http://localhost:8080/").allowed, "a local backend must be allowed");
-  assert(backendUrlVerdict("").allowed, "naming no url must leave the APK's own backend to the flavour guard");
-  assert(!backendUrlVerdict("not a url").allowed, "an unparseable url must be refused, not assumed safe");
+  // Proved against INVENTED hostnames. The guard must never be exercised by naming a
+  // host that holds real farm data, even in a string.
+  const pretend = [{ host: "prod.example.invalid", what: "production (real farm data)" }];
+  assert(!backendUrlVerdict("https://prod.example.invalid/", pretend).allowed, "a forbidden host must be refused");
+  assert(!backendUrlVerdict("https://sub.prod.example.invalid/x", pretend).allowed, "a subdomain of a forbidden host must be refused");
+  assert(backendUrlVerdict("http://localhost:8080/", pretend).allowed, "a local backend must be allowed");
+  assert(backendUrlVerdict("", pretend).allowed, "naming no url must leave the APK's own backend to the flavour guard");
+  assert(!backendUrlVerdict("not a url", pretend).allowed, "an unparseable url must be refused, not assumed safe");
+  assert(FORBIDDEN_BACKENDS.length === 2, "both production-backed hosts must stay on the forbidden list");
+  // The guard must be incapable of reaching anything. No sockets, ever.
+  {
+    const source = readFileSync(fileURLToPath(import.meta.url), "utf8");
+    // Assembled, not written out, so this check does not trip over its own list.
+    const networking = ["net", "dns", "http", "https", "tls"].map((mod) => `node:${mod}`).concat([`${"fetch"}(`]);
+    const used = networking.filter((capability) => source.includes(capability));
+    if (used.length) throw new Error(`self-test: this runner must open no socket, but it uses ${used.join(", ")}`);
+  }
 
   // A virtual run can never claim a physical check.
   const runnable = runnableJourneys(catalog);

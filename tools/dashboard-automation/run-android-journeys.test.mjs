@@ -184,18 +184,41 @@ test("the catalogue says which backend the APK under test points at, and why not
   }
 });
 
-test("a backend url pointing at production or stg is refused", () => {
-  // "stg prod is still prod only" — stg-api serves the same STG-backed data as
-  // production. The difference is a name, not the data behind it.
-  for (const url of ["https://api.goatos.mesha.sg/", "https://api.goatos.mesha.sg/v1/goats",
-                     "https://stg-api.dashboard.mesha.sg/", "https://stg-api.dashboard.mesha.sg/health"]) {
-    const verdict = backendUrlVerdict(url);
+// The mechanism is proved against INVENTED hostnames. These tests never name a host
+// that holds real farm data, and the guard never opens a socket — it refuses on the
+// string, before anything could connect.
+const PRETEND_FORBIDDEN = [
+  { host: "prod.example.invalid", what: "production (real farm data)" },
+  { host: "stg-api.example.invalid", what: "the deployed stg API" }
+];
+
+test("a backend url pointing at a forbidden host is refused, without connecting to it", () => {
+  for (const url of ["https://prod.example.invalid/", "https://prod.example.invalid/v1/goats",
+                     "https://stg-api.example.invalid/", "https://inner.stg-api.example.invalid/health"]) {
+    const verdict = backendUrlVerdict(url, PRETEND_FORBIDDEN);
     assert.equal(verdict.allowed, false, `${url} must be refused`);
     assert.match(verdict.reason, /may never be a target/);
   }
-  assert.equal(backendUrlVerdict("http://localhost:8080/").allowed, true);
-  assert.equal(backendUrlVerdict("http://127.0.0.1:15432/").allowed, true);
-  assert.equal(backendUrlVerdict("garbage").allowed, false, "an unparseable url must be refused, not assumed safe");
+  assert.equal(backendUrlVerdict("http://localhost:8080/", PRETEND_FORBIDDEN).allowed, true);
+  assert.equal(backendUrlVerdict("http://127.0.0.1:15432/", PRETEND_FORBIDDEN).allowed, true);
+  assert.equal(backendUrlVerdict("garbage", PRETEND_FORBIDDEN).allowed, false,
+    "an unparseable url must be refused, not assumed safe");
+});
+
+test("the guard is incapable of opening a socket", () => {
+  // It must refuse BEFORE anything talks to a host holding real farm data, so it has
+  // no networking capability at all — not to check a response shape, not once.
+  const source = readFileSync(path.join(here, "run-android-journeys.mjs"), "utf8");
+  const networking = ["net", "dns", "http", "https", "tls"].map((m) => `node:${m}`).concat([`${"fetch"}(`]);
+  const used = networking.filter((capability) => source.includes(capability));
+  assert.deepEqual(used, [], `the runner must open no socket, but it uses ${used.join(", ")}`);
+});
+
+test("both production-backed hosts are on the real forbidden list", () => {
+  // Named here as configuration, never dialled. stg serves the same data as production.
+  assert.equal(FORBIDDEN_BACKENDS.length, 2);
+  assert.ok(FORBIDDEN_BACKENDS.every((entry) => typeof entry.host === "string" && entry.host.length > 0));
+  assert.ok(FORBIDDEN_BACKENDS.some((entry) => /real farm data/.test(entry.what)));
 });
 
 // ---------------------------------------------------------------------------

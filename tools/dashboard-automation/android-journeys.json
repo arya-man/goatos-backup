@@ -157,9 +157,10 @@
         "tier": "parked",
         "testClass": null,
         "testMethod": null,
-        "note": "The test is written and the levers it uses are proven to work by the cold-boot set. What is missing is somewhere safe to write. No Test Lab-reachable non-production backend exists. The dev flavour points at http://localhost:8080/, which a device in Google's cloud cannot reach, and the stg and prod flavours point at the deployed stg API and at production, which carries real farm data - these journeys WRITE, so they may never run against either. Fixed by exposing the OCI writable clone's API to Test Lab, or by shipping a stub server the dev build can be pointed at with -PgoatosDevApiBaseUrl. Until then this is parked, not covered."
+        "note": "The test is written and the levers it uses are proven to work by the cold-boot set. What is missing is somewhere safe to write. No Test Lab-reachable non-production backend exists. The dev flavour points at http://localhost:8080/, which a device in Google's cloud cannot reach, and the stg and prod flavours point at the deployed stg API and at production, which carries real farm data - these journeys WRITE, so they may never run against either. Fixed by exposing the OCI writable clone's API to Test Lab, or by shipping a stub server the dev build can be pointed at with -PgoatosDevApiBaseUrl. Until then this is parked, not covered. PARKED BY DECISION, not by obstacle. Ravi's instruction: no write-path journey runs against any real backend - not the stg API, not production, not the OCI clone, not a local backend. It is catalogued here as data, with its story and its assertion, and it is not executed. Parked is the honest outcome and it is preferred to anything that goes near real farm data."
       },
-      "backend": "needs-reachable-non-production-backend"
+      "backend": "needs-reachable-non-production-backend",
+      "runsOn": "parked-no-backend-may-be-used"
     },
     {
       "name": "sync-retries-and-recovers",
@@ -233,9 +234,10 @@
         "tier": "parked",
         "testClass": null,
         "testMethod": null,
-        "note": "The app has no hook to make the server answer with an error, so there is no honest way to drive this from a virtual device. Either the app grows a debug fault-injection affordance, or this stays a manual check. It also needs a backend: No Test Lab-reachable non-production backend exists. The dev flavour points at http://localhost:8080/, which a device in Google's cloud cannot reach, and the stg and prod flavours point at the deployed stg API and at production, which carries real farm data - these journeys WRITE, so they may never run against either. Fixed by exposing the OCI writable clone's API to Test Lab, or by shipping a stub server the dev build can be pointed at with -PgoatosDevApiBaseUrl. Until then this is parked, not covered."
+        "note": "The app has no hook to make the server answer with an error, so there is no honest way to drive this from a virtual device. Either the app grows a debug fault-injection affordance, or this stays a manual check. It also needs a backend: No Test Lab-reachable non-production backend exists. The dev flavour points at http://localhost:8080/, which a device in Google's cloud cannot reach, and the stg and prod flavours point at the deployed stg API and at production, which carries real farm data - these journeys WRITE, so they may never run against either. Fixed by exposing the OCI writable clone's API to Test Lab, or by shipping a stub server the dev build can be pointed at with -PgoatosDevApiBaseUrl. Until then this is parked, not covered. PARKED BY DECISION, not by obstacle. Ravi's instruction: no write-path journey runs against any real backend - not the stg API, not production, not the OCI clone, not a local backend. It is catalogued here as data, with its story and its assertion, and it is not executed. Parked is the honest outcome and it is preferred to anything that goes near real farm data."
       },
-      "backend": "needs-reachable-non-production-backend"
+      "backend": "needs-reachable-non-production-backend",
+      "runsOn": "parked-no-backend-may-be-used"
     },
     {
       "name": "conflict-does-not-lose-work",
@@ -286,9 +288,10 @@
         "tier": "parked",
         "testClass": null,
         "testMethod": null,
-        "note": "Needs the same job edited on the web while the phone is offline. That is a two-actor journey; lane 4 owns the write side and this should be built jointly with it rather than faked on the phone alone. It also needs a backend: No Test Lab-reachable non-production backend exists. The dev flavour points at http://localhost:8080/, which a device in Google's cloud cannot reach, and the stg and prod flavours point at the deployed stg API and at production, which carries real farm data - these journeys WRITE, so they may never run against either. Fixed by exposing the OCI writable clone's API to Test Lab, or by shipping a stub server the dev build can be pointed at with -PgoatosDevApiBaseUrl. Until then this is parked, not covered."
+        "note": "Needs the same job edited on the web while the phone is offline. That is a two-actor journey; lane 4 owns the write side and this should be built jointly with it rather than faked on the phone alone. It also needs a backend: No Test Lab-reachable non-production backend exists. The dev flavour points at http://localhost:8080/, which a device in Google's cloud cannot reach, and the stg and prod flavours point at the deployed stg API and at production, which carries real farm data - these journeys WRITE, so they may never run against either. Fixed by exposing the OCI writable clone's API to Test Lab, or by shipping a stub server the dev build can be pointed at with -PgoatosDevApiBaseUrl. Until then this is parked, not covered. PARKED BY DECISION, not by obstacle. Ravi's instruction: no write-path journey runs against any real backend - not the stg API, not production, not the OCI clone, not a local backend. It is catalogued here as data, with its story and its assertion, and it is not executed. Parked is the honest outcome and it is preferred to anything that goes near real farm data."
       },
-      "backend": "needs-reachable-non-production-backend"
+      "backend": "needs-reachable-non-production-backend",
+      "runsOn": "parked-no-backend-may-be-used"
     },
     {
       "name": "sync-status-screen",
@@ -318,9 +321,10 @@
         "tier": "parked",
         "testClass": null,
         "testMethod": null,
-        "note": "The test is written and the levers it uses are proven to work by the cold-boot set. What is missing is somewhere safe to write. No Test Lab-reachable non-production backend exists. The dev flavour points at http://localhost:8080/, which a device in Google's cloud cannot reach, and the stg and prod flavours point at the deployed stg API and at production, which carries real farm data - these journeys WRITE, so they may never run against either. Fixed by exposing the OCI writable clone's API to Test Lab, or by shipping a stub server the dev build can be pointed at with -PgoatosDevApiBaseUrl. Until then this is parked, not covered."
+        "note": "The test is written and the levers it uses are proven to work by the cold-boot set. What is missing is somewhere safe to write. No Test Lab-reachable non-production backend exists. The dev flavour points at http://localhost:8080/, which a device in Google's cloud cannot reach, and the stg and prod flavours point at the deployed stg API and at production, which carries real farm data - these journeys WRITE, so they may never run against either. Fixed by exposing the OCI writable clone's API to Test Lab, or by shipping a stub server the dev build can be pointed at with -PgoatosDevApiBaseUrl. Until then this is parked, not covered. PARKED BY DECISION, not by obstacle. Ravi's instruction: no write-path journey runs against any real backend - not the stg API, not production, not the OCI clone, not a local backend. It is catalogued here as data, with its story and its assertion, and it is not executed. Parked is the honest outcome and it is preferred to anything that goes near real farm data."
       },
-      "backend": "needs-reachable-non-production-backend"
+      "backend": "needs-reachable-non-production-backend",
+      "runsOn": "parked-no-backend-may-be-used"
     },
     {
       "name": "upload-killed-mid-flight-resumes",
@@ -366,9 +370,10 @@
         "tier": "parked",
         "testClass": null,
         "testMethod": null,
-        "note": "The test is written and the levers it uses are proven to work by the cold-boot set. What is missing is somewhere safe to write. No Test Lab-reachable non-production backend exists. The dev flavour points at http://localhost:8080/, which a device in Google's cloud cannot reach, and the stg and prod flavours point at the deployed stg API and at production, which carries real farm data - these journeys WRITE, so they may never run against either. Fixed by exposing the OCI writable clone's API to Test Lab, or by shipping a stub server the dev build can be pointed at with -PgoatosDevApiBaseUrl. Until then this is parked, not covered."
+        "note": "The test is written and the levers it uses are proven to work by the cold-boot set. What is missing is somewhere safe to write. No Test Lab-reachable non-production backend exists. The dev flavour points at http://localhost:8080/, which a device in Google's cloud cannot reach, and the stg and prod flavours point at the deployed stg API and at production, which carries real farm data - these journeys WRITE, so they may never run against either. Fixed by exposing the OCI writable clone's API to Test Lab, or by shipping a stub server the dev build can be pointed at with -PgoatosDevApiBaseUrl. Until then this is parked, not covered. PARKED BY DECISION, not by obstacle. Ravi's instruction: no write-path journey runs against any real backend - not the stg API, not production, not the OCI clone, not a local backend. It is catalogued here as data, with its story and its assertion, and it is not executed. Parked is the honest outcome and it is preferred to anything that goes near real farm data."
       },
-      "backend": "needs-reachable-non-production-backend"
+      "backend": "needs-reachable-non-production-backend",
+      "runsOn": "parked-no-backend-may-be-used"
     },
     {
       "name": "low-storage-is-handled",
@@ -407,9 +412,10 @@
         "tier": "parked",
         "testClass": null,
         "testMethod": null,
-        "note": "Filling a Test Lab device's storage to provoke the real out-of-space path risks wedging the device mid-run and burning the day's quota. Needs a debug affordance that reports storage as full. It also needs a backend: No Test Lab-reachable non-production backend exists. The dev flavour points at http://localhost:8080/, which a device in Google's cloud cannot reach, and the stg and prod flavours point at the deployed stg API and at production, which carries real farm data - these journeys WRITE, so they may never run against either. Fixed by exposing the OCI writable clone's API to Test Lab, or by shipping a stub server the dev build can be pointed at with -PgoatosDevApiBaseUrl. Until then this is parked, not covered."
+        "note": "Filling a Test Lab device's storage to provoke the real out-of-space path risks wedging the device mid-run and burning the day's quota. Needs a debug affordance that reports storage as full. It also needs a backend: No Test Lab-reachable non-production backend exists. The dev flavour points at http://localhost:8080/, which a device in Google's cloud cannot reach, and the stg and prod flavours point at the deployed stg API and at production, which carries real farm data - these journeys WRITE, so they may never run against either. Fixed by exposing the OCI writable clone's API to Test Lab, or by shipping a stub server the dev build can be pointed at with -PgoatosDevApiBaseUrl. Until then this is parked, not covered. PARKED BY DECISION, not by obstacle. Ravi's instruction: no write-path journey runs against any real backend - not the stg API, not production, not the OCI clone, not a local backend. It is catalogued here as data, with its story and its assertion, and it is not executed. Parked is the honest outcome and it is preferred to anything that goes near real farm data."
       },
-      "backend": "needs-reachable-non-production-backend"
+      "backend": "needs-reachable-non-production-backend",
+      "runsOn": "parked-no-backend-may-be-used"
     },
     {
       "name": "proof-media-playback",
@@ -497,9 +503,10 @@
         "tier": "parked",
         "testClass": null,
         "testMethod": null,
-        "note": "Playback can be driven on a virtual device, but the only proof to play is one a real camera recorded, so it is built alongside the physical proof-capture set. It also needs a backend: No Test Lab-reachable non-production backend exists. The dev flavour points at http://localhost:8080/, which a device in Google's cloud cannot reach, and the stg and prod flavours point at the deployed stg API and at production, which carries real farm data - these journeys WRITE, so they may never run against either. Fixed by exposing the OCI writable clone's API to Test Lab, or by shipping a stub server the dev build can be pointed at with -PgoatosDevApiBaseUrl. Until then this is parked, not covered."
+        "note": "Playback can be driven on a virtual device, but the only proof to play is one a real camera recorded, so it is built alongside the physical proof-capture set. It also needs a backend: No Test Lab-reachable non-production backend exists. The dev flavour points at http://localhost:8080/, which a device in Google's cloud cannot reach, and the stg and prod flavours point at the deployed stg API and at production, which carries real farm data - these journeys WRITE, so they may never run against either. Fixed by exposing the OCI writable clone's API to Test Lab, or by shipping a stub server the dev build can be pointed at with -PgoatosDevApiBaseUrl. Until then this is parked, not covered. PARKED BY DECISION, not by obstacle. Ravi's instruction: no write-path journey runs against any real backend - not the stg API, not production, not the OCI clone, not a local backend. It is catalogued here as data, with its story and its assertion, and it is not executed. Parked is the honest outcome and it is preferred to anything that goes near real farm data."
       },
-      "backend": "needs-reachable-non-production-backend"
+      "backend": "needs-reachable-non-production-backend",
+      "runsOn": "parked-no-backend-may-be-used"
     },
     {
       "name": "proof-capture",
@@ -658,7 +665,8 @@
         "testMethod": null,
         "note": "Drives the real camera and the video encoder. A virtual device's fake camera produces a synthetic frame, so a green run would not prove a real capture works on a farm phone."
       },
-      "backend": "needs-reachable-non-production-backend"
+      "backend": "needs-reachable-non-production-backend",
+      "runsOn": "physical-farm-phone"
     },
     {
       "name": "feed-transport-capture",
@@ -686,7 +694,8 @@
         "testMethod": null,
         "note": "Records video through the device camera; a Test Lab virtual device has no real camera or encoder, so a pass there would prove nothing."
       },
-      "backend": "needs-reachable-non-production-backend"
+      "backend": "needs-reachable-non-production-backend",
+      "runsOn": "physical-farm-phone"
     },
     {
       "name": "work-board-and-submit",
@@ -852,9 +861,10 @@
         "tier": "parked",
         "testClass": null,
         "testMethod": null,
-        "note": "Catalogued from the commit ledger, not yet automated. The sync architecture and the upload-failure set are built first, as the roadmap asks. It also needs a backend: No Test Lab-reachable non-production backend exists. The dev flavour points at http://localhost:8080/, which a device in Google's cloud cannot reach, and the stg and prod flavours point at the deployed stg API and at production, which carries real farm data - these journeys WRITE, so they may never run against either. Fixed by exposing the OCI writable clone's API to Test Lab, or by shipping a stub server the dev build can be pointed at with -PgoatosDevApiBaseUrl. Until then this is parked, not covered."
+        "note": "Catalogued from the commit ledger, not yet automated. The sync architecture and the upload-failure set are built first, as the roadmap asks. It also needs a backend: No Test Lab-reachable non-production backend exists. The dev flavour points at http://localhost:8080/, which a device in Google's cloud cannot reach, and the stg and prod flavours point at the deployed stg API and at production, which carries real farm data - these journeys WRITE, so they may never run against either. Fixed by exposing the OCI writable clone's API to Test Lab, or by shipping a stub server the dev build can be pointed at with -PgoatosDevApiBaseUrl. Until then this is parked, not covered. PARKED BY DECISION, not by obstacle. Ravi's instruction: no write-path journey runs against any real backend - not the stg API, not production, not the OCI clone, not a local backend. It is catalogued here as data, with its story and its assertion, and it is not executed. Parked is the honest outcome and it is preferred to anything that goes near real farm data."
       },
-      "backend": "needs-reachable-non-production-backend"
+      "backend": "needs-reachable-non-production-backend",
+      "runsOn": "parked-no-backend-may-be-used"
     },
     {
       "name": "shifting-on-the-phone",
@@ -987,9 +997,10 @@
         "tier": "parked",
         "testClass": null,
         "testMethod": null,
-        "note": "Catalogued from the commit ledger, not yet automated. The sync architecture and the upload-failure set are built first, as the roadmap asks. It also needs a backend: No Test Lab-reachable non-production backend exists. The dev flavour points at http://localhost:8080/, which a device in Google's cloud cannot reach, and the stg and prod flavours point at the deployed stg API and at production, which carries real farm data - these journeys WRITE, so they may never run against either. Fixed by exposing the OCI writable clone's API to Test Lab, or by shipping a stub server the dev build can be pointed at with -PgoatosDevApiBaseUrl. Until then this is parked, not covered."
+        "note": "Catalogued from the commit ledger, not yet automated. The sync architecture and the upload-failure set are built first, as the roadmap asks. It also needs a backend: No Test Lab-reachable non-production backend exists. The dev flavour points at http://localhost:8080/, which a device in Google's cloud cannot reach, and the stg and prod flavours point at the deployed stg API and at production, which carries real farm data - these journeys WRITE, so they may never run against either. Fixed by exposing the OCI writable clone's API to Test Lab, or by shipping a stub server the dev build can be pointed at with -PgoatosDevApiBaseUrl. Until then this is parked, not covered. PARKED BY DECISION, not by obstacle. Ravi's instruction: no write-path journey runs against any real backend - not the stg API, not production, not the OCI clone, not a local backend. It is catalogued here as data, with its story and its assertion, and it is not executed. Parked is the honest outcome and it is preferred to anything that goes near real farm data."
       },
-      "backend": "needs-reachable-non-production-backend"
+      "backend": "needs-reachable-non-production-backend",
+      "runsOn": "parked-no-backend-may-be-used"
     },
     {
       "name": "weighing-capture-screen",
@@ -1095,9 +1106,10 @@
         "tier": "parked",
         "testClass": null,
         "testMethod": null,
-        "note": "Catalogued from the commit ledger, not yet automated. The sync architecture and the upload-failure set are built first, as the roadmap asks. It also needs a backend: No Test Lab-reachable non-production backend exists. The dev flavour points at http://localhost:8080/, which a device in Google's cloud cannot reach, and the stg and prod flavours point at the deployed stg API and at production, which carries real farm data - these journeys WRITE, so they may never run against either. Fixed by exposing the OCI writable clone's API to Test Lab, or by shipping a stub server the dev build can be pointed at with -PgoatosDevApiBaseUrl. Until then this is parked, not covered."
+        "note": "Catalogued from the commit ledger, not yet automated. The sync architecture and the upload-failure set are built first, as the roadmap asks. It also needs a backend: No Test Lab-reachable non-production backend exists. The dev flavour points at http://localhost:8080/, which a device in Google's cloud cannot reach, and the stg and prod flavours point at the deployed stg API and at production, which carries real farm data - these journeys WRITE, so they may never run against either. Fixed by exposing the OCI writable clone's API to Test Lab, or by shipping a stub server the dev build can be pointed at with -PgoatosDevApiBaseUrl. Until then this is parked, not covered. PARKED BY DECISION, not by obstacle. Ravi's instruction: no write-path journey runs against any real backend - not the stg API, not production, not the OCI clone, not a local backend. It is catalogued here as data, with its story and its assertion, and it is not executed. Parked is the honest outcome and it is preferred to anything that goes near real farm data."
       },
-      "backend": "needs-reachable-non-production-backend"
+      "backend": "needs-reachable-non-production-backend",
+      "runsOn": "parked-no-backend-may-be-used"
     },
     {
       "name": "verify-queue",
@@ -1171,9 +1183,10 @@
         "tier": "parked",
         "testClass": null,
         "testMethod": null,
-        "note": "Catalogued from the commit ledger, not yet automated. The sync architecture and the upload-failure set are built first, as the roadmap asks. It also needs a backend: No Test Lab-reachable non-production backend exists. The dev flavour points at http://localhost:8080/, which a device in Google's cloud cannot reach, and the stg and prod flavours point at the deployed stg API and at production, which carries real farm data - these journeys WRITE, so they may never run against either. Fixed by exposing the OCI writable clone's API to Test Lab, or by shipping a stub server the dev build can be pointed at with -PgoatosDevApiBaseUrl. Until then this is parked, not covered."
+        "note": "Catalogued from the commit ledger, not yet automated. The sync architecture and the upload-failure set are built first, as the roadmap asks. It also needs a backend: No Test Lab-reachable non-production backend exists. The dev flavour points at http://localhost:8080/, which a device in Google's cloud cannot reach, and the stg and prod flavours point at the deployed stg API and at production, which carries real farm data - these journeys WRITE, so they may never run against either. Fixed by exposing the OCI writable clone's API to Test Lab, or by shipping a stub server the dev build can be pointed at with -PgoatosDevApiBaseUrl. Until then this is parked, not covered. PARKED BY DECISION, not by obstacle. Ravi's instruction: no write-path journey runs against any real backend - not the stg API, not production, not the OCI clone, not a local backend. It is catalogued here as data, with its story and its assertion, and it is not executed. Parked is the honest outcome and it is preferred to anything that goes near real farm data."
       },
-      "backend": "needs-reachable-non-production-backend"
+      "backend": "needs-reachable-non-production-backend",
+      "runsOn": "parked-no-backend-may-be-used"
     },
     {
       "name": "work-instructions",
@@ -1241,9 +1254,10 @@
         "tier": "parked",
         "testClass": null,
         "testMethod": null,
-        "note": "Catalogued from the commit ledger, not yet automated. The sync architecture and the upload-failure set are built first, as the roadmap asks. It also needs a backend: No Test Lab-reachable non-production backend exists. The dev flavour points at http://localhost:8080/, which a device in Google's cloud cannot reach, and the stg and prod flavours point at the deployed stg API and at production, which carries real farm data - these journeys WRITE, so they may never run against either. Fixed by exposing the OCI writable clone's API to Test Lab, or by shipping a stub server the dev build can be pointed at with -PgoatosDevApiBaseUrl. Until then this is parked, not covered."
+        "note": "Catalogued from the commit ledger, not yet automated. The sync architecture and the upload-failure set are built first, as the roadmap asks. It also needs a backend: No Test Lab-reachable non-production backend exists. The dev flavour points at http://localhost:8080/, which a device in Google's cloud cannot reach, and the stg and prod flavours point at the deployed stg API and at production, which carries real farm data - these journeys WRITE, so they may never run against either. Fixed by exposing the OCI writable clone's API to Test Lab, or by shipping a stub server the dev build can be pointed at with -PgoatosDevApiBaseUrl. Until then this is parked, not covered. PARKED BY DECISION, not by obstacle. Ravi's instruction: no write-path journey runs against any real backend - not the stg API, not production, not the OCI clone, not a local backend. It is catalogued here as data, with its story and its assertion, and it is not executed. Parked is the honest outcome and it is preferred to anything that goes near real farm data."
       },
-      "backend": "needs-reachable-non-production-backend"
+      "backend": "needs-reachable-non-production-backend",
+      "runsOn": "parked-no-backend-may-be-used"
     },
     {
       "name": "pen-reconciliation",
@@ -1311,9 +1325,10 @@
         "tier": "parked",
         "testClass": null,
         "testMethod": null,
-        "note": "Catalogued from the commit ledger, not yet automated. The sync architecture and the upload-failure set are built first, as the roadmap asks. It also needs a backend: No Test Lab-reachable non-production backend exists. The dev flavour points at http://localhost:8080/, which a device in Google's cloud cannot reach, and the stg and prod flavours point at the deployed stg API and at production, which carries real farm data - these journeys WRITE, so they may never run against either. Fixed by exposing the OCI writable clone's API to Test Lab, or by shipping a stub server the dev build can be pointed at with -PgoatosDevApiBaseUrl. Until then this is parked, not covered."
+        "note": "Catalogued from the commit ledger, not yet automated. The sync architecture and the upload-failure set are built first, as the roadmap asks. It also needs a backend: No Test Lab-reachable non-production backend exists. The dev flavour points at http://localhost:8080/, which a device in Google's cloud cannot reach, and the stg and prod flavours point at the deployed stg API and at production, which carries real farm data - these journeys WRITE, so they may never run against either. Fixed by exposing the OCI writable clone's API to Test Lab, or by shipping a stub server the dev build can be pointed at with -PgoatosDevApiBaseUrl. Until then this is parked, not covered. PARKED BY DECISION, not by obstacle. Ravi's instruction: no write-path journey runs against any real backend - not the stg API, not production, not the OCI clone, not a local backend. It is catalogued here as data, with its story and its assertion, and it is not executed. Parked is the honest outcome and it is preferred to anything that goes near real farm data."
       },
-      "backend": "needs-reachable-non-production-backend"
+      "backend": "needs-reachable-non-production-backend",
+      "runsOn": "parked-no-backend-may-be-used"
     },
     {
       "name": "login-and-session",
@@ -1382,7 +1397,8 @@
         "note": "Only the fresh-install half runs: the app reaches the sign-in screen and stays there across a force-stop. Signing in, staying signed in, and the revoked-session half need a session.",
         "coversPartially": "the fresh-install half only: the app reaches the sign-in screen and is still there after being closed and reopened. Signing in, staying signed in and the revoked-session half all need a session."
       },
-      "backend": "none-by-design"
+      "backend": "none-by-design",
+      "runsOn": "testlab-virtual"
     },
     {
       "name": "weighing-scan-identifies-the-animal",
@@ -1449,7 +1465,8 @@
         "testMethod": null,
         "note": "Reads a physical RFID ear tag through the handheld reader; a virtual device has no RFID hardware and cannot exercise the reader at all."
       },
-      "backend": "needs-reachable-non-production-backend"
+      "backend": "needs-reachable-non-production-backend",
+      "runsOn": "physical-farm-phone"
     },
     {
       "name": "pc-care-task",
@@ -1512,9 +1529,10 @@
         "tier": "parked",
         "testClass": null,
         "testMethod": null,
-        "note": "Catalogued from the commit ledger, not yet automated. The sync architecture and the upload-failure set are built first, as the roadmap asks. It also needs a backend: No Test Lab-reachable non-production backend exists. The dev flavour points at http://localhost:8080/, which a device in Google's cloud cannot reach, and the stg and prod flavours point at the deployed stg API and at production, which carries real farm data - these journeys WRITE, so they may never run against either. Fixed by exposing the OCI writable clone's API to Test Lab, or by shipping a stub server the dev build can be pointed at with -PgoatosDevApiBaseUrl. Until then this is parked, not covered."
+        "note": "Catalogued from the commit ledger, not yet automated. The sync architecture and the upload-failure set are built first, as the roadmap asks. It also needs a backend: No Test Lab-reachable non-production backend exists. The dev flavour points at http://localhost:8080/, which a device in Google's cloud cannot reach, and the stg and prod flavours point at the deployed stg API and at production, which carries real farm data - these journeys WRITE, so they may never run against either. Fixed by exposing the OCI writable clone's API to Test Lab, or by shipping a stub server the dev build can be pointed at with -PgoatosDevApiBaseUrl. Until then this is parked, not covered. PARKED BY DECISION, not by obstacle. Ravi's instruction: no write-path journey runs against any real backend - not the stg API, not production, not the OCI clone, not a local backend. It is catalogued here as data, with its story and its assertion, and it is not executed. Parked is the honest outcome and it is preferred to anything that goes near real farm data."
       },
-      "backend": "needs-reachable-non-production-backend"
+      "backend": "needs-reachable-non-production-backend",
+      "runsOn": "parked-no-backend-may-be-used"
     },
     {
       "name": "shell-navigation",
@@ -1573,9 +1591,10 @@
         "tier": "parked",
         "testClass": null,
         "testMethod": null,
-        "note": "Catalogued from the commit ledger, not yet automated. The sync architecture and the upload-failure set are built first, as the roadmap asks. It also needs a backend: No Test Lab-reachable non-production backend exists. The dev flavour points at http://localhost:8080/, which a device in Google's cloud cannot reach, and the stg and prod flavours point at the deployed stg API and at production, which carries real farm data - these journeys WRITE, so they may never run against either. Fixed by exposing the OCI writable clone's API to Test Lab, or by shipping a stub server the dev build can be pointed at with -PgoatosDevApiBaseUrl. Until then this is parked, not covered."
+        "note": "Catalogued from the commit ledger, not yet automated. The sync architecture and the upload-failure set are built first, as the roadmap asks. It also needs a backend: No Test Lab-reachable non-production backend exists. The dev flavour points at http://localhost:8080/, which a device in Google's cloud cannot reach, and the stg and prod flavours point at the deployed stg API and at production, which carries real farm data - these journeys WRITE, so they may never run against either. Fixed by exposing the OCI writable clone's API to Test Lab, or by shipping a stub server the dev build can be pointed at with -PgoatosDevApiBaseUrl. Until then this is parked, not covered. PARKED BY DECISION, not by obstacle. Ravi's instruction: no write-path journey runs against any real backend - not the stg API, not production, not the OCI clone, not a local backend. It is catalogued here as data, with its story and its assertion, and it is not executed. Parked is the honest outcome and it is preferred to anything that goes near real farm data."
       },
-      "backend": "needs-reachable-non-production-backend"
+      "backend": "needs-reachable-non-production-backend",
+      "runsOn": "parked-no-backend-may-be-used"
     },
     {
       "name": "app-update-gate",
@@ -1622,7 +1641,8 @@
         "testMethod": null,
         "note": "The app skips its own out-of-date-build gate on debug builds (the gate is set to fail open there), and the suite has to run a debug build to reach the app's debug navigation receiver. So the gate cannot be driven on the build this lane can run. Driving it needs either a release-flavour build with a seeded session, or a debug affordance the app already has for forcing the gate but which only applies at launch."
       },
-      "backend": "none-by-design"
+      "backend": "none-by-design",
+      "runsOn": "testlab-virtual"
     },
     {
       "name": "push-notification-opens-the-right-job",
@@ -1668,9 +1688,10 @@
         "tier": "parked",
         "testClass": null,
         "testMethod": null,
-        "note": "Catalogued from the commit ledger, not yet automated. The sync architecture and the upload-failure set are built first, as the roadmap asks. It also needs a backend: No Test Lab-reachable non-production backend exists. The dev flavour points at http://localhost:8080/, which a device in Google's cloud cannot reach, and the stg and prod flavours point at the deployed stg API and at production, which carries real farm data - these journeys WRITE, so they may never run against either. Fixed by exposing the OCI writable clone's API to Test Lab, or by shipping a stub server the dev build can be pointed at with -PgoatosDevApiBaseUrl. Until then this is parked, not covered."
+        "note": "Catalogued from the commit ledger, not yet automated. The sync architecture and the upload-failure set are built first, as the roadmap asks. It also needs a backend: No Test Lab-reachable non-production backend exists. The dev flavour points at http://localhost:8080/, which a device in Google's cloud cannot reach, and the stg and prod flavours point at the deployed stg API and at production, which carries real farm data - these journeys WRITE, so they may never run against either. Fixed by exposing the OCI writable clone's API to Test Lab, or by shipping a stub server the dev build can be pointed at with -PgoatosDevApiBaseUrl. Until then this is parked, not covered. PARKED BY DECISION, not by obstacle. Ravi's instruction: no write-path journey runs against any real backend - not the stg API, not production, not the OCI clone, not a local backend. It is catalogued here as data, with its story and its assertion, and it is not executed. Parked is the honest outcome and it is preferred to anything that goes near real farm data."
       },
-      "backend": "needs-reachable-non-production-backend"
+      "backend": "needs-reachable-non-production-backend",
+      "runsOn": "parked-no-backend-may-be-used"
     },
     {
       "name": "animal-purchase-load",
@@ -1715,9 +1736,10 @@
         "tier": "parked",
         "testClass": null,
         "testMethod": null,
-        "note": "Catalogued from the commit ledger, not yet automated. The sync architecture and the upload-failure set are built first, as the roadmap asks. It also needs a backend: No Test Lab-reachable non-production backend exists. The dev flavour points at http://localhost:8080/, which a device in Google's cloud cannot reach, and the stg and prod flavours point at the deployed stg API and at production, which carries real farm data - these journeys WRITE, so they may never run against either. Fixed by exposing the OCI writable clone's API to Test Lab, or by shipping a stub server the dev build can be pointed at with -PgoatosDevApiBaseUrl. Until then this is parked, not covered."
+        "note": "Catalogued from the commit ledger, not yet automated. The sync architecture and the upload-failure set are built first, as the roadmap asks. It also needs a backend: No Test Lab-reachable non-production backend exists. The dev flavour points at http://localhost:8080/, which a device in Google's cloud cannot reach, and the stg and prod flavours point at the deployed stg API and at production, which carries real farm data - these journeys WRITE, so they may never run against either. Fixed by exposing the OCI writable clone's API to Test Lab, or by shipping a stub server the dev build can be pointed at with -PgoatosDevApiBaseUrl. Until then this is parked, not covered. PARKED BY DECISION, not by obstacle. Ravi's instruction: no write-path journey runs against any real backend - not the stg API, not production, not the OCI clone, not a local backend. It is catalogued here as data, with its story and its assertion, and it is not executed. Parked is the honest outcome and it is preferred to anything that goes near real farm data."
       },
-      "backend": "needs-reachable-non-production-backend"
+      "backend": "needs-reachable-non-production-backend",
+      "runsOn": "parked-no-backend-may-be-used"
     },
     {
       "name": "feed-distribution-complete",
@@ -1759,9 +1781,10 @@
         "tier": "parked",
         "testClass": null,
         "testMethod": null,
-        "note": "Catalogued from the commit ledger, not yet automated. The sync architecture and the upload-failure set are built first, as the roadmap asks. It also needs a backend: No Test Lab-reachable non-production backend exists. The dev flavour points at http://localhost:8080/, which a device in Google's cloud cannot reach, and the stg and prod flavours point at the deployed stg API and at production, which carries real farm data - these journeys WRITE, so they may never run against either. Fixed by exposing the OCI writable clone's API to Test Lab, or by shipping a stub server the dev build can be pointed at with -PgoatosDevApiBaseUrl. Until then this is parked, not covered."
+        "note": "Catalogued from the commit ledger, not yet automated. The sync architecture and the upload-failure set are built first, as the roadmap asks. It also needs a backend: No Test Lab-reachable non-production backend exists. The dev flavour points at http://localhost:8080/, which a device in Google's cloud cannot reach, and the stg and prod flavours point at the deployed stg API and at production, which carries real farm data - these journeys WRITE, so they may never run against either. Fixed by exposing the OCI writable clone's API to Test Lab, or by shipping a stub server the dev build can be pointed at with -PgoatosDevApiBaseUrl. Until then this is parked, not covered. PARKED BY DECISION, not by obstacle. Ravi's instruction: no write-path journey runs against any real backend - not the stg API, not production, not the OCI clone, not a local backend. It is catalogued here as data, with its story and its assertion, and it is not executed. Parked is the honest outcome and it is preferred to anything that goes near real farm data."
       },
-      "backend": "needs-reachable-non-production-backend"
+      "backend": "needs-reachable-non-production-backend",
+      "runsOn": "parked-no-backend-may-be-used"
     },
     {
       "name": "vendors-and-feed-purchases",
@@ -1802,9 +1825,10 @@
         "tier": "parked",
         "testClass": null,
         "testMethod": null,
-        "note": "Catalogued from the commit ledger, not yet automated. The sync architecture and the upload-failure set are built first, as the roadmap asks. It also needs a backend: No Test Lab-reachable non-production backend exists. The dev flavour points at http://localhost:8080/, which a device in Google's cloud cannot reach, and the stg and prod flavours point at the deployed stg API and at production, which carries real farm data - these journeys WRITE, so they may never run against either. Fixed by exposing the OCI writable clone's API to Test Lab, or by shipping a stub server the dev build can be pointed at with -PgoatosDevApiBaseUrl. Until then this is parked, not covered."
+        "note": "Catalogued from the commit ledger, not yet automated. The sync architecture and the upload-failure set are built first, as the roadmap asks. It also needs a backend: No Test Lab-reachable non-production backend exists. The dev flavour points at http://localhost:8080/, which a device in Google's cloud cannot reach, and the stg and prod flavours point at the deployed stg API and at production, which carries real farm data - these journeys WRITE, so they may never run against either. Fixed by exposing the OCI writable clone's API to Test Lab, or by shipping a stub server the dev build can be pointed at with -PgoatosDevApiBaseUrl. Until then this is parked, not covered. PARKED BY DECISION, not by obstacle. Ravi's instruction: no write-path journey runs against any real backend - not the stg API, not production, not the OCI clone, not a local backend. It is catalogued here as data, with its story and its assertion, and it is not executed. Parked is the honest outcome and it is preferred to anything that goes near real farm data."
       },
-      "backend": "needs-reachable-non-production-backend"
+      "backend": "needs-reachable-non-production-backend",
+      "runsOn": "parked-no-backend-may-be-used"
     },
     {
       "name": "leadership-tasks-on-the-phone",
@@ -1845,9 +1869,10 @@
         "tier": "parked",
         "testClass": null,
         "testMethod": null,
-        "note": "Catalogued from the commit ledger, not yet automated. The sync architecture and the upload-failure set are built first, as the roadmap asks. It also needs a backend: No Test Lab-reachable non-production backend exists. The dev flavour points at http://localhost:8080/, which a device in Google's cloud cannot reach, and the stg and prod flavours point at the deployed stg API and at production, which carries real farm data - these journeys WRITE, so they may never run against either. Fixed by exposing the OCI writable clone's API to Test Lab, or by shipping a stub server the dev build can be pointed at with -PgoatosDevApiBaseUrl. Until then this is parked, not covered."
+        "note": "Catalogued from the commit ledger, not yet automated. The sync architecture and the upload-failure set are built first, as the roadmap asks. It also needs a backend: No Test Lab-reachable non-production backend exists. The dev flavour points at http://localhost:8080/, which a device in Google's cloud cannot reach, and the stg and prod flavours point at the deployed stg API and at production, which carries real farm data - these journeys WRITE, so they may never run against either. Fixed by exposing the OCI writable clone's API to Test Lab, or by shipping a stub server the dev build can be pointed at with -PgoatosDevApiBaseUrl. Until then this is parked, not covered. PARKED BY DECISION, not by obstacle. Ravi's instruction: no write-path journey runs against any real backend - not the stg API, not production, not the OCI clone, not a local backend. It is catalogued here as data, with its story and its assertion, and it is not executed. Parked is the honest outcome and it is preferred to anything that goes near real farm data."
       },
-      "backend": "needs-reachable-non-production-backend"
+      "backend": "needs-reachable-non-production-backend",
+      "runsOn": "parked-no-backend-may-be-used"
     },
     {
       "name": "feed-direction-worklist",
@@ -1886,9 +1911,10 @@
         "tier": "parked",
         "testClass": null,
         "testMethod": null,
-        "note": "Catalogued from the commit ledger, not yet automated. The sync architecture and the upload-failure set are built first, as the roadmap asks. It also needs a backend: No Test Lab-reachable non-production backend exists. The dev flavour points at http://localhost:8080/, which a device in Google's cloud cannot reach, and the stg and prod flavours point at the deployed stg API and at production, which carries real farm data - these journeys WRITE, so they may never run against either. Fixed by exposing the OCI writable clone's API to Test Lab, or by shipping a stub server the dev build can be pointed at with -PgoatosDevApiBaseUrl. Until then this is parked, not covered."
+        "note": "Catalogued from the commit ledger, not yet automated. The sync architecture and the upload-failure set are built first, as the roadmap asks. It also needs a backend: No Test Lab-reachable non-production backend exists. The dev flavour points at http://localhost:8080/, which a device in Google's cloud cannot reach, and the stg and prod flavours point at the deployed stg API and at production, which carries real farm data - these journeys WRITE, so they may never run against either. Fixed by exposing the OCI writable clone's API to Test Lab, or by shipping a stub server the dev build can be pointed at with -PgoatosDevApiBaseUrl. Until then this is parked, not covered. PARKED BY DECISION, not by obstacle. Ravi's instruction: no write-path journey runs against any real backend - not the stg API, not production, not the OCI clone, not a local backend. It is catalogued here as data, with its story and its assertion, and it is not executed. Parked is the honest outcome and it is preferred to anything that goes near real farm data."
       },
-      "backend": "needs-reachable-non-production-backend"
+      "backend": "needs-reachable-non-production-backend",
+      "runsOn": "parked-no-backend-may-be-used"
     },
     {
       "name": "feed-packing-complete",
@@ -1927,9 +1953,10 @@
         "tier": "parked",
         "testClass": null,
         "testMethod": null,
-        "note": "Catalogued from the commit ledger, not yet automated. The sync architecture and the upload-failure set are built first, as the roadmap asks. It also needs a backend: No Test Lab-reachable non-production backend exists. The dev flavour points at http://localhost:8080/, which a device in Google's cloud cannot reach, and the stg and prod flavours point at the deployed stg API and at production, which carries real farm data - these journeys WRITE, so they may never run against either. Fixed by exposing the OCI writable clone's API to Test Lab, or by shipping a stub server the dev build can be pointed at with -PgoatosDevApiBaseUrl. Until then this is parked, not covered."
+        "note": "Catalogued from the commit ledger, not yet automated. The sync architecture and the upload-failure set are built first, as the roadmap asks. It also needs a backend: No Test Lab-reachable non-production backend exists. The dev flavour points at http://localhost:8080/, which a device in Google's cloud cannot reach, and the stg and prod flavours point at the deployed stg API and at production, which carries real farm data - these journeys WRITE, so they may never run against either. Fixed by exposing the OCI writable clone's API to Test Lab, or by shipping a stub server the dev build can be pointed at with -PgoatosDevApiBaseUrl. Until then this is parked, not covered. PARKED BY DECISION, not by obstacle. Ravi's instruction: no write-path journey runs against any real backend - not the stg API, not production, not the OCI clone, not a local backend. It is catalogued here as data, with its story and its assertion, and it is not executed. Parked is the honest outcome and it is preferred to anything that goes near real farm data."
       },
-      "backend": "needs-reachable-non-production-backend"
+      "backend": "needs-reachable-non-production-backend",
+      "runsOn": "parked-no-backend-may-be-used"
     },
     {
       "name": "sales-on-the-phone",
@@ -1965,9 +1992,10 @@
         "tier": "parked",
         "testClass": null,
         "testMethod": null,
-        "note": "Catalogued from the commit ledger, not yet automated. The sync architecture and the upload-failure set are built first, as the roadmap asks. It also needs a backend: No Test Lab-reachable non-production backend exists. The dev flavour points at http://localhost:8080/, which a device in Google's cloud cannot reach, and the stg and prod flavours point at the deployed stg API and at production, which carries real farm data - these journeys WRITE, so they may never run against either. Fixed by exposing the OCI writable clone's API to Test Lab, or by shipping a stub server the dev build can be pointed at with -PgoatosDevApiBaseUrl. Until then this is parked, not covered."
+        "note": "Catalogued from the commit ledger, not yet automated. The sync architecture and the upload-failure set are built first, as the roadmap asks. It also needs a backend: No Test Lab-reachable non-production backend exists. The dev flavour points at http://localhost:8080/, which a device in Google's cloud cannot reach, and the stg and prod flavours point at the deployed stg API and at production, which carries real farm data - these journeys WRITE, so they may never run against either. Fixed by exposing the OCI writable clone's API to Test Lab, or by shipping a stub server the dev build can be pointed at with -PgoatosDevApiBaseUrl. Until then this is parked, not covered. PARKED BY DECISION, not by obstacle. Ravi's instruction: no write-path journey runs against any real backend - not the stg API, not production, not the OCI clone, not a local backend. It is catalogued here as data, with its story and its assertion, and it is not executed. Parked is the honest outcome and it is preferred to anything that goes near real farm data."
       },
-      "backend": "needs-reachable-non-production-backend"
+      "backend": "needs-reachable-non-production-backend",
+      "runsOn": "parked-no-backend-may-be-used"
     },
     {
       "name": "health-and-toxin-on-the-phone",
@@ -2001,9 +2029,10 @@
         "tier": "parked",
         "testClass": null,
         "testMethod": null,
-        "note": "Catalogued from the commit ledger, not yet automated. The sync architecture and the upload-failure set are built first, as the roadmap asks. It also needs a backend: No Test Lab-reachable non-production backend exists. The dev flavour points at http://localhost:8080/, which a device in Google's cloud cannot reach, and the stg and prod flavours point at the deployed stg API and at production, which carries real farm data - these journeys WRITE, so they may never run against either. Fixed by exposing the OCI writable clone's API to Test Lab, or by shipping a stub server the dev build can be pointed at with -PgoatosDevApiBaseUrl. Until then this is parked, not covered."
+        "note": "Catalogued from the commit ledger, not yet automated. The sync architecture and the upload-failure set are built first, as the roadmap asks. It also needs a backend: No Test Lab-reachable non-production backend exists. The dev flavour points at http://localhost:8080/, which a device in Google's cloud cannot reach, and the stg and prod flavours point at the deployed stg API and at production, which carries real farm data - these journeys WRITE, so they may never run against either. Fixed by exposing the OCI writable clone's API to Test Lab, or by shipping a stub server the dev build can be pointed at with -PgoatosDevApiBaseUrl. Until then this is parked, not covered. PARKED BY DECISION, not by obstacle. Ravi's instruction: no write-path journey runs against any real backend - not the stg API, not production, not the OCI clone, not a local backend. It is catalogued here as data, with its story and its assertion, and it is not executed. Parked is the honest outcome and it is preferred to anything that goes near real farm data."
       },
-      "backend": "needs-reachable-non-production-backend"
+      "backend": "needs-reachable-non-production-backend",
+      "runsOn": "parked-no-backend-may-be-used"
     },
     {
       "name": "approvals-on-the-phone",
@@ -2039,9 +2068,10 @@
         "tier": "parked",
         "testClass": null,
         "testMethod": null,
-        "note": "Catalogued from the commit ledger, not yet automated. The sync architecture and the upload-failure set are built first, as the roadmap asks. It also needs a backend: No Test Lab-reachable non-production backend exists. The dev flavour points at http://localhost:8080/, which a device in Google's cloud cannot reach, and the stg and prod flavours point at the deployed stg API and at production, which carries real farm data - these journeys WRITE, so they may never run against either. Fixed by exposing the OCI writable clone's API to Test Lab, or by shipping a stub server the dev build can be pointed at with -PgoatosDevApiBaseUrl. Until then this is parked, not covered."
+        "note": "Catalogued from the commit ledger, not yet automated. The sync architecture and the upload-failure set are built first, as the roadmap asks. It also needs a backend: No Test Lab-reachable non-production backend exists. The dev flavour points at http://localhost:8080/, which a device in Google's cloud cannot reach, and the stg and prod flavours point at the deployed stg API and at production, which carries real farm data - these journeys WRITE, so they may never run against either. Fixed by exposing the OCI writable clone's API to Test Lab, or by shipping a stub server the dev build can be pointed at with -PgoatosDevApiBaseUrl. Until then this is parked, not covered. PARKED BY DECISION, not by obstacle. Ravi's instruction: no write-path journey runs against any real backend - not the stg API, not production, not the OCI clone, not a local backend. It is catalogued here as data, with its story and its assertion, and it is not executed. Parked is the honest outcome and it is preferred to anything that goes near real farm data."
       },
-      "backend": "needs-reachable-non-production-backend"
+      "backend": "needs-reachable-non-production-backend",
+      "runsOn": "parked-no-backend-may-be-used"
     },
     {
       "name": "add-a-birth-on-the-phone",
@@ -2079,9 +2109,10 @@
         "tier": "parked",
         "testClass": null,
         "testMethod": null,
-        "note": "Catalogued from the commit ledger, not yet automated. The sync architecture and the upload-failure set are built first, as the roadmap asks. It also needs a backend: No Test Lab-reachable non-production backend exists. The dev flavour points at http://localhost:8080/, which a device in Google's cloud cannot reach, and the stg and prod flavours point at the deployed stg API and at production, which carries real farm data - these journeys WRITE, so they may never run against either. Fixed by exposing the OCI writable clone's API to Test Lab, or by shipping a stub server the dev build can be pointed at with -PgoatosDevApiBaseUrl. Until then this is parked, not covered."
+        "note": "Catalogued from the commit ledger, not yet automated. The sync architecture and the upload-failure set are built first, as the roadmap asks. It also needs a backend: No Test Lab-reachable non-production backend exists. The dev flavour points at http://localhost:8080/, which a device in Google's cloud cannot reach, and the stg and prod flavours point at the deployed stg API and at production, which carries real farm data - these journeys WRITE, so they may never run against either. Fixed by exposing the OCI writable clone's API to Test Lab, or by shipping a stub server the dev build can be pointed at with -PgoatosDevApiBaseUrl. Until then this is parked, not covered. PARKED BY DECISION, not by obstacle. Ravi's instruction: no write-path journey runs against any real backend - not the stg API, not production, not the OCI clone, not a local backend. It is catalogued here as data, with its story and its assertion, and it is not executed. Parked is the honest outcome and it is preferred to anything that goes near real farm data."
       },
-      "backend": "needs-reachable-non-production-backend"
+      "backend": "needs-reachable-non-production-backend",
+      "runsOn": "parked-no-backend-may-be-used"
     },
     {
       "name": "add-a-death-on-the-phone",
@@ -2114,9 +2145,10 @@
         "tier": "parked",
         "testClass": null,
         "testMethod": null,
-        "note": "Catalogued from the commit ledger, not yet automated. The sync architecture and the upload-failure set are built first, as the roadmap asks. It also needs a backend: No Test Lab-reachable non-production backend exists. The dev flavour points at http://localhost:8080/, which a device in Google's cloud cannot reach, and the stg and prod flavours point at the deployed stg API and at production, which carries real farm data - these journeys WRITE, so they may never run against either. Fixed by exposing the OCI writable clone's API to Test Lab, or by shipping a stub server the dev build can be pointed at with -PgoatosDevApiBaseUrl. Until then this is parked, not covered."
+        "note": "Catalogued from the commit ledger, not yet automated. The sync architecture and the upload-failure set are built first, as the roadmap asks. It also needs a backend: No Test Lab-reachable non-production backend exists. The dev flavour points at http://localhost:8080/, which a device in Google's cloud cannot reach, and the stg and prod flavours point at the deployed stg API and at production, which carries real farm data - these journeys WRITE, so they may never run against either. Fixed by exposing the OCI writable clone's API to Test Lab, or by shipping a stub server the dev build can be pointed at with -PgoatosDevApiBaseUrl. Until then this is parked, not covered. PARKED BY DECISION, not by obstacle. Ravi's instruction: no write-path journey runs against any real backend - not the stg API, not production, not the OCI clone, not a local backend. It is catalogued here as data, with its story and its assertion, and it is not executed. Parked is the honest outcome and it is preferred to anything that goes near real farm data."
       },
-      "backend": "needs-reachable-non-production-backend"
+      "backend": "needs-reachable-non-production-backend",
+      "runsOn": "parked-no-backend-may-be-used"
     },
     {
       "name": "clock-and-leave",
@@ -2146,9 +2178,10 @@
         "tier": "parked",
         "testClass": null,
         "testMethod": null,
-        "note": "Catalogued from the commit ledger, not yet automated. The sync architecture and the upload-failure set are built first, as the roadmap asks. It also needs a backend: No Test Lab-reachable non-production backend exists. The dev flavour points at http://localhost:8080/, which a device in Google's cloud cannot reach, and the stg and prod flavours point at the deployed stg API and at production, which carries real farm data - these journeys WRITE, so they may never run against either. Fixed by exposing the OCI writable clone's API to Test Lab, or by shipping a stub server the dev build can be pointed at with -PgoatosDevApiBaseUrl. Until then this is parked, not covered."
+        "note": "Catalogued from the commit ledger, not yet automated. The sync architecture and the upload-failure set are built first, as the roadmap asks. It also needs a backend: No Test Lab-reachable non-production backend exists. The dev flavour points at http://localhost:8080/, which a device in Google's cloud cannot reach, and the stg and prod flavours point at the deployed stg API and at production, which carries real farm data - these journeys WRITE, so they may never run against either. Fixed by exposing the OCI writable clone's API to Test Lab, or by shipping a stub server the dev build can be pointed at with -PgoatosDevApiBaseUrl. Until then this is parked, not covered. PARKED BY DECISION, not by obstacle. Ravi's instruction: no write-path journey runs against any real backend - not the stg API, not production, not the OCI clone, not a local backend. It is catalogued here as data, with its story and its assertion, and it is not executed. Parked is the honest outcome and it is preferred to anything that goes near real farm data."
       },
-      "backend": "needs-reachable-non-production-backend"
+      "backend": "needs-reachable-non-production-backend",
+      "runsOn": "parked-no-backend-may-be-used"
     },
     {
       "name": "crash-free-on-the-covered-screens",
@@ -2180,7 +2213,8 @@
         "note": "Only the screens reachable without signing in are walked. The rest of the covered set needs a session.",
         "coversPartially": "the screens reachable without signing in only: the sign-in screen through rotate, background, resume and force-stop. Every screen past sign-in needs a session."
       },
-      "backend": "none-by-design"
+      "backend": "none-by-design",
+      "runsOn": "testlab-virtual"
     },
     {
       "name": "weighing-task-detail-and-sheds",
@@ -2211,9 +2245,10 @@
         "tier": "parked",
         "testClass": null,
         "testMethod": null,
-        "note": "Catalogued from the commit ledger, not yet automated. The sync architecture and the upload-failure set are built first, as the roadmap asks. It also needs a backend: No Test Lab-reachable non-production backend exists. The dev flavour points at http://localhost:8080/, which a device in Google's cloud cannot reach, and the stg and prod flavours point at the deployed stg API and at production, which carries real farm data - these journeys WRITE, so they may never run against either. Fixed by exposing the OCI writable clone's API to Test Lab, or by shipping a stub server the dev build can be pointed at with -PgoatosDevApiBaseUrl. Until then this is parked, not covered."
+        "note": "Catalogued from the commit ledger, not yet automated. The sync architecture and the upload-failure set are built first, as the roadmap asks. It also needs a backend: No Test Lab-reachable non-production backend exists. The dev flavour points at http://localhost:8080/, which a device in Google's cloud cannot reach, and the stg and prod flavours point at the deployed stg API and at production, which carries real farm data - these journeys WRITE, so they may never run against either. Fixed by exposing the OCI writable clone's API to Test Lab, or by shipping a stub server the dev build can be pointed at with -PgoatosDevApiBaseUrl. Until then this is parked, not covered. PARKED BY DECISION, not by obstacle. Ravi's instruction: no write-path journey runs against any real backend - not the stg API, not production, not the OCI clone, not a local backend. It is catalogued here as data, with its story and its assertion, and it is not executed. Parked is the honest outcome and it is preferred to anything that goes near real farm data."
       },
-      "backend": "needs-reachable-non-production-backend"
+      "backend": "needs-reachable-non-production-backend",
+      "runsOn": "parked-no-backend-may-be-used"
     },
     {
       "name": "verify-detail-and-verdict",
@@ -2246,9 +2281,10 @@
         "tier": "parked",
         "testClass": null,
         "testMethod": null,
-        "note": "Catalogued from the commit ledger, not yet automated. The sync architecture and the upload-failure set are built first, as the roadmap asks. It also needs a backend: No Test Lab-reachable non-production backend exists. The dev flavour points at http://localhost:8080/, which a device in Google's cloud cannot reach, and the stg and prod flavours point at the deployed stg API and at production, which carries real farm data - these journeys WRITE, so they may never run against either. Fixed by exposing the OCI writable clone's API to Test Lab, or by shipping a stub server the dev build can be pointed at with -PgoatosDevApiBaseUrl. Until then this is parked, not covered."
+        "note": "Catalogued from the commit ledger, not yet automated. The sync architecture and the upload-failure set are built first, as the roadmap asks. It also needs a backend: No Test Lab-reachable non-production backend exists. The dev flavour points at http://localhost:8080/, which a device in Google's cloud cannot reach, and the stg and prod flavours point at the deployed stg API and at production, which carries real farm data - these journeys WRITE, so they may never run against either. Fixed by exposing the OCI writable clone's API to Test Lab, or by shipping a stub server the dev build can be pointed at with -PgoatosDevApiBaseUrl. Until then this is parked, not covered. PARKED BY DECISION, not by obstacle. Ravi's instruction: no write-path journey runs against any real backend - not the stg API, not production, not the OCI clone, not a local backend. It is catalogued here as data, with its story and its assertion, and it is not executed. Parked is the honest outcome and it is preferred to anything that goes near real farm data."
       },
-      "backend": "needs-reachable-non-production-backend"
+      "backend": "needs-reachable-non-production-backend",
+      "runsOn": "parked-no-backend-may-be-used"
     },
     {
       "name": "capture-access-gate",
@@ -2283,7 +2319,8 @@
         "testMethod": null,
         "note": "Catalogued from the commit ledger, not yet automated. The sync architecture and the upload-failure set are built first, as the roadmap asks."
       },
-      "backend": "none-by-design"
+      "backend": "none-by-design",
+      "runsOn": "testlab-virtual"
     },
     {
       "name": "calendar-on-the-phone",
@@ -2312,9 +2349,10 @@
         "tier": "parked",
         "testClass": null,
         "testMethod": null,
-        "note": "Catalogued from the commit ledger, not yet automated. The sync architecture and the upload-failure set are built first, as the roadmap asks. It also needs a backend: No Test Lab-reachable non-production backend exists. The dev flavour points at http://localhost:8080/, which a device in Google's cloud cannot reach, and the stg and prod flavours point at the deployed stg API and at production, which carries real farm data - these journeys WRITE, so they may never run against either. Fixed by exposing the OCI writable clone's API to Test Lab, or by shipping a stub server the dev build can be pointed at with -PgoatosDevApiBaseUrl. Until then this is parked, not covered."
+        "note": "Catalogued from the commit ledger, not yet automated. The sync architecture and the upload-failure set are built first, as the roadmap asks. It also needs a backend: No Test Lab-reachable non-production backend exists. The dev flavour points at http://localhost:8080/, which a device in Google's cloud cannot reach, and the stg and prod flavours point at the deployed stg API and at production, which carries real farm data - these journeys WRITE, so they may never run against either. Fixed by exposing the OCI writable clone's API to Test Lab, or by shipping a stub server the dev build can be pointed at with -PgoatosDevApiBaseUrl. Until then this is parked, not covered. PARKED BY DECISION, not by obstacle. Ravi's instruction: no write-path journey runs against any real backend - not the stg API, not production, not the OCI clone, not a local backend. It is catalogued here as data, with its story and its assertion, and it is not executed. Parked is the honest outcome and it is preferred to anything that goes near real farm data."
       },
-      "backend": "needs-reachable-non-production-backend"
+      "backend": "needs-reachable-non-production-backend",
+      "runsOn": "parked-no-backend-may-be-used"
     },
     {
       "name": "weighing-fasting-and-operators",
@@ -2345,9 +2383,10 @@
         "tier": "parked",
         "testClass": null,
         "testMethod": null,
-        "note": "Catalogued from the commit ledger, not yet automated. The sync architecture and the upload-failure set are built first, as the roadmap asks. It also needs a backend: No Test Lab-reachable non-production backend exists. The dev flavour points at http://localhost:8080/, which a device in Google's cloud cannot reach, and the stg and prod flavours point at the deployed stg API and at production, which carries real farm data - these journeys WRITE, so they may never run against either. Fixed by exposing the OCI writable clone's API to Test Lab, or by shipping a stub server the dev build can be pointed at with -PgoatosDevApiBaseUrl. Until then this is parked, not covered."
+        "note": "Catalogued from the commit ledger, not yet automated. The sync architecture and the upload-failure set are built first, as the roadmap asks. It also needs a backend: No Test Lab-reachable non-production backend exists. The dev flavour points at http://localhost:8080/, which a device in Google's cloud cannot reach, and the stg and prod flavours point at the deployed stg API and at production, which carries real farm data - these journeys WRITE, so they may never run against either. Fixed by exposing the OCI writable clone's API to Test Lab, or by shipping a stub server the dev build can be pointed at with -PgoatosDevApiBaseUrl. Until then this is parked, not covered. PARKED BY DECISION, not by obstacle. Ravi's instruction: no write-path journey runs against any real backend - not the stg API, not production, not the OCI clone, not a local backend. It is catalogued here as data, with its story and its assertion, and it is not executed. Parked is the honest outcome and it is preferred to anything that goes near real farm data."
       },
-      "backend": "needs-reachable-non-production-backend"
+      "backend": "needs-reachable-non-production-backend",
+      "runsOn": "parked-no-backend-may-be-used"
     },
     {
       "name": "pen-routine-and-pen-visit",
@@ -2376,9 +2415,10 @@
         "tier": "parked",
         "testClass": null,
         "testMethod": null,
-        "note": "Catalogued from the commit ledger, not yet automated. The sync architecture and the upload-failure set are built first, as the roadmap asks. It also needs a backend: No Test Lab-reachable non-production backend exists. The dev flavour points at http://localhost:8080/, which a device in Google's cloud cannot reach, and the stg and prod flavours point at the deployed stg API and at production, which carries real farm data - these journeys WRITE, so they may never run against either. Fixed by exposing the OCI writable clone's API to Test Lab, or by shipping a stub server the dev build can be pointed at with -PgoatosDevApiBaseUrl. Until then this is parked, not covered."
+        "note": "Catalogued from the commit ledger, not yet automated. The sync architecture and the upload-failure set are built first, as the roadmap asks. It also needs a backend: No Test Lab-reachable non-production backend exists. The dev flavour points at http://localhost:8080/, which a device in Google's cloud cannot reach, and the stg and prod flavours point at the deployed stg API and at production, which carries real farm data - these journeys WRITE, so they may never run against either. Fixed by exposing the OCI writable clone's API to Test Lab, or by shipping a stub server the dev build can be pointed at with -PgoatosDevApiBaseUrl. Until then this is parked, not covered. PARKED BY DECISION, not by obstacle. Ravi's instruction: no write-path journey runs against any real backend - not the stg API, not production, not the OCI clone, not a local backend. It is catalogued here as data, with its story and its assertion, and it is not executed. Parked is the honest outcome and it is preferred to anything that goes near real farm data."
       },
-      "backend": "needs-reachable-non-production-backend"
+      "backend": "needs-reachable-non-production-backend",
+      "runsOn": "parked-no-backend-may-be-used"
     },
     {
       "name": "vaccination-submit",
@@ -2407,9 +2447,10 @@
         "tier": "parked",
         "testClass": null,
         "testMethod": null,
-        "note": "Catalogued from the commit ledger, not yet automated. The sync architecture and the upload-failure set are built first, as the roadmap asks. It also needs a backend: No Test Lab-reachable non-production backend exists. The dev flavour points at http://localhost:8080/, which a device in Google's cloud cannot reach, and the stg and prod flavours point at the deployed stg API and at production, which carries real farm data - these journeys WRITE, so they may never run against either. Fixed by exposing the OCI writable clone's API to Test Lab, or by shipping a stub server the dev build can be pointed at with -PgoatosDevApiBaseUrl. Until then this is parked, not covered."
+        "note": "Catalogued from the commit ledger, not yet automated. The sync architecture and the upload-failure set are built first, as the roadmap asks. It also needs a backend: No Test Lab-reachable non-production backend exists. The dev flavour points at http://localhost:8080/, which a device in Google's cloud cannot reach, and the stg and prod flavours point at the deployed stg API and at production, which carries real farm data - these journeys WRITE, so they may never run against either. Fixed by exposing the OCI writable clone's API to Test Lab, or by shipping a stub server the dev build can be pointed at with -PgoatosDevApiBaseUrl. Until then this is parked, not covered. PARKED BY DECISION, not by obstacle. Ravi's instruction: no write-path journey runs against any real backend - not the stg API, not production, not the OCI clone, not a local backend. It is catalogued here as data, with its story and its assertion, and it is not executed. Parked is the honest outcome and it is preferred to anything that goes near real farm data."
       },
-      "backend": "needs-reachable-non-production-backend"
+      "backend": "needs-reachable-non-production-backend",
+      "runsOn": "parked-no-backend-may-be-used"
     },
     {
       "name": "feed-wastage",
@@ -2435,9 +2476,10 @@
         "tier": "parked",
         "testClass": null,
         "testMethod": null,
-        "note": "Catalogued from the commit ledger, not yet automated. The sync architecture and the upload-failure set are built first, as the roadmap asks. It also needs a backend: No Test Lab-reachable non-production backend exists. The dev flavour points at http://localhost:8080/, which a device in Google's cloud cannot reach, and the stg and prod flavours point at the deployed stg API and at production, which carries real farm data - these journeys WRITE, so they may never run against either. Fixed by exposing the OCI writable clone's API to Test Lab, or by shipping a stub server the dev build can be pointed at with -PgoatosDevApiBaseUrl. Until then this is parked, not covered."
+        "note": "Catalogued from the commit ledger, not yet automated. The sync architecture and the upload-failure set are built first, as the roadmap asks. It also needs a backend: No Test Lab-reachable non-production backend exists. The dev flavour points at http://localhost:8080/, which a device in Google's cloud cannot reach, and the stg and prod flavours point at the deployed stg API and at production, which carries real farm data - these journeys WRITE, so they may never run against either. Fixed by exposing the OCI writable clone's API to Test Lab, or by shipping a stub server the dev build can be pointed at with -PgoatosDevApiBaseUrl. Until then this is parked, not covered. PARKED BY DECISION, not by obstacle. Ravi's instruction: no write-path journey runs against any real backend - not the stg API, not production, not the OCI clone, not a local backend. It is catalogued here as data, with its story and its assertion, and it is not executed. Parked is the honest outcome and it is preferred to anything that goes near real farm data."
       },
-      "backend": "needs-reachable-non-production-backend"
+      "backend": "needs-reachable-non-production-backend",
+      "runsOn": "parked-no-backend-may-be-used"
     },
     {
       "name": "weighing-plan-wizard",
@@ -2463,9 +2505,10 @@
         "tier": "parked",
         "testClass": null,
         "testMethod": null,
-        "note": "Catalogued from the commit ledger, not yet automated. The sync architecture and the upload-failure set are built first, as the roadmap asks. It also needs a backend: No Test Lab-reachable non-production backend exists. The dev flavour points at http://localhost:8080/, which a device in Google's cloud cannot reach, and the stg and prod flavours point at the deployed stg API and at production, which carries real farm data - these journeys WRITE, so they may never run against either. Fixed by exposing the OCI writable clone's API to Test Lab, or by shipping a stub server the dev build can be pointed at with -PgoatosDevApiBaseUrl. Until then this is parked, not covered."
+        "note": "Catalogued from the commit ledger, not yet automated. The sync architecture and the upload-failure set are built first, as the roadmap asks. It also needs a backend: No Test Lab-reachable non-production backend exists. The dev flavour points at http://localhost:8080/, which a device in Google's cloud cannot reach, and the stg and prod flavours point at the deployed stg API and at production, which carries real farm data - these journeys WRITE, so they may never run against either. Fixed by exposing the OCI writable clone's API to Test Lab, or by shipping a stub server the dev build can be pointed at with -PgoatosDevApiBaseUrl. Until then this is parked, not covered. PARKED BY DECISION, not by obstacle. Ravi's instruction: no write-path journey runs against any real backend - not the stg API, not production, not the OCI clone, not a local backend. It is catalogued here as data, with its story and its assertion, and it is not executed. Parked is the honest outcome and it is preferred to anything that goes near real farm data."
       },
-      "backend": "needs-reachable-non-production-backend"
+      "backend": "needs-reachable-non-production-backend",
+      "runsOn": "parked-no-backend-may-be-used"
     },
     {
       "name": "roster-scan",
@@ -2492,7 +2535,8 @@
         "testMethod": null,
         "note": "Reads a physical card through the device's RFID/NFC hardware, which a Test Lab virtual device does not have."
       },
-      "backend": "needs-reachable-non-production-backend"
+      "backend": "needs-reachable-non-production-backend",
+      "runsOn": "physical-farm-phone"
     },
     {
       "name": "market-survey",
@@ -2519,9 +2563,10 @@
         "tier": "parked",
         "testClass": null,
         "testMethod": null,
-        "note": "Catalogued from the commit ledger, not yet automated. The sync architecture and the upload-failure set are built first, as the roadmap asks. It also needs a backend: No Test Lab-reachable non-production backend exists. The dev flavour points at http://localhost:8080/, which a device in Google's cloud cannot reach, and the stg and prod flavours point at the deployed stg API and at production, which carries real farm data - these journeys WRITE, so they may never run against either. Fixed by exposing the OCI writable clone's API to Test Lab, or by shipping a stub server the dev build can be pointed at with -PgoatosDevApiBaseUrl. Until then this is parked, not covered."
+        "note": "Catalogued from the commit ledger, not yet automated. The sync architecture and the upload-failure set are built first, as the roadmap asks. It also needs a backend: No Test Lab-reachable non-production backend exists. The dev flavour points at http://localhost:8080/, which a device in Google's cloud cannot reach, and the stg and prod flavours point at the deployed stg API and at production, which carries real farm data - these journeys WRITE, so they may never run against either. Fixed by exposing the OCI writable clone's API to Test Lab, or by shipping a stub server the dev build can be pointed at with -PgoatosDevApiBaseUrl. Until then this is parked, not covered. PARKED BY DECISION, not by obstacle. Ravi's instruction: no write-path journey runs against any real backend - not the stg API, not production, not the OCI clone, not a local backend. It is catalogued here as data, with its story and its assertion, and it is not executed. Parked is the honest outcome and it is preferred to anything that goes near real farm data."
       },
-      "backend": "needs-reachable-non-production-backend"
+      "backend": "needs-reachable-non-production-backend",
+      "runsOn": "parked-no-backend-may-be-used"
     },
     {
       "name": "language-switch",
@@ -2548,7 +2593,8 @@
         "testMethod": null,
         "note": "Checking a translation needs the device locale set to Hindi, Kannada or Telugu and the translated strings asserted. That is one Test Lab test per language out of the ten a day, and a set of expected strings per language that does not exist yet. Asserting the ENGLISH strings are present, which is what the cold-boot suite does, is not this check and is not counted as it."
       },
-      "backend": "none-by-design"
+      "backend": "none-by-design",
+      "runsOn": "testlab-virtual"
     },
     {
       "name": "herd-signal-tags",
@@ -2575,7 +2621,8 @@
         "testMethod": null,
         "note": "Needs a real Bluetooth radio to hear a real tag; a Test Lab virtual device has no BLE stack and cannot see a physical beacon."
       },
-      "backend": "needs-reachable-non-production-backend"
+      "backend": "needs-reachable-non-production-backend",
+      "runsOn": "physical-farm-phone"
     }
   ],
   "coverageToday": {
@@ -2595,5 +2642,25 @@
   "backendSplit": {
     "needs-reachable-non-production-backend": 42,
     "none-by-design": 5
+  },
+  "whereEachJourneyCanRun": {
+    "testlab-virtual": "Needs no backend at all. The app cannot get past its sign-in screen without one, so this is the set whose subject is the app before any server is involved. These run on Firebase Test Lab virtual devices, dev flavour, inside the free tier.",
+    "parked-no-backend-may-be-used": "Needs a backend, and no backend may be used. Not the stg API, not production, not the OCI clone, not a local one. Catalogued as data with its story and assertion; never executed.",
+    "physical-farm-phone": "Camera, video, RFID/NFC and BLE. A virtual device would be a false green.",
+    "anHonestCorrection": "The offline-queue, retry, resume-after-force-stop and kill-mid-upload journeys look like they need no server, because the server being absent is what they are about. They still cannot run without one. To have work waiting in the queue you must first HAVE work, and the work board is composed by the backend bootstrap - with no server there is nothing on the board to record. The transition from online to offline needs the server to have been there. So these are parked with the rest, not run."
+  },
+  "runsOnSplit": {
+    "parked-no-backend-may-be-used": 37,
+    "physical-farm-phone": 5,
+    "testlab-virtual": 5
+  },
+  "dataRule": {
+    "rule": "No journey in this lane connects to any real backend. Write journeys are not executed anywhere.",
+    "neverTheseHosts": [
+      "api.goatos.mesha.sg",
+      "stg-api.dashboard.mesha.sg"
+    ],
+    "why": "The stg API serves the same STG-backed data as production. The difference is a name, not the data.",
+    "enforcedBy": "run-android-journeys.mjs refuses on three independent reads before submitting: the APK's flavour, a scan of the APK binary for either host, and any backend url it is given. It refuses rather than guesses when it cannot read, and it holds no networking capability at all - a test asserts the file imports no socket library and calls no fetch, so it cannot connect even by accident."
   }
 }
