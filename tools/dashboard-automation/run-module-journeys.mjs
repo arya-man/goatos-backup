@@ -60,10 +60,14 @@ for (const mod of modules) {
   if (result.status !== 0) {
     // Keep going so one broken module never hides failures in the others.
     const stdoutLines = redactText(result.stdout ?? "").split("\n");
-    const lastRoute = stdoutLines.filter((line) => line.startsWith("visual_route_start=")).pop();
-    const shots = stdoutLines.filter((line) => line.startsWith("screenshot_path=")).slice(-2);
-    const error = redactText(result.stderr ?? "").split("\n").filter((line) => /Error:/.test(line)).pop() ?? `Error: module ${mod.id} exited ${result.status}`;
-    console.error([lastRoute, ...shots, error].filter(Boolean).join("\n"));
+    const route = stdoutLines.filter((line) => line.startsWith("visual_route_start=")).pop()?.slice("visual_route_start=".length) ?? null;
+    const screenshots = stdoutLines.filter((line) => line.startsWith("screenshot_path=")).slice(-2)
+      .map((line) => path.resolve(repo, line.slice("screenshot_path=".length).trim()));
+    const errorLine = redactText(result.stderr ?? "").split("\n").filter((line) => /Error:/.test(line)).pop() ?? `Error: module ${mod.id} exited ${result.status}`;
+    const error = errorLine.replace(/^.*?Error:\s*/, "").slice(0, 600);
+    receipt.modules[receipt.modules.length - 1].failure = { route, error, screenshots };
+    writeFileSync(path.join(outDir, "module-journeys-receipt.json"), `${JSON.stringify(receipt, null, 2)}\n`);
+    console.error(`FAILED ${mod.id} ${route ?? ""}: ${error.slice(0, 200)}`);
     failedModules.push(mod.id);
   }
 }
