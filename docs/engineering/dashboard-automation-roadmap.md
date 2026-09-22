@@ -163,3 +163,48 @@ Progress on lanes 2-5 is appended here as it lands, so the PR is the record.
   `humanIssue` and `groupSlowPages` stay untouched, and every lane's self-test must prove a
   lane-1-only receipt still renders byte-identically. Slack text carries no SQL, table or column
   names, endpoint or field paths, status codes, selectors or check codes.
+- **Coverage ledger for lanes 2-5 built and independently verified.** Every commit on `origin/main`
+  since 2026-08-01 is now classified exactly once, by the same method that produced lane 1's 919
+  frontend assertions. Branch `auto/hist-20260923`,
+  `tools/dashboard-automation/commit-classification/lane{2,3,4}.jsonl`, `lane5-android.jsonl`,
+  `not-automatable.jsonl`, consolidated into `lane-checks.json` with
+  `LANE-COVERAGE-REPORT.md`.
+
+  | Bucket | Commits |
+  |---|---:|
+  | Lane 1 — already covered by PR #350's web ledger | 1023 |
+  | Lane 2 — read-only data sanity SQL | 170 |
+  | Lane 3 — read-only API contract + latency | 603 |
+  | Lane 4 — write path on the OCI clone | 423 |
+  | Lane 5 — Android | 1047 |
+  | Parked, with a reason on every row | 785 |
+
+  Verified independently: 3028 rows across the five new files, 3028 unique shas, zero duplicates,
+  zero rows without a sha. 194 deduplicated checks (lane 2: 50, lane 3: 62, lane 4: 35, lane 5: 47),
+  each carrying the full list of commits it covers.
+
+  Build order follows the team's own repeat bugs, worst first: proof/media 564, verification gate
+  356, published-version-not-locked 136, notification-not-delivered 110, offline-sync-queue 108,
+  partition/pen-label 99, permission drift 97, idempotency/outbox 91, totals-don't-reconcile 74,
+  double-count 54, latency 51.
+
+  Parked breaks down as repo tooling/CI 363, docs only 276, Go-test-only 105, migration bookkeeping
+  12, MCP connector plumbing 12, regenerated clients/gofmt 9, and 8 genuinely unroutable. Nothing
+  parked is reported as covered.
+
+  Five of lane 5's 47 checks need a **physical** device and say why a virtual Test Lab device would
+  be a false green: proof capture, feed transport capture, weighing scan (RFID), roster scan
+  (RFID/NFC), herd-signal tags (BLE).
+
+  **Honesty flag carried in the data:** 495 of the 3028 routed commits are tied to their check by
+  file path alone. The check is right to build, but the commit must be read before anyone claims it
+  proves that exact behaviour.
+
+- **The ledger drifts, so coverage is being made self-updating.** The classification above was taken
+  at main `e4edc073f`; main is now `faa622283` and 58 commits landed within two hours, leaving ~52
+  already unclassified. Counting by hand does not survive a moving main, so
+  `tools/dashboard-automation/sync-coverage.mjs` — which already fails the guard when a new
+  user-visible web commit has no assertion — is being extended to the four new lane ledgers. From
+  then on a commit that no lane covers fails the guard instead of quietly eroding the
+  "every commit since 2026-08-01" guarantee.
+
