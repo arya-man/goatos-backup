@@ -23,7 +23,8 @@ export type DomainId =
   | "farmernet"
   | "inventory"
   | "people"
-  | "sales";
+  | "sales"
+  | "pc_care";
 
 const DOMAIN_LABEL: Record<DomainId | "general", string> = {
   counts: "Counts",
@@ -38,6 +39,7 @@ const DOMAIN_LABEL: Record<DomainId | "general", string> = {
   inventory: "Inventory",
   people: "HR",
   sales: "Sales",
+  pc_care: "Preventive Care",
   general: "General",
 };
 
@@ -71,6 +73,9 @@ export function classifyDomain(code: string, name: string): DomainId | "general"
   // Sales SOP (maintainer instruction 2026-09-19): sales.* is the sale's own prefix; the
   // keyword table would file it under Procurement ("sale").
   if (c.startsWith("sales.")) return "sales";
+  // PC CARE SOP (2026-09-22): pc_care.* is preventive care's own prefix; without it the keyword
+  // table files the card under "General" and the chip reads nothing about the work it governs.
+  if (c.startsWith("pc_care.")) return "pc_care";
   const hay = `${code} ${name}`.toLowerCase();
   for (const rule of DOMAIN_KEYWORDS) {
     if (rule.words.some((w) => hay.includes(w))) return rule.id;
@@ -205,7 +210,7 @@ export function deriveFields(formDsl: unknown): DslField[] {
 // form, the aflatoxin procedure, the operator steps) carries an EMPTY `fields` array, so counting
 // it renders a bare "0 steps" chip beside the count that actually says what the document holds.
 // Report the toxin procedure's own steps where there are some, and otherwise say nothing at all.
-const MODULE_OWNED_SECTIONS = ["inspection", "vendor_form", "feed_purchase_form", "toxin", "follow_up"];
+const MODULE_OWNED_SECTIONS = ["inspection", "vendor_form", "feed_purchase_form", "toxin", "follow_up", "pc_care"];
 
 export function deriveStepCount(formDsl: unknown): number | null {
   const dsl = asObject(formDsl);
@@ -219,6 +224,12 @@ export function deriveStepCount(formDsl: unknown): number | null {
 
 // deriveToxinStepCount counts the authored steps of form_dsl.toxin (the aflatoxin procedure); 0
 // when the section is absent.
+/** True when a version carries the `pc_care` cards section (PC CARE SOP, 2026-09-22). */
+function hasPcCareCards(formDsl: unknown): boolean {
+  const dsl = asObject(formDsl);
+  return dsl ? asObject(dsl["pc_care"]) !== null : false;
+}
+
 export function deriveToxinStepCount(formDsl: unknown): number {
   const dsl = asObject(formDsl);
   const toxin = dsl ? asObject(dsl["toxin"]) : null;
@@ -327,6 +338,9 @@ export type SopCardView = {
   // THE TOXIN PROCEDURE IS AUTHORED (2026-09-20): the form_dsl when it carries a `toxin`
   // procedure (the steps of the aflatoxin strip test); null otherwise.
   toxinFormDsl: unknown;
+  // PC CARE SOP (maintainer decision 2026-09-22): the form_dsl when it carries a `pc_care` cards
+  // section (the removal rules and one capture card per work category); null otherwise.
+  pcCareFormDsl: unknown;
 };
 
 // toSopView maps the real API rows to the card facets. Everything is derived — no invented inventory.
@@ -353,6 +367,7 @@ export function toSopView(def: SopDefLike, version: SopVersionLike | null): SopC
     inspectionFormDsl: version && hasInspection(version.form_dsl) ? version.form_dsl : null,
     vendorFormDsl: version && hasSection(version.form_dsl, "vendor_form") ? version.form_dsl : null,
     weighingFormDsl: version && hasWeighingRules(version.form_dsl) ? version.form_dsl : null,
+    pcCareFormDsl: version && hasPcCareCards(version.form_dsl) ? version.form_dsl : null,
     feedFormDsl: version && hasFeedCards(version.form_dsl) ? version.form_dsl : null,
     shiftingFormDsl: version && hasShiftingCards(version.form_dsl) ? version.form_dsl : null,
     toxinFormDsl: version && hasSection(version.form_dsl, "toxin") ? version.form_dsl : null,

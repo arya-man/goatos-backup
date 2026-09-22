@@ -28,6 +28,7 @@ import {
 import { type SopCardView, type SopTrigger } from "./sop-derive";
 import { FollowUpStepsSummary } from "./followup-summary";
 import { InspectionSummary } from "./inspection-summary";
+import { PcCareSummary } from "./pc-care-summary";
 import { WeighingSummary } from "./weighing-summary";
 import { FeedSummary } from "./feed-summary";
 import { ShiftingSummary } from "./shifting-summary";
@@ -383,7 +384,7 @@ function SopDetailModal({ view, pageContract, onClose, onEdit, onEditCapture, ed
           {/* An inspection SOP lists its load form and pages below; the generic field list would repeat the load form. */}
           {/* A general SOP has no capture form: its whole content is the operator steps below, so the
               capture section (and its "no form_dsl fields" note) is not the thing to show (PR 308 review). */}
-          {view.inspectionFormDsl || view.vendorFormDsl || (view.fields.length === 0 && view.followUpStepCount > 0) ? null : (
+          {view.inspectionFormDsl || view.vendorFormDsl || view.pcCareFormDsl || (view.fields.length === 0 && view.followUpStepCount > 0) ? null : (
             <>
           <div className="b700" style={{ margin: "8px 0" }}>
             {copy(pageContract, "label.steps_questions")}{" "}
@@ -424,6 +425,7 @@ function SopDetailModal({ view, pageContract, onClose, onEdit, onEditCapture, ed
           {view.inspectionFormDsl ? <InspectionSummary pageContract={pageContract} formDsl={view.inspectionFormDsl} /> : null}
           {view.vendorFormDsl ? <InspectionSummary pageContract={pageContract} formDsl={view.vendorFormDsl} profile="vendor_form" /> : null}
           {view.weighingFormDsl ? <WeighingSummary pageContract={pageContract} formDsl={view.weighingFormDsl} /> : null}
+          {view.pcCareFormDsl ? <PcCareSummary pageContract={pageContract} formDsl={view.pcCareFormDsl} /> : null}
           {view.feedFormDsl ? <FeedSummary pageContract={pageContract} sopCode={view.code} formDsl={view.feedFormDsl} /> : null}
           {view.shiftingFormDsl ? <ShiftingSummary pageContract={pageContract} formDsl={view.shiftingFormDsl} /> : null}
           {view.toxinFormDsl ? <ToxinSummary pageContract={pageContract} formDsl={view.toxinFormDsl} /> : null}
@@ -454,6 +456,8 @@ function SopDetailModal({ view, pageContract, onClose, onEdit, onEditCapture, ed
                     ? copy(pageContract, "action.edit_feed")
                     : view.weighingFormDsl
                     ? copy(pageContract, "action.edit_weighing")
+                    : view.pcCareFormDsl
+                    ? copy(pageContract, "action.edit_pc_care")
                     : copy(pageContract, "action.new_sop_builder")}
           </button>
         </div>
