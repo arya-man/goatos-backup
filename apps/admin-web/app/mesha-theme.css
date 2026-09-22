@@ -1727,16 +1727,16 @@
      The window is sized by ASPECT RATIO rather than a pixel height because the SVG carries no
      height attribute — it is scaled by its viewBox, so its rendered height is
      `containerWidth × viewBoxHeight / viewBoxWidth`. A fixed max-height would hold ten rows at one
-     card width and six at another. 1100 : 264 is WIDE_VIEW_WIDTH : barsViewHeight(10) from
+     card width and six at another. 1100 : 304 is WIDE_VIEW_WIDTH : barsViewHeight(10) from
      components/svg-bars.tsx, and svg-bars.test.mjs fails if the two ever disagree.
      scrollbar-gutter keeps the bars from reflowing by a scrollbar's width when the window appears. */
-  .main .svgbars-scroll{overflow-y:auto;overflow-x:hidden;scrollbar-gutter:stable;aspect-ratio:1100 / 264}
+  .main .svgbars-scroll{overflow-y:auto;overflow-x:hidden;scrollbar-gutter:stable;aspect-ratio:1100 / 304}
   @media(max-width:1080px){
     .main .svgbars-wide{display:none}
     .main .svgbars-narrow{display:block}
     /* The narrow scale draws the same ten rows in a 280-wide viewBox, so the window needs its own
        ratio — reusing the wide one here would show three bars on a phone. */
-    .main .svgbars-scroll{aspect-ratio:280 / 264}
+    .main .svgbars-scroll{aspect-ratio:280 / 304}
   }
   @media(max-width:600px){
     .main .counts-breakdown-kpis .kpi .kpiic{display:none}

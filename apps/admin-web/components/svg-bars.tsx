@@ -36,9 +36,19 @@ const SERIES_PALETTE = [
   "var(--ok)",
 ] as const;
 
-// Mock geometry: 20px rows on a 6px gap, with a label gutter and a value gutter either side.
+// Mock geometry: 20px rows on a 10px gap, with a label gutter and a value gutter either side.
+//
+// The gap was 6 and read as CLAUSTROPHOBIC on a full-width card (maintainer, 2026-09-22): the
+// wide scale renders its 1100-unit viewBox at roughly 1:1, so a 6-unit gap is 6 real pixels
+// between 20-pixel bars and the rows run together into one block. Half a bar's height of air
+// is what separates them into rows the eye can count.
+//
+// It is ONE number for every bar chart in the product rather than a per-chart prop, for two
+// reasons: the scroll window's aspect ratio in mesha-theme.css is derived from this geometry
+// and holds exactly ten rows, so a second geometry would show nine somewhere; and a stacked
+// chart sitting under a plain one must still line up with it row for row.
 const ROW_HEIGHT = 20;
-const ROW_GAP = 6;
+const ROW_GAP = 10;
 // Room at the right for the value label. A bare count needs 40; a count with its share
 // ("1,061 · 63%") needs roughly twice that. Sized per chart rather than globally so a chart
 // that shows no share keeps its bars exactly as long as they were.
