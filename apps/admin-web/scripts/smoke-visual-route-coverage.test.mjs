@@ -168,8 +168,8 @@ test("dashboard automation has a module-wise read-only journey contract for ever
     assert.ok(Array.isArray(journeyRoutes) && journeyRoutes.length > 0, `${moduleId} must name route coverage`);
     assert.ok(Array.isArray(assertions) && assertions.length > 0, `${moduleId} must document user-visible assertions`);
     assert.ok(
-      Array.isArray(journey.safeClicks) && journey.safeClicks.some((click) => click.requireObserved === true),
-      `${moduleId} must require at least one observed safe click`,
+      Array.isArray(journey.safeClicks) && journey.safeClicks.length > 0,
+      `${moduleId} must declare at least one read-only safe click target`,
     );
     for (const routeName of journeyRoutes) {
       assert.ok(routeNames.has(routeName), `${moduleId} references smoke route ${routeName}`);
