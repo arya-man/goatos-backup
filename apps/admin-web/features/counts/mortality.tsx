@@ -4,7 +4,7 @@ import { ChartHover } from "@/components/chart-hover";
 import type { DateRangePickerLabels } from "@/components/date-range-picker";
 import { SeriesLegend, StackedColumns, seriesColorVar, type StackedDay } from "@/components/svg-series";
 import { Tag } from "@/components/ui-primitives";
-import { copy, table, type AdminUiPageContract } from "@/lib/admin-ui-contract";
+import { copy, table, tablePageSizes, type AdminUiPageContract } from "@/lib/admin-ui-contract";
 import {
   firstAuthRequiredError,
   getCountsMortality,
@@ -16,6 +16,7 @@ import { INTERNAL_LOGIN_PATH } from "@/lib/auth/session-cookie";
 import { fmtDate, istDayPlus, todayIso } from "@/lib/format";
 import { backendScope, parseScope } from "@/lib/scope";
 import { one, type RouteSearchParams } from "@/lib/search-params";
+import { VaccinationTablePager } from "@/features/preventive-care-vaccination";
 import { HerdAnalyticsDateFilter } from "./herd-analytics-date-filter";
 import { RecentDeathsTable } from "./mortality-tables";
 import { MortalityTelemetry } from "./mortality-telemetry";
@@ -362,8 +363,23 @@ export async function MortalityPage({
   const requested = readWindow(sp);
   const { parkId } = backendScope(parseScope(sp));
 
+  // The deaths list pages on the SERVER: the window can hold more animals than one screen, and
+  // slicing a capped list on the client would show a pager that stops before the tile above it
+  // does. Both parameters are sent as asked and RESOLVED there -- an unknown size or a bad offset
+  // lands on the first page rather than failing a screen whose every other figure is whole-window.
+  const pageSizeOptions = tablePageSizes(pageContract, "recent-deaths");
+  const requestedSize = Number(one(sp, "md_limit"));
+  const recentLimit = pageSizeOptions.includes(requestedSize) ? requestedSize : (pageSizeOptions[1] ?? pageSizeOptions[0] ?? 25);
+  const requestedPage = Math.max(1, Number(one(sp, "md_page")) || 1);
+
   // ONE round trip for the whole screen.
-  const result = await getCountsMortality({ park_id: parkId, from: requested.from, to: requested.to });
+  const result = await getCountsMortality({
+    park_id: parkId,
+    from: requested.from,
+    to: requested.to,
+    recent_limit: recentLimit,
+    recent_offset: (requestedPage - 1) * recentLimit,
+  });
   if (firstAuthRequiredError(result)) redirect(INTERNAL_LOGIN_PATH);
   const data: MortalityResponse | null = result.ok ? result.data : null;
 
@@ -394,6 +410,25 @@ export async function MortalityPage({
   }
 
   const totals = data.totals;
+
+  // Every pager link carries the rest of the URL forward -- the window and the park scope live
+  // there too, and a page link that dropped them would silently re-scope the screen it is paging.
+  function hrefWithParam(key: string, value: string, options?: { drop?: string[] }): string {
+    const dropped = new Set([key, ...(options?.drop ?? [])]);
+    const next = new URLSearchParams();
+    for (const [paramKey, paramValue] of Object.entries(sp)) {
+      if (dropped.has(paramKey)) continue;
+      if (Array.isArray(paramValue)) {
+        for (const item of paramValue) if (item) next.append(paramKey, item);
+      } else if (paramValue) {
+        next.set(paramKey, paramValue);
+      }
+    }
+    if (value) next.set(key, value);
+    const qs = next.toString();
+    return qs ? `${PAGE_PATH}?${qs}` : PAGE_PATH;
+  }
+
   const deathsNoun = mc(pageContract, "label.deaths_noun");
   const emptyChart = mc(pageContract, "chart.empty");
   const animalsWord = mc(pageContract, "kpi.animals");
@@ -599,12 +634,9 @@ export async function MortalityPage({
         </div>
       </section>
 
-      <section className="card" aria-label={mc(pageContract, "table.recent.title")}>
+      <section className="card mortality-recent-card" aria-label={mc(pageContract, "table.recent.title")}>
         <h2 className="h">{mc(pageContract, "table.recent.title")}</h2>
-        <p className="muted small">
-          {mc(pageContract, "table.recent.hint")}
-          {totals.deaths > data.recent_limit ? ` ${mc(pageContract, "table.recent.capped").replace("%d", nf(data.recent_limit))}` : null}
-        </p>
+        <p className="muted small">{mc(pageContract, "table.recent.hint")}</p>
         <RecentDeathsTable
           contract={table(pageContract, "recent-deaths")}
           rows={data.deaths.map((d) => ({
@@ -629,6 +661,25 @@ export async function MortalityPage({
           empty={<span className="muted small">{emptyChart}</span>}
           noDataLabel={mc(pageContract, "label.no_load")}
           daysSuffix={mc(pageContract, "label.days_suffix")}
+        />
+        {/* The pager reads the page the SERVER actually served (`recent_offset` / `recent_limit`),
+            never the one the URL asked for, so a resolved parameter cannot leave the footer
+            describing a page the table is not showing. Its total is `totals.deaths`: the list and
+            that tile count the same window deaths, which is why paging moves no figure above. */}
+        <VaccinationTablePager
+          pageContract={pageContract}
+          pageSizeOptions={pageSizeOptions}
+          page={Math.floor(data.recent_offset / data.recent_limit) + 1}
+          pageSize={data.recent_limit}
+          total={totals.deaths}
+          start={data.deaths.length === 0 ? 0 : data.recent_offset + 1}
+          end={data.recent_offset + data.deaths.length}
+          noun={mc(pageContract, "table.recent.noun")}
+          hrefForPage={(nextPage) => hrefWithParam("md_page", nextPage === 1 ? "" : String(nextPage))}
+          /* A size change returns to the first page: page 4 of 10-row pages is a different set of
+             animals from page 4 of 50-row pages, and keeping the number would scroll the reader
+             somewhere they did not ask to go. */
+          hrefForPageSize={(nextSize) => hrefWithParam("md_limit", String(nextSize), { drop: ["md_page"] })}
         />
       </section>
     </div>

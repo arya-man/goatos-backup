@@ -479,8 +479,8 @@ ON CONFLICT (location_id) DO NOTHING`, countsTenant, otherPark, otherShed); err 
 	}
 }
 
-// PAGE BOUNDARY. The recent list is capped at MortalityRecentLimit; every figure above it is
-// a whole-window count and must NOT move with the cap. Seed one more death than the cap.
+// PAGE BOUNDARY. The deaths list serves ONE PAGE; every figure above it is a whole-window count
+// and must NOT move with the page. Seed one more death than a default page holds.
 func TestMortalityRecentListPageBoundaryLeavesTotalsUntouched(t *testing.T) {
 	ctx := context.Background()
 	repo, pool := newHerdAnalyticsRepo(t, ctx)
@@ -494,11 +494,11 @@ func TestMortalityRecentListPageBoundaryLeavesTotalsUntouched(t *testing.T) {
 	if err != nil {
 		t.Fatalf("mortality: %v", err)
 	}
-	if len(mort.Deaths) != domain.MortalityRecentLimit || mort.RecentLimit != domain.MortalityRecentLimit {
-		t.Fatalf("recent list %d rows (limit %d), want exactly the cap", len(mort.Deaths), mort.RecentLimit)
+	if len(mort.Deaths) != domain.MortalityRecentLimit || mort.RecentLimit != domain.MortalityRecentLimit || mort.RecentOffset != 0 {
+		t.Fatalf("page %d rows (limit %d, offset %d), want a full first page", len(mort.Deaths), mort.RecentLimit, mort.RecentOffset)
 	}
 	if mort.Totals.Deaths != int64(n) {
-		t.Fatalf("deaths=%d want %d: the total must not follow the list cap", mort.Totals.Deaths, n)
+		t.Fatalf("deaths=%d want %d: the total is the PAGER's total and must not follow one page", mort.Totals.Deaths, n)
 	}
 	// PageBoundary, vendor side: the vendor series and its cross tab are whole-window rollups
 	// and must not follow the list cap either.
@@ -510,7 +510,7 @@ func TestMortalityRecentListPageBoundaryLeavesTotalsUntouched(t *testing.T) {
 		vendorCause += c.Deaths
 	}
 	if vendor != int64(n) || vendorCause != int64(n) {
-		t.Fatalf("vendor=%d vendor x cause=%d, want %d each: a whole-window rollup must not follow the recent-list cap", vendor, vendorCause, n)
+		t.Fatalf("vendor=%d vendor x cause=%d, want %d each: a whole-window rollup must not follow one page of the list", vendor, vendorCause, n)
 	}
 	var age, season, cause, months int64
 	for _, b := range mort.AgeAtDeath {
@@ -531,6 +531,100 @@ func TestMortalityRecentListPageBoundaryLeavesTotalsUntouched(t *testing.T) {
 	// Most recent first, so the first row is the death on the window's latest day.
 	if mort.Deaths[0].DiedOn != died {
 		t.Fatalf("first recent row died %s, want %s (most recent first)", mort.Deaths[0].DiedOn, died)
+	}
+}
+
+// THE LIST PAGES THROUGH THE WHOLE WINDOW, and the second page continues exactly where the first
+// stopped. This is what the card's pager walks: a reader shown a rate for a vendor or a load has
+// to be able to read the animals behind it, and the old hard cap stopped at the first page.
+//
+// The two properties that make a page boundary trustworthy are asserted together: no animal is
+// REPEATED across the pages and none is SKIPPED, which holds because the list orders by
+// (died_on DESC, goat_id) -- total over the window's deaths -- rather than by the date alone.
+// Several of these animals share a death date on purpose, since a partial order is exactly what
+// lets a row sit on both pages or on neither.
+func TestMortalityDeathsListPagesThroughTheWholeWindow(t *testing.T) {
+	ctx := context.Background()
+	repo, pool := newHerdAnalyticsRepo(t, ctx)
+	from, to := "2026-07-01", "2026-07-31"
+	const n = 23
+	for i := 0; i < n; i++ {
+		// i%5 deliberately puts several animals on the same died_on.
+		insertMortalityGoat(t, ctx, pool, mortalityGoatID(700+i), "Beetal", "female", "K1", "kid", "2026-07-01", "birth", "died", istDayMinus("2026-07-20", i%5))
+	}
+
+	const size = 10
+	seen := map[string]int{}
+	pages := 0
+	for offset := 0; offset < n; offset += size {
+		page, err := repo.GetMortality(ctx, domain.MortalityQuery{TenantID: countsTenant, FromDate: from, ToDate: to, RecentLimit: size, RecentOffset: offset})
+		if err != nil {
+			t.Fatalf("mortality page at offset %d: %v", offset, err)
+		}
+		if page.RecentLimit != size || page.RecentOffset != offset {
+			t.Fatalf("page reports limit %d offset %d, want %d/%d -- the pager renders what the server served", page.RecentLimit, page.RecentOffset, size, offset)
+		}
+		want := size
+		if remaining := n - offset; remaining < size {
+			want = remaining
+		}
+		if len(page.Deaths) != want {
+			t.Fatalf("page at offset %d holds %d rows, want %d", offset, len(page.Deaths), want)
+		}
+		if page.Totals.Deaths != int64(n) {
+			t.Fatalf("page at offset %d reports totals.deaths=%d, want %d: the pager's total is a whole-window figure", offset, page.Totals.Deaths, n)
+		}
+		for _, d := range page.Deaths {
+			seen[d.GoatID]++
+		}
+		pages++
+	}
+	if pages != 3 {
+		t.Fatalf("walked %d pages, want 3 for %d deaths at %d a page", pages, n, size)
+	}
+	if len(seen) != n {
+		t.Fatalf("the pages covered %d distinct animals, want %d: a boundary skipped or repeated a row", len(seen), n)
+	}
+	for id, times := range seen {
+		if times != 1 {
+			t.Fatalf("animal %s appeared on %d pages, want exactly 1", id, times)
+		}
+	}
+}
+
+// A NONSENSE PAGER PARAMETER MUST NOT TAKE THE SCREEN DOWN. Every figure on this payload except
+// the list itself is whole-window, so an unknown page size or a negative offset resolves to the
+// first page at the default size -- it is never an error, and never served verbatim.
+func TestMortalityResolvesAnUnusablePageRequestToTheFirstPage(t *testing.T) {
+	ctx := context.Background()
+	repo, pool := newHerdAnalyticsRepo(t, ctx)
+	from, to := "2026-07-01", "2026-07-31"
+	for i := 0; i < 4; i++ {
+		insertMortalityGoat(t, ctx, pool, mortalityGoatID(760+i), "Beetal", "female", "K1", "kid", "2026-07-01", "birth", "died", "2026-07-11")
+	}
+	for _, bad := range []struct {
+		name          string
+		limit, offset int
+	}{
+		{"size outside the offered vocabulary", 7, 0},
+		{"negative offset", 10, -5},
+		{"offset past the clamp", 10, domain.MortalityRecentMaxOffset + 1},
+	} {
+		t.Run(bad.name, func(t *testing.T) {
+			mort, err := repo.GetMortality(ctx, domain.MortalityQuery{TenantID: countsTenant, FromDate: from, ToDate: to, RecentLimit: bad.limit, RecentOffset: bad.offset})
+			if err != nil {
+				t.Fatalf("mortality: %v", err)
+			}
+			if mort.RecentOffset != 0 {
+				t.Fatalf("offset resolved to %d, want the first page", mort.RecentOffset)
+			}
+			if bad.limit == 7 && mort.RecentLimit != domain.MortalityRecentLimit {
+				t.Fatalf("size resolved to %d, want the default %d", mort.RecentLimit, domain.MortalityRecentLimit)
+			}
+			if len(mort.Deaths) != 4 {
+				t.Fatalf("list holds %d rows, want all 4 deaths on the first page", len(mort.Deaths))
+			}
+		})
 	}
 }
 

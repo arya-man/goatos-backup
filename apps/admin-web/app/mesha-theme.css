@@ -1718,6 +1718,33 @@
   .main table.mortality-cross-table .total{font-weight:600}
   .main table.mortality-cross-table tfoot th,
   .main table.mortality-cross-table tfoot td{border-top:2px solid var(--line);border-bottom:0}
+  /* The deaths card is a bare `.card`, and `.card` itself carries no padding of its own -- so the
+     title, the caption and the table's first column all sat hard against the border while every
+     other card on the page gets its inset from `.chartcard`. The header text and the pager take a
+     16px inset; the TABLE keeps its full-bleed rules (a row's underline reading edge to edge is
+     the mock's own table anatomy) and gets the same 16px on its outer cells only, so the columns
+     line up under the title instead of starting 4px inside the border. */
+  .main .mortality-recent-card{padding:14px 0 12px}
+  .main .mortality-recent-card>h2{margin:0}
+  .main .mortality-recent-card>h2,
+  .main .mortality-recent-card>p{padding-left:16px;padding-right:16px}
+  .main .mortality-recent-card>p{margin:4px 0 10px}
+  .main .mortality-recent-card table.health-analytics-table th:first-child,
+  .main .mortality-recent-card table.health-analytics-table td:first-child{padding-left:16px}
+  .main .mortality-recent-card table.health-analytics-table th:last-child,
+  .main .mortality-recent-card table.health-analytics-table td:last-child{padding-right:16px}
+  /* The last row's underline would otherwise read as a rule floating above the card's own edge. */
+  .main .mortality-recent-card table.health-analytics-table tbody tr:last-child td{border-bottom:0}
+  .main .mortality-recent-card .pager2{padding:10px 16px 0;border-top:1px solid var(--line2);margin-top:0}
+  @media(max-width:600px){
+    .main .mortality-recent-card>h2,
+    .main .mortality-recent-card>p{padding-left:13px;padding-right:13px}
+    .main .mortality-recent-card .pager2{padding-left:13px;padding-right:13px}
+    .main .mortality-recent-card table.health-analytics-table th:first-child,
+    .main .mortality-recent-card table.health-analytics-table td:first-child{padding-left:13px}
+    .main .mortality-recent-card table.health-analytics-table th:last-child,
+    .main .mortality-recent-card table.health-analytics-table td:last-child{padding-right:13px}
+  }
   /* SvgBars ships the same chart at two viewBox scales because an SVG scales its viewBox
      uniformly: one fixed box cannot stay readable at both widths (a 1100-wide box in a 330px
      card renders 20px rows at ~6px). Show whichever scale matches the container. */

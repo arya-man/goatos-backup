@@ -523,11 +523,21 @@ func (h *Handler) GetMortality(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// The pager on the per-animal list. Unlike the window, a malformed value here is NOT a 400:
+	// paging is a view over one card, every other figure on the payload is whole-window, and
+	// failing the whole screen over a stray `recent_offset` would hide the numbers the reader
+	// came for. domain.ResolveMortalityRecentPage lands anything it does not recognise on the
+	// first page at the default size.
+	recentLimit, _ := strconv.Atoi(strings.TrimSpace(r.URL.Query().Get("recent_limit")))
+	recentOffset, _ := strconv.Atoi(strings.TrimSpace(r.URL.Query().Get("recent_offset")))
+
 	mortality, err := h.service.GetMortality(r.Context(), domain.MortalityQuery{
-		TenantID: tenantID,
-		ParkID:   nullableString(strings.TrimSpace(r.URL.Query().Get("park_id"))),
-		FromDate: fromDate,
-		ToDate:   toDate,
+		TenantID:     tenantID,
+		ParkID:       nullableString(strings.TrimSpace(r.URL.Query().Get("park_id"))),
+		FromDate:     fromDate,
+		ToDate:       toDate,
+		RecentLimit:  recentLimit,
+		RecentOffset: recentOffset,
 	})
 	if err != nil {
 		httpresponse.WriteError(w, r, h.log, http.StatusInternalServerError, "counts mortality", err)

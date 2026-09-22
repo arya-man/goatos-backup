@@ -1056,14 +1056,18 @@ export async function getHerdAnalytics(params: {
 
 /**
  * Counts -> Mortality. ONE call serves the whole screen: totals, every rate and count series,
- * the three cross tabs and the bounded recent list. `totals` is a WHOLE-WINDOW aggregate and
- * must never be re-derived by summing a series or counting the capped `deaths` list.
+ * the three cross tabs and one page of the deaths list. `totals` is a WHOLE-WINDOW aggregate and
+ * must never be re-derived by summing a series or counting the `deaths` page — `totals.deaths` is
+ * what the list's pager counts through, which is why turning a page moves no figure above it.
  */
 export async function getCountsMortality(params: {
   park_id?: string;
   /** Inclusive IST business-day bounds, "YYYY-MM-DD". Both or neither. */
   from?: string;
   to?: string;
+  /** Page of the deaths list ONLY. The backend resolves an unknown size or a bad offset to the first page. */
+  recent_limit?: number;
+  recent_offset?: number;
 }): Promise<ApiResult<MortalityResponse>> {
   const config = await getServerConfig();
   if (!config.ok) return config;

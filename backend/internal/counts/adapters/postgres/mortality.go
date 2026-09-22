@@ -355,7 +355,11 @@ UNION ALL
 SELECT 'first_week', '', '', '', '', count(*) FILTER (WHERE age_band = 'd0_7')::bigint, 0 FROM facts
 `
 
-// projection-review: membership=the same window deaths as mortalityDeathsSQL, capped at $5 rows most-recent-first; group_key=none, one row per animal; join_cardinality=park/shed/partition/cause are primary-key LEFT JOINs (1:{0,1}) and the tag, load and inferred-case lookups are LATERAL subqueries returning exactly ONE row (LIMIT 1 or a bare aggregate), so no animal is multiplied; pagination=a hard LIMIT, and every count above this list is computed by its own query and does not move with it; scope=tenant_id plus one optional park predicate
+// projection-review: membership=the same window deaths as mortalityDeathsSQL, capped at $5 rows most-recent-first; group_key=none, one row per animal; join_cardinality=park/shed/partition/cause are primary-key LEFT JOINs (1:{0,1}) and the tag, load and inferred-case lookups are LATERAL subqueries returning exactly ONE row (LIMIT 1 or a bare aggregate), so no animal is multiplied; pagination=LIMIT/OFFSET over the window's OWN deaths -- one window's dead animals, not the herd -- ordered by (died_on DESC, goat_id) which is total over the set, and the service clamps the offset to MortalityRecentMaxOffset; every count above this list is computed by its own whole-window query and does not move when the page turns; scope=tenant_id plus one optional park predicate
+// The OFFSET below walks ONE WINDOW's deaths (tens to hundreds at this envelope), never the
+// canonical goats table, on the same indexed exit predicate the tiles above it count, and
+// domain.MortalityRecentMaxOffset clamps it before it reaches here, so it cannot ask for a deep tail.
+// scale-guard:ignore: bounded window-deaths page set, offset clamped by MortalityRecentMaxOffset
 const mortalityRecentSQL = `
 WITH bounds AS (
   SELECT $2::date AS from_date, $3::date AS to_date
@@ -374,7 +378,7 @@ dead AS (
     AND COALESCE((g.exited_at AT TIME ZONE 'Asia/Kolkata')::date,
                  (g.updated_at AT TIME ZONE 'Asia/Kolkata')::date) BETWEEN b.from_date AND b.to_date
   ORDER BY 9 DESC, g.goat_id
-  LIMIT $5
+  LIMIT $5 OFFSET $6
 )
 SELECT d.goat_id::text, d.display_id,
        COALESCE(tag.identifier_value, ''),
@@ -436,11 +440,15 @@ func (r *Repository) GetMortality(ctx context.Context, req domain.MortalityQuery
 	from := fromDate.Format(domain.HerdAnalyticsDateLayout)
 	to := toDate.Format(domain.HerdAnalyticsDateLayout)
 	parkID := ptrValue(req.ParkID)
+	// The page of the per-animal list. Resolved rather than trusted: an unknown page size or a
+	// negative/absurd offset lands on the first page at the default size, because every other
+	// figure on this payload is whole-window and must not be lost to a bad pager parameter.
+	recentLimit, recentOffset := domain.ResolveMortalityRecentPage(req.RecentLimit, req.RecentOffset)
 
 	batch := &pgx.Batch{}
 	batch.Queue(mortalityPopulationSQL, req.TenantID, from, to, parkID)
 	batch.Queue(mortalityDeathsSQL, req.TenantID, from, to, parkID)
-	batch.Queue(mortalityRecentSQL, req.TenantID, from, to, parkID, domain.MortalityRecentLimit)
+	batch.Queue(mortalityRecentSQL, req.TenantID, from, to, parkID, recentLimit, recentOffset)
 
 	results := r.pool.SendBatch(ctx, batch)
 	defer func() { _ = results.Close() }()
@@ -468,7 +476,8 @@ func (r *Repository) GetMortality(ctx context.Context, req domain.MortalityQuery
 		VendorByCause:    []domain.MortalityCrossCell{},
 		BreedByCause:     []domain.MortalityCrossCell{},
 		Deaths:           []domain.MortalityDeath{},
-		RecentLimit:      domain.MortalityRecentLimit,
+		RecentLimit:      recentLimit,
+		RecentOffset:     recentOffset,
 		GeneratedAt:      time.Now().In(biztime.DefaultLocation()),
 	}
 

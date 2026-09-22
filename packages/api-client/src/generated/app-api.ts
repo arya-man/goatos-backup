@@ -5306,7 +5306,7 @@ export interface paths {
         };
         /**
          * Deaths in a window from every angle the farm asks -- stage, age, breed, load, cause, season, pen -- beside the live head count.
-         * @description The Counts mortality read. A death is the animal's own exit row (`exit_reason = 'died'`, dated the IST day of `exited_at`), the SAME predicate `/counts/herd-analytics` counts deaths with, so the two screens cannot disagree. Every attribute is read off the animal's row as it stood when it died (the exit touches only lifecycle columns). RATE series (`kid_adult`, `stage`, `breed`, `sex`, `species`, `park`, `pen`, `load`) carry `animals` -- the live head count of that bucket today, the same number `/counts/breakdown` reports -- and `rate_pct` = deaths / animals; COUNT series (`age_at_death`, `season`, `cause`, `days_since_arrival`, `days_since_vaccination`) are facts about the death alone and carry no rate. Cause has three disjoint bases: `recorded` (named on the death form), `inferred` (a case open when the animal died, for deaths before the form carried a cause), `none`. `totals` are whole-window rollups and must never be re-derived from the series. `deaths` is a bounded most-recent list capped at `recent_limit`; nothing above it moves with the cap. Window rules are those of `/counts/herd-analytics`.
+         * @description The Counts mortality read. A death is the animal's own exit row (`exit_reason = 'died'`, dated the IST day of `exited_at`), the SAME predicate `/counts/herd-analytics` counts deaths with, so the two screens cannot disagree. Every attribute is read off the animal's row as it stood when it died (the exit touches only lifecycle columns). RATE series (`kid_adult`, `stage`, `breed`, `sex`, `species`, `park`, `pen`, `load`) carry `animals` -- the live head count of that bucket today, the same number `/counts/breakdown` reports -- and `rate_pct` = deaths / animals; COUNT series (`age_at_death`, `season`, `cause`, `days_since_arrival`, `days_since_vaccination`) are facts about the death alone and carry no rate. Cause has three disjoint bases: `recorded` (named on the death form), `inferred` (a case open when the animal died, for deaths before the form carried a cause), `none`. `totals` are whole-window rollups and must never be re-derived from the series. `deaths` is ONE PAGE of the window's deaths, most-recent first -- `recent_limit` rows from `recent_offset` -- and `totals.deaths` is that list's total, since the two share one membership predicate; nothing above the list moves when the page turns. Window rules are those of `/counts/herd-analytics`.
          */
         get: operations["getCountsMortality"];
         put?: never;
@@ -17556,8 +17556,12 @@ export interface components {
             load_by_cause: components["schemas"]["MortalityCrossCell"][];
             vendor_by_cause: components["schemas"]["MortalityCrossCell"][];
             breed_by_cause: components["schemas"]["MortalityCrossCell"][];
+            /** @description ONE PAGE of the window's deaths, most-recent first. `totals.deaths` is the pager's total: the list and that tile share one membership predicate. */
             deaths: components["schemas"]["MortalityDeath"][];
+            /** @description Page size actually served, after the request's value was resolved. */
             recent_limit: number;
+            /** @description First row of the page actually served, after the request's value was resolved. */
+            recent_offset: number;
             /** Format: date-time */
             generated_at: string;
         };
@@ -29900,6 +29904,8 @@ export interface operations {
                 park_id?: string;
                 from?: string;
                 to?: string;
+                recent_limit?: 10 | 25 | 50;
+                recent_offset?: number;
             };
             header?: never;
             path?: never;
@@ -29907,7 +29913,7 @@ export interface operations {
         };
         requestBody?: never;
         responses: {
-            /** @description Whole-window totals, every series, the cross tabs and the bounded recent list. */
+            /** @description Whole-window totals, every series, the cross tabs and one page of the deaths list. */
             200: {
                 headers: {
                     [name: string]: unknown;
