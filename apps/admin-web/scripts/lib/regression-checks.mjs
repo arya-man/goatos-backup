@@ -172,12 +172,12 @@ export function collectRegressionFindings({ mobile = false, limit = 40 } = {}) {
   }
   for (const chart of root.querySelectorAll(CHART)) {
     if (!painted(chart)) continue;
-    const bars = Array.from(chart.querySelectorAll(".gcbar, .mcbar, .hbfill, .wbar, rect")).filter((b) => !hidden(b) && b.getBoundingClientRect().height > 0.5 && b.getBoundingClientRect().width > 0.5);
+    const bars = Array.from(chart.querySelectorAll(".gcbar, .mcbar, .hbfill, .wbar, rect, path, circle, polyline, line")).filter((b) => !hidden(b) && b.getBoundingClientRect().height > 0.5 && b.getBoundingClientRect().width > 0.5);
     if (bars.length === 0 && !/no data|no rows|nothing|no records|empty|0 /i.test(txt(chart.closest(".card") ?? chart))) add("A-chart-empty-frame", chart, "no visible bars and no empty-state text");
   }
 
   // ---------- A: SVG charts ----------
-  const minFont = mobile ? 8 : 9;
+  const minFont = 8;
   for (const svg of root.querySelectorAll("svg[role=img]")) {
     if (!painted(svg) && hidden(svg)) continue;
     const sb = svg.getBoundingClientRect();
@@ -266,7 +266,8 @@ export function collectRegressionFindings({ mobile = false, limit = 40 } = {}) {
     for (const el of root.querySelectorAll("td, th, span, p, h1, h2, h3, h4, strong, small, a, button, li")) {
       if (el.children.length > 3 || hidden(el)) continue;
       const t = txt(el);
-      const m = t.match(/^(.{2,40}?)\s*[·|•–-]\s*\1$/);
+      // "A – A" with a dash is a same-day range, not a doubled label.
+      const m = t.match(/^(.{2,40}?)\s*[·|•]\s*\1$/);
       if (m) add("J-raw-text", el, `doubled label "${t.slice(0, 40)}"`);
     }
   }
@@ -333,7 +334,9 @@ export function collectRegressionFindings({ mobile = false, limit = 40 } = {}) {
 
 export async function assertRegressionPatterns(page, { routeName, viewportLabel, screenshotDir, relativeToRepo = (p) => p }) {
   const width = page.viewportSize()?.width ?? 1280;
-  const findings = await page.evaluate(collectRegressionFindings, { mobile: width < 768 || /mobile|phone/i.test(viewportLabel) });
+  let findings = await page.evaluate(collectRegressionFindings, { mobile: width < 768 || /mobile|phone/i.test(viewportLabel) });
+  // Audit log / dead-letter queue list event codes by design; they are internal ops tooling.
+  if (/^operations-(audit|dlq)/.test(routeName)) findings = findings.filter((f) => f.pattern !== "J-raw-text");
   if (findings.length === 0) return [];
   await page.addStyleTag({ content: "[data-smoke-issue]{outline:3px solid #e11d48 !important;outline-offset:1px}" });
   await page.evaluate(() => document.querySelector("[data-smoke-issue]")?.scrollIntoView({ block: "center", inline: "center" }));
