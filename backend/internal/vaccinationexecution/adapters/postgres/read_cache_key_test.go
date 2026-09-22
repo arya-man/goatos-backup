@@ -66,7 +66,7 @@ func TestVaccinationExecutionSideReadsAvoidPreparedGenericPlan(t *testing.T) {
 	}
 	src := string(srcBytes)
 	for _, required := range []string{
-		`r.pool.Query(ctx, sql, pgx.QueryExecModeExec, q.TenantID, q.OperatorScopeActorID, q.AsOf, q.DueBefore)`,
+		`r.pool.Query(ctx, vaccinationExecutionCarrySummarySQL, pgx.QueryExecModeExec, q.TenantID, q.OperatorScopeActorID, q.AsOf, q.DueBefore)`,
 		`r.pool.Query(ctx, cardSummariesSQL, pgx.QueryExecModeExec,`,
 	} {
 		if !strings.Contains(src, required) {

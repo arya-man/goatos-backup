@@ -606,6 +606,7 @@ WITH assignment_vaccines AS (
     vda.park_id,
     vda.shed_id,
     vda.physical_shed,
+    COALESCE(NULLIF(regexp_replace(lower(btrim(vda.partition_label)), '^part[[:space:]]+', ''), ''), 'whole') AS partition_key,
     vda.partition_label,
     vda.animal_count,
     vda.total_doses,
@@ -665,10 +666,41 @@ WITH assignment_vaccines AS (
   WHERE vda.tenant_id = $1::uuid
     AND ($4::text = '' OR vda.park_id::text = $4)
 ),
-effective_assignments AS (
+assignment_groups AS (
   SELECT
     effective_planned_date AS planned_date,
     MIN(original_planned_date) AS original_planned_date,
+    MIN(assignment_id::text)::uuid AS assignment_id,
+    MIN(batch_id::text)::uuid AS batch_id,
+    operator_id,
+    park_id,
+    shed_id,
+    physical_shed,
+    partition_key,
+    (ARRAY_AGG(partition_label ORDER BY length(partition_label), partition_label))[1] AS partition_label,
+    SUM(animal_count)::int AS animal_count,
+    CASE
+      WHEN bool_or(capacity_status = 'capacity_action') THEN 'capacity_action'
+      WHEN bool_or(capacity_status = 'over_cap_required') THEN 'over_cap_required'
+      ELSE 'within_cap'
+    END AS capacity_status,
+    CASE
+      WHEN bool_or(batch_status = 'in_progress') THEN 'in_progress'
+      WHEN bool_or(batch_status = 'planned') THEN 'planned'
+      WHEN bool_or(batch_status = 'completed') THEN 'completed'
+      ELSE max(batch_status)
+    END AS batch_status,
+    ARRAY_AGG(DISTINCT vaccine_key ORDER BY vaccine_key) FILTER (WHERE vaccine_key IS NOT NULL) AS vaccine_keys,
+    ARRAY_AGG(DISTINCT vaccine_code ORDER BY vaccine_code) FILTER (WHERE vaccine_code IS NOT NULL) AS vaccine_codes,
+    COALESCE(jsonb_object_agg(vaccine_code, original_planned_date::text) FILTER (WHERE vaccine_code IS NOT NULL), '{}'::jsonb) AS vaccine_original_dates,
+    COALESCE(SUM(COALESCE(dose_count, animal_count)) FILTER (WHERE vaccine_key IS NOT NULL), MAX(total_doses))::int AS total_doses
+  FROM assignment_vaccines
+  GROUP BY effective_planned_date, operator_id, park_id, shed_id, physical_shed, partition_key
+),
+effective_assignments AS (
+  SELECT
+    planned_date,
+    original_planned_date,
     assignment_id,
     batch_id,
     operator_id,
@@ -676,15 +708,15 @@ effective_assignments AS (
     shed_id,
     physical_shed,
     partition_label,
+    partition_key,
     animal_count,
     capacity_status,
     batch_status,
-    ARRAY_AGG(DISTINCT vaccine_key ORDER BY vaccine_key) FILTER (WHERE vaccine_key IS NOT NULL) AS vaccine_keys,
-    ARRAY_AGG(DISTINCT vaccine_code ORDER BY vaccine_code) FILTER (WHERE vaccine_code IS NOT NULL) AS vaccine_codes,
-    COALESCE(jsonb_object_agg(vaccine_code, original_planned_date::text) FILTER (WHERE vaccine_code IS NOT NULL), '{}'::jsonb) AS vaccine_original_dates,
-    COALESCE(SUM(COALESCE(dose_count, animal_count)) FILTER (WHERE vaccine_key IS NOT NULL), MAX(total_doses))::int AS total_doses
-  FROM assignment_vaccines
-  GROUP BY effective_planned_date, assignment_id, batch_id, operator_id, park_id, shed_id, physical_shed, partition_label, animal_count, capacity_status, batch_status
+    vaccine_keys,
+    vaccine_codes,
+    vaccine_original_dates,
+    total_doses
+  FROM assignment_groups
 )
 SELECT
   effective.planned_date,
@@ -744,6 +776,10 @@ LEFT JOIN LATERAL (
     AND oi.target_type = 'goat'
     AND g.shed_id = effective.shed_id
     AND (
+      effective.partition_key = 'whole'
+      OR effective.partition_key = regexp_replace(lower(btrim(COALESCE(gsp.partition_label, 'whole'))), '^part[[:space:]]+', '')
+    )
+    AND (
       effective.partition_label = 'whole'
       OR regexp_replace(lower(btrim(effective.partition_label)), '^part[[:space:]]+', '')
        = regexp_replace(lower(btrim(COALESCE(gsp.partition_label, 'whole'))), '^part[[:space:]]+', '')
@@ -761,7 +797,7 @@ LEFT JOIN LATERAL (
 ) assignment_progress ON true
 WHERE effective.planned_date >= $2::date
   AND effective.planned_date < $3::date
-ORDER BY effective.planned_date, wm.display_name, effective.physical_shed, effective.partition_label
+ORDER BY effective.planned_date, wm.display_name, effective.physical_shed, effective.partition_key
 LIMIT $5;
 `
 
@@ -4421,46 +4457,7 @@ func (r *Repository) VaccinationExecutionCarrySummary(ctx context.Context, q dom
 	// for the scoped operator, with override-aware date resolution.
 	// OperatorScopeActorID is already the workforce_member_id; no external resolution.
 	// Note: vaccine_label is constructed in Go using domain.DoseDisplayLabel after scanning.
-	sql := `
-WITH scoped AS (
-  SELECT oi.obligation_id, oi.status, m.goat_id,
-         pd.name AS protocol_name,
-         pr.dose_code,
-         COALESCE(ovr.override_date, vda.planned_date) AS eff_date,
-         vda.operator_id
-  FROM obligation_instances oi
-  JOIN vaccination_drive_assignment_members m ON m.obligation_id = oi.obligation_id AND m.tenant_id = oi.tenant_id
-  JOIN vaccination_drive_assignments vda ON vda.assignment_id = m.assignment_id
-  JOIN protocol_rules pr ON pr.rule_id = oi.rule_id
-  JOIN protocol_versions pv ON pv.tenant_id = oi.tenant_id AND pv.protocol_version_id = oi.protocol_version_id
-  JOIN protocol_definitions pd ON pd.tenant_id = pv.tenant_id AND pd.protocol_id = pv.protocol_id AND pd.category = 'vaccination'
-  LEFT JOIN vaccination_drive_date_overrides ovr
-    ON ovr.tenant_id = vda.tenant_id AND ovr.park_id = vda.park_id AND ovr.canceled_at IS NULL
-   AND lower(btrim(ovr.vaccine_code)) = lower(btrim(COALESCE(pr.eligibility_json->'vaccine'->>'code','')))
-   AND (ovr.original_drive_date = vda.planned_date OR ovr.override_date = vda.planned_date)
-  WHERE oi.tenant_id = $1
-)
--- projection-review: membership=obligation_instances joined 1:1 to their vaccination_drive_assignment_members row (obligation_id unique) and that row's assignment, for the operator's day range; group_key=(effective_drive_date, protocol_name, dose_code) where effective_drive_date=COALESCE(active override.override_date, vda.planned_date) so a moved-away vaccine counts on its NEW day only; join_cardinality=member->assignment many-to-one and obligation->protocol_rule 1:1, and count(DISTINCT goat_id) collapses any multi-row fan-out so remaining/total are per-animal not per-obligation-row; pagination=NONE — full-day carry aggregate computed independently of the paginated row window, total never changes with the loaded page; scope=tenant ($1) + operator workforce_member ($2) + effective-date BETWEEN $3 and $4, park/shed implicit via the operator's own assignments.
-SELECT eff_date::date as eff_date, protocol_name, dose_code,
-       count(DISTINCT goat_id) FILTER (WHERE status IN ('scheduled','due','in_progress')) AS remaining,
-       count(DISTINCT goat_id) AS total
-FROM scoped
-WHERE operator_id = (SELECT wm.workforce_member_id FROM workforce_members wm
-                     WHERE wm.tenant_id = $1
-                       AND (
-                         wm.workforce_member_id = NULLIF($2::text,'')::uuid
-                         OR wm.user_id = NULLIF($2::text,'')::uuid
-                       )
-                       AND wm.status='active'
-                     ORDER BY CASE WHEN wm.workforce_member_id = NULLIF($2::text,'')::uuid THEN 0 ELSE 1 END,
-                              wm.updated_at DESC,
-                              wm.workforce_member_id DESC
-                     LIMIT 1)
-  AND eff_date BETWEEN $3::date AND $4::date
-GROUP BY eff_date::date, protocol_name, dose_code
-ORDER BY eff_date::date, protocol_name, dose_code
-`
-	rows, err := r.pool.Query(ctx, sql, pgx.QueryExecModeExec, q.TenantID, q.OperatorScopeActorID, q.AsOf, q.DueBefore)
+	rows, err := r.pool.Query(ctx, vaccinationExecutionCarrySummarySQL, pgx.QueryExecModeExec, q.TenantID, q.OperatorScopeActorID, q.AsOf, q.DueBefore)
 	if err != nil {
 		return nil, fmt.Errorf("vaccination execution: carry summary query: %w", err)
 	}
@@ -4483,6 +4480,46 @@ ORDER BY eff_date::date, protocol_name, dose_code
 	}
 	return out, nil
 }
+
+const vaccinationExecutionCarrySummarySQL = `
+WITH scoped AS (
+  SELECT oi.obligation_id, oi.status, m.goat_id,
+         pd.name AS protocol_name,
+         pr.dose_code,
+         COALESCE(ovr.override_date, vda.planned_date) AS eff_date,
+         vda.operator_id
+  FROM obligation_instances oi
+  JOIN vaccination_drive_assignment_members m ON m.obligation_id = oi.obligation_id AND m.tenant_id = oi.tenant_id
+  JOIN vaccination_drive_assignments vda ON vda.assignment_id = m.assignment_id
+  JOIN protocol_rules pr ON pr.rule_id = oi.rule_id
+  JOIN protocol_versions pv ON pv.tenant_id = oi.tenant_id AND pv.protocol_version_id = oi.protocol_version_id
+  JOIN protocol_definitions pd ON pd.tenant_id = pv.tenant_id AND pd.protocol_id = pv.protocol_id AND pd.category = 'vaccination'
+  LEFT JOIN vaccination_drive_date_overrides ovr
+    ON ovr.tenant_id = vda.tenant_id AND ovr.park_id = vda.park_id AND ovr.canceled_at IS NULL
+   AND lower(btrim(ovr.vaccine_code)) = lower(btrim(COALESCE(pr.eligibility_json->'vaccine'->>'code','')))
+   AND (ovr.original_drive_date = vda.planned_date OR ovr.override_date = vda.planned_date)
+  WHERE oi.tenant_id = $1
+)
+-- projection-review: membership=obligation_instances joined 1:1 to their vaccination_drive_assignment_members row (obligation_id unique) and that row's assignment, for the operator's day range; group_key=(effective_drive_date, protocol_name, dose_code) where effective_drive_date=COALESCE(active override.override_date, vda.planned_date) so a moved-away vaccine counts on its NEW day only; join_cardinality=member->assignment many-to-one and obligation->protocol_rule 1:1, and count(DISTINCT goat_id) collapses any multi-row fan-out so remaining/total are per-animal not per-obligation-row; pagination=NONE — full-day carry aggregate computed independently of the paginated row window, total never changes with the loaded page; scope=tenant ($1) + operator workforce_member ($2) + effective-date BETWEEN $3 and $4, park/shed implicit via the operator's own assignments. Terminal obligations are excluded from both remaining and total so stale canceled assignment members cannot become "doses to carry".
+SELECT eff_date::date as eff_date, protocol_name, dose_code,
+       count(DISTINCT goat_id) FILTER (WHERE status IN ('scheduled','due','in_progress')) AS remaining,
+       count(DISTINCT goat_id) FILTER (WHERE status IN ('scheduled','due','in_progress')) AS total
+FROM scoped
+WHERE operator_id = (SELECT wm.workforce_member_id FROM workforce_members wm
+                     WHERE wm.tenant_id = $1
+                       AND (
+                         wm.workforce_member_id = NULLIF($2::text,'')::uuid
+                         OR wm.user_id = NULLIF($2::text,'')::uuid
+                       )
+                       AND wm.status='active'
+                     ORDER BY CASE WHEN wm.workforce_member_id = NULLIF($2::text,'')::uuid THEN 0 ELSE 1 END,
+                              wm.updated_at DESC,
+                              wm.workforce_member_id DESC
+                     LIMIT 1)
+  AND eff_date BETWEEN $3::date AND $4::date
+GROUP BY eff_date::date, protocol_name, dose_code
+ORDER BY eff_date::date, protocol_name, dose_code
+`
 
 // VaccinationExecutionCardSummaries computes per-card aggregates (status, counts, vaccine groups)
 // over ALL matching rows in the filter set, WITHOUT pagination. Uses the SAME filter predicates

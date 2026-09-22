@@ -124,12 +124,37 @@ func TestCanonicalVaccinationReadsUseDriveAssignmentPlannedDateOneToManyPageBoun
 			t.Fatalf("%s operator-scoped read must join goat_shed_partitions", name)
 		}
 		if !strings.Contains(sql, "regexp_replace(lower(btrim(assignment.partition_label)), '^part[[:space:]]+', '')") &&
-			!strings.Contains(sql, "regexp_replace(lower(btrim(effective.partition_label)), '^part[[:space:]]+', '')") {
+			!strings.Contains(sql, "regexp_replace(lower(btrim(effective.partition_label)), '^part[[:space:]]+', '')") &&
+			!strings.Contains(sql, "effective.partition_key = regexp_replace(lower(btrim(COALESCE(gsp.partition_label, 'whole'))), '^part[[:space:]]+', '')") {
 			t.Fatalf("%s operator-scoped read must bind assignments to the goat partition with Part N/N normalization", name)
 		}
 	}
 	if strings.Contains(scanRosterSQL, "OR EXISTS (\n      SELECT 1\n      FROM vaccination_drive_assignments assignment") {
 		t.Fatalf("scan roster must not use broad batch+shed EXISTS for operator scope")
+	}
+}
+
+func TestDriveAssignmentsNormalizePartitionBeforeGrouping(t *testing.T) {
+	required := []string{
+		"AS partition_key",
+		"GROUP BY effective_planned_date, operator_id, park_id, shed_id, physical_shed, partition_key",
+		"effective.partition_key = regexp_replace(lower(btrim(COALESCE(gsp.partition_label, 'whole'))), '^part[[:space:]]+', '')",
+		"ORDER BY effective.planned_date, wm.display_name, effective.physical_shed, effective.partition_key",
+	}
+	for _, fragment := range required {
+		if !strings.Contains(driveAssignmentsSQL, fragment) {
+			t.Fatalf("drive assignments must normalize Part N/N partition identity before grouping; missing %q", fragment)
+		}
+	}
+	if strings.Contains(driveAssignmentsSQL, "GROUP BY effective_planned_date, assignment_id, batch_id, operator_id, park_id, shed_id, physical_shed, partition_label") {
+		t.Fatal("drive assignments must not group by raw assignment id/partition label; duplicate labels like 3 and Part 3 would split one shed")
+	}
+}
+
+func TestCarrySummaryTotalExcludesTerminalObligations(t *testing.T) {
+	required := "count(DISTINCT goat_id) FILTER (WHERE status IN ('scheduled','due','in_progress')) AS total"
+	if !strings.Contains(vaccinationExecutionCarrySummarySQL, required) {
+		t.Fatalf("carry summary total must exclude terminal obligations; missing %q", required)
 	}
 }
 

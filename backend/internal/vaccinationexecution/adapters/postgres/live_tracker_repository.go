@@ -1578,8 +1578,9 @@ func liveTrackerShedState(row domain.LiveTrackerShedRow, lastActivityAt *time.Ti
 // produced). An operator who acted without an assignment still gets a row rather than vanishing.
 func liveTrackerOperatorRows(cells []liveTrackerCell, actors []liveTrackerActor, now time.Time) []domain.LiveTrackerOperatorRow {
 	type acc struct {
-		row      domain.LiveTrackerOperatorRow
-		bestSeen *time.Time
+		row           domain.LiveTrackerOperatorRow
+		bestSeen      *time.Time
+		vaccineLabels map[string]struct{}
 	}
 	byOperator := map[string]*acc{}
 	order := make([]string, 0, len(cells))
@@ -1598,9 +1599,12 @@ func liveTrackerOperatorRows(cells []liveTrackerCell, actors []liveTrackerActor,
 				ParkID:              c.parkID,
 				ParkName:            c.parkName,
 				ParkCode:            c.parkCode,
-			}}
+			}, vaccineLabels: map[string]struct{}{}}
 			byOperator[c.operatorID] = entry
 			order = append(order, c.operatorID)
+		}
+		if label := vaccinatdomain.DoseDisplayLabel(c.protocolName, c.doseCode); label != "" {
+			entry.vaccineLabels[label] = struct{}{}
 		}
 		entry.row.ScheduledAdmins += c.scheduled
 		entry.row.ClosedAdmins += c.closed
@@ -1615,7 +1619,6 @@ func liveTrackerOperatorRows(cells []liveTrackerCell, actors []liveTrackerActor,
 			entry.row.CurrentShedID = c.shedID
 			entry.row.CurrentShedLabel = domain.ShedDisplayLabel(c.shedName, c.partitionLabel)
 			entry.row.CurrentPartitionLabel = c.partitionLabel
-			entry.row.CurrentVaccineLabel = vaccinatdomain.DoseDisplayLabel(c.protocolName, c.doseCode)
 			if c.lastActivityAt != nil {
 				entry.bestSeen = c.lastActivityAt
 			}
@@ -1665,6 +1668,14 @@ func liveTrackerOperatorRows(cells []liveTrackerCell, actors []liveTrackerActor,
 	for _, id := range order {
 		entry := byOperator[id]
 		row := entry.row
+		if len(entry.vaccineLabels) > 0 {
+			labels := make([]string, 0, len(entry.vaccineLabels))
+			for label := range entry.vaccineLabels {
+				labels = append(labels, label)
+			}
+			sort.Strings(labels)
+			row.CurrentVaccineLabel = strings.Join(labels, " + ")
+		}
 		// OBLIGATION grain on both sides. ProofVideos is a physical count of proof_artifacts rows, so
 		// subtracting it from an obligation count mixed two grains: on a combo day one video closes two
 		// obligations, and a finished operator read Remaining = half their workload, never reached
