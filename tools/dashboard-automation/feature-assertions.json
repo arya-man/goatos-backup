@@ -21436,8 +21436,8 @@
     }
    }
   ],
-  "status": "data-dependent",
-  "reason": "The input lives inside the vendor create/edit drawer, so the opener's backend-owned label must be present for the drawer to open; the field itself is verified at origin/main.",
+  "status": "needs-assertion",
+  "reason": "The input lives inside the vendor create/edit drawer, so the opener's backend-owned label must be present for the drawer to open; the field itself is verified at origin/main. | parked: step \"Add vendor\" looks like a write action",
   "evidence": "apps/admin-web/features/procurement/vendor-local-drawer.tsx:309 input id=\"v-avg_weight\" name=\"average_animal_weight_kg\"; :429 average_animal_weight_display; apps/admin-web/features/procurement/vendor-actions.ts:96"
  },
  {
