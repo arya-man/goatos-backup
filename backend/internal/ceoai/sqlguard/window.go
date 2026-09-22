@@ -108,9 +108,38 @@ func ValidateWindow(sql string, card SchemaCardLike, w Window) error {
 
 	wantFrom := w.FromLiteral()
 	wantTo := w.ToExclusiveLiteral()
-	preds := datePredicates(sql, dateCol)
+	// The period may be bound on the view's business-day column or on another
+	// date column the card declares (a question about loads PURCHASED in a
+	// period binds purchase_date, not the entry day). Either way the exact
+	// half-open window must be bound on ONE column; a draft binding no date
+	// column is still rejected.
+	candidates := []string{dateCol}
+	if alt, ok := card.(AlternateDateColumnsCard); ok {
+		candidates = append(candidates, alt.AlternateDateColumns()...)
+	}
+	for _, col := range candidates {
+		if boundsWindow(sql, col, wantFrom, wantTo) {
+			return nil
+		}
+	}
+	return rejit("window requested (%s .. %s) but the statement must bind it as %s >= '%s' AND %s < '%s'",
+		wantFrom, w.To.Format("2006-01-02"), dateCol, wantFrom, dateCol, wantTo)
+}
+
+// AlternateDateColumnsCard is the optional card capability listing the other
+// date columns a period may be bound on (besides CardDateColumn).
+type AlternateDateColumnsCard interface {
+	AlternateDateColumns() []string
+}
+
+// boundsWindow reports whether the statement binds exactly [from, toExclusive)
+// on col.
+func boundsWindow(sql, col, wantFrom, wantTo string) bool {
+	if strings.TrimSpace(col) == "" {
+		return false
+	}
 	var haveFrom, haveTo bool
-	for _, p := range preds {
+	for _, p := range datePredicates(sql, col) {
 		switch {
 		case p.op == ">=" && p.literal == wantFrom:
 			haveFrom = true
@@ -118,11 +147,7 @@ func ValidateWindow(sql string, card SchemaCardLike, w Window) error {
 			haveTo = true
 		}
 	}
-	if !haveFrom || !haveTo {
-		return rejit("window requested (%s .. %s) but the statement must bind it as %s >= '%s' AND %s < '%s'",
-			wantFrom, w.To.Format("2006-01-02"), dateCol, wantFrom, dateCol, wantTo)
-	}
-	return nil
+	return haveFrom && haveTo
 }
 
 // datePredicate is one `<col> <op> '<literal>'` comparison found in the raw

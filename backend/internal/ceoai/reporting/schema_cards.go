@@ -81,6 +81,24 @@ func (c SchemaCard) CardName() string { return c.Name }
 // CardDateColumn implements sqlguard.SchemaCardLike.
 func (c SchemaCard) CardDateColumn() string { return c.DateColumn }
 
+// AlternateDateColumns implements sqlguard.AlternateDateColumnsCard: the
+// card's other date-typed columns, on which a question naming THAT date
+// ("loads purchased last quarter" -> purchase_date) may bind its period.
+// Only on a view that has a business-day column: a current-state view still
+// answers "as of now".
+func (c SchemaCard) AlternateDateColumns() []string {
+	if c.DateColumn == "" {
+		return nil
+	}
+	var out []string
+	for _, col := range c.Columns {
+		if col.Type == dateT && !strings.EqualFold(col.Name, c.DateColumn) {
+			out = append(out, col.Name)
+		}
+	}
+	return out
+}
+
 // HasColumn reports whether the card lists a column with that name.
 func (c SchemaCard) HasColumn(name string) bool {
 	for _, col := range c.Columns {
