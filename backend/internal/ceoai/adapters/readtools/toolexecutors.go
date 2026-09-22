@@ -45,9 +45,15 @@ type countsBreakdownExecutor struct {
 
 func (e *countsBreakdownExecutor) Spec() ports.ToolSpec {
 	return ports.ToolSpec{
-		Name:        "counts_breakdown",
-		Route:       domain.RouteAPI,
-		Description: "Animal counts broken down by park, pen, breed, sex, stage, or other dimensions",
+		Name:  "counts_breakdown",
+		Route: domain.RouteAPI,
+		// The catalog must advertise only what buildCountsReader honours
+		// (fix/ceo-ai-planner-first-routing): it used to promise a breakdown
+		// "by park, pen, breed, sex, stage, or other dimensions" and to take
+		// `dimension` and `species`, which the reader ignored, so the planner
+		// sent "how many sheep in Channapatna" here and got the whole park's
+		// total plus a fixed per-pen table.
+		Description: "Live herd total, kids/adults age bands and a fixed top-rows per-pen breakdown by stage, breed and sex. Filters narrow it (park_label, shed_id, partition_label, stage, breed, sex); group_by accepts only \"species\" (goat vs sheep totals). Not a general grouping tool.",
 		// partition_label is advertised and honored: buildCountsReader
 		// (backend/internal/bootstrap/ceoai_readers.go) filters returned rows
 		// to the named partition and renders every scope through
@@ -55,7 +61,7 @@ func (e *countsBreakdownExecutor) Spec() ports.ToolSpec {
 		// Castro's partition-1 count instead of the whole-shed total. Fixed
 		// 2026-08-05 (migration 000110); previously partition scope silently
 		// collapsed into the parent shed here.
-		Params: []string{"dimension", "park_label", "shed_id", "partition_label", "species"},
+		Params: []string{"park_label", "shed_id", "partition_label", "stage", "breed", "sex", "group_by"},
 	}
 }
 

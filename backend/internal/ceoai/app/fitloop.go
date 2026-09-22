@@ -2,6 +2,7 @@ package app
 
 import (
 	"context"
+	"sort"
 	"strings"
 
 	"github.com/vgoats/goatos/backend/internal/ceoai/domain"
@@ -100,6 +101,10 @@ func (a *Assistant) answerFit(ctx context.Context, q domain.Question, req Reques
 		issues = append(issues, is)
 		reasons = append(reasons, is.Detail)
 	}
+	for _, is := range unsupportedParamIssues(subs, catalog) {
+		issues = append(issues, is)
+		reasons = append(reasons, is.Detail)
+	}
 	// Nothing came back at all (every read errored or was empty): the plan
 	// did not answer, so it deserves the same one re-plan a misfit gets.
 	if len(subs) > 0 && !hasUsableResult(results) {
@@ -155,6 +160,53 @@ func (a *Assistant) replanForFit(ctx context.Context, q domain.Question, mem []d
 		return domain.Plan{}, usage, false
 	}
 	return plan, usage, true
+}
+
+// serverParamKeys are params the SERVER threads into every sub-question (as-of
+// day, period, normalizer hints); they are not the planner's asks.
+var serverParamKeys = map[string]bool{
+	"as_of": true, paramFrom: true, paramTo: true, paramWindowLabel: true, paramCompareFrom: true,
+	paramCompareTo: true, paramWindowAsOf: true, "tenant_id": true, "natural_sql": true,
+	"_fallback_from_tool": true, "_repaired_from": true, "vaccination_intent": true, "aggregate_total": true,
+}
+
+// unsupportedParamIssues flags a catalog tool the planner asked to filter or
+// group by something the tool does not advertise: the reader ignores it, so
+// the read answers a wider/different question than the one asked.
+func unsupportedParamIssues(subs []domain.SubQuestion, catalog []ports.ToolSpec) []FitIssue {
+	specs := map[string]ports.ToolSpec{}
+	for _, s := range catalog {
+		specs[s.Name] = s
+	}
+	var out []FitIssue
+	for _, sub := range subs {
+		if sub.Route != domain.RouteAPI && sub.Route != domain.RouteToolbox {
+			continue
+		}
+		spec, ok := specs[sub.ToolName]
+		if !ok {
+			continue
+		}
+		allowed := map[string]bool{}
+		for _, p := range spec.Params {
+			allowed[strings.ToLower(p)] = true
+		}
+		var ignored []string
+		for k, v := range sub.Params {
+			if serverParamKeys[k] || allowed[strings.ToLower(k)] {
+				continue
+			}
+			if s, isStr := v.(string); isStr && strings.TrimSpace(s) == "" {
+				continue
+			}
+			ignored = append(ignored, k)
+		}
+		if len(ignored) > 0 {
+			sort.Strings(ignored)
+			out = append(out, FitIssue{Kind: "param", Detail: "with the filter or grouping you asked for (tool " + sub.ToolName + " does not accept " + strings.Join(ignored, ", ") + ")"})
+		}
+	}
+	return out
 }
 
 // rangeParamHints are parameter names that let a tool read an arbitrary

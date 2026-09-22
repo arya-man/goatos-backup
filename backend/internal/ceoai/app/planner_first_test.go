@@ -510,6 +510,30 @@ func TestEmptyReadWithRealFilterValuesIsLeftAlone(t *testing.T) {
 	}
 }
 
+// A catalog tool asked to filter/group by a param it does not advertise
+// silently ignores it and answers a wider question; that is a misfit, not an
+// answer. Server-threaded params (as_of, period) never count.
+func TestToolAskedForAParamItDoesNotAcceptIsAMisfit(t *testing.T) {
+	exec := &fakeExec{spec: ports.ToolSpec{Name: "counts_breakdown", Route: domain.RouteAPI, Params: []string{"park_label"}},
+		result: domain.ToolResult{Surface: "Mesha read API", Facts: []domain.Fact{{TenantID: "t1", Label: "Active animals", Value: "713"}}}}
+	reg := NewRegistry(nil, nil, nil)
+	reg.Register(exec)
+	prov := &fakeProvider{byModel: true, plan: domain.Plan{SubQuestions: []domain.SubQuestion{{ID: "0", Route: domain.RouteAPI, ToolName: "counts_breakdown",
+		Params: map[string]any{"park_label": "Channapatna", "species": "sheep"}}}}}
+	a := NewAssistant(Config{}, Deps{Provider: prov, Registry: reg})
+	ans, err := a.Ask(context.Background(), domain.Question{Actor: leadershipActor(), Text: "How many live sheep do we have in Channapatna?"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if ans.Mode != domain.ModePartial || !strings.Contains(ans.Answer, "does not accept species") {
+		t.Fatalf("an ignored filter must be flagged, got mode=%q %q", ans.Mode, ans.Answer)
+	}
+	if issues := unsupportedParamIssues([]domain.SubQuestion{{Route: domain.RouteAPI, ToolName: "counts_breakdown",
+		Params: map[string]any{"park_label": "x", "as_of": "2026-09-18", "from": "2026-09-01", "to": "2026-09-18"}}}, reg.Catalog(context.Background())); len(issues) != 0 {
+		t.Fatalf("server-threaded params must never count as asks: %+v", issues)
+	}
+}
+
 type setCountingCache struct{ sets int }
 
 func (c *setCountingCache) Get(string) (domain.Answer, bool) { return domain.Answer{}, false }
