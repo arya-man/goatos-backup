@@ -1963,85 +1963,87 @@ class ScanViewModel @Inject constructor(
                 // Past this point a real, complete recording exists — it must never be discarded,
                 // so from here on this job's own state ownership is no longer cancellable by a
                 // later scan (see the busy-refusal branch above).
-                proofCaptureVideoCaptured = true
-                val syncingStartedAtMs = System.currentTimeMillis()
-                _proofSyncingStartedAt.update { it + (row.goatId to syncingStartedAtMs) }
-                _pendingLocalProofPreview.update {
-                    it + (row.goatId to PendingLocalProofPreview(captured.localUri, proofId = null, capturedAtMs = syncingStartedAtMs))
-                }
-
-                // B6: Row must NOT enter done-set until proof capture() persisted OK.
-                // Capture Err surfaces visibly and row stays pending.
-                when (
-                    val proof = proofCaptureRepository.capture(
-                    taskId = selectedTaskId,
-                    fieldKey = GOAT_PROOF_FIELD_KEY,
-                    // R50-027: policy-driven default subject (falls back to GOAT via
-                    // backend-owned proof policy for this task.
-                    subject = policy.defaultSubject,
-                    subjectId = row.goatId,
-                    localUri = captured.localUri,
-                    mimeType = captured.mimeType,
-                    caption = vaccinationProofCaption(row, state.value.cohortLabel, taskDetail.value),
-                    rfidTag = row.primaryTag.takeIf { it.isNotBlank() },
-                    scopeType = "task",
-                    scopeId = selectedTaskId,
-                    capturedStartMs = captured.startedAtMs,
-                    capturedEndMs = captured.endedAtMs,
-                    capturedByPrincipalId = currentPrincipalId,
-                    proofPolicy = policy,
-                    partitionLabel = partitionLabel,
-                    awaitUploadEnqueue = true,
-                    )
-                ) {
-                    is AppResult.Ok -> {
-                        _pendingLocalProofPreview.update {
-                            it + (row.goatId to PendingLocalProofPreview(
-                                localUri = proof.value.processedUri?.takeIf(String::isNotBlank) ?: proof.value.localUri,
-                                proofId = proof.value.id,
-                                capturedAtMs = proof.value.capturedAtMs,
-                            ))
-                        }
-                        // B6: Scan row persisted only after proof capture succeeds.
-                        // Failed capture leaves no scan record, so re-scan is not blocked as duplicate.
-                        pendingScanCommit?.let { commit ->
-                            recordRosterScan(row, commit.tag, commit.capturedAtMs, commit.rosterRows)
-                        }
-                        // B6: Only mark row done after proof capture succeeds.
-                        pendingScanCommit?.let { commit ->
-                            markRowDone(row, commit.capturedAtMs, commit.obligationIds)
-                        }
-                        // Clear previous capture error now that capture succeeded
-                        _lastProofCaptureError.update { null }
-                        analytics.track(
-                            AnalyticsEvents.VACCINATION_PROOF_CAPTURE_SUCCESS,
-                            vaccinationActionProps(row, row.primaryTag) +
-                                mapOf(
-                                    AnalyticsEvents.Params.ACTION to "capture",
-                                    AnalyticsEvents.Params.FIELD to GOAT_PROOF_FIELD_KEY,
-                                    AnalyticsEvents.Params.SOURCE to "room",
-                                    AnalyticsEvents.Params.OUTCOME to "success",
-                                    AnalyticsEvents.Params.PROOF_CAPTURED to "true",
-                                    AnalyticsEvents.Params.PROOF_UPLOADED to (proof.value.syncStatus == CaptureSyncStatus.SYNCED).toString(),
-                                ) +
-                                vaccinationProofTraceProps(proof.value),
-                        )
+                kotlinx.coroutines.withContext(kotlinx.coroutines.NonCancellable) {
+                    proofCaptureVideoCaptured = true
+                    val syncingStartedAtMs = System.currentTimeMillis()
+                    _proofSyncingStartedAt.update { it + (row.goatId to syncingStartedAtMs) }
+                    _pendingLocalProofPreview.update {
+                        it + (row.goatId to PendingLocalProofPreview(captured.localUri, proofId = null, capturedAtMs = syncingStartedAtMs))
                     }
-                    is AppResult.Err -> {
-                        _pendingLocalProofPreview.update { it - row.goatId }
-                        // B6: Capture error surfaces visibly via snackbar.
-                        _lastProofCaptureError.update { proof.message }
-                        analytics.track(
-                            AnalyticsEvents.VACCINATION_PROOF_CAPTURE_FAILURE,
-                            vaccinationActionProps(row, row.primaryTag) +
-                                mapOf(
-                                    AnalyticsEvents.Params.ACTION to "capture",
-                                    AnalyticsEvents.Params.FIELD to GOAT_PROOF_FIELD_KEY,
-                                    AnalyticsEvents.Params.SOURCE to "room",
-                                    AnalyticsEvents.Params.OUTCOME to "failure",
-                                    AnalyticsEvents.Params.REASON to proof.message.take(MAX_ANALYTICS_REASON_CHARS),
-                                ),
+
+                    // B6: Row must NOT enter done-set until proof capture() persisted OK.
+                    // Capture Err surfaces visibly and row stays pending.
+                    when (
+                        val proof = proofCaptureRepository.capture(
+                        taskId = selectedTaskId,
+                        fieldKey = GOAT_PROOF_FIELD_KEY,
+                        // R50-027: policy-driven default subject (falls back to GOAT via
+                        // backend-owned proof policy for this task.
+                        subject = policy.defaultSubject,
+                        subjectId = row.goatId,
+                        localUri = captured.localUri,
+                        mimeType = captured.mimeType,
+                        caption = vaccinationProofCaption(row, state.value.cohortLabel, taskDetail.value),
+                        rfidTag = row.primaryTag.takeIf { it.isNotBlank() },
+                        scopeType = "task",
+                        scopeId = selectedTaskId,
+                        capturedStartMs = captured.startedAtMs,
+                        capturedEndMs = captured.endedAtMs,
+                        capturedByPrincipalId = currentPrincipalId,
+                        proofPolicy = policy,
+                        partitionLabel = partitionLabel,
+                        awaitUploadEnqueue = true,
                         )
+                    ) {
+                        is AppResult.Ok -> {
+                            _pendingLocalProofPreview.update {
+                                it + (row.goatId to PendingLocalProofPreview(
+                                    localUri = proof.value.processedUri?.takeIf(String::isNotBlank) ?: proof.value.localUri,
+                                    proofId = proof.value.id,
+                                    capturedAtMs = proof.value.capturedAtMs,
+                                ))
+                            }
+                            // B6: Scan row persisted only after proof capture succeeds.
+                            // Failed capture leaves no scan record, so re-scan is not blocked as duplicate.
+                            pendingScanCommit?.let { commit ->
+                                recordRosterScan(row, commit.tag, commit.capturedAtMs, commit.rosterRows)
+                            }
+                            // B6: Only mark row done after proof capture succeeds.
+                            pendingScanCommit?.let { commit ->
+                                markRowDone(row, commit.capturedAtMs, commit.obligationIds)
+                            }
+                            // Clear previous capture error now that capture succeeded
+                            _lastProofCaptureError.update { null }
+                            analytics.track(
+                                AnalyticsEvents.VACCINATION_PROOF_CAPTURE_SUCCESS,
+                                vaccinationActionProps(row, row.primaryTag) +
+                                    mapOf(
+                                        AnalyticsEvents.Params.ACTION to "capture",
+                                        AnalyticsEvents.Params.FIELD to GOAT_PROOF_FIELD_KEY,
+                                        AnalyticsEvents.Params.SOURCE to "room",
+                                        AnalyticsEvents.Params.OUTCOME to "success",
+                                        AnalyticsEvents.Params.PROOF_CAPTURED to "true",
+                                        AnalyticsEvents.Params.PROOF_UPLOADED to (proof.value.syncStatus == CaptureSyncStatus.SYNCED).toString(),
+                                    ) +
+                                    vaccinationProofTraceProps(proof.value),
+                            )
+                        }
+                        is AppResult.Err -> {
+                            _pendingLocalProofPreview.update { it - row.goatId }
+                            // B6: Capture error surfaces visibly via snackbar.
+                            _lastProofCaptureError.update { proof.message }
+                            analytics.track(
+                                AnalyticsEvents.VACCINATION_PROOF_CAPTURE_FAILURE,
+                                vaccinationActionProps(row, row.primaryTag) +
+                                    mapOf(
+                                        AnalyticsEvents.Params.ACTION to "capture",
+                                        AnalyticsEvents.Params.FIELD to GOAT_PROOF_FIELD_KEY,
+                                        AnalyticsEvents.Params.SOURCE to "room",
+                                        AnalyticsEvents.Params.OUTCOME to "failure",
+                                        AnalyticsEvents.Params.REASON to proof.message.take(MAX_ANALYTICS_REASON_CHARS),
+                                    ),
+                            )
+                        }
                     }
                 }
                 delay(MIN_VISIBLE_PROOF_SYNCING_MS)
