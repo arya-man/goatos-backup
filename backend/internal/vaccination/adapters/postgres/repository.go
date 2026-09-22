@@ -1921,12 +1921,13 @@ eligible AS (
         JOIN vaccination_drive_assignments assignment
           ON assignment.tenant_id = member.tenant_id
          AND assignment.assignment_id = member.assignment_id
-        WHERE member.tenant_id = tc.tenant_id
-          AND member.goat_id = tc.goat_id
-          AND member.obligation_id = oi.obligation_id
-          AND assignment.batch_id = tc.task_batch_id
-      )
-    )
+	        WHERE member.tenant_id = tc.tenant_id
+	          AND member.goat_id = tc.goat_id
+	          AND member.obligation_id = oi.obligation_id
+	          AND member.canceled_at IS NULL
+	          AND assignment.batch_id = tc.task_batch_id
+	      )
+	    )
 ),
 inserted AS (
   INSERT INTO vaccination_completions (
