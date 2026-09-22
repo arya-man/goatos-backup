@@ -1,0 +1,2843 @@
+{
+  "$comment": "Lane 3 API contract catalogue. GET only, read-only, production. Derived from apps/admin-web route->endpoint wiring, backend/internal/permissions/routes.go, contracts/openapi/app-api.yaml, and the tools/perf/hot-paths.*.json inventory. Every requiredField was verified against a real production response.",
+  "policySource": "tools/dashboard-automation/config.json apiLatencyPolicy.hotPathP95Ms",
+  "productionApiHosts": [
+    "api.goatos.mesha.sg",
+    "api.mesha.sg",
+    "goatos-api.mesha.sg"
+  ],
+  "endpoints": [
+    {
+      "name": "admin_web_bootstrap",
+      "method": "GET",
+      "path": "/admin-web/bootstrap",
+      "page": "Every page (menu and page setup)",
+      "pageUrl": "https://dashboard.mesha.sg/",
+      "requiredFields": [
+        "source",
+        "schema_version",
+        "contract_revision",
+        "navigation",
+        "nav_chrome",
+        "route_labels",
+        "top_bar",
+        "role_lenses",
+        "pages",
+        "copy",
+        "display_rules",
+        "cache_policy",
+        "family_hashes"
+      ],
+      "forbiddenValues": [
+        {
+          "path": "schema_version",
+          "disallow": [
+            "null",
+            "NaN",
+            "empty",
+            "undefined"
+          ]
+        },
+        {
+          "path": "contract_revision",
+          "disallow": [
+            "null",
+            "NaN",
+            "empty",
+            "undefined"
+          ]
+        }
+      ],
+      "latencyBudgetMs": 500,
+      "humanFailure": "Nobody could open Goat OS at all — the menu and every screen would come up empty, because the server did not describe which pages this person is allowed to see.",
+      "sourceCommits": [
+        "c186fee72",
+        "165ab9f76",
+        "e3a5e4116",
+        "4719e113f",
+        "1a0927b44",
+        "2553f2c90",
+        "59f73cb0e",
+        "786b51954",
+        "7772c2e92",
+        "b195865f2",
+        "7a13b5288",
+        "acad466ab",
+        "7ab4b8c20"
+      ],
+      "bugPatterns": [
+        "admin-web-contract-and-known-failure-screens"
+      ],
+      "historyChecks": [
+        "lane3.admin-web-bootstrap"
+      ],
+      "historyCommitCount": 81
+    },
+    {
+      "name": "control_tower",
+      "method": "GET",
+      "path": "/control-tower/vaccination?category=vaccination",
+      "page": "Home",
+      "pageUrl": "https://dashboard.mesha.sg/",
+      "requiredFields": [
+        "source",
+        "summary",
+        "summary.critical_count",
+        "summary.warning_count",
+        "summary.open_gap_count",
+        "summary.verification_backlog",
+        "alerts",
+        "total_count",
+        "projection",
+        "projection.freshness_status"
+      ],
+      "forbiddenValues": [
+        {
+          "path": "summary.critical_count",
+          "disallow": [
+            "null",
+            "NaN",
+            "undefined"
+          ]
+        },
+        {
+          "path": "summary.warning_count",
+          "disallow": [
+            "null",
+            "NaN",
+            "undefined"
+          ]
+        },
+        {
+          "path": "summary.open_gap_count",
+          "disallow": [
+            "null",
+            "NaN",
+            "undefined"
+          ]
+        },
+        {
+          "path": "summary.verification_backlog",
+          "disallow": [
+            "null",
+            "NaN",
+            "undefined"
+          ]
+        },
+        {
+          "path": "total_count",
+          "disallow": [
+            "null",
+            "NaN",
+            "undefined"
+          ]
+        }
+      ],
+      "latencyBudgetMs": 500,
+      "humanFailure": "The home page would show blanks where the counts of things needing attention today should be, so a manager would not know what is urgent.",
+      "sourceCommits": [
+        "38924a13e",
+        "f9752acbf",
+        "91192e83a",
+        "f650257db",
+        "3293d1b38",
+        "2a1e0ded6",
+        "909e1f66e",
+        "4abf8ff47",
+        "f08fa0593",
+        "af9732a49",
+        "d9a7c6090",
+        "54031d57b",
+        "334ae02e0"
+      ],
+      "bugPatterns": [
+        "chart-value-integrity-and-empty-scaffolds"
+      ],
+      "historyChecks": [
+        "lane3.control-tower-vaccination"
+      ],
+      "historyCommitCount": 20
+    },
+    {
+      "name": "action_center",
+      "method": "GET",
+      "path": "/vaccination/action-center?category=vaccination&limit=50",
+      "page": "Action Centre",
+      "pageUrl": "https://dashboard.mesha.sg/action-center",
+      "requiredFields": [
+        "source",
+        "items",
+        "counts_by_work_state",
+        "total_count",
+        "projection"
+      ],
+      "forbiddenValues": [
+        {
+          "path": "total_count",
+          "disallow": [
+            "null",
+            "NaN",
+            "undefined"
+          ]
+        },
+        {
+          "path": "items[].work_state",
+          "enum": [
+            "scheduled",
+            "due",
+            "overdue",
+            "in_progress",
+            "proof_pending",
+            "verification_pending",
+            "rejected",
+            "deferred",
+            "missed",
+            "blocked",
+            "completed"
+          ]
+        },
+        {
+          "path": "items[].drive_capacity_state",
+          "enum": [
+            "not_planned",
+            "within_cap",
+            "over_cap_required",
+            "medical_defer",
+            "terminal_animal_closed"
+          ]
+        },
+        {
+          "path": "items[].park_name",
+          "disallow": [
+            "null",
+            "NaN",
+            "empty",
+            "undefined"
+          ]
+        },
+        {
+          "path": "items[].shed_name",
+          "disallow": [
+            "null",
+            "NaN",
+            "empty",
+            "undefined"
+          ]
+        }
+      ],
+      "latencyBudgetMs": 500,
+      "humanFailure": "The Action Centre list would come up with rows missing their pen name, or showing an internal code instead of a readable status, so nobody could tell what work is outstanding.",
+      "sourceCommits": [
+        "c186fee72",
+        "165ab9f76",
+        "e3a5e4116",
+        "987fe748d",
+        "5fc519794",
+        "23a92fad0",
+        "41ba0d8ce",
+        "ddcbb7943",
+        "7b20653e4",
+        "7d2a681c3",
+        "4ca6a8ec2",
+        "4addd8814",
+        "39bd58322"
+      ],
+      "bugPatterns": [
+        "admin-web-contract-and-known-failure-screens"
+      ],
+      "historyChecks": [
+        "lane3.vaccination-action-center"
+      ],
+      "historyCommitCount": 41
+    },
+    {
+      "name": "action_center_counts",
+      "method": "GET",
+      "path": "/vaccination/action-center/counts?category=vaccination",
+      "page": "Action Centre (the count chips)",
+      "pageUrl": "https://dashboard.mesha.sg/action-center",
+      "requiredFields": [
+        "source",
+        "counts_by_work_state",
+        "total_count",
+        "projection"
+      ],
+      "forbiddenValues": [
+        {
+          "path": "total_count",
+          "disallow": [
+            "null",
+            "NaN",
+            "undefined"
+          ]
+        }
+      ],
+      "latencyBudgetMs": 500,
+      "humanFailure": "The little count badges at the top of the Action Centre would be blank, so a manager could not see how much work is due against how much is done.",
+      "sourceCommits": [
+        "38924a13e",
+        "f9752acbf",
+        "91192e83a",
+        "231ec3512",
+        "4ec7082e5",
+        "c8b46b083"
+      ],
+      "bugPatterns": [
+        "chart-value-integrity-and-empty-scaffolds"
+      ],
+      "historyChecks": [
+        "lane3.vaccination-action-center-counts"
+      ],
+      "historyCommitCount": 3
+    },
+    {
+      "name": "protocol_adherence",
+      "method": "GET",
+      "path": "/vaccination/adherence?category=vaccination&limit=50",
+      "page": "Protocol Adherence",
+      "pageUrl": "https://dashboard.mesha.sg/protocol-adherence",
+      "requiredFields": [
+        "source",
+        "summary",
+        "summary.expected_count",
+        "summary.completed_count",
+        "summary.adherence_percent",
+        "rows",
+        "total_count",
+        "projection"
+      ],
+      "forbiddenValues": [
+        {
+          "path": "summary.expected_count",
+          "disallow": [
+            "null",
+            "NaN",
+            "undefined"
+          ]
+        },
+        {
+          "path": "summary.completed_count",
+          "disallow": [
+            "null",
+            "NaN",
+            "undefined"
+          ]
+        },
+        {
+          "path": "summary.adherence_percent",
+          "disallow": [
+            "null",
+            "NaN",
+            "undefined"
+          ]
+        },
+        {
+          "path": "rows[].shed_name",
+          "disallow": [
+            "null",
+            "NaN",
+            "empty",
+            "undefined"
+          ]
+        },
+        {
+          "path": "rows[].next_action",
+          "disallow": [
+            "null",
+            "NaN",
+            "empty",
+            "undefined"
+          ]
+        }
+      ],
+      "latencyBudgetMs": 500,
+      "humanFailure": "The Protocol Adherence page would show a blank percentage instead of how much of the plan was actually done, and rows would not say which pen they refer to.",
+      "sourceCommits": [
+        "38924a13e",
+        "f9752acbf",
+        "91192e83a",
+        "f3ddb8370",
+        "a9f7c7a7a",
+        "31e3e30bf",
+        "85b4ed209",
+        "44d8285c2",
+        "b54b2c3b8",
+        "abd9ad9ee",
+        "0add69933",
+        "f885f2139",
+        "2b3ce40bf"
+      ],
+      "bugPatterns": [
+        "chart-value-integrity-and-empty-scaffolds"
+      ],
+      "historyChecks": [
+        "lane3.vaccination-adherence"
+      ],
+      "historyCommitCount": 14
+    },
+    {
+      "name": "vaccination_command",
+      "method": "GET",
+      "path": "/vaccination/command",
+      "page": "Vaccination command board",
+      "pageUrl": "https://dashboard.mesha.sg/vaccination",
+      "requiredFields": [
+        "source",
+        "kpis",
+        "kpis.targets",
+        "kpis.dosesVerified",
+        "kpis.awaitingVerification",
+        "kpis.overdueNotGiven",
+        "shedVaccineMatrix",
+        "shedVaccineColumns",
+        "weeklyGiven",
+        "verificationQueue",
+        "driveOptions",
+        "driveOptionsTruncated"
+      ],
+      "forbiddenValues": [
+        {
+          "path": "kpis.targets",
+          "disallow": [
+            "null",
+            "NaN",
+            "undefined"
+          ]
+        },
+        {
+          "path": "kpis.dosesVerified",
+          "disallow": [
+            "null",
+            "NaN",
+            "undefined"
+          ]
+        },
+        {
+          "path": "kpis.awaitingVerification",
+          "disallow": [
+            "null",
+            "NaN",
+            "undefined"
+          ]
+        },
+        {
+          "path": "kpis.overdueNotGiven",
+          "disallow": [
+            "null",
+            "NaN",
+            "undefined"
+          ]
+        },
+        {
+          "path": "kpis.missedNotGiven",
+          "disallow": [
+            "null",
+            "NaN",
+            "undefined"
+          ]
+        },
+        {
+          "path": "kpis.closedWithoutDose",
+          "disallow": [
+            "null",
+            "NaN",
+            "undefined"
+          ]
+        }
+      ],
+      "latencyBudgetMs": 500,
+      "humanFailure": "The vaccination command board would show empty boxes where the dose totals should be, so nobody could see how many animals still need their shot.",
+      "sourceCommits": [
+        "38924a13e",
+        "f9752acbf",
+        "91192e83a"
+      ],
+      "bugPatterns": [
+        "chart-value-integrity-and-empty-scaffolds"
+      ]
+    },
+    {
+      "name": "vaccination_command_drives",
+      "method": "GET",
+      "path": "/vaccination/command/drives?limit=20",
+      "page": "Vaccination command board (drive picker)",
+      "pageUrl": "https://dashboard.mesha.sg/vaccination",
+      "requiredFields": [
+        "options"
+      ],
+      "forbiddenValues": [
+        {
+          "path": "options[].driveName",
+          "disallow": [
+            "null",
+            "NaN",
+            "empty",
+            "undefined"
+          ]
+        },
+        {
+          "path": "options[].parkName",
+          "disallow": [
+            "null",
+            "NaN",
+            "empty",
+            "undefined"
+          ]
+        }
+      ],
+      "latencyBudgetMs": 500,
+      "humanFailure": "The drive picker on the vaccination board would list blank entries, so a manager could not choose which round of work to look at.",
+      "sourceCommits": [
+        "c186fee72",
+        "165ab9f76",
+        "e3a5e4116"
+      ],
+      "bugPatterns": [
+        "admin-web-contract-and-known-failure-screens"
+      ]
+    },
+    {
+      "name": "vaccination_command_cohort_matrix",
+      "method": "GET",
+      "path": "/vaccination/command/cohort-matrix",
+      "page": "Vaccination command board (cohort grid)",
+      "pageUrl": "https://dashboard.mesha.sg/vaccination",
+      "requiredFields": [
+        "cells"
+      ],
+      "forbiddenValues": [],
+      "latencyBudgetMs": 500,
+      "humanFailure": "The age-group grid on the vaccination board would be empty, hiding which groups of animals are behind on their shots.",
+      "sourceCommits": [
+        "38924a13e",
+        "f9752acbf",
+        "91192e83a"
+      ],
+      "bugPatterns": [
+        "chart-value-integrity-and-empty-scaffolds"
+      ]
+    },
+    {
+      "name": "vaccination_command_shed_dose_matrix",
+      "method": "GET",
+      "path": "/vaccination/command/shed-dose-matrix",
+      "page": "Vaccination command board (pen and dose grid)",
+      "pageUrl": "https://dashboard.mesha.sg/vaccination",
+      "requiredFields": [
+        "matrix"
+      ],
+      "forbiddenValues": [],
+      "latencyBudgetMs": 500,
+      "humanFailure": "The pen-by-dose grid on the vaccination board would be empty, so nobody could see which pens are missing which shot.",
+      "sourceCommits": [
+        "38924a13e",
+        "f9752acbf",
+        "91192e83a"
+      ],
+      "bugPatterns": [
+        "chart-value-integrity-and-empty-scaffolds"
+      ]
+    },
+    {
+      "name": "vaccination_execution",
+      "method": "GET",
+      "path": "/vaccination/execution?limit=50&include_card_summaries=false",
+      "page": "Vaccination work list",
+      "pageUrl": "https://dashboard.mesha.sg/vaccination",
+      "requiredFields": [
+        "source",
+        "rows",
+        "totalCount"
+      ],
+      "forbiddenValues": [
+        {
+          "path": "totalCount",
+          "disallow": [
+            "null",
+            "NaN",
+            "undefined"
+          ]
+        },
+        {
+          "path": "rows[].workState",
+          "enum": [
+            "due",
+            "overdue",
+            "scheduled",
+            "in_progress",
+            "proof_pending",
+            "verification_pending",
+            "rejected",
+            "deferred",
+            "missed",
+            "blocked",
+            "completed"
+          ]
+        },
+        {
+          "path": "rows[].severity",
+          "enum": [
+            "ok",
+            "watch",
+            "at_risk",
+            "broken"
+          ]
+        },
+        {
+          "path": "rows[].shedName",
+          "disallow": [
+            "null",
+            "NaN",
+            "empty",
+            "undefined"
+          ]
+        },
+        {
+          "path": "rows[].parkName",
+          "disallow": [
+            "null",
+            "NaN",
+            "empty",
+            "undefined"
+          ]
+        },
+        {
+          "path": "rows[].targetCount",
+          "disallow": [
+            "null",
+            "NaN",
+            "undefined"
+          ]
+        },
+        {
+          "path": "rows[].doneCount",
+          "disallow": [
+            "null",
+            "NaN",
+            "undefined"
+          ]
+        }
+      ],
+      "latencyBudgetMs": 500,
+      "humanFailure": "The vaccination work list would show rows with no pen name and an internal code where the status should be, and the done-versus-target numbers would be blank.",
+      "sourceCommits": [
+        "c186fee72",
+        "165ab9f76",
+        "e3a5e4116",
+        "e2d2d4871",
+        "665c72b60",
+        "0d78aa4c5",
+        "3c92f406a"
+      ],
+      "bugPatterns": [
+        "admin-web-contract-and-known-failure-screens"
+      ],
+      "historyChecks": [
+        "lane3.vaccination-execution"
+      ],
+      "historyCommitCount": 4
+    },
+    {
+      "name": "vaccination_sheds",
+      "method": "GET",
+      "path": "/vaccination/sheds?limit=50",
+      "page": "Vaccination pens list",
+      "pageUrl": "https://dashboard.mesha.sg/vaccination",
+      "requiredFields": [
+        "source",
+        "rows",
+        "page",
+        "page.total"
+      ],
+      "forbiddenValues": [
+        {
+          "path": "rows[].status",
+          "enum": [
+            "needs_review",
+            "overdue",
+            "split",
+            "due",
+            "scheduled",
+            "on_track"
+          ]
+        },
+        {
+          "path": "rows[].capacity",
+          "enum": [
+            "within_cap",
+            "over_cap",
+            "capacity_breach"
+          ]
+        },
+        {
+          "path": "rows[].shedName",
+          "disallow": [
+            "null",
+            "NaN",
+            "empty",
+            "undefined"
+          ]
+        },
+        {
+          "path": "rows[].animals",
+          "disallow": [
+            "null",
+            "NaN",
+            "undefined"
+          ]
+        },
+        {
+          "path": "rows[].due",
+          "disallow": [
+            "null",
+            "NaN",
+            "undefined"
+          ]
+        },
+        {
+          "path": "rows[].done",
+          "disallow": [
+            "null",
+            "NaN",
+            "undefined"
+          ]
+        }
+      ],
+      "latencyBudgetMs": 500,
+      "humanFailure": "The vaccination pens list would show an internal code instead of a readable status, and the animal counts per pen would be blank.",
+      "sourceCommits": [
+        "c186fee72",
+        "165ab9f76",
+        "e3a5e4116"
+      ],
+      "bugPatterns": [
+        "admin-web-contract-and-known-failure-screens"
+      ]
+    },
+    {
+      "name": "vaccination_live_tracker",
+      "method": "GET",
+      "path": "/vaccination/live-tracker?business_date={today}",
+      "page": "Vaccination live tracker",
+      "pageUrl": "https://dashboard.mesha.sg/vaccination/live-tracker",
+      "requiredFields": [
+        "business_date",
+        "generated_at",
+        "is_live_day",
+        "kpis",
+        "operators",
+        "sheds",
+        "combo",
+        "operators_total",
+        "sheds_total",
+        "activity",
+        "attention",
+        "verification",
+        "filter_options"
+      ],
+      "forbiddenValues": [
+        {
+          "path": "operators_total",
+          "disallow": [
+            "null",
+            "NaN",
+            "undefined"
+          ]
+        },
+        {
+          "path": "sheds_total",
+          "disallow": [
+            "null",
+            "NaN",
+            "undefined"
+          ]
+        }
+      ],
+      "latencyBudgetMs": 500,
+      "humanFailure": "The live tracker would not show who is working today or how far along they are, so nobody could follow the day as it happens.",
+      "sourceCommits": [
+        "c186fee72",
+        "165ab9f76",
+        "e3a5e4116",
+        "48cced41f",
+        "0def56a5a",
+        "4e9b56685",
+        "46ca2733b",
+        "26fc7223d",
+        "c8d66e096",
+        "788c4c249",
+        "f4099d96f",
+        "791c62f44",
+        "8d49fd415"
+      ],
+      "bugPatterns": [
+        "admin-web-contract-and-known-failure-screens"
+      ],
+      "notes": "The perf manifests pin a hard-coded business_date that production now rejects; this entry uses today so it cannot go stale.",
+      "historyChecks": [
+        "lane3.vaccination-live-tracker"
+      ],
+      "historyCommitCount": 14
+    },
+    {
+      "name": "vaccination_drive_assignments",
+      "method": "GET",
+      "path": "/vaccination/drive-assignments?limit=50",
+      "page": "Vaccination drive assignments",
+      "pageUrl": "https://dashboard.mesha.sg/vaccination",
+      "requiredFields": [
+        "source",
+        "rows"
+      ],
+      "forbiddenValues": [],
+      "latencyBudgetMs": 500,
+      "humanFailure": "The drive assignment list would be empty, so nobody could see which worker is meant to cover which pen.",
+      "sourceCommits": [
+        "c186fee72",
+        "165ab9f76",
+        "e3a5e4116"
+      ],
+      "bugPatterns": [
+        "admin-web-contract-and-known-failure-screens"
+      ]
+    },
+    {
+      "name": "vaccination_capacity_config",
+      "method": "GET",
+      "path": "/vaccination/capacity-config",
+      "page": "Vaccination settings",
+      "pageUrl": "https://dashboard.mesha.sg/vaccination",
+      "requiredFields": [
+        "maxPerDay",
+        "capacityScope",
+        "maxBufferDays",
+        "overflowPolicy",
+        "rowVersion"
+      ],
+      "forbiddenValues": [
+        {
+          "path": "maxPerDay",
+          "disallow": [
+            "null",
+            "NaN",
+            "undefined"
+          ]
+        },
+        {
+          "path": "maxBufferDays",
+          "disallow": [
+            "null",
+            "NaN",
+            "undefined"
+          ]
+        },
+        {
+          "path": "capacityScope",
+          "disallow": [
+            "null",
+            "NaN",
+            "empty",
+            "undefined"
+          ]
+        }
+      ],
+      "latencyBudgetMs": 500,
+      "humanFailure": "The vaccination settings panel would open blank, so nobody could see or change how many animals a worker is expected to cover in a day.",
+      "sourceCommits": [
+        "6d03a090a",
+        "dee711fc1",
+        "9482f318a"
+      ],
+      "bugPatterns": [
+        "admin-web-contract-and-known-failure-screens"
+      ]
+    },
+    {
+      "name": "vaccination_verification_queue",
+      "method": "GET",
+      "path": "/vaccination/verification-queue?limit=50",
+      "page": "Verification queue",
+      "pageUrl": "https://dashboard.mesha.sg/verify",
+      "requiredFields": [
+        "items",
+        "total_count"
+      ],
+      "forbiddenValues": [
+        {
+          "path": "total_count",
+          "disallow": [
+            "null",
+            "NaN",
+            "undefined"
+          ]
+        }
+      ],
+      "latencyBudgetMs": 500,
+      "humanFailure": "The verification queue would not say how many pieces of proof are waiting to be checked.",
+      "sourceCommits": [
+        "c186fee72",
+        "165ab9f76",
+        "e3a5e4116"
+      ],
+      "bugPatterns": [
+        "admin-web-contract-and-known-failure-screens"
+      ]
+    },
+    {
+      "name": "vaccination_schedule",
+      "method": "GET",
+      "path": "/vaccination/schedule?limit=50",
+      "page": "Vaccination schedule",
+      "pageUrl": "https://dashboard.mesha.sg/vaccination",
+      "requiredFields": [
+        "source",
+        "protocols",
+        "cohorts"
+      ],
+      "forbiddenValues": [],
+      "latencyBudgetMs": 500,
+      "humanFailure": "The vaccination schedule would be empty, so nobody could see what is planned for the days ahead.",
+      "sourceCommits": [
+        "c186fee72",
+        "165ab9f76",
+        "e3a5e4116",
+        "fe30f8ff9",
+        "94e2efaaf",
+        "c0f6f4070",
+        "e219b697f",
+        "64b952ff7",
+        "b327000b0",
+        "e8c6e5660",
+        "df8a789b5",
+        "eb177b953"
+      ],
+      "bugPatterns": [
+        "admin-web-contract-and-known-failure-screens"
+      ],
+      "historyChecks": [
+        "lane3.vaccination-schedule"
+      ],
+      "historyCommitCount": 9
+    },
+    {
+      "name": "protocols",
+      "method": "GET",
+      "path": "/protocols?category=vaccination&limit=50",
+      "page": "Vaccination plan",
+      "pageUrl": "https://dashboard.mesha.sg/vaccination/plan",
+      "requiredFields": [
+        "category",
+        "items"
+      ],
+      "forbiddenValues": [
+        {
+          "path": "items[].name",
+          "disallow": [
+            "null",
+            "NaN",
+            "empty",
+            "undefined"
+          ]
+        }
+      ],
+      "latencyBudgetMs": 500,
+      "humanFailure": "The vaccination plan page would list unnamed entries, so nobody could tell one plan from another.",
+      "sourceCommits": [
+        "c186fee72",
+        "165ab9f76",
+        "e3a5e4116",
+        "059555f97",
+        "a07ac7496",
+        "9daa459ff"
+      ],
+      "bugPatterns": [
+        "admin-web-contract-and-known-failure-screens"
+      ],
+      "historyChecks": [
+        "lane3.protocols"
+      ],
+      "historyCommitCount": 3
+    },
+    {
+      "name": "protocol_animal_stages",
+      "method": "GET",
+      "path": "/protocols/animal-stages",
+      "page": "Vaccination plan (age groups)",
+      "pageUrl": "https://dashboard.mesha.sg/vaccination/plan",
+      "requiredFields": [
+        "items"
+      ],
+      "forbiddenValues": [
+        {
+          "path": "items[].name",
+          "disallow": [
+            "null",
+            "NaN",
+            "empty",
+            "undefined"
+          ]
+        }
+      ],
+      "latencyBudgetMs": 500,
+      "humanFailure": "The age-group choices on the vaccination plan would be blank, so nobody could say which animals a rule applies to.",
+      "sourceCommits": [
+        "c186fee72",
+        "165ab9f76",
+        "e3a5e4116"
+      ],
+      "bugPatterns": [
+        "admin-web-contract-and-known-failure-screens"
+      ]
+    },
+    {
+      "name": "calendar_events",
+      "method": "GET",
+      "path": "/calendar/vaccination/events?date_from={today}&date_to={today_plus_7}&limit=100",
+      "page": "Calendar",
+      "pageUrl": "https://dashboard.mesha.sg/calendar",
+      "requiredFields": [
+        "source",
+        "presentation",
+        "items",
+        "projection"
+      ],
+      "forbiddenValues": [],
+      "latencyBudgetMs": 500,
+      "humanFailure": "The calendar would show no entries for the week ahead, so nobody could see what work is coming.",
+      "sourceCommits": [
+        "c186fee72",
+        "165ab9f76",
+        "e3a5e4116"
+      ],
+      "bugPatterns": [
+        "admin-web-contract-and-known-failure-screens"
+      ]
+    },
+    {
+      "name": "calendar_markers",
+      "method": "GET",
+      "path": "/calendar/vaccination/events?include_date_markers=true&limit=1",
+      "page": "Calendar (day dots)",
+      "pageUrl": "https://dashboard.mesha.sg/calendar",
+      "requiredFields": [
+        "source",
+        "date_markers"
+      ],
+      "forbiddenValues": [],
+      "latencyBudgetMs": 500,
+      "humanFailure": "The calendar would lose the dots that show which days have work on them.",
+      "sourceCommits": [
+        "c186fee72",
+        "165ab9f76",
+        "e3a5e4116",
+        "5b1383a67",
+        "6f413294f",
+        "93da182b4",
+        "4e051c13f",
+        "e55ad089f"
+      ],
+      "bugPatterns": [
+        "admin-web-contract-and-known-failure-screens"
+      ],
+      "historyChecks": [
+        "lane3.calendar-events"
+      ],
+      "historyCommitCount": 5
+    },
+    {
+      "name": "counts_breakdown",
+      "method": "GET",
+      "path": "/counts/breakdown?limit=50",
+      "page": "Counts breakdown",
+      "pageUrl": "https://dashboard.mesha.sg/counts/breakdown",
+      "requiredFields": [
+        "items",
+        "total_rows",
+        "total_count",
+        "total_kids",
+        "total_adults",
+        "charts",
+        "facets"
+      ],
+      "forbiddenValues": [
+        {
+          "path": "total_count",
+          "disallow": [
+            "null",
+            "NaN",
+            "undefined"
+          ]
+        },
+        {
+          "path": "total_kids",
+          "disallow": [
+            "null",
+            "NaN",
+            "undefined"
+          ]
+        },
+        {
+          "path": "total_adults",
+          "disallow": [
+            "null",
+            "NaN",
+            "undefined"
+          ]
+        },
+        {
+          "path": "total_rows",
+          "disallow": [
+            "null",
+            "NaN",
+            "undefined"
+          ]
+        },
+        {
+          "path": "items[].shed_label",
+          "disallow": [
+            "null",
+            "NaN",
+            "empty",
+            "undefined"
+          ]
+        },
+        {
+          "path": "items[].count",
+          "disallow": [
+            "null",
+            "NaN",
+            "undefined"
+          ]
+        },
+        {
+          "path": "charts.breed[].count",
+          "disallow": [
+            "null",
+            "NaN",
+            "undefined"
+          ]
+        },
+        {
+          "path": "charts.breed[].label",
+          "disallow": [
+            "null",
+            "NaN",
+            "empty",
+            "undefined"
+          ]
+        }
+      ],
+      "latencyBudgetMs": 500,
+      "humanFailure": "The counts breakdown would show a blank total where the herd size should be, and the charts would have bars with no numbers behind them.",
+      "sourceCommits": [
+        "38924a13e",
+        "f9752acbf",
+        "91192e83a",
+        "2e2006b30",
+        "a245d3288",
+        "630adf33d"
+      ],
+      "bugPatterns": [
+        "chart-value-integrity-and-empty-scaffolds"
+      ],
+      "historyChecks": [
+        "lane3.counts-breakdown"
+      ],
+      "historyCommitCount": 3
+    },
+    {
+      "name": "counts_herd_analytics",
+      "method": "GET",
+      "path": "/counts/herd-analytics",
+      "page": "Herd analytics",
+      "pageUrl": "https://dashboard.mesha.sg/counts/analytics",
+      "requiredFields": [
+        "window_from",
+        "window_to",
+        "totals",
+        "totals.live_animals",
+        "totals.births",
+        "totals.deaths",
+        "totals.sold",
+        "months",
+        "breed",
+        "stage",
+        "sex",
+        "age_band",
+        "park",
+        "generated_at"
+      ],
+      "forbiddenValues": [
+        {
+          "path": "totals.live_animals",
+          "disallow": [
+            "null",
+            "NaN",
+            "undefined"
+          ]
+        },
+        {
+          "path": "totals.births",
+          "disallow": [
+            "null",
+            "NaN",
+            "undefined"
+          ]
+        },
+        {
+          "path": "totals.deaths",
+          "disallow": [
+            "null",
+            "NaN",
+            "undefined"
+          ]
+        },
+        {
+          "path": "totals.sold",
+          "disallow": [
+            "null",
+            "NaN",
+            "undefined"
+          ]
+        },
+        {
+          "path": "totals.net_change",
+          "disallow": [
+            "null",
+            "NaN",
+            "undefined"
+          ]
+        },
+        {
+          "path": "months[].births",
+          "disallow": [
+            "null",
+            "NaN",
+            "undefined"
+          ]
+        },
+        {
+          "path": "months[].deaths",
+          "disallow": [
+            "null",
+            "NaN",
+            "undefined"
+          ]
+        }
+      ],
+      "latencyBudgetMs": 500,
+      "humanFailure": "The herd analytics page would show blank figures for births, deaths and sales, so the month-on-month picture of the herd would be unreadable.",
+      "sourceCommits": [
+        "38924a13e",
+        "f9752acbf",
+        "91192e83a",
+        "aa0577765",
+        "3ade45439",
+        "4e486e9b1",
+        "a6f6eff44"
+      ],
+      "bugPatterns": [
+        "chart-value-integrity-and-empty-scaffolds"
+      ],
+      "historyChecks": [
+        "lane3.counts-herd-analytics"
+      ],
+      "historyCommitCount": 4
+    },
+    {
+      "name": "counts_mortality",
+      "method": "GET",
+      "path": "/counts/mortality",
+      "page": "Mortality",
+      "pageUrl": "https://dashboard.mesha.sg/counts/mortality",
+      "requiredFields": [
+        "window_from",
+        "window_to",
+        "totals",
+        "months",
+        "cause",
+        "breed",
+        "sex",
+        "stage",
+        "park",
+        "deaths",
+        "generated_at"
+      ],
+      "forbiddenValues": [
+        {
+          "path": "months[].deaths",
+          "disallow": [
+            "null",
+            "NaN",
+            "undefined"
+          ]
+        },
+        {
+          "path": "cause[].label",
+          "disallow": [
+            "null",
+            "NaN",
+            "empty",
+            "undefined"
+          ]
+        },
+        {
+          "path": "cause[].deaths",
+          "disallow": [
+            "null",
+            "NaN",
+            "undefined"
+          ]
+        }
+      ],
+      "latencyBudgetMs": 500,
+      "humanFailure": "The mortality page would show a blank column where the number of deaths by cause should be, hiding whether a problem is getting worse.",
+      "sourceCommits": [
+        "38924a13e",
+        "f9752acbf",
+        "91192e83a"
+      ],
+      "bugPatterns": [
+        "chart-value-integrity-and-empty-scaffolds"
+      ],
+      "notes": "Not covered by any hot-paths manifest before this lane."
+    },
+    {
+      "name": "counts_milk_preparation",
+      "method": "GET",
+      "path": "/counts/milk-preparation?limit=50",
+      "page": "Milk preparation",
+      "pageUrl": "https://dashboard.mesha.sg/counts/milk-preparation",
+      "requiredFields": [
+        "preparation_date",
+        "feeding_date",
+        "generated_at",
+        "items",
+        "summary",
+        "limit",
+        "offset",
+        "has_more"
+      ],
+      "forbiddenValues": [
+        {
+          "path": "items[].shed_label",
+          "disallow": [
+            "null",
+            "NaN",
+            "empty",
+            "undefined"
+          ]
+        },
+        {
+          "path": "items[].head_count",
+          "disallow": [
+            "null",
+            "NaN",
+            "undefined"
+          ]
+        },
+        {
+          "path": "items[].daily_required_ml",
+          "disallow": [
+            "null",
+            "NaN",
+            "undefined"
+          ]
+        }
+      ],
+      "latencyBudgetMs": 500,
+      "humanFailure": "The milk preparation list would be empty, so the team would not know how much to mix for the kids today.",
+      "sourceCommits": [
+        "2479391de",
+        "9746a06c8",
+        "18977393c",
+        "ae43d092c",
+        "90dfc5f02",
+        "349543406",
+        "fadebfc87",
+        "e8912ae95",
+        "5f2c8dbd5",
+        "7e6d652db",
+        "56415237d",
+        "be1772bad",
+        "47d9013cb"
+      ],
+      "bugPatterns": [
+        "admin-web-contract-and-known-failure-screens"
+      ],
+      "historyChecks": [
+        "lane3.counts-milk-preparation"
+      ],
+      "historyCommitCount": 12
+    },
+    {
+      "name": "herd_register_summary",
+      "method": "GET",
+      "path": "/herd-register/summary",
+      "page": "Herd register",
+      "pageUrl": "https://dashboard.mesha.sg/counts/herd",
+      "requiredFields": [
+        "items"
+      ],
+      "forbiddenValues": [
+        {
+          "path": "items[].totalCount",
+          "disallow": [
+            "null",
+            "NaN",
+            "undefined"
+          ]
+        },
+        {
+          "path": "items[].activeCount",
+          "disallow": [
+            "null",
+            "NaN",
+            "undefined"
+          ]
+        },
+        {
+          "path": "items[].deadCount",
+          "disallow": [
+            "null",
+            "NaN",
+            "undefined"
+          ]
+        },
+        {
+          "path": "items[].soldCount",
+          "disallow": [
+            "null",
+            "NaN",
+            "undefined"
+          ]
+        }
+      ],
+      "latencyBudgetMs": 500,
+      "humanFailure": "The herd register would show blanks instead of how many animals are alive, sold or dead.",
+      "sourceCommits": [
+        "2479391de",
+        "9746a06c8",
+        "18977393c",
+        "232cae667",
+        "9ab2f9091",
+        "ad354a5c2",
+        "7eceb8285",
+        "db8cf68c9",
+        "4634c5fba",
+        "90bf02af6",
+        "7e27b6859",
+        "37b714ced",
+        "03186f31a"
+      ],
+      "bugPatterns": [
+        "admin-web-contract-and-known-failure-screens"
+      ],
+      "notes": "Grouping keys such as park and breed are legitimately empty on the rollup row, so only the counts are asserted.",
+      "historyChecks": [
+        "lane3.herd-register-summary"
+      ],
+      "historyCommitCount": 18
+    },
+    {
+      "name": "goat_search",
+      "method": "GET",
+      "path": "/goats/search?q=&limit=25",
+      "page": "Animal search",
+      "pageUrl": "https://dashboard.mesha.sg/counts/herd",
+      "requiredFields": [
+        "items"
+      ],
+      "forbiddenValues": [
+        {
+          "path": "items[].display_id",
+          "disallow": [
+            "null",
+            "NaN",
+            "empty",
+            "undefined"
+          ]
+        },
+        {
+          "path": "items[].lifecycle_status",
+          "disallow": [
+            "null",
+            "NaN",
+            "empty",
+            "undefined"
+          ]
+        }
+      ],
+      "latencyBudgetMs": 500,
+      "humanFailure": "Searching for an animal would return nothing, so a worker could not pull up an animal's record.",
+      "sourceCommits": [
+        "c186fee72",
+        "165ab9f76",
+        "e3a5e4116"
+      ],
+      "bugPatterns": [
+        "admin-web-contract-and-known-failure-screens"
+      ],
+      "historyChecks": [
+        "lane3.goat-search"
+      ],
+      "historyCommitCount": 0
+    },
+    {
+      "name": "weighing_shed_weights",
+      "method": "GET",
+      "path": "/weighing/shed-weights?from={today_minus_30}&to={today}&weighing_category=per_shed_partition",
+      "page": "Weights",
+      "pageUrl": "https://dashboard.mesha.sg/weighing/weights",
+      "requiredFields": [
+        "parks",
+        "summary",
+        "rows",
+        "by_load",
+        "lump_weighing_dates",
+        "period_start",
+        "period_end"
+      ],
+      "forbiddenValues": [
+        {
+          "path": "rows[].shed_display_name",
+          "disallow": [
+            "null",
+            "NaN",
+            "empty",
+            "undefined"
+          ]
+        },
+        {
+          "path": "summary.animals_weighed",
+          "disallow": [
+            "null",
+            "NaN",
+            "undefined"
+          ]
+        },
+        {
+          "path": "summary.average_weight_kg",
+          "disallow": [
+            "null",
+            "NaN",
+            "undefined"
+          ]
+        },
+        {
+          "path": "rows[].animals_weighed",
+          "disallow": [
+            "null",
+            "NaN",
+            "undefined"
+          ]
+        }
+      ],
+      "latencyBudgetMs": 500,
+      "humanFailure": "The weights page would show a blank column where the average daily gain should be, so nobody could tell whether the animals are growing.",
+      "sourceCommits": [
+        "b73fb1df4",
+        "3c5294a76",
+        "a8ef4fdc3",
+        "8759f9c57",
+        "f5bfee836",
+        "9a2644fa2",
+        "10192c628",
+        "b57713920",
+        "bd8bc9e94",
+        "9f570d4cc",
+        "4c17af759",
+        "364d5c3fb"
+      ],
+      "bugPatterns": [
+        "chart-value-integrity-and-empty-scaffolds"
+      ],
+      "notes": "Uses a rolling 30-day window; the perf manifests pin fixed dates that age out.",
+      "historyChecks": [
+        "lane3.weighing-shed-weights"
+      ],
+      "historyCommitCount": 40
+    },
+    {
+      "name": "weighing_weight_demographics",
+      "method": "GET",
+      "path": "/weighing/weight-demographics?from={today_minus_30}&to={today}&weighing_category=per_shed_partition",
+      "page": "Weight analytics",
+      "pageUrl": "https://dashboard.mesha.sg/weighing/analytics",
+      "requiredFields": [
+        "by_breed",
+        "by_sex",
+        "by_stage",
+        "by_weight_band",
+        "shed_composition",
+        "resolved_animals"
+      ],
+      "forbiddenValues": [],
+      "latencyBudgetMs": 500,
+      "humanFailure": "The weight analytics charts would come up empty, hiding how the herd is spread across weight bands.",
+      "sourceCommits": [
+        "b73fb1df4",
+        "3c5294a76",
+        "b6fb80c5e",
+        "7e83a50a1",
+        "7e8b468ad",
+        "9a9cc5814",
+        "63fdd2f2e",
+        "d485c86ae"
+      ],
+      "bugPatterns": [
+        "chart-value-integrity-and-empty-scaffolds"
+      ],
+      "historyChecks": [
+        "lane3.weighing-weight-demographics"
+      ],
+      "historyCommitCount": 6
+    },
+    {
+      "name": "weighing_leadership_growth",
+      "method": "GET",
+      "path": "/weighing/leadership/growth?from={today_minus_30}&to={today}&weighing_category=per_shed_partition",
+      "page": "Growth",
+      "pageUrl": "https://dashboard.mesha.sg/weighing/analytics",
+      "requiredFields": [
+        "parks",
+        "period_start",
+        "period_end",
+        "headline",
+        "weekly_gain",
+        "shed_leaderboard",
+        "distribution",
+        "sale_readiness"
+      ],
+      "forbiddenValues": [],
+      "latencyBudgetMs": 500,
+      "humanFailure": "The growth page would lose its headline gain figure and the pen leaderboard, so nobody could see which pens are falling behind.",
+      "sourceCommits": [
+        "b73fb1df4",
+        "3c5294a76",
+        "503b1ac30",
+        "45d1cdf8a",
+        "5a0671754",
+        "b22324763",
+        "692073742",
+        "b492445e9",
+        "a4cd654fa",
+        "f4de4ea8f",
+        "aac458750",
+        "4b6e64612"
+      ],
+      "bugPatterns": [
+        "chart-value-integrity-and-empty-scaffolds"
+      ],
+      "historyChecks": [
+        "lane3.weighing-leadership-growth"
+      ],
+      "historyCommitCount": 13
+    },
+    {
+      "name": "growth_director_weights",
+      "method": "GET",
+      "path": "/growth-director/weights?limit=50",
+      "page": "Growth director",
+      "pageUrl": "https://dashboard.mesha.sg/weighing/analytics",
+      "requiredFields": [
+        "period",
+        "parks",
+        "road_to_sale",
+        "fair_fight",
+        "slow_growth",
+        "feed_vs_growth",
+        "trust"
+      ],
+      "forbiddenValues": [
+        {
+          "path": "road_to_sale.total_animals",
+          "disallow": [
+            "null",
+            "NaN",
+            "undefined"
+          ]
+        },
+        {
+          "path": "road_to_sale.matched_identities",
+          "disallow": [
+            "null",
+            "NaN",
+            "undefined"
+          ]
+        }
+      ],
+      "latencyBudgetMs": 500,
+      "humanFailure": "The growth director view would show blanks where the counts of animals ready for sale should be.",
+      "sourceCommits": [
+        "b73fb1df4",
+        "3c5294a76"
+      ],
+      "bugPatterns": [
+        "chart-value-integrity-and-empty-scaffolds"
+      ],
+      "historyChecks": [
+        "lane3.growth-director-weights"
+      ],
+      "historyCommitCount": 0
+    },
+    {
+      "name": "feed_analytics_execution",
+      "method": "GET",
+      "path": "/feed-analytics/execution?date_from={today_minus_30}&date_to={today}&sections=days",
+      "page": "Feed analytics",
+      "pageUrl": "https://dashboard.mesha.sg/feed/analytics",
+      "requiredFields": [
+        "date_from",
+        "date_to",
+        "days"
+      ],
+      "forbiddenValues": [],
+      "latencyBudgetMs": 500,
+      "humanFailure": "The feed analytics page would show an empty day-by-day chart, so nobody could see whether feed actually went out.",
+      "sourceCommits": [
+        "9e85ed970",
+        "b7579c001",
+        "1770ed5d1",
+        "155317593",
+        "a62732b30",
+        "84b76cba6",
+        "a137793cc",
+        "bc0fdfc3e",
+        "8325b3844",
+        "8e110c387",
+        "d21bdef9c",
+        "c613f996c",
+        "0e85a675f"
+      ],
+      "bugPatterns": [
+        "chart-value-integrity-and-empty-scaffolds"
+      ],
+      "historyChecks": [
+        "lane3.feed-analytics-execution",
+        "lane3.feed-analytics-packing-variance"
+      ],
+      "historyCommitCount": 11
+    },
+    {
+      "name": "feed_analytics_stock",
+      "method": "GET",
+      "path": "/feed-analytics/stock?date_from={today_minus_30}&date_to={today}",
+      "page": "Feed analytics (stock)",
+      "pageUrl": "https://dashboard.mesha.sg/feed/analytics",
+      "requiredFields": [
+        "date_from",
+        "date_to",
+        "items",
+        "farm_items",
+        "forecast"
+      ],
+      "forbiddenValues": [
+        {
+          "path": "items[].feed_item_label",
+          "disallow": [
+            "null",
+            "NaN",
+            "empty",
+            "undefined"
+          ]
+        },
+        {
+          "path": "items[].balance_kg",
+          "disallow": [
+            "null",
+            "NaN",
+            "empty",
+            "undefined"
+          ]
+        }
+      ],
+      "latencyBudgetMs": 500,
+      "humanFailure": "The feed stock view would not say how much feed is left or how many days it will last, so the farm could run out without warning.",
+      "sourceCommits": [
+        "9e85ed970",
+        "b7579c001",
+        "7c5805100",
+        "dddd18b93",
+        "c5cc9fc01",
+        "4ea74d06b",
+        "f4f2d1851",
+        "cdcde6eb7",
+        "bc1a4c574",
+        "43ae38653",
+        "483e19fc2",
+        "598599e0a"
+      ],
+      "bugPatterns": [
+        "admin-web-contract-and-known-failure-screens"
+      ],
+      "historyChecks": [
+        "lane3.feed-analytics-stock"
+      ],
+      "historyCommitCount": 11
+    },
+    {
+      "name": "feed_analytics_directed",
+      "method": "GET",
+      "path": "/feed-analytics/directed?date_from={today_minus_30}&date_to={today}",
+      "page": "Feed analytics (directed)",
+      "pageUrl": "https://dashboard.mesha.sg/feed/analytics",
+      "requiredFields": [
+        "date_from",
+        "date_to",
+        "days",
+        "items"
+      ],
+      "forbiddenValues": [],
+      "latencyBudgetMs": 500,
+      "humanFailure": "The directed feed view would be empty, hiding what each pen was actually told to eat.",
+      "sourceCommits": [
+        "9e85ed970",
+        "b7579c001",
+        "d549d7850",
+        "ee105c1e8",
+        "a5969f61f",
+        "1d8898c0c",
+        "4cd5ed356",
+        "fb2ebca5b"
+      ],
+      "bugPatterns": [
+        "admin-web-contract-and-known-failure-screens"
+      ],
+      "historyChecks": [
+        "lane3.feed-analytics-directed"
+      ],
+      "historyCommitCount": 6
+    },
+    {
+      "name": "feed_direction_preview",
+      "method": "GET",
+      "path": "/feed-direction/preview?target_date={today}&limit=50",
+      "page": "Feed direction",
+      "pageUrl": "https://dashboard.mesha.sg/feed/direction",
+      "requiredFields": [
+        "items",
+        "summary",
+        "lifecycle",
+        "filters",
+        "target_date",
+        "limit",
+        "offset",
+        "has_more"
+      ],
+      "forbiddenValues": [],
+      "latencyBudgetMs": 500,
+      "humanFailure": "The feed direction screen would not show today's plan, so the team would not know what to feed which pen.",
+      "sourceCommits": [
+        "9e85ed970",
+        "b7579c001",
+        "4b1aefb7a",
+        "c676cabc8",
+        "12af1e521",
+        "c7685eb2a",
+        "a4d0d509e",
+        "e759e3dda",
+        "d9c2992d7",
+        "e23eb0864",
+        "ec7fc66d0",
+        "1b9f08d8d"
+      ],
+      "bugPatterns": [
+        "admin-web-contract-and-known-failure-screens"
+      ],
+      "notes": "The perf manifests send a parameter production no longer accepts, so they record a request failure rather than a real check.",
+      "historyChecks": [
+        "lane3.feed-direction-preview"
+      ],
+      "historyCommitCount": 29
+    },
+    {
+      "name": "feed_packing_worklist",
+      "method": "GET",
+      "path": "/feed-packing/worklist?target_date={today}&limit=50",
+      "page": "Feed packing",
+      "pageUrl": "https://dashboard.mesha.sg/feed/packing",
+      "requiredFields": [
+        "items",
+        "summary",
+        "target_date",
+        "limit",
+        "offset",
+        "has_more"
+      ],
+      "forbiddenValues": [],
+      "latencyBudgetMs": 500,
+      "humanFailure": "The feed packing list would be empty, so the team would not know what to weigh out and bag this morning.",
+      "sourceCommits": [
+        "9e85ed970",
+        "b7579c001"
+      ],
+      "bugPatterns": [
+        "admin-web-contract-and-known-failure-screens"
+      ],
+      "historyChecks": [
+        "lane3.feed-packing-worklist"
+      ],
+      "historyCommitCount": 0
+    },
+    {
+      "name": "feed_config_feed_items",
+      "method": "GET",
+      "path": "/feed-config/feed-items?limit=200",
+      "page": "Feed settings",
+      "pageUrl": "https://dashboard.mesha.sg/feed/config",
+      "requiredFields": [
+        "items"
+      ],
+      "forbiddenValues": [
+        {
+          "path": "items[].feed_item",
+          "disallow": [
+            "null",
+            "NaN",
+            "empty",
+            "undefined"
+          ]
+        }
+      ],
+      "latencyBudgetMs": 500,
+      "humanFailure": "The feed settings page would list unnamed feed items, so nobody could build or edit a ration.",
+      "sourceCommits": [
+        "6d03a090a",
+        "dee711fc1",
+        "9482f318a",
+        "935729948",
+        "2c308c750"
+      ],
+      "bugPatterns": [
+        "admin-web-contract-and-known-failure-screens"
+      ],
+      "historyChecks": [
+        "lane3.feed-config-feed-items"
+      ],
+      "historyCommitCount": 2
+    },
+    {
+      "name": "sales_overview",
+      "method": "GET",
+      "path": "/sales/overview",
+      "page": "Sales",
+      "pageUrl": "https://dashboard.mesha.sg/sales",
+      "requiredFields": [
+        "summary",
+        "summary.revenue",
+        "summary.deals",
+        "summary.animals",
+        "monthly",
+        "price_bands",
+        "buyers",
+        "buyer_pipeline",
+        "fpo_pipeline",
+        "farm_valuation"
+      ],
+      "forbiddenValues": [
+        {
+          "path": "summary.revenue",
+          "disallow": [
+            "null",
+            "NaN",
+            "undefined"
+          ]
+        },
+        {
+          "path": "summary.deals",
+          "disallow": [
+            "null",
+            "NaN",
+            "undefined"
+          ]
+        },
+        {
+          "path": "summary.animals",
+          "disallow": [
+            "null",
+            "NaN",
+            "undefined"
+          ]
+        },
+        {
+          "path": "summary.live_weight_kg",
+          "disallow": [
+            "null",
+            "NaN",
+            "undefined"
+          ]
+        },
+        {
+          "path": "summary.realized_price_per_kg",
+          "disallow": [
+            "null",
+            "NaN",
+            "undefined"
+          ]
+        },
+        {
+          "path": "monthly[].sheep_revenue",
+          "disallow": [
+            "null",
+            "NaN",
+            "undefined"
+          ]
+        },
+        {
+          "path": "monthly[].goat_revenue",
+          "disallow": [
+            "null",
+            "NaN",
+            "undefined"
+          ]
+        }
+      ],
+      "latencyBudgetMs": 500,
+      "humanFailure": "The sales page would show a blank where the revenue figure should be, and the month-by-month bars would have no numbers behind them.",
+      "sourceCommits": [
+        "2bf21e7f8",
+        "b496d7964",
+        "1625cd8da",
+        "aa489abc7",
+        "24ca44880",
+        "ec88a3f25",
+        "beb9e240e",
+        "837711f55",
+        "33856d26c",
+        "172a18c0a",
+        "472e45a8d",
+        "f6d4e196c"
+      ],
+      "bugPatterns": [
+        "chart-value-integrity-and-empty-scaffolds"
+      ],
+      "historyChecks": [
+        "lane3.sales-overview"
+      ],
+      "historyCommitCount": 11
+    },
+    {
+      "name": "sales_deals",
+      "method": "GET",
+      "path": "/sales/deals?limit=50&offset=0",
+      "page": "Sales deals",
+      "pageUrl": "https://dashboard.mesha.sg/sales",
+      "requiredFields": [
+        "deals",
+        "total"
+      ],
+      "forbiddenValues": [
+        {
+          "path": "deals[].buyer_name",
+          "disallow": [
+            "null",
+            "NaN",
+            "empty",
+            "undefined"
+          ]
+        },
+        {
+          "path": "deals[].animal_count",
+          "disallow": [
+            "null",
+            "NaN",
+            "undefined"
+          ]
+        },
+        {
+          "path": "deals[].sales_value",
+          "disallow": [
+            "null",
+            "NaN",
+            "undefined"
+          ]
+        }
+      ],
+      "latencyBudgetMs": 500,
+      "humanFailure": "The list of sales deals would be empty, so nobody could check what was sold and to whom.",
+      "sourceCommits": [
+        "2bf21e7f8",
+        "b496d7964",
+        "a4556d11c"
+      ],
+      "bugPatterns": [
+        "admin-web-contract-and-known-failure-screens"
+      ],
+      "historyChecks": [
+        "lane3.sales-deals"
+      ],
+      "historyCommitCount": 1
+    },
+    {
+      "name": "procurement_vendors",
+      "method": "GET",
+      "path": "/procurement/vendors?limit=200",
+      "page": "Vendors",
+      "pageUrl": "https://dashboard.mesha.sg/procurement/vendors",
+      "requiredFields": [
+        "vendors",
+        "total"
+      ],
+      "forbiddenValues": [
+        {
+          "path": "vendors[].display_name",
+          "disallow": [
+            "null",
+            "NaN",
+            "empty",
+            "undefined"
+          ]
+        },
+        {
+          "path": "vendors[].status_label",
+          "disallow": [
+            "null",
+            "NaN",
+            "empty",
+            "undefined"
+          ]
+        }
+      ],
+      "latencyBudgetMs": 500,
+      "humanFailure": "The vendor list would show unnamed suppliers, so nobody could tell who an animal or a feed load came from.",
+      "sourceCommits": [
+        "c186fee72",
+        "165ab9f76",
+        "e3a5e4116",
+        "d1e610016"
+      ],
+      "bugPatterns": [
+        "admin-web-contract-and-known-failure-screens"
+      ],
+      "historyChecks": [
+        "lane3.procurement-vendors"
+      ],
+      "historyCommitCount": 1
+    },
+    {
+      "name": "procurement_source_entry_loads",
+      "method": "GET",
+      "path": "/procurement/source-entry/loads?limit=200",
+      "page": "Procurement loads",
+      "pageUrl": "https://dashboard.mesha.sg/procurement/source-entry/loads",
+      "requiredFields": [
+        "items"
+      ],
+      "forbiddenValues": [
+        {
+          "path": "items[].source_party_name",
+          "disallow": [
+            "null",
+            "NaN",
+            "empty",
+            "undefined"
+          ]
+        },
+        {
+          "path": "items[].expected_count",
+          "disallow": [
+            "null",
+            "NaN",
+            "undefined"
+          ]
+        }
+      ],
+      "latencyBudgetMs": 500,
+      "humanFailure": "The arriving-loads list would be empty, so nobody could check in a new batch of animals.",
+      "sourceCommits": [
+        "c186fee72",
+        "165ab9f76",
+        "e3a5e4116",
+        "ab388bfe2",
+        "b9543bda3"
+      ],
+      "bugPatterns": [
+        "admin-web-contract-and-known-failure-screens"
+      ],
+      "historyChecks": [
+        "lane3.procurement-loads"
+      ],
+      "historyCommitCount": 2
+    },
+    {
+      "name": "verification_queue",
+      "method": "GET",
+      "path": "/verification/queue?status=pending&limit=50",
+      "page": "Verify",
+      "pageUrl": "https://dashboard.mesha.sg/verify",
+      "requiredFields": [
+        "items",
+        "filter_options"
+      ],
+      "forbiddenValues": [
+        {
+          "path": "items[].subject_label",
+          "disallow": [
+            "null",
+            "NaN",
+            "empty",
+            "undefined"
+          ]
+        },
+        {
+          "path": "items[].operator_name",
+          "disallow": [
+            "null",
+            "NaN",
+            "empty",
+            "undefined"
+          ]
+        },
+        {
+          "path": "items[].park_label",
+          "disallow": [
+            "null",
+            "NaN",
+            "empty",
+            "undefined"
+          ]
+        }
+      ],
+      "latencyBudgetMs": 500,
+      "humanFailure": "The verify queue would show rows with no worker name and nothing to identify what is being checked, so a verifier could not do their round.",
+      "sourceCommits": [
+        "c186fee72",
+        "165ab9f76",
+        "e3a5e4116",
+        "814499647",
+        "2ed3c9c44",
+        "cd72c8ab6",
+        "1e739b6a6",
+        "1985e2e2f",
+        "a6e20f351",
+        "f7f1d2b60"
+      ],
+      "bugPatterns": [
+        "admin-web-contract-and-known-failure-screens"
+      ],
+      "historyChecks": [
+        "lane3.verification-queue"
+      ],
+      "historyCommitCount": 7
+    },
+    {
+      "name": "verification_oversight_analytics",
+      "method": "GET",
+      "path": "/verification/oversight-analytics?business_date_from={today_minus_30}&business_date_to={today}",
+      "page": "Verify oversight",
+      "pageUrl": "https://dashboard.mesha.sg/verify",
+      "requiredFields": [
+        "kpis",
+        "pending_age_buckets",
+        "daily_volume_last_14d",
+        "pending_by_module",
+        "verifier_activity"
+      ],
+      "forbiddenValues": [],
+      "latencyBudgetMs": 500,
+      "humanFailure": "The verify oversight charts would be empty, hiding how big the backlog of unchecked work has grown.",
+      "sourceCommits": [
+        "38924a13e",
+        "f9752acbf",
+        "91192e83a"
+      ],
+      "bugPatterns": [
+        "chart-value-integrity-and-empty-scaffolds"
+      ],
+      "historyChecks": [
+        "lane3.verification-oversight-analytics"
+      ],
+      "historyCommitCount": 0
+    },
+    {
+      "name": "toxin_review",
+      "method": "GET",
+      "path": "/toxin/review?limit=50",
+      "page": "Toxin review",
+      "pageUrl": "https://dashboard.mesha.sg/verify",
+      "requiredFields": [
+        "tasks",
+        "status_counts"
+      ],
+      "forbiddenValues": [],
+      "latencyBudgetMs": 500,
+      "humanFailure": "The toxin review list would be empty, so a suspected feed poisoning case could sit unreviewed.",
+      "sourceCommits": [
+        "c186fee72",
+        "165ab9f76",
+        "e3a5e4116"
+      ],
+      "bugPatterns": [
+        "admin-web-contract-and-known-failure-screens"
+      ],
+      "historyChecks": [
+        "lane3.toxin-review"
+      ],
+      "historyCommitCount": 0
+    },
+    {
+      "name": "work_board_page",
+      "method": "GET",
+      "path": "/work-board/page?park=00000000-0000-4000-8000-000000003001&business_date={today}&limit=50",
+      "page": "Work Board",
+      "pageUrl": "https://dashboard.mesha.sg/work-board",
+      "requiredFields": [
+        "summary",
+        "lanes",
+        "business_date",
+        "park_id",
+        "modules"
+      ],
+      "forbiddenValues": [],
+      "latencyBudgetMs": 500,
+      "humanFailure": "The work board would not list today's jobs, so nobody could see what the team is meant to be doing.",
+      "sourceCommits": [
+        "a80171412",
+        "8964bf79b"
+      ],
+      "bugPatterns": [
+        "api-fanout-and-latency-regression"
+      ],
+      "notes": "Park id is the one the perf manifests already pin; it is read-only and stable."
+    },
+    {
+      "name": "admin_workforce_people",
+      "method": "GET",
+      "path": "/admin/workforce/people?limit=200",
+      "page": "People",
+      "pageUrl": "https://dashboard.mesha.sg/people",
+      "requiredFields": [
+        "items"
+      ],
+      "forbiddenValues": [
+        {
+          "path": "items[].display_name",
+          "disallow": [
+            "null",
+            "NaN",
+            "empty",
+            "undefined"
+          ]
+        }
+      ],
+      "latencyBudgetMs": 500,
+      "humanFailure": "The people page would list unnamed staff, so nobody could assign work to a person.",
+      "sourceCommits": [
+        "c186fee72",
+        "165ab9f76",
+        "e3a5e4116",
+        "420f0e466",
+        "a3af3e191",
+        "7c44f80f1",
+        "ec49b66e1",
+        "e7028d85b",
+        "e572a81a8",
+        "7e4d161a6",
+        "c6fa3a1b1",
+        "135b40b0f",
+        "3cd5d0e33",
+        "8613d51f3"
+      ],
+      "bugPatterns": [
+        "admin-web-contract-and-known-failure-screens"
+      ],
+      "historyChecks": [
+        "lane3.workforce-people",
+        "lane3.capabilities-match-the-role"
+      ],
+      "historyCommitCount": 26
+    },
+    {
+      "name": "admin_roster_coverage",
+      "method": "GET",
+      "path": "/admin/roster/coverage?limit=200",
+      "page": "Leave and cover",
+      "pageUrl": "https://dashboard.mesha.sg/leave",
+      "requiredFields": [
+        "items"
+      ],
+      "forbiddenValues": [],
+      "latencyBudgetMs": 500,
+      "humanFailure": "The cover page would not show who is standing in for whom, so a pen could be left unattended.",
+      "sourceCommits": [
+        "5826de751",
+        "65bca24ff",
+        "96a008810",
+        "72053a9c5",
+        "33046a035"
+      ],
+      "bugPatterns": [
+        "admin-web-contract-and-known-failure-screens"
+      ],
+      "historyChecks": [
+        "lane3.roster-coverage"
+      ],
+      "historyCommitCount": 3
+    },
+    {
+      "name": "admin_locations",
+      "method": "GET",
+      "path": "/admin/locations?limit=200",
+      "page": "Pens and farms",
+      "pageUrl": "https://dashboard.mesha.sg/configuration/items",
+      "requiredFields": [
+        "items"
+      ],
+      "forbiddenValues": [
+        {
+          "path": "items[].name",
+          "disallow": [
+            "null",
+            "NaN",
+            "empty",
+            "undefined"
+          ]
+        }
+      ],
+      "latencyBudgetMs": 500,
+      "humanFailure": "Pens and farms would appear unnamed across the whole system, so no screen could say where anything is.",
+      "sourceCommits": [
+        "6d03a090a",
+        "dee711fc1",
+        "9482f318a",
+        "8c15c5ea3",
+        "3c2494407",
+        "c8b39db7a",
+        "ff0376389",
+        "2bfdb5f60",
+        "b3491e8b2",
+        "5333362f4"
+      ],
+      "bugPatterns": [
+        "admin-web-contract-and-known-failure-screens"
+      ],
+      "historyChecks": [
+        "lane3.admin-locations"
+      ],
+      "historyCommitCount": 7
+    },
+    {
+      "name": "admin_sops",
+      "method": "GET",
+      "path": "/admin/sops?limit=25",
+      "page": "Standard procedures",
+      "pageUrl": "https://dashboard.mesha.sg/vaccination/sops",
+      "requiredFields": [
+        "items"
+      ],
+      "forbiddenValues": [
+        {
+          "path": "items[].name",
+          "disallow": [
+            "null",
+            "NaN",
+            "empty",
+            "undefined"
+          ]
+        },
+        {
+          "path": "items[].status",
+          "disallow": [
+            "null",
+            "NaN",
+            "empty",
+            "undefined"
+          ]
+        }
+      ],
+      "latencyBudgetMs": 500,
+      "humanFailure": "The standard procedures list would be empty, so workers would have no steps to follow and no proof to capture.",
+      "sourceCommits": [
+        "6d03a090a",
+        "dee711fc1",
+        "9482f318a",
+        "584e010d7",
+        "39680048a",
+        "bb1319909",
+        "5cfe0c09f",
+        "bf5a0c54c",
+        "fa4a110b7",
+        "eb5657e15",
+        "f90c658be",
+        "a752d2dde",
+        "f1f39044c"
+      ],
+      "bugPatterns": [
+        "admin-web-contract-and-known-failure-screens"
+      ],
+      "historyChecks": [
+        "lane3.admin-sops"
+      ],
+      "historyCommitCount": 25
+    },
+    {
+      "name": "health_analytics",
+      "method": "GET",
+      "path": "/health/analytics",
+      "page": "Health analytics",
+      "pageUrl": "https://dashboard.mesha.sg/health/analytics",
+      "requiredFields": [
+        "window_from",
+        "window_to",
+        "totals",
+        "months",
+        "diseases",
+        "adherence",
+        "medicines",
+        "deaths",
+        "generated_at"
+      ],
+      "forbiddenValues": [],
+      "latencyBudgetMs": 500,
+      "humanFailure": "The health analytics page would show empty charts, hiding which illnesses are spreading.",
+      "sourceCommits": [
+        "38924a13e",
+        "f9752acbf",
+        "91192e83a"
+      ],
+      "bugPatterns": [
+        "chart-value-integrity-and-empty-scaffolds"
+      ],
+      "notes": "Not covered by any hot-paths manifest before this lane."
+    },
+    {
+      "name": "health_config_protocols",
+      "method": "GET",
+      "path": "/health-config/protocols?limit=200",
+      "page": "Health settings",
+      "pageUrl": "https://dashboard.mesha.sg/health/config",
+      "requiredFields": [
+        "items"
+      ],
+      "forbiddenValues": [
+        {
+          "path": "items[].display_name",
+          "disallow": [
+            "null",
+            "NaN",
+            "empty",
+            "undefined"
+          ]
+        }
+      ],
+      "latencyBudgetMs": 500,
+      "humanFailure": "The health settings page would list no treatment rules, so nobody could say how a sick animal should be treated.",
+      "sourceCommits": [
+        "6d03a090a",
+        "dee711fc1",
+        "9482f318a",
+        "d00825522",
+        "975d8b9db",
+        "50e0ec2ee",
+        "d15f5e581",
+        "298fe02d2",
+        "0e0e18723",
+        "3ab2cfc9d",
+        "321745c27",
+        "6b83514b1",
+        "f5eb6a70e"
+      ],
+      "bugPatterns": [
+        "admin-web-contract-and-known-failure-screens"
+      ],
+      "historyChecks": [
+        "lane3.health-config-protocols"
+      ],
+      "historyCommitCount": 17
+    },
+    {
+      "name": "operations_kernel_health",
+      "method": "GET",
+      "path": "/operations/kernel-health",
+      "page": "Operations health",
+      "pageUrl": "https://dashboard.mesha.sg/operations/dlq",
+      "requiredFields": [
+        "outbox",
+        "outbox.status",
+        "outbox.pending_count",
+        "outbox.failed_count",
+        "outbox.dead_letter_count"
+      ],
+      "forbiddenValues": [
+        {
+          "path": "outbox.pending_count",
+          "disallow": [
+            "null",
+            "NaN",
+            "undefined"
+          ]
+        },
+        {
+          "path": "outbox.failed_count",
+          "disallow": [
+            "null",
+            "NaN",
+            "undefined"
+          ]
+        },
+        {
+          "path": "outbox.dead_letter_count",
+          "disallow": [
+            "null",
+            "NaN",
+            "undefined"
+          ]
+        },
+        {
+          "path": "outbox.status",
+          "disallow": [
+            "null",
+            "NaN",
+            "empty",
+            "undefined"
+          ]
+        }
+      ],
+      "latencyBudgetMs": 500,
+      "humanFailure": "The operations health panel would not say whether the system is keeping up with its own background work, so a silent backlog could build unnoticed.",
+      "sourceCommits": [
+        "a80171412",
+        "8964bf79b"
+      ],
+      "bugPatterns": [
+        "api-fanout-and-latency-regression"
+      ]
+    },
+    {
+      "name": "operations_outbox_delivery",
+      "method": "GET",
+      "path": "/operations/kernel-health",
+      "page": "Operations health",
+      "pageUrl": "https://dashboard.mesha.sg/operations/dlq",
+      "requiredFields": [
+        "outbox.status",
+        "outbox.pending_count",
+        "outbox.publishing_count",
+        "outbox.failed_count",
+        "outbox.dead_letter_count"
+      ],
+      "forbiddenValues": [
+        {
+          "path": "outbox.status",
+          "enum": [
+            "healthy"
+          ]
+        }
+      ],
+      "latencyBudgetMs": 500,
+      "humanFailure": "Messages the system passes between its own parts are stuck, so something a worker recorded on the phone could quietly never reach the dashboard at all.",
+      "sourceCommits": [
+        "cfe0cfeab",
+        "591e4ab9b",
+        "60f5b8096",
+        "6229e3dbe",
+        "43f4de422",
+        "7a71ab29a"
+      ],
+      "bugPatterns": [
+        "api-fanout-and-latency-regression"
+      ],
+      "notes": "Picked up from lane 2, which parked messages-not-stuck-in-the-outbox as infrastructure health belonging to lane 3. The verdict is the backend own status field, not a threshold invented here."
+    },
+    {
+      "name": "operations_audit_summary",
+      "method": "GET",
+      "path": "/operations/audit/summary",
+      "page": "Operations audit",
+      "pageUrl": "https://dashboard.mesha.sg/operations/audit",
+      "requiredFields": [
+        "actions",
+        "awaiting_verification",
+        "proof_events",
+        "proof_coverage_percent",
+        "rejected",
+        "rework",
+        "as_of"
+      ],
+      "forbiddenValues": [],
+      "latencyBudgetMs": 500,
+      "humanFailure": "The operations audit summary would not load, so nobody could see a roll-up of what changed recently.",
+      "sourceCommits": [
+        "c186fee72",
+        "165ab9f76",
+        "e3a5e4116"
+      ],
+      "bugPatterns": [
+        "admin-web-contract-and-known-failure-screens"
+      ]
+    },
+    {
+      "name": "herd_signals_live",
+      "method": "GET",
+      "path": "/herd-signals/live?limit=50",
+      "page": "Herd signals",
+      "pageUrl": "https://dashboard.mesha.sg/herd-signals",
+      "requiredFields": [
+        "items"
+      ],
+      "forbiddenValues": [
+        {
+          "path": "items[].signal_state",
+          "disallow": [
+            "null",
+            "NaN",
+            "empty",
+            "undefined"
+          ]
+        },
+        {
+          "path": "items[].park_name",
+          "disallow": [
+            "null",
+            "NaN",
+            "empty",
+            "undefined"
+          ]
+        }
+      ],
+      "latencyBudgetMs": 500,
+      "humanFailure": "The herd signals page would show no live readings, so a collar or gateway could go dark without anyone noticing.",
+      "sourceCommits": [
+        "c186fee72",
+        "165ab9f76",
+        "e3a5e4116",
+        "82d4bf4d9",
+        "aa9f68417",
+        "dbc94d66f",
+        "160a879f0",
+        "1e3c50138",
+        "1b9e9d67a",
+        "fd249fe1f",
+        "d380fe760",
+        "941ce297d",
+        "5bba4d8f0"
+      ],
+      "bugPatterns": [
+        "admin-web-contract-and-known-failure-screens"
+      ],
+      "historyChecks": [
+        "lane3.herd-signals-live"
+      ],
+      "historyCommitCount": 24
+    },
+    {
+      "name": "alerts_config",
+      "method": "GET",
+      "path": "/alerts/config",
+      "page": "Alerts",
+      "pageUrl": "https://dashboard.mesha.sg/alerts",
+      "requiredFields": [
+        "rules",
+        "event_rules",
+        "event_kinds"
+      ],
+      "forbiddenValues": [],
+      "latencyBudgetMs": 500,
+      "humanFailure": "The alerts page would not say which alerts are switched on, so an important warning could be off without anyone knowing.",
+      "sourceCommits": [
+        "6d03a090a",
+        "dee711fc1",
+        "9482f318a"
+      ],
+      "bugPatterns": [
+        "admin-web-contract-and-known-failure-screens"
+      ]
+    },
+    {
+      "name": "leadership_tasks",
+      "method": "GET",
+      "path": "/app/leadership-tasks?scope=team_progress&limit=25",
+      "page": "Tasks",
+      "pageUrl": "https://dashboard.mesha.sg/tasks",
+      "requiredFields": [
+        "rows"
+      ],
+      "forbiddenValues": [
+        {
+          "path": "rows[].title",
+          "disallow": [
+            "null",
+            "NaN",
+            "empty",
+            "undefined"
+          ]
+        }
+      ],
+      "latencyBudgetMs": 500,
+      "humanFailure": "The tasks board would show cards with no title, so nobody could tell what a piece of work is.",
+      "sourceCommits": [
+        "a3d2b6cb0",
+        "062c141d7",
+        "8964bf79b",
+        "ca02806a3",
+        "caaefdc53",
+        "6ccc35d00",
+        "55ba1193f",
+        "eec23b02c",
+        "9f6341ce2",
+        "a1e2fc020",
+        "4d4a2ba86"
+      ],
+      "bugPatterns": [
+        "admin-web-contract-and-known-failure-screens"
+      ],
+      "historyChecks": [
+        "lane3.leadership-tasks-list"
+      ],
+      "historyCommitCount": 8
+    },
+    {
+      "name": "leadership_tasks_assignees",
+      "method": "GET",
+      "path": "/app/leadership-tasks/assignees",
+      "page": "Tasks (people picker)",
+      "pageUrl": "https://dashboard.mesha.sg/tasks",
+      "requiredFields": [
+        "assignees"
+      ],
+      "forbiddenValues": [],
+      "latencyBudgetMs": 500,
+      "humanFailure": "The tasks board could not offer anyone to assign work to.",
+      "sourceCommits": [
+        "a3d2b6cb0",
+        "062c141d7",
+        "8964bf79b"
+      ],
+      "bugPatterns": [
+        "admin-web-contract-and-known-failure-screens"
+      ]
+    },
+    {
+      "name": "admin_web_counts_approvals",
+      "method": "GET",
+      "path": "/admin-web/counts/approvals?status=pending&page_size=50",
+      "page": "Approvals",
+      "pageUrl": "https://dashboard.mesha.sg/approvals",
+      "requiredFields": [
+        "items"
+      ],
+      "forbiddenValues": [],
+      "latencyBudgetMs": 500,
+      "humanFailure": "The approvals page would not list what is waiting on a manager's decision, so a death report or a correction could sit forever.",
+      "sourceCommits": [
+        "2479391de",
+        "9746a06c8",
+        "18977393c",
+        "b87508928",
+        "8cd2a871c",
+        "60086cb20",
+        "38ced8dab",
+        "fedfb9818"
+      ],
+      "bugPatterns": [
+        "admin-web-contract-and-known-failure-screens"
+      ],
+      "notes": "Registered and probed by the perf manifests but absent from the OpenAPI contract, so only presence of the list is asserted.",
+      "historyChecks": [
+        "lane3.admin-web-approvals"
+      ],
+      "historyCommitCount": 5
+    }
+  ]
+}

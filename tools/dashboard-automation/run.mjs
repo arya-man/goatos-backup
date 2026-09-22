@@ -76,6 +76,14 @@ try {
   if (runCertificationExtras && enabled("GOATOS_DASHBOARD_API_LATENCY", true)) {
     layer("api-latency", "deterministic", () => runApiLatency(outDir));
   }
+  // Lane 3. Read-only GET sweep of the API the dashboard's pages call: no 5xx, the shape
+  // the page contract promises, required fields present, no null/NaN/unknown enum in a
+  // field a screen renders, and latency inside apiLatencyPolicy. Default-on for the daily
+  // production smoke so it runs alongside the browser sweep; it does not replace the
+  // api-latency gate above, which certifies a build with deeper sampling.
+  if (enabled("GOATOS_DASHBOARD_API_CONTRACTS", isProductionSmoke)) {
+    layer("api-contracts", "deterministic", () => runApiContracts(outDir));
+  }
   if (runCertificationExtras && enabled("GOATOS_DASHBOARD_LIGHTHOUSE", false)) {
     layer("lighthouse", "deterministic", () => runLighthouse(outDir));
   }
@@ -309,6 +317,25 @@ function dataSanitySentence(reportPath) {
   }
 }
 
+function runApiContracts(targetDir) {
+  const required = ["GOATOS_API_BASE_URL", "GOATOS_BEARER_TOKEN", "GOATOS_TENANT_ID"];
+  const missing = required.filter((key) => !process.env[key]);
+  if (missing.length) throw new Error(`auth_blocked: missing api contract env: ${missing.join(", ")}`);
+  // The sweep re-checks the resolved URL of every request itself; this is the outer gate.
+  const apiUrl = new URL(process.env.GOATOS_API_BASE_URL);
+  if (apiUrl.protocol !== "https:" || !["api.goatos.mesha.sg", "api.mesha.sg", "goatos-api.mesha.sg"].includes(apiUrl.hostname)) {
+    throw new Error(`api contract sweep refuses non-production API URL: ${apiUrl.origin}`);
+  }
+  // notify-slack.mjs reads this file from the receipt's own directory.
+  const output = path.join(targetDir, "api-contracts.json");
+  try {
+    runNode(["tools/dashboard-automation/check-api-contracts.mjs", "--out", output]);
+  } finally {
+    // Record the artifact even when the sweep failed: the findings ARE the artifact.
+    receipt.artifacts.push({ kind: "api-contracts-report", path: output });
+  }
+}
+
 function runBusinessDataParity(targetDir) {
   const output = path.join(targetDir, "business-data-parity.json");
   runNode(["tools/dashboard-automation/check-business-data-parity.mjs", "--out", output]);
@@ -474,7 +501,19 @@ function selfTest() {
   if (!runnerSource.includes('runInDir(path.join(repo, "backend"), "go"')) {
     throw new Error("self-test: backend Go lifecycle tests must run from the backend module");
   }
-  for (const key of ["GOATOS_DASHBOARD_DATA_PARITY", "GOATOS_DASHBOARD_CERTIFICATION_EXTRAS", "GOATOS_DASHBOARD_API_LATENCY", "GOATOS_DASHBOARD_LIGHTHOUSE", "GOATOS_DASHBOARD_GRAFANA_SMOKE", "GOATOS_DASHBOARD_VACCINATION_LIFECYCLE"]) {
+  if (!runnerSource.includes('layer("api-contracts"') || !runnerSource.includes("check-api-contracts.mjs")) {
+    throw new Error("self-test: production smoke must run the read-only API contract sweep alongside the browser sweep");
+  }
+  if (!runnerSource.includes('enabled("GOATOS_DASHBOARD_API_CONTRACTS", isProductionSmoke)')) {
+    throw new Error("self-test: the API contract sweep must be default-on for the daily production smoke");
+  }
+  if (!runnerSource.includes("api contract sweep refuses non-production API URL")) {
+    throw new Error("self-test: the API contract layer must refuse a non-production API host before it runs");
+  }
+  if (!runnerSource.includes('layer("api-latency"')) {
+    throw new Error("self-test: the API contract sweep must not have replaced the api-latency build gate");
+  }
+  for (const key of ["GOATOS_DASHBOARD_DATA_PARITY", "GOATOS_DASHBOARD_CERTIFICATION_EXTRAS", "GOATOS_DASHBOARD_API_LATENCY", "GOATOS_DASHBOARD_API_CONTRACTS", "GOATOS_DASHBOARD_LIGHTHOUSE", "GOATOS_DASHBOARD_GRAFANA_SMOKE", "GOATOS_DASHBOARD_VACCINATION_LIFECYCLE"]) {
     if (!readFileSync(fileURLToPath(import.meta.url), "utf8").includes(key)) {
       throw new Error(`self-test: runner no longer wires ${key}`);
     }
@@ -504,5 +543,6 @@ function selfTest() {
   runNode(["tools/dashboard-automation/notify-slack.mjs", "--self-test"]);
   runNode(["tools/dashboard-automation/refresh-firebase-token.mjs", "--self-test"]);
   runNode(["tools/dashboard-automation/check-latest-parity-receipt.mjs", "--self-test"]);
+  runNode(["tools/dashboard-automation/check-api-contracts.mjs", "--self-test"]);
   console.log("dashboard automation runner: self-test passed");
 }

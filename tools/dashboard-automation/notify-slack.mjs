@@ -11,7 +11,8 @@ import { containsUnredactedSecret, redactText } from "./lib/redact.mjs";
 // receipt renders byte-identically to what it rendered before the registry existed.
 import writeJourneysKind from "./lib/finding-kinds/write-journeys.mjs";
 import dataSanityKind from "./lib/finding-kinds/data-sanity.mjs";
-const FINDING_KINDS = [writeJourneysKind, dataSanityKind];
+import apiContractsKind from "./lib/finding-kinds/api-contracts.mjs";
+const FINDING_KINDS = [writeJourneysKind, dataSanityKind, apiContractsKind];
 
 // Only the lanes that actually found something on THIS receipt are active. A registered lane that
 // contributed no findings contributes no rules and no blocks, so it cannot relabel, reorder or
@@ -570,12 +571,14 @@ function automationNextAction(value, kind) {
   return "Open the receipt only if this is new or not covered by the muted duplicate.";
 }
 
-function layerText(layer) {
-  const name = String(layer.name ?? "unknown");
-  const labelByLayer = {
+// A layer's raw name is a check code, which must never reach Slack. Both the failed-checks
+// list and the blocker list go through layerLabel() so a new layer cannot leak its id.
+function labelByLayer() {
+  return {
     "latest-full-parity-receipt": "STG-to-OCI parity receipt",
     "business-data-parity": "STG-to-OCI business data parity",
     "api-latency": "Dashboard API latency",
+    "api-contracts": "Screens getting their data from the server", // --- finding kinds (additive) ---
     lighthouse: "Lighthouse page performance",
     "grafana-smoke": "Grafana/dashboard health",
     "vaccination-lifecycle": "Vaccination backend lifecycle tests",
@@ -586,8 +589,14 @@ function layerText(layer) {
     "coverage-sync": "Smoke coverage vs origin/main",
     static: "Static automation inventory"
   };
-  const label = labelByLayer[name] ?? name;
-  return `*${label}* — ${friendlyLayerMessage(layer)}`;
+}
+
+function layerLabel(name) {
+  return labelByLayer()[String(name ?? "unknown")] ?? String(name ?? "unknown");
+}
+
+function layerText(layer) {
+  return `*${layerLabel(layer.name ?? "unknown")}* — ${friendlyLayerMessage(layer)}`;
 }
 
 function friendlyLayerMessage(layer) {
@@ -596,6 +605,7 @@ function friendlyLayerMessage(layer) {
   if (name === "coverage-sync") return coverageSyncMessage(message);
   if (name === "business-data-parity") return "OCI data does not currently match the required STG business snapshot.";
   if (name === "api-latency") return "At least one normal dashboard API exceeded the latency policy.";
+  if (name === "api-contracts") return "Some screens did not get usable data from the server, or were slow to answer. They are named above."; // --- finding kinds (additive) ---
   if (name === "lighthouse") return "Frontend page performance check failed.";
   if (name === "grafana-smoke") return "Grafana/monitoring smoke check failed.";
   if (name === "vaccination-lifecycle") return "Focused vaccination lifecycle tests failed.";
@@ -636,7 +646,7 @@ function blockerText(blocker) {
     return `field reconciliation \`${blocker.name}\`${blocker.reason ? ` — ${blocker.reason}` : ""}`;
   }
   if (blocker?.name) return `${blocker.kind ?? "blocker"} ${blocker.name}${blocker.reason ? ` (${blocker.reason})` : ""}`;
-  if (blocker?.layer) return `${blocker.layer}: ${friendlyBlockerMessage(blocker.message ?? JSON.stringify(blocker))}`;
+  if (blocker?.layer) return `${layerLabel(blocker.layer)}: ${friendlyBlockerMessage(blocker.message ?? JSON.stringify(blocker))}`;
   return JSON.stringify(blocker);
 }
 
