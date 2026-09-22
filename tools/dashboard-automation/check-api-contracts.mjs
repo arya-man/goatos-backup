@@ -555,6 +555,14 @@ function finding(entry, code, detail, requestPath, bodyFragment, extra = {}) {
 // CLI
 // ---------------------------------------------------------------------------
 
+// Non-zero whenever anything was found. The layer, and therefore the Slack alert, hangs
+// off this one number.
+export function exitCodeFor(report) {
+  const results = report?.results ?? [];
+  if (results.length === 0) return 1;
+  return results.some((result) => !result.passed) || (report.findings ?? []).length > 0 ? 1 : 0;
+}
+
 function parseArgs(raw) {
   const parsed = {};
   for (let i = 0; i < raw.length; i += 1) {
@@ -643,12 +651,15 @@ export async function main(argv) {
     writeFileSync(reportFile, reportHtml(findingsForReport(null, path.dirname(outFile)), { checked: results.length, parked: laneChecks.parked }));
   }
 
+  // run.mjs's runNode() throws only on a non-zero exit, and that throw is what fails the
+  // api-contracts layer and makes Slack fire. If this ever returns 0 with findings present,
+  // every finding below is silently swallowed. exitCodeFor() is unit-tested for that.
   const bad = results.filter((result) => !result.passed);
   if (laneChecks.parked.length) console.log(`api contract sweep: ${laneChecks.parked.length} history-derived check(s) parked`);
+  process.exitCode = exitCodeFor(report);
   if (bad.length) {
     console.error(`api contract sweep: ${bad.length} of ${results.length} endpoint(s) failed`);
     for (const result of bad.slice(0, 20)) console.error(`- ${result.page}: ${result.findings.map((item) => item.detail).join("; ")}`);
-    process.exitCode = 1;
     return report;
   }
   console.log(`api contract sweep: ${results.length} endpoint(s) passed shape + latency checks`);

@@ -13,7 +13,7 @@ It never writes. Every request is a GET against `https://api.goatos.mesha.sg`.
 |---|---|
 | Catalogue | `tools/dashboard-automation/api-contract-checks.json` (58 endpoints) |
 | Runner | `tools/dashboard-automation/check-api-contracts.mjs` |
-| Tests | `tools/dashboard-automation/check-api-contracts.test.mjs` (35 tests) |
+| Tests | `tools/dashboard-automation/check-api-contracts.test.mjs` (37 tests) |
 | Slack rendering | `tools/dashboard-automation/lib/finding-kinds/api-contracts.mjs` |
 | Layer | `run.mjs`, layer `api-contracts`, env `GOATOS_DASHBOARD_API_CONTRACTS` |
 
@@ -292,7 +292,7 @@ to change and that is lane 4's call, not lane 3's.
 
 ## 6. Proof
 
-Tests: `node --test tools/dashboard-automation/check-api-contracts.test.mjs` — **34 tests,
+Tests: `node --test tools/dashboard-automation/check-api-contracts.test.mjs` — **37 tests,
 all passing**. They cover, in order of what they protect:
 
 - the GET-only guard refusing every other method, `checkEntry` refusing a non-GET entry
@@ -316,7 +316,17 @@ all passing**. They cover, in order of what they protect:
   reaching a result, and the bearer never written into a result;
 - every `humanFailure` containing no URL path, field path, status code or snake_case
   identifier — **plus a test that the sentence lint itself rejects each of those**, so the
-  lint cannot silently stop working.
+  lint cannot silently stop working;
+- **the exit code**, which is what actually makes an alert happen. `run.mjs`'s `runNode()`
+  throws only on a non-zero exit, and only a thrown layer reaches Slack — so a sweep that
+  returned 0 with findings present would swallow every one of them silently. `exitCodeFor()`
+  is pinned: non-zero on a failed result, non-zero on a finding recorded without its result
+  being marked, and **non-zero when nothing was checked at all**, so a catalogue that
+  silently emptied cannot report green forever. A separate test spawns the CLI with no
+  bearer token and asserts it exits 1 with `auth_blocked` and no token fragment in the
+  output — a missing token must fail the run, never pass it. Confirmed on the box against
+  production as well: `--only operations_kernel_health` (a failing endpoint) exits **1**,
+  `--only herd_register_summary` (a healthy one) exits **0**.
 
 Self-tests, all passing:
 `check-api-contracts.mjs --self-test`, `notify-slack.mjs --self-test`,
@@ -336,7 +346,7 @@ Three screens whose data did not load:
 
 | Screen | What a person would see | What the server did |
 |---|---|---|
-| Operations health | The panel that says whether the system is keeping up with its own background work is itself broken | `/operations/kernel-health` answered **HTTP 500** |
+| Operations health | The panel that says whether the system is keeping up with its own background work is itself broken | `/operations/kernel-health` answered **HTTP 500 on 2 of 20 samples**, and took a median of **5031 ms** (p95 15214 ms) on the other 18 |
 | Leave and cover | The cover page cannot show who is standing in for whom | `/admin/roster/coverage` returned `items: null` — null, not an empty list |
 | Sales deals | One deal in the list shows a blank where the number of animals should be | `/sales/deals` returned `deals[28].animal_count: null` |
 
@@ -354,9 +364,17 @@ Nine screens slow to answer, median over the 500 ms budget:
 | Vaccination pens list | 518 ms | 1220 ms |
 | People | 508 ms | 1451 ms |
 
-The Operations health result is the one worth reading twice: that endpoint reports whether
-event delivery is stuck, it is both intermittently 500 and consistently multi-second, and
-it is the endpoint lane 2's parked outbox check depends on.
+All four are reproducible rather than flukes, which the 20 samples show: `items: null` on
+Leave and cover appeared in **20 of 20** responses, the null animal count on Sales deals in
+**20 of 20**, and Operations audit was over budget in **20 of 20** (median 3267 ms).
+
+The Operations health result is the one worth reading twice. That endpoint reports whether
+event delivery is stuck; it failed outright on 10% of samples and took a median of 5 s on
+the rest. It is also the endpoint lane 2's parked outbox check depends on — so the check
+that would tell us the queue is backing up is sitting on top of the least reliable endpoint
+in the catalogue. Note that the sweep reports the HTTP failure and suppresses the slow
+finding for the same endpoint, deliberately: the outage is the louder signal, and two
+bullets about one screen is noise.
 
 ### Why history-mined checks are off by default — the number that decided it
 

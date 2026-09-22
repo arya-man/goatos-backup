@@ -12,6 +12,7 @@ import {
   basePath,
   checkEntry,
   declaredSubtreeForbiddenFindings,
+  exitCodeFor,
   expandPath,
   forbiddenValueFindings,
   get,
@@ -448,6 +449,32 @@ test("history-mined checks are parked by default, because their fields are unver
   assert.match(off.parked[0].reason, /GOATOS_DASHBOARD_API_CONTRACTS_INCLUDE_HISTORY/);
   const on = normalizeLaneChecks([row], { includeUngrounded: true });
   assert.deepEqual(on.accepted.map((e) => e.name), ["lane3.x"]);
+});
+
+test("the sweep exits non-zero whenever it found something", () => {
+  // run.mjs only fails the layer on a non-zero exit, and only a failed layer reaches Slack.
+  // A zero here silently swallows every finding, so this is pinned.
+  const pass = { results: [{ passed: true, findings: [] }], findings: [] };
+  const fail = { results: [{ passed: true, findings: [] }, { passed: false, findings: [{ code: "slow" }] }], findings: [{ code: "slow" }] };
+  assert.equal(exitCodeFor(pass), 0);
+  assert.equal(exitCodeFor(fail), 1);
+  // A finding recorded without its result being marked must still fail, not slip through.
+  assert.equal(exitCodeFor({ results: [{ passed: true, findings: [] }], findings: [{ code: "server-error" }] }), 1);
+  // Checking nothing at all is a failure, not a pass: a catalogue that silently emptied
+  // would otherwise report green forever.
+  assert.equal(exitCodeFor({ results: [], findings: [] }), 1);
+  assert.equal(exitCodeFor({}), 1);
+});
+
+test("a missing bearer token fails the run instead of reporting green", async () => {
+  const { spawnSync } = await import("node:child_process");
+  const run = spawnSync(process.execPath, [path.join(here, "check-api-contracts.mjs"), "--only", "control_tower"], {
+    encoding: "utf8",
+    env: { ...process.env, GOATOS_API_BASE_URL: "", GOATOS_BEARER_TOKEN: "", GOATOS_TENANT_ID: "" },
+  });
+  assert.equal(run.status, 1, "an auth-blocked sweep must exit non-zero");
+  assert.match(run.stderr, /auth_blocked/);
+  assert.ok(!/Bearer [A-Za-z0-9]/.test(run.stderr + run.stdout), "no token fragment in the failure output");
 });
 
 // --------------------------------------------------------------------------
