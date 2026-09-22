@@ -47,6 +47,31 @@ func completeCourse(name string) domain.AuthoredProtocol {
 	}
 }
 
+func stockMedicineForTest(t *testing.T, ctx context.Context, pool *pgxpool.Pool, name string) {
+	t.Helper()
+	_, err := pool.Exec(ctx, `
+WITH category AS (
+  INSERT INTO item_categories (tenant_id, name, normalized_name, item_kind, sort_order, is_builtin)
+  VALUES ($1::uuid, 'Medicines', 'medicines', 'medicine', 10, true)
+  ON CONFLICT DO NOTHING
+  RETURNING category_id
+), root AS (
+  SELECT category_id FROM category
+  UNION ALL
+  SELECT category_id FROM item_categories
+  WHERE tenant_id=$1::uuid AND parent_category_id IS NULL AND item_kind='medicine'
+  LIMIT 1
+)
+INSERT INTO inventory_items (tenant_id, item_code, name, category, base_unit, status, category_id)
+SELECT $1::uuid, 'test_' || regexp_replace(lower($2), '[^a-z0-9]+', '_', 'g'),
+       $2, 'medicine', 'unit', 'active', category_id
+FROM root
+ON CONFLICT DO NOTHING`, healthTenant, name)
+	if err != nil {
+		t.Fatalf("stock medicine %s: %v", name, err)
+	}
+}
+
 // The whole authored lifecycle on the production path: create -> save -> publish -> re-edit ->
 // publish again, with the version swap and the retirement asserted in the DATABASE, not in the
 // return value.
@@ -56,6 +81,7 @@ func TestHealthConfigAuthoringLifecycle(t *testing.T) {
 	pool := pgtest.StartPostgres(t, ctx)
 	defer pool.Close()
 	seedHealthScope(t, ctx, pool)
+	stockMedicineForTest(t, ctx, pool, "Meloxicam Paracetamol")
 	svc := authoringService(pool)
 
 	// ---- create -------------------------------------------------------------------------------
@@ -111,6 +137,9 @@ func TestHealthConfigAuthoringLifecycle(t *testing.T) {
 	if len(seqs) != 2 || seqs[0] != 1 || seqs[1] != 2 {
 		t.Fatalf("expected server-assigned seq 1,2 got %v", seqs)
 	}
+	assertHealthCount(t, ctx, pool, "saved medication step has catalog item",
+		`SELECT count(*)::int FROM health_protocol_steps WHERE health_protocol_version_id=$1::uuid AND record_type='medication' AND medicine_item_id IS NOT NULL`,
+		1, adultDraft)
 
 	// ---- publish ------------------------------------------------------------------------------
 	published, err := svc.PublishDraft(ctx, domain.ProtocolVersionCommand{
@@ -583,8 +612,8 @@ func TestSheetImportFailsClosedOnceTheAppHasAuthored(t *testing.T) {
 		DiseaseKey: "diarrhea", DisplayName: "Diarrhea", AgeBand: domain.AgeBandAdult,
 		DurationDays: 1,
 		Steps: []domain.ProtocolStep{{
-			DayNo: 1, Session: domain.SessionMorning, Seq: 1, RecordType: domain.RecordTypeAction,
-			Instruction: strPtr("Give electrolyte."),
+			DayNo: 1, Session: domain.SessionMorning, Seq: 1, RecordType: domain.RecordTypeMedication,
+			MedicineName: strPtr("Electrolyte"), DosageText: strPtr("5"), DosageDenominator: strPtr("ml"), MedicineRoute: strPtr("Oral"),
 		}},
 	}}
 
@@ -592,6 +621,9 @@ func TestSheetImportFailsClosedOnceTheAppHasAuthored(t *testing.T) {
 	if err := repo.ReplacePublishedProtocols(ctx, healthTenant, healthActor, "google-sheet:x", "hash-1", sheet); err != nil {
 		t.Fatalf("the bootstrap import must succeed: %v", err)
 	}
+	assertHealthCount(t, ctx, pool, "imported medication step has catalog item",
+		`SELECT count(*)::int FROM health_protocol_steps WHERE tenant_id=$1::uuid AND record_type='medication' AND medicine_item_id IS NOT NULL`,
+		1, healthTenant)
 
 	// Now author something in the app.
 	if _, err := svc.CreateDisease(ctx, createDiseaseCmd("Milk fever", "milk-fever")); err != nil {

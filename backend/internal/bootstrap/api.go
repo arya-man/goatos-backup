@@ -735,6 +735,7 @@ func NewAPI(ctx context.Context, cfg Config, log *slog.Logger) (*API, error) {
 		pool.Close()
 		return nil, err
 	}
+	healthDiagnosisService.WithRegisterAuthoring(healthRepo)
 	healthDiagnosisHandler := healthhttp.NewDiagnosisHandler(healthDiagnosisService, log)
 	// Health Analytics: the leadership read behind /health/analytics. Same
 	// repository for the same reason the authoring surface shares it -- the

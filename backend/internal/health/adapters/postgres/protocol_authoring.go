@@ -950,13 +950,23 @@ WHERE tenant_id=$1::uuid AND health_protocol_version_id=$2::uuid`, tenantID, ver
 		criticals[i] = s.CriticalActionType
 	}
 	if _, err := tx.Exec(ctx, `
-INSERT INTO health_protocol_steps
- (tenant_id, health_protocol_version_id, day_no, session, seq, record_type,
-  medicine_name, dosage_text, dosage_denominator, medicine_route, instruction, critical_action_type)
-SELECT $1::uuid, $2::uuid, d.day_no, d.session, d.seq, d.record_type,
-       d.medicine_name, d.dosage_text, d.dosage_denominator, d.medicine_route, d.instruction, d.critical_action_type
-FROM unnest($3::int[], $4::text[], $5::int[], $6::text[], $7::text[], $8::text[], $9::text[], $10::text[], $11::text[], $12::text[])
-  AS d(day_no, session, seq, record_type, medicine_name, dosage_text, dosage_denominator, medicine_route, instruction, critical_action_type)`,
+	INSERT INTO health_protocol_steps
+	 (tenant_id, health_protocol_version_id, day_no, session, seq, record_type,
+	  medicine_name, medicine_item_id, dosage_text, dosage_denominator, medicine_route, instruction, critical_action_type)
+	SELECT $1::uuid, $2::uuid, d.day_no, d.session, d.seq, d.record_type,
+	       d.medicine_name,
+	       CASE WHEN d.medicine_name IS NULL THEN NULL ELSE (
+	         SELECT i.item_id
+	         FROM inventory_items i
+	         WHERE i.tenant_id = $1::uuid
+	           AND lower(i.name) = lower(btrim(d.medicine_name))
+	           AND i.category = 'medicine'
+	         ORDER BY i.status = 'active' DESC, i.name
+	         LIMIT 1
+	       ) END,
+	       d.dosage_text, d.dosage_denominator, d.medicine_route, d.instruction, d.critical_action_type
+	FROM unnest($3::int[], $4::text[], $5::int[], $6::text[], $7::text[], $8::text[], $9::text[], $10::text[], $11::text[], $12::text[])
+	  AS d(day_no, session, seq, record_type, medicine_name, dosage_text, dosage_denominator, medicine_route, instruction, critical_action_type)`,
 		tenantID, versionID, dayNos, sessions, seqs, recordTypes, medicineNames, dosageTexts,
 		denominators, routes, instructions, criticals); err != nil {
 		return fmt.Errorf("health: insert draft steps: %w", err)

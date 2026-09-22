@@ -142,8 +142,15 @@ VALUES ($1::uuid,$2,$3,$4,$5,$6,'published',$7,$8,now(),$9::uuid) RETURNING heal
 			return fmt.Errorf("health: publish %s: %w", key, err)
 		}
 		for _, s := range p.Steps {
-			_, err = tx.Exec(ctx, `INSERT INTO health_protocol_steps (tenant_id,health_protocol_version_id,day_no,session,seq,record_type,medicine_name,dosage_text,dosage_denominator,medicine_route,instruction,critical_action_type) -- scale-guard:ignore: deployment-only strict snapshot import; total rows are fixed by the reviewed source file
-VALUES ($1::uuid,$2::uuid,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12)`, tenantID, protocolID, s.DayNo, s.Session, s.Seq, s.RecordType, s.MedicineName, s.DosageText, s.DosageDenominator, s.MedicineRoute, s.Instruction, s.CriticalActionType)
+			_, err = tx.Exec(ctx, `INSERT INTO health_protocol_steps (tenant_id,health_protocol_version_id,day_no,session,seq,record_type,medicine_name,medicine_item_id,dosage_text,dosage_denominator,medicine_route,instruction,critical_action_type) -- scale-guard:ignore: deployment-only strict snapshot import; total rows are fixed by the reviewed source file
+	VALUES ($1::uuid,$2::uuid,$3,$4,$5,$6,$7,
+	  CASE WHEN $7::text IS NULL THEN NULL ELSE (
+	    SELECT i.item_id FROM inventory_items i
+	    WHERE i.tenant_id=$1::uuid AND lower(i.name)=lower(btrim($7::text)) AND i.category='medicine'
+	    ORDER BY i.status='active' DESC, i.name
+	    LIMIT 1
+	  ) END,
+	  $8,$9,$10,$11,$12)`, tenantID, protocolID, s.DayNo, s.Session, s.Seq, s.RecordType, s.MedicineName, s.DosageText, s.DosageDenominator, s.MedicineRoute, s.Instruction, s.CriticalActionType)
 			if err != nil {
 				return fmt.Errorf("health: insert %s step %d: %w", key, s.Seq, err)
 			}

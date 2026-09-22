@@ -89,7 +89,7 @@ func (r *DiagnosisRepository) SubmitObservation(
 	dctx := in.Context
 	dctx.Open = openProblems
 
-	proposal, confirmable := evaluate(animal, in.Findings, dctx)
+	proposal, confirmable := evaluate(ctx, in.TenantID, animal, in.Findings, dctx)
 
 	formJSON, err := json.Marshal(in.Findings)
 	if err != nil {

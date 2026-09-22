@@ -40,8 +40,9 @@ var (
 // answer was labelled with the right cohort. That is the exact failure the class split
 // exists to prevent, and it is invisible unless you read the version.
 type DiagnosisService struct {
-	repo      ports.DiagnosisRepository
-	registers map[string]*diagnosis.Register
+	repo            ports.DiagnosisRepository
+	registerSource  ports.RegisterAuthoring
+	seededRegisters map[string]*diagnosis.Register
 }
 
 // NewDiagnosisService wires the service to every class register. It fails closed: a
@@ -63,7 +64,15 @@ func NewDiagnosisService(repo ports.DiagnosisRepository, _ *diagnosis.Register) 
 		}
 		registers[class] = reg
 	}
-	return &DiagnosisService{repo: repo, registers: registers}, nil
+	return &DiagnosisService{repo: repo, seededRegisters: registers}, nil
+}
+
+// WithRegisterAuthoring makes live observation serving read the tenant's published
+// authored register. The embedded registers remain the startup-validated fallback
+// for tenants whose seed has not run yet.
+func (s *DiagnosisService) WithRegisterAuthoring(source ports.RegisterAuthoring) *DiagnosisService {
+	s.registerSource = source
+	return s
 }
 
 // SubmitObservation evaluates one form and stores the proposal.
@@ -101,17 +110,34 @@ func (s *DiagnosisService) SubmitObservation(ctx context.Context, in domain.Subm
 // already refused anything it could not class, so an unknown class here means the two
 // have drifted apart -- and the safe answer is to diagnose NOTHING rather than to fall
 // back to adult, which would hand a kid the adult table under a kid label.
-func (s *DiagnosisService) evaluate(animal diagnosis.Animal, f diagnosis.Findings, dctx diagnosis.Context) (diagnosis.Proposal, []domain.ConfirmableProblem) {
-	reg, ok := s.registers[animal.Class]
-	if !ok {
+func (s *DiagnosisService) evaluate(ctx context.Context, tenantID string, animal diagnosis.Animal, f diagnosis.Findings, dctx diagnosis.Context) (diagnosis.Proposal, []domain.ConfirmableProblem) {
+	reg, err := s.registerFor(ctx, tenantID, animal.Class)
+	if err != nil {
 		return diagnosis.Proposal{
 			Valid:        false,
-			RejectReason: fmt.Sprintf("no rule table for animal class %q", animal.Class),
+			RejectReason: err.Error(),
 			Scope:        diagnosis.ScopeOutOfScope,
 		}, nil
 	}
 	proposal := reg.Evaluate(animal, f, dctx)
 	return proposal, s.confirmableFrom(proposal)
+}
+
+func (s *DiagnosisService) registerFor(ctx context.Context, tenantID, class string) (*diagnosis.Register, error) {
+	if s.registerSource != nil {
+		detail, err := s.registerSource.PublishedRegister(ctx, tenantID, class)
+		if err == nil {
+			return diagnosis.RegisterForServing(detail.Document, class)
+		}
+		if !errors.Is(err, ports.ErrRegisterNotFound) {
+			return nil, fmt.Errorf("read published diagnosis register for %s: %w", class, err)
+		}
+	}
+	reg, ok := s.seededRegisters[class]
+	if !ok {
+		return nil, fmt.Errorf("no rule table for animal class %q", class)
+	}
+	return reg, nil
 }
 
 // confirmableFrom turns the proposal's problems into the Director's decision
@@ -191,7 +217,7 @@ func (s *DiagnosisService) GetDiagnosisRun(ctx context.Context, tenantID, runID 
 // produced an old proposal. An unknown class returns "" rather than the adult
 // version, because naming the wrong table is worse than naming none.
 func (s *DiagnosisService) RegisterVersion(class string) string {
-	if reg, ok := s.registers[class]; ok {
+	if reg, ok := s.seededRegisters[class]; ok {
 		return reg.Version
 	}
 	return ""

@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"regexp"
+	"sort"
 	"strings"
 )
 
@@ -287,6 +288,96 @@ func LoadAuthored(src []byte) (*AuthoredRegister, error) {
 		return nil, fmt.Errorf("decode register: trailing content after the document")
 	}
 	return &reg, nil
+}
+
+// RegisterForServing turns a published authored document into the engine register
+// used to evaluate one animal class.
+//
+// The authored document carries the form as well as the rule table. Observation
+// submission still receives the typed Findings shape today, so serving needs the
+// rules, non-specific list and vocabulary. The questions remain load-bearing for
+// authoring and for future form generation, but they are not part of Evaluate.
+func RegisterForServing(doc AuthoredRegister, class string) (*Register, error) {
+	if class == "" {
+		class = ClassAdult
+	}
+	if len(doc.AppliesClass) > 0 && !containsString(doc.AppliesClass, class) {
+		return nil, fmt.Errorf("health: authored register applies_class=%v does not claim class %s",
+			doc.AppliesClass, class)
+	}
+	if ps := doc.Validate(); ps.Fatal() {
+		return nil, fmt.Errorf("health: authored %s register failed validation: %s", class, ps.Error())
+	}
+	reg := &Register{
+		Version:      doc.RegisterVersion,
+		AppliesClass: append([]string{}, doc.AppliesClass...),
+		NonSpecific:  append([]string{}, doc.NonSpecific...),
+		Vocabulary:   authoredServingVocabulary(doc),
+		Rules:        append([]Rule{}, doc.Rules...),
+		boundClass:   class,
+	}
+	reg.byID = make(map[string]*Rule, len(reg.Rules))
+	reg.quarantine = make(map[string]bool)
+	for i := range reg.Rules {
+		rule := &reg.Rules[i]
+		applyRuleDefaults(rule)
+		reg.byID[rule.ID] = rule
+		if rule.Containment == "quarantine" {
+			reg.quarantine[rule.ID] = true
+		}
+	}
+	reg.nonSpecific = toSet(reg.NonSpecific)
+	reg.vocabulary = toSet(reg.Vocabulary)
+	if errs := reg.Validate(); len(errs) > 0 {
+		return nil, fmt.Errorf("health: authored %s register failed serving validation: %w", class, errs[0])
+	}
+	return reg, nil
+}
+
+func authoredServingVocabulary(doc AuthoredRegister) []string {
+	set := map[string]bool{}
+	add := func(tokens ...string) {
+		for _, tok := range tokens {
+			if tok != "" {
+				set[tok] = true
+			}
+		}
+	}
+	add(doc.Vocabulary...)
+	for _, q := range doc.Questions {
+		for _, o := range q.Options {
+			add(o.Emits...)
+		}
+		for _, b := range q.Bands {
+			add(b.Emits...)
+		}
+	}
+	for _, c := range doc.Corrections {
+		add(c.When...)
+		add(c.Remove...)
+		add(c.Add...)
+	}
+	for _, r := range doc.Rules {
+		add(r.GateRequired...)
+		add(r.GateExcluded...)
+		add(r.ExplainsFindings...)
+		add(r.Suppresses...)
+		add(r.AdjunctWhen...)
+		for _, m := range r.SeverityModifiers {
+			add(m.Finding)
+		}
+		for _, group := range [][]Clause{r.Pathognomonic, r.Probable, r.Possible} {
+			for _, clause := range group {
+				add(clause.Findings...)
+			}
+		}
+	}
+	out := make([]string, 0, len(set))
+	for tok := range set {
+		out = append(out, tok)
+	}
+	sort.Strings(out)
+	return out
 }
 
 // Problem is one thing wrong with an authored register. Fatal problems refuse the
