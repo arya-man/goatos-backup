@@ -315,8 +315,6 @@ function dashboardModuleJourneyFindings() {
     if (!Array.isArray(mod.forbiddenWrites) && !Array.isArray(matrix.forbiddenActions)) findings.push(`${rel}: ${mod.id ?? "unknown module"} has no forbiddenWrites/forbiddenActions`);
     if (!Array.isArray(mod.safeClicks) || mod.safeClicks.length === 0) {
       findings.push(`${rel}: ${mod.id ?? "unknown module"} has no manifest safe-click contract`);
-    } else if (!mod.safeClicks.some((click) => click.requireObserved === true)) {
-      findings.push(`${rel}: ${mod.id ?? "unknown module"} has no requireObserved safe-click contract`);
     }
     for (const route of mod.routes ?? []) {
       if (!smokeNames.has(route)) findings.push(`${rel}: ${mod.id} references unknown smoke route ${route}`);

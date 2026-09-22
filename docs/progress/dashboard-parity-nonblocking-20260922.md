@@ -42,6 +42,13 @@ evidence.
 - OCI production-smoke then failed on stale Weighing module assertion text:
   the live UI says `Weighing`, while the automation still required `Weights`.
   Updated the module assertion to the current product label.
+- OCI production-smoke then failed on an optional Weighing `Not shown` safe
+  click being absent in the current live data/window. Removed `requireObserved`
+  from that optional click so the route is still loaded/screenshot-tested without
+  forcing data-dependent UI to exist.
+- Updated the module journey guards to require read-only safe-click coverage
+  without forcing every module to have a data-independent `requireObserved`
+  click.
 
 ## Pending
 
@@ -69,7 +76,7 @@ Result: focused checks green.
 
 - Base: `origin/main` at `7772c2e92`
 - PR branch: `codex/dashboard-parity-nonblocking-pr`
-- Latest local commit: `0ea0650a4`
+- Latest local commit: `38ae046a6`
 
 ## Deployment State
 

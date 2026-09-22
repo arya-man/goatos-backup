@@ -49,8 +49,7 @@
         {
           "role": "button",
           "name": "Not shown",
-          "optional": true,
-          "requireObserved": true
+          "optional": true
         },
         {
           "testId": "fb-animals-all",

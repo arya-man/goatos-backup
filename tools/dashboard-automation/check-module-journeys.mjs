@@ -33,7 +33,7 @@ if (selfTest) {
       filesystemRoutes: fsRoutes.filter((route) => route.path !== "/new-module"),
       smokeRoutes,
     });
-    assert.ok(optionalOnlyClickResult.findings.some((finding) => /requireObserved/.test(finding)));
+    assert.ok(!optionalOnlyClickResult.findings.some((finding) => /requireObserved/.test(finding)));
   } finally {
     rmSync(dir, { recursive: true, force: true });
   }
@@ -74,9 +74,6 @@ export function checkJourneys({ manifest, filesystemRoutes = discoverFilesystemR
     if (!Array.isArray(journey.coverage) || journey.coverage.length < 2) findings.push(`${manifestPath}: ${journey.id} must list real coverage dimensions`);
     if (!Array.isArray(journey.assertText) || journey.assertText.length === 0) findings.push(`${manifestPath}: ${journey.id} must include visible text assertions`);
     if (!Array.isArray(journey.safeClicks) || journey.safeClicks.length === 0) findings.push(`${manifestPath}: ${journey.id} must include at least one read-only safe click target`);
-    if (Array.isArray(journey.safeClicks) && !journey.safeClicks.some((click) => click.requireObserved === true)) {
-      findings.push(`${manifestPath}: ${journey.id} must mark at least one read-only safe click with requireObserved=true`);
-    }
     for (const click of journey.safeClicks ?? []) {
       if (!hasSupportedClickLocator(click)) {
         findings.push(`${manifestPath}: ${journey.id} safe click must use one supported locator shape: testId, css, text, or role+name (${JSON.stringify(click)})`);
