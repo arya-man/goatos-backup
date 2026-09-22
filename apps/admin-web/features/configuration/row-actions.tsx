@@ -96,17 +96,25 @@ export function RowActions({
     setAnchor({ top: rect.bottom + 4, right });
   }, []);
 
-  // A success re-reads the table in place; the row it acted on either changes chip or disappears.
-  useEffect(() => {
-    const ticket = statusState.ticket * 1000 + deleteState.ticket;
-    if (ticket === seen.current) return;
-    seen.current = ticket;
-    if (statusState.status === "success" || deleteState.status === "success") {
+  // A success closes the menu and re-reads the table in place; the row it acted on either changes
+  // chip or disappears. Closing is state derived from the new ticket, so it happens during render
+  // (React's "adjust state when an input changes"); only the refresh, which reaches outside React,
+  // is an effect.
+  const ticket = statusState.ticket * 1000 + deleteState.ticket;
+  const succeeded = statusState.status === "success" || deleteState.status === "success";
+  const [closedFor, setClosedFor] = useState(0);
+  if (ticket !== closedFor) {
+    setClosedFor(ticket);
+    if (succeeded) {
       setOpen(false);
       setConfirming(false);
-      router.refresh();
     }
-  }, [statusState, deleteState, router]);
+  }
+  useEffect(() => {
+    if (ticket === seen.current) return;
+    seen.current = ticket;
+    if (succeeded) router.refresh();
+  }, [ticket, succeeded, router]);
 
   // Measure before paint so the panel never appears in the wrong place for a frame.
   useLayoutEffect(() => {

@@ -11,6 +11,7 @@ import (
 
 	"github.com/vgoats/goatos/backend/internal/feeddirection/domain"
 	"github.com/vgoats/goatos/backend/internal/platform/oploc"
+	"github.com/vgoats/goatos/backend/internal/platform/sqlbind"
 )
 
 // ---------------------------------------------------------------------------
@@ -397,8 +398,9 @@ func shedIDsOf(causes map[penIdentity][]domain.FeedFollowUpCause) []uuid.UUID {
 }
 
 func (r *Repository) feedFollowUpSheet(ctx context.Context, tenantID string, parkIDs []uuid.UUID, from, to time.Time, sheds []uuid.UUID, labels map[penIdentity]penLabels) (map[penIdentity][]domain.FeedFollowUpSheetDay, error) {
-	rows, err := r.pool.Query(ctx, feedFollowUpSheetSQL, tenantID, parkIDs,
+	bound := sqlbind.MustBind(feedFollowUpSheetSQL, tenantID, parkIDs,
 		from.Format("2006-01-02"), to.Format("2006-01-02"), sheds)
+	rows, err := r.pool.Query(ctx, bound.SQL(), bound.Args()...)
 	if err != nil {
 		return nil, fmt.Errorf("feed follow-up sheet: %w", err)
 	}
@@ -431,8 +433,9 @@ func (r *Repository) feedFollowUpSheet(ctx context.Context, tenantID string, par
 // sheet read did not cover, writing into the shared `labels` map rather than
 // returning a second one -- one pen must resolve to one set of words.
 func (r *Repository) feedFollowUpCauses(ctx context.Context, tenantID string, parkIDs []uuid.UUID, from, to time.Time, labels map[penIdentity]penLabels, cutoffs map[string]string) (map[penIdentity][]domain.FeedFollowUpCause, error) {
-	rows, err := r.pool.Query(ctx, feedFollowUpCausesSQL, tenantID, parkIDs,
+	bound := sqlbind.MustBind(feedFollowUpCausesSQL, tenantID, parkIDs,
 		from.Format("2006-01-02"), to.Format("2006-01-02"), domain.DefaultCorrectionTime)
+	rows, err := r.pool.Query(ctx, bound.SQL(), bound.Args()...)
 	if err != nil {
 		return nil, fmt.Errorf("feed follow-up causes: %w", err)
 	}
