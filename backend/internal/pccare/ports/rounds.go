@@ -39,7 +39,9 @@ type CreateRoundParams struct {
 	// to (0 = seed); RequiredSlotKeys / RemovalRequiredSlotKeys are that version's compulsory
 	// slot keys, snapshotted on every row for the set-based readiness predicate.
 	SOPVersion              int
+	SlotKeys                []string
 	RequiredSlotKeys        []string
+	RemovalSlotKeys         []string
 	RemovalRequiredSlotKeys []string
 	IdempotencyKey          string
 	CreatedBy               string

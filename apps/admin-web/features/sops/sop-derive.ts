@@ -91,6 +91,10 @@ export function sopScopeKey(code: string, name: string): SopScopeDomain {
   if (c.startsWith("general.")) return "general";
   // SALES SOP (2026-09-19): `sales.` codes are authored on Sales -> Sales SOP.
   if (c.startsWith("sales.")) return "sales";
+  // PC CARE SOP (2026-09-22): `pc_care.` codes are authored on Preventive Care -> Preventive Care
+  // SOP. Checked BEFORE isVaccinationSop, which would otherwise claim a document named for a
+  // vaccine-adjacent job; preventive care is its own module.
+  if (c.startsWith("pc_care.")) return "pc_care";
   if (c.startsWith("procurement.")) return "procurement";
   if (c.startsWith("milk.")) return "milk";
   if (c === "weighing" || c.startsWith("weighing.")) return "weighing";
@@ -113,6 +117,7 @@ export const SOP_SLICE_LABEL: Record<SopScopeDomain, string> = {
   milk: "Milk",
   weighing: "Weighing",
   procurement: "Procurement",
+  pc_care: "Preventive Care",
 };
 export const VACCINATION_SLICE_LABEL = SOP_SLICE_LABEL.vaccination;
 
@@ -573,7 +578,7 @@ export type SubjectScope = "batch" | "goat";
 
 // The New SOP builder is locked by its mounted module page. The domain is not a free choice inside
 // the builder; each route passes its own slice so new SOPs stay visible on the page that authored them.
-export type SopScopeDomain = "vaccination" | "counts" | "feed" | "milk" | "weighing" | "procurement" | "general" | "sales";
+export type SopScopeDomain = "vaccination" | "counts" | "feed" | "milk" | "weighing" | "procurement" | "general" | "sales" | "pc_care";
 
 export type SopBuilderInput = {
   name: string;

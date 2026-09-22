@@ -6,8 +6,8 @@
     "cutoff_time": "",
     "instruction": "Remove feed and water from every pen in this round the evening before the deworming. Film the feed being removed and the water being removed as two separate live-camera videos per pen and submit before midnight.",
     "proofs": [
-      {"key": "feed_video", "title": "Feed removal video", "hint": "Show the feed being taken out of this pen.", "kind": "video", "required": true},
-      {"key": "water_video", "title": "Water removal video", "hint": "Show the water being taken out of this pen.", "kind": "video", "required": true}
+      {"key": "feed_video", "title": "Feed removal video", "hint": "Show the feed being taken out of this pen", "kind": "video", "required": true},
+      {"key": "water_video", "title": "Water removal video", "hint": "Show the water being taken out of this pen", "kind": "video", "required": true}
     ],
     "questions": []
   },

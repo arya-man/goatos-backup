@@ -106,18 +106,19 @@ func (r *Repository) CreateTask(ctx context.Context, p ports.CreateTaskParams) (
 INSERT INTO pc_care_tasks (
   tenant_id, category, park_id, shed_id, partition_label,
   planned_business_date, due_business_date, idempotency_key, created_by,
-  sop_version, required_slot_keys
+  sop_version, slot_keys, required_slot_keys
 ) VALUES (
   $1::uuid, $2, $3::uuid, $4::uuid, nullif($5::text, ''),
   $6::date, $6::date, $7, $8::uuid,
-  nullif($9::int, 0), coalesce($10::text[], '{}'::text[])
+  nullif($9::int, 0), coalesce($10::text[], '{}'::text[]), coalesce($11::text[], '{}'::text[])
 )
 ON CONFLICT (tenant_id, category, park_id, shed_id, partition_key, planned_business_date)
   WHERE work_state <> 'canceled'
 DO NOTHING
 RETURNING task_id::text`,
 		p.TenantID, p.Category, p.ParkID, p.ShedID, p.PartitionLabel,
-		plannedDate, p.IdempotencyKey, p.CreatedBy, p.SOPVersion, p.RequiredSlotKeys).Scan(&taskID)
+		plannedDate, p.IdempotencyKey, p.CreatedBy, p.SOPVersion,
+		slotKeysOrSeeded(p.Category, p.SlotKeys, false), slotKeysOrSeeded(p.Category, p.RequiredSlotKeys, true)).Scan(&taskID)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return ports.TaskRow{}, domain.ErrTaskAlreadyPlanned
 	}
@@ -169,8 +170,9 @@ SELECT $1::uuid, $2::uuid, unnest($3::uuid[])`,
 		var removalTaskID string
 		err = tx.QueryRow(ctx, removalTaskInsertSQL,
 			p.TenantID, domain.CategoryFeedWaterRemoval, p.ParkID, p.ShedID, p.PartitionLabel,
-			removalDate, taskID, p.IdempotencyKey+":fasting", p.CreatedBy,
-			p.SOPVersion, p.RemovalRequiredSlotKeys).Scan(&removalTaskID)
+			removalDate, taskID, p.IdempotencyKey+":fasting", p.CreatedBy, p.SOPVersion,
+			slotKeysOrSeeded(domain.CategoryFeedWaterRemoval, p.RemovalSlotKeys, false),
+			slotKeysOrSeeded(domain.CategoryFeedWaterRemoval, p.RemovalRequiredSlotKeys, true)).Scan(&removalTaskID)
 		if errors.Is(err, pgx.ErrNoRows) {
 			// A live removal task already covers this pen on the evening-before date (e.g. a
 			// canceled deworming left its removal row live). The pair cannot be planned whole,
@@ -217,6 +219,32 @@ SELECT $1::uuid, $2::uuid, unnest($3::uuid[])`,
 	}
 	committed = true
 	return r.GetTask(ctx, p.TenantID, taskID, nil, true)
+}
+
+// slotKeysOrSeeded is the store's FAIL-CLOSED rule for a caller that passes no card (the kernel's
+// own writes, a fixture): the task is snapshotted with the SEEDED document's keys for its
+// category, which is exactly what a task pinned to version 0 runs. An empty snapshot would
+// otherwise mean "nothing is required", and every submit would pass vacuously.
+func slotKeysOrSeeded(category string, keys []string, requiredOnly bool) []string {
+	if len(keys) > 0 {
+		return keys
+	}
+	seeded := domain.SeededRules()
+	out := []string{}
+	if category == domain.CategoryFeedWaterRemoval {
+		for _, p := range seeded.RemovalProofs() {
+			if !requiredOnly || p.Required {
+				out = append(out, p.Key)
+			}
+		}
+		return out
+	}
+	for _, slot := range seeded.CategorySlots(category) {
+		if !requiredOnly || slot.Required {
+			out = append(out, slot.FieldKey)
+		}
+	}
+	return out
 }
 
 // distinctIDs de-duplicates an id list (the create's union assignee-existence check compares a
@@ -282,11 +310,11 @@ const removalTaskInsertSQL = `
 INSERT INTO pc_care_tasks (
   tenant_id, category, park_id, shed_id, partition_label,
   planned_business_date, due_business_date, gates_task_id, idempotency_key, created_by,
-  sop_version, required_slot_keys
+  sop_version, slot_keys, required_slot_keys
 ) VALUES (
   $1::uuid, $2, $3::uuid, $4::uuid, nullif($5::text, ''),
   $6::date, $6::date, $7::uuid, $8, $9::uuid,
-  nullif($10::int, 0), coalesce($11::text[], '{}'::text[])
+  nullif($10::int, 0), coalesce($11::text[], '{}'::text[]), coalesce($12::text[], '{}'::text[])
 )
 ON CONFLICT (tenant_id, category, park_id, shed_id, partition_key, planned_business_date)
   WHERE work_state <> 'canceled'

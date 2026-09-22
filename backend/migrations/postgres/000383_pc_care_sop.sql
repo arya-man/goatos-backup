@@ -38,10 +38,13 @@
 
 ALTER TABLE public.pc_care_tasks
   ADD COLUMN IF NOT EXISTS sop_version integer,
+  ADD COLUMN IF NOT EXISTS slot_keys text[] NOT NULL DEFAULT '{}'::text[],
   ADD COLUMN IF NOT EXISTS required_slot_keys text[] NOT NULL DEFAULT '{}'::text[],
   ADD COLUMN IF NOT EXISTS sop_answers jsonb NOT NULL DEFAULT '{}'::jsonb;
 COMMENT ON COLUMN public.pc_care_tasks.sop_version IS
   'pc_care.tasks SOP version the task was PLANNED on and runs under to the end (PC CARE SOP, 2026-09-22). NULL = the seeded rules (pre-SOP behaviour).';
+COMMENT ON COLUMN public.pc_care_tasks.slot_keys IS
+  'EVERY capture slot key of the pinned version''s card for this task, compulsory or not, snapshotted at create: the store refuses a capture aimed at a slot the card does not ask for, under the task row lock.';
 COMMENT ON COLUMN public.pc_care_tasks.required_slot_keys IS
   'The compulsory capture slot keys of the pinned version for this task''s category (per animal; for a removal card, per pen), snapshotted at create so readiness is one jsonb predicate (sop_proofs ?& required_slot_keys).';
 COMMENT ON COLUMN public.pc_care_tasks.sop_answers IS
@@ -52,8 +55,22 @@ ALTER TABLE public.pc_care_rounds
 COMMENT ON COLUMN public.pc_care_rounds.sop_version IS
   'pc_care.tasks SOP version the round was PLANNED on; every pen task and the removal card carry the same pin.';
 
--- Existing tasks ran the seeded slot table; snapshot its compulsory keys so their readiness
--- predicate is exactly what it was.
+-- Existing tasks ran the seeded slot table; snapshot its keys so their readiness predicate and
+-- their accepted slot set are exactly what they were. Every seeded slot is compulsory, so the two
+-- lists are identical on a backfilled row; they diverge only where a farm authors an OPTIONAL one.
+UPDATE public.pc_care_tasks
+SET slot_keys = CASE category
+  WHEN 'deworming' THEN ARRAY['video']
+  WHEN 'anti_protozoan' THEN ARRAY['video']
+  WHEN 'ticks_removal' THEN ARRAY['video']
+  WHEN 'hoof_trimming' THEN ARRAY['before_video', 'during_video', 'after_video']
+  WHEN 'hair_trimming' THEN ARRAY['before_video', 'during_video', 'after_video']
+  WHEN 'feed_water_removal' THEN ARRAY['feed_video', 'water_video']
+  WHEN 'inventory_vaccine' THEN ARRAY['stock_fridge_photo', 'stock_fridge_video']
+  ELSE '{}'::text[]
+END
+WHERE slot_keys = '{}'::text[];
+
 UPDATE public.pc_care_tasks
 SET required_slot_keys = CASE category
   WHEN 'deworming' THEN ARRAY['video']
@@ -132,8 +149,8 @@ jsonb_build_object(
     "cutoff_time": "",
     "instruction": "Remove feed and water from every pen in this round the evening before the deworming. Film the feed being removed and the water being removed as two separate live-camera videos per pen and submit before midnight.",
     "proofs": [
-      {"key": "feed_video", "title": "Feed removal video", "hint": "Show the feed being taken out of this pen.", "kind": "video", "required": true},
-      {"key": "water_video", "title": "Water removal video", "hint": "Show the water being taken out of this pen.", "kind": "video", "required": true}
+      {"key": "feed_video", "title": "Feed removal video", "hint": "Show the feed being taken out of this pen", "kind": "video", "required": true},
+      {"key": "water_video", "title": "Water removal video", "hint": "Show the water being taken out of this pen", "kind": "video", "required": true}
     ],
     "questions": []
   },
@@ -199,4 +216,4 @@ ALTER TABLE public.pc_care_task_proofs DROP CONSTRAINT IF EXISTS pc_care_task_pr
 ALTER TABLE public.pc_care_removal_pen_proofs DROP COLUMN IF EXISTS sop_proofs;
 ALTER TABLE public.pc_care_task_animals DROP COLUMN IF EXISTS sop_proof_meta, DROP COLUMN IF EXISTS sop_proofs;
 ALTER TABLE public.pc_care_rounds DROP COLUMN IF EXISTS sop_version;
-ALTER TABLE public.pc_care_tasks DROP COLUMN IF EXISTS sop_answers, DROP COLUMN IF EXISTS required_slot_keys, DROP COLUMN IF EXISTS sop_version;
+ALTER TABLE public.pc_care_tasks DROP COLUMN IF EXISTS sop_answers, DROP COLUMN IF EXISTS required_slot_keys, DROP COLUMN IF EXISTS slot_keys, DROP COLUMN IF EXISTS sop_version;

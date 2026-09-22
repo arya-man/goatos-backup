@@ -34,19 +34,23 @@ func (r *Repository) RegisterTaskProof(ctx context.Context, p ports.RegisterTask
 		}
 	}()
 
-	// Slot validity is judged against the TASK's actual category, under the capture lock —
-	// never against a hardcoded category, which would misfile one category's slot into another.
-	category, err := lockTaskForCapture(ctx, tx, p.TenantID, p.TaskID)
+	// Slot validity is judged against the TASK's own card, under the capture lock — never
+	// against a hardcoded category, which would misfile one category's slot into another.
+	// inventory_vaccine is NOT authored (the fridge photo + video are the kernel's own stock
+	// check) so it keeps the fixed pair; a removal card's slots are the PINNED card's, judged by
+	// the service and re-checked here against the task's own snapshot.
+	category, slotKeys, err := lockTaskForCaptureWithSlots(ctx, tx, p.TenantID, p.TaskID)
 	if err != nil {
 		return err
 	}
-	// The slot key of a REMOVAL card was judged against the task's PINNED card by the service
-	// (PC CARE SOP, 2026-09-22). inventory_vaccine is NOT authored -- the fridge photo + video
-	// are the kernel's own stock check -- so it keeps the fixed pair, checked here.
 	if domain.CaptureModeForCategory(category) != domain.CaptureModeTaskProof {
 		return domain.ErrInvalidSlotForCategory
 	}
-	if category == domain.CategoryInventoryVaccine && !domain.IsValidSlotForCategory(category, strings.TrimSpace(p.SlotKey)) {
+	if category == domain.CategoryInventoryVaccine {
+		if !domain.IsValidSlotForCategory(category, strings.TrimSpace(p.SlotKey)) {
+			return domain.ErrInvalidSlotForCategory
+		}
+	} else if !acceptsSlot(category, slotKeys, strings.TrimSpace(p.SlotKey)) {
 		return domain.ErrInvalidSlotForCategory
 	}
 
@@ -170,6 +174,11 @@ func (r *Repository) taskProofMediaRefs(ctx context.Context, tx pgx.Tx, tenantID
 	} else {
 		for _, p := range removalSlots {
 			slots = append(slots, domain.Slot{FieldKey: p.Key, Label: p.Title, Description: p.Hint, Kind: p.Kind, Required: p.Required})
+		}
+		if len(slots) == 0 {
+			// A caller that passed no card (a kernel write, a fixture) runs the SEEDED removal
+			// card -- version 0 -- never a card that demands nothing.
+			slots = seededRemovalSlots()
 		}
 	}
 	slotKeys := make([]string, 0, len(slots))

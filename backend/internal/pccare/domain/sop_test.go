@@ -21,7 +21,7 @@ func TestSeededPCCareSOPIsThePreSOPBehaviour(t *testing.T) {
 		t.Fatalf("seed version = %d, want 0", rules.Version)
 	}
 	for _, category := range SOPCategories {
-		legacy := legacySlotsForCategory(category)
+		legacy := SlotsForCategory(category)
 		got := rules.CategorySlots(category)
 		if len(got) != len(legacy) {
 			t.Fatalf("%s: %d slots, legacy has %d", category, len(got), len(legacy))
@@ -43,7 +43,7 @@ func TestSeededPCCareSOPIsThePreSOPBehaviour(t *testing.T) {
 	if fwr.Mode != RemovalModeOptional || len(fwr.AppliesTo) != 1 || fwr.AppliesTo[0] != CategoryDeworming || fwr.CutoffTime != "" {
 		t.Fatalf("seed removal = %+v, want optional on deworming alone with the farm evening", fwr)
 	}
-	legacyRemoval := legacySlotsForCategory(CategoryFeedWaterRemoval)
+	legacyRemoval := SlotsForCategory(CategoryFeedWaterRemoval)
 	if len(fwr.Proofs) != len(legacyRemoval) {
 		t.Fatalf("removal slots = %d, want %d", len(fwr.Proofs), len(legacyRemoval))
 	}

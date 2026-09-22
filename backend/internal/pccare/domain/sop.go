@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"sort"
 	"strings"
+	"sync"
 
 	fwrdomain "github.com/vgoats/goatos/backend/internal/feedwaterremoval/domain"
 	"github.com/vgoats/goatos/backend/internal/sop/authored"
@@ -162,11 +163,17 @@ var seededPCCareSOPJSON []byte
 // the pc_care.care definition and its v1 (pinned by TestMigrationEmbedsTheSeededPCCareSOP).
 func SeededPCCareSOPJSON() []byte { return append([]byte(nil), seededPCCareSOPJSON...) }
 
+// seededRulesOnce memoizes the compiled seed: the store's fallback path reads it per request and
+// the document is a constant.
+var seededRulesOnce = sync.OnceValue(compileSeededRules)
+
 // SeededRules compiles the embedded document; a tenant with no published version runs it. It
 // reproduces the pre-SOP behaviour exactly: removal OPTIONAL on deworming alone with the two
 // clips, one video per animal on the 2-second jobs, the before / while / after triple on the
 // trimming jobs, no questions -- pinned by TestSeededPCCareSOPIsThePreSOPBehaviour.
-func SeededRules() Rules {
+func SeededRules() Rules { return seededRulesOnce() }
+
+func compileSeededRules() Rules {
 	dsl, err := ParsePCCareSOP(map[string]any{"pc_care": json.RawMessage(seededPCCareSOPJSON)})
 	if err != nil {
 		panic("pccare: seeded sop does not parse: " + err.Error())

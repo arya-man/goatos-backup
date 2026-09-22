@@ -69,11 +69,15 @@ type CreateTaskParams struct {
 	RemovalOperatorUserIDs []string
 	// SOPVersion is the published pc_care.tasks version the task is pinned to (0 = seed).
 	SOPVersion int
-	// RequiredSlotKeys are the pinned version's compulsory per-animal slot keys for the
-	// category, snapshotted on the row for the set-based readiness predicate.
+	// SlotKeys are EVERY per-animal slot key of the pinned version's card for the category
+	// (compulsory or not); RequiredSlotKeys are the compulsory subset. Both are snapshotted on
+	// the row: the first is what the store accepts a capture into, the second is the set-based
+	// readiness predicate.
+	SlotKeys         []string
 	RequiredSlotKeys []string
-	// RemovalRequiredSlotKeys are the pinned removal card's compulsory slot keys (when
-	// FeedRemovalRequired).
+	// RemovalSlotKeys / RemovalRequiredSlotKeys are the same pair for the pinned removal card
+	// (when FeedRemovalRequired).
+	RemovalSlotKeys         []string
 	RemovalRequiredSlotKeys []string
 	IdempotencyKey          string
 	CreatedBy               string

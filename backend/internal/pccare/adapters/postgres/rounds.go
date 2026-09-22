@@ -129,7 +129,7 @@ func (r *Repository) CreateRound(ctx context.Context, p ports.CreateRoundParams)
 	// than the full pen set coming back means the round cannot be planned whole.
 	rows, err := tx.Query(ctx, roundTasksInsertSQL,
 		p.TenantID, p.Category, p.ParkID, shedIDs, partitionLabels, plannedDate, roundID, p.CreatedBy,
-		p.SOPVersion, p.RequiredSlotKeys)
+		p.SOPVersion, slotKeysOrSeeded(p.Category, p.SlotKeys, false), slotKeysOrSeeded(p.Category, p.RequiredSlotKeys, true))
 	if err != nil {
 		return ports.RoundRow{}, fmt.Errorf("pccare: insert round pen tasks: %w", err)
 	}
@@ -233,8 +233,9 @@ func createRoundRemoval(
 
 	var removalTaskID string
 	err := tx.QueryRow(ctx, roundRemovalInsertSQL,
-		p.TenantID, p.ParkID, removalDate, roundID, p.IdempotencyKey+":fasting", p.CreatedBy,
-		p.SOPVersion, p.RemovalRequiredSlotKeys,
+		p.TenantID, p.ParkID, removalDate, roundID, p.IdempotencyKey+":fasting", p.CreatedBy, p.SOPVersion,
+		slotKeysOrSeeded(domain.CategoryFeedWaterRemoval, p.RemovalSlotKeys, false),
+		slotKeysOrSeeded(domain.CategoryFeedWaterRemoval, p.RemovalRequiredSlotKeys, true),
 	).Scan(&removalTaskID)
 	if errors.Is(err, pgx.ErrNoRows) {
 		// A live removal card already gates this round. The pair cannot be planned whole,
@@ -506,14 +507,14 @@ const roundTasksInsertSQL = `
 INSERT INTO pc_care_tasks (
   tenant_id, category, park_id, shed_id, partition_label,
   planned_business_date, due_business_date, round_id, idempotency_key, created_by,
-  sop_version, required_slot_keys
+  sop_version, slot_keys, required_slot_keys
 )
 SELECT
   $1::uuid, $2, $3::uuid, pen.shed_id, nullif(btrim(pen.partition_label), ''),
   $6::date, $6::date, $7::uuid,
   $7::text || ':' || pen.shed_id::text || ':' || coalesce(nullif(btrim(pen.partition_label), ''), 'whole'),
   $8::uuid,
-  nullif($9::int, 0), coalesce($10::text[], '{}'::text[])
+  nullif($9::int, 0), coalesce($10::text[], '{}'::text[]), coalesce($11::text[], '{}'::text[])
 FROM unnest($4::uuid[], $5::text[]) AS pen(shed_id, partition_label)
 ON CONFLICT (tenant_id, category, park_id, shed_id, partition_key, planned_business_date)
   WHERE work_state <> 'canceled'
@@ -532,10 +533,10 @@ CROSS JOIN unnest($3::uuid[]) AS o(operator_user_id)`
 const roundRemovalInsertSQL = `
 INSERT INTO pc_care_tasks (
   tenant_id, category, park_id, planned_business_date, due_business_date,
-  gates_round_id, idempotency_key, created_by, sop_version, required_slot_keys
+  gates_round_id, idempotency_key, created_by, sop_version, slot_keys, required_slot_keys
 ) VALUES (
   $1::uuid, 'feed_water_removal', $2::uuid, $3::date, $3::date,
-  $4::uuid, $5, $6::uuid, nullif($7::int, 0), coalesce($8::text[], '{}'::text[])
+  $4::uuid, $5, $6::uuid, nullif($7::int, 0), coalesce($8::text[], '{}'::text[]), coalesce($9::text[], '{}'::text[])
 )
 ON CONFLICT (tenant_id, gates_round_id) WHERE gates_round_id IS NOT NULL
 DO NOTHING

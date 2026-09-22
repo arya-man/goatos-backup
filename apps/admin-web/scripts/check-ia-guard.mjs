@@ -128,6 +128,12 @@ const MODULE_SURFACE_ROUTE_EXCEPTIONS = new Set([
   // who does each are AUTHORED here and run by the tasks engine, the same module-surface shape
   // as /counts/sops. Still no /sops and no lens duplicate.
   "/sales/sops",
+  // PC CARE SOP (maintainer decision 2026-09-22, docs/decisions/pc-care-sop.md): what the operator
+  // captures and answers on a deworming, ticks removal or trimming task, and whether a
+  // tablet-in-feed deworming removes feed and water the evening before. A Preventive Care-owned
+  // document, not a generic protocol rule, so it is a module-surface beside /feed/sops and
+  // /weighing/sops rather than a lens under /config.
+  "/pc-care/sops",
 ]);
 
 function isAllowedRoute(route) {
