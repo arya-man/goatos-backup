@@ -39,6 +39,9 @@ evidence.
   so failed alerts have concrete screenshot evidence instead of generic text.
 - Updated runner/Slack failure details so browser journey blockers carry the
   concrete child route/error/screenshot output.
+- OCI production-smoke then failed on stale Weighing module assertion text:
+  the live UI says `Weighing`, while the automation still required `Weights`.
+  Updated the module assertion to the current product label.
 
 ## Pending
 
@@ -66,7 +69,7 @@ Result: focused checks green.
 
 - Base: `origin/main` at `7772c2e92`
 - PR branch: `codex/dashboard-parity-nonblocking-pr`
-- Latest local commit: `75d734699`
+- Latest local commit: `0ea0650a4`
 
 ## Deployment State
 
