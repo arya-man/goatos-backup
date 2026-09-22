@@ -64,7 +64,13 @@ if (containsUnredactedSecret(JSON.stringify(message))) fail("refusing to send Sl
 const screenshotFiles = screenshotPaths(receipt, receiptPath);
 const reportFile = writeHtmlReport(receipt, receiptPath, decision.kind, screenshotFiles, visualIssues, slowPages);
 // Each reply says what is wrong, where to see it, and carries that page's screenshot.
-const inlineShots = visualIssues.filter((issue) => issue.screenshot).slice(0, 20).map((issue, i) => ({
+// Slow pages are issues too: one reply each, with the seconds, the slowest request and a screenshot.
+const slowRepliesSource = slowIssues
+  .filter((issue) => issue.screenshot)
+  .sort((a, b) => (b.slowMs ?? 0) - (a.slowMs ?? 0))
+  .filter((issue, i, all) => all.findIndex((other) => other.page === issue.page) === i)
+  .slice(0, 6);
+const inlineShots = [...visualIssues.filter((issue) => issue.screenshot).slice(0, 20), ...slowRepliesSource].map((issue, i) => ({
   file: issue.screenshot,
   title: `${issue.page} — ${issue.what}`.slice(0, 250),
   comment: [
@@ -197,6 +203,8 @@ function groupSlowPages(issues) {
     }
     pages.push({
       page: issue.page,
+      url: issue.url ?? null,
+      cause: (issue.raw ?? "").match(/slowest requests: ([^|]+)/)?.[1]?.trim() ?? null,
       loadMs: issue.loadMs ?? 0,
       budgetMs: issue.budgetMs ?? 0,
       devices: device ? [device] : [],
@@ -248,7 +256,7 @@ function formatVisualIssuesMessage(value, issues, slow = { pages: [] }) {
   const byKind = new Map();
   for (const issue of issues) byKind.set(issue.what.replace(/ —.*$/, ""), (byKind.get(issue.what.replace(/ —.*$/, "")) ?? 0) + 1);
   const kindLines = [...byKind.entries()].sort((a, b) => b[1] - a[1]).slice(0, 10).map(([what, n]) => `• ${n} × ${what}`);
-  const slowLines = slow.pages.slice(0, 8).map((p) => `• ${p.page} — ${seconds(p.loadMs)}${p.url ? ` · <${p.url}|open>` : ""}`);
+  const slowLines = slow.pages.slice(0, 8).map((p) => `• ${p.page} — ${seconds(p.loadMs)}${p.cause ? ` · slowest: ${p.cause}` : ""}${p.url ? ` · <${p.url}|open>` : ""}`);
   const title = issues.length
     ? `:rotating_light: ${issues.length} visible issue${issues.length === 1 ? "" : "s"} on production`
     : `:hourglass_flowing_sand: ${slow.pages.length} page${slow.pages.length === 1 ? "" : "s"} slow on production`;
