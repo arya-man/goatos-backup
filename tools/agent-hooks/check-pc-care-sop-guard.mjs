@@ -114,17 +114,6 @@ const PC_CARE_SCREENS = "apps/admin-web/features/sops";
 const PC_CARE_DYNAMIC_KEYS = ["video", "photo", "either"].map((k) => `wsop.proof.kind.${k}`)
   .concat(["choice", "multi", "text", "number"].map((k) => `inspection.kind.${k}`));
 
-/** The {...} literal starting at [from], by brace count. */
-function braceSlice(text, from) {
-  const start = text.indexOf("{", from);
-  if (start < 0) return "";
-  let depth = 0;
-  for (let i = start; i < text.length; i += 1) {
-    if (text[i] === "{") depth += 1;
-    else if (text[i] === "}") { depth -= 1; if (depth === 0) return text.slice(start, i + 1); }
-  }
-  return "";
-}
 
 /** Every key a Go copy function declares, following the maps it merges in. */
 function goCopyFnKeys(adminui, fn, seen = new Set()) {
@@ -162,7 +151,7 @@ function pcCarePageKeys(adminui) {
 
 /**
  * The text of one exported TSX function, from its signature to the next top-level declaration.
- * NOT braceSlice: a destructured parameter list opens a brace of its own, so brace-counting from
+ * NOT by brace count: a destructured parameter list opens a brace of its own, so counting from
  * the signature returns the PARAMETERS and never sees the body -- which made this rule vacuous
  * the first time it was written.
  */
