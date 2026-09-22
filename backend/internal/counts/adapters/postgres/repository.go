@@ -23,6 +23,7 @@ import (
 	"github.com/vgoats/goatos/backend/internal/platform/herdstage"
 	"github.com/vgoats/goatos/backend/internal/platform/oploc"
 	platformoutbox "github.com/vgoats/goatos/backend/internal/platform/outbox"
+	"github.com/vgoats/goatos/backend/internal/platform/sqlbind"
 )
 
 const defaultQueryTimeout = 3 * time.Second
@@ -606,7 +607,10 @@ ORDER BY shed_id, lower(breed_key), counted_at DESC, base_count_anchor_id DESC`,
 
 func (r *Repository) projectionMovements(ctx context.Context, req domain.ProjectionRecomputeRequest) ([]domain.ProjectionMovementImpact, error) {
 	query, args := movementWindowQuery(req)
-	rows, err := r.pool.Query(ctx, query, args...)
+	// The window's SQL and its argument list are both chosen by the horizon branch, so they are
+	// bound together rather than passed apart.
+	bound := sqlbind.MustBind(query, args...)
+	rows, err := r.pool.Query(ctx, bound.SQL(), bound.Args()...)
 	if err != nil {
 		return nil, fmt.Errorf("counts: query projection movements: %w", err)
 	}
@@ -3359,11 +3363,20 @@ func (r *Repository) GetCountsBreakdown(ctx context.Context, req domain.CountsBr
 		pageSQL = countsBreakdownPensSQL
 	}
 
+	// Every statement on this page binds through sqlbind: the grain arguments are assembled at
+	// runtime and two of the four statements are chosen at runtime too, so a placeholder added to
+	// one branch and not the other is exactly the mistake a validated bind refuses at the call
+	// rather than at the database.
+	boundPage := sqlbind.MustBind(pageSQL, append(append([]any{}, grainArgs...), limit, offset)...)
+	boundCharts := sqlbind.MustBind(countsBreakdownChartsSQL, grainArgs...)
+	boundFacets := sqlbind.MustBind(countsBreakdownFacetsSQL, req.TenantID, lifecycle, herdstage.LowerMembers(), herdstage.FatteningKey)
+	boundLoads := sqlbind.MustBind(countsBreakdownLoadsSQL, grainArgs...)
+
 	batch := &pgx.Batch{}
-	batch.Queue(pageSQL, append(append([]any{}, grainArgs...), limit, offset)...)
-	batch.Queue(countsBreakdownChartsSQL, grainArgs...)
-	batch.Queue(countsBreakdownFacetsSQL, req.TenantID, lifecycle, herdstage.LowerMembers(), herdstage.FatteningKey)
-	batch.Queue(countsBreakdownLoadsSQL, grainArgs...)
+	batch.Queue(boundPage.SQL(), boundPage.Args()...)
+	batch.Queue(boundCharts.SQL(), boundCharts.Args()...)
+	batch.Queue(boundFacets.SQL(), boundFacets.Args()...)
+	batch.Queue(boundLoads.SQL(), boundLoads.Args()...)
 
 	results := r.pool.SendBatch(ctx, batch)
 	defer func() { _ = results.Close() }()
