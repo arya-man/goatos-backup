@@ -4,6 +4,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { compareRoutes, discoverFilesystemRoutes, discoverSmokeRoutes } from "../dashboard-automation/discover-admin-routes.mjs";
 import { coverageSelfTest, runCoverageGuard } from "../dashboard-automation/check-coverage-since-aug1.mjs";
+import { EXECUTED_STATUSES, OPERATOR_HINT, PARKED_STATUSES, describePlan, runSync, summarizePlan } from "../dashboard-automation/sync-coverage.mjs";
 
 const selfTest = process.argv.includes("--self-test");
 
@@ -21,6 +22,13 @@ if (selfTest) {
     rmSync(dir, { recursive: true, force: true });
   }
   coverageSelfTest();
+  // needs-assertion / needs-review are parking statuses: the runner must never execute them.
+  for (const parked of PARKED_STATUSES) {
+    assert.ok(!EXECUTED_STATUSES.has(parked), `${parked} must not be an executed assertion status`);
+  }
+  const runnerSource = readFileSync("apps/admin-web/scripts/lib/feature-assertions.mjs", "utf8");
+  assert.match(runnerSource, /\["assert", "data-dependent", "mobile-only"\]\.includes\(entry\.status\)/,
+    "feature-assertions runner must keep filtering to executed statuses, so parked entries never run");
   console.log("dashboard automation guard self-test: PASS");
   process.exit(0);
 }
@@ -36,6 +44,13 @@ failures.push(...dashboardBugPatternCoverageFindings());
 const coverage = await runCoverageGuard();
 console.log(coverage.summary);
 failures.push(...coverage.findings.map((finding) => `coverage-since-aug1: ${finding}`));
+
+// Coverage must be SELF-UPDATING: new user-visible admin-web commits on origin/main, and
+// assertions whose selector/copy has been renamed away, both have to be reported here rather
+// than silently falling out of the smoke.
+const sync = await runCoverageSyncFindings();
+console.log(sync.summary);
+failures.push(...sync.findings);
 
 const smokeRoutes = discoverSmokeRoutes();
 const requiredNames = new Set(smokeRoutes.map((route) => route.name));
@@ -53,6 +68,9 @@ for (const file of [
   "tools/dashboard-automation/module-journeys.json",
   "tools/dashboard-automation/check-module-journeys.mjs",
   "tools/dashboard-automation/run-module-journeys.mjs",
+  "tools/dashboard-automation/sync-coverage.mjs",
+  "tools/dashboard-automation/coverage-state.json",
+  "tools/dashboard-automation/commit-classification",
   "tools/dashboard-automation/notify-slack.mjs",
   "tools/dashboard-automation/self-heal-pr.mjs",
   "tools/dashboard-automation/refresh-firebase-token.mjs",
@@ -70,6 +88,20 @@ if (failures.length > 0) {
 }
 
 console.log(`dashboard automation guard: PASS (${comparison.filesystemRoutes.length} filesystem routes, ${smokeRoutes.length} smoke entries)`);
+
+async function runCoverageSyncFindings() {
+  try {
+    const { plan } = await runSync({ mode: "check" });
+    if (plan.newCommits.length === 0 && plan.stale.length === 0) return { summary: `${summarizePlan(plan)} — PASS`, findings: [] };
+    return {
+      summary: summarizePlan(plan),
+      findings: [`coverage-sync: smoke coverage is behind origin/main — ${OPERATOR_HINT}\n${describePlan(plan)}`],
+    };
+  } catch (error) {
+    // No origin/main (shallow CI clone) must not silently pass: say so plainly.
+    return { summary: "coverage-sync: could not compare against origin/main", findings: [`coverage-sync: ${String(error?.message ?? error)}`] };
+  }
+}
 
 function dashboardBugPatternCoverageFindings() {
   const rel = "tools/dashboard-automation/bug-pattern-coverage.json";
