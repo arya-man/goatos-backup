@@ -1,0 +1,3017 @@
+{
+  "schemaVersion": 1,
+  "description": "GoAT OS admin-web OCI smoke coverage for every feature and repeat-bug pattern shipped since 2026-08-01. Checked by check-coverage-since-aug1.mjs. Regenerable from classified commit JSONL (--commits <dir>).",
+  "since": "2026-08-01",
+  "source": "scratchpad regression-history.md (sample list; to be regenerated from full commit classification)",
+  "entries": [
+    {
+      "id": "feed-analytics-tabs",
+      "kind": "feature",
+      "title": "Feed Analytics tabs overview|items|peranimal|experiment|execution",
+      "shippedIn": "2026-08-01..2026-08-20",
+      "commits": [],
+      "routes": [
+        "feed-analytics",
+        "feed-analytics-items",
+        "feed-analytics-peranimal",
+        "feed-analytics-experiment",
+        "feed-analytics-execution"
+      ],
+      "interactions": [
+        {
+          "type": "route-param",
+          "ref": "feed-analytics"
+        },
+        {
+          "type": "route-param",
+          "ref": "feed-analytics-items"
+        },
+        {
+          "type": "route-param",
+          "ref": "feed-analytics-peranimal"
+        },
+        {
+          "type": "route-param",
+          "ref": "feed-analytics-experiment"
+        },
+        {
+          "type": "route-param",
+          "ref": "feed-analytics-execution"
+        },
+        {
+          "type": "check",
+          "ref": "A-chart-empty-frame"
+        }
+      ],
+      "viewports": [
+        "laptop",
+        "mobile"
+      ],
+      "status": "covered"
+    },
+    {
+      "id": "feed-analytics-stock-only",
+      "kind": "feature",
+      "title": "Feed Analytics stock_only=1",
+      "shippedIn": "2026-08-01..2026-08-20",
+      "commits": [],
+      "routes": [
+        "feed-analytics-stock-only"
+      ],
+      "interactions": [
+        {
+          "type": "route-param",
+          "ref": "feed-analytics-stock-only"
+        }
+      ],
+      "viewports": [
+        "laptop",
+        "mobile"
+      ],
+      "status": "covered"
+    },
+    {
+      "id": "feed-analytics-range-chips",
+      "kind": "feature",
+      "title": "Feed Analytics range chips 30/61/92",
+      "shippedIn": "2026-08-01..2026-08-20",
+      "commits": [],
+      "routes": [
+        "feed-analytics",
+        "feed-analytics-range-61",
+        "feed-analytics-range-92"
+      ],
+      "interactions": [
+        {
+          "type": "route-param",
+          "ref": "feed-analytics-range-61"
+        },
+        {
+          "type": "route-param",
+          "ref": "feed-analytics-range-92"
+        }
+      ],
+      "viewports": [
+        "laptop",
+        "mobile"
+      ],
+      "status": "covered"
+    },
+    {
+      "id": "feed-analytics-chart-hover",
+      "kind": "feature",
+      "title": "Feed Analytics chart hover tooltips",
+      "shippedIn": "2026-08-01..2026-08-20",
+      "commits": [],
+      "routes": [
+        "feed-analytics"
+      ],
+      "interactions": [
+        {
+          "type": "check",
+          "ref": "A-chart-label-clipped"
+        }
+      ],
+      "viewports": [
+        "laptop",
+        "mobile"
+      ],
+      "status": "gap",
+      "gapReason": "hover-only interaction: overlay runner and manifest safeClicks are click-driven; no hover step exists yet"
+    },
+    {
+      "id": "weights-page-rebuild",
+      "kind": "feature",
+      "title": "Weights page rebuild /weighing/weights (.g6 KPI, .wbars two-up, daily gain by shed, losing-kids table)",
+      "shippedIn": "2026-08-01..2026-08-20",
+      "commits": [],
+      "routes": [
+        "weighing-weights"
+      ],
+      "interactions": [
+        {
+          "type": "route-param",
+          "ref": "weighing-weights"
+        },
+        {
+          "type": "check",
+          "ref": "A-chart-label-column-narrow"
+        },
+        {
+          "type": "check",
+          "ref": "A-chart-label-collapsed"
+        },
+        {
+          "type": "check",
+          "ref": "B-container-overflow"
+        }
+      ],
+      "viewports": [
+        "laptop",
+        "mobile"
+      ],
+      "status": "covered"
+    },
+    {
+      "id": "weights-metric-toggles",
+      "kind": "feature",
+      "title": "Weights *_metric=adg|weight toggles (shed/breed/sex/stage/load)",
+      "shippedIn": "2026-08-01..2026-08-20",
+      "commits": [],
+      "routes": [
+        "weighing-weights",
+        "weighing-weights-metric-weight"
+      ],
+      "interactions": [
+        {
+          "type": "route-param",
+          "ref": "weighing-weights-metric-weight"
+        }
+      ],
+      "viewports": [
+        "laptop",
+        "mobile"
+      ],
+      "status": "covered"
+    },
+    {
+      "id": "weights-growth-director",
+      "kind": "feature",
+      "title": "Growth Director block on /weighing/weights",
+      "shippedIn": "2026-08-01..2026-08-20",
+      "commits": [],
+      "routes": [
+        "weighing-weights"
+      ],
+      "interactions": [
+        {
+          "type": "route-param",
+          "ref": "weighing-weights"
+        },
+        {
+          "type": "check",
+          "ref": "J-raw-text"
+        }
+      ],
+      "viewports": [
+        "laptop",
+        "mobile"
+      ],
+      "status": "covered"
+    },
+    {
+      "id": "weights-download-drawer",
+      "kind": "feature",
+      "title": "Weights download drawer wt_export=1 (open/close only)",
+      "shippedIn": "2026-08-01..2026-08-20",
+      "commits": [],
+      "routes": [
+        "weighing-weights"
+      ],
+      "interactions": [
+        {
+          "type": "overlay",
+          "ref": "download-drawer"
+        }
+      ],
+      "viewports": [
+        "laptop",
+        "mobile"
+      ],
+      "status": "covered"
+    },
+    {
+      "id": "herd-analytics",
+      "kind": "feature",
+      "title": "Herd Analytics /counts/analytics",
+      "shippedIn": "2026-08-01..2026-08-20",
+      "commits": [],
+      "routes": [
+        "counts-analytics"
+      ],
+      "interactions": [
+        {
+          "type": "route-param",
+          "ref": "counts-analytics"
+        },
+        {
+          "type": "check",
+          "ref": "A-svg-text-tiny"
+        }
+      ],
+      "viewports": [
+        "laptop",
+        "mobile"
+      ],
+      "status": "covered"
+    },
+    {
+      "id": "herd-analytics-date-filter",
+      "kind": "feature",
+      "title": "Herd Analytics date filter (from/to)",
+      "shippedIn": "2026-08-01..2026-08-20",
+      "commits": [],
+      "routes": [
+        "counts-analytics-window"
+      ],
+      "interactions": [
+        {
+          "type": "route-param",
+          "ref": "counts-analytics-window"
+        }
+      ],
+      "viewports": [
+        "laptop",
+        "mobile"
+      ],
+      "status": "covered"
+    },
+    {
+      "id": "counts-breakdown-tag-editor",
+      "kind": "feature",
+      "title": "Counts breakdown inline tag editor .tagedit-pop (open+Esc)",
+      "shippedIn": "2026-08-01..2026-08-20",
+      "commits": [],
+      "routes": [
+        "counts-breakdown"
+      ],
+      "interactions": [
+        {
+          "type": "overlay",
+          "ref": "tag-editor-popover"
+        }
+      ],
+      "viewports": [
+        "laptop",
+        "mobile"
+      ],
+      "status": "covered"
+    },
+    {
+      "id": "procurement-vendor-register",
+      "kind": "feature",
+      "title": "Vendor register /procurement/vendors filter bar",
+      "shippedIn": "2026-08-01..2026-08-20",
+      "commits": [],
+      "routes": [
+        "procurement-vendors"
+      ],
+      "interactions": [
+        {
+          "type": "route-param",
+          "ref": "procurement-vendors"
+        },
+        {
+          "type": "safeClick",
+          "ref": "role:button:Filters"
+        }
+      ],
+      "viewports": [
+        "laptop",
+        "mobile"
+      ],
+      "status": "covered"
+    },
+    {
+      "id": "procurement-vendor-row-drawer",
+      "kind": "feature",
+      "title": "Vendor register row drawer",
+      "shippedIn": "2026-08-01..2026-08-20",
+      "commits": [],
+      "routes": [
+        "procurement-vendors"
+      ],
+      "interactions": [
+        {
+          "type": "overlay",
+          "ref": "vendor-row-drawer"
+        }
+      ],
+      "viewports": [
+        "laptop",
+        "mobile"
+      ],
+      "status": "covered"
+    },
+    {
+      "id": "sales-ledger-sales",
+      "kind": "feature",
+      "title": "Sales ledger + readable charts /sales",
+      "shippedIn": "2026-08-01..2026-08-20",
+      "commits": [],
+      "routes": [
+        "sales"
+      ],
+      "interactions": [
+        {
+          "type": "route-param",
+          "ref": "sales"
+        },
+        {
+          "type": "check",
+          "ref": "A-chart-label-collapsed"
+        },
+        {
+          "type": "check",
+          "ref": "A-chart-label-clipped"
+        }
+      ],
+      "viewports": [
+        "laptop",
+        "mobile"
+      ],
+      "status": "covered"
+    },
+    {
+      "id": "sales-ledger-sales-sold",
+      "kind": "feature",
+      "title": "Sales ledger + readable charts /sales/sold",
+      "shippedIn": "2026-08-01..2026-08-20",
+      "commits": [],
+      "routes": [
+        "sales-sold"
+      ],
+      "interactions": [
+        {
+          "type": "route-param",
+          "ref": "sales-sold"
+        },
+        {
+          "type": "check",
+          "ref": "A-chart-label-collapsed"
+        },
+        {
+          "type": "check",
+          "ref": "A-chart-label-clipped"
+        }
+      ],
+      "viewports": [
+        "laptop",
+        "mobile"
+      ],
+      "status": "covered"
+    },
+    {
+      "id": "sales-ledger-sales-loads",
+      "kind": "feature",
+      "title": "Sales ledger + readable charts /sales/loads",
+      "shippedIn": "2026-08-01..2026-08-20",
+      "commits": [],
+      "routes": [
+        "sales-loads"
+      ],
+      "interactions": [
+        {
+          "type": "route-param",
+          "ref": "sales-loads"
+        },
+        {
+          "type": "check",
+          "ref": "A-chart-label-collapsed"
+        },
+        {
+          "type": "check",
+          "ref": "A-chart-label-clipped"
+        }
+      ],
+      "viewports": [
+        "laptop",
+        "mobile"
+      ],
+      "status": "covered"
+    },
+    {
+      "id": "sales-ledger-sales-market-analytics",
+      "kind": "feature",
+      "title": "Sales ledger + readable charts /sales/market-analytics",
+      "shippedIn": "2026-08-01..2026-08-20",
+      "commits": [],
+      "routes": [
+        "sales-market-analytics"
+      ],
+      "interactions": [
+        {
+          "type": "route-param",
+          "ref": "sales-market-analytics"
+        },
+        {
+          "type": "check",
+          "ref": "A-chart-label-collapsed"
+        },
+        {
+          "type": "check",
+          "ref": "A-chart-label-clipped"
+        }
+      ],
+      "viewports": [
+        "laptop",
+        "mobile"
+      ],
+      "status": "covered"
+    },
+    {
+      "id": "sales-ledger-sales-buyer-analytics",
+      "kind": "feature",
+      "title": "Sales ledger + readable charts /sales/buyer-analytics",
+      "shippedIn": "2026-08-01..2026-08-20",
+      "commits": [],
+      "routes": [
+        "sales-buyer-analytics"
+      ],
+      "interactions": [
+        {
+          "type": "route-param",
+          "ref": "sales-buyer-analytics"
+        },
+        {
+          "type": "check",
+          "ref": "A-chart-label-collapsed"
+        },
+        {
+          "type": "check",
+          "ref": "A-chart-label-clipped"
+        }
+      ],
+      "viewports": [
+        "laptop",
+        "mobile"
+      ],
+      "status": "covered"
+    },
+    {
+      "id": "sales-market-table-scroll",
+      "kind": "feature",
+      "title": "Market analytics table sideways scroll",
+      "shippedIn": "2026-08-01..2026-08-20",
+      "commits": [],
+      "routes": [
+        "sales-market-analytics"
+      ],
+      "interactions": [
+        {
+          "type": "check",
+          "ref": "D-page-overflow"
+        }
+      ],
+      "viewports": [
+        "laptop",
+        "mobile"
+      ],
+      "status": "covered"
+    },
+    {
+      "id": "sales-buyer-pager",
+      "kind": "feature",
+      "title": "Sales buyer pager",
+      "shippedIn": "2026-08-01..2026-08-20",
+      "commits": [],
+      "routes": [
+        "sales-buyer-analytics",
+        "sales"
+      ],
+      "interactions": [
+        {
+          "type": "safeClick",
+          "ref": "role:link:Next"
+        }
+      ],
+      "viewports": [
+        "laptop",
+        "mobile"
+      ],
+      "status": "covered"
+    },
+    {
+      "id": "vaccination-live-tracker",
+      "kind": "feature",
+      "title": "Vaccination live drive tracker",
+      "shippedIn": "2026-08-01..2026-08-20",
+      "commits": [],
+      "routes": [
+        "vaccination-live-tracker"
+      ],
+      "interactions": [
+        {
+          "type": "route-param",
+          "ref": "vaccination-live-tracker"
+        }
+      ],
+      "viewports": [
+        "laptop",
+        "mobile"
+      ],
+      "status": "covered"
+    },
+    {
+      "id": "vaccination-command-board",
+      "kind": "feature",
+      "title": "Vaccination command board",
+      "shippedIn": "2026-08-01..2026-08-20",
+      "commits": [],
+      "routes": [
+        "vaccination"
+      ],
+      "interactions": [
+        {
+          "type": "route-param",
+          "ref": "vaccination"
+        }
+      ],
+      "viewports": [
+        "laptop",
+        "mobile"
+      ],
+      "status": "covered"
+    },
+    {
+      "id": "vaccination-closed-no-dose-drawer",
+      "kind": "feature",
+      "title": "Vaccination Closed/No-Dose drawer",
+      "shippedIn": "2026-08-01..2026-08-20",
+      "commits": [],
+      "routes": [
+        "vaccination"
+      ],
+      "interactions": [
+        {
+          "type": "overlay",
+          "ref": "closed-no-dose-drawer"
+        }
+      ],
+      "viewports": [
+        "laptop",
+        "mobile"
+      ],
+      "status": "covered"
+    },
+    {
+      "id": "verify-capture-date-sort",
+      "kind": "feature",
+      "title": "Verify capture-date filter + sort",
+      "shippedIn": "2026-08-01..2026-08-20",
+      "commits": [],
+      "routes": [
+        "verify",
+        "verify-all",
+        "verify-approved",
+        "verify-rejected",
+        "verify-capture-window-desc"
+      ],
+      "interactions": [
+        {
+          "type": "route-param",
+          "ref": "verify-capture-window-desc"
+        }
+      ],
+      "viewports": [
+        "laptop",
+        "mobile"
+      ],
+      "status": "covered"
+    },
+    {
+      "id": "verify-video-log",
+      "kind": "feature",
+      "title": "Verify Video Log vi_video_log=open",
+      "shippedIn": "2026-08-01..2026-08-20",
+      "commits": [],
+      "routes": [
+        "verify-video-log-open"
+      ],
+      "interactions": [
+        {
+          "type": "route-param",
+          "ref": "verify-video-log-open"
+        }
+      ],
+      "viewports": [
+        "laptop",
+        "mobile"
+      ],
+      "status": "covered"
+    },
+    {
+      "id": "verification-oversight",
+      "kind": "feature",
+      "title": "Verification oversight analytics /verification",
+      "shippedIn": "2026-08-01..2026-08-20",
+      "commits": [],
+      "routes": [
+        "verification"
+      ],
+      "interactions": [
+        {
+          "type": "route-param",
+          "ref": "verification"
+        }
+      ],
+      "viewports": [
+        "laptop",
+        "mobile"
+      ],
+      "status": "covered"
+    },
+    {
+      "id": "actions-pager",
+      "kind": "feature",
+      "title": "Actions queue pager page 2 (Next then Previous present); /actions redirects to /verify",
+      "shippedIn": "2026-08-01..2026-08-20",
+      "commits": [],
+      "routes": [
+        "actions",
+        "verify"
+      ],
+      "interactions": [
+        {
+          "type": "safeClick",
+          "ref": "role:link:Next page"
+        },
+        {
+          "type": "safeClick",
+          "ref": "role:link:Previous page"
+        }
+      ],
+      "viewports": [
+        "laptop",
+        "mobile"
+      ],
+      "status": "covered"
+    },
+    {
+      "id": "verifier-module-nav-rail",
+      "kind": "feature",
+      "title": "Verifier drawer module nav collapsed rail",
+      "shippedIn": "2026-08-01..2026-08-20",
+      "commits": [],
+      "routes": [
+        "verify",
+        "verify-all"
+      ],
+      "interactions": [
+        {
+          "type": "route-param",
+          "ref": "verify"
+        },
+        {
+          "type": "check",
+          "ref": "B-container-overflow"
+        },
+        {
+          "type": "check",
+          "ref": "text-cut-off"
+        }
+      ],
+      "viewports": [
+        "laptop",
+        "mobile"
+      ],
+      "status": "covered"
+    },
+    {
+      "id": "health-config",
+      "kind": "feature",
+      "title": "Health Config /health/config (read only)",
+      "shippedIn": "2026-08-01..2026-08-20",
+      "commits": [],
+      "routes": [
+        "health-config"
+      ],
+      "interactions": [
+        {
+          "type": "route-param",
+          "ref": "health-config"
+        }
+      ],
+      "viewports": [
+        "laptop",
+        "mobile"
+      ],
+      "status": "covered"
+    },
+    {
+      "id": "feed-config-staged-filters",
+      "kind": "feature",
+      "title": "Feed Config staged filters",
+      "shippedIn": "2026-08-01..2026-08-20",
+      "commits": [],
+      "routes": [
+        "feed-config"
+      ],
+      "interactions": [
+        {
+          "type": "route-param",
+          "ref": "feed-config"
+        },
+        {
+          "type": "safeClick",
+          "ref": "role:button:Filters"
+        },
+        {
+          "type": "safeClick",
+          "ref": "role:button:Clear"
+        }
+      ],
+      "viewports": [
+        "laptop",
+        "mobile"
+      ],
+      "status": "covered"
+    },
+    {
+      "id": "feed-direction",
+      "kind": "feature",
+      "title": "Feed direction /feed/direction",
+      "shippedIn": "2026-08-01..2026-08-20",
+      "commits": [],
+      "routes": [
+        "feed-direction"
+      ],
+      "interactions": [
+        {
+          "type": "route-param",
+          "ref": "feed-direction"
+        }
+      ],
+      "viewports": [
+        "laptop",
+        "mobile"
+      ],
+      "status": "covered"
+    },
+    {
+      "id": "login-sso",
+      "kind": "feature",
+      "title": "Login SSO page /login (logged out)",
+      "shippedIn": "2026-08-01..2026-08-20",
+      "commits": [],
+      "routes": [],
+      "interactions": [],
+      "viewports": [
+        "laptop",
+        "mobile"
+      ],
+      "status": "gap",
+      "gapReason": "smoke runs with an authenticated session cookie; /login is outside the (admin) route group and needs a logged-out context"
+    },
+    {
+      "id": "dd-mm-yyyy-dates",
+      "kind": "feature",
+      "title": "dd-mm-yyyy dates everywhere (raw ISO scan)",
+      "shippedIn": "2026-08-01..2026-08-20",
+      "commits": [],
+      "routes": [
+        "verify",
+        "sales-sold",
+        "procurement-feed-purchases",
+        "calendar",
+        "tasks"
+      ],
+      "interactions": [
+        {
+          "type": "check",
+          "ref": "J-raw-text"
+        }
+      ],
+      "viewports": [
+        "laptop",
+        "mobile"
+      ],
+      "status": "covered"
+    },
+    {
+      "id": "health-analytics-tabs",
+      "kind": "feature",
+      "title": "Health Analytics tabs overview|problems|diseases|mortality|treatment|engine",
+      "shippedIn": "2026-08-21..2026-09-07",
+      "commits": [],
+      "routes": [
+        "health-analytics",
+        "health-analytics-overview",
+        "health-analytics-problems",
+        "health-analytics-diseases",
+        "health-analytics-mortality",
+        "health-analytics-treatment",
+        "health-analytics-engine"
+      ],
+      "interactions": [
+        {
+          "type": "route-param",
+          "ref": "health-analytics-overview"
+        },
+        {
+          "type": "route-param",
+          "ref": "health-analytics-problems"
+        },
+        {
+          "type": "route-param",
+          "ref": "health-analytics-diseases"
+        },
+        {
+          "type": "route-param",
+          "ref": "health-analytics-mortality"
+        },
+        {
+          "type": "route-param",
+          "ref": "health-analytics-treatment"
+        },
+        {
+          "type": "route-param",
+          "ref": "health-analytics-engine"
+        }
+      ],
+      "viewports": [
+        "laptop",
+        "mobile"
+      ],
+      "status": "covered"
+    },
+    {
+      "id": "feed-spend-share",
+      "kind": "feature",
+      "title": "Feed spend-share pie + per-feed spend cards",
+      "shippedIn": "2026-08-21..2026-09-07",
+      "commits": [],
+      "routes": [
+        "feed-analytics"
+      ],
+      "interactions": [
+        {
+          "type": "route-param",
+          "ref": "feed-analytics"
+        },
+        {
+          "type": "check",
+          "ref": "A-svg-text-clipped"
+        },
+        {
+          "type": "check",
+          "ref": "A-svg-text-overlap"
+        }
+      ],
+      "viewports": [
+        "laptop",
+        "mobile"
+      ],
+      "status": "covered"
+    },
+    {
+      "id": "feed-expenditure-per-animal",
+      "kind": "feature",
+      "title": "Feed expenditure Overall/Per animal (spend=per_animal)",
+      "shippedIn": "2026-08-21..2026-09-07",
+      "commits": [],
+      "routes": [
+        "feed-analytics",
+        "feed-analytics-spend-per-animal"
+      ],
+      "interactions": [
+        {
+          "type": "route-param",
+          "ref": "feed-analytics-spend-per-animal"
+        }
+      ],
+      "viewports": [
+        "laptop",
+        "mobile"
+      ],
+      "status": "covered"
+    },
+    {
+      "id": "feed-consumption-view",
+      "kind": "feature",
+      "title": "Feed Consumption view",
+      "shippedIn": "2026-08-21..2026-09-07",
+      "commits": [],
+      "routes": [
+        "feed-analytics"
+      ],
+      "interactions": [
+        {
+          "type": "route-param",
+          "ref": "feed-analytics"
+        }
+      ],
+      "viewports": [
+        "laptop",
+        "mobile"
+      ],
+      "status": "covered"
+    },
+    {
+      "id": "feed-items-money-first",
+      "kind": "feature",
+      "title": "Feed Items money-first charts (tab=items)",
+      "shippedIn": "2026-08-21..2026-09-07",
+      "commits": [],
+      "routes": [
+        "feed-analytics-items"
+      ],
+      "interactions": [
+        {
+          "type": "route-param",
+          "ref": "feed-analytics-items"
+        },
+        {
+          "type": "check",
+          "ref": "A-chart-value-missing"
+        }
+      ],
+      "viewports": [
+        "laptop",
+        "mobile"
+      ],
+      "status": "covered"
+    },
+    {
+      "id": "feed-by-shed-pager",
+      "kind": "feature",
+      "title": "Feed-by-shed filters + variance pager",
+      "shippedIn": "2026-08-21..2026-09-07",
+      "commits": [],
+      "routes": [
+        "feed-analytics"
+      ],
+      "interactions": [
+        {
+          "type": "safeClick",
+          "ref": "role:button:Filters"
+        },
+        {
+          "type": "safeClick",
+          "ref": "role:button:Clear"
+        }
+      ],
+      "viewports": [
+        "laptop",
+        "mobile"
+      ],
+      "status": "gap",
+      "gapReason": "pager reset-on-filter-change needs a filter apply then a page walk; the feed pager Next is not a manifest safeClick because the same label is a date arrow on other feed pages"
+    },
+    {
+      "id": "feed-bag-packing-table",
+      "kind": "feature",
+      "title": "Bag-by-bag packing table (tab=execution)",
+      "shippedIn": "2026-08-21..2026-09-07",
+      "commits": [],
+      "routes": [
+        "feed-analytics-execution"
+      ],
+      "interactions": [
+        {
+          "type": "route-param",
+          "ref": "feed-analytics-execution"
+        },
+        {
+          "type": "check",
+          "ref": "C-cell-mid-word-wrap"
+        }
+      ],
+      "viewports": [
+        "laptop",
+        "mobile"
+      ],
+      "status": "covered"
+    },
+    {
+      "id": "weighing-analytics-tabs",
+      "kind": "feature",
+      "title": "Weighing analytics tabs general|breed|birth|shed|weight|time|load|fcr",
+      "shippedIn": "2026-08-21..2026-09-07",
+      "commits": [],
+      "routes": [
+        "weighing-analytics",
+        "weighing-analytics-breed",
+        "weighing-analytics-birth",
+        "weighing-analytics-shed",
+        "weighing-analytics-weight",
+        "weighing-analytics-time",
+        "weighing-analytics-load",
+        "weighing-analytics-fcr"
+      ],
+      "interactions": [
+        {
+          "type": "route-param",
+          "ref": "weighing-analytics"
+        },
+        {
+          "type": "route-param",
+          "ref": "weighing-analytics-breed"
+        },
+        {
+          "type": "route-param",
+          "ref": "weighing-analytics-birth"
+        },
+        {
+          "type": "route-param",
+          "ref": "weighing-analytics-shed"
+        },
+        {
+          "type": "route-param",
+          "ref": "weighing-analytics-weight"
+        },
+        {
+          "type": "route-param",
+          "ref": "weighing-analytics-time"
+        },
+        {
+          "type": "route-param",
+          "ref": "weighing-analytics-load"
+        },
+        {
+          "type": "route-param",
+          "ref": "weighing-analytics-fcr"
+        }
+      ],
+      "viewports": [
+        "laptop",
+        "mobile"
+      ],
+      "status": "covered"
+    },
+    {
+      "id": "weighing-fair-fight-board",
+      "kind": "feature",
+      "title": "Weighing fair-fight board / value chart / Comparison (load tab)",
+      "shippedIn": "2026-08-21..2026-09-07",
+      "commits": [],
+      "routes": [
+        "weighing-analytics-load",
+        "weighing-analytics-breed-wide"
+      ],
+      "interactions": [
+        {
+          "type": "route-param",
+          "ref": "weighing-analytics-load"
+        },
+        {
+          "type": "route-param",
+          "ref": "weighing-analytics-breed-wide"
+        },
+        {
+          "type": "check",
+          "ref": "A-chart-labels-truncated"
+        }
+      ],
+      "viewports": [
+        "laptop",
+        "mobile"
+      ],
+      "status": "covered"
+    },
+    {
+      "id": "weighing-sex-filter",
+      "kind": "feature",
+      "title": "Weighing analytics Sex filter",
+      "shippedIn": "2026-08-21..2026-09-07",
+      "commits": [],
+      "routes": [
+        "weighing-analytics"
+      ],
+      "interactions": [],
+      "viewports": [
+        "laptop",
+        "mobile"
+      ],
+      "status": "gap",
+      "gapReason": "Sex filter value is a client select with no verified URL param in weights-analytics.tsx; selecting it is not a manifest safeClick yet"
+    },
+    {
+      "id": "sales-tolerance-slider",
+      "kind": "feature",
+      "title": "Sales tolerance slider",
+      "shippedIn": "2026-08-21..2026-09-07",
+      "commits": [],
+      "routes": [
+        "sales-farm-value",
+        "sales-farm-value-tolerance"
+      ],
+      "interactions": [
+        {
+          "type": "route-param",
+          "ref": "sales-farm-value-tolerance"
+        }
+      ],
+      "viewports": [
+        "laptop",
+        "mobile"
+      ],
+      "status": "covered"
+    },
+    {
+      "id": "sales-weight-bands-month-charts",
+      "kind": "feature",
+      "title": "Sales weight bands card + month charts",
+      "shippedIn": "2026-08-21..2026-09-07",
+      "commits": [],
+      "routes": [
+        "sales"
+      ],
+      "interactions": [
+        {
+          "type": "route-param",
+          "ref": "sales"
+        },
+        {
+          "type": "check",
+          "ref": "A-chart-label-collapsed"
+        }
+      ],
+      "viewports": [
+        "laptop",
+        "mobile"
+      ],
+      "status": "covered"
+    },
+    {
+      "id": "sales-loads",
+      "kind": "feature",
+      "title": "Purchase & Born loads /sales/loads + view=farm_born",
+      "shippedIn": "2026-08-21..2026-09-07",
+      "commits": [],
+      "routes": [
+        "sales-loads",
+        "sales-loads-farm-born"
+      ],
+      "interactions": [
+        {
+          "type": "route-param",
+          "ref": "sales-loads"
+        },
+        {
+          "type": "route-param",
+          "ref": "sales-loads-farm-born"
+        }
+      ],
+      "viewports": [
+        "laptop",
+        "mobile"
+      ],
+      "status": "covered"
+    },
+    {
+      "id": "sales-loads-hover-card",
+      "kind": "feature",
+      "title": "/sales/loads .gcol hover card must be opaque",
+      "shippedIn": "2026-08-21..2026-09-07",
+      "commits": [],
+      "routes": [
+        "sales-loads"
+      ],
+      "interactions": [],
+      "viewports": [
+        "laptop",
+        "mobile"
+      ],
+      "status": "gap",
+      "gapReason": "hover-only interaction; overlay runner is click-driven"
+    },
+    {
+      "id": "sales-load-cost-drawer",
+      "kind": "feature",
+      "title": "Load-cost drawer (cost_load=<loadId>)",
+      "shippedIn": "2026-08-21..2026-09-07",
+      "commits": [],
+      "routes": [
+        "sales-loads"
+      ],
+      "interactions": [],
+      "viewports": [
+        "laptop",
+        "mobile"
+      ],
+      "status": "gap",
+      "gapReason": "drawer is the record-cost write form, gated on record_load_cost and needs a real load_id; not opened by the read-only smoke"
+    },
+    {
+      "id": "sales-leads-board",
+      "kind": "feature",
+      "title": "Sales leads board (if enabled)",
+      "shippedIn": "2026-08-21..2026-09-07",
+      "commits": [],
+      "routes": [],
+      "interactions": [],
+      "viewports": [
+        "laptop",
+        "mobile"
+      ],
+      "status": "gap",
+      "gapReason": "no leads board in admin-web (no route or feature under app/(admin)/sales or features/procurement)"
+    },
+    {
+      "id": "sales-vendors",
+      "kind": "feature",
+      "title": "Vendor register /sales/vendors",
+      "shippedIn": "2026-08-21..2026-09-07",
+      "commits": [],
+      "routes": [
+        "sales-vendors"
+      ],
+      "interactions": [
+        {
+          "type": "route-param",
+          "ref": "sales-vendors"
+        }
+      ],
+      "viewports": [
+        "laptop",
+        "mobile"
+      ],
+      "status": "covered"
+    },
+    {
+      "id": "procurement-vendors-two-sides",
+      "kind": "feature",
+      "title": "Vendor register /procurement/vendors (two sides)",
+      "shippedIn": "2026-08-21..2026-09-07",
+      "commits": [],
+      "routes": [
+        "procurement-vendors"
+      ],
+      "interactions": [
+        {
+          "type": "route-param",
+          "ref": "procurement-vendors"
+        }
+      ],
+      "viewports": [
+        "laptop",
+        "mobile"
+      ],
+      "status": "covered"
+    },
+    {
+      "id": "procurement-feed-purchases",
+      "kind": "feature",
+      "title": "Feed purchases /procurement/feed-purchases (no char-wrapped cells)",
+      "shippedIn": "2026-08-21..2026-09-07",
+      "commits": [],
+      "routes": [
+        "procurement-feed-purchases"
+      ],
+      "interactions": [
+        {
+          "type": "route-param",
+          "ref": "procurement-feed-purchases"
+        },
+        {
+          "type": "check",
+          "ref": "C-cell-mid-word-wrap"
+        }
+      ],
+      "viewports": [
+        "laptop",
+        "mobile"
+      ],
+      "status": "covered"
+    },
+    {
+      "id": "counts-breakdown-per-pen",
+      "kind": "feature",
+      "title": "Counts breakdown per-pen",
+      "shippedIn": "2026-08-21..2026-09-07",
+      "commits": [],
+      "routes": [
+        "counts-breakdown"
+      ],
+      "interactions": [
+        {
+          "type": "route-param",
+          "ref": "counts-breakdown"
+        }
+      ],
+      "viewports": [
+        "laptop",
+        "mobile"
+      ],
+      "status": "covered"
+    },
+    {
+      "id": "counts-breakdown-multiselect",
+      "kind": "feature",
+      "title": "Counts breakdown multi-select filters Apply",
+      "shippedIn": "2026-08-21..2026-09-07",
+      "commits": [],
+      "routes": [
+        "counts-breakdown"
+      ],
+      "interactions": [
+        {
+          "type": "safeClick",
+          "ref": "role:button:Filters"
+        }
+      ],
+      "viewports": [
+        "laptop",
+        "mobile"
+      ],
+      "status": "covered"
+    },
+    {
+      "id": "vaccination-plan",
+      "kind": "feature",
+      "title": "Vaccination plan list/editor",
+      "shippedIn": "2026-08-21..2026-09-07",
+      "commits": [],
+      "routes": [
+        "vaccination-plan",
+        "vaccination-plan-edit"
+      ],
+      "interactions": [
+        {
+          "type": "route-param",
+          "ref": "vaccination-plan"
+        },
+        {
+          "type": "route-param",
+          "ref": "vaccination-plan-edit"
+        }
+      ],
+      "viewports": [
+        "laptop",
+        "mobile"
+      ],
+      "status": "covered"
+    },
+    {
+      "id": "vaccination-plan-view-settings",
+      "kind": "feature",
+      "title": "Vaccination plan View settings sheet",
+      "shippedIn": "2026-08-21..2026-09-07",
+      "commits": [],
+      "routes": [
+        "vaccination-plan"
+      ],
+      "interactions": [
+        {
+          "type": "safeClick",
+          "ref": "role:button:View settings"
+        }
+      ],
+      "viewports": [
+        "laptop",
+        "mobile"
+      ],
+      "status": "covered"
+    },
+    {
+      "id": "live-tracker-throughput",
+      "kind": "feature",
+      "title": "Live tracker scan throughput",
+      "shippedIn": "2026-08-21..2026-09-07",
+      "commits": [],
+      "routes": [
+        "vaccination-live-tracker"
+      ],
+      "interactions": [
+        {
+          "type": "route-param",
+          "ref": "vaccination-live-tracker"
+        }
+      ],
+      "viewports": [
+        "laptop",
+        "mobile"
+      ],
+      "status": "covered"
+    },
+    {
+      "id": "verify-milk-citric",
+      "kind": "feature",
+      "title": "Verify milk/citric",
+      "shippedIn": "2026-08-21..2026-09-07",
+      "commits": [],
+      "routes": [
+        "verify",
+        "verify-all"
+      ],
+      "interactions": [
+        {
+          "type": "route-param",
+          "ref": "verify-all"
+        }
+      ],
+      "viewports": [
+        "laptop",
+        "mobile"
+      ],
+      "status": "covered"
+    },
+    {
+      "id": "health-problems-tab",
+      "kind": "feature",
+      "title": "Health problems tab pen type",
+      "shippedIn": "2026-09-08..2026-09-22",
+      "commits": [],
+      "routes": [
+        "health-analytics-problems"
+      ],
+      "interactions": [
+        {
+          "type": "route-param",
+          "ref": "health-analytics-problems"
+        }
+      ],
+      "viewports": [
+        "laptop",
+        "mobile"
+      ],
+      "status": "covered"
+    },
+    {
+      "id": "feed-consumption-fc-view",
+      "kind": "feature",
+      "title": "Feed consumption fc_view=general|status",
+      "shippedIn": "2026-09-08..2026-09-22",
+      "commits": [],
+      "routes": [
+        "feed-analytics-consumption-general",
+        "feed-analytics-consumption-status"
+      ],
+      "interactions": [
+        {
+          "type": "route-param",
+          "ref": "feed-analytics-consumption-general"
+        },
+        {
+          "type": "route-param",
+          "ref": "feed-analytics-consumption-status"
+        }
+      ],
+      "viewports": [
+        "laptop",
+        "mobile"
+      ],
+      "status": "covered"
+    },
+    {
+      "id": "feed-purchased-vs-consumed",
+      "kind": "feature",
+      "title": "Purchased vs consumed on Stock (tab=items)",
+      "shippedIn": "2026-09-08..2026-09-22",
+      "commits": [],
+      "routes": [
+        "feed-analytics-items",
+        "feed-analytics-stock-only"
+      ],
+      "interactions": [
+        {
+          "type": "route-param",
+          "ref": "feed-analytics-items"
+        }
+      ],
+      "viewports": [
+        "laptop",
+        "mobile"
+      ],
+      "status": "covered"
+    },
+    {
+      "id": "feed-by-pen-verified-bars",
+      "kind": "feature",
+      "title": "Feed by pen + Verified bars",
+      "shippedIn": "2026-09-08..2026-09-22",
+      "commits": [],
+      "routes": [
+        "feed-analytics"
+      ],
+      "interactions": [
+        {
+          "type": "route-param",
+          "ref": "feed-analytics"
+        },
+        {
+          "type": "check",
+          "ref": "A-chart-value-missing"
+        }
+      ],
+      "viewports": [
+        "laptop",
+        "mobile"
+      ],
+      "status": "covered"
+    },
+    {
+      "id": "adg-time-bucket",
+      "kind": "feature",
+      "title": "ADG time-wise tw_bucket",
+      "shippedIn": "2026-09-08..2026-09-22",
+      "commits": [],
+      "routes": [
+        "weighing-analytics-time",
+        "weighing-analytics-time-month"
+      ],
+      "interactions": [
+        {
+          "type": "route-param",
+          "ref": "weighing-analytics-time-month"
+        }
+      ],
+      "viewports": [
+        "laptop",
+        "mobile"
+      ],
+      "status": "covered"
+    },
+    {
+      "id": "adg-time-pen",
+      "kind": "feature",
+      "title": "ADG time-wise tw_pen",
+      "shippedIn": "2026-09-08..2026-09-22",
+      "commits": [],
+      "routes": [
+        "weighing-analytics-time"
+      ],
+      "interactions": [],
+      "viewports": [
+        "laptop",
+        "mobile"
+      ],
+      "status": "gap",
+      "gapReason": "tw_pen needs a real '<pen_location_id>::<partition>' key (weights-analytics.tsx penScopeFrom); no runtime resolver"
+    },
+    {
+      "id": "weighing-breed-pens-table",
+      "kind": "feature",
+      "title": "Breed column pens table",
+      "shippedIn": "2026-09-08..2026-09-22",
+      "commits": [],
+      "routes": [
+        "weighing-analytics-breed",
+        "weighing-analytics-breed-wide"
+      ],
+      "interactions": [
+        {
+          "type": "route-param",
+          "ref": "weighing-analytics-breed-wide"
+        },
+        {
+          "type": "check",
+          "ref": "C-cell-overpaint"
+        }
+      ],
+      "viewports": [
+        "laptop",
+        "mobile"
+      ],
+      "status": "covered"
+    },
+    {
+      "id": "weighing-fcr-tab",
+      "kind": "feature",
+      "title": "FCR tab (tab=fcr)",
+      "shippedIn": "2026-09-08..2026-09-22",
+      "commits": [],
+      "routes": [
+        "weighing-analytics-fcr"
+      ],
+      "interactions": [
+        {
+          "type": "route-param",
+          "ref": "weighing-analytics-fcr"
+        }
+      ],
+      "viewports": [
+        "laptop",
+        "mobile"
+      ],
+      "status": "covered"
+    },
+    {
+      "id": "weighing-assumptions-drawer",
+      "kind": "feature",
+      "title": "Assumptions drawer (/weighing/sops wt_assumptions=1)",
+      "shippedIn": "2026-09-08..2026-09-22",
+      "commits": [],
+      "routes": [
+        "weighing-sops"
+      ],
+      "interactions": [
+        {
+          "type": "overlay",
+          "ref": "assumptions-drawer"
+        }
+      ],
+      "viewports": [
+        "laptop",
+        "mobile"
+      ],
+      "status": "covered"
+    },
+    {
+      "id": "feed-weight-band",
+      "kind": "feature",
+      "title": "Feed by 5kg weight band (fb_view/fb_band/fb_animals)",
+      "shippedIn": "2026-09-08..2026-09-22",
+      "commits": [],
+      "routes": [
+        "weighing-analytics-weight",
+        "weighing-analytics-weight-not-shown",
+        "weighing-analytics-weight-band-filter"
+      ],
+      "interactions": [
+        {
+          "type": "route-param",
+          "ref": "weighing-analytics-weight-not-shown"
+        },
+        {
+          "type": "route-param",
+          "ref": "weighing-analytics-weight-band-filter"
+        },
+        {
+          "type": "safeClick",
+          "ref": "role:button:Not shown"
+        },
+        {
+          "type": "safeClick",
+          "ref": "testId:fb-animals-all"
+        }
+      ],
+      "viewports": [
+        "laptop",
+        "mobile"
+      ],
+      "status": "covered"
+    },
+    {
+      "id": "feed-weight-band-exits-drawer",
+      "kind": "feature",
+      "title": "Weight-band exits drawer",
+      "shippedIn": "2026-09-08..2026-09-22",
+      "commits": [],
+      "routes": [
+        "weighing-analytics-weight"
+      ],
+      "interactions": [
+        {
+          "type": "overlay",
+          "ref": "weight-band-exits-drawer"
+        }
+      ],
+      "viewports": [
+        "laptop",
+        "mobile"
+      ],
+      "status": "covered"
+    },
+    {
+      "id": "tasks-board",
+      "kind": "feature",
+      "title": "Tasks board",
+      "shippedIn": "2026-09-08..2026-09-22",
+      "commits": [],
+      "routes": [
+        "tasks"
+      ],
+      "interactions": [
+        {
+          "type": "route-param",
+          "ref": "tasks"
+        }
+      ],
+      "viewports": [
+        "laptop",
+        "mobile"
+      ],
+      "status": "covered"
+    },
+    {
+      "id": "tasks-list",
+      "kind": "feature",
+      "title": "Tasks list t_view=list",
+      "shippedIn": "2026-09-08..2026-09-22",
+      "commits": [],
+      "routes": [
+        "tasks-list"
+      ],
+      "interactions": [
+        {
+          "type": "route-param",
+          "ref": "tasks-list"
+        }
+      ],
+      "viewports": [
+        "laptop",
+        "mobile"
+      ],
+      "status": "covered"
+    },
+    {
+      "id": "tasks-overdue",
+      "kind": "feature",
+      "title": "Tasks filter=overdue",
+      "shippedIn": "2026-09-08..2026-09-22",
+      "commits": [],
+      "routes": [
+        "tasks-overdue"
+      ],
+      "interactions": [
+        {
+          "type": "route-param",
+          "ref": "tasks-overdue"
+        }
+      ],
+      "viewports": [
+        "laptop",
+        "mobile"
+      ],
+      "status": "covered"
+    },
+    {
+      "id": "tasks-detail-drawer",
+      "kind": "feature",
+      "title": "Tasks detail drawer",
+      "shippedIn": "2026-09-08..2026-09-22",
+      "commits": [],
+      "routes": [
+        "tasks"
+      ],
+      "interactions": [
+        {
+          "type": "overlay",
+          "ref": "card-detail-drawer"
+        }
+      ],
+      "viewports": [
+        "laptop",
+        "mobile"
+      ],
+      "status": "covered"
+    },
+    {
+      "id": "tasks-phone-filter-sheet",
+      "kind": "feature",
+      "title": "Tasks phone filter sheet",
+      "shippedIn": "2026-09-08..2026-09-22",
+      "commits": [],
+      "routes": [
+        "tasks"
+      ],
+      "interactions": [
+        {
+          "type": "overlay",
+          "ref": "filter-sheet"
+        }
+      ],
+      "viewports": [
+        "laptop",
+        "mobile"
+      ],
+      "status": "covered"
+    },
+    {
+      "id": "tasks-search",
+      "kind": "feature",
+      "title": "Tasks t_q search",
+      "shippedIn": "2026-09-08..2026-09-22",
+      "commits": [],
+      "routes": [
+        "tasks-search"
+      ],
+      "interactions": [
+        {
+          "type": "route-param",
+          "ref": "tasks-search"
+        }
+      ],
+      "viewports": [
+        "laptop",
+        "mobile"
+      ],
+      "status": "covered"
+    },
+    {
+      "id": "tasks-pager",
+      "kind": "feature",
+      "title": "Tasks pager",
+      "shippedIn": "2026-09-08..2026-09-22",
+      "commits": [],
+      "routes": [
+        "tasks-list"
+      ],
+      "interactions": [],
+      "viewports": [
+        "laptop",
+        "mobile"
+      ],
+      "status": "gap",
+      "gapReason": "tasks pager is cursor-based (t_cursor) and needs > one page of seeded tasks; no stable pager label unique to the operations journey"
+    },
+    {
+      "id": "counts-mortality",
+      "kind": "feature",
+      "title": "Mortality /counts/mortality",
+      "shippedIn": "2026-09-08..2026-09-22",
+      "commits": [],
+      "routes": [
+        "counts-mortality"
+      ],
+      "interactions": [
+        {
+          "type": "route-param",
+          "ref": "counts-mortality"
+        }
+      ],
+      "viewports": [
+        "laptop",
+        "mobile"
+      ],
+      "status": "covered"
+    },
+    {
+      "id": "counts-breakdown-loads-card",
+      "kind": "feature",
+      "title": "Breakdown purchased loads card + stage x sex chart",
+      "shippedIn": "2026-09-08..2026-09-22",
+      "commits": [],
+      "routes": [
+        "counts-breakdown"
+      ],
+      "interactions": [
+        {
+          "type": "route-param",
+          "ref": "counts-breakdown"
+        },
+        {
+          "type": "check",
+          "ref": "A-chart-label-overlap"
+        }
+      ],
+      "viewports": [
+        "laptop",
+        "mobile"
+      ],
+      "status": "covered"
+    },
+    {
+      "id": "sales-farm-born",
+      "kind": "feature",
+      "title": "Farm born /sales/farm-born",
+      "shippedIn": "2026-09-08..2026-09-22",
+      "commits": [],
+      "routes": [
+        "sales-farm-born"
+      ],
+      "interactions": [
+        {
+          "type": "route-param",
+          "ref": "sales-farm-born"
+        }
+      ],
+      "viewports": [
+        "laptop",
+        "mobile"
+      ],
+      "status": "covered"
+    },
+    {
+      "id": "sales-farm-born-pager",
+      "kind": "feature",
+      "title": "Farm born By pen pager",
+      "shippedIn": "2026-09-08..2026-09-22",
+      "commits": [],
+      "routes": [
+        "sales-farm-born"
+      ],
+      "interactions": [
+        {
+          "type": "safeClick",
+          "ref": "role:link:Next"
+        }
+      ],
+      "viewports": [
+        "laptop",
+        "mobile"
+      ],
+      "status": "covered"
+    },
+    {
+      "id": "sales-buyer-analytics-sort",
+      "kind": "feature",
+      "title": "Buyer analytics sort",
+      "shippedIn": "2026-09-08..2026-09-22",
+      "commits": [],
+      "routes": [
+        "sales-buyer-analytics"
+      ],
+      "interactions": [
+        {
+          "type": "safeClick",
+          "ref": "css:table .thsort"
+        }
+      ],
+      "viewports": [
+        "laptop",
+        "mobile"
+      ],
+      "status": "covered"
+    },
+    {
+      "id": "sales-market-analytics",
+      "kind": "feature",
+      "title": "Market analytics",
+      "shippedIn": "2026-09-08..2026-09-22",
+      "commits": [],
+      "routes": [
+        "sales-market-analytics"
+      ],
+      "interactions": [
+        {
+          "type": "route-param",
+          "ref": "sales-market-analytics"
+        }
+      ],
+      "viewports": [
+        "laptop",
+        "mobile"
+      ],
+      "status": "covered"
+    },
+    {
+      "id": "sales-config-survey",
+      "kind": "feature",
+      "title": "Sales Config survey",
+      "shippedIn": "2026-09-08..2026-09-22",
+      "commits": [],
+      "routes": [
+        "sales-config"
+      ],
+      "interactions": [
+        {
+          "type": "route-param",
+          "ref": "sales-config"
+        }
+      ],
+      "viewports": [
+        "laptop",
+        "mobile"
+      ],
+      "status": "covered"
+    },
+    {
+      "id": "sales-summary-farm-value-loadwise",
+      "kind": "feature",
+      "title": "Sales Summary / Farm value / Load wise",
+      "shippedIn": "2026-09-08..2026-09-22",
+      "commits": [],
+      "routes": [
+        "sales",
+        "sales-farm-value"
+      ],
+      "interactions": [
+        {
+          "type": "route-param",
+          "ref": "sales"
+        },
+        {
+          "type": "route-param",
+          "ref": "sales-farm-value"
+        }
+      ],
+      "viewports": [
+        "laptop",
+        "mobile"
+      ],
+      "status": "covered"
+    },
+    {
+      "id": "sop-page-sales",
+      "kind": "feature",
+      "title": "SOP page /sales/sops",
+      "shippedIn": "2026-09-08..2026-09-22",
+      "commits": [],
+      "routes": [
+        "sales-sops"
+      ],
+      "interactions": [
+        {
+          "type": "route-param",
+          "ref": "sales-sops"
+        }
+      ],
+      "viewports": [
+        "laptop",
+        "mobile"
+      ],
+      "status": "covered"
+    },
+    {
+      "id": "sop-page-counts",
+      "kind": "feature",
+      "title": "SOP page /counts/sops",
+      "shippedIn": "2026-09-08..2026-09-22",
+      "commits": [],
+      "routes": [
+        "counts-sops"
+      ],
+      "interactions": [
+        {
+          "type": "route-param",
+          "ref": "counts-sops"
+        }
+      ],
+      "viewports": [
+        "laptop",
+        "mobile"
+      ],
+      "status": "covered"
+    },
+    {
+      "id": "sop-page-weighing",
+      "kind": "feature",
+      "title": "SOP page /weighing/sops",
+      "shippedIn": "2026-09-08..2026-09-22",
+      "commits": [],
+      "routes": [
+        "weighing-sops"
+      ],
+      "interactions": [
+        {
+          "type": "route-param",
+          "ref": "weighing-sops"
+        }
+      ],
+      "viewports": [
+        "laptop",
+        "mobile"
+      ],
+      "status": "covered"
+    },
+    {
+      "id": "sop-page-feed",
+      "kind": "feature",
+      "title": "SOP page /feed/sops",
+      "shippedIn": "2026-09-08..2026-09-22",
+      "commits": [],
+      "routes": [
+        "feed-sops"
+      ],
+      "interactions": [
+        {
+          "type": "route-param",
+          "ref": "feed-sops"
+        }
+      ],
+      "viewports": [
+        "laptop",
+        "mobile"
+      ],
+      "status": "covered"
+    },
+    {
+      "id": "sop-page-procurement",
+      "kind": "feature",
+      "title": "SOP page /procurement/sops",
+      "shippedIn": "2026-09-08..2026-09-22",
+      "commits": [],
+      "routes": [
+        "procurement-sops"
+      ],
+      "interactions": [
+        {
+          "type": "route-param",
+          "ref": "procurement-sops"
+        }
+      ],
+      "viewports": [
+        "laptop",
+        "mobile"
+      ],
+      "status": "covered"
+    },
+    {
+      "id": "sop-flow-counts",
+      "kind": "feature",
+      "title": "SOP Flow view /counts/sops compose=1&edit=<sopId>&view=flow",
+      "shippedIn": "2026-09-08..2026-09-22",
+      "commits": [],
+      "routes": [
+        "counts-sop-flow"
+      ],
+      "interactions": [
+        {
+          "type": "route-param",
+          "ref": "counts-sop-flow"
+        }
+      ],
+      "viewports": [
+        "laptop",
+        "mobile"
+      ],
+      "status": "covered"
+    },
+    {
+      "id": "sop-flow-weighing",
+      "kind": "feature",
+      "title": "SOP Flow view /weighing/sops compose=1&edit=<sopId>&view=flow",
+      "shippedIn": "2026-09-08..2026-09-22",
+      "commits": [],
+      "routes": [
+        "weighing-sop-flow"
+      ],
+      "interactions": [
+        {
+          "type": "route-param",
+          "ref": "weighing-sop-flow"
+        }
+      ],
+      "viewports": [
+        "laptop",
+        "mobile"
+      ],
+      "status": "covered"
+    },
+    {
+      "id": "sop-flow-feed",
+      "kind": "feature",
+      "title": "SOP Flow view /feed/sops compose=1&edit=<sopId>&view=flow",
+      "shippedIn": "2026-09-08..2026-09-22",
+      "commits": [],
+      "routes": [
+        "feed-sop-flow"
+      ],
+      "interactions": [
+        {
+          "type": "route-param",
+          "ref": "feed-sop-flow"
+        }
+      ],
+      "viewports": [
+        "laptop",
+        "mobile"
+      ],
+      "status": "covered"
+    },
+    {
+      "id": "sop-flow-sales",
+      "kind": "feature",
+      "title": "SOP Flow view /sales/sops compose=1&edit=<sopId>&view=flow",
+      "shippedIn": "2026-09-08..2026-09-22",
+      "commits": [],
+      "routes": [
+        "sales-sop-flow"
+      ],
+      "interactions": [
+        {
+          "type": "route-param",
+          "ref": "sales-sop-flow"
+        }
+      ],
+      "viewports": [
+        "laptop",
+        "mobile"
+      ],
+      "status": "covered"
+    },
+    {
+      "id": "sop-flow-procurement",
+      "kind": "feature",
+      "title": "SOP Flow view /procurement/sops compose=1&edit=<sopId>&view=flow",
+      "shippedIn": "2026-09-08..2026-09-22",
+      "commits": [],
+      "routes": [
+        "procurement-toxin-flow"
+      ],
+      "interactions": [
+        {
+          "type": "route-param",
+          "ref": "procurement-toxin-flow"
+        }
+      ],
+      "viewports": [
+        "laptop",
+        "mobile"
+      ],
+      "status": "covered"
+    },
+    {
+      "id": "procurement-animal-purchases",
+      "kind": "feature",
+      "title": "Animal purchases /procurement/animal-purchases (+ filters)",
+      "shippedIn": "2026-09-08..2026-09-22",
+      "commits": [],
+      "routes": [
+        "procurement-animal-purchases"
+      ],
+      "interactions": [
+        {
+          "type": "route-param",
+          "ref": "procurement-animal-purchases"
+        },
+        {
+          "type": "safeClick",
+          "ref": "role:button:Filters"
+        }
+      ],
+      "viewports": [
+        "laptop",
+        "mobile"
+      ],
+      "status": "covered"
+    },
+    {
+      "id": "procurement-feed-purchase-vendor-drawer",
+      "kind": "feature",
+      "title": "Feed purchase form/vendor drawer",
+      "shippedIn": "2026-09-08..2026-09-22",
+      "commits": [],
+      "routes": [
+        "procurement-feed-purchases"
+      ],
+      "interactions": [],
+      "viewports": [
+        "laptop",
+        "mobile"
+      ],
+      "status": "gap",
+      "gapReason": "the feed purchase form is a write form (Add purchase); vendor drawer opens from it -- write-only path"
+    },
+    {
+      "id": "configuration-items",
+      "kind": "feature",
+      "title": "Configuration items /configuration/items (rail)",
+      "shippedIn": "2026-09-08..2026-09-22",
+      "commits": [],
+      "routes": [
+        "configuration-items"
+      ],
+      "interactions": [
+        {
+          "type": "route-param",
+          "ref": "configuration-items"
+        }
+      ],
+      "viewports": [
+        "laptop",
+        "mobile"
+      ],
+      "status": "covered"
+    },
+    {
+      "id": "configuration-items-row-drawer",
+      "kind": "feature",
+      "title": "Configuration items row drawer",
+      "shippedIn": "2026-09-08..2026-09-22",
+      "commits": [],
+      "routes": [
+        "configuration-items"
+      ],
+      "interactions": [
+        {
+          "type": "overlay",
+          "ref": "item-row-drawer"
+        }
+      ],
+      "viewports": [
+        "laptop",
+        "mobile"
+      ],
+      "status": "covered"
+    },
+    {
+      "id": "configuration-work-instructions",
+      "kind": "feature",
+      "title": "Work instructions /configuration/work-instructions",
+      "shippedIn": "2026-09-08..2026-09-22",
+      "commits": [],
+      "routes": [
+        "configuration-work-instructions"
+      ],
+      "interactions": [
+        {
+          "type": "route-param",
+          "ref": "configuration-work-instructions"
+        }
+      ],
+      "viewports": [
+        "laptop",
+        "mobile"
+      ],
+      "status": "covered"
+    },
+    {
+      "id": "routines",
+      "kind": "feature",
+      "title": "Routines /routines",
+      "shippedIn": "2026-09-08..2026-09-22",
+      "commits": [],
+      "routes": [
+        "routines"
+      ],
+      "interactions": [
+        {
+          "type": "route-param",
+          "ref": "routines"
+        }
+      ],
+      "viewports": [
+        "laptop",
+        "mobile"
+      ],
+      "status": "covered"
+    },
+    {
+      "id": "routines-drawer",
+      "kind": "feature",
+      "title": "Routines drawer",
+      "shippedIn": "2026-09-08..2026-09-22",
+      "commits": [],
+      "routes": [
+        "routines"
+      ],
+      "interactions": [
+        {
+          "type": "overlay",
+          "ref": "routine-drawer"
+        }
+      ],
+      "viewports": [
+        "laptop",
+        "mobile"
+      ],
+      "status": "covered"
+    },
+    {
+      "id": "alerts",
+      "kind": "feature",
+      "title": "Alerts /alerts",
+      "shippedIn": "2026-09-08..2026-09-22",
+      "commits": [],
+      "routes": [
+        "alerts",
+        "alerts-populated"
+      ],
+      "interactions": [
+        {
+          "type": "route-param",
+          "ref": "alerts"
+        },
+        {
+          "type": "route-param",
+          "ref": "alerts-populated"
+        }
+      ],
+      "viewports": [
+        "laptop",
+        "mobile"
+      ],
+      "status": "covered"
+    },
+    {
+      "id": "alerts-day-arrows",
+      "kind": "feature",
+      "title": "Alerts day arrows",
+      "shippedIn": "2026-09-08..2026-09-22",
+      "commits": [],
+      "routes": [
+        "alerts-populated"
+      ],
+      "interactions": [
+        {
+          "type": "safeClick",
+          "ref": "role:link:Previous day"
+        }
+      ],
+      "viewports": [
+        "laptop",
+        "mobile"
+      ],
+      "status": "covered"
+    },
+    {
+      "id": "work-board",
+      "kind": "feature",
+      "title": "Work Board /work-board",
+      "shippedIn": "2026-09-08..2026-09-22",
+      "commits": [],
+      "routes": [
+        "work-board",
+        "work-board-populated"
+      ],
+      "interactions": [
+        {
+          "type": "route-param",
+          "ref": "work-board"
+        },
+        {
+          "type": "route-param",
+          "ref": "work-board-populated"
+        }
+      ],
+      "viewports": [
+        "laptop",
+        "mobile"
+      ],
+      "status": "covered"
+    },
+    {
+      "id": "work-board-issue-dialog",
+      "kind": "feature",
+      "title": "Work Board issue dialog",
+      "shippedIn": "2026-09-08..2026-09-22",
+      "commits": [],
+      "routes": [
+        "work-board-populated"
+      ],
+      "interactions": [
+        {
+          "type": "overlay",
+          "ref": "issue-dialog"
+        }
+      ],
+      "viewports": [
+        "laptop",
+        "mobile"
+      ],
+      "status": "covered"
+    },
+    {
+      "id": "leave",
+      "kind": "feature",
+      "title": "Leave /leave",
+      "shippedIn": "2026-09-08..2026-09-22",
+      "commits": [],
+      "routes": [
+        "leave",
+        "leave-approved",
+        "leave-rejected",
+        "leave-withdrawn"
+      ],
+      "interactions": [
+        {
+          "type": "route-param",
+          "ref": "leave"
+        },
+        {
+          "type": "route-param",
+          "ref": "leave-approved"
+        },
+        {
+          "type": "route-param",
+          "ref": "leave-rejected"
+        },
+        {
+          "type": "route-param",
+          "ref": "leave-withdrawn"
+        }
+      ],
+      "viewports": [
+        "laptop",
+        "mobile"
+      ],
+      "status": "covered"
+    },
+    {
+      "id": "people-access-modal",
+      "kind": "feature",
+      "title": "People /people access modal",
+      "shippedIn": "2026-09-08..2026-09-22",
+      "commits": [],
+      "routes": [
+        "people"
+      ],
+      "interactions": [
+        {
+          "type": "overlay",
+          "ref": "person-access-modal"
+        }
+      ],
+      "viewports": [
+        "laptop",
+        "mobile"
+      ],
+      "status": "covered"
+    },
+    {
+      "id": "people-notifications-tab",
+      "kind": "feature",
+      "title": "People Notifications tab",
+      "shippedIn": "2026-09-08..2026-09-22",
+      "commits": [],
+      "routes": [
+        "people-notifications"
+      ],
+      "interactions": [
+        {
+          "type": "route-param",
+          "ref": "people-notifications"
+        }
+      ],
+      "viewports": [
+        "laptop",
+        "mobile"
+      ],
+      "status": "covered"
+    },
+    {
+      "id": "notification-bell",
+      "kind": "feature",
+      "title": "Notification bell panel (global header)",
+      "shippedIn": "2026-09-08..2026-09-22",
+      "commits": [],
+      "routes": [
+        "action-center"
+      ],
+      "interactions": [
+        {
+          "type": "overlay",
+          "ref": "notification-bell-panel"
+        }
+      ],
+      "viewports": [
+        "laptop",
+        "mobile"
+      ],
+      "status": "covered"
+    },
+    {
+      "id": "park-command-lenses",
+      "kind": "feature",
+      "title": "Park command lenses /?lens=... (only lens=control-tower exists: app/(admin)/page.tsx CONTROL_TOWER_LENS)",
+      "shippedIn": "2026-09-08..2026-09-22",
+      "commits": [],
+      "routes": [
+        "control-tower"
+      ],
+      "interactions": [
+        {
+          "type": "route-param",
+          "ref": "control-tower"
+        },
+        {
+          "type": "overlay",
+          "ref": "mobile-nav"
+        }
+      ],
+      "viewports": [
+        "laptop",
+        "mobile"
+      ],
+      "status": "covered"
+    },
+    {
+      "id": "calendar",
+      "kind": "feature",
+      "title": "Calendar /calendar",
+      "shippedIn": "2026-09-08..2026-09-22",
+      "commits": [],
+      "routes": [
+        "calendar",
+        "calendar-month",
+        "calendar-history",
+        "calendar-owner-pc"
+      ],
+      "interactions": [
+        {
+          "type": "route-param",
+          "ref": "calendar"
+        },
+        {
+          "type": "route-param",
+          "ref": "calendar-month"
+        },
+        {
+          "type": "route-param",
+          "ref": "calendar-history"
+        },
+        {
+          "type": "route-param",
+          "ref": "calendar-owner-pc"
+        },
+        {
+          "type": "safeClick",
+          "ref": "role:link:Next"
+        }
+      ],
+      "viewports": [
+        "laptop",
+        "mobile"
+      ],
+      "status": "covered"
+    },
+    {
+      "id": "pattern-A",
+      "kind": "pattern",
+      "title": "Chart labels clipped/collapsed/tiny/colliding/missing",
+      "shippedIn": "2026-08-01..2026-09-22",
+      "commits": [],
+      "routes": [
+        "feed-analytics",
+        "feed-analytics-items",
+        "sales",
+        "sales-loads",
+        "weighing-weights",
+        "weighing-analytics-breed-wide",
+        "counts-analytics",
+        "health-analytics"
+      ],
+      "interactions": [
+        {
+          "type": "check",
+          "ref": "A-chart-label-collapsed"
+        },
+        {
+          "type": "check",
+          "ref": "A-chart-label-clipped"
+        },
+        {
+          "type": "check",
+          "ref": "A-chart-label-overlap"
+        },
+        {
+          "type": "check",
+          "ref": "A-chart-label-column-narrow"
+        },
+        {
+          "type": "check",
+          "ref": "A-chart-labels-truncated"
+        },
+        {
+          "type": "check",
+          "ref": "A-chart-value-missing"
+        },
+        {
+          "type": "check",
+          "ref": "A-chart-empty-frame"
+        },
+        {
+          "type": "check",
+          "ref": "A-svg-text-clipped"
+        },
+        {
+          "type": "check",
+          "ref": "A-svg-text-overlap"
+        },
+        {
+          "type": "check",
+          "ref": "A-svg-text-tiny"
+        }
+      ],
+      "viewports": [
+        "laptop",
+        "mobile"
+      ],
+      "status": "covered"
+    },
+    {
+      "id": "pattern-B",
+      "kind": "pattern",
+      "title": "Content wider than container (card/drawer/modal/dialog/KPI)",
+      "shippedIn": "2026-08-01..2026-09-22",
+      "commits": [],
+      "routes": [
+        "work-board-populated",
+        "tasks",
+        "weighing-weights",
+        "control-tower",
+        "people"
+      ],
+      "interactions": [
+        {
+          "type": "check",
+          "ref": "B-container-overflow"
+        },
+        {
+          "type": "overlay",
+          "ref": "issue-dialog"
+        },
+        {
+          "type": "overlay",
+          "ref": "card-detail-drawer"
+        },
+        {
+          "type": "overlay",
+          "ref": "person-access-modal"
+        }
+      ],
+      "viewports": [
+        "laptop",
+        "mobile"
+      ],
+      "status": "covered"
+    },
+    {
+      "id": "pattern-C",
+      "kind": "pattern",
+      "title": "Table cell mid-token wrap / overpaint / squeezed column",
+      "shippedIn": "2026-08-01..2026-09-22",
+      "commits": [],
+      "routes": [
+        "procurement-feed-purchases",
+        "procurement-vendors",
+        "sales-sold",
+        "verify-all",
+        "feed-analytics-execution"
+      ],
+      "interactions": [
+        {
+          "type": "check",
+          "ref": "C-cell-mid-word-wrap"
+        },
+        {
+          "type": "check",
+          "ref": "C-cell-overpaint"
+        },
+        {
+          "type": "check",
+          "ref": "chip-crushed"
+        }
+      ],
+      "viewports": [
+        "laptop",
+        "mobile"
+      ],
+      "status": "covered"
+    },
+    {
+      "id": "pattern-D",
+      "kind": "pattern",
+      "title": "Wide table without scroll owner / page horizontal overflow",
+      "shippedIn": "2026-08-01..2026-09-22",
+      "commits": [],
+      "routes": [
+        "sales-market-analytics",
+        "weighing-analytics-breed-wide",
+        "counts-breakdown",
+        "feed-analytics-execution"
+      ],
+      "interactions": [
+        {
+          "type": "check",
+          "ref": "D-page-overflow"
+        }
+      ],
+      "viewports": [
+        "laptop",
+        "mobile"
+      ],
+      "status": "covered"
+    },
+    {
+      "id": "pattern-E",
+      "kind": "pattern",
+      "title": "Overlays off-screen / clipped / squashed / see-through",
+      "shippedIn": "2026-08-01..2026-09-22",
+      "commits": [],
+      "routes": [
+        "tasks",
+        "counts-breakdown",
+        "control-tower",
+        "weighing-analytics-weight",
+        "procurement-vendors",
+        "vaccination"
+      ],
+      "interactions": [
+        {
+          "type": "overlay",
+          "ref": "card-detail-drawer"
+        },
+        {
+          "type": "overlay",
+          "ref": "filter-sheet"
+        },
+        {
+          "type": "overlay",
+          "ref": "tag-editor-popover"
+        },
+        {
+          "type": "overlay",
+          "ref": "mobile-nav"
+        },
+        {
+          "type": "overlay",
+          "ref": "weight-band-exits-drawer"
+        },
+        {
+          "type": "overlay",
+          "ref": "vendor-row-drawer"
+        },
+        {
+          "type": "overlay",
+          "ref": "closed-no-dose-drawer"
+        }
+      ],
+      "viewports": [
+        "laptop",
+        "mobile"
+      ],
+      "status": "covered"
+    },
+    {
+      "id": "pattern-F",
+      "kind": "pattern",
+      "title": "Inner panel not scrollable (card overflow hidden wins)",
+      "shippedIn": "2026-08-01..2026-09-22",
+      "commits": [],
+      "routes": [
+        "tasks",
+        "routines"
+      ],
+      "interactions": [
+        {
+          "type": "overlay",
+          "ref": "card-detail-drawer"
+        },
+        {
+          "type": "overlay",
+          "ref": "routine-drawer"
+        },
+        {
+          "type": "check",
+          "ref": "text-cut-off"
+        }
+      ],
+      "viewports": [
+        "laptop",
+        "mobile"
+      ],
+      "status": "covered"
+    },
+    {
+      "id": "pattern-G",
+      "kind": "pattern",
+      "title": "Icons/avatars shrunk (flex shrink)",
+      "shippedIn": "2026-08-01..2026-09-22",
+      "commits": [],
+      "routes": [
+        "work-board-populated",
+        "people"
+      ],
+      "interactions": [],
+      "viewports": [
+        "laptop",
+        "mobile"
+      ],
+      "status": "gap",
+      "gapReason": "no regression-checks pattern measures icon/avatar box vs intrinsic size; needs a new check validated against a live baseline run"
+    },
+    {
+      "id": "pattern-H",
+      "kind": "pattern",
+      "title": "Tap targets <40px on phone",
+      "shippedIn": "2026-08-01..2026-09-22",
+      "commits": [],
+      "routes": [
+        "tasks",
+        "work-board",
+        "verify"
+      ],
+      "interactions": [],
+      "viewports": [
+        "laptop",
+        "mobile"
+      ],
+      "status": "gap",
+      "gapReason": "no tap-target-size check exported by regression-checks.mjs; adding one is a new gate that needs a live mobile baseline first"
+    },
+    {
+      "id": "pattern-I",
+      "kind": "pattern",
+      "title": "Toolbar/pager wrapping; native select stretching filter bar",
+      "shippedIn": "2026-08-01..2026-09-22",
+      "commits": [],
+      "routes": [
+        "verify",
+        "feed-analytics",
+        "tasks-list"
+      ],
+      "interactions": [],
+      "viewports": [
+        "laptop",
+        "mobile"
+      ],
+      "status": "gap",
+      "gapReason": "no toolbar-row-count / select-width check exported by regression-checks.mjs"
+    },
+    {
+      "id": "pattern-J",
+      "kind": "pattern",
+      "title": "Raw/wrong text (snake_case, copy keys, NaN/undefined, ISO dates, doubled labels)",
+      "shippedIn": "2026-08-01..2026-09-22",
+      "commits": [],
+      "routes": [
+        "verify",
+        "sales-sold",
+        "health-analytics-problems",
+        "tasks",
+        "calendar"
+      ],
+      "interactions": [
+        {
+          "type": "check",
+          "ref": "J-raw-text"
+        }
+      ],
+      "viewports": [
+        "laptop",
+        "mobile"
+      ],
+      "status": "covered"
+    },
+    {
+      "id": "pattern-K",
+      "kind": "pattern",
+      "title": "Filter/pager state lost after navigation",
+      "shippedIn": "2026-08-01..2026-09-22",
+      "commits": [],
+      "routes": [
+        "verify",
+        "sales-farm-born"
+      ],
+      "interactions": [
+        {
+          "type": "safeClick",
+          "ref": "role:link:Next page"
+        },
+        {
+          "type": "safeClick",
+          "ref": "role:link:Previous page"
+        }
+      ],
+      "viewports": [
+        "laptop",
+        "mobile"
+      ],
+      "status": "gap",
+      "gapReason": "safeClicks walk the pager but no check asserts filter/pager state survives navigate-away-and-back"
+    },
+    {
+      "id": "pattern-L",
+      "kind": "pattern",
+      "title": "Phone board columns stacked instead of horizontal snap row",
+      "shippedIn": "2026-08-01..2026-09-22",
+      "commits": [],
+      "routes": [
+        "work-board",
+        "tasks"
+      ],
+      "interactions": [],
+      "viewports": [
+        "laptop",
+        "mobile"
+      ],
+      "status": "gap",
+      "gapReason": "no pattern id for board-column layout on phone in regression-checks.mjs"
+    },
+    {
+      "id": "pattern-M",
+      "kind": "pattern",
+      "title": "Hydration mismatch console errors",
+      "shippedIn": "2026-08-01..2026-09-22",
+      "commits": [],
+      "routes": [
+        "control-tower",
+        "tasks",
+        "verify"
+      ],
+      "interactions": [],
+      "viewports": [
+        "laptop",
+        "mobile"
+      ],
+      "status": "gap",
+      "gapReason": "smoke does not collect console errors; no hydration pattern id in regression-checks.mjs"
+    }
+  ],
+  "uncoverable": []
+}

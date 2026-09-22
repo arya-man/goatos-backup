@@ -3,6 +3,7 @@ import { existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, 
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { compareRoutes, discoverFilesystemRoutes, discoverSmokeRoutes } from "../dashboard-automation/discover-admin-routes.mjs";
+import { coverageSelfTest, runCoverageGuard } from "../dashboard-automation/check-coverage-since-aug1.mjs";
 
 const selfTest = process.argv.includes("--self-test");
 
@@ -19,6 +20,7 @@ if (selfTest) {
   } finally {
     rmSync(dir, { recursive: true, force: true });
   }
+  coverageSelfTest();
   console.log("dashboard automation guard self-test: PASS");
   process.exit(0);
 }
@@ -29,6 +31,11 @@ if (comparison.missing.length > 0) {
   failures.push(`admin-web route(s) missing deterministic smoke coverage: ${comparison.missing.map((route) => `${route.path} (${route.source})`).join(", ")}`);
 }
 failures.push(...dashboardBugPatternCoverageFindings());
+// Every feature / repeat-bug pattern shipped since 2026-08-01 must resolve to smoke routes, overlays,
+// safeClicks and regression checks that actually run on OCI at laptop and mobile.
+const coverage = await runCoverageGuard();
+console.log(coverage.summary);
+failures.push(...coverage.findings.map((finding) => `coverage-since-aug1: ${finding}`));
 
 const smokeRoutes = discoverSmokeRoutes();
 const requiredNames = new Set(smokeRoutes.map((route) => route.name));

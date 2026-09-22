@@ -57,6 +57,17 @@ const smokeWideWindowFrom = new Date(Date.now() - 43 * 24 * 60 * 60 * 1000).toIS
 // typo (or a selection that matches nothing) fails immediately, not after an unrelated network lookup.
 // Derived, never hand-maintained: a list that must be kept in step with another list
 // eventually is not. The placeholder ids only shape two paths, never the names.
+// SOP Flow views (compose=1&edit=<sopId>&view=flow): route name -> the seeded SOP code whose
+// editor has a List | Flow switch (features/sops/module-page.tsx passes initialView from ?view=flow):
+// counts.birth -> FollowUpEditor (follow_up seeded by migration 000308), weighing.session ->
+// WeighingEditor (000315), feed.packing -> FeedEditor (000342, FEED_STAGES_BY_CODE), sales.deal ->
+// FollowUpEditor (000369). Resolved at runtime exactly like the toxin SOP id.
+const SOP_FLOW_CODES = Object.freeze({
+  "counts-sop-flow": { code: "counts.birth", basePath: "/counts/sops" },
+  "weighing-sop-flow": { code: "weighing.session", basePath: "/weighing/sops" },
+  "feed-sop-flow": { code: "feed.packing", basePath: "/feed/sops" },
+  "sales-sop-flow": { code: "sales.deal", basePath: "/sales/sops" },
+});
 const KNOWN_ROUTE_NAMES = buildRoutes({
   toxinSopId: "placeholder",
   goatId: "placeholder",
@@ -64,6 +75,7 @@ const KNOWN_ROUTE_NAMES = buildRoutes({
   workflowRowId: "placeholder",
   calendarEventId: "placeholder",
   vaccinationShedPath: "/vaccination/execution/sheds/placeholder?scope_mode=company",
+  sopFlowIds: Object.fromEntries(Object.keys(SOP_FLOW_CODES).map((route) => [route, "placeholder"])),
 }).map((route) => route.name);
 const onlyRoutesRaw = process.env.GOATOS_SMOKE_ONLY_ROUTES;
 const onlyRoutes = (onlyRoutesRaw ?? "").split(",").map((s) => s.trim()).filter(Boolean);
@@ -97,6 +109,10 @@ const vaccinationShedPath = runsRoute("vaccination-shed-execution-detail")
 const toxinSopId = runsRoute("procurement-toxin-list") || runsRoute("procurement-toxin-flow")
   ? await resolveSmokeToxinSopID(apiBaseUrl, bearerToken, tenantId)
   : null;
+const sopFlowIds = {};
+for (const [routeName, { code }] of Object.entries(SOP_FLOW_CODES)) {
+  if (runsRoute(routeName)) sopFlowIds[routeName] = await resolveSmokeSopIDByCode(apiBaseUrl, bearerToken, tenantId, code);
+}
 mkdirSync(screenshotDir, { recursive: true });
 if (baselineDir) mkdirSync(diffDir, { recursive: true });
 
@@ -106,7 +122,7 @@ if (baselineDir) mkdirSync(diffDir, { recursive: true });
 // the allow-list used to be a second hand-maintained copy and it drifted: counts-sops and
 // counts-sops-builder were in this table, so a full sweep visited them, while a focused run
 // naming either was rejected as an unknown route.
-function buildRoutes({ toxinSopId, goatId, procurementLoadId, workflowRowId, calendarEventId, vaccinationShedPath }) {
+function buildRoutes({ toxinSopId, goatId, procurementLoadId, workflowRowId, calendarEventId, vaccinationShedPath, sopFlowIds = {} }) {
   const routes = [
     { name: "control-tower", path: "/?scope_mode=company&lens=control-tower" },
     { name: "action-center", path: "/action-center?scope_mode=company" },
@@ -138,6 +154,9 @@ function buildRoutes({ toxinSopId, goatId, procurementLoadId, workflowRowId, cal
     { name: "verify-toxin", path: "/verify?scope_mode=company&toxin=1" },
     // Feature states shipped since Aug 1 (URL-driven, read-only): the Video Log drawer opens from vi_video_log=open.
     { name: "verify-video-log-open", path: "/verify?scope_mode=company&vi_video_log=open" },
+    // Capture-date window + newest-first sort (verification-review-page.tsx: vd_from/vd_to via
+    // actions-date-params.ts, sort=captured_at_desc via verificationSort).
+    { name: "verify-capture-window-desc", path: `/verify?scope_mode=company&vd_from=${smokeWideWindowFrom}&vd_to=${smokeWideWindowTo}&sort=captured_at_desc` },
     { name: "actions", path: "/actions?scope_mode=company" },
     { name: "verification", path: "/verification?scope_mode=company" },
     { name: "vaccination", path: "/vaccination?scope_mode=company" },
@@ -167,9 +186,15 @@ function buildRoutes({ toxinSopId, goatId, procurementLoadId, workflowRowId, cal
     { name: "procurement-sops", path: "/procurement/sops?scope_mode=company" },
     { name: "procurement-toxin-list", path: `/procurement/sops?scope_mode=company&compose=1&edit=${encodeURIComponent(toxinSopId)}&view=list` },
     { name: "procurement-toxin-flow", path: `/procurement/sops?scope_mode=company&compose=1&edit=${encodeURIComponent(toxinSopId)}&view=flow` },
+    { name: "counts-sop-flow", path: `/counts/sops?scope_mode=company&compose=1&edit=${encodeURIComponent(sopFlowIds["counts-sop-flow"])}&view=flow` },
+    { name: "weighing-sop-flow", path: `/weighing/sops?scope_mode=company&compose=1&edit=${encodeURIComponent(sopFlowIds["weighing-sop-flow"])}&view=flow` },
+    { name: "feed-sop-flow", path: `/feed/sops?scope_mode=company&compose=1&edit=${encodeURIComponent(sopFlowIds["feed-sop-flow"])}&view=flow` },
+    { name: "sales-sop-flow", path: `/sales/sops?scope_mode=company&compose=1&edit=${encodeURIComponent(sopFlowIds["sales-sop-flow"])}&view=flow` },
     { name: "sales", path: "/sales?scope_mode=company" },
     { name: "sales-sold", path: "/sales/sold?scope_mode=company" },
     { name: "sales-farm-value", path: "/sales/farm-value?scope_mode=company" },
+    // Sale-ready tolerance slider state (sales-farm-value.tsx: sale_ready_tolerance_g, 0..1000).
+    { name: "sales-farm-value-tolerance", path: "/sales/farm-value?scope_mode=company&sale_ready_tolerance_g=500" },
     { name: "sales-loads", path: "/sales/loads?scope_mode=company" },
     { name: "sales-loads-farm-born", path: "/sales/loads?scope_mode=company&view=farm_born" },
     { name: "sales-market-analytics", path: "/sales/market-analytics?scope_mode=company" },
@@ -189,6 +214,9 @@ function buildRoutes({ toxinSopId, goatId, procurementLoadId, workflowRowId, cal
     { name: "feed-analytics-consumption-status", path: "/feed/analytics?scope_mode=company&tab=overview&fc_view=status" },
     { name: "feed-analytics-consumption-general", path: "/feed/analytics?scope_mode=company&tab=overview&fc_view=general" },
     { name: "feed-analytics-spend-per-animal", path: "/feed/analytics?scope_mode=company&tab=overview&spend=per_animal" },
+    // Range chips (feed-analytics.tsx RANGES = ["30", "61", "92"]; 30 is the default, so absent).
+    { name: "feed-analytics-range-61", path: "/feed/analytics?scope_mode=company&range=61" },
+    { name: "feed-analytics-range-92", path: "/feed/analytics?scope_mode=company&range=92" },
     { name: "feed-sops", path: "/feed/sops?scope_mode=company" },
     { name: "feed-direction", path: "/feed/direction?scope_mode=company" },
     { name: "feed-packing", path: "/feed/packing?scope_mode=company" },
@@ -219,6 +247,8 @@ function buildRoutes({ toxinSopId, goatId, procurementLoadId, workflowRowId, cal
     { name: "counts-sops-builder", path: "/counts/sops?compose=1&scope_mode=company" },
     { name: "counts-herd", path: "/counts/herd?scope_mode=company" },
     { name: "counts-analytics", path: "/counts/analytics?scope_mode=company" },
+    // Herd Analytics date filter (herd-analytics.tsx readWindow: from/to, <= MAX_WINDOW_DAYS 1150).
+    { name: "counts-analytics-window", path: `/counts/analytics?scope_mode=company&from=${smokeWideWindowFrom}&to=${smokeWideWindowTo}` },
     { name: "counts-mortality", path: "/counts/mortality?scope_mode=company" },
     { name: "counts-breakdown", path: "/counts/breakdown?scope_mode=company" },
     { name: "counts-milk-preparation", path: "/counts/milk-preparation?scope_mode=company" },
@@ -262,6 +292,8 @@ function buildRoutes({ toxinSopId, goatId, procurementLoadId, workflowRowId, cal
     { name: "tasks", path: "/tasks?scope_mode=company" },
     { name: "tasks-list", path: "/tasks?scope_mode=company&t_view=list" },
     { name: "tasks-overdue", path: "/tasks?scope_mode=company&filter=overdue" },
+    // Task search (leadership-tasks/params.ts q -> "t_q").
+    { name: "tasks-search", path: "/tasks?scope_mode=company&t_q=pen" },
     { name: "workflow-record", path: `/workflows/${encodeURIComponent(workflowRowId)}?scope_mode=company` },
     { name: "calendar-drive-detail", path: `/calendar/drive/${encodeURIComponent(calendarEventId)}?scope_mode=company` },
     { name: "goat-passport", path: `/goats/${encodeURIComponent(goatId)}` },
@@ -276,11 +308,12 @@ function buildRoutes({ toxinSopId, goatId, procurementLoadId, workflowRowId, cal
     if (route.name === "workflow-record") return Boolean(workflowRowId);
     if (route.name === "calendar-drive-detail") return Boolean(calendarEventId);
     if (route.name === "vaccination-shed-execution-detail") return Boolean(vaccinationShedPath);
+    if (route.name in SOP_FLOW_CODES) return Boolean(sopFlowIds[route.name]);
     return true;
   });
 }
 
-const routes = buildRoutes({ toxinSopId, goatId, procurementLoadId, workflowRowId, calendarEventId, vaccinationShedPath });
+const routes = buildRoutes({ toxinSopId, goatId, procurementLoadId, workflowRowId, calendarEventId, vaccinationShedPath, sopFlowIds });
 
 // Names were already validated up front against KNOWN_ROUTE_NAMES; resolve the selection to concrete
 // routes. A requested route the run couldn't build (e.g. procurement-load-detail with no seeded load)
@@ -372,7 +405,7 @@ try {
       hasTouch: true,
       deviceScaleFactor: 3,
       userAgent:
-        "Mozilla/5.0 (iPhone; CPU iPhone OS 17_5 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.5 Mobile/15E148 Safari/604.1",
+        "Mozilla/5.0 (Linux; Android 14; Pixel 7 Build/UQ1A.240205.004; wv) AppleWebKit/537.36 (KHTML, like Gecko) Version/4.0 Chrome/128.0.6613.127 Mobile Safari/537.36",
     },
   ]) {
     const context = await browser.newContext({
@@ -642,6 +675,17 @@ function assertHealthyHTML(routeName, html, visibleText, token) {
   }
 }
 
+async function resolveSmokeSopIDByCode(baseUrl, token, tenant, code) {
+  const response = await fetch(`${baseUrl}/admin/sops?code_prefix=${encodeURIComponent(code)}&limit=10`, {
+    headers: { Authorization: `Bearer ${token}`, [TENANT_CONTEXT_HEADER]: tenant },
+  });
+  if (!response.ok) throw new Error(`SOP fixture lookup for ${code} failed: ${response.status}`);
+  const body = await response.json();
+  const sop = body.items?.find((item) => item.code === code);
+  if (!sop?.sop_id) throw new Error(`SOP Flow coverage requires the seeded ${code} SOP`);
+  return sop.sop_id;
+}
+
 async function resolveSmokeToxinSopID(baseUrl, token, tenant) {
   const response = await fetch(`${baseUrl}/admin/sops?code_prefix=procurement.toxin_test&limit=10`, {
     headers: { Authorization: `Bearer ${token}`, [TENANT_CONTEXT_HEADER]: tenant },
@@ -674,6 +718,11 @@ async function assertRouteLoadedSignal(page, routeName, visibleText) {
     }).map((element) => element.textContent));
     if (clippedTitles.length) throw new Error(`Toxin node titles are clipped: ${clippedTitles.join(", ")}`);
     return { toxin_editor: "flow", node_titles_unclipped: true };
+  }
+  if (routeName in SOP_FLOW_CODES) {
+    // features/sops/{followup,weighing,feed}-flow.tsx all render <div className="studio-flow" data-testid="flow-view">.
+    await page.getByTestId("flow-view").waitFor({ state: "visible", timeout: 10000 });
+    return { sop_editor: "flow", code: SOP_FLOW_CODES[routeName].code };
   }
   const normalized = visibleText.replace(/\s+/g, " ").trim();
   if (routeName === "procurement-animal-purchases") {

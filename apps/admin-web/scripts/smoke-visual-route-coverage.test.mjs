@@ -4,7 +4,7 @@ import assert from "node:assert/strict";
 
 const smokeSource = readFileSync(new URL("./smoke-visual-live.mjs", import.meta.url), "utf8");
 const journeyManifest = JSON.parse(readFileSync(new URL("../../../tools/dashboard-automation/module-journeys.json", import.meta.url), "utf8"));
-const smokeRouteBlock = smokeSource.match(/function buildRoutes\(\{ toxinSopId, goatId, procurementLoadId, workflowRowId, calendarEventId, vaccinationShedPath \}\) \{[\s\S]*?const pagerMinimums = new Map/)?.[0] ?? "";
+const smokeRouteBlock = smokeSource.match(/function buildRoutes\(\{[^)]*\}\) \{[\s\S]*?const pagerMinimums = new Map/)?.[0] ?? "";
 const routeEntries = Array.from(
   smokeRouteBlock.matchAll(/name:\s*"([^"]+)"[\s\S]{0,500}?path:\s*([`"])([^`"]+)/g),
   ([, name, quote, path]) => [name, quote === "`" ? path.replace(/\$\{[^}]+\}/g, "${dynamic}") : path],
