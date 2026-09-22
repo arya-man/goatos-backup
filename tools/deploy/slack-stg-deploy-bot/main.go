@@ -97,7 +97,8 @@ type cloudBuildGetBuild struct {
 }
 
 type cloudDeployRolloutList struct {
-	Rollouts []cloudDeployRollout `json:"rollouts"`
+	Rollouts      []cloudDeployRollout `json:"rollouts"`
+	NextPageToken string               `json:"nextPageToken"`
 }
 
 type cloudDeployRollout struct {
@@ -774,31 +775,46 @@ func (cfg config) latestRolloutForCommit(ctx context.Context, shortSHA string) (
 	}
 	// `releases/-` lists across every release of the pipeline. No orderBy: Cloud Deploy
 	// rejects sorting this collection on createTime, so matchRollout does the ordering.
-	endpoint := fmt.Sprintf(
-		"https://clouddeploy.googleapis.com/v1/projects/%s/locations/%s/deliveryPipelines/%s/releases/-/rollouts?pageSize=100",
+	baseEndpoint := fmt.Sprintf(
+		"https://clouddeploy.googleapis.com/v1/projects/%s/locations/%s/deliveryPipelines/%s/releases/-/rollouts",
 		cfg.ProjectID, cfg.DeployRegion, cfg.DeliveryPipeline,
 	)
-	req, err := http.NewRequestWithContext(ctx, http.MethodGet, endpoint, nil)
-	if err != nil {
-		return rolloutStatus{}, err
-	}
-	req.Header.Set("Authorization", "Bearer "+token)
+	return latestRolloutForCommitFromEndpoint(ctx, token, baseEndpoint, shortSHA)
+}
 
-	resp, err := http.DefaultClient.Do(req)
-	if err != nil {
-		return rolloutStatus{}, err
-	}
-	defer resp.Body.Close()
-	respBody, _ := io.ReadAll(io.LimitReader(resp.Body, 1<<22))
-	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
-		return rolloutStatus{}, fmt.Errorf("cloud deploy rollouts list returned %s: %s", resp.Status, strings.TrimSpace(string(respBody)))
-	}
+func latestRolloutForCommitFromEndpoint(ctx context.Context, token, baseEndpoint, shortSHA string) (rolloutStatus, error) {
+	query := url.Values{"pageSize": {"1000"}}
+	var allRollouts []cloudDeployRollout
 
-	var parsed cloudDeployRolloutList
-	if err := json.Unmarshal(respBody, &parsed); err != nil {
-		return rolloutStatus{}, err
+	for {
+		endpoint := baseEndpoint + "?" + query.Encode()
+		req, err := http.NewRequestWithContext(ctx, http.MethodGet, endpoint, nil)
+		if err != nil {
+			return rolloutStatus{}, err
+		}
+		req.Header.Set("Authorization", "Bearer "+token)
+
+		resp, err := http.DefaultClient.Do(req)
+		if err != nil {
+			return rolloutStatus{}, err
+		}
+		respBody, _ := io.ReadAll(io.LimitReader(resp.Body, 1<<22))
+		_ = resp.Body.Close()
+		if resp.StatusCode < 200 || resp.StatusCode >= 300 {
+			return rolloutStatus{}, fmt.Errorf("cloud deploy rollouts list returned %s: %s", resp.Status, strings.TrimSpace(string(respBody)))
+		}
+
+		var parsed cloudDeployRolloutList
+		if err := json.Unmarshal(respBody, &parsed); err != nil {
+			return rolloutStatus{}, err
+		}
+		allRollouts = append(allRollouts, parsed.Rollouts...)
+		if parsed.NextPageToken == "" {
+			break
+		}
+		query.Set("pageToken", parsed.NextPageToken)
 	}
-	return matchRollout(parsed.Rollouts, shortSHA), nil
+	return matchRollout(allRollouts, shortSHA), nil
 }
 
 func (cfg config) getBuild(ctx context.Context, buildID string) (cloudBuildGetBuild, error) {

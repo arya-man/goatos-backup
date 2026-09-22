@@ -2,6 +2,8 @@ package main
 
 import (
 	"encoding/json"
+	"net/http"
+	"net/http/httptest"
 	"os"
 	"strings"
 	"testing"
@@ -322,6 +324,46 @@ func TestMatchRolloutTakesTheNewestReleaseOfARedeployedCommit(t *testing.T) {
 		if got.ID != "r-7e0939befad2-000101-to-goatos-stg-0001" || got.State != "SUCCEEDED" {
 			t.Fatalf("matchRollout = %+v, want the newest rollout regardless of listing order", got)
 		}
+	}
+}
+
+func TestLatestRolloutForCommitFollowsCloudDeployPages(t *testing.T) {
+	var requests []string
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		requests = append(requests, r.URL.RawQuery)
+		if got := r.Header.Get("Authorization"); got != "Bearer test-token" {
+			t.Fatalf("Authorization header = %q, want bearer token", got)
+		}
+		w.Header().Set("Content-Type", "application/json")
+		switch r.URL.Query().Get("pageToken") {
+		case "":
+			_, _ = w.Write([]byte(`{
+				"rollouts": [
+					{"name": "projects/goatos-stg/locations/asia-south1/deliveryPipelines/goatos-stg/releases/r-deadbeefcafe-000001/rollouts/r-deadbeefcafe-000001-to-goatos-stg-0001", "state": "FAILED", "createTime": "2026-09-22T00:00:01Z"}
+				],
+				"nextPageToken": "second-page"
+			}`))
+		case "second-page":
+			_, _ = w.Write([]byte(`{
+				"rollouts": [
+					{"name": "projects/goatos-stg/locations/asia-south1/deliveryPipelines/goatos-stg/releases/r-7e0939befad2-180845/rollouts/r-7e0939befad2-180845-to-goatos-stg-0001", "state": "IN_PROGRESS", "createTime": "2026-09-22T18:10:04Z"}
+				]
+			}`))
+		default:
+			t.Fatalf("unexpected pageToken %q", r.URL.Query().Get("pageToken"))
+		}
+	}))
+	defer server.Close()
+
+	got, err := latestRolloutForCommitFromEndpoint(t.Context(), "test-token", server.URL, "7e0939befad2")
+	if err != nil {
+		t.Fatalf("latestRolloutForCommitFromEndpoint returned error: %v", err)
+	}
+	if got.ID != "r-7e0939befad2-180845-to-goatos-stg-0001" || got.State != "IN_PROGRESS" {
+		t.Fatalf("rollout = %+v, want second-page matching rollout", got)
+	}
+	if len(requests) != 2 || !strings.Contains(requests[1], "pageToken=second-page") {
+		t.Fatalf("expected two paginated requests, got %v", requests)
 	}
 }
 
