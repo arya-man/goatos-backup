@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 import { createHash } from "node:crypto";
-import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, readFileSync, readdirSync, writeFileSync } from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { containsUnredactedSecret, redactText } from "./lib/redact.mjs";
@@ -63,7 +63,16 @@ if (containsUnredactedSecret(JSON.stringify(message))) fail("refusing to send Sl
 
 const screenshotFiles = screenshotPaths(receipt, receiptPath);
 const reportFile = writeHtmlReport(receipt, receiptPath, decision.kind, screenshotFiles, visualIssues, slowPages);
-const inlineShots = visualIssues.filter((issue) => issue.screenshot).slice(0, 12).map((issue) => ({ file: issue.screenshot, title: issue.caption }));
+// Each reply says what is wrong, where to see it, and carries that page's screenshot.
+const inlineShots = visualIssues.filter((issue) => issue.screenshot).slice(0, 20).map((issue, i) => ({
+  file: issue.screenshot,
+  title: `${issue.page} — ${issue.what}`.slice(0, 250),
+  comment: [
+    `*${i + 1}. ${issue.page}*  ${issue.deviceLabel}${issue.views > 1 ? `  ·  seen on ${issue.views} views` : ""}`,
+    `${issue.what}${issue.example}`,
+    issue.url ? `<${issue.url}|Open the page>` : null
+  ].filter(Boolean).join("\n")
+}));
 await postSlack(message, inlineShots.length ? [reportFile] : [reportFile, ...screenshotFiles], statePath, { lastSignature: signature, lastPostedAtMs: now, lastStatus: receipt.status ?? "unknown" }, inlineShots);
 console.log(`dashboard Slack notify: posted ${decision.kind}`);
 
@@ -151,6 +160,9 @@ function humanIssue(failure) {
   const page = String(routeName ?? "").replace(/-/g, " ").replace(/\b\w/g, (c) => c.toUpperCase());
   const deviceLabel = device === "mobile" ? "📱 Phone" : device === "laptop" ? "💻 Laptop" : "";
   const screenshot = (failure.screenshots ?? []).filter((file) => existsSync(file)).pop() ?? null;
+  const slowMs = Number(raw.match(/page load (\d+)ms exceeded budget (\d+)ms/)?.[1] ?? 0);
+  const budgetMs = Number(raw.match(/page load \d+ms exceeded budget (\d+)ms/)?.[1] ?? 0);
+  const url = failure.url ?? null;
   // "<route> <viewport> page load 14812ms exceeded budget 8000ms" — keep the numbers so the
   // slow-page summary can rank worst-first and name the budget once.
   const slow = raw.match(/page load (\d+)ms exceeded budget (\d+)ms/);
@@ -212,25 +224,46 @@ function slowPagesLine(slow) {
   return `${slow.pages.length} page${slow.pages.length === 1 ? "" : "s"}${budget} — worst: ${worst}${where}`;
 }
 
+// Lanes are separate processes; they leave their counts in one folder so every message
+// can say "part 2 of 3" and the total across the whole run.
+function runPartSummary(count) {
+  const part = process.env.GOATOS_DASHBOARD_RUN_PART;
+  const dir = process.env.GOATOS_DASHBOARD_RUN_PART_DIR;
+  const parts = Number(process.env.GOATOS_DASHBOARD_RUN_PARTS ?? 0);
+  const modules = process.env.GOATOS_DASHBOARD_MODULES;
+  if (!part || !dir) return "";
+  try {
+    mkdirSync(dir, { recursive: true });
+    writeFileSync(path.join(dir, `${part}.json`), JSON.stringify({ part, count, modules: modules ?? "", at: Date.now() }));
+    const seen = readdirSync(dir).filter((f) => f.endsWith(".json")).map((f) => JSON.parse(readFileSync(path.join(dir, f), "utf8")));
+    const total = seen.reduce((sum, item) => sum + Number(item.count ?? 0), 0);
+    const posted = seen.length;
+    return `Part ${part.toUpperCase()} of ${parts || posted}${modules ? ` — ${modules.split(",").join(", ")}` : ""} · ${count} here · *${total} so far across ${posted} of ${parts || posted} parts* (each part posts its own message)`;
+  } catch {
+    return "";
+  }
+}
+
 function formatVisualIssuesMessage(value, issues, slow = { pages: [] }) {
-  const shown = issues.slice(0, 20);
-  const lines = shown.map((issue, i) => `*${i + 1}. ${issue.page}*${issue.views > 1 ? ` (${issue.views} views)` : ""}  ${issue.deviceLabel}\n      ${issue.what}${issue.example}`);
+  const byKind = new Map();
+  for (const issue of issues) byKind.set(issue.what.replace(/ —.*$/, ""), (byKind.get(issue.what.replace(/ —.*$/, "")) ?? 0) + 1);
+  const kindLines = [...byKind.entries()].sort((a, b) => b[1] - a[1]).slice(0, 10).map(([what, n]) => `• ${n} × ${what}`);
+  const slowLines = slow.pages.slice(0, 8).map((p) => `• ${p.page} — ${seconds(p.loadMs)}${p.url ? ` · <${p.url}|open>` : ""}`);
   const title = issues.length
     ? `:rotating_light: ${issues.length} visible issue${issues.length === 1 ? "" : "s"} on production`
     : `:hourglass_flowing_sand: ${slow.pages.length} page${slow.pages.length === 1 ? "" : "s"} slow on production`;
   const blocks = [
     { type: "header", text: { type: "plain_text", text: title.replace(":rotating_light: ", "🚨 ").replace(":hourglass_flowing_sand: ", "⏳ "), emoji: true } },
   ];
-  if (lines.length) blocks.push({ type: "section", text: { type: "mrkdwn", text: lines.join("\n") } });
-  if (issues.length > shown.length) blocks.push({ type: "context", elements: [{ type: "mrkdwn", text: `+${issues.length - shown.length} more in the report` }] });
-  // Slow pages are their own section: one line, never numbered among the visible breaks.
-  const slowLine = slowPagesLine(slow);
-  if (slowLine) {
-    blocks.push({ type: "section", text: { type: "mrkdwn", text: `*:hourglass_flowing_sand: Slow pages*\n${slowLine}` } });
+  if (kindLines.length) blocks.push({ type: "section", text: { type: "mrkdwn", text: `*What is wrong*\n${kindLines.join("\n")}` } });
+  if (slowLines.length) {
+    blocks.push({ type: "section", text: { type: "mrkdwn", text: `*Slow pages*${slow.budgetMs ? ` (budget ${seconds(slow.budgetMs)})` : ""}\n${slowLines.join("\n")}${slow.pages.length > slowLines.length ? `\n• +${slow.pages.length - slowLines.length} more` : ""}` } });
   }
-  blocks.push({ type: "context", elements: [{ type: "mrkdwn", text: `Screenshots of the first 12 below, problem boxed in red · checked on laptop and phone · build \`${String(value.repoSha ?? "").slice(0, 9)}\` · full report in thread` }] });
-  const fallback = [title, ...shown.map((issue) => `• ${issue.caption}`), slowLine ? `• Slow pages: ${slowLine}` : ""].filter(Boolean).join("\n");
-  return { text: fallback, blocks };
+  const part = runPartSummary(issues.length);
+  if (part) blocks.push({ type: "context", elements: [{ type: "mrkdwn", text: part }] });
+  blocks.push({ type: "context", elements: [{ type: "mrkdwn", text: `Every issue below in this thread, one screenshot each · laptop 1440 + Android phone 390 · build \`${String(value.repoSha ?? "").slice(0, 9)}\` · full report in thread` }] });
+  const text = `${title}\n${kindLines.join("\n")}${slowLines.length ? `\nSlow pages: ${slowPagesLine(slow)}` : ""}`;
+  return { text, blocks };
 }
 
 function formatSlackMessage(value, kind, receiptFile) {
@@ -521,17 +554,19 @@ async function postSlack(payload, attachments, statePath, nextState, inlineShots
   const body = await slackApi(token, "chat.postMessage", { channel, text: payload.text, blocks: payload.blocks, unfurl_links: false, unfurl_media: false });
   // Persist dedupe state as soon as the alert is posted so a failed upload can never cause repeat spam.
   writeState(statePath, nextState);
-  // Screenshots go straight into the channel (not hidden in a thread), each captioned with its issue.
-  const inline = [];
+  // One threaded reply per issue: its own text, its own link, its own screenshot.
   for (const shot of inlineShots) {
     try {
-      inline.push({ id: await uploadSlackFile(token, shot.file), title: shot.title });
+      const id = await uploadSlackFile(token, shot.file);
+      await slackApi(token, "files.completeUploadExternal", {
+        files: [{ id, title: shot.title }],
+        channel_id: channel,
+        thread_ts: body.ts,
+        initial_comment: shot.comment ?? shot.title
+      });
     } catch (error) {
       console.error(`dashboard Slack notify: upload failed for ${path.basename(shot.file)}: ${redactText(error.message)}`);
     }
-  }
-  for (let i = 0; i < inline.length; i += 10) {
-    await slackApi(token, "files.completeUploadExternal", { files: inline.slice(i, i + 10), channel_id: channel }).catch((error) => console.error(`dashboard Slack notify: inline screenshots failed: ${redactText(error.message)}`));
   }
   const uploaded = [];
   for (const file of attachments) {
