@@ -343,30 +343,39 @@ func TestLatestWeightCollapsesRepeatScansAndFoldsAnAnimalsTwoTags(t *testing.T) 
 	pool, tenant := newDB(t, ctx)
 	fx := growthFixtureFor(t, ctx, pool, tenant)
 
-	scan(t, ctx, pool, fx, "r1", "tag-a", 11, "2026-09-01 06:00+05:30", "verified", true)  // superseded
+	scan(t, ctx, pool, fx, "r1", "tag-a", 11, "2026-09-01 06:00+05:30", "verified", true)   // superseded
 	scan(t, ctx, pool, fx, "r1", " TAG-A ", 20, "2026-09-01 10:00+05:30", "verified", true) // the round's weigh
 	scan(t, ctx, pool, fx, "r2", "TAG-A2", 23, "2026-09-11 10:00+05:30", "pending", false)  // the SECOND tag
 
 	var rows int
-	var animalKey, tag, weighedOn, breed, sex string
+	var animalKey, weighedOn, breed, sex string
 	var weight float64
 	if err := pool.QueryRow(ctx,
-		`SELECT count(*) OVER (), animal_key, scanned_tag, weighed_on::text, weight_kg, breed, sex
+		`SELECT count(*) OVER (), animal_key, weighed_on::text, weight_kg, breed, sex
 		   FROM ceo_ai.weighing_latest_individual_weight WHERE tenant_id = $1`, tenant).
-		Scan(&rows, &animalKey, &tag, &weighedOn, &weight, &breed, &sex); err != nil {
+		Scan(&rows, &animalKey, &weighedOn, &weight, &breed, &sex); err != nil {
 		t.Fatalf("read view: %v", err)
 	}
 	if rows != 1 {
 		t.Fatalf("three captures of ONE animal on two tags must be one row, got %d", rows)
 	}
-	if animalKey != fx.goat1 {
-		t.Fatalf("animal_key must fold onto the register animal, got %q", animalKey)
+	// The key is the animal's OWN canonical tag (animal_identifier_1), never a
+	// goat_id: it is rendered verbatim to a reader, and an internal uuid is not
+	// something the farm can match to an ear.
+	if animalKey != "tag-a" {
+		t.Fatalf("animal_key must be the canonical ear tag, got %q", animalKey)
 	}
-	if tag != "tag-a2" || weight != 23 || weighedOn != "2026-09-11" {
-		t.Fatalf("the latest weigh must win: got tag %q, %v kg on %s", tag, weight, weighedOn)
+	if animalKey == fx.goat1 {
+		t.Fatalf("animal_key must never be a goat_id")
+	}
+	if weight != 23 || weighedOn != "2026-09-11" {
+		t.Fatalf("the latest weigh must win: got %v kg on %s", weight, weighedOn)
 	}
 	if breed != "Sirohi" || sex != "male" {
 		t.Fatalf("breed/sex must come from the register, got %q/%q", breed, sex)
+	}
+	if fx.goat1 == "" {
+		t.Fatalf("fixture goat missing")
 	}
 }
 
@@ -404,7 +413,7 @@ func TestLatestWeightNeverRendersTheWholeSentinel(t *testing.T) {
 	scan(t, ctx, pool, fx, "r2", "TAG-B", 30, "2026-09-11 10:00+05:30", "verified", true)
 
 	rows, err := pool.Query(ctx,
-		`SELECT scanned_tag, shed_label, partition_label FROM ceo_ai.weighing_latest_individual_weight WHERE tenant_id = $1`, tenant)
+		`SELECT animal_key, shed_label, partition_label FROM ceo_ai.weighing_latest_individual_weight WHERE tenant_id = $1`, tenant)
 	if err != nil {
 		t.Fatalf("read view: %v", err)
 	}
@@ -413,7 +422,7 @@ func TestLatestWeightNeverRendersTheWholeSentinel(t *testing.T) {
 	for rows.Next() {
 		var tag, shedLabel string
 		var partition *string
-		if err := rows.Scan(&tag, &shedLabel, &partition); err != nil {
+		if err := rows.Scan(&tag, &shedLabel, &partition); err != nil { //nolint:govet
 			t.Fatalf("scan: %v", err)
 		}
 		seen++
@@ -472,11 +481,11 @@ func TestGrowthPairsMeasureTheIntervalInBusinessDays(t *testing.T) {
 	var goat1ADG float64
 	if err := pool.QueryRow(ctx,
 		`SELECT count(*) OVER (), adg_g_per_day FROM ceo_ai.growth_adg_pairs
-		  WHERE tenant_id = $1 AND animal_key = $2`, tenant, fx.goat1).Scan(&goat1Pairs, &goat1ADG); err != nil {
+		  WHERE tenant_id = $1 AND animal_key = $2`, tenant, "tag-a").Scan(&goat1Pairs, &goat1ADG); err != nil {
 		t.Fatalf("read view: %v", err)
 	}
 	if goat1Pairs != 1 || goat1ADG != 300 {
-		t.Fatalf("the two-tag animal must pair across its rounds at 3 kg / 10 days = 300 g/day, got %d pairs / %v", goat1Pairs, goat1ADG)
+		t.Fatalf("the two-tag animal must pair across its rounds at 3 kg / 10 days = 300 g/day under its canonical tag, got %d pairs / %v", goat1Pairs, goat1ADG)
 	}
 }
 

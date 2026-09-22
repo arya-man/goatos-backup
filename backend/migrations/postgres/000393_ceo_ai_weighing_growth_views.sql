@@ -56,12 +56,27 @@
 -- allows `animal_identifier_1` and `animal_identifier_2`), and one weighed on
 -- its primary tag in one round and its secondary in the next would otherwise be
 -- two animals with one weigh each -- no pair, no gain, and the interval between
--- those weighs never compared. `animal_key` is therefore the resolved
--- `goat_id::text` when the tag is in the register and the normalized tag itself
--- when it is not, which is the SQL reading of the same fold
--- `weighing/adapters/postgres/identity_scope.go` resolves in Go for the pages.
--- A tag with no register row is its own animal, which is the only honest
--- reading of a tag nothing else knows about.
+-- those weighs never compared. `animal_key` is therefore the animal's OWN
+-- CANONICAL TAG -- its `animal_identifier_1`, preferring the row flagged
+-- primary -- and the normalized scanned tag itself when the register knows
+-- nothing about it. A tag with no register row is its own animal, which is the
+-- only honest reading of a tag nothing else knows about.
+--
+-- IT IS A TAG AND NEVER A `goat_id`, for the reason AGENTS.md records against
+-- `identity_scope.go`: "the canonical key is one of the animal's OWN tags ...
+-- never a goat_id, because `animal_key` is rendered verbatim to a reader."
+-- Keying on the uuid was tried here first and the live assistant duly printed
+-- `91000000-0000-4000-8000-000000001001` at a CEO as the name of an animal --
+-- an internal id the farm cannot match to anything it can hold, and the exact
+-- thing the RFID rule at the end of AGENTS.md forbids. The canonical tag folds
+-- the two RFIDs exactly as well and reads as what it is.
+--
+-- The canonical-tag pick is a deterministic ORDER BY over a set that is unique
+-- by construction (`goat_identifiers_lifetime_value_unique` makes
+-- normalized_value unique per tenant and is itself the final tiebreak), so it
+-- is a stable CHOICE, not the "ORDER BY ... LIMIT 1 over rows the producer can
+-- legitimately duplicate" shape the aggregate rule bans: a re-run cannot pick a
+-- different tag for the same animal.
 --
 -- WHAT IS EXCLUDED FROM BOTH VIEWS, and why (the same three exclusions the
 -- Growth Director applies, so the chat and the pages talk about the same kids):
@@ -88,11 +103,20 @@
 -- disjoint by the bucket's own category), so the column would be the constant
 -- 'individual_animal' on every row and only invite a filter that changes nothing.
 --
+-- NO `scanned_tag` AND NO `origin_type` COLUMN on the latest-weight view either.
+-- `animal_key` IS the canonical ear tag now, so a second near-identical tag
+-- column only invites a reader to print the wrong one of the two; and the
+-- Weights page's farm-born/purchased split is a PAGE filter resolved by
+-- weighing's own origin_scope.go, which reads procurement tables this view may
+-- not touch. `management_stage` took the space, because it is what makes a
+-- question about KIDS answerable at all.
+--
 -- NO `goat_id` COLUMN, deliberately. sqlguard admits ONE ceo_ai relation per
 -- statement, so a register uuid could not be joined to anything and would only
 -- be a raw internal id the composer might print at a reader. The register's
--- contribution is carried as breed/sex/origin, and `animal_key` already folds an
--- animal's two tags onto one identity. `prev_weight_kg` is likewise absent:
+-- contribution is carried as breed, sex, stage and origin, and `animal_key` is
+-- the animal's own canonical TAG, which folds its two RFIDs onto one identity
+-- and is a thing the farm can actually read off an ear. `prev_weight_kg` is likewise absent:
 -- weight_kg minus gain_kg is the same number.
 --
 -- COLUMNS ARE DELIBERATELY NARROW. Every column is rendered into the planner's
@@ -146,10 +170,9 @@ SET LOCAL statement_timeout = '30s';
 -- Ratio key sets: this view computes NO ratio. is_over_30_kg / is_over_35_kg are per-row predicates on that animal's own latest weight, so counting them and counting the view's rows range over the IDENTICAL key set (one row per animal) and a share is a plain count ratio over one population. An AVERAGE weight over these rows is an average of one-weight-per-animal and is therefore animal-weighted by construction -- it is not an average of averages.
 -- ===========================================================================
 CREATE OR REPLACE VIEW ceo_ai.weighing_latest_individual_weight AS
-SELECT DISTINCT ON (o.tenant_id, COALESCE(COALESCE(gc.goat_id, g.goat_id)::text, lower(btrim(o.scanned_identifier))))
+SELECT DISTINCT ON (o.tenant_id, COALESCE(lower(ck.canonical_tag), lower(btrim(o.scanned_identifier))))
     o.tenant_id                                          AS tenant_id,
-    COALESCE(COALESCE(gc.goat_id, g.goat_id)::text, lower(btrim(o.scanned_identifier)))  AS animal_key,
-    lower(btrim(o.scanned_identifier))                   AS scanned_tag,
+    COALESCE(lower(ck.canonical_tag), lower(btrim(o.scanned_identifier)))  AS animal_key,
     -- Scans are accepted on the phone in IST; the business day is the IST day of
     -- acceptance, converted here rather than assumed (accepted_at IS a
     -- timestamptz, unlike sales_deals.sale_date which is already a stored date).
@@ -170,7 +193,10 @@ SELECT DISTINCT ON (o.tenant_id, COALESCE(COALESCE(gc.goat_id, g.goat_id)::text,
     NULLIF(cs.partition_label, 'whole')                  AS partition_label,
     COALESCE(gc.breed, g.breed)                          AS breed,
     COALESCE(gc.sex, g.sex)                              AS sex,
-    COALESCE(gc.origin_type, g.origin_type)              AS origin_type
+    -- What the farm CALLS this animal (K0..K4, fattening, bucks). Without it a
+    -- question about KIDS is unanswerable -- the live assistant said exactly
+    -- that -- and both page contracts chart daily gain on it.
+    COALESCE(gc.management_stage, g.management_stage)     AS management_stage
 FROM weighing_observations o
 JOIN weighing_campaigns c
   ON c.tenant_id = o.tenant_id
@@ -190,12 +216,25 @@ LEFT JOIN goats g
 LEFT JOIN goats gc
   ON gc.tenant_id = o.tenant_id
  AND gc.goat_id = g.merged_into_goat_id
+LEFT JOIN LATERAL (
+    -- The animal's OWN canonical tag. Bounded to the one animal the scanned tag
+    -- already resolved to, so it reads no wider than the joins above it.
+    SELECT ci.normalized_value AS canonical_tag
+    FROM goat_identifiers ci
+    WHERE ci.tenant_id = o.tenant_id
+      AND ci.goat_id = COALESCE(gc.goat_id, g.goat_id)
+      AND ci.status = 'active'
+    ORDER BY (ci.identifier_type = 'animal_identifier_1') DESC,
+             ci.is_primary_for_goat DESC,
+             ci.normalized_value
+    LIMIT 1
+) ck ON true
 WHERE btrim(o.scanned_identifier) <> ''
   AND o.verification_status <> 'rework'
   AND c.status <> 'canceled'
 ORDER BY
     o.tenant_id,
-    COALESCE(COALESCE(gc.goat_id, g.goat_id)::text, lower(btrim(o.scanned_identifier))),
+    COALESCE(lower(ck.canonical_tag), lower(btrim(o.scanned_identifier))),
     o.accepted_at DESC,
     o.observation_id DESC;
 
@@ -249,9 +288,9 @@ ORDER BY
 -- ===========================================================================
 CREATE OR REPLACE VIEW ceo_ai.growth_adg_pairs AS
 WITH rounds AS (
-    SELECT DISTINCT ON (o.tenant_id, COALESCE(COALESCE(gc.goat_id, g.goat_id)::text, lower(btrim(o.scanned_identifier))), o.campaign_id)
+    SELECT DISTINCT ON (o.tenant_id, COALESCE(lower(ck.canonical_tag), lower(btrim(o.scanned_identifier))), o.campaign_id)
         o.tenant_id,
-        COALESCE(COALESCE(gc.goat_id, g.goat_id)::text, lower(btrim(o.scanned_identifier))) AS animal_key,
+        COALESCE(lower(ck.canonical_tag), lower(btrim(o.scanned_identifier))) AS animal_key,
         COALESCE(gc.goat_id, g.goat_id)                   AS goat_id,
         lower(btrim(o.scanned_identifier))                AS scanned_tag,
         o.campaign_id,
@@ -266,7 +305,7 @@ WITH rounds AS (
         COALESCE(pk.name, '')                             AS park_label,
         COALESCE(gc.breed, g.breed)                       AS breed,
         COALESCE(gc.sex, g.sex)                           AS sex,
-        COALESCE(gc.origin_type, g.origin_type)           AS origin_type
+        COALESCE(gc.management_stage, g.management_stage) AS management_stage
     FROM weighing_observations o
     JOIN weighing_campaigns c
       ON c.tenant_id = o.tenant_id
@@ -286,12 +325,25 @@ WITH rounds AS (
     LEFT JOIN goats gc
       ON gc.tenant_id = o.tenant_id
      AND gc.goat_id = g.merged_into_goat_id
+    LEFT JOIN LATERAL (
+        -- The animal's OWN canonical tag. Bounded to the one animal the scanned tag
+        -- already resolved to, so it reads no wider than the joins above it.
+        SELECT ci.normalized_value AS canonical_tag
+        FROM goat_identifiers ci
+        WHERE ci.tenant_id = o.tenant_id
+          AND ci.goat_id = COALESCE(gc.goat_id, g.goat_id)
+          AND ci.status = 'active'
+        ORDER BY (ci.identifier_type = 'animal_identifier_1') DESC,
+                 ci.is_primary_for_goat DESC,
+                 ci.normalized_value
+        LIMIT 1
+    ) ck ON true
     WHERE btrim(o.scanned_identifier) <> ''
       AND o.verification_status <> 'rework'
       AND c.status <> 'canceled'
     ORDER BY
         o.tenant_id,
-        COALESCE(COALESCE(gc.goat_id, g.goat_id)::text, lower(btrim(o.scanned_identifier))),
+        COALESCE(lower(ck.canonical_tag), lower(btrim(o.scanned_identifier))),
         o.campaign_id,
         o.accepted_at DESC,
         o.observation_id DESC
@@ -325,7 +377,7 @@ SELECT
     p.partition_label                                    AS partition_label,
     p.breed                                              AS breed,
     p.sex                                                AS sex,
-    p.origin_type                                        AS origin_type
+    p.management_stage                                   AS management_stage
 FROM paired p
 WHERE p.prev_observation_id IS NOT NULL
   AND (p.accepted_at AT TIME ZONE 'Asia/Kolkata')::date
