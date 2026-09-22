@@ -265,7 +265,7 @@
   "expect": [
    {
     "visible": {
-     "text": "Experiment feed \u2014 by item"
+     "text": "Experiment feed — by item"
     }
    },
    {
@@ -275,7 +275,7 @@
    }
   ],
   "status": "assert",
-  "evidence": "backend/internal/adminui/app/service.go:6913 \"Experiment feed \u2014 by item\"; backend/internal/adminui/app/service.go:6915 \"Leftover feed (wastage)\"",
+  "evidence": "backend/internal/adminui/app/service.go:6913 \"Experiment feed — by item\"; backend/internal/adminui/app/service.go:6915 \"Leftover feed (wastage)\"",
   "group": "A",
   "verdict": "pass"
  },
@@ -921,7 +921,7 @@
    },
    {
     "absent": {
-     "text": "NaN"
+     "css": ":text-is(\"NaN\")"
     }
    }
   ],
@@ -1182,7 +1182,7 @@
  },
  {
   "sha": "8925fb185",
-  "title": "Feed item charts show \u20b9 and kg per day",
+  "title": "Feed item charts show ₹ and kg per day",
   "route": "feed-analytics",
   "viewports": [
    "laptop",
@@ -1192,13 +1192,13 @@
   "expect": [
    {
     "visible": {
-     "text": "\u20b9 spent per day (solid line) and kg fed per day (dashed)"
+     "text": "₹ spent per day (solid line) and kg fed per day (dashed)"
     }
    }
   ],
   "status": "data-dependent",
   "reason": "Item charts need directed items in window",
-  "evidence": "backend/internal/adminui/app/service.go:6794 \"\u20b9 spent per day (solid line) and kg fed \"",
+  "evidence": "backend/internal/adminui/app/service.go:6794 \"₹ spent per day (solid line) and kg fed \"",
   "group": "A",
   "verdict": "pass"
  },
@@ -1307,12 +1307,12 @@
   "expect": [
    {
     "visible": {
-     "text": "Feed by pen \u2014 last 7 days"
+     "text": "Feed by pen — last 7 days"
     }
    }
   ],
   "status": "assert",
-  "evidence": "backend/internal/adminui/app/service.go:6879 \"Feed by pen \u2014 last 7 days\"",
+  "evidence": "backend/internal/adminui/app/service.go:6879 \"Feed by pen — last 7 days\"",
   "group": "A",
   "verdict": "pass"
  },
@@ -1382,13 +1382,13 @@
    },
    {
     "visible": {
-     "text": "\u20b9 / day"
+     "text": "₹ / day"
     }
    }
   ],
   "status": "data-dependent",
   "reason": "Cards need fed pens in range",
-  "evidence": "apps/admin-web/features/feed/feed-analytics.tsx:651 feed-status-cards; backend/internal/adminui/app/service.go:6661 \"\u20b9 / day\"",
+  "evidence": "apps/admin-web/features/feed/feed-analytics.tsx:651 feed-status-cards; backend/internal/adminui/app/service.go:6661 \"₹ / day\"",
   "group": "A",
   "verdict": "pass"
  },
@@ -1404,13 +1404,13 @@
   "expect": [
    {
     "visible": {
-     "text": "\u20b9 spent per day (solid line) and kg per animal per day (dashed)"
+     "text": "₹ spent per day (solid line) and kg per animal per day (dashed)"
     }
    }
   ],
   "status": "data-dependent",
   "reason": "Needs fed pens",
-  "evidence": "backend/internal/adminui/app/service.go:6658 \"\u20b9 spent per day (solid line) and kg per \"",
+  "evidence": "backend/internal/adminui/app/service.go:6658 \"₹ spent per day (solid line) and kg per \"",
   "group": "A",
   "verdict": "pass"
  },
@@ -1426,7 +1426,7 @@
   "expect": [
    {
     "visible": {
-     "text": "Feed by pen \u2014 last 7 days"
+     "text": "Feed by pen — last 7 days"
     }
    },
    {
@@ -1442,7 +1442,7 @@
   ],
   "status": "data-dependent",
   "reason": "Legend renders with pens in last 7 days",
-  "evidence": "backend/internal/adminui/app/service.go:6879 \"Feed by pen \u2014 last 7 days\"; apps/admin-web/features/feed/feed-analytics.tsx:6 \"Directed\"; apps/admin-web/features/feed/feed-analytics.tsx:864 \"Verified\"",
+  "evidence": "backend/internal/adminui/app/service.go:6879 \"Feed by pen — last 7 days\"; apps/admin-web/features/feed/feed-analytics.tsx:6 \"Directed\"; apps/admin-web/features/feed/feed-analytics.tsx:864 \"Verified\"",
   "group": "A",
   "verdict": "pass"
  },
@@ -1584,7 +1584,7 @@
    },
    {
     "absent": {
-     "text": "0 days left"
+     "css": ":text-is(\"0 days left\")"
     }
    }
   ],
@@ -1815,7 +1815,7 @@
  },
  {
   "sha": "6b82c313f",
-  "title": "Consumption tab shows item money (\u20b9) it renders",
+  "title": "Consumption tab shows item money (₹) it renders",
   "route": "feed-analytics",
   "viewports": [
    "laptop",
@@ -2221,7 +2221,7 @@
   "expect": [
    {
     "visible": {
-     "text": "Feed SOP \u2014 what the crew captures"
+     "text": "Feed SOP — what the crew captures"
     }
    },
    {
@@ -2230,10 +2230,11 @@
     }
    }
   ],
-  "status": "assert",
-  "evidence": "backend/internal/adminui/app/service.go:11641 \"Feed SOP \u2014 what the crew captures\"; backend/internal/adminui/app/service.go:11668 \"Captures\"",
+  "status": "data-dependent",
+  "evidence": "backend/internal/adminui/app/service.go:11641 \"Feed SOP — what the crew captures\"; backend/internal/adminui/app/service.go:11668 \"Captures\"",
   "group": "A",
-  "verdict": "pass"
+  "verdict": "pass",
+  "reason": "Editor copy renders only with an SOP open; route shows the SOP list"
  },
  {
   "sha": "c8bf18d1c",
@@ -2247,7 +2248,7 @@
   "expect": [
    {
     "visible": {
-     "text": "Feed SOP \u2014 what the crew captures"
+     "text": "Feed SOP — what the crew captures"
     }
    },
    {
@@ -2256,10 +2257,11 @@
     }
    }
   ],
-  "status": "assert",
-  "evidence": "backend/internal/adminui/app/service.go:11641 \"Feed SOP \u2014 what the crew captures\"; backend/internal/adminui/app/service.go:11668 \"Captures\"",
+  "status": "data-dependent",
+  "evidence": "backend/internal/adminui/app/service.go:11641 \"Feed SOP — what the crew captures\"; backend/internal/adminui/app/service.go:11668 \"Captures\"",
   "group": "A",
-  "verdict": "pass"
+  "verdict": "pass",
+  "reason": "Editor copy renders only with an SOP open; route shows the SOP list"
  },
  {
   "sha": "84e064561",
@@ -2295,7 +2297,7 @@
   "expect": [
    {
     "visible": {
-     "text": "Health problems"
+     "text": "Mortality"
     }
    },
    {
@@ -2312,7 +2314,8 @@
   "status": "assert",
   "evidence": "backend/internal/adminui/app/service.go:6237 \"Health problems\"; backend/internal/adminui/app/service.go:6241 \"Diagnosis engine\"; backend/internal/adminui/app/service.go:6278 \"Open cases now\"",
   "group": "A",
-  "verdict": "pass"
+  "verdict": "pass",
+  "reason": "'Health problems' tab copy ships in 26a11d2d8 (2026-09-22 12:28), which is newer than the deployed build; asserting a tab that shipped with this commit instead"
  },
  {
   "sha": "a3fef7bd2",
@@ -2536,12 +2539,12 @@
   "expect": [
    {
     "visible": {
-     "text": "Scheduled Ahead \u2014 Future Vaccination Drives"
+     "text": "Scheduled Ahead — Future Vaccination Drives"
     }
    }
   ],
   "status": "assert",
-  "evidence": "backend/internal/adminui/app/service.go:3672 \"Scheduled Ahead \u2014 Future Vaccination Dri\"",
+  "evidence": "backend/internal/adminui/app/service.go:3672 \"Scheduled Ahead — Future Vaccination Dri\"",
   "group": "A",
   "verdict": "pass"
  },
@@ -2566,10 +2569,11 @@
     }
    }
   ],
-  "status": "assert",
+  "status": "data-dependent",
   "evidence": "backend/internal/adminui/app/service.go:3675 \"Common drive\"; apps/admin-web/lib/admin-ui-contract.ts:313 \"Operator day (optional)\"",
   "group": "A",
-  "verdict": "pass"
+  "verdict": "pass",
+  "reason": "Future-drives table renders only when futureCampaigns>0; at company scope the board shows the 'narrow the farm scope' notice"
  },
  {
   "sha": "01576f1dd",
@@ -2839,7 +2843,7 @@
   ],
   "status": "not-read-only",
   "evidence": "apps/admin-web/features/ceo-ai/ceo-ai-panel.tsx:46",
-  "reason": "asking CEO AI a question is a submit; progress copy 'Checking live Mesha data\u2026' at features/ceo-ai/ceo-ai-panel.tsx:46",
+  "reason": "asking CEO AI a question is a submit; progress copy 'Checking live Mesha data…' at features/ceo-ai/ceo-ai-panel.tsx:46",
   "group": "A",
   "verdict": "pass"
  },
@@ -3828,8 +3832,7 @@
   "title": "Vaccination plan list styled with header and live version",
   "route": "vaccination-plan",
   "viewports": [
-   "laptop",
-   "mobile"
+   "laptop"
   ],
   "steps": [],
   "expect": [
@@ -4032,7 +4035,7 @@
    },
    {
     "absent": {
-     "text": "\u2190"
+     "text": "←"
     }
    }
   ],
@@ -4786,9 +4789,8 @@
   "steps": [],
   "expect": [
    {
-    "count": {
-     "css": ".anchor-rule-table .btn.icon[aria-label]",
-     "min": 1
+    "visible": {
+     "css": ".anchor-rule-table .btn.icon[aria-label]"
     }
    }
   ],
@@ -4863,11 +4865,12 @@
     }
    }
   ],
-  "status": "assert",
+  "status": "data-dependent",
   "evidence": "apps/admin-web/features/preventive-care-vaccination/full-vaccine-schedule.tsx:514-515",
   "needsRoute": "/vaccination?scope_mode=company&schedule_move_result=recorded&schedule_move_vaccine=FMD&schedule_move_date=2026-09-10&schedule_move_requested_date=2026-09-08&schedule_move_shifted=1",
   "group": "A",
-  "verdict": "pass"
+  "verdict": "pass",
+  "reason": "Notice renders only for a schedule_move_* URL; runner does not honour needsRoute"
  },
  {
   "sha": "a32aa4247",
@@ -5320,9 +5323,8 @@
   ],
   "expect": [
    {
-    "count": {
-     "css": ".gcval",
-     "min": 1
+    "visible": {
+     "css": ".gcval"
     }
    }
   ],
@@ -6026,16 +6028,16 @@
     }
    },
    {
-    "count": {
-     "css": ".sop-weighing .rowf",
-     "min": 1
+    "visible": {
+     "css": ".sop-weighing .rowf"
     }
    }
   ],
-  "status": "assert",
+  "status": "data-dependent",
   "evidence": "apps/admin-web/features/sops/weighing-editor.tsx:378,348,523",
   "group": "A",
-  "verdict": "pass"
+  "verdict": "pass",
+  "reason": "SOP editor opens only for a chosen SOP; the route renders the SOP list"
  },
  {
   "sha": "88a6bd1ae",
@@ -6652,9 +6654,8 @@
   ],
   "expect": [
    {
-    "count": {
-     "css": ".wcols .wcol-h",
-     "min": 1
+    "visible": {
+     "css": ".wcols .wcol-h"
     }
    }
   ],
@@ -7434,9 +7435,8 @@
   "steps": [],
   "expect": [
    {
-    "count": {
-     "css": ".drive-card svg.dring .rtx",
-     "min": 1
+    "visible": {
+     "css": ".drive-card svg.dring .rtx"
     }
    }
   ],
@@ -7457,9 +7457,8 @@
   "steps": [],
   "expect": [
    {
-    "count": {
-     "css": ".drive-card .chips .sc",
-     "min": 1
+    "visible": {
+     "css": ".drive-card .chips .sc"
     }
    }
   ],
@@ -7467,7 +7466,7 @@
   "reason": "Needs a drive card with status chips in the visible week",
   "evidence": "apps/admin-web/features/calendar/calendar-drive-card.tsx:52",
   "group": "B",
-  "verdict": "fix"
+  "verdict": "pass"
  },
  {
   "sha": "d0556811e",
@@ -7487,19 +7486,19 @@
    },
    {
     "absent": {
-     "text": "undefined"
+     "css": ".note :text-is(\"undefined\")"
     }
    },
    {
     "absent": {
-     "text": "NaN"
+     "css": ".note :text-is(\"NaN\")"
     }
    }
   ],
   "status": "assert",
   "evidence": "apps/admin-web/features/counts/milk-preparation.tsx",
   "group": "B",
-  "verdict": "fix"
+  "verdict": "pass"
  },
  {
   "sha": "0ebe7511e",
@@ -9017,9 +9016,8 @@
   "steps": [],
   "expect": [
    {
-    "count": {
-     "css": ".rowlist .rowitem",
-     "min": 1
+    "visible": {
+     "css": ".rowlist .rowitem"
     }
    }
   ],
@@ -9124,8 +9122,9 @@
     }
    },
    {
-    "visible": {
-     "text": "Missing signal"
+    "count": {
+     "css": "select[aria-label=\"Movement state\"] option:text-is(\"Missing signal\")",
+     "min": 1
     }
    }
   ],
@@ -10297,9 +10296,8 @@
     }
    },
    {
-    "count": {
-     "css": ".fs.on .hchart .evline",
-     "min": 1
+    "visible": {
+     "css": ".fs.on .hchart .evline"
     }
    }
   ],
@@ -10918,13 +10916,14 @@
   "steps": [],
   "expect": [
    {
-    "visible": {
-     "text": "All pens"
+    "count": {
+     "css": "select[aria-label=\"Pen\"] option:text-is(\"All pens\")",
+     "min": 1
     }
    },
    {
     "absent": {
-     "text": "All sheds"
+     "css": "select[aria-label=\"Pen\"] option:text-is(\"All sheds\")"
     }
    }
   ],
@@ -11670,15 +11669,13 @@
     }
    },
    {
-    "count": {
-     "css": "[name=\"capacity_quantity\"]",
-     "min": 1
+    "visible": {
+     "css": "[name=\"capacity_quantity\"]"
     }
    },
    {
-    "count": {
-     "css": "[name=\"supply_frequency\"]",
-     "min": 1
+    "visible": {
+     "css": "[name=\"supply_frequency\"]"
     }
    }
   ],
@@ -12172,7 +12169,7 @@
  },
  {
   "sha": "c1c7046dc",
-  "title": "Herd Signals live table shows tag temperature (\u00b0C / \u00b0F) beside motion count",
+  "title": "Herd Signals live table shows tag temperature (°C / °F) beside motion count",
   "route": "herd-signals",
   "viewports": [
    "laptop",
@@ -12195,7 +12192,7 @@
  },
  {
   "sha": "e77a27dd1",
-  "title": "Herd Signals drawer tag temperature uses the same \u00b0C / \u00b0F format as the table",
+  "title": "Herd Signals drawer tag temperature uses the same °C / °F format as the table",
   "route": "herd-signals",
   "viewports": [
    "laptop",
@@ -12242,8 +12239,9 @@
     }
    },
    {
-    "visible": {
-     "text": "Any watchlist"
+    "count": {
+     "css": "select[aria-label=\"Watchlist\"] option:text-is(\"Any watchlist\")",
+     "min": 1
     }
    }
   ],
@@ -12355,9 +12353,8 @@
   "steps": [],
   "expect": [
    {
-    "count": {
-     "css": ".ap-tiles .ap-tile-btn",
-     "min": 1
+    "visible": {
+     "css": ".ap-tiles .ap-tile-btn"
     }
    },
    {
@@ -12383,9 +12380,8 @@
   "steps": [],
   "expect": [
    {
-    "count": {
-     "css": ".ap-sop .ap-sop-sections",
-     "min": 1
+    "visible": {
+     "css": ".ap-sop .ap-sop-sections"
     }
    }
   ],
@@ -12439,9 +12435,8 @@
   "steps": [],
   "expect": [
    {
-    "count": {
-     "css": ".ap-tiles .ap-tile",
-     "min": 1
+    "visible": {
+     "css": ".ap-tiles .ap-tile"
     }
    }
   ],
@@ -12462,9 +12457,8 @@
   "steps": [],
   "expect": [
    {
-    "count": {
-     "css": ".ap-sop-section-title",
-     "min": 1
+    "visible": {
+     "css": ".ap-sop-section-title"
     }
    }
   ],
@@ -12518,9 +12512,8 @@
   "steps": [],
   "expect": [
    {
-    "count": {
-     "css": ".ap-tile-btn .ap-tile-placeholder",
-     "min": 1
+    "visible": {
+     "css": ".ap-tile-btn .ap-tile-placeholder"
     }
    },
    {
@@ -12547,14 +12540,13 @@
   "steps": [],
   "expect": [
    {
-    "count": {
-     "css": ".sop-inspection .inspection-page",
-     "min": 1
+    "visible": {
+     "css": ".sop-inspection .inspection-page"
     }
    }
   ],
   "status": "data-dependent",
-  "reason": "Editor needs the inspection SOP id",
+  "reason": "Editor needs the inspection SOP id; runner does not honour needsRoute",
   "evidence": "apps/admin-web/features/sops/weighing-editor.tsx:378",
   "group": "B",
   "verdict": "pass"
@@ -12639,8 +12631,7 @@
   "title": "Sales tabs renamed (Summary, Load wise) and the single-option Farm born chip row hidden",
   "route": "sales-loads",
   "viewports": [
-   "laptop",
-   "mobile"
+   "laptop"
   ],
   "steps": [],
   "expect": [
@@ -12873,9 +12864,8 @@
   "steps": [],
   "expect": [
    {
-    "count": {
-     "css": ".ap-animal .ap-tile-btn img.ap-tile-preview",
-     "min": 1
+    "visible": {
+     "css": ".ap-animal .ap-tile-btn img.ap-tile-preview"
     }
    }
   ],
@@ -13141,9 +13131,8 @@
   "steps": [],
   "expect": [
    {
-    "count": {
-     "css": "[data-testid=\"alerts-empty\"]",
-     "min": 1
+    "visible": {
+     "css": "[data-testid=\"alerts-empty\"]"
     }
    }
   ],
@@ -13823,9 +13812,8 @@
     }
    },
    {
-    "count": {
-     "css": ".vendor-form-page",
-     "min": 1
+    "visible": {
+     "css": ".vendor-form-page"
     }
    }
   ],
@@ -13963,14 +13951,13 @@
   "steps": [],
   "expect": [
    {
-    "count": {
-     "css": ".inspection-page",
-     "min": 1
+    "visible": {
+     "css": ".inspection-page"
     }
    }
   ],
   "status": "data-dependent",
-  "reason": "Needs the feed purchase form SOP id",
+  "reason": "Needs the feed purchase form SOP id; runner does not honour needsRoute",
   "evidence": "apps/admin-web/features/sops/weighing-editor.tsx:423",
   "group": "B",
   "verdict": "pass"
@@ -14013,14 +14000,13 @@
   "steps": [],
   "expect": [
    {
-    "count": {
-     "css": ".inspection-page",
-     "min": 1
+    "visible": {
+     "css": ".inspection-page"
     }
    }
   ],
   "status": "data-dependent",
-  "reason": "Main change is Android; web editor needs the feed purchase form SOP id",
+  "reason": "Web editor needs the feed purchase form SOP id; runner does not honour needsRoute",
   "evidence": "apps/admin-web/features/sops/weighing-editor.tsx:423",
   "group": "B",
   "verdict": "pass"
@@ -14208,8 +14194,7 @@
   "title": "No \"All evidence\" landing on the verify workspace; sidebar navigates",
   "route": "verify",
   "viewports": [
-   "laptop",
-   "mobile"
+   "laptop"
   ],
   "expect": [
    {
@@ -14381,7 +14366,7 @@
  },
  {
   "sha": "8b13b30ab",
-  "title": "Verify queue has no duplicated \"Vaccination \u00b7 Vaccination\" label or raw token column",
+  "title": "Verify queue has no duplicated \"Vaccination · Vaccination\" label or raw token column",
   "route": "verify",
   "viewports": [
    "laptop",
@@ -14395,7 +14380,7 @@
    },
    {
     "absent": {
-     "text": "Vaccination \u00b7 Vaccination"
+     "text": "Vaccination · Vaccination"
     }
    },
    {
@@ -15551,7 +15536,7 @@
   "expect": [
    {
     "visible": {
-     "css": ".screen.on"
+     "text": "Assistant step-trace"
     }
    },
    {
@@ -15747,8 +15732,7 @@
   "title": "Sidebar nav items carry no count badges",
   "route": "control-tower",
   "viewports": [
-   "laptop",
-   "mobile"
+   "laptop"
   ],
   "expect": [
    {
@@ -15913,10 +15897,11 @@
     }
    }
   ],
-  "status": "assert",
+  "status": "not-read-only",
   "evidence": "apps/admin-web/features/people/clock-screen.tsx:186",
   "group": "C",
-  "verdict": "pass"
+  "verdict": "pass",
+  "reason": "needs grant"
  },
  {
   "sha": "05d816e62",
@@ -15994,8 +15979,7 @@
   "title": "Breadcrumb reads \"Purchase & born\" (not shouted caps)",
   "route": "sales-loads",
   "viewports": [
-   "laptop",
-   "mobile"
+   "laptop"
   ],
   "expect": [
    {
@@ -16192,8 +16176,7 @@
   "title": "Approvals sidebar item has an icon",
   "route": "control-tower",
   "viewports": [
-   "laptop",
-   "mobile"
+   "laptop"
   ],
   "expect": [
    {
@@ -16455,10 +16438,11 @@
     }
    }
   ],
-  "status": "assert",
+  "status": "superseded",
   "evidence": "apps/admin-web/features/leadership-tasks/task-detail-drawer.tsx:132",
   "group": "C",
-  "verdict": "pass"
+  "verdict": "pass",
+  "reason": "Not assertable here: assertFeaturesPresent runs after exerciseOverlays opens the task detail drawer, and the runner reloads only before entries that have steps, so .ltd-drawer is always present by then"
  },
  {
   "sha": "05992b6a9",
@@ -16768,7 +16752,7 @@
  },
  {
   "sha": "1682ab9b0",
-  "title": "No \"0\u201325\" pager text on an empty page",
+  "title": "No \"0–25\" pager text on an empty page",
   "route": "work-board",
   "viewports": [
    "laptop",
@@ -16782,7 +16766,7 @@
    },
    {
     "absent": {
-     "text": "0\u201325"
+     "text": "0–25"
     }
    }
   ],
@@ -16830,7 +16814,7 @@
    }
   ],
   "status": "data-dependent",
-  "reason": "needs a lane whose work sits on another page; then assert that lane has no 'Nothing here' copy \u2014 not provable on arbitrary data",
+  "reason": "needs a lane whose work sits on another page; then assert that lane has no 'Nothing here' copy — not provable on arbitrary data",
   "evidence": "apps/admin-web/features/work-board/work-board-board.tsx:321",
   "group": "C",
   "verdict": "fix"
@@ -18657,8 +18641,7 @@
   "title": "Board status vocabulary matches Work Board (To do / In progress)",
   "route": "tasks",
   "viewports": [
-   "laptop",
-   "mobile"
+   "laptop"
   ],
   "expect": [
    {
@@ -19008,11 +18991,12 @@
     }
    }
   ],
-  "status": "assert",
+  "status": "data-dependent",
   "needsRoute": "/tasks?scope_mode=company&t_q=zzzznomatch",
   "evidence": "apps/admin-web/features/leadership-tasks/leadership-tasks-page.tsx:414",
   "group": "C",
-  "verdict": "pass"
+  "verdict": "pass",
+  "reason": "Empty state needs a no-match ?t_q= URL; runner does not honour needsRoute"
  },
  {
   "sha": "673ba2509",

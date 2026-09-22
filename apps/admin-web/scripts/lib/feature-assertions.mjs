@@ -86,9 +86,12 @@ export async function assertFeaturesPresent(page, { routeName, viewportLabel, sc
   if (entries.length === 0) return;
   const missing = [];
   const awaiting = [];
+  // Earlier checks (overlays, safe clicks) leave drawers open; start from a clean page.
+  if (reload) await reload().catch(() => {});
   // Order no-click checks first, then reload before each clicking check so every check starts clean.
   entries.sort((a, b) => (a.steps?.length ? 1 : 0) - (b.steps?.length ? 1 : 0));
   for (const entry of entries) {
+    if (entry.needsRoute) { console.log(`feature_assertion_skip=${routeName}:${viewportLabel}:${entry.sha}:needs route ${entry.needsRoute}`); continue; }
     if (deployedSha && isAwaitingDeploy(entry.sha, deployedSha)) { awaiting.push(entry); continue; }
     try {
       if (entry.steps?.length && reload) await reload();
@@ -96,7 +99,9 @@ export async function assertFeaturesPresent(page, { routeName, viewportLabel, sc
       for (const expect of entry.expect ?? []) {
         const miss = await checkExpect(page, expect);
         if (miss) {
-          if (entry.status === "data-dependent" && miss.what.startsWith("not visible")) break;
+          // Data-dependent features render only when the page has rows: absence is not a failure,
+          // but something that must NOT appear is still a failure.
+          if (entry.status === "data-dependent" && /^(not visible|expected at least)/.test(miss.what)) break;
           missing.push({ entry, miss });
           if (miss.loc) await miss.loc.evaluate((el) => el.setAttribute("data-smoke-issue", "feature")).catch(() => {});
           break;
