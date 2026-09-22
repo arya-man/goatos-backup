@@ -1850,7 +1850,7 @@ class SyncEngine(
      */
     private suspend fun dispatchPcCareTaskSubmit(item: OutboxEntity): String {
         val payload = syncJson.decodeFromString<PcCareTaskSubmitPayload>(item.payloadJson)
-        val response = api.submitPcCareTask(payload.taskId, item.idempotencyKey)
+        val response = api.submitPcCareTask(payload.taskId, item.idempotencyKey, payload.answers)
         return syncJson.encodeToString(response)
     }
 

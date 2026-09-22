@@ -53,7 +53,8 @@ WITH task AS (
 ),
 units AS (
   SELECT 'animal'::text AS kind, an.animal_row_id::text AS unit_id, an.scanned_identifier AS name,
-         an.scanned_at, (an.sop_proofs ?& k.required_slot_keys) AS slots_done,
+         -- FAIL CLOSED: the has-all-keys test is vacuously true against an empty list (source.go).
+         an.scanned_at, (cardinality(k.required_slot_keys) > 0 AND an.sop_proofs ?& k.required_slot_keys) AS slots_done,
          (SELECT count(*)::int FROM unnest(k.required_slot_keys) rk WHERE an.sop_proofs ? rk) AS slots_filled,
          cardinality(k.required_slot_keys) AS slots_required,
          (an.submitted_at IS NOT NULL) AS animal_submitted, an.scanned_by AS actor_id,
@@ -70,7 +71,7 @@ ranked AS (
   SELECT u.*, ` + pccareSubtaskRankSQL + ` AS rank, count(*) OVER () AS total
   FROM units u
 )
-SELECT r.kind, r.unit_id, r.name, r.scanned_at, r.video_done, r.triple_slots, r.animal_submitted,
+SELECT r.kind, r.unit_id, r.name, r.scanned_at, r.slots_done, r.slots_filled, r.slots_required, r.animal_submitted,
        r.category, r.task_status, r.work_state, r.rework_reason, r.rank, r.total,
        COALESCE(r.actor_id::text, ''), COALESCE(m.workforce_member_id::text, ''), COALESCE(m.display_name, '')
 FROM ranked r

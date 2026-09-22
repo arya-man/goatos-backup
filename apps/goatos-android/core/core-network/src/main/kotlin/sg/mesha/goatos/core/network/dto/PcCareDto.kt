@@ -1,6 +1,7 @@
 package sg.mesha.goatos.core.network.dto
 
 import kotlinx.serialization.SerialName
+import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.Serializable
 
 /**
@@ -23,6 +24,14 @@ data class PcCareSlotDto(
     @SerialName("description") val description: String = "",
     /** Recorder-chrome GUIDANCE (the ~10 s "while trimming" clip), never a client-enforced cap. */
     @SerialName("min_duration_hint_seconds") val minDurationHintSeconds: Int = 0,
+    /**
+     * The capture this slot takes: `video`, `photo` or `either` (PC CARE SOP, 2026-09-22 —
+     * the slots are authored on /pc-care/sops). An older server sends none; blank reads as a
+     * video, which every seeded slot is.
+     */
+    @SerialName("kind") val kind: String = "",
+    /** Whether the task can be submitted without this capture on every animal. */
+    @SerialName("required") val required: Boolean = true,
 )
 
 @Serializable
@@ -62,6 +71,46 @@ data class PcCareTaskDto(
     @SerialName("expected_slots") val expectedSlots: List<PcCareSlotDto> = emptyList(),
     @SerialName("inventory_requirements") val inventoryRequirements: List<PcCareInventoryRequirementDto> = emptyList(),
     @SerialName("task_proofs") val taskProofs: List<PcCareTaskProofDto> = emptyList(),
+    /**
+     * The SOP version this task was PLANNED on and runs under to the end, and that version's
+     * rules as this phone reads them (PC CARE SOP, 2026-09-22). The questions the operator
+     * answers at submit come from [sop]; the captures come from [expectedSlots], which the
+     * server already composed from the same pinned card.
+     */
+    @SerialName("sop_version") val sopVersion: Int = 0,
+    @SerialName("sop") val sop: PcCareSopDto? = null,
+)
+
+/** The compiled PC Care rules at one version — the planner's published set, or a task's pinned one. */
+@Serializable
+data class PcCareSopDto(
+    @SerialName("version") val version: Int = 0,
+    @SerialName("feed_water_removal") val feedWaterRemoval: PcCareSopRemovalDto = PcCareSopRemovalDto(),
+    @SerialName("categories") val categories: Map<String, PcCareSopCategoryDto> = emptyMap(),
+)
+
+/**
+ * The evening-before feed & water removal rules. [mode] is `required` (every task of a listed
+ * category carries it, the planner is not asked), `optional` (the planner decides per task) or
+ * `off` (never offered); [appliesTo] names the categories it may accompany; [cutoffTime] is the
+ * EFFECTIVE evening the server resolved, so the phone renders it and never works it out.
+ */
+@Serializable
+data class PcCareSopRemovalDto(
+    @SerialName("mode") val mode: String = "optional",
+    @SerialName("applies_to") val appliesTo: List<String> = emptyList(),
+    @SerialName("cutoff_time") val cutoffTime: String = "",
+    @SerialName("instruction") val instruction: String = "",
+    @SerialName("proofs") val proofs: List<WeighingRemovalProofSlotDto> = emptyList(),
+    @SerialName("questions") val questions: List<WeighingSopQuestionDto> = emptyList(),
+)
+
+/** One work category's card: what the operator is told, records per animal, and answers at submit. */
+@Serializable
+data class PcCareSopCategoryDto(
+    @SerialName("instruction") val instruction: String = "",
+    @SerialName("proofs") val proofs: List<PcCareSlotDto> = emptyList(),
+    @SerialName("questions") val questions: List<WeighingSopQuestionDto> = emptyList(),
 )
 
 @Serializable
@@ -167,6 +216,12 @@ data class PcCarePlannerCatalogDto(
     @SerialName("parks") val parks: List<PcCarePlannerParkDto> = emptyList(),
     @SerialName("operators") val operators: List<PcCarePlannerOperatorDto> = emptyList(),
     @SerialName("categories") val categories: List<PcCareCategoryDto> = emptyList(),
+    /**
+     * The PUBLISHED rules a task planned now is stamped with (PC CARE SOP, 2026-09-22). The
+     * wizard renders the removal mode, the work it applies to and the effective evening from
+     * this, never from a constant of its own.
+     */
+    @SerialName("sop") val sop: PcCareSopDto? = null,
 )
 
 @Serializable
@@ -340,6 +395,11 @@ data class PcCareRemovalPenDto(
     @SerialName("pen_label") val penLabel: String = "",
     @SerialName("feed_proof_ref") val feedProofRef: String = "",
     @SerialName("water_proof_ref") val waterProofRef: String = "",
+    /**
+     * Every capture the pinned removal card asked for on this pen, keyed by slot (PC CARE SOP,
+     * 2026-09-22). The legacy pair above mirrors the seeded feed_video / water_video keys.
+     */
+    @SerialName("sop_proofs") val sopProofs: Map<String, String> = emptyMap(),
     @SerialName("status") val status: String = "",
     @SerialName("rework_reason") val reworkReason: String = "",
     @SerialName("row_version") val rowVersion: Int = 0,
@@ -354,6 +414,16 @@ data class PcCareRemovalPenListDto(
 data class PcCareRemovalPenProofRequestDto(
     @SerialName("gated_task_id") val gatedTaskId: String,
     @SerialName("proof_ref") val proofRef: String,
+)
+
+/**
+ * The submit body: the answers to the pinned card's questions, given once for the whole task
+ * (PC CARE SOP, 2026-09-22). An older phone sends no body at all, which is a task with no
+ * answers -- exactly what the seeded card asks for.
+ */
+@Serializable
+data class PcCareSubmitRequestDto(
+    @SerialName("answers") val answers: JsonObject = JsonObject(emptyMap()),
 )
 
 @Serializable

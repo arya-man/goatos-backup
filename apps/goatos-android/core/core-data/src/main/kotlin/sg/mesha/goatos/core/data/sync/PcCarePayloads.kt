@@ -1,6 +1,7 @@
 package sg.mesha.goatos.core.data.sync
 
 import kotlinx.serialization.SerialName
+import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.Serializable
 
 /**
@@ -44,8 +45,24 @@ fun pcCareTaskProofIdempotencyKey(
 
 /** STABLE per (task, row version): a retry replays for free, while a submit after a verifier
  *  rework (which bumps row_version) is a genuinely new act under a new key. */
-fun pcCareSubmitIdempotencyKey(taskId: String, rowVersion: Int): String =
-	"pc-care:submit:$taskId:rv:$rowVersion"
+fun pcCareSubmitIdempotencyKey(taskId: String, rowVersion: Int, answers: JsonObject = JsonObject(emptyMap())): String {
+	val base = "pc-care:submit:$taskId:rv:$rowVersion"
+	// A CORRECTED answer over the same captures must be a new act, not a replay of the submission
+	// the server refused (the weighing fasting card's lesson, PR #274 review finding 1). A card
+	// with NO answers keeps the pre-SOP key shape byte for byte, so an in-flight row still drains.
+	val digest = pcCareAnswersDigest(answers)
+	return if (digest.isEmpty()) base else "$base:a=$digest"
+}
+
+/** A stable short digest of the answers, order-independent (the map is serialized sorted). */
+private fun pcCareAnswersDigest(answers: JsonObject): String {
+	if (answers.isEmpty()) return ""
+	val canonical = answers.entries.sortedBy { it.key }.joinToString("&") { "${it.key}=${it.value}" }
+	return java.security.MessageDigest.getInstance("SHA-256")
+		.digest(canonical.toByteArray())
+		.joinToString("") { "%02x".format(it) }
+		.take(16)
+}
 
 /**
  * Outbox payload for [sg.mesha.goatos.core.database.outbox.OutboxOpType.PC_CARE_SCAN_ADD] —
@@ -103,4 +120,11 @@ data class PcCareTaskProofRegisterPayload(
 data class PcCareTaskSubmitPayload(
     @SerialName("task_id") val taskId: String,
     @SerialName("row_version") val rowVersion: Int,
+    /**
+     * The operator's answers to the task's PINNED SOP questions (PC CARE SOP, 2026-09-22), given
+     * once for the whole task at submit. Absent on a row queued before this build, which is a
+     * task with no answers -- exactly what the seeded card asks for, so an in-flight row drains
+     * unchanged.
+     */
+    @SerialName("answers") val answers: JsonObject = JsonObject(emptyMap()),
 )

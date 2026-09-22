@@ -1,5 +1,6 @@
 package sg.mesha.goatos.core.network
 
+import kotlinx.serialization.json.JsonObject
 import java.util.Locale
 import java.util.concurrent.TimeUnit
 import kotlinx.serialization.json.Json
@@ -83,6 +84,7 @@ import sg.mesha.goatos.core.network.dto.PcCareScanRequestDto
 import sg.mesha.goatos.core.network.dto.PcCareScanResponseDto
 import sg.mesha.goatos.core.network.dto.PcCareSlotProofRequestDto
 import sg.mesha.goatos.core.network.dto.PcCareStockVerdictRequestDto
+import sg.mesha.goatos.core.network.dto.PcCareSubmitRequestDto
 import sg.mesha.goatos.core.network.dto.PcCareSubmitResponseDto
 import sg.mesha.goatos.core.network.dto.PcCareTaskDto
 import sg.mesha.goatos.core.network.dto.PcCareTaskPageDto
@@ -923,6 +925,7 @@ interface AppApiService {
     suspend fun submitPcCareTask(
         @Path("task_id") taskId: String,
         @Header("Idempotency-Key") idempotencyKey: String,
+        @Body request: PcCareSubmitRequestDto,
     ): PcCareSubmitResponseDto
 
     @GET("app/pc-care/planner/catalog")
@@ -2355,7 +2358,8 @@ class RetrofitAppApi(
     override suspend fun submitPcCareTask(
         taskId: String,
         idempotencyKey: String,
-    ): PcCareSubmitResponseDto = service.submitPcCareTask(taskId, idempotencyKey)
+        answers: JsonObject,
+    ): PcCareSubmitResponseDto = service.submitPcCareTask(taskId, idempotencyKey, PcCareSubmitRequestDto(answers))
 
     override suspend fun getPcCarePlannerCatalog(): PcCarePlannerCatalogDto =
         service.getPcCarePlannerCatalog()
