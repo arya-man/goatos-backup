@@ -201,6 +201,7 @@ function buildRoutes({ toxinSopId, goatId, procurementLoadId, workflowRowId, cal
     { name: "weighing-analytics-load", path: `/weighing/analytics?scope_mode=company&tab=load&wt_from=${smokeWideWindowFrom}&wt_to=${smokeWideWindowTo}` },
     { name: "weighing-analytics-fcr", path: `/weighing/analytics?scope_mode=company&tab=fcr&wt_from=${smokeWideWindowFrom}&wt_to=${smokeWideWindowTo}` },
     { name: "weighing-sops", path: "/weighing/sops?scope_mode=company" },
+    { name: "pc-care-sops", path: "/pc-care/sops?scope_mode=company" },
     { name: "weighing-weights", path: `/weighing/weights?scope_mode=company&wt_from=${smokeWideWindowFrom}&wt_to=${smokeWideWindowTo}` },
     { name: "counts-sops", path: "/counts/sops?scope_mode=company" },
     { name: "counts-sops-builder", path: "/counts/sops?compose=1&scope_mode=company" },

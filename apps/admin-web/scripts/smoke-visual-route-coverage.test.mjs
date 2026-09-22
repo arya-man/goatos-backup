@@ -93,6 +93,7 @@ test("visual smoke visits every live sidebar navigation leaf", () => {
     ["weighing-analytics-load", "/weighing/analytics?scope_mode=company&tab=load&wt_from=${dynamic}&wt_to=${dynamic}"],
     ["weighing-analytics-fcr", "/weighing/analytics?scope_mode=company&tab=fcr&wt_from=${dynamic}&wt_to=${dynamic}"],
     ["weighing-sops", "/weighing/sops?scope_mode=company"],
+    ["pc-care-sops", "/pc-care/sops?scope_mode=company"],
     ["weighing-weights", "/weighing/weights?scope_mode=company&wt_from=${dynamic}&wt_to=${dynamic}"],
     ["counts-analytics", "/counts/analytics?scope_mode=company"],
     ["counts-mortality", "/counts/mortality?scope_mode=company"],

@@ -484,6 +484,33 @@
         "tasks",
         "configuration"
       ]
+    },
+    {
+      "id": "pc-care",
+      "owner": "preventive-care",
+      "routes": [
+        "pc-care-sops"
+      ],
+      "assertText": [
+        "Preventive Care SOP",
+        "Preventive Care tasks"
+      ],
+      "safeClicks": [
+        {
+          "css": "div.card[role=button]",
+          "optional": true,
+          "requireObserved": true
+        },
+        {
+          "role": "button",
+          "name": "Close",
+          "optional": true
+        }
+      ],
+      "coverage": [
+        "sop-read",
+        "detail-drawer"
+      ]
     }
   ]
 }
