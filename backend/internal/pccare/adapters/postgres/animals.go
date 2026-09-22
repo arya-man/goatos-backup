@@ -67,7 +67,10 @@ FOR UPDATE`, tenantID, taskID).Scan(&category, &status, &workState, &slotKeys)
 // than accepting anything: an empty list must never read as "every key is fine".
 func acceptsSlot(category string, slotKeys []string, key string) bool {
 	if len(slotKeys) == 0 {
-		slotKeys = slotKeysOrSeeded(category, nil, false)
+		// An unresolvable card leaves the list empty on purpose here: the loop below then matches
+		// nothing and the slot is REFUSED, which is the fail-closed answer this test wants. The
+		// error is the create path's to report, not this predicate's.
+		slotKeys, _ = slotKeysOrSeeded(category, nil, false)
 	}
 	for _, k := range slotKeys {
 		if k == key {

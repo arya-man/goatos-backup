@@ -441,6 +441,18 @@ var (
 	// ErrNoAnimals is returned when a submit arrives on a task with zero scanned animals —
 	// there is nothing for a verifier to review. Surfaces as 422 no_animals.
 	ErrNoAnimals = errors.New("pccare: no animals scanned in this task")
+	// ErrProofRulesUnresolved is returned when a task's card cannot be resolved to a single
+	// compulsory capture — neither the task's own snapshot nor the seeded rules for its category
+	// name one. It is a CONFIGURATION fault, not an operator one, and it is deliberately NOT
+	// ErrProofIncomplete: the operator's proof is not incomplete, the standard their work would
+	// be judged against is missing. Surfaces as 422 proof_rules_unresolved.
+	//
+	// It exists because an empty key list is not inert downstream. Readiness is
+	// `sop_proofs ?& required_slot_keys`, and `?&` against an empty array is vacuously TRUE, so an
+	// empty list reads as "every animal is complete" rather than "nothing is required" — a task
+	// nobody filmed would submit clean. Unresolved and nothing-required must never be spelled the
+	// same way, so the resolver refuses rather than answering with the empty list.
+	ErrProofRulesUnresolved = errors.New("pccare: this work's card names no compulsory capture")
 	// ErrInvalidSlotForCategory is returned when the named slot is not one of the task
 	// category's expected slots. Surfaces as 422 invalid_slot.
 	ErrInvalidSlotForCategory = errors.New("pccare: slot is not valid for this task's category")

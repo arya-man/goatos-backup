@@ -129,9 +129,15 @@ func (r *Repository) CreateRound(ctx context.Context, p ports.CreateRoundParams)
 	// ONE set-based insert for every pen bucket. ON CONFLICT DO NOTHING lets the natural
 	// key (one live task per category/pen/day) refuse a pen already planned; anything less
 	// than the full pen set coming back means the round cannot be planned whole.
+	// Every pen task states what will prove it before any of them exists: a card that cannot be
+	// resolved fails the whole round rather than planning pens whose readiness passes vacuously.
+	slotKeys, requiredSlotKeys, err := taskSlotSnapshot(p.Category, p.SlotKeys, p.RequiredSlotKeys)
+	if err != nil {
+		return ports.RoundRow{}, err
+	}
 	rows, err := tx.Query(ctx, roundTasksInsertSQL,
 		p.TenantID, p.Category, p.ParkID, shedIDs, partitionLabels, plannedDate, roundID, p.CreatedBy,
-		p.SOPVersion, slotKeysOrSeeded(p.Category, p.SlotKeys, false), slotKeysOrSeeded(p.Category, p.RequiredSlotKeys, true))
+		p.SOPVersion, slotKeys, requiredSlotKeys)
 	if err != nil {
 		return ports.RoundRow{}, fmt.Errorf("pccare: insert round pen tasks: %w", err)
 	}
@@ -233,11 +239,15 @@ func createRoundRemoval(
 ) error {
 	removalDate := p.PlannedBusinessDate.AddDate(0, 0, -1).Format("2006-01-02")
 
+	removalSlotKeys, removalRequiredKeys, err := taskSlotSnapshot(domain.CategoryFeedWaterRemoval, p.RemovalSlotKeys, p.RemovalRequiredSlotKeys)
+	if err != nil {
+		return err
+	}
+
 	var removalTaskID string
-	err := tx.QueryRow(ctx, roundRemovalInsertSQL,
+	err = tx.QueryRow(ctx, roundRemovalInsertSQL,
 		p.TenantID, p.ParkID, removalDate, roundID, p.IdempotencyKey+":fasting", p.CreatedBy, p.SOPVersion,
-		slotKeysOrSeeded(domain.CategoryFeedWaterRemoval, p.RemovalSlotKeys, false),
-		slotKeysOrSeeded(domain.CategoryFeedWaterRemoval, p.RemovalRequiredSlotKeys, true),
+		removalSlotKeys, removalRequiredKeys,
 	).Scan(&removalTaskID)
 	if errors.Is(err, pgx.ErrNoRows) {
 		// A live removal card already gates this round. The pair cannot be planned whole,
