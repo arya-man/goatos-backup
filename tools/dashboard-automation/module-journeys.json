@@ -40,7 +40,8 @@
         "weighing-analytics-fcr",
         "weighing-sops",
         "weighing-analytics-time-month",
-        "weighing-weights-metric-weight"
+        "weighing-weights-metric-weight",
+        "weighing-sop-flow"
       ],
       "assertText": [
         "Weighing",
@@ -95,6 +96,11 @@
           "role": "button",
           "name": "Close",
           "optional": true
+        },
+        {
+          "role": "button",
+          "name": "View settings",
+          "optional": true
         }
       ],
       "coverage": [
@@ -121,7 +127,10 @@
         "feed-sops",
         "feed-analytics-consumption-status",
         "feed-analytics-consumption-general",
-        "feed-analytics-spend-per-animal"
+        "feed-analytics-spend-per-animal",
+        "feed-analytics-range-61",
+        "feed-analytics-range-92",
+        "feed-sop-flow"
       ],
       "assertText": [
         "Feed",
@@ -162,7 +171,9 @@
         "sales-farm-born",
         "sales-config",
         "sales-vendors",
-        "sales-sops"
+        "sales-sops",
+        "sales-farm-value-tolerance",
+        "sales-sop-flow"
       ],
       "assertText": [
         "Sales",
@@ -182,6 +193,11 @@
         {
           "role": "button",
           "name": "Close",
+          "optional": true
+        },
+        {
+          "role": "link",
+          "name": "Next",
           "optional": true
         }
       ],
@@ -254,7 +270,9 @@
         "herd-signals-alerts",
         "herd-signals-gateways",
         "herd-signals-insights",
-        "goat-passport"
+        "goat-passport",
+        "counts-analytics-window",
+        "counts-sop-flow"
       ],
       "assertText": [
         "Herd",
@@ -346,7 +364,8 @@
         "verification",
         "actions",
         "control-tower",
-        "verify-video-log-open"
+        "verify-video-log-open",
+        "verify-capture-window-desc"
       ],
       "assertText": [
         "Action Center",
@@ -362,6 +381,16 @@
         {
           "role": "button",
           "name": "Close",
+          "optional": true
+        },
+        {
+          "role": "link",
+          "name": "Next page",
+          "optional": true
+        },
+        {
+          "role": "link",
+          "name": "Previous page",
           "optional": true
         }
       ],
@@ -467,7 +496,8 @@
         "configuration-items",
         "configuration-work-instructions",
         "tasks-list",
-        "tasks-overdue"
+        "tasks-overdue",
+        "tasks-search"
       ],
       "assertText": [
         "Operations",
@@ -484,6 +514,11 @@
         {
           "role": "button",
           "name": "Close",
+          "optional": true
+        },
+        {
+          "role": "link",
+          "name": "Previous day",
           "optional": true
         }
       ],
