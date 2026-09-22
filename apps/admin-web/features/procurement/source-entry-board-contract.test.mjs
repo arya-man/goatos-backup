@@ -5,6 +5,8 @@ import { dirname, join } from "node:path";
 
 const here = dirname(fileURLToPath(import.meta.url));
 const source = readFileSync(join(here, "source-entry-board.tsx"), "utf8");
+const loadDetail = readFileSync(join(here, "load-detail.tsx"), "utf8");
+const css = readFileSync(join(here, "../../app/mesha-theme.css"), "utf8");
 
 assert.match(
   source,
@@ -35,3 +37,10 @@ assert.match(
   /goatsInLoad: detail \? String\(\(detail\.goats \?\? \[\]\)\.length\) : copy\(pageContract, "label\.placeholder"\)/,
   "drawer goat count must render unavailable when detail was not fetched, not 0",
 );
+
+assert.match(source, /<table className="source-loads-table">/, "source-entry loads table must keep its scoped class");
+assert.match(css, /\.main table\.source-loads-table\{min-width:1180px\}/, "source-entry table must own enough width for mobile scroll");
+assert.match(css, /\.main table\.source-loads-table th,\s*\.main table\.source-loads-table td,\s*\.main table\.source-loads-table td \.celllink\{white-space:nowrap/, "source-entry table links must not clip/wrap status labels");
+assert.match(css, /\.main table\.source-loads-table th:nth-child\(9\),\.main table\.source-loads-table td:nth-child\(9\)\{min-width:172px\}/, "source-entry status column must fit Accepted intake");
+assert.match(loadDetail, /className="twrap"[\s\S]*?<table className="procurement-load-goats-table">/, "load detail animal table must use the standard mobile scroll owner");
+assert.match(css, /\.main table\.procurement-load-goats-table\{min-width:1280px\}/, "load detail animal table must stay horizontally scrollable on mobile");

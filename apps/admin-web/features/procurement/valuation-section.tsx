@@ -56,7 +56,7 @@ export function ValuationSection({
         <form action={formAction} aria-busy={pending} className="valuation-form">
           <input type="hidden" name="row_version" value={v.row_version} />
           <input type="hidden" name="bucket_keys" value={v.buckets.map((b) => b.bucket).join(",")} />
-          <div className="tbl-wrap">
+          <div className="tablewrap sales-valuation-tablewrap">
             <table className="tbl">
               <thead>
                 <tr>

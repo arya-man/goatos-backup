@@ -37,7 +37,8 @@ if (state.lastSignature === signature && now - Number(state.lastPostedAtMs ?? 0)
 const message = formatSlackMessage(receipt, decision.kind, receiptPath);
 if (containsUnredactedSecret(JSON.stringify(message))) fail("refusing to send Slack message that appears to contain an unredacted secret");
 
-await postSlack(message);
+const screenshotFiles = screenshotPaths(receipt, receiptPath);
+await postSlack(message, screenshotFiles);
 writeState(statePath, { lastSignature: signature, lastPostedAtMs: now, lastStatus: receipt.status ?? "unknown" });
 console.log(`dashboard Slack notify: posted ${decision.kind}`);
 
@@ -271,10 +272,29 @@ function selfHealingPrUrl(value) {
   return text.match(/https:\/\/github\.com\/[^\s)]+\/pull\/\d+/)?.[0] ?? null;
 }
 
-async function postSlack(payload) {
+function screenshotPaths(value, receiptFile) {
+  const root = path.dirname(receiptFile);
+  const text = [
+    ...(value.layers ?? []).map((layer) => layer.message ?? ""),
+    ...(value.blockers ?? []).map((blocker) => blocker.message ?? JSON.stringify(blocker)),
+  ].join("\n");
+  const found = [];
+  for (const match of text.matchAll(/screenshot_path=([^\s]+)/g)) {
+    const raw = redactText(match[1]);
+    const absolute = path.isAbsolute(raw) ? raw : path.resolve(repo, raw);
+    const fallback = path.resolve(root, raw);
+    const file = existsSync(absolute) ? absolute : existsSync(fallback) ? fallback : null;
+    if (file && !found.includes(file)) found.push(file);
+    if (found.length >= 4) break;
+  }
+  return found;
+}
+
+async function postSlack(payload, screenshots = []) {
   if (process.env.GOATOS_DASHBOARD_SLACK_DRY_RUN === "1") {
     console.log(payload.text);
     console.log(JSON.stringify(payload.blocks, null, 2));
+    for (const file of screenshots) console.log(`dashboard Slack notify: would upload screenshot ${path.relative(repo, file)}`);
     return;
   }
   const webhook = process.env.GOATOS_DASHBOARD_SLACK_WEBHOOK_URL?.trim();
@@ -303,6 +323,26 @@ async function postSlack(payload) {
   });
   const body = await response.json().catch(async () => ({ ok: false, error: await response.text() }));
   if (!response.ok || !body.ok) throw new Error(`Slack chat.postMessage failed: ${redactText(JSON.stringify(body))}`);
+  for (const file of screenshots) {
+    await uploadSlackScreenshot(token, channel, file);
+  }
+}
+
+async function uploadSlackScreenshot(token, channel, file) {
+  const form = new FormData();
+  const data = new Blob([readFileSync(file)], { type: "image/png" });
+  form.set("channels", channel);
+  form.set("file", data, path.basename(file));
+  form.set("filename", path.basename(file));
+  form.set("title", path.basename(file));
+  form.set("initial_comment", `Failure screenshot: \`${redactText(path.relative(repo, file))}\``);
+  const response = await fetch("https://slack.com/api/files.upload", {
+    method: "POST",
+    headers: { "Authorization": `Bearer ${token}` },
+    body: form
+  });
+  const body = await response.json().catch(async () => ({ ok: false, error: await response.text() }));
+  if (!response.ok || !body.ok) throw new Error(`Slack files.upload failed: ${redactText(JSON.stringify(body))}`);
 }
 
 function alertSignature(value, kind) {

@@ -218,5 +218,7 @@ test("vaccination schedule table is visually bounded on desktop", () => {
     "Full schedule table must not force right-edge columns off-screen at desktop widths.",
   );
   assert.match(css, /\.full-vaccine-schedule-table\{[^}]*width\s*:\s*100%/);
+  assert.match(css, /\.vaccination-schedule-tablewrap\{[^}]*overflow-x\s*:\s*auto/);
+  assert.match(source, /className="bd tablewrap vaccination-schedule-tablewrap"/);
   assert.match(css, /\.full-vaccine-schedule-table th:nth-child\(6\)/);
 });

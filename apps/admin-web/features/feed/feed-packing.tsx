@@ -251,7 +251,7 @@ export async function FeedPackingPage({
         {!lifecycleEmpty ? (
         <>
         <div
-          className="bd feed-scroll"
+          className="bd tablewrap feed-stock-tablewrap feed-scroll"
           style={{ padding: 0, overflowX: "auto" }}
           tabIndex={0}
           role="group"

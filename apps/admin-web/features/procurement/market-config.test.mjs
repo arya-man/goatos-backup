@@ -5,6 +5,8 @@ import { test } from "node:test";
 const section = readFileSync(new URL("./market-config-section.tsx", import.meta.url), "utf8");
 const form = readFileSync(new URL("./market-config-form.tsx", import.meta.url), "utf8");
 const actions = readFileSync(new URL("./market-actions.ts", import.meta.url), "utf8");
+const valuation = readFileSync(new URL("./valuation-section.tsx", import.meta.url), "utf8");
+const css = readFileSync(new URL("../../app/mesha-theme.css", import.meta.url), "utf8");
 
 // Maintainer report 2026-09-15: "when I add any city or make any change the whole page is
 // loading and I am going to top". The market forms used to redirect back to the page with
@@ -41,4 +43,10 @@ test("the wrapper composes no copy of its own: outcomes come resolved from the p
   assert.match(section, /copy\(pageContract, "action\.market_city_saved"\)/);
   assert.match(section, /copy\(pageContract, "action\.market_duplicate"\)/);
   assert.match(form, /outcomes\[state\.code\]/);
+});
+
+test("sales valuation table has a mobile horizontal scroll owner", () => {
+  assert.match(valuation, /className="tablewrap sales-valuation-tablewrap"/);
+  assert.match(css, /\.sales-valuation-tablewrap\{[^}]*overflow-x:auto/);
+  assert.match(css, /\.sales-valuation-tablewrap\{[^}]*-webkit-overflow-scrolling:touch/);
 });
