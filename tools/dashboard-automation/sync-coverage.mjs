@@ -14,6 +14,7 @@
 //   node tools/dashboard-automation/sync-coverage.mjs --check
 //   node tools/dashboard-automation/sync-coverage.mjs --write
 //   node tools/dashboard-automation/sync-coverage.mjs --self-test
+import assert from "node:assert/strict";
 import { spawnSync } from "node:child_process";
 import { existsSync, readFileSync, readdirSync, realpathSync, writeFileSync } from "node:fs";
 import { dirname, join, resolve } from "node:path";
@@ -148,10 +149,15 @@ export function tokenIsStale(token, haystack, haystackLower) {
   return !haystack.includes(token.value);
 }
 
-export function readLedger(dir = ledgerDir) {
+// Lane 1's own ledger, by name. This used to be "every .jsonl in the directory", which quietly
+// swallowed the lane 2-5 ledgers added later and made lane 1 believe it covered an Android commit.
+export const LANE1_LEDGER_FILES = ["p1.jsonl", "p2.jsonl", "p3.jsonl", "p4.jsonl", "sync.jsonl", "web-A.jsonl", "web-B.jsonl", "web-C.jsonl"];
+
+export function readLedger(dir = ledgerDir, files = LANE1_LEDGER_FILES) {
   const rows = [];
   if (!existsSync(dir)) return rows;
-  for (const file of readdirSync(dir).filter((n) => n.endsWith(".jsonl")).sort()) {
+  const present = new Set(readdirSync(dir).filter((n) => n.endsWith(".jsonl")));
+  for (const file of files.filter((n) => present.has(n)).sort()) {
     for (const [i, line] of readFileSync(join(dir, file), "utf8").split("\n").entries()) {
       if (!line.trim()) continue;
       try {
@@ -195,6 +201,19 @@ export function defaultGitPort(ref = "origin/main") {
       return chunks.join("\n");
     },
     lastTouchedBy: (file) => git(["log", "-1", "--abbrev=9", "--format=%h", ref, "--", file]).trim() || null,
+    // Shas only. The lane half asks "is this commit accounted for", not "what did it touch",
+    // so one cheap log over the whole window is enough for the common case.
+    commitsInWindow: () => parseLog(git(["log", "--no-merges", "--abbrev=9", "--date=short", `--since=${COVERAGE_WINDOW}`, "--format=%x00%h%x1f%cd%x1f%s", ref])),
+    // File names for a handful of shas only. Asking for --name-only across the whole window
+    // would be thousands of commits of output on every guard run, to answer a question about
+    // the few that are not yet in a ledger.
+    filesFor: (shas) => {
+      const out = [];
+      for (let i = 0; i < shas.length; i += 400) {
+        out.push(...parseLog(git(["log", "--no-walk=unsorted", "--no-merges", "--abbrev=9", "--name-only", "--date=short", "--format=%x00%h%x1f%cd%x1f%s", ...shas.slice(i, i + 400)])));
+      }
+      return out;
+    },
   };
 }
 
@@ -339,6 +358,319 @@ export function summarizePlan(plan) {
   return `coverage-sync: ${plan.newCommits.length} new commit(s) need smoke coverage, ${plan.stale.length} assertion(s) need review (since ${plan.since ?? "<unseeded>"})`;
 }
 
+// ---------------------------------------------------------------- lanes 2-5 coverage
+//
+// Lane 1 keeps its own assertion-level bookkeeping above. This half guards the DIFFERENT
+// promise made by tools/dashboard-automation/lane-checks.json: that EVERY commit on
+// origin/main since 2026-08-01 is accounted for exactly once across lane 1, lanes 2-5 and
+// the parked list. A commit landing on main that no lane covers fails the guard here, so
+// "every commit since Aug 1" cannot quietly decay into "every commit up to the day someone
+// last looked".
+
+// Pinned on purpose. A bare `--since=2026-08-01` is a git approxidate: with no time given git
+// fills in the CURRENT time of day, so the same command returns a different commit set at 03:00
+// and at 12:00, and the coverage claim stops being reproducible. Farm-local midnight, always.
+export const COVERAGE_WINDOW = "2026-08-01T00:00:00+05:30";
+
+export const LANE_LEDGER_FILES = {
+  lane2: "lane2.jsonl",
+  lane3: "lane3.jsonl",
+  lane4: "lane4.jsonl",
+  "lane5-android": "lane5-android.jsonl",
+  "not-automatable": "not-automatable.jsonl",
+  // Where --write parks a commit that has landed but that no human has routed to a lane yet.
+  // It is COVERED for the exactly-once count and NOT covered by any check: never faked green.
+  "needs-lane": "needs-lane.jsonl",
+};
+export const LANE_NEEDS_ROUTING = "needs-lane";
+export const laneChecksPath = join(repoRoot, "tools/dashboard-automation/lane-checks.json");
+
+// The automation's OWN bookkeeping. A commit that touches nothing else has no farm-facing
+// surface, and if it were treated as uncovered the guard could never go green: writing the
+// ledger produces a commit, which would itself be uncovered, for ever. It is auto-parked with
+// a reason and --write writes that reason into the parked ledger, so the count stays checkable.
+export const COVERAGE_BOOKKEEPING = /^tools\/dashboard-automation\/(commit-classification\/|lane-checks\.json|coverage-state\.json|feature-assertions\.json|coverage-since-aug1\.json|LANE-COVERAGE-REPORT\.md|bug-pattern-coverage\.json)/;
+export const AUTO_PARK_REASON =
+  "Touches only the dashboard automation's own coverage ledger, so there is nothing on a page or " +
+  "a phone screen for any lane to look at.";
+
+export function isCoverageBookkeeping(commit) {
+  const files = commit?.files ?? [];
+  return files.length > 0 && files.every((f) => COVERAGE_BOOKKEEPING.test(f));
+}
+
+// Mirrors the generator's validator. Re-checked on every guard run so a hand-edit to
+// lane-checks.json can never slip a write past the read-only contract.
+const SQL_WRITE_KEYWORD = /\b(insert|update|delete|drop|alter|create|truncate|grant|revoke|copy|merge|vacuum|analyze|refresh|call|do|lock|reindex|nextval|setval|dblink|pg_terminate|pg_cancel)\b/i;
+
+export function sqlReadOnlyFindings(sql, id) {
+  const out = [];
+  const text = String(sql ?? "").trim();
+  if (!text) return [`${id}: lane 2 check has no sql`];
+  if (!/^select\b/i.test(text)) out.push(`${id}: lane 2 sql must start with SELECT`);
+  if (text.includes(";")) out.push(`${id}: lane 2 sql must be a single statement (no ';')`);
+  if (!/\blimit\s+\d+/i.test(text)) out.push(`${id}: lane 2 sql must carry a LIMIT`);
+  const bare = text.replace(/'[^']*'/g, "''");
+  const bad = bare.match(SQL_WRITE_KEYWORD);
+  if (bad) out.push(`${id}: lane 2 sql contains a non-read keyword '${bad[0]}' — the STG replica is read-only`);
+  return out;
+}
+
+// A failure sentence is read by a farm manager in Slack. No check codes, no selectors, no SQL,
+// no stack traces, no field names.
+const JARGON = [
+  [/\bSELECT\b|\bFROM\s+public\./, "SQL"],
+  // `.wchart svg`, `div.card`, `[data-testid=...]`: a CSS selector standing on its own.
+  [/data-testid|\bcss\b|\.[a-z][\w-]*\s*\{|(?:^|\s)\.[a-z][\w-]{2,}/, "a selector"],
+  [/\blane[0-9]\.|\bP-[a-z-]+\b/, "a check code"],
+  [/\b[a-z_]+_id\b|\b[a-z_]+\.[a-z_]+\(/, "a field or function name"],
+  [/\b(5xx|4xx|p9[059]|NaN|null|undefined|HTTP \d{3})\b/, "an engineering term"],
+  [/\bat [\w./]+:\d+\b|\bstack trace\b/i, "a stack trace"],
+];
+
+export function failureSentenceFindings(sentence, id) {
+  const text = String(sentence ?? "").trim();
+  if (!text) return [`${id}: check has no failureSentence`];
+  const out = [];
+  for (const [rx, what] of JARGON) {
+    if (rx.test(text)) out.push(`${id}: failureSentence contains ${what} — it is read by a farm manager, not an engineer: "${text.slice(0, 90)}"`);
+  }
+  return out;
+}
+
+export function readLaneLedgers(dir = ledgerDir) {
+  const byLane = {};
+  const rows = [];
+  for (const [lane, file] of Object.entries(LANE_LEDGER_FILES)) {
+    byLane[lane] = [];
+    const path = join(dir, file);
+    if (!existsSync(path)) continue;
+    for (const [i, line] of readFileSync(path, "utf8").split("\n").entries()) {
+      if (!line.trim()) continue;
+      let parsed;
+      try {
+        parsed = JSON.parse(line);
+      } catch (error) {
+        throw new Error(`${file}:${i + 1}: invalid JSON (${error.message})`);
+      }
+      const row = { ...parsed, _file: file, _lane: lane, _line: i + 1 };
+      byLane[lane].push(row);
+      rows.push(row);
+    }
+  }
+  return { byLane, rows };
+}
+
+export function readLaneChecks(path = laneChecksPath) {
+  if (!existsSync(path)) return null;
+  return JSON.parse(readFileSync(path, "utf8"));
+}
+
+export function planLaneCoverage({ windowShas, windowCommits, lane1Rows, laneRows, laneChecks }) {
+  const short = (sha) => String(sha).slice(0, 9);
+  const commits = windowCommits ?? (windowShas ?? []).map((sha) => ({ sha, files: [] }));
+  const window = new Set(commits.map((c) => short(c.sha)));
+  const bookkeepingOnly = new Set(commits.filter(isCoverageBookkeeping).map((c) => short(c.sha)));
+  const lane1 = new Set(lane1Rows.map((r) => short(r.sha)));
+
+  // exactly-once: a sha may appear in at most one lane ledger
+  const seen = new Map();
+  const duplicated = [];
+  for (const row of laneRows) {
+    const sha = short(row.sha);
+    if (!sha) continue;
+    if (seen.has(sha)) {
+      duplicated.push({ sha, files: [seen.get(sha)._file, row._file] });
+      continue;
+    }
+    seen.set(sha, row);
+  }
+
+  const uncovered = [];
+  const autoParked = [];
+  for (const sha of window) {
+    if (lane1.has(sha) || seen.has(sha)) continue;
+    (bookkeepingOnly.has(sha) ? autoParked : uncovered).push(sha);
+  }
+
+  const outsideWindow = [...seen.keys()].filter((sha) => !window.has(sha));
+
+  const checkIds = new Set();
+  const contract = [];
+  const weakTies = {};
+  let checkCount = 0;
+  if (laneChecks?.lanes) {
+    for (const [lane, spec] of Object.entries(laneChecks.lanes)) {
+      for (const check of spec.checks ?? []) {
+        checkCount += 1;
+        checkIds.add(check.id);
+        contract.push(...failureSentenceFindings(check.failureSentence, check.id));
+        if (lane === "lane2") contract.push(...sqlReadOnlyFindings(check.sql, check.id));
+        if (lane === "lane3" && check.method && check.method !== "GET") {
+          contract.push(`${check.id}: lane 3 is read-only, so only GET is allowed (found ${check.method})`);
+        }
+        if (lane === "lane4" && !(check.writesTables ?? []).length) {
+          contract.push(`${check.id}: lane 4 writes, so it must name the tables it touches for the restore to be provable`);
+        }
+      }
+    }
+  }
+
+  const dangling = [];
+  const misfiled = [];
+  const parkedWithoutReason = [];
+  for (const row of laneRows) {
+    if (row._lane !== row.lane && row.lane) misfiled.push({ sha: short(row.sha), file: row._file, lane: row.lane });
+    if (row._lane === "not-automatable" || row._lane === LANE_NEEDS_ROUTING) {
+      if (!String(row.reason ?? "").trim()) parkedWithoutReason.push({ sha: short(row.sha), file: row._file });
+      continue;
+    }
+    if (!row.checkId) {
+      dangling.push({ sha: short(row.sha), file: row._file, checkId: null });
+    } else if (checkIds.size && !checkIds.has(row.checkId)) {
+      dangling.push({ sha: short(row.sha), file: row._file, checkId: row.checkId });
+    }
+    const lane = row._lane;
+    weakTies[lane] = weakTies[lane] ?? { "subject+path": 0, subject: 0, path: 0 };
+    if (row.matchStrength in weakTies[lane]) weakTies[lane][row.matchStrength] += 1;
+  }
+
+  const needsRouting = (laneRows.filter((r) => r._lane === LANE_NEEDS_ROUTING) ?? []).length;
+
+  // A sha can sit in BOTH lane 1's classification ledger and one of these ledgers - every Android
+  // commit does, because lane 1 classified it but explicitly does not cover the app. So the
+  // accounted-for total is the union, never the sum of the two.
+  const inLane1Only = [...window].filter((sha) => lane1.has(sha) && !seen.has(sha)).length;
+  const inLanes = [...window].filter((sha) => seen.has(sha)).length;
+  const autoParkedCount = autoParked.length;
+  return {
+    windowSize: window.size,
+    lane1Covered: inLane1Only,
+    laneCovered: inLanes,
+    bothLedgers: [...window].filter((sha) => lane1.has(sha) && seen.has(sha)).length,
+    accountedFor: inLane1Only + inLanes + autoParkedCount,
+    autoParked,
+    uncovered,
+    duplicated,
+    outsideWindow,
+    dangling,
+    misfiled,
+    parkedWithoutReason,
+    contract,
+    weakTies,
+    needsRouting,
+    checkCount,
+  };
+}
+
+export function laneFindings(plan) {
+  const out = [];
+  if (plan.uncovered.length) {
+    out.push(`lane-coverage: ${plan.uncovered.length} commit(s) on origin/main since ${COVERAGE_WINDOW} are covered by NO lane: ` +
+      `${plan.uncovered.slice(0, 15).join(", ")}${plan.uncovered.length > 15 ? ` +${plan.uncovered.length - 15} more` : ""} — ${LANE_OPERATOR_HINT}`);
+  }
+  for (const d of plan.duplicated.slice(0, 15)) {
+    out.push(`lane-coverage: ${d.sha} appears in more than one lane ledger (${d.files.join(" and ")}) — the exactly-once count is broken`);
+  }
+  for (const d of plan.dangling.slice(0, 15)) {
+    out.push(`lane-coverage: ${d.sha} in ${d.file} points at check ${d.checkId ?? "<none>"}, which lane-checks.json does not define`);
+  }
+  for (const m of plan.misfiled.slice(0, 15)) {
+    out.push(`lane-coverage: ${m.sha} sits in ${m.file} but its row says lane ${m.lane}`);
+  }
+  for (const p of plan.parkedWithoutReason.slice(0, 15)) {
+    out.push(`lane-coverage: ${p.sha} in ${p.file} is parked with no reason — parked work is never reported green, but it must say why`);
+  }
+  if (plan.outsideWindow.length) {
+    out.push(`lane-coverage: ${plan.outsideWindow.length} ledger row(s) name a commit that is not on origin/main in the window ` +
+      `(${plan.outsideWindow.slice(0, 10).join(", ")}) — history was rewritten, or the row is a typo`);
+  }
+  out.push(...plan.contract);
+  return out;
+}
+
+export function summarizeLanePlan(plan) {
+  const weak = Object.values(plan.weakTies).reduce((n, w) => n + w.path, 0);
+  const verdict = plan.uncovered.length ? `${plan.uncovered.length} UNCOVERED` : "none uncovered";
+  const auto = plan.autoParked.length ? `, ${plan.autoParked.length} auto-parked as this automation's own bookkeeping` : "";
+  return `lane-coverage: ${plan.accountedFor}/${plan.windowSize} commit(s) since ${COVERAGE_WINDOW} accounted for exactly once ` +
+    `(${plan.lane1Covered} lane 1 only, ${plan.laneCovered} lanes 2-5 and parked, of which ${plan.bothLedgers} are also in lane 1's ledger${auto}), ` +
+    `${verdict}, ${plan.checkCount} check(s), ${plan.needsRouting} awaiting routing, ` +
+    `${weak} tied to their check by file path alone`;
+}
+
+export function describeLanePlan(plan) {
+  const lines = [];
+  for (const [lane, w] of Object.entries(plan.weakTies)) {
+    if (!w.path) continue;
+    lines.push(`  ${lane}: ${w["subject+path"]} subject+path, ${w.subject} subject-only, ${w.path} path-only (weakest tie)`);
+  }
+  return lines.join("\n");
+}
+
+export function newNeedsLaneRow(commit) {
+  return {
+    sha: String(commit.sha).slice(0, 9),
+    date: commit.date,
+    subject: commit.subject,
+    lane: LANE_NEEDS_ROUTING,
+    checkId: null,
+    matchStrength: null,
+    reason: "Landed on origin/main after the last classification pass and has not been routed to a lane yet. " +
+      "Route it to lane 2, 3, 4 or 5 with a concrete check, or park it in not-automatable.jsonl with a reason. " +
+      "It is counted as accounted-for and is NOT counted as covered by any check.",
+    source: "sync-coverage",
+  };
+}
+
+export const LANE_OPERATOR_HINT = "run `node tools/dashboard-automation/sync-coverage.mjs --write`, " +
+  "then route each new needs-lane row in tools/dashboard-automation/commit-classification/needs-lane.jsonl " +
+  "to a check in tools/dashboard-automation/lane-checks.json (or park it with a reason)";
+
+export function laneCoverageSelfTest() {
+  // the read-only contract is the thing that must never regress
+  assert(sqlReadOnlyFindings("SELECT 1 FROM public.goats LIMIT 5", "t").length === 0, "a plain SELECT with a LIMIT must pass");
+  assert(sqlReadOnlyFindings("DELETE FROM public.goats LIMIT 5", "t").length > 0, "a DELETE must be rejected");
+  assert(sqlReadOnlyFindings("SELECT 1 LIMIT 1; DROP TABLE goats", "t").length > 0, "a second statement must be rejected");
+  assert(sqlReadOnlyFindings("SELECT 1 FROM public.goats", "t").length > 0, "a missing LIMIT must be rejected");
+  assert(sqlReadOnlyFindings("SELECT 'delete me' AS note FROM public.goats LIMIT 1", "t").length === 0,
+    "a write word inside a string literal is not a write");
+  assert(failureSentenceFindings("The herd total on the Counts page does not add up.", "t").length === 0,
+    "plain English must pass");
+  assert(failureSentenceFindings("SELECT * FROM public.goats returned rows", "t").length > 0, "SQL must be rejected");
+  assert(failureSentenceFindings("lane2.herd-total-reconciles failed", "t").length > 0, "a check code must be rejected");
+
+  // exactly-once, uncovered, dangling
+  const plan = planLaneCoverage({
+    windowShas: ["aaaaaaaa1", "bbbbbbbb2", "ccccccnew"],
+    lane1Rows: [{ sha: "aaaaaaaa1" }],
+    laneRows: [
+      { sha: "bbbbbbbb2", lane: "lane2", checkId: "lane2.known", matchStrength: "path", _file: "lane2.jsonl", _lane: "lane2" },
+      { sha: "bbbbbbbb2", lane: "lane3", checkId: "lane2.known", matchStrength: "subject", _file: "lane3.jsonl", _lane: "lane3" },
+      { sha: "ddddddddd", lane: "lane4", checkId: "lane4.gone", matchStrength: "subject", _file: "lane4.jsonl", _lane: "lane4" },
+    ],
+    laneChecks: { lanes: { lane2: { checks: [{ id: "lane2.known", failureSentence: "The pen list is wrong.", sql: "SELECT 1 FROM public.goats LIMIT 1" }] } } },
+  });
+  assert.deepEqual(plan.uncovered, ["ccccccnew"], "a commit no lane names must be reported uncovered");
+  assert.equal(plan.duplicated.length, 1, "a sha in two lane ledgers must break the exactly-once count");
+  assert.equal(plan.dangling.length, 1, "a checkId with no check behind it must be reported");
+  assert.equal(plan.outsideWindow.length, 1, "a ledger row naming a commit outside the window must be reported");
+  assert.equal(plan.weakTies.lane2.path, 1, "path-only ties must stay visible to builders");
+  assert(laneFindings(plan).length >= 4, "each of those must produce a finding");
+
+  // a clean slate produces no findings
+  const clean = planLaneCoverage({
+    windowShas: ["aaaaaaaa1", "bbbbbbbb2"],
+    lane1Rows: [{ sha: "aaaaaaaa1" }],
+    laneRows: [{ sha: "bbbbbbbb2", lane: "not-automatable", reason: "Documentation only.", _file: "not-automatable.jsonl", _lane: "not-automatable" }],
+    laneChecks: { lanes: {} },
+  });
+  assert.equal(laneFindings(clean).length, 0, "a fully accounted-for window must pass");
+  assert.equal(clean.accountedFor, clean.windowSize, "accounted-for must be the union, never the sum");
+  assert.equal(clean.accountedFor + clean.uncovered.length, clean.windowSize, "the arithmetic must close");
+  return true;
+}
+
 // ---------------------------------------------------------------- entrypoint
 
 export function loadState(path = statePath) {
@@ -358,7 +690,25 @@ export async function runSync({ mode = "check", ref = "origin/main", port = null
     if (mode === "write") writeFileSync(statePath, `${JSON.stringify(state, null, 2)}\n`);
   }
   const plan = planSync({ state, ledgerRows, assertions, git: gitPort });
-  if (mode !== "write") return { plan, state, wrote: false };
+
+  // The lane half is independent of lane 1's incremental state: it re-derives the whole window
+  // every run, because its promise is about the whole window.
+  let windowCommits = gitPort.commitsInWindow ? gitPort.commitsInWindow() : [];
+  const { rows: laneRows } = readLaneLedgers();
+  const laneChecks = readLaneChecks();
+  let lanePlan = planLaneCoverage({ windowCommits, lane1Rows: ledgerRows, laneRows, laneChecks });
+
+  // Second pass, only for the commits nothing has claimed yet: fetch what they touched so a
+  // commit that edits nothing but this automation's own ledger can be auto-parked instead of
+  // holding the guard red for ever.
+  if (lanePlan.uncovered.length && gitPort.filesFor) {
+    const detailed = new Map(gitPort.filesFor(lanePlan.uncovered).map((c) => [String(c.sha).slice(0, 9), c]));
+    const enriched = windowCommits.map((c) => detailed.get(String(c.sha).slice(0, 9)) ?? c);
+    lanePlan = planLaneCoverage({ windowCommits: enriched, lane1Rows: ledgerRows, laneRows, laneChecks });
+    windowCommits = enriched;
+  }
+
+  if (mode !== "write") return { plan, lanePlan, state, wrote: false };
 
   const applied = applyPlan({ plan, assertions, ledgerRows });
   if (applied.appended.length) {
@@ -370,7 +720,23 @@ export async function runSync({ mode = "check", ref = "origin/main", port = null
     writeFileSync(assertionsPath, `${JSON.stringify(applied.assertions, null, 2)}\n`);
   }
   writeFileSync(statePath, `${JSON.stringify({ ...state, lastSyncedSha: applied.lastSyncedSha, lastSyncedAt: new Date().toISOString(), ref }, null, 2)}\n`);
-  return { plan, state, wrote: true };
+
+  const bySha = new Map(windowCommits.map((c) => [String(c.sha).slice(0, 9), c]));
+  const appendRows = (lane, rows) => {
+    if (!rows.length) return;
+    const file = join(ledgerDir, LANE_LEDGER_FILES[lane]);
+    const prior = existsSync(file) ? readFileSync(file, "utf8").replace(/\n*$/, "\n") : "";
+    writeFileSync(file, prior + rows.map((r) => JSON.stringify(r)).join("\n") + "\n");
+  };
+  const needsRouting = lanePlan.uncovered.map((sha) => newNeedsLaneRow(bySha.get(sha) ?? { sha, date: "", subject: "" }));
+  const autoParked = lanePlan.autoParked.map((sha) => {
+    const c = bySha.get(sha) ?? { sha, date: "", subject: "" };
+    return { sha: String(c.sha).slice(0, 9), date: c.date, subject: c.subject, lane: "not-automatable", reason: AUTO_PARK_REASON, source: "sync-coverage" };
+  });
+  appendRows(LANE_NEEDS_ROUTING, needsRouting);
+  appendRows("not-automatable", autoParked);
+  lanePlan.parkedNow = needsRouting.length + autoParked.length;
+  return { plan, lanePlan, state, wrote: true };
 }
 
 export const OPERATOR_HINT = "run `node tools/dashboard-automation/sync-coverage.mjs --write`, then fill in the new needs-assertion/needs-review entries in tools/dashboard-automation/feature-assertions.json";
@@ -379,19 +745,32 @@ export const OPERATOR_HINT = "run `node tools/dashboard-automation/sync-coverage
 const realOrNull = (p) => { try { return realpathSync(p); } catch { return p; } };
 if (process.argv[1] && realOrNull(resolve(process.argv[1])) === realOrNull(fileURLToPath(import.meta.url))) {
   const argv = process.argv.slice(2);
+  if (argv.includes("--self-test")) {
+    laneCoverageSelfTest();
+    console.log("coverage-sync self-test: PASS (read-only SQL contract, plain-English failure sentences, exactly-once lane accounting)");
+    process.exit(0);
+  }
   const mode = argv.includes("--write") ? "write" : "check";
   const refArg = argv.indexOf("--ref");
   const ref = refArg > -1 ? argv[refArg + 1] : (process.env.GOATOS_SYNC_REF || "origin/main");
-  const { plan, wrote } = await runSync({ mode, ref });
+  const { plan, lanePlan, wrote } = await runSync({ mode, ref });
   console.log(summarizePlan(plan));
-  if (plan.newCommits.length || plan.stale.length) {
-    console.log(describePlan(plan));
+  console.log(summarizeLanePlan(lanePlan));
+  const laneProblems = laneFindings(lanePlan);
+  const weak = describeLanePlan(lanePlan);
+  if (weak) console.log(`coverage-sync: how strongly each commit is tied to its check\n${weak}`);
+  if (plan.newCommits.length || plan.stale.length || laneProblems.length) {
+    if (plan.newCommits.length || plan.stale.length) console.log(describePlan(plan));
+    if (laneProblems.length) console.log(laneProblems.join("\n"));
     if (wrote) {
-      console.log(`coverage-sync: wrote ${plan.newCommits.length} entr(ies) and flipped ${plan.stale.length} to needs-review`);
+      console.log(`coverage-sync: wrote ${plan.newCommits.length} entr(ies), flipped ${plan.stale.length} to needs-review` +
+        (lanePlan.parkedNow ? `, parked ${lanePlan.parkedNow} commit(s) as needs-lane` : ""));
       process.exit(0);
     }
     console.error(`FAIL coverage-sync is stale — ${OPERATOR_HINT}`);
+    if (laneProblems.length) console.error(`FAIL lane-coverage — ${LANE_OPERATOR_HINT}`);
     process.exit(1);
   }
-  console.log("coverage-sync: PASS (every commit on origin/main is covered and no assertion has drifted)");
+  console.log("coverage-sync: PASS (every commit on origin/main since " + COVERAGE_WINDOW +
+    " is accounted for by a lane or parked with a reason, and no assertion has drifted)");
 }

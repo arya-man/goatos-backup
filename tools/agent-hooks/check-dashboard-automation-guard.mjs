@@ -4,7 +4,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { compareRoutes, discoverFilesystemRoutes, discoverSmokeRoutes } from "../dashboard-automation/discover-admin-routes.mjs";
 import { coverageSelfTest, runCoverageGuard } from "../dashboard-automation/check-coverage-since-aug1.mjs";
-import { EXECUTED_STATUSES, OPERATOR_HINT, PARKED_STATUSES, describePlan, runSync, summarizePlan } from "../dashboard-automation/sync-coverage.mjs";
+import { EXECUTED_STATUSES, LANE_OPERATOR_HINT, OPERATOR_HINT, PARKED_STATUSES, describeLanePlan, describePlan, laneCoverageSelfTest, laneFindings, runSync, summarizeLanePlan, summarizePlan } from "../dashboard-automation/sync-coverage.mjs";
 
 const selfTest = process.argv.includes("--self-test");
 
@@ -22,6 +22,9 @@ if (selfTest) {
     rmSync(dir, { recursive: true, force: true });
   }
   coverageSelfTest();
+  // Lanes 2-5: the read-only SQL contract, plain-English failure sentences, and the
+  // exactly-once accounting that makes "every commit since Aug 1" a checkable claim.
+  laneCoverageSelfTest();
   // needs-assertion / needs-review are parking statuses: the runner must never execute them.
   for (const parked of PARKED_STATUSES) {
     assert.ok(!EXECUTED_STATUSES.has(parked), `${parked} must not be an executed assertion status`);
@@ -71,6 +74,14 @@ for (const file of [
   "tools/dashboard-automation/sync-coverage.mjs",
   "tools/dashboard-automation/coverage-state.json",
   "tools/dashboard-automation/commit-classification",
+  "tools/dashboard-automation/commit-classification/lane2.jsonl",
+  "tools/dashboard-automation/commit-classification/lane3.jsonl",
+  "tools/dashboard-automation/commit-classification/lane4.jsonl",
+  "tools/dashboard-automation/commit-classification/lane5-android.jsonl",
+  "tools/dashboard-automation/commit-classification/not-automatable.jsonl",
+  "tools/dashboard-automation/lane-checks.json",
+  "tools/dashboard-automation/LANE-COVERAGE-REPORT.md",
+  "tools/dashboard-automation/lane-coverage.test.mjs",
   "tools/dashboard-automation/notify-slack.mjs",
   "tools/dashboard-automation/self-heal-pr.mjs",
   "tools/dashboard-automation/refresh-firebase-token.mjs",
@@ -91,12 +102,25 @@ console.log(`dashboard automation guard: PASS (${comparison.filesystemRoutes.len
 
 async function runCoverageSyncFindings() {
   try {
-    const { plan } = await runSync({ mode: "check" });
-    if (plan.newCommits.length === 0 && plan.stale.length === 0) return { summary: `${summarizePlan(plan)} — PASS`, findings: [] };
-    return {
-      summary: summarizePlan(plan),
-      findings: [`coverage-sync: smoke coverage is behind origin/main — ${OPERATOR_HINT}\n${describePlan(plan)}`],
-    };
+    const { plan, lanePlan } = await runSync({ mode: "check" });
+    const findings = [];
+    if (plan.newCommits.length || plan.stale.length) {
+      findings.push(`coverage-sync: smoke coverage is behind origin/main — ${OPERATOR_HINT}\n${describePlan(plan)}`);
+    }
+    // Lanes 2-5 make a different promise from lane 1: not "this page is asserted", but "every
+    // commit since the window opened is accounted for exactly once". A commit landing that no
+    // lane covers fails here rather than quietly shrinking that claim.
+    const lane = laneFindings(lanePlan ?? {});
+    if (lane.length) findings.push(`lane-coverage: lanes 2-5 are behind origin/main — ${LANE_OPERATOR_HINT}\n${lane.join("\n")}`);
+    const weak = describeLanePlan(lanePlan ?? {});
+    const summary = [
+      findings.length ? summarizePlan(plan) : `${summarizePlan(plan)} — PASS`,
+      lanePlan ? summarizeLanePlan(lanePlan) : null,
+      // Reported, never failed: a path-only tie means the check is the right one to build, but
+      // the commit behind it should be read before anyone claims it proves that exact behaviour.
+      weak ? `lane-coverage: how strongly each commit is tied to its check\n${weak}` : null,
+    ].filter(Boolean).join("\n");
+    return { summary, findings };
   } catch (error) {
     // No origin/main (shallow CI clone) must not silently pass: say so plainly.
     return { summary: "coverage-sync: could not compare against origin/main", findings: [`coverage-sync: ${String(error?.message ?? error)}`] };
