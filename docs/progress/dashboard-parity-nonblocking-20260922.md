@@ -49,6 +49,7 @@ evidence.
 - Updated the module journey guards to require read-only safe-click coverage
   without forcing every module to have a data-independent `requireObserved`
   click.
+- Updated the admin-web route coverage unit test to match that contract.
 
 ## Pending
 
@@ -76,7 +77,7 @@ Result: focused checks green.
 
 - Base: `origin/main` at `7772c2e92`
 - PR branch: `codex/dashboard-parity-nonblocking-pr`
-- Latest local commit: `38ae046a6`
+- Latest local commit: `7664e55c8`
 
 ## Deployment State
 
