@@ -44,10 +44,16 @@
   - `ANDROID_HOME=/Users/raviteja/Library/Android/sdk ANDROID_SDK_ROOT=/Users/raviteja/Library/Android/sdk ./gradlew :app:verifyPaparazziDevDebug --no-daemon --console=plain --no-configuration-cache --max-workers=1 -Dkotlin.compiler.execution.strategy=in-process -Dkotlin.daemon.enabled=false -Pkotlin.compiler.execution.strategy=in-process --tests 'sg.mesha.goatos.ui.RoleChromeScreenshotTest'`
   - `GOATOS_SQLC_PLAN_ADMIN_DSN="$DATABASE_URL" make validate-sqlc-plans` after sourcing `/Users/raviteja/mesha/local-data/goatos-stg-to-oci/oci-goatos-db.env`
   - `GOATOS_PGTEST_ADMIN_DSN="$DATABASE_URL" GOATOS_SQLC_PLAN_ADMIN_DSN="$DATABASE_URL" make commandboard-query-plan-guard` after sourcing `/Users/raviteja/mesha/local-data/goatos-stg-to-oci/oci-goatos-db.env`
+- Third `make land-main` attempt at `8cc6c088a8049d99ff507a96a2f06bfbd30dd4ec` failed before any push on:
+  - `required PostgreSQL query plans`
+  - `admin-web unit tests`
+- Follow-up focused reruns passed:
+  - `npm --prefix apps/admin-web test -- --runInBand`
+  - `GOATOS_FAST_LOCAL_CI=1 GOATOS_SQLC_PLAN_ADMIN_DSN="$DATABASE_URL" GOATOS_PGTEST_ADMIN_DSN="$DATABASE_URL" tools/ci/run-local-ci.sh query-plans`
 
 ## Pending
 
-- Commit the final landing-blocker fixes.
+- Commit the admin unit-test contract fix.
 - Run exact repo landing gate from this clean isolated worktree:
   - `set -a; source /Users/raviteja/mesha/local-data/goatos-stg-to-oci/oci-goatos-db.env; set +a; GOATOS_SQLC_PLAN_ADMIN_DSN="$DATABASE_URL" GOATOS_PGTEST_ADMIN_DSN="$DATABASE_URL" ANDROID_HOME=/Users/raviteja/Library/Android/sdk ANDROID_SDK_ROOT=/Users/raviteja/Library/Android/sdk make land-main`
 - Verify `origin/main` readback after landing.

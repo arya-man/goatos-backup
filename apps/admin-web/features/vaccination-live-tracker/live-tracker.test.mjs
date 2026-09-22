@@ -224,13 +224,14 @@ test("timestamps render in the business timezone, not the viewer's", () => {
   assert.match(format, /Intl\.DateTimeFormat/);
 });
 
-test("the page park filter is authoritative for the read path, not the global top-bar selector", () => {
+test("the parsed top-bar park scope is authoritative for the live-tracker read path", () => {
   for (const [name, source] of Object.entries({ board, params })) {
     assert.ok(!/new URLSearchParams\(/.test(code(source)), `${name} must build links through scopeHref`);
   }
   assert.match(params, /parseScope/);
   assert.match(params, /scopeHref/);
-  assert.match(params, /const parkId = uuidOrUndefined\(one\(sp, "park"\)\);/);
+  assert.match(params, /const parkId = uuidOrUndefined\(scope\.parkId\);/);
+  assert.ok(!/one\(sp,\s*"park"\)/.test(code(params)), "live tracker must not bypass the shared scope parser");
   assert.match(board, /parkId: params\.parkId/);
   assert.match(board, /Park is authoritative for this page's backend read/);
   const shell = readFileSync(new URL("../../components/mesha-shell.tsx", import.meta.url), "utf8");
