@@ -75,7 +75,8 @@ function isParityOnlyNoBrowserFailure(value) {
 
 // Turn a raw check failure into something a person reads in two seconds:
 // page, device, what is wrong, and the example text straight from the screen.
-const ISSUE_RULES = [
+function issueRules() {
+  return [
   [/A-svg-text-tiny|renders at ~/, "Chart text too small to read"],
   [/A-chart-label-column-narrow|A-chart-label-ellipsised|A-chart-label-collapsed|A-chart-label-clipped|A-chart-label-overlap|A-svg-text-(overlap|clipped)|A-chart-value-missing|A-chart-empty/, "Chart labels squashed, cut off or missing"],
   [/text-overlap|overlaps /, "Text drawn on top of other text"],
@@ -95,11 +96,12 @@ const ISSUE_RULES = [
   [/overlay .*off-screen|outside the viewport|translate/, "Drawer/popup opens off-screen"],
   [/page load \d+ms exceeded/, "Page slow to load"],
   [/accessibility violations/, null],
-];
+  ];
+}
 
 function humanIssue(failure) {
   const raw = String(failure.error ?? "");
-  const rule = ISSUE_RULES.find(([re]) => re.test(raw));
+  const rule = issueRules().find(([re]) => re.test(raw));
   if (rule && rule[1] === null) return null;
   const what = rule ? rule[1] : raw.replace(/\[[A-Za-z-]+\]\s*/g, "").slice(0, 120);
   const [device, routeName] = String(failure.route ?? "").includes(":") ? failure.route.split(":") : ["", failure.route ?? failure.module];
