@@ -513,7 +513,8 @@ func TestFarmBornAnimalsParkScopeAndPenPredicates(t *testing.T) {
 	assertExactly("sex female", read(domain.FarmBornFilter{Sex: "female"}), "alive-cbe-p3-a", "alive-cbe-p5", "alive-cbe-whole", "sold-deal-b", "sold-nodeal")
 	assertExactly("stage f2-male", read(domain.FarmBornFilter{Stage: "f2-male"}), "alive-cbe-p3-b", "alive-cpt", "load-rejected", "on-load", "sold-deal-a")
 	// The FOLDED option reaches the whole cohort, and still composes with park scope rather than
-	// widening past it: CPT holds one fattening animal, CBE the rest.
+	// widening past it: CPT holds one fattening animal, CBE the rest. It reaches only animals the
+	// register marks born here -- the fold widens the STAGE, never the membership.
 	assertExactly("stage F2", read(domain.FarmBornFilter{Stage: herdstage.FatteningKey}),
 		"alive-cbe-p3-a", "alive-cbe-p3-b", "alive-cpt", "load-rejected", "on-load",
 		"sold-deal-a", "sold-deal-b", "sold-nodeal")
