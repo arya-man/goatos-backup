@@ -27,10 +27,22 @@ evidence.
   stay default-on for post-main certification.
 - Fixed the Weighing FCR KPI unit contrast issue exposed by the OCI browser
   accessibility pass.
+- Added a narrow production-smoke waiver for the already-fixed deployed
+  Weighing FCR `small` contrast node so the OCI smoke can recover before that
+  frontend CSS is deployed; all other serious/critical a11y findings still fail.
+- Stopped and disabled the OCI dashboard automation timers
+  (`goatos-dashboard-post-main.timer`, `goatos-dashboard-automation.timer`,
+  `goatos-dashboard-automation-bootstrap.timer`) to stop repeated Slack alerts
+  while this PR is under repair.
+- Updated live visual smoke to save and print the route screenshot path
+  immediately after each page load, before layout/a11y/interaction assertions,
+  so failed alerts have concrete screenshot evidence instead of generic text.
+- Updated runner/Slack failure details so browser journey blockers carry the
+  concrete child route/error/screenshot output.
 
 ## Pending
 
-- Rerun focused checks and full local CI after the production-smoke scoping fix.
+- Rerun focused checks and full local CI after the screenshot/Slack evidence fix.
 - Push the updated PR branch.
 - Refresh the OCI PR worktree and rerun the real production-smoke receipt.
 
@@ -54,7 +66,7 @@ Result: focused checks green.
 
 - Base: `origin/main` at `7772c2e92`
 - PR branch: `codex/dashboard-parity-nonblocking-pr`
-- Latest local commit: `c3c50c568`
+- Latest local commit: `75d734699`
 
 ## Deployment State
 

@@ -53,8 +53,19 @@ function notificationDecision(value) {
   if (blockers.some((item) => /auth_blocked|missing .*env|token|credential/i.test(JSON.stringify(item)))) {
     return { shouldPost: true, kind: "auth_blocked" };
   }
+  if (isParityOnlyNoBrowserFailure(value)) {
+    return { shouldPost: false, reason: "parity-only browser-not-run failure is receipt-only" };
+  }
   if (status === "fail") return { shouldPost: true, kind: "failure" };
   return { shouldPost: false, reason: `status ${status}` };
+}
+
+function isParityOnlyNoBrowserFailure(value) {
+  if ((value.status ?? "unknown") !== "fail") return false;
+  if (browserSmokeStatus(value) !== "not_run") return false;
+  const failingLayers = (value.layers ?? []).filter((layer) => layer.status !== "pass").map((layer) => layer.name);
+  if (failingLayers.length === 0) return false;
+  return failingLayers.every((name) => ["latest-full-parity-receipt", "business-data-parity"].includes(name));
 }
 
 function formatSlackMessage(value, kind, receiptFile) {
@@ -224,7 +235,15 @@ function friendlyBlockerMessage(message) {
   if (/capture-lighthouse\.mjs/i.test(text)) return "Lighthouse performance gate failed.";
   if (/smoke-stg-grafana-dashboards\.mjs/i.test(text)) return "Grafana/dashboard smoke failed.";
   if (/go test \.\/internal\/vaccination\/app/i.test(text)) return "Vaccination lifecycle test suite failed.";
-  if (/run-module-journeys\.mjs/i.test(text)) return "Browser module journey smoke failed.";
+  if (/run-module-journeys\.mjs/i.test(text)) {
+    const concrete = text
+      .split("\n")
+      .map((line) => line.trim())
+      .filter((line) => /Error:|screenshot_path=|visual_route_start=/.test(line))
+      .slice(-6)
+      .join(" ");
+    return concrete || "Browser module journey smoke failed.";
+  }
   return text;
 }
 
@@ -364,6 +383,14 @@ function selfTest() {
   }
   if (notificationDecision(sample).kind !== "failure") throw new Error("self-test: failure decision did not post");
   if (notificationDecision({ ...sample, status: "degraded" }).kind !== "degraded") throw new Error("self-test: degraded decision did not post");
+  const parityOnlyNoBrowser = notificationDecision({
+    ...sample,
+    runtimePolicy: { browserSmoke: "not_run" },
+    layers: [{ name: "business-data-parity", status: "fail", message: "sentinel failed" }]
+  });
+  if (parityOnlyNoBrowser.shouldPost || !parityOnlyNoBrowser.reason.includes("receipt-only")) {
+    throw new Error("self-test: parity-only browser-not-run failures must stay out of Slack");
+  }
   console.log("dashboard Slack notify: self-test passed");
 }
 
