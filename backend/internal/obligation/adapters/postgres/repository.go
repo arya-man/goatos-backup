@@ -2554,6 +2554,17 @@ FOR UPDATE`, tenant, in.TargetType, target, in.RuleIdentityKey, in.Sequence).
 		return domain.ObligationRef{}, false, fmt.Errorf("obligation: read identity reconcile target: %w", err)
 	}
 	ref.DueAt = priorDue
+	var liveDriveMember bool
+	if err := tx.QueryRow(ctx, `
+SELECT EXISTS (
+  SELECT 1
+  FROM vaccination_drive_assignment_members m
+  WHERE m.tenant_id = $1
+    AND m.obligation_id = $2::uuid
+    AND m.canceled_at IS NULL
+)`, tenant, ref.ObligationID).Scan(&liveDriveMember); err != nil {
+		return domain.ObligationRef{}, false, fmt.Errorf("obligation: read identity reconcile drive membership: %w", err)
+	}
 	if ref.Status != "in_progress" &&
 		priorVersionID == in.ProtocolVersionID &&
 		priorRuleID == in.RuleID &&
@@ -2575,7 +2586,12 @@ FOR UPDATE`, tenant, in.TargetType, target, in.RuleIdentityKey, in.Sequence).
 	// key it was minted under becomes unreachable and those follow-ups fail with "not found",
 	// taking the whole goat's pass down. Skipping the date is the intent; skipping the identity
 	// pointers was a bug.
-	if ref.Status == "in_progress" {
+	//
+	// The same rule applies once the row is assigned to a vaccination drive. At that point the
+	// operator board is the manual schedule, even if the obligation row itself is still only
+	// "scheduled"; a later rule-identity reconcile may refresh the address, but it must not
+	// challenge the planned date/window under an ongoing or manually moved drive.
+	if ref.Status == "in_progress" || liveDriveMember {
 		if _, err := tx.Exec(ctx, `
 UPDATE obligation_instances
 SET protocol_version_id = $2,
@@ -2590,6 +2606,7 @@ WHERE tenant_id = $1 AND obligation_id = $5::uuid`,
 		if err := tx.Commit(ctx); err != nil {
 			return domain.ObligationRef{}, false, fmt.Errorf("obligation: commit identity reconcile: %w", err)
 		}
+		ref.DateBlocked = liveDriveMember
 		return ref, true, nil
 	}
 
