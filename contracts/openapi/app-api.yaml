@@ -5912,23 +5912,28 @@ paths:
         Every load in the purchase ledger with its FIFO consumption position: loads of one feed at
         one farm are drawn on in arrival order, so a load's consumed kg is whatever the family's
         directed total (LOCKED sheets plus externally-tracked consumption, from the ledger start)
-        reaches past the kg of every earlier load, capped at the load's own kg -- except the NEWEST
-        load, which takes the whole remainder so an overrun reads as negative kg left rather than
-        being clamped away.
+        reaches past the kg of every earlier load, capped at the load's own kg -- except the load
+        that was newest on the feed day itself, which takes the whole remainder, so feeding beyond
+        what the ledger bought reads as negative kg left rather than being clamped away.
 
 
         `days_said` is the buyer's OPTIONAL figure entered on the purchase form; `days_consumed`
-        counts the locked feed days that drew on the load; `days_left` is kg left over the feed's
-        recent (3 locked days) daily rate, 0 once finished and null when no recent rate exists.
-        `gap_days` = days_said - days_consumed - days_left, null whenever either side is unknown:
-        a check nobody could make is not a check that passed. Zero means the figure held;
-        negative means the load ran (or will run) out sooner than it was bought for.
+        counts the locked feed days that drew on the load; `days_left` is the RUNWAY -- everything
+        still in the store up to and including this load, over the feed FAMILY's recent daily rate
+        (3 locked days, with the same pinned overrides the stock cards use) -- so the newest load of
+        a feed carries the same days-left figure as that feed's stock card, and the two surfaces
+        cannot disagree about the runway. It is null when no recent rate exists. `gap_days` stays
+        about the load ALONE: days_said - days_consumed - (this load's own kg over that rate), null
+        whenever either side is unknown, because a check nobody could make is not a check that
+        passed. Zero means the figure held; positive means the load ran (or will run) out sooner
+        than it was bought for.
 
 
-        `total` is a WHOLE-FILTER count, never page-local. Feeds named in
-        `domain.StockLoadExcludedFeedItemKeys` (UHT milk) are left out of the rows and of the
-        `feed_items` facet: milk is drawn by preparation batches, not the ration sheet, so a
-        per-load days-of-stock figure is not a question about it.
+        `total` is a WHOLE-FILTER count, never page-local. FINISHED loads are left out: the table
+        answers what is in the store now, not what the store has been through. Loads of a RETIRED
+        feed are left out of the rows and of the `feed_items` facet for the same reason -- the farm
+        no longer buys it -- while their leftover kg still count toward the family runway, exactly
+        as they do on the stock cards.
       parameters:
         - name: park_id
           in: query
@@ -24704,17 +24709,18 @@ components:
           description: Feed day the load's last kilogram was directed; empty while any remains.
         status:
           type: string
-          enum: [in_transit, not_started, in_use, finished, overrun]
+          enum: [in_transit, not_started, in_use, finished]
           description: >-
-            `overrun` is the NEWEST load of its feed with more directed against it than it held --
-            the farm fed feed the ledger never bought, so a load is missing from the ledger.
+            `finished` is never served -- the table lists only what is still in the store. A load
+            fed beyond its own kg is `in_use`, because it is the load the store is drawing on; its
+            negative `left_kg` is the finding.
         purchased_kg:
           type: string
           description: What the load is worth in the store, net of consumption already recorded at import.
         consumed_kg: { type: string }
         left_kg:
           type: string
-          description: Can be NEGATIVE on an overrun load; never clamped.
+          description: Can be NEGATIVE when the farm fed more than the ledger bought; never clamped.
         days_said:
           type: integer
           format: int64
@@ -24728,15 +24734,18 @@ components:
           type: integer
           format: int64
           nullable: true
-          description: kg left over the feed's recent daily rate; 0 once finished, null with no recent rate.
+          description: >-
+            Runway to the end of this load: everything in the store up to and including it, over the
+            feed family's recent daily rate. Null with no recent rate.
         gap_days:
           type: integer
           format: int64
           nullable: true
-          description: days_said - days_consumed - days_left; null whenever either side is unknown.
+          description: >-
+            days_said - days_consumed - this load's OWN days left; null whenever either side is unknown.
         avg_daily_kg:
           type: string
-          description: The feed's recent daily rate the days-left figure divides by; empty when none.
+          description: The feed FAMILY's recent daily rate the days-left figure divides by; empty when none.
     FeedAnalyticsStockForecastItem:
       type: object
       additionalProperties: false

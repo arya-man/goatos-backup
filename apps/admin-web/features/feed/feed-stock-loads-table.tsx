@@ -12,13 +12,17 @@ import { FeedPager } from "./feed-pager";
 // field -- the FIFO split, the day counts and the check column all come off the wire -- and this
 // component only decides how to colour them: a check above zero is the load that ran out sooner
 // than it was bought for, and it reads red because that is the one that leaves animals unfed.
+//
+// Finished loads and retired feeds are not served at all (maintainer instruction 2026-09-22) -- the
+// table answers what is in the store now, for the feeds the farm buys today -- and a load fed
+// beyond its own kg reads as in use with its negative kg left standing, because it is still the
+// load the store is drawing on.
 
 const STATUS_TONE: Record<FeedAnalyticsStockLoadRow["status"], Tone> = {
   in_transit: "mut",
   not_started: "info",
   in_use: "ok",
   finished: "mut",
-  overrun: "dng",
 };
 
 const kg = (raw: string) => {

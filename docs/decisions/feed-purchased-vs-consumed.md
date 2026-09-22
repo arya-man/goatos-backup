@@ -23,11 +23,18 @@ and stays blank.
   there", and a reader should not change tabs between the two. Being a table on that tab, it rides
   the stock permission (`feed_analytics.stock.read`) by construction: there is no separate tab
   option to grant or withhold, so whoever sees Stock — the Procurement Director included — sees it.
-- **Milk is left out** of the rows and of the feed-item filter (maintainer instruction, same day).
-  UHT milk is drawn by preparation batches rather than the ration sheet, so days-of-stock per load
-  is not a question about it, and an option that can never produce a row would be a dead one. The
-  exclusion is one named list, `domain.StockLoadExcludedFeedItemKeys`, reporting-only; milk stock,
-  milk purchases and the milk consumption series are untouched everywhere else.
+- **What the table lists** (maintainer instruction, 2026-09-22, REPLACING the 2026-09-21 milk
+  exclusion): every load **still in the store**, for the feeds the farm **buys today**.
+  - **Finished loads are not served.** A load whose every kilogram has gone out is history; the
+    table answers what is in the store now. It is still computed, because it is what moves the FIFO
+    queue for the load behind it — `status = finished` survives as the thing that hides it.
+  - **Retired feeds are not listed**, neither as rows nor in the feed-item filter, for the same
+    reason: the farm no longer buys them. Their leftover kilograms still COUNT toward the family
+    runway below, exactly as they do on the stock cards.
+  - **Milk is in.** It was excluded on 2026-09-21 because it is drawn by preparation batches rather
+    than the ration sheet; the maintainer asked for it back, and it needs no special case because
+    externally tracked consumption already reaches this read through the same union the cards use.
+    `domain.StockLoadExcludedFeedItemKeys` is deleted rather than emptied.
 
 ## The arithmetic, and why it is FIFO
 
@@ -39,23 +46,32 @@ off the LOCKED sheets plus externally-tracked consumption (milk), from the famil
 prior_net_kg  = sum of the kg of every earlier reached load of that feed at that farm
 consumed_kg   = clamp(directed_total - prior_net_kg, 0, load_kg)   -- every load but the newest
               = max(0, directed_total - prior_net_kg)               -- the NEWEST load
-left_kg       = load_kg - consumed_kg                               -- NEGATIVE on an overrun
+left_kg       = load_kg - consumed_kg                               -- NEGATIVE past the ledger
 ```
 
 The newest load takes the whole remainder so that feed the farm fed but the ledger never bought
-shows as **negative kg left** (`status = overrun`), never clamped away: the negative number is the
-finding, and it says a load is missing from the ledger.
+shows as **negative kg left**, never clamped away: the negative number is the finding, and it says a
+load is missing from the ledger. That load reads **In use** — it is the load the store is drawing on
+— and the separate `overrun` / "Fed more than bought" status was RETIRED on 2026-09-22 at the
+maintainer's instruction: a status is where a load stands in the queue, and this one is still being
+fed from. The kg column carries the finding.
 
 Days:
 
 - `days_consumed` — the locked feed days that drew on the load: a day counts for a load when the
   running total passes the load's start and the total *before* the day is still inside the load's
   range, so a day that finishes one load and starts the next counts for both.
-- `days_left` — `left_kg` over the feed's recent daily rate (the same 3-most-recent-locked-days
-  average the stock cards use); `0` once the load is finished; **null** when no recent rate exists.
-- `gap_days = days_said - days_consumed - days_left` — **null** whenever either side is unknown
-  (no figure stated, or no rate to project from). A check nobody could make is not a check that
-  passed, so absence renders as a dash, never as "matches".
+- `days_left` — **the RUNWAY, not the sack** (maintainer instruction, 2026-09-22: "days are not
+  matching with above, it should match"). A load is not eaten alone: everything ahead of it in the
+  FIFO queue goes out first. So days left on a load is everything still in the store **up to and
+  including** that load, over the feed FAMILY's recent daily rate — which makes the **newest load of
+  a feed carry that feed's stock-card figure by construction**, and the card and the table under it
+  cannot disagree about the runway. Never negative (a deficit reads 0), **null** when no recent rate
+  exists.
+- `gap_days = days_said - days_consumed - (this load's OWN kg over that rate)` — the check stays
+  about the load ALONE, because the buyer's figure was about that load alone. **Null** whenever
+  either side is unknown (no figure stated, or no rate to project from). A check nobody could make
+  is not a check that passed, so absence renders as a dash, never as "matches".
 
 Zero means the buyer's figure held.
 
@@ -100,31 +116,59 @@ Four narrowings, each pinned and each mutation-tested in
 ## Deficits stay on the load that was available
 
 When the farm feeds past everything the ledger says it bought — the case this tab exists to
-surface — the overrun is charged to the load that was newest **on the day the feed went out**. A
+surface — the deficit is charged to the load that was newest **on the day the feed went out**. A
 later-arriving load cannot have fed an earlier locked sheet, so it is not charged just because it is
 the next reached row in the ledger.
 
 For the `gap` family in the test, 100 kg was directed against a 50 kg load and the next load landed
-six days later. The first load therefore reads as an overrun with negative kg left, and the later
+six days later. The first load therefore keeps negative kg left (and stays in use), and the later
 load remains `not_started` with its full kg left. This keeps the per-load row honest about physical
 availability while still surfacing the ledger gap: the negative kg is the finding, and it says a load
 is missing from the ledger.
+
+## The divisor is the CARD's divisor
+
+The days-left figure divides by the **family** rate, with the pinned overrides
+(`domain.StockRateOverrides`) and the transitional split-concentrate fold (`domain.StockFamilyMerge`)
+applied exactly as the stock cards apply them. This REVERSES the 2026-09-21 note that said the fold
+is not applied here, and the reversal is the whole point of the 2026-09-22 instruction: while the
+fold is live, a card reads 1,694 kg where the successor's own loads hold 1,979, and a table dividing
+per-item kg by a per-item rate cannot land on the card's number no matter how the rounding is
+arranged.
+
+What the fold does and does not touch here:
+
+- **Kilograms stay per ledger row.** Each load keeps its own kg, its own consumption and its own
+  `left_kg`, attributed within its own feed item — the fold never moves a kilogram between two
+  ledger identities.
+- **The RUNWAY and the RATE are per family.** The running total that produces days-left walks the
+  family's loads in arrival order, and the rate is the family's kg per calendar day (regrouped
+  BEFORE averaging, because a day the pens ate the successor INSTEAD of a retired member is one
+  day's draw on one family, never two feeds' worth).
+- **An empty fold is the unfolded behaviour exactly**, so this inherits the merge's own revert: when
+  the retired sacks run out, deleting the table changes nothing here either.
 
 ## What did NOT change
 
 - Nothing on any write path reads `days_of_stock`. It is a reporting comparison only.
 - The stock cards, the per-farm Mesha table, the forecast and the expenditure series are untouched
   and range over the same purchases and cells, so the per-feed totals agree by construction.
-- The transitional split-concentrate fold is **not** applied here: loads are ledger rows of one
-  feed each, and folding a retired member's load into its successor would attribute consumption
-  across two ledger identities. If that fold is ever wanted per load it is a separate decision.
 
 ## Pinned by
 
 - `feeddirection/adapters/postgres.TestStockLoadsFifoOneToManyStatusBucketsParkScopePageBoundary`
-  — two reached loads and one in transit at one farm, a straddling day, an overrun at the other
-  farm, a load with no figure, park scope, farm/feed filters and a page boundary with whole-filter
-  counts.
+  — two reached loads and one in transit at one farm, a straddling day, a deficit at the other
+  farm (in use, negative kg, never clamped), a FINISHED load that is computed and NOT served, a load
+  with no figure, park scope, farm/feed filters and a page boundary with whole-filter counts.
+- `feeddirection/adapters/postgres.TestStockLoadsDaysLeftEqualsTheStockCardForTheSameFeed`
+  — the 2026-09-22 parity pin, on the fixture that made the two disagree on the live farm: a RETIRED
+  split concentrate with leftover stock folded into its successor, fed on alternating days so the
+  substitution is real. The retired feed's loads are not listed while their kg still count; the
+  newest successor load carries the card's rate AND its days left; the load behind it reads the
+  runway to the end of ITSELF, not its own kg alone.
+- `feeddirection/adapters/postgres.TestStockLoadsListsMilkBesideTheBulkFeeds`
+  — milk is served, offered in the filter, and an undrawn milk load still has no rate and no days
+  left (absent, never zero).
 - `feeddirection/adapters/postgres.TestStockLoadsHandoffWhenANewLoadOfAFeedAlreadyInUseStartsDepleting`
   — six families, one per edge of the handoff rule: a load arriving mid-life of the previous one,
   the strict exact-zero boundary, a load arriving after the family had already run dry, a received
@@ -139,7 +183,6 @@ is missing from the ledger.
   days, and corrections through `UpdateFeedPurchase` — stated days, quantity, and clearing the
   figure — each reaching the very next read rather than a stale cached page. Mutation-tested by
   letting an issued sheet deplete stock and by narrowing the rate window to two days.
-- `feeddirection/adapters/postgres.TestStockLoadsLeavesMilkOutOfTheTableAndOutOfTheFeedFilter`.
 - `feeddirection/domain.TestStockLoadGapIsAbsentWheneverEitherSideIsUnknown`.
 - `procurement/domain.TestFeedPurchaseValidateRejectsEachBadField` (zero / negative days) and
   `procurement/adapters/postgres.TestFeedPurchaseEditPostgresPaths` (recorded, edited, cleared).

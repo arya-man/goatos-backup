@@ -23,7 +23,13 @@ import (
 // load; join_cardinality=loads LEFT JOIN cells 1:0..N then GROUP BY load id (many side aggregated),
 // loads LEFT JOIN family_total 1:1 (one row per pair), loads LEFT JOIN burn 1:0..1 (one row per
 // pair), and the page rows and total range over the same filtered load set
-// (the `page` CTE) so numerator and denominator share one key set; pagination=LIMIT/OFFSET bounded
+// (the `page` CTE) so numerator and denominator share one key set. The DAYS-LEFT arithmetic adds a
+// second group_key, (farm_label, family_key), and both of its sides range over it identically: the
+// running kg left walks that family's loads in arrival order and the rate is that family's kg per
+// calendar day, regrouped to the family BEFORE averaging so a substituted day counts once -- byte
+// for byte the key set the stock cards use, which is what makes the two surfaces agree.
+// merge_map is unique on member_key and rate_override on (farm, feed), so neither LEFT JOIN can fan
+// a load out; pagination=LIMIT/OFFSET bounded
 // by domain.NormaliseStockLoadsPage (offset capped at 10000) with whole-filter counts computed
 // beside the page, never page-local; scope=tenant_id everywhere plus the caller's authorized park
 // set on both purchases and sheets.
@@ -34,16 +40,38 @@ import (
 // mismatch list and the purchase ledger already use.
 // scale-guard:ignore: 5k-50k-envelope bounded purchase-ledger aggregate with capped ledger-style offset paging
 const stockLoadsSQL = `
-WITH loads AS (
+WITH merge_map AS (
+    -- The SAME transitional split-concentrate fold the stock cards use
+    -- (domain.StockFamilyMerge). It never changes a load's own kg -- each item keeps its own
+    -- ledger, exactly as the cards do -- it decides which loads share one runway.
+    SELECT m.member_key, m.family_key
+    FROM unnest($7::text[], $8::text[]) AS m(member_key, family_key)
+),
+rate_override AS (
+    -- The same pinned burn rates the cards divide by (domain.StockRateOverrides), keyed on
+    -- (farm, family). An empty list is the behaviour without it.
+    SELECT o.farm_label, o.feed_item_key, o.kg_per_day::numeric AS kg_per_day
+    FROM unnest($9::text[], $10::text[], $11::text[]) AS o(farm_label, feed_item_key, kg_per_day)
+),
+loads AS (
     SELECT p.feed_purchase_id, p.farm_label, p.feed_item_label, p.feed_item_key, p.park_id,
+           COALESCE(mm.family_key, p.feed_item_key) AS family_key,
            p.batch_no, p.vendor, p.purchase_date, p.delivery_status, p.days_of_stock,
            CASE WHEN p.delivery_status = 'reached' THEN COALESCE(p.reached_on, p.purchase_date) END AS reached_on,
            p.depletes_from, p.quantity_kg,
-           p.stock_kg - p.consumed_at_import_kg AS net_kg
+           p.stock_kg - p.consumed_at_import_kg AS net_kg,
+           -- RETIRED feeds are the ones the farm no longer buys. Their loads still COUNT (their
+           -- leftover sacks are part of the family's runway, the same rule the cards apply) but
+           -- they are not shown: the table answers for the feeds the farm buys today.
+           (COALESCE(c.status, 'active') = 'retired' OR COALESCE(fc.status, 'active') = 'retired') AS retired
     FROM feed_purchases p
+    LEFT JOIN merge_map mm ON mm.member_key = p.feed_item_key
+    LEFT JOIN feed_item_catalog c
+      ON c.tenant_id = $1 AND c.feed_item_key = p.feed_item_key
+    LEFT JOIN feed_item_catalog fc
+      ON fc.tenant_id = $1 AND fc.feed_item_key = COALESCE(mm.family_key, p.feed_item_key)
     WHERE p.tenant_id = $1
       AND (coalesce(cardinality($2::uuid[]), 0) = 0 OR p.park_id = ANY ($2::uuid[]))
-      AND p.feed_item_key <> ALL ($7::text[])
 ),
 -- FIFO position within (farm, feed): the kg of every REACHED load that arrived before this one.
 -- Ordered by arrival day, then purchase day, then batch, so two loads reaching on one day keep
@@ -107,15 +135,31 @@ family_total AS (
     FROM family_cells
     GROUP BY farm_label, feed_item_key
 ),
--- Recent burn rate: the same 3-most-recent-locked-days average the stock cards divide by.
+-- Burn rate, at the FAMILY grain and with the pinned overrides: byte for byte the divisor the
+-- stock card above this table quotes, so the two cannot disagree about the runway. Regrouping to
+-- the family BEFORE averaging is the whole point -- a day the pens ate the successor INSTEAD of a
+-- retired member is one day's draw on one family, never two feeds' worth.
+family_day AS (
+    SELECT fc.farm_label, COALESCE(mm.family_key, fc.feed_item_key) AS family_key, fc.feed_day,
+           SUM(fc.kg) AS kg
+    FROM family_cells fc
+    LEFT JOIN merge_map mm ON mm.member_key = fc.feed_item_key
+    GROUP BY fc.farm_label, COALESCE(mm.family_key, fc.feed_item_key), fc.feed_day
+),
 burn AS (
-    SELECT farm_label, feed_item_key, AVG(kg) FILTER (WHERE rn <= 3) AS avg_daily_kg
+    SELECT b.farm_label, b.family_key,
+           COALESCE(ov.kg_per_day, b.avg_kg) AS avg_daily_kg
     FROM (
-        SELECT farm_label, feed_item_key, kg,
-               ROW_NUMBER() OVER (PARTITION BY farm_label, feed_item_key ORDER BY feed_day DESC) AS rn
-        FROM family_cells
-    ) ranked
-    GROUP BY farm_label, feed_item_key
+        SELECT farm_label, family_key, AVG(kg) FILTER (WHERE rn <= 3) AS avg_kg
+        FROM (
+            SELECT farm_label, family_key, kg,
+                   ROW_NUMBER() OVER (PARTITION BY farm_label, family_key ORDER BY feed_day DESC) AS rn
+            FROM family_day
+        ) ranked
+        GROUP BY farm_label, family_key
+    ) b
+    LEFT JOIN rate_override ov
+      ON ov.farm_label = b.farm_label AND ov.feed_item_key = b.family_key
 ),
 -- Which days drew on which load: a day touches load L when its running total passes L's start
 -- and the total before the day is still inside L's range. Never before the load's own arrival.
@@ -175,13 +219,28 @@ scored AS (
     FROM positioned p
     LEFT JOIN family_total ft ON ft.farm_label = p.farm_label AND ft.feed_item_key = p.feed_item_key
     LEFT JOIN load_days ld ON ld.feed_purchase_id = p.feed_purchase_id
-    LEFT JOIN burn b ON b.farm_label = p.farm_label AND b.feed_item_key = p.feed_item_key
+    LEFT JOIN burn b ON b.farm_label = p.farm_label AND b.family_key = p.family_key
+),
+-- DAYS LEFT IS THE RUNWAY, NOT THE SACK. A load is not eaten alone: everything ahead of it in the
+-- FIFO queue goes out first, so "days left" on a load is the day the store reaches it and finishes
+-- it -- the running kg left, oldest load first, over the family's rate. The NEWEST load of a family
+-- therefore reads the family's whole remaining stock over that same rate, which is exactly the
+-- figure the stock card above quotes; the two cannot disagree.
+running AS (
+    SELECT s.*,
+           SUM(s.net_kg - s.consumed_kg) OVER (
+               PARTITION BY s.farm_label, s.family_key
+               ORDER BY s.depletes_from, s.purchase_date, s.batch_no
+               ROWS UNBOUNDED PRECEDING) AS runway_kg
+    FROM scored s
 ),
 rows_all AS (
     SELECT s.feed_purchase_id, s.farm_label, s.feed_item_label, s.feed_item_key, s.batch_no, s.vendor,
-           s.purchase_date, s.reached_on, s.consumption_from, s.finished_on,
+           s.purchase_date, s.reached_on, s.consumption_from, s.finished_on, s.retired,
            CASE
-             WHEN s.net_kg - s.consumed_kg < 0 THEN 'overrun'
+             -- An overrun load -- more directed against it than it held -- is the one being fed
+             -- from right now, so it reads as IN USE. Its negative kg left is the finding.
+             WHEN s.net_kg - s.consumed_kg < 0 THEN 'in_use'
              WHEN s.consumed_kg >= s.net_kg THEN 'finished'
              WHEN s.consumed_kg > 0 THEN 'in_use'
              ELSE 'not_started'
@@ -192,28 +251,36 @@ rows_all AS (
            s.days_of_stock,
            COALESCE(s.days_consumed, 0) AS days_consumed,
            CASE
-             WHEN s.net_kg - s.consumed_kg <= 0 THEN 0
              WHEN s.avg_daily_kg IS NULL OR s.avg_daily_kg <= 0 THEN NULL
-             ELSE floor((s.net_kg - s.consumed_kg) / s.avg_daily_kg)::bigint
+             ELSE GREATEST(floor(s.runway_kg / s.avg_daily_kg), 0)::bigint
            END AS days_left,
+           -- The CHECK stays about this load alone: the buyer said how many days THIS load would
+           -- cover, so it is compared against this load's own kg over the same rate.
+           CASE
+             WHEN s.avg_daily_kg IS NULL OR s.avg_daily_kg <= 0 THEN NULL
+             ELSE GREATEST(floor((s.net_kg - s.consumed_kg) / s.avg_daily_kg), 0)::bigint
+           END AS own_days_left,
            s.avg_daily_kg
-    FROM scored s
+    FROM running s
     UNION ALL
     -- On the road: stock_kg is 0 by design (not stock yet), so the row shows the BOUGHT quantity as
     -- what is coming, nothing consumed, and no rate to project days left from.
     SELECT l.feed_purchase_id, l.farm_label, l.feed_item_label, l.feed_item_key, l.batch_no, l.vendor,
-           l.purchase_date, NULL, NULL, NULL,
-           'in_transit', l.quantity_kg, 0, l.quantity_kg, l.days_of_stock, 0, NULL, NULL
+           l.purchase_date, NULL, NULL, NULL, l.retired,
+           'in_transit', l.quantity_kg, 0, l.quantity_kg, l.days_of_stock, 0, NULL, NULL, NULL
     FROM loads l
     WHERE l.delivery_status <> 'reached'
 ),
 page AS (
     SELECT r.*,
-           CASE WHEN r.days_of_stock IS NULL OR r.days_left IS NULL THEN NULL
-                ELSE r.days_of_stock - r.days_consumed - r.days_left END AS gap_days
+           CASE WHEN r.days_of_stock IS NULL OR r.own_days_left IS NULL THEN NULL
+                ELSE r.days_of_stock - r.days_consumed - r.own_days_left END AS gap_days
     FROM rows_all r
     WHERE ($3::text = '' OR r.farm_label = $3)
       AND ($4::text = '' OR r.feed_item_key = $4)
+      -- A load the store has finished is history: the table answers what is in the store now.
+      AND r.status <> 'finished'
+      AND NOT r.retired
 )
 SELECT feed_purchase_id::text, farm_label, feed_item_label, feed_item_key, batch_no, vendor,
        purchase_date::text,
@@ -227,24 +294,30 @@ FROM page
 ORDER BY purchase_date DESC, farm_label, feed_item_key, batch_no DESC
 LIMIT $5 OFFSET $6`
 
+// The facets name the feeds and farms the table can actually show: the ledger's loads, minus the
+// feeds the farm has retired, so the filter cannot select a feed with no row behind it.
+const stockLoadFacetScopeSQL = `
+    FROM feed_purchases p
+    LEFT JOIN unnest($3::text[], $4::text[]) AS m(member_key, family_key) ON m.member_key = p.feed_item_key
+    LEFT JOIN feed_item_catalog c
+      ON c.tenant_id = $1 AND c.feed_item_key = p.feed_item_key
+    LEFT JOIN feed_item_catalog fc
+      ON fc.tenant_id = $1 AND fc.feed_item_key = COALESCE(m.family_key, p.feed_item_key)
+    WHERE p.tenant_id = $1
+      AND (coalesce(cardinality($2::uuid[]), 0) = 0 OR p.park_id = ANY ($2::uuid[]))
+      AND COALESCE(c.status, 'active') <> 'retired'
+      AND COALESCE(fc.status, 'active') <> 'retired'`
+
 // stockLoadFeedItemsSQL lists the feeds the ledger holds loads for, in the caller's park scope.
 const stockLoadFeedItemsSQL = `
-SELECT feed_item_key, MAX(feed_item_label)
-FROM feed_purchases
-WHERE tenant_id = $1
-  AND (coalesce(cardinality($2::uuid[]), 0) = 0 OR park_id = ANY ($2::uuid[]))
-  AND feed_item_key <> ALL ($3::text[])
-GROUP BY feed_item_key
-ORDER BY MAX(feed_item_label)`
+SELECT p.feed_item_key, MAX(p.feed_item_label)` + stockLoadFacetScopeSQL + `
+GROUP BY p.feed_item_key
+ORDER BY MAX(p.feed_item_label)`
 
 // stockLoadFarmsSQL lists the farms the ledger holds loads for, in the caller's park scope.
 const stockLoadFarmsSQL = `
-SELECT DISTINCT farm_label
-FROM feed_purchases
-WHERE tenant_id = $1
-  AND (coalesce(cardinality($2::uuid[]), 0) = 0 OR park_id = ANY ($2::uuid[]))
-  AND feed_item_key <> ALL ($3::text[])
-ORDER BY farm_label`
+SELECT DISTINCT p.farm_label` + stockLoadFacetScopeSQL + `
+ORDER BY p.farm_label`
 
 // StockLoads serves the purchased-vs-consumed table. Cached on the same stock revision as the
 // cards, so a recorded load, an arrival or a sheet lock invalidates both together.
@@ -275,8 +348,12 @@ func (r *Repository) StockLoads(ctx context.Context, tenantID string, parkIDs []
 }
 
 func (r *Repository) loadStockLoads(ctx context.Context, tenantID string, parkIDs []uuid.UUID, farm, feedKey string, limit, offset int) (domain.StockLoadsPage, error) {
-	excluded := domain.StockLoadExcludedFeedItemKeys
-	rows, err := r.pool.Query(ctx, stockLoadsSQL, tenantID, parkIDs, farm, feedKey, limit, offset, excluded)
+	// The same fold and the same pinned rates the stock cards bind, so the runway this table
+	// projects is the runway the card above it quotes.
+	mergeMembers, mergeFamilies, _ := domain.StockFamilyMergeArrays()
+	rateFarms, rateFeeds, rateKg := domain.StockRateOverrideArrays()
+	rows, err := r.pool.Query(ctx, stockLoadsSQL, tenantID, parkIDs, farm, feedKey, limit, offset,
+		mergeMembers, mergeFamilies, rateFarms, rateFeeds, rateKg)
 	if err != nil {
 		return domain.StockLoadsPage{}, fmt.Errorf("feed analytics stock loads: %w", err)
 	}
@@ -304,7 +381,7 @@ func (r *Repository) loadStockLoads(ctx context.Context, tenantID string, parkID
 	if err := rows.Err(); err != nil {
 		return domain.StockLoadsPage{}, fmt.Errorf("feed analytics stock loads rows: %w", err)
 	}
-	items, err := r.pool.Query(ctx, stockLoadFeedItemsSQL, tenantID, parkIDs, excluded)
+	items, err := r.pool.Query(ctx, stockLoadFeedItemsSQL, tenantID, parkIDs, mergeMembers, mergeFamilies)
 	if err != nil {
 		return domain.StockLoadsPage{}, fmt.Errorf("feed analytics stock load feed items: %w", err)
 	}
@@ -319,7 +396,7 @@ func (r *Repository) loadStockLoads(ctx context.Context, tenantID string, parkID
 	if err := items.Err(); err != nil {
 		return domain.StockLoadsPage{}, fmt.Errorf("feed analytics stock load feed items rows: %w", err)
 	}
-	farms, err := r.pool.Query(ctx, stockLoadFarmsSQL, tenantID, parkIDs, excluded)
+	farms, err := r.pool.Query(ctx, stockLoadFarmsSQL, tenantID, parkIDs, mergeMembers, mergeFamilies)
 	if err != nil {
 		return domain.StockLoadsPage{}, fmt.Errorf("feed analytics stock load farms: %w", err)
 	}
@@ -336,7 +413,8 @@ func (r *Repository) loadStockLoads(ctx context.Context, tenantID string, parkID
 	}
 	if len(out.Rows) == 0 && offset > 0 {
 		// A page past the end still owes the whole-filter counts.
-		if err := r.pool.QueryRow(ctx, stockLoadsSQL, tenantID, parkIDs, farm, feedKey, 1, 0, excluded).Scan(
+		if err := r.pool.QueryRow(ctx, stockLoadsSQL, tenantID, parkIDs, farm, feedKey, 1, 0,
+			mergeMembers, mergeFamilies, rateFarms, rateFeeds, rateKg).Scan(
 			new(string), new(string), new(string), new(string), new(int64), new(string),
 			new(string), new(string), new(string), new(string), new(string),
 			new(string), new(string), new(string),
