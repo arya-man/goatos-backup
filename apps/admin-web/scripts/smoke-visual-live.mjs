@@ -470,7 +470,9 @@ try {
         const ms = Math.round(performance.now() - started);
         if (ms < 400) return;
         const target = new URL(request.url());
-        slowest.push({ ms, label: `${request.method()} ${target.pathname}${target.search.slice(0, 60)}` });
+        // Third-party auth/telemetry is not our latency story.
+        if (/googleapis|gstatic|identitytoolkit|firebase|google-analytics|doubleclick/.test(target.hostname)) return;
+        slowest.push({ ms, label: `${request.method()} ${target.pathname}` });
       });
       try {
         const url = `${appBaseUrl}${appPath(route.path)}`;
