@@ -22,8 +22,14 @@ are not built. This document is the handover.
 - Disk: 83 GB root, ~27 GB free (the 44 GB clone dominates), plus an unused
   15 GB `/var/oled`. **No `/dev/kvm`**, so an Android emulator cannot run there.
 - Both OCI timers (`goatos-dashboard-automation.timer`,
-  `goatos-dashboard-post-main.timer`) are currently **inactive** (`disabled`), as is
-  `goatos-dashboard-automation-bootstrap.timer`. `goatos-stg-readonly-proxy.service` is active.
+  `goatos-dashboard-post-main.timer`) were **inactive** (`disabled`) and were **enabled on
+  2026-09-23** on Ravi's authorisation, once PR #350 was on main. The daily production sweep is
+  `OnCalendar=*-*-* 04:00:00 Asia/Kolkata` (RandomizedDelaySec=10m); post-main certification is
+  `OnCalendar=*:0/10` (RandomizedDelaySec=2m). Both carry `Persistent=true`, so post-main fired
+  immediately on enable to catch up its missed run. They are **user**-scope units in
+  `/home/opc/.config/systemd/user/` — a system-scope `systemctl` check reports "No such file or
+  directory" and reads as if they do not exist. `goatos-dashboard-automation-bootstrap.timer`
+  remains disabled. `goatos-stg-readonly-proxy.service` is active.
 - **Reaching the box:** `ssh goatos-oci`. The key is `~/.ssh/goatos_oci_dev_ed25519`; it was not
   in `~/.ssh/config`, so a bare `ssh opc@144.24.107.47` is refused with `publickey denied` and
   looks like missing access. A `goatos-oci` Host alias was added on 2026-09-23. Do not conclude
@@ -290,4 +296,10 @@ Progress on lanes 2-5 is appended here as it lands, so the PR is the record.
 - **Lane 5 started**, branch `auto/lane5-20260923`, built from the miner's 47 specs. Free tier only
   (10 tests/day, 60 device-minutes/day on `goatos-stg`); no agent may incur billable device time.
   The five physical-device checks are never claimed as covered by a virtual run.
+
+- **Lane 1 is now running.** Both timers enabled 2026-09-23 on Ravi's authorisation; a post-main
+  certification cycle started immediately against main `faa622283`. The first alerts will be loud,
+  because the ~48 issues from the last production run are still unfixed by deliberate choice —
+  they are the sweep working, not a new regression. `notify-slack.mjs` mutes an identical signature
+  for 240 minutes, so the 10-minute post-main cadence should not flood the channel.
 
