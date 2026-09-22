@@ -245,13 +245,15 @@ function GroupRows({
               const ticked = row.draft.includes(d.code);
               return (
                 <td key={d.code} style={{ textAlign: "center", padding: "6px 4px" }}>
-                  <input
-                    type="checkbox"
-                    aria-label={`${row.alert.label}: ${d.label}`}
-                    checked={ticked}
-                    disabled={!canEdit || row.pending}
-                    onChange={() => onToggle(alert.key, d.code)}
-                  />
+                  <label className="nmatrix-hit">
+                    <input
+                      type="checkbox"
+                      aria-label={`${row.alert.label}: ${d.label}`}
+                      checked={ticked}
+                      disabled={!canEdit || row.pending}
+                      onChange={() => onToggle(alert.key, d.code)}
+                    />
+                  </label>
                 </td>
               );
             })}

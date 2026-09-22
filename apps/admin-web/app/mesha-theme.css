@@ -2286,6 +2286,14 @@
   a.nbc:hover{background:var(--bg);color:var(--brand-d)}
   .nbtrail .nbc.cur{color:var(--ink);font-weight:650;cursor:default}
   .nbtrail .nbsep{width:11px;height:11px;color:var(--faint);flex:none}
+  /* Mobile tap targets (>=40px): breadcrumb links keep their compact look
+     but get a 40px hit area on touch-width viewports; notification-matrix checkboxes sit in a
+     40px label hit area (checkbox itself stays native size). */
+  @media(max-width:760px){
+    .nbtrail a.nbc{display:inline-flex;align-items:center;min-height:40px}
+  }
+  .nmatrix-hit{display:inline-flex;align-items:center;justify-content:center;min-width:40px;min-height:40px;cursor:pointer}
+  .nmatrix-hit input{margin:0;cursor:inherit}
   .nbtitle{color:var(--ink);font-size:12.5px;font-weight:650;padding:2px 6px;white-space:nowrap}
   .legend{display:flex;gap:14px;flex-wrap:wrap;font-size:12px;color:var(--muted);margin-top:4px}
   .legend span{display:inline-flex;align-items:center;gap:6px}

@@ -378,7 +378,7 @@ export async function HealthConfigPage({
         />
 
         <div
-          className="bd health-scroll"
+          className="bd health-scroll tablewrap feed-stock-tablewrap feed-scroll"
           style={{ padding: 0, overflowX: "auto" }}
           tabIndex={0}
           role="group"
@@ -555,7 +555,7 @@ function SelectedProtocolEditor({
         ) : (
           // A published or retired version is read-only, and that is a business rule rather
           // than a permission: goats are being treated from it. Editing goes through a draft.
-          <div className="bd" style={{ padding: 0, overflowX: "auto" }}>
+          <div className="bd tablewrap feed-stock-tablewrap feed-scroll" style={{ padding: 0, overflowX: "auto" }}>
             <table className="feed-table" aria-label={copy(pageContract, "section.steps.aria")}>
               <thead>
                 <tr>
