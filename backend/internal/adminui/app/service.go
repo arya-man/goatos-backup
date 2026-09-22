@@ -618,15 +618,15 @@ func pages() []domain.PageContract {
 			[]domain.TableContract{
 				withoutRowClick(loadwiseTable()),
 			}),
-		// FARM BORN (maintainer request 2026-09-18): every animal the farm did NOT buy on a load,
-		// whatever the register's origin field says (maintainer instruction 2026-09-19), the
-		// counterpart of Load wise. What is on the farm today, what sold in the chosen
+		// FARM BORN (maintainer request 2026-09-18): every animal the register marks BORN HERE
+		// (goats.origin_type = 'birth'; maintainer decision 2026-09-22, superseding the
+		// 2026-09-19 not-on-a-load rule), the counterpart of Load wise. What is on the farm today, what sold in the chosen
 		// period, which breed / sex / stage / pen the sold ones came from, and what they brought
 		// in; a filter bar on top (period, park, pen, species, breed, sex, stage). Served
 		// by the procurement farm-born read (the load-wise shape; docs/decisions/sales-farm-born.md).
 		// READ-ONLY by contract, the /sales/sold shape: no write control, so nothing here opens a
 		// form. The sold ledger is the one table; its row is an animal and opens nothing.
-		page("sales-farm-born", "/sales/farm-born", "/sales/farm-born", "Farm born", "Every animal the farm did not buy on a load — how many are on the farm, how many sold in the period, of which breed, sex, stage and pen, and what they earned.", "module-surface",
+		page("sales-farm-born", "/sales/farm-born", "/sales/farm-born", "Farm born", "Every animal born on this farm — how many are on the farm, how many sold in the period, of which breed, sex, stage and pen, and what they earned.", "module-surface",
 			[]domain.TableContract{withoutRowClick(farmBornSoldTable())}),
 		// MARKET ANALYTICS (maintainer decision 2026-09-14): the morning market-price calls read
 		// back -- the latest price per city and question, and each one over time. READ-ONLY by
@@ -4695,7 +4695,7 @@ func pageSpecificCopy(id string) map[string]string {
 			// Headline tiles -- whole-filter figures, never the page's.
 			"section.headline.aria": "Farm born headline figures",
 			"kpi.on_farm":           "On the farm now",
-			"kpi.on_farm.detail":    "alive today, not from a purchased load",
+			"kpi.on_farm.detail":    "alive today, born on this farm",
 			"kpi.sold":              "Sold in the period",
 			"kpi.sold.detail":       "animals with a sale date in the period",
 			"kpi.revenue":           "Earned",
