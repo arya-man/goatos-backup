@@ -604,6 +604,7 @@ func (a *Assistant) deterministicPlan(ctx context.Context, q domain.Question, me
 			continue
 		}
 		if plan.Refusal != "" || len(plan.SubQuestions) > 0 {
+			declareFallbackMeasures(plan.SubQuestions, catalog)
 			return plan, nil
 		}
 		if empty == nil {
@@ -625,7 +626,9 @@ func (a *Assistant) planWithModel(ctx context.Context, q domain.Question, mem []
 	var plan domain.Plan
 	var usage TokenUsage
 	up, hasUsage := a.provider.(usagePlanner)
-	err := retryTransient(ctx, 2, 150*time.Millisecond, func() error {
+	// Three attempts over a widening quarter-second: long enough to ride out a
+	// brief Vertex blip, and a permanent rejection still returns on the first.
+	err := retryTransientIf(ctx, 3, 250*time.Millisecond, transientPlannerError, func() error {
 		if hasUsage {
 			p, u, e := up.PlanWithUsage(ctx, q, mem, catalog)
 			usage = usage.add(u) // a retried call is still billed
@@ -1023,4 +1026,53 @@ func isLeadership(a domain.Actor) bool {
 		}
 	}
 	return false
+}
+
+// declareFallbackMeasures gives a model-free plan's sub-questions the measure
+// they will answer, taken from the CATALOG tool that will run.
+//
+// fallbackFit is the only thing standing between a fallback question and its
+// answer, and its measure check reads AnswerSpec.MeasureTerms -- which only
+// natural-SQL templates ever set. A keyword-planned or non-model-provider sub
+// declared nothing, so the check was skipped entirely and the strictest gate
+// in the fallback path passed every such plan by default. The terms are the
+// tool's own name words: the deterministic planners choose a tool by matching
+// those against the question, so a sub whose tool shares no word with the
+// question is one nothing matched.
+func declareFallbackMeasures(subs []domain.SubQuestion, catalog []ports.ToolSpec) {
+	byName := make(map[string]ports.ToolSpec, len(catalog))
+	for _, t := range catalog {
+		byName[t.Name] = t
+	}
+	for i := range subs {
+		if !subs[i].Declared.IsZero() {
+			continue
+		}
+		spec, ok := byName[subs[i].ToolName]
+		if !ok {
+			continue
+		}
+		terms := toolNameTerms(spec.Name)
+		if len(terms) == 0 {
+			continue
+		}
+		subs[i].Declared = domain.AnswerSpec{
+			Template:     true,
+			MeasureTerms: terms,
+			Description:  spec.Description,
+		}
+	}
+}
+
+// toolNameTerms splits a catalog tool name into the words a question would use
+// for it ("weighing_progress" -> weighing, progress), dropping fragments too
+// short to mean anything on their own.
+func toolNameTerms(name string) []string {
+	var out []string
+	for _, w := range strings.FieldsFunc(strings.ToLower(name), func(r rune) bool { return r == '_' || r == '.' || r == '-' }) {
+		if len(w) >= 4 {
+			out = append(out, w)
+		}
+	}
+	return out
 }

@@ -2,6 +2,8 @@ package app
 
 import (
 	"context"
+	"errors"
+	"strings"
 	"sync"
 	"time"
 )
@@ -82,6 +84,12 @@ func (b *Breaker) Failure() {
 // retryTransient runs fn up to attempts times with linear backoff, honoring
 // ctx. It returns the last error. Used for transient tool/planner failures.
 func retryTransient(ctx context.Context, attempts int, backoff time.Duration, fn func() error) error {
+	return retryTransientIf(ctx, attempts, backoff, func(error) bool { return true }, fn)
+}
+
+// retryTransientIf is retryTransient with a say in WHAT is worth retrying: a
+// permanent rejection is returned at once instead of being asked twice more.
+func retryTransientIf(ctx context.Context, attempts int, backoff time.Duration, retryable func(error) bool, fn func() error) error {
 	var err error
 	for i := 0; i < attempts; i++ {
 		if err = fn(); err == nil {
@@ -89,6 +97,9 @@ func retryTransient(ctx context.Context, attempts int, backoff time.Duration, fn
 		}
 		if ctx.Err() != nil {
 			return ctx.Err()
+		}
+		if !retryable(err) {
+			return err
 		}
 		if i < attempts-1 {
 			select {
@@ -99,4 +110,40 @@ func retryTransient(ctx context.Context, attempts int, backoff time.Duration, fn
 		}
 	}
 	return err
+}
+
+// transientPlannerError reports a planner failure that a moment later would
+// probably not happen: the model overloaded or rate-limited, a gateway or
+// connection fault, a timeout, or a response with no candidate in it.
+//
+// It exists because the planner retried EVERY error twice at 150ms and then
+// fell to the deterministic path, which is not long enough to ride out a
+// Vertex blip -- two questions of a 43-question run answered in fallback mode
+// while the other 41 planned -- and, on a permanent 4xx, was two pointless
+// round trips before the same conclusion.
+func transientPlannerError(err error) bool {
+	if err == nil {
+		return false
+	}
+	if errors.Is(err, context.DeadlineExceeded) {
+		return true
+	}
+	msg := strings.ToLower(err.Error())
+	for _, permanent := range []string{"status 400", "status 401", "status 403", "status 404", "status 422"} {
+		if strings.Contains(msg, permanent) {
+			return false
+		}
+	}
+	for _, transient := range []string{
+		"status 429", "status 500", "status 502", "status 503", "status 504",
+		"empty candidate", "timeout", "deadline", "connection reset", "eof",
+		"temporarily", "unavailable", "overloaded",
+	} {
+		if strings.Contains(msg, transient) {
+			return true
+		}
+	}
+	// An unrecognised failure is retried once more rather than dropping a
+	// leader straight to a hard-coded metric.
+	return true
 }
