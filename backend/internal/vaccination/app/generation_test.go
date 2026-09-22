@@ -12,6 +12,7 @@ import (
 	"github.com/jackc/pgx/v5/pgconn"
 
 	obldomain "github.com/vgoats/goatos/backend/internal/obligation/domain"
+	"github.com/vgoats/goatos/backend/internal/platform/biztime"
 	"github.com/vgoats/goatos/backend/internal/platform/eventbus"
 	protodomain "github.com/vgoats/goatos/backend/internal/protocol/domain"
 	"github.com/vgoats/goatos/backend/internal/vaccination/domain"
@@ -2255,6 +2256,93 @@ func TestGoatRecheckRecoveryRescheduleKeepsCrossVaccineGapFloor(t *testing.T) {
 	wantDue := businessDayStart(recentLive).AddDate(0, 0, 28)
 	if !obl.inserted[0].DueAt.Equal(wantDue) {
 		t.Fatalf("recovered due=%v, want live-live floor %v instead of nearby drive %v", obl.inserted[0].DueAt, wantDue, nearby)
+	}
+}
+
+func TestGoatRecheckRecoveryRescheduleKeepsBirthAgeFloor(t *testing.T) {
+	ctx := context.Background()
+	dob := time.Date(2026, time.September, 16, 0, 0, 0, 0, biztime.DefaultLocation())
+	proto := &generationProtoFake{
+		ruleDSL: []byte(`{"vaccine":{"code":"ET_TT","type":"killed","pathogen_class":"bacterial"},"eligibility":{"animal_stage":"K1","defer_states":["sick"]},"recovery_policy":{"max_nearby_drive_align_days":7}}`),
+		rules:   []protodomain.Rule{{RuleID: "rule-1", DoseCode: "et_tt_kid_4w", Sequence: 1, TriggerType: "birth_age", OffsetDays: 28, DueWindowDays: 7}},
+	}
+	goats := &generationGoatFake{
+		goat: domain.EligibleGoat{GoatID: "goat-1", LifecycleStatus: "alive", HealthStatus: "sick", Stage: "K1", DOB: &dob, ShedID: "shed-1", ParkID: "park-1"},
+	}
+	obl := &generationObligationFake{seen: map[string]bool{}}
+	gen := NewGenerationService(proto, goats, obl)
+
+	if _, err := gen.GenerateForGoat(ctx, "tenant-1", "goat-1", time.Date(2026, time.September, 23, 0, 30, 0, 0, biztime.DefaultLocation())); err != nil {
+		t.Fatalf("initial generate: %v", err)
+	}
+	if obl.inserted[0].Status != "deferred" {
+		t.Fatalf("precondition: status=%s, want deferred", obl.inserted[0].Status)
+	}
+
+	goats.goat.HealthStatus = "healthy"
+	bus := eventbus.NewInProcessBus()
+	NewGoatRecheckHandler(gen).Register(bus)
+	if err := bus.Publish(ctx, eventbus.Event{
+		Type:       EventGoatHealthChanged,
+		TenantID:   "tenant-1",
+		Key:        "goat-1",
+		OccurredAt: time.Date(2026, time.September, 23, 1, 0, 0, 0, biztime.DefaultLocation()),
+	}); err != nil {
+		t.Fatalf("publish goat.health.changed: %v", err)
+	}
+
+	wantDue := businessDayStart(dob).AddDate(0, 0, 28)
+	if !obl.inserted[0].DueAt.Equal(wantDue) {
+		t.Fatalf("recovered due=%v, want birth-age floor %v", obl.inserted[0].DueAt, wantDue)
+	}
+}
+
+func TestGoatRecheckRecoveryRescheduleKeepsAfterPreviousCompletionFloor(t *testing.T) {
+	ctx := context.Background()
+	lastETTT := time.Date(2026, time.September, 1, 0, 0, 0, 0, biztime.DefaultLocation())
+	proto := &generationProtoFake{
+		ruleDSL: []byte(`{"vaccine":{"code":"ET_TT","type":"killed","pathogen_class":"bacterial"},"eligibility":{"animal_stage":"K1","defer_states":["sick"]},"recovery_policy":{"max_nearby_drive_align_days":7}}`),
+		rules:   []protodomain.Rule{{RuleID: "rule-1", DoseCode: "et_tt_booster", Sequence: 2, TriggerType: "after_previous_completion", OffsetDays: 28, MinGapDays: 28, DueWindowDays: 7}},
+	}
+	goats := &generationGoatFake{
+		goat: domain.EligibleGoat{GoatID: "goat-1", LifecycleStatus: "alive", HealthStatus: "sick", Stage: "K1", ShedID: "shed-1", ParkID: "park-1"},
+		vaccineHistory: map[string][]domain.RecentVaccineAdministration{
+			"goat-1": {{
+				VaccineCode:    "ET_TT",
+				DoseCode:       "et_tt_primary",
+				Sequence:       1,
+				VaccineType:    "killed",
+				PathogenClass:  "bacterial",
+				AdministeredAt: lastETTT,
+			}},
+		},
+	}
+	nearby := time.Date(2026, time.September, 12, 0, 0, 0, 0, biztime.DefaultLocation())
+	obl := &generationObligationFake{seen: map[string]bool{}, nearbyDrive: &nearby}
+	gen := NewGenerationService(proto, goats, obl)
+
+	if _, err := gen.GenerateForGoat(ctx, "tenant-1", "goat-1", time.Date(2026, time.September, 10, 9, 0, 0, 0, biztime.DefaultLocation())); err != nil {
+		t.Fatalf("initial generate: %v", err)
+	}
+	if obl.inserted[0].Status != "deferred" {
+		t.Fatalf("precondition: status=%s, want deferred", obl.inserted[0].Status)
+	}
+
+	goats.goat.HealthStatus = "healthy"
+	bus := eventbus.NewInProcessBus()
+	NewGoatRecheckHandler(gen).Register(bus)
+	if err := bus.Publish(ctx, eventbus.Event{
+		Type:       EventGoatHealthChanged,
+		TenantID:   "tenant-1",
+		Key:        "goat-1",
+		OccurredAt: time.Date(2026, time.September, 10, 10, 0, 0, 0, biztime.DefaultLocation()),
+	}); err != nil {
+		t.Fatalf("publish goat.health.changed: %v", err)
+	}
+
+	wantDue := businessDayStart(lastETTT).AddDate(0, 0, 28)
+	if !obl.inserted[0].DueAt.Equal(wantDue) {
+		t.Fatalf("recovered due=%v, want after-previous-completion floor %v instead of nearby drive %v", obl.inserted[0].DueAt, wantDue, nearby)
 	}
 }
 

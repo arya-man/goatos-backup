@@ -147,6 +147,7 @@ func (p genMissedDosePolicy) alignDays() int32 {
 const (
 	recoveryAlignNearbyDrive = "recovery_align_nearby_drive"
 	recoveryMicroDrive       = "recovery_micro_drive"
+	recoveryRuleDueFloor     = "recovery_rule_due_floor"
 )
 
 // recoveryRescheduleDue picks the due time after a health defer clears. When a planned drive exists

@@ -7855,7 +7855,8 @@ CREATE TABLE public.vaccination_drive_assignment_members (
     assignment_id uuid NOT NULL,
     obligation_id uuid NOT NULL,
     goat_id uuid NOT NULL,
-    created_at timestamp with time zone DEFAULT now() NOT NULL
+    created_at timestamp with time zone DEFAULT now() NOT NULL,
+    canceled_at timestamp with time zone
 );
 
 
@@ -13602,6 +13603,13 @@ CREATE INDEX vaccination_completions_submission_item_idx ON public.vaccination_c
 --
 
 CREATE INDEX vaccination_drive_assignment_members_tenant_assignment_idx ON public.vaccination_drive_assignment_members USING btree (tenant_id, assignment_id);
+
+
+--
+-- Name: vaccination_drive_assignment_members_active_assignment_idx; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX vaccination_drive_assignment_members_active_assignment_idx ON public.vaccination_drive_assignment_members USING btree (tenant_id, assignment_id) WHERE (canceled_at IS NULL);
 
 
 --
