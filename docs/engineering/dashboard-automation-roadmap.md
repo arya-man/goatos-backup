@@ -337,3 +337,49 @@ within minutes. Two real defects surfaced because of it, so the record is worth 
   "renders byte-identically" proof is a proof about block JSON, not about anything that happens
   after `chat.postMessage`.
 
+### Lane 2 is built, and its first live run found 17 real problems
+
+Branch `auto/lane2-20260923`. **42 checks** — 30 from the list above, 12 folded in from the miner's
+per-commit specs — run read-only against the STG-backed production replica. 25 green, **17 found
+rows that should not exist (848 rows)**, 1 parked, nothing errored.
+
+Worst first, as a person would read them:
+
+- **139 upcoming vaccinations are planned for animals that have already been sold or died.**
+  Operators are sent looking for animals that are not on the farm, and the round can never complete.
+- **9 feeds are retired in the catalogue while current rates still name them** — the daily sheet
+  keeps asking for feed the store no longer stocks.
+- **4 feeds have been issued to the pens in greater quantity than was ever bought.** One item:
+  1,076 kg issued, 0 kg purchased. Either purchases are missing or the sheets are issuing feed that
+  never existed, so the stock figure cannot be trusted.
+- **The sales screen says 701 animals sold on closed deals; the herd register says 155.**
+- **500+ vaccination rounds are more than two days overdue** with animals still waiting and nothing
+  recorded.
+- **90 upcoming vaccinations name a pen the animal has since moved out of.**
+- 67 counting exceptions unresolved over a week; 11 approvals with no person or time; 7 purchase
+  loads whose head count does not match; 2,581 items of work waiting over 7 days; 5 deaths with no
+  cause; 2 pens whose average does not equal total ÷ head count.
+
+None of this is visible to lane 1 — a page can render perfectly while the number on it is wrong.
+
+**A finding about the automation's own access, parked rather than softened:** the login this lane
+uses, `goatos_app`, holds INSERT/UPDATE/DELETE/TRUNCATE on all 22 tables it reads and can CREATE in
+`public`. It is **not** a read-only role. Every report records `roleIsReadOnly: false`. The checks
+were still safe — session-level `PGOPTIONS`, `BEGIN READ ONLY`, one capped SELECT each, no statement
+chaining — but the guarantee currently rests on the client, not on the grant. A genuinely read-only
+role is the right fix.
+
+Four checks were **built and then parked with the numbers proving they were noise**, which is the
+standard for every lane: one fired on 26,066 of 27,394 rows because the rule did not model a ration
+split across sessions; another was true of 160 of 160 exited animals by design, with nothing wrong on
+any screen. A check that always fires teaches people to ignore the channel.
+
+Slack output carries no SQL, table, column, check code or row value — `assertPlainEnglish()` throws
+rather than render one.
+
+**Two honest gaps** carried into the lane's doc: the end-to-end `production-smoke` cycle has not been
+run on the box yet, so this layer is not yet trusted unattended; and lane 2's reply makes
+`inlineShots` take its first branch, so on a run where lane 1 finds issues but none carry a
+per-issue screenshot, the fallback screenshots are no longer attached. That line belongs to lane 4
+and is being fixed.
+
