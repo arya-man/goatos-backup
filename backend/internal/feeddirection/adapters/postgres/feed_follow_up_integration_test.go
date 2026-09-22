@@ -114,6 +114,20 @@ VALUES ($1::uuid, $2::uuid, $3::uuid, 'accepted_herd_intake', ($4::date + $5::ti
 		fdiTenant, ffuLoad, goatID, day, atTime)
 }
 
+// ffuLock drives the production LOCK transition for a feed day, the same one
+// the transport cutoff runs. The follow-up read judges LOCKED directions only,
+// so a fixture that only issues is a direction still being corrected -- which
+// is exactly the live state that must NOT be judged.
+func ffuLock(t *testing.T, ctx context.Context, repo *Repository, feedDay string) {
+	t.Helper()
+	if _, err := repo.LockIssue(ctx, ports.LockIssueCommand{
+		TenantID: fdiTenant, ParkID: fdiPark, FeedDay: feedDay, Workflow: domain.WorkflowNormal,
+		LockedAt: time.Date(2026, 7, 29, 15, 30, 0, 0, biztime.DefaultLocation()),
+	}); err != nil {
+		t.Fatalf("lock %s: %v", feedDay, err)
+	}
+}
+
 // ffuCell is one sheet cell at a pen, with the head count the sheet packs for.
 func ffuCell(shed, shedLabel, pen string, session int32, heads int64, qty string, rowSeq int32) domain.StoredCell {
 	q := qty
@@ -190,6 +204,7 @@ func TestFeedFollowUpOneToManySheetRowsStayOnePenRow(t *testing.T) {
 		}); err != nil {
 			t.Fatalf("persist %s: %v", day, err)
 		}
+		ffuLock(t, ctx, repo, day)
 	}
 	persist("2026-07-30", 3, "3.000")
 	persist("2026-07-31", 1, "1.000")
@@ -265,6 +280,7 @@ func TestFeedFollowUpMultipleDimensionsKeepWordedAndNumericPensApart(t *testing.
 		}); err != nil {
 			t.Fatalf("persist %s: %v", day, err)
 		}
+		ffuLock(t, ctx, repo, day)
 	}
 	persist("2026-07-30", 9)
 	persist("2026-08-01", 8)
@@ -322,6 +338,7 @@ func TestFeedFollowUpPaginationIsWholeWindowAndTotalsMatchTheRows(t *testing.T) 
 		}); err != nil {
 			t.Fatalf("persist %s: %v", day, err)
 		}
+		ffuLock(t, ctx, repo, day)
 	}
 
 	got, err := repo.FeedFollowUp(ctx, fdiTenant, ffuWindow("2026-07-30", "2026-07-31"))
@@ -375,6 +392,7 @@ func TestFeedFollowUpParkScopeBindsTheHerdSideToo(t *testing.T) {
 		}); err != nil {
 			t.Fatalf("persist %s: %v", day, err)
 		}
+		ffuLock(t, ctx, repo, day)
 	}
 
 	// In scope: the park that owns the pen.
@@ -438,6 +456,7 @@ func TestFeedFollowUpStatusBucketsAreDisjointAndCoverEveryPen(t *testing.T) {
 		}); err != nil {
 			t.Fatalf("persist %s: %v", day, err)
 		}
+		ffuLock(t, ctx, repo, day)
 	}
 	// Castro holds its head count across the death; Godel drops by one on the
 	// deadline sheet. Yashoda's death lands on the 31st, whose deadline (Aug 2)
@@ -505,6 +524,7 @@ func TestFeedFollowUpEveningEntryStillSeesTheCutAndReachesPastTheWindow(t *testi
 		}); err != nil {
 			t.Fatalf("persist %s: %v", day, err)
 		}
+		ffuLock(t, ctx, repo, day)
 	}
 	persist("2026-07-31", 5)
 	persist("2026-08-01", 4) // the farm cut it the very next day
@@ -536,5 +556,113 @@ func TestFeedFollowUpEveningEntryStillSeesTheCutAndReachesPastTheWindow(t *testi
 	// lookahead days the verdict needed.
 	if got.Totals.EndAnimals != 5 {
 		t.Errorf("walk end = %d, want 5 (the 31st, the last day of the asked range)", got.Totals.EndAnimals)
+	}
+}
+
+// A PEN THAT EMPTIES LEAVES THE SHEET, end to end (maintainer question,
+// 2026-09-23): "if all animals in shed sold then automatically nothing will be
+// packed right" -- yes, and that is the feed reducing, not a missing verdict.
+//
+// The pen's rows stop while the park keeps issuing sheets for its other pens,
+// which is exactly the live shape of CBE Godel 1 - Part 5.
+func TestFeedFollowUpEmptiedPenLeavesTheSheetAndReadsAsFedNothing(t *testing.T) {
+	ctx := context.Background()
+	repo, pool := setupIssueDB(t, ctx)
+	issuedAt := time.Date(2026, 7, 29, 9, 0, 0, 0, biztime.DefaultLocation())
+
+	g := "fd100000-0000-4000-8000-00000000e101"
+	ffuSeedHerd(t, ctx, pool, g, fdiShedA, "1", "RF-E101")
+	ffuMarkSold(t, ctx, pool, g, fdiShedA, "1", "RF-E101", "2026-07-30", ffuEvening)
+
+	// Day 1 and 2 carry the pen. From day 3 it is gone, but the park still
+	// issues a sheet -- another shed keeps being fed.
+	persist := func(day string, withPen bool) {
+		t.Helper()
+		cells := []domain.StoredCell{ffuCell(fdiShedB, "Yashoda", "", 1, 20, "9.000", 0)}
+		if withPen {
+			cells = append(cells, ffuCell(fdiShedA, "Castro", "1", 1, 4, "5.000", 1))
+		}
+		if _, err := repo.PersistIssue(ctx, ports.PersistIssueCommand{
+			TenantID: fdiTenant, ParkID: fdiPark, FeedDay: day, Workflow: domain.WorkflowNormal,
+			IssuedAt: issuedAt, Fingerprint: "fp-ffu-empty-" + day,
+			IdempotencyKey: "issue:" + fdiTenant + ":" + fdiPark + ":" + day + ":ffuempty",
+			GeneratedBy:    "test", Cells: cells,
+		}); err != nil {
+			t.Fatalf("persist %s: %v", day, err)
+		}
+		ffuLock(t, ctx, repo, day)
+	}
+	persist("2026-07-30", true)
+	persist("2026-07-31", true)
+	persist("2026-08-01", false) // the pen is empty; nothing is packed for it
+
+	got, err := repo.FeedFollowUp(ctx, fdiTenant, ffuWindow("2026-07-30", "2026-07-31"))
+	if err != nil {
+		t.Fatalf("FeedFollowUp: %v", err)
+	}
+	row := ffuRowByPen(t, got, "Castro 1")
+	if len(row.Days) != 1 {
+		t.Fatalf("want one check, got %d", len(row.Days))
+	}
+	check := row.Days[0]
+	if check.Status != domain.FeedFollowUpFollowed {
+		t.Fatalf("status = %q, want followed -- an empty pen is fed nothing, which IS the reduction", check.Status)
+	}
+	if check.AfterDay != "2026-08-01" {
+		t.Fatalf("after day = %q, want the first sheet the pen is absent from", check.AfterDay)
+	}
+	if check.HeadAfter != 0 || check.KgAfter != "0" {
+		t.Fatalf("after reading = %d head / %q kg, want nothing fed", check.HeadAfter, check.KgAfter)
+	}
+}
+
+// AN UNLOCKED FEED DIRECTION IS NOT JUDGED (maintainer correction 2026-09-23).
+// A day's direction is issued the morning before, amended at the correction
+// time and LOCKED at the transport cutoff. Until it locks it is still being
+// corrected, so neither its numbers nor a pen's ABSENCE from it are evidence.
+//
+// This is the live shape that produced a wrong answer: CPT's direction for
+// 23 Sep sat at `issued` carrying 25 pens against 42 the day before, and
+// reading a pen's absence from it reported "fed nothing" for a pen holding 16
+// animals.
+func TestFeedFollowUpUnlockedDirectionIsNotJudged(t *testing.T) {
+	ctx := context.Background()
+	repo, pool := setupIssueDB(t, ctx)
+	issuedAt := time.Date(2026, 7, 29, 9, 0, 0, 0, biztime.DefaultLocation())
+
+	g := "fd100000-0000-4000-8000-00000000e201"
+	ffuSeedHerd(t, ctx, pool, g, fdiShedA, "1", "RF-E201")
+	ffuMarkSold(t, ctx, pool, g, fdiShedA, "1", "RF-E201", "2026-07-30", ffuEvening)
+
+	write := func(day string, heads int64, lock bool) {
+		t.Helper()
+		cells := []domain.StoredCell{ffuCell(fdiShedA, "Castro", "1", 1, heads, "5.000", 0)}
+		if _, err := repo.PersistIssue(ctx, ports.PersistIssueCommand{
+			TenantID: fdiTenant, ParkID: fdiPark, FeedDay: day, Workflow: domain.WorkflowNormal,
+			IssuedAt: issuedAt, Fingerprint: "fp-ffu-unlocked-" + day,
+			IdempotencyKey: "issue:" + fdiTenant + ":" + fdiPark + ":" + day + ":ffuunlocked",
+			GeneratedBy:    "test", Cells: cells,
+		}); err != nil {
+			t.Fatalf("persist %s: %v", day, err)
+		}
+		if lock {
+			ffuLock(t, ctx, repo, day)
+		}
+	}
+	write("2026-07-30", 4, true)
+	// The deadline day exists but is STILL BEING CORRECTED.
+	write("2026-08-01", 4, false)
+
+	got, err := repo.FeedFollowUp(ctx, fdiTenant, ffuWindow("2026-07-30", "2026-07-31"))
+	if err != nil {
+		t.Fatalf("FeedFollowUp: %v", err)
+	}
+	row := ffuRowByPen(t, got, "Castro 1")
+	check := row.Days[0]
+	if check.Status != domain.FeedFollowUpPending {
+		t.Fatalf("status = %q, want pending -- an unlocked direction is not final", check.Status)
+	}
+	if check.AfterDay != "" || check.KgAfter != "" {
+		t.Fatalf("no reading may be taken from an unlocked direction: day=%q kg=%q", check.AfterDay, check.KgAfter)
 	}
 }

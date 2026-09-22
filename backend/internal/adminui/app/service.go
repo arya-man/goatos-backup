@@ -6665,19 +6665,21 @@ func pageSpecificCopy(id string) map[string]string {
 			// an accusation when it says "Not followed" and the reader is owed
 			// exactly what was compared: the sheet before the event, and the
 			// first sheet issued after it.
-			// The hint carries the FARM CLOCK, because without it the tab reads as
-			// an accusation. A pen's feed is packed a day ahead, so a change
-			// entered late cannot reach tomorrow's sheet at all -- the farm gets
-			// until the day after, and the check spans both rather than guessing
-			// which of the two it should have been.
-			"followup.hint":                "One line per change. A pen's feed is packed a day ahead, so a change has until the day after next to show on the sheet. Each line compares what the pen was fed on the day the animals moved with what it was fed two days later. Animals moved between pens are not counted as a cause — that shows up as an unexplained change.",
+			// The hint carries the FARM CLOCK in the module's OWN vocabulary
+			// (maintainer correction 2026-09-23): a day's FEED DIRECTION is
+			// issued the morning before, amended at the correction time and
+			// LOCKED at the transport cutoff. Feed PACKING is the separate
+			// operator task. Saying "packed a day ahead" here conflated the
+			// two. Only a locked direction is final, so only a locked one is
+			// judged.
+			"followup.hint":                "One line per change. A day's feed direction is issued the morning before and locked at the transport cutoff, so a change has until the day after next to reach it. Each line compares what the pen was fed on the day the animals moved with the first LOCKED direction two days later; one still being corrected is not judged. Animals moved between pens are not counted as a cause — that shows up as an unexplained change.",
 			"followup.status.followed":     "Feed changed",
 			"followup.status.not_followed": "Feed unchanged",
-			"followup.status.pending":      "Sheet not issued yet",
+			"followup.status.pending":      "Direction not locked yet",
 			"followup.table.title":         "Changes and what the feed did",
 			"followup.col.pen":             "Pen",
 			"followup.col.changes":         "What happened",
-			"followup.col.when":            "Sheets compared",
+			"followup.col.when":            "Directions compared",
 			"followup.col.animals":         "Animals fed",
 			"followup.col.feed":            "Feed per day",
 			"followup.col.status":          "Result",

@@ -57,6 +57,27 @@ import (
 // scale-guard:ignore: 5k-50k-envelope -- bounded windowed aggregate over <=92
 // days x <=2 parks x ~1 live issue/day, rows reached via the issue-id
 // natural-key prefix; result grain is the pen catalog x the window's days.
+// The days each park has a FINAL (locked) sheet for, pen or no pen. A pen whose animals
+// have all gone stops appearing on the sheet entirely, and that absence only
+// means "fed nothing" if the farm DID issue a sheet that day -- otherwise there
+// is simply nothing to compare against yet. Issues only, no rows joined: this
+// is a handful of rows per park per day.
+//
+// scale-guard:ignore: 5k-50k-envelope -- one row per park per day over a
+// window of at most 94 days.
+var feedFollowUpIssuedDaysSQL = `
+SELECT park_id::text, feed_day::text
+FROM feed_direction_issues
+WHERE tenant_id = $1
+  AND (coalesce(cardinality($2::uuid[]), 0) = 0 OR park_id = ANY ($2::uuid[]))
+  AND feed_day BETWEEN $3 AND $4
+  -- LOCKED only, for the same reason the pen read is: absence from a sheet
+  -- that is still being built is not evidence that a pen is fed nothing.
+  AND state = 'locked'
+  AND workflow IN ('normal', 'experiment')
+GROUP BY park_id, feed_day
+ORDER BY park_id, feed_day`
+
 // penJoinKey renders the ONE expression both reads group by, so the two sides
 // cannot drift into two spellings of the same pen. Given the column holding a
 // partition LABEL it yields 'whole' for the undivided sentinel (empty, NULL or
@@ -74,7 +95,15 @@ WITH iss AS (
     WHERE tenant_id = $1
       AND (coalesce(cardinality($2::uuid[]), 0) = 0 OR park_id = ANY ($2::uuid[]))
       AND feed_day BETWEEN $3 AND $4
-      AND state IN ('issued', 'amended', 'locked')
+      -- LOCKED ONLY, and this is a rule rather than a filter. A sheet is
+      -- issued in the morning, corrected in the afternoon and LOCKED for
+      -- packing; until it locks it is still being amended, so a pen's number
+      -- on it is not yet what the crew packs. Judging an unlocked sheet lets
+      -- the tab publish a verdict the afternoon correction then overturns --
+      -- and, worse, lets a pen MISSING from a half-built sheet read as "fed
+      -- nothing": CPT's sheet for 23 Sep carried 25 pens against 42 the day
+      -- before, purely because it was not finished.
+      AND state = 'locked'
       AND workflow IN ('normal', 'experiment')
 ),
 pen_grain_day AS (
@@ -328,13 +357,41 @@ func (r *Repository) FeedFollowUp(ctx context.Context, tenantID string, q domain
 	if err != nil {
 		return domain.FeedFollowUp{}, err
 	}
-	return composeFeedFollowUp(sheet, labels, causes, to.Format("2006-01-02")), nil
+	issued, err := r.feedFollowUpIssuedDays(ctx, tenantID, q.ParkIDs, from, sheetTo)
+	if err != nil {
+		return domain.FeedFollowUp{}, err
+	}
+	return composeFeedFollowUp(sheet, labels, causes, issued, to.Format("2006-01-02")), nil
 }
 
 type penLabels struct {
 	ParkLabel      string
 	ShedLabel      string
 	PartitionLabel string
+}
+
+func (r *Repository) feedFollowUpIssuedDays(ctx context.Context, tenantID string, parkIDs []uuid.UUID, from, to time.Time) (map[string][]string, error) {
+	bound := sqlbind.MustBind(feedFollowUpIssuedDaysSQL, tenantID, parkIDs,
+		from.Format("2006-01-02"), to.Format("2006-01-02"))
+	rows, err := r.pool.Query(ctx, bound.SQL(), bound.Args()...)
+	if err != nil {
+		return nil, fmt.Errorf("feed follow-up issued days: %w", err)
+	}
+	defer rows.Close()
+	out := map[string][]string{}
+	for rows.Next() {
+		var parkID, feedDay string
+		if err := rows.Scan(&parkID, &feedDay); err != nil {
+			return nil, fmt.Errorf("feed follow-up issued days scan: %w", err)
+		}
+		// Ordered by day in SQL, so appending keeps the ascending order the
+		// rule relies on.
+		out[parkID] = append(out[parkID], feedDay)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("feed follow-up issued days rows: %w", err)
+	}
+	return out, nil
 }
 
 // shedIDsOf is the narrowing the sheet read is given: the sheds that had a
@@ -441,6 +498,7 @@ func composeFeedFollowUp(
 	sheet map[penIdentity][]domain.FeedFollowUpSheetDay,
 	labels map[penIdentity]penLabels,
 	causes map[penIdentity][]domain.FeedFollowUpCause,
+	issuedDays map[string][]string,
 	windowEndDay string,
 ) domain.FeedFollowUp {
 	out := domain.FeedFollowUp{Rows: []domain.FeedFollowUpPenRow{}}
@@ -494,7 +552,7 @@ func composeFeedFollowUp(
 		}
 		sort.Strings(dates)
 		for _, d := range dates {
-			row.Days = append(row.Days, domain.ResolveFeedFollowUpDay(d, byDate[d], penSheet))
+			row.Days = append(row.Days, domain.ResolveFeedFollowUpDay(d, byDate[d], penSheet, issuedDays[pen.ParkID]))
 		}
 		row.Status = domain.RollUpFeedFollowUpStatus(row.Days)
 		// The row carries THE COMPARISON ITS VERDICT CAME FROM, so the two

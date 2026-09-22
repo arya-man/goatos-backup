@@ -29,8 +29,7 @@ func TestAnEveningEntryStillSeesTheCutMadeTheNextDay(t *testing.T) {
 	got := domain.ResolveFeedFollowUpDay(
 		"2026-09-12",
 		[]domain.FeedFollowUpCause{cause(domain.FeedFollowUpSold, "2026-09-12", 4)},
-		sheet(day("2026-09-12", 5, "6.0"), day("2026-09-13", 1, "1.2"), day("2026-09-14", 1, "1.2")),
-	)
+		sheet(day("2026-09-12", 5, "6.0"), day("2026-09-13", 1, "1.2"), day("2026-09-14", 1, "1.2")), nil)
 	if got.Status != domain.FeedFollowUpFollowed {
 		t.Fatalf("status = %q, want followed -- the pen went 5 to 1 on the 13th", got.Status)
 	}
@@ -51,8 +50,7 @@ func TestAChangeTheSheetNeverTookUpIsStillCaught(t *testing.T) {
 	got := domain.ResolveFeedFollowUpDay(
 		"2026-09-12",
 		[]domain.FeedFollowUpCause{cause(domain.FeedFollowUpSold, "2026-09-12", 4)},
-		sheet(day("2026-09-12", 5, "6.0"), day("2026-09-13", 5, "6.0"), day("2026-09-14", 5, "6.0")),
-	)
+		sheet(day("2026-09-12", 5, "6.0"), day("2026-09-13", 5, "6.0"), day("2026-09-14", 5, "6.0")), nil)
 	if got.Status != domain.FeedFollowUpNotFollowed {
 		t.Fatalf("status = %q, want not_followed", got.Status)
 	}
@@ -66,12 +64,10 @@ func TestAChangeTheSheetNeverTookUpIsStillCaught(t *testing.T) {
 func TestEitherDayOfTheWindowCounts(t *testing.T) {
 	first := domain.ResolveFeedFollowUpDay("2026-09-12",
 		[]domain.FeedFollowUpCause{cause(domain.FeedFollowUpDied, "2026-09-12", 1)},
-		sheet(day("2026-09-12", 44, "18.2"), day("2026-09-13", 43, "17.8"), day("2026-09-14", 43, "17.8")),
-	)
+		sheet(day("2026-09-12", 44, "18.2"), day("2026-09-13", 43, "17.8"), day("2026-09-14", 43, "17.8")), nil)
 	second := domain.ResolveFeedFollowUpDay("2026-09-12",
 		[]domain.FeedFollowUpCause{cause(domain.FeedFollowUpDied, "2026-09-12", 1)},
-		sheet(day("2026-09-12", 44, "18.2"), day("2026-09-13", 44, "18.2"), day("2026-09-14", 43, "17.8")),
-	)
+		sheet(day("2026-09-12", 44, "18.2"), day("2026-09-13", 44, "18.2"), day("2026-09-14", 43, "17.8")), nil)
 	if first.Status != domain.FeedFollowUpFollowed || second.Status != domain.FeedFollowUpFollowed {
 		t.Fatalf("both days must count: first=%q second=%q", first.Status, second.Status)
 	}
@@ -82,8 +78,7 @@ func TestEitherDayOfTheWindowCounts(t *testing.T) {
 func TestTheDayInBetweenIsNeverTheVerdict(t *testing.T) {
 	got := domain.ResolveFeedFollowUpDay("2026-09-12",
 		[]domain.FeedFollowUpCause{cause(domain.FeedFollowUpSold, "2026-09-12", 2)},
-		sheet(day("2026-09-12", 10, "12.0"), day("2026-09-13", 10, "12.0")),
-	)
+		sheet(day("2026-09-12", 10, "12.0"), day("2026-09-13", 10, "12.0")), nil)
 	if got.Status != domain.FeedFollowUpPending {
 		t.Fatalf("status = %q, want pending -- the deadline sheet is not issued yet", got.Status)
 	}
@@ -96,8 +91,7 @@ func TestTheDayInBetweenIsNeverTheVerdict(t *testing.T) {
 func TestPurchaseRaisesTheSheet(t *testing.T) {
 	got := domain.ResolveFeedFollowUpDay("2026-09-12",
 		[]domain.FeedFollowUpCause{cause(domain.FeedFollowUpPurchased, "2026-09-12", 12)},
-		sheet(day("2026-09-12", 44, "18.2"), day("2026-09-14", 56, "23.1")),
-	)
+		sheet(day("2026-09-12", 44, "18.2"), day("2026-09-14", 56, "23.1")), nil)
 	if got.Status != domain.FeedFollowUpFollowed || got.NetAnimals != 12 || got.HeadDelta != 12 {
 		t.Fatalf("got %+v, want followed with net=delta=12", got)
 	}
@@ -112,8 +106,7 @@ func TestCausesThatCancelOutAreFollowedWhenTheSheetHoldsSteady(t *testing.T) {
 			cause(domain.FeedFollowUpPurchased, "2026-09-12", 3),
 			cause(domain.FeedFollowUpSold, "2026-09-12", 3),
 		},
-		sheet(day("2026-09-12", 44, "18.2"), day("2026-09-14", 44, "18.2")),
-	)
+		sheet(day("2026-09-12", 44, "18.2"), day("2026-09-14", 44, "18.2")), nil)
 	if got.NetAnimals != 0 || got.Status != domain.FeedFollowUpFollowed {
 		t.Fatalf("got net=%d status=%q, want 0 / followed", got.NetAnimals, got.Status)
 	}
@@ -124,8 +117,7 @@ func TestCausesThatCancelOutAreFollowedWhenTheSheetHoldsSteady(t *testing.T) {
 func TestSameMouthsOnLessFeedIsTheSheetReacting(t *testing.T) {
 	got := domain.ResolveFeedFollowUpDay("2026-09-17",
 		[]domain.FeedFollowUpCause{cause(domain.FeedFollowUpSold, "2026-09-17", 5)},
-		sheet(day("2026-09-17", 53, "100.4"), day("2026-09-19", 53, "90.4")),
-	)
+		sheet(day("2026-09-17", 53, "100.4"), day("2026-09-19", 53, "90.4")), nil)
 	if got.Status != domain.FeedFollowUpFollowed {
 		t.Fatalf("status = %q, want followed -- the feed dropped 100.4 -> 90.4", got.Status)
 	}
@@ -140,8 +132,7 @@ func TestSameMouthsOnLessFeedIsTheSheetReacting(t *testing.T) {
 func TestAMoveWithNoCauseReportsUnexplainedRatherThanACause(t *testing.T) {
 	got := domain.ResolveFeedFollowUpDay("2026-09-12",
 		[]domain.FeedFollowUpCause{cause(domain.FeedFollowUpDied, "2026-09-12", 1)},
-		sheet(day("2026-09-12", 44, "18.2"), day("2026-09-14", 53, "21.0")),
-	)
+		sheet(day("2026-09-12", 44, "18.2"), day("2026-09-14", 53, "21.0")), nil)
 	if got.Purchased != 0 {
 		t.Fatalf("purchased = %d, want 0 -- a shift is never reported as a purchase", got.Purchased)
 	}
@@ -155,8 +146,7 @@ func TestAMoveWithNoCauseReportsUnexplainedRatherThanACause(t *testing.T) {
 func TestNoSheetBeforeTheEventIsPending(t *testing.T) {
 	got := domain.ResolveFeedFollowUpDay("2026-09-10",
 		[]domain.FeedFollowUpCause{cause(domain.FeedFollowUpDied, "2026-09-10", 2)},
-		sheet(day("2026-09-14", 44, "18.2")),
-	)
+		sheet(day("2026-09-14", 44, "18.2")), nil)
 	if got.Status != domain.FeedFollowUpPending {
 		t.Fatalf("status = %q, want pending", got.Status)
 	}
@@ -167,8 +157,7 @@ func TestNoSheetBeforeTheEventIsPending(t *testing.T) {
 func TestAMissingDeadlineDayWalksOnToTheNextSheet(t *testing.T) {
 	got := domain.ResolveFeedFollowUpDay("2026-09-12",
 		[]domain.FeedFollowUpCause{cause(domain.FeedFollowUpDied, "2026-09-12", 1)},
-		sheet(day("2026-09-12", 44, "18.2"), day("2026-09-17", 43, "17.8")),
-	)
+		sheet(day("2026-09-12", 44, "18.2"), day("2026-09-17", 43, "17.8")), nil)
 	if got.AfterDay != "2026-09-17" {
 		t.Fatalf("after day = %q, want 2026-09-17", got.AfterDay)
 	}
@@ -235,5 +224,54 @@ func TestRowFiguresComeFromTheCheckThatDecidedTheVerdict(t *testing.T) {
 	}
 	if _, ok := domain.DecidingFeedFollowUpDay(nil); ok {
 		t.Fatalf("no checks means no figures to show")
+	}
+}
+
+// A PEN THAT EMPTIES LEAVES THE SHEET (maintainer question, 2026-09-23). Sell
+// every animal out of a pen and it stops appearing on the sheet at all --
+// there is nothing to pack for it. That absence is the STRONGEST reaction
+// possible, and reporting it as "sheet not issued yet" a week later is false.
+//
+// Live case: CBE Godel 1 - Part 5 sold its last 13 on 16 Sep, is on the sheet
+// on the 16th and 17th, and gone from the 18th on -- while the farm issued a
+// sheet every one of those days.
+func TestAPenThatEmptiesAndLeavesTheSheetReadsAsFedNothing(t *testing.T) {
+	got := domain.ResolveFeedFollowUpDay(
+		"2026-09-16",
+		[]domain.FeedFollowUpCause{cause(domain.FeedFollowUpSold, "2026-09-16", 13)},
+		// The pen's own rows stop after the 17th.
+		sheet(day("2026-09-16", 13, "20.0"), day("2026-09-17", 13, "20.0")),
+		// The farm kept issuing sheets regardless.
+		[]string{"2026-09-16", "2026-09-17", "2026-09-18", "2026-09-19", "2026-09-20"},
+	)
+	if got.Status != domain.FeedFollowUpFollowed {
+		t.Fatalf("status = %q, want followed -- nothing is packed for an empty pen", got.Status)
+	}
+	if got.AfterDay != "2026-09-18" {
+		t.Fatalf("after day = %q, want the first sheet the pen is absent from", got.AfterDay)
+	}
+	if got.HeadAfter != 0 || got.KgAfter != "0" {
+		t.Fatalf("after reading = %d head / %q kg, want nothing fed", got.HeadAfter, got.KgAfter)
+	}
+	if got.Unexplained != 0 {
+		t.Fatalf("unexplained = %d, want 0 -- 13 sold, 13 gone", got.Unexplained)
+	}
+}
+
+// The other half of the same rule: when the farm has issued NO sheet at or past
+// the deadline, absence means exactly what it says. Pending, not a pass, and
+// never a fabricated zero.
+func TestAbsenceWithNoIssuedSheetIsStillPending(t *testing.T) {
+	got := domain.ResolveFeedFollowUpDay(
+		"2026-09-16",
+		[]domain.FeedFollowUpCause{cause(domain.FeedFollowUpSold, "2026-09-16", 13)},
+		sheet(day("2026-09-16", 13, "20.0")),
+		[]string{"2026-09-15", "2026-09-16", "2026-09-17"}, // nothing on or after the 18th
+	)
+	if got.Status != domain.FeedFollowUpPending {
+		t.Fatalf("status = %q, want pending", got.Status)
+	}
+	if got.AfterDay != "" || got.KgAfter != "" {
+		t.Fatalf("no reading may be invented: day=%q kg=%q", got.AfterDay, got.KgAfter)
 	}
 }

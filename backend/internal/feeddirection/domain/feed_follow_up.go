@@ -260,7 +260,9 @@ type FeedFollowUpCause struct {
 // sheet must be ascending by FeedDay. Days are compared as ISO strings, which
 // sort identically to dates and keeps business-date semantics (AGENTS.md: the
 // vaccination/feed grain is the BUSINESS DAY, never an instant).
-func ResolveFeedFollowUpDay(eventDate string, causes []FeedFollowUpCause, sheet []FeedFollowUpSheetDay) FeedFollowUpDay {
+// issuedDays are the days the pen's PARK issued a sheet at all, ascending. They
+// are what tells "the pen is no longer fed" apart from "no sheet exists yet".
+func ResolveFeedFollowUpDay(eventDate string, causes []FeedFollowUpCause, sheet []FeedFollowUpSheetDay, issuedDays []string) FeedFollowUpDay {
 	day := FeedFollowUpDay{EventDate: eventDate, Events: []FeedFollowUpEvent{}}
 	for _, c := range causes {
 		switch c.Kind {
@@ -304,14 +306,31 @@ func ResolveFeedFollowUpDay(eventDate string, causes []FeedFollowUpCause, sheet 
 		day.KgBefore = before.Kg
 	}
 	if after == nil {
-		// The sheet that must carry this has not been issued yet. No verdict is
-		// available, and declaring one would be inventing it.
-		day.Status = FeedFollowUpPending
-		return day
+		// THE PEN LEFT THE SHEET. A pen whose animals have all gone stops
+		// appearing on the sheet at all -- there is nothing to pack for it --
+		// and that absence is the STRONGEST possible reaction, not a missing
+		// verdict. CBE Godel 1 - Part 5 sold its last 13 animals on 16 Sep, is
+		// on the sheet on the 16th and 17th and gone from the 18th onward, and
+		// the farm issued a sheet every one of those days. Reporting that as
+		// "sheet not issued yet" a week later is simply false.
+		//
+		// So absence only means PENDING when the farm issued no sheet at all.
+		// When it issued one and this pen is not on it, the pen was fed
+		// nothing, and that reads as a zero.
+		if firstIssued, ok := firstDayFrom(issuedDays, deadline); ok {
+			day.AfterDay = firstIssued
+			day.HeadAfter = 0
+			day.KgAfter = "0"
+		} else {
+			// Genuinely nothing to compare against yet.
+			day.Status = FeedFollowUpPending
+			return day
+		}
+	} else {
+		day.AfterDay = after.FeedDay
+		day.HeadAfter = after.HeadCount
+		day.KgAfter = after.Kg
 	}
-	day.AfterDay = after.FeedDay
-	day.HeadAfter = after.HeadCount
-	day.KgAfter = after.Kg
 	if before == nil {
 		// The pen's first sheet in the window is already past the event, so
 		// there is no earlier reading to compare against. Pending, not a pass.
@@ -334,6 +353,20 @@ func ResolveFeedFollowUpDay(eventDate string, causes []FeedFollowUpCause, sheet 
 		day.Status = FeedFollowUpFollowed
 	}
 	return day
+}
+
+// firstDayFrom returns the first day in an ascending list at or after `from`.
+// Only the AFTER side of a check uses it: an absent pen there means "fed
+// nothing", which is unambiguous, while an absent pen BEFORE an event that sold
+// animals out of it is contradictory data and stays a missing reading rather
+// than being read as a zero.
+func firstDayFrom(days []string, from string) (string, bool) {
+	for _, d := range days {
+		if d >= from {
+			return d, true
+		}
+	}
+	return "", false
 }
 
 // AddBusinessDays shifts an ISO business date by whole days. Dates travel as
