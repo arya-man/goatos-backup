@@ -251,6 +251,47 @@ func TestLiveTrackerCandidateObligationsScheduledDateOneToManyPageBoundaryParkSc
 	}
 }
 
+// TestLiveTrackerAssignmentMemberCancellationDoesNotResurrectWork pins the operator-facing
+// cancellation path. A canceled assignment member is historical evidence only; if it remains joined
+// into today's candidate set, the row comes back on the operator board, CEO live tracker, combo card
+// and feed even though the obligation was removed from the drive.
+func TestLiveTrackerAssignmentMemberCancellationDoesNotResurrectWork(t *testing.T) {
+	if !strings.Contains(liveTrackerScopedCTE, "AND m.canceled_at IS NULL") {
+		t.Fatal("assignment-member membership must exclude canceled rows before live tracker decoration")
+	}
+	assignedIdx := strings.Index(liveTrackerScopedCTE, "FROM vaccination_drive_assignments a")
+	unassignedIdx := strings.Index(liveTrackerScopedCTE, "FROM obligation_instances oi")
+	if assignedIdx < 0 {
+		t.Fatal("assigned candidate branch must start from vaccination_drive_assignments")
+	}
+	if unassignedIdx < 0 {
+		t.Fatal("unassigned candidate branch must start from obligation_instances")
+	}
+	assignedCancelIdx := strings.Index(liveTrackerScopedCTE[assignedIdx:], "AND m.canceled_at IS NULL")
+	unassignedCancelIdx := strings.Index(liveTrackerScopedCTE[unassignedIdx:], "AND m.canceled_at IS NULL")
+	if assignedCancelIdx < 0 {
+		t.Fatal("assigned candidate branch must only read active assignment members")
+	}
+	if unassignedCancelIdx < 0 {
+		t.Fatal("unassigned candidate anti-join must ignore canceled historical assignment members")
+	}
+	if strings.Index(liveTrackerScopedCTE[assignedIdx:], "JOIN obligation_instances oi") < strings.Index(liveTrackerScopedCTE[assignedIdx:], "AND m.canceled_at IS NULL") {
+		t.Fatal("canceled assignment members must be removed before obligation rows are decorated")
+	}
+}
+
+// TestLiveTrackerComboCardUsesVaccineFamilyGrain pins the card's display grain. Multiple protocol
+// rules for the same vaccine dose must collapse to one family; otherwise a same-vaccine duplicate
+// looks like a two-vaccine combo and the card/header overstate the day.
+func TestLiveTrackerComboCardUsesVaccineFamilyGrain(t *testing.T) {
+	if strings.Contains(liveTrackerComboSQL, "HAVING count(DISTINCT rule_id) > 1") {
+		t.Fatal("same-vaccine duplicate rules must not create a combo animal")
+	}
+	if !strings.Contains(liveTrackerComboSQL, "HAVING count(DISTINCT vaccine_family) > 1") {
+		t.Fatal("combo membership must be based on distinct vaccine families")
+	}
+}
+
 // TestLiveTrackerScheduledDateCutsEveryDayBoundaryInBusinessTime pins that every day boundary on the
 // page is an IST boundary. A single UTC comparison would put the last two evening hours of a drive
 // on the next day for one section and not the others.
