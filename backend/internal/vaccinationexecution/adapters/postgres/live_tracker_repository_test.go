@@ -1002,6 +1002,39 @@ func TestLiveTrackerOperatorRemainingIsObligationGrainOnBothSides(t *testing.T) 
 	}
 }
 
+// TestLiveTrackerOperatorCurrentVaccineLabelShowsAllAssignedVaccines pins combo work in the operator
+// table. "Now at" should follow the operator's latest live shed, but the vaccine sublabel should
+// describe the operator's active assignment set, not whichever vaccine cell happened to produce the
+// most recent proof.
+func TestLiveTrackerOperatorCurrentVaccineLabelShowsAllAssignedVaccines(t *testing.T) {
+	now := time.Date(2026, 9, 22, 11, 45, 0, 0, time.UTC)
+	older := now.Add(-5 * time.Minute)
+	recent := now.Add(-1 * time.Minute)
+	cells := []liveTrackerCell{
+		{parkID: "cbe", parkName: "Coimbatore", shedID: "godel2", shedName: "Godel 2", partitionLabel: "Part 6",
+			operatorID: "naveen", operatorName: "Naveen", protocolName: "Preventive Care Vaccination Matrix",
+			doseCode: "ppr_kid_16w", scheduled: 8, proofed: 1, scanned: 1, lastActivityAt: &older},
+		{parkID: "cbe", parkName: "Coimbatore", shedID: "godel2", shedName: "Godel 2", partitionLabel: "Part 6",
+			operatorID: "naveen", operatorName: "Naveen", protocolName: "Preventive Care Vaccination Matrix",
+			doseCode: "et_tt_kid_4w", scheduled: 8, proofed: 1, scanned: 1, lastActivityAt: &recent},
+	}
+
+	operators := liveTrackerOperatorRows(cells, nil, now)
+	if len(operators) != 1 {
+		t.Fatalf("expected one operator row, got %d", len(operators))
+	}
+	row := operators[0]
+	if row.CurrentShedLabel != "Godel 2 - Part 6" {
+		t.Fatalf("CurrentShedLabel = %q, want latest live shed", row.CurrentShedLabel)
+	}
+	if row.CurrentVaccineLabel != "ET+TT + PPR" {
+		t.Fatalf("CurrentVaccineLabel = %q, want the full active combo assignment", row.CurrentVaccineLabel)
+	}
+	if row.ScheduledAdmins != 16 {
+		t.Fatalf("ScheduledAdmins = %d, want obligation-grain combo total", row.ScheduledAdmins)
+	}
+}
+
 // TestLiveTrackerUnassignedWorkIsReportedNotDropped pins the residual between the Scheduled tile and
 // the Operators table. Obligations in a shed/partition with no drive assignment for the day are
 // counted into the tile and rendered in the shed board, but liveTrackerOperatorRows has no operator
